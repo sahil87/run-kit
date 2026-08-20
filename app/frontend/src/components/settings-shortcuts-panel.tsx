@@ -406,14 +406,16 @@ export function SettingsShortcutsPanel({
   // the registry only documents them). Rendered as a subgroup at the END of
   // GLOBAL (260801-sm6g — demoted from a top-level section). DevTools is a
   // win/linux accelerator. The switcher diverges from the shared shifted-tier
-  // caps on the mac display (260731-nv5r): the mac shell tier is ⌥⌘ (⇧⌘3/4/5
-  // are macOS screenshot shortcuts), while win/linux keeps ⇧Ctrl+1–9. Locked
-  // rows are free-form caps arrays, so no tier machinery is involved.
+  // caps on BOTH displays (260731-nv5r): the mac shell tier is ⌥⌘ (⇧⌘3/4/5
+  // are macOS screenshot shortcuts), and win/linux binds Alt+1–9 — the SPA's
+  // surface tile chords own ⇧Ctrl+1–3 there, and Alt sits outside every
+  // registry tier (the mac ⌥⌘ precedent). Locked rows are free-form caps
+  // arrays, so no tier machinery is involved.
   const shellRows = useMemo(() => {
     const tierCaps = (key: string) =>
       displayPlatform === "mac" ? ["⇧", "⌘", key] : ["Shift", "Ctrl", key];
     const switcherCaps =
-      displayPlatform === "mac" ? ["⌥", "⌘", "1…9"] : ["Shift", "Ctrl", "1…9"];
+      displayPlatform === "mac" ? ["⌥", "⌘", "1…9"] : ["Alt", "1…9"];
     const rows = [
       { label: "Switch to server 1–9", description: "owned by the shell menu", parts: switcherCaps },
       { label: "Force reload", description: undefined, parts: tierCaps("R") },

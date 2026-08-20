@@ -386,7 +386,7 @@ test.describe("Top-bar surface toggles — open-tile toggles over the surface la
     await expect(webTile(page)).toHaveCount(0);
   });
 
-  test("⇧Ctrl+J / ⌘J toggles the code tile (the code-toggle chord)", async ({ page }) => {
+  test("⇧Ctrl+2 / ⌘2 shows+focuses, then hides the code tile (the stateful code-toggle chord)", async ({ page }) => {
     test.setTimeout(30_000);
     const id = await makeWindow(page, `rp-chord-${Date.now()}`, { url: IFRAME_URL });
     await gotoWindow(page, id);
@@ -398,12 +398,16 @@ test.describe("Top-bar surface toggles — open-tile toggles over the surface la
     await expect(toggleButton(page, "Code")).toBeVisible({ timeout: READY_TIMEOUT });
 
     // xterm owns focus after the terminal renders — the shifted-tier chord must
-    // fire from there (the dispatcher's `.xterm` carve-out).
-    await page.keyboard.press("Shift+Control+KeyJ");
+    // fire from there (the dispatcher's `.xterm` carve-out). The chord is
+    // STATEFUL: hidden → show+focus, focused → hide.
+    await page.keyboard.press("Shift+Control+Digit2");
     await expect(codeTile(page)).toBeVisible({ timeout: 10_000 });
     await expectLayoutParam(page, "split-h:tty,code");
+    // The open lands focus on the code tile (the landing-flag seam), so the
+    // second press takes the focused → hide arm, not the focus arm.
+    await expect(codeTile(page)).toHaveClass(/border-accent-green/, { timeout: READY_TIMEOUT });
 
-    await page.keyboard.press("Shift+Control+KeyJ");
+    await page.keyboard.press("Shift+Control+Digit2");
     await expect(codeTile(page)).toBeHidden();
     await expectLayoutParam(page, null); // default layout mirrors as a CLEAN URL (param dropped)
   });

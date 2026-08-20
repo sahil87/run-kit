@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useMatches, useNavigate, useRouter } from "@tanstack/react-router";
-import { useChromeDispatch } from "@/contexts/chrome-context";
+import { useChromeDispatch, useChromeState } from "@/contexts/chrome-context";
 import { useSettingsDialog } from "@/contexts/settings-dialog-context";
 import { useUpdateNotification } from "@/contexts/session-context";
 import { useUpdateCheck } from "@/hooks/use-update-check";
@@ -11,6 +11,7 @@ import { useToast } from "@/components/toast";
 import type { PaletteAction } from "@/components/command-palette";
 import { HELP_URL } from "@/components/global-chrome";
 import { withShortcutHints } from "@/lib/keybindings";
+import { focusSidebarCurrentRow } from "@/lib/sidebar-events";
 import { buildNavActions, type NavMode } from "@/lib/palette-nav";
 import { buildUpdateActions, buildMaintenanceActions, buildCheckActions } from "@/lib/palette-update";
 import { buildVersionAction, displayVersion } from "@/lib/palette-version";
@@ -42,7 +43,8 @@ export function useGlobalPaletteActions(): PaletteAction[] {
   const matches = useMatches();
   const router = useRouter();
   const navigate = useNavigate();
-  const { increaseTerminalFont, decreaseTerminalFont, resetTerminalFont } = useChromeDispatch();
+  const { increaseTerminalFont, decreaseTerminalFont, resetTerminalFont, setSidebarOpen } = useChromeDispatch();
+  const { sidebarOpen } = useChromeState();
   const {
     isOpen: settingsOpen,
     activeTab: settingsTab,
@@ -187,6 +189,40 @@ export function useGlobalPaletteActions(): PaletteAction[] {
     [boardsVisible, setBoardsVisible, serverVisible, setServerVisible, paneVisible, setPaneVisible, hostVisible, setHostVisible],
   );
 
+  // Sidebar entries — layout-global because the sidebar exists on every
+  // route Shell mounts. `Sidebar: Toggle` is the PLAIN visibility toggle;
+  // its id IS the `sidebar-toggle` registry actionId, so `withShortcutHints`
+  // decorates it with the effective ⌘B / ⇧Ctrl+B. `Sidebar: Focus` is the
+  // show+focus arm: open if hidden, then focus the current row through the
+  // `sidebar-events` registry seam (no sidebar mounted → the focuser slot is
+  // empty and nothing happens). The hide+return arm stays chord-only — a
+  // palette selection has already left the sidebar, so there is no sidebar
+  // focus to return from.
+  const sidebarActions: PaletteAction[] = useMemo(
+    () => [
+      {
+        id: "sidebar-toggle",
+        label: "Sidebar: Toggle",
+        onSelect: () => setSidebarOpen(!sidebarOpen),
+      },
+      {
+        id: "sidebar-focus",
+        label: "Sidebar: Focus",
+        onSelect: () => {
+          if (!sidebarOpen) {
+            setSidebarOpen(true);
+            // The row focuser registers on the sidebar's mount — defer past
+            // the commit (the chord handler's rAF precedent).
+            requestAnimationFrame(() => focusSidebarCurrentRow());
+            return;
+          }
+          focusSidebarCurrentRow();
+        },
+      },
+    ],
+    [sidebarOpen, setSidebarOpen],
+  );
+
   // Update actions — keyboard-first parity (Constitution V) for the top-bar
   // update chip. Gated on a qualifying pending update (dev version suppressed).
   // Only the Dismiss action remains here (mirroring the chip's `✕` for
@@ -278,10 +314,10 @@ export function useGlobalPaletteActions(): PaletteAction[] {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, settingsAppearanceEntry, ...panelActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions],
+        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, settingsAppearanceEntry, ...panelActions, ...sidebarActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions],
         bindingByAction,
         bindingHost.platform,
       ),
-    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, settingsAppearanceEntry, panelActions, updateActions, checkActions, maintenanceActions, versionActions, bindingByAction, bindingHost],
+    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, settingsAppearanceEntry, panelActions, sidebarActions, updateActions, checkActions, maintenanceActions, versionActions, bindingByAction, bindingHost],
   );
 }

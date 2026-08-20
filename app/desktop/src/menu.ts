@@ -15,10 +15,13 @@
  *     any platform. This is the shell's premise: the tier a browser reserves
  *     (macOS: ⌘; Windows/Linux: Ctrl) belongs to the SPA.
  *   - Shell tier — ⌥⌘ on mac, ⇧Ctrl on win/linux: shell chrome MAY claim
- *     keys here, sparingly. Today's only claim: the Hosts switcher (1–9).
+ *     keys here, sparingly. The mac claim is the Hosts switcher (1–9); the
+ *     win/linux claims are ⇧Ctrl+R force-reload and ⇧Ctrl+I devtools.
  *     On mac, ⇧⌘ therefore also belongs to the page (the SPA's own shifted
  *     action tier lives there), with the documented carve-outs ⇧⌘R
- *     (forceReload role) and ⇧⌘Z (Edit redo role).
+ *     (forceReload role) and ⇧⌘Z (Edit redo role). On win/linux the SPA
+ *     owns the rest of ⇧Ctrl — the surface tile chords bind ⇧Ctrl+1/2/3
+ *     there, which is why the switcher left the tier for Alt+digits.
  *
  * Why the mac shell tier is ⌥⌘, not ⇧⌘: ⇧⌘3/⇧⌘4/⇧⌘5 are macOS system-wide
  * screenshot shortcuts, and system shortcuts intercept BEFORE app menu
@@ -28,9 +31,12 @@
  * from every chord tier (macOS composes characters with it — see
  * `app/frontend/src/lib/keybindings.ts`), and the shell's only other ⌥⌘
  * bindings are the ⌥⌘H hideOthers and ⌥⌘I devtools roles. Windows/Linux
- * deliberately do NOT mirror the move: Ctrl+Alt is AltGr on many European
- * layouts (Ctrl+Alt+digit would steal character typing in a terminal app),
- * and there is no screenshot collision there.
+ * reach the same unclaimability with plain Alt+digits: the registry
+ * excludes Alt from every chord tier too, while Ctrl+Alt stays off the
+ * table (AltGr on many European layouts — Ctrl+Alt+digit would steal
+ * character typing in a terminal app). A menu accelerator wins over the
+ * page unconditionally, so the switcher could not stay on ⇧Ctrl once the
+ * SPA's tile chords bound ⇧Ctrl+1/2/3.
  *
  * The menu is applied PER PLATFORM — symmetry of rule, not symmetry of
  * accelerator table. Carve-outs the rule tolerates (documented, never
@@ -63,15 +69,14 @@
  * (reload Ctrl+R, zoom Ctrl+0/±) are accelerator-less plain items, and the
  * shifted-tier pair (force-reload, devtools) is explicit too so it targets
  * the focused view's webContents. Bound there
- * (exhaustive): ⇧Ctrl+1–9 Hosts switcher (the shell tier), ⇧Ctrl+R
- * force-reload, ⇧Ctrl+I devtools, F11 fullscreen — behavior byte-identical
- * before and after the mac ⌥⌘ move (only the accelerator string changed,
- * from one `Shift+CmdOrCtrl` expression to explicit per-platform strings).
+ * (exhaustive): Alt+1–9 Hosts switcher, ⇧Ctrl+R force-reload, ⇧Ctrl+I
+ * devtools, F11 fullscreen. ⇧Ctrl+digits fall through to the page, where
+ * the SPA's surface tile chords bind ⇧Ctrl+1/2/3.
  *
  * Hardware-verify caveat: digit accelerators are the flakiest accelerator
  * class (Electron resolves accelerators by character, not scancode; AZERTY
- * digits already require Shift, and Option composes characters). ⌥⌘1–9
- * switching on a non-US layout is a manual-verify item; no scancode
+ * digits already require Shift, and Option composes characters). ⌥⌘1–9 /
+ * Alt+1–9 switching on a non-US layout is a manual-verify item; no scancode
  * workaround in v1.
  */
 import {
@@ -322,18 +327,21 @@ function hostsMenu(
     label: host.name,
     type: "radio",
     checked: host.id === activeId,
-    // Shell tier (see the two-tier rule above): ⌥⌘1–9 (mac) / ⇧Ctrl+1–9
-    // (win/linux) switches hosts while the unshifted Cmd/Ctrl digits fall
-    // through to the page on every platform. Deliberately NOT one
-    // `CmdOrCtrl` expression: ⇧⌘3/4/5 are macOS screenshot system shortcuts
-    // (they intercept before menu accelerators), and Ctrl+Alt is AltGr on
-    // many European layouts, so neither platform may borrow the other's
-    // modifier pair.
+    // Keys the page can never claim (the SPA registry excludes Option AND
+    // Alt from every chord tier): ⌥⌘1–9 (mac) / Alt+1–9 (win/linux) switches
+    // hosts while the unshifted Cmd/Ctrl digits fall through to the page on
+    // every platform. Deliberately NOT one `CmdOrCtrl` expression: ⇧⌘3/4/5
+    // are macOS screenshot system shortcuts (they intercept before menu
+    // accelerators), and Ctrl+Alt is AltGr on many European layouts, so
+    // neither platform may borrow the other's modifier pair. The win/linux
+    // switcher sits on Alt — not the ⇧Ctrl shell tier — because the SPA's
+    // surface tile chords bind ⇧Ctrl+1/2/3 there and an accelerator wins
+    // over the page unconditionally.
     accelerator:
       index < MAX_SWITCHER_ACCELERATORS
         ? isMac
           ? `Alt+Cmd+${index + 1}`
-          : `Shift+Ctrl+${index + 1}`
+          : `Alt+${index + 1}`
         : undefined,
     click: () => callbacks.onSwitchHost(host.id),
   }));

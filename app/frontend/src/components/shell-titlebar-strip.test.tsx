@@ -250,12 +250,12 @@ describe("ShellTitlebarStrip host switcher (260731-4bqi)", () => {
     expect(rows[1].textContent).toContain("⌥⌘2");
   });
 
-  it("renders ⇧Ctrl hints on non-darwin platforms (from the bridge's platform field)", async () => {
+  it("renders Alt hints on non-darwin platforms (from the bridge's platform field)", async () => {
     await renderInteractive(hosts, "win32");
     fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
     const rows = screen.getAllByRole("menuitemradio");
-    expect(rows[0].textContent).toContain("⇧Ctrl+1");
-    expect(rows[1].textContent).toContain("⇧Ctrl+2");
+    expect(rows[0].textContent).toContain("Alt+1");
+    expect(rows[1].textContent).toContain("Alt+2");
   });
 
   it("selecting a host closes the menu and hands off to servers.switch (no optimistic UI)", async () => {

@@ -63,13 +63,15 @@ export const MAX_SHELL_SWITCHER_HINTS = 9;
 
 /**
  * Trailing accelerator hint for the host at `index` (list order — the native
- * Hosts menu binds in the same order): `⌥⌘{n}` on darwin, `⇧Ctrl+{n}`
- * elsewhere (the win/linux shell tier), `null` past the 9-cap.
+ * Hosts menu binds in the same order): `⌥⌘{n}` on darwin, `Alt+{n}`
+ * elsewhere — both modifier choices sit outside every SPA chord tier (the
+ * registry excludes Option and Alt), so the page can never lose a binding to
+ * them. `null` past the 9-cap.
  */
 export function hostAcceleratorHint(platform: string, index: number): string | null {
   if (index < 0 || index >= MAX_SHELL_SWITCHER_HINTS) return null;
   const n = index + 1;
-  return platform === "darwin" ? `⌥⌘${n}` : `⇧Ctrl+${n}`;
+  return platform === "darwin" ? `⌥⌘${n}` : `Alt+${n}`;
 }
 
 /** One row of the strip's host-switcher dropdown. */

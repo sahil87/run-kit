@@ -137,6 +137,28 @@ export function isComposeStripFocused(): boolean {
   return composeStripFocused;
 }
 
+/**
+ * The stateful compose-toggle chord body (260819-qwr7 R6), shared verbatim by
+ * the AppShell and BoardPage dispatchers:
+ *
+ * - strip off → `toggle()` on (the off→on transition marks focus-on-open, so
+ *   ONE press shows AND focuses the textarea);
+ * - strip on + textarea unfocused → `focusComposeStrip()`, a focuser decline
+ *   (the disabled no-target state) falling back to `toggle()` so the chord
+ *   never dead-presses;
+ * - strip on + textarea focused → `toggle()` off (the draft store makes
+ *   closing lossless). The binding's `ignoreInputs` lets this arm fire from
+ *   inside the textarea.
+ */
+export function runComposeToggleChord(enabled: boolean, toggle: () => void): void {
+  if (!enabled) {
+    toggle();
+    return;
+  }
+  if (!isComposeStripFocused() && focusComposeStrip()) return;
+  toggle();
+}
+
 /** Subscribe to compose-focus changes; returns the unsubscribe function. */
 export function subscribeComposeStripFocus(listener: () => void): () => void {
   composeFocusListeners.add(listener);

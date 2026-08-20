@@ -1,0 +1,57 @@
+id: qwr7
+name: 260819-qwr7-surface-focus-chords
+created: 2026-08-19T16:08:42Z
+created_by: Sahil Ahuja
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: active
+plan:
+    generated: true
+    task_count: 14
+    acceptance_count: 22
+    acceptance_completed: 22
+confidence:
+    certain: 13
+    confident: 6
+    tentative: 0
+    unresolved: 0
+    score: 4.3
+    fuzzy: true
+    dimensions:
+        signal: 79.2
+        reversibility: 77.9
+        competence: 85.3
+        disambiguation: 82.4
+stage_metrics:
+    intake: {started_at: "2026-08-19T16:08:42Z", driver: fab-new, iterations: 1, completed_at: "2026-08-19T16:16:22Z"}
+    apply: {started_at: "2026-08-19T18:27:04Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-19T18:35:59Z"}
+    review: {started_at: "2026-08-19T18:35:59Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-19T19:22:20Z"}
+    hydrate: {started_at: "2026-08-19T19:22:20Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-19T19:47:43Z"}
+    ship: {started_at: "2026-08-19T19:47:43Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-19T19:53:34Z"}
+    review-pr: {started_at: "2026-08-19T19:53:34Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/667
+change_type_source: explicit
+true_impact:
+    added: 2660
+    deleted: 387
+    net: 2273
+    excluding:
+        added: 2067
+        deleted: 294
+        net: 1773
+    tests:
+        added: 904
+        deleted: 64
+        net: 840
+    computed_at: "2026-08-19T19:53:34Z"
+    computed_at_stage: ship
+summary: Stateful surface-chord family (⌘B sidebar, ⌘1/2/3 tiles, ⌘I compose, ⇧⌘⏎ zen) + 5 palette parity entries; win/linux shell switcher moved ⇧Ctrl+1–9 → Alt+1–9; ⌘J retired
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-19T19:53:34Z

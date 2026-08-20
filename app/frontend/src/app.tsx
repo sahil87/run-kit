@@ -124,7 +124,9 @@ import { SurfaceLayout } from "@/components/surface-layout";
 import { BottomBar } from "@/components/bottom-bar";
 import { StatusBar } from "@/components/status-bar";
 import { ComposeStrip } from "@/components/compose-strip";
-import { focusComposeStrip } from "@/lib/compose-strip-events";
+import { focusComposeStrip, runComposeToggleChord } from "@/lib/compose-strip-events";
+import { tileChordHandler } from "@/lib/tile-chord";
+import { registerWindowFocusRestorer } from "@/lib/sidebar-events";
 import {
   armGuard,
   disarmGuard,
@@ -883,10 +885,10 @@ function AppShell() {
   // ⏶ Zoom palette seam (T012/R11): the zoom itself is SurfaceLayout-internal
   // transient state (R6 — no URL/localStorage); the palette's `Layout: Zoom`/
   // `Layout: Unzoom` entries need to OBSERVE it (label gating) and TRIGGER it
-  // (the slot-A toggle). The component registers its toggle into this ref and
-  // reports flips through `onZoomChange`, so the palette list rebuilds on every
-  // zoom change. Not lifted: keying SurfaceLayout per window keeps the reset
-  // semantics where the state lives.
+  // (the focused-slot toggle — 260819-qwr7 R7). The component registers its
+  // toggle into this ref and reports flips through `onZoomChange`, so the
+  // palette list rebuilds on every zoom change. Not lifted: keying
+  // SurfaceLayout per window keeps the reset semantics where the state lives.
   const layoutZoomToggleRef = useRef<(() => void) | null>(null);
   const [layoutZoomed, setLayoutZoomed] = useState(false);
 
@@ -942,15 +944,17 @@ function AppShell() {
     : (reportedFocusedKind ?? layout.order[0]);
   const layoutFocusTileRef = useRef<((kind: SurfaceKind) => void) | null>(null);
 
-  // focus-hop's open-then-focus: when the hop opened a CLOSED code tile, this
-  // flag makes the effect below focus it once the tile lands in the layout
-  // (SurfaceLayout's focusTileRef closure re-registers with the new order —
-  // child effects run before this parent one).
-  const focusCodeOnLandingRef = useRef(false);
+  // Open-then-focus landing flag: when a chord (focus-hop, or a tile chord's
+  // hidden arm) opened a CLOSED tile, this per-kind flag makes the effect
+  // below focus it once the tile lands in the layout (SurfaceLayout's
+  // focusTileRef closure re-registers with the new order — child effects run
+  // before this parent one).
+  const focusOnLandingRef = useRef<SurfaceKind | null>(null);
   useEffect(() => {
-    if (focusCodeOnLandingRef.current && renderLayout.order.includes("code")) {
-      focusCodeOnLandingRef.current = false;
-      layoutFocusTileRef.current?.("code");
+    const kind = focusOnLandingRef.current;
+    if (kind !== null && renderLayout.order.includes(kind)) {
+      focusOnLandingRef.current = null;
+      layoutFocusTileRef.current?.(kind);
     }
   }, [renderLayout]);
 
@@ -965,8 +969,11 @@ function AppShell() {
   // fallback when it declines (disabled/unmounted), code as a no-op (the
   // workbench's own grab restores it). Reads only refs + module state, so a
   // stable identity is safe. Returns a cancel that abandons any pending
-  // retry.
-  const restoreFocus = useCallback((key: string): (() => void) => {
+  // retry. `exclude` (a chord hide passes the just-closed kind) resolves
+  // memory pointing at the hidden tile to the tty default — a tile that just
+  // left the layout is never a return target, and `code`'s no-op arm would
+  // otherwise strand focus (its workbench grab never fires on a chord hide).
+  const restoreFocus = useCallback((key: string, exclude?: SurfaceKind): (() => void) => {
     let cancelled = false;
     let rafId = 0;
     const cancel = () => {
@@ -983,7 +990,8 @@ function AppShell() {
       }
       if (Date.now() < deadline) rafId = requestAnimationFrame(focusTty);
     };
-    const kind = recallFocus(key) ?? "tty";
+    const recalled = recallFocus(key) ?? "tty";
+    const kind = recalled === exclude ? "tty" : recalled;
     if (kind === "code") return cancel; // the workbench's own grab restores it
     if (kind === "compose" && focusComposeStrip()) return cancel;
     rafId = requestAnimationFrame(focusTty);
@@ -1014,6 +1022,19 @@ function AppShell() {
       document.removeEventListener("pointerdown", disarm, true);
       document.removeEventListener("keydown", disarm, true);
     };
+  }, [server, windowParam, isMobile, restoreFocus]);
+
+  // Sidebar focus-return seam (R5): the stateful ⌘B hide arm and the
+  // sidebar's Escape return focus through THIS route's restore router, via
+  // the module registry (`lib/sidebar-events.ts`) — no origin storage; the
+  // router's `recallFocus(key) ?? "tty"` IS the return target. Routes without
+  // a window (and the board/host mounts) register nothing; their return path
+  // is a blur.
+  useEffect(() => {
+    if (!windowParam || isMobile) return;
+    return registerWindowFocusRestorer(() => {
+      restoreFocus(focusMemoryKey(server, windowParam));
+    });
   }, [server, windowParam, isMobile, restoreFocus]);
 
   // Steal-guard revert, threaded SurfaceLayout → CodeSurface: fires when
@@ -2810,6 +2831,24 @@ function AppShell() {
               label: "View: Text Input",
               onSelect: toggleComposeStrip,
             },
+            {
+              // The show+focus arm of the stateful compose chord (R6): strip
+              // off → toggle on (the off→on transition focuses the textarea
+              // on mount); strip on → focus through the registry seam (a
+              // decline — the disabled no-target state — is a no-op here;
+              // the never-dead-press fallback is the chord's contract, not
+              // the palette verb's). No shortcut hint: the id is not the
+              // `compose-toggle` actionId.
+              id: "compose-focus",
+              label: "Compose: Focus",
+              onSelect: () => {
+                if (!composeStripEnabled) {
+                  toggleComposeStrip();
+                  return;
+                }
+                focusComposeStrip();
+              },
+            },
           ]
         : []),
       // Window-view lens actions (spec R4, Constitution V palette parity — the
@@ -2854,8 +2893,8 @@ function AppShell() {
       // `buildViewActions` precedent. The entries
       // act on the RENDERED layout (260815-wkcw) — a transiently auto-opened
       // web tile offers `Tile: Hide Web`, and hiding it records the
-      // dismissal latch through `applyLayout`. The `code-toggle` chord (⌘J /
-      // ⇧Ctrl+J) is documented via the code surface's Show/Hide entry hint
+      // dismissal latch through `applyLayout`. The `code-toggle` chord (⌘2 /
+      // ⇧Ctrl+2) is documented via the code surface's Show/Hide entry hint
       // (the `toggleTarget`/`toggleShortcut` seam; enabled-else-undefined).
       ...(windowParam
         ? buildLayoutActions(renderLayout, panelSurfaces, {
@@ -2913,7 +2952,7 @@ function AppShell() {
           ]
         : []),
     ],
-    [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, currentViews, resolvedView, switchView, bindingByAction, bindingHost, windowParam, isMobile, renderLayout, panelSurfaces, applyLayout, layoutZoomed, focusedTileKind, mobileActiveTile, switchToTile],
+    [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, composeStripEnabled, currentViews, resolvedView, switchView, bindingByAction, bindingHost, windowParam, isMobile, renderLayout, panelSurfaces, applyLayout, layoutZoomed, focusedTileKind, mobileActiveTile, switchToTile],
   );
 
   // Navigation actions (`Go: Back` / `Go: Forward` / ancestor entries,
@@ -3115,7 +3154,7 @@ function AppShell() {
   // rk instances by URL, distinct from the tmux entries above), active one
   // marked (current). Present ONLY inside the desktop shell — useShellServers
   // resolves [] in a plain browser, the first real isShell()-gated palette
-  // consumer. The shell-side paths are the ⌥⌘1–9 (mac) / ⇧Ctrl+1–9
+  // consumer. The shell-side paths are the ⌥⌘1–9 (mac) / Alt+1–9
   // (win/linux) accelerators + Servers menu
   // radios; selecting an entry hands off to the shell, which loads the target
   // server's URL (a full page swap), so no SPA-side navigation follows. A
@@ -3304,6 +3343,28 @@ function AppShell() {
 
   const { actions: pushActions } = usePushSubscription();
 
+  // `Window: Previous` / `Window: Next` (R8) — palette parity for the
+  // `window-prev`/`window-next` chords: the SAME modulo cycle over the
+  // current session's windows in sidebar order with wraparound, via the rich
+  // `navigateToWindow` path (tmux align + transition + writeback
+  // suppression). The ids double as the registry actionIds, so
+  // `withShortcutHints` decorates ⇧⌘H/⇧⌘L and the chord handlers resolve
+  // through `fromPalette` — chord and palette can never drift. Omitted when
+  // no window is current, so the gating gates the chord for free.
+  const windowCycleActions: PaletteAction[] = useMemo(() => {
+    const windows = currentSession?.windows ?? [];
+    if (windowParam == null || windows.length === 0) return [];
+    const cycleWindow = (delta: -1 | 1) => () => {
+      const idx = windows.findIndex((w) => w.windowId === windowParam);
+      if (idx < 0) return;
+      navigateToWindow(windows[(idx + delta + windows.length) % windows.length].windowId);
+    };
+    return [
+      { id: "window-prev", label: "Window: Previous", onSelect: cycleWindow(-1) },
+      { id: "window-next", label: "Window: Next", onSelect: cycleWindow(1) },
+    ];
+  }, [currentSession, windowParam, navigateToWindow]);
+
   // AppShell's ROUTE-SCOPED palette list (260811-239r): the global groups
   // (nav, terminal-font, refresh/help/shortcuts/settings, update/check/
   // maintenance/version) live at the layout level now
@@ -3317,11 +3378,11 @@ function AppShell() {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...sessionActions, ...sessionsScopeActions, ...windowActions, ...boardActions, ...selectionActions, ...viewActions, ...openActions, ...themeActions, ...configActions, ...statusRefreshActions, ...serverActions, ...shellServerActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions, ...macroPaletteActions],
+        [...sessionActions, ...sessionsScopeActions, ...windowActions, ...windowCycleActions, ...boardActions, ...selectionActions, ...viewActions, ...openActions, ...themeActions, ...configActions, ...statusRefreshActions, ...serverActions, ...shellServerActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions, ...macroPaletteActions],
         bindingByAction,
         bindingHost.platform,
       ),
-    [sessionActions, sessionsScopeActions, windowActions, boardActions, selectionActions, viewActions, openActions, themeActions, configActions, statusRefreshActions, serverActions, shellServerActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions, macroPaletteActions, bindingByAction, bindingHost],
+    [sessionActions, sessionsScopeActions, windowActions, windowCycleActions, boardActions, selectionActions, viewActions, openActions, themeActions, configActions, statusRefreshActions, serverActions, shellServerActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions, macroPaletteActions, bindingByAction, bindingHost],
   );
   // Publish this route's (already shortcut-decorated) list into the
   // palette-actions slot — the single layout-mounted CommandPalette renders
@@ -3334,9 +3395,6 @@ function AppShell() {
   // as the palette id), so chord and palette behavior can never drift — and
   // palette gating (e.g. `kill-window` exists only when a session is active)
   // gates the chord for free: a missing handler falls through untouched.
-  // `window-prev`/`window-next` have no palette entries; they cycle the
-  // CURRENT session's windows in sidebar order with wraparound, via the rich
-  // `navigateToWindow` path (tmux align + transition + writeback suppression).
   const keybindingHandlers = useMemo(() => {
     // Resolve over the MERGED list (260811-239r): chords such as `go-back`,
     // `settings-open`, and `shortcuts-overlay` name ids that live in the
@@ -3363,14 +3421,9 @@ function AppShell() {
       bindingByAction.get(id)?.webOnly && focusedTileKind !== "web"
         ? undefined
         : fromPalette(id);
-    const windows = currentSession?.windows ?? [];
-    const cycleWindow = (delta: -1 | 1) => {
-      const idx = windows.findIndex((w) => w.windowId === windowParam);
-      if (idx < 0) return;
-      const target = windows[(idx + delta + windows.length) % windows.length];
-      navigateToWindow(target.windowId);
-    };
-    const canCycle = windowParam != null && windows.length > 0;
+    // `window-prev`/`window-next` resolve through their palette bodies — the
+    // `Window: Previous` / `Window: Next` entries own the modulo cycle over
+    // the current session's sidebar order (see `windowCycleActions`).
     // Macro chords (260730-hbyh): palette targets reuse the palette body via
     // the same `fromPalette` lookup (an absent action → no handler → the
     // chord falls through untouched); riff targets are session-gated and run
@@ -3386,6 +3439,30 @@ function AppShell() {
         macroHandlers[m.actionId] = sessionName ? () => executeMacro(m) : undefined;
       }
     }
+    // Stateful tile chords (R4): ⌘1/⌘2/⌘3 (⇧Ctrl+digit on Win/Linux) apply
+    // the three-state rule against the CURRENT render layout — hidden →
+    // open + focus once the tile lands (the per-kind landing flag);
+    // visible-unfocused → focus through the palette's `Tile: Focus` seam
+    // (`layoutFocusTileRef`); focused → hide + `restoreFocus` so focus never
+    // strands. The state machine itself (branch table, gating, recording
+    // constraint) lives in `lib/tile-chord.ts`; the seams here wire the refs.
+    const tileChord = (kind: SurfaceKind): (() => void) | undefined =>
+      tileChordHandler({
+        kind,
+        windowParam,
+        isMobile,
+        panelSurfaces,
+        order: renderLayout.order,
+        focusedTileKind,
+        togglePanel,
+        focusTile: (k) => layoutFocusTileRef.current?.(k),
+        setLanding: (k) => {
+          focusOnLandingRef.current = k;
+        },
+        restoreAfterHide: (k) => {
+          if (windowParam) restoreFocus(focusMemoryKey(server, windowParam), k);
+        },
+      });
     return {
       ...macroHandlers,
       "create-session": fromPalette("create-session"),
@@ -3394,13 +3471,16 @@ function AppShell() {
       "agent-next-waiting": fromPalette("agent-next-waiting"),
       "go-back": fromPalette("go-back"),
       "go-forward": fromPalette("go-forward"),
-      "window-prev": canCycle ? () => cycleWindow(-1) : undefined,
-      "window-next": canCycle ? () => cycleWindow(1) : undefined,
+      "window-prev": fromPalette("window-prev"),
+      "window-next": fromPalette("window-next"),
       "shortcuts-overlay": fromPalette("shortcuts-overlay"),
-      // ⇧⌘E compose toggle (260801-sm6g) — same body as the `>_` chip and the
-      // `View: Text Input` palette entry; ignoreInputs on the binding lets the
-      // chord close the strip from inside its own textarea.
-      "compose-toggle": toggleComposeStrip,
+      // ⌘I (mac) / ⇧Ctrl+E compose (R6) — stateful on the strip's live focus
+      // (the `compose-strip-events` module store). The three-arm body (off →
+      // toggle on; on + unfocused → focus with a decline falling back to the
+      // toggle; on + focused → toggle off) is shared with the board twin via
+      // `runComposeToggleChord`. `ignoreInputs` on the binding lets the hide
+      // arm fire from inside the textarea.
+      "compose-toggle": () => runComposeToggleChord(composeStripEnabled, toggleComposeStrip),
       // ⇧⌘O open-last-used (260801-sm6g) — terminal route only (scope is
       // descriptive; handler presence gates). Reuses the palette body when the
       // dynamic `Open: Last used (<label>)` entry exists (a last-used target
@@ -3443,15 +3523,21 @@ function AppShell() {
       // focus). The mac-browser cmd-tier KeyL claim is REMOVED — ⌘L is
       // page-interceptable (the ⌘D/⌘J class).
       "web-address": webGated("web-address"),
-      // ⌘J/⇧Ctrl+J code toggle — the code surface's dedicated tile chord (VS
-      // Code's ⌘J panel analog), toggling the tile via addSurface/
-      // closeSurface (through `togglePanel`). Its gating (desktop window
-      // route + the code surface available) gates the chord for free: a
-      // window with no code lens mounts no handler and the chord falls
+      // ⌘1/⌘2/⌘3 tile chords (R4) — see `tileChord` above for the three-state
+      // rule, gating, and the recording constraint. A window without the
+      // surface (`availableTiles`) mounts no handler and the chord falls
       // through untouched.
-      "code-toggle":
-        windowParam && !isMobile && panelSurfaces.includes("code")
-          ? () => togglePanel("code")
+      "tty-toggle": tileChord("tty"),
+      "code-toggle": tileChord("code"),
+      "web-toggle": tileChord("web"),
+      // ⇧⌘⏎ / ⇧Ctrl+Enter zen (R7) — the `Layout: Zoom`/`Unzoom` palette
+      // bodies' seam (SurfaceLayout's registered zoom toggle; transient
+      // component state, no URL/localStorage write). Zoom's own gate:
+      // desktop + arity > 1 — at arity 1 no handler mounts and the chord
+      // falls through untouched.
+      "zen-toggle":
+        windowParam && !isMobile && renderLayout.order.length > 1
+          ? () => layoutZoomToggleRef.current?.()
           : undefined,
       // ⌃`/⇧Ctrl+` focus hop (VS Code's ⌃` gesture): tty↔code through the
       // `Tile: Focus <Surface>` focus-by-kind seam. Hopping TO tty records
@@ -3471,7 +3557,7 @@ function AppShell() {
                 // Flag only an APPLIED open: a full 3-tile layout refuses the
                 // add (null no-op), and a stuck flag would auto-focus code
                 // whenever a later unrelated action opens it.
-                focusCodeOnLandingRef.current = true;
+                focusOnLandingRef.current = "code";
               }
             }
           : undefined,
@@ -3481,7 +3567,7 @@ function AppShell() {
       // ring) gates the chord for free.
       "layout-cycle": fromPalette("layout-cycle"),
     };
-  }, [paletteActions, paletteGlobals, currentSession, windowParam, navigateToWindow, macros, sessionName, executeMacro, toggleComposeStrip, addToast, isMobile, panelSurfaces, togglePanel, bindingByAction, focusedTileKind, renderLayout, layout]);
+  }, [paletteActions, paletteGlobals, server, windowParam, macros, sessionName, executeMacro, toggleComposeStrip, composeStripEnabled, addToast, isMobile, panelSurfaces, togglePanel, restoreFocus, bindingByAction, focusedTileKind, renderLayout, layout]);
   useKeybindingDispatch(keybindingHandlers);
 
   const displayName = currentWindow?.name ?? windowParam ?? "";
@@ -3928,9 +4014,9 @@ function AppShell() {
               }
               onClosePane={() => executeClosePane(server, windowParam)}
               // ⏶ Zoom palette seam (T012/R11): the component owns the
-              // transient zoom state and registers its slot-A toggle here;
-              // flips report back so the `Layout: Zoom`/`Unzoom` palette
-              // entries stay fresh.
+              // transient zoom state and registers its focused-slot toggle
+              // here (260819-qwr7 R7); flips report back so the
+              // `Layout: Zoom`/`Unzoom` palette entries stay fresh.
               zoomToggleRef={layoutZoomToggleRef}
               onZoomChange={setLayoutZoomed}
               // Focused tile (260812-wfic R2/R10): the component owns the

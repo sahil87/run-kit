@@ -36,6 +36,7 @@ import { useSidebarSectionVisible } from "@/hooks/use-sidebar-sections";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { useScrollEdgeFade } from "@/hooks/use-scroll-edge-fade";
+import { registerSidebarRowFocuser, restoreWindowFocus } from "@/lib/sidebar-events";
 import { useChromeState } from "@/contexts/chrome-context";
 import { useActiveBoardName } from "@/hooks/use-active-board";
 import { useMergedSessions } from "@/contexts/optimistic-context";
@@ -1071,6 +1072,69 @@ export function Sidebar({
     if (typeof row.scrollIntoView === "function") row.scrollIntoView({ block: "nearest" });
     row.focus();
   }, [rovingKey]);
+
+  // ⌘B focus-arm seam (R5): the shell's stateful sidebar chord focuses the
+  // current row through this module registry (`lib/sidebar-events.ts`) — no
+  // DOM reach-around from shell.tsx. The `focus()` + `setRovingKey` pairing
+  // is the mobile drawer-open effect's exact contract: the `tabIndex=0`
+  // tab-stop and DOM focus must never desync (the Wave-2 #262 invariant).
+  useEffect(() => {
+    return registerSidebarRowFocuser(() => {
+      const nav = navRef.current;
+      if (!nav) return false;
+      // Same scoped selector as the mobile drawer effect: window rows live
+      // under a `[data-window-id]` wrapper; the active BoardsSection row
+      // (aria-current, no such ancestor) is excluded.
+      const current = nav.querySelector<HTMLElement>('[data-window-id] [aria-current="page"]');
+      if (current) {
+        const key = current.closest<HTMLElement>("[data-window-id]")?.getAttribute("data-row-key") ?? null;
+        if (key != null) setRovingKey(key);
+        if (typeof current.scrollIntoView === "function") current.scrollIntoView({ block: "nearest" });
+        current.focus();
+        return true;
+      }
+      // No current window row (board/host routes): land on the tree's
+      // current roving tab-stop, else its first row.
+      const tree = treeRef.current;
+      const row = tree?.querySelector<HTMLElement>('[role="treeitem"][tabindex="0"]')
+        ?? tree?.querySelector<HTMLElement>('[role="treeitem"]');
+      if (!row) return false;
+      const key = rowKeyOf(row);
+      if (key != null) setRovingKey(key);
+      if (typeof row.scrollIntoView === "function") row.scrollIntoView({ block: "nearest" });
+      row.focus();
+      return true;
+    });
+  }, [rowKeyOf]);
+
+  // Escape return (R5): Escape with focus inside the sidebar returns focus
+  // to the route's remembered surface WITHOUT hiding — the same resolution
+  // the ⌘B hide arm uses (no origin storage; the registered restorer IS the
+  // terminal route's restore router — board/host routes register none and
+  // blur). Nav-scoped bubble phase, so the tree's selection-clear capture
+  // handler and the row flyout's own dismiss get first refusal. Desktop-only:
+  // the mobile drawer's focus trap owns Escape (close) there.
+  useEffect(() => {
+    const nav = navRef.current;
+    if (!nav || isMobile) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target?.isContentEditable
+      ) {
+        return; // a rename input's Escape cancels the rename
+      }
+      e.preventDefault();
+      if (!restoreWindowFocus()) {
+        (document.activeElement as HTMLElement | null)?.blur();
+      }
+    };
+    nav.addEventListener("keydown", onKey);
+    return () => nav.removeEventListener("keydown", onKey);
+  }, [isMobile]);
 
   // Normalize the roving key: when the visible-row SET changes, if the current
   // `rovingKey` matches no rendered treeitem (initial mount, collapse removed it,

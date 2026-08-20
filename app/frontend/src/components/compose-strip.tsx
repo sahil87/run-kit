@@ -929,9 +929,9 @@ export function ComposeStrip({
     </button>
   );
   // The `a|` close affordance — fine pointers only (dropped on coarse, where
-  // the bottom-bar `a▏` chip, the `View: Text Input` palette action, and ⇧⌘E
-  // remain the closers). With the header folded at the fine in-tile dock this
-  // is the sole on-strip closer there. Fires the exact same
+  // the bottom-bar `a▏` chip, the `View: Text Input` palette action, and
+  // ⌘I/⇧Ctrl+E remain the closers). With the header folded at the fine
+  // in-tile dock this is the sole on-strip closer there. Fires the exact same
   // `toggleComposeStrip` path as the header × and the chord.
   const closeChip = (
     <Tip label="Close compose strip" placement="top">

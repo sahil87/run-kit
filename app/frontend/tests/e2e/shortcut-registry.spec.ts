@@ -17,8 +17,9 @@ import { mockStateSocket } from "./_state-socket-mock";
 // paths are unit-tested in lib/keybindings.test.ts — e2e runs on Linux) and
 // the split-pane chords (260807-rbx5): the divider pair ⇧Ctrl+\/⇧Ctrl+- here,
 // ⌘D/⇧⌘D on a spoofed mac (the `macCode` refinement). Plus the VS
-// Code-aligned chrome chords: sidebar on B (⇧Ctrl+B here, ⌘B on the spoofed
-// mac), the code-tile toggle on J, and the tty↔code focus hop on Backquote
+// Code-aligned chrome chords: the stateful sidebar chord on B (⇧Ctrl+B here,
+// ⌘B on the spoofed mac), the stateful code-tile chord on 2 (⇧Ctrl+2 / ⌘2 —
+// 260819-qwr7 R4/R5), and the tty↔code focus hop on Backquote
 // (⇧Ctrl+` here; ⌃` on the spoofed mac — the seam's mac-only ctrl-tier
 // refusal rule). Plus the tabbed-dialog deep-links (260818-bncw): the
 // three-state `shortcuts-overlay` toggle, the pure-opener `settings-open`,
@@ -410,20 +411,30 @@ test.describe("macOS per-platform defaults (spoofed platform)", () => {
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/1(?:$|[/?#])`));
   });
 
-  test("⌘B toggles the sidebar on a mac host (both mac hosts — no shell gate)", async ({ page }) => {
+  test("⌘B runs the stateful sidebar chord on a mac host (both mac hosts — no shell gate)", async ({ page }) => {
     await spoofMacPlatform(page);
     await mockBackend(page);
     await gotoWindowOne(page);
 
     const sidebar = page.locator('aside[aria-label="Sidebar"]');
+    const currentRow = page
+      .locator("nav[aria-label='Sessions']")
+      .locator('[data-window-id] [aria-current="page"]');
+    await expect(currentRow).toBeVisible();
+
+    // The stateful chord (260819-qwr7 R5): focus the current row (sidebar
+    // stays open) → hide + return on the second press → reopen + refocus.
     await expect(sidebar).toBeVisible();
+    await page.keyboard.press("Meta+KeyB");
+    await expect(currentRow).toBeFocused();
     await page.keyboard.press("Meta+KeyB");
     await expect(sidebar).toHaveCount(0);
     await page.keyboard.press("Meta+KeyB");
     await expect(sidebar).toBeVisible();
+    await expect(currentRow).toBeFocused();
   });
 
-  test("⌘J toggles the code tile and ⌃` hops focus on a mac host", async ({ page }) => {
+  test("⌘2 is inert in a mac BROWSER host (the browser's tab claim); ⌃` hops focus", async ({ page }) => {
     await spoofMacPlatform(page);
     await mockBackend(page, codeCapablePayload());
     await gotoWindowOne(page);
@@ -431,14 +442,15 @@ test.describe("macOS per-platform defaults (spoofed platform)", () => {
     const codeTile = page.getByTestId("surface-tile-code");
     const ttyTile = page.getByTestId("surface-tile-tty");
 
-    // ⌘J opens, then closes the code tile.
+    // ⌘1–9 are the mac browser's tab-switching claims (MAC_BROWSER_CMD_CLAIMS),
+    // so the ⌘2 tile chord resolves `reserved` (palette-only) here — the press
+    // dispatches nothing (260819-qwr7 R2). The chord works in the mac SHELL.
     await expect(codeTile).toHaveCount(0);
-    await page.keyboard.press("Meta+KeyJ");
-    await expect(codeTile).toBeVisible({ timeout: 10_000 });
-    await page.keyboard.press("Meta+KeyJ");
-    await expect(codeTile).toBeHidden({ timeout: 10_000 });
+    await page.keyboard.press("Meta+Digit2");
+    await page.waitForTimeout(300);
+    await expect(codeTile).toHaveCount(0);
 
-    // ⌃` (the ctrl-tier refusal rule 3 under terminal focus) reopens the
+    // ⌃` (the ctrl-tier refusal rule 3 under terminal focus) opens the
     // tile and hops focus to it; a second ⌃` hops back to the tty.
     await page.keyboard.press("Control+Backquote");
     await expect(codeTile).toBeVisible({ timeout: 10_000 });
@@ -517,30 +529,46 @@ test.describe("split chords (260807-rbx5)", () => {
   });
 });
 
-test.describe("VS Code-aligned chrome chords (B / J / Backquote)", () => {
+test.describe("VS Code-aligned chrome chords (B / 2 / Backquote)", () => {
   const sidebar = (page: Page) => page.locator('aside[aria-label="Sidebar"]');
   const codeTile = (page: Page) => page.getByTestId("surface-tile-code");
   const ttyTile = (page: Page) => page.getByTestId("surface-tile-tty");
 
-  test("Shift+Ctrl+B toggles the sidebar", async ({ page }) => {
+  test("Shift+Ctrl+B runs the stateful sidebar chord: focus the current row, then hide, then reopen+focus", async ({ page }) => {
     await mockBackend(page);
     await gotoWindowOne(page);
 
+    const currentRow = page
+      .locator("nav[aria-label='Sessions']")
+      .locator('[data-window-id] [aria-current="page"]');
+    await expect(currentRow).toBeVisible();
+
+    // First press (visible, focus outside): focus the current window's row —
+    // the sidebar stays open (the stateful chord, 260819-qwr7 R5).
     await expect(sidebar(page)).toBeVisible();
+    await page.keyboard.press("Shift+Control+KeyB");
+    await expect(currentRow).toBeFocused();
+    await expect(sidebar(page)).toBeVisible();
+    // Second press (focus inside): hide + return. Third (hidden): reopen +
+    // refocus the row.
     await page.keyboard.press("Shift+Control+KeyB");
     await expect(sidebar(page)).toHaveCount(0);
     await page.keyboard.press("Shift+Control+KeyB");
     await expect(sidebar(page)).toBeVisible();
+    await expect(currentRow).toBeFocused();
   });
 
-  test("Shift+Ctrl+J toggles the code tile on a code-capable window", async ({ page }) => {
+  test("Shift+Ctrl+2 toggles the code tile on a code-capable window", async ({ page }) => {
     await mockBackend(page, codeCapablePayload());
     await gotoWindowOne(page);
 
+    // The stateful tile chord (260819-qwr7 R4): hidden → open + focus on
+    // landing; focused at arity 2 → hide + restore.
     await expect(codeTile(page)).toHaveCount(0);
-    await page.keyboard.press("Shift+Control+KeyJ");
+    await page.keyboard.press("Shift+Control+Digit2");
     await expect(codeTile(page)).toBeVisible({ timeout: 10_000 });
-    await page.keyboard.press("Shift+Control+KeyJ");
+    await expect(codeTile(page)).toHaveClass(/border-accent-green/);
+    await page.keyboard.press("Shift+Control+Digit2");
     // Hide-never-unmount: the closed tile stays mounted, hidden.
     await expect(codeTile(page)).toBeHidden({ timeout: 10_000 });
   });

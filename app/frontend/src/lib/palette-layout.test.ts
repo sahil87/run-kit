@@ -189,16 +189,16 @@ describe("buildLayoutActions — the toggle-chord hint (code-toggle documentatio
     // tty-only open: the target (code) is closed → its SHOW entry carries it.
     const added = build(
       { shape: "single", order: ["tty"] },
-      { toggleTarget: "code", toggleShortcut: "⌘J" },
+      { toggleTarget: "code", toggleShortcut: "⌘2" },
     );
-    expect(added.find((a) => a.id === "tile-show-code")?.shortcut).toBe("⌘J");
+    expect(added.find((a) => a.id === "tile-show-code")?.shortcut).toBe("⌘2");
     expect(added.find((a) => a.id === "tile-show-web")?.shortcut).toBeUndefined();
     // Target open: its HIDE entry carries the hint instead.
     const closed = build(
       { shape: "split-h", order: ["tty", "code"] },
-      { toggleTarget: "code", toggleShortcut: "⌘J" },
+      { toggleTarget: "code", toggleShortcut: "⌘2" },
     );
-    expect(closed.find((a) => a.id === "tile-hide-code")?.shortcut).toBe("⌘J");
+    expect(closed.find((a) => a.id === "tile-hide-code")?.shortcut).toBe("⌘2");
   });
 
   it("omits the hint when the chord is disabled/unbound (empty shortcut)", () => {

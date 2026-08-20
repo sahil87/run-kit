@@ -1132,7 +1132,7 @@ describe("SurfaceLayout mobile (R13 seam)", () => {
 });
 
 describe("SurfaceLayout zoom palette seam (T012/R11)", () => {
-  it("registers a slot-A toggle and reports zoom flips via onZoomChange", () => {
+  it("registers a toggle for the FOCUSED slot (260819-qwr7 R7) and reports zoom flips via onZoomChange", () => {
     const zoomToggleRef: { current: (() => void) | null } = { current: null };
     const onZoomChange = vi.fn();
     renderLayout({
@@ -1141,13 +1141,27 @@ describe("SurfaceLayout zoom palette seam (T012/R11)", () => {
       onZoomChange,
     });
     expect(zoomToggleRef.current).not.toBeNull();
-    // The seam toggles slot A's zoom; flips are reported for the palette's
-    // `Layout: Zoom`/`Unzoom` label gating.
+    // Focus slot B (the code tile) via its pointerdown-capture seam, then
+    // toggle: the FOCUSED slot zooms — tty (slot A) is the one that hides.
+    fireEvent.pointerDown(screen.getByTestId("surface-tile-code"));
     act(() => zoomToggleRef.current!());
     expect(onZoomChange).toHaveBeenLastCalledWith(true);
-    expect(screen.getByTestId("surface-tile-code").classList.contains("hidden")).toBe(true);
+    expect(screen.getByTestId("surface-tile-tty").classList.contains("hidden")).toBe(true);
+    expect(screen.getByTestId("surface-tile-code").classList.contains("hidden")).toBe(false);
     act(() => zoomToggleRef.current!());
     expect(onZoomChange).toHaveBeenLastCalledWith(false);
+    expect(screen.getByTestId("surface-tile-tty").classList.contains("hidden")).toBe(false);
+  });
+
+  it("zooms slot A when no interaction moved the focus (the default focused slot)", () => {
+    const zoomToggleRef: { current: (() => void) | null } = { current: null };
+    renderLayout({
+      layout: { shape: "split-h", order: ["tty", "code"] },
+      zoomToggleRef,
+    });
+    act(() => zoomToggleRef.current!());
+    expect(screen.getByTestId("surface-tile-code").classList.contains("hidden")).toBe(true);
+    act(() => zoomToggleRef.current!());
     expect(screen.getByTestId("surface-tile-code").classList.contains("hidden")).toBe(false);
   });
 });

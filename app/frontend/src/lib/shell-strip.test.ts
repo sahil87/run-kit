@@ -59,9 +59,9 @@ describe("hostAcceleratorHint", () => {
     expect(hostAcceleratorHint("darwin", 8)).toBe("⌥⌘9");
   });
 
-  it("maps every other platform to the ⇧Ctrl shell tier", () => {
-    expect(hostAcceleratorHint("win32", 0)).toBe("⇧Ctrl+1");
-    expect(hostAcceleratorHint("linux", 2)).toBe("⇧Ctrl+3");
+  it("maps every other platform to the Alt accelerators", () => {
+    expect(hostAcceleratorHint("win32", 0)).toBe("Alt+1");
+    expect(hostAcceleratorHint("linux", 2)).toBe("Alt+3");
   });
 
   it("returns null past the 9-cap and for out-of-range indices", () => {
@@ -97,7 +97,7 @@ describe("shellHostMenuRows", () => {
     );
     expect(rows[0].origin).toBe("http://one:3000");
     expect(rows[1].origin).toBe("https://two.example.com");
-    expect(rows[1].hint).toBe("⇧Ctrl+2");
+    expect(rows[1].hint).toBe("Alt+2");
   });
 
   it("falls back to the raw url string when the url is unparseable", () => {

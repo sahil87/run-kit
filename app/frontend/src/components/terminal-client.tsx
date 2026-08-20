@@ -5,6 +5,9 @@ import { ClipboardAddon } from "@xterm/addon-clipboard";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
 import { WebglAddon } from "@xterm/addon-webgl";
+import { SearchAddon } from "@xterm/addon-search";
+import { SerializeAddon } from "@xterm/addon-serialize";
+import { ProgressAddon } from "@xterm/addon-progress";
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useTheme } from "@/contexts/theme-context";
 import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
@@ -102,6 +105,19 @@ type TerminalClientProps = {
   wsRef: React.MutableRefObject<WebSocket | null>;
   onSessionNotFound?: () => void;
   focusRef?: React.MutableRefObject<(() => void) | null>;
+  /**
+   * Imperative addon seams for the tile layer (the focusRef convention:
+   * filled at init when provided, nulled on cleanup). The addons load
+   * passively for every terminal; these refs are how a consumer drives
+   * find-in-terminal (search) and buffer export (serialize).
+   */
+  searchAddonRef?: React.MutableRefObject<SearchAddon | null>;
+  serializeAddonRef?: React.MutableRefObject<SerializeAddon | null>;
+  /**
+   * Fires with the progress addon's tracked OSC 9;4 state on every change.
+   * The scaffold does no throttling or rendering — consumers own both.
+   */
+  onProgressChange?: (state: number, value: number) => void;
   scrollLocked?: boolean;
   /**
    * When `true` (default), this terminal registers itself as the focused
@@ -120,6 +136,9 @@ export function TerminalClient({
   wsRef,
   onSessionNotFound,
   focusRef,
+  searchAddonRef,
+  serializeAddonRef,
+  onProgressChange,
   scrollLocked,
   registerFocus = true,
 }: TerminalClientProps) {
@@ -147,6 +166,12 @@ export function TerminalClient({
   appKeybindingsRef.current = appKeybindings;
   const keybindingPlatformRef = useRef(keybindingHost.platform);
   keybindingPlatformRef.current = keybindingHost.platform;
+
+  // The progress addon registers its onChange once at terminal init, but the
+  // callback prop can change on any render — same attach-once reason as the
+  // keybinding refs above.
+  const onProgressChangeRef = useRef(onProgressChange);
+  onProgressChangeRef.current = onProgressChange;
 
   // Register this terminal as the BottomBar's focused input target. The
   // single-terminal route trivially has only one terminal — this is the
@@ -325,6 +350,24 @@ export function TerminalClient({
       terminal.loadAddon(new UnicodeGraphemesAddon());
       terminal.unicode.activeVersion = "15-graphemes";
 
+      // Search/serialize load passively — nothing here invokes them; the tile
+      // layer drives them through the searchAddonRef/serializeAddonRef seams.
+      const searchAddon = new SearchAddon();
+      terminal.loadAddon(searchAddon);
+      if (searchAddonRef) searchAddonRef.current = searchAddon;
+      const serializeAddon = new SerializeAddon();
+      terminal.loadAddon(serializeAddon);
+      if (serializeAddonRef) serializeAddonRef.current = serializeAddon;
+
+      // Progress is a passive OSC 9;4 stream parser. Its onChange payload is
+      // an { state, value } object — adapted to the two-arg prop so consumers
+      // never import the addon's types.
+      const progressAddon = new ProgressAddon();
+      terminal.loadAddon(progressAddon);
+      progressAddon.onChange(({ state, value }) => {
+        onProgressChangeRef.current?.(state, value);
+      });
+
       // GPU-accelerated rendering (silent fallback to canvas). The module is
       // statically imported (resolved at chunk load), but WebGL context
       // creation can still throw at runtime — keep the guard around it.
@@ -439,6 +482,8 @@ export function TerminalClient({
         wsRef.current = null;
       }
       if (focusRef) focusRef.current = null;
+      if (searchAddonRef) searchAddonRef.current = null;
+      if (serializeAddonRef) serializeAddonRef.current = null;
       // Note: __rkTerminals register/unregister moved to the dedicated
       // windowId-keyed effect below. __rkRenderer is set at WebGL-load time in
       // this init effect, so its cleanup stays here.
@@ -448,7 +493,7 @@ export function TerminalClient({
       try { terminal?.dispose(); } catch { /* WebGL addon may throw during teardown */ }
       setTerminalReady(false);
     };
-  }, [wsRef, focusRef]);
+  }, [wsRef, focusRef, searchAddonRef, serializeAddonRef]);
 
   // Apply terminal-font CHANGES to the live xterm instance. The font size lives
   // in ChromeContext (global, all terminals react), so when the user steps or
@@ -474,7 +519,7 @@ export function TerminalClient({
   }, [terminalFontSize, terminalReady, fitAndSync]);
 
   // Test-only registry, keyed on the CURRENT windowId. The init effect runs
-  // mount-only (deps [wsRef, focusRef]), but `windowId` can change while this
+  // mount-only (deps are all stable ref objects), but `windowId` can change while this
   // component stays mounted (it is rendered without a `key` in app.tsx, so a
   // window switch re-renders rather than remounts). Registering here — keyed on
   // [terminalReady, windowId] — re-keys the entry on every switch and cleans up

@@ -642,7 +642,12 @@ export function WindowFlyoutContent({
                   (and status-panel.tsx's pr rows). Escape sequences, never
                   literal NBSPs - a literal survives careless re-encoding
                   badly (the cycle-1 mojibake). Codepoints pinned by a unit
-                  test. */}
+                  test.
+                  Hover geometry: `-mx-2 px-2` mirrors CardActionList's
+                  counter-inset and the hover tint matches CARD_ACTION_ROW's,
+                  so the highlight paints a full-bleed row like the action
+                  rows below — not a text-height strip inset by the card
+                  padding. */}
               {win.prUrl ? (
                 <a
                   href={win.prUrl}
@@ -651,7 +656,7 @@ export function WindowFlyoutContent({
                   title={win.prUrl}
                   aria-label={`Open PR #${win.prNumber} in a new tab`}
                   onClick={(e) => e.stopPropagation()}
-                  className="group/pr flex items-center min-w-0 hover:bg-bg-inset focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent coarse:py-1"
+                  className="group/pr flex items-center min-w-0 -mx-2 px-2 py-0.5 hover:bg-[color-mix(in_srgb,var(--color-text-primary)_8%,transparent)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent coarse:py-1"
                   data-testid="row-flyout-pr-link"
                 >
                   <span className="text-text-secondary shrink-0">{"pr\u00a0\u00a0"}</span>

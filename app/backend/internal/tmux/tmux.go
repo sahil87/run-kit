@@ -461,6 +461,11 @@ type PaneInfo struct {
 	// re-splits the raw value. See ChatOption / docs/specs/agent-state.md.
 	ChatProvider   string `json:"chatProvider,omitempty"`
 	ChatSessionRef string `json:"chatSessionRef,omitempty"`
+	// AltScreen is true when the pane's application is on tmux's alternate
+	// screen (alternate_on). Alt-screen panes have no scrollback, so
+	// capture-pane history for them is structurally empty — the export menu
+	// gates its server-capture row on the window-level rollup of this.
+	AltScreen bool `json:"altScreen,omitempty"`
 }
 
 // WindowInfo describes a single tmux window within a session.
@@ -482,6 +487,11 @@ type WindowInfo struct {
 	// truth is preserved on Panes[].ChatProvider/ChatSessionRef. See ChatOption.
 	ChatProvider    string `json:"chatProvider,omitempty"`
 	ChatSessionRef  string `json:"chatSessionRef,omitempty"`
+	// AltScreen is the window-level rollup of the ACTIVE pane's AltScreen (the
+	// same active-pane rule CaptureWindowHistoryCtx targets), computed rk-side
+	// in FetchSessions. True means tmux holds no scrollback for the window's
+	// capture target, so the export menu gates its server-capture row on it.
+	AltScreen       bool   `json:"altScreen"`
 	FabChange       string `json:"fabChange,omitempty"`
 	FabStage        string `json:"fabStage,omitempty"`
 	FabDisplayState string `json:"fabDisplayState,omitempty"` // pipeline state of the displayed stage; empty when fab reports null/omits the field
@@ -794,7 +804,7 @@ func parsePanes(lines []string) map[string][]PaneInfo {
 	byWindow := make(map[string][]PaneInfo)
 	for _, line := range lines {
 		parts := strings.Split(line, listDelim)
-		if len(parts) < 8 {
+		if len(parts) < 9 {
 			continue
 		}
 		windowID := strings.TrimSpace(parts[0])
@@ -810,6 +820,7 @@ func parsePanes(lines []string) map[string][]PaneInfo {
 		command := strings.TrimSpace(parts[4])
 		agentState, agentEpoch, agentPID := parseAgentState(parts[6])
 		chatProvider, chatRef := parseChatRef(parts[7])
+		altScreen := strings.TrimSpace(parts[8]) == "1"
 		// Reconciler. Primary form (pid-carrying values from current
 		// agent setup hooks): PID liveness — the state is trusted iff the agent
 		// process is still alive, regardless of the pane's command name. This
@@ -839,6 +850,7 @@ func parsePanes(lines []string) map[string][]PaneInfo {
 			AgentStateEpoch: agentEpoch,
 			ChatProvider:    chatProvider,
 			ChatSessionRef:  chatRef,
+			AltScreen:       altScreen,
 		}
 		byWindow[windowID] = append(byWindow[windowID], p)
 	}
@@ -939,11 +951,11 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 }
 
 // paneFormat is the list-panes format string: window_id, pane_id, pane_index,
-// pane_current_path, pane_current_command, pane_active, @rk_agent_state, @rk_chat
-// (8 fields). The @rk_agent_state field carries the generic agent-lifecycle state
-// and @rk_chat the pane→chat-session mapping (see AgentStateOption / ChatOption /
-// docs/specs/agent-state.md); both cost no extra subprocess since they ride the
-// existing list-panes call.
+// pane_current_path, pane_current_command, pane_active, @rk_agent_state,
+// @rk_chat, alternate_on (9 fields). The @rk_agent_state field carries the
+// generic agent-lifecycle state and @rk_chat the pane→chat-session mapping
+// (see AgentStateOption / ChatOption / docs/specs/agent-state.md); both cost
+// no extra subprocess since they ride the existing list-panes call.
 var paneFormat = strings.Join([]string{
 	"#{window_id}",
 	"#{pane_id}",
@@ -953,6 +965,7 @@ var paneFormat = strings.Join([]string{
 	"#{pane_active}",
 	"#{@rk_agent_state}",
 	"#{@rk_chat}",
+	"#{alternate_on}",
 }, listDelim)
 
 // ListWindows returns windows for a given session on the specified server.

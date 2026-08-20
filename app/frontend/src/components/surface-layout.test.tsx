@@ -1337,6 +1337,33 @@ describe("SurfaceLayout export menu (260819-shqo)", () => {
     expect(screen.queryByTestId("export-menu")).toBeNull();
   });
 
+  it("disables the history row with the alt-screen hint when the window is altScreen (260820-4le0)", () => {
+    renderLayout({
+      layout: { shape: "single", order: ["tty"] },
+      statusWindow: { ...STATUS_WINDOW, altScreen: true },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Export terminal output" }));
+
+    const menu = screen.getByTestId("export-menu");
+    // Section header and client rows stay; only the server row changes state.
+    expect(within(menu).getByText("Full history — server capture")).toBeTruthy();
+    const historyRow = within(menu)
+      .getAllByRole("menuitem")
+      .find((r) => r.textContent?.includes("Download pane history"));
+    expect(historyRow).toBeTruthy();
+    expect(historyRow).toHaveProperty("disabled", true);
+    expect(historyRow?.getAttribute("aria-disabled")).toBe("true");
+    expect(historyRow?.textContent).toContain(
+      "agent TUI on alternate screen — tmux holds no scrollback",
+    );
+    expect(historyRow?.textContent).not.toContain(".txt · capture-pane -S -");
+
+    // A click fires nothing — no fetch, and the menu stays open.
+    fireEvent.click(historyRow!);
+    expect(screen.getByTestId("export-menu")).toBeTruthy();
+  });
+
   it("does not render on non-tty tiles", () => {
     renderLayout({ layout: { shape: "single", order: ["web"] } });
     expect(screen.queryByRole("button", { name: "Export terminal output" })).toBeNull();

@@ -1,0 +1,56 @@
+id: 4le0
+name: 260820-4le0-export-honesty-scrollback
+created: 2026-08-20T15:44:04Z
+created_by: Sahil Ahuja
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 7
+    acceptance_count: 15
+    acceptance_completed: 15
+confidence:
+    certain: 2
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 70.8
+        reversibility: 86.7
+        competence: 86.7
+        disambiguation: 81.7
+stage_metrics:
+    intake: {started_at: "2026-08-20T15:44:04Z", driver: fab-new, iterations: 1, completed_at: "2026-08-20T15:45:29Z"}
+    apply: {started_at: "2026-08-20T15:45:29Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-20T16:24:45Z"}
+    review: {started_at: "2026-08-20T16:24:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-20T16:26:49Z"}
+    hydrate: {started_at: "2026-08-20T16:26:49Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-20T16:35:43Z"}
+    ship: {started_at: "2026-08-20T16:35:43Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-20T16:38:50Z"}
+    review-pr: {started_at: "2026-08-20T16:38:50Z", driver: git-pr, iterations: 1, completed_at: "2026-08-20T16:51:22Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/686
+true_impact:
+    added: 664
+    deleted: 37
+    net: 627
+    excluding:
+        added: 346
+        deleted: 29
+        net: 317
+    tests:
+        added: 64
+        deleted: 15
+        net: 49
+    computed_at: "2026-08-20T16:38:50Z"
+    computed_at_stage: ship
+summary: 'Export honesty + scrollback: xterm scrollback device-split default (SCROLLBACK_DESKTOP 25k / SCROLLBACK_MOBILE 10k, boards pinned 1000 via explicit prop); WindowInfo gains altScreen (active pane''s alternate_on rollup via new #{alternate_on} pane-format field); export menu history row renders disabled+hint and the palette action is gated off on altScreen windows.'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-20T16:51:22Z

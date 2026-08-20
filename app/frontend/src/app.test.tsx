@@ -738,3 +738,75 @@ describe("CmdK Operator Role Actions", () => {
     expect(onUnmark).toHaveBeenCalledOnce();
   });
 });
+
+/**
+ * Tests for the terminal-export palette gate (260820-4le0 R6) — `Terminal:
+ * Download full history` is ABSENT (the availability idiom, not disabled) when
+ * the current window's active pane is on the alternate screen, since tmux
+ * holds no scrollback for a server capture there. The other three export
+ * actions are unaffected.
+ *
+ * These mirror the action-generation pattern in app.tsx (the
+ * buildSessionActions/buildOperatorActions precedent).
+ */
+
+/** Build the terminal-export palette entries matching app.tsx's gate. */
+function buildTerminalExportActions(opts: {
+  hasTtyTile: boolean;
+  altScreen: boolean;
+}): PaletteAction[] {
+  if (!opts.hasTtyTile) return [];
+  return (
+    [
+      ["terminal-export-snapshot", "Terminal: Download snapshot (HTML)", "snapshot"],
+      ["terminal-export-transcript", "Terminal: Download transcript", "transcript"],
+      ["terminal-export-copy", "Terminal: Copy visible screen", "copy-visible"],
+      ...(opts.altScreen
+        ? []
+        : [["terminal-export-history", "Terminal: Download full history", "history"] as const]),
+    ] as const
+  ).map(([id, label, action]) => ({
+    id,
+    label,
+    onSelect: () =>
+      document.dispatchEvent(new CustomEvent("terminal-export", { detail: { action } })),
+  }));
+}
+
+describe("CmdK Terminal Export Actions (altScreen gate)", () => {
+  afterEach(cleanup);
+
+  it("all four export entries appear on a normal-screen window", () => {
+    const actions = buildTerminalExportActions({ hasTtyTile: true, altScreen: false });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    expect(screen.getByText("Terminal: Download snapshot (HTML)")).toBeInTheDocument();
+    expect(screen.getByText("Terminal: Download transcript")).toBeInTheDocument();
+    expect(screen.getByText("Terminal: Copy visible screen")).toBeInTheDocument();
+    expect(screen.getByText("Terminal: Download full history")).toBeInTheDocument();
+  });
+
+  it("Download full history is absent on an altScreen window; the other three remain", () => {
+    const actions = buildTerminalExportActions({ hasTtyTile: true, altScreen: true });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    expect(screen.queryByText("Terminal: Download full history")).not.toBeInTheDocument();
+    expect(screen.getByText("Terminal: Download snapshot (HTML)")).toBeInTheDocument();
+    expect(screen.getByText("Terminal: Download transcript")).toBeInTheDocument();
+    expect(screen.getByText("Terminal: Copy visible screen")).toBeInTheDocument();
+  });
+
+  it("no export entries when the layout has no tty tile", () => {
+    const actions = buildTerminalExportActions({ hasTtyTile: false, altScreen: false });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    expect(screen.queryByText(/^Terminal: Download/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Terminal: Copy visible screen")).not.toBeInTheDocument();
+  });
+});

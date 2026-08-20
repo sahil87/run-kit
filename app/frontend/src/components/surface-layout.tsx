@@ -1482,14 +1482,24 @@ export function SurfaceLayout({
                     <div className="px-1.5 pb-1 text-[10px] uppercase tracking-wide text-text-secondary">
                       Full history — server capture
                     </div>
+                    {/* Honest row (260820-4le0): an alt-screen active pane holds
+                        no tmux scrollback, so the capture would return a
+                        near-empty artifact — disable with the reason instead of
+                        silently shipping it. */}
                     <button
                       type="button"
                       role="menuitem"
+                      disabled={statusWindow?.altScreen === true}
+                      aria-disabled={statusWindow?.altScreen === true}
                       onClick={pickExport("history")}
-                      className="flex items-center justify-between gap-6 rounded px-1.5 py-1 text-left text-text-primary hover:bg-bg-inset"
+                      className="flex items-center justify-between gap-6 rounded px-1.5 py-1 text-left text-text-primary hover:bg-bg-inset disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                     >
                       <span>Download pane history</span>
-                      <span className="text-text-secondary">.txt · capture-pane -S -</span>
+                      <span className="text-text-secondary">
+                        {statusWindow?.altScreen === true
+                          ? "agent TUI on alternate screen — tmux holds no scrollback"
+                          : ".txt · capture-pane -S -"}
+                      </span>
                     </button>
                   </div>
                 )}

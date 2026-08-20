@@ -216,6 +216,10 @@ export const BoardPane = forwardRef<BoardPaneHandle, BoardPaneProps>(function Bo
             focusRef={focusFnRef}
             registerFocus={false}
             scrollLocked={scrollLocked}
+            // Boards mount many live terminals as preview surfaces (the full
+            // view is one click away) — pin the small buffer, don't take the
+            // device-split default.
+            scrollback={1000}
           />
         )}
       </div>

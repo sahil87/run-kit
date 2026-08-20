@@ -1,0 +1,57 @@
+id: ecl4
+name: 260820-ecl4-zen-chord-compose-exact-modifier
+created: 2026-08-20T10:47:27Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: active
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 8
+    acceptance_completed: 8
+confidence:
+    certain: 3
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 80.8
+        reversibility: 88.3
+        competence: 84.2
+        disambiguation: 78.3
+stage_metrics:
+    intake: {started_at: "2026-08-20T10:47:27Z", driver: fab-new, iterations: 1, completed_at: "2026-08-20T10:52:43Z"}
+    apply: {started_at: "2026-08-20T10:52:43Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-20T10:56:18Z"}
+    review: {started_at: "2026-08-20T10:56:18Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-20T10:59:51Z"}
+    hydrate: {started_at: "2026-08-20T10:59:51Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-20T11:01:23Z"}
+    ship: {started_at: "2026-08-20T11:01:23Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-20T11:03:16Z"}
+    review-pr: {started_at: "2026-08-20T11:03:16Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/682
+change_type_source: explicit
+true_impact:
+    added: 342
+    deleted: 20
+    net: 322
+    excluding:
+        added: 65
+        deleted: 13
+        net: 52
+    tests:
+        added: 17
+        deleted: 6
+        net: 11
+    computed_at: "2026-08-20T11:03:16Z"
+    computed_at_stage: ship
+summary: 'classifyComposeEnter is exact on Shift: shift-carrying meta/ctrl Enter returns default and bubbles to the global zen-toggle chord instead of submitting'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-20T11:03:16Z

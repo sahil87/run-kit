@@ -1,17 +1,24 @@
 /**
- * Main process — lifecycle, BrowserWindow, per-host WebContentsViews,
- * security wiring, IPC, the welcome ↔ host-view routing, and local-daemon
- * control. ("Host" = an rk instance; "server" is reserved for tmux servers.
- * The `servers:*` IPC channels and the bridge's `servers` group keep their
- * names — they are the web SPA's contract.)
+ * Main process — lifecycle, the multi-window BrowserWindow registry, per-
+ * (window, host) WebContentsViews, security wiring, IPC, the welcome ↔
+ * host-view routing, and local-daemon control. ("Host" = an rk instance;
+ * "server" is reserved for tmux servers. The `servers:*` IPC channels and
+ * the bridge's `servers` group keep their names — they are the web SPA's
+ * contract.)
  *
- * Host content renders in ONE PERSISTENT WebContentsView PER VISITED HOST
- * (created lazily, kept alive until the host is removed or the window is torn
- * down), so a host switch is an instant detach/attach flip that preserves
- * live renderer state — WS/SSE connections, xterm scrollback, scroll
- * position — never a reload. The window's own webContents serves only the
- * welcome page. Per-view decision logic + badge/theme caches: ./views
- * (electron-free, node:test covered).
+ * ONE PROCESS, MANY WINDOWS: `requestSingleInstanceLock` keeps userData
+ * single-owner (a lock-less launch quits; `second-instance` opens a new
+ * window HERE), and a window registry replaces the v1 single `mainWindow`.
+ * Host content renders in ONE PERSISTENT WebContentsView PER (WINDOW, HOST)
+ * pair (created lazily, kept alive until the host is removed or the window
+ * is torn down), so a host switch is an instant detach/attach flip that
+ * preserves live renderer state — WS/SSE connections, xterm scrollback,
+ * scroll position — never a reload. The same host may show in N windows,
+ * each an independent view; views never migrate between windows. Each
+ * window's own webContents serves only the welcome page. Per-view decision
+ * logic + badge/theme caches: ./views (electron-free, node:test covered);
+ * window decisions (duplication targets, titles, restore): ./window-registry;
+ * the cold-start window-set store: ./windows (windows.json).
  *
  * This shell is a VIEWER (Constitution VI): it loads an existing `rk serve`
  * URL and NEVER spawns or supervises the rk daemon on its own initiative.
@@ -23,7 +30,8 @@
  * independent of this process, and the CLI (not the shell) is the updater.
  *
  * Dev override: `RK_DESKTOP_URL=http://localhost:3000 just dev-desktop`
- * loads that URL directly without persisting it to hosts.json.
+ * loads that URL directly without persisting it to hosts.json (or
+ * windows.json — sentinel windows are never persisted).
  */
 import {
   app,
@@ -58,7 +66,13 @@ import {
   rkTimeoutMessage,
 } from "./local-daemon";
 import { badgePng, overlayDescription } from "./badge";
-import { buildMenu, DaemonMenuInfo, MenuCallbacks, UpdateMenuInfo } from "./menu";
+import {
+  buildMenu,
+  DaemonMenuInfo,
+  MenuCallbacks,
+  UpdateMenuInfo,
+  WindowMenuEntry,
+} from "./menu";
 import {
   BLANK_UNDERLAY_URL,
   DEFAULT_STRIP_COLOR,
@@ -94,20 +108,38 @@ import {
 } from "./hosts";
 import {
   activateView,
+  activeHostForWindow,
   activeView,
   addView,
+  aggregateBadge,
   deactivateViews,
   emptyViews,
   findViewByWebContentsId,
   getView,
   LoadFlagEvent,
   nextLoadFailed,
-  removeView,
+  removeHostViews,
+  removeWindowViews,
   setViewBadge,
   setViewThemeColor,
   switchPaint,
   ViewsState,
 } from "./views";
+import {
+  loadWindows,
+  saveWindows,
+  WindowBounds,
+  WindowRecord,
+} from "./windows";
+import {
+  captureWindowRecord,
+  hostRemovedFallback,
+  newWindowTarget,
+  restoreTargets,
+  windowListItems,
+  windowSetForSave,
+  windowTitle,
+} from "./window-registry";
 
 const WELCOME_PATH = join(__dirname, "welcome", "welcome.html");
 const WELCOME_URL = pathToFileURL(WELCOME_PATH).toString();
@@ -141,18 +173,43 @@ const rawDevUrl = process.env.RK_DESKTOP_URL;
 const devUrl =
   rawDevUrl && normalizeOrigin(rawDevUrl).ok ? rawDevUrl : undefined;
 
-let mainWindow: BrowserWindow | null = null;
+/**
+ * The window registry — insertion order IS window creation order (the
+ * restore-order + menu-list order). Keyed on `BrowserWindow.id`.
+ */
+const windows = new Map<number, BrowserWindow>();
 
-/** Per-host view registry — pure logic in ./views, handles are WebContentsViews. */
+/** Set by `before-quit` — a `close` during quit ACCUMULATES the window's
+ *  record into `quitCaptures` (the whole set restores next launch); a user
+ *  closing one of N windows drops only that window's record. */
+let quitting = false;
+
+/** Records captured during the current quit — each closing window adds its
+ *  own (its registry entry is gone by the NEXT window's close), so the last
+ *  quit-time save holds the whole set. Keyed by windowId. */
+let quitCaptures = new Map<number, WindowRecord>();
+
+/** Window creation order (ids) — the save order's base (the last-focused
+ *  window's record goes last). Never spliced: the quit path needs the
+ *  positions of windows already closed earlier in the same quit. */
+const windowCreationOrder: number[] = [];
+
+/** Per-(window, host) view registry — pure logic in ./views, handles are
+ *  WebContentsViews. */
 let views: ViewsState<WebContentsView> = emptyViews();
 
-/** Per-host "last main-frame load failed" flags (hostId-keyed, view-scoped):
- *  the remote-tunnel heal reloads ONLY a failed view — a warm view keeps its
+/** Composite key for the per-(window, host) in-memory flag maps. */
+function viewKey(windowId: number, hostId: string): string {
+  return `${windowId}:${hostId}`;
+}
+
+/** Per-(window, host) "last main-frame load failed" flags (view-scoped): the
+ *  remote-tunnel heal reloads ONLY a failed view — a warm view keeps its
  *  live renderer state. Entries die with their view. */
 const viewLoadFailed = new Map<string, boolean>();
 
-/** Per-host "this SPA speaks accent:set" flags (hostId-keyed, view-scoped —
- *  the viewLoadFailed pattern): once a view has reported its raw accent, the
+/** Per-(window, host) "this SPA speaks accent:set" flags (view-scoped — the
+ *  viewLoadFailed pattern): once a view has reported its raw accent, the
  *  did-change-theme-color seam stops persisting its 35% titlebar blend as
  *  accentColor — the blend would overwrite the full-strength value on every
  *  report. Hosts that never report keep the blend persistence (the older-SPA
@@ -162,11 +219,29 @@ const viewLoadFailed = new Map<string, boolean>();
  *  their view. */
 const rawAccentReported = new Map<string, boolean>();
 
-/** Sentinel registry id for the RK_DESKTOP_URL dev view — never a store
- *  entry, so nothing about it (activeId, lastPath) is ever persisted. */
+/** Sentinel registry hostId for the RK_DESKTOP_URL dev view — never a store
+ *  entry, so nothing about it (activeId, lastPath, window records) is ever
+ *  persisted. */
 const DEV_HOST_ID = "__dev__";
 
+const PRODUCT_NAME = "Run Kit";
+
 const userDataDir = (): string => app.getPath("userData");
+
+// ─── Single-instance lock ────────────────────────────────────────────────────
+//
+// One process owns userData — two OS instances would collide on Chromium's
+// LevelDB lock (the `open -n` hazard). A launch that fails to acquire the
+// lock quits; the survivor's `second-instance` handler opens a NEW window
+// (the same duplicate-of-current semantics as the menu item).
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    const focused = focusedWindow() ?? [...windows.values()][0] ?? null;
+    openDuplicateWindow(focused);
+  });
+}
 
 type PingResult =
   | { ok: true; origin: string; hostname: string }
@@ -212,55 +287,109 @@ function isAllowedNavigation(url: string): boolean {
 // ─── Dock/taskbar waiting badge ─────────────────────────────────────────────
 //
 // The SPA reports its waiting-agent count over `badge:set` (sender-gated like
-// `servers:*`). macOS/Linux take `app.setBadgeCount` (0 clears); Windows has
-// no dock badge, so the count renders as a taskbar overlay icon whose PNG
-// bytes come from the electron-free ./badge module (node:test covered).
-// Counts are cached PER VIEW (./views — keyed by webContents id, since a
-// sender origin can be shared by several host entries): only the active
-// view's reports paint, background views' reports update their cache
-// silently, and a switch repaints the incoming view's cached count (0 when
-// none). Welcome shows a cleared badge (caches kept); window close clears
-// the OS surface.
+// `servers:*`). Counts are cached PER (window, host) view (./views — resolved
+// by webContents id, since a sender origin can be shared by several host
+// entries): background views' reports update their cache silently. The PAINTED
+// surface is the AGGREGATE (./views aggregateBadge): the sum over the DISTINCT
+// hosts attached in ANY open window — a host shown by two windows counts once.
+// macOS/Linux take `app.setBadgeCount` (0 clears); Windows has no dock badge,
+// so the aggregate renders as a taskbar overlay icon on EVERY open window
+// (per-window surface, app-scoped count — every entry signals), whose PNG
+// bytes come from the electron-free ./badge module (node:test covered). The
+// aggregate recomputes on any cached-count change, window open/close, and
+// host switches.
 
-function applyBadge(count: number): void {
+function repaintBadge(): void {
+  const count = aggregateBadge(views);
   if (process.platform === "win32") {
-    const win = mainWindow;
-    if (!win || win.isDestroyed()) return; // clear-on-closed races destruction
-    if (count > 0) {
-      win.setOverlayIcon(nativeImage.createFromBuffer(badgePng(count)), overlayDescription(count));
-    } else {
-      win.setOverlayIcon(null, "");
+    for (const win of windows.values()) {
+      if (win.isDestroyed()) continue;
+      if (count > 0) {
+        win.setOverlayIcon(nativeImage.createFromBuffer(badgePng(count)), overlayDescription(count));
+      } else {
+        win.setOverlayIcon(null, "");
+      }
     }
     return;
   }
   app.setBadgeCount(count);
 }
 
-function clearBadge(): void {
-  applyBadge(0);
-}
-
 // ─── Routing ────────────────────────────────────────────────────────────────
 
-function showWelcome(win: BrowserWindow, query?: Record<string, string>): void {
-  const current = activeView(views);
-  if (current) win.contentView.removeChildView(current.handle);
-  views = deactivateViews(views);
-  clearBadge(); // painted surface only — the per-view caches are kept
-  applyOverlayColor(welcomeStripColor(nativeTheme.shouldUseDarkColors)); // welcome's static strip color
-  void win.loadFile(WELCOME_PATH, query ? { query } : undefined);
+/** The app's focused window, restricted to OUR registry. */
+function focusedWindow(): BrowserWindow | null {
+  const win = BrowserWindow.getFocusedWindow();
+  if (!win || win.isDestroyed()) return null;
+  return windows.get(win.id) ?? null;
 }
 
 /**
- * Show the active host (dangling activeId → first host), else welcome.
- * A remembered `lastPath` is restored as-is (and only when the view is
- * created fresh) — staleness (removed window/board, dead host) is the SPA's
- * failure mode, never validated shell-side.
+ * The cosmetic `activeId` write — the LAST FOCUSED WINDOW's host (back-compat
+ * + first-window fallback), never per-window state. Written on window focus
+ * and on switches in the focused window; sentinel views skip it (the store's
+ * membership guard would no-op anyway).
+ */
+function trackActiveId(hostId: string | null): void {
+  if (hostId === null || hostId === DEV_HOST_ID) return;
+  setActiveHost(userDataDir(), hostId);
+}
+
+/** A window's title from its CURRENT registry state (host — route-leaf). */
+function titleForWindow(win: BrowserWindow): string {
+  const hostId = activeHostForWindow(views, win.id);
+  if (hostId === null) return PRODUCT_NAME;
+  if (hostId === DEV_HOST_ID) return devUrl ? (originOf(devUrl) ?? PRODUCT_NAME) : PRODUCT_NAME;
+  const host = loadHosts(userDataDir()).hosts.find((h) => h.id === hostId);
+  if (!host) return PRODUCT_NAME;
+  return windowTitle(PRODUCT_NAME, host.name, routeForView(win, hostId));
+}
+
+function setWindowTitle(win: BrowserWindow): void {
+  if (win.isDestroyed()) return;
+  win.setTitle(titleForWindow(win));
+  rebuildMenu(); // the mac Window-menu list renders titles
+}
+
+/**
+ * A view's current SPA route remainder (`pathname + search`), guarded like
+ * the capture seam: a destroyed/unparseable/foreign-origin URL contributes
+ * "" (the bare-origin title / no route). Title-only — capture is
+ * `captureLastPathForView` at close/destroy.
+ */
+function routeForView(win: BrowserWindow, hostId: string): string {
+  const entry = getView(views, win.id, hostId);
+  if (!entry) return "";
+  const current = entry.handle.webContents.getURL();
+  if (!current) return "";
+  try {
+    const url = new URL(current);
+    return url.pathname + url.search;
+  } catch {
+    return "";
+  }
+}
+
+function showWelcome(win: BrowserWindow, query?: Record<string, string>): void {
+  const current = activeView(views, win.id);
+  if (current) win.contentView.removeChildView(current.handle);
+  views = deactivateViews(views, win.id);
+  repaintBadge(); // this window's host leaves the displayed set (caches kept)
+  applyOverlayColor(welcomeStripColor(nativeTheme.shouldUseDarkColors), win); // welcome's static strip color
+  void win.loadFile(WELCOME_PATH, query ? { query } : undefined);
+  setWindowTitle(win); // welcome — the plain product name
+}
+
+/**
+ * Show the fallback host in a window (the cosmetic `activeId`, else first),
+ * else welcome. A remembered `lastPath` is restored as-is (and only when the
+ * view is created fresh) — staleness (removed window/board, dead host) is
+ * the SPA's failure mode, never validated shell-side.
  */
 function showActive(win: BrowserWindow): void {
   const active = resolveActiveHost(loadHosts(userDataDir()));
   if (active) {
-    attachHostView(active);
+    attachHostView(win, active);
   } else {
     showWelcome(win);
   }
@@ -269,13 +398,13 @@ function showActive(win: BrowserWindow): void {
 /**
  * Persist a view's current SPA route (`pathname + search`) for ITS host
  * entry. Views preserve live state, so capture runs only at window close
- * (every live view) and at view destroy — never on switch; restore happens
- * only when a view is created fresh. Keyed directly by the view's host id
- * (a view belongs to exactly one entry — an origin lookup would misattribute
- * a shared-origin background view's route to the ACTIVE entry), guarded so a
- * URL whose origin does not match that entry's origin (mid-navigation,
- * foreign origin) persists nothing. The dev view's sentinel id matches no
- * entry and is never persisted.
+ * (every live view of THAT window) and at view destroy — never on switch;
+ * restore happens only when a view is created fresh. Keyed directly by the
+ * view's host id (a view belongs to exactly one entry — an origin lookup
+ * would misattribute a shared-origin background view's route to the ACTIVE
+ * entry), guarded so a URL whose origin does not match that entry's origin
+ * (mid-navigation, foreign origin) persists nothing. The dev view's sentinel
+ * id matches no entry and is never persisted.
  */
 function captureLastPathForView(hostId: string, contents: WebContents): void {
   if (contents.isDestroyed()) return;
@@ -292,28 +421,20 @@ function captureLastPathForView(hostId: string, contents: WebContents): void {
   setHostLastPath(userDataDir(), hostId, url.pathname + url.search);
 }
 
-function showStartPage(win: BrowserWindow): void {
-  if (devUrl) {
-    // Dev override: a single view under a sentinel id — the same per-view
-    // wiring (security, theme, badge) as a registered host, nothing persisted.
-    attachHostView({ id: DEV_HOST_ID, url: devUrl });
-  } else {
-    showActive(win);
-  }
-}
-
-// ─── Host views (one persistent WebContentsView per visited host) ───────────
+// ─── Host views (one persistent WebContentsView per (window, host) pair) ────
 //
-// The window's own webContents serves ONLY the welcome page (and the no-drag
-// blank underlay while a view covers it — BLANK_UNDERLAY_URL, see
-// blankWelcomeUnderlay); host content lives in per-host WebContentsViews
-// attached over the FULL window content bounds — the SPA draws the 28px
-// titlebar strip itself, so full-bounds views reproduce today's rendering
-// exactly. Views are created lazily on first visit and stay alive until
-// their host is removed or the window is torn down; a switch is a
-// detach/attach flip, never a reload.
+// Each window's own webContents serves ONLY the welcome page (and the
+// no-drag blank underlay while a view covers it — BLANK_UNDERLAY_URL, see
+// blankWelcomeUnderlay); host content lives in per-(window, host)
+// WebContentsViews attached over the FULL window content bounds — the SPA
+// draws the 28px titlebar strip itself, so full-bounds views reproduce
+// today's rendering exactly. Views are created lazily on first visit in
+// THAT window and stay alive until their host is removed or the window is
+// torn down; a switch is a detach/attach flip, never a reload. The same
+// host in N windows is N independent views (own renderers, own sockets);
+// views never migrate between windows.
 
-/** Shared hardened webPreferences — the window and every host view. */
+/** Shared hardened webPreferences — every window and every host view. */
 function hostWebPreferences(): Electron.WebPreferences {
   return {
     preload: join(__dirname, "preload.js"),
@@ -325,13 +446,12 @@ function hostWebPreferences(): Electron.WebPreferences {
   };
 }
 
-/** Apply a strip color to the win/linux window-controls overlay. darwin
- *  returns early (traffic lights are OS-drawn and take no color); a throwing
- *  call degrades silently (partial linux WCO support). */
-function applyOverlayColor(color: string): void {
+/** Apply a strip color to ONE window's win/linux window-controls overlay.
+ *  darwin returns early (traffic lights are OS-drawn and take no color); a
+ *  throwing call degrades silently (partial linux WCO support). */
+function applyOverlayColor(color: string, win: BrowserWindow): void {
   if (process.platform === "darwin") return;
-  const win = mainWindow;
-  if (!win || win.isDestroyed()) return;
+  if (win.isDestroyed()) return;
   try {
     win.setTitleBarOverlay({
       color,
@@ -350,24 +470,27 @@ function syncViewBounds(win: BrowserWindow, view: WebContentsView): void {
 }
 
 function syncActiveViewBounds(win: BrowserWindow): void {
-  const entry = activeView(views);
+  const entry = activeView(views, win.id);
   if (entry) syncViewBounds(win, entry.handle);
 }
 
 /**
- * Create + wire a host view. Security wiring beyond webPreferences needs no
- * per-view work: the app-level `web-contents-created` handler (window-open
- * policy + navigation guard) and the session-wide permission handler already
- * cover every webContents created, and IPC sender gating keys on sender-frame
- * origin. What IS per-view: the theme-color cache feeding the overlay, and
- * the version-skew fallback strip with its per-view inserted-CSS key.
+ * Create + wire a host view for one window. Security wiring beyond
+ * webPreferences needs no per-view work: the app-level `web-contents-created`
+ * handler (window-open policy + navigation guard) and the session-wide
+ * permission handler already cover every webContents created, and IPC sender
+ * gating keys on sender-frame origin. What IS per-view: the theme-color cache
+ * feeding THAT window's overlay, the window-title route refresh, and the
+ * version-skew fallback strip with its per-view inserted-CSS key.
  */
-function createHostView(hostId: string): WebContentsView {
+function createHostView(win: BrowserWindow, hostId: string): WebContentsView {
+  const windowId = win.id;
+  const key = viewKey(windowId, hostId);
   const view = new WebContentsView({ webPreferences: hostWebPreferences() });
   view.setBackgroundColor("#0f1117"); // no white flash while the SPA boots
   const contents = view.webContents;
 
-  // Track main-frame load failures per host so the remote-tunnel heal knows
+  // Track main-frame load failures per view so the remote-tunnel heal knows
   // whether a reload is needed (a warm view with live state is never
   // reloaded). Transitions are pure (./views nextLoadFailed): a real
   // main-frame failure sets the flag, and ONLY a did-navigate commit clears
@@ -375,7 +498,7 @@ function createHostView(hostId: string): WebContentsView {
   // after did-fail-load, so it must never clear (a dead-tunnel view would
   // otherwise read as healthy and the heal's reload gate would never fire).
   const applyLoadFlag = (event: LoadFlagEvent): void => {
-    viewLoadFailed.set(hostId, nextLoadFailed(viewLoadFailed.get(hostId) === true, event));
+    viewLoadFailed.set(key, nextLoadFailed(viewLoadFailed.get(key) === true, event));
   };
   contents.on("did-fail-load", (_event, errorCode, _desc, _url, isMainFrame) => {
     applyLoadFlag({ kind: "did-fail-load", isMainFrame, errorCode });
@@ -390,7 +513,7 @@ function createHostView(hostId: string): WebContentsView {
     if (contents.isDestroyed()) return;
     const url = contents.getURL();
     if (!shouldInjectFallbackStrip(url, registeredOrigins())) return;
-    const color = getView(views, hostId)?.themeColor ?? DEFAULT_STRIP_COLOR;
+    const color = getView(views, windowId, hostId)?.themeColor ?? DEFAULT_STRIP_COLOR;
     const stale = fallbackCssKey;
     fallbackCssKey = null;
     try {
@@ -406,23 +529,29 @@ function createHostView(hostId: string): WebContentsView {
   contents.on("did-navigate", () => {
     fallbackCssKey = null;
     applyLoadFlag({ kind: "did-navigate" });
+    if (!win.isDestroyed()) setWindowTitle(win); // full navigations change the route leaf
+  });
+  // The SPA is a history-API router — in-page navigations change the route
+  // (and the title leaf) without a did-navigate.
+  contents.on("did-navigate-in-page", () => {
+    if (!win.isDestroyed()) setWindowTitle(win);
   });
   // Cache the page's theme-color per view; repaint the overlay only when this
-  // view is the attached one (a background report must not tint the window —
-  // the switch seam re-applies the incoming view's cached color instead).
+  // view is attached in ITS window (a background report must not tint the
+  // window — the switch seam re-applies the incoming view's cached color).
   contents.on("did-change-theme-color", (_event, color) => {
-    views = setViewThemeColor(views, hostId, color);
+    views = setViewThemeColor(views, windowId, hostId, color);
     // Persist the accent per host entry so the host-switcher's edge bar
     // survives cold start — but ONLY as the older-SPA fallback: once this
     // host's view has sent a raw accent:set report, the 35% titlebar blend
     // must not overwrite it. A null report never clears the stored value; the
     // dev sentinel view (__dev__) matches no entry — the membership guard
     // silently covers it. Unchanged values short-circuit (no write).
-    if (color !== null && !rawAccentReported.get(hostId)) {
+    if (color !== null && !rawAccentReported.get(key)) {
       setHostAccentColor(userDataDir(), hostId, color);
     }
-    if (views.activeHostId === hostId) {
-      applyOverlayColor(color ?? DEFAULT_STRIP_COLOR);
+    if (activeHostForWindow(views, windowId) === hostId && !win.isDestroyed()) {
+      applyOverlayColor(color ?? DEFAULT_STRIP_COLOR, win);
     }
     if (fallbackCssKey != null) void refreshFallbackStrip();
   });
@@ -456,29 +585,36 @@ function blankWelcomeUnderlay(win: BrowserWindow): void {
 }
 
 /**
- * The attach seam: detach the current view, create the target's view on
- * first visit (loading `url + lastPath` — the ONLY time a view navigates),
- * attach over full bounds, and repaint the OS surfaces (badge, overlay) from
- * the INCOMING view's caches.
+ * The attach seam: detach the window's current view, create the target's
+ * view on first visit IN THIS WINDOW (loading `url + route` — the ONLY time
+ * a view navigates), attach over full bounds, repaint the window's overlay
+ * and title from the INCOMING view's caches, and repaint the aggregate
+ * badge. `route` overrides the host's stored `lastPath` (New Window
+ * duplication, cold-start window records); omitted, the store's `lastPath`
+ * is the restore (creation-time only — warm switches keep the live route).
  */
-function attachHostView(host: {
-  id: string;
-  url: string;
-  lastPath?: string;
-  remote?: string;
-}): void {
-  const win = mainWindow;
-  if (!win) return;
+function attachHostView(
+  win: BrowserWindow,
+  host: {
+    id: string;
+    url: string;
+    lastPath?: string;
+    remote?: string;
+  },
+  route?: string,
+): void {
+  if (win.isDestroyed()) return;
+  const windowId = win.id;
   // SSH-only hosts heal their tunnel on activation (never blocking the
   // attach — a warm flip stays instant; a dead view reloads once healed).
-  ensureRemoteConnected(host);
-  const current = activeView(views);
-  let entry = getView(views, host.id);
+  ensureRemoteConnected(win, host);
+  const current = activeView(views, windowId);
+  let entry = getView(views, windowId, host.id);
   let created = false;
   if (!entry) {
-    const view = createHostView(host.id);
-    views = addView(views, host.id, view, view.webContents.id);
-    entry = getView(views, host.id);
+    const view = createHostView(win, host.id);
+    views = addView(views, windowId, host.id, view, view.webContents.id);
+    entry = getView(views, windowId, host.id);
     created = true;
   }
   if (!entry) return; // unreachable — addView just registered it
@@ -487,63 +623,86 @@ function attachHostView(host: {
   }
   win.contentView.addChildView(entry.handle);
   syncViewBounds(win, entry.handle);
-  views = activateView(views, host.id);
-  const paint = switchPaint(views, host.id);
-  applyOverlayColor(paint.themeColor ?? DEFAULT_STRIP_COLOR);
-  applyBadge(paint.badgeCount);
+  views = activateView(views, windowId, host.id);
+  const paint = switchPaint(views, windowId, host.id);
+  applyOverlayColor(paint.themeColor ?? DEFAULT_STRIP_COLOR, win);
+  repaintBadge(); // the displayed set changed — recompute the aggregate
   if (created) {
     // Restore is creation-time only: warm switches keep the live route.
-    void entry.handle.webContents.loadURL(host.url + (host.lastPath ?? ""));
+    void entry.handle.webContents.loadURL(host.url + (route ?? host.lastPath ?? ""));
   }
   entry.handle.webContents.focus();
   blankWelcomeUnderlay(win);
+  setWindowTitle(win);
 }
 
 /**
- * Destroy a host's view (host removed via Hosts → Remove). Captures lastPath
- * first (a no-op once the store entry is gone — the guard in
- * captureLastPathForView keeps this correct for any future eviction-style
- * caller), detaches when attached, drops the registry entry (badge/theme
- * caches included), and closes the webContents.
+ * Destroy a host's views across ALL windows (host removed). Each window left
+ * showing the removed host falls to the first remaining host or welcome
+ * (the window-registry's hostRemovedFallback decision on the post-removal
+ * list). lastPath capture for the removed host is unnecessary — the store
+ * entry dies with the views.
  */
-function destroyHostView(hostId: string): void {
-  const entry = getView(views, hostId);
-  if (!entry) return;
-  captureLastPathForView(hostId, entry.handle.webContents);
-  if (views.activeHostId === hostId && mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.contentView.removeChildView(entry.handle);
-  }
-  views = removeView(views, hostId).state;
-  viewLoadFailed.delete(hostId);
-  rawAccentReported.delete(hostId);
-  if (!entry.handle.webContents.isDestroyed()) entry.handle.webContents.close();
-}
-
-/** Window teardown: drop every view (lastPath was captured on 'close').
- *  Views are window-scoped — a macOS dock-reopen recreates them lazily. */
-function destroyAllViews(): void {
-  for (const entry of views.entries) {
+function destroyHostViews(hostId: string): void {
+  const { state, removed } = removeHostViews(views, hostId);
+  views = state;
+  for (const entry of removed) {
+    const win = windows.get(entry.windowId);
+    if (win && !win.isDestroyed()) win.contentView.removeChildView(entry.handle);
+    viewLoadFailed.delete(viewKey(entry.windowId, entry.hostId));
+    rawAccentReported.delete(viewKey(entry.windowId, entry.hostId));
     if (!entry.handle.webContents.isDestroyed()) entry.handle.webContents.close();
   }
-  views = emptyViews();
-  viewLoadFailed.clear();
-  rawAccentReported.clear();
+  // Per-window fallback: first remaining host, or welcome when none remain.
+  const listAfter = loadHosts(userDataDir());
+  for (const win of windows.values()) {
+    if (win.isDestroyed()) continue;
+    const fallback = hostRemovedFallback(
+      listAfter,
+      hostId,
+      activeHostForWindow(views, win.id),
+    );
+    if (fallback.kind === "host") attachHostView(win, fallback.host);
+    else if (fallback.kind === "welcome") showWelcome(win);
+  }
+  repaintBadge();
+}
+
+/**
+ * Window teardown: drop every view of ONE window (lastPath was captured on
+ * 'close'). Views are window-scoped — a macOS dock-reopen recreates them
+ * lazily from the captured routes.
+ */
+function destroyWindowViews(windowId: number): void {
+  const { state, removed } = removeWindowViews(views, windowId);
+  views = state;
+  for (const entry of removed) {
+    viewLoadFailed.delete(viewKey(entry.windowId, entry.hostId));
+    rawAccentReported.delete(viewKey(entry.windowId, entry.hostId));
+    if (!entry.handle.webContents.isDestroyed()) entry.handle.webContents.close();
+  }
 }
 
 // ─── Menu ───────────────────────────────────────────────────────────────────
 
 /**
- * Persist the active id + attach the host's view + rebuild the menu — the
- * ONE switch path, shared by the Hosts menu radio, the `servers:switch` IPC
- * handler, and the local-connect tail. Never a loadURL on an existing view:
- * a warm switch is an instant detach/attach flip that keeps live renderer
- * state (WS/SSE connections, xterm scrollback, scroll position).
+ * Switch ONE window to a host — attach the host's view in that window and
+ * rebuild the menu. The ONE switch path, shared by the Hosts menu radio
+ * (focused window), the `servers:switch` IPC handler (sender's window), and
+ * the local-connect/remote-connect/add tails (their invoking window). The
+ * store's `activeId` is NOT written here — it is the cosmetic last-focused
+ * record, written by window focus and by switches in the FOCUSED window
+ * (this seam's focus-tracking call at the end). Never a loadURL on an
+ * existing view: a warm switch is an instant detach/attach flip that keeps
+ * live renderer state (WS/SSE connections, xterm scrollback, scroll
+ * position).
  */
-function switchToHost(id: string): IpcResult {
-  const next = setActiveHost(userDataDir(), id);
-  const entry = next.hosts.find((h) => h.id === id);
+function switchToHost(win: BrowserWindow, id: string): IpcResult {
+  const list = loadHosts(userDataDir());
+  const entry = list.hosts.find((h) => h.id === id);
   if (!entry) return { ok: false, error: "Unknown host" };
-  attachHostView(entry);
+  attachHostView(win, entry);
+  if (focusedWindow()?.id === win.id) trackActiveId(id);
   rebuildMenu();
   return { ok: true };
 }
@@ -555,27 +714,46 @@ function switchToHost(id: string): IpcResult {
  * alive (welcome only detaches it) — lastPath capture happens at window
  * close / view destroy, not here.
  */
-function openAddHost(): IpcResult {
-  if (!mainWindow) return { ok: false, error: "No window" };
-  showWelcome(mainWindow, { mode: "add" });
+function openAddHost(win: BrowserWindow): IpcResult {
+  if (win.isDestroyed()) return { ok: false, error: "No window" };
+  showWelcome(win, { mode: "add" });
   return { ok: true };
 }
 
 function rebuildMenu(): void {
   const list = loadHosts(userDataDir());
+  const focused = focusedWindow();
+  const focusedHostId = focused ? activeHostForWindow(views, focused.id) : null;
+  const windowEntries: WindowMenuEntry[] = windowListItems(
+    [...windows.values()].map((win) => ({
+      windowId: win.id,
+      title: titleForWindow(win),
+      focused: focused?.id === win.id,
+    })),
+  ).map((item) => ({ windowId: item.windowId, title: item.label, focused: item.focused }));
   const callbacks: MenuCallbacks = {
     onSwitchHost: (id) => {
-      switchToHost(id);
+      const win = focusedWindow();
+      if (win) switchToHost(win, id);
     },
     onAddHost: () => {
-      openAddHost();
+      const win = focusedWindow();
+      if (win) openAddHost(win);
     },
     onRemoveHost: (id) => {
       void confirmAndRemoveHost(id);
     },
+    onNewWindow: () => {
+      openDuplicateWindow(focusedWindow());
+    },
+    onFocusWindow: (windowId) => {
+      windows.get(windowId)?.focus();
+    },
     onDaemonConnect: () => {
       void (async () => {
-        const result = await startAndConnectLocal();
+        const win = focusedWindow();
+        if (!win) return;
+        const result = await startAndConnectLocal(win);
         if (!result.ok) dialog.showErrorBox("Local Daemon", result.error);
       })();
     },
@@ -590,33 +768,29 @@ function rebuildMenu(): void {
     },
   };
   Menu.setApplicationMenu(
-    buildMenu(list.hosts, list.activeId, callbacks, daemonMenuInfo, updateMenuInfo),
+    buildMenu(list.hosts, focusedHostId, windowEntries, callbacks, daemonMenuInfo, updateMenuInfo),
   );
 }
 
 /**
  * The removal tail shared by both confirmed paths: store removal, view
- * teardown, menu rebuild, and the active-host fallback. Confirmation is the
- * caller's job — the native menu confirms with the OS dialog below, and the
- * SPA dropdown confirms with its own themed dialog before invoking
- * `servers:remove-confirmed`. An unknown id is the store's no-op convention.
+ * teardown across ALL windows, menu rebuild, and the per-window fallback
+ * (inside destroyHostViews). Confirmation is the caller's job — the native
+ * menu confirms with the OS dialog below, and the SPA dropdown confirms with
+ * its own themed dialog before invoking `servers:remove-confirmed`. An
+ * unknown id is the store's no-op convention.
  */
 function removeHostEverywhere(id: string): void {
   const list = loadHosts(userDataDir());
   const entry = list.hosts.find((h) => h.id === id);
   if (!entry) return;
-  const wasActive = resolveActiveHost(list)?.id === id;
   removeHost(userDataDir(), id);
-  destroyHostView(id); // the view dies with its host entry
+  destroyHostViews(id); // the views die with their host entry — in every window
   rebuildMenu();
-  // Only the fallback swap needs a window — the removal itself must land
-  // even mid-teardown, or a confirmed remove acks { ok: true } having done
-  // nothing and the host resurrects on the next list read.
-  if (wasActive && mainWindow) showActive(mainWindow); // first remaining host, or welcome
 }
 
 async function confirmAndRemoveHost(id: string): Promise<void> {
-  const win = mainWindow;
+  const win = focusedWindow() ?? [...windows.values()][0];
   if (!win) return;
   const list = loadHosts(userDataDir());
   const entry = list.hosts.find((h) => h.id === id);
@@ -791,22 +965,23 @@ async function waitForHealth(origin: string): Promise<PingResult> {
  * the menu. An existing entry for the origin is activated (never duplicated,
  * `addHost` does not dedupe); otherwise the existing add-host path runs
  * with the name auto-derived from the ping hostname (origin fallback in the
- * store).
+ * store). Acts on the invoking window.
  */
-function connectLocalHost(origin: string, hostname: string): IpcResult {
+function connectLocalHost(win: BrowserWindow, origin: string, hostname: string): IpcResult {
   const existing = findHostByOrigin(loadHosts(userDataDir()), origin);
-  if (existing) return switchToHost(existing.id);
+  if (existing) return switchToHost(win, existing.id);
   const added = addHost(userDataDir(), hostname, origin);
   if (!added.ok) return added;
-  return switchToHost(added.host.id); // attaches the fresh view + rebuilds the menu
+  return switchToHost(win, added.host.id); // attaches the fresh view + rebuilds the menu
 }
 
 /**
  * The ONE get-in flow (`daemon:start` + the menu's Connect): start the daemon
  * when stopped (a `daemon already running` error is already-started success),
- * wait for health, then connect. Never runs without an explicit user action.
+ * wait for health, then connect in the invoking window. Never runs without an
+ * explicit user action.
  */
-async function startAndConnectLocal(): Promise<IpcResult> {
+async function startAndConnectLocal(win: BrowserWindow): Promise<IpcResult> {
   const probe = await probeDaemonStatus();
   if (!probe.ok) return probe;
   const status = probe.status;
@@ -826,7 +1001,7 @@ async function startAndConnectLocal(): Promise<IpcResult> {
     }
     hostname = ping.hostname;
   }
-  const connected = connectLocalHost(status.origin, hostname);
+  const connected = connectLocalHost(win, status.origin, hostname);
   void refreshDaemonMenu();
   return connected;
 }
@@ -838,7 +1013,7 @@ async function startAndConnectLocal(): Promise<IpcResult> {
  * the tmux layer is independent of the server, so stop is low-stakes).
  */
 async function confirmAndStopDaemon(): Promise<IpcResult> {
-  const win = mainWindow;
+  const win = focusedWindow() ?? [...windows.values()][0];
   if (!win) return { ok: false, error: "No window" };
   const { response } = await dialog.showMessageBox(win, {
     type: "question",
@@ -932,10 +1107,11 @@ function remoteErrorMessage(full: string): string {
  * labeled-line output) → connect (streamed progress) → health-ping the
  * local origin (the same `pingServer` gate the URL rung uses — a tunnel
  * that accepts TCP but does not answer /api/health persists nothing) →
- * activate-or-add the host entry carrying the `remote` name → switchToHost.
- * Never runs without an explicit user action.
+ * activate-or-add the host entry carrying the `remote` name → switchToHost
+ * in the invoking window. Never runs without an explicit user action.
  */
 async function connectRemoteHost(
+  win: BrowserWindow,
   target: string,
   onProgress: (line: string) => void,
 ): Promise<IpcResult> {
@@ -970,10 +1146,10 @@ async function connectRemoteHost(
   // Dedupe on the remote name — the stable identity for SSH hosts (several
   // entries can share an origin, but one remote is one host).
   const existing = loadHosts(userDataDir()).hosts.find((h) => h.remote === info.name);
-  if (existing) return switchToHost(existing.id);
+  if (existing) return switchToHost(win, existing.id);
   const addedHost = addHost(userDataDir(), info.name, origin, info.name);
   if (!addedHost.ok) return addedHost;
-  return switchToHost(addedHost.host.id); // attaches the fresh view + rebuilds the menu
+  return switchToHost(win, addedHost.host.id); // attaches the fresh view + rebuilds the menu
 }
 
 // Activation-time heal guards: one connect in flight per remote, and a short
@@ -991,20 +1167,26 @@ function markRemoteConnected(name: string): void {
  * non-blocking (the attach seam stays an instant flip): the idempotent
  * connect heals a dead tunnel in the background, and only a view whose last
  * main-frame load FAILED is reloaded afterwards (a live view keeps its
- * state; its sockets reconnect on their own once the tunnel is back).
+ * state; its sockets reconnect on their own once the tunnel is back). Each
+ * (window, host) view heals independently.
  */
-function ensureRemoteConnected(host: {
-  id: string;
-  url: string;
-  lastPath?: string;
-  remote?: string;
-}): void {
+function ensureRemoteConnected(
+  win: BrowserWindow,
+  host: {
+    id: string;
+    url: string;
+    lastPath?: string;
+    remote?: string;
+  },
+): void {
   const name = host.remote;
   if (name === undefined || name === "") return;
   if (remoteConnectsInFlight.has(name)) return;
   const lastOk = remoteConnectedAt.get(name);
   if (lastOk !== undefined && Date.now() - lastOk < REMOTE_RECONNECT_SUPPRESS_MS) return;
 
+  const windowId = win.id;
+  const key = viewKey(windowId, host.id);
   remoteConnectsInFlight.add(name);
   void (async () => {
     try {
@@ -1018,10 +1200,10 @@ function ensureRemoteConnected(host: {
         return;
       }
       markRemoteConnected(name);
-      if (viewLoadFailed.get(host.id) === true) {
-        const entry = getView(views, host.id);
+      if (viewLoadFailed.get(key) === true) {
+        const entry = getView(views, windowId, host.id);
         if (entry && !entry.handle.webContents.isDestroyed()) {
-          viewLoadFailed.set(host.id, false);
+          viewLoadFailed.set(key, false);
           void entry.handle.webContents.loadURL(host.url + (host.lastPath ?? ""));
         }
       }
@@ -1185,6 +1367,24 @@ function parseSetUrlPayload(value: unknown): { id: string; url: string } | null 
   return { id: value.id, url: value.url };
 }
 
+/**
+ * The window an IPC call acts on: the SENDER's window — a host view's
+ * window by registry lookup, the window itself for a welcome page (the
+ * sender IS the window's own webContents). The focused window is the
+ * fallback for the rare call whose sender resolves to neither.
+ */
+function senderWindow(event: IpcMainInvokeEvent): BrowserWindow | null {
+  const entry = findViewByWebContentsId(views, event.sender.id);
+  if (entry) {
+    const win = windows.get(entry.windowId);
+    if (win && !win.isDestroyed()) return win;
+  }
+  for (const win of windows.values()) {
+    if (!win.isDestroyed() && win.webContents.id === event.sender.id) return win;
+  }
+  return focusedWindow();
+}
+
 function registerIpcHandlers(): void {
   ipcMain.handle(
     "welcome:test-host",
@@ -1201,14 +1401,17 @@ function registerIpcHandlers(): void {
     if (!isWelcomeSender(event)) return { ok: false, error: "Not allowed" };
     const parsed = parseAddPayload(payload);
     if (!parsed) return { ok: false, error: "Invalid request" };
+    const win = senderWindow(event);
+    if (!win) return { ok: false, error: "No window" };
     const result = addHost(userDataDir(), parsed.name, parsed.url);
     if (!result.ok) return result;
-    return switchToHost(result.host.id); // attaches the fresh view + rebuilds the menu
+    return switchToHost(win, result.host.id); // attaches the fresh view + rebuilds the menu
   });
 
   ipcMain.handle("welcome:cancel", (event): IpcResult => {
     if (!isWelcomeSender(event)) return { ok: false, error: "Not allowed" };
-    if (mainWindow) showActive(mainWindow);
+    const win = senderWindow(event);
+    if (win) showActive(win);
     return { ok: true };
   });
 
@@ -1221,7 +1424,9 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("daemon:start", async (event): Promise<IpcResult> => {
     if (!isWelcomeSender(event)) return { ok: false, error: "Not allowed" };
-    return startAndConnectLocal();
+    const win = senderWindow(event);
+    if (!win) return { ok: false, error: "No window" };
+    return startAndConnectLocal(win);
   });
 
   ipcMain.handle("daemon:stop", async (event): Promise<IpcResult> => {
@@ -1236,8 +1441,10 @@ function registerIpcHandlers(): void {
     if (typeof rawTarget !== "string" || rawTarget.trim() === "") {
       return { ok: false, error: "Enter an SSH target — user@host or a ~/.ssh/config alias" };
     }
+    const win = senderWindow(event);
+    if (!win) return { ok: false, error: "No window" };
     const sender = event.sender;
-    return connectRemoteHost(rawTarget.trim(), (line) => {
+    return connectRemoteHost(win, rawTarget.trim(), (line) => {
       if (!sender.isDestroyed()) sender.send("remote:progress", line);
     });
   });
@@ -1248,15 +1455,16 @@ function registerIpcHandlers(): void {
   ipcMain.handle("servers:list", (event): ServersListResult => {
     if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
     // Join the store projection with the view registry's cached badge counts:
-    // a host with a live view whose last `badge:set` report was > 0 carries
-    // `waiting` (the switcher menu's amber ● N); never-visited hosts (no
-    // view) and zero counts omit the field. The menu refetches on every
-    // open, so this open-time snapshot needs no subscription.
+    // a host with a live view (in ANY window) whose last `badge:set` report
+    // was > 0 carries `waiting` (the switcher menu's amber ● N); never-
+    // visited hosts (no view) and zero counts omit the field. The menu
+    // refetches on every open, so this open-time snapshot needs no
+    // subscription.
     const servers = hostInfos(loadHosts(userDataDir())).map((info) => {
-      const view = getView(views, info.id);
-      return view !== null && view.badgeCount > 0
-        ? { ...info, waiting: view.badgeCount }
-        : info;
+      const max = views.entries
+        .filter((e) => e.hostId === info.id)
+        .reduce((best, e) => Math.max(best, e.badgeCount), 0);
+      return max > 0 ? { ...info, waiting: max } : info;
     });
     return { ok: true, servers };
   });
@@ -1264,7 +1472,9 @@ function registerIpcHandlers(): void {
   ipcMain.handle("servers:switch", (event, id: unknown): IpcResult => {
     if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
     if (typeof id !== "string") return { ok: false, error: "Invalid request" };
-    return switchToHost(id);
+    const win = senderWindow(event);
+    if (!win) return { ok: false, error: "No window" };
+    return switchToHost(win, id);
   });
 
   // servers:add — the SPA dropdown's `+ Add Host…` footer. Navigation-only
@@ -1274,28 +1484,32 @@ function registerIpcHandlers(): void {
   // `welcome:add-host` flow.
   ipcMain.handle("servers:add", (event): IpcResult => {
     if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
-    return openAddHost();
+    const win = senderWindow(event);
+    if (!win) return { ok: false, error: "No window" };
+    return openAddHost(win);
   });
 
   // servers:add-direct — the SPA's in-place Add Host dialog (additive
   // channel; older SPAs only ever call servers:add). ONE invoke runs the
   // welcome page's whole test-host → add-host chain — normalize, health-ping,
-  // persist, switch — so a failure can never land in a half-state (pinged but
-  // not persisted, or persisted unpinged) and the sandboxed renderer needs no
-  // cross-origin fetch. A blank name derives from the ping's hostname
-  // (addHost's own empty-name rule then falls back to the origin) — the
-  // welcome add form's exact behavior.
+  // persist, switch in the sender's window — so a failure can never land in a
+  // half-state (pinged but not persisted, or persisted unpinged) and the
+  // sandboxed renderer needs no cross-origin fetch. A blank name derives
+  // from the ping's hostname (addHost's own empty-name rule then falls back
+  // to the origin) — the welcome add form's exact behavior.
   ipcMain.handle("servers:add-direct", async (event, payload: unknown): Promise<IpcResult> => {
     if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
     const parsed = parseAddPayload(payload);
     if (!parsed) return { ok: false, error: "Invalid request" };
+    const win = senderWindow(event);
+    if (!win) return { ok: false, error: "No window" };
     const normalized = normalizeOrigin(parsed.url);
     if (!normalized.ok) return normalized;
     const ping = await pingServer(normalized.origin);
     if (!ping.ok) return { ok: false, error: ping.error };
     const added = addHost(userDataDir(), parsed.name.trim() || ping.hostname, normalized.origin);
     if (!added.ok) return added;
-    return switchToHost(added.host.id); // attaches the fresh view + rebuilds the menu
+    return switchToHost(win, added.host.id); // attaches the fresh view + rebuilds the menu
   });
 
   // servers:reorder — move-by-id ({id, toIndex}); a full-array payload would
@@ -1375,21 +1589,33 @@ function registerIpcHandlers(): void {
     if (before.remote !== undefined && before.remote !== "") {
       return { ok: false, error: "This host's URL is managed by its SSH connection" };
     }
-    const wasDisplayed = views.activeHostId === parsed.id;
     setHostUrl(userDataDir(), parsed.id, normalized.origin);
-    destroyHostView(parsed.id);
+    destroyHostViews(parsed.id); // stale views die in EVERY window — the
+    // per-window fallback (first remaining host or welcome) keeps any window
+    // that displayed this host off a destroyed view
     rebuildMenu();
-    if (wasDisplayed && mainWindow) showActive(mainWindow);
+    return { ok: true };
+  });
+
+  // shell:new-window — the New Window bridge channel (exposed but unconsumed
+  // in this change; the follow-up change's SPA ⌘N binding is the intended
+  // consumer). Gated exactly like `servers:*`; routes to the SAME
+  // duplicate-of-current-window function the menu item calls.
+  ipcMain.handle("shell:new-window", (event): IpcResult => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    openDuplicateWindow(senderWindow(event));
     return { ok: true };
   });
 
   // badge:* — the SPA's waiting-agent count report, gated exactly like
   // `servers:*` (registered host origins + welcome). Structurally validated:
   // only a non-negative integer reaches the OS badge surface. Counts are
-  // cached PER VIEW (resolved from the sender's webContents id — origins can
-  // be shared by several entries): only the active view's report paints;
-  // background reports update their cache silently, and the switch seam
-  // repaints from the incoming view's cache.
+  // cached PER (window, host) view (resolved from the sender's webContents
+  // id — origins can be shared by several entries); the PAINTED surface is
+  // the aggregate over the distinct displayed hosts, recomputed on every
+  // cache write. Non-view senders (the welcome page, a destroyed view's late
+  // report) cache nothing — the aggregate is derived from displayed views
+  // only, so there is no direct-paint branch.
   ipcMain.handle("badge:set", (event, count: unknown): IpcResult => {
     if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
     if (typeof count !== "number" || !Number.isInteger(count) || count < 0) {
@@ -1397,15 +1623,8 @@ function registerIpcHandlers(): void {
     }
     const entry = findViewByWebContentsId(views, event.sender.id);
     if (entry) {
-      views = setViewBadge(views, entry.hostId, count);
-      if (views.activeHostId === entry.hostId) applyBadge(count);
-      return { ok: true };
-    }
-    // The welcome page (the window's own webContents) keeps direct paint; any
-    // other allowed-but-unknown sender (a just-destroyed view's late report)
-    // must not paint a surface it no longer backs.
-    if (mainWindow && event.sender.id === mainWindow.webContents.id) {
-      applyBadge(count);
+      views = setViewBadge(views, entry.windowId, entry.hostId, count);
+      repaintBadge(); // a cache change moves the aggregate when that host is displayed
     }
     return { ok: true };
   });
@@ -1429,18 +1648,46 @@ function registerIpcHandlers(): void {
     const entry = findViewByWebContentsId(views, event.sender.id);
     if (entry) {
       setHostAccentColor(userDataDir(), entry.hostId, hex);
-      rawAccentReported.set(entry.hostId, true);
+      rawAccentReported.set(viewKey(entry.windowId, entry.hostId), true);
     }
     return { ok: true };
   });
 }
 
-// ─── Window + security wiring ───────────────────────────────────────────────
+// ─── Window lifecycle + security wiring ─────────────────────────────────────
 
-function openMainWindow(): void {
+/**
+ * One window's contribution to windows.json — null for a window that must
+ * NOT be persisted (a dev-sentinel window). The record carries the window's
+ * active host (null = welcome), its current route, and its normal bounds.
+ */
+function windowRecord(win: BrowserWindow): WindowRecord | null {
+  const hostId = activeHostForWindow(views, win.id);
+  if (hostId === DEV_HOST_ID) return null;
+  const route = hostId === null ? "" : routeForView(win, hostId);
+  const bounds: WindowBounds = win.getNormalBounds();
+  return { hostId, route, bounds };
+}
+
+/**
+ * Persist the window set from a capture map: one record per captured window
+ * in creation order, the LAST-FOCUSED window's record moved to the end so
+ * restore's in-order creation focuses it (windowSetForSave, pure).
+ */
+function saveWindowSet(captured: ReadonlyMap<number, WindowRecord>): void {
+  saveWindows(
+    userDataDir(),
+    windowSetForSave(captured, windowCreationOrder, focusedWindow()?.id ?? null),
+  );
+}
+
+function createWindow(bounds: WindowBounds | null): BrowserWindow {
   const win = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    width: bounds?.width ?? 1280,
+    height: bounds?.height ?? 800,
+    ...(bounds?.x !== undefined && bounds?.y !== undefined
+      ? { x: bounds.x, y: bounds.y }
+      : {}),
     backgroundColor: "#0f1117",
     // Hidden native titlebar: the page's top edge is the visible "titlebar"
     // (the SPA draws a 28px accent strip; ./strip's fallback CSS covers older
@@ -1459,6 +1706,7 @@ function openMainWindow(): void {
       : {}),
     webPreferences: hostWebPreferences(),
   });
+  const windowId = win.id;
   // The window's own webContents only ever shows the welcome page (its
   // theme/strip needs are static) — the per-view wiring lives in
   // createHostView. Views do not auto-resize with the window, so every size
@@ -1466,24 +1714,114 @@ function openMainWindow(): void {
   win.on("resize", () => syncActiveViewBounds(win));
   win.on("enter-full-screen", () => syncActiveViewBounds(win));
   win.on("leave-full-screen", () => syncActiveViewBounds(win));
-  // Capture-on-quit for EVERY live view: cold-start restore reflects each
-  // host's route at close, not just the active one's (webContents are still
-  // readable during 'close').
+  // Focus drives: the cosmetic `activeId` (the LAST FOCUSED window's host)
+  // and the menu's rendered state (radio checks + the window-list check).
+  win.on("focus", () => {
+    trackActiveId(activeHostForWindow(views, windowId));
+    rebuildMenu();
+  });
+  // Capture-on-close for every live view of THIS window (webContents are
+  // still readable during 'close'), then the window-set record: on quit the
+  // record ACCUMULATES into quitCaptures (windows closed earlier in the same
+  // quit keep theirs — the last save holds the whole set); a user closing
+  // one of N windows drops only that window's record.
   win.on("close", () => {
-    for (const entry of views.entries) {
+    for (const entry of views.entries.filter((e) => e.windowId === windowId)) {
       captureLastPathForView(entry.hostId, entry.handle.webContents);
+    }
+    if (quitting) {
+      // Views are still alive here (teardown happens at 'closed'), so the
+      // record carries the real host/route. A sentinel window captures null
+      // and never persists.
+      quitCaptures = captureWindowRecord(quitCaptures, windowId, windowRecord(win));
+      saveWindowSet(quitCaptures);
+    } else {
+      destroyWindowViews(windowId);
+      // Fresh captures of the OTHER live windows — the closing window is
+      // excluded up front (its views are already torn down, so capturing it
+      // would degrade to a spurious welcome record). An empty map (the last
+      // window closed without quitting — macOS window-all-closed) saves an
+      // empty set, so the next dock-reopen falls back to hosts.json.
+      let captures = new Map<number, WindowRecord>();
+      for (const w of windows.values()) {
+        if (w.id !== windowId && !w.isDestroyed()) {
+          captures = captureWindowRecord(captures, w.id, windowRecord(w));
+        }
+      }
+      saveWindowSet(captures);
     }
   });
   win.on("closed", () => {
-    // A lingering dock badge would report a count no window backs (macOS
-    // keeps the app alive after window-all-closed). Views are window-scoped —
-    // a macOS dock-reopen recreates them lazily from the captured routes.
-    clearBadge();
-    destroyAllViews();
-    if (mainWindow === win) mainWindow = null;
+    windows.delete(windowId);
+    destroyWindowViews(windowId); // idempotent — 'close' already ran it
+    repaintBadge(); // the displayed set lost this window's host
+    rebuildMenu(); // the mac Window-menu list
   });
-  mainWindow = win;
-  showStartPage(win);
+  windows.set(windowId, win);
+  windowCreationOrder.push(windowId);
+  return win;
+}
+
+/**
+ * Cold start + macOS dock-reopen: restore the recorded window set
+ * (one window per record, in order — the last-created takes focus), or the
+ * single dev-sentinel window under RK_DESKTOP_URL, or one fallback window
+ * when nothing is recorded (active host via the cosmetic activeId, else
+ * welcome).
+ */
+function restoreOrOpenInitial(): void {
+  if (windows.size > 0) return;
+  if (devUrl) {
+    const win = createWindow(null);
+    // Dev override: one sentinel-id view — the same per-view wiring
+    // (security, theme, badge) as a registered host, nothing persisted.
+    attachHostView(win, { id: DEV_HOST_ID, url: devUrl });
+    return;
+  }
+  const list = loadHosts(userDataDir());
+  for (const target of restoreTargets(loadWindows(userDataDir()), list)) {
+    const win = createWindow(target.bounds);
+    if (target.hostId === null) {
+      showWelcome(win);
+    } else {
+      const host = list.hosts.find((h) => h.id === target.hostId);
+      if (host) attachHostView(win, host, target.route);
+      else showWelcome(win); // unreachable — restoreTargets resolves or degrades
+    }
+  }
+}
+
+/**
+ * New Window (the menu item, `shell:new-window`, and `second-instance`):
+ * duplicate the SOURCE window — same host, same CURRENT route, in a FRESH
+ * independent view (never a shared or moved one). A welcome source (or no
+ * window at all — the second-instance cold case) opens welcome.
+ */
+function openDuplicateWindow(sourceWin: BrowserWindow | null): void {
+  const sourceHostId =
+    sourceWin && !sourceWin.isDestroyed() ? activeHostForWindow(views, sourceWin.id) : null;
+  const source =
+    sourceWin && !sourceWin.isDestroyed()
+      ? {
+          hostId: sourceHostId,
+          route: sourceHostId !== null ? routeForView(sourceWin, sourceHostId) : "",
+        }
+      : { hostId: null, route: "" };
+  const target = newWindowTarget(source);
+  const win = createWindow(null);
+  if (target.hostId === null) {
+    showWelcome(win);
+    return;
+  }
+  if (target.hostId === DEV_HOST_ID && devUrl) {
+    // The sentinel duplicates like any host — an independent sentinel-scoped
+    // view in the new window, still never persisted.
+    attachHostView(win, { id: DEV_HOST_ID, url: devUrl }, target.route);
+    return;
+  }
+  const host = loadHosts(userDataDir()).hosts.find((h) => h.id === target.hostId);
+  if (host) attachHostView(win, host, target.route);
+  else showWelcome(win); // the source's host vanished mid-click
 }
 
 app.on("web-contents-created", (_event, contents) => {
@@ -1524,7 +1862,7 @@ void app.whenReady().then(() => {
 
   registerIpcHandlers();
   rebuildMenu();
-  openMainWindow();
+  restoreOrOpenInitial();
 
   // Seed the Local Daemon menu state (read-only detection — never a start),
   // and keep it fresh on focus; the welcome page's polls also feed the cache.
@@ -1538,8 +1876,14 @@ void app.whenReady().then(() => {
   });
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) openMainWindow();
+    if (BrowserWindow.getAllWindows().length === 0) restoreOrOpenInitial();
   });
+});
+
+app.on("before-quit", () => {
+  // The next per-window 'close' handlers keep their records (the whole set
+  // restores next launch) instead of dropping them one by one.
+  quitting = true;
 });
 
 app.on("window-all-closed", () => {

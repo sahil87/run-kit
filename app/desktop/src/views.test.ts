@@ -1,5 +1,5 @@
 /**
- * node:test suite for the per-host view registry pure logic (run via
+ * node:test suite for the per-window view registry pure logic (run via
  * `pnpm run test` after compile — the `hosts.test.ts` convention).
  *
  * The handle is a plain string here — the module is generic over it, which is
@@ -9,55 +9,77 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   activateView,
+  activeHostForWindow,
   activeView,
   addView,
+  aggregateBadge,
   deactivateViews,
   emptyViews,
   ERR_ABORTED,
   findViewByWebContentsId,
   getView,
   nextLoadFailed,
+  removeHostViews,
   removeView,
+  removeWindowViews,
   setViewBadge,
   setViewThemeColor,
   switchPaint,
   ViewsState,
 } from "./views";
 
+const WIN1 = 1;
+const WIN2 = 2;
+
 function seeded(): ViewsState<string> {
   let state = emptyViews<string>();
-  state = addView(state, "host-a", "view-a", 11);
-  state = addView(state, "host-b", "view-b", 22);
+  state = addView(state, WIN1, "host-a", "view-a", 11);
+  state = addView(state, WIN1, "host-b", "view-b", 22);
   return state;
 }
 
-// ── add / get (lazy creation, one view per host) ─────────────────────────────
+// ── add / get (lazy creation, one view per (window, host) pair) ──────────────
 
 test("empty registry has no entries and no active view", () => {
   const state = emptyViews<string>();
   assert.equal(state.entries.length, 0);
-  assert.equal(state.activeHostId, null);
-  assert.equal(getView(state, "host-a"), null);
-  assert.equal(activeView(state), null);
+  assert.equal(state.active.length, 0);
+  assert.equal(getView(state, WIN1, "host-a"), null);
+  assert.equal(activeView(state, WIN1), null);
+  assert.equal(activeHostForWindow(state, WIN1), null);
 });
 
 test("addView registers a fresh view with clean caches", () => {
-  const state = addView(emptyViews<string>(), "host-a", "view-a", 11);
-  const entry = getView(state, "host-a");
+  const state = addView(emptyViews<string>(), WIN1, "host-a", "view-a", 11);
+  const entry = getView(state, WIN1, "host-a");
   assert.ok(entry);
+  assert.equal(entry.windowId, WIN1);
   assert.equal(entry.handle, "view-a");
   assert.equal(entry.webContentsId, 11);
   assert.equal(entry.badgeCount, 0);
   assert.equal(entry.themeColor, null);
 });
 
-test("addView for an existing host is a no-op (create-once)", () => {
-  let state = addView(emptyViews<string>(), "host-a", "view-a", 11);
-  state = setViewBadge(state, "host-a", 3);
-  const next = addView(state, "host-a", "view-a2", 99);
+test("addView for an existing (window, host) pair is a no-op (create-once)", () => {
+  let state = addView(emptyViews<string>(), WIN1, "host-a", "view-a", 11);
+  state = setViewBadge(state, WIN1, "host-a", 3);
+  const next = addView(state, WIN1, "host-a", "view-a2", 99);
   assert.equal(next, state); // unchanged — caller must reuse the existing view
-  assert.equal(getView(next, "host-a")?.handle, "view-a");
-  assert.equal(getView(next, "host-a")?.badgeCount, 3);
+  assert.equal(getView(next, WIN1, "host-a")?.handle, "view-a");
+  assert.equal(getView(next, WIN1, "host-a")?.badgeCount, 3);
+});
+
+test("the same host in TWO windows gets two independent views", () => {
+  let state = seeded();
+  state = addView(state, WIN2, "host-a", "view-a2", 33);
+  assert.equal(state.entries.length, 3);
+  assert.equal(getView(state, WIN1, "host-a")?.handle, "view-a");
+  assert.equal(getView(state, WIN2, "host-a")?.handle, "view-a2");
+  // Caches are per (window, host): one window's reports never touch the other's.
+  state = setViewBadge(state, WIN1, "host-a", 2);
+  state = setViewBadge(state, WIN2, "host-a", 7);
+  assert.equal(getView(state, WIN1, "host-a")?.badgeCount, 2);
+  assert.equal(getView(state, WIN2, "host-a")?.badgeCount, 7);
 });
 
 test("entries preserve first-visit order", () => {
@@ -68,70 +90,116 @@ test("entries preserve first-visit order", () => {
   );
 });
 
-// ── activate / deactivate ────────────────────────────────────────────────────
+// ── activate / deactivate (per window) ───────────────────────────────────────
 
 test("activateView sets the attached host; deactivateViews clears it", () => {
-  let state = activateView(seeded(), "host-a");
-  assert.equal(state.activeHostId, "host-a");
-  assert.equal(activeView(state)?.handle, "view-a");
-  state = activateView(state, "host-b");
-  assert.equal(activeView(state)?.handle, "view-b");
-  state = deactivateViews(state);
-  assert.equal(state.activeHostId, null);
-  assert.equal(activeView(state), null);
+  let state = activateView(seeded(), WIN1, "host-a");
+  assert.equal(activeHostForWindow(state, WIN1), "host-a");
+  assert.equal(activeView(state, WIN1)?.handle, "view-a");
+  state = activateView(state, WIN1, "host-b");
+  assert.equal(activeView(state, WIN1)?.handle, "view-b");
+  state = deactivateViews(state, WIN1);
+  assert.equal(activeHostForWindow(state, WIN1), null);
+  assert.equal(activeView(state, WIN1), null);
 });
 
-test("activateView with an unknown host is a no-op", () => {
-  const state = activateView(seeded(), "nope");
-  assert.equal(state.activeHostId, null);
+test("activateView with an unknown (window, host) pair is a no-op", () => {
+  const before = seeded();
+  assert.equal(activateView(before, WIN1, "nope"), before);
+  assert.equal(activateView(before, WIN2, "host-a"), before);
+});
+
+test("active pointers are per window — two windows show different hosts", () => {
+  let state = seeded();
+  state = addView(state, WIN2, "host-a", "view-a2", 33);
+  state = activateView(state, WIN1, "host-a");
+  state = activateView(state, WIN2, "host-a");
+  assert.equal(activeHostForWindow(state, WIN1), "host-a");
+  assert.equal(activeHostForWindow(state, WIN2), "host-a");
+  state = activateView(state, WIN1, "host-b");
+  assert.equal(activeHostForWindow(state, WIN1), "host-b");
+  assert.equal(activeHostForWindow(state, WIN2), "host-a"); // window 2 untouched
 });
 
 test("deactivateViews keeps the per-view caches (welcome does not wipe them)", () => {
-  let state = activateView(seeded(), "host-a");
-  state = setViewBadge(state, "host-a", 4);
-  state = deactivateViews(state);
-  assert.equal(getView(state, "host-a")?.badgeCount, 4);
+  let state = activateView(seeded(), WIN1, "host-a");
+  state = setViewBadge(state, WIN1, "host-a", 4);
+  state = deactivateViews(state, WIN1);
+  assert.equal(getView(state, WIN1, "host-a")?.badgeCount, 4);
 });
 
 // ── remove ───────────────────────────────────────────────────────────────────
 
 test("removeView returns the removed entry and clears an active pointer at it", () => {
-  const before = activateView(seeded(), "host-b");
-  const { state, removed } = removeView(before, "host-b");
+  const before = activateView(seeded(), WIN1, "host-b");
+  const { state, removed } = removeView(before, WIN1, "host-b");
   assert.equal(removed?.handle, "view-b");
-  assert.equal(state.activeHostId, null);
-  assert.equal(getView(state, "host-b"), null);
-  assert.ok(getView(state, "host-a")); // the other view survives
+  assert.equal(activeHostForWindow(state, WIN1), null);
+  assert.equal(getView(state, WIN1, "host-b"), null);
+  assert.ok(getView(state, WIN1, "host-a")); // the other view survives
 });
 
-test("removeView of a non-active host keeps the active pointer", () => {
-  const before = activateView(seeded(), "host-a");
-  const { state } = removeView(before, "host-b");
-  assert.equal(state.activeHostId, "host-a");
+test("removeView of a non-active pair keeps the active pointer", () => {
+  const before = activateView(seeded(), WIN1, "host-a");
+  const { state } = removeView(before, WIN1, "host-b");
+  assert.equal(activeHostForWindow(state, WIN1), "host-a");
 });
 
-test("removeView of an unknown host is a no-op with removed null", () => {
+test("removeView of an unknown pair is a no-op with removed null", () => {
   const before = seeded();
-  const { state, removed } = removeView(before, "nope");
+  const { state, removed } = removeView(before, WIN1, "nope");
   assert.equal(removed, null);
   assert.equal(state, before);
+});
+
+test("removeWindowViews drops every view of that window only", () => {
+  let state = seeded();
+  state = addView(state, WIN2, "host-a", "view-a2", 33);
+  state = activateView(state, WIN1, "host-a");
+  state = activateView(state, WIN2, "host-a");
+  const { state: next, removed } = removeWindowViews(state, WIN1);
+  assert.deepEqual(
+    removed.map((e) => e.handle).sort(),
+    ["view-a", "view-b"],
+  );
+  assert.equal(getView(next, WIN1, "host-a"), null);
+  assert.equal(activeHostForWindow(next, WIN1), null);
+  assert.ok(getView(next, WIN2, "host-a")); // window 2 survives intact
+  assert.equal(activeHostForWindow(next, WIN2), "host-a");
+});
+
+test("removeHostViews drops the host across ALL windows", () => {
+  let state = seeded();
+  state = addView(state, WIN2, "host-a", "view-a2", 33);
+  state = activateView(state, WIN1, "host-a");
+  state = activateView(state, WIN2, "host-a");
+  const { state: next, removed } = removeHostViews(state, "host-a");
+  assert.deepEqual(
+    removed.map((e) => e.handle).sort(),
+    ["view-a", "view-a2"],
+  );
+  assert.equal(getView(next, WIN1, "host-a"), null);
+  assert.equal(getView(next, WIN2, "host-a"), null);
+  assert.equal(activeHostForWindow(next, WIN1), null);
+  assert.equal(activeHostForWindow(next, WIN2), null);
+  assert.ok(getView(next, WIN1, "host-b")); // other hosts survive
 });
 
 // ── badge cache (per view, webContents-id keyed sender resolution) ──────────
 
 test("badge counts are cached per view — shared origins stay distinct", () => {
   // Two host ENTRIES can share one origin (addHost never dedupes); the caches
-  // key on host id / webContents id, never on origin.
+  // key on (window, host) / webContents id, never on origin.
   let state = seeded();
-  state = setViewBadge(state, "host-a", 2);
-  state = setViewBadge(state, "host-b", 5);
-  assert.equal(getView(state, "host-a")?.badgeCount, 2);
-  assert.equal(getView(state, "host-b")?.badgeCount, 5);
+  state = setViewBadge(state, WIN1, "host-a", 2);
+  state = setViewBadge(state, WIN1, "host-b", 5);
+  assert.equal(getView(state, WIN1, "host-a")?.badgeCount, 2);
+  assert.equal(getView(state, WIN1, "host-b")?.badgeCount, 5);
 });
 
-test("setViewBadge for an unknown host is a no-op", () => {
+test("setViewBadge for an unknown pair is a no-op", () => {
   const before = seeded();
-  const state = setViewBadge(before, "nope", 7);
+  const state = setViewBadge(before, WIN1, "nope", 7);
   assert.equal(state, before);
 });
 
@@ -141,49 +209,99 @@ test("findViewByWebContentsId resolves an IPC sender to its view", () => {
   assert.equal(findViewByWebContentsId(state, 99), null);
 });
 
+// ── aggregateBadge (sum across distinct displayed hosts) ────────────────────
+
+test("aggregateBadge sums the waiting counts of distinct displayed hosts", () => {
+  let state = seeded();
+  state = addView(state, WIN2, "host-b", "view-b2", 33);
+  state = setViewBadge(state, WIN1, "host-a", 3);
+  state = setViewBadge(state, WIN2, "host-b", 2);
+  state = setViewBadge(state, WIN1, "host-b", 9); // background view — not displayed
+  state = activateView(state, WIN1, "host-a");
+  state = activateView(state, WIN2, "host-b");
+  assert.equal(aggregateBadge(state), 5);
+});
+
+test("a host displayed by two windows counts ONCE", () => {
+  let state = seeded();
+  state = addView(state, WIN2, "host-a", "view-a2", 33);
+  state = setViewBadge(state, WIN1, "host-a", 3);
+  state = setViewBadge(state, WIN2, "host-a", 4);
+  state = activateView(state, WIN1, "host-a");
+  state = activateView(state, WIN2, "host-a");
+  assert.equal(aggregateBadge(state), 3); // the first-created window's cache wins
+});
+
+test("the duplicate dedupe keys on CREATION order, not activation order", () => {
+  // Plan decision "Duplicate-host badge dedupe takes the first window's
+  // cache": window ids increment with creation, so WIN1's cache supplies the
+  // count even when WIN2 activated the host FIRST.
+  let state = seeded();
+  state = addView(state, WIN2, "host-a", "view-a2", 33);
+  state = setViewBadge(state, WIN1, "host-a", 3);
+  state = setViewBadge(state, WIN2, "host-a", 4);
+  state = activateView(state, WIN2, "host-a"); // WIN2 activates first
+  state = activateView(state, WIN1, "host-a");
+  assert.equal(aggregateBadge(state), 3);
+});
+
+test("aggregateBadge is 0 with no attached views (all windows on welcome)", () => {
+  let state = seeded();
+  state = setViewBadge(state, WIN1, "host-a", 3); // cached but not displayed
+  assert.equal(aggregateBadge(state), 0);
+  state = deactivateViews(state, WIN1);
+  assert.equal(aggregateBadge(state), 0);
+});
+
 // ── theme-color cache ────────────────────────────────────────────────────────
 
 test("theme colors are cached per view", () => {
   let state = seeded();
-  state = setViewThemeColor(state, "host-a", "#112233");
-  state = setViewThemeColor(state, "host-b", "#445566");
-  assert.equal(getView(state, "host-a")?.themeColor, "#112233");
-  assert.equal(getView(state, "host-b")?.themeColor, "#445566");
+  state = setViewThemeColor(state, WIN1, "host-a", "#112233");
+  state = setViewThemeColor(state, WIN1, "host-b", "#445566");
+  assert.equal(getView(state, WIN1, "host-a")?.themeColor, "#112233");
+  assert.equal(getView(state, WIN1, "host-b")?.themeColor, "#445566");
 });
 
 test("setViewThemeColor accepts null (page without a theme-color meta)", () => {
-  let state = setViewThemeColor(seeded(), "host-a", "#112233");
-  state = setViewThemeColor(state, "host-a", null);
-  assert.equal(getView(state, "host-a")?.themeColor, null);
+  let state = setViewThemeColor(seeded(), WIN1, "host-a", "#112233");
+  state = setViewThemeColor(state, WIN1, "host-a", null);
+  assert.equal(getView(state, WIN1, "host-a")?.themeColor, null);
 });
 
-test("setViewThemeColor for an unknown host is a no-op", () => {
+test("setViewThemeColor for an unknown pair is a no-op", () => {
   const before = seeded();
-  assert.equal(setViewThemeColor(before, "nope", "#112233"), before);
+  assert.equal(setViewThemeColor(before, WIN1, "nope", "#112233"), before);
 });
 
 // ── switchPaint (the incoming-view repaint decision) ─────────────────────────
 
 test("switchPaint on a fresh view clears the badge and defaults the color", () => {
-  assert.deepEqual(switchPaint(seeded(), "host-a"), { badgeCount: 0, themeColor: null });
+  assert.deepEqual(switchPaint(seeded(), WIN1, "host-a"), {
+    badgeCount: 0,
+    themeColor: null,
+  });
 });
 
-test("switchPaint on an unknown host clears the badge and defaults the color", () => {
-  assert.deepEqual(switchPaint(seeded(), "nope"), { badgeCount: 0, themeColor: null });
+test("switchPaint on an unknown pair clears the badge and defaults the color", () => {
+  assert.deepEqual(switchPaint(seeded(), WIN1, "nope"), {
+    badgeCount: 0,
+    themeColor: null,
+  });
 });
 
 test("switchPaint returns the INCOMING view's caches, never the outgoing one's", () => {
-  let state = activateView(seeded(), "host-a");
-  state = setViewBadge(state, "host-a", 2);
-  state = setViewThemeColor(state, "host-a", "#112233");
-  state = setViewBadge(state, "host-b", 5); // background report — cached silently
-  state = setViewThemeColor(state, "host-b", "#445566");
-  assert.deepEqual(switchPaint(state, "host-b"), {
+  let state = activateView(seeded(), WIN1, "host-a");
+  state = setViewBadge(state, WIN1, "host-a", 2);
+  state = setViewThemeColor(state, WIN1, "host-a", "#112233");
+  state = setViewBadge(state, WIN1, "host-b", 5); // background report — cached silently
+  state = setViewThemeColor(state, WIN1, "host-b", "#445566");
+  assert.deepEqual(switchPaint(state, WIN1, "host-b"), {
     badgeCount: 5,
     themeColor: "#445566",
   });
   // and switching back repaints A's own caches
-  assert.deepEqual(switchPaint(state, "host-a"), {
+  assert.deepEqual(switchPaint(state, WIN1, "host-a"), {
     badgeCount: 2,
     themeColor: "#112233",
   });

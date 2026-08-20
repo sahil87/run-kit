@@ -132,11 +132,14 @@ to the board currently being viewed.
 
 Each **window** row (windows only — session rows and server tiles are out of
 scope) devotes the **entire 26px to the left of the status dot** (12px group
-indent + 14px marker-stripe zone) to a **single click/tap target** that opens a
-combined **Label picker** (colors + marker states). The target never selects the
+indent + 14px marker-stripe zone) to a **single click target** that opens the
+banded **Label picker** (color · marker · flair). The target never selects the
 row (`stopPropagation`) and coexists with drag-reorder; the status dot and window
 name keep their exact x-positions (the 26px repurposes the existing indent +
-gutter — no content shift). The cursor is `pointer` (menu-opener semantics).
+gutter — no content shift). The cursor is `pointer` (menu-opener semantics). The
+interactive zone is **fine-pointer-only**: on coarse pointers only the
+display-only marker stripe renders, and the row flyout card's `Change color…`
+action row is the touch path to the picker.
 
 A hover-revealed **palette icon** (the shipped `PaletteIcon`, ~11px) in the 12px
 icon zone makes the target discoverable using the same affordance grammar as the
@@ -144,42 +147,56 @@ right cluster: hovering the row fades the icon in (~65%) and glows the whole zon
 ~12% in the row's guarded family color; hovering the zone itself raises the icon
 to full opacity and the glow to ~24%. The icon is family-tinted on colored rows,
 inherited monochrome on uncolored rows. The **marker stripe is display-only**,
-inset 5px within its 14px zone: empty → dotted (3px) → solid (3px) → double (6px
-double), rendered in the guarded family color (gray for uncolored rows). Marker
-semantics are deliberately unnamed (todo/doing/done for one user, priority for
-another). The zone is **active on coarse (touch) pointers** — a tap opens the
-picker, giving touch direct label access.
+rendered in the guarded family color (gray for uncolored rows).
 
-The **combined Label picker** shows the 10 family swatches + a Clear-color row,
-then a 1px hairline separator, then 4 marker-state cells (none / dotted / solid /
-double) drawn as mini stripes in the row's guarded color; the current color and
-marker are highlighted. Any marker state is reachable in two clicks (open + pick)
-— there is **no cycling**. Color selection writes through the `familyToLegacy`
-seam (stored vocabulary stays legacy); marker selection writes the exact state.
-The picker uses **square styling** scoped to this instance (zero border-radius, a
-hard `3px 3px 0 rgba(0,0,0,.35)` offset block shadow, 1px selection outlines, 3px
-gaps) and keeps the color picker's arrow-key + Enter/Space keyboard nav extended
-across both sections (Escape / outside-click close). The `Window: Label`
-command-palette action opens the picker for the current window's row via the
-imperative `label-popover:open` event (Constitution V keyboard path). The
-right-side hover cluster is therefore **actions-only** (pin + kill) on window
-rows; session rows and server tiles keep their right-side color affordance.
+The **marker axis** holds 8 states — `""` plus `pipe`, `dotted`, `dashed`,
+`solid`, `double`, `thick`, `hatch`, `block` — and grows by the **categorical
+rule**: new states are new pattern *classes* (a 1px hairline, 45° diagonals,
+heavy block dashes), never a new weight between existing ones, because an ordinal
+weight ladder cannot encode categorical phases. Markers are **fully static** —
+the motion split: *markers mean something and hold still; flairs mean nothing
+and move*. Exactly one texture pairing exists: `hatch` (the in-progress marker)
+carries the static hazard-wedge weave; `thick` (completed) is deliberately
+quiet, and `double` is a plain twin stripe. Suggested semantics (`hatch` =
+in-progress, `thick` = completed, `double` = review, `pipe` = parked, `block` =
+archived) are **label conventions only** — no wiring to `@rk_agent_state` or the
+status pyramid.
 
-Marker state persists as the `@rk_marker` **window user option**
-(`""`/`dotted`/`solid`/`double`), written through the unified
-`POST /api/windows/{id}/options` endpoint (the same allowlist + validate-all path
-as `@color`), read back through the sessions enrichment onto the window payload
-as `marker`, and wired into the SSE-hub wake seam so the mutation repaints in one
-poll pass rather than the 12s safety tick. Marker and color are fully
-independent — a window may be any (family, marker) pair.
+The **banded Label picker** (~190px wide, constant height regardless of any
+axis's growth) stacks the three axes as horizontal bands under a live
+**composite preview row**: the row's actual resting look — color tint, marker
+stripe + texture, live flair overlay, the row's name — with a combo caption
+underneath (`teal · hatch · scan`, `∅` for unset axes). Each band carries a
+green-bracket `[ axis ]` header whose right-aligned **∅ clear cell** (ringed
+when the axis is unset) clears only that axis. The color band is a 2-shade-row ×
+10-family column-flow **horizontal scroll strip** — color only ever scrolls
+horizontally; vertical would break the shade pairing. The marker band is a
+single unscrolled row of the 8 states (semantic states never hide behind a
+scroll); the flair band is a 2-row column-flow strip of the 12 flairs. Selection
+never dismisses the picker (combo iteration is the point); ✕ / outside-click /
+Escape close it. Color selection writes through the `familyToLegacy` seam
+(stored vocabulary stays legacy); marker and flair selections write the exact
+state. Keyboard: bands are plain grids, each header ∅ is row 0 of its band, and
+arrow moves scroll cells into view, keeping the scroll strip invisible to the
+grid model. The `Window: Label` command-palette action opens the picker for the
+current window's row via the imperative `label-popover:open` event (Constitution
+V keyboard path). The right-side hover cluster is therefore **actions-only**
+(pin + kill) on window rows; session rows and server tiles keep their right-side
+color affordance.
 
-**Easter egg**: a `double`-marker row wears a static CRT scanline overlay
-(`repeating-linear-gradient`, ~14% marker color); when such a row is *also*
-selected, the scanlines animate (a slow downward crawl + an occasional CRT
-refresh band). Pure CSS utilities (`rk-scanlines` / `rk-scanlines-crawl` in
-`globals.css`), fully zeroed under `prefers-reduced-motion` — the effect never
-touches the status pyramid's attention channel (the waiting halo stays
-unambiguous).
+**Motion lives on the flair axis**: the 12-state flair catalogue includes `rain`
+(two-lane data rain) and `scan` (CRT scanlines + crawl + refresh band) — both
+always-on, composable with any marker, and fully hidden under
+`prefers-reduced-motion` like every flair.
+
+Marker state persists as the `@rk_marker` **window user option** (`""` plus the
+8 tokens above — additive growth, stored values never rewritten), written
+through the unified `POST /api/windows/{id}/options` endpoint (the same
+allowlist + validate-all path as `@color`), read back through the sessions
+enrichment onto the window payload as `marker`, and wired into the SSE-hub wake
+seam so the mutation repaints in one poll pass rather than the 12s safety tick.
+Marker, color, and flair are fully independent axes — a window may be any
+combination.
 
 ## File Layout
 

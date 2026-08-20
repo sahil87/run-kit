@@ -405,8 +405,8 @@ describe("SettingsDialog", () => {
     renderDialog();
     selectTab("Appearance");
     fireEvent.click(screen.getByRole("button", { name: "Set instance color" }));
-    // The popover's removal row is the color-only marker ("Clear" + ✕).
-    expect(await screen.findByText("Clear")).toBeInTheDocument();
+    // The popover's color band header ∅ is the color-only marker ("Clear color" + ✕).
+    expect(await screen.findByRole("option", { name: "Clear color" })).toBeInTheDocument();
   });
 
   it("uses the xl dialog variant (fixed height, max-w-4xl) with the 190px/1fr preference-row grid (260724-6j1v)", () => {

@@ -201,9 +201,9 @@ func ValidateInstanceName(value string) string {
 // its error message are both derived from this single slice, so adding a token
 // cannot drift the map and the message out of sync.
 var (
-	markerTokens = []string{"dotted", "dashed", "solid", "double", "thick"}
+	markerTokens = []string{"pipe", "dotted", "dashed", "solid", "double", "thick", "hatch", "block"}
 	roleTokens   = []string{"operator"}
-	flairTokens  = []string{"nyan", "naruto", "onepiece", "pacman", "matrix", "aquarium", "roadrunner", "invaders", "cube", "warp"}
+	flairTokens  = []string{"rain", "scan", "nyan", "naruto", "onepiece", "pacman", "matrix", "aquarium", "roadrunner", "invaders", "cube", "warp"}
 )
 
 // closedSet builds the membership map for an ordered token slice, including
@@ -234,14 +234,15 @@ func validateClosedSet(value, label string, set map[string]bool, tokens []string
 
 // MarkerValues is the closed set of accepted @rk_marker window-option values,
 // derived from markerTokens. The empty string means "unset" (no marker); the
-// five named states drive the left-gutter marker's stripe style in the UI
-// (dotted/dashed/solid 3px, double/thick 6px).
+// eight named states drive the left-gutter marker's stripe style in the UI
+// (pipe 1px; dotted/dashed/solid 3px; double/thick/block 6px; hatch 45°
+// diagonals — all fully static, all periods dividing the 12px weld module).
 var MarkerValues = closedSet(markerTokens)
 
-// ValidateMarkerValue validates an @rk_marker value: one of ""/dotted/dashed/
-// solid/double/thick. Returns an empty string if valid, an error message
-// otherwise. The single shared marker-value rule reused by the window-option
-// handler.
+// ValidateMarkerValue validates an @rk_marker value: one of ""/pipe/dotted/
+// dashed/solid/double/thick/hatch/block. Returns an empty string if valid, an
+// error message otherwise. The single shared marker-value rule reused by the
+// window-option handler.
 func ValidateMarkerValue(value string) string {
 	return validateClosedSet(value, "Marker", MarkerValues, markerTokens)
 }
@@ -266,10 +267,10 @@ func ValidateRoleValue(value string) string {
 var FlairValues = closedSet(flairTokens)
 
 // ValidateFlairValue validates an @rk_flair value against flairTokens (one of
-// ""/nyan/naruto/onepiece/pacman/matrix/aquarium/roadrunner/invaders/cube/
-// warp). Returns an empty string if valid, an error message otherwise. The
-// single shared flair-value rule reused by the window-option and session-flair
-// handlers.
+// ""/rain/scan/nyan/naruto/onepiece/pacman/matrix/aquarium/roadrunner/
+// invaders/cube/warp). Returns an empty string if valid, an error message
+// otherwise. The single shared flair-value rule reused by the window-option
+// and session-flair handlers.
 func ValidateFlairValue(value string) string {
 	return validateClosedSet(value, "Flair", FlairValues, flairTokens)
 }

@@ -4139,6 +4139,7 @@ function AppShell() {
                     ? currentSession?.sessionColor
                     : currentWindow?.color
                 }
+                rowName={showColorPicker === "session" ? sessionName : currentWindow?.name}
                 // Selection does NOT close (the picker's dismissal contract) —
                 // dismissal is the ✕ cell, the backdrop click, or Escape.
                 onSelect={(c) => {

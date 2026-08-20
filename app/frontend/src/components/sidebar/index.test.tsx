@@ -1955,7 +1955,7 @@ describe("Sidebar — server-group header action cluster (x4sf)", () => {
     fireEvent.click(within(container).getByRole("button", { name: "Set color for server alpha" }));
     fireEvent.click(
       within(screen.getByRole("listbox", { name: "Color picker" })).getByRole("option", {
-        name: "Clear",
+        name: "Clear color",
       }),
     );
 

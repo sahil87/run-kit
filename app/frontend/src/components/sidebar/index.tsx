@@ -2748,6 +2748,7 @@ function ServerGroupInner(props: ServerGroupProps) {
                     session={session}
                     sessionColor={session.sessionColor}
                     rowTints={rowTints}
+                    rowBorders={rowBorders}
                     isCollapsed={isCollapsed}
                     isSessionDropTarget={sessionDropTarget === session.name}
                     editingSession={editingSession}

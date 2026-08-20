@@ -485,16 +485,18 @@ func TestValidateColorValue(t *testing.T) {
 
 func TestValidateMarkerValue(t *testing.T) {
 	// The empty string is valid — it means "unset" (no marker). The closed set
-	// is the 5 named states (display order dotted/dashed/solid/double/thick).
-	valid := []string{"", "dotted", "dashed", "solid", "double", "thick"}
+	// is the 8 named states (display order pipe/dotted/dashed/solid/double/
+	// thick/hatch/block).
+	valid := []string{"", "pipe", "dotted", "dashed", "solid", "double", "thick", "hatch", "block"}
 	for _, v := range valid {
 		if msg := ValidateMarkerValue(v); msg != "" {
 			t.Errorf("ValidateMarkerValue(%q) = %q, want valid", v, msg)
 		}
 	}
 	// Anything outside the closed set is rejected (case-sensitive, no whitespace
-	// tolerance — the frontend only ever writes the canonical tokens).
-	invalid := []string{"Dotted", "Dashed", "DASHED", "THICK", "dot", "dash", " solid ", " thick ", "4", "1+3", "none", "true"}
+	// tolerance — the frontend only ever writes the canonical tokens). Flair
+	// tokens are NOT markers — the axes are independent closed sets.
+	invalid := []string{"Dotted", "Dashed", "DASHED", "THICK", "Hatch", "dot", "dash", " solid ", " thick ", "4", "1+3", "none", "true", "rain", "scan", "nyan"}
 	for _, v := range invalid {
 		if msg := ValidateMarkerValue(v); msg == "" {
 			t.Errorf("ValidateMarkerValue(%q) = valid, want error", v)
@@ -523,8 +525,8 @@ func TestValidateRoleValue(t *testing.T) {
 
 func TestValidateFlairValue(t *testing.T) {
 	// The empty string is valid — it means "unset" (no flair). The closed set
-	// is the 10 named states (the frontend's FLAIR_STATES minus "").
-	valid := []string{"", "nyan", "naruto", "onepiece", "pacman", "matrix", "aquarium", "roadrunner", "invaders", "cube", "warp"}
+	// is the 12 named states (the frontend's FLAIR_STATES minus "").
+	valid := []string{"", "rain", "scan", "nyan", "naruto", "onepiece", "pacman", "matrix", "aquarium", "roadrunner", "invaders", "cube", "warp"}
 	for _, v := range valid {
 		if msg := ValidateFlairValue(v); msg != "" {
 			t.Errorf("ValidateFlairValue(%q) = %q, want valid", v, msg)
@@ -532,8 +534,9 @@ func TestValidateFlairValue(t *testing.T) {
 	}
 	// Anything outside the closed set is rejected (case-sensitive, no whitespace
 	// tolerance — the frontend only ever writes the canonical tokens). The
-	// rejected-in-review train/dvd/tetris tokens stay OUT.
-	invalid := []string{"Nyan", "NYAN", "Naruto", "ONEPIECE", " nyan ", " onepiece ", "pikachu", "one-piece", "4", "1+3", "none", "true", "train", "dvd", "tetris"}
+	// rejected-in-review train/dvd/tetris tokens stay OUT, and marker tokens
+	// are NOT flairs — the axes are independent closed sets.
+	invalid := []string{"Nyan", "NYAN", "Naruto", "ONEPIECE", " nyan ", " onepiece ", "pikachu", "one-piece", "4", "1+3", "none", "true", "train", "dvd", "tetris", "hatch", "pipe", "block", "dashed"}
 	for _, v := range invalid {
 		if msg := ValidateFlairValue(v); msg == "" {
 			t.Errorf("ValidateFlairValue(%q) = valid, want error", v)

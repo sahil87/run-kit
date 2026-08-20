@@ -421,12 +421,11 @@ function WindowRowInner({
     e.stopPropagation();
     setShowLabelPicker(true);
   };
-  const isDouble = marker === "double";
-  const scanlineAnimated = isDouble && isSelected;
-  // Thick pairs with the STATIC hazard wedge (completed / "taped off" cue) —
-  // never animated in any state, unlike double's selected crawl.
-  const isThick = marker === "thick";
-  const isDashed = marker === "dashed";
+  // Hatch pairs with the STATIC hazard wedge (in-progress / "work zone" cue) —
+  // the marker axis's ONLY texture pairing, never animated in any state. All
+  // other markers are texture-free: the motion split moved the dashed rain and
+  // the double scanlines to the flair axis (rain/scan).
+  const isHatch = marker === "hatch";
 
   return (
     <div
@@ -493,7 +492,7 @@ function WindowRowInner({
       onDrop={dragEnabled && onDrop ? (e) => onDrop(e, srv, session, win.index) : undefined}
       onDragEnd={dragEnabled ? onDragEnd : undefined}
       style={{
-        ...(isDouble || isThick || isDashed
+        ...(isHatch
           ? ({ "--rk-marker-color": markerColor } as React.CSSProperties)
           : {}),
         // Bulk-selection treatment (260807-nf9f): a 2px inset accent ring, the
@@ -510,56 +509,30 @@ function WindowRowInner({
             : {}),
       }}
     >
-      {/* Scanline / CRT-band overlay for double-marker rows. A dedicated inner
-          element that OWNS the clip (`overflow-hidden`) so the rolling band's
-          `::after` stays inside the row while the row ROOT remains free to
-          overflow for the `top-full` popovers (must-fix 4). Non-interactive
-          (`pointer-events-none`) and z-5 (above the button bg, below the z-10
-          icon cluster / z-20 gutter). Selected+double adds the animated crawl. */}
-      {isDouble && (
-        <div
-          aria-hidden="true"
-          className={`absolute inset-0 z-[5] overflow-hidden pointer-events-none rk-scanlines${
-            scanlineAnimated ? " rk-scanlines-crawl" : ""
-          }`}
-        />
-      )}
-      {/* Hazard-wedge overlay for thick-marker rows (completed / "taped off"
-          cue). Mirrors the scanlines discipline exactly — dedicated clipped
-          inner element (never the root), pointer-events-none, z-5 — but is
-          STATIC in every state (rest, hover, selected): no animated twin
-          exists by explicit design decision. The wedge reads the same
-          `--rk-marker-color` custom property set on the root above. */}
-      {isThick && (
+      {/* Hazard-wedge overlay for hatch-marker rows (in-progress / "work
+          zone" cue — the marker axis's only texture pairing). A dedicated
+          clipped inner element (never the root, whose `top-full` popovers
+          must stay unclipped), pointer-events-none, z-5, STATIC in every
+          state (rest, hover, selected): no animated twin exists by explicit
+          design decision. The wedge reads the `--rk-marker-color` custom
+          property set on the root above. */}
+      {isHatch && (
         <div
           aria-hidden="true"
           className="absolute inset-0 z-[5] overflow-hidden pointer-events-none rk-hazard"
         />
       )}
-      {/* Data-rain overlay for dashed-marker rows — ALWAYS-ON: "working" is
-          inherently a live state, and the thinned two-lane rain is quiet
-          enough to run ambiently (a deliberate user call after watching the
-          selection-gated version). Two sparse dash tracks streaming
-          left→right; the gutter stripe itself stays static in every state.
-          Same overlay discipline (dedicated clipped inner element, never the
-          root, pointer-events-none, z-5); reads `--rk-marker-color` from the
-          root. Hidden entirely under prefers-reduced-motion (motion-only —
-          the static label cue is the stripe). */}
-      {isDashed && (
-        <div
-          aria-hidden="true"
-          className="absolute inset-0 z-[5] overflow-hidden pointer-events-none rk-dash-rain"
-        />
-      )}
       {/* Flair overlay (decoration-only channel): an always-on ambient
           CSS-only animation mounted whenever the window carries a flair value
           — in EVERY row state (rest, hover, selected). Same overlay discipline
-          as the marker textures above (dedicated clipped inner element, never
+          as the hazard texture above (dedicated clipped inner element, never
           the root, pointer-events-none, z-5) and composes with the color tint
-          and any marker overlay. Hidden entirely under prefers-reduced-motion
-          (globals.css § Flair overlays) and while this row is the drag source
-          (cube/warp animate transforms on child spans — the drag ghost rule). */}
-      <FlairOverlay flair={win.flair} hidden={isDragSource} />
+          and the marker stripe. The row's guarded color rides as `color` so
+          the tinted flairs (rain/scan) match the row's family. Hidden
+          entirely under prefers-reduced-motion (globals.css § Flair overlays)
+          and while this row is the drag source (cube/warp animate transforms
+          on child spans — the drag ghost rule). */}
+      <FlairOverlay flair={win.flair} hidden={isDragSource} color={markerColor} />
       {/* Display-only marker stripe (all pointers, incl. coarse — it is
           information, not an affordance): anchored `STRIPE_EDGE_INSET`px from
           the sidebar's physical left edge, spanning the former zone's width.
@@ -834,13 +807,14 @@ function WindowRowInner({
         />
       )}
       {showLabelPicker && onColorChange && onMarkerChange && (
-        // Combined Label picker (colors + marker), anchored at the row's
+        // Banded Label picker (colors + marker + flair), anchored at the row's
         // BOTTOM-LEFT (twin of the shipped right-anchored color popover). The
-        // row root stays overflow-free (must-fix 4) so this `top-full` popover
-        // is not clipped, even on a selected+double row.
+        // row root stays overflow-free so this `top-full` popover is not
+        // clipped.
         <div className="absolute left-0 top-full z-50">
           <SwatchPopover
             selectedColor={color}
+            rowName={win.name}
             // Selection does NOT close (the picker's dismissal contract) — the
             // user can toggle color + marker combos and watch the row update
             // live. Dismissal is the picker's ✕ / outside click / Escape.

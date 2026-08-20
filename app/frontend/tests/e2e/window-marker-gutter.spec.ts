@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page, type Locator } from "@playwright/test";
 import { gotoServerReady, resolveWindow as resolveWindowRaw } from "./_ready";
 import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 
@@ -6,12 +6,18 @@ import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 const TEST_SESSION = `e2e-marker-${Date.now()}`;
 
 /** Shared snapshot resolver (hoisted to `_ready.ts`) bound to this file's
- *  server + session — the full window carries marker/color too. */
+ *  server + session — the full window carries marker/color/flair too. */
 const resolveWindow = (page: Page, windowName: string) =>
   resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION, windowName);
 
-/** Poll the snapshot until the named window's @rk_marker equals `expected`. */
-async function expectMarker(page: Page, windowName: string, expected: string): Promise<void> {
+/** Poll the snapshot until the named window's window-option field equals
+ *  `expected` (marker = @rk_marker, color = @color, flair = @rk_flair). */
+async function expectWindowField(
+  page: Page,
+  windowName: string,
+  field: "marker" | "color" | "flair",
+  expected: string,
+): Promise<void> {
   await expect
     .poll(
       async () => {
@@ -21,42 +27,34 @@ async function expectMarker(page: Page, windowName: string, expected: string): P
         if (!res.ok()) return "<fetch-failed>";
         const sessions = (await res.json()) as Array<{
           name: string;
-          windows: Array<{ name: string; marker?: string }>;
+          windows: Array<{ name: string; marker?: string; color?: string; flair?: string }>;
         }>;
         const win = sessions
           .find((s) => s.name === TEST_SESSION)
           ?.windows.find((w) => w.name === windowName);
-        return win?.marker ?? "";
+        return win?.[field] ?? "";
       },
       { timeout: 6_000 },
     )
     .toBe(expected);
 }
 
-/** Poll the snapshot until the named window's @color equals `expected`. */
-async function expectColor(page: Page, windowName: string, expected: string): Promise<void> {
-  await expect
-    .poll(
-      async () => {
-        const res = await page.request.get(
-          `/api/sessions?server=${encodeURIComponent(TMUX_SERVER)}`,
-        );
-        if (!res.ok()) return "<fetch-failed>";
-        const sessions = (await res.json()) as Array<{
-          name: string;
-          windows: Array<{ name: string; color?: string }>;
-        }>;
-        const win = sessions
-          .find((s) => s.name === TEST_SESSION)
-          ?.windows.find((w) => w.name === windowName);
-        return win?.color ?? "";
-      },
-      { timeout: 6_000 },
-    )
-    .toBe(expected);
+const expectMarker = (page: Page, windowName: string, expected: string) =>
+  expectWindowField(page, windowName, "marker", expected);
+const expectColor = (page: Page, windowName: string, expected: string) =>
+  expectWindowField(page, windowName, "color", expected);
+const expectFlair = (page: Page, windowName: string, expected: string) =>
+  expectWindowField(page, windowName, "flair", expected);
+
+/** Open the row's banded Label picker from the left-edge label zone. */
+async function openLabelPicker(row: Locator, page: Page): Promise<Locator> {
+  await row.getByLabel("Set window label").click();
+  const picker = page.getByRole("listbox", { name: "Label picker" });
+  await expect(picker).toBeVisible({ timeout: 5_000 });
+  return picker;
 }
 
-test.describe("Window left-edge label zone + combined picker", () => {
+test.describe("Window left-edge label zone + banded picker", () => {
   test.beforeAll(() => {
     createSession(TEST_SESSION);
   });
@@ -65,7 +63,7 @@ test.describe("Window left-edge label zone + combined picker", () => {
     killSession(TEST_SESSION);
   });
 
-  test("the label zone opens the combined picker; picking a marker persists via @rk_marker (no cycling)", async ({ page }) => {
+  test("the label zone opens the banded picker; picking a marker persists via @rk_marker (no cycling)", async ({ page }) => {
     const ts = Date.now();
     const winName = `marker-win-${ts}`;
     newWindow(TEST_SESSION, winName);
@@ -80,11 +78,18 @@ test.describe("Window left-edge label zone + combined picker", () => {
     // Fresh window has no marker.
     expect(target.marker ?? "").toBe("");
 
-    // The 26px left-edge zone is a single target that OPENS the combined Label
-    // picker — it does NOT cycle. Named for selection by its aria-label.
-    await row.getByLabel("Set window label").click();
-    const picker = page.getByRole("listbox", { name: "Label picker" });
-    await expect(picker).toBeVisible({ timeout: 5_000 });
+    const picker = await openLabelPicker(row, page);
+
+    // The banded chrome: each axis named by its `[ axis ]` header, with the
+    // header ∅ carrying the clear for that axis. The marker axis starts unset
+    // — its header ∅ is ringed (aria-selected).
+    for (const axis of ["[ color ]", "[ marker ]", "[ flair ]"]) {
+      await expect(picker.getByText(axis, { exact: true })).toBeVisible();
+    }
+    await expect(picker.getByRole("option", { name: "Marker none" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
 
     // The picker STAYS OPEN across picks (the dismissal contract): every state
     // below is reached inside ONE open session, live-toggling against the row.
@@ -96,22 +101,102 @@ test.describe("Window left-edge label zone + combined picker", () => {
     await picker.getByRole("option", { name: "Marker double" }).click();
     await expectMarker(page, winName, "double");
 
-    // The two NEW states (260723-wwoi) persist through the same closed set:
-    // "dashed" ("working" convention, the worker-stream stripe) …
-    await picker.getByRole("option", { name: "Marker dashed" }).click();
-    await expectMarker(page, winName, "dashed");
+    // The three CATEGORICAL additions (9hh6) persist through the same widened
+    // closed set: pipe (1px hairline), hatch (45° diagonals — the in-progress
+    // marker), block (heavy block dashes).
+    await picker.getByRole("option", { name: "Marker pipe" }).click();
+    await expectMarker(page, winName, "pipe");
+    await picker.getByRole("option", { name: "Marker hatch" }).click();
+    await expectMarker(page, winName, "hatch");
+    await picker.getByRole("option", { name: "Marker block" }).click();
+    await expectMarker(page, winName, "block");
 
-    // … and "thick" ("completed" convention, the hazard-wedge pairing).
-    await picker.getByRole("option", { name: "Marker thick" }).click();
-    await expectMarker(page, winName, "thick");
-
-    // "none" clears — the picker is still open.
+    // The header ∅ clears the marker axis (aria-name "Marker none") — the
+    // picker is still open.
     await picker.getByRole("option", { name: "Marker none" }).click();
     await expectMarker(page, winName, "");
 
     // The ✕ cell is the explicit dismiss (selection never closes).
     await picker.getByLabel("Close picker").click();
     await expect(picker).not.toBeVisible();
+  });
+
+  test("hatch rows carry the hazard wedge; thick/double rows are texture-free (the motion split)", async ({ page }) => {
+    const ts = Date.now();
+    const winName = `marker-texture-${ts}`;
+    newWindow(TEST_SESSION, winName);
+
+    await gotoServerReady(page, TMUX_SERVER);
+
+    const sidebar = page.locator("nav[aria-label='Sessions']");
+    const target = await resolveWindow(page, winName);
+    const row = sidebar.locator(`[data-window-id="${target.windowId}"]`);
+    await expect(row).toBeVisible({ timeout: 5_000 });
+
+    const picker = await openLabelPicker(row, page);
+
+    // NOTE on scoping: the picker mounts INSIDE the row's DOM (top-full
+    // popover), and its preview/cells render the same overlay classes — so the
+    // row's own overlays are matched as DIRECT children of the row root
+    // (:scope >), never the picker's spans.
+
+    // hatch ↔ hazard is the marker axis's ONE texture pairing.
+    await picker.getByRole("option", { name: "Marker hatch" }).click();
+    await expectMarker(page, winName, "hatch");
+    await expect(row.locator(":scope > div.rk-hazard")).toBeAttached({ timeout: 5_000 });
+
+    // thick (completed) went QUIET — no hazard, and no rain/scanline motion
+    // survives on any marker (both moved to the flair axis).
+    await picker.getByRole("option", { name: "Marker thick" }).click();
+    await expectMarker(page, winName, "thick");
+    await expect(row.locator(":scope > div.rk-hazard")).toHaveCount(0, { timeout: 5_000 });
+    await expect(row.locator(".rk-dash-rain")).toHaveCount(0);
+    await expect(row.locator("[class*='rk-scanlines']")).toHaveCount(0);
+
+    // dashed goes still too — its data rain is the `rain` FLAIR now.
+    await picker.getByRole("option", { name: "Marker dashed" }).click();
+    await expectMarker(page, winName, "dashed");
+    await expect(row.locator(".rk-dash-rain")).toHaveCount(0);
+
+    await picker.getByLabel("Close picker").click();
+  });
+
+  test("rain + scan are FLAIRS: they persist via @rk_flair and compose with any marker", async ({ page }) => {
+    const ts = Date.now();
+    const winName = `marker-flair-${ts}`;
+    newWindow(TEST_SESSION, winName);
+
+    await gotoServerReady(page, TMUX_SERVER);
+
+    const sidebar = page.locator("nav[aria-label='Sessions']");
+    const target = await resolveWindow(page, winName);
+    const row = sidebar.locator(`[data-window-id="${target.windowId}"]`);
+    await expect(row).toBeVisible({ timeout: 5_000 });
+
+    const picker = await openLabelPicker(row, page);
+
+    // The flair band leads with the two migrated motion treatments, then the
+    // 10 shipped states.
+    await picker.getByRole("option", { name: "Flair rain" }).click();
+    await expectFlair(page, winName, "rain");
+    // The overlay mounts on the row — composable with ANY marker (dashed
+    // here, the rain's old owner). `:scope >` selects the ROW's own overlay —
+    // the picker (mounted inside the row's DOM) renders the same classes on
+    // its band cells.
+    await picker.getByRole("option", { name: "Marker dashed" }).click();
+    await expectMarker(page, winName, "dashed");
+    await expect(row.locator(":scope > .rk-flair-rain")).toBeAttached({ timeout: 5_000 });
+
+    await picker.getByRole("option", { name: "Flair scan" }).click();
+    await expectFlair(page, winName, "scan");
+    await expect(row.locator(":scope > .rk-flair-scan")).toBeAttached({ timeout: 5_000 });
+
+    // The header ∅ clears the flair axis only — the marker survives.
+    await picker.getByRole("option", { name: "Flair none" }).click();
+    await expectFlair(page, winName, "");
+    await expectMarker(page, winName, "dashed");
+
+    await picker.getByLabel("Close picker").click();
   });
 
   test("picking a color persists via @color — normal shade through the legacy seam, dark shade verbatim", async ({ page }) => {
@@ -131,22 +216,48 @@ test.describe("Window left-edge label zone + combined picker", () => {
     // (NORMAL shade). The picker maps it to the LEGACY descriptor "1+3" at the
     // write seam (familyToLegacy) — the vocabulary pre-existing colors are
     // stored in — so @color persists as "1+3", not the family name. `exact`
-    // because the paired shade grid also contains "Color orange-dark", which
+    // because the paired shade band also contains "Color orange-dark", which
     // Playwright's substring name matching would otherwise collide with.
-    await row.getByLabel("Set window label").click();
-    const picker = page.getByRole("listbox", { name: "Label picker" });
-    await expect(picker).toBeVisible({ timeout: 5_000 });
+    const picker = await openLabelPicker(row, page);
     await picker.getByRole("option", { name: "Color orange", exact: true }).click();
     await expectColor(page, winName, "1+3");
 
     // A DARK-shade pick has no legacy form: it persists as the verbatim
-    // "{family}-dark" value, which the backend validators now accept. The
-    // picker stayed open after the first pick (the dismissal contract), so
-    // this is the same open session.
+    // "{family}-dark" value, which the backend validators accept. The picker
+    // stayed open after the first pick (the dismissal contract), so this is
+    // the same open session.
     await picker.getByRole("option", { name: "Color orange-dark", exact: true }).click();
     await expectColor(page, winName, "orange-dark");
     await picker.getByLabel("Close picker").click();
     await expect(picker).not.toBeVisible();
+  });
+
+  test("the composite preview mirrors the live combo (tint + name + caption)", async ({ page }) => {
+    const ts = Date.now();
+    const winName = `marker-preview-${ts}`;
+    newWindow(TEST_SESSION, winName);
+
+    await gotoServerReady(page, TMUX_SERVER);
+
+    const sidebar = page.locator("nav[aria-label='Sessions']");
+    const target = await resolveWindow(page, winName);
+    const row = sidebar.locator(`[data-window-id="${target.windowId}"]`);
+    await expect(row).toBeVisible({ timeout: 5_000 });
+
+    const picker = await openLabelPicker(row, page);
+
+    // The preview carries the row's real name; the caption under it starts
+    // all-∅ (every axis unset on a fresh window).
+    await expect(picker.getByText(winName)).toBeVisible();
+    await expect(picker.getByText("∅ · ∅ · ∅")).toBeVisible();
+
+    // Picks repaint the caption immediately — family name, marker, flair.
+    await picker.getByRole("option", { name: "Color teal", exact: true }).click();
+    await picker.getByRole("option", { name: "Marker hatch" }).click();
+    await picker.getByRole("option", { name: "Flair scan" }).click();
+    await expect(picker.getByText("teal · hatch · scan")).toBeVisible();
+
+    await picker.getByLabel("Close picker").click();
   });
 
   test("clicking the label zone does not select the row (stopPropagation)", async ({ page }) => {

@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 5
@@ -33,22 +33,24 @@ stage_metrics:
     apply: {started_at: "2026-08-20T03:12:27Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-20T03:23:44Z"}
     review: {started_at: "2026-08-20T03:23:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-20T03:28:45Z"}
     hydrate: {started_at: "2026-08-20T03:28:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-20T03:32:42Z"}
-    ship: {started_at: "2026-08-20T03:32:42Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-20T03:32:42Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-20T03:34:55Z"}
+    review-pr: {started_at: "2026-08-20T03:34:55Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/675
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 743
+    deleted: 20
+    net: 723
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 539
+        deleted: 2
+        net: 537
     tests:
-        added: 0
+        added: 177
         deleted: 0
-        net: 0
-    computed_at: "2026-08-20T03:32:42Z"
-    computed_at_stage: hydrate
+        net: 177
+    computed_at: "2026-08-20T03:34:55Z"
+    computed_at_stage: ship
 summary: 'tty tile renders wrapped OSC 9;4 task progress: 2px overlay line + header percent chip via a rAF-coalesced per-window consumer of the scaffold''s onProgressChange seam'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-20T03:32:42Z
+last_updated: 2026-08-20T03:34:55Z

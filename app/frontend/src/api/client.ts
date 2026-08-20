@@ -310,6 +310,24 @@ export async function sendChatMessage(
   return res.json();
 }
 
+/**
+ * Fetch the window's full scrollback as plain text from
+ * GET /api/windows/{windowId}/history (260819-shqo-terminal-tile-export) —
+ * the server-capture arm of the terminal export menu (`tmux capture-pane -p
+ * -S -` on the window's active pane). The body is text/plain; a non-ok
+ * response throws the server's structured error.
+ */
+export async function fetchWindowHistory(
+  server: string,
+  windowId: string,
+): Promise<string> {
+  const res = await fetch(
+    withServer(`/api/windows/${encodeURIComponent(windowId)}/history`, server),
+  );
+  if (!res.ok) await throwOnError(res);
+  return res.text();
+}
+
 export async function splitWindow(
   server: string,
   windowId: string,

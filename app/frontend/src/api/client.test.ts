@@ -15,6 +15,7 @@ import {
   killWindow,
   renameWindow,
   sendChatMessage,
+  fetchWindowHistory,
   getDirectories,
   uploadFile,
   killServer,
@@ -1085,5 +1086,32 @@ describe("ssh-host + instance-name settings client (260723-o7q8)", () => {
     await expect(setInstanceName("bad")).rejects.toThrow(
       "Instance name cannot contain control characters",
     );
+  });
+});
+
+describe("fetchWindowHistory (260819-shqo terminal export)", () => {
+  it("GETs /api/windows/{id}/history with the server query and returns the text body", async () => {
+    let capturedUrl = "";
+    mswServer.use(
+      http.get("/api/windows/:windowId/history", ({ request }) => {
+        capturedUrl = request.url;
+        return new HttpResponse("line one\nline two\n", {
+          headers: { "Content-Type": "text/plain; charset=utf-8" },
+        });
+      }),
+    );
+    const body = await fetchWindowHistory("rk", "@5");
+    expect(capturedUrl).toContain("/api/windows/%405/history");
+    expect(capturedUrl).toContain("server=rk");
+    expect(body).toBe("line one\nline two\n");
+  });
+
+  it("throws the server's error message on failure", async () => {
+    mswServer.use(
+      http.get("/api/windows/:windowId/history", () =>
+        HttpResponse.json({ error: "no server running" }, { status: 500 }),
+      ),
+    );
+    await expect(fetchWindowHistory("rk", "@5")).rejects.toThrow("no server running");
   });
 });

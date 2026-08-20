@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, screen, cleanup, fireEvent, act, within } from "@testing-library/react";
 import { SurfaceLayout } from "./surface-layout";
+import { ToastProvider } from "@/components/toast";
 import { ratiosStorageKey, type Layout, type SurfaceKind } from "@/lib/surface-layout";
 import type { WindowInfo } from "@/types";
 import { stubMatchMedia } from "@/test-utils/match-media";
@@ -95,7 +96,10 @@ const STATUS_WINDOW: WindowInfo = {
  *  re-renders the SAME component tree). */
 function layoutElement(overrides: LayoutOverrides = {}) {
   return (
-    <SurfaceLayout
+    // SurfaceLayout toasts export failures — the provider is part of the
+    // render contract (the production shell always mounts it).
+    <ToastProvider>
+      <SurfaceLayout
       layout={overrides.layout ?? { shape: "single", order: ["tty"] }}
       server="srv"
       windowId="@1"
@@ -129,7 +133,8 @@ function layoutElement(overrides: LayoutOverrides = {}) {
       focusTileRef={overrides.focusTileRef}
       statusWindow={overrides.statusWindow}
       ttyDockContent={overrides.ttyDockContent}
-    />
+      />
+    </ToastProvider>
   );
 }
 
@@ -629,6 +634,7 @@ describe("SurfaceLayout duplicate tty tiles", () => {
     const wsRef: { current: WebSocket | null } = { current: null };
     const focusRef: { current: (() => void) | null } = { current: null };
     render(
+      <ToastProvider>
       <SurfaceLayout
         layout={{ shape: "split-h", order: ["tty", "tty"] }}
         server="srv"
@@ -653,6 +659,7 @@ describe("SurfaceLayout duplicate tty tiles", () => {
         onSwap={vi.fn()}
         onClose={vi.fn()}
       />,
+      </ToastProvider>,
     );
     expect(screen.getByTestId("surface-tile-tty")).toBeTruthy();
     expect(screen.getByTestId("surface-tile-tty-2")).toBeTruthy();
@@ -663,11 +670,16 @@ describe("SurfaceLayout duplicate tty tiles", () => {
     expect(primary.wsRef).toBe(wsRef);
     expect(primary.focusRef).toBe(focusRef);
     expect(primary.registerFocus).toBe(true);
+    // The export seams follow the same primary-only rule (260819-shqo).
+    expect(primary.serializeAddonRef).toBeDefined();
+    expect(primary.terminalRef).toBeDefined();
     // The duplicate gets a dummy ws bucket, no focusRef, and must not fight
     // over the shell's focused-terminal slot.
     expect(duplicate.wsRef).not.toBe(wsRef);
     expect(duplicate.focusRef).toBeUndefined();
     expect(duplicate.registerFocus).toBe(false);
+    expect(duplicate.serializeAddonRef).toBeUndefined();
+    expect(duplicate.terminalRef).toBeUndefined();
   });
 });
 
@@ -724,6 +736,7 @@ describe("SurfaceLayout tty dock slot (260813-j3jb)", () => {
 describe("SurfaceLayout hide-never-unmount (P3)", () => {
   it("a closed tile stays mounted at display level for the route's lifetime", () => {
     const { rerender } = render(
+      <ToastProvider>
       <SurfaceLayout
         layout={{ shape: "split-h", order: ["tty", "web"] }}
         server="srv"
@@ -748,10 +761,12 @@ describe("SurfaceLayout hide-never-unmount (P3)", () => {
         onSwap={vi.fn()}
         onClose={vi.fn()}
       />,
+      </ToastProvider>,
     );
     expect(screen.getByTestId("mock-iframe")).toBeTruthy();
 
     rerender(
+      <ToastProvider>
       <SurfaceLayout
         layout={{ shape: "single", order: ["tty"] }}
         server="srv"
@@ -776,6 +791,7 @@ describe("SurfaceLayout hide-never-unmount (P3)", () => {
         onSwap={vi.fn()}
         onClose={vi.fn()}
       />,
+      </ToastProvider>,
     );
     const webTile = screen.getByTestId("surface-tile-web");
     expect(webTile.classList.contains("hidden")).toBe(true);
@@ -1285,5 +1301,44 @@ describe("SurfaceLayout tty progress (260819-1vxq)", () => {
     fireProgress(1, 55);
     expect(screen.getByTestId("progress-line")).toBeTruthy();
     expect(screen.queryByTestId("progress-chip")).toBeNull();
+  });
+});
+
+describe("SurfaceLayout export menu (260819-shqo)", () => {
+  it("renders the ⇩ button on the tty header, opening the two-section menu", () => {
+    renderLayout({ layout: { shape: "single", order: ["tty"] }, statusWindow: STATUS_WINDOW });
+
+    const button = screen.getByRole("button", { name: "Export terminal output" });
+    fireEvent.click(button);
+
+    const menu = screen.getByTestId("export-menu");
+    expect(within(menu).getByText("This view — client buffer")).toBeTruthy();
+    expect(within(menu).getByText("Full history — server capture")).toBeTruthy();
+    const rows = within(menu).getAllByRole("menuitem");
+    expect(rows.map((r) => r.textContent)).toEqual([
+      "Download snapshot.html · colors kept",
+      "Download transcript.txt · buffer text",
+      "Copy visible screen",
+      "Download pane history.txt · capture-pane -S -",
+    ]);
+  });
+
+  it("closes on Escape and on outside click", () => {
+    renderLayout({ layout: { shape: "single", order: ["tty"] }, statusWindow: STATUS_WINDOW });
+    fireEvent.click(screen.getByRole("button", { name: "Export terminal output" }));
+    expect(screen.getByTestId("export-menu")).toBeTruthy();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByTestId("export-menu")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Export terminal output" }));
+    expect(screen.getByTestId("export-menu")).toBeTruthy();
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByTestId("export-menu")).toBeNull();
+  });
+
+  it("does not render on non-tty tiles", () => {
+    renderLayout({ layout: { shape: "single", order: ["web"] } });
+    expect(screen.queryByRole("button", { name: "Export terminal output" })).toBeNull();
   });
 });

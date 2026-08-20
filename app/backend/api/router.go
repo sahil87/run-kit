@@ -103,6 +103,10 @@ type TmuxOps interface {
 	PasteChatSendBuffer(ctx context.Context, paneID, server string) error
 	SendEnterToPane(ctx context.Context, paneID, server string) error
 	CapturePane(ctx context.Context, paneID string, lines int, server string) (string, error)
+	// CaptureWindowHistory serves GET /api/windows/{windowId}/history: the full
+	// scrollback (`capture-pane -p -S -`) of the window's active pane, plain
+	// text, bounded by the handler's request context.
+	CaptureWindowHistory(ctx context.Context, target, server string) (string, error)
 }
 
 // RiffEngine is the web-facing seam onto the extracted spawn engine
@@ -404,6 +408,9 @@ func (p *prodTmuxOps) SendEnterToPane(ctx context.Context, paneID, server string
 func (p *prodTmuxOps) CapturePane(ctx context.Context, paneID string, lines int, server string) (string, error) {
 	return tmux.CapturePaneCtx(ctx, paneID, lines, server)
 }
+func (p *prodTmuxOps) CaptureWindowHistory(ctx context.Context, target, server string) (string, error) {
+	return tmux.CaptureWindowHistoryCtx(ctx, target, server)
+}
 
 // ReorderBoard locates the (server, windowID, board) entry, computes a new
 // order key strictly between the supplied neighbours via fractional indexing,
@@ -678,6 +685,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/windows/{windowId}/close-pane", s.handleClosePaneKill)
 	r.Get("/api/windows/{windowId}/chat", s.handleChatBackfill)
 	r.Post("/api/windows/{windowId}/chat/send", s.handleChatSend)
+	r.Get("/api/windows/{windowId}/history", s.handleWindowHistory)
 	// Conversation fork — a new window in the SAME session + directory, resuming
 	// the window's agent session with --fork-session. See api/fork.go.
 	r.Post("/api/windows/{windowId}/fork", s.handleWindowFork)

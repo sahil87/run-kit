@@ -40,6 +40,7 @@ import {
 import { matchesCombo, hasReclaimableMatch, shouldSuppressChord, withShortcutHints, formatCombo } from "@/lib/keybindings";
 import { WEB_FIND_OPEN_EVENT } from "@/lib/find-in-page";
 import { TERMINAL_FIND_OPEN_EVENT } from "@/lib/terminal-find";
+import { EXPORT_EVENT, type ExportAction } from "@/lib/terminal-export";
 import { WEB_ADDRESS_FOCUS_EVENT, WEB_OPEN_EXTERNAL_EVENT } from "@/lib/web-url";
 import { isMacroActionId, type MacroAction } from "@/lib/macros";
 import { useKeybindings } from "@/hooks/use-keybindings";
@@ -2967,6 +2968,29 @@ function AppShell() {
               onSelect: () => document.dispatchEvent(new CustomEvent(WEB_OPEN_EXTERNAL_EVENT)),
             },
           ]
+        : []),
+      // `Terminal: …` export entries (260819-shqo R9) — palette twins of the
+      // tty tile header's ⇩ menu rows, shown only when the RENDERED layout
+      // includes a tty tile (mobile relies on these: the header is
+      // desktop-only). Each dispatches the one `terminal-export` CustomEvent
+      // seam (`detail.action`); the mounted SurfaceLayout export cluster is
+      // the single receiver (the `web-find:open` precedent — one terminal
+      // route mount). No shortcut hints — no bindings exist (intake: menu +
+      // palette only).
+      ...(windowParam && renderLayout.order.includes("tty")
+        ? (
+            [
+              ["terminal-export-snapshot", "Terminal: Download snapshot (HTML)", "snapshot"],
+              ["terminal-export-transcript", "Terminal: Download transcript", "transcript"],
+              ["terminal-export-copy", "Terminal: Copy visible screen", "copy-visible"],
+              ["terminal-export-history", "Terminal: Download full history", "history"],
+            ] as const
+          ).map(([id, label, action]) => ({
+            id,
+            label,
+            onSelect: () =>
+              document.dispatchEvent(new CustomEvent(EXPORT_EVENT, { detail: { action } })),
+          }))
         : []),
     ],
     [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, composeStripEnabled, currentViews, resolvedView, switchView, bindingByAction, bindingHost, windowParam, isMobile, renderLayout, panelSurfaces, applyLayout, layoutZoomed, focusedTileKind, mobileActiveTile, switchToTile],

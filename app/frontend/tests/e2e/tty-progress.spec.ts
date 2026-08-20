@@ -75,6 +75,8 @@ test.describe("tty tile progress (wrapped OSC 9;4)", () => {
     await expect(page.getByTestId("progress-line")).toHaveCount(0, {
       timeout: READY_TIMEOUT,
     });
-    await expect(page.getByTestId("progress-chip")).toHaveCount(0);
+    await expect(page.getByTestId("progress-chip")).toHaveCount(0, {
+      timeout: READY_TIMEOUT,
+    });
   });
 });

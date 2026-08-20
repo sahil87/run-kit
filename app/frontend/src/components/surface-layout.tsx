@@ -1266,6 +1266,7 @@ export function SurfaceLayout({
             className="rk-tty-progress"
             data-testid="progress-line"
             role="progressbar"
+            aria-label="Task progress"
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={

@@ -20,6 +20,7 @@ import (
 	"rk/internal/prstatus"
 	"rk/internal/riff"
 	"rk/internal/sessions"
+	"rk/internal/snapshot"
 	"rk/internal/tmux"
 	"rk/internal/updatecheck"
 	"rk/internal/validate"
@@ -197,9 +198,13 @@ type Server struct {
 	// serverKillNotify, when non-nil, is invoked with the server name by
 	// handleServerKill just before the audited tmux.KillServer — the layout
 	// snapshotter uses it (SetServerKillNotifier) to mark the imminent
-	// tombstone as an audited kill. Fire-and-forget write-path annotation:
-	// no handler ever reads snapshot data (Constitution II).
+	// tombstone as an audited kill. Fire-and-forget write-path annotation.
 	serverKillNotify func(server string)
+	// snapshotStore backs the /api/recovery endpoints (see api/recovery.go):
+	// the read-only offer listing and the user-initiated restore/dismiss
+	// mutations. Wired by `rk serve` (SetSnapshotStore) from the same store
+	// the snapshotter writes to; nil degrades recovery to empty offers.
+	snapshotStore *snapshot.Store
 	// refreshStatusMu guards the coalesce/throttle state below.
 	refreshStatusMu sync.Mutex
 	// refreshStatusInFlight is true while a detached refresh goroutine runs — a
@@ -713,6 +718,13 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/servers", s.handleServerCreate)
 	r.Post("/api/servers/order", s.handleServerOrderPost)
 	r.Post("/api/servers/kill", s.handleServerKill)
+
+	// Recovery — reboot-orphaned server offers (read-only GET) plus the
+	// user-initiated restore/dismiss mutations (POST per §IX). See
+	// api/recovery.go.
+	r.Get("/api/recovery", s.handleRecoveryList)
+	r.Post("/api/recovery/restore", s.handleRecoveryRestore)
+	r.Post("/api/recovery/dismiss", s.handleRecoveryDismiss)
 
 	// Keybindings
 	r.Get("/api/keybindings", s.handleKeybindings)

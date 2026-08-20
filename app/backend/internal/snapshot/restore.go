@@ -54,32 +54,32 @@ func productionRestoreOps() restoreOps {
 
 // RestoredWindow is one recreated window in the restore report.
 type RestoredWindow struct {
-	Index int
-	Name  string
-	Panes int
+	Index int    `json:"index"`
+	Name  string `json:"name"`
+	Panes int    `json:"panes"`
 	// FormerCommands lists each recreated pane's captured command (pane-index
 	// order). Purely informational — restore NEVER relaunches them; the user
 	// decides what to resume (e.g. `claude -c` per agent window).
-	FormerCommands []string
+	FormerCommands []string `json:"formerCommands"`
 	// Notes records per-window degradations (missing cwd fallback, layout
 	// apply skipped).
-	Notes []string
+	Notes []string `json:"notes"`
 }
 
 // RestoredSession is one recreated session in the restore report.
 type RestoredSession struct {
-	Name    string
-	Windows []RestoredWindow
+	Name    string           `json:"name"`
+	Windows []RestoredWindow `json:"windows"`
 }
 
 // Report describes what a restore recreated and what it skipped.
 type Report struct {
-	Server   string
-	Sessions []RestoredSession
+	Server   string            `json:"server"`
+	Sessions []RestoredSession `json:"sessions"`
 	// Skipped records whole units that could not be recreated.
-	Skipped []string
+	Skipped []string `json:"skipped"`
 	// Notes records server-level degradations (options that failed to apply).
-	Notes []string
+	Notes []string `json:"notes"`
 }
 
 // Restore recreates a dead server's layout from a snapshot onto the named

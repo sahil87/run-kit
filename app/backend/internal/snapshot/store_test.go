@@ -325,3 +325,55 @@ func TestContentEqualIgnoresTakenAt(t *testing.T) {
 		t.Error("nil handling wrong")
 	}
 }
+
+func TestDismissTombstonesAuditedAndNeverReOffers(t *testing.T) {
+	s := NewStore(t.TempDir())
+	base := time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC)
+	if _, err := s.Write(testSnap("kit", base, "serve")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.Dismiss("kit"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Latest is gone; an audited tombstone stands in its place.
+	if snap, err := s.LoadLatest("kit"); err != nil || snap != nil {
+		t.Fatalf("latest should be gone after dismiss: snap=%v err=%v", snap, err)
+	}
+	ts, err := s.tombstoneTimestamps("kit")
+	if err != nil || len(ts) != 1 {
+		t.Fatalf("tombstones = %v, %v — want exactly 1", ts, err)
+	}
+	tomb, err := s.LoadAt("kit", ts[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tomb.DiedAt == nil || !tomb.AuditedKill {
+		t.Errorf("tombstone = diedAt %v audited %v, want stamped + audited", tomb.DiedAt, tomb.AuditedKill)
+	}
+	// History is left intact.
+	if hist, _ := s.historyTimestamps("kit"); len(hist) != 1 {
+		t.Errorf("history count = %d, want 1 (untouched)", len(hist))
+	}
+	// The dismissed server never re-qualifies as an offer.
+	offers, err := s.RestorableOffers(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(offers) != 0 {
+		t.Errorf("offers after dismiss = %+v, want none", offers)
+	}
+
+	// Idempotent: dismissing again (no latest) is a no-op success.
+	if err := s.Dismiss("kit"); err != nil {
+		t.Fatalf("repeat dismiss should be a no-op success: %v", err)
+	}
+	if ts, _ := s.tombstoneTimestamps("kit"); len(ts) != 1 {
+		t.Errorf("tombstone count after repeat dismiss = %d, want 1", len(ts))
+	}
+	// Dismissing a server with no snapshot at all is a no-op success.
+	if err := s.Dismiss("ghost"); err != nil {
+		t.Fatalf("ghost dismiss should succeed: %v", err)
+	}
+}

@@ -1006,7 +1006,7 @@ export async function setServerColor(server: string, color: string | null): Prom
   if (!res.ok) await throwOnError(res);
 }
 
-// --- Server flair settings (global, not per-server) ---
+// --- Server flair settings (a server→flair map on the instance-global settings store) ---
 
 export async function getAllServerFlairs(): Promise<Record<string, string>> {
   const res = await deduplicatedFetch("/api/settings/server-flair");

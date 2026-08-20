@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 
 	"rk/internal/settings"
+	"rk/internal/validate"
 )
 
 // isolateSettings points settings persistence at a throwaway HOME so the tests
@@ -266,20 +268,30 @@ func TestSetServerFlair_persists(t *testing.T) {
 }
 
 func TestSetServerFlair_acceptsEveryUniversalToken(t *testing.T) {
-	// The handler validates against the universal set — every token in
-	// validate.FlairValues (incl. rain/cube) is accepted, none enumerated here.
+	// The tokens come from validate.FlairValues itself, so this keeps covering
+	// every universal token when the vocabulary grows.
 	isolateSettings(t)
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 
-	tokens := []string{"rain", "scan", "nyan", "naruto", "onepiece", "pacman", "matrix", "aquarium", "roadrunner", "invaders", "cube", "warp"}
+	var tokens []string
+	for token := range validate.FlairValues {
+		if token != "" {
+			tokens = append(tokens, token)
+		}
+	}
+	sort.Strings(tokens)
+	if len(tokens) == 0 {
+		t.Fatal("validate.FlairValues has no named tokens")
+	}
 	for _, token := range tokens {
 		rec := postServerFlair(t, router, `{"server":"default","flair":"`+token+`"}`)
 		if rec.Code != http.StatusOK {
 			t.Errorf("token %q: status = %d, want %d", token, rec.Code, http.StatusOK)
 		}
 	}
-	if got := settings.GetServerFlair("default"); got == nil || *got != "warp" {
-		t.Errorf("final persisted flair = %v, want \"warp\"", got)
+	last := tokens[len(tokens)-1]
+	if got := settings.GetServerFlair("default"); got == nil || *got != last {
+		t.Errorf("final persisted flair = %v, want %q", got, last)
 	}
 }
 

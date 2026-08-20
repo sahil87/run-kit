@@ -47,6 +47,7 @@ import { useKeybindings } from "@/hooks/use-keybindings";
 import { useKeybindingDispatch } from "@/hooks/use-keybinding-dispatch";
 import { useMacros } from "@/hooks/use-macros";
 import { ChromeProvider, useChromeState, useChromeDispatch, SIDEBAR_WIDTH_BOUNDS } from "@/contexts/chrome-context";
+import { ZenProvider, useZenState, useZenDispatch, zenApplies } from "@/contexts/zen-context";
 import { FocusedTerminalProvider } from "@/contexts/focused-terminal-context";
 import { TopBarSlotProvider, useTopBarSlot, useTopBarNotFound, useRegisterTopBarSlot } from "@/contexts/top-bar-slot-context";
 import { FocusedPaneProvider } from "@/contexts/focused-pane-context";
@@ -59,6 +60,8 @@ import {
 import { deriveEffectiveSessionOrder, computeMoveOrder, computeWindowMoveTarget } from "@/lib/palette-move";
 import { buildViewActions } from "@/lib/palette-view";
 import { buildLayoutActions, buildTileSwitchActions } from "@/lib/palette-layout";
+import { buildZenActions } from "@/lib/palette-zen";
+import { resolveZenToggle } from "@/lib/zen-mode";
 import { buildStatusRefreshAction } from "@/lib/palette-status-refresh";
 import { buildPinActions } from "@/lib/palette-pin";
 import {
@@ -227,6 +230,10 @@ export function RootWrapper() {
         <InstanceAccentProvider>
           <InstanceNameProvider>
           <ChromeProvider>
+            {/* Zen mode (260820-o8cr): transient terminal-route chrome state,
+                deliberately NOT part of ChromeContext (persisted chrome) —
+                zen never writes localStorage or a URL param. */}
+            <ZenProvider>
             <SessionProvider>
               <FocusedTerminalProvider>
                 <OptimisticProvider>
@@ -238,6 +245,7 @@ export function RootWrapper() {
                 </OptimisticProvider>
               </FocusedTerminalProvider>
             </SessionProvider>
+            </ZenProvider>
           </ChromeProvider>
           </InstanceNameProvider>
         </InstanceAccentProvider>
@@ -308,6 +316,26 @@ function AppLayoutContent() {
   // `shortcuts-overlay:open` event seam.
   const globalActions = useGlobalPaletteActions();
 
+  // Zen hide seam (260820-o8cr R2): the zen flag crosses the root-layout
+  // boundary through ZenContext; the applies-flag is DERIVED per render from
+  // the same deepest-first route-param walk `RootTopBar` uses, never stored —
+  // so the hide flips in the same frame as the route change and never flashes
+  // stale chrome on navigation. Zen is desktop-only (AppShell's chord/palette
+  // gates own the isMobile term) and mobile shows no sidebar/statusbar chrome
+  // anyway. The instance-accent stripe/wash KEEP rendering — they are chrome
+  // identity, not the bar.
+  const { zenActive } = useZenState();
+  const matches = useMatches();
+  let zenWindowParam: string | undefined;
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const p = (matches[i]?.params ?? {}) as { window?: string };
+    if (typeof p.window === "string") {
+      zenWindowParam = p.window;
+      break;
+    }
+  }
+  const hideTopBar = zenActive && zenWindowParam !== undefined;
+
   return (
     <PaletteActionsProvider globalActions={globalActions}>
     <div
@@ -329,12 +357,14 @@ function AppLayoutContent() {
           `shrink-0` sizing that keeps the bar at its natural height above the
           `flex-1` content region (plus the instance-accent stripe/wash — the
           TopBar header has no background of its own, so the wash on this
-          wrapper shows through). */}
+          wrapper shows through). While zen mode applies the BAR is not
+          rendered (the wrapper collapses to zero height — the stripe/wash
+          above are chrome identity and stay). */}
       <div className="shrink-0" style={washHex ? { backgroundColor: washHex } : undefined}>
         {stripeHex && (
           <div aria-hidden="true" style={{ height: "2px", backgroundColor: stripeHex }} />
         )}
-        <RootTopBar />
+        {!hideTopBar && <RootTopBar />}
       </div>
       <div className="flex-1 min-h-0">
         <Suspense fallback={null}>
@@ -893,6 +923,38 @@ function AppShell() {
   // SurfaceLayout per window keeps the reset semantics where the state lives.
   const layoutZoomToggleRef = useRef<(() => void) | null>(null);
   const [layoutZoomed, setLayoutZoomed] = useState(false);
+
+  // Zen mode (260820-o8cr R1/R4): the transient distraction-free override.
+  // State lives in ZenContext (mounted at the root — the top bar's hide seam
+  // crosses the root-layout boundary) and is NEVER persisted (no URL param,
+  // no localStorage write anywhere on a zen path). The state survives window
+  // switches within the terminal route (AppShell does not remount); leaving
+  // the route — `windowParam` gone — deactivates it so board/host/server
+  // routes render normal chrome. `zenApplies` is the per-render gate every
+  // consumer uses (AppShell also mounts on `/$server`, where zen must never
+  // apply even if the flag is still set).
+  const { zenActive, zenZoomed } = useZenState();
+  const { setZenActive, setZenZoomed } = useZenDispatch();
+  useEffect(() => {
+    if (!windowParam && zenActive) setZenActive(false);
+  }, [windowParam, zenActive, setZenActive]);
+  const zenOn = zenApplies(zenActive, windowParam, isMobile);
+
+  // Enter/exit body — the `zen-toggle` chord, the palette's `View: Enter/Exit
+  // Zen Mode` entries, and the status-bar exit button all resolve here (one
+  // seam). The decision itself is the pure `resolveZenToggle` (lib/zen-mode):
+  // ENTER at arity > 1 zooms the focused tile through the existing
+  // `layoutZoomToggleRef` seam only when not already zoomed, recording whether
+  // zen initiated it; EXIT unzooms ONLY a zen-initiated zoom still in effect —
+  // a pre-existing user zoom survives, and a manual unzoom while in zen is not
+  // toggled back into a zoom. Plain zoom verbs (⛶, `Layout: Zoom`/`Unzoom`)
+  // drive the seam directly and never touch zen state.
+  const toggleZen = useCallback(() => {
+    const decision = resolveZenToggle({ zenActive, zenZoomed, layoutZoomed }, renderLayout.order.length);
+    setZenActive(decision.zenActive);
+    setZenZoomed(decision.zenZoomed);
+    if (decision.fireZoomToggle) layoutZoomToggleRef.current?.();
+  }, [zenActive, zenZoomed, layoutZoomed, renderLayout.order.length, setZenActive, setZenZoomed]);
 
   // Mobile slot-A state (T014/R13): below `isMobileViewport()` the center
   // renders ONE tile; the top-bar switch group swaps WHICH surface that is.
@@ -2918,6 +2980,23 @@ function AppShell() {
             })(),
           })
         : []),
+      // `View: Enter/Exit Zen Mode` (260820-o8cr R7) — the `zen-toggle`
+      // chord's palette parity (Constitution V), findable by "zen". Exactly
+      // one form renders, keyed on live zen state; any arity on the desktop
+      // terminal route (unlike `Layout: Zoom`, which stays arity>1-gated).
+      // The id is NOT the `zen-toggle` actionId, so the ⇧⌘⏎ hint attaches
+      // explicitly (the `toggleShortcut` precedent); the parity invariant's
+      // equivalence map documents the pair. The body is the same `toggleZen`
+      // seam the chord and the status-bar exit button resolve.
+      ...(windowParam && !isMobile
+        ? buildZenActions(zenOn, {
+            onToggle: toggleZen,
+            shortcut: (() => {
+              const b = bindingByAction.get("zen-toggle");
+              return b?.enabled ? formatCombo(b, bindingHost.platform) : undefined;
+            })(),
+          })
+        : []),
       {
         id: "toggle-fixed-width",
         label: fixedWidth ? "View: Full Width" : "View: Fixed Width (900px)",
@@ -2993,7 +3072,7 @@ function AppShell() {
           }))
         : []),
     ],
-    [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, composeStripEnabled, currentViews, resolvedView, switchView, bindingByAction, bindingHost, windowParam, isMobile, renderLayout, panelSurfaces, applyLayout, layoutZoomed, focusedTileKind, mobileActiveTile, switchToTile],
+    [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, composeStripEnabled, currentViews, resolvedView, switchView, bindingByAction, bindingHost, windowParam, isMobile, renderLayout, panelSurfaces, applyLayout, layoutZoomed, focusedTileKind, mobileActiveTile, switchToTile, zenOn, toggleZen],
   );
 
   // Navigation actions (`Go: Back` / `Go: Forward` / ancestor entries,
@@ -3577,14 +3656,14 @@ function AppShell() {
       "tty-toggle": tileChord("tty"),
       "code-toggle": tileChord("code"),
       "web-toggle": tileChord("web"),
-      // ⇧⌘⏎ / ⇧Ctrl+Enter zen (R7) — the `Layout: Zoom`/`Unzoom` palette
-      // bodies' seam (SurfaceLayout's registered zoom toggle; transient
-      // component state, no URL/localStorage write). Zoom's own gate:
-      // desktop + arity > 1 — at arity 1 no handler mounts and the chord
-      // falls through untouched.
+      // ⇧⌘⏎ / ⇧Ctrl+Enter zen (260820-o8cr R6) — the FULL zen toggle (top
+      // bar + sidebar + focused-tile zoom at arity > 1), resolved through the
+      // same `toggleZen` body as the palette entries and the status-bar exit
+      // button. Mounts at ANY arity on the desktop terminal route — at arity
+      // 1 the chrome hide still applies (no zoom is attempted).
       "zen-toggle":
-        windowParam && !isMobile && renderLayout.order.length > 1
-          ? () => layoutZoomToggleRef.current?.()
+        windowParam && !isMobile
+          ? toggleZen
           : undefined,
       // ⌃`/⇧Ctrl+` focus hop (VS Code's ⌃` gesture): tty↔code through the
       // `Tile: Focus <Surface>` focus-by-kind seam. Hopping TO tty records
@@ -3614,7 +3693,7 @@ function AppShell() {
       // ring) gates the chord for free.
       "layout-cycle": fromPalette("layout-cycle"),
     };
-  }, [paletteActions, paletteGlobals, server, windowParam, macros, sessionName, executeMacro, toggleComposeStrip, composeStripEnabled, addToast, isMobile, panelSurfaces, togglePanel, restoreFocus, bindingByAction, focusedTileKind, renderLayout, layout]);
+  }, [paletteActions, paletteGlobals, server, windowParam, macros, sessionName, executeMacro, toggleComposeStrip, composeStripEnabled, addToast, isMobile, panelSurfaces, togglePanel, restoreFocus, bindingByAction, focusedTileKind, renderLayout, layout, toggleZen]);
   useKeybindingDispatch(keybindingHandlers);
 
   const displayName = currentWindow?.name ?? windowParam ?? "";
@@ -3860,17 +3939,24 @@ function AppShell() {
   return (
     <Shell
       sidebarChildren={sidebarElement}
+      // Zen mode (260820-o8cr R3): the render-time sidebar hide — Shell
+      // composes `sidebarOpen && !zenActive`; the persisted preference is
+      // never touched on a zen path.
+      zenActive={zenOn}
       // Status bar (260814-ldbs): the full-width attached strip at the shell
       // bottom — Shell renders it as the `statusbar` row on desktop (never
       // mobile). The window cluster mirrors the CURRENT window's registers
       // (terminal route only — `currentWindow` is null without a window
       // param); the host cluster renders on every route this shell mounts.
+      // Zen keeps the bar VISIBLE and adds its exit affordance there (R5/R8).
       statusBarChildren={
         <StatusBar
           window={currentWindow ?? null}
           server={server}
           isConnected={dotConnected}
           onOpenCompose={toggleComposeStrip}
+          zenActive={zenOn}
+          onExitZen={zenOn ? toggleZen : undefined}
         />
       }
       // Bottom-bar row: Shell owns the `<footer

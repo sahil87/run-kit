@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-20T15:42:11Z"}
+{"args":"True zen mode on the terminal route: shift-cmd-enter and palette-discoverable zen that transiently hides the top bar and sidebar (and zooms the focused tile at arity \u003e 1), keeps compose strip and status bar, with an exit-zen status-bar button; supersedes 260819-qwr7 plain-zoom-only scoping","cmd":"fab-new","event":"command","ts":"2026-08-20T15:42:11Z"}
+{"delta":"+4.1","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-08-20T15:44:06Z"}
+{"cmd":"fab-draft","event":"command","ts":"2026-08-20T15:44:14Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-20T15:45:06Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-20T15:45:21Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-20T16:24:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-20T16:28:20Z"}
+{"event":"review","result":"passed","ts":"2026-08-20T16:28:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-20T16:38:26Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-08-20T16:41:08Z"}

@@ -93,11 +93,13 @@ Steps:
 6. Press ⌘1 again; assert the tty tile reappears and carries the focused-slot
    border (hidden → open+focus on landing).
 
-### (c) ⇧⌘⏎ zooms the focused tile and unzooms on a second press; a no-op at arity 1
+### (c) ⇧⌘⏎ enters zen (zooming the focused tile at arity 2) and exits on a second press; arity 1 hides chrome without zooming
 What it proves: the zen chord toggles the existing zoom seam on the FOCUSED
-tile (with code focused, code zooms — not slot A by fiat), the second press
-unzooms (reclaimed from inside the iframe), and at arity 1 the chord mounts
-no handler and changes nothing.
+tile as part of entering zen (with code focused, code zooms — not slot A by
+fiat), the second press exits zen and undoes the zen-initiated zoom
+(reclaimed from inside the iframe), and at arity 1 the chord now mounts
+(260820-o8cr) — it enters zen (hiding the sidebar) with no zoom attempted,
+and a second press restores the chrome.
 Steps:
 1. Create windows D (the zoom window) and E (the arity-1 window); navigate
    to D.
@@ -107,15 +109,16 @@ Steps:
    alone produces no parent-side focus event in Chromium); assert iframe DOM
    focus and the code tile's focused-slot border.
 3. Press ⇧⌘⏎; assert the tty tile hides at display level while the code
-   tile stays visible (the focused tile zoomed full-center).
+   tile stays visible (zen entered; the focused tile zoomed full-center).
 4. Press ⇧⌘⏎ again (from inside the iframe, via the reclaim seam); assert
-   both tiles are visible again (unzoom).
+   both tiles are visible again (zen exited; the zen-initiated zoom undone).
 5. Switch to E via the sidebar; assert xterm focus on the single-tty layout;
-   press ⇧⌘⏎; assert the tty tile stays visible and DOM focus never leaves
-   the xterm (the no-op).
+   press ⇧⌘⏎; assert the tty tile stays visible, DOM focus never leaves
+   the xterm, and the sidebar hides (zen at arity 1 — chrome-only). Press
+   ⇧⌘⏎ again; assert the sidebar returns.
 6. Open the code tile on E via the rail toggle; assert BOTH tiles render
-   unzoomed — the arity-1 press latched nothing (keeps the no-op
-   non-vacuous).
+   unzoomed — the arity-1 zen round-trip latched no zoom (keeps the
+   round-trip non-vacuous).
 
 ### (d) ⌘B focuses the current window's sidebar row (roving synced); Escape returns focus without hiding; a second ⌘B hides + returns
 What it proves: the stateful sidebar chord's three arms — visible + focus

@@ -296,7 +296,7 @@ test.describe("Surface focus chords (260819-qwr7)", () => {
     await expectTileFocused(page, "tty");
   });
 
-  test("(c) ⇧⌘⏎ zooms the focused tile and unzooms on a second press; a no-op at arity 1", async ({
+  test("(c) ⇧⌘⏎ enters zen (zooming the focused tile at arity 2) and exits on a second press; arity 1 hides chrome without zooming", async ({
     page,
   }) => {
     test.setTimeout(30_000);
@@ -321,22 +321,29 @@ test.describe("Surface focus chords (260819-qwr7)", () => {
     await expect(ttyTile(page)).toBeHidden({ timeout: READY_TIMEOUT });
     await expect(codeTile(page)).toBeVisible();
 
-    // Second press (reclaimed from inside the iframe) unzooms: both tiles
-    // are back.
+    // Second press (reclaimed from inside the iframe) exits zen AND undoes
+    // the zen-initiated zoom (260820-o8cr): both tiles are back. (The first
+    // press also hid the top bar + sidebar — the full zen behavior is the
+    // `zen-mode` spec's; here only the zoom seam is under test.)
     await page.keyboard.press(CHORD_ZEN);
     await expect(ttyTile(page)).toBeVisible({ timeout: READY_TIMEOUT });
     await expect(codeTile(page)).toBeVisible();
 
-    // Arity 1: the chord mounts no handler and falls through — no zoom, no
-    // focus churn.
+    // Arity 1 (260820-o8cr R6): the chord now mounts at ANY arity — the press
+    // enters zen (no zoom is attempted), so the sidebar and the top-bar rail
+    // are hidden while the single tty tile stays visible and focused. A
+    // second press exits zen and restores the chrome.
     await switchToWindow(page, idSingle);
     await expect(page.locator(".xterm").first()).toBeVisible({ timeout: READY_TIMEOUT });
     await expectActiveElement(page, "xterm");
     await page.keyboard.press(CHORD_ZEN);
     await expect(ttyTile(page)).toBeVisible();
     await expectActiveElement(page, "xterm");
+    await expect(sidebarAside(page)).toBeHidden({ timeout: READY_TIMEOUT });
+    await page.keyboard.press(CHORD_ZEN);
+    await expect(sidebarAside(page)).toBeVisible({ timeout: READY_TIMEOUT });
     // Non-vacuous: opening the code tile afterwards shows BOTH tiles
-    // unzoomed — nothing was latched by the arity-1 press.
+    // unzoomed — the arity-1 zen round-trip latched no zoom.
     await railCodeButton(page).click();
     await expect(codeIframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
     await expect(ttyTile(page)).toBeVisible();

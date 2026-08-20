@@ -355,7 +355,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
       scope: "terminal",
       kind: "builtin",
       label: "Toggle zen mode",
-      description: "zoom the focused tile",
+      description: "hide top bar + sidebar; zoom the focused tile",
       ignoreInputs: true,
     });
     for (const host of ALL_HOSTS) {
@@ -551,7 +551,9 @@ describe("palette parity invariant", () => {
   //   code-toggle    ⇄ tile-show-code / tile-hide-code
   //   tty-toggle     ⇄ tile-show-tty / tile-hide-tty / tile-focus-tty
   //   web-toggle     ⇄ tile-show-web / tile-hide-web / tile-focus-web
-  //   zen-toggle     ⇄ layout-zoom / layout-unzoom ("Layout: Zoom"/"Unzoom")
+  //   zen-toggle     ⇄ view-zen-enter / view-zen-exit ("View: Enter/Exit Zen
+  //                    Mode" — the full zen toggle, 260820-o8cr; `Layout:
+  //                    Zoom`/`Unzoom` remain as the zoom-only verb)
   //   focus-hop      ⇄ tile-focus-tty / tile-focus-code
   //   view-cycle     ⇄ the View: <lens> destinations (view-tty / view-web /
   //                    view-code — the `buildViewActions` id shape)
@@ -579,7 +581,7 @@ describe("palette parity invariant", () => {
     "code-toggle": ["tile-show-code", "tile-hide-code"],
     "tty-toggle": ["tile-show-tty", "tile-hide-tty", "tile-focus-tty"],
     "web-toggle": ["tile-show-web", "tile-hide-web", "tile-focus-web"],
-    "zen-toggle": ["layout-zoom", "layout-unzoom"],
+    "zen-toggle": ["view-zen-enter", "view-zen-exit"],
     "focus-hop": ["tile-focus-tty", "tile-focus-code"],
     "view-cycle": ["view-tty", "view-web", "view-code"],
     "web-find": ["web-find"], // Web: Find in page (260819-ie2i)

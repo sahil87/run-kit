@@ -477,9 +477,16 @@ export type StatusBarProps = {
   isConnected: boolean;
   /** Compose-strip opener (the relocated bottom-bar `a▏` chip action). */
   onOpenCompose?: () => void;
+  /** Zen mode (260820-o8cr R8): while active, an exit-zen button renders at
+   *  the bottom-right of the host cluster — zen's always-visible exit
+   *  affordance beside the ⇧⌘⏎ chord. */
+  zenActive?: boolean;
+  /** Zen exit body — required for the button to render (same body as the
+   *  chord and the palette's `View: Exit Zen Mode` entry). */
+  onExitZen?: () => void;
 };
 
-export function StatusBar({ window: win, server, isConnected, onOpenCompose }: StatusBarProps) {
+export function StatusBar({ window: win, server, isConnected, onOpenCompose, zenActive, onExitZen }: StatusBarProps) {
   // Leaf subscriptions (the HostPanel precedent): BOTH hooks are called
   // unconditionally and coalesced AFTER (`??` directly between hook calls
   // would short-circuit the second hook once server metrics arrive — a
@@ -522,6 +529,24 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose }: S
           (≥xl) → ld (≥lg) → cpu/mem (≥md) → version (≥700px); the connection
           dot never drops. */}
       <div className="ml-auto flex items-center gap-3 min-w-0" data-testid="status-bar-host">
+        {/* Zen exit (260820-o8cr R8) — rendered ONLY while zen is active, the
+            visible exit affordance beside the ⇧⌘⏎ chord (Esc is deliberately
+            not a zen exit — it belongs to the terminal pane). The cluster's
+            hint-button vocabulary, accent-lit like the engaged compose chip;
+            it never drops (zen's one guaranteed visible exit). */}
+        {zenActive && onExitZen && (
+          <Tip label="Exit zen mode" kbd={chordFor("zen-toggle")} placement="top">
+            <button
+              type="button"
+              aria-label="Exit zen mode"
+              data-testid="status-bar-exit-zen"
+              className="flex items-center rounded border border-accent bg-accent/20 px-1 text-accent transition-colors"
+              onClick={onExitZen}
+            >
+              zen ✕
+            </button>
+          </Tip>
+        )}
         {metrics && (
           <MetricsFlyout metrics={metrics} className="hidden md:flex min-w-0">
             <span className={LABEL_CLASS}>cpu</span>

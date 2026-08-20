@@ -223,6 +223,178 @@ func TestSetServerColor_missingServer(t *testing.T) {
 	}
 }
 
+// --- GET/POST /api/settings/server-flair ---
+
+func postServerFlair(t *testing.T, router http.Handler, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/server-flair", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestSetServerFlair_persists(t *testing.T) {
+	isolateSettings(t)
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	rec := postServerFlair(t, router, `{"server":"default","flair":"rain"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	got := settings.GetServerFlair("default")
+	if got == nil || *got != "rain" {
+		t.Errorf("persisted flair = %v, want \"rain\"", got)
+	}
+
+	// The ?server= GET form returns the persisted token.
+	req := httptest.NewRequest(http.MethodGet, "/api/settings/server-flair?server=default", nil)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var result struct {
+		Flair *string `json:"flair"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if result.Flair == nil || *result.Flair != "rain" {
+		t.Errorf("GET ?server=default flair = %v, want \"rain\"", result.Flair)
+	}
+}
+
+func TestSetServerFlair_acceptsEveryUniversalToken(t *testing.T) {
+	// The handler validates against the universal set — every token in
+	// validate.FlairValues (incl. rain/cube) is accepted, none enumerated here.
+	isolateSettings(t)
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	tokens := []string{"rain", "scan", "nyan", "naruto", "onepiece", "pacman", "matrix", "aquarium", "roadrunner", "invaders", "cube", "warp"}
+	for _, token := range tokens {
+		rec := postServerFlair(t, router, `{"server":"default","flair":"`+token+`"}`)
+		if rec.Code != http.StatusOK {
+			t.Errorf("token %q: status = %d, want %d", token, rec.Code, http.StatusOK)
+		}
+	}
+	if got := settings.GetServerFlair("default"); got == nil || *got != "warp" {
+		t.Errorf("final persisted flair = %v, want \"warp\"", got)
+	}
+}
+
+func TestSetServerFlair_rejectsUnknownToken(t *testing.T) {
+	isolateSettings(t)
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	rec := postServerFlair(t, router, `{"server":"default","flair":"sparkle"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if got := settings.GetServerFlair("default"); got != nil {
+		t.Errorf("rejected flair persisted as %q, want nil", *got)
+	}
+}
+
+func TestSetServerFlair_missingServer(t *testing.T) {
+	isolateSettings(t)
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	rec := postServerFlair(t, router, `{"flair":"nyan"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestSetServerFlair_invalidJSON(t *testing.T) {
+	isolateSettings(t)
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	rec := postServerFlair(t, router, `{"server":`)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestSetServerFlair_clearsViaNullAndEmpty(t *testing.T) {
+	for _, body := range []string{`{"server":"default","flair":null}`, `{"server":"default","flair":""}`} {
+		isolateSettings(t)
+		router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+		rec := postServerFlair(t, router, `{"server":"default","flair":"nyan"}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("seed: status = %d, want %d", rec.Code, http.StatusOK)
+		}
+		rec = postServerFlair(t, router, body)
+		if rec.Code != http.StatusOK {
+			t.Errorf("body %s: status = %d, want %d", body, rec.Code, http.StatusOK)
+		}
+		if got := settings.GetServerFlair("default"); got != nil {
+			t.Errorf("body %s: flair persisted as %q, want nil", body, *got)
+		}
+	}
+}
+
+func TestGetServerFlair_mapForm(t *testing.T) {
+	isolateSettings(t)
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	// Empty settings → empty map, never null.
+	req := httptest.NewRequest(http.MethodGet, "/api/settings/server-flair", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var emptyResult struct {
+		Flairs map[string]string `json:"flairs"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&emptyResult); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if emptyResult.Flairs == nil || len(emptyResult.Flairs) != 0 {
+		t.Errorf("GET flairs = %v, want empty non-nil map", emptyResult.Flairs)
+	}
+
+	// After a set, the map form carries the entry.
+	if rec := postServerFlair(t, router, `{"server":"dev","flair":"cube"}`); rec.Code != http.StatusOK {
+		t.Fatalf("seed: status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/api/settings/server-flair", nil)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	var result struct {
+		Flairs map[string]string `json:"flairs"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if result.Flairs["dev"] != "cube" {
+		t.Errorf("GET flairs[dev] = %q, want \"cube\"", result.Flairs["dev"])
+	}
+}
+
+func TestGetServerFlair_unsetReturnsNull(t *testing.T) {
+	isolateSettings(t)
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/settings/server-flair?server=default", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var result struct {
+		Flair *string `json:"flair"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if result.Flair != nil {
+		t.Errorf("GET ?server=default flair = %v, want null", *result.Flair)
+	}
+}
+
 // --- GET/POST /api/settings/ssh-host + /api/settings/instance-name (260723-o7q8) ---
 
 // getScalarSettingViaAPI reads a per-key scalar settings endpoint and returns

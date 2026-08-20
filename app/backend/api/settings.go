@@ -99,6 +99,24 @@ func (s *Server) handleGetServerColor(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"color": color})
 }
 
+// handleGetServerFlair returns server flair(s).
+// GET /api/settings/server-flair?server=xxx → {"flair": "nyan"} or {"flair": null}
+// GET /api/settings/server-flair             → {"flairs": {"default": "nyan"}}
+func (s *Server) handleGetServerFlair(w http.ResponseWriter, r *http.Request) {
+	server := r.URL.Query().Get("server")
+	if server == "" {
+		current := settings.Load()
+		flairs := current.ServerFlairs
+		if flairs == nil {
+			flairs = map[string]string{}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"flairs": flairs})
+		return
+	}
+	flair := settings.GetServerFlair(server)
+	writeJSON(w, http.StatusOK, map[string]any{"flair": flair})
+}
+
 // handleGetInstanceColor returns the instance accent color.
 // GET /api/settings/instance-color → {"color": "4"} or {"color": null}
 // Returns the explicit setting only — the hostname-hash fallback is client-side.
@@ -240,6 +258,40 @@ func (s *Server) handleSetServerColor(w http.ResponseWriter, r *http.Request) {
 
 	if err := settings.SetServerColor(body.Server, body.Color); err != nil {
 		s.logger.Error("failed to save server color", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to save setting")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// handleSetServerFlair sets or clears the flair for a server.
+// POST /api/settings/server-flair ← {"server": "...", "flair": "nyan"|null|""}
+// An empty string clears, like null (empty-equals-unset contract).
+func (s *Server) handleSetServerFlair(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Server string  `json:"server"`
+		Flair  *string `json:"flair"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body")
+		return
+	}
+	if body.Server == "" {
+		writeError(w, http.StatusBadRequest, "server is required")
+		return
+	}
+	if body.Flair != nil {
+		if errMsg := validate.ValidateFlairValue(*body.Flair); errMsg != "" {
+			writeError(w, http.StatusBadRequest, errMsg)
+			return
+		}
+		if *body.Flair == "" {
+			body.Flair = nil
+		}
+	}
+
+	if err := settings.SetServerFlair(body.Server, body.Flair); err != nil {
+		s.logger.Error("failed to save server flair", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to save setting")
 		return
 	}

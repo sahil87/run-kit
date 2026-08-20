@@ -7,6 +7,7 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useServerReorder, type ServerTileDragProps } from "@/hooks/use-server-reorder";
 import { useToast } from "@/components/toast";
 import { WaitingBadge } from "@/components/waiting-badge";
+import { FlairOverlay } from "@/components/flair-overlay";
 import { useIdentityTip, IdentityTipCard } from "./identity-tip";
 import { PopupTitleBarSecondary } from "./popup-title-bar";
 
@@ -15,6 +16,8 @@ type ServerPanelProps = {
   servers: ServerInfo[];
   /** server name → color value descriptor ("4" / "1+3"). */
   serverColors: Record<string, string>;
+  /** server name → flair token (universal set). */
+  serverFlairs?: Record<string, string>;
   /** server name → count of waiting windows (from countWaitingInSessions).
    *  Attached-server-only by construction: an unattached server has no windows
    *  streamed, so its count is 0 and the tile's badge is simply absent. */
@@ -35,6 +38,7 @@ export function ServerPanel({
   server,
   servers,
   serverColors,
+  serverFlairs,
   waitingCounts,
   rowTints,
   rowBorders,
@@ -151,6 +155,8 @@ export function ServerPanel({
                 tint={tint}
                 uncoloredSelectedTint={uncoloredSelectedTint}
                 stripeBg={stripeBg}
+                flair={serverFlairs?.[name]}
+                flairColor={color != null && rowBorders ? rowBorders.get(color) : undefined}
                 isActive={isActive}
                 isMobile={isMobile}
                 dragProps={getTileProps(name)}
@@ -176,6 +182,11 @@ type ServerTileProps = {
   tint: RowTint | null;
   uncoloredSelectedTint: RowTint | null;
   stripeBg: string;
+  /** The server's flair token, or undefined when unset. */
+  flair?: string;
+  /** The guarded stripe color source (rowBorders-derived) — the tint for
+   *  rain/scan flairs. */
+  flairColor?: string;
   isActive: boolean;
   isMobile: boolean;
   /** HTML5 drag-reorder props (from useServerReorder). Infra tiles receive
@@ -196,6 +207,8 @@ function ServerTile({
   tint,
   uncoloredSelectedTint,
   stripeBg,
+  flair,
+  flairColor,
   isActive,
   isMobile,
   dragProps,
@@ -251,6 +264,12 @@ function ServerTile({
         className={`relative block w-full text-left border border-border overflow-hidden transition-colors hover:border-text-secondary ${uncoloredHoverClass}`}
         style={bodyBg ? { backgroundColor: bodyBg } : undefined}
       >
+        {/* Flair overlay (decoration-only channel): mounted whenever the
+            server carries a flair value — same overlay discipline as the
+            sidebar rows (clipped, pointer-events-none, z-5). Hidden while this
+            tile is the drag source (cube/warp animate transforms on child
+            spans — the drag ghost rule) and under prefers-reduced-motion. */}
+        <FlairOverlay flair={flair} hidden={isDragSource} color={flairColor} />
         {/* Top color stripe — the server signature/active marker (top border =
             server, left border = window rows). */}
         <div className="h-0.5" style={{ backgroundColor: stripeBg }} />

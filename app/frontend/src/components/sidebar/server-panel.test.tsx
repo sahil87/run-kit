@@ -18,6 +18,7 @@ function renderPanel(overrides: {
   server?: string;
   servers?: ServerInfo[];
   serverColors?: Record<string, string>;
+  serverFlairs?: Record<string, string>;
   waitingCounts?: Map<string, number>;
   onSwitchServer?: (name: string) => void;
   onCreateServer?: () => void;
@@ -31,6 +32,7 @@ function renderPanel(overrides: {
       { name: "e2e", sessionCount: 1, windowCount: 1 },
     ],
     serverColors: overrides.serverColors ?? {},
+    serverFlairs: overrides.serverFlairs,
     waitingCounts: overrides.waitingCounts,
     onSwitchServer: overrides.onSwitchServer ?? vi.fn(),
     onCreateServer: overrides.onCreateServer ?? vi.fn(),
@@ -386,5 +388,42 @@ describe("ServerPanel", () => {
 
     // WaitingBadge returns null at count <= 0, so no badge is present for either.
     expect(screen.queryByTestId("waiting-badge")).not.toBeInTheDocument();
+  });
+
+  describe("tile flair mount", () => {
+    it("mounts a FlairOverlay (rk-flair-*) on a flaired tile, none on an unflaired one", () => {
+      renderPanel({ serverFlairs: { work: "matrix" } });
+
+      const workTile = screen.getByRole("option", { name: /work/ });
+      const flair = workTile.querySelector(".rk-flair-matrix");
+      expect(flair).not.toBeNull();
+      expect(flair).toHaveAttribute("aria-hidden", "true");
+
+      // A server with no map entry mounts no overlay (FlairOverlay returns null).
+      const defaultTile = screen.getByRole("option", { name: /default/ });
+      expect(defaultTile.querySelector("[class*='rk-flair-']")).toBeNull();
+    });
+
+    it("hides the overlay while the tile is the drag source; it returns on drag end", () => {
+      renderPanel({ serverFlairs: { work: "matrix" } });
+
+      const tileWrapper = screen.getByRole("option", { name: /work/ }).parentElement!;
+      const workTile = screen.getByRole("option", { name: /work/ });
+      expect(workTile.querySelector(".rk-flair-matrix")).not.toBeNull();
+
+      act(() => {
+        fireEvent.dragStart(tileWrapper, {
+          dataTransfer: { setData: vi.fn(), types: [], effectAllowed: "" },
+        });
+      });
+      expect(workTile.querySelector(".rk-flair-matrix")).toBeNull();
+
+      act(() => {
+        fireEvent.dragEnd(tileWrapper, {
+          dataTransfer: { setData: vi.fn(), types: [], effectAllowed: "" },
+        });
+      });
+      expect(workTile.querySelector(".rk-flair-matrix")).not.toBeNull();
+    });
   });
 });

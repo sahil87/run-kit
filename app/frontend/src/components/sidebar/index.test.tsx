@@ -13,7 +13,7 @@ import { SettingsDialogProvider } from "@/contexts/settings-dialog-context";
 import { ToastProvider } from "@/components/toast";
 import { useWindowStore } from "@/store/window-store";
 import { useSelectionStore } from "@/store/selection-store";
-import { getAllServerColors, setServerColor } from "@/api/client";
+import { getAllServerColors, setServerColor, getAllServerFlairs, setServerFlair } from "@/api/client";
 import { stubMatchMedia } from "@/test-utils/match-media";
 import { resetFlyoutWarmState } from "./row-flyout-card";
 import { focusSidebarCurrentRow, registerWindowFocusRestorer } from "@/lib/sidebar-events";
@@ -60,6 +60,8 @@ vi.mock("@/api/client", async (importOriginal) => {
     ...actual,
     getAllServerColors: vi.fn().mockResolvedValue({}),
     setServerColor: vi.fn().mockResolvedValue({ ok: true }),
+    getAllServerFlairs: vi.fn().mockResolvedValue({}),
+    setServerFlair: vi.fn().mockResolvedValue({ ok: true }),
   };
 });
 
@@ -2005,6 +2007,100 @@ describe("Sidebar — server-group header action cluster (x4sf)", () => {
     expect(
       within(container).getByRole("button", { name: /Collapse alpha sessions/ }),
     ).toHaveAttribute("aria-expanded", "true");
+  });
+});
+
+describe("Sidebar — server flair (group header + picker band)", () => {
+  function headerContainer(server: string): HTMLElement {
+    const el = document.querySelector<HTMLElement>(`[data-server='${server}']`);
+    expect(el, `header container for ${server}`).toBeTruthy();
+    return el!;
+  }
+
+  /** Render and flush both settings fetches (server colors + server flairs). */
+  async function renderWithFlairs(flairs: Record<string, string>, currentServer = "primary") {
+    vi.mocked(getAllServerFlairs).mockResolvedValue(flairs);
+    renderSidebar({ currentServer });
+    await act(async () => {});
+    await act(async () => {});
+  }
+
+  afterEach(() => {
+    // Restore the file-default empty flair map so this block's state never leaks.
+    vi.mocked(getAllServerFlairs).mockResolvedValue({});
+    vi.mocked(setServerFlair).mockClear();
+  });
+
+  it("mounts a FlairOverlay (rk-flair-*) on a flaired server's group header, none on an unflaired one", async () => {
+    await renderWithFlairs({ alpha: "matrix" });
+
+    const alphaHeader = headerContainer("alpha");
+    const flair = alphaHeader.querySelector(".rk-flair-matrix");
+    expect(flair).not.toBeNull();
+    expect(flair).toHaveAttribute("aria-hidden", "true");
+
+    expect(headerContainer("beta").querySelector("[class*='rk-flair-']")).toBeNull();
+  });
+
+  it("the header overlay carries the guarded accent as --rk-flair-color when the server is colored", async () => {
+    vi.mocked(getAllServerColors).mockResolvedValue({ alpha: "4" });
+    await renderWithFlairs({ alpha: "rain" });
+
+    const flair = headerContainer("alpha").querySelector<HTMLElement>(".rk-flair-rain")!;
+    expect(flair).not.toBeNull();
+    // jsdom normalizes inline hex to rgb() in the reflected custom property.
+    expect(flair.style.getPropertyValue("--rk-flair-color")).not.toBe("");
+  });
+
+  it("the server picker renders the flair band (12 live cells) and a flair pick POSTs + mounts the overlay optimistically", async () => {
+    await renderWithFlairs({}); // alpha starts unflaired
+
+    fireEvent.click(
+      within(headerContainer("alpha")).getByRole("button", { name: "Set color for server alpha" }),
+    );
+    const popover = screen.getByRole("listbox", { name: "Color picker" });
+
+    // The flair band is present — the 12 named states as data-flair-value cells.
+    const cells = popover.querySelectorAll("[data-flair-value]");
+    expect(cells).toHaveLength(12);
+
+    fireEvent.click(within(popover).getByRole("option", { name: "Flair cube" }));
+
+    // Optimistic mount + POST through the shared seam; the popover stays open
+    // (the dismissal contract).
+    expect(headerContainer("alpha").querySelector(".rk-flair-cube")).not.toBeNull();
+    expect(vi.mocked(setServerFlair)).toHaveBeenCalledExactlyOnceWith("alpha", "cube");
+    expect(screen.getByRole("listbox", { name: "Color picker" })).toBeInTheDocument();
+  });
+
+  it("the flair band's ∅ header cell clears: POSTs null and unmounts the overlay", async () => {
+    await renderWithFlairs({ alpha: "nyan" });
+    expect(headerContainer("alpha").querySelector(".rk-flair-nyan")).not.toBeNull();
+
+    fireEvent.click(
+      within(headerContainer("alpha")).getByRole("button", { name: "Set color for server alpha" }),
+    );
+    const popover = screen.getByRole("listbox", { name: "Color picker" });
+    fireEvent.click(within(popover).getByRole("option", { name: "Flair none" }));
+
+    expect(vi.mocked(setServerFlair)).toHaveBeenCalledExactlyOnceWith("alpha", null);
+    expect(headerContainer("alpha").querySelector("[class*='rk-flair-']")).toBeNull();
+  });
+
+  it("a failed POST surfaces a toast and keeps the optimistic overlay", async () => {
+    vi.mocked(setServerFlair).mockRejectedValueOnce(new Error("nope"));
+    await renderWithFlairs({});
+
+    fireEvent.click(
+      within(headerContainer("alpha")).getByRole("button", { name: "Set color for server alpha" }),
+    );
+    fireEvent.click(
+      within(screen.getByRole("listbox", { name: "Color picker" })).getByRole("option", { name: "Flair rain" }),
+    );
+
+    expect(headerContainer("alpha").querySelector(".rk-flair-rain")).not.toBeNull();
+    // The toast region renders the failure message (aria-live polite region).
+    expect(await screen.findByText("nope")).toBeInTheDocument();
   });
 });
 

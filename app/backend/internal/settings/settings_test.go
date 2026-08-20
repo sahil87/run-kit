@@ -3,6 +3,7 @@ package settings
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -218,6 +219,88 @@ func TestParseServerColors_legacyIntBackCompat(t *testing.T) {
 	s := parse("server_colors:\n  default: 4\n  dev: 10\n")
 	if s.ServerColors["default"] != "4" || s.ServerColors["dev"] != "10" {
 		t.Errorf("legacy integer server colors did not load: %v", s.ServerColors)
+	}
+}
+
+func TestParseServerFlairs(t *testing.T) {
+	// Tolerant read: quoted and bare universal tokens parse; unknown and empty
+	// tokens are dropped.
+	s := parse("theme: system\nserver_flairs:\n  default: \"nyan\"\n  dev: cube\n  bad: \"bogus\"\n  empty: \"\"\n")
+	if len(s.ServerFlairs) != 2 {
+		t.Fatalf("expected 2 valid server flairs (malformed dropped), got %d: %v", len(s.ServerFlairs), s.ServerFlairs)
+	}
+	if s.ServerFlairs["default"] != "nyan" {
+		t.Errorf("ServerFlairs[default] = %q, want \"nyan\"", s.ServerFlairs["default"])
+	}
+	if s.ServerFlairs["dev"] != "cube" {
+		t.Errorf("ServerFlairs[dev] = %q, want \"cube\"", s.ServerFlairs["dev"])
+	}
+	if _, ok := s.ServerFlairs["bad"]; ok {
+		t.Errorf("unknown token bogus should have been dropped, got %q", s.ServerFlairs["bad"])
+	}
+}
+
+func TestSerializeServerFlairs(t *testing.T) {
+	s := Settings{
+		Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light",
+		ServerFlairs: map[string]string{"default": "nyan", "dev": "cube"},
+	}
+	got := serialize(s)
+	// Values are always written quoted so they round-trip unambiguously; keys
+	// sort for deterministic output.
+	want := "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\nserver_flairs:\n  default: \"nyan\"\n  dev: \"cube\"\n"
+	if got != want {
+		t.Errorf("serialize = %q, want %q", got, want)
+	}
+}
+
+func TestSerializeEmptyServerFlairsIsByteIdentical(t *testing.T) {
+	// A settings file without flairs must serialize exactly like one that never
+	// had them (no server_flairs: heading).
+	got := serialize(Settings{Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light"})
+	want := "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\n"
+	if got != want {
+		t.Errorf("serialize (empty ServerFlairs) = %q, want %q", got, want)
+	}
+}
+
+func TestServerFlairRoundTrip(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	// Unset → nil.
+	if got := GetServerFlair("default"); got != nil {
+		t.Errorf("GetServerFlair (unset) = %v, want nil", *got)
+	}
+
+	flair := "cube"
+	if err := SetServerFlair("default", &flair); err != nil {
+		t.Fatalf("SetServerFlair: %v", err)
+	}
+	got := GetServerFlair("default")
+	if got == nil || *got != "cube" {
+		t.Errorf("GetServerFlair = %v, want \"cube\"", got)
+	}
+
+	// Overwrite, then clear.
+	flair = "warp"
+	if err := SetServerFlair("default", &flair); err != nil {
+		t.Fatalf("SetServerFlair overwrite: %v", err)
+	}
+	if err := SetServerFlair("default", nil); err != nil {
+		t.Fatalf("SetServerFlair clear: %v", err)
+	}
+	if got := GetServerFlair("default"); got != nil {
+		t.Errorf("GetServerFlair after clear = %v, want nil", *got)
+	}
+
+	// Clearing the last entry drops the section from the file entirely.
+	data, err := os.ReadFile(filepath.Join(tmp, ".rk", "settings.yaml"))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if strings.Contains(string(data), "server_flairs") {
+		t.Errorf("cleared map left a server_flairs heading in the file:\n%s", data)
 	}
 }
 

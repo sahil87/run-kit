@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 11
@@ -33,22 +33,24 @@ stage_metrics:
     apply: {started_at: "2026-08-20T18:58:00Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-20T19:02:41Z"}
     review: {started_at: "2026-08-20T19:02:41Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-20T19:05:47Z"}
     hydrate: {started_at: "2026-08-20T19:05:47Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-20T19:12:26Z"}
-    ship: {started_at: "2026-08-20T19:12:26Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-20T19:12:26Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-20T19:14:32Z"}
+    review-pr: {started_at: "2026-08-20T19:14:32Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/694
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 2484
+    deleted: 458
+    net: 2026
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 1777
+        deleted: 402
+        net: 1375
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-08-20T19:12:27Z"
-    computed_at_stage: hydrate
+        added: 572
+        deleted: 68
+        net: 504
+    computed_at: "2026-08-20T19:14:32Z"
+    computed_at_stage: ship
 summary: 'desktop shell goes multi-window: one process many windows (single-instance lock, second-instance opens a window), views re-keyed (window, host), windows.json window-set restore with quit-accumulate/close-drop capture, duplicate-current New Window + shell:new-window bridge, per-window host switching/titles/overlay/welcome, badge aggregates distinct displayed hosts, activeId demoted to cosmetic last-focused'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-20T19:12:27Z
+last_updated: 2026-08-20T19:14:32Z

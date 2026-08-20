@@ -395,6 +395,20 @@ func rollupChat(panes []tmux.PaneInfo) (provider, ref string) {
 	return provider, ref
 }
 
+// rollupAltScreen derives the window-level alt-screen flag from the ACTIVE
+// pane — the same active-pane rule CaptureWindowHistoryCtx targets: an
+// alt-screen active pane means tmux holds no scrollback for the window's
+// capture, so the export menu gates its server-capture row on this. False for
+// a zero-pane window (never lies toward true).
+func rollupAltScreen(panes []tmux.PaneInfo) bool {
+	for _, p := range panes {
+		if p.IsActive {
+			return p.AltScreen
+		}
+	}
+	return false
+}
+
 // deriveGitRoot resolves the window's git toplevel for the code lens/surface
 // (docs/specs/right-panel.md): the ACTIVE pane's cwd, else the first pane's
 // cwd, else the window's worktree path — the same precedence as api/riff.go's
@@ -582,6 +596,10 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 			// pane truth is preserved on the Panes entries; both ride the existing
 			// ProjectSession marshal to GET /api/sessions and SSE event: sessions.
 			sd.windows[j].ChatProvider, sd.windows[j].ChatSessionRef = rollupChat(sd.windows[j].Panes)
+			// Alt-screen tier (260820-4le0): the ACTIVE pane's alternate_on,
+			// rolled up to the window so the export menu's server-capture row
+			// can be honest about panes where tmux holds no scrollback.
+			sd.windows[j].AltScreen = rollupAltScreen(sd.windows[j].Panes)
 			// Code-lens availability tier (260811-k3vp): the window's git root,
 			// derived from its active pane's cwd (Constitution II/X — nothing
 			// stored, nothing pushed). Empty when the cwd is not a repo.

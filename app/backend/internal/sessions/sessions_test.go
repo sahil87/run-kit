@@ -407,6 +407,34 @@ func TestRollupChat(t *testing.T) {
 	})
 }
 
+func TestRollupAltScreen(t *testing.T) {
+	t.Run("active pane alt-screen yields true", func(t *testing.T) {
+		panes := []tmux.PaneInfo{
+			{AltScreen: false},
+			{IsActive: true, AltScreen: true},
+		}
+		if !rollupAltScreen(panes) {
+			t.Error("got false, want true")
+		}
+	})
+
+	t.Run("non-active alt-screen pane alone yields false", func(t *testing.T) {
+		panes := []tmux.PaneInfo{
+			{IsActive: true, AltScreen: false},
+			{AltScreen: true},
+		}
+		if rollupAltScreen(panes) {
+			t.Error("got true, want false")
+		}
+	})
+
+	t.Run("zero panes yields false", func(t *testing.T) {
+		if rollupAltScreen(nil) {
+			t.Error("got true, want false")
+		}
+	})
+}
+
 // TestResolveChatPane covers the paneID surfaced alongside provider/ref — the
 // chat-send injection target (a window target may route to the wrong pane in a
 // split). The active-pane-first / else-first-chat-pane rule is shared with

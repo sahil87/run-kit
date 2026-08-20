@@ -8,9 +8,12 @@
  * which satisfies it.
  *
  * The two-section menu split is load-bearing: the client buffer holds only
- * what streamed since attach (tmux owns scrollback), so the honest "full
- * history" artifact comes from the server capture — the client-side helpers
- * here cover the "this view" arm only.
+ * what streamed since attach, so for NORMAL-screen panes the honest "full
+ * history" artifact comes from the server capture (tmux owns that scrollback)
+ * — the client-side helpers here cover the "this view" arm. For ALT-screen
+ * panes (agent TUIs) tmux holds no scrollback at all, so the server row is
+ * gated off and the client buffer — sized by the `scrollback` mount option —
+ * is the only transcript that exists.
  */
 
 import { finalizeSafeName, toSafeWindowName } from "@/lib/names";

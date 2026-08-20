@@ -3062,7 +3062,12 @@ function AppShell() {
               ["terminal-export-snapshot", "Terminal: Download snapshot (HTML)", "snapshot"],
               ["terminal-export-transcript", "Terminal: Download transcript", "transcript"],
               ["terminal-export-copy", "Terminal: Copy visible screen", "copy-visible"],
-              ["terminal-export-history", "Terminal: Download full history", "history"],
+              // Gated ABSENT (not disabled — the availability idiom) on an
+              // alt-screen window: tmux holds no scrollback there, so the
+              // server capture is structurally empty (260820-4le0).
+              ...(currentWindow?.altScreen
+                ? []
+                : [["terminal-export-history", "Terminal: Download full history", "history"] as const]),
             ] as const
           ).map(([id, label, action]) => ({
             id,
@@ -3072,7 +3077,7 @@ function AppShell() {
           }))
         : []),
     ],
-    [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, composeStripEnabled, currentViews, resolvedView, switchView, bindingByAction, bindingHost, windowParam, isMobile, renderLayout, panelSurfaces, applyLayout, layoutZoomed, focusedTileKind, mobileActiveTile, switchToTile, zenOn, toggleZen],
+    [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, composeStripEnabled, currentViews, resolvedView, switchView, bindingByAction, bindingHost, windowParam, isMobile, renderLayout, panelSurfaces, applyLayout, layoutZoomed, focusedTileKind, mobileActiveTile, switchToTile, currentWindow, zenOn, toggleZen],
   );
 
   // Navigation actions (`Go: Back` / `Go: Forward` / ancestor entries,

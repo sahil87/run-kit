@@ -10,7 +10,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { SearchAddon } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { ProgressAddon } from "@xterm/addon-progress";
-import { TerminalClient } from "./terminal-client";
+import { TerminalClient, SCROLLBACK_DESKTOP, SCROLLBACK_MOBILE } from "./terminal-client";
 import type { OpenStreamOpts, RelayStream } from "@/lib/relay-mux";
 
 // ---------------------------------------------------------------------------
@@ -1078,6 +1078,90 @@ describe("TerminalClient Unicode width init", () => {
       | { unicode: { activeVersion: string } }
       | undefined;
     expect(terminalInstance?.unicode.activeVersion).toBe("15-graphemes");
+  });
+});
+
+describe("TerminalClient scrollback default split + explicit override", () => {
+  // The scrollback option is the export transcript's ceiling: absent prop →
+  // device split (SCROLLBACK_DESKTOP / SCROLLBACK_MOBILE by the narrow-width-
+  // OR-coarse rule, resolved at Terminal construction); an explicit prop
+  // (boards pin 1000) always wins.
+  function stubViewport(mobile: boolean) {
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
+      matches: mobile,
+      media: "",
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+  }
+
+  function renderWithScrollback(scrollback?: number) {
+    return render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <TerminalClient
+            sessionName="test-session"
+            windowId="@0"
+            server="default"
+            wsRef={createWsRef()}
+            scrollback={scrollback}
+          />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
+  }
+
+  beforeEach(() => {
+    localStorage.clear();
+    MockStream.instances = [];
+    mockRelayMux.openStream.mockClear();
+    vi.mocked(Terminal).mockClear();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("defaults to SCROLLBACK_DESKTOP on a desktop viewport when the prop is absent", async () => {
+    stubViewport(false);
+    renderWithScrollback(undefined);
+
+    await waitFor(() => {
+      expect(vi.mocked(Terminal)).toHaveBeenCalled();
+    });
+
+    const ctorArgs = vi.mocked(Terminal).mock.calls[0]?.[0];
+    expect(ctorArgs?.scrollback).toBe(SCROLLBACK_DESKTOP);
+  });
+
+  it("defaults to SCROLLBACK_MOBILE on a mobile viewport when the prop is absent", async () => {
+    stubViewport(true);
+    renderWithScrollback(undefined);
+
+    await waitFor(() => {
+      expect(vi.mocked(Terminal)).toHaveBeenCalled();
+    });
+
+    const ctorArgs = vi.mocked(Terminal).mock.calls[0]?.[0];
+    expect(ctorArgs?.scrollback).toBe(SCROLLBACK_MOBILE);
+  });
+
+  it("uses the explicit prop value over the device default", async () => {
+    stubViewport(false);
+    renderWithScrollback(1000);
+
+    await waitFor(() => {
+      expect(vi.mocked(Terminal)).toHaveBeenCalled();
+    });
+
+    const ctorArgs = vi.mocked(Terminal).mock.calls[0]?.[0];
+    expect(ctorArgs?.scrollback).toBe(1000);
   });
 });
 

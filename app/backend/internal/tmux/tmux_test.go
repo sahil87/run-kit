@@ -792,11 +792,18 @@ func paneLineAgent(windowID string, paneID string, paneIndex int, cwd, command s
 	return paneLineChat(windowID, paneID, paneIndex, cwd, command, active, agentState, "")
 }
 
-// paneLineChat builds an 8-field tab-delimited list-panes line including both the
-// @rk_agent_state field (field 6) and the @rk_chat field (field 7).
+// paneLineChat builds a 9-field tab-delimited list-panes line including both the
+// @rk_agent_state field (field 6) and the @rk_chat field (field 7), with
+// alternate_on (field 8) pinned to "0" (normal screen).
 func paneLineChat(windowID string, paneID string, paneIndex int, cwd, command string, active int, agentState, chat string) string {
-	return fmt.Sprintf("%s%s%s%s%d%s%s%s%s%s%d%s%s%s%s",
-		windowID, listDelim, paneID, listDelim, paneIndex, listDelim, cwd, listDelim, command, listDelim, active, listDelim, agentState, listDelim, chat)
+	return paneLineAlt(windowID, paneID, paneIndex, cwd, command, active, agentState, chat, "0")
+}
+
+// paneLineAlt builds a 9-field tab-delimited list-panes line with an explicit
+// alternate_on value (field 8).
+func paneLineAlt(windowID string, paneID string, paneIndex int, cwd, command string, active int, agentState, chat, alt string) string {
+	return fmt.Sprintf("%s%s%s%s%d%s%s%s%s%s%d%s%s%s%s%s%s",
+		windowID, listDelim, paneID, listDelim, paneIndex, listDelim, cwd, listDelim, command, listDelim, active, listDelim, agentState, listDelim, chat, listDelim, alt)
 }
 
 // totalPanes sums the number of panes across all windows in the map.
@@ -1059,19 +1066,33 @@ func TestParsePanes(t *testing.T) {
 		}
 	})
 
-	t.Run("back-compat: a 7-field line (no @rk_chat) is skipped by the < 8 guard", func(t *testing.T) {
-		// The 8th field is required now; a pane emitted without it is skipped
-		// (an option that always resolves — tmux emits an empty field for an
-		// unset user option — so a real 7-field line only occurs pre-upgrade).
-		sevenField := fmt.Sprintf("0%s%%1%s0%s/tmp%sclaude%s1%sactive:1751790000",
-			listDelim, listDelim, listDelim, listDelim, listDelim, listDelim)
+	t.Run("back-compat: an 8-field line (no alternate_on) is skipped by the < 9 guard", func(t *testing.T) {
+		// The 9th field is required now; a pane emitted without it is skipped
+		// (alternate_on always resolves — tmux emits "0"/"1" for it — so a real
+		// 8-field line only occurs pre-upgrade).
+		eightField := fmt.Sprintf("0%s%%1%s0%s/tmp%sclaude%s1%sactive:1751790000%s",
+			listDelim, listDelim, listDelim, listDelim, listDelim, listDelim, listDelim)
 		valid := paneLineChat("@1", "%2", 0, "/tmp", "claude", 1, "", "")
-		byWindow := parsePanes([]string{sevenField, valid})
+		byWindow := parsePanes([]string{eightField, valid})
 		if totalPanes(byWindow) != 1 {
-			t.Fatalf("got %d panes, want 1 (7-field line skipped)", totalPanes(byWindow))
+			t.Fatalf("got %d panes, want 1 (8-field line skipped)", totalPanes(byWindow))
 		}
 		if byWindow["@0"] != nil {
-			t.Errorf("byWindow[@0] should be nil (7-field line skipped), got %v", byWindow["@0"])
+			t.Errorf("byWindow[@0] should be nil (8-field line skipped), got %v", byWindow["@0"])
+		}
+	})
+
+	t.Run("alternate_on parsed from field 8", func(t *testing.T) {
+		lines := []string{paneLineAlt("@0", "%1", 0, "/tmp", "claude", 1, "", "", "1")}
+		p := parsePanes(lines)["@0"][0]
+		if !p.AltScreen {
+			t.Error("AltScreen = false, want true")
+		}
+
+		lines = []string{paneLineAlt("@0", "%1", 0, "/tmp", "zsh", 1, "", "", "0")}
+		p = parsePanes(lines)["@0"][0]
+		if p.AltScreen {
+			t.Error("AltScreen = true, want false")
 		}
 	})
 

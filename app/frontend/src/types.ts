@@ -149,5 +149,12 @@ export type WindowInfo = {
    *  internal/sessions/sessions.go). Empty/absent = no chat for this window. */
   chatProvider?: string;
   chatSessionRef?: string;
+  /** True when the ACTIVE pane's application is on tmux's alternate screen
+   *  (rollup of the pane's `alternate_on`, derived server-side in
+   *  FetchSessions). Alt-screen panes have no scrollback, so a server-side
+   *  `capture-pane -S -` history capture is structurally empty for them — the
+   *  export menu disables its "full history" row and the palette omits the
+   *  action while this is true. Always emitted (false = normal screen). */
+  altScreen?: boolean;
   panes?: PaneInfo[];
 };

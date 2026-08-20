@@ -20,6 +20,21 @@ import { relayMux, type RelayStream } from "@/lib/relay-mux";
 import { shouldRefuseTerminalChord } from "@/lib/keybindings";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { evaluateMediaQuery } from "@/hooks/use-media-query";
+import { evaluateIsMobile } from "@/hooks/use-is-mobile";
+
+/**
+ * Device-split scrollback defaults for the xterm Terminal when the `scrollback`
+ * prop is absent (the terminal-font-size mount-time device rule — narrow width
+ * OR coarse pointer counts as mobile). 25k covers a heavy agent session
+ * (measured at ~19k–31k rendered lines); 10k bounds mobile memory. Boards opt
+ * down explicitly via the prop — they mount many live terminals as previews.
+ */
+export const SCROLLBACK_DESKTOP = 25_000;
+export const SCROLLBACK_MOBILE = 10_000;
+
+function deviceDefaultScrollback(): number {
+  return evaluateIsMobile() ? SCROLLBACK_MOBILE : SCROLLBACK_DESKTOP;
+}
 
 /**
  * Custom ClipboardProvider for the xterm.js ClipboardAddon.
@@ -126,6 +141,13 @@ type TerminalClientProps = {
   onProgressChange?: (state: number, value: number) => void;
   scrollLocked?: boolean;
   /**
+   * Lines of scrollback on the xterm buffer. Absent → device-split default
+   * (`SCROLLBACK_MOBILE`/`SCROLLBACK_DESKTOP` by the narrow-width-OR-coarse
+   * rule, resolved at Terminal construction). Boards pass an explicit small
+   * value — they mount many live terminals as preview surfaces.
+   */
+  scrollback?: number;
+  /**
    * When `true` (default), this terminal registers itself as the focused
    * terminal on mount so the shell-level BottomBar targets it. Set to
    * `false` for board panes — BoardPane handles registration based on its
@@ -147,6 +169,7 @@ export function TerminalClient({
   terminalRef: terminalSeamRef,
   onProgressChange,
   scrollLocked,
+  scrollback,
   registerFocus = true,
 }: TerminalClientProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
@@ -312,6 +335,8 @@ export function TerminalClient({
         cursorBlink: true,
         fontFamily: '"MonaspiceNe Nerd Font Mono", ui-monospace, monospace',
         fontSize: fontPx,
+        // Mount-time device rule like fontPx — an explicit prop (boards) wins.
+        scrollback: scrollback ?? deviceDefaultScrollback(),
         theme: deriveXtermTheme(activeTheme.palette),
         allowProposedApi: true,
         // The search addon's decorations tick the overview ruler only when it

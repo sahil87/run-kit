@@ -173,12 +173,12 @@ func TestAgentStateStale(t *testing.T) {
 
 	// And the same decision reaches the parsePanes rollup.
 	agentProcessAlive = func(int) bool { return false }
-	lines := []string{"@1\t%1\t0\t/tmp\tvim\t1\tactive:1700000000:4242\t"}
+	lines := []string{"@1\t%1\t0\t/tmp\tvim\t1\tactive:1700000000:4242\t\t0"}
 	got := parsePanes(lines)["@1"]
 	if len(got) != 1 || got[0].AgentState != "" {
 		t.Errorf("dead-pid pane = %+v, want reconciled to unknown", got)
 	}
-	legacy := []string{"@1\t%1\t0\t/tmp\tbash\t1\tactive:1700000000\t"}
+	legacy := []string{"@1\t%1\t0\t/tmp\tbash\t1\tactive:1700000000\t\t0"}
 	got = parsePanes(legacy)["@1"]
 	if len(got) != 1 || got[0].AgentState != "" {
 		t.Errorf("legacy shell pane = %+v, want reconciled to unknown", got)

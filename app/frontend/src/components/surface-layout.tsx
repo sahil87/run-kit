@@ -30,6 +30,12 @@ import {
   SplitVerticalGlyph,
 } from "@/components/top-bar-icons";
 import type { ViewWindow } from "@/lib/window-view";
+import {
+  IDLE_PROGRESS,
+  isValuedProgress,
+  reduceProgress,
+  type TtyProgress,
+} from "@/lib/tty-progress";
 import { classifyAddress, displayForm, proxyPortOf } from "@/lib/web-url";
 import type { ChatEvent, ChatPending } from "@/lib/chat-stream";
 import type { WindowInfo } from "@/types";
@@ -237,6 +243,20 @@ function defaultRatios(arity: 1 | 2 | 3): LayoutRatios {
  *  always-full-opacity rule (no hover to reveal them). */
 const VERB_BUTTON_CLASS =
   "inline-flex items-center justify-center h-[22px] w-[22px] coarse:h-[26px] coarse:w-[26px] rounded opacity-65 coarse:opacity-100 hover:opacity-100 focus-visible:opacity-100 hover:bg-bg-inset transition-opacity";
+
+/** Tty progress colors (260819-1vxq, design study state 03): green = running,
+ *  red = error, amber = pause/warning — the existing signal-token vocabulary.
+ *  The chip follows the web-kind badge idiom; the bar is the fill color. */
+const PROGRESS_CHIP_CLASS = {
+  determinate: "text-accent-green border-accent-green/40 bg-accent-green/10",
+  error: "text-signal-red border-signal-red/40 bg-signal-red/10",
+  paused: "text-signal-yellow border-signal-yellow/40 bg-signal-yellow/10",
+} as const;
+const PROGRESS_BAR_CLASS = {
+  determinate: "bg-accent-green",
+  error: "bg-signal-red",
+  paused: "bg-signal-yellow",
+} as const;
 
 /** The ratios a (window, shape) render starts from: the persisted value when
  *  it is well-formed for the shape's arity (right length, finite, strictly
@@ -535,6 +555,40 @@ export function SurfaceLayout({
   // or empty) falls the header back to the address's display form. The
   // per-window reset comes free from the parent's key (the zoom precedent).
   const [webPageTitle, setWebPageTitle] = useState<string | null>(null);
+
+  // Tty task progress (260819-1vxq): OSC 9;4 events lifted from the
+  // scaffold's `onProgressChange` seam into ONE per-window slot — every tty
+  // tile shows the same window, so one slot serves all of them (the
+  // webPageTitle precedent), and duplicate-tile firings fold idempotently.
+  // Events reduce immediately (retention semantics need event order) but
+  // commit at most once per animation frame, so bursty emitters cannot
+  // re-render storm the grid. Per-viewer ephemeral by design: component
+  // state only, reset by the parent's per-window key — a stale value with
+  // no updates is left as-is (the emitter owns lifecycle via state 0).
+  const [ttyProgress, setTtyProgress] = useState<TtyProgress>(IDLE_PROGRESS);
+  const ttyProgressRef = useRef<TtyProgress>(IDLE_PROGRESS);
+  const ttyProgressRafRef = useRef<number | null>(null);
+  const handleTtyProgress = useCallback((state: number, value: number) => {
+    ttyProgressRef.current = reduceProgress(ttyProgressRef.current, state, value);
+    if (ttyProgressRafRef.current !== null) return;
+    ttyProgressRafRef.current = requestAnimationFrame(() => {
+      ttyProgressRafRef.current = null;
+      setTtyProgress(ttyProgressRef.current);
+    });
+  }, []);
+  useEffect(
+    () => () => {
+      if (ttyProgressRafRef.current !== null) {
+        cancelAnimationFrame(ttyProgressRafRef.current);
+      }
+    },
+    [],
+  );
+  // The header chip renders only for the value-carrying states (1/2/4) —
+  // indeterminate sweeps with no percentage, idle removes it.
+  const ttyChip = isValuedProgress(ttyProgress)
+    ? { value: ttyProgress.value, cls: PROGRESS_CHIP_CLASS[ttyProgress.kind] }
+    : null;
 
   // Focused tile (260812-wfic R2) — transient, like zoom: the slot that last
   // received pointer/keyboard interaction. Default slot A; falls back to slot
@@ -883,6 +937,10 @@ export function SurfaceLayout({
               // terminal — duplicates must not fight over the slot (the
               // board-pane rule).
               registerFocus={primaryTty}
+              // Every tty mount feeds the shared progress slot (260819-1vxq):
+              // duplicates parse the same stream, so their firings fold
+              // idempotently, and the signal survives a hidden primary.
+              onProgressChange={handleTtyProgress}
             />
           </div>
         );
@@ -1055,7 +1113,14 @@ export function SurfaceLayout({
         {!mobile && (
           <div className="flex items-center gap-1.5 px-1.5 h-[30px] shrink-0 border-b border-border bg-bg-card font-mono text-[11px] text-text-secondary select-none">
             {kind === "tty" && statusWindow && <StatusDot win={statusWindow} />}
-            {/* rk-slot: progress-chip */}
+            {kind === "tty" && ttyChip && (
+              <span
+                data-testid="progress-chip"
+                className={`shrink-0 rounded border px-1.5 text-[10px] tabular-nums ${ttyChip.cls}`}
+              >
+                {ttyChip.value}%
+              </span>
+            )}
             <span
               aria-hidden="true"
               className={`shrink-0 ${isFocused ? "text-accent-green" : ""}`}
@@ -1192,7 +1257,31 @@ export function SurfaceLayout({
           </div>
         )}
         {/* rk-slot: find-bar-row */}
-        {/* rk-slot: progress-line */}
+        {/* Progress line (260819-1vxq R2): a zero-height wrapper whose
+            absolute 2px bar OVERLAYS the content's top edge — an in-flow
+            strip would resize the terminal container and fire fit → PTY
+            resize churn on every task start/stop. */}
+        {kind === "tty" && ttyProgress.kind !== "idle" && (
+          <div
+            className="rk-tty-progress"
+            data-testid="progress-line"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={
+              ttyProgress.kind === "indeterminate" ? undefined : ttyProgress.value
+            }
+          >
+            {ttyProgress.kind === "indeterminate" ? (
+              <span className="rk-tty-progress-bar rk-tty-progress-indeterminate" />
+            ) : (
+              <span
+                className={`rk-tty-progress-bar ${PROGRESS_BAR_CLASS[ttyProgress.kind]}`}
+                style={{ width: `${ttyProgress.value}%` }}
+              />
+            )}
+          </div>
+        )}
         <div
           // Mid-drag the iframe/xterm content must not swallow pointermove
           // (the drag would stall at the iframe boundary). Applies to both

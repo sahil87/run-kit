@@ -187,6 +187,40 @@ summary {
   background: var(--color-accent-green);
   animation: rk-web-progress-sweep 1.15s ease-in-out infinite;
 }
+
+/* Tty-tile task progress (260819-1vxq): passthrough-wrapped OSC 9;4 rendered
+   as a 2px strip overlaying the tty content's top edge. The wrapper is
+   zero-height (absolute bar, no in-flow footprint) so progress appearing or
+   leaving never shifts the tile — an in-flow strip over xterm would fire
+   ResizeObserver → fit → PTY resize churn on every task start/stop.
+   Determinate/error/paused fills are width-styled inline with token bg
+   utilities; indeterminate reuses the web tile's sweep keyframes. Reduced
+   motion: the sweep is zeroed to a static dim fill (gated below) — progress
+   feedback is never motion-only. */
+.rk-tty-progress {
+  position: relative;
+  height: 0;
+  z-index: 10;
+  pointer-events: none;
+}
+.rk-tty-progress-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 2px;
+}
+.rk-tty-progress-indeterminate {
+  width: 100%;
+  overflow: hidden;
+}
+.rk-tty-progress-indeterminate::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 38%;
+  background: var(--color-accent-green);
+  animation: rk-web-progress-sweep 1.15s ease-in-out infinite;
+}
 .rk-glint::after {
   content: "";
   position: absolute;
@@ -1191,6 +1225,8 @@ html[data-theme="light"] {
   /* Web-tile progress line: sweep zeroed to a static dim line — load feedback
      is never motion-only. */
   .rk-web-progress::after { animation: none; width: 100%; opacity: 0.35; }
+  /* Tty-tile progress line: the indeterminate sweep is zeroed the same way. */
+  .rk-tty-progress-indeterminate::after { animation: none; width: 100%; opacity: 0.35; }
   .rk-brand-glitch:hover { animation: none; }
   /* (brand-logo glow sweep is skipped in JS — no CSS gate needed) */
   /* (typed-label sweep is skipped in JS — no CSS gate needed) */

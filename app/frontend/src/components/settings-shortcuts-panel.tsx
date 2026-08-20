@@ -80,7 +80,7 @@ type JumpSectionId = "map" | "global" | "terminal" | "board" | "custom" | "tmux"
  *  dialog close). `displayPlatform: null` = follow the detected host. */
 const viewPrefs = {
   mapFolded: false,
-  mapTier: "shifted" as "shifted" | "cmd",
+  mapTier: "cmd" as "shifted" | "cmd",
   displayPlatform: null as BindingPlatform | null,
 };
 
@@ -88,7 +88,7 @@ const viewPrefs = {
  *  across tests in one file). */
 export function resetShortcutsPanelViewPrefs() {
   viewPrefs.mapFolded = false;
-  viewPrefs.mapTier = "shifted";
+  viewPrefs.mapTier = "cmd";
   viewPrefs.displayPlatform = null;
 }
 
@@ -775,7 +775,7 @@ export function SettingsShortcutsPanel({
                   role="group"
                   aria-label="Keyboard map modifier"
                 >
-                  {(["shifted", "cmd"] as const).map((t) => (
+                  {(["cmd", "shifted"] as const).map((t) => (
                     <button
                       key={t}
                       type="button"

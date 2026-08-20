@@ -218,20 +218,21 @@ chord), window cycling stays shifted (H/L unchanged), and the old
 **What it proves:** the `shortcuts-overlay` default demotes to ⌘/ on macOS and
 toggles the settings dialog's Shortcuts tab; the tab's macOS display
 (initialized from the detected host) offers
-the single keyboard map's modifier picker ("Holding ⇧⌘ | ⌘" — 260801-r8j2)
-with ⇧⌘ selected by default; selecting ⌘ renders the ⌘ layer with the mac
-claimed set.
+the single keyboard map's modifier picker ("Holding ⌘ | ⇧⌘" — 260801-r8j2)
+with ⌘ selected by default and the ⌘ layer rendered; selecting ⇧⌘ swaps to
+the shifted layer.
 
 **Steps:**
 1. Spoof the mac platform; mock the backend; open `/default/1`.
 2. Press Meta+/ → the dialog opens on the Shortcuts tab.
-3. Assert the "Keyboard map modifier" picker group is visible and its ⌘
-   option is unselected (`aria-pressed="false"` — ⇧⌘ is the default layer).
-4. Click the ⌘ option → it selects (`aria-pressed="true"`) and the ⌘ layer
-   renders: the ⌘L cell shows the `web-address` binding's "address" keycap
-   (the shifted layer's KeyL reads "next win", so this proves the layer
-   swap), and no "address bar" cell exists — the old mac-browser ⌘L claim
-   is removed (260819-v6y4).
+3. Assert the "Keyboard map modifier" picker group is visible with its ⌘
+   option selected by default (`aria-pressed="true"`), the ⌘ layer rendered:
+   the ⌘L cell shows the `web-address` binding's "address" keycap (⌘L,
+   260819-v6y4), and no "address bar" cell exists — the old mac-browser ⌘L
+   claim is removed.
+4. Click the ⇧⌘ option → it selects (`aria-pressed="true"`) and the shifted
+   layer renders: the "address" keycap disappears (the shifted KeyL reads
+   "next win"), proving the layer swap.
 5. Press Meta+/ again → the dialog closes.
 
 ### `⌘N and ⇧⌘N stay inert in a mac browser host (create-session palette-only)`

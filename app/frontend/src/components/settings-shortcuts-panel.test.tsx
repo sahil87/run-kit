@@ -120,41 +120,43 @@ describe("SettingsShortcutsPanel", () => {
     expect(screen.getByTitle("incognito")).toBeInTheDocument();
     expect(screen.queryByTitle("address bar")).toBeNull();
     fireEvent.click(screen.getByText("macOS"));
-    // The picker appears with ⇧⌘ selected by default.
+    // The picker appears with ⌘ selected by default (⌘ sits left of ⇧⌘).
     const picker = screen.getByRole("group", { name: "Keyboard map modifier" });
-    const cmdBtn = within(picker).getByText("⌘");
-    expect(within(picker).getByText("⇧ ⌘")).toHaveAttribute("aria-pressed", "true");
-    expect(cmdBtn).toHaveAttribute("aria-pressed", "false");
-    // Selecting ⌘ swaps the SINGLE grid to the cmd layer (jsdom is a browser
-    // host → the mac-browser ⌘ claimed set renders; the shifted-only browser
-    // claims disappear).
-    fireEvent.click(cmdBtn);
-    expect(cmdBtn).toHaveAttribute("aria-pressed", "true");
+    const shiftedBtn = within(picker).getByText("⇧ ⌘");
+    expect(within(picker).getByText("⌘")).toHaveAttribute("aria-pressed", "true");
+    expect(shiftedBtn).toHaveAttribute("aria-pressed", "false");
     // ⌘T stands in as the browser-owned cmd-tier claim (⌘L was unclaimed in
     // 260819-v6y4 — page-interceptable, bound by web-address).
     expect(screen.getByTitle("new tab")).toBeInTheDocument();
     expect(screen.queryByTitle("incognito")).toBeNull();
-    // Switching the display back to Win·Linux drops the ⌘ option and falls
-    // back to the shifted layer.
+    // Selecting ⇧⌘ swaps the SINGLE grid to the shifted layer (jsdom is a
+    // browser host → the shifted-only browser claims render; the mac-browser
+    // ⌘ claimed set disappears).
+    fireEvent.click(shiftedBtn);
+    expect(shiftedBtn).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTitle("incognito")).toBeInTheDocument();
+    expect(screen.queryByTitle("new tab")).toBeNull();
+    // Switching the display back to Win·Linux drops the picker and keeps the
+    // shifted layer (the only one that exists there).
     fireEvent.click(screen.getByText("Win · Linux"));
     expect(screen.queryByRole("group", { name: "Keyboard map modifier" })).toBeNull();
     expect(screen.queryByTitle("new tab")).toBeNull();
     expect(screen.getByTitle("incognito")).toBeInTheDocument();
   });
 
-  it("the ⌘ layer selection survives unmount/remount (session-scoped view state, 260801-r8j2)", () => {
+  it("the ⇧⌘ layer selection survives unmount/remount (session-scoped view state, 260801-r8j2)", () => {
     const { unmount } = render(<SettingsShortcutsPanel />);
     fireEvent.click(screen.getByText("macOS"));
     fireEvent.click(
-      within(screen.getByRole("group", { name: "Keyboard map modifier" })).getByText("⌘"),
+      within(screen.getByRole("group", { name: "Keyboard map modifier" })).getByText("⇧ ⌘"),
     );
     // The panel unmounts with the dialog close / tab switch now (the old
     // overlay toggled `open`); the hoisted view prefs survive the remount.
     unmount();
     render(<SettingsShortcutsPanel />);
     const picker = screen.getByRole("group", { name: "Keyboard map modifier" });
-    expect(within(picker).getByText("⌘")).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByTitle("new tab")).toBeInTheDocument();
+    expect(within(picker).getByText("⇧ ⌘")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTitle("incognito")).toBeInTheDocument();
   });
 
   it("header hint shows the HOST-effective chord: ⌘/ on a mac host (260730-n789)", () => {

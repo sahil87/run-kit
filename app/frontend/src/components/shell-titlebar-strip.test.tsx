@@ -46,10 +46,11 @@ function accentValue(overrides: Partial<InstanceAccent> = {}): InstanceAccent {
 /** Install a bridge whose `servers.list` resolves the given list (`null` =
  *  rejected call, i.e. an older shell / denial). `withAdd` includes the
  *  optional `add` invoker (newer shells — drives the `+ Add Host…` footer);
- *  `withReorder` includes the optional `reorder` invoker (drives the drag
- *  grip + ⌥↑/⌥↓ move); `withRemove`/`withRename` include the optional
- *  `remove`/`rename` invokers (the Disconnect icon + inline rename).
- *  Returns the spies for call-count/payload assertions. */
+ *  `withAddDirect` includes the additive `addDirect` invoker (the in-place
+ *  Add Host dialog fork); `withReorder` includes the optional `reorder`
+ *  invoker (drives the drag grip + ⌥↑/⌥↓ move); `withRemove`/`withRename`
+ *  include the optional `remove`/`rename` invokers (the Disconnect icon +
+ *  inline rename). Returns the spies for call-count/payload assertions. */
 function shellBridge(
   servers: unknown[] | null,
   platform = "darwin",
@@ -59,6 +60,7 @@ function shellBridge(
   withRename = false,
   withRemoveConfirmed = withRemove,
   withSetUrl = withRename,
+  withAddDirect = false,
 ) {
   const list = vi.fn(() =>
     servers === null
@@ -67,6 +69,9 @@ function shellBridge(
   );
   const switchFn = vi.fn(() => Promise.resolve({ ok: true }));
   const add = vi.fn(() => Promise.resolve({ ok: true }));
+  // Typed Promise<unknown> so both { ok: true } and { ok: false, error } mock
+  // resolutions assign cleanly (the footer-fork failure test).
+  const addDirect = vi.fn((): Promise<unknown> => Promise.resolve({ ok: true }));
   const reorder = vi.fn(() => Promise.resolve({ ok: true }));
   const remove = vi.fn(() => Promise.resolve({ ok: true }));
   const removeConfirmed = vi.fn(() => Promise.resolve({ ok: true }));
@@ -79,6 +84,7 @@ function shellBridge(
       list,
       switch: switchFn,
       ...(withAdd ? { add } : {}),
+      ...(withAddDirect ? { addDirect } : {}),
       ...(withReorder ? { reorder } : {}),
       ...(withRemove ? { remove } : {}),
       ...(withRemoveConfirmed ? { removeConfirmed } : {}),
@@ -86,7 +92,7 @@ function shellBridge(
       ...(withSetUrl ? { setUrl } : {}),
     },
   };
-  return { list, switch: switchFn, add, reorder, remove, removeConfirmed, rename, setUrl };
+  return { list, switch: switchFn, add, addDirect, reorder, remove, removeConfirmed, rename, setUrl };
 }
 
 function renderStrip(accent: InstanceAccent = accentValue()) {
@@ -117,6 +123,7 @@ async function renderInteractive(
   withRename = false,
   withRemoveConfirmed = withRemove,
   withSetUrl = withRename,
+  withAddDirect = false,
 ) {
   const bridge = shellBridge(
     list,
@@ -127,6 +134,7 @@ async function renderInteractive(
     withRename,
     withRemoveConfirmed,
     withSetUrl,
+    withAddDirect,
   );
   renderStrip();
   await waitFor(() => {
@@ -489,6 +497,81 @@ describe("ShellTitlebarStrip host switcher (260731-4bqi)", () => {
     await waitFor(() => {
       expect(screen.getByText("Shell add host failed")).toBeInTheDocument();
     });
+  });
+
+  it("opens the shared dialog in add mode on an addDirect shell — no page swap, menu stays open", async () => {
+    const bridge = await renderInteractive(
+      hosts, "darwin", false, false, false, false, false, false, true,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    // The union gate renders the footer without the `add` invoker.
+    const footer = screen.getByRole("menuitem", { name: "Add Host…" });
+    fireEvent.click(footer);
+    const dialog = screen.getByRole("dialog", { name: "Add host" });
+    expect(within(dialog).getByRole("textbox", { name: "Name" })).toHaveValue("");
+    expect(within(dialog).getByRole("textbox", { name: "URL" })).toHaveValue("");
+    // In place: the menu never closed and nothing navigated away.
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    expect(bridge.switch).not.toHaveBeenCalled();
+  });
+
+  it("submits through addDirect and closes the dialog on success", async () => {
+    const bridge = await renderInteractive(
+      hosts, "darwin", false, false, false, false, false, false, true,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Add Host…" }));
+    const dialog = screen.getByRole("dialog", { name: "Add host" });
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "URL" }), {
+      target: { value: "http://c:3000" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add Host" }));
+    await waitFor(() => {
+      expect(bridge.addDirect).toHaveBeenCalledWith("", "http://c:3000");
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+  });
+
+  it("a main-side add failure renders inline in the dialog — no toast, dialog stays open", async () => {
+    const bridge = await renderInteractive(
+      hosts, "darwin", false, false, false, false, false, false, true,
+    );
+    bridge.addDirect.mockResolvedValue({ ok: false, error: "No response from http://c:3000 within 5s" });
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Add Host…" }));
+    const dialog = screen.getByRole("dialog", { name: "Add host" });
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "URL" }), {
+      target: { value: "http://c:3000" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add Host" }));
+    await waitFor(() => {
+      expect(screen.getByText("No response from http://c:3000 within 5s")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("dialog", { name: "Add host" })).toBeInTheDocument();
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+  });
+
+  it("prefers the in-place dialog when the shell carries both add paths", async () => {
+    const bridge = await renderInteractive(
+      hosts, "darwin", true, false, false, false, false, false, true,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Add Host…" }));
+    expect(screen.getByRole("dialog", { name: "Add host" })).toBeInTheDocument();
+    expect(bridge.add).not.toHaveBeenCalled();
+  });
+
+  it("closing the menu also closes the add dialog", async () => {
+    await renderInteractive(hosts, "darwin", false, false, false, false, false, false, true);
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Add Host…" }));
+    expect(screen.getByRole("dialog", { name: "Add host" })).toBeInTheDocument();
+    fireEvent.mouseDown(document.body); // outside close while the dialog is up
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Switch host" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });
 

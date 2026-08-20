@@ -1,7 +1,9 @@
 import { describe, it, expect, afterEach } from "vitest";
 import {
   addShellHost,
+  addShellHostDirect,
   canAddShellHost,
+  canAddShellHostDirect,
   canConfirmedRemoveShellHost,
   canRemoveShellHost,
   canRenameShellHost,
@@ -213,6 +215,94 @@ describe("canAddShellHost / addShellHost", () => {
       add: () => Promise.reject(new Error("ipc gone")),
     });
     expect(await addShellHost()).toBe(false);
+  });
+});
+
+// The addDirect invoker is ADDITIVE to the servers group (shells older than
+// the in-place Add Host dialog expose list/switch/add at most): unlike the
+// boolean siblings, addShellHostDirect resolves a STRUCTURED { ok } / { ok:
+// false, error } so the dialog renders the main-side ping error inline — and
+// degrades to a generic { ok: false, error } for a plain browser, a
+// pre-addDirect shell, a non-function member, a malformed response, and
+// rejected invokes. It never throws.
+
+describe("canAddShellHostDirect / addShellHostDirect", () => {
+  it("resolves { ok: true } on a well-formed ack and passes name + url through", async () => {
+    let seen: { name: string; url: string } | null = null;
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [] }),
+      switch: () => Promise.resolve({ ok: true }),
+      addDirect: (name: string, url: string) => {
+        seen = { name, url };
+        return Promise.resolve({ ok: true });
+      },
+    });
+    expect(canAddShellHostDirect()).toBe(true);
+    expect(await addShellHostDirect("lab", "http://b:3000")).toEqual({ ok: true });
+    expect(seen).toEqual({ name: "lab", url: "http://b:3000" });
+  });
+
+  it("carries the main-side error on a denied/failed result", async () => {
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [] }),
+      switch: () => Promise.resolve({ ok: true }),
+      addDirect: () =>
+        Promise.resolve({ ok: false, error: "No response from http://b:3000 within 5s" }),
+    });
+    expect(await addShellHostDirect("", "http://b:3000")).toEqual({
+      ok: false,
+      error: "No response from http://b:3000 within 5s",
+    });
+  });
+
+  it("reads as unavailable in a plain browser and on a shell without addDirect (older shell)", async () => {
+    expect(canAddShellHostDirect()).toBe(false);
+    expect((await addShellHostDirect("", "http://b:3000")).ok).toBe(false);
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [serverA, serverB] }),
+      switch: () => Promise.resolve({ ok: true }),
+      add: () => Promise.resolve({ ok: true }),
+    });
+    expect(canAddShellHostDirect()).toBe(false);
+    expect((await addShellHostDirect("", "http://b:3000")).ok).toBe(false);
+  });
+
+  it("reads as unavailable when addDirect is not a function", async () => {
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [] }),
+      switch: () => Promise.resolve({ ok: true }),
+      addDirect: "servers:add-direct",
+    });
+    expect(canAddShellHostDirect()).toBe(false);
+    expect((await addShellHostDirect("", "http://b:3000")).ok).toBe(false);
+  });
+
+  it("resolves a generic { ok: false } on a malformed response and on a rejected invoke", async () => {
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [] }),
+      switch: () => Promise.resolve({ ok: true }),
+      addDirect: () => Promise.resolve("added"),
+    });
+    const malformed = await addShellHostDirect("", "http://b:3000");
+    expect(malformed.ok).toBe(false);
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [] }),
+      switch: () => Promise.resolve({ ok: true }),
+      addDirect: () => Promise.reject(new Error("ipc gone")),
+    });
+    const rejected = await addShellHostDirect("", "http://b:3000");
+    expect(rejected.ok).toBe(false);
+  });
+
+  it("resolves a generic error when a failed result carries no usable error string", async () => {
+    bridgeWith({
+      list: () => Promise.resolve({ ok: true, servers: [] }),
+      switch: () => Promise.resolve({ ok: true }),
+      addDirect: () => Promise.resolve({ ok: false }),
+    });
+    const result = await addShellHostDirect("", "http://b:3000");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).not.toBe("");
   });
 });
 

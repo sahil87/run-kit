@@ -188,6 +188,66 @@ export async function addShellHost(): Promise<boolean> {
   );
 }
 
+/** A `servers` group that also carries the optional `addDirect` invoker
+ *  (shells newer than the SPA's in-place Add Host dialog). */
+interface ShellServersAddDirectBridge extends ShellServersBridge {
+  addDirect: (name: string, url: string) => Promise<unknown>;
+}
+
+/** The structured add-direct result — the dialog renders `error` inline. */
+export type AddShellHostDirectResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * `addDirect` is additive like its siblings (`setUrl`/`removeConfirmed`):
+ * shells older than the in-place Add Host dialog lack it, and the strip's
+ * `+ Add Host…` footer falls back to the `servers.add` welcome-page swap.
+ * Narrowed separately from `isServersBridge` — the group stays usable
+ * without it.
+ */
+function isServersAddDirectBridge(
+  bridge: ShellServersBridge,
+): bridge is ShellServersAddDirectBridge {
+  return "addDirect" in bridge && typeof Reflect.get(bridge, "addDirect") === "function";
+}
+
+/** True when the shell can add a host in place (`servers.addDirect` present). */
+export function canAddShellHostDirect(): boolean {
+  const bridge = serversBridge();
+  return bridge !== null && isServersAddDirectBridge(bridge);
+}
+
+/**
+ * Add a host in place — the shell validates the URL, pings `/api/health`,
+ * persists (a blank `name` derives from the ping's hostname), and switches
+ * to the new host, all main-side in one invoke. Unlike the boolean siblings
+ * this resolves a STRUCTURED result so the dialog can render the main-side
+ * ping/validation error inline; a plain browser, an older shell, a malformed
+ * response, and a rejected invoke all resolve `{ ok: false }` with a generic
+ * error. Never throws.
+ */
+export async function addShellHostDirect(
+  name: string,
+  url: string,
+): Promise<AddShellHostDirectResult> {
+  const bridge = serversBridge();
+  if (!bridge || !isServersAddDirectBridge(bridge)) {
+    return { ok: false, error: "This desktop app cannot add hosts in place" };
+  }
+  let result: unknown;
+  try {
+    result = await bridge.addDirect(name, url);
+  } catch {
+    return { ok: false, error: "The desktop app did not answer" };
+  }
+  if (typeof result === "object" && result !== null && "ok" in result) {
+    if (result.ok === true) return { ok: true };
+    if ("error" in result && typeof result.error === "string" && result.error !== "") {
+      return { ok: false, error: result.error };
+    }
+  }
+  return { ok: false, error: "The desktop app could not add the host" };
+}
+
 /**
  * The `reorder` invoker is additive to the `servers` group (shells older
  * than the host-switcher's drag/⌥↑⌥↓ reorder expose only list/switch/add),

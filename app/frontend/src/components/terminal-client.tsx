@@ -307,6 +307,9 @@ export function TerminalClient({
         fontSize: fontPx,
         theme: deriveXtermTheme(activeTheme.palette),
         allowProposedApi: true,
+        // The search addon's decorations tick the overview ruler only when it
+        // has a width — without the option the ruler never renders.
+        overviewRuler: { width: 14 },
         // Option/Alt is Meta, not a third-level shift. xterm's default (false)
         // lets macOS compose Option+letter into a glyph (Option+P → `π`) and
         // sends those bytes to the pty, so Meta-bound CLI keybindings never

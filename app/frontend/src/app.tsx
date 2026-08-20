@@ -39,6 +39,7 @@ import {
 } from "@/lib/present-auto-expand";
 import { matchesCombo, hasReclaimableMatch, shouldSuppressChord, withShortcutHints, formatCombo } from "@/lib/keybindings";
 import { WEB_FIND_OPEN_EVENT } from "@/lib/find-in-page";
+import { TERMINAL_FIND_OPEN_EVENT } from "@/lib/terminal-find";
 import { WEB_ADDRESS_FOCUS_EVENT, WEB_OPEN_EXTERNAL_EVENT } from "@/lib/web-url";
 import { isMacroActionId, type MacroAction } from "@/lib/macros";
 import { useKeybindings } from "@/hooks/use-keybindings";
@@ -2115,7 +2116,7 @@ function AppShell() {
   }, [iframeWindowName, iframeWindowUrl, sessionName, server, addToast]);
 
   // Theme
-  const { preference: themePreference, resolved: themeResolved, themeDark, themeLight } = useTheme();
+  const { preference: themePreference, resolved: themeResolved, themeDark, themeLight, theme: activeTheme } = useTheme();
   const { setTheme } = useThemeActions();
 
   const themeMode = themePreference === "system" ? "system" : themeResolved;
@@ -2921,6 +2922,22 @@ function AppShell() {
         label: fixedWidth ? "View: Full Width" : "View: Fixed Width (900px)",
         onSelect: toggleFixedWidth,
       },
+      // `Terminal: Find` — the palette discovery surface for the tty tile's
+      // find bar, shown only when the RENDERED layout includes a tty tile
+      // (the `Web: Find in page` gating precedent). The id IS the registry
+      // actionId, so `withShortcutHints` renders the effective ⇧Ctrl+F/⌘F
+      // combo for free; the body dispatches the `terminal-find:open`
+      // CustomEvent the chord's gated handler resolves to — one seam for all
+      // three entry points, SurfaceLayout its single receiver.
+      ...(windowParam && renderLayout.order.includes("tty")
+        ? [
+            {
+              id: "terminal-find",
+              label: "Terminal: Find",
+              onSelect: () => document.dispatchEvent(new CustomEvent(TERMINAL_FIND_OPEN_EVENT)),
+            },
+          ]
+        : []),
       // `Web: Find in page` (260819-ie2i R4) — the palette discovery surface
       // for the web tile's find bar, shown only when the RENDERED layout
       // includes an open web tile. The id IS the registry actionId, so
@@ -3516,6 +3533,12 @@ function AppShell() {
       // web tile owns focus AND the layout has an open web tile (the palette
       // gating), so the chord is inert everywhere else.
       "web-find": webGated("web-find"),
+      // ⌘F (mac) / ⇧Ctrl+F (Win/Linux) terminal find — the `Terminal: Find`
+      // palette body through the ttyOnly gate: present only while a tty tile
+      // owns focus AND the layout has an open tty tile (the palette gating),
+      // so the chord is inert everywhere else (native browser find; the
+      // pane's plain Ctrl+F on Win/Linux — never claimed).
+      "terminal-find": ttyGated("terminal-find"),
       // ⌘L/Ctrl+L focus the web tile's address bar (260819-v6y4 R12) — the
       // `Web: Focus address bar` palette body through the webOnly gate: the
       // chord falls through untouched everywhere else (the browser's own
@@ -4036,6 +4059,9 @@ function AppShell() {
               // element mounts inside the FIRST tty tile when the in-tile
               // predicate holds; otherwise the shell footer below renders it.
               ttyDockContent={inTileDock ? composeStripElement : undefined}
+              // tty find decorations derive their amber/green from the active
+              // theme (the addon requires concrete #RRGGBB colors).
+              themePalette={activeTheme.palette}
             />
           ) : (
             <SessionTiles

@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { checkFrame, updateWindowUrl } from "@/api/client";
 import { useSessionContext } from "@/contexts/session-context";
 import { Tip, TipGroup } from "@/components/tip";
-import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
+import { FindBar } from "@/components/find-bar";
 import {
   WEB_ADDRESS_FOCUS_EVENT,
   WEB_OPEN_EXTERNAL_EVENT,
@@ -96,7 +96,6 @@ export function IframeWindow({
   reclaimRef.current = shouldReclaimChord;
   const pageMetaRef = useRef(onPageMeta);
   pageMetaRef.current = onPageMeta;
-  const coarse = useCoarsePointer();
 
   /** The current address in RAW form: the tracked frame location when known,
    *  else the stored @rk_url. The ↗ button and the edit reveal read this. */
@@ -111,7 +110,6 @@ export function IframeWindow({
   // no search; the find bar renders disabled with the hint (R7). Back/forward
   // hide and reload degrades to the about:blank bounce on the same signal.
   const [crossOrigin, setCrossOrigin] = useState(false);
-  const findInputRef = useRef<HTMLInputElement>(null);
   // Which highlight path the last apply took — the `window.find()` fallback
   // needs per-step navigation calls the Highlight API does not.
   const highlightApiRef = useRef(false);
@@ -286,10 +284,8 @@ export function IframeWindow({
     return () => document.removeEventListener(WEB_OPEN_EXTERNAL_EVENT, openExternal);
   }, [trackedLocation, rkUrl]);
 
-  // Autofocus the input on open (R5).
-  useEffect(() => {
-    if (findOpen) findInputRef.current?.focus();
-  }, [findOpen]);
+  // Autofocus on open is owned by the shared FindBar (it mounts only while
+  // the bar is open and focuses its input on mount).
 
   // Search: re-collect matches when the query (or origin posture) changes
   // while the bar is open; the active match resets to the first.
@@ -335,19 +331,6 @@ export function IframeWindow({
       }
     },
     [findMatches.length, findQuery, findFrame],
-  );
-
-  const handleFindKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        stepFind(e.shiftKey ? -1 : 1);
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        setFindOpen(false);
-      }
-    },
-    [stepFind],
   );
 
   // Sync URL bar text and iframe src when rkUrl changes externally (SSE push).
@@ -598,67 +581,24 @@ export function IframeWindow({
       </TipGroup>
 
       {/* Find bar (260819-ie2i R5/R7) — a row below the URL bar per the
-          approved design study (state 03): input, n/N counter with the active
-          ordinal in accent green, ∧/∨, ✕, and a key hint suppressed on coarse
-          pointers. Cross-origin frames render it disabled with the hint. */}
+          approved design study (state 03), rendered by the shared FindBar;
+          this consumer owns the contentDocument search mechanism and keeps
+          the `web-find-bar` testid. Cross-origin frames render it disabled
+          with the hint. */}
       {findOpen && (
-        <div
-          className="flex items-center gap-1.5 px-2 py-1 border-b border-border bg-bg-primary shrink-0"
-          data-testid="web-find-bar"
-        >
-          <input
-            ref={findInputRef}
-            type="text"
-            value={findQuery}
-            onChange={(e) => setFindQuery(e.target.value)}
-            onKeyDown={handleFindKeyDown}
-            disabled={crossOrigin}
-            className="w-60 max-w-[40%] shrink bg-bg-card text-text-primary text-sm px-2 py-1 rounded border border-border outline-none focus:border-text-secondary disabled:opacity-50"
-            aria-label="Find query"
-            placeholder="Find in page"
-            spellCheck={false}
-          />
-          {crossOrigin ? (
-            <span className="text-text-secondary text-xs select-none">
-              page is cross-origin — find unavailable
-            </span>
-          ) : (
-            <span className="shrink-0 text-text-secondary text-xs select-none" aria-label="Match count">
-              <span className="text-accent-green">
-                {findMatches.length === 0 ? 0 : findActive + 1}
-              </span>
-              /{findMatches.length}
-            </span>
-          )}
-          <button
-            onClick={() => stepFind(-1)}
-            disabled={crossOrigin}
-            className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary disabled:opacity-50"
-            aria-label="Previous match"
-          >
-            <span className="text-sm">&#x2227;</span>
-          </button>
-          <button
-            onClick={() => stepFind(1)}
-            disabled={crossOrigin}
-            className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary disabled:opacity-50"
-            aria-label="Next match"
-          >
-            <span className="text-sm">&#x2228;</span>
-          </button>
-          <button
-            onClick={() => setFindOpen(false)}
-            className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary"
-            aria-label="Close find bar"
-          >
-            <span className="text-sm">&#x2715;</span>
-          </button>
-          {!coarse && (
-            <span className="ml-auto text-text-secondary text-xs select-none whitespace-nowrap opacity-60">
-              Enter next · ⇧Enter prev · Esc close
-            </span>
-          )}
-        </div>
+        <FindBar
+          query={findQuery}
+          matchIndex={findActive}
+          matchCount={findMatches.length}
+          onQueryChange={setFindQuery}
+          onNext={() => stepFind(1)}
+          onPrev={() => stepFind(-1)}
+          onClose={() => setFindOpen(false)}
+          disabled={crossOrigin}
+          statusText={crossOrigin ? "page is cross-origin — find unavailable" : undefined}
+          placeholder="Find in page"
+          testId="web-find-bar"
+        />
       )}
 
       {/* Load progress line (R11): the 2px indeterminate sweep on the

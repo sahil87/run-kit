@@ -231,7 +231,10 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // tier), so the demotion applies in BOTH mac hosts (no macShellOnly). On
   // Win/Linux the shifted tier keeps plain Ctrl+B with the pane (readline
   // back-char / nested-tmux prefix).
-  { actionId: "sidebar-toggle", code: "KeyB", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Toggle sidebar", mapLabel: "sidebar" },
+  // ignoreInputs: the chrome toggles (sidebar + the surface digits below)
+  // stay live inside real text inputs — the compose strip is the motivating
+  // focus home; the chords are modifier combos that never insert text.
+  { actionId: "sidebar-toggle", code: "KeyB", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Toggle sidebar", mapLabel: "sidebar", ignoreInputs: true },
   // Positional surface digits — ⌘1/2/3 on mac, ⇧Ctrl+1/2/3 on win/linux —
   // toggle the tty/code/web tiles in tile order. Same demotion class as ⌘B
   // (page-interceptable, no macShellOnly). In a mac BROWSER the cmd-tier
@@ -240,9 +243,9 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // by the shell switcher's move to Alt+1–9, outside every tier (the mac ⌥⌘
   // precedent — Alt is no tier). Terminal scope: the tiles exist only on
   // window routes (handler presence gates).
-  { actionId: "tty-toggle", code: "Digit1", tier: "shifted", macTier: "cmd", scope: "terminal", kind: "builtin", label: "Toggle terminal", description: "open/close the tty tile", mapLabel: "tty" },
-  { actionId: "code-toggle", code: "Digit2", tier: "shifted", macTier: "cmd", scope: "terminal", kind: "builtin", label: "Toggle code editor", description: "open/close the code tile", mapLabel: "code" },
-  { actionId: "web-toggle", code: "Digit3", tier: "shifted", macTier: "cmd", scope: "terminal", kind: "builtin", label: "Toggle web view", description: "open/close the web tile", mapLabel: "web" },
+  { actionId: "tty-toggle", code: "Digit1", tier: "shifted", macTier: "cmd", scope: "terminal", kind: "builtin", label: "Toggle terminal", description: "open/close the tty tile", mapLabel: "tty", ignoreInputs: true },
+  { actionId: "code-toggle", code: "Digit2", tier: "shifted", macTier: "cmd", scope: "terminal", kind: "builtin", label: "Toggle code editor", description: "open/close the code tile", mapLabel: "code", ignoreInputs: true },
+  { actionId: "web-toggle", code: "Digit3", tier: "shifted", macTier: "cmd", scope: "terminal", kind: "builtin", label: "Toggle web view", description: "open/close the web tile", mapLabel: "web", ignoreInputs: true },
   // ⇧⌘⏎/⇧Ctrl+Enter zen toggle — shifted on BOTH platforms (no macTier):
   // exact-modifier matching keeps the chord disjoint from the
   // classifier-owned ⌘Enter/Ctrl+Enter compose-submit chords, which never

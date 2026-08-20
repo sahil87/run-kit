@@ -12,13 +12,14 @@ import (
 
 // rk mux — the tmux-substrate command family (docs/specs/cli-layering.md):
 // operations that talk to tmux directly from the caller's context, with no
-// daemon dependency. Nine members in two tiers. The pane-scoped tier takes the
+// daemon dependency. Ten members in two tiers. The pane-scoped tier takes the
 // family's strict target grammar: `send` (deliver a message into an agent
 // pane, gated on its @rk_agent_state) and `await` (block until a pane's agent
 // state or a file signal fires) are the messaging pair; `capture` (scrollback
 // capture with substrate-only enrichment), `kill` (agent-state-gated pane
 // removal), and `process` (the pane's process tree with agent cross-check) are
-// the substrate twins. The operator tier: `reap` is the operator-invoked
+// the substrate twins; `panes` is the server-wide enumeration query — one row
+// per pane, no target. The operator tier: `reap` is the operator-invoked
 // janitor for leaked test servers; `snapshot` inspects and restores layout
 // snapshots; `init-conf` scaffolds the tmux config; `guard` fronts the real
 // tmux binary, refusing bare `kill-server` — the verb the installed PATH shim
@@ -29,7 +30,8 @@ import (
 //
 // The family parent carries the shared persistent -L/--server flag (the
 // `fab pane` pattern): every subcommand inherits it, but only the pane-scoped
-// verbs consume it — the operator members reject an explicitly-set -L via
+// verbs and the `panes` enumeration consume it — the operator members reject
+// an explicitly-set -L via
 // muxRejectInheritedServerFlag rather than silently ignore it. `guard` is the
 // exception: DisableFlagParsing means nothing is parsed and -L/-S flow
 // verbatim into the tmux argv, where they are genuinely tmux's socket flags —
@@ -42,7 +44,7 @@ var muxServerFlag string
 
 var muxCmd = &cobra.Command{
 	Use:   "mux",
-	Short: "Tmux substrate operations (messaging, pane capture/kill/process, janitor, recovery, config scaffold, tmux guard)",
+	Short: "Tmux substrate operations (messaging, pane capture/kill/process, pane enumeration, janitor, recovery, config scaffold, tmux guard)",
 	Long: "Tmux substrate operations that talk to tmux directly from the caller's " +
 		"context — no daemon dependency. `send` delivers a message into an agent's " +
 		"pane gated on its @rk_agent_state, with probe-verified delivery; `await` " +
@@ -50,7 +52,9 @@ var muxCmd = &cobra.Command{
 		"prints a pane's scrollback with substrate context (cwd, reconciled agent " +
 		"state); `kill` removes a pane, refusing a pane whose agent is active or " +
 		"waiting unless --force; `process` shows the process tree running in a " +
-		"pane. `reap` reaps leaked test tmux servers and stale sockets by prefix; " +
+		"pane; `panes` enumerates every pane on the server, one row per pane, " +
+		"with substrate facts (window, command, cwd, reconciled agent state). " +
+		"`reap` reaps leaked test tmux servers and stale sockets by prefix; " +
 		"`snapshot` inspects and restores layout snapshots; `init-conf` scaffolds " +
 		"the default tmux.conf and tmux.d/ drop-in directory; `guard` fronts the " +
 		"real tmux binary, refusing a bare `kill-server` (no explicit -L/-S) — " +
@@ -59,12 +63,13 @@ var muxCmd = &cobra.Command{
 
 func init() {
 	muxCmd.PersistentFlags().StringVarP(&muxServerFlag, "server", "L", "",
-		"tmux server name (pane-scoped verbs: send/await/capture/kill/process; default: the caller's own server from $TMUX, else the default server)")
+		"tmux server name (pane-scoped verbs: send/await/capture/kill/process, and the panes enumeration; default: the caller's own server from $TMUX, else the default server)")
 	muxCmd.AddCommand(muxSendCmd)
 	muxCmd.AddCommand(muxAwaitCmd)
 	muxCmd.AddCommand(muxCaptureCmd)
 	muxCmd.AddCommand(muxKillCmd)
 	muxCmd.AddCommand(muxProcessCmd)
+	muxCmd.AddCommand(muxPanesCmd)
 	muxCmd.AddCommand(reapFamilyCmd)
 	muxCmd.AddCommand(snapshotFamilyCmd)
 	muxCmd.AddCommand(initConfFamilyCmd)
@@ -73,7 +78,8 @@ func init() {
 
 // muxRejectInheritedServerFlag refuses an explicitly-set inherited -L/--server
 // on a mux member that does not consume it: only the pane-scoped verbs
-// (send/await/capture/kill/process) scope by server, so silently ignoring the
+// (send/await/capture/kill/process) and the `panes` enumeration scope by
+// server, so silently ignoring the
 // flag on reap/snapshot/init-conf would read as a server-scoped run while
 // operating globally. The check keys on the flag's Changed state (not its
 // value) so an unset flag never fires. On the root aliases there is no
@@ -83,7 +89,7 @@ func muxRejectInheritedServerFlag(cmd *cobra.Command) error {
 	if f == nil || !f.Changed {
 		return nil
 	}
-	return usageError(fmt.Errorf("--server (-L) does not apply to %q — it scopes only the pane-scoped verbs (send/await/capture/kill/process)", cmd.CommandPath()))
+	return usageError(fmt.Errorf("--server (-L) does not apply to %q — it scopes only the pane-scoped verbs (send/await/capture/kill/process) and the panes enumeration", cmd.CommandPath()))
 }
 
 // muxOriginalTMUXFn is the $TMUX seam (the present.go pattern): internal/tmux's

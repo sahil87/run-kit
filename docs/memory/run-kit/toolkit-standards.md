@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard PASS status (help-dump, readme-extraction, skill, ten principles, update, version, install-composition). Covers Principle 9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + Principle 9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`mux`/`agent` + the grown nine-member `mux` family."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard PASS status (help-dump, readme-extraction, skill, ten principles, update, version, install-composition). Covers Principle 9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + Principle 9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`mux`/`agent` + the grown ten-member `mux` family."
 ---
 # Toolkit Standards Conformance
 
@@ -361,7 +361,7 @@ surface measured against the same checks
 
 - **help-dump: the grown family dumps; the moved/hidden names don't.**
   `muxCmd` carries exactly {`send`, `await`, `capture`, `kill`, `process`,
-  `reap`, `snapshot` (with its
+  `panes`, `reap`, `snapshot` (with its
   `list`/`show`/`restore` children at depth), `init-conf`, `guard`}, every node
   with a
   `Long:` block, so the cobra tree walk picks up the grown subtree with no
@@ -395,9 +395,10 @@ as a PERMANENT hidden root alias — full contract in
 [tmux-guard-shim](/run-kit/tmux-guard-shim.md)) is the tenth surface measured
 against the same checks (`260815-mi5s-mux-guard-move`):
 
-- **help-dump: nine members dump; the permanent alias doesn't.** `muxCmd`
-  carries exactly nine members (the messaging pair, the operator set, `guard`,
-  and the substrate twins — see the eleventh surface below), and
+- **help-dump: ten members dump; the permanent alias doesn't.** `muxCmd`
+  carries exactly ten members (the messaging pair, the operator set, `guard`,
+  the substrate twins, and `panes` — see the eleventh and twelfth surfaces
+  below), and
   `tmux-guard` joins the excluded-hidden-root-forms assertion list — Hidden
   drops it from the dump like the other aliases. The help-dump test asserts
   both dynamically.
@@ -423,10 +424,10 @@ pane-mechanics verbs ported from `fab pane`, agent-state-aware — see
 contract in [agent-messaging](/run-kit/agent-messaging.md)) are the eleventh
 surface measured against the same checks (`260815-82w7-mux-substrate-twins`):
 
-- **help-dump: nine members dump.** `muxCmd` carries exactly nine members —
-  the messaging pair, the three twins, and the operator set — and the
-  help-dump test asserts the nine-member subtree dynamically, with
-  `capture`/`kill`/`process` in the captured-children check. Every node is
+- **help-dump: ten members dump.** `muxCmd` carries exactly ten members —
+  the messaging pair, the three twins, `panes`, and the operator set — and the
+  help-dump test asserts the ten-member subtree dynamically, with
+  `capture`/`kill`/`process`/`panes` in the captured-children check. Every node is
   registered unconditionally with a `Long:` block, so the dumped contract
   stays platform-stable.
 - **Principle 9: report/data on stdout, chatter on stderr.** All three twins
@@ -445,6 +446,32 @@ surface measured against the same checks (`260815-82w7-mux-substrate-twins`):
   capture flags/output, the kill gate, process classification, report lines,
   exit codes), and its framing line broadened beyond agent messaging to cover
   pane inspection/removal.
+
+The `panes` enumeration (`rk mux panes` — the whole-server substrate-facts
+query, the tenth family member; full contract in
+[agent-messaging](/run-kit/agent-messaging.md)) is the twelfth surface measured
+against the same checks (`260820-hol4-mux-panes-native-pane-map`):
+
+- **help-dump: ten members dump.** `muxCmd` carries exactly ten members — the
+  messaging pair, the three twins, `panes`, and the operator set — and the
+  help-dump test asserts the ten-member subtree dynamically, with `panes` in
+  the captured-children check. `panes` registers unconditionally with a
+  `Long:` block, keeping the dumped contract platform-stable.
+- **Principle 9: rows are data, diagnostics are chatter.** The aligned table
+  rows and the `--json` array route through the shared `outputSink` as data
+  (surviving `--quiet`); an operational failure (no server on the resolved
+  socket) carries tmux's diagnostic on stderr.
+- **Exit-code convention (P4)** — 0 success including an empty enumeration on
+  a live server (`[]` under `--json`; a `tmux.ServerAlive` probe separates
+  "alive, nothing to list" from a dead socket), 1 operational (tmux failure),
+  2 usage (stray positional argument, flag misuse) — never fab's pane-family
+  2/3 scheme.
+- **The `skill` standard gained a `## rk mux panes` section** — the `mux`
+  topic page (canonical `docs/site/skill/mux.md`, embedded copy byte-identical
+  under `TestSkillMuxEmbedMatchesCanonical`) teaches the enumeration
+  (whole-server scope, no target argument, the 13-key `--json` schema with
+  null agent fields, exit codes), and the family framing broadened to cover
+  server-wide enumeration.
 
 #### Scenario: A new subcommand group keeps the help tree platform-stable
 - **GIVEN** the `rk desktop` group on a Linux host
@@ -840,11 +867,11 @@ report-lives-in-PR-body convention). All three checklist items of the standard's
   consumer self-gate). Literal `exec.LookPath` probes sit at the user-facing
   entry seams: `cmd/rk/riff.go` `checkPreconditions` (wt),
   `internal/updatecheck` `defaultCheck` (shll), and `api/update.go` `lookShllFn`
-  (shll — absent routes fail-silent to the run-kit-self update path). The six
+  (shll — absent routes fail-silent to the run-kit-self update path). The five
   internal exec sites (`internal/riff` fab launcher + wt create/delete,
-  `internal/wt` list/open, `internal/sessions` fab pane map) degrade gracefully
+  `internal/wt` list/open) degrade gracefully
   by handled exec error — silent feature skips (default launcher, `[]` app
-  registry, enrichment-less sessions) or surfaced HTTP errors. **No
+  registry) or surfaced HTTP errors. **No
   crash-capable sibling path exists**; the standard's failure mode (one tool's
   absence crashing another) occurs nowhere.
 - **Hints**: the non-brew self-install hint (`cmd/rk/upgrade.go`,
@@ -869,7 +896,7 @@ report-lives-in-PR-body convention). All three checklist items of the standard's
 
 ### Handled exec errors satisfy Policy A's probe clause at internal Go seams
 **Decision**: internal sibling exec sites (wt/fab in `internal/riff`,
-`internal/wt`, `internal/sessions`) rely on handled `exec.CommandContext` errors
+`internal/wt`) rely on handled `exec.CommandContext` errors
 rather than a preceding `exec.LookPath`; literal probes live at the user-facing
 entry seams (CLI riff precondition, both shll consumers).
 **Why**: a handled exec error is authoritative and TOCTOU-free — it never

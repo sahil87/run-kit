@@ -14,8 +14,10 @@ memory file records what run-kit actually implemented).
 Agent status splits into two tiers with distinct owners:
 
 - **Tier 1 — fab pipeline state** (change / stage / display-state): owned by the
-  fab pipeline, read from `.status.yaml`, still joined via `fab pane map`
-  (`paneMapEntry.Change`/`Stage`/`DisplayState`). Stays fab's.
+  fab pipeline, derived natively per pane from `.fab-status.yaml` →
+  `.status.yaml` (`internal/sessions/fabstate.go` — see
+  [tmux-sessions](/run-kit/tmux-sessions.md) § Fab-Tier Derivation). Stays
+  fab's.
 - **Tier 2 — generic agent-lifecycle state** (`active` / `waiting` / `idle`):
   owned by run-kit, carried in the `@rk_agent_state` tmux pane user option,
   written by agent-harness hooks for **any** agent (Claude, codex, copilot,
@@ -442,9 +444,10 @@ gone) or reverts to a shell (reconciler zeros it).
 
 ## Migration — Clean Swap, No Dual-Source Fallback
 
-The pane-map join carries only fab pipeline state: `paneMapEntry` holds
+The fab tier carries only fab pipeline state: the native derivation yields
 `change`/`stage`/`display_state` (not `agent_state`, `agent_idle_duration`,
-`pr_url`, or `pr_number`), and `dedupEntries` priority is `Change > first-seen`.
+`pr_url`, or `pr_number`), and the window rollup priority is change-bound >
+first-seen.
 See [architecture](/run-kit/architecture.md) § `internal/sessions`.
 
 There is **no dual-source fallback**: until `rk agent setup` has been run on a

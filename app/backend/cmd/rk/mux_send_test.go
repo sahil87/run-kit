@@ -45,6 +45,12 @@ type muxFake struct {
 	discoverTree   []processNode
 	discoverErr    error
 	nowUnix        int64 // 0 → fixed reference time (1_800_000_000)
+
+	paneSessions    []tmux.SessionInfo // nil → the default one-session fixture
+	paneSessionsSet bool               // true → honor paneSessions even when empty
+	paneSessionsErr error
+	paneWindows     map[string][]tmux.WindowInfo // session name → windows (nil → default)
+	paneAliveErr    error
 }
 
 type muxCaptureCall struct {
@@ -72,6 +78,8 @@ func installMuxFakes(t *testing.T, f *muxFake) {
 	origCapPane, origCapFacts, origCapNow := muxCapturePaneFn, muxCaptureFactsFn, muxCaptureNowFn
 	origKillState, origKillExists, origKillPane := muxKillAgentStateFn, muxKillPaneExistsFn, muxKillPaneFn
 	origProcPID, origProcFacts, origProcDiscover := muxProcessPanePIDFn, muxProcessFactsFn, muxProcessDiscoverFn
+	origPanesSessions, origPanesWindows := muxPanesSessionsFn, muxPanesWindowsFn
+	origPanesAlive, origPanesNow := muxPanesAliveFn, muxPanesNowFn
 	t.Cleanup(func() {
 		muxOriginalTMUXFn, muxServerFlag = origTMUX, origFlag
 		muxSendEngineSendFn, muxSendKeysFn = origEngine, origKeys
@@ -81,6 +89,8 @@ func installMuxFakes(t *testing.T, f *muxFake) {
 		muxCapturePaneFn, muxCaptureFactsFn, muxCaptureNowFn = origCapPane, origCapFacts, origCapNow
 		muxKillAgentStateFn, muxKillPaneExistsFn, muxKillPaneFn = origKillState, origKillExists, origKillPane
 		muxProcessPanePIDFn, muxProcessFactsFn, muxProcessDiscoverFn = origProcPID, origProcFacts, origProcDiscover
+		muxPanesSessionsFn, muxPanesWindowsFn = origPanesSessions, origPanesWindows
+		muxPanesAliveFn, muxPanesNowFn = origPanesAlive, origPanesNow
 		resetMuxFlags()
 	})
 
@@ -214,6 +224,31 @@ func installMuxFakes(t *testing.T, f *muxFake) {
 			}},
 		}}, nil
 	}
+
+	// panes enumeration seams. Default fixture: one session "work" ($3) whose
+	// window @3 "editor" (index 0, active) carries an idle agent pane %5 (at
+	// the fixed reference epoch) and an uninstrumented shell pane %6.
+	if !f.paneSessionsSet && f.paneSessions == nil {
+		f.paneSessions = []tmux.SessionInfo{{Name: "work", ID: "$3"}}
+	}
+	muxPanesSessionsFn = func(_ context.Context, _ string) ([]tmux.SessionInfo, error) {
+		return f.paneSessions, f.paneSessionsErr
+	}
+	muxPanesWindowsFn = func(_ context.Context, session, _ string) ([]tmux.WindowInfo, error) {
+		if f.paneWindows != nil {
+			return f.paneWindows[session], nil
+		}
+		return []tmux.WindowInfo{{
+			Index: 0, WindowID: "@3", Name: "editor", IsActiveWindow: true,
+			Panes: []tmux.PaneInfo{
+				{PaneID: "%5", PaneIndex: 0, IsActive: true, Cwd: "/home/x/code/repo", Command: "node",
+					AgentState: tmux.AgentStateIdle, AgentStateEpoch: 1_800_000_000},
+				{PaneID: "%6", PaneIndex: 1, Cwd: "/home/x/code/repo", Command: "zsh"},
+			},
+		}}, nil
+	}
+	muxPanesAliveFn = func(_ context.Context, _ string) error { return f.paneAliveErr }
+	muxPanesNowFn = nowFn
 }
 
 // resetMuxFlags returns every mux flag (and the root --quiet) to its default so
@@ -230,11 +265,13 @@ func resetMuxFlags() {
 	muxCaptureJSONFlag, muxCaptureRawFlag = false, false
 	muxKillForceFlag = false
 	muxProcessJSONFlag = false
+	muxPanesJSONFlag = false
 	resetFlagChanged(muxSendCmd, "key", "answer", "force", "no-enter", "await", "timeout")
 	resetFlagChanged(muxAwaitCmd, "until", "file", "after-active", "timeout", "notify")
 	resetFlagChanged(muxCaptureCmd, "lines", "json", "raw")
 	resetFlagChanged(muxKillCmd, "force")
 	resetFlagChanged(muxProcessCmd, "json")
+	resetFlagChanged(muxPanesCmd, "json")
 	// The parent's persistent -L is shared by every mux invocation, so an
 	// explicit `-L x` from one test would otherwise leak into the next.
 	if f := muxCmd.PersistentFlags().Lookup("server"); f != nil {

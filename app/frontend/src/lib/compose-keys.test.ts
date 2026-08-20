@@ -23,8 +23,10 @@ const SURFACES: ComposeSurface[] = ["strip", "chat"];
 // 260802-lj98 policy: the classifier is surface-parameterized and the surfaces
 // DELIBERATELY diverge on plain Enter — insert-line on the strip (transmit
 // text + "\n"), the textarea default (newline) in chat. Everything else is
-// shared: Shift+Enter = local newline, Cmd/Ctrl+Enter = the ONLY submit chord,
-// Alt+Enter = byte-exact insert, IME-composing Enter never intercepted.
+// shared: Shift+Enter = local newline, shift-less Cmd/Ctrl+Enter = the ONLY
+// submit chord (exact on Shift — ⇧⌘⏎/⇧Ctrl+⏎ falls through for the global
+// zen-toggle chord), Alt+Enter = byte-exact insert, IME-composing Enter never
+// intercepted.
 describe("classifyComposeEnter", () => {
   it("plain Enter diverges per surface: insert-line on the strip, default (newline) in chat", () => {
     expect(classifyComposeEnter(key(), "strip")).toBe("insert-line");
@@ -50,12 +52,21 @@ describe("classifyComposeEnter", () => {
     }
   });
 
-  it("modifier precedence: meta/ctrl beats alt beats shift/plain, on BOTH surfaces", () => {
+  it("shift-carrying meta/ctrl+Enter is exact-modifier fall-through (default) — bubbles to the zen chord, on BOTH surfaces", () => {
     for (const surface of SURFACES) {
-      // Cmd+Shift+Enter reads as the strongest intent — submit.
-      expect(classifyComposeEnter(key({ metaKey: true, shiftKey: true }), surface)).toBe("submit");
+      expect(classifyComposeEnter(key({ metaKey: true, shiftKey: true }), surface)).toBe("default");
+      expect(classifyComposeEnter(key({ ctrlKey: true, shiftKey: true }), surface)).toBe("default");
+      // The shift guard wins over alt inside the meta/ctrl branch.
+      expect(
+        classifyComposeEnter(key({ metaKey: true, shiftKey: true, altKey: true }), surface),
+      ).toBe("default");
+    }
+  });
+
+  it("modifier precedence: shift-less meta/ctrl beats alt; alt outranks shift, on BOTH surfaces", () => {
+    for (const surface of SURFACES) {
       expect(classifyComposeEnter(key({ ctrlKey: true, altKey: true }), surface)).toBe("submit");
-      // Alt+Shift+Enter inserts (alt outranks shift).
+      // Alt+Shift+Enter inserts (alt outranks shift when no meta/ctrl is held).
       expect(classifyComposeEnter(key({ altKey: true, shiftKey: true }), surface)).toBe("insert");
     }
   });

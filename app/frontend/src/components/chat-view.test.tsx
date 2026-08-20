@@ -83,6 +83,18 @@ describe("ChatView send footer", () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
+  it("Shift+Cmd/Ctrl+Enter is NOT consumed — no submit, the keydown bubbles to the global zen chord", () => {
+    const { onSend } = renderChat();
+    const input = screen.getByTestId("chat-send-input") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "draft" } });
+    const notPreventedMeta = fireEvent.keyDown(input, { key: "Enter", metaKey: true, shiftKey: true });
+    const notPreventedCtrl = fireEvent.keyDown(input, { key: "Enter", ctrlKey: true, shiftKey: true });
+    expect(notPreventedMeta).toBe(true); // not defaultPrevented — free to reach global chords
+    expect(notPreventedCtrl).toBe(true);
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input.value).toBe("draft"); // no submit fired, draft intact
+  });
+
   it("an empty / whitespace-only textarea does not submit on Cmd/Ctrl+Enter", () => {
     const { onSend } = renderChat();
     const input = screen.getByTestId("chat-send-input");

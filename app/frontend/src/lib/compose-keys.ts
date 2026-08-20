@@ -17,9 +17,12 @@ import { detectPlatform, formatCombo } from "./keybindings";
  *     260801-hsxm). The chat lens cannot show the pane's input box, so
  *     Enter-as-insert there would make typed text visibly vanish.
  *
- * Shared on both surfaces: Shift+Enter = local newline; Cmd/Ctrl+Enter =
- * submit — the ONLY submit chord; Alt+Enter = insert-without-submit
- * (byte-exact, no trailing byte); IME-composing Enter is never intercepted.
+ * Shared on both surfaces: Shift+Enter = local newline; Cmd/Ctrl+Enter
+ * (shift-less — the match is exact on Shift) = submit, the ONLY submit chord;
+ * Shift+Cmd/Ctrl+Enter = default — deliberately left un-consumed so it
+ * bubbles to the global zen-toggle chord (keybindings.ts, ⇧⌘⏎/⇧Ctrl+⏎);
+ * Alt+Enter = insert-without-submit (byte-exact, no trailing byte);
+ * IME-composing Enter is never intercepted.
  *
  * The `surface` parameter is REQUIRED (no default) so both call sites must
  * declare which policy they get — a silent default would recreate exactly the
@@ -53,16 +56,19 @@ export interface ComposeKeyInput {
 
 /**
  * Classify an Enter keydown for a given surface. Precedence (first match
- * wins): non-Enter / IME-composing → default; meta/ctrl → submit (the only
- * submit chord); alt → insert; shift → default (local newline); plain Enter →
- * insert-line on the strip, default (newline) in chat.
+ * wins): non-Enter / IME-composing → default; meta/ctrl WITHOUT shift →
+ * submit (the only submit chord — exact on Shift); meta/ctrl WITH shift →
+ * default, alt or not (the shift-carrying chord must bubble to the global
+ * zen-toggle binding, so it is never consumed here); alt → insert; shift →
+ * default (local newline); plain Enter → insert-line on the strip, default
+ * (newline) in chat.
  */
 export function classifyComposeEnter(
   key: ComposeKeyInput,
   surface: ComposeSurface,
 ): ComposeEnterAction {
   if (key.key !== "Enter" || key.isComposing) return "default";
-  if (key.metaKey || key.ctrlKey) return "submit";
+  if (key.metaKey || key.ctrlKey) return key.shiftKey ? "default" : "submit";
   if (key.altKey) return "insert";
   if (key.shiftKey) return "default";
   return surface === "strip" ? "insert-line" : "default";

@@ -494,6 +494,29 @@ describe("ComposeStrip", () => {
     expect(sent).toEqual([]);
   });
 
+  it("Shift+Cmd/Ctrl+Enter is NOT consumed — nothing sent, the keydown bubbles to the global zen chord", () => {
+    const { ref, sent } = makeWs();
+    render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <FocusSetter focus={{ wsRef: ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />
+          <ComposeStrip />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    act(() => fireEvent.change(input(), { target: { value: "draft" } }));
+    for (const mod of [{ metaKey: true }, { ctrlKey: true }]) {
+      let notPrevented = false;
+      act(() => {
+        notPrevented = fireEvent.keyDown(input(), { key: "Enter", shiftKey: true, ...mod });
+      });
+      expect(notPrevented).toBe(true); // not defaultPrevented — free to reach global chords
+    }
+    expect(sent).toEqual([]);
+    expect(input().value).toBe("draft"); // no submit fired, draft intact
+  });
+
   it("empty Cmd/Ctrl+Enter sends a bare \\r — 'press Enter in the pane' (260802-lj98)", () => {
     const { ref, sent } = makeWs();
     render(

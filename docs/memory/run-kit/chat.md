@@ -793,10 +793,13 @@ lens/switcher machinery (`window-view.ts`, `ViewSwitcher`, search-param validati
   required parameter with no default), never branched at this call site. **Enter and
   Shift+Enter = newline** on every pointer type (NOT intercepted — the textarea default;
   Enter accumulates lines locally so a reflexive Enter cannot fire a half-written prompt
-  at a live agent). **Cmd/Ctrl+Enter = submit** — the ONLY submit chord, on every device.
+  at a live agent). **Shift-less Cmd/Ctrl+Enter = submit** — the ONLY submit chord, on
+  every device; the match is exact on Shift, so a **Shift+Cmd/Ctrl+Enter keydown is left
+  un-consumed** and bubbles to the global zen-toggle chord (260820-ecl4).
   **Alt+Enter = insert-without-submit** (`submit:false`, the chord peer of the Insert
-  button). Precedence: non-Enter/IME-composing → default; meta/ctrl → submit; alt →
-  insert; shift → default; plain Enter → default in chat (insert-line on the strip).
+  button). Precedence: non-Enter/IME-composing → default; meta/ctrl without shift →
+  submit; meta/ctrl with shift → default (un-consumed, alt or not); alt → insert;
+  shift → default; plain Enter → default in chat (insert-line on the strip).
   Enter policy is pointer-independent, so the classifier reads no pointer hook. Empty /
   whitespace-only never sends in ANY chat mode — chat has no counterpart to the strip's
   empty Cmd/Ctrl+Enter bare-`"\r"`, because pressing Enter blind into a pane the lens

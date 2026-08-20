@@ -58,19 +58,23 @@
  * shell tier is ⌥⌘. ⌘W is unbound BY DESIGN — it falls through for future
  * tab-close semantics; mouse users get the accelerator-less "Close Window"
  * item (which is also why the Window menu is a custom template and NOT
- * `role: 'windowMenu'` — that role auto-binds ⌘W).
+ * `role: 'windowMenu'` — that role auto-binds ⌘W). New Window is likewise
+ * accelerator-less BY DESIGN — ⌘N stays in the fall-through set for the
+ * follow-up change's SPA-bridge binding. The Window menu also carries a
+ * manual per-window list section (the custom template forgoes AppKit's
+ * automatic window list), rebuilt on window open/close/focus/title changes.
  *
  * Windows/Linux — NOTHING in the unshifted Ctrl tier is bound; the page tier
  * is completely clean. Chromium handles Ctrl+C/V/X/A/Z natively there, so
- * there is no Edit menu; File→Quit is a plain item (the `quit` role
- * default-binds Ctrl+Q on Linux); there is no Window menu (native window
- * chrome covers minimize/close; the `minimize` role default-binds Ctrl+M);
- * View items whose former role defaults sit in the unshifted Ctrl tier
- * (reload Ctrl+R, zoom Ctrl+0/±) are accelerator-less plain items, and the
- * shifted-tier pair (force-reload, devtools) is explicit too so it targets
- * the focused view's webContents. Bound there
- * (exhaustive): Alt+1–9 Hosts switcher, ⇧Ctrl+R force-reload, ⇧Ctrl+I
- * devtools, F11 fullscreen. ⇧Ctrl+digits fall through to the page, where
+ * there is no Edit menu; File carries an accelerator-less New Window plus a
+ * plain Quit item (the `quit` role default-binds Ctrl+Q on Linux); there is
+ * no Window menu (native window chrome covers minimize/close; the `minimize`
+ * role default-binds Ctrl+M); View items whose former role defaults sit in
+ * the unshifted Ctrl tier (reload Ctrl+R, zoom Ctrl+0/±) are
+ * accelerator-less plain items, and the shifted-tier pair (force-reload,
+ * devtools) is explicit too so it targets the focused view's webContents.
+ * Bound there (exhaustive): Alt+1–9 Hosts switcher, ⇧Ctrl+R force-reload,
+ * ⇧Ctrl+I devtools, F11 fullscreen. ⇧Ctrl+digits fall through to the page, where
  * the SPA's surface tile chords bind ⇧Ctrl+1/2/3.
  *
  * Hardware-verify caveat: digit accelerators are the flakiest accelerator
@@ -93,6 +97,10 @@ export interface MenuCallbacks {
   onSwitchHost: (id: string) => void;
   onAddHost: () => void;
   onRemoveHost: (id: string) => void;
+  /** Window/File → New Window — duplicates the focused window (accelerator-less). */
+  onNewWindow: () => void;
+  /** mac Window menu's manual per-window list — focus the clicked window. */
+  onFocusWindow: (windowId: number) => void;
   /** Local Daemon submenu — starts the daemon when stopped, then connects. */
   onDaemonConnect: () => void;
   onDaemonRestart: () => void;
@@ -126,6 +134,17 @@ export interface UpdateMenuInfo {
 
 /** Post-click label while the detached CLI drives quit → swap → relaunch. */
 const UPDATING_LABEL = "Updating…";
+
+/**
+ * One row of the mac Window menu's manual per-window list — the window's
+ * current title as the label, checked on the focused window. Derived from
+ * main's window registry on every rebuild.
+ */
+export interface WindowMenuEntry {
+  windowId: number;
+  title: string;
+  focused: boolean;
+}
 
 function restartToUpdateLabel(latestVersion: string): string {
   return `Restart to Update (v${latestVersion} available)…`;
@@ -196,11 +215,18 @@ function macAppMenu(
   };
 }
 
-/** Windows/Linux conventional minimal File menu — quit only, accelerator-less. */
-function fileMenu(): MenuItemConstructorOptions {
+/** Windows/Linux conventional minimal File menu — New Window + quit, accelerator-less. */
+function fileMenu(callbacks: MenuCallbacks): MenuItemConstructorOptions {
   return {
     label: "File",
     submenu: [
+      {
+        // Accelerator-less by design — ⌘N/Ctrl+N is the follow-up change's
+        // SPA-bridge claim; the shell claims no accelerator for New Window.
+        label: "New Window",
+        click: () => callbacks.onNewWindow(),
+      },
+      { type: "separator" },
       {
         // Plain item, NOT `role: 'quit'` — that role default-binds Ctrl+Q on
         // Linux, which is the page tier there.
@@ -319,14 +345,16 @@ function localDaemonSubmenu(
 
 function hostsMenu(
   hosts: HostEntry[],
-  activeId: string | null,
+  focusedHostId: string | null,
   callbacks: MenuCallbacks,
   daemon: DaemonMenuInfo | null,
 ): MenuItemConstructorOptions {
   const switcherItems: MenuItemConstructorOptions[] = hosts.map((host, index) => ({
     label: host.name,
     type: "radio",
-    checked: host.id === activeId,
+    // The FOCUSED window's active host — switching is per-window, so the
+    // check mark follows focus (main rebuilds the menu on window-focus).
+    checked: host.id === focusedHostId,
     // Keys the page can never claim (the SPA registry excludes Option AND
     // Alt from every chord tier): ⌥⌘1–9 (mac) / Alt+1–9 (win/linux) switches
     // hosts while the unshifted Cmd/Ctrl digits fall through to the page on
@@ -366,7 +394,10 @@ function hostsMenu(
 }
 
 /** macOS Window menu — custom template, NOT `role: 'windowMenu'` (auto-binds ⌘W). */
-function macWindowMenu(): MenuItemConstructorOptions {
+function macWindowMenu(
+  windows: WindowMenuEntry[],
+  callbacks: MenuCallbacks,
+): MenuItemConstructorOptions {
   return {
     label: "Window",
     submenu: [
@@ -374,35 +405,62 @@ function macWindowMenu(): MenuItemConstructorOptions {
       { role: "zoom" },
       { type: "separator" },
       {
+        // Accelerator-less by design: ⌘N is the follow-up change's SPA-bridge
+        // claim (the shell claims no accelerator for New Window).
+        label: "New Window",
+        click: () => callbacks.onNewWindow(),
+      },
+      {
         // Accelerator-less by design: ⌘W falls through to the page (see header comment).
         label: "Close Window",
         click: () => BrowserWindow.getFocusedWindow()?.close(),
       },
+      // The manual per-window list: the custom template forgoes AppKit's
+      // automatic window list, so open windows are enumerated here — rebuilt
+      // by main on every window open/close/focus/title change.
+      ...(windows.length > 0
+        ? [
+            { type: "separator" } as MenuItemConstructorOptions,
+            ...windows.map(
+              (w): MenuItemConstructorOptions => ({
+                label: w.title,
+                type: "checkbox",
+                checked: w.focused,
+                click: () => callbacks.onFocusWindow(w.windowId),
+              }),
+            ),
+          ]
+        : []),
     ],
   };
 }
 
 /**
  * Build the full application menu; call again (and re-set) on every
- * host-list change and whenever the cached daemon or update state changes.
- * `daemon` null hides the Local Daemon submenu (not installed / win32);
- * `update` null hides the App-menu Restart-to-Update item (non-darwin, rk
- * missing, status failure, or up to date — the item is mac-only by structure,
- * since only `macAppMenu` renders it).
+ * host-list change, whenever the cached daemon or update state changes, and
+ * whenever the focused window's active host or the window set/titles change.
+ * `focusedHostId` is the FOCUSED window's active host (switching is
+ * per-window — the radio check marks follow focus); `windows` feeds the mac
+ * Window menu's manual per-window list. `daemon` null hides the Local Daemon
+ * submenu (not installed / win32); `update` null hides the App-menu
+ * Restart-to-Update item (non-darwin, rk missing, status failure, or up to
+ * date — the item is mac-only by structure, since only `macAppMenu` renders
+ * it).
  */
 export function buildMenu(
   hosts: HostEntry[],
-  activeId: string | null,
+  focusedHostId: string | null,
+  windows: WindowMenuEntry[],
   callbacks: MenuCallbacks,
   daemon: DaemonMenuInfo | null,
   update: UpdateMenuInfo | null,
 ): Menu {
   const template: MenuItemConstructorOptions[] = [
-    isMac ? macAppMenu(update, callbacks) : fileMenu(),
+    isMac ? macAppMenu(update, callbacks) : fileMenu(callbacks),
     ...(isMac ? [macEditMenu()] : []),
     viewMenu(),
-    hostsMenu(hosts, activeId, callbacks, daemon),
-    ...(isMac ? [macWindowMenu()] : []),
+    hostsMenu(hosts, focusedHostId, callbacks, daemon),
+    ...(isMac ? [macWindowMenu(windows, callbacks)] : []),
   ];
 
   return Menu.buildFromTemplate(template);

@@ -1,0 +1,14 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-20T18:41:17Z"}
+{"args":"desktop-shell multi-window: one Electron process, many windows (JetBrains/VS Code model) — requestSingleInstanceLock, New Window duplicates current window, (window,host)-keyed views, per-window host switching, OS-native window switching with host+route titles, badge sums distinct displayed hosts, windows.json cold-start restore, activeId demoted to cosmetic","cmd":"fab-new","event":"command","ts":"2026-08-20T18:41:17Z"}
+{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-08-20T18:43:13Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-20T18:44:19Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-20T18:44:19Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-20T18:54:48Z"}
+{"event":"review","result":"failed","ts":"2026-08-20T18:58:00Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-20T18:58:00Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-20T19:02:41Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-20T19:05:47Z"}
+{"event":"review","result":"passed","ts":"2026-08-20T19:05:47Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-20T19:12:26Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-08-20T19:14:32Z"}
+{"event":"review","result":"passed","ts":"2026-08-20T19:19:29Z"}

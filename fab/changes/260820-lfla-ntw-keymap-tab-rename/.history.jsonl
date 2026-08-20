@@ -1,0 +1,3 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-20T18:42:41Z"}
+{"args":"N/T/W keymap realignment + tab copy sweep (mac desktop shell): cmd-T new tab, shift-cmd-T new session, cmd-N new app window via shell:new-window bridge (SPA binding), shift-cmd-W close app window; rename tmux windows to 'tab' in user-facing copy; cmd-backtick system claim. Depends on desktop-multi-window.","cmd":"fab-new","event":"command","ts":"2026-08-20T18:42:41Z"}
+{"delta":"+4.4","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-08-20T18:44:50Z"}

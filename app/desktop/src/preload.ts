@@ -15,6 +15,9 @@
  *   - `badge`: the SPA's waiting-agent-count report (`badge:set`) driving the
  *     dock/taskbar badge. Gated exactly like `servers:*` (registered host
  *     origins + welcome) main-side; payloads are validated in main.
+ *   - `windows`: `newWindow()` invoker for `shell:new-window` — duplicates
+ *     the sender's window. Exposed but unconsumed (the follow-up change's
+ *     SPA ⌘N binding is the intended consumer); gated like `servers:*`.
  *   - `accent`: the SPA's raw instance-accent report (`accent:set`, a strict
  *     hex string) persisted per host for the switcher's edge bars — the
  *     full-strength color the theme-color meta's 35% titlebar blend cannot
@@ -69,6 +72,13 @@ contextBridge.exposeInMainWorld("runkitShell", {
   },
   badge: {
     set: (count: number): Promise<unknown> => ipcRenderer.invoke("badge:set", count),
+  },
+  windows: {
+    // shell:new-window — duplicates the sender's window (same host, same
+    // route, fresh independent view). EXPOSED BUT UNCONSUMED in this change:
+    // the follow-up change's SPA ⌘N binding is its intended consumer. Gated
+    // main-side exactly like `servers:*` (registered host origins + welcome).
+    newWindow: (): Promise<unknown> => ipcRenderer.invoke("shell:new-window"),
   },
   accent: {
     set: (hex: string): Promise<unknown> => ipcRenderer.invoke("accent:set", hex),

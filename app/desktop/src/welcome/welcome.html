@@ -9,8 +9,36 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Run Kit — Connect</title>
     <style>
+      /* SPA design tokens (app/frontend/src/globals.css), COPIED not imported —
+         the page's CSP forbids external fetches. Dark is the default; the
+         media query overrides the full set for light (the system rung of the
+         SPA's three-mode theme — no manual toggle on this page). */
       :root {
-        color-scheme: dark;
+        color-scheme: light dark;
+        --bg-primary: #0f1117;
+        --bg-card: #171b24;
+        --bg-inset: #0a0c12;
+        --text-primary: #e8eaf0;
+        --text-secondary: #7a8394;
+        --border: #454d66;
+        --accent: #5b8af0;
+        --accent-green: #22c55e;
+        --signal-yellow: #facc15;
+        --signal-red: #f87171;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg-primary: #f8f9fb;
+          --bg-card: #ffffff;
+          --bg-inset: #e8eaef;
+          --text-primary: #1a1d24;
+          --text-secondary: #6b7280;
+          --border: #d1d5db;
+          --accent: #4a7ae8;
+          --accent-green: #16a34a;
+          --signal-yellow: #b07d02;
+          --signal-red: #dc2626;
+        }
       }
       * {
         box-sizing: border-box;
@@ -26,8 +54,8 @@
         min-height: 100vh;
         display: grid;
         place-items: center;
-        background: #0f1117;
-        color: #e5e7eb;
+        background: var(--bg-primary);
+        color: var(--text-primary);
         font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
         font-size: 14px;
         /* Room for the fixed titlebar strip below. */
@@ -43,15 +71,15 @@
         left: 0;
         right: 0;
         height: 28px;
-        background: #0f1117;
+        background: var(--bg-primary);
         -webkit-app-region: drag;
       }
       main.card {
         width: min(420px, calc(100vw - 48px));
         padding: 32px;
-        border: 1px solid #262b36;
+        border: 1px solid var(--border);
         border-radius: 8px;
-        background: #131722;
+        background: var(--bg-card);
       }
       h1 {
         margin: 0 0 4px;
@@ -61,12 +89,12 @@
       }
       p.tagline {
         margin: 0 0 24px;
-        color: #9ca3af;
+        color: var(--text-secondary);
       }
       label {
         display: block;
         margin: 16px 0 6px;
-        color: #9ca3af;
+        color: var(--text-secondary);
         font-size: 12px;
         text-transform: uppercase;
         letter-spacing: 0.06em;
@@ -78,30 +106,30 @@
       input {
         width: 100%;
         padding: 10px 12px;
-        border: 1px solid #2d3340;
+        border: 1px solid var(--border);
         border-radius: 6px;
-        background: #0f1117;
-        color: #e5e7eb;
+        background: var(--bg-inset);
+        color: var(--text-primary);
         font: inherit;
       }
       input:focus {
         outline: none;
-        border-color: #34d399;
+        border-color: var(--accent);
       }
       button {
         width: 100%;
         margin-top: 24px;
         padding: 10px 12px;
-        border: 1px solid #34d399;
+        border: 1px solid var(--accent);
         border-radius: 6px;
         background: transparent;
-        color: #34d399;
+        color: var(--accent);
         font: inherit;
         cursor: pointer;
       }
       button:hover:not(:disabled) {
-        background: #34d399;
-        color: #0f1117;
+        background: var(--accent);
+        color: var(--bg-primary);
       }
       button:disabled {
         opacity: 0.5;
@@ -109,23 +137,89 @@
       }
       p.error {
         margin: 16px 0 0;
-        color: #f87171;
+        color: var(--signal-red);
       }
       a#cancel {
         display: block;
         margin-top: 16px;
         text-align: center;
-        color: #9ca3af;
+        color: var(--text-secondary);
       }
-      /* ── "This Mac" local-daemon section ─────────────────────────────── */
-      section#local h2 {
+      /* ── Section headings (Your Hosts, This Mac) ─────────────────────── */
+      section h2 {
         margin: 0 0 10px;
-        color: #9ca3af;
+        color: var(--text-secondary);
         font-size: 12px;
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.06em;
       }
+      /* ── "Your Hosts" section — row anatomy mirrors the SPA strip dropdown
+           (shell-titlebar-strip.tsx): left-edge accent bar, fixed ✓ marker
+           column, name, dimmed origin, right-aligned accelerator hint. The
+           host-row rules sit after the generic button rules (equal
+           specificity — source order wins the hover override). */
+      #hosts-list {
+        margin-bottom: 24px;
+      }
+      button.host-row {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 0;
+        padding: 6px 56px 6px 10px;
+        border: none;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--text-primary);
+        text-align: left;
+      }
+      button.host-row:hover:not(:disabled),
+      button.host-row:focus-visible {
+        background: var(--bg-inset);
+        color: var(--text-primary);
+        outline: none;
+      }
+      /* 3px accent bar — overlaid so colorless rows keep alignment; the
+         persisted accentColor is hex-gated in welcome.js before it ever
+         reaches a style assignment. */
+      .host-accent {
+        position: absolute;
+        left: 0;
+        top: 4px;
+        bottom: 4px;
+        width: 3px;
+        border-radius: 9999px;
+      }
+      .host-marker {
+        flex: none;
+        width: 12px;
+      }
+      .host-name {
+        flex: none;
+        max-width: 45%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .host-origin {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 12px;
+        opacity: 0.6;
+      }
+      .host-hint {
+        position: absolute;
+        right: 8px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: var(--text-secondary);
+        font-size: 12px;
+      }
+      /* ── "This Mac" local-daemon section ─────────────────────────────── */
       .local-status {
         display: flex;
         align-items: center;
@@ -136,23 +230,23 @@
         width: 8px;
         height: 8px;
         border-radius: 50%;
-        background: #4b5563; /* stopped: grey */
+        background: var(--text-secondary); /* stopped: grey */
       }
       .dot.running {
-        background: #34d399; /* green */
+        background: var(--accent-green);
       }
       .dot.starting {
-        background: #fbbf24; /* amber */
+        background: var(--signal-yellow);
       }
       p.local-detail {
         margin: 6px 0 0;
-        color: #9ca3af;
+        color: var(--text-secondary);
         font-size: 12px;
       }
       code {
-        color: #e5e7eb;
-        background: #0f1117;
-        border: 1px solid #2d3340;
+        color: var(--text-primary);
+        background: var(--bg-inset);
+        border: 1px solid var(--border);
         border-radius: 4px;
         padding: 1px 5px;
       }
@@ -164,19 +258,19 @@
         margin-top: 16px;
       }
       button.ghost {
-        border-color: #2d3340;
-        color: #9ca3af;
+        border-color: var(--border);
+        color: var(--text-secondary);
       }
       button.ghost:hover:not(:disabled) {
-        background: #2d3340;
-        color: #e5e7eb;
+        background: var(--border);
+        color: var(--text-primary);
       }
       .divider {
         display: flex;
         align-items: center;
         gap: 12px;
         margin: 24px 0 0;
-        color: #6b7280;
+        color: var(--text-secondary);
         font-size: 12px;
         text-transform: uppercase;
         letter-spacing: 0.06em;
@@ -185,12 +279,12 @@
       .divider::after {
         content: "";
         flex: 1;
-        border-top: 1px solid #262b36;
+        border-top: 1px solid var(--border);
       }
       /* ── "or over SSH" remote rung ───────────────────────────────────── */
       p.ssh-progress {
         margin: 12px 0 0;
-        color: #fbbf24; /* the This-Mac card's amber "starting…" style */
+        color: var(--signal-yellow);
         font-size: 12px;
       }
     </style>
@@ -200,6 +294,14 @@
     <main class="card">
       <h1>run-kit</h1>
       <p id="tagline" class="tagline">Connect to a running <span>rk serve</span> instance.</p>
+      <!-- "Your Hosts" top rung — registered hosts from `servers:list` (the
+           page is already a privileged servers:* sender, so no new IPC);
+           hidden until welcome.js populates it, and stays hidden on an
+           empty/failed list or an older preload without the servers group. -->
+      <section id="hosts" hidden>
+        <h2>Your Hosts</h2>
+        <div id="hosts-list" role="listbox" aria-label="Your hosts"></div>
+      </section>
       <!-- "This Mac" local-daemon section — hidden until the shell reports a
            darwin/linux platform (suppressed on win32); states are driven by
            daemon:status polling in welcome.js. -->
@@ -239,21 +341,24 @@
         <p id="ssh-error" hidden class="error"></p>
         <div class="divider">or a URL</div>
       </section>
+      <!-- Shared host-form contract (the SPA strip's Edit Host dialog): Name
+           (optional) before URL; the URL field keeps autofocus (required, and
+           the ⇧⌘M empty-state target). -->
       <form id="connect-form">
-        <label for="url">Host URL</label>
-        <input
-          id="url"
-          type="text"
-          placeholder="http://100.101.2.3:3000"
-          autofocus
-          spellcheck="false"
-          autocomplete="off"
-        />
         <label for="name">Name</label>
         <input
           id="name"
           type="text"
           placeholder="optional — auto from server"
+          spellcheck="false"
+          autocomplete="off"
+        />
+        <label for="url">URL</label>
+        <input
+          id="url"
+          type="text"
+          placeholder="http://100.101.2.3:3000"
+          autofocus
           spellcheck="false"
           autocomplete="off"
         />

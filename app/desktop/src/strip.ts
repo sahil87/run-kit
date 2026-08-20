@@ -30,6 +30,20 @@ export const STRIP_MARKER_CLASS = "rk-shell-strip";
  *  shell's window backgroundColor (dark theme background). */
 export const DEFAULT_STRIP_COLOR = "#0f1117";
 
+/** Light-theme counterpart of DEFAULT_STRIP_COLOR — the light `--bg-primary`
+ *  token value the welcome page's static strip rides. */
+export const LIGHT_STRIP_COLOR = "#f8f9fb";
+
+/**
+ * Strip/overlay color while the welcome page is shown (win/linux overlay;
+ * darwin's OS-drawn traffic lights take no color). The welcome page's static
+ * strip rides its background token, so the overlay must follow the same
+ * system theme: dark keeps the shell default, light matches the light page.
+ */
+export function welcomeStripColor(darkMode: boolean): string {
+  return darkMode ? DEFAULT_STRIP_COLOR : LIGHT_STRIP_COLOR;
+}
+
 /**
  * Blank underlay that clears the welcome page's stale draggable region:
  * Chromium emits a draggable-regions update only for documents that HAVE

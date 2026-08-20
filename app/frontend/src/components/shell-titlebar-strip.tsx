@@ -2,11 +2,13 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { useInstanceAccent } from "@/contexts/instance-accent-context";
 import { useTheme } from "@/contexts/theme-context";
 import { Dialog } from "@/components/dialog";
+import { HostFormDialog, INVALID_HOST_URL_MESSAGE, reduceOrigin } from "@/components/host-form-dialog";
 import { Tip } from "@/components/tip";
 import { useToast } from "@/components/toast";
 import {
   addShellHost,
   canAddShellHost,
+  canAddShellHostDirect,
   canConfirmedRemoveShellHost,
   canRemoveShellHost,
   canRenameShellHost,
@@ -66,11 +68,13 @@ import type { ShellHostMenuRow } from "@/lib/shell-strip";
  * lastPath restore), so there is no optimistic UI. On an older shell without
  * the `servers` group the label stays today's static, non-interactive span.
  *
- * When the shell's `servers` group carries the optional `add` invoker, the
- * menu ends with a `+ Add Host…` footer that opens the shell's welcome page
- * in add mode (`servers:add` → the same main-side path as the native
- * `Hosts → Add Host…` menu item). Older shells without the invoker render
- * the menu without the footer.
+ * The menu ends with a `+ Add Host…` footer when the shell carries EITHER
+ * add path. On shells with the additive `addDirect` invoker it opens the
+ * shared HostFormDialog in add mode in place (main pings, persists, and
+ * switches in one invoke); on older shells it keeps the `servers:add`
+ * welcome-page swap (the same main-side path as the native
+ * `Hosts → Add Host…` menu item). Shells with neither render the menu
+ * without the footer.
  *
  * Three additive, independently capability-gated row features (1i7j): a
  * ~3px left-edge bar in the host's persisted accent color (hex-validated in
@@ -86,10 +90,11 @@ import type { ShellHostMenuRow } from "@/lib/shell-strip";
  * Two further capability-gated affordances join the grip in the trailing
  * hover/focus-revealed cluster: Remove (minus icon, themed confirm dialog —
  * or the shell's native dialog on shells without `removeConfirmed`) and Edit
- * (pencil, the Edit Host dialog: name via `servers:rename`, URL via the
- * additive `servers:set-url`). Delete/Backspace and F2 reach both from the
- * focused row; the ⌥⌘n hint is the row's at-rest right-aligned data and
- * yields the zone while the cluster shows. Older shells degrade per invoker.
+ * (pencil, the shared HostFormDialog in edit mode: name via
+ * `servers:rename`, URL via the additive `servers:set-url`).
+ * Delete/Backspace and F2 reach both from the focused row; the ⌥⌘n hint is
+ * the row's at-rest right-aligned data and yields the zone while the cluster
+ * shows. Older shells degrade per invoker.
  */
 
 /** Custom MIME so a host-reorder drag never collides with the other
@@ -163,9 +168,12 @@ export function ShellTitlebarStrip() {
 
   const interactive = stripSwitcherEnabled(servers);
   const rows = interactive ? shellHostMenuRows(servers, shellInfo()?.platform ?? "") : [];
-  // The `+ Add Host…` footer rides the optional `servers.add` invoker — older
-  // shells expose only list/switch and render the menu without it.
-  const canAdd = canAddShellHost();
+  // The `+ Add Host…` footer rides the union of the two add paths: the
+  // additive `servers.addDirect` invoker (in-place dialog) or the older
+  // `servers.add` (welcome-page swap). A shell with neither renders the menu
+  // without the footer.
+  const canAdd = canAddShellHost() || canAddShellHostDirect();
+  const canAddDirect = canAddShellHostDirect();
   // The reorder affordances (drag grip, ⌥↑/⌥↓) ride the optional
   // `servers.reorder` invoker — an older shell renders plain rows.
   const canReorder = canReorderShellHosts();
@@ -302,17 +310,13 @@ export function ShellTitlebarStrip() {
     if (target) refocusRow(target.id);
   }, [confirmTarget, refocusRow]);
 
-  // Edit Host dialog (pencil / F2): name rides servers:rename; the URL field
-  // rides the additive servers:set-url and is disabled on shells without it.
+  // Edit Host (pencil / F2): the shared HostFormDialog in edit mode — it owns
+  // the fields and error slot; the save semantics below stay caller-owned.
   const [editTarget, setEditTarget] = useState<ShellHostMenuRow | null>(null);
-  const [editName, setEditName] = useState("");
-  const [editUrl, setEditUrl] = useState("");
-  const [editError, setEditError] = useState<string | null>(null);
+  // Add Host (footer, addDirect-capable shells): the same dialog in add mode.
+  const [addOpen, setAddOpen] = useState(false);
 
   const openEdit = useCallback((row: ShellHostMenuRow) => {
-    setEditName(row.name);
-    setEditUrl(row.origin);
-    setEditError(null);
     setEditTarget(row);
   }, []);
 
@@ -327,53 +331,52 @@ export function ShellTitlebarStrip() {
   // is judged against the dialog's own prefill first (an untouched field is
   // never a change — and never parsed, so a name-only edit cannot be blocked
   // by a malformed stored URL), then against the LIVE row (a background
-  // refetch may have reconciled while the dialog sat open).
-  const saveEdit = useCallback(() => {
-    const target = editTarget;
-    if (!target) return;
-    const live = rowsRef.current.find((r) => r.id === target.id) ?? target;
-    const name = editName.trim();
-    const urlRaw = editUrl.trim();
-    let origin = live.origin;
-    if (canSetUrl && urlRaw !== "" && urlRaw !== target.origin) {
-      try {
-        const parsed = new URL(urlRaw);
-        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-          throw new Error("non-http");
-        }
-        origin = parsed.origin;
-      } catch {
-        setEditError("Enter a full http(s) URL, e.g. http://host:3000");
-        return;
+  // refetch may have reconciled while the dialog sat open). Returns the
+  // inline error the dialog shows (it stays open), or null once the save
+  // proceeds.
+  const saveEdit = useCallback(
+    ({ name: nameValue, url: urlValue }: { name: string; url: string }): string | null => {
+      const target = editTarget;
+      if (!target) return null;
+      const live = rowsRef.current.find((r) => r.id === target.id) ?? target;
+      const name = nameValue.trim();
+      const urlRaw = urlValue.trim();
+      let origin = live.origin;
+      if (canSetUrl && urlRaw !== "" && urlRaw !== target.origin) {
+        const reduced = reduceOrigin(urlRaw);
+        if (reduced === null) return INVALID_HOST_URL_MESSAGE;
+        origin = reduced;
       }
-    }
-    setEditTarget(null);
-    refocusRow(target.id);
-    const nameChanged = name !== "" && name !== target.name && name !== live.name;
-    const urlChanged = canSetUrl && origin !== live.origin;
-    if (!nameChanged && !urlChanged) return;
-    if (nameChanged) {
-      setServers((prev) =>
-        prev ? prev.map((s) => (s.id === target.id ? { ...s, name } : s)) : prev,
-      );
-    }
-    const ops: Promise<unknown>[] = [];
-    if (nameChanged) {
-      ops.push(
-        renameShellHost(target.id, name).then((ok) => {
-          if (!ok) addToast("Shell host rename failed", "error");
-        }),
-      );
-    }
-    if (urlChanged) {
-      ops.push(
-        setShellHostUrl(target.id, origin).then((ok) => {
-          if (!ok) addToast("Shell host URL update failed", "error");
-        }),
-      );
-    }
-    void Promise.all(ops).then(() => fetchServers());
-  }, [editTarget, editName, editUrl, canSetUrl, addToast, fetchServers, refocusRow]);
+      setEditTarget(null);
+      refocusRow(target.id);
+      const nameChanged = name !== "" && name !== target.name && name !== live.name;
+      const urlChanged = canSetUrl && origin !== live.origin;
+      if (!nameChanged && !urlChanged) return null;
+      if (nameChanged) {
+        setServers((prev) =>
+          prev ? prev.map((s) => (s.id === target.id ? { ...s, name } : s)) : prev,
+        );
+      }
+      const ops: Promise<unknown>[] = [];
+      if (nameChanged) {
+        ops.push(
+          renameShellHost(target.id, name).then((ok) => {
+            if (!ok) addToast("Shell host rename failed", "error");
+          }),
+        );
+      }
+      if (urlChanged) {
+        ops.push(
+          setShellHostUrl(target.id, origin).then((ok) => {
+            if (!ok) addToast("Shell host URL update failed", "error");
+          }),
+        );
+      }
+      void Promise.all(ops).then(() => fetchServers());
+      return null;
+    },
+    [editTarget, canSetUrl, addToast, fetchServers, refocusRow],
+  );
 
   // Menu-scoped dialog state dies with the menu — close paths bypass the
   // dialogs' own handlers, and stale state would wedge the next open.
@@ -381,6 +384,7 @@ export function ShellTitlebarStrip() {
     if (!open) {
       setConfirmTarget(null);
       setEditTarget(null);
+      setAddOpen(false);
     }
   }, [open]);
 
@@ -485,7 +489,7 @@ export function ShellTitlebarStrip() {
   // reorder capability, ⌥↑/⌥↓ instead MOVES the focused host row. Enter
   // needs no handler — the focused row is a native <button>. Delete/Backspace
   // opens the focused row's remove confirm and F2 its Edit Host dialog.
-  const dialogOpen = confirmTarget !== null || editTarget !== null;
+  const dialogOpen = confirmTarget !== null || editTarget !== null || addOpen;
   useEffect(() => {
     if (!open) return;
     function handleKey(e: KeyboardEvent) {
@@ -619,14 +623,21 @@ export function ShellTitlebarStrip() {
     });
   }, [open, rows.length, canAdd]);
 
-  // Open the shell's Add Host flow (welcome page in add mode) — a full page
-  // swap, same as selecting a host, so the menu just closes first.
+  // Add Host footer fork: an addDirect-capable shell opens the shared dialog
+  // IN PLACE (the menu stays open behind it — the menu-scoped dialog
+  // convention; on success the shell swaps the view anyway). Older shells
+  // keep the welcome-page swap — a full page navigation, so the menu just
+  // closes first.
   const openAddHost = useCallback(() => {
+    if (canAddDirect) {
+      setAddOpen(true);
+      return;
+    }
     setOpen(false);
     void addShellHost().then((ok) => {
       if (!ok) addToast("Shell add host failed", "error");
     });
-  }, [addToast]);
+  }, [canAddDirect, addToast]);
 
   const bg = titlebarHex ?? theme.palette.background;
   const insets = stripInsets(shellInfo()?.platform ?? "");
@@ -883,58 +894,25 @@ export function ShellTitlebarStrip() {
             </div>
           )}
           {editTarget !== null && (
-            // Same z-[60] lift as the remove confirm above.
-            <div className="relative z-[60]">
-              <Dialog title="Edit host" onClose={cancelEdit}>
-                <label className="mb-2 block text-xs text-text-secondary">
-                  Name
-                  <input
-                    type="text"
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") saveEdit();
-                    }}
-                    className="mt-1 w-full rounded border border-border bg-transparent px-2 py-1 text-sm text-text-primary outline-none focus:border-accent"
-                  />
-                </label>
-                <label className="mb-1 block text-xs text-text-secondary">
-                  URL
-                  <input
-                    type="text"
-                    value={editUrl}
-                    disabled={!canSetUrl}
-                    onChange={(e) => setEditUrl(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") saveEdit();
-                    }}
-                    className="mt-1 w-full rounded border border-border bg-transparent px-2 py-1 text-sm text-text-primary outline-none focus:border-accent disabled:opacity-50"
-                  />
-                </label>
-                {!canSetUrl && (
-                  <p className="mb-2 text-xs text-text-secondary opacity-70">
-                    URL editing needs a newer desktop app.
-                  </p>
-                )}
-                {editError !== null && (
-                  <p className="mb-2 text-xs text-signal-red">{editError}</p>
-                )}
-                <div className="mt-2 flex gap-2">
-                  <button
-                    onClick={cancelEdit}
-                    className="flex-1 text-sm py-1.5 border border-border rounded hover:border-text-secondary"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={saveEdit}
-                    className="flex-1 text-sm py-1.5 border border-accent rounded text-accent hover:bg-bg-card"
-                  >
-                    Save
-                  </button>
-                </div>
-              </Dialog>
-            </div>
+            <HostFormDialog
+              mode="edit"
+              title="Edit host"
+              initialName={editTarget.name}
+              initialUrl={editTarget.origin}
+              urlEnabled={canSetUrl}
+              submitLabel="Save"
+              onSubmit={saveEdit}
+              onCancel={cancelEdit}
+            />
+          )}
+          {addOpen && (
+            <HostFormDialog
+              mode="add"
+              title="Add host"
+              submitLabel="Add Host"
+              onSuccess={() => setAddOpen(false)}
+              onCancel={() => setAddOpen(false)}
+            />
           )}
         </div>
       ) : (

@@ -1,5 +1,5 @@
 ---
-description: "Component conventions, dialogs (create session, spawn-agent, tabbed settings, width variants), clipboard utility, e2e host-global filesystem state, the Zustand window store, and optimistic UI + mutation feedback."
+description: "Component conventions, dialogs (create session, spawn-agent, tabbed settings, shell host add/edit form, width variants), clipboard utility, e2e host-global filesystem state, the Zustand window store, and optimistic UI + mutation feedback."
 type: memory
 ---
 # run-kit UI — Dialogs & Client State
@@ -130,6 +130,15 @@ A tabbed settings **dialog** (not a routed page — constitution §IV keeps "no 
 - **Chevron menu rows** — the overflow menu's App section carries "Settings" (tab-less, like the gear) and "Keyboard shortcuts", a pure **deep-link** calling `openSettings("shortcuts")` directly on the layout-provided context — re-clicking while open on Shortcuts does not close (only the chord/palette entry carries the toggle semantics).
 
 **Instance display name has THREE display consumers, delivered via a root context** — see § Instance Display Name below.
+
+## Host Form Dialog
+
+`app/frontend/src/components/host-form-dialog.tsx` — the ONE Add/Edit host form of the desktop-shell titlebar strip: a mode-discriminated props union (`mode: "add" | "edit"` — narrowed by check, no `as` casts) on the shared `Dialog` shell inside a `z-[60]` wrapper (the strip's menu-stacking treatment — [top-bar](/run-kit/ui/top-bar.md) § Desktop-Shell Titlebar Strip). Both modes render the same field contract: Name (optional) above URL, same labels, same validation copy (the exported `INVALID_HOST_URL_MESSAGE` — `Enter a full http(s) URL, e.g. http://host:3000`), same inline error slot, same Cancel/primary button row; Enter in either field submits. The exported `reduceOrigin(raw): string | null` (full http(s) URL → origin, `null` when malformed) backs BOTH add mode's local validation and the strip's edit-mode save — one check paired with one copy constant.
+
+- **Edit mode** is a pure rendering extraction: the caller owns the save semantics — prefill (`initialName`/`initialUrl`), the diff-against-prefill-then-live-row commit, `servers:rename` / `servers:set-url`, the optimistic row update, and the row refocus — and its `onSubmit` answers with the inline error to show (the dialog stays open) or `null` once the save proceeds (the caller unmounts). `urlEnabled: false` (a shell without `setUrl`) disables the URL field with a "URL editing needs a newer desktop app." note. No connectivity ping on save — a temporarily-down host stays editable.
+- **Add mode** owns its submit: local URL validation first (the shared check + copy), then ONE `addShellHostDirect(name.trim(), origin)` invoke ([desktop-shell](/run-kit/desktop-shell.md) § `window.runkitShell` Bridge) — the main process pings before persisting, so a returned `{ ok: false, error }` renders inline in the same error slot and keeps the dialog open for correction. While the invoke is in flight the form is `busy` (fields + submit disabled — the ping can take up to 5s; the spawn-agent in-flight convention). A blank Name auto-derives from the ping's returned hostname main-side. Success fires `onSuccess` — the shell has already switched the window to the new host, so the caller just closes the dialog.
+
+The strip is the only consumer (the edit pencil / F2 path in edit mode, the `+ Add Host…` footer fork in add mode), rendering both modes inside the switcher container (backdrop clicks never trip the menu's outside-click close) and counting them in its `dialogOpen` key-suspension union. Covered by the colocated `host-form-dialog.test.tsx` (both modes — edit save-diff / disabled-URL / inline-error paths; add validation, busy, inline main-side failure, and success) plus the strip suite's footer-fork tests. (`260820-d99v-spa-host-form-dialog`)
 
 ## Zustand Window Store
 

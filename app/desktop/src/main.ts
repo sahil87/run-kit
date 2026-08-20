@@ -1275,6 +1275,27 @@ function registerIpcHandlers(): void {
     return openAddHost();
   });
 
+  // servers:add-direct — the SPA's in-place Add Host dialog (additive
+  // channel; older SPAs only ever call servers:add). ONE invoke runs the
+  // welcome page's whole test-host → add-host chain — normalize, health-ping,
+  // persist, switch — so a failure can never land in a half-state (pinged but
+  // not persisted, or persisted unpinged) and the sandboxed renderer needs no
+  // cross-origin fetch. A blank name derives from the ping's hostname
+  // (addHost's own empty-name rule then falls back to the origin) — the
+  // welcome add form's exact behavior.
+  ipcMain.handle("servers:add-direct", async (event, payload: unknown): Promise<IpcResult> => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    const parsed = parseAddPayload(payload);
+    if (!parsed) return { ok: false, error: "Invalid request" };
+    const normalized = normalizeOrigin(parsed.url);
+    if (!normalized.ok) return normalized;
+    const ping = await pingServer(normalized.origin);
+    if (!ping.ok) return { ok: false, error: ping.error };
+    const added = addHost(userDataDir(), parsed.name.trim() || ping.hostname, normalized.origin);
+    if (!added.ok) return added;
+    return switchToHost(added.host.id); // attaches the fresh view + rebuilds the menu
+  });
+
   // servers:reorder — move-by-id ({id, toIndex}); a full-array payload would
   // trust renderer-supplied order, so only the immutable id + target index
   // cross the bridge. List order IS the native menu's accelerator map, so a

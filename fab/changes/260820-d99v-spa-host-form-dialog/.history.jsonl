@@ -1,3 +1,12 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-20T10:23:52Z"}
 {"args":"shared SPA HostFormDialog for Add/Edit Host with servers:add-direct invoker, replacing the welcome-page swap for add when the SPA is live","cmd":"fab-new","event":"command","ts":"2026-08-20T10:23:52Z"}
 {"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-08-20T10:26:53Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-20T12:02:31Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-20T12:03:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-20T12:17:22Z"}
+{"event":"review","result":"failed","ts":"2026-08-20T12:22:42Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-20T12:22:42Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-20T12:24:39Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-20T12:28:49Z"}
+{"event":"review","result":"passed","ts":"2026-08-20T12:28:49Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-20T12:37:52Z"}

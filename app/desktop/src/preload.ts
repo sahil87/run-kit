@@ -5,8 +5,8 @@
  *   - `version` / `platform`: readable by EVERY page (including pages loaded
  *     from registered rk servers) — this is the SPA's shell-detection seam
  *     (`app/frontend/src/lib/shell.ts`).
- *   - `servers`: list/switch/add/reorder/remove/rename invokers for the SPA
- *     command palette and titlebar-strip host switcher. The group
+ *   - `servers`: list/switch/add/addDirect/reorder/remove/rename invokers for
+ *     the SPA command palette and titlebar-strip host switcher. The group
  *     name and its `servers:*` channels are the web SPA's contract and keep
  *     their server naming (the entries are hosts — rk instances — shell-side).
  *     Privileged for registered host origins AND the welcome page — main.ts
@@ -52,6 +52,11 @@ contextBridge.exposeInMainWorld("runkitShell", {
     list: (): Promise<unknown> => ipcRenderer.invoke("servers:list"),
     switch: (id: string): Promise<unknown> => ipcRenderer.invoke("servers:switch", id),
     add: (): Promise<unknown> => ipcRenderer.invoke("servers:add"),
+    // addDirect: the SPA's in-place Add Host dialog — main pings and persists
+    // in one invoke and returns the structured error the dialog renders
+    // inline. Additive like every sibling: older SPAs never call it.
+    addDirect: (name: string, url: string): Promise<unknown> =>
+      ipcRenderer.invoke("servers:add-direct", { name, url }),
     reorder: (id: string, toIndex: number): Promise<unknown> =>
       ipcRenderer.invoke("servers:reorder", { id, toIndex }),
     remove: (id: string): Promise<unknown> => ipcRenderer.invoke("servers:remove", id),

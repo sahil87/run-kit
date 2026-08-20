@@ -5,17 +5,17 @@ created_by: sahil-noon
 change_type: refactor
 issues: []
 progress:
-    intake: ready
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
-    review-pr: pending
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
 plan:
-    generated: false
-    task_count: 0
-    acceptance_count: 0
-    acceptance_completed: 0
+    generated: true
+    task_count: 10
+    acceptance_count: 19
+    acceptance_completed: 19
 confidence:
     certain: 4
     confident: 4
@@ -29,7 +29,28 @@ confidence:
         competence: 86.9
         disambiguation: 81.9
 stage_metrics:
-    intake: {started_at: "2026-08-19T18:24:58Z", driver: fab-new, iterations: 1}
-prs: []
+    intake: {started_at: "2026-08-19T18:24:58Z", driver: fab-new, iterations: 1, completed_at: "2026-08-20T03:10:33Z"}
+    apply: {started_at: "2026-08-20T03:10:33Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-20T03:35:29Z"}
+    review: {started_at: "2026-08-20T03:35:29Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-20T03:51:13Z"}
+    hydrate: {started_at: "2026-08-20T03:51:13Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-20T04:00:34Z"}
+    ship: {started_at: "2026-08-20T04:00:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-20T04:03:33Z"}
+    review-pr: {started_at: "2026-08-20T04:03:33Z", driver: git-pr, iterations: 1, completed_at: "2026-08-20T05:12:14Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/676
+true_impact:
+    added: 1302
+    deleted: 117
+    net: 1185
+    excluding:
+        added: 1040
+        deleted: 87
+        net: 953
+    tests:
+        added: 373
+        deleted: 2
+        net: 371
+    computed_at: "2026-08-20T04:03:33Z"
+    computed_at_stage: ship
+summary: 'tty tile find: shared FindBar extraction, addon-search wiring with theme-derived decorations + overview ruler, terminal-find chord (⇧Ctrl+F/⌘F, ttyOnly) + Terminal: Find palette action, terminal-find:open seam'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-19T18:50:37Z
+last_updated: 2026-08-20T05:12:14Z

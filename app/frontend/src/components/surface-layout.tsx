@@ -1,10 +1,19 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { SearchAddon } from "@xterm/addon-search";
 import { Tip } from "@/components/tip";
 import { TerminalClient } from "@/components/terminal-client";
+import { FindBar } from "@/components/find-bar";
 import { CodeSurface } from "@/components/code-surface";
 import { IframeWindow } from "@/components/iframe-window";
 import { ChatView } from "@/components/chat-view";
 import { StatusDot } from "@/components/status-dot";
+import { DEFAULT_DARK_THEME, type ThemePalette } from "@/themes";
+import {
+  TERMINAL_FIND_OPEN_EVENT,
+  TERMINAL_FIND_SCOPE_NOTE,
+  buildSearchOptions,
+  runFind,
+} from "@/lib/terminal-find";
 import {
   SHAPE_ARITY,
   SURFACE_GLYPH,
@@ -225,6 +234,10 @@ interface SurfaceLayoutProps {
    *  footer instead); this component stays presentational and knows nothing
    *  about the strip. */
   ttyDockContent?: React.ReactNode;
+  /** Active theme palette — the tty find bar's decoration colors derive from
+   *  it. Optional with a default-theme fallback so provider-less harnesses
+   *  (unit tests) still render. */
+  themePalette?: ThemePalette;
 }
 
 /** Equal-split default ratios (cumulative boundary percentages): arity 2 →
@@ -505,6 +518,7 @@ export function SurfaceLayout({
   focusTileRef,
   statusWindow,
   ttyDockContent,
+  themePalette = DEFAULT_DARK_THEME.palette,
 }: SurfaceLayoutProps) {
   const arity = SHAPE_ARITY[layout.shape];
   // The focus-memory key for this window (spec right-panel.md § The code
@@ -518,6 +532,99 @@ export function SurfaceLayout({
   // required, but only the first tty tile owns the shared refs (the shell's
   // bottom bar / compose strip read them).
   const extraTtyWsRef = useRef<WebSocket | null>(null);
+
+  // ── tty find state ───────────────────────────────────────────────────────
+  // The tile layer drives the scaffold's passive SearchAddon through the
+  // searchAddonRef seam (primary tty only — the wsRef/focusRef precedent).
+  // TerminalClient fills the ref asynchronously at init, so a stable proxy
+  // ref mirrors the instance into state: the result-count subscription and
+  // the search effect key on it, and a window switch re-subscribes against
+  // the fresh addon. The proxy's IDENTITY must stay constant — it sits in
+  // TerminalClient's init-effect deps.
+  const searchAddonBox = useRef<SearchAddon | null>(null);
+  const [searchAddon, setSearchAddon] = useState<SearchAddon | null>(null);
+  const searchAddonRef = useMemo<React.MutableRefObject<SearchAddon | null>>(
+    () => ({
+      get current() {
+        return searchAddonBox.current;
+      },
+      set current(addon: SearchAddon | null) {
+        searchAddonBox.current = addon;
+        setSearchAddon(addon);
+      },
+    }),
+    [],
+  );
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
+  const [findCaseSensitive, setFindCaseSensitive] = useState(false);
+  const [findRegex, setFindRegex] = useState(false);
+  const [findResults, setFindResults] = useState<{
+    resultIndex: number;
+    resultCount: number;
+  } | null>(null);
+  // Sticky "a search has run" flag — gates the buffer-scope hint; closing the
+  // bar clears it with everything else. The parent's per-window key remounts
+  // this component on a window switch, so no query survives one.
+  const [findRan, setFindRan] = useState(false);
+  const findOptions = useMemo(
+    () =>
+      buildSearchOptions(
+        { caseSensitive: findCaseSensitive, regex: findRegex },
+        themePalette,
+      ),
+    [findCaseSensitive, findRegex, themePalette],
+  );
+
+  // The counter derives from the addon's result-change event — no polling.
+  useEffect(() => {
+    if (!searchAddon) return;
+    const disposable = searchAddon.onDidChangeResults((e) => {
+      setFindResults({ resultIndex: e.resultIndex, resultCount: e.resultCount });
+    });
+    return () => disposable.dispose();
+  }, [searchAddon]);
+
+  // Query or toggle changes re-run the active search; the addon itself
+  // re-indexes incrementally as new pane output streams in. Clearing the
+  // query clears the decorations.
+  useEffect(() => {
+    if (!findOpen) return;
+    if (findQuery === "") {
+      searchAddon?.clearDecorations();
+      setFindResults(null);
+      return;
+    }
+    setFindRan(true);
+    runFind(searchAddon, findQuery, 1, findOptions);
+  }, [findOpen, findQuery, findOptions, searchAddon]);
+
+  const stepFind = useCallback(
+    (delta: 1 | -1) => {
+      runFind(searchAddon, findQuery, delta, findOptions);
+    },
+    [searchAddon, findQuery, findOptions],
+  );
+
+  // Closing the bar (✕, Escape, the ⌕ toggle) clears everything and returns
+  // focus to the pane so the next keystroke lands in the terminal.
+  const closeFind = useCallback(() => {
+    searchAddon?.clearDecorations();
+    setFindOpen(false);
+    setFindQuery("");
+    setFindResults(null);
+    setFindRan(false);
+    focusRef.current?.();
+  }, [searchAddon, focusRef]);
+
+  // The `terminal-find:open` seam: the chord handler and the palette action
+  // dispatch one document CustomEvent; the mounted layout is its single
+  // receiver (at most one terminal route's SurfaceLayout is mounted).
+  useEffect(() => {
+    const open = () => setFindOpen(true);
+    document.addEventListener(TERMINAL_FIND_OPEN_EVENT, open);
+    return () => document.removeEventListener(TERMINAL_FIND_OPEN_EVENT, open);
+  }, []);
 
   // Hide-never-unmount (P3): kinds opened earlier this route visit stay
   // mounted at display level. The parent keys this component per window, so
@@ -932,6 +1039,7 @@ export function SurfaceLayout({
               wsRef={primaryTty ? wsRef : extraTtyWsRef}
               onSessionNotFound={primaryTty ? onSessionNotFound : undefined}
               focusRef={primaryTty ? focusRef : undefined}
+              searchAddonRef={primaryTty ? searchAddonRef : undefined}
               scrollLocked={scrollLocked}
               // Only the primary tty registers as the shell's focused
               // terminal — duplicates must not fight over the slot (the
@@ -1150,7 +1258,25 @@ export function SurfaceLayout({
               </>
             )}
             <span className="flex-1" />
-            {/* rk-slot: find-button */}
+            {/* rk-slot: find-button — ⌕ opens the tty find bar (the web ⌕
+                vocabulary: aria-pressed + accent-green while open). Primary
+                tty tile only — duplicate tty tiles and other kinds render no
+                find affordance (the wsRef/focusRef primary-only precedent). */}
+            {kind === "tty" && slot === firstTtySlot && (
+              <Tip label="Find in terminal">
+                <button
+                  type="button"
+                  aria-label="Find in terminal"
+                  aria-pressed={findOpen}
+                  onClick={() => (findOpen ? closeFind() : setFindOpen(true))}
+                  className={`${VERB_BUTTON_CLASS} hover:text-text-primary${
+                    findOpen ? " text-accent-green opacity-100" : ""
+                  }`}
+                >
+                  &#x2315;
+                </button>
+              </Tip>
+            )}
             {/* rk-slot: export-button */}
             {/* Pane segment (260813-w1lf content verbs): tty tiles carry a
                 bordered group of PANE verbs — Split H · Split V · Close Pane —
@@ -1256,7 +1382,52 @@ export function SurfaceLayout({
             )}
           </div>
         )}
-        {/* rk-slot: find-bar-row */}
+        {/* rk-slot: find-bar-row — the tty find bar below the header (the web
+            tile's below-URL-row pattern), shared FindBar with terminal-native
+            Aa / .* toggles and the client-buffer scope note once a search has
+            run. Primary tty tile only. */}
+        {kind === "tty" && slot === firstTtySlot && findOpen && (
+          <FindBar
+            query={findQuery}
+            matchIndex={
+              findResults && findResults.resultIndex >= 0 ? findResults.resultIndex : 0
+            }
+            matchCount={findResults?.resultCount ?? 0}
+            onQueryChange={setFindQuery}
+            onNext={() => stepFind(1)}
+            onPrev={() => stepFind(-1)}
+            onClose={closeFind}
+            toggles={
+              <>
+                <button
+                  type="button"
+                  onClick={() => setFindCaseSensitive((v) => !v)}
+                  className={`shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card ${
+                    findCaseSensitive ? "text-accent-green" : "text-text-secondary"
+                  }`}
+                  aria-label="Match case"
+                  aria-pressed={findCaseSensitive}
+                >
+                  <span className="text-xs font-mono">Aa</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFindRegex((v) => !v)}
+                  className={`shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card ${
+                    findRegex ? "text-accent-green" : "text-text-secondary"
+                  }`}
+                  aria-label="Match regex"
+                  aria-pressed={findRegex}
+                >
+                  <span className="text-xs font-mono">.*</span>
+                </button>
+              </>
+            }
+            scopeNote={findRan ? TERMINAL_FIND_SCOPE_NOTE : undefined}
+            placeholder="Find in terminal"
+            testId="terminal-find-bar"
+          />
+        )}
         {/* Progress line (260819-1vxq R2): a zero-height wrapper whose
             absolute 2px bar OVERLAYS the content's top edge — an in-flow
             strip would resize the terminal container and fire fit → PTY

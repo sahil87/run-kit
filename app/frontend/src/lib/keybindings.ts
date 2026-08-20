@@ -270,6 +270,17 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // `ignoreInputs`: a chrome-level opener, it fires from the URL bar and the
   // find input itself (the ⌘K/settings-open class).
   { actionId: "web-find", code: "KeyF", tier: "cmd", scope: "terminal", kind: "builtin", label: "Find in page", description: "search the web tile's page", mapLabel: "find", ignoreInputs: true, webOnly: true },
+  // Tty-tile find — the terminal-native mirror of web-find. The base tier is
+  // SHIFTED (⇧Ctrl+F on Win/Linux — the GNOME Terminal/Konsole/Windows
+  // Terminal find convention): plain Ctrl+F is the pane's readline
+  // forward-char there and the terminal seam deliberately never refuses
+  // unmatched plain-Ctrl chords, so only the shifted tier can reach the
+  // dispatcher under terminal focus. On mac `macTier` demotes to ⌘F — the
+  // same chord web-find claims, disjoint by surface gate (ttyOnly vs webOnly:
+  // the handlers are never simultaneously present). The seam's existing rules
+  // 1–2 refuse both chords under terminal focus, so no xterm-handler change
+  // is needed.
+  { actionId: "terminal-find", code: "KeyF", tier: "shifted", macTier: "cmd", scope: "terminal", kind: "builtin", label: "Find in terminal", description: "search the terminal buffer", mapLabel: "find", ignoreInputs: true, ttyOnly: true },
   // ⌘L/Ctrl+L focus the web tile's address bar (260819-v6y4 R12) — the
   // browser's own address-bar chord, reclaimed only while the web tile owns
   // focus (the webOnly gate: handler absent elsewhere, so the chord falls
@@ -687,7 +698,13 @@ export function findConflicts(bindings: readonly EffectiveBinding[]): BindingCon
     for (let j = i + 1; j < bindings.length; j++) {
       const b = bindings[j];
       if (!b.enabled) continue;
-      if (a.code === b.code && tiersCollide(a.tier, b.tier) && a.scope === b.scope) {
+      // Surface-gate disjointness: a `ttyOnly` and a `webOnly` binding never
+      // have their handlers simultaneously present (each gate renders the
+      // handler absent off its surface), so a shared combo between them —
+      // the mac ⌘F that terminal-find and web-find both claim — is
+      // coexistence, not a conflict.
+      const gatesDisjoint = (a.ttyOnly && b.webOnly) || (a.webOnly && b.ttyOnly);
+      if (a.code === b.code && tiersCollide(a.tier, b.tier) && a.scope === b.scope && !gatesDisjoint) {
         conflicts.push({ a: a.actionId, b: b.actionId, code: a.code, tier: a.tier });
       }
     }

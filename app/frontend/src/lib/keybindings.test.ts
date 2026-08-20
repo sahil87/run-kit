@@ -79,6 +79,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
       "web-toggle": "Digit3",
       "zen-toggle": "Enter",
       "focus-hop": "Backquote",
+      "terminal-find": "KeyF",
     });
   });
 
@@ -433,6 +434,59 @@ describe("DEFAULT_BINDINGS integrity", () => {
     }
   });
 
+  it("terminal-find: KeyF — ⇧Ctrl+F base, ⌘F mac demotion, terminal scope, ttyOnly", () => {
+    const def = DEFAULT_BINDINGS.find((b) => b.actionId === "terminal-find");
+    // Full-row equality: the tty find row is a do-not-move constraint (plain
+    // Ctrl+F stays the pane's readline forward-char on Win/Linux).
+    expect(def).toEqual({
+      actionId: "terminal-find",
+      code: "KeyF",
+      tier: "shifted",
+      macTier: "cmd",
+      scope: "terminal",
+      kind: "builtin",
+      label: "Find in terminal",
+      description: "search the terminal buffer",
+      mapLabel: "find",
+      ignoreInputs: true,
+      ttyOnly: true,
+    });
+    // Mac hosts: the ⌘F demotion — the same chord web-find claims, disjoint
+    // by surface gate (the gates decide which handler is present).
+    for (const host of [SHELL_MAC, BROWSER_MAC]) {
+      const bindings = resolved(host);
+      expect(byId(bindings, "terminal-find")).toMatchObject({
+        code: "KeyF",
+        tier: "cmd",
+        enabled: true,
+        isDefault: true,
+        ttyOnly: true,
+      });
+      expect(
+        findMatches(chord({ code: "KeyF", metaKey: true }), bindings).map((b) => b.actionId),
+      ).toEqual(["web-find", "terminal-find"]);
+    }
+    // Win/Linux: ⇧Ctrl+F is the find chord; plain Ctrl+F matches ONLY the
+    // cmd-tier web-find (whose webOnly gate keeps it inert under tty focus).
+    for (const host of [SHELL_OTHER, BROWSER_OTHER]) {
+      const bindings = resolved(host);
+      expect(byId(bindings, "terminal-find")).toMatchObject({
+        code: "KeyF",
+        tier: "shifted",
+        enabled: true,
+        isDefault: true,
+      });
+      expect(
+        findMatches(chord({ code: "KeyF", shiftKey: true, ctrlKey: true }), bindings).map(
+          (b) => b.actionId,
+        ),
+      ).toEqual(["terminal-find"]);
+      expect(
+        findMatches(chord({ code: "KeyF", ctrlKey: true }), bindings).map((b) => b.actionId),
+      ).toEqual(["web-find"]);
+    }
+  });
+
   it("ships layout-cycle on ⌘; (260812-ab5v R9/R11) — the ▦ chip's same-arity shape cycle", () => {
     expect(byId(resolved(), "layout-cycle")).toMatchObject({
       code: "Semicolon",
@@ -499,6 +553,7 @@ describe("palette parity invariant", () => {
     "focus-hop": ["tile-focus-tty", "tile-focus-code"],
     "view-cycle": ["view-tty", "view-web", "view-code"],
     "web-find": ["web-find"], // Web: Find in page (260819-ie2i)
+    "terminal-find": ["terminal-find"], // Terminal: Find
     "web-address": ["web-address"], // Web: Focus address bar (260819-v6y4)
     "layout-cycle": ["layout-cycle"], // Layout: Cycle Shape
     "board-cycle-next": ["board-cycle-next"], // Board: pane cycle →
@@ -834,6 +889,41 @@ describe("scopesOverlap / findConflicts", () => {
     // The shipped mac default map carries exactly this shape: board ⌘[/⌘]
     // (board scope) shadowing the demoted global back/forward.
     expect(findConflicts(resolved(SHELL_MAC))).toEqual([]);
+  });
+
+  it("treats a ttyOnly/webOnly pair sharing a combo as gate-disjoint; same-gate and ungated partners still flag", () => {
+    // The shipped mac default: terminal-find (ttyOnly) and web-find (webOnly)
+    // both resolve to ⌘F terminal scope — their handlers are never
+    // simultaneously present, so the shared combo is coexistence.
+    expect(findConflicts(resolved(SHELL_MAC))).toEqual([]);
+    // An UNGATED binding overridden onto the same combo collides with BOTH
+    // gated rows — gate disjointness never applies to an ungated partner.
+    const ungated = resolveBindings(
+      DEFAULT_BINDINGS,
+      { "layout-cycle": { code: "KeyF", tier: "cmd" } },
+      SHELL_MAC,
+    );
+    const ungatedConflicts = findConflicts(ungated);
+    expect(ungatedConflicts).toHaveLength(2);
+    expect(ungatedConflicts.flatMap((c) => [c.a, c.b]).sort()).toEqual([
+      "layout-cycle",
+      "layout-cycle",
+      "terminal-find",
+      "web-find",
+    ]);
+    // A SAME-GATE pair (both ttyOnly) genuinely conflicts: the handlers CAN
+    // be simultaneously present under tty focus.
+    const sameGate = resolveBindings(
+      DEFAULT_BINDINGS,
+      { "split-vertical": { code: "KeyF", tier: "cmd" } },
+      SHELL_MAC,
+    );
+    const sameGateConflicts = findConflicts(sameGate);
+    expect(sameGateConflicts).toHaveLength(1);
+    expect([sameGateConflicts[0].a, sameGateConflicts[0].b].sort()).toEqual([
+      "split-vertical",
+      "terminal-find",
+    ]);
   });
 });
 
@@ -1700,9 +1790,9 @@ describe("split chords + the macCode refinement — 260807-rbx5", () => {
 });
 
 describe("ttyOnly registry flag — 260812-wfic (R7)", () => {
-  it("exactly the split pair carries ttyOnly; no other row does", () => {
+  it("exactly the split pair and terminal-find carry ttyOnly; no other row does", () => {
     const flagged = DEFAULT_BINDINGS.filter((b) => b.ttyOnly).map((b) => b.actionId);
-    expect(flagged).toEqual(["split-horizontal", "split-vertical"]);
+    expect(flagged).toEqual(["split-horizontal", "split-vertical", "terminal-find"]);
   });
 
   it("survives resolution onto the effective map in every host", () => {
@@ -1710,6 +1800,7 @@ describe("ttyOnly registry flag — 260812-wfic (R7)", () => {
       const bindings = resolved(host);
       expect(byId(bindings, "split-horizontal").ttyOnly).toBe(true);
       expect(byId(bindings, "split-vertical").ttyOnly).toBe(true);
+      expect(byId(bindings, "terminal-find").ttyOnly).toBe(true);
       expect(byId(bindings, "command-palette").ttyOnly).toBeUndefined();
     }
   });

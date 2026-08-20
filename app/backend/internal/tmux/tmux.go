@@ -2125,6 +2125,15 @@ func capturePaneArgs(paneID string, lines int, escape bool) []string {
 	return append(args, "-p", "-S", strconv.Itoa(-lines))
 }
 
+// CaptureWindowHistoryCtx captures the FULL scrollback (`-S -`) of the active
+// pane of the window identified by target (@N — a window target resolves to
+// its active pane, the KillActivePane precedent), bounded by the caller's
+// context. Plain text: no -e (ANSI escapes) and no -J (line structure as tmux
+// renders it). Backs GET /api/windows/{windowId}/history.
+func CaptureWindowHistoryCtx(ctx context.Context, target, server string) (string, error) {
+	return tmuxExecRawServer(ctx, server, "capture-pane", "-t", target, "-p", "-S", "-")
+}
+
 // IsTestServerName reports whether name belongs to the unified test-socket
 // umbrella: every Go and Playwright test tmux server is named
 // rk-test-<role>-<pid>-<ns>, so "is this a test artifact?" collapses to a

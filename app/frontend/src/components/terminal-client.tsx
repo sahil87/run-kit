@@ -114,6 +114,12 @@ type TerminalClientProps = {
   searchAddonRef?: React.MutableRefObject<SearchAddon | null>;
   serializeAddonRef?: React.MutableRefObject<SerializeAddon | null>;
   /**
+   * The live `Terminal` instance itself (same fill/null lifecycle as the
+   * addon refs above). Buffer-walk consumers (export transcript/visible-copy)
+   * need `terminal.buffer`, which no addon seam exposes.
+   */
+  terminalRef?: React.MutableRefObject<Terminal | null>;
+  /**
    * Fires with the progress addon's tracked OSC 9;4 state on every change.
    * The scaffold does no throttling or rendering — consumers own both.
    */
@@ -138,6 +144,7 @@ export function TerminalClient({
   focusRef,
   searchAddonRef,
   serializeAddonRef,
+  terminalRef: terminalSeamRef,
   onProgressChange,
   scrollLocked,
   registerFocus = true,
@@ -361,6 +368,7 @@ export function TerminalClient({
       const serializeAddon = new SerializeAddon();
       terminal.loadAddon(serializeAddon);
       if (serializeAddonRef) serializeAddonRef.current = serializeAddon;
+      if (terminalSeamRef) terminalSeamRef.current = terminal;
 
       // Progress is a passive OSC 9;4 stream parser. Its onChange payload is
       // an { state, value } object — adapted to the two-arg prop so consumers
@@ -487,6 +495,7 @@ export function TerminalClient({
       if (focusRef) focusRef.current = null;
       if (searchAddonRef) searchAddonRef.current = null;
       if (serializeAddonRef) serializeAddonRef.current = null;
+      if (terminalSeamRef) terminalSeamRef.current = null;
       // Note: __rkTerminals register/unregister moved to the dedicated
       // windowId-keyed effect below. __rkRenderer is set at WebGL-load time in
       // this init effect, so its cleanup stays here.
@@ -496,7 +505,7 @@ export function TerminalClient({
       try { terminal?.dispose(); } catch { /* WebGL addon may throw during teardown */ }
       setTerminalReady(false);
     };
-  }, [wsRef, focusRef, searchAddonRef, serializeAddonRef]);
+  }, [wsRef, focusRef, searchAddonRef, serializeAddonRef, terminalSeamRef]);
 
   // Apply terminal-font CHANGES to the live xterm instance. The font size lives
   // in ChromeContext (global, all terminals react), so when the user steps or

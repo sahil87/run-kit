@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, cleanup } from "@testing-library/react";
 import { SurfaceLayout } from "./surface-layout";
+import { ToastProvider } from "@/components/toast";
 import { StandaloneSessionContextProvider } from "@/contexts/session-context";
 import { stubMatchMedia } from "@/test-utils/match-media";
 
@@ -32,6 +33,7 @@ describe("integration: SurfaceLayout + real IframeWindow", () => {
           refreshServers: vi.fn(),
         }}
       >
+      <ToastProvider>
       <SurfaceLayout
         layout={{ shape: "split-h", order: ["tty", "web"] }}
         server="srv"
@@ -49,6 +51,7 @@ describe("integration: SurfaceLayout + real IframeWindow", () => {
         onSwap={vi.fn()}
         onClose={vi.fn()}
       />
+      </ToastProvider>
       </StandaloneSessionContextProvider>,
     );
     await new Promise((r) => setTimeout(r, 300));

@@ -227,6 +227,12 @@ type mockTmuxOps struct {
 	// and return ctx.Err() — modeling a real ctx-bound tmux exec hit by the shared
 	// injection deadline (the shared-deadline abort test).
 	capturePaneCtxAware bool
+	// captureWindowHistoryResult/-Err stub GET /api/windows/{windowId}/history's
+	// full-scrollback capture; captureWindowHistoryTarget records the target the
+	// handler passed through.
+	captureWindowHistoryResult string
+	captureWindowHistoryErr    error
+	captureWindowHistoryTarget string
 	// setChatBufferHook, when non-nil, runs INSIDE SetChatSendBuffer while the
 	// per-request work is in flight — used by the concurrency test to force an
 	// A-set/B-set/A-paste interleave and prove the critical section serializes.
@@ -609,6 +615,14 @@ func (m *mockTmuxOps) CapturePane(ctx context.Context, paneID string, lines int,
 		return "", capErr
 	}
 	return result, nil
+}
+
+func (m *mockTmuxOps) CaptureWindowHistory(ctx context.Context, target, server string) (string, error) {
+	m.captureWindowHistoryTarget = target
+	if m.captureWindowHistoryErr != nil {
+		return "", m.captureWindowHistoryErr
+	}
+	return m.captureWindowHistoryResult, nil
 }
 
 func newTestRouter(sf SessionFetcher, ops TmuxOps) http.Handler {

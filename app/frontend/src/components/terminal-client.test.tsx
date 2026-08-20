@@ -1298,6 +1298,7 @@ describe("TerminalClient addon scaffold (search/serialize/progress)", () => {
   function renderWithSeams(onProgressChange?: (state: number, value: number) => void) {
     const searchAddonRef: React.MutableRefObject<SearchAddon | null> = { current: null };
     const serializeAddonRef: React.MutableRefObject<SerializeAddon | null> = { current: null };
+    const terminalRef: React.MutableRefObject<InstanceType<typeof Terminal> | null> = { current: null };
     const result = render(
       <ChromeProvider>
         <FocusedTerminalProvider>
@@ -1308,12 +1309,13 @@ describe("TerminalClient addon scaffold (search/serialize/progress)", () => {
             wsRef={createWsRef()}
             searchAddonRef={searchAddonRef}
             serializeAddonRef={serializeAddonRef}
+            terminalRef={terminalRef}
             onProgressChange={onProgressChange}
           />
         </FocusedTerminalProvider>
       </ChromeProvider>,
     );
-    return { result, searchAddonRef, serializeAddonRef };
+    return { result, searchAddonRef, serializeAddonRef, terminalRef };
   }
 
   it("loads all three addons without error alongside the existing ones", async () => {
@@ -1348,6 +1350,17 @@ describe("TerminalClient addon scaffold (search/serialize/progress)", () => {
     result.unmount();
     expect(searchAddonRef.current).toBeNull();
     expect(serializeAddonRef.current).toBeNull();
+  });
+
+  it("fills the terminal seam ref at init and clears it on unmount", async () => {
+    const { result, terminalRef } = renderWithSeams();
+
+    await waitFor(() => {
+      expect(terminalRef.current).toBe(vi.mocked(Terminal).mock.results[0]?.value);
+    });
+
+    result.unmount();
+    expect(terminalRef.current).toBeNull();
   });
 
   it("adapts the progress addon's { state, value } payload to the two-arg prop", async () => {

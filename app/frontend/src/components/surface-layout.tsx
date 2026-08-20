@@ -48,6 +48,20 @@ import {
 import { classifyAddress, displayForm, proxyPortOf } from "@/lib/web-url";
 import type { ChatEvent, ChatPending } from "@/lib/chat-stream";
 import type { WindowInfo } from "@/types";
+import type { Terminal } from "@xterm/xterm";
+import type { SerializeAddon } from "@xterm/addon-serialize";
+import { copyToClipboard } from "@/lib/clipboard";
+import { fetchWindowHistory } from "@/api/client";
+import { useToast } from "@/components/toast";
+import {
+  EXPORT_EVENT,
+  buildExportFilename,
+  downloadTextFile,
+  transcriptFromBuffer,
+  visibleScreenText,
+  wrapHtmlSnapshot,
+  type ExportAction,
+} from "@/lib/terminal-export";
 
 /**
  * SurfaceLayout — the tile grid renderer for the terminal route's center
@@ -626,6 +640,138 @@ export function SurfaceLayout({
     return () => document.removeEventListener(TERMINAL_FIND_OPEN_EVENT, open);
   }, []);
 
+  // Terminal export seams (260819-shqo): the PRIMARY tty tile's TerminalClient
+  // fills these (the wsRef/focusRef primary-tty rule); the ⇩ header menu and
+  // the palette's `Terminal: …` actions (one `EXPORT_EVENT` CustomEvent seam,
+  // the `web-find:open` precedent) both run against this buffer.
+  const serializeAddonRef = useRef<SerializeAddon | null>(null);
+  const ttyTerminalRef = useRef<Terminal | null>(null);
+  const { addToast } = useToast();
+  const [exportMenuPos, setExportMenuPos] = useState<{ top: number; right: number } | null>(null);
+  const exportButtonRef = useRef<HTMLButtonElement | null>(null);
+  const exportMenuRef = useRef<HTMLDivElement | null>(null);
+
+  const runExport = useCallback(
+    async (action: ExportAction) => {
+      const now = new Date();
+      // Window display name (safe-name sanitization lives in
+      // buildExportFilename), the windowId as fallback.
+      const windowName = statusWindow?.name ?? windowId;
+      const term = ttyTerminalRef.current;
+      switch (action) {
+        case "snapshot": {
+          const addon = serializeAddonRef.current;
+          if (!addon) return;
+          const inner = addon.serializeAsHTML({ includeGlobalBackground: true });
+          downloadTextFile(
+            buildExportFilename(sessionName, windowName, now, "html"),
+            "text/html",
+            wrapHtmlSnapshot(inner, `${sessionName}-${windowName}`),
+          );
+          return;
+        }
+        case "transcript": {
+          if (!term) return;
+          downloadTextFile(
+            buildExportFilename(sessionName, windowName, now, "txt"),
+            "text/plain; charset=utf-8",
+            transcriptFromBuffer(term.buffer.active),
+          );
+          return;
+        }
+        case "copy-visible": {
+          if (!term) return;
+          const ok = await copyToClipboard(
+            visibleScreenText(term.buffer.active, term.rows),
+          );
+          if (!ok) addToast("Copy failed — clipboard unavailable");
+          return;
+        }
+        case "history": {
+          try {
+            const body = await fetchWindowHistory(server, windowId);
+            downloadTextFile(
+              buildExportFilename(sessionName, windowName, now, "txt", true),
+              "text/plain; charset=utf-8",
+              body,
+            );
+          } catch (err) {
+            addToast(
+              `History export failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+          return;
+        }
+      }
+    },
+    [sessionName, statusWindow?.name, windowId, server, addToast],
+  );
+
+  // The palette entry points (T008): one document CustomEvent carries the
+  // action; this cluster is the single receiver (one terminal route mount).
+  useEffect(() => {
+    const onExport = (e: Event) => {
+      if (!(e instanceof CustomEvent)) return;
+      const detail: unknown = e.detail;
+      if (typeof detail !== "object" || detail === null || !("action" in detail)) return;
+      const action = detail.action;
+      if (
+        action === "snapshot" ||
+        action === "transcript" ||
+        action === "copy-visible" ||
+        action === "history"
+      ) {
+        void runExport(action);
+      }
+    };
+    document.addEventListener(EXPORT_EVENT, onExport);
+    return () => document.removeEventListener(EXPORT_EVENT, onExport);
+  }, [runExport]);
+
+  // Export menu dismissal (the top-bar-overflow-menu contract): outside
+  // mousedown closes; Escape closes and refocuses the trigger.
+  useEffect(() => {
+    if (!exportMenuPos) return;
+    function handleClick(e: MouseEvent) {
+      if (!(e.target instanceof Node)) return;
+      if (exportMenuRef.current?.contains(e.target)) return;
+      if (exportButtonRef.current?.contains(e.target)) return;
+      setExportMenuPos(null);
+    }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setExportMenuPos(null);
+        exportButtonRef.current?.focus();
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleKey, { capture: true });
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleKey, { capture: true });
+    };
+  }, [exportMenuPos]);
+
+  const toggleExportMenu = () => {
+    if (exportMenuPos) {
+      setExportMenuPos(null);
+      return;
+    }
+    const rect = exportButtonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    // position:fixed anchored to the trigger rect — an in-flow popup would be
+    // clipped by the tile wrapper's overflow-hidden (the overflow-menu
+    // precedent).
+    setExportMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+  };
+
+  const pickExport = (action: ExportAction) => () => {
+    setExportMenuPos(null);
+    void runExport(action);
+  };
+
+
   // Hide-never-unmount (P3): kinds opened earlier this route visit stay
   // mounted at display level. The parent keys this component per window, so
   // the set resets on a window switch (the RightPanel precedent).
@@ -1040,6 +1186,8 @@ export function SurfaceLayout({
               onSessionNotFound={primaryTty ? onSessionNotFound : undefined}
               focusRef={primaryTty ? focusRef : undefined}
               searchAddonRef={primaryTty ? searchAddonRef : undefined}
+              serializeAddonRef={primaryTty ? serializeAddonRef : undefined}
+              terminalRef={primaryTty ? ttyTerminalRef : undefined}
               scrollLocked={scrollLocked}
               // Only the primary tty registers as the shell's focused
               // terminal — duplicates must not fight over the slot (the
@@ -1277,7 +1425,76 @@ export function SurfaceLayout({
                 </button>
               </Tip>
             )}
-            {/* rk-slot: export-button */}
+            {kind === "tty" && slot >= 0 && slot === firstTtySlot && (
+              <>
+                <Tip label="Export terminal output">
+                  <button
+                    type="button"
+                    ref={exportButtonRef}
+                    aria-label="Export terminal output"
+                    aria-haspopup="menu"
+                    aria-expanded={exportMenuPos !== null}
+                    onClick={toggleExportMenu}
+                    className={`${VERB_BUTTON_CLASS} hover:text-text-primary`}
+                  >
+                    ⇩
+                  </button>
+                </Tip>
+                {exportMenuPos && (
+                  <div
+                    ref={exportMenuRef}
+                    role="menu"
+                    aria-label="Export terminal output"
+                    data-testid="export-menu"
+                    className="fixed z-50 flex flex-col w-max bg-bg-card border border-border rounded-md rk-popup-elev px-2 py-1.5 text-[11px] font-mono select-none"
+                    style={{ top: exportMenuPos.top, right: exportMenuPos.right }}
+                  >
+                    <div className="px-1.5 pb-1 text-[10px] uppercase tracking-wide text-text-secondary">
+                      This view — client buffer
+                    </div>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={pickExport("snapshot")}
+                      className="flex items-center justify-between gap-6 rounded px-1.5 py-1 text-left text-text-primary hover:bg-bg-inset"
+                    >
+                      <span>Download snapshot</span>
+                      <span className="text-text-secondary">.html · colors kept</span>
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={pickExport("transcript")}
+                      className="flex items-center justify-between gap-6 rounded px-1.5 py-1 text-left text-text-primary hover:bg-bg-inset"
+                    >
+                      <span>Download transcript</span>
+                      <span className="text-text-secondary">.txt · buffer text</span>
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={pickExport("copy-visible")}
+                      className="flex items-center justify-between gap-6 rounded px-1.5 py-1 text-left text-text-primary hover:bg-bg-inset"
+                    >
+                      <span>Copy visible screen</span>
+                    </button>
+                    <div aria-hidden="true" className="my-1 h-px bg-border" />
+                    <div className="px-1.5 pb-1 text-[10px] uppercase tracking-wide text-text-secondary">
+                      Full history — server capture
+                    </div>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={pickExport("history")}
+                      className="flex items-center justify-between gap-6 rounded px-1.5 py-1 text-left text-text-primary hover:bg-bg-inset"
+                    >
+                      <span>Download pane history</span>
+                      <span className="text-text-secondary">.txt · capture-pane -S -</span>
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
             {/* Pane segment (260813-w1lf content verbs): tty tiles carry a
                 bordered group of PANE verbs — Split H · Split V · Close Pane —
                 at ANY arity (including `single:tty`, which renders no layout

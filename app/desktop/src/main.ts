@@ -1597,13 +1597,22 @@ function registerIpcHandlers(): void {
     return { ok: true };
   });
 
-  // shell:new-window — the New Window bridge channel (exposed but unconsumed
-  // in this change; the follow-up change's SPA ⌘N binding is the intended
-  // consumer). Gated exactly like `servers:*`; routes to the SAME
+  // shell:new-window — the New Window bridge channel (the SPA's ⌘N binding
+  // is the consumer). Gated exactly like `servers:*`; routes to the SAME
   // duplicate-of-current-window function the menu item calls.
   ipcMain.handle("shell:new-window", (event): IpcResult => {
     if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
     openDuplicateWindow(senderWindow(event));
+    return { ok: true };
+  });
+
+  // shell:close-window — the Close Window bridge channel (the SPA's ⇧⌘W
+  // binding is the consumer). Gated exactly like `shell:new-window`; closes
+  // the SENDER's window — not the focused one (a chord handled in a
+  // non-focused view must close the window it was pressed in).
+  ipcMain.handle("shell:close-window", (event): IpcResult => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    senderWindow(event)?.close();
     return { ok: true };
   });
 

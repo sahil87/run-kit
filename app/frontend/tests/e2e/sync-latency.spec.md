@@ -68,7 +68,7 @@ underscored form of what was filled.
 
 ### `3. Create window via sidebar + button`
 
-**What it proves:** The session row's `+` (New window) button creates a
+**What it proves:** The session row's `+` (New tab) button creates a
 window optimistically — a ghost window row appears under SESSION_B in
 ≤500ms, without waiting for the SSE poll. This is an audit: it records the
 real appearance latency and the summary flags it `[SLOW] ← SSE-dependent`
@@ -79,7 +79,7 @@ expanded).
 **Steps:**
 1. `setup`.
 2. Assert session B is visible.
-3. If `New window in ${SESSION_B}` button is visible:
+3. If `New tab in ${SESSION_B}` button is visible:
    a. Scope to SESSION_B's window rows — the per-session wrapper's stable
       `data-session-group="${SESSION_B}"` handle (`sidebar/index.tsx`) —
       and count its `[data-window-id]` rows (the stable window-row handle;

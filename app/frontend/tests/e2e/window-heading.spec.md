@@ -38,14 +38,14 @@ then resolves to rest).
   convention `window-switch-transition.spec.ts` documents.
 - `resolveWindow(page, name)` polls `GET /api/sessions` until the CLI-created
   window surfaces in the backend snapshot, returning its stable `@N` id (the
-  handle for the terminal route and the `Rename window <name>` heading label).
+  handle for the terminal route and the `Rename tab <name>` heading label).
 - `gotoWindow(page, id)` navigates to `/${server}/${encodedId}` and waits for
   the `Connected` indicator.
 - Both helpers are now thin file-local wrappers over the shared, parameterized
   `resolveWindow`/`gotoWindow` in `tests/e2e/_ready.ts` (hoisted in 260715-q8ey
   so `top-bar-overlap.spec.ts` reuses the same logic); the two-arg call sites in
   this file are unchanged.
-- The centered heading is a `<button aria-label="Rename window <name>">`; its
+- The centered heading is a `<button aria-label="Rename tab <name>">`; its
   inline editor is a `<input aria-label="Window name">`.
 
 ## Tests
@@ -58,7 +58,7 @@ breadcrumb now ends at the session).
 
 **Steps:**
 1. Create a window with a known name; resolve its `@N` id; navigate to it.
-2. Assert the `Rename window <name>` button is visible and its text equals the
+2. Assert the `Rename tab <name>` button is visible and its text equals the
    window name.
 3. Assert the `Breadcrumb` nav does NOT contain the window name (no duplication).
 4. Assert the static `Window:` page-type prefix (260714-uco1) is visible — the
@@ -80,7 +80,7 @@ above its "Sessions" section.
 1. Navigate to `/${server}`.
 2. Assert the `tmux Server <server>` heading (its accessible name carries the
    type prefix) is visible.
-3. Assert there is no `Rename window …` button (the server name is display-only).
+3. Assert there is no `Rename tab …` button (the server name is display-only).
 4. Assert the in-page `tmux Server Overview` `<h2>` heading is visible.
 5. Assert the `Breadcrumb` nav does NOT contain the server name.
 
@@ -116,7 +116,7 @@ nor the old left `Board ▸` home button appears in the left breadcrumb.
 2. Assert the `Board <name>` heading (its accessible name carries the type
    prefix) is visible.
 3. Assert the relocated ▾ board switcher (`Switch board`) is visible beside it.
-4. Assert there is no `Rename window …` button (the board name is display-only).
+4. Assert there is no `Rename tab …` button (the board name is display-only).
 5. Assert the `Breadcrumb` nav does NOT contain the board name and does NOT
    contain the old left `Board ▸` home button (move-don't-copy).
 6. Cleanup: unpin the window via `POST /api/boards/<board>/unpin` so the empty
@@ -256,7 +256,7 @@ switcher as the heading's single ▾.
 1. Create a plain window; navigate to it.
 2. Assert the contiguous `Window:` prefix run is visible (the hierarchy ▾ no
    longer splits it) and that no `Terminal:`/`Web:`/`Chat:` text is present.
-3. Assert no `Switch hierarchy` trigger exists; click the `Switch window` ▾ and
+3. Assert no `Switch hierarchy` trigger exists; click the `Switch tab` ▾ and
    assert its menu lists the current window (the session's windows, not the
    ancestor chain); close with Escape.
 
@@ -296,7 +296,7 @@ renders with no new alignment code).
    (the no-dedup shape) — using a `switchTo` helper that clicks the row
    (`nav[aria-label='Sessions'] [data-window-id="@N"] button`, a real
    client-side switch through `navigateToWindow`), then settles on
-   `aria-current="page"`, the window-id URL, and the `Rename window <name>`
+   `aria-current="page"`, the window-id URL, and the `Rename tab <name>`
    heading (tmux aligned + terminal rendered). URL assertions use the router's
    NUMERIC id segment (`windowId.slice(1)`, `@5` → `5`) — the form
    `navigateToWindow` writes — not the `%40N` `encodeURIComponent` form the
@@ -364,7 +364,7 @@ driven by a DISPATCHED `mouseover`/`mouseout` pair (React derives the button's
 churn-proof seam the typed-sweep test uses, avoiding real hit-testing flake.
 
 **Steps:**
-1. Create + navigate to a window; confirm the `Rename window <name>` heading is
+1. Create + navigate to a window; confirm the `Rename tab <name>` heading is
    visible.
 2. Wait ~1200ms for the mount-replay sweep (which auto-plays once on navigation)
    to settle, then assert no `.rk-typed-cursor` remains inside the header (a

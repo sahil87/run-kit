@@ -27,9 +27,9 @@ const SERVER = "default";
 // — the PR never owns the dot; the rest PR glyph + the card's fab/pr registers
 // carry the PR story) AND a reconciled claude chat (so the conversation-fork
 // affordance renders — 260806-s4av), carrying two panes (%425 active) so the
-// identity title bar renders its full `Window @N · pane %N · N panes` form.
+// identity title bar renders its full `Tab @N · pane %N · N panes` form.
 // @2: plain scratch window (gray "idle" dot, no glyph, a body-less card — the
-// title bar + action rows only, no fork link, no panes → degraded `Window @N`
+// title bar + action rows only, no fork link, no panes → degraded `Tab @N`
 // title) carrying an orange
 // color + solid marker so the coarse left-zone reclaim can prove the
 // display-only stripe survives the interactive zone's removal.
@@ -150,7 +150,7 @@ test.describe("Row flyout card (fine pointer)", () => {
     await prRow(page).hover();
     await expect(card(page)).toBeVisible();
 
-    // Content: the identity title bar (`Window @N · pane %N · N panes`, the
+    // Content: the identity title bar (`Tab @N · pane %N · N panes`, the
     // card's first element, carrying ONLY the ⓘ docs affordance on its right
     // edge — actions live in the sectioned rows at the card's bottom), then
     // the body — the `fab` and `pr` registers ONLY (the row already carries
@@ -158,7 +158,7 @@ test.describe("Row flyout card (fine pointer)", () => {
     // critical tokens lead, long values continue on indented lines, freshness
     // lives inside the pr group.
     const titleBar = page.getByTestId("popup-title-bar");
-    await expect(titleBar).toContainText("Window @1 · pane %425 · 2 panes");
+    await expect(titleBar).toContainText("Tab @1 · pane %425 · 2 panes");
     await expect(titleBar.getByTestId("row-flyout-docs-link")).toBeVisible();
     await expect(titleBar.getByTestId("row-flyout-fork-action")).toHaveCount(0);
     // Sectioned action rows (change color → fork → pin → kill, one home per
@@ -170,10 +170,10 @@ test.describe("Row flyout card (fine pointer)", () => {
     const killRow = card(page).getByTestId("row-flyout-kill-action");
     await expect(colorRow).toContainText("Change color…");
     await expect(forkRow).toContainText("Fork conversation");
-    await expect(forkRow).toContainText("new window, same directory");
+    await expect(forkRow).toContainText("new tab, same directory");
     await expect(pinRow).toContainText("Pin to board…");
     await expect(pinRow).toContainText("not pinned");
-    await expect(killRow).toContainText("Kill window");
+    await expect(killRow).toContainText("Kill tab");
     await expect(killRow).toContainText("confirms first");
     const colorBox = (await colorRow.boundingBox())!;
     const forkBox = (await forkRow.boundingBox())!;
@@ -183,7 +183,7 @@ test.describe("Row flyout card (fine pointer)", () => {
     expect(forkBox.y).toBeLessThan(pinBox.y);
     expect(pinBox.y).toBeLessThan(killBox.y);
     const cardText = (await card(page).innerText()).replaceAll("\n", " ");
-    expect(cardText.indexOf("Window @1")).toBeLessThan(cardText.indexOf("93dy"));
+    expect(cardText.indexOf("Tab @1")).toBeLessThan(cardText.indexOf("93dy"));
     // No line restates the row: no status-label text, no out/agt registers.
     await expect(card(page)).not.toContainText("building — active");
     await expect(page.getByTestId("row-flyout-out")).toHaveCount(0);
@@ -242,12 +242,12 @@ test.describe("Row flyout card (fine pointer)", () => {
 
     // Sweep to the sibling row: the first card closes and the sibling's opens
     // (warm retarget — no strobing, never two cards). The pane-less scratch
-    // window's title degrades to `Window @N` alone, and with no change and no
+    // window's title degrades to `Tab @N` alone, and with no change and no
     // PR the card renders NO body — title bar and action rows only.
     await scratchRow(page).hover();
     await expect(card(page)).toHaveCount(1);
     const titleBar = page.getByTestId("popup-title-bar");
-    await expect(titleBar).toContainText("Window @2");
+    await expect(titleBar).toContainText("Tab @2");
     await expect(titleBar).not.toContainText("pane");
     await expect(page.getByTestId("row-flyout-fab")).toHaveCount(0);
     await expect(page.getByTestId("row-flyout-pr-link")).toHaveCount(0);
@@ -265,7 +265,7 @@ test.describe("Row flyout card (fine pointer)", () => {
     await expect(forkRow).toHaveAttribute("title", /same directory/i);
 
     await scratchRow(page).hover();
-    await expect(card(page)).toContainText("Window @2");
+    await expect(card(page)).toContainText("Tab @2");
     await expect(page.getByTestId("row-flyout-fork-action")).toHaveCount(0);
 
     // Clicking it POSTs the window-keyed fork endpoint with NO body (every input
@@ -369,7 +369,7 @@ test.describe("Row flyout card (fine pointer)", () => {
     // (the buttons are opacity-revealed, so assert computed opacity).
     await prRow(page).hover();
     await expect(glyph).toBeHidden();
-    const kill = prRow(page).getByLabel("Kill window feature-work");
+    const kill = prRow(page).getByLabel("Kill tab feature-work");
     await expect(kill).toHaveCSS("opacity", "1");
 
     // Leaving the row restores the rest glyph.
@@ -420,7 +420,7 @@ test.describe("Row flyout card (coarse pointer)", () => {
     await expect(prRail).toContainText("›");
     await expect(scratchRail).toContainText("›");
     await expect(prRow(page).getByLabel("Pin feature-work to a board")).toHaveCount(0);
-    await expect(prRow(page).getByLabel("Kill window feature-work")).toHaveCount(0);
+    await expect(prRow(page).getByLabel("Kill tab feature-work")).toHaveCount(0);
 
     // The widened leading tap zone (the SECONDARY touch target) still meets
     // the ≥32×36 touch-target convention.
@@ -502,13 +502,13 @@ test.describe("Row flyout card (coarse pointer)", () => {
     await card(page).getByTestId("row-flyout-kill-action").tap();
 
     // The existing KillDialog confirm path — no kill POST has fired.
-    await expect(page.getByText("Kill window?")).toBeVisible();
+    await expect(page.getByText("Kill tab?")).toBeVisible();
     expect(killRequests).toHaveLength(0);
     // The row was not selected either.
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/?$`));
 
     await page.getByRole("button", { name: "Cancel" }).tap();
-    await expect(page.getByText("Kill window?")).toHaveCount(0);
+    await expect(page.getByText("Kill tab?")).toHaveCount(0);
     expect(killRequests).toHaveLength(0);
   });
 
@@ -522,7 +522,7 @@ test.describe("Row flyout card (coarse pointer)", () => {
     // Popover-over-flyout precedence: the card is gone, the row's PinPopover
     // is open, and the row was never selected.
     await expect(card(page)).toHaveCount(0);
-    await expect(page.getByRole("dialog", { name: "Pin window to board" })).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "Pin tab to board" })).toBeVisible();
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/?$`));
   });
 
@@ -538,7 +538,7 @@ test.describe("Row flyout card (coarse pointer)", () => {
     await page.mouse.move(railBox.x + railBox.width / 2, railBox.y + railBox.height / 2);
     await page.mouse.down();
     await expect(card(page)).toBeVisible();
-    await expect(card(page)).toContainText("Window @1");
+    await expect(card(page)).toContainText("Tab @1");
 
     const scratchBox = (await scratchRow(page).boundingBox())!;
     await page.mouse.move(scratchBox.x + scratchBox.width / 2, scratchBox.y + scratchBox.height / 2, {
@@ -546,7 +546,7 @@ test.describe("Row flyout card (coarse pointer)", () => {
     });
     // One card, retargeted to @2 (the scrub never selects/navigates).
     await expect(card(page)).toHaveCount(1);
-    await expect(card(page)).toContainText("Window @2");
+    await expect(card(page)).toContainText("Tab @2");
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/?$`));
 
     // Containment mid-scrub: the retargeted card never covers the finger's
@@ -557,7 +557,7 @@ test.describe("Row flyout card (coarse pointer)", () => {
 
     // Release keeps the last card open and the drawer stays put.
     await page.mouse.up();
-    await expect(card(page)).toContainText("Window @2");
+    await expect(card(page)).toContainText("Tab @2");
     await expect(prRow(page)).toBeVisible();
 
     // Tapping elsewhere dismisses via the existing outside-press path.
@@ -602,7 +602,7 @@ test.describe("Row flyout card (coarse pointer)", () => {
     const rail = sessionRow(page).getByTestId("status-rail");
     await expect(rail).toBeVisible();
     await expect(sessionRow(page).getByLabel("Kill session dev")).toHaveCount(0);
-    await expect(sessionRow(page).getByLabel("New window in dev")).toHaveCount(0);
+    await expect(sessionRow(page).getByLabel("New tab in dev")).toHaveCount(0);
 
     await rail.tap();
     await expect(card(page)).toBeVisible();
@@ -616,7 +616,7 @@ test.describe("Row flyout card (coarse pointer)", () => {
     const killRow = card(page).getByTestId("row-flyout-kill-action");
     await expect(colorRow).toContainText("Change color…");
     await expect(spawnRow).toContainText("Spawn agent…");
-    await expect(createRow).toContainText("New window");
+    await expect(createRow).toContainText("New tab");
     await expect(killRow).toContainText("Kill session");
     await expect(killRow).toContainText("confirms first");
     const ys = await Promise.all(
@@ -632,7 +632,7 @@ test.describe("Row flyout card (coarse pointer)", () => {
     // Kill session routes through the EXISTING confirm dialog — no kill POST.
     await killRow.tap();
     await expect(page.getByText("Kill session?")).toBeVisible();
-    await expect(page.getByText(/and all 2 windows/)).toBeVisible();
+    await expect(page.getByText(/and all 2 tabs/)).toBeVisible();
     expect(killRequests).toHaveLength(0);
     await page.getByRole("button", { name: "Cancel" }).tap();
     await expect(page.getByText("Kill session?")).toHaveCount(0);
@@ -703,7 +703,7 @@ test.describe("Row flyout card (coarse pointer)", () => {
     await page.mouse.move(winRailBox.x + winRailBox.width / 2, winRailBox.y + winRailBox.height / 2);
     await page.mouse.down();
     await expect(card(page)).toBeVisible();
-    await expect(card(page)).toContainText("Window @1");
+    await expect(card(page)).toContainText("Tab @1");
 
     const sessionRailBox = (await sessionRow(page).getByTestId("status-rail").boundingBox())!;
     await page.mouse.move(

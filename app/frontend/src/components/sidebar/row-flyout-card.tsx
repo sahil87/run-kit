@@ -374,7 +374,7 @@ const FORKABLE_CHAT_PROVIDER = "claude";
 /** Tooltip/aria copy for the fork affordance. Names the SAME-DIRECTORY semantics
  *  explicitly — that is what distinguishes a fork (branch this conversation
  *  here) from the spawn dialog (a fresh agent, usually in a new worktree). */
-export const FORK_TOOLTIP = "Fork conversation — new window, same directory";
+export const FORK_TOOLTIP = "Fork conversation — new tab, same directory";
 
 /** True when this window's conversation can be forked: it carries a reconciled
  *  claude chat identity. An equality guard, not a cast — a `codex` window and a
@@ -502,7 +502,7 @@ function ForkActionRow({ onFork }: { onFork: () => Promise<void> }) {
     >
       <ForkIcon />
       <span className="shrink-0">Fork conversation</span>
-      <span className={ACTION_ROW_HINT_CLASS}>new window, same directory</span>
+      <span className={ACTION_ROW_HINT_CLASS}>new tab, same directory</span>
     </button>
   );
 }
@@ -519,7 +519,7 @@ function WindowFlyoutTitle({ win }: { win: WindowInfo }) {
   const activePaneId = panes.find((p) => p.isActive)?.paneId;
   return (
     <>
-      <PopupTitleBarSecondary>Window </PopupTitleBarSecondary>
+      <PopupTitleBarSecondary>Tab </PopupTitleBarSecondary>
       {win.windowId}
       {activePaneId && (
         <>
@@ -707,7 +707,7 @@ export function WindowFlyoutContent({
           {onKillAction && (
             <CardActionRow
               icon={<CloseIcon />}
-              label="Kill window"
+              label="Kill tab"
               hint="confirms first"
               danger
               testid="row-flyout-kill-action"

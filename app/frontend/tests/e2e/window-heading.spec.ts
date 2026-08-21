@@ -35,7 +35,7 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     const id = await resolveWindow(page, name);
     await gotoWindow(page, id);
 
-    const heading = page.getByRole("button", { name: `Rename window ${name}` });
+    const heading = page.getByRole("button", { name: `Rename tab ${name}` });
     await expect(heading).toBeVisible({ timeout: 10_000 });
     await expect(heading).toHaveText(name);
     // The window name is NOT duplicated as a breadcrumb crumb.
@@ -47,7 +47,7 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     // hierarchy ▾ that used to split the prefix is GONE (260813-kvk7) — the
     // colon is contiguous to the word (`Window:`), so the whole prefix run is
     // the stable locator.
-    const prefix = page.getByText("Window:", { exact: true });
+    const prefix = page.getByText("Tab:", { exact: true });
     await expect(prefix).toBeVisible();
     const prefixInButton = await heading.evaluate(
       (btn, pfx) => btn.contains(pfx),
@@ -66,7 +66,7 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     await expect(heading).toBeVisible({ timeout: 10_000 });
     // It is display-only — no rename button on the tmux Server page.
     await expect(
-      page.getByRole("button", { name: /Rename window/ }),
+      page.getByRole("button", { name: /Rename tab/ }),
     ).toHaveCount(0);
     // The in-page page-level heading (260715-zs1y) — a SectionHeading <h2>
     // above the "Sessions" section.
@@ -135,7 +135,7 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
       await expect(page.getByLabel("Switch board")).toBeVisible();
       // Display-only — boards have no rename API, so no rename button.
       await expect(
-        page.getByRole("button", { name: /Rename window/ }),
+        page.getByRole("button", { name: /Rename tab/ }),
       ).toHaveCount(0);
       // Move-don't-copy: the board name is not duplicated as a left breadcrumb
       // crumb, and the old left `Board ▸` home button is gone.
@@ -159,8 +159,8 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     const id = await resolveWindow(page, name);
     await gotoWindow(page, id);
 
-    await page.getByRole("button", { name: `Rename window ${name}` }).click();
-    const input = page.getByRole("textbox", { name: "Window name" });
+    await page.getByRole("button", { name: `Rename tab ${name}` }).click();
+    const input = page.getByRole("textbox", { name: "Tab name" });
     await expect(input).toBeVisible();
     await input.fill(renamed);
     await input.press("Enter");
@@ -174,7 +174,7 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     });
     // Heading shows the new name (decode may briefly scramble, so poll).
     await expect(
-      page.getByRole("button", { name: `Rename window ${renamed}` }),
+      page.getByRole("button", { name: `Rename tab ${renamed}` }),
     ).toBeVisible({ timeout: 10_000 });
   });
 
@@ -186,8 +186,8 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     const id = await resolveWindow(page, name);
     await gotoWindow(page, id);
 
-    await page.getByRole("button", { name: `Rename window ${name}` }).click();
-    const input = page.getByRole("textbox", { name: "Window name" });
+    await page.getByRole("button", { name: `Rename tab ${name}` }).click();
+    const input = page.getByRole("textbox", { name: "Tab name" });
     await expect(input).toBeVisible();
     // Type character-by-character: the live safe-name transform (260722-ln4n)
     // converts the pressed space to "_" as it lands — WYSIWYG, the input never
@@ -203,7 +203,7 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
       timeout: 10_000,
     });
     await expect(
-      page.getByRole("button", { name: "Rename window my_problem" }),
+      page.getByRole("button", { name: "Rename tab my_problem" }),
     ).toBeVisible({ timeout: 10_000 });
   });
 
@@ -215,14 +215,14 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     const id = await resolveWindow(page, name);
     await gotoWindow(page, id);
 
-    await page.getByRole("button", { name: `Rename window ${name}` }).click();
-    const input = page.getByRole("textbox", { name: "Window name" });
+    await page.getByRole("button", { name: `Rename tab ${name}` }).click();
+    const input = page.getByRole("textbox", { name: "Tab name" });
     await input.fill("discard-me");
     await input.press("Escape");
 
     await expect(input).not.toBeVisible();
     await expect(
-      page.getByRole("button", { name: `Rename window ${name}` }),
+      page.getByRole("button", { name: `Rename tab ${name}` }),
     ).toBeVisible();
     // No rename happened — the window keeps its name in the snapshot.
     const stillNamed = await resolveWindow(page, name);
@@ -237,7 +237,7 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     const id = await resolveWindow(page, name);
     await gotoWindow(page, id);
     await expect(
-      page.getByRole("button", { name: `Rename window ${name}` }),
+      page.getByRole("button", { name: `Rename tab ${name}` }),
     ).toBeVisible({ timeout: 10_000 });
 
     // The palette action dispatches this exact event (app.tsx); asserting the
@@ -246,7 +246,7 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     await page.evaluate(() =>
       document.dispatchEvent(new CustomEvent("window-heading:rename")),
     );
-    await expect(page.getByRole("textbox", { name: "Window name" })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Tab name" })).toBeVisible();
   });
 
   test("375px top bar stays single-line with the heading (no horizontal overflow)", async ({
@@ -260,7 +260,7 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     // sm:inline`, so it is invisible at 375px and can't be the readiness signal.
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(id)}`);
 
-    const heading = page.getByRole("button", { name: `Rename window ${name}` });
+    const heading = page.getByRole("button", { name: `Rename tab ${name}` });
     await expect(heading).toBeVisible({ timeout: 10_000 });
 
     // No horizontal page overflow.
@@ -300,7 +300,7 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     const id = await resolveWindow(page, name);
     await gotoWindow(page, id);
     await expect(
-      page.getByRole("button", { name: `Rename window ${name}` }),
+      page.getByRole("button", { name: `Rename tab ${name}` }),
     ).toBeVisible({ timeout: 10_000 });
 
     // Vocabulary classes are present in the DOM (class-presence is the stable
@@ -317,10 +317,10 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     // The heading input never leaks scrambled text: opening edit shows the
     // real name even in reduced-motion (decode is skipped in JS).
     await reducedPage
-      .getByRole("button", { name: `Rename window ${name}` })
+      .getByRole("button", { name: `Rename tab ${name}` })
       .click();
     await expect(
-      reducedPage.getByRole("textbox", { name: "Window name" }),
+      reducedPage.getByRole("textbox", { name: "Tab name" }),
     ).toHaveValue(name);
 
     // The typed-label sweep is JS-gated on the same media query: hovering a
@@ -385,12 +385,12 @@ test.describe("Top-bar heading — anchor + history arrows (260714-uco1)", () =>
     // in 260813-kvk7) is the heading's leftmost text; its left edge is the
     // anchor under test.
     await gotoWindow(page, shortId);
-    const shortPrefix = page.getByText("Window:", { exact: true });
+    const shortPrefix = page.getByText("Tab:", { exact: true });
     await expect(shortPrefix).toBeVisible({ timeout: 10_000 });
     const shortX = (await shortPrefix.boundingBox())!.x;
 
     await gotoWindow(page, midId);
-    const midPrefix = page.getByText("Window:", { exact: true });
+    const midPrefix = page.getByText("Tab:", { exact: true });
     await expect(midPrefix).toBeVisible({ timeout: 10_000 });
     const midX = (await midPrefix.boundingBox())!.x;
 
@@ -413,15 +413,15 @@ test.describe("Top-bar heading — anchor + history arrows (260714-uco1)", () =>
     // which now assert `Window:` in every lens.) The hierarchy ▾ that used to
     // split the prefix is GONE (260813-kvk7): the colon is contiguous to the
     // word, so assert the whole `Window:` run.
-    await expect(page.getByText("Window:", { exact: true })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("Tab:", { exact: true })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText(/Terminal:|Web:|Chat:/)).toHaveCount(0);
 
     // The removed hierarchy dropdown is really absent — no `Switch hierarchy`
     // trigger anywhere in the bar. The single ▾ next to the name is the window
-    // switcher (accessible name "Switch window"); opening it lists the
+    // switcher (accessible name "Switch tab"); opening it lists the
     // session's windows (NOT the ancestor chain).
     await expect(page.getByLabel("Switch hierarchy")).toHaveCount(0);
-    await page.getByLabel("Switch window").click();
+    await page.getByLabel("Switch tab").click();
     await expect(page.getByRole("menuitem", { name })).toBeVisible();
     await page.keyboard.press("Escape");
   });
@@ -442,9 +442,9 @@ test.describe("Top-bar heading — anchor + history arrows (260714-uco1)", () =>
 
     // Build a real history stack: visit the first window, then the second.
     await gotoWindow(page, firstId);
-    await expect(page.getByRole("button", { name: `Rename window ${first}` })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("button", { name: `Rename tab ${first}` })).toBeVisible({ timeout: 10_000 });
     await gotoWindow(page, secondId);
-    await expect(page.getByRole("button", { name: `Rename window ${second}` })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("button", { name: `Rename tab ${second}` })).toBeVisible({ timeout: 10_000 });
 
     // The arrows live in the LEFT cluster (260731-oiho): inside the same
     // container as the sidebar toggle, not inside the anchored heading box.
@@ -452,7 +452,7 @@ test.describe("Top-bar heading — anchor + history arrows (260714-uco1)", () =>
     const toggleBox = (await page.getByLabel("Toggle navigation").boundingBox())!;
     const backBox = (await back.boundingBox())!;
     const headingBox = (await page
-      .getByRole("button", { name: `Rename window ${second}` })
+      .getByRole("button", { name: `Rename tab ${second}` })
       .boundingBox())!;
     expect(backBox.x).toBeGreaterThan(toggleBox.x);
     expect(backBox.x + backBox.width).toBeLessThan(headingBox.x);
@@ -460,12 +460,12 @@ test.describe("Top-bar heading — anchor + history arrows (260714-uco1)", () =>
     // ◀ (browser back) returns to the first window's URL — NOT sibling cycling.
     await back.click();
     await expect(page).toHaveURL(new RegExp(`/${TMUX_SERVER}/${encodeURIComponent(firstId)}$`));
-    await expect(page.getByRole("button", { name: `Rename window ${first}` })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("button", { name: `Rename tab ${first}` })).toBeVisible({ timeout: 10_000 });
 
     // ▶ (browser forward) returns to the second window.
     await page.getByLabel("Go forward").click();
     await expect(page).toHaveURL(new RegExp(`/${TMUX_SERVER}/${encodeURIComponent(secondId)}$`));
-    await expect(page.getByRole("button", { name: `Rename window ${second}` })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("button", { name: `Rename tab ${second}` })).toBeVisible({ timeout: 10_000 });
   });
 
   test("in-app window switches push history entries (Back/Forward retrace within-server hops, no dedup)", async ({
@@ -506,7 +506,7 @@ test.describe("Top-bar heading — anchor + history arrows (260714-uco1)", () =>
       await row.click();
       await expect(row).toHaveAttribute("aria-current", "page", { timeout: 10_000 });
       await expect(page).toHaveURL(urlFor(id));
-      await expect(page.getByRole("button", { name: `Rename window ${name}` })).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByRole("button", { name: `Rename tab ${name}` })).toBeVisible({ timeout: 10_000 });
     };
 
     // Land on the server root so the first in-app click is unambiguous, then
@@ -521,18 +521,18 @@ test.describe("Top-bar heading — anchor + history arrows (260714-uco1)", () =>
     // the a→b switch pushed an entry rather than replacing it.
     await page.goBack();
     await expect(page).toHaveURL(urlFor(bId));
-    await expect(page.getByRole("button", { name: `Rename window ${b}` })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("button", { name: `Rename tab ${b}` })).toBeVisible({ timeout: 10_000 });
 
     // A further Back retraces to the FIRST `a` entry — the b→a revisit did NOT
     // dedup against the earlier `a`; every hop is retained.
     await page.goBack();
     await expect(page).toHaveURL(urlFor(aId));
-    await expect(page.getByRole("button", { name: `Rename window ${a}` })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("button", { name: `Rename tab ${a}` })).toBeVisible({ timeout: 10_000 });
 
     // Forward returns to `b` (history intact in both directions).
     await page.goForward();
     await expect(page).toHaveURL(urlFor(bId));
-    await expect(page.getByRole("button", { name: `Rename window ${b}` })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("button", { name: `Rename tab ${b}` })).toBeVisible({ timeout: 10_000 });
   });
 });
 
@@ -605,7 +605,7 @@ test.describe("Window heading — animated path (motion opted back in)", () => {
     const id = await resolveWindow(page, name);
     await gotoWindow(page, id);
 
-    const heading = page.getByRole("button", { name: `Rename window ${name}` });
+    const heading = page.getByRole("button", { name: `Rename tab ${name}` });
     await expect(heading).toBeVisible({ timeout: 10_000 });
     // Let any mount-replay sweep settle before driving a fresh hover pass (the
     // mount leg auto-plays once on navigation; DECODE_HOVER_INTENT_MS + a full

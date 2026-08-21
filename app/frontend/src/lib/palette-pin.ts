@@ -1,6 +1,6 @@
 /**
- * Pure builder for the command-palette pin actions (`Pin: Current Window to
- * <board>` per existing board + `Pin: Current Window to new board…`). Follows
+ * Pure builder for the command-palette pin actions (`Pin: Current Tab to
+ * <board>` per existing board + `Pin: Current Tab to new board…`). Follows
  * the lib/palette-move.ts / lib/palette-version.ts pattern (pure,
  * dependency-free, unit-testable) so the label composition, already-pinned
  * exclusion, and last-used-first ordering are verifiable without mounting the
@@ -45,13 +45,13 @@ export function buildPinActions(
 
   const directPins: PaletteAction[] = candidates.map((b) => ({
     id: `pin-current-${b.name}`,
-    label: `Pin: Current Window to ${b.name}`,
+    label: `Pin: Current Tab to ${b.name}`,
     onSelect: () => onPin(b.name),
   }));
 
   const newBoard: PaletteAction = {
     id: PIN_NEW_BOARD_ACTION_ID,
-    label: "Pin: Current Window to new board…",
+    label: "Pin: Current Tab to new board…",
     onSelect: onOpenNewBoardPopover,
   };
 

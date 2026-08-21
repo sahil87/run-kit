@@ -147,7 +147,7 @@ chord fires; the vacated default no longer does).
 
 **Steps:**
 1. Open `/default/1`; open the Shortcuts tab with Shift+Ctrl+/.
-2. Click the combo button for "Next window"; press Shift+Ctrl+U.
+2. Click the combo button for "Next tab"; press Shift+Ctrl+U.
 3. Assert localStorage holds `{"window-next":{"code":"KeyU","tier":"shifted"}}`.
 4. Close the dialog (Escape).
 5. Press Shift+Ctrl+L (the vacated default) → URL stays `/default/1`.
@@ -232,7 +232,7 @@ the shifted layer.
    claim is removed.
 4. Click the ⇧⌘ option → it selects (`aria-pressed="true"`) and the shifted
    layer renders: the "address" keycap disappears (the shifted KeyL reads
-   "next win"), proving the layer swap.
+   "next tab"), proving the layer swap.
 5. Press Meta+/ again → the dialog closes.
 
 ### `⌘N and ⇧⌘N stay inert in a mac browser host (create-session palette-only)`
@@ -251,7 +251,7 @@ chord dispatches.
 ### `Shift+Ctrl+\ and Shift+Ctrl+- split side-by-side then stacked on the terminal route`
 
 **What it proves:** the divider-pair chords reuse the
-`Window: Split Horizontal|Vertical` palette bodies — each fires one
+`Tab: Split Horizontal|Vertical` palette bodies — each fires one
 `POST /api/windows/@1/split` carrying its direction and the window's worktree
 path — while the terminal owns focus (the shifted-tier seam refusal bubbles
 both chords).
@@ -266,13 +266,13 @@ both chords).
 ### `the palette hints both splits with the divider-pair chords`
 
 **What it proves:** the effective map reaches the palette — on a Win/Linux
-host `Window: Split Horizontal` advertises `Shift+Ctrl+\` and
-`Window: Split Vertical` advertises `Shift+Ctrl+-` (both bound; the mac
+host `Tab: Split Horizontal` advertises `Shift+Ctrl+\` and
+`Tab: Split Vertical` advertises `Shift+Ctrl+-` (both bound; the mac
 `macCode` refinement never applies here).
 
 **Steps:**
 1. Mock the backend; open `/default/1`; open the palette (`Meta+k`).
-2. Fill the filter with "Window: Split" → both split entries render.
+2. Fill the filter with "Tab: Split" → both split entries render.
 3. Assert the texts `Shift+Ctrl+\` and `Shift+Ctrl+-` each appear exactly
    once.
 

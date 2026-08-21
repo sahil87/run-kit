@@ -12,6 +12,7 @@ import { useToast } from "@/components/toast";
 import type { PaletteAction } from "@/components/command-palette";
 import { HELP_URL } from "@/components/global-chrome";
 import { withShortcutHints } from "@/lib/keybindings";
+import { canCloseShellWindow, canNewShellWindow, closeShellWindow, newShellWindow } from "@/lib/shell";
 import { focusSidebarCurrentRow } from "@/lib/sidebar-events";
 import { HOST_MENU_OPEN_EVENT } from "@/lib/shell-strip";
 import { buildNavActions, type NavMode } from "@/lib/palette-nav";
@@ -332,6 +333,38 @@ export function useGlobalPaletteActions(): PaletteAction[] {
     [daemonVersion, addToast],
   );
 
+  // App-window pair (260820-lfla) — the SPA-side claims on ⌘N (new app
+  // window) and ⇧⌘W (close app window) inside the mac desktop shell, riding
+  // the `windows` bridge group (shell:new-window / shell:close-window). The
+  // ids ARE the registry actionIds, so the effective-chord hints attach and
+  // the chords resolve through these bodies (the fromPalette convention).
+  // Gated on the bridge invokers' presence — the group is absent in a plain
+  // browser and on older shells, and `close` is additive on top of
+  // `newWindow`, so each entry follows its own capability.
+  const appWindowActions: PaletteAction[] = useMemo(
+    () => [
+      ...(canNewShellWindow()
+        ? [
+            {
+              id: "new-app-window",
+              label: "App: New Window",
+              onSelect: () => void newShellWindow(),
+            },
+          ]
+        : []),
+      ...(canCloseShellWindow()
+        ? [
+            {
+              id: "close-app-window",
+              label: "App: Close Window",
+              onSelect: () => void closeShellWindow(),
+            },
+          ]
+        : []),
+    ],
+    [],
+  );
+
   return useMemo(
     () =>
       // Every registered action with a palette entry renders its EFFECTIVE
@@ -339,10 +372,10 @@ export function useGlobalPaletteActions(): PaletteAction[] {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, settingsAppearanceEntry, ...panelActions, ...sidebarActions, ...hostMenuActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions],
+        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, settingsAppearanceEntry, ...panelActions, ...sidebarActions, ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions],
         bindingByAction,
         bindingHost.platform,
       ),
-    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, settingsAppearanceEntry, panelActions, sidebarActions, hostMenuActions, updateActions, checkActions, maintenanceActions, versionActions, bindingByAction, bindingHost],
+    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, settingsAppearanceEntry, panelActions, sidebarActions, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, bindingByAction, bindingHost],
   );
 }

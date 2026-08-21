@@ -398,7 +398,7 @@ describe("Sidebar", () => {
     fireEvent.click(screen.getByLabelText("Kill session run-kit"));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByText("Kill session?")).toBeInTheDocument();
-    expect(screen.getByText(/3 window/)).toBeInTheDocument();
+    expect(screen.getByText(/3 tab/)).toBeInTheDocument();
   });
 
   it("shows empty-state hint row when no sessions", () => {
@@ -464,7 +464,7 @@ describe("Sidebar", () => {
       renderSidebar();
       const nameSpan = screen.getAllByText("main")[0];
       fireEvent.doubleClick(nameSpan);
-      const input = screen.getByLabelText("Rename window");
+      const input = screen.getByLabelText("Rename tab");
       expect(input).toBeInTheDocument();
       expect(input).toHaveValue("main");
     });
@@ -475,13 +475,13 @@ describe("Sidebar", () => {
 
       renderSidebar();
       fireEvent.doubleClick(screen.getByText("scratch"));
-      const input = screen.getByLabelText("Rename window");
+      const input = screen.getByLabelText("Rename tab");
       fireEvent.change(input, { target: { value: "new-name" } });
       await act(async () => {
         fireEvent.keyDown(input, { key: "Enter" });
       });
 
-      expect(screen.queryByLabelText("Rename window")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Rename tab")).not.toBeInTheDocument();
       expect(renameWindowMock).toHaveBeenCalledWith("runkit", "@1", "new-name");
     });
 
@@ -491,11 +491,11 @@ describe("Sidebar", () => {
 
       renderSidebar();
       fireEvent.doubleClick(screen.getByText("scratch"));
-      const input = screen.getByLabelText("Rename window");
+      const input = screen.getByLabelText("Rename tab");
       fireEvent.change(input, { target: { value: "new-name" } });
       fireEvent.keyDown(input, { key: "Escape" });
 
-      expect(screen.queryByLabelText("Rename window")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Rename tab")).not.toBeInTheDocument();
       expect(renameWindowMock).not.toHaveBeenCalled();
     });
 
@@ -505,13 +505,13 @@ describe("Sidebar", () => {
 
       renderSidebar();
       fireEvent.doubleClick(screen.getByText("scratch"));
-      const input = screen.getByLabelText("Rename window");
+      const input = screen.getByLabelText("Rename tab");
       fireEvent.change(input, { target: { value: "blur-name" } });
       await act(async () => {
         fireEvent.blur(input);
       });
 
-      expect(screen.queryByLabelText("Rename window")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Rename tab")).not.toBeInTheDocument();
       expect(renameWindowMock).toHaveBeenCalledWith("runkit", "@1", "blur-name");
     });
 
@@ -521,11 +521,11 @@ describe("Sidebar", () => {
 
       renderSidebar();
       fireEvent.doubleClick(screen.getByText("scratch"));
-      const input = screen.getByLabelText("Rename window");
+      const input = screen.getByLabelText("Rename tab");
       fireEvent.change(input, { target: { value: "   " } });
       fireEvent.keyDown(input, { key: "Enter" });
 
-      expect(screen.queryByLabelText("Rename window")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Rename tab")).not.toBeInTheDocument();
       expect(renameWindowMock).not.toHaveBeenCalled();
     });
 
@@ -535,7 +535,7 @@ describe("Sidebar", () => {
 
       renderSidebar();
       fireEvent.doubleClick(screen.getByText("scratch"));
-      const input = screen.getByLabelText("Rename window");
+      const input = screen.getByLabelText("Rename tab");
       // Don't change the value — just press Enter
       fireEvent.keyDown(input, { key: "Enter" });
 
@@ -549,12 +549,12 @@ describe("Sidebar", () => {
       renderSidebar();
       // Start editing "main" (first occurrence is in tree)
       fireEvent.doubleClick(screen.getAllByText("main")[0]);
-      const inputA = screen.getByLabelText("Rename window");
+      const inputA = screen.getByLabelText("Rename tab");
       fireEvent.change(inputA, { target: { value: "renamed-main" } });
 
       // Now double-click "scratch" — should cancel A's edit without committing
       fireEvent.doubleClick(screen.getByText("scratch"));
-      const inputB = screen.getByLabelText("Rename window");
+      const inputB = screen.getByLabelText("Rename tab");
       expect(inputB).toHaveValue("scratch");
 
       // A's changed value should NOT have been committed
@@ -567,7 +567,7 @@ describe("Sidebar", () => {
       fireEvent.click(screen.getByText("scratch"));
 
       expect(onSelectWindow).toHaveBeenCalledWith("runkit", "run-kit", "@1");
-      expect(screen.queryByLabelText("Rename window")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Rename tab")).not.toBeInTheDocument();
     });
   });
 
@@ -702,12 +702,12 @@ describe("Sidebar", () => {
       renderSidebar();
       // Start editing window "scratch"
       fireEvent.doubleClick(screen.getByText("scratch"));
-      const windowInput = screen.getByLabelText("Rename window");
+      const windowInput = screen.getByLabelText("Rename tab");
       fireEvent.change(windowInput, { target: { value: "renamed-scratch" } });
 
       // Double-click on session name — should cancel window edit without committing
       fireEvent.doubleClick(getSessionRowNameSpan("run-kit"));
-      expect(screen.queryByLabelText("Rename window")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Rename tab")).not.toBeInTheDocument();
       expect(screen.getByLabelText("Rename session")).toBeInTheDocument();
       expect(renameWindowMock).not.toHaveBeenCalled();
     });
@@ -725,7 +725,7 @@ describe("Sidebar", () => {
       // Double-click on window name — should cancel session edit without committing
       fireEvent.doubleClick(screen.getByText("scratch"));
       expect(screen.queryByLabelText("Rename session")).not.toBeInTheDocument();
-      expect(screen.getByLabelText("Rename window")).toBeInTheDocument();
+      expect(screen.getByLabelText("Rename tab")).toBeInTheDocument();
       expect(renameSessionMock).not.toHaveBeenCalled();
     });
   });
@@ -1120,7 +1120,7 @@ describe("Sidebar", () => {
 
       // Ctrl+click the X button for "scratch" window (index 1)
       await act(async () => {
-        fireEvent.click(screen.getByLabelText("Kill window scratch"), { ctrlKey: true });
+        fireEvent.click(screen.getByLabelText("Kill tab scratch"), { ctrlKey: true });
       });
 
       // API was called — window addressed by its stable windowId

@@ -58,9 +58,9 @@ export type SelectableSession = {
   windows: SelectableWindow[];
 };
 
-/** `N window` / `N windows` — the labels carry the live count. */
-function windowCount(n: number): string {
-  return `${n} ${n === 1 ? "window" : "windows"}`;
+/** `N tab` / `N tabs` — the labels carry the live count. */
+function tabCount(n: number): string {
+  return `${n} ${n === 1 ? "tab" : "tabs"}`;
 }
 
 /** `N agent` / `N agents` — prompt labels carry the live count. */
@@ -80,7 +80,7 @@ export function buildSelectionCloseAction(
 ): PaletteAction | null {
   if (selectedKeys.size === 0) return null;
   const keys = [...selectedKeys];
-  const count = windowCount(keys.length);
+  const count = tabCount(keys.length);
   return {
     id: SELECTION_CLOSE_ACTION_ID,
     label: `Selection: Close ${count}`,
@@ -287,7 +287,7 @@ export function buildSelectionMoveActions(
       ? [...homeSessions][0]
       : null;
 
-  const count = windowCount(selectedKeys.size);
+  const count = tabCount(selectedKeys.size);
   return sessions
     .filter((s) => s.name !== noOpTarget)
     .map((s) => ({

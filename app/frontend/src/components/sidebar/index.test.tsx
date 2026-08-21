@@ -1440,7 +1440,7 @@ describe("BottomPanels — board-route focused-pane fallback + HOST dot (zx4i)",
     });
     expect(screen.queryByRole("button", { name: /^Pane/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Host/ })).not.toBeInTheDocument();
-    expect(screen.queryByText("No window selected")).not.toBeInTheDocument();
+    expect(screen.queryByText("No tab selected")).not.toBeInTheDocument();
   });
 
   it("renders the ENRICHED home-session copy when the focused pane resolves by windowId", () => {
@@ -1457,7 +1457,7 @@ describe("BottomPanels — board-route focused-pane fallback + HOST dot (zx4i)",
         ],
       },
     });
-    expect(screen.queryByText("No window selected")).not.toBeInTheDocument();
+    expect(screen.queryByText("No tab selected")).not.toBeInTheDocument();
     // The fab register renders — only the enriched SSE copy carries fabChange,
     // so this proves the windowId lookup (not the thin fallback) supplied it.
     expect(screen.getByText(/zx4i board-route-pane-host-panels · apply/)).toBeInTheDocument();
@@ -1488,7 +1488,7 @@ describe("BottomPanels — board-route focused-pane fallback + HOST dot (zx4i)",
         ],
       },
     });
-    expect(screen.queryByText("No window selected")).not.toBeInTheDocument();
+    expect(screen.queryByText("No tab selected")).not.toBeInTheDocument();
     // Identity rows from the entry's own pane data.
     expect(paneHeader().textContent).toContain("pin-only");
     expect(screen.getByText(/%88/)).toBeInTheDocument();
@@ -1517,18 +1517,18 @@ describe("BottomPanels — board-route focused-pane fallback + HOST dot (zx4i)",
         ],
       },
     });
-    expect(screen.getByText("No window selected")).toBeInTheDocument();
+    expect(screen.getByText("No tab selected")).toBeInTheDocument();
     expect(paneHeader().textContent).not.toContain("pinned-live");
   });
 
-  it("keeps 'No window selected' when no focused pane is published (empty board)", () => {
+  it("keeps 'No tab selected' when no focused pane is published (empty board)", () => {
     renderSidebar({
       currentServer: null,
       servers: boardServers,
       sessionsByServer: boardSessionsMap,
       focusedPane: null,
     });
-    expect(screen.getByText("No window selected")).toBeInTheDocument();
+    expect(screen.getByText("No tab selected")).toBeInTheDocument();
   });
 
   const HOST_METRICS: MetricsSnapshot = {

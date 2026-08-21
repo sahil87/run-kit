@@ -51,7 +51,7 @@ copy.
 8. Poll `GET /api/boards` until the board disappears from the listing
    (empty boards are removed per spec — `Empty board cannot exist`).
 
-### `palette 'Pin: Current Window to <board>' pins directly and shows the View board toast`
+### `palette 'Pin: Current Tab to <board>' pins directly and shows the View board toast`
 
 **What it proves:** The command-palette direct-pin action
 (`lib/palette-pin.ts`, wired into AppShell `boardActions`) pins the current
@@ -67,7 +67,7 @@ the `View board` action navigates to `/board/<board>`.
 2. Resolve `win-b`'s `@N` id and navigate to its terminal route
    (`/<server>/<winB>`) so the palette's current window is `win-b` (not yet
    pinned to `<board>`, so the direct-pin entry is offered).
-3. Open the palette (`Meta+k`), fill `Pin: Current Window to <board>`, wait
+3. Open the palette (`Meta+k`), fill `Pin: Current Tab to <board>`, wait
    for the filtered option to render (the entry exists only once the boards
    fetch and window context resolve — pressing Enter earlier is a silent
    no-op), then press Enter.

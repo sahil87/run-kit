@@ -106,7 +106,7 @@ export function SpawnAgentDialog({ server, session, onSpawned, onClose }: SpawnA
   const handleSubmit = useCallback(() => {
     if (busy) return;
     if (!server || !session) {
-      setError("No target session — open a terminal window first.");
+      setError("No target session — open a terminal tab first.");
       return;
     }
     setBusy(true);
@@ -276,7 +276,7 @@ export function SpawnAgentDialog({ server, session, onSpawned, onClose }: SpawnA
       {busy && (
         <p className="text-xs text-text-secondary mb-2 flex items-center gap-2" role="status" aria-live="polite">
           <LogoSpinner size={14} />
-          <span>Spawning: worktree → window → agent…</span>
+          <span>Spawning: worktree → tab → agent…</span>
         </p>
       )}
 

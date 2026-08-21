@@ -98,12 +98,12 @@ the chat renderer mounts. The center heading is a static `Window:` throughout
 not jump on the switch. The window rename affordance carries over.
 
 **Steps:**
-1. Navigate to `/default/1`; gate on the `Window:` prefix.
+1. Navigate to `/default/1`; gate on the `Tab:` prefix.
 2. `switchLens("Chat")` — open the palette (`Meta+k`), fill `View: Chat`, click
    the option, and wait for the palette to close.
 3. Assert the decoded `layout` param is `single:chat`, the `chat-view` renderer
-   is visible, the heading still shows the `Window:` prefix, and the `Rename
-   window agent-win` heading button is present.
+   is visible, the heading still shows the `Tab:` prefix, and the `Rename
+   tab agent-win` heading button is present.
 
 ### `Ctrl+\` no longer flips to the chat lens (the chord is fully unbound, 260813-j3jb)`
 
@@ -113,7 +113,7 @@ chord is fully unbound (the interim layout-zoom rebind was removed in
 No `single:chat` layout, no chat view, no heading change.
 
 **Steps:**
-1. Navigate to `/default/1`; gate on the `Window:` prefix (the always-present
+1. Navigate to `/default/1`; gate on the `Tab:` prefix (the always-present
    readiness surface).
 2. Press `Control+\``; wait a beat for any erroneous handler to fire.
 3. Assert the `layout` param is ABSENT (default `single:tty` drops it), the

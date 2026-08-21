@@ -137,7 +137,7 @@ function BoardPageContent({ name }: { name: string }) {
 
   const { execute: executeCreateWindow } = useOptimisticAction<[string, string]>({
     action: (srv, sess) => createWindowApi(srv, sess),
-    onError: (err) => addToast(err.message || "Failed to create window"),
+    onError: (err) => addToast(err.message || "Failed to create tab"),
   });
 
   // `ctx.sessionsByServer` is a fresh Map every SSE tick; read it at click time
@@ -352,6 +352,12 @@ function BoardPageContent({ name }: { name: string }) {
       // AppShell, so a handler registered only there would leave the chord
       // dead here); a re-fire while the dialog is open is a no-op.
       "settings-open": openSettings,
+      // ⌘N / ⇧⌘W app-window pair (260820-lfla) — the board route renders no
+      // AppShell, so the chord resolves the layout-global bridge-backed
+      // palette bodies here (the shortcuts-overlay convention above);
+      // bridge-gated absent outside the shell, the chord falls through.
+      "new-app-window": paletteGlobals.find((a) => a.id === "new-app-window")?.onSelect,
+      "close-app-window": paletteGlobals.find((a) => a.id === "close-app-window")?.onSelect,
     };
   }, [entries.length, router, paletteGlobals, toggleComposeStrip, composeStripEnabled, openSettings]);
   useKeybindingDispatch(boardKeyHandlers);
@@ -544,7 +550,7 @@ function BoardPageContent({ name }: { name: string }) {
   const { execute: executeKillWindow } = useOptimisticAction<[string, string]>({
     action: (srv, windowId) => killWindow(srv, windowId),
     onSettled: () => refetch(),
-    onError: (err) => addToast(err.message || "Failed to kill window"),
+    onError: (err) => addToast(err.message || "Failed to kill tab"),
   });
   const confirmKill = useCallback(() => {
     if (killTarget) executeKillWindow(killTarget.server, killTarget.windowId);
@@ -563,7 +569,7 @@ function BoardPageContent({ name }: { name: string }) {
   // and rendered by the single layout-mounted CommandPalette ahead of the
   // layout-level global groups (nav, font, refresh, help, shortcuts, settings,
   // update/check/maintenance/version — `use-global-palette-actions.ts`, no
-  // longer duplicated here). Pin/Unpin Current Window are AppShell-only (no
+  // longer duplicated here). Pin/Unpin Current Tab are AppShell-only (no
   // current window exists in single-window sense on a board route).
   const boardRouteActions: PaletteAction[] = useMemo(() => {
     const switchEntries: PaletteAction[] = boards.map((b) => ({
@@ -1039,8 +1045,8 @@ function BoardPageContent({ name }: { name: string }) {
             <div className="p-4 flex flex-col items-start gap-2">
               <p className="text-sm text-text-secondary">
                 {paletteChord
-                  ? `No panes pinned to this board yet — hover a sidebar window row and click its 📌, or ${paletteChord} → Pin:`
-                  : "No panes pinned to this board yet — hover a sidebar window row and click its 📌"}
+                  ? `No panes pinned to this board yet — hover a sidebar tab row and click its 📌, or ${paletteChord} → Pin:`
+                  : "No panes pinned to this board yet — hover a sidebar tab row and click its 📌"}
               </p>
               <Link to="/" className="text-sm text-accent hover:underline">
                 ← Back to sessions
@@ -1107,7 +1113,7 @@ function BoardPageContent({ name }: { name: string }) {
                 This closes it everywhere — including session <strong>{killTarget.home}</strong>.
               </>
             ) : (
-              <>This closes the window everywhere.</>
+              <>This closes the tab everywhere.</>
             )}
           </p>
           <div className="flex gap-2">

@@ -160,7 +160,7 @@ type TopBarProps = {
   onCreateWindow: (session: string) => void;
   /** Open the spawn-agent dialog for a session (260713-sbk1). When present, the
    *  terminal-mode window-switcher dropdown shows a `+ New Agent` item beside
-   *  `+ New Window`. Absent → no `+ New Agent` (e.g. before AppShell registers). */
+   *  `+ New Tab`. Absent → no `+ New Agent` (e.g. before AppShell registers). */
   onSpawnAgent?: (session: string) => void;
   /** Board-mode metadata. Required when `mode === "board"`. */
   boardName?: string;
@@ -1073,7 +1073,7 @@ export function TopBar({
                   // never duplicated. Session crumb hidden below `sm`.
                   // 260813-kvk7: the session dropdown (switcher + "+ New Session")
                   // is gone — session switching lives in the sidebar rows and the
-                  // palette's `Window: Switch to …`, creation in the palette's
+                  // palette's `Tab: Switch to …`, creation in the palette's
                   // `Session: Create` / `Session: Create at Folder` and the
                   // sidebar server-header `+`. The crumb is now a NON-interactive
                   // static chip: a session has no route of its own, so it carries
@@ -1133,11 +1133,11 @@ export function TopBar({
                     window switches so the boot sweep replays on navigation and
                     an in-progress edit survives long enough to be intentionally
                     cancelled (see WindowHeading's identity-change guard) rather
-                    than silently destroyed by a remount. The prefix is now a
-                    STATIC `Window:` in every lens (260714-uco1) — the lens is
+                    than silently destroyed by a remount. The prefix is a
+                    STATIC `Tab:` in every lens — the lens is
                     shown by the tile content itself, not the heading. The
                     prefix carries NO caret (260813-kvk7): the heading reads
-                    `Window: <name>` with the single ▾ owned by the window
+                    `Tab: <name>` with the single ▾ owned by the tab
                     switcher; ancestor navigation lives in the palette
                     (`Go: tmux Server` / `Go: Host`, lib/palette-nav.ts). */}
                 <WindowHeading
@@ -1149,10 +1149,10 @@ export function TopBar({
                 />
                 <BreadcrumbDropdown
                   items={windowItems}
-                  label="window"
-                  title="Window"
+                  label="tab"
+                  title="Tabs"
                   onNavigate={handleDropdownNavigate}
-                  action={{ label: "+ New Window", onAction: () => onCreateWindow(sessionName) }}
+                  action={{ label: "+ New Tab", onAction: () => onCreateWindow(sessionName) }}
                   // + New Agent — the second window-switcher entry point for the
                   // web-UI spawn flow (260713-sbk1). Rendered only when AppShell
                   // published an onSpawnAgent handler (terminal route with a session).
@@ -1497,7 +1497,7 @@ function SweepCells({
 // Page-type prefix words for the universal center heading (change 260704-pr0p,
 // title-case per the reviewed demo — supersedes PageHeading's lowercase idiom).
 //
-// The terminal-route prefix is a STATIC `Window:` in every lens (change
+// The terminal-route prefix is a STATIC `Tab:` in every lens (change
 // 260714-uco1 — a deliberate reversal of window-views spec R4's "the center
 // page heading follows the lens"). The heading identifies the WINDOW (the
 // substrate); which lens you look through is shown by the tile content, not
@@ -1505,7 +1505,7 @@ function SweepCells({
 // lenses"). This also fixes the anchor jumping on lens switches — the prefix
 // width no longer changes with the lens. The retired lens-following
 // `terminalHeadingPrefix()` + `WEB_PREFIX`/`CHAT_PREFIX` were removed with it.
-const WINDOW_PREFIX = "Window:";
+const WINDOW_PREFIX = "Tab:";
 const BOARD_PREFIX = "Board:";
 const TMUX_SERVER_PREFIX = "tmux Server:";
 const HOST_SOLO = "Host";
@@ -1597,7 +1597,7 @@ function WindowHeading({
   windowId: string;
   sessionName: string;
   name: string;
-  /** Page-type prefix — the static `Window:` constant (`WINDOW_PREFIX`) in every
+  /** Page-type prefix — the static `Tab:` constant (`WINDOW_PREFIX`) in every
    *  lens; the lens-following `Terminal:`/`Web:`/`Chat:` prefix was retired by
    *  260714-uco1. The boot sweep renders over `prefix + " " + name`. */
   prefix: string;
@@ -1609,7 +1609,7 @@ function WindowHeading({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(name);
   // The boot sweep drives the animated name display; `sweep.cells` carries the
-  // whole `Terminal: name` string so ONE cursor crosses the prefix into the
+  // whole `Tab: name` string so ONE cursor crosses the prefix into the
   // name. `scrambling` is passed to `SweepCells`, which turns ONLY the per-cell
   // churn glyphs and the single cursor cell accent-green (the vocabulary-wide
   // "animated element turns green" cue) — resolved cells settle to their REST
@@ -1686,7 +1686,7 @@ function WindowHeading({
     setEditing(true);
   }, [name, sweep]);
 
-  // Command-palette "Window: Rename" enters inline edit via a CustomEvent,
+  // Command-palette "Tab: Rename" enters inline edit via a CustomEvent,
   // mirroring the `theme-selector:open` pattern (Constitution V keyboard path).
   useEffect(() => {
     function onRename() {
@@ -1758,7 +1758,7 @@ function WindowHeading({
               cancel();
             }
           }}
-          aria-label="Window name"
+          aria-label="Tab name"
           // Identically-styled to the display heading: monospace, LEFT-aligned
           // (260714-uco1 — dropped `text-center` so the name doesn't jump
           // horizontally when entering edit mode, now that the heading is
@@ -1783,7 +1783,7 @@ function WindowHeading({
       onMouseEnter={sweep.playDeferred}
       onMouseLeave={sweep.resolve}
     >
-      {/* Static `Window:` prefix — a sibling OUTSIDE the button so clicking
+      {/* Static `Tab:` prefix — a sibling OUTSIDE the button so clicking
           it never starts an edit; hidden below `sm` (mobile keeps just the
           name). Its content rides the same sweep so the one cursor crosses it,
           but it is NOT a click target — only the button below enters edit. */}
@@ -1792,7 +1792,7 @@ function WindowHeading({
       <button
         type="button"
         onClick={startEdit}
-        aria-label={`Rename window ${name}`}
+        aria-label={`Rename tab ${name}`}
         // The heading is the mobile leaf and the primary rename affordance
         // there, so give it a touch-sized tap target on coarse pointers
         // (matches the top-bar control convention `coarse:min-h-[30px]`);

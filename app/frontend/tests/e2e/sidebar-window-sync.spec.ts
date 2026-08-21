@@ -205,7 +205,7 @@ test.describe("Sidebar Window Sync", () => {
     // a real cursor reaches the kill button.
     await sidebar.locator(`text=${windowName}`).first().hover();
     await sidebar
-      .locator(`button[aria-label="Kill window ${windowName}"]`)
+      .locator(`button[aria-label="Kill tab ${windowName}"]`)
       .click({ modifiers: ["Control"] });
 
     // Killed window should disappear from the sidebar (optimistic + confirmed)

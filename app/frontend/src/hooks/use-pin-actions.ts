@@ -39,7 +39,7 @@ export function usePinActions(): PinActions {
           onSelect: () => navigate({ to: "/board/$name", params: { name: board } }),
         });
       } catch (err) {
-        addToast(err instanceof Error ? err.message : "Failed to pin window");
+        addToast(err instanceof Error ? err.message : "Failed to pin tab");
       }
     },
     [addToast, navigate],
@@ -50,7 +50,7 @@ export function usePinActions(): PinActions {
       try {
         await unpinWindow(server, windowId, board);
       } catch (err) {
-        addToast(err instanceof Error ? err.message : "Failed to unpin window");
+        addToast(err instanceof Error ? err.message : "Failed to unpin tab");
       }
     },
     [addToast],

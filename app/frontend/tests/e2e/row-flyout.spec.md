@@ -52,11 +52,11 @@ width at ≈16px).
       compositional vocabulary), rest PR glyph, the fab + pr register card
       (the fab slug on a continuation line), fork
       action row, and a two-pane list (`%425` active) so the identity title bar
-      renders its full `Window @1 · pane %425 · 2 panes` form.
+      renders its full `Tab @1 · pane %425 · 2 panes` form.
     - `@2` "scratch-shell" — plain window → gray "idle" dot, no glyph,
       a body-less card (title bar + action rows only), no fork row, no panes
       (the title bar degrades to
-      `Window @2`); carries `color: orange` + `marker: solid` so the coarse
+      `Tab @2`); carries `color: orange` + `marker: solid` so the coarse
       left-zone-reclaim test can prove the display-only stripe survives the
       interactive zone's removal.
 - Rows are located by `[role='treeitem'][data-window-id]`; the card by
@@ -80,7 +80,7 @@ width at ≈16px).
 
 **What it proves:** whole-row hover (500ms delay) opens the flyout card
 anchored at the sidebar's right edge and vertically aligned to the hovered row.
-Its first element is the **identity title bar** (`Window @1 · pane %425 · 2
+Its first element is the **identity title bar** (`Tab @1 · pane %425 · 2
 panes` — the tmux window id, the active pane's id, and the pane count, in the
 inset-bar treatment), carrying ONLY the docs link on its right edge (fork is
 gone from the title bar — one affordance, one home); the body is the `fab` and
@@ -91,7 +91,7 @@ indented line; the `pr` register is a single anchored line carrying number,
 state, checks and review.
 The card's bottom carries the **sectioned action rows** in the fixed
 change-color → fork → pin → kill order (`Change color…` first — 260817-ve5m),
-each with its sub-hint ("new window, same directory" /
+each with its sub-hint ("new tab, same directory" /
 pin-state / "confirms first"). The `pr` identity line is itself the open-first
 anchor (the panel's PrLinkRow idiom): it wraps the colored identity segments,
 ends in an
@@ -100,7 +100,7 @@ always-visible inline `↗`, and opens the PR in a new tab
 
 **Steps:**
 1. Hover the `@1` row; assert the card is visible.
-2. Assert the title bar contains "Window @1 · pane %425 · 2 panes", holds the
+2. Assert the title bar contains "Tab @1 · pane %425 · 2 panes", holds the
    docs link, and contains NO fork affordance; assert the title text precedes
    the `fab` register text, the card does NOT contain the dot label
    ("building — active"), the `row-flyout-out`/`row-flyout-agt` testids are
@@ -108,8 +108,8 @@ always-visible inline `↗`, and opens the PR in a new tab
    continuation line, and the pr register reads
    `#386 · open · checks pass · review: approved` on one line.
 3. Assert the sectioned action rows: change color ("Change color…"), fork
-   ("Fork conversation" / "new window,
-   same directory"), pin ("Pin to board…" / "not pinned"), kill ("Kill window"
+   ("Fork conversation" / "new tab,
+   same directory"), pin ("Pin to board…" / "not pinned"), kill ("Kill tab"
    / "confirms first"), in that vertical order (bounding-box y).
 4. Assert the pr-register anchor wraps the identity segments (`#386`, `↗`),
    carries
@@ -132,11 +132,11 @@ exists at a time, and the content follows the hovered row (the scratch row's
 card has no body at all — no change, no PR — so no fab register and no PR
 link). It also proves the title's
 **degradation**: the pane-less
-scratch window's title bar reads `Window @2` alone, with no pane segment.
+scratch window's title bar reads `Tab @2` alone, with no pane segment.
 
 **Steps:**
 1. Hover `@1`; assert the card shows the pr register (`#386`).
-2. Hover `@2`; assert exactly one card exists, its title bar reads "Window @2"
+2. Hover `@2`; assert exactly one card exists, its title bar reads "Tab @2"
    without any "pane" segment, and the fab register and PR link are absent.
 
 ### `the fork action row renders only on a claude-chat row and POSTs the fork endpoint`
@@ -151,7 +151,7 @@ is derived server-side — without selecting or navigating the underlying row.
 1. Hover `@1` (the claude-chat window); assert the fork action row is visible
    and its `title` mentions "same directory".
 2. Hover `@2` (a plain shell window, no `chatProvider`); assert the card is the
-   scratch one ("Window @2", no body) and carries zero fork rows.
+   scratch one ("Tab @2", no body) and carries zero fork rows.
 3. Route `**/api/windows/*/fork*` to a 200 recording each request URL,
    returning an EMPTY `windowId` so the app deliberately skips navigation (the
    best-effort window-id contract) and the assertion stays on this route.
@@ -260,7 +260,7 @@ no modifier-force on touch) — and activating it never selects the row.
 **Steps:**
 1. Route `**/api/windows/*/kill*` to a 200 that records each request.
 2. Open the drawer, tap `@1`'s dot tap zone to open the card.
-3. Tap the card's Kill action row: assert the "Kill window?" dialog is
+3. Tap the card's Kill action row: assert the "Kill tab?" dialog is
    visible, ZERO kill requests have fired, and the URL is still `/default`.
 4. Tap Cancel: assert the dialog closes and still no kill request fired.
 
@@ -274,7 +274,7 @@ the row.
 **Steps:**
 1. Open the drawer, tap `@1`'s dot tap zone to open the card.
 2. Tap the card's Pin action row.
-3. Assert the card is gone, the "Pin window to board" dialog is visible, and
+3. Assert the card is gone, the "Pin tab to board" dialog is visible, and
    the URL is still `/default`.
 
 ### `scrub: press the rail + slide retargets the single card across rows; release keeps it; tap-elsewhere dismisses` *(coarse describe)*
@@ -291,9 +291,9 @@ outside-press dismissal still works afterwards.
 1. Open the drawer; move the mouse to the center of `@1`'s rail and press
    (mouse.down dispatches pointerdown — the scrub trigger under the coarse
    mock).
-2. Assert the card opens with "Window @1".
+2. Assert the card opens with "Tab @1".
 3. Slide (mouse.move, still pressed) onto `@2`'s row: assert exactly one card,
-   now showing "Window @2", and the URL still `/default` (no navigation).
+   now showing "Tab @2", and the URL still `/default` (no navigation).
 4. Assert containment on the retargeted card: its right edge is ≤ `@2`'s
    rail's left edge.
 5. Release (mouse.up): assert the @2 card stays open and the drawer/rows are
@@ -376,7 +376,7 @@ last (server) card open; the gesture never selects, navigates, or collapses.
 
 **Steps:**
 1. Open the drawer; press (mouse.down) the center of `@1`'s rail; assert the
-   card opens with "Window @1".
+   card opens with "Tab @1".
 2. Slide (still pressed) onto the session row's rail: assert exactly one card,
    now titled "Session dev".
 3. Slide onto the server header's rail: assert exactly one card, now titled

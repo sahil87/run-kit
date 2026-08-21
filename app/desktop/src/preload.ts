@@ -15,9 +15,9 @@
  *   - `badge`: the SPA's waiting-agent-count report (`badge:set`) driving the
  *     dock/taskbar badge. Gated exactly like `servers:*` (registered host
  *     origins + welcome) main-side; payloads are validated in main.
- *   - `windows`: `newWindow()` invoker for `shell:new-window` — duplicates
- *     the sender's window. Exposed but unconsumed (the follow-up change's
- *     SPA ⌘N binding is the intended consumer); gated like `servers:*`.
+ *   - `windows`: `newWindow()`/`close()` invokers for `shell:new-window`
+ *     (duplicates the sender's window) and `shell:close-window` (closes the
+ *     sender's window). Gated like `servers:*`.
  *   - `accent`: the SPA's raw instance-accent report (`accent:set`, a strict
  *     hex string) persisted per host for the switcher's edge bars — the
  *     full-strength color the theme-color meta's 35% titlebar blend cannot
@@ -75,10 +75,14 @@ contextBridge.exposeInMainWorld("runkitShell", {
   },
   windows: {
     // shell:new-window — duplicates the sender's window (same host, same
-    // route, fresh independent view). EXPOSED BUT UNCONSUMED in this change:
-    // the follow-up change's SPA ⌘N binding is its intended consumer. Gated
-    // main-side exactly like `servers:*` (registered host origins + welcome).
+    // route, fresh independent view). Consumed by the SPA's ⌘N binding.
+    // Gated main-side exactly like `servers:*` (registered host origins +
+    // welcome).
     newWindow: (): Promise<unknown> => ipcRenderer.invoke("shell:new-window"),
+    // shell:close-window — closes the SENDER's window (the SPA's ⇧⌘W
+    // binding; NOT the focused-window seam the menu's Close Window rides).
+    // Gated exactly like `shell:new-window`.
+    close: (): Promise<unknown> => ipcRenderer.invoke("shell:close-window"),
   },
   accent: {
     set: (hex: string): Promise<unknown> => ipcRenderer.invoke("accent:set", hex),

@@ -492,7 +492,7 @@ export function Sidebar({
       lastKillWindowRef.current = null;
     },
     onError: (err) => {
-      addToast(err.message || "Failed to kill window");
+      addToast(err.message || "Failed to kill tab");
     },
   });
 
@@ -606,7 +606,7 @@ export function Sidebar({
       preMoveEntriesRef.current = null;
     },
     onError: (err) => {
-      addToast(err.message || "Failed to move window");
+      addToast(err.message || "Failed to move tab");
     },
   });
 
@@ -633,7 +633,7 @@ export function Sidebar({
       lastMoveToSessionRef.current = null;
     },
     onError: (err) => {
-      addToast(err.message || "Failed to move window to session");
+      addToast(err.message || "Failed to move tab to session");
     },
   });
 
@@ -782,7 +782,7 @@ export function Sidebar({
 
     // Cross-server drop rejection.
     if (data.server && data.server !== server) {
-      addToast("Moving windows across tmux servers isn't supported yet");
+      addToast("Moving tabs across tmux servers isn't supported yet");
       return;
     }
     if (data.session !== sessionName || data.index === windowIndex) return;
@@ -828,7 +828,7 @@ export function Sidebar({
 
     // Cross-server drop rejection.
     if (data.server && data.server !== server) {
-      addToast("Moving windows across tmux servers isn't supported yet");
+      addToast("Moving tabs across tmux servers isn't supported yet");
       return;
     }
     if (data.session === sessionName) return;
@@ -1541,16 +1541,16 @@ export function Sidebar({
 
   const handleWindowColorChange = useCallback((server: string, _session: string, windowId: string, c: string | null) => {
     setWindowColorApi(server, windowId, c).catch((err) =>
-      addToast(err.message || "Failed to set window color"),
+      addToast(err.message || "Failed to set tab color"),
     );
   }, [addToast]);
 
   // Persist a window's marker state. The combined Label picker (opened from the
-  // left-edge zone or the `Window: Label` palette action) passes the EXACT state
+  // left-edge zone or the `Tab: Label` palette action) passes the EXACT state
   // the user picked — this only writes it. Mirrors handleWindowColorChange.
   const handleWindowMarkerChange = useCallback((server: string, _session: string, windowId: string, marker: string | null) => {
     setWindowMarkerApi(server, windowId, marker).catch((err) =>
-      addToast(err.message || "Failed to set window marker"),
+      addToast(err.message || "Failed to set tab marker"),
     );
   }, [addToast]);
 
@@ -1559,7 +1559,7 @@ export function Sidebar({
   // handleWindowMarkerChange.
   const handleWindowFlairChange = useCallback((server: string, _session: string, windowId: string, flair: string | null) => {
     setWindowFlairApi(server, windowId, flair).catch((err) =>
-      addToast(err.message || "Failed to set window flair"),
+      addToast(err.message || "Failed to set tab flair"),
     );
   }, [addToast]);
 

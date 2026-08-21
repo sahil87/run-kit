@@ -331,7 +331,7 @@ export function SwatchPopover({
     return () => document.removeEventListener("keydown", handleKeyDown, true);
   }, [onClose]);
 
-  // Autofocus the listbox on mount — the `Window: Label` palette action is
+  // Autofocus the listbox on mount — the `Tab: Label` palette action is
   // the only keyboard path to the bands, and arrow keys are dead until the
   // listbox has focus.
   useEffect(() => {

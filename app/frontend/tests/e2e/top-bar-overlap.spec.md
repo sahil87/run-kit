@@ -50,7 +50,7 @@ at this width.
 
 **Steps:**
 1. Resolve the long-named window's id; set a 700×800 viewport; navigate to it.
-2. Assert the `Breadcrumb` nav and the `Rename window <long>` heading are visible.
+2. Assert the `Breadcrumb` nav and the `Rename tab <long>` heading are visible.
 3. Compute both bounding boxes and assert they do NOT intersect (the overlap
    regression assertion).
 4. Locate the session crumb — since 260813-kvk7 a NON-interactive static chip

@@ -31,11 +31,11 @@ describe("PopupTitleBar", () => {
   it("renders the right-edge cluster when supplied", () => {
     render(
       <PopupTitleBar right={<button aria-label="docs">i</button>}>
-        Window @31
+        Tab @31
       </PopupTitleBar>,
     );
     const bar = screen.getByTestId("popup-title-bar");
-    expect(bar).toHaveTextContent("Window @31");
+    expect(bar).toHaveTextContent("Tab @31");
     expect(screen.getByRole("button", { name: "docs" })).toBeTruthy();
     expect(bar.querySelector(".ml-auto")).not.toBeNull();
   });

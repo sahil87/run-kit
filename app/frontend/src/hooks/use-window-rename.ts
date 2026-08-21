@@ -42,7 +42,7 @@ export function useWindowRename(): {
       if (last) clearRename(last.server, last.session, last.windowId);
     },
     onError: (err) => {
-      addToast(err.message || "Failed to rename window");
+      addToast(err.message || "Failed to rename tab");
     },
     onSettled: () => {
       const last = lastRenameRef.current;

@@ -14,7 +14,7 @@ type Props = {
   onNavigate?: (href: string) => void;
   action?: DropdownAction;
   /** Optional SECOND leading action, rendered below `action` (e.g. the
-   *  window switcher's `+ New Agent` beside `+ New Window`). Only honored when
+   *  tab switcher's `+ New Agent` beside `+ New Tab`). Only honored when
    *  `action` is also present. Every other call site passes just `action` and
    *  keeps its single-action behavior unchanged. */
   secondaryAction?: DropdownAction;

@@ -146,7 +146,7 @@ export function PinPopover({ server, windowId, boards, boardsLoading = false, is
     <div
       ref={containerRef}
       role="dialog"
-      aria-label="Pin window to board"
+      aria-label="Pin tab to board"
       className="absolute right-0 top-full z-50 mt-1 bg-bg-primary border border-border rounded-md shadow-lg py-1 min-w-[160px] max-w-[220px]"
     >
       {/* Navigation affordance (co9z): when this window is pinned to a board,

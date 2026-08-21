@@ -186,14 +186,14 @@ export function CreateSessionDialog({ sessions, onClose, defaultPath, mode = "se
     // flow sets no optimistic ghost, so there is no ghost label to derive.
     action: (srv, targetSession, cwd) => createWindow(srv, targetSession, undefined, cwd),
     onError: (err) => {
-      setError(err.message || "Failed to create window");
+      setError(err.message || "Failed to create tab");
     },
   });
 
   function handleCreate() {
     if (mode === "window") {
       if (!session) {
-        setError("A target session is required to create a window");
+        setError("A target session is required to create a tab");
         return;
       }
       setError("");
@@ -216,7 +216,7 @@ export function CreateSessionDialog({ sessions, onClose, defaultPath, mode = "se
     onClose();
   }
 
-  const dialogTitle = mode === "window" ? "Create window at folder" : "Create session";
+  const dialogTitle = mode === "window" ? "Create tab at folder" : "Create session";
   const isCreateDisabled = mode === "window"
     ? !session
     : (!finalName && !path.trim()) || nameCollision;

@@ -60,7 +60,7 @@
  * item (which is also why the Window menu is a custom template and NOT
  * `role: 'windowMenu'` — that role auto-binds ⌘W). New Window is likewise
  * accelerator-less BY DESIGN — ⌘N stays in the fall-through set for the
- * follow-up change's SPA-bridge binding. The Window menu also carries a
+ * SPA registry's new-app-window binding (shell:new-window). The Window menu also carries a
  * manual per-window list section (the custom template forgoes AppKit's
  * automatic window list), rebuilt on window open/close/focus/title changes.
  *
@@ -221,8 +221,8 @@ function fileMenu(callbacks: MenuCallbacks): MenuItemConstructorOptions {
     label: "File",
     submenu: [
       {
-        // Accelerator-less by design — ⌘N/Ctrl+N is the follow-up change's
-        // SPA-bridge claim; the shell claims no accelerator for New Window.
+        // Accelerator-less by design — ⌘N is the SPA registry's new-app-window
+        // binding (shell:new-window); the shell claims no accelerator for New Window.
         label: "New Window",
         click: () => callbacks.onNewWindow(),
       },
@@ -405,8 +405,8 @@ function macWindowMenu(
       { role: "zoom" },
       { type: "separator" },
       {
-        // Accelerator-less by design: ⌘N is the follow-up change's SPA-bridge
-        // claim (the shell claims no accelerator for New Window).
+        // Accelerator-less by design: ⌘N is the SPA registry's new-app-window
+        // binding via shell:new-window (the shell claims no accelerator here).
         label: "New Window",
         click: () => callbacks.onNewWindow(),
       },

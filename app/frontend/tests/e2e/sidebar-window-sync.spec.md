@@ -115,7 +115,7 @@ higher-level, user-visible contract.
 4. Hover the `kill-win-<ts>` row — the icon cluster is
    `pointer-events-none` at rest (stray-click hardening), so group-hover
    must restore interactivity before the kill button can receive the click.
-5. Ctrl+click the sidebar's `Kill window kill-win-<ts>` button — performs
+5. Ctrl+click the sidebar's `Kill tab kill-win-<ts>` button — performs
    an instant optimistic kill, bypassing the confirm dialog (the dialog
    path relies on a `killTargetRef` that is cleared synchronously, which
    makes this edge harder to exercise deterministically via the UI).

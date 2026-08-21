@@ -131,7 +131,7 @@ test.describe("Sidebar Host & Window Panels (visibility-gated, iha5)", () => {
 
       // Before selecting a window — shows fallback text
       await expect(
-        panePanel.locator("text=No window selected"),
+        panePanel.locator("text=No tab selected"),
       ).toBeVisible();
 
       // Click the session's "Navigate to" button — selects the first window.
@@ -222,7 +222,7 @@ test.describe("Sidebar Host & Window Panels (visibility-gated, iha5)", () => {
         const panePanel = paneButton.locator("../..");
         await expect(panePanel.locator("text=/^tmx /")).toBeVisible({ timeout: 10_000 });
         await expect(panePanel.locator("text=/^cwd /")).toBeVisible();
-        await expect(panePanel.locator("text=No window selected")).not.toBeVisible();
+        await expect(panePanel.locator("text=No tab selected")).not.toBeVisible();
 
         // HOST panel — no currentServer on the board route, so the panel falls
         // back to the host-global metrics broadcast instead of "No metrics".

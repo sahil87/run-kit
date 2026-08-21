@@ -137,8 +137,9 @@ export const KEYBINDINGS_STORAGE_KEY = "runkit-keybindings";
 /**
  * The default registry. Order is display order within each overlay group.
  *
- * Shifted tier — the nine starter actions (intake §1, canonical letters):
- * N/T/W new-session/new-window/close-window, H/L prev/next window, [/] back/
+ * Shifted tier — the starter actions (canonical letters):
+ * N/T/W new-session/new-tab/close-tab (plus the keyless-base app-window
+ * pair new/close-app-window), H/L prev/next tab, [/] back/
  * forward, A next-waiting-agent, / the cheatsheet — joined by E compose-strip
  * toggle and O open-last-used (260801-sm6g), , settings (260801-mqim), and the
  * split pair (260807-rbx5: \/− on Win/Linux, ⌘D/⇧⌘D on mac via `macCode`).
@@ -146,13 +147,16 @@ export const KEYBINDINGS_STORAGE_KEY = "runkit-keybindings";
  * decide per-route applicability by handler presence.
  *
  * macOS demotions (260730-n789 — letters constant, modifier varies; the split
- * pair's and compose-toggle's `macCode`s are the deliberate code exceptions):
+ * pair's, compose-toggle's, and create-session's `macCode`s are the
+ * deliberate code exceptions):
  * [/]// and the VS Code-aligned ⌘B sidebar keycap default to the unshifted ⌘
  * tier on every mac host (interceptable in browsers — ⌘B bold is
  * the same class as the shipped ⌘[/⌘]/⌘/ and ⌘D interceptions, not
  * reserved like ⌘N/T/W); the positional surface digits (⌘1 tty / ⌘2 code /
- * ⌘3 web) and ⌘I compose demote the same way. N/T/W and , demote only inside
- * the desktop shell (`macShellOnly` — mac browsers reserve N/T/W even
+ * ⌘3 web) and ⌘I compose demote the same way. T/W and , demote only inside
+ * the desktop shell, where N/T/W also refine their CODES (`macCode`):
+ * create-session rides ⇧⌘T, and the two keyless-base app-window actions
+ * spend ⌘N/⇧⌘W there (`macShellOnly` — mac browsers reserve N/T/W even
  * shifted, so those stay palette-only there; ⌘, is browser Preferences, so
  * settings keeps the shifted default outside the shell). H/L/A stay
  * shifted everywhere: ⌘H is macOS
@@ -173,9 +177,27 @@ export const KEYBINDINGS_STORAGE_KEY = "runkit-keybindings";
  */
 export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // — run-kit shifted tier (global) —
-  { actionId: "create-session", code: "KeyN", tier: "shifted", macTier: "cmd", macShellOnly: true, scope: "global", kind: "builtin", label: "New session", description: "create a tmux session", mapLabel: "new session" },
-  { actionId: "create-window", code: "KeyT", tier: "shifted", macTier: "cmd", macShellOnly: true, scope: "global", kind: "builtin", label: "New window", description: "tab-analog in current session", mapLabel: "new window" },
-  { actionId: "kill-window", code: "KeyW", tier: "shifted", macTier: "cmd", macShellOnly: true, scope: "global", kind: "builtin", label: "Close window", description: "confirm flow", mapLabel: "close win" },
+  // The mac-shell N/T/W map follows the universal tab-model convention
+  // (Chrome/Safari/iTerm2): unshifted ⌘ = the tab/tmux level, shifted = the
+  // bigger variant. ⌘T new tab (create-window, unchanged), ⇧⌘T new session
+  // (create-session's `macCode` — the split-pair precedent: tier-disjoint
+  // from create-window on one code), ⌘W close tab (kill-window, unchanged),
+  // with the app-window pair beside them (⌘N new / ⇧⌘W close — the two
+  // keyless-base bridge actions below). Win/Linux keeps ⇧Ctrl+N/T/W
+  // untouched (plain Ctrl belongs to the pane).
+  { actionId: "create-session", code: "KeyN", tier: "shifted", macCode: "KeyT", macShellOnly: true, scope: "global", kind: "builtin", label: "New session", description: "create a tmux session", mapLabel: "new session" },
+  { actionId: "create-window", code: "KeyT", tier: "shifted", macTier: "cmd", macShellOnly: true, scope: "global", kind: "builtin", label: "New tab", description: "in the current session", mapLabel: "new tab" },
+  { actionId: "kill-window", code: "KeyW", tier: "shifted", macTier: "cmd", macShellOnly: true, scope: "global", kind: "builtin", label: "Close tab", description: "confirm flow", mapLabel: "close tab" },
+  // The app-window pair (260820-lfla) — SPA bindings over the shell's
+  // `shell:new-window` / `shell:close-window` bridge channels, NEVER shell
+  // menu accelerators (menu.ts's unshifted-⌘ fall-through rule is
+  // inviolable; both menu items stay accelerator-less). Keyless base (the
+  // macro precedent): unbound on Win/Linux (New Window stays menu-only
+  // there) and in a mac browser (⌘N is browser-reserved claim data there;
+  // the handler is bridge-gated absent everywhere outside the shell) — the
+  // `macCode` refinement spends the chord only inside the mac shell.
+  { actionId: "new-app-window", code: "", tier: "shifted", macCode: "KeyN", macTier: "cmd", macShellOnly: true, scope: "global", kind: "builtin", label: "New app window", description: "duplicate this desktop window", mapLabel: "new app" },
+  { actionId: "close-app-window", code: "", tier: "shifted", macCode: "KeyW", macShellOnly: true, scope: "global", kind: "builtin", label: "Close app window", description: "close this desktop window", mapLabel: "close app" },
   // ⇧Ctrl+E compose base / ⌘I mac refinement (macCode + macTier — the
   // split-pair precedent, one host gate refining code and tier together). E
   // stays the win/linux keycap: C is the terminal-copy claim, T is
@@ -189,7 +211,7 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // terminal-route-only; the board/server routes mount no handler.
   { actionId: "open-last-used", code: "KeyO", tier: "shifted", scope: "terminal", kind: "builtin", label: "Open in last-used app", description: "re-run the last Open target", mapLabel: "open" },
   // Split pane (260807-rbx5) — per-platform pairs, reusing the
-  // `Window: Split Horizontal|Vertical` palette bodies. Direction semantics
+  // `Tab: Split Horizontal|Vertical` palette bodies. Direction semantics
   // follow the top-bar chip (260806-2x2h): horizontal = side-by-side
   // (tmux `-h`), the primary/default split. Terminal scope (the view-cycle
   // precedent — the palette bodies exist only on window routes).
@@ -207,8 +229,8 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // (the stacked divider). Both bound on every host; both rebindable.
   { actionId: "split-horizontal", code: "Backslash", tier: "shifted", macCode: "KeyD", macTier: "cmd", scope: "terminal", kind: "builtin", label: "Split horizontal", description: "split the pane side-by-side", mapLabel: "split h", ttyOnly: true },
   { actionId: "split-vertical", code: "Minus", tier: "shifted", macCode: "KeyD", scope: "terminal", kind: "builtin", label: "Split vertical", description: "split the pane stacked", mapLabel: "split v", ttyOnly: true },
-  { actionId: "window-prev", code: "KeyH", tier: "shifted", scope: "global", kind: "builtin", label: "Previous window", mapLabel: "prev win" },
-  { actionId: "window-next", code: "KeyL", tier: "shifted", scope: "global", kind: "builtin", label: "Next window", mapLabel: "next win" },
+  { actionId: "window-prev", code: "KeyH", tier: "shifted", scope: "global", kind: "builtin", label: "Previous tab", mapLabel: "prev tab" },
+  { actionId: "window-next", code: "KeyL", tier: "shifted", scope: "global", kind: "builtin", label: "Next tab", mapLabel: "next tab" },
   { actionId: "go-back", code: "BracketLeft", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Back", description: "history", mapLabel: "back" },
   { actionId: "go-forward", code: "BracketRight", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Forward", description: "history", mapLabel: "fwd" },
   { actionId: "agent-next-waiting", code: "KeyA", tier: "shifted", scope: "global", kind: "builtin", label: "Next waiting agent", description: "jump to an agent blocked on input", mapLabel: "agent" },
@@ -396,6 +418,10 @@ const MAC_BROWSER_CMD_CLAIMS: ClaimedKey[] = [
 export function claimedKeys(platform: BindingPlatform, shell: boolean): ClaimedKey[] {
   const claims: ClaimedKey[] = [
     ...MAC_SCREENSHOT_CLAIMS,
+    // ⌘` — macOS "Move focus to next window" (system-wide, so both hosts; the
+    // MAC_SCREENSHOT_CLAIMS precedent). Display + capture-warning only —
+    // `focus-hop`'s ⌃` is the ctrl tier, disjoint.
+    { code: "Backquote", tier: "cmd", label: "cycle app windows", owner: "system", platform: "mac" },
     { code: "KeyR", tier: "shifted", label: "reload", owner: "shell" },
     { code: "KeyI", tier: "shifted", label: "devtools", owner: "shell", platform: "other" },
     { code: "KeyQ", tier: "shifted", label: "logout", owner: "system", platform: "mac" },
@@ -507,7 +533,7 @@ export function hasReclaimableMatch(
  *    xterm would emit the Ctrl-char; refusing costs the pane nothing.
  * 2. On macOS ONLY (260730-n789): an enabled CMD-tier match pressed with
  *    METAKEY — ⌘ chords never reach the pane as control bytes, so refusal is
- *    loss-free and lets the demoted ⌘[/⌘]/⌘/ (and shell-host ⌘N/T/W) fire
+ *    loss-free and lets the demoted ⌘[/⌘]/⌘/ (and shell-host ⌘T/⌘W/⌘N) fire
  *    while the terminal owns focus. The metaKey gate is load-bearing:
  *    `matchesCombo`'s cmd tier also accepts plain Ctrl, and mac Ctrl+[ is ESC
  *    — plain-Ctrl chords matching no enabled ctrl-tier binding must ALWAYS

@@ -199,7 +199,7 @@ function SessionRowInner({
           )}
           <CardActionRow
             icon={<PlusIcon />}
-            label="New window"
+            label="New tab"
             testid="row-flyout-create-action"
             onClick={() => onCreateWindow(server, name)}
           />
@@ -389,7 +389,7 @@ function SessionRowInner({
             windows. Hidden at 0 (WaitingBadge renders null). */}
         <WaitingBadge
           count={waitingCount}
-          label={`${waitingCount} window(s) in ${session.name} waiting for input`}
+          label={`${waitingCount} tab(s) in ${session.name} waiting for input`}
           onClick={
             onWaitingBadgeClick
               ? () => onWaitingBadgeClick(server, name)
@@ -437,10 +437,10 @@ function SessionRowInner({
             </button>
           </Tip>
         )}
-        <Tip label="New window">
+        <Tip label="New tab">
           <button
             onClick={() => onCreateWindow(server, name)}
-            aria-label={`New window in ${session.name}`}
+            aria-label={`New tab in ${session.name}`}
             className="text-text-secondary hover:text-text-primary transition-colors px-0.5 min-w-[24px] min-h-[24px] flex items-center justify-center"
           >
             <PlusIcon />

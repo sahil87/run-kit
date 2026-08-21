@@ -183,6 +183,37 @@ export function TileCloseGlyph() {
   );
 }
 
+/** Web back — lucide arrow-left, the web tile URL bar's Back button. */
+export function WebBackGlyph() {
+  return (
+    <ControlGlyph name="web-back">
+      <path d="m12 19-7-7 7-7" />
+      <path d="M19 12H5" />
+    </ControlGlyph>
+  );
+}
+
+/** Web forward — lucide arrow-right, the web tile URL bar's Forward button. */
+export function WebForwardGlyph() {
+  return (
+    <ControlGlyph name="web-forward">
+      <path d="M5 12h14" />
+      <path d="m12 5 7 7-7 7" />
+    </ControlGlyph>
+  );
+}
+
+/** Open external — lucide arrow-up-right ("leave the tile"), the web tile
+ *  URL bar's Open in browser button. */
+export function OpenExternalGlyph() {
+  return (
+    <ControlGlyph name="open-external">
+      <path d="M7 7h10v10" />
+      <path d="M7 17 17 7" />
+    </ControlGlyph>
+  );
+}
+
 /** Refresh — lucide rotate-cw (circular arrow with a top-right arrowhead),
  *  the in-bar RefreshButton glyph. */
 export function RefreshGlyph() {

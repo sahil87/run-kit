@@ -76,7 +76,7 @@ import { singleSelectedServer } from "@/lib/selection";
 import { useSelectionStore } from "@/store/selection-store";
 import { buildServerKillActions } from "@/lib/palette-server-kill";
 import { buildShellServerActions } from "@/lib/palette-shell";
-import { isShell, switchShellServer } from "@/lib/shell";
+import { canCloseShellWindow, canNewShellWindow, closeShellWindow, isShell, newShellWindow, switchShellServer } from "@/lib/shell";
 import { ShellTitlebarStrip } from "@/components/shell-titlebar-strip";
 import { ShellAccentReporter } from "@/components/shell-accent-reporter";
 import { ShellBadgeReporter } from "@/components/shell-badge-reporter";
@@ -315,6 +315,16 @@ function AppLayoutContent() {
   // body through the merged palette list) — no layout-owned overlay state, no
   // `shortcuts-overlay:open` event seam.
   const globalActions = useGlobalPaletteActions();
+
+  // ⌘N / ⇧⌘W app-window chords (260820-lfla) — dispatched at the LAYOUT, not
+  // AppShell/BoardPage, because those route shells never mount on the host
+  // overview or NotFound routes and the app-window pair must work everywhere
+  // the SPA runs. Bridge-gated exactly like the palette bodies: an absent
+  // invoker leaves the entry undefined and the chord falls through untouched.
+  useKeybindingDispatch({
+    "new-app-window": canNewShellWindow() ? () => void newShellWindow() : undefined,
+    "close-app-window": canCloseShellWindow() ? () => void closeShellWindow() : undefined,
+  });
 
   // Zen hide seam (260820-o8cr R2): the zen flag crosses the root-layout
   // boundary through ZenContext; the applies-flag is DERIVED per render from
@@ -1515,7 +1525,7 @@ function AppShell() {
           replace: true,
         });
       }
-      addToast("Window switch didn't confirm — back to the active window", "error");
+      addToast("Tab switch didn't confirm — back to the active tab", "error");
     },
     [navigate, addToast, clearPendingSwitchTracking],
   );
@@ -2056,7 +2066,7 @@ function AppShell() {
       }
     },
     onError: (err) => {
-      addToast(err.message || "Failed to create window");
+      addToast(err.message || "Failed to create tab");
     },
     onSettled: () => {
       ghostWindowIdRef.current = null;
@@ -2170,7 +2180,7 @@ function AppShell() {
     const url = iframeWindowUrl.trim();
     if (!name || !url || !sessionName) return;
     createWindow(server, sessionName, name, undefined, "iframe", url)
-      .catch((err) => addToast(err.message || "Failed to create iframe window"))
+      .catch((err) => addToast(err.message || "Failed to create iframe tab"))
       .finally(() => {
         setShowCreateIframeDialog(false);
         setIframeWindowName("");
@@ -2351,19 +2361,19 @@ function AppShell() {
         ? [
             {
               id: "create-window",
-              label: "Window: Create",
+              label: "Tab: Create",
               onSelect: () => {
                 if (sessionName) handleCreateWindow(sessionName);
               },
             },
             {
               id: "create-window-at-folder",
-              label: "Window: Create at Folder",
+              label: "Tab: Create at Folder",
               onSelect: () => setShowCreateWindowAtFolderDialog(true),
             },
             {
               id: "create-iframe-window",
-              label: "Window: New Iframe Window",
+              label: "Tab: New Iframe Tab",
               onSelect: () => {
                 setIframeWindowName("");
                 setIframeWindowUrl("");
@@ -2376,7 +2386,7 @@ function AppShell() {
         ? [
             {
               id: "window-set-color",
-              label: "Window: Set Color",
+              label: "Tab: Set Color",
               onSelect: () => setShowColorPicker("window"),
             },
             {
@@ -2384,12 +2394,12 @@ function AppShell() {
               // V): open the combined Label picker (colors + marker) for the
               // current window's sidebar row via the imperative
               // `label-popover:open` event — mirroring the `pin-popover:open`
-              // pattern the "Board: Pin Current Window" action uses. One
-              // interaction model everywhere (hwtr, replacing "Window: Cycle
+              // pattern the "Board: Pin Current Tab" action uses. One
+              // interaction model everywhere (hwtr, replacing "Tab: Cycle
               // Marker"); the picker's keyboard nav makes this a complete
               // keyboard path.
               id: "window-label",
-              label: "Window: Label",
+              label: "Tab: Label",
               onSelect: () => {
                 if (!currentWindow) return;
                 document.dispatchEvent(
@@ -2409,7 +2419,7 @@ function AppShell() {
               ? [
                   {
                     id: "window-unmark-operator",
-                    label: "Window: Unmark Operator",
+                    label: "Tab: Unmark Operator",
                     onSelect: () => {
                       setWindowRole(server, currentWindow.windowId, null).catch((err) =>
                         addToast(err.message || "Failed to unmark operator"),
@@ -2420,10 +2430,10 @@ function AppShell() {
               : [
                   {
                     id: "window-mark-operator",
-                    label: "Window: Mark as Operator",
+                    label: "Tab: Mark as Operator",
                     onSelect: () => {
                       setWindowRole(server, currentWindow.windowId, "operator").catch((err) =>
-                        addToast(err.message || "Failed to mark window as operator"),
+                        addToast(err.message || "Failed to mark tab as operator"),
                       );
                     },
                   },
@@ -2439,7 +2449,7 @@ function AppShell() {
               ? [
                   {
                     id: "window-move-up",
-                    label: "Window: Move up",
+                    label: "Tab: Move up",
                     onSelect: () => {
                       const targetIndex = computeWindowMoveTarget(currentWindow.index, -1, minWindowIndex, maxWindowIndex);
                       if (sessionName && targetIndex !== null) {
@@ -2453,7 +2463,7 @@ function AppShell() {
                               search: (prev) => prev,
                             });
                           })
-                          .catch((err) => addToast(err.message || "Failed to move window"));
+                          .catch((err) => addToast(err.message || "Failed to move tab"));
                       }
                     },
                   },
@@ -2463,7 +2473,7 @@ function AppShell() {
               ? [
                   {
                     id: "window-move-down",
-                    label: "Window: Move down",
+                    label: "Tab: Move down",
                     onSelect: () => {
                       const targetIndex = computeWindowMoveTarget(currentWindow.index, 1, minWindowIndex, maxWindowIndex);
                       if (sessionName && targetIndex !== null) {
@@ -2477,7 +2487,7 @@ function AppShell() {
                               search: (prev) => prev,
                             });
                           })
-                          .catch((err) => addToast(err.message || "Failed to move window"));
+                          .catch((err) => addToast(err.message || "Failed to move tab"));
                       }
                     },
                   },
@@ -2488,7 +2498,7 @@ function AppShell() {
                   .filter((s) => s.name !== sessionName)
                   .map((s) => ({
                     id: `move-window-to-session-${s.name}`,
-                    label: `Window: Move to ${s.name}`,
+                    label: `Tab: Move to ${s.name}`,
                     onSelect: () => {
                       if (sessionName) {
                         moveWindowToSession(server, currentWindow.windowId, s.name)
@@ -2496,7 +2506,7 @@ function AppShell() {
                             navigate({ to: "/$server", params: { server } });
                           })
                           .catch((err) => {
-                            addToast(err.message || "Failed to move window to session");
+                            addToast(err.message || "Failed to move tab to session");
                           });
                       }
                     },
@@ -2504,7 +2514,7 @@ function AppShell() {
               : []),
             {
               id: "rename-window",
-              label: "Window: Rename",
+              label: "Tab: Rename",
               onSelect: () => {
                 // Rewired (260703-5ilm) to trigger the centered heading's inline
                 // edit via a CustomEvent (mirrors `theme-selector:open`), rather
@@ -2517,7 +2527,7 @@ function AppShell() {
             },
             {
               id: "kill-window",
-              label: "Window: Kill",
+              label: "Tab: Kill",
               onSelect: dialogs.openKillConfirm,
             },
             // Split direction booleans match the top-bar chip's semantics
@@ -2526,14 +2536,14 @@ function AppShell() {
             // first (default-first, mirroring the SplitControl menus).
             {
               id: "split-horizontal",
-              label: "Window: Split Horizontal",
+              label: "Tab: Split Horizontal",
               onSelect: () => {
                 if (sessionName) executeSplit(server, currentWindow.windowId, true, currentWindow.worktreePath);
               },
             },
             {
               id: "split-vertical",
-              label: "Window: Split Vertical",
+              label: "Tab: Split Vertical",
               onSelect: () => {
                 if (sessionName) executeSplit(server, currentWindow.windowId, false, currentWindow.worktreePath);
               },
@@ -2560,13 +2570,13 @@ function AppShell() {
   // `/$server/...`, so the board-route-only entries (Leave Board View, Cycle
   // Pane Focus) live in BoardPage's own registered route list. Here we provide
   // the entries that make sense from a server route: Switch to <board>, Pin
-  // Current Window, and Unpin Current Window when the current window is
+  // Current Tab, and Unpin Current Tab when the current window is
   // pinned.
   const { boards: boardSummaries } = useBoards();
   const { pinnedToBoard } = useWindowPins();
   const { pin: pinPinAction, unpin: unpinPinAction } = usePinActions();
 
-  // Boards the current window is currently pinned to (for Unpin Current Window
+  // Boards the current window is currently pinned to (for Unpin Current Tab
   // visibility + bulk-unpin behavior). Recomputed when the cross-board pin map
   // updates via SSE.
   const currentWindowPinnedBoards = useMemo(() => {
@@ -2590,8 +2600,8 @@ function AppShell() {
     if (sessionName && currentWindow && server) {
       const win = currentWindow;
       const srv = server;
-      // Direct-pin palette actions (`Pin: Current Window to <board>`) + the
-      // `Pin: Current Window to new board…` variant, from the pure
+      // Direct-pin palette actions (`Pin: Current Tab to <board>`) + the
+      // `Pin: Current Tab to new board…` variant, from the pure
       // buildPinActions builder (lib/palette-pin.ts). These close the
       // Constitution V keyboard-first gap: a direct pin is Cmd+K → type →
       // Enter, with the §2c success toast as feedback. They SUPERSEDE the old
@@ -2615,13 +2625,13 @@ function AppShell() {
         ),
       );
 
-      // Unpin Current Window — visible only when the current window is pinned
+      // Unpin Current Tab — visible only when the current window is pinned
       // to ≥1 board. v1 semantics: unpin from ALL boards in parallel (simpler
       // than a multi-board picker; users can re-pin via the popover if needed).
       if (currentWindowPinnedBoards.length > 0) {
         conditional.push({
           id: "board-unpin-current",
-          label: "Board: Unpin Current Window",
+          label: "Board: Unpin Current Tab",
           onSelect: () => {
             for (const board of currentWindowPinnedBoards) {
               unpinPinAction(srv, win.windowId, board);
@@ -2697,7 +2707,7 @@ function AppShell() {
         {
           success: "Moved",
           failure: "Moved",
-          noun: "window",
+          noun: "tab",
           qualifier: ` to ${targetSession}`,
         },
         keys.length,
@@ -2718,7 +2728,7 @@ function AppShell() {
           killWindow(targetServer, windowId),
       );
       const { message, failed } = batchToast(
-        { success: "Closed", failure: "Closed", noun: "window" },
+        { success: "Closed", failure: "Closed", noun: "tab" },
         keys.length,
         result,
       );
@@ -3332,7 +3342,7 @@ function AppShell() {
   );
 
   // Per-window switch entries — one per window across every session. Grouped
-  // under the "Window:" family (renamed from the old "Terminal:" prefix) to
+  // under the "Tab:" family (user-facing copy calls tmux windows "tabs") to
   // surface the keyboard switch path (constitution V). Reuses navigateToWindow
   // (URL nav + selectWindow + mobile-close + pendingClickRef writeback
   // suppression); the `(current)` suffix marks the URL-active window, mirroring
@@ -3340,7 +3350,7 @@ function AppShell() {
   const windowSwitchActions: PaletteAction[] = useMemo(
     () => flatWindows.map((fw) => ({
       id: `window-switch-${fw.session}-${fw.window.windowId}`,
-      label: `Window: Switch to ${fw.session} › ${fw.window.name}${
+      label: `Tab: Switch to ${fw.session} › ${fw.window.name}${
         fw.window.windowId === windowParam ? " (current)" : ""
       }`,
       onSelect: () => navigateToWindow(fw.window.windowId),
@@ -3472,7 +3482,7 @@ function AppShell() {
 
   const { actions: pushActions } = usePushSubscription();
 
-  // `Window: Previous` / `Window: Next` (R8) — palette parity for the
+  // `Tab: Previous` / `Tab: Next` (R8) — palette parity for the
   // `window-prev`/`window-next` chords: the SAME modulo cycle over the
   // current session's windows in sidebar order with wraparound, via the rich
   // `navigateToWindow` path (tmux align + transition + writeback
@@ -3489,8 +3499,8 @@ function AppShell() {
       navigateToWindow(windows[(idx + delta + windows.length) % windows.length].windowId);
     };
     return [
-      { id: "window-prev", label: "Window: Previous", onSelect: cycleWindow(-1) },
-      { id: "window-next", label: "Window: Next", onSelect: cycleWindow(1) },
+      { id: "window-prev", label: "Tab: Previous", onSelect: cycleWindow(-1) },
+      { id: "window-next", label: "Tab: Next", onSelect: cycleWindow(1) },
     ];
   }, [currentSession, windowParam, navigateToWindow]);
 
@@ -3551,7 +3561,7 @@ function AppShell() {
         ? undefined
         : fromPalette(id);
     // `window-prev`/`window-next` resolve through their palette bodies — the
-    // `Window: Previous` / `Window: Next` entries own the modulo cycle over
+    // `Tab: Previous` / `Tab: Next` entries own the modulo cycle over
     // the current session's sidebar order (see `windowCycleActions`).
     // Macro chords (260730-hbyh): palette targets reuse the palette body via
     // the same `fromPalette` lookup (an absent action → no handler → the
@@ -3622,8 +3632,12 @@ function AppShell() {
       // ⇧⌘,/⌘, settings (260801-mqim) — the palette body (`Settings: Open` →
       // `openSettings`); a re-fire while the dialog is open is a no-op.
       "settings-open": fromPalette("settings-open"),
+      // ⌘N/⇧⌘W app-window chords are NOT dispatched here — the pair is owned
+      // by the root layout's dispatcher (it must fire on the host overview and
+      // NotFound routes, which mount no AppShell/BoardPage). The `App: New
+      // Window` / `App: Close Window` palette bodies stay layout-global.
       // Split pane (260807-rbx5): ⌘D/⇧⌘D on mac, ⇧Ctrl+\/⇧Ctrl+- on
-      // Win/Linux — the `Window: Split Horizontal` / `Window: Split Vertical`
+      // Win/Linux — the `Tab: Split Horizontal` / `Tab: Split Vertical`
       // palette bodies. The palette block is gated on a current session +
       // window, so on non-window routes `fromPalette` yields undefined and
       // the chord falls through untouched (BoardPage mounts neither — splits
@@ -3635,7 +3649,7 @@ function AppShell() {
       // count), so the chord falls through per dispatcher rule 3 (no
       // preventDefault) when e.g. the code tile owns focus. The gate consults
       // the flag, never a hardcoded actionId list; PALETTE invocation is
-      // unaffected (the gate applies to chords, not the `Window: Split …`
+      // unaffected (the gate applies to chords, not the `Tab: Split …`
       // rows). The tty-side path is untouched — `shouldRefuseTerminalChord`
       // still bounces the chord out of the xterm pane to this dispatcher.
       "split-horizontal": ttyGated("split-horizontal"),
@@ -4071,7 +4085,7 @@ function AppShell() {
               className="rk-window-switch-mask"
               role="status"
               aria-live="polite"
-              aria-label="Switching window"
+              aria-label="Switching tab"
             >
               <LogoSpinner size={48} />
             </div>
@@ -4239,7 +4253,7 @@ function AppShell() {
       )}
 
       {showCreateIframeDialog && sessionName && (
-        <Dialog title="New iframe window" onClose={() => { setShowCreateIframeDialog(false); setIframeWindowName(""); setIframeWindowUrl(""); }}>
+        <Dialog title="New iframe tab" onClose={() => { setShowCreateIframeDialog(false); setIframeWindowName(""); setIframeWindowUrl(""); }}>
           <input
             autoFocus
             type="text"
@@ -4253,8 +4267,8 @@ function AppShell() {
                 next?.focus();
               }
             }}
-            aria-label="Window name"
-            placeholder="Window name..."
+            aria-label="Tab name"
+            placeholder="Tab name..."
             className="w-full bg-transparent text-text-primary p-2 border border-border rounded outline-none placeholder:text-text-secondary"
           />
           <input
@@ -4300,9 +4314,9 @@ function AppShell() {
       )}
 
       {dialogs.showKillConfirm && (
-        <Dialog title="Kill window?" onClose={dialogs.closeKillConfirm}>
+        <Dialog title="Kill tab?" onClose={dialogs.closeKillConfirm}>
           <p className="text-text-secondary mb-2.5">
-            Kill window <strong>{displayName}</strong>? This cannot be undone.
+            Kill tab <strong>{displayName}</strong>? This cannot be undone.
           </p>
           <div className="flex gap-2">
             <button
@@ -4324,7 +4338,7 @@ function AppShell() {
       {dialogs.showKillSessionConfirm && (
         <Dialog title="Kill session?" onClose={dialogs.closeKillSessionConfirm}>
           <p className="text-text-secondary mb-2.5">
-            Kill session <strong>{displaySession}</strong> and all its windows? This cannot be undone.
+            Kill session <strong>{displaySession}</strong> and all its tabs? This cannot be undone.
           </p>
           <div className="flex gap-2">
             <button
@@ -4380,7 +4394,7 @@ function AppShell() {
                     );
                   } else if (showColorPicker === "window" && sessionName && currentWindow) {
                     setWindowColorApi(server, currentWindow.windowId, c).catch((err) =>
-                      addToast(err.message || "Failed to set window color"),
+                      addToast(err.message || "Failed to set tab color"),
                     );
                   }
                 }}

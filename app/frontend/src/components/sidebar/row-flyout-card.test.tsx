@@ -141,7 +141,7 @@ describe("RowFlyout card content", () => {
     expect(card).toBeInTheDocument();
     const bar = screen.getByTestId("popup-title-bar");
     // Identity title (degraded form — the fixture carries no panes).
-    expect(bar).toHaveTextContent("Window @0");
+    expect(bar).toHaveTextContent("Tab @0");
     // The docs affordance rides the bar's right edge.
     const docs = screen.getByTestId("row-flyout-docs-link");
     expect(bar).toContainElement(docs);
@@ -154,7 +154,7 @@ describe("RowFlyout card content", () => {
     expect(label).toBeUndefined();
   });
 
-  it("composes the full identity title — `Window @N · pane %N · N panes`", () => {
+  it("composes the full identity title — `Tab @N · pane %N · N panes`", () => {
     renderOpen(
       makeWindowWithPanes({
         windowId: "@31",
@@ -165,7 +165,7 @@ describe("RowFlyout card content", () => {
       }),
     );
     const bar = screen.getByTestId("popup-title-bar");
-    expect(bar).toHaveTextContent("Window @31 · pane %425 · 2 panes");
+    expect(bar).toHaveTextContent("Tab @31 · pane %425 · 2 panes");
     // Handles primary, literals secondary.
     expect(bar.querySelector("span")?.className).toContain("text-text-primary");
     const secondary = Array.from(bar.querySelectorAll("span")).find((s) =>
@@ -176,12 +176,12 @@ describe("RowFlyout card content", () => {
 
   it("uses the singular `1 pane`", () => {
     renderOpen(makeWindowWithPanes({ windowId: "@31" }));
-    expect(screen.getByTestId("popup-title-bar")).toHaveTextContent("Window @31 · pane %5 · 1 pane");
+    expect(screen.getByTestId("popup-title-bar")).toHaveTextContent("Tab @31 · pane %5 · 1 pane");
   });
 
-  it("degrades to `Window @N` alone when panes are absent, and drops only the pane segment when none is active", () => {
+  it("degrades to `Tab @N` alone when panes are absent, and drops only the pane segment when none is active", () => {
     renderOpen(makeWindow({ windowId: "@31" }));
-    expect(screen.getByTestId("popup-title-bar")).toHaveTextContent("Window @31");
+    expect(screen.getByTestId("popup-title-bar")).toHaveTextContent("Tab @31");
     expect(screen.getByTestId("popup-title-bar")).not.toHaveTextContent("pane");
 
     cleanup();
@@ -194,7 +194,7 @@ describe("RowFlyout card content", () => {
         ],
       }),
     );
-    expect(screen.getByTestId("popup-title-bar")).toHaveTextContent("Window @31 · 2 panes");
+    expect(screen.getByTestId("popup-title-bar")).toHaveTextContent("Tab @31 · 2 panes");
   });
 
   it("notch fill follows the band: inset inside the title bar, card surface below", () => {
@@ -404,7 +404,7 @@ describe("Fork action row (260806-s4av)", () => {
     expect(fork).toHaveAttribute("aria-label", FORK_TOOLTIP);
     expect(FORK_TOOLTIP).toContain("same directory");
     expect(fork).toHaveTextContent("Fork conversation");
-    expect(fork).toHaveTextContent("new window, same directory");
+    expect(fork).toHaveTextContent("new tab, same directory");
     // One affordance, one home: the title bar holds ONLY the docs link.
     const bar = screen.getByTestId("popup-title-bar");
     expect(bar).toContainElement(screen.getByTestId("row-flyout-docs-link"));
@@ -574,7 +574,7 @@ describe("Pin/Kill action rows (ys3q)", () => {
     hoverOpen();
     expect(screen.getByTestId("row-flyout-pin-action")).toHaveTextContent("Pin to board…");
     expect(screen.getByTestId("row-flyout-pin-action")).toHaveTextContent("not pinned");
-    expect(screen.getByTestId("row-flyout-kill-action")).toHaveTextContent("Kill window");
+    expect(screen.getByTestId("row-flyout-kill-action")).toHaveTextContent("Kill tab");
     expect(screen.getByTestId("row-flyout-kill-action")).toHaveTextContent("confirms first");
     // Optional-handler gating covers the Change color… row too: no color seam
     // wired ⇒ no row (and no throw).
@@ -812,7 +812,7 @@ describe("scrub registry (ys3q)", () => {
     act(() => {
       a?.open();
     });
-    expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Window @1");
+    expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Tab @1");
 
     elFromPoint.mockReturnValue(rows[1]);
     const b = scrubTargetAt(0, 0);
@@ -822,13 +822,13 @@ describe("scrub registry (ys3q)", () => {
     });
     // One card, now anchored to B.
     expect(screen.getAllByTestId("row-flyout-card")).toHaveLength(1);
-    expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Window @2");
+    expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Tab @2");
 
     // Non-row element under the finger (header, gap, the card itself) → null,
     // so the caller leaves the current card open (no flicker-close).
     elFromPoint.mockReturnValue(document.body);
     expect(scrubTargetAt(0, 0)).toBeNull();
-    expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Window @2");
+    expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Tab @2");
   });
 });
 
@@ -1053,7 +1053,7 @@ describe("coarseOnly tiers: session/server cards (260817-ve5m)", () => {
       act(() => {
         a?.open();
       });
-      expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Window @1");
+      expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Tab @1");
 
       // Hit-test the SERVER tier's (non-treeitem) root — the shared
       // data-rail-row selector resolves it where the old

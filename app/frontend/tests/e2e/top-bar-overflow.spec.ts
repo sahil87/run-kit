@@ -159,7 +159,7 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     const cluster = page.getByTestId("top-bar-right");
     const chevron = page.getByRole("button", { name: "More controls" });
     const nav = page.getByRole("navigation", { name: "Breadcrumb" });
-    const heading = page.getByRole("button", { name: `Rename window ${WINDOW_NAME}` });
+    const heading = page.getByRole("button", { name: `Rename tab ${WINDOW_NAME}` });
 
     for (const width of WIDTHS) {
       await page.setViewportSize({ width, height: 800 });
@@ -219,7 +219,7 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
   }) => {
     const id = await resolveWindow(page, WINDOW_NAME);
     await gotoWindow(page, id);
-    const heading = page.getByRole("button", { name: `Rename window ${WINDOW_NAME}` });
+    const heading = page.getByRole("button", { name: `Rename tab ${WINDOW_NAME}` });
 
     // At the WIDEST width some in-bar controls must be present — this is the
     // direct M1 regression assertion (pre-fix: 0 in-bar at every width).
@@ -297,7 +297,7 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
   }) => {
     const id = await resolveWindow(page, WINDOW_NAME);
     await gotoWindow(page, id);
-    const heading = page.getByRole("button", { name: `Rename window ${WINDOW_NAME}` });
+    const heading = page.getByRole("button", { name: `Rename tab ${WINDOW_NAME}` });
 
     // At 375px everything overflows — the menu should carry every mapped row.
     await page.setViewportSize({ width: 375, height: 800 });
@@ -332,7 +332,7 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
       menu.getByRole("menuitemcheckbox", { name: "Terminal tile" }),
     ).toHaveCount(0);
     await expect(menu.getByText("View", { exact: true })).toBeVisible();
-    await expect(menu.getByText("Window", { exact: true })).toBeVisible();
+    await expect(menu.getByText("Tab", { exact: true })).toBeVisible();
     await expect(menu.getByText("App", { exact: true })).toBeVisible();
     // The relocated chrome rows (260812-d1at) are menuOnly — ALWAYS in the App
     // section, above the fixed version row. Notifications stay gone (they live
@@ -359,7 +359,7 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     // placement: Help / Keyboard are `menuOnly` App-section rows.
     const id = await resolveWindow(page, WINDOW_NAME);
     await gotoWindow(page, id);
-    const heading = page.getByRole("button", { name: `Rename window ${WINDOW_NAME}` });
+    const heading = page.getByRole("button", { name: `Rename tab ${WINDOW_NAME}` });
     await page.setViewportSize({ width: 1280, height: 800 });
     await expect(heading).toBeVisible({ timeout: 10_000 });
     // The bar carries the surface-toggle group (the L1 head — its "Terminal
@@ -405,7 +405,7 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
   }) => {
     const id = await resolveWindow(page, WINDOW_NAME);
     await gotoWindow(page, id);
-    const heading = page.getByRole("button", { name: `Rename window ${WINDOW_NAME}` });
+    const heading = page.getByRole("button", { name: `Rename tab ${WINDOW_NAME}` });
     await page.setViewportSize({ width: 375, height: 800 });
     await expect(heading).toBeVisible({ timeout: 10_000 });
 
@@ -433,7 +433,7 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     const id = await resolveWindow(page, WINDOW_NAME);
     await gotoWindow(page, id);
-    const heading = page.getByRole("button", { name: `Rename window ${WINDOW_NAME}` });
+    const heading = page.getByRole("button", { name: `Rename tab ${WINDOW_NAME}` });
     await page.setViewportSize({ width: 375, height: 800 });
     await expect(heading).toBeVisible({ timeout: 10_000 });
 
@@ -459,7 +459,7 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     // above).
     const id = await resolveWindow(page, WINDOW_NAME);
     await gotoWindow(page, id);
-    const heading = page.getByRole("button", { name: `Rename window ${WINDOW_NAME}` });
+    const heading = page.getByRole("button", { name: `Rename tab ${WINDOW_NAME}` });
     await page.setViewportSize({ width: 375, height: 800 });
     await expect(heading).toBeVisible({ timeout: 10_000 });
 
@@ -522,7 +522,7 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
     page,
   }) => {
     await gotoViewWindow(page);
-    const heading = page.getByRole("button", { name: `Rename window ${VIEW_WINDOW_NAME}` });
+    const heading = page.getByRole("button", { name: `Rename tab ${VIEW_WINDOW_NAME}` });
 
     // Sweep wide → narrow. The retired switcher contributes no bar slot, no
     // menu rows, and no probe copy — the `view-toggle` testid is absent from
@@ -571,7 +571,7 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
     page,
   }) => {
     await gotoViewWindow(page);
-    const heading = page.getByRole("button", { name: `Rename window ${VIEW_WINDOW_NAME}` });
+    const heading = page.getByRole("button", { name: `Rename tab ${VIEW_WINDOW_NAME}` });
 
     // With the rail removed (260815-19me) and the split control menuOnly in
     // terminal mode (260813-w1lf), the FIRST fit candidate is the L1-head
@@ -627,7 +627,7 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
     page,
   }) => {
     await gotoViewWindow(page);
-    const heading = page.getByRole("button", { name: `Rename window ${VIEW_WINDOW_NAME}` });
+    const heading = page.getByRole("button", { name: `Rename tab ${VIEW_WINDOW_NAME}` });
 
     // The group's MENU form is desktop-only (below 640px the entry switches to
     // the pinned in-bar switch group with NO menu rows — the main block's
@@ -686,7 +686,7 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
     page,
   }) => {
     await gotoViewWindow(page);
-    const heading = page.getByRole("button", { name: `Rename window ${VIEW_WINDOW_NAME}` });
+    const heading = page.getByRole("button", { name: `Rename tab ${VIEW_WINDOW_NAME}` });
     // A wide width is the distinguishing case: the bar has room, yet lens
     // switching is palette-only (260812-0c6o) — the menu holds no `View:` rows.
     await page.setViewportSize({ width: 1440, height: 800 });

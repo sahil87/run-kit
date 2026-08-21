@@ -156,13 +156,13 @@ describe("HostOverviewPage — Services zone", () => {
     expect(screen.getByText("api")).toBeTruthy();
   });
 
-  it("disables 'Open in window' with a hint when zero servers exist", async () => {
+  it("disables 'Open in tab' with a hint when zero servers exist", async () => {
     mockServices = [{ port: 5173 }];
     mockServers = [];
     renderPage();
     expect(screen.getByText(":5173")).toBeTruthy();
 
-    const btn = screen.getByRole("button", { name: "Open in window" }) as HTMLButtonElement;
+    const btn = screen.getByRole("button", { name: "Open in tab" }) as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
     // The "why disabled" hint is a styled Tip now (260722-73al) — no native
     // title attribute on the button in either state.
@@ -179,7 +179,7 @@ describe("HostOverviewPage — Services zone", () => {
     renderPage();
     expect(screen.getByText(":5173")).toBeTruthy();
 
-    const btn = screen.getByRole("button", { name: "Open in window" }) as HTMLButtonElement;
+    const btn = screen.getByRole("button", { name: "Open in tab" }) as HTMLButtonElement;
     expect(btn.disabled).toBe(false);
 
     fireEvent.click(btn);
@@ -213,7 +213,7 @@ describe("HostOverviewPage — Services zone", () => {
     renderPage();
     expect(screen.getByText(":3000")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Open in window" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open in tab" }));
 
     await waitFor(() => expect(vi.mocked(createWindow)).toHaveBeenCalled());
     expect(vi.mocked(getSessions)).toHaveBeenCalledWith("runkit");
@@ -236,7 +236,7 @@ describe("HostOverviewPage — Services zone", () => {
     renderPage();
     expect(screen.getByText(":8080")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Open in window" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open in tab" }));
 
     await waitFor(() => expect(vi.mocked(createWindow)).toHaveBeenCalled());
     // Cache hit short-circuits the fallback fetch entirely.
@@ -252,7 +252,7 @@ describe("HostOverviewPage — Services zone", () => {
     );
   });
 
-  it("enables 'Open in window' for ANY listed port when a server exists (all listening ports broadcast — no denylist; the iframe load is the on-demand probe)", async () => {
+  it("enables 'Open in tab' for ANY listed port when a server exists (all listening ports broadcast — no denylist; the iframe load is the on-demand probe)", async () => {
     // 5432 (PostgreSQL) was formerly on the NON_HTTP_PORTS denylist. The backend
     // now passively enumerates and broadcasts ALL listening ports (no HTTP probe,
     // no filter) — a tile is not guaranteed to speak HTTP. Opening a non-HTTP port
@@ -266,7 +266,7 @@ describe("HostOverviewPage — Services zone", () => {
     expect(screen.getByText(":5432")).toBeTruthy();
     expect(screen.getByText(":6379")).toBeTruthy();
 
-    const buttons = screen.getAllByRole("button", { name: "Open in window" }) as HTMLButtonElement[];
+    const buttons = screen.getAllByRole("button", { name: "Open in tab" }) as HTMLButtonElement[];
     for (const btn of buttons) {
       expect(btn.disabled).toBe(false);
       // No "Not a web service" hint remains — the only gate is server existence.
@@ -299,9 +299,9 @@ describe("HostOverviewPage — Services zone", () => {
     expect(screen.getByText(":3000").className).toContain("text-text-primary");
     expect(screen.getByText(":8080").className).toContain("text-text-primary");
 
-    // Every tile — well-known included — still has an enabled "Open in window".
+    // Every tile — well-known included — still has an enabled "Open in tab".
     const buttons = screen.getAllByRole("button", {
-      name: "Open in window",
+      name: "Open in tab",
     }) as HTMLButtonElement[];
     expect(buttons).toHaveLength(4);
     for (const btn of buttons) expect(btn.disabled).toBe(false);
@@ -316,7 +316,7 @@ describe("HostOverviewPage — Services zone", () => {
     renderPage();
     expect(screen.getByText(":5173")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Open in window" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open in tab" }));
 
     await waitFor(() => expect(vi.mocked(createWindow)).toHaveBeenCalled());
     const windowName = vi.mocked(createWindow).mock.calls[0][2];
@@ -400,7 +400,7 @@ describe("HostOverviewPage — BOARDS zone", () => {
     renderPage();
     expect(screen.getByText("0 boards")).toBeInTheDocument();
     expect(
-      screen.getByText(/^No boards yet — hover a sidebar window row/),
+      screen.getByText(/^No boards yet — hover a sidebar tab row/),
     ).toBeInTheDocument();
     // Fine pointer (the beforeEach default): the derived palette chord clause
     // rides along — the chord itself is registry-derived, so match its shape.
@@ -413,7 +413,7 @@ describe("HostOverviewPage — BOARDS zone", () => {
     stubMatchMedia(() => true);
     renderPage();
     expect(
-      screen.getByText("No boards yet — hover a sidebar window row and click its 📌"),
+      screen.getByText("No boards yet — hover a sidebar tab row and click its 📌"),
     ).toBeInTheDocument();
     expect(screen.queryByText(/→ Pin:/)).not.toBeInTheDocument();
   });

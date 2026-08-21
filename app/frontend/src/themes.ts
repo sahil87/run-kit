@@ -450,7 +450,7 @@ export const UNCOLORED_SELECTED_KEY = `${UNCOLORED_SELECTED_ANSI}`;
 
 /** The window marker states. `""` (no marker) is the rest state. A marker is
  *  chosen directly from the banded Label picker (any state in one click — no
- *  cycling) or the `Window: Label` palette action. Mirrors the backend closed
+ *  cycling) or the `Tab: Label` palette action. Mirrors the backend closed
  *  set (validate.MarkerValues) minus the empty string, with `""` at the front
  *  followed by the display order pipe → dotted → dashed → solid → double →
  *  thick → hatch → block. Growth is CATEGORICAL: new states are new pattern

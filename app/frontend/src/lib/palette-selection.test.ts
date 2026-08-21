@@ -85,16 +85,16 @@ describe("buildSelectionMoveActions", () => {
       vi.fn(),
     );
     expect(actions.map((a) => a.label)).toEqual([
-      "Selection: Move 2 windows to work",
-      "Selection: Move 2 windows to completed",
+      "Selection: Move 2 tabs to work",
+      "Selection: Move 2 tabs to completed",
     ]);
     expect(actions[0].id).toBe(`${SELECTION_MOVE_ACTION_PREFIX}work`);
   });
 
-  it("uses the singular noun for a one-window selection", () => {
+  it("uses the singular noun for a one-tab selection", () => {
     const actions = buildSelectionMoveActions(SRV, sessions, new Set(["srv:@1"]), vi.fn());
     expect(actions.map((a) => a.label)).toEqual([
-      "Selection: Move 1 window to completed",
+      "Selection: Move 1 tab to completed",
     ]);
   });
 
@@ -107,7 +107,7 @@ describe("buildSelectionMoveActions", () => {
       vi.fn(),
     );
     expect(actions.map((a) => a.label)).toEqual([
-      "Selection: Move 2 windows to completed",
+      "Selection: Move 2 tabs to completed",
     ]);
   });
 
@@ -165,7 +165,7 @@ describe("buildSelectionMoveActions", () => {
         vi.fn(),
       );
       expect(actions.map((a) => a.label)).toEqual([
-        "Selection: Move 2 windows to archive",
+        "Selection: Move 2 tabs to archive",
       ]);
     });
 
@@ -205,8 +205,8 @@ describe("buildSelectionMoveActions", () => {
         vi.fn(),
       );
       expect(actions.map((a) => a.label)).toEqual([
-        "Selection: Move 1 window to staging",
-        "Selection: Move 1 window to archive",
+        "Selection: Move 1 tab to staging",
+        "Selection: Move 1 tab to archive",
       ]);
     });
   });
@@ -230,8 +230,8 @@ describe("buildSelectionCloseAction", () => {
     const action = buildSelectionCloseAction(new Set(["srv:@1"]), vi.fn());
     expect(action).toMatchObject({
       id: SELECTION_CLOSE_ACTION_ID,
-      label: "Selection: Close 1 window",
-      confirmLabel: "Close 1 window — Enter to confirm",
+      label: "Selection: Close 1 tab",
+      confirmLabel: "Close 1 tab — Enter to confirm",
     });
   });
 
@@ -239,7 +239,7 @@ describe("buildSelectionCloseAction", () => {
     const onClose = vi.fn();
     const selected = new Set(["srv:@1", "other:@2"]);
     const action = buildSelectionCloseAction(selected, onClose)!;
-    expect(action.label).toBe("Selection: Close 2 windows");
+    expect(action.label).toBe("Selection: Close 2 tabs");
     selected.clear();
     action.onSelect();
     expect(onClose).toHaveBeenCalledWith(["srv:@1", "other:@2"]);

@@ -4,7 +4,7 @@ import { TMUX_SERVER, createSession, killSession } from "./_tmux";
 
 const TEST_SESSION = `e2e-unnamed-${Date.now()}`;
 
-test.describe("Unnamed window creation (+ New Window)", () => {
+test.describe("Unnamed tab creation (+ New Tab)", () => {
   test.beforeAll(() => {
     createSession(TEST_SESSION);
   });
@@ -13,7 +13,7 @@ test.describe("Unnamed window creation (+ New Window)", () => {
     killSession(TEST_SESSION);
   });
 
-  test("+ New Window omits the name from the create request (tmux auto-names)", async ({
+  test("+ New Tab omits the name from the create request (tmux auto-names)", async ({
     page,
   }) => {
     // Intercept the window-create request to inspect its body without mutating
@@ -38,12 +38,15 @@ test.describe("Unnamed window creation (+ New Window)", () => {
       await route.continue();
     });
 
-    await gotoServerReady(page, TMUX_SERVER);
+    await gotoServerReady(page, TMUX_SERVER, TEST_SESSION);
 
     const sidebar = page.locator("nav[aria-label='Sessions']");
-    // The session's "+ New window in <session>" button is the create seam.
+    // The session's "+ New tab in <session>" button is the create seam. The
+    // flow is deliberately SAME-server (the sidebar subscribes SSE to the
+    // route's server only — a cross-server ghost never settles; see plan.md
+    // ## Notes for the recorded pre-existing bug).
     const createBtn = sidebar.locator(
-      `button[aria-label="New window in ${TEST_SESSION}"]`,
+      `button[aria-label="New tab in ${TEST_SESSION}"]`,
     );
     await expect(createBtn).toBeVisible({ timeout: 5_000 });
     await createBtn.click();

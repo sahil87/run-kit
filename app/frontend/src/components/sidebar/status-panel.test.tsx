@@ -52,7 +52,7 @@ afterEach(() => {
 describe("StatusPanel", () => {
   it("shows placeholder when no window selected", () => {
     render(<StatusPanel window={null} />);
-    expect(screen.getByText("No window selected")).toBeInTheDocument();
+    expect(screen.getByText("No tab selected")).toBeInTheDocument();
   });
 
   it("shows CWD from active pane", () => {

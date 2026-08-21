@@ -54,7 +54,7 @@ describe("SettingsShortcutsPanel", () => {
     expect(screen.queryByText("SHELL — DESKTOP APP")).toBeNull();
     // Starter rows
     expect(screen.getByText("New session")).toBeInTheDocument();
-    expect(screen.getByText("Next window")).toBeInTheDocument();
+    expect(screen.getByText("Next tab")).toBeInTheDocument();
     // Scope badges (terminal + board rows carry pills)
     expect(screen.getAllByText("terminal").length).toBeGreaterThan(0);
     // Locked shell rows (accelerators owned by the shell menu)
@@ -184,7 +184,7 @@ describe("SettingsShortcutsPanel", () => {
 
   it("click-to-capture rebinds, persists the diff, and shows the modified reset affordance", () => {
     renderPanel();
-    fireEvent.click(screen.getByLabelText("Change binding for Next window"));
+    fireEvent.click(screen.getByLabelText("Change binding for Next tab"));
     // Modifier-only press keeps capturing; then a valid shifted chord lands.
     fireEvent.keyDown(window, { key: "Shift", code: "ShiftLeft", shiftKey: true });
     fireEvent.keyDown(window, {
@@ -197,13 +197,13 @@ describe("SettingsShortcutsPanel", () => {
       "window-next": { code: "KeyU", tier: "shifted" },
     });
     // Reset restores the default and drops the diff.
-    fireEvent.click(screen.getByLabelText("Reset binding for Next window"));
+    fireEvent.click(screen.getByLabelText("Reset binding for Next tab"));
     expect(localStorage.getItem(KEYBINDINGS_STORAGE_KEY)).toBeNull();
   });
 
   it("Escape cancels an armed capture without persisting", () => {
     renderPanel();
-    fireEvent.click(screen.getByLabelText("Change binding for Next window"));
+    fireEvent.click(screen.getByLabelText("Change binding for Next tab"));
     expect(screen.getByText("press keys…")).toBeInTheDocument();
     fireEvent.keyDown(window, { key: "Escape", code: "Escape" });
     expect(localStorage.getItem(KEYBINDINGS_STORAGE_KEY)).toBeNull();
@@ -215,11 +215,15 @@ describe("SettingsShortcutsPanel", () => {
 
   it("steal-with-warning: capturing another action's combo unbinds it and flags it", () => {
     renderPanel();
-    fireEvent.click(screen.getByLabelText("Change binding for Next window"));
+    fireEvent.click(screen.getByLabelText("Change binding for Next tab"));
     // ⇧Ctrl+A is owned by "Next waiting agent".
     fireEvent.keyDown(window, { key: "A", code: "KeyA", shiftKey: true, ctrlKey: true });
     expect(screen.getByText(/now unbound/)).toBeInTheDocument();
-    expect(screen.getByTitle("unbound — click to rebind")).toBeInTheDocument();
+    // The stolen-from victim's OWN row carries the unbound affordance (the
+    // shipped keyless app-window rows carry one too — scope to the victim).
+    expect(
+      document.querySelector('[data-actionid="agent-next-waiting"] [title="unbound — click to rebind"]'),
+    ).toBeInTheDocument();
     expect(JSON.parse(localStorage.getItem(KEYBINDINGS_STORAGE_KEY) ?? "{}")).toEqual({
       "window-next": { code: "KeyA", tier: "shifted" },
       "agent-next-waiting": null,
@@ -362,18 +366,23 @@ describe("SettingsShortcutsPanel host-divergence row facts (260801-r8j2)", () =>
     delete (navigator as { platform?: string }).platform;
   }
 
-  it("mac BROWSER host: exactly the macShellOnly quartet rows carry the desktop badge + desktop-chord hint", () => {
+  it("mac BROWSER host: the shell-gated rows carry the desktop badge + desktop-chord hint", () => {
     spoofMacHost();
     try {
       renderPanel();
-      // Exactly four badges — N/T/W/, (260801-mqim adds settings-open);
-      // host-invariant rows carry none.
-      expect(screen.getAllByText("desktop")).toHaveLength(4);
-      // The hint names the OTHER host's (desktop shell) chord.
-      expect(screen.getByText("in desktop app: ⌘N")).toBeInTheDocument();
+      // Six badges — the four legacy shell-gated rows (create-session now
+      // code-refined to ⇧⌘T) plus the two app-window bridge actions
+      // (260820-lfla); host-invariant rows carry none.
+      expect(screen.getAllByText("desktop")).toHaveLength(6);
+      // The hint names the OTHER host's (desktop shell) chord — the four
+      // chord-carrying rows only; the unbound-in-browser pair carries the
+      // badge alone (no chord to hint on either side).
+      expect(screen.getByText("in desktop app: ⇧⌘T")).toBeInTheDocument();
       expect(screen.getByText("in desktop app: ⌘T")).toBeInTheDocument();
       expect(screen.getByText("in desktop app: ⌘W")).toBeInTheDocument();
       expect(screen.getByText("in desktop app: ⌘,")).toBeInTheDocument();
+      expect(screen.queryByText("in desktop app: ⌘N")).toBeNull();
+      expect(screen.queryByText("in desktop app: ⇧⌘W")).toBeNull();
       // The amber reserved pill coexists on the browser-reserved rows — N/T/W
       // plus the three surface digits (⌘1/2/3 are the browser's tab
       // accelerators): settings-open's mac-browser default is the unclaimed
@@ -384,12 +393,15 @@ describe("SettingsShortcutsPanel host-divergence row facts (260801-r8j2)", () =>
     }
   });
 
-  it("mac SHELL host: the quartet hints read the browser chord (no reserved pills inside the shell)", () => {
+  it("mac SHELL host: the hints read the browser chord (no reserved pills inside the shell)", () => {
     spoofMacHost();
     window.runkitShell = { version: "1", platform: "darwin" };
     try {
       renderPanel();
-      expect(screen.getAllByText("desktop")).toHaveLength(4);
+      // Six badges: the four legacy shell-gated rows (chord hints below) plus
+      // the app-window pair — bound here, unbound in a mac browser (keyless
+      // other side), so their badges carry no "in browser:" chord hint.
+      expect(screen.getAllByText("desktop")).toHaveLength(6);
       expect(screen.getByText("in browser: ⇧⌘N")).toBeInTheDocument();
       expect(screen.getByText("in browser: ⇧⌘T")).toBeInTheDocument();
       expect(screen.getByText("in browser: ⇧⌘W")).toBeInTheDocument();
@@ -411,7 +423,7 @@ describe("SettingsShortcutsPanel host-divergence row facts (260801-r8j2)", () =>
     cleanup();
     // Spoofed mac host with an override on create-window: the overridden
     // combo applies verbatim on both hosts, so its row loses the badge while
-    // the other three keep theirs.
+    // the other five keep theirs.
     spoofMacHost();
     localStorage.setItem(
       KEYBINDINGS_STORAGE_KEY,
@@ -419,9 +431,9 @@ describe("SettingsShortcutsPanel host-divergence row facts (260801-r8j2)", () =>
     );
     try {
       renderPanel();
-      expect(screen.getAllByText("desktop")).toHaveLength(3);
+      expect(screen.getAllByText("desktop")).toHaveLength(5);
       expect(screen.queryByText("in desktop app: ⌘T")).toBeNull();
-      expect(screen.getByText("in desktop app: ⌘N")).toBeInTheDocument();
+      expect(screen.getByText("in desktop app: ⇧⌘T")).toBeInTheDocument();
     } finally {
       unspoofMacHost();
     }
@@ -528,7 +540,7 @@ describe("SettingsShortcutsPanel CUSTOM section (260730-hbyh)", () => {
     fireEvent.click(screen.getByTitle("unbound — click to bind"));
     fireEvent.keyDown(window, { code: "KeyL", key: "L", shiftKey: true, ctrlKey: true });
     // Steal warning names the victim; the builtin is now unbound.
-    expect(screen.getByText(/took Shift\+Ctrl\+L from “Next window”/)).toBeInTheDocument();
+    expect(screen.getByText(/took Shift\+Ctrl\+L from “Next tab”/)).toBeInTheDocument();
     expect(JSON.parse(localStorage.getItem(KEYBINDINGS_STORAGE_KEY) ?? "{}")).toEqual({
       "macro:discuss": { code: "KeyL", tier: "shifted" },
       "window-next": null,

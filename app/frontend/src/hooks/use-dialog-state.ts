@@ -121,7 +121,7 @@ export function useDialogState({ sessionName, windowId, onKillComplete, onSessio
       if (last) restoreWindow(last.server, last.session, last.windowId);
     },
     onError: (err) => {
-      addToast(err.message || "Failed to kill window");
+      addToast(err.message || "Failed to kill tab");
     },
     onAlwaysSettled: () => {
       const last = lastKillWindowRef.current;

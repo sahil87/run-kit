@@ -59,7 +59,7 @@ test.describe("Top-bar overlap fixes (260715-q8ey)", () => {
 
     const nav = page.getByRole("navigation", { name: "Breadcrumb" });
     const heading = page.getByRole("button", {
-      name: `Rename window ${LONG_WINDOW}`,
+      name: `Rename tab ${LONG_WINDOW}`,
     });
     await expect(nav).toBeVisible();
     await expect(heading).toBeVisible({ timeout: 10_000 });
@@ -126,7 +126,7 @@ test.describe("Top-bar overlap fixes (260715-q8ey)", () => {
 
     const nav = page.getByRole("navigation", { name: "Breadcrumb" });
     const heading = page.getByRole("button", {
-      name: `Rename window ${LONG_WINDOW}`,
+      name: `Rename tab ${LONG_WINDOW}`,
     });
 
     for (const width of [375, 640, 700, 768, 1024]) {
@@ -182,7 +182,7 @@ test.describe("Top-bar overlap fixes (260715-q8ey)", () => {
     // Gate readiness on the heading (the connection dot is `hidden sm:inline`).
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(id)}`);
     const heading = page.getByRole("button", {
-      name: `Rename window ${LONG_WINDOW}`,
+      name: `Rename tab ${LONG_WINDOW}`,
     });
     await expect(heading).toBeVisible({ timeout: 10_000 });
 
@@ -214,7 +214,7 @@ test.describe("Top-bar overlap fixes (260715-q8ey)", () => {
 
     const nav = page.getByRole("navigation", { name: "Breadcrumb" });
     const heading = page.getByRole("button", {
-      name: `Rename window ${LONG_WINDOW}`,
+      name: `Rename tab ${LONG_WINDOW}`,
     });
     await expect(nav).toBeVisible();
     await expect(heading).toBeVisible({ timeout: 10_000 });

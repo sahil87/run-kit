@@ -10,7 +10,7 @@ assertions here fail on that code and pass on the fixed code.
 Covers the intake §8 width sweep (1280 → 1024 → 800 → 700 → 640 → 500 → 375):
 (a) no top-bar bounding-box overlap; (b) L1 drops before L2 before L3; (c) the
 chevron menu contains the dropped + menuOnly rows + the version row, grouped
-under Tiles / View / Window / App section labels (260731-oiho; Tiles added in
+under Tiles / View / Tab / App section labels (260731-oiho; Tiles added in
 260815-19me — first section, desktop widths only: at mobile the entry forks to
 the pinned switch group with no menu rows); (d) the version row
 copies to the clipboard; (e) the exempt chevron is always visible (the
@@ -140,7 +140,7 @@ overflowed ▦ Layout chip's
 App-section chrome rows (260812-d1at: Help — run-kit docs, Keyboard
 shortcuts; the Theme… row is gone since 260819-qkow — theme switching lives
 in the settings dialog and the palette), plus the always-present version row — grouped under the View /
-Window / App uppercase section labels (c, 260731-oiho). The TILES section is
+Tab / App uppercase section labels (c, 260731-oiho). The TILES section is
 ABSENT at this mobile width: the surface-toggles entry is in SWITCH mode
 there — pinned in-bar and registering NO menu rows — so it contributes no
 section. Whichever L3 controls
@@ -154,7 +154,7 @@ is asserted either way.
    Fixed width (checkbox) / Terminal font (stepper group) / Close pane rows
    are present, plus a `RunKit` version row; assert NO `Tiles` section label
    and NO `Terminal tile` checkbox row (the mobile switch mode registers no
-   menu rows); assert the View / Window / App
+   menu rows); assert the View / Tab / App
    section labels render; assert the Help / Keyboard shortcuts rows are
    PRESENT (260812-d1at), the Theme… row is ABSENT (260819-qkow), and the
    notification row is ABSENT (260724-6j1v — the bell lives in the settings

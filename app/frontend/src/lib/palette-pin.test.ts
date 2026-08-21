@@ -16,10 +16,10 @@ describe("buildPinActions", () => {
   it("emits one direct-pin action per not-already-pinned board plus the new-board variant", () => {
     const actions = buildPinActions(boards, [], null, vi.fn(), vi.fn());
     expect(actions.map((a) => a.label)).toEqual([
-      "Pin: Current Window to alpha",
-      "Pin: Current Window to beta",
-      "Pin: Current Window to gamma",
-      "Pin: Current Window to new board…",
+      "Pin: Current Tab to alpha",
+      "Pin: Current Tab to beta",
+      "Pin: Current Tab to gamma",
+      "Pin: Current Tab to new board…",
     ]);
     expect(actions[actions.length - 1].id).toBe(PIN_NEW_BOARD_ACTION_ID);
   });
@@ -27,9 +27,9 @@ describe("buildPinActions", () => {
   it("excludes boards the window is already pinned to", () => {
     const actions = buildPinActions(boards, ["beta"], null, vi.fn(), vi.fn());
     expect(actions.map((a) => a.label)).toEqual([
-      "Pin: Current Window to alpha",
-      "Pin: Current Window to gamma",
-      "Pin: Current Window to new board…",
+      "Pin: Current Tab to alpha",
+      "Pin: Current Tab to gamma",
+      "Pin: Current Tab to new board…",
     ]);
   });
 
@@ -37,9 +37,9 @@ describe("buildPinActions", () => {
     // Pinned to beta, last used gamma → gamma first, then alpha; new-board last.
     const actions = buildPinActions(boards, ["beta"], "gamma", vi.fn(), vi.fn());
     expect(actions.map((a) => a.label)).toEqual([
-      "Pin: Current Window to gamma",
-      "Pin: Current Window to alpha",
-      "Pin: Current Window to new board…",
+      "Pin: Current Tab to gamma",
+      "Pin: Current Tab to alpha",
+      "Pin: Current Tab to new board…",
     ]);
   });
 

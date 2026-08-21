@@ -4,7 +4,7 @@ import { mockStateSocket } from "./_state-socket-mock";
 // Session-row and server-tile identity tips (xb77) — the slim tier-1-weight
 // hover-cards sharing the window flyout's title-bar grammar: title bar =
 // identity (`Session <full name>` / `Server <name>`), body = one plain-text
-// facts line (`$N · N windows · ~/{path}` / `tmux -L <name> · N sessions`).
+// facts line (`$N · N tabs · ~/{path}` / `tmux -L <name> · N sessions`).
 // Fully mocked, same idiom as row-flyout.spec.ts — see the sibling .spec.md
 // for intent + steps.
 
@@ -68,7 +68,7 @@ test.describe("Session/server identity tips (fine pointer)", () => {
     await expect(serverTile(page)).toBeVisible();
   });
 
-  test("hovering a session row opens its identity tip (full name + $N · N windows · ~/path)", async ({
+  test("hovering a session row opens its identity tip (full name + $N · N tabs · ~/path)", async ({
     page,
   }) => {
     await expect(sessionTip(page)).toHaveCount(0);
@@ -79,7 +79,7 @@ test.describe("Session/server identity tips (fine pointer)", () => {
     // Title bar = identity: the full (untruncated) session name.
     await expect(tip.getByTestId("popup-title-bar")).toContainText("Session dev");
     // Body = facts: tmux session id, window count, ~-abbreviated root path.
-    await expect(tip).toContainText("$4 · 2 windows · ~/code/sahil87/run-kit");
+    await expect(tip).toContainText("$4 · 2 tabs · ~/code/sahil87/run-kit");
     // Tier-1 weight: no interactive content.
     await expect(tip.locator("a, button")).toHaveCount(0);
   });

@@ -69,7 +69,7 @@ chat-less window degrades gracefully to the terminal (the shim's `single:chat`
 translation degrades tile-by-tile to `single:tty` — chat is unavailable there).
 
 **Steps:**
-1. Mock the backend; navigate to `/default/1`; gate on the `Window:` heading.
+1. Mock the backend; navigate to `/default/1`; gate on the `Tab:` heading.
    Assert the `Window view` group has count 0 AND `view-toggle` has count 0.
    Assert the banner (top bar) shows the `Terminal tile` toggle but NO `Chat
    tile` toggle. Open the palette with `View: Chat` and assert the option is
@@ -83,27 +83,27 @@ translation degrades tile-by-tile to `single:tty` — chat is unavailable there)
 3. Navigate to `/default/2`; assert "plain-win" is visible; open the palette
    and assert it offers NO `View: Chat` option; Escape-close.
 4. Navigate to `/default/2?view=chat`; assert no `chat-view` renders, no
-   `Window view` group renders, and the static `Window:` heading prefix shows (the
+   `Window view` group renders, and the static `Tab:` heading prefix shows (the
    terminal branch mounted despite the param; 260714-uco1 — the heading is
-   `Window:` in every lens).
+   `Tab:` in every lens).
 
-### `flipping to chat preserves the window and updates the URL (heading stays Window:)`
+### `flipping to chat preserves the window and updates the URL (heading stays Tab:)`
 
 **What it proves:** activating the palette's `View: Chat` action (the only
 lens-switch surface, `260812-0c6o`) flips the view without changing the
 window — the URL mirrors `?layout=single:chat` on the same `@1` (R12's shim: a
 view selection is a single-tile layout mutation through the shared path) and
-the chat renderer mounts. The center heading is a static `Window:` throughout
+the chat renderer mounts. The center heading is a static `Tab:` throughout
 (260714-uco1 — it does not change with the lens), so the heading anchor does
 not jump on the switch. The window rename affordance carries over.
 
 **Steps:**
-1. Navigate to `/default/1`; gate on the `Window:` prefix.
+1. Navigate to `/default/1`; gate on the `Tab:` prefix.
 2. `switchLens("Chat")` — open the palette (`Meta+k`), fill `View: Chat`, click
    the option, and wait for the palette to close.
 3. Assert the decoded `layout` param is `single:chat`, the `chat-view` renderer
-   is visible, the heading still shows the `Window:` prefix, and the `Rename
-   window agent-win` heading button is present.
+   is visible, the heading still shows the `Tab:` prefix, and the `Rename
+   tab agent-win` heading button is present.
 
 ### `Ctrl+\` no longer flips to the chat lens (the chord is fully unbound, 260813-j3jb)`
 
@@ -113,11 +113,11 @@ chord is fully unbound (the interim layout-zoom rebind was removed in
 No `single:chat` layout, no chat view, no heading change.
 
 **Steps:**
-1. Navigate to `/default/1`; gate on the `Window:` prefix (the always-present
+1. Navigate to `/default/1`; gate on the `Tab:` prefix (the always-present
    readiness surface).
 2. Press `Control+\``; wait a beat for any erroneous handler to fire.
 3. Assert the `layout` param is ABSENT (default `single:tty` drops it), the
-   `chat-view` testid has count 0, and the `Window:` prefix is still shown.
+   `chat-view` testid has count 0, and the `Tab:` prefix is still shown.
 
 ### `deep link ?view=chat cold-loads into the chat view`
 
@@ -128,7 +128,7 @@ message.
 
 **Steps:**
 1. Navigate directly to `/default/1?view=chat`.
-2. Assert the `chat-view` and static `Window:` prefix are visible, the
+2. Assert the `chat-view` and static `Tab:` prefix are visible, the
    `chat-send-disabled` footer has count 0, the `chat-send-input` is visible, and
    the assistant text ("done") is shown.
 

@@ -238,7 +238,7 @@ export function HostOverviewPage() {
     setCreateName("");
   }, [createName, navigate, executeCreateServer, markServerPending]);
 
-  // "Open in window" — open a listening service's UI in an @rk_type=iframe tmux
+  // "Open in tab" — open a listening service's UI in an @rk_type=iframe tmux
   // window via the existing /proxy/{port}/ reverse proxy. `/` is server-less, so
   // resolve a target (server, session): the first-listed server, reusing its
   // first known session or creating an instant one, then create the iframe
@@ -282,7 +282,7 @@ export function HostOverviewPage() {
         navigate({ to: "/$server", params: { server } });
       } catch (err) {
         addToast(
-          err instanceof Error ? err.message : "Failed to open service in window",
+          err instanceof Error ? err.message : "Failed to open service in tab",
         );
       } finally {
         openingRef.current = false;
@@ -359,8 +359,8 @@ export function HostOverviewPage() {
           {!boardsLoading && boards.length === 0 ? (
             <div className="text-xs text-text-secondary">
               {paletteChord
-                ? `No boards yet — hover a sidebar window row and click its 📌, or ${paletteChord} → Pin:`
-                : "No boards yet — hover a sidebar window row and click its 📌"}
+                ? `No boards yet — hover a sidebar tab row and click its 📌, or ${paletteChord} → Pin:`
+                : "No boards yet — hover a sidebar tab row and click its 📌"}
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -488,7 +488,7 @@ export function HostOverviewPage() {
             (260715-vfcz). So a tile is not guaranteed to speak HTTP; opening a
             non-HTTP port yields a failed iframe — that is user-initiated,
             visible, and harmless (the iframe load IS the on-demand probe).
-            "Open in window" is therefore gated solely on a tmux server existing.
+            "Open in tab" is therefore gated solely on a tmux server existing.
             Each tile opens the port's UI in an @rk_type=iframe tmux window via
             the /proxy/{port}/ proxy. Well-known ports (< 1024) are de-emphasized
             (grey, sorted last) like infra servers. Placed last, after the
@@ -531,7 +531,7 @@ export function HostOverviewPage() {
                       disabled={servers.length === 0}
                       className="shrink-0 text-xs px-2 py-1 border border-border rounded text-text-secondary hover:text-text-primary hover:border-text-secondary transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-text-secondary disabled:hover:border-border"
                     >
-                      Open in window
+                      Open in tab
                     </button>
                   </Tip>
                 </div>

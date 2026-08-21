@@ -34,10 +34,10 @@ border).
   options (`@rk_marker` / `@color` / `@rk_flair`) and surface on the SSE window
   payload, so a UI change is observable server-side within a couple of poll
   cycles.
-- `openLabelPicker(row, page)` clicks the row's `Set window label` zone and
+- `openLabelPicker(row, page)` clicks the row's `Set tab label` zone and
   returns the visible `Label picker` listbox.
 - The left-edge label zone is a single target named for screen readers and test
-  selection by its `aria-label` `Set window label` (`getByLabel`). The banded
+  selection by its `aria-label` `Set tab label` (`getByLabel`). The banded
   picker is a `role="listbox"` named `Label picker`: the color band's 20
   swatches (2 shade rows × 10 family columns in a horizontal scroll strip) are
   `role="option"` `Color <family>` / `Color <family>-dark`; the marker band's 8
@@ -70,7 +70,7 @@ every pick (one open session), closing only via the ✕ cell.
 1. Create `marker-win-<ts>` via the shared `_tmux` helper.
 2. Navigate to `/${TMUX_SERVER}` and wait for `Connected`.
 3. `resolveWindow` the window; assert its row is visible and its marker is empty.
-4. Click the row's `Set window label` zone; assert the `Label picker` listbox
+4. Click the row's `Set tab label` zone; assert the `Label picker` listbox
    is visible. (The picker is opened ONCE — all following picks happen inside
    this one open session.)
 5. Assert the three band headers render (`color` / `marker` / `flair` text) and
@@ -134,7 +134,7 @@ verbatim `orange-dark` value: dark shades have no legacy form and the backend's
 **Steps:**
 1. Create `marker-color-<ts>` via the shared `_tmux` helper; navigate + wait for `Connected`.
 2. `resolveWindow` it; assert its color is empty.
-3. Click the `Set window label` zone; assert the `Label picker` listbox is
+3. Click the `Set tab label` zone; assert the `Label picker` listbox is
    visible.
 4. Click the `Color orange` option (`exact: true` — `Color orange-dark` sits in
    the same family column); `expectColor` → `1+3`.
@@ -168,7 +168,7 @@ prevents the row-select handler and the URL writeback from firing.
 1. Create `marker-noselect-<ts>` via the shared `_tmux` helper.
 2. Navigate to `/${TMUX_SERVER}` (dashboard) and wait for `Connected`.
 3. `resolveWindow` the window; assert the row button is not `aria-current`.
-4. Click the row's `Set window label` zone; assert the `Label picker` listbox is
+4. Click the row's `Set tab label` zone; assert the `Label picker` listbox is
    visible.
 5. Assert the row button is still not `aria-current="page"` and the URL still
    has no window segment (`windowId.slice(1)`).

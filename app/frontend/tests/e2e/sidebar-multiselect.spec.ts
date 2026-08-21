@@ -229,8 +229,8 @@ test.describe("Sidebar window-row multi-select", () => {
         .click({ modifiers: ["ControlOrMeta"] });
     }
 
-    const actionLabel = "Selection: Close 2 windows";
-    const confirmLabel = "Close 2 windows — Enter to confirm";
+    const actionLabel = "Selection: Close 2 tabs";
+    const confirmLabel = "Close 2 tabs — Enter to confirm";
     await page.keyboard.press("Meta+k");
     let paletteInput = page.getByPlaceholder("Type a command");
     await paletteInput.fill(actionLabel);
@@ -256,7 +256,7 @@ test.describe("Sidebar window-row multi-select", () => {
     await expect(page.getByRole("option", { name: confirmLabel })).toBeVisible();
     await page.keyboard.press("Enter");
 
-    await expect(page.getByText("Closed 2 windows")).toBeVisible({
+    await expect(page.getByText("Closed 2 tabs")).toBeVisible({
       timeout: 15_000,
     });
     await expect(page.getByTestId("selection-indicator")).toHaveCount(0);
@@ -362,7 +362,7 @@ test.describe("Sidebar window-row multi-select", () => {
     await expect(page.getByTestId("selection-indicator")).toHaveCount(0);
   });
 
-  test("palette 'Selection: Move N windows to <session>' bulk-moves the selection", async ({
+  test("palette 'Selection: Move N tabs to <session>' bulk-moves the selection", async ({
     page,
   }) => {
     test.setTimeout(45_000);
@@ -381,7 +381,7 @@ test.describe("Sidebar window-row multi-select", () => {
     await expect(page.getByTestId("selection-indicator")).toContainText("2 selected");
 
     // Run the per-target-session palette entry.
-    const label = `Selection: Move 2 windows to ${DST_SESSION}`;
+    const label = `Selection: Move 2 tabs to ${DST_SESSION}`;
     await page.keyboard.press("Meta+k");
     const paletteInput = page.getByPlaceholder("Type a command");
     await expect(paletteInput).toBeVisible({ timeout: 5_000 });
@@ -393,7 +393,7 @@ test.describe("Sidebar window-row multi-select", () => {
 
     // Success toast, and the selection clears on a fully successful batch.
     await expect(
-      page.getByText(`Moved 2 windows to ${DST_SESSION}`),
+      page.getByText(`Moved 2 tabs to ${DST_SESSION}`),
     ).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("selection-indicator")).toHaveCount(0);
 

@@ -164,23 +164,23 @@ describe("TopBar", () => {
     renderTopBar();
     expect(screen.getByText("run-kit")).toBeInTheDocument();
     // The window name renders as the centered heading — a click-to-rename button.
-    const heading = screen.getByRole("button", { name: "Rename window main" });
+    const heading = screen.getByRole("button", { name: "Rename tab main" });
     expect(heading).toHaveTextContent("main");
     // Appears exactly once (no breadcrumb + center duplication).
     expect(screen.getAllByText("main")).toHaveLength(1);
   });
 
   describe("universal center heading (260704-pr0p)", () => {
-    it("renders a static contiguous `Window:` prefix sibling OUTSIDE the rename button on terminal routes", () => {
+    it("renders a static contiguous `Tab:` prefix sibling OUTSIDE the rename button on terminal routes", () => {
       renderTopBar();
-      const heading = screen.getByRole("button", { name: "Rename window main" });
-      // The prefix is a static `Window:` in every lens (260714-uco1 — the
+      const heading = screen.getByRole("button", { name: "Rename tab main" });
+      // The prefix is a static `Tab:` in every lens (260714-uco1 — the
       // lens-following `Terminal:`/`Web:`/`Chat:` prefix was retired; the lens
       // is shown by the switcher's `View:` menu rows, not the heading).
       // 260813-kvk7 removed the hierarchy ▾ that used to split the prefix DOM
       // between the word and its colon (`Window ▾:`), so the prefix is now ONE
       // contiguous swept run with the colon hugging the word.
-      const prefix = screen.getByText("Window:", { exact: true });
+      const prefix = screen.getByText("Tab:", { exact: true });
       expect(prefix).toBeInTheDocument();
       // No caret element sits between the prefix word and its colon (or
       // anywhere else in the heading).
@@ -235,8 +235,8 @@ describe("TopBar", () => {
       const solo = screen.getByLabelText("Host");
       expect(solo).toBeInTheDocument();
       expect(solo).toHaveTextContent("Host");
-      // No `tmux Server:` / `Board:` / `Window:` prefix on the solo word.
-      expect(screen.queryByText(/tmux Server:|Board:|Window:/)).not.toBeInTheDocument();
+      // No `tmux Server:` / `Board:` / `Tab:` prefix on the solo word.
+      expect(screen.queryByText(/tmux Server:|Board:|Tab:/)).not.toBeInTheDocument();
     });
   });
 
@@ -254,7 +254,7 @@ describe("TopBar", () => {
       vi.useRealTimers();
     });
 
-    // `Window: main` = 7 prefix + 1 space + 4 name cells at 28ms/cell; the
+    // `Tab: main` = 7 prefix + 1 space + 4 name cells at 28ms/cell; the
     // mount replay (name-effect null seed) must be flushed before hovering.
     const SWEEP_MS = (7 + 1 + 4 + 2) * 28;
     const INTENT_MS = 140;
@@ -264,9 +264,9 @@ describe("TopBar", () => {
       act(() => {
         vi.advanceTimersByTime(SWEEP_MS + 100);
       });
-      const button = screen.getByRole("button", { name: "Rename window main" });
+      const button = screen.getByRole("button", { name: "Rename tab main" });
       const wrapper = button.parentElement!;
-      const prefixWord = screen.getByText("Window:", { exact: true });
+      const prefixWord = screen.getByText("Tab:", { exact: true });
       // Structure: ONE wrapper span owns both the prefix and the name button —
       // it is the single hover owner for the sweep.
       expect(wrapper).toContainElement(prefixWord);
@@ -298,7 +298,7 @@ describe("TopBar", () => {
         vi.advanceTimersByTime(SWEEP_MS + 100);
       });
       expect(cursorIn(wrapper)).toBeNull();
-      expect(wrapper.textContent).toContain("Window");
+      expect(wrapper.textContent).toContain("Tab");
       expect(wrapper.textContent).toContain("main");
     });
 
@@ -369,7 +369,7 @@ describe("TopBar", () => {
     renderTopBar();
     const brand = screen.getByLabelText("RunKit home");
     const serverCrumb = screen.getByText("runkit").closest("a");
-    const windowSwitch = screen.getByLabelText("Switch window");
+    const windowSwitch = screen.getByLabelText("Switch tab");
     // The session crumb is now a NON-interactive static chip (260813-kvk7) — a
     // session has no navigation of its own, so it carries no Tip and no native
     // title either.
@@ -736,22 +736,22 @@ describe("TopBar", () => {
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 
-  it("calls onCreateWindow when + New Window dropdown action is clicked", () => {
+  it("calls onCreateWindow when + New Tab dropdown action is clicked", () => {
     const onCreateWindow = vi.fn();
     renderTopBar({ onCreateWindow });
 
     // Open the window breadcrumb dropdown (window name is the trigger)
-    const windowDropdown = screen.getByLabelText("Switch window");
+    const windowDropdown = screen.getByLabelText("Switch tab");
     fireEvent.click(windowDropdown);
 
-    // Click the "+ New Window" action
-    const newWindowBtn = screen.getByText("+ New Window");
+    // Click the "+ New Tab" action
+    const newWindowBtn = screen.getByText("+ New Tab");
     expect(newWindowBtn).toBeInTheDocument();
     fireEvent.click(newWindowBtn);
 
     expect(onCreateWindow).toHaveBeenCalledWith("run-kit");
     // Menu should close after action
-    expect(screen.queryByText("+ New Window")).not.toBeInTheDocument();
+    expect(screen.queryByText("+ New Tab")).not.toBeInTheDocument();
   });
 
   it("close-pane is MENU-ONLY (260731-oiho): no in-bar ✕, a Close pane menu row when a window is selected", () => {
@@ -1320,12 +1320,12 @@ describe("TopBar", () => {
       // The three section labels render (aria-hidden decoration — uppercase via
       // CSS, so the text content is the plain word).
       const viewLabel = within(menu).getByText("View", { exact: true });
-      const windowLabel = within(menu).getByText("Window", { exact: true });
+      const windowLabel = within(menu).getByText("Tab", { exact: true });
       const appLabel = within(menu).getByText("App", { exact: true });
       expect(viewLabel).toHaveAttribute("aria-hidden", "true");
       // Membership + fixed section order: a known View row (Fixed width) sits
-      // between the View and Window labels; a Window row (Split vertical)
-      // between Window and App; the App section carries Refresh + the relocated
+      // between the View and Tab labels; a Tab row (Split vertical)
+      // between Tab and App; the App section carries Refresh + the relocated
       // chrome rows (260812-d1at: Settings · Help · Keyboard) + the version
       // row.
       const follows = (a: Element, b: Element) =>
@@ -1365,7 +1365,7 @@ describe("TopBar", () => {
       const menu = screen.getByRole("menu", { name: "More controls" });
       expect(within(menu).getByText("RunKit")).toBeInTheDocument();
       expect(within(menu).queryByText("View", { exact: true })).not.toBeInTheDocument();
-      expect(within(menu).queryByText("Window", { exact: true })).not.toBeInTheDocument();
+      expect(within(menu).queryByText("Tab", { exact: true })).not.toBeInTheDocument();
       expect(within(menu).queryByText("App", { exact: true })).not.toBeInTheDocument();
     });
 
@@ -1874,20 +1874,20 @@ describe("WindowHeading (centered, editable, terminal mode)", () => {
 
   it("renders the current window name at rest as a click-to-rename button (weight-600, primary color)", () => {
     renderTopBar();
-    const heading = screen.getByRole("button", { name: "Rename window main" });
+    const heading = screen.getByRole("button", { name: "Rename tab main" });
     expect(heading).toHaveTextContent("main");
     expect(heading).toHaveClass("font-semibold", "text-text-primary");
   });
 
   it("renders no editable (click-to-rename) heading outside terminal mode — the center carries a display-only heading instead", () => {
     renderTopBar({ mode: "server", currentWindow: null, windowName: "" });
-    expect(screen.queryByRole("button", { name: /Rename window/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Rename tab/ })).not.toBeInTheDocument();
   });
 
   it("clicking the name swaps to an inline input pre-filled with the name", () => {
     renderTopBar();
-    act(() => fireEvent.click(screen.getByRole("button", { name: "Rename window main" })));
-    const input = screen.getByRole("textbox", { name: "Window name" }) as HTMLInputElement;
+    act(() => fireEvent.click(screen.getByRole("button", { name: "Rename tab main" })));
+    const input = screen.getByRole("textbox", { name: "Tab name" }) as HTMLInputElement;
     expect(input).toBeInTheDocument();
     expect(input.value).toBe("main");
   });
@@ -1895,22 +1895,22 @@ describe("WindowHeading (centered, editable, terminal mode)", () => {
   it("Enter commits a non-empty trimmed name via renameWindow()", async () => {
     const { renameWindow } = await import("@/api/client");
     renderTopBar();
-    act(() => fireEvent.click(screen.getByRole("button", { name: "Rename window main" })));
-    const input = screen.getByRole("textbox", { name: "Window name" });
+    act(() => fireEvent.click(screen.getByRole("button", { name: "Rename tab main" })));
+    const input = screen.getByRole("textbox", { name: "Tab name" });
     act(() => fireEvent.change(input, { target: { value: "  renamed  " } }));
     act(() => fireEvent.keyDown(input, { key: "Enter" }));
     await waitFor(() => {
       expect(renameWindow).toHaveBeenCalledWith("runkit", "@0", "renamed");
     });
     // Reverts to display state.
-    expect(screen.queryByRole("textbox", { name: "Window name" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Tab name" })).not.toBeInTheDocument();
   });
 
   it("live-converts typed unsafe chars (space → underscore, hyphen kept)", async () => {
     const { renameWindow } = await import("@/api/client");
     renderTopBar();
-    act(() => fireEvent.click(screen.getByRole("button", { name: "Rename window main" })));
-    const input = screen.getByRole("textbox", { name: "Window name" }) as HTMLInputElement;
+    act(() => fireEvent.click(screen.getByRole("button", { name: "Rename tab main" })));
+    const input = screen.getByRole("textbox", { name: "Tab name" }) as HTMLInputElement;
     // WYSIWYG (260722-ln4n): the input shows the safe form as the user types —
     // spaces convert to "_", hyphens are KEPT (window-kind rule).
     act(() => fireEvent.change(input, { target: { value: "riff-my problem" } }));
@@ -1924,30 +1924,30 @@ describe("WindowHeading (centered, editable, terminal mode)", () => {
   it("Escape cancels with no API call and restores the original name", async () => {
     const { renameWindow } = await import("@/api/client");
     renderTopBar();
-    act(() => fireEvent.click(screen.getByRole("button", { name: "Rename window main" })));
-    const input = screen.getByRole("textbox", { name: "Window name" });
+    act(() => fireEvent.click(screen.getByRole("button", { name: "Rename tab main" })));
+    const input = screen.getByRole("textbox", { name: "Tab name" });
     act(() => fireEvent.change(input, { target: { value: "abandoned" } }));
     act(() => fireEvent.keyDown(input, { key: "Escape" }));
     expect(renameWindow).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Rename window main" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Rename tab main" })).toBeInTheDocument();
   });
 
   it("commit of an empty / whitespace-only value cancels (no rename call)", async () => {
     const { renameWindow } = await import("@/api/client");
     renderTopBar();
-    act(() => fireEvent.click(screen.getByRole("button", { name: "Rename window main" })));
-    const input = screen.getByRole("textbox", { name: "Window name" });
+    act(() => fireEvent.click(screen.getByRole("button", { name: "Rename tab main" })));
+    const input = screen.getByRole("textbox", { name: "Tab name" });
     act(() => fireEvent.change(input, { target: { value: "   " } }));
     act(() => fireEvent.keyDown(input, { key: "Enter" }));
     expect(renameWindow).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Rename window main" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Rename tab main" })).toBeInTheDocument();
   });
 
   it("blur commits (like Enter)", async () => {
     const { renameWindow } = await import("@/api/client");
     renderTopBar();
-    act(() => fireEvent.click(screen.getByRole("button", { name: "Rename window main" })));
-    const input = screen.getByRole("textbox", { name: "Window name" });
+    act(() => fireEvent.click(screen.getByRole("button", { name: "Rename tab main" })));
+    const input = screen.getByRole("textbox", { name: "Tab name" });
     act(() => fireEvent.change(input, { target: { value: "viaBlur" } }));
     act(() => fireEvent.blur(input));
     await waitFor(() => {
@@ -1957,19 +1957,19 @@ describe("WindowHeading (centered, editable, terminal mode)", () => {
 
   it("the `window-heading:rename` CustomEvent enters inline edit (command-palette keyboard path)", () => {
     renderTopBar();
-    expect(screen.queryByRole("textbox", { name: "Window name" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Tab name" })).not.toBeInTheDocument();
     act(() => {
       document.dispatchEvent(new CustomEvent("window-heading:rename"));
     });
-    expect(screen.getByRole("textbox", { name: "Window name" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Tab name" })).toBeInTheDocument();
   });
 
-  it("relocated ▾ window switcher offers + New Window", () => {
+  it("relocated ▾ window switcher offers + New Tab", () => {
     const onCreateWindow = vi.fn();
     renderTopBar({ onCreateWindow });
-    const windowDropdown = screen.getByLabelText("Switch window");
+    const windowDropdown = screen.getByLabelText("Switch tab");
     act(() => fireEvent.click(windowDropdown));
-    const newWindowBtn = screen.getByText("+ New Window");
+    const newWindowBtn = screen.getByText("+ New Tab");
     act(() => fireEvent.click(newWindowBtn));
     expect(onCreateWindow).toHaveBeenCalledWith("run-kit");
   });

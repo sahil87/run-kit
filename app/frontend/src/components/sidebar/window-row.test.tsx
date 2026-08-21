@@ -162,7 +162,7 @@ describe("WindowRow", () => {
   it("renders the kill button as a stroke SVG icon, not a text glyph", () => {
     const win = makeWindow({ windowId: "@0", index: 0, name: "my-shell" });
     renderRow(win);
-    const kill = screen.getByLabelText("Kill window my-shell");
+    const kill = screen.getByLabelText("Kill tab my-shell");
     expect(kill.querySelector("svg")).not.toBeNull();
     expect(kill.textContent).toBe("");
   });
@@ -589,7 +589,7 @@ describe("WindowRow", () => {
       // The pin + kill actions keep their slots (pin holds its slot; only the
       // last slot swaps): both buttons still render in the cluster.
       expect(screen.getByLabelText("Pin my-shell to a board")).toBeInTheDocument();
-      expect(screen.getByLabelText("Kill window my-shell")).toBeInTheDocument();
+      expect(screen.getByLabelText("Kill tab my-shell")).toBeInTheDocument();
     });
 
     it("pinned rest state `[pin][PR]`: the persistent pin glyph coexists with the rest PR glyph", () => {
@@ -640,7 +640,7 @@ describe("WindowRow", () => {
       const win = makeWindow({ windowId: "@0", index: 0, name: "my-shell" });
       renderRowWithIcons(win);
       const pin = screen.getByLabelText("Pin my-shell to a board");
-      const kill = screen.getByLabelText("Kill window my-shell");
+      const kill = screen.getByLabelText("Kill tab my-shell");
       // The color button moved to the left label zone (hwtr) — the right cluster
       // is actions-only now (pin + kill).
       expect(screen.queryByLabelText("Set color for my-shell")).toBeNull();
@@ -997,7 +997,7 @@ describe("WindowRow", () => {
       // The 26px left-edge zone OPENS the picker — a menu-opener, so `pointer`
       // (not the old `cell` cursor). Fine-pointer-only since 260817-ve5m (the
       // coarse pointer path is the card's `Change color…` row).
-      const zone = screen.getByLabelText("Set window label");
+      const zone = screen.getByLabelText("Set tab label");
       expect(zone.className).toContain("cursor-pointer");
       expect(zone.className).not.toContain("cursor-[cell]");
     });
@@ -1007,7 +1007,7 @@ describe("WindowRow", () => {
       const onMarkerChange = vi.fn();
       const onSelectWindow = vi.fn();
       renderAxis(win, { onMarkerChange, onSelectWindow });
-      act(() => { screen.getByLabelText("Set window label").click(); });
+      act(() => { screen.getByLabelText("Set tab label").click(); });
       // The click opens the combined Label picker (a listbox), it does NOT cycle
       // the marker and does NOT select the row (stopPropagation).
       expect(screen.getByRole("listbox", { name: "Label picker" })).toBeInTheDocument();
@@ -1019,7 +1019,7 @@ describe("WindowRow", () => {
       const win = makeWindow({ windowId: "@0", index: 0, marker: "dotted", color: "orange" });
       const onMarkerChange = vi.fn();
       renderAxis(win, { onMarkerChange });
-      act(() => { screen.getByLabelText("Set window label").click(); });
+      act(() => { screen.getByLabelText("Set tab label").click(); });
       // Pick "double" directly — the write is the picked state, not a cycle step.
       act(() => { screen.getByRole("option", { name: "Marker double" }).click(); });
       expect(onMarkerChange).toHaveBeenCalledWith("srv", "alpha", "@0", "double");
@@ -1029,7 +1029,7 @@ describe("WindowRow", () => {
       const win = makeWindow({ windowId: "@0", index: 0, marker: "double", color: "orange" });
       const onMarkerChange = vi.fn();
       renderAxis(win, { onMarkerChange });
-      act(() => { screen.getByLabelText("Set window label").click(); });
+      act(() => { screen.getByLabelText("Set tab label").click(); });
       act(() => { screen.getByRole("option", { name: "Marker none" }).click(); });
       // The row maps the empty marker state to null for the clear write.
       expect(onMarkerChange).toHaveBeenCalledWith("srv", "alpha", "@0", null);
@@ -1039,7 +1039,7 @@ describe("WindowRow", () => {
       const win = makeWindow({ windowId: "@0", index: 0, color: "orange" });
       const onColorChange = vi.fn();
       renderAxis(win, { onColorChange });
-      act(() => { screen.getByLabelText("Set window label").click(); });
+      act(() => { screen.getByLabelText("Set tab label").click(); });
       // Picking "green" emits the legacy descriptor "2" (familyToLegacy seam).
       act(() => { screen.getByRole("option", { name: "Color green" }).click(); });
       expect(onColorChange).toHaveBeenCalledWith("srv", "alpha", "@0", "2");
@@ -1050,7 +1050,7 @@ describe("WindowRow", () => {
       const onColorChange = vi.fn();
       const onMarkerChange = vi.fn();
       renderAxis(win, { onColorChange, onMarkerChange });
-      act(() => { screen.getByLabelText("Set window label").click(); });
+      act(() => { screen.getByLabelText("Set tab label").click(); });
       // Toggle a marker AND a color — the picker stays open through both, so
       // combos can be compared live against the row.
       act(() => { screen.getByRole("option", { name: "Marker double" }).click(); });
@@ -1182,13 +1182,13 @@ describe("WindowRow", () => {
           server="srv"
         />,
       );
-      expect(screen.queryByLabelText("Set window label")).toBeNull();
+      expect(screen.queryByLabelText("Set tab label")).toBeNull();
     });
 
     it("renders the display-only marker stripe for the current state (no ghost/next preview)", () => {
       const win = makeWindow({ windowId: "@0", index: 0, marker: "solid", color: "orange" });
       const { container } = renderAxis(win);
-      const zone = screen.getByLabelText("Set window label");
+      const zone = screen.getByLabelText("Set tab label");
       // The stripe is a display-only ROW-LEVEL element (hoisted out of the
       // zone in 260817-ve5m so it survives the zone's coarse removal) with a
       // left border in the guarded color; it anchors near-flush at the
@@ -1207,13 +1207,13 @@ describe("WindowRow", () => {
       expect(row.querySelectorAll('[style*="border-left"]').length).toBe(1);
       expect(zone.querySelector('[style*="border-left"]')).toBeNull();
       // Container must not be present twice (single zone).
-      expect(container.querySelectorAll('[aria-label="Set window label"]').length).toBe(1);
+      expect(container.querySelectorAll('[aria-label="Set tab label"]').length).toBe(1);
     });
 
     it("hover palette-icon container is inset off the physical sidebar edge", () => {
       const win = makeWindow({ windowId: "@0", index: 0, marker: "solid", color: "orange" });
       renderAxis(win);
-      const zone = screen.getByLabelText("Set window label");
+      const zone = screen.getByLabelText("Set tab label");
       // The icon container is the zone's only aria-hidden child (the glow and
       // stripe carry no aria-hidden).
       const icon = zone.querySelector('[aria-hidden="true"]') as HTMLElement | null;
@@ -1316,7 +1316,7 @@ describe("coarse pointer: rest glyph, relocated cluster, tap zone + scrub (ys3q)
     expect(glyph.className).not.toContain("absolute");
     // Render-gated, not CSS-hidden: no invisible focusable buttons on touch.
     expect(screen.queryByLabelText("Pin my-shell to a board")).toBeNull();
-    expect(screen.queryByLabelText("Kill window my-shell")).toBeNull();
+    expect(screen.queryByLabelText("Kill tab my-shell")).toBeNull();
     // The whole fine-pointer cluster is gone on coarse — the rail owns the
     // row's right edge (an empty hover-armed container would swallow touches).
     expect(container.querySelector("div.absolute.right-2")).toBeNull();
@@ -1326,7 +1326,7 @@ describe("coarse pointer: rest glyph, relocated cluster, tap zone + scrub (ys3q)
     const win = makeWindow({ windowId: "@0", index: 0, name: "my-shell" });
     renderRowWithIcons(win);
     expect(screen.getByLabelText("Pin my-shell to a board")).toBeInTheDocument();
-    expect(screen.getByLabelText("Kill window my-shell")).toBeInTheDocument();
+    expect(screen.getByLabelText("Kill tab my-shell")).toBeInTheDocument();
   });
 
   it("grows the dot tap zone with coarse-only touch-target classes; fine-pointer geometry untouched", () => {
@@ -1392,7 +1392,7 @@ describe("coarse pointer: rest glyph, relocated cluster, tap zone + scrub (ys3q)
     act(() => {
       fireEvent.pointerDown(zoneA, { pointerId: 1, pointerType: "touch" });
     });
-    expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Window @1");
+    expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Tab @1");
 
     // jsdom has no elementFromPoint — stub the scrub's hit-test seam.
     const elFromPoint = vi.fn();
@@ -1404,20 +1404,20 @@ describe("coarse pointer: rest glyph, relocated cluster, tap zone + scrub (ys3q)
         fireEvent.pointerMove(zoneA, { pointerId: 1, clientX: 5, clientY: 5 });
       });
       expect(screen.getAllByTestId("row-flyout-card")).toHaveLength(1);
-      expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Window @2");
+      expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Tab @2");
 
       // Finger over a non-row element → no flicker-close.
       elFromPoint.mockReturnValue(document.body);
       act(() => {
         fireEvent.pointerMove(zoneA, { pointerId: 1, clientX: 5, clientY: 6 });
       });
-      expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Window @2");
+      expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Tab @2");
 
       // Release keeps the last card open.
       act(() => {
         fireEvent.pointerUp(zoneA, { pointerId: 1, pointerType: "touch" });
       });
-      expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Window @2");
+      expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Tab @2");
     } finally {
       delete (document as { elementFromPoint?: unknown }).elementFromPoint;
     }
@@ -1589,7 +1589,7 @@ describe("coarse pointer: rest glyph, relocated cluster, tap zone + scrub (ys3q)
       act(() => {
         fireEvent.pointerDown(railA, { pointerId: 1, pointerType: "touch" });
       });
-      expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Window @1");
+      expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Tab @1");
 
       // jsdom has no elementFromPoint — stub the scrub's hit-test seam.
       const elFromPoint = vi.fn();
@@ -1600,11 +1600,11 @@ describe("coarse pointer: rest glyph, relocated cluster, tap zone + scrub (ys3q)
           fireEvent.pointerMove(railA, { pointerId: 1, clientX: 5, clientY: 5 });
         });
         expect(screen.getAllByTestId("row-flyout-card")).toHaveLength(1);
-        expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Window @2");
+        expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Tab @2");
         act(() => {
           fireEvent.pointerUp(railA, { pointerId: 1, pointerType: "touch" });
         });
-        expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Window @2");
+        expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Tab @2");
       } finally {
         delete (document as { elementFromPoint?: unknown }).elementFromPoint;
       }
@@ -1724,7 +1724,7 @@ describe("coarse pointer: rest glyph, relocated cluster, tap zone + scrub (ys3q)
       const win = makeWindow({ windowId: "@0", index: 0, name: "my-shell", marker: "solid", color: "orange" });
       renderCoarseAxis(win);
       // The interactive zone + its reveal are gone from the DOM on coarse.
-      expect(screen.queryByLabelText("Set window label")).toBeNull();
+      expect(screen.queryByLabelText("Set tab label")).toBeNull();
       // The display-only stripe REMAINS (information, not an affordance),
       // pointer-events-none, anchored at the 4px inset.
       const row = screen.getByRole("treeitem");

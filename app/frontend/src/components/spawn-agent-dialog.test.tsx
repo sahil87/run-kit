@@ -145,7 +145,7 @@ describe("SpawnAgentDialog", () => {
     spawnRiff.mockReturnValue(new Promise((r) => { resolve = r; }));
     renderDialog();
     fireEvent.click(screen.getByRole("button", { name: /^spawn$/i }));
-    await waitFor(() => expect(screen.getByText(/worktree → window → agent/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/worktree → tab → agent/i)).toBeInTheDocument());
     expect(screen.getByRole("button", { name: /spawning/i })).toBeDisabled();
     resolve({ server: "work", session: "mysess", window: "riff-x", windowId: "@9" });
   });

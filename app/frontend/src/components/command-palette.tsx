@@ -156,7 +156,7 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
           // (Board:/Pin:/View:/Window:) are an entire hidden command system with
           // no other always-visible surface. Typed prefixes, not chords — so no
           // coarse-pointer branch.
-          placeholder={confirming ? "Confirm action..." : "Type a command — try Board: Pin: View: Window:"}
+          placeholder={confirming ? "Confirm action..." : "Type a command — try Board: Pin: View: Tab:"}
           aria-label="Search commands"
           aria-autocomplete="list"
           aria-controls={listId}
@@ -174,7 +174,7 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
         >
           {filtered.length === 0 ? (
             <div className="px-3 py-2 text-xs text-text-secondary">
-              No results — try a prefix: Board:, Pin:, View:, Window:
+              No results — try a prefix: Board:, Pin:, View:, Tab:
             </div>
           ) : (
             filtered.map((action, i) => (

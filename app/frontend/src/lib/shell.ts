@@ -470,6 +470,88 @@ export async function renameShellHost(id: string, name: string): Promise<boolean
     typeof result === "object" && result !== null && "ok" in result && result.ok === true
   );
 }
+/** The bridge's `windows` group — the multi-window bridge invokers. `close`
+ *  is additive on top of `newWindow` (shells older than the ⇧⌘W binding
+ *  expose only `newWindow`), so it is narrowed separately. */
+interface ShellWindowsBridge {
+  newWindow: () => Promise<unknown>;
+}
+
+interface ShellWindowsCloseBridge extends ShellWindowsBridge {
+  close: () => Promise<unknown>;
+}
+
+function isWindowsBridge(value: unknown): value is ShellWindowsBridge {
+  if (typeof value !== "object" || value === null) return false;
+  if (!("newWindow" in value)) return false;
+  return typeof value.newWindow === "function";
+}
+
+function isWindowsCloseBridge(bridge: ShellWindowsBridge): bridge is ShellWindowsCloseBridge {
+  return "close" in bridge && typeof Reflect.get(bridge, "close") === "function";
+}
+
+/** The `windows` group when the bridge carries one — absent on older shells. */
+function windowsBridge(): ShellWindowsBridge | null {
+  const candidate = typeof window === "undefined" ? undefined : window.runkitShell;
+  if (typeof candidate !== "object" || candidate === null) return null;
+  if (!("windows" in candidate)) return null;
+  return isWindowsBridge(candidate.windows) ? candidate.windows : null;
+}
+
+/** True when the shell can open a new app window (`windows.newWindow` present). */
+export function canNewShellWindow(): boolean {
+  return windowsBridge() !== null;
+}
+
+/** True when the shell can close its own window (`windows.close` present). */
+export function canCloseShellWindow(): boolean {
+  const bridge = windowsBridge();
+  return bridge !== null && isWindowsCloseBridge(bridge);
+}
+
+/**
+ * Ask the shell to open a new app window — a duplicate of the current one
+ * (same host, same route, fresh independent view; `shell:new-window`).
+ * Resolves `false` in a plain browser, on an older shell without the
+ * `windows` group, or when the shell rejects/denies the call. Never throws.
+ */
+export async function newShellWindow(): Promise<boolean> {
+  const bridge = windowsBridge();
+  if (!bridge) return false;
+  let result: unknown;
+  try {
+    result = await bridge.newWindow();
+  } catch {
+    return false;
+  }
+  return (
+    typeof result === "object" && result !== null && "ok" in result && result.ok === true
+  );
+}
+
+/**
+ * Ask the shell to close the app window this SPA is displayed in
+ * (`shell:close-window` — the SENDER's window, not the focused one; closing
+ * the last window quits nothing — window lifecycle is the shell's).
+ * Resolves `false` in a plain browser, on an older shell whose `windows`
+ * group lacks the `close` invoker, or when the shell rejects/denies the
+ * call. Never throws.
+ */
+export async function closeShellWindow(): Promise<boolean> {
+  const bridge = windowsBridge();
+  if (!bridge || !isWindowsCloseBridge(bridge)) return false;
+  let result: unknown;
+  try {
+    result = await bridge.close();
+  } catch {
+    return false;
+  }
+  return (
+    typeof result === "object" && result !== null && "ok" in result && result.ok === true
+  );
+}
+
 /** The bridge's `badge` group — thin IPC invoker resolving unknown shapes. */
 interface ShellBadgeBridge {
   set: (count: number) => Promise<unknown>;

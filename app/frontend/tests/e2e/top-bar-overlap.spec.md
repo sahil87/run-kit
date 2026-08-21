@@ -3,7 +3,7 @@
 Proves the top-bar overlap fixes (change 260715-q8ey): in the mid-width band
 between the `sm` breakpoint (640px) and ~900px, the left breadcrumb crumbs
 compress to an ellipsis and clip inside the nav box instead of overflowing and
-painting over the centered `Window: <name>` heading. Specifically, it proves the
+painting over the centered `Tab: <name>` heading. Specifically, it proves the
 degradation ladder — long crumbs truncate (the `min-w-0` chain unblocks the
 existing `truncate max-w-[16ch]`), the breadcrumb `<nav>` clips residual overflow
 (`overflow-hidden` + an explicit `min-w-[46px] sm:min-w-[150px]` floor), the
@@ -50,7 +50,7 @@ at this width.
 
 **Steps:**
 1. Resolve the long-named window's id; set a 700×800 viewport; navigate to it.
-2. Assert the `Breadcrumb` nav and the `Rename window <long>` heading are visible.
+2. Assert the `Breadcrumb` nav and the `Rename tab <long>` heading are visible.
 3. Compute both bounding boxes and assert they do NOT intersect (the overlap
    regression assertion).
 4. Locate the session crumb — since 260813-kvk7 a NON-interactive static chip

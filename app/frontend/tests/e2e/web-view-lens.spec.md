@@ -89,7 +89,7 @@ Steps:
 1. Create a window with `@rk_url`.
 2. Navigate to `…?view=web`.
 3. Assert the iframe renders, the mirrored URL reads `?layout=single:web`, and
-   the center heading shows the static `Window:` prefix (260714-uco1 — the
+   the center heading shows the static `Tab:` prefix (260714-uco1 — the
    heading does not follow the lens).
 
 ### ?view=web on a window with no @rk_url falls back to the terminal

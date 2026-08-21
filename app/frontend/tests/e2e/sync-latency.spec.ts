@@ -164,7 +164,7 @@ test.describe("Sync Latency Audit", () => {
     await expect(sidebar.locator(`text=${SESSION_B}`).first()).toBeVisible({ timeout: 8_000 });
 
     // The + button for new window is on the session row
-    const newWinBtn = sidebar.locator(`button[aria-label='New window in ${SESSION_B}']`);
+    const newWinBtn = sidebar.locator(`button[aria-label='New tab in ${SESSION_B}']`);
 
     if (await newWinBtn.isVisible().catch(() => false)) {
       // Scope to SESSION_B's window rows via the wrapper's stable
@@ -238,7 +238,7 @@ test.describe("Sync Latency Audit", () => {
     const sidebar = await setup(page);
     await expect(sidebar.locator("text=kill-me").first()).toBeVisible({ timeout: 8_000 });
 
-    const killBtn = sidebar.locator("button[aria-label='Kill window kill-me']");
+    const killBtn = sidebar.locator("button[aria-label='Kill tab kill-me']");
 
     // The icon cluster is pointer-events-none at rest (stray-click hardening);
     // hover the row first so group-hover restores interactivity, mirroring how

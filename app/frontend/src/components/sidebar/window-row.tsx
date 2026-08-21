@@ -208,7 +208,7 @@ function WindowRowInner({
   const dragEnabled = draggable && !ghost;
   const isEditing = editingWindow?.session === session && editingWindow.windowId === win.windowId;
   // The combined Label picker (colors + marker) opened by the left-edge label
-  // zone (or the `Window: Label` palette action). Replaces the former
+  // zone (or the `Tab: Label` palette action). Replaces the former
   // right-cluster color popover + gutter click-to-cycle (hwtr).
   const [showLabelPicker, setShowLabelPicker] = useState(false);
   const [showPinPopover, setShowPinPopover] = useState(false);
@@ -283,8 +283,8 @@ function WindowRowInner({
   const scrub = useRailScrub(flyout.openNow);
 
   // Listen for the imperative `pin-popover:open` / `label-popover:open` events
-  // dispatched by the command palette's "Board: Pin Current Window" and
-  // "Window: Label" actions. Only the row whose (server, windowId) matches the
+  // dispatched by the command palette's "Board: Pin Current Tab" and
+  // "Tab: Label" actions. Only the row whose (server, windowId) matches the
   // event detail opens its popover; other rows ignore the event. Mirrors the
   // `palette:open` document-event pattern used elsewhere — see app.tsx command
   // palette wiring.
@@ -635,7 +635,7 @@ function WindowRowInner({
               onClick={(e) => e.stopPropagation()}
               onMouseDown={(e) => e.stopPropagation()}
               className="text-xs bg-transparent border border-accent rounded px-0.5 outline-none truncate w-full"
-              aria-label="Rename window"
+              aria-label="Rename tab"
             />
           ) : (
             <span className="truncate">{win.name}</span>
@@ -731,7 +731,7 @@ function WindowRowInner({
         {!coarse && (
         <button
           type="button"
-          aria-label={`Kill window ${win.name}`}
+          aria-label={`Kill tab ${win.name}`}
           onClick={(e) => {
             e.stopPropagation();
             if (!ghost) onKillClick(srv, session, win.windowId, e.ctrlKey || e.metaKey);
@@ -883,7 +883,7 @@ type LabelZoneProps = {
 function LabelZone({ markerColor, colored, hover, onEnter, onLeave, onClick }: LabelZoneProps) {
   return (
     <div
-      aria-label="Set window label"
+      aria-label="Set tab label"
       onClick={onClick}
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}

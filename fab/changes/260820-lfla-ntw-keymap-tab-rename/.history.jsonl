@@ -1,3 +1,14 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-20T18:42:41Z"}
 {"args":"N/T/W keymap realignment + tab copy sweep (mac desktop shell): cmd-T new tab, shift-cmd-T new session, cmd-N new app window via shell:new-window bridge (SPA binding), shift-cmd-W close app window; rename tmux windows to 'tab' in user-facing copy; cmd-backtick system claim. Depends on desktop-multi-window.","cmd":"fab-new","event":"command","ts":"2026-08-20T18:42:41Z"}
 {"delta":"+4.4","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-08-20T18:44:50Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-21T02:51:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-21T02:51:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-21T03:23:56Z"}
+{"event":"review","result":"failed","ts":"2026-08-21T03:27:34Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-21T03:27:34Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-21T05:12:46Z"}
+{"action":"enter","event":"stage-transition","stage":"hydrate","ts":"2026-08-21T05:53:06Z"}
+{"event":"review","result":"passed","ts":"2026-08-21T05:53:06Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-21T06:03:26Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-08-21T06:05:54Z"}
+{"event":"review","result":"passed","ts":"2026-08-21T06:50:59Z"}

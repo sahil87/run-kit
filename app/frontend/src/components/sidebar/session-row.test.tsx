@@ -54,7 +54,7 @@ describe("SessionRow", () => {
   it("exposes create-window and kill affordances", () => {
     const session = makeSession({ name: "agent-work" });
     render(<SessionRow {...rowProps(session)} />);
-    expect(screen.getByLabelText("New window in agent-work")).toBeInTheDocument();
+    expect(screen.getByLabelText("New tab in agent-work")).toBeInTheDocument();
     expect(screen.getByLabelText("Kill session agent-work")).toBeInTheDocument();
   });
 
@@ -94,7 +94,7 @@ describe("SessionRow", () => {
   it("renders the + and ✕ actions as stroke SVG icons, not text glyphs", () => {
     const session = makeSession({ name: "agent-work" });
     render(<SessionRow {...rowProps(session)} />);
-    const plus = screen.getByLabelText("New window in agent-work");
+    const plus = screen.getByLabelText("New tab in agent-work");
     const kill = screen.getByLabelText("Kill session agent-work");
     for (const btn of [plus, kill]) {
       expect(btn.querySelector("svg")).not.toBeNull();
@@ -119,7 +119,7 @@ describe("SessionRow", () => {
       render(<SessionRow {...rowProps(session)} onSpawnAgent={onSpawnAgent} />);
 
       const bot = screen.getByLabelText("Spawn agent in agent-work");
-      const plus = screen.getByLabelText("New window in agent-work");
+      const plus = screen.getByLabelText("New tab in agent-work");
       expect(bot).toBeInTheDocument();
       // DOM order: bot precedes + (Node.DOCUMENT_POSITION_FOLLOWING = 4).
       expect(bot.compareDocumentPosition(plus) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -266,7 +266,7 @@ describe("SessionRow", () => {
       const cases: Array<[string, string]> = [
         ["Set color for agent-work", "Set session color"],
         ["Spawn agent in agent-work", "Spawn agent"],
-        ["New window in agent-work", "New window"],
+        ["New tab in agent-work", "New tab"],
         ["Kill session agent-work", "Kill session"],
       ];
       // Fresh render per case: blur closes the tip on a floating-ui timeout,
@@ -331,7 +331,7 @@ describe("SessionRow", () => {
       const bar = screen.getByTestId("popup-title-bar");
       expect(card).toContainElement(bar);
       expect(bar).toHaveTextContent("Session code-surface-latch-distill");
-      expect(card).toHaveTextContent("$4 · 3 windows · ~/code/sahil87/run-kit");
+      expect(card).toHaveTextContent("$4 · 3 tabs · ~/code/sahil87/run-kit");
       // Tier-1 weight: no interactive content at all.
       expect(card.querySelector("a, button")).toBeNull();
       expect(card.className).toContain("pointer-events-none");
@@ -342,7 +342,7 @@ describe("SessionRow", () => {
       render(<SessionRow {...rowProps(session)} />);
       hoverRow();
       const card = screen.getByTestId("session-tip");
-      expect(card).toHaveTextContent("3 windows");
+      expect(card).toHaveTextContent("3 tabs");
       expect(card).not.toHaveTextContent("$");
       expect(card).not.toHaveTextContent("~");
     });
@@ -448,7 +448,7 @@ describe("SessionRow", () => {
       // Render-gated, not CSS-hidden: no cluster buttons exist on coarse.
       expect(screen.queryByLabelText("Set color for agent-work")).toBeNull();
       expect(screen.queryByLabelText("Spawn agent in agent-work")).toBeNull();
-      expect(screen.queryByLabelText("New window in agent-work")).toBeNull();
+      expect(screen.queryByLabelText("New tab in agent-work")).toBeNull();
       expect(screen.queryByLabelText("Kill session agent-work")).toBeNull();
     });
 
@@ -458,7 +458,7 @@ describe("SessionRow", () => {
       render(<SessionRow {...rowProps(session)} />);
       expect(screen.queryByTestId("status-rail")).toBeNull();
       expect(screen.getByLabelText("Set color for agent-work")).toBeInTheDocument();
-      expect(screen.getByLabelText("New window in agent-work")).toBeInTheDocument();
+      expect(screen.getByLabelText("New tab in agent-work")).toBeInTheDocument();
       expect(screen.getByLabelText("Kill session agent-work")).toBeInTheDocument();
     });
 
@@ -484,15 +484,15 @@ describe("SessionRow", () => {
       const card = screen.getByTestId("row-flyout-card");
       expect(screen.getByTestId("popup-title-bar")).toHaveTextContent("Session agent-work");
       // The identity tip's facts line verbatim (omission-degrading).
-      expect(card).toHaveTextContent("$4 · 2 windows · ~/code/run-kit");
-      // Fixed order: Change color… → Spawn agent… → New window → Kill session.
+      expect(card).toHaveTextContent("$4 · 2 tabs · ~/code/run-kit");
+      // Fixed order: Change color… → Spawn agent… → New tab → Kill session.
       const color = screen.getByTestId("row-flyout-color-action");
       const spawn = screen.getByTestId("row-flyout-spawn-action");
       const create = screen.getByTestId("row-flyout-create-action");
       const kill = screen.getByTestId("row-flyout-kill-action");
       expect(color).toHaveTextContent("Change color…");
       expect(spawn).toHaveTextContent("Spawn agent…");
-      expect(create).toHaveTextContent("New window");
+      expect(create).toHaveTextContent("New tab");
       expect(kill).toHaveTextContent("Kill session");
       expect(kill).toHaveTextContent("confirms first");
       expect(kill.className).toContain("hover:text-signal-red");

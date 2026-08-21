@@ -493,7 +493,7 @@ describe("SettingsDialog", () => {
 
   it("an armed rebind capture's Escape cancels the capture WITHOUT closing the dialog", async () => {
     renderDialog(makeInstanceName(), "shortcuts");
-    fireEvent.click(screen.getByLabelText("Change binding for Next window"));
+    fireEvent.click(screen.getByLabelText("Change binding for Next tab"));
     expect(screen.getByText("press keys…")).toBeInTheDocument();
     // The capture-phase listener stopPropagations — the focus trap never sees
     // this Escape, so only the capture cancels.

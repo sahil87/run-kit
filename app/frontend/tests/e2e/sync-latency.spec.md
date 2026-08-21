@@ -68,7 +68,7 @@ underscored form of what was filled.
 
 ### `3. Create window via sidebar + button`
 
-**What it proves:** The session row's `+` (New window) button creates a
+**What it proves:** The session row's `+` (New tab) button creates a
 window optimistically — a ghost window row appears under SESSION_B in
 ≤500ms, without waiting for the SSE poll. This is an audit: it records the
 real appearance latency and the summary flags it `[SLOW] ← SSE-dependent`
@@ -79,7 +79,7 @@ expanded).
 **Steps:**
 1. `setup`.
 2. Assert session B is visible.
-3. If `New window in ${SESSION_B}` button is visible:
+3. If `New tab in ${SESSION_B}` button is visible:
    a. Scope to SESSION_B's window rows — the per-session wrapper's stable
       `data-session-group="${SESSION_B}"` handle (`sidebar/index.tsx`) —
       and count its `[data-window-id]` rows (the stable window-row handle;
@@ -95,7 +95,7 @@ expanded).
       so detection is by count increase (mirroring test 1), not by name.
 4. Otherwise log SKIP.
 
-### `4. Rename window via UI (double-click)`
+### `4. Rename tab via UI (double-click)`
 
 **What it proves:** Double-click rename on a window also runs optimistically
 (≤500ms).
@@ -107,7 +107,7 @@ expanded).
 4. Double-click, clear, fill `renamed-win`.
 5. Timer, Enter, wait for new name, `record`.
 
-### `5. Kill window via Ctrl+click (instant)`
+### `5. Kill tab via Ctrl+click (instant)`
 
 **What it proves:** Ctrl+click on the window's kill button performs an
 instant kill with no confirm dialog; the row disappears in ≤500ms.

@@ -88,7 +88,7 @@ test.describe("Boards: Pin flow", () => {
       .toBe(false);
   });
 
-  test("palette 'Pin: Current Window to <board>' pins directly and shows the View board toast", async ({
+  test("palette 'Pin: Current Tab to <board>' pins directly and shows the View board toast", async ({
     page,
   }) => {
     test.setTimeout(30_000);
@@ -107,13 +107,13 @@ test.describe("Boards: Pin flow", () => {
     await page.keyboard.press("Meta+k");
     const paletteInput = page.getByPlaceholder("Type a command");
     await expect(paletteInput).toBeVisible({ timeout: 5_000 });
-    await paletteInput.fill(`Pin: Current Window to ${board}`);
+    await paletteInput.fill(`Pin: Current Tab to ${board}`);
     // The direct-pin entry only exists once useBoards' fetch and the
     // session/window context have resolved — on a slow runner Enter can fire
     // before the action is in the list, and the palette treats Enter with no
     // filtered match as a silent no-op. Gate on the rendered option.
     await expect(
-      page.getByRole("option", { name: `Pin: Current Window to ${board}` }),
+      page.getByRole("option", { name: `Pin: Current Tab to ${board}` }),
     ).toBeVisible({ timeout: 10_000 });
     await page.keyboard.press("Enter");
 

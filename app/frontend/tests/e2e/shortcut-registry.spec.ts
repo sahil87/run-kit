@@ -219,7 +219,7 @@ test.describe("shortcuts overlay", () => {
     await page.keyboard.press("Shift+Control+Slash");
     await expect(shortcutsPanel(page)).toBeVisible();
 
-    await page.getByLabel("Change binding for Next window").click();
+    await page.getByLabel("Change binding for Next tab").click();
     await page.keyboard.press("Shift+Control+KeyU");
 
     // The diff persisted to localStorage["runkit-keybindings"].
@@ -382,7 +382,7 @@ test.describe("macOS per-platform defaults (spoofed platform)", () => {
     await expect(panel.locator('[title="address"]')).toBeVisible();
     await expect(panel.locator('[title="address bar"]')).toHaveCount(0);
     // Selecting ⇧⌘ swaps to the shifted layer — the same KeyL cell reads
-    // "next win" there, so the "address" keycap disappearing proves the
+    // "next tab" there, so the "address" keycap disappearing proves the
     // layer swap.
     const shiftedOption = picker.getByRole("button", { name: "⇧ ⌘" });
     await shiftedOption.click();
@@ -466,7 +466,7 @@ test.describe("macOS per-platform defaults (spoofed platform)", () => {
 
 // Split chords (260807-rbx5): the divider pair ⇧Ctrl+\/⇧Ctrl+- on Win/Linux
 // and ⌘D / ⇧⌘D on mac (the `macCode` refinement) reuse the
-// `Window: Split Horizontal|Vertical` palette bodies, so the assertion is
+// `Tab: Split Horizontal|Vertical` palette bodies, so the assertion is
 // the spawned `POST /api/windows/{id}/split` body. Both bound on every host.
 async function mockSplit(page: Page) {
   const bodies: Record<string, unknown>[] = [];
@@ -505,9 +505,9 @@ test.describe("split chords (260807-rbx5)", () => {
     await page.keyboard.press("Meta+k");
     const paletteInput = page.getByPlaceholder("Type a command");
     await expect(paletteInput).toBeVisible();
-    await paletteInput.fill("Window: Split");
-    await expect(page.getByText("Window: Split Horizontal")).toBeVisible();
-    await expect(page.getByText("Window: Split Vertical")).toBeVisible();
+    await paletteInput.fill("Tab: Split");
+    await expect(page.getByText("Tab: Split Horizontal")).toBeVisible();
+    await expect(page.getByText("Tab: Split Vertical")).toBeVisible();
     // One hint each: horizontal's ⇧Ctrl+\ and vertical's ⇧Ctrl+-.
     await expect(page.getByText("Shift+Ctrl+\\")).toHaveCount(1);
     await expect(page.getByText("Shift+Ctrl+-")).toHaveCount(1);

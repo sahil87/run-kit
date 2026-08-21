@@ -240,7 +240,7 @@ export function WindowPanel({ window: win }: WindowPanelProps) {
       headerAction={<PaneRefreshButton />}
     >
       {!win ? (
-        <span className="text-xs text-text-secondary">No window selected</span>
+        <span className="text-xs text-text-secondary">No tab selected</span>
       ) : (
         <WindowContent win={win} />
       )}

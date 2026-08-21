@@ -122,7 +122,7 @@ before the user reached the palette.)
 6. Re-expand the target session so the persisted collapse state does not leak
    into the next test.
 
-### `palette 'Selection: Move N windows to <session>' bulk-moves the selection`
+### `palette 'Selection: Move N tabs to <session>' bulk-moves the selection`
 
 **What it proves:** The end-to-end sweep — select several windows, run the
 per-target-session palette entry, and the windows actually move in tmux, the
@@ -133,9 +133,9 @@ under the target session via SSE.
 1. `openTree`; resolve `alpha` and `beta`.
 2. Modifier-click both rows; assert the indicator reads `2 selected`.
 3. Press `Meta+k`, fill the palette with
-   `Selection: Move 2 windows to <dst-session>`, wait for the option to render,
+   `Selection: Move 2 tabs to <dst-session>`, wait for the option to render,
    and press `Enter`.
-4. Assert the toast `Moved 2 windows to <dst-session>` appears.
+4. Assert the toast `Moved 2 tabs to <dst-session>` appears.
 5. Assert the selection indicator is gone (a fully successful batch clears the
    selection).
 6. Poll tmux (`list-windows` on the target session) until both window ids are
@@ -152,9 +152,9 @@ toast, clears the owned selection, and removes both windows from tmux.
 
 **Steps:**
 1. `openTree`; resolve `close-one` and `close-two`; modifier-click both rows.
-2. Open the palette, filter to `Selection: Close 2 windows`, and press Enter.
+2. Open the palette, filter to `Selection: Close 2 tabs`, and press Enter.
 3. Assert the sole confirmation option reads
-   `Close 2 windows — Enter to confirm`.
+   `Close 2 tabs — Enter to confirm`.
 4. Press Escape; assert both ids remain in the source session and the indicator
    still reads `2 selected`.
 5. Reopen and select the close action, then press Enter on the confirmation row.

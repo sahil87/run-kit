@@ -225,7 +225,7 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     // aria-hidden measurement probe duplicates every in-bar control, so
     // testid / `:visible` queries are ambiguous — getByRole excludes it.
     await page.goto(`/${SERVER}/1`);
-    await expect(page.getByText("Window:", { exact: true })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("Tab:", { exact: true })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole("group", { name: "Window view" })).toHaveCount(0);
     await expect(page.getByTestId("view-toggle")).toHaveCount(0);
     const bar = page.getByRole("banner");
@@ -262,21 +262,21 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
 
     // Chat-less deep-link degradation: `?view=chat` on @2 is inert — the
     // terminal renders (no chat view, no switcher). The heading is the static
-    // `Window:` prefix (260714-uco1 — no longer lens-following).
+    // `Tab:` prefix (260714-uco1 — no longer lens-following).
     await page.goto(`/${SERVER}/2?view=chat`);
     await expect(page.getByText("plain-win").first()).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId("chat-view")).toHaveCount(0);
     await expect(page.getByRole("group", { name: "Window view" })).toHaveCount(0);
-    await expect(page.getByText("Window:", { exact: true })).toBeVisible();
+    await expect(page.getByText("Tab:", { exact: true })).toBeVisible();
   });
 
-  test("flipping to chat preserves the window and updates the URL (heading stays `Window:`)", async ({ page }) => {
+  test("flipping to chat preserves the window and updates the URL (heading stays `Tab:`)", async ({ page }) => {
     await mockBackend(page, backfillCleared());
     await page.goto(`/${SERVER}/1`);
 
-    // The heading is a static `Window:` prefix (260714-uco1) — the lens is shown
+    // The heading is a static `Tab:` prefix (260714-uco1) — the lens is shown
     // by the tile content, not the heading.
-    await expect(page.getByText("Window:", { exact: true })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("Tab:", { exact: true })).toBeVisible({ timeout: 10_000 });
 
     // Switch via the palette's `View: Chat` action — the only lens-switch
     // surface (260812-0c6o). R12's shim turns the selection into
@@ -285,18 +285,18 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
 
     // Same window (@1 → segment `1`), now mirrored as ?layout=single:chat.
     await expectLayoutParam(page, "single:chat");
-    // The renderer mounts; the heading stays `Window:` across the lens switch
+    // The renderer mounts; the heading stays `Tab:` across the lens switch
     // (the anchor no longer jumps). The chat lens is proven by the chat-view.
     await expect(page.getByTestId("chat-view")).toBeVisible();
-    await expect(page.getByText("Window:", { exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: `Rename window agent-win` })).toBeVisible();
+    await expect(page.getByText("Tab:", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: `Rename tab agent-win` })).toBeVisible();
   });
 
   test("Ctrl+` no longer flips to the chat lens (the chord is fully unbound, 260813-j3jb)", async ({ page }) => {
     await mockBackend(page, backfillCleared());
     await page.goto(`/${SERVER}/1`);
     // Gate on the heading — the always-present readiness surface.
-    await expect(page.getByText("Window:", { exact: true })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("Tab:", { exact: true })).toBeVisible({ timeout: 10_000 });
 
     // Ctrl+` is fully unbound (the layout-zoom rebind was removed in
     // 260813-j3jb — the chord belongs to code-server), so it must NOT reach
@@ -306,7 +306,7 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     await page.waitForTimeout(500);
     await expectLayoutParam(page, null);
     await expect(page.getByTestId("chat-view")).toHaveCount(0);
-    await expect(page.getByText("Window:", { exact: true })).toBeVisible();
+    await expect(page.getByText("Tab:", { exact: true })).toBeVisible();
   });
 
   test("deep link ?view=chat cold-loads into the chat view", async ({ page }) => {
@@ -314,7 +314,7 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     await page.goto(`/${SERVER}/1?view=chat`);
 
     await expect(page.getByTestId("chat-view")).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText("Window:", { exact: true })).toBeVisible();
+    await expect(page.getByText("Tab:", { exact: true })).toBeVisible();
     // The read-only disabled footer is GONE (260714-jdyg-chat-send) — the live
     // send input replaces it.
     await expect(page.getByTestId("chat-send-disabled")).toHaveCount(0);

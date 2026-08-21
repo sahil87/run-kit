@@ -4,7 +4,7 @@ Proves the universal, centered top-bar page heading (change 260703-5ilm's
 editable window heading, extended by 260704-pr0p into a `PageType: name` heading
 on every route with the boot-sweep animation): the current tmux window name is
 the prominent centered identity on the Terminal route (prefixed by the static
-`Window:` per 260714-uco1, which replaced the retired lens-following
+`Tab:` per 260714-uco1, which replaced the retired lens-following
 `Terminal:`/`Web:`/`Chat:` prefix), renaming happens in place (click → inline
 input, Enter/blur commit, Escape cancel), the command-palette rename path enters
 the same inline edit, the 375px bar stays single-line, the hover-animation
@@ -17,7 +17,7 @@ also carrying an in-page long-form `SectionHeading` (`Host Overview` on `/`,
 `tmux Server Overview` on `/$server` — 260715-zs1y). A separate
 260714-uco1 block asserts the top-bar heading-nav sub-features: the stable
 left anchor (the heading's left edge does not drift with name length), the
-static `Window:` prefix — contiguous since 260813-kvk7 removed the ancestor
+static `Tab:` prefix — contiguous since 260813-kvk7 removed the ancestor
 hierarchy dropdown (ancestor navigation now lives only in the command palette's
 `Go: tmux Server` / `Go: Host` and the left breadcrumb's server crumb) — and the
 browser-history
@@ -38,14 +38,14 @@ then resolves to rest).
   convention `window-switch-transition.spec.ts` documents.
 - `resolveWindow(page, name)` polls `GET /api/sessions` until the CLI-created
   window surfaces in the backend snapshot, returning its stable `@N` id (the
-  handle for the terminal route and the `Rename window <name>` heading label).
+  handle for the terminal route and the `Rename tab <name>` heading label).
 - `gotoWindow(page, id)` navigates to `/${server}/${encodedId}` and waits for
   the `Connected` indicator.
 - Both helpers are now thin file-local wrappers over the shared, parameterized
   `resolveWindow`/`gotoWindow` in `tests/e2e/_ready.ts` (hoisted in 260715-q8ey
   so `top-bar-overlap.spec.ts` reuses the same logic); the two-arg call sites in
   this file are unchanged.
-- The centered heading is a `<button aria-label="Rename window <name>">`; its
+- The centered heading is a `<button aria-label="Rename tab <name>">`; its
   inline editor is a `<input aria-label="Window name">`.
 
 ## Tests
@@ -58,11 +58,11 @@ breadcrumb now ends at the session).
 
 **Steps:**
 1. Create a window with a known name; resolve its `@N` id; navigate to it.
-2. Assert the `Rename window <name>` button is visible and its text equals the
+2. Assert the `Rename tab <name>` button is visible and its text equals the
    window name.
 3. Assert the `Breadcrumb` nav does NOT contain the window name (no duplication).
-4. Assert the static `Window:` page-type prefix (260714-uco1) is visible — the
-   prefix run is contiguous (`Window:`) since 260813-kvk7 removed the hierarchy
+4. Assert the static `Tab:` page-type prefix (260714-uco1) is visible — the
+   prefix run is contiguous (`Tab:`) since 260813-kvk7 removed the hierarchy
    ▾ that used to split it (`Window ▾:`) — and is NOT contained
    inside the rename button; it is a sibling span, so clicking it never starts
    an edit (the edit input binds only to the name).
@@ -80,7 +80,7 @@ above its "Sessions" section.
 1. Navigate to `/${server}`.
 2. Assert the `tmux Server <server>` heading (its accessible name carries the
    type prefix) is visible.
-3. Assert there is no `Rename window …` button (the server name is display-only).
+3. Assert there is no `Rename tab …` button (the server name is display-only).
 4. Assert the in-page `tmux Server Overview` `<h2>` heading is visible.
 5. Assert the `Breadcrumb` nav does NOT contain the server name.
 
@@ -116,7 +116,7 @@ nor the old left `Board ▸` home button appears in the left breadcrumb.
 2. Assert the `Board <name>` heading (its accessible name carries the type
    prefix) is visible.
 3. Assert the relocated ▾ board switcher (`Switch board`) is visible beside it.
-4. Assert there is no `Rename window …` button (the board name is display-only).
+4. Assert there is no `Rename tab …` button (the board name is display-only).
 5. Assert the `Breadcrumb` nav does NOT contain the board name and does NOT
    contain the old left `Board ▸` home button (move-don't-copy).
 6. Cleanup: unpin the window via `POST /api/boards/<board>/unpin` so the empty
@@ -240,23 +240,23 @@ band grow rightward and the centered box drifts — an accepted tradeoff (intake
 1. Create two windows in the same session with different (band-fitting) name
    lengths.
 2. Set a desktop viewport (1200px) so the `sm:` min-width anchor is active.
-3. Navigate to the shorter-named window; record the `Window:` prefix run's
+3. Navigate to the shorter-named window; record the `Tab:` prefix run's
    left x (the leftmost prefix text — the anchor under test).
 4. Navigate to the longer-named window; record the prefix run's left x.
 5. Assert the two x values differ by ≤2px (the anchor held; no drift).
 
-### the heading prefix is a static `Window:` on the terminal route (all lenses), with a single ▾ window switcher
+### the heading prefix is a static `Tab:` on the terminal route (all lenses), with a single ▾ window switcher
 
-**What it proves:** the terminal-route heading prefix is a static `Window:`, never
+**What it proves:** the terminal-route heading prefix is a static `Tab:`, never
 the retired lens-following `Terminal:`/`Web:`/`Chat:` — and (260813-kvk7) the
 hierarchy dropdown that used to split the prefix is gone, leaving the window
 switcher as the heading's single ▾.
 
 **Steps:**
 1. Create a plain window; navigate to it.
-2. Assert the contiguous `Window:` prefix run is visible (the hierarchy ▾ no
+2. Assert the contiguous `Tab:` prefix run is visible (the hierarchy ▾ no
    longer splits it) and that no `Terminal:`/`Web:`/`Chat:` text is present.
-3. Assert no `Switch hierarchy` trigger exists; click the `Switch window` ▾ and
+3. Assert no `Switch hierarchy` trigger exists; click the `Switch tab` ▾ and
    assert its menu lists the current window (the session's windows, not the
    ancestor chain); close with Escape.
 
@@ -296,7 +296,7 @@ renders with no new alignment code).
    (the no-dedup shape) — using a `switchTo` helper that clicks the row
    (`nav[aria-label='Sessions'] [data-window-id="@N"] button`, a real
    client-side switch through `navigateToWindow`), then settles on
-   `aria-current="page"`, the window-id URL, and the `Rename window <name>`
+   `aria-current="page"`, the window-id URL, and the `Rename tab <name>`
    heading (tmux aligned + terminal rendered). URL assertions use the router's
    NUMERIC id segment (`windowId.slice(1)`, `@5` → `5`) — the form
    `navigateToWindow` writes — not the `%40N` `encodeURIComponent` form the
@@ -364,7 +364,7 @@ driven by a DISPATCHED `mouseover`/`mouseout` pair (React derives the button's
 churn-proof seam the typed-sweep test uses, avoiding real hit-testing flake.
 
 **Steps:**
-1. Create + navigate to a window; confirm the `Rename window <name>` heading is
+1. Create + navigate to a window; confirm the `Rename tab <name>` heading is
    visible.
 2. Wait ~1200ms for the mount-replay sweep (which auto-plays once on navigation)
    to settle, then assert no `.rk-typed-cursor` remains inside the header (a

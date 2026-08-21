@@ -109,7 +109,7 @@ async function openViaPalette(page: Page) {
 }
 
 async function openViaDropdown(page: Page) {
-  await page.getByRole("button", { name: "Switch window" }).click();
+  await page.getByRole("button", { name: "Switch tab" }).click();
   await page.getByRole("menuitem", { name: "+ New Agent" }).click();
 }
 

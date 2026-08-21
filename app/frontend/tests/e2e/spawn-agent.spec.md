@@ -35,7 +35,7 @@ renders its error in-dialog without navigating.
   to render (the state-socket payload landed).
 - `openViaPalette(page)` opens the palette (`Meta+k`), fills "Agent: Spawn", and
   presses Enter.
-- `openViaDropdown(page)` clicks the window-switcher trigger (`Switch window`)
+- `openViaDropdown(page)` clicks the window-switcher trigger (`Switch tab`)
   then the `+ New Agent` menu item.
 - `openViaSidebarBot(page, session)` hovers the session row
   (`[data-session-row="default:{session}"]`) — the icon cluster is
@@ -59,11 +59,11 @@ spawn-agent dialog on the terminal route, titled with the target session.
 ### `opens the spawn dialog from the window-switcher + New Agent item`
 
 **What it proves:** the second entry point — the `+ New Agent` item beside
-`+ New Window` in the top-bar window switcher — opens the same dialog.
+`+ New Tab` in the top-bar tab switcher — opens the same dialog.
 
 **Steps:**
 1. Mock the backend (`OK_SPAWN`); `gotoTerminal`.
-2. `openViaDropdown` (click `Switch window`, then `+ New Agent`).
+2. `openViaDropdown` (click `Switch tab`, then `+ New Agent`).
 3. Assert the `Spawn agent in dev` dialog and its `Task` field are visible.
 
 ### `renders the mockup-v2 fields (Where radio, Worktree, Agent tier)`

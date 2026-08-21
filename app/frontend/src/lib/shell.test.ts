@@ -4,14 +4,18 @@ import {
   addShellHostDirect,
   canAddShellHost,
   canAddShellHostDirect,
+  canCloseShellWindow,
   canConfirmedRemoveShellHost,
+  canNewShellWindow,
   canRemoveShellHost,
   canRenameShellHost,
   canSetShellHostUrl,
   canReorderShellHosts,
+  closeShellWindow,
   isShell,
   listShellServers,
   confirmedRemoveShellHost,
+  newShellWindow,
   removeShellHost,
   renameShellHost,
   setShellHostUrl,
@@ -354,6 +358,125 @@ describe("setShellBadge", () => {
       badge: { set: () => Promise.reject(new Error("ipc gone")) },
     };
     expect(await setShellBadge(1)).toBe(false);
+  });
+});
+
+// The windows group is the multi-window bridge surface: `newWindow`
+// (shell:new-window) ships ahead of `close` (shell:close-window), so the
+// gates narrow each invoker separately and every call degrades to false for
+// a plain browser, a pre-windows shell, a malformed group, a denied ack, or
+// a rejected invoke.
+
+describe("windows bridge group (newWindow / close)", () => {
+  it("canNewShellWindow / canCloseShellWindow track the invokers' presence", () => {
+    expect(canNewShellWindow()).toBe(false);
+    expect(canCloseShellWindow()).toBe(false);
+    window.runkitShell = { version: "1.2.3", platform: "darwin" };
+    expect(canNewShellWindow()).toBe(false);
+    expect(canCloseShellWindow()).toBe(false);
+    window.runkitShell = {
+      version: "1.2.3",
+      platform: "darwin",
+      windows: { newWindow: () => Promise.resolve({ ok: true }) },
+    };
+    // newWindow alone (the pre-close shell) gates new only.
+    expect(canNewShellWindow()).toBe(true);
+    expect(canCloseShellWindow()).toBe(false);
+    window.runkitShell = {
+      version: "1.2.3",
+      platform: "darwin",
+      windows: {
+        newWindow: () => Promise.resolve({ ok: true }),
+        close: () => Promise.resolve({ ok: true }),
+      },
+    };
+    expect(canNewShellWindow()).toBe(true);
+    expect(canCloseShellWindow()).toBe(true);
+  });
+
+  it("rejects a malformed windows group (non-function members)", () => {
+    window.runkitShell = { version: "1.2.3", platform: "darwin", windows: { newWindow: "nope" } };
+    expect(canNewShellWindow()).toBe(false);
+    window.runkitShell = {
+      version: "1.2.3",
+      platform: "darwin",
+      windows: { newWindow: () => Promise.resolve({ ok: true }), close: "nope" },
+    };
+    expect(canCloseShellWindow()).toBe(false);
+  });
+
+  it("newShellWindow resolves true on an { ok: true } ack, false everywhere else", async () => {
+    let called = false;
+    window.runkitShell = {
+      version: "1.2.3",
+      platform: "darwin",
+      windows: {
+        newWindow: () => {
+          called = true;
+          return Promise.resolve({ ok: true });
+        },
+      },
+    };
+    expect(await newShellWindow()).toBe(true);
+    expect(called).toBe(true);
+    delete window.runkitShell;
+    expect(await newShellWindow()).toBe(false);
+    window.runkitShell = {
+      version: "1.2.3",
+      platform: "darwin",
+      windows: { newWindow: () => Promise.resolve({ ok: false, error: "Not allowed" }) },
+    };
+    expect(await newShellWindow()).toBe(false);
+    window.runkitShell = {
+      version: "1.2.3",
+      platform: "darwin",
+      windows: { newWindow: () => Promise.reject(new Error("ipc gone")) },
+    };
+    expect(await newShellWindow()).toBe(false);
+  });
+
+  it("closeShellWindow resolves true on an { ok: true } ack, false everywhere else", async () => {
+    let called = false;
+    window.runkitShell = {
+      version: "1.2.3",
+      platform: "darwin",
+      windows: {
+        newWindow: () => Promise.resolve({ ok: true }),
+        close: () => {
+          called = true;
+          return Promise.resolve({ ok: true });
+        },
+      },
+    };
+    expect(await closeShellWindow()).toBe(true);
+    expect(called).toBe(true);
+    // A pre-close shell (newWindow only) resolves false without calling.
+    window.runkitShell = {
+      version: "1.2.3",
+      platform: "darwin",
+      windows: { newWindow: () => Promise.resolve({ ok: true }) },
+    };
+    expect(await closeShellWindow()).toBe(false);
+    delete window.runkitShell;
+    expect(await closeShellWindow()).toBe(false);
+    window.runkitShell = {
+      version: "1.2.3",
+      platform: "darwin",
+      windows: {
+        newWindow: () => Promise.resolve({ ok: true }),
+        close: () => Promise.resolve({ ok: false, error: "Not allowed" }),
+      },
+    };
+    expect(await closeShellWindow()).toBe(false);
+    window.runkitShell = {
+      version: "1.2.3",
+      platform: "darwin",
+      windows: {
+        newWindow: () => Promise.resolve({ ok: true }),
+        close: () => Promise.reject(new Error("ipc gone")),
+      },
+    };
+    expect(await closeShellWindow()).toBe(false);
   });
 });
 

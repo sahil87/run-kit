@@ -123,13 +123,13 @@ test.describe("Recovery section", () => {
     const kitRow = page.getByTestId("recovery-row-kit");
     await expect(kitRow).toBeVisible();
     await expect(kitRow.getByRole("img", { name: "not running" })).toBeVisible();
-    await expect(kitRow).toContainText("1 session · 2 windows · last seen 1h ago · system restart");
+    await expect(kitRow).toContainText("1 session · 2 tabs · last seen 1h ago · system restart");
     await expect(kitRow.getByRole("button", { name: "Restore kit" })).toBeVisible();
     await expect(kitRow.getByRole("button", { name: "Dismiss recovery for kit" })).toBeVisible();
     await expect(page.getByTestId("recovery-row-work")).toBeVisible();
   });
 
-  test("the chevron expands the read-only session tree (swatch, windows, commands, resumable tag)", async ({
+  test("the chevron expands the read-only session tree (swatch, tabs, commands, resumable tag)", async ({
     page,
   }) => {
     await mockRecovery(page, [OFFER_KIT]);

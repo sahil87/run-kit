@@ -80,7 +80,7 @@ SSE within one tick.
 
 ### `Window panel shows selected window info` (mobile drawer)
 
-**What it proves:** The Pane panel shows a "No window selected" fallback
+**What it proves:** The Pane panel shows a "No tab selected" fallback
 when on the dashboard, then swaps to tmux metadata (`tmx`, `cwd`, …) when
 a window is selected.
 
@@ -89,7 +89,7 @@ a window is selected.
 2. Locate the header button with `name: /^Pane/`; assert visible and
    expanded.
 3. Walk up to the outer panel.
-4. Assert `text=No window selected` is visible.
+4. Assert `text=No tab selected` is visible.
 5. Click the sidebar's `Navigate to ${TEST_SESSION}` button (selects the
    first window in that session) — the drawer auto-closes on the
    destination tap, so re-open it via `ensureDrawerOpen`.
@@ -130,7 +130,7 @@ signal.
 2. `gotoDrawer(/board/${boardName})`.
 3. Locate the Pane header button, walk up to the outer panel, and assert
    `^tmx ` and `^cwd ` rows appear (within 10s) while
-   `No window selected` is absent — the focused-tile fallback filled the
+   `No tab selected` is absent — the focused-tile fallback filled the
    panel.
 4. Locate the Host outer panel and assert `cpu` (within 8s, first metrics
    tick) and `mem` rows render, `No metrics` is absent, and no element with

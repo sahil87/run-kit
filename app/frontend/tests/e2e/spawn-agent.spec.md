@@ -59,7 +59,7 @@ spawn-agent dialog on the terminal route, titled with the target session.
 ### `opens the spawn dialog from the window-switcher + New Agent item`
 
 **What it proves:** the second entry point — the `+ New Agent` item beside
-`+ New Window` in the top-bar window switcher — opens the same dialog.
+`+ New Tab` in the top-bar tab switcher — opens the same dialog.
 
 **Steps:**
 1. Mock the backend (`OK_SPAWN`); `gotoTerminal`.

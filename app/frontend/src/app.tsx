@@ -76,7 +76,7 @@ import { singleSelectedServer } from "@/lib/selection";
 import { useSelectionStore } from "@/store/selection-store";
 import { buildServerKillActions } from "@/lib/palette-server-kill";
 import { buildShellServerActions } from "@/lib/palette-shell";
-import { isShell, switchShellServer } from "@/lib/shell";
+import { canCloseShellWindow, canNewShellWindow, closeShellWindow, isShell, newShellWindow, switchShellServer } from "@/lib/shell";
 import { ShellTitlebarStrip } from "@/components/shell-titlebar-strip";
 import { ShellAccentReporter } from "@/components/shell-accent-reporter";
 import { ShellBadgeReporter } from "@/components/shell-badge-reporter";
@@ -315,6 +315,16 @@ function AppLayoutContent() {
   // body through the merged palette list) — no layout-owned overlay state, no
   // `shortcuts-overlay:open` event seam.
   const globalActions = useGlobalPaletteActions();
+
+  // ⌘N / ⇧⌘W app-window chords (260820-lfla) — dispatched at the LAYOUT, not
+  // AppShell/BoardPage, because those route shells never mount on the host
+  // overview or NotFound routes and the app-window pair must work everywhere
+  // the SPA runs. Bridge-gated exactly like the palette bodies: an absent
+  // invoker leaves the entry undefined and the chord falls through untouched.
+  useKeybindingDispatch({
+    "new-app-window": canNewShellWindow() ? () => void newShellWindow() : undefined,
+    "close-app-window": canCloseShellWindow() ? () => void closeShellWindow() : undefined,
+  });
 
   // Zen hide seam (260820-o8cr R2): the zen flag crosses the root-layout
   // boundary through ZenContext; the applies-flag is DERIVED per render from
@@ -3622,13 +3632,10 @@ function AppShell() {
       // ⇧⌘,/⌘, settings (260801-mqim) — the palette body (`Settings: Open` →
       // `openSettings`); a re-fire while the dialog is open is a no-op.
       "settings-open": fromPalette("settings-open"),
-      // ⌘N new app window / ⇧⌘W close app window (260820-lfla) — the
-      // bridge-backed pair, resolved through the layout-global `App: New
-      // Window` / `App: Close Window` palette bodies (bridge-gated there:
-      // absent outside the shell and on older shells → the chord falls
-      // through untouched).
-      "new-app-window": fromPalette("new-app-window"),
-      "close-app-window": fromPalette("close-app-window"),
+      // ⌘N/⇧⌘W app-window chords are NOT dispatched here — the pair is owned
+      // by the root layout's dispatcher (it must fire on the host overview and
+      // NotFound routes, which mount no AppShell/BoardPage). The `App: New
+      // Window` / `App: Close Window` palette bodies stay layout-global.
       // Split pane (260807-rbx5): ⌘D/⇧⌘D on mac, ⇧Ctrl+\/⇧Ctrl+- on
       // Win/Linux — the `Tab: Split Horizontal` / `Tab: Split Vertical`
       // palette bodies. The palette block is gated on a current session +
@@ -4246,7 +4253,7 @@ function AppShell() {
       )}
 
       {showCreateIframeDialog && sessionName && (
-        <Dialog title="New iframe window" onClose={() => { setShowCreateIframeDialog(false); setIframeWindowName(""); setIframeWindowUrl(""); }}>
+        <Dialog title="New iframe tab" onClose={() => { setShowCreateIframeDialog(false); setIframeWindowName(""); setIframeWindowUrl(""); }}>
           <input
             autoFocus
             type="text"

@@ -152,7 +152,7 @@ function SessionRowInner({
   const windowCount = session.windows.length;
   const tipBody = [
     session.sessionId,
-    `${windowCount} window${windowCount === 1 ? "" : "s"}`,
+    `${windowCount} tab${windowCount === 1 ? "" : "s"}`,
     session.sessionPath ? abbreviateHomePath(session.sessionPath) : undefined,
   ]
     .filter(Boolean)

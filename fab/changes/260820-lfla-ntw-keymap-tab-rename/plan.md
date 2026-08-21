@@ -8,7 +8,7 @@
 ### Keyboard & Palette: N/T/W Realignment
 
 #### R1: `create-session` moves to ⇧⌘T in the mac shell
-`create-session` SHALL keep its Win/Linux default (⇧Ctrl+N) and its `macTier: "cmd"` + `macShellOnly: true` gate, and SHALL gain `macCode: "KeyT"` so the mac-shell default resolves ⇧⌘T — tier-disjoint from `create-window` (⌘T) on one code, the split-pair precedent. In a mac browser the base combo (⇧⌘N) stays browser-reserved (the shifted `KeyN` "incognito" claim), so the action remains palette-only there — the same availability story ⌘N-as-new-session has today.
+`create-session` SHALL keep its Win/Linux default (⇧Ctrl+N) and its `macShellOnly: true` gate, SHALL drop its old `macTier: "cmd"` refinement, and SHALL gain `macCode: "KeyT"` so the mac-shell default resolves on the shifted tier as ⇧⌘T — tier-disjoint from `create-window` (⌘T) on one code, the split-pair precedent. In a mac browser the base combo (⇧⌘N) stays browser-reserved (the shifted `KeyN` "incognito" claim), so the action remains palette-only there — the same availability story ⌘N-as-new-session has today.
 
 - **GIVEN** the resolved effective map on a mac shell host
 - **WHEN** `defaultComboFor`/`resolveBindings` runs for `create-session`
@@ -84,7 +84,7 @@ Every user-facing string where "window" denotes a tmux window SHALL say "tab" �
 *Introduced by*: 260820-lfla-ntw-keymap-tab-rename
 
 #### `create-session` via `macCode: "KeyT"` on the shifted tier
-**Decision**: `create-session` keeps base `code: "KeyN", tier: "shifted"` and gains `macCode: "KeyT"` (its existing `macTier: "cmd"` + `macShellOnly` unchanged) — mac shell ⇧⌘T, tier-disjoint from `create-window`'s ⌘T on the same code.
+**Decision**: `create-session` keeps base `code: "KeyN", tier: "shifted"`, drops its old `macTier: "cmd"` refinement, and gains `macCode: "KeyT"` (`macShellOnly` unchanged) — the shifted tier over the mac code resolves ⇧⌘T in-shell, tier-disjoint from `create-window`'s ⌘T on the same code.
 **Why**: The exact shape the split pair (⌘D/⇧⌘D on `KeyD`) already ships, so `findConflicts` stays clean and no new mechanics are needed; Win/Linux keeps ⇧Ctrl+N for free.
 **Rejected**: Repointing the base code to KeyT — would move Win/Linux off ⇧Ctrl+N (rejected by the user-decided scheme).
 *Introduced by*: 260820-lfla-ntw-keymap-tab-rename
@@ -139,7 +139,7 @@ Every user-facing string where "window" denotes a tmux window SHALL say "tab" �
 ### Behavioral Correctness
 
 - [x] A-006 R5: `findConflicts` is empty on all four host maps; `MAC_SHELL_CMD_CLAIMS` is unchanged; zen-toggle and compose-Enter classifier rows are byte-identical
-- [x] A-007 R7: Overlay labels, mapLabels, palette labels, the window switcher, menus, and confirm/toast copy say "tab" for tmux windows on every platform; actionIds and app-window strings keep "window" — MET: the rework swept all previously missed strings (sidebar toasts/aria, use-window-rename, session-row, recovery counts, host-overview/board hints, kill-dialog title) and the copy sweep is comprehensive across overlay labels (`New tab`/`Close tab`/`Previous tab`/`Next tab`), mapLabels (`new tab`/`close tab`/`prev tab`/`next tab`), palette entries (`Tab:` prefix), switcher (`+ New Tab`), kill-confirm copy, aria-labels (`Rename tab`/`Set tab label`), and hints (`sidebar tab row`). ActionIds, API fields, and app-window strings (`App: New Window`, `App: Close Window`) correctly keep "window". Residual gap: `boards-pin-flow.spec.md` and `web-view-lens.spec.md` companion docs still reference `Pin: Current Window` and `Window:` prefix (stale after .spec.ts renames) — recorded as a should-fix finding, not an acceptance blocker
+- [x] A-007 R7: Overlay labels, mapLabels, palette labels, the window switcher, menus, and confirm/toast copy say "tab" for tmux windows on every platform; actionIds and app-window strings keep "window" — MET: the rework swept all previously missed strings (sidebar toasts/aria, use-window-rename, session-row, recovery counts, host-overview/board hints, kill-dialog title) and the copy sweep is comprehensive across overlay labels (`New tab`/`Close tab`/`Previous tab`/`Next tab`), mapLabels (`new tab`/`close tab`/`prev tab`/`next tab`), palette entries (`Tab:` prefix), switcher (`+ New Tab`), kill-confirm copy, aria-labels (`Rename tab`/`Set tab label`), and hints (`sidebar tab row`). ActionIds, API fields, and app-window strings (`App: New Window`, `App: Close Window`) correctly keep "window". The formerly stale `boards-pin-flow.spec.md` / `web-view-lens.spec.md` companion lines were corrected pre-ship (`Pin: Current Tab`, `Tab:` prefix)
 
 ### Scenario Coverage
 

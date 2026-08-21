@@ -4,7 +4,7 @@ Proves the universal, centered top-bar page heading (change 260703-5ilm's
 editable window heading, extended by 260704-pr0p into a `PageType: name` heading
 on every route with the boot-sweep animation): the current tmux window name is
 the prominent centered identity on the Terminal route (prefixed by the static
-`Window:` per 260714-uco1, which replaced the retired lens-following
+`Tab:` per 260714-uco1, which replaced the retired lens-following
 `Terminal:`/`Web:`/`Chat:` prefix), renaming happens in place (click → inline
 input, Enter/blur commit, Escape cancel), the command-palette rename path enters
 the same inline edit, the 375px bar stays single-line, the hover-animation
@@ -17,7 +17,7 @@ also carrying an in-page long-form `SectionHeading` (`Host Overview` on `/`,
 `tmux Server Overview` on `/$server` — 260715-zs1y). A separate
 260714-uco1 block asserts the top-bar heading-nav sub-features: the stable
 left anchor (the heading's left edge does not drift with name length), the
-static `Window:` prefix — contiguous since 260813-kvk7 removed the ancestor
+static `Tab:` prefix — contiguous since 260813-kvk7 removed the ancestor
 hierarchy dropdown (ancestor navigation now lives only in the command palette's
 `Go: tmux Server` / `Go: Host` and the left breadcrumb's server crumb) — and the
 browser-history
@@ -61,8 +61,8 @@ breadcrumb now ends at the session).
 2. Assert the `Rename tab <name>` button is visible and its text equals the
    window name.
 3. Assert the `Breadcrumb` nav does NOT contain the window name (no duplication).
-4. Assert the static `Window:` page-type prefix (260714-uco1) is visible — the
-   prefix run is contiguous (`Window:`) since 260813-kvk7 removed the hierarchy
+4. Assert the static `Tab:` page-type prefix (260714-uco1) is visible — the
+   prefix run is contiguous (`Tab:`) since 260813-kvk7 removed the hierarchy
    ▾ that used to split it (`Window ▾:`) — and is NOT contained
    inside the rename button; it is a sibling span, so clicking it never starts
    an edit (the edit input binds only to the name).
@@ -240,21 +240,21 @@ band grow rightward and the centered box drifts — an accepted tradeoff (intake
 1. Create two windows in the same session with different (band-fitting) name
    lengths.
 2. Set a desktop viewport (1200px) so the `sm:` min-width anchor is active.
-3. Navigate to the shorter-named window; record the `Window:` prefix run's
+3. Navigate to the shorter-named window; record the `Tab:` prefix run's
    left x (the leftmost prefix text — the anchor under test).
 4. Navigate to the longer-named window; record the prefix run's left x.
 5. Assert the two x values differ by ≤2px (the anchor held; no drift).
 
-### the heading prefix is a static `Window:` on the terminal route (all lenses), with a single ▾ window switcher
+### the heading prefix is a static `Tab:` on the terminal route (all lenses), with a single ▾ window switcher
 
-**What it proves:** the terminal-route heading prefix is a static `Window:`, never
+**What it proves:** the terminal-route heading prefix is a static `Tab:`, never
 the retired lens-following `Terminal:`/`Web:`/`Chat:` — and (260813-kvk7) the
 hierarchy dropdown that used to split the prefix is gone, leaving the window
 switcher as the heading's single ▾.
 
 **Steps:**
 1. Create a plain window; navigate to it.
-2. Assert the contiguous `Window:` prefix run is visible (the hierarchy ▾ no
+2. Assert the contiguous `Tab:` prefix run is visible (the hierarchy ▾ no
    longer splits it) and that no `Terminal:`/`Web:`/`Chat:` text is present.
 3. Assert no `Switch hierarchy` trigger exists; click the `Switch tab` ▾ and
    assert its menu lists the current window (the session's windows, not the

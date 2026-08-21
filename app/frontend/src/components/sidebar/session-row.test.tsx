@@ -331,7 +331,7 @@ describe("SessionRow", () => {
       const bar = screen.getByTestId("popup-title-bar");
       expect(card).toContainElement(bar);
       expect(bar).toHaveTextContent("Session code-surface-latch-distill");
-      expect(card).toHaveTextContent("$4 · 3 windows · ~/code/sahil87/run-kit");
+      expect(card).toHaveTextContent("$4 · 3 tabs · ~/code/sahil87/run-kit");
       // Tier-1 weight: no interactive content at all.
       expect(card.querySelector("a, button")).toBeNull();
       expect(card.className).toContain("pointer-events-none");
@@ -342,7 +342,7 @@ describe("SessionRow", () => {
       render(<SessionRow {...rowProps(session)} />);
       hoverRow();
       const card = screen.getByTestId("session-tip");
-      expect(card).toHaveTextContent("3 windows");
+      expect(card).toHaveTextContent("3 tabs");
       expect(card).not.toHaveTextContent("$");
       expect(card).not.toHaveTextContent("~");
     });
@@ -484,7 +484,7 @@ describe("SessionRow", () => {
       const card = screen.getByTestId("row-flyout-card");
       expect(screen.getByTestId("popup-title-bar")).toHaveTextContent("Session agent-work");
       // The identity tip's facts line verbatim (omission-degrading).
-      expect(card).toHaveTextContent("$4 · 2 windows · ~/code/run-kit");
+      expect(card).toHaveTextContent("$4 · 2 tabs · ~/code/run-kit");
       // Fixed order: Change color… → Spawn agent… → New tab → Kill session.
       const color = screen.getByTestId("row-flyout-color-action");
       const spawn = screen.getByTestId("row-flyout-spawn-action");

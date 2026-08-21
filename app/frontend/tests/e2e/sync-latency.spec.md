@@ -95,7 +95,7 @@ expanded).
       so detection is by count increase (mirroring test 1), not by name.
 4. Otherwise log SKIP.
 
-### `4. Rename window via UI (double-click)`
+### `4. Rename tab via UI (double-click)`
 
 **What it proves:** Double-click rename on a window also runs optimistically
 (≤500ms).
@@ -107,7 +107,7 @@ expanded).
 4. Double-click, clear, fill `renamed-win`.
 5. Timer, Enter, wait for new name, `record`.
 
-### `5. Kill window via Ctrl+click (instant)`
+### `5. Kill tab via Ctrl+click (instant)`
 
 **What it proves:** Ctrl+click on the window's kill button performs an
 instant kill with no confirm dialog; the row disappears in ≤500ms.

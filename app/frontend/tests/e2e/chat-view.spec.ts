@@ -262,7 +262,7 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
 
     // Chat-less deep-link degradation: `?view=chat` on @2 is inert — the
     // terminal renders (no chat view, no switcher). The heading is the static
-    // `Window:` prefix (260714-uco1 — no longer lens-following).
+    // `Tab:` prefix (260714-uco1 — no longer lens-following).
     await page.goto(`/${SERVER}/2?view=chat`);
     await expect(page.getByText("plain-win").first()).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId("chat-view")).toHaveCount(0);
@@ -270,11 +270,11 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     await expect(page.getByText("Tab:", { exact: true })).toBeVisible();
   });
 
-  test("flipping to chat preserves the window and updates the URL (heading stays `Window:`)", async ({ page }) => {
+  test("flipping to chat preserves the window and updates the URL (heading stays `Tab:`)", async ({ page }) => {
     await mockBackend(page, backfillCleared());
     await page.goto(`/${SERVER}/1`);
 
-    // The heading is a static `Window:` prefix (260714-uco1) — the lens is shown
+    // The heading is a static `Tab:` prefix (260714-uco1) — the lens is shown
     // by the tile content, not the heading.
     await expect(page.getByText("Tab:", { exact: true })).toBeVisible({ timeout: 10_000 });
 
@@ -285,7 +285,7 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
 
     // Same window (@1 → segment `1`), now mirrored as ?layout=single:chat.
     await expectLayoutParam(page, "single:chat");
-    // The renderer mounts; the heading stays `Window:` across the lens switch
+    // The renderer mounts; the heading stays `Tab:` across the lens switch
     // (the anchor no longer jumps). The chat lens is proven by the chat-view.
     await expect(page.getByTestId("chat-view")).toBeVisible();
     await expect(page.getByText("Tab:", { exact: true })).toBeVisible();

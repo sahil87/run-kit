@@ -1,0 +1,54 @@
+id: k17a
+name: 260821-k17a-picker-clear-cell-neutral-minus
+created: 2026-08-21T06:13:19Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 6
+    acceptance_completed: 6
+confidence:
+    certain: 6
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 4.9
+    fuzzy: true
+    dimensions:
+        signal: 85.0
+        reversibility: 88.8
+        competence: 90.6
+        disambiguation: 85.6
+stage_metrics:
+    intake: {started_at: "2026-08-21T06:13:19Z", driver: fab-new, iterations: 1, completed_at: "2026-08-21T06:18:14Z"}
+    apply: {started_at: "2026-08-21T06:18:14Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-21T06:55:14Z"}
+    review: {started_at: "2026-08-21T06:55:14Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-21T06:58:29Z"}
+    hydrate: {started_at: "2026-08-21T06:58:29Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-21T07:00:01Z"}
+    ship: {started_at: "2026-08-21T07:00:01Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-21T07:00:01Z"
+    computed_at_stage: hydrate
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-21T07:00:01Z

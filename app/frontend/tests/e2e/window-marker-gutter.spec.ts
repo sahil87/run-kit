@@ -81,8 +81,8 @@ test.describe("Window left-edge label zone + banded picker", () => {
     const picker = await openLabelPicker(row, page);
 
     // The banded chrome: each axis named by its `[ axis ]` header, with the
-    // header ∅ carrying the clear for that axis. The marker axis starts unset
-    // — its header ∅ is ringed (aria-selected).
+    // header − carrying the clear for that axis. The marker axis starts unset
+    // — its header − is ringed (aria-selected).
     for (const axis of ["[ color ]", "[ marker ]", "[ flair ]"]) {
       await expect(picker.getByText(axis, { exact: true })).toBeVisible();
     }
@@ -111,7 +111,7 @@ test.describe("Window left-edge label zone + banded picker", () => {
     await picker.getByRole("option", { name: "Marker block" }).click();
     await expectMarker(page, winName, "block");
 
-    // The header ∅ clears the marker axis (aria-name "Marker none") — the
+    // The header − clears the marker axis (aria-name "Marker none") — the
     // picker is still open.
     await picker.getByRole("option", { name: "Marker none" }).click();
     await expectMarker(page, winName, "");
@@ -191,7 +191,7 @@ test.describe("Window left-edge label zone + banded picker", () => {
     await expectFlair(page, winName, "scan");
     await expect(row.locator(":scope > .rk-flair-scan")).toBeAttached({ timeout: 5_000 });
 
-    // The header ∅ clears the flair axis only — the marker survives.
+    // The header − clears the flair axis only — the marker survives.
     await picker.getByRole("option", { name: "Flair none" }).click();
     await expectFlair(page, winName, "");
     await expectMarker(page, winName, "dashed");

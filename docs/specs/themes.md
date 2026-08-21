@@ -167,7 +167,7 @@ axis's growth) stacks the three axes as horizontal bands under a live
 **composite preview row**: the row's actual resting look — color tint, marker
 stripe + texture, live flair overlay, the row's name — with a combo caption
 underneath (`teal · hatch · scan`, `∅` for unset axes). Each band carries a
-green-bracket `[ axis ]` header whose right-aligned **∅ clear cell** (ringed
+green-bracket `[ axis ]` header whose right-aligned **− clear cell** (a neutral minus in the ✕ treatment — ✕ closes the panel, − clears the axis; ringed
 when the axis is unset) clears only that axis. The color band is a 2-shade-row ×
 10-family column-flow **horizontal scroll strip** — color only ever scrolls
 horizontally; vertical would break the shade pairing. The marker band is a
@@ -176,7 +176,7 @@ scroll); the flair band is a 2-row column-flow strip of the 12 flairs. Selection
 never dismisses the picker (combo iteration is the point); ✕ / outside-click /
 Escape close it. Color selection writes through the `familyToLegacy` seam
 (stored vocabulary stays legacy); marker and flair selections write the exact
-state. Keyboard: bands are plain grids, each header ∅ is row 0 of its band, and
+state. Keyboard: bands are plain grids, each header − is row 0 of its band, and
 arrow moves scroll cells into view, keeping the scroll strip invisible to the
 grid model. The `Window: Label` command-palette action opens the picker for the
 current window's row via the imperative `label-popover:open` event (Constitution

@@ -2747,7 +2747,7 @@ function ServerGroupInner(props: ServerGroupProps) {
               // Selection does NOT close (the picker's dismissal contract).
               onSelect={(c) => onServerColorChange(server, c)}
               // Supplying onSelectFlair renders the picker's flair band;
-              // "" (the header ∅ cell) clears.
+              // "" (the header − clear cell) clears.
               selectedFlair={serverFlair ?? ""}
               onSelectFlair={(f) => onServerFlairChange(server, f === "" ? null : f)}
               onClose={() => setShowColorPicker(false)}

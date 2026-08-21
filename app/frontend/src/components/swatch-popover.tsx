@@ -42,18 +42,18 @@ type SwatchPopoverProps = {
   rowName?: string;
   /** When `onSelectMarker` is supplied, the popover renders the banded Label
    *  picker: a `[ marker ]` band between the color and flair bands — a single
-   *  static row of the 8 marker states (its ∅ lives in the band header). The
+   *  static row of the 8 marker states (its − clear cell lives in the band header). The
    *  cells are mini row previews of the currently selected color (tint base +
    *  guarded stripe + the hatch hazard texture). Selection calls
    *  `onSelectMarker` DIRECTLY — any state is one click, `""` clears (via the
-   *  header ∅). When ABSENT, no marker band renders. */
+   *  header − clear cell). When ABSENT, no marker band renders. */
   selectedMarker?: string;
   onSelectMarker?: (marker: string) => void;
   /** When `onSelectFlair` is supplied, a `[ flair ]` band renders below the
    *  marker band — a 2-row column-flow strip of the 12 named FLAIR_STATES
    *  (rain/scan leading), each cell carrying its always-on rk-flair-* overlay.
    *  Selection calls `onSelectFlair` DIRECTLY — `""` clears (via the header
-   *  ∅). Offered on window and session rows; NOT server group headers. */
+   *  − clear cell). Offered on window and session rows; NOT server group headers. */
   selectedFlair?: string;
   onSelectFlair?: (flair: string) => void;
 };
@@ -80,7 +80,7 @@ const FLAIR_ROW_1 = FLAIR_NAMED.filter((_, i) => i % 2 === 0);
 const FLAIR_ROW_2 = FLAIR_NAMED.filter((_, i) => i % 2 === 1);
 
 /** Keyboard focus: a position in the logical row stack (see `grid` in the
- *  component). Every band is a plain grid; a band's header ∅ is row 0 of the
+ *  component). Every band is a plain grid; a band's header − clear cell is row 0 of the
  *  band (ArrowUp from a strip's first row lands on it); the ✕ close cell is
  *  the stack's top row. */
 type GridPos = { row: number; col: number };
@@ -92,9 +92,11 @@ function cellId(kind: string, value?: string): string {
   return value === undefined ? kind : `${kind}:${value}`;
 }
 
-/** The green-bracket micro band header — `[ axis ]` + the right-aligned ∅
- *  clear cell (a ring on the ∅ means the axis is UNSET). The header ∅ is row 0
- *  of its band in the keyboard model. */
+/** The green-bracket micro band header — `[ axis ]` + the right-aligned −
+ *  clear cell (a ring on the − means the axis is UNSET). The glyph is a VERB —
+ *  ✕ closes the panel, − clears the axis — while ∅ stays the caption's STATE
+ *  token for unset axes. The header − is row 0 of its band in the keyboard
+ *  model. */
 function BandHeader({
   axis,
   clearLabel,
@@ -130,7 +132,7 @@ function BandHeader({
             focused ? "ring-1 ring-text-secondary" : ""
           } ${isUnset ? "ring-1 ring-text-primary" : ""}`}
         >
-          <span style={{ fontSize: 10, lineHeight: 1 }}>&#x2205;</span>
+          <span style={{ fontSize: 10, lineHeight: 1 }}>&#x2212;</span>
         </button>
       </Tip>
     </div>
@@ -195,8 +197,8 @@ export function SwatchPopover({
   const currentMarker = selectedMarker ?? "";
   const currentFlair = selectedFlair ?? "";
 
-  /** The logical row stack the keyboard walks: [✕] · [color ∅] · color shade
-   *  rows · ([marker ∅] · marker row) · ([flair ∅] · flair rows). Each entry
+  /** The logical row stack the keyboard walks: [✕] · [color −] · color shade
+   *  rows · ([marker −] · marker row) · ([flair −] · flair rows). Each entry
    *  is a row of cell ids; vertical moves preserve the column as a GOAL
    *  COLUMN (carried raw through the single-cell header rows, clamped to the
    *  target row's extent only for display/activation); horizontal moves
@@ -225,7 +227,7 @@ export function SwatchPopover({
   }, [showMarkers, showFlair]);
 
   // Initial focus FOLLOWS SELECTION: the selected swatch, or the color band's
-  // header ∅ when uncolored — never an arbitrary swatch, whose focus ring
+  // header − clear cell when uncolored — never an arbitrary swatch, whose focus ring
   // would read as a phantom selection.
   const [focus, setFocus] = useState<GridPos>(() => {
     const row = COLOR_ROW_NORMAL.indexOf(selectedValue ?? "");
@@ -519,7 +521,7 @@ export function SwatchPopover({
              never hide behind a scroll). Cells are mini row previews of the
              selected color: tint.base background, guarded stripe (2px inset),
              and the ONE texture pairing (hatch ↔ hazard, preview modifier —
-             masked at 18px the weave is invisible under the stripe). The ∅
+             masked at 18px the weave is invisible under the stripe). The −
              lives in the band header. ── */}
       {showMarkers && (
         <>
@@ -571,7 +573,7 @@ export function SwatchPopover({
 
       {/* ── [ flair ] band — 2-row column-flow strip of the 12 named states
              (rain/scan leading); motion IS the flair identity, so the cells
-             stay live. The ∅ lives in the band header. ── */}
+             stay live. The − clear cell lives in the band header. ── */}
       {showFlair && (
         <>
           <BandHeader

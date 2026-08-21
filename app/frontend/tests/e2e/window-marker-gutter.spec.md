@@ -11,7 +11,7 @@ while a DARK-shade color persists as the verbatim `{family}-dark` value;
 picking a flair (12-state closed set, rain/scan leading) persists via
 `@rk_flair`. The picker STAYS OPEN across picks (the dismissal contract —
 selection never closes; the ✕ cell, an outside click, or Escape dismisses), so
-combos are toggled live in one open session; each band's header ∅ clears ONLY
+combos are toggled live in one open session; each band's header − clears ONLY
 its own axis; hatch rows carry the static hazard wedge while thick/double/
 dashed rows are texture-free (the motion split — rain and scan moved to the
 flair axis); the zone click does not select the row (`stopPropagation`); and
@@ -42,7 +42,7 @@ border).
   swatches (2 shade rows × 10 family columns in a horizontal scroll strip) are
   `role="option"` `Color <family>` / `Color <family>-dark`; the marker band's 8
   static cells are `Marker <state>`; the flair band's 12 live cells are `Flair
-  <state>`; and each band header's right-aligned ∅ clear cell is an option
+  <state>`; and each band header's right-aligned − clear cell is an option
   named `Clear color` / `Marker none` / `Flair none` (ringed —
   `aria-selected` — while its axis is unset). The band headers match as the
   bracketed text `[ color ]` / `[ marker ]` / `[ flair ]`. Color locators use
@@ -59,11 +59,11 @@ border).
 
 **What it proves:** The left-edge zone opens the banded picker (not a cycle);
 the band chrome names all three axes (`[ color ]` / `[ marker ]` / `[ flair ]`
-headers) and rings the marker header ∅ while the axis is unset; picking a
+headers) and rings the marker header − while the axis is unset; picking a
 marker state directly persists it as `@rk_marker`, ANY state is reachable in
 one pick (no stepping), the three 9hh6 categorical additions (`pipe`, `hatch`,
 `block`) round-trip through the widened backend closed set exactly like the
-original five, the header ∅ clears the axis, and the picker stays open across
+original five, the header − clears the axis, and the picker stays open across
 every pick (one open session), closing only via the ✕ cell.
 
 **Steps:**
@@ -74,14 +74,14 @@ every pick (one open session), closing only via the ✕ cell.
    is visible. (The picker is opened ONCE — all following picks happen inside
    this one open session.)
 5. Assert the three band headers render (`color` / `marker` / `flair` text) and
-   the `Marker none` header ∅ is `aria-selected` (axis unset ring).
+   the `Marker none` header − is `aria-selected` (axis unset ring).
 6. Click the `Marker solid` option; `expectMarker` → `solid`.
 7. Click `Marker double`; `expectMarker` → `double` (reached directly, not by
    cycling through intermediate states).
 8. Click `Marker pipe`, `Marker hatch`, `Marker block` in turn;
    `expectMarker` follows each (the widened closed set persists the new
    categorical states).
-9. Click the `Marker none` header ∅; `expectMarker` → `` (cleared) — the
+9. Click the `Marker none` header −; `expectMarker` → `` (cleared) — the
    picker is still open.
 10. Click the `Close picker` (✕) cell; assert the listbox is no longer visible.
 
@@ -108,7 +108,7 @@ from the marker axis entirely).
 **What it proves:** The two migrated motion treatments live on the flair axis:
 picking `Flair rain` / `Flair scan` persists `@rk_flair` and mounts the
 always-on overlay on the row alongside ANY marker (rain composes with its old
-owner, dashed), and the flair header ∅ clears only the flair axis.
+owner, dashed), and the flair header − clears only the flair axis.
 
 **Steps:**
 1. Create `marker-flair-<ts>`; navigate + wait for `Connected`;
@@ -118,7 +118,7 @@ owner, dashed), and the flair header ∅ clears only the flair axis.
    `.rk-flair-rain` (composed with the marker).
 4. Click `Flair scan`; `expectFlair` → `scan`; assert the row mounts
    `.rk-flair-scan`.
-5. Click the `Flair none` header ∅; `expectFlair` → `` while
+5. Click the `Flair none` header −; `expectFlair` → `` while
    `expectMarker` stays `dashed` (axes are independent).
 6. Close via the ✕ cell.
 

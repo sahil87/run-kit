@@ -35,6 +35,7 @@ One line each, keyed to the subcommand or tmux option that does it:
 - `rk present <path|url>` — attach web content beside your own terminal: a file, a directory, a `:port`, a localhost URL, or an external URL. Prints the resolved URL to stdout. Depth: `rk skill display`.
 - `rk mux send <target> [<msg>|-]` — deliver a message into another agent's pane, gated on its `@rk_agent_state`, with probe-verified delivery. Depth: `rk skill mux`.
 - `rk mux await <target>` — block until a pane's agent state (or a `--file` signal) fires; prints a one-word report. Depth: `rk skill mux`.
+- `rk mux new <name> [--ephemeral]` — create a detached tmux server on socket `<name>`; scratch servers are created with `--ephemeral` and bulk-cleaned with `rk mux reap --ephemeral` (never bare `tmux kill-server`). Depth: `rk skill mux`.
 - `rk skill display` — the visual-display topic page: target forms, attach vs. standalone windows, the proxy, and the canonical Visual Display Recipe, in depth.
 - **Proxy** — reach a local service through the run-kit server:
 

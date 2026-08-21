@@ -12,15 +12,17 @@ import (
 
 // rk mux — the tmux-substrate command family (docs/specs/cli-layering.md):
 // operations that talk to tmux directly from the caller's context, with no
-// daemon dependency. Ten members in two tiers. The pane-scoped tier takes the
+// daemon dependency. Eleven members in two tiers. The pane-scoped tier takes the
 // family's strict target grammar: `send` (deliver a message into an agent
 // pane, gated on its @rk_agent_state) and `await` (block until a pane's agent
 // state or a file signal fires) are the messaging pair; `capture` (scrollback
 // capture with substrate-only enrichment), `kill` (agent-state-gated pane
 // removal), and `process` (the pane's process tree with agent cross-check) are
 // the substrate twins; `panes` is the server-wide enumeration query — one row
-// per pane, no target. The operator tier: `reap` is the operator-invoked
-// janitor for leaked test servers; `snapshot` inspects and restores layout
+// per pane, no target. The operator tier: `new` creates a detached tmux
+// server on a named socket, optionally marked @rk_ephemeral for the reap
+// sweep; `reap` is the operator-invoked janitor for leaked test servers;
+// `snapshot` inspects and restores layout
 // snapshots; `init-conf` scaffolds the tmux config; `guard` fronts the real
 // tmux binary, refusing bare `kill-server` — the verb the installed PATH shim
 // execs (tmux_guard.go). The old root-level forms (reaper, snapshot,
@@ -44,9 +46,11 @@ var muxServerFlag string
 
 var muxCmd = &cobra.Command{
 	Use:   "mux",
-	Short: "Tmux substrate operations (messaging, pane capture/kill/process, pane enumeration, janitor, recovery, config scaffold, tmux guard)",
+	Short: "Tmux substrate operations (server create, messaging, pane capture/kill/process, pane enumeration, janitor, recovery, config scaffold, tmux guard)",
 	Long: "Tmux substrate operations that talk to tmux directly from the caller's " +
-		"context — no daemon dependency. `send` delivers a message into an agent's " +
+		"context — no daemon dependency. `new` creates a detached tmux server on a " +
+		"named socket, optionally marked ephemeral for the reap sweep; `send` " +
+		"delivers a message into an agent's " +
 		"pane gated on its @rk_agent_state, with probe-verified delivery; `await` " +
 		"blocks until a pane's agent state (or a file signal) fires; `capture` " +
 		"prints a pane's scrollback with substrate context (cwd, reconciled agent " +
@@ -70,6 +74,7 @@ func init() {
 	muxCmd.AddCommand(muxKillCmd)
 	muxCmd.AddCommand(muxProcessCmd)
 	muxCmd.AddCommand(muxPanesCmd)
+	muxCmd.AddCommand(muxNewCmd)
 	muxCmd.AddCommand(reapFamilyCmd)
 	muxCmd.AddCommand(snapshotFamilyCmd)
 	muxCmd.AddCommand(initConfFamilyCmd)

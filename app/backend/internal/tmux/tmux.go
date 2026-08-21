@@ -2637,3 +2637,14 @@ func IsEphemeralServer(ctx context.Context, server string) (bool, error) {
 	}
 	return strings.TrimSpace(out) != "", nil
 }
+
+// MarkServerEphemeral writes the EphemeralOption creator opt-out mark ("1")
+// server-scoped on the named server. Mirrors SetServerOrigin. Requires a live
+// server — server-scoped options need a running tmux process.
+func MarkServerEphemeral(ctx context.Context, server string) error {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	_, err := tmuxExecRawServer(ctx, server, "set-option", "-s", EphemeralOption, "1")
+	return err
+}

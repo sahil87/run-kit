@@ -1,12 +1,23 @@
 # run-kit skill: mux
 
-Depth for one job: **driving panes from the substrate** — delivering a message into another agent's tmux pane, waiting for its response, inspecting what a pane is showing, checking what runs in it, and removing it — from inside a tmux pane run-kit manages. This is a static topic page (`rk skill mux`); the [core bundle](../skill.md) covers when to reach for run-kit at all. Everything here is byte-identical on every invocation.
+Depth for one job: **driving panes from the substrate** — creating scratch tmux servers, delivering a message into another agent's tmux pane, waiting for its response, inspecting what a pane is showing, checking what runs in it, and removing it — from inside a tmux pane run-kit manages. This is a static topic page (`rk skill mux`); the [core bundle](../skill.md) covers when to reach for run-kit at all. Everything here is byte-identical on every invocation.
 
 Gate first, as always — run-kit is optional and may be absent:
 
 ```sh
 command -v rk >/dev/null 2>&1 && [ -n "$TMUX_PANE" ] || exit 0
 ```
+
+## `rk mux new` — create a scratch tmux server
+
+```sh
+rk mux new scratch1                    # detached server on socket scratch1
+rk mux new scratch2 --ephemeral        # … and mark it @rk_ephemeral 1
+```
+
+Creates a detached tmux server listening on socket `<name>` with one session named `<name>`, through run-kit's server-birth path (sanitized environment, home-anchored CWD). This is the sanctioned way to create a scratch server — never improvise with raw `tmux -L <name> new-session`. `--ephemeral` marks the new server `@rk_ephemeral 1` before the command returns: the server opts out of layout-snapshot coverage and into the `rk mux reap --ephemeral` bulk-cleanup sweep (the create/reap convention — scratch servers are created with `rk mux new <name> --ephemeral` and bulk-cleaned with `rk mux reap --ephemeral`). If the mark fails, the just-created server is killed — a `--ephemeral` invocation never leaves an unmarked server behind.
+
+**Collision**: a live server already answering on `<name>` refuses (exit 1, nothing touched); a dead or stale socket proceeds. stdout carries exactly one report line: `created <name>`. Exit codes: 0 success, 1 operational (collision, tmux failure, mark failure), 2 usage.
 
 ## `rk mux send` — deliver a message to an agent
 
@@ -111,11 +122,11 @@ The whole-server enumeration query — no target argument; it is the one mux mem
 ## Gotchas
 
 - All five pane-scoped verbs share the same target grammar — `%N`, `@N`, `=session:window` (bare `session:window` rejected) — and the same `-L <server>` flag (default: your own server, from `$TMUX`).
+- Scratch-server convention: create with `rk mux new <name> --ephemeral`, bulk-clean with `rk mux reap --ephemeral`; never bare `tmux kill-server` — a bare `tmux kill-server` (no `-L`/`-S`) is refused machine-wide by the rk tmux guard shim — use `tmux -L <name> kill-server` for scratch servers (`rk mux guard` is the verb the shim execs).
 - `--answer` and `--force` are mutually exclusive on `send` (usage error, exit 2) — say what you mean.
 - `--await` cannot combine with `--no-enter` (nothing was submitted to wait on).
 - `--key` sends key names raw (no paste, no probe — keys have no echo to verify).
 - `send --await` on an UNINSTRUMENTED pane (no `@rk_agent_state`): the message still delivers and `delivered %N` prints; the wait then applies its own rule — if the pane still has no state, the command errors "nothing observable to wait on" (exit 1). The delivery is never rolled back or hidden by a failed wait.
 - `await --notify` fires on EVERY report — including `running` (timeout) and `gone` (pane died), not just a reached state. That is deliberate: you asked to be woken when the wait ends, however it ends.
-- A bare `tmux kill-server` (no `-L`/`-S`) is refused machine-wide by the rk tmux guard shim — use `tmux -L <name> kill-server` for scratch servers (`rk mux guard` is the verb the shim execs).
 - The verbs talk to tmux directly from your context — no daemon dependency, so they work while `rk serve` is down.
 - Waits are bounded by `--timeout` (default 300s, 0 = indefinite), never by an internal command budget — individual tmux reads carry their own short timeouts, the loop itself does not.

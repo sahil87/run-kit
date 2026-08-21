@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard PASS status (help-dump, readme-extraction, skill, ten principles, update, version, install-composition). Covers Principle 9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + Principle 9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`mux`/`agent` + the grown ten-member `mux` family and its grown `reap --ephemeral` flag."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard PASS status (help-dump, readme-extraction, skill, principles, update, version, install-composition). Covers Principle 9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + Principle 9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`mux`/`agent` + the eleven-member `mux` family incl. `new` (create) and `reap --ephemeral`."
 ---
 # Toolkit Standards Conformance
 
@@ -395,8 +395,8 @@ as a PERMANENT hidden root alias — full contract in
 [tmux-guard-shim](/run-kit/tmux-guard-shim.md)) is the tenth surface measured
 against the same checks (`260815-mi5s-mux-guard-move`):
 
-- **help-dump: ten members dump; the permanent alias doesn't.** `muxCmd`
-  carries exactly ten members (the messaging pair, the operator set, `guard`,
+- **help-dump: eleven members dump; the permanent alias doesn't.** `muxCmd`
+  carries exactly eleven members (the messaging pair, the operator set, `guard`,
   the substrate twins, and `panes` — see the eleventh and twelfth surfaces
   below), and
   `tmux-guard` joins the excluded-hidden-root-forms assertion list — Hidden
@@ -424,9 +424,9 @@ pane-mechanics verbs ported from `fab pane`, agent-state-aware — see
 contract in [agent-messaging](/run-kit/agent-messaging.md)) are the eleventh
 surface measured against the same checks (`260815-82w7-mux-substrate-twins`):
 
-- **help-dump: ten members dump.** `muxCmd` carries exactly ten members —
+- **help-dump: eleven members dump.** `muxCmd` carries exactly eleven members —
   the messaging pair, the three twins, `panes`, and the operator set — and the
-  help-dump test asserts the ten-member subtree dynamically, with
+  help-dump test asserts the eleven-member subtree dynamically, with
   `capture`/`kill`/`process`/`panes` in the captured-children check. Every node is
   registered unconditionally with a `Long:` block, so the dumped contract
   stays platform-stable.
@@ -452,9 +452,9 @@ query, the tenth family member; full contract in
 [agent-messaging](/run-kit/agent-messaging.md)) is the twelfth surface measured
 against the same checks (`260820-hol4-mux-panes-native-pane-map`):
 
-- **help-dump: ten members dump.** `muxCmd` carries exactly ten members — the
-  messaging pair, the three twins, `panes`, and the operator set — and the
-  help-dump test asserts the ten-member subtree dynamically, with `panes` in
+- **help-dump: eleven members dump.** `muxCmd` carries exactly eleven members —
+  the messaging pair, the three twins, `panes`, and the operator set — and the
+  help-dump test asserts the eleven-member subtree dynamically, with `panes` in
   the captured-children check. `panes` registers unconditionally with a
   `Long:` block, keeping the dumped contract platform-stable.
 - **Principle 9: rows are data, diagnostics are chatter.** The aligned table
@@ -495,6 +495,42 @@ thirteenth surface measured against the same checks
 - **The `skill` standard is a no-op here** — the reaper stays an operator
   janitor verb deliberately absent from the agent-facing topic pages (the
   attractive-nuisance reasoning), so no topic-page content changes.
+
+The `rk mux new` create verb (the family's eleventh member, operator tier —
+full contract in [agent-messaging](/run-kit/agent-messaging.md)) is the
+fourteenth surface measured against the same checks
+(`260821-hbmh-ephemeral-creation-adoption`):
+
+- **help-dump: eleven members dump; `UsageString` published.** `new` is
+  registered unconditionally on `muxCmd` with `Short`/`Long`/`Example` in the
+  family's style, so the cobra tree walk publishes it as the eleventh member
+  with no help-dump code change and the dumped contract stays
+  platform-stable; `TestCaptureNodeRealTreeSelfExcludesAndDepth` pins the new
+  count.
+- **Principles 1/2/4/6/9 — PASS, with one defect found and fixed.** P1
+  non-interactive (no prompts); P2 stream split (the `created <name>` report
+  line is stdout's only data; diagnostics ride stderr); P4 exit codes (0/1/2
+  toolkit convention — validation and the inherited `-L` rejection are usage
+  via `usageArgs`/`usageError`, a live-socket collision and a mark failure are
+  operational); P6 stateless retry-safe (a live-socket collision refuses
+  cleanly, a stale socket proceeds). **The P9 defect the audit caught**: the
+  `--ephemeral` flag help text backtick-quoted `rk mux reap --ephemeral`, and
+  pflag consumes a backtick-quoted span in flag help as a metavar name,
+  rendering `--ephemeral rk mux reap --ephemeral` in `-h`. Rule: **flag help
+  strings carry no backticks** — fixed by dropping them.
+- **readme-extraction: no README change needed.** The README carries no
+  per-command table for agent-facing mux verbs; the standard's rule 7
+  command/flag accuracy cross-check runs against help-dump, which includes
+  `mux new`. The skill-topic edit lives under `docs/site/skill/`, inside the
+  closed `docs/site/` tree.
+- **The `skill` standard gained an `rk mux new` section + the create/reap
+  convention line** — the `mux` topic page (canonical
+  `docs/site/skill/mux.md`, embedded copy byte-identical under
+  `TestSkillMuxEmbedMatchesCanonical`) teaches the verb (usage, `--ephemeral`,
+  collision behavior) and the Gotchas convention: create scratch servers with
+  `rk mux new <name> --ephemeral`, bulk-clean with `rk mux reap --ephemeral`,
+  never bare `tmux kill-server`. `docs/site/skill.md` gained the quickref
+  one-liner; both stay under the 150-line budget.
 
 #### Scenario: A new subcommand group keeps the help tree platform-stable
 - **GIVEN** the `rk desktop` group on a Linux host

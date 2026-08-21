@@ -1,0 +1,13 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-21T02:49:22Z"}
+{"args":"rk mux new --ephemeral creation verb + test-runner/agent adoption (f2b7 phase 3)","cmd":"fab-new","event":"command","ts":"2026-08-21T02:49:22Z"}
+{"delta":"+0.0","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-08-21T02:54:14Z"}
+{"cmd":"fab-draft","event":"command","ts":"2026-08-21T02:54:25Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-21T03:38:43Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-21T03:40:23Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-21T04:01:12Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-21T04:04:09Z"}
+{"event":"review","result":"passed","ts":"2026-08-21T04:04:09Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-21T04:07:46Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-08-21T04:09:09Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-08-21T04:11:09Z"}
+{"event":"review","result":"passed","ts":"2026-08-21T04:49:45Z"}

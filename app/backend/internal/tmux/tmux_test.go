@@ -2330,6 +2330,24 @@ func TestIsEphemeralServer_noServerReturnsFalse(t *testing.T) {
 	}
 }
 
+func TestMarkServerEphemeral_readsBackTrue(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := MarkServerEphemeral(ctx, server); err != nil {
+		t.Fatalf("MarkServerEphemeral: %v", err)
+	}
+
+	got, err := IsEphemeralServer(ctx, server)
+	if err != nil {
+		t.Fatalf("IsEphemeralServer after mark: %v", err)
+	}
+	if !got {
+		t.Error("got false, want true (MarkServerEphemeral wrote the mark)")
+	}
+}
+
 func TestServerAllowed(t *testing.T) {
 	cases := []struct {
 		name      string

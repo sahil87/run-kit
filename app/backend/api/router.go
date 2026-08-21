@@ -88,6 +88,7 @@ type TmuxOps interface {
 	SetSessionOrder(ctx context.Context, server string, order []string) error
 	GetServerRank(ctx context.Context, server string) (*int, error)
 	SetServerRank(ctx context.Context, server string, rank int) error
+	IsEphemeralServer(ctx context.Context, server string) (bool, error)
 	ListBoards(ctx context.Context) ([]tmux.BoardSummary, error)
 	GetBoard(ctx context.Context, name string) ([]tmux.BoardEntry, error)
 	ListBoardEntries(ctx context.Context, server string) ([]tmux.BoardEntry, error)
@@ -385,6 +386,9 @@ func (p *prodTmuxOps) GetServerRank(ctx context.Context, server string) (*int, e
 }
 func (p *prodTmuxOps) SetServerRank(ctx context.Context, server string, rank int) error {
 	return tmux.SetServerRank(ctx, server, rank)
+}
+func (p *prodTmuxOps) IsEphemeralServer(ctx context.Context, server string) (bool, error) {
+	return tmux.IsEphemeralServer(ctx, server)
 }
 func (p *prodTmuxOps) ListBoards(ctx context.Context) ([]tmux.BoardSummary, error) {
 	return tmux.ListBoards(ctx)

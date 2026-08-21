@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-21T02:49:23Z"}
+{"args":"Surface @rk_ephemeral: /api/servers flag, host overview badge, doctor hint (f2b7 phase 4)","cmd":"fab-new","event":"command","ts":"2026-08-21T02:49:23Z"}
+{"delta":"+0.0","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-08-21T02:54:14Z"}
+{"cmd":"fab-draft","event":"command","ts":"2026-08-21T02:54:25Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-21T03:40:59Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-21T03:45:10Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-21T04:25:35Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-21T04:29:45Z"}
+{"event":"review","result":"passed","ts":"2026-08-21T04:29:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-21T04:33:20Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-08-21T04:37:36Z"}
+{"event":"review","result":"passed","ts":"2026-08-21T04:43:51Z"}

@@ -405,7 +405,7 @@ export function HostOverviewPage() {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {orderedServers.map(({ name, sessionCount }) => {
+            {orderedServers.map(({ name, sessionCount, ephemeral }) => {
               const drag = getTileProps(name);
               const isDragSource = isDragging && draggingName === name;
               return (
@@ -429,10 +429,18 @@ export function HostOverviewPage() {
                 <span className="absolute right-2 top-2">
                   <WaitingBadge count={countWaitingInSessions(sessionsByServer.get(name) ?? [])} />
                 </span>
-                {/* De-emphasize infra servers (daemon + test sockets): grey the
-                    name only; tile stays fully clickable/attachable. */}
-                <div className={`${isInfraServer(name) ? "text-text-secondary" : "text-text-primary"} font-medium text-sm`}>
+                {/* De-emphasize infra servers (daemon + test sockets) and
+                    @rk_ephemeral-marked scratch servers alike: grey the name
+                    only; the tile stays fully clickable/attachable. Marked
+                    servers also get a `scratch` chip (the recovery tree's
+                    resumable-chip styling) — surface, never hide. */}
+                <div className={`${isInfraServer(name) || ephemeral ? "text-text-secondary" : "text-text-primary"} font-medium text-sm`}>
                   {name}
+                  {ephemeral && (
+                    <span className="ml-1.5 border border-border rounded px-1 text-text-secondary text-xs">
+                      scratch
+                    </span>
+                  )}
                 </div>
                 <div className="text-text-secondary text-xs mt-1">
                   {sessionCount} sess

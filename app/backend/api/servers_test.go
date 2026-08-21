@@ -313,6 +313,69 @@ func TestHandleServersList_RankReadErrorYieldsNullRank(t *testing.T) {
 	}
 }
 
+func TestHandleServersList_IncludesEphemeralField(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	mock := &serversTmuxMock{
+		servers: []string{"work", "default"},
+		sessions: map[string][]tmux.SessionInfo{
+			"work":    {{Name: "s1"}},
+			"default": {{Name: "s1"}},
+		},
+	}
+	mock.isEphemeralByServer = map[string]bool{"work": true}
+
+	router := NewTestRouter(logger, nil, mock, "test-host")
+	req := httptest.NewRequest("GET", "/api/servers", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != 200 {
+		t.Fatalf("status = %d, want 200. body=%s", rec.Code, rec.Body.String())
+	}
+	var got []serverInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	// Array stays alphabetical (asserted contract): default, work.
+	if len(got) != 2 || got[0].Name != "default" || got[1].Name != "work" {
+		t.Fatalf("got %+v, want [default, work] alphabetical", got)
+	}
+	if got[0].Ephemeral {
+		t.Errorf("default ephemeral = true, want false (unmarked)")
+	}
+	if !got[1].Ephemeral {
+		t.Errorf("work ephemeral = false, want true (marked)")
+	}
+	if !strings.Contains(rec.Body.String(), "\"ephemeral\":true") {
+		t.Errorf("body missing ephemeral:true. body=%s", rec.Body.String())
+	}
+}
+
+func TestHandleServersList_EphemeralReadErrorYieldsFalse(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	mock := &serversTmuxMock{
+		servers:  []string{"broken"},
+		sessions: map[string][]tmux.SessionInfo{"broken": {{Name: "s1"}}},
+	}
+	mock.isEphemeralErrByServer = map[string]error{"broken": errors.New("boom")}
+
+	router := NewTestRouter(logger, nil, mock, "test-host")
+	req := httptest.NewRequest("GET", "/api/servers", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != 200 {
+		t.Fatalf("status = %d, want 200 (ephemeral read failure must not surface as 5xx)", rec.Code)
+	}
+	var got []serverInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got) != 1 || got[0].Ephemeral {
+		t.Fatalf("got %+v, want ephemeral false on read error", got)
+	}
+}
+
 func TestHandleServerOrderPost_WritesRanksInOrder(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	mock := &serversTmuxMock{}

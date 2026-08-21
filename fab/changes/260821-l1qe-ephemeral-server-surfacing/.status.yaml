@@ -1,0 +1,57 @@
+id: l1qe
+name: 260821-l1qe-ephemeral-server-surfacing
+created: 2026-08-21T02:49:23Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 7
+    acceptance_count: 15
+    acceptance_completed: 15
+confidence:
+    certain: 3
+    confident: 1
+    tentative: 0
+    unresolved: 0
+    score: 4.9
+    fuzzy: true
+    dimensions:
+        signal: 73.8
+        reversibility: 85.0
+        competence: 82.5
+        disambiguation: 77.5
+stage_metrics:
+    intake: {started_at: "2026-08-21T02:49:23Z", driver: fab-new, iterations: 1, completed_at: "2026-08-21T03:45:10Z"}
+    apply: {started_at: "2026-08-21T03:45:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-21T04:25:35Z"}
+    review: {started_at: "2026-08-21T04:25:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-21T04:29:45Z"}
+    hydrate: {started_at: "2026-08-21T04:29:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-21T04:33:20Z"}
+    ship: {started_at: "2026-08-21T04:33:20Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-21T04:37:36Z"}
+    review-pr: {started_at: "2026-08-21T04:37:36Z", driver: git-pr, iterations: 1, completed_at: "2026-08-21T04:43:51Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/700
+change_type_source: explicit
+true_impact:
+    added: 1697
+    deleted: 105
+    net: 1592
+    excluding:
+        added: 928
+        deleted: 78
+        net: 850
+    tests:
+        added: 591
+        deleted: 26
+        net: 565
+    computed_at: "2026-08-21T04:37:36Z"
+    computed_at_stage: ship
+summary: 'Surface @rk_ephemeral scratch servers: ephemeral field on GET /api/servers (fan-out read), always-OK doctor count row via tmux.EphemeralServers, Host-page scratch chip + grey name + sub-rank sink in compareServersRanked'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-21T04:43:51Z

@@ -6,10 +6,10 @@ reboot-orphaned tmux servers whose layout snapshots survived on disk
 non-empty offers list (zero footprint otherwise), slotted between the TMUX
 SERVERS and SERVICES zones with a `SectionHeading` labelled "Recovery". Each
 offer renders one row: a hollow (non-live) dot, the server name, a meta line
-(`N sessions · M windows · last seen X ago · system restart`), a **Restore**
+(`N sessions · M tabs · last seen X ago · system restart`), a **Restore**
 button, an **×** dismiss button, and a chevron that expands a read-only
-session tree (session color swatches, per-window pane counts and former
-commands, `resumable` tags on agent windows — display-only). **Restore all
+session tree (session color swatches, per-tab pane counts and former
+commands, `resumable` tags on agent tabs — display-only). **Restore all
 (N)** and **Dismiss all** ride the heading's side slot when more than one
 offer exists and run sequential per-server restore/dismiss POSTs (no bulk
 endpoint). A restore shows an
@@ -33,8 +33,8 @@ its row on success.
   deterministic (the section under test sits directly below it, and a restore
   success refetches this list).
 - Two offer fixtures: `kit` (one session `dev` with color `4`, a 1-pane `zsh`
-  window and a 2-pane `zsh, claude -c` window flagged `resumable`, `takenAt`
-  one hour old) and `work` (two sessions, three windows, `takenAt` two minutes
+  window and a 2-pane `zsh, claude -c` tab flagged `resumable`, `takenAt`
+  one hour old) and `work` (two sessions, three tabs, `takenAt` two minutes
   old).
 - Readiness signal: the `Tmux Servers` zone heading is visible.
 - Rows are located by `data-testid="recovery-row-<server>"`; the expanded tree
@@ -64,14 +64,14 @@ the heading's side slot gated on more than one offer.
 2. Assert the `Recovery` region and heading are visible, plus the
    `Restore all (2)` button.
 3. On the `kit` row assert the hollow dot (`not running`), the meta line
-   `1 session · 2 windows · last seen 1h ago · system restart`, and the
+   `1 session · 2 tabs · last seen 1h ago · system restart`, and the
    `Restore kit` / `Dismiss recovery for kit` buttons; assert the `work` row
    exists.
 
-### `the chevron expands the read-only session tree (swatch, windows, commands, resumable tag)`
+### `the chevron expands the read-only session tree (swatch, tabs, commands, resumable tag)`
 
 What it proves: the row's expand affordance reveals the offer payload's
-inline layout tree — no second request — with windows, pane counts, former
+inline layout tree — no second request — with tabs, pane counts, former
 commands, and the display-only resumable tag.
 
 1. Mock one offer (`kit`); load `/`.
@@ -79,7 +79,7 @@ commands, and the display-only resumable tag.
    in the DOM.
 3. Click `Show layout for kit`; assert the toggle flips to `Hide layout for
    kit` with `aria-expanded="true"` and the tree carries the session name,
-   both window lines (`0: shell · 1 pane`, `1: agent · 2 panes`), the joined
+   both tab lines (`0: shell · 1 pane`, `1: agent · 2 panes`), the joined
    former commands (`zsh, claude -c`), and the `resumable` tag.
 4. Assert the tree contains no buttons (read-only — no resume affordance).
 

@@ -377,3 +377,44 @@ func TestDismissTombstonesAuditedAndNeverReOffers(t *testing.T) {
 		t.Fatalf("ghost dismiss should succeed: %v", err)
 	}
 }
+
+func TestRetireLatestRemovesLatestOnly(t *testing.T) {
+	s := NewStore(t.TempDir())
+	base := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
+	if _, err := s.Write(testSnap("kit", base, "serve")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.RetireLatest("kit"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Latest is gone; NO tombstone is created (retire ≠ "server died").
+	if snap, err := s.LoadLatest("kit"); err != nil || snap != nil {
+		t.Fatalf("latest should be gone after retire: snap=%v err=%v", snap, err)
+	}
+	if ts, err := s.tombstoneTimestamps("kit"); err != nil || len(ts) != 0 {
+		t.Errorf("tombstones after retire = %v, %v — want none", ts, err)
+	}
+	// History is left intact (the existing prune owns it).
+	if hist, _ := s.historyTimestamps("kit"); len(hist) != 1 {
+		t.Errorf("history count = %d, want 1 (untouched)", len(hist))
+	}
+	// The retired server leaves nothing for RestorableOffers to offer.
+	offers, err := s.RestorableOffers(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(offers) != 0 {
+		t.Errorf("offers after retire = %+v, want none", offers)
+	}
+
+	// Idempotent: retiring again (no latest) is a no-op success.
+	if err := s.RetireLatest("kit"); err != nil {
+		t.Fatalf("repeat retire should be a no-op success: %v", err)
+	}
+	// Retiring a server with no snapshot at all is a no-op success.
+	if err := s.RetireLatest("ghost"); err != nil {
+		t.Fatalf("ghost retire should succeed: %v", err)
+	}
+}

@@ -41,6 +41,18 @@ const ServerRankOption = "@rk_server_rank"
 // `rk url`" language.
 const OriginOption = "@rk_origin"
 
+// EphemeralOption is the tmux server-scoped user option marking the whole
+// server ephemeral (scratch): presence with a non-empty value (canonically
+// "1") opts the server out of layout-snapshot coverage and into the
+// `rk mux reap --ephemeral` sweep. Unsetting it promotes the server back to
+// durable — snapshot coverage resumes on the next due pass with no other
+// action. The option dies with the tmux server, so no consumer can read it
+// post-mortem: IsTestServerName remains the dead-socket fallback
+// (IsTestServerName(name) ⇒ treated as ephemeral). "This server is scratch"
+// is creator intent — underivable from tmux/filesystem/git — which is why it
+// rides a user option like the rest of the @rk_* convention family.
+const EphemeralOption = "@rk_ephemeral"
+
 // RoleOption is the tmux window user option that marks a window's orchestration
 // role. The value set is closed: "" (unset) | "operator". "operator" is a
 // server-scoped radio — at most one window per tmux server carries it, enforced
@@ -2600,4 +2612,28 @@ func SetServerOrigin(ctx context.Context, server, origin string) error {
 
 	_, err := tmuxExecRawServer(ctx, server, "set-option", "-s", OriginOption, origin)
 	return err
+}
+
+// IsEphemeralServer reports whether the named server carries the
+// EphemeralOption mark (a non-empty trimmed value is truthy; "1" is the
+// documented convention). Mirrors GetServerOrigin's taxonomy exactly: an
+// unset option ("invalid option"/"unknown option" stderr) OR a dead/absent
+// socket (IsServerGone) reads as (false, nil) — liveness is the caller's
+// concern, and a gone server is never ephemeral. Other subprocess failures
+// propagate wrapped.
+func IsEphemeralServer(ctx context.Context, server string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	out, err := tmuxExecRawServer(ctx, server, "show-option", "-sv", EphemeralOption)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "invalid option") ||
+			strings.Contains(errMsg, "unknown option") ||
+			IsServerGone(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("read %s: %w", EphemeralOption, err)
+	}
+	return strings.TrimSpace(out) != "", nil
 }

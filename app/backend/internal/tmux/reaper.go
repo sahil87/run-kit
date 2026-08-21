@@ -41,7 +41,8 @@ const (
 )
 
 // classifyReap decides what the brute-force reaper does with a single
-// socket-dir candidate, given the operator-supplied prefix.
+// socket-dir candidate, given the operator-supplied prefix and the
+// caller-computed set of live servers carrying the ephemeral opt-out mark.
 //
 // It is a PURE function — no I/O, no real tmux, no liveness probe — so the
 // full classification matrix is unit-testable without spawning servers. The
@@ -50,22 +51,27 @@ const (
 // Unlike the prior PID-probing classifier, this version reasons by NAME and
 // FILE KIND only:
 //   - name is the _rk-ctl control anchor, or the live rk-daemon production
-//     server → skip UNCONDITIONALLY (even when it matches the prefix). The
-//     dry-run default alone is not sufficient protection for production.
-//   - name does not start with prefix → skip.
+//     server → skip UNCONDITIONALLY (even when it matches the prefix or
+//     carries the ephemeral mark). The dry-run default alone is not
+//     sufficient protection for production.
+//   - name matches neither the prefix NOR the ephemeral set → skip.
 //   - name matches AND ends in LockSocketSuffix (a regular .lock file) →
-//     remove (no .lock-inherits-base-server reasoning anymore).
+//     remove (no .lock-inherits-base-server reasoning anymore). The
+//     ephemeral set is enumerated from live servers only, so a .lock file
+//     can only ever arrive here via the prefix dimension.
 //   - name matches AND its server is live → kill.
 //   - name matches AND its server is a dead socket → remove.
 //
 // The live/dead distinction is the ONLY thing that requires touching the
 // outside world, and it is supplied by the caller (serverLive) rather than
-// probed here, keeping classifyReap pure.
-func classifyReap(name, prefix string, serverLive bool) ReapAction {
+// probed here, keeping classifyReap pure. Ephemeral matches are explicit
+// creator opt-in, so the dangerous-prefix length guard never applies to the
+// ephemeral dimension.
+func classifyReap(name, prefix string, ephemeral map[string]bool, serverLive bool) ReapAction {
 	if name == ControlAnchorSessionName || name == productionDaemonServer {
 		return ReapActionSkip
 	}
-	if !strings.HasPrefix(name, prefix) {
+	if !strings.HasPrefix(name, prefix) && !ephemeral[name] {
 		return ReapActionSkip
 	}
 	if strings.HasSuffix(name, LockSocketSuffix) {
@@ -121,10 +127,19 @@ type ReapResult struct {
 // true — and it refuses regardless of act, so a dry-run with a dangerous prefix
 // also reports the refusal rather than previewing a near-everything match.
 //
+// When ephemeralOnly is false the ephemeral dimension is disabled entirely and
+// behavior is byte-identical to the pure prefix sweep. When true, the matched
+// set is the UNION of the prefix match and every LIVE server carrying
+// EphemeralOption: the mark is creator opt-in, safer than prefix guessing, and
+// gives agents a sanctioned bulk-cleanup verb instead of raw kill-server. The
+// ephemeral set is enumerated from live servers only (ListServers) — a tmux
+// command on a dead socket resurrects a server, so dead sockets stay
+// prefix-only territory — and the guard applies to the prefix dimension only.
+//
 // Per-entry failures are logged via slog and skipped — a single failure MUST
 // NOT abort the sweep. An aggregate error describing the failed entries is
 // returned at the end (nil when every entry succeeded).
-func ReapTestServers(ctx context.Context, prefix string, act, force bool) (ReapResult, error) {
+func ReapTestServers(ctx context.Context, prefix string, act, force, ephemeralOnly bool) (ReapResult, error) {
 	if len(prefix) <= minSafePrefixLen && !force {
 		return ReapResult{}, fmt.Errorf(
 			"refusing prefix %q: empty or <= %d chars matches nearly everything (runkit, production); pass --force to override",
@@ -134,18 +149,61 @@ func ReapTestServers(ctx context.Context, prefix string, act, force bool) (ReapR
 	if err != nil {
 		return ReapResult{}, fmt.Errorf("scan socket dir: %w", err)
 	}
-	return reapCandidates(ctx, socketDirPath(), prefix, candidates, probeServerAlive, act)
+	ephemeral, err := enumerateEphemeralServers(ctx, ephemeralOnly)
+	if err != nil {
+		return ReapResult{}, err
+	}
+	return reapCandidates(ctx, socketDirPath(), prefix, candidates, ephemeral, probeServerAlive, act)
+}
+
+// enumerateEphemeralServers returns the set of live servers carrying the
+// EphemeralOption mark, or nil when the ephemeral dimension is disabled. Only
+// LIVE servers are queried (ListServers liveness-probes the socket dir): a
+// tmux command on a dead socket resurrects a server, so dead sockets are
+// never touched here and stay prefix-only territory. A per-server query
+// failure isolates to that server — it is logged and simply not matched.
+func enumerateEphemeralServers(ctx context.Context, enabled bool) (map[string]bool, error) {
+	if !enabled {
+		return nil, nil
+	}
+	live, err := ListServers(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list live servers for ephemeral enumeration: %w", err)
+	}
+	if len(live) == 0 {
+		return nil, nil
+	}
+	ephemeral := map[string]bool{}
+	for _, name := range live {
+		// The unconditional hard-skips are never queried — a hypothetical mark
+		// on them must not resurrect the option dimension for them.
+		if name == ControlAnchorSessionName || name == productionDaemonServer {
+			continue
+		}
+		marked, err := IsEphemeralServer(ctx, name)
+		if err != nil {
+			slog.Warn("reaper: ephemeral read failed, server not matched", "server", name, "err", err)
+			continue
+		}
+		if marked {
+			ephemeral[name] = true
+		}
+	}
+	return ephemeral, nil
 }
 
 // reapCandidates is the I/O-performing core of the reaper, split out from
 // ReapTestServers so tests can drive it against a temp dir with a fake prober
-// (no real tmux server required). It classifies each candidate against prefix,
-// then executes the action unless act is false (dry-run preview).
+// (no real tmux server required). It classifies each candidate against the
+// union of the prefix match and the caller-computed ephemeral set (nil =
+// prefix-only), then executes the action unless act is false (dry-run
+// preview). classifyReap stays pure — the ephemeral set arrives as data.
 func reapCandidates(
 	ctx context.Context,
 	dir string,
 	prefix string,
 	candidates []string,
+	ephemeral map[string]bool,
 	probe func(ctx context.Context, name string) bool,
 	act bool,
 ) (ReapResult, error) {
@@ -158,10 +216,10 @@ func reapCandidates(
 		// (subprocess-spawning) probe for unmatched names, the unconditional
 		// skips, and .lock files — classifyReap ignores serverLive for those.
 		var serverLive bool
-		if probeNeeded(name, prefix) {
+		if probeNeeded(name, prefix, ephemeral) {
 			serverLive = probe(ctx, name)
 		}
-		action := classifyReap(name, prefix, serverLive)
+		action := classifyReap(name, prefix, ephemeral, serverLive)
 		if action == ReapActionSkip {
 			continue
 		}
@@ -202,11 +260,11 @@ func reapCandidates(
 // other candidate is decided by name alone. Kept in lock-step with
 // classifyReap so the probe (a tmux subprocess) is skipped for names whose
 // action does not depend on it.
-func probeNeeded(name, prefix string) bool {
+func probeNeeded(name, prefix string, ephemeral map[string]bool) bool {
 	if name == ControlAnchorSessionName || name == productionDaemonServer {
 		return false
 	}
-	if !strings.HasPrefix(name, prefix) {
+	if !strings.HasPrefix(name, prefix) && !ephemeral[name] {
 		return false
 	}
 	return !strings.HasSuffix(name, LockSocketSuffix)

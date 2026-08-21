@@ -61,7 +61,7 @@ Separate **what runs** from **what you can look at**:
 | View | Available when | Renderer | Status |
 |------|---------------|----------|--------|
 | `tty` | always | xterm.js `TerminalClient` | **[current]** |
-| `web` | `@rk_url` set (later: a listening HTTP port derived to be owned by the pane's process subtree) | `IframeWindow` (proxy iframe + URL bar) | **[current]** as a window *type*; **[target]** as a lens — change `260714-t97o-web-view-lens` |
+| `web` | always (the lens exists on every window, like `tty`); `@rk_url` selects the renderer's CONTENT — empty/whitespace renders the onboarding state (a reduced live URL bar + fill-path instructions), non-empty renders the live iframe — mirroring the `code` row's availability-vs-content split | `IframeWindow` (proxy iframe + URL bar; onboarding content state when `@rk_url` is empty) | **[current]** as a lens — change `260714-t97o-web-view-lens`; always-available + onboarding `260821-zqlq-web-tile-always-tileable-onboarding` |
 | `chat` | `@rk_chat` pane option present | chat renderer | **[target]** — [`agent-chat-view.md`](../../fab/plans/sahil/agent-chat-view.md) changes 2–3 |
 | `code` | the window's code folder is LATCHED, or a git root is derivable from the active pane's cwd — derivation seeds the latch once, at first open, and the terminal never moves it afterwards (right-panel.md § The `code` lens); the code-server endpoint always resolves by convention, so it gates nothing, and reachability governs the renderer's CONTENT (live iframe vs not-running empty state), never availability | `CodeSurface` (lean proxy iframe, no URL bar) | **[current]** — change `260811-k3vp-right-panel-code-lens`, endpoint by convention `260811-a2bo`, folder latched `260813-if5d`; also the right panel's CODE surface (right-panel.md § Surface Registry) |
 | `desktop` | VNC-port window option present (set by the desktop launcher, reconciler-cleared) | noVNC canvas | **[target]** — [`fab/plans/sahil/desktop-view.md`](../../fab/plans/sahil/desktop-view.md) |
@@ -81,6 +81,13 @@ derivation. `@rk_type` as a *mutable identity* is retired; it survives only as
 a creation-time **default-view hint** (§ Migration). No window-name prefixes
 (`desktop:`) — names belong to users.
 
+Web availability carries no signal at all: the `web` lens is **always
+available** (like `tty`). `@rk_url` is its *content selector*, never its
+availability gate — an empty/whitespace value renders the tile's onboarding
+state (whose live address bar is itself the initialization path), a non-empty
+value renders the live iframe. This is the `code` row's model: a stable
+capability signal gates presence; a fluctuating condition governs content.
+
 ### R2 — Choice is per-viewer, in the URL
 
 View state lives in a `?view=` search param on the existing
@@ -98,6 +105,12 @@ Every window offers `tty`, whatever else it offers. A desktop window's tty
 shows the Xvfb/x11vnc supervisor logs; a headless codex-server pane's tty
 shows the server logs. Watching the raw process is the run-kit ethos — no
 lens may hide it, and no relay may sniff-and-branch it away.
+
+The `web` lens is likewise always *reachable* (always tileable): a `?view=web`
+(or `?layout=…web…`) deep link on a URL-less window keeps its tile and renders
+the onboarding content state — it never degrades away to `tty`. The
+`defaultView` hint is unaffected: a URL-less window still defaults to `tty`
+unless the viewer chose otherwise.
 
 ### R4 — One switcher UX, shared by all lenses
 

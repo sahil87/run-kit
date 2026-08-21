@@ -1209,12 +1209,13 @@ export function SurfaceLayout({
           </div>
         );
       case "web":
-        // An available web tile implies `hasWebUrl` held (degradation); the
-        // `win?.rkUrl` guard is the TS narrowing for the prop.
-        return win?.rkUrl ? (
+        // Web availability is unconditional (260821-zqlq): an empty rkUrl
+        // renders IframeWindow's onboarding content branch, so the tile
+        // mounts regardless — the `win` guard narrows for the props.
+        return win ? (
           <IframeWindow
             windowId={windowId}
-            rkUrl={win.rkUrl}
+            rkUrl={win.rkUrl ?? ""}
             onInteract={slot >= 0 ? () => focusSlot(slot) : undefined}
             // Page-title seam (260819-v6y4 R10): the header render is this
             // component's, but only the mounted iframe can read the
@@ -1295,15 +1296,19 @@ export function SurfaceLayout({
     // design study — green=present, amber=proxied port, blue=external) plus
     // the page title reported up from the iframe, falling back to the
     // address's display form. The `relative` kind renders no badge (the plain
-    // label + meta fallback below covers it).
+    // label + meta fallback below covers it). An ONBOARDING web tile
+    // (empty/whitespace rkUrl, 260821-zqlq) renders the plain `://  Web`
+    // label — no badge, no page title, no meta chip; the badge derivation is
+    // trimmed-keyed so empty input never reaches classifyAddress.
+    const webRkUrl = win?.rkUrl?.trim() ?? "";
     const webBadge: { text: string; cls: string } | null = (() => {
-      if (kind !== "web" || !win?.rkUrl) return null;
-      const kindOf = classifyAddress(win.rkUrl);
+      if (kind !== "web" || webRkUrl === "") return null;
+      const kindOf = classifyAddress(webRkUrl);
       if (kindOf === "present") {
         return { text: "present", cls: "text-accent-green border-accent-green/40 bg-accent-green/10" };
       }
       if (kindOf === "proxy") {
-        const port = proxyPortOf(win.rkUrl);
+        const port = proxyPortOf(webRkUrl);
         return {
           text: `:${port ?? "?"} proxy`,
           cls: "text-signal-yellow border-signal-yellow/40 bg-signal-yellow/10",

@@ -2,9 +2,15 @@
 
 Proves the iframe feature is a per-viewer **web lens** over the window
 (change `260714-t97o-web-view-lens`, `docs/specs/window-views.md` R1–R7):
-availability is derived from `@rk_url`, view choice is client-side (URL param +
-localStorage), the tty is always reachable, and switching lenses NEVER mutates
-`@rk_type` (no window-option POST). Since `260812-ab5v-surface-layout-core`
+view choice is client-side (URL param + localStorage), the tty is always
+reachable, and switching lenses NEVER mutates `@rk_type` (no window-option
+POST). Since `260821-zqlq-web-tile-always-tileable-onboarding` the web lens is
+**always tileable** (availability no longer derives from `@rk_url` — the
+code-surface availability-vs-content split): an empty/whitespace `@rk_url`
+selects the tile's **onboarding content state** (reduced live URL bar + the
+three fill-path instructions) in place of the iframe, and the existing rkUrl
+sync seam flips onboarding ↔ live with no user action. Since
+`260812-ab5v-surface-layout-core`
 the lens IS a single-tile surface layout: `?view=X` deep links resolve through
 the permanent translation shim (`single:X`), the palette's `View: …` actions
 set `single:<view>` through the shared mutation path (R12), and the URL mirror
@@ -50,18 +56,19 @@ desktop keeps `View:` and sees no `Tile: Switch` entries.
 
 ## Tests
 
-### lens switching is palette-only — the palette gates on capability, the menu carries no `View:` rows (260812-0c6o)
-What it proves: availability is derived (R1) — the palette's `View: Web` action
-renders iff the window offers the web lens — and the retirement contract
-(260812-0c6o): even on a capable window there is no in-bar pill, no
-`view-toggle` testid anywhere in the DOM (bar or probe), and no `View:` rows in
-the chevron menu. The single-view window uses a NON-repo cwd (`/tmp`) so `code`
-is unavailable too — a repo-cwd window is code-capable since k3vp, and relying
-on the gitRoot probe's timing would be a race.
+### lens switching is palette-only — web is always offered, the menu carries no `View:` rows (260812-0c6o, 260821-zqlq)
+What it proves: web availability is unconditional (260821-zqlq — the palette's
+`View: Web` action renders even on a window with NO `@rk_url`; it opens the
+onboarding tile) — and the retirement contract (260812-0c6o): there is no
+in-bar pill, no `view-toggle` testid anywhere in the DOM (bar or probe), and
+no `View:` rows in the chevron menu. The plain window uses a NON-repo cwd
+(`/tmp`) so `code` is unavailable too — a repo-cwd window is code-capable
+since k3vp, and relying on the gitRoot probe's timing would be a race.
 Steps:
 1. Create a plain window (no `@rk_url`, `/tmp` cwd); navigate to it; assert the
    terminal.
-2. Open the palette with `View: Web`; assert NO `View: Web` option; Escape.
+2. Open the palette with `View: Web`; assert the `View: Web` option IS visible
+   (web is always offered — 260821-zqlq); Escape.
 3. Create a window WITH `@rk_url`; navigate to it.
 4. Assert no in-bar "Window view" group and no `view-toggle` testid; open the
    palette and assert the `View: Web` option is visible; Escape.
@@ -92,17 +99,62 @@ Steps:
    the center heading shows the static `Tab:` prefix (260714-uco1 — the
    heading does not follow the lens).
 
-### ?view=web on a window with no @rk_url falls back to the terminal
-What it proves: an unavailable view degrades to tty, not a broken iframe
-(R2/R3 — tty always reachable; the layout ladder's tile-by-tile degradation).
-The window is created in `/tmp` (non-repo) so `code` is unavailable too and
-the single-view gate is deterministic (no gitRoot-probe race).
+### ?view=web on a window with no @rk_url resolves to the onboarding web tile (260821-zqlq)
+What it proves: web is always tileable — the deep link keeps its tile instead
+of degrading to tty, and with no `@rk_url` the tile renders the ONBOARDING
+content state in place of the iframe (the availability-vs-content split; the
+window uses a NON-repo cwd so `code` stays out of the layout).
 Steps:
 1. Create a plain window (no `@rk_url`, `/tmp` cwd).
 2. Navigate to `…?view=web`.
-3. Assert the terminal renders, there is no iframe, the URL is clean (the
-   default drops the param), and the palette offers no `View: Web` action
-   (single view).
+3. Assert the `web-tile-onboarding` panel renders, there is no iframe and no
+   terminal tile, and the URL mirrors `?layout=single:web` (the deep link
+   keeps its tile).
+4. Open the palette with `View: Terminal`; assert the option is visible (web
+   is current, so the palette offers the way back); Escape.
+
+### ⌘3 on a URL-less window opens the web tile's onboarding state (260821-zqlq)
+What it proves: the web-toggle chord is availability-driven, so it now mounts
+on every desktop window route — on a URL-less window ⇧Ctrl+3 (the non-mac
+default; mac is ⌘3) opens the web tile beside the terminal, and the tile
+renders onboarding with the REDUCED URL bar (refresh + the fully-live address
+input; back/forward, find ⌕, and ↗ hidden until content exists).
+Steps:
+1. Create a plain window (no `@rk_url`, `/tmp` cwd); navigate; assert the
+   terminal.
+2. Press `Shift+Control+Digit3`.
+3. Assert `web-tile-onboarding` renders with the "Nothing to show yet" heading
+   and the `rk present ./report.html` instruction row; no iframe.
+4. Assert the address input is visible with the
+   `localhost:3000 · /present/… · https://…` placeholder, Refresh renders, and
+   Back/Forward/Find in page/Open in browser render nowhere.
+5. Assert the URL mirrors `?layout=split-h:tty,web` (the chord added the tile
+   — 1→2 growth).
+
+### the onboarding address bar boots the tile for real (Enter → @rk_url POST)
+What it proves: the onboarding address input is fully live — Enter runs the
+existing submit pipeline (`normalizeAddressInput` → `isAllowedUrl` →
+`updateWindowUrl` → `POST /options` on `@rk_url`), SSE delivers the new value,
+and the tile flips onboarding → live iframe with no further action.
+Steps:
+1. Create a plain window (no `@rk_url`, `/tmp` cwd); navigate to `…?view=web`;
+   assert `web-tile-onboarding`.
+2. Fill the `URL` input with `localhost:8080`; press Enter.
+3. Assert the iframe renders (the stubbed `/proxy/8080/` page), the onboarding
+   panel is gone, and the URL still mirrors `?layout=single:web`.
+
+### tmux set-option @rk_url flips the open onboarding tile live; unsetting returns to onboarding
+What it proves: the live flip rides the existing rkUrl sync seam — an
+agent-side `rk present` (here: an external `tmux set-option -w @rk_url`)
+transitions the open tile onboarding → iframe in place, and clearing the
+option returns it to onboarding.
+Steps:
+1. Create a plain window (no `@rk_url`, `/tmp` cwd); navigate to `…?view=web`;
+   assert `web-tile-onboarding`.
+2. `tmux set-option -w -t <id> @rk_url "http://localhost:8080/"`; assert the
+   iframe renders and onboarding is gone.
+3. `tmux set-option -w -u -t <id> @rk_url`; assert onboarding returns and the
+   iframe is gone.
 
 ### legacy @rk_type=iframe window defaults to web (ladder hint rung)
 What it proves: `@rk_type=iframe` is demoted to a default-view HINT (R5 —

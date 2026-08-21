@@ -66,10 +66,11 @@ different value (a re-present's fresh timestamp) re-triggers.
    `@rk_url` to URL_A; assert the iframe opens.
 2. Close the web tile via its ✕ (`Close Web`); assert the iframe is HIDDEN
    (the tile stays mounted-but-hidden via SurfaceLayout's everOpened set).
-3. Unset `@rk_url`; assert the top-bar `Web tile` toggle disappears (client
-   observed the clear).
-4. Re-set the SAME URL_A; assert the toggle reappears UNPRESSED and the iframe
-   stays HIDDEN (the empty→URL_A transition matched the latch).
+3. Unset `@rk_url`; assert the top-bar `Web tile` toggle's corner dot drops
+   (web is always available since 260821-zqlq, so the toggle stays RENDERED —
+   its dot is the content signal, proving the client observed the clear).
+4. Re-set the SAME URL_A; assert the dot returns with the toggle UNPRESSED and
+   the iframe stays HIDDEN (the empty→URL_A transition matched the latch).
 5. Set a DIFFERENT URL_B; assert the iframe re-opens (latch pass-through).
 
 ### cold arrival with rkUrl already set never auto-opens

@@ -56,24 +56,24 @@ describe("availableViews", () => {
     expect(availableViews(plainWithUrl)).toEqual(["web", "tty"]);
   });
 
-  it("offers tty ONLY when rkUrl is empty, even for an iframe-typed window", () => {
-    expect(availableViews(iframeNoUrl)).toEqual(["tty"]);
-    expect(availableViews(plain)).toEqual(["tty"]);
+  it("always offers web, even with no rkUrl — availability is unconditional; hasWebUrl selects content", () => {
+    expect(availableViews(iframeNoUrl)).toEqual(["web", "tty"]);
+    expect(availableViews(plain)).toEqual(["web", "tty"]);
   });
 
-  it("treats a whitespace-only rkUrl as absent (tty only) — no blank-src iframe", () => {
-    // `@rk_url` can be set to whitespace via external `tmux set-option`; a
-    // bare-truthy check would wrongly expose web + render a blank iframe.
-    expect(availableViews(iframeWhitespaceUrl)).toEqual(["tty"]);
-    expect(availableViews(plainWhitespaceUrl)).toEqual(["tty"]);
+  it("offers web for a whitespace-only rkUrl — onboarding content, never a blank-src iframe", () => {
+    // `@rk_url` can be set to whitespace via external `tmux set-option`;
+    // hasWebUrl's `.trim()` keeps it reading as onboarding content.
+    expect(availableViews(iframeWhitespaceUrl)).toEqual(["web", "tty"]);
+    expect(availableViews(plainWhitespaceUrl)).toEqual(["web", "tty"]);
   });
 
-  it("offers chat + tty when chatProvider is set", () => {
-    expect(availableViews(chatWin)).toEqual(["chat", "tty"]);
+  it("offers chat + web + tty when chatProvider is set", () => {
+    expect(availableViews(chatWin)).toEqual(["chat", "web", "tty"]);
   });
 
-  it("ignores an empty chatProvider (tty only)", () => {
-    expect(availableViews(chatEmptyProvider)).toEqual(["tty"]);
+  it("ignores an empty chatProvider", () => {
+    expect(availableViews(chatEmptyProvider)).toEqual(["web", "tty"]);
   });
 
   it("stacks chat + web + tty in registry order (chat > web > tty)", () => {
@@ -81,9 +81,9 @@ describe("availableViews", () => {
     expect(availableViews(chatAndWebWin)).toEqual(["chat", "web", "tty"]);
   });
 
-  it("tolerates null/undefined windows (tty only)", () => {
-    expect(availableViews(null)).toEqual(["tty"]);
-    expect(availableViews(undefined)).toEqual(["tty"]);
+  it("tolerates null/undefined windows", () => {
+    expect(availableViews(null)).toEqual(["web", "tty"]);
+    expect(availableViews(undefined)).toEqual(["web", "tty"]);
   });
 
   // The `code` lens (260811-k3vp, availability simplified by 260811-a2bo):
@@ -92,12 +92,12 @@ describe("availableViews", () => {
   // content, not availability).
   it("offers code when gitRoot is set", () => {
     const codeWin: ViewWindow = { gitRoot: "/repo" };
-    expect(availableViews(codeWin)).toEqual(["code", "tty"]);
+    expect(availableViews(codeWin)).toEqual(["code", "web", "tty"]);
   });
 
   it("gates code off without a gitRoot", () => {
-    expect(availableViews(plain)).toEqual(["tty"]);
-    expect(availableViews(null)).toEqual(["tty"]);
+    expect(availableViews(plain)).toEqual(["web", "tty"]);
+    expect(availableViews(null)).toEqual(["web", "tty"]);
   });
 
   it("stacks chat + code + web + tty in registry order", () => {
@@ -116,13 +116,13 @@ describe("defaultView", () => {
     expect(defaultView(null)).toBe("tty");
   });
 
-  it("defaults an iframe-typed window WITHOUT a url to tty (web not available)", () => {
+  it("defaults an iframe-typed window WITHOUT a url to tty (the hint requires a URL)", () => {
     expect(defaultView(iframeNoUrl)).toBe("tty");
   });
 
   it("defaults an iframe-typed window with a WHITESPACE url to tty (not web)", () => {
-    // Consistent with availableViews: a whitespace `@rk_url` is not a usable
-    // web URL, so the legacy iframe-typed default hint must not fire.
+    // Consistent with hasWebUrl: a whitespace `@rk_url` is onboarding content,
+    // so the legacy iframe-typed default hint must not fire.
     expect(defaultView(iframeWhitespaceUrl)).toBe("tty");
   });
 
@@ -158,7 +158,7 @@ describe("nextView (Cmd/Ctrl+. cycle)", () => {
     expect(nextView(["tty"], "tty")).toBeNull();
   });
 
-  it("is a no-op (null) when the current view is not available (defensive)", () => {
+  it("is a no-op (null) when the current view is not in the list (defensive)", () => {
     expect(nextView(["tty"], "web")).toBeNull();
     expect(nextView([], "tty")).toBeNull();
   });

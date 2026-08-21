@@ -68,6 +68,15 @@ describe("buildLayoutActions — shows/hides (R10/R11)", () => {
     expect(onApply).toHaveBeenCalledWith({ shape: "split-h", order: ["tty", "code"] });
   });
 
+  it("offers Tile: Show Web on a URL-less window — web is always available (260821-zqlq)", () => {
+    // The URL-less window's availableTiles is ["tty","web"]; Show Web opens
+    // the onboarding tile.
+    const actions = ids({ shape: "single", order: ["tty"] }, ["tty", "web"]);
+    expect(actions).toContain("tile-show-web");
+    expect(actions).not.toContain("tile-show-chat");
+    expect(actions).not.toContain("tile-show-code");
+  });
+
   it("an unavailable surface gets no Show entry", () => {
     const actions = ids({ shape: "single", order: ["tty"] }, ["tty", "web"]);
     expect(actions).toContain("tile-show-web");

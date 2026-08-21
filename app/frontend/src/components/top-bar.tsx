@@ -150,12 +150,18 @@ type TopBarProps = {
         available: SurfaceKind[];
         open: SurfaceKind[];
         onToggle: (surface: SurfaceKind) => void;
+        /** Per-surface corner-dot predicate (260821-zqlq): the dot means
+         *  "has content" for web (`hasWebUrl`); every other surface stays
+         *  always-on. Absent → the dot renders unconditionally (legacy). */
+        showDot?: (surface: SurfaceKind) => boolean;
       }
     | {
         mode: "switch";
         available: SurfaceKind[];
         active: SurfaceKind;
         onSwitch: (surface: SurfaceKind) => void;
+        /** Same contract as the toggle-mode `showDot`. */
+        showDot?: (surface: SurfaceKind) => boolean;
       };
   onCreateWindow: (session: string) => void;
   /** Open the spawn-agent dialog for a session (260713-sbk1). When present, the
@@ -348,8 +354,9 @@ type SurfaceTogglesToggle = Extract<SurfaceToggles, { mode: "toggle" }>;
  * terminal route only. Two modes share the button grammar — one Tip-wrapped
  * button per available surface not in `SURFACE_RAIL_HIDDEN` (chat renders no
  * toggle), `tty` first, glyphs from `SURFACE_GLYPH`, LIT (`aria-pressed`,
- * accent-green border/text on a 10% wash), the corner availability dot on
- * every button:
+ * accent-green border/text on a 10% wash), the corner dot driven by the
+ * caller's per-surface `showDot` predicate (web = has-content; others
+ * always-on):
  *
  * - TOGGLE (desktop): lit = an open tile; at 3 open tiles the unlit buttons
  *   render DISABLED with a "Close a tile first" tooltip (Tip wraps a span so
@@ -409,13 +416,16 @@ function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
                   }`}
                 >
                   <span aria-hidden="true">{SURFACE_GLYPH[surface]}</span>
-                  {/* Availability dot — every button renders it in its
-                      availability state; a collapsed tile may hide content,
-                      never state that wants a human. */}
-                  <span
-                    aria-hidden="true"
-                    className="absolute top-0.5 right-0.5 w-1 h-1 rounded-full bg-accent-green"
-                  />
+                  {/* Availability/content dot — a collapsed tile may hide
+                      content, never state that wants a human. The caller's
+                      per-surface predicate decides (web = hasWebUrl, others
+                      always-on); absent, the dot renders unconditionally. */}
+                  {(toggles.showDot?.(surface) ?? true) && (
+                    <span
+                      aria-hidden="true"
+                      className="absolute top-0.5 right-0.5 w-1 h-1 rounded-full bg-accent-green"
+                    />
+                  )}
                 </button>
               </span>
             </Tip>

@@ -676,4 +676,96 @@ describe("IframeWindow", () => {
       expect(screen.queryByTestId("web-load-progress")).toBeNull();
     });
   });
+
+  // ── 260821-zqlq: the onboarding content state (empty/whitespace @rk_url) ──
+
+  describe("onboarding state (260821-zqlq)", () => {
+    it("renders the onboarding panel with heading, subhead, three rows, and footer — no iframe, no probes", () => {
+      renderIframe({ windowId: "@2", rkUrl: "" });
+      const box = screen.getByTestId("web-tile-onboarding");
+      expect(box.textContent).toContain("Nothing to show yet");
+      expect(box.textContent).toContain("this tile follows the window's web address (@rk_url)");
+      expect(box.textContent).toContain("Ask your agent to show something.");
+      expect(box.textContent).toContain("rk present ./report.html");
+      expect(box.textContent).toContain("Preview a dev server.");
+      expect(box.textContent).toContain("Open any URL.");
+      expect(box.textContent).toContain("the tile goes live automatically when an address lands");
+      expect(screen.queryByTitle("Proxied content")).toBeNull();
+      // No frame-check / dead-port probing with no address.
+      expect(checkFrame).not.toHaveBeenCalled();
+      expect(screen.queryByTestId("web-tile-error")).toBeNull();
+      expect(screen.queryByTestId("web-load-progress")).toBeNull();
+    });
+
+    it("renders the reduced URL bar — refresh + live address input with placeholder; back/forward/find/↗ hidden", () => {
+      renderIframe({ windowId: "@2", rkUrl: "" });
+      expect(screen.getByLabelText("Refresh")).toBeTruthy();
+      const input = screen.getByLabelText("URL") as HTMLInputElement;
+      expect(input.placeholder).toBe("localhost:3000 · /present/… · https://…");
+      expect(screen.queryByLabelText("Back")).toBeNull();
+      expect(screen.queryByLabelText("Forward")).toBeNull();
+      expect(screen.queryByLabelText("Find in page")).toBeNull();
+      expect(screen.queryByLabelText("Open in browser")).toBeNull();
+      expect(screen.queryByTestId("web-find-bar")).toBeNull();
+    });
+
+    it("a whitespace-only rkUrl renders onboarding (the trim rule)", () => {
+      renderIframe({ windowId: "@2", rkUrl: "  \t " });
+      expect(screen.getByTestId("web-tile-onboarding")).toBeTruthy();
+      expect(screen.queryByTitle("Proxied content")).toBeNull();
+    });
+
+    it("the address input is fully live — Enter submits through the existing pipeline and boots the tile", () => {
+      renderIframe({ windowId: "@2", rkUrl: "" }, "server-B");
+      const input = screen.getByLabelText("URL") as HTMLInputElement;
+      fireEvent.change(input, { target: { value: "localhost:3000" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(updateWindowUrl).toHaveBeenCalledWith("server-B", "@2", "/proxy/3000/");
+    });
+
+    it("an invalid address surfaces the inline alert with NO POST", () => {
+      renderIframe({ windowId: "@2", rkUrl: "" });
+      const input = screen.getByLabelText("URL") as HTMLInputElement;
+      fireEvent.change(input, { target: { value: "javascript:alert(1)" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(updateWindowUrl).not.toHaveBeenCalled();
+      expect(screen.getByRole("alert").textContent).toContain("http");
+    });
+
+    it("the web-find:open event no-ops on an onboarding tile (no bar, no throw)", () => {
+      renderIframe({ windowId: "@2", rkUrl: "" });
+      expect(() => fireEvent(document, new CustomEvent("web-find:open"))).not.toThrow();
+      expect(screen.queryByTestId("web-find-bar")).toBeNull();
+    });
+
+    it("flips onboarding → live iframe when rkUrl becomes non-empty, and back on empty", () => {
+      const { rerender } = renderIframe({ windowId: "@2", rkUrl: "" });
+      expect(screen.getByTestId("web-tile-onboarding")).toBeTruthy();
+
+      rerender(iframeElement({ windowId: "@2", rkUrl: "/proxy/3000/" }));
+      expect(screen.queryByTestId("web-tile-onboarding")).toBeNull();
+      const iframe = screen.getByTitle("Proxied content") as HTMLIFrameElement;
+      expect(iframe.src).toContain("/proxy/3000/");
+      // The full URL bar returns with the live tile.
+      expect(screen.getByLabelText("Find in page")).toBeTruthy();
+      expect(screen.getByLabelText("Open in browser")).toBeTruthy();
+
+      rerender(iframeElement({ windowId: "@2", rkUrl: "" }));
+      expect(screen.getByTestId("web-tile-onboarding")).toBeTruthy();
+      expect(screen.queryByTitle("Proxied content")).toBeNull();
+    });
+
+    it("the attach seam survives a flip: interaction reports after the iframe mounts late", () => {
+      const onInteract = vi.fn();
+      const { rerender } = renderIframe({ windowId: "@2", rkUrl: "", onInteract });
+      rerender(iframeElement({ windowId: "@2", rkUrl: "/proxy/3000/", onInteract }));
+      const iframe = screen.getByTitle("Proxied content") as HTMLIFrameElement;
+      // The mount-time attach races jsdom's async frame navigation; the
+      // frame's load event re-attaches against the settled document (the same
+      // re-attach every real navigation exercises).
+      fireEvent.load(iframe);
+      iframe.contentDocument!.dispatchEvent(new Event("pointerdown"));
+      expect(onInteract).toHaveBeenCalledTimes(1);
+    });
+  });
 });

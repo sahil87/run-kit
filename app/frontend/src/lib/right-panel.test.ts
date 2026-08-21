@@ -17,21 +17,18 @@ beforeEach(() => {
 
 describe("availableSurfaces", () => {
   // Since 260812-ab5v (R8) the registry is the SHARED tileable-surface
-  // registry (`availableTiles`): `tty` is always available and listed FIRST,
-  // then `web`/`chat`/`code` per capability.
-  it("offers tty first, then web exactly when hasWebUrl holds", () => {
+  // registry (`availableTiles`): `tty` and `web` are always available (`tty`
+  // first), then `chat`/`code` per capability.
+  it("offers tty first, then web — unconditionally (260821-zqlq)", () => {
     expect(availableSurfaces(webWin)).toEqual(["tty", "web"]);
-  });
-
-  it("offers only tty without a usable rkUrl", () => {
-    expect(availableSurfaces(plain)).toEqual(["tty"]);
-    expect(availableSurfaces(whitespaceWin)).toEqual(["tty"]);
-    expect(availableSurfaces(null)).toEqual(["tty"]);
-    expect(availableSurfaces(undefined)).toEqual(["tty"]);
+    expect(availableSurfaces(plain)).toEqual(["tty", "web"]);
+    expect(availableSurfaces(whitespaceWin)).toEqual(["tty", "web"]);
+    expect(availableSurfaces(null)).toEqual(["tty", "web"]);
+    expect(availableSurfaces(undefined)).toEqual(["tty", "web"]);
   });
 
   it("offers chat exactly when the window carries a chatProvider", () => {
-    expect(availableSurfaces({ chatProvider: "claude" })).toEqual(["tty", "chat"]);
+    expect(availableSurfaces({ chatProvider: "claude" })).toEqual(["tty", "web", "chat"]);
   });
 
   // The `code` surface (260811-k3vp, simplified by 260811-a2bo) mirrors the
@@ -39,14 +36,14 @@ describe("availableSurfaces", () => {
   // Registry order is tty, web, chat, code (surface-layout R8).
   it("offers code exactly when gitRoot is set", () => {
     const codeWin: ViewWindow = { gitRoot: "/repo" };
-    expect(availableSurfaces(codeWin)).toEqual(["tty", "code"]);
+    expect(availableSurfaces(codeWin)).toEqual(["tty", "web", "code"]);
     expect(availableSurfaces({ rkUrl: "http://localhost:8080", chatProvider: "claude", gitRoot: "/repo" }))
       .toEqual(["tty", "web", "chat", "code"]);
   });
 
   it("gates code off without a gitRoot", () => {
-    expect(availableSurfaces(plain)).toEqual(["tty"]);
-    expect(availableSurfaces(null)).toEqual(["tty"]);
+    expect(availableSurfaces(plain)).toEqual(["tty", "web"]);
+    expect(availableSurfaces(null)).toEqual(["tty", "web"]);
   });
 });
 

@@ -118,12 +118,13 @@ test.describe("Top-bar surface toggles — open-tile toggles over the surface la
     await page.setViewportSize(DESKTOP_VIEWPORT);
   });
 
-  test("the toggle group renders on the desktop terminal route with the always-available tty toggle; the web toggle only when @rk_url is set", async ({ page }) => {
+  test("the toggle group renders on the desktop terminal route with the always-available tty + web toggles; the web dot follows @rk_url", async ({ page }) => {
     test.setTimeout(30_000);
     // A plain repo-cwd window (no @rk_url) gets the group with the tty toggle
-    // (always available, R8) LIT for the default single:tty layout and the
-    // CODE toggle (gitRoot derived from the inherited repo cwd) — but NO web
-    // toggle.
+    // (always available, R8) LIT for the default single:tty layout, the web
+    // toggle (always available, 260821-zqlq) UNLIT with NO corner dot (the dot
+    // signals "has content" — hasWebUrl), and the CODE toggle (gitRoot derived
+    // from the inherited repo cwd).
     const plain = await makeWindow(page, `rp-plain-${Date.now()}`);
     await gotoWindow(page, plain);
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
@@ -131,18 +132,22 @@ test.describe("Top-bar surface toggles — open-tile toggles over the surface la
     await expect(ttyToggle).toBeVisible();
     await expect(ttyToggle).toHaveAttribute("aria-pressed", "true");
     await expect(ttyToggle).toContainText(">_"); // SURFACE_GLYPH
-    // The corner availability dot rides every toggle.
+    // tty's corner dot stays always-on.
     await expect(ttyToggle.locator("span.rounded-full")).toHaveCount(1);
+    const plainWebToggle = toggleButton(page, "Web");
+    await expect(plainWebToggle).toBeVisible();
+    await expect(plainWebToggle).toHaveAttribute("aria-pressed", "false");
+    await expect(plainWebToggle).toContainText("://");
+    // No content → no dot.
+    await expect(plainWebToggle.locator("span.rounded-full")).toHaveCount(0);
     // gitRoot rides the SSE window payload — the same readiness class the
     // shared CI-aware budget exists for.
     const codeToggle = toggleButton(page, "Code");
     await expect(codeToggle).toBeVisible({ timeout: READY_TIMEOUT });
     await expect(codeToggle).toHaveAttribute("aria-pressed", "false");
     await expect(codeToggle).toContainText("{}");
-    await expect(toggleButton(page, "Web")).toHaveCount(0);
 
-    // A window with @rk_url gains the web toggle (availability derives from
-    // the SSE window payload — no client-side declaration).
+    // A window with @rk_url: the web toggle's dot lights (content present).
     const web = await makeWindow(page, `rp-cap-${Date.now()}`, { url: IFRAME_URL });
     await gotoWindow(page, web);
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
@@ -151,13 +156,14 @@ test.describe("Top-bar surface toggles — open-tile toggles over the surface la
     // Not lit yet — only the tty tile is open.
     await expect(webToggle).toHaveAttribute("aria-pressed", "false");
     await expect(webToggle).toContainText("://");
+    await expect(webToggle.locator("span.rounded-full")).toHaveCount(1);
   });
 
-  test("a window with no git root and no @rk_url shows only the tty toggle", async ({ page }) => {
+  test("a window with no git root and no @rk_url shows the tty + web toggles only", async ({ page }) => {
     test.setTimeout(30_000);
-    // cwd /tmp keeps the window git-root-less, so NEITHER non-tty toggle
-    // renders (web via @rk_url, code via gitRoot) — the group still renders
-    // with the always-available tty toggle.
+    // cwd /tmp keeps the window git-root-less, so the code toggle stays out;
+    // web is always available (260821-zqlq) — the group renders the tty and
+    // web toggles, the latter dotless until a URL lands.
     const name = `rp-nocap-${Date.now()}`;
     newWindow(TEST_SESSION, name, { cwd: "/tmp" });
     const plain = await resolveWindow(page, name);
@@ -166,7 +172,9 @@ test.describe("Top-bar surface toggles — open-tile toggles over the surface la
     // count-0 assertions below are settled (not a pre-payload snapshot).
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
     await expect(toggleButton(page, "Terminal")).toBeVisible();
-    await expect(toggleButton(page, "Web")).toHaveCount(0);
+    const webToggle = toggleButton(page, "Web");
+    await expect(webToggle).toBeVisible();
+    await expect(webToggle.locator("span.rounded-full")).toHaveCount(0);
     await expect(toggleButton(page, "Code")).toHaveCount(0);
   });
 
@@ -300,7 +308,7 @@ test.describe("Top-bar surface toggles — open-tile toggles over the surface la
     expect(await page.evaluate(([a, b]) => a === b, [handleBefore, handleAfter])).toBe(true);
   });
 
-  test("?panel=web and ?layout=split-h:tty,web deep links open the web tile on load; unavailable/invalid values degrade", async ({ page }) => {
+  test("?panel=web and ?layout=split-h:tty,web deep links open the web tile on load; invalid values degrade", async ({ page }) => {
     // Three full page loads + three tmux window creations — wider budget for a
     // loaded box (the sidebar-panels precedent); the per-assertion waits stay
     // at their own timeouts.
@@ -320,15 +328,16 @@ test.describe("Top-bar surface toggles — open-tile toggles over the surface la
     await expect(webIframe(page)).toBeVisible({ timeout: 10_000 });
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
 
-    // ?panel=web on a window with NO @rk_url → the web surface is unavailable →
-    // tile-by-tile degradation drops it (R4) → single:tty, never a broken
-    // iframe; the group renders (tty/code toggles) with NO web toggle.
+    // ?panel=web on a window with NO @rk_url → web is always available
+    // (260821-zqlq), so the tile opens and renders the ONBOARDING state in
+    // place of the iframe; the group shows the web toggle.
     const plain = await makeWindow(page, `rp-nourl-${Date.now()}`);
     await gotoWindow(page, plain, "?panel=web");
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
     await expect(toggleButton(page, "Terminal")).toBeVisible();
-    await expect(toggleButton(page, "Web")).toHaveCount(0);
-    await expect(webTile(page)).toHaveCount(0);
+    await expect(toggleButton(page, "Web")).toBeVisible();
+    await expect(page.getByTestId("web-tile-onboarding")).toBeVisible({ timeout: 10_000 });
+    await expect(webIframe(page)).toHaveCount(0);
 
     // ?panel=bogus is dropped by the route's search validation → single:tty.
     await gotoWindow(page, web, "?panel=bogus");

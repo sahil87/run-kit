@@ -70,31 +70,32 @@ coverage lives in `surface-layout.spec.ts`; the overflow menu's Tiles section
 
 ## Tests
 
-### the toggle group renders on the desktop terminal route with the always-available tty toggle; the web toggle only when @rk_url is set
+### the toggle group renders on the desktop terminal route with the always-available tty + web toggles; the web dot follows @rk_url
 What it proves: the group renders on the desktop terminal route with `tty`
-always available (R8) — lit for the default `single:tty` layout — and `code`
-available via the derived gitRoot (a repo-cwd window), while the web toggle is
-availability-gated on the SSE `@rk_url` field (Constitution II/X, zero backend
-change). Also pins the shared glyph vocabulary (`>_`, `{}`, `://`) and the
-corner availability dot.
+always available (R8) — lit for the default `single:tty` layout — `web` always
+available (260821-zqlq) with its corner dot driven by `@rk_url` (the dot means
+"has content", not "exists"), and `code` available via the derived gitRoot (a
+repo-cwd window). Also pins the shared glyph vocabulary (`>_`, `{}`, `://`)
+and the per-surface dot semantics.
 Steps:
 1. Create a plain repo-cwd window (no `@rk_url`); navigate; assert the
    terminal, the lit `Terminal tile` toggle (with the `>_` glyph and one
-   corner dot), the unlit `Code tile` toggle (with the `{}` glyph), and NO
-   `Web tile` button.
+   corner dot), the unlit `Web tile` toggle (with the `://` glyph and NO
+   corner dot), and the unlit `Code tile` toggle (with the `{}` glyph).
 2. Create a window WITH `@rk_url`; navigate; assert the terminal and the
-   visible (unlit) `Web tile` toggle with the `://` glyph.
+   visible (unlit) `Web tile` toggle now carrying its corner dot.
 
-### a window with no git root and no @rk_url shows only the tty toggle
-What it proves: the per-surface capability gate — a window offering neither
-web nor code (cwd `/tmp`, no `@rk_url`) renders the group with ONLY the
-always-available tty toggle. (The rail-era version of this case asserted the
-`Toggle panel` chip; that chrome is deleted — only the group remains.)
+### a window with no git root and no @rk_url shows the tty + web toggles only
+What it proves: the remaining per-surface capability gate — a window offering
+no code (cwd `/tmp`, no gitRoot) renders the group with the always-available
+tty AND web toggles (260821-zqlq; the web toggle dotless until a URL lands)
+and no `Code tile` button.
 Steps:
 1. Create a window with cwd `/tmp` and no `@rk_url`; navigate.
 2. Assert the terminal is visible (proving the SSE window payload landed, so
    the count-0 assertions are settled), the `Terminal tile` toggle renders,
-   and neither `Web tile` nor `Code tile` exists.
+   the `Web tile` toggle renders with NO corner dot, and no `Code tile`
+   exists.
 
 ### clicking a surface toggle opens a web tile beside a live terminal; clicking again closes it
 What it proves: the toggle semantics (R10/R7), unchanged from the rail — an
@@ -165,13 +166,14 @@ Steps:
 3. Capture the iframe element handle, re-open, and assert the visible iframe
    is the identical element.
 
-### ?panel=web and ?layout=split-h:tty,web deep links open the web tile on load; unavailable/invalid values degrade
-What it proves: L1 URL-addressability plus the shim + degradation — the
-retired `?panel=web` maps to `split-h:tty,web` (a bare panel value against
-the tty default slot A) and opens the tile cold; the native `?layout=` form
-resolves identically; an unavailable surface (window without `@rk_url`) drops
-tile-by-tile to `single:tty` (R4); an unknown value (`bogus`, dropped by
-`validateTerminalSearch`) resolves `single:tty`. Never a broken iframe.
+### ?panel=web and ?layout=split-h:tty,web deep links open the web tile on load; invalid values degrade
+What it proves: L1 URL-addressability plus the shim — the retired `?panel=web`
+maps to `split-h:tty,web` (a bare panel value against the tty default slot A)
+and opens the tile cold; the native `?layout=` form resolves identically; on a
+window WITHOUT `@rk_url` the web tile is still always available (260821-zqlq)
+and renders its ONBOARDING content state in place of the iframe; an unknown
+value (`bogus`, dropped by `validateTerminalSearch`) resolves `single:tty`.
+Never a broken iframe.
 The test carries a 30s budget (`test.setTimeout`, the sidebar-panels
 precedent): three full page loads plus three window creations exceed the 10s
 default on a loaded box.
@@ -181,9 +183,9 @@ Steps:
    `split-h:tty,web`.
 2. Create a second web-capable window; navigate with
    `?layout=split-h:tty,web`; assert the same render.
-3. Create a plain window; navigate with `?panel=web`; assert the terminal, the
-   `Terminal tile` toggle with NO `Web tile` button, and no web tile in the
-   DOM.
+3. Create a plain window (no `@rk_url`); navigate with `?panel=web`; assert
+   the terminal, both `Terminal tile` AND `Web tile` toggle buttons, the
+   `web-tile-onboarding` panel, and no iframe.
 4. Navigate the first window with `?panel=bogus`; assert the terminal and no
    web tile.
 

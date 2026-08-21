@@ -1720,6 +1720,45 @@ describe("TopBar", () => {
       fireEvent.click(code);
       expect(onToggle).not.toHaveBeenCalled();
     });
+
+    // Corner-dot predicate (260821-zqlq): the web button always renders, so
+    // its dot is what signals "has content"; the caller threads one
+    // per-surface predicate (web = hasWebUrl, others always-on).
+    const dotOf = (label: string) =>
+      screen.getAllByLabelText(label).map((b) => b.querySelector("span.rounded-full"));
+
+    it("drives each button's corner dot through the per-surface showDot predicate", () => {
+      renderTopBar({
+        surfaceToggles: {
+          ...toggles({ available: ["tty", "web", "code"] }),
+          showDot: (surface) => surface !== "web",
+        },
+      });
+      expect(dotOf("Terminal tile").every((d) => d !== null)).toBe(true);
+      expect(dotOf("Code tile").every((d) => d !== null)).toBe(true);
+      expect(dotOf("Web tile").every((d) => d === null)).toBe(true);
+    });
+
+    it("without showDot every button renders the dot unconditionally (legacy shape)", () => {
+      renderTopBar({ surfaceToggles: toggles() });
+      for (const label of ["Terminal tile", "Web tile", "Code tile"]) {
+        expect(dotOf(label).every((d) => d !== null)).toBe(true);
+      }
+    });
+
+    it("switch mode shares the same dot derivation", () => {
+      renderTopBar({
+        surfaceToggles: {
+          mode: "switch",
+          available: ["tty", "web"],
+          active: "tty",
+          onSwitch: vi.fn(),
+          showDot: (surface) => surface !== "web",
+        },
+      });
+      expect(dotOf("Terminal tile").every((d) => d !== null)).toBe(true);
+      expect(dotOf("Web tile").every((d) => d === null)).toBe(true);
+    });
   });
 
   describe("settings gear + App-section chrome rows (260812-d1at)", () => {

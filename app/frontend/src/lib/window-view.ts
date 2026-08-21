@@ -54,11 +54,12 @@ const HINT_ORDER: ViewName[] = ["chat", "code", "web", "tty"];
 /**
  * Whether a window carries a usable web URL. Requires non-whitespace content:
  * `@rk_url` can be set to whitespace via an external `tmux set-option`, and a
- * bare-truthy check would then expose the web lens and later render an iframe
- * with a blank/whitespace `src`. Matches the `.trim()` guard on the URL-bar
- * submit (`iframe-window.tsx`). The single source of truth for web
- * availability — `availableViews`, `defaultView`, and the `app.tsx` render gate
- * all key off this so they cannot drift.
+ * bare-truthy check would then render an iframe with a blank/whitespace `src`.
+ * Matches the `.trim()` guard on the URL-bar submit (`iframe-window.tsx`).
+ * This is the web surface's CONTENT selector (onboarding state vs live iframe)
+ * and its toggle-dot signal — NOT its availability gate: web is always
+ * available (the code-surface availability-vs-reachability split). `defaultView`
+ * and the `IframeWindow` render branch key off this.
  */
 export function hasWebUrl(win: ViewWindow | null | undefined): boolean {
   return (win?.rkUrl ?? "").trim().length > 0;
@@ -93,13 +94,13 @@ export function hasCode(win: ViewWindow | null | undefined): boolean {
 
 /**
  * The capability set a window offers (spec R1/R3). `tty` is ALWAYS available;
- * `web` is available exactly when `rkUrl` is non-empty — decoupled from
- * `@rk_type` (an iframe-typed window with no URL offers only `tty`, matching the
- * pre-existing render gate's AND-condition, so no existing window changes
- * behavior); `chat` is available exactly when the window carries a
- * `chatProvider`; `code` is available exactly when `hasCode` holds (gitRoot
- * derived). Capabilities are orthogonal and stack (spec R5). Returned in
- * the registry's fixed order (HINT_ORDER).
+ * `web` is ALWAYS available too — like `tty`, the lens exists on every window;
+ * `hasWebUrl` selects its CONTENT (onboarding vs live iframe), never its
+ * availability (the code-surface availability-vs-reachability split); `chat`
+ * is available exactly when the window carries a `chatProvider`; `code` is
+ * available exactly when `hasCode` holds (gitRoot derived). Capabilities are
+ * orthogonal and stack (spec R5). Returned in the registry's fixed order
+ * (HINT_ORDER).
  */
 export function availableViews(
   win: ViewWindow | null | undefined,
@@ -107,7 +108,7 @@ export function availableViews(
   const views: ViewName[] = [];
   if (hasChat(win)) views.push("chat");
   if (hasCode(win)) views.push("code");
-  if (hasWebUrl(win)) views.push("web");
+  views.push("web");
   views.push("tty");
   // Return in HINT_ORDER so the switcher segment order is stable/registry-driven.
   return HINT_ORDER.filter((v) => views.includes(v));

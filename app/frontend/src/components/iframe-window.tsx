@@ -20,6 +20,7 @@ import {
   proxyPortOf,
   toProxySrc,
 } from "@/lib/web-url";
+import { hasWebUrl } from "@/lib/window-view";
 import {
   WEB_FIND_OPEN_EVENT,
   applyHighlights,
@@ -79,6 +80,11 @@ export function IframeWindow({
   // is set. Fall back to empty string when null (action no-ops with bad server).
   const { currentServer } = useSessionContext();
   const server = currentServer ?? "";
+  // Content selector (260821-zqlq): web availability is unconditional — an
+  // empty/whitespace @rk_url renders the ONBOARDING state (reduced live URL
+  // bar + the three fill-path instructions) in place of the iframe and its
+  // probe machinery; hasWebUrl's trim rule is the single source.
+  const onboarding = !hasWebUrl({ rkUrl });
   const [inputUrl, setInputUrl] = useState(rkUrl);
   // Edit mode (R7): at rest the address bar shows the kind-specific DISPLAY
   // form; focus reveals the raw editable value (select-all). Enter is the ONE
@@ -254,16 +260,23 @@ export function IframeWindow({
         /* noop */
       }
     };
-  }, []);
+    // Keyed on `onboarding`: the iframe mounts only outside onboarding, so
+    // the empty-deps mount would strand every seam (load, reclaim, page meta)
+    // on a tile that booted as onboarding and flipped live later.
+  }, [onboarding]);
 
   // The `web-find:open` seam (R4): the ⌘F chord handler, the palette action,
   // and any future opener dispatch one document CustomEvent; the mounted web
-  // tile is its single receiver (at most one web tile per layout).
+  // tile is its single receiver (at most one web tile per layout). Onboarding
+  // double-guard (260821-zqlq): the event sources are content-gated upstream,
+  // but a stale dispatch must no-op on a contentless tile — no bar, no crash.
   useEffect(() => {
-    const open = () => setFindOpen(true);
+    const open = () => {
+      if (hasWebUrl({ rkUrl })) setFindOpen(true);
+    };
     document.addEventListener(WEB_FIND_OPEN_EVENT, open);
     return () => document.removeEventListener(WEB_FIND_OPEN_EVENT, open);
-  }, []);
+  }, [rkUrl]);
 
   // The `web-address:focus` seam (260819-v6y4 R12): ⌘L and the palette action
   // dispatch one document CustomEvent; the mounted web tile focuses its
@@ -506,7 +519,7 @@ export function IframeWindow({
           toggles own view switching). */}
       <TipGroup>
       <div className="flex items-center gap-1.5 px-2 py-1 border-b border-border bg-bg-primary shrink-0">
-        {!crossOrigin && (
+        {!onboarding && !crossOrigin && (
           <>
             <Tip label="Back">
               <button
@@ -541,6 +554,7 @@ export function IframeWindow({
           ref={addressInputRef}
           type="text"
           value={editing ? inputUrl : displayForm(rawAddress)}
+          placeholder={onboarding ? "localhost:3000 · /present/… · https://…" : undefined}
           onChange={(e) => {
             setInputUrl(e.target.value);
             setSubmitError(null);
@@ -565,25 +579,29 @@ export function IframeWindow({
             {submitError}
           </span>
         )}
-        <Tip label="Find in page">
-          <button
-            onClick={() => setFindOpen((o) => !o)}
-            className={`shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card hover:text-text-primary ${findOpen ? "text-accent-green" : "text-text-secondary"}`}
-            aria-label="Find in page"
-            aria-pressed={findOpen}
-          >
-            <FindGlyph />
-          </button>
-        </Tip>
-        <Tip label="Open in browser">
-          <button
-            onClick={handleOpenExternal}
-            className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary hover:text-text-primary"
-            aria-label="Open in browser"
-          >
-            <OpenExternalGlyph />
-          </button>
-        </Tip>
+        {!onboarding && (
+          <>
+            <Tip label="Find in page">
+              <button
+                onClick={() => setFindOpen((o) => !o)}
+                className={`shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card hover:text-text-primary ${findOpen ? "text-accent-green" : "text-text-secondary"}`}
+                aria-label="Find in page"
+                aria-pressed={findOpen}
+              >
+                <FindGlyph />
+              </button>
+            </Tip>
+            <Tip label="Open in browser">
+              <button
+                onClick={handleOpenExternal}
+                className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary hover:text-text-primary"
+                aria-label="Open in browser"
+              >
+                <OpenExternalGlyph />
+              </button>
+            </Tip>
+          </>
+        )}
       </div>
       </TipGroup>
 
@@ -592,7 +610,7 @@ export function IframeWindow({
           this consumer owns the contentDocument search mechanism and keeps
           the `web-find-bar` testid. Cross-origin frames render it disabled
           with the hint. */}
-      {findOpen && (
+      {findOpen && !onboarding && (
         <FindBar
           query={findQuery}
           matchIndex={findActive}
@@ -611,7 +629,7 @@ export function IframeWindow({
       {/* Load progress line (R11): the 2px indeterminate sweep on the
           content's top edge while the frame loads; zeroed under
           prefers-reduced-motion (globals.css). */}
-      {loading && <div className="rk-web-progress" data-testid="web-load-progress" />}
+      {loading && !onboarding && <div className="rk-web-progress" data-testid="web-load-progress" />}
 
       {/* Error states (R8) render in place of the iframe's VISIBLE area (the
           iframe stays mounted but hidden so its listeners survive a Retry).
@@ -663,14 +681,80 @@ export function IframeWindow({
         </div>
       )}
 
-      {/* Iframe */}
-      <iframe
-        ref={iframeRef}
-        src={toProxySrc(rkUrl)}
-        className={`flex-1 w-full border-0 ${tileError ? "hidden" : ""}`}
-        title="Proxied content"
-        sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals allow-downloads"
-      />
+      {/* Onboarding (260821-zqlq): an empty/whitespace @rk_url selects this
+          content state in place of the iframe + probe machinery — the web
+          lens is always tileable, and this panel is its discoverability
+          surface. Copy per the user-approved mock. The address bar above
+          stays fully live: an Enter submit boots the tile for real. */}
+      {onboarding ? (
+        <div
+          className="flex-1 min-h-0 flex flex-col items-center justify-center gap-1 px-6 py-6 bg-bg-primary overflow-y-auto"
+          data-testid="web-tile-onboarding"
+        >
+          <span
+            className="text-[26px] tracking-widest text-text-secondary/55 select-none mb-2"
+            aria-hidden="true"
+          >
+            ://
+          </span>
+          <span className="text-text-primary text-[13px]">Nothing to show yet</span>
+          <span className="text-text-secondary text-[11px] text-center mb-5">
+            this tile follows the window&apos;s web address (@rk_url) — three ways to fill it:
+          </span>
+          <div className="flex flex-col gap-3 w-full max-w-[440px]">
+            <div className="flex gap-2.5 items-start">
+              <span className="w-[22px] shrink-0 text-center text-accent-green text-xs pt-px select-none" aria-hidden="true">
+                ❯
+              </span>
+              <span className="text-text-secondary text-[11.5px] leading-relaxed">
+                <b className="text-text-primary font-semibold">Ask your agent to show something.</b>{" "}
+                &quot;Present this as a page&quot; — the agent runs{" "}
+                <code className="bg-bg-inset border border-border rounded px-[5px] text-[10.5px] text-text-primary whitespace-nowrap">
+                  rk present ./report.html
+                </code>{" "}
+                and it appears here. Works for HTML files, diagrams, mocks, directories.
+              </span>
+            </div>
+            <div className="flex gap-2.5 items-start">
+              <span className="w-[22px] shrink-0 text-center text-accent-green text-xs pt-px select-none" aria-hidden="true">
+                ⇄
+              </span>
+              <span className="text-text-secondary text-[11.5px] leading-relaxed">
+                <b className="text-text-primary font-semibold">Preview a dev server.</b> Type{" "}
+                <code className="bg-bg-inset border border-border rounded px-[5px] text-[10.5px] text-text-primary whitespace-nowrap">
+                  localhost:3000
+                </code>{" "}
+                in the address bar above (proxied through run-kit, works from any device) — or have the agent run{" "}
+                <code className="bg-bg-inset border border-border rounded px-[5px] text-[10.5px] text-text-primary whitespace-nowrap">
+                  rk present :3000
+                </code>
+                .
+              </span>
+            </div>
+            <div className="flex gap-2.5 items-start">
+              <span className="w-[22px] shrink-0 text-center text-accent-green text-xs pt-px select-none" aria-hidden="true">
+                ↗
+              </span>
+              <span className="text-text-secondary text-[11.5px] leading-relaxed">
+                <b className="text-text-primary font-semibold">Open any URL.</b> Type an address above — external
+                sites embed when they allow it; find-in-page (⌘F) and back/forward work on same-origin pages.
+              </span>
+            </div>
+          </div>
+          <span className="text-text-secondary/75 text-[10px] text-center mt-5">
+            the tile goes live automatically when an address lands{" "}
+            <span className="text-accent-green" aria-hidden="true">●</span> no reload needed
+          </span>
+        </div>
+      ) : (
+        <iframe
+          ref={iframeRef}
+          src={toProxySrc(rkUrl)}
+          className={`flex-1 w-full border-0 ${tileError ? "hidden" : ""}`}
+          title="Proxied content"
+          sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals allow-downloads"
+        />
+      )}
     </div>
   );
 }

@@ -4,6 +4,13 @@ import { useSessionContext } from "@/contexts/session-context";
 import { Tip, TipGroup } from "@/components/tip";
 import { FindBar } from "@/components/find-bar";
 import {
+  FindGlyph,
+  OpenExternalGlyph,
+  RefreshGlyph,
+  WebBackGlyph,
+  WebForwardGlyph,
+} from "@/components/top-bar-icons";
+import {
   WEB_ADDRESS_FOCUS_EVENT,
   WEB_OPEN_EXTERNAL_EVENT,
   classifyAddress,
@@ -504,19 +511,19 @@ export function IframeWindow({
             <Tip label="Back">
               <button
                 onClick={() => navigateFrameHistory(-1)}
-                className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary"
+                className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary hover:text-text-primary"
                 aria-label="Back"
               >
-                <span className="text-sm">&#x25c0;</span>
+                <WebBackGlyph />
               </button>
             </Tip>
             <Tip label="Forward">
               <button
                 onClick={() => navigateFrameHistory(1)}
-                className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary"
+                className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary hover:text-text-primary"
                 aria-label="Forward"
               >
-                <span className="text-sm">&#x25b6;</span>
+                <WebForwardGlyph />
               </button>
             </Tip>
           </>
@@ -524,10 +531,10 @@ export function IframeWindow({
         <Tip label="Refresh">
           <button
             onClick={handleRefresh}
-            className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary"
+            className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary hover:text-text-primary"
             aria-label="Refresh"
           >
-            <span className="text-sm">&#x21bb;</span>
+            <RefreshGlyph />
           </button>
         </Tip>
         <input
@@ -561,20 +568,20 @@ export function IframeWindow({
         <Tip label="Find in page">
           <button
             onClick={() => setFindOpen((o) => !o)}
-            className={`shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card ${findOpen ? "text-accent-green" : "text-text-secondary"}`}
+            className={`shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card hover:text-text-primary ${findOpen ? "text-accent-green" : "text-text-secondary"}`}
             aria-label="Find in page"
             aria-pressed={findOpen}
           >
-            <span className="text-sm">&#x2315;</span>
+            <FindGlyph />
           </button>
         </Tip>
         <Tip label="Open in browser">
           <button
             onClick={handleOpenExternal}
-            className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary"
+            className="shrink-0 w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary hover:text-text-primary"
             aria-label="Open in browser"
           >
-            <span className="text-sm">&#x2197;</span>
+            <OpenExternalGlyph />
           </button>
         </Tip>
       </div>

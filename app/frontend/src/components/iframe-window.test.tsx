@@ -514,12 +514,21 @@ describe("IframeWindow", () => {
   });
 
   describe("back/forward + open-in-browser chrome (R5/R9)", () => {
-    it("renders ◀ ▶ ↻ ⌕ ↗ on a same-origin tile", () => {
+    it("renders back/forward/refresh/find/open with their register data-icon SVGs on a same-origin tile", () => {
       renderIframe({ windowId: "@2", rkUrl: "/proxy/8080/docs" });
-      expect(screen.getByLabelText("Back")).toBeTruthy();
-      expect(screen.getByLabelText("Forward")).toBeTruthy();
-      expect(screen.getByLabelText("Refresh")).toBeTruthy();
-      expect(screen.getByLabelText("Open in browser")).toBeTruthy();
+      // Glyph identity via the ControlGlyph data-icon seam (the pjqd
+      // precedent) — the buttons render register SVGs, not unicode spans.
+      const glyphs: Array<[string, string]> = [
+        ["Back", "web-back"],
+        ["Forward", "web-forward"],
+        ["Refresh", "refresh"],
+        ["Find in page", "find"],
+        ["Open in browser", "open-external"],
+      ];
+      for (const [label, icon] of glyphs) {
+        const button = screen.getByLabelText(label);
+        expect(button.querySelector(`svg[data-icon="${icon}"]`)).toBeTruthy();
+      }
     });
 
     it("hides back/forward on a cross-origin frame", () => {

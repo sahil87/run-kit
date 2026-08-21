@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-21T03:08:53Z"}
+{"args":"Web-tile URL-bar glyphs join the ControlGlyph SVG register — replace the five unicode glyph buttons (back/forward/refresh/find/open-in-browser) with register SVGs, reusing RefreshGlyph + FindGlyph, adding web-back/web-forward/open-external; hover:text-text-primary parity; the pjqd follow-up","cmd":"fab-new","event":"command","ts":"2026-08-21T03:08:53Z"}
+{"delta":"+4.9","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-08-21T03:10:08Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-21T03:11:08Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-21T03:12:22Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-21T03:12:33Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-21T03:31:58Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-21T03:34:49Z"}
+{"event":"review","result":"passed","ts":"2026-08-21T03:34:49Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-21T03:35:53Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-08-21T03:36:58Z"}
+{"event":"review","result":"passed","ts":"2026-08-21T03:39:37Z"}

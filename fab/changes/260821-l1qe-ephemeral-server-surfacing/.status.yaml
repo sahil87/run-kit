@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 7
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-08-21T04:25:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-21T04:29:45Z"}
     hydrate: {started_at: "2026-08-21T04:29:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-21T04:33:20Z"}
     ship: {started_at: "2026-08-21T04:33:20Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-21T04:37:36Z"}
-    review-pr: {started_at: "2026-08-21T04:37:36Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-08-21T04:37:36Z", driver: git-pr, iterations: 1, completed_at: "2026-08-21T04:43:51Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/700
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: 'Surface @rk_ephemeral scratch servers: ephemeral field on GET /api/servers (fan-out read), always-OK doctor count row via tmux.EphemeralServers, Host-page scratch chip + grey name + sub-rank sink in compareServersRanked'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-21T04:37:36Z
+last_updated: 2026-08-21T04:43:51Z

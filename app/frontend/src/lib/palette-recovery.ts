@@ -10,6 +10,8 @@
  *     when more than one offer exists; the heading's Restore-all control.
  *   - `Server: Dismiss recovery <name>` (id `recovery-dismiss-<name>`) — one
  *     per offer; the row's × button.
+ *   - `Dismiss all previous servers`    (id `recovery-dismiss-all`) — only
+ *     when more than one offer exists; the heading's Dismiss-all control.
  *
  * The whole family is gated on offers being present: with an empty offer list
  * the builder returns no entries, so the palette never advertises a verb with
@@ -23,6 +25,7 @@ export type RecoveryHandlers = {
   onRestore: (server: string) => void;
   onRestoreAll: () => void;
   onDismiss: (server: string) => void;
+  onDismissAll: () => void;
 };
 
 export function buildRecoveryActions(
@@ -47,6 +50,13 @@ export function buildRecoveryActions(
       id: `recovery-dismiss-${offer.server}`,
       label: `Server: Dismiss recovery ${offer.server}`,
       onSelect: () => handlers.onDismiss(offer.server),
+    });
+  }
+  if (offers.length > 1) {
+    actions.push({
+      id: "recovery-dismiss-all",
+      label: "Dismiss all previous servers",
+      onSelect: handlers.onDismissAll,
     });
   }
   return actions;

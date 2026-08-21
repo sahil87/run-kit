@@ -117,8 +117,9 @@ export function HostOverviewPage() {
   // share this one hook instance — one fetch, one mutation flow).
   const recovery = useRecoveryOffers();
   // Recovery palette verbs (Constitution V): `Server: Restore <name>` /
-  // `Restore all previous servers` / `Server: Dismiss recovery <name>` — one
-  // entry per offer, gated on offers existing (empty list → no entries).
+  // `Restore all previous servers` / `Server: Dismiss recovery <name>` /
+  // `Dismiss all previous servers` — one entry per offer (the bulk verbs gated
+  // on more than one), gated on offers existing (empty list → no entries).
   // Registered from THIS route: `/` mounts no AppShell, so the host page owns
   // its route-scoped palette slot registration. The bodies invoke the same
   // useRecoveryOffers flows the zone's buttons do.
@@ -128,6 +129,7 @@ export function HostOverviewPage() {
         onRestore: (server) => void recovery.restore(server),
         onRestoreAll: () => void recovery.restoreAll(),
         onDismiss: (server) => void recovery.dismiss(server),
+        onDismissAll: () => void recovery.dismissAll(),
       }),
     [recovery],
   );

@@ -13,7 +13,7 @@ function offer(server: string): RecoveryOffer {
 }
 
 function handlers() {
-  return { onRestore: vi.fn(), onRestoreAll: vi.fn(), onDismiss: vi.fn() };
+  return { onRestore: vi.fn(), onRestoreAll: vi.fn(), onDismiss: vi.fn(), onDismissAll: vi.fn() };
 }
 
 describe("buildRecoveryActions", () => {
@@ -21,7 +21,7 @@ describe("buildRecoveryActions", () => {
     expect(buildRecoveryActions([], handlers())).toEqual([]);
   });
 
-  it("builds one restore and one dismiss entry per offer, preserving order", () => {
+  it("builds one restore and one dismiss entry per offer plus both bulk verbs, preserving order", () => {
     const actions = buildRecoveryActions([offer("kit"), offer("work")], handlers());
     expect(actions.map((a) => a.label)).toEqual([
       "Server: Restore kit",
@@ -29,6 +29,7 @@ describe("buildRecoveryActions", () => {
       "Restore all previous servers",
       "Server: Dismiss recovery kit",
       "Server: Dismiss recovery work",
+      "Dismiss all previous servers",
     ]);
     expect(actions.map((a) => a.id)).toEqual([
       "recovery-restore-kit",
@@ -36,10 +37,11 @@ describe("buildRecoveryActions", () => {
       "recovery-restore-all",
       "recovery-dismiss-kit",
       "recovery-dismiss-work",
+      "recovery-dismiss-all",
     ]);
   });
 
-  it("omits Restore-all with a single offer", () => {
+  it("omits both bulk verbs with a single offer", () => {
     const actions = buildRecoveryActions([offer("kit")], handlers());
     expect(actions.map((a) => a.id)).toEqual([
       "recovery-restore-kit",
@@ -61,5 +63,8 @@ describe("buildRecoveryActions", () => {
 
     actions[2].onSelect();
     expect(h.onRestoreAll).toHaveBeenCalledTimes(1);
+
+    actions[5].onSelect();
+    expect(h.onDismissAll).toHaveBeenCalledTimes(1);
   });
 });

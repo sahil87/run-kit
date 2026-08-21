@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 10
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-21T10:22:03Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-21T10:58:24Z"}
     review: {started_at: "2026-08-21T10:58:24Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-21T11:04:46Z"}
     hydrate: {started_at: "2026-08-21T11:04:46Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-21T11:11:33Z"}
-    ship: {started_at: "2026-08-21T11:11:33Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-21T11:11:33Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-21T11:14:27Z"}
+    review-pr: {started_at: "2026-08-21T11:14:27Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/704
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1083
+    deleted: 230
+    net: 853
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 642
+        deleted: 203
+        net: 439
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-08-21T11:11:33Z"
-    computed_at_stage: hydrate
+        added: 204
+        deleted: 77
+        net: 127
+    computed_at: "2026-08-21T11:14:27Z"
+    computed_at_stage: ship
 summary: web tile always-tileable with onboarding empty state — memory rewritten (lenses/top-bar/keyboard) + spec carve-outs
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-21T11:11:33Z
+last_updated: 2026-08-21T11:14:27Z

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -154,6 +155,24 @@ func ReapTestServers(ctx context.Context, prefix string, act, force, ephemeralOn
 		return ReapResult{}, err
 	}
 	return reapCandidates(ctx, socketDirPath(), prefix, candidates, ephemeral, probeServerAlive, act)
+}
+
+// EphemeralServers returns the sorted names of live servers carrying the
+// EphemeralOption mark, reusing the reaper's enumeration semantics verbatim
+// (live-only via ListServers, _rk-ctl/rk-daemon hard-skipped, per-server read
+// failures isolated) — the read-only face of the same set `rk mux reap
+// --ephemeral` sweeps.
+func EphemeralServers(ctx context.Context) ([]string, error) {
+	marked, err := enumerateEphemeralServers(ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(marked))
+	for name := range marked {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names, nil
 }
 
 // enumerateEphemeralServers returns the set of live servers carrying the

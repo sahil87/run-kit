@@ -745,6 +745,72 @@ func TestDoctorFailRowWording(t *testing.T) {
 	}
 }
 
+// stubEphemeralSeam substitutes the ephemeral-servers enumeration seam for a
+// test: marked is the returned name set (nil = none), err the enumeration
+// failure to inject.
+func stubEphemeralSeam(t *testing.T, marked []string, err error) {
+	t.Helper()
+	orig := ephemeralServersList
+	ephemeralServersList = func(context.Context) ([]string, error) { return marked, err }
+	t.Cleanup(func() { ephemeralServersList = orig })
+}
+
+// TestEphemeralServersCheckBranches pins the three row shapes: a nonzero count
+// carries the reap hint, zero reads as the quiet "none", and an enumeration
+// failure degrades to an OK row naming the skip — the row is always OK-shaped
+// (informational, never a verdict flipper).
+func TestEphemeralServersCheckBranches(t *testing.T) {
+	t.Run("nonzero count carries the reap hint", func(t *testing.T) {
+		stubEphemeralSeam(t, []string{"scratch-a", "scratch-b"}, nil)
+		c := ephemeralServersCheck()
+		if !c.OK {
+			t.Errorf("nonzero count must stay OK, got %+v", c)
+		}
+		want := "2 live server(s) marked @rk_ephemeral — sweep with `rk mux reap --ephemeral`"
+		if c.Note != want {
+			t.Errorf("note = %q, want %q", c.Note, want)
+		}
+	})
+
+	t.Run("zero reads as none", func(t *testing.T) {
+		stubEphemeralSeam(t, nil, nil)
+		c := ephemeralServersCheck()
+		if !c.OK || c.Note != "none" {
+			t.Errorf("zero must be OK with note %q, got %+v", "none", c)
+		}
+	})
+
+	t.Run("enumeration error degrades to a skip note", func(t *testing.T) {
+		stubEphemeralSeam(t, nil, fmt.Errorf("socket dir unreadable"))
+		c := ephemeralServersCheck()
+		if !c.OK {
+			t.Errorf("enumeration error must never fail the row, got %+v", c)
+		}
+		if !strings.Contains(c.Note, "skipped") || !strings.Contains(c.Note, "socket dir unreadable") {
+			t.Errorf("note = %q, want a skip note naming the failure", c.Note)
+		}
+	})
+}
+
+// TestEphemeralServersCheckNeverFlipsVerdict proves the appended check cannot
+// change the overall report verdict: with every seam stubbed healthy and two
+// marked servers, runDoctorChecks stays OK and the row is present.
+func TestEphemeralServersCheckNeverFlipsVerdict(t *testing.T) {
+	stubEphemeralSeam(t, []string{"scratch"}, nil)
+	found := false
+	for _, c := range runDoctorChecks().Checks {
+		if c.Name == "ephemeral servers" {
+			found = true
+			if !c.OK {
+				t.Errorf("ephemeral servers row must always be OK-shaped, got %+v", c)
+			}
+		}
+	}
+	if !found {
+		t.Error("runDoctorChecks must append the ephemeral servers row unconditionally")
+	}
+}
+
 // TestCodeServerCheckAbsentBinaryIsWarnNotFail proves the daemon-managed
 // editor's doctor row never fails the report (260811-a2bo): an absent binary
 // is the WARN case — OK with a remediation note — matching daemon start's

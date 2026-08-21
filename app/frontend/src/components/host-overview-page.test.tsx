@@ -62,6 +62,7 @@ vi.mock("@/contexts/session-context", () => ({
     refreshServers: refreshServersMock,
     markServerPending: markServerPendingMock,
     sessionsByServer: mockSessionsByServer,
+    sessionOrderByServer: new Map<string, string[]>(),
     isConnectedByServer: new Map(mockServers.map((s) => [s.name, false])),
   }),
 }));
@@ -429,6 +430,37 @@ describe("HostOverviewPage — BOARDS zone", () => {
     expect(mainTile).toHaveAttribute("draggable", "true");
     const reviewTile = screen.getByText("review").closest("button");
     expect(reviewTile).toHaveAttribute("draggable", "true");
+  });
+});
+
+describe("HostOverviewPage — TMUX SERVERS scratch badge (@rk_ephemeral)", () => {
+  it("renders the scratch chip + greyed name on a marked tile; unmarked tiles render unchanged", () => {
+    mockServers = [
+      { name: "alpha", sessionCount: 1 },
+      { name: "scratch-box", sessionCount: 1, ephemeral: true },
+    ];
+    renderPage();
+
+    const chip = screen.getByText("scratch");
+    expect(chip).toBeInTheDocument();
+
+    // The marked tile's name is greyed via the shared de-emphasis treatment.
+    const markedName = screen.getByText("scratch-box");
+    expect(markedName).toHaveClass("text-text-secondary");
+
+    // The unmarked tile keeps the normal emphasis and gets no chip.
+    const plainName = screen.getByText("alpha");
+    expect(plainName).toHaveClass("text-text-primary");
+    expect(plainName.querySelector("span")).toBeNull();
+  });
+
+  it("keeps a marked tile clickable — clicking still switches to the server", () => {
+    mockServers = [{ name: "scratch-box", sessionCount: 1, ephemeral: true }];
+    renderPage();
+
+    fireEvent.click(screen.getByText("scratch-box").closest("button")!);
+    // No session data (empty SSE cache + no session order) → bare `/$server`.
+    expect(navigateMock).toHaveBeenCalledWith({ to: "/$server", params: { server: "scratch-box" } });
   });
 });
 

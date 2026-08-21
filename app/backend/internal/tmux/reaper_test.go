@@ -4,11 +4,13 @@ import (
 	"context"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestClassifyReap(t *testing.T) {
@@ -420,5 +422,44 @@ func TestFilterSocketEntries(t *testing.T) {
 	want := []string{"another.lock", "live-socket"}
 	if !slices.Equal(got, want) {
 		t.Errorf("filterSocketEntries = %v, want %v (socket + .lock kept; plain regular file + dir excluded)", got, want)
+	}
+}
+
+// TestEphemeralServers_markedLiveServerListedSorted proves the exported
+// wrapper lists exactly the marked live servers, sorted. The test server name
+// is rk-test-prefixed, so any other marked servers on the box (e.g. leftovers
+// from a concurrent run) are filtered out of the assertion.
+func TestEphemeralServers_markedLiveServerListedSorted(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	args := append(serverArgs(server), "set-option", "-s", EphemeralOption, "1")
+	if out, err := exec.CommandContext(ctx, "tmux", args...).CombinedOutput(); err != nil {
+		t.Fatalf("set %s: %v\n%s", EphemeralOption, err, string(out))
+	}
+
+	got, err := EphemeralServers(ctx)
+	if err != nil {
+		t.Fatalf("EphemeralServers: %v", err)
+	}
+	if !sort.StringsAreSorted(got) {
+		t.Errorf("EphemeralServers = %v, want sorted", got)
+	}
+	if !slices.Contains(got, server) {
+		t.Errorf("EphemeralServers = %v, want marked server %q listed", got, server)
+	}
+
+	// Un-setting the mark promotes the server back to durable — it drops out.
+	unsetArgs := append(serverArgs(server), "set-option", "-s", "-u", EphemeralOption)
+	if out, err := exec.CommandContext(ctx, "tmux", unsetArgs...).CombinedOutput(); err != nil {
+		t.Fatalf("unset %s: %v\n%s", EphemeralOption, err, string(out))
+	}
+	got, err = EphemeralServers(ctx)
+	if err != nil {
+		t.Fatalf("EphemeralServers after unset: %v", err)
+	}
+	if slices.Contains(got, server) {
+		t.Errorf("EphemeralServers = %v, want %q gone after unset", got, server)
 	}
 }

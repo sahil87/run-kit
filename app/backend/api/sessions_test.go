@@ -169,6 +169,11 @@ type mockTmuxOps struct {
 		Rank   int
 	}
 
+	// Ephemeral mark, per server. Reads join the same fan-out as the rank
+	// reads, so they share rankMu.
+	isEphemeralByServer    map[string]bool
+	isEphemeralErrByServer map[string]error
+
 	// Boards
 	listBoardsCalled         bool
 	listBoardsResult         []tmux.BoardSummary
@@ -505,6 +510,16 @@ func (m *mockTmuxOps) SetServerRank(ctx context.Context, server string, rank int
 	}
 	m.rankMu.Unlock()
 	return err
+}
+func (m *mockTmuxOps) IsEphemeralServer(ctx context.Context, server string) (bool, error) {
+	m.rankMu.Lock()
+	defer m.rankMu.Unlock()
+	if m.isEphemeralErrByServer != nil {
+		if err, ok := m.isEphemeralErrByServer[server]; ok && err != nil {
+			return false, err
+		}
+	}
+	return m.isEphemeralByServer[server], nil
 }
 func (m *mockTmuxOps) ListBoards(ctx context.Context) ([]tmux.BoardSummary, error) {
 	m.listBoardsCalled = true

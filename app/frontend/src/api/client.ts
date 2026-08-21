@@ -768,6 +768,11 @@ export type ServerInfo = {
   /** User-defined display rank (@rk_server_rank). null/undefined when unset —
    *  unranked servers sort after ranked ones within the regular class. */
   rank?: number | null;
+  /** True when the server carries the @rk_ephemeral scratch mark. Optional
+   *  mirroring `rank`/`windowCount` — the backend always sends it, but test
+   *  fixtures may omit it. Within the regular class, ephemeral servers sort
+   *  after non-ephemeral ones as a tie-break below rank. */
+  ephemeral?: boolean;
 };
 
 /** The tmux server socket hosting the run-kit daemon itself (infrastructure,
@@ -795,21 +800,26 @@ export function compareServers(a: ServerInfo, b: ServerInfo): number {
   return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
 }
 
-/** Rank-aware sort comparator. Effective key: (infra-class, rank, name).
+/** Rank-aware sort comparator. Effective key: (infra-class, rank, ephemeral, name).
  *
  *  Infra servers (`isInfraServer`) stay pinned last as a class and IGNORE rank
- *  entirely (their intra-class order is byte-alphabetical, unchanged). Within
- *  the regular class: ranked servers sort by rank ascending; a ranked server
- *  sorts before any unranked one; two unranked servers fall back to byte-order
- *  name. This wraps `compareServers` so the infra-last + byte-order semantics
- *  (and their tests) are preserved verbatim — rank is a secondary key inserted
- *  only inside the regular class. An all-regular-unranked list is byte-
- *  alphabetical, identical to `compareServers`. */
+ *  and ephemeral entirely (their intra-class order is byte-alphabetical,
+ *  unchanged). Within the regular class: ranked servers sort by rank
+ *  ascending; a ranked server sorts before any unranked one; at equal rank
+ *  (or both unranked), ephemeral servers sink below non-ephemeral ones, then
+ *  byte-order name. Rank outranks ephemeral — a deliberately dragged
+ *  ephemeral tile keeps its placement; scratch servers are agent-created and
+ *  unranked in practice, so they still sink. This wraps `compareServers` so
+ *  the infra-last + byte-order semantics (and their tests) are preserved
+ *  verbatim — rank and ephemeral are secondary keys inserted only inside the
+ *  regular class. An all-regular-unranked-unmarked list is byte-alphabetical,
+ *  identical to `compareServers`. */
 export function compareServersRanked(a: ServerInfo, b: ServerInfo): number {
   const ai = isInfraServer(a.name);
   const bi = isInfraServer(b.name);
   // Cross-class or both-infra: defer entirely to compareServers (infra ignore
-  // rank; the class pin and byte-order intra-infra ordering are unchanged).
+  // rank/ephemeral; the class pin and byte-order intra-infra ordering are
+  // unchanged).
   if (ai !== bi || (ai && bi)) return compareServers(a, b);
   // Both regular: rank is the primary key.
   const ar = a.rank ?? null;
@@ -819,7 +829,11 @@ export function compareServersRanked(a: ServerInfo, b: ServerInfo): number {
     if (br === null) return -1;
     return ar - br;
   }
-  // Same rank (both null, or an unlikely duplicate rank): byte-order name.
+  // Same rank (both null, or an unlikely duplicate rank): ephemeral sinks.
+  const ae = a.ephemeral ?? false;
+  const be = b.ephemeral ?? false;
+  if (ae !== be) return ae ? 1 : -1;
+  // Byte-order name.
   return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
 }
 

@@ -37,6 +37,11 @@ var (
 	tmuxServerVersionProbe = tmux.ServerVersion
 )
 
+// ephemeralServersList is the seam for the ephemeral-servers check — tests
+// substitute it to drive the nonzero/zero/enumeration-error branches without
+// live tmux servers.
+var ephemeralServersList = tmux.EphemeralServers
+
 // doctorCheck is one dependency check in the --json report. `ok` is the pass
 // flag; `hint` carries the remediation string on failure (empty when ok);
 // `note` carries informational state on a passing check (e.g. an optional
@@ -89,7 +94,36 @@ func runDoctorChecks() doctorReport {
 	home, _ := os.UserHomeDir()
 	report.Checks = append(report.Checks, codeServerCheck(home, exec.LookPath, dialTCP))
 
+	// Ephemeral servers — informational hygiene count, always OK-shaped (the
+	// code-server/drift posture): scratch servers are deliberate creator
+	// opt-in, never a dependency failure.
+	report.Checks = append(report.Checks, ephemeralServersCheck())
+
 	return report
+}
+
+// ephemeralServersCheck reports the count of live servers carrying the
+// @rk_ephemeral mark with the reap remediation hint. Always OK — the row is
+// informational and must never flip the overall verdict. The enumeration
+// rides the reaper's own semantics via tmux.EphemeralServers (live-only,
+// _rk-ctl/rk-daemon hard-skipped, per-server failures isolated); an
+// enumeration error degrades to an OK row naming the skip rather than
+// blocking or failing doctor (the drift sweep's never-block posture).
+func ephemeralServersCheck() doctorCheck {
+	check := doctorCheck{Name: "ephemeral servers", OK: true}
+	ctx, cancel := context.WithTimeout(context.Background(), tmux.TmuxTimeout)
+	defer cancel()
+	marked, err := ephemeralServersList(ctx)
+	if err != nil {
+		check.Note = fmt.Sprintf("skipped — enumeration failed: %v", err)
+		return check
+	}
+	if len(marked) == 0 {
+		check.Note = "none"
+		return check
+	}
+	check.Note = fmt.Sprintf("%d live server(s) marked @rk_ephemeral — sweep with `rk mux reap --ephemeral`", len(marked))
+	return check
 }
 
 // tmuxVersionCheck is the passing tmux row, enriched with the probed version:

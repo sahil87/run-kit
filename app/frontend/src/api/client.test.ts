@@ -1119,6 +1119,36 @@ describe("rank-aware server ordering (compareServersRanked)", () => {
     expect(ranked).toEqual(["alpha", "bravo", "charlie"]);
     expect(ranked).toEqual(plain);
   });
+
+  it("sinks ephemeral servers among unranked regulars (byte order within each group)", () => {
+    const input = [
+      { name: "alpha", sessionCount: 0, rank: null, ephemeral: true },
+      sr("beta"),
+      { name: "zeta", sessionCount: 0, rank: null, ephemeral: true },
+      sr("rk-daemon"),
+    ];
+    const sorted = input.sort(compareServersRanked).map((s) => s.name);
+    expect(sorted).toEqual(["beta", "alpha", "zeta", "rk-daemon"]);
+  });
+
+  it("rank wins over the ephemeral key", () => {
+    const input = [
+      sr("plain", 1),
+      { name: "scratch", sessionCount: 0, rank: 0, ephemeral: true },
+    ];
+    const sorted = input.sort(compareServersRanked).map((s) => s.name);
+    expect(sorted).toEqual(["scratch", "plain"]);
+  });
+
+  it("ignores ephemeral on infra servers (intra-infra order stays byte-alphabetical)", () => {
+    const input = [
+      { name: "rk-test-b", sessionCount: 0, rank: null, ephemeral: true },
+      sr("work"),
+      sr("rk-daemon"),
+    ];
+    const sorted = input.sort(compareServersRanked).map((s) => s.name);
+    expect(sorted).toEqual(["work", "rk-daemon", "rk-test-b"]);
+  });
 });
 
 describe("ssh-host + instance-name settings client (260723-o7q8)", () => {

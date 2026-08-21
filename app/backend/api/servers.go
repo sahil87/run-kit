@@ -24,6 +24,10 @@ type serverInfo struct {
 	// servers after ranked ones. The array's alphabetical order is unchanged
 	// (an asserted API contract); rank drives display order client-side only.
 	Rank *int `json:"rank"`
+	// Ephemeral is true when the server carries the @rk_ephemeral mark (a
+	// scratch server the reaper sweeps with `rk mux reap --ephemeral`). Read
+	// at request time; a read failure or a server gone mid-walk yields false.
+	Ephemeral bool `json:"ephemeral"`
 }
 
 func (s *Server) handleServersList(w http.ResponseWriter, r *http.Request) {
@@ -43,15 +47,17 @@ func (s *Server) handleServersList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fan out ListSessions + GetServerRank calls concurrently. A failure for
-	// one server yields sessionCount: 0 / windowCount: 0 / rank: null for that
-	// entry; no 5xx to the client. The rank read joins this existing fan-out
-	// (one extra tmux call per server, same concurrency pattern). The window
+	// Fan out ListSessions + GetServerRank + IsEphemeralServer calls
+	// concurrently. A failure for one server yields sessionCount: 0 /
+	// windowCount: 0 / rank: null / ephemeral: false for that entry; no 5xx to
+	// the client. The rank and ephemeral reads join this existing fan-out (one
+	// extra tmux call each per server, same concurrency pattern). The window
 	// count sums #{session_windows} over the sessions ListSessions already
 	// returns — no extra subprocess.
 	counts := make(map[string]int, len(names))
 	windowCounts := make(map[string]int, len(names))
 	ranks := make(map[string]*int, len(names))
+	ephemeral := make(map[string]bool, len(names))
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	for _, name := range names {
@@ -73,10 +79,16 @@ func (s *Server) handleServersList(w http.ResponseWriter, r *http.Request) {
 				s.logger.Warn("servers: GetServerRank failed", "server", name, "err", rerr)
 				rank = nil
 			}
+			marked, eerr := s.tmux.IsEphemeralServer(r.Context(), name)
+			if eerr != nil {
+				s.logger.Warn("servers: IsEphemeralServer failed", "server", name, "err", eerr)
+				marked = false
+			}
 			mu.Lock()
 			counts[name] = n
 			windowCounts[name] = windows
 			ranks[name] = rank
+			ephemeral[name] = marked
 			mu.Unlock()
 		}(name)
 	}
@@ -84,7 +96,7 @@ func (s *Server) handleServersList(w http.ResponseWriter, r *http.Request) {
 
 	out := make([]serverInfo, 0, len(names))
 	for _, name := range names {
-		out = append(out, serverInfo{Name: name, SessionCount: counts[name], WindowCount: windowCounts[name], Rank: ranks[name]})
+		out = append(out, serverInfo{Name: name, SessionCount: counts[name], WindowCount: windowCounts[name], Rank: ranks[name], Ephemeral: ephemeral[name]})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 

@@ -39,6 +39,8 @@ lsof -iTCP:$E2E_PORT -iTCP:$(( E2E_PORT + 1 )) -sTCP:LISTEN -t 2>/dev/null | xar
 
 # Start a dedicated tmux server for e2e tests
 tmux -L "$E2E_TMUX_SERVER" new-session -d -s e2e-init -x 80 -y 24
+# Convention: test servers carry the @rk_ephemeral creator opt-out mark (belt-and-braces alongside the rk-test-* name umbrella).
+tmux -L "$E2E_TMUX_SERVER" set-option -s @rk_ephemeral 1
 
 # Start the dev server in its OWN process group, so cleanup can kill the whole
 # dev subtree (just -> air/vite/node children) by PGID without ever signalling

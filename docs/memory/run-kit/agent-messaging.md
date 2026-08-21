@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The `rk mux` family — ten tmux-substrate verbs, no daemon dependency. Pane-scoped members (`send`/`await` messaging + `capture`/`kill`/`process` substrate twins) share the strict %N/@N/=session:window grammar and with `panes` consume the inherited `-L` flag. Twins add plain capture, kill's agent-state gate, and process classification. Operator members `reap`/`snapshot`/`init-conf`/`guard` reject `-L` (`guard` excepted); `reap` also sweeps `@rk_ephemeral`-marked servers (`--ephemeral`)."
+description: "The `rk mux` family — eleven tmux-substrate verbs, no daemon dependency. Pane-scoped members (`send`/`await` messaging + `capture`/`kill`/`process` substrate twins) share the strict %N/@N/=session:window grammar and with `panes` consume the inherited `-L` flag. Operator members `new`/`reap`/`snapshot`/`init-conf`/`guard` reject `-L` (`guard` excepted): `new` creates a detached server (`--ephemeral` marks it `@rk_ephemeral`); `reap` also sweeps `@rk_ephemeral`-marked servers (`--ephemeral`)."
 ---
 # Agent-to-Agent Messaging (`rk mux`)
 
@@ -11,7 +11,7 @@ description: "The `rk mux` family — ten tmux-substrate verbs, no daemon depend
 `rk mux` is the tmux-substrate CLI family (per `docs/specs/cli-layering.md`):
 operations that talk to tmux directly from the caller's context with **no daemon
 dependency** (the `rk present` pattern), so they work while `rk serve` is down.
-The family has ten members. The messaging pair is the conversation loop's
+The family has eleven members. The messaging pair is the conversation loop's
 halves: `rk mux send` delivers a message into another agent's pane — the
 agent→agent counterpart of `rk present`'s agent→user attach — and `rk mux await`
 blocks until a peer's state (or a file signal) fires. The substrate twins are
@@ -22,8 +22,10 @@ panes` is the whole-server enumeration query — one row per pane across all
 sessions, substrate facts only (no change/stage; choreography enrichment stays
 the fab layer's), the family's only server-scoped enumeration (no target
 argument). The
-operator tier groups the janitor/recovery/scaffold verbs plus the guard:
-`rk mux reap` (test-socket and scratch-server cleanup — a prefix sweep,
+operator tier groups the create verb, the janitor/recovery/scaffold verbs, and
+the guard: `rk mux new` (detached server creation on a named socket — the
+family's create verb; `--ephemeral` marks the new server `@rk_ephemeral`
+before return), `rk mux reap` (test-socket and scratch-server cleanup — a prefix sweep,
 unioned with every live `@rk_ephemeral`-marked server under `--ephemeral`;
 full contract in [tmux-sessions](/run-kit/tmux-sessions.md) § `rk mux reap`), `rk mux snapshot list|show|restore`
 (layout recovery, [layout-snapshots](/run-kit/layout-snapshots.md)),
@@ -322,6 +324,41 @@ diagnostic on stderr; **2** usage.
   diagnostic on stderr; **AND GIVEN** a stray positional argument, **THEN**
   exit 2.
 
+### Requirement: `rk mux new` — validated detached server creation
+`rk mux new <name> [--ephemeral]` SHALL create a detached tmux server on
+socket `<name>` with a single session named `<name>`, reusing
+`tmux.CreateSession(name, "", name)` — the same server-birth path the
+create-server API flow uses (env sanitization via `CleanEnvForServer`, CWD
+anchored to `ServerBirthDir`; [tmux-sessions](/run-kit/tmux-sessions.md)).
+`<name>` SHALL be validated via `validate.ValidateServerName` before any
+subprocess; an invalid name is a usage error (exit 2) naming the allowed
+character set. The socket SHALL be probed first (`tmux.ServerAlive`): a live
+server refuses with exit 1 (operational) stating the server is already
+running, performing no tmux mutation; a dead/stale socket proceeds —
+`new-session` starts a fresh server over it. On success stdout carries
+exactly one report line: `created <name>`; diagnostics ride stderr. `new` is
+an operator-tier member — the socket name is its positional argument — so it
+rejects an explicitly-set inherited `-L/--server` via
+`muxRejectInheritedServerFlag` (usage error, exit 2), takes exactly one
+positional (stray/missing args are usage errors), and follows the toolkit
+exit-code convention (0 success / 1 operational / 2 usage).
+
+`--ephemeral` SHALL set `@rk_ephemeral 1` (const `tmux.EphemeralOption`)
+server-scoped on the new server via `tmux.MarkServerEphemeral` (mirroring
+`SetServerOrigin`: `set-option -s` under the `TmuxTimeout` bound) immediately
+after creation, before the command returns. If the mark fails after a
+successful create, the command SHALL best-effort `tmux.KillServer` the
+just-created server and exit 1 — a `--ephemeral` invocation never leaves an
+unmarked server behind.
+
+#### Scenario: Collision refusal touches nothing; `--ephemeral` reads back
+- **GIVEN** a live server on socket `busy`
+- **WHEN** `rk mux new busy` runs
+- **THEN** it exits 1 naming `busy` as already running, and the existing
+  server is untouched; **AND GIVEN** `rk mux new scratch --ephemeral`,
+  **THEN** `tmux.IsEphemeralServer(ctx, "scratch")` reads `true` after
+  return, and a failed mark kills the fresh server with exit 1.
+
 ### Requirement: No daemon dependency; bounded subprocesses
 The pane-scoped verbs SHALL address tmux directly from the caller's context
 (`-L <server>`
@@ -332,7 +369,7 @@ Constitution §I); the verbs hold no state beyond the invocation (Constitution
 §II).
 
 ### Requirement: Operator members reject an explicit inherited `-L`; old root forms are deprecation aliases
-The operator members (`reap`, `snapshot list|show|restore`, `init-conf`) do not
+The operator members (`new`, `reap`, `snapshot list|show|restore`, `init-conf`) do not
 consume the mux parent's persistent `-L/--server` flag; each SHALL return a usage
 error (exit 2) naming `--server` when the inherited flag was explicitly set
 (e.g. `rk mux -L foo reap`), rather than silently ignoring it. **`guard` is
@@ -433,7 +470,7 @@ state across instances.
 *Introduced by*: `260815-lsgf-mux-consolidation-low-risk`
 
 ### Reject explicitly-set `-L` on operator members
-**Decision**: reap/snapshot/init-conf under `mux` error (usage, exit 2) when the
+**Decision**: new/reap/snapshot/init-conf under `mux` error (usage, exit 2) when the
 inherited `--server` flag was explicitly set; the five pane-scoped verbs
 (send/await/capture/kill/process) and the `panes` enumeration consume it. The
 `guard` member is exempt —
@@ -508,3 +545,26 @@ site (the SendLiteralArgs/SendKeyArgs lesson).
 **Rejected**: stripping escapes downstream (fragile, and `--raw` must stay
 byte-identical to tmux output).
 *Introduced by*: `260815-82w7-mux-substrate-twins`
+
+### Server-create collision probe is `ServerAlive`, refusal is operational
+**Decision**: `rk mux new` probes `tmux.ServerAlive` before creating; a live
+server refuses with exit 1 (operational), a dead/stale socket proceeds.
+**Why**: creating over an existing live socket must fail clearly, not attach;
+`ServerAlive` is the diagnostic-carrying liveness probe built for exactly this
+CLI distinction, and a stale socket must not block creation (tmux restarts
+over it).
+**Rejected**: treating collision as usage (exit 2) — the name is well-formed;
+the failure is environmental. Attaching/adopting the live server.
+*Introduced by*: 260821-hbmh-ephemeral-creation-adoption
+
+### Mark failure kills the fresh server
+**Decision**: when `--ephemeral`'s option write fails after a successful
+create, `rk mux new` best-effort `KillServer`s the new socket and exits 1.
+**Why**: the verb exists to prevent unmarked scratch servers; returning
+success-shaped debris on a failed mark would recreate the exact leak it fixes.
+The server is milliseconds old and owned by this invocation — killing it is
+safe.
+**Rejected**: leaving the server and warning (unmarked survivor — the failure
+mode the verb eliminates); retry loops (a failing `set-option` on a server
+that just booted signals something structurally wrong).
+*Introduced by*: 260821-hbmh-ephemeral-creation-adoption

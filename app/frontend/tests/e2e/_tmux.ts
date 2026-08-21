@@ -13,6 +13,12 @@
  * panes). All targets here use the `=name` exact-match session form
  * (`=name:` where the command takes a target-window) — never bare `-t name`.
  *
+ * EPHEMERAL MARKING: `createSession` sets the `@rk_ephemeral 1` creator opt-out
+ * mark (server-scoped) on the target server after its `new-session` succeeds —
+ * one seam covering the primary and every `rk-test-e2e-<role>-<pid>-<epoch>`
+ * secondary the multi-server specs spin up. Idempotent; re-marking an
+ * already-marked server is a no-op.
+ *
  * All subprocess calls use `execFileSync` with argument arrays — no shell
  * string construction, so window names and idle commands need no quoting.
  * A window `command` is passed through as a single tmux argument; tmux runs
@@ -80,6 +86,10 @@ export function createSession(
       if (first.command) args.push(first.command);
     }
     tmux(args, opts);
+    // Convention: every server the specs birth carries the @rk_ephemeral
+    // creator opt-out mark (idempotent — the primary is already marked by
+    // scripts/test-e2e.sh).
+    tmux(["set-option", "-s", "@rk_ephemeral", "1"], opts);
     for (const w of rest) {
       newWindow(session, w.name, { server: opts.server, command: w.command });
     }

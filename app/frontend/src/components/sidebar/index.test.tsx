@@ -2073,7 +2073,7 @@ describe("Sidebar — server flair (group header + picker band)", () => {
     expect(screen.getByRole("listbox", { name: "Color picker" })).toBeInTheDocument();
   });
 
-  it("the flair band's ∅ header cell clears: POSTs null and unmounts the overlay", async () => {
+  it("the flair band's − header cell clears: POSTs null and unmounts the overlay", async () => {
     await renderWithFlairs({ alpha: "nyan" });
     expect(headerContainer("alpha").querySelector(".rk-flair-nyan")).not.toBeNull();
 

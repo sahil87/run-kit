@@ -28,9 +28,9 @@ const rgb = (hex: string): string => {
   return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`;
 };
 
-/** The 8 named marker states (band order; ∅ lives in the band header). */
+/** The 8 named marker states (band order; − clear cell lives in the band header). */
 const MARKER_NAMED = MARKER_STATES.slice(1);
-/** The 12 named flair states (band order; ∅ lives in the band header). */
+/** The 12 named flair states (band order; − clear cell lives in the band header). */
 const FLAIR_NAMED = FLAIR_STATES.slice(1);
 
 // Minimal ThemeProvider wrapper for tests
@@ -68,12 +68,12 @@ describe("SwatchPopover", () => {
     vi.unstubAllGlobals();
   });
 
-  it("color-only variant: 20 swatches + the color header ∅ + ✕ (no marker/flair bands)", () => {
+  it("color-only variant: 20 swatches + the color header − + ✕ (no marker/flair bands)", () => {
     const onSelect = vi.fn();
     const onClose = vi.fn();
     renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
 
-    // 20 family/shade swatches + the color band's header ∅ + the ✕ close cell
+    // 20 family/shade swatches + the color band's header − + the ✕ close cell
     // (an option-as-command, keeping the listbox's children ARIA-valid).
     expect(screen.getAllByRole("option")).toHaveLength(22);
     expect(screen.queryByRole("option", { name: /^Marker / })).toBeNull();
@@ -166,7 +166,7 @@ describe("SwatchPopover", () => {
     expect(legacyOf("green")).toBe("2");
   });
 
-  it("the color band's header ∅ clears the color", () => {
+  it("the color band's header − clears the color", () => {
     const onSelect = vi.fn();
     const onClose = vi.fn();
     renderWithTheme(
@@ -223,7 +223,7 @@ describe("SwatchPopover", () => {
 
   // ── Dismissal model: selection never closes; ✕ / outside / Escape do. ──
   describe("dismissal model", () => {
-    it("selection NEVER closes: swatch, header-∅, marker, and flair picks leave onClose uncalled", () => {
+    it("selection NEVER closes: swatch, header-−, marker, and flair picks leave onClose uncalled", () => {
       const onSelect = vi.fn();
       const onSelectMarker = vi.fn();
       const onSelectFlair = vi.fn();
@@ -378,7 +378,7 @@ describe("SwatchPopover", () => {
   });
 
   // ── Banded structure: [ color ] scroll strip + [ marker ] static row +
-  //    [ flair ] 2-row strip, each header carrying its ∅ clear cell. ──
+  //    [ flair ] 2-row strip, each header carrying its − clear cell. ──
   describe("banded Label picker", () => {
     const tints = computeRowTints(DEFAULT_DARK_THEME.palette);
     const borders = computeRowBorders(DEFAULT_DARK_THEME.palette, DEFAULT_DARK_THEME.category);
@@ -401,7 +401,7 @@ describe("SwatchPopover", () => {
       return { onSelect, onSelectMarker, onSelectFlair, onClose, ...utils };
     }
 
-    it("full variant: 20 colors + 8 markers + 12 flairs + 3 header ∅ + ✕ = 44 options, labelled Label picker", () => {
+    it("full variant: 20 colors + 8 markers + 12 flairs + 3 header − + ✕ = 44 options, labelled Label picker", () => {
       renderLabelPicker();
       expect(screen.getAllByRole("option")).toHaveLength(44);
       expect(screen.getByRole("listbox").getAttribute("aria-label")).toBe("Label picker");
@@ -411,7 +411,7 @@ describe("SwatchPopover", () => {
       for (const state of FLAIR_NAMED) {
         expect(screen.getByRole("option", { name: `Flair ${state}` })).toBeTruthy();
       }
-      // The header ∅ cells keep the incumbent accessible names.
+      // The header − cells keep the incumbent accessible names.
       expect(screen.getByRole("option", { name: "Clear color" })).toBeTruthy();
       expect(screen.getByRole("option", { name: "Marker none" })).toBeTruthy();
       expect(screen.getByRole("option", { name: "Flair none" })).toBeTruthy();
@@ -460,18 +460,18 @@ describe("SwatchPopover", () => {
       expect(cells.map((c) => c.getAttribute("data-flair-value"))).toEqual([...FLAIR_NAMED]);
     });
 
-    it("a ring on the header ∅ indicates the axis is UNSET", () => {
+    it("a ring on the header − indicates the axis is UNSET", () => {
       renderLabelPicker({ selectedMarker: "solid", selectedFlair: "rain" });
-      // Color unset → its header ∅ is ringed/aria-selected…
+      // Color unset → its header − is ringed/aria-selected…
       const clearColor = screen.getByRole("option", { name: "Clear color" });
       expect(clearColor.getAttribute("aria-selected")).toBe("true");
       expect(clearColor.className).toContain("ring-text-primary");
-      // …while the set axes' header ∅ cells are not.
+      // …while the set axes' header − cells are not.
       expect(screen.getByRole("option", { name: "Marker none" }).getAttribute("aria-selected")).toBe("false");
       expect(screen.getByRole("option", { name: "Flair none" }).getAttribute("aria-selected")).toBe("false");
     });
 
-    it("header ∅ clears ONLY its own axis", () => {
+    it("header − clears ONLY its own axis", () => {
       const { onSelect, onSelectMarker, onSelectFlair } = renderLabelPicker();
       fireEvent.click(screen.getByRole("option", { name: "Marker none" }));
       expect(onSelectMarker).toHaveBeenCalledWith("");
@@ -574,7 +574,7 @@ describe("SwatchPopover", () => {
     });
   });
 
-  // ── Plain-grid keyboard model: every band is a plain grid; the header ∅ is
+  // ── Plain-grid keyboard model: every band is a plain grid; the header − is
   //    row 0 of its band; the ✕ is the stack's top row. Vertical moves
   //    preserve the column, clamped to the target row's extent. ──
   describe("keyboard navigation (plain-grid bands)", () => {
@@ -600,7 +600,7 @@ describe("SwatchPopover", () => {
       return { onSelect, onSelectMarker, onSelectFlair, onClose, listbox, enter, arrow };
     }
 
-    it("initial focus FOLLOWS SELECTION: the color header ∅ when uncolored — Enter clears, never emits a phantom color", () => {
+    it("initial focus FOLLOWS SELECTION: the color header − when uncolored — Enter clears, never emits a phantom color", () => {
       const { onSelect, enter } = renderFull();
       enter();
       expect(onSelect).toHaveBeenLastCalledWith(null);
@@ -624,7 +624,7 @@ describe("SwatchPopover", () => {
 
     it("ArrowRight walks a color band row across family columns and clamps at its right edge", () => {
       const { onSelect, enter, arrow } = renderFull();
-      // Uncolored → initial focus is the color header ∅; descend into the
+      // Uncolored → initial focus is the color header −; descend into the
       // normal shade row (col 0 = red), then walk right.
       arrow("ArrowDown");
       enter();
@@ -640,30 +640,30 @@ describe("SwatchPopover", () => {
 
     it("ArrowDown from the normal shade row lands on the SAME family's dark shade", () => {
       const { onSelect, enter, arrow } = renderFull();
-      arrow("ArrowDown"); // header ∅ → normal row, col 0 (red)
+      arrow("ArrowDown"); // header − → normal row, col 0 (red)
       arrow("ArrowRight", 1); // orange
       arrow("ArrowDown"); // dark row, same column
       enter();
       expect(onSelect).toHaveBeenLastCalledWith("orange-dark");
     });
 
-    it("ArrowUp from a strip's first row lands on its band's header ∅ (row 0)", () => {
+    it("ArrowUp from a strip's first row lands on its band's header − (row 0)", () => {
       const { onSelect, onSelectMarker, onSelectFlair, enter, arrow } = renderFull();
-      // Color: normal row → header ∅.
+      // Color: normal row → header −.
       arrow("ArrowDown");
       arrow("ArrowUp");
       enter();
       expect(onSelect).toHaveBeenLastCalledWith(null);
-      // Marker band: descend past both color rows onto the marker header ∅,
-      // then the marker row, and ArrowUp lands back on the marker header ∅.
-      arrow("ArrowDown", 4); // header∅(c) → normal → dark → marker header ∅ → marker row
+      // Marker band: descend past both color rows onto the marker header −,
+      // then the marker row, and ArrowUp lands back on the marker header −.
+      arrow("ArrowDown", 4); // header−(c) → normal → dark → marker header − → marker row
       enter();
       expect(onSelectMarker).toHaveBeenLastCalledWith("pipe");
       arrow("ArrowUp");
       enter();
       expect(onSelectMarker).toHaveBeenLastCalledWith("");
-      // Flair band: marker row → flair header ∅ → flair row 1 → back up.
-      arrow("ArrowDown", 3); // marker header ∅ → marker row → flair header ∅ → flair row 1
+      // Flair band: marker row → flair header − → flair row 1 → back up.
+      arrow("ArrowDown", 3); // marker header − → marker row → flair header − → flair row 1
       enter();
       expect(onSelectFlair).toHaveBeenLastCalledWith("rain");
       arrow("ArrowUp");
@@ -676,21 +676,21 @@ describe("SwatchPopover", () => {
       arrow("ArrowDown"); // normal row, col 0
       arrow("ArrowRight", 9); // col 9 (slate)
       // Down into the marker band: the raw column rides THROUGH the
-      // single-cell header ∅ row (goal column) and clamps to 7 (block) on the
+      // single-cell header − row (goal column) and clamps to 7 (block) on the
       // 8-cell marker row.
       arrow("ArrowDown", 3);
       enter();
       expect(onSelectMarker).toHaveBeenLastCalledWith("block");
-      // Back up: marker row → header ∅ → dark shade row, the raw column
+      // Back up: marker row → header − → dark shade row, the raw column
       // restored (col 9 = slate-dark).
       arrow("ArrowUp", 2);
       enter();
       expect(onSelect).toHaveBeenLastCalledWith("slate-dark");
     });
 
-    it("ArrowUp from the color header ∅ reaches the ✕ close cell (the stack's top row); Enter closes", () => {
+    it("ArrowUp from the color header − reaches the ✕ close cell (the stack's top row); Enter closes", () => {
       const { onClose, onSelect, enter, arrow } = renderFull();
-      arrow("ArrowUp"); // color header ∅ → ✕
+      arrow("ArrowUp"); // color header − → ✕
       enter();
       expect(onClose).toHaveBeenCalledOnce();
       expect(onSelect).not.toHaveBeenCalled();
@@ -698,14 +698,14 @@ describe("SwatchPopover", () => {
 
     it("the marker row walks all 8 states; the flair rows walk 6 columns each (rain/nyan/… over scan/naruto/…)", () => {
       const { onSelectMarker, onSelectFlair, enter, arrow } = renderFull();
-      // Uncolored → color header ∅. Down 4 → the marker band's row, col 0.
+      // Uncolored → color header −. Down 4 → the marker band's row, col 0.
       arrow("ArrowDown", 4);
       for (const state of [...MARKER_NAMED, "block"]) {
         enter();
         expect(onSelectMarker).toHaveBeenLastCalledWith(state);
         arrow("ArrowRight");
       }
-      // Down into the flair band: header ∅, then flair row 1 — the raw column
+      // Down into the flair band: header −, then flair row 1 — the raw column
       // (7) clamps to col 5 on the 6-wide flair row (cube).
       arrow("ArrowDown", 2);
       enter();

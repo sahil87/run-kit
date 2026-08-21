@@ -405,7 +405,7 @@ describe("SettingsDialog", () => {
     renderDialog();
     selectTab("Appearance");
     fireEvent.click(screen.getByRole("button", { name: "Set instance color" }));
-    // The popover's color band header ∅ is the color-only marker ("Clear color" + ✕).
+    // The popover's color band header − is the color-only marker ("Clear color" + ✕).
     expect(await screen.findByRole("option", { name: "Clear color" })).toBeInTheDocument();
   });
 

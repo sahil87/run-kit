@@ -24,12 +24,12 @@ const reaperListCap = 10
 // identical flags and exit codes.
 func newReapCmd(use string, deprecated bool) *cobra.Command {
 	var prefix string
-	var yes, force, dryRun, all bool
+	var yes, force, dryRun, all, ephemeral bool
 
 	c := &cobra.Command{
 		Use:   use,
 		Short: "Reap leaked test tmux servers and stale sockets by prefix",
-		Long: `Reaper is an operator-invoked janitor of last resort. It scans the tmux
+		Long: fmt.Sprintf(`Reaper is an operator-invoked janitor of last resort. It scans the tmux
 socket directory (/tmp/tmux-{uid}/) and reaps EVERY artifact whose name starts
 with the prefix — brute-force-by-prefix, with no liveness protection:
 
@@ -39,7 +39,14 @@ with the prefix — brute-force-by-prefix, with no liveness protection:
 
 Bare "run-kit mux reap" is equivalent to "run-kit mux reap --prefix rk-test", matching every
 rk-test* server, socket, and lock file. Pass --prefix to target a different
-family (e.g. --prefix proj reaps proj*).
+family (e.g. --prefix proj reaps proj*). Pass --ephemeral to additionally match
+every LIVE server whose creator set the %s tmux server option — the
+matched set is the union of the prefix match and the option-marked servers.
+Unlike prefix guessing, the option is explicit creator opt-in, so this sweep
+is the safer way to bulk-clean scratch servers (agents, probes, test runners)
+that chose arbitrary names — a sanctioned cleanup verb that removes any reason
+to reach for raw "tmux kill-server". The option dies with its server, so dead
+sockets cannot carry it and stay prefix-only territory.
 
 There is NO PID-liveness gate: a matched candidate reaps unconditionally, so
 the operator running this asserts that nothing live needs the matched sockets.
@@ -52,13 +59,15 @@ with each entry's classified action (kill/remove) and touch NOTHING. Pass --yes
 (or --force) to actually reap.
 
 The _rk-ctl control anchor and the live rk-daemon production server are skipped
-UNCONDITIONALLY, even under --prefix and even with --yes/--force. An empty
-prefix or one of 3 characters or fewer (e.g. "rk-") is refused unless --force,
-since it would match nearly everything (runkit, production).
+UNCONDITIONALLY, even under --prefix or --ephemeral and even with --yes/--force.
+An empty prefix or one of 3 characters or fewer (e.g. "rk-") is refused unless
+--force, since it would match nearly everything (runkit, production). The
+guard applies to the prefix dimension only — --ephemeral matches are explicit
+opt-in and need no length guard.
 
 Each rendered list is capped at 10 entries by default with a stated truncation
 notice; the cap is DISPLAY-ONLY (header counts stay exact and --yes/--force
-still reap every match) — pass --all to print the full list.`,
+still reap every match) — pass --all to print the full list.`, tmux.EphemeralOption),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := muxRejectInheritedServerFlag(cmd); err != nil {
 				return err
@@ -72,7 +81,7 @@ still reap every match) — pass --all to print the full list.`,
 			// --yes acts but a short/mistyped prefix is still refused under it.
 			act := (yes || force) && !dryRun
 
-			result, reapErr := tmux.ReapTestServers(ctx, prefix, act, force)
+			result, reapErr := tmux.ReapTestServers(ctx, prefix, act, force, ephemeral)
 
 			// Reaper output is all data (a dry-run's candidate list is the requested
 			// result; an act summary is the record of a destructive mutation), so it
@@ -91,6 +100,7 @@ still reap every match) — pass --all to print the full list.`,
 		},
 	}
 	c.Flags().StringVar(&prefix, "prefix", "rk-test", "socket-name prefix to match (bare reap ≡ --prefix rk-test)")
+	c.Flags().BoolVar(&ephemeral, "ephemeral", false, "also match live servers carrying the "+tmux.EphemeralOption+" creator opt-out mark (union with the prefix match)")
 	c.Flags().BoolVar(&yes, "yes", false, "actually reap matched servers/sockets (default is dry-run preview)")
 	c.Flags().BoolVar(&force, "force", false, "act, and bypass the dangerous-prefix guard (empty or ≤3-char prefix)")
 	c.Flags().BoolVar(&dryRun, "dry-run", false, "explicit alias for the default preview-only behavior")

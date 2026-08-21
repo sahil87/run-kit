@@ -425,3 +425,136 @@ func TestSnapshotterStartStopsWithContext(t *testing.T) {
 		t.Fatal("ticker loop never captured before deadline")
 	}
 }
+
+// fakeEphemeral is a mutable ephemeralFunc with an invocation counter, so
+// tests can prove reads happen only at due passes.
+type fakeEphemeral struct {
+	mu      sync.Mutex
+	marked  map[string]bool
+	calls   int
+	failFor map[string]error
+}
+
+func newFakeEphemeral() *fakeEphemeral {
+	return &fakeEphemeral{marked: map[string]bool{}}
+}
+
+func (f *fakeEphemeral) fn(_ context.Context, server string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	if err := f.failFor[server]; err != nil {
+		return false, err
+	}
+	return f.marked[server], nil
+}
+
+func (f *fakeEphemeral) mark(server string, marked bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.marked[server] = marked
+}
+
+func (f *fakeEphemeral) count() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
+}
+
+func TestSnapshotterEphemeralSkipsWritesAndRetires(t *testing.T) {
+	src := newFakeSource()
+	src.set("kit", 1)
+	s, cap, store := newTestSnapshotter(t, src)
+	eph := newFakeEphemeral()
+	s.ephemeral = eph.fn
+
+	// First observation lands a latest before the mark is set.
+	s.tick(context.Background())
+	if cap.count() != 1 {
+		t.Fatalf("setup captures = %d, want 1", cap.count())
+	}
+	if snap, _ := store.LoadLatest("kit"); snap == nil {
+		t.Fatal("setup latest missing")
+	}
+
+	// Mark the server ephemeral; the next due pass (safety) must retire the
+	// lingering latest and capture nothing.
+	eph.mark("kit", true)
+	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return now }
+	s.safetyInterval = time.Minute
+	now = now.Add(2 * time.Minute)
+	s.tick(context.Background())
+
+	if cap.count() != 1 {
+		t.Errorf("captures after mark = %d, want still 1 (no capture for marked server)", cap.count())
+	}
+	if snap, _ := store.LoadLatest("kit"); snap != nil {
+		t.Error("lingering latest should be retired once the mark is observed")
+	}
+	// Retire is NOT a tombstone.
+	if ts, _ := store.tombstoneTimestamps("kit"); len(ts) != 0 {
+		t.Errorf("tombstones after retire = %v, want none", ts)
+	}
+
+	// Bookkeeping advanced on the skip: further quiet ticks do NOT re-read
+	// the option (the safety cadence bounds un-mark detection).
+	reads := eph.count()
+	s.tick(context.Background())
+	s.tick(context.Background())
+	if eph.count() != reads {
+		t.Errorf("ephemeral re-read on quiet ticks: reads %d → %d, want no per-tick read", reads, eph.count())
+	}
+}
+
+func TestSnapshotterUnmarkResumesCoverage(t *testing.T) {
+	src := newFakeSource()
+	src.set("kit", 1)
+	s, cap, store := newTestSnapshotter(t, src)
+	eph := newFakeEphemeral()
+	s.ephemeral = eph.fn
+
+	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return now }
+	s.safetyInterval = time.Minute
+
+	// Marked from the start: first observation skips, nothing is written.
+	eph.mark("kit", true)
+	s.tick(context.Background())
+	if cap.count() != 0 {
+		t.Fatalf("captures for marked first observation = %d, want 0", cap.count())
+	}
+	if snap, _ := store.LoadLatest("kit"); snap != nil {
+		t.Fatal("marked server must not get a latest")
+	}
+
+	// Un-mark; the next safety-due pass resumes coverage with no other action.
+	eph.mark("kit", false)
+	now = now.Add(2 * time.Minute)
+	s.tick(context.Background())
+	if cap.count() != 1 {
+		t.Fatalf("captures after un-mark = %d, want 1", cap.count())
+	}
+	if snap, _ := store.LoadLatest("kit"); snap == nil {
+		t.Fatal("coverage should resume after un-mark")
+	}
+}
+
+func TestSnapshotterEphemeralReadErrorDegradesToDurable(t *testing.T) {
+	src := newFakeSource()
+	src.set("kit", 1)
+	s, cap, store := newTestSnapshotter(t, src)
+	eph := newFakeEphemeral()
+	eph.failFor = map[string]error{"kit": errors.New("transient read failure")}
+	s.ephemeral = eph.fn
+
+	// A failed read must not crash the tick and must not skip the snapshot:
+	// coverage is the safer default.
+	s.tick(context.Background())
+	if cap.count() != 1 {
+		t.Fatalf("captures after read error = %d, want 1", cap.count())
+	}
+	if snap, _ := store.LoadLatest("kit"); snap == nil {
+		t.Fatal("read error should degrade to durable — snapshot expected")
+	}
+}

@@ -2253,6 +2253,83 @@ func TestSetServerOrigin_roundTrip(t *testing.T) {
 	}
 }
 
+func TestIsEphemeralServer_setReturnsTrue(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	args := append(serverArgs(server), "set-option", "-s", EphemeralOption, "1")
+	if out, err := exec.CommandContext(ctx, "tmux", args...).CombinedOutput(); err != nil {
+		t.Fatalf("set %s: %v\n%s", EphemeralOption, err, string(out))
+	}
+
+	got, err := IsEphemeralServer(ctx, server)
+	if err != nil {
+		t.Fatalf("IsEphemeralServer marked: %v", err)
+	}
+	if !got {
+		t.Error("got false, want true (option set to 1)")
+	}
+}
+
+func TestIsEphemeralServer_unsetAfterSetReturnsFalse(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	setArgs := append(serverArgs(server), "set-option", "-s", EphemeralOption, "1")
+	if out, err := exec.CommandContext(ctx, "tmux", setArgs...).CombinedOutput(); err != nil {
+		t.Fatalf("set %s: %v\n%s", EphemeralOption, err, string(out))
+	}
+	// Un-setting promotes the server back to durable.
+	unsetArgs := append(serverArgs(server), "set-option", "-s", "-u", EphemeralOption)
+	if out, err := exec.CommandContext(ctx, "tmux", unsetArgs...).CombinedOutput(); err != nil {
+		t.Fatalf("unset %s: %v\n%s", EphemeralOption, err, string(out))
+	}
+
+	got, err := IsEphemeralServer(ctx, server)
+	if err != nil {
+		t.Fatalf("IsEphemeralServer after unset: %v", err)
+	}
+	if got {
+		t.Error("got true, want false (option unset)")
+	}
+}
+
+func TestIsEphemeralServer_neverSetReturnsFalse(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	got, err := IsEphemeralServer(ctx, server)
+	if err != nil {
+		t.Fatalf("IsEphemeralServer unset: %v", err)
+	}
+	if got {
+		t.Error("got true, want false (option never set)")
+	}
+}
+
+func TestIsEphemeralServer_noServerReturnsFalse(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available — skipping integration test")
+	}
+	// A socket name with no running server: the read must degrade to false,
+	// not bubble a "no server running" / "failed to connect" error — liveness
+	// is the caller's concern.
+	server := testSocketName("unit")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	got, err := IsEphemeralServer(ctx, server)
+	if err != nil {
+		t.Fatalf("IsEphemeralServer on dead server: %v", err)
+	}
+	if got {
+		t.Error("got true, want false (no server)")
+	}
+}
+
 func TestServerAllowed(t *testing.T) {
 	cases := []struct {
 		name      string

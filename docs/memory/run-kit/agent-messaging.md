@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The `rk mux` family — ten tmux-substrate verbs, no daemon dependency. Pane-scoped members (`send`/`await` messaging + `capture`/`kill`/`process` substrate twins) share the strict %N/@N/=session:window grammar and, with the `panes` whole-server enumeration, consume the inherited `-L` flag. Twins add plain capture with substrate-only enrichment, kill's agent-state gate, and process classification. Operator members `reap`/`snapshot`/`init-conf`/`guard` reject `-L` (`guard` excepted)."
+description: "The `rk mux` family — ten tmux-substrate verbs, no daemon dependency. Pane-scoped members (`send`/`await` messaging + `capture`/`kill`/`process` substrate twins) share the strict %N/@N/=session:window grammar and with `panes` consume the inherited `-L` flag. Twins add plain capture, kill's agent-state gate, and process classification. Operator members `reap`/`snapshot`/`init-conf`/`guard` reject `-L` (`guard` excepted); `reap` also sweeps `@rk_ephemeral`-marked servers (`--ephemeral`)."
 ---
 # Agent-to-Agent Messaging (`rk mux`)
 
@@ -23,7 +23,9 @@ sessions, substrate facts only (no change/stage; choreography enrichment stays
 the fab layer's), the family's only server-scoped enumeration (no target
 argument). The
 operator tier groups the janitor/recovery/scaffold verbs plus the guard:
-`rk mux reap` (test-socket cleanup), `rk mux snapshot list|show|restore`
+`rk mux reap` (test-socket and scratch-server cleanup — a prefix sweep,
+unioned with every live `@rk_ephemeral`-marked server under `--ephemeral`;
+full contract in [tmux-sessions](/run-kit/tmux-sessions.md) § `rk mux reap`), `rk mux snapshot list|show|restore`
 (layout recovery, [layout-snapshots](/run-kit/layout-snapshots.md)),
 `rk mux init-conf` (tmux config scaffold), and `rk mux guard` (fronts the real
 tmux binary, refusing a bare `kill-server` — the verb the installed PATH shim

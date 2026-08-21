@@ -49,6 +49,10 @@ type ServerSource interface {
 // inject a stub.
 type captureFunc func(ctx context.Context, server string) (*Snapshot, error)
 
+// ephemeralFunc reports whether a server carries the @rk_ephemeral opt-out
+// mark. Production: tmux.IsEphemeralServer. Tests inject a stub.
+type ephemeralFunc func(ctx context.Context, server string) (bool, error)
+
 // serverState is the per-server debounce/safety bookkeeping. All three fields
 // advance only after a SUCCESSFUL pass (capture ok, write landed or deduped)
 // — a failed capture leaves them untouched so the server is due again on the
@@ -68,9 +72,10 @@ type serverState struct {
 // context. All failures degrade to log lines — snapshotting must never take
 // down or block serving.
 type Snapshotter struct {
-	src     ServerSource
-	store   *Store
-	capture captureFunc
+	src       ServerSource
+	store     *Store
+	capture   captureFunc
+	ephemeral ephemeralFunc
 
 	checkInterval  time.Duration
 	safetyInterval time.Duration
@@ -108,6 +113,7 @@ func NewSnapshotter(src ServerSource, store *Store) *Snapshotter {
 		src:            src,
 		store:          store,
 		capture:        CaptureServer,
+		ephemeral:      tmux.IsEphemeralServer,
 		checkInterval:  defaultCheckInterval,
 		safetyInterval: defaultSafetyInterval,
 		auditWindow:    defaultAuditWindow,
@@ -207,16 +213,29 @@ func (s *Snapshotter) tick(ctx context.Context) {
 }
 
 // snapshot captures and persists one server, degrading every failure to a log
-// line. It reports whether the pass succeeded (capture ok, write landed or
-// deduped) — the tick loop advances its per-server bookkeeping only on
-// success. A dead-server capture error (the socket-removal race) is expected
-// and logs at Debug; anything else warns. A capture that raced
-// OnServerRemoved (removedEpoch advanced while it was in flight) is dropped
-// under writeMu so it can never land after the tombstone.
+// line. It reports whether the pass succeeded — the tick loop advances its
+// per-server bookkeeping only on success. The ephemeral opt-out read happens
+// HERE, only at due passes (first observation, event-due, safety-due), never
+// on every tick; an ephemeral skip also counts as a successful pass so the
+// marked server is re-read only on generation movement or the safety cadence
+// (the safety interval doubles as the un-mark detection bound). A dead-server
+// capture error (the socket-removal race) is expected and logs at Debug;
+// anything else warns. A capture that raced OnServerRemoved (removedEpoch
+// advanced while it was in flight) is dropped under writeMu so it can never
+// land after the tombstone.
 func (s *Snapshotter) snapshot(ctx context.Context, server string) bool {
 	s.mu.Lock()
 	epoch := s.removedEpoch[server]
 	s.mu.Unlock()
+
+	eph, err := s.ephemeral(ctx, server)
+	if err != nil {
+		// A failed read degrades to a log line and the pass proceeds as
+		// not-ephemeral — snapshot coverage is the safer default.
+		slog.Warn("snapshot: ephemeral read failed, proceeding as durable", "server", server, "err", err)
+	} else if eph {
+		return s.retire(ctx, server, epoch)
+	}
 
 	snap, err := s.capture(ctx, server)
 	if err != nil {
@@ -246,6 +265,32 @@ func (s *Snapshotter) snapshot(ctx context.Context, server string) bool {
 		slog.Debug("snapshot: written", "server", server,
 			"sessions", snap.SessionCount(), "windows", snap.WindowCount())
 	}
+	return true
+}
+
+// retire handles a due pass for an ephemeral-marked server: no capture, no
+// write — it removes the server's existing latest (the first-observation
+// snapshot may have landed before the mark was set) and reports pass success
+// so bookkeeping advances. The retire runs under writeMu with the same
+// removedEpoch drop rule as writes, so a server removed mid-pass keeps its
+// tombstone path. Retire failures degrade to a log line and a failed pass
+// (retry next tick); a server removed mid-pass is not a failure — the tick
+// drops its bookkeeping anyway.
+func (s *Snapshotter) retire(_ context.Context, server string, epoch uint64) bool {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	s.mu.Lock()
+	removed := s.removedEpoch[server] != epoch
+	s.mu.Unlock()
+	if removed {
+		slog.Debug("snapshot: retire skipped, server removed mid-pass", "server", server)
+		return true
+	}
+	if err := s.store.RetireLatest(server); err != nil {
+		slog.Warn("snapshot: retire latest failed", "server", server, "err", err)
+		return false
+	}
+	slog.Debug("snapshot: ephemeral server skipped, latest retired", "server", server)
 	return true
 }
 

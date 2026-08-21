@@ -1,0 +1,56 @@
+id: zelc
+name: 260821-zelc-ephemeral-option-snapshot-reap
+created: 2026-08-21T02:49:22Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 11
+    acceptance_count: 21
+    acceptance_completed: 21
+confidence:
+    certain: 4
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.7
+    fuzzy: true
+    dimensions:
+        signal: 77.9
+        reversibility: 77.9
+        competence: 85.0
+        disambiguation: 78.6
+stage_metrics:
+    intake: {started_at: "2026-08-21T02:49:22Z", driver: fab-new, iterations: 1, completed_at: "2026-08-21T03:06:02Z"}
+    apply: {started_at: "2026-08-21T03:06:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-21T03:24:03Z"}
+    review: {started_at: "2026-08-21T03:24:03Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-21T03:27:40Z"}
+    hydrate: {started_at: "2026-08-21T03:27:40Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-21T03:32:55Z"}
+    ship: {started_at: "2026-08-21T03:32:55Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-21T03:35:48Z"}
+    review-pr: {started_at: "2026-08-21T03:35:48Z", driver: git-pr, iterations: 1, completed_at: "2026-08-21T03:43:55Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/696
+change_type_source: explicit
+true_impact:
+    added: 1021
+    deleted: 77
+    net: 944
+    excluding:
+        added: 571
+        deleted: 59
+        net: 512
+    tests:
+        added: 376
+        deleted: 26
+        net: 350
+    computed_at: "2026-08-21T03:35:48Z"
+    computed_at_stage: ship
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-21T03:43:55Z

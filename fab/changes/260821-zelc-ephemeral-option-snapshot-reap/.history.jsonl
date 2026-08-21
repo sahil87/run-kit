@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-21T02:49:22Z"}
+{"args":"@rk_ephemeral server option: snapshotter opt-out + rk mux reap --ephemeral (f2b7 root cause, phases 1-2)","cmd":"fab-new","event":"command","ts":"2026-08-21T02:49:22Z"}
+{"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-08-21T02:54:14Z"}
+{"cmd":"fab-draft","event":"command","ts":"2026-08-21T02:54:25Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-21T03:04:11Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-21T03:06:02Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-21T03:24:03Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-21T03:27:40Z"}
+{"event":"review","result":"passed","ts":"2026-08-21T03:27:40Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-21T03:32:55Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-08-21T03:35:48Z"}
+{"event":"review","result":"passed","ts":"2026-08-21T03:43:55Z"}

@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard PASS status (help-dump, readme-extraction, skill, ten principles, update, version, install-composition). Covers Principle 9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + Principle 9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`mux`/`agent` + the grown ten-member `mux` family."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard PASS status (help-dump, readme-extraction, skill, ten principles, update, version, install-composition). Covers Principle 9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + Principle 9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`mux`/`agent` + the grown ten-member `mux` family and its grown `reap --ephemeral` flag."
 ---
 # Toolkit Standards Conformance
 
@@ -472,6 +472,29 @@ against the same checks (`260820-hol4-mux-panes-native-pane-map`):
   (whole-server scope, no target argument, the 13-key `--json` schema with
   null agent fields, exit codes), and the family framing broadened to cover
   server-wide enumeration.
+
+The grown `rk mux reap --ephemeral` flag (the reaper's option-match dimension,
+unioning live `@rk_ephemeral`-marked servers into the prefix sweep — full
+contract in [tmux-sessions](/run-kit/tmux-sessions.md) § `rk mux reap`) is the
+thirteenth surface measured against the same checks
+(`260821-zelc-ephemeral-option-snapshot-reap`):
+
+- **help-dump: the flag registers platform-stable and unhidden.** `--ephemeral`
+  is a plain `BoolVar` on both `newReapCmd` instances (family member + hidden
+  root alias), and the `Long:` block gains the union semantics and the opt-in
+  safety framing — naming the option through `tmux.EphemeralOption`
+  (`fmt.Sprintf`) so the magic string has one source of truth. The cobra tree
+  walk publishes the flag with no help-dump code change, and the dumped
+  contract stays identical on every platform. `Short:` stays the stable
+  one-liner; the flag's own help string and `Long:` carry the surface.
+- **Principle 9: plan and summary output stay data.** The union dry-run plan
+  and the act summary ride the reaper's existing all-data posture; the
+  10-entry display caps (`--all` to lift, exact header counts) cover
+  option-matched entries with no new code, and `--quiet` remains legitimately
+  a no-op.
+- **The `skill` standard is a no-op here** — the reaper stays an operator
+  janitor verb deliberately absent from the agent-facing topic pages (the
+  attractive-nuisance reasoning), so no topic-page content changes.
 
 #### Scenario: A new subcommand group keeps the help tree platform-stable
 - **GIVEN** the `rk desktop` group on a Linux host

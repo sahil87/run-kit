@@ -335,6 +335,19 @@ func (s *Store) Tombstone(server string, diedAt time.Time, audited bool) (create
 	return true, nil
 }
 
+// RetireLatest removes the server's latest snapshot file without tombstoning
+// it. Retire means "never should have been covered" (an ephemeral opt-out
+// observed after a first-observation snapshot already landed), as opposed to
+// a tombstone, which means "server died" — so no .died-* file is created and
+// history/tombstones are untouched (the existing prune owns history).
+// Idempotent: a missing latest is a no-op success.
+func (s *Store) RetireLatest(server string) error {
+	if err := os.Remove(s.latestPath(server)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("retire latest %s: %w", server, err)
+	}
+	return nil
+}
+
 // Dismiss converts the server's lingering live-latest into a never-re-offerable
 // tombstone. A user-driven dismissal is a deliberate run-kit action, so the
 // tombstone carries the audited marker — the same marker that already excludes

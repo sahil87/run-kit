@@ -53,7 +53,9 @@ type SwatchPopoverProps = {
    *  marker band — a 2-row column-flow strip of the 12 named FLAIR_STATES
    *  (rain/scan leading), each cell carrying its always-on rk-flair-* overlay.
    *  Selection calls `onSelectFlair` DIRECTLY — `""` clears (via the header
-   *  − clear cell). Offered on window and session rows; NOT server group headers. */
+   *  − clear cell). Offered at all three flair-capable call sites: window
+   *  rows, session rows, and the server GROUP HEADER picker (the SERVER tile
+   *  itself has no picker affordance). */
   selectedFlair?: string;
   onSelectFlair?: (flair: string) => void;
 };

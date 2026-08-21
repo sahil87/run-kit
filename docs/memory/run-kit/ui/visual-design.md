@@ -357,13 +357,13 @@ The viewport meta tag in `app/frontend/index.html` includes `maximum-scale=1.0` 
 **Decision**: The Label picker is a ~190px-wide, constant-height stack of horizontal bands — `[ color ]` (2 shade rows × 10 family columns, column-flow, horizontal-scroll strip), `[ marker ]` (one unscrolled row of 8), `[ flair ]` (2-row column-flow strip) — under a live composite preview row with a combo caption. Each band's header carries the − clear cell (ringed when the axis is unset), which is row 0 of its band in the keyboard model.
 **Why**: The band headers name the axes; panel height stays constant regardless of any axis's growth; each band scrolls only in the direction its axis actually grows (color horizontally — vertical would break the shade pairing); moving the clear cells into the headers saves a column per band so the marker row fits unscrolled (semantic states never hide behind a scroll).
 **Rejected**: Axis micro-labels on the old paired-column skeleton (labels name the mass without organizing it); segmented tabs (hides two axes at all times — combo iteration would cost a tab-switch per axis); three side-by-side columns (~300px — too wide for the sidebar flyout seam and coarse-pointer rail cards); clear cells inside the strips (a dead column per band).
+*Introduced by*: 260819-9hh6-banded-label-picker-rework
 
 ### Neutral minus clear glyph (✕/− verb pair)
 **Decision**: The band-header clear cells render a neutral `−` (U+2212) in the ✕ close button's treatment (`text-secondary` brightening to `text-primary` on hover); `∅` survives only as the combo caption's unset-state token.
 **Why**: The header cell is an ACTION ("clear this axis"); ∅ is a STATE symbol — one glyph carrying both meanings was a permanent legibility tax. ✕/− form a verb pair: ✕ closes the panel, − clears the axis.
 **Rejected**: Red minus — red is this UI's kill/danger vocabulary, clearing a label is cheap and reversible, and the hover accent here is green; a red glyph over-signals and has no hover story (recorded in the wiki study's glyph-comparison strip).
 *Introduced by*: 260821-k17a-picker-clear-cell-neutral-minus
-*Introduced by*: 260819-9hh6-banded-label-picker-rework
 
 ### Hazard wedge is a left-edge mask, not full-row wallpaper
 **Decision**: `.rk-hazard`'s 45° weave is confined by `mask-image: linear-gradient(to right, #000 22%, transparent 55%)` (with its `-webkit-` twin) — full strength for the first ~22% of the row, faded out by ~55%.

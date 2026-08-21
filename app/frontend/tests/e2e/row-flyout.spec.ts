@@ -572,7 +572,7 @@ test.describe("Row flyout card (coarse pointer)", () => {
 
     // The interactive label zone (and its palette-icon reveal) is REMOVED on
     // coarse — no element carries its aria-label anywhere in the tree.
-    await expect(page.locator('[aria-label="Set window label"]')).toHaveCount(0);
+    await expect(page.locator('[aria-label="Set tab label"]')).toHaveCount(0);
 
     // The display-only marker stripe REMAINS on coarse (information, not an
     // affordance): @2 carries a solid marker, rendered as a left-edge stripe.

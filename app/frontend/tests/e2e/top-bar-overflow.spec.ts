@@ -332,7 +332,7 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
       menu.getByRole("menuitemcheckbox", { name: "Terminal tile" }),
     ).toHaveCount(0);
     await expect(menu.getByText("View", { exact: true })).toBeVisible();
-    await expect(menu.getByText("Window", { exact: true })).toBeVisible();
+    await expect(menu.getByText("Tab", { exact: true })).toBeVisible();
     await expect(menu.getByText("App", { exact: true })).toBeVisible();
     // The relocated chrome rows (260812-d1at) are menuOnly — ALWAYS in the App
     // section, above the fixed version row. Notifications stay gone (they live

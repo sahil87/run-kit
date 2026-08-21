@@ -35,7 +35,7 @@ const MENU_GAP_PX = 4;
 const MENU_SECTIONS: { key: MenuGroup; label: string }[] = [
   { key: "tiles", label: "Tiles" },
   { key: "view", label: "View" },
-  { key: "window", label: "Window" },
+  { key: "window", label: "Tab" },
   { key: "app", label: "App" },
 ];
 

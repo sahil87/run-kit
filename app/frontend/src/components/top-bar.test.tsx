@@ -1320,12 +1320,12 @@ describe("TopBar", () => {
       // The three section labels render (aria-hidden decoration — uppercase via
       // CSS, so the text content is the plain word).
       const viewLabel = within(menu).getByText("View", { exact: true });
-      const windowLabel = within(menu).getByText("Window", { exact: true });
+      const windowLabel = within(menu).getByText("Tab", { exact: true });
       const appLabel = within(menu).getByText("App", { exact: true });
       expect(viewLabel).toHaveAttribute("aria-hidden", "true");
       // Membership + fixed section order: a known View row (Fixed width) sits
-      // between the View and Window labels; a Window row (Split vertical)
-      // between Window and App; the App section carries Refresh + the relocated
+      // between the View and Tab labels; a Tab row (Split vertical)
+      // between Tab and App; the App section carries Refresh + the relocated
       // chrome rows (260812-d1at: Settings · Help · Keyboard) + the version
       // row.
       const follows = (a: Element, b: Element) =>
@@ -1365,7 +1365,7 @@ describe("TopBar", () => {
       const menu = screen.getByRole("menu", { name: "More controls" });
       expect(within(menu).getByText("RunKit")).toBeInTheDocument();
       expect(within(menu).queryByText("View", { exact: true })).not.toBeInTheDocument();
-      expect(within(menu).queryByText("Window", { exact: true })).not.toBeInTheDocument();
+      expect(within(menu).queryByText("Tab", { exact: true })).not.toBeInTheDocument();
       expect(within(menu).queryByText("App", { exact: true })).not.toBeInTheDocument();
     });
 

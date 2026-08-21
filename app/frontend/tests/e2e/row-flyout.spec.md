@@ -311,7 +311,7 @@ clearance).
 
 **Steps:**
 1. Open the drawer with the coarse mock + `hasTouch`.
-2. Assert NO element carries the zone's `aria-label="Set window label"`.
+2. Assert NO element carries the zone's `aria-label="Set tab label"`.
 3. Assert `@2` (color orange, marker solid) still renders its left-edge stripe
    (a `div[style*="border-left"]`).
 4. Measure: `@2`'s dot tap zone starts ≈16px (±1px) from the row's left edge.

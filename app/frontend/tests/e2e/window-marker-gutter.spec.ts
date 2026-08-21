@@ -48,7 +48,7 @@ const expectFlair = (page: Page, windowName: string, expected: string) =>
 
 /** Open the row's banded Label picker from the left-edge label zone. */
 async function openLabelPicker(row: Locator, page: Page): Promise<Locator> {
-  await row.getByLabel("Set window label").click();
+  await row.getByLabel("Set tab label").click();
   const picker = page.getByRole("listbox", { name: "Label picker" });
   await expect(picker).toBeVisible({ timeout: 5_000 });
   return picker;
@@ -276,7 +276,7 @@ test.describe("Window left-edge label zone + banded picker", () => {
     // open the picker but NOT select it (the URL must not gain the window
     // segment).
     await expect(rowButton).not.toHaveAttribute("aria-current", "page");
-    await row.getByLabel("Set window label").click();
+    await row.getByLabel("Set tab label").click();
     await expect(page.getByRole("listbox", { name: "Label picker" })).toBeVisible({ timeout: 5_000 });
     // Row still not selected, URL still on the dashboard.
     await expect(rowButton).not.toHaveAttribute("aria-current", "page");

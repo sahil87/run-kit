@@ -609,7 +609,7 @@ test.describe("Row flyout card (coarse pointer)", () => {
     // Title + the identity-tip facts line + the relocated action rows in the
     // fixed order (Spawn agent… is wired on this route).
     await expect(page.getByTestId("popup-title-bar")).toContainText("Session dev");
-    await expect(card(page)).toContainText("$4 · 2 windows · ~/code/sahil87/run-kit");
+    await expect(card(page)).toContainText("$4 · 2 tabs · ~/code/sahil87/run-kit");
     const colorRow = card(page).getByTestId("row-flyout-color-action");
     const spawnRow = card(page).getByTestId("row-flyout-spawn-action");
     const createRow = card(page).getByTestId("row-flyout-create-action");

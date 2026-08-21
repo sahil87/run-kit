@@ -19,7 +19,7 @@ double-tooltip rule).
   - `/ws/terminals` WebSocket → accepted and held open.
   - `/ws/state` (via `mockStateSocket`) → one session `dev` carrying the new
     `sessionId: "$4"` / `sessionPath: "/home/sahil/code/sahil87/run-kit"` fields
-    with two plain windows (`@1`, `@2`).
+    with two plain tabs (`@1`, `@2`).
 - The session row is located by `[role='treeitem'][data-session-row='default:dev']`,
   the server tile by its `role="option"` accessible name, and the cards by
   `data-testid="session-tip"` / `data-testid="server-tip"` (title bar via the
@@ -27,11 +27,11 @@ double-tooltip rule).
 
 ## Tests
 
-### `hovering a session row opens its identity tip (full name + $N · N windows · ~/path)`
+### `hovering a session row opens its identity tip (full name + $N · N tabs · ~/path)`
 
 **What it proves:** hovering a session row (fine pointer, after the plain 300ms
 delay) opens the session identity tip: the title bar reads `Session dev` and
-the body reads `$4 · 2 windows · ~/code/sahil87/run-kit` — the tmux id, the
+the body reads `$4 · 2 tabs · ~/code/sahil87/run-kit` — the tmux id, the
 window count, and the root path with `$HOME` abbreviated to `~`. The card holds
 no interactive content (tier-1 weight lives in the body, not the chrome).
 
@@ -39,7 +39,7 @@ no interactive content (tier-1 weight lives in the body, not the chrome).
 1. Assert no `session-tip` card exists at rest.
 2. Hover the `dev` session row.
 3. Assert the card is visible, its title bar contains "Session dev", the card
-   contains "$4 · 2 windows · ~/code/sahil87/run-kit", and it contains no
+   contains "$4 · 2 tabs · ~/code/sahil87/run-kit", and it contains no
    anchors or buttons.
 
 ### `keyboard: focusing a session row opens the tip; Escape dismisses it`

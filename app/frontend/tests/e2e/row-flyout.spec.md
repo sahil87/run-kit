@@ -321,7 +321,7 @@ clearance).
 **What it proves:** the session-tier card (260817-ve5m R4) — the session row
 renders the rail on coarse, its 4-icon cluster is gone from the DOM, and a
 rail tap opens the shared-shell card with the `Session dev` title, the
-identity-tip facts line (`$4 · 2 windows · ~/code/sahil87/run-kit`), and the
+identity-tip facts line (`$4 · 2 tabs · ~/code/sahil87/run-kit`), and the
 relocated actions in the fixed order (`Change color…` → `Spawn agent…` → `New
 window` → `Kill session`, spawn wired on this route). Kill session routes
 through the EXISTING kill confirmation dialog (no force-kill on touch, no kill

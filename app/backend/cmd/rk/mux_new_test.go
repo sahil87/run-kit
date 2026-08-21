@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 // muxNewFake holds the installed new-verb seams and their call recordings.
@@ -132,6 +133,62 @@ func TestMuxNewCollision(t *testing.T) {
 	}
 	if stdout != "" {
 		t.Errorf("stdout = %q on a collision, want empty", stdout)
+	}
+}
+
+// TestMuxNewProbeErrorRefuses: a probe failure that is NOT the dead-socket
+// sentinel (timeout, tmux error) refuses exit 1 without mutating — an
+// unclassifiable socket is never created over on a guess.
+func TestMuxNewProbeErrorRefuses(t *testing.T) {
+	f := &muxNewFake{aliveErr: errors.New("context deadline exceeded")}
+	installMuxNewFakes(t, f)
+
+	stdout, _, err := runMuxCmd(t, "new", "murky")
+	if err == nil || exitCode(err) != 1 {
+		t.Fatalf("err = %v, want exit-1 probe failure", err)
+	}
+	if !strings.Contains(err.Error(), "probe server murky") {
+		t.Errorf("err = %v, want the probe failure named", err)
+	}
+	if len(f.createCalls) != 0 || len(f.markCalls) != 0 || len(f.killCalls) != 0 {
+		t.Errorf("mutation ran on a probe failure: creates=%v marks=%v kills=%v",
+			f.createCalls, f.markCalls, f.killCalls)
+	}
+	if stdout != "" {
+		t.Errorf("stdout = %q on a probe failure, want empty", stdout)
+	}
+}
+
+// TestMuxNewMarkGetsFreshDeadline: the --ephemeral mark runs under its own
+// bound derived from the parent, not the probe-consumed command context — a
+// slow probe must not hand the mark an exhausted deadline.
+func TestMuxNewMarkGetsFreshDeadline(t *testing.T) {
+	f := &muxNewFake{aliveErr: deadSocket}
+	installMuxNewFakes(t, f)
+
+	var probeDeadline, markDeadline time.Time
+	orig := muxNewServerAliveFn
+	muxNewServerAliveFn = func(ctx context.Context, _ string) error {
+		probeDeadline, _ = ctx.Deadline()
+		time.Sleep(15 * time.Millisecond)
+		return f.aliveErr
+	}
+	t.Cleanup(func() { muxNewServerAliveFn = orig })
+	muxNewMarkEphemeralFn = func(ctx context.Context, server string) error {
+		markDeadline, _ = ctx.Deadline()
+		f.markCalls = append(f.markCalls, server)
+		return nil
+	}
+
+	if _, _, err := runMuxCmd(t, "new", "scratch3", "--ephemeral"); err != nil {
+		t.Fatalf("err = %v, want success", err)
+	}
+	if probeDeadline.IsZero() || markDeadline.IsZero() {
+		t.Fatal("expected both seams to observe a context deadline")
+	}
+	if !markDeadline.After(probeDeadline) {
+		t.Errorf("mark deadline %v not after probe deadline %v — mark reused the probe-consumed context",
+			markDeadline, probeDeadline)
 	}
 }
 

@@ -16,7 +16,8 @@ import (
 // with one session named <name>. An operator-tier member: the socket name is
 // its positional argument, so an explicitly-set inherited -L is rejected (the
 // reap/snapshot/init-conf pattern). A live server already answering on the
-// socket refuses (exit 1, nothing touched); a dead/stale socket proceeds.
+// socket refuses (exit 1, nothing touched); only the dead-socket sentinel
+// (tmux.IsServerGone) proceeds — any other probe failure refuses too.
 // --ephemeral marks the fresh server @rk_ephemeral 1 (tmux.EphemeralOption)
 // before the command returns — and a failed mark best-effort kills the
 // just-created server, so a --ephemeral invocation never leaves an unmarked
@@ -92,10 +93,17 @@ func runMuxNew(cmd *cobra.Command, name string) error {
 	defer cancel()
 
 	// A live server on the socket refuses — creating over it would attach to
-	// (or fight) someone else's server. A dead/stale socket fails the probe
-	// and proceeds: new-session starts a fresh server over it.
-	if err := muxNewServerAliveFn(ctx, name); err == nil {
+	// (or fight) someone else's server. Only the dead-socket sentinel
+	// (tmux.IsServerGone: killed, never started, unreachable socket) proceeds
+	// — new-session starts a fresh server over it. Any other probe failure
+	// (timeout, tmux error) refuses too: an unclassifiable socket must not be
+	// mutated on a guess.
+	probeErr := muxNewServerAliveFn(ctx, name)
+	if probeErr == nil {
 		return fmt.Errorf("server %s is already running", name)
+	}
+	if !tmux.IsServerGone(probeErr) {
+		return fmt.Errorf("probe server %s: %w", name, probeErr)
 	}
 
 	if err := muxNewCreateSessionFn(name, "", name); err != nil {
@@ -103,7 +111,12 @@ func runMuxNew(cmd *cobra.Command, name string) error {
 	}
 
 	if muxNewEphemeralFlag {
-		if err := muxNewMarkEphemeralFn(ctx, name); err != nil {
+		// Fresh bound derived from the parent (not the probe-consumed ctx): a
+		// slow probe must not hand the mark an exhausted deadline — that would
+		// kill a healthy just-created server for no tmux-side reason.
+		markCtx, markCancel := context.WithTimeout(parent, muxCmdTimeout)
+		defer markCancel()
+		if err := muxNewMarkEphemeralFn(markCtx, name); err != nil {
 			// A failed mark must not leave an unmarked scratch server behind
 			// (that is the exact leak this verb exists to prevent) — the
 			// server is milliseconds old and owned by this invocation.

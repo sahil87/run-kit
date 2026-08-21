@@ -192,4 +192,22 @@ test.describe("Recovery section", () => {
     await expect(page.getByTestId("recovery-row-kit")).toHaveCount(0);
     await expect(page.getByTestId("recovery-row-work")).toBeVisible();
   });
+
+  test("Dismiss all POSTs one dismiss per server and the section leaves the DOM", async ({
+    page,
+  }) => {
+    const { state, dismissBodies } = await mockRecovery(page, [OFFER_KIT, OFFER_WORK]);
+    await mockServers(page);
+    await gotoHost(page);
+    await expect(page.getByRole("button", { name: "Dismiss all" })).toBeVisible();
+
+    // The backend drops each offer once dismissed — the refetches return less,
+    // then nothing.
+    state.offers = [];
+    await page.getByRole("button", { name: "Dismiss all" }).click();
+
+    await expect.poll(() => dismissBodies.length).toBe(2);
+    expect(dismissBodies).toEqual([{ server: "kit" }, { server: "work" }]);
+    await expect(page.getByRole("region", { name: "Recovery" })).toHaveCount(0);
+  });
 });

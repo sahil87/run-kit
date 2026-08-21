@@ -31,6 +31,7 @@ export type RecoveryState = {
   restore: (server: string) => Promise<void>;
   restoreAll: () => Promise<void>;
   dismiss: (server: string) => Promise<void>;
+  dismissAll: () => Promise<void>;
 };
 
 export function useRecoveryOffers(): RecoveryState {
@@ -38,7 +39,8 @@ export function useRecoveryOffers(): RecoveryState {
   const { refreshServers } = useSessionContext();
   const [offers, setOffers] = useState<RecoveryOffer[]>([]);
   const [restoring, setRestoring] = useState<ReadonlySet<string>>(new Set());
-  // Restore-all iterates the CURRENT offer list without a stale closure.
+  // Restore-all / dismiss-all iterate the CURRENT offer list without a stale
+  // closure.
   const offersRef = useRef(offers);
   offersRef.current = offers;
 
@@ -99,9 +101,17 @@ export function useRecoveryOffers(): RecoveryState {
     [addToast, refetch],
   );
 
+  const dismissAll = useCallback(async () => {
+    // No bulk endpoint exists — sequential per-server POSTs; a failed server
+    // toasts (inside dismiss) and does not block the rest.
+    for (const offer of offersRef.current) {
+      await dismiss(offer.server);
+    }
+  }, [dismiss]);
+
   return useMemo(
-    () => ({ offers, restoring, restore, restoreAll, dismiss }),
-    [offers, restoring, restore, restoreAll, dismiss],
+    () => ({ offers, restoring, restore, restoreAll, dismiss, dismissAll }),
+    [offers, restoring, restore, restoreAll, dismiss, dismissAll],
   );
 }
 
@@ -243,7 +253,7 @@ function RecoveryRow({
  * space).
  */
 export function RecoverySection({ recovery }: { recovery: RecoveryState }) {
-  const { offers, restoring, restore, restoreAll, dismiss } = recovery;
+  const { offers, restoring, restore, restoreAll, dismiss, dismissAll } = recovery;
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
 
   if (offers.length === 0) return null;
@@ -263,12 +273,20 @@ export function RecoverySection({ recovery }: { recovery: RecoveryState }) {
         className="mb-2"
         side={
           offers.length > 1 ? (
-            <button
-              onClick={() => void restoreAll()}
-              className="text-xs px-2 py-1 border border-border rounded text-text-secondary hover:text-text-primary hover:border-text-secondary transition-colors"
-            >
-              Restore all ({offers.length})
-            </button>
+            <span className="flex items-center gap-2">
+              <button
+                onClick={() => void restoreAll()}
+                className="text-xs px-2 py-1 border border-border rounded text-text-secondary hover:text-text-primary hover:border-text-secondary transition-colors"
+              >
+                Restore all ({offers.length})
+              </button>
+              <button
+                onClick={() => void dismissAll()}
+                className="text-xs px-2 py-1 border border-border rounded text-text-secondary hover:text-text-primary hover:border-text-secondary transition-colors"
+              >
+                Dismiss all
+              </button>
+            </span>
           ) : undefined
         }
       />

@@ -10,8 +10,9 @@ offer renders one row: a hollow (non-live) dot, the server name, a meta line
 button, an **×** dismiss button, and a chevron that expands a read-only
 session tree (session color swatches, per-window pane counts and former
 commands, `resumable` tags on agent windows — display-only). **Restore all
-(N)** rides the heading's side slot when more than one offer exists and runs
-sequential per-server restore POSTs (no bulk endpoint). A restore shows an
+(N)** and **Dismiss all** ride the heading's side slot when more than one
+offer exists and run sequential per-server restore/dismiss POSTs (no bulk
+endpoint). A restore shows an
 indeterminate per-row "restoring…" state, and on success removes the row,
 refetches the offers, and refreshes the live server list; a dismiss removes
 its row on success.
@@ -103,3 +104,18 @@ What it proves: the dismiss flow — POST, then the row leaves the offer list.
    `Dismiss recovery for kit`.
 3. Assert one dismiss POST with body `{"server": "kit"}`.
 4. Assert the `kit` row is gone and `work` remains.
+
+### `Dismiss all POSTs one dismiss per server and the section leaves the DOM`
+
+What it proves: the heading's Dismiss-all control drives the same sequential
+per-server dismiss flow as the per-row × (one POST per offer, no bulk
+endpoint), and with every offer dismissed the Recovery region disappears
+entirely — zero footprint.
+
+1. Mock two offers (`kit`, `work`); load `/`; assert the `Dismiss all` button
+   is visible in the heading's side slot.
+2. Empty the mocked offers list (what the backend returns once everything is
+   dismissed), then click `Dismiss all`.
+3. Assert two dismiss POSTs land, in offer order: `{"server": "kit"}` then
+   `{"server": "work"}`.
+4. Assert the `Recovery` region has left the DOM.

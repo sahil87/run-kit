@@ -125,16 +125,18 @@ describe("RecoverySection", () => {
       "aria-expanded",
       "false",
     );
-    // Restore-all rides the heading only when MORE THAN ONE offer exists.
+    // The bulk buttons ride the heading only when MORE THAN ONE offer exists.
     expect(screen.queryByRole("button", { name: /Restore all/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Dismiss all" })).not.toBeInTheDocument();
   });
 
-  it("shows Restore all (N) in the heading side slot when more than one offer exists", async () => {
+  it("shows Restore all (N) and Dismiss all in the heading side slot when more than one offer exists", async () => {
     vi.mocked(getRecoveryOffers).mockResolvedValue([makeOffer("kit"), makeOffer("work")]);
     renderSection();
     expect(
       await screen.findByRole("button", { name: "Restore all (2)" }),
     ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Dismiss all" })).toBeInTheDocument();
   });
 
   it("expands the chevron to the read-only session tree (swatch, windows, commands, resumable tag)", async () => {
@@ -255,5 +257,56 @@ describe("RecoverySection", () => {
       expect(screen.queryByRole("region", { name: "Recovery" })).not.toBeInTheDocument(),
     );
     expect(refreshServersMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("Dismiss all runs SEQUENTIAL per-server dismisses (no bulk endpoint)", async () => {
+    // Mount fetch returns both offers; post-dismiss refetches return none.
+    vi.mocked(getRecoveryOffers)
+      .mockResolvedValueOnce([makeOffer("kit"), makeOffer("work")])
+      .mockResolvedValue([]);
+    const first = deferred<{ ok: boolean }>();
+    const order: string[] = [];
+    vi.mocked(dismissRecoveryServer).mockImplementation((server) => {
+      order.push(server);
+      return order.length === 1 ? first.promise : Promise.resolve({ ok: true });
+    });
+    renderSection();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Dismiss all" }));
+    // Only the first dismiss is in flight — the second has NOT started.
+    await waitFor(() => expect(order).toEqual(["kit"]));
+    expect(screen.getByTestId("recovery-row-work")).toBeInTheDocument();
+
+    first.resolve({ ok: true });
+    await waitFor(() => expect(order).toEqual(["kit", "work"]));
+    await waitFor(() =>
+      expect(screen.queryByRole("region", { name: "Recovery" })).not.toBeInTheDocument(),
+    );
+    expect(refreshServersMock).not.toHaveBeenCalled();
+  });
+
+  it("Dismiss all continues past a mid-loop failure: the failed server toasts, the rest still dismiss", async () => {
+    // The failed server (`work`) survives — the refetch still offers it.
+    vi.mocked(getRecoveryOffers)
+      .mockResolvedValueOnce([makeOffer("kit"), makeOffer("work"), makeOffer("ops")])
+      .mockResolvedValue([makeOffer("work")]);
+    const order: string[] = [];
+    vi.mocked(dismissRecoveryServer).mockImplementation((server) => {
+      order.push(server);
+      return server === "work"
+        ? Promise.reject(new Error("nope"))
+        : Promise.resolve({ ok: true });
+    });
+    renderSection();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Dismiss all" }));
+    // The failure on `work` toasts but does NOT block `ops`.
+    await waitFor(() => expect(order).toEqual(["kit", "work", "ops"]));
+    await waitFor(() => expect(addToastMock).toHaveBeenCalledWith("nope"));
+    await waitFor(() =>
+      expect(screen.queryByTestId("recovery-row-kit")).not.toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId("recovery-row-ops")).not.toBeInTheDocument();
+    expect(screen.getByTestId("recovery-row-work")).toBeInTheDocument();
   });
 });

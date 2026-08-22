@@ -74,6 +74,33 @@ Go: pure-function unit tests (rank table incl. every tier, stability/idempotence
 - **THEN** the sidebar rows return to ascending `@N` order
 - **AND** marking one window's pane `@rk_agent_state = waiting:<epoch>:<live-pane-pid>` (3-segment with a live pid — a 2-segment value on a shell pane is reconciled away) and invoking `Sort windows by status` puts that window first
 
+### Amendment: multi-key sort via a palette sub-list (2026-08-22)
+
+> User-directed scope amendment while in flight (PR #713 draft, unmerged). Persistence explicitly rejected — the verb stays one-shot. R1/R2/R4/R5's single-key contracts are superseded where R7–R9 say so.
+
+#### R7: Ordered multi-key API body
+The endpoint body SHALL become `{"by": [<key>, ...]}` — a non-empty ordered array of 1–3 **unique** keys from the closed set `status | created | name`. The bare-string form from R1 is REMOVED (the PR never merged; no consumers). An empty array, >3 keys, a duplicate key, a non-array `by`, or an unknown key MUST 400 with zero tmux calls. Semantics: the first key is the primary sort; each later key breaks ties within equal earlier keys (one comparator walking the key list — NOT sequential re-sorts). Stability is preserved: windows equal under ALL keys keep current relative order, so re-running any composite is idempotent. A `created`-primary composite is degenerate (`@N` never ties) and is accepted without error.
+
+- **GIVEN** windows `[beta@5(idle), alpha@3(idle), alpha@8(waiting)]`
+- **WHEN** `{"by": ["status", "name"]}` is posted
+- **THEN** the target order is `[alpha@8, alpha@3, beta@5]` (waiting first; idle ties broken by name; equal names keep current order)
+- **AND** `{"by": []}`, `{"by": "status"}`, `{"by": ["status","status"]}`, and `{"by": ["size"]}` each return 400 before any tmux call
+
+#### R8: `name` sort key
+A third key `name` SHALL sort by window name, **case-insensitive ascending** (simple Unicode lower-casing, no locale collation), meaningful as primary (duplicate folder-basename auto-names are routine) and as tie-break. Equal names fall through to the next key / current order.
+
+- **GIVEN** windows named `Zeta@1`, `alpha@2`
+- **WHEN** sorted by `["name"]`
+- **THEN** `alpha@2` precedes `Zeta@1` (case-insensitive, not ASCII-ordinal)
+
+#### R9: Palette option sub-step (replaces the flat pair)
+The two flat entries from R5 are REPLACED by one entry `Session: Sort windows…` (id `session-sort-windows`, same current-session gate, still chord-less). Selecting it does NOT close the palette: `CommandPalette` gains a minimal, generic **option-picker sub-step** — a new optional `PaletteAction` field (e.g. `optionPicker: { options: [{key, label}], onApply(orderedKeys) }`) generalizing the `confirmLabel` sub-step pattern: the list swaps to the option rows, the input goes readOnly with an instructional placeholder (e.g. `Pick sort keys — Space toggle · Enter apply`), ↑↓ navigates, **Space or click toggles** a key showing an order badge (1, 2, …) = selection order = priority, **Enter applies** `onApply` with the ordered selected keys (Enter with zero keys selected is a no-op, not a dismiss), and Esc/backdrop/⌘K cancel through the same seams `confirmLabel` uses. A sub-step row can never recurse (rows carry no `optionPicker`/`confirmLabel`). The applied composite POSTs via the R4 client (signature updated to `by: SortWindowsBy[]`); error toast on failure, no success toast.
+
+- **GIVEN** the palette open on the terminal route with a current session
+- **WHEN** `Session: Sort windows…` is selected, then Space on `By created`, Space on `By name`, then Enter
+- **THEN** exactly one POST fires with `{"by": ["created", "name"]}` and the palette closes
+- **AND** Esc during the sub-step closes the palette with NO POST and no tmux mutation
+
 ### Non-Goals
 
 - Cross-session moves — windows sort within their session only.
@@ -101,6 +128,12 @@ Go: pure-function unit tests (rank table incl. every tier, stability/idempotence
 **Rejected**: `internal/sessions` placement — plausible, but the functions are HTTP-verb-shaped (allowlist, 404 semantics) and the api package already hosts sibling pure helpers with handler tests.
 *Introduced by*: 260822-ga8z-sort-tabs-status-date
 
+#### Palette option-picker sub-step generalizes confirmLabel
+**Decision**: Multi-key selection happens in a generic `optionPicker` sub-step on `CommandPalette` (list swap + readOnly input + Space-toggle order badges + Enter apply), entered from ONE parent entry that replaces the flat pair.
+**Why**: The user asked for a sub-list; `confirmLabel` already proved the list-swap sub-step shape (state, cancel seams, no-recursion rule), so the picker extends a known mechanism instead of inventing a second modal surface. Selection order doubling as key priority makes composite intent expressible with zero extra UI.
+**Rejected**: Flat fan-out of composite entries (3 singles + 6 ordered pairs = 9+ rows — combinatorial palette pollution); a separate dialog outside the palette (breaks the keyboard-first single-surface flow, Constitution V).
+*Introduced by*: 260822-ga8z-sort-tabs-status-date (amendment)
+
 ## Tasks
 
 ### Phase 2: Core Implementation
@@ -118,19 +151,29 @@ Go: pure-function unit tests (rank table incl. every tier, stability/idempotence
 - [x] T008 Playwright e2e `app/frontend/tests/e2e/sort-windows.spec.ts` + companion `sort-windows.spec.md`: via the `_tmux.ts` fixture create a session with 3 windows, scramble order with `tmux move-window`, invoke `Session: Sort windows by created` from the palette, poll sidebar row order back to `@N` ascending; then set one pane's `@rk_agent_state` to `waiting:<epoch>:<live-pane-pid>` (3-segment, pane's own `#{pane_pid}`), invoke `Sort windows by status`, assert that window's row is first. Run via `just test-e2e "sort-windows"` <!-- R6 -->
 - [x] T009 Verification gates: `just test-backend` (or scoped `go test ./api/` first), `cd app/frontend && npx tsc --noEmit`, scoped Vitest for `palette-sort.test.ts`, then the T008 e2e via `just test-e2e` <!-- R6 -->
 
+### Phase 5: Amendment — multi-key sort + palette sub-step (R7–R9)
+
+- [x] T010 Backend multi-key: in `app/backend/api/sortwindows.go` extend the key set with `name` (case-insensitive ascending, `strings.ToLower` compare) and change the body contract to the R7 ordered array — decode `{"by": []string}`, validate non-empty/≤3/unique/known (else 400, zero tmux calls; the bare-string form now 400s), and replace the single-key target computation with ONE composite comparator walking the key list (stable sort preserved; `planSortMoves` unchanged) <!-- R7, R8 -->
+- [x] T011 Backend tests: extend `app/backend/api/sortwindows_test.go` — R7's GIVEN (`["status","name"]` composite with name tie-break inside equal ranks), name case-insensitivity (`alpha` < `Zeta`), degenerate `["created","name"]` accepted, composite idempotence (re-run ⇒ empty plan), and the 400 matrix (empty array, bare string, duplicate key, 4 keys, unknown key — each with zero recorded tmux calls) <!-- R7, R8, R6 -->
+- [x] T012 Palette mechanism: add the generic `optionPicker` sub-step to `app/frontend/src/components/command-palette.tsx` per R9 — optional `PaletteAction.optionPicker: { options: {key, label}[], onApply(orderedKeys) }`; selecting such an action swaps the list to option rows (readOnly input, instructional placeholder), ↑↓ navigates, Space/click toggles with order badges (selection order = priority), Enter applies the ordered keys then closes (zero-selected Enter = no-op), Esc/backdrop/⌘K cancel via the existing `confirmLabel` seams; sub-step rows carry no `confirmLabel`/`optionPicker` (no recursion). Cover the keyboard flow with a colocated Testing Library test (create `command-palette.test.tsx` if none exists) <!-- R9 -->
+- [x] T013 Replace the flat pair: `app/frontend/src/lib/palette-sort.ts` now builds ONE entry `Session: Sort windows…` (id `session-sort-windows`) carrying the three-key `optionPicker`; update `palette-sort.test.ts` (old ids gone, gate preserved, options pinned); change `sortSessionWindows` in `src/api/client.ts` to `by: SortWindowsBy[]`; rewire `app.tsx` `sessionActions` (error toast on failure, no success toast) <!-- R9, R7 -->
+- [x] T014 E2E rewrite: update `app/frontend/tests/e2e/sort-windows.spec.ts` + companion `sort-windows.spec.md` for the sub-step flow — created-sort via the sub-list (Space on `By created`, Enter), the waiting-first status case, one composite case (`status` then `name` — two idle windows with names ordering against ASCII), and an Esc-cancel case asserting NO reorder occurred. Run via `just test-e2e "sort-windows"` <!-- R9, R6 -->
+- [x] T015 Amendment gates: `go test ./api/` then `just test-backend`; `npx tsc --noEmit`; scoped Vitest (`palette-sort`, `command-palette`); the T014 e2e via `just test-e2e` <!-- R6 -->
+
 ## Execution Order
 
 - T001 → T002; T001+T003 → T004; T005/T006 parallel to backend; T007 needs T005+T006; T008 needs T003+T007; T009 last.
+- Amendment: T010 → T011; T012 → T013 (T012/T010 parallel); T014 needs T010+T013; T015 last.
 
 ## Acceptance
 
 ### Functional Completeness
 
-- [x] A-001 R1: `POST /api/sessions/{session}/sort-windows` exists, POST-only, accepts `{"by":"status"|"created"}`, rejects other values 400 before any tmux call, 404s an unknown session, validates session + server names
+- [x] A-001 R1 (superseded contract, satisfied via R7): `POST /api/sessions/{session}/sort-windows` exists, POST-only — the bare-string body was REPLACED by R7's array form (`{"by":"status"}` now 400s, unit-tested), with 400-before-tmux/404/validation posture intact (`sortwindows.go:183-220`)
 - [x] A-002 R2: order computation is a stable sort over the R2 rank table (`status`) / numeric `@N` (`created`), pure and exported for tests, with the status-pyramid cross-reference comment in place
 - [x] A-003 R3: moves execute through the existing `tmux.MoveWindow` via `TmuxOps`, only for windows whose position changes; the SSE hub is woken on ≥1 move; the response carries the applied order
 - [x] A-004 R4: `sortSessionWindows` client helper exists with `withServer` + `throwOnError`
-- [x] A-005 R5: both palette entries render only with a current session, ids `session-sort-windows-status`/`-created`, error toast on failure, no success toast
+- [x] A-005 R5 (superseded, satisfied via R9): the flat pair no longer exists — replaced by the single `session-sort-windows` parent entry with the option sub-step (R9/A-023); the current-session gate, error toast, and no-success-toast posture are preserved (`palette-sort.ts`, `app.tsx:2373-2377`)
 
 ### Behavioral Correctness
 
@@ -158,7 +201,16 @@ Go: pure-function unit tests (rank table incl. every tier, stability/idempotence
 
 ### Security
 
-- [x] A-018 R1: session/server names validated before subprocess use; `by` is a closed two-value allowlist; no client string ever reaches a tmux argv beyond the validated session name (Constitution I)
+- [x] A-018 R1: session/server names validated before subprocess use; `by` keys are a closed three-value allowlist under R7; no client string ever reaches a tmux argv beyond the validated session name (Constitution I)
+
+### Amendment (R7–R9)
+
+- [x] A-019 R7: the body is an ordered array of 1–3 unique keys from `status|created|name` (`validateSortKeys`, `sortwindows.go:116-131`); empty array, bare string, duplicates, >3 keys, and unknown keys each 400 with zero tmux calls (`TestSortWindowsInvalidBy` covers all five shapes)
+- [x] A-020 R7: composite ordering is ONE comparator walking the key list (`sortWindowsTarget`/`compareWindowsBy`, `sortwindows.go:70-112`), stable under all keys; re-running any composite yields an empty move plan (`TestCompositeIdempotence`)
+- [x] A-021 R8: `name` sorts case-insensitively ascending (`alpha` < `Zeta`) via `strings.Compare(strings.ToLower(...))` (`sortwindows.go:108-110`), unit-tested (`TestSortWindowsTargetNameCaseInsensitive`)
+- [x] A-022 R9: the sub-step keyboard flow works — Space toggles with order badges reflecting selection order (incl. renumber on untoggle), Enter POSTs exactly the ordered keys and closes, zero-selected Enter is a no-op, Esc/backdrop cancel with no apply (`command-palette.test.tsx` `optionPicker sub-step` suite, 8 tests) + e2e (`created`/`status`/composite cases)
+- [x] A-023 R9: the flat pair is gone — ids `session-sort-windows-status`/`-created` no longer exist anywhere in code (asserted absent in `palette-sort.test.ts`); the single `session-sort-windows` entry keeps the current-session gate (`palette-sort.ts:23`) and chord-less posture
+- [x] A-024 R9: the rewritten e2e covers the sub-list flow end-to-end (created, status-first, `status`+`name` composite, Esc-cancel — all 4 passed via `just test-e2e "sort-windows"`, exit 0) and the companion `sort-windows.spec.md` matches the new test bodies
 
 ## Notes
 
@@ -168,7 +220,8 @@ Go: pure-function unit tests (rank table incl. every tier, stability/idempotence
 
 ## Deletion Candidates
 
-None — this change adds new functionality without making existing code redundant.
+- `docs/memory/run-kit/tmux-sessions.md` § Sort Windows Verb (body `{"by": "status" | "created"}` text) — describes the pre-amendment string contract and the missing `name` key; stale under R7/R8 (hydrate-stage rewrite, not deletable from this stage)
+- `docs/memory/run-kit/ui/keyboard-and-palette.md` § Session window-sort actions (flat-pair paragraph) — documents the removed `session-sort-windows-status`/`-created` entries; stale under R9 (hydrate-stage rewrite, not deletable from this stage)
 
 ## Assumptions
 
@@ -180,5 +233,8 @@ None — this change adds new functionality without making existing code redunda
 | 4 | Confident | SSE hub wake fires on ≥1 applied move (the `/options` wake pattern) | Row-color latency precedent: mutations invisible to control-mode wait for the 12s safety tick without a wake; swap-window emits window events but the wake guarantees promptness cheaply | S:60 R:90 A:75 D:75 |
 | 5 | Confident | Status e2e uses the 3-segment `waiting:<epoch>:<live-pane-pid>` pane option to create a deterministic rank-0 window | Project memory documents 2-segment values on shell panes being reconciled away; the pane's own pid is live by construction | S:55 R:85 A:80 D:70 |
 | 6 | Certain | Palette-only surfacing, no chords; entries documented at the palette registration | Intake + Constitution V + code-review rule are explicit | S:90 R:90 A:95 D:90 |
+| 7 | Confident | Amendment: array-only body (bare string now 400s) — no dual-form back-compat | PR #713 never merged, so there are zero external consumers; one form keeps the allowlist posture simplest | S:75 R:85 A:90 D:80 |
+| 8 | Confident | Amendment: `name` compares via simple lowercase, no locale collation | Window names are folder basenames/agent-set ASCII in practice; locale collation adds dependency surface for no observed need | S:60 R:90 A:80 D:70 |
+| 9 | Confident | Amendment: zero-selected Enter in the sub-step is a no-op (not a dismiss), and Esc is the only key-cancel | Mirrors confirmLabel's cancel seams; an accidental Enter must not fire an empty sort or eat the picker state | S:55 R:85 A:75 D:70 |
 
-6 assumptions (1 certain, 5 confident, 0 tentative).
+9 assumptions (1 certain, 8 confident, 0 tentative).

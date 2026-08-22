@@ -147,7 +147,7 @@ export async function renameSession(
 }
 
 /** The deterministic order keys the sort-windows verb accepts (backend allowlist). */
-export type SortWindowsBy = "status" | "created";
+export type SortWindowsBy = "status" | "created" | "name";
 
 /** The applied window-ID order + how many moves it took. */
 export interface SortWindowsResult {
@@ -158,7 +158,7 @@ export interface SortWindowsResult {
 export async function sortSessionWindows(
   server: string,
   session: string,
-  by: SortWindowsBy,
+  by: SortWindowsBy[],
 ): Promise<SortWindowsResult> {
   const res = await fetch(
     withServer(`/api/sessions/${encodeURIComponent(session)}/sort-windows`, server),

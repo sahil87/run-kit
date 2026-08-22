@@ -63,23 +63,71 @@ func windowIDNum(id string) int {
 }
 
 // sortWindowsTarget computes the deterministic target order for a session's
-// windows without mutating the input. The sort is STABLE: equal keys preserve
-// current relative order, so re-running the verb on an already-sorted session
-// reproduces the current order (and planSortMoves then yields an empty batch).
-func sortWindowsTarget(windows []tmux.WindowInfo, by string) []tmux.WindowInfo {
+// windows without mutating the input. The sort is STABLE: windows equal under
+// ALL keys preserve current relative order, so re-running the verb on an
+// already-sorted session reproduces the current order (and planSortMoves then
+// yields an empty batch).
+func sortWindowsTarget(windows []tmux.WindowInfo, by []string) []tmux.WindowInfo {
 	target := make([]tmux.WindowInfo, len(windows))
 	copy(target, windows)
-	switch by {
-	case "created":
-		sort.SliceStable(target, func(i, j int) bool {
-			return windowIDNum(target[i].WindowID) < windowIDNum(target[j].WindowID)
-		})
-	case "status":
-		sort.SliceStable(target, func(i, j int) bool {
-			return statusRank(target[i]) < statusRank(target[j])
-		})
-	}
+	sort.SliceStable(target, func(i, j int) bool {
+		// One composite comparator: the first key is primary, each later key
+		// breaks ties within equal earlier keys.
+		for _, key := range by {
+			if c := compareWindowsBy(target[i], target[j], key); c != 0 {
+				return c < 0
+			}
+		}
+		return false
+	})
 	return target
+}
+
+// compareWindowsBy compares two windows under one sort key (negative: a first;
+// 0: tie — the next key or current order decides). "created" is numeric on the
+// @N window ID, "status" is the attention-first rank, "name" is
+// case-insensitive (simple lower-casing, no locale collation).
+func compareWindowsBy(a, b tmux.WindowInfo, key string) int {
+	switch key {
+	case "created":
+		an, bn := windowIDNum(a.WindowID), windowIDNum(b.WindowID)
+		switch {
+		case an < bn:
+			return -1
+		case an > bn:
+			return 1
+		}
+	case "status":
+		ar, br := statusRank(a), statusRank(b)
+		switch {
+		case ar < br:
+			return -1
+		case ar > br:
+			return 1
+		}
+	case "name":
+		return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
+	}
+	return 0
+}
+
+// validateSortKeys enforces the body allowlist: 1–3 unique keys from the
+// closed set status|created|name. Returns "" when valid.
+func validateSortKeys(by []string) string {
+	if len(by) == 0 || len(by) > 3 {
+		return "by must be an array of 1-3 unique keys from: status, created, name"
+	}
+	seen := make(map[string]bool, len(by))
+	for _, key := range by {
+		if key != "status" && key != "created" && key != "name" {
+			return "by keys must be one of: status, created, name"
+		}
+		if seen[key] {
+			return "by keys must be unique"
+		}
+		seen[key] = true
+	}
+	return ""
 }
 
 // sortMove is one planned MoveWindow call: move windowID to before dstIndex.
@@ -127,10 +175,11 @@ func planSortMoves(windows []tmux.WindowInfo, target []tmux.WindowInfo) []sortMo
 }
 
 // handleSessionSortWindows reorders a session's windows by a deterministic
-// key. POST /api/sessions/{session}/sort-windows ← {"by":"status"|"created"} →
-// 200 {"order": ["@N", ...], "moved": <count>}. All validation (session name,
-// JSON body, the by-allowlist) completes before ANY tmux call; an unknown
-// session is a 404.
+// ordered key list. POST /api/sessions/{session}/sort-windows ←
+// {"by":["status","name",...]} → 200 {"order": ["@N", ...], "moved": <count>}.
+// The first key is the primary sort; later keys break ties. All validation
+// (session name, JSON body, the by-allowlist) completes before ANY tmux call;
+// an unknown session is a 404.
 func (s *Server) handleSessionSortWindows(w http.ResponseWriter, r *http.Request) {
 	session := chi.URLParam(r, "session")
 	if errMsg := validate.ValidateName(session, "Session name"); errMsg != "" {
@@ -139,14 +188,14 @@ func (s *Server) handleSessionSortWindows(w http.ResponseWriter, r *http.Request
 	}
 
 	var body struct {
-		By string `json:"by"`
+		By []string `json:"by"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid JSON body")
 		return
 	}
-	if body.By != "status" && body.By != "created" {
-		writeError(w, http.StatusBadRequest, "by must be one of: status, created")
+	if errMsg := validateSortKeys(body.By); errMsg != "" {
+		writeError(w, http.StatusBadRequest, errMsg)
 		return
 	}
 

@@ -26,6 +26,10 @@ func withAgent(state string) func(*tmux.WindowInfo) {
 	return func(w *tmux.WindowInfo) { w.AgentState = state }
 }
 
+func withName(name string) func(*tmux.WindowInfo) {
+	return func(w *tmux.WindowInfo) { w.Name = name }
+}
+
 func withPR(state, checks, review string) func(*tmux.WindowInfo) {
 	return func(w *tmux.WindowInfo) {
 		w.PrState = state
@@ -112,7 +116,7 @@ func TestSortWindowsTargetStatus(t *testing.T) {
 		sortWin(2, "@3", withPR("merged", "", "")),
 		sortWin(3, "@4", withAgent("active")),
 	}
-	got := windowIDs(sortWindowsTarget(windows, "status"))
+	got := windowIDs(sortWindowsTarget(windows, []string{"status"}))
 	want := []string{"@2", "@4", "@3", "@1"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("status target = %v, want %v", got, want)
@@ -126,7 +130,7 @@ func TestSortWindowsTargetStatus(t *testing.T) {
 func TestSortWindowsTargetCreatedNumeric(t *testing.T) {
 	// @9 sorts before @10 — numeric, not lexicographic.
 	windows := []tmux.WindowInfo{sortWin(0, "@10"), sortWin(1, "@9"), sortWin(2, "@2")}
-	got := windowIDs(sortWindowsTarget(windows, "created"))
+	got := windowIDs(sortWindowsTarget(windows, []string{"created"}))
 	want := []string{"@2", "@9", "@10"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("created target = %v, want %v", got, want)
@@ -141,10 +145,45 @@ func TestSortWindowsTargetStable(t *testing.T) {
 		sortWin(2, "@3", withAgent("idle")),
 		sortWin(3, "@4"),
 	}
-	got := windowIDs(sortWindowsTarget(windows, "status"))
+	got := windowIDs(sortWindowsTarget(windows, []string{"status"}))
 	want := []string{"@2", "@1", "@3", "@4"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("status target = %v, want %v", got, want)
+	}
+}
+
+func TestSortWindowsTargetComposite(t *testing.T) {
+	// [beta@5(idle), alpha@3(idle), alpha@8(waiting)] under ["status","name"]:
+	// waiting first; the idle tie is broken by name; equal names would keep
+	// current order.
+	windows := []tmux.WindowInfo{
+		sortWin(0, "@5", withAgent("idle"), withName("beta")),
+		sortWin(1, "@3", withAgent("idle"), withName("alpha")),
+		sortWin(2, "@8", withAgent("waiting"), withName("alpha")),
+	}
+	got := windowIDs(sortWindowsTarget(windows, []string{"status", "name"}))
+	want := []string{"@8", "@3", "@5"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("composite target = %v, want %v", got, want)
+	}
+
+	// A created-primary composite is degenerate (@N never ties) but accepted:
+	// the name tie-break simply never fires.
+	got = windowIDs(sortWindowsTarget(windows, []string{"created", "name"}))
+	want = []string{"@3", "@5", "@8"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("created-primary composite target = %v, want %v", got, want)
+	}
+}
+
+func TestSortWindowsTargetNameCaseInsensitive(t *testing.T) {
+	// Case-insensitive ascending: "alpha" precedes "Zeta" (ASCII-ordinal would
+	// put 'Z' before 'a').
+	windows := []tmux.WindowInfo{sortWin(0, "@1", withName("Zeta")), sortWin(1, "@2", withName("alpha"))}
+	got := windowIDs(sortWindowsTarget(windows, []string{"name"}))
+	want := []string{"@2", "@1"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("name target = %v, want %v", got, want)
 	}
 }
 
@@ -158,7 +197,7 @@ func TestPlanSortMovesOnlyWhenChanged(t *testing.T) {
 
 	// Target [w@4, i@2, p@1, p@3]: @4 walks to slot 0 and @2 to slot 1 — the
 	// two windows out of place.
-	moves := planSortMoves(windows, sortWindowsTarget(windows, "status"))
+	moves := planSortMoves(windows, sortWindowsTarget(windows, []string{"status"}))
 	want := []sortMove{{windowID: "@4", dstIndex: 0}, {windowID: "@2", dstIndex: 1}}
 	if !reflect.DeepEqual(moves, want) {
 		t.Errorf("moves = %v, want %v", moves, want)
@@ -171,7 +210,7 @@ func TestPlanSortMovesOnlyWhenChanged(t *testing.T) {
 		sortWin(2, "@2", withAgent("idle")),
 		sortWin(3, "@3"),
 	}
-	moves = planSortMoves(one, sortWindowsTarget(one, "status"))
+	moves = planSortMoves(one, sortWindowsTarget(one, []string{"status"}))
 	want = []sortMove{{windowID: "@2", dstIndex: 1}}
 	if !reflect.DeepEqual(moves, want) {
 		t.Errorf("single-misplaced moves = %v, want %v", moves, want)
@@ -179,8 +218,8 @@ func TestPlanSortMovesOnlyWhenChanged(t *testing.T) {
 
 	// Already sorted ⇒ empty batch (idempotence: the stable re-sort reproduces
 	// the current order, so every window is already in its target slot).
-	sorted := sortWindowsTarget(windows, "status")
-	moves = planSortMoves(sorted, sortWindowsTarget(sorted, "status"))
+	sorted := sortWindowsTarget(windows, []string{"status"})
+	moves = planSortMoves(sorted, sortWindowsTarget(sorted, []string{"status"}))
 	if len(moves) != 0 {
 		t.Errorf("already-sorted moves = %v, want empty", moves)
 	}
@@ -204,10 +243,24 @@ func TestPlanSortMovesNonZeroBaseIndex(t *testing.T) {
 	// tmux window indexes need not start at 0: the plan targets the sorted
 	// current index VALUES, not positional counts.
 	windows := []tmux.WindowInfo{sortWin(5, "@1"), sortWin(7, "@2", withAgent("waiting")), sortWin(9, "@3")}
-	moves := planSortMoves(windows, sortWindowsTarget(windows, "status"))
+	moves := planSortMoves(windows, sortWindowsTarget(windows, []string{"status"}))
 	want := []sortMove{{windowID: "@2", dstIndex: 5}}
 	if !reflect.DeepEqual(moves, want) {
 		t.Errorf("moves = %v, want %v", moves, want)
+	}
+}
+
+func TestCompositeIdempotence(t *testing.T) {
+	// Re-running any composite on its own result yields an empty move plan.
+	windows := []tmux.WindowInfo{
+		sortWin(0, "@5", withAgent("idle"), withName("beta")),
+		sortWin(1, "@3", withAgent("idle"), withName("alpha")),
+		sortWin(2, "@8", withAgent("waiting"), withName("alpha")),
+	}
+	sorted := sortWindowsTarget(windows, []string{"status", "name"})
+	moves := planSortMoves(sorted, sortWindowsTarget(sorted, []string{"status", "name"}))
+	if len(moves) != 0 {
+		t.Errorf("re-run composite moves = %v, want empty", moves)
 	}
 }
 
@@ -242,7 +295,7 @@ func TestSortWindowsSuccess(t *testing.T) {
 	ops := &mockTmuxOps{}
 	router := newTestRouter(&mockSessionFetcher{result: sortFixture()}, ops)
 
-	rec := postSort(t, router, "work", `{"by":"status"}`)
+	rec := postSort(t, router, "work", `{"by":["status"]}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
@@ -276,7 +329,7 @@ func TestSortWindowsCreated(t *testing.T) {
 	}}
 	router := newTestRouter(sf, ops)
 
-	rec := postSort(t, router, "work", `{"by":"created"}`)
+	rec := postSort(t, router, "work", `{"by":["created"]}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
@@ -292,7 +345,7 @@ func TestSortWindowsAlreadySortedNoMoves(t *testing.T) {
 	ops := &mockTmuxOps{}
 	router := newTestRouter(&mockSessionFetcher{result: sortFixture()}, ops)
 
-	rec := postSort(t, router, "work", `{"by":"created"}`)
+	rec := postSort(t, router, "work", `{"by":["created"]}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
@@ -316,7 +369,19 @@ func TestSortWindowsAlreadySortedNoMoves(t *testing.T) {
 }
 
 func TestSortWindowsInvalidBy(t *testing.T) {
-	for _, body := range []string{`{"by":"alphabetical"}`, `{"by":""}`, `{}`} {
+	// The 400 matrix: empty array, bare string (the pre-amendment form),
+	// duplicate key, >3 keys, unknown key, missing key, empty string —
+	// each rejected before ANY tmux call.
+	bodies := []string{
+		`{"by":[]}`,
+		`{"by":"status"}`,
+		`{"by":["status","status"]}`,
+		`{"by":["status","created","name","created"]}`,
+		`{"by":["size"]}`,
+		`{"by":""}`,
+		`{}`,
+	}
+	for _, body := range bodies {
 		ops := &mockTmuxOps{}
 		router := newTestRouter(&mockSessionFetcher{result: sortFixture()}, ops)
 		rec := postSort(t, router, "work", body)
@@ -345,7 +410,7 @@ func TestSortWindowsInvalidSessionName(t *testing.T) {
 	ops := &mockTmuxOps{}
 	router := newTestRouter(&mockSessionFetcher{result: sortFixture()}, ops)
 	// A semicolon is a forbidden shell metacharacter — validate.ValidateName rejects.
-	rec := postSort(t, router, "bad;name", `{"by":"status"}`)
+	rec := postSort(t, router, "bad;name", `{"by":["status"]}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
 	}
@@ -357,11 +422,46 @@ func TestSortWindowsInvalidSessionName(t *testing.T) {
 func TestSortWindowsUnknownSession(t *testing.T) {
 	ops := &mockTmuxOps{}
 	router := newTestRouter(&mockSessionFetcher{result: sortFixture()}, ops)
-	rec := postSort(t, router, "nope", `{"by":"status"}`)
+	rec := postSort(t, router, "nope", `{"by":["status"]}`)
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusNotFound)
 	}
 	if ops.swapWindowCalled {
 		t.Error("MoveWindow called for an unknown session")
+	}
+}
+
+func TestSortWindowsCompositeHandler(t *testing.T) {
+	// [beta@5(idle), alpha@3(idle), alpha@8(waiting)] under ["status","name"]:
+	// @8 first (waiting), then the idle tie broken by name ⇒ @3 before @5.
+	// Two moves pull @8 and @3 into slots 0 and 1.
+	ops := &mockTmuxOps{}
+	sf := &mockSessionFetcher{result: []sessions.ProjectSession{
+		{Name: "work", Windows: []tmux.WindowInfo{
+			sortWin(0, "@5", withAgent("idle"), withName("beta")),
+			sortWin(1, "@3", withAgent("idle"), withName("alpha")),
+			sortWin(2, "@8", withAgent("waiting"), withName("alpha")),
+		}},
+	}}
+	router := newTestRouter(sf, ops)
+
+	rec := postSort(t, router, "work", `{"by":["status","name"]}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	wantCalls := []moveWindowCall{{windowID: "@8", dstIndex: 0}, {windowID: "@3", dstIndex: 1}}
+	if !reflect.DeepEqual(ops.moveWindowCalls, wantCalls) {
+		t.Errorf("MoveWindow calls = %v, want %v", ops.moveWindowCalls, wantCalls)
+	}
+
+	var result struct {
+		Order []string `json:"order"`
+		Moved int      `json:"moved"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if want := []string{"@8", "@3", "@5"}; !reflect.DeepEqual(result.Order, want) {
+		t.Errorf("order = %v, want %v", result.Order, want)
 	}
 }

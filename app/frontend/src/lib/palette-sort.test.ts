@@ -1,30 +1,35 @@
 import { describe, it, expect, vi } from "vitest";
 import { buildSessionSortActions } from "./palette-sort";
 
-// Backs the `Session: Sort windows by status/created` palette entries. app.tsx
-// folds the builder output into the session group, so covering the gating and
-// the pinned ids/labels here proves the entries' shape without mounting the
-// shell.
+// Backs the `Session: Sort windows…` palette entry. app.tsx folds the builder
+// output into the session group, so covering the gating and the pinned
+// id/label/options here proves the entry's shape without mounting the shell.
 
 describe("buildSessionSortActions", () => {
-  it("returns [] without a current session (entries omitted, not disabled)", () => {
+  it("returns [] without a current session (entry omitted, not disabled)", () => {
     expect(buildSessionSortActions(null, vi.fn())).toEqual([]);
     expect(buildSessionSortActions("", vi.fn())).toEqual([]);
   });
 
-  it("pins the two ids and labels with a current session", () => {
+  it("pins the single id, label, and option-picker keys with a current session", () => {
     const actions = buildSessionSortActions("work", vi.fn());
     expect(actions.map((a) => [a.id, a.label])).toEqual([
-      ["session-sort-windows-status", "Session: Sort windows by status"],
-      ["session-sort-windows-created", "Session: Sort windows by created"],
+      ["session-sort-windows", "Session: Sort windows…"],
     ]);
+    expect(actions[0].optionPicker?.options).toEqual([
+      { key: "status", label: "By status" },
+      { key: "created", label: "By created" },
+      { key: "name", label: "By name" },
+    ]);
+    // The flat pair is gone — no per-key entries.
+    expect(actions.some((a) => a.id === "session-sort-windows-status")).toBe(false);
+    expect(actions.some((a) => a.id === "session-sort-windows-created")).toBe(false);
   });
 
-  it("routes onSelect to onSort with the entry's key", () => {
+  it("routes onApply to onSort with the ordered selected keys", () => {
     const onSort = vi.fn();
-    const [status, created] = buildSessionSortActions("work", onSort);
-    status.onSelect();
-    created.onSelect();
-    expect(onSort.mock.calls).toEqual([["status"], ["created"]]);
+    const [entry] = buildSessionSortActions("work", onSort);
+    entry.optionPicker!.onApply(["created", "name"]);
+    expect(onSort).toHaveBeenCalledWith(["created", "name"]);
   });
 });

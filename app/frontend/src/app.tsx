@@ -2366,10 +2366,11 @@ function AppShell() {
               label: "Session: Kill",
               onSelect: dialogs.openKillSessionConfirm,
             },
-            // Sort windows by a deterministic key (status pyramid rank or
-            // creation order) — one-shot, never a standing auto-sort. No
-            // success toast: the reorder shows via the SSE derive tick.
-            ...buildSessionSortActions(sessionName, (by: SortWindowsBy) => {
+            // Sort windows by an ordered list of deterministic keys (status
+            // pyramid rank, creation order, name) picked via the palette's
+            // option-picker sub-step — one-shot, never a standing auto-sort.
+            // No success toast: the reorder shows via the SSE derive tick.
+            ...buildSessionSortActions(sessionName, (by: SortWindowsBy[]) => {
               sortSessionWindows(server, sessionName, by).catch((err: Error) =>
                 addToast(err.message || "Failed to sort windows", "error"),
               );

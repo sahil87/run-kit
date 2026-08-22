@@ -101,9 +101,11 @@ export async function unpinAll(request: APIRequestContext): Promise<void> {
 // ---- verbatim-dupe fold-ins with the same home ----
 
 /** Resolve the backend origin for raw `request`-fixture calls:
- *  `baseURL ?? http://localhost:${RK_PORT ?? 3020}`. */
+ *  `baseURL ?? http://localhost:${RK_PORT ?? 3333}` — the 3333 fallback is
+ *  playwright.config.ts's fail-closed port (connects to nothing rather than
+ *  silently targeting a live dev server). */
 export function apiBase(baseURL: string | undefined): string {
-  return baseURL ?? `http://localhost:${process.env.RK_PORT ?? 3020}`;
+  return baseURL ?? `http://localhost:${process.env.RK_PORT ?? 3333}`;
 }
 
 /** True for the terminals mux URL (`/ws/terminals`) — one socket per tab

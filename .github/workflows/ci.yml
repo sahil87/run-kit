@@ -107,9 +107,10 @@ jobs:
 
       # The e2e harness runs against a live dev server: tmux backs the sessions,
       # air gives the backend live-reload, Vite serves the frontend. Each shard
-      # is its own runner with its own /tmp/tmux-* socket dir, so the shared
-      # rk-test-e2e server is naturally isolated between shards — that is what
-      # makes sharding (rather than in-process workers) the safe parallelism.
+      # is its own runner with its own /tmp/tmux-* socket dir, so every shard
+      # derives the same per-worktree e2e identity (rk-test-e2e-<token>-*,
+      # scripts/e2e-env.sh) in an isolated VM — that is what makes sharding
+      # (rather than in-process workers) the safe parallelism.
       - name: Install tmux
         # apt has no network timeout by default — a stalled mirror connection
         # (the recurring azure.archive.ubuntu.com flake) hangs this step until

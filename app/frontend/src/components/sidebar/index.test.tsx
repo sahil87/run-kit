@@ -101,6 +101,13 @@ const PRIMARY_SESSIONS: ProjectSession[] = [
 
 type RenderOpts = {
   currentServer?: string | null;
+  /** Override the route selection (defaults: session "main" / window "@0" when
+   *  a current server exists). Pass null for the no-current-window route state
+   *  (`/$server` dashboard, board route) — needed by tests that fold a session
+   *  and assert its rows leave the DOM, since the CURRENT session renders
+   *  expanded regardless of its collapsed exception (derived expand). */
+  currentSession?: string | null;
+  currentWindowId?: string | null;
   servers?: { name: string; sessionCount: number }[];
   /** Wrap the tree in <StrictMode> to surface impure state updaters (the
    *  double-invocation the real app gets via main.tsx). Off by default so the
@@ -170,8 +177,8 @@ function sidebarTree(opts: RenderOpts = {}) {
                     <SettingsDialogProvider>
                       <Sidebar
                         currentServer={currentServer}
-                        currentSession={currentServer ? "main" : null}
-                        currentWindowId={currentServer ? "@0" : null}
+                        currentSession={opts.currentSession !== undefined ? opts.currentSession : currentServer ? "main" : null}
+                        currentWindowId={opts.currentWindowId !== undefined ? opts.currentWindowId : currentServer ? "@0" : null}
                         isConnected={opts.isConnected ?? false}
                         onSelectWindow={vi.fn()}
                         onCreateWindow={vi.fn()}
@@ -521,7 +528,10 @@ describe("Sidebar — selection survives collapse/expand (260807-nf9f R4)", () =
   });
 
   it("keeps the selection and anchor when the selected window's OWN session collapses", async () => {
-    renderSidebar({ currentServer: "primary", sessionsByServer: SESSIONS });
+    // No-current-window route state (`/$server` dashboard): these tests fold
+    // sessions and assert their rows leave the DOM, which a session exempts
+    // itself from while it is the current route's session (derived expand).
+    renderSidebar({ currentServer: "primary", sessionsByServer: SESSIONS, currentSession: null, currentWindowId: null });
 
     selectWindowRow("primary:@0");
     expect([...useSelectionStore.getState().selected]).toEqual(["primary:@0"]);
@@ -556,7 +566,10 @@ describe("Sidebar — selection survives collapse/expand (260807-nf9f R4)", () =
     // so it legitimately selects windows inside collapsed sessions. Under
     // visibility-keyed liveness the very next unrelated signature change wiped
     // them, losing part of the selection before the user reached the palette.
-    renderSidebar({ currentServer: "primary", sessionsByServer: SESSIONS });
+    // No-current-window route state (`/$server` dashboard): these tests fold
+    // sessions and assert their rows leave the DOM, which a session exempts
+    // itself from while it is the current route's session (derived expand).
+    renderSidebar({ currentServer: "primary", sessionsByServer: SESSIONS, currentSession: null, currentWindowId: null });
 
     selectWindowRow("primary:@5");
     fireEvent.click(collapseChipFor("side")); // @5's own session folds away
@@ -660,7 +673,7 @@ describe("Sidebar — per-session collapse persistence (kddk)", () => {
   }
 
   it("persists a collapse and restores it on a remount (refresh)", () => {
-    renderSidebar({ currentServer: "primary" });
+    renderSidebar({ currentServer: "primary", currentSession: null, currentWindowId: null });
     expect(collapseChipFor("main")).toHaveAttribute("aria-expanded", "true");
 
     fireEvent.click(collapseChipFor("main"));
@@ -671,7 +684,7 @@ describe("Sidebar — per-session collapse persistence (kddk)", () => {
 
     // Remount with the same storage — the refresh the feature exists for.
     cleanup();
-    renderSidebar({ currentServer: "primary" });
+    renderSidebar({ currentServer: "primary", currentSession: null, currentWindowId: null });
 
     expect(collapseChipFor("main")).toHaveAttribute("aria-expanded", "false");
     expect(windowRow("primary:@0")).toBeNull();
@@ -682,7 +695,7 @@ describe("Sidebar — per-session collapse persistence (kddk)", () => {
       SESSION_COLLAPSED_STORAGE_KEY,
       JSON.stringify({ "primary:main": true }),
     );
-    renderSidebar({ currentServer: "primary" });
+    renderSidebar({ currentServer: "primary", currentSession: null, currentWindowId: null });
     expect(collapseChipFor("main")).toHaveAttribute("aria-expanded", "false");
 
     fireEvent.click(collapseChipFor("main"));
@@ -700,7 +713,7 @@ describe("Sidebar — per-session collapse persistence (kddk)", () => {
       SESSION_COLLAPSED_STORAGE_KEY,
       JSON.stringify({ "other:archived": true }),
     );
-    renderSidebar({ currentServer: "primary" });
+    renderSidebar({ currentServer: "primary", currentSession: null, currentWindowId: null });
 
     fireEvent.click(collapseChipFor("main"));
 
@@ -710,7 +723,7 @@ describe("Sidebar — per-session collapse persistence (kddk)", () => {
   it("renders every session expanded when the stored value is malformed JSON", () => {
     localStorage.setItem(SESSION_COLLAPSED_STORAGE_KEY, "{not json");
 
-    expect(() => renderSidebar({ currentServer: "primary" })).not.toThrow();
+    expect(() => renderSidebar({ currentServer: "primary", currentSession: null, currentWindowId: null })).not.toThrow();
 
     expect(collapseChipFor("main")).toHaveAttribute("aria-expanded", "true");
     expect(windowRow("primary:@0")).not.toBeNull();
@@ -721,7 +734,7 @@ describe("Sidebar — per-session collapse persistence (kddk)", () => {
       SESSION_COLLAPSED_STORAGE_KEY,
       JSON.stringify(["primary:main"]),
     );
-    renderSidebar({ currentServer: "primary" });
+    renderSidebar({ currentServer: "primary", currentSession: null, currentWindowId: null });
     expect(collapseChipFor("main")).toHaveAttribute("aria-expanded", "true");
 
     cleanup();
@@ -730,7 +743,7 @@ describe("Sidebar — per-session collapse persistence (kddk)", () => {
       SESSION_COLLAPSED_STORAGE_KEY,
       JSON.stringify({ "primary:main": "yes" }),
     );
-    renderSidebar({ currentServer: "primary" });
+    renderSidebar({ currentServer: "primary", currentSession: null, currentWindowId: null });
     expect(collapseChipFor("main")).toHaveAttribute("aria-expanded", "true");
   });
 
@@ -739,7 +752,7 @@ describe("Sidebar — per-session collapse persistence (kddk)", () => {
       SESSION_COLLAPSED_STORAGE_KEY,
       JSON.stringify({ "primary:other": true }),
     );
-    renderSidebar({ currentServer: "primary" });
+    renderSidebar({ currentServer: "primary", currentSession: null, currentWindowId: null });
 
     expect(collapseChipFor("main")).toHaveAttribute("aria-expanded", "true");
     expect(windowRow("primary:@0")).not.toBeNull();
@@ -749,7 +762,7 @@ describe("Sidebar — per-session collapse persistence (kddk)", () => {
     // The mss7 failure mode, one level down: a localStorage write INSIDE the
     // state updater runs twice under React 19 StrictMode and the second pass
     // observes the first pass's write, making a single click a net no-op.
-    renderSidebar({ currentServer: "primary", strict: true });
+    renderSidebar({ currentServer: "primary", currentSession: null, currentWindowId: null, strict: true });
 
     fireEvent.click(collapseChipFor("main"));
     expect(collapseChipFor("main")).toHaveAttribute("aria-expanded", "false");
@@ -779,7 +792,7 @@ describe("Sidebar — per-session collapse persistence (kddk)", () => {
       });
 
     try {
-      expect(() => renderSidebar({ currentServer: "primary" })).not.toThrow();
+      expect(() => renderSidebar({ currentServer: "primary", currentSession: null, currentWindowId: null })).not.toThrow();
       expect(collapseChipFor("main")).toHaveAttribute("aria-expanded", "true");
 
       // The toggle still works in-session; only the persistence is lost.
@@ -912,7 +925,7 @@ describe("Sidebar — tree ARIA + roving keyboard navigation (wt1v)", () => {
                       <SettingsDialogProvider>
                       <Sidebar
                         currentServer="primary"
-                        currentSession="main"
+                        currentSession={null}
                         currentWindowId={null}
                         isConnected={false}
                         onSelectWindow={onSelectWindow}
@@ -2419,11 +2432,14 @@ describe("Sidebar — desktop selected-row autoscroll (nris)", () => {
       writable: true,
     });
     useWindowStore.setState({ entries: new Map(), ghosts: [] });
+    // The derived-expand tests write collapse exceptions via the chevron.
+    localStorage.clear();
   });
 
   afterEach(() => {
     delete (window.HTMLElement.prototype as unknown as Record<string, unknown>).scrollIntoView;
     useWindowStore.setState({ entries: new Map(), ghosts: [] });
+    localStorage.clear();
   });
 
   const SCROLL_SESSIONS: ProjectSession[] = [
@@ -2436,9 +2452,16 @@ describe("Sidebar — desktop selected-row autoscroll (nris)", () => {
     },
   ];
 
-  /** Provider tree parameterized on sessions + selected window id so tests can
-   *  rerender across selection changes, passive SSE ticks, and data arrival. */
-  function scrollTreeUI(sessions: ProjectSession[], currentWindowId: string | null) {
+  /** Provider tree parameterized on sessions + route selection so tests can
+   *  rerender across selection changes (including cross-session navigation,
+   *  where `currentSession` moves with the window), passive SSE ticks, and
+   *  data arrival. */
+  function scrollTreeUI(
+    sessions: ProjectSession[],
+    currentWindowId: string | null,
+    currentSession: string | null = "main",
+    onSelectWindow: (server: string, session: string, windowId: string) => void = vi.fn(),
+  ) {
     const servers = [{ name: "primary", sessionCount: 1 }];
     return (
       <ThemeProvider>
@@ -2464,10 +2487,10 @@ describe("Sidebar — desktop selected-row autoscroll (nris)", () => {
                       <SettingsDialogProvider>
                         <Sidebar
                           currentServer="primary"
-                          currentSession="main"
+                          currentSession={currentSession}
                           currentWindowId={currentWindowId}
                           isConnected={false}
-                          onSelectWindow={vi.fn()}
+                          onSelectWindow={onSelectWindow}
                           onCreateWindow={vi.fn()}
                           onCreateSession={vi.fn()}
                           onCreateServer={vi.fn()}
@@ -2561,28 +2584,98 @@ describe("Sidebar — desktop selected-row autoscroll (nris)", () => {
     expect(rowScrollCalls()).toHaveLength(1);
   });
 
-  it("collapsed group: no scroll, no auto-expand; the deferred scroll fires on expand", () => {
-    const { rerender } = render(scrollTreeUI(SCROLL_SESSIONS, "@0"));
+  // Two sessions so a NON-current one exists: the current route's session
+  // renders expanded regardless of its collapsed exception (derived expand),
+  // so the fold-away behaviors below need a session that is not current.
+  const TWO_SESSION_SCROLL: ProjectSession[] = [
+    ...SCROLL_SESSIONS,
+    {
+      name: "other",
+      windows: [
+        { index: 0, windowId: "@5", name: "docs", worktreePath: "~/b", activity: "idle", isActiveWindow: false, activityTimestamp: 0 },
+      ],
+    },
+  ];
+
+  it("current session ignores its collapsed exception: the chevron writes the map but rows stay painted", () => {
+    const { rerender } = render(scrollTreeUI(TWO_SESSION_SCROLL, "@0"));
     expect(rowScrollCalls()).toHaveLength(1);
 
-    // Collapse the "main" session — the window rows leave the DOM.
+    // Collapse the CURRENT session "main": the exception persists to the map,
+    // but the derived override keeps the group expanded while it is current.
     act(() => { fireEvent.click(screen.getByRole("button", { name: /Collapse main/ })); });
-    expect(selectedRowButton()).toBeNull();
+    expect(JSON.parse(localStorage.getItem(SESSION_COLLAPSED_STORAGE_KEY)!))
+      .toEqual({ "primary:main": true });
+    expect(selectedRowButton()).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Collapse main/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
 
-    // Select a different window while collapsed: row not queryable → no scroll,
-    // and the group is NOT auto-expanded.
-    act(() => { rerender(scrollTreeUI(SCROLL_SESSIONS, "@1")); });
-    expect(rowScrollCalls()).toHaveLength(1);
+    // A selection change within the still-painted group scrolls normally.
+    act(() => { rerender(scrollTreeUI(TWO_SESSION_SCROLL, "@1")); });
+    expect(rowScrollCalls()).toHaveLength(2);
+    expect((rowScrollCalls()[1] as HTMLElement).closest("[data-window-id]"))
+      .toHaveAttribute("data-window-id", "@1");
+  });
+
+  it("the exception re-applies on navigate-away: the session folds and the map entry is intact", () => {
+    const { rerender } = render(scrollTreeUI(TWO_SESSION_SCROLL, "@0"));
+    act(() => { fireEvent.click(screen.getByRole("button", { name: /Collapse main/ })); });
+    expect(selectedRowButton()).not.toBeNull(); // painted while current
+
+    // Navigate to a window of "other": "main" stops being current, its
+    // exception takes effect, and the entry never left the map.
+    act(() => { rerender(scrollTreeUI(TWO_SESSION_SCROLL, "@5", "other")); });
     expect(screen.getByRole("button", { name: /Expand main/ })).toHaveAttribute(
       "aria-expanded",
       "false",
     );
-
-    // User expands the group → the armed pending scroll completes once.
-    act(() => { fireEvent.click(screen.getByRole("button", { name: /Expand main/ })); });
+    expect(document.querySelector('[role="tree"] [data-row-key="primary:@0"]')).toBeNull();
+    expect(JSON.parse(localStorage.getItem(SESSION_COLLAPSED_STORAGE_KEY)!))
+      .toEqual({ "primary:main": true });
+    // The @5 selection in the (expanded) "other" group scrolled once more.
     expect(rowScrollCalls()).toHaveLength(2);
     expect((rowScrollCalls()[1] as HTMLElement).closest("[data-window-id]"))
-      .toHaveAttribute("data-window-id", "@1");
+      .toHaveAttribute("data-window-id", "@5");
+  });
+
+  it("navigating into a collapsed session reveals it and completes the deferred scroll; non-current never auto-expands", () => {
+    const onSelectWindow = vi.fn();
+    const { rerender } = render(scrollTreeUI(TWO_SESSION_SCROLL, "@0", "main", onSelectWindow));
+    expect(rowScrollCalls()).toHaveLength(1);
+
+    // Collapse the NON-current session "other": its rows leave the DOM and
+    // stay out — a non-current session never auto-expands.
+    act(() => { fireEvent.click(screen.getByRole("button", { name: /Collapse other/ })); });
+    expect(document.querySelector('[role="tree"] [data-row-key="primary:@5"]')).toBeNull();
+    expect(screen.getByRole("button", { name: /Expand other/ })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+
+    // Navigate into it: the derived override reveals the rows and the armed
+    // deferred scroll completes exactly once, targeting the selected row.
+    act(() => { rerender(scrollTreeUI(TWO_SESSION_SCROLL, "@5", "other", onSelectWindow)); });
+    expect(screen.getByRole("button", { name: /Collapse other/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(rowScrollCalls()).toHaveLength(2);
+    expect((rowScrollCalls()[1] as HTMLElement).closest("[data-window-id]"))
+      .toHaveAttribute("data-window-id", "@5");
+    // Navigation never mutates the map: the exception is intact.
+    expect(JSON.parse(localStorage.getItem(SESSION_COLLAPSED_STORAGE_KEY)!))
+      .toEqual({ "primary:other": true });
+
+    // Roving/render agreement: Enter resolves the row through the registered
+    // identity slice (not the DOM), so activation proves the visible-row slice
+    // recomputed with the current session — not just the painted rows.
+    const t = screen.getByRole("tree");
+    // Order: main (session) → @0 → @1 → other (session) → @5.
+    for (let i = 0; i < 4; i++) act(() => { fireEvent.keyDown(t, { key: "ArrowDown" }); });
+    act(() => { fireEvent.keyDown(t, { key: "Enter" }); });
+    expect(onSelectWindow).toHaveBeenCalledWith("primary", "other", "@5");
   });
 
   it("stays disarmed with no URL window selection (currentWindowId null)", () => {
@@ -2725,8 +2818,11 @@ describe("Sidebar — operator pinned row (260813-ifya)", () => {
   it("keeps the pinned row visible when its HOME SESSION is collapsed", () => {
     // The row no longer lives inside the session group, so per-session
     // collapse does not hide it (the group renders zero window rows).
+    // No-current-window route state: the CURRENT session would render
+    // expanded despite its exception (derived expand), defeating the fold
+    // this test needs.
     localStorage.setItem(SESSION_COLLAPSED_STORAGE_KEY, JSON.stringify({ "primary:main": true }));
-    renderOperatorSidebar();
+    renderOperatorSidebar({ currentSession: null, currentWindowId: null });
 
     expect(rowByKey("primary:@1")).not.toBeNull();
     expect(rowByKey("primary:@0")).toBeNull();

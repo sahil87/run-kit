@@ -29,7 +29,7 @@ import (
 // hygiene — see docs/findings/socket-pool-accounting.md; the user-facing pool
 // fix rode change 1's state socket).
 //
-// Wire protocol (lifted verbatim from fab/plans/sahil/socket-unification.md
+// Wire protocol (lifted verbatim from fab/plans/sahil/26-07-16-socket-unification.md
 // §Terminal socket):
 //
 //   - Binary data frames `[u32 BE streamId][payload]` in both directions —

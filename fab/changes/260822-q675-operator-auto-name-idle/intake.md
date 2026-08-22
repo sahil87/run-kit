@@ -5,7 +5,7 @@
 
 ## Origin
 
-> Implement Phase 3 (control-room features) of `fab/plans/sahil/operator-session.md`, item 9, now that Phase 1 (physical promotion, PR #708) and Phase 2 (the operator-request actuation seam + Fix-tab-name, PR #709) are merged to main: **auto-name on idle** — enqueue a rename request on a window's busy-to-idle transition, rate-limited, skipped if the operator is busy.
+> Implement Phase 3 (control-room features) of `fab/plans/sahil/26-08-22-operator-session.md`, item 9, now that Phase 1 (physical promotion, PR #708) and Phase 2 (the operator-request actuation seam + Fix-tab-name, PR #709) are merged to main: **auto-name on idle** — enqueue a rename request on a window's busy-to-idle transition, rate-limited, skipped if the operator is busy.
 
 One-shot `/fab-new` invocation covering plan items 9–15; intake analysis split the scope into four changes along structural seams (the user explicitly authorized splitting "rather than forcing one oversized plan"). This change is item 9 — the plan calls it "the highest-value next slice". Sibling changes: `260822-rfz2-operator-digest-stuck-retire` (items 10/11/13), `260822-wyn3-operator-compose-spawn-search` (items 12/14), `260822-ga8z-sort-tabs-status-date` (item 15). The four are independent of each other.
 

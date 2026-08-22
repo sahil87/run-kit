@@ -6,7 +6,7 @@
 ## Origin
 
 One-shot `/fab-new` invocation implementing **Phase 1 (physical promotion)** of the
-operator-session plan at `fab/plans/sahil/operator-session.md` (read in full; design
+operator-session plan at `fab/plans/sahil/26-08-22-operator-session.md` (read in full; design
 decisions below are lifted from it). Phases 2 (actuation seam / operator-request
 endpoint) and 3 (control-room features) are **explicitly out of scope** — separate
 follow-up changes once Phase 1 lands. The fab-kit prerequisite (pane-identity-keying
@@ -14,7 +14,7 @@ contract, fab-kit PR #612 / kit v2.20.10) has shipped and this worktree is synce
 it — per the user, it is NOT re-verified in this change.
 
 > Implement Phase 1 (physical promotion) of the operator-session plan documented at
-> fab/plans/sahil/operator-session.md. The operator tmux window (@rk_role=operator) is
+> fab/plans/sahil/26-08-22-operator-session.md. The operator tmux window (@rk_role=operator) is
 > currently only cosmetically hoisted in the sidebar but stays at its old tmux index in
 > its original session, causing window-cycling to jump. Phase 1 makes the hoist
 > physical: on role-set, move the window into a new hidden per-server session named

@@ -302,7 +302,7 @@ Recorded so the change-5/6 agent doesn't inherit stale "Certain" facts:
 2. Check the tracking table above + `fab change list` — take the lowest-numbered
    change whose dependencies are **merged to main** (not just PR-open).
 3. Draft it: `/fab-new <slug from the table>` (or `/fab-draft` if not activating).
-   Reference this plan (`fab/plans/sahil/agent-chat-view.md`) in the intake.
+   Reference this plan (`fab/plans/sahil/26-07-13-agent-chat-view.md`) in the intake.
 4. Treat the **Decision log** entries as Certain in SRAD scoring; the per-change
    "decisions to resolve at intake" are where clarification effort goes. Re-verify
    the "Architecture facts" that your change depends on — docs drift.

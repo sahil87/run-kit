@@ -5,7 +5,7 @@
 
 ## Origin
 
-> Implement Phase 3 (control-room features) of `fab/plans/sahil/operator-session.md`, items 12 and 14, riding the Phase 2 operator-request seam (PR #709, merged): **(12) spawn routing** — a compose box on the operator row where a typed task goes to the operator, which picks worktree/preset and spawns via `rk riff`; **(14) semantic search across tabs** — "where did we discuss X" over the JSONL corpus.
+> Implement Phase 3 (control-room features) of `fab/plans/sahil/26-08-22-operator-session.md`, items 12 and 14, riding the Phase 2 operator-request seam (PR #709, merged): **(12) spawn routing** — a compose box on the operator row where a typed task goes to the operator, which picks worktree/preset and spawns via `rk riff`; **(14) semantic search across tabs** — "where did we discuss X" over the JSONL corpus.
 
 One-shot `/fab-new` invocation covering plan items 9–15, split into four changes along structural seams (user-authorized split). This change is the **client-text lane**: both items require a user-typed string (a task description, a search query) to reach the operator — the one thing the Phase 2 seam deliberately forbids for its closed templates. Grouping them isolates that trust-posture extension in a single reviewable change. Siblings: `260822-q675-operator-auto-name-idle` (item 9), `260822-rfz2-operator-digest-stuck-retire` (items 10/11/13, closed templates), `260822-ga8z-sort-tabs-status-date` (item 15, mechanical).
 

@@ -5,7 +5,7 @@
 
 ## Origin
 
-> Implement Phase 3 (control-room features) of `fab/plans/sahil/operator-session.md`, item 15: **sort tabs by status/date** — deterministic move-window batch ordered by the status pyramid or creation time, explicitly NOT routed through the operator (mechanical, run-kit-side only).
+> Implement Phase 3 (control-room features) of `fab/plans/sahil/26-08-22-operator-session.md`, item 15: **sort tabs by status/date** — deterministic move-window batch ordered by the status pyramid or creation time, explicitly NOT routed through the operator (mechanical, run-kit-side only).
 
 One-shot `/fab-new` invocation covering plan items 9–15, split into four changes along structural seams (user-authorized split). This is the mechanical run-kit-side item — the plan is explicit that it needs neither Phase 1 nor Phase 2 and never touches the operator ("A UI verb, not a standing auto-sort"). Siblings: `260822-q675-operator-auto-name-idle`, `260822-rfz2-operator-digest-stuck-retire`, `260822-wyn3-operator-compose-spawn-search` — all operator-side; this change shares no code seam with them.
 

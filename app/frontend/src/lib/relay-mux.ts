@@ -9,7 +9,7 @@
 // server-side by per-stream bounded queues + a fair scheduler
 // (docs/findings/relay-mux-hol.md); the client just frames and demuxes.
 //
-// Wire protocol (verbatim from fab/plans/sahil/socket-unification.md
+// Wire protocol (verbatim from fab/plans/sahil/26-07-16-socket-unification.md
 // §Terminal socket): binary `[u32 BE streamId][payload]` data frames both
 // directions + JSON control ops open/opened/resize/close/closed. Stream ids are
 // client-allocated u32s, unique within a socket connection.

@@ -6,11 +6,11 @@
 ## Origin
 
 One-shot `/fab-new` invocation implementing Phase 2 of the backlog detail doc
-`fab/plans/sahil/operator-session.md` (items 7–8), written 2026-08-22 after a design
+`fab/plans/sahil/26-08-22-operator-session.md` (items 7–8), written 2026-08-22 after a design
 discussion. Phase 1 (physical promotion, `_rk-operator` session) landed on main as
 PR #708 (`287b3b3c`). Raw input:
 
-> Implement Phase 2 (the actuation seam) of fab/plans/sahil/operator-session.md: a POST
+> Implement Phase 2 (the actuation seam) of fab/plans/sahil/26-08-22-operator-session.md: a POST
 > operator-request endpoint that pre-derives facts (windowId, window name, JSONL path,
 > worktree, change/stage), renders a templated prompt, gates on @rk_agent_state (busy ->
 > 409-style reject + toast), and delivers via the existing chat-send machinery to the

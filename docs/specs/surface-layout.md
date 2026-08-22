@@ -7,7 +7,7 @@
 > throughout — it generalizes [`window-views.md`](window-views.md)'s exclusive
 > main slot and subsumes [`right-panel.md`](right-panel.md)'s panel slot. It
 > was designed in a `/fab-discuss` session on 2026-08-12; the execution plan
-> lives at [`fab/plans/sahil/surface-layout.md`](../../fab/plans/sahil/surface-layout.md).
+> lives at [`fab/plans/sahil/26-08-12-surface-layout.md`](../../fab/plans/sahil/26-08-12-surface-layout.md).
 >
 > Companions: [`window-views.md`](window-views.md) (lenses, availability
 > derivation — R1–R3 and R5–R7 carry over (R1 and R3 amended by
@@ -270,7 +270,7 @@ a board" is the bridge verb. A creation-time `@rk_default_layout` hint (for
 ## Phasing
 
 Execution detail, per-change scope, and pickup notes live in the plan:
-[`fab/plans/sahil/surface-layout.md`](../../fab/plans/sahil/surface-layout.md).
+[`fab/plans/sahil/26-08-12-surface-layout.md`](../../fab/plans/sahil/26-08-12-surface-layout.md).
 
 | # | Change | Ships |
 |---|--------|-------|

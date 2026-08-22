@@ -5,7 +5,7 @@
 > view choice is expressed. This spec unifies three features that grew up with
 > three unrelated mechanisms — iframe windows (`@rk_type=iframe`), desktop
 > streaming (PR #71), and the agent chat view
-> ([`fab/plans/sahil/agent-chat-view.md`](../../fab/plans/sahil/agent-chat-view.md)).
+> ([`fab/plans/sahil/26-07-13-agent-chat-view.md`](../../fab/plans/sahil/26-07-13-agent-chat-view.md)).
 > Sections marked **[current]** describe shipped behavior; **[target]** is the
 > design intent this spec commits to.
 >
@@ -62,9 +62,9 @@ Separate **what runs** from **what you can look at**:
 |------|---------------|----------|--------|
 | `tty` | always | xterm.js `TerminalClient` | **[current]** |
 | `web` | always (the lens exists on every window, like `tty`); `@rk_url` selects the renderer's CONTENT — empty/whitespace renders the onboarding state (a reduced live URL bar + fill-path instructions), non-empty renders the live iframe — mirroring the `code` row's availability-vs-content split | `IframeWindow` (proxy iframe + URL bar; onboarding content state when `@rk_url` is empty) | **[current]** as a lens — change `260714-t97o-web-view-lens`; always-available + onboarding `260821-zqlq-web-tile-always-tileable-onboarding` |
-| `chat` | `@rk_chat` pane option present | chat renderer | **[target]** — [`agent-chat-view.md`](../../fab/plans/sahil/agent-chat-view.md) changes 2–3 |
+| `chat` | `@rk_chat` pane option present | chat renderer | **[target]** — [`agent-chat-view.md`](../../fab/plans/sahil/26-07-13-agent-chat-view.md) changes 2–3 |
 | `code` | the window's code folder is LATCHED, or a git root is derivable from the active pane's cwd — derivation seeds the latch once, at first open, and the terminal never moves it afterwards (right-panel.md § The `code` lens); the code-server endpoint always resolves by convention, so it gates nothing, and reachability governs the renderer's CONTENT (live iframe vs not-running empty state), never availability | `CodeSurface` (lean proxy iframe, no URL bar) | **[current]** — change `260811-k3vp-right-panel-code-lens`, endpoint by convention `260811-a2bo`, folder latched `260813-if5d`; also the right panel's CODE surface (right-panel.md § Surface Registry) |
-| `desktop` | VNC-port window option present (set by the desktop launcher, reconciler-cleared) | noVNC canvas | **[target]** — [`fab/plans/sahil/desktop-view.md`](../../fab/plans/sahil/desktop-view.md) |
+| `desktop` | VNC-port window option present (set by the desktop launcher, reconciler-cleared) | noVNC canvas | **[target]** — [`fab/plans/sahil/26-07-14-desktop-view.md`](../../fab/plans/sahil/26-07-14-desktop-view.md) |
 
 The registry is open-ended: a new projection adds a row here, a capability
 signal, and a renderer — it does not add a window type, a name convention, or
@@ -202,6 +202,6 @@ every current change; noted so nobody designs against it.
 | Feature | From [current] | To [target] | Vehicle |
 |---------|---------------|-------------|---------|
 | iframe | `@rk_type` mutation flips the view for everyone; render gate `rkType === "iframe" && rkUrl` | `web` lens: `?view=web`, chip, no type mutation; `@rk_type=iframe` demoted to default-view hint; `@rk_url` stays global substrate state | change `260714-t97o-web-view-lens` (drafted) |
-| desktop | PR #71: name-prefix typing, relay sniffing, tty unreachable, bitrotted against current main | `desktop` lens per [`desktop-view.md`](../../fab/plans/sahil/desktop-view.md); supersede PR #71, salvage its components | new change stack (planned) |
+| desktop | PR #71: name-prefix typing, relay sniffing, tty unreachable, bitrotted against current main | `desktop` lens per [`desktop-view.md`](../../fab/plans/sahil/26-07-14-desktop-view.md); supersede PR #71, salvage its components | new change stack (planned) |
 | chat | planned as `?view=chat` | already conforms; adopt R2's value-bearing localStorage + R4's shared switcher | chat plan changes 1–4 (change 1 in progress) |
 | Host "Open in window" | creates a synthetic iframe window | deep-link to owning row's `?view=web` when derivable; synthetic fallback | follow-up after `web-view-lens` |

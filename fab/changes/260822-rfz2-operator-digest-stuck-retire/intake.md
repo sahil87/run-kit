@@ -5,7 +5,7 @@
 
 ## Origin
 
-> Implement Phase 3 (control-room features) of `fab/plans/sahil/operator-session.md`, items 10, 11 and 13, riding the Phase 2 operator-request seam (PR #709, merged): **(10) brief me / standup digest** — one action that summarizes every tab (state, waiting-on-what, suggested next action, waiting-on-me first) into the operator window; **(11) what's stuck** — operator inspects waiting tabs' pending question text, answers routine ones, escalates the rest via `rk notify`; **(13) retire a tab** — summarize-and-close writes a close-out note (fab change or idea) then kills the window.
+> Implement Phase 3 (control-room features) of `fab/plans/sahil/26-08-22-operator-session.md`, items 10, 11 and 13, riding the Phase 2 operator-request seam (PR #709, merged): **(10) brief me / standup digest** — one action that summarizes every tab (state, waiting-on-what, suggested next action, waiting-on-me first) into the operator window; **(11) what's stuck** — operator inspects waiting tabs' pending question text, answers routine ones, escalates the rest via `rk notify`; **(13) retire a tab** — summarize-and-close writes a close-out note (fab change or idea) then kills the window.
 
 One-shot `/fab-new` invocation covering plan items 9–15, split into four changes along structural seams (user-authorized split). This change groups the three **closed-template, no-client-text** judgment actions — the ones that extend the registry without changing the seam's trust posture. Siblings: `260822-q675-operator-auto-name-idle` (item 9), `260822-wyn3-operator-compose-spawn-search` (items 12/14, the client-text lane), `260822-ga8z-sort-tabs-status-date` (item 15, mechanical).
 

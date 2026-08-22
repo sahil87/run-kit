@@ -6,7 +6,7 @@
 
 ## What you are testing
 
-`app/desktop/` is a new Electron **viewer shell**: a BrowserWindow that loads an existing `rk serve` URL (like Slack's workspace-URL model). It never spawns the rk daemon. Its reason to exist is the **⌘-tier keyboard seam** — the app menu deliberately avoids accelerators on keys the web page should receive (⌘T ⌘W ⌘N ⌘L ⌘K ⌘F ⌘P ⌘1–9 ⌘[ ⌘] and unlisted ⇧⌘ combos), which a browser can never deliver. Design doc: `fab/plans/sahil/electron-desktop-shell.md`; memory: `docs/memory/run-kit/desktop-shell.md`.
+`app/desktop/` is a new Electron **viewer shell**: a BrowserWindow that loads an existing `rk serve` URL (like Slack's workspace-URL model). It never spawns the rk daemon. Its reason to exist is the **⌘-tier keyboard seam** — the app menu deliberately avoids accelerators on keys the web page should receive (⌘T ⌘W ⌘N ⌘L ⌘K ⌘F ⌘P ⌘1–9 ⌘[ ⌘] and unlisted ⇧⌘ combos), which a browser can never deliver. Design doc: `fab/plans/sahil/26-07-29-electron-desktop-shell.md`; memory: `docs/memory/run-kit/desktop-shell.md`.
 
 ## Prerequisites
 

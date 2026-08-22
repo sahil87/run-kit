@@ -62,28 +62,28 @@ Task runner: `just` (see `justfile`). Frontend deps managed by pnpm (in `app/fro
 
 Run `just setup` once before attempting to run test cases — it installs frontend deps, playwright browsers, copies `.env.local`, and stages the tmux config for Go embed. Re-run when pulling dependency changes.
 
-Always run tests through `just` recipes — never invoke `go test`, `pnpm test`, or `playwright test` directly. The `just test-e2e` recipe (via `scripts/test-e2e.sh`) starts a dedicated dev server on port 3020 with an isolated tmux server (`rk-test-e2e`), so e2e tests won't collide with a running `rk serve` instance on the default port. Running Playwright directly would fall back to port 3000 and interfere with the live instance.
+Always run tests through `just` recipes — never invoke `go test`, `pnpm test`, or `playwright test` directly. The `just test-e2e` recipe (via `scripts/test-e2e.sh`, deriving from `scripts/e2e-env.sh`) starts a dev server on this worktree's derived port triple (3400–3699: Vite / Go backend / code-server stub) with an isolated per-worktree tmux socket family (`rk-test-e2e-<token>-*`) and a per-run temp `XDG_STATE_HOME`, so e2e runs never collide with a running `rk serve` instance or a sibling worktree's run. A flock throttle (`RK_E2E_SLOTS`, default 2; 1 = strict series) bounds concurrent Playwright phases across worktrees. Running Playwright directly would fall back to port 3333 and connect to nothing (fail-closed).
 
 - `just test` — all tests (backend + frontend + e2e)
 - `just test-backend` — Go tests only
 - `just test-frontend` — Vitest unit tests only
-- `just test-e2e` — Playwright e2e tests (port 3020, isolated tmux server)
-- `just pw` — ad-hoc Playwright commands (port 3020, e.g., `just pw test mobile-layout`)
+- `just test-e2e` — Playwright e2e tests (derived per-worktree ports + socket family)
+- `just pw` — ad-hoc Playwright commands against the worktree's derived rig (e.g., `just pw test mobile-layout`)
 
-The Playwright fallback port is 3333 (not 3000) — if `RK_PORT` is unset and Playwright runs directly, it will fail to connect rather than hitting a live `rk serve` instance.
+The Playwright fallback port is 3333 (not 3000) — if `RK_PORT` is unset and Playwright runs directly, it will fail to connect rather than hitting a live `rk serve` instance. Explicit `RK_E2E_PORT` / `E2E_TMUX_SERVER` env vars override the derivation; the ambient `RK_PORT` is deliberately not consulted.
 
 ## Playwright-Driven Development
 
 When making UI changes — especially mobile/responsive work — use Playwright MCP as the primary verification tool:
 
-1. Start a dev server on the e2e port: `RK_PORT=3020 just dev`
+1. Start the worktree's dev rig: `just dev` — it serves this worktree's derived e2e port triple (the same identity `just pw` and `just test-e2e` derive)
 2. Set viewport size to simulate the target device (e.g., 375×812 for iPhone)
 3. Navigate, click, and screenshot to verify layout changes visually
 4. Test interactive elements: popups, drawers, toggles — confirm they render within bounds and aren't clipped
 5. Resize viewport to verify desktop layout isn't broken
-6. Run individual tests with `just pw test <name>` (uses port 3020 by default)
+6. Run individual tests with `just pw test <name>` — it derives the same per-worktree identity, so it finds the rig automatically (pass `RK_E2E_PORT` explicitly only against a stepped-forward or overridden rig)
 
-Never run `npx playwright test` directly — always use `just test-e2e` or `just pw` to ensure correct port isolation. This workflow catches overflow issues, clipping, and layout regressions that unit tests miss. Always verify both mobile (375px) and desktop (1024px+) viewports after responsive changes.
+Never run `npx playwright test` directly — always use `just test-e2e` or `just pw` to get the derived per-worktree port/socket identity. This workflow catches overflow issues, clipping, and layout regressions that unit tests miss. Always verify both mobile (375px) and desktop (1024px+) viewports after responsive changes.
 
 ## Mobile Responsive Design
 

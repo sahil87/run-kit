@@ -19,7 +19,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 export LOG_LEVEL=debug
-export RK_PORT="${RK_PORT:-3000}"
+# Default to this worktree's derived e2e port (one rig per worktree: `just dev`
+# and `just test-e2e` share the derived triple, and test-e2e's self-scoped
+# stale-kill reclaims it). Explicit --port / preset RK_PORT still win.
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/e2e-env.sh"
+export RK_PORT="${RK_PORT:-$E2E_PORT}"
 export RK_HOST="${RK_HOST:-0.0.0.0}"
 
 # Ensure cwd is repo root (supports invocation from any directory)

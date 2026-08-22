@@ -1,14 +1,15 @@
 import { test, expect } from "@playwright/test";
 import { pinWindow, trackPin, unpinAll } from "./_boards";
-import { TMUX_SERVER, createSession, killServer, killSession, listWindows } from "./_tmux";
+import { TMUX_SERVER, TMUX_FAMILY, createSession, killServer, killSession, listWindows } from "./_tmux";
 
 const TMUX_SERVER_A = TMUX_SERVER;
 // Second tmux server, set up explicitly so the cross-server union has a real
-// counterpart. Named under the unified rk-test-e2e-* umbrella with the
-// Playwright process.pid as the second-to-last hyphen field, so the automatic
-// post-sweep can parse it like any Go test socket. The trailing suffix is a
-// single hyphen-free token (epoch tail) to keep the PID position unambiguous.
-const TMUX_SERVER_B = `rk-test-e2e-multi-${process.pid}-${Date.now().toString().slice(-6)}`;
+// counterpart. Named inside this worktree's socket family (TMUX_FAMILY anchor)
+// with the Playwright process.pid as the second-to-last hyphen field, so the
+// automatic post-sweep can parse it like any Go test socket. The trailing
+// suffix is a single hyphen-free token (epoch tail) to keep the PID position
+// unambiguous.
+const TMUX_SERVER_B = `${TMUX_FAMILY}multi-${process.pid}-${Date.now().toString().slice(-6)}`;
 const TEST_SESSION_A = `e2e-board-multi-a-${Date.now()}`;
 const TEST_SESSION_B = `e2e-board-multi-b-${Date.now()}`;
 const BOARD_NAME = `multi${Date.now().toString().slice(-6)}`;
@@ -22,7 +23,7 @@ test.describe("Boards: multi-server union", () => {
   test.afterAll(async ({ request }) => {
     // Unpin while servers are still alive — each pin lives in a `_rk-pin-*`
     // session that PERSISTS across restarts (and survives killing the SOURCE
-    // session), so without this the persistent `rk-test-e2e` server would carry
+    // session), so without this the persistent primary e2e server would carry
     // stale pin-sessions into later runs.
     await unpinAll(request);
 

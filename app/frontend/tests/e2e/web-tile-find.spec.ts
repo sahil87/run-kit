@@ -203,7 +203,7 @@ test.describe("Web tile — keyboard reclaim + find-in-page (260819-ie2i)", () =
 
   test("(c) a cross-origin tile renders the find bar disabled with the hint", async ({ page }) => {
     // 0.0.0.0 bypasses toProxySrc (only localhost/127.0.0.1 convert), so the
-    // iframe src stays ABSOLUTE — a different origin than the app on :3020.
+    // iframe src stays ABSOLUTE — a different origin than the app's dev server.
     const id = await makeWindow(page, `wf-xorigin-${Date.now()}`, `http://0.0.0.0:${stub.port}/`);
     await gotoWebWindow(page, id);
 

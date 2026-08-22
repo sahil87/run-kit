@@ -10,7 +10,9 @@
 > lives at [`fab/plans/sahil/surface-layout.md`](../../fab/plans/sahil/surface-layout.md).
 >
 > Companions: [`window-views.md`](window-views.md) (lenses, availability
-> derivation — R1–R3 and R5–R7 carry over unchanged; R4's switcher is retired
+> derivation — R1–R3 and R5–R7 carry over (R1 and R3 amended by
+> `260821-zqlq`: web is unconditionally available and `@rk_url` selects its
+> content; R4's switcher is retired
 > here), [`right-panel.md`](right-panel.md) (surfaces, the rail, companions —
 > P6 and the panel-slot mechanics are superseded here; the rail, availability,
 > `@rk_owner`, and P4 carry forward), [`agent-state.md`](agent-state.md),
@@ -76,7 +78,10 @@ board).
 ### One tile per surface kind (v1)
 
 The layout encoding names surface *kinds* (`tty`, `code`, `web`, `agents`);
-content rides the substrate's capability signal (`@rk_url` etc.). Two `web`
+content rides the substrate's content signal (`@rk_url` etc. — for `web` a
+content *selector*, not an availability gate: the `web` surface is always
+tileable like `tty`, and an empty/whitespace `@rk_url` renders the tile's
+onboarding content state; window-views.md § The View Registry). Two `web`
 tiles with different pages would push content addresses into per-viewer state,
 crossing R7 — punted.
 
@@ -199,7 +204,7 @@ moves into the layout.
 | The `ViewSwitcher` pill + `View:` chevron-menu rows (R4) | **Dies** — replaced by rail toggles + the ▦ chip. "Which view am I in" stops being a question because views stop being exclusive |
 | `?view=` and `?panel=` params | **Retired** behind the permanent translation shim |
 | Same-folder twin windows | **Collapse** — one window, `web`/`code` tiles in its layout |
-| `@rk_url` | **Stays** — capability signal *and* shared content address (edit it and every viewer sees the new page). Never was view state |
+| `@rk_url` | **Stays** — the web tile's content selector *and* shared content address (edit it and every viewer sees the new page; empty/whitespace renders the tile's onboarding state). Never was view state |
 | `@rk_chat`, `@rk_owner`, `@rk_agent_state` | **Stay** — capability, topology, status |
 | Synthetic iframe windows for **external URLs** (no owning pane) | **Stay** as the compat shim — the honest residual (window-views § Two Species step 2); a web tile's content needs a substrate signal |
 
@@ -223,7 +228,7 @@ The buttons run the **switch-to-tile** verb (§ Verbs): an already-open target
 swaps the visible tile transiently; an available-but-not-open target applies
 `single:<surface>` through the shared mutation path. The transient auto-open
 carve-out (§ L3) NEVER auto-swaps the visible tile on mobile: an auto-opened
-web surface reads as an unpressed button with its availability dot, reachable
+web surface reads as an unpressed button with its content dot lit, reachable
 by tap. The palette mirrors the group with `Tile: Switch to <Surface>` entries
 (Constitution V), which supersede the `View:` lens entries at mobile width.
 

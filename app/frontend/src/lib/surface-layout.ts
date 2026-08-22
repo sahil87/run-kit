@@ -16,16 +16,16 @@
  * pattern: pure and DOM-free except thin try/catch-noop localStorage
  * wrappers, so the render branch in `app.tsx` AND the unit tests share one
  * drift-free source. Availability reuses `window-view.ts`'s capability
- * helpers (`hasWebUrl` / `hasChat` / `hasCode`) as the single source — `tty`
- * is the always-available surface (the muxed relay supports N clients per
- * pane, so duplicate tty tiles of one window are legal).
+ * helpers (`hasChat` / `hasCode`) as the single source — `tty` and `web` are
+ * the always-available surfaces (the muxed relay supports N clients per pane,
+ * so duplicate tty tiles of one window are legal; web's empty-URL content is
+ * the onboarding state, so the lens always exists).
  */
 
 import {
   defaultView,
   hasChat,
   hasCode,
-  hasWebUrl,
   windowViewStorageKey,
   type ViewName,
   type ViewWindow,
@@ -198,11 +198,12 @@ export function serializeLayout(layout: Layout): string {
  * rail, layout, and switcher all key off), then `web`/`chat`/`code` per
  * capability. Availability reuses the window-view helpers as the single
  * source of truth; reachability is NOT part of availability (it governs a
- * surface's content, not its presence).
+ * surface's content, not its presence). `web` is unconditional — the lens
+ * always exists; `hasWebUrl` selects its content (onboarding vs live iframe),
+ * so the degradation ladder never drops a web tile.
  */
 export function availableTiles(win: ViewWindow | null | undefined): SurfaceKind[] {
-  const tiles: SurfaceKind[] = ["tty"];
-  if (hasWebUrl(win)) tiles.push("web");
+  const tiles: SurfaceKind[] = ["tty", "web"];
   if (hasChat(win)) tiles.push("chat");
   if (hasCode(win)) tiles.push("code");
   return tiles;

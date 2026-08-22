@@ -91,11 +91,11 @@ describe("parseLayout / serializeLayout", () => {
 });
 
 describe("availableTiles", () => {
-  it("always lists tty first, then web/chat/code per capability", () => {
-    expect(availableTiles(plain)).toEqual(["tty"]);
+  it("always lists tty + web, then chat/code per capability — web availability is unconditional", () => {
+    expect(availableTiles(plain)).toEqual(["tty", "web"]);
     expect(availableTiles(webWin)).toEqual(["tty", "web"]);
     expect(availableTiles(fullWin)).toEqual(["tty", "web", "chat", "code"]);
-    expect(availableTiles(null)).toEqual(["tty"]);
+    expect(availableTiles(null)).toEqual(["tty", "web"]);
   });
 
   it("still lists chat for a chat-capable window — the rail demotion (SURFACE_RAIL_HIDDEN) filters at RENDER, not at availability", () => {
@@ -131,8 +131,17 @@ describe("degradeLayout", () => {
   });
 
   it("returns null when nothing is available (fully invalid → next ladder rung)", () => {
-    const layout: Layout = { shape: "single", order: ["web"] };
+    const layout: Layout = { shape: "split-h", order: ["chat", "code"] };
     expect(degradeLayout(layout, plain)).toBeNull();
+  });
+
+  it("never drops web — a web deep link keeps its tile on a URL-less window", () => {
+    const layout: Layout = { shape: "split-h", order: ["tty", "web"] };
+    expect(degradeLayout(layout, plain)).toEqual(layout);
+    expect(degradeLayout({ shape: "single", order: ["web"] }, plain)).toEqual({
+      shape: "single",
+      order: ["web"],
+    });
   });
 
   it("keeps slot A even when a later tile drops", () => {
@@ -191,10 +200,21 @@ describe("resolveLayout", () => {
   });
 
   it("falls through a fully-invalid URL value to the next rung", () => {
-    // web unavailable on a plain window — the URL value degrades to nothing.
-    expect(resolveLayout("single:web", undefined, plain)).toEqual({
+    // chat unavailable on a plain window — the URL value degrades to nothing.
+    expect(resolveLayout("single:chat", undefined, plain)).toEqual({
       shape: "single",
       order: ["tty"],
+    });
+  });
+
+  it("keeps a web deep link on a URL-less window (web never degrades)", () => {
+    expect(resolveLayout("split-h:tty,web", undefined, plain)).toEqual({
+      shape: "split-h",
+      order: ["tty", "web"],
+    });
+    expect(resolveLayout("single:web", undefined, plain)).toEqual({
+      shape: "single",
+      order: ["web"],
     });
   });
 

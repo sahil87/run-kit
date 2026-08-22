@@ -20,6 +20,15 @@ describe("buildViewActions (View: palette parity)", () => {
     expect(actions[0].shortcut).toBe("⌘.");
   });
 
+  it("offers View: Web without a URL — web availability is unconditional (260821-zqlq)", () => {
+    // The URL-less window's availableViews is ["web","tty"], so the entry
+    // rides the same builder path as a content-bearing one (the onboarding
+    // tile is what it opens).
+    const actions = buildViewActions(["web", "tty"], "tty", () => {});
+    expect(actions.map((a) => a.id)).toEqual(["view-web"]);
+    expect(actions[0].shortcut).toBe("⌘.");
+  });
+
   it("yields no action for a single-view (tty-only) window", () => {
     expect(buildViewActions(["tty"], "tty", () => {})).toEqual([]);
   });

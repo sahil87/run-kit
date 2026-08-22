@@ -569,6 +569,7 @@ describe("withLatchedCodeFolder — the latch substitution seam", () => {
     expect(hasCode(withLatchedCodeFolder(win, "/home/user/latched"))).toBe(true);
     expect(availableViews(withLatchedCodeFolder(win, "/home/user/latched"))).toEqual([
       "code",
+      "web",
       "tty",
     ]);
   });

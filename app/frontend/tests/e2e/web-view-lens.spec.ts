@@ -135,14 +135,17 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     await page.setViewportSize(DESKTOP_VIEWPORT);
   });
 
-  test("lens switching is palette-only — the palette gates on capability, the menu carries no `View:` rows (260812-0c6o)", async ({ page }) => {
-    // A plain window (no @rk_url, NON-repo cwd so code is unavailable too)
-    // offers only tty → the palette has no `View: Web` action.
+  test("lens switching is palette-only — web is always offered, the menu carries no `View:` rows (260812-0c6o, 260821-zqlq)", async ({ page }) => {
+    // A plain window (no @rk_url, NON-repo cwd so code is unavailable) offers
+    // tty + web: web availability is unconditional (260821-zqlq), so the
+    // palette's `View: Web` action renders even before the window has a URL
+    // (it opens the onboarding tile — the discovery path the gating used to
+    // block).
     const plain = await makeWindow(page, `wv-plain-${Date.now()}`, { cwd: "/tmp" });
     await gotoWindow(page, plain);
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
     await openPalette(page, "View: Web");
-    await expect(page.getByRole("option", { name: "View: Web" })).toHaveCount(0);
+    await expect(page.getByRole("option", { name: "View: Web" })).toBeVisible();
     await page.keyboard.press("Escape");
 
     // A window with @rk_url offers tty + web → the palette's `View: Web` action
@@ -219,20 +222,94 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     await expect(page.getByText("Tab:", { exact: true })).toBeVisible();
   });
 
-  test("?view=web on a window with no @rk_url falls back to the terminal", async ({
+  test("?view=web on a window with no @rk_url resolves to the onboarding web tile (260821-zqlq)", async ({
     page,
   }) => {
-    // No url AND a non-repo cwd → neither web nor code is available → the
-    // unavailable deep link degrades to tty and the window is single-view.
+    // Web is always tileable, so the deep link keeps its tile instead of
+    // degrading to tty; with no @rk_url the tile renders the ONBOARDING
+    // content state in place of the iframe.
     const id = await makeWindow(page, `wv-nourl-${Date.now()}`, { cwd: "/tmp" });
     await gotoWindow(page, id, "web");
-    await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("web-tile-onboarding")).toBeVisible({ timeout: 10_000 });
     await expect(iframe(page)).toHaveCount(0);
-    await expectLayoutParam(page, null); // default layout mirrors as a CLEAN URL (param dropped)
-    // Single available view → the palette offers no `View: Web` action.
-    await openPalette(page, "View: Web");
-    await expect(page.getByRole("option", { name: "View: Web" })).toHaveCount(0);
+    await expect(terminal(page)).toHaveCount(0);
+    await expectLayoutParam(page, "single:web");
+    // The palette still offers the way back (web is current).
+    await openPalette(page, "View: Terminal");
+    await expect(page.getByRole("option", { name: "View: Terminal" })).toBeVisible();
     await page.keyboard.press("Escape");
+  });
+
+  test("⌘3 on a URL-less window opens the web tile's onboarding state (260821-zqlq)", async ({
+    page,
+  }) => {
+    // The web-toggle chord is availability-driven, so it now mounts on every
+    // desktop window route — on a URL-less window it opens the web tile, and
+    // the tile renders onboarding with the REDUCED URL bar (refresh + the
+    // live address input only: no back/forward, no find ⌕, no ↗).
+    const id = await makeWindow(page, `wv-onboard-${Date.now()}`, { cwd: "/tmp" });
+    await gotoWindow(page, id);
+    await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
+    // ⇧Ctrl+3 (the non-mac web-toggle default; mac is ⌘3).
+    await page.keyboard.press("Shift+Control+Digit3");
+    const onboarding = page.getByTestId("web-tile-onboarding");
+    await expect(onboarding).toBeVisible({ timeout: 10_000 });
+    await expect(onboarding).toContainText("Nothing to show yet");
+    await expect(onboarding).toContainText("rk present ./report.html");
+    await expect(iframe(page)).toHaveCount(0);
+    // Tile-scoped: the top bar carries its own "Refresh page" button.
+    const webTile = page.getByTestId("surface-tile-web");
+    const address = webTile.getByLabel("URL");
+    await expect(address).toBeVisible();
+    await expect(address).toHaveAttribute(
+      "placeholder",
+      "localhost:3000 · /present/… · https://…",
+    );
+    await expect(webTile.getByLabel("Refresh")).toBeVisible();
+    await expect(webTile.getByLabel("Back")).toHaveCount(0);
+    await expect(webTile.getByLabel("Forward")).toHaveCount(0);
+    await expect(webTile.getByLabel("Find in page")).toHaveCount(0);
+    await expect(webTile.getByLabel("Open in browser")).toHaveCount(0);
+    // The chord ADDED the web tile beside the terminal (1→2 split-h).
+    await expectLayoutParam(page, "split-h:tty,web");
+  });
+
+  test("the onboarding address bar boots the tile for real (Enter → @rk_url POST)", async ({
+    page,
+  }) => {
+    const id = await makeWindow(page, `wv-boot-${Date.now()}`, { cwd: "/tmp" });
+    await gotoWindow(page, id, "web");
+    const onboarding = page.getByTestId("web-tile-onboarding");
+    await expect(onboarding).toBeVisible({ timeout: 10_000 });
+    // Typing a bare loopback address and pressing Enter runs the existing
+    // pipeline: normalize → /proxy/8080/ → POST /options (@rk_url) — SSE
+    // delivers the new value and the tile flips live with no further action.
+    const address = page.getByTestId("surface-tile-web").getByLabel("URL");
+    await address.fill("localhost:8080");
+    await address.press("Enter");
+    await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
+    await expect(onboarding).toHaveCount(0);
+    await expectLayoutParam(page, "single:web");
+  });
+
+  test("tmux set-option @rk_url flips the open onboarding tile live; unsetting returns to onboarding", async ({
+    page,
+  }) => {
+    // The live flip rides the existing rkUrl sync seam — an agent-side
+    // `rk present` (or any external set-option) transitions the tile
+    // onboarding → iframe in place, and clearing the option returns it.
+    const id = await makeWindow(page, `wv-setopt-${Date.now()}`, { cwd: "/tmp" });
+    await gotoWindow(page, id, "web");
+    const onboarding = page.getByTestId("web-tile-onboarding");
+    await expect(onboarding).toBeVisible({ timeout: 10_000 });
+    execSync(`tmux -L ${TMUX_SERVER} set-option -w -t ${id} @rk_url "${IFRAME_URL}"`, {
+      stdio: "ignore",
+    });
+    await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
+    await expect(onboarding).toHaveCount(0);
+    execSync(`tmux -L ${TMUX_SERVER} set-option -w -u -t ${id} @rk_url`, { stdio: "ignore" });
+    await expect(onboarding).toBeVisible({ timeout: 10_000 });
+    await expect(iframe(page)).toHaveCount(0);
   });
 
   test("legacy @rk_type=iframe window defaults to web (ladder hint rung)", async ({

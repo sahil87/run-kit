@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useMemo, useState, useCallback, useS
 import { useNavigate, useMatches, useSearch, Outlet } from "@tanstack/react-router";
 import {
   availableViews,
+  hasWebUrl,
   nextView,
   readStoredView,
   type ViewName,
@@ -3038,14 +3039,27 @@ function AppShell() {
       // `withShortcutHints` renders the effective ⌘F/Ctrl+F combo for free
       // (the code-review shortcut rule); the body dispatches the
       // `web-find:open` CustomEvent the chord's gated handler resolves to —
-      // one seam for all three entry points.
+      // one seam for all entry points. CONTENT-gated on hasWebUrl
+      // (260821-zqlq): an onboarding tile has no searchable content, so the
+      // entry is absent there (not disabled — the availability idiom).
       ...(windowParam && renderLayout.order.includes("web")
         ? [
-            {
-              id: "web-find",
-              label: "Web: Find in page",
-              onSelect: () => document.dispatchEvent(new CustomEvent(WEB_FIND_OPEN_EVENT)),
-            },
+            // Onboarding gate (260821-zqlq): the web tile is now always
+            // open-able, so find is gated on CONTENT (hasWebUrl), not tile
+            // presence — an onboarding tile has nothing to search; the ⌘F
+            // chord's webGated handler follows the palette's absence and the
+            // tile's own `web-find:open` listener double-guards below. The
+            // address/external seams stay: the onboarding address bar is
+            // fully live.
+            ...(hasWebUrl(effectiveWindow)
+              ? [
+                  {
+                    id: "web-find",
+                    label: "Web: Find in page",
+                    onSelect: () => document.dispatchEvent(new CustomEvent(WEB_FIND_OPEN_EVENT)),
+                  },
+                ]
+              : []),
             // `Web: Focus address bar` + `Web: Open in browser` (260819-v6y4
             // R9/R12) — same gating and one-CustomEvent seam shape as
             // web-find; the mounted web tile is each event's single receiver
@@ -3848,6 +3862,14 @@ function AppShell() {
     (sess: string) => handleOpenSpawnAgent(server, sess),
     [server, handleOpenSpawnAgent],
   );
+  // The web toggle's corner dot means "has content" (hasWebUrl), not "exists"
+  // — web availability is unconditional (260821-zqlq), so the dot is what
+  // carries the content signal. Every other surface's dot stays always-on
+  // (shown still equals available for them).
+  const surfaceDot = useCallback(
+    (surface: SurfaceKind) => surface !== "web" || hasWebUrl(effectiveWindow),
+    [effectiveWindow],
+  );
   const topBarSlot = useMemo(
     () => ({
       sessions,
@@ -3877,6 +3899,7 @@ function AppShell() {
               available: panelSurfaces,
               open: renderLayout.order,
               onToggle: togglePanel,
+              showDot: surfaceDot,
             }
           : windowParam &&
               panelSurfaces.filter((s) => !SURFACE_RAIL_HIDDEN.has(s)).length >= 2
@@ -3885,6 +3908,7 @@ function AppShell() {
                 available: panelSurfaces,
                 active: mobileActiveTile,
                 onSwitch: switchToTile,
+                showDot: surfaceDot,
               }
             : undefined,
       // ▦ Layout chip machinery (260812-ab5v R9): the on-screen layout + the

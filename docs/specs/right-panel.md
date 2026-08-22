@@ -93,7 +93,7 @@ Both needs share one substrate: a collapsed-by-default right panel.
 
 | Surface | Substrate | Lens | Available when |
 |---------|-----------|------|----------------|
-| `web` | current window | `web` | `@rk_url` set — same capability signal as the view registry row |
+| `web` | current window | `web` | always — the lens exists on every window (like `tty`); `@rk_url` selects the CONTENT (empty/whitespace → the tile's onboarding state, non-empty → the live iframe), never availability — the `code` row's availability-vs-content split (amended 2026-08-21, change `260821-zqlq`) |
 | `code` | current window | `code` (new lens, below) | the window's code folder is **LATCHED, or** a git root is derivable from the active pane's cwd (since `260811-a2bo` the code-server endpoint always resolves by convention: preset `RK_CODE_SERVER_PORT`, else `RK_PORT+2`). The latch is what makes availability STABLE: derivation seeds it once, at first open, so a window that has ever opened the code surface keeps offering it even after its active pane leaves the repo — the rail button, the switcher segment, and `?view=code`/`?layout=` deep links no longer strobe with the terminal's cwd (see § The `code` lens). **Availability is the STABLE capability signal only** — code-server *reachability* never gates the button/segment (it would strobe the rail); reachability selects the surface's CONTENT instead: live iframe when up, the portless "code-server not running — check rk doctor" empty state when down (amended 2026-08-11, change `260811-k3vp`; port dropped by `260811-a2bo`; latch added 2026-08-13, change `260813-if5d`) |
 | `agents` | companion window | `tty` | a window with `@rk_owner=<this window's id>` exists |
 

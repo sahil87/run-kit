@@ -148,12 +148,18 @@ test.describe("Present auto-expand — rk present transiently opens the web tile
     await expect(iframe(page)).toBeHidden();
 
     // Unset, then re-set the SAME value — the empty→URL_A transition matches
-    // the latch, so no re-open. The web toggle's disappearance/reappearance
-    // proves the client observed both writes before the assertion.
+    // the latch, so no re-open. The web toggle stays RENDERED throughout
+    // (web is always available, 260821-zqlq) — its corner dot is the content
+    // signal: it drops with the unset and returns with the re-set, proving
+    // the client observed both writes before the assertion.
     setWindowUrl(id, null);
-    await expect(webTileToggle(page)).toHaveCount(0, { timeout: PRESENT_TIMEOUT });
+    await expect(webTileToggle(page).locator("span.rounded-full")).toHaveCount(0, {
+      timeout: PRESENT_TIMEOUT,
+    });
     setWindowUrl(id, URL_A);
-    await expect(webTileToggle(page)).toBeVisible({ timeout: PRESENT_TIMEOUT });
+    await expect(webTileToggle(page).locator("span.rounded-full")).toHaveCount(1, {
+      timeout: PRESENT_TIMEOUT,
+    });
     await expect(webTileToggle(page)).toHaveAttribute("aria-pressed", "false");
     await expect(iframe(page)).toBeHidden();
 

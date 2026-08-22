@@ -1,0 +1,5 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-22T19:21:36Z"}
+{"args":"Per-worktree e2e test isolation + concurrency throttle: derive ports/tmux-socket/XDG state from the worktree basename so sibling worktrees can run e2e in parallel without mutual interference; flock counting semaphore bounds concurrent Playwright runs","cmd":"fab-new","event":"command","ts":"2026-08-22T19:21:36Z"}
+{"delta":"+2.7","event":"confidence","score":2.7,"trigger":"calc-score","ts":"2026-08-22T19:24:53Z"}
+{"cmd":"fab-draft","event":"command","ts":"2026-08-22T19:25:14Z"}
+{"delta":"+0.7","event":"confidence","score":3.4,"trigger":"calc-score","ts":"2026-08-22T19:27:26Z"}

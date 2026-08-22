@@ -708,6 +708,9 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/windows/{windowId}/close-pane", s.handleClosePaneKill)
 	r.Get("/api/windows/{windowId}/chat", s.handleChatBackfill)
 	r.Post("/api/windows/{windowId}/chat/send", s.handleChatSend)
+	// Operator actuation seam — templated work items delivered to the server's
+	// operator window via the chat-send machinery. See api/operator.go.
+	r.Post("/api/windows/{windowId}/operator-request", s.handleOperatorRequest)
 	r.Get("/api/windows/{windowId}/history", s.handleWindowHistory)
 	// Conversation fork — a new window in the SAME session + directory, resuming
 	// the window's agent session with --fork-session. See api/fork.go.

@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The chat subsystem — rk-owned neutral event schema (Event/Pending/turn), Adapter registry, Claude JSONL adapter (UUID-glob, tolerant parse, TailFrom offset-tail). Read: GET .../chat backfill + a kind:chat sub on /ws/state; ?view=chat lens on the surface-parameterized compose keydown (chat: Enter=newline, Cmd/Ctrl+Enter=submit, Alt+Enter=insert, readline chords). Send: POST .../chat/send — sanitize, named-buffer paste, novelty echo probe, probe-gated Enter. Read derives from disk; send types in."
+description: "The chat subsystem — rk-owned neutral event schema (Event/Pending/turn), Adapter registry + TranscriptLocator path export, Claude JSONL adapter (UUID-glob, tolerant parse, TailFrom offset-tail). Read: GET .../chat backfill + a kind:chat sub on /ws/state; ?view=chat lens with its own compose keydown (Enter=newline, Cmd/Ctrl+Enter=submit, readline chords). Send: POST .../chat/send — sanitize, named-buffer paste, novelty echo probe, probe-gated Enter. Read derives from disk; send types in."
 ---
 # Chat Subsystem
 
@@ -121,6 +121,18 @@ codex/gemini adapters are additive). The one registered provider is `claude`, fr
 `claude.go`'s `init()`. Tail is exposed as `TailFrom` (§ Design Decisions →
 `TailFrom` supersedes the self-priming `Tail`).
 
+Beside the core interface, `adapter.go` declares the OPTIONAL `TranscriptLocator`
+capability — `TranscriptPath(ref string) (string, error)`, resolving a session
+ref to its transcript's absolute on-disk path — plus a package-level
+`TranscriptPath(provider, ref)` convenience that routes through `Lookup` and
+type-asserts to the capability, returning `ErrNoAdapter` for an unregistered
+provider or one without it. The capability stays OFF the `Adapter` interface so
+the interface remains provider-neutral (a future protocol-based provider may
+have no on-disk transcript), and the implementing adapter MUST keep the
+ref-format guard in front of every path resolution (§ Claude adapter below).
+Its consumer is the operator-request handler's fact pre-derivation
+([operator-actuation](/run-kit/operator-actuation.md)). (260822-fih1)
+
 **`Update` (the tail increment)**: exactly one shape per Update — `Events`
 (newly-appended events; `Pending` carries the current pending state AFTER them,
 emitted as `chat`+`chat-state`) OR `Reset: true`. Under `TailFrom`, a **`Reset` is
@@ -148,6 +160,12 @@ carrying `/`, `..`, or glob metacharacters can never reach the glob. A non-UUID
 ref returns `ErrInvalidRef` before touching disk; a valid UUID with no matching
 file returns the distinguishable `ErrTranscriptNotFound`. Multiple matches (a
 resumed session copied across cwds) → first match (they name the same session).
+The adapter also implements the registry's optional `TranscriptLocator`
+capability (§ Adapter interface): `TranscriptPath(ref)` delegates to
+`locateTranscript`, so the strict UUID guard stays in front of the one path
+resolution site reachable through the export (its caller is the
+operator-request seam — [operator-actuation](/run-kit/operator-actuation.md)).
+(260822-fih1)
 
 #### Scenario: A non-UUID ref is rejected before any filesystem access
 - **GIVEN** a ref containing `../`, an absolute path, or glob metacharacters
@@ -369,7 +387,14 @@ window-keyed / server-resolved contract (the client supplies only a windowID + t
 text; the pane is re-resolved server-side per request) and the same
 `writeError`/status-mapping vocabulary. Everything lives in `api/chat.go`
 (handler + probe/lock orchestration) over new pane-targeted `internal/tmux`
-primitives; the read endpoints, stream, and schema are untouched.
+primitives; the read endpoints, stream, and schema are untouched. The
+`injectChatMessage` engine seam has a second in-process consumer: the
+operator-request handler (`api/operator.go`) delivers its rendered template
+prompt through the SAME engine (`submit:true`) into the OPERATOR window's
+resolved pane — same per-(server,paneID) lock, shared deadline, sanitize, and
+novelty probe — after its own single-`FetchSessions` resolution and busy gate
+([operator-actuation](/run-kit/operator-actuation.md); that endpoint's busy
+policy is REJECT, unlike this path's Allow + probe below). (260822-fih1)
 
 **Two frontend consumers, one unchanged per-window contract.** The chat lens's
 own send form (§ Send-form input box) is the single-window one. The second is the

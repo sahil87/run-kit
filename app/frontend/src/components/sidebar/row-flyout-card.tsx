@@ -383,6 +383,17 @@ export function canForkWindow(win: WindowInfo): boolean {
   return win.chatProvider === FORKABLE_CHAT_PROVIDER;
 }
 
+/**
+ * The derived availability rule for the "Fix tab name" operator-request
+ * affordance (260822-fih1-operator-request-fix-tab-name) — degrade to ABSENT,
+ * never disabled: the row renders only when (a) the server has an operator
+ * window, (b) the subject window carries a reconciled chat session (the
+ * template needs its JSONL transcript), and (c) the subject is not itself the
+ * operator. All three facts already ride the sessions payload. */
+export function canRequestFixTabName(win: WindowInfo, hasOperator: boolean): boolean {
+  return hasOperator && win.chatSessionRef != null && win.chatSessionRef !== "" && win.role !== "operator";
+}
+
 /** Shared geometry for the card's sectioned action rows: full-bleed inside
  *  the action section (which carries the `-mx-2` counter-inset, so the top
  *  border + inter-row hairlines span edge to edge), one line tall — icon +
@@ -508,6 +519,75 @@ function ForkActionRow({ onFork }: { onFork: () => Promise<void> }) {
 }
 
 /**
+ * The "Fix tab name" action row (260822-fih1-operator-request-fix-tab-name) —
+ * the flyout arm of the operator actuation seam. Fires one operator-request
+ * POST (the backend derives every prompt fact server-side) and toasts the
+ * outcome; the rename itself arrives later via the normal SSE derive tick, so
+ * there is no spinner beyond the in-flight guard. The guard mirrors
+ * ForkActionRow's: the POST is mutating, so N clicks must not fire N requests;
+ * the busy state clears on settle (success and error alike) so a rejected
+ * request stays retryable.
+ */
+function FixTabNameActionRow({ onFixTabName }: { onFixTabName: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  // The card unmounts when the flyout closes, so a settle after unmount is a
+  // real possibility — guard the setState (the ForkActionRow idiom).
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  return (
+    <button
+      type="button"
+      // stopPropagation so the request never also selects the underlying row.
+      // The click is a no-op while a request is in flight — `disabled` already
+      // blocks it, this is the belt to that braces.
+      onClick={(e) => {
+        e.stopPropagation();
+        if (busy) return;
+        setBusy(true);
+        void onFixTabName().finally(() => {
+          if (mountedRef.current) setBusy(false);
+        });
+      }}
+      disabled={busy}
+      className={`${ACTION_ROW_CLASS} hover:text-text-primary hover:border-l-accent-green disabled:hover:border-l-transparent disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-text-secondary`}
+      title="Ask the operator to rename this tab from its transcript"
+      data-testid="row-flyout-fix-name-action"
+    >
+      <WandIcon />
+      <span className="shrink-0">Fix tab name</span>
+      <span className={ACTION_ROW_HINT_CLASS}>asks the operator</span>
+    </button>
+  );
+}
+
+/** A one-line "fix" glyph — a pencil with a check underline. Same inline-SVG
+ *  idiom and 12px box as ForkIcon above. */
+function WandIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      width="12"
+      height="12"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      className="shrink-0"
+    >
+      <path d="M10.5 2.5l3 3L6 13H3v-3l7.5-7.5z" />
+      <path d="M8.5 4.5l3 3" />
+    </svg>
+  );
+}
+
+/**
  * Identity title for the card's title bar: `Window @N · pane %N · N panes` —
  * the tmux window id, the ACTIVE pane's id, and the pane count (all already on
  * the passed `win`). Static text only (the render-performance contract).
@@ -547,6 +627,8 @@ export function WindowFlyoutContent({
   win,
   onChangeColorAction,
   onFork,
+  onFixTabName,
+  hasOperator = false,
   onPinAction,
   pinned = false,
   pinnedBoard,
@@ -559,6 +641,13 @@ export function WindowFlyoutContent({
    *  color seam renders no row. */
   onChangeColorAction?: () => void;
   onFork?: () => Promise<void>;
+  /** Fire the operator-request seam for this window (fix-tab-name). OPTIONAL:
+   *  a consumer wiring no seam renders no row. Renders only when the
+   *  availability rule holds (canRequestFixTabName). */
+  onFixTabName?: () => Promise<void>;
+  /** Whether the server has an operator window — availability input (a) for
+   *  the Fix tab name row. */
+  hasOperator?: boolean;
   onPinAction?: () => void;
   pinned?: boolean;
   pinnedBoard?: string;
@@ -582,6 +671,10 @@ export function WindowFlyoutContent({
   // site type-checks structurally instead of leaning on aliased-condition
   // narrowing, which a refactor could silently break.
   const forkHandler = canForkWindow(win) ? onFork : undefined;
+  // The Fix tab name row keeps the same double gate: the derived availability
+  // rule (operator present + subject chat ref + not the operator's own row)
+  // AND a wired handler.
+  const fixNameHandler = canRequestFixTabName(win, hasOperator) ? onFixTabName : undefined;
 
   return (
     <>
@@ -684,7 +777,7 @@ export function WindowFlyoutContent({
           action row of every tier's card). Optional-handler idiom: a consumer
           wiring no handler renders no row. All rows stopPropagation so an
           action never selects the underlying row (the PR-link/docs idiom). */}
-      {(onChangeColorAction || forkHandler || onPinAction || onKillAction) && (
+      {(onChangeColorAction || forkHandler || fixNameHandler || onPinAction || onKillAction) && (
         <CardActionList flush={!hasBody}>
           {onChangeColorAction && (
             <CardActionRow
@@ -695,6 +788,7 @@ export function WindowFlyoutContent({
             />
           )}
           {forkHandler && <ForkActionRow onFork={forkHandler} />}
+          {fixNameHandler && <FixTabNameActionRow onFixTabName={fixNameHandler} />}
           {onPinAction && (
             <CardActionRow
               icon={<PinIcon filled={pinned} />}

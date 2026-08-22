@@ -108,6 +108,15 @@ type WindowRowProps = {
    *  errors and does not reject), which the flyout's button awaits to hold its
    *  in-flight disabled state. */
   onForkWindow?: (server: string, windowId: string) => Promise<void>;
+  /** Ask the server's operator window to fix the subject window's tab name
+   *  (260822-fih1-operator-request-fix-tab-name). Optional (mirrors
+   *  `onForkWindow`): when omitted — e.g. the board-route sidebar — the row
+   *  flyout's Fix tab name affordance is hidden. The flyout additionally gates
+   *  on the derived availability rule (`canRequestFixTabName`). */
+  onFixTabName?: (server: string, windowId: string) => Promise<void>;
+  /** Whether the server has an operator window — availability input for the
+   *  flyout's Fix tab name row (the row itself carries the rest of the rule). */
+  hasOperator?: boolean;
   /** Tmux server name for the pin popover (server-routing contract) AND the
    *  identity bound into the handlers above. When omitted the pin icon is
    *  hidden and handlers bind an empty server — used by tests that render
@@ -188,6 +197,8 @@ function WindowRowInner({
   onMarkerChange,
   onFlairChange,
   onForkWindow,
+  onFixTabName,
+  hasOperator = false,
   server,
   isPinnedToAny = false,
   isPinnedToActiveBoard = false,
@@ -232,6 +243,12 @@ function WindowRowInner({
     if (!onForkWindow || ghost) return undefined;
     return () => onForkWindow(srv, win.windowId);
   }, [onForkWindow, ghost, srv, win.windowId]);
+  // Same binding idiom as handleFork: undefined (no handler, or a ghost row)
+  // means the card renders no Fix tab name affordance at all.
+  const handleFixTabName = useMemo(() => {
+    if (!onFixTabName || ghost) return undefined;
+    return () => onFixTabName(srv, win.windowId);
+  }, [onFixTabName, ghost, srv, win.windowId]);
   const flyout = useRowFlyout({
     suppressed: ghost || showPinPopover || showLabelPicker,
     content: ({ close }) => (
@@ -255,6 +272,8 @@ function WindowRowInner({
             : undefined
         }
         onFork={handleFork}
+        onFixTabName={handleFixTabName}
+        hasOperator={hasOperator}
         onPinAction={
           showPinIcon
             ? () => {

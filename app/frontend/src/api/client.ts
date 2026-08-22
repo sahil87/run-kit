@@ -311,6 +311,33 @@ export async function sendChatMessage(
 }
 
 /**
+ * Hand the server's operator window a templated work item ABOUT the subject
+ * window (`windowId`) — the operator actuation seam's one consumer-facing call
+ * (260822-fih1-operator-request-fix-tab-name). The body carries ONLY the
+ * closed-set template id; the backend derives every prompt fact server-side,
+ * gates on the operator's agent state (busy ⇒ 409), and delivers via the
+ * chat-send machinery. `throwOnError` surfaces the server's structured error
+ * as the thrown Error's message — the busy 409 ("operator is busy …") and the
+ * 404 races ("no operator on this server", "no chat session …"). Fire-and-
+ * forget: the result (e.g. a rename) arrives via the normal SSE derive tick.
+ */
+export async function sendOperatorRequest(
+  server: string,
+  windowId: string,
+  template: string,
+): Promise<void> {
+  const res = await fetch(
+    withServer(`/api/windows/${encodeURIComponent(windowId)}/operator-request`, server),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ template }),
+    },
+  );
+  if (!res.ok) await throwOnError(res);
+}
+
+/**
  * Fetch the window's full scrollback as plain text from
  * GET /api/windows/{windowId}/history (260819-shqo-terminal-tile-export) —
  * the server-capture arm of the terminal export menu (`tmux capture-pane -p

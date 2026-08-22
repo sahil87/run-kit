@@ -83,6 +83,36 @@ type Adapter interface {
 // presence-gating stays provider-agnostic and codex/gemini adapters are additive.
 var ErrNoAdapter = errors.New("chat: no adapter for provider")
 
+// TranscriptLocator is an OPTIONAL adapter capability: resolving a session ref
+// to its on-disk transcript path. File-based providers (claude) implement it;
+// a future protocol-based provider may have no on-disk transcript at all, so
+// the capability lives off the core Adapter interface. The implementing
+// adapter MUST keep the ref-format guard (see uuidRe) in front of every path
+// resolution (Constitution I — path-traversal guard).
+type TranscriptLocator interface {
+	// TranscriptPath resolves ref to the absolute path of the session's
+	// transcript file. An invalid ref is ErrInvalidRef (returned BEFORE any
+	// filesystem access); a valid ref with no file is ErrTranscriptNotFound.
+	TranscriptPath(ref string) (string, error)
+}
+
+// TranscriptPath resolves provider+ref to the absolute transcript path via the
+// registry: Lookup routes to the provider's adapter, which is type-asserted to
+// TranscriptLocator. An unregistered provider, or one without the capability,
+// yields ErrNoAdapter (404-class at the API layer — the caller cannot do
+// anything about a provider rk cannot read from disk).
+func TranscriptPath(provider, ref string) (string, error) {
+	a, err := Lookup(provider)
+	if err != nil {
+		return "", err
+	}
+	loc, ok := a.(TranscriptLocator)
+	if !ok {
+		return "", ErrNoAdapter
+	}
+	return loc.TranscriptPath(ref)
+}
+
 // registry maps a provider prefix to its Adapter. Guarded by mu so Register
 // (called from adapter init) and Lookup (called per request) are race-free.
 var (

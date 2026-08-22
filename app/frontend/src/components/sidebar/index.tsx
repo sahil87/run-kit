@@ -165,6 +165,11 @@ export type SidebarProps = {
    *  omitted — e.g. the board-route sidebar — the row flyout's fork affordance is
    *  hidden. The flyout additionally gates on `chatProvider === "claude"`. */
   onForkWindow?: (server: string, windowId: string) => Promise<void>;
+  /** Ask the server's operator window to fix a subject window's tab name
+   *  (260822-fih1-operator-request-fix-tab-name). Optional (mirrors
+   *  `onForkWindow`): when omitted — e.g. the board-route sidebar — the row
+   *  flyout's Fix tab name affordance is hidden. */
+  onFixTabName?: (server: string, windowId: string) => Promise<void>;
   onCreateServer: () => void;
   onKillServer: (name: string) => void;
   /** Optional waiting-badge click (260714-r7rq): navigate to the next waiting
@@ -188,6 +193,7 @@ export function Sidebar({
   onCreateSession,
   onSpawnAgent,
   onForkWindow,
+  onFixTabName,
   onCreateServer,
   onKillServer,
   onWaitingBadgeClick,
@@ -1783,6 +1789,7 @@ export function Sidebar({
                 onSessionFlairChange={handleSessionFlairChange}
                 onWindowFlairChange={handleWindowFlairChange}
                 onForkWindow={onForkWindow}
+                onFixTabName={onFixTabName}
                 onWindowDragStart={handleDragStart}
                 onWindowDragOver={handleDragOver}
                 onWindowDrop={handleDrop}
@@ -2183,6 +2190,10 @@ type ServerGroupProps = {
   /** Forwarded to each `WindowRow` → its row flyout's fork affordance. Optional
    *  (the board-route sidebar passes none) — see `SidebarProps.onForkWindow`. */
   onForkWindow?: (server: string, windowId: string) => Promise<void>;
+  /** Forwarded to each `WindowRow` → its row flyout's Fix tab name affordance.
+   *  Optional (the board-route sidebar passes none) — see
+   *  `SidebarProps.onFixTabName`. */
+  onFixTabName?: (server: string, windowId: string) => Promise<void>;
   onWindowDragStart: (e: React.DragEvent, server: string, session: string, index: number, windowId: string, name: string) => void;
   onWindowDragOver: (e: React.DragEvent, server: string, session: string, index: number) => void;
   onWindowDrop: (e: React.DragEvent, server: string, session: string, index: number) => void;
@@ -2259,6 +2270,7 @@ function ServerGroupInner(props: ServerGroupProps) {
     onSessionFlairChange,
     onWindowFlairChange,
     onForkWindow,
+    onFixTabName,
     onWindowDragStart,
     onWindowDragOver,
     onWindowDrop,
@@ -2346,6 +2358,10 @@ function ServerGroupInner(props: ServerGroupProps) {
     return null;
   }, [orderedSessions]);
 
+  // Derived availability input for the Fix tab name flyout row: one boolean,
+  // shared by every row in the group (the rest of the rule is row-local —
+  // subject chat ref + not-the-operator's-own-row).
+  const hasOperator = operatorEntry !== null;
   // Build this group's roving-row identity slice + a cheap visible-set
   // signature. The slice maps each row key → typed identity for direct
   // Enter/Space activation in the parent (no DOM `.click()` synthesis). The
@@ -2835,6 +2851,8 @@ function ServerGroupInner(props: ServerGroupProps) {
               onMarkerChange={onWindowMarkerChange}
               onFlairChange={onWindowFlairChange}
               onForkWindow={onForkWindow}
+              onFixTabName={onFixTabName}
+              hasOperator={hasOperator}
             />
           )}
           <div className="pb-1">
@@ -3009,6 +3027,8 @@ function ServerGroupInner(props: ServerGroupProps) {
                             onMarkerChange={ghost ? undefined : onWindowMarkerChange}
                             onFlairChange={ghost ? undefined : onWindowFlairChange}
                             onForkWindow={ghost ? undefined : onForkWindow}
+                            onFixTabName={ghost ? undefined : onFixTabName}
+                            hasOperator={hasOperator}
                           />
                         );
                       })}

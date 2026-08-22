@@ -148,7 +148,7 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowRole, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, sendChatMessage, refreshStatus, isInfraServer, spawnRiff, forkWindow } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowRole, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, sendChatMessage, sendOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow } from "@/api/client";
 import { useBoards } from "@/hooks/use-boards";
 import { useWindowPins } from "@/hooks/use-window-pins";
 import { usePinActions } from "@/hooks/use-pin-actions";
@@ -647,6 +647,14 @@ function AppShell() {
   // The session name shown in breadcrumbs/title/dropdowns, derived from the
   // snapshot (not the URL). Undefined until the snapshot resolves the window.
   const sessionName = currentSession?.name;
+
+  // Operator presence on this server — availability input (a) of the Fix tab
+  // name palette entry / flyout row (the rest of the rule is subject-local:
+  // chat ref + not-the-operator's-own-window).
+  const hasOperatorWindow = useMemo(
+    () => sessions.some((s) => s.windows.some((w) => w.role === "operator")),
+    [sessions],
+  );
 
   // Code-folder latch (260813-if5d; spec right-panel.md § The code lens): the
   // code surface's folder is per-window LATCHED state, not the live SSE
@@ -2177,6 +2185,21 @@ function AppShell() {
     [navigateToSpawnedWindow, addToast],
   );
 
+  // Ask the server's operator window to fix a subject window's tab name
+  // (260822-fih1-operator-request-fix-tab-name): fire-and-forget — success
+  // toasts the hand-off and the rename itself arrives via the normal SSE
+  // derive tick; failure (busy 409, probe 409, race 404) toasts the server's
+  // structured message. RETURNS the settle promise (already error-handled, so
+  // it never rejects): the flyout's row awaits it to hold its in-flight guard,
+  // so repeated clicks cannot fire multiple POSTs.
+  const handleFixTabName = useCallback(
+    (srv: string, windowId: string): Promise<void> =>
+      sendOperatorRequest(srv, windowId, "fix-tab-name")
+        .then(() => addToast("Sent to operator — tab will rename shortly", "info"))
+        .catch((err: Error) => addToast(err.message || "Failed to reach the operator", "error")),
+    [addToast],
+  );
+
   const handleCreateIframeWindow = useCallback(() => {
     const name = finalizeSafeName(iframeWindowName.trim());
     const url = iframeWindowUrl.trim();
@@ -2527,6 +2550,24 @@ function AppShell() {
                 }
               },
             },
+            // Fix tab name (260822-fih1) — the palette arm of the operator
+            // actuation seam, gated by the same derived availability rule as
+            // the flyout row (omit-not-disable): an operator on the server,
+            // the subject carrying a chat session ref, and the subject not
+            // being the operator itself.
+            ...(hasOperatorWindow &&
+            currentWindow.chatSessionRef &&
+            currentWindow.role !== "operator"
+              ? [
+                  {
+                    id: "window-fix-name-operator",
+                    label: "Tab: Fix name (ask operator)",
+                    onSelect: () => {
+                      void handleFixTabName(server, currentWindow.windowId);
+                    },
+                  },
+                ]
+              : []),
             {
               id: "kill-window",
               label: "Tab: Kill",
@@ -2565,7 +2606,7 @@ function AppShell() {
           ]
         : []),
     ],
-    [sessionName, currentWindow, sessions, handleCreateWindow, dialogs, executeSplit, executeClosePane, minWindowIndex, maxWindowIndex, navigate, server, addToast, setShowCreateWindowAtFolderDialog],
+    [sessionName, currentWindow, sessions, hasOperatorWindow, handleCreateWindow, handleFixTabName, dialogs, executeSplit, executeClosePane, minWindowIndex, maxWindowIndex, navigate, server, addToast, setShowCreateWindowAtFolderDialog],
   );
 
   // Boards palette block (server-route variant). AppShell only mounts under
@@ -4000,6 +4041,7 @@ function AppShell() {
       onCreateSession={handleSidebarCreateSession}
       onSpawnAgent={handleOpenSpawnAgent}
       onForkWindow={handleForkWindow}
+      onFixTabName={handleFixTabName}
       onCreateServer={openCreateServer}
       onKillServer={requestKillServer}
       onSidebarResizeStart={isMobile ? undefined : (e) => handleDragStart(e.clientX)}

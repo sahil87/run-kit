@@ -438,3 +438,29 @@ func TestAutoName_DeliverIdleOperatorInjects(t *testing.T) {
 		t.Errorf("auto-path prompt missing the no-op clause:\n%s", prompt)
 	}
 }
+
+// TestAutoName_SettingGatesTracker: the feature is strictly opt-in
+// (RK_AUTO_NAME → Server.autoNameEnabled). Disabled ⇒ initSSEHub nils the
+// hub's tracker — the feature-absent state both tick sites check — so no
+// transition can ever fire; enabled ⇒ the tracker survives with its delivery
+// seam wired.
+func TestAutoName_SettingGatesTracker(t *testing.T) {
+	t.Run("disabled nils the tracker", func(t *testing.T) {
+		s := &Server{logger: slog.Default(), sessions: &mockSessionFetcher{}, hostname: "host"}
+		s.initSSEHub()
+		if s.sseHub.autoName != nil {
+			t.Fatalf("autoName tracker present with autoNameEnabled=false — feature must be absent")
+		}
+	})
+
+	t.Run("enabled wires the deliver seam", func(t *testing.T) {
+		s := &Server{logger: slog.Default(), sessions: &mockSessionFetcher{}, hostname: "host", autoNameEnabled: true}
+		s.initSSEHub()
+		if s.sseHub.autoName == nil {
+			t.Fatalf("autoName tracker missing with autoNameEnabled=true")
+		}
+		if s.sseHub.autoName.deliver == nil {
+			t.Fatalf("deliver seam not wired with autoNameEnabled=true")
+		}
+	})
+}

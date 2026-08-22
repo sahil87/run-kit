@@ -52,9 +52,17 @@ The tracker's state (per-window previous state + cooldown stamps, per-server del
 - **WHEN** the post-loop retain runs
 - **THEN** its tracker entries are removed.
 
+#### R7: Opt-in setting gate (user review feedback, 2026-08-22)
+The trigger SHALL be strictly opt-in behind the `RK_AUTO_NAME` env var (default **off**; `strconv.ParseBool` values; unset or unparsable ⇒ off), loaded as `config.AutoName` and seeded onto the Server as `autoNameEnabled`. When disabled, `initSSEHub` SHALL nil the hub's tracker — the feature-absent state both tick sites (`advance`, `retain`) already check — so no transition detection, delivery, or state accumulation occurs at all. When enabled, R1–R6 apply unchanged. The setting is documented in the committed `.env` (commented, off by default), per Constitution IV's env-var configuration rule.
+
+- **GIVEN** `RK_AUTO_NAME` unset (or `0`, or garbage)
+- **WHEN** the daemon starts and the hub initializes
+- **THEN** the hub's auto-name tracker is nil and the feature is entirely absent.
+- **AND GIVEN** `RK_AUTO_NAME=1` (or `true`), **THEN** the tracker is constructed with its delivery seam wired and R1–R6 semantics apply.
+
 ### Non-Goals
 
-- No config toggle or env var — armed exactly when an operator window exists (intake assumption #5).
+- ~~No config toggle or env var — armed exactly when an operator window exists (intake assumption #5).~~ **Revised 2026-08-22 (user review feedback on PR #711)**: the trigger is strictly opt-in behind `RK_AUTO_NAME` — see R7.
 - No new HTTP endpoint, body field, or template id; no frontend changes.
 - No queue, no persistence, no retry; no SSE hub wake on delivery (rk mutates no tmux state).
 
@@ -90,6 +98,11 @@ The tracker's state (per-window previous state + cooldown stamps, per-server del
 - [x] T006 Unit tests in `app/backend/api/auto_name_test.go` (pure decision function, fake clock/deliver): active→idle and waiting→idle fire; idle→idle, ""→idle, and first-observation don't; no-operator / no-chatref / subject-is-operator skips; cooldown suppression incl. stamp-on-busy-skip; per-server min-gap; one-per-tick with the un-delivered window left unstamped; retain sweeps dead entries <!-- R1 -->
 - [x] T007 Integration-shape tests: HTTP handler equivalence through the extracted core (busy 409, no-operator 404, probe-failure 409 unchanged) and an auto-path test that a busy operator produces zero injection calls via the deliver seam <!-- R4 -->
 - [x] T008 Run verification gates: `cd app/backend && go test ./...`; confirm no frontend impact (`git status` shows backend-only) <!-- R4 -->
+
+### Phase 4: Setting Gate (user review feedback, 2026-08-22)
+
+- [x] T009 Add `AutoName bool` to `app/backend/internal/config/config.go` (env `RK_AUTO_NAME`, `strconv.ParseBool`, default off), seed `Server.autoNameEnabled` in `NewServer`, gate in `initSSEHub` (`app/backend/api/router.go` — disabled ⇒ nil the tracker; enabled ⇒ wire the deliver seam), document the commented default in `.env` <!-- R7 -->
+- [x] T010 Tests: `RK_AUTO_NAME` parse cases (unset/truthy/`0`/garbage) in `app/backend/internal/config/config_test.go`; `TestAutoName_SettingGatesTracker` in `app/backend/api/auto_name_test.go` (disabled ⇒ nil tracker, enabled ⇒ wired seam); `go test ./api/ ./internal/config/` green <!-- R7 -->
 
 ## Execution Order
 
@@ -134,6 +147,11 @@ The tracker's state (per-window previous state + cooldown stamps, per-server del
 
 - [x] A-019 R4: No client-controlled input enters the auto path (trigger is derived state; template facts are server-derived; body/template surface unchanged)
 
+### Setting Gate (R7, added at review-pr per user feedback)
+
+- [x] A-020 R7: With `RK_AUTO_NAME` unset/off/unparsable the hub's tracker is nil — no detection, delivery, or state accumulation (verified by `TestAutoName_SettingGatesTracker` + config parse tests)
+- [x] A-021 R7: With `RK_AUTO_NAME` truthy the tracker is constructed with its deliver seam wired and R1–R6 semantics apply unchanged; the setting is documented (commented, off) in the committed `.env`
+
 ## Notes
 
 - Check items as you review: `- [x]`
@@ -156,4 +174,6 @@ None — this change adds new functionality without making existing code redunda
 | 6 | Confident | `deliver` closure is wired post-construction in `initSSEHub` (not inside `newSSEHub`) since the 4-arg hub constructor can't see the Server; test hubs run with `deliver == nil` (tracking/live-keys still advance, fan-out skipped) — mirrors the `codeServerPort` post-construction seeding pattern | Keeps every existing `newSSEHub` test call site compiling untouched; nil-deliver degrade mirrors the plan's injected-seam decision | S:65 R:85 A:80 D:70 |
 | 7 | Confident | Cooldown + min-gap stamp in `decide` at EMISSION time (not after delivery), so the busy-skip case (reject surfaced by the core) is covered by construction; ineligible transitions (no operator / chatless / operator-subject) are consumed unstamped | R3 demands stamp-on-busy-skip and the busy gate lives inside the core, below the tracker's horizon; unstamped ineligibility lets a window that later gains a chat ref fire immediately | S:60 R:85 A:75 D:65 |
 
-7 assumptions (0 certain, 7 confident, 0 tentative).
+| 8 | Certain | `RK_AUTO_NAME` gates at hub construction (nil tracker when off) rather than per-tick flag checks | User directive (gate behind a setting, 2026-08-22); nil is the feature-absent state the tick sites already handle; env var per Constitution IV | S:90 R:90 A:90 D:85 |
+
+8 assumptions (1 certain, 7 confident, 0 tentative).

@@ -196,9 +196,13 @@ core (the tick never blocks on injection, mirroring `notifyWaiting`); errors —
 the routine busy-skip included — are logged at debug and dropped. State is
 process-memory only (a daemon restart forgets cooldowns, Constitution II) and
 reaped on the post-loop retain seam, scoped to successfully-polled-or-dead
-servers exactly like `waitingPushTracker.retain`. The tracker is armed exactly
-when an operator window exists on the server — no config toggle; no operator ⇒
-nothing fires, nothing logs at error level (degrade to absent).
+servers exactly like `waitingPushTracker.retain`. The feature is strictly
+OPT-IN: `RK_AUTO_NAME` (env, `strconv.ParseBool` values, default off — loaded
+as `config.AutoName` → `Server.autoNameEnabled`); when disabled, `initSSEHub`
+nils the hub's tracker, the feature-absent state both tick sites (advance,
+retain) already check. When enabled, the trigger still requires an operator
+window on the server — no operator ⇒ nothing fires, nothing logs at error
+level (degrade to absent).
 
 #### Scenario: Transition detection and eligibility
 - **GIVEN** a window whose previous tick state was `active` (or `waiting`)

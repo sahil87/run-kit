@@ -21,6 +21,12 @@ type Config struct {
 	// runs one behind the stable /code/ route, so the port is a private
 	// implementation detail and never appears in a URL the frontend builds.
 	CodeServerPort int
+	// AutoName arms the auto-name-on-idle trigger (env RK_AUTO_NAME): on a
+	// window's busy→idle transition the server's operator window is handed a
+	// fix-tab-name request. Default false — the trigger injects prompts into
+	// the operator on its own, so it is strictly opt-in; unset or an
+	// unparsable value leaves it off (strconv.ParseBool values accepted).
+	AutoName bool
 }
 
 // ResolvedCodeServerPort returns the effective code-server port: the preset
@@ -50,8 +56,8 @@ func validPort(p int) bool {
 	return p >= 1 && p <= 65535
 }
 
-// Load reads configuration from RK_PORT, RK_HOST, and RK_SSH_HOST env vars,
-// falling back to defaults.
+// Load reads configuration from the RK_PORT, RK_HOST, RK_SSH_HOST,
+// RK_CODE_SERVER_PORT, and RK_AUTO_NAME env vars, falling back to defaults.
 func Load() Config {
 	cfg := defaults
 
@@ -70,6 +76,12 @@ func Load() Config {
 	if csPortStr := os.Getenv("RK_CODE_SERVER_PORT"); csPortStr != "" {
 		if p, err := strconv.Atoi(csPortStr); err == nil && validPort(p) {
 			cfg.CodeServerPort = p
+		}
+	}
+
+	if autoNameStr := os.Getenv("RK_AUTO_NAME"); autoNameStr != "" {
+		if b, err := strconv.ParseBool(autoNameStr); err == nil {
+			cfg.AutoName = b
 		}
 	}
 

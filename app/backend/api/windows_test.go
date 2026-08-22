@@ -347,6 +347,33 @@ func TestWindowOptionsSetRoleOperator(t *testing.T) {
 	if ops.clearWindowRoleKeepID != "@7" {
 		t.Errorf("radio clear keepID = %q, want %q", ops.clearWindowRoleKeepID, "@7")
 	}
+	// Physical promotion: the window is moved into the operator session.
+	if !ops.moveInOperatorCalled {
+		t.Error("MoveWindowIntoOperatorSessionOnServer was not called for a role set")
+	}
+	if ops.moveInOperatorWindowID != "@7" {
+		t.Errorf("move-in windowID = %q, want %q", ops.moveInOperatorWindowID, "@7")
+	}
+}
+
+// Setting operator with a displaced carrier demotes the displaced window out
+// of the operator session before moving the new operator in.
+func TestWindowOptionsSetRoleOperatorDemotesDisplaced(t *testing.T) {
+	ops := &mockTmuxOps{clearWindowRoleResult: []string{"@3"}}
+	rec := postOptions(t, ops, "@7", `{"options":{"@rk_role":"operator"}}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if !ops.demoteOperatorCalled {
+		t.Error("DemoteWindowFromOperatorSessionOnServer was not called for the displaced carrier")
+	}
+	if ops.demoteOperatorWindowID != "@3" {
+		t.Errorf("demote windowID = %q, want %q (the displaced carrier)", ops.demoteOperatorWindowID, "@3")
+	}
+	if !ops.moveInOperatorCalled || ops.moveInOperatorWindowID != "@7" {
+		t.Errorf("move-in = (%v, %q), want (true, @7)", ops.moveInOperatorCalled, ops.moveInOperatorWindowID)
+	}
 }
 
 // @rk_role empty string unsets (nil Value op), mirroring @rk_marker — and an
@@ -367,6 +394,17 @@ func TestWindowOptionsRoleEmptyUnsets(t *testing.T) {
 	}
 	if ops.clearWindowRoleCalled {
 		t.Error("ClearWindowRoleExceptOnServer must NOT be called for a role unset")
+	}
+	// A role clear demotes a member out of the operator session (a no-op move
+	// for non-members).
+	if !ops.demoteOperatorCalled {
+		t.Error("DemoteWindowFromOperatorSessionOnServer was not called for a role unset")
+	}
+	if ops.demoteOperatorWindowID != "@7" {
+		t.Errorf("demote windowID = %q, want %q", ops.demoteOperatorWindowID, "@7")
+	}
+	if ops.moveInOperatorCalled {
+		t.Error("MoveWindowIntoOperatorSessionOnServer must NOT be called for a role unset")
 	}
 }
 

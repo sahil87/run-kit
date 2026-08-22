@@ -437,6 +437,7 @@ func (s *Server) handleWindowOptions(w http.ResponseWriter, r *http.Request) {
 	// invalid key aborts with zero tmux calls.
 	ops := make([]tmux.WindowOptionOp, 0, len(body.Options))
 	roleSet := false
+	roleClear := false
 	for key, value := range body.Options {
 		switch key {
 		case optKeyColor, optKeyRkURL, optKeyRkType, optKeyMarker, optKeyRole, optKeyFlair:
@@ -456,8 +457,12 @@ func (s *Server) handleWindowOptions(w http.ResponseWriter, r *http.Request) {
 		if (key == optKeyRkType || key == optKeyMarker || key == optKeyRole || key == optKeyFlair) && value != nil && *value == "" {
 			op.Value = nil
 		}
-		if key == optKeyRole && op.Value != nil {
-			roleSet = true
+		if key == optKeyRole {
+			if op.Value != nil {
+				roleSet = true
+			} else {
+				roleClear = true
+			}
 		}
 		ops = append(ops, op)
 	}
@@ -474,8 +479,11 @@ func (s *Server) handleWindowOptions(w http.ResponseWriter, r *http.Request) {
 	// Setting @rk_role=operator is a server-scoped radio: clear the role from
 	// every other window on the server BEFORE the batched set, so at most one
 	// window carries it. Enforcement lives here (server-side), never in clients.
+	var displaced []string
 	if roleSet {
-		if err := s.tmux.ClearWindowRoleExceptOnServer(ctx, server, windowID); err != nil {
+		var err error
+		displaced, err = s.tmux.ClearWindowRoleExceptOnServer(ctx, server, windowID)
+		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -484,6 +492,32 @@ func (s *Server) handleWindowOptions(w http.ResponseWriter, r *http.Request) {
 	if err := s.tmux.SetWindowOptions(ctx, windowID, server, ops); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+
+	// Physical promotion, trailing the option write (option-write-first): a
+	// mid-sequence failure degrades to the cosmetic-only state (role set,
+	// window unmoved) — never a moved-but-roleless stray.
+	if roleSet {
+		// Demote displaced carriers out of the operator session first, then
+		// move the new operator in — an emptied operator session dies with its
+		// last window, and ensure-before-move recreates it.
+		for _, id := range displaced {
+			if err := s.tmux.DemoteWindowFromOperatorSessionOnServer(ctx, server, id); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
+		if err := s.tmux.MoveWindowIntoOperatorSessionOnServer(ctx, server, windowID); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	} else if roleClear {
+		// Demote: a member of the operator session moves out to its cwd-basename
+		// session; a non-member is a plain unset (no-op move).
+		if err := s.tmux.DemoteWindowFromOperatorSessionOnServer(ctx, server, windowID); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
 
 	// Wake the SSE hub so the option change (@color/@rk_url/@rk_type) surfaces on

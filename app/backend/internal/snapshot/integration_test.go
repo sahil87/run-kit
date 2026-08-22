@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 )
@@ -135,5 +136,113 @@ func TestCaptureRestoreRoundTripLiveTmux(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// TestOperatorPromotionRoundTripLiveTmux proves a snapshot taken with a
+// PROMOTED operator (the window physically moved into `_rk-operator`, the
+// content-hidden home) restores the `_rk-operator` session containing the
+// window with its `@rk_role=operator` option — the restored state is
+// hidden+pinned, not a visible stray. Capture is session-generic (no pin-style
+// session filtering) and restore re-applies `@rk_role` per window
+// (restore.go), so the round trip is the load-bearing behavior.
+func TestOperatorPromotionRoundTripLiveTmux(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available — skipping integration test")
+	}
+	socket := fmt.Sprintf("rk-test-snapoperator-%d-%d", os.Getpid(), time.Now().UnixNano())
+	t.Cleanup(func() {
+		_ = exec.Command("tmux", "-L", socket, "kill-server").Run()
+		_ = os.Remove(fmt.Sprintf("/tmp/tmux-%d/%s", os.Getuid(), socket))
+	})
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home dir")
+	}
+
+	// Layout: a work session with a shell + the operator window, and the
+	// operator window physically promoted into `_rk-operator`.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if out, err := exec.CommandContext(ctx, "tmux", "-L", socket,
+		"new-session", "-d", "-s", "work", "-n", "shell", "-c", home, "-x", "120", "-y", "40").CombinedOutput(); err != nil {
+		t.Skipf("could not start isolated tmux server: %v\n%s", err, out)
+	}
+	tmuxCmd(t, socket, "new-window", "-d", "-t", "=work:", "-n", "operator", "-c", home)
+	tmuxCmd(t, socket, "set-option", "-w", "-t", "=work:operator", "@rk_role", "operator")
+	// Physical promotion: create the operator home and move the window in.
+	tmuxCmd(t, socket, "new-session", "-d", "-s", "_rk-operator", "-c", home)
+	opWinID := ""
+	{
+		out, err := exec.CommandContext(ctx, "tmux", "-L", socket,
+			"list-windows", "-t", "=work:", "-F", "#{window_id}\t#{window_name}").CombinedOutput()
+		if err != nil {
+			t.Fatalf("list work windows: %v\n%s", err, out)
+		}
+		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			parts := strings.SplitN(line, "\t", 2)
+			if len(parts) == 2 && parts[1] == "operator" {
+				opWinID = parts[0]
+			}
+		}
+	}
+	if opWinID == "" {
+		t.Fatal("operator window not found in work session")
+	}
+	tmuxCmd(t, socket, "move-window", "-s", opWinID, "-t", "=_rk-operator:")
+
+	before, err := CaptureServer(context.Background(), socket)
+	if err != nil {
+		t.Fatalf("capture before: %v", err)
+	}
+	found := false
+	for _, sess := range before.Sessions {
+		if sess.Name != "_rk-operator" {
+			continue
+		}
+		found = true
+		if len(sess.Windows) == 0 {
+			t.Fatal("captured _rk-operator has no windows")
+		}
+	}
+	if !found {
+		t.Fatal("captured snapshot is missing the _rk-operator session")
+	}
+
+	tmuxCmd(t, socket, "kill-server")
+
+	report, err := Restore(context.Background(), socket, before)
+	if err != nil {
+		t.Fatalf("restore: %v\nreport: %+v", err, report)
+	}
+	if len(report.Skipped) != 0 {
+		t.Errorf("restore skipped: %v", report.Skipped)
+	}
+
+	after, err := CaptureServer(context.Background(), socket)
+	if err != nil {
+		t.Fatalf("capture after: %v", err)
+	}
+
+	// `_rk-operator` exists containing the window with its role restored.
+	foundAfter := false
+	restoredRole := ""
+	for _, sess := range after.Sessions {
+		if sess.Name != "_rk-operator" {
+			continue
+		}
+		foundAfter = true
+		for _, w := range sess.Windows {
+			if w.Name == "operator" {
+				restoredRole = w.Role
+			}
+		}
+	}
+	if !foundAfter {
+		t.Fatal("restored server is missing the _rk-operator session")
+	}
+	if restoredRole != "operator" {
+		t.Errorf("restored operator window role = %q, want %q", restoredRole, "operator")
 	}
 }

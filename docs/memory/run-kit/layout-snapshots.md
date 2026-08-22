@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Per-server tmux layout snapshots (`internal/snapshot`): the sessions/windows/panes + rk-options capture set, the `$XDG_STATE_HOME/rk/snapshots` store (atomic latest, 10-entry history, content-dedup, zero-session guard, `.died-{ts}` tombstones), the Snapshotter cadence + `@rk_ephemeral` opt-out (skip + retire-on-mark), the restore engine + `rk mux snapshot` CLI (fresh shells, no relaunch), and the recovery reader (`RestorableOffers`, `/api/recovery`; live state never derives from a snapshot)."
+description: "Per-server tmux layout snapshots (`internal/snapshot`): the sessions/windows/panes + rk-options capture set (incl. `_rk-operator`/`@rk_role`), the `$XDG_STATE_HOME/rk/snapshots` store (atomic latest, 10-entry history, content-dedup, zero-session guard, `.died-{ts}` tombstones), the Snapshotter cadence + `@rk_ephemeral` opt-out, the restore engine + `rk mux snapshot` CLI (no relaunch), and the recovery reader (`RestorableOffers`, `/api/recovery`; live state never derives from a snapshot)."
 ---
 # Layout Snapshots & Restore
 
@@ -44,7 +44,9 @@ Capture assembles from the `internal/tmux` layout reads plus `GetSessionOrder`/`
 - `ListLayoutWindows` — `list-windows -a`, keyed to the non-pin owning session, **deduplicated by window id** (a board-pinned window is linked into both its home session and its `_rk-pin-*` pin-session, so `-a` surfaces it once per link; the first non-hidden occurrence wins).
 - `ListLayoutPanes` — `list-panes -a` grouped into a `windowID → panes` map, deduped by pane id.
 
-`isLayoutHiddenSession` excludes board pin-sessions (`PinSessionPrefix`) and the `_rk-ctl` control anchor — pinned windows persist via home-session membership and the anchor is daemon-recreated. Unlike `ListSessions`, these helpers deliberately do NOT map a dead-server error to an empty result.
+`isLayoutHiddenSession` excludes board pin-sessions (`PinSessionPrefix`) and the `_rk-ctl` control anchor — pinned windows persist via home-session membership and the anchor is daemon-recreated. `_rk-operator` is deliberately NOT excluded: the operator window is MOVED into it (single membership, unlike the linked pin-sessions — see [tmux-sessions](/run-kit/tmux-sessions.md) § Operator Session), so excluding it would drop the operator window from the capture entirely. Unlike `ListSessions`, these helpers deliberately do NOT map a dead-server error to an empty result.
+
+The `_rk-operator` + `@rk_role` round trip is load-bearing: capture takes `_rk-operator` as a regular session (windows nested under it, each carrying `role` from `@rk_role`), and restore recreates the session with its windows and re-applies `@rk_role` per window (§ Restore semantics) — so a snapshot taken with a promoted operator restores to hidden+pinned state (the restored `_rk-operator` satisfies the FetchSessions content rule), never a visible stray session with an orphaned role. Pinned by the live-tmux integration test `TestOperatorPromotionRoundTripLiveTmux` (`internal/snapshot/integration_test.go`).
 
 **Restore mutators**:
 

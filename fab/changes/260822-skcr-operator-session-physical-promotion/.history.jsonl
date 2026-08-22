@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-22T09:22:19Z"}
+{"args":"Implement Phase 1 (physical promotion) of the operator-session plan (fab/plans/sahil/operator-session.md): move operator window into hidden _rk-operator session on role-set, move back out on role-clear, content-conditional session filtering, edge cases + tests","cmd":"fab-new","event":"command","ts":"2026-08-22T09:22:19Z"}
+{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-08-22T09:26:01Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-22T09:44:31Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-22T09:44:51Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-22T10:06:37Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-22T10:11:02Z"}
+{"event":"review","result":"passed","ts":"2026-08-22T10:11:02Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-22T10:14:45Z"}

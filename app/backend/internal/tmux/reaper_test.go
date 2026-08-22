@@ -60,6 +60,14 @@ func TestClassifyReap(t *testing.T) {
 		// Unconditional skips win over the ephemeral mark too.
 		{"control anchor marked ephemeral still skipped", ControlAnchorSessionName, prefix, map[string]bool{ControlAnchorSessionName: true}, true, ReapActionSkip},
 		{"rk-daemon marked ephemeral still skipped", productionDaemonServer, prefix, map[string]bool{productionDaemonServer: true}, true, ReapActionSkip},
+
+		// The operator session is a SESSION name, never a socket — structurally
+		// out of the reaper's socket-dir sweep (ReapTestServers enumerates the
+		// tmux socket directory, whose entries are SERVER sockets, not session
+		// names). It carries no ephemeral mark and matches no test prefix, so it
+		// classifies skip.
+		{"operator session name matches no test prefix", OperatorSessionName, prefix, noEphemeral, false, ReapActionSkip},
+		{"operator session name is never ephemeral-marked", OperatorSessionName, prefix, map[string]bool{}, true, ReapActionSkip},
 	}
 
 	for _, tc := range cases {

@@ -239,6 +239,14 @@ const (
 	// filtered from user-facing session lists in parseSessions — it's owned by
 	// tmuxctl, not user-facing.
 	ControlAnchorSessionName = "_rk-ctl"
+	// OperatorSessionName is the literal name of the per-server session an
+	// operator window (@rk_role=operator) is physically MOVED into on role-set
+	// (single membership — unlike the link-based pin-sessions). It is never
+	// name-skipped in parseSessions: the payload nests windows under sessions,
+	// so a parse-level skip would erase the pinned operator row's data source.
+	// User-facing surfaces hide it by content instead — sessions.FetchSessions
+	// marks it hidden only while every window in it carries the operator role.
+	OperatorSessionName = "_rk-operator"
 )
 
 // PinSessionName derives the single-window pin-session name for a window id by
@@ -1753,33 +1761,212 @@ func roleCarriersToClear(lines []string, keepWindowID string) []string {
 // point; enforcement lives server-side in rk, never trusted to clients. The
 // carriers are enumerated with one list-windows -a read and cleared with a
 // single ;-chained set-option -wu batch (zero carriers → no tmux write call).
-func ClearWindowRoleExcept(ctx context.Context, prefix []string, keepWindowID string) error {
+// It returns the IDs of the windows it cleared so the caller can demote any
+// displaced carrier out of OperatorSessionName as part of the same promote
+// flow (a roleless window stranded in _rk-operator would flip it visible with
+// a confusing mixed population).
+func ClearWindowRoleExcept(ctx context.Context, prefix []string, keepWindowID string) ([]string, error) {
 	listArgs := append(append([]string{}, prefix...), "list-windows", "-a", "-F", roleCarriersFormat)
 	out, err := RunOutput(ctx, listArgs, RunOpts{})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	raw := strings.Trim(string(out), "\n\r ")
 	if raw == "" {
-		return nil
+		return nil, nil
 	}
+	cleared := roleCarriersToClear(strings.Split(raw, "\n"), keepWindowID)
 	var unset []string
-	for _, id := range roleCarriersToClear(strings.Split(raw, "\n"), keepWindowID) {
+	for _, id := range cleared {
 		if len(unset) > 0 {
 			unset = append(unset, ";")
 		}
 		unset = append(unset, "set-option", "-wu", "-t", id, RoleOption)
 	}
 	if len(unset) == 0 {
-		return nil
+		return nil, nil
 	}
-	return Run(ctx, append(append([]string{}, prefix...), unset...), RunOpts{})
+	if err := Run(ctx, append(append([]string{}, prefix...), unset...), RunOpts{}); err != nil {
+		return nil, err
+	}
+	return cleared, nil
 }
 
 // ClearWindowRoleExceptOnServer is the server-name flavor of
 // ClearWindowRoleExcept for daemon/API callers (prefix derived via serverArgs).
-func ClearWindowRoleExceptOnServer(ctx context.Context, server, keepWindowID string) error {
+func ClearWindowRoleExceptOnServer(ctx context.Context, server, keepWindowID string) ([]string, error) {
 	return ClearWindowRoleExcept(ctx, serverArgs(server), keepWindowID)
+}
+
+// hasSessionArgv composes the exact-match has-session probe argv for prefix.
+// Pure so the probe composition is unit-testable without a live server.
+func hasSessionArgv(prefix []string, session string) []string {
+	return append(append([]string{}, prefix...), "has-session", "-t", ExactSessionTarget(session))
+}
+
+// newDetachedSessionArgv composes the detached-create argv for prefix. The
+// `-c` anchors session_path on an already-live server (session-path hygiene —
+// the board.go pin-session precedent), distinct from a server-birth cmd.Dir
+// override. Pure so the argv composition is unit-testable without a live server.
+func newDetachedSessionArgv(prefix []string, session, cwd string) []string {
+	return append(append([]string{}, prefix...), "new-session", "-d", "-s", session, "-c", cwd)
+}
+
+// hasSessionPrefix is the prefix-flavored exact-match has-session probe. Any
+// error (unset session, dead server, deadline) is reported as false — callers
+// want a boolean existence answer, not an operational error. Read-only.
+func hasSessionPrefix(ctx context.Context, prefix []string, session string) bool {
+	return Run(ctx, hasSessionArgv(prefix, session), RunOpts{}) == nil
+}
+
+// ensureDetachedSession creates session detached when missing (idempotent),
+// anchored to ServerBirthDir for session_path hygiene.
+func ensureDetachedSession(ctx context.Context, prefix []string, session string) error {
+	if hasSessionPrefix(ctx, prefix, session) {
+		return nil
+	}
+	return Run(ctx, newDetachedSessionArgv(prefix, session, ServerBirthDir()), RunOpts{})
+}
+
+// EnsureOperatorSession guarantees OperatorSessionName exists on the target
+// server, creating it detached (anchored to ServerBirthDir) when missing.
+// Idempotent: an existing session is a no-op, and a pre-existing user-created
+// session of the same name (foreign windows and all) is adopted as-is.
+func EnsureOperatorSession(ctx context.Context, prefix []string) error {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+	return ensureDetachedSession(ctx, prefix, OperatorSessionName)
+}
+
+// windowSessionPrefix resolves the name of the session the window identified
+// by windowID is a member of, via one display-message read under prefix.
+func windowSessionPrefix(ctx context.Context, prefix []string, windowID string) (string, error) {
+	out, err := RunOutput(ctx, append(append([]string{}, prefix...), "display-message", "-t", windowID, "-p", "#{session_name}"), RunOpts{})
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// MoveWindowIntoOperatorSession moves the window identified by windowID into
+// OperatorSessionName, preserving the window's @N id across the move (tmux
+// contract). When the operator session must be created it is born with a
+// placeholder window (new-session always starts one); the placeholder is
+// captured and killed after the move so the session ends holding exactly the
+// promoted window (the board.go pin-session precedent). A pre-existing
+// operator session (e.g. user-created, foreign windows) is adopted as-is — no
+// placeholder is removed. A window already in the operator session is a no-op
+// — tmux refuses a same-session move, so the membership probe keeps a repeated
+// promote idempotent.
+func MoveWindowIntoOperatorSession(ctx context.Context, prefix []string, windowID string) error {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+	session, err := windowSessionPrefix(ctx, prefix, windowID)
+	if err != nil {
+		return err
+	}
+	if session == OperatorSessionName {
+		return nil
+	}
+	// Capture the placeholder only when WE create the session (it did not exist
+	// before this call); an adopted session keeps its windows.
+	var placeholder string
+	if !hasSessionPrefix(ctx, prefix, OperatorSessionName) {
+		if err := Run(ctx, newDetachedSessionArgv(prefix, OperatorSessionName, ServerBirthDir()), RunOpts{}); err != nil {
+			return err
+		}
+		out, err := RunOutput(ctx, append(append([]string{}, prefix...), "list-windows", "-t", ExactSessionTarget(OperatorSessionName), "-F", "#{window_id}"), RunOpts{})
+		if err == nil {
+			placeholder = strings.TrimSpace(string(out))
+		}
+	}
+	if err := Run(ctx, append(append([]string{}, prefix...), "move-window", "-s", windowID, "-t", ExactSessionTarget(OperatorSessionName)), RunOpts{}); err != nil {
+		return err
+	}
+	if placeholder != "" && placeholder != windowID {
+		// Best-effort: a stray placeholder is cosmetic (the promoted window is
+		// already home); it never blocks the promote.
+		_ = Run(ctx, append(append([]string{}, prefix...), "kill-window", "-t", placeholder), RunOpts{})
+	}
+	return nil
+}
+
+// MoveWindowIntoOperatorSessionOnServer is the server-name flavor of
+// MoveWindowIntoOperatorSession for daemon/API callers.
+func MoveWindowIntoOperatorSessionOnServer(ctx context.Context, server, windowID string) error {
+	return MoveWindowIntoOperatorSession(ctx, serverArgs(server), windowID)
+}
+
+// demoteDestinationSession derives the conventional session name a demoted
+// window moves out to: the basename of its active pane's cwd (the folder
+// auto-naming convention). An unreadable cwd, or a basename that is not a
+// valid tmux session name (colons/periods are refused by tmux itself), falls
+// back to the ServerBirthDir basename so demotion stays total. Pure.
+func demoteDestinationSession(cwd, birthDir string) string {
+	base := filepath.Base(strings.TrimRight(cwd, "/"))
+	if cwd == "" || base == "." || base == "/" || validate.ValidateName(base, "Session name") != "" {
+		base = filepath.Base(birthDir)
+	}
+	if validate.ValidateName(base, "Session name") != "" {
+		return "rk-home"
+	}
+	return base
+}
+
+// DemoteWindowFromOperatorSession moves the window identified by windowID out
+// of OperatorSessionName into the conventional session named after its active
+// pane's cwd basename (created detached if missing, else moved into the
+// existing one). A window NOT in the operator session is a no-op (role-clear
+// on a legacy cosmetic-era operator stays a plain option unset). When the
+// moved window was the operator session's last window, tmux destroys the empty
+// session — expected; the next promote recreates it.
+func DemoteWindowFromOperatorSession(ctx context.Context, prefix []string, windowID string) error {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+	session, err := windowSessionPrefix(ctx, prefix, windowID)
+	if err != nil {
+		return err
+	}
+	if session != OperatorSessionName {
+		return nil
+	}
+	// Best-effort cwd read: a failure degrades to the ServerBirthDir-basename
+	// destination rather than aborting the demote.
+	cwd := ""
+	if out, err := RunOutput(ctx, append(append([]string{}, prefix...), "display-message", "-t", windowID, "-p", "#{pane_current_path}"), RunOpts{}); err == nil {
+		cwd = strings.TrimSpace(string(out))
+	}
+	dest := demoteDestinationSession(cwd, ServerBirthDir())
+	if dest == OperatorSessionName {
+		// The window's own cwd basename collides with the operator session's
+		// name — moving out to itself is meaningless; leave the window in place.
+		return nil
+	}
+	// Capture the placeholder only when WE create the destination; an existing
+	// destination keeps its windows.
+	var placeholder string
+	if !hasSessionPrefix(ctx, prefix, dest) {
+		if err := Run(ctx, newDetachedSessionArgv(prefix, dest, ServerBirthDir()), RunOpts{}); err != nil {
+			return err
+		}
+		out, err := RunOutput(ctx, append(append([]string{}, prefix...), "list-windows", "-t", ExactSessionTarget(dest), "-F", "#{window_id}"), RunOpts{})
+		if err == nil {
+			placeholder = strings.TrimSpace(string(out))
+		}
+	}
+	if err := Run(ctx, append(append([]string{}, prefix...), "move-window", "-s", windowID, "-t", ExactSessionTarget(dest)), RunOpts{}); err != nil {
+		return err
+	}
+	if placeholder != "" && placeholder != windowID {
+		_ = Run(ctx, append(append([]string{}, prefix...), "kill-window", "-t", placeholder), RunOpts{})
+	}
+	return nil
+}
+
+// DemoteWindowFromOperatorSessionOnServer is the server-name flavor of
+// DemoteWindowFromOperatorSession for daemon/API callers.
+func DemoteWindowFromOperatorSessionOnServer(ctx context.Context, server, windowID string) error {
+	return DemoteWindowFromOperatorSession(ctx, serverArgs(server), windowID)
 }
 
 // WindowOptionOp is a single set-or-unset operation on a window option, consumed

@@ -726,6 +726,60 @@ func TestParseSessionsIDPath(t *testing.T) {
 	}
 }
 
+// The operator session is NOT name-skipped in parseSessions — its windows are
+// the pinned operator row's only data source (the window is moved, not
+// linked), so a parse-level skip would erase the row's data. Hiding is
+// content-conditional at the FetchSessions join instead.
+func TestParseSessionsKeepsOperatorSession(t *testing.T) {
+	line := sessionLineIDPath(OperatorSessionName, "0", OperatorSessionName, "$4", "/home/user")
+	got := parseSessions([]string{line})
+	if len(got) != 1 {
+		t.Fatalf("parseSessions() dropped the operator session, want it kept")
+	}
+	if got[0].Name != OperatorSessionName {
+		t.Errorf("Name = %q, want %q", got[0].Name, OperatorSessionName)
+	}
+}
+
+func TestHasSessionArgv(t *testing.T) {
+	got := hasSessionArgv([]string{"-L", "srv"}, OperatorSessionName)
+	want := []string{"-L", "srv", "has-session", "-t", "=_rk-operator:"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("hasSessionArgv() = %v, want %v", got, want)
+	}
+}
+
+func TestNewDetachedSessionArgv(t *testing.T) {
+	got := newDetachedSessionArgv([]string{"-S", "/tmp/x.sock"}, OperatorSessionName, "/home/user")
+	want := []string{"-S", "/tmp/x.sock", "new-session", "-d", "-s", "_rk-operator", "-c", "/home/user"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("newDetachedSessionArgv() = %v, want %v", got, want)
+	}
+}
+
+func TestDemoteDestinationSession(t *testing.T) {
+	tests := []struct {
+		name     string
+		cwd      string
+		birthDir string
+		want     string
+	}{
+		{"cwd basename is the destination", "/home/u/code/myproj", "/home/u", "myproj"},
+		{"trailing slash still basenames", "/home/u/code/myproj/", "/home/u", "myproj"},
+		{"empty cwd falls back to the birth-dir basename", "", "/home/u", "u"},
+		{"root cwd falls back to the birth-dir basename", "/", "/home/u", "u"},
+		{"a basename invalid as a tmux session name falls back to the birth-dir basename", "/home/u/.config", "/home/u", "u"},
+		{"an invalid birth-dir basename degrades to the literal fallback", "", ".", "rk-home"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := demoteDestinationSession(tt.cwd, tt.birthDir); got != tt.want {
+				t.Errorf("demoteDestinationSession(%q, %q) = %q, want %q", tt.cwd, tt.birthDir, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRoleCarriersToClear(t *testing.T) {
 	tests := []struct {
 		name string
@@ -2380,6 +2434,28 @@ func TestServerAllowed(t *testing.T) {
 // withRealSessionTmux starts an isolated tmux server with a "real" session
 // containing two windows. Skips the test if tmux is unavailable. Returns
 // (server, realSession).
+// cleanTmuxCmd builds an exec.Cmd for a raw tmux invocation in a test with the
+// ambient $TMUX stripped from the child's environment. When the test suite
+// runs INSIDE a tmux pane, the pane's $TMUX leaks into the test process's env;
+// a bare exec.CommandContext("tmux", ...) would then target the PANE's server
+// (via that socket) rather than the isolated test server the -L flag names,
+// corrupting both the test and the pane's server. The package init already
+// strips $TMUX from the process, but raw exec.CommandContext calls in tests
+// capture os.Environ() — which is evaluated per-call and can still carry a
+// leaked $TMUX — so strip it explicitly on the child.
+func cleanTmuxCmd(ctx context.Context, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "tmux", args...)
+	env := os.Environ()
+	filtered := env[:0]
+	for _, kv := range env {
+		if !strings.HasPrefix(kv, "TMUX=") {
+			filtered = append(filtered, kv)
+		}
+	}
+	cmd.Env = filtered
+	return cmd
+}
+
 func withRealSessionTmux(t *testing.T) (string, string) {
 	t.Helper()
 	if _, err := exec.LookPath("tmux"); err != nil {
@@ -2976,5 +3052,195 @@ func TestKillPaneCtx(t *testing.T) {
 		t.Error("KillPaneCtx on a missing pane must error")
 	} else if !strings.Contains(err.Error(), "can't find pane") {
 		t.Errorf("KillPaneCtx error = %q, want tmux's \"can't find pane\" diagnostic", err)
+	}
+}
+
+// liveWindowIDs lists the window IDs of one session on the given server.
+func liveWindowIDs(t *testing.T, server, session string) []string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	lines, err := tmuxExecServer(ctx, server, "list-windows", "-t", ExactSessionTarget(session), "-F", "#{window_id}")
+	if err != nil {
+		t.Fatalf("list-windows on %q: %v", session, err)
+	}
+	out := make([]string, 0, len(lines))
+	for _, l := range lines {
+		out = append(out, strings.TrimSpace(l))
+	}
+	return out
+}
+
+// liveSessionNames lists every session name on the given server.
+func liveSessionNames(t *testing.T, server string) []string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	lines, err := tmuxExecServer(ctx, server, "list-sessions", "-F", "#{session_name}")
+	if err != nil {
+		t.Fatalf("list-sessions: %v", err)
+	}
+	out := make([]string, 0, len(lines))
+	for _, l := range lines {
+		out = append(out, strings.TrimSpace(l))
+	}
+	return out
+}
+
+// liveWindowSession resolves the session a window lives in via a global
+// list-windows scan — never display-message -t, which would ATTACH a client to
+// the resolved session and keep an emptied session alive past its last window.
+func liveWindowSession(t *testing.T, server, windowID string) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	lines, err := tmuxExecServer(ctx, server, "list-windows", "-a", "-F", "#{window_id}\t#{session_name}")
+	if err != nil {
+		t.Fatalf("list-windows -a: %v", err)
+	}
+	for _, l := range lines {
+		parts := strings.Split(l, "\t")
+		if len(parts) == 2 && parts[0] == windowID {
+			return parts[1]
+		}
+	}
+	t.Fatalf("window %q not found on server %q", windowID, server)
+	return ""
+}
+
+func containsStr(hay []string, needle string) bool {
+	for _, s := range hay {
+		if s == needle {
+			return true
+		}
+	}
+	return false
+}
+
+// TestOperatorPromoteDemoteLive exercises the full physical-promotion cycle
+// against a live server: move-in creates the operator session detached and
+// moves the window (idempotent on re-promote); the radio clear surfaces the
+// displaced carrier; demote moves the window out to its cwd-basename session
+// and the emptied operator session dies with its last window.
+func TestOperatorPromoteDemoteLive(t *testing.T) {
+	server, _ := withRealSessionTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	// Pin both windows to a dedicated cwd so the demote destination is
+	// deterministic regardless of the test binary's own cwd.
+	workDir := t.TempDir()
+	if out, err := cleanTmuxCmd(ctx, "-L", server, "new-session", "-d", "-s", "worksrc", "-c", workDir).CombinedOutput(); err != nil {
+		t.Fatalf("create worksrc session: %v\n%s", err, string(out))
+	}
+	// worksrc starts with one window; add a sibling so the source survives.
+	if out, err := cleanTmuxCmd(ctx, "-L", server, "new-window", "-t", ExactSessionTarget("worksrc"), "-c", workDir).CombinedOutput(); err != nil {
+		t.Fatalf("create sibling window: %v\n%s", err, string(out))
+	}
+
+	ids := liveWindowIDs(t, server, "worksrc")
+	if len(ids) != 2 {
+		t.Fatalf("worksrc session windows = %v, want 2", ids)
+	}
+	win := ids[0]
+	sibling := ids[1]
+
+	// Promote: creates the operator session and moves the window in.
+	if err := MoveWindowIntoOperatorSession(ctx, serverArgs(server), win); err != nil {
+		t.Fatalf("MoveWindowIntoOperatorSession: %v", err)
+	}
+	if !containsStr(liveSessionNames(t, server), OperatorSessionName) {
+		t.Fatalf("sessions = %v, want %s present", liveSessionNames(t, server), OperatorSessionName)
+	}
+	if got := liveWindowSession(t, server, win); got != OperatorSessionName {
+		t.Errorf("window %q session = %q, want %q", win, got, OperatorSessionName)
+	}
+	// The source session keeps its remaining window (membership moved, not copied).
+	if got := liveWindowIDs(t, server, "worksrc"); !containsStr(got, sibling) || containsStr(got, win) {
+		t.Errorf("worksrc session windows = %v, want only %q", got, sibling)
+	}
+
+	// Re-promote is idempotent (already a member — no same-session move error).
+	if err := MoveWindowIntoOperatorSession(ctx, serverArgs(server), win); err != nil {
+		t.Fatalf("re-promote: %v", err)
+	}
+
+	// Demote moves the window out to its cwd-basename session. (An emptied
+	// operator session dies with its last window only when no client is
+	// attached — tmux keeps an attached client's current session alive. In
+	// production there is no attached client; here the test's own
+	// display-message reads attach one, so the destroy is asserted in the
+	// endpoint/demote-of-last-window e2e, not here.)
+	if err := DemoteWindowFromOperatorSession(ctx, serverArgs(server), win); err != nil {
+		t.Fatalf("DemoteWindowFromOperatorSession: %v", err)
+	}
+	wantDest := filepath.Base(workDir)
+	if got := liveWindowSession(t, server, win); got != wantDest {
+		t.Errorf("window %q session = %q after demote, want %q (cwd basename)", win, got, wantDest)
+	}
+
+	// Demote on a non-member is a no-op.
+	if err := DemoteWindowFromOperatorSession(ctx, serverArgs(server), sibling); err != nil {
+		t.Fatalf("demote non-member: %v", err)
+	}
+
+	// Radio displacement: promote sibling while win holds the role — the clear
+	// surfaces win as the displaced carrier, demote moves it out, and the
+	// operator session ends holding exactly the new operator.
+	if err := SetWindowOption(ctx, win, server, RoleOption, "operator"); err != nil {
+		t.Fatalf("set role on %q: %v", win, err)
+	}
+	if err := MoveWindowIntoOperatorSession(ctx, serverArgs(server), win); err != nil {
+		t.Fatalf("re-promote %q: %v", win, err)
+	}
+	cleared, err := ClearWindowRoleExcept(ctx, serverArgs(server), sibling)
+	if err != nil {
+		t.Fatalf("ClearWindowRoleExcept: %v", err)
+	}
+	if len(cleared) != 1 || cleared[0] != win {
+		t.Errorf("cleared = %v, want [%s] (the displaced carrier)", cleared, win)
+	}
+	for _, id := range cleared {
+		if err := DemoteWindowFromOperatorSession(ctx, serverArgs(server), id); err != nil {
+			t.Fatalf("demote displaced %q: %v", id, err)
+		}
+	}
+	if err := SetWindowOption(ctx, sibling, server, RoleOption, "operator"); err != nil {
+		t.Fatalf("set role on %q: %v", sibling, err)
+	}
+	if err := MoveWindowIntoOperatorSession(ctx, serverArgs(server), sibling); err != nil {
+		t.Fatalf("promote sibling: %v", err)
+	}
+	opWindows := liveWindowIDs(t, server, OperatorSessionName)
+	if len(opWindows) != 1 || opWindows[0] != sibling {
+		t.Errorf("operator session windows = %v, want exactly [%s]", opWindows, sibling)
+	}
+	if got := liveWindowSession(t, server, win); got == OperatorSessionName {
+		t.Errorf("displaced window %q still in %q", win, OperatorSessionName)
+	}
+
+	// Collision tolerance: a pre-existing user session carrying the operator
+	// session's name is adopted — promote still moves in, and the mixed
+	// population keeps it visible (the FetchSessions content rule's concern;
+	// the move itself must not fail).
+	foreignDir := t.TempDir()
+	if out, err := cleanTmuxCmd(ctx, "-L", server, "new-session", "-d", "-s", "usersess", "-c", foreignDir).CombinedOutput(); err != nil {
+		t.Fatalf("create foreign session: %v\n%s", err, string(out))
+	}
+	foreignWin := liveWindowIDs(t, server, "usersess")[0]
+	if err := MoveWindowToSession(foreignWin, OperatorSessionName, server); err != nil {
+		t.Fatalf("move foreign window into operator session: %v", err)
+	}
+	// A dedicated promote source (its own session survives the move).
+	promoteDir := t.TempDir()
+	if out, err := cleanTmuxCmd(ctx, "-L", server, "new-session", "-d", "-s", "promotesrc", "-c", promoteDir).CombinedOutput(); err != nil {
+		t.Fatalf("create promotesrc session: %v\n%s", err, string(out))
+	}
+	promoteWin := liveWindowIDs(t, server, "promotesrc")[0]
+	if err := MoveWindowIntoOperatorSession(ctx, serverArgs(server), promoteWin); err != nil {
+		t.Fatalf("promote into a pre-existing operator session: %v", err)
+	}
+	if got := liveWindowIDs(t, server, OperatorSessionName); !containsStr(got, promoteWin) || !containsStr(got, foreignWin) {
+		t.Errorf("operator session windows = %v, want both the promoted %q and foreign %q", got, promoteWin, foreignWin)
 	}
 }

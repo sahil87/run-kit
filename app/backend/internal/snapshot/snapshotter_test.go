@@ -468,6 +468,14 @@ func TestSnapshotterEphemeralSkipsWritesAndRetires(t *testing.T) {
 	eph := newFakeEphemeral()
 	s.ephemeral = eph.fn
 
+	// Pin the clock BEFORE the first tick: bookkeeping (lastPass) must be
+	// stamped on the pinned timeline, or the later advance computes a
+	// negative elapsed against real wall time and the safety pass is never
+	// due (the fixed date sits in the past once the calendar passes it).
+	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return now }
+	s.safetyInterval = time.Minute
+
 	// First observation lands a latest before the mark is set.
 	s.tick(context.Background())
 	if cap.count() != 1 {
@@ -480,9 +488,6 @@ func TestSnapshotterEphemeralSkipsWritesAndRetires(t *testing.T) {
 	// Mark the server ephemeral; the next due pass (safety) must retire the
 	// lingering latest and capture nothing.
 	eph.mark("kit", true)
-	now := time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC)
-	s.now = func() time.Time { return now }
-	s.safetyInterval = time.Minute
 	now = now.Add(2 * time.Minute)
 	s.tick(context.Background())
 

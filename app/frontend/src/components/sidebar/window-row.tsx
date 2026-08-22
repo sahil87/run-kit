@@ -112,8 +112,14 @@ type WindowRowProps = {
    *  (260822-fih1-operator-request-fix-tab-name). Optional (mirrors
    *  `onForkWindow`): when omitted — e.g. the board-route sidebar — the row
    *  flyout's Fix tab name affordance is hidden. The flyout additionally gates
-   *  on the derived availability rule (`canRequestFixTabName`). */
+   *  on the derived availability rule (`canRequestWindowOperatorAction`). */
   onFixTabName?: (server: string, windowId: string) => Promise<void>;
+  /** Open the shared retire confirm dialog for the subject window
+   *  (260822-rfz2-operator-digest-stuck-retire) — the destructive retire-tab
+   *  template's per-action confirm, owned by app.tsx. Optional (mirrors
+   *  `onFixTabName`): when omitted the flyout's Retire… row is hidden; the
+   *  flyout additionally gates on the same derived availability rule. */
+  onRetireTab?: (server: string, windowId: string) => void;
   /** Open the operator compose dialog (260822-wyn3). Identity-arg like its
    *  siblings (the row binds the server). Optional (mirrors `onForkWindow`):
    *  when omitted — ordinary window rows, the board-route sidebar — no compose
@@ -203,6 +209,7 @@ function WindowRowInner({
   onFlairChange,
   onForkWindow,
   onFixTabName,
+  onRetireTab,
   onOperatorCompose,
   hasOperator = false,
   server,
@@ -255,6 +262,16 @@ function WindowRowInner({
     if (!onFixTabName || ghost) return undefined;
     return () => onFixTabName(srv, win.windowId);
   }, [onFixTabName, ghost, srv, win.windowId]);
+  // The retire handoff runs the close-then-open idiom (the flyout card closes
+  // BEFORE the shared confirm dialog opens) — the binding closes over the
+  // card's `close`, supplied by the content render prop below.
+  const handleRetireTab = useMemo(() => {
+    if (!onRetireTab || ghost) return undefined;
+    return (close: () => void) => () => {
+      close();
+      onRetireTab(srv, win.windowId);
+    };
+  }, [onRetireTab, ghost, srv, win.windowId]);
   const flyout = useRowFlyout({
     suppressed: ghost || showPinPopover || showLabelPicker,
     content: ({ close }) => (
@@ -279,6 +296,7 @@ function WindowRowInner({
         }
         onFork={handleFork}
         onFixTabName={handleFixTabName}
+        onRetireTab={handleRetireTab?.(close)}
         hasOperator={hasOperator}
         onPinAction={
           showPinIcon

@@ -2462,7 +2462,7 @@ describe("Sidebar — desktop selected-row autoscroll (nris)", () => {
     currentSession: string | null = "main",
     onSelectWindow: (server: string, session: string, windowId: string) => void = vi.fn(),
   ) {
-    const servers = [{ name: "primary", sessionCount: 1 }];
+    const servers = [{ name: "primary", sessionCount: sessions.length }];
     return (
       <ThemeProvider>
         <InstanceAccentValueProvider value={NULL_ACCENT}>

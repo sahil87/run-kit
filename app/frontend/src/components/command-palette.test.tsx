@@ -337,4 +337,140 @@ describe("CommandPalette", () => {
 
     expect(setLight).toHaveBeenCalledOnce();
   });
+
+  describe("optionPicker sub-step", () => {
+    function makePickerAction(onApply = vi.fn()): PaletteAction {
+      return {
+        id: "sort-windows",
+        label: "Session: Sort windows…",
+        optionPicker: {
+          options: [
+            { key: "status", label: "By status" },
+            { key: "created", label: "By created" },
+            { key: "name", label: "By name" },
+          ],
+          onApply,
+        },
+        onSelect: vi.fn(),
+      };
+    }
+
+    function enterPicker() {
+      const input = screen.getByPlaceholderText(/^Type a command/);
+      fireEvent.keyDown(input, { key: "Enter" });
+      return screen.getByPlaceholderText("Pick options — Space toggle · Enter apply");
+    }
+
+    it("swaps the list to option rows with a readOnly instructional input", () => {
+      render(<CommandPalette actions={[makePickerAction()]} />);
+      openPalette();
+
+      const input = enterPicker();
+
+      expect(input).toHaveAttribute("readonly");
+      expect(screen.getByText("By status")).toBeInTheDocument();
+      expect(screen.getByText("By created")).toBeInTheDocument();
+      expect(screen.getByText("By name")).toBeInTheDocument();
+      expect(screen.queryByText("Session: Sort windows…")).not.toBeInTheDocument();
+    });
+
+    it("Space toggles options with order badges reflecting selection order", () => {
+      render(<CommandPalette actions={[makePickerAction()]} />);
+      openPalette();
+      const input = enterPicker();
+
+      // Select "created" then "name": badges 1 and 2 in selection order.
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+      fireEvent.keyDown(input, { key: " " });
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+      fireEvent.keyDown(input, { key: " " });
+
+      const createdRow = screen.getByText("By created").closest("[role='option']")!;
+      const nameRow = screen.getByText("By name").closest("[role='option']")!;
+      expect(createdRow.textContent).toContain("1");
+      expect(nameRow.textContent).toContain("2");
+      expect(screen.getByText("By status").closest("[role='option']")!.textContent).not.toContain("1");
+
+      // Untoggling "created" renumbers "name" to 1.
+      fireEvent.keyDown(input, { key: "ArrowUp" });
+      fireEvent.keyDown(input, { key: " " });
+      expect(nameRow.textContent).toContain("1");
+      expect(createdRow.textContent).not.toContain("2");
+    });
+
+    it("click toggles an option", () => {
+      render(<CommandPalette actions={[makePickerAction()]} />);
+      openPalette();
+      enterPicker();
+
+      fireEvent.click(screen.getByText("By name"));
+
+      expect(screen.getByText("By name").closest("[role='option']")!.textContent).toContain("1");
+    });
+
+    it("Enter applies the ordered selected keys and closes", () => {
+      const onApply = vi.fn();
+      render(<CommandPalette actions={[makePickerAction(onApply)]} />);
+      openPalette();
+      const input = enterPicker();
+
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+      fireEvent.keyDown(input, { key: " " });
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+      fireEvent.keyDown(input, { key: " " });
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      expect(onApply).toHaveBeenCalledWith(["created", "name"]);
+      expect(screen.queryByPlaceholderText("Pick options — Space toggle · Enter apply")).not.toBeInTheDocument();
+    });
+
+    it("Enter with zero selected is a no-op, not a dismiss", () => {
+      const onApply = vi.fn();
+      render(<CommandPalette actions={[makePickerAction(onApply)]} />);
+      openPalette();
+      const input = enterPicker();
+
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      expect(onApply).not.toHaveBeenCalled();
+      expect(screen.getByPlaceholderText("Pick options — Space toggle · Enter apply")).toBeInTheDocument();
+    });
+
+    it("Escape cancels without applying", () => {
+      const onApply = vi.fn();
+      render(<CommandPalette actions={[makePickerAction(onApply)]} />);
+      openPalette();
+      const input = enterPicker();
+
+      fireEvent.keyDown(input, { key: " " });
+      fireEvent.keyDown(input, { key: "Escape" });
+
+      expect(onApply).not.toHaveBeenCalled();
+      expect(screen.queryByPlaceholderText("Pick options — Space toggle · Enter apply")).not.toBeInTheDocument();
+    });
+
+    it("backdrop click cancels without applying", () => {
+      const onApply = vi.fn();
+      render(<CommandPalette actions={[makePickerAction(onApply)]} />);
+      openPalette();
+      enterPicker();
+
+      fireEvent.click(screen.getByTestId("palette-overlay"));
+
+      expect(onApply).not.toHaveBeenCalled();
+      expect(screen.queryByPlaceholderText("Pick options — Space toggle · Enter apply")).not.toBeInTheDocument();
+    });
+
+    it("the parent action's onSelect never fires (the picker owns completion)", () => {
+      const action = makePickerAction();
+      render(<CommandPalette actions={[action]} />);
+      openPalette();
+      const input = enterPicker();
+
+      fireEvent.keyDown(input, { key: " " });
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      expect(action.onSelect).not.toHaveBeenCalled();
+    });
+  });
 });

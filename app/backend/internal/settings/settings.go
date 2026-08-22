@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"rk/internal/validate"
@@ -44,6 +45,12 @@ type Settings struct {
 	// (the sort itself lives at the API layer — this package only persists the
 	// list). nil when no order has been set (legacy files / never reordered).
 	BoardOrder []string
+	// AutoName arms the auto-name-on-idle trigger: on a window's busy→idle
+	// transition the server's operator window is handed a fix-tab-name request.
+	// Strictly opt-in (default false — the trigger injects prompts into the
+	// operator on its own); read at hub construction, so a change applies on
+	// the next daemon restart.
+	AutoName bool
 }
 
 // Default returns the default settings.
@@ -267,6 +274,12 @@ func parse(data string) Settings {
 			s.SSHHost = strings.TrimSpace(strings.Trim(value, "\""))
 		case "instance_name":
 			s.InstanceName = strings.TrimSpace(strings.Trim(value, "\""))
+		case "auto_name":
+			// Tolerant read: any strconv.ParseBool value; anything else keeps
+			// the default (off) — the safe direction for an opt-in trigger.
+			if b, err := strconv.ParseBool(strings.Trim(value, "\"")); err == nil {
+				s.AutoName = b
+			}
 		default:
 			for i := range nestedSections {
 				if key == nestedSections[i].key {
@@ -300,6 +313,12 @@ func serialize(s Settings) string {
 	}
 	if s.InstanceName != "" {
 		out += "instance_name: \"" + s.InstanceName + "\"\n"
+	}
+
+	// Auto-name — emitted only when armed so a settings file without it
+	// serializes byte-identically to the pre-change output (default is off).
+	if s.AutoName {
+		out += "auto_name: true\n"
 	}
 
 	// Nested sections, in registry order (each omitted when empty).

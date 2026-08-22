@@ -701,3 +701,34 @@ func TestSSHHostInstanceNameCoexist(t *testing.T) {
 		t.Errorf("BoardOrder = %v, want [x]", loaded.BoardOrder)
 	}
 }
+
+func TestAutoName(t *testing.T) {
+	t.Run("defaults off", func(t *testing.T) {
+		if Default().AutoName {
+			t.Error("Default().AutoName = true, want false")
+		}
+		if parse("theme: dark\n").AutoName {
+			t.Error("AutoName = true for a file without the key, want false")
+		}
+	})
+
+	t.Run("parses ParseBool values, tolerates garbage", func(t *testing.T) {
+		for value, want := range map[string]bool{"true": true, "1": true, "TRUE": true, "false": false, "0": false, "yes-please": false, "\"true\"": true} {
+			if got := parse("auto_name: " + value + "\n").AutoName; got != want {
+				t.Errorf("parse auto_name: %s → %v, want %v", value, got, want)
+			}
+		}
+	})
+
+	t.Run("round-trips and is omitted when off", func(t *testing.T) {
+		s := Default()
+		s.AutoName = true
+		if got := parse(serialize(s)); !got.AutoName {
+			t.Error("AutoName lost in serialize/parse round-trip")
+		}
+		s.AutoName = false
+		if out := serialize(s); strings.Contains(out, "auto_name") {
+			t.Errorf("auto_name emitted for the off default — legacy files must serialize byte-identically:\n%s", out)
+		}
+	})
+}

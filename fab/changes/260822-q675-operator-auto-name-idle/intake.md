@@ -40,7 +40,7 @@ On a detected transition, subject-side eligibility (all derivable from the same 
 ### Explicitly NOT in this change
 
 - No new HTTP endpoint, no request body change, no new template id.
-- ~~No config toggle / env var: the feature is armed exactly when an operator window exists on a server (degrade-to-absent razor). If field use shows it needs a switch, that's a follow-up.~~ **Revised 2026-08-22 (user directive at review-pr)**: the trigger is strictly opt-in behind `RK_AUTO_NAME` (env var per Constitution IV, default off); the operator-window requirement still applies on top when enabled. See plan.md R7.
+- ~~No config toggle / env var: the feature is armed exactly when an operator window exists on a server (degrade-to-absent razor). If field use shows it needs a switch, that's a follow-up.~~ **Revised 2026-08-22 (user directive at review-pr)**: the trigger is strictly opt-in behind the `auto_name` key in the existing settings store (`~/.rk/settings.yaml`, default off; a first-iteration `RK_AUTO_NAME` env var was reverted the same day — env is deployment bootstrap, not a settings channel); the operator-window requirement still applies on top when enabled. See plan.md R7 and `fab/plans/sahil/26-08-22-config-consolidation.md`.
 - No queue, no persistence of any kind; the tracker map is process-lifetime only (a daemon restart forgets cooldowns — acceptable, mirrors waiting-push episodes).
 - No UI surface: results arrive as renames via the normal derive tick, indistinguishable from the manual action.
 
@@ -72,7 +72,7 @@ On a detected transition, subject-side eligibility (all derivable from the same 
 | 2 | Certain | Tracker is in-memory on the SSE tick, modeled on `waitingPushTracker`; busy operator ⇒ skip, never queue | Plan + Constitution II are explicit ("Rate-limited; skip if the operator is busy"); waiting-push is the blessed precedent | S:90 R:80 A:95 D:90 |
 | 3 | Confident | Busy = `active` OR `waiting`; the transition fires on either →`idle`; empty/unknown never triggers | Matches the seam's existing busy vocabulary; rate limiting absorbs waiting→idle noise; easily narrowed later | S:70 R:80 A:75 D:60 |
 | 4 | Confident | Rate limits: 15-min per-window cooldown + 60-s per-server min-gap + one delivery per tick; cooldown stamps even on busy-skip | Plan says "rate-limited" without numbers; values are tunable constants, trivially reversible | S:55 R:90 A:75 D:65 |
-| 5 | Confident | No config toggle — armed exactly when an operator window exists | SUPERSEDED 2026-08-22 by user directive at review-pr: gated behind `RK_AUTO_NAME`, default off (plan.md R7, assumption #8) | S:60 R:85 A:75 D:60 |
+| 5 | Confident | No config toggle — armed exactly when an operator window exists | SUPERSEDED 2026-08-22 by user directive at review-pr: gated behind the `auto_name` settings key, default off (plan.md R7, assumption #8) | S:60 R:85 A:75 D:60 |
 | 6 | Confident | Template gains an "if the current name is already accurate, do nothing" clause, shared by manual and auto paths | Prevents auto-churn; judgment-delegation fits the razor; slight behavior change to the manual action | S:45 R:85 A:70 D:50 |
 
 6 assumptions (2 certain, 4 confident, 0 tentative, 0 unresolved).

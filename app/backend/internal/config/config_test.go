@@ -84,37 +84,6 @@ func TestLoad(t *testing.T) {
 		}
 	})
 
-	t.Run("auto-name defaults off when unset", func(t *testing.T) {
-		os.Unsetenv("RK_AUTO_NAME")
-
-		cfg := Load()
-		if cfg.AutoName {
-			t.Error("AutoName = true, want default false")
-		}
-	})
-
-	t.Run("reads auto-name from env", func(t *testing.T) {
-		for _, v := range []string{"1", "true", "TRUE"} {
-			t.Setenv("RK_AUTO_NAME", v)
-			if cfg := Load(); !cfg.AutoName {
-				t.Errorf("AutoName = false for RK_AUTO_NAME=%q, want true", v)
-			}
-		}
-		t.Setenv("RK_AUTO_NAME", "0")
-		if cfg := Load(); cfg.AutoName {
-			t.Error("AutoName = true for RK_AUTO_NAME=0, want false")
-		}
-	})
-
-	t.Run("ignores unparsable auto-name", func(t *testing.T) {
-		t.Setenv("RK_AUTO_NAME", "yes-please")
-
-		cfg := Load()
-		if cfg.AutoName {
-			t.Error("AutoName = true for unparsable value, want false")
-		}
-	})
-
 	t.Run("reads ssh host from env", func(t *testing.T) {
 		t.Setenv("RK_SSH_HOST", "devbox")
 

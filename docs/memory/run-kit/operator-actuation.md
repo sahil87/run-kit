@@ -197,12 +197,17 @@ the routine busy-skip included — are logged at debug and dropped. State is
 process-memory only (a daemon restart forgets cooldowns, Constitution II) and
 reaped on the post-loop retain seam, scoped to successfully-polled-or-dead
 servers exactly like `waitingPushTracker.retain`. The feature is strictly
-OPT-IN: `RK_AUTO_NAME` (env, `strconv.ParseBool` values, default off — loaded
-as `config.AutoName` → `Server.autoNameEnabled`); when disabled, `initSSEHub`
-nils the hub's tracker, the feature-absent state both tick sites (advance,
-retain) already check. When enabled, the trigger still requires an operator
-window on the server — no operator ⇒ nothing fires, nothing logs at error
-level (degrade to absent).
+OPT-IN: the `auto_name` key in the settings store (`internal/settings`,
+`~/.rk/settings.yaml` — tolerant `ParseBool` read, default off, serialized
+only when true), seeded as `Server.autoNameEnabled` from `settings.Load()` at
+construction, so a toggle applies on the next daemon restart; when disabled,
+`initSSEHub` nils the hub's tracker, the feature-absent state both tick sites
+(advance, retain) already check. There is deliberately NO `RK_AUTO_NAME` env
+var — env is deployment bootstrap, not a settings channel (see
+`fab/plans/sahil/26-08-22-config-consolidation.md`, which also owns making the
+key apply live). When enabled, the trigger still requires an operator window
+on the server — no operator ⇒ nothing fires, nothing logs at error level
+(degrade to absent).
 
 #### Scenario: Transition detection and eligibility
 - **GIVEN** a window whose previous tick state was `active` (or `waiting`)

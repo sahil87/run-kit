@@ -20,6 +20,7 @@ import (
 	"rk/internal/prstatus"
 	"rk/internal/riff"
 	"rk/internal/sessions"
+	"rk/internal/settings"
 	"rk/internal/snapshot"
 	"rk/internal/tmux"
 	"rk/internal/updatecheck"
@@ -181,11 +182,12 @@ type Server struct {
 	// broadcasts the host-level {"reachable"} signal. Never leaves the server
 	// — the frontend embeds via the stable /code/ route.
 	codeServerPort int
-	// autoNameEnabled arms the auto-name-on-idle trigger (RK_AUTO_NAME, default
-	// off — the trigger injects prompts into the operator on its own, so it is
-	// strictly opt-in). Seeded from config.Load() at startup; when false,
-	// initSSEHub nils the hub's tracker, which is the feature-absent state both
-	// tick sites already understand.
+	// autoNameEnabled arms the auto-name-on-idle trigger (the `auto_name` key
+	// in the settings store, default off — the trigger injects prompts into
+	// the operator on its own, so it is strictly opt-in). Seeded from
+	// settings.Load() at startup, so a toggle applies on the next daemon
+	// restart; when false, initSSEHub nils the hub's tracker, which is the
+	// feature-absent state both tick sites already understand.
 	autoNameEnabled bool
 	metrics         *metrics.Collector
 	services        *ports.Collector
@@ -262,7 +264,7 @@ func (s *Server) initSSEHub() {
 		}
 		s.sseHub = newSSEHub(s.sessions, s.metrics, s.services, pc)
 		s.sseHub.codeServerPort = s.codeServerPort
-		// Auto-name-on-idle is opt-in (RK_AUTO_NAME): disabled ⇒ nil the
+		// Auto-name-on-idle is opt-in (settings `auto_name`): disabled ⇒ nil the
 		// tracker — the feature-absent state both tick sites (advance, retain)
 		// already check for. Enabled ⇒ wire the delivery seam: the tracker
 		// itself is constructed Server-free inside newSSEHub; the deliver
@@ -615,7 +617,7 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger) (chi.Router, *
 		sshHost:         cfg.SSHHost,
 		sshUser:         sshUser,
 		codeServerPort:  cfg.ResolvedCodeServerPort(), // 0 = degenerate config (probe off)
-		autoNameEnabled: cfg.AutoName,
+		autoNameEnabled: settings.Load().AutoName,
 		metrics:         mc,
 		services:        svc,
 		prStatus:        pc,

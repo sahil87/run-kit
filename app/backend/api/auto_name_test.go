@@ -440,7 +440,7 @@ func TestAutoName_DeliverIdleOperatorInjects(t *testing.T) {
 }
 
 // TestAutoName_SettingGatesTracker: the feature is strictly opt-in
-// (RK_AUTO_NAME → Server.autoNameEnabled). Disabled ⇒ initSSEHub nils the
+// (settings `auto_name` → Server.autoNameEnabled). Disabled ⇒ initSSEHub nils the
 // hub's tracker — the feature-absent state both tick sites check — so no
 // transition can ever fire; enabled ⇒ the tracker survives with its delivery
 // seam wired.

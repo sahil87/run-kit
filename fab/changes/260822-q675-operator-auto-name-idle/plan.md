@@ -52,17 +52,17 @@ The tracker's state (per-window previous state + cooldown stamps, per-server del
 - **WHEN** the post-loop retain runs
 - **THEN** its tracker entries are removed.
 
-#### R7: Opt-in setting gate (user review feedback, 2026-08-22)
-The trigger SHALL be strictly opt-in behind the `RK_AUTO_NAME` env var (default **off**; `strconv.ParseBool` values; unset or unparsable ⇒ off), loaded as `config.AutoName` and seeded onto the Server as `autoNameEnabled`. When disabled, `initSSEHub` SHALL nil the hub's tracker — the feature-absent state both tick sites (`advance`, `retain`) already check — so no transition detection, delivery, or state accumulation occurs at all. When enabled, R1–R6 apply unchanged. The setting is documented in the committed `.env` (commented, off by default), per Constitution IV's env-var configuration rule.
+#### R7: Opt-in setting gate (user review feedback, 2026-08-22; revised same day: settings key, not env var)
+The trigger SHALL be strictly opt-in behind the **`auto_name` key in the settings store** (`internal/settings`, `~/.rk/settings.yaml` — the same store that holds the theme): default **off**; tolerant read (`strconv.ParseBool` values, quote-stripped; anything else keeps off); serialized only when true so legacy files round-trip byte-identically. `Server.autoNameEnabled` is seeded from `settings.Load().AutoName` at construction, so a toggle applies on the next daemon restart (live application is deferred to the config-consolidation plan, `fab/plans/sahil/26-08-22-config-consolidation.md`, phase 3). When disabled, `initSSEHub` SHALL nil the hub's tracker — the feature-absent state both tick sites (`advance`, `retain`) already check — so no transition detection, delivery, or state accumulation occurs at all. When enabled, R1–R6 apply unchanged. There SHALL be no `RK_AUTO_NAME` env var (env is deployment bootstrap, not a settings channel — the first iteration used one and was reverted).
 
-- **GIVEN** `RK_AUTO_NAME` unset (or `0`, or garbage)
+- **GIVEN** a settings file without `auto_name` (or with `auto_name: false` / garbage)
 - **WHEN** the daemon starts and the hub initializes
 - **THEN** the hub's auto-name tracker is nil and the feature is entirely absent.
-- **AND GIVEN** `RK_AUTO_NAME=1` (or `true`), **THEN** the tracker is constructed with its delivery seam wired and R1–R6 semantics apply.
+- **AND GIVEN** `auto_name: true`, **THEN** the tracker is constructed with its delivery seam wired and R1–R6 semantics apply.
 
 ### Non-Goals
 
-- ~~No config toggle or env var — armed exactly when an operator window exists (intake assumption #5).~~ **Revised 2026-08-22 (user review feedback on PR #711)**: the trigger is strictly opt-in behind `RK_AUTO_NAME` — see R7.
+- ~~No config toggle or env var — armed exactly when an operator window exists (intake assumption #5).~~ **Revised 2026-08-22 (user review feedback on PR #711)**: the trigger is strictly opt-in behind the `auto_name` settings key (a first-iteration `RK_AUTO_NAME` env var was reverted the same day) — see R7.
 - No new HTTP endpoint, body field, or template id; no frontend changes.
 - No queue, no persistence, no retry; no SSE hub wake on delivery (rk mutates no tmux state).
 
@@ -101,8 +101,8 @@ The trigger SHALL be strictly opt-in behind the `RK_AUTO_NAME` env var (default 
 
 ### Phase 4: Setting Gate (user review feedback, 2026-08-22)
 
-- [x] T009 Add `AutoName bool` to `app/backend/internal/config/config.go` (env `RK_AUTO_NAME`, `strconv.ParseBool`, default off), seed `Server.autoNameEnabled` in `NewServer`, gate in `initSSEHub` (`app/backend/api/router.go` — disabled ⇒ nil the tracker; enabled ⇒ wire the deliver seam), document the commented default in `.env` <!-- R7 -->
-- [x] T010 Tests: `RK_AUTO_NAME` parse cases (unset/truthy/`0`/garbage) in `app/backend/internal/config/config_test.go`; `TestAutoName_SettingGatesTracker` in `app/backend/api/auto_name_test.go` (disabled ⇒ nil tracker, enabled ⇒ wired seam); `go test ./api/ ./internal/config/` green <!-- R7 -->
+- [x] T009 Add `AutoName bool` to `app/backend/internal/settings/settings.go` (`auto_name` scalar: tolerant `ParseBool` parse case, emit-only-when-true serialize, default off), seed `Server.autoNameEnabled` from `settings.Load()` in `NewServer`, gate in `initSSEHub` (`app/backend/api/router.go` — disabled ⇒ nil the tracker; enabled ⇒ wire the deliver seam). No env var, no `.env` entry (first iteration's `RK_AUTO_NAME` reverted) <!-- R7 -->
+- [x] T010 Tests: `TestAutoName` in `app/backend/internal/settings/settings_test.go` (default off, ParseBool/garbage matrix, round-trip, omitted-when-off serialization); `TestAutoName_SettingGatesTracker` in `app/backend/api/auto_name_test.go` (disabled ⇒ nil tracker, enabled ⇒ wired seam); `go test ./internal/settings/ ./internal/config/ ./api/` green <!-- R7 -->
 
 ## Execution Order
 
@@ -149,8 +149,8 @@ The trigger SHALL be strictly opt-in behind the `RK_AUTO_NAME` env var (default 
 
 ### Setting Gate (R7, added at review-pr per user feedback)
 
-- [x] A-020 R7: With `RK_AUTO_NAME` unset/off/unparsable the hub's tracker is nil — no detection, delivery, or state accumulation (verified by `TestAutoName_SettingGatesTracker` + config parse tests)
-- [x] A-021 R7: With `RK_AUTO_NAME` truthy the tracker is constructed with its deliver seam wired and R1–R6 semantics apply unchanged; the setting is documented (commented, off) in the committed `.env`
+- [x] A-020 R7: With `auto_name` absent/false/unparsable in the settings store the hub's tracker is nil — no detection, delivery, or state accumulation (verified by `TestAutoName_SettingGatesTracker` + `TestAutoName` settings tests)
+- [x] A-021 R7: With `auto_name: true` the tracker is constructed with its deliver seam wired and R1–R6 semantics apply unchanged; the key serializes only when true (legacy files byte-identical) and no `RK_AUTO_NAME` env var or `.env` entry exists
 
 ## Notes
 
@@ -174,6 +174,6 @@ None — this change adds new functionality without making existing code redunda
 | 6 | Confident | `deliver` closure is wired post-construction in `initSSEHub` (not inside `newSSEHub`) since the 4-arg hub constructor can't see the Server; test hubs run with `deliver == nil` (tracking/live-keys still advance, fan-out skipped) — mirrors the `codeServerPort` post-construction seeding pattern | Keeps every existing `newSSEHub` test call site compiling untouched; nil-deliver degrade mirrors the plan's injected-seam decision | S:65 R:85 A:80 D:70 |
 | 7 | Confident | Cooldown + min-gap stamp in `decide` at EMISSION time (not after delivery), so the busy-skip case (reject surfaced by the core) is covered by construction; ineligible transitions (no operator / chatless / operator-subject) are consumed unstamped | R3 demands stamp-on-busy-skip and the busy gate lives inside the core, below the tracker's horizon; unstamped ineligibility lets a window that later gains a chat ref fire immediately | S:60 R:85 A:75 D:65 |
 
-| 8 | Certain | `RK_AUTO_NAME` gates at hub construction (nil tracker when off) rather than per-tick flag checks | User directive (gate behind a setting, 2026-08-22); nil is the feature-absent state the tick sites already handle; env var per Constitution IV | S:90 R:90 A:90 D:85 |
+| 8 | Certain | `auto_name` settings key gates at hub construction (nil tracker when off; restart to apply), read from the existing `internal/settings` store | User directive (gate behind a setting in the settings file, not an env var — 2026-08-22); nil is the feature-absent state the tick sites already handle; live application deferred to the config-consolidation plan | S:90 R:90 A:90 D:85 |
 
 8 assumptions (1 certain, 7 confident, 0 tentative).

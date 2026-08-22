@@ -168,7 +168,10 @@ axis's growth) stacks the three axes as horizontal bands under a live
 stripe + texture, live flair overlay, the row's name — with a combo caption
 underneath (`teal · hatch · scan`, `∅` for unset axes). Each band carries a
 green-bracket `[ axis ]` header whose right-aligned **− clear cell** (a neutral minus in the ✕ treatment — ✕ closes the panel, − clears the axis; ringed
-when the axis is unset) clears only that axis. The color band is a 2-shade-row ×
+when the axis is unset) clears only that axis. The panel header row (preview + ✕)
+carries its own **− clear-all** under the same scope grammar — its row names the
+whole label, so it clears every axis the caller offers, and rings when the label
+is fully unset. The color band is a 2-shade-row ×
 10-family column-flow **horizontal scroll strip** — color only ever scrolls
 horizontally; vertical would break the shade pairing. The marker band is a
 single unscrolled row of the 8 states (semantic states never hide behind a

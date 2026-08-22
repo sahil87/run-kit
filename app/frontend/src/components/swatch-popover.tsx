@@ -82,9 +82,9 @@ const FLAIR_ROW_1 = FLAIR_NAMED.filter((_, i) => i % 2 === 0);
 const FLAIR_ROW_2 = FLAIR_NAMED.filter((_, i) => i % 2 === 1);
 
 /** Keyboard focus: a position in the logical row stack (see `grid` in the
- *  component). Every band is a plain grid; a band's header − clear cell is row 0 of the
- *  band (ArrowUp from a strip's first row lands on it); the ✕ close cell is
- *  the stack's top row. */
+ *  component). Every band is a plain grid; a band's header − clear cell is
+ *  row 0 of the band (ArrowUp from a strip's first row lands on it); the
+ *  stack's top row holds the − clear-all and ✕ close cells. */
 type GridPos = { row: number; col: number };
 
 /** Stable DOM id for a logical cell — the ref map the arrow-move
@@ -199,7 +199,31 @@ export function SwatchPopover({
   const currentMarker = selectedMarker ?? "";
   const currentFlair = selectedFlair ?? "";
 
-  /** The logical row stack the keyboard walks: [✕] · [color −] · color shade
+  // Panel-level clear-all: the header row names the WHOLE label, so its −
+  // clears every axis the caller offers (the scope grammar — a − clears
+  // whatever its row names). Emits only the existing clears (no new API);
+  // overrides make the preview + caption drop to unset immediately.
+  const clearAll = useCallback(() => {
+    emit(null);
+    if (onSelectMarker) {
+      setMarkerOverride("");
+      onSelectMarker("");
+    }
+    if (onSelectFlair) {
+      setFlairOverride("");
+      onSelectFlair("");
+    }
+  }, [emit, onSelectMarker, onSelectFlair]);
+
+  // Ring rule at the panel scope: unset iff EVERY offered axis is unset —
+  // props-computed like the band headers' isUnset, so after a clear-all the
+  // caller echo rings the panel − and every offered band − together.
+  const allUnset =
+    selectedValue == null &&
+    (!showMarkers || currentMarker === "") &&
+    (!showFlair || currentFlair === "");
+
+  /** The logical row stack the keyboard walks: [− ✕] · [color −] · color shade
    *  rows · ([marker −] · marker row) · ([flair −] · flair rows). Each entry
    *  is a row of cell ids; vertical moves preserve the column as a GOAL
    *  COLUMN (carried raw through the single-cell header rows, clamped to the
@@ -207,7 +231,7 @@ export function SwatchPopover({
    *  operate on the clamped column. */
   const grid = useMemo<string[][]>(() => {
     const rows: string[][] = [
-      [cellId("close")],
+      [cellId("clear-all"), cellId("close")],
       [cellId("clear-color")],
       COLOR_ROW_NORMAL.map((v) => cellId("color", v)),
       COLOR_ROW_DARK.map((v) => cellId("color", v)),
@@ -288,6 +312,7 @@ export function SwatchPopover({
       const id = effectiveId(pos);
       if (id === undefined) return;
       if (id === cellId("close")) onClose();
+      else if (id === cellId("clear-all")) clearAll();
       else if (id === cellId("clear-color")) emit(null);
       else if (id === cellId("clear-marker")) onSelectMarker?.("");
       else if (id === cellId("clear-flair")) onSelectFlair?.("");
@@ -302,7 +327,7 @@ export function SwatchPopover({
         onSelectFlair?.(state);
       }
     },
-    [effectiveId, emit, onClose, onSelectMarker, onSelectFlair],
+    [effectiveId, emit, clearAll, onClose, onSelectMarker, onSelectFlair],
   );
 
   // Mouse picks repaint the preview overrides immediately (same immediacy the
@@ -421,8 +446,9 @@ export function SwatchPopover({
       {/* Composite preview row: the row's actual RESTING look — tint base +
           marker stripe + the static paired texture (hatch ↔ hazard wedge) +
           the live flair overlay (reused FlairOverlay — the cube/warp
-          child-markup contract) + the row name. The ✕ close cell sits beside
-          it. */}
+          child-markup contract) + the row name. The − clear-all and ✕ close
+          cells sit beside it — this row names the WHOLE label, so its −
+          clears every offered axis (the band −s clear one each). */}
       <div className="flex items-center gap-1.5">
         <div
           aria-hidden="true"
@@ -445,6 +471,23 @@ export function SwatchPopover({
             {rowName ?? SAMPLE_ROW_NAME}
           </span>
         </div>
+        {/* − — the panel-level clear. Rings when the label is fully unset
+            (every offered axis), mirroring the band −s' ring-at-their-scope
+            rule. */}
+        <Tip label="Clear all">
+          <button
+            ref={setCellRef(cellId("clear-all"))}
+            role="option"
+            aria-selected={allUnset}
+            aria-label="Clear all"
+            onClick={clearAll}
+            className={`${CELL} shrink-0 overflow-hidden transition-all text-text-secondary hover:text-text-primary bg-bg-inset flex items-center justify-center ${
+              isFocused(cellId("clear-all")) ? "ring-1 ring-text-secondary" : ""
+            } ${allUnset ? "ring-1 ring-text-primary" : ""}`}
+          >
+            <span style={{ fontSize: 10, lineHeight: 1 }}>&#x2212;</span>
+          </button>
+        </Tip>
         {/* ✕ — the explicit dismiss. role=option (never aria-selected) so the
             listbox holds only ARIA-valid children. */}
         <button

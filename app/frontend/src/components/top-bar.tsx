@@ -361,7 +361,8 @@ type SurfaceTogglesToggle = Extract<SurfaceToggles, { mode: "toggle" }>;
  * into the right cluster as ONE bordered sub-group (with a trailing divider),
  * terminal route only. Two modes share the button grammar — one Tip-wrapped
  * button per available surface not in `SURFACE_RAIL_HIDDEN` (chat renders no
- * toggle), `tty` first, glyphs from `SURFACE_GLYPH`, LIT (`aria-pressed`,
+ * toggle), in `availableTiles`' shortcut order (⌘1 tty / ⌘2 code / ⌘3 web),
+ * glyphs from `SURFACE_GLYPH`, LIT (`aria-pressed`,
  * accent-green border/text on a 10% wash), the corner dot driven by the
  * caller's per-surface `showDot` predicate (web = has-content; others
  * always-on):

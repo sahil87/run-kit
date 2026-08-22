@@ -15,7 +15,7 @@ import {
   RAIL_HELD_SEAM,
   FORK_TOOLTIP,
   canForkWindow,
-  canRequestFixTabName,
+  canRequestWindowOperatorAction,
 } from "./row-flyout-card";
 import { PopupTitleBar, PopupTitleBarSecondary, notchFill, POPUP_TITLE_BAR_HEIGHT_PX } from "./popup-title-bar";
 import { CardActionList, CardActionRow } from "./row-flyout-card";
@@ -57,6 +57,7 @@ function Row({
   onChangeColorAction,
   onFork,
   onFixTabName,
+  onRetireTab,
   hasOperator = false,
   onPinAction,
   pinned = false,
@@ -69,6 +70,7 @@ function Row({
   onChangeColorAction?: () => void;
   onFork?: () => Promise<void>;
   onFixTabName?: () => Promise<void>;
+  onRetireTab?: () => void;
   hasOperator?: boolean;
   onPinAction?: () => void;
   pinned?: boolean;
@@ -91,6 +93,14 @@ function Row({
         }
         onFork={onFork}
         onFixTabName={onFixTabName}
+        onRetireTab={
+          onRetireTab
+            ? () => {
+                close();
+                onRetireTab();
+              }
+            : undefined
+        }
         hasOperator={hasOperator}
         onPinAction={
           onPinAction
@@ -598,13 +608,104 @@ describe("Fix tab name action row (260822-fih1)", () => {
     expect(screen.getByTestId("row-flyout-fix-name-action")).toBeEnabled();
   });
 
-  it("canRequestFixTabName pins the three-part availability rule", () => {
+  it("canRequestWindowOperatorAction pins the three-part availability rule", () => {
     const subject = makeWindow({ chatSessionRef: "ref-1" });
-    expect(canRequestFixTabName(subject, true)).toBe(true);
-    expect(canRequestFixTabName(subject, false)).toBe(false); // no operator
-    expect(canRequestFixTabName(makeWindow({}), true)).toBe(false); // no chat ref
-    expect(canRequestFixTabName(makeWindow({ chatSessionRef: "" }), true)).toBe(false); // empty ref
-    expect(canRequestFixTabName(makeWindow({ chatSessionRef: "ref-1", role: "operator" }), true)).toBe(false); // operator's own row
+    expect(canRequestWindowOperatorAction(subject, true)).toBe(true);
+    expect(canRequestWindowOperatorAction(subject, false)).toBe(false); // no operator
+    expect(canRequestWindowOperatorAction(makeWindow({}), true)).toBe(false); // no chat ref
+    expect(canRequestWindowOperatorAction(makeWindow({ chatSessionRef: "" }), true)).toBe(false); // empty ref
+    expect(canRequestWindowOperatorAction(makeWindow({ chatSessionRef: "ref-1", role: "operator" }), true)).toBe(false); // operator's own row
+  });
+});
+
+describe("Retire action row (260822-rfz2)", () => {
+  // The Retire… row shares the Fix tab name row's DOUBLE gate verbatim — the
+  // generalized `canRequestWindowOperatorAction` rule AND a wired handler —
+  // but fires NO request itself: it hands off to the shared confirm dialog
+  // (close-then-open), so it carries no in-flight guard. Asserted here: every
+  // gate half, the order between fix-tab-name and pin, the danger rail, the
+  // close-then-open handoff, and stopPropagation.
+
+  /** A subject window meeting the availability rule: a reconciled chat ref,
+   *  no operator role. */
+  const subjectWin = () => makeWindow({ chatProvider: "claude", chatSessionRef: "ref-1" });
+
+  it("renders between Fix tab name and Pin when the rule holds, with the danger rail and sub-hint", () => {
+    render(
+      <Row
+        win={subjectWin()}
+        hasOperator
+        onFixTabName={() => Promise.resolve()}
+        onRetireTab={vi.fn()}
+        onPinAction={vi.fn()}
+      />,
+    );
+    hoverOpen();
+
+    const retire = screen.getByTestId("row-flyout-retire-action");
+    expect(retire).toHaveTextContent("Retire…");
+    expect(retire).toHaveTextContent("asks the operator");
+    // The destructive treatment: red rail on hover (the action ends in a
+    // window kill), not the interactive green.
+    expect(retire.className).toContain("hover:border-l-signal-red");
+    expect(retire.className).not.toContain("hover:border-l-accent-green");
+
+    const actions = screen.getByTestId("row-flyout-actions");
+    const fixIdx = actions.textContent?.indexOf("Fix tab name") ?? -1;
+    const retireIdx = actions.textContent?.indexOf("Retire…") ?? -1;
+    const pinIdx = actions.textContent?.indexOf("Pin to board…") ?? -1;
+    expect(fixIdx).toBeGreaterThanOrEqual(0);
+    expect(retireIdx).toBeGreaterThan(fixIdx);
+    expect(pinIdx).toBeGreaterThan(retireIdx);
+  });
+
+  it("is absent without an operator on the server", () => {
+    render(<Row win={subjectWin()} onRetireTab={vi.fn()} />);
+    hoverOpen();
+    expect(screen.queryByTestId("row-flyout-retire-action")).toBeNull();
+  });
+
+  it("is absent when the subject carries no chat session ref", () => {
+    render(<Row win={makeWindow({})} hasOperator onRetireTab={vi.fn()} />);
+    hoverOpen();
+    expect(screen.queryByTestId("row-flyout-retire-action")).toBeNull();
+  });
+
+  it("is absent on the operator's own row", () => {
+    render(
+      <Row
+        win={makeWindow({ chatProvider: "claude", chatSessionRef: "ref-1", role: "operator" })}
+        hasOperator
+        onRetireTab={vi.fn()}
+      />,
+    );
+    hoverOpen();
+    expect(screen.queryByTestId("row-flyout-retire-action")).toBeNull();
+  });
+
+  it("is absent when the consumer wired no handler", () => {
+    render(<Row win={subjectWin()} hasOperator />);
+    hoverOpen();
+    expect(screen.queryByTestId("row-flyout-retire-action")).toBeNull();
+  });
+
+  it("clicking closes the card BEFORE handing off (close-then-open) and does not bubble to the row", () => {
+    const order: string[] = [];
+    const onRetireTab = vi.fn(() => {
+      order.push("handler");
+    });
+    const onRowClick = vi.fn();
+    render(<Row win={subjectWin()} hasOperator onRetireTab={onRetireTab} onRowClick={onRowClick} />);
+    hoverOpen();
+
+    act(() => {
+      fireEvent.click(screen.getByTestId("row-flyout-retire-action"));
+    });
+    expect(onRetireTab).toHaveBeenCalledTimes(1);
+    // The card closed first — the handoff opened nothing over it.
+    expect(screen.queryByTestId("row-flyout-card")).toBeNull();
+    // stopPropagation: the handoff must never also select the underlying row.
+    expect(onRowClick).not.toHaveBeenCalled();
   });
 });
 

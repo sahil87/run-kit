@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"rk/internal/chat"
@@ -40,8 +41,21 @@ type operatorWindowFact struct {
 	Name         string
 	WorktreePath string
 	AgentState   string
-	FabChange    string // rendered only when non-empty
-	FabStage     string
+	// AgentIdleDuration is the rolled-up duration string beside AgentState
+	// (empty when unknown) — the digest templates render it.
+	AgentIdleDuration string
+	// PR rollup, populated only when the window's PrURL is non-nil (a window
+	// with no PR renders no PR clause).
+	PrState  string
+	PrChecks string
+	PrReview string
+	FabChange string // rendered only when non-empty
+	FabStage  string
+	// TranscriptPath is the chat-JSONL absolute path resolved by the SAME
+	// chat.TranscriptPath call that fills the Corpus row — resolved once per
+	// window, empty when the window has no chat ref OR the ref fails to
+	// resolve (a broken ref degrades to a path-less row, never an error).
+	TranscriptPath string
 }
 
 // operatorCorpusRow is one transcript in the server-scoped search corpus: a
@@ -81,8 +95,12 @@ type operatorTemplate struct {
 	// by POST /api/operator-request (the window-scoped route 400s it, and vice
 	// versa).
 	serverScoped bool
-	render       func(f operatorFacts) string
-	renderServer func(f serverOperatorFacts) string
+	// requiresWaiting declares that the template's subject matter is the
+	// server's WAITING windows: a server with zero waiting fact rows is a 409
+	// ("nothing is waiting on this server") before render/delivery.
+	requiresWaiting bool
+	render          func(f operatorFacts) string
+	renderServer    func(f serverOperatorFacts) string
 }
 
 // operatorTemplates is the closed in-code template registry. An id outside
@@ -108,6 +126,28 @@ var operatorTemplates = map[string]operatorTemplate{
 		serverScoped: true,
 		acceptsText:  true,
 		renderServer: renderFindDiscussion,
+	},
+	// brief-me: the operator reads every tab's transcript tail and writes a
+	// standup digest (one line per tab, waiting-on-me first) as its own reply
+	// in its own window.
+	"brief-me": {
+		serverScoped: true,
+		renderServer: renderBriefMe,
+	},
+	// whats-stuck: the operator triages ONLY the waiting tabs — answers the
+	// routine pending questions itself, escalates the rest via rk notify. A
+	// server with nothing waiting rejects before delivery.
+	"whats-stuck": {
+		serverScoped:    true,
+		requiresWaiting: true,
+		renderServer:    renderWhatsStuck,
+	},
+	// retire-tab: the operator reads the subject tab's transcript, writes a
+	// close-out note, then kills exactly that window — the seam's first
+	// destructive template (the per-action confirm lives in the frontend).
+	"retire-tab": {
+		requiresChatRef: true,
+		render:          renderRetireTab,
 	},
 }
 
@@ -181,6 +221,171 @@ Search the corpus semantically — read file tails, grep for related terms, foll
 
 Bounds: read-only — take no action on any other window.`)
 	return b.String()
+}
+
+// digestStateRank orders the digest fact rows: waiting first, then active,
+// then idle/unknown.
+func digestStateRank(state string) int {
+	switch state {
+	case tmux.AgentStateWaiting:
+		return 0
+	case tmux.AgentStateActive:
+		return 1
+	default:
+		return 2
+	}
+}
+
+// digestState renders a row's agent state with its rolled-up duration ("waiting
+// 3m"); an empty state reads "unknown".
+func digestState(w operatorWindowFact) string {
+	state := w.AgentState
+	if state == "" {
+		state = "unknown"
+	}
+	if w.AgentIdleDuration != "" {
+		state += " " + w.AgentIdleDuration
+	}
+	return state
+}
+
+// prSummary renders a row's PR rollup ("open checks=pass review=approved"),
+// skipping absent segments; empty when the row carries no PR facts.
+func prSummary(w operatorWindowFact) string {
+	var parts []string
+	if w.PrState != "" {
+		parts = append(parts, w.PrState)
+	}
+	if w.PrChecks != "" {
+		parts = append(parts, "checks="+w.PrChecks)
+	}
+	if w.PrReview != "" {
+		parts = append(parts, "review="+w.PrReview)
+	}
+	return strings.Join(parts, " ")
+}
+
+// writeDigestRow renders one fact-table row for the digest templates: identity
+// + state (+ duration), the fab/PR clauses when present, then the transcript
+// path or the unavailable note on an indented line.
+func writeDigestRow(b *strings.Builder, w operatorWindowFact) {
+	fmt.Fprintf(b, "  - %s %s %q state=%s", w.Session, w.WindowID, w.Name, digestState(w))
+	if w.FabChange != "" {
+		fmt.Fprintf(b, " fab=%s", w.FabChange)
+		if w.FabStage != "" {
+			fmt.Fprintf(b, " at stage %s", w.FabStage)
+		}
+	}
+	if pr := prSummary(w); pr != "" {
+		fmt.Fprintf(b, " pr=%s", pr)
+	}
+	if w.TranscriptPath != "" {
+		fmt.Fprintf(b, "\n    transcript: %s", w.TranscriptPath)
+	} else {
+		b.WriteString("\n    transcript unavailable")
+	}
+	b.WriteString("\n")
+}
+
+// renderBriefMe composes the brief-me prompt: the whole fact table on a
+// waiting-first sorted COPY (the shared builder's natural order feeds other
+// templates and must not change), the transcript-tail reading instruction
+// (never capture-pane), the one-line-per-tab digest spec ordered
+// waiting-on-me first, the write-in-own-window instruction, and the read-only
+// bounds. An empty table still delivers — there is simply nothing to report.
+func renderBriefMe(f serverOperatorFacts) string {
+	rows := make([]operatorWindowFact, len(f.Windows))
+	copy(rows, f.Windows)
+	sort.SliceStable(rows, func(i, j int) bool {
+		if ri, rj := digestStateRank(rows[i].AgentState), digestStateRank(rows[j].AgentState); ri != rj {
+			return ri < rj
+		}
+		if rows[i].Session != rows[j].Session {
+			return rows[i].Session < rows[j].Session
+		}
+		return rows[i].WindowID < rows[j].WindowID
+	})
+
+	var b strings.Builder
+	b.WriteString("[run-kit request] Brief me: write a standup digest of every tab on this server.\n\nTabs (waiting-on-me first):\n")
+	if len(rows) == 0 {
+		b.WriteString("  (none — report that there is nothing to report)\n")
+	}
+	for _, w := range rows {
+		writeDigestRow(&b, w)
+	}
+	b.WriteString(`
+For each tab: read the tail of its transcript JSONL (the last ~30 lines are enough) — NEVER capture-pane; agent TUIs run alt-screen with zero scrollback. For a tab whose transcript is unavailable, work from its listed facts alone.
+
+Then write the digest AS YOUR OWN REPLY IN THIS WINDOW (the user reads it by switching to this tab — there is no response channel): one line per tab — its current state, what it is waiting on (when waiting), and one suggested next action — ordered waiting-on-me first, then active, then idle.
+
+Bounds: read-only. Take no action on any window — do not rename, kill, or send keys anywhere.`)
+	return b.String()
+}
+
+// renderWhatsStuck composes the whats-stuck triage prompt over ONLY the
+// waiting rows (filtered here at render time; the handler's requiresWaiting
+// gate already rejected a zero-waiting server): the transcript-tail
+// instruction, the routine-answer verb (rk mux send) and the escalation verb
+// (rk notify), the hard never-answer list, and the touch-only-listed bound.
+func renderWhatsStuck(f serverOperatorFacts) string {
+	var waiting []operatorWindowFact
+	for _, w := range f.Windows {
+		if w.AgentState == tmux.AgentStateWaiting {
+			waiting = append(waiting, w)
+		}
+	}
+
+	var b strings.Builder
+	b.WriteString("[run-kit request] Triage the waiting tabs on this server: answer the routine pending questions, escalate the rest.\n\nWaiting tabs:\n")
+	for _, w := range waiting {
+		writeDigestRow(&b, w)
+	}
+	b.WriteString(`
+For each waiting tab: read the tail of its transcript JSONL (the last ~30 lines are enough) — NEVER capture-pane; agent TUIs run alt-screen with zero scrollback — to find the pending question.
+
+ROUTINE prompts — trust/permission dialogs, yes/no confirmations with an obvious safe answer — you may answer directly:
+  rk mux send @N "<answer>" --answer
+(the --answer flag is required: a waiting pane refuses a plain send)
+
+Everything else is ESCALATED, never answered:
+  rk notify --title "<window-name>: stuck" "<the pending question>"
+
+NEVER answer: credential or login prompts, destructive confirmations (delete/overwrite/reset), or anything ambiguous — escalate those instead.
+
+Bounds: touch only the waiting windows listed above. Do not rename or kill any window.`)
+	return b.String()
+}
+
+// renderRetireTab composes the retire-tab prompt — the seam's first
+// DESTRUCTIVE template (the per-action confirmation guardrail lives in the
+// frontend): read the subject's transcript, write a close-out note (the
+// `idea` backlog verb; the fab-change note clause appears only when FabChange
+// is non-empty), then kill EXACTLY the named window and nothing else.
+func renderRetireTab(f operatorFacts) string {
+	closeout := `Write a close-out note capturing what was done, what was decided, and what is left open — via the backlog:
+  idea "<close-out note>"`
+	if f.FabChange != "" {
+		stage := ""
+		if f.FabStage != "" {
+			stage = " at stage " + f.FabStage
+		}
+		closeout = fmt.Sprintf(`Write a close-out note capturing what was done, what was decided, and what is left open — whichever fits (your judgment):
+  - the backlog: idea "<close-out note>"
+  - a note against the fab change %s%s`, f.FabChange, stage)
+	}
+	return fmt.Sprintf(`[run-kit request] Retire tmux window %s (currently %q) on this server: summarize it, record a close-out note, then close it.
+
+Read the tab's transcript to see what it worked on: %s
+(read the tail of the file — the last ~30 JSONL lines are enough)
+
+%s
+
+Then kill EXACTLY this window and nothing else:
+  tmux kill-window -t %s
+
+Do not reply to this message. Do not rename, kill, or send keys to any other window.`,
+		f.WindowID, f.Name, f.TranscriptPath, closeout, f.WindowID)
 }
 
 // delimitUserText wraps client-supplied text in a fenced block framed as data.
@@ -295,7 +500,9 @@ func (s *Server) deliverOperatorPrompt(w http.ResponseWriter, r *http.Request, o
 // goes into the routing table; a non-operator window with a reconciled chat
 // session additionally goes into the transcript corpus — a ref that fails to
 // resolve (ErrInvalidRef/ErrTranscriptNotFound/ErrNoAdapter) degrades to an
-// OMITTED row, never an error.
+// OMITTED corpus row (and a path-less table row), never an error. The
+// transcript path resolves ONCE per window and fills both the table row and
+// the corpus.
 func buildServerOperatorFacts(sess []sessions.ProjectSession, text string) serverOperatorFacts {
 	facts := serverOperatorFacts{Text: text}
 	for si := range sess {
@@ -304,28 +511,31 @@ func buildServerOperatorFacts(sess []sessions.ProjectSession, text string) serve
 			if win.Role == "operator" {
 				continue
 			}
-			facts.Windows = append(facts.Windows, operatorWindowFact{
-				Session:      sess[si].Name,
-				WindowID:     win.WindowID,
-				Name:         win.Name,
-				WorktreePath: win.WorktreePath,
-				AgentState:   win.AgentState,
-				FabChange:    win.FabChange,
-				FabStage:     win.FabStage,
-			})
-			if win.ChatSessionRef == "" {
-				continue
+			row := operatorWindowFact{
+				Session:           sess[si].Name,
+				WindowID:          win.WindowID,
+				Name:              win.Name,
+				WorktreePath:      win.WorktreePath,
+				AgentState:        win.AgentState,
+				AgentIdleDuration: win.AgentIdleDuration,
+				FabChange:         win.FabChange,
+				FabStage:          win.FabStage,
 			}
-			path, err := chat.TranscriptPath(win.ChatProvider, win.ChatSessionRef)
-			if err != nil {
-				continue
+			if win.PrURL != nil {
+				row.PrState, row.PrChecks, row.PrReview = win.PrState, win.PrChecks, win.PrReview
 			}
-			facts.Corpus = append(facts.Corpus, operatorCorpusRow{
-				Session:        sess[si].Name,
-				WindowID:       win.WindowID,
-				Name:           win.Name,
-				TranscriptPath: path,
-			})
+			if win.ChatSessionRef != "" {
+				if path, err := chat.TranscriptPath(win.ChatProvider, win.ChatSessionRef); err == nil {
+					row.TranscriptPath = path
+					facts.Corpus = append(facts.Corpus, operatorCorpusRow{
+						Session:        sess[si].Name,
+						WindowID:       win.WindowID,
+						Name:           win.Name,
+						TranscriptPath: path,
+					})
+				}
+			}
+			facts.Windows = append(facts.Windows, row)
 		}
 	}
 	return facts
@@ -472,6 +682,21 @@ func (s *Server) handleServerOperatorRequest(w http.ResponseWriter, r *http.Requ
 	}
 
 	facts := buildServerOperatorFacts(sess, body.Text)
+	if tmpl.requiresWaiting {
+		// The template's subject matter is the waiting tabs — with none waiting
+		// there is nothing to deliver (the same 409 valid-request-wrong-state
+		// class as the busy gate).
+		waiting := 0
+		for _, row := range facts.Windows {
+			if row.AgentState == tmux.AgentStateWaiting {
+				waiting++
+			}
+		}
+		if waiting == 0 {
+			writeError(w, http.StatusConflict, "nothing is waiting on this server")
+			return
+		}
+	}
 	if !s.deliverOperatorPrompt(w, r, operator, server, tmpl.renderServer(facts)) {
 		return
 	}

@@ -646,3 +646,279 @@ func TestBuildServerOperatorFacts(t *testing.T) {
 		t.Errorf("corpus row path = %q, want the resolved JSONL path", row.TranscriptPath)
 	}
 }
+
+// --- the digest/triage/retire templates (260822-rfz2) -------------------------
+
+// TestServerOperatorRequestWhatsStuckNothingWaiting: a requiresWaiting template
+// on a server with ZERO waiting fact rows is a 409 ("nothing is waiting on
+// this server") with no injection — no no-op delivery.
+func TestServerOperatorRequestWhatsStuckNothingWaiting(t *testing.T) {
+	stageFixtureTranscript(t, testChatRef)
+	sf := &mockSessionFetcher{result: operatorSessions("idle")}
+	ops := &mockTmuxOps{}
+	router := NewTestRouter(slog.Default(), sf, ops, "host")
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, serverOperatorReq(`{"template":"whats-stuck"}`))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "nothing is waiting on this server") {
+		t.Errorf("409 body = %s, want the nothing-waiting message", rec.Body.String())
+	}
+	if len(ops.chatCalls) != 0 {
+		t.Errorf("injection ran (%v) with nothing waiting", ops.chatCalls)
+	}
+}
+
+// TestServerOperatorRequestWhatsStuckSuccess: with a waiting window present the
+// request delivers, and the rendered prompt carries ONLY the waiting row, both
+// rk verbs (verified against `rk mux send --help` / `rk notify --help`), and
+// the never-answer list.
+func TestServerOperatorRequestWhatsStuckSuccess(t *testing.T) {
+	fastChatSendProbe(t)
+	stageFixtureTranscript(t, testChatRef)
+	sess := operatorSessions("idle")
+	sess[0].Windows[0].AgentState = "waiting"
+	sess[0].Windows[0].AgentIdleDuration = "3m"
+	sf := &mockSessionFetcher{result: sess}
+	ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "❯ [Pasted text #1 +9 lines]"}}
+	router := NewTestRouter(slog.Default(), sf, ops, "host")
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, serverOperatorReq(`{"template":"whats-stuck"}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	prompt := ops.setChatBufferText
+	for _, want := range []string{
+		"s @1", `"zsh"`, "state=waiting 3m",
+		"projects/someproj/" + testChatRef + ".jsonl",
+		`rk mux send @N "<answer>" --answer`,
+		`rk notify --title "<window-name>: stuck"`,
+		"NEVER answer", "credential", "destructive", "ambiguous",
+		"touch only the waiting windows listed",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "@9") {
+		t.Errorf("operator's own row leaked into the triage prompt:\n%s", prompt)
+	}
+}
+
+// TestOperatorRequestRetireTabSuccess: retire-tab rides the WINDOW route — an
+// idle operator receives the rendered prompt (transcript path, both close-out
+// verbs with the fab change named, the exact bounded kill command) through the
+// full injection sequence targeting the operator's pane.
+func TestOperatorRequestRetireTabSuccess(t *testing.T) {
+	fastChatSendProbe(t)
+	stageFixtureTranscript(t, testChatRef)
+	sf := &mockSessionFetcher{result: operatorSessions("idle")}
+	ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "❯ [Pasted text #1 +9 lines]"}}
+	router := NewTestRouter(slog.Default(), sf, ops, "host")
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, operatorReq(`{"template":"retire-tab"}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if ops.pasteChatPaneID != "%9" || ops.sendEnterPaneID != "%9" {
+		t.Errorf("injection targeted paste=%q enter=%q, want the OPERATOR pane %%9",
+			ops.pasteChatPaneID, ops.sendEnterPaneID)
+	}
+	prompt := ops.setChatBufferText
+	for _, want := range []string{
+		"tmux window @1", `"zsh"`,
+		"projects/someproj/" + testChatRef + ".jsonl",
+		`idea "<close-out note>"`,
+		"fab change 260822-fih1-operator-request-fix-tab-name at stage apply",
+		"tmux kill-window -t @1",
+		"EXACTLY this window", "Do not reply",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+// TestServerOperatorRequestNewScopeGuards: the scope discriminator covers the
+// new ids both directions — brief-me (server-scoped) on the window route and
+// retire-tab (window-scoped) on the server route are 400s before any fetch.
+func TestServerOperatorRequestNewScopeGuards(t *testing.T) {
+	rec := assertNoFetch(t, operatorReq(`{"template":"brief-me"}`))
+	if !strings.Contains(rec.Body.String(), "brief-me") {
+		t.Errorf("400 body = %s, want it to name the server-scoped id", rec.Body.String())
+	}
+	rec = assertNoFetch(t, serverOperatorReq(`{"template":"retire-tab"}`))
+	if !strings.Contains(rec.Body.String(), "retire-tab") {
+		t.Errorf("400 body = %s, want it to name the window-scoped id", rec.Body.String())
+	}
+}
+
+// TestServerOperatorRequestTextOnDigestTemplates: client text on brief-me /
+// whats-stuck hits the closed-lane 400 (neither declares acceptsText) before
+// any fetch.
+func TestServerOperatorRequestTextOnDigestTemplates(t *testing.T) {
+	for _, id := range []string{"brief-me", "whats-stuck"} {
+		t.Run(id, func(t *testing.T) {
+			rec := assertNoFetch(t, serverOperatorReq(`{"template":"`+id+`","text":"evil client text"}`))
+			if !strings.Contains(rec.Body.String(), id) {
+				t.Errorf("400 body = %s, want it to name the closed template", rec.Body.String())
+			}
+		})
+	}
+}
+
+// TestBuildServerOperatorFactsDigestFields: the fact row carries the rolled-up
+// duration, the PR rollup (PrURL-gated), and the per-row transcript path from
+// the SAME resolution that fills the corpus; a broken ref degrades to a
+// path-less row (still present), and the operator stays excluded.
+func TestBuildServerOperatorFactsDigestFields(t *testing.T) {
+	projDir := stageEmptyConfigDir(t)
+	writeFixtureAt(t, projDir, testChatRef)
+	prURL := "https://github.com/o/r/pull/7"
+	sess := []sessions.ProjectSession{
+		{Name: "s", Windows: []tmux.WindowInfo{
+			{WindowID: "@1", Name: "zsh", AgentState: "waiting", AgentIdleDuration: "3m",
+				ChatProvider: "claude", ChatSessionRef: testChatRef,
+				PrURL: &prURL, PrState: "open", PrChecks: "pass", PrReview: "approved"},
+			{WindowID: "@2", Name: "plain"},
+			{WindowID: "@3", Name: "broken", ChatProvider: "claude", ChatSessionRef: "not-a-uuid"},
+			// PR facts with NO PrURL must not leak into the row.
+			{WindowID: "@4", Name: "orphan-pr", PrState: "open", PrChecks: "pass"},
+		}},
+		{Name: "_rk-operator", Windows: []tmux.WindowInfo{
+			{WindowID: "@9", Name: "operator", Role: "operator", AgentState: "waiting"},
+		}},
+	}
+	facts := buildServerOperatorFacts(sess, "")
+	if len(facts.Windows) != 4 {
+		t.Fatalf("Windows rows = %d, want 4 (all non-operator windows)", len(facts.Windows))
+	}
+	row := facts.Windows[0]
+	if row.AgentIdleDuration != "3m" {
+		t.Errorf("row @1 AgentIdleDuration = %q, want %q", row.AgentIdleDuration, "3m")
+	}
+	if row.PrState != "open" || row.PrChecks != "pass" || row.PrReview != "approved" {
+		t.Errorf("row @1 PR rollup = %+v, want open/pass/approved", row)
+	}
+	if !strings.Contains(row.TranscriptPath, "projects/someproj/"+testChatRef+".jsonl") {
+		t.Errorf("row @1 TranscriptPath = %q, want the resolved JSONL path", row.TranscriptPath)
+	}
+	if row.TranscriptPath != facts.Corpus[0].TranscriptPath {
+		t.Errorf("row path %q != corpus path %q (one resolution fills both)", row.TranscriptPath, facts.Corpus[0].TranscriptPath)
+	}
+	if row := facts.Windows[1]; row.TranscriptPath != "" || row.PrState != "" {
+		t.Errorf("chatless row @2 = %+v, want no path and no PR facts", row)
+	}
+	if row := facts.Windows[2]; row.WindowID != "@3" || row.TranscriptPath != "" {
+		t.Errorf("broken-ref row = %+v, want @3 present with an empty path", row)
+	}
+	if row := facts.Windows[3]; row.PrState != "" || row.PrChecks != "" || row.PrReview != "" {
+		t.Errorf("row @4 (PrState without PrURL) = %+v, want the PR rollup withheld", row)
+	}
+	for _, row := range facts.Windows {
+		if row.WindowID == "@9" {
+			t.Errorf("operator's own row leaked into the fact table: %+v", row)
+		}
+	}
+}
+
+// TestRenderBriefMe: the prompt lists every row waiting-first (then active,
+// then idle/unknown), with the fab/PR clauses when present, the transcript
+// path or the unavailable note per row, the transcript-tail instruction (never
+// capture-pane), the waiting-on-me-first digest spec, the own-window
+// instruction, and the read-only bounds. An empty table stays deliverable.
+func TestRenderBriefMe(t *testing.T) {
+	facts := serverOperatorFacts{Windows: []operatorWindowFact{
+		{Session: "s", WindowID: "@3", Name: "idle-tab", AgentState: "idle", TranscriptPath: "/t/idle.jsonl"},
+		{Session: "s", WindowID: "@1", Name: "wait-tab", AgentState: "waiting", AgentIdleDuration: "3m",
+			TranscriptPath: "/t/wait.jsonl",
+			FabChange:      "260822-rfz2-operator-digest-stuck-retire", FabStage: "apply",
+			PrState: "open", PrChecks: "pass", PrReview: "approved"},
+		{Session: "s", WindowID: "@2", Name: "active-tab", AgentState: "active"},
+	}}
+	prompt := renderBriefMe(facts)
+	i1, i2, i3 := strings.Index(prompt, "@1"), strings.Index(prompt, "@2"), strings.Index(prompt, "@3")
+	if i1 < 0 || i2 < 0 || i3 < 0 || !(i1 < i2 && i2 < i3) {
+		t.Errorf("rows not ordered waiting → active → idle (@1=%d @2=%d @3=%d):\n%s", i1, i2, i3, prompt)
+	}
+	for _, want := range []string{
+		"state=waiting 3m", "state=active", "state=idle",
+		"fab=260822-rfz2-operator-digest-stuck-retire at stage apply",
+		"pr=open checks=pass review=approved",
+		"/t/wait.jsonl", "/t/idle.jsonl", "transcript unavailable",
+		"NEVER capture-pane", "one line per tab", "waiting-on-me first",
+		"suggested next action", "IN THIS WINDOW", "read-only",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+
+	empty := renderBriefMe(serverOperatorFacts{})
+	if !strings.Contains(empty, "nothing to report") {
+		t.Errorf("empty table prompt = %q, want a trivially-answerable nothing-to-report prompt", empty)
+	}
+}
+
+// TestRenderWhatsStuck: the prompt filters to ONLY the waiting rows, names
+// both rk verbs verbatim, and carries the hard never-answer list.
+func TestRenderWhatsStuck(t *testing.T) {
+	facts := serverOperatorFacts{Windows: []operatorWindowFact{
+		{Session: "s", WindowID: "@1", Name: "wait-a", AgentState: "waiting", TranscriptPath: "/t/a.jsonl"},
+		{Session: "s", WindowID: "@2", Name: "active-b", AgentState: "active"},
+		{Session: "s2", WindowID: "@3", Name: "wait-c", AgentState: "waiting", AgentIdleDuration: "5m"},
+	}}
+	prompt := renderWhatsStuck(facts)
+	for _, want := range []string{
+		"s @1", `"wait-a"`, "/t/a.jsonl",
+		"s2 @3", `"wait-c"`, "state=waiting 5m", "transcript unavailable",
+		`rk mux send @N "<answer>" --answer`,
+		`rk notify --title "<window-name>: stuck" "<the pending question>"`,
+		"NEVER answer", "credential", "destructive", "ambiguous", "escalate",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "@2") || strings.Contains(prompt, "active-b") {
+		t.Errorf("non-waiting row leaked into the triage prompt:\n%s", prompt)
+	}
+}
+
+// TestRenderRetireTab: the prompt names the window, the transcript path, both
+// close-out verbs with the fab change named (conditional on FabChange), the
+// exact bounded kill command, and the do-not-reply bound; with an empty
+// FabChange only the `idea` verb appears.
+func TestRenderRetireTab(t *testing.T) {
+	facts := operatorFacts{
+		WindowID:       "@5",
+		Name:           "zsh",
+		TranscriptPath: "/home/u/.claude/projects/p/ref.jsonl",
+		FabChange:      "260822-rfz2-operator-digest-stuck-retire",
+		FabStage:       "apply",
+	}
+	prompt := renderRetireTab(facts)
+	for _, want := range []string{
+		"tmux window @5", `"zsh"`, "/home/u/.claude/projects/p/ref.jsonl",
+		`idea "<close-out note>"`,
+		"fab change 260822-rfz2-operator-digest-stuck-retire at stage apply",
+		"tmux kill-window -t @5", "EXACTLY this window", "Do not reply",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+
+	facts.FabChange, facts.FabStage = "", ""
+	prompt = renderRetireTab(facts)
+	if !strings.Contains(prompt, `idea "<close-out note>"`) {
+		t.Errorf("empty FabChange dropped the idea verb:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "fab change") {
+		t.Errorf("empty FabChange rendered a fab clause:\n%s", prompt)
+	}
+}

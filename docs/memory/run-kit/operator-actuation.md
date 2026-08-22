@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The operator actuation seam — the server's operator window receives templated work items over two POST routes: window-scoped /api/windows/{windowId}/operator-request (fix-tab-name, subject-window facts) and server-scoped /api/operator-request?server= (spawn-task, find-discussion — acceptsText client text, capped + dynamic-fence delimited). Closed registry; facts pre-derived from ONE FetchSessions; busy-gate 409, no queue; chat-send injection delivery; derive-tick results. UI degrades to absent."
+description: "The operator actuation seam — templated work items for the server's operator window over two POST routes: window-scoped /api/windows/{windowId}/operator-request (fix-tab-name; retire-tab — destructive, frontend-confirmed) and server-scoped /api/operator-request?server= (spawn-task/find-discussion — acceptsText client text; brief-me/whats-stuck — zero-waiting 409). Closed registry; one-FetchSessions facts; busy-gate 409, no queue; chat-send injection; derive-tick results; UI degrades to absent."
 ---
 # Operator Actuation
 
@@ -41,7 +41,8 @@ which takes NO subject window. The shared JSON body is
 checked against the closed in-code registry `operatorTemplates`
 (`map[string]operatorTemplate` — each entry declaring a `requiresChatRef` fact
 requirement, an `acceptsText` client-text admission, a `serverScoped` scope
-discriminator, and a PURE render func for its scope — `render
+discriminator, a `requiresWaiting` zero-waiting precondition, and a PURE render
+func for its scope — `render
 func(operatorFacts) string` window-scoped, `renderServer
 func(serverOperatorFacts) string` server-scoped — plain string composition, no
 `text/template`). An unknown id is a 400 naming it (the `/options`
@@ -92,9 +93,17 @@ operator window resolves via the shared `findOperatorWindow` helper
 `"no operator on this server"` — the UI hides the action in that state, so the
 error is the race backstop), and `buildServerOperatorFacts` pre-derives the
 server fact tables from the same fetch (Constitution X) — every non-operator
-window into the routing table, every non-operator chat-carrying window
-additionally into the transcript corpus, a ref that fails to resolve degrading
-to an OMITTED row, never an error. Delivery goes through
+window into the routing table as a digest-grade row (session, `@N`, name,
+worktree, rolled-up agent state + duration, fab change/stage when non-empty,
+the PR rollup `PrState`/`PrChecks`/`PrReview` filled only when `PrURL` is
+non-nil, and the per-row transcript JSONL path via `chat.TranscriptPath` — one
+resolution per window filling both the row and the corpus), every non-operator
+chat-carrying window additionally into the transcript corpus, a ref that fails
+to resolve degrading to a PATH-LESS table row and an OMITTED corpus row, never
+an error. After fact derivation and BEFORE render/delivery, a template
+declaring `requiresWaiting` with ZERO fact rows at `AgentState == waiting` is a
+structured 409 `"nothing is waiting on this server"` with no delivery — the
+seam's valid-request-wrong-state class, same as the busy gate. Delivery goes through
 `deliverOperatorPrompt`, the seam BOTH handlers share so the two cannot drift:
 the busy gate (`active`/`waiting` ⇒ 409 naming the state; `idle` or unknown
 proceeds), `sessions.ResolveChatPane` over the operator's panes (404
@@ -117,6 +126,9 @@ SSE hub wake; success is `200 {"ok":true}`. A `FetchSessions` error maps to
   `"no operator on this server"`.
 - **AND GIVEN** `{"template": "fix-tab-name"}` on the server-scoped route (or
   `spawn-task` on the window-scoped route), **THEN** 400.
+- **AND GIVEN** a `requiresWaiting` template (`whats-stuck`) with no window at
+  `waiting`, **THEN** 409 `"nothing is waiting on this server"` and no
+  injection.
 
 ### Requirement: Single-FetchSessions resolution of subject + operator
 The handler SHALL resolve everything server-side from ONE
@@ -266,24 +278,114 @@ derive tick.
   their window identities, the delimited query, the answer-in-your-own-window
   instruction, and the read-only bound.
 
+### Requirement: The `brief-me` template (server-scoped)
+The registry's `brief-me` entry (`serverScoped: true`, no `acceptsText` —
+client text hits the closed-lane 400) SHALL render a standup-digest prompt
+listing every routing-table row on a waiting-first SORTED COPY of
+`facts.Windows` (waiting, then active, then idle/unknown — `digestStateRank`;
+stable within a group by session then `@N`; the shared builder's natural order
+is unchanged) — identity, state + duration, fab/PR clauses when present, and
+the transcript path (or a `transcript unavailable` note when empty). The prompt
+instructs the operator: read each transcript tail (the JSONL path, ~30 lines —
+never capture-pane; agent TUIs run alt-screen with zero scrollback), work from
+listed facts alone when the transcript is unavailable, and produce a
+one-line-per-tab digest — current state, what it is waiting on (when waiting),
+one suggested next action — ordered waiting-on-me first, written AS THE
+OPERATOR'S OWN REPLY IN ITS OWN WINDOW (the user reads it by switching to the
+operator tab; there is no response channel). Bounds: read-only — take no
+action on any window; do not rename, kill, or send keys anywhere. An empty row
+table still delivers a trivially-answerable "nothing to report" prompt (only
+`whats-stuck` rejects an empty subject set).
+
+#### Scenario: Rendered prompt is waiting-first with the degradation note
+- **GIVEN** derived facts with waiting, active, and broken-ref windows
+- **WHEN** `brief-me` renders
+- **THEN** the prompt lists every row with the waiting rows first, notes the
+  broken-ref row's missing transcript, and carries the transcript-tail
+  instruction, the waiting-on-me-first ordering, the own-window instruction,
+  and the read-only bounds.
+
+### Requirement: The `whats-stuck` template (server-scoped)
+The registry's `whats-stuck` entry (`serverScoped: true`,
+`requiresWaiting: true`, no `acceptsText`) SHALL render a triage prompt over
+ONLY the waiting rows (filtered in the render func; the handler's
+`requiresWaiting` gate has already rejected a zero-waiting server). For each
+waiting tab the prompt instructs the operator to read the transcript tail to
+find the pending question. ROUTINE prompts (trust/permission dialogs, yes/no
+confirmations with an obvious safe answer) may be answered directly via the
+named verb `rk mux send @N "<answer>" --answer` (the `--answer` flag is
+required: a waiting pane refuses a plain send). Everything else is ESCALATED,
+never answered, via `rk notify --title "<window-name>: stuck" "<the pending
+question>"`. The prompt carries the hard never-answer list — credential or
+login prompts, destructive confirmations (delete/overwrite/reset), anything
+ambiguous — escalate those instead. Bounds: touch only the waiting windows
+listed; do not rename or kill any window.
+
+#### Scenario: Only waiting rows, both verbs, the never-answer list
+- **GIVEN** two waiting windows and one active window
+- **WHEN** `whats-stuck` renders
+- **THEN** the prompt lists exactly the two waiting rows, names `rk mux send
+  @N "<answer>" --answer` and `rk notify --title` verbatim, and carries the
+  never-answer list.
+
+### Requirement: The `retire-tab` template (window-scoped, destructive)
+The registry's `retire-tab` entry (`requiresChatRef: true`, window-scoped — no
+`serverScoped`, no `acceptsText`) SHALL ride the window route unchanged and
+render from `operatorFacts`: read the subject's transcript (path fact, ~30
+lines), write a close-out note capturing what was done/decided/left open —
+via `idea "<close-out note>"` (the backlog) or, only when `FabChange` is
+non-empty, a note against that fab change (both verbs offered, the operator's
+judgment which fits; an empty `FabChange` renders no fab clause) — then kill
+EXACTLY the named window via `tmux kill-window -t {windowId}` and nothing
+else ("Do not reply to this message. Do not rename, kill, or send keys to any
+other window."). This is the seam's first DESTRUCTIVE template; its per-action
+confirmation guardrail lives in the FRONTEND (both retire entry points route
+through one shared confirm dialog before any request fires — § Frontend
+availability).
+
+#### Scenario: Rendered prompt carries facts, both close-out verbs, the bound
+- **GIVEN** facts for window `@5` with a resolvable transcript and non-empty
+  `FabChange`
+- **WHEN** `retire-tab` renders
+- **THEN** the prompt names `@5`, the transcript path, both close-out verbs
+  with the fab change named, the exact `tmux kill-window -t @5` command, and
+  the kill-only-this-window bound; with empty `FabChange` no fab clause
+  appears.
+
 ### Requirement: Frontend availability — degrade to ABSENT, never disabled
-The "Fix tab name" affordance — the flyout's `FixTabNameActionRow`
+The window-scoped operator affordances — the flyout's `FixTabNameActionRow` and
+`RetireActionRow`
 ([ui/status-signals](/run-kit/ui/status-signals.md) § Row-hover register flyout
-card) and the palette's `Tab: Fix name (ask operator)` entry
+card) and the palette's `Tab: Fix name (ask operator)` / `Tab: Retire (ask
+operator)` entries
 ([ui/keyboard-and-palette](/run-kit/ui/keyboard-and-palette.md) § Command
 Palette Actions) — SHALL render only when (a) the server has an operator window
 (`role === "operator"` present in the sessions payload), (b) the subject window
 carries a non-empty `chatSessionRef` (the template needs its JSONL transcript),
 and (c) the subject is not itself the operator window (the pure
-`canRequestFixTabName(win, hasOperator)` rule in `row-flyout-card.tsx`). All
+`canRequestWindowOperatorAction(win, hasOperator)` rule in
+`row-flyout-card.tsx`, ONE predicate serving both actions). All
 three facts already ride the sessions payload; an unavailable action is
-OMITTED, never disabled. The client call is
+OMITTED, never disabled. The fix-name client call is
 `sendOperatorRequest(server, windowId, template)` (`api/client.ts` — the
 `withServer` + `throwOnError` shape, so the structured 409/404 messages surface
 as the thrown Error's message), fired once per click cycle behind the row's
 in-flight guard; success toasts `"Sent to operator — tab will rename shortly"`,
 failure toasts the server's message. No spinner beyond the guard — the rename
 arrives via the normal SSE derive tick.
+
+Retire is the seam's first DESTRUCTIVE template (the confirmed action ends in a
+window kill), so NEITHER retire entry point fires a request directly: both open
+the ONE shared per-action confirm dialog (`RetireConfirmDialog` —
+"Ask the operator to summarize and close this tab? The window will be killed."
+— fed by the `retireTarget` state in `app.tsx`, the flyout row running the
+close-then-open idiom first). Confirm fires exactly ONE
+`sendOperatorRequest(server, windowId, "retire-tab")` behind the dialog's
+in-flight guard; success toasts
+`"Sent to operator — tab will be summarized and closed"`, failure toasts the
+server's structured message; Cancel/Escape closes with no request. The
+non-destructive server-scoped entries (`Operator: Brief me` /
+`Operator: What's stuck`) need no confirmation and fire directly.
 
 The server-scoped half's client call is
 `sendServerOperatorRequest(server, template, text)` (`api/client.ts` — the
@@ -306,6 +408,54 @@ Palette Actions) plus the pinned operator row's compose icon
   entry are absent (not disabled).
 
 ## Design Decisions
+
+### Digest fields ride the shared fact row, not a parallel table
+**Decision**: `operatorWindowFact` carries the digest-grade fields
+(`AgentIdleDuration`, the `PrURL`-gated PR rollup, per-row `TranscriptPath`),
+populated in the one `buildServerOperatorFacts` pass; one `TranscriptPath`
+resolution per window fills both the routing-table row and the corpus, and
+templates that don't need the new fields ignore them.
+**Why**: one derivation site per Constitution X; a second server-facts struct
+over the same FetchSessions pass would be the duplicated-logic anti-pattern.
+**Rejected**: a separate `digestFacts` builder (duplicates the
+exclusion/iteration/resolution logic the shared builder already owns).
+*Introduced by*: 260822-rfz2-operator-digest-stuck-retire
+
+### Waiting-first ordering lives in the digest render funcs
+**Decision**: `renderBriefMe` (and `whats-stuck`'s filter) sort/filter a COPY
+of `facts.Windows`; the shared builder keeps natural tmux order.
+**Why**: the builder's order feeds other shipped templates and tests —
+reordering shared state to serve one consumer risks silent output changes
+there; sorting in the consumer is still server-side and deterministic.
+**Rejected**: sorting in `buildServerOperatorFacts` (cross-template blast
+radius for zero benefit).
+*Introduced by*: 260822-rfz2-operator-digest-stuck-retire
+
+### Zero-waiting rejection is a declarative registry flag
+**Decision**: `requiresWaiting bool` on the entry, checked in
+`handleServerOperatorRequest` after fact derivation; zero waiting rows ⇒ 409
+`"nothing is waiting on this server"`.
+**Why**: 409 is the seam's established valid-request-wrong-state class (busy
+gate, probe failure) and the client already toasts structured 409s; the
+declarative flag matches `requiresChatRef`/`acceptsText`.
+**Rejected**: 404 (nothing is missing); 200 with a no-op delivery (wastes the
+operator); an error-returning render signature (widens every entry's contract
+for one template's precondition).
+*Introduced by*: 260822-rfz2-operator-digest-stuck-retire
+
+### Destructive templates are confirm-gated in the frontend, once
+**Decision**: the seam's destructive templates (`retire-tab`) never fire from
+an entry point directly — the palette entry and the flyout row both open ONE
+shared `Dialog`-based confirm (`RetireConfirmDialog` over `app.tsx`
+`retireTarget` state), and the request fires only on confirm.
+**Why**: two entry points, one confirmation UX; the flyout row cannot reach
+the palette's in-palette confirm sub-step, so `confirmLabel` would cover only
+one entry point and fork the flow.
+**Rejected**: palette `confirmLabel` for the palette arm + a dialog for the
+flyout arm (two divergent confirm UIs for one destructive action); operator-
+or backend-side confirmation (the prompt is fire-and-forget by design — no
+round trip exists to confirm against).
+*Introduced by*: 260822-rfz2-operator-digest-stuck-retire
 
 ### Scope discriminator on the shared registry
 **Decision**: one `operatorTemplates` registry with a `serverScoped bool` per

@@ -1,0 +1,57 @@
+id: q675
+name: 260822-q675-operator-auto-name-idle
+created: 2026-08-22T12:41:20Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: active
+plan:
+    generated: true
+    task_count: 8
+    acceptance_count: 19
+    acceptance_completed: 19
+confidence:
+    certain: 2
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.4
+    fuzzy: true
+    dimensions:
+        signal: 68.3
+        reversibility: 84.2
+        competence: 80.8
+        disambiguation: 69.2
+stage_metrics:
+    intake: {started_at: "2026-08-22T12:41:20Z", driver: fab-new, iterations: 1, completed_at: "2026-08-22T12:49:16Z"}
+    apply: {started_at: "2026-08-22T12:49:16Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-22T13:00:51Z"}
+    review: {started_at: "2026-08-22T13:00:51Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-22T13:04:00Z"}
+    hydrate: {started_at: "2026-08-22T13:04:00Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-22T13:07:40Z"}
+    ship: {started_at: "2026-08-22T13:07:40Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-22T13:10:39Z"}
+    review-pr: {started_at: "2026-08-22T13:10:39Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/711
+change_type_source: explicit
+true_impact:
+    added: 1551
+    deleted: 72
+    net: 1479
+    excluding:
+        added: 794
+        deleted: 55
+        net: 739
+    tests:
+        added: 441
+        deleted: 0
+        net: 441
+    computed_at: "2026-08-22T13:10:39Z"
+    computed_at_stage: ship
+summary: 'operator-actuation memory: shared deliverOperatorRequest core + SSE-tick auto-name tracker (busy→idle, 15-min cooldown/60-s min-gap/one-per-tick, busy-skip stamped), template no-op clause'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-22T13:10:39Z

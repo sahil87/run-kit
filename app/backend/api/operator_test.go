@@ -348,6 +348,7 @@ func TestRenderFixTabName(t *testing.T) {
 	for _, want := range []string{
 		"tmux window @5", `"zsh"`, "/home/u/.claude/projects/p/ref.jsonl",
 		"worktree /wt/project", "tmux rename-window -t @5", "Do not reply",
+		"already accurately describes",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("prompt missing %q:\n%s", want, prompt)

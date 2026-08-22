@@ -20,6 +20,7 @@ import (
 	"rk/internal/prstatus"
 	"rk/internal/riff"
 	"rk/internal/sessions"
+	"rk/internal/settings"
 	"rk/internal/snapshot"
 	"rk/internal/tmux"
 	"rk/internal/updatecheck"
@@ -181,12 +182,19 @@ type Server struct {
 	// broadcasts the host-level {"reachable"} signal. Never leaves the server
 	// — the frontend embeds via the stable /code/ route.
 	codeServerPort int
-	metrics        *metrics.Collector
-	services       *ports.Collector
-	prStatus       *prstatus.Collector
-	updateChecker  *updatecheck.Checker
-	sseHub         *sseHub
-	sseOnce        sync.Once
+	// autoNameEnabled arms the auto-name-on-idle trigger (the `auto_name` key
+	// in the settings store, default off — the trigger injects prompts into
+	// the operator on its own, so it is strictly opt-in). Seeded from
+	// settings.Load() at startup, so a toggle applies on the next daemon
+	// restart; when false, initSSEHub nils the hub's tracker, which is the
+	// feature-absent state both tick sites already understand.
+	autoNameEnabled bool
+	metrics         *metrics.Collector
+	services        *ports.Collector
+	prStatus        *prstatus.Collector
+	updateChecker   *updatecheck.Checker
+	sseHub          *sseHub
+	sseOnce         sync.Once
 	// version is the running daemon version (ldflags-injected main.version),
 	// seeded once at startup via SetVersion. Read by handleRestart's dev guard
 	// (a "dev" build must not bounce the real daemon out from under `just dev`'s
@@ -256,6 +264,20 @@ func (s *Server) initSSEHub() {
 		}
 		s.sseHub = newSSEHub(s.sessions, s.metrics, s.services, pc)
 		s.sseHub.codeServerPort = s.codeServerPort
+		// Auto-name-on-idle is opt-in (settings `auto_name`): disabled ⇒ nil the
+		// tracker — the feature-absent state both tick sites (advance, retain)
+		// already check for. Enabled ⇒ wire the delivery seam: the tracker
+		// itself is constructed Server-free inside newSSEHub; the deliver
+		// closure closes over the shared operator-request delivery core (fact
+		// derivation, busy gate, pane resolution, injection — the same path the
+		// HTTP endpoint takes), always with the fix-tab-name template.
+		if !s.autoNameEnabled {
+			s.sseHub.autoName = nil
+		} else {
+			s.sseHub.autoName.deliver = func(ctx context.Context, server string, subject, operator *tmux.WindowInfo) error {
+				return s.deliverOperatorRequest(ctx, server, subject, operator, operatorTemplates["fix-tab-name"])
+			}
+		}
 	})
 }
 
@@ -586,18 +608,19 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger) (chi.Router, *
 	cfg := config.Load()
 
 	s := &Server{
-		logger:         logger,
-		sessions:       &prodSessionFetcher{},
-		tmux:           &prodTmuxOps{},
-		riff:           prodRiffEngine{},
-		wt:             prodWtOps{},
-		hostname:       hostname,
-		sshHost:        cfg.SSHHost,
-		sshUser:        sshUser,
-		codeServerPort: cfg.ResolvedCodeServerPort(), // 0 = degenerate config (probe off)
-		metrics:        mc,
-		services:       svc,
-		prStatus:       pc,
+		logger:          logger,
+		sessions:        &prodSessionFetcher{},
+		tmux:            &prodTmuxOps{},
+		riff:            prodRiffEngine{},
+		wt:              prodWtOps{},
+		hostname:        hostname,
+		sshHost:         cfg.SSHHost,
+		sshUser:         sshUser,
+		codeServerPort:  cfg.ResolvedCodeServerPort(), // 0 = degenerate config (probe off)
+		autoNameEnabled: settings.Load().AutoName,
+		metrics:         mc,
+		services:        svc,
+		prStatus:        pc,
 	}
 	// Wire the two on-demand PR-refresh kicks for POST /api/status/refresh. The
 	// collector kick nil-guards its own pointer (a partially-wired server may

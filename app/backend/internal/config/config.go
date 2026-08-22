@@ -50,8 +50,8 @@ func validPort(p int) bool {
 	return p >= 1 && p <= 65535
 }
 
-// Load reads configuration from RK_PORT, RK_HOST, and RK_SSH_HOST env vars,
-// falling back to defaults.
+// Load reads configuration from the RK_PORT, RK_HOST, RK_SSH_HOST, and
+// RK_CODE_SERVER_PORT env vars, falling back to defaults.
 func Load() Config {
 	cfg := defaults
 

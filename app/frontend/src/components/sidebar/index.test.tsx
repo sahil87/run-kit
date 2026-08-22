@@ -2867,6 +2867,115 @@ describe("Sidebar — operator pinned row (260813-ifya)", () => {
   });
 });
 
+describe("Sidebar — hidden operator-home sessions (skcr)", () => {
+  // A session carrying `hidden: true` (the backend's content-conditional
+  // `_rk-operator` marker — every window operator) is excluded from the
+  // SESSIONS groups while its windows still source the pinned operator row.
+  const HIDDEN_SESSIONS: ProjectSession[] = [
+    {
+      name: "work",
+      windows: [
+        { index: 0, windowId: "@0", name: "shell", worktreePath: "~/a", activity: "idle", isActiveWindow: true, activityTimestamp: 0 },
+        { index: 1, windowId: "@2", name: "logs", worktreePath: "~/a", activity: "idle", isActiveWindow: false, activityTimestamp: 0 },
+      ],
+    },
+    {
+      name: "_rk-operator",
+      hidden: true,
+      windows: [
+        { index: 0, windowId: "@1", name: "operator", worktreePath: "~/a", activity: "idle", isActiveWindow: false, activityTimestamp: 0, role: "operator" },
+      ],
+    },
+  ];
+
+  function renderHiddenSidebar(opts: RenderOpts = {}) {
+    return renderSidebar({
+      currentServer: "primary",
+      sessionsByServer: new Map([
+        ["primary", HIDDEN_SESSIONS],
+        ["alpha", []],
+        ["beta", []],
+      ]),
+      ...opts,
+    });
+  }
+
+  function rowByKey(key: string): HTMLElement | null {
+    return document.querySelector(`[role="tree"] [data-row-key="${key}"]`);
+  }
+
+  it("renders no session group for the hidden session, but keeps the visible ones", () => {
+    renderHiddenSidebar();
+
+    expect(document.querySelector('[data-session-group="_rk-operator"]')).toBeNull();
+    expect(document.querySelector('[data-session-group="work"]')).not.toBeNull();
+  });
+
+  it("still sources the pinned operator row from the hidden session's window", () => {
+    renderHiddenSidebar();
+
+    const rows = document.querySelectorAll('[role="tree"] [data-row-key="primary:@1"]');
+    expect(rows).toHaveLength(1);
+    // The pinned row paints above the remaining (visible) session group.
+    const sessionGroup = document.querySelector('[data-session-group="work"]')!;
+    expect(
+      rows[0].compareDocumentPosition(sessionGroup) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("leads roving order with the pinned row, followed by the visible session row", () => {
+    renderHiddenSidebar();
+
+    const tabbable = Array.from(
+      document.querySelectorAll('[role="tree"] [role="treeitem"][tabindex="0"]'),
+    );
+    expect(tabbable).toHaveLength(1);
+    expect(tabbable[0]).toBe(rowByKey("primary:@1"));
+
+    // ArrowDown walks from the pinned row onto the visible session row — the
+    // hidden session contributes no row to the walk.
+    const tree = screen.getByRole("tree");
+    act(() => { fireEvent.keyDown(tree, { key: "ArrowDown" }); });
+    expect(rowByKey("primary:@1")).toHaveAttribute("tabindex", "-1");
+    const sessionRow = document.querySelector('[data-session-row="primary:work"]') ??
+      document.querySelector('[role="treeitem"][tabindex="0"]');
+    expect(sessionRow).not.toBeNull();
+    expect(sessionRow).toHaveAttribute("tabindex", "0");
+  });
+
+  it("keeps a mixed (not hidden) _rk-operator session visible, with the operator row pinned only", () => {
+    renderSidebar({
+      currentServer: "primary",
+      sessionsByServer: new Map([
+        [
+          "primary",
+          [
+            {
+              name: "_rk-operator",
+              windows: [
+                { index: 0, windowId: "@1", name: "operator", worktreePath: "~/a", activity: "idle", isActiveWindow: true, activityTimestamp: 0, role: "operator" },
+                { index: 1, windowId: "@3", name: "worker", worktreePath: "~/a", activity: "idle", isActiveWindow: false, activityTimestamp: 0 },
+              ],
+            },
+          ],
+        ],
+        ["alpha", []],
+        ["beta", []],
+      ]),
+    });
+
+    const sessionGroup = document.querySelector('[data-session-group="_rk-operator"]');
+    expect(sessionGroup).not.toBeNull();
+    // The operator window's row renders exactly once (pinned), and the group
+    // keeps only the non-operator row — the retained move-don't-copy skip.
+    expect(document.querySelectorAll('[role="tree"] [data-row-key="primary:@1"]')).toHaveLength(1);
+    const inGroup = Array.from(sessionGroup!.querySelectorAll("[data-row-key]")).map((el) =>
+      el.getAttribute("data-row-key"),
+    );
+    expect(inGroup).toEqual(["primary:@3"]);
+  });
+});
+
 describe("Sidebar — ⌘B row-focuser registry + Escape return (260819-qwr7 R5)", () => {
   // The shell's stateful sidebar chord drives these seams through the
   // `lib/sidebar-events.ts` module registries; this suite pins the SIDEBAR

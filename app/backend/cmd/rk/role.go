@@ -62,8 +62,17 @@ var (
 	roleOriginalTMUXFn = func() string { return tmux.OriginalTMUX }
 	// roleClearExceptFn is the radio-clear seam (the server-scoped
 	// one-operator rule, shared with the window-options POST handler).
-	roleClearExceptFn = func(ctx context.Context, prefix []string, keepWindowID string) error {
+	roleClearExceptFn = func(ctx context.Context, prefix []string, keepWindowID string) ([]string, error) {
 		return tmux.ClearWindowRoleExcept(ctx, prefix, keepWindowID)
+	}
+	// roleMoveInFn / roleDemoteFn are the physical-promotion seams, shared with
+	// the window-options POST handler: role-set moves the window into the
+	// per-server operator session; role-clear moves a member back out.
+	roleMoveInFn = func(ctx context.Context, prefix []string, windowID string) error {
+		return tmux.MoveWindowIntoOperatorSession(ctx, prefix, windowID)
+	}
+	roleDemoteFn = func(ctx context.Context, prefix []string, windowID string) error {
+		return tmux.DemoteWindowFromOperatorSession(ctx, prefix, windowID)
 	}
 )
 
@@ -124,15 +133,35 @@ func runRole(cmd *cobra.Command, token string) error {
 
 	if value != "" {
 		// Server-scoped radio: clear the role from every other window first.
-		if err := roleClearExceptFn(ctx, prefix, windowID); err != nil {
+		displaced, err := roleClearExceptFn(ctx, prefix, windowID)
+		if err != nil {
 			return fmt.Errorf("clear prior operator: %w", err)
 		}
+		// Option write before the physical moves (option-write-first): a
+		// mid-sequence failure degrades to the cosmetic-only state (role set,
+		// window unmoved) — never a moved-but-roleless stray.
 		if err := roleRunFn(ctx, append(prefix, "set-option", "-w", "-t", windowID, tmux.RoleOption, value)); err != nil {
 			return fmt.Errorf("set %s: %w", tmux.RoleOption, err)
+		}
+		// Demote displaced carriers out of the operator session first, then
+		// move the new operator in — an emptied operator session dies with its
+		// last window, and ensure-before-move recreates it.
+		for _, id := range displaced {
+			if err := roleDemoteFn(ctx, prefix, id); err != nil {
+				return fmt.Errorf("demote prior operator: %w", err)
+			}
+		}
+		if err := roleMoveInFn(ctx, prefix, windowID); err != nil {
+			return fmt.Errorf("move into operator session: %w", err)
 		}
 	} else {
 		if err := roleRunFn(ctx, append(prefix, "set-option", "-wu", "-t", windowID, tmux.RoleOption)); err != nil {
 			return fmt.Errorf("unset %s: %w", tmux.RoleOption, err)
+		}
+		// Demote: a member of the operator session moves out to its
+		// cwd-basename session; a non-member is a plain unset (no-op move).
+		if err := roleDemoteFn(ctx, prefix, windowID); err != nil {
+			return fmt.Errorf("demote from operator session: %w", err)
 		}
 	}
 

@@ -69,6 +69,13 @@ export type ProjectSession = {
    *  Decoration only (FLAIR_STATES in themes.ts) — an ambient CSS-only overlay
    *  with no status semantics. */
   flair?: string;
+  /** Content-conditional operator-home marker, computed backend-side at the
+   *  FetchSessions join: true only for the `_rk-operator` session while every
+   *  window in it carries role "operator". The session and its windows STAY in
+   *  the payload (the pinned operator row's only data source — the window is
+   *  moved, not linked); user-facing session enumerations exclude hidden
+   *  sessions at render. A mixed/stray population keeps it absent. */
+  hidden?: boolean;
   windows: WindowInfo[];
 };
 

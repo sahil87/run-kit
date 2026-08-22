@@ -34,6 +34,31 @@ type ProjectSession struct {
 	// tmux.SetSessionFlair).
 	Flair   string            `json:"flair,omitempty"`
 	Windows []tmux.WindowInfo `json:"windows"`
+	// Hidden is the content-conditional operator-home marker, computed at the
+	// FetchSessions join (post window fan-out): true only for the operator
+	// session (tmux.OperatorSessionName) while it holds ≥1 window and EVERY
+	// window carries role == "operator". The session and its windows STAY in
+	// the payload (the window is moved, not linked, so this session is the
+	// pinned operator row's only data source); user-facing session
+	// enumerations exclude hidden sessions at render. A mixed or stray
+	// population yields false, so no window can ever become invisible.
+	Hidden bool `json:"hidden,omitempty"`
+}
+
+// operatorSessionHidden is the pure content rule behind ProjectSession.Hidden:
+// hidden iff the session is the operator session AND it holds ≥1 window AND
+// every window carries role == "operator". Pure (no I/O) so the truth table is
+// unit-testable without a live server.
+func operatorSessionHidden(name string, windows []tmux.WindowInfo) bool {
+	if name != tmux.OperatorSessionName || len(windows) == 0 {
+		return false
+	}
+	for _, w := range windows {
+		if w.Role != "operator" {
+			return false
+		}
+	}
+	return true
 }
 
 // ActiveWindowProvider supplies the event-tracked active window (`@wid`) for a
@@ -623,7 +648,7 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 			}
 		}
 
-		result[i] = ProjectSession{Name: sd.info.Name, SessionColor: sd.info.Color, SessionID: sd.info.ID, SessionPath: sd.info.Path, Flair: sd.info.Flair, Windows: sd.windows}
+		result[i] = ProjectSession{Name: sd.info.Name, SessionColor: sd.info.Color, SessionID: sd.info.ID, SessionPath: sd.info.Path, Flair: sd.info.Flair, Windows: sd.windows, Hidden: operatorSessionHidden(sd.info.Name, sd.windows)}
 	}
 
 	return result, nil

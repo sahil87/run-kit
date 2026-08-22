@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"rk/internal/tmux"
@@ -470,4 +471,55 @@ func TestResolveChatPane(t *testing.T) {
 			t.Errorf("got (%q, %q, %q), want all empty", provider, ref, paneID)
 		}
 	})
+}
+
+// TestOperatorSessionHidden pins the content-conditional hidden rule: the
+// operator session is hidden only while it holds ≥1 window AND every window
+// carries role == "operator"; a mixed/stray population (any non-operator
+// window, or any other session name) yields false so no window can ever become
+// invisible.
+func TestOperatorSessionHidden(t *testing.T) {
+	op := tmux.WindowInfo{WindowID: "@1", Role: "operator"}
+	plain := tmux.WindowInfo{WindowID: "@2"}
+	tests := []struct {
+		name    string
+		session string
+		windows []tmux.WindowInfo
+		want    bool
+	}{
+		{"all-operator single window is hidden", tmux.OperatorSessionName, []tmux.WindowInfo{op}, true},
+		{"all-operator multi window is hidden", tmux.OperatorSessionName, []tmux.WindowInfo{op, {WindowID: "@3", Role: "operator"}}, true},
+		{"mixed population is visible", tmux.OperatorSessionName, []tmux.WindowInfo{op, plain}, false},
+		{"lone non-operator window is visible", tmux.OperatorSessionName, []tmux.WindowInfo{plain}, false},
+		{"empty operator session is not hidden", tmux.OperatorSessionName, nil, false},
+		{"a non-operator session is never hidden", "work", []tmux.WindowInfo{op}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := operatorSessionHidden(tt.session, tt.windows); got != tt.want {
+				t.Errorf("operatorSessionHidden(%q, %d windows) = %v, want %v", tt.session, len(tt.windows), got, tt.want)
+			}
+		})
+	}
+}
+
+// TestProjectSessionHiddenJSON pins the wire shape: hidden is omitempty —
+// present as true only on a hidden operator session, absent otherwise.
+func TestProjectSessionHiddenJSON(t *testing.T) {
+	hidden := ProjectSession{Name: tmux.OperatorSessionName, Hidden: true, Windows: []tmux.WindowInfo{}}
+	b, err := json.Marshal(hidden)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"hidden":true`) {
+		t.Errorf("hidden session JSON = %s, want hidden:true present", b)
+	}
+	visible := ProjectSession{Name: "work", Windows: []tmux.WindowInfo{}}
+	b2, err := json.Marshal(visible)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b2), "hidden") {
+		t.Errorf("visible session JSON = %s, want hidden omitted", b2)
+	}
 }

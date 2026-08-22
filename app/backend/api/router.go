@@ -81,8 +81,16 @@ type TmuxOps interface {
 	SetWindowOptions(ctx context.Context, windowID, server string, ops []tmux.WindowOptionOp) error
 	// ClearWindowRoleExceptOnServer is the server-scoped @rk_role radio clear:
 	// it unsets the role option on every window of the server except
-	// keepWindowID (see tmux.ClearWindowRoleExcept).
-	ClearWindowRoleExceptOnServer(ctx context.Context, server, keepWindowID string) error
+	// keepWindowID (see tmux.ClearWindowRoleExcept) and returns the cleared
+	// window IDs so the caller can demote displaced carriers.
+	ClearWindowRoleExceptOnServer(ctx context.Context, server, keepWindowID string) ([]string, error)
+	// MoveWindowIntoOperatorSessionOnServer / DemoteWindowFromOperatorSessionOnServer
+	// are the physical promotion halves of the @rk_role contract: role-set moves
+	// the window into the per-server operator session, role-clear moves a member
+	// back out to its cwd-basename session (see tmux.MoveWindowIntoOperatorSession
+	// / tmux.DemoteWindowFromOperatorSession).
+	MoveWindowIntoOperatorSessionOnServer(ctx context.Context, server, windowID string) error
+	DemoteWindowFromOperatorSessionOnServer(ctx context.Context, server, windowID string) error
 	CreateWindowWithOptions(session, name, cwd, server string, ops []tmux.WindowOptionOp) error
 	GetSessionOrder(ctx context.Context, server string) ([]string, error)
 	SetSessionOrder(ctx context.Context, server string, order []string) error
@@ -369,8 +377,14 @@ func (p *prodTmuxOps) UnsetWindowOption(ctx context.Context, windowID, server, o
 func (p *prodTmuxOps) SetWindowOptions(ctx context.Context, windowID, server string, ops []tmux.WindowOptionOp) error {
 	return tmux.SetWindowOptions(ctx, windowID, server, ops)
 }
-func (p *prodTmuxOps) ClearWindowRoleExceptOnServer(ctx context.Context, server, keepWindowID string) error {
+func (p *prodTmuxOps) ClearWindowRoleExceptOnServer(ctx context.Context, server, keepWindowID string) ([]string, error) {
 	return tmux.ClearWindowRoleExceptOnServer(ctx, server, keepWindowID)
+}
+func (p *prodTmuxOps) MoveWindowIntoOperatorSessionOnServer(ctx context.Context, server, windowID string) error {
+	return tmux.MoveWindowIntoOperatorSessionOnServer(ctx, server, windowID)
+}
+func (p *prodTmuxOps) DemoteWindowFromOperatorSessionOnServer(ctx context.Context, server, windowID string) error {
+	return tmux.DemoteWindowFromOperatorSessionOnServer(ctx, server, windowID)
 }
 func (p *prodTmuxOps) CreateWindowWithOptions(session, name, cwd, server string, ops []tmux.WindowOptionOp) error {
 	return tmux.CreateWindowWithOptions(session, name, cwd, server, ops)

@@ -2314,7 +2314,18 @@ function ServerGroupInner(props: ServerGroupProps) {
     });
   }, [sessions, sessionOrder, localOrder]);
 
-  const naturalNames = useMemo(() => orderedSessions.map((s) => s.name), [orderedSessions]);
+  // Hidden operator-home exclusion: sessions marked `hidden` by the backend
+  // (the content-conditional `_rk-operator` marker — every window operator)
+  // are excluded from the SESSIONS groups, roving rows, and reorder name list.
+  // Their window data STAYS in `orderedSessions` (the pinned operator row's
+  // only data source — the window is moved, not linked) and in `dataKeys`
+  // (route resolution / window cycling are unaffected).
+  const visibleSessions = useMemo(
+    () => orderedSessions.filter((s) => !s.hidden),
+    [orderedSessions],
+  );
+
+  const naturalNames = useMemo(() => visibleSessions.map((s) => s.name), [visibleSessions]);
 
   // Operator pinned row (260813-ifya): the one window on this server carrying
   // `role === "operator"` (the `@rk_role` window option) renders ONCE, pinned
@@ -2362,7 +2373,7 @@ function ServerGroupInner(props: ServerGroupProps) {
         });
         sigParts.push(opRowKey);
       }
-      for (const session of orderedSessions) {
+      for (const session of visibleSessions) {
         const sessionRowKey = `${server}:${session.name}`;
         const firstWindowId = session.windows[0]?.windowId ?? "";
         slice.set(sessionRowKey, { kind: "session", server, session: session.name, firstWindowId });
@@ -2395,7 +2406,7 @@ function ServerGroupInner(props: ServerGroupProps) {
       }
     }
     return { rowSlice: slice, rowSignature: sigParts.join("|") };
-  }, [isOpen, orderedSessions, collapsed, server, operatorEntry, currentSessionName]);
+  }, [isOpen, visibleSessions, collapsed, server, operatorEntry, currentSessionName]);
 
   // This group's DATA window keys — every real window the SSE snapshot knows for
   // this server, whether or not its session is expanded and whether or not the
@@ -2827,7 +2838,7 @@ function ServerGroupInner(props: ServerGroupProps) {
             />
           )}
           <div className="pb-1">
-          {sessions.length === 0 ? (
+          {visibleSessions.length === 0 && sessions.length === 0 ? (
             <button
               onClick={() => onCreateSession(server)}
               className="block w-full pl-2 pr-2 py-1 text-left text-xs text-text-secondary hover:text-text-primary hover:bg-bg-card/30 transition-colors"
@@ -2837,7 +2848,7 @@ function ServerGroupInner(props: ServerGroupProps) {
                 : "(no sessions — + new)"}
             </button>
           ) : (
-            orderedSessions.map((session, sessionIdx) => {
+            visibleSessions.map((session, sessionIdx) => {
               // Same derived override as the rowSlice memo above: the current
               // session ignores its collapsed exception while current.
               const isCollapsed =
@@ -2880,7 +2891,7 @@ function ServerGroupInner(props: ServerGroupProps) {
                     isDragSource={sessionDragSource === session.name}
                     orderedNames={naturalNames}
                     tabIndex={rovingKey === sessionRowKey ? 0 : -1}
-                    ariaSetSize={orderedSessions.length}
+                    ariaSetSize={visibleSessions.length}
                     ariaPosInSet={sessionIdx + 1}
                     windowGroupId={windowGroupId}
                     sessionRowKey={sessionRowKey}

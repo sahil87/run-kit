@@ -144,6 +144,14 @@ type mockTmuxOps struct {
 	setWindowOptionsOps      []tmux.WindowOptionOp
 	clearWindowRoleCalled    bool
 	clearWindowRoleKeepID    string
+	clearWindowRoleResult    []string
+
+	moveInOperatorCalled   bool
+	moveInOperatorWindowID string
+	moveInOperatorErr      error
+	demoteOperatorCalled   bool
+	demoteOperatorWindowID string
+	demoteOperatorErr      error
 
 	createWindowWithOptionsCalled  bool
 	createWindowWithOptionsSession string
@@ -450,10 +458,23 @@ func (m *mockTmuxOps) SetWindowOptions(ctx context.Context, windowID, server str
 	m.setWindowOptionsOps = ops
 	return m.err
 }
-func (m *mockTmuxOps) ClearWindowRoleExceptOnServer(ctx context.Context, server, keepWindowID string) error {
+func (m *mockTmuxOps) ClearWindowRoleExceptOnServer(ctx context.Context, server, keepWindowID string) ([]string, error) {
 	m.clearWindowRoleCalled = true
 	m.clearWindowRoleKeepID = keepWindowID
-	return m.err
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.clearWindowRoleResult, nil
+}
+func (m *mockTmuxOps) MoveWindowIntoOperatorSessionOnServer(ctx context.Context, server, windowID string) error {
+	m.moveInOperatorCalled = true
+	m.moveInOperatorWindowID = windowID
+	return m.moveInOperatorErr
+}
+func (m *mockTmuxOps) DemoteWindowFromOperatorSessionOnServer(ctx context.Context, server, windowID string) error {
+	m.demoteOperatorCalled = true
+	m.demoteOperatorWindowID = windowID
+	return m.demoteOperatorErr
 }
 func (m *mockTmuxOps) CreateWindowWithOptions(session, name, cwd, server string, ops []tmux.WindowOptionOp) error {
 	m.createWindowWithOptionsCalled = true

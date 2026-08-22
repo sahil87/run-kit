@@ -1,5 +1,5 @@
 ---
-description: "Sidebar: row anatomy, row identity hover tips, icon system and label zone, the three-tier coarse status rail + cards, row flair overlays, render-performance constraints, keyboard nav + tree ARIA (incl. the stateful ⌘B chord and its Escape return), multi-select + broadcast, collapsible panels, section-visibility rail, host-page zones (health/boards/services), kill controls, scroll-edge fade, operator pinned row, footer."
+description: "Sidebar: row anatomy, row identity hover tips, icon system and label zone, the three-tier coarse status rail + cards, row flair overlays, render-performance constraints, keyboard nav + tree ARIA (incl. the stateful ⌘B chord and its Escape return), multi-select + broadcast, collapsible panels, section-visibility rail, host-page zones (health/boards/services), kill controls, scroll-edge fade, operator pinned row (hidden `_rk-operator` exclusion, move-don't-copy), footer."
 type: memory
 ---
 # run-kit UI — Sidebar
@@ -262,8 +262,9 @@ A window carrying the `@rk_role=operator` window option (the server-scoped opera
 
 The mechanics (`sidebar/index.tsx`, `ServerGroupInner`):
 
-- **Move, don't copy** — the row is the ordinary `WindowRow` component (same styling, status dot, hover icons, flyout, kill, label zone, pin popover) EXCLUDED from its home session's window rows (a `renderedWindows` filter drops the carrier from its session group, and `ariaSetSize` follows the filtered list); the session's displayed window count stays tmux-derived and unchanged.
-- **Carrier resolution** — an `operatorEntry` memo walks `orderedSessions` and returns the first non-ghost window with `role === "operator"` (`null` otherwise ⇒ nothing renders). Ghost rows are never carriers; the backend's server-scoped radio (at most one carrier per server) makes "first wins" a defensive tie-break, not the rule.
+- **Hidden operator-home exclusion** — a `visibleSessions` memo (`orderedSessions.filter((s) => !s.hidden)`) drops sessions the backend marks `hidden` (the content-conditional `_rk-operator` marker — every window operator; see [tmux-sessions](/run-kit/tmux-sessions.md) § Operator Session) from the SESSIONS groups, roving rows, and the reorder name list (`naturalNames`). The hidden session's window data STAYS in `orderedSessions` (the pinned operator row's only data source — the window is moved, not linked, into `_rk-operator`) and in `dataKeys`, so route resolution and window cycling are unaffected.
+- **Move, don't copy** — the row is the ordinary `WindowRow` component (same styling, status dot, hover icons, flyout, kill, label zone, pin popover) EXCLUDED from its home session's window rows (a `renderedWindows` filter drops the carrier from its session group, and `ariaSetSize` follows the filtered list); the session's displayed window count stays tmux-derived and unchanged. The skip is retained even post-promotion: it still guards the duplicate-row case whenever the operator's containing session IS visible — a mixed-content `_rk-operator` (a stray/non-operator window flips `hidden` off) or a legacy cosmetic-era operator sitting in a work session.
+- **Carrier resolution** — an `operatorEntry` memo walks the UNFILTERED `orderedSessions` and returns the first non-ghost window with `role === "operator"` (`null` otherwise ⇒ nothing renders) — so the row resolves its carrier even when that carrier's home is a hidden session. Ghost rows are never carriers; the backend's server-scoped radio (at most one carrier per server) makes "first wins" a defensive tie-break, not the rule.
 - **Not draggable** — `draggable={false}`; the pinned row does not participate in window drag-reorder (§ Window drag-and-drop reorder).
 - **Roving tabindex** — the pinned row still joins the tree's keyboard navigation; its key LEADS the group's visible-row slice regardless of its home session's collapse state, since it is painted above the session groups (§ Keyboard Navigation & Tree ARIA).
 - **Collapsed group** — the row renders inside the group's `{isOpen && …}` body, so a collapsed server group hides it like every other row; no floating orphan row ever renders.
@@ -699,6 +700,12 @@ The create-server and kill-server confirm dialogs render **exactly once**, mount
 **Why**: The operator window needs findability (it is the control plane for a server's worker windows), not ornamentation; the user explicitly declined every chrome variant, and an unchanged sidebar in the unmarked state keeps the feature invisible until used. Move-don't-copy keeps each window's row count and group membership truthful.
 **Rejected**: Framed slot / badge / divider / left-edge accent mockups (explicit user rejection); rendering the row in both positions (a copy lies about session membership and row counts); a flyout action row as the manual marking path (dropped with the chrome — the palette pair is the keyboard-first fallback).
 *Introduced by*: 260813-ifya-operator-role-pinned-row
+
+### Hidden sessions are excluded at render, with window data kept
+**Decision**: The sidebar filters backend-marked `hidden` sessions out of the SESSIONS groups, roving rows, and reorder name list via a `visibleSessions` memo, while `operatorEntry` keeps walking the unfiltered `orderedSessions` and window data stays in `dataKeys`.
+**Why**: The promoted operator window's only membership is `_rk-operator`, so filtering at the data layer would erase the pinned row's source; the content rule (hidden only while every window is operator) is backend-computed at the FetchSessions join, and render-time exclusion keeps terminal routes and window cycling on the full payload.
+**Rejected**: Frontend name-matching `_rk-operator` (duplicates the backend's content rule and would hide the mixed/stray case the rule exists to surface); dropping the move-don't-copy skip as dead after promotion (it still guards the visible mixed-`_rk-operator` and legacy cosmetic-era operator cases against duplicate rows).
+*Introduced by*: 260822-skcr-operator-session-physical-promotion
 
 ### Scroll-edge fade is a conditional mask, not a permanent veil
 **Decision**: The sidebar scroll-edge fade is a shared hook (`useScrollEdgeFade` — scrollable-and-not-at-end detection) plus a `mask-image` utility class (`rk-scroll-fade-bottom`) applied conditionally to the two clipping viewports (sessions tree, SERVER panel resizable area).

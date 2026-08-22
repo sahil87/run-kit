@@ -170,6 +170,10 @@ export type SidebarProps = {
    *  `onForkWindow`): when omitted — e.g. the board-route sidebar — the row
    *  flyout's Fix tab name affordance is hidden. */
   onFixTabName?: (server: string, windowId: string) => Promise<void>;
+  /** Open the operator compose dialog from the pinned operator row
+   *  (260822-wyn3). Optional (mirrors `onForkWindow`): when omitted — e.g. the
+   *  board-route sidebar — the pinned row renders no compose icon. */
+  onOperatorCompose?: (server: string) => void;
   onCreateServer: () => void;
   onKillServer: (name: string) => void;
   /** Optional waiting-badge click (260714-r7rq): navigate to the next waiting
@@ -194,6 +198,7 @@ export function Sidebar({
   onSpawnAgent,
   onForkWindow,
   onFixTabName,
+  onOperatorCompose,
   onCreateServer,
   onKillServer,
   onWaitingBadgeClick,
@@ -1790,6 +1795,7 @@ export function Sidebar({
                 onWindowFlairChange={handleWindowFlairChange}
                 onForkWindow={onForkWindow}
                 onFixTabName={onFixTabName}
+                onOperatorCompose={onOperatorCompose}
                 onWindowDragStart={handleDragStart}
                 onWindowDragOver={handleDragOver}
                 onWindowDrop={handleDrop}
@@ -2194,6 +2200,9 @@ type ServerGroupProps = {
    *  Optional (the board-route sidebar passes none) — see
    *  `SidebarProps.onFixTabName`. */
   onFixTabName?: (server: string, windowId: string) => Promise<void>;
+  /** Forwarded ONLY to the pinned operator row's `WindowRow` → its trailing
+   *  compose icon (260822-wyn3). Optional — see `SidebarProps.onOperatorCompose`. */
+  onOperatorCompose?: (server: string) => void;
   onWindowDragStart: (e: React.DragEvent, server: string, session: string, index: number, windowId: string, name: string) => void;
   onWindowDragOver: (e: React.DragEvent, server: string, session: string, index: number) => void;
   onWindowDrop: (e: React.DragEvent, server: string, session: string, index: number) => void;
@@ -2271,6 +2280,7 @@ function ServerGroupInner(props: ServerGroupProps) {
     onWindowFlairChange,
     onForkWindow,
     onFixTabName,
+    onOperatorCompose,
     onWindowDragStart,
     onWindowDragOver,
     onWindowDrop,
@@ -2852,6 +2862,7 @@ function ServerGroupInner(props: ServerGroupProps) {
               onFlairChange={onWindowFlairChange}
               onForkWindow={onForkWindow}
               onFixTabName={onFixTabName}
+              onOperatorCompose={onOperatorCompose}
               hasOperator={hasOperator}
             />
           )}

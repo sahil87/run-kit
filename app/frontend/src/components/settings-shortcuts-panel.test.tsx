@@ -538,11 +538,11 @@ describe("SettingsShortcutsPanel CUSTOM section (260730-hbyh)", () => {
     localStorage.setItem("runkit-macros", JSON.stringify([DISCUSS]));
     renderWithTargets();
     fireEvent.click(screen.getByTitle("unbound — click to bind"));
-    fireEvent.keyDown(window, { code: "KeyL", key: "L", shiftKey: true, ctrlKey: true });
+    fireEvent.keyDown(window, { code: "ArrowDown", key: "ArrowDown", shiftKey: true, ctrlKey: true });
     // Steal warning names the victim; the builtin is now unbound.
-    expect(screen.getByText(/took Shift\+Ctrl\+L from “Next tab”/)).toBeInTheDocument();
+    expect(screen.getByText(/took Shift\+Ctrl\+ArrowDown from “Next tab”/)).toBeInTheDocument();
     expect(JSON.parse(localStorage.getItem(KEYBINDINGS_STORAGE_KEY) ?? "{}")).toEqual({
-      "macro:discuss": { code: "KeyL", tier: "shifted" },
+      "macro:discuss": { code: "ArrowDown", tier: "shifted" },
       "window-next": null,
     });
   });

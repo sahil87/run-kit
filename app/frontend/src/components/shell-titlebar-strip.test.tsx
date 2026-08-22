@@ -1172,9 +1172,9 @@ describe("ShellTitlebarStrip host-menu-open chord + digit select (260820-nv0o)",
   // The shifted tier matches Shift + (Meta OR Ctrl) on every platform, so the
   // Ctrl spelling works regardless of the jsdom-detected host platform.
   const chord = () =>
-    fireEvent.keyDown(document, { key: "M", code: "KeyM", shiftKey: true, ctrlKey: true });
+    fireEvent.keyDown(document, { key: "H", code: "KeyH", shiftKey: true, ctrlKey: true });
 
-  it("⇧⌘M opens the closed menu and focus lands on the active row", async () => {
+  it("⇧⌘H opens the closed menu and focus lands on the active row", async () => {
     await renderInteractive();
     chord();
     expect(screen.getByRole("menu")).toBeInTheDocument();
@@ -1184,7 +1184,7 @@ describe("ShellTitlebarStrip host-menu-open chord + digit select (260820-nv0o)",
     });
   });
 
-  it("⇧⌘M on an open menu closes it and returns focus to the trigger (toggle)", async () => {
+  it("⇧⌘H on an open menu closes it and returns focus to the trigger (toggle)", async () => {
     await renderInteractive();
     const trigger = screen.getByRole("button", { name: "Switch host" });
     openMenu();
@@ -1211,7 +1211,7 @@ describe("ShellTitlebarStrip host-menu-open chord + digit select (260820-nv0o)",
     const input = document.createElement("input");
     document.body.appendChild(input);
     input.focus();
-    fireEvent.keyDown(input, { key: "M", code: "KeyM", shiftKey: true, ctrlKey: true });
+    fireEvent.keyDown(input, { key: "H", code: "KeyH", shiftKey: true, ctrlKey: true });
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
     input.remove();
   });

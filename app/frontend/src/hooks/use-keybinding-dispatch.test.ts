@@ -24,14 +24,14 @@ describe("useKeybindingDispatch", () => {
   it("runs the handler and prevents default for a matched enabled binding", () => {
     const next = vi.fn();
     renderHook(() => useKeybindingDispatch({ "window-next": next }));
-    const event = press({ code: "KeyL", shiftKey: true, ctrlKey: true });
+    const event = press({ code: "ArrowDown", shiftKey: true, ctrlKey: true });
     expect(next).toHaveBeenCalledTimes(1);
     expect(event.defaultPrevented).toBe(true);
   });
 
   it("falls through (no preventDefault) when the matched binding has no handler", () => {
     renderHook(() => useKeybindingDispatch({ "window-next": undefined }));
-    const event = press({ code: "KeyL", shiftKey: true, ctrlKey: true });
+    const event = press({ code: "ArrowDown", shiftKey: true, ctrlKey: true });
     expect(event.defaultPrevented).toBe(false);
   });
 
@@ -39,7 +39,7 @@ describe("useKeybindingDispatch", () => {
     const next = vi.fn();
     renderHook(() => useKeybindingDispatch({ "window-next": next }));
     const claimed = new KeyboardEvent("keydown", {
-      code: "KeyL",
+      code: "ArrowDown",
       shiftKey: true,
       ctrlKey: true,
       bubbles: true,
@@ -55,7 +55,7 @@ describe("useKeybindingDispatch", () => {
     renderHook(() => useKeybindingDispatch({ "window-next": next }));
     const input = document.createElement("input");
     document.body.appendChild(input);
-    press({ code: "KeyL", shiftKey: true, ctrlKey: true }, input);
+    press({ code: "ArrowDown", shiftKey: true, ctrlKey: true }, input);
     expect(next).not.toHaveBeenCalled();
 
     const xterm = document.createElement("div");
@@ -63,7 +63,7 @@ describe("useKeybindingDispatch", () => {
     const helper = document.createElement("textarea");
     xterm.appendChild(helper);
     document.body.appendChild(xterm);
-    press({ code: "KeyL", shiftKey: true, ctrlKey: true }, helper);
+    press({ code: "ArrowDown", shiftKey: true, ctrlKey: true }, helper);
     expect(next).toHaveBeenCalledTimes(1);
   });
 
@@ -117,7 +117,7 @@ describe("useKeybindingDispatch", () => {
     );
     const next = vi.fn();
     renderHook(() => useKeybindingDispatch({ "window-next": next }));
-    press({ code: "KeyL", shiftKey: true, ctrlKey: true });
+    press({ code: "ArrowDown", shiftKey: true, ctrlKey: true });
     expect(next).not.toHaveBeenCalled();
     press({ code: "KeyU", shiftKey: true, ctrlKey: true });
     expect(next).toHaveBeenCalledTimes(1);
@@ -135,7 +135,7 @@ describe("useKeybindingDispatch", () => {
     const next = vi.fn();
     const { unmount } = renderHook(() => useKeybindingDispatch({ "window-next": next }));
     unmount();
-    press({ code: "KeyL", shiftKey: true, ctrlKey: true });
+    press({ code: "ArrowDown", shiftKey: true, ctrlKey: true });
     expect(next).not.toHaveBeenCalled();
   });
 

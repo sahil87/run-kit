@@ -186,7 +186,7 @@ export function ShellTitlebarStrip() {
   const canSetUrl = canSetShellHostUrl();
   const affordanceCount = (canReorder ? 1 : 0) + (canRemove ? 1 : 0) + (canRename ? 1 : 0);
 
-  // `host-menu-open` chord (⇧⌘M / ⇧Ctrl+M) — component-local listener, the
+  // `host-menu-open` chord (⇧⌘H / ⇧Ctrl+H) — component-local listener, the
   // `useSidebarKeyboardToggle` pattern: the strip is the only surface that can
   // act, so its mount IS the handler-presence gate (in a browser the strip
   // never mounts and the chord falls through everywhere). Binding + live state
@@ -535,7 +535,7 @@ export function ShellTitlebarStrip() {
         return;
       }
       // Plain digits select the Nth host row — rendered-list order IS the
-      // ⌥⌘1–9/Alt+1–9 accelerator order, so `⇧⌘M, 3` mirrors ⌥⌘3. The
+      // ⌥⌘1–9/Alt+1–9 accelerator order, so `⇧⌘H, 3` mirrors ⌥⌘3. The
       // no-modifier guard keeps the shell's own accelerators and every chord
       // tier untouched; a digit past the live committed count releases the
       // key (the arrow guard's hostCountRef read, same staleness reasoning).

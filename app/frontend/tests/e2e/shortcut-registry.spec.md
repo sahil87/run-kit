@@ -62,16 +62,35 @@ roving-arrow tab switching, and the `Settings: Appearance` palette action.
 
 ## Tests
 
-### `Shift+Ctrl+L / Shift+Ctrl+H cycle the current session's windows with wraparound`
+### `Shift+Ctrl+Down / Shift+Ctrl+Up step the flattened all-sessions window list with wraparound`
 
-**What it proves:** the `window-next`/`window-prev` starter bindings cycle the
-current session's windows in sidebar order, wrapping at both ends.
+**What it proves:** the `window-next`/`window-prev` starter bindings step one
+row over the flattened all-sessions window list in sidebar order, wrapping at
+both ends.
 
 **Steps:**
 1. Mock the backend; open `/default/1`.
-2. Press Shift+Ctrl+L three times → URL walks `/default/2`, `/default/3`,
+2. Press Shift+Ctrl+Down three times → URL walks `/default/2`, `/default/3`,
    then wraps to `/default/1`.
-3. Press Shift+Ctrl+H → URL wraps backward to `/default/3`.
+3. Press Shift+Ctrl+Up → URL wraps backward to `/default/3`.
+
+### `the cycle crosses a session boundary and Shift+Ctrl+Right jumps the adjacent session's active window`
+
+**What it proves:** the flattened window step crosses a session boundary onto
+the adjacent session's edge window, and the `session-next`/`session-prev`
+bindings hop the adjacent session in sidebar order (wraparound), landing on
+its tmux-active window.
+
+**Steps:**
+1. Mock a two-session backend (dev @1–@3, ops @4–@5 with @4 active); open
+   `/default/1`.
+2. Press Shift+Ctrl+Down three times → `/default/2`, `/default/3`, then
+   crossing the boundary onto `/default/4`.
+3. Press Shift+Ctrl+Up → back across the boundary onto dev's last window
+   `/default/3`.
+4. Press Shift+Ctrl+Right → ops's active window `/default/4`.
+5. Press Shift+Ctrl+Right again → wraps to dev's active window `/default/1`.
+6. Press Shift+Ctrl+Left → wraps back to ops's active window `/default/4`.
 
 ### `Shift+Ctrl+[ / Shift+Ctrl+] retrace history (back / forward)`
 
@@ -79,7 +98,7 @@ current session's windows in sidebar order, wrapping at both ends.
 a window switch pushes an entry that the chords retrace.
 
 **Steps:**
-1. Open `/default/1`; press Shift+Ctrl+L → `/default/2` (pushes history).
+1. Open `/default/1`; press Shift+Ctrl+Down → `/default/2` (pushes history).
 2. Press Shift+Ctrl+[ → back to `/default/1`.
 3. Press Shift+Ctrl+] → forward to `/default/2`.
 
@@ -150,7 +169,7 @@ chord fires; the vacated default no longer does).
 2. Click the combo button for "Next tab"; press Shift+Ctrl+U.
 3. Assert localStorage holds `{"window-next":{"code":"KeyU","tier":"shifted"}}`.
 4. Close the dialog (Escape).
-5. Press Shift+Ctrl+L (the vacated default) → URL stays `/default/1`.
+5. Press Shift+Ctrl+Down (the vacated default) → URL stays `/default/1`.
 6. Press Shift+Ctrl+U → URL navigates to `/default/2`.
 
 ### `settings-open lands on General; the shortcuts chord switches tabs without closing; re-fire is a no-op`
@@ -204,12 +223,12 @@ combo as the `shortcut` hint, formatted for the host platform (non-mac →
 **What it proves:** on a macOS host (spoofed platform) the `go-back`/
 `go-forward` defaults demote to the unshifted ⌘ tier — ⌘[/⌘] navigate
 history while the terminal owns focus (the mac seam refusal bubbles the
-chord), window cycling stays shifted (H/L unchanged), and the old
-⇧CmdOrCtrl+[ combo no longer dispatches.
+chord), window cycling demotes with them (⌘↓ steps the flattened list), and
+the old ⇧CmdOrCtrl+[ combo no longer dispatches.
 
 **Steps:**
 1. Spoof the mac platform; mock the backend; open `/default/1`.
-2. Press Shift+Ctrl+L → `/default/2` (shifted cycling unchanged on mac).
+2. Press Meta+Down → `/default/2` (the demoted ⌘-tier window cycle).
 3. Press Meta+[ → back to `/default/1`; Meta+] → forward to `/default/2`.
 4. Press Shift+Ctrl+[ ; wait 300ms → URL unchanged (`/default/2`).
 
@@ -231,8 +250,8 @@ the shifted layer.
    260819-v6y4), and no "address bar" cell exists — the old mac-browser ⌘L
    claim is removed.
 4. Click the ⇧⌘ option → it selects (`aria-pressed="true"`) and the shifted
-   layer renders: the "address" keycap disappears (the shifted KeyL reads
-   "next tab"), proving the layer swap.
+   layer renders: the "address" keycap disappears (shifted KeyL is
+   deliberately unbound), proving the layer swap.
 5. Press Meta+/ again → the dialog closes.
 
 ### `⌘N and ⇧⌘N stay inert in a mac browser host (create-session palette-only)`

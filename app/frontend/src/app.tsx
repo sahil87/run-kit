@@ -131,6 +131,7 @@ import { StatusBar } from "@/components/status-bar";
 import { ComposeStrip } from "@/components/compose-strip";
 import { focusComposeStrip, runComposeToggleChord } from "@/lib/compose-strip-events";
 import { tileChordHandler } from "@/lib/tile-chord";
+import { cycleWindowTarget, sessionJumpTarget } from "@/lib/window-cycle";
 import { registerWindowFocusRestorer } from "@/lib/sidebar-events";
 import {
   armGuard,
@@ -3483,26 +3484,43 @@ function AppShell() {
   const { actions: pushActions } = usePushSubscription();
 
   // `Tab: Previous` / `Tab: Next` (R8) — palette parity for the
-  // `window-prev`/`window-next` chords: the SAME modulo cycle over the
-  // current session's windows in sidebar order with wraparound, via the rich
-  // `navigateToWindow` path (tmux align + transition + writeback
-  // suppression). The ids double as the registry actionIds, so
-  // `withShortcutHints` decorates ⇧⌘H/⇧⌘L and the chord handlers resolve
-  // through `fromPalette` — chord and palette can never drift. Omitted when
-  // no window is current, so the gating gates the chord for free.
+  // `window-prev`/`window-next` chords: a one-row step over the FLATTENED
+  // all-sessions window list in sidebar order (wraparound at the ends, so a
+  // session boundary lands on the adjacent session's edge window), via the
+  // rich `navigateToWindow` path (tmux align + transition + writeback
+  // suppression). Target resolution lives in lib/window-cycle.ts. The ids
+  // double as the registry actionIds, so `withShortcutHints` decorates the
+  // arrow combos and the chord handlers resolve through `fromPalette` —
+  // chord and palette can never drift. Omitted when no window is current,
+  // so the gating gates the chord for free.
   const windowCycleActions: PaletteAction[] = useMemo(() => {
-    const windows = currentSession?.windows ?? [];
-    if (windowParam == null || windows.length === 0) return [];
+    if (windowParam == null) return [];
     const cycleWindow = (delta: -1 | 1) => () => {
-      const idx = windows.findIndex((w) => w.windowId === windowParam);
-      if (idx < 0) return;
-      navigateToWindow(windows[(idx + delta + windows.length) % windows.length].windowId);
+      const target = cycleWindowTarget(sessions, windowParam, delta);
+      if (target) navigateToWindow(target);
     };
     return [
       { id: "window-prev", label: "Tab: Previous", onSelect: cycleWindow(-1) },
       { id: "window-next", label: "Tab: Next", onSelect: cycleWindow(1) },
     ];
-  }, [currentSession, windowParam, navigateToWindow]);
+  }, [sessions, windowParam, navigateToWindow]);
+
+  // `Session: Previous` / `Session: Next` — palette parity for the
+  // `session-prev`/`session-next` chords: jump to the adjacent session in
+  // sidebar order (wraparound), landing on its tmux-active window (the
+  // no-active-window fallback is lib/window-cycle.ts's concern). Same id =
+  // actionId contract and same no-current-window gating as the tab pair.
+  const sessionJumpActions: PaletteAction[] = useMemo(() => {
+    if (windowParam == null) return [];
+    const jumpSession = (delta: -1 | 1) => () => {
+      const target = sessionJumpTarget(sessions, windowParam, delta);
+      if (target) navigateToWindow(target);
+    };
+    return [
+      { id: "session-prev", label: "Session: Previous", onSelect: jumpSession(-1) },
+      { id: "session-next", label: "Session: Next", onSelect: jumpSession(1) },
+    ];
+  }, [sessions, windowParam, navigateToWindow]);
 
   // AppShell's ROUTE-SCOPED palette list (260811-239r): the global groups
   // (nav, terminal-font, refresh/help/shortcuts/settings, update/check/
@@ -3517,11 +3535,11 @@ function AppShell() {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...sessionActions, ...sessionsScopeActions, ...windowActions, ...windowCycleActions, ...boardActions, ...selectionActions, ...viewActions, ...openActions, ...themeActions, ...configActions, ...statusRefreshActions, ...serverActions, ...shellServerActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions, ...macroPaletteActions],
+        [...sessionActions, ...sessionsScopeActions, ...windowActions, ...windowCycleActions, ...sessionJumpActions, ...boardActions, ...selectionActions, ...viewActions, ...openActions, ...themeActions, ...configActions, ...statusRefreshActions, ...serverActions, ...shellServerActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions, ...macroPaletteActions],
         bindingByAction,
         bindingHost.platform,
       ),
-    [sessionActions, sessionsScopeActions, windowActions, windowCycleActions, boardActions, selectionActions, viewActions, openActions, themeActions, configActions, statusRefreshActions, serverActions, shellServerActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions, macroPaletteActions, bindingByAction, bindingHost],
+    [sessionActions, sessionsScopeActions, windowActions, windowCycleActions, sessionJumpActions, boardActions, selectionActions, viewActions, openActions, themeActions, configActions, statusRefreshActions, serverActions, shellServerActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions, macroPaletteActions, bindingByAction, bindingHost],
   );
   // Publish this route's (already shortcut-decorated) list into the
   // palette-actions slot — the single layout-mounted CommandPalette renders
@@ -3560,9 +3578,12 @@ function AppShell() {
       bindingByAction.get(id)?.webOnly && focusedTileKind !== "web"
         ? undefined
         : fromPalette(id);
-    // `window-prev`/`window-next` resolve through their palette bodies — the
-    // `Tab: Previous` / `Tab: Next` entries own the modulo cycle over
-    // the current session's sidebar order (see `windowCycleActions`).
+    // `window-prev`/`window-next` and `session-prev`/`session-next` resolve
+    // through their palette bodies — the `Tab: Previous` / `Tab: Next` /
+    // `Session: Previous` / `Session: Next` entries own the flattened
+    // cross-session step and the adjacent-session hop (see
+    // `windowCycleActions`/`sessionJumpActions`; target resolution lives in
+    // lib/window-cycle.ts).
     // Macro chords (260730-hbyh): palette targets reuse the palette body via
     // the same `fromPalette` lookup (an absent action → no handler → the
     // chord falls through untouched); riff targets are session-gated and run
@@ -3612,6 +3633,8 @@ function AppShell() {
       "go-forward": fromPalette("go-forward"),
       "window-prev": fromPalette("window-prev"),
       "window-next": fromPalette("window-next"),
+      "session-prev": fromPalette("session-prev"),
+      "session-next": fromPalette("session-next"),
       "shortcuts-overlay": fromPalette("shortcuts-overlay"),
       // ⌘I (mac) / ⇧Ctrl+E compose (R6) — stateful on the strip's live focus
       // (the `compose-strip-events` module store). The three-arm body (off →

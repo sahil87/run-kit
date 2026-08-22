@@ -68,12 +68,14 @@ describe("DEFAULT_BINDINGS integrity", () => {
       "open-last-used": "KeyO",
       "split-horizontal": "Backslash",
       "split-vertical": "Minus",
-      "window-prev": "KeyH",
-      "window-next": "KeyL",
+      "window-prev": "ArrowUp",
+      "window-next": "ArrowDown",
+      "session-prev": "ArrowLeft",
+      "session-next": "ArrowRight",
       "go-back": "BracketLeft",
       "go-forward": "BracketRight",
       "agent-next-waiting": "KeyA",
-      "host-menu-open": "KeyM",
+      "host-menu-open": "KeyH",
       "shortcuts-overlay": "Slash",
       "settings-open": "Comma",
       "sidebar-toggle": "KeyB",
@@ -493,14 +495,14 @@ describe("DEFAULT_BINDINGS integrity", () => {
     }
   });
 
-  it("host-menu-open: ⇧⌘M/⇧Ctrl+M — shifted KeyM everywhere, global, no mac refinement", () => {
+  it("host-menu-open: ⇧⌘H/⇧Ctrl+H — shifted KeyH everywhere, global, no mac refinement", () => {
     const def = DEFAULT_BINDINGS.find((b) => b.actionId === "host-menu-open");
     // Full-row equality: the no-refinement shape is a do-not-move constraint —
-    // ⌘M is the mac shell's minimize accelerator and the mac-browser system
-    // minimize claim, so the chord must stay on the shifted tier on mac.
+    // ⌘H is the mac shell's hide accelerator and the mac-browser system
+    // hide claim, so the chord must stay on the shifted tier on mac.
     expect(def).toEqual({
       actionId: "host-menu-open",
-      code: "KeyM",
+      code: "KeyH",
       tier: "shifted",
       scope: "global",
       kind: "builtin",
@@ -508,16 +510,156 @@ describe("DEFAULT_BINDINGS integrity", () => {
       description: "open the hosts menu",
       mapLabel: "hosts",
     });
-    // Shifted KeyM carries no claim in any host, so the binding resolves
+    // Shifted KeyH carries no claim in any host, so the binding resolves
     // enabled everywhere (the handler-presence gate — the strip's shell-only
     // mount — is what keeps the chord inert in browsers, not a reservation).
     for (const host of ALL_HOSTS) {
       expect(byId(resolved(host), "host-menu-open")).toMatchObject({
-        code: "KeyM",
+        code: "KeyH",
         tier: "shifted",
         enabled: true,
         isDefault: true,
       });
+    }
+  });
+
+  it("window-prev/window-next: ⇧Ctrl+↑/↓ base with a ⌘↑/⌘↓ mac demotion in BOTH mac hosts", () => {
+    const prev = DEFAULT_BINDINGS.find((b) => b.actionId === "window-prev");
+    const next = DEFAULT_BINDINGS.find((b) => b.actionId === "window-next");
+    // Full-row equality: the macTier demotion with NO macShellOnly is the
+    // do-not-move shape — mac-browser ⌘↑/⌘↓ is the page-interceptable
+    // scroll-to-top/bottom class, so no claim row and no shell gate.
+    expect(prev).toEqual({
+      actionId: "window-prev",
+      code: "ArrowUp",
+      tier: "shifted",
+      macTier: "cmd",
+      scope: "global",
+      kind: "builtin",
+      label: "Previous tab",
+      mapLabel: "prev tab",
+    });
+    expect(next).toEqual({
+      actionId: "window-next",
+      code: "ArrowDown",
+      tier: "shifted",
+      macTier: "cmd",
+      scope: "global",
+      kind: "builtin",
+      label: "Next tab",
+      mapLabel: "next tab",
+    });
+    for (const host of [SHELL_MAC, BROWSER_MAC]) {
+      expect(byId(resolved(host), "window-prev")).toMatchObject({
+        code: "ArrowUp",
+        tier: "cmd",
+        enabled: true,
+        isDefault: true,
+      });
+      expect(byId(resolved(host), "window-next")).toMatchObject({
+        code: "ArrowDown",
+        tier: "cmd",
+        enabled: true,
+        isDefault: true,
+      });
+    }
+    for (const host of [SHELL_OTHER, BROWSER_OTHER]) {
+      expect(byId(resolved(host), "window-prev")).toMatchObject({
+        code: "ArrowUp",
+        tier: "shifted",
+        enabled: true,
+        isDefault: true,
+      });
+      expect(byId(resolved(host), "window-next")).toMatchObject({
+        code: "ArrowDown",
+        tier: "shifted",
+        enabled: true,
+        isDefault: true,
+      });
+    }
+  });
+
+  it("session-prev/session-next: ⇧Ctrl+←/→ base, ⇧⌘↑/⇧⌘↓ on mac via macCode-stays-shifted", () => {
+    const prev = DEFAULT_BINDINGS.find((b) => b.actionId === "session-prev");
+    const next = DEFAULT_BINDINGS.find((b) => b.actionId === "session-next");
+    // macCode refines the code only — the tier STAYS shifted on mac so the
+    // pair is tier-disjoint from the window pair's ⌘↑/⌘↓ on the same codes
+    // (the split-pair precedent), keeping findConflicts clean.
+    expect(prev).toEqual({
+      actionId: "session-prev",
+      code: "ArrowLeft",
+      tier: "shifted",
+      macCode: "ArrowUp",
+      scope: "global",
+      kind: "builtin",
+      label: "Previous session",
+      description: "jump to the adjacent session's active window",
+      mapLabel: "prev session",
+    });
+    expect(next).toEqual({
+      actionId: "session-next",
+      code: "ArrowRight",
+      tier: "shifted",
+      macCode: "ArrowDown",
+      scope: "global",
+      kind: "builtin",
+      label: "Next session",
+      description: "jump to the adjacent session's active window",
+      mapLabel: "next session",
+    });
+    for (const host of [SHELL_MAC, BROWSER_MAC]) {
+      expect(byId(resolved(host), "session-prev")).toMatchObject({
+        code: "ArrowUp",
+        tier: "shifted",
+        enabled: true,
+        isDefault: true,
+      });
+      expect(byId(resolved(host), "session-next")).toMatchObject({
+        code: "ArrowDown",
+        tier: "shifted",
+        enabled: true,
+        isDefault: true,
+      });
+      // ⇧⌘↑ hits ONLY session-prev; ⌘↑ hits ONLY window-prev (tier-disjoint).
+      expect(
+        findMatches(chord({ code: "ArrowUp", metaKey: true, shiftKey: true }), resolved(host)).map(
+          (b) => b.actionId,
+        ),
+      ).toEqual(["session-prev"]);
+      expect(
+        findMatches(chord({ code: "ArrowUp", metaKey: true }), resolved(host)).map(
+          (b) => b.actionId,
+        ),
+      ).toEqual(["window-prev"]);
+    }
+    for (const host of [SHELL_OTHER, BROWSER_OTHER]) {
+      expect(byId(resolved(host), "session-prev")).toMatchObject({
+        code: "ArrowLeft",
+        tier: "shifted",
+        enabled: true,
+        isDefault: true,
+      });
+      expect(byId(resolved(host), "session-next")).toMatchObject({
+        code: "ArrowRight",
+        tier: "shifted",
+        enabled: true,
+        isDefault: true,
+      });
+      expect(
+        findMatches(chord({ code: "ArrowLeft", ctrlKey: true, shiftKey: true }), resolved(host)).map(
+          (b) => b.actionId,
+        ),
+      ).toEqual(["session-prev"]);
+    }
+  });
+
+  it("shifted KeyL and KeyM are unbound on every host after the moves", () => {
+    for (const host of ALL_HOSTS) {
+      const bindings = resolved(host);
+      expect(findMatches(chord({ code: "KeyL", shiftKey: true, ctrlKey: true }), bindings)).toEqual([]);
+      expect(findMatches(chord({ code: "KeyL", shiftKey: true, metaKey: true }), bindings)).toEqual([]);
+      expect(findMatches(chord({ code: "KeyM", shiftKey: true, ctrlKey: true }), bindings)).toEqual([]);
+      expect(findMatches(chord({ code: "KeyM", shiftKey: true, metaKey: true }), bindings)).toEqual([]);
     }
   });
 
@@ -562,7 +704,8 @@ describe("palette parity invariant", () => {
   //   focus-hop      ⇄ tile-focus-tty / tile-focus-code
   //   view-cycle     ⇄ the View: <lens> destinations (view-tty / view-web /
   //                    view-code — the `buildViewActions` id shape)
-  // window-prev / window-next resolve to "Tab: Previous" / "Tab: Next"
+  // window-prev / window-next resolve to "Tab: Previous" / "Tab: Next",
+  // session-prev / session-next to "Session: Previous" / "Session: Next",
   // and sidebar-toggle to "Sidebar: Toggle" (ids = actionIds, so the chord
   // hints attach) + sidebar-focus ("Sidebar: Focus") — all added with the
   // palette gap-fill phase; the map names them ahead of their runtime rows.
@@ -578,6 +721,8 @@ describe("palette parity invariant", () => {
     "split-vertical": ["split-vertical"], // Window: Split Vertical
     "window-prev": ["window-prev"],
     "window-next": ["window-next"],
+    "session-prev": ["session-prev"],
+    "session-next": ["session-next"],
     "go-back": ["go-back"], // Go: Back
     "go-forward": ["go-forward"], // Go: Forward
     "agent-next-waiting": ["agent-next-waiting"], // Agent: Next waiting
@@ -658,13 +803,13 @@ describe("matchesCombo (tier modifier rules)", () => {
 
 describe("findMatches (single-chord resolution)", () => {
   it("returns the enabled binding for a matching chord", () => {
-    const matches = findMatches(chord({ code: "KeyL", shiftKey: true, ctrlKey: true }), resolved());
+    const matches = findMatches(chord({ code: "ArrowDown", shiftKey: true, ctrlKey: true }), resolved());
     expect(matches.map((b) => b.actionId)).toEqual(["window-next"]);
   });
 
   it("skips disabled bindings", () => {
     const bindings = resolved(SHELL_OTHER, { "window-next": null });
-    expect(findMatches(chord({ code: "KeyL", shiftKey: true, ctrlKey: true }), bindings)).toEqual([]);
+    expect(findMatches(chord({ code: "ArrowDown", shiftKey: true, ctrlKey: true }), bindings)).toEqual([]);
   });
 });
 
@@ -676,7 +821,7 @@ describe("resolveBindings", () => {
     const next = byId(bindings, "window-next");
     expect(next).toMatchObject({ code: "KeyU", tier: "shifted", enabled: true, isDefault: false });
     // The default combo no longer matches anything.
-    expect(findMatches(chord({ code: "KeyL", shiftKey: true, ctrlKey: true }), bindings)).toEqual([]);
+    expect(findMatches(chord({ code: "ArrowDown", shiftKey: true, ctrlKey: true }), bindings)).toEqual([]);
     // The override combo matches the action.
     expect(findMatches(chord({ code: "KeyU", shiftKey: true, ctrlKey: true }), bindings)[0]?.actionId).toBe("window-next");
   });
@@ -1091,7 +1236,7 @@ describe("applyCapture (steal-with-warning)", () => {
       resolveBindings(DEFAULT_BINDINGS, prior, SHELL_OTHER),
       prior,
       "window-next",
-      { code: "KeyL", tier: "shifted" },
+      { code: "ArrowDown", tier: "shifted" },
       SHELL_OTHER,
     );
     expect(overrides).toEqual({});
@@ -1397,14 +1542,14 @@ describe("keyless (macro) defaults — 260730-hbyh", () => {
       resolveBindings(withMacro, {}, SHELL_OTHER),
       {},
       "macro:discuss",
-      { code: "KeyL", tier: "shifted" },
+      { code: "ArrowDown", tier: "shifted" },
       SHELL_OTHER,
       withMacro,
     );
     expect(stealByMacro.stolenFrom).toBe("window-next");
     expect(stealByMacro.overrides).toEqual({
       "window-next": null,
-      "macro:discuss": { code: "KeyL", tier: "shifted" },
+      "macro:discuss": { code: "ArrowDown", tier: "shifted" },
     });
   });
 
@@ -1443,12 +1588,12 @@ describe("keyless (macro) defaults — 260730-hbyh", () => {
 });
 
 describe("per-platform default tiers — 260730-n789", () => {
-  it("mac shell: T/W and [/]// demote to the ⌘ tier; H/L/A stay shifted", () => {
+  it("mac shell: T/W and [/]// demote to the ⌘ tier along with the window arrows; A and the hosts chord stay shifted", () => {
     const bindings = resolved(SHELL_MAC);
-    for (const id of ["create-window", "kill-window", "go-back", "go-forward", "shortcuts-overlay"]) {
+    for (const id of ["create-window", "kill-window", "go-back", "go-forward", "shortcuts-overlay", "window-prev", "window-next"]) {
       expect(byId(bindings, id)).toMatchObject({ tier: "cmd", enabled: true, isDefault: true });
     }
-    for (const id of ["window-prev", "window-next", "agent-next-waiting"]) {
+    for (const id of ["agent-next-waiting", "host-menu-open"]) {
       expect(byId(bindings, id)).toMatchObject({ tier: "shifted", enabled: true, isDefault: true });
     }
     // Letters constant — only the modifier tier varies (create-session is the
@@ -1508,7 +1653,10 @@ describe("per-platform default tiers — 260730-n789", () => {
         disabledReason: "reserved",
       });
     }
-    for (const id of ["window-prev", "window-next", "agent-next-waiting"]) {
+    for (const id of ["window-prev", "window-next"]) {
+      expect(byId(bindings, id)).toMatchObject({ tier: "cmd", enabled: true });
+    }
+    for (const id of ["session-prev", "session-next", "agent-next-waiting", "host-menu-open"]) {
       expect(byId(bindings, id)).toMatchObject({ tier: "shifted", enabled: true });
     }
     // The app-window pair resolves UNBOUND here (keyless base — the
@@ -1638,19 +1786,59 @@ describe("findMatches — scoped-beats-global precedence (260730-n789)", () => {
 
   it("returns single matches untouched and [] for no match", () => {
     expect(
-      findMatches(chord({ code: "KeyL", shiftKey: true, ctrlKey: true }), resolved()).map(
+      findMatches(chord({ code: "ArrowDown", shiftKey: true, ctrlKey: true }), resolved()).map(
         (b) => b.actionId,
       ),
     ).toEqual(["window-next"]);
-    expect(findMatches(chord({ code: "KeyL" }), resolved())).toEqual([]);
+    expect(findMatches(chord({ code: "ArrowDown" }), resolved())).toEqual([]);
   });
 });
 
 describe("shouldRefuseTerminalChord (260730-n789)", () => {
   it("refuses enabled shifted-tier matches on every platform (the g40a rule)", () => {
-    const e = chord({ code: "KeyL", shiftKey: true, ctrlKey: true });
+    const e = chord({ code: "ArrowDown", shiftKey: true, ctrlKey: true });
     expect(shouldRefuseTerminalChord(e, resolved(SHELL_OTHER), "other")).toBe(true);
     expect(shouldRefuseTerminalChord(e, resolved(SHELL_MAC), "mac")).toBe(true);
+  });
+
+  it("arrow chords: mac ⌘↑/⌘↓ refuse via the cmd-tier metaKey rule; shifted arrows refuse everywhere; plain and plain-Shift arrows reach the pane", () => {
+    const mac = resolved(SHELL_MAC);
+    // The demoted window pair under mac terminal focus (rule 2, loss-free).
+    expect(shouldRefuseTerminalChord(chord({ code: "ArrowDown", metaKey: true }), mac, "mac")).toBe(true);
+    expect(shouldRefuseTerminalChord(chord({ code: "ArrowUp", metaKey: true }), mac, "mac")).toBe(true);
+    // The shifted session pair rides rule 1 on every platform.
+    expect(
+      shouldRefuseTerminalChord(chord({ code: "ArrowUp", metaKey: true, shiftKey: true }), mac, "mac"),
+    ).toBe(true);
+    const other = resolved(SHELL_OTHER);
+    expect(
+      shouldRefuseTerminalChord(chord({ code: "ArrowUp", ctrlKey: true, shiftKey: true }), other, "other"),
+    ).toBe(true);
+    expect(
+      shouldRefuseTerminalChord(chord({ code: "ArrowDown", ctrlKey: true, shiftKey: true }), other, "other"),
+    ).toBe(true);
+    expect(
+      shouldRefuseTerminalChord(chord({ code: "ArrowLeft", ctrlKey: true, shiftKey: true }), other, "other"),
+    ).toBe(true);
+    expect(
+      shouldRefuseTerminalChord(chord({ code: "ArrowRight", ctrlKey: true, shiftKey: true }), other, "other"),
+    ).toBe(true);
+    // Plain and plain-Shift arrows match no binding on any host — the pane
+    // keeps cursor and scroll-modifier keys (the accepted-cost boundary).
+    for (const e of [
+      chord({ code: "ArrowUp" }),
+      chord({ code: "ArrowDown" }),
+      chord({ code: "ArrowLeft" }),
+      chord({ code: "ArrowRight" }),
+      chord({ code: "ArrowUp", shiftKey: true }),
+      chord({ code: "ArrowDown", shiftKey: true }),
+    ]) {
+      expect(shouldRefuseTerminalChord(e, mac, "mac")).toBe(false);
+      expect(shouldRefuseTerminalChord(e, other, "other")).toBe(false);
+    }
+    // mac plain Ctrl+↑/↓ matches the cmd-tier window pair but carries no
+    // metaKey → the pane keeps it (rule 2's gate).
+    expect(shouldRefuseTerminalChord(chord({ code: "ArrowDown", ctrlKey: true }), mac, "mac")).toBe(false);
   });
 
   it("mac only: refuses a ⌘ (metaKey) cmd-tier match so demoted chords fire from the pane", () => {

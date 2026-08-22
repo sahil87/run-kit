@@ -15,7 +15,7 @@
  * Click/Enter switches via `servers:switch`. The page is already a
  * privileged `servers:*` sender, so no new IPC is added; an absent `servers`
  * bridge group or a failed list answer leaves the section hidden (graceful
- * degradation). ⇧⌘M (⇧Ctrl+M on win/linux) is handled locally: it focuses
+ * degradation). ⇧⌘H (⇧Ctrl+H on win/linux) is handled locally: it focuses
  * the list, or the URL field when no hosts are listed.
  *
  * Local flow ("This Mac" section, darwin/linux only — suppressed on win32):
@@ -98,7 +98,7 @@ interface HostRow {
   hint: string | null;
 }
 
-/** Focus handle for the Your Hosts list — the ⇧⌘M chord's target. */
+/** Focus handle for the Your Hosts list — the ⇧⌘H chord's target. */
 interface HostListHandle {
   /** Focus the roving seat (first row); false when the list is empty. */
   focusFirst(): boolean;
@@ -398,10 +398,10 @@ function hostRowsOf(value: unknown, platform: string): HostRow[] | null {
 }
 
 /** The host-menu chord — mirrors the SPA registry's `host-menu-open` binding
- *  (lib/keybindings.ts, shifted tier): `KeyM`, Shift + the platform primary
+ *  (lib/keybindings.ts, shifted tier): `KeyH`, Shift + the platform primary
  *  modifier (meta on darwin, ctrl otherwise), no other modifiers. */
 function isHostMenuChord(event: KeyboardEvent, platform: string): boolean {
-  if (event.code !== "KeyM" || !event.shiftKey || event.altKey) return false;
+  if (event.code !== "KeyH" || !event.shiftKey || event.altKey) return false;
   return platform === "darwin"
     ? event.metaKey && !event.ctrlKey
     : event.ctrlKey && !event.metaKey;

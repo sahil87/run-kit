@@ -90,28 +90,70 @@ async function gotoWindowOne(page: Page) {
 }
 
 test.describe("shifted-tier window cycling", () => {
-  test("Shift+Ctrl+L / Shift+Ctrl+H cycle the current session's windows with wraparound", async ({ page }) => {
+  test("Shift+Ctrl+Down / Shift+Ctrl+Up step the flattened all-sessions window list with wraparound", async ({ page }) => {
     await mockBackend(page);
     await gotoWindowOne(page);
 
     // Next: @1 → @2 → @3, then wrap to @1.
-    await page.keyboard.press("Shift+Control+KeyL");
+    await page.keyboard.press("Shift+Control+ArrowDown");
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/2(?:$|[/?#])`));
-    await page.keyboard.press("Shift+Control+KeyL");
+    await page.keyboard.press("Shift+Control+ArrowDown");
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/3(?:$|[/?#])`));
-    await page.keyboard.press("Shift+Control+KeyL");
+    await page.keyboard.press("Shift+Control+ArrowDown");
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/1(?:$|[/?#])`));
 
     // Previous wraps backward from @1 to @3.
-    await page.keyboard.press("Shift+Control+KeyH");
+    await page.keyboard.press("Shift+Control+ArrowUp");
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/3(?:$|[/?#])`));
+  });
+
+  test("the cycle crosses a session boundary and Shift+Ctrl+Right jumps the adjacent session's active window", async ({ page }) => {
+    // Two sessions in sidebar order: dev (@1, @2, @3) then ops (@4 active, @5).
+    const payload = JSON.stringify([
+      {
+        name: "dev",
+        windows: [
+          { windowId: "@1", index: 0, name: "win-one", worktreePath: "/tmp/win-one", activity: "active", isActiveWindow: true, activityTimestamp: 0, agentState: "idle" },
+          { windowId: "@2", index: 1, name: "win-two", worktreePath: "/tmp/win-two", activity: "idle", isActiveWindow: false, activityTimestamp: 0, agentState: "idle" },
+          { windowId: "@3", index: 2, name: "win-three", worktreePath: "/tmp/win-three", activity: "idle", isActiveWindow: false, activityTimestamp: 0, agentState: "idle" },
+        ],
+      },
+      {
+        name: "ops",
+        windows: [
+          { windowId: "@4", index: 0, name: "ops-one", worktreePath: "/tmp/ops-one", activity: "idle", isActiveWindow: true, activityTimestamp: 0, agentState: "idle" },
+          { windowId: "@5", index: 1, name: "ops-two", worktreePath: "/tmp/ops-two", activity: "idle", isActiveWindow: false, activityTimestamp: 0, agentState: "idle" },
+        ],
+      },
+    ]);
+    await mockBackend(page, payload);
+    await gotoWindowOne(page);
+
+    // Next from dev's last window crosses the boundary onto ops's first window.
+    await page.keyboard.press("Shift+Control+ArrowDown"); // @1 → @2
+    await page.keyboard.press("Shift+Control+ArrowDown"); // @2 → @3
+    await page.keyboard.press("Shift+Control+ArrowDown"); // @3 → @4 (boundary)
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/4(?:$|[/?#])`));
+    // Previous crosses back onto dev's last window.
+    await page.keyboard.press("Shift+Control+ArrowUp");
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/3(?:$|[/?#])`));
+
+    // Session jump: from @3 (dev), next session is ops — lands on its ACTIVE
+    // window @4 (first row here); wrapping back lands on dev's active @1.
+    await page.keyboard.press("Shift+Control+ArrowRight");
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/4(?:$|[/?#])`));
+    await page.keyboard.press("Shift+Control+ArrowRight"); // wrap back to dev
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/1(?:$|[/?#])`));
+    // Previous session from @1 wraps to ops's active window.
+    await page.keyboard.press("Shift+Control+ArrowLeft");
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/4(?:$|[/?#])`));
   });
 
   test("Shift+Ctrl+[ / Shift+Ctrl+] retrace history (back / forward)", async ({ page }) => {
     await mockBackend(page);
     await gotoWindowOne(page);
 
-    await page.keyboard.press("Shift+Control+KeyL");
+    await page.keyboard.press("Shift+Control+ArrowDown");
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/2(?:$|[/?#])`));
 
     await page.keyboard.press("Shift+Control+BracketLeft");
@@ -232,7 +274,7 @@ test.describe("shortcuts overlay", () => {
     await expect(settingsDialog(page)).toHaveCount(0);
 
     // The rebound chord dispatches; the vacated default no longer does.
-    await page.keyboard.press("Shift+Control+KeyL");
+    await page.keyboard.press("Shift+Control+ArrowDown");
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/1(?:$|[/?#])`));
     await page.keyboard.press("Shift+Control+KeyU");
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/2(?:$|[/?#])`));
@@ -344,8 +386,9 @@ test.describe("macOS per-platform defaults (spoofed platform)", () => {
     await mockBackend(page);
     await gotoWindowOne(page);
 
-    // H/L stay shifted on macOS — window cycling is unchanged.
-    await page.keyboard.press("Shift+Control+KeyL");
+    // ⌘↓ steps the flattened window list on macOS (the demoted cmd tier);
+    // the shifted-tier session pair rides ⇧⌘↑/⇧⌘↓ there.
+    await page.keyboard.press("Meta+ArrowDown");
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/2(?:$|[/?#])`));
 
     // The demoted ⌘ tier drives history (pressed with Meta, while the
@@ -381,9 +424,9 @@ test.describe("macOS per-platform defaults (spoofed platform)", () => {
     await expect(cmdOption).toHaveAttribute("aria-pressed", "true");
     await expect(panel.locator('[title="address"]')).toBeVisible();
     await expect(panel.locator('[title="address bar"]')).toHaveCount(0);
-    // Selecting ⇧⌘ swaps to the shifted layer — the same KeyL cell reads
-    // "next tab" there, so the "address" keycap disappearing proves the
-    // layer swap.
+    // Selecting ⇧⌘ swaps to the shifted layer — the KeyL cell reads NOTHING
+    // there (shifted KeyL is deliberately unbound), so the "address" keycap
+    // disappearing proves the layer swap.
     const shiftedOption = picker.getByRole("button", { name: "⇧ ⌘" });
     await shiftedOption.click();
     await expect(shiftedOption).toHaveAttribute("aria-pressed", "true");

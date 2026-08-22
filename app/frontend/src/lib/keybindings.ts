@@ -139,8 +139,9 @@ export const KEYBINDINGS_STORAGE_KEY = "runkit-keybindings";
  *
  * Shifted tier — the starter actions (canonical letters):
  * N/T/W new-session/new-tab/close-tab (plus the keyless-base app-window
- * pair new/close-app-window), H/L prev/next tab, [/] back/
- * forward, A next-waiting-agent, / the cheatsheet — joined by E compose-strip
+ * pair new/close-app-window), ↑/↓ prev/next tab and ←/→ prev/next session,
+ * [/] back/forward, A next-waiting-agent, / the cheatsheet — joined by E
+ * compose-strip
  * toggle and O open-last-used (260801-sm6g), , settings (260801-mqim), and the
  * split pair (260807-rbx5: \/− on Win/Linux, ⌘D/⇧⌘D on mac via `macCode`).
  * Global scope (O and the split pair are terminal-scoped): dispatch mounts
@@ -152,16 +153,18 @@ export const KEYBINDINGS_STORAGE_KEY = "runkit-keybindings";
  * [/]// and the VS Code-aligned ⌘B sidebar keycap default to the unshifted ⌘
  * tier on every mac host (interceptable in browsers — ⌘B bold is
  * the same class as the shipped ⌘[/⌘]/⌘/ and ⌘D interceptions, not
- * reserved like ⌘N/T/W); the positional surface digits (⌘1 tty / ⌘2 code /
- * ⌘3 web) and ⌘I compose demote the same way. T/W and , demote only inside
+ * reserved like ⌘N/T/W); the window-cycle arrows (⌘↑/⌘↓), the positional
+ * surface digits (⌘1 tty / ⌘2 code / ⌘3 web), and ⌘I compose demote the same
+ * way. T/W and , demote only inside
  * the desktop shell, where N/T/W also refine their CODES (`macCode`):
  * create-session rides ⇧⌘T, and the two keyless-base app-window actions
  * spend ⌘N/⇧⌘W there (`macShellOnly` — mac browsers reserve N/T/W even
  * shifted, so those stay palette-only there; ⌘, is browser Preferences, so
- * settings keeps the shifted default outside the shell). H/L/A stay
- * shifted everywhere: ⌘H is macOS
- * Hide and ⌘A is select-all/Edit-role — immovable — and demoting L alone
- * would split the H/L pair across tiers. Win/Linux is unchanged (plain Ctrl
+ * settings keeps the shifted default outside the shell). A stays
+ * shifted everywhere (⌘A is select-all/Edit-role — immovable), the session
+ * pair stays shifted via its `macCode` (⇧⌘↑/⇧⌘↓ — tier-disjoint from the
+ * window pair's ⌘↑/⌘↓), and the hosts chord stays shifted on H (cmd-tier ⌘H
+ * is macOS Hide). Win/Linux is unchanged (plain Ctrl
  * belongs to the pane — so `focus-hop`'s ⌃` is mac-only and its base tier is
  * shifted, the first shipped `ctrl`-tier default).
  *
@@ -229,18 +232,34 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // (the stacked divider). Both bound on every host; both rebindable.
   { actionId: "split-horizontal", code: "Backslash", tier: "shifted", macCode: "KeyD", macTier: "cmd", scope: "terminal", kind: "builtin", label: "Split horizontal", description: "split the pane side-by-side", mapLabel: "split h", ttyOnly: true },
   { actionId: "split-vertical", code: "Minus", tier: "shifted", macCode: "KeyD", scope: "terminal", kind: "builtin", label: "Split vertical", description: "split the pane stacked", mapLabel: "split v", ttyOnly: true },
-  { actionId: "window-prev", code: "KeyH", tier: "shifted", scope: "global", kind: "builtin", label: "Previous tab", mapLabel: "prev tab" },
-  { actionId: "window-next", code: "KeyL", tier: "shifted", scope: "global", kind: "builtin", label: "Next tab", mapLabel: "next tab" },
+  // Arrow-key navigation — the sidebar's vertical stacking encoded spatially:
+  // ↑/↓ step one window across ALL sessions (the cross-session flatten,
+  // lib/window-cycle.ts), ←/→ hop a whole session. The window pair demotes to
+  // ⌘↑/⌘↓ on mac via `macTier` — ⌘↑/⌘↓ is the mac browser's page-interceptable
+  // scroll-to-top/bottom (the ⌘D/⌘[ accelerator class), so NO `macShellOnly`
+  // and no browser-owner claim row. The session pair rides the
+  // `macCode`-stays-shifted refinement (⇧⌘↑/⇧⌘↓ — tier-disjoint from the
+  // window pair on the same codes, the split-pair precedent): mac's coarse
+  // hop needs the axis the cmd-tier window pair leaves free. Win/Linux splits
+  // by AXIS instead — plain Ctrl belongs to the pane, so both pairs live on
+  // the shifted tier there and sessions take the horizontal codes. The
+  // mapLabels are carried for parity but unrendered: arrow codes have no
+  // keycap cell in the panel's KEY_ROWS grids (the Comma/Backquote no-cell
+  // precedent).
+  { actionId: "window-prev", code: "ArrowUp", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Previous tab", mapLabel: "prev tab" },
+  { actionId: "window-next", code: "ArrowDown", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Next tab", mapLabel: "next tab" },
+  { actionId: "session-prev", code: "ArrowLeft", tier: "shifted", macCode: "ArrowUp", scope: "global", kind: "builtin", label: "Previous session", description: "jump to the adjacent session's active window", mapLabel: "prev session" },
+  { actionId: "session-next", code: "ArrowRight", tier: "shifted", macCode: "ArrowDown", scope: "global", kind: "builtin", label: "Next session", description: "jump to the adjacent session's active window", mapLabel: "next session" },
   { actionId: "go-back", code: "BracketLeft", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Back", description: "history", mapLabel: "back" },
   { actionId: "go-forward", code: "BracketRight", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Forward", description: "history", mapLabel: "fwd" },
   { actionId: "agent-next-waiting", code: "KeyA", tier: "shifted", scope: "global", kind: "builtin", label: "Next waiting agent", description: "jump to an agent blocked on input", mapLabel: "agent" },
-  // ⇧⌘M/⇧Ctrl+M host switcher — opens the shell titlebar strip's hosts menu
-  // (plain digits select a host while it is open). NO mac demotion: ⌘M is the
-  // shell's minimize accelerator and the mac-browser system minimize claim,
-  // so the shifted tier is the chord everywhere. Global scope, but the
-  // handler is component-local to ShellTitlebarStrip (shell-only mount), so
+  // ⇧⌘H/⇧Ctrl+H host switcher — opens the shell titlebar strip's hosts menu
+  // (plain digits select a host while it is open). NO mac demotion: the
+  // cmd-tier ⌘H is the shell's hide accelerator and the mac-browser system
+  // hide claim, so the shifted tier is the chord everywhere. Global scope, but
+  // the handler is component-local to ShellTitlebarStrip (shell-only mount), so
   // in a browser host the chord resolves to no handler and falls through.
-  { actionId: "host-menu-open", code: "KeyM", tier: "shifted", scope: "global", kind: "builtin", label: "Host switcher", description: "open the hosts menu", mapLabel: "hosts" },
+  { actionId: "host-menu-open", code: "KeyH", tier: "shifted", scope: "global", kind: "builtin", label: "Host switcher", description: "open the hosts menu", mapLabel: "hosts" },
   { actionId: "shortcuts-overlay", code: "Slash", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Keyboard shortcuts", description: "toggle this cheatsheet", mapLabel: "cheatsheet", ignoreInputs: true },
   // ⇧⌘,/⇧Ctrl+, settings (260801-mqim): ⌘, unshifted is browser Preferences
   // (claimed data below), so the browser default is the shifted tier; inside

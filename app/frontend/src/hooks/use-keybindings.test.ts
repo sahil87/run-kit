@@ -13,7 +13,7 @@ describe("useKeybindings", () => {
     const { result } = renderHook(() => useKeybindings());
     expect(result.current.host.shell).toBe(false);
     expect(result.current.byAction.get("window-next")).toMatchObject({
-      code: "KeyL",
+      code: "ArrowDown",
       tier: "shifted",
       enabled: true,
       isDefault: true,
@@ -79,7 +79,7 @@ describe("useKeybindings", () => {
     act(() => {
       result.current.resetBinding("window-next");
     });
-    expect(result.current.byAction.get("window-next")).toMatchObject({ code: "KeyL", isDefault: true });
+    expect(result.current.byAction.get("window-next")).toMatchObject({ code: "ArrowDown", isDefault: true });
     expect(result.current.byAction.get("window-prev")).toMatchObject({ code: "KeyJ" });
     act(() => {
       result.current.resetAll();

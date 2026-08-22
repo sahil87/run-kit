@@ -229,7 +229,7 @@ export function useGlobalPaletteActions(): PaletteAction[] {
   // Host switcher (260820-nv0o) — opens the desktop-shell titlebar strip's
   // hosts menu through the HOST_MENU_OPEN_EVENT document seam (the strip
   // mounts in AppLayout, out of this hook's reach). The id IS the
-  // `host-menu-open` registry actionId, so the effective ⇧⌘M/⇧Ctrl+M hint
+  // `host-menu-open` registry actionId, so the effective ⇧⌘H/⇧Ctrl+H hint
   // renders on the row. Gated on a non-empty bridge list — the same
   // non-empty condition as the strip's own switcher trigger
   // (`stripSwitcherEnabled`); `useShellServers` resolves [] in a plain

@@ -1,0 +1,54 @@
+id: ju2p
+name: 260822-ju2p-arrow-tab-session-navigation
+created: 2026-08-22T06:16:11Z
+created_by: sahil-noon
+change_type: refactor
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 8
+    acceptance_count: 14
+    acceptance_completed: 14
+confidence:
+    certain: 8
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 85.4
+        reversibility: 85.0
+        competence: 87.1
+        disambiguation: 87.1
+stage_metrics:
+    intake: {started_at: "2026-08-22T06:16:11Z", driver: fab-new, iterations: 1, completed_at: "2026-08-22T06:21:29Z"}
+    apply: {started_at: "2026-08-22T06:21:29Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-22T06:35:30Z"}
+    review: {started_at: "2026-08-22T06:35:30Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-22T06:38:21Z"}
+    hydrate: {started_at: "2026-08-22T06:38:21Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-22T06:42:54Z"}
+    ship: {started_at: "2026-08-22T06:42:54Z", driver: fab-fff, iterations: 1}
+prs: []
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-22T06:42:54Z"
+    computed_at_stage: hydrate
+summary: 'arrow-key tab/session navigation: window-prev/next on ⌘↑/⌘↓ (mac) / ⇧Ctrl+↑/↓ cycling the flattened all-sessions window list, new session-prev/next pair (⇧⌘↑/⇧⌘↓ mac, ⇧Ctrl+←/→ win/linux) jumping the adjacent session''s active window via pure lib/window-cycle.ts, host-menu-open moved KeyM→KeyH incl. the welcome.ts mirror'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-22T06:42:54Z

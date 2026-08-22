@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-22T06:16:11Z"}
+{"args":"Arrow-key tab/session navigation + hosts-menu H rebind: rebind window-prev/next from H/L to arrows, make tab cycling span sessions, add session-prev/next jump actions, move host-menu-open from M to H","cmd":"fab-new","event":"command","ts":"2026-08-22T06:16:11Z"}
+{"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-08-22T06:18:23Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-22T06:19:30Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-22T06:20:42Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-22T06:21:29Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-22T06:35:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-22T06:38:21Z"}
+{"event":"review","result":"passed","ts":"2026-08-22T06:38:21Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-22T06:42:54Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-08-22T06:43:58Z"}

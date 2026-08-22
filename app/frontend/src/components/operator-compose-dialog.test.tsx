@@ -83,7 +83,11 @@ describe("OperatorComposeDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send to operator" }));
     expect(mockSend).toHaveBeenCalledTimes(1);
     release();
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeInTheDocument());
+    // Await the settle path (then → finally) via its observable outcome — an
+    // immediately-true assertion would let the settle state updates land after
+    // the test finishes (act warnings).
+    expect(await screen.findByText("Sent to operator — it will spawn the agent")).toBeInTheDocument();
+    expect(mockSend).toHaveBeenCalledTimes(1);
   });
 
   it("closes on settle after a successful submit", async () => {

@@ -40,11 +40,14 @@ export function OperatorComposeDialog({ server, initialMode, onClose }: Operator
   function handleSubmit() {
     const trimmed = text.trim();
     if (trimmed === "" || inFlight) return;
+    // Capture the mode the request is sent with — a segmented-control toggle
+    // while the POST is in flight must not relabel the settle toast.
+    const submitted = mode;
     setInFlight(true);
-    sendServerOperatorRequest(server, mode === "spawn" ? "spawn-task" : "find-discussion", trimmed)
+    sendServerOperatorRequest(server, submitted === "spawn" ? "spawn-task" : "find-discussion", trimmed)
       .then(() =>
         addToast(
-          mode === "spawn"
+          submitted === "spawn"
             ? "Sent to operator — it will spawn the agent"
             : "Sent to operator — the answer appears in the operator tab",
           "info",

@@ -92,6 +92,14 @@ func locateTranscript(ref string) (string, error) {
 	return matches[0], nil
 }
 
+// TranscriptPath resolves ref to the transcript's absolute path via the UUID-
+// guarded locateTranscript — the claude adapter's TranscriptLocator capability
+// (adapter.go), reached per-provider through chat.TranscriptPath. The guard
+// stays in front: an invalid ref is ErrInvalidRef before any filesystem access.
+func (claudeAdapter) TranscriptPath(ref string) (string, error) {
+	return locateTranscript(ref)
+}
+
 // Backfill reads the whole transcript for ref and returns the full conversation,
 // including the end byte Offset (the count of complete-line bytes consumed) so a
 // state-socket chat subscription can compose GET(offset)→TailFrom(from) without a

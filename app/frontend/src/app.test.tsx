@@ -811,3 +811,73 @@ describe("CmdK Terminal Export Actions (altScreen gate)", () => {
     expect(screen.queryByText("Terminal: Copy visible screen")).not.toBeInTheDocument();
   });
 });
+
+/**
+ * Tests for the Fix tab name palette entry (260822-fih1 R10) — `Tab: Fix name
+ * (ask operator)` is ABSENT (omit-not-disable) unless the same three-part
+ * availability rule as the flyout row holds: an operator window on the server,
+ * the current window carrying a chat session ref, and the current window not
+ * being the operator itself. Mirrors the action-generation pattern in app.tsx
+ * (the buildOperatorActions precedent).
+ */
+
+/** Build the Fix tab name palette entry matching app.tsx's gate. */
+function buildFixTabNameActions(opts: {
+  hasOperator: boolean;
+  chatSessionRef?: string;
+  currentRole?: string;
+  onFix: () => void;
+}): PaletteAction[] {
+  if (!opts.hasOperator || !opts.chatSessionRef || opts.currentRole === "operator") return [];
+  return [{ id: "window-fix-name-operator", label: "Tab: Fix name (ask operator)", onSelect: opts.onFix }];
+}
+
+describe("CmdK Fix Tab Name Action (operator-request gate)", () => {
+  afterEach(cleanup);
+
+  it("is listed when the rule holds and selecting it fires the fix seam", () => {
+    const onFix = vi.fn();
+    const actions = buildFixTabNameActions({ hasOperator: true, chatSessionRef: "ref-1", onFix });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    const input = screen.getByPlaceholderText(/^Type a command/);
+    fireEvent.change(input, { target: { value: "Fix name" } });
+    expect(screen.getByText("Tab: Fix name (ask operator)")).toBeInTheDocument();
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onFix).toHaveBeenCalledOnce();
+  });
+
+  it("is absent without an operator on the server", () => {
+    const actions = buildFixTabNameActions({ hasOperator: false, chatSessionRef: "ref-1", onFix: vi.fn() });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    expect(screen.queryByText("Tab: Fix name (ask operator)")).not.toBeInTheDocument();
+  });
+
+  it("is absent when the current window carries no chat session ref", () => {
+    const actions = buildFixTabNameActions({ hasOperator: true, onFix: vi.fn() });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    expect(screen.queryByText("Tab: Fix name (ask operator)")).not.toBeInTheDocument();
+  });
+
+  it("is absent on the operator's own window", () => {
+    const actions = buildFixTabNameActions({
+      hasOperator: true,
+      chatSessionRef: "ref-1",
+      currentRole: "operator",
+      onFix: vi.fn(),
+    });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    expect(screen.queryByText("Tab: Fix name (ask operator)")).not.toBeInTheDocument();
+  });
+});

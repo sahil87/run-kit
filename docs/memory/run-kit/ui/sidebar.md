@@ -1,5 +1,5 @@
 ---
-description: "Sidebar: row anatomy, row identity hover tips, icon system and label zone, the three-tier coarse status rail + cards, row flair overlays, render-performance constraints, keyboard nav + tree ARIA (incl. the stateful ⌘B chord and its Escape return), multi-select + broadcast, collapsible panels, section-visibility rail, host-page zones (health/boards/services), kill controls, scroll-edge fade, operator pinned row (hidden `_rk-operator` exclusion, move-don't-copy), footer."
+description: "Sidebar: row anatomy, row identity hover tips, icon system and label zone, the three-tier coarse status rail + cards, row flair overlays, render-performance constraints, keyboard nav + tree ARIA (incl. the stateful ⌘B chord and its Escape return), multi-select + broadcast, collapsible panels, section-visibility rail, host-page zones (health/boards/services), kill controls, scroll-edge fade, operator pinned row (hidden `_rk-operator` exclusion, move-don't-copy), Fix tab name flyout row, footer."
 type: memory
 ---
 # run-kit UI — Sidebar
@@ -269,6 +269,11 @@ The mechanics (`sidebar/index.tsx`, `ServerGroupInner`):
 - **Roving tabindex** — the pinned row still joins the tree's keyboard navigation; its key LEADS the group's visible-row slice regardless of its home session's collapse state, since it is painted above the session groups (§ Keyboard Navigation & Tree ARIA).
 - **Collapsed group** — the row renders inside the group's `{isOpen && …}` body, so a collapsed server group hides it like every other row; no floating orphan row ever renders.
 - **Name only** — the pinned row shows just the window name (no session prefix); the row flyout carries the rest of the context.
+- **Not its own fix-name subject** — the pinned row's flyout never carries the `Fix tab name` action row: `canRequestFixTabName` excludes a `role === "operator"` subject (§ Fix tab name flyout row below).
+
+### Fix Tab Name Flyout Row (`FixTabNameActionRow`)
+
+The window flyout card's sectioned action list ([ui/status-signals](/run-kit/ui/status-signals.md) § Row-hover register flyout card) carries a **Fix tab name** row (between `Fork` and `Pin to board…`) — the flyout arm of the operator actuation seam ([operator-actuation](/run-kit/operator-actuation.md)): one click asks the server's operator window to read the subject tab's recent JSONL turns and `tmux rename-window` it to something accurate. It is **double-gated like fork**: the pure `canRequestFixTabName(win, hasOperator)` availability rule (an operator window on the server AND the subject carrying a non-empty `chatSessionRef` AND the subject not itself the operator — degrade to ABSENT, never disabled) AND a supplied optional `onFixTabName` callback. `hasOperator` is derived once per server in `app.tsx` (`hasOperatorWindow` — `sessions.some(s => s.windows.some(w => w.role === "operator"))`) and threaded `Sidebar → ServerGroup → WindowRow → WindowFlyoutContent` as a plain boolean prop; the board-route sidebar wires no handler, so no row renders there. The row mirrors `ForkActionRow` exactly: a leaf-scoped `busy` in-flight guard (`disabled={busy}` + an early return, so N clicks fire one POST), `stopPropagation`, a `mountedRef`-guarded settle, a `WandIcon` glyph, and the sub-hint "asks the operator". The handler chain (`app.tsx` `handleFixTabName` → `sendOperatorRequest(server, windowId, "fix-tab-name")`) is fire-and-forget: success toasts "Sent to operator — tab will rename shortly", failure toasts the server's structured message, and the rename itself arrives via the normal SSE derive tick — no spinner beyond the guard. (`260822-fih1-operator-request-fix-tab-name`)
 
 ### Keyboard Navigation & Tree ARIA
 

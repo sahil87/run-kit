@@ -15,6 +15,7 @@ import {
   RAIL_HELD_SEAM,
   FORK_TOOLTIP,
   canForkWindow,
+  canRequestFixTabName,
 } from "./row-flyout-card";
 import { PopupTitleBar, PopupTitleBarSecondary, notchFill, POPUP_TITLE_BAR_HEIGHT_PX } from "./popup-title-bar";
 import { CardActionList, CardActionRow } from "./row-flyout-card";
@@ -55,6 +56,8 @@ function Row({
   suppressed = false,
   onChangeColorAction,
   onFork,
+  onFixTabName,
+  hasOperator = false,
   onPinAction,
   pinned = false,
   pinnedBoard,
@@ -65,6 +68,8 @@ function Row({
   suppressed?: boolean;
   onChangeColorAction?: () => void;
   onFork?: () => Promise<void>;
+  onFixTabName?: () => Promise<void>;
+  hasOperator?: boolean;
   onPinAction?: () => void;
   pinned?: boolean;
   pinnedBoard?: string;
@@ -85,6 +90,8 @@ function Row({
             : undefined
         }
         onFork={onFork}
+        onFixTabName={onFixTabName}
+        hasOperator={hasOperator}
         onPinAction={
           onPinAction
             ? () => {
@@ -486,6 +493,118 @@ describe("Fork action row (260806-s4av)", () => {
     expect(canForkWindow(makeWindow({ chatProvider: "claude" }))).toBe(true);
     expect(canForkWindow(makeWindow({ chatProvider: "codex" }))).toBe(false);
     expect(canForkWindow(makeWindow({}))).toBe(false);
+  });
+});
+
+describe("Fix tab name action row (260822-fih1)", () => {
+  // The Fix tab name row is DOUBLE-gated like fork: the derived availability
+  // rule (operator on the server AND the subject carries a chat session ref
+  // AND the subject is not itself the operator) AND a wired handler. Asserted
+  // here: every gate half, the stopPropagation contract, and the in-flight
+  // guard (the POST is mutating, so N clicks must not fire N requests).
+
+  /** A settled fix-name handler — the app's real one surfaces its own errors
+   *  and resolves either way, so a resolved promise is the faithful stand-in. */
+  const fixNameResolved = () => vi.fn<() => Promise<void>>(() => Promise.resolve());
+
+  /** A subject window meeting the availability rule: a reconciled chat ref,
+   *  no operator role. */
+  const subjectWin = () => makeWindow({ chatProvider: "claude", chatSessionRef: "ref-1" });
+
+  it("renders when the rule holds (operator present + chat ref + not the operator row)", () => {
+    render(<Row win={subjectWin()} hasOperator onFixTabName={fixNameResolved()} />);
+    hoverOpen();
+
+    const row = screen.getByTestId("row-flyout-fix-name-action");
+    expect(row).toHaveTextContent("Fix tab name");
+    expect(row).toHaveTextContent("asks the operator");
+  });
+
+  it("is absent without an operator on the server", () => {
+    render(<Row win={subjectWin()} onFixTabName={fixNameResolved()} />);
+    hoverOpen();
+    expect(screen.queryByTestId("row-flyout-fix-name-action")).toBeNull();
+  });
+
+  it("is absent when the subject carries no chat session ref", () => {
+    render(<Row win={makeWindow({})} hasOperator onFixTabName={fixNameResolved()} />);
+    hoverOpen();
+    expect(screen.queryByTestId("row-flyout-fix-name-action")).toBeNull();
+  });
+
+  it("is absent on the operator's own row", () => {
+    render(
+      <Row
+        win={makeWindow({ chatProvider: "claude", chatSessionRef: "ref-1", role: "operator" })}
+        hasOperator
+        onFixTabName={fixNameResolved()}
+      />,
+    );
+    hoverOpen();
+    expect(screen.queryByTestId("row-flyout-fix-name-action")).toBeNull();
+  });
+
+  it("is absent when the consumer wired no handler", () => {
+    render(<Row win={subjectWin()} hasOperator />);
+    hoverOpen();
+    expect(screen.queryByTestId("row-flyout-fix-name-action")).toBeNull();
+  });
+
+  it("clicking fires the handler once and does not bubble to the row", () => {
+    const onFixTabName = fixNameResolved();
+    const onRowClick = vi.fn();
+    render(<Row win={subjectWin()} hasOperator onFixTabName={onFixTabName} onRowClick={onRowClick} />);
+    hoverOpen();
+
+    act(() => {
+      fireEvent.click(screen.getByTestId("row-flyout-fix-name-action"));
+    });
+    expect(onFixTabName).toHaveBeenCalledTimes(1);
+    // stopPropagation: the request must never also select the underlying row.
+    expect(onRowClick).not.toHaveBeenCalled();
+  });
+
+  it("disables the row while a request is in flight, so a second click fires no second POST", async () => {
+    // A handler that stays PENDING until the test resolves it — the in-flight
+    // window the guard has to cover.
+    let settle: () => void = () => {};
+    const onFixTabName = vi.fn<() => Promise<void>>(
+      () =>
+        new Promise<void>((resolve) => {
+          settle = resolve;
+        }),
+    );
+    render(<Row win={subjectWin()} hasOperator onFixTabName={onFixTabName} />);
+    hoverOpen();
+
+    const row = screen.getByTestId("row-flyout-fix-name-action");
+    expect(row).toBeEnabled();
+
+    act(() => {
+      fireEvent.click(row);
+    });
+    expect(onFixTabName).toHaveBeenCalledTimes(1);
+    expect(row).toBeDisabled();
+
+    act(() => {
+      fireEvent.click(row);
+    });
+    expect(onFixTabName).toHaveBeenCalledTimes(1);
+
+    // Settling re-enables it — a rejected request must stay retryable.
+    await act(async () => {
+      settle();
+    });
+    expect(screen.getByTestId("row-flyout-fix-name-action")).toBeEnabled();
+  });
+
+  it("canRequestFixTabName pins the three-part availability rule", () => {
+    const subject = makeWindow({ chatSessionRef: "ref-1" });
+    expect(canRequestFixTabName(subject, true)).toBe(true);
+    expect(canRequestFixTabName(subject, false)).toBe(false); // no operator
+    expect(canRequestFixTabName(makeWindow({}), true)).toBe(false); // no chat ref
+    expect(canRequestFixTabName(makeWindow({ chatSessionRef: "" }), true)).toBe(false); // empty ref
+    expect(canRequestFixTabName(makeWindow({ chatSessionRef: "ref-1", role: "operator" }), true)).toBe(false); // operator's own row
   });
 });
 

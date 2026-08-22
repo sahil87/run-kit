@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 15
@@ -33,24 +33,24 @@ stage_metrics:
     apply: {started_at: "2026-08-22T15:47:37Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-22T15:58:07Z"}
     review: {started_at: "2026-08-22T15:58:07Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-22T16:01:46Z"}
     hydrate: {started_at: "2026-08-22T16:01:46Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-22T16:04:41Z"}
-    ship: {started_at: "2026-08-22T16:04:41Z", driver: fab-fff, iterations: 2}
-    review-pr: {iterations: 1}
+    ship: {started_at: "2026-08-22T16:04:41Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-22T16:08:04Z"}
+    review-pr: {started_at: "2026-08-22T16:08:04Z", driver: git-pr, iterations: 2}
 prs:
     - https://github.com/sahil87/run-kit/pull/713
 true_impact:
-    added: 1244
-    deleted: 6
-    net: 1238
+    added: 1837
+    deleted: 33
+    net: 1804
     excluding:
-        added: 877
-        deleted: 2
-        net: 875
+        added: 1386
+        deleted: 29
+        net: 1357
     tests:
-        added: 546
+        added: 714
         deleted: 0
-        net: 546
-    computed_at: "2026-08-22T16:04:41Z"
-    computed_at_stage: hydrate
+        net: 714
+    computed_at: "2026-08-22T16:08:04Z"
+    computed_at_stage: ship
 summary: 'Added the one-shot session-scoped sort-windows verb (POST /api/sessions/{session}/sort-windows, body {"by": [<key>...]} — ordered 1–3 unique keys from status|created|name, one stable comparator walk, only-when-changed MoveWindow batch) plus the single palette-only Session: Sort windows… entry opening the generic optionPicker sub-step (Space-toggle order badges, Enter applies).'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-22T16:04:41Z
+last_updated: 2026-08-22T16:08:04Z

@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 8
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-22T11:52:24Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-22T12:08:35Z"}
     review: {started_at: "2026-08-22T12:08:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-22T12:12:10Z"}
     hydrate: {started_at: "2026-08-22T12:12:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-22T12:20:41Z"}
-    ship: {started_at: "2026-08-22T12:20:41Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-22T12:20:41Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-22T12:23:14Z"}
+    review-pr: {started_at: "2026-08-22T12:23:14Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/709
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1972
+    deleted: 13
+    net: 1959
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 1058
+        deleted: 3
+        net: 1055
     tests:
-        added: 0
+        added: 417
         deleted: 0
-        net: 0
-    computed_at: "2026-08-22T12:20:41Z"
-    computed_at_stage: hydrate
+        net: 417
+    computed_at: "2026-08-22T12:23:14Z"
+    computed_at_stage: ship
 summary: operator-request endpoint + fix-tab-name template, TranscriptLocator seam, flyout row + palette entry
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-22T12:20:41Z
+last_updated: 2026-08-22T12:23:14Z

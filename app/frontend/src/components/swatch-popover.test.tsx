@@ -68,14 +68,16 @@ describe("SwatchPopover", () => {
     vi.unstubAllGlobals();
   });
 
-  it("color-only variant: 20 swatches + the color header − + ✕ (no marker/flair bands)", () => {
+  it("color-only variant: 20 swatches + the color header − + panel − + ✕ (no marker/flair bands)", () => {
     const onSelect = vi.fn();
     const onClose = vi.fn();
     renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
 
-    // 20 family/shade swatches + the color band's header − + the ✕ close cell
-    // (an option-as-command, keeping the listbox's children ARIA-valid).
-    expect(screen.getAllByRole("option")).toHaveLength(22);
+    // 20 family/shade swatches + the color band's header − + the panel-level
+    // − (Clear all — rendered on every variant; degenerates to clear-color
+    // here) + the ✕ close cell (options-as-commands, ARIA-valid children).
+    expect(screen.getAllByRole("option")).toHaveLength(23);
+    expect(screen.getByRole("option", { name: "Clear all" })).toBeTruthy();
     expect(screen.queryByRole("option", { name: /^Marker / })).toBeNull();
     expect(screen.queryByRole("option", { name: /^Flair / })).toBeNull();
     expect(screen.getByRole("listbox").getAttribute("aria-label")).toBe("Color picker");
@@ -401,9 +403,9 @@ describe("SwatchPopover", () => {
       return { onSelect, onSelectMarker, onSelectFlair, onClose, ...utils };
     }
 
-    it("full variant: 20 colors + 8 markers + 12 flairs + 3 header − + ✕ = 44 options, labelled Label picker", () => {
+    it("full variant: 20 colors + 8 markers + 12 flairs + 3 header − + panel − + ✕ = 45 options, labelled Label picker", () => {
       renderLabelPicker();
-      expect(screen.getAllByRole("option")).toHaveLength(44);
+      expect(screen.getAllByRole("option")).toHaveLength(45);
       expect(screen.getByRole("listbox").getAttribute("aria-label")).toBe("Label picker");
       for (const state of MARKER_NAMED) {
         expect(screen.getByRole("option", { name: `Marker ${state}` })).toBeTruthy();
@@ -577,6 +579,92 @@ describe("SwatchPopover", () => {
   // ── Plain-grid keyboard model: every band is a plain grid; the header − is
   //    row 0 of its band; the ✕ is the stack's top row. Vertical moves
   //    preserve the column, clamped to the target row's extent. ──
+  describe("panel-level − (clear all)", () => {
+    function renderVariant(extra: Partial<React.ComponentProps<typeof SwatchPopover>> = {}) {
+      const onSelect = vi.fn();
+      const onClose = vi.fn();
+      renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} {...extra} />);
+      return { onSelect, onClose };
+    }
+
+    it("emits every offered clear on the full variant, drops the caption to unset, and stays open", () => {
+      const onSelectMarker = vi.fn();
+      const onSelectFlair = vi.fn();
+      const { onSelect, onClose } = renderVariant({
+        selectedColor: "teal",
+        selectedMarker: "hatch",
+        selectedFlair: "scan",
+        onSelectMarker,
+        onSelectFlair,
+        rowName: "blustery-raven",
+      });
+      fireEvent.click(screen.getByRole("option", { name: "Clear all" }));
+      expect(onSelect).toHaveBeenCalledWith(null);
+      expect(onSelectMarker).toHaveBeenCalledWith("");
+      expect(onSelectFlair).toHaveBeenCalledWith("");
+      // Never dismisses; the preview override repaints the caption immediately.
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getByText("∅ · ∅ · ∅")).toBeTruthy();
+    });
+
+    it("emits ONLY the offered clears: color-only fires onSelect alone", () => {
+      const { onSelect } = renderVariant({ selectedColor: "orange" });
+      fireEvent.click(screen.getByRole("option", { name: "Clear all" }));
+      expect(onSelect).toHaveBeenCalledTimes(1);
+      expect(onSelect).toHaveBeenCalledWith(null);
+    });
+
+    it("emits ONLY the offered clears: color+flair (session/server variant) fires onSelect + onSelectFlair, no marker clear", () => {
+      const onSelectFlair = vi.fn();
+      const { onSelect } = renderVariant({
+        selectedColor: "green",
+        selectedFlair: "rain",
+        onSelectFlair,
+      });
+      fireEvent.click(screen.getByRole("option", { name: "Clear all" }));
+      expect(onSelect).toHaveBeenCalledWith(null);
+      expect(onSelectFlair).toHaveBeenCalledWith("");
+      // No marker band offered → no marker clear, and no marker header −.
+      expect(screen.queryByRole("option", { name: "Marker none" })).toBeNull();
+    });
+
+    it("rings iff EVERY offered axis is unset (props-computed)", () => {
+      const onSelectMarker = vi.fn();
+      const onSelectFlair = vi.fn();
+      renderVariant({ onSelectMarker, onSelectFlair });
+      const clearAll = screen.getByRole("option", { name: "Clear all" });
+      expect(clearAll.getAttribute("aria-selected")).toBe("true");
+      expect(clearAll.className).toContain("ring-text-primary");
+      cleanup();
+      // One set axis breaks the ring — the panel scope is "the whole label".
+      renderVariant({ onSelectMarker, onSelectFlair, selectedMarker: "solid" });
+      const clearAll2 = screen.getByRole("option", { name: "Clear all" });
+      expect(clearAll2.getAttribute("aria-selected")).toBe("false");
+      expect(clearAll2.className).not.toContain("ring-text-primary");
+    });
+
+    it("keyboard: the top row is [− ✕] — ArrowUp reaches it, Left/Right walk it, Enter activates", () => {
+      const onSelectMarker = vi.fn();
+      const onSelectFlair = vi.fn();
+      const { onSelect, onClose } = renderVariant({ onSelectMarker, onSelectFlair });
+      const listbox = screen.getByRole("listbox");
+      const arrow = (key: string) => fireEvent.keyDown(listbox, { key });
+      const enter = () => fireEvent.keyDown(listbox, { key: "Enter" });
+      // Uncolored → initial focus is the color header − (row 1); ArrowUp
+      // lands on the top row's first cell — the panel −.
+      arrow("ArrowUp");
+      enter();
+      expect(onSelect).toHaveBeenLastCalledWith(null);
+      expect(onSelectMarker).toHaveBeenLastCalledWith("");
+      expect(onSelectFlair).toHaveBeenLastCalledWith("");
+      expect(onClose).not.toHaveBeenCalled();
+      // ArrowRight walks − → ✕; Enter closes.
+      arrow("ArrowRight");
+      enter();
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe("keyboard navigation (plain-grid bands)", () => {
     function renderFull(extra: Partial<React.ComponentProps<typeof SwatchPopover>> = {}) {
       const onSelect = vi.fn();
@@ -688,9 +776,10 @@ describe("SwatchPopover", () => {
       expect(onSelect).toHaveBeenLastCalledWith("slate-dark");
     });
 
-    it("ArrowUp from the color header − reaches the ✕ close cell (the stack's top row); Enter closes", () => {
+    it("ArrowUp from the color header − reaches the top row ([− ✕]); ArrowRight to ✕ and Enter closes", () => {
       const { onClose, onSelect, enter, arrow } = renderFull();
-      arrow("ArrowUp"); // color header − → ✕
+      arrow("ArrowUp"); // color header − → top row col 0 (the panel −)
+      arrow("ArrowRight"); // panel − → ✕
       enter();
       expect(onClose).toHaveBeenCalledOnce();
       expect(onSelect).not.toHaveBeenCalled();

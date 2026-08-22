@@ -21,6 +21,24 @@ func tmuxCmd(t *testing.T, socket string, args ...string) {
 	}
 }
 
+// waitServerDead blocks until the killed server's socket stops answering.
+// kill-server returns before the server process exits and unlinks its socket,
+// and a client connecting mid-teardown reports "server exited unexpectedly" —
+// so a Restore (or capture) issued immediately after kill-server races the
+// death throes on a loaded box (the CI flake this guards against).
+func waitServerDead(t *testing.T, socket string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		out, err := exec.Command("tmux", "-L", socket, "list-sessions").CombinedOutput()
+		if err != nil && !strings.Contains(string(out), "server exited unexpectedly") {
+			return // dead-socket error: no server running / failed to connect / ENOENT
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatalf("server %s still answering 5s after kill-server", socket)
+}
+
 // TestCaptureRestoreRoundTripLiveTmux is the end-to-end proof over a real
 // tmux server: build a layout on an isolated rk-test-* socket, capture it,
 // kill the server, restore from the snapshot, re-capture, and compare the
@@ -72,6 +90,7 @@ func TestCaptureRestoreRoundTripLiveTmux(t *testing.T) {
 	}
 
 	tmuxCmd(t, socket, "kill-server")
+	waitServerDead(t, socket)
 
 	// Dead server: capture must error, not read as empty.
 	if _, err := CaptureServer(context.Background(), socket); err == nil {
@@ -211,6 +230,7 @@ func TestOperatorPromotionRoundTripLiveTmux(t *testing.T) {
 	}
 
 	tmuxCmd(t, socket, "kill-server")
+	waitServerDead(t, socket)
 
 	report, err := Restore(context.Background(), socket, before)
 	if err != nil {

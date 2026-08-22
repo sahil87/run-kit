@@ -746,8 +746,7 @@ func ListPinSessionNames(ctx context.Context, server string) ([]string, error) {
 
 	lines, err := tmuxExecServer(ctx, server, "list-sessions", "-F", "#{session_name}")
 	if err != nil {
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "no server running") || strings.Contains(errMsg, "failed to connect") {
+		if containsServerGoneText(err.Error()) {
 			return nil, nil
 		}
 		return nil, err
@@ -772,8 +771,7 @@ func ListSessions(ctx context.Context, server string) ([]SessionInfo, error) {
 
 	lines, err := tmuxExecServer(ctx, server, "list-sessions", "-F", format)
 	if err != nil {
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "no server running") || strings.Contains(errMsg, "failed to connect") {
+		if containsServerGoneText(err.Error()) {
 			return nil, nil
 		}
 		return nil, err
@@ -1115,8 +1113,7 @@ func ListSessionGroups(ctx context.Context, server string) (map[string]string, e
 
 	lines, err := tmuxExecServer(ctx, server, "list-sessions", "-F", format)
 	if err != nil {
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "no server running") || strings.Contains(errMsg, "failed to connect") {
+		if containsServerGoneText(err.Error()) {
 			return nil, nil
 		}
 		return nil, err
@@ -1200,8 +1197,7 @@ func ListActiveWindowsByGroup(ctx context.Context, server string) (map[string]st
 
 	lines, err := tmuxExecServer(ctx, server, "list-windows", "-a", "-F", format)
 	if err != nil {
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "no server running") || strings.Contains(errMsg, "failed to connect") {
+		if containsServerGoneText(err.Error()) {
 			return nil, nil
 		}
 		return nil, err
@@ -2591,6 +2587,12 @@ var serverGoneText = []string{
 	"no server running",
 	"failed to connect",
 	"No such file or directory",
+	// A client that connects while the server is mid-teardown (kill-server
+	// returns before the process exits and unlinks its socket) loses the
+	// connection and reports this instead of a dead-socket error. The server
+	// is equally gone — without this sentinel a probe racing the death throes
+	// surfaces a hard error where "dead" is the truthful answer.
+	"server exited unexpectedly",
 }
 
 // IsServerGone reports whether err indicates the tmux server's socket is gone —

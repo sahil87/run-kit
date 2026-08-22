@@ -176,6 +176,7 @@ const ThemeSelector = lazy(() => import("@/components/theme-selector").then(m =>
 const CreateSessionDialog = lazy(() => import("@/components/create-session-dialog").then(m => ({ default: m.CreateSessionDialog })));
 const SessionNamePrompt = lazy(() => import("@/components/session-name-prompt").then(m => ({ default: m.SessionNamePrompt })));
 const SpawnAgentDialog = lazy(() => import("@/components/spawn-agent-dialog").then(m => ({ default: m.SpawnAgentDialog })));
+const OperatorComposeDialog = lazy(() => import("@/components/operator-compose-dialog").then(m => ({ default: m.OperatorComposeDialog })));
 const SwatchPopover = lazy(() => import("@/components/swatch-popover").then(m => ({ default: m.SwatchPopover })));
 const SettingsDialog = lazy(() => import("@/components/settings-dialog").then(m => ({ default: m.SettingsDialog })));
 
@@ -1236,6 +1237,10 @@ function AppShell() {
   // (cross-server spawn), while the palette/window-switcher pass the CURRENT
   // `{server, sessionName}`. `null` = closed.
   const [spawnAgentTarget, setSpawnAgentTarget] = useState<{ server: string; session: string } | null>(null);
+  // The operator compose dialog's pre-selected mode (`null` = closed). Both
+  // palette verbs and the pinned operator row's compose icon mount the one
+  // dialog; the mode is only the entry point's pre-selection.
+  const [operatorComposeMode, setOperatorComposeMode] = useState<"spawn" | "find" | null>(null);
   const [iframeWindowName, setIframeWindowName] = useState("");
   const [iframeWindowUrl, setIframeWindowUrl] = useState("");
 
@@ -2096,7 +2101,7 @@ function AppShell() {
   // `server-dialogs-context` (260811-239r) — the dialogs mount in AppLayout now,
   // but gating this route's URL writeback while one is up is unchanged.
   dialogOpenRef.current =
-    dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || createServerOpen || killServerTarget != null || showTmuxCommands || showCreateWindowAtFolderDialog || showCreateIframeDialog || spawnAgentTarget != null || sessionNamePrompt != null;
+    dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || createServerOpen || killServerTarget != null || showTmuxCommands || showCreateWindowAtFolderDialog || showCreateIframeDialog || spawnAgentTarget != null || sessionNamePrompt != null || operatorComposeMode != null;
 
   // Flat window list for palette actions
   const flatWindows = useMemo(() => {
@@ -2268,6 +2273,15 @@ function AppShell() {
   // cross-server spawn). Gated on a resolvable session at the call sites.
   const handleOpenSpawnAgent = useCallback((srv: string, sess: string) => {
     setSpawnAgentTarget({ server: srv, session: sess });
+  }, []);
+
+  // Open the operator compose dialog with the entry point's pre-selected mode
+  // (260822-wyn3): the palette verbs pass their own mode; the pinned operator
+  // row's compose icon passes just the server and lands on the spawn default.
+  // The server is always the CURRENT one — the dialog is gated on this
+  // server's operator.
+  const handleOperatorCompose = useCallback((_srv: string, mode: "spawn" | "find" = "spawn") => {
+    setOperatorComposeMode(mode);
   }, []);
 
   // Navigate to a freshly-created agent window on `srv`. When `srv` IS the
@@ -3663,6 +3677,21 @@ function AppShell() {
     [server, sessionName, handleOpenSpawnAgent],
   );
 
+  // Operator compose palette verbs (260822-wyn3) — the PRIMARY entry to the
+  // compose dialog (Constitution V). Each pre-selects its mode in the shared
+  // dialog; gated on this server having an operator window (omit-not-disable,
+  // the same degrade-to-absent rule as `Tab: Fix name (ask operator)`).
+  const operatorComposeActions: PaletteAction[] = useMemo(
+    () =>
+      hasOperatorWindow
+        ? [
+            { id: "operator-spawn-task", label: "Operator: Spawn task…", onSelect: () => handleOperatorCompose(server, "spawn") },
+            { id: "operator-find-discussion", label: "Operator: Find discussion…", onSelect: () => handleOperatorCompose(server, "find") },
+          ]
+        : [],
+    [hasOperatorWindow, handleOperatorCompose, server],
+  );
+
   const { actions: pushActions } = usePushSubscription();
 
   // `Tab: Previous` / `Tab: Next` (R8) — palette parity for the
@@ -3717,11 +3746,11 @@ function AppShell() {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...sessionActions, ...sessionsScopeActions, ...windowActions, ...windowCycleActions, ...sessionJumpActions, ...boardActions, ...selectionActions, ...viewActions, ...openActions, ...themeActions, ...configActions, ...statusRefreshActions, ...serverActions, ...shellServerActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions, ...macroPaletteActions],
+        [...sessionActions, ...sessionsScopeActions, ...windowActions, ...windowCycleActions, ...sessionJumpActions, ...boardActions, ...selectionActions, ...viewActions, ...openActions, ...themeActions, ...configActions, ...statusRefreshActions, ...serverActions, ...shellServerActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions, ...operatorComposeActions, ...macroPaletteActions],
         bindingByAction,
         bindingHost.platform,
       ),
-    [sessionActions, sessionsScopeActions, windowActions, windowCycleActions, sessionJumpActions, boardActions, selectionActions, viewActions, openActions, themeActions, configActions, statusRefreshActions, serverActions, shellServerActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions, macroPaletteActions, bindingByAction, bindingHost],
+    [sessionActions, sessionsScopeActions, windowActions, windowCycleActions, sessionJumpActions, boardActions, selectionActions, viewActions, openActions, themeActions, configActions, statusRefreshActions, serverActions, shellServerActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions, operatorComposeActions, macroPaletteActions, bindingByAction, bindingHost],
   );
   // Publish this route's (already shortcut-decorated) list into the
   // palette-actions slot — the single layout-mounted CommandPalette renders
@@ -4169,6 +4198,7 @@ function AppShell() {
       onSpawnAgent={handleOpenSpawnAgent}
       onForkWindow={handleForkWindow}
       onFixTabName={handleFixTabName}
+      onOperatorCompose={hasOperatorWindow ? handleOperatorCompose : undefined}
       onCreateServer={openCreateServer}
       onKillServer={requestKillServer}
       onSidebarResizeStart={isMobile ? undefined : (e) => handleDragStart(e.clientX)}
@@ -4464,6 +4494,16 @@ function AppShell() {
             session={spawnAgentTarget.session}
             onSpawned={(windowId) => navigateToSpawnedWindow(spawnAgentTarget.server, windowId)}
             onClose={() => setSpawnAgentTarget(null)}
+          />
+        </Suspense>
+      )}
+
+      {operatorComposeMode != null && server && (
+        <Suspense fallback={null}>
+          <OperatorComposeDialog
+            server={server}
+            initialMode={operatorComposeMode}
+            onClose={() => setOperatorComposeMode(null)}
           />
         </Suspense>
       )}

@@ -858,3 +858,58 @@ describe("CmdK Fix Tab Name Action (operator-request gate)", () => {
     expect(screen.queryByText("Tab: Fix name (ask operator)")).not.toBeInTheDocument();
   });
 });
+
+/**
+ * Tests for the Operator compose palette entries (260822-wyn3 R6) —
+ * `Operator: Spawn task…` / `Operator: Find discussion…` are present only when
+ * the server has an operator window (omit-not-disable, the
+ * `buildFixTabNameActions` precedent), each opening the shared compose dialog
+ * with its mode pre-selected.
+ */
+
+/** Build the operator compose palette entries matching app.tsx's gate. */
+function buildOperatorComposeActions(opts: {
+  hasOperator: boolean;
+  onOpen: (mode: "spawn" | "find") => void;
+}): PaletteAction[] {
+  if (!opts.hasOperator) return [];
+  return [
+    { id: "operator-spawn-task", label: "Operator: Spawn task…", onSelect: () => opts.onOpen("spawn") },
+    { id: "operator-find-discussion", label: "Operator: Find discussion…", onSelect: () => opts.onOpen("find") },
+  ];
+}
+
+describe("CmdK Operator Compose Actions (hasOperatorWindow gate)", () => {
+  afterEach(cleanup);
+
+  it("both entries are listed with an operator, each pre-selecting its mode", () => {
+    const onOpen = vi.fn();
+    const actions = buildOperatorComposeActions({ hasOperator: true, onOpen });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    const input = screen.getByPlaceholderText(/^Type a command/);
+    fireEvent.change(input, { target: { value: "Operator:" } });
+    expect(screen.getByText("Operator: Spawn task…")).toBeInTheDocument();
+    expect(screen.getByText("Operator: Find discussion…")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Operator: Spawn task…"));
+    expect(onOpen).toHaveBeenCalledWith("spawn");
+
+    openPalette();
+    fireEvent.change(screen.getByPlaceholderText(/^Type a command/), { target: { value: "Operator:" } });
+    fireEvent.click(screen.getByText("Operator: Find discussion…"));
+    expect(onOpen).toHaveBeenCalledWith("find");
+  });
+
+  it("neither entry is listed without an operator on the server", () => {
+    const actions = buildOperatorComposeActions({ hasOperator: false, onOpen: vi.fn() });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    expect(screen.queryByText("Operator: Spawn task…")).not.toBeInTheDocument();
+    expect(screen.queryByText("Operator: Find discussion…")).not.toBeInTheDocument();
+  });
+});

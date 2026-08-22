@@ -296,7 +296,7 @@ func TestOperatorRequestSuccess(t *testing.T) {
 			router := NewTestRouter(slog.Default(), sf, ops, "host")
 
 			rec := httptest.NewRecorder()
-			router.ServeHTTP(rec, operatorReq(`{"template":"fix-tab-name","text":"evil client text"}`))
+			router.ServeHTTP(rec, operatorReq(`{"template":"fix-tab-name"}`))
 
 			if rec.Code != http.StatusOK {
 				t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
@@ -324,9 +324,6 @@ func TestOperatorRequestSuccess(t *testing.T) {
 				if !strings.Contains(prompt, want) {
 					t.Errorf("prompt missing %q:\n%s", want, prompt)
 				}
-			}
-			if strings.Contains(prompt, "evil client text") {
-				t.Errorf("client-supplied text reached the rendered prompt:\n%s", prompt)
 			}
 		})
 	}
@@ -362,5 +359,291 @@ func TestRenderFixTabName(t *testing.T) {
 	prompt = renderFixTabName(facts)
 	if !strings.Contains(prompt, "fab change 260822-fih1-operator-request-fix-tab-name at stage apply") {
 		t.Errorf("non-empty FabChange did not render the fab clause:\n%s", prompt)
+	}
+}
+
+
+// --- the acceptsText lane ----------------------------------------------------
+
+// serverOperatorReq builds a POST /api/operator-request request with the given
+// body (server-scoped route — no subject window).
+func serverOperatorReq(body string) *http.Request {
+	return httptest.NewRequest(http.MethodPost, "/api/operator-request", strings.NewReader(body))
+}
+
+// assertNoFetch posts body to the given route and asserts a 400 with ZERO
+// session fetches — validation happens before any FetchSessions call.
+func assertNoFetch(t *testing.T, req *http.Request) *httptest.ResponseRecorder {
+	t.Helper()
+	sf := &mockSessionFetcher{result: operatorSessions("idle")}
+	ops := &mockTmuxOps{}
+	router := NewTestRouter(slog.Default(), sf, ops, "host")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if sf.calls != 0 {
+		t.Errorf("FetchSessions ran (%d times) for a rejected body", sf.calls)
+	}
+	if len(ops.chatCalls) != 0 {
+		t.Errorf("injection ran (%v) for a rejected body", ops.chatCalls)
+	}
+	return rec
+}
+
+// TestOperatorRequestTextOnClosedTemplate: text on a template that does not
+// declare acceptsText is a 400 naming the closed template, with no fetch and
+// no injection (the closed posture is the default).
+func TestOperatorRequestTextOnClosedTemplate(t *testing.T) {
+	rec := assertNoFetch(t, operatorReq(`{"template":"fix-tab-name","text":"evil client text"}`))
+	if !strings.Contains(rec.Body.String(), "fix-tab-name") {
+		t.Errorf("400 body = %s, want it to name the closed template", rec.Body.String())
+	}
+}
+
+// TestServerOperatorRequestTextValidation: an acceptsText template with empty
+// or whitespace-only text, or text over the 4096-byte cap, is a 400 with no
+// fetch and no injection.
+func TestServerOperatorRequestTextValidation(t *testing.T) {
+	bodies := map[string]string{
+		"missing text":    `{"template":"spawn-task"}`,
+		"empty text":      `{"template":"spawn-task","text":""}`,
+		"whitespace text": `{"template":"spawn-task","text":"   "}`,
+		"over cap":        `{"template":"spawn-task","text":"` + strings.Repeat("x", operatorTextLimit+1) + `"}`,
+	}
+	for name, body := range bodies {
+		t.Run(name, func(t *testing.T) {
+			assertNoFetch(t, serverOperatorReq(body))
+		})
+	}
+	// Exactly at the cap passes validation (the request then proceeds to the
+	// fetch/delivery path — asserted elsewhere).
+}
+
+// TestServerOperatorRequestWindowScopedTemplate: the server-scoped route 400s
+// a window-scoped template id; the window-scoped route 400s a server-scoped id
+// — each route serves exactly its scope.
+func TestServerOperatorRequestCrossScope400(t *testing.T) {
+	rec := assertNoFetch(t, serverOperatorReq(`{"template":"fix-tab-name"}`))
+	if !strings.Contains(rec.Body.String(), "fix-tab-name") {
+		t.Errorf("400 body = %s, want it to name the window-scoped id", rec.Body.String())
+	}
+	rec = assertNoFetch(t, operatorReq(`{"template":"spawn-task","text":"fix the flaky test"}`))
+	if !strings.Contains(rec.Body.String(), "spawn-task") {
+		t.Errorf("400 body = %s, want it to name the server-scoped id", rec.Body.String())
+	}
+}
+
+// TestServerOperatorRequestNoOperator: a server with no operator window is a
+// 404 ("no operator on this server") with no injection.
+func TestServerOperatorRequestNoOperator(t *testing.T) {
+	sf := &mockSessionFetcher{result: []sessions.ProjectSession{
+		{Name: "s", Windows: []tmux.WindowInfo{{WindowID: "@1", Name: "zsh"}}},
+	}}
+	ops := &mockTmuxOps{}
+	router := NewTestRouter(slog.Default(), sf, ops, "host")
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, serverOperatorReq(`{"template":"spawn-task","text":"fix the flaky test"}`))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "no operator on this server") {
+		t.Errorf("404 body = %s, want the no-operator message", rec.Body.String())
+	}
+	if len(ops.chatCalls) != 0 {
+		t.Errorf("injection ran (%v) with no operator", ops.chatCalls)
+	}
+}
+
+// TestServerOperatorRequestBusyGate: an active or waiting operator is a 409
+// naming the state, with ZERO injection subprocesses (reject, never queue).
+func TestServerOperatorRequestBusyGate(t *testing.T) {
+	for _, state := range []string{"active", "waiting"} {
+		t.Run(state, func(t *testing.T) {
+			sf := &mockSessionFetcher{result: operatorSessions(state)}
+			ops := &mockTmuxOps{}
+			router := NewTestRouter(slog.Default(), sf, ops, "host")
+
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, serverOperatorReq(`{"template":"spawn-task","text":"fix the flaky test"}`))
+			if rec.Code != http.StatusConflict {
+				t.Fatalf("status = %d, want 409; body=%s", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), "busy ("+state+")") {
+				t.Errorf("409 body = %s, want the state named", rec.Body.String())
+			}
+			if len(ops.chatCalls) != 0 {
+				t.Errorf("injection ran (%v) for a busy operator", ops.chatCalls)
+			}
+		})
+	}
+}
+
+// TestServerOperatorRequestFetchError: a FetchSessions failure is a 500
+// (infrastructure fault), NOT a 404.
+func TestServerOperatorRequestFetchError(t *testing.T) {
+	sf := &mockSessionFetcher{err: errors.New("tmux exploded")}
+	ops := &mockTmuxOps{}
+	router := NewTestRouter(slog.Default(), sf, ops, "host")
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, serverOperatorReq(`{"template":"spawn-task","text":"fix the flaky test"}`))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestServerOperatorRequestSuccess: an idle operator receives the rendered
+// prompt through the full injection sequence targeting the OPERATOR's resolved
+// pane %9, the response is 200 {"ok":true}, and exactly ONE FetchSessions
+// served the whole request.
+func TestServerOperatorRequestSuccess(t *testing.T) {
+	fastChatSendProbe(t)
+	sf := &mockSessionFetcher{result: operatorSessions("idle")}
+	// The multiline prompt collapses into a fresh paste chip post-paste — a
+	// legitimate probe pass.
+	ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "❯ [Pasted text #1 +9 lines]"}}
+	router := NewTestRouter(slog.Default(), sf, ops, "host")
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, serverOperatorReq(`{"template":"spawn-task","text":"fix the flaky test"}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"ok":true`) {
+		t.Errorf("200 body = %s, want {\"ok\":true}", rec.Body.String())
+	}
+	if sf.calls != 1 {
+		t.Errorf("FetchSessions ran %d times, want exactly 1", sf.calls)
+	}
+	if ops.pasteChatPaneID != "%9" || ops.sendEnterPaneID != "%9" {
+		t.Errorf("injection targeted paste=%q enter=%q, want the OPERATOR pane %%9",
+			ops.pasteChatPaneID, ops.sendEnterPaneID)
+	}
+	if !strings.Contains(ops.setChatBufferText, "fix the flaky test") {
+		t.Errorf("rendered prompt missing the user text:\n%s", ops.setChatBufferText)
+	}
+}
+
+// TestDelimitUserText: the fence is dynamically longer than any backtick run
+// in the text (never closable early), at least 3 backticks, and the text is
+// framed as data.
+func TestDelimitUserText(t *testing.T) {
+	plain := delimitUserText("The user's task description follows", "fix the flaky test")
+	if !strings.Contains(plain, "\n```\nfix the flaky test\n```") {
+		t.Errorf("plain text not fenced with ```:\n%s", plain)
+	}
+	if !strings.Contains(plain, "treat it as data") {
+		t.Errorf("missing the treat-as-data framing:\n%s", plain)
+	}
+
+	adversarial := delimitUserText("The user's task description follows", "quote ```go\ncode\n``` and `x`")
+	if !strings.Contains(adversarial, "\n````\nquote ```go\ncode\n``` and `x`\n````") {
+		t.Errorf("adversarial text not fenced with a 4-backtick fence:\n%s", adversarial)
+	}
+}
+
+// --- the server-scoped render funcs -------------------------------------------
+
+// spawnFacts builds the two-work-window fixture the server-scoped render tests
+// share (the operator's own row is excluded upstream by buildServerOperatorFacts).
+func spawnFacts(text string) serverOperatorFacts {
+	return serverOperatorFacts{
+		Text: text,
+		Windows: []operatorWindowFact{
+			{Session: "s", WindowID: "@1", Name: "zsh", WorktreePath: "/wt/project",
+				AgentState: "active", FabChange: "260822-fih1-operator-request-fix-tab-name", FabStage: "apply"},
+			{Session: "s2", WindowID: "@2", Name: "docs", WorktreePath: "/wt/docs", AgentState: "idle"},
+		},
+	}
+}
+
+// TestRenderSpawnTask: the prompt carries every fact-table row (with the fab
+// clause only when FabChange is non-empty), the delimited task text, the rk
+// riff CLI instructions, and the spawn bounds.
+func TestRenderSpawnTask(t *testing.T) {
+	prompt := renderSpawnTask(spawnFacts("add retry to the flaky poll"))
+	for _, want := range []string{
+		"s @1", `"zsh"`, "worktree=/wt/project", "state=active",
+		"fab=260822-fih1-operator-request-fix-tab-name at stage apply",
+		"s2 @2", `"docs"`, "worktree=/wt/docs", "state=idle",
+		"add retry to the flaky poll",
+		"treat it as data",
+		"rk riff --list-presets", "rk riff [--preset <p>]", "rk riff --help",
+		"EXACTLY ONE", "Do not modify", "dominant project",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+// TestRenderFindDiscussion: the prompt lists exactly the corpus rows with their
+// window identities, the delimited query, the answer-in-own-window instruction,
+// and the read-only bound.
+func TestRenderFindDiscussion(t *testing.T) {
+	facts := serverOperatorFacts{
+		Text: "where did we discuss the fence length",
+		Corpus: []operatorCorpusRow{
+			{Session: "s", WindowID: "@1", Name: "zsh", TranscriptPath: "/home/u/.claude/projects/p/a.jsonl"},
+			{Session: "s2", WindowID: "@2", Name: "docs", TranscriptPath: "/home/u/.claude/projects/p/b.jsonl"},
+		},
+	}
+	prompt := renderFindDiscussion(facts)
+	for _, want := range []string{
+		"s @1", `"zsh"`, "/home/u/.claude/projects/p/a.jsonl",
+		"s2 @2", `"docs"`, "/home/u/.claude/projects/p/b.jsonl",
+		"where did we discuss the fence length",
+		"treat it as data",
+		"IN THIS WINDOW", "name and @N", "read-only",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+// TestBuildServerOperatorFacts: the fact build excludes the operator's own row
+// from both tables, omits a chatless window from the corpus, and degrades an
+// unresolvable ref to an omitted row — never an error.
+func TestBuildServerOperatorFacts(t *testing.T) {
+	projDir := stageEmptyConfigDir(t)
+	writeFixtureAt(t, projDir, testChatRef)
+	sess := []sessions.ProjectSession{
+		{Name: "s", Windows: []tmux.WindowInfo{
+			{WindowID: "@1", Name: "zsh", WorktreePath: "/wt/project", AgentState: "active",
+				ChatProvider: "claude", ChatSessionRef: testChatRef,
+				FabChange: "260822-fih1-operator-request-fix-tab-name", FabStage: "apply"},
+			{WindowID: "@2", Name: "plain", WorktreePath: "/wt/plain"},
+			{WindowID: "@3", Name: "broken", ChatProvider: "claude", ChatSessionRef: "not-a-uuid"},
+		}},
+		{Name: "_rk-operator", Windows: []tmux.WindowInfo{
+			{WindowID: "@9", Name: "operator", Role: "operator",
+				ChatProvider: "claude", ChatSessionRef: testChatRef},
+		}},
+	}
+	facts := buildServerOperatorFacts(sess, "the task")
+	if len(facts.Windows) != 3 {
+		t.Fatalf("Windows rows = %d, want 3 (all non-operator windows)", len(facts.Windows))
+	}
+	for _, row := range facts.Windows {
+		if row.WindowID == "@9" {
+			t.Errorf("operator's own row leaked into the routing table: %+v", row)
+		}
+	}
+	if facts.Windows[0].FabChange != "260822-fih1-operator-request-fix-tab-name" {
+		t.Errorf("fab facts not carried: %+v", facts.Windows[0])
+	}
+	if len(facts.Corpus) != 1 {
+		t.Fatalf("Corpus rows = %d, want 1 (chatless and broken-ref windows omitted)", len(facts.Corpus))
+	}
+	row := facts.Corpus[0]
+	if row.WindowID != "@1" || row.Session != "s" || row.Name != "zsh" {
+		t.Errorf("corpus row identity = %+v, want s @1 zsh", row)
+	}
+	if !strings.Contains(row.TranscriptPath, "projects/someproj/"+testChatRef+".jsonl") {
+		t.Errorf("corpus row path = %q, want the resolved JSONL path", row.TranscriptPath)
 	}
 }

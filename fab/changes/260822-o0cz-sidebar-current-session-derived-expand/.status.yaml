@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 4
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-08-22T07:52:51Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-22T07:56:19Z"}
     hydrate: {started_at: "2026-08-22T07:56:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-22T07:57:29Z"}
     ship: {started_at: "2026-08-22T07:57:29Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-22T07:59:23Z"}
-    review-pr: {started_at: "2026-08-22T07:59:23Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-08-22T07:59:23Z", driver: git-pr, iterations: 1, completed_at: "2026-08-22T08:06:17Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/707
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: 'sidebar: current route''s session renders expanded regardless of its collapsed exception (derived override at both read sites; map never mutated by navigation)'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-22T07:59:23Z
+last_updated: 2026-08-22T08:06:17Z

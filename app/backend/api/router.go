@@ -256,6 +256,14 @@ func (s *Server) initSSEHub() {
 		}
 		s.sseHub = newSSEHub(s.sessions, s.metrics, s.services, pc)
 		s.sseHub.codeServerPort = s.codeServerPort
+		// Wire the auto-name delivery seam (260822-q675): the tracker itself is
+		// constructed Server-free inside newSSEHub; the deliver closure closes
+		// over the shared operator-request delivery core (fact derivation, busy
+		// gate, pane resolution, injection — the same path the HTTP endpoint
+		// takes), always with the fix-tab-name template.
+		s.sseHub.autoName.deliver = func(ctx context.Context, server string, subject, operator *tmux.WindowInfo) error {
+			return s.deliverOperatorRequest(ctx, server, subject, operator, operatorTemplates["fix-tab-name"])
+		}
 	})
 }
 

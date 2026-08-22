@@ -67,6 +67,8 @@ Read the recent conversation in the transcript to see what this tab is actually 
 Then rename the window to a short, accurate name (2-4 words, kebab-case preferred):
   tmux rename-window -t %s "<new-name>"
 
+If the current name already accurately describes what the tab is working on, do nothing (no rename).
+
 Do not reply to this message or take any other action.`,
 		f.WindowID, f.Name, f.TranscriptPath, contextLine, f.WindowID)
 }
@@ -76,6 +78,80 @@ Do not reply to this message or take any other action.`,
 // rendered prompt (Constitution I).
 type operatorRequestBody struct {
 	Template string `json:"template"`
+}
+
+// operatorReject is a delivery-core failure the HTTP handler maps back to its
+// status + body (keeping the endpoint's external behavior byte-identical across
+// the extraction); the auto-name path (auto_name.go) logs it quietly and drops.
+// Transcript-resolution and injection failures are returned RAW (not wrapped as
+// operatorReject) so the handler's errors.Is/As mappings (writeChatReadError
+// vocabulary, inject.ProbeFailure → 409) keep working unchanged.
+type operatorReject struct {
+	status int
+	msg    string
+}
+
+func (e *operatorReject) Error() string { return e.msg }
+
+// deliverOperatorRequest is the post-parse core of handleOperatorRequest,
+// shared with the auto-name-on-idle tracker (260822-q675): fact derivation,
+// the busy gate, operator pane resolution, and injection through the chat-send
+// engine. subject/operator arrive ALREADY RESOLVED from the caller's single
+// FetchSessions pass — no second fetch happens here. The ONE shared
+// chatSendTotalBudget deadline is applied inside so both callers (HTTP handler,
+// auto-name fan-out) get identical injection bounding.
+//
+// Busy policy is REJECT, never queue: an active or waiting operator yields a
+// 409-class operatorReject; idle or unknown proceeds (the novelty echo probe
+// remains the final fail-closed guard). No state is written anywhere
+// (Constitution II) beyond the caller's own cooldown bookkeeping.
+func (s *Server) deliverOperatorRequest(ctx context.Context, server string, subject, operator *tmux.WindowInfo, tmpl operatorTemplate) error {
+	facts := operatorFacts{
+		WindowID:     subject.WindowID,
+		Name:         subject.Name,
+		WorktreePath: subject.WorktreePath,
+		FabChange:    subject.FabChange,
+		FabStage:     subject.FabStage,
+	}
+	if tmpl.requiresChatRef {
+		if subject.ChatSessionRef == "" {
+			return &operatorReject{http.StatusNotFound, "no chat session for this window"}
+		}
+		path, err := chat.TranscriptPath(subject.ChatProvider, subject.ChatSessionRef)
+		if err != nil {
+			if errors.Is(err, chat.ErrNoAdapter) {
+				return &operatorReject{http.StatusNotFound, fmt.Sprintf("no adapter for provider %q", subject.ChatProvider)}
+			}
+			// Raw error — the handler maps ErrInvalidRef / ErrTranscriptNotFound
+			// through writeChatReadError (the chat-read 404-class vocabulary).
+			return err
+		}
+		facts.TranscriptPath = path
+	}
+
+	// Busy gate — reject, never queue: `waiting` means a human-blocking dialog
+	// is up (pasting into it is the blind-typing hazard the probe exists for);
+	// idle or empty state proceeds (unknown must pass or a hookless operator
+	// could never receive requests; the probe still fail-closes delivery).
+	switch operator.AgentState {
+	case tmux.AgentStateActive, tmux.AgentStateWaiting:
+		return &operatorReject{http.StatusConflict, fmt.Sprintf("operator is busy (%s) — request not delivered; try again when it is idle", operator.AgentState)}
+	}
+
+	// Delivery targets the OPERATOR window's resolved chat pane (active-pane-
+	// first rollup, same rule chat-send uses) — never the subject's pane, never
+	// a window id. An operator without a reconciled chat pane can't receive
+	// requests.
+	_, _, operatorPaneID := sessions.ResolveChatPane(operator.Panes)
+	if operatorPaneID == "" {
+		return &operatorReject{http.StatusNotFound, "operator window has no chat session"}
+	}
+
+	// One shared deadline for the whole injection sequence (see handleChatSend).
+	ctx, cancel := context.WithTimeout(ctx, chatSendTotalBudget)
+	defer cancel()
+
+	return s.injectChatMessage(ctx, server, operatorPaneID, tmpl.render(facts), true)
 }
 
 // handleOperatorRequest serves POST /api/windows/{windowId}/operator-request —
@@ -141,61 +217,22 @@ func (s *Server) handleOperatorRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	facts := operatorFacts{
-		WindowID:     windowID,
-		Name:         subject.Name,
-		WorktreePath: subject.WorktreePath,
-		FabChange:    subject.FabChange,
-		FabStage:     subject.FabStage,
-	}
-	if tmpl.requiresChatRef {
-		if subject.ChatSessionRef == "" {
-			writeError(w, http.StatusNotFound, "no chat session for this window")
+	if err := s.deliverOperatorRequest(r.Context(), server, subject, operator, tmpl); err != nil {
+		var probeErr inject.ProbeFailure
+		if errors.As(err, &probeErr) {
+			// Text pasted, Enter withheld — recoverable state (same as chat-send).
+			writeError(w, http.StatusConflict, probeErr.Error())
 			return
 		}
-		path, err := chat.TranscriptPath(subject.ChatProvider, subject.ChatSessionRef)
-		if err != nil {
-			if errors.Is(err, chat.ErrNoAdapter) {
-				writeError(w, http.StatusNotFound, fmt.Sprintf("no adapter for provider %q", subject.ChatProvider))
-				return
-			}
+		if errors.Is(err, chat.ErrInvalidRef) || errors.Is(err, chat.ErrTranscriptNotFound) {
 			// ErrInvalidRef / ErrTranscriptNotFound map to the same 404-class
 			// vocabulary as the chat read endpoints.
 			s.writeChatReadError(w, err)
 			return
 		}
-		facts.TranscriptPath = path
-	}
-
-	// Busy gate — reject, never queue: `waiting` means a human-blocking dialog
-	// is up (pasting into it is the blind-typing hazard the probe exists for);
-	// idle or empty state proceeds (unknown must pass or a hookless operator
-	// could never receive requests; the probe still fail-closes delivery).
-	switch operator.AgentState {
-	case tmux.AgentStateActive, tmux.AgentStateWaiting:
-		writeError(w, http.StatusConflict, fmt.Sprintf("operator is busy (%s) — request not delivered; try again when it is idle", operator.AgentState))
-		return
-	}
-
-	// Delivery targets the OPERATOR window's resolved chat pane (active-pane-
-	// first rollup, same rule chat-send uses) — never the subject's pane, never
-	// a window id. An operator without a reconciled chat pane can't receive
-	// requests.
-	_, _, operatorPaneID := sessions.ResolveChatPane(operator.Panes)
-	if operatorPaneID == "" {
-		writeError(w, http.StatusNotFound, "operator window has no chat session")
-		return
-	}
-
-	// One shared deadline for the whole injection sequence (see handleChatSend).
-	ctx, cancel := context.WithTimeout(r.Context(), chatSendTotalBudget)
-	defer cancel()
-
-	if err := s.injectChatMessage(ctx, server, operatorPaneID, tmpl.render(facts), true); err != nil {
-		var probeErr inject.ProbeFailure
-		if errors.As(err, &probeErr) {
-			// Text pasted, Enter withheld — recoverable state (same as chat-send).
-			writeError(w, http.StatusConflict, probeErr.Error())
+		var rej *operatorReject
+		if errors.As(err, &rej) {
+			writeError(w, rej.status, rej.msg)
 			return
 		}
 		writeError(w, http.StatusInternalServerError, err.Error())

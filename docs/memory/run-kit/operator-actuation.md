@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The operator actuation seam — POST /api/windows/{windowId}/operator-request hands the server's operator window a templated work item ABOUT a subject window: closed in-code template registry (fix-tab-name), facts pre-derived server-side from ONE FetchSessions pass, busy-gate reject (active/waiting ⇒ 409, no queue), delivery in-process through the chat-send injection engine into the operator's resolved pane, the result arriving via the normal derive tick. UI affordances degrade to absent."
+description: "The operator actuation seam — a templated work item ABOUT a subject window is handed to the server's operator window: closed template registry (fix-tab-name), facts pre-derived from ONE FetchSessions pass, busy-gate reject (no queue), in-process delivery via the chat-send injection engine through the shared `deliverOperatorRequest` core. Two callers: POST /api/windows/{windowId}/operator-request and the SSE-tick auto-name tracker (fires fix-tab-name on busy→idle, rate-limited, busy-skip)."
 ---
 # Operator Actuation
 
@@ -18,11 +18,18 @@ delivers it through the existing chat-send injection machinery
 shell (e.g. `tmux rename-window`); the outcome surfaces on the normal derive
 tick. There is NO queue, NO persisted mailbox, NO retry semantics (Constitution
 II), and NO response channel or reply parsing — the operator is not an RPC
-service. Everything lives in `app/backend/api/operator.go` (handler + registry),
-the route registered in `api/router.go` beside the chat routes. Nothing in any
-existing UI request path routes through the operator — operator features degrade
-to **absent** when no operator runs, never to blocking (the inside/outside
-razor).
+service. The seam has TWO callers over ONE shared delivery core
+(`deliverOperatorRequest` — fact derivation, the busy gate, operator pane
+resolution, injection): the user-initiated HTTP handler, and the
+system-initiated **auto-name tracker** (`api/auto_name.go`), which rides the
+SSE per-server tick beside the waiting-push tracker and fires the
+`fix-tab-name` request when a subject window transitions busy→idle — run-kit
+owns the derivable trigger, the operator owns the rename judgment. Everything
+lives in `app/backend/api/operator.go` (handler + registry + delivery core)
+and `app/backend/api/auto_name.go` (tracker), the route registered in
+`api/router.go` beside the chat routes. Nothing in any existing UI request
+path routes through the operator — operator features degrade to **absent**
+when no operator runs, never to blocking (the inside/outside razor).
 
 ## Requirements
 
@@ -57,7 +64,10 @@ operator window on the server maps to `404` with `"no operator on this
 server"` — the UI hides the action in that state (degrade to absent), so the
 error is the race backstop. The handler MUST NOT call `resolveWindowChat`
 (which would issue a second `FetchSessions`); pane resolution reuses
-`sessions.ResolveChatPane` on the already-fetched windows.
+`sessions.ResolveChatPane` on the already-fetched windows. Subject and operator
+are then handed ALREADY RESOLVED to the shared delivery core
+(`deliverOperatorRequest`), which performs no fetch of its own — the auto-name
+caller passes windows straight from the tick's sessions snapshot.
 
 #### Scenario: No operator on the server
 - **GIVEN** a server whose sessions contain no window with `Role == "operator"`
@@ -66,7 +76,7 @@ error is the race backstop. The handler MUST NOT call `resolveWindowChat`
   injection.
 
 ### Requirement: Server-side fact pre-derivation
-The handler SHALL pre-derive the template facts (`operatorFacts`) server-side —
+The delivery core SHALL derive the template facts (`operatorFacts`) server-side —
 all derivable (Constitution X): the subject's `windowId` (`@N`), current `Name`,
 `WorktreePath`, `FabChange`/`FabStage` (rendered only when `FabChange` is
 non-empty), and — for a template declaring `requiresChatRef` — the transcript
@@ -88,8 +98,9 @@ the same 404-class vocabulary as the chat read endpoints; `ErrNoAdapter` is a
   windowId, name, absolute JSONL path, and worktree path.
 
 ### Requirement: Busy gate on the operator's agent state — reject, never queue
-The handler SHALL read the operator window's rolled-up `AgentState` (already on
-the same `FetchSessions` result) BEFORE delivering. `active` or `waiting` ⇒
+The delivery core SHALL read the operator window's rolled-up `AgentState`
+(already on the same `FetchSessions` result) BEFORE delivering. `active` or
+`waiting` ⇒
 `409` with a structured message naming the state (`"operator is busy (<state>)
 — request not delivered; try again when it is idle"`). `idle` or empty/unknown
 ⇒ proceed — the novelty echo probe remains the final fail-closed guard, exactly
@@ -97,6 +108,12 @@ as for chat-send. This is deliberately UNLIKE chat-send's allow+probe busy
 policy ([chat](/run-kit/chat.md) § Design Decisions → Allow + probe busy
 policy): a request is work handed over, not a steer a human typed. There SHALL
 be NO queue, NO retry, and NO state written anywhere (Constitution II).
+Failures the HTTP handler maps to a status+body (this 409 included) surface
+from the core as a typed `operatorReject{status,msg}` sentinel the handler maps
+back byte-identically; transcript-resolution and injection errors return RAW so
+the handler's `errors.Is`/`errors.As` mappings (`writeChatReadError`
+vocabulary, `inject.ProbeFailure` → 409) hold unchanged. The auto-name caller
+logs whatever comes back at debug and drops it.
 
 #### Scenario: Busy operator rejects without touching tmux
 - **GIVEN** an operator window whose rollup state is `active` (or `waiting`)
@@ -106,7 +123,7 @@ be NO queue, NO retry, and NO state written anywhere (Constitution II).
 - **AND GIVEN** state `idle` or empty, **THEN** delivery proceeds.
 
 ### Requirement: Delivery through the shared injection engine, in-process
-The handler SHALL deliver the rendered prompt in-process via
+The delivery core SHALL deliver the rendered prompt in-process via
 `s.injectChatMessage(ctx, server, operatorPaneID, prompt, true)` — the same
 `api`-package seam chat-send uses, NOT an HTTP self-call — where
 `operatorPaneID` is `sessions.ResolveChatPane(operator.Panes)` over the
@@ -115,7 +132,8 @@ never the window, never the subject's pane). An operator window with no
 reconciled chat pane ⇒ `404` (`"operator window has no chat session"` — an
 operator that isn't a live agent can't receive requests). The engine's existing
 semantics apply unchanged: handler-boundary sanitize, per-(server,paneID)
-whole-sequence lock, ONE shared deadline (`chatSendTotalBudget`) threading all
+whole-sequence lock, ONE shared deadline (`chatSendTotalBudget`, applied
+INSIDE the core so both callers get identical injection bounding) threading all
 subprocesses, and the novelty echo probe; a probe failure surfaces as the same
 structured `409` chat-send returns (`inject.ProbeFailure` — text pasted, Enter
 withheld, recoverable). Success is `200 {"ok":true}`. The handler MUST NOT wake
@@ -139,16 +157,66 @@ read (the chat JSONL, never capture-pane — agent TUIs run alt-screen with zero
 scrollback), gives the worktree and — only when `FabChange` is non-empty — the
 fab change + stage context, names the exact actuation command
 (`tmux rename-window -t {windowId} "<new-name>"`, 2-4 words, kebab-case
-preferred), and explicitly bounds the operator's action ("Do not reply to this
-message or take any other action").
+preferred), instructs the operator to DO NOTHING when the current name already
+accurately describes the work (the no-op judgment belongs to the operator, not
+to run-kit — the inside/outside razor), and explicitly bounds the operator's
+action ("Do not reply to this message or take any other action").
 
 #### Scenario: Rendered prompt carries the derived facts
 - **GIVEN** the derived facts for window `@5` named `zsh` with a resolvable
   transcript
 - **WHEN** the template renders
 - **THEN** the prompt names `@5`, the current name, the absolute JSONL path,
-  the worktree, the exact `tmux rename-window -t @5` command, and the
-  do-not-reply bound; with an empty `FabChange` no fab clause appears.
+  the worktree, the exact `tmux rename-window -t @5` command, the
+  already-accurate⇒do-nothing clause, and the do-not-reply bound; with an empty
+  `FabChange` no fab clause appears.
+
+### Requirement: Auto-name on idle — the system-initiated caller
+The backend SHALL run an in-memory `autoNameTracker` (`api/auto_name.go`) on
+the SSE per-server tick — advanced synchronously right after the waiting-push
+block, a structural sibling of `waitingPushTracker` (own mutex, clock seam,
+injected `deliver` closure, post-loop `retain`) — that observes every window's
+rolled-up `AgentState` and detects the per-window transition **busy → idle**
+(busy = `active` or `waiting`; idle = exactly `idle`; empty/unknown is neither
+— a window with no agent hooks never triggers, and a first-ever observation or
+a `""`→`idle` tick is not a transition). A candidate SHALL be dropped unless
+ALL hold, derived from the same tick's snapshot with NO second `FetchSessions`:
+the server HAS an operator window (`Role == "operator"`), the subject is NOT
+the operator window, and the subject carries a non-empty `ChatSessionRef`. Rate
+limits: a 15-minute per-window cooldown (`autoNameCooldown`), a 60-second
+per-server min-gap (`autoNameMinGap` — the operator's `AgentState` lags a
+delivery by a hook round-trip, so back-to-back transitions must not
+double-deliver), and at most ONE delivery per server per tick (excess
+candidates dropped UNSTAMPED, so their next transition may fire). Both limits
+stamp at DECISION time on every attempt — including one the delivery core later
+skips on a busy operator — so a busy operator never converts deferred
+transitions into a later burst; ineligible transitions are consumed unstamped.
+Delivery runs in a DETACHED `context.Background()` goroutine through the shared
+core (the tick never blocks on injection, mirroring `notifyWaiting`); errors —
+the routine busy-skip included — are logged at debug and dropped. State is
+process-memory only (a daemon restart forgets cooldowns, Constitution II) and
+reaped on the post-loop retain seam, scoped to successfully-polled-or-dead
+servers exactly like `waitingPushTracker.retain`. The tracker is armed exactly
+when an operator window exists on the server — no config toggle; no operator ⇒
+nothing fires, nothing logs at error level (degrade to absent).
+
+#### Scenario: Transition detection and eligibility
+- **GIVEN** a window whose previous tick state was `active` (or `waiting`)
+- **WHEN** the current tick derives its rollup as `idle`
+- **THEN** the tracker emits a candidate for that window; `idle`→`idle`,
+  `""`→`idle`, and first-observation ticks emit nothing.
+- **AND GIVEN** a transition on a chatless window, on the operator window
+  itself, or on an operator-less server, **THEN** no delivery is attempted and
+  the transition is consumed unstamped.
+
+#### Scenario: Rate limits bound a flapping window
+- **GIVEN** a window that fired an auto-request 5 minutes ago
+- **WHEN** it transitions busy→idle again
+- **THEN** no delivery is attempted (cooldown).
+- **AND GIVEN** two eligible windows transitioning in the same tick, **THEN**
+  exactly one is emitted and the other is dropped unstamped.
+- **AND GIVEN** an operator busy at delivery time, **THEN** the core skips (no
+  injection, no queue, no retry) and the window's cooldown stays stamped.
 
 ### Requirement: Frontend availability — degrade to ABSENT, never disabled
 The "Fix tab name" affordance — the flyout's `FixTabNameActionRow`
@@ -232,3 +300,27 @@ protocol-based provider may have no on-disk transcript); the guard-bearing
 non-file providers); exporting `locateTranscript` bare (loses provider
 routing).
 *Introduced by*: 260822-fih1-operator-request-fix-tab-name
+
+### Mirror waitingPushTracker rather than a new observer framework
+**Decision**: the auto-name tracker is a sibling of `waitingPushTracker` — own
+file, own mutex, clock + delivery func seams for tests, advanced synchronously
+in the per-server tick, fan-out detached.
+**Why**: the seam already exists, is Constitution-II-vetted ("no durable store
+beyond the hub's episode map"), and its test pattern (pure decision function)
+is proven.
+**Rejected**: a generic transition-observer registry (speculative abstraction
+for a second consumer); a separate polling goroutine (duplicate FetchSessions
+cost, drift from the hub's snapshot).
+*Introduced by*: 260822-q675-operator-auto-name-idle
+
+### Delivery seam is an injected closure, not a hub→Server reference
+**Decision**: the tracker holds a `deliver func(...)` seam (as
+`waitingPushTracker` holds `notify`); the Server wires a closure over the
+shared delivery core post-construction in `initSSEHub` (the `newSSEHub`
+constructor can't see the Server — test hubs run with `deliver == nil`,
+tracking still advancing, fan-out skipped).
+**Why**: keeps the tracker pure/unit-testable and avoids a hub→Server cycle;
+identical to the waiting-push `notify` seam.
+**Rejected**: calling `s.injectChatMessage` directly from the tracker (couples
+tracker tests to the injection engine).
+*Introduced by*: 260822-q675-operator-auto-name-idle

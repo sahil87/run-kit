@@ -288,6 +288,15 @@ type sseHub struct {
 	// sustained-waiting episode from the poll seam (260706-y1ar). In-memory only.
 	waitingPush *waitingPushTracker
 
+	// autoName tracks per-window busy→idle transitions and hands the server's
+	// operator window an automatic fix-tab-name request (rate-limited, skipped
+	// when the operator is busy) from the same poll seam (260822-q675).
+	// In-memory only. Its deliver closure is wired post-construction by
+	// initSSEHub (it closes over the Server's injection engine, which the 4-arg
+	// newSSEHub shape can't see) — test hubs run with it nil: delivery is
+	// skipped, transition tracking and live keys still advance.
+	autoName *autoNameTracker
+
 	// subscriber, when non-nil, provides per-server Wait(after) channels
 	// driven by tmux control-mode notifications. When nil, the loop runs
 	// on the safety-net ticker only — preserves correctness for tests and
@@ -410,6 +419,7 @@ func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector, svc *ports.Collect
 		services:               svc,
 		prStatus:               pc,
 		waitingPush:            newWaitingPushTracker(),
+		autoName:               newAutoNameTracker(),
 		captureFn:              capturePreviewForWindow,
 	}
 	// Default chat resolver: fetch the server's sessions and roll up the window's
@@ -1342,6 +1352,7 @@ func (h *sseHub) poll() {
 		// server whose fetch failed transiently (contributing zero live keys) does
 		// not have its still-waiting episodes wrongly reaped/re-armed.
 		liveWaitingKeys := map[string]bool{}
+		liveAutoNameKeys := map[string]bool{}
 		polledServers := map[string]bool{}
 		for _, server := range servers {
 			// Metrics-only clients (server-neutral, `?metrics=1`) have no tmux
@@ -1414,6 +1425,18 @@ func (h *sseHub) poll() {
 			if h.waitingPush != nil {
 				for k := range h.waitingPush.notifyWaiting(server, result) {
 					liveWaitingKeys[k] = true
+				}
+			}
+
+			// Auto-name on busy→idle (260822-q675). Same seam and same shape as
+			// waiting-push above: the decision is pure/synchronous (no I/O in the
+			// hot path), delivery fans out in a detached goroutine inside advance
+			// through the injected deliver closure (nil in test hubs — tracking
+			// still advances). Rate-limited and skipped when the operator is
+			// busy; best-effort, in-memory only, never blocks the tick.
+			if h.autoName != nil {
+				for k := range h.autoName.advance(server, result) {
+					liveAutoNameKeys[k] = true
 				}
 			}
 
@@ -1556,15 +1579,20 @@ func (h *sseHub) poll() {
 		// (non-IsServerGone) is in neither set, so its still-waiting episodes are
 		// left untouched — reaping them would reset the run and fire a duplicate
 		// push the moment the server recovers.
+		reapableServers := make(map[string]bool, len(polledServers)+len(deadServers))
+		for s := range polledServers {
+			reapableServers[s] = true
+		}
+		for _, s := range deadServers {
+			reapableServers[s] = true
+		}
 		if h.waitingPush != nil {
-			reapableServers := make(map[string]bool, len(polledServers)+len(deadServers))
-			for s := range polledServers {
-				reapableServers[s] = true
-			}
-			for _, s := range deadServers {
-				reapableServers[s] = true
-			}
 			h.waitingPush.retain(liveWaitingKeys, reapableServers)
+		}
+		// Same reap for the auto-name tracker (260822-q675): dead windows/servers
+		// drop their previous-state and cooldown stamps so the maps stay bounded.
+		if h.autoName != nil {
+			h.autoName.retain(liveAutoNameKeys, reapableServers)
 		}
 
 		// Reap dead servers collected during the loop. A dead socket has no

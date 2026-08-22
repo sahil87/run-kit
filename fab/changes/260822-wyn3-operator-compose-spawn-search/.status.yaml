@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: failed
 plan:
     generated: true
     task_count: 12
@@ -53,4 +53,4 @@ true_impact:
     computed_at: "2026-08-22T13:37:48Z"
     computed_at_stage: ship
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-22T13:37:48Z
+last_updated: 2026-08-22T13:45:55Z

@@ -614,6 +614,20 @@ describe("SwatchPopover", () => {
       expect(onSelect).toHaveBeenCalledWith(null);
     });
 
+    it("emits ONLY the offered clears: color+flair (session/server variant) fires onSelect + onSelectFlair, no marker clear", () => {
+      const onSelectFlair = vi.fn();
+      const { onSelect } = renderVariant({
+        selectedColor: "green",
+        selectedFlair: "rain",
+        onSelectFlair,
+      });
+      fireEvent.click(screen.getByRole("option", { name: "Clear all" }));
+      expect(onSelect).toHaveBeenCalledWith(null);
+      expect(onSelectFlair).toHaveBeenCalledWith("");
+      // No marker band offered → no marker clear, and no marker header −.
+      expect(screen.queryByRole("option", { name: "Marker none" })).toBeNull();
+    });
+
     it("rings iff EVERY offered axis is unset (props-computed)", () => {
       const onSelectMarker = vi.fn();
       const onSelectFlair = vi.fn();

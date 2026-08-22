@@ -1,0 +1,171 @@
+import { test, expect, type Page } from "@playwright/test";
+import { mockStateSocket } from "./_state-socket-mock";
+
+// Operator compose — spawn routing & semantic search (260822-wyn3 R6). Fully
+// mocked (no tmux): the sessions payload rides the state-socket mock with an
+// operator window present, and the server-scoped operator-request endpoint is
+// stubbed via page.route. The route mock carries a trailing `*` — the client
+// appends `?server=` (withServer), so a bare glob would silently miss. See
+// operator-compose.spec.md for intent + steps.
+
+const SERVER = "default";
+
+function sessionsPayload(withOperator: boolean) {
+  const work = {
+    windowId: "@1",
+    index: 0,
+    name: "feature-work",
+    worktreePath: "/tmp/wt",
+    activity: "active",
+    isActiveWindow: true,
+    activityTimestamp: 0,
+    agentState: "idle",
+    panes: [
+      { paneId: "%1", paneIndex: 0, cwd: "/tmp/wt", command: "zsh", isActive: true },
+    ],
+  };
+  return JSON.stringify([
+    { name: "dev", windows: [work] },
+    ...(withOperator
+      ? [
+          {
+            name: "_rk-operator",
+            windows: [
+              {
+                windowId: "@9",
+                index: 0,
+                name: "operator",
+                worktreePath: "/tmp/op",
+                activity: "idle",
+                isActiveWindow: false,
+                activityTimestamp: 0,
+                role: "operator",
+                agentState: "idle",
+                panes: [
+                  { paneId: "%9", paneIndex: 0, cwd: "/tmp/op", command: "claude", isActive: true },
+                ],
+              },
+            ],
+          },
+        ]
+      : []),
+  ]);
+}
+
+type OpBehavior = { status: number; body: Record<string, unknown> };
+
+const OP_OK: OpBehavior = { status: 200, body: { ok: true } };
+
+/** Install the fully-mocked backend; returns the recorded request bodies. */
+async function mockBackend(page: Page, withOperator: boolean, behavior: OpBehavior = OP_OK) {
+  const opBodies: Record<string, unknown>[] = [];
+  await page.routeWebSocket(/\/ws\/terminals/, () => {});
+  await page.route("**/api/windows/*/select*", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' }),
+  );
+  await page.route("**/api/servers", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([{ name: SERVER, sessionCount: 1 }]),
+    }),
+  );
+  // The server-scoped operator-request seam — trailing `*` required
+  // (withServer appends `?server=`).
+  await page.route("**/api/operator-request*", (route) => {
+    opBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+    return route.fulfill({
+      status: behavior.status,
+      contentType: "application/json",
+      body: JSON.stringify(behavior.body),
+    });
+  });
+  await mockStateSocket(page, { sessions: sessionsPayload(withOperator) });
+  return opBodies;
+}
+
+const WINDOW_URL = `/${SERVER}/%401`;
+
+async function gotoWindow(page: Page) {
+  await page.goto(WINDOW_URL);
+  await expect(page.getByText("feature-work").first()).toBeVisible({ timeout: 10_000 });
+}
+
+async function openPaletteWith(page: Page, query: string) {
+  await page.keyboard.press("Meta+k");
+  const paletteInput = page.getByPlaceholder("Type a command");
+  await expect(paletteInput).toBeVisible({ timeout: 5_000 });
+  await paletteInput.fill(query);
+}
+
+test.describe("Operator compose (260822-wyn3)", () => {
+  test("palette 'Operator: Spawn task…' opens the dialog pre-selected to spawn; Enter submits the body and toasts the spawn wording", async ({
+    page,
+  }) => {
+    const opBodies = await mockBackend(page, true);
+    await gotoWindow(page);
+
+    await openPaletteWith(page, "Operator:");
+    await page.getByRole("option", { name: "Operator: Spawn task…" }).click();
+
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Spawn task" })).toHaveAttribute("aria-pressed", "true");
+    const input = dialog.getByRole("textbox", { name: "Spawn task" });
+    await expect(input).toBeFocused();
+    await input.fill("fix the flaky test");
+    await input.press("Enter");
+
+    await expect.poll(() => opBodies).toEqual([{ template: "spawn-task", text: "fix the flaky test" }]);
+    await expect(dialog).not.toBeVisible();
+    await expect(page.getByText("Sent to operator — it will spawn the agent")).toBeVisible();
+  });
+
+  test("palette 'Operator: Find discussion…' opens the dialog pre-selected to find; Enter submits the query and toasts the find wording", async ({
+    page,
+  }) => {
+    const opBodies = await mockBackend(page, true);
+    await gotoWindow(page);
+
+    await openPaletteWith(page, "Operator:");
+    await page.getByRole("option", { name: "Operator: Find discussion…" }).click();
+
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Find discussion" })).toHaveAttribute("aria-pressed", "true");
+    const input = dialog.getByRole("textbox", { name: "Find discussion" });
+    await input.fill("where did we discuss the fence length");
+    await input.press("Enter");
+
+    await expect
+      .poll(() => opBodies)
+      .toEqual([{ template: "find-discussion", text: "where did we discuss the fence length" }]);
+    await expect(page.getByText("Sent to operator — the answer appears in the operator tab")).toBeVisible();
+  });
+
+  test("a structured backend 409 surfaces as the failure toast", async ({ page }) => {
+    const opBodies = await mockBackend(page, true, {
+      status: 409,
+      body: { error: "operator is busy (active) — request not delivered; try again when it is idle" },
+    });
+    await gotoWindow(page);
+
+    await openPaletteWith(page, "Operator:");
+    await page.getByRole("option", { name: "Operator: Spawn task…" }).click();
+    const dialog = page.getByRole("dialog");
+    const input = dialog.getByRole("textbox", { name: "Spawn task" });
+    await input.fill("fix the flaky test");
+    await input.press("Enter");
+
+    await expect.poll(() => opBodies).toHaveLength(1);
+    await expect(page.getByText(/operator is busy \(active\)/)).toBeVisible();
+  });
+
+  test("neither palette entry is listed when the server has no operator window", async ({ page }) => {
+    await mockBackend(page, false);
+    await gotoWindow(page);
+
+    await openPaletteWith(page, "Operator:");
+    await expect(page.getByRole("option", { name: /^Operator:/ })).toHaveCount(0);
+  });
+});

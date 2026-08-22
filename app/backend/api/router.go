@@ -734,6 +734,9 @@ func (s *Server) buildRouter() chi.Router {
 	// Operator actuation seam — templated work items delivered to the server's
 	// operator window via the chat-send machinery. See api/operator.go.
 	r.Post("/api/windows/{windowId}/operator-request", s.handleOperatorRequest)
+	// Server-scoped half of the seam — templates with no subject window. See
+	// api/operator.go.
+	r.Post("/api/operator-request", s.handleServerOperatorRequest)
 	r.Get("/api/windows/{windowId}/history", s.handleWindowHistory)
 	// Conversation fork — a new window in the SAME session + directory, resuming
 	// the window's agent session with --fork-session. See api/fork.go.

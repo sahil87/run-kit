@@ -338,6 +338,27 @@ export async function sendOperatorRequest(
 }
 
 /**
+ * Server-scoped half of the operator actuation seam — the template has no
+ * subject window (spawn-task, find-discussion), so the body additionally
+ * carries the user's typed `text` (admitted only on templates the backend
+ * declares acceptsText, capped and delimited there). Same shape as
+ * sendOperatorRequest: `withServer` + `throwOnError`, so the structured
+ * 409/404 messages surface as the thrown Error's message.
+ */
+export async function sendServerOperatorRequest(
+  server: string,
+  template: string,
+  text: string,
+): Promise<void> {
+  const res = await fetch(withServer("/api/operator-request", server), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ template, text }),
+  });
+  if (!res.ok) await throwOnError(res);
+}
+
+/**
  * Fetch the window's full scrollback as plain text from
  * GET /api/windows/{windowId}/history (260819-shqo-terminal-tile-export) —
  * the server-capture arm of the terminal export menu (`tmux capture-pane -p

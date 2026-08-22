@@ -9,7 +9,7 @@ import { FlairOverlay } from "@/components/flair-overlay";
 import { StatusDot } from "@/components/status-dot";
 import { prOwnsGlyph, prGlyphColor } from "@/components/pr-status-model";
 import { PinPopover } from "./pin-popover";
-import { PaletteIcon, CloseIcon, GitPullRequestIcon, GitPullRequestClosedIcon } from "./icons";
+import { PaletteIcon, CloseIcon, GitPullRequestIcon, GitPullRequestClosedIcon, ComposeIcon } from "./icons";
 import { PinIcon } from "@/components/pin-icon";
 import {
   useRowFlyout,
@@ -114,6 +114,11 @@ type WindowRowProps = {
    *  flyout's Fix tab name affordance is hidden. The flyout additionally gates
    *  on the derived availability rule (`canRequestFixTabName`). */
   onFixTabName?: (server: string, windowId: string) => Promise<void>;
+  /** Open the operator compose dialog (260822-wyn3). Identity-arg like its
+   *  siblings (the row binds the server). Optional (mirrors `onForkWindow`):
+   *  when omitted — ordinary window rows, the board-route sidebar — no compose
+   *  icon renders; only the pinned operator row's mount site passes it. */
+  onOperatorCompose?: (server: string) => void;
   /** Whether the server has an operator window — availability input for the
    *  flyout's Fix tab name row (the row itself carries the rest of the rule). */
   hasOperator?: boolean;
@@ -198,6 +203,7 @@ function WindowRowInner({
   onFlairChange,
   onForkWindow,
   onFixTabName,
+  onOperatorCompose,
   hasOperator = false,
   server,
   isPinnedToAny = false,
@@ -719,6 +725,19 @@ function WindowRowInner({
           >
             {win.prState === "closed" ? <GitPullRequestClosedIcon /> : <GitPullRequestIcon />}
           </span>
+        )}
+        {onOperatorCompose && (
+          <button
+            type="button"
+            aria-label="Compose task for operator"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOperatorCompose(srv);
+            }}
+            className="text-text-secondary hover:text-text-primary transition-opacity cursor-pointer opacity-0 group-hover:opacity-100 focus-visible:opacity-100 px-0.5 min-w-[24px] min-h-[24px] flex items-center justify-center"
+          >
+            <ComposeIcon />
+          </button>
         )}
         {showPinIcon && !coarse && (
           <button

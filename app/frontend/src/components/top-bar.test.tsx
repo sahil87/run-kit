@@ -723,9 +723,12 @@ describe("TopBar", () => {
     // The session BreadcrumbDropdown (switcher + "+ New Session") is gone:
     // session switching lives in the sidebar rows and the palette, creation in
     // the palette / sidebar server-header `+`. The crumb is a static chip.
-    const chip = screen.getByText("run-kit");
-    // Boxed chip styling (CRUMB_BOX_CLASS), matching the sibling crumbs' box.
-    expect(chip).toHaveClass("rounded", "border", "border-border");
+    // The chip is the box around the truncating name span (CRUMB_BOX_CLASS).
+    const chip = screen.getByText("run-kit").parentElement!;
+    // Boxed chip styling (CRUMB_BOX_CLASS), matching the sibling crumbs' box —
+    // including the shared control min-height that keeps every crumb on the
+    // buttons' horizontal axis.
+    expect(chip).toHaveClass("rounded", "border", "border-border", "min-h-[28px]");
     // Non-interactive: a plain span — not a button, not a link, no ▾ caret.
     expect(chip.tagName).toBe("SPAN");
     expect(chip.closest("button, a")).toBeNull();

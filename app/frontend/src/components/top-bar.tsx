@@ -267,9 +267,17 @@ function BreadcrumbSeparator() {
  * (LINK_CRUMB_CLASS), while the session crumb (260813-kvk7) is a static chip —
  * a session has no route of its own, so it carries the box with NO hover
  * affordance, no pointer cursor, and no ▾.
+ *
+ * min-h normalizes every crumb to the shared control height (28px fine /
+ * 30px coarse — the same box as the toggle + HistoryNav arrows) so the left
+ * cluster sits on one horizontal axis; a content-height crumb is ~1px shorter
+ * and centers 1px high of the fixed-height buttons. inline-flex makes the
+ * min-h bite (height is inert on inline elements) — crumbs that truncate put
+ * `truncate max-w-[16ch]` on an inner span, since text-overflow does not
+ * apply to a flex container's anonymous text item.
  */
 const CRUMB_BOX_CLASS =
-  "rounded border border-border px-1.5 py-0.5 text-text-secondary";
+  "inline-flex items-center min-h-[28px] coarse:min-h-[30px] rounded border border-border px-1.5 py-0.5 text-text-secondary";
 
 /**
  * Link-crumb affordance — the box plus the always-visible "this navigates"
@@ -1020,11 +1028,7 @@ export function TopBar({
             <a
               href="/"
               aria-label="RunKit home"
-              // min-h normalizes the crumb to the shared control height so the
-              // left cluster sits on one horizontal axis (28px fine / 30px
-              // coarse — the same box as the toggle + HistoryNav arrows,
-              // 260731-oiho).
-              className={`flex items-center gap-2 shrink-0 rk-brand-glitch min-h-[28px] coarse:min-h-[30px] ${LINK_CRUMB_CLASS}`}
+              className={`gap-2 shrink-0 rk-brand-glitch ${LINK_CRUMB_CLASS}`}
               onMouseEnter={brandSweep.onMouseEnter}
             >
               {/* Inline SVG (LogoSpinner at rest), not the /icon.svg img — the
@@ -1069,9 +1073,11 @@ export function TopBar({
                     <Tip label="tmux Server">
                       <a
                         href={serverHref}
-                        className={`rk-glint truncate max-w-[16ch] ${LINK_CRUMB_CLASS}`}
+                        className={`rk-glint ${LINK_CRUMB_CLASS}`}
                       >
-                        {server}
+                        <span className="truncate max-w-[16ch] [text-decoration:inherit]">
+                          {server}
+                        </span>
                       </a>
                     </Tip>
                   </span>
@@ -1090,8 +1096,8 @@ export function TopBar({
                   // the siblings' box styling with no hover affordance or caret.
                   <span className="hidden sm:flex items-center gap-1.5 min-w-0">
                     <BreadcrumbSeparator />
-                    <span className={`truncate max-w-[16ch] ${CRUMB_BOX_CLASS}`}>
-                      {sessionName}
+                    <span className={CRUMB_BOX_CLASS}>
+                      <span className="truncate max-w-[16ch]">{sessionName}</span>
                     </span>
                   </span>
                 )}

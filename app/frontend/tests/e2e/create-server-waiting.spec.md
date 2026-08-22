@@ -9,13 +9,14 @@ screen is still shown for a genuinely-unknown server URL.
 ## Shared setup
 
 - No `beforeAll` session setup is needed — the first test relies only on the
-  always-present e2e tmux server (`E2E_TMUX_SERVER`, default `rk-test-e2e`)
+  always-present e2e tmux server (`E2E_TMUX_SERVER`, the worktree's derived
+  e2e primary)
   being non-empty so the server list is loaded and non-empty (the exact
   precondition under which the old `servers.length > 0` guard misfired).
 - `afterAll` `kill-server`s the server the test created. The name is built
-  under the `rk-test-e2e-*` umbrella with the Playwright `process.pid` as the
-  second-to-last hyphen field, so the global teardown glob also reaps it if
-  `afterAll` is missed.
+  from this worktree's `TMUX_FAMILY` anchor with the Playwright `process.pid`
+  as the second-to-last hyphen field, so the family-anchored global teardown
+  also reaps it if `afterAll` is missed.
 - Desktop viewport (1024×768).
 
 ## Tests

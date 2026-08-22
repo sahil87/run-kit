@@ -24,7 +24,8 @@ setup: _ensure-tmux-conf
 
 # Start Go backend (live-reload) + Vite dev server concurrently (just dev --port 4000)
 # Backend runs at Frontend port + 1; code-server (when installed) at Frontend
-# port + 2 with RK_CODE_SERVER_PORT exported — enables the `code` lens. Default: 3000
+# port + 2 with RK_CODE_SERVER_PORT exported — enables the `code` lens.
+# Default: the worktree's derived e2e port (scripts/e2e-env.sh)
 dev *args:
     scripts/dev.sh {{args}}
 
@@ -92,14 +93,17 @@ test-backend: _ensure-tmux-conf
 test-frontend:
     cd app/frontend && pnpm test
 
-# Run Playwright e2e tests (port 3020 to avoid colliding with dev server on 3000/3001)
+# Run Playwright e2e tests on this worktree's derived port triple (3400–3699
+# block; see scripts/e2e-env.sh) with an isolated per-worktree tmux server
 test-e2e *args:
     scripts/test-e2e.sh {{args}}
 
 # Run ad-hoc Playwright commands (just pw test, just pw test mobile-layout, just pw test --ui)
-# Requires a dev server on port 3020: RK_PORT=3020 just dev
+# Targets this worktree's derived rig — the same identity `just dev` and
+# `just test-e2e` use here, so the externally-managed dev server is found
+# deterministically. RK_E2E_PORT / E2E_TMUX_SERVER override.
 pw *args:
-    cd app/frontend && RK_PORT="${RK_PORT:-3020}" E2E_TMUX_SERVER="${E2E_TMUX_SERVER:-rk-test-e2e}" pnpm exec playwright {{args}}
+    scripts/pw.sh {{args}}
 
 # ─── Assets ──────────────────────────────────────────────────
 

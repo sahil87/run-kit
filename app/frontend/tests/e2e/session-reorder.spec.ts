@@ -50,7 +50,7 @@ test.describe("Sidebar session reorder persistence", () => {
     // the timing dependency on the hub's first-poll bootstrap. All mutating
     // endpoints are POST per constitution principle IX (no PUT/PATCH/DELETE);
     // this previously used PUT and only ever got a 405.
-    const url = `${baseURL ?? `http://localhost:${process.env.RK_PORT ?? 3020}`}/api/sessions/order?server=${TMUX_SERVER}`;
+    const url = `${baseURL ?? `http://localhost:${process.env.RK_PORT ?? 3333}`}/api/sessions/order?server=${TMUX_SERVER}`;
     const postResp = await request.post(url, {
       headers: { "Content-Type": "application/json" },
       data: { order: customOrder },

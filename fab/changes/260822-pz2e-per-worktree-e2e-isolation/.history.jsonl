@@ -1,0 +1,15 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-22T19:21:36Z"}
+{"args":"Per-worktree e2e test isolation + concurrency throttle: derive ports/tmux-socket/XDG state from the worktree basename so sibling worktrees can run e2e in parallel without mutual interference; flock counting semaphore bounds concurrent Playwright runs","cmd":"fab-new","event":"command","ts":"2026-08-22T19:21:36Z"}
+{"delta":"+2.7","event":"confidence","score":2.7,"trigger":"calc-score","ts":"2026-08-22T19:24:53Z"}
+{"cmd":"fab-draft","event":"command","ts":"2026-08-22T19:25:14Z"}
+{"delta":"+0.7","event":"confidence","score":3.4,"trigger":"calc-score","ts":"2026-08-22T19:27:26Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-22T19:29:24Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-22T19:30:32Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-22T21:00:50Z"}
+{"event":"review","result":"failed","ts":"2026-08-22T21:05:24Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-22T21:05:24Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-22T21:08:26Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-22T21:12:44Z"}
+{"event":"review","result":"passed","ts":"2026-08-22T21:12:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-22T21:19:43Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-08-22T21:22:08Z"}

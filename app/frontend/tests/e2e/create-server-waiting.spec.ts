@@ -1,19 +1,19 @@
 import { test, expect } from "@playwright/test";
 import { gotoServerReady } from "./_ready";
-import { TMUX_SERVER, killServer } from "./_tmux";
+import { TMUX_SERVER, TMUX_FAMILY, killServer } from "./_tmux";
 
-// Server created through the UI during the test. Named under the unified
-// rk-test-e2e-* umbrella with the Playwright process.pid as the second-to-last
-// hyphen field so the automatic post-sweep can parse it and the e2e teardown
-// glob (rk-test-e2e*) reaps it even if afterAll's kill-server is missed. The
-// create dialog validates `^[a-zA-Z0-9_-]+$`, so hyphens are safe.
-const CREATED_SERVER = `rk-test-e2e-csw-${process.pid}-${Date.now().toString().slice(-6)}`;
+// Server created through the UI during the test. Named inside this worktree's
+// socket family (TMUX_FAMILY anchor) with the Playwright process.pid as the
+// second-to-last hyphen field so the automatic post-sweep can parse it and the
+// family-anchored teardown glob reaps it even if afterAll's kill-server is
+// missed. The create dialog validates `^[a-zA-Z0-9_-]+$`, so hyphens are safe.
+const CREATED_SERVER = `${TMUX_FAMILY}csw-${process.pid}-${Date.now().toString().slice(-6)}`;
 const TMUX_SERVER_A = TMUX_SERVER;
 const DESKTOP_VIEWPORT = { width: 1024, height: 768 };
 
 test.describe("Create server → waiting → view (no 'Server not found' flash)", () => {
   test.afterAll(() => {
-    // Best-effort — the teardown glob also reaps rk-test-e2e* servers.
+    // Best-effort — the teardown glob also reaps this worktree's family.
     killServer(CREATED_SERVER);
   });
 
@@ -79,7 +79,7 @@ test.describe("Create server → waiting → view (no 'Server not found' flash)"
     test.setTimeout(30_000);
     // A name that was never created and is not pending must fail fast once the
     // server list has loaded — the not-found path is preserved for typos.
-    const bogus = `rk-test-e2e-nope-${process.pid}-${Date.now().toString().slice(-6)}`;
+    const bogus = `${TMUX_FAMILY}nope-${process.pid}-${Date.now().toString().slice(-6)}`;
     await page.goto(`/${bogus}`, { waitUntil: "domcontentloaded" });
     await expect(page.getByText("Server not found")).toBeVisible({
       timeout: 15_000,

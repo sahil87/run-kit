@@ -94,7 +94,7 @@ describe("availableTiles", () => {
   it("always lists tty + web, then chat/code per capability — web availability is unconditional", () => {
     expect(availableTiles(plain)).toEqual(["tty", "web"]);
     expect(availableTiles(webWin)).toEqual(["tty", "web"]);
-    expect(availableTiles(fullWin)).toEqual(["tty", "web", "chat", "code"]);
+    expect(availableTiles(fullWin)).toEqual(["tty", "code", "web", "chat"]);
     expect(availableTiles(null)).toEqual(["tty", "web"]);
   });
 

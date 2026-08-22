@@ -926,9 +926,9 @@ function AppShell() {
     [renderLayout, applyLayout],
   );
 
-  // The surfaces the current window can tile (`tty` first — R8's shared
-  // registry), consumed by the top-bar surface-toggle group and the palette
-  // gating.
+  // The surfaces the current window can tile (shortcut order, tty/code/web —
+  // R8's shared registry), consumed by the top-bar surface-toggle group and
+  // the palette gating.
   const panelSurfaces = useMemo(
     () => availableSurfaces(effectiveWindow),
     [effectiveWindow],
@@ -3948,7 +3948,7 @@ function AppShell() {
       onCreateWindow: handleCreateWindow,
       onSpawnAgent: handleSlotSpawnAgent,
       // Top-bar surface-toggle group: the tile surfaces the current window
-      // offers (`tty` first) plus the mode discriminant — desktop registers
+      // offers (shortcut order) plus the mode discriminant — desktop registers
       // TOGGLE mode (the open tiles + the shared toggle mutation); mobile
       // registers SWITCH mode (the visible tile + the switch-to-tile verb),
       // gated on ≥2 surfaces surviving the SURFACE_RAIL_HIDDEN render filter

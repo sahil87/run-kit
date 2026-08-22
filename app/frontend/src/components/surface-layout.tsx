@@ -86,7 +86,8 @@ import {
  *   `bg-bg-inset` ground itself are provided by the Shell STAGE
  *   (260814-ldbs) — this grid ceded its own `p-[6px]`/`bg-bg-inset` so the
  *   tiles and the rail card share ONE continuous ground. Each tile carries a
- *   32px `bg-bg-card` header —
+ *   35px `bg-bg-card` header (32px content + 3px bottom rule, aligned with
+ *   the sidebar rail's `border-t-[3px]` seam) —
  *   kind glyph (`SURFACE_GLYPH`) + surface name + the small meta as an inset
  *   chip (git-root basename for code, `@rk_url` host for web) — with
  *   rest-visible boxed verb buttons (24×24, 26×26 coarse; 14px SVG glyphs
@@ -1378,9 +1379,14 @@ export function SurfaceLayout({
       >
         {/* Header px-1.5: the rail divider is a MINOR seam with ~6px air on
             both sides (the rail's chips hug it at the same distance on their
-            side) — only the window edge carries the 12px major-seam inset. */}
+            side) — only the window edge carries the 12px major-seam inset.
+            h-[35px] = 32px content + the 3px bottom rule: the sidebar's icon
+            rail is 32px tall and the panel below it opens with border-t-[3px],
+            so both horizontal rules start 32px below the card top at the same
+            chrome-rule weight (top bar, bottom bar, and sidebar panels all use
+            3px rules). */}
         {!mobile && (
-          <div className="flex items-center gap-1.5 px-1.5 h-[32px] shrink-0 border-b border-border bg-bg-card font-mono text-[11px] text-text-secondary select-none">
+          <div className="flex items-center gap-1.5 px-1.5 h-[35px] shrink-0 border-b-[3px] border-border bg-bg-card font-mono text-[11px] text-text-secondary select-none">
             {kind === "tty" && statusWindow && <StatusDot win={statusWindow} />}
             {kind === "tty" && ttyChip && (
               <span

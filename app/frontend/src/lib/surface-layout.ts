@@ -194,18 +194,22 @@ export function serializeLayout(layout: Layout): string {
 }
 
 /**
- * The surfaces a window can tile, `tty` FIRST (R8 — the shared registry the
- * rail, layout, and switcher all key off), then `web`/`chat`/`code` per
- * capability. Availability reuses the window-view helpers as the single
- * source of truth; reachability is NOT part of availability (it governs a
- * surface's content, not its presence). `web` is unconditional — the lens
- * always exists; `hasWebUrl` selects its content (onboarding vs live iframe),
- * so the degradation ladder never drops a web tile.
+ * The surfaces a window can tile (R8 — the shared registry the rail, layout,
+ * and switcher all key off). The order is the positional surface digits'
+ * order — ⌘1 tty, ⌘2 code, ⌘3 web (`lib/keybindings.ts`) — so the toggle
+ * group, switch group, and palette lists always render in shortcut order;
+ * `chat` (rail-hidden, no digit) comes last. Availability reuses the
+ * window-view helpers as the single source of truth; reachability is NOT part
+ * of availability (it governs a surface's content, not its presence). `web`
+ * is unconditional — the lens always exists; `hasWebUrl` selects its content
+ * (onboarding vs live iframe), so the degradation ladder never drops a web
+ * tile.
  */
 export function availableTiles(win: ViewWindow | null | undefined): SurfaceKind[] {
-  const tiles: SurfaceKind[] = ["tty", "web"];
-  if (hasChat(win)) tiles.push("chat");
+  const tiles: SurfaceKind[] = ["tty"];
   if (hasCode(win)) tiles.push("code");
+  tiles.push("web");
+  if (hasChat(win)) tiles.push("chat");
   return tiles;
 }
 

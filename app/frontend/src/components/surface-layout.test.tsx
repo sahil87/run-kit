@@ -549,11 +549,11 @@ describe("SurfaceLayout focused tile (260812-wfic R2)", () => {
 });
 
 describe("SurfaceLayout header chrome (260812-wfic R3)", () => {
-  it("renders the kind glyph, a 30px bg-bg-card header, and the meta as an inset chip", () => {
+  it("renders the kind glyph, a 35px bg-bg-card header, and the meta as an inset chip", () => {
     renderLayout({ layout: { shape: "split-h", order: ["code", "web"] } });
     const codeTile = screen.getByTestId("surface-tile-code");
     const header = codeTile.firstElementChild!;
-    expect(header.className).toContain("h-[32px]");
+    expect(header.className).toContain("h-[35px]");
     expect(header.className).toContain("bg-bg-card");
     expect(header.className).toContain("text-[11px]");
     // The SURFACE_GLYPH kind glyph precedes the label.

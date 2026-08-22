@@ -1185,9 +1185,13 @@ export function Sidebar({
   // `rowsVersion` (bumped ONLY on visible-row SET changes, never on passive
   // SSE activity ticks) re-runs the attempt. One scroll per selection change —
   // a passive SSE tick can neither re-run this effect nor re-arm the ref.
-  // A collapsed group keeps the row out of the DOM: no scroll, no auto-expand
-  // (expanding would fight the user's explicit collapse); the armed ref then
-  // completes the one deferred scroll if the row later appears.
+  // The CURRENT session always renders expanded (the derived override at both
+  // `collapsed[` read sites in ServerGroupInner — the exception itself is
+  // never mutated), so selecting a window in a collapsed session reveals its
+  // rows and the armed ref completes the scroll on that rowsVersion bump. Only
+  // a collapsed NON-current group (or the current server's group being closed)
+  // keeps the row out of the DOM: no scroll, no auto-expand there; the armed
+  // ref then completes the one deferred scroll if the row later appears.
   const selectionKey =
     currentServer !== null && currentWindowId !== null
       ? `${currentServer}:${currentWindowId}`
@@ -2363,7 +2367,12 @@ function ServerGroupInner(props: ServerGroupProps) {
         const firstWindowId = session.windows[0]?.windowId ?? "";
         slice.set(sessionRowKey, { kind: "session", server, session: session.name, firstWindowId });
         sigParts.push(sessionRowKey);
-        const isCollapsed = collapsed[sessionRowKey] ?? false;
+        // Derived override: the current route's session always renders
+        // expanded — its exception stays in the map (never mutated here) and
+        // re-applies the moment the session stops being current. Must match
+        // the render read site below so roving and painted rows agree.
+        const isCollapsed =
+          (collapsed[sessionRowKey] ?? false) && session.name !== currentSessionName;
         if (!isCollapsed) {
           for (const win of session.windows) {
             const ghost = isGhostWindow(win);
@@ -2386,7 +2395,7 @@ function ServerGroupInner(props: ServerGroupProps) {
       }
     }
     return { rowSlice: slice, rowSignature: sigParts.join("|") };
-  }, [isOpen, orderedSessions, collapsed, server, operatorEntry]);
+  }, [isOpen, orderedSessions, collapsed, server, operatorEntry, currentSessionName]);
 
   // This group's DATA window keys — every real window the SSE snapshot knows for
   // this server, whether or not its session is expanded and whether or not the
@@ -2829,7 +2838,11 @@ function ServerGroupInner(props: ServerGroupProps) {
             </button>
           ) : (
             orderedSessions.map((session, sessionIdx) => {
-              const isCollapsed = collapsed[`${server}:${session.name}`] ?? false;
+              // Same derived override as the rowSlice memo above: the current
+              // session ignores its collapsed exception while current.
+              const isCollapsed =
+                (collapsed[`${server}:${session.name}`] ?? false) &&
+                session.name !== currentSessionName;
               const isGhostSession = "optimistic" in session && session.optimistic;
               // Move-don't-copy (260813-ifya): the operator window's row is
               // pinned at the top of the group, so it leaves this session's

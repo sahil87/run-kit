@@ -97,20 +97,21 @@ export async function unpinWindow(
 }
 
 /**
- * POST /api/boards/order — persist the user-defined board display order. The
- * client sends the FULL ordered list of board names (rank = index); the backend
+ * POST /api/settings — persist the user-defined board display order as the
+ * `board_order` settings key (partial merge per Constitution IX). The client
+ * sends the FULL ordered list of board names (rank = index); the backend
  * writes it to ~/.config/run-kit/config.yaml and broadcasts a server-global
  * `board-order` SSE event so every client re-sorts live. Mirrors
  * `setServerOrder`.
  */
 export async function setBoardOrder(order: string[]): Promise<{ ok: true }> {
-  const res = await fetch("/api/boards/order", {
+  const res = await fetch("/api/settings", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ order }),
+    body: JSON.stringify({ board_order: order }),
   });
   if (!res.ok) await throwOnError(res);
-  return res.json();
+  return { ok: true };
 }
 
 /**

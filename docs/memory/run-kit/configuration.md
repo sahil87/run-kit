@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's configuration story: fixed root $HOME/.config/run-kit/ (no XDG_CONFIG_HOME — deterministic across daemon/CLI/pane contexts), the internal/settings registry (key/type/default/description/category/ui/live) + 12-key inventory, override order (code default < config.yaml < env < CLI flag; env restricted to RK_PORT/RK_HOST/RK_CODE_SERVER_PORT + undocumented RK_TMUX_CONF/LOG_LEVEL escapes), value-home boundaries table, path migrations with breadcrumb artifacts, remaining ~/.rk tenants."
+description: "run-kit's configuration story: fixed root $HOME/.config/run-kit/ (no XDG_CONFIG_HOME), the internal/settings registry (key/type/default/description/category/ui/live) + 12-key inventory behind the GET/POST /api/settings pair (partial merge, all-or-nothing validation), override order (code default < config.yaml < env < CLI flag; env restricted to RK_PORT/RK_HOST/RK_CODE_SERVER_PORT + undocumented RK_TMUX_CONF/LOG_LEVEL escapes), value-home boundaries, migrations with breadcrumbs, ~/.rk tenants."
 ---
 # Configuration
 
@@ -37,7 +37,14 @@ The 12-key inventory:
 | `tmux_conf` | path string | `""` | advanced | yes | no | user owns the file; rk does no ensure/refresh on it |
 | `log_level` | enum (`info`/`debug`) | `info` | advanced | yes | no | read at serve startup |
 
-`live: false` keys are restart-bound (read once at hub/tmux/serve construction); `live: true` keys apply on next read. The exported accessor surface (`Load`, `Save`, `Default`, `Get/SetServerColor`, `Get/SetServerFlair`, `Get/SetInstanceColor`, `Get/SetSSHHost`, `Get/SetInstanceName`, `Get/SetBoardOrder`) sits over the registry; the seven per-key endpoints in `api/settings.go` ride it unchanged. (li54)
+`live: false` keys are restart-bound (read once at hub/tmux/serve construction); `live: true` keys apply on next read. The exported accessor surface (`Load`, `Save`, `Default`, `Get/SetServerColor`, `Get/SetServerFlair`, `Get/SetInstanceColor`, `Get/SetSSHHost`, `Get/SetInstanceName`, `Get/SetBoardOrder`) sits over the registry. (li54)
+
+## Settings HTTP API
+
+The entire settings HTTP surface is one registry-driven endpoint pair in `api/settings.go` (see [architecture](/run-kit/architecture.md) § REST API for the endpoint rows). The registry exports its metadata read-side (`KeyInfo` + `Registry()`, registry slice order) plus generic per-key JSON value read/apply hooks (`ReadValue`/`ApplyValue`) — value normalization and value-shape validation live with the registry entry, reusing `internal/validate`; board-order **name** validity (`tmux.ValidBoardName`) and duplicate rejection stay in the API handler (`internal/tmux` imports `internal/settings`, so settings calling into tmux would be an import cycle).
+
+- **`GET /api/settings`** → `{"settings": [{key, kind, default, description, category, ui, live, value}]}` — one object per registry entry, in registry order, snake_case registry key names verbatim, values in natural JSON types: `null` for unset string scalars, maps as objects (possibly `{}`), `board_order` as an array (possibly `[]`), `auto_name` as a bool.
+- **`POST /api/settings`** — a flat JSON object of registry keys, partial merge per Constitution §IX: present keys set, absent keys untouched, `null` unsets (resets to the registry default). String scalars are trimmed, trimmed-to-empty treated as `null` (except `theme`/`theme_dark`/`theme_light`, whose defaults are non-empty — a trimmed-to-empty non-null value is a 400). Map keys merge **per entry** (an entry `null` unsets that entry, other entries untouched; a top-level `null` clears the whole map); `board_order` replaces wholesale (top-level `null` ≡ `[]`). The whole body is validated before a single `Load → apply-all → Save` — an unknown key, malformed body, or any per-key validation failure is a 400 with nothing persisted. Success is `200 {"status": "ok"}`; a successful body containing `board_order` broadcasts the server-global `board-order` SSE event (see architecture § SSE Hub). No other key has a broadcast side effect. (f1ot)
 
 ## Override Order & Env Inventory
 
@@ -73,7 +80,15 @@ The config root SHALL be `$HOME/.config/run-kit/`, built with `filepath.Join` fr
 - **THEN** it is `/test/home/.config/run-kit/config.yaml`
 
 ### Requirement: Registry as single source of truth
-Every settings key SHALL be one registry entry carrying key/type/default/description/category/ui/live; adding a key MUST NOT require new parse/serialize branches.
+Every settings key SHALL be one registry entry carrying key/type/default/description/category/ui/live; adding a key MUST NOT require new parse/serialize branches, nor new HTTP value plumbing — the registry's generic value read/apply hooks serve `GET`/`POST /api/settings` for every key.
+
+### Requirement: Settings mutations are all-or-nothing
+`POST /api/settings` SHALL validate the entire body before any write; an unknown key, malformed body, or any per-key validation failure MUST be a 400 with nothing persisted.
+
+#### Scenario: Unknown key persists nothing
+- **GIVEN** a body `{"theme": "dark", "bogus_key": 1}`
+- **WHEN** POSTed to `/api/settings`
+- **THEN** the response is 400 and the stored `theme` is unchanged
 
 ### Requirement: Byte-stable serialization
 An existing settings file with values unchanged SHALL round-trip byte-identically through load + save (omit-when-default, scalar order, quoted values, sorted map keys).
@@ -114,5 +129,23 @@ A migration SHALL fallback-read the old path, migrate on first write, and leave 
 **Why**: a per-process test/debug toggle must not mutate the user's config.yaml, and the dev rig exports `LOG_LEVEL=debug` (`justfile`, `scripts/dev.sh`).
 **Rejected**: deleting the env reads (breaks the dev rig and per-process testing); documenting them (grows the env surface the override order just restricted).
 *Introduced by*: 260823-li54-config-root-registry-core
+
+### GET shape: array of full registry entries
+**Decision**: `{"settings": [{key, kind, default, description, category, ui, live, value}]}` in registry order, snake_case registry key names verbatim.
+**Why**: a registry-driven settings surface renders typed controls straight from this — one payload, ordered, self-describing; null-for-unset preserves the read contract the per-key GETs carried.
+**Rejected**: split `{registry: [...], values: {...}}` (two structures to zip client-side); values-only map (drops the metadata a registry-driven surface needs, defeating the registry).
+*Introduced by*: 260823-f1ot-settings-api-hard-fold
+
+### Value plumbing in registry hooks, board-name validation at the API layer
+**Decision**: registry entries own generic JSON value read/apply hooks (normalization + value-shape validation lives with the entry, reusing `internal/validate`); board-order **name** validity (`tmux.ValidBoardName`) and duplicate rejection stay in the API handler.
+**Why**: keeps "adding a key is one registry entry" true for the API path; `internal/tmux` imports `internal/settings` (tmux.go), so settings calling into tmux is an import cycle — the API package already imports both.
+**Rejected**: a per-key switch in `api/settings.go` (reintroduces per-key growth at the HTTP layer); moving `ValidBoardName` into `internal/validate` (churns `api/boards.go` callers for no behavioral gain).
+*Introduced by*: 260823-f1ot-settings-api-hard-fold
+
+### Per-entry map merge
+**Decision**: map-kind keys merge per-entry with `null` unsetting one entry; top-level `null` clears the map; `board_order` replaces wholesale.
+**Why**: mirrors the `SetServerColor(server, color *string)` one-entry semantics so client setters stay one-entry-sized; a full-map replace would force every color-picker click to read-modify-write the whole map client-side (racy across tabs).
+**Rejected**: wholesale map replacement (race-prone, bigger client diffs); JSON-merge-patch RFC 7386 wholesale-object semantics (breaks the one-entry setter shape).
+*Introduced by*: 260823-f1ot-settings-api-hard-fold
 
 See [architecture](/run-kit/architecture.md) § `internal/settings` for the package-level contract and [layout-snapshots](/run-kit/layout-snapshots.md) for the snapshot store under the state root.

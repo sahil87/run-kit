@@ -19,10 +19,14 @@ import {
   getDirectories,
   uploadFile,
   killServer,
+  getThemePreference,
   setThemePreference,
+  getServerColor,
   setServerColor,
+  getAllServerColors,
   getAllServerFlairs,
   setServerFlair,
+  getInstanceColor,
   getSSHHost,
   setSSHHost,
   getInstanceName,
@@ -569,7 +573,7 @@ describe("API request deduplication", () => {
   it("does not deduplicate non-GET (POST) requests", async () => {
     let callCount = 0;
     mswServer.use(
-      http.post("/api/settings/theme", async () => {
+      http.post("/api/settings", async () => {
         callCount++;
         return HttpResponse.json({ status: "ok" });
       }),
@@ -733,76 +737,69 @@ describe("POST verb migration + /options contract", () => {
     expect(bodies).toEqual([{ flair: "naruto" }, { flair: null }]);
   });
 
-  it("setThemePreference issues POST (not PUT)", async () => {
+  it("setThemePreference issues POST (not PUT) with the changed keys as a patch", async () => {
     let capturedMethod = "";
+    let capturedBody: Record<string, unknown> = {};
     mswServer.use(
-      http.post("/api/settings/theme", async ({ request }) => {
+      http.post("/api/settings", async ({ request }) => {
         capturedMethod = request.method;
+        capturedBody = (await request.json()) as Record<string, unknown>;
         return HttpResponse.json({ status: "ok" });
       }),
     );
     await setThemePreference({ theme: "dark" });
     expect(capturedMethod).toBe("POST");
+    expect(capturedBody).toEqual({ theme: "dark" });
   });
 
-  it("setServerColor issues POST (not PUT) with a string color value", async () => {
-    let capturedMethod = "";
-    let capturedBody: { server?: string; color?: string | null } = {};
+  it("setServerColor posts a one-entry server_colors patch (null clears)", async () => {
+    const bodies: unknown[] = [];
     mswServer.use(
-      http.post("/api/settings/server-color", async ({ request }) => {
-        capturedMethod = request.method;
-        capturedBody = (await request.json()) as typeof capturedBody;
+      http.post("/api/settings", async ({ request }) => {
+        bodies.push(await request.json());
         return HttpResponse.json({ status: "ok" });
       }),
     );
     await setServerColor("default", "7");
-    expect(capturedMethod).toBe("POST");
-    expect(capturedBody).toEqual({ server: "default", color: "7" });
-  });
-
-  it("setServerColor sends a blend color value", async () => {
-    let capturedBody: { server?: string; color?: string | null } = {};
-    mswServer.use(
-      http.post("/api/settings/server-color", async ({ request }) => {
-        capturedBody = (await request.json()) as typeof capturedBody;
-        return HttpResponse.json({ status: "ok" });
-      }),
-    );
     await setServerColor("default", "1+3");
-    expect(capturedBody).toEqual({ server: "default", color: "1+3" });
+    await setServerColor("default", null);
+    expect(bodies).toEqual([
+      { server_colors: { default: "7" } },
+      { server_colors: { default: "1+3" } },
+      { server_colors: { default: null } },
+    ]);
   });
 
-  it("getAllServerFlairs GETs the map form and unwraps flairs", async () => {
+  it("getAllServerFlairs reads the server_flairs entry from GET /api/settings", async () => {
     mswServer.use(
-      http.get("/api/settings/server-flair", () =>
-        HttpResponse.json({ flairs: { default: "nyan", dev: "cube" } }),
+      http.get("/api/settings", () =>
+        HttpResponse.json({
+          settings: [settingsEntry("server_flairs", "map", { default: "nyan", dev: "cube" })],
+        }),
       ),
     );
     await expect(getAllServerFlairs()).resolves.toEqual({ default: "nyan", dev: "cube" });
   });
 
-  it("setServerFlair issues POST (not PUT) with a string flair value; null clears", async () => {
-    let capturedMethod = "";
-    const bodies: Array<{ server?: string; flair?: string | null }> = [];
+  it("setServerFlair posts a one-entry server_flairs patch; null clears", async () => {
+    const bodies: unknown[] = [];
     mswServer.use(
-      http.post("/api/settings/server-flair", async ({ request }) => {
-        capturedMethod = request.method;
-        bodies.push((await request.json()) as { server?: string; flair?: string | null });
+      http.post("/api/settings", async ({ request }) => {
+        bodies.push(await request.json());
         return HttpResponse.json({ status: "ok" });
       }),
     );
     await setServerFlair("default", "cube");
     await setServerFlair("default", null);
-    expect(capturedMethod).toBe("POST");
     expect(bodies).toEqual([
-      { server: "default", flair: "cube" },
-      { server: "default", flair: null },
+      { server_flairs: { default: "cube" } },
+      { server_flairs: { default: null } },
     ]);
   });
 
   it("setServerFlair rejects on a non-2xx (e.g. 400 unknown token)", async () => {
     mswServer.use(
-      http.post("/api/settings/server-flair", () =>
+      http.post("/api/settings", () =>
         HttpResponse.json({ error: "Flair must be one of: ..." }, { status: 400 }),
       ),
     );
@@ -1151,7 +1148,13 @@ describe("rank-aware server ordering (compareServersRanked)", () => {
   });
 });
 
-describe("ssh-host + instance-name settings client (260723-o7q8)", () => {
+// settingsEntry builds one GET /api/settings payload row for the msw stubs —
+// only the fields the client reads (key, value) need to be meaningful.
+function settingsEntry(key: string, kind: string, value: unknown) {
+  return { key, kind, default: "", description: "", category: "", ui: true, live: true, value };
+}
+
+describe("settings client (registry-driven GET/POST /api/settings)", () => {
   it("getHealth surfaces the optional instanceName field when present", async () => {
     mswServer.use(
       http.get("/api/health", () =>
@@ -1163,47 +1166,38 @@ describe("ssh-host + instance-name settings client (260723-o7q8)", () => {
     expect(health.hostname).toBe("test-host");
   });
 
-  it("getSSHHost resolves the stored setting", async () => {
+  it("getSSHHost resolves the stored setting from the ssh_host entry", async () => {
     mswServer.use(
-      http.get("/api/settings/ssh-host", () => HttpResponse.json({ sshHost: "devbox" })),
+      http.get("/api/settings", () =>
+        HttpResponse.json({ settings: [settingsEntry("ssh_host", "string", "devbox")] }),
+      ),
     );
     await expect(getSSHHost()).resolves.toBe("devbox");
   });
 
   it("getSSHHost resolves null when unset", async () => {
     mswServer.use(
-      http.get("/api/settings/ssh-host", () => HttpResponse.json({ sshHost: null })),
+      http.get("/api/settings", () =>
+        HttpResponse.json({ settings: [settingsEntry("ssh_host", "string", null)] }),
+      ),
     );
     await expect(getSSHHost()).resolves.toBeNull();
   });
 
-  it("setSSHHost POSTs the value and resolves on ok", async () => {
-    let capturedBody: unknown = null;
+  it("setSSHHost POSTs the key as a patch; null clears; 400 rejects with message", async () => {
+    const bodies: unknown[] = [];
     mswServer.use(
-      http.post("/api/settings/ssh-host", async ({ request }) => {
-        capturedBody = await request.json();
+      http.post("/api/settings", async ({ request }) => {
+        bodies.push(await request.json());
         return HttpResponse.json({ status: "ok" });
       }),
     );
     await setSSHHost("devbox");
-    expect(capturedBody).toEqual({ sshHost: "devbox" });
-  });
-
-  it("setSSHHost POSTs null to clear", async () => {
-    let capturedBody: unknown = null;
-    mswServer.use(
-      http.post("/api/settings/ssh-host", async ({ request }) => {
-        capturedBody = await request.json();
-        return HttpResponse.json({ status: "ok" });
-      }),
-    );
     await setSSHHost(null);
-    expect(capturedBody).toEqual({ sshHost: null });
-  });
+    expect(bodies).toEqual([{ ssh_host: "devbox" }, { ssh_host: null }]);
 
-  it("setSSHHost rejects with the server's structured error on 400", async () => {
     mswServer.use(
-      http.post("/api/settings/ssh-host", () =>
+      http.post("/api/settings", () =>
         HttpResponse.json({ error: "SSH host cannot contain whitespace or control characters" }, { status: 400 }),
       ),
     );
@@ -1214,37 +1208,87 @@ describe("ssh-host + instance-name settings client (260723-o7q8)", () => {
 
   it("getInstanceName resolves the stored setting (null when unset)", async () => {
     mswServer.use(
-      http.get("/api/settings/instance-name", () => HttpResponse.json({ name: "my-box" })),
+      http.get("/api/settings", () =>
+        HttpResponse.json({ settings: [settingsEntry("instance_name", "string", "my-box")] }),
+      ),
     );
     await expect(getInstanceName()).resolves.toBe("my-box");
 
     mswServer.use(
-      http.get("/api/settings/instance-name", () => HttpResponse.json({ name: null })),
+      http.get("/api/settings", () =>
+        HttpResponse.json({ settings: [settingsEntry("instance_name", "string", null)] }),
+      ),
     );
     await expect(getInstanceName()).resolves.toBeNull();
   });
 
-  it("setInstanceName POSTs the value; null clears; 400 rejects with message", async () => {
-    let capturedBody: unknown = null;
+  it("setInstanceName POSTs the key as a patch; null clears; 400 rejects with message", async () => {
+    const bodies: unknown[] = [];
     mswServer.use(
-      http.post("/api/settings/instance-name", async ({ request }) => {
-        capturedBody = await request.json();
+      http.post("/api/settings", async ({ request }) => {
+        bodies.push(await request.json());
         return HttpResponse.json({ status: "ok" });
       }),
     );
     await setInstanceName("my-box");
-    expect(capturedBody).toEqual({ name: "my-box" });
     await setInstanceName(null);
-    expect(capturedBody).toEqual({ name: null });
+    expect(bodies).toEqual([{ instance_name: "my-box" }, { instance_name: null }]);
 
     mswServer.use(
-      http.post("/api/settings/instance-name", () =>
+      http.post("/api/settings", () =>
         HttpResponse.json({ error: "Instance name cannot contain control characters" }, { status: 400 }),
       ),
     );
     await expect(setInstanceName("bad")).rejects.toThrow(
       "Instance name cannot contain control characters",
     );
+  });
+
+  it("concurrent getters collapse into one deduplicated GET /api/settings", async () => {
+    let getCount = 0;
+    mswServer.use(
+      http.get("/api/settings", () => {
+        getCount++;
+        return HttpResponse.json({
+          settings: [
+            settingsEntry("theme", "enum", "system"),
+            settingsEntry("theme_dark", "string", "default-dark"),
+            settingsEntry("theme_light", "string", "default-light"),
+            settingsEntry("instance_color", "color", "4"),
+            settingsEntry("ssh_host", "string", "devbox"),
+            settingsEntry("instance_name", "string", "my-box"),
+            settingsEntry("server_colors", "map", { dev: "7" }),
+            settingsEntry("server_flairs", "map", { dev: "nyan" }),
+          ],
+        });
+      }),
+    );
+    const [theme, sshHost, name, color, colors, flairs, serverColor] = await Promise.all([
+      getThemePreference(),
+      getSSHHost(),
+      getInstanceName(),
+      getInstanceColor(),
+      getAllServerColors(),
+      getAllServerFlairs(),
+      getServerColor("dev"),
+    ]);
+    expect(getCount).toBe(1);
+    expect(theme).toEqual({ theme: "system", themeDark: "default-dark", themeLight: "default-light" });
+    expect(sshHost).toBe("devbox");
+    expect(name).toBe("my-box");
+    expect(color).toBe("4");
+    expect(colors).toEqual({ dev: "7" });
+    expect(flairs).toEqual({ dev: "nyan" });
+    expect(serverColor).toBe("7");
+  });
+
+  it("getServerColor resolves null for a server with no entry", async () => {
+    mswServer.use(
+      http.get("/api/settings", () =>
+        HttpResponse.json({ settings: [settingsEntry("server_colors", "map", { dev: "7" })] }),
+      ),
+    );
+    await expect(getServerColor("prod")).resolves.toBeNull();
   });
 });
 

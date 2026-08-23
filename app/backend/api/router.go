@@ -696,7 +696,6 @@ func (s *Server) buildRouter() chi.Router {
 	r.Get("/api/sessions/order", s.handleSessionOrderGet)
 	r.Post("/api/sessions/order", s.handleSessionOrderPost)
 	r.Get("/api/boards", s.handleBoardsList)
-	r.Post("/api/boards/order", s.handleBoardOrderPost)
 	r.Get("/api/boards/{name}", s.handleBoardGet)
 	r.Post("/api/boards/{name}/pin", s.handleBoardPin)
 	r.Post("/api/boards/{name}/unpin", s.handleBoardUnpin)
@@ -760,19 +759,11 @@ func (s *Server) buildRouter() chi.Router {
 	// Keybindings
 	r.Get("/api/keybindings", s.handleKeybindings)
 
-	// Settings (global, not per-server)
-	r.Get("/api/settings/theme", s.handleGetTheme)
-	r.Post("/api/settings/theme", s.handleSetTheme)
-	r.Get("/api/settings/server-color", s.handleGetServerColor)
-	r.Post("/api/settings/server-color", s.handleSetServerColor)
-	r.Get("/api/settings/server-flair", s.handleGetServerFlair)
-	r.Post("/api/settings/server-flair", s.handleSetServerFlair)
-	r.Get("/api/settings/instance-color", s.handleGetInstanceColor)
-	r.Post("/api/settings/instance-color", s.handleSetInstanceColor)
-	r.Get("/api/settings/ssh-host", s.handleGetSSHHost)
-	r.Post("/api/settings/ssh-host", s.handleSetSSHHost)
-	r.Get("/api/settings/instance-name", s.handleGetInstanceName)
-	r.Post("/api/settings/instance-name", s.handleSetInstanceName)
+	// Settings (global, not per-server) — one registry-driven surface:
+	// GET returns registry metadata + current values; POST is a partial merge
+	// (present keys set, null unsets) per Constitution IX.
+	r.Get("/api/settings", s.handleGetSettings)
+	r.Post("/api/settings", s.handlePostSettings)
 
 	// Web Push: VAPID key (read), subscribe + notify (mutations, POST per §IX)
 	r.Get("/api/push/vapid-public-key", s.handlePushVAPIDPublicKey)

@@ -2,14 +2,15 @@ package api
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"sort"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"rk/internal/settings"
-	"rk/internal/validate"
 )
 
 // isolateSettings points settings persistence at a throwaway HOME so the tests
@@ -17,414 +18,6 @@ import (
 func isolateSettings(t *testing.T) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
-}
-
-// --- POST /api/settings/theme ---
-
-func TestSetTheme_roundTrip(t *testing.T) {
-	isolateSettings(t)
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-	body := `{"theme":"midnight"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/settings/theme", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
-	}
-	var result map[string]string
-	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if result["status"] != "ok" {
-		t.Errorf("status field = %q, want %q", result["status"], "ok")
-	}
-	if got := settings.Load().Theme; got != "midnight" {
-		t.Errorf("persisted theme = %q, want %q", got, "midnight")
-	}
-}
-
-func TestSetTheme_emptyRejected(t *testing.T) {
-	isolateSettings(t)
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-	for _, body := range []string{`{}`, `{"theme":""}`, `{"theme":"   "}`} {
-		req := httptest.NewRequest(http.MethodPost, "/api/settings/theme", strings.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
-		rec := httptest.NewRecorder()
-		router.ServeHTTP(rec, req)
-
-		if rec.Code != http.StatusBadRequest {
-			t.Errorf("body %s: status = %d, want %d", body, rec.Code, http.StatusBadRequest)
-		}
-	}
-}
-
-// --- POST /api/settings/server-color ---
-
-func TestSetServerColor_persists(t *testing.T) {
-	isolateSettings(t)
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-	body := `{"server":"dev","color":"7"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/settings/server-color", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
-	}
-	got := settings.GetServerColor("dev")
-	if got == nil || *got != "7" {
-		t.Errorf("persisted color = %v, want \"7\"", got)
-	}
-}
-
-func TestSetServerColor_persistsBlend(t *testing.T) {
-	isolateSettings(t)
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-	body := `{"server":"dev","color":"1+3"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/settings/server-color", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
-	}
-	got := settings.GetServerColor("dev")
-	if got == nil || *got != "1+3" {
-		t.Errorf("persisted blend color = %v, want \"1+3\"", got)
-	}
-}
-
-func TestSetServerColor_rejectsMalformed(t *testing.T) {
-	for _, bad := range []string{`{"server":"dev","color":"99"}`, `{"server":"dev","color":"1+"}`, `{"server":"dev","color":"x"}`, `{"server":"dev","color":"1+2+3"}`} {
-		isolateSettings(t)
-		router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-		req := httptest.NewRequest(http.MethodPost, "/api/settings/server-color", strings.NewReader(bad))
-		req.Header.Set("Content-Type", "application/json")
-		rec := httptest.NewRecorder()
-		router.ServeHTTP(rec, req)
-		if rec.Code != http.StatusBadRequest {
-			t.Errorf("body %s: status = %d, want %d", bad, rec.Code, http.StatusBadRequest)
-		}
-	}
-}
-
-// --- GET/POST /api/settings/instance-color ---
-
-func getInstanceColorViaAPI(t *testing.T, router http.Handler) *string {
-	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, "/api/settings/instance-color", nil)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("GET status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
-	}
-	var result struct {
-		Color *string `json:"color"`
-	}
-	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	return result.Color
-}
-
-func TestInstanceColor_getUnsetReturnsNull(t *testing.T) {
-	isolateSettings(t)
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-	if got := getInstanceColorViaAPI(t, router); got != nil {
-		t.Errorf("color = %q, want null", *got)
-	}
-}
-
-func TestSetInstanceColor_persistsAndRoundTrips(t *testing.T) {
-	isolateSettings(t)
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-	for _, color := range []string{"5", "1+3"} {
-		body := `{"color":"` + color + `"}`
-		req := httptest.NewRequest(http.MethodPost, "/api/settings/instance-color", strings.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
-		rec := httptest.NewRecorder()
-		router.ServeHTTP(rec, req)
-
-		if rec.Code != http.StatusOK {
-			t.Fatalf("color %s: status = %d, want %d; body=%s", color, rec.Code, http.StatusOK, rec.Body.String())
-		}
-		if got := settings.GetInstanceColor(); got == nil || *got != color {
-			t.Errorf("persisted color = %v, want %q", got, color)
-		}
-		if got := getInstanceColorViaAPI(t, router); got == nil || *got != color {
-			t.Errorf("GET round-trip = %v, want %q", got, color)
-		}
-	}
-}
-
-func TestSetInstanceColor_nullClears(t *testing.T) {
-	isolateSettings(t)
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-	color := "4"
-	if err := settings.SetInstanceColor(&color); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-
-	body := `{"color":null}`
-	req := httptest.NewRequest(http.MethodPost, "/api/settings/instance-color", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
-	}
-	if got := settings.GetInstanceColor(); got != nil {
-		t.Errorf("color after clear = %q, want nil", *got)
-	}
-	if got := getInstanceColorViaAPI(t, router); got != nil {
-		t.Errorf("GET after clear = %q, want null", *got)
-	}
-}
-
-func TestSetInstanceColor_rejectsMalformed(t *testing.T) {
-	for _, bad := range []string{`{"color":"99"}`, `{"color":"1+"}`, `{"color":"x"}`, `{"color":"1+2+3"}`} {
-		isolateSettings(t)
-		router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-		req := httptest.NewRequest(http.MethodPost, "/api/settings/instance-color", strings.NewReader(bad))
-		req.Header.Set("Content-Type", "application/json")
-		rec := httptest.NewRecorder()
-		router.ServeHTTP(rec, req)
-		if rec.Code != http.StatusBadRequest {
-			t.Errorf("body %s: status = %d, want %d", bad, rec.Code, http.StatusBadRequest)
-		}
-		if got := settings.GetInstanceColor(); got != nil {
-			t.Errorf("body %s: malformed value persisted as %q, want nil", bad, *got)
-		}
-	}
-}
-
-func TestSetServerColor_missingServer(t *testing.T) {
-	isolateSettings(t)
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-	body := `{"color":"4"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/settings/server-color", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
-	}
-}
-
-// --- GET/POST /api/settings/server-flair ---
-
-func postServerFlair(t *testing.T, router http.Handler, body string) *httptest.ResponseRecorder {
-	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/api/settings/server-flair", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-	return rec
-}
-
-func TestSetServerFlair_persists(t *testing.T) {
-	isolateSettings(t)
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-	rec := postServerFlair(t, router, `{"server":"default","flair":"rain"}`)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
-	}
-	got := settings.GetServerFlair("default")
-	if got == nil || *got != "rain" {
-		t.Errorf("persisted flair = %v, want \"rain\"", got)
-	}
-
-	// The ?server= GET form returns the persisted token.
-	req := httptest.NewRequest(http.MethodGet, "/api/settings/server-flair?server=default", nil)
-	rec = httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("GET status = %d, want %d", rec.Code, http.StatusOK)
-	}
-	var result struct {
-		Flair *string `json:"flair"`
-	}
-	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if result.Flair == nil || *result.Flair != "rain" {
-		t.Errorf("GET ?server=default flair = %v, want \"rain\"", result.Flair)
-	}
-}
-
-func TestSetServerFlair_acceptsEveryUniversalToken(t *testing.T) {
-	// The tokens come from validate.FlairValues itself, so this keeps covering
-	// every universal token when the vocabulary grows.
-	isolateSettings(t)
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-	var tokens []string
-	for token := range validate.FlairValues {
-		if token != "" {
-			tokens = append(tokens, token)
-		}
-	}
-	sort.Strings(tokens)
-	if len(tokens) == 0 {
-		t.Fatal("validate.FlairValues has no named tokens")
-	}
-	for _, token := range tokens {
-		rec := postServerFlair(t, router, `{"server":"default","flair":"`+token+`"}`)
-		if rec.Code != http.StatusOK {
-			t.Errorf("token %q: status = %d, want %d", token, rec.Code, http.StatusOK)
-		}
-	}
-	last := tokens[len(tokens)-1]
-	if got := settings.GetServerFlair("default"); got == nil || *got != last {
-		t.Errorf("final persisted flair = %v, want %q", got, last)
-	}
-}
-
-func TestSetServerFlair_rejectsUnknownToken(t *testing.T) {
-	isolateSettings(t)
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-	rec := postServerFlair(t, router, `{"server":"default","flair":"sparkle"}`)
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
-	}
-	if got := settings.GetServerFlair("default"); got != nil {
-		t.Errorf("rejected flair persisted as %q, want nil", *got)
-	}
-}
-
-func TestSetServerFlair_missingServer(t *testing.T) {
-	isolateSettings(t)
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-	rec := postServerFlair(t, router, `{"flair":"nyan"}`)
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
-	}
-}
-
-func TestSetServerFlair_invalidJSON(t *testing.T) {
-	isolateSettings(t)
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-	rec := postServerFlair(t, router, `{"server":`)
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
-	}
-}
-
-func TestSetServerFlair_clearsViaNullAndEmpty(t *testing.T) {
-	for _, body := range []string{`{"server":"default","flair":null}`, `{"server":"default","flair":""}`} {
-		isolateSettings(t)
-		router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-		rec := postServerFlair(t, router, `{"server":"default","flair":"nyan"}`)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("seed: status = %d, want %d", rec.Code, http.StatusOK)
-		}
-		rec = postServerFlair(t, router, body)
-		if rec.Code != http.StatusOK {
-			t.Errorf("body %s: status = %d, want %d", body, rec.Code, http.StatusOK)
-		}
-		if got := settings.GetServerFlair("default"); got != nil {
-			t.Errorf("body %s: flair persisted as %q, want nil", body, *got)
-		}
-	}
-}
-
-func TestGetServerFlair_mapForm(t *testing.T) {
-	isolateSettings(t)
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-	// Empty settings → empty map, never null.
-	req := httptest.NewRequest(http.MethodGet, "/api/settings/server-flair", nil)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("GET status = %d, want %d", rec.Code, http.StatusOK)
-	}
-	var emptyResult struct {
-		Flairs map[string]string `json:"flairs"`
-	}
-	if err := json.NewDecoder(rec.Body).Decode(&emptyResult); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if emptyResult.Flairs == nil || len(emptyResult.Flairs) != 0 {
-		t.Errorf("GET flairs = %v, want empty non-nil map", emptyResult.Flairs)
-	}
-
-	// After a set, the map form carries the entry.
-	if rec := postServerFlair(t, router, `{"server":"dev","flair":"cube"}`); rec.Code != http.StatusOK {
-		t.Fatalf("seed: status = %d, want %d", rec.Code, http.StatusOK)
-	}
-	req = httptest.NewRequest(http.MethodGet, "/api/settings/server-flair", nil)
-	rec = httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-	var result struct {
-		Flairs map[string]string `json:"flairs"`
-	}
-	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if result.Flairs["dev"] != "cube" {
-		t.Errorf("GET flairs[dev] = %q, want \"cube\"", result.Flairs["dev"])
-	}
-}
-
-func TestGetServerFlair_unsetReturnsNull(t *testing.T) {
-	isolateSettings(t)
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-	req := httptest.NewRequest(http.MethodGet, "/api/settings/server-flair?server=default", nil)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("GET status = %d, want %d", rec.Code, http.StatusOK)
-	}
-	var result struct {
-		Flair *string `json:"flair"`
-	}
-	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if result.Flair != nil {
-		t.Errorf("GET ?server=default flair = %v, want null", *result.Flair)
-	}
-}
-
-// --- GET/POST /api/settings/ssh-host + /api/settings/instance-name (260723-o7q8) ---
-
-// getScalarSettingViaAPI reads a per-key scalar settings endpoint and returns
-// the named JSON field (nil = null). Shared by the ssh-host and instance-name
-// round-trip tests.
-func getScalarSettingViaAPI(t *testing.T, router http.Handler, path, field string) *string {
-	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, path, nil)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("GET %s status = %d, want %d; body=%s", path, rec.Code, http.StatusOK, rec.Body.String())
-	}
-	var result map[string]*string
-	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	return result[field]
 }
 
 func postJSON(t *testing.T, router http.Handler, path, body string) *httptest.ResponseRecorder {
@@ -436,148 +29,444 @@ func postJSON(t *testing.T, router http.Handler, path, body string) *httptest.Re
 	return rec
 }
 
-func TestSSHHost_getUnsetReturnsNull(t *testing.T) {
+// getSettingsMap GETs /api/settings and returns the entries keyed by settings
+// key (order assertions use getSettingsList instead).
+func getSettingsMap(t *testing.T, router http.Handler) map[string]settingEntry {
+	t.Helper()
+	entries := getSettingsList(t, router)
+	byKey := make(map[string]settingEntry, len(entries))
+	for _, e := range entries {
+		byKey[e.Key] = e
+	}
+	return byKey
+}
+
+func getSettingsList(t *testing.T, router http.Handler) []settingEntry {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/api/settings", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/settings status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var result struct {
+		Settings []settingEntry `json:"settings"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return result.Settings
+}
+
+// --- GET /api/settings ---
+
+func TestGetSettings_registryOrderAndDefaults(t *testing.T) {
 	isolateSettings(t)
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 
-	if got := getScalarSettingViaAPI(t, router, "/api/settings/ssh-host", "sshHost"); got != nil {
-		t.Errorf("sshHost = %q, want null", *got)
+	entries := getSettingsList(t, router)
+	wantKeys := []string{
+		"theme", "theme_dark", "theme_light", "instance_color", "ssh_host",
+		"instance_name", "auto_name", "tmux_conf", "log_level",
+		"server_colors", "server_flairs", "board_order",
+	}
+	if len(entries) != len(wantKeys) {
+		t.Fatalf("GET returned %d entries, want %d", len(entries), len(wantKeys))
+	}
+	for i, key := range wantKeys {
+		if entries[i].Key != key {
+			t.Errorf("entries[%d].Key = %q, want %q", i, entries[i].Key, key)
+		}
+	}
+
+	byKey := make(map[string]settingEntry, len(entries))
+	for _, e := range entries {
+		byKey[e.Key] = e
+		if e.Description == "" || e.Kind == "" || e.Category == "" {
+			t.Errorf("entry %q missing metadata: %+v", e.Key, e)
+		}
+	}
+	// Fresh-instance defaults (values decode into interface{} shapes).
+	if got := byKey["theme"].Value; got != "system" {
+		t.Errorf("theme.value = %v, want %q", got, "system")
+	}
+	if got := byKey["instance_color"].Value; got != nil {
+		t.Errorf("instance_color.value = %v, want null", got)
+	}
+	if got := byKey["ssh_host"].Value; got != nil {
+		t.Errorf("ssh_host.value = %v, want null", got)
+	}
+	if got, ok := byKey["server_colors"].Value.(map[string]any); !ok || len(got) != 0 {
+		t.Errorf("server_colors.value = %v, want {}", byKey["server_colors"].Value)
+	}
+	if got, ok := byKey["board_order"].Value.([]any); !ok || len(got) != 0 {
+		t.Errorf("board_order.value = %v, want []", byKey["board_order"].Value)
+	}
+	if got := byKey["auto_name"].Value; got != false {
+		t.Errorf("auto_name.value = %v, want false", got)
+	}
+	if got := byKey["log_level"].Value; got != "info" {
+		t.Errorf("log_level.value = %v, want %q", got, "info")
 	}
 }
 
-func TestSetSSHHost_persistsAndRoundTrips(t *testing.T) {
+func TestGetSettings_reflectsStoredValues(t *testing.T) {
 	isolateSettings(t)
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 
-	for _, host := range []string{"devbox", "user@host.example.com"} {
-		rec := postJSON(t, router, "/api/settings/ssh-host", `{"sshHost":"`+host+`"}`)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("host %s: status = %d, want %d; body=%s", host, rec.Code, http.StatusOK, rec.Body.String())
-		}
-		if got := settings.GetSSHHost(); got == nil || *got != host {
-			t.Errorf("persisted sshHost = %v, want %q", got, host)
-		}
-		if got := getScalarSettingViaAPI(t, router, "/api/settings/ssh-host", "sshHost"); got == nil || *got != host {
-			t.Errorf("GET round-trip = %v, want %q", got, host)
-		}
+	color := "4"
+	if err := settings.SetInstanceColor(&color); err != nil {
+		t.Fatalf("seed color: %v", err)
+	}
+	if err := settings.SetBoardOrder([]string{"deploys", "reviews"}); err != nil {
+		t.Fatalf("seed order: %v", err)
+	}
+	if err := settings.SetServerColor("default", &color); err != nil {
+		t.Fatalf("seed server color: %v", err)
+	}
+
+	byKey := getSettingsMap(t, router)
+	if got := byKey["instance_color"].Value; got != "4" {
+		t.Errorf("instance_color.value = %v, want %q", got, "4")
+	}
+	colors, ok := byKey["server_colors"].Value.(map[string]any)
+	if !ok || colors["default"] != "4" {
+		t.Errorf("server_colors.value = %v, want {default: 4}", byKey["server_colors"].Value)
+	}
+	order, ok := byKey["board_order"].Value.([]any)
+	if !ok || len(order) != 2 || order[0] != "deploys" || order[1] != "reviews" {
+		t.Errorf("board_order.value = %v, want [deploys reviews]", byKey["board_order"].Value)
 	}
 }
 
-func TestSetSSHHost_trimsSurroundingWhitespace(t *testing.T) {
+// --- POST /api/settings: merge semantics ---
+
+func TestPostSettings_setAbsentNull(t *testing.T) {
 	isolateSettings(t)
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 
-	rec := postJSON(t, router, "/api/settings/ssh-host", `{"sshHost":"  devbox  "}`)
+	// Seed one key, patch another — the absent key is untouched.
+	name := "my-box"
+	if err := settings.SetInstanceName(&name); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	rec := postJSON(t, router, "/api/settings", `{"ssh_host": "devbox"}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
 	}
-	if got := settings.GetSSHHost(); got == nil || *got != "devbox" {
-		t.Errorf("persisted sshHost = %v, want trimmed \"devbox\"", got)
+	var result map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if result["status"] != "ok" {
+		t.Errorf("status field = %q, want %q", result["status"], "ok")
+	}
+	if got := settings.Load(); got.SSHHost != "devbox" || got.InstanceName != "my-box" {
+		t.Errorf("after patch: ssh_host=%q instance_name=%q, want devbox/my-box", got.SSHHost, got.InstanceName)
+	}
+
+	// Null unsets (back to the registry default).
+	rec = postJSON(t, router, "/api/settings", `{"instance_name": null}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("null unset: status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if got := settings.GetInstanceName(); got != nil {
+		t.Errorf("instance_name after null = %q, want nil", *got)
+	}
+	// A subsequent GET surfaces null for the unset scalar.
+	if got := getSettingsMap(t, router)["instance_name"].Value; got != nil {
+		t.Errorf("GET instance_name.value after unset = %v, want null", got)
 	}
 }
 
-func TestSetSSHHost_clears(t *testing.T) {
+func TestPostSettings_emptyStringEqualsNull(t *testing.T) {
 	isolateSettings(t)
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 
-	// Both a JSON null and a trimmed-to-empty string clear the setting.
-	for _, clearBody := range []string{`{"sshHost":null}`, `{"sshHost":"   "}`} {
-		host := "devbox"
-		if err := settings.SetSSHHost(&host); err != nil {
-			t.Fatalf("seed: %v", err)
-		}
-		rec := postJSON(t, router, "/api/settings/ssh-host", clearBody)
+	host := "devbox"
+	if err := settings.SetSSHHost(&host); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	rec := postJSON(t, router, "/api/settings", `{"ssh_host": "   "}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if got := settings.GetSSHHost(); got != nil {
+		t.Errorf("ssh_host after trimmed-empty = %q, want nil", *got)
+	}
+}
+
+func TestPostSettings_trimsScalarValues(t *testing.T) {
+	isolateSettings(t)
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	rec := postJSON(t, router, "/api/settings", `{"ssh_host": "  devbox  ", "instance_name": " dev mini "}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	got := settings.Load()
+	if got.SSHHost != "devbox" || got.InstanceName != "dev mini" {
+		t.Errorf("trimmed values: ssh_host=%q instance_name=%q, want devbox / \"dev mini\"", got.SSHHost, got.InstanceName)
+	}
+}
+
+func TestPostSettings_perEntryMapMerge(t *testing.T) {
+	isolateSettings(t)
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	four, two := "4", "2"
+	if err := settings.SetServerColor("dev", &four); err != nil {
+		t.Fatalf("seed dev: %v", err)
+	}
+	if err := settings.SetServerColor("prod", &two); err != nil {
+		t.Fatalf("seed prod: %v", err)
+	}
+
+	rec := postJSON(t, router, "/api/settings", `{"server_colors": {"dev": null, "stage": "1+3"}}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	got := settings.Load().ServerColors
+	if len(got) != 2 || got["prod"] != "2" || got["stage"] != "1+3" {
+		t.Errorf("server_colors = %v, want {prod: 2, stage: 1+3}", got)
+	}
+
+	// Top-level null clears the whole map.
+	rec = postJSON(t, router, "/api/settings", `{"server_colors": null}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("clear: status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if got := settings.Load().ServerColors; len(got) != 0 {
+		t.Errorf("server_colors after top-level null = %v, want empty", got)
+	}
+}
+
+func TestPostSettings_flairEmptyStringUnsetsEntry(t *testing.T) {
+	isolateSettings(t)
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	flair := "rain"
+	if err := settings.SetServerFlair("default", &flair); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	rec := postJSON(t, router, "/api/settings", `{"server_flairs": {"default": ""}}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if got := settings.GetServerFlair("default"); got != nil {
+		t.Errorf("flair after empty-string entry = %q, want nil", *got)
+	}
+}
+
+func TestPostSettings_boardOrderReplacesWholesale(t *testing.T) {
+	isolateSettings(t)
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	if err := settings.SetBoardOrder([]string{"deploys"}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	rec := postJSON(t, router, "/api/settings", `{"board_order": ["reviews", "deploys"]}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if got := settings.GetBoardOrder(); len(got) != 2 || got[0] != "reviews" || got[1] != "deploys" {
+		t.Errorf("board_order = %v, want [reviews deploys]", got)
+	}
+
+	// Top-level null and [] both clear.
+	for _, body := range []string{`{"board_order": null}`, `{"board_order": []}`} {
+		rec = postJSON(t, router, "/api/settings", body)
 		if rec.Code != http.StatusOK {
-			t.Fatalf("body %s: status = %d, want %d; body=%s", clearBody, rec.Code, http.StatusOK, rec.Body.String())
+			t.Fatalf("body %s: status = %d, want %d", body, rec.Code, http.StatusOK)
 		}
-		if got := settings.GetSSHHost(); got != nil {
-			t.Errorf("body %s: sshHost after clear = %q, want nil", clearBody, *got)
+		if got := settings.GetBoardOrder(); got != nil {
+			t.Errorf("body %s: board_order = %v, want nil", body, got)
 		}
 	}
 }
 
-func TestSetSSHHost_rejectsInvalid(t *testing.T) {
-	longHost := strings.Repeat("a", 254)
-	for _, bad := range []string{
-		`{"sshHost":"dev box"}`,          // embedded whitespace
-		`{"sshHost":"dev\tbox"}`,         // tab (JSON escape → real tab)
-		`{"sshHost":"dev\u0007box"}`,     // control char (JSON escape)
-		`{"sshHost":"` + longHost + `"}`, // >253 chars
-	} {
-		isolateSettings(t)
-		router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-		rec := postJSON(t, router, "/api/settings/ssh-host", bad)
+// --- POST /api/settings: validation, all-or-nothing ---
+
+func TestPostSettings_unknownKeyRejected(t *testing.T) {
+	isolateSettings(t)
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	rec := postJSON(t, router, "/api/settings", `{"theme": "dark", "bogus_key": 1}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if got := settings.Load().Theme; got != "system" {
+		t.Errorf("theme persisted as %q despite unknown key, want unchanged %q", got, "system")
+	}
+}
+
+func TestPostSettings_perKeyValidation400s(t *testing.T) {
+	longValue := strings.Repeat("a", 254)
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"malformed instance_color", `{"instance_color": "99"}`},
+		{"malformed server color entry", `{"server_colors": {"dev": "1+2+3"}}`},
+		{"unknown flair token", `{"server_flairs": {"dev": "sparkle"}}`},
+		{"invalid ssh_host", `{"ssh_host": "dev box"}`},
+		{"over-long ssh_host", `{"ssh_host": "` + longValue + `"}`},
+		{"invalid instance_name", `{"instance_name": "my\u0007box"}`},
+		{"invalid board name", `{"board_order": ["ok", "bad name!"]}`},
+		{"duplicate board name", `{"board_order": ["a", "b", "a"]}`},
+		{"log_level outside enum", `{"log_level": "trace"}`},
+		{"empty theme", `{"theme": "  "}`},
+		{"non-bool auto_name", `{"auto_name": "yes"}`},
+		{"wrong type for map", `{"server_colors": "4"}`},
+		{"wrong type for scalar", `{"theme": 42}`},
+		{"wrong type for list", `{"board_order": {"a": 1}}`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			isolateSettings(t)
+			router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+			rec := postJSON(t, router, "/api/settings", c.body)
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("body %s: status = %d, want %d; body=%s", c.body, rec.Code, http.StatusBadRequest, rec.Body.String())
+			}
+			// Nothing persisted on a 400.
+			if got := settings.Load(); !settingsEqual(got, settings.Default()) {
+				t.Errorf("body %s: settings persisted despite 400: %+v", c.body, got)
+			}
+		})
+	}
+}
+
+// settingsEqual reports whether two Settings carry the same values.
+func settingsEqual(a, b settings.Settings) bool {
+	aJSON, _ := json.Marshal(a)
+	bJSON, _ := json.Marshal(b)
+	return string(aJSON) == string(bJSON)
+}
+
+func TestPostSettings_allOrNothing(t *testing.T) {
+	isolateSettings(t)
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	// A valid key plus an invalid one in the same body: the valid key must
+	// NOT persist either.
+	rec := postJSON(t, router, "/api/settings", `{"ssh_host": "devbox", "board_order": ["deploys", "deploys"]}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if got := settings.GetSSHHost(); got != nil {
+		t.Errorf("ssh_host persisted as %q despite sibling failure, want nil", *got)
+	}
+	if got := settings.GetBoardOrder(); got != nil {
+		t.Errorf("board_order persisted as %v despite duplicate rejection, want nil", got)
+	}
+}
+
+func TestPostSettings_malformedBody(t *testing.T) {
+	isolateSettings(t)
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	for _, body := range []string{`{"theme":`, `not json`, `[1,2]`} {
+		rec := postJSON(t, router, "/api/settings", body)
 		if rec.Code != http.StatusBadRequest {
-			t.Errorf("body %s: status = %d, want %d", bad, rec.Code, http.StatusBadRequest)
-		}
-		if got := settings.GetSSHHost(); got != nil {
-			t.Errorf("body %s: invalid value persisted as %q, want nil", bad, *got)
+			t.Errorf("body %q: status = %d, want %d", body, rec.Code, http.StatusBadRequest)
 		}
 	}
 }
 
-func TestInstanceName_getUnsetReturnsNull(t *testing.T) {
+// --- POST /api/settings: board-order SSE broadcast ---
+
+func TestPostSettings_boardOrderBroadcasts(t *testing.T) {
+	isolateSettings(t)
+	ops := &mockTmuxOps{}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	server := &Server{logger: logger, sessions: &mockSessionFetcher{}, tmux: ops, hostname: "test"}
+	server.initSSEHub()
+	client := server.sseHub.addTestClient(make(chan hubEvent, 16), "default")
+	defer server.sseHub.removeClient(client)
+	drainSSE(client)
+
+	router := server.buildRouter()
+	rec := postJSON(t, router, "/api/settings", `{"board_order": ["reviews", "deploys"]}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if got := settings.GetBoardOrder(); len(got) != 2 || got[0] != "reviews" || got[1] != "deploys" {
+		t.Errorf("persisted order = %v, want [reviews deploys]", got)
+	}
+
+	deadline := time.After(500 * time.Millisecond)
+	for {
+		select {
+		case ev := <-client.ch:
+			s := ev.String()
+			if strings.Contains(s, "event: board-order") {
+				if !strings.Contains(s, `{"order":["reviews","deploys"]}`) {
+					t.Errorf("board-order payload = %q", s)
+				}
+				return
+			}
+		case <-deadline:
+			t.Fatal("did not receive board-order event")
+		}
+	}
+}
+
+func TestPostSettings_withoutBoardOrderBroadcastsNothing(t *testing.T) {
+	isolateSettings(t)
+	ops := &mockTmuxOps{}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	server := &Server{logger: logger, sessions: &mockSessionFetcher{}, tmux: ops, hostname: "test"}
+	server.initSSEHub()
+	client := server.sseHub.addTestClient(make(chan hubEvent, 16), "default")
+	defer server.sseHub.removeClient(client)
+	drainSSE(client)
+
+	router := server.buildRouter()
+	rec := postJSON(t, router, "/api/settings", `{"theme": "dark"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	select {
+	case ev := <-client.ch:
+		if strings.Contains(ev.String(), "event: board-order") {
+			t.Errorf("unexpected board-order event: %q", ev.String())
+		}
+	case <-time.After(150 * time.Millisecond):
+	}
+}
+
+// --- Hard fold: the per-key endpoints are gone ---
+
+func TestFoldedEndpoints_areGone(t *testing.T) {
 	isolateSettings(t)
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 
-	if got := getScalarSettingViaAPI(t, router, "/api/settings/instance-name", "name"); got != nil {
-		t.Errorf("name = %q, want null", *got)
+	paths := []string{
+		"/api/settings/theme",
+		"/api/settings/server-color",
+		"/api/settings/server-flair",
+		"/api/settings/instance-color",
+		"/api/settings/ssh-host",
+		"/api/settings/instance-name",
 	}
-}
-
-func TestSetInstanceName_persistsAndRoundTrips(t *testing.T) {
-	isolateSettings(t)
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-	// Inner spaces are legal in a display name.
-	for _, name := range []string{"my-box", "dev mini"} {
-		rec := postJSON(t, router, "/api/settings/instance-name", `{"name":"`+name+`"}`)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("name %s: status = %d, want %d; body=%s", name, rec.Code, http.StatusOK, rec.Body.String())
-		}
-		if got := settings.GetInstanceName(); got == nil || *got != name {
-			t.Errorf("persisted name = %v, want %q", got, name)
-		}
-		if got := getScalarSettingViaAPI(t, router, "/api/settings/instance-name", "name"); got == nil || *got != name {
-			t.Errorf("GET round-trip = %v, want %q", got, name)
+	for _, path := range paths {
+		for _, method := range []string{http.MethodGet, http.MethodPost} {
+			req := httptest.NewRequest(method, path, nil)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			if rec.Code != http.StatusNotFound && rec.Code != http.StatusMethodNotAllowed {
+				t.Errorf("%s %s: status = %d, want 404/405 (endpoint folded)", method, path, rec.Code)
+			}
 		}
 	}
-}
 
-func TestSetInstanceName_clears(t *testing.T) {
-	isolateSettings(t)
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-	for _, clearBody := range []string{`{"name":null}`, `{"name":"   "}`} {
-		name := "my-box"
-		if err := settings.SetInstanceName(&name); err != nil {
-			t.Fatalf("seed: %v", err)
-		}
-		rec := postJSON(t, router, "/api/settings/instance-name", clearBody)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("body %s: status = %d, want %d; body=%s", clearBody, rec.Code, http.StatusOK, rec.Body.String())
-		}
-		if got := settings.GetInstanceName(); got != nil {
-			t.Errorf("body %s: name after clear = %q, want nil", clearBody, *got)
-		}
-	}
-}
-
-func TestSetInstanceName_rejectsInvalid(t *testing.T) {
-	longName := strings.Repeat("a", 254)
-	for _, bad := range []string{
-		`{"name":"my\u0007box"}`,      // control char (JSON escape)
-		`{"name":"my\nbox"}`,          // newline (JSON escape)
-		`{"name":"` + longName + `"}`, // >253 chars
-	} {
-		isolateSettings(t)
-		router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-		rec := postJSON(t, router, "/api/settings/instance-name", bad)
-		if rec.Code != http.StatusBadRequest {
-			t.Errorf("body %s: status = %d, want %d", bad, rec.Code, http.StatusBadRequest)
-		}
-		if got := settings.GetInstanceName(); got != nil {
-			t.Errorf("body %s: invalid value persisted as %q, want nil", bad, *got)
-		}
+	req := httptest.NewRequest(http.MethodPost, "/api/boards/order", strings.NewReader(`{"order":["a"]}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound && rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST /api/boards/order: status = %d, want 404/405 (endpoint folded)", rec.Code)
 	}
 }

@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-23T06:48:40Z"}
+{"args":"Implement Phase 2 (Settings API) of fab/plans/sahil/26-08-23-config-consolidated.md: GET/POST /api/settings on the Phase-1 registry, hard fold of the seven per-key endpoints, frontend callers updated, no compat shims, no pane UI","cmd":"fab-new","event":"command","ts":"2026-08-23T06:48:40Z"}
+{"delta":"+4.6","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-08-23T06:50:59Z"}
+{"cmd":"fab-new","event":"command","ts":"2026-08-23T06:51:04Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-23T06:54:53Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-23T06:55:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-23T07:09:54Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-23T07:13:41Z"}
+{"event":"review","result":"passed","ts":"2026-08-23T07:13:41Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-23T07:22:05Z"}

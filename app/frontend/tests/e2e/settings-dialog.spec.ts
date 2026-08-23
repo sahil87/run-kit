@@ -55,11 +55,20 @@ function expectDialogOpen(page: Page) {
   });
 }
 
+// Read the stored instance_name from the registry-driven GET /api/settings
+// (null when unset).
+async function pollInstanceName(page: Page): Promise<string | null> {
+  const res = await page.request.get("/api/settings");
+  const body = (await res.json()) as { settings: Array<{ key: string; value: unknown }> };
+  const entry = body.settings.find((e) => e.key === "instance_name");
+  return typeof entry?.value === "string" ? entry.value : null;
+}
+
 test.describe("Settings dialog", () => {
   test.beforeAll(() => {
     // Snapshot the developer's REAL ~/.config/run-kit/config.yaml before the
     // suite
-    // mutates it via /api/settings/instance-name; restored verbatim after.
+    // mutates it via POST /api/settings (instance_name key); restored verbatim after.
     try {
       settingsSnapshot = readFileSync(SETTINGS_PATH);
       settingsExisted = true;
@@ -310,9 +319,8 @@ test.describe("Settings dialog", () => {
     await expect
       .poll(
         async () => {
-          const res = await page.request.get("/api/settings/instance-name");
-          const body = (await res.json()) as { name: string | null };
-          return body.name;
+          const name = await pollInstanceName(page);
+          return name;
         },
         { timeout: 5_000 },
       )
@@ -331,9 +339,8 @@ test.describe("Settings dialog", () => {
     await expect
       .poll(
         async () => {
-          const res = await page.request.get("/api/settings/instance-name");
-          const body = (await res.json()) as { name: string | null };
-          return body.name;
+          const name = await pollInstanceName(page);
+          return name;
         },
         { timeout: 5_000 },
       )

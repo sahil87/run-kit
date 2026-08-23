@@ -1,12 +1,12 @@
 # board-list-reorder.spec.ts
 
 Behavioural contract for the board-list-reorder backend surface: the
-`POST /api/boards/order` endpoint (persists the full ordered board-name list to
-`~/.config/run-kit/config.yaml`), the API-layer rank-aware sort on `GET /api/boards`
-(stored order first by index, then unranked boards alphabetically), and the
-**server-global** `board-order` broadcast that fans out to every state-socket
-connection — including a metrics-only subscription with no
-attached tmux server.
+`board_order` key on `POST /api/settings` (persists the full ordered board-name
+list to `~/.config/run-kit/config.yaml` via partial merge), the API-layer
+rank-aware sort on `GET /api/boards` (stored order first by index, then
+unranked boards alphabetically), and the **server-global** `board-order`
+broadcast that fans out to every state-socket connection — including a
+metrics-only subscription with no attached tmux server.
 
 ## Why this slice (not a drag simulation)
 
@@ -17,7 +17,7 @@ derive-over-store override, render-time reconcile, MIME discrimination, self-
 target snap-back fix, debounce/flush, and palette Move actions are all covered by
 Vitest unit tests (`use-board-list-reorder.test.ts`, `palette-move.test.ts`,
 `boards.test.ts`, `boards-section.test.tsx`, `host-overview-page.test.tsx`). This
-spec exercises the load-bearing new backend surface — the order endpoint, its
+spec exercises the load-bearing new backend surface — the order write, its
 API-layer rank-aware sort, and the server-global echo — end-to-end against
 the live backend, which IS deterministic.
 
@@ -25,7 +25,7 @@ the live backend, which IS deterministic.
 
 - **Settings save/restore (real `~/.config/run-kit/config.yaml`).** `scripts/test-e2e.sh`
   isolates the tmux server/port but NOT `$HOME`, so this suite's
-  `POST /api/boards/order` writes hit the developer's real
+  `POST /api/settings` writes hit the developer's real
   `~/.config/run-kit/config.yaml`. `beforeAll` snapshots the file's raw bytes (recording
   whether it existed at all); `afterAll` restores those exact bytes — or deletes
   the file when none existed — so any curated board order round-trips
@@ -49,9 +49,10 @@ the live backend, which IS deterministic.
 ### `reorder POST persists and GET /api/boards reflects the stored order first, then alphabetical`
 
 **What it proves:** After pinning win-a → BOARD_A and win-b → BOARD_Z, the board
-list defaults to alphabetical (`[BOARD_A, BOARD_Z]`); a `POST /api/boards/order`
-of `[BOARD_Z, BOARD_A]` returns `{ok: true}` and `GET /api/boards` then returns
-`[BOARD_Z, BOARD_A]` — the API-layer rank-aware sort applies the stored order.
+list defaults to alphabetical (`[BOARD_A, BOARD_Z]`); a `POST /api/settings`
+patch of `{board_order: [BOARD_Z, BOARD_A]}` returns `{status: "ok"}` and
+`GET /api/boards` then returns `[BOARD_Z, BOARD_A]` — the API-layer rank-aware
+sort applies the stored order.
 
 **Steps:**
 1. Read win-a/win-b window ids.
@@ -59,8 +60,8 @@ of `[BOARD_Z, BOARD_A]` returns `{ok: true}` and `GET /api/boards` then returns
    (win-b); assert each is ok.
 3. `GET /api/boards`; filter to the two test boards; assert alphabetical
    baseline `[BOARD_A, BOARD_Z]`.
-4. `POST /api/boards/order` with `{order: [BOARD_Z, BOARD_A]}`; assert ok +
-   `{ok: true}`.
+4. `POST /api/settings` with `{board_order: [BOARD_Z, BOARD_A]}`; assert ok +
+   `{status: "ok"}`.
 5. `GET /api/boards`; filter to the two test boards; assert `[BOARD_Z, BOARD_A]`
    (stored order overrides alphabetical).
 
@@ -70,7 +71,7 @@ of `[BOARD_Z, BOARD_A]` returns `{ok: true}` and `GET /api/boards` then returns
 `"bad name!"` (fails `ValidBoardName`) returns HTTP 400.
 
 **Steps:**
-1. `POST /api/boards/order` with `{order: ["bad name!"]}`.
+1. `POST /api/settings` with `{board_order: ["bad name!"]}`.
 2. Assert status is `400`.
 
 ### `a successful order POST broadcasts a server-global event: board-order`
@@ -88,7 +89,7 @@ BOARDS zone with zero attached servers still re-sorts live.
    `subscribe {kind:"metrics"}`, and resolve on the first
    `{op:"event",kind:"global",type:"board-order"}` frame's `data`.
 3. On the socket's `onopen` (deterministic — no fixed delay),
-   `fetch('POST /api/boards/order', {order: [BOARD_Z, BOARD_A]})` from the page
+   `fetch('POST /api/settings', {board_order: [BOARD_Z, BOARD_A]})` from the page
    origin.
 4. Await the resolved frame; parse it and assert `order` equals
    `[BOARD_Z, BOARD_A]`. (Rejects if no frame arrives within the timeout.)

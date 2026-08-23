@@ -60,7 +60,7 @@ var muxAwaitCmd = &cobra.Command{
 	Use:   "await [--any] <target>... [--until <state>[,<state>]] [--file <path>] [--after-active] [--timeout <secs>] [--notify[=msg]]",
 	Short: "Block until an agent pane reaches a state (or a file appears)",
 	Long: "Block until any waitable signal fires on the target pane, then print a " +
-		"one-word report and exit:\n" +
+		"one-line report and exit:\n" +
 		"  <state>   the pane's @rk_agent_state reached a state in --until (default idle)\n" +
 		"  file      the --file path appeared (OR-composed with the state signal)\n" +
 		"  running   --timeout (default 300s, 0 = indefinite) expired — exit 0; the\n" +
@@ -254,6 +254,8 @@ type awaitParams struct {
 // returns immediately, and checks the file signal before the state reads so a
 // fired signal wins over a mid-sweep pane death. Within a sweep a death only
 // records the first gone pane — a state signal on a later member still wins.
+// The first sweep is also the arm validation: a match there is held until
+// every member proved observable, and the unobservable error outranks it.
 // errUnobservable marks the "nothing observable to wait on" verdict — an
 // uninstrumented pane (no @rk_agent_state) with no --file. A sentinel so
 // `rk mux send --await`'s grace watch can treat it as a fall-through (the
@@ -278,7 +280,13 @@ func awaitObserve(ctx context.Context, deps awaitDeps, panes []string, p awaitPa
 			return "file", "", nil
 		}
 		// 2. State sweep — panes in listed order; the first --until match wins.
+		// The FIRST sweep doubles as the arm validation: a match found there is
+		// held until every member has been checked observable, so an
+		// uninstrumented member fails the whole arm even when an earlier pane
+		// has already fired (the unobservable error outranks a held match).
+		firstSweep := !instrumentedChecked
 		gonePane := ""
+		heldState, heldPane := "", ""
 		for _, paneID := range panes {
 			state, gone, err := deps.readState(ctx, paneID)
 			if err != nil {
@@ -290,21 +298,27 @@ func awaitObserve(ctx context.Context, deps awaitDeps, panes []string, p awaitPa
 				}
 				continue
 			}
-			if !instrumentedChecked {
+			if firstSweep && state == "" && p.file == "" {
 				// An uninstrumented pane with no --file has nothing observable
 				// to wait on — error immediately rather than polling forever.
-				if state == "" && p.file == "" {
-					return "", "", fmt.Errorf("%w: pane %s carries no %s and no --file was given", errUnobservable, paneID, tmux.AgentStateOption)
-				}
+				return "", "", fmt.Errorf("%w: pane %s carries no %s and no --file was given", errUnobservable, paneID, tmux.AgentStateOption)
 			}
 			if state == tmux.AgentStateActive {
 				seenActive[paneID] = true
 			}
 			if until[state] && (!p.afterActive || seenActive[paneID]) {
-				return state, paneID, nil
+				if !firstSweep {
+					return state, paneID, nil
+				}
+				if heldPane == "" {
+					heldState, heldPane = state, paneID
+				}
 			}
 		}
 		instrumentedChecked = true
+		if heldPane != "" {
+			return heldState, heldPane, nil
+		}
 		// 3. Death — reported only when no signal fired this sweep.
 		if gonePane != "" {
 			return "gone", gonePane, fmt.Errorf("pane %s is gone", gonePane)

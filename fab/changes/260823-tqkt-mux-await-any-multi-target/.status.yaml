@@ -2,7 +2,7 @@ id: tqkt
 name: 260823-tqkt-mux-await-any-multi-target
 created: 2026-08-23T15:17:54Z
 created_by: sahil-noon
-change_type: fix
+change_type: feat
 issues: []
 progress:
     intake: done
@@ -52,5 +52,6 @@ true_impact:
     computed_at: "2026-08-23T15:54:50Z"
     computed_at_stage: ship
 summary: 'rk mux await gains --any multi-target any-of wait mode (fleet wake: <state> %N report, gone %N exit 1, per-pane --after-active, five-point caller protocol)'
+change_type_source: explicit
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-23T15:54:50Z
+last_updated: 2026-08-23T15:55:18Z

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -496,6 +497,32 @@ func TestAwaitAnyUninstrumentedMemberFailsArm(t *testing.T) {
 	}
 	if s.sleeps != 0 {
 		t.Errorf("sleeps = %d, want an immediate failure with no polling", s.sleeps)
+	}
+}
+
+// TestAwaitAnyEarlyMatchStillFailsOnLaterUninstrumented: the FIRST sweep is
+// the arm validation — a match on an earlier member is held until every member
+// proved observable, so a later uninstrumented pane still fails the whole arm
+// (the unobservable error outranks the held match), naming the offending pane.
+func TestAwaitAnyEarlyMatchStillFailsOnLaterUninstrumented(t *testing.T) {
+	fastAwaitTick(t)
+	s := &awaitScript{byPane: map[string]*awaitPaneScript{
+		"%1": {states: []string{"idle"}, goneAt: -1},
+		"%9": {states: []string{""}, goneAt: -1},
+	}}
+	report, firedPane, err := awaitObserve(context.Background(), s.deps(t), []string{"%1", "%9"},
+		awaitParams{until: []string{"idle"}})
+	if err == nil {
+		t.Fatal("err = nil, want the nothing-observable error despite %1's first-sweep match")
+	}
+	if !strings.Contains(err.Error(), "%9") {
+		t.Errorf("err = %q, want it to name the uninstrumented pane %%9", err)
+	}
+	if report != "" || firedPane != "" {
+		t.Errorf("report = %q firedPane = %q, want none (error outranks the held match)", report, firedPane)
+	}
+	if s.sleeps != 0 {
+		t.Errorf("sleeps = %d, want an immediate first-sweep failure", s.sleeps)
 	}
 }
 

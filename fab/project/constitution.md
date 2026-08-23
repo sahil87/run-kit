@@ -17,7 +17,7 @@ Existing fab-kit utilities (`wt-create`, `wt-list`, `wt-delete`, `idea`, `change
 The UI MUST stay minimal — a small fixed route set (Host Overview `/`, tmux Server `/$server`, Terminal `/$server/$window`, Board `/board/$name`, plus the Not Found fallback), no settings pages, no admin panels. Configuration lives in environment variables (`.env` committed, `.env.local` for overrides). New pages SHOULD only be added when an existing page genuinely cannot accommodate the functionality. Resist feature creep.
 
 ### V. Keyboard-First
-Every user-facing action MUST be reachable via keyboard. Mouse interaction is supported but secondary. The command palette (`Cmd+K`) SHALL be the primary discovery mechanism for actions.
+Every user-facing action MUST be reachable via keyboard. Mouse interaction is supported but secondary. The command palette (`Cmd+K`) SHALL be the primary discovery mechanism for actions and the complete action registry: every user-facing action reachable via a keyboard shortcut or a UI control MUST also be registered in the command palette. This guarantees the fallback for chords a surface reserves (e.g. browser-reserved desktop chords) is always palette → action.
 
 ### VI. Tmux Sessions Survive Server Restarts
 The tmux layer MUST be fully independent of the Go server. Agent sessions running in tmux windows SHALL NOT be affected by server restarts, crashes, or deployments. The supervisor manages only the web server process — never tmux.
@@ -53,4 +53,4 @@ This tool is part of the shll toolkit and MUST conform to the toolkit's publishe
 
 ## Governance
 
-**Version**: 1.8.0 | **Ratified**: 2026-03-02 | **Last Amended**: 2026-08-20
+**Version**: 1.9.0 | **Ratified**: 2026-03-02 | **Last Amended**: 2026-08-23

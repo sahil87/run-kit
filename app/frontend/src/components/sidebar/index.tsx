@@ -2862,8 +2862,8 @@ function ServerGroupInner(props: ServerGroupProps) {
               className="block w-full pl-2 pr-2 py-1 text-left text-xs text-text-secondary hover:text-text-primary hover:bg-bg-card/30 transition-colors"
             >
               {createSessionChord
-                ? `(no sessions — + new, or ${createSessionChord})`
-                : "(no sessions — + new)"}
+                ? `(no sessions — a session groups tabs; + new, or ${createSessionChord})`
+                : "(no sessions — a session groups tabs; + new)"}
             </button>
           ) : (
             visibleSessions.map((session, sessionIdx) => {

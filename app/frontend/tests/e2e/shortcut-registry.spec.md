@@ -360,7 +360,7 @@ focus back to the tty tile without closing anything.
 
 **What it proves:** the `sidebar-toggle` `macTier: "cmd"` demotion applies in
 a mac BROWSER host (⌘B is page-interceptable; no claimed-keys entry on KeyB) —
-no `macShellOnly` — and the chord is the stateful one (260819-qwr7 R5).
+one canonical chord per action — and the chord is the stateful one (260819-qwr7 R5).
 
 **Steps:**
 1. Spoof the mac platform; mock the backend; open `/default/1`; the current

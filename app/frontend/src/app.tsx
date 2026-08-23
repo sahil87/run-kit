@@ -2316,11 +2316,13 @@ function AppShell() {
       {
         id: "create-session",
         label: "Session: Create",
+        description: "a new group of tabs",
         onSelect: handleCreateSessionInstant,
       },
       {
         id: "create-session-at-folder",
         label: "Session: Create at Folder",
+        description: "a new group of tabs, rooted at a folder",
         onSelect: () => setShowCreateSessionAtFolderDialog(true),
       },
       ...(sessionName

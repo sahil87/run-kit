@@ -68,6 +68,34 @@ describe("CommandPalette", () => {
     expect(screen.getByText(/^No results/)).toBeInTheDocument();
   });
 
+  it("renders an optional description as secondary row text", () => {
+    const actions: PaletteAction[] = [
+      { id: "a", label: "Session: Create", description: "a new group of tabs", onSelect: vi.fn() },
+      { id: "b", label: "Tab: Create", onSelect: vi.fn() },
+    ];
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    expect(screen.getByText("— a new group of tabs")).toBeInTheDocument();
+    // Actions without a description render exactly as before.
+    expect(screen.getByText("Tab: Create").querySelector("span span")).toBeNull();
+  });
+
+  it("filters by description as well as label", () => {
+    const actions: PaletteAction[] = [
+      { id: "a", label: "Session: Create", description: "a new group of tabs", onSelect: vi.fn() },
+      { id: "b", label: "Tab: Create", onSelect: vi.fn() },
+    ];
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    const input = screen.getByPlaceholderText(/^Type a command/);
+    fireEvent.change(input, { target: { value: "group" } });
+
+    expect(screen.getByText("Session: Create")).toBeInTheDocument();
+    expect(screen.queryByText("Tab: Create")).not.toBeInTheDocument();
+  });
+
   it("selects action with Enter and closes palette", () => {
     const actions = makeActions(["New Session", "Kill Window"]);
     render(<CommandPalette actions={actions} />);

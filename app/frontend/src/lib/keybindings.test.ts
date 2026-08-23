@@ -104,8 +104,9 @@ describe("DEFAULT_BINDINGS integrity", () => {
       mapLabel: "compose",
       ignoreInputs: true,
     });
-    // ⌘I in BOTH mac hosts (no macShellOnly — unshifted ⌘E is browser
-    // find-selection territory on mac, so the demotion rides macCode).
+    // ⌘I in BOTH mac hosts — one canonical chord per action (unshifted ⌘E
+    // is browser find-selection territory on mac, so the demotion rides
+    // macCode).
     for (const host of [SHELL_MAC, BROWSER_MAC]) {
       expect(byId(resolved(host), "compose-toggle")).toMatchObject({
         code: "KeyI",
@@ -151,21 +152,20 @@ describe("DEFAULT_BINDINGS integrity", () => {
     }
   });
 
-  it("settings-open: Comma, global, ignoreInputs, shell-only mac ⌘, demotion (260801-mqim)", () => {
+  it("settings-open: Comma, global, ignoreInputs, canonical mac ⌘, demotion (260801-mqim)", () => {
     const def = DEFAULT_BINDINGS.find((b) => b.actionId === "settings-open");
     expect(def).toMatchObject({
       code: "Comma",
       tier: "shifted",
       macTier: "cmd",
-      macShellOnly: true,
       scope: "global",
       kind: "builtin",
       ignoreInputs: true,
     });
-    // ⇧Ctrl+, on win/linux and ⇧⌘, in a mac BROWSER (⌘, is browser
-    // Preferences there); the mac SHELL promotes to the OS-conventional ⌘,
-    // (the create-session macShellOnly precedent).
-    for (const host of [SHELL_OTHER, BROWSER_OTHER, BROWSER_MAC]) {
+    // ⇧Ctrl+, on win/linux; ⌘, is the canonical mac default on BOTH mac
+    // hosts — in a mac BROWSER it resolves reserved (browser Preferences),
+    // so settings is palette-only there.
+    for (const host of [SHELL_OTHER, BROWSER_OTHER]) {
       expect(byId(resolved(host), "settings-open")).toMatchObject({
         code: "Comma",
         tier: "shifted",
@@ -177,13 +177,18 @@ describe("DEFAULT_BINDINGS integrity", () => {
       tier: "cmd",
       enabled: true,
     });
+    expect(byId(resolved(BROWSER_MAC), "settings-open")).toMatchObject({
+      code: "Comma",
+      tier: "cmd",
+      enabled: false,
+      disabledReason: "reserved",
+    });
   });
 
-  it("a mac-browser override onto ⌘, resolves reserved; the mac-shell default stays enabled (260801-mqim)", () => {
-    const override = { "settings-open": { code: "Comma", tier: "cmd" as const } };
+  it("a mac-browser ⌘, default resolves reserved; the mac-shell default stays enabled (260801-mqim)", () => {
     // Browser host: ⌘, is the browser's Preferences accelerator — claimed
-    // data disables the override rather than advertising a dead chord.
-    expect(byId(resolved(BROWSER_MAC, override), "settings-open")).toMatchObject({
+    // data disables the canonical default rather than firing it.
+    expect(byId(resolved(BROWSER_MAC), "settings-open")).toMatchObject({
       enabled: false,
       disabledReason: "reserved",
     });
@@ -218,7 +223,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
       mapLabel: "sidebar",
       ignoreInputs: true,
     });
-    // No macShellOnly: ⌘B is preventDefault-interceptable in a mac browser.
+    // Both mac hosts: ⌘B is preventDefault-interceptable in a mac browser.
     for (const host of [SHELL_MAC, BROWSER_MAC]) {
       expect(byId(resolved(host), "sidebar-toggle")).toMatchObject({
         code: "KeyB",
@@ -526,8 +531,8 @@ describe("DEFAULT_BINDINGS integrity", () => {
   it("window-prev/window-next: ⇧Ctrl+↑/↓ base with a ⌘↑/⌘↓ mac demotion in BOTH mac hosts", () => {
     const prev = DEFAULT_BINDINGS.find((b) => b.actionId === "window-prev");
     const next = DEFAULT_BINDINGS.find((b) => b.actionId === "window-next");
-    // Full-row equality: the macTier demotion with NO macShellOnly is the
-    // do-not-move shape — mac-browser ⌘↑/⌘↓ is the page-interceptable
+    // Full-row equality: the macTier demotion applying on BOTH mac hosts is
+    // the do-not-move shape — mac-browser ⌘↑/⌘↓ is the page-interceptable
     // scroll-to-top/bottom class, so no claim row and no shell gate.
     expect(prev).toEqual({
       actionId: "window-prev",
@@ -1641,30 +1646,51 @@ describe("per-platform default tiers — 260730-n789", () => {
       .toEqual(["kill-window"]);
   });
 
-  it("mac browser: [/]// demote; N/T/W keep the shifted default and stay browser-reserved", () => {
+  it("mac browser: [/]// demote; the canonical N/T/W/, + app-window chords resolve browser-reserved", () => {
     const bindings = resolved(BROWSER_MAC);
     for (const id of ["go-back", "go-forward", "shortcuts-overlay"]) {
       expect(byId(bindings, id)).toMatchObject({ tier: "cmd", enabled: true, isDefault: true });
     }
-    for (const id of ["create-session", "create-window", "kill-window"]) {
-      expect(byId(bindings, id)).toMatchObject({
-        tier: "shifted",
-        enabled: false,
-        disabledReason: "reserved",
-      });
-    }
+    // The canonical mac chords — ⇧⌘T / ⌘T / ⌘W — are browser-owner claims,
+    // so the defaults resolve reserved rather than firing.
+    expect(byId(bindings, "create-session")).toMatchObject({
+      code: "KeyT",
+      tier: "shifted",
+      enabled: false,
+      disabledReason: "reserved",
+    });
+    expect(byId(bindings, "create-window")).toMatchObject({
+      code: "KeyT",
+      tier: "cmd",
+      enabled: false,
+      disabledReason: "reserved",
+    });
+    expect(byId(bindings, "kill-window")).toMatchObject({
+      code: "KeyW",
+      tier: "cmd",
+      enabled: false,
+      disabledReason: "reserved",
+    });
     for (const id of ["window-prev", "window-next"]) {
       expect(byId(bindings, id)).toMatchObject({ tier: "cmd", enabled: true });
     }
     for (const id of ["session-prev", "session-next", "agent-next-waiting", "host-menu-open"]) {
       expect(byId(bindings, id)).toMatchObject({ tier: "shifted", enabled: true });
     }
-    // The app-window pair resolves UNBOUND here (keyless base — the
-    // mac-shell refinement is gated away), never "reserved": the disabled
-    // reason stays the user/unbound kind, same as a macro without a combo.
-    for (const id of ["new-app-window", "close-app-window"]) {
-      expect(byId(bindings, id)).toMatchObject({ enabled: false, disabledReason: "user" });
-    }
+    // The app-window pair gains its canonical ⌘N/⇧⌘W here too — reserved,
+    // not unbound: the panel can teach the chord + desktop tag.
+    expect(byId(bindings, "new-app-window")).toMatchObject({
+      code: "KeyN",
+      tier: "cmd",
+      enabled: false,
+      disabledReason: "reserved",
+    });
+    expect(byId(bindings, "close-app-window")).toMatchObject({
+      code: "KeyW",
+      tier: "shifted",
+      enabled: false,
+      disabledReason: "reserved",
+    });
   });
 
   it("win/linux resolution is byte-identical to the uniform shifted tier (both hosts)", () => {
@@ -1680,9 +1706,9 @@ describe("per-platform default tiers — 260730-n789", () => {
     // Browser-host N/T/W reservation unchanged.
     expect(byId(resolved(BROWSER_OTHER), "create-session").enabled).toBe(false);
     expect(byId(resolved(SHELL_OTHER), "create-session").enabled).toBe(true);
-    // The app-window pair ships keyless bases: unbound everywhere off the mac
-    // shell (the handler is bridge-gated absent outside the shell anyway).
-    for (const host of ALL_HOSTS.filter((h) => h !== SHELL_MAC)) {
+    // The app-window pair ships keyless bases: unbound on every win/linux
+    // host (the handler is bridge-gated absent outside the mac shell anyway).
+    for (const host of [SHELL_OTHER, BROWSER_OTHER]) {
       for (const id of ["new-app-window", "close-app-window"]) {
         expect(byId(resolved(host), id)).toMatchObject({
           enabled: false,
@@ -1692,24 +1718,25 @@ describe("per-platform default tiers — 260730-n789", () => {
     }
   });
 
-  it("defaultComboFor: macTier applies on mac (shell-gated by macShellOnly), base tier elsewhere", () => {
+  it("defaultComboFor: mac refinements apply on every mac host, base tier elsewhere", () => {
     const goBack = DEFAULT_BINDINGS.find((b) => b.actionId === "go-back")!;
     const createSession = DEFAULT_BINDINGS.find((b) => b.actionId === "create-session")!;
     expect(defaultComboFor(goBack, SHELL_MAC)).toEqual({ code: "BracketLeft", tier: "cmd" });
     expect(defaultComboFor(goBack, BROWSER_MAC)).toEqual({ code: "BracketLeft", tier: "cmd" });
     expect(defaultComboFor(goBack, SHELL_OTHER)).toEqual({ code: "BracketLeft", tier: "shifted" });
+    // One canonical chord per action: the mac default no longer varies by host.
     expect(defaultComboFor(createSession, SHELL_MAC)).toEqual({ code: "KeyT", tier: "shifted" });
-    expect(defaultComboFor(createSession, BROWSER_MAC)).toEqual({ code: "KeyN", tier: "shifted" });
+    expect(defaultComboFor(createSession, BROWSER_MAC)).toEqual({ code: "KeyT", tier: "shifted" });
     expect(defaultComboFor(createSession, BROWSER_OTHER)).toEqual({ code: "KeyN", tier: "shifted" });
-    // The app-window pair: keyless base (passthrough off the mac shell),
-    // refined combos inside it.
+    // The app-window pair: keyless base (passthrough off mac), refined combos
+    // on BOTH mac hosts.
     const newAppWindow = DEFAULT_BINDINGS.find((b) => b.actionId === "new-app-window")!;
     const closeAppWindow = DEFAULT_BINDINGS.find((b) => b.actionId === "close-app-window")!;
     expect(defaultComboFor(newAppWindow, SHELL_MAC)).toEqual({ code: "KeyN", tier: "cmd" });
-    expect(defaultComboFor(newAppWindow, BROWSER_MAC)).toEqual({ code: "", tier: "shifted" });
+    expect(defaultComboFor(newAppWindow, BROWSER_MAC)).toEqual({ code: "KeyN", tier: "cmd" });
     expect(defaultComboFor(newAppWindow, SHELL_OTHER)).toEqual({ code: "", tier: "shifted" });
     expect(defaultComboFor(closeAppWindow, SHELL_MAC)).toEqual({ code: "KeyW", tier: "shifted" });
-    expect(defaultComboFor(closeAppWindow, BROWSER_MAC)).toEqual({ code: "", tier: "shifted" });
+    expect(defaultComboFor(closeAppWindow, BROWSER_MAC)).toEqual({ code: "KeyW", tier: "shifted" });
   });
 
   it("stored-override shape is unchanged: a {code,tier} diff applies as-is on mac hosts", () => {
@@ -1759,9 +1786,9 @@ describe("per-platform default tiers — 260730-n789", () => {
     expect(
       findMatches(chord({ code: "BracketLeft", metaKey: true, shiftKey: true }), bindings),
     ).toEqual([]);
-    // Shell-only chords: ⌘N matches new-app-window inside the shell only
-    // (create-session rides ⇧⌘T there); a mac browser matches nothing on
-    // either (create-session reserved, the pair unbound).
+    // Mac-shell chords: ⌘N matches new-app-window, ⇧⌘T create-session, ⇧⌘W
+    // close-app-window; a mac browser matches nothing on any of them (the
+    // canonical chords are all browser-reserved there).
     expect(
       findMatches(chord({ code: "KeyN", metaKey: true }), bindings)[0]?.actionId,
     ).toBe("new-app-window");
@@ -1960,7 +1987,6 @@ describe("split chords + the macCode refinement — 260807-rbx5", () => {
       mapLabel: "split h",
     });
     // Refines in BOTH mac hosts (⌘D is page-interceptable) — no shell gate.
-    expect(splitH?.macShellOnly).toBeUndefined();
 
     expect(splitV).toMatchObject({
       code: "Minus",
@@ -1973,7 +1999,6 @@ describe("split chords + the macCode refinement — 260807-rbx5", () => {
     });
     // Vertical keeps the shifted tier on mac (⇧⌘D) — code refines, tier stays.
     expect(splitV?.macTier).toBeUndefined();
-    expect(splitV?.macShellOnly).toBeUndefined();
   });
 
   it("mac hosts resolve ⌘D horizontal and ⇧⌘D vertical (shell and browser alike)", () => {

@@ -1,0 +1,57 @@
+id: c5yq
+name: 260823-c5yq-single-chord-palette-registry-session-copy
+created: 2026-08-23T01:18:35Z
+created_by: Sahil Ahuja
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: active
+plan:
+    generated: true
+    task_count: 10
+    acceptance_count: 19
+    acceptance_completed: 19
+confidence:
+    certain: 6
+    confident: 7
+    tentative: 1
+    unresolved: 0
+    score: 3.2
+    fuzzy: true
+    dimensions:
+        signal: 72.9
+        reversibility: 82.9
+        competence: 77.1
+        disambiguation: 72.5
+stage_metrics:
+    intake: {started_at: "2026-08-23T01:18:35Z", driver: fab-new, iterations: 1, completed_at: "2026-08-23T01:28:16Z"}
+    apply: {started_at: "2026-08-23T01:28:16Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T01:43:19Z"}
+    review: {started_at: "2026-08-23T01:43:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T01:47:12Z"}
+    hydrate: {started_at: "2026-08-23T01:47:12Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T01:54:40Z"}
+    ship: {started_at: "2026-08-23T01:54:40Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T01:57:26Z"}
+    review-pr: {started_at: "2026-08-23T01:57:26Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/718
+change_type_source: explicit
+true_impact:
+    added: 844
+    deleted: 245
+    net: 599
+    excluding:
+        added: 192
+        deleted: 192
+        net: 0
+    tests:
+        added: 69
+        deleted: 44
+        net: 25
+    computed_at: "2026-08-23T01:57:26Z"
+    computed_at_stage: ship
+summary: One canonical chord per action (macShellOnly removed), desktop tag replaces the browser pill, palette action descriptions, session-as-group copy, Constitution V 1.9.0
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-23T01:57:26Z

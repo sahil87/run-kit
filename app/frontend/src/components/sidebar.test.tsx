@@ -401,7 +401,7 @@ describe("Sidebar", () => {
   it("shows empty-state hint row when no sessions", () => {
     const onCreateSession = vi.fn();
     renderSidebar({ sessions: [], onCreateSession });
-    const hint = screen.getByText(/^\(no sessions — \+ new/);
+    const hint = screen.getByText(/^\(no sessions — a session groups tabs/);
     expect(hint).toBeInTheDocument();
     fireEvent.click(hint);
     expect(onCreateSession).toHaveBeenCalledTimes(1);
@@ -421,7 +421,7 @@ describe("Sidebar", () => {
     );
     renderSidebar({ sessions: [], onCreateSession: vi.fn() });
     expect(
-      screen.getByText("(no sessions — + new, or Shift+Ctrl+,)"),
+      screen.getByText("(no sessions — a session groups tabs; + new, or Shift+Ctrl+,)"),
     ).toBeInTheDocument();
     localStorage.removeItem("runkit-keybindings");
   });
@@ -435,14 +435,14 @@ describe("Sidebar", () => {
       JSON.stringify({ "create-session": { code: "Comma", tier: "shifted" } }),
     );
     renderSidebar({ sessions: [], onCreateSession: vi.fn() });
-    expect(screen.getByText("(no sessions — + new)")).toBeInTheDocument();
+    expect(screen.getByText("(no sessions — a session groups tabs; + new)")).toBeInTheDocument();
     localStorage.removeItem("runkit-keybindings");
   });
 
   it("no-sessions hint drops the chord clause when create-session is unbound", () => {
     localStorage.setItem("runkit-keybindings", JSON.stringify({ "create-session": null }));
     renderSidebar({ sessions: [], onCreateSession: vi.fn() });
-    expect(screen.getByText("(no sessions — + new)")).toBeInTheDocument();
+    expect(screen.getByText("(no sessions — a session groups tabs; + new)")).toBeInTheDocument();
     expect(screen.queryByText(/Shift\+Ctrl\+N/)).not.toBeInTheDocument();
     localStorage.removeItem("runkit-keybindings");
   });
@@ -450,7 +450,7 @@ describe("Sidebar", () => {
   it("empty-state hint click calls onCreateSession directly (no dialog)", () => {
     const onCreateSession = vi.fn();
     renderSidebar({ sessions: [], onCreateSession });
-    fireEvent.click(screen.getByText(/^\(no sessions — \+ new/));
+    fireEvent.click(screen.getByText(/^\(no sessions — a session groups tabs/));
     expect(onCreateSession).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });

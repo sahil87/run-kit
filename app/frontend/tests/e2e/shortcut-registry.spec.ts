@@ -448,7 +448,7 @@ test.describe("macOS per-platform defaults (spoofed platform)", () => {
     });
     await gotoWindowOne(page);
 
-    // N demotes only inside the desktop shell; a mac BROWSER keeps it
+    // N refines on every mac host (⇧⌘T canonical); a mac BROWSER resolves it
     // reserved on both tiers.
     await page.keyboard.press("Meta+KeyN");
     await page.keyboard.press("Shift+Meta+KeyN");

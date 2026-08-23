@@ -233,6 +233,14 @@ func tmuxConfigCheck() doctorCheck {
 		check.Note = "user-owned (tmux_conf set) — unmanaged"
 		return check
 	}
+	// No resolvable home dir at init leaves DefaultConfigPath empty — there is
+	// no managed path to classify, so report the skip instead of feeding "" to
+	// the classifier (whose read error would render as a confusing
+	// "state unreadable" note).
+	if tmux.DefaultConfigPath == "" {
+		check.Note = "skipped — home directory not resolvable, no managed path"
+		return check
+	}
 	// A legacy ~/.rk/tmux.conf the migration deliberately left behind (not
 	// byte-equal to the embed, so possibly hand-edited) outranks the new
 	// path's state: its content is the one at risk of being forgotten.

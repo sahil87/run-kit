@@ -341,58 +341,43 @@ func TestMigrateLegacyConfPaths(t *testing.T) {
 // (live) servers are reloaded, a per-server error does not abort the rest, and
 // an enumeration error degrades to a logged skip.
 func TestRefreshSweep(t *testing.T) {
-	stub := func(t *testing.T, servers []string, listErr error, failOn map[string]error) (reloaded []string) {
+	// stub returns a pointer so appends made by the substituted reload func
+	// after the call are visible to the subtest (a plain slice return would be
+	// captured at value nil and never observe a reload).
+	stub := func(t *testing.T, servers []string, listErr error, failOn map[string]error) *[]string {
 		t.Helper()
+		reloaded := &[]string{}
 		origList, origReload := sweepListServers, sweepReloadConfig
 		sweepListServers = func(context.Context) ([]string, error) { return servers, listErr }
 		sweepReloadConfig = func(server string) error {
-			reloaded = append(reloaded, server)
+			*reloaded = append(*reloaded, server)
 			return failOn[server]
 		}
 		t.Cleanup(func() { sweepListServers, sweepReloadConfig = origList, origReload })
-		return nil
+		return reloaded
 	}
 
 	t.Run("only live-enumerated servers are reloaded", func(t *testing.T) {
-		var reloaded []string
-		origList, origReload := sweepListServers, sweepReloadConfig
-		sweepListServers = func(context.Context) ([]string, error) { return []string{"a", "b"}, nil }
-		sweepReloadConfig = func(server string) error {
-			reloaded = append(reloaded, server)
-			return nil
-		}
-		t.Cleanup(func() { sweepListServers, sweepReloadConfig = origList, origReload })
-
+		reloaded := stub(t, []string{"a", "b"}, nil, nil)
 		RefreshSweep(context.Background())
-		if strings.Join(reloaded, ",") != "a,b" {
-			t.Errorf("reloaded = %v, want exactly [a b] — dead sockets must never be touched", reloaded)
+		if strings.Join(*reloaded, ",") != "a,b" {
+			t.Errorf("reloaded = %v, want exactly [a b] — dead sockets must never be touched", *reloaded)
 		}
 	})
 
 	t.Run("a per-server error does not abort the sweep", func(t *testing.T) {
-		var reloaded []string
-		origList, origReload := sweepListServers, sweepReloadConfig
-		sweepListServers = func(context.Context) ([]string, error) { return []string{"a", "b"}, nil }
-		sweepReloadConfig = func(server string) error {
-			reloaded = append(reloaded, server)
-			if server == "a" {
-				return fmt.Errorf("boom")
-			}
-			return nil
-		}
-		t.Cleanup(func() { sweepListServers, sweepReloadConfig = origList, origReload })
-
+		reloaded := stub(t, []string{"a", "b"}, nil, map[string]error{"a": fmt.Errorf("boom")})
 		RefreshSweep(context.Background())
-		if strings.Join(reloaded, ",") != "a,b" {
-			t.Errorf("reloaded = %v, want [a b] — a's failure must not prevent b", reloaded)
+		if strings.Join(*reloaded, ",") != "a,b" {
+			t.Errorf("reloaded = %v, want [a b] — a's failure must not prevent b", *reloaded)
 		}
 	})
 
 	t.Run("enumeration error reloads nothing", func(t *testing.T) {
 		reloaded := stub(t, nil, fmt.Errorf("socket dir unreadable"), nil)
 		RefreshSweep(context.Background())
-		if len(reloaded) != 0 {
-			t.Errorf("reloaded = %v, want none on enumeration failure", reloaded)
+		if len(*reloaded) != 0 {
+			t.Errorf("reloaded = %v, want none on enumeration failure", *reloaded)
 		}
 	})
 }

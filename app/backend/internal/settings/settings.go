@@ -530,7 +530,10 @@ func Registry() []KeyInfo {
 			Category:    e.category,
 			UI:          e.ui,
 			Live:        e.live,
-			Options:     e.options,
+			// Copied: the exported view must not alias the package-global
+			// registry slice, or a caller write mutates every later Registry()
+			// call and /api/settings response.
+			Options:     append([]string(nil), e.options...),
 		}
 	}
 	return infos

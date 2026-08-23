@@ -107,11 +107,18 @@ export function useSettingsRegistry() {
           // The theme setter owns both slots' persistence contract.
           setTheme(String(value));
           return;
-        case "instance_color":
+        case "instance_color": {
           // setColor returns void (optimistic, failure toasts) — resolve
           // immediately so the control never shows a stale error.
-          accent.setColor(value === null || value === "" ? null : String(value));
+          const color = value === null || value === "" ? null : String(value);
+          accent.setColor(color);
+          // A clear flips isExplicit false and drops the overlay — write
+          // through to the fetched list (the instance_name shape) so the
+          // effective read path keeps the cleared value instead of falling
+          // back to the pre-clear fetch.
+          updateEntryValue("instance_color", color);
           return;
+        }
         case "instance_name": {
           const name = value === null || value === "" ? null : String(value);
           setInstanceName(name);
@@ -131,14 +138,22 @@ export function useSettingsRegistry() {
           invalidateOpenContext();
           return;
         }
-        default:
+        default: {
+          // Draft-less controls (toggle, select) must not snap back during
+          // the round trip: apply optimistically, roll back on rejection.
+          let prev: unknown = null;
+          setEntries((cur) => {
+            prev = cur.find((e) => e.key === key)?.value ?? null;
+            return cur.map((e) => (e.key === key ? { ...e, value } : e));
+          });
           try {
             await postSettings({ [key]: value });
-            updateEntryValue(key, value);
           } catch (err: unknown) {
+            updateEntryValue(key, prev);
             addToast(err instanceof Error && err.message ? err.message : "Failed to save", "error");
             throw err;
           }
+        }
       }
     },
     [setTheme, themeDark, themeLight, accent, setInstanceName, addToast, updateEntryValue],

@@ -62,6 +62,22 @@ func TestRegistry_orderAndMetadata(t *testing.T) {
 	}
 }
 
+func TestRegistry_optionsAreCopies(t *testing.T) {
+	first := Registry()
+	for i := range first {
+		for j := range first[i].Options {
+			first[i].Options[j] = "mutated"
+		}
+	}
+	for _, info := range Registry() {
+		for _, opt := range info.Options {
+			if opt == "mutated" {
+				t.Fatalf("Registry()[%q].Options aliases the package registry — caller mutation leaked", info.Key)
+			}
+		}
+	}
+}
+
 func TestReadValue_defaultSettings(t *testing.T) {
 	s := Default()
 	cases := []struct {

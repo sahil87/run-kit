@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's configuration story: fixed root $HOME/.config/run-kit/ (no XDG_CONFIG_HOME), the internal/settings registry (key/type/default/description/category/ui/live) + 12-key inventory behind the GET/POST /api/settings pair (partial merge, all-or-nothing validation), override order (code default < config.yaml < env < CLI flag; env restricted to RK_PORT/RK_HOST/RK_CODE_SERVER_PORT + undocumented RK_TMUX_CONF/LOG_LEVEL escapes), value-home boundaries, migrations with breadcrumbs, ~/.rk tenants."
+description: "run-kit's configuration story: fixed root $HOME/.config/run-kit/ (no XDG_CONFIG_HOME), the internal/settings registry (key/type/default/description/category/ui/live) + 12-key inventory behind the GET/POST /api/settings pair (partial merge, all-or-nothing validation), override order (code default < config.yaml < env < CLI flag; env restricted to RK_PORT/RK_HOST/RK_CODE_SERVER_PORT + undocumented RK_TMUX_CONF/LOG_LEVEL escapes), value-home boundaries, the rk-owned hash-stamped managed tmux.conf (three-state daemon-start refresh, live-only reload sweep), migrations with breadcrumbs, ~/.rk tenants."
 ---
 # Configuration
 
@@ -12,7 +12,23 @@ run-kit's configuration story: one fixed config root, one registry-driven settin
 
 ## Config Root
 
-The config root is the constant `$HOME/.config/run-kit/`, built with `filepath.Join` from `os.UserHomeDir()`, owned by `internal/settings` and exported as `settings.Dir()`. The resolution never consults `$XDG_CONFIG_HOME` and never uses `os.UserConfigDir` — only `$HOME` moves it, and a test pins that env vars cannot. The settings file is `~/.config/run-kit/config.yaml`. (li54)
+The config root is the constant `$HOME/.config/run-kit/`, built with `filepath.Join` from `os.UserHomeDir()`, owned by `internal/settings` and exported as `settings.Dir()`. The resolution never consults `$XDG_CONFIG_HOME` and never uses `os.UserConfigDir` — only `$HOME` moves it, and a test pins that env vars cannot. The settings file is `~/.config/run-kit/config.yaml`; the root also holds the rk-managed `tmux.conf` and the `tmux.d/` drop-in dir (§ Managed tmux.conf). (li54)
+
+## Managed tmux.conf
+
+The default tmux.conf at `~/.config/run-kit/tmux.conf` is **rk-owned**, declared in-band by a hash-stamped first line:
+
+```
+# rk-managed sha256:<hex> — DO NOT EDIT; overrides go in ~/.config/run-kit/tmux.d/
+```
+
+where `<hex>` is the SHA-256 lowercase-hex digest of the body (everything after the header line). Every rk write of the file goes through one shared managed write path (`writeManagedConfig` in `internal/tmux/managedconf.go`, riding named header prefix/suffix constants) and stamps the hash of what it wrote. A pure classifier (`ClassifyManagedConf` over content; `ClassifyConfigFile` over a path — shared by the ensure path and the doctor row so both agree on every state) sorts the on-disk file against the embedded default into four states: **missing** (stat NotExist) → write header + embed; **managed & current** (header present, body hashes to its own stamp, body == embed) → no-op; **managed & stale** (stamp verifies, body ≠ embed) → force-write the new embed; **hand-edited** (no header, or stamp mismatch) → hands off — never written, never auto-migrated.
+
+The refresh runs at **daemon start only** — `tmux.EnsureConfig()` at the `cmd/rk/serve.go` serve site; no timer, no watcher (updates restart the daemon). Only a stale→force-write transition triggers the **reload sweep** (`tmux.RefreshSweep`): enumerate servers via `tmux.ListServers` (live-socket-probed — load-bearing, since a tmux command on a dead socket resurrects a server) and `ReloadConfig` each, per-server failures logging and continuing, the sweep never failing daemon start. Caveat: `history-limit`-class options apply only to panes created after the reload — existing panes keep their old values.
+
+When the resolved config path is not `DefaultConfigPath` (the `tmux_conf` key or `RK_TMUX_CONF` is set), the file is user-owned: rk performs **no ensure/refresh/doctor** on it ("you own everything" mode — `EnsureConfig` gates on this explicitly).
+
+Every scaffold path — `EnsureConfig`, `ForceWriteConfig`, `rk mux init-conf` (both cobra instances), `POST /api/tmux/init-conf` — also ensures `tmux.d/` exists and scaffolds `tmux.d/user.conf` as a commented starter (purpose, one commented `set -g` example, the `10-*.conf` numeric-ordering pointer) when absent; an existing `user.conf` is never overwritten, including under `--force`. (0tu6)
 
 ## Settings Registry
 
@@ -34,7 +50,7 @@ The 12-key inventory:
 | `server_flairs` | map[string]string | `{}` | appearance | yes | yes | mapSection with flair-set membership normalize |
 | `board_order` | []string | `[]` | layout | yes | yes | listSection |
 | `auto_name` | bool | `false` | behavior | yes | no | read at hub construction — applies on daemon restart |
-| `tmux_conf` | path string | `""` | advanced | yes | no | user owns the file; rk does no ensure/refresh on it |
+| `tmux_conf` | path string | `""` | advanced | yes | no | user owns the file; rk performs no ensure/refresh/doctor on it |
 | `log_level` | enum (`info`/`debug`) | `info` | advanced | yes | no | read at serve startup |
 
 `live: false` keys are restart-bound (read once at hub/tmux/serve construction); `live: true` keys apply on next read. The exported accessor surface (`Load`, `Save`, `Default`, `Get/SetServerColor`, `Get/SetServerFlair`, `Get/SetInstanceColor`, `Get/SetSSHHost`, `Get/SetInstanceName`, `Get/SetBoardOrder`) sits over the registry. (li54)
@@ -62,12 +78,13 @@ Override order: **code default < config.yaml < env < CLI flag**. Env forms exist
 
 ## Migrations & Breadcrumbs
 
-Migrations follow one pattern: fallback-read from the old path, migrate on first write, leave a breadcrumb so nothing silently forks. Two have landed:
+Migrations follow one pattern: fallback-read from the old path, migrate on first write, leave a breadcrumb so nothing silently forks. Three have landed:
 
 - **Settings file**: `Load()` reads `~/.config/run-kit/config.yaml`, fallback-reading the legacy `~/.rk/settings.yaml` (same format) when the new file is absent; `Save()` always writes the new path and then renames a still-present legacy file to `~/.rk/settings.yaml.migrated` (best-effort — a rename failure never fails the save). A read-only instance keeps fallback-reading the old file indefinitely, losslessly.
 - **State dir**: `$XDG_STATE_HOME/run-kit/` (snapshots at `…/run-kit/snapshots`, prstatus cache at `…/run-kit/prstatus.json`), still XDG-honoring with the `~/.local/state` fallback — a deliberate asymmetry vs the config root, safe because Constitution §II restricts this dir to droppable, never-authoritative files. On snapshot-store first use, when the new dir is absent and the legacy `…/rk/snapshots` exists, the old dir is moved (`os.Rename`, best-effort, one-time) and a `MOVED-to-run-kit` breadcrumb file is left in the legacy dir naming the new path; a failed move degrades to cold-start behavior, never an error. The legacy `prstatus.json` is left behind — it is a startup seed cache that regenerates cold.
+- **tmux.conf + tmux.d**: `DefaultConfigPath` is `~/.config/run-kit/tmux.conf` (the same fixed-root construction as `settings.Dir()`), the drop-in dir is `~/.config/run-kit/tmux.d/`, and the embed sources the new path. On ensure at the default path, legacy `~/.rk/tmux.d/*.conf` drop-ins are moved into the new `tmux.d/` (a same-name file already at the new path wins — never overwritten) and the old dir is breadcrumb-renamed `tmux.d.migrated`; a legacy `~/.rk/tmux.conf` is breadcrumb-renamed `tmux.conf.migrated` only when byte-equal to the current embed — pre-header files carry no stamp, so anything else (old-embed pristine or hand-edited) is left untouched and surfaced only by the doctor recipe. All best-effort, never fatal. (0tu6)
 
-`~/.rk/` still has tenants covered by no migration: the web-push store (`internal/push`), the code-server bin dir (`internal/codeserver`) and profile/install dirs (`internal/daemon`), job logs (`internal/daemon/jobs.go`), and `tmux.conf`/`tmux.d/` (whose relocation is a later phase). (li54)
+`~/.rk/` still has tenants covered by no migration: the web-push store (`internal/push`), the code-server bin dir (`internal/codeserver`) and profile/install dirs (`internal/daemon`), and job logs (`internal/daemon/jobs.go`). (li54)
 
 ## Requirements
 
@@ -102,7 +119,23 @@ Env forms SHALL exist only for `RK_PORT`, `RK_HOST`, `RK_CODE_SERVER_PORT`; a pr
 - **THEN** the response carries no `sshHost`
 
 ### Requirement: Breadcrumb migrations
-A migration SHALL fallback-read the old path, migrate on first write, and leave a self-documenting breadcrumb (`settings.yaml.migrated`, `MOVED-to-run-kit`); a failed breadcrumb/move MUST NOT fail the operation and MUST degrade to cold-start behavior.
+A migration SHALL fallback-read the old path, migrate on first write, and leave a self-documenting breadcrumb (`settings.yaml.migrated`, `MOVED-to-run-kit`, `tmux.conf.migrated`, `tmux.d.migrated`); a failed breadcrumb/move MUST NOT fail the operation and MUST degrade to cold-start behavior.
+
+### Requirement: Managed tmux.conf ownership
+Every rk write of the default tmux.conf SHALL produce a file whose first line is the managed header `# rk-managed sha256:<hex> — DO NOT EDIT; overrides go in ~/.config/run-kit/tmux.d/`, with `<hex>` the SHA-256 lowercase-hex digest of the body. The daemon-start refresh SHALL classify the on-disk file against the embed (missing / managed-current / managed-stale / hand-edited) and write only on missing or managed-stale; a hand-edited file MUST never be written or auto-migrated. The reload sweep SHALL run only after a stale→force-write transition, SHALL touch only live-enumerated servers, and MUST never fail daemon start. When `tmux_conf`/`RK_TMUX_CONF` redirects the config path, rk SHALL perform no ensure/refresh/doctor on the file.
+
+#### Scenario: Stale refreshes, hand-edited survives
+- **GIVEN** a managed & stale file at the default path
+- **WHEN** the daemon starts
+- **THEN** the file is force-written with the current embed and the reload sweep runs; **AND GIVEN** a hand-edited file, **THEN** it survives byte-identical and no sweep runs.
+
+### Requirement: user.conf override scaffold
+Every scaffold path (`EnsureConfig`, `ForceWriteConfig`, `rk mux init-conf`, `POST /api/tmux/init-conf`) SHALL ensure `tmux.d/` exists and scaffold `tmux.d/user.conf` as a commented starter when absent; an existing `user.conf` MUST never be overwritten, including under `--force`.
+
+#### Scenario: --force preserves user.conf
+- **GIVEN** a user with customizations in `tmux.d/user.conf`
+- **WHEN** `rk mux init-conf --force` runs
+- **THEN** the managed tmux.conf is rewritten and `user.conf` is byte-identical to before.
 
 ## Design Decisions
 
@@ -147,5 +180,23 @@ A migration SHALL fallback-read the old path, migrate on first write, and leave 
 **Why**: mirrors the `SetServerColor(server, color *string)` one-entry semantics so client setters stay one-entry-sized; a full-map replace would force every color-picker click to read-modify-write the whole map client-side (racy across tabs).
 **Rejected**: wholesale map replacement (race-prone, bigger client diffs); JSON-merge-patch RFC 7386 wholesale-object semantics (breaks the one-entry setter shape).
 *Introduced by*: 260823-f1ot-settings-api-hard-fold
+
+### Hash-stamped header as the ownership declaration
+**Decision**: ownership and staleness of the managed tmux.conf are derived from a SHA-256 stamp in the file's own first line; the three-state check is a pure local computation against the embed.
+**Why**: no version registry, no timestamps, no extra state file (Constitution II — derive from the filesystem); "did the user edit this?" becomes deterministic and testable.
+**Rejected**: a version marker (stale detection breaks when the embed changes without a version bump); mtime heuristics (false positives on copy/touch); a sidecar state file (a second source of truth to drift).
+*Introduced by*: 260823-0tu6-tmux-conf-ownership
+
+### Byte-equal embed test for pre-header migration
+**Decision**: an old `~/.rk/tmux.conf` is auto-breadcrumbed only when byte-equal to the current embed; everything else is hands-off with a doctor recipe.
+**Why**: pre-header files carry no stamp, so managed-ness is unprovable; byte-equality with the current embed is the only zero-false-positive detector, and false positives here destroy user edits.
+**Rejected**: comparing against historical embeds (rk does not archive them); auto-migrating any old file (violates the never-clobber rule).
+*Introduced by*: 260823-0tu6-tmux-conf-ownership
+
+### Sweep only on an actual force-write
+**Decision**: the reload sweep fires only on the managed-stale → force-write transition, not on every daemon start.
+**Why**: reloading unchanged config is wasted tmux traffic across every live server, and the sweep's only purpose is propagating a refresh that just happened.
+**Rejected**: unconditional sweep at start (noise, and touches servers for nothing); sweeping on missing→write (a fresh file means no server was started with older content by rk's `-f` — new servers pick it up at creation).
+*Introduced by*: 260823-0tu6-tmux-conf-ownership
 
 See [architecture](/run-kit/architecture.md) § `internal/settings` for the package-level contract and [layout-snapshots](/run-kit/layout-snapshots.md) for the snapshot store under the state root.

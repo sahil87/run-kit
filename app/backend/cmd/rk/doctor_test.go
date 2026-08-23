@@ -942,3 +942,150 @@ func TestRemovedEnvCheckRKSSHHost(t *testing.T) {
 		}
 	})
 }
+
+// --- tmux config row ----------------------------------------------------------
+
+// withManagedDefaultConfig points DefaultConfigPath at a temp dir and forces
+// the managed (non-user-owned) resolution fact for the test's duration.
+func withManagedDefaultConfig(t *testing.T) string {
+	t.Helper()
+	origPath := tmux.DefaultConfigPath
+	dest := filepath.Join(t.TempDir(), ".config", "run-kit", "tmux.conf")
+	tmux.DefaultConfigPath = dest
+	t.Cleanup(func() { tmux.DefaultConfigPath = origPath })
+	origOwned := tmuxUserOwnedPath
+	tmuxUserOwnedPath = func() bool { return false }
+	t.Cleanup(func() { tmuxUserOwnedPath = origOwned })
+	// Keep the legacy-probe home away from any real ~/.rk/tmux.conf.
+	t.Setenv("HOME", t.TempDir())
+	return dest
+}
+
+// TestTmuxConfigCheckStates pins the five drift-row shapes plus the unreadable
+// degradation: the row is always OK (informational posture — it must never
+// flip the verdict) and every note names its state.
+func TestTmuxConfigCheckStates(t *testing.T) {
+	t.Run("user-owned when tmux_conf redirects the path", func(t *testing.T) {
+		orig := tmuxUserOwnedPath
+		tmuxUserOwnedPath = func() bool { return true }
+		t.Cleanup(func() { tmuxUserOwnedPath = orig })
+		c := tmuxConfigCheck()
+		if !c.OK {
+			t.Errorf("user-owned row must stay OK, got %+v", c)
+		}
+		if !strings.Contains(c.Note, "user-owned") {
+			t.Errorf("note = %q, want the user-owned report (no drift analysis)", c.Note)
+		}
+	})
+
+	t.Run("managed current", func(t *testing.T) {
+		withManagedDefaultConfig(t)
+		orig := tmuxConfigClassify
+		tmuxConfigClassify = func(string) (tmux.ConfState, error) { return tmux.ConfManagedCurrent, nil }
+		t.Cleanup(func() { tmuxConfigClassify = orig })
+		c := tmuxConfigCheck()
+		if !c.OK || !strings.Contains(c.Note, "managed, current") {
+			t.Errorf("current row = %+v, want OK + 'managed, current'", c)
+		}
+	})
+
+	t.Run("managed stale names the daemon-start refresh with the pane caveat", func(t *testing.T) {
+		withManagedDefaultConfig(t)
+		orig := tmuxConfigClassify
+		tmuxConfigClassify = func(string) (tmux.ConfState, error) { return tmux.ConfManagedStale, nil }
+		t.Cleanup(func() { tmuxConfigClassify = orig })
+		c := tmuxConfigCheck()
+		if !c.OK || !strings.Contains(c.Note, "stale") || !strings.Contains(c.Note, "next daemon start") {
+			t.Errorf("stale row = %+v, want OK + refresh note", c)
+		}
+		if !strings.Contains(c.Note, "panes created after") {
+			t.Errorf("stale note must carry the history-limit pane-creation caveat, got %q", c.Note)
+		}
+	})
+
+	t.Run("hand-edited carries the migration recipe", func(t *testing.T) {
+		withManagedDefaultConfig(t)
+		orig := tmuxConfigClassify
+		tmuxConfigClassify = func(string) (tmux.ConfState, error) { return tmux.ConfHandEdited, nil }
+		t.Cleanup(func() { tmuxConfigClassify = orig })
+		c := tmuxConfigCheck()
+		if !c.OK {
+			t.Errorf("hand-edited row must stay OK, got %+v", c)
+		}
+		if !strings.Contains(c.Note, "tmux.d/user.conf") || !strings.Contains(c.Note, "rk mux init-conf --force") {
+			t.Errorf("note = %q, want the recipe (user.conf + init-conf --force)", c.Note)
+		}
+	})
+
+	t.Run("missing reports the scaffold trigger", func(t *testing.T) {
+		withManagedDefaultConfig(t)
+		orig := tmuxConfigClassify
+		tmuxConfigClassify = func(string) (tmux.ConfState, error) { return tmux.ConfMissing, nil }
+		t.Cleanup(func() { tmuxConfigClassify = orig })
+		c := tmuxConfigCheck()
+		if !c.OK || !strings.Contains(c.Note, "daemon start") {
+			t.Errorf("missing row = %+v, want OK + scaffold note", c)
+		}
+	})
+
+	t.Run("classifier error degrades to an OK note", func(t *testing.T) {
+		withManagedDefaultConfig(t)
+		orig := tmuxConfigClassify
+		tmuxConfigClassify = func(string) (tmux.ConfState, error) { return tmux.ConfMissing, fmt.Errorf("permission denied") }
+		t.Cleanup(func() { tmuxConfigClassify = orig })
+		c := tmuxConfigCheck()
+		if !c.OK || !strings.Contains(c.Note, "permission denied") {
+			t.Errorf("unreadable row = %+v, want OK + note naming the failure", c)
+		}
+	})
+
+	t.Run("un-migrated legacy conf carries the recipe naming the old path", func(t *testing.T) {
+		withManagedDefaultConfig(t)
+		// The legacy probe reads $HOME/.rk/tmux.conf directly (doctor is
+		// read-only — it never migrates).
+		home := os.Getenv("HOME")
+		legacy := filepath.Join(home, ".rk", "tmux.conf")
+		if err := os.MkdirAll(filepath.Dir(legacy), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(legacy, []byte("# hand-tuned\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		orig := tmuxConfigClassify
+		tmuxConfigClassify = func(string) (tmux.ConfState, error) { return tmux.ConfManagedCurrent, nil }
+		t.Cleanup(func() { tmuxConfigClassify = orig })
+		c := tmuxConfigCheck()
+		if !c.OK {
+			t.Errorf("legacy-path row must stay OK, got %+v", c)
+		}
+		if !strings.Contains(c.Note, legacy) {
+			t.Errorf("note = %q, want the recipe naming the old path %q", c.Note, legacy)
+		}
+		if !strings.Contains(c.Note, "rk mux init-conf --force") {
+			t.Errorf("note = %q, want the init-conf --force recipe", c.Note)
+		}
+	})
+}
+
+// TestTmuxConfigCheckNeverFlipsVerdict proves the row cannot change the
+// overall report verdict: with a hand-edited managed file (the worst drift
+// state), runDoctorChecks still appends an OK row.
+func TestTmuxConfigCheckNeverFlipsVerdict(t *testing.T) {
+	withManagedDefaultConfig(t)
+	orig := tmuxConfigClassify
+	tmuxConfigClassify = func(string) (tmux.ConfState, error) { return tmux.ConfHandEdited, nil }
+	t.Cleanup(func() { tmuxConfigClassify = orig })
+
+	found := false
+	for _, c := range runDoctorChecks().Checks {
+		if c.Name == "tmux config" {
+			found = true
+			if !c.OK {
+				t.Errorf("tmux config row must always be OK-shaped, got %+v", c)
+			}
+		}
+	}
+	if !found {
+		t.Error("runDoctorChecks must append the tmux config row unconditionally")
+	}
+}

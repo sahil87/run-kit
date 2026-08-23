@@ -21,7 +21,7 @@ func newInitConfCmd(use string, deprecated bool) *cobra.Command {
 
 	c := &cobra.Command{
 		Use:   use,
-		Short: "Scaffold default tmux.conf and tmux.d/ drop-in directory to ~/.rk/",
+		Short: "Scaffold the rk-managed tmux.conf and tmux.d/ overrides under ~/.config/run-kit/",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := muxRejectInheritedServerFlag(cmd); err != nil {
 				return err
@@ -30,33 +30,24 @@ func newInitConfCmd(use string, deprecated bool) *cobra.Command {
 			if dest == "" {
 				return fmt.Errorf("could not determine home directory")
 			}
+			userConf := filepath.Join(filepath.Dir(dest), "tmux.d", "user.conf")
 
 			if !force {
 				if _, err := os.Stat(dest); err == nil {
-					return fmt.Errorf("%s already exists (use --force to overwrite)", dest)
+					return fmt.Errorf("%s already exists — put your overrides in %s (never overwritten), or use --force to refresh the managed file", dest, userConf)
 				}
 			}
 
-			if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-				return fmt.Errorf("creating directory: %w", err)
+			if err := tmux.ForceWriteConfig(); err != nil {
+				return err
 			}
 
-			if err := os.WriteFile(dest, tmux.DefaultConfigBytes(), 0o644); err != nil {
-				return fmt.Errorf("writing config: %w", err)
-			}
-
-			// Create drop-in config directory alongside the config file.
-			dropInDir := filepath.Join(filepath.Dir(dest), "tmux.d")
-			if err := os.MkdirAll(dropInDir, 0o755); err != nil {
-				return fmt.Errorf("creating tmux.d directory: %w", err)
-			}
-
-			fmt.Fprintf(cmd.OutOrStdout(), "Wrote %s\n", dest)
-			fmt.Fprintf(cmd.OutOrStdout(), "Drop-in configs: %s/*.conf\n", dropInDir)
+			fmt.Fprintf(cmd.OutOrStdout(), "Wrote %s (rk-managed — do not edit)\n", dest)
+			fmt.Fprintf(cmd.OutOrStdout(), "Overrides: %s (edit freely — never overwritten; numeric prefixes like 10-*.conf control ordering)\n", userConf)
 			return nil
 		},
 	}
-	c.Flags().BoolVar(&force, "force", false, "Overwrite existing config")
+	c.Flags().BoolVar(&force, "force", false, "Overwrite the rk-managed tmux.conf; overrides in tmux.d/ are untouched")
 	if deprecated {
 		c.Hidden = true
 		c.Deprecated = "use `rk mux init-conf` instead"

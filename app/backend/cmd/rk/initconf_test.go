@@ -36,19 +36,23 @@ func TestInitConfScaffoldsConfigAndDropIn(t *testing.T) {
 	if !strings.Contains(buf.String(), "Wrote "+dest) {
 		t.Errorf("report must print via the cmd writer, got: %q", buf.String())
 	}
-	if !strings.Contains(buf.String(), "Drop-in configs: "+filepath.Join(filepath.Dir(dest), "tmux.d")) {
-		t.Errorf("drop-in line missing, got: %q", buf.String())
+	if !strings.Contains(buf.String(), "Overrides: "+filepath.Join(filepath.Dir(dest), "tmux.d", "user.conf")) {
+		t.Errorf("overrides line missing, got: %q", buf.String())
 	}
 
 	data, err := os.ReadFile(dest)
 	if err != nil {
 		t.Fatalf("config not written: %v", err)
 	}
-	if !bytes.Equal(data, tmux.DefaultConfigBytes()) {
-		t.Error("written config must match the embedded default bytes")
+	if !bytes.Equal(data, tmux.ManagedConfigBytes(tmux.DefaultConfigBytes())) {
+		t.Error("written config must be the embedded default with the managed header stamp")
 	}
 	if fi, err := os.Stat(filepath.Join(filepath.Dir(dest), "tmux.d")); err != nil || !fi.IsDir() {
 		t.Errorf("tmux.d/ drop-in dir not created: %v", err)
+	}
+	userConf := filepath.Join(filepath.Dir(dest), "tmux.d", "user.conf")
+	if _, err := os.Stat(userConf); err != nil {
+		t.Errorf("user.conf starter not scaffolded: %v", err)
 	}
 
 	// Rerun without --force refuses; with --force overwrites.

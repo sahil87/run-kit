@@ -99,6 +99,10 @@ func runDoctorChecks() doctorReport {
 	// opt-in, never a dependency failure.
 	report.Checks = append(report.Checks, ephemeralServersCheck())
 
+	// tmux config — the managed-conf ownership/drift row, always OK-shaped
+	// (informational only: remediation is the note's recipe, never a failure).
+	report.Checks = append(report.Checks, tmuxConfigCheck())
+
 	// Set-but-ignored env vars: RK_SSH_HOST no longer has any reader (the
 	// ssh_host setting is the only source), so a row appears ONLY when it is
 	// set — steady-state output stays noise-free.
@@ -203,6 +207,58 @@ func tmuxDriftNotes(binary tmux.Version) []string {
 		notes = append(notes, fmt.Sprintf("tmux %s installed but running server %q is %s — restart your tmux server when convenient to pick it up (kills its sessions; pick a quiet moment)", binary.Raw, server, sv.Raw))
 	}
 	return notes
+}
+
+// tmuxConfigClassify is the seam for the managed-conf classifier — tests
+// substitute it to drive every tmux config row state without fixture files.
+var tmuxConfigClassify = tmux.ClassifyConfigFile
+
+// tmuxUserOwnedPath is the seam for the user-owned resolution fact — tests
+// substitute it to drive the tmux_conf-set branch.
+var tmuxUserOwnedPath = tmux.UserOwnedConfigPath
+
+// tmuxConfigCheck reports the managed tmux.conf's ownership/drift state.
+// Always OK-shaped (the ephemeral/drift posture — the row is informational and
+// must never flip the overall verdict); the note carries the state and, for
+// drifted files, the migration recipe. Read-only: doctor diagnoses, it never
+// migrates. When tmux_conf/RK_TMUX_CONF points rk at a user path, rk performs
+// no ensure/refresh on it (settings.TmuxConf documents "you own everything"),
+// so the row reports user-owned and skips drift analysis. Refresh notes carry
+// the pane-creation caveat: history-limit-class options apply only to panes
+// created after reload.
+func tmuxConfigCheck() doctorCheck {
+	check := doctorCheck{Name: "tmux config", OK: true}
+	recipe := "move your customizations into ~/.config/run-kit/tmux.d/user.conf, then run `rk mux init-conf --force` to restore the managed file"
+	if tmuxUserOwnedPath() {
+		check.Note = "user-owned (tmux_conf set) — unmanaged"
+		return check
+	}
+	// A legacy ~/.rk/tmux.conf the migration deliberately left behind (not
+	// byte-equal to the embed, so possibly hand-edited) outranks the new
+	// path's state: its content is the one at risk of being forgotten.
+	if home, err := os.UserHomeDir(); err == nil {
+		legacy := filepath.Join(home, ".rk", "tmux.conf")
+		if _, err := os.Stat(legacy); err == nil {
+			check.Note = fmt.Sprintf("old config still at %s — %s", legacy, recipe)
+			return check
+		}
+	}
+	state, err := tmuxConfigClassify(tmux.DefaultConfigPath)
+	if err != nil {
+		check.Note = fmt.Sprintf("state unreadable: %v", err)
+		return check
+	}
+	switch state {
+	case tmux.ConfManagedCurrent:
+		check.Note = "managed, current"
+	case tmux.ConfManagedStale:
+		check.Note = "managed, stale — refreshes on next daemon start (history-limit-class options apply only to panes created after the reload)"
+	case tmux.ConfMissing:
+		check.Note = "not written yet — scaffolds on next daemon start or via `rk mux init-conf`"
+	default: // hand-edited
+		check.Note = "hand-edited — rk leaves it untouched; " + recipe
+	}
+	return check
 }
 
 // dialTCP is the production reachability probe for the code-server doctor row:

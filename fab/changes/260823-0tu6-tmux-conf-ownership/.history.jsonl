@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-23T06:47:21Z"}
+{"args":"Implement Phase 4 (tmux.conf ownership) of fab/plans/sahil/26-08-23-config-consolidated.md: managed header + three-state refresh + reload sweep + user.conf scaffold + doctor drift line + migration 2 + docs","cmd":"fab-new","event":"command","ts":"2026-08-23T06:47:21Z"}
+{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-08-23T06:50:17Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-23T06:51:59Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-23T06:52:39Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-23T07:06:07Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-23T07:12:24Z"}
+{"event":"review","result":"passed","ts":"2026-08-23T07:12:24Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-23T07:18:01Z"}

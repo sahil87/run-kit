@@ -1506,7 +1506,7 @@ func TestEnsureConfigCreatesDropInDir(t *testing.T) {
 	DefaultConfigPath = filepath.Join(tmpDir, ".rk", "tmux.conf")
 
 	// Fresh install — both config and tmux.d/ should be created.
-	if err := EnsureConfig(); err != nil {
+	if _, err := EnsureConfig(); err != nil {
 		t.Fatalf("EnsureConfig() error: %v", err)
 	}
 	dropInDir := filepath.Join(tmpDir, ".rk", "tmux.d")
@@ -1526,7 +1526,7 @@ func TestEnsureConfigCreatesDropInDir(t *testing.T) {
 	if err := os.RemoveAll(dropInDir); err != nil {
 		t.Fatalf("failed to remove tmux.d/: %v", err)
 	}
-	if err := EnsureConfig(); err != nil {
+	if _, err := EnsureConfig(); err != nil {
 		t.Fatalf("EnsureConfig() second call error: %v", err)
 	}
 	fi, err = os.Stat(dropInDir)
@@ -1561,7 +1561,7 @@ func TestForceWriteConfigCreatesDropInDir(t *testing.T) {
 
 func TestDefaultConfigContainsSourceDirective(t *testing.T) {
 	content := string(DefaultConfigBytes())
-	if !strings.Contains(content, "source-file -q ~/.rk/tmux.d/*.conf") {
+	if !strings.Contains(content, "source-file -q ~/.config/run-kit/tmux.d/*.conf") {
 		t.Error("embedded default config missing source-file directive for tmux.d/")
 	}
 }

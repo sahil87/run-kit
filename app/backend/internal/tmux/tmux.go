@@ -74,6 +74,18 @@ var DefaultConfigPath string
 // configPath holds the resolved tmux config file path.
 var configPath string
 
+// managedConfigPath records whether the resolved config path IS the rk-managed
+// default (false when tmux_conf or RK_TMUX_CONF redirected it). Computed once
+// at init: in "you own everything" mode rk performs no ensure/refresh/doctor
+// drift analysis on the file.
+var managedConfigPath bool
+
+// UserOwnedConfigPath reports whether the resolved tmux config path came from
+// the tmux_conf key or RK_TMUX_CONF rather than the rk-managed default.
+func UserOwnedConfigPath() bool {
+	return !managedConfigPath
+}
+
 func init() {
 	// Strip TMUX so subprocess calls target the correct tmux server.
 	// The daemon runs inside the rk-daemon tmux pane and inherits TMUX
@@ -83,7 +95,9 @@ func init() {
 
 	home, err := os.UserHomeDir()
 	if err == nil {
-		DefaultConfigPath = filepath.Join(home, ".rk", "tmux.conf")
+		// Fixed root under $HOME only (no XDG env) — the same construction
+		// rule as settings.Dir().
+		DefaultConfigPath = filepath.Join(home, ".config", "run-kit", "tmux.conf")
 	}
 
 	configPath = resolveConfigPath()
@@ -92,6 +106,7 @@ func init() {
 			configPath = abs
 		}
 	}
+	managedConfigPath = configPath == DefaultConfigPath
 }
 
 // resolveConfigPath resolves the tmux config path once at package init:
@@ -123,43 +138,64 @@ func configArgs() []string {
 	return nil
 }
 
-// EnsureConfig writes the embedded default tmux.conf to DefaultConfigPath
-// if the file does not already exist. Always creates the tmux.d/ drop-in
-// directory alongside the config (even if the config already exists).
-// No-op if no home dir.
-func EnsureConfig() error {
-	if DefaultConfigPath == "" {
-		return nil
+// EnsureConfig implements the three-state managed-conf refresh at the default
+// path: missing → write the stamped header + embed; managed & stale →
+// force-write and report refreshed=true so the caller runs the reload sweep;
+// managed & current or hand-edited → the file stays untouched (hand-edited
+// confs are never clobbered). The tmux.d/ drop-in dir and the user.conf
+// starter are scaffolded on every call, and the legacy ~/.rk migration runs
+// first (best-effort, never fatal). Daemon start is the only trigger — no
+// timer, no watcher.
+//
+// No-op when the resolved config path is not DefaultConfigPath (the tmux_conf
+// key or RK_TMUX_CONF is set): that is "you own everything" mode — rk performs
+// no ensure/refresh on a user-owned file (see settings.TmuxConf).
+func EnsureConfig() (refreshed bool, err error) {
+	if DefaultConfigPath == "" || !managedConfigPath {
+		return false, nil
 	}
-	// Always ensure tmux.d/ exists for drop-in configs.
+	// Migration precedes the user.conf scaffold so a legacy drop-in named
+	// user.conf wins over the fresh starter.
+	migrateLegacyConfPaths()
+	state, err := ClassifyConfigFile(DefaultConfigPath)
+	if err != nil {
+		return false, fmt.Errorf("checking config file: %w", err)
+	}
+	switch state {
+	case ConfMissing:
+		if err := writeManagedConfig(DefaultConfigPath); err != nil {
+			return false, err
+		}
+	case ConfManagedStale:
+		if err := writeManagedConfig(DefaultConfigPath); err != nil {
+			return false, err
+		}
+		refreshed = true
+	}
 	if err := ensureDropInDir(); err != nil {
-		return err
+		return false, err
 	}
-	if _, err := os.Stat(DefaultConfigPath); err == nil {
-		return nil
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("checking config file: %w", err)
+	if err := scaffoldUserConf(); err != nil {
+		return false, err
 	}
-	if err := os.MkdirAll(filepath.Dir(DefaultConfigPath), 0o755); err != nil {
-		return fmt.Errorf("creating config directory: %w", err)
-	}
-	return os.WriteFile(DefaultConfigPath, DefaultConfigBytes(), 0o644)
+	return refreshed, nil
 }
 
-// ForceWriteConfig writes the embedded default tmux.conf to DefaultConfigPath,
-// overwriting any existing file. Also creates the tmux.d/ drop-in directory.
+// ForceWriteConfig writes the embedded default tmux.conf (with the managed
+// header stamp) to DefaultConfigPath, overwriting any existing file, and
+// scaffolds the tmux.d/ drop-in dir + user.conf starter (never overwritten).
 // Equivalent to `rk mux init-conf --force`.
 func ForceWriteConfig() error {
 	if DefaultConfigPath == "" {
 		return fmt.Errorf("could not determine home directory")
 	}
-	if err := os.MkdirAll(filepath.Dir(DefaultConfigPath), 0o755); err != nil {
-		return fmt.Errorf("creating config directory: %w", err)
+	if err := writeManagedConfig(DefaultConfigPath); err != nil {
+		return err
 	}
 	if err := ensureDropInDir(); err != nil {
 		return err
 	}
-	return os.WriteFile(DefaultConfigPath, DefaultConfigBytes(), 0o644)
+	return scaffoldUserConf()
 }
 
 // ensureDropInDir creates a tmux.d/ drop-in directory alongside DefaultConfigPath

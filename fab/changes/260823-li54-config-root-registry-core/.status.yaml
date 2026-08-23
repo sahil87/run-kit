@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 17
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-23T03:56:39Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-23T03:59:15Z"}
     review: {started_at: "2026-08-23T03:59:15Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-23T04:02:53Z"}
     hydrate: {started_at: "2026-08-23T04:02:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T04:09:14Z"}
-    ship: {started_at: "2026-08-23T04:09:14Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-23T04:09:14Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T04:12:31Z"}
+    review-pr: {started_at: "2026-08-23T04:12:31Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/720
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1569
+    deleted: 329
+    net: 1240
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 887
+        deleted: 266
+        net: 621
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-08-23T04:09:14Z"
-    computed_at_stage: hydrate
+        added: 447
+        deleted: 68
+        net: 379
+    computed_at: "2026-08-23T04:12:31Z"
+    computed_at_stage: ship
 summary: 'Config root + registry core: fixed /home/sahil/.config/run-kit/ root (no XDG), internal/settings registry (12 keys, key/type/default/desc/category/ui/live), migrations ~/.rk/settings.yaml→config.yaml (*.migrated breadcrumb) and $XDG_STATE_HOME/rk/→run-kit/ (snapshots moved, MOVED-to-run-kit), RK_SSH_HOST removed (doctor flags), tmux_conf/log_level keys with undocumented env escapes, run-kit.yaml ghost sweep + FindGitRoot→gitroot.go, constitution IV/VII v1.10.0'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-23T04:09:14Z
+last_updated: 2026-08-23T04:12:31Z

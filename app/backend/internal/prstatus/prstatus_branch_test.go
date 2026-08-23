@@ -480,7 +480,11 @@ func TestBranchRefresher_RegisterEmptyInputsIgnored(t *testing.T) {
 // TestBranchRefresher_UnobservedPairAgesOut: a pair no longer re-Registered is
 // dropped from the cache after branchPRObservedTTL, so it neither costs a gh call
 // nor lingers in the snapshot.
-func TestBranchRefresher_UnobservedPairAgesOut(t *testing.T) {
+// TestBranchRefresher_UnobservedPairRetainedThenDeleted: the two-window age-out.
+// Past branchPRObservedTTL an unobserved pair stops being RESOLVED (no gh cost)
+// but its entry is RETAINED and served (the presence hold — a reopened dashboard
+// must not see a blank glyph); past branchPRRetainTTL the entry is deleted.
+func TestBranchRefresher_UnobservedPairRetainedThenDeleted(t *testing.T) {
 	calls := 0
 	r := NewBranchRefresher(branchPRRefreshInterval)
 	r.exec = func(context.Context, string, string) ([]byte, error) {
@@ -497,15 +501,58 @@ func TestBranchRefresher_UnobservedPairAgesOut(t *testing.T) {
 		t.Fatal("expected #4 after first refresh")
 	}
 
-	// Advance past the observed TTL WITHOUT re-registering → the pair ages out.
+	// Past the observed TTL WITHOUT re-registering → retained: still served,
+	// never re-resolved.
 	now = now.Add(branchPRObservedTTL + time.Second)
 	r.refresh(context.Background())
-
-	if pr, ok := r.Snapshot("/repo", "feat"); ok || pr != nil {
-		t.Errorf("aged-out pair should be gone from the snapshot, got ok=%v", ok)
+	if pr, ok := r.Snapshot("/repo", "feat"); !ok || pr == nil {
+		t.Error("retained pair should still be served from the snapshot")
 	}
 	if calls != 1 {
-		t.Errorf("aged-out pair should not be re-resolved: calls=%d, want 1", calls)
+		t.Errorf("retained pair should not be re-resolved: calls=%d, want 1", calls)
+	}
+
+	// Past the retain TTL → deleted.
+	now = time.Unix(1_000_000, 0).Add(branchPRRetainTTL + time.Second)
+	r.refresh(context.Background())
+	if pr, ok := r.Snapshot("/repo", "feat"); ok || pr != nil {
+		t.Errorf("pair past retain TTL should be gone from the snapshot, got ok=%v", ok)
+	}
+	if calls != 1 {
+		t.Errorf("deleted pair should not be re-resolved: calls=%d, want 1", calls)
+	}
+}
+
+// TestBranchRefresher_ReRegisteredRetainedPairResolvesNextPass: a retained pair a
+// returning dashboard re-registers serves its last-good PR immediately AND is
+// re-resolved (fresh values) by the next pass — the re-registration bumps
+// observedAt back under the resolution threshold.
+func TestBranchRefresher_ReRegisteredRetainedPairResolvesNextPass(t *testing.T) {
+	calls := 0
+	r := NewBranchRefresher(branchPRRefreshInterval)
+	r.exec = func(context.Context, string, string) ([]byte, error) {
+		calls++
+		return branchListJSON(branchNode(4, "https://x/pull/4", "2026-07-01T00:00:00Z")), nil
+	}
+	r.available = func(context.Context) bool { return true }
+	now := time.Unix(1_000_000, 0)
+	r.now = func() time.Time { return now }
+
+	r.Register("/repo", "feat")
+	r.refresh(context.Background()) // calls == 1
+
+	// Unobserved past the resolution threshold, then re-registered (dashboard
+	// reopened). The entry is present, so the re-registration is NOT first-sight
+	// — presence is served immediately from last-good.
+	now = now.Add(branchPRObservedTTL + time.Minute)
+	r.Register("/repo", "feat")
+	if pr, ok := r.Snapshot("/repo", "feat"); !ok || pr == nil {
+		t.Fatal("re-registered retained pair should serve its last-good PR immediately")
+	}
+
+	r.refresh(context.Background())
+	if calls != 2 {
+		t.Errorf("re-registered pair should be re-resolved on the next pass: calls=%d, want 2", calls)
 	}
 }
 
@@ -1791,8 +1838,9 @@ func TestBranchRefresher_SeedEntriesServesAndSurvivesFirstPass(t *testing.T) {
 }
 
 // TestBranchRefresher_SeededEntryAgesOutLikeAnyPair: a seeded entry is an ordinary
-// entry — unobserved past the TTL it ages out, so entries for windows that no
-// longer exist do not linger.
+// entry — unobserved it rides the same two-window age-out as any pair (retained
+// past the observed TTL, deleted past the retain TTL), so entries for windows
+// that no longer exist do not linger.
 func TestBranchRefresher_SeededEntryAgesOutLikeAnyPair(t *testing.T) {
 	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
 		return branchListJSON(), nil
@@ -1804,9 +1852,14 @@ func TestBranchRefresher_SeededEntryAgesOutLikeAnyPair(t *testing.T) {
 	base := r.now()
 	r.now = func() time.Time { return base.Add(branchPRObservedTTL + time.Second) }
 	r.refresh(context.Background())
+	if _, present := entryMark(r, "/gone", "feat"); !present {
+		t.Error("an unobserved seeded entry within the retain window must be retained")
+	}
 
+	r.now = func() time.Time { return base.Add(branchPRRetainTTL + time.Second) }
+	r.refresh(context.Background())
 	if _, present := entryMark(r, "/gone", "feat"); present {
-		t.Error("an unobserved seeded entry must age out like any other pair")
+		t.Error("an unobserved seeded entry must be deleted past the retain TTL like any other pair")
 	}
 }
 

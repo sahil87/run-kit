@@ -78,13 +78,24 @@ const (
 	// enough that gh traffic is bounded and decoupled from the 2.5s SSE cadence.
 	branchPRRefreshInterval = 30 * time.Second
 
-	// branchPRObservedTTL bounds how long a registered pair stays live without
-	// being re-observed. A pane whose window closed (or moved off the branch)
-	// stops being registered; after this TTL its entry ages out of the refresher
-	// so it neither costs a gh call nor lingers in the snapshot. Sized to a
-	// small multiple of the refresh interval so a transiently-unobserved pair
-	// (one missed SSE tick) is not evicted mid-flight.
+	// branchPRObservedTTL bounds how long a registered pair stays RESOLUTION-
+	// ELIGIBLE without being re-observed. A pane whose window closed (or moved
+	// off the branch) stops being registered; after this TTL the refresher stops
+	// spending gh/git work on the pair and stops counting its repo toward the
+	// per-repo cache liveness. Sized to a small multiple of the refresh interval
+	// so a transiently-unobserved pair (one missed SSE tick) is not parked
+	// mid-flight.
 	branchPRObservedTTL = 5 * time.Minute
+
+	// branchPRRetainTTL bounds how long an unobserved pair's ENTRY survives
+	// before deletion. The gap between the two TTLs is the presence hold: a
+	// dashboard closed past branchPRObservedTTL and reopened within this window
+	// re-registers pairs whose last-good PR is still in the map, so the first
+	// join tick serves it (no blank) while the next pass re-resolves fresh
+	// values. Deletion at this bound keeps the map bounded (Constitution §II);
+	// retention only holds entries — authoritative negatives still cleared the
+	// PR the moment they were derived.
+	branchPRRetainTTL = 30 * time.Minute
 
 	// branchPRAvailabilityTTL bounds how long a gh-availability verdict (positive
 	// OR negative) is reused. The negative MUST be cached: an installed-but-
@@ -892,8 +903,16 @@ func (r *BranchRefresher) refresh(ctx context.Context) {
 	var todo []pending
 	liveRepos := make(map[string]struct{})
 	for key, e := range r.entries {
-		if now.Sub(e.observedAt) > branchPRObservedTTL {
+		age := now.Sub(e.observedAt)
+		if age > branchPRRetainTTL {
 			delete(r.entries, key)
+			continue
+		}
+		if age > branchPRObservedTTL {
+			// Retained: Snapshot keeps serving the last-good PR (the presence
+			// hold), but the pair costs no resolution work and does not keep its
+			// repo's per-repo verdicts alive. A re-registration bumps observedAt
+			// back under the threshold and the next pass re-resolves it.
 			continue
 		}
 		repoDir, branch := splitBranchPRKey(key)

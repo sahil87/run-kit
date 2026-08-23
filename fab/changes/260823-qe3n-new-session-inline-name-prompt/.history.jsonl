@@ -1,0 +1,6 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-23T01:16:49Z"}
+{"args":"New session flow: inline name prompt with prefilled default — shortcut and palette open a prefilled inline name input (Enter accepts, typing overrides, Escape cancels); one flow, two entry points","cmd":"fab-new","event":"command","ts":"2026-08-23T01:16:49Z"}
+{"delta":"+4.1","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-08-23T01:18:32Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-23T01:21:57Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-23T01:22:12Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-23T01:30:11Z"}

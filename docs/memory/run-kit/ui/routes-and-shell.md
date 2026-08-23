@@ -166,9 +166,9 @@ The backend enforcement side of this contract (the strict `ValidateNewName` for 
 
 ## Session Creation Pattern
 
-### Instant Creation (Primary)
+### Instant Creation (sidebar + tiles)
 
-All primary session creation entry points create a session immediately without a dialog. Implemented by `executeCreateSessionInstant` in `app.tsx`.
+The pointer-driven `+` entry points create a session immediately without any prompt. Implemented by `executeCreateSessionInstant` in `app.tsx`.
 
 **Algorithm**:
 1. Derive a name from the active window's `worktreePath` using `deriveNameFromPath(worktreePath)` (from the shared `@/lib/names` module — § Live Safe-Name Conversion). If the result is empty (CWD is `/`, `~`, or `worktreePath` is undefined), the name is `session`.
@@ -181,7 +181,10 @@ All primary session creation entry points create a session immediately without a
 - Sidebar empty-state `+ New Session` button
 - `SessionTiles` "+ New Session" dashed-border tile (the density view on `/$server`)
 - Sidebar server-group-header `+` ("New session on {server}")
-- Cmd+K "Session: Create" action
+
+### Prompted Creation (`Session: Create` — chord + palette)
+
+The `create-session` chord and the palette `Session: Create` action (one flow, two entry points — the chord resolves through the palette body via `fromPalette`) open `SessionNamePrompt` (`components/session-name-prompt.tsx`, lazy + Suspense on the shared `Dialog` shell): a single name input **pre-filled with the exact name instant creation would use** (the § Instant Creation algorithm, computed at open time from the freshest-value refs) and select-all'd — Enter accepts the default (instant creation plus one keystroke, the Cmd-S/save-as model), typing replaces it (live `toSafeSessionName` conversion, `finalizeSafeName` at submit), Escape/backdrop cancels. An empty or colliding name blocks submit (inline collision hint, the `CreateSessionDialog` pattern). Submit calls the same `executeCreateSessionInstant(server, name, cwd)` optimistic path (ghost, rollback, toast) with the same `currentWindow?.worktreePath || undefined` cwd, guarded by `isSessionCreatePending`; the prompt's open state folds into `dialogOpenRef`. The board route registers no `create-session` handler, so the chord falls through there. (`260823-qe3n`)
 
 **Name derivation utilities**: `deriveNameFromPath` and the per-kind safe-name transforms live in the shared `app/frontend/src/lib/names.ts` module (§ Live Safe-Name Conversion), imported by `app.tsx` and every naming surface. Name conversion is split per kind (`toSafeSessionName`/`toSafeWindowName`/`toSafeServerName`/`toSafeWorktreeName`) — there is no single `toTmuxSafeName`.
 
@@ -245,10 +248,11 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 **Rejected**: `servers.length > 0` as a loaded-proxy — the root-cause bug of the create-server not-found race.
 *Introduced by*: 260602-3i5d-fix-create-server-not-found-race
 
-### Session creation is instant, never dialog-first
-**Decision**: The sidebar `+` button and the primary "Session: Create" palette action create a session immediately via `executeCreateSessionInstant`. `use-dialog-state.ts` exposes no `showCreateDialog` / `openCreateDialog` / `closeCreateDialog` API, and `CreateSessionDialog` is not wired to either entry point — it is reachable only from the secondary "Session: Create at Folder" / "Window: Create at Folder" palette actions.
-**Why**: The active window's `worktreePath` supplies both the derived name and the cwd, so a dialog on the primary path collects nothing the app cannot derive itself (§ Instant Creation), and the optimistic ghost row already gives immediate feedback. The one case that does need input — an explicit starting directory — has its own palette entries. Keeping the open/close dialog API absent is what stops the primary entry points from regrowing a prompt.
-**Rejected**: A dialog on every primary create path — it prompts for a name and a folder that the active window already implies.
+### Pointer creates are instant; `Session: Create` is a prefilled prompt, never a bare form
+**Decision**: The sidebar/tiles `+` buttons create instantly via `executeCreateSessionInstant`; the `Session: Create` chord/palette flow opens `SessionNamePrompt` pre-filled with the exact derived name, select-all'd, so Enter reproduces the instant outcome and typing names the session at creation (§ Prompted Creation). `use-dialog-state.ts` still exposes no create-dialog API, and `CreateSessionDialog` remains reachable only from the secondary "Session: Create at Folder" / "Window: Create at Folder" palette actions.
+**Why**: The keyboard flow is where an explicit name is wanted — a prefilled prompt makes naming first-class at the cost of one Enter on the default path, without spending a second chord on a named-session variant (the Cmd-S/save-as model). The pointer `+` buttons stay zero-friction because the active window's `worktreePath` already implies name and cwd, and the optimistic ghost gives immediate feedback.
+**Rejected**: A separate "Create session with name…" binding (a scarce keycap on a variant of an existing action); an empty-field dialog on the primary path (prompts for what the app can derive — the prefill keeps the derivation as the default).
+*Introduced by*: 260823-qe3n-new-session-inline-name-prompt
 
 ### Universal stage is a nested grid; the status bar stays outside it
 **Decision**: Shell's desktop grid is outer rows `"stage" / "statusbar"` with the stage a nested grid (`bg-bg-inset p-[6px]` + 6px column-gap, NO row-gap — the bottombar footer owns a content-gated `has-[>*]:mt-[6px]` seam instead (`260815-g08a`); columns `${sidebarWidth}px 1fr` / `0 1fr`, areas `"sidebar content" / "sidebar bottombar"`) holding the sidebar card, content, and bottombar; the statusbar row stays a direct outer-grid child.

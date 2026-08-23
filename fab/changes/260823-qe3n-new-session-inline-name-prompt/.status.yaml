@@ -1,0 +1,57 @@
+id: qe3n
+name: 260823-qe3n-new-session-inline-name-prompt
+created: 2026-08-23T01:16:49Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 13
+    acceptance_completed: 13
+confidence:
+    certain: 3
+    confident: 7
+    tentative: 0
+    unresolved: 0
+    score: 4.1
+    fuzzy: true
+    dimensions:
+        signal: 68.5
+        reversibility: 84.5
+        competence: 76.5
+        disambiguation: 74.5
+stage_metrics:
+    intake: {started_at: "2026-08-23T01:16:49Z", driver: fab-new, iterations: 1, completed_at: "2026-08-23T01:22:12Z"}
+    apply: {started_at: "2026-08-23T01:22:12Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T01:30:11Z"}
+    review: {started_at: "2026-08-23T01:30:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T01:36:55Z"}
+    hydrate: {started_at: "2026-08-23T01:36:55Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T01:39:05Z"}
+    ship: {started_at: "2026-08-23T01:39:05Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T01:41:48Z"}
+    review-pr: {started_at: "2026-08-23T01:41:48Z", driver: git-pr, iterations: 1, completed_at: "2026-08-23T01:52:25Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/717
+change_type_source: explicit
+true_impact:
+    added: 692
+    deleted: 13
+    net: 679
+    excluding:
+        added: 356
+        deleted: 3
+        net: 353
+    tests:
+        added: 93
+        deleted: 0
+        net: 93
+    computed_at: "2026-08-23T01:41:49Z"
+    computed_at_stage: ship
+summary: 'Session: Create (chord + palette) now opens a prefilled name prompt — Enter accepts the derived default, typing overrides, Escape cancels; pointer + entry points stay instant'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-23T01:52:25Z

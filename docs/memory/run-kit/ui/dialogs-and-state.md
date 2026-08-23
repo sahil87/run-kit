@@ -1,5 +1,5 @@
 ---
-description: "Component conventions, dialogs (create session, spawn-agent, tabbed settings, shell host add/edit form, width variants), clipboard utility, e2e host-global filesystem state, the Zustand window store, and optimistic UI + mutation feedback."
+description: "Component conventions, dialogs (session name prompt, create session, spawn-agent, tabbed settings, shell host add/edit form, width variants), clipboard utility, e2e host-global filesystem state, the Zustand window store, and optimistic UI + mutation feedback."
 type: memory
 ---
 # run-kit UI — Dialogs & Client State
@@ -32,6 +32,10 @@ CWD display (line 1) uses `shortenPath()` to shorten the active pane's `cwd` (fa
 - **`afterAll`** (always runs, even on test failure) restores VERBATIM: write the original bytes back if the file existed, else `rmSync({ force: true })` to delete residue — a byte-identical round-trip. Teardown errors are swallowed so they never mask a test failure.
 
 This is the general pattern for **any** host-global filesystem state an e2e touches: explicit save/restore in the spec, because the harness scopes tmux, ports, and `$XDG_STATE_HOME` but not `$HOME`. The companion `.spec.md` documents the save/restore in its Shared setup section (constitution Test Companion Docs).
+
+## Session Name Prompt
+
+`app/frontend/src/components/session-name-prompt.tsx` — the save-as-style prompt behind the `Session: Create` palette action and the `create-session` chord (which resolves through the same palette body): a single name input on the shared `Dialog` shell (`size="sm"`), pre-filled with the auto-derived session name and select-all'd so Enter accepts the default and typing replaces it. Live `toSafeSessionName` conversion, `finalizeSafeName` at submit, inline collision hint blocking submit (the Create Session Dialog pattern below), empty-submit no-op; Escape/backdrop close via the shell's focus trap. It is deliberately lighter than `CreateSessionDialog` — no path picker — and submits through the existing `executeCreateSessionInstant` optimistic path in `app.tsx` (its open state folds into `dialogOpenRef`). Behavior contract: [routes-and-shell](/run-kit/ui/routes-and-shell.md) § Prompted Creation. (`260823-qe3n`)
 
 ## Create Session Dialog
 

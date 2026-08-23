@@ -170,6 +170,7 @@ import { useWindowStore } from "@/store/window-store";
 const CommandPalette = lazy(() => import("@/components/command-palette").then(m => ({ default: m.CommandPalette })));
 const ThemeSelector = lazy(() => import("@/components/theme-selector").then(m => ({ default: m.ThemeSelector })));
 const CreateSessionDialog = lazy(() => import("@/components/create-session-dialog").then(m => ({ default: m.CreateSessionDialog })));
+const SessionNamePrompt = lazy(() => import("@/components/session-name-prompt").then(m => ({ default: m.SessionNamePrompt })));
 const SpawnAgentDialog = lazy(() => import("@/components/spawn-agent-dialog").then(m => ({ default: m.SpawnAgentDialog })));
 const SwatchPopover = lazy(() => import("@/components/swatch-popover").then(m => ({ default: m.SwatchPopover })));
 const SettingsDialog = lazy(() => import("@/components/settings-dialog").then(m => ({ default: m.SettingsDialog })));
@@ -1222,6 +1223,9 @@ function AppShell() {
   const [showTmuxCommands, setShowTmuxCommands] = useState(false);
   const [showCreateSessionAtFolderDialog, setShowCreateSessionAtFolderDialog] = useState(false);
   const [showCreateWindowAtFolderDialog, setShowCreateWindowAtFolderDialog] = useState(false);
+  // Save-as-style name prompt behind `Session: Create` (chord + palette). The
+  // prefill is captured at OPEN time so it can't churn under the user's edit.
+  const [sessionNamePrompt, setSessionNamePrompt] = useState<{ defaultName: string } | null>(null);
   const [showColorPicker, setShowColorPicker] = useState<"session" | "window" | null>(null);
   const [showCreateIframeDialog, setShowCreateIframeDialog] = useState(false);
   // The spawn-agent dialog's target is explicit `{server, session}` state (not a
@@ -1997,7 +2001,7 @@ function AppShell() {
   // `server-dialogs-context` (260811-239r) — the dialogs mount in AppLayout now,
   // but gating this route's URL writeback while one is up is unchanged.
   dialogOpenRef.current =
-    dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || createServerOpen || killServerTarget != null || showTmuxCommands || showCreateSessionAtFolderDialog || showCreateWindowAtFolderDialog || showCreateIframeDialog || spawnAgentTarget != null;
+    dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || createServerOpen || killServerTarget != null || showTmuxCommands || showCreateSessionAtFolderDialog || showCreateWindowAtFolderDialog || showCreateIframeDialog || spawnAgentTarget != null || sessionNamePrompt != null;
 
   // Flat window list for palette actions
   const flatWindows = useMemo(() => {
@@ -2132,6 +2136,28 @@ function AppShell() {
     const name = deriveInstantSessionName(cwd, existingNames);
     executeCreateSessionInstant(server, name, cwd || undefined);
   }, [server, executeCreateSessionInstant]);
+
+  // `Session: Create` (palette body, and the chord via fromPalette) opens the
+  // save-as-style name prompt instead of creating instantly. The prefill is
+  // the exact name instant create would have used, read from the same
+  // freshest-value refs at open time — Enter on the untouched default
+  // reproduces today's outcome. Sidebar/tiles/board `+` stay instant.
+  const handleOpenSessionNamePrompt = useCallback(() => {
+    if (isSessionCreatePendingRef.current) return;
+    const cwd = currentWindowRef.current?.worktreePath;
+    const existingNames = sessionsRef.current.map((s) => s.name);
+    setSessionNamePrompt({ defaultName: deriveInstantSessionName(cwd, existingNames) });
+  }, []);
+
+  const handleSessionNamePromptSubmit = useCallback(
+    (name: string) => {
+      setSessionNamePrompt(null);
+      if (isSessionCreatePendingRef.current) return;
+      const cwd = currentWindowRef.current?.worktreePath;
+      executeCreateSessionInstant(server, name, cwd || undefined);
+    },
+    [server, executeCreateSessionInstant],
+  );
 
   const handleCreateWindow = useCallback(
     (session: string) => {
@@ -2317,7 +2343,7 @@ function AppShell() {
         id: "create-session",
         label: "Session: Create",
         description: "a new group of tabs",
-        onSelect: handleCreateSessionInstant,
+        onSelect: handleOpenSessionNamePrompt,
       },
       {
         id: "create-session-at-folder",
@@ -2380,7 +2406,7 @@ function AppShell() {
           ]
         : []),
     ],
-    [sessionName, dialogs, handleCreateSessionInstant, setShowCreateSessionAtFolderDialog, currentSessionOrderIdx, effectiveSessionOrder, moveCurrentSession, server, addToast],
+    [sessionName, dialogs, handleOpenSessionNamePrompt, setShowCreateSessionAtFolderDialog, currentSessionOrderIdx, effectiveSessionOrder, moveCurrentSession, server, addToast],
   );
 
   // Compute min/max window indices for current session (for move boundary checks)
@@ -4320,6 +4346,17 @@ function AppShell() {
           terminal's ResizeObserver refits automatically (260718-dhdj). */}
 
       {/* Dialogs */}
+      {sessionNamePrompt && (
+        <Suspense fallback={null}>
+          <SessionNamePrompt
+            sessions={sessions}
+            defaultName={sessionNamePrompt.defaultName}
+            onSubmit={handleSessionNamePromptSubmit}
+            onClose={() => setSessionNamePrompt(null)}
+          />
+        </Suspense>
+      )}
+
       {showCreateSessionAtFolderDialog && (
         <Suspense fallback={null}>
           <CreateSessionDialog

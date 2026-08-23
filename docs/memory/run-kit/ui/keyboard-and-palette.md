@@ -276,7 +276,7 @@ Command palette actions include: create/rename/kill session, create/rename/kill 
 **Session/window creation actions in the palette**:
 | Action ID | Label | Behavior |
 |-----------|-------|----------|
-| `create-session` | "Session: Create" | Instant creation — no dialog (see Instant Session Creation) |
+| `create-session` | "Session: Create" | Opens the prefilled `SessionNamePrompt` — Enter accepts the derived default, typing overrides, Escape cancels; the chord resolves through this body via `fromPalette` ([routes-and-shell](/run-kit/ui/routes-and-shell.md) § Prompted Creation) |
 | `create-session-at-folder` | "Session: Create at Folder" | Opens `CreateSessionDialog` pre-filled with `currentWindow.worktreePath`; empty if no active window |
 | `create-window` | "Tab: Create" | Instant tab creation — the sidebar's per-session `+` path (`New tab in <session>`). Creates an **unnamed** window (`createWindow` called with no name), so tmux auto-names it to the active window's folder basename; the optimistic ghost is labeled with the **raw** cwd basename (see § Unnamed `+ New Window`) (`260707-j66b`) |
 | `create-window-at-folder` | "Tab: Create at Folder" | Opens `CreateSessionDialog` in `mode="window"` (dialog title changes, session name input hidden, confirms via `createWindow(server, session, undefined, cwd)` — no name, so tmux auto-names to the folder basename); only shown when a session is active (`260707-j66b`) |

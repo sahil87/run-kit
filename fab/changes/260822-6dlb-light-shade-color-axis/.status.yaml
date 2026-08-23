@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 10
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-08-23T18:34:58Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T18:39:42Z"}
     hydrate: {started_at: "2026-08-23T18:39:42Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T19:02:27Z"}
     ship: {started_at: "2026-08-23T19:02:27Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T19:05:03Z"}
-    review-pr: {started_at: "2026-08-23T19:05:03Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-08-23T19:05:03Z", driver: git-pr, iterations: 1, completed_at: "2026-08-23T19:14:21Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/728
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: 'Light rung added to the color shade axis: 3-shade axis (light+normal+dark), family-triplet 30 picker values, 41-entry tint/border maps, verbatim -light storage, 30-entry validate closed set, 40-entry icontint table, 3-row picker color band; bidirectional contrast guard already covers light-on-light'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-23T19:05:03Z
+last_updated: 2026-08-23T19:14:21Z

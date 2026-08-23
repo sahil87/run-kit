@@ -915,3 +915,30 @@ func TestCodeServerCheckUnresolvablePort(t *testing.T) {
 		t.Errorf("note = %q, must not surface the degenerate :0 port", c.Note)
 	}
 }
+
+// TestRemovedEnvCheckRKSSHHost pins the set-but-ignored RK_SSH_HOST row: the
+// check exists ONLY while the var is set (a failing row naming the ssh_host
+// replacement key); unset, no row appears at all.
+func TestRemovedEnvCheckRKSSHHost(t *testing.T) {
+	t.Run("set env yields a failing row", func(t *testing.T) {
+		t.Setenv("RK_SSH_HOST", "devbox")
+		c, present := removedEnvCheck()
+		if !present {
+			t.Fatal("RK_SSH_HOST set: no check returned, want a row")
+		}
+		if c.OK {
+			t.Error("check OK = true, want false (set-but-ignored is a failure)")
+		}
+		want := "RK_SSH_HOST is no longer read — set the ssh_host key in ~/.config/run-kit/config.yaml"
+		if c.Hint != want {
+			t.Errorf("hint = %q, want %q", c.Hint, want)
+		}
+	})
+
+	t.Run("unset env yields no row", func(t *testing.T) {
+		t.Setenv("RK_SSH_HOST", "")
+		if _, present := removedEnvCheck(); present {
+			t.Error("RK_SSH_HOST unset: a check row was returned, want none")
+		}
+	})
+}

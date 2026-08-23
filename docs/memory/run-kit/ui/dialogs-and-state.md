@@ -24,11 +24,11 @@ CWD display (line 1) uses `shortenPath()` to shorten the active pane's `cwd` (fa
 - Examples: `/home/sahil/code/org/repo/src` → `…/repo/src`; `/home/sahil/code/org` → `~/code/org`; `/var/log/nginx` → `…/log/nginx`.
 - The `title` attribute on the CWD element always contains the original unmodified `activePaneCwd` — hover to see the full path.
 
-### E2E host-global filesystem state (`~/.rk/settings.yaml` snapshot/restore)
+### E2E host-global filesystem state (`~/.config/run-kit/config.yaml` snapshot/restore)
 
-`scripts/test-e2e.sh` isolates the **tmux server** (a per-worktree derived socket family, `rk-test-e2e-<token>-*`), the **ports** (a derived per-worktree triple in 3400–3699), and **`$XDG_STATE_HOME`** (a per-run temp dir), but NOT `$HOME` — so any e2e that exercises a feature persisting to `~/.rk/` (settings, VAPID keys, push subscriptions) POSTs against the **developer's REAL host file**. `board-list-reorder.spec.ts` therefore snapshots the developer's `~/.rk/settings.yaml` and restores it around the suite so a curated board order (or any other setting) is never clobbered by test residue:
+`scripts/test-e2e.sh` isolates the **tmux server** (a per-worktree derived socket family, `rk-test-e2e-<token>-*`), the **ports** (a derived per-worktree triple in 3400–3699), and **`$XDG_STATE_HOME`** (a per-run temp dir), but NOT `$HOME` — so any e2e that exercises a feature persisting under `$HOME` (settings, VAPID keys, push subscriptions) POSTs against the **developer's REAL host file**. `board-list-reorder.spec.ts` therefore snapshots the developer's `~/.config/run-kit/config.yaml` and restores it around the suite so a curated board order (or any other setting) is never clobbered by test residue:
 
-- **`beforeAll`** raw-byte-reads `settings.yaml` (`readFileSync(path, "utf8")`). Absent detection is **ENOENT-only**: a `code === "ENOENT"` read error means "no file to restore" (afterAll then deletes any residue); ANY other read error (EACCES/EIO — the file EXISTS but couldn't be snapshotted) is **rethrown**, so afterAll never `rmSync`-deletes real settings on a failed snapshot.
+- **`beforeAll`** raw-byte-reads `config.yaml` (`readFileSync(path, "utf8")`). Absent detection is **ENOENT-only**: a `code === "ENOENT"` read error means "no file to restore" (afterAll then deletes any residue); ANY other read error (EACCES/EIO — the file EXISTS but couldn't be snapshotted) is **rethrown**, so afterAll never `rmSync`-deletes real settings on a failed snapshot.
 - **`afterAll`** (always runs, even on test failure) restores VERBATIM: write the original bytes back if the file existed, else `rmSync({ force: true })` to delete residue — a byte-identical round-trip. Teardown errors are swallowed so they never mask a test failure.
 
 This is the general pattern for **any** host-global filesystem state an e2e touches: explicit save/restore in the spec, because the harness scopes tmux, ports, and `$XDG_STATE_HOME` but not `$HOME`. The companion `.spec.md` documents the save/restore in its Shared setup section (constitution Test Companion Docs).
@@ -98,7 +98,7 @@ A tabbed settings **dialog** (not a routed page — constitution §IV keeps "no 
 
 **Scope groups live inside the topic tabs** — the persistence-scope labeling is load-bearing UX (a device-local value not syncing across devices reads as designed, not broken), so the two `ScopeHeading` groups render INSIDE each of General and Appearance (both mix scopes, per the table above):
 
-- **This host** ("stored on this instance, shared by every device") — persisted to `~/.rk/settings.yaml`.
+- **This host** ("stored on this instance, shared by every device") — persisted to `~/.config/run-kit/config.yaml`.
 - **This device** ("stored in this browser only") — browser-local ergonomics (the Web Push subscription is per-browser, so the scope is semantically exact).
 
 **Desktop preference-pane layout, one responsive code path** (`260724-6j1v`):

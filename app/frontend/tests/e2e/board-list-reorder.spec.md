@@ -2,7 +2,7 @@
 
 Behavioural contract for the board-list-reorder backend surface: the
 `POST /api/boards/order` endpoint (persists the full ordered board-name list to
-`~/.rk/settings.yaml`), the API-layer rank-aware sort on `GET /api/boards`
+`~/.config/run-kit/config.yaml`), the API-layer rank-aware sort on `GET /api/boards`
 (stored order first by index, then unranked boards alphabetically), and the
 **server-global** `board-order` broadcast that fans out to every state-socket
 connection — including a metrics-only subscription with no
@@ -23,10 +23,10 @@ the live backend, which IS deterministic.
 
 ## Shared setup
 
-- **Settings save/restore (real `~/.rk/settings.yaml`).** `scripts/test-e2e.sh`
+- **Settings save/restore (real `~/.config/run-kit/config.yaml`).** `scripts/test-e2e.sh`
   isolates the tmux server/port but NOT `$HOME`, so this suite's
   `POST /api/boards/order` writes hit the developer's real
-  `~/.rk/settings.yaml`. `beforeAll` snapshots the file's raw bytes (recording
+  `~/.config/run-kit/config.yaml`. `beforeAll` snapshots the file's raw bytes (recording
   whether it existed at all); `afterAll` restores those exact bytes — or deletes
   the file when none existed — so any curated board order round-trips
   byte-identically and no test residue persists. `afterAll` always runs (even on

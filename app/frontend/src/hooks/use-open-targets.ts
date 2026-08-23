@@ -3,7 +3,7 @@ import { getHealth, getOpenApps, type OpenApp } from "@/api/client";
 
 /**
  * The Open button's bootstrap data: the host's optional SSH alias
- * (settings-first, else RK_SSH_HOST) plus the derived daemon username (both
+ * (the ssh_host setting) plus the derived daemon username (both
  * riding GET /api/health) and the wt host-app registry (GET /api/open-apps).
  * The bundle is fetched ONCE and held in a small module-level external store
  * shared by every consumer (the TopBar registry entry AND the palette builder

@@ -1,8 +1,8 @@
 // Package fabconfig reads the riff presets from the fab/project/config.yaml
 // file that lives at a repo root. It provides best-effort accessors that
 // return empty values rather than errors when the file is absent, malformed,
-// or missing keys — this mirrors the pattern used by internal/config for
-// run-kit.yaml.
+// or missing keys — the same best-effort stance internal/config takes for its
+// RK_* env vars and internal/settings takes for ~/.config/run-kit/config.yaml.
 //
 // The agent launcher is NOT read here: `rk riff` resolves it by shelling out
 // to `fab agent --print` (see cmd/rk/riff.go resolveLauncher), so rk never

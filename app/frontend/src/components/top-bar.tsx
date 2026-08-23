@@ -565,8 +565,8 @@ export function TopBar({
   // Open-in-App data (260722-6d0f): sshHost/sshUser + host-app registry,
   // fetched once per page load via the module-cached hook (enabled only where
   // the control can render — the Terminal route). The target list composes
-  // the local/remote branch + deeplink-host resolution chain (RK_SSH_HOST
-  // verbatim, else derived `user@location.hostname` when remote — 260722-fc3b)
+  // the local/remote branch + deeplink-host resolution chain (the ssh_host
+  // setting verbatim, else derived `user@location.hostname` when remote — 260722-fc3b)
   // + section-visibility rules in `lib/open-in-app.ts`; the folder is the
   // current window's active-pane cwd. Zero targets (local + empty registry,
   // or a pathless window) hides the entry entirely.

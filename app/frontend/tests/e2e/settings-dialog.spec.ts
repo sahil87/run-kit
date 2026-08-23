@@ -21,12 +21,13 @@ import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
  *      scrolls INSIDE the fixed-height xl dialog.
  *
  * scripts/test-e2e.sh isolates the tmux server/port but NOT $HOME, so the
- * instance-name write lands in the developer's REAL ~/.rk/settings.yaml —
- * snapshot its raw bytes before the suite and restore them after
+ * instance-name write lands in the developer's REAL
+ * ~/.config/run-kit/config.yaml — snapshot its raw bytes before the suite
+ * and restore them after
  * (byte-identical round-trip; the board-list-reorder.spec.ts pattern).
  */
 
-const SETTINGS_PATH = join(homedir(), ".rk", "settings.yaml");
+const SETTINGS_PATH = join(homedir(), ".config", "run-kit", "config.yaml");
 let settingsSnapshot: Buffer | undefined;
 let settingsExisted = false;
 
@@ -56,7 +57,8 @@ function expectDialogOpen(page: Page) {
 
 test.describe("Settings dialog", () => {
   test.beforeAll(() => {
-    // Snapshot the developer's REAL ~/.rk/settings.yaml before the suite
+    // Snapshot the developer's REAL ~/.config/run-kit/config.yaml before the
+    // suite
     // mutates it via /api/settings/instance-name; restored verbatim after.
     try {
       settingsSnapshot = readFileSync(SETTINGS_PATH);

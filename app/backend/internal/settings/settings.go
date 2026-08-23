@@ -1,3 +1,17 @@
+// Package settings owns the run-kit preference store at
+// ~/.config/run-kit/config.yaml — the single registry-driven settings
+// surface.
+//
+// Override order: code default < config.yaml < env < CLI flag. Env forms
+// exist ONLY for deployment-bootstrap keys (RK_PORT, RK_HOST,
+// RK_CODE_SERVER_PORT); the only other env reads are the undocumented
+// per-process escapes RK_TMUX_CONF and LOG_LEVEL, which win over their
+// config.yaml keys but are never user-facing.
+//
+// The config root is fixed at $HOME/.config/run-kit — never
+// $XDG_CONFIG_HOME, never os.UserConfigDir: rk runs as daemon + CLI +
+// agents-in-panes, and an env-dependent path would silently fork which file
+// each context reads. Only $HOME moves the root.
 package settings
 
 import (
@@ -10,7 +24,8 @@ import (
 	"rk/internal/validate"
 )
 
-// Settings holds user preferences persisted at ~/.rk/settings.yaml.
+// Settings holds user preferences persisted at ~/.config/run-kit/config.yaml
+// (a legacy ~/.rk/settings.yaml is fallback-read and migrated on first save).
 type Settings struct {
 	Theme      string
 	ThemeDark  string
@@ -24,8 +39,8 @@ type Settings struct {
 	InstanceColor string
 	// SSHHost is the verbatim SSH destination remote clients use to reach this
 	// host — an alias from the client's ~/.ssh/config or a `user@host` form.
-	// Empty means "unset": /api/health then falls back to the RK_SSH_HOST env
-	// var. Scalar, like InstanceColor.
+	// Empty means "unset": /api/health then omits sshHost (this key is the
+	// only ssh-host surface — no env form exists). Scalar, like InstanceColor.
 	SSHHost string
 	// InstanceName is the display-name override for this run-kit instance.
 	// Empty means "unset": display surfaces derive the name from os.Hostname()
@@ -51,6 +66,15 @@ type Settings struct {
 	// operator on its own); read at hub construction, so a change applies on
 	// the next daemon restart.
 	AutoName bool
+	// TmuxConf is the path to the tmux.conf rk passes to tmux. Empty means
+	// "unset": tmux resolution falls back to its built-in default. The user
+	// owns the file — rk performs no ensure/refresh on it. Read at tmux
+	// command construction, so a change applies on the next daemon restart.
+	TmuxConf string
+	// LogLevel is the daemon log verbosity: "info" or "debug". Read at serve
+	// startup (the LOG_LEVEL env escape wins when set), so a change applies on
+	// the next daemon restart.
+	LogLevel string
 }
 
 // Default returns the default settings.
@@ -59,11 +83,33 @@ func Default() Settings {
 		Theme:      "system",
 		ThemeDark:  "default-dark",
 		ThemeLight: "default-light",
+		LogLevel:   "info",
 	}
 }
 
-// settingsPath returns the absolute path to ~/.rk/settings.yaml.
-func settingsPath() (string, error) {
+// Dir returns the fixed config root $HOME/.config/run-kit/. The only
+// environment input is $HOME (see the package doc comment).
+func Dir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".config", "run-kit"), nil
+}
+
+// configPath returns the settings file path: $HOME/.config/run-kit/config.yaml.
+func configPath() (string, error) {
+	dir, err := Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "config.yaml"), nil
+}
+
+// legacySettingsPath returns the pre-migration settings file location,
+// ~/.rk/settings.yaml — read as a fallback when config.yaml is absent, and
+// breadcrumb-renamed after a successful save.
+func legacySettingsPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -71,23 +117,35 @@ func settingsPath() (string, error) {
 	return filepath.Join(home, ".rk", "settings.yaml"), nil
 }
 
-// Load reads ~/.rk/settings.yaml and returns the parsed Settings.
-// Returns Default() if the file is missing or unreadable.
+// Load reads ~/.config/run-kit/config.yaml and returns the parsed Settings.
+// When that file is unreadable, it falls back to the legacy
+// ~/.rk/settings.yaml (same format); when both are absent or unreadable it
+// returns Default().
 func Load() Settings {
-	p, err := settingsPath()
+	p, err := configPath()
 	if err != nil {
 		return Default()
 	}
 	data, err := os.ReadFile(p)
 	if err != nil {
-		return Default()
+		legacy, lerr := legacySettingsPath()
+		if lerr != nil {
+			return Default()
+		}
+		data, err = os.ReadFile(legacy)
+		if err != nil {
+			return Default()
+		}
 	}
 	return parse(string(data))
 }
 
-// Save writes the settings to ~/.rk/settings.yaml, creating ~/.rk/ if absent.
+// Save writes the settings to ~/.config/run-kit/config.yaml, creating
+// ~/.config/run-kit/ if absent. After a successful write, a still-present
+// legacy ~/.rk/settings.yaml is renamed to settings.yaml.migrated —
+// best-effort; a rename failure never fails the save.
 func Save(s Settings) error {
-	p, err := settingsPath()
+	p, err := configPath()
 	if err != nil {
 		return err
 	}
@@ -95,10 +153,16 @@ func Save(s Settings) error {
 		return err
 	}
 	content := serialize(s)
-	return os.WriteFile(p, []byte(content), 0644)
+	if err := os.WriteFile(p, []byte(content), 0644); err != nil {
+		return err
+	}
+	if legacy, err := legacySettingsPath(); err == nil {
+		_ = os.Rename(legacy, legacy+".migrated")
+	}
+	return nil
 }
 
-// nestedSection describes one nested settings.yaml section for parse/serialize.
+// nestedSection describes one nested config.yaml section for parse/serialize.
 // Two shapes exist, built by mapSection (string map: `  name: "value"` entries)
 // and listSection (string list: `  - "value"` entries). Adding a section is a
 // registry entry plus its Settings field — not new scanner branches.
@@ -112,6 +176,188 @@ type nestedSection struct {
 	// section is empty — sections are omitted when empty so a settings file
 	// without them serializes byte-identically to one that never had them.
 	serialize func(s *Settings) string
+}
+
+// registryEntry is one settings key in the single-source-of-truth registry.
+// Scalar entries carry parse/serialize hooks; nested entries (maps and lists)
+// carry a section built by mapSection/listSection instead. Adding a key is one
+// entry — parse and serialize need no new branches.
+type registryEntry struct {
+	key      string // config.yaml key ("theme", "server_colors")
+	kind     string // value type: enum, string, color, path, bool, map, list
+	def      string // default value, text form ("{}", "[]" for nested sections)
+	desc     string // one-line description
+	category string // grouping for later UI surfaces
+	ui       bool   // exposed on the settings UI surface
+	live     bool   // applies on next read without a daemon restart
+	// parse consumes one scalar "key: value" line (value already trimmed).
+	// Nil on nested-section entries.
+	parse func(s *Settings, value string)
+	// serialize emits the scalar line(s) for the key, or "" when the value is
+	// at its default — defaults are omitted so an untouched file round-trips
+	// byte-identically. Nil on nested-section entries.
+	serialize func(s *Settings) string
+	// section is the nested-section machinery for map/list keys. Zero value
+	// (section.key == "") on scalar entries.
+	section nestedSection
+}
+
+// registry is the single source of truth for every settings key. Slice order
+// IS serialization order: scalar keys first (theme … log_level), then the
+// nested sections. Descriptions/defaults/flags are data for the settings API
+// and pane that later phases build on this table.
+var registry = []registryEntry{
+	{
+		key: "theme", kind: "enum", def: "system",
+		desc:     "UI color mode — system, dark, light, or a named theme.",
+		category: "appearance", ui: true, live: true,
+		parse: func(s *Settings, value string) {
+			if value != "" {
+				s.Theme = value
+			}
+		},
+		serialize: func(s *Settings) string { return "theme: " + s.Theme + "\n" },
+	},
+	{
+		key: "theme_dark", kind: "string", def: "default-dark",
+		desc:     "Theme applied when the UI is in dark mode.",
+		category: "appearance", ui: true, live: true,
+		parse: func(s *Settings, value string) {
+			if value != "" {
+				s.ThemeDark = value
+			}
+		},
+		serialize: func(s *Settings) string { return "theme_dark: " + s.ThemeDark + "\n" },
+	},
+	{
+		key: "theme_light", kind: "string", def: "default-light",
+		desc:     "Theme applied when the UI is in light mode.",
+		category: "appearance", ui: true, live: true,
+		parse: func(s *Settings, value string) {
+			if value != "" {
+				s.ThemeLight = value
+			}
+		},
+		serialize: func(s *Settings) string { return "theme_light: " + s.ThemeLight + "\n" },
+	},
+	{
+		key: "instance_color", kind: "color", def: "",
+		desc:     "Per-instance accent color descriptor (\"4\" for one ANSI index, \"1+3\" for a two-hue blend).",
+		category: "appearance", ui: true, live: true,
+		// Tolerant read: accept a legacy bare integer OR the quoted string
+		// descriptor ("1+3"); normalize and drop anything malformed.
+		parse: func(s *Settings, value string) {
+			colorStr := strings.Trim(value, "\"")
+			if normalized, ok := validate.NormalizeColorValue(colorStr); ok {
+				s.InstanceColor = normalized
+			}
+		},
+		// Always quoted so a blend ("1+3") round-trips unambiguously.
+		serialize: quotedScalar("instance_color", func(s *Settings) *string { return &s.InstanceColor }),
+	},
+	{
+		key: "ssh_host", kind: "string", def: "",
+		desc:     "Verbatim SSH destination remote clients use to reach this host (ssh config alias or user@host).",
+		category: "connectivity", ui: true, live: true,
+		// Tolerant read: quote-stripped and trimmed (serialize always quotes
+		// so the value round-trips unambiguously).
+		parse:     quoteTrimmedScalar(func(s *Settings) *string { return &s.SSHHost }),
+		serialize: quotedScalar("ssh_host", func(s *Settings) *string { return &s.SSHHost }),
+	},
+	{
+		key: "instance_name", kind: "string", def: "",
+		desc:     "Display-name override for this run-kit instance.",
+		category: "identity", ui: true, live: true,
+		parse:     quoteTrimmedScalar(func(s *Settings) *string { return &s.InstanceName }),
+		serialize: quotedScalar("instance_name", func(s *Settings) *string { return &s.InstanceName }),
+	},
+	{
+		key: "auto_name", kind: "bool", def: "false",
+		desc:     "Arms the auto-name-on-idle trigger: the operator window is asked to fix tab names on busy→idle transitions.",
+		category: "behavior", ui: true, live: false,
+		// Tolerant read: any strconv.ParseBool value; anything else keeps the
+		// default (off) — the safe direction for an opt-in trigger.
+		parse: func(s *Settings, value string) {
+			if b, err := strconv.ParseBool(strings.Trim(value, "\"")); err == nil {
+				s.AutoName = b
+			}
+		},
+		serialize: func(s *Settings) string {
+			if s.AutoName {
+				return "auto_name: true\n"
+			}
+			return ""
+		},
+	},
+	{
+		key: "tmux_conf", kind: "path", def: "",
+		desc:     "Path to the tmux.conf rk passes to tmux; empty uses the built-in default. The RK_TMUX_CONF env escape wins when set.",
+		category: "advanced", ui: true, live: false,
+		parse:     quoteTrimmedScalar(func(s *Settings) *string { return &s.TmuxConf }),
+		serialize: quotedScalar("tmux_conf", func(s *Settings) *string { return &s.TmuxConf }),
+	},
+	{
+		key: "log_level", kind: "enum", def: "info",
+		desc:     "Daemon log verbosity — info or debug. The LOG_LEVEL env escape wins when set.",
+		category: "advanced", ui: true, live: false,
+		// Tolerant read: only info/debug are accepted; anything else keeps the
+		// default.
+		parse: func(s *Settings, value string) {
+			switch v := strings.Trim(value, "\""); v {
+			case "info", "debug":
+				s.LogLevel = v
+			}
+		},
+		serialize: func(s *Settings) string {
+			if s.LogLevel != "" && s.LogLevel != "info" {
+				return "log_level: " + s.LogLevel + "\n"
+			}
+			return ""
+		},
+	},
+	{
+		key: "server_colors", kind: "map", def: "{}",
+		desc:     "Server name → accent color descriptor for the server's sidebar surfaces.",
+		category: "appearance", ui: true, live: true,
+		// Tolerant color read: accept a legacy bare integer OR the string
+		// descriptor ("1+3"); normalize and drop anything malformed.
+		section: mapSection("server_colors", func(s *Settings) *map[string]string { return &s.ServerColors }, validate.NormalizeColorValue),
+	},
+	{
+		key: "server_flairs", kind: "map", def: "{}",
+		desc:     "Server name → flair token (a closed set: validate.FlairValues) for the server's sidebar surfaces.",
+		category: "appearance", ui: true, live: true,
+		// Tolerant flair read: accept only non-empty tokens in the universal
+		// set; no canonicalization needed — flair tokens round-trip as-is.
+		section: mapSection("server_flairs", func(s *Settings) *map[string]string { return &s.ServerFlairs }, normalizeFlairValue),
+	},
+	{
+		key: "board_order", kind: "list", def: "[]",
+		desc:     "User-defined board display order; rank = list index.",
+		category: "layout", ui: true, live: true,
+		section: listSection("board_order", func(s *Settings) *[]string { return &s.BoardOrder }),
+	},
+}
+
+// quoteTrimmedScalar builds the parse hook for a plain string scalar: the
+// value is quote-stripped and trimmed (serialize always quotes so the value
+// round-trips unambiguously).
+func quoteTrimmedScalar(target func(*Settings) *string) func(*Settings, string) {
+	return func(s *Settings, value string) {
+		*target(s) = strings.TrimSpace(strings.Trim(value, "\""))
+	}
+}
+
+// quotedScalar builds the serialize hook for a string scalar emitted quoted
+// and omitted when empty — a settings file without the key serializes
+// byte-identically to one that never had it.
+func quotedScalar(key string, target func(*Settings) *string) func(*Settings) string {
+	return func(s *Settings) string {
+		if v := *target(s); v != "" {
+			return key + ": \"" + v + "\"\n"
+		}
+		return ""
+	}
 }
 
 // mapSection builds a nested string-map section. Values are quote-stripped on
@@ -193,18 +439,6 @@ func listSection(key string, target func(s *Settings) *[]string) nestedSection {
 	}
 }
 
-// nestedSections is the registry of nested settings.yaml sections, in
-// serialization order (all nested sections follow the scalar keys).
-var nestedSections = []nestedSection{
-	// Tolerant color read: accept a legacy bare integer OR the string
-	// descriptor ("1+3"); normalize and drop anything malformed.
-	mapSection("server_colors", func(s *Settings) *map[string]string { return &s.ServerColors }, validate.NormalizeColorValue),
-	// Tolerant flair read: accept only non-empty tokens in the universal set;
-	// no canonicalization needed — flair tokens round-trip as-is.
-	mapSection("server_flairs", func(s *Settings) *map[string]string { return &s.ServerFlairs }, normalizeFlairValue),
-	listSection("board_order", func(s *Settings) *[]string { return &s.BoardOrder }),
-}
-
 // normalizeFlairValue is the membership-check normalize for the server_flairs
 // mapSection: a value survives iff it is a non-empty token in the universal
 // flair set. Unlike colors, flair tokens need no canonical form — pass/fail
@@ -218,7 +452,8 @@ func normalizeFlairValue(value string) (string, bool) {
 
 // parse extracts settings from simple "key: value" lines.
 // Supports one level of nesting: indented lines under a registered section
-// heading (see nestedSections) are parsed as that section's entries.
+// heading are parsed as that section's entries. Keys not in the registry are
+// ignored.
 func parse(data string) Settings {
 	s := Default()
 	var active *nestedSection
@@ -248,82 +483,32 @@ func parse(data string) Settings {
 		key = strings.TrimSpace(key)
 		value = strings.TrimSpace(value)
 
-		switch key {
-		case "theme":
-			if value != "" {
-				s.Theme = value
+		for i := range registry {
+			if key != registry[i].key {
+				continue
 			}
-		case "theme_dark":
-			if value != "" {
-				s.ThemeDark = value
+			if registry[i].section.key != "" {
+				active = &registry[i].section
+			} else {
+				registry[i].parse(&s, value)
 			}
-		case "theme_light":
-			if value != "" {
-				s.ThemeLight = value
-			}
-		case "instance_color":
-			// Tolerant read: accept a legacy bare integer OR the quoted string
-			// descriptor ("1+3"); normalize and drop anything malformed.
-			colorStr := strings.Trim(value, "\"")
-			if normalized, ok := validate.NormalizeColorValue(colorStr); ok {
-				s.InstanceColor = normalized
-			}
-		case "ssh_host":
-			// Tolerant read: quote-stripped and trimmed (serialize always
-			// quotes so the value round-trips unambiguously).
-			s.SSHHost = strings.TrimSpace(strings.Trim(value, "\""))
-		case "instance_name":
-			s.InstanceName = strings.TrimSpace(strings.Trim(value, "\""))
-		case "auto_name":
-			// Tolerant read: any strconv.ParseBool value; anything else keeps
-			// the default (off) — the safe direction for an opt-in trigger.
-			if b, err := strconv.ParseBool(strings.Trim(value, "\"")); err == nil {
-				s.AutoName = b
-			}
-		default:
-			for i := range nestedSections {
-				if key == nestedSections[i].key {
-					active = &nestedSections[i]
-					break
-				}
-			}
+			break
 		}
 	}
 	return s
 }
 
-// serialize produces the "key: value" text representation.
+// serialize produces the "key: value" text representation, in registry order
+// (scalar keys first, then nested sections; defaults and empty sections
+// omitted).
 func serialize(s Settings) string {
-	out := "theme: " + s.Theme + "\n" +
-		"theme_dark: " + s.ThemeDark + "\n" +
-		"theme_light: " + s.ThemeLight + "\n"
-
-	// Instance color — emitted only when non-empty so a settings file without
-	// an instance color serializes byte-identically to the pre-change output.
-	// Always quoted so a blend ("1+3") round-trips unambiguously.
-	if s.InstanceColor != "" {
-		out += "instance_color: \"" + s.InstanceColor + "\"\n"
-	}
-
-	// SSH host + instance name — each emitted only when non-empty so a settings
-	// file without them serializes byte-identically to the pre-change output.
-	// Always quoted so any value round-trips unambiguously.
-	if s.SSHHost != "" {
-		out += "ssh_host: \"" + s.SSHHost + "\"\n"
-	}
-	if s.InstanceName != "" {
-		out += "instance_name: \"" + s.InstanceName + "\"\n"
-	}
-
-	// Auto-name — emitted only when armed so a settings file without it
-	// serializes byte-identically to the pre-change output (default is off).
-	if s.AutoName {
-		out += "auto_name: true\n"
-	}
-
-	// Nested sections, in registry order (each omitted when empty).
-	for i := range nestedSections {
-		out += nestedSections[i].serialize(&s)
+	out := ""
+	for i := range registry {
+		if registry[i].section.key != "" {
+			out += registry[i].section.serialize(&s)
+		} else {
+			out += registry[i].serialize(&s)
+		}
 	}
 	return out
 }

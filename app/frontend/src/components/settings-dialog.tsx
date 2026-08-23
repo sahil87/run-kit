@@ -480,8 +480,8 @@ function SettingsDialogBody({ onClose }: { onClose: () => void }) {
   const { activeTab, setActiveTab } = useSettingsDialog();
   const { hostname, instanceName, setInstanceName } = useInstanceName();
 
-  // The SSH host field edits the stored SETTING (may be empty while the
-  // RK_SSH_HOST env fallback is active) — fetched fresh per open.
+  // The SSH host field edits the stored SETTING — the sole source for
+  // deeplink hosts — fetched fresh per open.
   const [sshHost, setSSHHostState] = useState("");
   useEffect(() => {
     let alive = true;
@@ -570,7 +570,7 @@ function GeneralPanel({
             label="SSH host"
             value={sshHost}
             placeholder="alias or user@host"
-            hint="Used verbatim in editor deeplinks; empty falls back to RK_SSH_HOST"
+            hint="Used verbatim in editor deeplinks; empty derives user@hostname"
             commit={async (trimmed) => {
               await setSSHHost(trimmed === "" ? null : trimmed);
               setSSHHostState(trimmed);

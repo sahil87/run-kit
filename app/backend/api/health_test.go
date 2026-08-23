@@ -72,17 +72,20 @@ func TestHealthEndpointEmptyHostname(t *testing.T) {
 	}
 }
 
-// The optional sshHost field rides the health response, resolved settings-
-// first per request: settings.yaml `ssh_host` when non-empty, else the
-// startup-seeded RK_SSH_HOST env value, else absent (not empty-valued).
+// The optional sshHost field rides the health response, resolved per request
+// from the `ssh_host` setting — the ONLY source: an RK_SSH_HOST env value is
+// ignored, and the field is absent (not empty-valued) when the setting is
+// unset.
 func TestHealthEndpointSSHHost(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-	t.Run("present when env-configured", func(t *testing.T) {
+	t.Run("present when the setting is set", func(t *testing.T) {
 		isolateSettings(t)
-		s := &Server{logger: logger, hostname: "test-host"}
-		s.SetSSHHost("devbox")
-		router := s.buildRouter()
+		host := "devbox"
+		if err := settings.SetSSHHost(&host); err != nil {
+			t.Fatalf("SetSSHHost: %v", err)
+		}
+		router := NewTestRouter(logger, nil, nil, "test-host")
 
 		req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
 		rec := httptest.NewRecorder()
@@ -114,15 +117,10 @@ func TestHealthEndpointSSHHost(t *testing.T) {
 		}
 	})
 
-	t.Run("settings value wins over env seed", func(t *testing.T) {
+	t.Run("RK_SSH_HOST env is ignored", func(t *testing.T) {
 		isolateSettings(t)
-		uiHost := "uibox"
-		if err := settings.SetSSHHost(&uiHost); err != nil {
-			t.Fatalf("SetSSHHost: %v", err)
-		}
-		s := &Server{logger: logger, hostname: "test-host"}
-		s.SetSSHHost("envbox") // the RK_SSH_HOST startup seed
-		router := s.buildRouter()
+		t.Setenv("RK_SSH_HOST", "envbox")
+		router := NewTestRouter(logger, nil, nil, "test-host")
 
 		req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
 		rec := httptest.NewRecorder()
@@ -132,23 +130,21 @@ func TestHealthEndpointSSHHost(t *testing.T) {
 		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
 		}
-		if body["sshHost"] != "uibox" {
-			t.Errorf("body.sshHost = %q, want %q (settings-first)", body["sshHost"], "uibox")
+		if _, present := body["sshHost"]; present {
+			t.Errorf("body.sshHost present (%q) with only RK_SSH_HOST set, want absent", body["sshHost"])
 		}
 	})
 
-	t.Run("env fallback after settings value cleared", func(t *testing.T) {
+	t.Run("absent after the setting is cleared", func(t *testing.T) {
 		isolateSettings(t)
-		uiHost := "uibox"
-		if err := settings.SetSSHHost(&uiHost); err != nil {
+		host := "uibox"
+		if err := settings.SetSSHHost(&host); err != nil {
 			t.Fatalf("SetSSHHost: %v", err)
 		}
 		if err := settings.SetSSHHost(nil); err != nil {
 			t.Fatalf("SetSSHHost clear: %v", err)
 		}
-		s := &Server{logger: logger, hostname: "test-host"}
-		s.SetSSHHost("envbox")
-		router := s.buildRouter()
+		router := NewTestRouter(logger, nil, nil, "test-host")
 
 		req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
 		rec := httptest.NewRecorder()
@@ -158,13 +154,13 @@ func TestHealthEndpointSSHHost(t *testing.T) {
 		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
 		}
-		if body["sshHost"] != "envbox" {
-			t.Errorf("body.sshHost = %q, want %q (env fallback)", body["sshHost"], "envbox")
+		if _, present := body["sshHost"]; present {
+			t.Errorf("body.sshHost present (%q) after clear, want absent", body["sshHost"])
 		}
 	})
 }
 
-// The optional instanceName field (settings.yaml `instance_name`, the display
+// The optional instanceName field (config.yaml `instance_name`, the display
 // name override) rides the health response: present when set, absent (not
 // empty-valued) when unset.
 func TestHealthEndpointInstanceName(t *testing.T) {
@@ -215,7 +211,7 @@ func TestHealthEndpointInstanceName(t *testing.T) {
 // The derived sshUser field (os/user.Current at startup) rides the health
 // response beside sshHost: present when the lookup succeeded, absent (not
 // empty-valued) when it failed — remote clients derive
-// `${sshUser}@${location.hostname}` when RK_SSH_HOST is unset.
+// `${sshUser}@${location.hostname}` when the ssh_host setting is unset.
 func TestHealthEndpointSSHUser(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 

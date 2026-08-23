@@ -13,7 +13,7 @@ import (
 )
 
 // isolateSettings points settings persistence at a throwaway HOME so the tests
-// neither read nor clobber the developer's real ~/.rk/settings.yaml.
+// neither read nor clobber the developer's real ~/.config/run-kit/config.yaml.
 func isolateSettings(t *testing.T) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())

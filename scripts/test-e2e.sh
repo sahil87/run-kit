@@ -12,8 +12,8 @@ RK_CODE_SERVER_PORT="$E2E_CODE_SERVER_PORT"
 
 # Hermetic per-run state: the backend's disk carve-outs (layout snapshots, the
 # PR-status seed cache) land under this temp dir instead of the developer's
-# real $XDG_STATE_HOME/rk, and the EXIT trap removes it. $HOME-keyed state
-# (~/.rk/) stays shared — specs that touch it keep their snapshot/restore
+# real $XDG_STATE_HOME/run-kit, and the EXIT trap removes it. $HOME-keyed state
+# (~/.config/run-kit/config.yaml) stays shared — specs that touch it keep their snapshot/restore
 # pattern.
 E2E_STATE_HOME="$(mktemp -d)"
 

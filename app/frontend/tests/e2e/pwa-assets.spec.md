@@ -3,7 +3,7 @@
 Verifies the PWA identity assets (`/manifest.json`, `/generated-icons/*`) are
 served by the Go backend's dynamic handlers through the Vite dev proxy
 (260722-eo8e accent-tinted Dock icon). All assertions are deliberately
-tint-agnostic — the e2e box's real `~/.rk/settings.yaml` may or may not carry
+tint-agnostic — the e2e box's real `~/.config/run-kit/config.yaml` may or may not carry
 an `instance_color` — so the spec pins the serving pipeline, not the tint
 state (the tint itself is golden-pixel tested in Go: `api/pwa_test.go`,
 `internal/icontint`).

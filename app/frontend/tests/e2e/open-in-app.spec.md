@@ -12,7 +12,7 @@ control is fully absent — no bar button, no overflow rows, no palette entries.
 The e2e client is `localhost`, so only the LOCAL view (host section) is
 exercisable here — the remote deeplink branch keys on `location.hostname`,
 which cannot be non-local against the e2e server. That covers the whole
-260722-fc3b resolution chain (RK_SSH_HOST verbatim, else derived
+260722-fc3b resolution chain (the ssh_host setting verbatim, else derived
 `${sshUser}@${location.hostname}`) and its remote-shows-deeplinks visibility
 gate, all covered by Vitest (`lib/open-in-app.test.ts`,
 `components/open-button.test.tsx`, `hooks/use-open-targets.test.tsx`).

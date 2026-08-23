@@ -1,0 +1,57 @@
+id: li54
+name: 260823-li54-config-root-registry-core
+created: 2026-08-23T03:26:10Z
+created_by: Sahil Ahuja
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 17
+    acceptance_count: 21
+    acceptance_completed: 21
+confidence:
+    certain: 8
+    confident: 10
+    tentative: 0
+    unresolved: 0
+    score: 3.6
+    fuzzy: true
+    dimensions:
+        signal: 73.1
+        reversibility: 74.2
+        competence: 83.3
+        disambiguation: 77.5
+stage_metrics:
+    intake: {started_at: "2026-08-23T03:26:10Z", driver: fab-new, iterations: 1, completed_at: "2026-08-23T03:34:26Z"}
+    apply: {started_at: "2026-08-23T03:56:39Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-23T03:59:15Z"}
+    review: {started_at: "2026-08-23T03:59:15Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-23T04:02:53Z"}
+    hydrate: {started_at: "2026-08-23T04:02:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T04:09:14Z"}
+    ship: {started_at: "2026-08-23T04:09:14Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T04:12:31Z"}
+    review-pr: {started_at: "2026-08-23T04:12:31Z", driver: git-pr, iterations: 1, completed_at: "2026-08-23T04:21:49Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/720
+change_type_source: explicit
+true_impact:
+    added: 1569
+    deleted: 329
+    net: 1240
+    excluding:
+        added: 887
+        deleted: 266
+        net: 621
+    tests:
+        added: 447
+        deleted: 68
+        net: 379
+    computed_at: "2026-08-23T04:12:31Z"
+    computed_at_stage: ship
+summary: 'Config root + registry core: fixed /home/sahil/.config/run-kit/ root (no XDG), internal/settings registry (12 keys, key/type/default/desc/category/ui/live), migrations ~/.rk/settings.yaml→config.yaml (*.migrated breadcrumb) and $XDG_STATE_HOME/rk/→run-kit/ (snapshots moved, MOVED-to-run-kit), RK_SSH_HOST removed (doctor flags), tmux_conf/log_level keys with undocumented env escapes, run-kit.yaml ghost sweep + FindGitRoot→gitroot.go, constitution IV/VII v1.10.0'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-23T04:21:49Z

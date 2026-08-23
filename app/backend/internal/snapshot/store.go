@@ -34,19 +34,55 @@ const (
 	jsonExt        = ".json"
 )
 
-// DefaultDir resolves the snapshot storage root: $XDG_STATE_HOME/rk/snapshots
-// when the env var is set, else ~/.local/state/rk/snapshots. State dir — not
+// DefaultDir resolves the snapshot storage root: $XDG_STATE_HOME/run-kit/snapshots
+// when the env var is set, else ~/.local/state/run-kit/snapshots. State dir — not
 // cache — because these are recovery artifacts and caches are droppable by
-// contract.
+// contract. Pure resolver, no side effects: the one-time move of the legacy
+// <state-root>/rk/snapshots dir is MigrateLegacyDir, fired at store first-use.
 func DefaultDir() (string, error) {
 	if v := os.Getenv("XDG_STATE_HOME"); v != "" {
-		return filepath.Join(v, "rk", "snapshots"), nil
+		return filepath.Join(v, "run-kit", "snapshots"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("resolving snapshot dir: %w", err)
 	}
-	return filepath.Join(home, ".local", "state", "rk", "snapshots"), nil
+	return filepath.Join(home, ".local", "state", "run-kit", "snapshots"), nil
+}
+
+// MigrateLegacyDir performs the one-time, best-effort move of the legacy
+// snapshot dir (<state-root>/rk/snapshots, same resolution root as dir with
+// "rk" in place of "run-kit") into the resolved dir, leaving a
+// MOVED-to-run-kit breadcrumb file in the legacy <state-root>/rk/ dir that
+// names the new path. Recovery backups are worth preserving, so the move
+// fires at store first-use rather than dropping them — but it fires ONLY into
+// an absent target: an existing new dir (or anything else at that path) is
+// never merged into or clobbered. Every failure degrades silently to
+// cold-start behavior (an empty store) and is at most a debug line.
+func MigrateLegacyDir(dir string) {
+	stateRoot := filepath.Dir(filepath.Dir(dir))
+	legacy := filepath.Join(stateRoot, "rk", "snapshots")
+	if _, err := os.Stat(dir); err == nil {
+		return // target exists — never merge or clobber
+	} else if !os.IsNotExist(err) {
+		slog.Debug("snapshot: legacy move skipped, target unstatable", "dir", dir, "err", err)
+		return
+	}
+	if _, err := os.Stat(legacy); err != nil {
+		return // nothing to move (or unreadable — cold start either way)
+	}
+	if err := os.MkdirAll(filepath.Dir(dir), dirMode); err != nil {
+		slog.Debug("snapshot: legacy move failed, starting cold", "from", legacy, "to", dir, "err", err)
+		return
+	}
+	if err := os.Rename(legacy, dir); err != nil {
+		slog.Debug("snapshot: legacy move failed, starting cold", "from", legacy, "to", dir, "err", err)
+		return
+	}
+	breadcrumb := filepath.Join(stateRoot, "rk", "MOVED-to-run-kit")
+	if err := os.WriteFile(breadcrumb, []byte("snapshots moved to "+dir+"\n"), fileMode); err != nil {
+		slog.Debug("snapshot: breadcrumb write failed", "path", breadcrumb, "err", err)
+	}
 }
 
 // Store persists snapshots under a root directory:

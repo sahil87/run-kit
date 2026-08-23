@@ -99,7 +99,33 @@ func runDoctorChecks() doctorReport {
 	// opt-in, never a dependency failure.
 	report.Checks = append(report.Checks, ephemeralServersCheck())
 
+	// Set-but-ignored env vars: RK_SSH_HOST no longer has any reader (the
+	// ssh_host setting is the only source), so a row appears ONLY when it is
+	// set — steady-state output stays noise-free.
+	if c, ok := removedEnvCheck(); ok {
+		report.Checks = append(report.Checks, c)
+		if !c.OK {
+			report.OK = false
+		}
+	}
+
 	return report
+}
+
+// removedEnvCheck flags a set-but-ignored RK_SSH_HOST: the env read was
+// removed (the ssh_host key in ~/.config/run-kit/config.yaml is the only
+// ssh-host source), so a still-exported value silently does nothing. The
+// second return value is false when the var is unset — no row, no noise.
+func removedEnvCheck() (doctorCheck, bool) {
+	if os.Getenv("RK_SSH_HOST") == "" {
+		return doctorCheck{}, false
+	}
+	return doctorCheck{
+		Name:      "RK_SSH_HOST",
+		OK:        false,
+		Hint:      "RK_SSH_HOST is no longer read — set the ssh_host key in ~/.config/run-kit/config.yaml",
+		failLabel: "RK_SSH_HOST set but ignored",
+	}, true
 }
 
 // ephemeralServersCheck reports the count of live servers carrying the

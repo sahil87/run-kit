@@ -164,17 +164,11 @@ type Server struct {
 	riff     RiffEngine
 	wt       WtOps
 	hostname string
-	// sshHost is the optional RK_SSH_HOST alias remote clients use to reach
-	// this host, surfaced on GET /api/health for the frontend's ssh-remote
-	// deeplinks. Seeded from config at startup (or SetSSHHost in tests);
-	// empty = unset = the frontend falls back to deriving
-	// `${sshUser}@${location.hostname}` on remote clients.
-	sshHost string
 	// sshUser is the username the daemon runs as (os/user.Current at startup,
 	// or SetSSHUser in tests), surfaced on GET /api/health so remote clients
-	// can derive an SSH destination (`user@location.hostname`) when
-	// RK_SSH_HOST is unset. Pure derivation per Constitution X — no config.
-	// Empty on lookup failure = the frontend omits the `user@` prefix.
+	// can derive an SSH destination (`user@location.hostname`) when the
+	// ssh_host setting is unset. Pure derivation per Constitution X — no
+	// config. Empty on lookup failure = the frontend omits the `user@` prefix.
 	sshUser string
 	// codeServerPort is the RESOLVED code-server port (preset
 	// RK_CODE_SERVER_PORT, else the RK_PORT+2 convention). Seeded from
@@ -558,8 +552,8 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger) (chi.Router, *
 	hostname, _ := os.Hostname()
 
 	// The daemon's own username, for the frontend's derived SSH destination
-	// (RK_SSH_HOST-unset fallback). Best-effort: a failed lookup leaves it
-	// empty and the health response omits the field.
+	// (the fallback when the ssh_host setting is unset). Best-effort: a failed
+	// lookup leaves it empty and the health response omits the field.
 	sshUser := ""
 	if u, err := user.Current(); err == nil {
 		sshUser = u.Username
@@ -588,7 +582,7 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger) (chi.Router, *
 	pc.SetViewerPRSink(prstatus.DefaultBranchRefresher.StoreViewerIndex)
 
 	// Disk seed (260809-r4vk): pre-fill both pollers' last-good state from
-	// $XDG_STATE_HOME/rk/prstatus.json and attach the write hooks, BEFORE either
+	// $XDG_STATE_HOME/run-kit/prstatus.json and attach the write hooks, BEFORE either
 	// Start — the cold-start machinery above is network-gated, so a restart while
 	// gh is slow/offline/rate-limited would otherwise start blank. The seed is
 	// never authoritative (the immediate first fetch replaces it wholesale,
@@ -614,7 +608,6 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger) (chi.Router, *
 		riff:            prodRiffEngine{},
 		wt:              prodWtOps{},
 		hostname:        hostname,
-		sshHost:         cfg.SSHHost,
 		sshUser:         sshUser,
 		codeServerPort:  cfg.ResolvedCodeServerPort(), // 0 = degenerate config (probe off)
 		autoNameEnabled: settings.Load().AutoName,
@@ -675,16 +668,9 @@ func NewTestRouterWithWt(logger *slog.Logger, sf SessionFetcher, ops TmuxOps, wt
 	return s.buildRouter()
 }
 
-// SetSSHHost seeds the optional RK_SSH_HOST value surfaced on GET /api/health.
-// Production wiring reads it from config in NewRouterAndServer; tests use this
-// seam directly (mirrors SetVersion).
-func (s *Server) SetSSHHost(host string) {
-	s.sshHost = host
-}
-
 // SetSSHUser seeds the derived daemon username surfaced on GET /api/health.
 // Production wiring reads it from os/user.Current in NewRouterAndServer;
-// tests use this seam directly (mirrors SetSSHHost).
+// tests use this seam directly (mirrors SetVersion).
 func (s *Server) SetSSHUser(user string) {
 	s.sshUser = user
 }
@@ -822,7 +808,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Get("/ws/terminals", s.handleTerminalsWS)
 
 	// PWA identity assets — explicit GET routes registered BEFORE the SPA
-	// catch-all so the instance accent (settings.yaml instance_color, read per
+	// catch-all so the instance accent (config.yaml instance_color, read per
 	// request) can tint the manifest, Dock icons, and tab favicon; with no
 	// owned accent these serve the stock bytes byte-identically. See api/pwa.go.
 	r.Get("/manifest.json", s.handleManifest)

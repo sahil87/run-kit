@@ -1585,6 +1585,44 @@ func TestEnsureDropInDirNoHomeDir(t *testing.T) {
 	ensureDropInDir()
 }
 
+// The config-path resolution chain is RK_TMUX_CONF env → tmux_conf config.yaml
+// key → DefaultConfigPath. HOME is isolated so settings.Load reads only the
+// config.yaml the test writes.
+func TestResolveConfigPathPrecedence(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	origDefault := DefaultConfigPath
+	defer func() { DefaultConfigPath = origDefault }()
+	DefaultConfigPath = filepath.Join(home, ".rk", "tmux.conf")
+
+	confDir := filepath.Join(home, ".config", "run-kit")
+	if err := os.MkdirAll(confDir, 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	confFile := filepath.Join(confDir, "config.yaml")
+	if err := os.WriteFile(confFile, []byte("tmux_conf: /from/config.yaml\n"), 0o644); err != nil {
+		t.Fatalf("write config.yaml: %v", err)
+	}
+
+	t.Setenv("RK_TMUX_CONF", "/from/env")
+	if got := resolveConfigPath(); got != "/from/env" {
+		t.Errorf("env + config key: resolveConfigPath() = %q, want %q", got, "/from/env")
+	}
+
+	t.Setenv("RK_TMUX_CONF", "")
+	if got := resolveConfigPath(); got != "/from/config.yaml" {
+		t.Errorf("config key only: resolveConfigPath() = %q, want %q", got, "/from/config.yaml")
+	}
+
+	if err := os.Remove(confFile); err != nil {
+		t.Fatalf("remove config.yaml: %v", err)
+	}
+	if got := resolveConfigPath(); got != DefaultConfigPath {
+		t.Errorf("neither set: resolveConfigPath() = %q, want %q", got, DefaultConfigPath)
+	}
+}
+
 // windowID reads the stable tmux window id (@N) for a display-message target on
 // the isolated test server. A "session:index" target resolves that specific
 // window; a bare "session" target resolves the session's ACTIVE window. Fails the

@@ -230,14 +230,14 @@ export function Sidebar({
   // this list, and the palette entry are sibling subscribers of the same key.
   const [sessionsScope, setSessionsScope] = useSessionsScope();
 
-  // Server colors from settings.yaml (all servers) — color value descriptors
+  // Server colors from config.yaml (all servers) — color value descriptors
   // ("4" / "1+3").
   const [serverColors, setServerColors] = useState<Record<string, string>>({});
   useEffect(() => {
     getAllServerColors().then(setServerColors).catch(() => {});
   }, []);
 
-  // Server flairs from settings.yaml (all servers) — flair tokens from the
+  // Server flairs from config.yaml (all servers) — flair tokens from the
   // universal set. Same mount-fetch + optimistic-map shape as serverColors
   // (settings mutations emit no control-mode event, so no SSE derive exists).
   const [serverFlairs, setServerFlairs] = useState<Record<string, string>>({});

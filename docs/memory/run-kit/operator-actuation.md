@@ -198,7 +198,7 @@ process-memory only (a daemon restart forgets cooldowns, Constitution II) and
 reaped on the post-loop retain seam, scoped to successfully-polled-or-dead
 servers exactly like `waitingPushTracker.retain`. The feature is strictly
 OPT-IN: the `auto_name` key in the settings store (`internal/settings`,
-`~/.rk/settings.yaml` — tolerant `ParseBool` read, default off, serialized
+`~/.config/run-kit/config.yaml` — tolerant `ParseBool` read, default off, serialized
 only when true), seeded as `Server.autoNameEnabled` from `settings.Load()` at
 construction, so a toggle applies on the next daemon restart; when disabled,
 `initSSEHub` nils the hub's tracker, the feature-absent state both tick sites

@@ -20,7 +20,8 @@ trigger, layout, and persistence contracts that unit tests can't cover.
 
 ## Shared setup
 
-- `beforeAll` snapshots the developer's REAL `~/.rk/settings.yaml` (raw
+- `beforeAll` snapshots the developer's REAL `~/.config/run-kit/config.yaml`
+  (raw
   bytes) — `scripts/test-e2e.sh` isolates the tmux server/port but NOT
   `$HOME`, and the instance-name test writes through the live API. `afterAll`
   restores the snapshot verbatim (or deletes the file if it did not exist),

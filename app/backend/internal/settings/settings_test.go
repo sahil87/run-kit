@@ -3,6 +3,7 @@ package settings
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -17,6 +18,12 @@ func TestDefault(t *testing.T) {
 	}
 	if s.ThemeLight != "default-light" {
 		t.Errorf("Default().ThemeLight = %q, want %q", s.ThemeLight, "default-light")
+	}
+	if s.TmuxConf != "" {
+		t.Errorf("Default().TmuxConf = %q, want %q", s.TmuxConf, "")
+	}
+	if s.LogLevel != "info" {
+		t.Errorf("Default().LogLevel = %q, want %q", s.LogLevel, "info")
 	}
 }
 
@@ -108,8 +115,8 @@ func TestSaveAndLoad(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	// Verify file was created
-	p := filepath.Join(tmp, ".rk", "settings.yaml")
+	// Verify file was created at the fixed config root
+	p := filepath.Join(tmp, ".config", "run-kit", "config.yaml")
 	data, err := os.ReadFile(p)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
@@ -136,22 +143,22 @@ func TestSaveCreatesDir(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 
-	// .rk/ does not exist yet
-	rkDir := filepath.Join(tmp, ".rk")
-	if _, err := os.Stat(rkDir); !os.IsNotExist(err) {
-		t.Fatal("expected .rk/ to not exist initially")
+	// .config/run-kit/ does not exist yet
+	configDir := filepath.Join(tmp, ".config", "run-kit")
+	if _, err := os.Stat(configDir); !os.IsNotExist(err) {
+		t.Fatal("expected .config/run-kit/ to not exist initially")
 	}
 
 	if err := Save(Settings{Theme: "nord", ThemeDark: "default-dark", ThemeLight: "default-light"}); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
-	info, err := os.Stat(rkDir)
+	info, err := os.Stat(configDir)
 	if err != nil {
-		t.Fatalf("Stat .rk: %v", err)
+		t.Fatalf("Stat .config/run-kit: %v", err)
 	}
 	if !info.IsDir() {
-		t.Error(".rk should be a directory")
+		t.Error(".config/run-kit should be a directory")
 	}
 }
 
@@ -295,7 +302,7 @@ func TestServerFlairRoundTrip(t *testing.T) {
 	}
 
 	// Clearing the last entry drops the section from the file entirely.
-	data, err := os.ReadFile(filepath.Join(tmp, ".rk", "settings.yaml"))
+	data, err := os.ReadFile(filepath.Join(tmp, ".config", "run-kit", "config.yaml"))
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -731,4 +738,219 @@ func TestAutoName(t *testing.T) {
 			t.Errorf("auto_name emitted for the off default — legacy files must serialize byte-identically:\n%s", out)
 		}
 	})
+}
+
+// --- fixed config root (R1, R2) ---
+
+func TestConfigRootIsFixedAndEnvImmune(t *testing.T) {
+	tmp := t.TempDir()
+	xdg := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+
+	dir, err := Dir()
+	if err != nil {
+		t.Fatalf("Dir: %v", err)
+	}
+	if want := filepath.Join(tmp, ".config", "run-kit"); dir != want {
+		t.Errorf("Dir() = %q, want %q (XDG_CONFIG_HOME must not move the root)", dir, want)
+	}
+
+	p, err := configPath()
+	if err != nil {
+		t.Fatalf("configPath: %v", err)
+	}
+	want := filepath.Join(tmp, ".config", "run-kit", "config.yaml")
+	if p != want {
+		t.Errorf("configPath() = %q, want %q", p, want)
+	}
+}
+
+// --- registry round-trip (R8) ---
+
+// TestRoundTripByteIdentical proves a current-format settings file parses and
+// re-serializes to the exact same bytes.
+func TestRoundTripByteIdentical(t *testing.T) {
+	content := "theme: dracula\n" +
+		"theme_dark: dracula\n" +
+		"theme_light: solarized-light\n" +
+		"instance_color: \"1+3\"\n" +
+		"ssh_host: \"devbox\"\n" +
+		"instance_name: \"my-box\"\n" +
+		"auto_name: true\n" +
+		"server_colors:\n  default: \"4\"\n  dev: \"1+3\"\n" +
+		"server_flairs:\n  default: \"nyan\"\n  dev: \"cube\"\n" +
+		"board_order:\n  - \"reviews\"\n  - \"deploys\"\n"
+	if got := serialize(parse(content)); got != content {
+		t.Errorf("round-trip not byte-identical:\n got: %q\nwant: %q", got, content)
+	}
+}
+
+// --- tmux_conf + log_level keys ---
+
+func TestParseTmuxConfAndLogLevel(t *testing.T) {
+	// Tolerant read: tmux_conf is quote-stripped/trimmed like ssh_host;
+	// log_level accepts only info/debug — anything else keeps the default.
+	cases := []struct {
+		in           string
+		wantTmuxConf string
+		wantLogLevel string
+	}{
+		{"tmux_conf: \"/my/tmux.conf\"\n", "/my/tmux.conf", "info"},
+		{"tmux_conf: /my/tmux.conf\n", "/my/tmux.conf", "info"}, // unquoted tolerated
+		{"log_level: debug\n", "", "debug"},
+		{"log_level: \"debug\"\n", "", "debug"},
+		{"log_level: info\n", "", "info"},
+		{"log_level: trace\n", "", "info"}, // invalid → default kept
+		{"log_level: \"\"\n", "", "info"},  // empty → default kept
+		{"theme: system\n", "", "info"},    // absent → defaults
+	}
+	for _, c := range cases {
+		s := parse(c.in)
+		if s.TmuxConf != c.wantTmuxConf {
+			t.Errorf("parse(%q).TmuxConf = %q, want %q", c.in, s.TmuxConf, c.wantTmuxConf)
+		}
+		if s.LogLevel != c.wantLogLevel {
+			t.Errorf("parse(%q).LogLevel = %q, want %q", c.in, s.LogLevel, c.wantLogLevel)
+		}
+	}
+}
+
+func TestSerializeTmuxConfAndLogLevel(t *testing.T) {
+	// Non-default values serialize after auto_name, before the nested sections.
+	s := Settings{
+		Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light",
+		AutoName: true, TmuxConf: "/my/tmux.conf", LogLevel: "debug",
+		ServerColors: map[string]string{"default": "4"},
+	}
+	got := serialize(s)
+	want := "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\n" +
+		"auto_name: true\ntmux_conf: \"/my/tmux.conf\"\nlog_level: debug\n" +
+		"server_colors:\n  default: \"4\"\n"
+	if got != want {
+		t.Errorf("serialize = %q, want %q", got, want)
+	}
+}
+
+func TestSerializeDefaultTmuxConfAndLogLevelIsByteIdentical(t *testing.T) {
+	// Defaults (tmux_conf "", log_level info) are omitted: a settings file
+	// without the new keys serializes exactly as before.
+	got := serialize(Settings{Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light", LogLevel: "info"})
+	want := "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\n"
+	if got != want {
+		t.Errorf("serialize (default tmux_conf/log_level) = %q, want %q", got, want)
+	}
+}
+
+// --- migration 1: ~/.rk/settings.yaml → ~/.config/run-kit/config.yaml (R3, R4) ---
+
+func TestLoadFallsBackToLegacyPath(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	legacyDir := filepath.Join(tmp, ".rk")
+	if err := os.MkdirAll(legacyDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyDir, "settings.yaml"), []byte("theme: dracula\nssh_host: \"devbox\"\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	s := Load()
+	if s.Theme != "dracula" {
+		t.Errorf("Load (legacy fallback).Theme = %q, want %q", s.Theme, "dracula")
+	}
+	if s.SSHHost != "devbox" {
+		t.Errorf("Load (legacy fallback).SSHHost = %q, want %q", s.SSHHost, "devbox")
+	}
+}
+
+func TestSaveMigratesAndRenamesLegacyFile(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	legacy := filepath.Join(tmp, ".rk", "settings.yaml")
+	if err := os.MkdirAll(filepath.Dir(legacy), 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	legacyContent := "theme: dracula\nssh_host: \"devbox\"\n"
+	if err := os.WriteFile(legacy, []byte(legacyContent), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	// Load picks up legacy values via fallback; saving the merged state must
+	// land at the new path and breadcrumb-rename the old file.
+	s := Load()
+	s.Theme = "nord"
+	if err := Save(s); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(tmp, ".config", "run-kit", "config.yaml"))
+	if err != nil {
+		t.Fatalf("ReadFile new path: %v", err)
+	}
+	want := "theme: nord\ntheme_dark: default-dark\ntheme_light: default-light\nssh_host: \"devbox\"\n"
+	if got := string(data); got != want {
+		t.Errorf("new file content = %q, want %q (merged state)", got, want)
+	}
+
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		t.Error("legacy settings.yaml should be gone after migration")
+	}
+	breadcrumb, err := os.ReadFile(legacy + ".migrated")
+	if err != nil {
+		t.Fatalf("ReadFile breadcrumb: %v", err)
+	}
+	if string(breadcrumb) != legacyContent {
+		t.Errorf("breadcrumb content = %q, want original %q", breadcrumb, legacyContent)
+	}
+}
+
+func TestLoadNewPathWinsWhenBothExist(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	legacyDir := filepath.Join(tmp, ".rk")
+	if err := os.MkdirAll(legacyDir, 0755); err != nil {
+		t.Fatalf("MkdirAll legacy: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyDir, "settings.yaml"), []byte("theme: dracula\n"), 0644); err != nil {
+		t.Fatalf("WriteFile legacy: %v", err)
+	}
+	newPath := filepath.Join(tmp, ".config", "run-kit", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(newPath), 0755); err != nil {
+		t.Fatalf("MkdirAll new: %v", err)
+	}
+	if err := os.WriteFile(newPath, []byte("theme: nord\n"), 0644); err != nil {
+		t.Fatalf("WriteFile new: %v", err)
+	}
+
+	if s := Load(); s.Theme != "nord" {
+		t.Errorf("Load (both exist).Theme = %q, want %q (new path wins)", s.Theme, "nord")
+	}
+}
+
+func TestLoadBothAbsentReturnsDefaults(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	s := Load()
+	want := Default()
+	if !reflect.DeepEqual(s, want) {
+		t.Errorf("Load (both absent) = %+v, want defaults %+v", s, want)
+	}
+}
+
+func TestSaveWithoutLegacyFileSucceeds(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	// No legacy file — the breadcrumb rename must be a silent no-op.
+	if err := Save(Default()); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(tmp, ".config", "run-kit", "config.yaml")); err != nil {
+		t.Fatalf("new path not written: %v", err)
+	}
 }

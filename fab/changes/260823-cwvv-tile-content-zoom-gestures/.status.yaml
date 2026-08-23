@@ -1,0 +1,57 @@
+id: cwvv
+name: 260823-cwvv-tile-content-zoom-gestures
+created: 2026-08-23T15:41:24Z
+created_by: Sahil Ahuja
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 12
+    acceptance_count: 20
+    acceptance_completed: 20
+confidence:
+    certain: 11
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 90.8
+        reversibility: 76.5
+        competence: 85.0
+        disambiguation: 81.5
+stage_metrics:
+    intake: {started_at: "2026-08-23T15:41:24Z", driver: fab-new, iterations: 1, completed_at: "2026-08-23T18:50:11Z"}
+    apply: {started_at: "2026-08-23T18:50:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T19:20:13Z"}
+    review: {started_at: "2026-08-23T19:20:13Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T19:30:27Z"}
+    hydrate: {started_at: "2026-08-23T19:30:27Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T19:36:56Z"}
+    ship: {started_at: "2026-08-23T19:36:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T19:39:55Z"}
+    review-pr: {started_at: "2026-08-23T19:39:55Z", driver: git-pr, iterations: 1, completed_at: "2026-08-23T20:00:08Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/729
+change_type_source: explicit
+true_impact:
+    added: 1538
+    deleted: 74
+    net: 1464
+    excluding:
+        added: 1105
+        deleted: 59
+        net: 1046
+    tests:
+        added: 355
+        deleted: 11
+        net: 344
+    computed_at: "2026-08-23T19:39:55Z"
+    computed_at_stage: ship
+summary: Web-tile content zoom (scale wrapper, per-origin localStorage, URL-bar control, palette actions) + shared ctrl-wheel/pinch gesture triggers stepping terminal font and web zoom; tile-maximize verb relabeled Expand/Restore (ids stable)
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-23T20:00:08Z

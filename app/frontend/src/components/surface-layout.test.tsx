@@ -161,7 +161,7 @@ describe("SurfaceLayout shape rendering", () => {
     expect(screen.queryByTestId("surface-divider-0")).toBeNull();
     // single renders no ⛶/◧/⇄/✕ (zoom is arity>1-only; closing the last
     // tile is disallowed).
-    expect(screen.queryByRole("button", { name: "Zoom Terminal" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Expand Terminal" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Promote Terminal" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Swap Terminal" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Close Terminal" })).toBeNull();
@@ -320,7 +320,7 @@ describe("SurfaceLayout pane segment (260813-w1lf content verbs)", () => {
     expect(within(segment).getByRole("button", { name: "Split pane vertically" })).toBeTruthy();
     expect(within(segment).getByRole("button", { name: "Close pane" })).toBeTruthy();
     // The layout-verb family stays arity-gated — none render at arity 1.
-    expect(screen.queryByRole("button", { name: "Zoom Terminal" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Expand Terminal" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Promote Terminal" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Swap Terminal" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Close Terminal" })).toBeNull();
@@ -337,7 +337,7 @@ describe("SurfaceLayout pane segment (260813-w1lf content verbs)", () => {
 
   it("stays visible while the tty tile is zoomed (◧/⇄ hide; ✕/⛶ stay)", () => {
     renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
-    fireEvent.click(screen.getByRole("button", { name: "Zoom Terminal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Expand Terminal" }));
     const ttyTile = screen.getByTestId("surface-tile-tty");
     expect(within(ttyTile).getByTestId("pane-segment")).toBeTruthy();
     expect(within(ttyTile).getByRole("button", { name: "Split pane horizontally" })).toBeTruthy();
@@ -384,7 +384,7 @@ describe("SurfaceLayout pane segment (260813-w1lf content verbs)", () => {
 describe("SurfaceLayout zoom", () => {
   it("zoom hides the other tiles at display level WITHOUT unmounting", () => {
     renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
-    fireEvent.click(screen.getByRole("button", { name: "Zoom Code" }));
+    fireEvent.click(screen.getByRole("button", { name: "Expand Code" }));
     const ttyTile = screen.getByTestId("surface-tile-tty");
     expect(ttyTile.classList.contains("hidden")).toBe(true);
     // Still mounted — the terminal's state survives the zoom.
@@ -392,24 +392,24 @@ describe("SurfaceLayout zoom", () => {
     // Dividers do not render while zoomed.
     expect(screen.queryByTestId("surface-divider-0")).toBeNull();
     // Un-zoom restores the tile.
-    fireEvent.click(screen.getByRole("button", { name: "Unzoom Code" }));
+    fireEvent.click(screen.getByRole("button", { name: "Restore Code" }));
     expect(screen.getByTestId("surface-tile-tty").classList.contains("hidden")).toBe(false);
     expect(screen.getByTestId("surface-divider-0")).toBeTruthy();
   });
 
   it("zoomed tile shows an accent-green zoom glyph and hides its promote/swap verbs (260812-wfic R5)", () => {
     renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
-    fireEvent.click(screen.getByRole("button", { name: "Zoom Code" }));
-    const unzoom = screen.getByRole("button", { name: "Unzoom Code" });
+    fireEvent.click(screen.getByRole("button", { name: "Expand Code" }));
+    const unzoom = screen.getByRole("button", { name: "Restore Code" });
     expect(unzoom.querySelector('[data-icon="zoom"]')).toBeTruthy();
     expect(unzoom.className).toContain("text-accent-green");
     // Promote/swap are no-ops on a zoomed render — hidden; ✕ stays.
     expect(screen.queryByRole("button", { name: "Promote Code" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Swap Code" })).toBeNull();
     expect(screen.getByRole("button", { name: "Close Code" })).toBeTruthy();
-    // Unzoom restores the default glyph color and the hidden verbs.
+    // Restore returns the default glyph color and the hidden verbs.
     fireEvent.click(unzoom);
-    const zoom = screen.getByRole("button", { name: "Zoom Code" });
+    const zoom = screen.getByRole("button", { name: "Expand Code" });
     expect(zoom.className).not.toContain("text-accent-green");
     expect(screen.getByRole("button", { name: "Promote Code" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Swap Code" })).toBeTruthy();
@@ -956,7 +956,7 @@ describe("SurfaceLayout intersection zone (260814-011r R3)", () => {
 
   it("never renders while zoomed or on mobile", () => {
     renderLayout({ layout: { shape: "main-left", order: ["tty", "code", "web"] } });
-    fireEvent.click(screen.getByRole("button", { name: "Zoom Terminal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Expand Terminal" }));
     expect(screen.queryByTestId("surface-divider-intersection")).toBeNull();
     cleanup();
     renderLayout({

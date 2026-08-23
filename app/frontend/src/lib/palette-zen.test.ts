@@ -4,7 +4,7 @@ import { buildZenActions } from "./palette-zen";
 /**
  * `buildZenActions` (260820-o8cr R7) — the palette's `View: Enter/Exit Zen
  * Mode` entries. Exactly one form renders, keyed on live zen state (the
- * `Layout: Zoom`/`Unzoom` one-form precedent); the caller gates the offer on
+ * `Layout: Expand`/`Restore` one-form precedent); the caller gates the offer on
  * `windowParam && !isMobile`, so the builder itself is arity-agnostic.
  * Pure-builder tests in the `palette-view.test.ts` pattern.
  */

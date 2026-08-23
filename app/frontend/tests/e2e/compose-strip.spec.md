@@ -223,7 +223,7 @@ Zooming the tile carries the strip with it (the dock rides the tile).
 4. Assert `compose-strip` is visible INSIDE `surface-tile-tty` and absent from
    the shell `<footer>`; assert `compose-strip-inner` has no inline
    `margin-left`/`width` style.
-5. Click the tty tile's `Zoom Terminal` verb; assert the strip is still inside
+5. Click the tty tile's `Expand Terminal` verb; assert the strip is still inside
    the tile and still absent from the footer.
 
 ### `the board route docks the strip at the shell footer, full width (260813-j3jb)`

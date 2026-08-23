@@ -6,10 +6,10 @@
  * (`buildLayoutActions`).
  *
  * Exactly one form renders, keyed on the live zen state (the `Layout:
- * Zoom`/`Unzoom` one-form precedent): the palette shows the destination,
+ * Expand`/`Restore` one-form precedent): the palette shows the destination,
  * never the current state. The entry is offered at ANY arity on the desktop
  * terminal route (the caller gates on `windowParam && !isMobile`) — unlike
- * `Layout: Zoom`, which stays an arity>1 arrangement verb.
+ * `Layout: Expand`, which stays an arity>1 arrangement verb.
  *
  * The entry ids are NOT the `zen-toggle` actionId, so the ⇧⌘⏎ hint attaches
  * EXPLICITLY through the `shortcut` option (the `toggleShortcut` precedent —

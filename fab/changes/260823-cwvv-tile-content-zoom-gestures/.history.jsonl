@@ -1,0 +1,17 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-23T15:41:24Z"}
+{"args":"Content zoom on the terminal tile and the web tile, with shared gesture triggers (Ctrl/Cmd+wheel, touchpad pinch); web-tile scale-wrapper zoom with browser-chrome control + palette actions; per-origin localStorage persistence for web zoom; naming collision with tile-maximize Zoom to be resolved","cmd":"fab-new","event":"command","ts":"2026-08-23T15:41:24Z"}
+{"delta":"+2.8","event":"confidence","score":2.8,"trigger":"calc-score","ts":"2026-08-23T15:43:36Z"}
+{"cmd":"fab-proceed:create-intake","event":"command","ts":"2026-08-23T15:43:49Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-23T15:45:03Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-23T15:47:15Z"}
+{"cmd":"fab-clarify","event":"command","ts":"2026-08-23T17:19:46Z"}
+{"delta":"+2.2","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-08-23T18:49:57Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-23T18:50:11Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-23T19:20:13Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-23T19:30:27Z"}
+{"event":"review","result":"passed","ts":"2026-08-23T19:30:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-23T19:36:56Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-08-23T19:37:41Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-08-23T19:39:55Z"}
+{"cmd":"git-pr-review","event":"command","ts":"2026-08-23T19:41:10Z"}
+{"event":"review","result":"passed","ts":"2026-08-23T20:00:08Z"}

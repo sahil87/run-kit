@@ -270,7 +270,7 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     await expect(closePane).toBeVisible();
     // The boxed ⊠ glyph — the misclick-trap distinction from the tile-close ✕.
     await expect(closePane.locator('[data-icon="close-pane-boxed"]')).toBeVisible();
-    await expect(tile(page, "tty").getByRole("button", { name: "Zoom Terminal" })).toHaveCount(0);
+    await expect(tile(page, "tty").getByRole("button", { name: "Expand Terminal" })).toHaveCount(0);
 
     // The terminal-mode bar carries NO in-bar split chip (menuOnly, 260813-w1lf);
     // the chevron menu keeps the Split horizontal / Split vertical / Close pane
@@ -296,7 +296,7 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
 
     // Zoomed: the pane segment remains visible (pane ops stay valid on a
     // zoomed tile) while the ◧/⇄ layout verbs hide (✕/⛶ stay, as today).
-    await page.getByRole("button", { name: "Zoom Terminal", exact: true }).click();
+    await page.getByRole("button", { name: "Expand Terminal", exact: true }).click();
     await expect(tile(page, "web")).toBeHidden({ timeout: 10_000 });
     await expect(segment).toBeVisible();
     await expect(
@@ -505,7 +505,7 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     // Zoom still works through the tile's ⛶ verb: slot A (tty) goes
     // full-center — the web tile hides (display-level, still mounted) and the
     // divider leaves.
-    await page.getByRole("button", { name: "Zoom Terminal", exact: true }).click();
+    await page.getByRole("button", { name: "Expand Terminal", exact: true }).click();
     await expect(tile(page, "web")).toBeHidden({ timeout: 10_000 });
     await expect(tile(page, "web")).toHaveCount(1);
     await expect(divider(page, 0)).toHaveCount(0);
@@ -513,9 +513,9 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     // Zoom is transient (R6): the URL is untouched.
     await expectLayoutParam(page, "split-h:tty,web");
 
-    // Unzoom via the same verb (now labeled Unzoom) — both tiles and the
+    // Restore via the same verb (now labeled Restore) — both tiles and the
     // divider return.
-    await page.getByRole("button", { name: "Unzoom Terminal", exact: true }).click();
+    await page.getByRole("button", { name: "Restore Terminal", exact: true }).click();
     await expect(tile(page, "web")).toBeVisible({ timeout: 10_000 });
     await expect(divider(page, 0)).toBeVisible();
   });

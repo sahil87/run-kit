@@ -43,6 +43,7 @@ import { WEB_FIND_OPEN_EVENT } from "@/lib/find-in-page";
 import { TERMINAL_FIND_OPEN_EVENT } from "@/lib/terminal-find";
 import { EXPORT_EVENT, type ExportAction } from "@/lib/terminal-export";
 import { WEB_ADDRESS_FOCUS_EVENT, WEB_OPEN_EXTERNAL_EVENT } from "@/lib/web-url";
+import { WEB_ZOOM_EVENT } from "@/lib/web-zoom";
 import { isMacroActionId, type MacroAction } from "@/lib/macros";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { useKeybindingDispatch } from "@/hooks/use-keybinding-dispatch";
@@ -942,8 +943,8 @@ function AppShell() {
   );
 
   // ⏶ Zoom palette seam (T012/R11): the zoom itself is SurfaceLayout-internal
-  // transient state (R6 — no URL/localStorage); the palette's `Layout: Zoom`/
-  // `Layout: Unzoom` entries need to OBSERVE it (label gating) and TRIGGER it
+  // transient state (R6 — no URL/localStorage); the palette's `Layout: Expand`/
+  // `Layout: Restore` entries need to OBSERVE it (label gating) and TRIGGER it
   // (the focused-slot toggle — 260819-qwr7 R7). The component registers its
   // toggle into this ref and reports flips through `onZoomChange`, so the
   // palette list rebuilds on every zoom change. Not lifted: keying
@@ -974,7 +975,7 @@ function AppShell() {
   // `layoutZoomToggleRef` seam only when not already zoomed, recording whether
   // zen initiated it; EXIT unzooms ONLY a zen-initiated zoom still in effect —
   // a pre-existing user zoom survives, and a manual unzoom while in zen is not
-  // toggled back into a zoom. Plain zoom verbs (⛶, `Layout: Zoom`/`Unzoom`)
+  // toggled back into a zoom. Plain zoom verbs (⛶, `Layout: Expand`/`Restore`)
   // drive the seam directly and never touch zen state.
   const toggleZen = useCallback(() => {
     const decision = resolveZenToggle({ zenActive, zenZoomed, layoutZoomed }, renderLayout.order.length);
@@ -3144,7 +3145,7 @@ function AppShell() {
           })),
       // Layout entries (260812-ab5v R11, T012) — Constitution V palette parity
       // for the surface toggles, tile verbs, and ▦ chip: `Tile: Show/Hide
-      // <Surface>` (the top-bar toggle group's actions), `Layout: Zoom`/`Unzoom` (the
+      // <Surface>` (the top-bar toggle group's actions), `Layout: Expand`/`Restore` (the
       // transient slot-A zoom), `Layout: Promote/Swap <Surface>` (the tile
       // verbs), per-shape jumps for the current arity, and `Layout: Cycle
       // Shape` (the `layout-cycle` chord's body — its id IS the registry
@@ -3181,7 +3182,7 @@ function AppShell() {
       // `View: Enter/Exit Zen Mode` (260820-o8cr R7) — the `zen-toggle`
       // chord's palette parity (Constitution V), findable by "zen". Exactly
       // one form renders, keyed on live zen state; any arity on the desktop
-      // terminal route (unlike `Layout: Zoom`, which stays arity>1-gated).
+      // terminal route (unlike `Layout: Expand`, which stays arity>1-gated).
       // The id is NOT the `zen-toggle` actionId, so the ⇧⌘⏎ hint attaches
       // explicitly (the `toggleShortcut` precedent); the parity invariant's
       // equivalence map documents the pair. The body is the same `toggleZen`
@@ -3241,6 +3242,24 @@ function AppShell() {
                     label: "Web: Find in page",
                     onSelect: () => document.dispatchEvent(new CustomEvent(WEB_FIND_OPEN_EVENT)),
                   },
+                  // `Web: Zoom in/out/reset` (260823-cwvv R5) — palette parity
+                  // (Constitution V) for the URL-bar zoom control; same
+                  // content gate as web-find (an onboarding tile has nothing
+                  // to zoom) and the same one-CustomEvent seam shape — the
+                  // mounted web tile answers `web-zoom` (detail.direction).
+                  // No chord: Cmd/Ctrl+Plus/Minus/0 stay shell-owned (intake
+                  // exclusion; gestures cover the muscle-memory path).
+                  ...(["in", "out", "reset"] as const).map((direction) => ({
+                    id: `web-zoom-${direction}`,
+                    label:
+                      direction === "in"
+                        ? "Web: Zoom in"
+                        : direction === "out"
+                          ? "Web: Zoom out"
+                          : "Web: Reset zoom",
+                    onSelect: () =>
+                      document.dispatchEvent(new CustomEvent(WEB_ZOOM_EVENT, { detail: { direction } })),
+                  })),
                 ]
               : []),
             // `Web: Focus address bar` + `Web: Open in browser` (260819-v6y4
@@ -4418,7 +4437,7 @@ function AppShell() {
               // ⏶ Zoom palette seam (T012/R11): the component owns the
               // transient zoom state and registers its focused-slot toggle
               // here (260819-qwr7 R7); flips report back so the
-              // `Layout: Zoom`/`Unzoom` palette entries stay fresh.
+              // `Layout: Expand`/`Restore` palette entries stay fresh.
               zoomToggleRef={layoutZoomToggleRef}
               onZoomChange={setLayoutZoomed}
               // Focused tile (260812-wfic R2/R10): the component owns the

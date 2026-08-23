@@ -288,7 +288,7 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // carry Shift. Enter is free in every claim set. ignoreInputs: the chord
   // must fire from the compose textarea. No mapLabel — Enter has no keycap
   // cell in the overlay grids (the Backquote precedent).
-  { actionId: "zen-toggle", code: "Enter", tier: "shifted", scope: "terminal", kind: "builtin", label: "Toggle zen mode", description: "hide top bar + sidebar; zoom the focused tile", ignoreInputs: true },
+  { actionId: "zen-toggle", code: "Enter", tier: "shifted", scope: "terminal", kind: "builtin", label: "Toggle zen mode", description: "hide top bar + sidebar; expand the focused tile", ignoreInputs: true },
   // ⌃`/⇧Ctrl+` tty↔code focus hop — VS Code's ⌃` gesture. The FIRST shipped
   // ctrl-tier default (mac only: plain Ctrl belongs to the pane on Win/Linux,
   // so the base tier there is shifted and `macTier` does the demotion; the

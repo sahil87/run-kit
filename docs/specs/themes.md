@@ -103,15 +103,39 @@ OKLab conversions. The downstream tint pipeline (saturate ×1.5 → blend into
 background → WCAG border guardrail at 3.0) operates on the adapted family hex
 unchanged.
 
+### Shade axis (light · normal · dark)
+
+Every family renders in **three shades**: `normal` (the mean-L rendering above —
+every pre-existing stored color maps here untouched), `dark` (same hue and
+chroma at **mean-L − 0.14**, gamut-reduced), and `light` (the exact mirror —
+same hue and chroma at **mean-L + 0.14**, gamut-reduced). Non-normal shades are
+stored **verbatim** as `{family}-dark` / `{family}-light` (they have no legacy
+numeric form — the legacy vocabulary predates the shade axis — so the
+`familyToLegacy` write seam passes them through unchanged), and the backend
+validators accept them via the enumerated `colorFamilyNames` closed set. Three
+rungs turn a family into a small **ramp** (family = project identity, shade =
+sub-grouping — e.g. main repo → normal, worktrees → light, archive → dark). The
+light rung reads **faded/desaturated** — raising L at fixed chroma sheds chroma
+at the sRGB gamut boundary — an accepted trade that fits its recessive role,
+not a defect engineered away. Slate ships the light rung like every family
+(three near-neutral grays = the archive ramp). No new guard mechanics were
+needed: the existing **bidirectional** border guardrail
+(`adjustBorderForContrast`, threshold 3.0 — light themes push L *down*) already
+covers light-on-light, so a light shade's guarded border clears 3.0 on both
+light and dark themes (unit-test proven).
+
 ### Legacy values (zero migration)
 
 Stored color values keep their existing vocabulary. `colorValueToHex` resolves
 each legacy descriptor to its family 1:1 per the table above (e.g. `"1+3"` →
-orange). Stored values remain the **legacy vocabulary** end-to-end: the swatch
-popover maps each pick back to its legacy descriptor on write (`familyToLegacy`,
-e.g. orange → `"1+3"`) because the backend validators accept only numeric/blend
-forms. Family names (`"orange"`) are frontend-side read aliases. No storage,
-API, or backend change for color.
+orange). Normal-shade picks remain the **legacy vocabulary** end-to-end: the
+swatch popover maps each normal pick back to its legacy descriptor on write
+(`familyToLegacy`, e.g. orange → `"1+3"`); the backend validators accept the
+numeric/blend forms plus the family-name vocabulary (names and their
+`-dark`/`-light` shade variants, via the enumerated closed set — see the shade
+axis above), so non-normal shade picks store verbatim. Family names
+(`"orange"`) are frontend-side read aliases. No storage, API, or migration
+change for pre-existing colors.
 
 ### Axis split
 
@@ -171,7 +195,8 @@ green-bracket `[ axis ]` header whose right-aligned **− clear cell** (a neutra
 when the axis is unset) clears only that axis. The panel header row (preview + ✕)
 carries its own **− clear-all** under the same scope grammar — its row names the
 whole label, so it clears every axis the caller offers, and rings when the label
-is fully unset. The color band is a 2-shade-row ×
+is fully unset. The color band is a 3-shade-row (light/normal/dark — the rows
+ARE the lightness axis, light on top) ×
 10-family column-flow **horizontal scroll strip** — color only ever scrolls
 horizontally; vertical would break the shade pairing. The marker band is a
 single unscrolled row of the 8 states (semantic states never hide behind a

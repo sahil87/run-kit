@@ -405,38 +405,54 @@ const FAMILY_BY_LEGACY: ReadonlyMap<string, HueFamily> = new Map(
   HUE_FAMILIES.map((f) => [f.legacy, f]),
 );
 
-// ── Shade axis (normal + dark) ───────────────────────────────────────────────
-// Every family renders in TWO shades: `normal` (the existing mean-L rendering —
-// every pre-existing stored color maps here untouched) and `dark` (the same hue
-// and chroma at mean-L − 0.14, gamut-reduced). Dark shades are stored as
-// family-name values with a `-dark` suffix ("blue-dark"); they have NO legacy
-// numeric form (the legacy vocabulary predates the shade axis), so the write
-// seam passes them through verbatim while normal picks keep the legacy mapping.
+// ── Shade axis (light + normal + dark) ───────────────────────────────────────
+// Every family renders in THREE shades: `normal` (the existing mean-L rendering —
+// every pre-existing stored color maps here untouched), `dark` (the same hue
+// and chroma at mean-L − 0.14, gamut-reduced), and `light` (the exact mirror —
+// same hue and chroma at mean-L + 0.14, gamut-reduced). Non-normal shades are
+// stored as family-name values with a `-dark`/`-light` suffix ("blue-dark",
+// "blue-light"); they have NO legacy numeric form (the legacy vocabulary
+// predates the shade axis), so the write seam passes them through verbatim
+// while normal picks keep the legacy mapping. The light rung reads faded —
+// raising L at fixed chroma sheds chroma at the sRGB gamut boundary — an
+// accepted trade that fits its recessive role in the family ramp (family =
+// project identity, shade = sub-grouping).
 
-/** The two color shades of every hue family. */
-export type Shade = "normal" | "dark";
+/** The three color shades of every hue family. */
+export type Shade = "light" | "normal" | "dark";
 
 /** Stored-value suffix marking a family's dark shade ("blue-dark"). */
 const SHADE_DARK_SUFFIX = "-dark";
+/** Stored-value suffix marking a family's light shade ("blue-light"). */
+const SHADE_LIGHT_SUFFIX = "-light";
 
 /** OKLab lightness delta for the dark shade: L_dark = themeColorStats(palette).L − 0.14
  *  (same hue, same chroma; gamut-reduced via oklchToHexInGamut like the normal
  *  shade, so hue identity and theme adaptation are preserved). */
 const DARK_SHADE_L_DELTA = 0.14;
+/** OKLab lightness delta for the light shade: L_light = themeColorStats(palette).L + 0.14 —
+ *  the exact mirror of the dark rung (same hue, same chroma, gamut-reduced
+ *  identically). */
+const LIGHT_SHADE_L_DELTA = 0.14;
 
 /** Compose a family + shade into its canonical stored/display value. */
 function shadedName(family: HueFamily, shade: Shade): string {
-  return shade === "dark" ? family.name + SHADE_DARK_SUFFIX : family.name;
+  if (shade === "dark") return family.name + SHADE_DARK_SUFFIX;
+  if (shade === "light") return family.name + SHADE_LIGHT_SUFFIX;
+  return family.name;
 }
 
-/** Display-ordered list of every picker color value — the 20 family/shade
- *  values in PAIRED order (red, red-dark, orange, orange-dark, … slate,
- *  slate-dark) so the 4-wide picker grid renders each family's shades side by
- *  side. The picker PRESENTS these values; NORMAL-shade writes are mapped back
- *  to the legacy numeric/blend descriptor at the write seam (familyToLegacy)
- *  while dark values are stored verbatim; all forms resolve on read (see
- *  resolveFamily / colorValueToHex). */
+/** Display-ordered list of every picker color value — the 30 family/shade
+ *  values in family-TRIPLET order (red-light, red, red-dark, orange-light, …)
+ *  so the banded picker's column-flow strip renders one family per column with
+ *  its three shades as the light/normal/dark rows — swatch-popover's row
+ *  slices depend on this order (index mod 3 = 0/1/2 → light/normal/dark). The picker PRESENTS these
+ *  values; NORMAL-shade writes are mapped back to the legacy numeric/blend
+ *  descriptor at the write seam (familyToLegacy) while light/dark values are
+ *  stored verbatim; all forms resolve on read (see resolveFamily /
+ *  colorValueToHex). */
 export const PICKER_COLOR_VALUES: readonly string[] = HUE_FAMILIES.flatMap((f) => [
+  f.name + SHADE_LIGHT_SUFFIX,
   f.name,
   f.name + SHADE_DARK_SUFFIX,
 ]);
@@ -549,8 +565,8 @@ export function markerStripeStyle(state: string, color: string): CSSProperties |
 }
 
 /** A parsed color value: an owned family (canonical name, optionally
- *  `-dark`-suffixed) OR a legacy numeric/blend descriptor that maps onto one
- *  (always the normal shade — legacy has no shade slot). `null` when
+ *  `-dark`-/`-light`-suffixed) OR a legacy numeric/blend descriptor that maps
+ *  onto one (always the normal shade — legacy has no shade slot). `null` when
  *  unrecognized. */
 export type PickerColor = { family: HueFamily; shade: Shade };
 
@@ -570,9 +586,9 @@ function normalizeLegacy(value: string): string | null {
 }
 
 /** Resolve a stored color value to its owned family + shade. Accepts a family
- *  name ("orange"), a `-dark`-suffixed family name ("orange-dark"), or a legacy
- *  numeric/blend descriptor ("1+3" — always the normal shade). Returns null
- *  when the value matches none. */
+ *  name ("orange"), a `-dark`-/`-light`-suffixed family name ("orange-dark",
+ *  "orange-light"), or a legacy numeric/blend descriptor ("1+3" — always the
+ *  normal shade). Returns null when the value matches none. */
 function resolveShaded(value: string | null | undefined): PickerColor | null {
   if (value == null) return null;
   const trimmed = value.trim();
@@ -582,6 +598,10 @@ function resolveShaded(value: string | null | undefined): PickerColor | null {
     const base = FAMILY_BY_NAME.get(trimmed.slice(0, -SHADE_DARK_SUFFIX.length));
     if (base) return { family: base, shade: "dark" };
   }
+  if (trimmed.endsWith(SHADE_LIGHT_SUFFIX)) {
+    const base = FAMILY_BY_NAME.get(trimmed.slice(0, -SHADE_LIGHT_SUFFIX.length));
+    if (base) return { family: base, shade: "light" };
+  }
   const normalized = normalizeLegacy(trimmed);
   if (normalized == null) return null;
   const byLegacy = FAMILY_BY_LEGACY.get(normalized);
@@ -590,25 +610,26 @@ function resolveShaded(value: string | null | undefined): PickerColor | null {
 
 /** Resolve a stored color value to its owned family (hue identity — the shade
  *  is dropped; use parseColorValue when the shade matters). Accepts a family
- *  name ("orange"), a `-dark`-suffixed name ("orange-dark"), or a legacy
- *  numeric/blend descriptor ("1+3"), returning the same family for all.
- *  Returns null when the value matches none. */
+ *  name ("orange"), a `-dark`-/`-light`-suffixed name ("orange-dark",
+ *  "orange-light"), or a legacy numeric/blend descriptor ("1+3"), returning
+ *  the same family for all. Returns null when the value matches none. */
 export function resolveFamily(value: string | null | undefined): HueFamily | null {
   return resolveShaded(value)?.family ?? null;
 }
 
 /** Parse a stored color value into a {family, shade} descriptor, or null when
- *  it maps to no owned family. Accepts family names, `-dark`-suffixed family
- *  names, and legacy numeric/blend aliases (always normal shade). */
+ *  it maps to no owned family. Accepts family names, `-dark`-/`-light`-suffixed
+ *  family names, and legacy numeric/blend aliases (always normal shade). */
 export function parseColorValue(value: string | null | undefined): PickerColor | null {
   return resolveShaded(value);
 }
 
 /** Format a {family, shade} descriptor into its canonical DISPLAY value — the
- *  family name, `-dark`-suffixed for the dark shade. Note this is not always
- *  the storage form: NORMAL-shade writes are mapped to the legacy descriptor at
- *  the write seam (familyToLegacy) so pre-existing values stay in the legacy
- *  vocabulary; dark values ARE stored in this form (no legacy slot exists). */
+ *  family name, suffixed `-dark`/`-light` for the non-normal shades. Note this
+ *  is not always the storage form: NORMAL-shade writes are mapped to the
+ *  legacy descriptor at the write seam (familyToLegacy) so pre-existing values
+ *  stay in the legacy vocabulary; light/dark values ARE stored in this form
+ *  (no legacy slot exists). */
 export function formatColorValue(color: PickerColor): string {
   return shadedName(color.family, color.shade);
 }
@@ -617,12 +638,13 @@ export function formatColorValue(color: PickerColor): string {
  *  it was historically stored as ("1+3"). Every color write seam funnels the
  *  picked value through this map so NORMAL-shade picks keep writing the legacy
  *  vocabulary exactly as before the shade axis (zero migration — pre-existing
- *  values stay valid and byte-identical). DARK-shade picks ("orange-dark") have
- *  NO legacy form and pass through unchanged — they are stored as the
- *  `{family}-dark` value itself, which the backend validators now accept
- *  alongside the numeric forms (validate.ValidateColorValue /
- *  NormalizeColorValue). A value that is already legacy (or unrecognized) is
- *  returned unchanged, so the mapping is idempotent and safe on any input. */
+ *  values stay valid and byte-identical). DARK- and LIGHT-shade picks
+ *  ("orange-dark", "orange-light") have NO legacy form and pass through
+ *  unchanged — they are stored as the `{family}-{shade}` value itself, which
+ *  the backend validators now accept alongside the numeric forms
+ *  (validate.ValidateColorValue / NormalizeColorValue). A value that is
+ *  already legacy (or unrecognized) is returned unchanged, so the mapping is
+ *  idempotent and safe on any input. */
 export function familyToLegacy(value: string | null): string | null {
   if (value == null) return null;
   const family = FAMILY_BY_NAME.get(value.trim());
@@ -631,19 +653,20 @@ export function familyToLegacy(value: string | null): string | null {
 
 /** Resolve a color value's theme-adapted source hex: the value's owned family
  *  rendered at the theme's mean L/C in the family's own hue, brought into the
- *  sRGB gamut by chroma reduction. The DARK shade renders at mean-L − 0.14 with
- *  the same hue and chroma (gamut-reduced identically), so hue identity and
- *  theme adaptation carry over with zero new palette data. `slate` uses a
- *  near-neutral chroma (min(C_theme × 0.2, 0.025)) in both shades — an
- *  intentional gray ramp. Accepts family names, `-dark`-suffixed names, and
- *  legacy aliases. Returns null when the value maps to no owned family. */
+ *  sRGB gamut by chroma reduction. The DARK shade renders at mean-L − 0.14 and
+ *  the LIGHT shade at mean-L + 0.14 with the same hue and chroma
+ *  (gamut-reduced identically), so hue identity and theme adaptation carry
+ *  over with zero new palette data. `slate` uses a near-neutral chroma
+ *  (min(C_theme × 0.2, 0.025)) in all three shades — an intentional gray ramp.
+ *  Accepts family names, `-dark`-/`-light`-suffixed names, and legacy aliases.
+ *  Returns null when the value maps to no owned family. */
 export function colorValueToHex(value: string, palette: ThemePalette): string | null {
   const parsed = resolveShaded(value);
   if (!parsed) return null;
   const { family, shade } = parsed;
   const { L, C } = themeColorStats(palette);
   const chroma = family.neutral ? Math.min(C * 0.2, 0.025) : C;
-  const lightness = shade === "dark" ? L - DARK_SHADE_L_DELTA : L;
+  const lightness = shade === "dark" ? L - DARK_SHADE_L_DELTA : shade === "light" ? L + LIGHT_SHADE_L_DELTA : L;
   return oklchToHexInGamut(lightness, chroma, family.hue);
 }
 
@@ -667,17 +690,18 @@ const UNCOLORED_SELECTED_RATIO = 0.5;
  * Pre-compute blended hex values for all owned family/shade values, keyed under
  * EVERY stored vocabulary form: each NORMAL shade under both the family name
  * ("orange") AND its legacy numeric/blend descriptor ("1+3") pointing at the
- * same tint entry, each DARK shade under its `{family}-dark` value (its only
- * stored form — no legacy alias exists), plus the uncolored-selected sentinel
- * "8". All keys are populated because consumers
+ * same tint entry, each DARK/LIGHT shade under its `{family}-dark` /
+ * `{family}-light` value (its only stored form — no legacy alias exists), plus
+ * the uncolored-selected sentinel "8". All keys are populated because consumers
  * (window-row/session-row/server-panel) look up the RAW stored color value, and
  * the backend still emits the legacy vocabulary for pre-existing colors — a
  * family-name-only map would miss every pre-existing colored row. Each value's
- * theme-adapted source hex (colorValueToHex — the dark shade at mean-L − 0.14)
- * is saturated (×1.5) before blending so row tints read as their intended color
- * rather than grayish, while blend ratios stay muted. Gray (ANSI 8) is not
- * saturated (near-zero saturation by definition) and uses a 0.5 selected ratio
- * so uncolored selected rows beat the bg-card/50 hover.
+ * theme-adapted source hex (colorValueToHex — the dark shade at mean-L − 0.14,
+ * the light shade at mean-L + 0.14) is saturated (×1.5) before blending so row
+ * tints read as their intended color rather than grayish, while blend ratios
+ * stay muted. Gray (ANSI 8) is not saturated (near-zero saturation by
+ * definition) and uses a 0.5 selected ratio so uncolored selected rows beat
+ * the bg-card/50 hover.
  */
 export function computeRowTints(palette: ThemePalette): Map<string, RowTint> {
   const bg = palette.background;
@@ -700,11 +724,13 @@ export function computeRowTints(palette: ThemePalette): Map<string, RowTint> {
       tints.set(family.name, tint);
       tints.set(family.legacy, tint);
     }
-    const darkName = shadedName(family, "dark");
-    const darkSrc = colorValueToHex(darkName, palette);
-    if (darkSrc != null) {
-      // Dark shades have exactly one stored form — the `{family}-dark` value.
-      tints.set(darkName, tintFor(darkSrc));
+    // Non-normal shades have exactly one stored form — the suffixed value.
+    for (const shade of ["light", "dark"] as const) {
+      const shadeName = shadedName(family, shade);
+      const shadeSrc = colorValueToHex(shadeName, palette);
+      if (shadeSrc != null) {
+        tints.set(shadeName, tintFor(shadeSrc));
+      }
     }
   }
 
@@ -723,14 +749,16 @@ export function computeRowTints(palette: ThemePalette): Map<string, RowTint> {
  * Pre-compute the contrast-adjusted full-saturation border color for every owned
  * family/shade value (plus the uncolored-selected sentinel), keyed under every
  * stored vocabulary form (normal: family name AND legacy descriptor pointing at
- * the same border; dark: the `{family}-dark` value) — mirroring computeRowTints,
- * so consumers keyed by the raw stored value hit regardless of which vocabulary
- * is stored. Each border is the value's theme-adapted source hex passed through
- * the WCAG contrast guardrail (nudge OKLab L until it clears
- * BORDER_MIN_CONTRAST vs the theme background). The window row no longer uses
- * these for a selection border (removed in the axis split), but SERVER tiles
- * still use them for their stripe/edge, and the marker gutter uses them as the
- * guarded family color. Computed once per theme alongside computeRowTints.
+ * the same border; light/dark: the `{family}-light` / `{family}-dark` value) —
+ * mirroring computeRowTints, so consumers keyed by the raw stored value hit
+ * regardless of which vocabulary is stored. Each border is the value's
+ * theme-adapted source hex passed through the WCAG contrast guardrail (nudge
+ * OKLab L until it clears BORDER_MIN_CONTRAST vs the theme background —
+ * bidirectional: light shades on light themes are pushed darker). The window
+ * row no longer uses these for a selection border (removed in the axis split),
+ * but SERVER tiles still use them for their stripe/edge, and the marker gutter
+ * uses them as the guarded family color. Computed once per theme alongside
+ * computeRowTints.
  */
 export function computeRowBorders(palette: ThemePalette, category: "dark" | "light"): Map<string, string> {
   const bg = palette.background;
@@ -744,10 +772,12 @@ export function computeRowBorders(palette: ThemePalette, category: "dark" | "lig
       borders.set(family.name, border);
       borders.set(family.legacy, border);
     }
-    const darkName = shadedName(family, "dark");
-    const darkSrc = colorValueToHex(darkName, palette);
-    if (darkSrc != null) {
-      borders.set(darkName, adjustBorderForContrast(darkSrc, bg, isDark, BORDER_MIN_CONTRAST));
+    for (const shade of ["light", "dark"] as const) {
+      const shadeName = shadedName(family, shade);
+      const shadeSrc = colorValueToHex(shadeName, palette);
+      if (shadeSrc != null) {
+        borders.set(shadeName, adjustBorderForContrast(shadeSrc, bg, isDark, BORDER_MIN_CONTRAST));
+      }
     }
   }
 

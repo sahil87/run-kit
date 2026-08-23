@@ -1,0 +1,1696 @@
+<!doctype html>
+<!-- Three-Axis Picker — Layout Studies (design mock, 2026-08-19).
+
+     Follow-up to the flair-vocabulary expansion (%550 in flight: pacman,
+     roadrunner, invaders, cube block, +11). The combined Label picker gains
+     a third real axis and the current skeleton stops scaling. Four layout
+     approaches below, all interactive — click swatches/cells to drive each
+     mock's live state. Swatches use the faithful themes.ts OKLCH port
+     (default-dark palette); markers/textures/flairs use the shipped CSS.
+
+     Self-contained — open directly in a browser, no build step. -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Three-Axis Picker — Layout Studies</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --panel: #151823;
+    --inset: #0a0c10;
+    --fg: #e8eaf0;
+    --fg2: #9aa1b2;
+    --fg3: #6b7280;
+    --border: #363c49;
+    --green: #22c55e;
+    --amber: #e8a84f;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { background: #0b0d12; }
+  body {
+    background: #0b0d12;
+    color: var(--fg);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    padding: 48px 20px 80px;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+
+  .eyebrow { color: var(--green); font-size: 10px; letter-spacing: 0.22em; }
+  h1 { font-size: 22px; font-weight: 600; margin: 6px 0 4px; letter-spacing: -0.01em; text-wrap: balance; }
+  .sub { color: var(--fg2); max-width: 66ch; }
+
+  section { margin-top: 56px; }
+  .shead {
+    display: flex; align-items: baseline; gap: 10px;
+    font-size: 11px; letter-spacing: 0.14em; color: var(--fg2);
+    margin-bottom: 6px;
+  }
+  .shead .br { color: var(--green); }
+  .shead b { color: var(--fg); font-weight: 600; }
+  .shead .rec { color: var(--green); font-size: 10px; letter-spacing: 0.18em; border: 1px solid color-mix(in srgb, var(--green) 45%, transparent); padding: 0 6px; }
+  .shead .park { color: var(--fg3); font-size: 10px; letter-spacing: 0.18em; border: 1px solid #2a303d; padding: 0 6px; }
+  /* thin scroll chrome + edge affordances for the contained bands */
+  .scrollv { overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+  .scrollv::-webkit-scrollbar { width: 6px; }
+  .scrollv::-webkit-scrollbar-thumb { background: var(--border); }
+  .scrollh { overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--border) transparent; padding-bottom: 5px; }
+  .scrollh::-webkit-scrollbar { height: 6px; }
+  .scrollh::-webkit-scrollbar-thumb { background: var(--border); }
+  .fadewrap { position: relative; }
+  .fadewrap::after { content: ""; position: absolute; left: 0; right: 7px; bottom: 0; height: 12px;
+    background: linear-gradient(to bottom, transparent, var(--bg)); pointer-events: none; }
+  .fadewrap-h { position: relative; }
+  .fadewrap-h::after { content: ""; position: absolute; top: 0; bottom: 6px; right: 0; width: 14px;
+    background: linear-gradient(to right, transparent, var(--bg)); pointer-events: none; }
+  /* marker vocabulary spec chips (iteration 3) */
+  .specs { display: flex; gap: 16px; flex-wrap: wrap; }
+  .spec { text-align: left; }
+  .spec .chip { width: 56px; height: 64px; background: var(--inset); border: 1px solid #232836; position: relative; overflow: hidden; }
+  .spec .chip .st { position: absolute; left: 9px; top: 0; bottom: 0; width: 8px; }
+  .spec .nm { font-size: 10.5px; margin-top: 5px; color: var(--fg); }
+  .spec .nm .new { color: var(--green); font-size: 9px; }
+  .spec .rh { font-size: 9.5px; color: var(--fg3); max-width: 11ch; line-height: 1.4; }
+  .note { color: var(--fg2); max-width: 70ch; margin: 8px 0 20px; }
+  .note em { color: var(--fg); font-style: normal; }
+  .note code, p code, li code, td code {
+    background: var(--inset); border: 1px solid #232836; padding: 0 4px;
+    font-size: 12px; color: var(--amber);
+  }
+
+  .board {
+    display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start;
+    background: var(--panel); border: 1px solid #232836; padding: 24px;
+    overflow-x: auto;
+  }
+  .cell-label { font-size: 10px; letter-spacing: 0.14em; color: var(--fg3); margin-bottom: 10px; }
+  .caveat { font-size: 11px; color: var(--fg2); max-width: 34ch; margin-top: 10px; line-height: 1.55; }
+  .caveat.ok { color: #7ed09a; }
+  .caveat.bad { color: #d98a8a; }
+  .hint { color: var(--fg3); font-size: 10.5px; letter-spacing: 0.08em; margin-top: 10px; }
+
+  /* ── picker chrome (mirrors swatch-popover.tsx) ─────────────────────── */
+  .picker {
+    display: inline-block; background: var(--bg); border: 1px solid var(--border);
+    padding: 6px; box-shadow: 3px 3px 0 rgba(0,0,0,.35); width: max-content;
+  }
+  .prow { display: flex; }
+  .mcol { display: flex; flex-direction: column; gap: 3px; }
+  .hair { width: 1px; background: var(--border); margin: 0 6px; align-self: stretch; flex: none; }
+  .hhair { height: 1px; background: var(--border); margin: 4px 0; }
+  .cell {
+    width: 18px; height: 18px; background: var(--inset); flex: none;
+    position: relative; overflow: hidden; cursor: pointer; border: none; padding: 0;
+    font-family: inherit;
+  }
+  .cell.sel { outline: 1px solid var(--fg); outline-offset: 0; z-index: 2; }
+  .cell .stripe { position: absolute; top: 0; bottom: 0; left: 2px; right: auto; width: 100%; }
+  .cell .nul {
+    position: absolute; inset: 0; display: flex; align-items: center;
+    justify-content: center; color: var(--fg2); font-size: 10px;
+  }
+  .cell .ck { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--fg); font-weight: 700; font-size: 7px; }
+  .cell.ghost { cursor: default; }
+  .cell.ghost .nul { color: #3a4150; font-size: 9px; }
+  .cgrid { display: grid; grid-template-columns: repeat(4, 18px); gap: 3px; }
+  .clearbtn {
+    height: 18px; font-size: 10px; color: var(--fg2); background: none; border: none;
+    font-family: inherit; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  }
+  .clearbtn:hover, .xbtn:hover { color: var(--fg); }
+  .clearbtn.sel { outline: 1px solid var(--fg); }
+  .xbtn { width: 18px; height: 18px; font-size: 10px; color: var(--fg2); background: none; border: none; font-family: inherit; cursor: pointer; }
+
+  /* axis micro-label — the [ color ] band header */
+  .axis { font-size: 9px; letter-spacing: 0.18em; color: var(--fg3); margin: 6px 0 4px; user-select: none; }
+  .axis .br { color: color-mix(in srgb, var(--green) 65%, transparent); }
+  .axis.first { margin-top: 0; }
+  .vaxis {
+    writing-mode: vertical-rl; transform: rotate(180deg);
+    font-size: 9px; letter-spacing: 0.18em; color: var(--fg3);
+    display: flex; align-items: center; justify-content: center; user-select: none;
+  }
+
+  /* ── composite preview row (mirrors window-row resting look) ────────── */
+  .prev {
+    position: relative; height: 24px; overflow: hidden;
+    display: flex; align-items: center; padding: 0 8px 0 30px;
+    font-size: 12px; color: var(--fg); margin-bottom: 6px;
+  }
+  .prev .gutter { position: absolute; left: 0; top: 0; bottom: 0; width: 26px; z-index: 20; }
+  .prev .gutter .stripe { position: absolute; left: 0; top: 0; bottom: 0; width: 8px; }
+  .prev .name { position: relative; z-index: 10; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .prev .combo { position: relative; z-index: 10; margin-left: auto; font-size: 9px; letter-spacing: 0.08em; color: var(--fg2); padding-left: 12px; white-space: nowrap; }
+  .egg { position: absolute; inset: 0; z-index: 5; overflow: hidden; pointer-events: none; }
+
+  /* dashed → data rain (always-on, shipped) */
+  .egg-rain::before {
+    content: ""; position: absolute; inset: 0;
+    background-image:
+      linear-gradient(to right, color-mix(in srgb, var(--mkc) 22%, transparent) 0 7px, transparent 7px 36px),
+      linear-gradient(to right, color-mix(in srgb, var(--mkc) 16%, transparent) 0 5px, transparent 5px 28px);
+    background-size: 36px 1px, 28px 1px;
+    background-repeat: repeat-x, repeat-x;
+    background-position: 0 8px, 0 16px;
+    animation: rain-flow 2.8s linear infinite;
+  }
+  @keyframes rain-flow {
+    from { background-position: 0 8px, 0 16px; }
+    to { background-position: 72px 8px, 56px 16px; }
+  }
+  /* double → scanlines (resting: static) */
+  .egg-scan::before {
+    content: ""; position: absolute; inset: 0;
+    background-image: repeating-linear-gradient(to bottom,
+      color-mix(in srgb, var(--mkc) 24%, transparent) 0 1px, transparent 1px 3px);
+  }
+  /* scan FLAIR (iteration 4): scanlines + the crawl + refresh band, ALWAYS-ON —
+     as a flair the old selection-gating dissolves (flair motion is always-on
+     by definition) */
+  @keyframes scan-crawl { from { background-position-y: 0; } to { background-position-y: 3px; } }
+  @keyframes scan-band { 0%, 60% { background-position-y: -12px; } 100% { background-position-y: calc(100% + 12px); } }
+  .egg-scanfx::before {
+    content: ""; position: absolute; inset: 0;
+    background-image: repeating-linear-gradient(to bottom,
+      color-mix(in srgb, var(--mkc) 24%, transparent) 0 1px, transparent 1px 3px);
+    animation: scan-crawl 2.4s linear infinite;
+  }
+  .egg-scanfx::after {
+    content: ""; position: absolute; inset: 0;
+    background-image: linear-gradient(to bottom, transparent,
+      color-mix(in srgb, var(--mkc) 45%, transparent), transparent);
+    background-repeat: no-repeat; background-size: 100% 12px;
+    background-position-y: -12px; animation: scan-band 7s linear infinite;
+  }
+  /* thick → hazard wedge (static, left-fade) */
+  .egg-hazard::before {
+    content: ""; position: absolute; inset: 0;
+    background-image: linear-gradient(45deg,
+      color-mix(in srgb, var(--mkc) 13%, transparent) 25%, transparent 25% 50%,
+      color-mix(in srgb, var(--mkc) 13%, transparent) 50% 75%, transparent 75%);
+    background-size: 12px 12px;
+    -webkit-mask-image: linear-gradient(to right, #000, transparent 38%);
+    mask-image: linear-gradient(to right, #000, transparent 38%);
+  }
+  /* 18px preview-cell variant: hazard drops the mask (invisible under it at 18px) */
+  .cell .egg-hazard::before { -webkit-mask-image: none; mask-image: none; background-image: linear-gradient(45deg, color-mix(in srgb, var(--mkc) 18%, transparent) 25%, transparent 25% 50%, color-mix(in srgb, var(--mkc) 18%, transparent) 50% 75%, transparent 75%); }
+
+  /* ── real flair catalogue — verbatim from globals.css (post-#659, all 10) ── */
+/* ── Flair overlays (decoration-only channel) ────────────────────────────────
+   Always-on CSS-only overlays for rows carrying a flair value (`nyan` /
+   `naruto` / `onepiece` / `pacman` / `matrix` / `aquarium` / `roadrunner` /
+   `invaders` / `cube` / `warp`) — pure decoration: no wiring to
+   @rk_agent_state or
+   the status pyramid, and it animates in EVERY row state. Mounted on window
+   and session rows (NOT server group headers) as an absolutely-positioned
+   inner element (inset-0, overflow-hidden, pointer-events-none, z-5) — the
+   .rk-scanlines overlay discipline: clipping lives on the overlay, NEVER the
+   row root (whose top-full popovers must stay unclipped).
+
+   Sprites are ORIGINAL pixel art as inline SVG data URIs — no external
+   requests, no copyrighted assets. Constraints the rules below rely on:
+   - Traversal is background-position only, NEVER transform (the drag-ghost
+     rule — see .rk-scanlines-crawl) and never `left` (layout thrash). The
+     cube/warp treatments animate transforms on dedicated CHILD SPANS instead
+     of the row pseudos — the sanctioned exception, guarded by hiding the
+     whole overlay while its row is a drag source.
+   - Each sprite is a VERTICAL sheet of 22px frames (frame n at y = -22n).
+     The two background-position LONGHANDS animate independently without
+     clobbering: -x carries the linear traversal, -y steps frames (step-end).
+   - The pseudos are fixed 22px strips (static centering, no animated
+     layout), so px frame offsets hold at every row height (24px rows, 36px
+     coarse rows, 18px picker preview cells).
+   - Sprite layers are no-repeat, sliding off-left negative → off-right
+     calc(100% + Npx) so any row width traverses edge-to-edge; a trail layer
+     rides the SAME keyframes, its from/to constants balanced per layer
+     (start − image width + end equal) so the trail stays glued to the sprite.
+   - ::before ambience tiles drift the OPPOSITE way, displaced by exact tile
+     multiples per loop (seamless).
+   WebGL was rejected: browsers cap live contexts per page (~8–16) and every
+   flaired row would need one.
+
+   ORDER MATTERS (same discipline as .rk-dash-rain): these base rules PRECEDE
+   the prefers-reduced-motion block so its equal-specificity hidden overrides
+   win by source order — the flairs are motion-only and hide entirely there. */
+
+/* nyan: ::after layers the cat sheet (36×88, 4 frames) and a 140px rainbow
+   trail glued to its left edge, stepped together at ~6.7fps (the trail
+   jiggles ±1px); ::before is an 80px star tile (2-frame sheet) drifting the
+   opposite way, one tile per loop. ~9s traversal. */
+@keyframes rk-flair-nyan-x {
+  from { background-position-x: -36px, -176px; }
+  to { background-position-x: calc(100% + 40px), calc(100% + 4px); }
+}
+@keyframes rk-flair-nyan-y {
+  0% { background-position-y: 0px, 0px; }
+  25% { background-position-y: -22px, 1px; }
+  50% { background-position-y: -44px, 0px; }
+  75% { background-position-y: -66px, 1px; }
+  100% { background-position-y: -66px, 1px; }
+}
+@keyframes rk-flair-nyan-stars-x {
+  from { background-position-x: 0; }
+  to { background-position-x: -80px; }
+}
+@keyframes rk-flair-nyan-stars-y {
+  0% { background-position-y: 0; }
+  50% { background-position-y: -22px; }
+  100% { background-position-y: -22px; }
+}
+.rk-flair-nyan::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 22px;
+  margin-top: -11px;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='44' viewBox='0 0 80 44'%3E%3Cg fill='white' fill-opacity='0.38'%3E%3Crect x='11' y='3' width='1' height='5'/%3E%3Crect x='9' y='5' width='5' height='1'/%3E%3Crect x='51' y='13' width='1' height='1'/%3E%3Crect x='68' y='7' width='1' height='1'/%3E%3C/g%3E%3Cg fill='white' fill-opacity='0.38' transform='translate(0,22)'%3E%3Crect x='11' y='5' width='1' height='1'/%3E%3Crect x='50' y='11' width='1' height='5'/%3E%3Crect x='48' y='13' width='5' height='1'/%3E%3Crect x='68' y='16' width='1' height='1'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 80px 44px;
+  background-repeat: repeat-x;
+  background-position: 0 0;
+  animation:
+    rk-flair-nyan-stars-x 2.4s linear infinite,
+    rk-flair-nyan-stars-y 0.9s step-end infinite;
+}
+.rk-flair-nyan::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 22px;
+  margin-top: -11px;
+  pointer-events: none;
+  opacity: 0.92;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='88' viewBox='0 0 36 88'%3E%3Cdefs%3E%3Cg id='c'%3E%3Crect x='4' y='5' width='23' height='14' fill='%23f0b060'/%3E%3Crect x='6' y='7' width='19' height='10' fill='%23f78fc0'/%3E%3Crect x='8' y='9' width='1' height='2' fill='%23d6579e'/%3E%3Crect x='12' y='12' width='1' height='2' fill='%23d6579e'/%3E%3Crect x='16' y='8' width='1' height='2' fill='%23d6579e'/%3E%3Crect x='19' y='13' width='1' height='2' fill='%23d6579e'/%3E%3Crect x='10' y='15' width='1' height='1' fill='%23d6579e'/%3E%3Crect x='23' y='7' width='2' height='3' fill='%23a8b0bc'/%3E%3Crect x='33' y='7' width='2' height='3' fill='%23a8b0bc'/%3E%3Crect x='22' y='9' width='14' height='10' fill='%23a8b0bc'/%3E%3Crect x='25' y='12' width='2' height='2' fill='%23272b31'/%3E%3Crect x='31' y='12' width='2' height='2' fill='%23272b31'/%3E%3Crect x='29' y='14' width='1' height='1' fill='%23272b31'/%3E%3Crect x='27' y='16' width='4' height='1' fill='%23272b31'/%3E%3Crect x='23' y='15' width='2' height='2' fill='%23f08fa8'/%3E%3Crect x='34' y='15' width='2' height='2' fill='%23f08fa8'/%3E%3C/g%3E%3Cg id='ta'%3E%3Crect x='0' y='9' width='3' height='2' fill='%23a8b0bc'/%3E%3Crect x='2' y='11' width='3' height='2' fill='%23a8b0bc'/%3E%3C/g%3E%3Cg id='tb'%3E%3Crect x='0' y='13' width='3' height='2' fill='%23a8b0bc'/%3E%3Crect x='2' y='11' width='3' height='2' fill='%23a8b0bc'/%3E%3C/g%3E%3Cg id='la'%3E%3Crect x='5' y='19' width='3' height='3' fill='%23a8b0bc'/%3E%3Crect x='10' y='19' width='3' height='3' fill='%23a8b0bc'/%3E%3Crect x='16' y='19' width='3' height='3' fill='%23a8b0bc'/%3E%3Crect x='21' y='19' width='3' height='3' fill='%23a8b0bc'/%3E%3C/g%3E%3Cg id='lb'%3E%3Crect x='7' y='19' width='3' height='3' fill='%23a8b0bc'/%3E%3Crect x='13' y='19' width='3' height='3' fill='%23a8b0bc'/%3E%3Crect x='18' y='19' width='3' height='3' fill='%23a8b0bc'/%3E%3Crect x='23' y='19' width='3' height='3' fill='%23a8b0bc'/%3E%3C/g%3E%3C/defs%3E%3Cg%3E%3Cuse href='%23c'/%3E%3Cuse href='%23ta'/%3E%3Cuse href='%23la'/%3E%3C/g%3E%3Cg transform='translate(0,23)'%3E%3Cuse href='%23c'/%3E%3Cuse href='%23ta'/%3E%3Cuse href='%23lb'/%3E%3C/g%3E%3Cg transform='translate(0,44)'%3E%3Cuse href='%23c'/%3E%3Cuse href='%23tb'/%3E%3Cuse href='%23la'/%3E%3C/g%3E%3Cg transform='translate(0,67)'%3E%3Cuse href='%23c'/%3E%3Cuse href='%23tb'/%3E%3Cuse href='%23lb'/%3E%3C/g%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='22' viewBox='0 0 140 22'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='0'%3E%3Cstop offset='0' stop-color='white' stop-opacity='0'/%3E%3Cstop offset='0.35' stop-color='white' stop-opacity='0.75'/%3E%3Cstop offset='1' stop-color='white' stop-opacity='0.95'/%3E%3C/linearGradient%3E%3Cmask id='m'%3E%3Crect width='140' height='22' fill='url(%23g)'/%3E%3C/mask%3E%3C/defs%3E%3Cg mask='url(%23m)' opacity='0.62'%3E%3Crect y='2' width='140' height='3' fill='%23ff2222'/%3E%3Crect y='5' width='140' height='3' fill='%23ff9900'/%3E%3Crect y='8' width='140' height='3' fill='%23ffee00'/%3E%3Crect y='11' width='140' height='3' fill='%2333dd22'/%3E%3Crect y='14' width='140' height='3' fill='%231e90ff'/%3E%3Crect y='17' width='140' height='3' fill='%237b46ff'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 36px 88px, 140px 22px;
+  background-repeat: no-repeat, no-repeat;
+  background-position: -36px 0, -176px 0;
+  animation:
+    rk-flair-nyan-x 9s linear infinite,
+    rk-flair-nyan-y 0.6s step-end infinite;
+}
+
+/* naruto: ::after layers the runner sheet (30×88, 4 frames — spiky hair,
+   headband + fluttering ribbon tails, whisker mark, short swept-back arm
+   stubs, 3-pose leg cycle) and the 120×44 2-frame trail glued behind,
+   stepping at ~8fps; ::before is a faint speed-streak tile racing the
+   opposite way. ~6s traversal. */
+@keyframes rk-flair-naruto-x {
+  from { background-position-x: -30px, -150px; }
+  to { background-position-x: calc(100% + 34px), calc(100% + 4px); }
+}
+@keyframes rk-flair-naruto-y {
+  0% { background-position-y: 0px, 0px; }
+  25% { background-position-y: -22px, -22px; }
+  50% { background-position-y: -44px, 0px; }
+  75% { background-position-y: -66px, -22px; }
+  100% { background-position-y: -66px, -22px; }
+}
+@keyframes rk-flair-naruto-streaks {
+  from { background-position-x: 0; }
+  to { background-position-x: -48px; }
+}
+.rk-flair-naruto::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 22px;
+  margin-top: -11px;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='22' viewBox='0 0 48 22'%3E%3Crect x='4' y='7' width='20' height='1' fill='%23aab2c0' fill-opacity='0.10'/%3E%3Crect x='28' y='13' width='16' height='1' fill='%23aab2c0' fill-opacity='0.08'/%3E%3C/svg%3E");
+  background-size: 48px 22px;
+  background-repeat: repeat-x;
+  background-position: 0 0;
+  animation: rk-flair-naruto-streaks 0.7s linear infinite;
+}
+.rk-flair-naruto::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 22px;
+  margin-top: -11px;
+  pointer-events: none;
+  opacity: 0.92;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='30' height='88' viewBox='0 0 30 88'%3E%3Cdefs%3E%3Cg id='u'%3E%3Cpath d='M15 6 L11 4 L15 9 Z' fill='%23f6d32d'/%3E%3Cpath d='M16 4 L17 1 L18 4 Z' fill='%23f6d32d'/%3E%3Cpath d='M18 4 L20 0 L21 4 Z' fill='%23f6d32d'/%3E%3Cpath d='M21 4 L23 1 L24 4 Z' fill='%23f6d32d'/%3E%3Cpath d='M24 4 L26 2 L26 4 Z' fill='%23f6d32d'/%3E%3Crect x='16' y='3' width='10' height='2' fill='%23f6d32d'/%3E%3Crect x='16' y='5' width='10' height='2' fill='%232f4f9f'/%3E%3Crect x='19' y='5' width='4' height='2' fill='%23cdd6e4'/%3E%3Crect x='17' y='7' width='8' height='4' fill='%23f2c49b'/%3E%3Crect x='23' y='8' width='1' height='1' fill='%23222222'/%3E%3Crect x='18' y='9' width='2' height='1' fill='%23c97f4f'/%3E%3Cpath d='M16 11 L21 11 L19 17 L13 17 Z' fill='%23ff7f27'/%3E%3Crect x='13' y='10' width='3' height='1' fill='%23ff7f27'/%3E%3Crect x='11' y='9' width='2' height='1' fill='%23ff7f27'/%3E%3Crect x='9' y='8' width='2' height='2' fill='%23f2c49b'/%3E%3Crect x='13' y='13' width='3' height='1' fill='%23ff7f27'/%3E%3Crect x='11' y='14' width='2' height='1' fill='%23ff7f27'/%3E%3Crect x='9' y='14' width='2' height='2' fill='%23f2c49b'/%3E%3C/g%3E%3Cg id='t1'%3E%3Crect x='12' y='4' width='4' height='1' fill='%232f4f9f'/%3E%3Crect x='9' y='3' width='3' height='1' fill='%232f4f9f'/%3E%3C/g%3E%3Cg id='t2'%3E%3Crect x='12' y='6' width='4' height='1' fill='%232f4f9f'/%3E%3Crect x='9' y='7' width='3' height='1' fill='%232f4f9f'/%3E%3C/g%3E%3Cg id='la'%3E%3Cpath d='M16 17 L19 17 L22 19 L21 21 L18 19 Z' fill='%23ff7f27'/%3E%3Crect x='21' y='19' width='3' height='2' fill='%23303338'/%3E%3Cpath d='M13 17 L15 17 L11 20 L10 19 Z' fill='%23ff7f27'/%3E%3Crect x='8' y='19' width='3' height='2' fill='%23303338'/%3E%3C/g%3E%3Cg id='lb'%3E%3Crect x='15' y='17' width='3' height='3' fill='%23ff7f27'/%3E%3Crect x='15' y='20' width='4' height='2' fill='%23303338'/%3E%3Cpath d='M13 17 L14 18 L11 19 L10 18 Z' fill='%23ff7f27'/%3E%3Crect x='8' y='18' width='3' height='2' fill='%23303338'/%3E%3C/g%3E%3Cg id='lc'%3E%3Cpath d='M15 17 L18 17 L20 20 L18 21 Z' fill='%23ff7f27'/%3E%3Crect x='19' y='20' width='3' height='2' fill='%23303338'/%3E%3Cpath d='M13 17 L14 17 L12 20 L11 19 Z' fill='%23ff7f27'/%3E%3Crect x='9' y='19' width='3' height='2' fill='%23303338'/%3E%3C/g%3E%3C/defs%3E%3Cg%3E%3Cuse href='%23u'/%3E%3Cuse href='%23t1'/%3E%3Cuse href='%23la'/%3E%3C/g%3E%3Cg transform='translate(0,23)'%3E%3Cuse href='%23u'/%3E%3Cuse href='%23t2'/%3E%3Cuse href='%23lb'/%3E%3C/g%3E%3Cg transform='translate(0,44)'%3E%3Cuse href='%23u'/%3E%3Cuse href='%23t1'/%3E%3Cuse href='%23lc'/%3E%3C/g%3E%3Cg transform='translate(0,67)'%3E%3Cuse href='%23u'/%3E%3Cuse href='%23t2'/%3E%3Cuse href='%23lb'/%3E%3C/g%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='44' viewBox='0 0 120 44'%3E%3Cg%3E%3Crect x='30' y='8' width='40' height='1' fill='%23ffffff' fill-opacity='0.22'/%3E%3Crect x='10' y='12' width='55' height='1' fill='%23ff7f27' fill-opacity='0.3'/%3E%3Crect x='45' y='15' width='35' height='1' fill='%23ffffff' fill-opacity='0.18'/%3E%3Crect x='25' y='5' width='2' height='2' fill='%234caf50' fill-opacity='0.7'/%3E%3Crect x='70' y='10' width='2' height='2' fill='%234caf50' fill-opacity='0.6'/%3E%3Ccircle cx='95' cy='18' r='1.5' fill='%23888888' fill-opacity='0.3'/%3E%3Ccircle cx='108' cy='19' r='1' fill='%23888888' fill-opacity='0.25'/%3E%3C/g%3E%3Cg transform='translate(0,22)'%3E%3Crect x='22' y='8' width='40' height='1' fill='%23ffffff' fill-opacity='0.22'/%3E%3Crect x='4' y='12' width='55' height='1' fill='%23ff7f27' fill-opacity='0.3'/%3E%3Crect x='38' y='15' width='35' height='1' fill='%23ffffff' fill-opacity='0.18'/%3E%3Crect x='18' y='9' width='2' height='2' fill='%234caf50' fill-opacity='0.7'/%3E%3Crect x='63' y='4' width='2' height='2' fill='%234caf50' fill-opacity='0.6'/%3E%3Ccircle cx='88' cy='19' r='1.5' fill='%23888888' fill-opacity='0.3'/%3E%3Ccircle cx='102' cy='18' r='1' fill='%23888888' fill-opacity='0.25'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 30px 88px, 120px 44px;
+  background-repeat: no-repeat, no-repeat;
+  background-position: -30px 0, -150px 0;
+  animation:
+    rk-flair-naruto-x 6s linear infinite,
+    rk-flair-naruto-y 0.5s step-end infinite;
+}
+
+/* onepiece: ::after is a bottom-anchored strip with the ship sheet (34×88,
+   4 frames — straw-hat Jolly-Roger emblem on the mainsail, plain black
+   pennant) stepping at ~2.5fps; ::before is TWO scallop-wave tiles (16px +
+   24px periods) drifting the opposite way at different speeds. ~14s
+   traversal. */
+@keyframes rk-flair-onepiece-x {
+  from { background-position-x: -34px; }
+  to { background-position-x: calc(100% + 34px); }
+}
+@keyframes rk-flair-onepiece-y {
+  0% { background-position-y: 0px; }
+  25% { background-position-y: -22px; }
+  50% { background-position-y: -44px; }
+  75% { background-position-y: -66px; }
+  100% { background-position-y: -66px; }
+}
+@keyframes rk-flair-onepiece-waves {
+  from { background-position-x: 0, 0; }
+  to { background-position-x: -48px, -72px; }
+}
+.rk-flair-onepiece::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='4' viewBox='0 0 16 4'%3E%3Cpath d='M0 2 Q4 0 8 2 T16 2' fill='none' stroke='%235b8fd9' stroke-opacity='0.5' stroke-width='1.2'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='5' viewBox='0 0 24 5'%3E%3Cpath d='M0 3 Q6 1 12 3 T24 3' fill='none' stroke='%237fb3e8' stroke-opacity='0.3' stroke-width='1'/%3E%3C/svg%3E");
+  background-size: 16px 4px, 24px 5px;
+  background-repeat: repeat-x, repeat-x;
+  background-position: 0 100%, 0 calc(100% - 2px);
+  animation: rk-flair-onepiece-waves 4s linear infinite;
+}
+.rk-flair-onepiece::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 22px;
+  pointer-events: none;
+  opacity: 0.92;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='34' height='88' viewBox='0 0 34 88'%3E%3Cdefs%3E%3Cg id='h'%3E%3Crect x='4' y='14' width='26' height='1' fill='%23543314'/%3E%3Crect x='4' y='15' width='26' height='2' fill='%237a4a21'/%3E%3Crect x='5' y='17' width='24' height='1' fill='%23543314'/%3E%3Crect x='6' y='18' width='21' height='1' fill='%237a4a21'/%3E%3Crect x='8' y='19' width='17' height='1' fill='%235d3a1a'/%3E%3Crect x='3' y='12' width='3' height='3' fill='%237a4a21'/%3E%3Crect x='28' y='12' width='3' height='3' fill='%237a4a21'/%3E%3Crect x='30' y='11' width='4' height='1' fill='%23543314'/%3E%3Crect x='16' y='1' width='2' height='13' fill='%233d2b1f'/%3E%3Crect x='10' y='3' width='14' height='1' fill='%233d2b1f'/%3E%3C/g%3E%3Cg id='sa'%3E%3Cpath d='M11 4 Q26 6 24 13 L13 13 Q15 8 11 4 Z' fill='%23efe8d6'/%3E%3C/g%3E%3Cg id='sb'%3E%3Cpath d='M11 4 Q24 6 22 13 L13 13 Q14 8 11 4 Z' fill='%23e6dfc9'/%3E%3C/g%3E%3Cg id='fa'%3E%3Cpath d='M18 0 L25 1 L24 3 L18 3 Z' fill='%231d1d1d'/%3E%3C/g%3E%3Cg id='fb'%3E%3Cpath d='M18 0 L24 0 L25 3 L18 3 Z' fill='%231d1d1d'/%3E%3C/g%3E%3Cg id='w1'%3E%3Crect x='0' y='16' width='3' height='1' fill='%23ffffff' fill-opacity='0.35'/%3E%3Crect x='1' y='18' width='2' height='1' fill='%23ffffff' fill-opacity='0.25'/%3E%3C/g%3E%3Cg id='w2'%3E%3Crect x='0' y='17' width='4' height='1' fill='%23ffffff' fill-opacity='0.3'/%3E%3Crect x='2' y='19' width='2' height='1' fill='%23ffffff' fill-opacity='0.2'/%3E%3C/g%3E%3Cg id='em'%3E%3Crect x='15' y='5' width='6' height='2' fill='%23f6d32d'/%3E%3Crect x='15' y='6' width='6' height='1' fill='%23c93838'/%3E%3Crect x='14' y='7' width='8' height='1' fill='%23f6d32d'/%3E%3Crect x='16' y='8' width='4' height='3' fill='%231d1d1d'/%3E%3Crect x='17' y='9' width='1' height='1' fill='%23efe8d6'/%3E%3Crect x='19' y='9' width='1' height='1' fill='%23efe8d6'/%3E%3Crect x='14' y='11' width='8' height='1' fill='%231d1d1d'/%3E%3Crect x='13' y='10' width='1' height='1' fill='%231d1d1d'/%3E%3Crect x='22' y='10' width='1' height='1' fill='%231d1d1d'/%3E%3Crect x='13' y='12' width='1' height='1' fill='%231d1d1d'/%3E%3Crect x='22' y='12' width='1' height='1' fill='%231d1d1d'/%3E%3C/g%3E%3C/defs%3E%3Cg%3E%3Cuse href='%23h'/%3E%3Cuse href='%23sa'/%3E%3Cuse href='%23em'/%3E%3Cuse href='%23fa'/%3E%3Cuse href='%23w1'/%3E%3C/g%3E%3Cg transform='translate(0,22) rotate(1.4 17 16)'%3E%3Cuse href='%23h'/%3E%3Cuse href='%23sa'/%3E%3Cuse href='%23em'/%3E%3Cuse href='%23fb'/%3E%3Cuse href='%23w2'/%3E%3C/g%3E%3Cg transform='translate(0,43)'%3E%3Cuse href='%23h'/%3E%3Cuse href='%23sb'/%3E%3Cuse href='%23em' transform='translate(-1,0)'/%3E%3Cuse href='%23fa'/%3E%3Cuse href='%23w1'/%3E%3C/g%3E%3Cg transform='translate(0,66) rotate(-1.4 17 16)'%3E%3Cuse href='%23h'/%3E%3Cuse href='%23sb'/%3E%3Cuse href='%23em' transform='translate(-1,0)'/%3E%3Cuse href='%23fb'/%3E%3Cuse href='%23w2'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 34px 88px;
+  background-repeat: no-repeat;
+  background-position: -34px 0;
+  animation:
+    rk-flair-onepiece-x 14s linear infinite,
+    rk-flair-onepiece-y 1.6s step-end infinite;
+}
+
+/* pacman: the yellow chomper, LEFT→RIGHT. ::after is a 22px strip with THREE
+   layers — the pacman sheet (20×44: 2 frames — wedge mouth open / closed at
+   ~5fps chomp), a 140px dot layer (nine 3×3 pellets at 16px pitch, far end
+   faded through an SVG mask) glued so its left edge sits at pacman's mouth —
+   the dots LEAD (the trail geometry of nyan, run forwards: dots in front,
+   blank behind) — and a 16×44 red-ghost sheet (2-frame skirt wiggle) glued
+   26px behind. All three constants are balanced (−154/−140/−180 →
+   +64/+198/+34) so the chase never separates, and the from-offsets park ALL
+   THREE layers fully off-left (pacman enters a beat after his dots) just as
+   the to-offsets park them fully off-right — loop boundaries happen with a
+   completely empty row. ~7s traversal. */
+@keyframes rk-flair-pacman-x {
+  from { background-position-x: -154px, -140px, -180px; }
+  to { background-position-x: calc(100% + 64px), calc(100% + 198px), calc(100% + 34px); }
+}
+@keyframes rk-flair-pacman-y {
+  0% { background-position-y: 0px, 0px, 0px; }
+  50% { background-position-y: -22px, 0px, -22px; }
+  100% { background-position-y: -22px, 0px, -22px; }
+}
+.rk-flair-pacman::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 22px;
+  margin-top: -11px;
+  pointer-events: none;
+  opacity: 0.92;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='44' viewBox='0 0 20 44'%3E%3Cg fill='%23ffd83d'%3E%3Crect x='6' y='2' width='7' height='1'/%3E%3Crect x='4' y='3' width='11' height='1'/%3E%3Crect x='3' y='4' width='13' height='1'/%3E%3Crect x='2' y='5' width='15' height='1'/%3E%3Crect x='1' y='6' width='17' height='1'/%3E%3Crect x='1' y='7' width='17' height='1'/%3E%3Crect x='1' y='8' width='13' height='1'/%3E%3Crect x='1' y='9' width='11' height='1'/%3E%3Crect x='1' y='10' width='10' height='1'/%3E%3Crect x='1' y='11' width='10' height='1'/%3E%3Crect x='1' y='12' width='11' height='1'/%3E%3Crect x='1' y='13' width='13' height='1'/%3E%3Crect x='1' y='14' width='17' height='1'/%3E%3Crect x='2' y='15' width='15' height='1'/%3E%3Crect x='3' y='16' width='13' height='1'/%3E%3Crect x='4' y='17' width='11' height='1'/%3E%3Crect x='6' y='18' width='7' height='1'/%3E%3C/g%3E%3Crect x='7' y='5' width='2' height='2' fill='%23222222'/%3E%3Cg fill='%23ffd83d' transform='translate(0,22)'%3E%3Crect x='6' y='2' width='7' height='1'/%3E%3Crect x='4' y='3' width='11' height='1'/%3E%3Crect x='3' y='4' width='13' height='1'/%3E%3Crect x='2' y='5' width='15' height='1'/%3E%3Crect x='1' y='6' width='17' height='1'/%3E%3Crect x='1' y='7' width='17' height='1'/%3E%3Crect x='1' y='8' width='17' height='1'/%3E%3Crect x='1' y='9' width='17' height='1'/%3E%3Crect x='1' y='10' width='16' height='1'/%3E%3Crect x='1' y='11' width='16' height='1'/%3E%3Crect x='1' y='12' width='17' height='1'/%3E%3Crect x='1' y='13' width='17' height='1'/%3E%3Crect x='1' y='14' width='17' height='1'/%3E%3Crect x='2' y='15' width='15' height='1'/%3E%3Crect x='3' y='16' width='13' height='1'/%3E%3Crect x='4' y='17' width='11' height='1'/%3E%3Crect x='6' y='18' width='7' height='1'/%3E%3C/g%3E%3Crect x='7' y='27' width='2' height='2' fill='%23222222'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='22' viewBox='0 0 140 22'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='0'%3E%3Cstop offset='0' stop-color='white' stop-opacity='1'/%3E%3Cstop offset='0.55' stop-color='white' stop-opacity='0.9'/%3E%3Cstop offset='1' stop-color='white' stop-opacity='0.12'/%3E%3C/linearGradient%3E%3Cmask id='m'%3E%3Crect width='140' height='22' fill='url(%23g)'/%3E%3C/mask%3E%3C/defs%3E%3Cg mask='url(%23m)' fill='%23e8eaf0' fill-opacity='0.8'%3E%3Crect x='4' y='10' width='3' height='3'/%3E%3Crect x='20' y='10' width='3' height='3'/%3E%3Crect x='36' y='10' width='3' height='3'/%3E%3Crect x='52' y='10' width='3' height='3'/%3E%3Crect x='68' y='10' width='3' height='3'/%3E%3Crect x='84' y='10' width='3' height='3'/%3E%3Crect x='100' y='10' width='3' height='3'/%3E%3Crect x='116' y='10' width='3' height='3'/%3E%3Crect x='132' y='10' width='3' height='3'/%3E%3C/g%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='44' viewBox='0 0 16 44'%3E%3Cdefs%3E%3Cg id='gb'%3E%3Crect x='4' y='3' width='8' height='1' fill='%23ff4545'/%3E%3Crect x='3' y='4' width='10' height='1' fill='%23ff4545'/%3E%3Crect x='2' y='5' width='12' height='8' fill='%23ff4545'/%3E%3Crect x='5' y='6' width='2' height='3' fill='white'/%3E%3Crect x='9' y='6' width='2' height='3' fill='white'/%3E%3Crect x='6' y='7' width='1' height='2' fill='%2320242e'/%3E%3Crect x='10' y='7' width='1' height='2' fill='%2320242e'/%3E%3C/g%3E%3C/defs%3E%3Cuse href='%23gb'/%3E%3Crect x='2' y='13' width='3' height='2' fill='%23ff4545'/%3E%3Crect x='6' y='13' width='3' height='2' fill='%23ff4545'/%3E%3Crect x='10' y='13' width='3' height='2' fill='%23ff4545'/%3E%3Cg transform='translate(0,22)'%3E%3Cuse href='%23gb'/%3E%3Crect x='3' y='13' width='3' height='2' fill='%23ff4545'/%3E%3Crect x='7' y='13' width='3' height='2' fill='%23ff4545'/%3E%3Crect x='11' y='13' width='2' height='2' fill='%23ff4545'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 20px 44px, 140px 22px, 16px 44px;
+  background-repeat: no-repeat, no-repeat, no-repeat;
+  background-position: -154px 0, -140px 0, -180px 0;
+  animation:
+    rk-flair-pacman-x 7s linear infinite,
+    rk-flair-pacman-y 0.4s step-end infinite;
+}
+
+/* matrix: ambient glyph rain — NO traversal, no character sheet. ::before is
+   full-box (inset 0: rain has no px sprite frames, and the tiles are seamless
+   at any box height — on rows it reads as the strip, on tiles it fills the
+   box) with THREE repeating tiles of vertical katakana-like stroke clusters
+   in accent-green tones (the palette's #22c55e family, hardcoded because CSS
+   custom properties cannot resolve inside data URIs), each stack BRIGHTEST
+   at its falling head. One linear loop drops the three layers by 1 / 2 / 4
+   exact tile heights respectively (88 / 132 / 176px over 9s), so each layer
+   rains at its own speed and every loop boundary is an exact tile multiple —
+   seamless. */
+@keyframes rk-flair-matrix-fall {
+  from { background-position-y: 0px, 0px, 0px; }
+  to { background-position-y: 88px, 132px, 176px; }
+}
+.rk-flair-matrix::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='88' viewBox='0 0 32 88'%3E%3Cg fill='%23a8ffc0'%3E%3Crect x='4' y='74' width='3' height='1' fill-opacity='0.55'/%3E%3Crect x='6' y='75' width='1' height='2' fill-opacity='0.55'/%3E%3Crect x='18' y='40' width='3' height='1' fill-opacity='0.5'/%3E%3Crect x='20' y='41' width='1' height='2' fill-opacity='0.5'/%3E%3C/g%3E%3Cg fill='%2322c55e'%3E%3Crect x='4' y='64' width='3' height='1' fill-opacity='0.3'/%3E%3Crect x='4' y='65' width='1' height='2' fill-opacity='0.3'/%3E%3Crect x='5' y='54' width='1' height='3' fill-opacity='0.26'/%3E%3Crect x='4' y='56' width='3' height='1' fill-opacity='0.26'/%3E%3Crect x='4' y='44' width='3' height='1' fill-opacity='0.22'/%3E%3Crect x='6' y='45' width='1' height='2' fill-opacity='0.22'/%3E%3Crect x='4' y='34' width='1' height='3' fill-opacity='0.18'/%3E%3Crect x='4' y='24' width='3' height='1' fill-opacity='0.14'/%3E%3Crect x='4' y='25' width='1' height='2' fill-opacity='0.14'/%3E%3Crect x='5' y='14' width='1' height='3' fill-opacity='0.10'/%3E%3Crect x='4' y='4' width='3' height='1' fill-opacity='0.07'/%3E%3Crect x='18' y='30' width='3' height='1' fill-opacity='0.28'/%3E%3Crect x='18' y='31' width='1' height='2' fill-opacity='0.28'/%3E%3Crect x='19' y='20' width='1' height='3' fill-opacity='0.24'/%3E%3Crect x='18' y='22' width='3' height='1' fill-opacity='0.24'/%3E%3Crect x='18' y='10' width='3' height='1' fill-opacity='0.18'/%3E%3Crect x='18' y='2' width='1' height='3' fill-opacity='0.12'/%3E%3Crect x='18' y='50' width='3' height='1' fill-opacity='0.08'/%3E%3Crect x='19' y='60' width='1' height='3' fill-opacity='0.12'/%3E%3Crect x='18' y='70' width='3' height='1' fill-opacity='0.16'/%3E%3Crect x='20' y='71' width='1' height='2' fill-opacity='0.16'/%3E%3Crect x='18' y='80' width='1' height='3' fill-opacity='0.2'/%3E%3C/g%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='66' viewBox='0 0 24 66'%3E%3Cg fill='%238fffb0'%3E%3Crect x='8' y='56' width='3' height='1' fill-opacity='0.45'/%3E%3Crect x='10' y='57' width='1' height='2' fill-opacity='0.45'/%3E%3C/g%3E%3Cg fill='%2322c55e'%3E%3Crect x='8' y='46' width='3' height='1' fill-opacity='0.26'/%3E%3Crect x='8' y='47' width='1' height='2' fill-opacity='0.26'/%3E%3Crect x='9' y='36' width='1' height='3' fill-opacity='0.22'/%3E%3Crect x='8' y='26' width='3' height='1' fill-opacity='0.17'/%3E%3Crect x='8' y='16' width='1' height='3' fill-opacity='0.13'/%3E%3Crect x='8' y='6' width='3' height='1' fill-opacity='0.09'/%3E%3C/g%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='44' viewBox='0 0 40 44'%3E%3Cg fill='%238fffb0'%3E%3Crect x='6' y='34' width='3' height='1' fill-opacity='0.3'/%3E%3Crect x='8' y='35' width='1' height='2' fill-opacity='0.3'/%3E%3Crect x='26' y='14' width='3' height='1' fill-opacity='0.24'/%3E%3Crect x='28' y='15' width='1' height='2' fill-opacity='0.24'/%3E%3C/g%3E%3Cg fill='%2322c55e'%3E%3Crect x='6' y='24' width='3' height='1' fill-opacity='0.18'/%3E%3Crect x='7' y='14' width='1' height='3' fill-opacity='0.14'/%3E%3Crect x='6' y='4' width='3' height='1' fill-opacity='0.10'/%3E%3Crect x='26' y='4' width='3' height='1' fill-opacity='0.12'/%3E%3Crect x='26' y='24' width='3' height='1' fill-opacity='0.10'/%3E%3Crect x='27' y='34' width='1' height='3' fill-opacity='0.08'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 32px 88px, 24px 66px, 40px 44px;
+  background-repeat: repeat, repeat, repeat;
+  background-position: 0 0, 0 0, 0 0;
+  animation: rk-flair-matrix-fall 9s linear infinite;
+}
+
+/* aquarium: the asciiquarium homage. ::after is a 22px strip with THREE
+   layers — an orange fish sheet (18×44, 2-frame tail flap, facing right)
+   crossing LEFT→RIGHT once per 22s loop, a blue fish sheet (16×44, facing
+   left) crossing RIGHT→LEFT TWICE per loop — its mid-loop keyframe pair
+   (50% / 50.01%) teleports it between fully-off-screen positions, giving two
+   genuinely different speeds on one pseudo with no visible snap — and a
+   10×44 seaweed sheet (2-frame sway) anchored at a constant 6px near the
+   left edge. The y-step keyframes toggle the three sheets at 2.5 / 5 / 2.5
+   flips per second from one step-end cadence. ::before is a rising-bubble
+   tile (36×44, repeat) drifting UP exactly one tile per 5s loop. */
+@keyframes rk-flair-aquarium-x {
+  0% { background-position-x: -18px, calc(100% + 20px), 6px; }
+  50% { background-position-x: calc(50% + 2px), -16px, 6px; }
+  50.01% { background-position-x: calc(50% + 2px), calc(100% + 20px), 6px; }
+  100% { background-position-x: calc(100% + 22px), -16px, 6px; }
+}
+@keyframes rk-flair-aquarium-y {
+  0% { background-position-y: 0px, 0px, 0px; }
+  25% { background-position-y: 0px, -22px, 0px; }
+  50% { background-position-y: -22px, 0px, -22px; }
+  75% { background-position-y: -22px, -22px, -22px; }
+  100% { background-position-y: -22px, -22px, -22px; }
+}
+@keyframes rk-flair-aquarium-bubbles {
+  from { background-position-y: 0; }
+  to { background-position-y: -44px; }
+}
+.rk-flair-aquarium::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='44' viewBox='0 0 36 44'%3E%3Cg fill='white'%3E%3Ccircle cx='6' cy='32' r='1.5' fill-opacity='0.3'/%3E%3Ccircle cx='15' cy='20' r='1' fill-opacity='0.25'/%3E%3Ccircle cx='24' cy='28' r='2' fill-opacity='0.2'/%3E%3Ccircle cx='31' cy='10' r='1' fill-opacity='0.3'/%3E%3Ccircle cx='10' cy='6' r='1' fill-opacity='0.2'/%3E%3Ccircle cx='28' cy='38' r='1' fill-opacity='0.22'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 36px 44px;
+  background-repeat: repeat;
+  background-position: 0 0;
+  animation: rk-flair-aquarium-bubbles 5s linear infinite;
+}
+.rk-flair-aquarium::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 22px;
+  margin-top: -11px;
+  pointer-events: none;
+  opacity: 0.92;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='44' viewBox='0 0 18 44'%3E%3Cdefs%3E%3Cg id='fa'%3E%3Crect x='4' y='8' width='8' height='1' fill='%23f6a34c'/%3E%3Crect x='2' y='9' width='12' height='1' fill='%23f6a34c'/%3E%3Crect x='2' y='10' width='12' height='1' fill='%23f6a34c'/%3E%3Crect x='2' y='11' width='12' height='1' fill='%23f6a34c'/%3E%3Crect x='2' y='12' width='12' height='1' fill='%23f6a34c'/%3E%3Crect x='4' y='13' width='8' height='1' fill='%23f6a34c'/%3E%3Crect x='5' y='7' width='4' height='1' fill='%23d07f2e'/%3E%3Crect x='11' y='10' width='1' height='1' fill='%2320242e'/%3E%3C/g%3E%3C/defs%3E%3Cuse href='%23fa'/%3E%3Crect x='0' y='8' width='2' height='3' fill='%23e88f35'/%3E%3Cg transform='translate(0,22)'%3E%3Cuse href='%23fa'/%3E%3Crect x='0' y='11' width='2' height='3' fill='%23e88f35'/%3E%3C/g%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='44' viewBox='0 0 16 44'%3E%3Cdefs%3E%3Cg id='fb'%3E%3Crect x='4' y='8' width='8' height='1' fill='%235b8fd9'/%3E%3Crect x='2' y='9' width='12' height='1' fill='%235b8fd9'/%3E%3Crect x='2' y='10' width='12' height='1' fill='%235b8fd9'/%3E%3Crect x='2' y='11' width='12' height='1' fill='%235b8fd9'/%3E%3Crect x='2' y='12' width='12' height='1' fill='%235b8fd9'/%3E%3Crect x='4' y='13' width='8' height='1' fill='%235b8fd9'/%3E%3Crect x='6' y='7' width='4' height='1' fill='%234a7ac0'/%3E%3Crect x='4' y='10' width='1' height='1' fill='%2320242e'/%3E%3C/g%3E%3C/defs%3E%3Cuse href='%23fb'/%3E%3Crect x='14' y='8' width='2' height='3' fill='%234a7ac0'/%3E%3Cg transform='translate(0,22)'%3E%3Cuse href='%23fb'/%3E%3Crect x='14' y='11' width='2' height='3' fill='%234a7ac0'/%3E%3C/g%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='44' viewBox='0 0 10 44'%3E%3Cg fill='%233fae5c'%3E%3Crect x='4' y='16' width='2' height='6' fill-opacity='0.8'/%3E%3Crect x='3' y='11' width='2' height='5' fill-opacity='0.8'/%3E%3Crect x='4' y='6' width='2' height='5' fill-opacity='0.8'/%3E%3Crect x='3' y='4' width='2' height='2' fill-opacity='0.8'/%3E%3Crect x='1' y='18' width='2' height='4' fill-opacity='0.65'/%3E%3Crect x='0' y='16' width='2' height='2' fill-opacity='0.65'/%3E%3C/g%3E%3Cg fill='%233fae5c' transform='translate(0,22)'%3E%3Crect x='4' y='16' width='2' height='6' fill-opacity='0.8'/%3E%3Crect x='5' y='11' width='2' height='5' fill-opacity='0.8'/%3E%3Crect x='6' y='6' width='2' height='5' fill-opacity='0.8'/%3E%3Crect x='6' y='4' width='2' height='2' fill-opacity='0.8'/%3E%3Crect x='1' y='18' width='2' height='4' fill-opacity='0.65'/%3E%3Crect x='2' y='16' width='2' height='2' fill-opacity='0.65'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 18px 44px, 16px 44px, 10px 44px;
+  background-repeat: no-repeat, no-repeat, no-repeat;
+  background-position: -18px 0, calc(100% + 20px) 0, 6px 0;
+  animation:
+    rk-flair-aquarium-x 22s linear infinite,
+    rk-flair-aquarium-y 0.8s step-end infinite;
+}
+
+/* warp (3D): a hyperspace starfield, ambient in any mount box. Markup
+   contract: the overlay (which sets the perspective) holds THREE
+   <span class="rk-warp-plane"> children (FlairOverlay renders them). Each
+   plane is oversized (inset −150%, so it still covers the box at its
+   far-depth scale), carries a repeating 48px star tile, and flies from
+   translateZ(−160px) (small, faded in) to translateZ(55px) (past the 60px
+   perspective camera, fading out) on a 3.6s linear loop; the three planes
+   are staggered by negative animation-delays (−1.2s / −2.4s) so one plane
+   is always mid-flight — continuous depth zoom. The overlay's own
+   overflow-hidden clips the past-camera blowout. Transforms live on the
+   child spans, never the row pseudos — rows hide the overlay while
+   drag-sourced (FlairOverlay's guard). */
+@keyframes rk-flair-warp-zoom {
+  0% { transform: translateZ(-160px); opacity: 0; }
+  20% { opacity: 0.75; }
+  75% { opacity: 0.5; }
+  100% { transform: translateZ(55px); opacity: 0; }
+}
+.rk-flair-warp {
+  perspective: 60px;
+}
+.rk-flair-warp .rk-warp-plane {
+  position: absolute;
+  inset: -150%;
+  pointer-events: none;
+  opacity: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 48 48'%3E%3Cg fill='white'%3E%3Crect x='6' y='8' width='1' height='1' fill-opacity='0.55'/%3E%3Crect x='20' y='26' width='2' height='2' fill-opacity='0.4'/%3E%3Crect x='38' y='12' width='1' height='1' fill-opacity='0.6'/%3E%3Crect x='12' y='40' width='1' height='1' fill-opacity='0.35'/%3E%3Crect x='30' y='44' width='2' height='1' fill-opacity='0.3'/%3E%3Crect x='44' y='34' width='1' height='1' fill-opacity='0.5'/%3E%3Crect x='26' y='6' width='1' height='1' fill-opacity='0.4'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 48px 48px;
+  background-repeat: repeat;
+  animation: rk-flair-warp-zoom 3.6s linear infinite;
+}
+.rk-flair-warp .rk-warp-plane:nth-child(2) { animation-delay: -1.2s; }
+.rk-flair-warp .rk-warp-plane:nth-child(3) { animation-delay: -2.4s; }
+
+/* roadrunner: the zip-blur bird, LEFT→RIGHT. ::after is a 22px strip with
+   the 2-frame sheet (36×44 — blue bird head/crest/beak up front, body
+   dissolved into speed streaks, yellow leg-blur, dust puffs) stepping at
+   ~3.3fps; ::before is a faint speed-streak tile racing the opposite way
+   (own streak keyframes — same pattern as naruto's, never shared). ~3s
+   traversal. */
+@keyframes rk-flair-roadrunner-streaks {
+  from { background-position-x: 0; }
+  to { background-position-x: -48px; }
+}
+.rk-flair-roadrunner::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 22px;
+  margin-top: -11px;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='22' viewBox='0 0 48 22'%3E%3Crect x='4' y='7' width='20' height='1' fill='%23aab2c0' fill-opacity='0.10'/%3E%3Crect x='28' y='13' width='16' height='1' fill='%23aab2c0' fill-opacity='0.08'/%3E%3C/svg%3E");
+  background-size: 48px 22px;
+  background-repeat: repeat-x;
+  background-position: 0 0;
+  animation: rk-flair-roadrunner-streaks 0.7s linear infinite;
+}
+
+@keyframes rk-flair-roadrunner-x {
+  from { background-position-x: -36px; }
+  to { background-position-x: calc(100% + 40px); }
+}
+@keyframes rk-flair-roadrunner-y {
+  0% { background-position-y: 0px; }
+  50% { background-position-y: -22px; }
+  100% { background-position-y: -22px; }
+}
+.rk-flair-roadrunner::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 22px;
+  margin-top: -11px;
+  pointer-events: none;
+  opacity: 0.92;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='44' viewBox='0 0 36 44'%3E%3Cg%3E%3Cpath d='M19 2 L18 0 L20 2 Z' fill='%233a56c4'/%3E%3Cpath d='M21 2 L20 0 L22 2 Z' fill='%233a56c4'/%3E%3Cpath d='M23 2 L22 0 L24 2 Z' fill='%233a56c4'/%3E%3Crect x='20' y='2' width='6' height='4' fill='%234a6fd9'/%3E%3Crect x='24' y='3' width='2' height='2' fill='%23ffffff'/%3E%3Crect x='25' y='3' width='1' height='1' fill='%23222222'/%3E%3Crect x='26' y='4' width='6' height='1' fill='%23f2c94c'/%3E%3Crect x='26' y='5' width='4' height='1' fill='%23d8a73a'/%3E%3Crect x='21' y='6' width='2' height='3' fill='%234a6fd9'/%3E%3Crect x='4' y='9' width='16' height='2' fill='%234a6fd9' fill-opacity='0.85'/%3E%3Crect x='0' y='11' width='18' height='1' fill='%234a6fd9' fill-opacity='0.5'/%3E%3Crect x='8' y='12' width='10' height='1' fill='%23cdd6e4' fill-opacity='0.45'/%3E%3Crect x='5' y='13' width='11' height='1' fill='%234a6fd9' fill-opacity='0.3'/%3E%3Crect x='10' y='15' width='9' height='1' fill='%23e8c352' fill-opacity='0.6'/%3E%3Crect x='8' y='17' width='11' height='1' fill='%23e8c352' fill-opacity='0.4'/%3E%3Crect x='12' y='19' width='6' height='1' fill='%23e8c352' fill-opacity='0.3'/%3E%3Ccircle cx='3' cy='16' r='1.5' fill='%239aa3b2' fill-opacity='0.3'/%3E%3Ccircle cx='6' cy='19' r='1' fill='%239aa3b2' fill-opacity='0.25'/%3E%3C/g%3E%3Cg transform='translate(0,23)'%3E%3Cpath d='M19 2 L18 0 L20 2 Z' fill='%233a56c4'/%3E%3Cpath d='M21 2 L20 0 L22 2 Z' fill='%233a56c4'/%3E%3Cpath d='M23 2 L22 0 L24 2 Z' fill='%233a56c4'/%3E%3Crect x='20' y='2' width='6' height='4' fill='%234a6fd9'/%3E%3Crect x='24' y='3' width='2' height='2' fill='%23ffffff'/%3E%3Crect x='25' y='3' width='1' height='1' fill='%23222222'/%3E%3Crect x='26' y='4' width='6' height='1' fill='%23f2c94c'/%3E%3Crect x='26' y='5' width='4' height='1' fill='%23d8a73a'/%3E%3Crect x='21' y='6' width='2' height='3' fill='%234a6fd9'/%3E%3Crect x='6' y='9' width='16' height='2' fill='%234a6fd9' fill-opacity='0.85'/%3E%3Crect x='2' y='11' width='18' height='1' fill='%234a6fd9' fill-opacity='0.5'/%3E%3Crect x='10' y='12' width='10' height='1' fill='%23cdd6e4' fill-opacity='0.45'/%3E%3Crect x='7' y='13' width='11' height='1' fill='%234a6fd9' fill-opacity='0.3'/%3E%3Crect x='8' y='15' width='9' height='1' fill='%23e8c352' fill-opacity='0.6'/%3E%3Crect x='6' y='17' width='11' height='1' fill='%23e8c352' fill-opacity='0.4'/%3E%3Crect x='14' y='19' width='6' height='1' fill='%23e8c352' fill-opacity='0.3'/%3E%3Ccircle cx='5' cy='16' r='1.5' fill='%239aa3b2' fill-opacity='0.3'/%3E%3Ccircle cx='4' cy='19' r='1' fill='%239aa3b2' fill-opacity='0.25'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 36px 44px;
+  background-repeat: no-repeat;
+  background-position: -36px 0;
+  animation:
+    rk-flair-roadrunner-x 3s linear infinite,
+    rk-flair-roadrunner-y 0.3s step-end infinite;
+}
+
+/* invaders: the stepped wandering trio. ::after is a centered 22px
+   strip with the crab-trio sheet (44×44, 2-frame arm wiggle, 10px crabs)
+   shuffling left↔right across the FULL box width in 26 discrete jumps —
+   background-position-x 0%→100% with steps(26, jump-none) over 13s alternate
+   (percentage positioning maps image-edge to box-edge, so the wander is
+   box-agnostic with zero transforms), each jump landing on the 1s step-end
+   y-wiggle so every step flips an arm. Pure background-position, never
+   transform. */
+@keyframes rk-flair-invaders-wander {
+  from { background-position-x: 0%; }
+  to { background-position-x: 100%; }
+}
+@keyframes rk-flair-invaders-wiggle {
+  0% { background-position-y: 0px; }
+  50% { background-position-y: -22px; }
+  100% { background-position-y: -22px; }
+}
+.rk-flair-invaders::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 22px;
+  margin-top: -11px;
+  pointer-events: none;
+  opacity: 0.9;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44' viewBox='0 0 44 44'%3E%3Cdefs%3E%3Cg id='cb'%3E%3Crect x='2' y='0' width='1' height='1'/%3E%3Crect x='7' y='0' width='1' height='1'/%3E%3Crect x='3' y='1' width='4' height='1'/%3E%3Crect x='1' y='2' width='8' height='1'/%3E%3Crect x='0' y='3' width='10' height='1'/%3E%3Crect x='1' y='4' width='8' height='1'/%3E%3Crect x='3' y='3' width='1' height='1' fill='%230f1117'/%3E%3Crect x='6' y='3' width='1' height='1' fill='%230f1117'/%3E%3C/g%3E%3Cg id='ia'%3E%3Cuse href='%23cb'/%3E%3Crect x='0' y='4' width='1' height='3'/%3E%3Crect x='9' y='4' width='1' height='3'/%3E%3Crect x='1' y='7' width='2' height='1'/%3E%3Crect x='4' y='7' width='2' height='1'/%3E%3Crect x='7' y='7' width='2' height='1'/%3E%3C/g%3E%3Cg id='ib'%3E%3Cuse href='%23cb'/%3E%3Crect x='0' y='5' width='1' height='2'/%3E%3Crect x='9' y='5' width='1' height='2'/%3E%3Crect x='2' y='7' width='2' height='1'/%3E%3Crect x='5' y='7' width='2' height='1'/%3E%3Crect x='8' y='7' width='2' height='1'/%3E%3C/g%3E%3Cg id='shy'%3E%3Cg fill='%233fae5c' fill-opacity='0.5'%3E%3Crect x='20' y='17' width='10' height='3'/%3E%3Crect x='21' y='16' width='8' height='1'/%3E%3Crect x='46' y='17' width='10' height='3'/%3E%3Crect x='47' y='16' width='8' height='1'/%3E%3C/g%3E%3C/g%3E%3C/defs%3E%3Cg fill='%23b9f6ca'%3E%3Cuse href='%23ia' transform='translate(1,7)'/%3E%3Cuse href='%23ia' transform='translate(17,7)'/%3E%3Cuse href='%23ia' transform='translate(33,7)'/%3E%3C/g%3E%3Cg fill='%23b9f6ca' transform='translate(0,22)'%3E%3Cuse href='%23ib' transform='translate(1,7)'/%3E%3Cuse href='%23ib' transform='translate(17,7)'/%3E%3Cuse href='%23ib' transform='translate(33,7)'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 44px 44px;
+  background-repeat: no-repeat;
+  background-position: 0% 0;
+  animation:
+    rk-flair-invaders-wander 13s steps(26, jump-none) infinite alternate,
+    rk-flair-invaders-wiggle 1s step-end infinite;
+}
+
+/* cube: the DVD-ricochet wireframe. Markup contract: the overlay holds
+   <span class="rk-cube-x"><span class="rk-cube-y"><span class="rk-cube">
+   6× <span class="rk-cube-face"/></span></span></span>. container-type: size
+   makes the overlay a query container; the nested wrappers ricochet the cube
+   around the WHOLE box — translateX(calc(100cqw - 18px)) on a 16s alternate
+   loop, translateY(calc(100cqh - 18px)) on an incommensurate 7.5s alternate —
+   while the 16px 6-face accent-green wireframe cube (translateZ(8px))
+   tumbles on an 8s spin under a 260px perspective (deliberately flat).
+   Transforms ride these CHILD SPANS only (the row transform ban) — rows hide
+   the overlay entirely while a drag source. */
+@keyframes rk-flair-cube-x {
+  from { transform: translateX(0); }
+  to { transform: translateX(calc(100cqw - 18px)); }
+}
+@keyframes rk-flair-cube-y {
+  from { transform: translateY(0); }
+  to { transform: translateY(calc(100cqh - 18px)); }
+}
+@keyframes rk-flair-cube-spin {
+  from { transform: rotateX(-18deg) rotateY(0deg); }
+  to { transform: rotateX(342deg) rotateY(360deg); }
+}
+.rk-flair-cube {
+  container-type: size;
+}
+.rk-flair-cube .rk-cube-x {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  animation: rk-flair-cube-x 16s linear infinite alternate;
+}
+.rk-flair-cube .rk-cube-y {
+  display: block;
+  perspective: 260px;
+  animation: rk-flair-cube-y 7.5s linear infinite alternate;
+}
+.rk-flair-cube .rk-cube {
+  display: block;
+  position: relative;
+  width: 16px;
+  height: 16px;
+  margin: 1px;
+  pointer-events: none;
+  transform-style: preserve-3d;
+  animation: rk-flair-cube-spin 8s linear infinite;
+}
+.rk-flair-cube .rk-cube-face {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: rgba(34, 197, 94, 0.07);
+  border: 1px solid rgba(34, 197, 94, 0.55);
+}
+.rk-flair-cube .rk-cube-face:nth-child(1) { transform: translateZ(8px); }
+.rk-flair-cube .rk-cube-face:nth-child(2) { transform: rotateY(180deg) translateZ(8px); }
+.rk-flair-cube .rk-cube-face:nth-child(3) { transform: rotateY(90deg) translateZ(8px); }
+.rk-flair-cube .rk-cube-face:nth-child(4) { transform: rotateY(-90deg) translateZ(8px); }
+.rk-flair-cube .rk-cube-face:nth-child(5) { transform: rotateX(90deg) translateZ(8px); }
+.rk-flair-cube .rk-cube-face:nth-child(6) { transform: rotateX(-90deg) translateZ(8px); }
+
+
+  /* ── static placeholder glyphs — used only by the inflated synth demos ── */
+  .fs { background-repeat: no-repeat; background-position: center; }
+  .fs-pacman { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 18 18'%3E%3Cpath d='M7.5 9 L13.5 4.8 A7 7 0 1 0 13.5 13.2 Z' fill='%23ffd23d'/%3E%3Crect x='14' y='8' width='2' height='2' fill='white' fill-opacity='0.75'/%3E%3C/svg%3E"); background-size: 15px 15px; }
+  .fs-invader { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='8' viewBox='0 0 11 8' shape-rendering='crispEdges'%3E%3Cg fill='%238df08d'%3E%3Crect x='2' y='0' width='1' height='1'/%3E%3Crect x='8' y='0' width='1' height='1'/%3E%3Crect x='3' y='1' width='1' height='1'/%3E%3Crect x='7' y='1' width='1' height='1'/%3E%3Crect x='2' y='2' width='7' height='1'/%3E%3Crect x='1' y='3' width='2' height='1'/%3E%3Crect x='4' y='3' width='3' height='1'/%3E%3Crect x='8' y='3' width='2' height='1'/%3E%3Crect x='0' y='4' width='11' height='1'/%3E%3Crect x='0' y='5' width='1' height='1'/%3E%3Crect x='2' y='5' width='7' height='1'/%3E%3Crect x='10' y='5' width='1' height='1'/%3E%3Crect x='0' y='6' width='1' height='1'/%3E%3Crect x='2' y='6' width='1' height='1'/%3E%3Crect x='8' y='6' width='1' height='1'/%3E%3Crect x='10' y='6' width='1' height='1'/%3E%3Crect x='3' y='7' width='2' height='1'/%3E%3Crect x='6' y='7' width='2' height='1'/%3E%3C/g%3E%3C/svg%3E"); background-size: 13px 10px; }
+  .fs-roadrunner { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='12' viewBox='0 0 22 12'%3E%3Crect x='1' y='4' width='7' height='1' fill='%237b9ff2' fill-opacity='0.4'/%3E%3Crect x='3' y='7' width='8' height='1' fill='%237b9ff2' fill-opacity='0.55'/%3E%3Crect x='0' y='9' width='6' height='1' fill='%237b9ff2' fill-opacity='0.3'/%3E%3Cpath d='M12 7 L19 3 L17 7 L19 10 Z' fill='%239b7ff2'/%3E%3Crect x='18.5' y='2' width='2' height='2' fill='%239b7ff2'/%3E%3Crect x='20.5' y='2.5' width='1.5' height='1' fill='%23e8a84f'/%3E%3C/svg%3E"); background-size: 18px 10px; }
+  .fs-cube { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cg fill='none' stroke='%23b48ef2' stroke-width='1'%3E%3Cpolygon points='8,1.5 14,4.5 8,7.5 2,4.5'/%3E%3Cpolyline points='2,4.5 2,11 8,14 14,11 14,4.5'/%3E%3Cline x1='8' y1='7.5' x2='8' y2='14'/%3E%3C/g%3E%3C/svg%3E"); background-size: 13px 13px; }
+
+  /* ── tabs (approach C) ──────────────────────────────────────────────── */
+  .tabs { display: flex; gap: 2px; margin-bottom: 6px; }
+  .tab {
+    font-family: inherit; font-size: 9px; letter-spacing: 0.14em; padding: 2px 8px;
+    background: var(--inset); color: var(--fg3); border: 1px solid #232836; cursor: pointer;
+  }
+  .tab.on { color: var(--fg); border-color: var(--border); background: var(--panel); }
+  .tab .cnt { color: var(--fg3); font-size: 8px; }
+
+  /* naming table */
+  table.nm { border-collapse: collapse; font-size: 12px; margin: 12px 0; }
+  table.nm td, table.nm th { border-top: 1px solid #232836; padding: 6px 18px 6px 0; vertical-align: top; text-align: left; }
+  table.nm th { color: var(--fg3); font-size: 10px; letter-spacing: 0.14em; font-weight: 400; border-top: none; }
+  table.nm td:first-child { color: var(--fg); white-space: nowrap; }
+  table.nm .y { color: #7ed09a; } table.nm .n { color: #d98a8a; }
+
+  .footer-note { margin-top: 64px; padding-top: 16px; border-top: 1px solid #232836; color: var(--fg3); font-size: 11px; max-width: 76ch; }
+  .footer-note b { color: var(--fg2); }
+  ol.plain { margin: 10px 0 0 18px; color: var(--fg2); }
+  ol.plain li { margin-bottom: 6px; max-width: 68ch; }
+  ol.plain b { color: var(--fg); font-weight: 600; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .egg::before, .egg::after, [class*="rk-flair-"]::before, [class*="rk-flair-"]::after { animation: none !important; }
+  }
+</style>
+
+<div class="wrap">
+  <div class="eyebrow">RUN-KIT · DESIGN STUDY · PICKER LAYOUT</div>
+  <h1>One picker, three axes</h1>
+  <p class="sub">The combined picker grew a third real axis: <em>color</em> (10 families × 2 shades),
+  <em>marker</em> (5 stripes), and <em>flair</em> — now 10 states (landed in #659 — the real CSS is embedded, every flair below is live).
+  Nothing in the panel names the axes, and the flair strip becomes an unlabeled wall.
+  <em>Every mock is live</em>: click cells to drive its preview.
+  <br><span style="color:var(--green)">DECIDED:</span> panel name <b>Label</b> · axes
+  <b>color · marker · flair</b> · layout <b>B-H horizontal strips</b> · motion split:
+  <b>markers static, all row motion is flair</b> · <b>hatch = in-progress</b> (hazard wedge moves
+  with it; completed goes quiet) · a − clear cell lives in each band's header (∅ stays the caption state token)
+  (A/C/D + B-V parked below for the record).</p>
+
+  <!-- ═══════════ THE PROBLEM ═══════════ -->
+  <section>
+    <div class="shead"><span class="br">[</span> <b>THE PROBLEM</b> · TODAY vs FLAIR ×15 <span class="br">]</span></div>
+    <p class="note">Left: the shipped skeleton (marker column · hairline · color grid · flair row).
+    Right: the same skeleton after %550 lands — <code>ceil(11/4) = 3</code> flair rows of animated
+    18px cells with no names anywhere but hover tips. The axes were learnable at 6+20+4 cells;
+    they are not at 6+20+11.</p>
+    <div class="board">
+      <div>
+        <div class="cell-label">SHIPPED (4 FLAIRS)</div>
+        <div id="p-now"></div>
+        <div class="caveat ok">axes separated by hairlines; combos preview live; compact (~150px)</div>
+      </div>
+      <div>
+        <div class="cell-label">SAME SKELETON, 10 FLAIRS</div>
+        <div id="p-grown"></div>
+        <div class="caveat bad">flair outgrows color — the "footnote row" reads as a second color grid; which axis am I in?</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════ APPROACH A ═══════════ -->
+  <section>
+    <div class="shead"><span class="br">[</span> <b>APPROACH A</b> · AXIS LABELS, SAME SKELETON <span class="br">]</span> <span class="park">PARKED</span></div>
+    <p class="note">Minimum-diff fix: keep the geometry, add micro-labels — a vertical
+    <code>marker</code> beside the column, <code>color</code> / <code>flair</code> band headers.
+    Everything else (keyboard grid, tests, previews) survives untouched.</p>
+    <div class="board">
+      <div>
+        <div class="cell-label">LABELED SKELETON · 16 FLAIRS</div>
+        <div id="p-a"></div>
+        <div class="caveat ok">cheapest; axes named; zero re-learning</div>
+        <div class="caveat bad">flair wall unchanged — labels name the mass, don't organize it; vertical text is cramped; keyboard grid keeps its special-case clamps</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════ APPROACH B ═══════════ -->
+  <section>
+    <div class="shead"><span class="br">[</span> <b>APPROACH B</b> · BANDS + COMPOSITE PREVIEW <span class="br">]</span> <span class="rec">CHOSEN</span></div>
+    <p class="note">Restack into horizontal bands under one full-width <em>composite preview row</em> —
+    the row's actual resting look (tint + stripe + paired texture + flair + name), answering
+    "what am I building" at a glance. The color band goes <em>10 columns × 2 shade rows</em>, which
+    finally makes the shade axis legible (families are columns, shades are rows). The marker column
+    becomes a plain 6-cell strip; flair wraps at 8/row and scales to any count. Keyboard nav
+    collapses to one plain grid — no hairline crossings, no clamps.</p>
+    <div class="board">
+      <div>
+        <div class="cell-label">BANDED · LIVE PREVIEW ON TOP</div>
+        <div id="p-b"></div>
+        <div class="caveat ok">axes named; shade axis visible; flair scales; one dumb grid for arrows; preview shows the combo, so cells can stop being mini-previews</div>
+        <div class="caveat bad">taller (~230px) and wider (~230px); marker cells lose per-cell color preview (the composite row compensates); preview row animates — one moving row inside a picker</div>
+      </div>
+    </div>
+    <p class="hint">SERVER ROWS: FLAIR BAND SIMPLY OMITTED (SERVER IDENTITY STAYS FLAIR-FREE) · PURE COLOR CALLERS RENDER PREVIEW + COLOR BAND ONLY</p>
+  </section>
+
+  <!-- ═══════════ B ITERATION 2 · SCROLL DIRECTION ═══════════ -->
+  <section>
+    <div class="shead"><span class="br">[</span> <b>B · ITERATION 2</b> · CONTAINED SIZE — WHICH WAY DOES A BAND SCROLL? <span class="br">]</span></div>
+    <p class="note">The two growable axes have <em>different growth geometry</em>, so they want
+    different scroll directions. <b>Color</b> is a 2D matrix — families × shades. Families grow,
+    shades are fixed at 2 — so growth is horizontal <em>by construction</em>: a vertical scroll
+    would either hide a shade row (breaking the pairing) or re-wrap families (breaking column
+    identity). <b>Flair</b> is an unordered 1D set shown as a wrap grid — it grows downward
+    naturally, rows stay full, and vertical wheel scroll needs no modifier keys. <b>Marker</b> is a
+    closed 6-state set by design and never scrolls.</p>
+    <p class="note"><em>Reality check before any scrollbar ships:</em> at the real counts —
+    10 families (stable), 6 markers, 10 flairs (%550's final number) — <b>nothing needs to scroll</b>.
+    ∅ + 10 flairs = 11 cells = 2 rows of 8. The mocks below inflate the vocabulary (16 families /
+    24 flairs) to make the mechanics visible; the caps are the growth story, wired only when a
+    band crosses its budget.</p>
+    <div class="board">
+      <div>
+        <div class="cell-label">B-V · VERTICAL FLAIR CAP (24 FLAIRS) — <span style="color:var(--fg3)">PARKED</span></div>
+        <div id="p-bv"></div>
+        <div class="caveat ok">flair capped at 2 rows + a 6px peek of row 3 — the clipped cells advertise the scroll even with hidden scrollbars; edge fade matches the sidebar's scroll-edge pattern; wheel just works; panel height is constant forever</div>
+        <div class="caveat bad">hidden flairs are invisible until scrolled (tolerable: flair is unranked decoration); thin scrollbar steals ~7px of the 8th column</div>
+      </div>
+      <div>
+        <div class="cell-label">B-H · HORIZONTAL STRIPS (16 FAMILIES / 24 FLAIRS) — <span style="color:var(--green)">CHOSEN</span></div>
+        <div id="p-bh"></div>
+        <div class="caveat ok">height truly fixed regardless of any axis's growth; color scrolls the way it grows — family columns slide, both shade rows always visible; half-cut column at the right edge is its own affordance; swipe-friendly on coarse pointers</div>
+        <div class="caveat bad">horizontal mouse wheel needs shift/trackpad — second-class on exactly the fine-pointer surfaces this picker lives on; macOS auto-hides scrollbars so overflow is silent without the cut cell; flair as column-flow pairs lose their wrap-grid reading order</div>
+      </div>
+    </div>
+    <p class="note" style="margin-top:20px"><em>Recommendation:</em> per-axis, matching geometry —
+    <b>ship B with no scrollbars today</b> (nothing overflows at real counts), and give each band a
+    cap for the day it's crossed: <b>flair → vertical</b> (2 rows visible + peek + edge fade,
+    activating past 16 cells), <b>color → horizontal</b> (both shade rows fixed, family columns
+    slide — only if the family vocabulary ever grows past 10, which the hue-discrimination design
+    argues against), <b>marker → never</b>. One direction per band, never both; the panel's
+    footprint becomes a constant ~242 × ~230px.</p>
+    <p class="hint">KEYBOARD: ARROW MOVES CALL scrollIntoView({block:"nearest"}) — THE CAP IS INVISIBLE TO THE GRID MODEL · COARSE POINTERS: SAME CAPS, TOUCH SCROLL FREE</p>
+    <p class="note" style="margin-top:14px"><span style="color:var(--green)">DECIDED: B-H.</span>
+    The height-constancy and swipe story won over the wheel-modifier concern; the cut-cell +
+    edge-fade affordance carries the discovery burden. Iteration 3 below refines it.</p>
+  </section>
+
+  <!-- ═══════════ B ITERATION 3 · B-H REFINED — MARKER GROWTH + MOTION SPLIT ═══════════ -->
+  <section>
+    <div class="shead"><span class="br">[</span> <b>B · ITERATION 3</b> · B-H REFINED — MARKER GROWTH + THE MOTION SPLIT <span class="br">]</span></div>
+    <p class="note"><em>The channel rule:</em> <b>markers mean something and hold still; flairs mean
+    nothing and move.</b> Markers predate flairs, so motion was the only spice available when they
+    were designed — now it blurs the axis boundary. Under the rule: dashed's data rain migrates to
+    a <code>rain</code> <em>flair</em> (same CSS, now user-composable with ANY marker); dashed
+    keeps its static stripe; double's selection-gated scanline crawl retires (it was feedback, not
+    decoration — if missed it returns as a <code>scan</code> flair). The STATIC row textures
+    (scanlines, hazard wedge) stay marker-paired: they do discrimination work, which is half the
+    mushiness fix.</p>
+    <p class="note"><em>Why markers felt mushy:</em> five <em>weights</em> of one device (a left
+    stripe) encode <em>phases</em> — an ordinal form for categorical meaning. The eye ranks
+    dotted&nbsp;&lt;&nbsp;thick but can't recall "dashed&nbsp;=&nbsp;working" without a legend. And
+    half the states people reach for are machine-derivable: "agent working" is the status dot's
+    job (<code>@rk_agent_state</code>, Constitution X — derivation wins), and a hand-set copy of
+    it goes stale within minutes, poisoning trust in the whole axis. So the growth rules:
+    <b>(1)</b> new markers add <em>pattern classes</em>, never another weight between two existing
+    ones; <b>(2)</b> the suggested semantics cover only states <em>the human alone knows</em> —
+    discussion pending, I'm done, can be deleted — never agent lifecycle.</p>
+    <div class="board">
+      <div style="flex-basis:100%">
+        <div class="cell-label">MARKER VOCABULARY · 5 SHIPPED + 3 CATEGORICAL CANDIDATES (ALL STATIC · SUGGESTED CONVENTIONS ONLY, NO WIRING)</div>
+        <div class="specs" id="specs3"></div>
+      </div>
+      <div>
+        <div class="cell-label">B-H REFINED · 190px · 8 MARKERS · RAIN AS FLAIR</div>
+        <div id="p-b3"></div>
+        <div class="caveat ok">narrower color selector (~7 of 10 families visible, strip scrolls); marker strip absorbs growth for free — same device as every band; rain lives in flair, composable with any marker; every cell static except the flair axis</div>
+        <div class="caveat bad">marker strip now scrolls slightly at 8 states — semantic states hidden behind a scroll are worse than hidden decoration, so the marker budget should stay ≤ what ~176px shows (9 cells); below-cut families need one swipe</div>
+      </div>
+    </div>
+    <p class="note" style="margin-top:20px"><em>Migration notes:</em> existing stored
+    <code>dashed</code> markers go still (visual change, no data change); users who liked
+    working=rain set dashed&nbsp;+&nbsp;rain — expressible for the first time since the axes are
+    independent. The crawl's removal deletes selection-gated motion from
+    <code>globals.css</code>; picker cells become fully static except flair cells, which keep
+    motion because motion IS the flair identity.</p>
+    <p class="hint">REAL-IMPL NOTES: NEW STRIPE PERIODS MUST DIVIDE THE 12px WELD MODULE (HATCH RETUNED) · MARKER NAMES SURFACE IN TOOLTIPS + THE COMBO CAPTION · CONVENTIONS STAY LABEL-ONLY — NO @rk_agent_state WIRING</p>
+  </section>
+
+  <!-- ═══════════ B ITERATION 4 · ∅ IN HEADERS + IN-PROGRESS REMAP + SCAN FLAIR ═══════════ -->
+  <section>
+    <div class="shead"><span class="br">[</span> <b>B · ITERATION 4</b> · ∅ IN HEADERS · IN-PROGRESS REMAP · SCAN FLAIR <span class="br">]</span></div>
+    <p class="note">Three changes. <b>(1) ∅ moves into each band's header</b> — the header names
+    the axis, the header clears it. Every strip drops a column: at the same 190px, color shows an
+    extra family and the 8-state marker strip <em>stops scrolling entirely</em> (8 × 21px = 165px
+    fits). <b>(2) The in-progress remap.</b> "In progress" is the state that matters most, so it
+    gets the strongest iconic form: <code>hatch</code> — 45° construction-tape diagonals — becomes
+    THE in-progress marker, and the hazard wedge texture migrates to it (it was culturally
+    backwards on completed: hazard stripes mean <em>work zone</em>, not <em>done</em>).
+    <code>thick</code> = completed goes clean and quiet — the most resting state gets the quietest
+    treatment. <code>dashed</code> demotes to a generic mid-weight label; <code>double</code>
+    releases its scanlines to the flair axis and stays a plain twin stripe. Net: markers carry
+    exactly ONE texture pairing (hatch ↔ hazard), which is iconic rather than memorized.
+    <b>(3) <code>scan</code> ships as a flair</b> — scanlines + the crawl + the refresh band,
+    now always-on: as a flair the old selection-gating dissolves, since flair motion is always-on
+    by definition. In-progress is now conveyed redundantly by design:
+    hatch marker (the fact) + optional rain/scan flair (amplification) + the status dot (machine
+    truth) — three channels that agree.</p>
+    <div class="board">
+      <div style="flex-basis:100%">
+        <div class="cell-label">REMAPPED MARKER VOCABULARY (SUGGESTED CONVENTIONS ONLY, NO WIRING)</div>
+        <div class="specs" id="specs4"></div>
+      </div>
+      <div>
+        <div class="cell-label">CLEAR-CELL GLYPH · ∅ (SHIPPED) vs − NEUTRAL vs − RED</div>
+        <div id="p-glyphs"></div>
+        <div class="caveat ok">− neutral: reads as an action verb, pairs with ✕ (close) in the same treatment — header verbs vs strip values</div>
+        <div class="caveat bad">− red: collides with the kill/danger vocabulary — clearing a label is cheap and reversible, red over-signals; hover-accent here is green, not red</div>
+        <div class="caveat">∅ keeps ONE job: the state token for "unset" in the combo caption (action glyph ≠ state symbol)</div>
+      </div>
+      <div>
+        <div class="cell-label">B-H · − CLEAR IN HEADERS · DEFAULT: teal · hatch · scan</div>
+        <div id="p-b4"></div>
+        <div class="caveat ok">one column saved per band; marker strip fits all 8 states unscrolled; per-axis clear is where the eye already is when scanning band names; hatch + hazard self-decodes as "under construction"</div>
+        <div class="caveat bad">the − clear cell is farther from the cells (more mouse travel for the clear-one-axis flow); double loses its scanline identity and is now solid's twin at a squint; the −-selected ring in a header is a new pattern to spec (ring = axis unset)</div>
+      </div>
+    </div>
+    <p class="hint">KEYBOARD: THE − CLEAR CELL JOINS THE GRID AS ROW 0 OF EACH BAND (ArrowUp FROM A STRIP'S FIRST ROW LANDS ON ITS HEADER −) · CLEAR-COLOR ALSO CLEARS NOTHING ELSE — AXES STAY INDEPENDENT</p>
+  </section>
+
+  <!-- ═══════════ B ITERATION 5 · CLEAR-ALL ═══════════ -->
+  <section>
+    <div class="shead"><span class="br">[</span> <b>B · ITERATION 5</b> · UNSET EVERYTHING — THE PANEL-LEVEL − <span class="br">]</span></div>
+    <p class="note">One more verb: <em>unset everything</em>. It extends the scope grammar the
+    minus already established — <b>a − clears whatever its row names</b>. A band header's − clears
+    that axis; the <em>panel header row</em> (the preview + ✕) now carries its own −, and its row
+    names the whole label — so it clears color, marker, and flair in one click. Same treatment
+    (secondary → primary hover), same ring rule at its scope: the panel − rings when
+    <em>every</em> axis is unset. Keyboard: the stack's top row becomes two cells, [−] and [✕].</p>
+    <div class="board">
+      <div>
+        <div class="cell-label">B-H · PANEL − = CLEAR ALL · TRY IT (SET A FEW, THEN THE TOP −)</div>
+        <div id="p-b5"></div>
+        <div class="caveat ok">no new vocabulary — the same verb at a wider scope; one click to a clean row; cheap to undo since selection never dismisses (re-pick immediately); ring = "label fully unset" gives the panel a readable rest state</div>
+        <div class="caveat bad">sits one cell from ✕ — a misclick clears three axes instead of closing (mitigated: gap + hover tip, and the picker stays open so recovery is instant); discoverable only by tooltip/position until used once</div>
+      </div>
+    </div>
+    <p class="note" style="margin-top:20px"><em>Rejected shapes:</em> a "Clear all" text row
+    (heavier chrome, breaks the glyph grammar the headers just established); hanging clear-all on
+    the caption (the caption is STATE, never action); long-press on a band − (invisible,
+    non-obvious, hostile to keyboard).</p>
+    <p class="hint">WRITE SEAM: CLEAR-ALL EMITS THE THREE EXISTING CLEARS (onSelect(null) · onSelectMarker("") · onSelectFlair("")) — NO NEW API; CALLERS WITHOUT A BAND JUST DON'T RECEIVE THAT AXIS</p>
+  </section>
+
+  <!-- ═══════════ STUDY · THIRD SHADE (LIGHT) ═══════════ -->
+  <section>
+    <div class="shead"><span class="br">[</span> <b>STUDY</b> · A THIRD SHADE — {family}-light <span class="br">]</span></div>
+    <p class="note">Proposal: every family gains a <code>light</code> shade — <code>mean-L + 0.14</code>,
+    the mirror of dark's <code>− 0.14</code>, stored <code>orange-light</code> (additive, zero
+    migration, same write seam as dark). The B-H band absorbs it as a one-time third row (+21px;
+    light on top, dark at the bottom — the rows ARE the lightness axis). The question that decides
+    it is not mechanics but <em>row-scale discriminability</em>: rows wear color as a 14%-blend
+    tint + a guarded stripe, which compresses lightness differences. Judge the stacks below —
+    every swatch and row tint is computed by the real pipeline.</p>
+    <div class="board">
+      <div>
+        <div class="cell-label">3-SHADE COLOR BAND (LIGHT / NORMAL / DARK ROWS) · LIVE</div>
+        <div id="p-b6"></div>
+        <div class="caveat ok">one-time +21px; scroll model untouched; shade-as-ramp gives shades a JOB — family = project, shade = sub-grouping (worktrees light, archive dark)</div>
+        <div class="caveat bad">three adjacent same-family swatches lean harder on the ring+✓ disambiguation; caption still names family only — the shade must stay legible from the preview</div>
+      </div>
+      <div>
+        <div class="cell-label">ROW-SCALE LEGIBILITY — THE GATE (RESTING TINT + GUARDED STRIPE)</div>
+        <div id="shade-rows"></div>
+        <div class="caveat">if light-vs-normal doesn't separate here, the third shade adds chooser complexity with zero added distinguishability</div>
+      </div>
+    </div>
+    <p class="note" style="margin-top:20px"><em>Open flags:</em> light themes invert the headroom —
+    <code>+0.14</code> pushes toward a light background, so the contrast guard (today: raises L
+    only) needs a downward twin before light shades ship; and <code>slate</code> needs a
+    deliberate call — three near-neutral grays are either a tidy archive ramp or indistinguishable
+    mush. This page renders default-dark only; the light-theme check needs the real app.</p>
+  </section>
+
+  <!-- ═══════════ APPROACH C ═══════════ -->
+  <section>
+    <div class="shead"><span class="br">[</span> <b>APPROACH C</b> · SEGMENTED TABS <span class="br">]</span> <span class="park">PARKED</span></div>
+    <p class="note">One axis at a time behind a segment strip; the composite preview stays
+    persistent so cross-axis combos still read. Smallest footprint at any flair count.</p>
+    <div class="board">
+      <div>
+        <div class="cell-label">TABBED · PREVIEW PERSISTENT</div>
+        <div id="p-c"></div>
+        <div class="caveat ok">shortest panel; flair can grow forever; axis names are the navigation itself</div>
+        <div class="caveat bad">hides two axes at all times — combo iteration (the reason selection never dismisses) now costs a tab-switch per axis; more focus states to spec; slower for the common one-click color change</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════ APPROACH D ═══════════ -->
+  <section>
+    <div class="shead"><span class="br">[</span> <b>APPROACH D</b> · THREE LABELED COLUMNS <span class="br">]</span> <span class="park">PARKED</span></div>
+    <p class="note">Every axis visible at once, side by side under the preview — headers make the
+    hairlines self-explaining. The widest layout, the shortest one that still shows everything.</p>
+    <div class="board">
+      <div>
+        <div class="cell-label">COLUMNAR · ALL AXES AT ONCE</div>
+        <div id="p-d"></div>
+        <div class="caveat ok">one glance = whole vocabulary; hairlines inherited from today's design language</div>
+        <div class="caveat bad">~300px wide — tight against the sidebar flyout seam and the coarse-pointer rail cards; flair growth extends DOWN only its own column, leaving dead space under marker; two grids of different heights to arrow through</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════ NAMING ═══════════ -->
+  <section>
+    <div class="shead"><span class="br">[</span> <b>NAMING</b> · THE PANEL AND ITS AXES <span class="br">]</span></div>
+    <p class="note">The combo already has an incumbent name — <em>Label</em> — carried by the
+    palette action (<code>Window: Label</code>), the aria-label ("Label picker"), the wiki study,
+    and the memory docs. The tension: <code>themes.ts</code> documents flair as "DECORATION ONLY —
+    unlike the marker's label role".</p>
+    <table class="nm">
+      <tr><th>PANEL NAME</th><th>FOR</th><th>AGAINST</th></tr>
+      <tr><td>Label <span class="y">·incumbent</span></td>
+          <td class="y">zero churn — palette, aria, tests, wiki, memory all say it; "how this row is labeled" covers color + marker naturally</td>
+          <td class="n">overclaims flair, which is documented as pure decoration</td></tr>
+      <tr><td>Look</td>
+          <td class="y">honest umbrella (identity + decoration); singular, terminal-y; "Window: Look" scans</td>
+          <td class="n">rename churn across 6+ surfaces; loses the semantic hint that marker states carry conventions (working/completed)</td></tr>
+      <tr><td>Style</td><td></td><td class="n">collides with the theme system and CSS vocabulary</td></tr>
+      <tr><td>Combo / Looks</td><td></td><td class="n">vague / reads as a menu item, not a noun the docs can own</td></tr>
+    </table>
+    <p class="note"><em>Recommendation:</em> keep <b>Label</b> as the panel name; spend the effort
+    naming the <em>axes</em> in-panel instead — <code>color</code> · <code>marker</code> ·
+    <code>flair</code>, exactly the identifiers the code, backend validators, and tmux options
+    (<code>@rk_color</code>-family / <code>@rk_marker</code> / <code>@rk_flair</code>) already use.
+    If flair's growth makes it feel first-class enough to demand an honest umbrella, <b>Look</b> is
+    the fallback — decide before %550's states ship user-facing copy.</p>
+  </section>
+
+  <div class="footer-note">
+    <b>Cross-layer checklist before any of this ships:</b> backend flair closed set + error copy ·
+    picker keyboard grid rewrite (GRID_ROWS/MARKER_CELLS 1:1 pairing assertion dies with the column) ·
+    swatch-popover unit tests + e2e chrome assertions · flair tooltips need real names at 10 states ·
+    coarse-pointer rail-card reuse (width budget) · reduced-motion gate ordering ·
+    <code>Window: Label</code> palette copy if the panel is renamed.
+    <ol class="plain">
+      <li><b>Flair semantics decision rides this redesign:</b> if flair stays decoration-only, the
+      preview row's caption should still show it last and lightest; if it joins the label contract,
+      the naming table above tilts toward Look.</li>
+      <li><b>Preview-cell motion policy:</b> today marker cells animate always-on treatments (dash
+      rain) but not selection motion. 15 animated flair cells at once is a lot of pixels moving —
+      approach B can afford STATIC flair cells because the composite preview carries the motion.</li>
+    </ol>
+  </div>
+</div>
+
+<script>
+/* ═══ OKLCH pipeline — faithful port of themes.ts (default-dark) ═══ */
+const BG = "#0f1117", FG = "#e8eaf0";
+const ANSI = ["#0f1117","#e06c75","#22c55e","#e8a84f","#5b8af0","#c678dd","#56b6c2","#e8eaf0","#7a8394"];
+const s2l = c => { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+const l2s = c => { const v = c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055; return Math.round(Math.min(1, Math.max(0, v)) * 255); };
+const h2r = h => [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
+const r2h = (r,g,b) => "#" + [r,g,b].map(v => v.toString(16).padStart(2,"0")).join("");
+function hexToOklab(hex) {
+  const [r8,g8,b8] = h2r(hex), r = s2l(r8), g = s2l(g8), b = s2l(b8);
+  const l = Math.cbrt(0.4122214708*r + 0.5363325363*g + 0.0514459929*b);
+  const m = Math.cbrt(0.2119034982*r + 0.6806995451*g + 0.1073969566*b);
+  const s = Math.cbrt(0.0883024619*r + 0.2817188376*g + 0.6299787005*b);
+  return { L: 0.2104542553*l + 0.7936177850*m - 0.0040720468*s,
+           a: 1.9779984951*l - 2.4285922050*m + 0.4505937099*s,
+           b: 0.0259040371*l + 0.7827717662*m - 0.8086757660*s };
+}
+function oklabToLin({L,a,b}) {
+  const l = (L + 0.3963377774*a + 0.2158037573*b) ** 3;
+  const m = (L - 0.1055613458*a - 0.0638541728*b) ** 3;
+  const s = (L - 0.0894841775*a - 1.2914855480*b) ** 3;
+  return { lr:  4.0767416621*l - 3.3077115913*m + 0.2309699292*s,
+           lg: -1.2684380046*l + 2.6097574011*m - 0.3413193965*s,
+           lb: -0.0041960863*l - 0.7034186147*m + 1.7076147010*s };
+}
+const oklabToHex = lab => { const {lr,lg,lb} = oklabToLin(lab); return r2h(l2s(Math.max(0,lr)), l2s(Math.max(0,lg)), l2s(Math.max(0,lb))); };
+const oklchToHex = (L,C,h) => { const r = h*Math.PI/180; return oklabToHex({L, a: C*Math.cos(r), b: C*Math.sin(r)}); };
+function inGamut(L,C,h) {
+  const r = h*Math.PI/180, {lr,lg,lb} = oklabToLin({L, a: C*Math.cos(r), b: C*Math.sin(r)});
+  return [lr,lg,lb].every(c => c >= -1e-4 && c <= 1 + 1e-4);
+}
+function oklchGamut(L,C,h) { let c = C; for (let i = 0; i < 20 && !inGamut(L,c,h); i++) c *= 0.92; return oklchToHex(L,c,h); }
+let sumL = 0, sumC = 0;
+for (let i = 1; i <= 6; i++) { const l = hexToOklab(ANSI[i]); sumL += l.L; sumC += Math.hypot(l.a, l.b); }
+const STAT = { L: sumL/6, C: Math.max(sumC/6, 0.05) };
+const FAMILIES = [
+  {name:"red",hue:25},{name:"orange",hue:55},{name:"amber",hue:90},{name:"olive",hue:120},
+  {name:"green",hue:150},{name:"teal",hue:185},{name:"blue",hue:250},{name:"purple",hue:290},
+  {name:"magenta",hue:330},{name:"slate",hue:250,neutral:true},
+];
+/* synthetic extra families for the horizontal-scroll demo only */
+const EXTRA_FAMILIES = [
+  {name:"rose",hue:5},{name:"coral",hue:40},{name:"lime",hue:135},
+  {name:"cyan",hue:205},{name:"indigo",hue:268},{name:"pink",hue:310},
+];
+const ALL_FAMILIES = FAMILIES.concat(EXTRA_FAMILIES);
+const famHex = (f, L) => oklchGamut(L, f.neutral ? Math.min(STAT.C*0.2, 0.025) : STAT.C, f.hue);
+const saturate = (hex, k) => { const l = hexToOklab(hex); l.a *= k; l.b *= k; return oklabToHex(l); };
+const blend = (a, b, r) => { const A = h2r(a), B = h2r(b); return r2h(...A.map((v,i) => Math.round(v*r + B[i]*(1-r)))); };
+const tints = src => { const s = saturate(src, 1.5); return { base: blend(s, BG, 0.14), hover: blend(s, BG, 0.22), selected: blend(s, BG, 0.40) }; };
+const lum = hex => { const [r,g,b] = h2r(hex).map(s2l); return 0.2126*r + 0.7152*g + 0.0722*b; };
+const contrast = (a,b) => { const [x,y] = [lum(a), lum(b)].sort((p,q) => q-p); return (x+0.05)/(y+0.05); };
+function guard(src) { const l = hexToOklab(src); let hex = src;
+  while (contrast(hex, BG) < 2.2 && l.L < 0.85) { l.L += 0.04; hex = oklabToHex(l); } return hex; }
+
+/* color value ("blue" | "blue-dark" | null) → {tint, border} */
+const GRAY = { tint: tints(ANSI[8]), border: guard(ANSI[8]) };
+function colorInfo(value) {
+  if (!value) return GRAY;
+  const dark = value.endsWith("-dark"), light = value.endsWith("-light");
+  const base = dark ? value.slice(0, -5) : light ? value.slice(0, -6) : value;
+  const f = ALL_FAMILIES.find(f => f.name === base);
+  if (!f) return GRAY;
+  const src = famHex(f, dark ? STAT.L - 0.14 : light ? STAT.L + 0.14 : STAT.L);
+  return { tint: tints(src), border: guard(src) };
+}
+const PICKER_VALUES = FAMILIES.flatMap(f => [f.name, f.name + "-dark"]);
+
+const MARKERS = ["","dotted","dashed","solid","double","thick"];
+const EGG_FOR = { dashed: "egg-rain", double: "egg-scan", thick: "egg-hazard" };
+const FLAIRS_SHIPPED = ["nyan","naruto","onepiece"];
+/* landed in #659 (Universal Flair Catalogue Refresh) — real CSS embedded above */
+const FLAIRS_INCOMING = ["pacman","matrix","aquarium","roadrunner","invaders","cube","warp"];
+const FLAIRS_REAL = FLAIRS_SHIPPED.concat(FLAIRS_INCOMING);
+/* cube/warp animate transforms on CHILD SPANS (FlairOverlay contract) */
+function flairSpan(parent, state) {
+  const s = el("span", "egg rk-flair-" + state, parent);
+  if (state === "cube") s.innerHTML = '<span class="rk-cube-x"><span class="rk-cube-y"><span class="rk-cube">' + '<span class="rk-cube-face"></span>'.repeat(6) + "</span></span></span>";
+  if (state === "warp") s.innerHTML = '<span class="rk-warp-plane"></span>'.repeat(3);
+  return s;
+}
+/* motion migrated off the marker axis (iterations 3+4): rain/scan as flairs */
+const FLAIRS_FX = { rain: "egg-rain", scan: "egg-scanfx" };
+function stripeStyle(el, state, color) {
+  el.style.cssText = "";
+  if (state === "dotted") { el.style.backgroundImage = `linear-gradient(to bottom, ${color} 0 3px, transparent 3px 6px)`; el.style.backgroundSize = "3px 6px"; el.style.backgroundRepeat = "repeat-y"; }
+  else if (state === "dashed") { el.style.backgroundImage = `linear-gradient(to bottom, ${color} 0 8px, transparent 8px 12px)`; el.style.backgroundSize = "3px 12px"; el.style.backgroundRepeat = "repeat-y"; }
+  else if (state === "solid") el.style.borderLeft = `3px solid ${color}`;
+  else if (state === "double") el.style.borderLeft = `6px double ${color}`;
+  else if (state === "thick") el.style.borderLeft = `6px solid ${color}`;
+  /* iteration-3 categorical candidates — pattern CLASSES, not new weights */
+  else if (state === "pipe") el.style.borderLeft = `1px solid ${color}`;
+  else if (state === "hatch") { el.style.backgroundImage = `repeating-linear-gradient(45deg, ${color} 0 2px, transparent 2px 6px)`; el.style.backgroundSize = "6px 12px"; el.style.backgroundRepeat = "repeat-y"; }
+  else if (state === "block") { el.style.backgroundImage = `linear-gradient(to bottom, ${color} 0 9px, transparent 9px 12px)`; el.style.backgroundSize = "6px 12px"; el.style.backgroundRepeat = "repeat-y"; }
+}
+
+function el(tag, cls, parent) { const e = document.createElement(tag); if (cls) e.className = cls; if (parent) parent.appendChild(e); return e; }
+
+/* ═══ shared cell builders — each mock owns a state {color, marker, flair} ═══ */
+function swatchCell(mock, value) {
+  const b = el("button", "cell");
+  b.title = value;
+  const info = colorInfo(value);
+  b.style.backgroundColor = info.tint.selected;
+  if (mock.state.color === value) { b.classList.add("sel"); el("span", "ck", b).textContent = "✓"; }
+  b.onclick = () => { mock.state.color = value; mock.render(); };
+  return b;
+}
+function clearColorCell(mock, wide) {
+  const b = el("button", wide ? "clearbtn" : "cell");
+  if (wide) { b.textContent = "Clear"; b.style.gridColumn = "span 3"; }
+  else { b.title = "no color"; el("span", "nul", b).textContent = "∅"; }
+  if (mock.state.color === null) b.classList.add("sel");
+  b.onclick = () => { mock.state.color = null; mock.render(); };
+  return b;
+}
+function markerCell(mock, state, eggMap) {
+  const eggs = eggMap || EGG_FOR;
+  const b = el("button", "cell");
+  b.title = state || "none";
+  const info = colorInfo(mock.state.color);
+  if (state === "") { el("span", "nul", b).textContent = "∅"; }
+  else {
+    b.style.backgroundColor = info.tint.base;
+    b.style.setProperty("--mkc", info.border);
+    if (eggs[state]) el("span", "egg " + eggs[state], b);
+    const s = el("span", "stripe", b);
+    stripeStyle(s, state, info.border);
+    s.style.position = "absolute"; s.style.top = 0; s.style.bottom = 0; s.style.left = "2px"; s.style.width = "auto"; s.style.right = 0;
+  }
+  if (mock.state.marker === state) b.classList.add("sel");
+  b.onclick = () => { mock.state.marker = state; mock.render(); };
+  return b;
+}
+function flairCell(mock, state, opts) {
+  const live = !opts || !opts.static;
+  const b = el("button", "cell");
+  b.title = state || "none";
+  const info = colorInfo(mock.state.color);
+  if (state === "") el("span", "nul", b).textContent = "∅";
+  else {
+    b.style.backgroundColor = info.tint.base;
+    if (FLAIRS_FX[state] && live) { b.style.setProperty("--mkc", info.border); el("span", "egg " + FLAIRS_FX[state], b); }
+    else if (FLAIRS_REAL.includes(state) && live) flairSpan(b, state);
+    else if (FLAIRS_REAL.includes(state)) { b.classList.add("fs"); el("span", "nul", b).textContent = state[0]; }
+    else { b.classList.add("fs", "fs-" + ((opts && opts.glyph) || state)); }
+  }
+  if (mock.state.flair === state) b.classList.add("sel");
+  b.onclick = () => { mock.state.flair = state; mock.render(); };
+  return b;
+}
+function ghostCell(n) {
+  const b = el("span", "cell ghost");
+  b.title = "+" + n + " more (synthetic)";
+  el("span", "nul", b).textContent = "…";
+  return b;
+}
+function previewRow(mock, eggMap) {
+  const eggs = eggMap || EGG_FOR;
+  const info = colorInfo(mock.state.color);
+  const r = el("div", "prev");
+  r.style.backgroundColor = mock.state.color ? info.tint.base : "transparent";
+  r.style.setProperty("--mkc", info.border);
+  if (eggs[mock.state.marker]) el("span", "egg " + eggs[mock.state.marker], r);
+  if (mock.state.flair && FLAIRS_FX[mock.state.flair]) el("span", "egg " + FLAIRS_FX[mock.state.flair], r);
+  else if (mock.state.flair && FLAIRS_REAL.includes(mock.state.flair)) flairSpan(r, mock.state.flair);
+  const g = el("span", "gutter", r);
+  if (mock.state.marker) { const s = el("span", "stripe", g); stripeStyle(s, mock.state.marker, info.border); }
+  el("span", "name", r).textContent = "blustery-raven";
+  return r;
+}
+function comboCaption(mock) {
+  const d = el("div");
+  d.style.cssText = "font-size:9px; letter-spacing:.08em; color:var(--fg3); text-align:right; margin:2px 0 2px;";
+  d.textContent = (mock.state.color || "∅") + " · " + (mock.state.marker || "∅") + " · " + (mock.state.flair || "∅");
+  return d;
+}
+function axisLabel(text, first) {
+  const d = el("div", "axis" + (first ? " first" : ""));
+  d.innerHTML = '<span class="br">[</span> ' + text + ' <span class="br">]</span>';
+  return d;
+}
+function mkMock(id, initial, renderFn) {
+  const mock = { state: Object.assign({ color: "blue", marker: "dashed", flair: "nyan" }, initial), root: document.getElementById(id) };
+  mock.render = () => { mock.root.innerHTML = ""; mock.root.appendChild(renderFn(mock)); };
+  mock.render();
+  return mock;
+}
+
+/* ═══ shipped skeleton (also serves the grown + labeled variants) ═══ */
+function shippedSkeleton(mock, opts) {
+  const flairs = opts.flairs, labeled = opts.labeled;
+  const p = el("div", "picker");
+  if (labeled) {
+    const hd = el("div", null, p);
+    hd.style.cssText = "display:flex; margin-bottom:4px;";
+    const sp = el("div", null, hd); sp.style.cssText = "width:46px; flex:none;";
+    const lab = axisLabel("color", true); lab.style.margin = "0"; hd.appendChild(lab);
+  }
+  const row = el("div", "prow", p);
+  const mwrap = el("div", "prow", row);
+  if (labeled) {
+    const v = el("div", "vaxis", mwrap); v.textContent = "marker"; v.style.marginRight = "3px";
+  }
+  const mcol = el("div", "mcol", mwrap);
+  MARKERS.forEach(s => mcol.appendChild(markerCell(mock, s)));
+  el("div", "hair", row);
+  const grid = el("div", "cgrid", row);
+  grid.appendChild(clearColorCell(mock, true));
+  const x = el("button", "xbtn", grid); x.textContent = "✕"; x.title = "close";
+  PICKER_VALUES.forEach(v => grid.appendChild(swatchCell(mock, v)));
+  const div = el("div", null, grid); div.style.cssText = "grid-column: span 4; height: 1px; background: var(--border); margin: 2px 0;";
+  if (labeled) {
+    const fl = el("div", null, grid); fl.style.gridColumn = "span 4";
+    fl.appendChild(axisLabel("flair"));
+    fl.querySelector(".axis").style.margin = "0 0 2px";
+  }
+  const cells = [flairCell(mock, "")];
+  flairs.forEach(f => cells.push(flairCell(mock, f)));
+  if (opts.ghosts) for (let i = 0; i < opts.ghosts; i++) cells.push(ghostCell(3 - i));
+  cells.forEach(c => grid.appendChild(c));
+  return p;
+}
+mkMock("p-now", { flair: "nyan" }, m => shippedSkeleton(m, { flairs: FLAIRS_SHIPPED }));
+mkMock("p-grown", { color: "orange", flair: "pacman" }, m => shippedSkeleton(m, { flairs: FLAIRS_SHIPPED.concat(FLAIRS_INCOMING) }));
+mkMock("p-a", { color: "green", marker: "thick", flair: "invader" }, m => shippedSkeleton(m, { flairs: FLAIRS_SHIPPED.concat(FLAIRS_INCOMING), labeled: true }));
+
+/* ═══ approach B — bands + composite preview ═══ */
+mkMock("p-b", {}, m => {
+  const p = el("div", "picker");
+  p.style.width = "242px";
+  const hd = el("div", null, p); hd.style.cssText = "display:flex; align-items:center; gap:6px;";
+  const pr = previewRow(m); pr.style.flex = "1"; pr.style.marginBottom = "0"; hd.appendChild(pr);
+  const x = el("button", "xbtn", hd); x.textContent = "✕"; x.title = "close";
+  p.appendChild(comboCaption(m));
+  p.appendChild(axisLabel("color"));
+  const crow = el("div", null, p); crow.style.cssText = "display:flex; gap:3px; align-items:stretch;";
+  const nul = clearColorCell(m, false); nul.style.height = "39px"; crow.appendChild(nul);
+  const cg = el("div", null, crow);
+  cg.style.cssText = "display:grid; grid-template-columns: repeat(10, 18px); grid-auto-flow: column; grid-template-rows: 18px 18px; gap: 3px;";
+  FAMILIES.forEach(f => { cg.appendChild(swatchCell(m, f.name)); cg.appendChild(swatchCell(m, f.name + "-dark")); });
+  p.appendChild(axisLabel("marker"));
+  const mrow = el("div", null, p); mrow.style.cssText = "display:flex; gap:3px;";
+  MARKERS.forEach(s => mrow.appendChild(markerCell(m, s)));
+  p.appendChild(axisLabel("flair"));
+  const fg = el("div", null, p);
+  fg.style.cssText = "display:grid; grid-template-columns: repeat(8, 18px); gap: 3px;";
+  fg.appendChild(flairCell(m, ""));
+  FLAIRS_SHIPPED.forEach(f => fg.appendChild(flairCell(m, f, { static: false })));
+  FLAIRS_INCOMING.forEach(f => fg.appendChild(flairCell(m, f)));
+  return p;
+});
+
+/* ═══ approach C — segmented tabs, persistent preview ═══ */
+mkMock("p-c", { tab: "color", color: "magenta", marker: "double", flair: "onepiece" }, m => {
+  const p = el("div", "picker");
+  p.style.width = "242px";
+  const hd = el("div", null, p); hd.style.cssText = "display:flex; align-items:center; gap:6px;";
+  const pr = previewRow(m); pr.style.flex = "1"; pr.style.marginBottom = "0"; hd.appendChild(pr);
+  const x = el("button", "xbtn", hd); x.textContent = "✕";
+  p.appendChild(comboCaption(m));
+  const tabs = el("div", "tabs", p); tabs.style.marginTop = "2px";
+  [["color", 21], ["marker", 6], ["flair", 11]].forEach(([t, n]) => {
+    const b = el("button", "tab" + (m.state.tab === t ? " on" : ""), tabs);
+    b.innerHTML = t.toUpperCase() + ' <span class="cnt">' + n + "</span>";
+    b.onclick = () => { m.state.tab = t; m.render(); };
+  });
+  const body = el("div", null, p);
+  if (m.state.tab === "color") {
+    body.style.cssText = "display:flex; gap:3px; align-items:stretch;";
+    const nul = clearColorCell(m, false); nul.style.height = "39px"; body.appendChild(nul);
+    const cg = el("div", null, body);
+    cg.style.cssText = "display:grid; grid-template-columns: repeat(10, 18px); grid-auto-flow: column; grid-template-rows: 18px 18px; gap: 3px;";
+    FAMILIES.forEach(f => { cg.appendChild(swatchCell(m, f.name)); cg.appendChild(swatchCell(m, f.name + "-dark")); });
+  } else if (m.state.tab === "marker") {
+    body.style.cssText = "display:flex; gap:3px;";
+    MARKERS.forEach(s => body.appendChild(markerCell(m, s)));
+  } else {
+    body.style.cssText = "display:grid; grid-template-columns: repeat(8, 18px); gap: 3px;";
+    body.appendChild(flairCell(m, ""));
+    FLAIRS_SHIPPED.forEach(f => body.appendChild(flairCell(m, f)));
+    FLAIRS_INCOMING.forEach(f => body.appendChild(flairCell(m, f)));
+  }
+  return p;
+});
+
+/* ═══ approach D — three labeled columns ═══ */
+mkMock("p-d", { color: "teal", marker: "solid", flair: "naruto" }, m => {
+  const p = el("div", "picker");
+  const hd = el("div", null, p); hd.style.cssText = "display:flex; align-items:center; gap:6px; margin-bottom: 2px;";
+  const pr = previewRow(m); pr.style.flex = "1"; pr.style.marginBottom = "0"; hd.appendChild(pr);
+  const x = el("button", "xbtn", hd); x.textContent = "✕";
+  p.appendChild(comboCaption(m));
+  const cols = el("div", "prow", p);
+  const c1 = el("div", null, cols);
+  c1.appendChild(axisLabel("color", true));
+  const cg = el("div", "cgrid", c1);
+  cg.appendChild(clearColorCell(m, true));
+  cg.appendChild(el("span"));
+  PICKER_VALUES.forEach(v => cg.appendChild(swatchCell(m, v)));
+  el("div", "hair", cols);
+  const c2 = el("div", null, cols);
+  c2.appendChild(axisLabel("marker", true));
+  const mc = el("div", "mcol", c2);
+  MARKERS.forEach(s => mc.appendChild(markerCell(m, s)));
+  el("div", "hair", cols);
+  const c3 = el("div", null, cols);
+  c3.appendChild(axisLabel("flair", true));
+  const fgD = el("div", null, c3);
+  fgD.style.cssText = "display:grid; grid-template-columns: repeat(4, 18px); gap: 3px;";
+  fgD.appendChild(flairCell(m, ""));
+  FLAIRS_SHIPPED.forEach(f => fgD.appendChild(flairCell(m, f)));
+  FLAIRS_INCOMING.forEach(f => fgD.appendChild(flairCell(m, f)));
+  return p;
+});
+
+/* ═══ iteration 2 — scroll-direction mocks (inflated vocabulary) ═══ */
+const GLYPHS = ["pacman", "invader", "roadrunner", "cube"];
+const FLAIRS_SYNTH = [];
+for (let i = 8; i <= 24; i++) FLAIRS_SYNTH.push({ name: "flair-" + String(i).padStart(2, "0"), glyph: GLYPHS[i % 4] });
+
+function labelHeader(m, p) {
+  const hd = el("div", null, p); hd.style.cssText = "display:flex; align-items:center; gap:6px;";
+  const pr = previewRow(m); pr.style.flex = "1"; pr.style.marginBottom = "0"; hd.appendChild(pr);
+  const x = el("button", "xbtn", hd); x.textContent = "✕"; x.title = "close";
+  p.appendChild(comboCaption(m));
+}
+function markerBand(m, p) {
+  p.appendChild(axisLabel("marker"));
+  const mrow = el("div", null, p); mrow.style.cssText = "display:flex; gap:3px;";
+  MARKERS.forEach(s => mrow.appendChild(markerCell(m, s)));
+}
+function allFlairCells(m) {
+  const cells = [flairCell(m, "")];
+  FLAIRS_SHIPPED.forEach(f => cells.push(flairCell(m, f)));
+  FLAIRS_INCOMING.forEach(f => cells.push(flairCell(m, f)));
+  FLAIRS_SYNTH.forEach(s => cells.push(flairCell(m, s.name, { glyph: s.glyph })));
+  return cells;
+}
+
+/* B-V: static 10x2 color band; flair capped at 2 rows + 6px peek, vertical scroll */
+mkMock("p-bv", { color: "purple", marker: "dotted", flair: "pacman" }, m => {
+  const p = el("div", "picker"); p.style.width = "242px";
+  labelHeader(m, p);
+  p.appendChild(axisLabel("color"));
+  const crow = el("div", null, p); crow.style.cssText = "display:flex; gap:3px; align-items:stretch;";
+  const nul = clearColorCell(m, false); nul.style.height = "39px"; crow.appendChild(nul);
+  const cg = el("div", null, crow);
+  cg.style.cssText = "display:grid; grid-template-columns: repeat(10, 18px); grid-auto-flow: column; grid-template-rows: 18px 18px; gap: 3px;";
+  FAMILIES.forEach(f => { cg.appendChild(swatchCell(m, f.name)); cg.appendChild(swatchCell(m, f.name + "-dark")); });
+  markerBand(m, p);
+  p.appendChild(axisLabel("flair"));
+  const wrap = el("div", "fadewrap", p);
+  const fv = el("div", "scrollv", wrap);
+  fv.style.maxHeight = "48px"; /* 2 rows + 3px gap + 6px peek of row 3 */
+  const fgv = el("div", null, fv);
+  fgv.style.cssText = "display:grid; grid-template-columns: repeat(8, 18px); gap: 3px;";
+  allFlairCells(m).forEach(c => fgv.appendChild(c));
+  requestAnimationFrame(() => { const s = fgv.querySelector(".cell.sel"); if (s) s.scrollIntoView({ block: "nearest" }); });
+  return p;
+});
+
+/* B-H: every growable band a fixed-height horizontal strip */
+mkMock("p-bh", { color: "cyan", marker: "dashed", flair: "onepiece" }, m => {
+  const p = el("div", "picker"); p.style.width = "242px";
+  labelHeader(m, p);
+  p.appendChild(axisLabel("color"));
+  const crow = el("div", null, p); crow.style.cssText = "display:flex; gap:3px; align-items:flex-start;";
+  const nul = clearColorCell(m, false); nul.style.height = "39px"; nul.style.flex = "none"; crow.appendChild(nul);
+  const chw = el("div", "fadewrap-h", crow); chw.style.cssText = "flex:1; min-width:0;";
+  const ch = el("div", "scrollh", chw);
+  const cg = el("div", null, ch);
+  cg.style.cssText = "display:grid; grid-auto-flow: column; grid-auto-columns: 18px; grid-template-rows: 18px 18px; gap: 3px; width: max-content;";
+  ALL_FAMILIES.forEach(f => { cg.appendChild(swatchCell(m, f.name)); cg.appendChild(swatchCell(m, f.name + "-dark")); });
+  markerBand(m, p);
+  p.appendChild(axisLabel("flair"));
+  const fhw = el("div", "fadewrap-h", p);
+  const fh = el("div", "scrollh", fhw);
+  const fgh = el("div", null, fh);
+  fgh.style.cssText = "display:grid; grid-auto-flow: column; grid-auto-columns: 18px; grid-template-rows: 18px 18px; gap: 3px; width: max-content;";
+  allFlairCells(m).forEach(c => fgh.appendChild(c));
+  requestAnimationFrame(() => {
+    [cg, fgh].forEach(g => { const s = g.querySelector(".cell.sel"); if (s) s.scrollIntoView({ inline: "nearest", block: "nearest" }); });
+  });
+  return p;
+});
+
+/* ═══ iteration 3 — B-H refined: 8 static markers, rain as flair, 190px ═══ */
+const MARKERS3 = ["", "pipe", "dotted", "dashed", "solid", "double", "thick", "hatch", "block"];
+/* static textures stay marker-paired; rain is GONE from dashed (now a flair) */
+const EGG_STATIC = { double: "egg-scan", thick: "egg-hazard" };
+const MARKER_SEMANTICS = [
+  ["pipe", "parked / can delete", true],
+  ["dotted", "draft / discussion pending", false],
+  ["dashed", "working (now static)", false],
+  ["solid", "active", false],
+  ["double", "review / needs me", false],
+  ["thick", "completed", false],
+  ["hatch", "waiting on external", true],
+  ["block", "archived / frozen", true],
+];
+function buildSpecs(hostId, semantics, eggMap, famName) {
+  const host = document.getElementById(hostId);
+  const info = colorInfo(famName);
+  semantics.forEach(([state, hint, isNew]) => {
+    const s = el("div", "spec", host);
+    const chip = el("div", "chip", s);
+    chip.style.backgroundColor = info.tint.base;
+    chip.style.setProperty("--mkc", info.border);
+    if (eggMap[state]) el("span", "egg " + eggMap[state], chip);
+    const st = el("span", "st", chip);
+    stripeStyle(st, state, info.border);
+    const nm = el("div", "nm", s);
+    nm.textContent = state;
+    if (isNew) { const t = el("span", "new", nm); t.textContent = " ·new"; }
+    el("div", "rh", s).textContent = hint;
+  });
+}
+buildSpecs("specs3", MARKER_SEMANTICS, EGG_STATIC, "green");
+
+mkMock("p-b3", { color: "amber", marker: "double", flair: "rain" }, m => {
+  const p = el("div", "picker"); p.style.width = "190px";
+  const hd = el("div", null, p); hd.style.cssText = "display:flex; align-items:center; gap:6px;";
+  const pr = previewRow(m, EGG_STATIC); pr.style.flex = "1"; pr.style.marginBottom = "0"; hd.appendChild(pr);
+  const x = el("button", "xbtn", hd); x.textContent = "✕"; x.title = "close";
+  p.appendChild(comboCaption(m));
+  p.appendChild(axisLabel("color"));
+  const crow = el("div", null, p); crow.style.cssText = "display:flex; gap:3px; align-items:flex-start;";
+  const nul = clearColorCell(m, false); nul.style.height = "39px"; nul.style.flex = "none"; crow.appendChild(nul);
+  const chw = el("div", "fadewrap-h", crow); chw.style.cssText = "flex:1; min-width:0;";
+  const ch = el("div", "scrollh", chw);
+  const cg = el("div", null, ch);
+  cg.style.cssText = "display:grid; grid-auto-flow: column; grid-auto-columns: 18px; grid-template-rows: 18px 18px; gap: 3px; width: max-content;";
+  FAMILIES.forEach(f => { cg.appendChild(swatchCell(m, f.name)); cg.appendChild(swatchCell(m, f.name + "-dark")); });
+  p.appendChild(axisLabel("marker"));
+  const mhw = el("div", "fadewrap-h", p);
+  const mh = el("div", "scrollh", mhw);
+  const mrow = el("div", null, mh); mrow.style.cssText = "display:flex; gap:3px; width: max-content;";
+  MARKERS3.forEach(s => mrow.appendChild(markerCell(m, s, EGG_STATIC)));
+  p.appendChild(axisLabel("flair"));
+  const fhw = el("div", "fadewrap-h", p);
+  const fh = el("div", "scrollh", fhw);
+  const fgh = el("div", null, fh);
+  fgh.style.cssText = "display:grid; grid-auto-flow: column; grid-auto-columns: 18px; grid-template-rows: 18px 18px; gap: 3px; width: max-content;";
+  fgh.appendChild(flairCell(m, ""));
+  fgh.appendChild(flairCell(m, "rain"));
+  FLAIRS_SHIPPED.forEach(f => fgh.appendChild(flairCell(m, f)));
+  FLAIRS_INCOMING.forEach(f => fgh.appendChild(flairCell(m, f)));
+  requestAnimationFrame(() => {
+    [cg, mrow, fgh].forEach(g => { const s = g.querySelector(".cell.sel"); if (s) s.scrollIntoView({ inline: "nearest", block: "nearest" }); });
+  });
+  return p;
+});
+
+/* ═══ iteration 4 — ∅ in headers, in-progress remap, scan flair ═══ */
+/* the one texture pairing left on the marker axis: hatch ↔ hazard (iconic) */
+const EGG_STATIC4 = { hatch: "egg-hazard" };
+const MARKER_SEMANTICS4 = [
+  ["pipe", "parked / can delete", true],
+  ["dotted", "draft / discussion pending", false],
+  ["dashed", "(generic label)", false],
+  ["solid", "active", false],
+  ["double", "review / needs me", false],
+  ["thick", "completed · quiet", false],
+  ["hatch", "IN PROGRESS", true],
+  ["block", "archived / frozen", true],
+];
+buildSpecs("specs4", MARKER_SEMANTICS4, EGG_STATIC4, "teal");
+
+/* band header carrying the axis label + the clear cell. Glyph = − (minus):
+   the header cell is an ACTION (clear this axis), paired with ✕ (close panel)
+   in the same neutral treatment; ∅ stays only as the STATE token in the combo
+   caption. glyph/tint overridable for the comparison strip. */
+function axisHeader(p, name, isUnset, onClear, opts) {
+  const h = el("div", null, p);
+  h.style.cssText = "display:flex; align-items:center; gap:6px;";
+  const lab = axisLabel(name); lab.style.flex = "1"; h.appendChild(lab);
+  const b = el("button", "cell", h);
+  b.title = "clear " + name;
+  const g = el("span", "nul", b);
+  g.textContent = (opts && opts.glyph) || "−";
+  g.style.fontSize = "11px";
+  if (opts && opts.color) g.style.color = opts.color;
+  b.onmouseenter = () => { if (!(opts && opts.color)) g.style.color = "var(--fg)"; };
+  b.onmouseleave = () => { if (!(opts && opts.color)) g.style.color = ""; };
+  if (isUnset) b.classList.add("sel");
+  b.onclick = onClear;
+  return h;
+}
+
+(function buildGlyphCompare() {
+  const host = document.getElementById("p-glyphs");
+  [
+    { label: "∅ SHIPPED (STATE SYMBOL AS ACTION)", glyph: "∅" },
+    { label: "− NEUTRAL — RECOMMENDED (VERB, PAIRS WITH ✕)", glyph: "−" },
+    { label: "− RED (KILL-VOCABULARY COLLISION)", glyph: "−", color: "#d98a8a" },
+  ].forEach(v => {
+    const wrap = el("div", null, host); wrap.style.marginBottom = "12px";
+    const p = el("div", "picker", wrap); p.style.width = "150px";
+    axisHeader(p, "marker", true, () => {}, { glyph: v.glyph, color: v.color });
+    const cap = el("div", "cell-label", wrap); cap.style.margin = "5px 0 0"; cap.textContent = v.label;
+  });
+})();
+
+/* iteration 5 — panel-level − clears every axis */
+function bandedPanel(m, opts) {
+  const p = el("div", "picker"); p.style.width = "190px";
+  const hd = el("div", null, p); hd.style.cssText = "display:flex; align-items:center; gap:6px;";
+  const pr = previewRow(m, EGG_STATIC4); pr.style.flex = "1"; pr.style.marginBottom = "0"; hd.appendChild(pr);
+  if (opts && opts.clearAll) {
+    const allUnset = m.state.color === null && m.state.marker === "" && m.state.flair === "";
+    const b = el("button", "cell", hd);
+    b.title = "clear all";
+    const g = el("span", "nul", b); g.textContent = "−"; g.style.fontSize = "11px";
+    b.onmouseenter = () => { g.style.color = "var(--fg)"; };
+    b.onmouseleave = () => { g.style.color = ""; };
+    if (allUnset) b.classList.add("sel");
+    b.onclick = () => { m.state.color = null; m.state.marker = ""; m.state.flair = ""; m.render(); };
+  }
+  const x = el("button", "xbtn", hd); x.textContent = "✕"; x.title = "close";
+  p.appendChild(comboCaption(m));
+  axisHeader(p, "color", m.state.color === null, () => { m.state.color = null; m.render(); });
+  const chw = el("div", "fadewrap-h", p);
+  const ch = el("div", "scrollh", chw);
+  const cg = el("div", null, ch);
+  cg.style.cssText = "display:grid; grid-auto-flow: column; grid-auto-columns: 18px; grid-template-rows: 18px 18px; gap: 3px; width: max-content;";
+  FAMILIES.forEach(f => { cg.appendChild(swatchCell(m, f.name)); cg.appendChild(swatchCell(m, f.name + "-dark")); });
+  axisHeader(p, "marker", m.state.marker === "", () => { m.state.marker = ""; m.render(); });
+  const mrow = el("div", null, p); mrow.style.cssText = "display:flex; gap:3px;";
+  MARKERS3.slice(1).forEach(s => mrow.appendChild(markerCell(m, s, EGG_STATIC4)));
+  axisHeader(p, "flair", m.state.flair === "", () => { m.state.flair = ""; m.render(); });
+  const fhw = el("div", "fadewrap-h", p);
+  const fh = el("div", "scrollh", fhw);
+  const fgh = el("div", null, fh);
+  fgh.style.cssText = "display:grid; grid-auto-flow: column; grid-auto-columns: 18px; grid-template-rows: 18px 18px; gap: 3px; width: max-content;";
+  fgh.appendChild(flairCell(m, "rain"));
+  fgh.appendChild(flairCell(m, "scan"));
+  FLAIRS_SHIPPED.forEach(f => fgh.appendChild(flairCell(m, f)));
+  FLAIRS_INCOMING.forEach(f => fgh.appendChild(flairCell(m, f)));
+  requestAnimationFrame(() => {
+    [cg, fgh].forEach(g => { const s = g.querySelector(".cell.sel"); if (s) s.scrollIntoView({ inline: "nearest", block: "nearest" }); });
+  });
+  return p;
+}
+mkMock("p-b5", { color: "green", marker: "dashed", flair: "invaders" }, m => bandedPanel(m, { clearAll: true }));
+
+/* study — third shade: 3-row color band + row-scale legibility stacks */
+mkMock("p-b6", { color: "orange-light", marker: "solid", flair: "" }, m => {
+  const p = el("div", "picker"); p.style.width = "190px";
+  const hd = el("div", null, p); hd.style.cssText = "display:flex; align-items:center; gap:6px;";
+  const pr = previewRow(m, EGG_STATIC4); pr.style.flex = "1"; pr.style.marginBottom = "0"; hd.appendChild(pr);
+  const x = el("button", "xbtn", hd); x.textContent = "✕"; x.title = "close";
+  p.appendChild(comboCaption(m));
+  axisHeader(p, "color", m.state.color === null, () => { m.state.color = null; m.render(); });
+  const chw = el("div", "fadewrap-h", p);
+  const ch = el("div", "scrollh", chw);
+  const cg = el("div", null, ch);
+  cg.style.cssText = "display:grid; grid-auto-flow: column; grid-auto-columns: 18px; grid-template-rows: 18px 18px 18px; gap: 3px; width: max-content;";
+  FAMILIES.forEach(f => {
+    cg.appendChild(swatchCell(m, f.name + "-light"));
+    cg.appendChild(swatchCell(m, f.name));
+    cg.appendChild(swatchCell(m, f.name + "-dark"));
+  });
+  axisHeader(p, "marker", m.state.marker === "", () => { m.state.marker = ""; m.render(); });
+  const mrow = el("div", null, p); mrow.style.cssText = "display:flex; gap:3px;";
+  MARKERS3.slice(1).forEach(s => mrow.appendChild(markerCell(m, s, EGG_STATIC4)));
+  requestAnimationFrame(() => { const s = cg.querySelector(".cell.sel"); if (s) s.scrollIntoView({ inline: "nearest", block: "nearest" }); });
+  return p;
+});
+
+(function buildShadeRows() {
+  const host = document.getElementById("shade-rows");
+  host.style.cssText = "display:flex; gap:14px; flex-wrap:wrap;";
+  ["orange", "blue", "green", "slate"].forEach(famName => {
+    const col = el("div", null, host);
+    const box = el("div", null, col);
+    box.style.cssText = "width:170px; background: var(--bg); border:1px solid #232836; padding:6px 0;";
+    ["-light", "", "-dark"].forEach(suf => {
+      const v = famName + suf;
+      const info = colorInfo(v);
+      const r = el("div", null, box);
+      r.style.cssText = "position:relative; height:24px; display:flex; align-items:center; padding:0 10px 0 26px; font-size:11.5px; color: var(--fg2); background:" + info.tint.base + ";";
+      const stripe = el("span", null, r);
+      stripe.style.cssText = "position:absolute; left:0; top:0; bottom:0; width:3px; background:" + info.border + ";";
+      el("span", null, r).textContent = v;
+    });
+    const cap = el("div", "cell-label", col); cap.style.margin = "6px 0 0"; cap.textContent = famName.toUpperCase();
+  });
+})();
+
+mkMock("p-b4", { color: "teal", marker: "hatch", flair: "scan" }, m => {
+  const p = el("div", "picker"); p.style.width = "190px";
+  const hd = el("div", null, p); hd.style.cssText = "display:flex; align-items:center; gap:6px;";
+  const pr = previewRow(m, EGG_STATIC4); pr.style.flex = "1"; pr.style.marginBottom = "0"; hd.appendChild(pr);
+  const x = el("button", "xbtn", hd); x.textContent = "✕"; x.title = "close";
+  p.appendChild(comboCaption(m));
+  axisHeader(p, "color", m.state.color === null, () => { m.state.color = null; m.render(); });
+  const chw = el("div", "fadewrap-h", p);
+  const ch = el("div", "scrollh", chw);
+  const cg = el("div", null, ch);
+  cg.style.cssText = "display:grid; grid-auto-flow: column; grid-auto-columns: 18px; grid-template-rows: 18px 18px; gap: 3px; width: max-content;";
+  FAMILIES.forEach(f => { cg.appendChild(swatchCell(m, f.name)); cg.appendChild(swatchCell(m, f.name + "-dark")); });
+  axisHeader(p, "marker", m.state.marker === "", () => { m.state.marker = ""; m.render(); });
+  const mrow = el("div", null, p); mrow.style.cssText = "display:flex; gap:3px;";
+  MARKERS3.slice(1).forEach(s => mrow.appendChild(markerCell(m, s, EGG_STATIC4)));
+  axisHeader(p, "flair", m.state.flair === "", () => { m.state.flair = ""; m.render(); });
+  const fhw = el("div", "fadewrap-h", p);
+  const fh = el("div", "scrollh", fhw);
+  const fgh = el("div", null, fh);
+  fgh.style.cssText = "display:grid; grid-auto-flow: column; grid-auto-columns: 18px; grid-template-rows: 18px 18px; gap: 3px; width: max-content;";
+  fgh.appendChild(flairCell(m, "rain"));
+  fgh.appendChild(flairCell(m, "scan"));
+  FLAIRS_SHIPPED.forEach(f => fgh.appendChild(flairCell(m, f)));
+  FLAIRS_INCOMING.forEach(f => fgh.appendChild(flairCell(m, f)));
+  requestAnimationFrame(() => {
+    [cg, fgh].forEach(g => { const s = g.querySelector(".cell.sel"); if (s) s.scrollIntoView({ inline: "nearest", block: "nearest" }); });
+  });
+  return p;
+});
+</script>

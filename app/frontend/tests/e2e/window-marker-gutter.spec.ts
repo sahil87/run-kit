@@ -199,7 +199,7 @@ test.describe("Window left-edge label zone + banded picker", () => {
     await picker.getByLabel("Close picker").click();
   });
 
-  test("picking a color persists via @color — normal shade through the legacy seam, dark shade verbatim", async ({ page }) => {
+  test("picking a color persists via @color — normal shade through the legacy seam, dark/light shades verbatim", async ({ page }) => {
     const ts = Date.now();
     const winName = `marker-color-${ts}`;
     newWindow(TEST_SESSION, winName);
@@ -216,8 +216,9 @@ test.describe("Window left-edge label zone + banded picker", () => {
     // (NORMAL shade). The picker maps it to the LEGACY descriptor "1+3" at the
     // write seam (familyToLegacy) — the vocabulary pre-existing colors are
     // stored in — so @color persists as "1+3", not the family name. `exact`
-    // because the paired shade band also contains "Color orange-dark", which
-    // Playwright's substring name matching would otherwise collide with.
+    // because the shade band also contains "Color orange-dark" and
+    // "Color orange-light", which Playwright's substring name matching would
+    // otherwise collide with.
     const picker = await openLabelPicker(row, page);
     await picker.getByRole("option", { name: "Color orange", exact: true }).click();
     await expectColor(page, winName, "1+3");
@@ -228,6 +229,11 @@ test.describe("Window left-edge label zone + banded picker", () => {
     // the same open session.
     await picker.getByRole("option", { name: "Color orange-dark", exact: true }).click();
     await expectColor(page, winName, "orange-dark");
+
+    // A LIGHT-shade pick mirrors the dark rung: no legacy form, verbatim
+    // "{family}-light" storage accepted by the same closed-set validators.
+    await picker.getByRole("option", { name: "Color orange-light", exact: true }).click();
+    await expectColor(page, winName, "orange-light");
     await picker.getByLabel("Close picker").click();
     await expect(picker).not.toBeVisible();
   });

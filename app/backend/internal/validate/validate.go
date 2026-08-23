@@ -57,31 +57,33 @@ func ValidateNewName(name, label string) string {
 
 // colorFamilyNames is the closed set of owned-palette family-name color values
 // accepted alongside the numeric vocabulary: the 10 hue-family names defined by
-// the frontend (themes.ts HUE_FAMILIES) plus their "-dark" shade variants
-// ("blue-dark"). Normal-shade picks are still written in the legacy numeric
-// vocabulary by the frontend write seam (familyToLegacy), but dark shades have
-// no legacy form and are stored as these names verbatim. A closed set bounds
-// the injection/abuse surface (constitution §I) exactly as the numeric rule
-// does — the value flows into `tmux set-option` and the settings file.
+// the frontend (themes.ts HUE_FAMILIES) plus their "-dark"/"-light" shade
+// variants ("blue-dark", "blue-light"). Normal-shade picks are still written in
+// the legacy numeric vocabulary by the frontend write seam (familyToLegacy),
+// but dark/light shades have no legacy form and are stored as these names
+// verbatim. A closed set bounds the injection/abuse surface (constitution §I)
+// exactly as the numeric rule does — the value flows into `tmux set-option`
+// and the settings file.
 var colorFamilyNames = func() map[string]bool {
 	families := []string{"red", "orange", "amber", "olive", "green", "teal", "blue", "purple", "magenta", "slate"}
-	m := make(map[string]bool, len(families)*2)
+	m := make(map[string]bool, len(families)*3)
 	for _, f := range families {
 		m[f] = true
 		m[f+"-dark"] = true
+		m[f+"-light"] = true
 	}
 	return m
 }()
 
 // ValidateColorValue validates a swatch color value: an owned-palette family
-// name ("blue", optionally "-dark"-suffixed for the dark shade) OR a legacy
-// numeric descriptor — a single ANSI index ("4") or a two-hue blend of two
-// indices joined by '+' ("1+3"), every index an integer in [0, 15]. Legacy
-// numeric values remain valid forever (read + write). Returns empty string if
-// valid, an error message otherwise. This is the single shared color-value rule
-// reused by the window, session, and server color handlers (constitution §I —
-// input validated before it ever reaches `tmux set-option` or the settings
-// file).
+// name ("blue", optionally "-dark"-/"-light"-suffixed for the dark/light
+// shade) OR a legacy numeric descriptor — a single ANSI index ("4") or a
+// two-hue blend of two indices joined by '+' ("1+3"), every index an integer
+// in [0, 15]. Legacy numeric values remain valid forever (read + write).
+// Returns empty string if valid, an error message otherwise. This is the
+// single shared color-value rule reused by the window, session, and server
+// color handlers (constitution §I — input validated before it ever reaches
+// `tmux set-option` or the settings file).
 func ValidateColorValue(value string) string {
 	if colorFamilyNames[strings.TrimSpace(value)] {
 		return ""
@@ -122,11 +124,11 @@ func parseColorIndices(value string) ([]int, string) {
 // NormalizeColorValue parses a stored color value (a family-name value, a
 // legacy bare integer, or the string descriptor) and returns its canonical
 // string form, or ("", false) when malformed. Family-name values ("blue",
-// "blue-dark") canonicalize to their trimmed verbatim form (case-sensitive —
-// the frontend only ever writes the canonical names); numeric forms
-// re-serialize the parsed indices ("4" or "a+b"), so equivalent-but-noisy
-// inputs ("01", " 1 + 3 ") collapse to a single representation. Used by
-// tolerant-read storage paths (the settings store at
+// "blue-dark", "blue-light") canonicalize to their trimmed verbatim form
+// (case-sensitive — the frontend only ever writes the canonical names);
+// numeric forms re-serialize the parsed indices ("4" or "a+b"), so
+// equivalent-but-noisy inputs ("01", " 1 + 3 ") collapse to a single
+// representation. Used by tolerant-read storage paths (the settings store at
 // ~/.config/run-kit/config.yaml) and the tmux option readers to accept any
 // stored vocabulary on read and always normalize to the canonical string.
 func NormalizeColorValue(value string) (string, bool) {

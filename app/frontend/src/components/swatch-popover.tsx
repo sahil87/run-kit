@@ -67,12 +67,13 @@ const CELL = "w-[18px] h-[18px]";
  *  (settings/host accent pickers). */
 const SAMPLE_ROW_NAME = "row-name";
 
-/** The color band's two shade rows in column-flow order: PICKER_COLOR_VALUES
- *  is PAIRED (red, red-dark, orange, orange-dark, …), so the normal shades are
- *  the even indices (band row 1) and the dark shades the odd (band row 2) —
- *  family columns, shade rows. */
-const COLOR_ROW_NORMAL = PICKER_COLOR_VALUES.filter((_, i) => i % 2 === 0);
-const COLOR_ROW_DARK = PICKER_COLOR_VALUES.filter((_, i) => i % 2 === 1);
+/** The color band's three shade rows in column-flow order: PICKER_COLOR_VALUES
+ *  is family-TRIPLET (red-light, red, red-dark, orange-light, …), so index mod
+ *  3 slices the light (band row 1), normal (row 2), and dark (row 3) shades —
+ *  family columns, shade rows, the lightness axis descending. */
+const COLOR_ROW_LIGHT = PICKER_COLOR_VALUES.filter((_, i) => i % 3 === 0);
+const COLOR_ROW_NORMAL = PICKER_COLOR_VALUES.filter((_, i) => i % 3 === 1);
+const COLOR_ROW_DARK = PICKER_COLOR_VALUES.filter((_, i) => i % 3 === 2);
 
 /** The flair band's two rows in column-flow order over the 12 named states
  *  (grid-flow-col + two fixed rows fills DOWN each column first): row 1 takes
@@ -224,15 +225,16 @@ export function SwatchPopover({
     (!showFlair || currentFlair === "");
 
   /** The logical row stack the keyboard walks: [− ✕] · [color −] · color shade
-   *  rows · ([marker −] · marker row) · ([flair −] · flair rows). Each entry
-   *  is a row of cell ids; vertical moves preserve the column as a GOAL
-   *  COLUMN (carried raw through the single-cell header rows, clamped to the
-   *  target row's extent only for display/activation); horizontal moves
-   *  operate on the clamped column. */
+   *  rows (light, normal, dark) · ([marker −] · marker row) · ([flair −] ·
+   *  flair rows). Each entry is a row of cell ids; vertical moves preserve the
+   *  column as a GOAL COLUMN (carried raw through the single-cell header rows,
+   *  clamped to the target row's extent only for display/activation);
+   *  horizontal moves operate on the clamped column. */
   const grid = useMemo<string[][]>(() => {
     const rows: string[][] = [
       [cellId("clear-all"), cellId("close")],
       [cellId("clear-color")],
+      COLOR_ROW_LIGHT.map((v) => cellId("color", v)),
       COLOR_ROW_NORMAL.map((v) => cellId("color", v)),
       COLOR_ROW_DARK.map((v) => cellId("color", v)),
     ];
@@ -256,10 +258,12 @@ export function SwatchPopover({
   // header − clear cell when uncolored — never an arbitrary swatch, whose focus ring
   // would read as a phantom selection.
   const [focus, setFocus] = useState<GridPos>(() => {
-    const row = COLOR_ROW_NORMAL.indexOf(selectedValue ?? "");
-    if (row >= 0) return { row: 2, col: row };
+    const light = COLOR_ROW_LIGHT.indexOf(selectedValue ?? "");
+    if (light >= 0) return { row: 2, col: light };
+    const normal = COLOR_ROW_NORMAL.indexOf(selectedValue ?? "");
+    if (normal >= 0) return { row: 3, col: normal };
     const dark = COLOR_ROW_DARK.indexOf(selectedValue ?? "");
-    if (dark >= 0) return { row: 3, col: dark };
+    if (dark >= 0) return { row: 4, col: dark };
     return { row: 1, col: 0 };
   });
   // The focus ring renders only after the first arrow key: the listbox
@@ -511,7 +515,8 @@ export function SwatchPopover({
         {captionLegs.join(" · ")}
       </div>
 
-      {/* ── [ color ] band — 2 shade rows × family columns, column-flow,
+      {/* ── [ color ] band — 3 shade rows (light/normal/dark — the rows ARE
+             the lightness axis) × family columns, column-flow,
              horizontal-scroll strip: families grow horizontally BY
              CONSTRUCTION (a vertical scroll would break the shade pairing /
              family-column identity). ~8 of 10 families visible at 190px; the
@@ -526,7 +531,7 @@ export function SwatchPopover({
       />
       <div className="rk-band-fade">
         <div className="rk-band-scroll">
-          <div className="grid grid-flow-col grid-rows-[18px_18px] auto-cols-[18px] gap-[3px] w-max">
+          <div className="grid grid-flow-col grid-rows-[18px_18px_18px] auto-cols-[18px] gap-[3px] w-max">
             {PICKER_COLOR_VALUES.map((value) => {
               const tint = rowTints.get(value);
               const fallback = colorValueToHex(value, theme.palette) ?? theme.palette.foreground;

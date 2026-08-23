@@ -33,14 +33,15 @@ func TestRegistry_orderAndMetadata(t *testing.T) {
 	checks := []struct {
 		key, kind, def, category string
 		ui, live                 bool
+		options                  []string
 	}{
-		{"theme", "enum", "system", "appearance", true, true},
-		{"instance_color", "color", "", "appearance", true, true},
-		{"auto_name", "bool", "false", "behavior", true, false},
-		{"log_level", "enum", "info", "advanced", true, false},
-		{"server_colors", "map", "{}", "appearance", true, true},
-		{"server_flairs", "map", "{}", "appearance", true, true},
-		{"board_order", "list", "[]", "layout", true, true},
+		{"theme", "enum", "system", "appearance", true, true, []string{"system", "dark", "light"}},
+		{"instance_color", "color", "", "appearance", true, true, nil},
+		{"auto_name", "bool", "false", "behavior", true, true, nil},
+		{"log_level", "enum", "info", "advanced", true, false, []string{"info", "debug"}},
+		{"server_colors", "map", "{}", "appearance", true, true, nil},
+		{"server_flairs", "map", "{}", "appearance", true, true, nil},
+		{"board_order", "list", "[]", "layout", true, true, nil},
 	}
 	for _, c := range checks {
 		info, ok := byKey[c.key]
@@ -54,6 +55,25 @@ func TestRegistry_orderAndMetadata(t *testing.T) {
 		}
 		if info.Description == "" {
 			t.Errorf("Registry()[%q].Description is empty", c.key)
+		}
+		if !reflect.DeepEqual(info.Options, c.options) {
+			t.Errorf("Registry()[%q].Options = %v, want %v", c.key, info.Options, c.options)
+		}
+	}
+}
+
+func TestRegistry_optionsAreCopies(t *testing.T) {
+	first := Registry()
+	for i := range first {
+		for j := range first[i].Options {
+			first[i].Options[j] = "mutated"
+		}
+	}
+	for _, info := range Registry() {
+		for _, opt := range info.Options {
+			if opt == "mutated" {
+				t.Fatalf("Registry()[%q].Options aliases the package registry — caller mutation leaked", info.Key)
+			}
 		}
 	}
 }

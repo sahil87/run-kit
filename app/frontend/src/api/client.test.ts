@@ -31,6 +31,8 @@ import {
   setSSHHost,
   getInstanceName,
   setInstanceName,
+  getSettingsEntries,
+  postSettings,
   setWindowColor,
   setWindowRole,
   setWindowFlair,
@@ -1289,6 +1291,59 @@ describe("settings client (registry-driven GET/POST /api/settings)", () => {
       ),
     );
     await expect(getServerColor("prod")).resolves.toBeNull();
+  });
+
+  it("getSettingsEntries returns the raw registry rows, enum options included", async () => {
+    mswServer.use(
+      http.get("/api/settings", () =>
+        HttpResponse.json({
+          settings: [
+            {
+              key: "log_level",
+              kind: "enum",
+              default: "info",
+              description: "Daemon log verbosity",
+              category: "advanced",
+              ui: true,
+              live: false,
+              options: ["info", "debug"],
+              value: "debug",
+            },
+            settingsEntry("ssh_host", "string", null),
+          ],
+        }),
+      ),
+    );
+    const entries = await getSettingsEntries();
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toMatchObject({
+      key: "log_level",
+      kind: "enum",
+      live: false,
+      options: ["info", "debug"],
+      value: "debug",
+    });
+    // Non-enum rows carry no options key at all (omitempty on the wire).
+    expect(entries[1]).not.toHaveProperty("options");
+  });
+
+  it("postSettings POSTs a partial-merge patch; a 400 rejects with the server message", async () => {
+    const bodies: unknown[] = [];
+    mswServer.use(
+      http.post("/api/settings", async ({ request }) => {
+        bodies.push(await request.json());
+        return HttpResponse.json({ status: "ok" });
+      }),
+    );
+    await postSettings({ auto_name: true, ssh_host: null });
+    expect(bodies).toEqual([{ auto_name: true, ssh_host: null }]);
+
+    mswServer.use(
+      http.post("/api/settings", () =>
+        HttpResponse.json({ error: "unknown settings key: nope" }, { status: 400 }),
+      ),
+    );
+    await expect(postSettings({ nope: 1 })).rejects.toThrow("unknown settings key: nope");
   });
 });
 

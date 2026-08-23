@@ -291,11 +291,18 @@ type sseHub struct {
 	// autoName tracks per-window busy→idle transitions and hands the server's
 	// operator window an automatic fix-tab-name request (rate-limited, skipped
 	// when the operator is busy) from the same poll seam (260822-q675).
-	// In-memory only. Its deliver closure is wired post-construction by
-	// initSSEHub (it closes over the Server's injection engine, which the 4-arg
-	// newSSEHub shape can't see) — test hubs run with it nil: delivery is
-	// skipped, transition tracking and live keys still advance.
-	autoName *autoNameTracker
+	// In-memory only. nil means the feature is absent (the settings
+	// `auto_name` key is off) — the tick sites skip on nil. A nil test-hub
+	// tracker means delivery is skipped while transition tracking and live
+	// keys still advance.
+	//
+	// Read/write ONLY through getAutoName/setAutoName: the poll loop reads
+	// while a settings POST swaps the pointer from an HTTP handler goroutine,
+	// so every access must hold autoNameMu. The tracker is otherwise
+	// self-contained once published (own mutex; deliver closure wired by the
+	// publisher), so callers use the snapshot without holding the lock.
+	autoNameMu sync.Mutex
+	autoName   *autoNameTracker
 
 	// subscriber, when non-nil, provides per-server Wait(after) channels
 	// driven by tmux control-mode notifications. When nil, the loop runs
@@ -445,6 +452,34 @@ func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector, svc *ports.Collect
 		return "", "", false, nil
 	}
 	return h
+}
+
+// getAutoName returns the hub's current auto-name tracker snapshot (nil =
+// feature absent). The tracker is self-contained once published, so the
+// returned pointer stays valid after the lock is released — a concurrent
+// setAutoName swap only redirects later snapshots.
+func (h *sseHub) getAutoName() *autoNameTracker {
+	h.autoNameMu.Lock()
+	defer h.autoNameMu.Unlock()
+	return h.autoName
+}
+
+// setAutoName is the hub's single auto-name apply seam, shared by initSSEHub
+// (startup seed) and the settings POST handler (live toggle): enabled=false
+// publishes nil (feature absent), enabled=true publishes a freshly-built
+// tracker whose deliver closure closes over deliver (nil deliver = tracking
+// without fan-out, the test-hub shape). Enabling builds a NEW tracker — prior
+// in-memory cooldowns drop, matching the documented process-memory semantics.
+func (h *sseHub) setAutoName(enabled bool, deliver func(ctx context.Context, server string, subject, operator *tmux.WindowInfo) error) {
+	h.autoNameMu.Lock()
+	defer h.autoNameMu.Unlock()
+	if !enabled {
+		h.autoName = nil
+		return
+	}
+	tracker := newAutoNameTracker()
+	tracker.deliver = deliver
+	h.autoName = tracker
 }
 
 // addClient registers a per-server subscription record and delivers the cached
@@ -1434,8 +1469,8 @@ func (h *sseHub) poll() {
 			// through the injected deliver closure (nil in test hubs — tracking
 			// still advances). Rate-limited and skipped when the operator is
 			// busy; best-effort, in-memory only, never blocks the tick.
-			if h.autoName != nil {
-				for k := range h.autoName.advance(server, result) {
+			if autoName := h.getAutoName(); autoName != nil {
+				for k := range autoName.advance(server, result) {
 					liveAutoNameKeys[k] = true
 				}
 			}
@@ -1591,8 +1626,8 @@ func (h *sseHub) poll() {
 		}
 		// Same reap for the auto-name tracker (260822-q675): dead windows/servers
 		// drop their previous-state and cooldown stamps so the maps stay bounded.
-		if h.autoName != nil {
-			h.autoName.retain(liveAutoNameKeys, reapableServers)
+		if autoName := h.getAutoName(); autoName != nil {
+			autoName.retain(liveAutoNameKeys, reapableServers)
 		}
 
 		// Reap dead servers collected during the loop. A dead socket has no

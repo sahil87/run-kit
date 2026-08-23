@@ -17,9 +17,16 @@ import { useTheme, useThemeActions } from "@/contexts/theme-context";
 import { usePushSubscription } from "@/hooks/use-push-subscription";
 import { NOTIFICATIONS_HELP_URL } from "@/components/global-chrome";
 import { ThemePickerList } from "@/components/theme-picker-list";
-import { getSSHHost, setSSHHost, getRiffPresets } from "@/api/client";
-import { invalidateOpenContext } from "@/hooks/use-open-targets";
+import { getRiffPresets } from "@/api/client";
 import { isMacroActionId } from "@/lib/macros";
+import { useSettingsRegistry, type SettingsRegistry } from "@/components/settings-registry-seam";
+import { SettingsAllPanel, BoolToggle } from "@/components/settings-all-panel";
+import {
+  useTextSettingDraft,
+  textSettingInputClass,
+  TextSettingError,
+  ScopeHeading,
+} from "@/components/text-setting-core";
 
 /**
  * VS Code-style settings dialog (260723-o7q8; desktop preference-pane layout
@@ -49,17 +56,10 @@ import { isMacroActionId } from "@/lib/macros";
  */
 
 /** Scope heading — a full-width underlined rule: uppercase scope name left,
- *  storage hint right-aligned on the same line (6j1v). */
-function ScopeHeading({ label, hint }: { label: string; hint: string }) {
-  return (
-    <div className="flex items-baseline justify-between gap-3 border-b border-border pb-1.5 mb-1">
-      <span className="text-[10px] uppercase tracking-wider text-text-primary font-medium shrink-0">
-        {label}
-      </span>
-      <span className="text-[10px] text-text-secondary text-right">{hint}</span>
-    </div>
-  );
-}
+ *  storage hint right-aligned on the same line (6j1v). The definition lives in
+ *  `text-setting-core.tsx` (shared with the All-settings panel); re-exported
+ *  here for the dialog's historical import sites. */
+export { ScopeHeading } from "@/components/text-setting-core";
 
 /**
  * One preference row (6j1v): label column left (label + optional small
@@ -121,33 +121,7 @@ function TextSetting({
   hint?: string;
   commit: (trimmed: string) => Promise<void>;
 }) {
-  const [draft, setDraft] = useState(value);
-  const [error, setError] = useState("");
-  // Follow external updates (fetch landing, another surface editing) unless
-  // the user has diverged the draft.
-  const lastValueRef = useRef(value);
-  useEffect(() => {
-    if (draft === lastValueRef.current) setDraft(value);
-    lastValueRef.current = value;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value]);
-
-  const handleCommit = () => {
-    const trimmed = draft.trim();
-    if (trimmed === value.trim()) {
-      setDraft(value);
-      setError("");
-      return;
-    }
-    commit(trimmed)
-      .then(() => {
-        setError("");
-        setDraft(trimmed);
-      })
-      .catch((err: unknown) => {
-        setError(err instanceof Error && err.message ? err.message : "Failed to save");
-      });
-  };
+  const { draft, error, handleCommit, onChange, onKeyDown } = useTextSettingDraft(value, commit);
 
   return (
     <PreferenceRow label={label} sublabel={hint} htmlFor={id}>
@@ -155,32 +129,13 @@ function TextSetting({
         id={id}
         type="text"
         value={draft}
-        onChange={(e) => {
-          setDraft(e.target.value);
-          setError("");
-        }}
+        onChange={onChange}
         onBlur={handleCommit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            handleCommit();
-          } else if (e.key === "Escape") {
-            // Cancel the edit only — a second Escape closes the dialog.
-            if (draft !== value) {
-              e.stopPropagation();
-              setDraft(value);
-              setError("");
-            }
-          }
-        }}
+        onKeyDown={onKeyDown}
         placeholder={placeholder}
-        className="w-full max-w-[320px] bg-transparent text-text-primary p-2 border border-border rounded outline-none placeholder:text-text-secondary focus:border-text-secondary"
+        className={textSettingInputClass}
       />
-      {error && (
-        <p className="text-xs text-signal-red mt-1" role="alert">
-          {error}
-        </p>
-      )}
+      <TextSettingError error={error} />
     </PreferenceRow>
   );
 }
@@ -399,6 +354,7 @@ function NotificationsControl() {
 const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
   { id: "general", label: "General" },
   { id: "appearance", label: "Appearance" },
+  { id: "all", label: "All settings" },
   { id: "shortcuts", label: "Shortcuts" },
 ];
 
@@ -473,27 +429,17 @@ export function SettingsDialog() {
   return <SettingsDialogBody onClose={closeSettings} />;
 }
 
-/** The dialog body — mounted only while open, so per-open fetches (the SSH
- *  host setting, the Shortcuts tab's riff presets) run on mount without any
- *  reopen-staleness bookkeeping. */
+/** The dialog body — mounted only while open, so per-open fetches (the
+ *  registry list behind every settings row, the Shortcuts tab's riff presets)
+ *  run on mount without any reopen-staleness bookkeeping. */
 function SettingsDialogBody({ onClose }: { onClose: () => void }) {
   const { activeTab, setActiveTab } = useSettingsDialog();
-  const { hostname, instanceName, setInstanceName } = useInstanceName();
+  const { hostname, instanceName } = useInstanceName();
 
-  // The SSH host field edits the stored SETTING — the sole source for
-  // deeplink hosts — fetched fresh per open.
-  const [sshHost, setSSHHostState] = useState("");
-  useEffect(() => {
-    let alive = true;
-    getSSHHost()
-      .then((host) => {
-        if (alive) setSSHHostState(host ?? "");
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, []);
+  // The ONE registry seam: every settings row in every tab (curated and
+  // All-settings table alike) reads/writes through it, so two presentations
+  // of the same key cannot disagree within an open dialog.
+  const registry = useSettingsRegistry();
 
   return (
     <Dialog title="Settings" onClose={onClose} size="xl">
@@ -517,12 +463,11 @@ function SettingsDialogBody({ onClose }: { onClose: () => void }) {
                   <GeneralPanel
                     hostname={hostname}
                     instanceName={instanceName}
-                    setInstanceName={setInstanceName}
-                    sshHost={sshHost}
-                    setSSHHostState={setSSHHostState}
+                    registry={registry}
                   />
                 )}
                 {active && t.id === "appearance" && <AppearancePanel />}
+                {active && t.id === "all" && <SettingsAllPanel registry={registry} />}
                 {active && t.id === "shortcuts" && <ShortcutsTabPanel />}
               </div>
             );
@@ -536,16 +481,15 @@ function SettingsDialogBody({ onClose }: { onClose: () => void }) {
 function GeneralPanel({
   hostname,
   instanceName,
-  setInstanceName,
-  sshHost,
-  setSSHHostState,
+  registry,
 }: {
   hostname: string;
   instanceName: string | null;
-  setInstanceName: (name: string | null) => void;
-  sshHost: string;
-  setSSHHostState: (host: string) => void;
+  registry: SettingsRegistry;
 }) {
+  const sshHostValue = registry.settingValue("ssh_host");
+  const sshHost = typeof sshHostValue === "string" ? sshHostValue : "";
+  const autoNameEntry = registry.entries.find((e) => e.key === "auto_name");
   return (
     <>
       <section aria-label="This host settings">
@@ -558,12 +502,7 @@ function GeneralPanel({
             value={instanceName ?? ""}
             placeholder={hostname || "hostname"}
             hint="Display name for this instance; empty uses the hostname"
-            commit={(trimmed) => {
-              // Optimistic context write (failure toasts globally); resolve
-              // immediately so the field never shows a stale error.
-              setInstanceName(trimmed === "" ? null : trimmed);
-              return Promise.resolve();
-            }}
+            commit={(trimmed) => registry.commitSetting("instance_name", trimmed === "" ? null : trimmed)}
           />
           <TextSetting
             id="settings-ssh-host"
@@ -571,16 +510,20 @@ function GeneralPanel({
             value={sshHost}
             placeholder="alias or user@host"
             hint="Used verbatim in editor deeplinks; empty derives user@hostname"
-            commit={async (trimmed) => {
-              await setSSHHost(trimmed === "" ? null : trimmed);
-              setSSHHostState(trimmed);
-              // The Open control's cached context embeds the SSH host in
-              // editor deeplinks — refresh it at the one seam where it
-              // changes. Success only: a rejected commit left the server
-              // value unchanged, so the cache is still correct.
-              invalidateOpenContext();
-            }}
+            commit={(trimmed) => registry.commitSetting("ssh_host", trimmed === "" ? null : trimmed)}
           />
+          <PreferenceRow
+            label="Auto-name tabs"
+            sublabel={autoNameEntry?.description}
+            htmlFor="settings-auto-name"
+          >
+            <BoolToggle
+              id="settings-auto-name"
+              label="Auto-name tabs"
+              on={registry.settingValue("auto_name") === true}
+              commit={(on) => registry.commitSetting("auto_name", on)}
+            />
+          </PreferenceRow>
         </div>
       </section>
 

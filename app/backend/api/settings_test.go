@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -136,6 +137,57 @@ func TestGetSettings_reflectsStoredValues(t *testing.T) {
 	order, ok := byKey["board_order"].Value.([]any)
 	if !ok || len(order) != 2 || order[0] != "deploys" || order[1] != "reviews" {
 		t.Errorf("board_order.value = %v, want [deploys reviews]", byKey["board_order"].Value)
+	}
+}
+
+// --- GET /api/settings: enum options ---
+
+func TestGetSettings_enumOptionsWireShape(t *testing.T) {
+	isolateSettings(t)
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/settings", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/settings status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var result struct {
+		Settings []map[string]any `json:"settings"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	byKey := make(map[string]map[string]any, len(result.Settings))
+	for _, e := range result.Settings {
+		key, _ := e["key"].(string)
+		byKey[key] = e
+	}
+
+	wantOptions := map[string][]any{
+		"theme":     {"system", "dark", "light"},
+		"log_level": {"info", "debug"},
+	}
+	for key, want := range wantOptions {
+		got, present := byKey[key]["options"]
+		if !present {
+			t.Errorf("%s: options key absent, want %v", key, want)
+			continue
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: options = %v, want %v", key, got, want)
+		}
+	}
+
+	// Non-enum kinds omit the options key entirely (omitempty).
+	for _, key := range []string{
+		"theme_dark", "theme_light", "instance_color", "ssh_host",
+		"instance_name", "auto_name", "tmux_conf",
+		"server_colors", "server_flairs", "board_order",
+	} {
+		if _, present := byKey[key]["options"]; present {
+			t.Errorf("%s: options key present on a non-enum kind: %v", key, byKey[key]["options"])
+		}
 	}
 }
 
@@ -416,16 +468,27 @@ func TestPostSettings_withoutBoardOrderBroadcastsNothing(t *testing.T) {
 	isolateSettings(t)
 	ops := &mockTmuxOps{}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := &Server{logger: logger, sessions: &mockSessionFetcher{}, tmux: ops, hostname: "test"}
+	server := &Server{logger: logger, sessions: &mockSessionFetcher{}, tmux: ops, hostname: "test", autoNameEnabled: true}
 	server.initSSEHub()
 	client := server.sseHub.addTestClient(make(chan hubEvent, 16), "default")
 	defer server.sseHub.removeClient(client)
 	drainSSE(client)
 
+	tracker := server.sseHub.getAutoName()
+	if tracker == nil {
+		t.Fatal("auto-name tracker missing with autoNameEnabled=true")
+	}
+
 	router := server.buildRouter()
 	rec := postJSON(t, router, "/api/settings", `{"theme": "dark"}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	// A patch without auto_name never touches the tracker wiring — the same
+	// tracker instance must survive the save.
+	if got := server.sseHub.getAutoName(); got != tracker {
+		t.Errorf("auto-name tracker rewired by a patch without auto_name")
 	}
 
 	select {
@@ -435,6 +498,89 @@ func TestPostSettings_withoutBoardOrderBroadcastsNothing(t *testing.T) {
 		}
 	case <-time.After(150 * time.Millisecond):
 	}
+}
+
+// --- POST /api/settings: auto_name live rewire ---
+
+func TestPostSettings_autoNameRewiresTracker(t *testing.T) {
+	newServer := func(enabled bool) *Server {
+		logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+		server := &Server{logger: logger, sessions: &mockSessionFetcher{}, tmux: &mockTmuxOps{}, hostname: "test", autoNameEnabled: enabled}
+		server.initSSEHub()
+		return server
+	}
+
+	t.Run("enable installs a deliver-wired tracker", func(t *testing.T) {
+		isolateSettings(t)
+		server := newServer(false)
+		if got := server.sseHub.getAutoName(); got != nil {
+			t.Fatal("tracker present before POST with auto_name off")
+		}
+		rec := postJSON(t, server.buildRouter(), "/api/settings", `{"auto_name": true}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+		}
+		tracker := server.sseHub.getAutoName()
+		if tracker == nil {
+			t.Fatal("tracker missing after enabling auto_name")
+		}
+		if tracker.deliver == nil {
+			t.Error("deliver seam not wired after enabling auto_name")
+		}
+		if got := settings.Load().AutoName; !got {
+			t.Error("auto_name persisted as false, want true")
+		}
+	})
+
+	t.Run("disable nils the tracker", func(t *testing.T) {
+		isolateSettings(t)
+		server := newServer(true)
+		if got := server.sseHub.getAutoName(); got == nil {
+			t.Fatal("tracker missing before POST with auto_name on")
+		}
+		rec := postJSON(t, server.buildRouter(), "/api/settings", `{"auto_name": false}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+		}
+		if got := server.sseHub.getAutoName(); got != nil {
+			t.Error("tracker present after disabling auto_name")
+		}
+	})
+
+	t.Run("null unsets to the default off", func(t *testing.T) {
+		isolateSettings(t)
+		server := newServer(true)
+		rec := postJSON(t, server.buildRouter(), "/api/settings", `{"auto_name": null}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+		}
+		if got := server.sseHub.getAutoName(); got != nil {
+			t.Error("tracker present after null unset (default off)")
+		}
+		if got := settings.Load().AutoName; got {
+			t.Error("auto_name persisted as true after null unset, want false")
+		}
+	})
+
+	t.Run("re-enable builds a fresh tracker", func(t *testing.T) {
+		isolateSettings(t)
+		server := newServer(true)
+		before := server.sseHub.getAutoName()
+		router := server.buildRouter()
+		if rec := postJSON(t, router, "/api/settings", `{"auto_name": false}`); rec.Code != http.StatusOK {
+			t.Fatalf("disable: status = %d, body=%s", rec.Code, rec.Body.String())
+		}
+		if rec := postJSON(t, router, "/api/settings", `{"auto_name": true}`); rec.Code != http.StatusOK {
+			t.Fatalf("re-enable: status = %d, body=%s", rec.Code, rec.Body.String())
+		}
+		after := server.sseHub.getAutoName()
+		if after == nil {
+			t.Fatal("tracker missing after re-enable")
+		}
+		if after == before {
+			t.Error("re-enable reused the old tracker — cooldown state must not survive a disable")
+		}
+	})
 }
 
 // --- Hard fold: the per-key endpoints are gone ---

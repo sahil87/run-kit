@@ -1,0 +1,57 @@
+id: 5r41
+name: 260823-5r41-settings-pane-live-apply
+created: 2026-08-23T14:54:53Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 17
+    acceptance_count: 26
+    acceptance_completed: 26
+confidence:
+    certain: 5
+    confident: 9
+    tentative: 0
+    unresolved: 0
+    score: 3.9
+    fuzzy: true
+    dimensions:
+        signal: 70.7
+        reversibility: 79.3
+        competence: 85.4
+        disambiguation: 74.6
+stage_metrics:
+    intake: {started_at: "2026-08-23T14:54:53Z", driver: fab-new, iterations: 1, completed_at: "2026-08-23T15:42:41Z"}
+    apply: {started_at: "2026-08-23T17:14:46Z", driver: fab-fff, iterations: 4, completed_at: "2026-08-23T17:28:23Z"}
+    review: {started_at: "2026-08-23T17:28:23Z", driver: fab-fff, iterations: 4, completed_at: "2026-08-23T17:36:52Z"}
+    hydrate: {started_at: "2026-08-23T17:36:52Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T17:48:04Z"}
+    ship: {started_at: "2026-08-23T17:48:04Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T17:51:54Z"}
+    review-pr: {started_at: "2026-08-23T17:51:54Z", driver: git-pr, iterations: 1, completed_at: "2026-08-23T18:58:27Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/727
+change_type_source: explicit
+true_impact:
+    added: 2199
+    deleted: 212
+    net: 1987
+    excluding:
+        added: 1669
+        deleted: 182
+        net: 1487
+    tests:
+        added: 277
+        deleted: 12
+        net: 265
+    computed_at: "2026-08-23T17:51:54Z"
+    computed_at_stage: ship
+summary: 'Settings dialog gains the registry-driven All-settings tab (typed controls, search, modified dot, restart badge, escape hatch) over one dialog-level seam; auto_name goes live via POST-driven hub tracker rewire (sseHub.setAutoName/autoNameMu + shared autoNameDeliver); enum kinds serve options in GET /api/settings; Settings: All palette entry'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-23T18:58:27Z

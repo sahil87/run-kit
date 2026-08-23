@@ -329,8 +329,12 @@ test.describe("tabbed settings dialog deep-links (260818-bncw)", () => {
     await expect(tab(page, "Appearance")).toHaveAttribute("aria-selected", "true");
     await expect(settingsDialog(page).getByRole("group", { name: "Theme mode" })).toBeVisible();
 
-    // Roving arrow keys: ArrowDown from the focused tab activates the next.
+    // Roving arrow keys: ArrowDown from the focused tab activates the next —
+    // All settings sits between Appearance and Shortcuts since 260823-5r41.
     await tab(page, "Appearance").focus();
+    await page.keyboard.press("ArrowDown");
+    await expect(tab(page, "All settings")).toHaveAttribute("aria-selected", "true");
+    await expect(tab(page, "All settings")).toBeFocused();
     await page.keyboard.press("ArrowDown");
     await expect(tab(page, "Shortcuts")).toHaveAttribute("aria-selected", "true");
     await expect(tab(page, "Shortcuts")).toBeFocused();

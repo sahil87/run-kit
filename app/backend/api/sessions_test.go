@@ -21,9 +21,13 @@ import (
 type mockSessionFetcher struct {
 	result []sessions.ProjectSession
 	err    error
+	// calls counts FetchSessions invocations (handlers that must resolve
+	// everything from ONE fetch assert on it).
+	calls int
 }
 
 func (m *mockSessionFetcher) FetchSessions(ctx context.Context, server string) ([]sessions.ProjectSession, error) {
+	m.calls++
 	return m.result, m.err
 }
 

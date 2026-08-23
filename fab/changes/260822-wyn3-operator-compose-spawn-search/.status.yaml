@@ -2,20 +2,20 @@ id: wyn3
 name: 260822-wyn3-operator-compose-spawn-search
 created: 2026-08-22T12:41:20Z
 created_by: sahil-noon
-change_type: fix
+change_type: feat
 issues: []
 progress:
-    intake: ready
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
-    review-pr: pending
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
 plan:
-    generated: false
-    task_count: 0
-    acceptance_count: 0
-    acceptance_completed: 0
+    generated: true
+    task_count: 12
+    acceptance_count: 16
+    acceptance_completed: 16
 confidence:
     certain: 3
     confident: 3
@@ -29,7 +29,28 @@ confidence:
         competence: 80.8
         disambiguation: 72.5
 stage_metrics:
-    intake: {started_at: "2026-08-22T12:41:20Z", driver: fab-new, iterations: 1}
-prs: []
+    intake: {started_at: "2026-08-22T12:41:20Z", driver: fab-new, iterations: 1, completed_at: "2026-08-22T12:58:23Z"}
+    apply: {started_at: "2026-08-22T12:58:23Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-22T13:22:11Z"}
+    review: {started_at: "2026-08-22T13:22:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-22T13:28:57Z"}
+    hydrate: {started_at: "2026-08-22T13:28:57Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-22T13:34:23Z"}
+    ship: {started_at: "2026-08-22T13:34:23Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-22T13:37:48Z"}
+    review-pr: {started_at: "2026-08-22T19:08:08Z", driver: git-pr-review, iterations: 2, completed_at: "2026-08-22T19:11:28Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/712
+change_type_source: explicit
+true_impact:
+    added: 1756
+    deleted: 74
+    net: 1682
+    excluding:
+        added: 1224
+        deleted: 49
+        net: 1175
+    tests:
+        added: 462
+        deleted: 4
+        net: 458
+    computed_at: "2026-08-22T13:37:48Z"
+    computed_at_stage: ship
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-22T12:47:49Z
+last_updated: 2026-08-22T19:11:28Z

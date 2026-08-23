@@ -217,6 +217,11 @@ func resolveCwdMissing(cwds []string) map[string]bool {
 // branch (grace); every unreadable/non-repo shape is (ok=false, detached=false)
 // and keeps plain negative behavior.
 func resolveGitBranchFromHead(cwd string) (branch string, detached, ok bool) {
+	if cwd == "" {
+		// filepath.Join("", ".git") is a RELATIVE ".git" — it would stat against
+		// the server process's own working directory, not any pane's repo.
+		return "", false, false
+	}
 	gitPath := filepath.Join(cwd, ".git")
 	info, err := os.Stat(gitPath)
 	if err != nil {
@@ -543,7 +548,9 @@ func windowBranchRepo(w *tmux.WindowInfo) (repoDir, branch string) {
 // cwd key; no branch yields ("", "").
 func windowPRKey(w *tmux.WindowInfo) (repoDir, branch string) {
 	repoDir, branch = windowBranchRepo(w)
-	if branch == "" {
+	if branch == "" || repoDir == "" {
+		// A branch with no cwd carries no joinable identity — and FindGitRoot("")
+		// would stat a relative ".git" against the server's own working directory.
 		return "", ""
 	}
 	if root := config.FindGitRoot(repoDir); root != "" {

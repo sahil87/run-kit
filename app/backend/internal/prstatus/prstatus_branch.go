@@ -93,8 +93,8 @@ const (
 	// re-registers pairs whose last-good PR is still in the map, so the first
 	// join tick serves it (no blank) while the next pass re-resolves fresh
 	// values. Deletion at this bound keeps the map bounded (Constitution §II);
-	// retention only holds entries — authoritative negatives still cleared the
-	// PR the moment they were derived.
+	// retention only holds entries — authoritative negatives still clear the
+	// PR the moment they are derived.
 	branchPRRetainTTL = 30 * time.Minute
 
 	// branchPRAvailabilityTTL bounds how long a gh-availability verdict (positive

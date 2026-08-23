@@ -188,17 +188,9 @@ The `create-session` chord and the palette `Session: Create` action (one flow, t
 
 **Name derivation utilities**: `deriveNameFromPath` and the per-kind safe-name transforms live in the shared `app/frontend/src/lib/names.ts` module (§ Live Safe-Name Conversion), imported by `app.tsx` and every naming surface. Name conversion is split per kind (`toSafeSessionName`/`toSafeWindowName`/`toSafeServerName`/`toSafeWorktreeName`) — there is no single `toTmuxSafeName`.
 
-### Folder-Prompted Creation (Secondary, via Cmd+K)
+### Folder-Prompted Creation (window-only, via Cmd+K)
 
-Two secondary entry points open `CreateSessionDialog` for users who want to specify a starting directory:
-
-- **"Session: Create at Folder"** — opens `CreateSessionDialog` (mode `"session"`, default). The dialog's path input is pre-filled with `currentWindow.worktreePath` via the `defaultPath?: string` prop added to `CreateSessionDialogProps`. If no active window, the field starts empty.
-- **"Window: Create at Folder"** — opens `CreateSessionDialog` with `mode="window"` and `session={currentSession}`. In window mode: title changes to "Create window at folder", session name input hidden, confirming calls `createWindow(server, session, undefined, cwd)` — **no name**, so tmux auto-names the window to the chosen folder's basename via `automatic-rename-format` (see [tmux-sessions](/run-kit/tmux-sessions.md) § Managed Window Creation). This flow sets no optimistic ghost, so there is no ghost label to derive. (`260707-j66b`)
-
-`CreateSessionDialog` gains three optional backward-compatible props:
-- `defaultPath?: string` — pre-fills the path input
-- `mode?: "session" | "window"` — controls dialog behavior (default `"session"`)
-- `session?: string` — required in window mode to pass to `createWindow`
+One entry point opens `CreateSessionDialog` for a user who wants to specify a starting directory — **"Tab: Create at Folder"** (`create-window-at-folder`), which opens the dialog with `session={currentSession}` and the path input pre-filled with `currentWindow.worktreePath` (`defaultPath?: string`). Confirming calls `createWindow(server, session, undefined, cwd)` — **no name**, so tmux auto-names the window to the chosen folder's basename via `automatic-rename-format` (see [tmux-sessions](/run-kit/tmux-sessions.md) § Managed Window Creation). This flow sets no optimistic ghost, so there is no ghost label to derive. There is no session-level at-folder action: a session rooted elsewhere is created by prompt/instant create plus a `cd` in the pane. Dialog surface: [dialogs-and-state](/run-kit/ui/dialogs-and-state.md) § Window At-Folder Dialog. (`260823-fe74`)
 
 ### Unnamed `+ New Window` — Folder Auto-Naming
 
@@ -207,7 +199,7 @@ The `+ New Window` action does **not** pin the window name to `"zsh"` — it cal
 **All three unnamed-window call sites:**
 
 1. **Sidebar `+ New Window`** (`app.tsx`, the `create-window` "Window: Create" palette action) — `createWindow(srv, session, undefined, activeWin?.worktreePath)`. Its optimistic-ghost label becomes the **raw** (unsanitized) basename of the creation cwd via the local `rawBasename(cwd)` helper (falls back to `"window"` when no cwd). This is deliberately **NOT** `deriveNameFromPath` — that runs the session safe-name transform (`.`→`_` etc.), but tmux's `#{b:pane_current_path}` uses the unsanitized basename, so the ghost must match the raw form tmux will actually display.
-2. **Palette "Window: Create at Folder"** (`create-session-dialog.tsx`, `mode="window"`) — `createWindow(server, session, undefined, cwd)`; this flow sets **no** optimistic ghost, so no label is derived.
+2. **Palette "Tab: Create at Folder"** (`create-session-dialog.tsx`) — `createWindow(server, session, undefined, cwd)`; this flow sets **no** optimistic ghost, so no label is derived.
 3. **Board-route `+ New Window`** (`board-page.tsx`) — `createWindowApi(srv, sess)` (no name, no cwd — the backend resolves a default; this action registers no ghost). Identical behavior to the same button on `/$server`.
 
 **Client contract**: `createWindow(server, session, name?, cwd?, rkType?, rkUrl?)` in `api/client.ts` makes `name` optional and **omits it from the JSON body when absent/empty** (matching the existing omit-when-absent handling for `cwd`/`rkType`/`rkUrl`). Explicit names are still sent — the deliberate-name paths are unchanged: **iframe/service windows** (`Window: New Iframe Window`, `createWindow(..., name, undefined, "iframe", url)`), the `port-N` "Open in window" service windows (`server-list-page.tsx`), and `rk riff`.
@@ -249,7 +241,7 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 *Introduced by*: 260602-3i5d-fix-create-server-not-found-race
 
 ### Pointer creates are instant; `Session: Create` is a prefilled prompt, never a bare form
-**Decision**: The sidebar/tiles `+` buttons create instantly via `executeCreateSessionInstant`; the `Session: Create` chord/palette flow opens `SessionNamePrompt` pre-filled with the exact derived name, select-all'd, so Enter reproduces the instant outcome and typing names the session at creation (§ Prompted Creation). `use-dialog-state.ts` still exposes no create-dialog API, and `CreateSessionDialog` remains reachable only from the secondary "Session: Create at Folder" / "Window: Create at Folder" palette actions.
+**Decision**: The sidebar/tiles `+` buttons create instantly via `executeCreateSessionInstant`; the `Session: Create` chord/palette flow opens `SessionNamePrompt` pre-filled with the exact derived name, select-all'd, so Enter reproduces the instant outcome and typing names the session at creation (§ Prompted Creation). `use-dialog-state.ts` still exposes no create-dialog API, and `CreateSessionDialog` is window-only, reachable solely from the "Tab: Create at Folder" palette action.
 **Why**: The keyboard flow is where an explicit name is wanted — a prefilled prompt makes naming first-class at the cost of one Enter on the default path, without spending a second chord on a named-session variant (the Cmd-S/save-as model). The pointer `+` buttons stay zero-friction because the active window's `worktreePath` already implies name and cwd, and the optimistic ghost gives immediate feedback.
 **Rejected**: A separate "Create session with name…" binding (a scarce keycap on a variant of an existing action); an empty-field dialog on the primary path (prompts for what the app can derive — the prefill keeps the derivation as the default).
 *Introduced by*: 260823-qe3n-new-session-inline-name-prompt

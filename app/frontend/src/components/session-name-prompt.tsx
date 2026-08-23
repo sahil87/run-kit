@@ -16,7 +16,7 @@ type SessionNamePromptProps = {
  * name input prefilled with the auto-derived session name, select-all'd so
  * Enter accepts the default and typing replaces it. Escape/backdrop close via
  * the Dialog shell. Deliberately lighter than CreateSessionDialog — no path
- * picker; `Session: Create at Folder` remains the path flow.
+ * picker; `Tab: Create at Folder` remains the path-picking flow.
  */
 export function SessionNamePrompt({ sessions, defaultName, onSubmit, onClose }: SessionNamePromptProps) {
   const [name, setName] = useState(defaultName);

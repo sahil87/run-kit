@@ -1221,7 +1221,6 @@ function AppShell() {
   const { getAllActions } = usePaletteActionsApi();
   const paletteGlobals = usePaletteGlobals();
   const [showTmuxCommands, setShowTmuxCommands] = useState(false);
-  const [showCreateSessionAtFolderDialog, setShowCreateSessionAtFolderDialog] = useState(false);
   const [showCreateWindowAtFolderDialog, setShowCreateWindowAtFolderDialog] = useState(false);
   // Save-as-style name prompt behind `Session: Create` (chord + palette). The
   // prefill is captured at OPEN time so it can't churn under the user's edit.
@@ -2001,7 +2000,7 @@ function AppShell() {
   // `server-dialogs-context` (260811-239r) — the dialogs mount in AppLayout now,
   // but gating this route's URL writeback while one is up is unchanged.
   dialogOpenRef.current =
-    dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || createServerOpen || killServerTarget != null || showTmuxCommands || showCreateSessionAtFolderDialog || showCreateWindowAtFolderDialog || showCreateIframeDialog || spawnAgentTarget != null || sessionNamePrompt != null;
+    dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || createServerOpen || killServerTarget != null || showTmuxCommands || showCreateWindowAtFolderDialog || showCreateIframeDialog || spawnAgentTarget != null || sessionNamePrompt != null;
 
   // Flat window list for palette actions
   const flatWindows = useMemo(() => {
@@ -2345,12 +2344,6 @@ function AppShell() {
         description: "a new group of tabs",
         onSelect: handleOpenSessionNamePrompt,
       },
-      {
-        id: "create-session-at-folder",
-        label: "Session: Create at Folder",
-        description: "a new group of tabs, rooted at a folder",
-        onSelect: () => setShowCreateSessionAtFolderDialog(true),
-      },
       ...(sessionName
         ? [
             {
@@ -2406,7 +2399,7 @@ function AppShell() {
           ]
         : []),
     ],
-    [sessionName, dialogs, handleOpenSessionNamePrompt, setShowCreateSessionAtFolderDialog, currentSessionOrderIdx, effectiveSessionOrder, moveCurrentSession, server, addToast],
+    [sessionName, dialogs, handleOpenSessionNamePrompt, currentSessionOrderIdx, effectiveSessionOrder, moveCurrentSession, server, addToast],
   );
 
   // Compute min/max window indices for current session (for move boundary checks)
@@ -4357,21 +4350,10 @@ function AppShell() {
         </Suspense>
       )}
 
-      {showCreateSessionAtFolderDialog && (
-        <Suspense fallback={null}>
-          <CreateSessionDialog
-            sessions={sessions}
-            defaultPath={currentWindow?.worktreePath}
-            onClose={() => setShowCreateSessionAtFolderDialog(false)}
-          />
-        </Suspense>
-      )}
-
       {showCreateWindowAtFolderDialog && sessionName && (
         <Suspense fallback={null}>
           <CreateSessionDialog
             sessions={sessions}
-            mode="window"
             session={sessionName}
             defaultPath={currentWindow?.worktreePath}
             onClose={() => setShowCreateWindowAtFolderDialog(false)}

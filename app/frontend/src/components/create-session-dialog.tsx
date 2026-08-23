@@ -1,26 +1,27 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
-import { createSession, createWindow, getDirectories } from "@/api/client";
+import { createWindow, getDirectories } from "@/api/client";
 import { Dialog } from "@/components/dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
-import { deriveNameFromPath, finalizeSafeName, toSafeSessionName } from "@/lib/names";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
-import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useSessionContext } from "@/contexts/session-context";
 import type { ProjectSession } from "@/types";
 
 type CreateSessionDialogProps = {
+  /** Quick-picks ("Recent:") derive from these sessions' project roots. */
   sessions: ProjectSession[];
+  /** The session to create the window in. */
+  session: string;
   onClose: () => void;
   /** Pre-fill the path input on mount. */
   defaultPath?: string;
-  /** When "window": creates a window in the given session instead of a new session. */
-  mode?: "session" | "window";
-  /** Required when mode === "window": the session to create the window in. */
-  session?: string;
 };
 
-export function CreateSessionDialog({ sessions, onClose, defaultPath, mode = "session", session }: CreateSessionDialogProps) {
-  const [name, setName] = useState("");
+/**
+ * The window-at-folder dialog behind the palette's `Tab: Create at Folder`:
+ * pick a starting directory (quick-picks + debounced autocomplete) and create
+ * an unnamed window there — tmux auto-names it to the folder basename.
+ */
+export function CreateSessionDialog({ sessions, session, onClose, defaultPath }: CreateSessionDialogProps) {
   const [path, setPath] = useState(defaultPath ?? "");
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -30,17 +31,10 @@ export function CreateSessionDialog({ sessions, onClose, defaultPath, mode = "se
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const { addGhostSession, removeGhost } = useOptimisticContext();
   // The dialog only opens from AppShell where `currentServer` is set;
   // fallback to empty string is defensive.
   const { currentServer } = useSessionContext();
   const server = currentServer ?? "";
-  const ghostIdRef = useRef<string | null>(null);
-
-  const existingNames = useMemo(
-    () => new Set(sessions.map((s) => s.name)),
-    [sessions],
-  );
 
   const quickPicks = useMemo(() => {
     const paths = new Set<string>();
@@ -59,19 +53,8 @@ export function CreateSessionDialog({ sessions, onClose, defaultPath, mode = "se
     return [];
   }, [suggestions, path, quickPicks]);
 
-  // The name the create will actually submit: the live-transformed input with
-  // the trailing separator trimmed (commit shape). Collision-checked so the
-  // warning matches what would be created.
-  const finalName = useMemo(() => finalizeSafeName(name.trim()), [name]);
-
-  const nameCollision = useMemo(
-    () => finalName !== "" && existingNames.has(finalName),
-    [finalName, existingNames],
-  );
-
   function selectPath(p: string) {
     setPath(p);
-    setName(deriveNameFromPath(p));
     setSuggestions([]);
     setShowDropdown(false);
     setHighlightIndex(-1);
@@ -161,25 +144,6 @@ export function CreateSessionDialog({ sessions, onClose, defaultPath, mode = "se
     };
   }, []);
 
-  const { execute: executeCreate } = useOptimisticAction<[string, string, string | undefined]>({
-    action: (srv, sessionName, cwd) => createSession(srv, sessionName, cwd),
-    onOptimistic: (srv, sessionName) => {
-      ghostIdRef.current = addGhostSession(srv, sessionName);
-    },
-    onRollback: () => {
-      if (ghostIdRef.current) {
-        removeGhost(ghostIdRef.current);
-        ghostIdRef.current = null;
-      }
-    },
-    onError: (err) => {
-      setError(err.message || "Failed to create session");
-    },
-    onSettled: () => {
-      ghostIdRef.current = null;
-    },
-  });
-
   const { execute: executeCreateWindowAction } = useOptimisticAction<[string, string, string | undefined]>({
     // No name — tmux auto-names the window to its chosen folder basename via
     // automatic-rename-format (the -c cwd on create makes this immediate). This
@@ -191,38 +155,13 @@ export function CreateSessionDialog({ sessions, onClose, defaultPath, mode = "se
   });
 
   function handleCreate() {
-    if (mode === "window") {
-      if (!session) {
-        setError("A target session is required to create a tab");
-        return;
-      }
-      setError("");
-      executeCreateWindowAction(server, session, path.trim() || undefined);
-      onClose();
-      return;
-    }
-
-    let trimmedName = finalName;
-    if (!trimmedName && path.trim()) {
-      trimmedName = deriveNameFromPath(path.trim());
-    }
-    if (!trimmedName) return;
-    if (existingNames.has(trimmedName)) {
-      setError(`Session "${trimmedName}" already exists`);
-      return;
-    }
     setError("");
-    executeCreate(server, trimmedName, path.trim() || undefined);
+    executeCreateWindowAction(server, session, path.trim() || undefined);
     onClose();
   }
 
-  const dialogTitle = mode === "window" ? "Create tab at folder" : "Create session";
-  const isCreateDisabled = mode === "window"
-    ? !session
-    : (!finalName && !path.trim()) || nameCollision;
-
   return (
-    <Dialog title={dialogTitle} onClose={onClose}>
+    <Dialog title="Create tab at folder" onClose={onClose}>
       {/* Path input with combobox dropdown */}
       <div className="relative mb-3">
         <p className="text-xs text-text-secondary mb-1.5">Path:</p>
@@ -287,35 +226,6 @@ export function CreateSessionDialog({ sessions, onClose, defaultPath, mode = "se
         )}
       </div>
 
-      {/* Session name input — hidden in window mode */}
-      {mode !== "window" && (
-        <div className="mb-3">
-          <p className="text-xs text-text-secondary mb-1.5">Session name:</p>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => {
-              // Live safe-name conversion: the user watches "My problem"
-              // become "My_problem" as they type (WYSIWYG).
-              setName(toSafeSessionName(e.target.value));
-              setError("");
-            }}
-            onKeyDown={(e) => e.key === "Enter" && handleCreate()}
-            aria-label="Session name"
-            aria-invalid={nameCollision}
-            placeholder="Session name..."
-            className={`w-full bg-transparent text-text-primary p-2 border rounded outline-none placeholder:text-text-secondary ${
-              nameCollision ? "border-red-500" : "border-border"
-            }`}
-          />
-          {nameCollision && (
-            <p className="text-xs text-signal-red mt-1">
-              Session "{finalName}" already exists
-            </p>
-          )}
-        </div>
-      )}
-
       {/* Error message */}
       {error && (
         <p className="text-xs text-signal-red mb-2">{error}</p>
@@ -323,8 +233,7 @@ export function CreateSessionDialog({ sessions, onClose, defaultPath, mode = "se
 
       <button
         onClick={handleCreate}
-        disabled={isCreateDisabled}
-        className="w-full py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+        className="w-full py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary"
       >
         Create
       </button>

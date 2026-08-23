@@ -20,30 +20,31 @@ import (
 // hue family/shade to its default-dark hex: the LEGACY numeric descriptors and
 // the family NAMES (both the normal-shade vocabulary — the frontend write seam
 // stores normal picks as legacy, but names are valid stored values too), plus
-// the "-dark" shade variants (which have no legacy form and are stored as
-// names verbatim — see themes.ts HUE_FAMILIES / SHADE_DARK_SUFFIX). A Dock
-// icon is theme-independent, so the hexes are frozen from the default-dark
-// palette rather than derived per active theme: each value is
-// colorValueToHex(value, DEFAULT_DARK_THEME.palette) from
+// the "-dark"/"-light" shade variants (which have no legacy form and are
+// stored as names verbatim — see themes.ts HUE_FAMILIES / SHADE_DARK_SUFFIX /
+// SHADE_LIGHT_SUFFIX). A Dock icon is theme-independent, so the hexes are
+// frozen from the default-dark palette rather than derived per active theme:
+// each value is colorValueToHex(value, DEFAULT_DARK_THEME.palette) from
 // app/frontend/src/themes.ts — the OKLCH owned-family rendering at the
 // default-dark theme's mean L/C (L≈0.7059, C≈0.1470 over ansi[1..6]) in the
-// family's own hue (dark shade at mean-L − 0.14), brought into the sRGB gamut
-// by chroma reduction.
+// family's own hue (dark shade at mean-L − 0.14, light shade at mean-L +
+// 0.14 — the symmetric mirror), brought into the sRGB gamut by chroma
+// reduction.
 //
 // Descriptors that validate but map to no owned family (e.g. "7", "2+5")
 // deliberately resolve to nothing — mirroring the frontend's resolveFamily,
 // which renders no accent for values outside the 10 owned families.
 var familyHexByValue = map[string]string{
-	"1":   "#ee7871", "red": "#ee7871", "red-dark": "#bd4c48", //     hue 25
-	"1+3": "#e58439", "orange": "#e58439", "orange-dark": "#b15c0e", // hue 55
-	"3":   "#c19b22", "amber": "#c19b22", "amber-dark": "#907204", //  hue 90
-	"1+2": "#95ad33", "olive": "#95ad33", "olive-dark": "#6d8019", //  hue 120
-	"2":   "#51b96d", "green": "#51b96d", "green-dark": "#198d44", //  hue 150
-	"6":   "#00b9aa", "teal": "#00b9aa", "teal-dark": "#0f887e", //    hue 185
-	"4":   "#4fa5f8", "blue": "#4fa5f8", "blue-dark": "#1d79c8", //    hue 250
-	"1+4": "#a08ef5", "purple": "#a08ef5", "purple-dark": "#7763c5", // hue 290
-	"5":   "#d37ccb", "magenta": "#d37ccb", "magenta-dark": "#a5519f", // hue 330
-	"3+4": "#95a2b0", "slate": "#95a2b0", "slate-dark": "#6b7885", //  hue 250, near-neutral chroma
+	"1": "#ee7871", "red": "#ee7871", "red-dark": "#bd4c48", "red-light": "#feb8b2", // hue 25
+	"1+3": "#e58439", "orange": "#e58439", "orange-dark": "#b15c0e", "orange-light": "#febc8f", // hue 55
+	"3": "#c19b22", "amber": "#c19b22", "amber-dark": "#907204", "amber-light": "#f2c74a", // hue 90
+	"1+2": "#95ad33", "olive": "#95ad33", "olive-dark": "#6d8019", "olive-light": "#c0da64", // hue 120
+	"2": "#51b96d", "green": "#51b96d", "green-dark": "#198d44", "green-light": "#80e798", // hue 150
+	"6": "#00b9aa", "teal": "#00b9aa", "teal-dark": "#0f887e", "teal-light": "#16ebd9", // hue 185
+	"4": "#4fa5f8", "blue": "#4fa5f8", "blue-dark": "#1d79c8", "blue-light": "#a7d1fd", // hue 250
+	"1+4": "#a08ef5", "purple": "#a08ef5", "purple-dark": "#7763c5", "purple-light": "#cbc4ff", // hue 290
+	"5": "#d37ccb", "magenta": "#d37ccb", "magenta-dark": "#a5519f", "magenta-light": "#feabf6", // hue 330
+	"3+4": "#95a2b0", "slate": "#95a2b0", "slate-dark": "#6b7885", "slate-light": "#c1cedd", // hue 250, near-neutral chroma
 }
 
 // Resolve maps an instance-accent color-value descriptor to its owned-family

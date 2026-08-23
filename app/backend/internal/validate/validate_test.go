@@ -455,14 +455,14 @@ func TestValidateColorValue(t *testing.T) {
 	// matching the frontend parseColorValue), plus leading-zero indices. The
 	// legacy numeric vocabulary remains valid forever (read + write).
 	valid := []string{"0", "4", "15", "1+3", "0+15", "1+2", " 4 ", " 1 + 3 ", "01"}
-	// The owned-palette family-name vocabulary: all 10 names + their -dark
-	// shade variants (surrounding whitespace tolerated, matching the frontend
-	// resolveFamily trim rule).
+	// The owned-palette family-name vocabulary: all 10 names + their -dark and
+	// -light shade variants (surrounding whitespace tolerated, matching the
+	// frontend resolveFamily trim rule).
 	families := []string{"red", "orange", "amber", "olive", "green", "teal", "blue", "purple", "magenta", "slate"}
 	for _, f := range families {
-		valid = append(valid, f, f+"-dark")
+		valid = append(valid, f, f+"-dark", f+"-light")
 	}
-	valid = append(valid, " blue-dark ")
+	valid = append(valid, " blue-dark ", " blue-light ")
 	for _, v := range valid {
 		if msg := ValidateColorValue(v); msg != "" {
 			t.Errorf("ValidateColorValue(%q) = %q, want valid", v, msg)
@@ -474,7 +474,7 @@ func TestValidateColorValue(t *testing.T) {
 	// are rejected.
 	invalid := []string{
 		"", "99", "-1", "16", "x", "1+", "+3", "1+2+3", "1.5", "1 3", "  +  ", "1 + ",
-		"bluish", "blue-light", "Blue", "BLUE-DARK", "blue+red", "-dark", "dark",
+		"bluish", "bluish-light", "blue-lite", "Blue", "BLUE-DARK", "blue+red", "-dark", "dark", "-light", "light", "1+3-light",
 	}
 	for _, v := range invalid {
 		if msg := ValidateColorValue(v); msg == "" {
@@ -556,14 +556,17 @@ func TestNormalizeColorValue(t *testing.T) {
 		"01":      {"1", true},   // leading zeros re-serialized
 		"0+15":    {"0+15", true},
 		// Family-name vocabulary: canonical form is the trimmed verbatim name
-		// (both shades); near-misses are rejected like any malformed value.
-		"blue":         {"blue", true},
-		"blue-dark":    {"blue-dark", true},
-		" slate-dark ": {"slate-dark", true},
-		"orange":       {"orange", true},
-		"bluish":       {"", false},
-		"blue-light":   {"", false},
-		"Blue":         {"", false},
+		// (all three shades); near-misses are rejected like any malformed value.
+		"blue":          {"blue", true},
+		"blue-dark":     {"blue-dark", true},
+		"blue-light":    {"blue-light", true},
+		" slate-dark ":  {"slate-dark", true},
+		" slate-light ": {"slate-light", true},
+		"orange":        {"orange", true},
+		"bluish":        {"", false},
+		"bluish-light":  {"", false},
+		"blue-lite":     {"", false},
+		"Blue":          {"", false},
 		"":             {"", false},
 		"  ":           {"", false},
 		"99":           {"", false},

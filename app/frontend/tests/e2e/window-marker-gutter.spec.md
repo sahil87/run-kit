@@ -122,25 +122,27 @@ owner, dashed), and the flair header − clears only the flair axis.
    `expectMarker` stays `dashed` (axes are independent).
 6. Close via the ✕ cell.
 
-### `picking a color persists via @color — normal shade through the legacy seam, dark shade verbatim`
+### `picking a color persists via @color — normal shade through the legacy seam, dark/light shades verbatim`
 
 **What it proves:** The banded picker's color band writes through the
 `familyToLegacy` seam — picking the `orange` family (normal shade) persists
 `@color` as the legacy descriptor `1+3` (the vocabulary pre-existing colors are
-stored in), not the family name — while picking `orange-dark` persists the
-verbatim `orange-dark` value: dark shades have no legacy form and the backend's
-`ValidateColorValue`/`NormalizeColorValue` accept the family-name vocabulary.
+stored in), not the family name — while picking `orange-dark` or `orange-light`
+persists the verbatim `{family}-{shade}` value: non-normal shades have no
+legacy form and the backend's `ValidateColorValue`/`NormalizeColorValue` accept
+the family-name vocabulary.
 
 **Steps:**
 1. Create `marker-color-<ts>` via the shared `_tmux` helper; navigate + wait for `Connected`.
 2. `resolveWindow` it; assert its color is empty.
 3. Click the `Set tab label` zone; assert the `Label picker` listbox is
    visible.
-4. Click the `Color orange` option (`exact: true` — `Color orange-dark` sits in
-   the same family column); `expectColor` → `1+3`.
+4. Click the `Color orange` option (`exact: true` — `Color orange-dark` and
+   `Color orange-light` sit in the same family column); `expectColor` → `1+3`.
 5. In the SAME open session (the picker stays open after a pick), click
    `Color orange-dark` (`exact: true`); `expectColor` → `orange-dark`.
-6. Click the `Close picker` (✕) cell; assert the listbox is no longer visible.
+6. Click `Color orange-light` (`exact: true`); `expectColor` → `orange-light`.
+7. Click the `Close picker` (✕) cell; assert the listbox is no longer visible.
 
 ### `the composite preview mirrors the live combo (tint + name + caption)`
 

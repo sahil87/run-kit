@@ -242,13 +242,15 @@ describe("owned hue families", () => {
     expect(HUE_FAMILIES.map((f) => f.name)).toEqual([
       "red", "orange", "amber", "olive", "green", "teal", "blue", "purple", "magenta", "slate",
     ]);
-    // The picker values are the 20 family/shade values in PAIRED order — each
-    // family's normal|dark shades adjacent, so the 4-wide grid pairs them.
+    // The picker values are the 30 family/shade values in family-TRIPLET order —
+    // light, normal, dark per family, so the banded picker's column-flow strip
+    // renders one family per column with its three shades as rows.
     expect(PICKER_COLOR_VALUES).toEqual([
-      "red", "red-dark", "orange", "orange-dark", "amber", "amber-dark",
-      "olive", "olive-dark", "green", "green-dark", "teal", "teal-dark",
-      "blue", "blue-dark", "purple", "purple-dark", "magenta", "magenta-dark",
-      "slate", "slate-dark",
+      "red-light", "red", "red-dark", "orange-light", "orange", "orange-dark",
+      "amber-light", "amber", "amber-dark", "olive-light", "olive", "olive-dark",
+      "green-light", "green", "green-dark", "teal-light", "teal", "teal-dark",
+      "blue-light", "blue", "blue-dark", "purple-light", "purple", "purple-dark",
+      "magenta-light", "magenta", "magenta-dark", "slate-light", "slate", "slate-dark",
     ]);
     expect(new Set(HUE_FAMILIES.map((f) => f.name)).size).toBe(10);
     // slate is the only near-neutral family.
@@ -328,12 +330,16 @@ describe("owned hue families", () => {
   });
 });
 
-describe("shade axis (normal + dark)", () => {
-  it("parseColorValue/formatColorValue round-trip both shades; legacy is always normal", () => {
+describe("shade axis (light + normal + dark)", () => {
+  it("parseColorValue/formatColorValue round-trip all three shades; legacy is always normal", () => {
     const dark = parseColorValue("blue-dark");
     expect(dark?.family.name).toBe("blue");
     expect(dark?.shade).toBe("dark");
     expect(formatColorValue(dark!)).toBe("blue-dark");
+    const light = parseColorValue("blue-light");
+    expect(light?.family.name).toBe("blue");
+    expect(light?.shade).toBe("light");
+    expect(formatColorValue(light!)).toBe("blue-light");
     const normal = parseColorValue("blue");
     expect(normal?.shade).toBe("normal");
     expect(formatColorValue(normal!)).toBe("blue");
@@ -344,23 +350,28 @@ describe("shade axis (normal + dark)", () => {
     expect(formatColorValue(legacy!)).toBe("orange");
     // Whitespace tolerated like every other stored form.
     expect(parseColorValue(" slate-dark ")?.shade).toBe("dark");
+    expect(parseColorValue(" slate-light ")?.shade).toBe("light");
   });
 
-  it("resolveFamily accepts -dark names (hue identity — the shade is dropped)", () => {
+  it("resolveFamily accepts -dark/-light names (hue identity — the shade is dropped)", () => {
     expect(resolveFamily("blue-dark")?.name).toBe("blue");
+    expect(resolveFamily("blue-light")?.name).toBe("blue");
     expect(resolveFamily("slate-dark")?.name).toBe("slate");
+    expect(resolveFamily("slate-light")?.name).toBe("slate");
   });
 
   it("rejects shade near-misses", () => {
-    for (const bad of ["blue-light", "bluish-dark", "-dark", "dark", "1+3-dark"]) {
+    for (const bad of ["bluish-light", "blue-lite", "bluish-dark", "-light", "-dark", "light", "dark", "1+3-light", "1+3-dark"]) {
       expect(parseColorValue(bad)).toBeNull();
       expect(resolveFamily(bad)).toBeNull();
     }
   });
 
-  it("familyToLegacy passes dark values through verbatim (no legacy form exists)", () => {
+  it("familyToLegacy passes light/dark values through verbatim (no legacy form exists)", () => {
     expect(familyToLegacy("blue-dark")).toBe("blue-dark");
+    expect(familyToLegacy("blue-light")).toBe("blue-light");
     expect(familyToLegacy("slate-dark")).toBe("slate-dark");
+    expect(familyToLegacy("slate-light")).toBe("slate-light");
     // Normal picks keep the legacy write mapping (zero migration).
     expect(familyToLegacy("blue")).toBe("4");
   });
@@ -382,11 +393,31 @@ describe("shade axis (normal + dark)", () => {
     }
   });
 
-  it("slate-dark keeps the near-neutral chroma rule (an intentional gray ramp)", () => {
+  it("light shades render at mean-L + 0.14 with the family hue preserved (the exact mirror of dark)", () => {
+    const p = DEFAULT_DARK_THEME.palette;
+    const stats = themeColorStats(p);
+    for (const name of ["red", "teal", "purple"]) {
+      const normal = hexToOklab(colorValueToHex(name, p)!);
+      const light = hexToOklab(colorValueToHex(`${name}-light`, p)!);
+      // Lightness rises by ≈ 0.14 from the theme mean — the symmetric mirror
+      // of the dark rung (gamut chroma-reduction keeps L itself exact).
+      expect(light.L).toBeCloseTo(stats.L + 0.14, 1);
+      expect(light.L).toBeGreaterThan(normal.L);
+      // Hue angle preserved (chroma may reduce for gamut, hue must not move).
+      const hue = (c: { a: number; b: number }) => (Math.atan2(c.b, c.a) * 180) / Math.PI;
+      const diff = Math.abs(hue(light) - hue(normal));
+      expect(Math.min(diff, 360 - diff)).toBeLessThan(6);
+    }
+  });
+
+  it("slate-dark and slate-light keep the near-neutral chroma rule (an intentional gray ramp)", () => {
     const p = DEFAULT_DARK_THEME.palette;
     const slateDark = hexToOklab(colorValueToHex("slate-dark", p)!);
     const blueDark = hexToOklab(colorValueToHex("blue-dark", p)!);
     expect(Math.hypot(slateDark.a, slateDark.b)).toBeLessThan(Math.hypot(blueDark.a, blueDark.b));
+    const slateLight = hexToOklab(colorValueToHex("slate-light", p)!);
+    const blueLight = hexToOklab(colorValueToHex("blue-light", p)!);
+    expect(Math.hypot(slateLight.a, slateLight.b)).toBeLessThan(Math.hypot(blueLight.a, blueLight.b));
   });
 
   it("dark rendering is in-gamut on every theme (chroma-reduced, never clamped)", () => {
@@ -399,6 +430,48 @@ describe("shade axis (normal + dark)", () => {
         // proof no sRGB channel-clamping shifted it.
         const lab = hexToOklab(hex);
         expect(Math.abs(lab.L - (stats.L - 0.14))).toBeLessThan(0.05);
+      }
+    }
+  });
+
+  it("light rendering is in-gamut on every theme (chroma-reduced, never clamped)", () => {
+    for (const theme of THEMES) {
+      const stats = themeColorStats(theme.palette);
+      for (const family of HUE_FAMILIES) {
+        const hex = colorValueToHex(`${family.name}-light`, theme.palette)!;
+        expect(hex).toMatch(HEX_RE);
+        const lab = hexToOklab(hex);
+        expect(Math.abs(lab.L - (stats.L + 0.14))).toBeLessThan(0.05);
+      }
+    }
+  });
+
+  it("a light shade's guarded border clears 3.0 on every built-in light theme (downward nudge)", () => {
+    // adjustBorderForContrast is bidirectional: on light themes it pushes L
+    // DOWN, so the faded light rung (mean-L + 0.14 on an already-bright theme)
+    // still clears BORDER_MIN_CONTRAST against the background. No new guard
+    // mechanics — this proves the existing one covers light-on-light.
+    for (const theme of THEMES.filter((t) => t.category === "light")) {
+      const borders = computeRowBorders(theme.palette, theme.category);
+      for (const family of HUE_FAMILIES) {
+        const value = `${family.name}-light`;
+        const border = borders.get(value)!;
+        expect(border).toMatch(HEX_RE);
+        expect(contrastRatio(border, theme.palette.background)).toBeGreaterThanOrEqual(BORDER_MIN_CONTRAST);
+        // On a light theme a light rung can only have needed a DARKER nudge.
+        const raw = colorValueToHex(value, theme.palette)!;
+        expect(relativeLuminance(border)).toBeLessThanOrEqual(relativeLuminance(raw) + 1e-9);
+      }
+    }
+  });
+
+  it("a light shade's guarded border clears 3.0 on every built-in dark theme (headroom)", () => {
+    for (const theme of THEMES.filter((t) => t.category === "dark")) {
+      const borders = computeRowBorders(theme.palette, theme.category);
+      for (const family of HUE_FAMILIES) {
+        const border = borders.get(`${family.name}-light`)!;
+        expect(border).toMatch(HEX_RE);
+        expect(contrastRatio(border, theme.palette.background)).toBeGreaterThanOrEqual(BORDER_MIN_CONTRAST);
       }
     }
   });
@@ -506,10 +579,10 @@ describe("computeRowTints", () => {
   it("returns an entry for every family/shade value plus the uncolored sentinel", () => {
     const tints = computeRowTints(DEFAULT_DARK_THEME.palette);
     // Each of the 10 families' NORMAL shade is keyed under BOTH its family name
-    // AND its legacy descriptor (20 keys); each DARK shade under its
-    // `{family}-dark` value only (10 keys — no legacy form exists); plus the 1
-    // uncolored-selected sentinel = 31 entries.
-    expect(tints.size).toBe(HUE_FAMILIES.length * 3 + 1);
+    // AND its legacy descriptor (20 keys); each LIGHT/DARK shade under its
+    // `{family}-light`/`{family}-dark` value only (20 keys — no legacy form
+    // exists); plus the 1 uncolored-selected sentinel = 41 entries.
+    expect(tints.size).toBe(HUE_FAMILIES.length * 4 + 1);
     for (const value of PICKER_COLOR_VALUES) {
       expect(tints.has(value)).toBe(true);
     }
@@ -636,19 +709,21 @@ describe("computeRowBorders", () => {
   it("returns a contrast-adjusted border per family/shade under every stored vocabulary + sentinel", () => {
     const borders = computeRowBorders(DEFAULT_DARK_THEME.palette, DEFAULT_DARK_THEME.category);
     // Each family's normal shade keyed under its name AND its legacy descriptor
-    // (20 keys), each dark shade under `{family}-dark` (10 keys), + the
-    // uncolored-selected sentinel — mirroring computeRowTints so consumers keyed
-    // by the raw stored value hit regardless of the stored vocabulary.
-    expect(borders.size).toBe(HUE_FAMILIES.length * 3 + 1);
+    // (20 keys), each light/dark shade under `{family}-light` / `{family}-dark`
+    // (20 keys), + the uncolored-selected sentinel — mirroring computeRowTints
+    // so consumers keyed by the raw stored value hit regardless of the stored
+    // vocabulary.
+    expect(borders.size).toBe(HUE_FAMILIES.length * 4 + 1);
     for (const value of PICKER_COLOR_VALUES) {
       expect(borders.has(value)).toBe(true);
     }
     for (const [, hex] of borders) {
       expect(hex).toMatch(HEX_RE);
     }
-    // The two normal-shade vocabularies point at the same border; dark is its own.
+    // The two normal-shade vocabularies point at the same border; light/dark are their own.
     expect(borders.get("1+3")).toBe(borders.get("orange"));
     expect(borders.get("orange-dark")).not.toBe(borders.get("orange"));
+    expect(borders.get("orange-light")).not.toBe(borders.get("orange"));
   });
 
   it("every border clears the min contrast (or improves on the raw source) across all themes", () => {

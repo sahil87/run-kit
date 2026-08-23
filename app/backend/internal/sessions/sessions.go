@@ -104,10 +104,17 @@ func applyActiveWindow(windows []tmux.WindowInfo, trackedWid string) {
 	}
 }
 
-// Per-entry git branch cache with separate positive/negative TTLs.
+// Per-entry git branch cache with separate positive/negative TTLs. lastGood /
+// lastGoodAt remember the most recent GENUINE positive resolution independently
+// of the served branch: during a detached-HEAD grace serve the entry's branch is
+// the remembered one, but lastGoodAt is never re-stamped, so the grace window is
+// measured from the last real ref — a deliberate long-term detached checkout
+// exhausts it and degrades to the negative cache rather than holding forever.
 type gitBranchCacheEntry struct {
-	branch    string
-	expiresAt time.Time
+	branch     string
+	expiresAt  time.Time
+	lastGood   string
+	lastGoodAt time.Time
 }
 
 const (
@@ -115,6 +122,15 @@ const (
 	gitBranchNegativeTTL  = 15 * time.Second
 	gitBranchResolveLimit = 16
 	gitBranchCmdTimeout   = 250 * time.Millisecond
+
+	// gitBranchDetachedGraceTTL bounds how long a detached HEAD keeps serving the
+	// cwd's last-known branch. A rebase/bisect ends on the branch it started on,
+	// so blanking the branch (and with it every PR surface) mid-rebase is pure
+	// noise — but the grace MUST expire so a checkout deliberately parked
+	// detached eventually reads as branchless. Sized to cover a long interactive
+	// rebase; the serve is cached on the NEGATIVE cadence (15s) so the real HEAD
+	// is re-read promptly once the rebase finishes.
+	gitBranchDetachedGraceTTL = 5 * time.Minute
 )
 
 var (
@@ -195,12 +211,21 @@ func resolveCwdMissing(cwds []string) map[string]bool {
 }
 
 // resolveGitBranchFromHead reads .git/HEAD directly (no subprocess).
-// Handles both normal repos and worktrees (where .git is a file pointing to the real gitdir).
-func resolveGitBranchFromHead(cwd string) (string, bool) {
+// Handles both normal repos and worktrees (where .git is a file pointing to the
+// real gitdir). detached reports a READABLE HEAD that is not a ref — the
+// mid-rebase/bisect shape — which the caller may bridge with the last-known
+// branch (grace); every unreadable/non-repo shape is (ok=false, detached=false)
+// and keeps plain negative behavior.
+func resolveGitBranchFromHead(cwd string) (branch string, detached, ok bool) {
+	if cwd == "" {
+		// filepath.Join("", ".git") is a RELATIVE ".git" — it would stat against
+		// the server process's own working directory, not any pane's repo.
+		return "", false, false
+	}
 	gitPath := filepath.Join(cwd, ".git")
 	info, err := os.Stat(gitPath)
 	if err != nil {
-		return "", false
+		return "", false, false
 	}
 
 	headPath := ""
@@ -210,11 +235,11 @@ func resolveGitBranchFromHead(cwd string) (string, bool) {
 		// Worktree: .git is a file containing "gitdir: <path>"
 		data, err := os.ReadFile(gitPath)
 		if err != nil {
-			return "", false
+			return "", false, false
 		}
 		data = bytes.TrimSpace(data)
 		if !bytes.HasPrefix(data, []byte("gitdir:")) {
-			return "", false
+			return "", false, false
 		}
 		gitDir := string(bytes.TrimSpace(data[7:]))
 		if !filepath.IsAbs(gitDir) {
@@ -225,43 +250,50 @@ func resolveGitBranchFromHead(cwd string) (string, bool) {
 
 	head, err := os.ReadFile(headPath)
 	if err != nil {
-		return "", false
+		return "", false, false
 	}
 	head = bytes.TrimSpace(head)
 	if !bytes.HasPrefix(head, []byte("ref:")) {
-		return "", false // detached HEAD
+		return "", true, false // detached HEAD (raw commit SHA)
 	}
 	ref := string(bytes.TrimSpace(head[4:]))
 	// "refs/heads/main" → "main"
 	if i := len("refs/heads/"); len(ref) > i {
-		return ref[i:], true
+		return ref[i:], false, true
 	}
-	return "", false
+	return "", false, false
 }
 
-// resolveGitBranchWithGit falls back to git rev-parse (for edge cases).
-func resolveGitBranchWithGit(ctx context.Context, cwd string) string {
+// resolveGitBranchWithGit falls back to git rev-parse (for edge cases). detached
+// mirrors resolveGitBranchFromHead's signal: rev-parse prints the literal `HEAD`
+// on a detached checkout.
+func resolveGitBranchWithGit(ctx context.Context, cwd string) (branch string, detached bool) {
 	gitCtx, cancel := context.WithTimeout(ctx, gitBranchCmdTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(gitCtx, "git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD")
 	out, err := cmd.Output()
 	if err != nil {
-		return ""
+		return "", false
 	}
-	branch := string(bytes.TrimSpace(out))
-	if branch == "HEAD" {
-		return "" // detached
+	b := string(bytes.TrimSpace(out))
+	if b == "HEAD" {
+		return "", true // detached
 	}
-	return branch
+	return b, false
 }
 
 // resolveGitBranches resolves git branches for a set of cwds using a per-entry TTL cache.
-// Prefers reading .git/HEAD directly; falls back to git subprocess.
+// Prefers reading .git/HEAD directly; falls back to git subprocess. A detached
+// HEAD within gitBranchDetachedGraceTTL of the cwd's last genuine positive
+// resolution serves that last-known branch (a rebase ends on the branch it
+// started on — blanking every PR surface mid-rebase is noise), cached on the
+// negative cadence so the real HEAD is re-read promptly once it re-attaches.
 func resolveGitBranches(ctx context.Context, cwds []string) map[string]string {
 	now := time.Now()
 	result := make(map[string]string)
 	seen := make(map[string]bool)
 	var misses []string
+	prior := make(map[string]gitBranchCacheEntry)
 
 	// Check cache for each cwd
 	gitBranchCacheMu.RLock()
@@ -270,11 +302,15 @@ func resolveGitBranches(ctx context.Context, cwds []string) map[string]string {
 			continue
 		}
 		seen[cwd] = true
-		if entry, ok := gitBranchCache[cwd]; ok && now.Before(entry.expiresAt) {
-			if entry.branch != "" {
-				result[cwd] = entry.branch
+		if entry, ok := gitBranchCache[cwd]; ok {
+			if now.Before(entry.expiresAt) {
+				if entry.branch != "" {
+					result[cwd] = entry.branch
+				}
+				continue
 			}
-			continue
+			// Expired: keep the old entry's last-good record for the grace check.
+			prior[cwd] = entry
 		}
 		misses = append(misses, cwd)
 	}
@@ -293,16 +329,32 @@ func resolveGitBranches(ctx context.Context, cwds []string) map[string]string {
 		if ctx.Err() != nil {
 			break
 		}
-		branch, ok := resolveGitBranchFromHead(cwd)
-		if !ok {
-			branch = resolveGitBranchWithGit(ctx, cwd)
+		branch, detached, ok := resolveGitBranchFromHead(cwd)
+		if !ok && !detached {
+			// The HEAD shape is authoritative for detached — the subprocess
+			// fallback runs only for the shapes the direct read couldn't parse.
+			branch, detached = resolveGitBranchWithGit(ctx, cwd)
 		}
-		ttl := gitBranchNegativeTTL
-		if branch != "" {
-			ttl = gitBranchPositiveTTL
+		p := prior[cwd]
+		var entry gitBranchCacheEntry
+		switch {
+		case branch != "":
+			entry = gitBranchCacheEntry{branch: branch, expiresAt: now.Add(gitBranchPositiveTTL), lastGood: branch, lastGoodAt: now}
 			result[cwd] = branch
+		case detached && p.lastGood != "" && now.Sub(p.lastGoodAt) < gitBranchDetachedGraceTTL:
+			// Grace serve: bridge the rebase with the last-known branch. lastGoodAt
+			// is NOT re-stamped — the grace window is measured from the last real
+			// ref, so a checkout parked detached exhausts it.
+			entry = gitBranchCacheEntry{branch: p.lastGood, expiresAt: now.Add(gitBranchNegativeTTL), lastGood: p.lastGood, lastGoodAt: p.lastGoodAt}
+			result[cwd] = p.lastGood
+		default:
+			// Genuine negative (no repo, unparseable, or grace exhausted). The
+			// last-good record is carried so a detached cwd that expires and later
+			// re-attaches restarts its grace from the next real ref, not from
+			// stale history.
+			entry = gitBranchCacheEntry{expiresAt: now.Add(gitBranchNegativeTTL), lastGood: p.lastGood, lastGoodAt: p.lastGoodAt}
 		}
-		updates[cwd] = gitBranchCacheEntry{branch: branch, expiresAt: now.Add(ttl)}
+		updates[cwd] = entry
 	}
 
 	gitBranchCacheMu.Lock()
@@ -485,6 +537,28 @@ func windowBranchRepo(w *tmux.WindowInfo) (repoDir, branch string) {
 	return "", ""
 }
 
+// windowPRKey is the (repoDir, branch) pair enrichWindowPR registers and joins
+// on. It keys on the GIT ROOT of the branch-supplying pane, not its raw cwd: a
+// pane cd-ing between subdirectories of one worktree must keep hitting the same
+// (repoDir, branch) entry, or every cd blanks the PR fields until the refresher
+// resolves a brand-new pair. The root is resolved from the SAME pane that
+// supplied the branch (not w.GitRoot, which follows the active pane) so the two
+// halves of the key always describe one repo. FindGitRoot is a pure stat-walk —
+// no subprocess, hot-path safe. A cwd outside any repo falls back to the raw
+// cwd key; no branch yields ("", "").
+func windowPRKey(w *tmux.WindowInfo) (repoDir, branch string) {
+	repoDir, branch = windowBranchRepo(w)
+	if branch == "" || repoDir == "" {
+		// A branch with no cwd carries no joinable identity — and FindGitRoot("")
+		// would stat a relative ".git" against the server's own working directory.
+		return "", ""
+	}
+	if root := config.FindGitRoot(repoDir); root != "" {
+		repoDir = root
+	}
+	return repoDir, branch
+}
+
 // enrichWindowPR populates the window's PrURL/PrNumber (and a fallback PrState)
 // from its branch (Constitution §X — PR links are derivable, not pushed):
 // any pane on a branch with a PR (open, merged, or closed) gets its link, in
@@ -515,7 +589,7 @@ func windowBranchRepo(w *tmux.WindowInfo) (repoDir, branch string) {
 // channel's 30s it can serve a briefly stale flag — accepted, and exactly how
 // PrState already behaves.
 func enrichWindowPR(w *tmux.WindowInfo) {
-	repoDir, branch := windowBranchRepo(w)
+	repoDir, branch := windowPRKey(w)
 	if branch == "" {
 		return
 	}

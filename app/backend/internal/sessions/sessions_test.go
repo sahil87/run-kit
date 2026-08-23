@@ -1,11 +1,13 @@
 package sessions
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"rk/internal/tmux"
 )
@@ -522,4 +524,210 @@ func TestProjectSessionHiddenJSON(t *testing.T) {
 	if strings.Contains(string(b2), "hidden") {
 		t.Errorf("visible session JSON = %s, want hidden omitted", b2)
 	}
+}
+
+// --- branch→PR presence: gitRoot keying + detached-HEAD grace ---
+
+// writeGitHead writes a repo's .git/HEAD content, creating the .git dir.
+func writeGitHead(t *testing.T, repo, content string) {
+	t.Helper()
+	gitDir := filepath.Join(repo, ".git")
+	if err := os.MkdirAll(gitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// resetGitBranchCache empties the package-global branch cache for a test and
+// restores the previous map on cleanup, so tests never leak entries.
+func resetGitBranchCache(t *testing.T) {
+	t.Helper()
+	gitBranchCacheMu.Lock()
+	prev := gitBranchCache
+	gitBranchCache = make(map[string]gitBranchCacheEntry)
+	gitBranchCacheMu.Unlock()
+	t.Cleanup(func() {
+		gitBranchCacheMu.Lock()
+		gitBranchCache = prev
+		gitBranchCacheMu.Unlock()
+	})
+}
+
+// ageGitBranchEntry expires a cache entry (forcing re-resolution on the next
+// pass) and optionally backdates its last-good stamp by lastGoodAge.
+func ageGitBranchEntry(t *testing.T, cwd string, lastGoodAge time.Duration) {
+	t.Helper()
+	gitBranchCacheMu.Lock()
+	defer gitBranchCacheMu.Unlock()
+	e, ok := gitBranchCache[cwd]
+	if !ok {
+		t.Fatalf("no cache entry for %q", cwd)
+	}
+	e.expiresAt = time.Now().Add(-time.Second)
+	if lastGoodAge > 0 {
+		e.lastGoodAt = time.Now().Add(-lastGoodAge)
+	}
+	gitBranchCache[cwd] = e
+}
+
+func TestResolveGitBranchesDetachedGrace(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("detached HEAD within grace serves the last-known branch", func(t *testing.T) {
+		resetGitBranchCache(t)
+		repo := t.TempDir()
+		writeGitHead(t, repo, "ref: refs/heads/feat-x\n")
+		if got := resolveGitBranches(ctx, []string{repo}); got[repo] != "feat-x" {
+			t.Fatalf("positive resolve: got %q, want feat-x", got[repo])
+		}
+
+		// Rebase starts: HEAD detaches to a raw SHA. Expire the cached positive
+		// so the next call re-resolves.
+		writeGitHead(t, repo, "0123456789abcdef0123456789abcdef01234567\n")
+		ageGitBranchEntry(t, repo, 0)
+		if got := resolveGitBranches(ctx, []string{repo}); got[repo] != "feat-x" {
+			t.Errorf("grace serve: got %q, want feat-x", got[repo])
+		}
+
+		// The grace serve is cached on the short cadence and keeps serving from
+		// cache within it.
+		if got := resolveGitBranches(ctx, []string{repo}); got[repo] != "feat-x" {
+			t.Errorf("cached grace serve: got %q, want feat-x", got[repo])
+		}
+	})
+
+	t.Run("grace expiry blanks the branch", func(t *testing.T) {
+		resetGitBranchCache(t)
+		repo := t.TempDir()
+		writeGitHead(t, repo, "ref: refs/heads/feat-x\n")
+		resolveGitBranches(ctx, []string{repo})
+
+		writeGitHead(t, repo, "0123456789abcdef0123456789abcdef01234567\n")
+		ageGitBranchEntry(t, repo, gitBranchDetachedGraceTTL+time.Minute)
+		if got := resolveGitBranches(ctx, []string{repo}); got[repo] != "" {
+			t.Errorf("expired grace: got %q, want empty", got[repo])
+		}
+	})
+
+	t.Run("re-attached HEAD resolves live and re-stamps the grace window", func(t *testing.T) {
+		resetGitBranchCache(t)
+		repo := t.TempDir()
+		writeGitHead(t, repo, "ref: refs/heads/feat-x\n")
+		resolveGitBranches(ctx, []string{repo})
+
+		writeGitHead(t, repo, "0123456789abcdef0123456789abcdef01234567\n")
+		ageGitBranchEntry(t, repo, 0)
+		resolveGitBranches(ctx, []string{repo}) // grace serve
+
+		// Rebase ends on a (possibly different) branch; the next expiry re-read
+		// picks up the live ref.
+		writeGitHead(t, repo, "ref: refs/heads/feat-y\n")
+		ageGitBranchEntry(t, repo, 0)
+		if got := resolveGitBranches(ctx, []string{repo}); got[repo] != "feat-y" {
+			t.Errorf("re-attached: got %q, want feat-y", got[repo])
+		}
+		gitBranchCacheMu.RLock()
+		lastGood := gitBranchCache[repo].lastGood
+		gitBranchCacheMu.RUnlock()
+		if lastGood != "feat-y" {
+			t.Errorf("lastGood = %q, want feat-y (re-stamped on genuine positive)", lastGood)
+		}
+	})
+
+	t.Run("first-sight detached HEAD has no grace and resolves empty", func(t *testing.T) {
+		resetGitBranchCache(t)
+		repo := t.TempDir()
+		writeGitHead(t, repo, "0123456789abcdef0123456789abcdef01234567\n")
+		if got := resolveGitBranches(ctx, []string{repo}); got[repo] != "" {
+			t.Errorf("first-sight detached: got %q, want empty", got[repo])
+		}
+	})
+
+	t.Run("non-repo cwd keeps plain negative behavior", func(t *testing.T) {
+		resetGitBranchCache(t)
+		plain := t.TempDir()
+		if got := resolveGitBranches(ctx, []string{plain}); got[plain] != "" {
+			t.Errorf("non-repo: got %q, want empty", got[plain])
+		}
+		gitBranchCacheMu.RLock()
+		e := gitBranchCache[plain]
+		gitBranchCacheMu.RUnlock()
+		if e.branch != "" || e.lastGood != "" {
+			t.Errorf("non-repo entry = %+v, want plain negative", e)
+		}
+	})
+}
+
+func TestResolveGitBranchFromHeadDetachedSignal(t *testing.T) {
+	repo := t.TempDir()
+	writeGitHead(t, repo, "0123456789abcdef0123456789abcdef01234567\n")
+	branch, detached, ok := resolveGitBranchFromHead(repo)
+	if branch != "" || !detached || ok {
+		t.Errorf("detached HEAD: got (%q, %v, %v), want (\"\", true, false)", branch, detached, ok)
+	}
+
+	writeGitHead(t, repo, "ref: refs/heads/main\n")
+	branch, detached, ok = resolveGitBranchFromHead(repo)
+	if branch != "main" || detached || !ok {
+		t.Errorf("ref HEAD: got (%q, %v, %v), want (main, false, true)", branch, detached, ok)
+	}
+
+	plain := t.TempDir()
+	branch, detached, ok = resolveGitBranchFromHead(plain)
+	if branch != "" || detached || ok {
+		t.Errorf("non-repo: got (%q, %v, %v), want (\"\", false, false)", branch, detached, ok)
+	}
+}
+
+func TestWindowPRKey(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(repo, "app", "backend")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	plain := t.TempDir()
+
+	t.Run("subdirectory cwd keys on the git root", func(t *testing.T) {
+		w := tmux.WindowInfo{Panes: []tmux.PaneInfo{
+			{Cwd: sub, GitBranch: "feat-x", IsActive: true},
+		}}
+		repoDir, branch := windowPRKey(&w)
+		if repoDir != repo || branch != "feat-x" {
+			t.Errorf("got (%q, %q), want (%q, feat-x)", repoDir, branch, repo)
+		}
+	})
+
+	t.Run("root follows the branch-supplying pane, not the active pane", func(t *testing.T) {
+		w := tmux.WindowInfo{Panes: []tmux.PaneInfo{
+			{Cwd: plain, GitBranch: "", IsActive: true},
+			{Cwd: sub, GitBranch: "feat-x"},
+		}}
+		repoDir, branch := windowPRKey(&w)
+		if repoDir != repo || branch != "feat-x" {
+			t.Errorf("got (%q, %q), want (%q, feat-x)", repoDir, branch, repo)
+		}
+	})
+
+	t.Run("non-repo cwd falls back to the raw cwd", func(t *testing.T) {
+		w := tmux.WindowInfo{Panes: []tmux.PaneInfo{
+			{Cwd: plain, GitBranch: "feat-x", IsActive: true},
+		}}
+		repoDir, branch := windowPRKey(&w)
+		if repoDir != plain || branch != "feat-x" {
+			t.Errorf("got (%q, %q), want (%q, feat-x)", repoDir, branch, plain)
+		}
+	})
+
+	t.Run("no branch yields empty pair", func(t *testing.T) {
+		w := tmux.WindowInfo{Panes: []tmux.PaneInfo{{Cwd: sub, IsActive: true}}}
+		repoDir, branch := windowPRKey(&w)
+		if repoDir != "" || branch != "" {
+			t.Errorf("got (%q, %q), want empty", repoDir, branch)
+		}
+	})
 }

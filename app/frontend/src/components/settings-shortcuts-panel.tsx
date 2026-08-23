@@ -7,8 +7,6 @@ import {
   captureFromEvent,
   claimedKeys,
   comboParts,
-  DEFAULT_BINDINGS,
-  defaultComboFor,
   formatCombo,
   keyLabel,
   type BindingPlatform,
@@ -583,29 +581,6 @@ export function SettingsShortcutsPanel({
   const bindingRow = (b: EffectiveBinding) => {
     const modified = hasOverride(b.actionId);
     const combo = { code: b.code, tier: b.tier };
-    // Host-divergence row facts (260801-r8j2): the macShellOnly shell-gated
-    // rows (⌘T/⌘W/⌘, in the desktop shell, ⇧⌘ fallback in a mac browser —
-    // create-session's code-refined ⇧⌘T and the two app-window bridge
-    // actions diverge the same way) have a
-    // chord that differs between mac hosts — surface a `desktop` badge + the
-    // OTHER host's chord as a hint. A PHYSICAL-host fact (never the display
-    // toggle), and only while no override is stored: overrides apply verbatim
-    // on both hosts, collapsing the divergence (a keyless base's host-default
-    // unbound state does NOT collapse it — unbound IS that host's default).
-    // The divergence is judged on the DEF's two host-default combos (a shell
-    // refinement spent — `b.code`/`b.tier` already reflect it — so comparing
-    // against the effective row would always read equal); a keyless other
-    // side still diverges, and its badge carries no chord hint.
-    const baseDef =
-      host.platform === "mac" && !modified && b.macShellOnly === true
-        ? DEFAULT_BINDINGS.find((d) => d.actionId === b.actionId)
-        : undefined;
-    const otherHostCombo = baseDef
-      ? defaultComboFor(baseDef, { platform: "mac", shell: !host.shell })
-      : null;
-    const hostDivergent =
-      otherHostCombo !== null &&
-      (otherHostCombo.code !== b.code || otherHostCombo.tier !== b.tier);
     return (
       <div key={b.actionId} data-actionid={b.actionId}>
         <div className="group flex items-center gap-2.5 px-2 py-1.5 rounded hover:bg-bg-inset/70">
@@ -620,22 +595,6 @@ export function SettingsShortcutsPanel({
             )}
           </span>
           <ScopeBadge scope={b.scope} />
-          {hostDivergent && (
-            <span
-              className="flex-none text-[9.5px] tracking-wider uppercase px-2 py-px rounded-full border border-accent/60 text-accent-bright"
-              title="this chord differs between the desktop app and a mac browser"
-            >
-              desktop
-            </span>
-          )}
-          {hostDivergent &&
-            otherHostCombo.code !== "" &&
-            b.disabledReason !== "user" && (
-            <span className="flex-none text-[10px] text-text-secondary whitespace-nowrap">
-              {host.shell ? "in browser:" : "in desktop app:"}{" "}
-              {formatCombo(otherHostCombo, host.platform)}
-            </span>
-          )}
           {b.disabledReason === "user" ? (
             <button
               type="button"
@@ -663,12 +622,12 @@ export function SettingsShortcutsPanel({
               <Keycaps parts={comboParts(combo, displayPlatform)} />
             </button>
           )}
-          {b.disabledReason === "reserved" && (
+          {b.disabledReason === "reserved" && !host.shell && (
             <span
-              className="flex-none text-[9.5px] tracking-wider uppercase px-2 py-px rounded-full border border-amber-600/50 text-amber-600"
-              title="browser-reserved — use the command palette, or rebind; the desktop shell frees this key"
+              className="flex-none text-[9.5px] tracking-wider uppercase px-2 py-px rounded-full border border-accent/60 text-accent-bright"
+              title="reserved by the browser — works in the desktop app; use the command palette here"
             >
-              browser
+              desktop
             </span>
           )}
           <button

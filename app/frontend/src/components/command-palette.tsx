@@ -14,6 +14,9 @@ export type PaletteOptionPicker = {
 export type PaletteAction = {
   id: string;
   label: string;
+  /** Optional secondary text after the label (the shortcuts panel's
+   *  `label — description` idiom); joins the filter haystack. */
+  description?: string;
   shortcut?: string;
   /** When set, first selection enters a one-row confirmation step. */
   confirmLabel?: string;
@@ -77,9 +80,13 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
           label: o.label,
           onSelect: () => {},
         }))
-      : actions.filter((a) =>
-          a.label.toLowerCase().includes(query.toLowerCase()),
-        );
+      : actions.filter((a) => {
+          const q = query.toLowerCase();
+          return (
+            a.label.toLowerCase().includes(q) ||
+            (a.description?.toLowerCase().includes(q) ?? false)
+          );
+        });
 
   // The toggle chord comes from the keybinding registry (260730-g40a): default
   // ⌘K / Ctrl+K (`command-palette`, cmd tier, `ignoreInputs` — it keeps firing
@@ -269,7 +276,12 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
                       : "text-text-secondary hover:text-text-primary hover:bg-bg-card/50"
                   }`}
                 >
-                  <span>{action.label}</span>
+                  <span>
+                    {action.label}
+                    {action.description && (
+                      <span className="text-text-secondary"> — {action.description}</span>
+                    )}
+                  </span>
                   {badge !== undefined && (
                     <kbd className="text-xs text-text-secondary bg-bg-card px-1.5 py-0.5 rounded border border-border">
                       {badge}

@@ -82,13 +82,8 @@ export type KeyBinding = {
    *  iTerm2's ⌘D/⇧⌘D on mac, but both rows on `KeyD` would collide on the
    *  Win/Linux shifted tier and plain Ctrl+D is the pane's EOF — so Win/Linux
    *  keeps its own divider-mnemonic codes and mac refines to `KeyD`. Composes
-   *  with `macTier`/`macShellOnly` (one host gate for both refinements); only
-   *  the DEFAULT is refined, same as `macTier`. */
+   *  with `macTier`; only the DEFAULT is refined, same as `macTier`. */
   macCode?: string;
-  /** Restrict `macTier`/`macCode` to desktop-shell hosts (`isShell()`): a mac
-   *  BROWSER keeps the base combo (the unshifted ⌘ N/T/W set is
-   *  browser-reserved and uninterceptable there). */
-  macShellOnly?: boolean;
   scope: BindingScope;
   kind: BindingKind;
   /** Human label for overlay rows + tier-map keycaps. */
@@ -155,12 +150,12 @@ export const KEYBINDINGS_STORAGE_KEY = "runkit-keybindings";
  * the same class as the shipped ⌘[/⌘]/⌘/ and ⌘D interceptions, not
  * reserved like ⌘N/T/W); the window-cycle arrows (⌘↑/⌘↓), the positional
  * surface digits (⌘1 tty / ⌘2 code / ⌘3 web), and ⌘I compose demote the same
- * way. T/W and , demote only inside
- * the desktop shell, where N/T/W also refine their CODES (`macCode`):
- * create-session rides ⇧⌘T, and the two keyless-base app-window actions
- * spend ⌘N/⇧⌘W there (`macShellOnly` — mac browsers reserve N/T/W even
- * shifted, so those stay palette-only there; ⌘, is browser Preferences, so
- * settings keeps the shifted default outside the shell). A stays
+ * way. T/W and , demote on every mac host, and N/T/W also refine their
+ * CODES (`macCode`): create-session rides ⇧⌘T, the two keyless-base
+ * app-window actions spend ⌘N/⇧⌘W, and settings rides ⌘,. One canonical
+ * chord per action — in a mac browser the canonical combos are
+ * browser-reserved (claims data below), so they resolve disabled there
+ * and stay palette-only. A stays
  * shifted everywhere (⌘A is select-all/Edit-role — immovable), the session
  * pair stays shifted via its `macCode` (⇧⌘↑/⇧⌘↓ — tier-disjoint from the
  * window pair's ⌘↑/⌘↓), and the hosts chord stays shifted on H (cmd-tier ⌘H
@@ -180,7 +175,7 @@ export const KEYBINDINGS_STORAGE_KEY = "runkit-keybindings";
  */
 export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // — run-kit shifted tier (global) —
-  // The mac-shell N/T/W map follows the universal tab-model convention
+  // The mac N/T/W map follows the universal tab-model convention
   // (Chrome/Safari/iTerm2): unshifted ⌘ = the tab/tmux level, shifted = the
   // bigger variant. ⌘T new tab (create-window, unchanged), ⇧⌘T new session
   // (create-session's `macCode` — the split-pair precedent: tier-disjoint
@@ -188,19 +183,19 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // with the app-window pair beside them (⌘N new / ⇧⌘W close — the two
   // keyless-base bridge actions below). Win/Linux keeps ⇧Ctrl+N/T/W
   // untouched (plain Ctrl belongs to the pane).
-  { actionId: "create-session", code: "KeyN", tier: "shifted", macCode: "KeyT", macShellOnly: true, scope: "global", kind: "builtin", label: "New session", description: "create a tmux session", mapLabel: "new session" },
-  { actionId: "create-window", code: "KeyT", tier: "shifted", macTier: "cmd", macShellOnly: true, scope: "global", kind: "builtin", label: "New tab", description: "in the current session", mapLabel: "new tab" },
-  { actionId: "kill-window", code: "KeyW", tier: "shifted", macTier: "cmd", macShellOnly: true, scope: "global", kind: "builtin", label: "Close tab", description: "confirm flow", mapLabel: "close tab" },
+  { actionId: "create-session", code: "KeyN", tier: "shifted", macCode: "KeyT", scope: "global", kind: "builtin", label: "New session", description: "a new group of tabs", mapLabel: "new session" },
+  { actionId: "create-window", code: "KeyT", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "New tab", description: "in the current session", mapLabel: "new tab" },
+  { actionId: "kill-window", code: "KeyW", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Close tab", description: "confirm flow", mapLabel: "close tab" },
   // The app-window pair (260820-lfla) — SPA bindings over the shell's
   // `shell:new-window` / `shell:close-window` bridge channels, NEVER shell
   // menu accelerators (menu.ts's unshifted-⌘ fall-through rule is
   // inviolable; both menu items stay accelerator-less). Keyless base (the
   // macro precedent): unbound on Win/Linux (New Window stays menu-only
-  // there) and in a mac browser (⌘N is browser-reserved claim data there;
-  // the handler is bridge-gated absent everywhere outside the shell) — the
-  // `macCode` refinement spends the chord only inside the mac shell.
-  { actionId: "new-app-window", code: "", tier: "shifted", macCode: "KeyN", macTier: "cmd", macShellOnly: true, scope: "global", kind: "builtin", label: "New app window", description: "duplicate this desktop window", mapLabel: "new app" },
-  { actionId: "close-app-window", code: "", tier: "shifted", macCode: "KeyW", macShellOnly: true, scope: "global", kind: "builtin", label: "Close app window", description: "close this desktop window", mapLabel: "close app" },
+  // there); on mac the `macCode` refinement spends the canonical ⌘N/⇧⌘W,
+  // which resolves browser-reserved in a mac browser (the handler is
+  // bridge-gated absent everywhere outside the shell).
+  { actionId: "new-app-window", code: "", tier: "shifted", macCode: "KeyN", macTier: "cmd", scope: "global", kind: "builtin", label: "New app window", description: "duplicate this desktop window", mapLabel: "new app" },
+  { actionId: "close-app-window", code: "", tier: "shifted", macCode: "KeyW", scope: "global", kind: "builtin", label: "Close app window", description: "close this desktop window", mapLabel: "close app" },
   // ⇧Ctrl+E compose base / ⌘I mac refinement (macCode + macTier — the
   // split-pair precedent, one host gate refining code and tier together). E
   // stays the win/linux keycap: C is the terminal-copy claim, T is
@@ -221,7 +216,7 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   //
   // Mac refines both rows to `KeyD` (`macCode`) for the iTerm2/Warp/Ghostty
   // pair: ⌘D side-by-side (`macTier` demotion — browser bookmark is
-  // page-interceptable like the demoted ⌘[/⌘]/⌘/, so no `macShellOnly` and no
+  // page-interceptable like the demoted ⌘[/⌘]/⌘/, so no
   // browser-owner claim) and ⇧⌘D stacked. The pair is tier-disjoint on one
   // code, so `findConflicts` stays clean.
   //
@@ -236,8 +231,8 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // ↑/↓ step one window across ALL sessions (the cross-session flatten,
   // lib/window-cycle.ts), ←/→ hop a whole session. The window pair demotes to
   // ⌘↑/⌘↓ on mac via `macTier` — ⌘↑/⌘↓ is the mac browser's page-interceptable
-  // scroll-to-top/bottom (the ⌘D/⌘[ accelerator class), so NO `macShellOnly`
-  // and no browser-owner claim row. The session pair rides the
+  // scroll-to-top/bottom (the ⌘D/⌘[ accelerator class), so no
+  // browser-owner claim row. The session pair rides the
   // `macCode`-stays-shifted refinement (⇧⌘↑/⇧⌘↓ — tier-disjoint from the
   // window pair on the same codes, the split-pair precedent): mac's coarse
   // hop needs the axis the cmd-tier window pair leaves free. Win/Linux splits
@@ -261,15 +256,15 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // in a browser host the chord resolves to no handler and falls through.
   { actionId: "host-menu-open", code: "KeyH", tier: "shifted", scope: "global", kind: "builtin", label: "Host switcher", description: "open the hosts menu", mapLabel: "hosts" },
   { actionId: "shortcuts-overlay", code: "Slash", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Keyboard shortcuts", description: "toggle this cheatsheet", mapLabel: "cheatsheet", ignoreInputs: true },
-  // ⇧⌘,/⇧Ctrl+, settings (260801-mqim): ⌘, unshifted is browser Preferences
-  // (claimed data below), so the browser default is the shifted tier; inside
-  // the mac desktop shell `macTier` + `macShellOnly` promote it to the
-  // OS-conventional ⌘, — the create-session precedent. ignoreInputs mirrors
+  // ⌘,/⇧Ctrl+, settings (260801-mqim): the mac default is the OS-conventional
+  // ⌘, via `macTier`; ⌘, unshifted is browser Preferences (claimed data
+  // below), so in a mac browser it resolves reserved and settings is
+  // palette-only there. ignoreInputs mirrors
   // shortcuts-overlay/compose-toggle: a chrome-level opener fires from inputs.
-  { actionId: "settings-open", code: "Comma", tier: "shifted", macTier: "cmd", macShellOnly: true, scope: "global", kind: "builtin", label: "Settings", description: "open the settings dialog", mapLabel: "settings", ignoreInputs: true },
+  { actionId: "settings-open", code: "Comma", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Settings", description: "open the settings dialog", mapLabel: "settings", ignoreInputs: true },
   // ⌘B/⇧Ctrl+B sidebar toggle — the VS Code primary-sidebar keycap. ⌘B is
   // page-interceptable in a mac browser (no claimed-keys entry on KeyB in any
-  // tier), so the demotion applies in BOTH mac hosts (no macShellOnly). On
+  // tier), so the demotion applies in BOTH mac hosts. On
   // Win/Linux the shifted tier keeps plain Ctrl+B with the pane (readline
   // back-char / nested-tmux prefix).
   // ignoreInputs: the chrome toggles (sidebar + the surface digits below)
@@ -278,7 +273,7 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   { actionId: "sidebar-toggle", code: "KeyB", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Toggle sidebar", mapLabel: "sidebar", ignoreInputs: true },
   // Positional surface digits — ⌘1/2/3 on mac, ⇧Ctrl+1/2/3 on win/linux —
   // toggle the tty/code/web tiles in tile order. Same demotion class as ⌘B
-  // (page-interceptable, no macShellOnly). In a mac BROWSER the cmd-tier
+  // (page-interceptable). In a mac BROWSER the cmd-tier
   // Digit1–9 tab claims (MAC_BROWSER_CMD_CLAIMS below) resolve all three
   // reserved — palette-reachable only there. The win/linux digits were freed
   // by the shell switcher's move to Alt+1–9, outside every tier (the mac ⌥⌘
@@ -640,18 +635,14 @@ export function writeStoredOverrides(overrides: BindingOverrides): void {
 /**
  * The host-effective DEFAULT combo for a binding (260730-n789): on mac hosts
  * a `macTier` and/or `macCode` refinement (260807-rbx5) replaces the base
- * tier/code — gated on the desktop shell when `macShellOnly` is set. This is
- * the single seam where platform + shell are consulted for defaults; both
+ * tier/code — one canonical chord per action on every mac host. This is
+ * the single seam where platform is consulted for defaults; both
  * `resolveBindings` (fallback + `isDefault`) and `applyCapture` (own-default
  * detection) read defaults through it, so a `macCode` binding's own-default
  * re-capture and conflict detection come for free.
  */
 export function defaultComboFor(def: KeyBinding, host: BindingHost): BindingCombo {
-  if (
-    host.platform === "mac" &&
-    (def.macTier || def.macCode) &&
-    (!def.macShellOnly || host.shell)
-  ) {
+  if (host.platform === "mac" && (def.macTier || def.macCode)) {
     return { code: def.macCode ?? def.code, tier: def.macTier ?? def.tier };
   }
   return { code: def.code, tier: def.tier };

@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-23T01:18:35Z"}
+{"args":"Single-chord shortcut model (drop browser remaps) + palette-completeness constitution amendment + session-as-group descriptor copy","cmd":"fab-new","event":"command","ts":"2026-08-23T01:18:35Z"}
+{"delta":"+3.2","event":"confidence","score":3.2,"trigger":"calc-score","ts":"2026-08-23T01:22:07Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-23T01:23:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-23T01:28:16Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-23T01:43:19Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-23T01:47:12Z"}
+{"event":"review","result":"passed","ts":"2026-08-23T01:47:12Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-23T01:54:40Z"}

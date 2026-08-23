@@ -64,10 +64,12 @@ describe("SettingsShortcutsPanel", () => {
     ).toBeGreaterThan(0);
   });
 
-  it("marks browser-reserved rows (jsdom is a browser host)", () => {
+  it("marks browser-reserved rows with the desktop pill (jsdom is a browser host)", () => {
     renderPanel();
-    // N/T/W are browser-reserved outside the desktop shell.
-    expect(screen.getAllByText("browser").length).toBe(3);
+    // The shifted N/T/W defaults are browser-reserved outside the desktop
+    // shell — one desktop pill per reserved row.
+    expect(screen.getAllByText("desktop").length).toBe(3);
+    expect(screen.queryByText("browser")).toBeNull();
   });
 
   it("filters rows by the query and hides empty groups", () => {
@@ -355,10 +357,10 @@ describe("SettingsShortcutsPanel merged view (260801-sm6g)", () => {
   });
 });
 
-describe("SettingsShortcutsPanel host-divergence row facts (260801-r8j2)", () => {
-  // The desktop badge + other-host hint gate on the PHYSICAL host, so these
-  // spoof `navigator.platform` (the header-hint test's pattern) and, for the
-  // shell case, inject the `window.runkitShell` bridge marker.
+describe("SettingsShortcutsPanel desktop-pill rows (260823-c5yq)", () => {
+  // The desktop pill gates on the PHYSICAL host's reserved resolution, so
+  // these spoof `navigator.platform` (the header-hint test's pattern) and,
+  // for the shell case, inject the `window.runkitShell` bridge marker.
   function spoofMacHost() {
     Object.defineProperty(navigator, "platform", { value: "MacIntel", configurable: true });
   }
@@ -366,77 +368,58 @@ describe("SettingsShortcutsPanel host-divergence row facts (260801-r8j2)", () =>
     delete (navigator as { platform?: string }).platform;
   }
 
-  it("mac BROWSER host: the shell-gated rows carry the desktop badge + desktop-chord hint", () => {
+  it("mac BROWSER host: reserved rows carry canonical keycaps + the desktop pill, no second-mapping text", () => {
     spoofMacHost();
     try {
       renderPanel();
-      // Six badges — the four legacy shell-gated rows (create-session now
-      // code-refined to ⇧⌘T) plus the two app-window bridge actions
-      // (260820-lfla); host-invariant rows carry none.
-      expect(screen.getAllByText("desktop")).toHaveLength(6);
-      // The hint names the OTHER host's (desktop shell) chord — the four
-      // chord-carrying rows only; the unbound-in-browser pair carries the
-      // badge alone (no chord to hint on either side).
-      expect(screen.getByText("in desktop app: ⇧⌘T")).toBeInTheDocument();
-      expect(screen.getByText("in desktop app: ⌘T")).toBeInTheDocument();
-      expect(screen.getByText("in desktop app: ⌘W")).toBeInTheDocument();
-      expect(screen.getByText("in desktop app: ⌘,")).toBeInTheDocument();
-      expect(screen.queryByText("in desktop app: ⌘N")).toBeNull();
-      expect(screen.queryByText("in desktop app: ⇧⌘W")).toBeNull();
-      // The amber reserved pill coexists on the browser-reserved rows — N/T/W
-      // plus the three surface digits (⌘1/2/3 are the browser's tab
-      // accelerators): settings-open's mac-browser default is the unclaimed
-      // ⇧⌘, (the browser Comma claim sits on the unshifted cmd tier).
-      expect(screen.getAllByText("browser")).toHaveLength(6);
+      // Nine pills — the six canonical-chord rows (N/T/W/, + the app-window
+      // pair's ⌘N/⇧⌘W, reserved in a mac browser) plus the three surface
+      // digits (⌘1/2/3 are the browser's tab accelerators). Rows stay
+      // visible; no amber "browser" pill and no "in browser:/in desktop
+      // app:" divergence text anywhere.
+      expect(screen.getAllByText("desktop")).toHaveLength(9);
+      expect(screen.queryByText("browser")).toBeNull();
+      expect(screen.queryByText(/^in (browser|desktop app):/)).toBeNull();
+      // The app-window pair renders its canonical mac keycaps here (no
+      // longer "unbound") — the learn-why-⌘W-did-the-browser-thing row.
+      expect(screen.getByLabelText("Change binding for New app window")).toBeInTheDocument();
+      expect(screen.getByLabelText("Change binding for Close app window")).toBeInTheDocument();
     } finally {
       unspoofMacHost();
     }
   });
 
-  it("mac SHELL host: the hints read the browser chord (no reserved pills inside the shell)", () => {
+  it("mac SHELL host: rows render plain — no desktop pill, no reserved pills", () => {
     spoofMacHost();
     window.runkitShell = { version: "1", platform: "darwin" };
     try {
       renderPanel();
-      // Six badges: the four legacy shell-gated rows (chord hints below) plus
-      // the app-window pair — bound here, unbound in a mac browser (keyless
-      // other side), so their badges carry no "in browser:" chord hint.
-      expect(screen.getAllByText("desktop")).toHaveLength(6);
-      expect(screen.getByText("in browser: ⇧⌘N")).toBeInTheDocument();
-      expect(screen.getByText("in browser: ⇧⌘T")).toBeInTheDocument();
-      expect(screen.getByText("in browser: ⇧⌘W")).toBeInTheDocument();
-      expect(screen.getByText("in browser: ⇧⌘,")).toBeInTheDocument();
+      expect(screen.queryByText("desktop")).toBeNull();
       expect(screen.queryByText("browser")).toBeNull();
+      expect(screen.queryByText(/^in (browser|desktop app):/)).toBeNull();
+      // All six canonical chords are live — their keycap buttons rebind.
+      expect(screen.getByLabelText("Change binding for New session")).toBeInTheDocument();
+      expect(screen.getByLabelText("Change binding for Settings")).toBeInTheDocument();
     } finally {
       delete window.runkitShell;
       unspoofMacHost();
     }
   });
 
-  it("no badge on a win/linux host, and an override collapses the divergence", () => {
-    // Default jsdom host (platform "other") → never a badge, whatever the
-    // display toggle shows.
+  it("win/linux host: browser-reserved rows carry the desktop pill; an override stays verbatim", () => {
+    // Default jsdom host (platform "other") — the shifted N/T/W claims are
+    // platform-unrestricted, so the three reserved rows carry the pill.
     renderPanel();
-    expect(screen.queryByText("desktop")).toBeNull();
-    fireEvent.click(screen.getByText("macOS"));
-    expect(screen.queryByText("desktop")).toBeNull();
+    expect(screen.getAllByText("desktop")).toHaveLength(3);
     cleanup();
-    // Spoofed mac host with an override on create-window: the overridden
-    // combo applies verbatim on both hosts, so its row loses the badge while
-    // the other five keep theirs.
-    spoofMacHost();
+    // An override onto a free key re-enables the action in the browser
+    // host — the pill follows the EFFECTIVE row, not the shipped default.
     localStorage.setItem(
       KEYBINDINGS_STORAGE_KEY,
       JSON.stringify({ "create-window": { code: "KeyU", tier: "shifted" } }),
     );
-    try {
-      renderPanel();
-      expect(screen.getAllByText("desktop")).toHaveLength(5);
-      expect(screen.queryByText("in desktop app: ⌘T")).toBeNull();
-      expect(screen.getByText("in desktop app: ⇧⌘T")).toBeInTheDocument();
-    } finally {
-      unspoofMacHost();
-    }
+    renderPanel();
+    expect(screen.getAllByText("desktop")).toHaveLength(2);
   });
 });
 

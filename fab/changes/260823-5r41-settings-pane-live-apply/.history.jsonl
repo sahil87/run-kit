@@ -1,0 +1,21 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-23T14:54:53Z"}
+{"args":"Implement Phase 3 (Settings pane) of fab/plans/sahil/26-08-23-config-consolidated.md: registry-driven settings overlay (searchable flat list, category headers, typed controls, modified indicator, Edit-in-config.yaml escape hatch) + live-apply plumbing (auto_name flips to live; settings POST nudges the SSE hub for live keys). No /settings route, no new backend endpoints.","cmd":"fab-new","event":"command","ts":"2026-08-23T14:54:53Z"}
+{"delta":"+4.0","event":"confidence","score":4,"trigger":"calc-score","ts":"2026-08-23T14:58:05Z"}
+{"delta":"-1.1","event":"confidence","score":2.9,"trigger":"calc-score","ts":"2026-08-23T14:58:28Z"}
+{"delta":"+1.0","event":"confidence","score":3.9,"trigger":"calc-score","ts":"2026-08-23T15:12:32Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-23T15:41:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-23T15:42:41Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-23T16:31:45Z"}
+{"event":"review","result":"failed","ts":"2026-08-23T16:46:11Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-23T16:46:11Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-23T16:53:05Z"}
+{"event":"review","result":"failed","ts":"2026-08-23T17:01:51Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-23T17:01:51Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-23T17:06:49Z"}
+{"event":"review","result":"failed","ts":"2026-08-23T17:14:46Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-23T17:14:46Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-23T17:28:23Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-23T17:36:52Z"}
+{"event":"review","result":"passed","ts":"2026-08-23T17:36:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-23T17:48:04Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-08-23T17:49:08Z"}

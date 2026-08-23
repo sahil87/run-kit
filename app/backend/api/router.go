@@ -183,9 +183,10 @@ type Server struct {
 	// autoNameEnabled arms the auto-name-on-idle trigger (the `auto_name` key
 	// in the settings store, default off — the trigger injects prompts into
 	// the operator on its own, so it is strictly opt-in). Seeded from
-	// settings.Load() at startup, so a toggle applies on the next daemon
-	// restart; when false, initSSEHub nils the hub's tracker, which is the
-	// feature-absent state both tick sites already understand.
+	// settings.Load() at startup as initSSEHub's initial apply; a settings
+	// POST re-applies through the same seam, so a toggle takes live effect
+	// without a daemon restart. A nil hub tracker is the feature-absent state
+	// both tick sites already understand.
 	autoNameEnabled bool
 	metrics         *metrics.Collector
 	services        *ports.Collector
@@ -262,21 +263,19 @@ func (s *Server) initSSEHub() {
 		}
 		s.sseHub = newSSEHub(s.sessions, s.metrics, s.services, pc)
 		s.sseHub.codeServerPort = s.codeServerPort
-		// Auto-name-on-idle is opt-in (settings `auto_name`): disabled ⇒ nil the
-		// tracker — the feature-absent state both tick sites (advance, retain)
-		// already check for. Enabled ⇒ wire the delivery seam: the tracker
-		// itself is constructed Server-free inside newSSEHub; the deliver
-		// closure closes over the shared operator-request delivery core (fact
-		// derivation, busy gate, pane resolution, injection — the same path the
-		// HTTP endpoint takes), always with the fix-tab-name template.
-		if !s.autoNameEnabled {
-			s.sseHub.autoName = nil
-		} else {
-			s.sseHub.autoName.deliver = func(ctx context.Context, server string, subject, operator *tmux.WindowInfo) error {
-				return s.deliverOperatorRequest(ctx, server, subject, operator, operatorTemplates["fix-tab-name"])
-			}
-		}
+		s.sseHub.setAutoName(s.autoNameEnabled, s.autoNameDeliver())
 	})
+}
+
+// autoNameDeliver builds the auto-name delivery closure: the shared
+// operator-request delivery core (fact derivation, busy gate, pane resolution,
+// injection — the same path the HTTP endpoint takes), always with the
+// fix-tab-name template. The single builder keeps initSSEHub's startup apply
+// and the settings POST's live re-apply on identical wiring.
+func (s *Server) autoNameDeliver() func(ctx context.Context, server string, subject, operator *tmux.WindowInfo) error {
+	return func(ctx context.Context, server string, subject, operator *tmux.WindowInfo) error {
+		return s.deliverOperatorRequest(ctx, server, subject, operator, operatorTemplates["fix-tab-name"])
+	}
 }
 
 // serverFromRequest extracts and validates the server query parameter from the

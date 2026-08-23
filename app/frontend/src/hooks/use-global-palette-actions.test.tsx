@@ -91,6 +91,7 @@ describe("useGlobalPaletteActions", () => {
       "shortcuts-overlay",
       "settings-open",
       "settings-appearance",
+      "settings-all",
     ];
     expect(order.slice(0, expectInOrder.length)).toEqual(expectInOrder);
   });
@@ -152,6 +153,14 @@ describe("useGlobalPaletteActions", () => {
     expect(entry?.label).toBe("Settings: Appearance");
     act(() => entry?.onSelect());
     expect(dialogState).toEqual({ isOpen: true, activeTab: "appearance" });
+  });
+
+  it("Settings: All deep-links the All settings tab (id settings-all)", () => {
+    renderHook();
+    const entry = captured.find((a) => a.id === "settings-all");
+    expect(entry?.label).toBe("Settings: All");
+    act(() => entry?.onSelect());
+    expect(dialogState).toEqual({ isOpen: true, activeTab: "all" });
   });
 
   it("renders the global entries through the palette (id/label identity)", () => {

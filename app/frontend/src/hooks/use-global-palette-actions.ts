@@ -173,6 +173,14 @@ export function useGlobalPaletteActions(): PaletteAction[] {
     }),
     [openSettings],
   );
+  const settingsAllEntry: PaletteAction = useMemo(
+    () => ({
+      id: "settings-all",
+      label: "Settings: All",
+      onSelect: () => openSettings("all"),
+    }),
+    [openSettings],
+  );
 
   // Sidebar section-visibility toggles (iha5 R6) — the keyboard recovery path
   // for the section rail (Constitution V). Always available on every route:
@@ -372,10 +380,10 @@ export function useGlobalPaletteActions(): PaletteAction[] {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, settingsAppearanceEntry, ...panelActions, ...sidebarActions, ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions],
+        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, settingsAppearanceEntry, settingsAllEntry, ...panelActions, ...sidebarActions, ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions],
         bindingByAction,
         bindingHost.platform,
       ),
-    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, settingsAppearanceEntry, panelActions, sidebarActions, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, bindingByAction, bindingHost],
+    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, settingsAppearanceEntry, settingsAllEntry, panelActions, sidebarActions, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, bindingByAction, bindingHost],
   );
 }

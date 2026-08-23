@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, waitFor, fireEvent, within } from "@testing-library/react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { ThemeProvider } from "@/contexts/theme-context";
 import { ToastProvider } from "@/components/toast";
 import { ChromeProvider } from "@/contexts/chrome-context";
@@ -14,12 +14,18 @@ import { SettingsDialog } from "./settings-dialog";
 vi.mock("@/api/client", () => ({
   getThemePreference: vi.fn().mockRejectedValue(new Error("no API in test")),
   setThemePreference: vi.fn().mockResolvedValue(undefined),
-  getSSHHost: vi.fn(),
-  setSSHHost: vi.fn().mockResolvedValue(undefined),
+  getSettingsEntries: vi.fn().mockResolvedValue([]),
+  postSettings: vi.fn().mockResolvedValue(undefined),
   getRiffPresets: vi.fn().mockRejectedValue(new Error("no API in test")),
   getKeybindings: vi.fn().mockResolvedValue([]),
 }));
-import { getSSHHost, setSSHHost } from "@/api/client";
+import { getSettingsEntries, postSettings, setThemePreference, getThemePreference, type SettingsEntry } from "@/api/client";
+
+// The escape-hatch footer's copy button — assert the write, never the OS.
+vi.mock("@/lib/clipboard", () => ({
+  copyToClipboard: vi.fn().mockResolvedValue(true),
+}));
+import { copyToClipboard } from "@/lib/clipboard";
 
 // The Shortcuts tab's plumbing reads the session context, the route params,
 // and the merged palette list — mock all three seams light (no current
@@ -88,8 +94,107 @@ function makeInstanceName(overrides: Partial<InstanceName> = {}): InstanceName {
   };
 }
 
+/** One GET /api/settings row for the entries-seam mock. */
+function registryEntry(key: string, kind: string, value: unknown) {
+  return { key, kind, default: "", description: "", category: "", ui: true, live: true, value };
+}
+
+/** A registry row with per-field overrides — the All-settings fixture builder. */
+function allEntry(partial: Partial<SettingsEntry> & { key: string }): SettingsEntry {
+  return {
+    kind: "string",
+    default: "",
+    description: "",
+    category: "advanced",
+    ui: true,
+    live: true,
+    value: null,
+    ...partial,
+  };
+}
+
+/** The mocked registry payload the All-settings tests render — registry order. */
+function allSettingsFixture(): SettingsEntry[] {
+  return [
+    allEntry({
+      key: "theme",
+      kind: "enum",
+      default: "system",
+      description: "Theme mode",
+      category: "appearance",
+      options: ["system", "dark", "light"],
+      value: "system",
+    }),
+    allEntry({
+      key: "instance_color",
+      kind: "color",
+      description: "Accent color",
+      category: "appearance",
+    }),
+    allEntry({
+      key: "server_colors",
+      kind: "map",
+      default: "{}",
+      description: "Per-server colors",
+      category: "appearance",
+      value: {},
+    }),
+    allEntry({
+      key: "ssh_host",
+      kind: "string",
+      description: "SSH host for deeplinks",
+      category: "connectivity",
+    }),
+    allEntry({
+      key: "instance_name",
+      kind: "string",
+      description: "Display name",
+      category: "identity",
+    }),
+    allEntry({
+      key: "auto_name",
+      kind: "bool",
+      default: "false",
+      description: "Name windows from the running command",
+      category: "behavior",
+      value: false,
+    }),
+    allEntry({
+      key: "tmux_conf",
+      kind: "path",
+      description: "Extra tmux config",
+      category: "advanced",
+      live: false,
+    }),
+    allEntry({
+      key: "log_level",
+      kind: "enum",
+      default: "info",
+      description: "Log verbosity",
+      category: "advanced",
+      live: false,
+      options: ["info", "debug"],
+      value: "info",
+    }),
+    allEntry({
+      key: "board_order",
+      kind: "list",
+      default: "[]",
+      description: "Pinned board order",
+      category: "layout",
+      value: [],
+    }),
+    allEntry({
+      key: "internal_only",
+      description: "A non-UI key",
+      category: "advanced",
+      ui: false,
+    }),
+  ];
+}
+
 /** Opens the dialog on mount (the palette/gear stand-in). `tab` deep-links. */
-function OpenOnMount({ tab }: { tab?: "general" | "appearance" | "shortcuts" }) {
+function OpenOnMount({ tab }: { tab?: "general" | "appearance" | "all" | "shortcuts" }) {
   const { openSettings } = useSettingsDialog();
   useEffect(() => {
     openSettings(tab);
@@ -99,7 +204,7 @@ function OpenOnMount({ tab }: { tab?: "general" | "appearance" | "shortcuts" }) 
 
 function renderDialog(
   instanceNameValue: InstanceName = makeInstanceName(),
-  tab?: "general" | "appearance" | "shortcuts",
+  tab?: "general" | "appearance" | "all" | "shortcuts",
 ) {
   return render(
     <ThemeProvider>
@@ -120,18 +225,73 @@ function renderDialog(
 }
 
 /** Switch to a tab by its rail/strip button. */
-function selectTab(label: "General" | "Appearance" | "Shortcuts") {
+function selectTab(label: "General" | "Appearance" | "All settings" | "Shortcuts") {
   fireEvent.click(screen.getByRole("tab", { name: label }));
+}
+
+/** A live InstanceName provider for drift-guard tests — the setter actually
+ *  updates state, like the real InstanceNameProvider (the fixed-value test
+ *  seam can't show a context write propagating between presentations). */
+function LiveNameProvider({ children }: { children: React.ReactNode }) {
+  const [name, setName] = useState<string | null>(null);
+  return (
+    <InstanceNameValueProvider
+      value={makeInstanceName({
+        instanceName: name,
+        displayName: name ?? "mac-mini",
+        setInstanceName: setName,
+      })}
+    >
+      {children}
+    </InstanceNameValueProvider>
+  );
+}
+
+function renderDialogLiveName(tab?: "general" | "appearance" | "all" | "shortcuts") {
+  return render(
+    <ThemeProvider>
+      <ToastProvider>
+        <ChromeProvider>
+          <InstanceAccentValueProvider value={NULL_ACCENT}>
+            <LiveNameProvider>
+              <SettingsDialogProvider>
+                <OpenOnMount tab={tab} />
+                <SettingsDialog />
+              </SettingsDialogProvider>
+            </LiveNameProvider>
+          </InstanceAccentValueProvider>
+        </ChromeProvider>
+      </ToastProvider>
+    </ThemeProvider>,
+  );
 }
 
 beforeEach(() => {
   localStorage.clear();
+  // Belt-and-braces: the theme context's storage keys must never leak between
+  // tests (a stored named-theme preference changes what the real provider
+  // resolves before the API preference lands).
+  localStorage.removeItem("runkit-theme");
+  localStorage.removeItem("runkit-theme-dark");
+  localStorage.removeItem("runkit-theme-light");
   mockMatchMedia();
-  vi.mocked(getSSHHost).mockReset();
-  vi.mocked(getSSHHost).mockResolvedValue(null);
-  vi.mocked(setSSHHost).mockClear();
-  vi.mocked(setSSHHost).mockResolvedValue(undefined);
+  vi.mocked(getSettingsEntries).mockReset();
+  vi.mocked(getSettingsEntries).mockResolvedValue([]);
+  vi.mocked(postSettings).mockClear();
+  vi.mocked(postSettings).mockResolvedValue(undefined);
   vi.mocked(invalidateOpenContext).mockClear();
+  vi.mocked(copyToClipboard).mockClear();
+  vi.mocked(copyToClipboard).mockResolvedValue(true);
+  // The theme commit-path test asserts postSettings calls, so the mocked
+  // wrapper delegates to it (the real one translates to the snake_case patch).
+  vi.mocked(setThemePreference).mockImplementation(async (prefs) => {
+    const patch: Record<string, unknown> = {};
+    if (prefs.theme !== undefined) patch.theme = prefs.theme;
+    if (prefs.themeDark !== undefined) patch.theme_dark = prefs.themeDark;
+    if (prefs.themeLight !== undefined) patch.theme_light = prefs.themeLight;
+    if (Object.keys(patch).length === 0) return;
+    await postSettings(patch);
+  });
   getPushState.mockReset().mockResolvedValue("default");
   enablePushSubscription.mockReset().mockResolvedValue("subscribed");
   sendTestNotification.mockReset().mockResolvedValue(true);
@@ -144,11 +304,11 @@ afterEach(() => {
 });
 
 describe("SettingsDialog", () => {
-  it("renders the three tabs and opens on General by default", () => {
+  it("renders the four tabs and opens on General by default", () => {
     renderDialog();
     expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
     const tablist = screen.getByRole("tablist", { name: "Settings sections" });
-    for (const label of ["General", "Appearance", "Shortcuts"]) {
+    for (const label of ["General", "Appearance", "All settings", "Shortcuts"]) {
       expect(within(tablist).getByRole("tab", { name: label })).toBeInTheDocument();
     }
     expect(screen.getByRole("tab", { name: "General" })).toHaveAttribute("aria-selected", "true");
@@ -308,41 +468,41 @@ describe("SettingsDialog", () => {
   });
 
   it("shows the stored SSH host SETTING (empty when unset) and commits on blur", async () => {
-    vi.mocked(getSSHHost).mockResolvedValue("devbox");
+    vi.mocked(getSettingsEntries).mockResolvedValue([registryEntry("ssh_host", "string", "devbox")]);
     renderDialog();
     const input = screen.getByLabelText("SSH host") as HTMLInputElement;
     await waitFor(() => expect(input.value).toBe("devbox"));
 
     fireEvent.change(input, { target: { value: "user@host" } });
     fireEvent.blur(input);
-    await waitFor(() => expect(setSSHHost).toHaveBeenCalledWith("user@host"));
+    await waitFor(() => expect(postSettings).toHaveBeenCalledWith({ ssh_host: "user@host" }));
   });
 
   it("clearing the SSH host commits null", async () => {
-    vi.mocked(getSSHHost).mockResolvedValue("devbox");
+    vi.mocked(getSettingsEntries).mockResolvedValue([registryEntry("ssh_host", "string", "devbox")]);
     renderDialog();
     const input = screen.getByLabelText("SSH host") as HTMLInputElement;
     await waitFor(() => expect(input.value).toBe("devbox"));
 
     fireEvent.change(input, { target: { value: "  " } });
     fireEvent.blur(input);
-    await waitFor(() => expect(setSSHHost).toHaveBeenCalledWith(null));
+    await waitFor(() => expect(postSettings).toHaveBeenCalledWith({ ssh_host: null }));
   });
 
   it("a successful SSH host commit invalidates the open context (260723-l317)", async () => {
-    vi.mocked(getSSHHost).mockResolvedValue("devbox");
+    vi.mocked(getSettingsEntries).mockResolvedValue([registryEntry("ssh_host", "string", "devbox")]);
     renderDialog();
     const input = screen.getByLabelText("SSH host") as HTMLInputElement;
     await waitFor(() => expect(input.value).toBe("devbox"));
 
     fireEvent.change(input, { target: { value: "sahil@mini" } });
     fireEvent.blur(input);
-    await waitFor(() => expect(setSSHHost).toHaveBeenCalledWith("sahil@mini"));
+    await waitFor(() => expect(postSettings).toHaveBeenCalledWith({ ssh_host: "sahil@mini" }));
     await waitFor(() => expect(invalidateOpenContext).toHaveBeenCalledTimes(1));
   });
 
   it("a rejected SSH host commit does NOT invalidate the open context", async () => {
-    vi.mocked(setSSHHost).mockRejectedValue(new Error("bad host"));
+    vi.mocked(postSettings).mockRejectedValue(new Error("bad host"));
     renderDialog();
     const input = screen.getByLabelText("SSH host") as HTMLInputElement;
 
@@ -353,7 +513,7 @@ describe("SettingsDialog", () => {
   });
 
   it("a rejected SSH host commit surfaces an inline error and keeps the typed value", async () => {
-    vi.mocked(setSSHHost).mockRejectedValue(
+    vi.mocked(postSettings).mockRejectedValue(
       new Error("SSH host cannot contain whitespace or control characters"),
     );
     renderDialog();
@@ -505,5 +665,340 @@ describe("SettingsDialog", () => {
     await waitFor(() =>
       expect(screen.queryByRole("dialog", { name: "Settings" })).not.toBeInTheDocument(),
     );
+  });
+
+  describe("All settings tab (260823-5r41 — the registry-driven table)", () => {
+    it("renders rows from the registry payload grouped by category in registry order (ui:true only)", async () => {
+      vi.mocked(getSettingsEntries).mockResolvedValue(allSettingsFixture());
+      renderDialog(makeInstanceName(), "all");
+      await screen.findByTestId("setting-row-auto_name");
+
+      const dialog = screen.getByRole("dialog", { name: "Settings" });
+      // ui:false entries never render a row.
+      expect(within(dialog).queryByTestId("setting-row-internal_only")).not.toBeInTheDocument();
+      // Rows appear once, in registry order within their category groups, and
+      // groups follow the registry's category order (title-cased headers).
+      const order = Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          '[data-testid^="setting-row-"], [class*="tracking-wider"]',
+        ),
+      ).map((el) => el.dataset.testid ?? el.textContent);
+      expect(order).toEqual([
+        "Appearance",
+        "setting-row-theme",
+        "setting-row-instance_color",
+        "setting-row-server_colors",
+        "Connectivity",
+        "setting-row-ssh_host",
+        "Identity",
+        "setting-row-instance_name",
+        "Behavior",
+        "setting-row-auto_name",
+        "Advanced",
+        "setting-row-tmux_conf",
+        "setting-row-log_level",
+        "Layout",
+        "setting-row-board_order",
+      ]);
+      // The escape-hatch footer carries the constant config path + copy button.
+      expect(screen.getByTestId("settings-config-path-footer")).toHaveTextContent(
+        "~/.config/run-kit/config.yaml",
+      );
+    });
+
+    it("search filters rows over key/description/category and hides emptied headers", async () => {
+      vi.mocked(getSettingsEntries).mockResolvedValue(allSettingsFixture());
+      renderDialog(makeInstanceName(), "all");
+      await screen.findByTestId("setting-row-auto_name");
+
+      const search = screen.getByRole("searchbox", { name: "Search settings" });
+      fireEvent.change(search, { target: { value: "log" } });
+      expect(screen.getByTestId("setting-row-log_level")).toBeInTheDocument();
+      expect(screen.queryByTestId("setting-row-auto_name")).not.toBeInTheDocument();
+      expect(screen.queryByText("Behavior")).not.toBeInTheDocument();
+      expect(screen.getByText("Advanced")).toBeInTheDocument();
+
+      fireEvent.change(search, { target: { value: "zzz-no-match" } });
+      expect(screen.queryByTestId("setting-row-log_level")).not.toBeInTheDocument();
+      expect(screen.getByText("No settings match “zzz-no-match”")).toBeInTheDocument();
+    });
+
+    it("the bool control commits postSettings({auto_name: true}) through the seam", async () => {
+      vi.mocked(getSettingsEntries).mockResolvedValue(allSettingsFixture());
+      renderDialog(makeInstanceName(), "all");
+      await screen.findByTestId("setting-row-auto_name");
+
+      const toggle = within(screen.getByTestId("setting-row-auto_name")).getByRole("switch", {
+        name: "auto_name",
+      });
+      expect(toggle).toHaveAttribute("aria-checked", "false");
+      fireEvent.click(toggle);
+      await waitFor(() => expect(postSettings).toHaveBeenCalledWith({ auto_name: true }));
+      // The row updates optimistically from the seam state.
+      await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
+    });
+
+    it("the enum control offers the entry's options and commits the pick", async () => {
+      vi.mocked(getSettingsEntries).mockResolvedValue(allSettingsFixture());
+      renderDialog(makeInstanceName(), "all");
+      await screen.findByTestId("setting-row-log_level");
+
+      const select = within(screen.getByTestId("setting-row-log_level")).getByRole("combobox", {
+        name: "log_level",
+      }) as HTMLSelectElement;
+      expect(Array.from(select.options).map((o) => o.value)).toEqual(["info", "debug"]);
+      expect(select.value).toBe("info");
+      fireEvent.change(select, { target: { value: "debug" } });
+      await waitFor(() => expect(postSettings).toHaveBeenCalledWith({ log_level: "debug" }));
+    });
+
+    it("the theme mode select commits the per-mode slot id, never the mode word (real ThemeProvider)", async () => {
+      // Regression cover for the mode→slot-id mapping: setTheme("dark"/"light")
+      // would hit the context's unknown-id branch and persist theme:"system".
+      // renderDialog mounts the REAL ThemeProvider, so postSettings sees the
+      // actual setThemePreference payloads.
+      vi.mocked(getSettingsEntries).mockResolvedValue(allSettingsFixture());
+      renderDialog(makeInstanceName(), "all");
+      const themeSelect = (await screen.findByTestId("setting-row-theme")).querySelector(
+        "select",
+      ) as HTMLSelectElement;
+
+      // Local-storage defaults: themeDark=default-dark, themeLight=default-light.
+      fireEvent.change(themeSelect, { target: { value: "dark" } });
+      await waitFor(() =>
+        expect(postSettings).toHaveBeenCalledWith({ theme: "default-dark", theme_dark: "default-dark" }),
+      );
+      expect(postSettings).not.toHaveBeenCalledWith({ theme: "dark" });
+
+      fireEvent.change(themeSelect, { target: { value: "light" } });
+      await waitFor(() =>
+        expect(postSettings).toHaveBeenCalledWith({ theme: "default-light", theme_light: "default-light" }),
+      );
+      expect(postSettings).not.toHaveBeenCalledWith({ theme: "light" });
+
+      fireEvent.change(themeSelect, { target: { value: "system" } });
+      await waitFor(() => expect(postSettings).toHaveBeenCalledWith({ theme: "system" }));
+    });
+
+    it("the theme select falls back to the registry default (no commit) for an out-of-list named preference", async () => {
+      // A stored named-theme preference is legal for the key but not an enum
+      // option — the select must render the default, never a blank value.
+      vi.mocked(getThemePreference).mockResolvedValue({
+        theme: "default-dark",
+        themeDark: "default-dark",
+        themeLight: "default-light",
+      });
+      vi.mocked(getSettingsEntries).mockResolvedValue(allSettingsFixture());
+      renderDialog(makeInstanceName(), "all");
+      const themeSelect = (await screen.findByTestId("setting-row-theme")).querySelector(
+        "select",
+      ) as HTMLSelectElement;
+      await waitFor(() => expect(themeSelect.value).toBe("system"));
+      // …without rewriting the stored preference.
+      expect(postSettings).not.toHaveBeenCalledWith(expect.objectContaining({ theme: "system" }));
+    });
+
+    it("the modified dot tracks a context-backed key through the seam across toggle and reset (A-009)", async () => {
+      // Structural R9 cover: the dot derives from settingValue, the same read
+      // path as the control — a context write (no updateEntryValue involved)
+      // flips it, and the reset flips it back. The previous test's provider can
+      // leave a named-theme preference in localStorage; settle THIS provider on
+      // system first (the fixture stores system) so the dot starts unmodified.
+      vi.mocked(getSettingsEntries).mockResolvedValue(allSettingsFixture());
+      renderDialog(makeInstanceName(), "all");
+      await screen.findByTestId("setting-row-theme");
+      const themeSelect = () =>
+        screen.getByTestId("setting-row-theme").querySelector("select") as HTMLSelectElement;
+      const dot = () => screen.getByTestId("modified-theme").className;
+
+      // Drive to the fixture's stored value before asserting — a leaked
+      // named-theme preference from the previous test resolves away on the
+      // first user pick.
+      fireEvent.change(themeSelect(), { target: { value: "dark" } });
+      await waitFor(() => expect(dot()).toContain("bg-accent"));
+      await waitFor(() =>
+        expect(postSettings).toHaveBeenCalledWith({ theme: "default-dark", theme_dark: "default-dark" }),
+      );
+
+      fireEvent.change(themeSelect(), { target: { value: "system" } });
+      await waitFor(() => expect(dot()).toContain("bg-transparent"));
+    });
+
+    it("the string control commits a trimmed patch on Enter and null when cleared", async () => {
+      vi.mocked(getSettingsEntries).mockResolvedValue(allSettingsFixture());
+      renderDialog(makeInstanceName(), "all");
+      const input = (await screen.findByTestId("setting-row-ssh_host")).querySelector(
+        "input",
+      ) as HTMLInputElement;
+
+      fireEvent.change(input, { target: { value: "user@host " } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      await waitFor(() => expect(postSettings).toHaveBeenCalledWith({ ssh_host: "user@host" }));
+
+      fireEvent.change(input, { target: { value: "  " } });
+      fireEvent.blur(input);
+      await waitFor(() => expect(postSettings).toHaveBeenCalledWith({ ssh_host: null }));
+    });
+
+    it("the modified dot tracks value-vs-default (a null unset scalar ≈ its empty default)", async () => {
+      // The stored theme id rides the real ThemeProvider via the API preference.
+      vi.mocked(getThemePreference).mockResolvedValue({
+        theme: "default-dark",
+        themeDark: "default-dark",
+        themeLight: "default-light",
+      });
+      vi.mocked(getSettingsEntries).mockResolvedValue([
+        allEntry({ key: "theme", kind: "enum", default: "system", options: ["system"], value: "default-dark" }),
+        allEntry({ key: "ssh_host", kind: "string" }),
+        allEntry({ key: "log_level", kind: "enum", default: "info", options: ["info"], value: "info" }),
+        allEntry({ key: "auto_name", kind: "bool", default: "false", value: true }),
+      ]);
+      renderDialog(makeInstanceName(), "all");
+      await screen.findByTestId("setting-row-theme");
+
+      const cls = (key: string) => screen.getByTestId(`modified-${key}`).className;
+      expect(cls("theme")).toContain("bg-accent");
+      expect(cls("auto_name")).toContain("bg-accent");
+      // Unset scalar (null value, "" default) and stored-equals-default are unmodified.
+      expect(cls("ssh_host")).toContain("bg-transparent");
+      expect(cls("log_level")).toContain("bg-transparent");
+    });
+
+    it("live:false rows carry the restart badge; live rows (auto_name) carry none", async () => {
+      vi.mocked(getSettingsEntries).mockResolvedValue(allSettingsFixture());
+      renderDialog(makeInstanceName(), "all");
+      await screen.findByTestId("setting-row-auto_name");
+
+      expect(screen.getByTestId("restart-badge-log_level")).toHaveTextContent("requires restart");
+      expect(screen.getByTestId("restart-badge-tmux_conf")).toBeInTheDocument();
+      expect(screen.queryByTestId("restart-badge-auto_name")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("restart-badge-ssh_host")).not.toBeInTheDocument();
+    });
+
+    it("map/list rows render read-only summaries (no editable control)", async () => {
+      vi.mocked(getSettingsEntries).mockResolvedValue([
+        allEntry({
+          key: "server_colors",
+          kind: "map",
+          default: "{}",
+          description: "Per-server colors",
+          category: "appearance",
+          value: { alpha: "#123456", beta: "#654321" },
+        }),
+        allEntry({
+          key: "board_order",
+          kind: "list",
+          default: "[]",
+          description: "Pinned board order",
+          category: "layout",
+          value: ["work", "play"],
+        }),
+      ]);
+      renderDialog(makeInstanceName(), "all");
+      const colorsRow = await screen.findByTestId("setting-row-server_colors");
+      expect(colorsRow).toHaveTextContent("2 entries");
+      expect(colorsRow).toHaveTextContent("color picker in the sidebar");
+      expect(colorsRow.querySelector("input,select,button")).toBeNull();
+
+      const orderRow = screen.getByTestId("setting-row-board_order");
+      expect(orderRow).toHaveTextContent("work → play");
+      expect(orderRow).toHaveTextContent("board sidebar");
+      expect(orderRow.querySelector("input,select,button")).toBeNull();
+      // Non-default values still earn the modified dot on read-only rows.
+      expect(screen.getByTestId("modified-server_colors").className).toContain("bg-accent");
+      expect(screen.getByTestId("modified-board_order").className).toContain("bg-accent");
+    });
+
+    it("the escape-hatch copy button writes the constant path to the clipboard and confirms", async () => {
+      vi.mocked(getSettingsEntries).mockResolvedValue(allSettingsFixture());
+      renderDialog(makeInstanceName(), "all");
+      await screen.findByTestId("settings-config-path-footer");
+
+      const button = screen.getByRole("button", { name: "Copy config path" });
+      fireEvent.click(button);
+      await waitFor(() =>
+        expect(copyToClipboard).toHaveBeenCalledWith("~/.config/run-kit/config.yaml"),
+      );
+      await waitFor(() => expect(button).toHaveTextContent("Copied"));
+    });
+
+    it("the General curated auto_name row commits the same patch as its table row (one seam)", async () => {
+      vi.mocked(getSettingsEntries).mockResolvedValue(allSettingsFixture());
+      renderDialog(makeInstanceName(), "general");
+      await waitFor(() => expect(getSettingsEntries).toHaveBeenCalled());
+
+      const curated = screen.getByRole("switch", { name: "Auto-name tabs" });
+      expect(curated).toHaveAttribute("aria-checked", "false");
+      fireEvent.click(curated);
+      await waitFor(() => expect(postSettings).toHaveBeenCalledWith({ auto_name: true }));
+
+      // The one-seam drift guard: the table row reflects the curated write
+      // with no refetch.
+      selectTab("All settings");
+      const tableToggle = within(screen.getByTestId("setting-row-auto_name")).getByRole("switch", {
+        name: "auto_name",
+      });
+      expect(tableToggle).toHaveAttribute("aria-checked", "true");
+
+      fireEvent.click(tableToggle);
+      await waitFor(() => expect(postSettings).toHaveBeenCalledWith({ auto_name: false }));
+      // … and the curated row reads the same seam state on the way back.
+      selectTab("General");
+      await waitFor(() =>
+        expect(screen.getByRole("switch", { name: "Auto-name tabs" })).toHaveAttribute(
+          "aria-checked",
+          "false",
+        ),
+      );
+    });
+
+    it("a curated instance-name edit is visible to the table row (the R12 drift guard)", async () => {
+      vi.mocked(getSettingsEntries).mockResolvedValue(allSettingsFixture());
+      renderDialogLiveName("general");
+      await waitFor(() => expect(getSettingsEntries).toHaveBeenCalled());
+
+      // Edit from the curated General row — the seam's context-routed write.
+      const input = screen.getByLabelText("Instance name");
+      fireEvent.change(input, { target: { value: "my-box" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      // The table row shows the edit without a refetch, and the modified dot
+      // tracks the same seam state (value ≠ "" default).
+      selectTab("All settings");
+      const row = await screen.findByTestId("setting-row-instance_name");
+      await waitFor(() =>
+        expect((row.querySelector("input") as HTMLInputElement).value).toBe("my-box"),
+      );
+      expect(screen.getByTestId("modified-instance_name").className).toContain("bg-accent");
+
+      // Clearing from the table row routes back through the context setter and
+      // the dot returns to unmodified.
+      const tableInput = row.querySelector("input") as HTMLInputElement;
+      fireEvent.change(tableInput, { target: { value: "" } });
+      fireEvent.blur(tableInput);
+      await waitFor(() =>
+        expect(screen.getByTestId("modified-instance_name").className).toContain("bg-transparent"),
+      );
+    });
+
+    it("a rejected write surfaces inline on the row without clobbering the stored value", async () => {
+      vi.mocked(postSettings).mockRejectedValue(new Error("auto_name must be a boolean"));
+      vi.mocked(getSettingsEntries).mockResolvedValue(allSettingsFixture());
+      renderDialog(makeInstanceName(), "all");
+      await screen.findByTestId("setting-row-auto_name");
+
+      const toggle = within(screen.getByTestId("setting-row-auto_name")).getByRole("switch", {
+        name: "auto_name",
+      });
+      fireEvent.click(toggle);
+      await waitFor(() =>
+        expect(
+          within(screen.getByTestId("setting-row-auto_name")).getByRole("alert"),
+        ).toHaveTextContent("auto_name must be a boolean"),
+      );
+      // No optimistic update survived the rejection.
+      expect(toggle).toHaveAttribute("aria-checked", "false");
+      await waitFor(() => expect(toggle).not.toBeDisabled());
+    });
   });
 });

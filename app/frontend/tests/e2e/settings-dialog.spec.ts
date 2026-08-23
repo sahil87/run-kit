@@ -55,13 +55,19 @@ function expectDialogOpen(page: Page) {
   });
 }
 
+// Read one stored setting from the registry-driven GET /api/settings (null
+// when unset).
+async function pollSetting(page: Page, key: string): Promise<unknown> {
+  const res = await page.request.get("/api/settings");
+  const body = (await res.json()) as { settings: Array<{ key: string; value: unknown }> };
+  return body.settings.find((e) => e.key === key)?.value ?? null;
+}
+
 // Read the stored instance_name from the registry-driven GET /api/settings
 // (null when unset).
 async function pollInstanceName(page: Page): Promise<string | null> {
-  const res = await page.request.get("/api/settings");
-  const body = (await res.json()) as { settings: Array<{ key: string; value: unknown }> };
-  const entry = body.settings.find((e) => e.key === "instance_name");
-  return typeof entry?.value === "string" ? entry.value : null;
+  const value = await pollSetting(page, "instance_name");
+  return typeof value === "string" ? value : null;
 }
 
 test.describe("Settings dialog", () => {
@@ -345,5 +351,59 @@ test.describe("Settings dialog", () => {
         { timeout: 5_000 },
       )
       .toBeNull();
+  });
+
+  test("the All-settings tab toggles auto_name through the live API, with live-driven restart badges (260823-5r41)", async ({ page }) => {
+    await gotoServerReady(page, TMUX_SERVER);
+
+    // The All-settings tab is the registry-driven table: open it via the
+    // "Settings: All" palette deep-link (openSettings("all")).
+    const paletteInput = page.getByPlaceholder("Type a command");
+    await expect(async () => {
+      await page.keyboard.press("Meta+k");
+      await expect(paletteInput).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 15_000 });
+    await paletteInput.fill("Settings: All");
+    await page.keyboard.press("Enter");
+    await expectDialogOpen(page);
+    const dialog = page.getByRole("dialog", { name: "Settings" });
+    await expect(dialog.getByRole("tab", { name: "All settings" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    const panel = page.getByTestId("settings-all-panel");
+    await expect(panel).toBeVisible();
+
+    // Search is a substring filter over key/description/category; emptied
+    // category headers hide (Advanced keeps only log_level).
+    await panel.getByRole("searchbox", { name: "Search settings" }).fill("log");
+    await expect(panel.getByTestId("setting-row-log_level")).toBeVisible();
+    await expect(panel.getByTestId("setting-row-auto_name")).toHaveCount(0);
+    await expect(panel.getByText("Behavior", { exact: true })).toHaveCount(0);
+
+    // The "requires restart" badge rides the GET payload's live flag:
+    // log_level (live:false) carries it, auto_name (live:true since this
+    // change) does not.
+    await expect(panel.getByTestId("restart-badge-log_level")).toBeVisible();
+    await expect(panel.getByTestId("restart-badge-auto_name")).toHaveCount(0);
+
+    // Toggle auto_name in the table and assert persistence through GET.
+    await panel.getByRole("searchbox", { name: "Search settings" }).fill("auto_name");
+    const toggle = panel.getByTestId("setting-row-auto_name").getByRole("switch", {
+      name: "auto_name",
+    });
+    const initial = (await toggle.getAttribute("aria-checked")) === "true";
+    await toggle.click();
+    await expect
+      .poll(() => pollSetting(page, "auto_name"), { timeout: 5_000 })
+      .toBe(!initial);
+
+    // Restore the prior value so a failed-after-this-point run leaves
+    // config.yaml with only a committed toggle for the afterAll snapshot
+    // restore to cover (it restores the raw bytes verbatim regardless).
+    await toggle.click();
+    await expect
+      .poll(() => pollSetting(page, "auto_name"), { timeout: 5_000 })
+      .toBe(initial);
   });
 });

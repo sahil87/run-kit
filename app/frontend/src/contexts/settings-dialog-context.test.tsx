@@ -13,6 +13,7 @@ function Probe() {
       <button onClick={() => openSettings()}>open</button>
       <button onClick={() => openSettings("shortcuts")}>open-shortcuts</button>
       <button onClick={() => openSettings("appearance")}>open-appearance</button>
+      <button onClick={() => openSettings("all")}>open-all</button>
       <button onClick={() => setActiveTab("shortcuts")}>tab-shortcuts</button>
       <button onClick={closeSettings}>close</button>
     </div>
@@ -55,6 +56,17 @@ describe("SettingsDialogContext", () => {
     fireEvent.click(screen.getByRole("button", { name: "open-appearance" }));
     fireEvent.click(screen.getByRole("button", { name: "open" }));
     expect(screen.getByTestId("tab").textContent).toBe("appearance");
+  });
+
+  it("openSettings('all') opens on the All settings tab", () => {
+    render(
+      <SettingsDialogProvider>
+        <Probe />
+      </SettingsDialogProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "open-all" }));
+    expect(screen.getByTestId("state").textContent).toBe("open");
+    expect(screen.getByTestId("tab").textContent).toBe("all");
   });
 
   it("a tabbed open while open on another tab switches without closing", () => {

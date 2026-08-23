@@ -199,13 +199,20 @@ reaped on the post-loop retain seam, scoped to successfully-polled-or-dead
 servers exactly like `waitingPushTracker.retain`. The feature is strictly
 OPT-IN: the `auto_name` key in the settings store (`internal/settings`,
 `~/.config/run-kit/config.yaml` — tolerant `ParseBool` read, default off, serialized
-only when true), seeded as `Server.autoNameEnabled` from `settings.Load()` at
-construction, so a toggle applies on the next daemon restart; when disabled,
-`initSSEHub` nils the hub's tracker, the feature-absent state both tick sites
+only when true), `live: true` in the registry (5r41). The construction-time
+seed (`Server.autoNameEnabled` from `settings.Load()`) is only `initSSEHub`'s
+initial apply: a successful `POST /api/settings` whose body contains
+`auto_name` (set or null-unset) re-applies the post-merge value through the
+hub's single apply seam (`sseHub.setAutoName` behind `autoNameMu` — see
+[architecture](/run-kit/architecture.md) § SSE Hub), publishing nil on disable
+and a freshly-built deliver-wired tracker on enable (prior in-memory
+cooldowns drop — the process-memory semantics above), so a toggle takes live
+effect without a daemon restart. The deliver closure is built once by
+`Server.autoNameDeliver()`, so the startup seed and the POST re-apply share
+identical wiring. A nil tracker is the feature-absent state both tick sites
 (advance, retain) already check. There is deliberately NO `RK_AUTO_NAME` env
-var — env is deployment bootstrap, not a settings channel (see
-`fab/plans/sahil/26-08-22-config-consolidation.md`, which also owns making the
-key apply live). When enabled, the trigger still requires an operator window
+var — env is deployment bootstrap, not a settings channel. When enabled, the
+trigger still requires an operator window
 on the server — no operator ⇒ nothing fires, nothing logs at error level
 (degrade to absent).
 

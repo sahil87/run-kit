@@ -1024,7 +1024,8 @@ export async function getKeybindings(server: string): Promise<Keybinding[]> {
 // set, null unsets). All getters share one deduplicated GET so the mount-time
 // burst collapses into a single request; setters post only the keys they own.
 
-/** One registry row as served by GET /api/settings. */
+/** One registry row as served by GET /api/settings. `options` is present only
+ *  on enum kinds (the entry's legal values, in display order). */
 export interface SettingsEntry {
   key: string;
   kind: string;
@@ -1033,10 +1034,11 @@ export interface SettingsEntry {
   category: string;
   ui: boolean;
   live: boolean;
+  options?: string[];
   value: unknown;
 }
 
-async function getSettingsEntries(): Promise<SettingsEntry[]> {
+export async function getSettingsEntries(): Promise<SettingsEntry[]> {
   const res = await deduplicatedFetch("/api/settings");
   if (!res.ok) await throwOnError(res);
   const data: { settings: SettingsEntry[] } = await res.json();
@@ -1064,7 +1066,7 @@ function mapSetting(value: unknown): Record<string, string> {
   return out;
 }
 
-async function postSettings(patch: Record<string, unknown>): Promise<void> {
+export async function postSettings(patch: Record<string, unknown>): Promise<void> {
   const res = await fetch("/api/settings", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

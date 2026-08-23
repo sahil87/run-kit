@@ -13,14 +13,15 @@ import (
 // entry's metadata plus its current value in the natural JSON type (string or
 // null for scalars, bool, object for maps, array for the list).
 type settingEntry struct {
-	Key         string `json:"key"`
-	Kind        string `json:"kind"`
-	Default     string `json:"default"`
-	Description string `json:"description"`
-	Category    string `json:"category"`
-	UI          bool   `json:"ui"`
-	Live        bool   `json:"live"`
-	Value       any    `json:"value"`
+	Key         string   `json:"key"`
+	Kind        string   `json:"kind"`
+	Default     string   `json:"default"`
+	Description string   `json:"description"`
+	Category    string   `json:"category"`
+	UI          bool     `json:"ui"`
+	Live        bool     `json:"live"`
+	Options     []string `json:"options,omitempty"`
+	Value       any      `json:"value"`
 }
 
 // handleGetSettings returns the full settings registry plus current values,
@@ -40,6 +41,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 			Category:    info.Category,
 			UI:          info.UI,
 			Live:        info.Live,
+			Options:     info.Options,
 			Value:       normalizeSettingValue(value),
 		})
 	}
@@ -77,7 +79,11 @@ func normalizeSettingValue(value any) any {
 // here, not in internal/settings — settings cannot import tmux (tmux imports
 // settings; a back-reference would be an import cycle). When the patch
 // contains board_order, a successful save broadcasts the new order to every
-// connected SSE client (server-global — see broadcastBoardOrder).
+// connected SSE client (server-global — see broadcastBoardOrder). When the
+// patch contains auto_name (set or null-unset — null resets to the default
+// off), a successful save re-applies the resulting value to the running hub's
+// auto-name tracker through the same seam initSSEHub seeds from, so the live
+// key takes effect without a restart. No other key has a side effect.
 func (s *Server) handlePostSettings(w http.ResponseWriter, r *http.Request) {
 	var patch map[string]json.RawMessage
 	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
@@ -90,6 +96,7 @@ func (s *Server) handlePostSettings(w http.ResponseWriter, r *http.Request) {
 	// loaded settings and the file untouched.
 	current := settings.Load()
 	_, hasBoardOrder := patch["board_order"]
+	_, hasAutoName := patch["auto_name"]
 	// Sorted keys, not map order: which validation error a multi-key invalid
 	// patch reports must be deterministic across runs.
 	keys := make([]string, 0, len(patch))
@@ -123,6 +130,14 @@ func (s *Server) handlePostSettings(w http.ResponseWriter, r *http.Request) {
 	if hasBoardOrder {
 		s.initSSEHub()
 		s.sseHub.broadcastBoardOrder(current.BoardOrder)
+	}
+
+	// Re-apply auto_name to the running hub: the tracker is a read-once
+	// consumer, so the live key only takes effect through the hub's apply
+	// seam.
+	if hasAutoName {
+		s.initSSEHub()
+		s.sseHub.setAutoName(current.AutoName, s.autoNameDeliver())
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

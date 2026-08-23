@@ -32,7 +32,7 @@ Every scaffold path — `EnsureConfig`, `ForceWriteConfig`, `rk mux init-conf` (
 
 ## Settings Registry
 
-`internal/settings` defines one registry — a `[]registryEntry` table — that is the single source of truth for every settings key and drives both `parse()` and `serialize()`. Each entry carries **key, kind (type), default, description, category, `ui` flag, `live` flag**; scalar entries carry parse/serialize hooks, nested entries (maps, lists) carry a section built by `mapSection`/`listSection`. Slice order IS serialization order: scalar keys first, then nested sections. Adding a key is one registry entry — no new scanner branches.
+`internal/settings` defines one registry — a `[]registryEntry` table — that is the single source of truth for every settings key and drives both `parse()` and `serialize()`. Each entry carries **key, kind (type), default, description, category, `ui` flag, `live` flag**; enum kinds additionally carry **`options`** — the entry's legal values in display order (`theme`: `system`/`dark`/`light`; `log_level`: `info`/`debug`), display metadata for generated controls (the apply hook keeps owning enforcement), nil on non-enum kinds. Scalar entries carry parse/serialize hooks, nested entries (maps, lists) carry a section built by `mapSection`/`listSection`. Slice order IS serialization order: scalar keys first, then nested sections. Adding a key is one registry entry — no new scanner branches.
 
 Serialization stays hand-rolled (line-scanner parse + string-builder serialize — no yaml.v3) and byte-stable: tolerant reads per key (quote-strip, `validate.NormalizeColorValue`, flair-set membership, `strconv.ParseBool`, malformed-entry skip), omit-when-default/empty, nested sections with sorted map keys and quoted values. An untouched settings file round-trips byte-identically.
 
@@ -49,18 +49,18 @@ The 12-key inventory:
 | `server_colors` | map[string]string | `{}` | appearance | yes | yes | mapSection with color normalize |
 | `server_flairs` | map[string]string | `{}` | appearance | yes | yes | mapSection with flair-set membership normalize |
 | `board_order` | []string | `[]` | layout | yes | yes | listSection |
-| `auto_name` | bool | `false` | behavior | yes | no | read at hub construction — applies on daemon restart |
+| `auto_name` | bool | `false` | behavior | yes | yes | a settings POST rewires the hub's auto-name tracker live (see [architecture](/run-kit/architecture.md) § SSE Hub) |
 | `tmux_conf` | path string | `""` | advanced | yes | no | user owns the file; rk performs no ensure/refresh/doctor on it |
 | `log_level` | enum (`info`/`debug`) | `info` | advanced | yes | no | read at serve startup |
 
-`live: false` keys are restart-bound (read once at hub/tmux/serve construction); `live: true` keys apply on next read. The exported accessor surface (`Load`, `Save`, `Default`, `Get/SetServerColor`, `Get/SetServerFlair`, `Get/SetInstanceColor`, `Get/SetSSHHost`, `Get/SetInstanceName`, `Get/SetBoardOrder`) sits over the registry. (li54)
+`live: false` keys (`tmux_conf`, `log_level`) are restart-bound (read once at tmux/serve startup); `live: true` keys apply on next read — `auto_name`'s one read-once consumer (the hub's tracker) is re-applied live by the settings POST. The exported accessor surface (`Load`, `Save`, `Default`, `Get/SetServerColor`, `Get/SetServerFlair`, `Get/SetInstanceColor`, `Get/SetSSHHost`, `Get/SetInstanceName`, `Get/SetBoardOrder`) sits over the registry. (li54)
 
 ## Settings HTTP API
 
 The entire settings HTTP surface is one registry-driven endpoint pair in `api/settings.go` (see [architecture](/run-kit/architecture.md) § REST API for the endpoint rows). The registry exports its metadata read-side (`KeyInfo` + `Registry()`, registry slice order) plus generic per-key JSON value read/apply hooks (`ReadValue`/`ApplyValue`) — value normalization and value-shape validation live with the registry entry, reusing `internal/validate`; board-order **name** validity (`tmux.ValidBoardName`) and duplicate rejection stay in the API handler (`internal/tmux` imports `internal/settings`, so settings calling into tmux would be an import cycle).
 
-- **`GET /api/settings`** → `{"settings": [{key, kind, default, description, category, ui, live, value}]}` — one object per registry entry, in registry order, snake_case registry key names verbatim, values in natural JSON types: `null` for unset string scalars, maps as objects (possibly `{}`), `board_order` as an array (possibly `[]`), `auto_name` as a bool.
-- **`POST /api/settings`** — a flat JSON object of registry keys, partial merge per Constitution §IX: present keys set, absent keys untouched, `null` unsets (resets to the registry default). String scalars are trimmed, trimmed-to-empty treated as `null` (except `theme`/`theme_dark`/`theme_light`, whose defaults are non-empty — a trimmed-to-empty non-null value is a 400). Map keys merge **per entry** (an entry `null` unsets that entry, other entries untouched; a top-level `null` clears the whole map); `board_order` replaces wholesale (top-level `null` ≡ `[]`). The whole body is validated before a single `Load → apply-all → Save` — an unknown key, malformed body, or any per-key validation failure is a 400 with nothing persisted. Success is `200 {"status": "ok"}`; a successful body containing `board_order` broadcasts the server-global `board-order` SSE event (see architecture § SSE Hub). No other key has a broadcast side effect. (f1ot)
+- **`GET /api/settings`** → `{"settings": [{key, kind, default, description, category, ui, live, options?, value}]}` — one object per registry entry, in registry order, snake_case registry key names verbatim, values in natural JSON types: `null` for unset string scalars, maps as objects (possibly `{}`), `board_order` as an array (possibly `[]`), `auto_name` as a bool. `options` is present only on enum kinds (`theme`, `log_level`) and omitted otherwise.
+- **`POST /api/settings`** — a flat JSON object of registry keys, partial merge per Constitution §IX: present keys set, absent keys untouched, `null` unsets (resets to the registry default). String scalars are trimmed, trimmed-to-empty treated as `null` (except `theme`/`theme_dark`/`theme_light`, whose defaults are non-empty — a trimmed-to-empty non-null value is a 400). Map keys merge **per entry** (an entry `null` unsets that entry, other entries untouched; a top-level `null` clears the whole map); `board_order` replaces wholesale (top-level `null` ≡ `[]`). The whole body is validated before a single `Load → apply-all → Save` — an unknown key, malformed body, or any per-key validation failure is a 400 with nothing persisted. Success is `200 {"status": "ok"}` with two keyed side effects: a successful body containing `board_order` broadcasts the server-global `board-order` SSE event (see architecture § SSE Hub), and one containing `auto_name` (set or `null`-unset) re-applies the post-merge value to the running hub's auto-name tracker through the hub's apply seam (`sseHub.setAutoName` — see [architecture](/run-kit/architecture.md) § SSE Hub), so the live key takes effect without a daemon restart. No other key has a side effect. (f1ot, 5r41)
 
 ## Override Order & Env Inventory
 
@@ -164,7 +164,7 @@ Every scaffold path (`EnsureConfig`, `ForceWriteConfig`, `rk mux init-conf`, `PO
 *Introduced by*: 260823-li54-config-root-registry-core
 
 ### GET shape: array of full registry entries
-**Decision**: `{"settings": [{key, kind, default, description, category, ui, live, value}]}` in registry order, snake_case registry key names verbatim.
+**Decision**: `{"settings": [{key, kind, default, description, category, ui, live, options?, value}]}` in registry order, snake_case registry key names verbatim.
 **Why**: a registry-driven settings surface renders typed controls straight from this — one payload, ordered, self-describing; null-for-unset preserves the read contract the per-key GETs carried.
 **Rejected**: split `{registry: [...], values: {...}}` (two structures to zip client-side); values-only map (drops the metadata a registry-driven surface needs, defeating the registry).
 *Introduced by*: 260823-f1ot-settings-api-hard-fold
@@ -198,5 +198,17 @@ Every scaffold path (`EnsureConfig`, `ForceWriteConfig`, `rk mux init-conf`, `PO
 **Why**: reloading unchanged config is wasted tmux traffic across every live server, and the sweep's only purpose is propagating a refresh that just happened.
 **Rejected**: unconditional sweep at start (noise, and touches servers for nothing); sweeping on missing→write (a fresh file means no server was started with older content by rk's `-f` — new servers pick it up at creation).
 *Introduced by*: 260823-0tu6-tmux-conf-ownership
+
+### auto_name liveness via POST-driven tracker rewire, no broadcast
+**Decision**: the settings POST rewires the hub's auto-name tracker in place; no generic settings-changed SSE event is added.
+**Why**: `live` means "applies on next read without restart" — every other live key already honors it per its read cadence; auto_name's read-once-at-construction seam was the only violation. Cross-tab push is new backend surface the invocation forbids.
+**Rejected**: per-tick `settings.Load()` in the hub (file I/O every ~2s per server for one bool); a settings-changed broadcast (unneeded surface).
+*Introduced by*: 260823-5r41-settings-pane-live-apply
+
+### Enum options ride the registry
+**Decision**: `registryEntry.options []string` for enum kinds, served through KeyInfo and GET.
+**Why**: a generated enum control needs options as data and the registry is the single source of truth; previously `log_level`'s legal values existed only inside parse/apply closures.
+**Rejected**: hardcoding options in the frontend (drifts from the registry, defeats generation).
+*Introduced by*: 260823-5r41-settings-pane-live-apply
 
 See [architecture](/run-kit/architecture.md) § `internal/settings` for the package-level contract and [layout-snapshots](/run-kit/layout-snapshots.md) for the snapshot store under the state root.

@@ -66,8 +66,8 @@ type Settings struct {
 	// AutoName arms the auto-name-on-idle trigger: on a window's busy→idle
 	// transition the server's operator window is handed a fix-tab-name request.
 	// Strictly opt-in (default false — the trigger injects prompts into the
-	// operator on its own); read at hub construction, so a change applies on
-	// the next daemon restart.
+	// operator on its own). A settings POST applies the new value to the
+	// running hub's tracker without a daemon restart.
 	AutoName bool
 	// TmuxConf is the path to the tmux.conf rk passes to tmux. Empty means
 	// "unset": tmux resolution falls back to its built-in default. The user
@@ -193,6 +193,10 @@ type registryEntry struct {
 	category string // grouping for later UI surfaces
 	ui       bool   // exposed on the settings UI surface
 	live     bool   // applies on next read without a daemon restart
+	// options lists an enum kind's legal values in display order. Display
+	// metadata for generated controls only — the apply hook owns enforcement.
+	// Nil on non-enum kinds.
+	options []string
 	// parse consumes one scalar "key: value" line (value already trimmed).
 	// Nil on nested-section entries.
 	parse func(s *Settings, value string)
@@ -225,6 +229,7 @@ var registry = []registryEntry{
 		key: "theme", kind: "enum", def: "system",
 		desc:     "UI color mode — system, dark, light, or a named theme.",
 		category: "appearance", ui: true, live: true,
+		options: []string{"system", "dark", "light"},
 		parse: func(s *Settings, value string) {
 			if value != "" {
 				s.Theme = value
@@ -300,7 +305,7 @@ var registry = []registryEntry{
 	{
 		key: "auto_name", kind: "bool", def: "false",
 		desc:     "Arms the auto-name-on-idle trigger: the operator window is asked to fix tab names on busy→idle transitions.",
-		category: "behavior", ui: true, live: false,
+		category: "behavior", ui: true, live: true,
 		// Tolerant read: any strconv.ParseBool value; anything else keeps the
 		// default (off) — the safe direction for an opt-in trigger.
 		parse: func(s *Settings, value string) {
@@ -330,6 +335,7 @@ var registry = []registryEntry{
 		key: "log_level", kind: "enum", def: "info",
 		desc:     "Daemon log verbosity — info or debug. The LOG_LEVEL env escape wins when set.",
 		category: "advanced", ui: true, live: false,
+		options: []string{"info", "debug"},
 		// Tolerant read: only info/debug are accepted; anything else keeps the
 		// default.
 		parse: func(s *Settings, value string) {
@@ -505,6 +511,9 @@ type KeyInfo struct {
 	Category    string
 	UI          bool
 	Live        bool
+	// Options carries an enum kind's legal values in display order; nil for
+	// non-enum kinds.
+	Options []string
 }
 
 // Registry returns the registry's metadata in registry slice order (the same
@@ -521,6 +530,7 @@ func Registry() []KeyInfo {
 			Category:    e.category,
 			UI:          e.ui,
 			Live:        e.live,
+			Options:     e.options,
 		}
 	}
 	return infos

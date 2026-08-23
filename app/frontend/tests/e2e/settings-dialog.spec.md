@@ -173,3 +173,33 @@ setting.
 4. Assert the status bar's host segment (`status-bar-host`) shows the test name.
 5. Clear the input; press Enter.
 6. Poll `GET /api/settings` until its `instance_name` entry returns `null`.
+
+### `the All-settings tab toggles auto_name through the live API, with live-driven restart badges (260823-5r41)`
+
+**What it proves:** The fourth tab is the registry-driven everything-table,
+palette-reachable via the `Settings: All` deep-link: its search is a substring
+filter that hides emptied category headers; the `requires restart` badge is
+driven by the GET payload's `live` flag (visible on `log_level`, absent on
+`auto_name` now that it is live); and a table write — toggling `auto_name` —
+persists through `POST /api/settings`, verified by polling `GET /api/settings`
+both directions. `$HOME` is not isolated in e2e, so the write lands in the
+developer's real config.yaml — the suite's beforeAll/afterAll snapshot/restore
+covers it byte-identically.
+
+**Steps:**
+
+1. Navigate to `/rk-test-e2e` and wait for the Connected indicator.
+2. `Meta+K` → type `Settings: All` → Enter; assert the dialog opens with the
+   All settings tab `aria-selected` and `settings-all-panel` visible.
+3. Fill the search field with `log`; assert `setting-row-log_level` stays
+   visible, `setting-row-auto_name` is gone, and the emptied `Behavior`
+   category header hides.
+4. Assert `restart-badge-log_level` is visible while
+   `restart-badge-auto_name` does not exist.
+5. Search `auto_name`; read the row switch's `aria-checked` as the initial
+   value, click it, and poll `GET /api/settings` until the stored `auto_name`
+   equals the negation.
+6. Click the switch back and poll `GET /api/settings` until the stored value
+   round-trips to the initial one (afterAll restores the raw config bytes
+   regardless).
+

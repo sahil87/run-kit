@@ -5,17 +5,17 @@ created_by: sahil-noon
 change_type: chore
 issues: []
 progress:
-    intake: ready
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
-    review-pr: pending
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
 plan:
-    generated: false
-    task_count: 0
-    acceptance_count: 0
-    acceptance_completed: 0
+    generated: true
+    task_count: 11
+    acceptance_count: 16
+    acceptance_completed: 16
 confidence:
     certain: 10
     confident: 6
@@ -29,8 +29,29 @@ confidence:
         competence: 78.8
         disambiguation: 74.1
 stage_metrics:
-    intake: {started_at: "2026-08-22T19:21:36Z", driver: fab-new, iterations: 1}
-prs: []
+    intake: {started_at: "2026-08-22T19:21:36Z", driver: fab-new, iterations: 1, completed_at: "2026-08-22T19:30:32Z"}
+    apply: {started_at: "2026-08-22T21:05:24Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-22T21:08:26Z"}
+    review: {started_at: "2026-08-22T21:08:26Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-22T21:12:44Z"}
+    hydrate: {started_at: "2026-08-22T21:12:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-22T21:19:43Z"}
+    ship: {started_at: "2026-08-22T21:19:43Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-22T21:22:08Z"}
+    review-pr: {started_at: "2026-08-23T01:37:41Z", driver: git-pr-review, iterations: 2, completed_at: "2026-08-23T01:41:50Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/716
 change_type_source: explicit
+true_impact:
+    added: 797
+    deleted: 123
+    net: 674
+    excluding:
+        added: 303
+        deleted: 95
+        net: 208
+    tests:
+        added: 35
+        deleted: 33
+        net: 2
+    computed_at: "2026-08-22T21:22:08Z"
+    computed_at_stage: ship
+summary: 'Per-worktree e2e isolation: scripts/e2e-env.sh derives a hyphen-free worktree token → deterministic port triple (3400–3699) + rk-test-e2e-<token>- socket family (primary …-0; allowlist, teardown glob, and spec secondaries all family-anchored); self-scoped stale-kill, per-run temp XDG_STATE_HOME, flock slot throttle (RK_E2E_SLOTS); just dev/pw/test-e2e share the derived rig; fail-closed 3333 fallback kept'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-22T19:27:26Z
+last_updated: 2026-08-23T01:41:50Z

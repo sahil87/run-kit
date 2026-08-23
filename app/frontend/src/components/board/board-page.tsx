@@ -1193,7 +1193,8 @@ function DesktopRow({
   // ceiling is an HTTP/1.1 artifact. Over HTTPS/h2 (production via Tailscale)
   // it does not exist, so behavior there is exactly today's (`paused={false}`,
   // no observer, no cap). `window.location.protocol === "http:"` classifies the
-  // E2E/dev path (`http://localhost:3020`) and raw-port access as plaintext.
+  // E2E/dev path (the worktree's derived dev-server port) and raw-port access
+  // as plaintext.
   const plaintext = typeof window !== "undefined" && window.location.protocol === "http:";
 
   // Per-pane root DOM elements, keyed by pane index, for the IntersectionObserver

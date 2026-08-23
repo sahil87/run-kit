@@ -10,7 +10,8 @@ export default defineConfig({
   // signals (see _ready.ts); this is the outer budget those gates live within.
   timeout: process.env.CI ? 30_000 : 10_000,
   retries: 1,
-  // Serial everywhere: every spec targets one shared tmux server (rk-test-e2e)
+  // Serial everywhere: every spec targets one shared tmux server (the
+  // worktree's derived e2e primary, rk-test-e2e-<token>-0)
   // and one dev server, and the SSE stream broadcasts session changes to ALL
   // connected clients. Running workers in parallel therefore lets one worker's
   // sessions appear in another's sidebar — a correctness race, not just load.

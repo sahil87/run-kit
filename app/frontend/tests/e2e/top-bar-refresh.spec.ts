@@ -57,7 +57,7 @@ const WINDOW_URL = `/${SERVER}/%401`;
 /**
  * Install routes that fully mock the server list and the state-socket sessions payload.
  * Returns a `selectHits` counter proving the /select mock actually intercepts
- * (rather than falling through to the real :3020 backend — see the mock below).
+ * (rather than falling through to the real e2e backend — see the mock below).
  */
 async function mockBackend(page: Page): Promise<{ selectHits: () => number }> {
   let selectHits = 0;
@@ -72,7 +72,7 @@ async function mockBackend(page: Page): Promise<{ selectHits: () => number }> {
   // Selecting a window POSTs to /select — accept it so nav doesn't error.
   // Trailing `*` is REQUIRED: Playwright globs match the FULL URL including the
   // query string, and client.ts `withServer` appends `?server=default`. Without
-  // it the POST falls through to the real :3020 backend and issues a live tmux
+  // it the POST falls through to the real e2e backend and issues a live tmux
   // select-window on the default socket. `selectHits` records interception so a
   // regression to the no-trailing-star glob (silent fallthrough) fails loudly.
   await page.route("**/api/windows/*/select*", (route) => {
@@ -127,7 +127,7 @@ test.describe("Top-bar RefreshButton", () => {
     page,
   }) => {
     // The /select mock intercepted the window-selection POST fired during nav —
-    // it did NOT fall through to the real :3020 backend (which would issue a live
+    // it did NOT fall through to the real e2e backend (which would issue a live
     // tmux select-window on the default socket). This guards the trailing-`*`
     // glob fix: a regression to `**/api/windows/*/select` (no trailing star)
     // misses the `?server=default` query string and this count drops to 0.

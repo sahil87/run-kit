@@ -29,6 +29,13 @@ import { execFileSync } from "node:child_process";
 /** The isolated tmux server socket the e2e suite runs against. */
 export const TMUX_SERVER = process.env.E2E_TMUX_SERVER ?? "rk-test-e2e";
 
+/** This worktree's socket family anchor (trailing hyphen included). Specs
+ *  name secondary servers `${TMUX_FAMILY}<role>-<pid>-<epoch>` so the cleanup
+ *  glob, global-teardown scan, and RK_SERVER_ALLOWLIST all match the family
+ *  by prefix; hyphen-free tokens make cross-worktree prefix collisions
+ *  impossible by construction (see scripts/e2e-env.sh). */
+export const TMUX_FAMILY = process.env.E2E_TMUX_FAMILY ?? `${TMUX_SERVER}-`;
+
 export interface TmuxOptions {
   /** tmux server socket name (`tmux -L`); defaults to {@link TMUX_SERVER}. */
   server?: string;

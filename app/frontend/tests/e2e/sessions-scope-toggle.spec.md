@@ -14,9 +14,10 @@ current server — that coupling was removed in
 ## Shared setup
 
 - `beforeAll` creates one session on the default e2e tmux server
-  (`E2E_TMUX_SERVER`, default `rk-test-e2e`) and a second tmux server
-  (`rk-test-e2e-scope-<pid>-<suffix>`, where `<pid>` is the Playwright
-  `process.pid` so the automatic post-sweep can parse it) with its own
+  (`E2E_TMUX_SERVER`, the worktree's derived e2e primary) and a second tmux
+  server (`rk-test-e2e-<token>-scope-<pid>-<suffix>`, built from the
+  `TMUX_FAMILY` anchor, where `<pid>` is the Playwright `process.pid` so the
+  automatic post-sweep can parse it) with its own
   session — two distinct servers are required so scope narrowing is
   observable.
 - `afterAll` kills the session on the default server and `kill-server`s the
@@ -95,5 +96,5 @@ test fails against that behaviour.
   route's sidebar lives at `/board/$name` and needs board fixtures that are
   out of scope here.
 - All three tests use the e2e tmux server pattern from
-  `multi-server-sidebar.spec.ts` — port 3020, isolated tmux servers,
-  best-effort setup/teardown.
+  `multi-server-sidebar.spec.ts` — the worktree's derived e2e port/socket
+  family, best-effort setup/teardown.

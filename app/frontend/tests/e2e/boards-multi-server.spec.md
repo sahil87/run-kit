@@ -8,14 +8,16 @@ pin-session carrying that `@rk_board` name across all reachable servers.
 
 ## Shared setup
 
-- `beforeAll` creates a session on the primary tmux server (`rk-test-e2e`)
-  plus a second tmux server (`rk-test-e2e-multi-<pid>-<suffix>`, where `<pid>`
-  is the Playwright `process.pid` so the automatic post-sweep can parse it)
+- `beforeAll` creates a session on the primary tmux server (the worktree's
+  derived e2e primary, `rk-test-e2e-<token>-0`) plus a second tmux server
+  (`rk-test-e2e-<token>-multi-<pid>-<suffix>`, built from the `TMUX_FAMILY`
+  anchor, where `<pid>` is the Playwright `process.pid` so the automatic
+  post-sweep can parse it)
   with its own session, each with one named window (`srv-a-win`, `srv-b-win`).
 - Every pin is registered with the shared `_boards.ts` cleanup registry
   (`trackPin`).
 - `afterAll` runs `unpinAll(request)` (best-effort unpin of every tracked
-  entry) so the persistent `rk-test-e2e` server doesn't carry stale
+  entry) so the persistent primary e2e server doesn't carry stale
   `_rk-pin-*` pin-sessions into later runs, then kills the primary session and
   the secondary tmux server entirely.
 

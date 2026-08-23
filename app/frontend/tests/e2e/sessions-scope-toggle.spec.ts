@@ -1,14 +1,14 @@
 import { test, expect } from "@playwright/test";
 import { READY_TIMEOUT, gotoServerReady } from "./_ready";
-import { TMUX_SERVER, createSession, killServer, killSession } from "./_tmux";
+import { TMUX_SERVER, TMUX_FAMILY, createSession, killServer, killSession } from "./_tmux";
 
 const TMUX_SERVER_A = TMUX_SERVER;
 // Second tmux server gives us a non-current group to observe while toggling
-// scope. Named under the unified rk-test-e2e-* umbrella with the Playwright
-// process.pid as the second-to-last hyphen field so the automatic post-sweep
-// can parse it; the trailing suffix is a single hyphen-free token to keep the
-// PID position unambiguous.
-const TMUX_SERVER_B = `rk-test-e2e-scope-${process.pid}-${Date.now().toString().slice(-6)}`;
+// scope. Named inside this worktree's socket family (TMUX_FAMILY anchor) with
+// the Playwright process.pid as the second-to-last hyphen field so the
+// automatic post-sweep can parse it; the trailing suffix is a single
+// hyphen-free token to keep the PID position unambiguous.
+const TMUX_SERVER_B = `${TMUX_FAMILY}scope-${process.pid}-${Date.now().toString().slice(-6)}`;
 const SESSION_A = `e2e-scope-a-${Date.now()}`;
 const SESSION_B = `e2e-scope-b-${Date.now()}`;
 const DESKTOP_VIEWPORT = { width: 1024, height: 768 };

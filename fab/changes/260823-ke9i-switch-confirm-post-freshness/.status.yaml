@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 8
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-23T16:04:24Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-23T16:07:32Z"}
     review: {started_at: "2026-08-23T16:07:32Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-23T16:23:02Z"}
     hydrate: {started_at: "2026-08-23T16:23:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T16:27:54Z"}
-    ship: {started_at: "2026-08-23T16:27:54Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-23T16:27:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T16:32:38Z"}
+    review-pr: {started_at: "2026-08-23T16:32:38Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/724
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 971
+    deleted: 18
+    net: 953
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 607
+        deleted: 13
+        net: 594
     tests:
-        added: 0
+        added: 305
         deleted: 0
-        net: 0
-    computed_at: "2026-08-23T16:27:54Z"
-    computed_at_stage: hydrate
+        net: 305
+    computed_at: "2026-08-23T16:32:38Z"
+    computed_at_stage: ship
 summary: selectWindow POST 200 disarms the window-switch failure bounce (intent still SSE-cleared); bounce verdict freshness-gated on a per-server receipt tick (extend-until-evidence, holds while disconnected); select API returns {ok, activeWindow} via a post-select ActiveWindowID read with fallback
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-23T16:27:54Z
+last_updated: 2026-08-23T16:32:38Z

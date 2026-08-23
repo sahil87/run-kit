@@ -378,6 +378,28 @@ export function Sidebar({
   // render would both derive from the same stale map and persist a value that
   // disagrees with the committed state. The ref advances on every toggle.
   const collapsedRef = useRef(collapsed);
+  // Manual-collapse latch: the current session renders expanded regardless of
+  // its collapsed exception (the derived override in ServerGroupInner), EXCEPT
+  // when the user folds it while current — the latch holds that fold until the
+  // current session changes. Refs, not state: `toggleSession`'s setCollapsed
+  // already re-renders the fold, and navigation re-renders via props. The
+  // render-time reconcile below (orderOverrideRef idiom) clears the latch on a
+  // current-session change so re-entering a folded session reveals it again.
+  const manualCollapseLatchRef = useRef<string | null>(null);
+  const lastCurrentSessionKeyRef = useRef<string | null>(null);
+  // Mirror of the current session key for `toggleSession`, whose `[]` deps
+  // would otherwise go stale on navigation (and widening them would churn the
+  // handler identity through the memoized row tree).
+  const currentSessionKeyRef = useRef<string | null>(null);
+  const currentSessionKey =
+    currentServer != null && currentSession != null ? `${currentServer}:${currentSession}` : null;
+  if (lastCurrentSessionKeyRef.current !== currentSessionKey) {
+    lastCurrentSessionKeyRef.current = currentSessionKey;
+    manualCollapseLatchRef.current = null;
+  }
+  currentSessionKeyRef.current = currentSessionKey;
+  const manualCollapseLatched =
+    manualCollapseLatchRef.current !== null && manualCollapseLatchRef.current === currentSessionKey;
   const [killTarget, setKillTarget] = useState<{
     type: "session" | "window";
     server: string;
@@ -901,10 +923,16 @@ export function Sidebar({
     const next = { ...collapsedRef.current };
     if (next[key]) {
       // Expanding drops the entry entirely, keeping the stored map
-      // exceptions-only so the (expanded) default keeps applying.
+      // exceptions-only so the (expanded) default keeps applying — and
+      // releases the manual-collapse latch so exception and latch stay
+      // coherent (two clicks return to the fully unlatched state).
       delete next[key];
+      if (manualCollapseLatchRef.current === key) manualCollapseLatchRef.current = null;
     } else {
       next[key] = true;
+      // Folding the CURRENT session must take effect immediately: latch it so
+      // the derived expand is suppressed until the current session changes.
+      if (currentSessionKeyRef.current === key) manualCollapseLatchRef.current = key;
     }
     collapsedRef.current = next;
     writeCollapsedSessions(next);
@@ -1738,7 +1766,10 @@ export function Sidebar({
                 sessionOrder={sseOrder}
                 localOrder={localOrder}
                 isConnected={isConnectedByServer.get(srvInfo.name) ?? false}
-                currentSessionName={srvInfo.name === currentServer ? currentSession : null}
+                // The manual-collapse latch suppresses the derived expand by
+                // withholding the current session's name — the read sites in
+                // ServerGroupInner then treat it like any non-current session.
+                currentSessionName={srvInfo.name === currentServer && !manualCollapseLatched ? currentSession : null}
                 currentWindowId={srvInfo.name === currentServer ? currentWindowId : null}
                 rovingKey={rovingKey}
                 registerGroupRows={registerGroupRows}

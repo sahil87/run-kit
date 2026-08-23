@@ -1,0 +1,54 @@
+id: atrb
+name: 260823-atrb-sidebar-current-session-collapse-latch
+created: 2026-08-23T15:57:35Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 4
+    acceptance_count: 10
+    acceptance_completed: 10
+confidence:
+    certain: 6
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 79.2
+        reversibility: 81.0
+        competence: 85.0
+        disambiguation: 82.7
+stage_metrics:
+    intake: {started_at: "2026-08-23T15:57:35Z", driver: fab-new, iterations: 1, completed_at: "2026-08-23T16:03:29Z"}
+    apply: {started_at: "2026-08-23T16:03:29Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T16:09:17Z"}
+    review: {started_at: "2026-08-23T16:09:17Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T16:31:55Z"}
+    hydrate: {started_at: "2026-08-23T16:31:55Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T16:33:03Z"}
+    ship: {started_at: "2026-08-23T16:33:03Z", driver: fab-fff, iterations: 1}
+prs: []
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-23T16:33:03Z"
+    computed_at_stage: hydrate
+summary: 'sidebar: folding the current session takes effect immediately via a non-persisted manual-collapse latch (cleared on session change); expand-on-entry kept'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-23T16:33:03Z

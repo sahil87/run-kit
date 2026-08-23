@@ -183,20 +183,28 @@ if command -v flock >/dev/null 2>&1; then
   E2E_SLOTS="${RK_E2E_SLOTS:-2}"
   [[ "$E2E_SLOTS" =~ ^[0-9]+$ ]] || E2E_SLOTS=2
   [ "$E2E_SLOTS" -ge 1 ] || E2E_SLOTS=1
+  # Slot-file opens are guarded: a bare `exec {fd}>>` on an unopenable path
+  # (unexpected /tmp perms, fd exhaustion) exits the script under set -e, so
+  # every open sits in an `if` — an unopenable slot is skipped, and if even
+  # slot 0 cannot be opened the throttle degrades to unthrottled rather than
+  # failing the run over throttle plumbing.
   _e2e_lock_fd=""
   for (( i=0; i<E2E_SLOTS; i++ )); do
-    exec {fd}>>"/tmp/rk-e2e-slot-$(id -u)-$i"
+    if ! exec {fd}>>"/tmp/rk-e2e-slot-$(id -u)-$i" 2>/dev/null; then continue; fi
     if flock -n "$fd"; then _e2e_lock_fd=$fd; break; fi
     exec {fd}>&-
   done
   if [ -z "$_e2e_lock_fd" ]; then
-    echo "e2e throttle: all $E2E_SLOTS slot(s) busy — blocking on slot 0 (tune via RK_E2E_SLOTS)"
-    exec {fd}>>"/tmp/rk-e2e-slot-$(id -u)-0"
-    flock "$fd"
-    _e2e_lock_fd=$fd
+    if exec {fd}>>"/tmp/rk-e2e-slot-$(id -u)-0" 2>/dev/null; then
+      echo "e2e throttle: all $E2E_SLOTS slot(s) busy — blocking on slot 0 (tune via RK_E2E_SLOTS)"
+      flock "$fd"
+      _e2e_lock_fd=$fd
+    else
+      echo "e2e throttle: cannot open slot files — running unthrottled" >&2
+    fi
   fi
   if run_playwright "$@"; then _pw_status=0; else _pw_status=$?; fi
-  flock -u "$_e2e_lock_fd" 2>/dev/null || true
+  [ -n "$_e2e_lock_fd" ] && flock -u "$_e2e_lock_fd" 2>/dev/null || true
   exit "$_pw_status"
 else
   # Stock macOS has no flock(1) — degrade to unthrottled (isolation holds).

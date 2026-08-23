@@ -3,12 +3,18 @@ import { readdirSync } from "node:fs";
 
 export default function globalTeardown() {
   // Family anchor when the harness provides it (per-worktree isolation —
-  // trailing hyphen included so only THIS worktree's family matches); the
-  // literal fallback preserves the pre-derivation behavior for direct
-  // unset-env runs.
-  const prefix =
-    process.env.E2E_TMUX_FAMILY ??
-    (process.env.E2E_TMUX_SERVER ?? "rk-test-e2e");
+  // trailing hyphen included so only THIS worktree's family matches).
+  //
+  // No identity, no teardown: the harness (test-e2e.sh / pw.sh) always
+  // exports both vars, so unset env means an unmanaged direct
+  // `playwright test` run that owns no server of its own. A literal
+  // "rk-test-e2e" fallback here would prefix-match EVERY derived family
+  // (rk-test-e2e-<token>-…) and kill sibling worktrees' in-flight servers —
+  // the exact cross-worktree bleed the derived naming exists to prevent.
+  const family = process.env.E2E_TMUX_FAMILY;
+  const server = process.env.E2E_TMUX_SERVER;
+  if (!family && !server) return;
+  const prefix = family ?? server!;
 
   // Kill the primary e2e server AND any secondary servers tests spun up
   // (…-multi-*, …-msb-*, …-scope-*, …-csw-*) by prefix-scanning the
@@ -23,11 +29,9 @@ export default function globalTeardown() {
   // an enumeration failure would silently leak the primary, regressing the
   // prior unconditional `tmux -L <server> kill-server`. The primary is
   // E2E_TMUX_SERVER when set; otherwise the derived form `<family>0` (never
-  // the bare anchor — it names no real socket); the literal fallback matches
-  // the literal prefix. A Set dedups against the scanned entries.
-  const primary =
-    process.env.E2E_TMUX_SERVER ??
-    (process.env.E2E_TMUX_FAMILY ? `${process.env.E2E_TMUX_FAMILY}0` : "rk-test-e2e");
+  // the bare anchor — it names no real socket). A Set dedups against the
+  // scanned entries.
+  const primary = server ?? `${family}0`;
   const sockets = new Set<string>([primary]);
   try {
     const uid = process.getuid?.();

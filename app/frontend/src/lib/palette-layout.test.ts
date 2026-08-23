@@ -103,8 +103,8 @@ describe("buildLayoutActions — shows/hides (R10/R11)", () => {
   });
 });
 
-describe("buildLayoutActions — zoom (R6/R11)", () => {
-  it("offers Zoom when enabled and unzoomed, Unzoom when zoomed — never both", () => {
+describe("buildLayoutActions — tile expand (R6/R11)", () => {
+  it("offers Expand when enabled and unzoomed, Restore when zoomed — never both", () => {
     const layout: Layout = { shape: "split-h", order: ["tty", "code"] };
     expect(ids(layout)).toContain("layout-zoom");
     expect(ids(layout)).not.toContain("layout-unzoom");

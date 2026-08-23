@@ -367,7 +367,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
       scope: "terminal",
       kind: "builtin",
       label: "Toggle zen mode",
-      description: "hide top bar + sidebar; zoom the focused tile",
+      description: "hide top bar + sidebar; expand the focused tile",
       ignoreInputs: true,
     });
     for (const host of ALL_HOSTS) {
@@ -705,7 +705,7 @@ describe("palette parity invariant", () => {
   //   web-toggle     ⇄ tile-show-web / tile-hide-web / tile-focus-web
   //   zen-toggle     ⇄ view-zen-enter / view-zen-exit ("View: Enter/Exit Zen
   //                    Mode" — the full zen toggle, 260820-o8cr; `Layout:
-  //                    Zoom`/`Unzoom` remain as the zoom-only verb)
+  //                    Expand`/`Restore` remain as the expand-only verb)
   //   focus-hop      ⇄ tile-focus-tty / tile-focus-code
   //   view-cycle     ⇄ the View: <lens> destinations (view-tty / view-web /
   //                    view-code — the `buildViewActions` id shape)

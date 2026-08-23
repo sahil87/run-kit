@@ -20,6 +20,15 @@ import {
   proxyPortOf,
   toProxySrc,
 } from "@/lib/web-url";
+import {
+  WEB_ZOOM_EVENT,
+  readWebZoom,
+  stepWebZoom,
+  webZoomKeyFor,
+  writeWebZoom,
+  type WebZoomDirection,
+} from "@/lib/web-zoom";
+import { createGestureArm, createWheelAccumulator } from "@/lib/zoom-gesture";
 import { hasWebUrl } from "@/lib/window-view";
 import {
   WEB_FIND_OPEN_EVENT,
@@ -110,6 +119,77 @@ export function IframeWindow({
   const pageMetaRef = useRef(onPageMeta);
   pageMetaRef.current = onPageMeta;
 
+  // ── content zoom (260823-cwvv R2/R3) ────────────────────────────────────
+  // Per-viewer, per-bucket zoom level: seeded from localStorage, re-seeded
+  // whenever the address's bucket changes (a proxied tile navigating ports
+  // switches buckets), persisted on every change. Never POSTed.
+  const zoomBucket = webZoomKeyFor(rkUrl);
+  const [zoom, setZoomState] = useState(() => readWebZoom(zoomBucket));
+  const zoomBucketRef = useRef(zoomBucket);
+  useEffect(() => {
+    if (zoomBucketRef.current === zoomBucket) return;
+    zoomBucketRef.current = zoomBucket;
+    setZoomState(readWebZoom(zoomBucket));
+  }, [zoomBucket]);
+  const applyZoom = useCallback(
+    (direction: WebZoomDirection) => {
+      setZoomState((prev) => {
+        const next =
+          direction === "reset" ? 1 : stepWebZoom(prev, direction);
+        if (next === prev) return prev;
+        writeWebZoom(webZoomKeyFor(rkUrl), next);
+        return next;
+      });
+    },
+    [rkUrl],
+  );
+  const applyZoomRef = useRef(applyZoom);
+  applyZoomRef.current = applyZoom;
+
+  // Gesture→step plumbing (R6/R8): both listener arms (the tile wrapper and
+  // the same-origin frame document) share the zoom-gesture reduction. Only
+  // ctrl/meta-modified wheel and Safari gesture* events are intercepted —
+  // everything else passes through untouched. Returns the teardown.
+  const applyGestureSteps = useCallback((steps: number) => {
+    const direction: WebZoomDirection = steps > 0 ? "in" : "out";
+    for (let i = 0; i < Math.abs(steps); i++) applyZoomRef.current(direction);
+  }, []);
+  const wireGestureListeners = useCallback(
+    (target: Document | HTMLElement) => {
+      const feed = createWheelAccumulator();
+      const arm = createGestureArm();
+      // Typed as Event: the listener must accept the union target's
+      // (Document | HTMLElement) common signature, and a frame-document
+      // WheelEvent is cross-realm (instanceof narrowing is unreliable) —
+      // deltaY/ctrlKey are read defensively, same posture as gesturechange.
+      const onWheel = (e: Event) => {
+        const wheel = e as Partial<WheelEvent>;
+        if (typeof wheel.deltaY !== "number") return;
+        if (!wheel.ctrlKey && !wheel.metaKey) return;
+        e.preventDefault();
+        applyGestureSteps(feed(wheel.deltaY));
+      };
+      // Safari's gesture* events are non-standard (no DOM-lib typing) — the
+      // scale read narrows defensively so a foreign event can't throw.
+      const onGestureStart = () => arm.reset();
+      const onGestureChange = (e: Event) => {
+        const scale = (e as { scale?: unknown }).scale;
+        if (typeof scale !== "number") return;
+        e.preventDefault();
+        applyGestureSteps(arm.change(scale));
+      };
+      target.addEventListener("wheel", onWheel, { passive: false, capture: true });
+      target.addEventListener("gesturestart", onGestureStart);
+      target.addEventListener("gesturechange", onGestureChange);
+      return () => {
+        target.removeEventListener("wheel", onWheel, { capture: true });
+        target.removeEventListener("gesturestart", onGestureStart);
+        target.removeEventListener("gesturechange", onGestureChange);
+      };
+    },
+    [applyGestureSteps],
+  );
+
   /** The current address in RAW form: the tracked frame location when known,
    *  else the stored @rk_url. The ↗ button and the edit reveal read this. */
   const rawAddress = trackedLocation ?? rkUrl;
@@ -168,6 +248,7 @@ export function IframeWindow({
     const iframe = iframeRef.current;
     if (!iframe) return;
     let attachedDoc: Document | null = null;
+    let attachedGestures: (() => void) | null = null;
     const report = () => interactRef.current?.();
     const onKey = (e: KeyboardEvent) => {
       report();
@@ -241,6 +322,10 @@ export function IframeWindow({
         doc.addEventListener("pointerdown", report, true);
         doc.addEventListener("keydown", onKey, true);
         attachedDoc = doc;
+        // Zoom gestures (R8): same-origin frames only — a cross-origin frame
+        // never reaches this branch, so its gestures stay with the browser
+        // (the accepted platform limit; the chrome control + palette remain).
+        attachedGestures = wireGestureListeners(doc);
       }
     };
     const onWindowBlur = () => {
@@ -253,6 +338,7 @@ export function IframeWindow({
     return () => {
       iframe.removeEventListener("load", onLoad);
       window.removeEventListener("blur", onWindowBlur);
+      attachedGestures?.();
       try {
         attachedDoc?.removeEventListener("pointerdown", report, true);
         attachedDoc?.removeEventListener("keydown", onKey, true);
@@ -263,7 +349,7 @@ export function IframeWindow({
     // Keyed on `onboarding`: the iframe mounts only outside onboarding, so
     // the empty-deps mount would strand every seam (load, reclaim, page meta)
     // on a tile that booted as onboarding and flipped live later.
-  }, [onboarding]);
+  }, [onboarding, wireGestureListeners]);
 
   // The `web-find:open` seam (R4): the ⌘F chord handler, the palette action,
   // and any future opener dispatch one document CustomEvent; the mounted web
@@ -303,6 +389,34 @@ export function IframeWindow({
     document.addEventListener(WEB_OPEN_EXTERNAL_EVENT, openExternal);
     return () => document.removeEventListener(WEB_OPEN_EXTERNAL_EVENT, openExternal);
   }, [trackedLocation, rkUrl]);
+
+  // The `web-zoom` seam (R5): the three `Web: Zoom` palette actions dispatch
+  // one document CustomEvent (`detail.direction`); the mounted web tile is
+  // its single receiver (the `web-find:open` precedent). Onboarding
+  // double-guard: the actions are content-gated upstream, but a stale
+  // dispatch must no-op on a contentless tile.
+  useEffect(() => {
+    const onZoom = (e: Event) => {
+      if (!hasWebUrl({ rkUrl })) return;
+      const direction = (e as CustomEvent<{ direction?: unknown }>).detail?.direction;
+      if (direction === "in" || direction === "out" || direction === "reset") {
+        applyZoomRef.current(direction);
+      }
+    };
+    document.addEventListener(WEB_ZOOM_EVENT, onZoom);
+    return () => document.removeEventListener(WEB_ZOOM_EVENT, onZoom);
+  }, [rkUrl]);
+
+  // Zoom gestures on the tile's own chrome (R8): the URL bar, find bar, and
+  // error surface are parent-document DOM, so the wrapper arm covers them —
+  // the frame arm (same-origin attach above) covers the page area. Wheel
+  // over an iframe never reaches the parent, so both arms are needed.
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const wrapper = wrapperRef.current;
+    if (!wrapper) return;
+    return wireGestureListeners(wrapper);
+  }, [wireGestureListeners]);
 
   // Autofocus on open is owned by the shared FindBar (it mounts only while
   // the bar is open and focuses its input on mount).
@@ -512,7 +626,7 @@ export function IframeWindow({
   }, [editing]);
 
   return (
-    <div className="flex flex-col flex-1 min-h-0">
+    <div ref={wrapperRef} className="flex flex-col flex-1 min-h-0">
       {/* URL Bar — one warm-tip cluster (260722-73al). Button order per the
           approved design study: ◀ ▶ ↻ [address] ⌕ ↗ (the `>_` switch-to-
           terminal button was removed, 260819-v6y4 R13 — the top-bar surface
@@ -591,6 +705,40 @@ export function IframeWindow({
                 <FindGlyph />
               </button>
             </Tip>
+            {/* Content zoom (R4) — the universal floor trigger: the only one
+                that works over an external frame (gestures never cross the
+                boundary). Text glyphs per the URL-bar vocabulary; the readout
+                doubles as the reset affordance, enabled only when s ≠ 1. */}
+            <div className="shrink-0 flex items-center" data-testid="web-zoom-control">
+              <Tip label="Zoom out">
+                <button
+                  onClick={() => applyZoom("out")}
+                  className="w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary hover:text-text-primary"
+                  aria-label="Zoom out"
+                >
+                  −
+                </button>
+              </Tip>
+              <Tip label={zoom === 1 ? "Zoom 100%" : "Reset zoom"}>
+                <button
+                  onClick={() => applyZoom("reset")}
+                  disabled={zoom === 1}
+                  className="h-7 min-w-11 px-1 flex items-center justify-center rounded text-xs tabular-nums text-text-secondary enabled:hover:bg-bg-card enabled:hover:text-text-primary disabled:opacity-60"
+                  aria-label="Reset zoom"
+                >
+                  {Math.round(zoom * 100)}%
+                </button>
+              </Tip>
+              <Tip label="Zoom in">
+                <button
+                  onClick={() => applyZoom("in")}
+                  className="w-7 h-7 flex items-center justify-center rounded hover:bg-bg-card text-text-secondary hover:text-text-primary"
+                  aria-label="Zoom in"
+                >
+                  +
+                </button>
+              </Tip>
+            </div>
             <Tip label="Open in browser">
               <button
                 onClick={handleOpenExternal}
@@ -747,13 +895,34 @@ export function IframeWindow({
           </span>
         </div>
       ) : (
-        <iframe
-          ref={iframeRef}
-          src={toProxySrc(rkUrl)}
-          className={`flex-1 w-full border-0 ${tileError ? "hidden" : ""}`}
-          title="Proxied content"
-          sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals allow-downloads"
-        />
+        // Scale wrapper (R2): the iframe renders at 1/s of the tile scaled
+        // back up by s, so the guest's CSS viewport shrinks/grows like real
+        // browser zoom — responsive layouts adapt, and the mechanism works
+        // for every address kind without reaching into the guest document.
+        // At s = 1 no transform is applied — identical layout to before.
+        <div
+          className="flex-1 min-h-0 overflow-hidden"
+          data-testid="web-zoom-frame-wrapper"
+          data-zoom={zoom}
+        >
+          <iframe
+            ref={iframeRef}
+            src={toProxySrc(rkUrl)}
+            className={`border-0 ${tileError ? "hidden" : ""}`}
+            style={
+              zoom === 1
+                ? { width: "100%", height: "100%" }
+                : {
+                    width: `${100 / zoom}%`,
+                    height: `${100 / zoom}%`,
+                    transform: `scale(${zoom})`,
+                    transformOrigin: "0 0",
+                  }
+            }
+            title="Proxied content"
+            sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals allow-downloads"
+          />
+        </div>
       )}
     </div>
   );

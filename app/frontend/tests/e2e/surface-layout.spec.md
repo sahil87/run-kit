@@ -72,7 +72,7 @@ tiles.
   above the dividers); the `.xterm` terminal surface; the `Proxied content`
   web iframe; on mobile the same banner buttons serve the switch group (the
   retired `mobile-surfaces-chip` / `mobile-surface-sheet` /
-  `mobile-surface-tab-<kind>` testids are asserted ABSENT). Tile verb buttons (`Zoom/Promote/Swap/Close <Surface>`) are boxed
+  `mobile-surface-tab-<kind>` testids are asserted ABSENT). Tile verb buttons (`Expand/Promote/Swap/Close <Surface>`) are boxed
   and visible at rest since 260812-wfic (R4) — tests still `.hover()` the tile
   before clicking to exercise the hover affordance.
 - **Focus clicks**: the focused-tile seam is pointerdown-capture anywhere in
@@ -197,17 +197,17 @@ Steps:
 What it proves: the `layout-zoom` default binding is REMOVED (Ctrl+` collides
 with code-server's own toggle-terminal chord), so the chord falls through
 untouched even with xterm focused; the zoom action itself survives via the
-tile's ⛶ verb (the same seam as the palette's `Layout: Zoom`/`Unzoom`) and
+tile's ⛶ verb (the same seam as the palette's `Layout: Expand`/`Restore`) and
 stays TRANSIENT (no URL/localStorage change, R6).
 Steps:
 1. Create a web-capable window; navigate; open the web tile via the top-bar toggle;
    assert the `split-h:tty,web` URL mirror.
 2. Click the terminal (xterm focus), then press `Control+``; after a 500ms
    grace beat assert BOTH tiles and the divider are still visible (no zoom).
-3. Click the tty tile's `Zoom Terminal` verb; assert the web tile hides at
+3. Click the tty tile's `Expand Terminal` verb; assert the web tile hides at
    display level (still mounted — count 1), the divider is gone, the terminal
    stays visible, and the URL is untouched.
-4. Click the now-`Unzoom Terminal` verb; assert the web tile and the divider
+4. Click the now-`Restore Terminal` verb; assert the web tile and the divider
    return.
 
 ### the tty header carries the pane segment at any arity (visible while zoomed); the terminal bar dropped its split chip (260813-w1lf)
@@ -224,14 +224,14 @@ Stays within the ≤2-tile perf budget. Steps:
    terminal.
 2. Assert the tty tile's `pane-segment` testid is visible with the three
    content-verb buttons; assert the Close pane button carries the
-   `close-pane-boxed` glyph and NO `Zoom Terminal` layout verb renders.
+   `close-pane-boxed` glyph and NO `Expand Terminal` layout verb renders.
 3. Assert the top bar (banner) has NO `Split horizontally` button; open the
    `More controls` chevron menu and assert the Split horizontal / Split
    vertical / Close pane rows are visible; Escape-close it.
 4. Open the web tile via the top-bar toggle; assert `?layout=split-h:tty,web`, the
    segment still visible on the tty tile, and NO `pane-segment` on the web
    tile.
-5. Click the tty tile's `Zoom Terminal` verb; assert the segment stays visible
+5. Click the tty tile's `Expand Terminal` verb; assert the segment stays visible
    while `Promote Terminal` is gone and `Close Terminal` stays.
 
 ### 375px mobile: a 3-tile ?layout= URL renders slot A + the top-bar switch group for the rest (R13, A-018)

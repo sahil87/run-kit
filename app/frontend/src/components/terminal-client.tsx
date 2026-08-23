@@ -18,6 +18,7 @@ import { copyToClipboard } from "@/lib/clipboard";
 import { notifyFirstWrite } from "@/lib/window-transition";
 import { relayMux, type RelayStream } from "@/lib/relay-mux";
 import { shouldRefuseTerminalChord } from "@/lib/keybindings";
+import { createGestureArm, createWheelAccumulator } from "@/lib/zoom-gesture";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { evaluateMediaQuery } from "@/hooks/use-media-query";
 import { evaluateIsMobile } from "@/hooks/use-is-mobile";
@@ -182,7 +183,7 @@ export function TerminalClient({
   const [dragOver, setDragOver] = useState(false);
   const { theme: activeTheme } = useTheme();
   const { terminalFontSize, composeStripEnabled } = useChromeState();
-  const { toggleComposeStrip } = useChromeDispatch();
+  const { toggleComposeStrip, increaseTerminalFont, decreaseTerminalFont } = useChromeDispatch();
   const { setFocused } = useFocusedTerminal();
 
   // App-owned chords (260730-g40a): the custom key handler below consults the
@@ -632,6 +633,49 @@ export function TerminalClient({
       container.removeEventListener("focusin", onFocusIn, { capture: true });
     };
   }, [scrollLocked]);
+
+  // Ctrl/Cmd+wheel and touchpad-pinch zoom gestures (260823-cwvv R7): step
+  // the GLOBAL terminal font preference through the ChromeContext steppers
+  // (the same seam the palette actions ride — every mounted terminal reacts;
+  // the font-change effect below owns the xterm refit). Capture phase runs
+  // before xterm's own wheel handling so preventDefault blocks browser page
+  // zoom; ONLY ctrl/meta-modified wheel and Safari gesture* events are
+  // intercepted — an unmodified wheel passes through to xterm untouched, and
+  // the touch-scroll-to-tmux handler below is unaffected (it reads
+  // single-touch moves, not wheel).
+  const fontStepRef = useRef({ increaseTerminalFont, decreaseTerminalFont });
+  fontStepRef.current = { increaseTerminalFont, decreaseTerminalFont };
+  useEffect(() => {
+    const container = terminalRef.current;
+    if (!container) return;
+    const feed = createWheelAccumulator();
+    const arm = createGestureArm();
+    const step = (steps: number) => {
+      const { increaseTerminalFont: up, decreaseTerminalFont: down } = fontStepRef.current;
+      for (let i = 0; i < Math.abs(steps); i++) (steps > 0 ? up : down)();
+    };
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      step(feed(e.deltaY));
+    };
+    // Safari's gesture* events are non-standard — defensive scale read.
+    const onGestureStart = () => arm.reset();
+    const onGestureChange = (e: Event) => {
+      const scale = (e as { scale?: unknown }).scale;
+      if (typeof scale !== "number") return;
+      e.preventDefault();
+      step(arm.change(scale));
+    };
+    container.addEventListener("wheel", onWheel, { passive: false, capture: true });
+    container.addEventListener("gesturestart", onGestureStart);
+    container.addEventListener("gesturechange", onGestureChange);
+    return () => {
+      container.removeEventListener("wheel", onWheel, { capture: true });
+      container.removeEventListener("gesturestart", onGestureStart);
+      container.removeEventListener("gesturechange", onGestureChange);
+    };
+  }, [terminalReady]);
 
   // Mobile touch-to-scroll: translate vertical swipe gestures into SGR mouse
   // wheel escape sequences sent to tmux via WebSocket.

@@ -403,7 +403,7 @@ test.describe("Docked compose strip", () => {
     );
 
     // Zooming the tty tile carries the strip with it (the dock rides the tile).
-    await ttyTile.getByRole("button", { name: "Zoom Terminal" }).click();
+    await ttyTile.getByRole("button", { name: "Expand Terminal" }).click();
     await expect(ttyTile.getByTestId("compose-strip")).toBeVisible();
     await expect(page.locator("footer").getByTestId("compose-strip")).toHaveCount(0);
   });

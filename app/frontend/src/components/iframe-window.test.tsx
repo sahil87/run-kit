@@ -769,3 +769,127 @@ describe("IframeWindow", () => {
     });
   });
 });
+
+describe("IframeWindow content zoom (260823-cwvv R2–R5, R8)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  const zoomControl = () => screen.getByTestId("web-zoom-control");
+  const readout = () => screen.getByLabelText("Reset zoom");
+
+  it("renders the zoom control at 100% with no transform on the frame", () => {
+    renderIframe({ windowId: "@2", rkUrl: "/proxy/3000/" });
+    expect(readout().textContent).toBe("100%");
+    const iframe = screen.getByTitle("Proxied content") as HTMLIFrameElement;
+    expect(iframe.style.transform).toBe("");
+    expect(iframe.style.width).toBe("100%");
+  });
+
+  it("the onboarding state renders NO zoom control", () => {
+    renderIframe({ windowId: "@2", rkUrl: "" });
+    expect(screen.queryByTestId("web-zoom-control")).toBeNull();
+  });
+
+  it("+ steps the readout 100 → 110 → 125 and scales the frame", () => {
+    renderIframe({ windowId: "@2", rkUrl: "/proxy/3000/" });
+    fireEvent.click(screen.getByLabelText("Zoom in"));
+    expect(readout().textContent).toBe("110%");
+    fireEvent.click(screen.getByLabelText("Zoom in"));
+    expect(readout().textContent).toBe("125%");
+    const iframe = screen.getByTitle("Proxied content") as HTMLIFrameElement;
+    expect(iframe.style.transform).toBe("scale(1.25)");
+    expect(iframe.style.width).toBe(`${100 / 1.25}%`);
+    expect(iframe.style.height).toBe(`${100 / 1.25}%`);
+  });
+
+  it("− steps down and reset returns to 100%", () => {
+    renderIframe({ windowId: "@2", rkUrl: "/proxy/3000/" });
+    fireEvent.click(screen.getByLabelText("Zoom out"));
+    expect(readout().textContent).toBe("90%");
+    fireEvent.click(readout());
+    expect(readout().textContent).toBe("100%");
+    const iframe = screen.getByTitle("Proxied content") as HTMLIFrameElement;
+    expect(iframe.style.transform).toBe("");
+  });
+
+  it("persists per bucket and re-seeds from storage", () => {
+    const first = renderIframe({ windowId: "@2", rkUrl: "/proxy/3000/" });
+    fireEvent.click(screen.getByLabelText("Zoom in"));
+    fireEvent.click(screen.getByLabelText("Zoom in"));
+    expect(localStorage.getItem("runkit-web-zoom")).toBe('{"proxy:3000":1.25}');
+    first.unmount();
+    renderIframe({ windowId: "@3", rkUrl: "http://localhost:3000/app" });
+    expect(readout().textContent).toBe("125%");
+    // A different bucket (another port) starts at 100%.
+    cleanup();
+    renderIframe({ windowId: "@4", rkUrl: "/proxy/4000/" });
+    expect(readout().textContent).toBe("100%");
+  });
+
+  it("re-seeds when the bucket changes on the same mounted tile", () => {
+    const { rerender } = renderIframe({ windowId: "@2", rkUrl: "/proxy/3000/" });
+    fireEvent.click(screen.getByLabelText("Zoom in"));
+    expect(readout().textContent).toBe("110%");
+    rerender(iframeElement({ windowId: "@2", rkUrl: "/proxy/4000/" }));
+    expect(readout().textContent).toBe("100%");
+    rerender(iframeElement({ windowId: "@2", rkUrl: "/proxy/3000/" }));
+    expect(readout().textContent).toBe("110%");
+  });
+
+  it("reset at 100% writes nothing; returning to 100% removes the entry", () => {
+    renderIframe({ windowId: "@2", rkUrl: "/proxy/3000/" });
+    expect(localStorage.getItem("runkit-web-zoom")).toBeNull();
+    fireEvent.click(screen.getByLabelText("Zoom in"));
+    expect(localStorage.getItem("runkit-web-zoom")).toBe('{"proxy:3000":1.1}');
+    fireEvent.click(readout());
+    expect(localStorage.getItem("runkit-web-zoom")).toBe("{}");
+  });
+
+  it("the web-zoom document event steps and resets the tile", () => {
+    renderIframe({ windowId: "@2", rkUrl: "/proxy/3000/" });
+    fireEvent(document, new CustomEvent("web-zoom", { detail: { direction: "in" } }));
+    expect(readout().textContent).toBe("110%");
+    fireEvent(document, new CustomEvent("web-zoom", { detail: { direction: "out" } }));
+    expect(readout().textContent).toBe("100%");
+    fireEvent(document, new CustomEvent("web-zoom", { detail: { direction: "reset" } }));
+    expect(readout().textContent).toBe("100%");
+  });
+
+  it("the web-zoom event no-ops on an onboarding tile", () => {
+    renderIframe({ windowId: "@2", rkUrl: "" });
+    expect(() =>
+      fireEvent(document, new CustomEvent("web-zoom", { detail: { direction: "in" } })),
+    ).not.toThrow();
+    expect(localStorage.getItem("runkit-web-zoom")).toBeNull();
+  });
+
+  it("ctrl-wheel on the wrapper steps the zoom and is prevented; plain wheel passes through", () => {
+    renderIframe({ windowId: "@2", rkUrl: "/proxy/3000/" });
+    const wrapper = screen.getByTestId("web-zoom-frame-wrapper").parentElement as HTMLElement;
+    const ctrlWheel = new WheelEvent("wheel", { deltaY: -60, ctrlKey: true, bubbles: true, cancelable: true });
+    const preventSpy = vi.spyOn(ctrlWheel, "preventDefault");
+    fireEvent(wrapper, ctrlWheel);
+    expect(preventSpy).toHaveBeenCalled();
+    expect(readout().textContent).toBe("110%");
+    // Unmodified wheel: no step, no preventDefault.
+    const plainWheel = new WheelEvent("wheel", { deltaY: -120, bubbles: true, cancelable: true });
+    const plainSpy = vi.spyOn(plainWheel, "preventDefault");
+    fireEvent(wrapper, plainWheel);
+    expect(plainSpy).not.toHaveBeenCalled();
+    expect(readout().textContent).toBe("110%");
+  });
+
+  it("ctrl-wheel inside the same-origin frame document steps the zoom", () => {
+    renderIframe({ windowId: "@2", rkUrl: "/proxy/3000/" });
+    const iframe = screen.getByTitle("Proxied content") as HTMLIFrameElement;
+    fireEvent.load(iframe);
+    const doc = iframe.contentDocument!;
+    fireEvent(doc, new WheelEvent("wheel", { deltaY: -60, ctrlKey: true, bubbles: true, cancelable: true }));
+    expect(readout().textContent).toBe("110%");
+    // A small tick below the threshold accumulates without stepping.
+    fireEvent(doc, new WheelEvent("wheel", { deltaY: -10, ctrlKey: true, bubbles: true, cancelable: true }));
+    expect(readout().textContent).toBe("110%");
+  });
+});

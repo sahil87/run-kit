@@ -16,7 +16,7 @@
  *                                 not rearrange the layout.
  *  - `Tile: Hide <Surface>`     — per open kind; omitted on a `single` layout
  *                                 (hiding the last tile is disallowed, R7).
- *  - `Layout: Zoom` / `Layout: Unzoom` — the transient focused-slot zoom
+ *  - `Layout: Expand` / `Layout: Restore` — the transient focused-slot zoom
  *                                 toggle (desktop multi-tile only; R6 keeps
  *                                 zoom out of URL/localStorage). Exactly one
  *                                 renders, keyed on the caller's `zoomed` state.
@@ -141,14 +141,16 @@ export function buildLayoutActions(
     }
   }
 
-  // Zoom / Unzoom — the transient focused-slot toggle (R6; 260819-qwr7 R7):
+  // Expand / Restore — the transient focused-slot toggle (R6; 260819-qwr7 R7):
   // no URL/localStorage change. Exactly one form renders, keyed on the live
-  // zoom state.
+  // zoom state. "Zoom" is the CONTENT-magnification verb (260823-cwvv R1) —
+  // tile-maximize's labels say Expand/Restore; the ids stay layout-zoom /
+  // layout-unzoom (they persist in user macros/overrides).
   if (opts.zoomEnabled) {
     actions.push(
       opts.zoomed
-        ? { id: "layout-unzoom", label: "Layout: Unzoom", onSelect: opts.onZoomToggle }
-        : { id: "layout-zoom", label: "Layout: Zoom", onSelect: opts.onZoomToggle },
+        ? { id: "layout-unzoom", label: "Layout: Restore", onSelect: opts.onZoomToggle }
+        : { id: "layout-zoom", label: "Layout: Expand", onSelect: opts.onZoomToggle },
     );
   }
 

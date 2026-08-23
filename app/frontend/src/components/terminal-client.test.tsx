@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, cleanup, act, waitFor } from "@testing-library/react";
+import { render, cleanup, act, waitFor, fireEvent } from "@testing-library/react";
 import { FocusedTerminalProvider } from "@/contexts/focused-terminal-context";
 import { ChromeProvider, useChrome } from "@/contexts/chrome-context";
 import { Terminal } from "@xterm/xterm";
@@ -1461,5 +1461,67 @@ describe("TerminalClient addon scaffold (search/serialize/progress)", () => {
 
     changeCb({ state: 1, value: 42 });
     expect(onProgressChange).toHaveBeenCalledWith(1, 42);
+  });
+});
+
+describe("TerminalClient ctrl-wheel/pinch font zoom (260823-cwvv R7)", () => {
+  function FontProbe() {
+    const { terminalFontSize } = useChrome();
+    return <div data-testid="font-size">{terminalFontSize}</div>;
+  }
+
+  function renderWithProbe() {
+    return render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <FontProbe />
+          <TerminalClient
+            sessionName="test-session"
+            windowId="@0"
+            server="default"
+            wsRef={createWsRef()}
+          />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
+  }
+
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("ctrl-wheel steps the global font size and is prevented; plain wheel passes through", async () => {
+    const { container, getByTestId } = renderWithProbe();
+    await act(async () => {});
+    const terminalDiv = container.querySelector("[role='application']") as HTMLElement;
+    expect(terminalDiv).toBeTruthy();
+    const before = Number(getByTestId("font-size").textContent);
+
+    fireEvent(terminalDiv, new WheelEvent("wheel", { deltaY: -60, ctrlKey: true, bubbles: true, cancelable: true }));
+    expect(Number(getByTestId("font-size").textContent)).toBe(before + 1);
+
+    fireEvent(terminalDiv, new WheelEvent("wheel", { deltaY: 60, ctrlKey: true, bubbles: true, cancelable: true }));
+    expect(Number(getByTestId("font-size").textContent)).toBe(before);
+
+    // Unmodified wheel: no step.
+    fireEvent(terminalDiv, new WheelEvent("wheel", { deltaY: -120, bubbles: true, cancelable: true }));
+    expect(Number(getByTestId("font-size").textContent)).toBe(before);
+  });
+
+  it("a small ctrl-wheel tick below the threshold accumulates without stepping", async () => {
+    const { container, getByTestId } = renderWithProbe();
+    await act(async () => {});
+    const terminalDiv = container.querySelector("[role='application']") as HTMLElement;
+    const before = Number(getByTestId("font-size").textContent);
+    fireEvent(terminalDiv, new WheelEvent("wheel", { deltaY: -20, ctrlKey: true, bubbles: true, cancelable: true }));
+    expect(Number(getByTestId("font-size").textContent)).toBe(before);
+    // Crossing the accumulated threshold steps once.
+    fireEvent(terminalDiv, new WheelEvent("wheel", { deltaY: -40, ctrlKey: true, bubbles: true, cancelable: true }));
+    expect(Number(getByTestId("font-size").textContent)).toBe(before + 1);
   });
 });

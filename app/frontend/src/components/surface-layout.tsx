@@ -227,7 +227,7 @@ interface SurfaceLayoutProps {
   onRatioChange?: (index: number, pct: number) => void;
   onRatioCommit?: () => void;
   /** ⏶ Zoom palette seam (T012/R11): zoom stays INTERNAL transient state (R6),
-   *  but the palette's `Layout: Zoom`/`Unzoom` entries must observe and
+   *  but the palette's `Layout: Expand`/`Restore` entries must observe and
    *  trigger it. The component registers a FOCUSED-slot zoom toggle into this
    *  ref (260819-qwr7 R7 — cleared on unmount) and reports zoom flips via
    *  `onZoomChange` so the palette list rebuilds. */
@@ -805,8 +805,8 @@ export function SurfaceLayout({
   }, [layout.order.length]);
   const zoomed = zoomedIndex !== null;
 
-  // Zoom flip reporting for the palette seam (T012/R11): the `Layout: Zoom`/
-  // `Unzoom` entries rebuild on every flip. The toggle registration itself
+  // Zoom flip reporting for the palette seam (T012/R11): the `Layout: Expand`/
+  // `Layout: Restore` entries rebuild on every flip. The toggle registration itself
   // lives below the focused-slot state (it reads the focused slot).
   useEffect(() => {
     onZoomChange?.(zoomed);
@@ -920,7 +920,7 @@ export function SurfaceLayout({
   }, [focusedKind, reportFocusedKind]);
 
   // Zoom palette/chord seam (T012/R11 + 260819-qwr7 R7): register the toggle
-  // for the parent's `Layout: Zoom`/`Unzoom` palette entries and the ⇧⌘⏎
+  // for the parent's `Layout: Expand`/`Restore` palette entries and the ⇧⌘⏎
   // zen chord (flips report via the `onZoomChange` effect above, so those
   // entries rebuild). The toggle zooms the FOCUSED slot (R7: the chord acts
   // on the tile the user is in) and is a no-op on single layouts (the
@@ -1573,10 +1573,10 @@ export function SurfaceLayout({
             )}
             {showVerbs && (
               <>
-                <Tip label={isZoomed ? `Unzoom ${label}` : `Zoom ${label}`}>
+                <Tip label={isZoomed ? `Restore ${label}` : `Expand ${label}`}>
                   <button
                     type="button"
-                    aria-label={isZoomed ? `Unzoom ${label}` : `Zoom ${label}`}
+                    aria-label={isZoomed ? `Restore ${label}` : `Expand ${label}`}
                     onClick={() => setZoomedIndex(isZoomed ? null : slot)}
                     className={`${VERB_BUTTON_CLASS} hover:text-text-primary${
                       isZoomed ? " text-accent-green" : ""

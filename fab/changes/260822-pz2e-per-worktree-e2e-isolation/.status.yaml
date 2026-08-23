@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: failed
+    review-pr: done
 plan:
     generated: true
     task_count: 11
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-08-22T21:08:26Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-22T21:12:44Z"}
     hydrate: {started_at: "2026-08-22T21:12:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-22T21:19:43Z"}
     ship: {started_at: "2026-08-22T21:19:43Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-22T21:22:08Z"}
-    review-pr: {started_at: "2026-08-22T21:22:08Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-08-23T01:37:41Z", driver: git-pr-review, iterations: 2, completed_at: "2026-08-23T01:41:50Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/716
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: 'Per-worktree e2e isolation: scripts/e2e-env.sh derives a hyphen-free worktree token → deterministic port triple (3400–3699) + rk-test-e2e-<token>- socket family (primary …-0; allowlist, teardown glob, and spec secondaries all family-anchored); self-scoped stale-kill, per-run temp XDG_STATE_HOME, flock slot throttle (RK_E2E_SLOTS); just dev/pw/test-e2e share the derived rig; fail-closed 3333 fallback kept'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-22T21:26:16Z
+last_updated: 2026-08-23T01:41:50Z

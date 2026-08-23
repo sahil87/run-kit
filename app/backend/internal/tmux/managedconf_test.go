@@ -11,13 +11,21 @@ import (
 )
 
 // withTempDefaultConfig points DefaultConfigPath at a temp dir for the test's
-// duration, returning the config path.
+// duration, returning the config path. It also stubs HOME (EnsureConfig runs
+// migrateLegacyConfPaths, which resolves ~/.rk from os.UserHomeDir at call
+// time — without the stub a test mutates the developer's real ~/.rk) and pins
+// the managed-path gate (init-time resolution of a real tmux_conf/RK_TMUX_CONF
+// would otherwise turn EnsureConfig into a silent no-op).
 func withTempDefaultConfig(t *testing.T) string {
 	t.Helper()
+	t.Setenv("HOME", t.TempDir())
 	orig := DefaultConfigPath
 	dest := filepath.Join(t.TempDir(), ".config", "run-kit", "tmux.conf")
 	DefaultConfigPath = dest
 	t.Cleanup(func() { DefaultConfigPath = orig })
+	origManaged := managedConfigPath
+	managedConfigPath = true
+	t.Cleanup(func() { managedConfigPath = origManaged })
 	return dest
 }
 
@@ -186,6 +194,31 @@ func TestEnsureConfigThreeState(t *testing.T) {
 			t.Error("hand-edited file must never be clobbered")
 		}
 	})
+}
+
+// TestEnsureConfigUserOwnedPathIsNoop pins the "you own everything" gate: when
+// the resolved config path is user-owned (tmux_conf or RK_TMUX_CONF redirected
+// it), EnsureConfig writes nothing — no conf, no tmux.d/, no user.conf
+// scaffold, no refresh report. The gate rides the managedConfigPath package
+// var (fixed at init from the resolved path), flipped here the same way the
+// sweep seams are substituted.
+func TestEnsureConfigUserOwnedPathIsNoop(t *testing.T) {
+	dest := withTempDefaultConfig(t)
+	managedConfigPath = false
+
+	refreshed, err := EnsureConfig()
+	if err != nil {
+		t.Fatalf("EnsureConfig() error: %v", err)
+	}
+	if refreshed {
+		t.Error("user-owned path must never report refreshed")
+	}
+	if _, err := os.Stat(dest); !os.IsNotExist(err) {
+		t.Errorf("user-owned path: tmux.conf must not be written, stat err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(dest), "tmux.d")); !os.IsNotExist(err) {
+		t.Errorf("user-owned path: tmux.d/ must not be scaffolded, stat err = %v", err)
+	}
 }
 
 // TestEnsureConfigScaffoldsUserConf pins the override scaffold: user.conf is

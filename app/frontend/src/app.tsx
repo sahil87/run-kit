@@ -106,6 +106,10 @@ import {
   isMaskExemptKey,
   isRedundantSwitch,
   isSamePendingTarget,
+  postConfirmsSwitch,
+  resolvePendingSwitchPost,
+  resolvePendingSwitchVerdict,
+  type SwitchPostOutcome,
   type PendingSwitchTarget,
 } from "@/lib/window-transition";
 import { ThemeProvider, useTheme, useThemeActions } from "@/contexts/theme-context";
@@ -146,7 +150,7 @@ import { Dialog } from "@/components/dialog";
 import { SessionTiles } from "@/components/session-tiles/session-tiles";
 import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
-import type { ServerInfo } from "@/api/client";
+import type { ServerInfo, SelectWindowResult } from "@/api/client";
 
 import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowRole, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, sendChatMessage, sendOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, type SortWindowsBy } from "@/api/client";
 import { buildSessionSortActions } from "@/lib/palette-sort";
@@ -1453,13 +1457,32 @@ function AppShell() {
   windowParamRef.current = windowParam;
   const serverRef = useRef(server);
   serverRef.current = server;
+  // Live isConnected + receipt-tick reads for the freshness-gated bounce
+  // verdict (260823-ke9i): the timer callback must not capture a stale
+  // render-scope connection flag, and the tick read stays imperative
+  // (ref-backed) so it never subscribes to re-renders.
+  const isConnectedRef = useRef(isConnected);
+  isConnectedRef.current = isConnected;
+  const getServerReceiptTickRef = useRef(ctx.getServerReceiptTick);
+  getServerReceiptTickRef.current = ctx.getServerReceiptTick;
 
   // Pending-switch tracking (260715-38kg): the confirmation timer + the grace
   // mask's cancel fn, so both tear down together when the switch confirms,
   // supersedes, or fails. A single `setTimeout` per pending switch (NOT a poll).
+  // 260823-ke9i adds the freshness evidence for the verdict: `tickAtClick`
+  // (the server receipt tick at switch start — a snapshot/event arriving later
+  // is post-click evidence) and `postContradiction` (the POST 200 reported a
+  // different active window — fresh post-click evidence even with a dead
+  // socket).
   const pendingSwitchRef = useRef<{
     timer: ReturnType<typeof setTimeout>;
     cancelMask: (() => void) | null;
+    tickAtClick: number;
+    postContradiction: boolean;
+    // Set by the confirmation-on-200 path (260823-ke9i): the POST proved tmux
+    // switched, so the failure detector is disarmed. A straggler timer fire
+    // (a timer created before the POST resolved) is a silent no-op.
+    bounceDisarmed: boolean;
   } | null>(null);
 
   // Clear the confirmation timer + grace-mask cancel for the current pending
@@ -1507,6 +1530,31 @@ function AppShell() {
       // callback can never navigate the user back off their chosen route or
       // toast about a switch they abandoned.
       if (windowParamRef.current !== target.windowId) return;
+      // Freshness-gate the verdict (260823-ke9i): a failure is only rendered
+      // from evidence that POST-DATES the click. A frozen pre-click snapshot
+      // (post-sleep half-open socket) or a disconnected socket re-arms the
+      // timer instead — extend-until-evidence, no toast, no navigation. The
+      // re-armed timer replaces the tracked entry's (clearPendingSwitchTracking
+      // reads the current entry, so every existing clear path cancels it).
+      const tracked = pendingSwitchRef.current;
+      if (tracked) {
+        // A POST-200 already confirmed this switch — the failure detector is
+        // disarmed; a straggler fire is a silent no-op (the intent still
+        // clears via SSE).
+        if (tracked.bounceDisarmed) return;
+        const verdict = resolvePendingSwitchVerdict({
+          isConnected: isConnectedRef.current,
+          tickAtClick: tracked.tickAtClick,
+          currentTick: getServerReceiptTickRef.current(target.server),
+          postContradiction: tracked.postContradiction,
+          activeWindowId: activeWindowRef.current?.windowId,
+          targetWindowId: target.windowId,
+        });
+        if (verdict === "rearm") {
+          tracked.timer = setTimeout(() => bouncePendingSwitch(target), CONFIRMATION_WINDOW_MS);
+          return;
+        }
+      }
       const active = activeWindowRef.current;
       // SSE already reports the target ACTIVE — the switch DID confirm, but the
       // writeback (the normal event-driven clearer) can be suppressed for the
@@ -1580,17 +1628,65 @@ function AppShell() {
       // The timer closure carries the full `{server, windowId}` identity so the
       // bounce can verify BOTH fields against the live route (H1).
       const timer = setTimeout(() => bouncePendingSwitch(target), CONFIRMATION_WINDOW_MS);
-      const tracked = { timer, cancelMask: grace ? grace.cancel : null };
+      const tracked = {
+        timer,
+        cancelMask: grace ? grace.cancel : null,
+        // Freshness evidence for the bounce verdict (260823-ke9i): the receipt
+        // tick at click time (a later tick is post-click evidence) and the
+        // POST-contradiction flag (set by the .then chain below).
+        tickAtClick: getServerReceiptTickRef.current(target.server),
+        postContradiction: false,
+        bounceDisarmed: false,
+      };
       pendingSwitchRef.current = tracked;
-      // Explicit rejection bounces immediately (don't wait out the window) —
-      // but ONLY while THIS tracking entry is still current (rework SF8): a
-      // re-click of the same row supersedes this entry, and the superseded
-      // POST's late rejection must not bounce the healthy successor switch.
-      // Identity is the tracked object itself (the gate's still-points-at-
-      // itself pattern) — a windowId key alone cannot tell the two apart.
-      opts.posted?.catch(() => {
-        if (pendingSwitchRef.current === tracked) bouncePendingSwitch(target);
-      });
+      // POST settlement handling (260823-ke9i) — decision logic in
+      // `resolvePendingSwitchPost`; the identity guards are load-bearing: the
+      // tracked entry must still be current (a superseded switch's late
+      // settlement is a no-op) and the intent must still record this target.
+      //
+      // - "confirm": the 200 is synchronous proof tmux executed the select —
+      //   cancel THIS switch's bounce timer so a dead state socket can never
+      //   false-bounce it. It cancels ONLY the timer: pendingClickRef stays set
+      //   until SSE confirms (the intent is the writeback suppression), and the
+      //   gate/mask machinery is untouched (paint feedback stays byte-driven).
+      // - "contradiction": fresh post-click evidence — a mismatched
+      //   `activeWindow` (an external switch won) or an explicit rejection. The
+      //   rejection counts as fresh evidence (it post-dates the click) so the
+      //   freshness-gated verdict bounces immediately rather than re-arming
+      //   into the failure limbo (SF8). The timer's own expiry handles the
+      //   mismatched-200 case.
+      const handlePostSettlement = (outcome: SwitchPostOutcome) => {
+        const effect = resolvePendingSwitchPost({
+          outcome,
+          targetWindowId: target.windowId,
+          isCurrent: pendingSwitchRef.current === tracked,
+          intentMatches: isSamePendingTarget(pendingClickRef.current, target.server, target.windowId),
+        });
+        if (effect === "confirm") {
+          clearTimeout(tracked.timer);
+          tracked.bounceDisarmed = true;
+        } else if (effect === "contradiction") {
+          tracked.postContradiction = true;
+          if (outcome.kind === "rejected") bouncePendingSwitch(target);
+        }
+      };
+      opts.posted?.then(
+        (resp) => {
+          const isResult = (
+            r: unknown,
+          ): r is SelectWindowResult =>
+            typeof r === "object" &&
+            r !== null &&
+            "ok" in r &&
+            typeof r.ok === "boolean";
+          handlePostSettlement(
+            isResult(resp)
+              ? { kind: "resolved", resp }
+              : { kind: "resolved", resp: { ok: false } },
+          );
+        },
+        () => handlePostSettlement({ kind: "rejected" }),
+      );
     },
     [clearPendingSwitchTracking, bouncePendingSwitch],
   );

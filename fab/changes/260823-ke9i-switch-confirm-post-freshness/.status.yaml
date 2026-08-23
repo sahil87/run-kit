@@ -1,0 +1,55 @@
+id: ke9i
+name: 260823-ke9i-switch-confirm-post-freshness
+created: 2026-08-23T15:37:09Z
+created_by: Sahil Ahuja
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 8
+    acceptance_count: 16
+    acceptance_completed: 16
+confidence:
+    certain: 4
+    confident: 4
+    tentative: 1
+    unresolved: 0
+    score: 3.9
+    fuzzy: true
+    dimensions:
+        signal: 73.9
+        reversibility: 80.6
+        competence: 77.2
+        disambiguation: 72.2
+stage_metrics:
+    intake: {started_at: "2026-08-23T15:37:09Z", driver: fab-new, iterations: 1, completed_at: "2026-08-23T15:47:29Z"}
+    apply: {started_at: "2026-08-23T16:04:24Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-23T16:07:32Z"}
+    review: {started_at: "2026-08-23T16:07:32Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-23T16:23:02Z"}
+    hydrate: {started_at: "2026-08-23T16:23:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T16:27:54Z"}
+    ship: {started_at: "2026-08-23T16:27:54Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-23T16:27:54Z"
+    computed_at_stage: hydrate
+summary: selectWindow POST 200 disarms the window-switch failure bounce (intent still SSE-cleared); bounce verdict freshness-gated on a per-server receipt tick (extend-until-evidence, holds while disconnected); select API returns {ok, activeWindow} via a post-select ActiveWindowID read with fallback
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-23T16:27:54Z

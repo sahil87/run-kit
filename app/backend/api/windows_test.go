@@ -526,6 +526,68 @@ func TestWindowSelectResolvesSession(t *testing.T) {
 	}
 }
 
+// A successful select returns the post-select active window id, read from tmux
+// after the select executed (session-scoped exact-match read).
+func TestWindowSelectReturnsActiveWindow(t *testing.T) {
+	ops := &mockTmuxOps{
+		resolveWindowSessionResult: "real-session",
+		activeWindowIDResult:       "@2",
+	}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/@2/select", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var body struct {
+		OK           bool   `json:"ok"`
+		ActiveWindow string `json:"activeWindow"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if !body.OK {
+		t.Error("body.ok = false, want true")
+	}
+	if body.ActiveWindow != "@2" {
+		t.Errorf("body.activeWindow = %q, want %q", body.ActiveWindow, "@2")
+	}
+	if ops.activeWindowIDSession != "real-session" {
+		t.Errorf("ActiveWindowID session = %q, want %q", ops.activeWindowIDSession, "real-session")
+	}
+}
+
+// A failed post-select active-window read falls back to the requested window
+// id — the select itself succeeded, so the read must never fail the request.
+func TestWindowSelectActiveWindowReadFailureFallsBack(t *testing.T) {
+	ops := &mockTmuxOps{
+		resolveWindowSessionResult: "real-session",
+		activeWindowIDErr:          fmt.Errorf("display-message failed"),
+	}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/windows/@2/select", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (read failure must not fail the request); body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var body struct {
+		OK           bool   `json:"ok"`
+		ActiveWindow string `json:"activeWindow"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.ActiveWindow != "@2" {
+		t.Errorf("body.activeWindow = %q, want fallback %q", body.ActiveWindow, "@2")
+	}
+}
+
 // A resolve failure (stale @N) surfaces a non-2xx error and issues no select.
 func TestWindowSelectResolveFailure(t *testing.T) {
 	ops := &mockTmuxOps{resolveWindowSessionErr: fmt.Errorf("window @99 not found")}

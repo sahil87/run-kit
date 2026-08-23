@@ -1044,6 +1044,25 @@ func ListWindows(ctx context.Context, session string, server string) ([]WindowIn
 	return windows, nil
 }
 
+// ActiveWindowID returns the id (@N) of the active window in the given session
+// on the specified server. The target uses the exact-match session form
+// (`=<session>:`): a bare session target is a window-target collision hazard —
+// session names and window names share the folder-basename auto-naming pool, so
+// an ambiguous `session:` token can resolve to a window instead of the session.
+func ActiveWindowID(ctx context.Context, server, session string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	lines, err := tmuxExecServer(ctx, server, "display-message", "-p", "-t", ExactSessionTarget(session), "#{window_id}")
+	if err != nil {
+		return "", err
+	}
+	if len(lines) == 0 {
+		return "", fmt.Errorf("no active window reported for session %q", session)
+	}
+	return lines[0], nil
+}
+
 // baseGroupName returns the user-facing base session name for a session group,
 // given the session's own name and its `#{session_group_list}` value (a
 // comma-separated list of MEMBER NAMES). The base is the member that is not the

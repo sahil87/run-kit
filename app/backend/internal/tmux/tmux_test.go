@@ -3283,3 +3283,50 @@ func TestOperatorPromoteDemoteLive(t *testing.T) {
 		t.Errorf("operator session windows = %v, want both the promoted %q and foreign %q", got, promoteWin, foreignWin)
 	}
 }
+
+// TestActiveWindowID_reportsSelectedWindow verifies the post-select read the
+// window-select handler composes its response from: after a session-scoped
+// select, ActiveWindowID reports the newly active window of that session.
+func TestActiveWindowID_reportsSelectedWindow(t *testing.T) {
+	server := withSessionOrderTmux(t)
+
+	// Second window in the boot session — boot starts with exactly one.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if out, err := cleanTmuxCmd(ctx, "-L", server, "new-window", "-t", ExactSessionTarget("boot")).CombinedOutput(); err != nil {
+		t.Fatalf("new-window: %v\n%s", err, string(out))
+	}
+	lines, err := tmuxExecServer(ctx, server, "list-windows", "-t", ExactSessionTarget("boot"), "-F", "#{window_id}")
+	if err != nil {
+		t.Fatalf("list-windows: %v", err)
+	}
+	if len(lines) != 2 {
+		t.Fatalf("boot windows = %v, want 2", lines)
+	}
+	first, second := lines[0], lines[1]
+
+	if err := SelectWindowInSession("boot", first, server); err != nil {
+		t.Fatalf("select %q: %v", first, err)
+	}
+	if got, err := ActiveWindowID(ctx, server, "boot"); err != nil || got != first {
+		t.Errorf("ActiveWindowID = %q, %v; want %q", got, err, first)
+	}
+
+	if err := SelectWindowInSession("boot", second, server); err != nil {
+		t.Fatalf("select %q: %v", second, err)
+	}
+	if got, err := ActiveWindowID(ctx, server, "boot"); err != nil || got != second {
+		t.Errorf("ActiveWindowID = %q, %v; want %q", got, err, second)
+	}
+}
+
+// TestActiveWindowID_missingSessionErrors pins the failure shape the handler's
+// fallback keys on: a read against a nonexistent session MUST error.
+func TestActiveWindowID_missingSessionErrors(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := ActiveWindowID(ctx, server, "no-such-session"); err == nil {
+		t.Error("ActiveWindowID on a missing session must return an error")
+	}
+}

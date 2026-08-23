@@ -63,6 +63,10 @@ type TmuxOps interface {
 	SelectWindowInSession(session, windowID, server string) error
 	ListWindows(ctx context.Context, session, server string) ([]tmux.WindowInfo, error)
 	ResolveWindowSession(ctx context.Context, server, windowID string) (string, error)
+	// ActiveWindowID reads the session's post-select active window id (@N);
+	// handleWindowSelect composes its response body from it, falling back to
+	// the requested id when the read fails.
+	ActiveWindowID(ctx context.Context, server, session string) (string, error)
 	HasSession(ctx context.Context, server, session string) bool
 	SplitWindow(windowID string, horizontal bool, cwd string, server string) (string, error)
 	SelectPane(paneID, server string) error
@@ -341,6 +345,9 @@ func (p *prodTmuxOps) ListWindows(ctx context.Context, session, server string) (
 }
 func (p *prodTmuxOps) ResolveWindowSession(ctx context.Context, server, windowID string) (string, error) {
 	return tmux.ResolveWindowSession(ctx, server, windowID)
+}
+func (p *prodTmuxOps) ActiveWindowID(ctx context.Context, server, session string) (string, error) {
+	return tmux.ActiveWindowID(ctx, server, session)
 }
 func (p *prodTmuxOps) HasSession(ctx context.Context, server, session string) bool {
 	return tmux.HasSession(ctx, server, session)

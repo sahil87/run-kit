@@ -61,6 +61,23 @@ rk mux await %5 --notify                 # Web Push yourself/the human on wake
 
 `--after-active` requires observing `active` before an `--until` state counts — use it when awaiting a pane you just sent to OUTSIDE `rk mux send --await`, so the peer's pre-send `idle` doesn't end your wait instantly.
 
+### Any-of fleet wait (`--any`)
+
+```sh
+rk mux await --any %1 %5 %9 --until waiting,idle --timeout 600
+rk mux await --any %1 @3 =work:editor --until idle   # full target grammar per pane
+rk mux await --any %1 %5 --file /tmp/result.json     # OR-composed, unchanged
+```
+
+With `--any` the observer watches one-or-more panes on the one resolved server and wakes on the FIRST to fire — block until any of several agents needs attention instead of polling each in turn. All flags compose unchanged. stdout stays ONE line with the report word first: `waiting %5`/`idle %2`/`active %9` (exit 0), bare `file` or `running` (exit 0), `gone %5` (exit 1). Two targets resolving to the same pane are a usage error (exit 2). Without `--any` exactly one target is required and the report stays the bare single word.
+
+**Fleet-wake protocol** — what `--any` guarantees and what the caller (e.g. a monitoring agent) must do:
+1. **Arm only against not-currently-waiting panes** (caller). rk does NOT filter already-waiting targets — an already-fired `--until` state returns immediately by design, so excluding them is the caller's job; a level-triggered re-arm against a still-waiting pane would busy-loop.
+2. **The arm-gap is closed** (rk guarantee). The first sweep runs before any sleep, so a state that changed between your last read and the arm fires immediately.
+3. **Re-arm after resume/`/clear`** (caller). Awaits are foreground children of the caller; a resumed session loses them and must re-arm.
+4. **Kill + re-arm on target-set changes** (caller). The `gone %N` wake plus duplicate-target rejection make stale sets self-announcing.
+5. **Debounce re-arms against waiting↔active flap** (caller). One invocation wakes once; wait a minimum interval before re-arming.
+
 ## Ask-and-wait in one call
 
 ```sh
@@ -128,5 +145,6 @@ The whole-server enumeration query — no target argument; it is the one mux mem
 - `--key` sends key names raw (no paste, no probe — keys have no echo to verify).
 - `send --await` on an UNINSTRUMENTED pane (no `@rk_agent_state`): the message still delivers and `delivered %N` prints; the wait then applies its own rule — if the pane still has no state, the command errors "nothing observable to wait on" (exit 1). The delivery is never rolled back or hidden by a failed wait.
 - `await --notify` fires on EVERY report — including `running` (timeout) and `gone` (pane died), not just a reached state. That is deliberate: you asked to be woken when the wait ends, however it ends.
+- `await --any`: `gone %N` names the dead pane and exits 1 (armed panes get immediate death detection; re-arm minus the dead pane); a fired signal in the same sweep beats a death; an uninstrumented member fails the whole arm on the first sweep, exit 1; all targets share one `-L` server, and two targets resolving to the same pane are exit 2.
 - The verbs talk to tmux directly from your context — no daemon dependency, so they work while `rk serve` is down.
 - Waits are bounded by `--timeout` (default 300s, 0 = indefinite), never by an internal command budget — individual tmux reads carry their own short timeouts, the loop itself does not.

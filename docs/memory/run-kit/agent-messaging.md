@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The `rk mux` family — eleven tmux-substrate verbs, no daemon dependency. Pane-scoped members (`send`/`await` messaging + `capture`/`kill`/`process` substrate twins) share the strict %N/@N/=session:window grammar and with `panes` consume the inherited `-L` flag. Operator members `new`/`reap`/`snapshot`/`init-conf`/`guard` reject `-L` (`guard` excepted): `new` creates a detached server (`--ephemeral` marks it `@rk_ephemeral`); `reap` also sweeps `@rk_ephemeral`-marked servers (`--ephemeral`)."
+description: "The `rk mux` family — 11 tmux-substrate verbs, no daemon dependency. Pane-scoped members (`send`/`await` messaging + `capture`/`kill`/`process` substrate twins) share the strict %N/@N/=session:window grammar and with `panes` consume inherited `-L`; `await --any` wakes on the first of N panes. Operator members `new`/`reap`/`snapshot`/`init-conf`/`guard` reject `-L` (`guard` excepted): `new` spawns a detached server (`--ephemeral` marks `@rk_ephemeral`); `reap` sweeps those under `--ephemeral`."
 ---
 # Agent-to-Agent Messaging (`rk mux`)
 
@@ -14,7 +14,8 @@ dependency** (the `rk present` pattern), so they work while `rk serve` is down.
 The family has eleven members. The messaging pair is the conversation loop's
 halves: `rk mux send` delivers a message into another agent's pane — the
 agent→agent counterpart of `rk present`'s agent→user attach — and `rk mux await`
-blocks until a peer's state (or a file signal) fires. The substrate twins are
+blocks until a peer's state (or a file signal) fires — under `--any`, until the
+FIRST of several panes fires. The substrate twins are
 the generic pane-mechanics verbs: `rk mux capture` (scrollback capture with
 substrate-only enrichment), `rk mux kill` (agent-state-gated pane removal), and
 `rk mux process` (the pane's process tree with agent classification). `rk mux
@@ -150,30 +151,59 @@ failure, missing target, tmux failure), **2** usage — never fab's pane-family
 is operational (1), a bad target or flag combination is usage (2).
 
 ### Requirement: `rk mux await` observer
-`rk mux await <target> [--until <state>[,<state>]] [--file <path>]
+`rk mux await [--any] <target>... [--until <state>[,<state>]] [--file <path>]
 [--after-active] [--timeout <secs>] [--notify[=msg]]` SHALL block until any
-waitable signal fires, then print a one-word report and exit:
+waitable signal fires, then print a one-line report and exit. Without `--any`
+exactly one target is required; with `--any` one-or-more targets are accepted —
+each uses the strict grammar and is resolved to a pane ID up front via
+`resolvePaneTarget`, before the wait begins, all on the one resolved `-L`
+server — and two targets resolving to the same pane ID are a usage error (exit
+2). The observer wakes on the FIRST signal:
 
 - a state in the `--until` set (default `idle`) was reached → report that state,
-  exit 0 (`waiting` in the set reports `waiting` — the conversational wake)
-- the `--file` path appeared (OR-composed) → `file`, exit 0
+  exit 0 (`waiting` in the set reports `waiting` — the conversational wake);
+  under `--any` the firing pane is appended (`waiting %5`)
+- the `--file` path appeared (OR-composed) → `file`, exit 0 (bare — no pane)
 - `--timeout` (default 300s; 0 = indefinite) expired → `running`, exit 0 — the
-  timeout bounds the OBSERVER, never the pane
+  timeout bounds the OBSERVER, never the pane (bare — no pane)
 - the pane died mid-wait → `gone` on stdout, **exit 1** (toolkit
-  operational-failure convention)
+  operational-failure convention); under `--any` the FIRST dead target is named
+  (`gone %N`) and wakes the whole wait — armed panes get immediate death
+  detection
 
-Contract details: the first check runs before any sleep (an already-fired
-signal returns immediately); the file signal is checked before the state read so
-a fired signal wins over a mid-tick pane death; the internal poll tick is ~2s
-(not configurable); an uninstrumented pane (no `@rk_agent_state`) with no
-`--file` errors immediately — nothing observable to wait on; `--after-active`
-requires observing `active` at least once before an `--until` state counts (the
-composable fix for the stale-state race when awaiting a pane that was just sent
-to outside `rk mux send --await`); `--notify[=msg]` sends a fail-silent Web Push
-via the existing `rk notify` path when a signal fires (default message
-`agent <target> is <report>`). The observer loop rides the caller's parent
-context with only per-read timeouts (`awaitCmdTimeout` 5s) on individual tmux
-reads, so a wait can outlive any single read by minutes.
+The report word stays the first stdout token in both modes, so first-token
+parsers keep working. Contract details: the first check runs before any sleep
+(an already-fired signal returns immediately); the file signal is checked before
+the state reads so a fired signal wins over a mid-sweep pane death; the internal
+poll tick is ~2s (not configurable); under `--any` each sweep reads the target
+panes in listed order and the first `--until` match wins, while a death is
+recorded but the sweep continues — a state signal found later in the same sweep
+is reported instead of the death; an uninstrumented pane (no `@rk_agent_state`)
+with no `--file` errors immediately — nothing observable to wait on — under
+`--any` failing the whole arm on the first sweep, naming the offending pane;
+`--after-active` requires observing `active` at least once before an `--until`
+state counts (the composable fix for the stale-state race when awaiting a pane
+that was just sent to outside `rk mux send --await`) and is tracked PER PANE
+under `--any` — one pane's activity never unlocks another's; `--notify[=msg]`
+sends a fail-silent Web Push via the existing `rk notify` path when a signal
+fires (default message `agent <target> is <report>`; under `--any`,
+`agent %N is <state>` when a pane fired — including `agent %N is gone` — and
+`await --any is <report>` for `file`/`running`). The observer loop rides the
+caller's parent context with only per-read timeouts (`awaitCmdTimeout` 5s) on
+individual tmux reads, so a wait can outlive any single read by minutes.
+
+The fleet-wake protocol monitoring agents build on (rk guarantee vs caller
+obligation): (a) the CALLER arms only against not-currently-waiting panes — rk
+does not filter already-waiting targets; an already-fired `--until` state
+returns immediately by design, so a level-triggered re-arm against a
+still-waiting pane would busy-loop; (b) the first-sweep-before-sleep property
+closes the arm gap — a state that changed between the caller's last read and
+the arm fires immediately (rk guarantee); (c) the CALLER re-arms after
+resume/`/clear` — awaits are foreground children of the caller; (d) the CALLER
+kills and re-arms when the target set changes — the `gone %N` wake plus
+duplicate-target rejection make stale sets self-announcing; (e) the CALLER
+debounces re-arms against waiting↔active flap — one invocation wakes once, so
+inter-wake spacing is the re-armer's property.
 
 #### Scenario: Already-fired signal returns immediately
 - **GIVEN** an already-idle instrumented pane
@@ -181,6 +211,15 @@ reads, so a wait can outlive any single read by minutes.
 - **THEN** `idle` prints with no sleep; **AND GIVEN** `--after-active` on that
   same pane, **THEN** the observer keeps waiting until an active→idle
   round-trip is seen.
+
+#### Scenario: Any-of wake names the firing pane
+- **GIVEN** `rk mux await --any %1 %5 --until waiting,idle` with `%1` active
+  and `%5` already idle
+- **WHEN** the first sweep runs
+- **THEN** `idle %5` prints with no sleep, exit 0; **AND GIVEN** `%1` dies
+  mid-wait with no signal firing that sweep, **THEN** `gone %1`, exit 1;
+  **AND GIVEN** two targets resolving to the same pane ID, **THEN** usage
+  error, exit 2.
 
 ### Requirement: Composed ask-and-wait (`rk mux send --await`)
 `--await[=<states>]` (default `idle,waiting`) SHALL, after a successful submit,
@@ -568,3 +607,37 @@ safe.
 mode the verb eliminates); retry loops (a failing `set-option` on a server
 that just booted signals something structurally wrong).
 *Introduced by*: 260821-hbmh-ephemeral-creation-adoption
+
+### Fleet-wake MUSTs split between rk guarantee and caller protocol
+**Decision**: rk implements no exclusion filtering, no re-arm logic, and no
+debounce for `--any` fleet waits; it guarantees the first sweep runs before any
+sleep and documents the five-point fleet-wake protocol in the skill page.
+**Why**: re-arming after resume and re-arming on target-set change are
+inherently caller-side (awaits are foreground children of the caller); rk-side
+at-arm baselining would reopen the exact edge-trigger gap the
+first-sweep-before-sleep guarantee exists to close; a single invocation wakes
+once, so inter-wake spacing is inherently the re-armer's property.
+**Rejected**: at-arm state baselining (loses wakes that fired between the
+caller's last read and the arm); a `--settle`/`--debounce` flag (suppresses
+legitimate wakes).
+*Introduced by*: 260823-tqkt-mux-await-any-multi-target
+
+### Report word stays the first stdout token; firing pane appended
+**Decision**: `--any` reports `<state> %N` / `gone %N`, with `file`/`running`
+bare; single-target output is unchanged.
+**Why**: callers need pane identity; keeping the report word first preserves
+the family's one-word-parse habit (the first token discriminates the outcome in
+both modes).
+**Rejected**: `%N <state>` ordering (breaks first-token parsing); JSON output
+(heavier than the family's one-line report contract).
+*Introduced by*: 260823-tqkt-mux-await-any-multi-target
+
+### First dead target wakes the await; no drop-and-continue
+**Decision**: a gone member reports `gone %N` (exit 1) rather than being
+dropped from the watched set.
+**Why**: consistent with single-target `gone`; pane death is wake-worthy for
+the fleet caller (armed panes get immediate death detection), and the caller
+re-arms minus the dead pane per the fleet-wake protocol.
+**Rejected**: drop-and-continue with gone-only-when-empty (silently narrows the
+watched set; the caller's set model drifts from reality).
+*Introduced by*: 260823-tqkt-mux-await-any-multi-target

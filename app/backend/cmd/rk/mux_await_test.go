@@ -8,29 +8,50 @@ import (
 	"rk/internal/tmux"
 )
 
-// awaitScript drives awaitObserve over a scripted fake: states are consumed one
-// per readState call, the clock advances by each sleep, and file/notify are
-// observable.
+// awaitScript drives awaitObserve over a scripted fake: states are consumed
+// one per readState call, the clock advances by each sleep, and file/notify
+// are observable. Multi-target tests set byPane (pane ID → its own script);
+// the top-level fields are the single-target fallback.
 type awaitScript struct {
 	states   []string // consumed in order; exhaustion returns an error
 	goneAt   int      // read index at which the pane dies (-1 = never)
+	byPane   map[string]*awaitPaneScript
 	files    map[string]bool
-	reads    int
+	reads    int // total reads across panes
 	sleeps   int
 	now      time.Time
 	notified []string
 	readErr  error
 }
 
+// awaitPaneScript is one pane's per-read script under --any: states consumed
+// in order, dying at read index goneAt (-1 = never).
+type awaitPaneScript struct {
+	states []string
+	goneAt int
+	reads  int
+}
+
 func (s *awaitScript) deps(t *testing.T) awaitDeps {
 	t.Helper()
 	return awaitDeps{
-		readState: func(_ context.Context, _ string) (string, bool, error) {
+		readState: func(_ context.Context, paneID string) (string, bool, error) {
 			if s.readErr != nil {
 				return "", false, s.readErr
 			}
-			i := s.reads
 			s.reads++
+			if ps, ok := s.byPane[paneID]; ok {
+				i := ps.reads
+				ps.reads++
+				if ps.goneAt >= 0 && i >= ps.goneAt {
+					return "", true, nil
+				}
+				if i >= len(ps.states) {
+					t.Fatalf("readState(%s) called beyond the script", paneID)
+				}
+				return ps.states[i], false, nil
+			}
+			i := s.reads - 1
 			if s.goneAt >= 0 && i >= s.goneAt {
 				return "", true, nil
 			}
@@ -62,9 +83,9 @@ func fastAwaitTick(t *testing.T) {
 func TestAwaitAlreadyIdleReturnsImmediately(t *testing.T) {
 	fastAwaitTick(t)
 	s := &awaitScript{states: []string{tmux.AgentStateIdle}, goneAt: -1}
-	report, err := awaitObserve(context.Background(), s.deps(t), "%5", awaitParams{until: []string{"idle"}})
-	if err != nil || report != "idle" {
-		t.Fatalf("report = %q err = %v, want idle/nil", report, err)
+	report, firedPane, err := awaitObserve(context.Background(), s.deps(t), []string{"%5"}, awaitParams{until: []string{"idle"}})
+	if err != nil || report != "idle" || firedPane != "%5" {
+		t.Fatalf("report = %q firedPane = %q err = %v, want idle/%%5/nil", report, firedPane, err)
 	}
 	if s.sleeps != 0 {
 		t.Errorf("sleeps = %d, want 0 for a pre-fired signal", s.sleeps)
@@ -75,7 +96,7 @@ func TestAwaitAlreadyIdleReturnsImmediately(t *testing.T) {
 func TestAwaitStateReached(t *testing.T) {
 	fastAwaitTick(t)
 	s := &awaitScript{states: []string{"active", "active", "idle"}, goneAt: -1}
-	report, err := awaitObserve(context.Background(), s.deps(t), "%5", awaitParams{until: []string{"idle"}})
+	report, _, err := awaitObserve(context.Background(), s.deps(t), []string{"%5"}, awaitParams{until: []string{"idle"}})
 	if err != nil || report != "idle" {
 		t.Fatalf("report = %q err = %v", report, err)
 	}
@@ -89,7 +110,7 @@ func TestAwaitStateReached(t *testing.T) {
 func TestAwaitUntilSet(t *testing.T) {
 	fastAwaitTick(t)
 	s := &awaitScript{states: []string{"active", "waiting"}, goneAt: -1}
-	report, err := awaitObserve(context.Background(), s.deps(t), "%5", awaitParams{until: []string{"idle", "waiting"}})
+	report, _, err := awaitObserve(context.Background(), s.deps(t), []string{"%5"}, awaitParams{until: []string{"idle", "waiting"}})
 	if err != nil || report != "waiting" {
 		t.Fatalf("report = %q err = %v, want waiting", report, err)
 	}
@@ -113,7 +134,7 @@ func TestAwaitFileSignal(t *testing.T) {
 		}
 		return origStat(path)
 	}
-	report, err := awaitObserve(context.Background(), deps, "%5", awaitParams{until: []string{"idle"}, file: "/tmp/out"})
+	report, _, err := awaitObserve(context.Background(), deps, []string{"%5"}, awaitParams{until: []string{"idle"}, file: "/tmp/out"})
 	if err != nil || report != "file" {
 		t.Fatalf("report = %q err = %v, want file", report, err)
 	}
@@ -127,10 +148,10 @@ func TestAwaitTimeoutReportsRunning(t *testing.T) {
 		states: []string{"active", "active", "active", "active", "active", "active"},
 		goneAt: -1,
 	}
-	report, err := awaitObserve(context.Background(), s.deps(t), "%5",
+	report, firedPane, err := awaitObserve(context.Background(), s.deps(t), []string{"%5"},
 		awaitParams{until: []string{"idle"}, timeout: 3 * time.Second})
-	if err != nil || report != "running" {
-		t.Fatalf("report = %q err = %v, want running/nil", report, err)
+	if err != nil || report != "running" || firedPane != "" {
+		t.Fatalf("report = %q firedPane = %q err = %v, want running/\"\"/nil", report, firedPane, err)
 	}
 }
 
@@ -139,12 +160,12 @@ func TestAwaitTimeoutReportsRunning(t *testing.T) {
 func TestAwaitGone(t *testing.T) {
 	fastAwaitTick(t)
 	s := &awaitScript{states: []string{"active"}, goneAt: 1}
-	report, err := awaitObserve(context.Background(), s.deps(t), "%5", awaitParams{until: []string{"idle"}})
+	report, firedPane, err := awaitObserve(context.Background(), s.deps(t), []string{"%5"}, awaitParams{until: []string{"idle"}})
 	if err == nil || exitCode(err) != 1 {
 		t.Fatalf("err = %v, want exit-1 operational", err)
 	}
-	if report != "gone" {
-		t.Errorf("report = %q, want gone", report)
+	if report != "gone" || firedPane != "%5" {
+		t.Errorf("report = %q firedPane = %q, want gone/%%5", report, firedPane)
 	}
 }
 
@@ -153,7 +174,7 @@ func TestAwaitGone(t *testing.T) {
 func TestAwaitFiredSignalWinsOverDeath(t *testing.T) {
 	fastAwaitTick(t)
 	s := &awaitScript{states: []string{"active"}, goneAt: 1, files: map[string]bool{"/tmp/out": true}}
-	report, err := awaitObserve(context.Background(), s.deps(t), "%5",
+	report, _, err := awaitObserve(context.Background(), s.deps(t), []string{"%5"},
 		awaitParams{until: []string{"idle"}, file: "/tmp/out"})
 	if err != nil || report != "file" {
 		t.Fatalf("report = %q err = %v, want file/nil (fired signal beats pane death)", report, err)
@@ -165,7 +186,7 @@ func TestAwaitFiredSignalWinsOverDeath(t *testing.T) {
 func TestAwaitUninstrumentedNoFileErrors(t *testing.T) {
 	fastAwaitTick(t)
 	s := &awaitScript{states: []string{""}, goneAt: -1}
-	report, err := awaitObserve(context.Background(), s.deps(t), "%5", awaitParams{until: []string{"idle"}})
+	report, _, err := awaitObserve(context.Background(), s.deps(t), []string{"%5"}, awaitParams{until: []string{"idle"}})
 	if err == nil {
 		t.Fatal("err = nil, want the nothing-observable error")
 	}
@@ -182,7 +203,7 @@ func TestAwaitUninstrumentedNoFileErrors(t *testing.T) {
 func TestAwaitAfterActive(t *testing.T) {
 	fastAwaitTick(t)
 	s := &awaitScript{states: []string{"idle", "idle", "active", "idle"}, goneAt: -1}
-	report, err := awaitObserve(context.Background(), s.deps(t), "%5",
+	report, _, err := awaitObserve(context.Background(), s.deps(t), []string{"%5"},
 		awaitParams{until: []string{"idle"}, afterActive: true})
 	if err != nil || report != "idle" {
 		t.Fatalf("report = %q err = %v", report, err)
@@ -197,7 +218,7 @@ func TestAwaitAfterActive(t *testing.T) {
 func TestAwaitReadFailure(t *testing.T) {
 	fastAwaitTick(t)
 	s := &awaitScript{goneAt: -1, readErr: context.DeadlineExceeded}
-	report, err := awaitObserve(context.Background(), s.deps(t), "%5", awaitParams{until: []string{"idle"}})
+	report, _, err := awaitObserve(context.Background(), s.deps(t), []string{"%5"}, awaitParams{until: []string{"idle"}})
 	if err == nil {
 		t.Fatal("err = nil, want the read failure")
 	}
@@ -327,7 +348,7 @@ func TestAwaitObserverDeadlineIsItsOwnTimeout(t *testing.T) {
 	defer cancel()
 
 	start := time.Now()
-	report, err := awaitObserve(ctx, deps, "%5", awaitParams{until: []string{"idle"}, timeout: 150 * time.Millisecond})
+	report, _, err := awaitObserve(ctx, deps, []string{"%5"}, awaitParams{until: []string{"idle"}, timeout: 150 * time.Millisecond})
 	if err != nil || report != "running" {
 		t.Fatalf("report = %q err = %v, want running/nil at the observer's own timeout", report, err)
 	}
@@ -355,11 +376,225 @@ func TestAwaitParentCancelAborts(t *testing.T) {
 	defer cancel()
 
 	start := time.Now()
-	_, err := awaitObserve(ctx, deps, "%5", awaitParams{until: []string{"idle"}, timeout: 30 * time.Second})
+	_, _, err := awaitObserve(ctx, deps, []string{"%5"}, awaitParams{until: []string{"idle"}, timeout: 30 * time.Second})
 	if err == nil {
 		t.Fatal("err = nil, want the ctx cancellation to abort the wait")
 	}
 	if elapsed := time.Since(start); elapsed > 5*time.Second {
 		t.Errorf("abort took %v — the parent cancellation did not reach the loop", elapsed)
+	}
+}
+
+// TestAwaitAnySecondPaneWakes: the any-of sweep wakes on the FIRST member in
+// listed order whose state is in --until — a later pane can fire while earlier
+// panes stay active, and it is named as the firing pane.
+func TestAwaitAnySecondPaneWakes(t *testing.T) {
+	fastAwaitTick(t)
+	s := &awaitScript{byPane: map[string]*awaitPaneScript{
+		"%1": {states: []string{"active", "active"}, goneAt: -1},
+		"%5": {states: []string{"active", "waiting"}, goneAt: -1},
+	}}
+	report, firedPane, err := awaitObserve(context.Background(), s.deps(t), []string{"%1", "%5"},
+		awaitParams{until: []string{"idle", "waiting"}})
+	if err != nil || report != "waiting" || firedPane != "%5" {
+		t.Fatalf("report = %q firedPane = %q err = %v, want waiting/%%5/nil", report, firedPane, err)
+	}
+	if s.sleeps != 1 {
+		t.Errorf("sleeps = %d, want 1 (second sweep fires)", s.sleeps)
+	}
+}
+
+// TestAwaitAnyAlreadyFiredMemberReturnsImmediately: an already-fired member
+// returns on the FIRST sweep with NO sleep — the poll-after-arm guarantee on
+// the multi-target path (backlog [tqkt] MUST (b)).
+func TestAwaitAnyAlreadyFiredMemberReturnsImmediately(t *testing.T) {
+	fastAwaitTick(t)
+	s := &awaitScript{byPane: map[string]*awaitPaneScript{
+		"%1": {states: []string{"active"}, goneAt: -1},
+		"%5": {states: []string{"idle"}, goneAt: -1},
+	}}
+	report, firedPane, err := awaitObserve(context.Background(), s.deps(t), []string{"%1", "%5"},
+		awaitParams{until: []string{"idle"}})
+	if err != nil || report != "idle" || firedPane != "%5" {
+		t.Fatalf("report = %q firedPane = %q err = %v, want idle/%%5/nil", report, firedPane, err)
+	}
+	if s.sleeps != 0 {
+		t.Errorf("sleeps = %d, want 0 for a pre-fired member", s.sleeps)
+	}
+}
+
+// TestAwaitAnyAfterActivePerPane: --after-active is tracked PER pane — %5
+// being idle since arm never fires without ITS OWN active sighting, and %1's
+// active flip does not unlock it.
+func TestAwaitAnyAfterActivePerPane(t *testing.T) {
+	fastAwaitTick(t)
+	s := &awaitScript{byPane: map[string]*awaitPaneScript{
+		"%1": {states: []string{"active", "active", "idle"}, goneAt: -1},
+		"%5": {states: []string{"idle", "idle", "idle"}, goneAt: -1},
+	}}
+	report, firedPane, err := awaitObserve(context.Background(), s.deps(t), []string{"%5", "%1"},
+		awaitParams{until: []string{"idle"}, afterActive: true})
+	if err != nil || report != "idle" || firedPane != "%1" {
+		t.Fatalf("report = %q firedPane = %q err = %v, want idle/%%1/nil (%%5 never went active)", report, firedPane, err)
+	}
+	if s.byPane["%5"].reads != 3 {
+		t.Errorf("%%5 reads = %d, want 3 (its idle readings never counted)", s.byPane["%5"].reads)
+	}
+}
+
+// TestAwaitAnySignalWinsOverSameSweepDeath: a state signal on a later member
+// in the SAME sweep beats an earlier member's death — the sweep continues
+// past the gone pane and reports the fired signal.
+func TestAwaitAnySignalWinsOverSameSweepDeath(t *testing.T) {
+	fastAwaitTick(t)
+	s := &awaitScript{byPane: map[string]*awaitPaneScript{
+		"%1": {states: []string{"active"}, goneAt: 1},
+		"%5": {states: []string{"active", "waiting"}, goneAt: -1},
+	}}
+	report, firedPane, err := awaitObserve(context.Background(), s.deps(t), []string{"%1", "%5"},
+		awaitParams{until: []string{"waiting"}})
+	if err != nil || report != "waiting" || firedPane != "%5" {
+		t.Fatalf("report = %q firedPane = %q err = %v, want waiting/%%5/nil (fired signal beats death)", report, firedPane, err)
+	}
+}
+
+// TestAwaitAnyGoneWakesWhenNothingFired: a member death with no same-sweep
+// signal reports `gone` naming the dead pane, with an operational error
+// (exit 1) — immediate death detection for armed panes.
+func TestAwaitAnyGoneWakesWhenNothingFired(t *testing.T) {
+	fastAwaitTick(t)
+	s := &awaitScript{byPane: map[string]*awaitPaneScript{
+		"%1": {states: []string{"active", "active"}, goneAt: 2},
+		"%5": {states: []string{"active", "active", "active"}, goneAt: -1},
+	}}
+	report, firedPane, err := awaitObserve(context.Background(), s.deps(t), []string{"%1", "%5"},
+		awaitParams{until: []string{"idle"}})
+	if err == nil || exitCode(err) != 1 {
+		t.Fatalf("err = %v, want exit-1 operational", err)
+	}
+	if report != "gone" || firedPane != "%1" {
+		t.Errorf("report = %q firedPane = %q, want gone/%%1", report, firedPane)
+	}
+}
+
+// TestAwaitAnyUninstrumentedMemberFailsArm: an uninstrumented member (no
+// @rk_agent_state) with no --file fails the WHOLE arm on the first sweep,
+// naming the offending pane.
+func TestAwaitAnyUninstrumentedMemberFailsArm(t *testing.T) {
+	fastAwaitTick(t)
+	s := &awaitScript{byPane: map[string]*awaitPaneScript{
+		"%1": {states: []string{"active"}, goneAt: -1},
+		"%9": {states: []string{""}, goneAt: -1},
+	}}
+	report, _, err := awaitObserve(context.Background(), s.deps(t), []string{"%1", "%9"},
+		awaitParams{until: []string{"idle"}})
+	if err == nil {
+		t.Fatal("err = nil, want the nothing-observable error")
+	}
+	if report != "" {
+		t.Errorf("report = %q, want none", report)
+	}
+	if s.sleeps != 0 {
+		t.Errorf("sleeps = %d, want an immediate failure with no polling", s.sleeps)
+	}
+}
+
+// TestAwaitAnyTimeoutReportsRunning: the whole-invocation observer bound
+// reports bare `running` (no pane) on expiry, exit 0.
+func TestAwaitAnyTimeoutReportsRunning(t *testing.T) {
+	fastAwaitTick(t)
+	s := &awaitScript{byPane: map[string]*awaitPaneScript{
+		"%1": {states: []string{"active", "active", "active", "active"}, goneAt: -1},
+		"%5": {states: []string{"active", "active", "active", "active"}, goneAt: -1},
+	}}
+	report, firedPane, err := awaitObserve(context.Background(), s.deps(t), []string{"%1", "%5"},
+		awaitParams{until: []string{"idle"}, timeout: 3 * time.Second})
+	if err != nil || report != "running" || firedPane != "" {
+		t.Fatalf("report = %q firedPane = %q err = %v, want running/\"\"/nil", report, firedPane, err)
+	}
+}
+
+// TestMuxAwaitAnyCmdEndToEnd: `rk mux await --any` through the real cobra path
+// — the multi-target report appends the firing pane (`waiting %5`), and the
+// default --notify message carries it.
+func TestMuxAwaitAnyCmdEndToEnd(t *testing.T) {
+	fastAwaitTick(t)
+	s := &awaitScript{byPane: map[string]*awaitPaneScript{
+		"%1": {states: []string{"active"}, goneAt: -1},
+		"%5": {states: []string{"waiting"}, goneAt: -1},
+	}}
+	f := &muxFake{}
+	installMuxFakes(t, f)
+
+	origDeps := muxAwaitDepsFn
+	muxAwaitDepsFn = func(string) awaitDeps { return s.deps(t) }
+	t.Cleanup(func() { muxAwaitDepsFn = origDeps })
+
+	stdout, _, err := runMuxCmd(t, "await", "--any", "%1", "%5", "--until", "waiting", "--notify")
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if stdout != "waiting %5\n" {
+		t.Errorf("stdout = %q, want the multi-target report with the firing pane", stdout)
+	}
+	if len(s.notified) != 1 || s.notified[0] != "agent %5 is waiting" {
+		t.Errorf("notify = %v, want the default message naming the firing pane", s.notified)
+	}
+}
+
+// TestMuxAwaitAnyWindowAndDuplicateTargets: full grammar per member (a window
+// target resolves up front), and two targets resolving to the same pane are a
+// usage error naming the duplicate.
+func TestMuxAwaitAnyWindowAndDuplicateTargets(t *testing.T) {
+	fastAwaitTick(t)
+	f := &muxFake{}
+	installMuxFakes(t, f)
+
+	s := &awaitScript{byPane: map[string]*awaitPaneScript{
+		"%1": {states: []string{"active"}, goneAt: -1},
+		"%7": {states: []string{"idle"}, goneAt: -1},
+	}}
+	origDeps := muxAwaitDepsFn
+	muxAwaitDepsFn = func(string) awaitDeps { return s.deps(t) }
+	t.Cleanup(func() { muxAwaitDepsFn = origDeps })
+
+	// @3 resolves to %7 via the muxFake window map.
+	stdout, _, err := runMuxCmd(t, "await", "--any", "%1", "@3")
+	if err != nil {
+		t.Fatalf("window target: err = %v", err)
+	}
+	if stdout != "idle %7\n" {
+		t.Errorf("window target: stdout = %q, want the resolved agent pane named", stdout)
+	}
+
+	// %1 and =work:editor both resolve to %7's family — use %1 + a window that
+	// resolves to %1 for a true duplicate.
+	f.windowPanes["@4"] = "%1"
+	stdout, _, err = runMuxCmd(t, "await", "--any", "%1", "@4")
+	if err == nil || exitCode(err) != exitUsage {
+		t.Fatalf("duplicate: err = %v, want usage exit 2", err)
+	}
+	if stdout != "" {
+		t.Errorf("duplicate: stdout = %q, want empty", stdout)
+	}
+}
+
+// TestMuxAwaitAnyUsageErrors: multi-target without --any is a usage error
+// (exactly one target in single-target mode), and a bad grammar member under
+// --any is rejected per member.
+func TestMuxAwaitAnyUsageErrors(t *testing.T) {
+	f := &muxFake{}
+	installMuxFakes(t, f)
+	for _, args := range [][]string{
+		{"await", "%1", "%2"},                 // two targets without --any
+		{"await", "--any", "%1", "bare:name"}, // bad grammar per member
+	} {
+		stdout, _, err := runMuxCmd(t, args...)
+		if err == nil || exitCode(err) != exitUsage {
+			t.Errorf("args %v: err = %v, want usage exit 2", args, err)
+		}
+		if stdout != "" {
+			t.Errorf("args %v: stdout = %q, want empty", args, stdout)
+		}
 	}
 }

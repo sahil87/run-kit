@@ -1091,8 +1091,8 @@ export function TopBar({
                   // 260813-kvk7: the session dropdown (switcher + "+ New Session")
                   // is gone — session switching lives in the sidebar rows and the
                   // palette's `Tab: Switch to …`, creation in the palette's
-                  // `Session: Create` / `Session: Create at Folder` and the
-                  // sidebar server-header `+`. The crumb is now a NON-interactive
+                  // `Session: Create` and the sidebar server-header `+`. The
+                  // crumb is now a NON-interactive
                   // static chip: a session has no route of its own, so it carries
                   // the siblings' box styling with no hover affordance or caret.
                   <span className="hidden sm:flex items-center gap-1.5 min-w-0">

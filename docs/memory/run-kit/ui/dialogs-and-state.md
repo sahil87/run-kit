@@ -1,5 +1,5 @@
 ---
-description: "Component conventions, dialogs (session name prompt, create session, spawn-agent, tabbed settings, shell host add/edit form, width variants), clipboard utility, e2e host-global filesystem state, the Zustand window store, and optimistic UI + mutation feedback."
+description: "Component conventions, dialogs (session name prompt, window-at-folder, spawn-agent, tabbed settings, shell host add/edit form, width variants), clipboard utility, e2e host-global filesystem state, the Zustand window store, and optimistic UI + mutation feedback."
 type: memory
 ---
 # run-kit UI — Dialogs & Client State
@@ -35,19 +35,17 @@ This is the general pattern for **any** host-global filesystem state an e2e touc
 
 ## Session Name Prompt
 
-`app/frontend/src/components/session-name-prompt.tsx` — the save-as-style prompt behind the `Session: Create` palette action and the `create-session` chord (which resolves through the same palette body): a single name input on the shared `Dialog` shell (`size="sm"`), pre-filled with the auto-derived session name and select-all'd so Enter accepts the default and typing replaces it. Live `toSafeSessionName` conversion, `finalizeSafeName` at submit, inline collision hint blocking submit (the Create Session Dialog pattern below), empty-submit no-op; Escape/backdrop close via the shell's focus trap. It is deliberately lighter than `CreateSessionDialog` — no path picker — and submits through the existing `executeCreateSessionInstant` optimistic path in `app.tsx` (its open state folds into `dialogOpenRef`). Behavior contract: [routes-and-shell](/run-kit/ui/routes-and-shell.md) § Prompted Creation. (`260823-qe3n`)
+`app/frontend/src/components/session-name-prompt.tsx` — the save-as-style prompt behind the `Session: Create` palette action and the `create-session` chord (which resolves through the same palette body): a single name input on the shared `Dialog` shell (`size="sm"`), pre-filled with the auto-derived session name and select-all'd so Enter accepts the default and typing replaces it. Live `toSafeSessionName` conversion, `finalizeSafeName` at submit, inline collision hint blocking submit, empty-submit no-op; Escape/backdrop close via the shell's focus trap. It is the one session-creation surface with a name field — path picking is the window-level dialog's job (below) — and submits through the existing `executeCreateSessionInstant` optimistic path in `app.tsx` (its open state folds into `dialogOpenRef`). Behavior contract: [routes-and-shell](/run-kit/ui/routes-and-shell.md) § Prompted Creation. (`260823-qe3n`)
 
-## Create Session Dialog
+## Window At-Folder Dialog
 
-The "Create session" dialog (command palette `Session: Create at Folder` / `Window: Create at Folder` actions) has three sections:
+`app/frontend/src/components/create-session-dialog.tsx` (filename historical) — the window-only dialog behind the palette's `Tab: Create at Folder` action: pick a starting directory, confirm, and an **unnamed** window is created there via `createWindow(server, session, undefined, cwd)` (tmux auto-names it to the folder basename; no optimistic ghost). Props: `session` (required), `sessions` (quick-picks source), `defaultPath?` (pre-fills the path input), `onClose`. Title: "Create tab at folder". Two sections: (`260823-fe74`)
 
-1. **Quick picks ("Recent:")** — Deduplicated project root paths from existing tmux sessions (window 0's `pane_current_path`). Tappable list items with 44px min height for mobile. Selecting fills path + auto-derives session name.
+1. **Quick picks ("Recent:")** — Deduplicated project root paths from existing tmux sessions (window 0's `pane_current_path`), shown in the dropdown while the input is empty. Tappable list items with 44px min height for mobile. Selecting fills the path.
 
 2. **Path input with autocomplete** — Text input that calls `GET /api/directories?prefix=...` with ~300ms debounce. Results appear as a dropdown below the input. Selecting a result fills the path and triggers a new autocomplete for children. Hidden directories (`.`-prefixed) are excluded from results.
 
-3. **Session name** — Auto-derived from the last segment of the selected path (e.g., `~/code/sahil87/run-kit` yields `run_kit`). Editable — auto-derivation is a convenience, not a lock. The typed name field converts **live** as the user types via `toSafeSessionName` (§ Live Safe-Name Conversion) — a typed space appears as `_`. When the name field is left empty at submit time, the name is derived from the path automatically via `deriveNameFromPath()`. The Create button is enabled when either a name or a path is provided.
-
-On submit, the dialog calls `createSession(server, name, cwd)` (the typed name run through `finalizeSafeName` first — trailing `_` trimmed, § Live Safe-Name Conversion) which sends `POST /api/sessions?server={server}` with `{ name, cwd }`. If the name field is empty but a path is set, the name is derived from the path's last segment via `deriveNameFromPath` (the session transform: hyphens→underscores, spaces and colons/periods and the forbidden set → underscores). Collision with existing session names is checked on the finalized/derived name and shows an error. The `cwd` field is omitted when no path is selected, so a name-only create still works. Accessible from the command palette's folder-prompted creation actions (§ Folder-Prompted Creation).
+An empty path is allowed — `cwd` is omitted and the window opens at the backend default. There is no name field: window naming is tmux's folder auto-naming (§ [routes-and-shell](/run-kit/ui/routes-and-shell.md) § Unnamed `+ New Window`).
 
 ## Spawn-Agent Dialog
 

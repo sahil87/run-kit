@@ -146,6 +146,32 @@ export async function renameSession(
   return res.json();
 }
 
+/** The deterministic order keys the sort-windows verb accepts (backend allowlist). */
+export type SortWindowsBy = "status" | "created" | "name";
+
+/** The applied window-ID order + how many moves it took. */
+export interface SortWindowsResult {
+  order: string[];
+  moved: number;
+}
+
+export async function sortSessionWindows(
+  server: string,
+  session: string,
+  by: SortWindowsBy[],
+): Promise<SortWindowsResult> {
+  const res = await fetch(
+    withServer(`/api/sessions/${encodeURIComponent(session)}/sort-windows`, server),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ by }),
+    },
+  );
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
 export async function killSession(server: string, session: string): Promise<{ ok: boolean }> {
   const res = await fetch(withServer(`/api/sessions/${encodeURIComponent(session)}/kill`, server), {
     method: "POST",

@@ -3,12 +3,24 @@ import { useFocusTrap } from "@/hooks/use-focus-trap";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { matchesCombo } from "@/lib/keybindings";
 
+export type PaletteOptionPicker = {
+  options: { key: string; label: string }[];
+  /** Instructional placeholder shown while the sub-step is active. */
+  placeholder?: string;
+  /** Called with the selected keys in selection order (= priority). */
+  onApply: (orderedKeys: string[]) => void;
+};
+
 export type PaletteAction = {
   id: string;
   label: string;
   shortcut?: string;
   /** When set, first selection enters a one-row confirmation step. */
   confirmLabel?: string;
+  /** When set, first selection enters a multi-toggle option sub-step:
+   * Space/click toggles options (order badges = selection order), Enter
+   * applies, Esc/backdrop/⌘K cancel. */
+  optionPicker?: PaletteOptionPicker;
   onSelect: () => void;
 };
 
@@ -21,19 +33,32 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [confirming, setConfirming] = useState<PaletteAction | null>(null);
+  const [picking, setPicking] = useState<PaletteAction | null>(null);
+  const [pickedKeys, setPickedKeys] = useState<string[]>([]);
   const paletteRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const listId = useId();
 
   const closePalette = useCallback(() => {
     setOpen(false);
     setConfirming(null);
+    setPicking(null);
+    setPickedKeys([]);
   }, []);
 
   // The hook owns Escape (document-level, so it fires regardless of which
   // element inside the palette has focus), Tab containment, and initial focus
   // (the input is the container's first — and only — focusable element).
   useFocusTrap(paletteRef, open, closePalette);
+
+  // Rows are non-focusable divs: a mouse click on one blurs the input to
+  // <body>, which would eat the next Space/Enter of a mixed mouse+keyboard
+  // sub-step flow. Refocus the input whenever a sub-step activates or a row
+  // is click-toggled.
+  useEffect(() => {
+    if (confirming || picking) inputRef.current?.focus();
+  }, [confirming, picking, pickedKeys]);
 
   const filtered = confirming
     ? [
@@ -44,9 +69,17 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
           confirmLabel: undefined,
         },
       ]
-    : actions.filter((a) =>
-        a.label.toLowerCase().includes(query.toLowerCase()),
-      );
+    : picking?.optionPicker
+      ? // Sub-step rows are plain display rows: no confirmLabel/optionPicker,
+        // so a sub-step can never recurse.
+        picking.optionPicker.options.map((o): PaletteAction => ({
+          id: `${picking.id}-opt-${o.key}`,
+          label: o.label,
+          onSelect: () => {},
+        }))
+      : actions.filter((a) =>
+          a.label.toLowerCase().includes(query.toLowerCase()),
+        );
 
   // The toggle chord comes from the keybinding registry (260730-g40a): default
   // ⌘K / Ctrl+K (`command-palette`, cmd tier, `ignoreInputs` — it keeps firing
@@ -63,6 +96,8 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
       if (binding?.enabled && matchesCombo(e, binding)) {
         e.preventDefault();
         setConfirming(null);
+        setPicking(null);
+        setPickedKeys([]);
         setOpen((prev) => !prev);
         setQuery("");
         setSelectedIndex(0);
@@ -71,6 +106,8 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
     function handlePaletteOpen() {
       setOpen(true);
       setConfirming(null);
+      setPicking(null);
+      setPickedKeys([]);
       setQuery("");
       setSelectedIndex(0);
     }
@@ -93,6 +130,13 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
 
   const handleSelect = useCallback(
     (action: PaletteAction) => {
+      if (action.optionPicker) {
+        setPicking(action);
+        setPickedKeys([]);
+        setQuery("");
+        setSelectedIndex(0);
+        return;
+      }
       if (action.confirmLabel) {
         setConfirming(action);
         setQuery("");
@@ -105,6 +149,12 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
     [closePalette],
   );
 
+  const togglePick = useCallback((key: string) => {
+    setPickedKeys((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
+    );
+  }, []);
+
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -112,13 +162,30 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setSelectedIndex((i) => Math.max(i - 1, 0));
+    } else if (e.key === " " && picking?.optionPicker) {
+      e.preventDefault();
+      const opt = picking.optionPicker.options[selectedIndex];
+      if (opt) togglePick(opt.key);
     } else if (e.key === "Enter" && filtered[selectedIndex]) {
       e.preventDefault();
+      if (picking?.optionPicker) {
+        // Zero selected is a no-op, not a dismiss: an accidental Enter must
+        // not fire an empty apply or eat the picker state.
+        if (pickedKeys.length === 0) return;
+        const { onApply } = picking.optionPicker;
+        const keys = pickedKeys;
+        closePalette();
+        onApply(keys);
+        return;
+      }
       handleSelect(filtered[selectedIndex]);
     }
   }
 
   if (!open) return null;
+
+  // 1-based badge position per picked key (selection order = priority).
+  const pickedPos = new Map(pickedKeys.map((k, idx) => [k, idx + 1]));
 
   const activeDescendant = filtered[selectedIndex]
     ? `${listId}-option-${filtered[selectedIndex].id}`
@@ -143,20 +210,27 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
         onClick={(e) => e.stopPropagation()}
       >
         <input
+          ref={inputRef}
           type="text"
           value={query}
           onChange={(e) => {
-            if (confirming) return;
+            if (confirming || picking) return;
             setQuery(e.target.value);
             setSelectedIndex(0);
           }}
           onKeyDown={handleKeyDown}
-          readOnly={confirming !== null}
+          readOnly={confirming !== null || picking !== null}
           // Placeholder education (260811-ke2s): the prefix namespaces
           // (Board:/Pin:/View:/Window:) are an entire hidden command system with
           // no other always-visible surface. Typed prefixes, not chords — so no
           // coarse-pointer branch.
-          placeholder={confirming ? "Confirm action..." : "Type a command — try Board: Pin: View: Tab:"}
+          placeholder={
+            picking?.optionPicker
+              ? (picking.optionPicker.placeholder ?? "Pick options — Space toggle · Enter apply")
+              : confirming
+                ? "Confirm action..."
+                : "Type a command — try Board: Pin: View: Tab:"
+          }
           aria-label="Search commands"
           aria-autocomplete="list"
           aria-controls={listId}
@@ -177,27 +251,38 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
               No results — try a prefix: Board:, Pin:, View:, Tab:
             </div>
           ) : (
-            filtered.map((action, i) => (
-              <div
-                key={action.id}
-                id={`${listId}-option-${action.id}`}
-                role="option"
-                aria-selected={i === selectedIndex}
-                onClick={() => handleSelect(action)}
-                className={`w-full text-left px-2.5 py-1.5 text-[11px] flex items-center justify-between cursor-pointer ${
-                  i === selectedIndex
-                    ? "bg-bg-card text-text-primary"
-                    : "text-text-secondary hover:text-text-primary hover:bg-bg-card/50"
-                }`}
-              >
-                <span>{action.label}</span>
-                {action.shortcut && (
-                  <kbd className="text-xs text-text-secondary bg-bg-card px-1.5 py-0.5 rounded border border-border">
-                    {action.shortcut}
-                  </kbd>
-                )}
-              </div>
-            ))
+            filtered.map((action, i) => {
+              const optKey = picking?.optionPicker?.options[i]?.key;
+              const badge = optKey !== undefined ? pickedPos.get(optKey) : undefined;
+              return (
+                <div
+                  key={action.id}
+                  id={`${listId}-option-${action.id}`}
+                  role="option"
+                  aria-selected={i === selectedIndex}
+                  onClick={() =>
+                    optKey !== undefined ? togglePick(optKey) : handleSelect(action)
+                  }
+                  className={`w-full text-left px-2.5 py-1.5 text-[11px] flex items-center justify-between cursor-pointer ${
+                    i === selectedIndex
+                      ? "bg-bg-card text-text-primary"
+                      : "text-text-secondary hover:text-text-primary hover:bg-bg-card/50"
+                  }`}
+                >
+                  <span>{action.label}</span>
+                  {badge !== undefined && (
+                    <kbd className="text-xs text-text-secondary bg-bg-card px-1.5 py-0.5 rounded border border-border">
+                      {badge}
+                    </kbd>
+                  )}
+                  {action.shortcut && (
+                    <kbd className="text-xs text-text-secondary bg-bg-card px-1.5 py-0.5 rounded border border-border">
+                      {action.shortcut}
+                    </kbd>
+                  )}
+                </div>
+              );
+            })
           )}
         </div>
       </div>

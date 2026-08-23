@@ -28,6 +28,16 @@ A busy session accumulates windows in spawn order: waiting tabs needing attentio
 
 - **`status`**: rank by the status pyramid's tier precedence (`docs/specs/status-pyramid.md` — PR > fab > agent > tmux), attention-first within the same shape the sidebar's decision table uses. Concrete rank table (exact values are plan-stage, derived from the spec's decision table): windows whose displayed signal demands attention first (agent `waiting`, PR action-needed, fab review-failed), then active work (agent `active`, fab in-flight, PR pending), then settled (PR merged/fab done), then idle agents, then plain tmux windows. Tie-break: current index (stability).
 - **`created`**: numeric sort on the window id — tmux assigns `@N` monotonically at creation, so `@N` IS the creation order, derivable with zero extra state (Constitution II; tmux exposes no window-creation timestamp). Ascending = oldest first.
+- **`name`**: case-insensitive ascending window name *(amendment, below)*.
+
+### Amendment (2026-08-22, user-directed): multi-key sort via a palette sub-list
+
+Scope amendment while the change is in flight (PR #713 draft, unmerged — contract change is free). The user wants composite sorts — "first sort by date and then by name" — picked from a **sub-list** after selecting the action, instead of one flat entry per key. Persistence was explicitly REJECTED as scope creep: the verb stays one-shot.
+
+- **API**: the body becomes an **ordered array** — `{"by": ["created", "name"]}` — 1–3 unique keys from the closed set `status | created | name`; the bare-string form is dropped (no consumers — the PR never merged). Anything else 400s (same key-allowlist posture). Semantics: first key is the primary sort, later keys break ties (spreadsheet semantics). A `created`-primary composite is degenerate (`@N` never ties) — accepted, harmless.
+- **New `name` key**: case-insensitive ascending window name. Meaningful both as primary (duplicate names are routine under folder auto-naming) and as tie-break.
+- **Palette**: the two flat entries are REPLACED by one entry `Session: Sort windows…` that opens an **option sub-step** inside the palette (generalizing the existing `confirmLabel` single-row confirm sub-step into a minimal option-picker mechanism on `CommandPalette`): the list swaps to the three key rows; ↑↓ navigates, Space (or click) toggles a key with an order badge (1, 2, …) reflecting selection order = priority, Enter applies the composite, Esc/backdrop/⌘K cancels (the `confirmLabel` cancel seams). Keyboard-first (Constitution V); still no chords, palette-only.
+- Everything else is unchanged: session-scoped, stable sort (idempotent re-runs), MoveWindow batch only-when-changed, SSE-derived UI update, hidden/infra sessions not offered.
 
 ### Scope and non-goals
 
@@ -71,5 +81,8 @@ A busy session accumulates windows in spawn order: waiting tabs needing attentio
 | 4 | Confident | `created` order = numeric `@N` (tmux assigns window ids monotonically); no timestamp state introduced | tmux exposes no window-creation time; `@N` monotonicity is derivable and Constitution-II-clean; verify the monotonicity claim against tmux docs at apply | S:60 R:85 A:75 D:70 |
 | 5 | Confident | Status rank = attention-first ordering derived from the pyramid's decision table (waiting/action-needed → active/in-flight → settled → idle → plain), exact table fixed at plan stage | The plan names the pyramid but a tier-precedence model doesn't directly define a total order; the chosen reading (attention-first) matches the feature's purpose | S:50 R:75 A:65 D:45 |
 | 6 | Confident | Palette-only surfacing for v1, current-session scope on the terminal route | Constitution V makes the palette the discovery mechanism; more entry points (session header menu) are additive follow-ups | S:60 R:90 A:80 D:70 |
+| 7 | Certain | One-shot verb preserved; NO persisted sort preference | User explicitly rejected persistence as scope creep in the amendment conversation | S:95 R:90 A:95 D:95 |
+| 8 | Confident | Ordered-array body `{"by": [...]}` replaces the bare string; first key primary, later keys tie-breaks | User's "first by date, then by name" is spreadsheet semantics; PR unmerged so the contract change is free; degenerate created-primary composites accepted | S:75 R:85 A:85 D:75 |
+| 9 | Confident | One `Session: Sort windows…` parent entry replaces the flat pair; sub-step with Space-toggle order badges + Enter apply, generalizing the confirmLabel mechanism | User asked for a sub-list; keeping flat singles beside it would duplicate function and pollute the palette | S:70 R:80 A:80 D:65 |
 
-6 assumptions (2 certain, 4 confident, 0 tentative, 0 unresolved).
+9 assumptions (3 certain, 6 confident, 0 tentative, 0 unresolved).

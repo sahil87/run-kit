@@ -148,7 +148,8 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowRole, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, sendChatMessage, sendOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowRole, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, sendChatMessage, sendOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, type SortWindowsBy } from "@/api/client";
+import { buildSessionSortActions } from "@/lib/palette-sort";
 import { useBoards } from "@/hooks/use-boards";
 import { useWindowPins } from "@/hooks/use-window-pins";
 import { usePinActions } from "@/hooks/use-pin-actions";
@@ -2365,10 +2366,19 @@ function AppShell() {
               label: "Session: Kill",
               onSelect: dialogs.openKillSessionConfirm,
             },
+            // Sort windows by an ordered list of deterministic keys (status
+            // pyramid rank, creation order, name) picked via the palette's
+            // option-picker sub-step — one-shot, never a standing auto-sort.
+            // No success toast: the reorder shows via the SSE derive tick.
+            ...buildSessionSortActions(sessionName, (by: SortWindowsBy[]) => {
+              sortSessionWindows(server, sessionName, by).catch((err: Error) =>
+                addToast(err.message || "Failed to sort windows", "error"),
+              );
+            }),
           ]
         : []),
     ],
-    [sessionName, dialogs, handleCreateSessionInstant, setShowCreateSessionAtFolderDialog, currentSessionOrderIdx, effectiveSessionOrder, moveCurrentSession],
+    [sessionName, dialogs, handleCreateSessionInstant, setShowCreateSessionAtFolderDialog, currentSessionOrderIdx, effectiveSessionOrder, moveCurrentSession, server, addToast],
   );
 
   // Compute min/max window indices for current session (for move boundary checks)

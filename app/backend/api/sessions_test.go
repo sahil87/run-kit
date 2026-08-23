@@ -27,6 +27,12 @@ func (m *mockSessionFetcher) FetchSessions(ctx context.Context, server string) (
 	return m.result, m.err
 }
 
+// moveWindowCall is one recorded MoveWindow invocation.
+type moveWindowCall struct {
+	windowID string
+	dstIndex int
+}
+
 // mockTmuxOps records calls for verification.
 //
 // Most fields are written and read within a single goroutine (synchronous
@@ -55,6 +61,10 @@ type mockTmuxOps struct {
 	swapWindowID        string
 	swapWindowDstIndex  int
 	swapWindowErr       error
+	// moveWindowCalls records every MoveWindow invocation in order (the
+	// single-value swapWindow* fields above keep only the last). Sort-batch
+	// handler tests assert the full call sequence.
+	moveWindowCalls []moveWindowCall
 	moveWindowToSessionCalled     bool
 	moveWindowToSessionWindowID   string
 	moveWindowToSessionDstSession string
@@ -305,6 +315,7 @@ func (m *mockTmuxOps) MoveWindow(windowID string, targetIndex int, server string
 	m.swapWindowCalled = true
 	m.swapWindowID = windowID
 	m.swapWindowDstIndex = targetIndex
+	m.moveWindowCalls = append(m.moveWindowCalls, moveWindowCall{windowID: windowID, dstIndex: targetIndex})
 	if m.swapWindowErr != nil {
 		return m.swapWindowErr
 	}

@@ -719,6 +719,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/sessions/{session}/flair", s.handleSessionFlair)
 	r.Post("/api/sessions/{session}/kill", s.handleSessionKill)
 	r.Post("/api/sessions/{session}/rename", s.handleSessionRename)
+	r.Post("/api/sessions/{session}/sort-windows", s.handleSessionSortWindows)
 	r.Post("/api/sessions/{session}/windows", s.handleWindowCreate)
 	r.Post("/api/windows/{windowId}/kill", s.handleWindowKill)
 	r.Post("/api/windows/{windowId}/move", s.handleWindowMove)

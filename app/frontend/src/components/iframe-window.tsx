@@ -21,6 +21,7 @@ import {
   toProxySrc,
 } from "@/lib/web-url";
 import {
+  WEB_ZOOM_DEFAULT,
   WEB_ZOOM_EVENT,
   readWebZoom,
   stepWebZoom,
@@ -125,23 +126,30 @@ export function IframeWindow({
   // switches buckets), persisted on every change. Never POSTed.
   const zoomBucket = webZoomKeyFor(rkUrl);
   const [zoom, setZoomState] = useState(() => readWebZoom(zoomBucket));
+  // The mirror ref keeps persistence OUT of the setState updater — StrictMode
+  // double-invokes updaters, which would duplicate localStorage writes — while
+  // burst gesture steps still accumulate correctly between renders.
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
   const zoomBucketRef = useRef(zoomBucket);
   useEffect(() => {
     if (zoomBucketRef.current === zoomBucket) return;
     zoomBucketRef.current = zoomBucket;
-    setZoomState(readWebZoom(zoomBucket));
+    const seeded = readWebZoom(zoomBucket);
+    zoomRef.current = seeded;
+    setZoomState(seeded);
   }, [zoomBucket]);
   const applyZoom = useCallback(
     (direction: WebZoomDirection) => {
-      setZoomState((prev) => {
-        const next =
-          direction === "reset" ? 1 : stepWebZoom(prev, direction);
-        if (next === prev) return prev;
-        writeWebZoom(webZoomKeyFor(rkUrl), next);
-        return next;
-      });
+      const prev = zoomRef.current;
+      const next =
+        direction === "reset" ? WEB_ZOOM_DEFAULT : stepWebZoom(prev, direction);
+      if (next === prev) return;
+      zoomRef.current = next;
+      writeWebZoom(zoomBucket, next);
+      setZoomState(next);
     },
-    [rkUrl],
+    [zoomBucket],
   );
   const applyZoomRef = useRef(applyZoom);
   applyZoomRef.current = applyZoom;

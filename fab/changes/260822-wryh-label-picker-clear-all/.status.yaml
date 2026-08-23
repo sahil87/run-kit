@@ -1,0 +1,56 @@
+id: wryh
+name: 260822-wryh-label-picker-clear-all
+created: 2026-08-22T19:28:09Z
+created_by: Sahil Ahuja
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 4
+    acceptance_count: 7
+    acceptance_completed: 7
+confidence:
+    certain: 5
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 81.4
+        reversibility: 87.1
+        competence: 85.7
+        disambiguation: 80.0
+stage_metrics:
+    intake: {started_at: "2026-08-22T19:28:09Z", driver: fab-new, iterations: 1, completed_at: "2026-08-22T19:32:12Z"}
+    apply: {started_at: "2026-08-22T19:32:12Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-22T19:38:54Z"}
+    review: {started_at: "2026-08-22T19:38:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-22T19:41:45Z"}
+    hydrate: {started_at: "2026-08-22T19:41:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-22T19:42:37Z"}
+    ship: {started_at: "2026-08-22T19:42:37Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-22T19:44:16Z"}
+    review-pr: {started_at: "2026-08-22T19:44:16Z", driver: git-pr, iterations: 1, completed_at: "2026-08-22T19:52:41Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/715
+change_type_source: explicit
+true_impact:
+    added: 2252
+    deleted: 25
+    net: 2227
+    excluding:
+        added: 134
+        deleted: 16
+        net: 118
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-22T19:44:16Z"
+    computed_at_stage: ship
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-22T19:52:41Z

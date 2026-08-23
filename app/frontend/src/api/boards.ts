@@ -12,7 +12,7 @@ export interface BoardPaneInfo {
 
 /**
  * Board summary (list view). Returned in display order: boards present in the
- * stored order (`~/.rk/settings.yaml` `board_order:`) first, ranked by their
+ * stored order (`~/.config/run-kit/config.yaml` `board_order:`) first, ranked by their
  * index, then any unranked boards alphabetically by `name`.
  */
 export interface BoardSummary {
@@ -99,7 +99,7 @@ export async function unpinWindow(
 /**
  * POST /api/boards/order — persist the user-defined board display order. The
  * client sends the FULL ordered list of board names (rank = index); the backend
- * writes it to ~/.rk/settings.yaml and broadcasts a server-global
+ * writes it to ~/.config/run-kit/config.yaml and broadcasts a server-global
  * `board-order` SSE event so every client re-sorts live. Mirrors
  * `setServerOrder`.
  */

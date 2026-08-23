@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"rk/internal/settings"
 	"rk/internal/validate"
 )
 
@@ -85,10 +86,7 @@ func init() {
 		DefaultConfigPath = filepath.Join(home, ".rk", "tmux.conf")
 	}
 
-	configPath = os.Getenv("RK_TMUX_CONF")
-	if configPath == "" {
-		configPath = DefaultConfigPath
-	}
+	configPath = resolveConfigPath()
 	if configPath != "" && !filepath.IsAbs(configPath) {
 		if abs, err := filepath.Abs(configPath); err == nil {
 			configPath = abs
@@ -96,7 +94,22 @@ func init() {
 	}
 }
 
-// ConfigPath returns the resolved tmux config path (empty if RK_TMUX_CONF was not set).
+// resolveConfigPath resolves the tmux config path once at package init:
+// RK_TMUX_CONF env (an undocumented per-process test escape — wins per the
+// override order) → the tmux_conf config.yaml key → DefaultConfigPath.
+// Resolution is init-time only; a config.yaml change applies on the next
+// process start.
+func resolveConfigPath() string {
+	if p := os.Getenv("RK_TMUX_CONF"); p != "" {
+		return p
+	}
+	if p := settings.Load().TmuxConf; p != "" {
+		return p
+	}
+	return DefaultConfigPath
+}
+
+// ConfigPath returns the resolved tmux config path (see resolveConfigPath).
 func ConfigPath() string {
 	return configPath
 }
@@ -166,7 +179,7 @@ func ensureDropInDir() error {
 // Returns an error if no config path is set or the source-file command fails.
 func ReloadConfig(server string) error {
 	if configPath == "" {
-		return fmt.Errorf("no tmux config path (run 'rk mux init-conf' or set RK_TMUX_CONF)")
+		return fmt.Errorf("no tmux config path (run 'rk mux init-conf' or set the tmux_conf key in ~/.config/run-kit/config.yaml)")
 	}
 	ctx, cancel := withTimeout()
 	defer cancel()

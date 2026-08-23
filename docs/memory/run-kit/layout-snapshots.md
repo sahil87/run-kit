@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Per-server tmux layout snapshots (`internal/snapshot`): the sessions/windows/panes + rk-options capture set (incl. `_rk-operator`/`@rk_role`), the `$XDG_STATE_HOME/rk/snapshots` store (atomic latest, 10-entry history, content-dedup, zero-session guard, `.died-{ts}` tombstones), the Snapshotter cadence + `@rk_ephemeral` opt-out, the restore engine + `rk mux snapshot` CLI (no relaunch), and the recovery reader (`RestorableOffers`, `/api/recovery`; live state never derives from a snapshot)."
+description: "Per-server tmux layout snapshots (`internal/snapshot`): the sessions/windows/panes + rk-options capture set (incl. `_rk-operator`/`@rk_role`), the `$XDG_STATE_HOME/run-kit/snapshots` store (atomic latest, 10-entry history, content-dedup, zero-session guard, `.died-{ts}` tombstones, legacy-dir move + breadcrumb), the Snapshotter cadence + `@rk_ephemeral` opt-out, the restore engine + `rk mux snapshot` CLI (no relaunch), and the recovery reader (`RestorableOffers`, `/api/recovery`; live state never derives from a snapshot)."
 ---
 # Layout Snapshots & Restore
 
@@ -60,7 +60,7 @@ The `_rk-operator` + `@rk_role` round trip is load-bearing: capture takes `_rk-o
 
 ### Requirement: Store layout and retention
 
-`snapshot.Store` roots at `DefaultDir()` — `$XDG_STATE_HOME/rk/snapshots` when set, else `~/.local/state/rk/snapshots` on every platform. State dir, not cache: recovery artifacts must not be droppable by contract.
+`snapshot.Store` roots at `DefaultDir()` — `$XDG_STATE_HOME/run-kit/snapshots` when set, else `~/.local/state/run-kit/snapshots` on every platform. State dir, not cache: recovery artifacts must not be droppable by contract. On store first use, when the resolved dir is absent and a legacy `$XDG_STATE_HOME/rk/snapshots` exists, the legacy dir is moved into place (`os.Rename`, best-effort, one-time — preserving recovery backups) and a `MOVED-to-run-kit` breadcrumb file is left in the legacy state dir naming the new path; a failed move degrades to cold-start behavior (empty store), never an error. (li54)
 
 ```
 {server}.json                 — latest snapshot (live server)
@@ -186,10 +186,10 @@ The other api-side touchpoint is the write-path annotation: `api.Server.SetServe
 *Introduced by*: 260805-htmy-daemon-layout-snapshots-restore
 
 ### Storage under `$XDG_STATE_HOME`, uniform across platforms
-**Decision**: `DefaultDir()` honors `$XDG_STATE_HOME`, defaulting to `~/.local/state/rk/snapshots` on every platform including macOS.
-**Why**: Recovery artifacts must not live in a cache dir, which is droppable by contract; Go offers no `UserStateDir`, and a uniform path keeps the `rk mux snapshot` docs single-shaped.
-**Rejected**: A per-platform path (`~/Library/Application Support` on darwin) — two shapes to document for an artifact users mostly reach through the CLI.
-*Introduced by*: 260805-htmy-daemon-layout-snapshots-restore
+**Decision**: `DefaultDir()` honors `$XDG_STATE_HOME`, defaulting to `~/.local/state/run-kit/snapshots` on every platform including macOS. A legacy `$XDG_STATE_HOME/rk/snapshots` is moved into the resolved root once (best-effort `os.Rename` into an absent target, never a merge), leaving a `MOVED-to-run-kit` breadcrumb in the legacy dir.
+**Why**: Recovery artifacts must not live in a cache dir, which is droppable by contract; Go offers no `UserStateDir`, and a uniform path keeps the `rk mux snapshot` docs single-shaped. The move preserves backups users may still need to restore from; a failed move degrades to cold-start behavior, never an error.
+**Rejected**: A per-platform path (`~/Library/Application Support` on darwin) — two shapes to document for an artifact users mostly reach through the CLI; copying instead of renaming (duplicates backups, no atomicity); leaving the legacy dir in place (silent fork between two snapshot roots).
+*Introduced by*: 260805-htmy-daemon-layout-snapshots-restore; state-root move 260823-li54-config-root-registry-core
 
 ### `RenumberWindow` as a distinct primitive from `MoveWindow`
 **Decision**: Restore places a session's first window with `RenumberWindow` (`move-window -s <id> -t =session:<index>`), a primitive distinct from `MoveWindow`.

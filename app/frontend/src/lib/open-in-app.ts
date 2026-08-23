@@ -15,8 +15,8 @@ import type { OpenApp } from "@/api/client";
 import type { WindowInfo } from "@/types";
 
 /** One editor deeplink template. `url` composes the client-side URI that opens
- *  `path` on `host` — an SSH destination: either the RK_SSH_HOST alias from
- *  the client's ~/.ssh/config or the derived `user@hostname` fallback (see
+ *  `path` on `host` — an SSH destination: either the ssh_host setting's alias
+ *  from the client's ~/.ssh/config or the derived `user@hostname` fallback (see
  *  `resolveDeeplinkHost`) — in the client-local editor. */
 export type DeeplinkApp = {
   id: string;
@@ -59,7 +59,7 @@ export function isLocalHostname(hostname: string): boolean {
 
 /**
  * The effective SSH destination the editor deeplinks embed — the
- * RK_SSH_HOST-unset fallback chain (260722-fc3b):
+ * ssh_host-unset fallback chain (260722-fc3b):
  *
  *  1. `sshHost` set → use it VERBATIM, never `user@`-prefixed — an alias
  *     carries user/port/key from the client's ~/.ssh/config.
@@ -105,7 +105,7 @@ export type OpenTarget =
  *    deeplink section even when sshHost is set — the folder is already on
  *    this machine).
  *  - remote client → deeplink section (always — the effective host comes
- *    from `resolveDeeplinkHost`, deriving `user@hostname` when RK_SSH_HOST
+ *    from `resolveDeeplinkHost`, deriving `user@hostname` when ssh_host
  *    is unset) plus the host section as an explicitly labeled "on host"
  *    escape hatch.
  *  - host section hidden whenever the registry is empty.

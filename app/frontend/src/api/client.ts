@@ -34,13 +34,13 @@ export async function throwOnError(res: Response): Promise<never> {
 export interface HealthResponse {
   status: string;
   hostname: string;
-  /** Optional RK_SSH_HOST — the SSH alias remote clients use to reach this
+  /** Optional SSH alias (the ssh_host setting) remote clients use to reach this
    *  host. Feeds the Open button's editor ssh-remote deeplinks (used verbatim
    *  when set); absent when unset (remote clients then derive
    *  `${sshUser}@${location.hostname}`). */
   sshHost?: string;
   /** The username the daemon runs as (os/user.Current, derived server-side).
-   *  Composes the derived deeplink host when RK_SSH_HOST is unset; absent
+   *  Composes the derived deeplink host when ssh_host is unset; absent
    *  when the lookup failed (the `user@` prefix is omitted then). */
   sshUser?: string;
   /** Optional instance display-name override (settings.yaml `instance_name`).
@@ -1115,7 +1115,7 @@ export async function setInstanceColor(color: string | null): Promise<void> {
 
 /** The stored SSH destination SETTING (alias or user@host), or null when
  *  unset. This is the raw setting the settings dialog edits — the EFFECTIVE
- *  value (settings-first with the RK_SSH_HOST env fallback) rides getHealth().sshHost. */
+ *  value (the same setting; the sole source) rides getHealth().sshHost. */
 export async function getSSHHost(): Promise<string | null> {
   const res = await deduplicatedFetch("/api/settings/ssh-host");
   if (!res.ok) await throwOnError(res);

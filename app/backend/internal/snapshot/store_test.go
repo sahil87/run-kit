@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -29,7 +30,7 @@ func TestDefaultDirXDGOverride(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dir != filepath.Join("/custom/state", "rk", "snapshots") {
+	if dir != filepath.Join("/custom/state", "run-kit", "snapshots") {
 		t.Errorf("dir = %s", dir)
 	}
 
@@ -39,8 +40,117 @@ func TestDefaultDirXDGOverride(t *testing.T) {
 		t.Fatal(err)
 	}
 	home, _ := os.UserHomeDir()
-	if dir != filepath.Join(home, ".local", "state", "rk", "snapshots") {
+	if dir != filepath.Join(home, ".local", "state", "run-kit", "snapshots") {
 		t.Errorf("default dir = %s", dir)
+	}
+}
+
+// TestMigrateLegacyDirMovesBackups: the legacy <state>/rk/snapshots tree is
+// renamed into the resolved run-kit dir intact (real store artifacts survive)
+// and a MOVED-to-run-kit breadcrumb naming the new path is left behind.
+func TestMigrateLegacyDirMovesBackups(t *testing.T) {
+	state := t.TempDir()
+	legacy := filepath.Join(state, "rk", "snapshots")
+	if _, err := NewStore(legacy).Write(testSnap("srv", time.Now(), "work")); err != nil {
+		t.Fatalf("seed legacy store: %v", err)
+	}
+
+	dir := filepath.Join(state, "run-kit", "snapshots")
+	MigrateLegacyDir(dir)
+
+	snap, err := NewStore(dir).LoadLatest("srv")
+	if err != nil {
+		t.Fatalf("LoadLatest from moved dir: %v", err)
+	}
+	if snap == nil || snap.Sessions[0].Windows[0].Name != "work" {
+		t.Errorf("moved snapshot = %+v, want the legacy backup intact", snap)
+	}
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		t.Errorf("legacy dir still present after move: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(state, "rk", "MOVED-to-run-kit"))
+	if err != nil {
+		t.Fatalf("breadcrumb missing: %v", err)
+	}
+	if !strings.Contains(string(data), dir) {
+		t.Errorf("breadcrumb %q does not name the new path %q", data, dir)
+	}
+}
+
+// TestMigrateLegacyDirKeepsExistingTarget: when the new dir already exists the
+// legacy dir is never merged into it or clobbered — no move, no breadcrumb.
+func TestMigrateLegacyDirKeepsExistingTarget(t *testing.T) {
+	state := t.TempDir()
+	legacy := filepath.Join(state, "rk", "snapshots")
+	dir := filepath.Join(state, "run-kit", "snapshots")
+	for _, d := range []string{legacy, dir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, d := range map[string]string{"old.json": legacy, "new.json": dir} {
+		if err := os.WriteFile(filepath.Join(d, name), []byte("{}"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	MigrateLegacyDir(dir)
+
+	if _, err := os.Stat(filepath.Join(legacy, "old.json")); err != nil {
+		t.Errorf("legacy dir clobbered: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "old.json")); !os.IsNotExist(err) {
+		t.Error("legacy file merged into existing new dir")
+	}
+	if _, err := os.Stat(filepath.Join(state, "rk", "MOVED-to-run-kit")); !os.IsNotExist(err) {
+		t.Error("breadcrumb written without a move")
+	}
+}
+
+// TestMigrateLegacyDirNoLegacy: with no legacy dir the move is a silent no-op
+// that creates nothing.
+func TestMigrateLegacyDirNoLegacy(t *testing.T) {
+	state := t.TempDir()
+	MigrateLegacyDir(filepath.Join(state, "run-kit", "snapshots"))
+	entries, err := os.ReadDir(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("state root gained entries: %v", entries)
+	}
+}
+
+// TestMigrateLegacyDirFailureDegrades: when the move cannot happen (target
+// parent obstructed by a regular file, so the rename can never land) the
+// failure surfaces nothing — the legacy tree is left intact, no breadcrumb is
+// written, and the store cold-starts at the new path once it can.
+func TestMigrateLegacyDirFailureDegrades(t *testing.T) {
+	state := t.TempDir()
+	legacy := filepath.Join(state, "rk", "snapshots")
+	if _, err := NewStore(legacy).Write(testSnap("srv", time.Now(), "work")); err != nil {
+		t.Fatalf("seed legacy store: %v", err)
+	}
+	dir := filepath.Join(state, "run-kit", "snapshots")
+
+	blocker := filepath.Join(state, "run-kit")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	MigrateLegacyDir(dir)
+
+	if _, err := os.Stat(filepath.Join(legacy, "srv.json")); err != nil {
+		t.Errorf("legacy backups lost on failed move: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(state, "rk", "MOVED-to-run-kit")); !os.IsNotExist(err) {
+		t.Error("breadcrumb written without a move")
+	}
+
+	if err := os.Remove(blocker); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewStore(dir).Write(testSnap("srv", time.Now(), "work")); err != nil {
+		t.Fatalf("store cold start after failed move: %v", err)
 	}
 }
 

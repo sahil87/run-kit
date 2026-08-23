@@ -13,11 +13,11 @@ import (
 // Open button's editor ssh-remote deeplinks: the destination is used verbatim
 // when set, else remote clients derive `${sshUser}@${location.hostname}`.
 //
-// sshHost resolves settings-first per request (Constitution II — derive at
-// request time, so a settings-dialog edit takes effect on the next health
-// fetch without restart): ~/.rk/settings.yaml `ssh_host` when non-empty, else
-// the startup-seeded RK_SSH_HOST env value. The optional `instanceName` (the
-// display-name override, settings.yaml `instance_name`) rides alongside.
+// sshHost resolves from the `ssh_host` setting per request (Constitution II —
+// derive at request time, so a settings-dialog edit takes effect on the next
+// health fetch without restart); that setting is the ONLY source — there is
+// no env form. The optional `instanceName` (the display-name override,
+// settings `instance_name`) rides alongside.
 // Each field is omitted when empty — a new /api/config route for these fields
 // would grow surface against Constitution IV.
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -26,12 +26,8 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"hostname": s.hostname,
 	}
 	stored := settings.Load()
-	sshHost := stored.SSHHost
-	if sshHost == "" {
-		sshHost = s.sshHost // RK_SSH_HOST env fallback (startup-seeded)
-	}
-	if sshHost != "" {
-		body["sshHost"] = sshHost
+	if stored.SSHHost != "" {
+		body["sshHost"] = stored.SSHHost
 	}
 	if s.sshUser != "" {
 		body["sshUser"] = s.sshUser

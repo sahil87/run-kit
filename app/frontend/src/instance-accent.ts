@@ -13,7 +13,8 @@ import type { Theme } from "@/themes";
  * contract.
  *
  * The accent is a property of the INSTANCE (stored on its host in
- * ~/.rk/settings.yaml `instance_color`), not the viewer — every device viewing
+ * ~/.config/run-kit/config.yaml `instance_color`), not the viewer — every
+ * device viewing
  * the instance sees the same accent. Resolution order: explicit setting →
  * localStorage echo (paint cache only, never authoritative) → none. There is
  * no derived default: a fresh instance starts with no accent until the user

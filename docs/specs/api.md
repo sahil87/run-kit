@@ -19,10 +19,13 @@
 
 ## Base Configuration
 
+The override order is `code default < config.yaml < env < CLI flag`. Env forms exist only for the deployment-bootstrap keys below; per-instance preference keys (the settings registry) resolve `defaults → ~/.config/run-kit/config.yaml` only — no env form, no CLI flag. The config root `~/.config/run-kit/` is fixed: it is built from `$HOME` alone and never consults `XDG_CONFIG_HOME`.
+
 | Setting | Default | Override order |
 |---------|---------|----------------|
-| Port | `3000` | defaults → `run-kit.yaml` (`server.port`) → CLI `-port` |
-| Host | `127.0.0.1` | defaults → `run-kit.yaml` (`server.host`) → CLI `-host` |
+| Port | `3000` | defaults → env `RK_PORT` → CLI `-port` |
+| Host | `127.0.0.1` | defaults → env `RK_HOST` → CLI `-host` |
+| Code-server port | RK_PORT + 2 | defaults → env `RK_CODE_SERVER_PORT` |
 
 ---
 

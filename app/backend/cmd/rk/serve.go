@@ -21,6 +21,7 @@ import (
 	"rk/internal/config"
 	"rk/internal/daemon"
 	"rk/internal/selfpath"
+	"rk/internal/settings"
 	"rk/internal/snapshot"
 	"rk/internal/tmux"
 	"rk/internal/tmuxctl"
@@ -105,9 +106,6 @@ var serveCmd = &cobra.Command{
 Environment variables:
   RK_HOST      Host to bind (default "127.0.0.1")
   RK_PORT      Port to bind (default 3000)
-  RK_SSH_HOST  Optional SSH host alias remote clients use to reach this host;
-               enables the Open button's editor ssh-remote deeplinks (unset:
-               the deeplink section is hidden)
 
 Examples:
   run-kit serve                              # foreground on 127.0.0.1:3000
@@ -129,8 +127,16 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 		// server). A persisted pin is valid state, not an orphan, so there is
 		// nothing to reap.
 
+		// Log level: the LOG_LEVEL env is an undocumented per-process escape
+		// that wins when set (the dev rig depends on it); otherwise the
+		// log_level config.yaml key applies. "debug" enables debug, anything
+		// else is info.
 		logLevel := slog.LevelInfo
-		if strings.EqualFold(os.Getenv("LOG_LEVEL"), "debug") {
+		if l := os.Getenv("LOG_LEVEL"); l != "" {
+			if strings.EqualFold(l, "debug") {
+				logLevel = slog.LevelDebug
+			}
+		} else if strings.EqualFold(settings.Load().LogLevel, "debug") {
 			logLevel = slog.LevelDebug
 		}
 		logger := setupSlog(logLevel)
@@ -195,6 +201,7 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 		if snapDir, err := snapshot.DefaultDir(); err != nil {
 			slog.Warn("layout snapshots disabled: state dir unresolvable", "err", err)
 		} else {
+			snapshot.MigrateLegacyDir(snapDir)
 			snapStore := snapshot.NewStore(snapDir)
 			snapshotter := snapshot.NewSnapshotter(supervisor, snapStore)
 			supervisor.OnSocketRemoved = snapshotter.OnServerRemoved

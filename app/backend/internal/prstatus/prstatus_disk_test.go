@@ -69,7 +69,7 @@ func TestDefaultCachePath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DefaultCachePath: %v", err)
 	}
-	if want := filepath.Join("/tmp/state", "rk", "prstatus.json"); got != want {
+	if want := filepath.Join("/tmp/state", "run-kit", "prstatus.json"); got != want {
 		t.Errorf("path = %q, want %q", got, want)
 	}
 
@@ -82,7 +82,7 @@ func TestDefaultCachePath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DefaultCachePath (unset): %v", err)
 	}
-	if want := filepath.Join(home, ".local", "state", "rk", "prstatus.json"); got != want {
+	if want := filepath.Join(home, ".local", "state", "run-kit", "prstatus.json"); got != want {
 		t.Errorf("path = %q, want %q", got, want)
 	}
 }

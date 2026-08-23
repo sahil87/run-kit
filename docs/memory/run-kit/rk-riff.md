@@ -392,7 +392,7 @@ No integration tests invoke real `wt`/`tmux` — the pure helpers remain the uni
 - `app/backend/api/router.go` — `RiffEngine` interface + `prodRiffEngine` wrapper + `NewTestRouterWithRiff` + route registration (both `/api/riff` and the fork route)
 - `app/backend/internal/fabconfig/fabconfig.go` — `ReadPresets`, `ReadPresetsOrdered`, `ReadTiers`/`BuiltinTiers`, `IsFabProject` (presets + tier NAMES + fab-project detection) (`260703-w884`, `260714-gsmu`)
 - `app/backend/internal/validate/validate.go` — `ValidateWorktreeName` (shared `ValidateName` + riff-seam leading-`-`/`/`/space rejections) and `ValidateTier` (strict identifier, no leading `-`) (`260714-q9cg`)
-- `app/backend/internal/config/runkit_yaml.go` — `FindGitRoot(dir)` walk-up helper: the CLI uses it for repo-root derivation + preset resolution; the HTTP handler uses it in `deriveRepoRoot`; `ResolveLauncher` does not walk it (it sets `cmd.Dir` and lets fab discover the repo)
+- `app/backend/internal/config/gitroot.go` — `FindGitRoot(dir)` walk-up helper: the CLI uses it for repo-root derivation + preset resolution; the HTTP handler uses it in `deriveRepoRoot`; `ResolveLauncher` does not walk it (it sets `cmd.Dir` and lets fab discover the repo)
 - `app/backend/internal/tmux/tmux.go` — `OriginalTMUX` package-level var (CLI path)
 
 ## Design Decisions

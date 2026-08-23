@@ -126,9 +126,9 @@ func parseColorIndices(value string) ([]int, string) {
 // the frontend only ever writes the canonical names); numeric forms
 // re-serialize the parsed indices ("4" or "a+b"), so equivalent-but-noisy
 // inputs ("01", " 1 + 3 ") collapse to a single representation. Used by
-// tolerant-read storage paths (settings, run-kit.yaml) and the tmux option
-// readers to accept any stored vocabulary on read and always normalize to the
-// canonical string.
+// tolerant-read storage paths (the settings store at
+// ~/.config/run-kit/config.yaml) and the tmux option readers to accept any
+// stored vocabulary on read and always normalize to the canonical string.
 func NormalizeColorValue(value string) (string, bool) {
 	if name := strings.TrimSpace(value); colorFamilyNames[name] {
 		return name, true

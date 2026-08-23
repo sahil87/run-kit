@@ -6,10 +6,11 @@ import { apiBase, pinWindow } from "./_boards";
 import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
 // scripts/test-e2e.sh isolates the tmux server/port but NOT $HOME, so this spec
-// POSTs /api/boards/order against the developer's REAL ~/.rk/settings.yaml.
+// POSTs /api/boards/order against the developer's REAL
+// ~/.config/run-kit/config.yaml.
 // Snapshot its raw bytes before the suite and restore them after so a curated
 // board order is never clobbered by test residue (byte-identical round-trip).
-const SETTINGS_PATH = join(homedir(), ".rk", "settings.yaml");
+const SETTINGS_PATH = join(homedir(), ".config", "run-kit", "config.yaml");
 // `undefined` = the file did not exist before the suite (restore = delete it);
 // a Buffer = its exact original bytes (restore = write them back verbatim).
 let settingsSnapshot: Buffer | undefined;
@@ -24,7 +25,8 @@ const BOARD_Z = `zzz${Date.now().toString().slice(-6)}`;
 
 test.describe("Board list reorder — order endpoint + rank-aware sort + server-global SSE", () => {
   test.beforeAll(() => {
-    // Snapshot the developer's REAL ~/.rk/settings.yaml (raw bytes) before this
+    // Snapshot the developer's REAL ~/.config/run-kit/config.yaml (raw bytes)
+    // before this
     // suite mutates it via /api/boards/order. Restored verbatim in afterAll so
     // any curated board order survives byte-identically — $HOME is NOT isolated
     // by scripts/test-e2e.sh, so test residue would otherwise persist.

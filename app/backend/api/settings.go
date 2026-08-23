@@ -152,8 +152,8 @@ func (s *Server) handleSetInstanceColor(w http.ResponseWriter, r *http.Request) 
 
 // handleGetSSHHost returns the stored SSH destination setting.
 // GET /api/settings/ssh-host → {"sshHost": "devbox"} or {"sshHost": null}
-// Returns the stored SETTING only — the effective value (settings-first with
-// the RK_SSH_HOST env fallback) rides GET /api/health.
+// Returns the stored SETTING only — the same value (the sole ssh-host source)
+// rides GET /api/health.
 func (s *Server) handleGetSSHHost(w http.ResponseWriter, r *http.Request) {
 	host := settings.GetSSHHost()
 	writeJSON(w, http.StatusOK, map[string]any{"sshHost": host})

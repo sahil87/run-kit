@@ -1013,20 +1013,73 @@ export async function getKeybindings(server: string): Promise<Keybinding[]> {
   return res.json();
 }
 
-// --- Theme settings (global, not per-server) ---
+// --- Settings (global, not per-server) ---
+// One registry-driven endpoint pair serves every settings key: GET returns
+// registry metadata + current values, POST is a partial merge (present keys
+// set, null unsets). All getters share one deduplicated GET so the mount-time
+// burst collapses into a single request; setters post only the keys they own.
+
+/** One registry row as served by GET /api/settings. */
+export interface SettingsEntry {
+  key: string;
+  kind: string;
+  default: string;
+  description: string;
+  category: string;
+  ui: boolean;
+  live: boolean;
+  value: unknown;
+}
+
+async function getSettingsEntries(): Promise<SettingsEntry[]> {
+  const res = await deduplicatedFetch("/api/settings");
+  if (!res.ok) await throwOnError(res);
+  const data: { settings: SettingsEntry[] } = await res.json();
+  return data.settings;
+}
+
+function settingValue(entries: SettingsEntry[], key: string): unknown {
+  return entries.find((e) => e.key === key)?.value;
+}
+
+function stringSetting(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function nullableStringSetting(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function mapSetting(value: unknown): Record<string, string> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (typeof v === "string") out[k] = v;
+  }
+  return out;
+}
+
+async function postSettings(patch: Record<string, unknown>): Promise<void> {
+  const res = await fetch("/api/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) await throwOnError(res);
+}
+
+// --- Theme settings ---
 
 export async function getThemePreference(): Promise<{
   theme: string;
   themeDark: string;
   themeLight: string;
 }> {
-  const res = await deduplicatedFetch("/api/settings/theme");
-  if (!res.ok) await throwOnError(res);
-  const data: { theme: string; theme_dark: string; theme_light: string } = await res.json();
+  const entries = await getSettingsEntries();
   return {
-    theme: data.theme,
-    themeDark: data.theme_dark,
-    themeLight: data.theme_light,
+    theme: stringSetting(settingValue(entries, "theme")) || "system",
+    themeDark: stringSetting(settingValue(entries, "theme_dark")),
+    themeLight: stringSetting(settingValue(entries, "theme_light")),
   };
 }
 
@@ -1035,80 +1088,53 @@ export async function setThemePreference(prefs: {
   themeDark?: string;
   themeLight?: string;
 }): Promise<void> {
-  const body: Record<string, string> = {};
-  if (prefs.theme !== undefined) body.theme = prefs.theme;
-  if (prefs.themeDark !== undefined) body.theme_dark = prefs.themeDark;
-  if (prefs.themeLight !== undefined) body.theme_light = prefs.themeLight;
-  if (Object.keys(body).length === 0) return;
-  const res = await fetch("/api/settings/theme", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) await throwOnError(res);
+  const patch: Record<string, unknown> = {};
+  if (prefs.theme !== undefined) patch.theme = prefs.theme;
+  if (prefs.themeDark !== undefined) patch.theme_dark = prefs.themeDark;
+  if (prefs.themeLight !== undefined) patch.theme_light = prefs.themeLight;
+  if (Object.keys(patch).length === 0) return;
+  await postSettings(patch);
 }
 
-// --- Server color settings (global, not per-server) ---
+// --- Server color settings ---
 
 export async function getServerColor(server: string): Promise<string | null> {
-  const res = await deduplicatedFetch(`/api/settings/server-color?server=${encodeURIComponent(server)}`);
-  if (!res.ok) await throwOnError(res);
-  const data: { color: string | null } = await res.json();
-  return data.color;
+  const entries = await getSettingsEntries();
+  return mapSetting(settingValue(entries, "server_colors"))[server] ?? null;
 }
 
 export async function getAllServerColors(): Promise<Record<string, string>> {
-  const res = await deduplicatedFetch("/api/settings/server-color");
-  if (!res.ok) await throwOnError(res);
-  const data: { colors: Record<string, string> } = await res.json();
-  return data.colors;
+  const entries = await getSettingsEntries();
+  return mapSetting(settingValue(entries, "server_colors"));
 }
 
 export async function setServerColor(server: string, color: string | null): Promise<void> {
-  const res = await fetch("/api/settings/server-color", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ server, color }),
-  });
-  if (!res.ok) await throwOnError(res);
+  await postSettings({ server_colors: { [server]: color } });
 }
 
 // --- Server flair settings (a server→flair map on the instance-global settings store) ---
 
 export async function getAllServerFlairs(): Promise<Record<string, string>> {
-  const res = await deduplicatedFetch("/api/settings/server-flair");
-  if (!res.ok) await throwOnError(res);
-  const data: { flairs: Record<string, string> } = await res.json();
-  return data.flairs;
+  const entries = await getSettingsEntries();
+  return mapSetting(settingValue(entries, "server_flairs"));
 }
 
 export async function setServerFlair(server: string, flair: string | null): Promise<void> {
-  const res = await fetch("/api/settings/server-flair", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ server, flair }),
-  });
-  if (!res.ok) await throwOnError(res);
+  await postSettings({ server_flairs: { [server]: flair } });
 }
 
 // --- Instance accent color (per-instance "host color", scalar) ---
 
 /** The explicit instance accent color descriptor ("4" / "1+3"), or null when
- *  unset (the frontend then falls back to the hostname-hash default). */
+ *  unset (no accent — there is no derived default; resolution is explicit
+ *  setting → localStorage paint echo → none, see instance-accent.ts). */
 export async function getInstanceColor(): Promise<string | null> {
-  const res = await deduplicatedFetch("/api/settings/instance-color");
-  if (!res.ok) await throwOnError(res);
-  const data: { color: string | null } = await res.json();
-  return data.color;
+  const entries = await getSettingsEntries();
+  return nullableStringSetting(settingValue(entries, "instance_color"));
 }
 
 export async function setInstanceColor(color: string | null): Promise<void> {
-  const res = await fetch("/api/settings/instance-color", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ color }),
-  });
-  if (!res.ok) await throwOnError(res);
+  await postSettings({ instance_color: color });
 }
 
 // --- SSH host + instance name (host-scoped scalar settings) ---
@@ -1117,37 +1143,23 @@ export async function setInstanceColor(color: string | null): Promise<void> {
  *  unset. This is the raw setting the settings dialog edits — the EFFECTIVE
  *  value (the same setting; the sole source) rides getHealth().sshHost. */
 export async function getSSHHost(): Promise<string | null> {
-  const res = await deduplicatedFetch("/api/settings/ssh-host");
-  if (!res.ok) await throwOnError(res);
-  const data: { sshHost: string | null } = await res.json();
-  return data.sshHost;
+  const entries = await getSettingsEntries();
+  return nullableStringSetting(settingValue(entries, "ssh_host"));
 }
 
 export async function setSSHHost(host: string | null): Promise<void> {
-  const res = await fetch("/api/settings/ssh-host", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sshHost: host }),
-  });
-  if (!res.ok) await throwOnError(res);
+  await postSettings({ ssh_host: host });
 }
 
 /** The stored instance display-name override, or null when unset (display
  *  surfaces then fall back to the health-reported hostname). */
 export async function getInstanceName(): Promise<string | null> {
-  const res = await deduplicatedFetch("/api/settings/instance-name");
-  if (!res.ok) await throwOnError(res);
-  const data: { name: string | null } = await res.json();
-  return data.name;
+  const entries = await getSettingsEntries();
+  return nullableStringSetting(settingValue(entries, "instance_name"));
 }
 
 export async function setInstanceName(name: string | null): Promise<void> {
-  const res = await fetch("/api/settings/instance-name", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name }),
-  });
-  if (!res.ok) await throwOnError(res);
+  await postSettings({ instance_name: name });
 }
 
 // --- Web Push ---

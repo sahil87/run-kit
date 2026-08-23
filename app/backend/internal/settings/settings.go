@@ -15,6 +15,9 @@
 package settings
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -200,6 +203,17 @@ type registryEntry struct {
 	// section is the nested-section machinery for map/list keys. Zero value
 	// (section.key == "") on scalar entries.
 	section nestedSection
+	// read returns the key's current value in its natural JSON shape for
+	// GET /api/settings: a string pointer (nil surfaces as JSON null), a
+	// bool, a map[string]string, or a []string.
+	read func(s *Settings) any
+	// apply merges one JSON patch value onto s per Constitution IX
+	// partial-merge semantics (null unsets; string scalars trim, with
+	// trimmed-to-empty treated as null; maps merge per-entry with an entry
+	// null unsetting that entry and a top-level null clearing the map; the
+	// list replaces wholesale with null equivalent to []). The value is
+	// validated before s is touched — an error means no mutation.
+	apply func(s *Settings, value json.RawMessage) error
 }
 
 // registry is the single source of truth for every settings key. Slice order
@@ -217,6 +231,8 @@ var registry = []registryEntry{
 			}
 		},
 		serialize: func(s *Settings) string { return "theme: " + s.Theme + "\n" },
+		read:      func(s *Settings) any { v := s.Theme; return &v },
+		apply:     nonEmptyString(func(s *Settings) *string { return &s.Theme }, "system"),
 	},
 	{
 		key: "theme_dark", kind: "string", def: "default-dark",
@@ -228,6 +244,8 @@ var registry = []registryEntry{
 			}
 		},
 		serialize: func(s *Settings) string { return "theme_dark: " + s.ThemeDark + "\n" },
+		read:      func(s *Settings) any { v := s.ThemeDark; return &v },
+		apply:     nonEmptyString(func(s *Settings) *string { return &s.ThemeDark }, "default-dark"),
 	},
 	{
 		key: "theme_light", kind: "string", def: "default-light",
@@ -239,6 +257,8 @@ var registry = []registryEntry{
 			}
 		},
 		serialize: func(s *Settings) string { return "theme_light: " + s.ThemeLight + "\n" },
+		read:      func(s *Settings) any { v := s.ThemeLight; return &v },
+		apply:     nonEmptyString(func(s *Settings) *string { return &s.ThemeLight }, "default-light"),
 	},
 	{
 		key: "instance_color", kind: "color", def: "",
@@ -254,6 +274,8 @@ var registry = []registryEntry{
 		},
 		// Always quoted so a blend ("1+3") round-trips unambiguously.
 		serialize: quotedScalar("instance_color", func(s *Settings) *string { return &s.InstanceColor }),
+		read:      emptyableString(func(s *Settings) *string { return &s.InstanceColor }),
+		apply:     validatedScalar(func(s *Settings) *string { return &s.InstanceColor }, validate.ValidateColorValue, ""),
 	},
 	{
 		key: "ssh_host", kind: "string", def: "",
@@ -263,6 +285,8 @@ var registry = []registryEntry{
 		// so the value round-trips unambiguously).
 		parse:     quoteTrimmedScalar(func(s *Settings) *string { return &s.SSHHost }),
 		serialize: quotedScalar("ssh_host", func(s *Settings) *string { return &s.SSHHost }),
+		read:      emptyableString(func(s *Settings) *string { return &s.SSHHost }),
+		apply:     validatedScalar(func(s *Settings) *string { return &s.SSHHost }, validate.ValidateSSHHost, ""),
 	},
 	{
 		key: "instance_name", kind: "string", def: "",
@@ -270,6 +294,8 @@ var registry = []registryEntry{
 		category: "identity", ui: true, live: true,
 		parse:     quoteTrimmedScalar(func(s *Settings) *string { return &s.InstanceName }),
 		serialize: quotedScalar("instance_name", func(s *Settings) *string { return &s.InstanceName }),
+		read:      emptyableString(func(s *Settings) *string { return &s.InstanceName }),
+		apply:     validatedScalar(func(s *Settings) *string { return &s.InstanceName }, validate.ValidateInstanceName, ""),
 	},
 	{
 		key: "auto_name", kind: "bool", def: "false",
@@ -288,6 +314,8 @@ var registry = []registryEntry{
 			}
 			return ""
 		},
+		read:  func(s *Settings) any { return s.AutoName },
+		apply: boolValue(func(s *Settings) *bool { return &s.AutoName }),
 	},
 	{
 		key: "tmux_conf", kind: "path", def: "",
@@ -295,6 +323,8 @@ var registry = []registryEntry{
 		category: "advanced", ui: true, live: false,
 		parse:     quoteTrimmedScalar(func(s *Settings) *string { return &s.TmuxConf }),
 		serialize: quotedScalar("tmux_conf", func(s *Settings) *string { return &s.TmuxConf }),
+		read:      emptyableString(func(s *Settings) *string { return &s.TmuxConf }),
+		apply:     plainScalar(func(s *Settings) *string { return &s.TmuxConf }),
 	},
 	{
 		key: "log_level", kind: "enum", def: "info",
@@ -314,6 +344,13 @@ var registry = []registryEntry{
 			}
 			return ""
 		},
+		read: func(s *Settings) any { v := s.LogLevel; return &v },
+		apply: validatedScalar(func(s *Settings) *string { return &s.LogLevel }, func(value string) string {
+			if value == "info" || value == "debug" {
+				return ""
+			}
+			return "log_level must be info or debug"
+		}, "info"),
 	},
 	{
 		key: "server_colors", kind: "map", def: "{}",
@@ -322,6 +359,9 @@ var registry = []registryEntry{
 		// Tolerant color read: accept a legacy bare integer OR the string
 		// descriptor ("1+3"); normalize and drop anything malformed.
 		section: mapSection("server_colors", func(s *Settings) *map[string]string { return &s.ServerColors }, validate.NormalizeColorValue),
+		read:    func(s *Settings) any { return s.ServerColors },
+		apply: mapValue(func(s *Settings) *map[string]string { return &s.ServerColors },
+			validate.ValidateColorValue, validate.NormalizeColorValue),
 	},
 	{
 		key: "server_flairs", kind: "map", def: "{}",
@@ -330,12 +370,17 @@ var registry = []registryEntry{
 		// Tolerant flair read: accept only non-empty tokens in the universal
 		// set; no canonicalization needed — flair tokens round-trip as-is.
 		section: mapSection("server_flairs", func(s *Settings) *map[string]string { return &s.ServerFlairs }, normalizeFlairValue),
+		read:    func(s *Settings) any { return s.ServerFlairs },
+		apply: mapValue(func(s *Settings) *map[string]string { return &s.ServerFlairs },
+			validate.ValidateFlairValue, normalizeFlairValue),
 	},
 	{
 		key: "board_order", kind: "list", def: "[]",
 		desc:     "User-defined board display order; rank = list index.",
 		category: "layout", ui: true, live: true,
 		section: listSection("board_order", func(s *Settings) *[]string { return &s.BoardOrder }),
+		read:    func(s *Settings) any { return s.BoardOrder },
+		apply:   listValue(func(s *Settings) *[]string { return &s.BoardOrder }),
 	},
 }
 
@@ -448,6 +493,243 @@ func normalizeFlairValue(value string) (string, bool) {
 		return value, true
 	}
 	return "", false
+}
+
+// KeyInfo is the exported, read-only metadata view of one registry entry —
+// what GET /api/settings serves alongside the current value.
+type KeyInfo struct {
+	Key         string
+	Kind        string
+	Default     string
+	Description string
+	Category    string
+	UI          bool
+	Live        bool
+}
+
+// Registry returns the registry's metadata in registry slice order (the same
+// order serialize() emits — the stable display order).
+func Registry() []KeyInfo {
+	infos := make([]KeyInfo, len(registry))
+	for i := range registry {
+		e := &registry[i]
+		infos[i] = KeyInfo{
+			Key:         e.key,
+			Kind:        e.kind,
+			Default:     e.def,
+			Description: e.desc,
+			Category:    e.category,
+			UI:          e.ui,
+			Live:        e.live,
+		}
+	}
+	return infos
+}
+
+// ReadValue returns the key's current value on s in its natural JSON shape:
+// a string pointer (nil — surfacing as JSON null — for an unset scalar with
+// an empty default), a bool, a map[string]string, or a []string. Returned
+// string pointers point at copies — writing through one never mutates s.
+func ReadValue(s *Settings, key string) (any, bool) {
+	e := findEntry(key)
+	if e == nil {
+		return nil, false
+	}
+	return e.read(s), true
+}
+
+// ApplyValue merges one JSON patch value for key onto s (in memory — the
+// caller owns Load/Save) per Constitution IX partial-merge semantics. The
+// whole value is validated before s is touched; an error means no mutation.
+// Board-order entry VALIDITY (tmux.ValidBoardName, duplicates) is NOT checked
+// here — it lives at the API layer because this package cannot import
+// internal/tmux (tmux imports settings; a back-reference would be a cycle).
+func ApplyValue(s *Settings, key string, value json.RawMessage) error {
+	e := findEntry(key)
+	if e == nil {
+		return fmt.Errorf("unknown settings key: %s", key)
+	}
+	return e.apply(s, value)
+}
+
+// findEntry returns the registry entry for key, or nil for an unknown key.
+func findEntry(key string) *registryEntry {
+	for i := range registry {
+		if registry[i].key == key {
+			return &registry[i]
+		}
+	}
+	return nil
+}
+
+// jsonNull reports whether raw is exactly the JSON null literal.
+func jsonNull(raw json.RawMessage) bool {
+	return string(raw) == "null"
+}
+
+// emptyableString builds the read hook for a string scalar whose unset state
+// surfaces as JSON null (nil pointer) rather than "".
+func emptyableString(target func(*Settings) *string) func(*Settings) any {
+	return func(s *Settings) any {
+		if v := *target(s); v != "" {
+			return &v
+		}
+		return (*string)(nil)
+	}
+}
+
+// validatedScalar builds the apply hook for a validated string scalar
+// (color descriptors, ssh_host, instance_name, log_level): trimmed, with a
+// trimmed-to-empty value treated as null (unset, restoring the registry
+// default), and a non-empty value validated before any mutation.
+func validatedScalar(target func(*Settings) *string, validator func(string) string, def string) func(*Settings, json.RawMessage) error {
+	return func(s *Settings, raw json.RawMessage) error {
+		if jsonNull(raw) {
+			*target(s) = def
+			return nil
+		}
+		var v string
+		if err := json.Unmarshal(raw, &v); err != nil {
+			return fmt.Errorf("value must be a string or null: %w", err)
+		}
+		v = strings.TrimSpace(v)
+		if v == "" {
+			*target(s) = def
+			return nil
+		}
+		if msg := validator(v); msg != "" {
+			return errors.New(msg)
+		}
+		*target(s) = v
+		return nil
+	}
+}
+
+// plainScalar builds the apply hook for an unvalidated string scalar
+// (tmux_conf): trimmed, trimmed-to-empty treated as null (unset).
+func plainScalar(target func(*Settings) *string) func(*Settings, json.RawMessage) error {
+	return validatedScalar(target, func(string) string { return "" }, "")
+}
+
+// nonEmptyString builds the apply hook for a string scalar that must carry a
+// non-empty value (theme, theme_dark, theme_light): trimmed; null unsets to
+// the registry default; a trimmed-to-empty non-null value is rejected —
+// unlike the unsettable scalars there is no meaningful "unset" state, since
+// the file format omits these keys only at their defaults.
+func nonEmptyString(target func(*Settings) *string, def string) func(*Settings, json.RawMessage) error {
+	return func(s *Settings, raw json.RawMessage) error {
+		if jsonNull(raw) {
+			*target(s) = def
+			return nil
+		}
+		var v string
+		if err := json.Unmarshal(raw, &v); err != nil {
+			return fmt.Errorf("value must be a string or null: %w", err)
+		}
+		v = strings.TrimSpace(v)
+		if v == "" {
+			return fmt.Errorf("value must be a non-empty string")
+		}
+		*target(s) = v
+		return nil
+	}
+}
+
+// boolValue builds the apply hook for a bool scalar (auto_name): a JSON bool
+// sets; null unsets to false.
+func boolValue(target func(*Settings) *bool) func(*Settings, json.RawMessage) error {
+	return func(s *Settings, raw json.RawMessage) error {
+		if jsonNull(raw) {
+			*target(s) = false
+			return nil
+		}
+		var v bool
+		if err := json.Unmarshal(raw, &v); err != nil {
+			return fmt.Errorf("value must be a boolean or null: %w", err)
+		}
+		*target(s) = v
+		return nil
+	}
+}
+
+// mapValue builds the apply hook for a map-kind key (server_colors,
+// server_flairs): the patch merges PER ENTRY — an entry value of null unsets
+// that entry, a string entry is validated then set (a trimmed-to-empty string
+// unsets, matching the empty-equals-unset contract of the folded per-key
+// endpoints), and a top-level null clears the whole map. All entries are
+// validated before any mutation.
+func mapValue(target func(*Settings) *map[string]string, validator func(string) string, normalize func(string) (string, bool)) func(*Settings, json.RawMessage) error {
+	return func(s *Settings, raw json.RawMessage) error {
+		if jsonNull(raw) {
+			*target(s) = nil
+			return nil
+		}
+		var entries map[string]*string
+		if err := json.Unmarshal(raw, &entries); err != nil {
+			return fmt.Errorf("value must be an object or null: %w", err)
+		}
+		// Validate everything before touching s (all-or-nothing).
+		names := make([]string, 0, len(entries))
+		for name := range entries {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			v := entries[name]
+			if v == nil {
+				continue // entry null unsets — nothing to validate
+			}
+			trimmed := strings.TrimSpace(*v)
+			if trimmed == "" {
+				continue // empty string unsets, like null
+			}
+			if msg := validator(trimmed); msg != "" {
+				return fmt.Errorf("entry %q: %s", name, msg)
+			}
+		}
+		m := target(s)
+		for _, name := range names {
+			v := entries[name]
+			if v == nil || strings.TrimSpace(*v) == "" {
+				delete(*m, name)
+				continue
+			}
+			normalized, ok := normalize(strings.TrimSpace(*v))
+			if !ok {
+				return fmt.Errorf("entry %q: value failed normalization", name)
+			}
+			if *m == nil {
+				*m = make(map[string]string)
+			}
+			(*m)[name] = normalized
+		}
+		return nil
+	}
+}
+
+// listValue builds the apply hook for the list-kind key (board_order): the
+// patch replaces the stored list wholesale (rank = index — every reorder
+// writes the full list so stale names self-heal); top-level null or [] clears.
+// Entry name validity is the API layer's job (see ApplyValue).
+func listValue(target func(*Settings) *[]string) func(*Settings, json.RawMessage) error {
+	return func(s *Settings, raw json.RawMessage) error {
+		if jsonNull(raw) {
+			*target(s) = nil
+			return nil
+		}
+		var names []string
+		if err := json.Unmarshal(raw, &names); err != nil {
+			return fmt.Errorf("value must be an array or null: %w", err)
+		}
+		if len(names) == 0 {
+			*target(s) = nil
+			return nil
+		}
+		out := make([]string, len(names))
+		copy(out, names)
+		*target(s) = out
+		return nil
+	}
 }
 
 // parse extracts settings from simple "key: value" lines.

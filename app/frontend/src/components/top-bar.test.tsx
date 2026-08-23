@@ -945,7 +945,7 @@ describe("TopBar", () => {
     });
 
     // The stub also sees unrelated app fetches (e.g. ThemeProvider's
-    // /api/settings/theme on mount), so assertions filter to forceReload's
+    // /api/settings on mount), so assertions filter to forceReload's
     // signature call — second arg { cache: "reload" } — not total counts.
     const forceCalls = () =>
       fetchMock.mock.calls.filter((c) => c[1]?.cache === "reload");

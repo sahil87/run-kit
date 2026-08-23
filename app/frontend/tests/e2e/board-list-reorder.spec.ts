@@ -6,8 +6,8 @@ import { apiBase, pinWindow } from "./_boards";
 import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
 // scripts/test-e2e.sh isolates the tmux server/port but NOT $HOME, so this spec
-// POSTs /api/boards/order against the developer's REAL
-// ~/.config/run-kit/config.yaml.
+// writes the board_order key via POST /api/settings against the developer's
+// REAL ~/.config/run-kit/config.yaml.
 // Snapshot its raw bytes before the suite and restore them after so a curated
 // board order is never clobbered by test residue (byte-identical round-trip).
 const SETTINGS_PATH = join(homedir(), ".config", "run-kit", "config.yaml");
@@ -27,7 +27,7 @@ test.describe("Board list reorder — order endpoint + rank-aware sort + server-
   test.beforeAll(() => {
     // Snapshot the developer's REAL ~/.config/run-kit/config.yaml (raw bytes)
     // before this
-    // suite mutates it via /api/boards/order. Restored verbatim in afterAll so
+    // suite mutates it via POST /api/settings (board_order key). Restored verbatim in afterAll so
     // any curated board order survives byte-identically — $HOME is NOT isolated
     // by scripts/test-e2e.sh, so test residue would otherwise persist.
     try {
@@ -98,12 +98,14 @@ test.describe("Board list reorder — order endpoint + rank-aware sort + server-
     expect(baseNames).toEqual([BOARD_A, BOARD_Z]);
 
     // POST a reorder putting zzz… FIRST — overriding the alphabetical default.
-    const post = await request.post(`${base}/api/boards/order`, {
+    // The order rides POST /api/settings as the board_order key (partial merge
+    // per Constitution IX).
+    const post = await request.post(`${base}/api/settings`, {
       headers: { "Content-Type": "application/json" },
-      data: { order: [BOARD_Z, BOARD_A] },
+      data: { board_order: [BOARD_Z, BOARD_A] },
     });
-    expect(post.ok(), `POST /api/boards/order → ${post.status()}`).toBeTruthy();
-    expect(await post.json()).toEqual({ ok: true });
+    expect(post.ok(), `POST /api/settings → ${post.status()}`).toBeTruthy();
+    expect(await post.json()).toEqual({ status: "ok" });
 
     // GET now returns the stored order first (zzz…, aaa…), proving the API-layer
     // rank-aware sort applies.
@@ -116,9 +118,9 @@ test.describe("Board list reorder — order endpoint + rank-aware sort + server-
 
   test("an invalid board name in the order is rejected with 400", async ({ request, baseURL }) => {
     const base = apiBase(baseURL);
-    const resp = await request.post(`${base}/api/boards/order`, {
+    const resp = await request.post(`${base}/api/settings`, {
       headers: { "Content-Type": "application/json" },
-      data: { order: ["bad name!"] },
+      data: { board_order: ["bad name!"] },
     });
     expect(resp.status()).toBe(400);
   });
@@ -150,10 +152,10 @@ test.describe("Board list reorder — order endpoint + rank-aware sort + server-
           ws.onopen = () => {
             ws.send(JSON.stringify({ op: "hello", conn: "e2e-board-list-reorder" }));
             ws.send(JSON.stringify({ op: "subscribe", kind: "metrics", req: 1 }));
-            void fetch("/api/boards/order", {
+            void fetch("/api/settings", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ order: [z, a] }),
+              body: JSON.stringify({ board_order: [z, a] }),
             });
           };
           ws.onmessage = (e: MessageEvent) => {

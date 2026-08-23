@@ -106,25 +106,25 @@ describe("boards API client", () => {
     expect(captured).toEqual({ server: "default", windowId: "@1234", before: null, after: "@5678" });
   });
 
-  it("setBoardOrder POSTs the full ordered list to /api/boards/order", async () => {
+  it("setBoardOrder POSTs the full ordered list as board_order to /api/settings", async () => {
     let captured: unknown = null;
     let capturedPath = "";
     mswServer.use(
-      http.post("/api/boards/order", async ({ request }) => {
+      http.post("/api/settings", async ({ request }) => {
         capturedPath = new URL(request.url).pathname;
         captured = await request.json();
-        return HttpResponse.json({ ok: true });
+        return HttpResponse.json({ status: "ok" });
       }),
     );
     const r = await setBoardOrder(["reviews", "deploys", "scratch"]);
     expect(r.ok).toBe(true);
-    expect(capturedPath).toBe("/api/boards/order");
-    expect(captured).toEqual({ order: ["reviews", "deploys", "scratch"] });
+    expect(capturedPath).toBe("/api/settings");
+    expect(captured).toEqual({ board_order: ["reviews", "deploys", "scratch"] });
   });
 
   it("setBoardOrder throws on 400 (invalid board name)", async () => {
     mswServer.use(
-      http.post("/api/boards/order", () =>
+      http.post("/api/settings", () =>
         HttpResponse.json({ error: "invalid board name: bad name!" }, { status: 400 }),
       ),
     );

@@ -303,54 +303,6 @@ func (s *Server) handleBoardReorder(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "newOrderKey": newKey})
 }
 
-// handleBoardOrderPost persists the user-defined board display order and
-// broadcasts it to every connected SSE client (server-global — see
-// broadcastBoardOrder). The client sends the FULL ordered list of board names.
-// POST /api/boards/order ← {"order": ["deploys", "reviews", ...]} → 200 {"ok": true}
-//
-// Uniform POST per Constitution IX. Each name is validated with ValidBoardName;
-// an invalid or duplicate name (or a malformed body) is a 400 before any write.
-// Every reorder replaces the full stored list, so stale names self-heal.
-func (s *Server) handleBoardOrderPost(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Order []string `json:"order"`
-	}
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid JSON body — expected {\"order\": [\"name\", ...]}")
-		return
-	}
-	if body.Order == nil {
-		body.Order = []string{}
-	}
-	seen := make(map[string]struct{}, len(body.Order))
-	for _, name := range body.Order {
-		if !tmux.ValidBoardName(name) {
-			writeError(w, http.StatusBadRequest, "invalid board name: "+name)
-			return
-		}
-		if _, dup := seen[name]; dup {
-			writeError(w, http.StatusBadRequest, "Duplicate board name in order: "+name)
-			return
-		}
-		seen[name] = struct{}{}
-	}
-
-	if err := settings.SetBoardOrder(body.Order); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	// Broadcast the new order to every connected state-socket client
-	// (host-global, so even a zero-attached-server Host tab with only a
-	// metrics subscription hears it).
-	s.initSSEHub()
-	s.sseHub.broadcastBoardOrder(body.Order)
-
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-}
-
 // windowExistsOnServer returns true if the supplied windowID matches a live
 // window on the server — whether the window is in a normal (home) session OR
 // linked into its own pin-session (a pinned window is a member of both).

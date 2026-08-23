@@ -1,0 +1,57 @@
+id: tqkt
+name: 260823-tqkt-mux-await-any-multi-target
+created: 2026-08-23T15:17:54Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 8
+    acceptance_count: 14
+    acceptance_completed: 14
+confidence:
+    certain: 2
+    confident: 9
+    tentative: 0
+    unresolved: 0
+    score: 3.7
+    fuzzy: true
+    dimensions:
+        signal: 61.4
+        reversibility: 79.5
+        competence: 77.3
+        disambiguation: 70.5
+stage_metrics:
+    intake: {started_at: "2026-08-23T15:17:54Z", driver: fab-new, iterations: 1, completed_at: "2026-08-23T15:30:57Z"}
+    apply: {started_at: "2026-08-23T15:30:57Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T15:42:28Z"}
+    review: {started_at: "2026-08-23T15:42:28Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T15:46:30Z"}
+    hydrate: {started_at: "2026-08-23T15:46:30Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T15:51:10Z"}
+    ship: {started_at: "2026-08-23T15:51:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T15:54:50Z"}
+    review-pr: {started_at: "2026-08-23T15:54:50Z", driver: git-pr, iterations: 1, completed_at: "2026-08-23T17:31:19Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/723
+true_impact:
+    added: 880
+    deleted: 103
+    net: 777
+    excluding:
+        added: 393
+        deleted: 81
+        net: 312
+    tests:
+        added: 263
+        deleted: 27
+        net: 236
+    computed_at: "2026-08-23T15:54:50Z"
+    computed_at_stage: ship
+summary: 'rk mux await gains --any multi-target any-of wait mode (fleet wake: <state> %N report, gone %N exit 1, per-pane --after-active, five-point caller protocol)'
+change_type_source: explicit
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-23T17:31:19Z

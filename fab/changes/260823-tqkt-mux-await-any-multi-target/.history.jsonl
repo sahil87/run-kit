@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-23T15:17:54Z"}
+{"args":"rk mux await --any \u003cpane\u003e... multi-target any-of wait mode for fab operator event wake (backlog [tqkt])","cmd":"fab-new","event":"command","ts":"2026-08-23T15:17:54Z"}
+{"delta":"+3.7","event":"confidence","score":3.7,"trigger":"calc-score","ts":"2026-08-23T15:20:00Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-23T15:30:23Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-23T15:30:57Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-23T15:42:28Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-23T15:46:30Z"}
+{"event":"review","result":"passed","ts":"2026-08-23T15:46:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-23T15:51:10Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-08-23T15:54:50Z"}
+{"event":"review","result":"passed","ts":"2026-08-23T17:31:19Z"}

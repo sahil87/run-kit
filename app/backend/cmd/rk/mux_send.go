@@ -116,8 +116,8 @@ var (
 	muxSendResolveWindowFn = func(ctx context.Context, windowTarget, server string) (string, error) {
 		return tmux.ResolveAgentPane(ctx, windowTarget, server)
 	}
-	muxAwaitObserveFn = func(ctx context.Context, deps awaitDeps, paneID string, p awaitParams) (string, error) {
-		return awaitObserve(ctx, deps, paneID, p)
+	muxAwaitObserveFn = func(ctx context.Context, deps awaitDeps, panes []string, p awaitParams) (string, string, error) {
+		return awaitObserve(ctx, deps, panes, p)
 	}
 	// muxStdinFn supplies the stdin reader for the `-` payload form (a var so
 	// tests can feed a buffer).
@@ -320,7 +320,9 @@ var sendAwaitActiveGrace = 10 * time.Second
 // failure) propagates as the final report — the peer died.
 func muxSendAwaitPeer(ctx context.Context, cmd *cobra.Command, server, paneID string, states []string) (string, error) {
 	deps := muxAwaitDepsFn(server)
-	graceReport, err := muxAwaitObserveFn(ctx, deps, paneID, awaitParams{
+	// --await stays single-target (non-goal): the fired-pane return is dropped,
+	// and the report word printed by send stays the bare await report.
+	graceReport, _, err := muxAwaitObserveFn(ctx, deps, []string{paneID}, awaitParams{
 		until:   []string{tmux.AgentStateActive},
 		timeout: sendAwaitActiveGrace,
 	})
@@ -329,8 +331,9 @@ func muxSendAwaitPeer(ctx context.Context, cmd *cobra.Command, server, paneID st
 	}
 	// graceReport is "active" (flip observed) or "running" (grace expired) —
 	// the race window is closed as well as it can be, either way.
-	return muxAwaitObserveFn(ctx, deps, paneID, awaitParams{
+	report, _, err := muxAwaitObserveFn(ctx, deps, []string{paneID}, awaitParams{
 		until:   states,
 		timeout: time.Duration(muxSendTimeoutFlag) * time.Second,
 	})
+	return report, err
 }

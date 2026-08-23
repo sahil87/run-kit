@@ -126,7 +126,7 @@ func installMuxFakes(t *testing.T, f *muxFake) {
 		f.keysSent = append(f.keysSent, append([]string{paneID}, keys...))
 		return nil
 	}
-	muxAwaitObserveFn = func(_ context.Context, _ awaitDeps, _ string, p awaitParams) (string, error) {
+	muxAwaitObserveFn = func(_ context.Context, _ awaitDeps, _ []string, p awaitParams) (string, string, error) {
 		f.awaitRuns = append(f.awaitRuns, p)
 		if len(f.awaitReports) > 0 {
 			r := f.awaitReports[0]
@@ -140,9 +140,9 @@ func installMuxFakes(t *testing.T, f *muxFake) {
 				// error would end the sequence before reaching it).
 				err = f.awaitErr
 			}
-			return r, err
+			return r, "", err
 		}
-		return "running", f.awaitErr
+		return "running", "", f.awaitErr
 	}
 	muxStdinFn = func() io.Reader { return strings.NewReader(f.stdin) }
 	muxBufferNameFn = func() string { return "rk-send-4242" }
@@ -261,6 +261,7 @@ func resetMuxFlags() {
 	awaitAfterActiveFlag = false
 	awaitTimeoutFlag = awaitDefaultTimeoutSec
 	awaitNotifyFlag = ""
+	awaitAnyFlag = false
 	muxCaptureLinesFlag = 50
 	muxCaptureJSONFlag, muxCaptureRawFlag = false, false
 	muxKillForceFlag = false

@@ -28,6 +28,15 @@ import (
 // state counts (the composable fix for the stale-state race when awaiting a
 // pane that was just sent to outside `rk mux send --await`). --notify sends a
 // Web Push when the signal fires — fail-silent per the rk notify contract.
+//
+// --any generalizes the target to one-or-more panes (any-of wait): per sweep
+// the first pane whose state is in --until wins and the report appends it
+// ("waiting %5"); the first dead pane reports "gone %N" (exit 1) when no
+// signal fired that sweep; "file"/"running" stay bare. --after-active is
+// tracked PER PANE, and an uninstrumented member with no --file fails the
+// whole arm on the first sweep. Two targets resolving to the same pane are a
+// usage error. Without --any the contract is byte-identical to the
+// single-target form.
 
 // awaitCmdTimeout caps each tmux read the observer performs (Constitution §I:
 // 5-10s for short-lived tmux helpers).
@@ -39,6 +48,7 @@ var (
 	awaitAfterActiveFlag bool
 	awaitTimeoutFlag     int
 	awaitNotifyFlag      string
+	awaitAnyFlag         bool
 )
 
 // awaitFlagAuto is the NoOptDefVal sentinel for --notify (the present.go
@@ -47,10 +57,10 @@ var (
 const awaitFlagAuto = "\x00auto"
 
 var muxAwaitCmd = &cobra.Command{
-	Use:   "await <target> [--until <state>[,<state>]] [--file <path>] [--after-active] [--timeout <secs>] [--notify[=msg]]",
+	Use:   "await [--any] <target>... [--until <state>[,<state>]] [--file <path>] [--after-active] [--timeout <secs>] [--notify[=msg]]",
 	Short: "Block until an agent pane reaches a state (or a file appears)",
 	Long: "Block until any waitable signal fires on the target pane, then print a " +
-		"one-word report and exit:\n" +
+		"one-line report and exit:\n" +
 		"  <state>   the pane's @rk_agent_state reached a state in --until (default idle)\n" +
 		"  file      the --file path appeared (OR-composed with the state signal)\n" +
 		"  running   --timeout (default 300s, 0 = indefinite) expired — exit 0; the\n" +
@@ -61,11 +71,17 @@ var muxAwaitCmd = &cobra.Command{
 		"state counts (closes the stale-state race when awaiting right after a send " +
 		"outside `rk mux send --await`). --notify sends a fail-silent Web Push when " +
 		"the signal fires.\n\n" +
+		"With --any the target is one-or-more panes and the observer wakes on the " +
+		"FIRST to fire: state reports append the firing pane (`waiting %5`), a " +
+		"death reports `gone %N` (exit 1) when no signal fired that sweep, and " +
+		"`file`/`running` stay bare. --after-active is tracked per pane, an " +
+		"uninstrumented member with no --file fails the whole arm, and two " +
+		"targets resolving to the same pane are a usage error.\n\n" +
 		"Targets: %N (pane), @N (window — resolves to its agent pane), " +
 		"=session:window (exact). Bare session:window names are rejected.",
-	Args: usageArgs(cobra.ExactArgs(1)),
+	Args: usageArgs(cobra.MinimumNArgs(1)),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runMuxAwait(cmd, args[0])
+		return runMuxAwait(cmd, args)
 	},
 }
 
@@ -81,6 +97,8 @@ func init() {
 	muxAwaitCmd.Flags().StringVar(&awaitNotifyFlag, "notify", "",
 		"Send a Web Push when the signal fires (optional message; default \"agent <target> is <report>\")")
 	muxAwaitCmd.Flags().Lookup("notify").NoOptDefVal = awaitFlagAuto
+	muxAwaitCmd.Flags().BoolVar(&awaitAnyFlag, "any", false,
+		"Accept one-or-more targets and wake on the FIRST to fire (report appends the firing pane)")
 }
 
 // awaitDeps are the observer's test seams (the present.go pattern): the
@@ -143,10 +161,9 @@ const awaitDefaultTimeoutSec = 300
 
 // runMuxAwait is the testable core: parse → resolve → observe → report →
 // optionally notify.
-func runMuxAwait(cmd *cobra.Command, target string) error {
-	pt, err := tmux.ParsePaneTarget(target)
-	if err != nil {
-		return usageError(err)
+func runMuxAwait(cmd *cobra.Command, args []string) error {
+	if !awaitAnyFlag && len(args) != 1 {
+		return usageError(fmt.Errorf("await takes exactly one target without --any (got %d)", len(args)))
 	}
 	until, err := parseUntilStates(awaitUntilFlag)
 	if err != nil {
@@ -160,19 +177,34 @@ func runMuxAwait(cmd *cobra.Command, target string) error {
 	if parent == nil {
 		parent = context.Background()
 	}
-	// Target RESOLUTION is a bounded tmux call; the observer loop below rides the
+	server := muxServer()
+	// Every target resolves to a pane ID up front, before the wait begins. Each
+	// resolution is a bounded tmux call; the observer loop below rides the
 	// PARENT context (no command-level deadline) — a wait may legitimately run
 	// for the full --timeout (default 300s, 0 = indefinite), so only the
 	// individual tmux reads carry timeouts (see prodAwaitDeps).
-	ctx, cancel := context.WithTimeout(parent, muxCmdTimeout)
-	paneID, err := resolvePaneTarget(ctx, pt, muxServer())
-	cancel()
-	if err != nil {
-		return err
+	panes := make([]string, 0, len(args))
+	seen := make(map[string]string, len(args)) // pane ID → the arg that named it
+	for _, arg := range args {
+		pt, err := tmux.ParsePaneTarget(arg)
+		if err != nil {
+			return usageError(err)
+		}
+		ctx, cancel := context.WithTimeout(parent, muxCmdTimeout)
+		paneID, err := resolvePaneTarget(ctx, pt, server)
+		cancel()
+		if err != nil {
+			return err
+		}
+		if prev, dup := seen[paneID]; dup {
+			return usageError(fmt.Errorf("duplicate target: %s and %s both resolve to pane %s", prev, arg, paneID))
+		}
+		seen[paneID] = arg
+		panes = append(panes, paneID)
 	}
 
-	deps := muxAwaitDepsFn(muxServer())
-	report, err := awaitObserve(parent, deps, paneID, awaitParams{
+	deps := muxAwaitDepsFn(server)
+	report, firedPane, err := awaitObserve(parent, deps, panes, awaitParams{
 		until:       until,
 		file:        awaitFileFlag,
 		afterActive: awaitAfterActiveFlag,
@@ -180,15 +212,26 @@ func runMuxAwait(cmd *cobra.Command, target string) error {
 	})
 
 	sink := newSink(cmd)
-	if report != "" {
-		sink.Dataf("%s\n", report)
+	line := report
+	if awaitAnyFlag && firedPane != "" {
+		line = report + " " + firedPane
+	}
+	if line != "" {
+		sink.Dataf("%s\n", line)
 	}
 	// --notify fires only on a REAL signal (never on a refusal-class error
 	// before the wait even started), fail-silent per the rk notify contract.
 	if report != "" && cmd.Flags().Changed("notify") {
 		msg := awaitNotifyFlag
 		if msg == awaitFlagAuto {
-			msg = fmt.Sprintf("agent %s is %s", paneID, report)
+			switch {
+			case firedPane != "":
+				msg = fmt.Sprintf("agent %s is %s", firedPane, report)
+			case awaitAnyFlag:
+				msg = fmt.Sprintf("await --any is %s", report)
+			default:
+				msg = fmt.Sprintf("agent %s is %s", panes[0], report)
+			}
 		}
 		deps.notify(parent, "", msg)
 	}
@@ -203,24 +246,28 @@ type awaitParams struct {
 	timeout     time.Duration // observer bound; 0 = indefinite
 }
 
-// awaitObserve runs the await observer loop and returns the report word plus
-// the exit-classifying error (nil for idle/file/running; a plain operational
-// error for gone, after the "gone" report is still returned for printing). The
-// loop checks BEFORE sleeping so an already-fired signal returns immediately,
-// and checks the file signal before the state read so a fired signal wins over
-// a mid-tick pane death.
+// awaitObserve runs the await observer loop over the pane set and returns the
+// report word, the firing pane ("" for file/running and for read/timeout-class
+// errors), plus the exit-classifying error (nil for state/file/running; a
+// plain operational error for gone, after the "gone" report is still returned
+// for printing). Each sweep checks BEFORE sleeping so an already-fired signal
+// returns immediately, and checks the file signal before the state reads so a
+// fired signal wins over a mid-sweep pane death. Within a sweep a death only
+// records the first gone pane — a state signal on a later member still wins.
+// The first sweep is also the arm validation: a match there is held until
+// every member proved observable, and the unobservable error outranks it.
 // errUnobservable marks the "nothing observable to wait on" verdict — an
 // uninstrumented pane (no @rk_agent_state) with no --file. A sentinel so
 // `rk mux send --await`'s grace watch can treat it as a fall-through (the
 // delivery already happened; the await phase re-applies the rule itself).
 var errUnobservable = errors.New("nothing observable to wait on")
 
-func awaitObserve(ctx context.Context, deps awaitDeps, paneID string, p awaitParams) (string, error) {
+func awaitObserve(ctx context.Context, deps awaitDeps, panes []string, p awaitParams) (string, string, error) {
 	var deadline time.Time
 	if p.timeout > 0 {
 		deadline = deps.now().Add(p.timeout)
 	}
-	seenActive := false
+	seenActive := make(map[string]bool, len(panes)) // --after-active is per pane
 	instrumentedChecked := false
 	until := make(map[string]bool, len(p.until))
 	for _, s := range p.until {
@@ -228,39 +275,61 @@ func awaitObserve(ctx context.Context, deps awaitDeps, paneID string, p awaitPar
 	}
 
 	for {
-		// 1. File signal first — a fired signal wins over a mid-tick pane death.
+		// 1. File signal first — a fired signal wins over a mid-sweep pane death.
 		if p.file != "" && deps.fileStat(p.file) {
-			return "file", nil
+			return "file", "", nil
 		}
-		// 2. State signal.
-		state, gone, err := deps.readState(ctx, paneID)
-		if err != nil {
-			return "", fmt.Errorf("read pane state: %w", err)
-		}
-		if gone {
-			return "gone", fmt.Errorf("pane %s is gone", paneID)
-		}
-		if !instrumentedChecked {
-			instrumentedChecked = true
-			// An uninstrumented pane with no --file has nothing observable to
-			// wait on — error immediately rather than polling forever.
-			if state == "" && p.file == "" {
-				return "", fmt.Errorf("%w: pane %s carries no %s and no --file was given", errUnobservable, paneID, tmux.AgentStateOption)
+		// 2. State sweep — panes in listed order; the first --until match wins.
+		// The FIRST sweep doubles as the arm validation: a match found there is
+		// held until every member has been checked observable, so an
+		// uninstrumented member fails the whole arm even when an earlier pane
+		// has already fired (the unobservable error outranks a held match).
+		firstSweep := !instrumentedChecked
+		gonePane := ""
+		heldState, heldPane := "", ""
+		for _, paneID := range panes {
+			state, gone, err := deps.readState(ctx, paneID)
+			if err != nil {
+				return "", "", fmt.Errorf("read pane state: %w", err)
+			}
+			if gone {
+				if gonePane == "" {
+					gonePane = paneID
+				}
+				continue
+			}
+			if firstSweep && state == "" && p.file == "" {
+				// An uninstrumented pane with no --file has nothing observable
+				// to wait on — error immediately rather than polling forever.
+				return "", "", fmt.Errorf("%w: pane %s carries no %s and no --file was given", errUnobservable, paneID, tmux.AgentStateOption)
+			}
+			if state == tmux.AgentStateActive {
+				seenActive[paneID] = true
+			}
+			if until[state] && (!p.afterActive || seenActive[paneID]) {
+				if !firstSweep {
+					return state, paneID, nil
+				}
+				if heldPane == "" {
+					heldState, heldPane = state, paneID
+				}
 			}
 		}
-		if state == tmux.AgentStateActive {
-			seenActive = true
+		instrumentedChecked = true
+		if heldPane != "" {
+			return heldState, heldPane, nil
 		}
-		if until[state] && (!p.afterActive || seenActive) {
-			return state, nil
+		// 3. Death — reported only when no signal fired this sweep.
+		if gonePane != "" {
+			return "gone", gonePane, fmt.Errorf("pane %s is gone", gonePane)
 		}
-		// 3. Timeout — the observer's own bound; `running` is a report, not a
+		// 4. Timeout — the observer's own bound; `running` is a report, not a
 		// failure (exit 0).
 		if p.timeout > 0 && !deps.now().Before(deadline) {
-			return "running", nil
+			return "running", "", nil
 		}
 		if err := deps.sleep(ctx, awaitPollTick); err != nil {
-			return "", err
+			return "", "", err
 		}
 	}
 }

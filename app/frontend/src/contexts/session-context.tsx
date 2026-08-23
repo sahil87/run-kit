@@ -197,6 +197,12 @@ export type SessionContextType = {
    *  connection dot is (this) AND (the chat subscription acked); the owner hook
    *  applies the 3s disconnect debounce. */
   socketConnected: boolean;
+  /** Imperative read of the per-server receipt tick (260823-ke9i): a monotonic
+   *  counter bumped on every server-scoped snapshot or event received for that
+   *  server, used by the pending-switch bounce verdict to tell post-click
+   *  evidence from a frozen pre-click snapshot. Ref-backed — callers read it
+   *  without subscribing to re-renders. A server never seen reads 0. */
+  getServerReceiptTick: (server: string) => number;
   /** The running daemon version reported over the server-global `event: version`
    *  (no leading "v"). `null` until the first `version` event. */
   daemonVersion: string | null;
@@ -778,6 +784,18 @@ export function SessionProvider({ children }: SessionProviderProps) {
   // Declared here (above the event handlers) so handleGlobalEvent can fan the
   // host-global metrics snapshot into each attached server's per-server slice.
   const subscribedServersRef = useRef<Set<string>>(new Set());
+  // Per-server monotonic receipt tick (260823-ke9i): bumped on every
+  // server-scoped snapshot or event received for that server. Read imperatively
+  // by the pending-switch bounce verdict — ref-backed so the read never
+  // subscribes to re-renders. A server never seen reads 0.
+  const receiptTicksRef = useRef<Map<string, number>>(new Map());
+  const bumpReceiptTick = useCallback((server: string) => {
+    receiptTicksRef.current.set(server, (receiptTicksRef.current.get(server) ?? 0) + 1);
+  }, []);
+  const getServerReceiptTick = useCallback(
+    (server: string) => receiptTicksRef.current.get(server) ?? 0,
+    [],
+  );
 
   // Stable event handlers held in a ref so the socket is constructed ONCE
   // (the apply* callbacks are stable useCallbacks; we thread them through a ref
@@ -944,6 +962,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
     const socket = new StateSocket({
       onEvent: (ev) => {
         if (ev.kind === "server" && ev.key) {
+          bumpReceiptTick(ev.key);
           eventRef.current.handleServerEvent(ev.type, ev.key, ev.data);
         } else if (ev.kind === "global") {
           eventRef.current.handleGlobalEvent(ev.type, ev.data);
@@ -969,6 +988,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
         }
         if (!key) return;
         ackedServersRef.current.add(key);
+        bumpReceiptTick(key);
         // The server ack snapshot is the sessions payload (parity with the
         // first `event: sessions`). null means "no snapshot yet".
         const sessions = Array.isArray(snapshot) ? (snapshot as ProjectSession[]) : [];
@@ -1166,6 +1186,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
       unsubscribeChat,
       registerChatHandlers,
       socketConnected,
+      getServerReceiptTick,
       daemonVersion,
       updateAvailable,
       manualCheck,
@@ -1198,6 +1219,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
       unsubscribeChat,
       registerChatHandlers,
       socketConnected,
+      getServerReceiptTick,
       daemonVersion,
       updateAvailable,
       manualCheck,
@@ -1506,6 +1528,7 @@ export function StandaloneSessionContextProvider({
     unsubscribeChat: value.unsubscribeChat ?? (() => {}),
     registerChatHandlers: value.registerChatHandlers ?? (() => () => {}),
     socketConnected: value.socketConnected ?? false,
+    getServerReceiptTick: value.getServerReceiptTick ?? (() => 0),
     daemonVersion: value.daemonVersion ?? null,
     updateAvailable: value.updateAvailable ?? null,
     manualCheck: value.manualCheck ?? null,

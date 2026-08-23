@@ -474,10 +474,15 @@ export async function checkFrame(url: string): Promise<FrameCheckResult> {
   }
 }
 
+/** Response body of `POST /api/windows/{id}/select`. `activeWindow` is absent
+ *  on older daemons — callers treat that as "select executed, active window
+ *  unreported". */
+export type SelectWindowResult = { ok: boolean; activeWindow?: string };
+
 export async function selectWindow(
   server: string,
   windowId: string,
-): Promise<{ ok: boolean }> {
+): Promise<SelectWindowResult> {
   const res = await fetch(
     withServer(`/api/windows/${encodeURIComponent(windowId)}/select`, server),
     { method: "POST" },

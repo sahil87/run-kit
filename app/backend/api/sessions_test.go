@@ -97,6 +97,11 @@ type mockTmuxOps struct {
 	resolveWindowSessionErr    error
 	resolveWindowSessionID     string
 
+	activeWindowIDResult string
+	activeWindowIDErr    error
+	activeWindowIDServer string
+	activeWindowIDSession string
+
 	// hasSessionNames, when non-nil, makes HasSession return true only for the
 	// listed session names (models the relay's pin-session-first probe). When nil,
 	// HasSession returns false for everything (no pin-session present).
@@ -354,6 +359,14 @@ func (m *mockTmuxOps) ResolveWindowSession(ctx context.Context, server, windowID
 		return "", m.resolveWindowSessionErr
 	}
 	return m.resolveWindowSessionResult, nil
+}
+func (m *mockTmuxOps) ActiveWindowID(ctx context.Context, server, session string) (string, error) {
+	m.activeWindowIDServer = server
+	m.activeWindowIDSession = session
+	if m.activeWindowIDErr != nil {
+		return "", m.activeWindowIDErr
+	}
+	return m.activeWindowIDResult, nil
 }
 func (m *mockTmuxOps) HasSession(ctx context.Context, server, session string) bool {
 	if m.hasSessionNames == nil {

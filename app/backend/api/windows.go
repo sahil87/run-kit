@@ -220,7 +220,16 @@ func (s *Server) handleWindowSelect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	// Report the post-select active window so the client can confirm the switch
+	// without waiting for the state socket. The read is best-effort: the select
+	// itself succeeded, so a failed read falls back to the requested id rather
+	// than failing the request.
+	activeWindow, readErr := s.tmux.ActiveWindowID(ctx, server, session)
+	if readErr != nil {
+		activeWindow = windowID
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "activeWindow": activeWindow})
 }
 
 func (s *Server) handleWindowSplit(w http.ResponseWriter, r *http.Request) {

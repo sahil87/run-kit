@@ -699,3 +699,91 @@ export function nextDirectionToken(): number {
 export function isLatestDirectionToken(token: number): boolean {
   return token === latestDirectionToken;
 }
+
+// ── Confirmation-on-200 and the freshness-gated bounce (260823-ke9i) ────────
+
+/** The settlement-shape of a `selectWindow` POST, from the caller's side. */
+export type SwitchPostOutcome =
+  | { kind: "resolved"; resp: { ok: boolean; activeWindow?: string } }
+  | { kind: "rejected" };
+
+/**
+ * What a settled `selectWindow` POST does to the tracked pending switch
+ * (260823-ke9i).
+ */
+export type SwitchPostEffect = "confirm" | "contradiction" | "none";
+
+/**
+ * Decide how a settled `selectWindow` POST affects the pending switch's
+ * failure detector. Pure — the caller supplies the ambient identity facts (the
+ * still-points-at-itself tracked-entry guard, and whether the intent still
+ * records this `{server, windowId}`).
+ *
+ * - `"confirm"` — the 200 is synchronous proof tmux executed the select:
+ *   cancel the bounce timer only (never the intent or the gate/mask — paint
+ *   feedback stays byte-driven).
+ * - `"contradiction"` — fresh post-click evidence: an explicit rejection
+ *   (rejection IS fresh evidence — it post-dates the click, so the
+ *   freshness-gated verdict can bounce immediately instead of re-arming into
+ *   the SF8 limbo) or a mismatched `activeWindow` (an external switch won).
+ * - `"none"` — a superseded switch's late settlement, or an intent that has
+ *   moved on: a no-op; the newer switch's tracking is untouched.
+ */
+export function resolvePendingSwitchPost(opts: {
+  outcome: SwitchPostOutcome;
+  targetWindowId: string;
+  isCurrent: boolean;
+  intentMatches: boolean;
+}): SwitchPostEffect {
+  if (!opts.isCurrent || !opts.intentMatches) return "none";
+  if (opts.outcome.kind === "rejected") return "contradiction";
+  return postConfirmsSwitch(opts.outcome.resp, opts.targetWindowId)
+    ? "confirm"
+    : "contradiction";
+}
+
+/**
+ * True iff a resolved `selectWindow` POST response confirms the pending switch
+ * to `targetWindowId`. The 200 alone proves tmux executed the select (the
+ * handler runs it synchronously), so an absent `activeWindow` field (older
+ * daemon) counts as confirming; a mismatched `activeWindow` is fresh evidence
+ * of a contradiction (an external switch won the race), not a confirmation.
+ */
+export function postConfirmsSwitch(
+  resp: { ok: boolean; activeWindow?: string },
+  targetWindowId: string,
+): boolean {
+  return resp.ok && (resp.activeWindow === undefined || resp.activeWindow === targetWindowId);
+}
+
+/**
+ * The expiry decision for a pending switch's confirmation timer
+ * (260823-ke9i): the verdict is freshness-gated so a failure is never rendered
+ * from evidence older than the click.
+ *
+ * - `"confirm"` — post-click evidence shows the target active (the silent-clear
+ *   rescue).
+ * - `"bounce"` — fresh post-click evidence shows a DIFFERENT window active
+ *   (either a mismatched POST `activeWindow`, or a post-click snapshot
+ *   contradicting the target).
+ * - `"rearm"` — no fresh evidence (disconnected socket, or no receipt since
+ *   the click): the verdict must not fire on a frozen pre-click snapshot, so
+ *   the timer re-arms and waits for evidence (extend-until-evidence).
+ *
+ * Pure — the caller supplies the ambient facts; `activeWindowId` is only
+ * consulted when it is post-click evidence (a receipt tick newer than the one
+ * recorded at the click, or the POST contradiction flag).
+ */
+export function resolvePendingSwitchVerdict(opts: {
+  isConnected: boolean;
+  tickAtClick: number;
+  currentTick: number;
+  postContradiction: boolean;
+  activeWindowId: string | undefined;
+  targetWindowId: string;
+}): "confirm" | "bounce" | "rearm" {
+  const hasFreshEvidence =
+    opts.postContradiction || opts.currentTick > opts.tickAtClick;
+  if (!opts.isConnected || !hasFreshEvidence) return "rearm";
+  return opts.activeWindowId === opts.targetWindowId ? "confirm" : "bounce";
+}

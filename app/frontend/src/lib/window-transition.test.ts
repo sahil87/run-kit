@@ -16,6 +16,9 @@ import {
   isSamePendingTarget,
   nextDirectionToken,
   isLatestDirectionToken,
+  postConfirmsSwitch,
+  resolvePendingSwitchPost,
+  resolvePendingSwitchVerdict,
 } from "./window-transition";
 
 describe("windowSwitchDirection", () => {
@@ -895,5 +898,185 @@ describe("direction-attribute latest-wins guard (nextDirectionToken / isLatestDi
     const a = nextDirectionToken();
     const b = nextDirectionToken();
     expect(b).toBeGreaterThan(a);
+  });
+});
+
+describe("postConfirmsSwitch (260823-ke9i)", () => {
+  it("confirms when activeWindow matches the target", () => {
+    expect(postConfirmsSwitch({ ok: true, activeWindow: "@2" }, "@2")).toBe(true);
+  });
+
+  it("confirms when activeWindow is absent (older daemon)", () => {
+    expect(postConfirmsSwitch({ ok: true }, "@2")).toBe(true);
+  });
+
+  it("does NOT confirm a mismatched activeWindow (external switch won)", () => {
+    expect(postConfirmsSwitch({ ok: true, activeWindow: "@5" }, "@2")).toBe(false);
+  });
+
+  it("does NOT confirm when ok is false", () => {
+    expect(postConfirmsSwitch({ ok: false, activeWindow: "@2" }, "@2")).toBe(false);
+  });
+});
+
+describe("resolvePendingSwitchVerdict (freshness-gated bounce, 260823-ke9i)", () => {
+  const base = {
+    isConnected: true,
+    tickAtClick: 3,
+    currentTick: 3,
+    postContradiction: false,
+    activeWindowId: "@1" as string | undefined,
+    targetWindowId: "@2",
+  };
+
+  it("sleep/wake: frozen pre-click snapshot + disconnected socket ⇒ rearm (no bounce)", () => {
+    expect(
+      resolvePendingSwitchVerdict({ ...base, isConnected: false }),
+    ).toBe("rearm");
+  });
+
+  it("no post-click evidence (connected but no receipt since the click) ⇒ rearm", () => {
+    // activeWindowId is the frozen pre-click snapshot showing the OLD window —
+    // without a post-click tick it must not render a failure verdict.
+    expect(resolvePendingSwitchVerdict({ ...base })).toBe("rearm");
+  });
+
+  it("a post-click snapshot showing the target active ⇒ confirm", () => {
+    expect(
+      resolvePendingSwitchVerdict({
+        ...base,
+        currentTick: 4,
+        activeWindowId: "@2",
+      }),
+    ).toBe("confirm");
+  });
+
+  it("a post-click snapshot showing a DIFFERENT window active ⇒ bounce", () => {
+    expect(
+      resolvePendingSwitchVerdict({
+        ...base,
+        currentTick: 4,
+        activeWindowId: "@5",
+      }),
+    ).toBe("bounce");
+  });
+
+  it("a mismatched POST activeWindow counts as fresh evidence ⇒ bounce", () => {
+    expect(
+      resolvePendingSwitchVerdict({
+        ...base,
+        postContradiction: true,
+        activeWindowId: "@5",
+      }),
+    ).toBe("bounce");
+  });
+
+  it("postContradiction with the target active ⇒ confirm", () => {
+    expect(
+      resolvePendingSwitchVerdict({
+        ...base,
+        postContradiction: true,
+        activeWindowId: "@2",
+      }),
+    ).toBe("confirm");
+  });
+
+  it("a rearm fires even with post-click evidence when the socket dropped again", () => {
+    expect(
+      resolvePendingSwitchVerdict({
+        ...base,
+        isConnected: false,
+        currentTick: 4,
+        activeWindowId: "@5",
+      }),
+    ).toBe("rearm");
+  });
+
+  it("rejection-as-fresh-evidence: postContradiction with the stale pre-click active window ⇒ bounce", () => {
+    // An explicit POST rejection sets postContradiction at the call site (the
+    // rejection post-dates the click, so it IS fresh evidence). The stale
+    // snapshot still shows the pre-click window — the verdict bounces rather
+    // than re-arming into the failure limbo (SF8).
+    expect(
+      resolvePendingSwitchVerdict({
+        ...base,
+        postContradiction: true,
+        activeWindowId: "@1",
+      }),
+    ).toBe("bounce");
+  });
+});
+
+describe("resolvePendingSwitchPost (POST-settlement seam, 260823-ke9i)", () => {
+  const base = {
+    targetWindowId: "@2",
+    isCurrent: true,
+    intentMatches: true,
+  };
+
+  it("a matching 200 confirms (cancel the bounce timer)", () => {
+    expect(
+      resolvePendingSwitchPost({
+        ...base,
+        outcome: { kind: "resolved", resp: { ok: true, activeWindow: "@2" } },
+      }),
+    ).toBe("confirm");
+  });
+
+  it("a 200 with an absent activeWindow confirms (older daemon)", () => {
+    expect(
+      resolvePendingSwitchPost({
+        ...base,
+        outcome: { kind: "resolved", resp: { ok: true } },
+      }),
+    ).toBe("confirm");
+  });
+
+  it("a mismatched 200 is a contradiction (external switch won)", () => {
+    expect(
+      resolvePendingSwitchPost({
+        ...base,
+        outcome: { kind: "resolved", resp: { ok: true, activeWindow: "@5" } },
+      }),
+    ).toBe("contradiction");
+  });
+
+  it("an explicit rejection is fresh post-click evidence (bounce immediately)", () => {
+    expect(
+      resolvePendingSwitchPost({
+        ...base,
+        outcome: { kind: "rejected" },
+      }),
+    ).toBe("contradiction");
+  });
+
+  it("a superseded switch's late 200 is a no-op (tracked entry no longer current)", () => {
+    expect(
+      resolvePendingSwitchPost({
+        ...base,
+        isCurrent: false,
+        outcome: { kind: "resolved", resp: { ok: true, activeWindow: "@2" } },
+      }),
+    ).toBe("none");
+  });
+
+  it("a settlement whose intent moved on is a no-op (identity mismatch)", () => {
+    expect(
+      resolvePendingSwitchPost({
+        ...base,
+        intentMatches: false,
+        outcome: { kind: "resolved", resp: { ok: true, activeWindow: "@2" } },
+      }),
+    ).toBe("none");
+  });
+
+  it("a superseded switch's late rejection is a no-op (SF8: never bounce the successor)", () => {
+    expect(
+      resolvePendingSwitchPost({
+        ...base,
+        isCurrent: false,
+        outcome: { kind: "rejected" },
+      }),
+    ).toBe("none");
   });
 });

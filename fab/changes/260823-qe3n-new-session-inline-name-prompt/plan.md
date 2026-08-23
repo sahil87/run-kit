@@ -94,37 +94,41 @@ The component SHALL ship colocated unit tests (`session-name-prompt.test.tsx`: p
 
 ### Functional Completeness
 
-- [ ] A-001 R1: Prompt opens prefilled with the exact `deriveInstantSessionName` result, focused and select-all'd
-- [ ] A-002 R3: Both the chord (via `fromPalette`) and the palette `Session: Create` open the same prompt; `lib/keybindings.ts` binding data unchanged
-- [ ] A-003 R4: Submit flows through `executeCreateSessionInstant` with the same cwd semantics as today's instant create
+- [x] A-001 R1: Prompt opens prefilled with the exact `deriveInstantSessionName` result, focused and select-all'd
+- [x] A-002 R3: Both the chord (via `fromPalette`) and the palette `Session: Create` open the same prompt; `lib/keybindings.ts` binding data unchanged
+- [x] A-003 R4: Submit flows through `executeCreateSessionInstant` with the same cwd semantics as today's instant create
 
 ### Behavioral Correctness
 
-- [ ] A-004 R1: Enter on the untouched default creates the identical session today's instant path would have created
-- [ ] A-005 R2: Typed input live-converts via `toSafeSessionName` and submits finalized via `finalizeSafeName`; empty and colliding values do not submit
-- [ ] A-006 R4: Sidebar `+`, SessionTiles tile, board `+`, and `Session: Create at Folder` behave exactly as before (no prompt)
+- [x] A-004 R1: Enter on the untouched default creates the identical session today's instant path would have created
+- [x] A-005 R2: Typed input live-converts via `toSafeSessionName` and submits finalized via `finalizeSafeName`; empty and colliding values do not submit
+- [x] A-006 R4: Sidebar `+`, SessionTiles tile, board `+`, and `Session: Create at Folder` behave exactly as before (no prompt)
 
 ### Scenario Coverage
 
-- [ ] A-007 R2: Escape (and backdrop click) closes without creating a session — covered by unit test
-- [ ] A-008 R5: Unit tests cover all six input arms; e2e covers default-accept and typed-override end to end with the `.spec.md` companion updated
+- [x] A-007 R2: Escape (and backdrop click) closes without creating a session — covered by unit test
+- [x] A-008 R5: Unit tests cover all six input arms; e2e covers default-accept and typed-override end to end with the `.spec.md` companion updated
 
 ### Edge Cases & Error Handling
 
-- [ ] A-009 R4: A create error rolls back the ghost session and surfaces a toast (existing optimistic path exercised, not reimplemented); pending guard prevents double-create on rapid re-submit
+- [x] A-009 R4: A create error rolls back the ghost session and surfaces a toast (existing optimistic path exercised, not reimplemented); pending guard prevents double-create on rapid re-submit
 
 ### Code Quality
 
-- [ ] A-010 Pattern consistency: prompt follows the CreateSessionDialog/SpawnAgentDialog conventions (lazy import, Suspense, Dialog shell, text-xs field styling, dialogOpenRef fold)
-- [ ] A-011 No unnecessary duplication: name derivation/conversion reuses `deriveInstantSessionName` + `@/lib/names`; no new creation plumbing beside `executeCreateSessionInstant`
-- [ ] A-012 Type narrowing over assertions: no new `as` casts in the prompt or wiring
-- [ ] A-013 Tests included for added behavior (unit + e2e per code-quality mandate); no client polling introduced
+- [x] A-010 Pattern consistency: prompt follows the CreateSessionDialog/SpawnAgentDialog conventions (lazy import, Suspense, Dialog shell, text-xs field styling, dialogOpenRef fold)
+- [x] A-011 No unnecessary duplication: name derivation/conversion reuses `deriveInstantSessionName` + `@/lib/names`; no new creation plumbing beside `executeCreateSessionInstant`
+- [x] A-012 Type narrowing over assertions: no new `as` casts in the prompt or wiring
+- [x] A-013 Tests included for added behavior (unit + e2e per code-quality mandate); no client polling introduced
 
 ## Notes
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
+
+## Deletion Candidates
+
+- None — this change adds a prompt in front of the palette/chord create flow without making existing code redundant: `handleCreateSessionInstant`/`executeCreateSessionInstant` remain the live path for the sidebar `+`, SessionTiles tile, and board `+` entry points, and `deriveInstantSessionName` gains a second caller.
 
 ## Assumptions
 

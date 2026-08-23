@@ -1,11 +1,8 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { SessionNamePrompt } from "./session-name-prompt";
+import { makeSession } from "@/test-utils/fixtures";
 import type { ProjectSession } from "@/types";
-
-function makeSession(name: string): ProjectSession {
-  return { name, windows: [] } as unknown as ProjectSession;
-}
 
 function renderPrompt(overrides?: {
   sessions?: ProjectSession[];
@@ -17,7 +14,7 @@ function renderPrompt(overrides?: {
   const onClose = overrides?.onClose ?? vi.fn();
   render(
     <SessionNamePrompt
-      sessions={overrides?.sessions ?? [makeSession("existing")]}
+      sessions={overrides?.sessions ?? [makeSession({ name: "existing", windows: [] })]}
       defaultName={overrides?.defaultName ?? "run_kit"}
       onSubmit={onSubmit}
       onClose={onClose}
@@ -65,7 +62,7 @@ describe("SessionNamePrompt", () => {
   });
 
   it("a colliding name blocks submit and shows the inline hint", () => {
-    const { onSubmit } = renderPrompt({ sessions: [makeSession("existing")] });
+    const { onSubmit } = renderPrompt({ sessions: [makeSession({ name: "existing", windows: [] })] });
     fireEvent.change(input(), { target: { value: "existing" } });
     expect(input()).toHaveAttribute("aria-invalid", "true");
     expect(screen.getByText('Session "existing" already exists')).toBeInTheDocument();

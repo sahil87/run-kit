@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
 
 	"rk/internal/settings"
 	"rk/internal/tmux"
@@ -89,7 +90,15 @@ func (s *Server) handlePostSettings(w http.ResponseWriter, r *http.Request) {
 	// loaded settings and the file untouched.
 	current := settings.Load()
 	_, hasBoardOrder := patch["board_order"]
-	for key, raw := range patch {
+	// Sorted keys, not map order: which validation error a multi-key invalid
+	// patch reports must be deterministic across runs.
+	keys := make([]string, 0, len(patch))
+	for key := range patch {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		raw := patch[key]
 		if key == "board_order" {
 			if msg := validateBoardOrderPatch(raw); msg != "" {
 				writeError(w, http.StatusBadRequest, msg)

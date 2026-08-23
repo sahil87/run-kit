@@ -231,7 +231,7 @@ var registry = []registryEntry{
 			}
 		},
 		serialize: func(s *Settings) string { return "theme: " + s.Theme + "\n" },
-		read:      func(s *Settings) any { return &s.Theme },
+		read:      func(s *Settings) any { v := s.Theme; return &v },
 		apply:     nonEmptyString(func(s *Settings) *string { return &s.Theme }, "system"),
 	},
 	{
@@ -244,7 +244,7 @@ var registry = []registryEntry{
 			}
 		},
 		serialize: func(s *Settings) string { return "theme_dark: " + s.ThemeDark + "\n" },
-		read:      func(s *Settings) any { return &s.ThemeDark },
+		read:      func(s *Settings) any { v := s.ThemeDark; return &v },
 		apply:     nonEmptyString(func(s *Settings) *string { return &s.ThemeDark }, "default-dark"),
 	},
 	{
@@ -257,7 +257,7 @@ var registry = []registryEntry{
 			}
 		},
 		serialize: func(s *Settings) string { return "theme_light: " + s.ThemeLight + "\n" },
-		read:      func(s *Settings) any { return &s.ThemeLight },
+		read:      func(s *Settings) any { v := s.ThemeLight; return &v },
 		apply:     nonEmptyString(func(s *Settings) *string { return &s.ThemeLight }, "default-light"),
 	},
 	{
@@ -344,7 +344,7 @@ var registry = []registryEntry{
 			}
 			return ""
 		},
-		read: func(s *Settings) any { return &s.LogLevel },
+		read: func(s *Settings) any { v := s.LogLevel; return &v },
 		apply: validatedScalar(func(s *Settings) *string { return &s.LogLevel }, func(value string) string {
 			if value == "info" || value == "debug" {
 				return ""
@@ -528,7 +528,8 @@ func Registry() []KeyInfo {
 
 // ReadValue returns the key's current value on s in its natural JSON shape:
 // a string pointer (nil — surfacing as JSON null — for an unset scalar with
-// an empty default), a bool, a map[string]string, or a []string.
+// an empty default), a bool, a map[string]string, or a []string. Returned
+// string pointers point at copies — writing through one never mutates s.
 func ReadValue(s *Settings, key string) (any, bool) {
 	e := findEntry(key)
 	if e == nil {

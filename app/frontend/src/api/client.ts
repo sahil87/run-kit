@@ -1126,7 +1126,8 @@ export async function setServerFlair(server: string, flair: string | null): Prom
 // --- Instance accent color (per-instance "host color", scalar) ---
 
 /** The explicit instance accent color descriptor ("4" / "1+3"), or null when
- *  unset (the frontend then falls back to the hostname-hash default). */
+ *  unset (no accent — there is no derived default; resolution is explicit
+ *  setting → localStorage paint echo → none, see instance-accent.ts). */
 export async function getInstanceColor(): Promise<string | null> {
   const entries = await getSettingsEntries();
   return nullableStringSetting(settingValue(entries, "instance_color"));

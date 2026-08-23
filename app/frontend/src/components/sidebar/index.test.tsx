@@ -2597,35 +2597,109 @@ describe("Sidebar — desktop selected-row autoscroll (nris)", () => {
     },
   ];
 
-  it("current session ignores its collapsed exception: the chevron writes the map but rows stay painted", () => {
+  it("folding the current session takes effect immediately and writes the exception", () => {
     const { rerender } = render(scrollTreeUI(TWO_SESSION_SCROLL, "@0"));
     expect(rowScrollCalls()).toHaveLength(1);
 
-    // Collapse the CURRENT session "main": the exception persists to the map,
-    // but the derived override keeps the group expanded while it is current.
+    // Chevron on the CURRENT session "main": the manual-collapse latch wins
+    // over the derived expand — the rows leave the DOM immediately — and the
+    // exception is persisted.
     act(() => { fireEvent.click(screen.getByRole("button", { name: /Collapse main/ })); });
     expect(JSON.parse(localStorage.getItem(SESSION_COLLAPSED_STORAGE_KEY)!))
       .toEqual({ "primary:main": true });
-    expect(selectedRowButton()).not.toBeNull();
+    expect(selectedRowButton()).toBeNull();
+    expect(screen.getByRole("button", { name: /Expand main/ })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+
+    // Switching windows WITHIN the folded current session keeps it folded —
+    // the latch keys on the session, not the window; the armed scroll defers.
+    act(() => { rerender(scrollTreeUI(TWO_SESSION_SCROLL, "@1")); });
+    expect(screen.getByRole("button", { name: /Expand main/ })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    expect(rowScrollCalls()).toHaveLength(1);
+  });
+
+  it("a fold-while-current releases on navigate-away: re-entering the session reveals it again", () => {
+    const { rerender } = render(scrollTreeUI(TWO_SESSION_SCROLL, "@0"));
+    act(() => { fireEvent.click(screen.getByRole("button", { name: /Collapse main/ })); });
+    expect(screen.getByRole("button", { name: /Expand main/ })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+
+    // Navigate away: "main" stays folded, now as an ordinary non-current
+    // session with an exception.
+    act(() => { rerender(scrollTreeUI(TWO_SESSION_SCROLL, "@5", "other")); });
+    expect(screen.getByRole("button", { name: /Expand main/ })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+
+    // Navigate back in: the latch cleared on the session change, so
+    // expand-on-entry applies afresh — rows reveal and the armed deferred
+    // scroll completes on the selected row. The exception never left the map.
+    act(() => { rerender(scrollTreeUI(TWO_SESSION_SCROLL, "@0", "main")); });
     expect(screen.getByRole("button", { name: /Collapse main/ })).toHaveAttribute(
       "aria-expanded",
       "true",
     );
+    expect(JSON.parse(localStorage.getItem(SESSION_COLLAPSED_STORAGE_KEY)!))
+      .toEqual({ "primary:main": true });
+    const calls = rowScrollCalls();
+    expect((calls[calls.length - 1] as HTMLElement).closest("[data-window-id]"))
+      .toHaveAttribute("data-window-id", "@0");
+  });
 
-    // A selection change within the still-painted group scrolls normally.
-    act(() => { rerender(scrollTreeUI(TWO_SESSION_SCROLL, "@1")); });
-    expect(rowScrollCalls()).toHaveLength(2);
-    expect((rowScrollCalls()[1] as HTMLElement).closest("[data-window-id]"))
-      .toHaveAttribute("data-window-id", "@1");
+  it("expanding the folded current session clears the exception and the latch", () => {
+    render(scrollTreeUI(TWO_SESSION_SCROLL, "@0"));
+    act(() => { fireEvent.click(screen.getByRole("button", { name: /Collapse main/ })); });
+    expect(screen.getByRole("button", { name: /Expand main/ })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+
+    act(() => { fireEvent.click(screen.getByRole("button", { name: /Expand main/ })); });
+    expect(screen.getByRole("button", { name: /Collapse main/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(selectedRowButton()).not.toBeNull();
+    // Exceptions-only map: the emptied map removes the storage key outright.
+    expect(localStorage.getItem(SESSION_COLLAPSED_STORAGE_KEY)).toBeNull();
+
+    // The latch is gone too — a fresh fold still takes effect immediately.
+    act(() => { fireEvent.click(screen.getByRole("button", { name: /Collapse main/ })); });
+    expect(screen.getByRole("button", { name: /Expand main/ })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+  });
+
+  it("keyboard ArrowLeft on the current session's row folds it (rides toggleSession)", () => {
+    render(scrollTreeUI(TWO_SESSION_SCROLL, "@0"));
+    const t = screen.getByRole("tree");
+    // Roving starts on the first visible row — the "main" session header —
+    // and ArrowLeft on an expanded session row collapses it.
+    act(() => { fireEvent.keyDown(t, { key: "ArrowLeft" }); });
+    expect(screen.getByRole("button", { name: /Expand main/ })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    expect(JSON.parse(localStorage.getItem(SESSION_COLLAPSED_STORAGE_KEY)!))
+      .toEqual({ "primary:main": true });
   });
 
   it("the exception re-applies on navigate-away: the session folds and the map entry is intact", () => {
     const { rerender } = render(scrollTreeUI(TWO_SESSION_SCROLL, "@0"));
     act(() => { fireEvent.click(screen.getByRole("button", { name: /Collapse main/ })); });
-    expect(selectedRowButton()).not.toBeNull(); // painted while current
+    expect(selectedRowButton()).toBeNull(); // manual fold takes effect immediately
 
-    // Navigate to a window of "other": "main" stops being current, its
-    // exception takes effect, and the entry never left the map.
+    // Navigate to a window of "other": "main" stays folded — now as an
+    // ordinary non-current session — and the entry never left the map.
     act(() => { rerender(scrollTreeUI(TWO_SESSION_SCROLL, "@5", "other")); });
     expect(screen.getByRole("button", { name: /Expand main/ })).toHaveAttribute(
       "aria-expanded",

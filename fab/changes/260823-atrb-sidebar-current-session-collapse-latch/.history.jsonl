@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-23T15:57:35Z"}
+{"args":"Sidebar current-session manual-collapse latch: expand-on-entry with a manual fold that wins until the current session changes — fixes the o0cz always-expanded rule making the collapse control a visual no-op on the current session","cmd":"fab-new","event":"command","ts":"2026-08-23T15:57:35Z"}
+{"delta":"+0.0","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-08-23T15:59:22Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-23T16:00:33Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-23T16:02:04Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-23T16:03:29Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-23T16:09:17Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-23T16:31:55Z"}
+{"event":"review","result":"passed","ts":"2026-08-23T16:31:55Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-23T16:33:03Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-08-23T16:34:41Z"}

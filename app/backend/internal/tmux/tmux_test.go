@@ -1500,16 +1500,13 @@ func envToMap(environ []string) map[string]string {
 }
 
 func TestEnsureConfigCreatesDropInDir(t *testing.T) {
-	tmpDir := t.TempDir()
-	origDefault := DefaultConfigPath
-	defer func() { DefaultConfigPath = origDefault }()
-	DefaultConfigPath = filepath.Join(tmpDir, ".rk", "tmux.conf")
+	dest := withTempDefaultConfig(t)
 
 	// Fresh install — both config and tmux.d/ should be created.
-	if err := EnsureConfig(); err != nil {
+	if _, err := EnsureConfig(); err != nil {
 		t.Fatalf("EnsureConfig() error: %v", err)
 	}
-	dropInDir := filepath.Join(tmpDir, ".rk", "tmux.d")
+	dropInDir := filepath.Join(filepath.Dir(dest), "tmux.d")
 	fi, err := os.Stat(dropInDir)
 	if os.IsNotExist(err) {
 		t.Error("tmux.d/ not created on fresh install")
@@ -1526,7 +1523,7 @@ func TestEnsureConfigCreatesDropInDir(t *testing.T) {
 	if err := os.RemoveAll(dropInDir); err != nil {
 		t.Fatalf("failed to remove tmux.d/: %v", err)
 	}
-	if err := EnsureConfig(); err != nil {
+	if _, err := EnsureConfig(); err != nil {
 		t.Fatalf("EnsureConfig() second call error: %v", err)
 	}
 	fi, err = os.Stat(dropInDir)
@@ -1540,15 +1537,12 @@ func TestEnsureConfigCreatesDropInDir(t *testing.T) {
 }
 
 func TestForceWriteConfigCreatesDropInDir(t *testing.T) {
-	tmpDir := t.TempDir()
-	origDefault := DefaultConfigPath
-	defer func() { DefaultConfigPath = origDefault }()
-	DefaultConfigPath = filepath.Join(tmpDir, ".rk", "tmux.conf")
+	dest := withTempDefaultConfig(t)
 
 	if err := ForceWriteConfig(); err != nil {
 		t.Fatalf("ForceWriteConfig() error: %v", err)
 	}
-	dropInDir := filepath.Join(tmpDir, ".rk", "tmux.d")
+	dropInDir := filepath.Join(filepath.Dir(dest), "tmux.d")
 	fi, err := os.Stat(dropInDir)
 	if os.IsNotExist(err) {
 		t.Error("tmux.d/ not created by ForceWriteConfig")
@@ -1561,7 +1555,7 @@ func TestForceWriteConfigCreatesDropInDir(t *testing.T) {
 
 func TestDefaultConfigContainsSourceDirective(t *testing.T) {
 	content := string(DefaultConfigBytes())
-	if !strings.Contains(content, "source-file -q ~/.rk/tmux.d/*.conf") {
+	if !strings.Contains(content, "source-file -q ~/.config/run-kit/tmux.d/*.conf") {
 		t.Error("embedded default config missing source-file directive for tmux.d/")
 	}
 }

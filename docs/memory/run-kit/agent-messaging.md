@@ -29,7 +29,8 @@ before return), `rk mux reap` (test-socket and scratch-server cleanup — a pref
 unioned with every live `@rk_ephemeral`-marked server under `--ephemeral`;
 full contract in [tmux-sessions](/run-kit/tmux-sessions.md) § `rk mux reap`), `rk mux snapshot list|show|restore`
 (layout recovery, [layout-snapshots](/run-kit/layout-snapshots.md)),
-`rk mux init-conf` (tmux config scaffold), and `rk mux guard` (fronts the real
+`rk mux init-conf` (scaffolds the rk-managed tmux.conf and the
+`tmux.d/user.conf` override starter under `~/.config/run-kit/`), and `rk mux guard` (fronts the real
 tmux binary, refusing a bare `kill-server` — the verb the installed PATH shim
 execs; full contract in [tmux-guard-shim](/run-kit/tmux-guard-shim.md)). The
 pane-scoped verbs (send/await/capture/kill/process) are first-party readers of
@@ -358,6 +359,29 @@ unmarked server behind.
   server is untouched; **AND GIVEN** `rk mux new scratch --ephemeral`,
   **THEN** `tmux.IsEphemeralServer(ctx, "scratch")` reads `true` after
   return, and a failed mark kills the fresh server with exit 1.
+
+### Requirement: `rk mux init-conf` — managed tmux.conf scaffold
+`rk mux init-conf [--force]` SHALL write the rk-managed tmux.conf to
+`~/.config/run-kit/tmux.conf` through the shared managed write path
+(`tmux.ForceWriteConfig` — the hash-stamped header + embed body; see
+[configuration](/run-kit/configuration.md) § Managed tmux.conf), ensure the
+`tmux.d/` drop-in dir, and scaffold `tmux.d/user.conf` as a commented starter
+when absent — an existing `user.conf` is never overwritten, including under
+`--force`. Without `--force`, an existing managed file is an error carrying
+the recipe (put overrides in `tmux.d/user.conf`, or use `--force` to refresh
+the managed file); `--force` is scoped to the managed file — tmux.d contents
+are untouched. Success output names the managed path (rk-managed, do not
+edit) and `user.conf` as the override home. Both cobra instances (the family
+member and the hidden root alias) ride the same RunE core and the shared
+write path; `POST /api/tmux/init-conf` rides the same `ForceWriteConfig`.
+
+#### Scenario: --force refreshes the managed file only
+- **GIVEN** an existing managed tmux.conf and a customized `tmux.d/user.conf`
+- **WHEN** `rk mux init-conf --force` runs
+- **THEN** the managed file is rewritten with the current embed and
+  `user.conf` is byte-identical to before; **AND GIVEN** no `--force` with an
+  existing managed file, **THEN** the error names `tmux.d/user.conf` for
+  overrides and `--force` for refreshing the managed file.
 
 ### Requirement: No daemon dependency; bounded subprocesses
 The pane-scoped verbs SHALL address tmux directly from the caller's context

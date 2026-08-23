@@ -116,9 +116,18 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := config.Load()
 
-		// Ensure tmux config exists before starting (write embedded default if missing).
-		if err := tmux.EnsureConfig(); err != nil {
+		// Three-state managed tmux.conf refresh before starting (daemon start is
+		// the only trigger — no timer, no watcher). The reload sweep runs ONLY
+		// on an actual stale→force-write transition: reloading unchanged config
+		// on every start would be wasted tmux traffic across every live server.
+		refreshed, err := tmux.EnsureConfig()
+		if err != nil {
 			return fmt.Errorf("ensuring tmux config: %w", err)
+		}
+		if refreshed {
+			sweepCtx, sweepCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			tmux.RefreshSweep(sweepCtx)
+			sweepCancel()
 		}
 
 		// No startup sweep: relay ephemerals are gone (the relay attaches the PTY

@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 5
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-23T01:55:06Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T01:58:44Z"}
     review: {started_at: "2026-08-23T01:58:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T02:03:39Z"}
     hydrate: {started_at: "2026-08-23T02:03:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T02:05:34Z"}
-    ship: {started_at: "2026-08-23T02:05:34Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-23T02:05:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-23T02:39:03Z"}
+    review-pr: {started_at: "2026-08-23T02:39:03Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/719
 change_type_source: explicit
 true_impact:
-    added: 696
-    deleted: 13
-    net: 683
+    added: 962
+    deleted: 182
+    net: 780
     excluding:
-        added: 356
-        deleted: 3
-        net: 353
+        added: 377
+        deleted: 153
+        net: 224
     tests:
-        added: 93
+        added: 95
         deleted: 0
-        net: 93
-    computed_at: "2026-08-23T02:05:34Z"
-    computed_at_stage: hydrate
+        net: 95
+    computed_at: "2026-08-23T02:39:03Z"
+    computed_at_stage: ship
 summary: 'Session: Create at Folder removed from the palette; CreateSessionDialog trimmed to the window-only Tab: Create at Folder flow'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-23T02:05:34Z
+last_updated: 2026-08-23T02:39:03Z

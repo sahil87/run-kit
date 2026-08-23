@@ -11,9 +11,10 @@ in a non-shell host, so e2e exercises the palette entry point).
   `rk-test-e2e` tmux server so the `/$server` route has stable content.
 - `afterAll` kills the seed session plus (best-effort) the sessions the tests
   create: the prefill-accepted `session` and the typed `e2e_named_<ts>`.
-- `openPrompt` helper: ⌘K → fill `Session: Create` → click the exact-match
-  option (`Session: Create at Folder` shares the prefix) → assert the
-  `New session` dialog is visible and return its name input.
+- `openPrompt` helper: ⌘K → fill `Session: Create` → click the option matched
+  by an anchored regex (`/^Session: Create( —|$)/` — the accessible name is
+  `label — description`, and the anchor keeps prefix-sharing siblings out) →
+  assert the `New session` dialog is visible and return its name input.
 
 ## Tests
 

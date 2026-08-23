@@ -18,14 +18,16 @@ function tmuxHasSession(name: string): boolean {
   }
 }
 
-/** Open the palette, select `Session: Create` (exact — `Session: Create at
- *  Folder` shares the prefix), and return the prompt's name input. */
+/** Open the palette, select `Session: Create`, and return the prompt's name
+ *  input. The option's accessible name is `label — description`, so the
+ *  anchored regex tolerates the descriptor while staying unambiguous (a
+ *  sibling like `Session: Create at Folder` continues with ` at`, not ` —`). */
 async function openPrompt(page: Page) {
   await page.keyboard.press("Meta+k");
   const paletteInput = page.getByPlaceholder("Type a command");
   await expect(paletteInput).toBeVisible({ timeout: 5_000 });
   await paletteInput.fill("Session: Create");
-  const option = page.getByRole("option", { name: "Session: Create", exact: true });
+  const option = page.getByRole("option", { name: /^Session: Create( —|$)/ });
   await expect(option).toBeVisible({ timeout: 10_000 });
   await option.click();
   const dialog = page.getByRole("dialog", { name: "New session" });

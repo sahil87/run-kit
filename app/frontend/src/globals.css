@@ -1084,24 +1084,36 @@ summary {
 .rk-flair-cube .rk-cube-face:nth-child(5) { transform: rotateX(90deg) translateZ(8px); }
 .rk-flair-cube .rk-cube-face:nth-child(6) { transform: rotateX(-90deg) translateZ(8px); }
 
-/* spidey: the web-swinger, LEFT→RIGHT. ::after is a centered 22px strip with
-   the swinger sheet (28×88, 4 frames — red/blue homage silhouette; every
-   frame draws its web line from the frame's top edge to the character's
-   hand, so the hang reads from the artwork, and the rise → dip → rise arc
-   with the body-lean swap is encoded in the frame poses) stepping at 2fps;
-   ::before is a faint web-filament tile drifting the opposite way (own
-   keyframes, never shared). ~7s traversal, loop boundaries fully
-   off-screen. */
+/* spidey: the web-swinger, LEFT→RIGHT. ::after is a 30px strip anchored
+   bottom: -8px — the ONE flair whose strip is not center-glued: the bottom
+   8px of every frame hang below the box and the overlay's clip cuts them,
+   so at the dip of a swing the figure sinks through the row's bottom edge
+   and rides half-seen (head + chest) before climbing back out. The sheet
+   (32×240, 8 frames, ~15px figure — 3px head, 1px limbs, red torso/arms +
+   blue legs) encodes a full two-throw cycle: throw (web line angled AHEAD
+   to a new anchor at the frame top) → dip (web vertical, body low, legs in
+   the clipped zone) → rise (web angled BEHIND, legs kicking out) → release
+   (no web, free flight at the arc's top) — then the same four phases again
+   with the opposite arm, so successive swings read hand-over-hand. The
+   per-frame anchor x walks BACKWARD (~9px/frame) against the traversal
+   (~10-12px/frame on typical row widths), so each web's anchor point holds
+   near-still in box space while the body swings past under it. ::before is
+   a faint web-filament tile drifting the opposite way (own keyframes,
+   never shared). ~9s traversal, loop boundaries fully off-screen. */
 @keyframes rk-flair-spidey-x {
-  from { background-position-x: -28px; }
-  to { background-position-x: calc(100% + 28px); }
+  from { background-position-x: -32px; }
+  to { background-position-x: calc(100% + 32px); }
 }
 @keyframes rk-flair-spidey-y {
   0% { background-position-y: 0px; }
-  25% { background-position-y: -22px; }
-  50% { background-position-y: -44px; }
-  75% { background-position-y: -66px; }
-  100% { background-position-y: -66px; }
+  12.5% { background-position-y: -30px; }
+  25% { background-position-y: -60px; }
+  37.5% { background-position-y: -90px; }
+  50% { background-position-y: -120px; }
+  62.5% { background-position-y: -150px; }
+  75% { background-position-y: -180px; }
+  87.5% { background-position-y: -210px; }
+  100% { background-position-y: -210px; }
 }
 @keyframes rk-flair-spidey-web {
   from { background-position-x: 0; }
@@ -1127,18 +1139,17 @@ summary {
   position: absolute;
   left: 0;
   right: 0;
-  top: 50%;
-  height: 22px;
-  margin-top: -11px;
+  bottom: -8px;
+  height: 30px;
   pointer-events: none;
   opacity: 0.92;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='88' viewBox='0 0 28 88'%3E%3Cg%3E%3Cpath d='M9 0 L15 6' stroke='%23cdd6e4' stroke-opacity='0.85' stroke-width='1'/%3E%3Crect x='14' y='5' width='2' height='2' fill='%23c92a2a'/%3E%3Crect x='15' y='6' width='5' height='5' fill='%23c92a2a'/%3E%3Crect x='18' y='8' width='2' height='2' fill='%23ffffff'/%3E%3Crect x='15' y='11' width='5' height='4' fill='%23c92a2a'/%3E%3Crect x='15' y='15' width='5' height='1' fill='%231d4ed8'/%3E%3Crect x='11' y='16' width='4' height='2' fill='%231d4ed8'/%3E%3Crect x='9' y='17' width='3' height='2' fill='%231d4ed8'/%3E%3C/g%3E%3Cg transform='translate(0,22)'%3E%3Cpath d='M14 0 L14 8' stroke='%23cdd6e4' stroke-opacity='0.85' stroke-width='1'/%3E%3Crect x='13' y='7' width='2' height='2' fill='%23c92a2a'/%3E%3Crect x='12' y='9' width='5' height='5' fill='%23c92a2a'/%3E%3Crect x='15' y='11' width='2' height='2' fill='%23ffffff'/%3E%3Crect x='12' y='14' width='5' height='4' fill='%23c92a2a'/%3E%3Crect x='12' y='18' width='2' height='3' fill='%231d4ed8'/%3E%3Crect x='15' y='18' width='2' height='3' fill='%231d4ed8'/%3E%3C/g%3E%3Cg transform='translate(0,44)'%3E%3Cpath d='M19 0 L13 6' stroke='%23cdd6e4' stroke-opacity='0.85' stroke-width='1'/%3E%3Crect x='12' y='5' width='2' height='2' fill='%23c92a2a'/%3E%3Crect x='10' y='6' width='5' height='5' fill='%23c92a2a'/%3E%3Crect x='13' y='8' width='2' height='2' fill='%23ffffff'/%3E%3Crect x='10' y='11' width='5' height='4' fill='%23c92a2a'/%3E%3Crect x='10' y='15' width='5' height='1' fill='%231d4ed8'/%3E%3Crect x='15' y='16' width='4' height='2' fill='%231d4ed8'/%3E%3Crect x='18' y='17' width='3' height='2' fill='%231d4ed8'/%3E%3C/g%3E%3Cg transform='translate(0,66)'%3E%3Cpath d='M14 0 L14 7' stroke='%23cdd6e4' stroke-opacity='0.85' stroke-width='1'/%3E%3Crect x='13' y='6' width='2' height='2' fill='%23c92a2a'/%3E%3Crect x='12' y='8' width='5' height='5' fill='%23c92a2a'/%3E%3Crect x='15' y='10' width='2' height='2' fill='%23ffffff'/%3E%3Crect x='12' y='13' width='5' height='4' fill='%23c92a2a'/%3E%3Crect x='15' y='17' width='4' height='2' fill='%231d4ed8'/%3E%3Crect x='18' y='18' width='3' height='2' fill='%231d4ed8'/%3E%3C/g%3E%3C/svg%3E");
-  background-size: 28px 88px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='240' viewBox='0 0 32 240'%3E%3Cg%3E%3Cpath d='M26 0 L22 5' stroke='%23cdd6e4' stroke-opacity='0.85' stroke-width='1'/%3E%3Cpath d='M18 11 L22 5' stroke='%23c92a2a' stroke-width='1'/%3E%3Crect x='15' y='6' width='3' height='3' fill='%23c92a2a'/%3E%3Crect x='17' y='7' width='1' height='1' fill='%23ffffff'/%3E%3Crect x='14' y='9' width='4' height='5' fill='%23c92a2a'/%3E%3Crect x='14' y='14' width='4' height='1' fill='%231d4ed8'/%3E%3Cpath d='M14 11 L11 14' stroke='%23c92a2a' stroke-width='1'/%3E%3Cpath d='M15 15 L12 19' stroke='%231d4ed8' stroke-width='1'/%3E%3Cpath d='M16 15 L14 20' stroke='%231d4ed8' stroke-width='1'/%3E%3C/g%3E%3Cg transform='translate(0,30)'%3E%3Cpath d='M16.5 0 L16.5 12' stroke='%23cdd6e4' stroke-opacity='0.85' stroke-width='1'/%3E%3Cpath d='M16.5 16 L16.5 12' stroke='%23c92a2a' stroke-width='1'/%3E%3Crect x='14' y='13' width='3' height='3' fill='%23c92a2a'/%3E%3Crect x='16' y='14' width='1' height='1' fill='%23ffffff'/%3E%3Crect x='13' y='16' width='4' height='5' fill='%23c92a2a'/%3E%3Crect x='13' y='21' width='4' height='1' fill='%231d4ed8'/%3E%3Cpath d='M13 17 L11 20' stroke='%23c92a2a' stroke-width='1'/%3E%3Cpath d='M14 21 L12 26' stroke='%231d4ed8' stroke-width='1'/%3E%3Cpath d='M16 21 L15 27' stroke='%231d4ed8' stroke-width='1'/%3E%3C/g%3E%3Cg transform='translate(0,60)'%3E%3Cpath d='M8 0 L13 8' stroke='%23cdd6e4' stroke-opacity='0.85' stroke-width='1'/%3E%3Cpath d='M14 13 L13 8' stroke='%23c92a2a' stroke-width='1'/%3E%3Crect x='14' y='10' width='3' height='3' fill='%23c92a2a'/%3E%3Crect x='16' y='11' width='1' height='1' fill='%23ffffff'/%3E%3Crect x='13' y='13' width='4' height='5' fill='%23c92a2a'/%3E%3Crect x='13' y='18' width='4' height='1' fill='%231d4ed8'/%3E%3Cpath d='M13 14 L10 16' stroke='%23c92a2a' stroke-width='1'/%3E%3Cpath d='M15 18 L19 21' stroke='%231d4ed8' stroke-width='1'/%3E%3Cpath d='M14 18 L18 23' stroke='%231d4ed8' stroke-width='1'/%3E%3C/g%3E%3Cg transform='translate(0,90)'%3E%3Crect x='15' y='5' width='3' height='3' fill='%23c92a2a'/%3E%3Crect x='17' y='6' width='1' height='1' fill='%23ffffff'/%3E%3Crect x='14' y='8' width='4' height='5' fill='%23c92a2a'/%3E%3Crect x='14' y='13' width='4' height='1' fill='%231d4ed8'/%3E%3Cpath d='M14 9 L10 6' stroke='%23c92a2a' stroke-width='1'/%3E%3Cpath d='M18 9 L22 7' stroke='%23c92a2a' stroke-width='1'/%3E%3Cpath d='M15 14 L19 16' stroke='%231d4ed8' stroke-width='1'/%3E%3Cpath d='M14 14 L17 18' stroke='%231d4ed8' stroke-width='1'/%3E%3C/g%3E%3Cg transform='translate(0,120)'%3E%3Cpath d='M25 0 L21 5' stroke='%23cdd6e4' stroke-opacity='0.85' stroke-width='1'/%3E%3Cpath d='M17 11 L21 5' stroke='%23c92a2a' stroke-width='1'/%3E%3Crect x='14' y='6' width='3' height='3' fill='%23c92a2a'/%3E%3Crect x='16' y='7' width='1' height='1' fill='%23ffffff'/%3E%3Crect x='13' y='9' width='4' height='5' fill='%23c92a2a'/%3E%3Crect x='13' y='14' width='4' height='1' fill='%231d4ed8'/%3E%3Cpath d='M13 11 L10 13' stroke='%23c92a2a' stroke-width='1'/%3E%3Cpath d='M14 15 L11 20' stroke='%231d4ed8' stroke-width='1'/%3E%3Cpath d='M15 15 L13 19' stroke='%231d4ed8' stroke-width='1'/%3E%3C/g%3E%3Cg transform='translate(0,150)'%3E%3Cpath d='M17.5 0 L17.5 12' stroke='%23cdd6e4' stroke-opacity='0.85' stroke-width='1'/%3E%3Cpath d='M17.5 16 L17.5 12' stroke='%23c92a2a' stroke-width='1'/%3E%3Crect x='15' y='13' width='3' height='3' fill='%23c92a2a'/%3E%3Crect x='17' y='14' width='1' height='1' fill='%23ffffff'/%3E%3Crect x='14' y='16' width='4' height='5' fill='%23c92a2a'/%3E%3Crect x='14' y='21' width='4' height='1' fill='%231d4ed8'/%3E%3Cpath d='M14 17 L12 20' stroke='%23c92a2a' stroke-width='1'/%3E%3Cpath d='M17 21 L19 26' stroke='%231d4ed8' stroke-width='1'/%3E%3Cpath d='M15 21 L16 27' stroke='%231d4ed8' stroke-width='1'/%3E%3C/g%3E%3Cg transform='translate(0,180)'%3E%3Cpath d='M9 0 L14 8' stroke='%23cdd6e4' stroke-opacity='0.85' stroke-width='1'/%3E%3Cpath d='M15 13 L14 8' stroke='%23c92a2a' stroke-width='1'/%3E%3Crect x='15' y='10' width='3' height='3' fill='%23c92a2a'/%3E%3Crect x='17' y='11' width='1' height='1' fill='%23ffffff'/%3E%3Crect x='14' y='13' width='4' height='5' fill='%23c92a2a'/%3E%3Crect x='14' y='18' width='4' height='1' fill='%231d4ed8'/%3E%3Cpath d='M14 14 L11 16' stroke='%23c92a2a' stroke-width='1'/%3E%3Cpath d='M16 18 L20 22' stroke='%231d4ed8' stroke-width='1'/%3E%3Cpath d='M15 18 L19 24' stroke='%231d4ed8' stroke-width='1'/%3E%3C/g%3E%3Cg transform='translate(0,210)'%3E%3Crect x='15' y='5' width='3' height='3' fill='%23c92a2a'/%3E%3Crect x='17' y='6' width='1' height='1' fill='%23ffffff'/%3E%3Crect x='14' y='8' width='4' height='5' fill='%23c92a2a'/%3E%3Crect x='14' y='13' width='4' height='1' fill='%231d4ed8'/%3E%3Cpath d='M14 9 L10 7' stroke='%23c92a2a' stroke-width='1'/%3E%3Cpath d='M18 9 L22 5' stroke='%23c92a2a' stroke-width='1'/%3E%3Cpath d='M15 14 L18 17' stroke='%231d4ed8' stroke-width='1'/%3E%3Cpath d='M14 14 L16 18' stroke='%231d4ed8' stroke-width='1'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 32px 240px;
   background-repeat: no-repeat;
-  background-position: -28px 0;
+  background-position: -32px 0;
   animation:
-    rk-flair-spidey-x 7s linear infinite,
-    rk-flair-spidey-y 2s step-end infinite;
+    rk-flair-spidey-x 9s linear infinite,
+    rk-flair-spidey-y 2.4s step-end infinite;
 }
 
 /* Reduced-motion gate — disable EVERY treatment above (Parts A and B). The

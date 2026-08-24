@@ -12,12 +12,14 @@ afterEach(() => {
 // flair (transforms on child spans would corrupt the drag ghost).
 describe("FlairOverlay", () => {
   it("renders the bare overlay span for sheet flairs (no children)", () => {
-    const { container } = render(<FlairOverlay flair="nyan" />);
-    const overlay = container.querySelector(".rk-flair-nyan");
-    expect(overlay).not.toBeNull();
-    expect(overlay!.getAttribute("aria-hidden")).toBe("true");
-    expect(overlay!.className).toContain("pointer-events-none");
-    expect(overlay!.children).toHaveLength(0);
+    for (const flair of ["nyan", "spidey"]) {
+      const { container } = render(<FlairOverlay flair={flair} />);
+      const overlay = container.querySelector(`.rk-flair-${flair}`);
+      expect(overlay).not.toBeNull();
+      expect(overlay!.getAttribute("aria-hidden")).toBe("true");
+      expect(overlay!.className).toContain("pointer-events-none");
+      expect(overlay!.children).toHaveLength(0);
+    }
   });
 
   it("renders the cube markup contract: nested wrappers + 6 faces", () => {

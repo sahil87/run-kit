@@ -482,7 +482,7 @@ summary {
    Always-on CSS-only overlays for rows carrying a flair value (`rain` / `scan` /
    `nyan` /
    `naruto` / `onepiece` / `pacman` / `matrix` / `aquarium` / `roadrunner` /
-   `invaders` / `cube` / `warp`) — pure decoration: no wiring to
+   `invaders` / `cube` / `warp` / `spidey`) — pure decoration: no wiring to
    @rk_agent_state or
    the status pyramid, and it animates in EVERY row state. Mounted on window
    and session rows (NOT server group headers) as an absolutely-positioned
@@ -1084,6 +1084,63 @@ summary {
 .rk-flair-cube .rk-cube-face:nth-child(5) { transform: rotateX(90deg) translateZ(8px); }
 .rk-flair-cube .rk-cube-face:nth-child(6) { transform: rotateX(-90deg) translateZ(8px); }
 
+/* spidey: the web-swinger, LEFT→RIGHT. ::after is a centered 22px strip with
+   the swinger sheet (28×88, 4 frames — red/blue homage silhouette; every
+   frame draws its web line from the frame's top edge to the character's
+   hand, so the hang reads from the artwork, and the rise → dip → rise arc
+   with the body-lean swap is encoded in the frame poses) stepping at 2fps;
+   ::before is a faint web-filament tile drifting the opposite way (own
+   keyframes, never shared). ~7s traversal, loop boundaries fully
+   off-screen. */
+@keyframes rk-flair-spidey-x {
+  from { background-position-x: -28px; }
+  to { background-position-x: calc(100% + 28px); }
+}
+@keyframes rk-flair-spidey-y {
+  0% { background-position-y: 0px; }
+  25% { background-position-y: -22px; }
+  50% { background-position-y: -44px; }
+  75% { background-position-y: -66px; }
+  100% { background-position-y: -66px; }
+}
+@keyframes rk-flair-spidey-web {
+  from { background-position-x: 0; }
+  to { background-position-x: -56px; }
+}
+.rk-flair-spidey::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 22px;
+  margin-top: -11px;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='22' viewBox='0 0 56 22'%3E%3Cpath d='M6 0 L16 22' stroke='%23cdd6e4' stroke-opacity='0.09' stroke-width='1'/%3E%3Cpath d='M34 22 L44 2' stroke='%23cdd6e4' stroke-opacity='0.07' stroke-width='1'/%3E%3C/svg%3E");
+  background-size: 56px 22px;
+  background-repeat: repeat-x;
+  background-position: 0 0;
+  animation: rk-flair-spidey-web 4s linear infinite;
+}
+.rk-flair-spidey::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 22px;
+  margin-top: -11px;
+  pointer-events: none;
+  opacity: 0.92;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='88' viewBox='0 0 28 88'%3E%3Cg%3E%3Cpath d='M9 0 L15 6' stroke='%23cdd6e4' stroke-opacity='0.85' stroke-width='1'/%3E%3Crect x='14' y='5' width='2' height='2' fill='%23c92a2a'/%3E%3Crect x='15' y='6' width='5' height='5' fill='%23c92a2a'/%3E%3Crect x='18' y='8' width='2' height='2' fill='%23ffffff'/%3E%3Crect x='15' y='11' width='5' height='4' fill='%23c92a2a'/%3E%3Crect x='15' y='15' width='5' height='1' fill='%231d4ed8'/%3E%3Crect x='11' y='16' width='4' height='2' fill='%231d4ed8'/%3E%3Crect x='9' y='17' width='3' height='2' fill='%231d4ed8'/%3E%3C/g%3E%3Cg transform='translate(0,22)'%3E%3Cpath d='M14 0 L14 8' stroke='%23cdd6e4' stroke-opacity='0.85' stroke-width='1'/%3E%3Crect x='13' y='7' width='2' height='2' fill='%23c92a2a'/%3E%3Crect x='12' y='9' width='5' height='5' fill='%23c92a2a'/%3E%3Crect x='15' y='11' width='2' height='2' fill='%23ffffff'/%3E%3Crect x='12' y='14' width='5' height='4' fill='%23c92a2a'/%3E%3Crect x='12' y='18' width='2' height='3' fill='%231d4ed8'/%3E%3Crect x='15' y='18' width='2' height='3' fill='%231d4ed8'/%3E%3C/g%3E%3Cg transform='translate(0,44)'%3E%3Cpath d='M19 0 L13 6' stroke='%23cdd6e4' stroke-opacity='0.85' stroke-width='1'/%3E%3Crect x='12' y='5' width='2' height='2' fill='%23c92a2a'/%3E%3Crect x='10' y='6' width='5' height='5' fill='%23c92a2a'/%3E%3Crect x='13' y='8' width='2' height='2' fill='%23ffffff'/%3E%3Crect x='10' y='11' width='5' height='4' fill='%23c92a2a'/%3E%3Crect x='10' y='15' width='5' height='1' fill='%231d4ed8'/%3E%3Crect x='15' y='16' width='4' height='2' fill='%231d4ed8'/%3E%3Crect x='18' y='17' width='3' height='2' fill='%231d4ed8'/%3E%3C/g%3E%3Cg transform='translate(0,66)'%3E%3Cpath d='M14 0 L14 7' stroke='%23cdd6e4' stroke-opacity='0.85' stroke-width='1'/%3E%3Crect x='13' y='6' width='2' height='2' fill='%23c92a2a'/%3E%3Crect x='12' y='8' width='5' height='5' fill='%23c92a2a'/%3E%3Crect x='15' y='10' width='2' height='2' fill='%23ffffff'/%3E%3Crect x='12' y='13' width='5' height='4' fill='%23c92a2a'/%3E%3Crect x='15' y='17' width='4' height='2' fill='%231d4ed8'/%3E%3Crect x='18' y='18' width='3' height='2' fill='%231d4ed8'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 28px 88px;
+  background-repeat: no-repeat;
+  background-position: -28px 0;
+  animation:
+    rk-flair-spidey-x 7s linear infinite,
+    rk-flair-spidey-y 2s step-end infinite;
+}
+
 /* Reduced-motion gate — disable EVERY treatment above (Parts A and B). The
    decode scramble is skipped in JS (top-bar.tsx reads the same media query). */
 /* ── Row-flyout card entrance (window-row register flyout, E1) ─────────────
@@ -1246,7 +1303,7 @@ html[data-theme="light"] {
   .rk-window-switch-mask { animation: none; }
   /* Hatch-marker hazard wedge (.rk-hazard): static in every state by design —
      nothing to zero here; listed so the reduced-motion audit stays complete. */
-  /* Flair overlays (all twelve named states): motion-only ambient decoration
+  /* Flair overlays (all thirteen named states): motion-only ambient decoration
      with NO static label cue of their own — hidden entirely, including the
      onepiece wave baseline (a bare wave line without its ship would read as
      residue) and the cube/warp child spans (transform-driven treatments). */
@@ -1269,7 +1326,9 @@ html[data-theme="light"] {
   .rk-flair-cube .rk-cube-x,
   .rk-flair-cube .rk-cube-y,
   .rk-flair-cube .rk-cube,
-  .rk-flair-warp .rk-warp-plane { animation: none; display: none; }
+  .rk-flair-warp .rk-warp-plane,
+  .rk-flair-spidey::before,
+  .rk-flair-spidey::after { animation: none; display: none; }
   /* Flyout-card entrance: pure flourish — the card simply appears. */
   .rk-flyout-in { animation: none; }
   /* Gap-seam sash: the hover anti-flicker delay and fades are zeroed (the pill

@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   GESTURE_STEP_RATIO,
   WHEEL_STEP_THRESHOLD,
+  applyWheelZoom,
+  clampZoom,
   createGestureArm,
   createWheelAccumulator,
 } from "./zoom-gesture";
@@ -69,5 +71,27 @@ describe("createGestureArm (R6 — Safari pinch)", () => {
     // New gesture: Safari's scale restarts at 1, so the consumed level must too.
     arm.reset();
     expect(arm.change(GESTURE_STEP_RATIO)).toBe(1);
+  });
+});
+
+describe("continuous arm (260824-iafo R1)", () => {
+  it("applyWheelZoom maps exponentially — equal deltas multiply equally, sign convention matches the accumulator", () => {
+    const once = applyWheelZoom(1, -60, 0.5, 3);
+    expect(once).toBeCloseTo(Math.exp(0.6), 10);
+    // Two half-deltas compose to the same factor as one full delta.
+    const twice = applyWheelZoom(applyWheelZoom(1, -30, 0.5, 3), -30, 0.5, 3);
+    expect(twice).toBeCloseTo(once, 10);
+    // A reversed gesture returns exactly to its start (exponential symmetry).
+    expect(applyWheelZoom(once, 60, 0.5, 3)).toBeCloseTo(1, 10);
+    // Positive deltaY (wheel down) zooms out.
+    expect(applyWheelZoom(1, 60, 0.5, 3)).toBeLessThan(1);
+  });
+
+  it("applyWheelZoom and clampZoom clamp at the bounds", () => {
+    expect(applyWheelZoom(2.9, -500, 0.5, 3)).toBe(3);
+    expect(applyWheelZoom(0.6, 500, 0.5, 3)).toBe(0.5);
+    expect(clampZoom(10, 0.5, 3)).toBe(3);
+    expect(clampZoom(0, 0.5, 3)).toBe(0.5);
+    expect(clampZoom(1.37, 0.5, 3)).toBe(1.37);
   });
 });

@@ -865,31 +865,111 @@ describe("IframeWindow content zoom (260823-cwvv R2–R5, R8)", () => {
     expect(localStorage.getItem("runkit-web-zoom")).toBeNull();
   });
 
-  it("ctrl-wheel on the wrapper steps the zoom and is prevented; plain wheel passes through", () => {
+  it("ctrl-wheel on the wrapper zooms CONTINUOUSLY and is prevented; plain wheel passes through (260824-iafo R3)", () => {
     renderIframe({ windowId: "@2", rkUrl: "/proxy/3000/" });
     const wrapper = screen.getByTestId("web-zoom-frame-wrapper").parentElement as HTMLElement;
     const ctrlWheel = new WheelEvent("wheel", { deltaY: -60, ctrlKey: true, bubbles: true, cancelable: true });
     const preventSpy = vi.spyOn(ctrlWheel, "preventDefault");
     fireEvent(wrapper, ctrlWheel);
     expect(preventSpy).toHaveBeenCalled();
-    expect(readout().textContent).toBe("110%");
-    // Unmodified wheel: no step, no preventDefault.
+    // Continuous exponential mapping: 1 * exp(0.6) ≈ 1.822 — an off-ladder value.
+    expect(readout().textContent).toBe("182%");
+    // Unmodified wheel: no zoom change, no preventDefault.
     const plainWheel = new WheelEvent("wheel", { deltaY: -120, bubbles: true, cancelable: true });
     const plainSpy = vi.spyOn(plainWheel, "preventDefault");
     fireEvent(wrapper, plainWheel);
     expect(plainSpy).not.toHaveBeenCalled();
-    expect(readout().textContent).toBe("110%");
+    expect(readout().textContent).toBe("182%");
   });
 
-  it("ctrl-wheel inside the same-origin frame document steps the zoom", () => {
+  it("ctrl-wheel inside the same-origin frame document zooms continuously per event", () => {
     renderIframe({ windowId: "@2", rkUrl: "/proxy/3000/" });
     const iframe = screen.getByTitle("Proxied content") as HTMLIFrameElement;
     fireEvent.load(iframe);
     const doc = iframe.contentDocument!;
     fireEvent(doc, new WheelEvent("wheel", { deltaY: -60, ctrlKey: true, bubbles: true, cancelable: true }));
-    expect(readout().textContent).toBe("110%");
-    // A small tick below the threshold accumulates without stepping.
+    expect(readout().textContent).toBe("182%");
+    // Every event compounds — no threshold, no ladder click.
     fireEvent(doc, new WheelEvent("wheel", { deltaY: -10, ctrlKey: true, bubbles: true, cancelable: true }));
+    expect(readout().textContent).toBe("201%");
+  });
+
+  it("Safari gesturechange scales from the gesturestart base (260824-iafo R3)", () => {
+    renderIframe({ windowId: "@2", rkUrl: "/proxy/3000/" });
+    const wrapper = screen.getByTestId("web-zoom-frame-wrapper").parentElement as HTMLElement;
+    const gesture = (type: string, scale?: number) => {
+      const e = new Event(type, { bubbles: true, cancelable: true });
+      if (scale !== undefined) Object.assign(e, { scale });
+      fireEvent(wrapper, e);
+    };
+    gesture("gesturestart");
+    gesture("gesturechange", 1.5);
+    expect(readout().textContent).toBe("150%");
+    // Scale is cumulative from gesturestart — base stays the pinch-start value.
+    gesture("gesturechange", 2.2);
+    expect(readout().textContent).toBe("220%");
+    // A new pinch re-bases at the current zoom: 2.2 * 0.5 = 1.1.
+    gesture("gesturestart");
+    gesture("gesturechange", 0.5);
     expect(readout().textContent).toBe("110%");
+  });
+
+  it("a bucket change flushes the pending gesture write to the OLD bucket (260824-iafo R4)", () => {
+    vi.useFakeTimers();
+    try {
+      const view = renderIframe({ windowId: "@2", rkUrl: "/proxy/3000/" });
+      const wrapper = screen.getByTestId("web-zoom-frame-wrapper").parentElement as HTMLElement;
+      fireEvent(
+        wrapper,
+        new WheelEvent("wheel", { deltaY: -60, ctrlKey: true, bubbles: true, cancelable: true }),
+      );
+      expect(localStorage.getItem("runkit-web-zoom")).toBeNull();
+      // The address moves to a different bucket while the write is pending —
+      // the flush belongs to the OLD bucket, and the new bucket seeds fresh.
+      view.rerender(iframeElement({ windowId: "@2", rkUrl: "/proxy/4000/" }, "runkit"));
+      expect(JSON.parse(localStorage.getItem("runkit-web-zoom")!)).toEqual({ "proxy:3000": 1.82 });
+      expect(readout().textContent).toBe("100%");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("gesture persistence is debounced-trailing and flushes on unmount (260824-iafo R4)", () => {
+    vi.useFakeTimers();
+    try {
+      const view = renderIframe({ windowId: "@2", rkUrl: "/proxy/3000/" });
+      const wrapper = screen.getByTestId("web-zoom-frame-wrapper").parentElement as HTMLElement;
+      const wheel = () =>
+        fireEvent(
+          wrapper,
+          new WheelEvent("wheel", { deltaY: -30, ctrlKey: true, bubbles: true, cancelable: true }),
+        );
+      wheel();
+      wheel();
+      // Mid-gesture: nothing persisted yet.
+      expect(localStorage.getItem("runkit-web-zoom")).toBeNull();
+      vi.advanceTimersByTime(300);
+      // One trailing write with the final compounded value: exp(0.6) ≈ 1.82.
+      expect(JSON.parse(localStorage.getItem("runkit-web-zoom")!)).toEqual({ "proxy:3000": 1.82 });
+      // A pending write flushes (not drops) on unmount.
+      wheel();
+      view.unmount();
+      expect(JSON.parse(localStorage.getItem("runkit-web-zoom")!)).toEqual({ "proxy:3000": 2.46 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a + click from a gesture-set float snaps to the ladder and steps (260824-iafo R3)", () => {
+    renderIframe({ windowId: "@2", rkUrl: "/proxy/3000/" });
+    const wrapper = screen.getByTestId("web-zoom-frame-wrapper").parentElement as HTMLElement;
+    fireEvent(
+      wrapper,
+      new WheelEvent("wheel", { deltaY: -60, ctrlKey: true, bubbles: true, cancelable: true }),
+    );
+    expect(readout().textContent).toBe("182%");
+    // 1.822 snaps to 1.75 (nearest), then steps in → 2.
+    fireEvent.click(screen.getByLabelText("Zoom in"));
+    expect(readout().textContent).toBe("200%");
   });
 });

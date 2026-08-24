@@ -5,8 +5,11 @@
  * derivation over a web tile's zoom level:
  *
  * 1. `WEB_ZOOM_LEVELS` + `stepWebZoom` — the browser-standard discrete step
- *    ladder (50%–300%, default/reset 100%): stepping clamps at the ends and
- *    snaps an off-ladder value to the nearest level first.
+ *    ladder (50%–300%, default/reset 100%) for CLICK/SHORTCUT zoom: stepping
+ *    clamps at the ends and snaps an off-ladder value to the nearest level
+ *    first. Gesture zoom is CONTINUOUS (260824-iafo) — off-ladder floats are
+ *    legitimate stored state, and the snap is the bridge from a gesture-set
+ *    float to the button/palette ladder.
  * 2. `webZoomKeyFor` — the persistence bucket for a stored `@rk_url`, derived
  *    via `classifyAddress`: `external` → the URL's origin, `proxy`/loopback →
  *    `proxy:{port}`, `present`/`relative` → the single viewer-origin bucket
@@ -37,6 +40,10 @@ export const WEB_ZOOM_LEVELS = [
 
 /** The default and reset level — 100%. */
 export const WEB_ZOOM_DEFAULT = 1;
+
+/** The continuous zoom bounds — the ladder's ends. */
+export const WEB_ZOOM_MIN = WEB_ZOOM_LEVELS[0];
+export const WEB_ZOOM_MAX = WEB_ZOOM_LEVELS[WEB_ZOOM_LEVELS.length - 1];
 
 const WEB_ZOOM_STORAGE_KEY = "runkit-web-zoom";
 
@@ -115,27 +122,32 @@ function readZoomMap(): Record<string, number> {
 
 /**
  * The stored zoom level for a bucket, or `WEB_ZOOM_DEFAULT` when absent or
- * unreadable. An off-ladder stored value (hand-edited storage) snaps to the
- * nearest level.
+ * unreadable. Returns the stored FLOAT clamped to the continuous bounds — a
+ * gesture-set 1.37 reloads as 1.37, never snapped (the ladder snap lives
+ * solely in `stepWebZoom`, the click/shortcut path).
  */
 export function readWebZoom(key: string): number {
   const stored = readZoomMap()[key];
-  return stored === undefined ? WEB_ZOOM_DEFAULT : nearestLevel(stored);
+  if (stored === undefined) return WEB_ZOOM_DEFAULT;
+  return Math.min(WEB_ZOOM_MAX, Math.max(WEB_ZOOM_MIN, stored));
 }
 
 /**
- * Persist a bucket's zoom level. A level of `WEB_ZOOM_DEFAULT` REMOVES the
- * entry — the map stays sparse and 100% is the absent state (the
- * `resetTerminalFont` unset-state precedent). Storage failures no-op
- * silently (private mode, quota).
+ * Persist a bucket's zoom level, rounded to 2 decimals (1% granularity —
+ * sub-percent precision is invisible). A rounded level of `WEB_ZOOM_DEFAULT`
+ * REMOVES the entry — the map stays sparse, 100% is the absent state (the
+ * `resetTerminalFont` unset-state precedent), and the round keeps the rule
+ * robust to gesture float noise (0.9999 removes, not stores). Storage
+ * failures no-op silently (private mode, quota).
  */
 export function writeWebZoom(key: string, level: number): void {
   try {
+    const rounded = Math.round(level * 100) / 100;
     const map = readZoomMap();
-    if (level === WEB_ZOOM_DEFAULT) {
+    if (rounded === WEB_ZOOM_DEFAULT) {
       delete map[key];
     } else {
-      map[key] = level;
+      map[key] = rounded;
     }
     localStorage.setItem(WEB_ZOOM_STORAGE_KEY, JSON.stringify(map));
   } catch {

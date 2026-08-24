@@ -45,10 +45,12 @@ Content zoom on the web tile (260823-cwvv R2–R5): the URL-bar zoom control, pe
 2. Assert the `web-zoom-control` testid is absent.
 3. Open the palette, type `Web: Zoom`, and assert no `Web: Zoom` options exist.
 
-### (e) ctrl-wheel inside the same-origin frame steps the zoom (gesture trigger)
+### (e) ctrl-wheel inside the same-origin frame zooms CONTINUOUSLY; a + click lands back on the ladder
 
-**Proves**: the contentWindow gesture attach (R8) — a ctrl-wheel dispatched inside the framed document steps the tile's zoom and never reaches browser page zoom.
+**Proves**: the contentWindow gesture attach with continuous semantics (260824-iafo) — a ctrl-wheel dispatched inside the framed document scales the tile smoothly to off-ladder values (the Chrome/macOS pinch behavior), every event compounds with no threshold, and click zoom stays quantized (snap-then-step onto the ladder). The event never reaches browser page zoom.
 
 1. Open a proxied web tile.
 2. Inside the framed document, dispatch a `wheel` event with `deltaY: -60, ctrlKey: true`.
-3. Assert the readout steps to `110%` and the iframe's transform is a 1.1 scale matrix (the page itself did not zoom).
+3. Assert the readout shows the continuous value `182%` (`exp(0.6)`) and the iframe's transform is a ~1.82 scale matrix — an off-ladder value.
+4. Dispatch a small `deltaY: -10` ctrl-wheel; assert the readout compounds to `201%` (no threshold swallowed it).
+5. Click the `+` (Zoom in) button; assert `250%` — the continuous value snapped to the nearest ladder level (2) and stepped (2.5).

@@ -79,11 +79,22 @@ describe("readWebZoom / writeWebZoom (R3)", () => {
     expect(localStorage.getItem("runkit-web-zoom")).toBe("{}");
   });
 
-  it("an off-ladder stored value snaps to the nearest level on read", () => {
-    localStorage.setItem("runkit-web-zoom", JSON.stringify({ self: 1.04 }));
-    expect(readWebZoom("self")).toBe(1);
-    localStorage.setItem("runkit-web-zoom", JSON.stringify({ self: 1.04, "proxy:1": 1.2 }));
-    expect(readWebZoom("proxy:1")).toBe(1.25);
+  it("an off-ladder stored float reads back AS-IS, clamped to bounds — never snapped (260824-iafo R2)", () => {
+    localStorage.setItem("runkit-web-zoom", JSON.stringify({ self: 1.04, "proxy:1": 1.37 }));
+    expect(readWebZoom("self")).toBe(1.04);
+    expect(readWebZoom("proxy:1")).toBe(1.37);
+    // Out-of-bounds stored values clamp to the continuous range.
+    localStorage.setItem("runkit-web-zoom", JSON.stringify({ self: 5, "proxy:1": 0.1 }));
+    expect(readWebZoom("self")).toBe(3);
+    expect(readWebZoom("proxy:1")).toBe(0.5);
+  });
+
+  it("writeWebZoom rounds to 2 decimals; a round-to-1 value removes the entry (260824-iafo R2)", () => {
+    writeWebZoom("self", 1.82211);
+    expect(JSON.parse(localStorage.getItem("runkit-web-zoom")!)).toEqual({ self: 1.82 });
+    // Float noise around 1 must not survive as a stored entry.
+    writeWebZoom("self", 0.9999);
+    expect(localStorage.getItem("runkit-web-zoom")).toBe("{}");
   });
 
   it("corrupt or missing storage reads as default — never throws", () => {

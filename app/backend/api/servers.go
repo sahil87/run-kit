@@ -10,6 +10,13 @@ import (
 	"rk/internal/validate"
 )
 
+// daemonServerName is the tmux server name of the live production daemon
+// (mirrors internal/daemon.ServerSocket, kept as a local literal to avoid a
+// new import edge for one string — the same trade-off internal/tmux's
+// productionDaemonServer makes). Protected by derivation; the protect toggle
+// endpoint rejects it.
+const daemonServerName = "rk-daemon"
+
 // serverInfo is the per-server response entry from GET /api/servers.
 type serverInfo struct {
 	Name         string `json:"name"`
@@ -28,6 +35,11 @@ type serverInfo struct {
 	// scratch server the reaper sweeps with `rk mux reap --ephemeral`). Read
 	// at request time; a read failure or a server gone mid-walk yields false.
 	Ephemeral bool `json:"ephemeral"`
+	// Protected is true when the server is kill-guarded: the rk-daemon
+	// production server by derivation, or any server carrying the
+	// @rk_protected mark. Read at request time; a read failure or a server
+	// gone mid-walk yields false.
+	Protected bool `json:"protected"`
 }
 
 func (s *Server) handleServersList(w http.ResponseWriter, r *http.Request) {
@@ -47,17 +59,19 @@ func (s *Server) handleServersList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fan out ListSessions + GetServerRank + IsEphemeralServer calls
-	// concurrently. A failure for one server yields sessionCount: 0 /
-	// windowCount: 0 / rank: null / ephemeral: false for that entry; no 5xx to
-	// the client. The rank and ephemeral reads join this existing fan-out (one
-	// extra tmux call each per server, same concurrency pattern). The window
-	// count sums #{session_windows} over the sessions ListSessions already
-	// returns — no extra subprocess.
+	// Fan out ListSessions + GetServerRank + IsEphemeralServer +
+	// IsGuardedServer calls concurrently. A failure for one server yields
+	// sessionCount: 0 / windowCount: 0 / rank: null / ephemeral: false /
+	// protected: false for that entry; no 5xx to the client. The rank,
+	// ephemeral, and protected reads join this existing fan-out (one extra
+	// tmux call each per server, same concurrency pattern). The window count
+	// sums #{session_windows} over the sessions ListSessions already returns —
+	// no extra subprocess.
 	counts := make(map[string]int, len(names))
 	windowCounts := make(map[string]int, len(names))
 	ranks := make(map[string]*int, len(names))
 	ephemeral := make(map[string]bool, len(names))
+	protected := make(map[string]bool, len(names))
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	for _, name := range names {
@@ -84,11 +98,17 @@ func (s *Server) handleServersList(w http.ResponseWriter, r *http.Request) {
 				s.logger.Warn("servers: IsEphemeralServer failed", "server", name, "err", eerr)
 				marked = false
 			}
+			guarded, gerr := s.tmux.IsGuardedServer(r.Context(), name)
+			if gerr != nil {
+				s.logger.Warn("servers: IsGuardedServer failed", "server", name, "err", gerr)
+				guarded = false
+			}
 			mu.Lock()
 			counts[name] = n
 			windowCounts[name] = windows
 			ranks[name] = rank
 			ephemeral[name] = marked
+			protected[name] = guarded
 			mu.Unlock()
 		}(name)
 	}
@@ -96,7 +116,7 @@ func (s *Server) handleServersList(w http.ResponseWriter, r *http.Request) {
 
 	out := make([]serverInfo, 0, len(names))
 	for _, name := range names {
-		out = append(out, serverInfo{Name: name, SessionCount: counts[name], WindowCount: windowCounts[name], Rank: ranks[name], Ephemeral: ephemeral[name]})
+		out = append(out, serverInfo{Name: name, SessionCount: counts[name], WindowCount: windowCounts[name], Rank: ranks[name], Ephemeral: ephemeral[name], Protected: protected[name]})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 
@@ -186,7 +206,8 @@ func (s *Server) handleServerOrderPost(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleServerKill(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Name string `json:"name"`
+		Name  string `json:"name"`
+		Force bool   `json:"force"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid JSON body")
@@ -195,6 +216,29 @@ func (s *Server) handleServerKill(w http.ResponseWriter, r *http.Request) {
 
 	if errMsg := validate.ValidateServerName(body.Name); errMsg != "" {
 		writeError(w, http.StatusBadRequest, errMsg)
+		return
+	}
+
+	// Protected servers (rk-daemon by derivation, or @rk_protected) refuse a
+	// kill without force — 409 before the kill-notify audit fires, so a
+	// refused attempt never records an audited kill. The structured
+	// "protected" flag lets clients branch without string-matching.
+	guarded, err := s.tmux.IsGuardedServer(r.Context(), body.Name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if guarded && !body.Force {
+		// The restart alternative applies only to the daemon; an
+		// option-marked server's alternatives are unmark or force.
+		msg := body.Name + " is protected (@rk_protected). Unprotect it first, or pass force to kill anyway."
+		if body.Name == daemonServerName {
+			msg = body.Name + " is protected — it hosts the run-kit daemon. Use Restart (POST /api/restart) instead, or pass force to kill anyway."
+		}
+		writeJSON(w, http.StatusConflict, map[string]interface{}{
+			"error":     msg,
+			"protected": true,
+		})
 		return
 	}
 
@@ -209,6 +253,54 @@ func (s *Server) handleServerKill(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleServerProtect sets or clears the @rk_protected mark on a server —
+// the mutation endpoint behind the UI Protect/Unprotect toggle.
+// POST /api/servers/protect ← {"name": "srv", "protected": true} → 200 {"ok": true}
+//
+// The rk-daemon production server is rejected with 400: its protection is
+// derived from its constant name and is not togglable. The SSE hub is woken
+// after the write — user-option mutations emit no control-mode event, so
+// without the wake the repaint waits for the safety poll.
+func (s *Server) handleServerProtect(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name      string `json:"name"`
+		Protected bool   `json:"protected"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body")
+		return
+	}
+
+	if errMsg := validate.ValidateServerName(body.Name); errMsg != "" {
+		writeError(w, http.StatusBadRequest, errMsg)
+		return
+	}
+
+	if body.Name == daemonServerName {
+		writeError(w, http.StatusBadRequest, daemonServerName+" is protected by derivation — its protection is not togglable")
+		return
+	}
+
+	var err error
+	if body.Protected {
+		err = s.tmux.MarkServerProtected(r.Context(), body.Name)
+	} else {
+		err = s.tmux.UnmarkServerProtected(r.Context(), body.Name)
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Wake the SSE hub: set-option is invisible to the tmuxctl control-mode
+	// parser, so without this the change waits for the safety tick.
+	// initSSEHub is idempotent.
+	s.initSSEHub()
+	s.sseHub.wake(body.Name)
 
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }

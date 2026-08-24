@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-24T02:12:21Z"}
+{"args":"Implement Change 1 (Protected Server Class) from fab/plans/sahil/26-08-23-rk-daemon-protection.md — Wave 1, off fresh origin/main","cmd":"fab-new","event":"command","ts":"2026-08-24T02:12:21Z"}
+{"delta":"+4.2","event":"confidence","score":4.2,"trigger":"calc-score","ts":"2026-08-24T02:15:24Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-24T02:18:41Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-24T02:20:01Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-24T03:25:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-24T03:37:23Z"}
+{"event":"review","result":"passed","ts":"2026-08-24T03:37:23Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-24T03:44:45Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-08-24T03:48:23Z"}
+{"cmd":"git-pr-review","event":"command","ts":"2026-08-24T03:49:49Z"}
+{"event":"review","result":"passed","ts":"2026-08-24T04:10:48Z"}

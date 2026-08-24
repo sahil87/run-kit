@@ -60,6 +60,11 @@ with each entry's classified action (kill/remove) and touch NOTHING. Pass --yes
 
 The _rk-ctl control anchor and the live rk-daemon production server are skipped
 UNCONDITIONALLY, even under --prefix or --ephemeral and even with --yes/--force.
+LIVE servers carrying the %s mark are likewise skipped unconditionally —
+under --ephemeral, under any prefix match, always (protected beats ephemeral
+when a server carries both marks). The option dies with its server, so a
+formerly-protected server's dead socket file stays removable — a dead socket
+is inert.
 An empty prefix or one of 3 characters or fewer (e.g. "rk-") is refused unless
 --force, since it would match nearly everything (runkit, production). The
 guard applies to the prefix dimension only — --ephemeral matches are explicit
@@ -67,7 +72,7 @@ opt-in and need no length guard.
 
 Each rendered list is capped at 10 entries by default with a stated truncation
 notice; the cap is DISPLAY-ONLY (header counts stay exact and --yes/--force
-still reap every match) — pass --all to print the full list.`, tmux.EphemeralOption),
+still reap every match) — pass --all to print the full list.`, tmux.EphemeralOption, tmux.ProtectedOption),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := muxRejectInheritedServerFlag(cmd); err != nil {
 				return err

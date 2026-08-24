@@ -19,6 +19,7 @@ import {
   getDirectories,
   uploadFile,
   killServer,
+  setServerProtected,
   getThemePreference,
   setThemePreference,
   getServerColor,
@@ -363,17 +364,49 @@ describe("API client", () => {
 
   it("killServer does NOT carry a server query string", async () => {
     let capturedUrl = "";
-    let capturedBody: Record<string, string> = {};
+    let capturedBody: Record<string, unknown> = {};
     mswServer.use(
       http.post("/api/servers/kill", async ({ request }) => {
         capturedUrl = request.url;
-        capturedBody = (await request.json()) as Record<string, string>;
+        capturedBody = (await request.json()) as Record<string, unknown>;
         return HttpResponse.json({ ok: true });
       }),
     );
     await killServer("runkit");
     expect(capturedUrl).toMatch(/\/api\/servers\/kill$/);
     expect(capturedBody.name).toBe("runkit");
+    expect(capturedBody.force).toBe(false);
+  });
+
+  it("killServer carries force for a protected-target force kill", async () => {
+    let capturedBody: Record<string, unknown> = {};
+    mswServer.use(
+      http.post("/api/servers/kill", async ({ request }) => {
+        capturedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    await killServer("rk-daemon", true);
+    expect(capturedBody.name).toBe("rk-daemon");
+    expect(capturedBody.force).toBe(true);
+  });
+
+  it("setServerProtected posts name + protected to the protect endpoint", async () => {
+    let capturedUrl = "";
+    let capturedBody: Record<string, unknown> = {};
+    mswServer.use(
+      http.post("/api/servers/protect", async ({ request }) => {
+        capturedUrl = request.url;
+        capturedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    await setServerProtected("vault", true);
+    expect(capturedUrl).toMatch(/\/api\/servers\/protect$/);
+    expect(capturedBody).toEqual({ name: "vault", protected: true });
+
+    await setServerProtected("vault", false);
+    expect(capturedBody).toEqual({ name: "vault", protected: false });
   });
 
   it("encodes server names with special characters", async () => {

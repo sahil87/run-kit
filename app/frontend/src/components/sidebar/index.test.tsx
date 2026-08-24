@@ -13,7 +13,7 @@ import { SettingsDialogProvider } from "@/contexts/settings-dialog-context";
 import { ToastProvider } from "@/components/toast";
 import { useWindowStore } from "@/store/window-store";
 import { useSelectionStore } from "@/store/selection-store";
-import { getAllServerColors, setServerColor, getAllServerFlairs, setServerFlair } from "@/api/client";
+import { getAllServerColors, setServerColor, getAllServerFlairs, setServerFlair, setServerProtected, DAEMON_SERVER } from "@/api/client";
 import { stubMatchMedia } from "@/test-utils/match-media";
 import { resetFlyoutWarmState } from "./row-flyout-card";
 import { focusSidebarCurrentRow, registerWindowFocusRestorer } from "@/lib/sidebar-events";
@@ -62,6 +62,7 @@ vi.mock("@/api/client", async (importOriginal) => {
     setServerColor: vi.fn().mockResolvedValue({ ok: true }),
     getAllServerFlairs: vi.fn().mockResolvedValue({}),
     setServerFlair: vi.fn().mockResolvedValue({ ok: true }),
+    setServerProtected: vi.fn().mockResolvedValue({ ok: true }),
   };
 });
 
@@ -108,7 +109,7 @@ type RenderOpts = {
    *  expanded regardless of its collapsed exception (derived expand). */
   currentSession?: string | null;
   currentWindowId?: string | null;
-  servers?: { name: string; sessionCount: number }[];
+  servers?: { name: string; sessionCount: number; protected?: boolean }[];
   /** Wrap the tree in <StrictMode> to surface impure state updaters (the
    *  double-invocation the real app gets via main.tsx). Off by default so the
    *  coupling tests keep their single-pass render. */
@@ -2265,6 +2266,50 @@ describe("Sidebar — server-group rail + server card (260817-ve5m)", () => {
     expect(screen.queryByTestId("row-flyout-card")).toBeNull();
     expect(rail.style.backgroundColor).toBe(restBand);
     expect(rail.style.borderColor).toBe("");
+  });
+
+  it("server card protect toggle: fires setServerProtected with the flipped state; rk-daemon's row is protected and inert", async () => {
+    renderSidebar({
+      servers: [
+        { name: "primary", sessionCount: 1, protected: false },
+        { name: "alpha", sessionCount: 0, protected: true },
+        { name: DAEMON_SERVER, sessionCount: 2, protected: true },
+      ],
+    });
+    await act(async () => {});
+
+    // Unprotected server: the toggle reads "Protect" (off) and fires true.
+    tapRail("primary");
+    let toggle = screen.getByTestId("row-flyout-protect-toggle");
+    expect(toggle).toHaveTextContent("Protect");
+    expect(toggle).not.toBeDisabled();
+    expect(toggle).toHaveAttribute("role", "switch");
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    act(() => { fireEvent.click(toggle); });
+    expect(setServerProtected).toHaveBeenCalledExactlyOnceWith("primary", true);
+    act(() => { fireEvent.keyDown(document, { key: "Escape" }); });
+    vi.mocked(setServerProtected).mockClear();
+
+    // Protected server: the toggle reads "Unprotect" (on) and fires false.
+    tapRail("alpha");
+    toggle = screen.getByTestId("row-flyout-protect-toggle");
+    expect(toggle).toHaveTextContent("Unprotect");
+    expect(toggle).toHaveAttribute("role", "switch");
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+    act(() => { fireEvent.click(toggle); });
+    expect(setServerProtected).toHaveBeenCalledExactlyOnceWith("alpha", false);
+    act(() => { fireEvent.keyDown(document, { key: "Escape" }); });
+    vi.mocked(setServerProtected).mockClear();
+
+    // rk-daemon: visibly protected, toggle disabled — derived, not unmarkable.
+    tapRail(DAEMON_SERVER);
+    toggle = screen.getByTestId("row-flyout-protect-toggle");
+    expect(toggle).toHaveTextContent("Unprotect");
+    expect(toggle).toBeDisabled();
+    expect(toggle).toHaveAttribute("role", "switch");
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+    act(() => { fireEvent.click(toggle); });
+    expect(setServerProtected).not.toHaveBeenCalled();
   });
 });
 

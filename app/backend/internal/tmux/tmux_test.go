@@ -2434,6 +2434,145 @@ func TestMarkServerEphemeral_readsBackTrue(t *testing.T) {
 	}
 }
 
+func TestIsProtectedServer_setReturnsTrue(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	args := append(serverArgs(server), "set-option", "-s", ProtectedOption, "1")
+	if out, err := exec.CommandContext(ctx, "tmux", args...).CombinedOutput(); err != nil {
+		t.Fatalf("set %s: %v\n%s", ProtectedOption, err, string(out))
+	}
+
+	got, err := IsProtectedServer(ctx, server)
+	if err != nil {
+		t.Fatalf("IsProtectedServer marked: %v", err)
+	}
+	if !got {
+		t.Error("got false, want true (option set to 1)")
+	}
+}
+
+func TestIsProtectedServer_unsetAfterSetReturnsFalse(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := MarkServerProtected(ctx, server); err != nil {
+		t.Fatalf("MarkServerProtected: %v", err)
+	}
+	// Un-setting demotes the server back to normal.
+	if err := UnmarkServerProtected(ctx, server); err != nil {
+		t.Fatalf("UnmarkServerProtected: %v", err)
+	}
+
+	got, err := IsProtectedServer(ctx, server)
+	if err != nil {
+		t.Fatalf("IsProtectedServer after unset: %v", err)
+	}
+	if got {
+		t.Error("got true, want false (option unset)")
+	}
+}
+
+func TestIsProtectedServer_neverSetReturnsFalse(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	got, err := IsProtectedServer(ctx, server)
+	if err != nil {
+		t.Fatalf("IsProtectedServer unset: %v", err)
+	}
+	if got {
+		t.Error("got true, want false (option never set)")
+	}
+}
+
+func TestIsProtectedServer_noServerReturnsFalse(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available — skipping integration test")
+	}
+	// A socket name with no running server: the read must degrade to false,
+	// not bubble a "no server running" / "failed to connect" error — liveness
+	// is the caller's concern.
+	server := testSocketName("unit")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	got, err := IsProtectedServer(ctx, server)
+	if err != nil {
+		t.Fatalf("IsProtectedServer on dead server: %v", err)
+	}
+	if got {
+		t.Error("got true, want false (no server)")
+	}
+}
+
+func TestIsGuardedServer_daemonNameReturnsTrue(t *testing.T) {
+	// Derived protection needs no live server and never touches tmux — the
+	// short-circuit must hold even with no tmux binary/socket involved.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	got, err := IsGuardedServer(ctx, productionDaemonServer)
+	if err != nil {
+		t.Fatalf("IsGuardedServer daemon: %v", err)
+	}
+	if !got {
+		t.Error("got false, want true (daemon protected by derivation)")
+	}
+}
+
+func TestIsGuardedServer_markedServerReturnsTrue(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := MarkServerProtected(ctx, server); err != nil {
+		t.Fatalf("MarkServerProtected: %v", err)
+	}
+
+	got, err := IsGuardedServer(ctx, server)
+	if err != nil {
+		t.Fatalf("IsGuardedServer marked: %v", err)
+	}
+	if !got {
+		t.Error("got false, want true (option-marked server)")
+	}
+}
+
+func TestIsGuardedServer_unmarkedServerReturnsFalse(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	got, err := IsGuardedServer(ctx, server)
+	if err != nil {
+		t.Fatalf("IsGuardedServer unmarked: %v", err)
+	}
+	if got {
+		t.Error("got true, want false (unmarked server)")
+	}
+}
+
+func TestIsGuardedServer_deadServerReturnsFalse(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available — skipping integration test")
+	}
+	server := testSocketName("unit")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	got, err := IsGuardedServer(ctx, server)
+	if err != nil {
+		t.Fatalf("IsGuardedServer on dead server: %v", err)
+	}
+	if got {
+		t.Error("got true, want false (no server)")
+	}
+}
+
 func TestServerAllowed(t *testing.T) {
 	cases := []struct {
 		name      string

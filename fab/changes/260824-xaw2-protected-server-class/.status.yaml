@@ -1,0 +1,57 @@
+id: xaw2
+name: 260824-xaw2-protected-server-class
+created: 2026-08-24T02:12:21Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 14
+    acceptance_count: 24
+    acceptance_completed: 24
+confidence:
+    certain: 9
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 4.2
+    fuzzy: true
+    dimensions:
+        signal: 79.6
+        reversibility: 81.1
+        competence: 85.0
+        disambiguation: 81.8
+stage_metrics:
+    intake: {started_at: "2026-08-24T02:12:21Z", driver: fab-new, iterations: 1, completed_at: "2026-08-24T02:20:01Z"}
+    apply: {started_at: "2026-08-24T02:20:01Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-24T03:25:25Z"}
+    review: {started_at: "2026-08-24T03:25:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-24T03:37:23Z"}
+    hydrate: {started_at: "2026-08-24T03:37:23Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-24T03:44:45Z"}
+    ship: {started_at: "2026-08-24T03:44:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-24T03:48:23Z"}
+    review-pr: {started_at: "2026-08-24T03:48:23Z", driver: git-pr, iterations: 1, completed_at: "2026-08-24T04:10:48Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/730
+change_type_source: explicit
+true_impact:
+    added: 1941
+    deleted: 152
+    net: 1789
+    excluding:
+        added: 1393
+        deleted: 108
+        net: 1285
+    tests:
+        added: 700
+        deleted: 35
+        net: 665
+    computed_at: "2026-08-24T03:48:23Z"
+    computed_at_stage: ship
+summary: 'Add the protected server class — @rk_protected option + rk-daemon derived guard (IsGuardedServer): API kill 409 without force, POST /api/servers/protect toggle, rk mux kill/reap gates, kill-dialog typed-name fork, palette + flyout protect toggles'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-24T04:10:48Z

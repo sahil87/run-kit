@@ -17,7 +17,7 @@ agent→agent counterpart of `rk present`'s agent→user attach — and `rk mux 
 blocks until a peer's state (or a file signal) fires — under `--any`, until the
 FIRST of several panes fires. The substrate twins are
 the generic pane-mechanics verbs: `rk mux capture` (scrollback capture with
-substrate-only enrichment), `rk mux kill` (agent-state-gated pane removal), and
+substrate-only enrichment), `rk mux kill` (pane removal gated on agent state and server protection), and
 `rk mux process` (the pane's process tree with agent classification). `rk mux
 panes` is the whole-server enumeration query — one row per pane across all
 sessions, substrate facts only (no change/stage; choreography enrichment stays
@@ -275,9 +275,18 @@ tmux failure is operational (exit 1) carrying tmux's stderr diagnostic.
   `change:`/`stage:` parts; **AND GIVEN** a dead-pid value, **THEN** no
   `agent:` part appears (reconciled to unknown).
 
-### Requirement: `rk mux kill` — agent-state-gated pane removal
-`rk mux kill <target> [--force]` SHALL read the resolved pane's reconciled
-`@rk_agent_state` before killing and apply the gate matrix:
+### Requirement: `rk mux kill` — gated pane removal
+`rk mux kill <target> [--force]` SHALL refuse through two gates before killing,
+both evaluated against the resolved `-L` server scope and both skipped by
+`--force` (target existence is still validated via `tmux.PaneExists`):
+
+1. **Protected-server gate** (checked first): a pane residing on a protected
+   server — the derived daemon server `rk-daemon`, or any server marked
+   `@rk_protected` — is refused. The predicate is `tmux.IsGuardedServer` (the
+   daemon name short-circuits before any tmux read), reached through the
+   `muxKillGuardedServerFn` seam; a failure reading the protection state is
+   operational (`read server protection: …`).
+2. **Agent-state gate**: the resolved pane's reconciled `@rk_agent_state`:
 
 | State | plain | `--force` |
 |-------|-------|-----------|
@@ -286,9 +295,9 @@ tmux failure is operational (exit 1) carrying tmux's stderr diagnostic.
 | `idle` | kill | kill |
 | unknown (absent/unparseable/reconciled-away) | kill | kill |
 
-Refusals SHALL name the state, print to stderr, exit 1, and perform no tmux
-mutation. `--force` skips the gate but still validates target existence
-(`tmux.PaneExists`). The kill runs through `tmux.KillPaneCtx` (`kill-pane -t
+Refusals SHALL name the reason — the protected server or the agent state —
+print to stderr, exit 1, and perform no tmux mutation. The kill runs through
+`tmux.KillPaneCtx` (`kill-pane -t
 %N`) — unlike the best-effort `KillActivePane`, a tmux failure IS returned so
 the verb can surface tmux's stderr. On success stdout carries exactly one
 report line: `killed %N`. A missing pane or tmux kill failure is operational
@@ -300,6 +309,13 @@ report line: `killed %N`. A missing pane or tmux kill failure is operational
 - **THEN** it refuses naming `active`, exits 1, and the pane survives; **AND
   WHEN** `rk mux kill %5 --force` runs, **THEN** the pane is killed and stdout
   is `killed %5`.
+
+#### Scenario: Protected-server refusal names the server
+- **GIVEN** a pane on a server marked `@rk_protected`
+- **WHEN** `rk mux kill %5` runs
+- **THEN** it refuses naming the protected server, exits 1, and the pane
+  survives; **AND WHEN** `rk mux kill %5 --force` runs, **THEN** both gates
+  are skipped and stdout is `killed %5`.
 
 ### Requirement: `rk mux process` — process tree with agent-state pid cross-check
 `rk mux process <target> [--json]` SHALL resolve the pane's shell PID
@@ -557,6 +573,19 @@ waiting pane holds a pending human question; killing it silently loses that.
 should be first-party readers); gating only `active` (waiting loss is the
 subtler footgun).
 *Introduced by*: `260815-82w7-mux-substrate-twins`
+
+### Protected-server gate joins the kill refusal set
+**Decision**: `rk mux kill` refuses panes on protected servers (the derived
+daemon server `rk-daemon`, or any server marked `@rk_protected`) under the
+same refusal shape as the agent-state gate — naming the protected server on
+stderr, exit 1, no tmux mutation; the existing `--force` flag skips both
+gates, with target existence still validated.
+**Why**: the CLI is the agent-facing kill path — a pane kill on a protected
+server is the same accident class the API 409 and the UI typed-confirm close;
+one override flag keeps the refusal surface single.
+**Rejected**: a separate override flag per gate — two ways to say "I mean it"
+for one verb.
+*Introduced by*: 260824-xaw2-protected-server-class
 
 ### Capture enrichment is substrate-only
 **Decision**: capture carries cwd + reconciled agent state/duration; fab's

@@ -111,11 +111,11 @@ The context line carries only substrate facts — the pane's cwd and its **recon
 
 ```sh
 rk mux kill %12
-rk mux kill %12 --force        # skip the agent-state gate
+rk mux kill %12 --force        # skip both gates (agent-state + protected server)
 rk mux kill @3                 # window target → its agent pane
 ```
 
-**The gate** (reads the target's reconciled `@rk_agent_state`): `active` and `waiting` **refuse** — the refusal names the state on stderr, exits 1, and touches nothing (never kill a working agent, never drop a pane holding a pending human question); `idle` and uninstrumented panes are killed. `--force` skips the gate but still validates the target exists. Success prints exactly one stdout line: `killed %N`. A missing pane or tmux failure is exit 1.
+**Two gates**, both skipped by `--force` (target existence still validated). **Agent-state** (reads the target's reconciled `@rk_agent_state`): `active` and `waiting` **refuse** — the refusal names the state on stderr, exits 1, and touches nothing (never kill a working agent, never drop a pane holding a pending human question); `idle` and uninstrumented panes are killed. **Protected server**: a pane on a protected server (`rk-daemon` by derivation, or any server marked `@rk_protected 1`) is refused the same way — the refusal names the protected server on stderr. Success prints exactly one stdout line: `killed %N`. A missing pane or tmux failure is exit 1.
 
 ## `rk mux process` — what runs in a pane
 
@@ -139,7 +139,7 @@ The whole-server enumeration query — no target argument; it is the one mux mem
 ## Gotchas
 
 - All five pane-scoped verbs share the same target grammar — `%N`, `@N`, `=session:window` (bare `session:window` rejected) — and the same `-L <server>` flag (default: your own server, from `$TMUX`).
-- Scratch-server convention: create with `rk mux new <name> --ephemeral`, bulk-clean with `rk mux reap --ephemeral`; never bare `tmux kill-server` — a bare `tmux kill-server` (no `-L`/`-S`) is refused machine-wide by the rk tmux guard shim — use `tmux -L <name> kill-server` for scratch servers (`rk mux guard` is the verb the shim execs).
+- Scratch-server convention: create with `rk mux new <name> --ephemeral`, bulk-clean with `rk mux reap --ephemeral`; never bare `tmux kill-server` — a bare `tmux kill-server` (no `-L`/`-S`) is refused machine-wide by the rk tmux guard shim — use `tmux -L <name> kill-server` for scratch servers (`rk mux guard` is the verb the shim execs). Protected servers (`rk-daemon` always; any server marked `@rk_protected 1`) are skipped by `rk mux reap` unconditionally — even under `--ephemeral` or a prefix match (protected beats ephemeral) — and refuse `rk mux kill` without `--force`.
 - `--answer` and `--force` are mutually exclusive on `send` (usage error, exit 2) — say what you mean.
 - `--await` cannot combine with `--no-enter` (nothing was submitted to wait on).
 - `--key` sends key names raw (no paste, no probe — keys have no echo to verify).

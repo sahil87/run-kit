@@ -54,6 +54,18 @@ const OriginOption = "@rk_origin"
 // rides a user option like the rest of the @rk_* convention family.
 const EphemeralOption = "@rk_ephemeral"
 
+// ProtectedOption is the tmux server-scoped user option marking the whole
+// server protected: presence with a non-empty value (canonically "1") arms
+// the kill guards — POST /api/servers/kill refuses without force, rk mux kill
+// refuses panes on it without --force, and rk mux reap skips it
+// unconditionally. Unsetting it demotes the server back to normal — there is
+// no tombstone value. Exact mirror of EphemeralOption with inverted intent;
+// a server carrying both marks behaves as protected wherever the two classes
+// conflict (protected beats ephemeral). The rk-daemon production server is
+// protected by derivation from its constant name (IsGuardedServer), never by
+// this option — derived state is not togglable.
+const ProtectedOption = "@rk_protected"
+
 // RoleOption is the tmux window user option that marks a window's orchestration
 // role. The value set is closed: "" (unset) | "operator". "operator" is a
 // server-scoped radio — at most one window per tmux server carries it, enforced
@@ -2904,4 +2916,62 @@ func MarkServerEphemeral(ctx context.Context, server string) error {
 
 	_, err := tmuxExecRawServer(ctx, server, "set-option", "-s", EphemeralOption, "1")
 	return err
+}
+
+// IsProtectedServer reports whether the named server carries the
+// ProtectedOption mark (a non-empty trimmed value is truthy; "1" is the
+// documented convention). Exact mirror of IsEphemeralServer's taxonomy: an
+// unset option ("invalid option"/"unknown option" stderr) OR a dead/absent
+// socket (IsServerGone) reads as (false, nil) — liveness is the caller's
+// concern, and a gone server is never protected. Other subprocess failures
+// propagate wrapped.
+func IsProtectedServer(ctx context.Context, server string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	out, err := tmuxExecRawServer(ctx, server, "show-option", "-sv", ProtectedOption)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "invalid option") ||
+			strings.Contains(errMsg, "unknown option") ||
+			IsServerGone(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("read %s: %w", ProtectedOption, err)
+	}
+	return strings.TrimSpace(out) != "", nil
+}
+
+// MarkServerProtected writes the ProtectedOption mark ("1") server-scoped on
+// the named server. Mirrors MarkServerEphemeral. Requires a live server —
+// server-scoped options need a running tmux process.
+func MarkServerProtected(ctx context.Context, server string) error {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	_, err := tmuxExecRawServer(ctx, server, "set-option", "-s", ProtectedOption, "1")
+	return err
+}
+
+// UnmarkServerProtected removes the ProtectedOption mark from the named
+// server (set-option -s -u) — unset demotes; there is no tombstone value.
+func UnmarkServerProtected(ctx context.Context, server string) error {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	_, err := tmuxExecRawServer(ctx, server, "set-option", "-s", "-u", ProtectedOption)
+	return err
+}
+
+// IsGuardedServer is the combined kill-guard predicate: true when name is the
+// rk-daemon production server (protected by derivation from its constant
+// socket name — the derived state is not togglable and an option write on it
+// is never the source of truth) OR the server carries the ProtectedOption
+// mark. The daemon check short-circuits before any tmux read, so the derived
+// answer needs no live server and never errors.
+func IsGuardedServer(ctx context.Context, name string) (bool, error) {
+	if name == productionDaemonServer {
+		return true, nil
+	}
+	return IsProtectedServer(ctx, name)
 }

@@ -201,6 +201,15 @@ type mockTmuxOps struct {
 	isEphemeralByServer    map[string]bool
 	isEphemeralErrByServer map[string]error
 
+	// Protected mark, per server. Same fan-out/rankMu sharing as ephemeral.
+	isProtectedByServer    map[string]bool
+	isProtectedErrByServer map[string]error
+	markProtectedCalls     []struct {
+		Server    string
+		Protected bool
+	}
+	markProtectedErr error
+
 	// Boards
 	listBoardsCalled         bool
 	listBoardsResult         []tmux.BoardSummary
@@ -569,6 +578,38 @@ func (m *mockTmuxOps) IsEphemeralServer(ctx context.Context, server string) (boo
 		}
 	}
 	return m.isEphemeralByServer[server], nil
+}
+func (m *mockTmuxOps) IsGuardedServer(ctx context.Context, server string) (bool, error) {
+	m.rankMu.Lock()
+	defer m.rankMu.Unlock()
+	if m.isProtectedErrByServer != nil {
+		if err, ok := m.isProtectedErrByServer[server]; ok && err != nil {
+			return false, err
+		}
+	}
+	// rk-daemon is guarded by derivation, never by the option map.
+	if server == daemonServerName {
+		return true, nil
+	}
+	return m.isProtectedByServer[server], nil
+}
+func (m *mockTmuxOps) MarkServerProtected(ctx context.Context, server string) error {
+	m.rankMu.Lock()
+	defer m.rankMu.Unlock()
+	m.markProtectedCalls = append(m.markProtectedCalls, struct {
+		Server    string
+		Protected bool
+	}{server, true})
+	return m.markProtectedErr
+}
+func (m *mockTmuxOps) UnmarkServerProtected(ctx context.Context, server string) error {
+	m.rankMu.Lock()
+	defer m.rankMu.Unlock()
+	m.markProtectedCalls = append(m.markProtectedCalls, struct {
+		Server    string
+		Protected bool
+	}{server, false})
+	return m.markProtectedErr
 }
 func (m *mockTmuxOps) ListBoards(ctx context.Context) ([]tmux.BoardSummary, error) {
 	m.listBoardsCalled = true

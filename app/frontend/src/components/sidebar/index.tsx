@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, useReducer, memo } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "@tanstack/react-router";
-import { killSession as killSessionApi, killWindow as killWindowApi, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowFlair as setWindowFlairApi, setSessionFlair as setSessionFlairApi, getAllServerColors, setServerColor as setServerColorApi, getAllServerFlairs, setServerFlair as setServerFlairApi, setSessionOrder, type ServerInfo } from "@/api/client";
+import { killSession as killSessionApi, killWindow as killWindowApi, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowFlair as setWindowFlairApi, setSessionFlair as setSessionFlairApi, getAllServerColors, setServerColor as setServerColorApi, getAllServerFlairs, setServerFlair as setServerFlairApi, setSessionOrder, setServerProtected, DAEMON_SERVER, type ServerInfo } from "@/api/client";
 import { useSessionContext, useUpdateNotification } from "@/contexts/session-context";
 import { useFocusedPane } from "@/contexts/focused-pane-context";
 import { resolveFocusedWindow, thinWindowFromFocusedPane } from "@/lib/focused-pane-window";
@@ -2366,6 +2366,22 @@ function ServerGroupInner(props: ServerGroupProps) {
   // Apply optimistic merging (ghosts/rename/kill markers) per server.
   const sessions = useMergedSessions(rawSessions, server);
 
+  // Protect/Unprotect toggle state for the server flyout card's row: driven by
+  // the `protected` payload flag off the (already-fetched) server list — no
+  // new prop, the R6a memo contract stays untouched. rk-daemon renders as
+  // protected with the toggle DISABLED (derived, not unmarkable).
+  const { servers: allServers, refreshServers } = useSessionContext();
+  const { addToast: addGroupToast } = useToast();
+  const serverProtected = server === DAEMON_SERVER ||
+    (allServers.find((s) => s.name === server)?.protected ?? false);
+  const handleProtectToggle = useCallback(() => {
+    void setServerProtected(server, !serverProtected)
+      .then(() => refreshServers())
+      .catch((err: unknown) => {
+        addGroupToast(err instanceof Error ? err.message : "Failed to update server protection");
+      });
+  }, [server, serverProtected, refreshServers, addGroupToast]);
+
   const orderedSessions = useMemo(() => {
     const effectiveOrder = localOrder ?? sessionOrder;
     if (effectiveOrder.length === 0) return sessions;
@@ -2614,6 +2630,33 @@ function ServerGroupInner(props: ServerGroupProps) {
             testid="row-flyout-create-action"
             onClick={() => onCreateSession(server)}
           />
+          {/* Protect/Unprotect toggle — the coarse-pointer surface (the
+              palette's Server: Protect/Unprotect entries are the keyboard
+              surface). rk-daemon renders protected with the toggle disabled:
+              its protection is derived, not unmarkable. */}
+          <button
+            type="button"
+            role="switch"
+            aria-checked={serverProtected}
+            aria-label={`Protection for ${server}`}
+            disabled={server === DAEMON_SERVER}
+            data-testid="row-flyout-protect-toggle"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleProtectToggle();
+            }}
+            className="w-full flex items-center gap-2 px-2 py-1.5 text-left text-text-secondary hover:text-text-primary disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-text-secondary"
+          >
+            <span className="shrink-0">{serverProtected ? "Unprotect" : "Protect"}</span>
+            <span
+              aria-hidden="true"
+              className={`ml-auto w-7 h-4 rounded-full border ${serverProtected ? "bg-accent-green/30 border-accent-green" : "bg-bg-card border-border"} relative`}
+            >
+              <span
+                className={`absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full ${serverProtected ? "right-0.5 bg-accent-green" : "left-0.5 bg-text-secondary"}`}
+              />
+            </span>
+          </button>
           <CardActionRow
             icon={<CloseIcon />}
             label="Kill server"

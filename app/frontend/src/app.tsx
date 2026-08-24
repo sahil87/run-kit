@@ -59,13 +59,13 @@ import {
   resolveServerLandingWindow,
   writeLastWindow,
 } from "@/lib/last-window-per-server";
-import { deriveEffectiveSessionOrder, computeMoveOrder, computeWindowMoveTarget } from "@/lib/palette-move";
-import { buildViewActions } from "@/lib/palette-view";
-import { buildLayoutActions, buildTileSwitchActions } from "@/lib/palette-layout";
-import { buildZenActions } from "@/lib/palette-zen";
+import { deriveEffectiveSessionOrder, computeMoveOrder, computeWindowMoveTarget } from "@/lib/palette/move";
+import { buildViewActions } from "@/lib/palette/view";
+import { buildLayoutActions, buildTileSwitchActions } from "@/lib/palette/layout";
+import { buildZenActions } from "@/lib/palette/zen";
 import { resolveZenToggle } from "@/lib/zen-mode";
-import { buildStatusRefreshAction } from "@/lib/palette-status-refresh";
-import { buildPinActions } from "@/lib/palette-pin";
+import { buildStatusRefreshAction } from "@/lib/palette/status-refresh";
+import { buildPinActions } from "@/lib/palette/pin";
 import {
   buildSelectAllMergedAction,
   buildSelectionCloseAction,
@@ -73,23 +73,23 @@ import {
   buildSelectionSendPromptAction,
   batchToast,
   executeSelectionBatch,
-} from "@/lib/palette-selection";
+} from "@/lib/palette/selection";
 import { singleSelectedServer } from "@/lib/selection";
 import { useSelectionStore } from "@/store/selection-store";
-import { buildServerKillActions } from "@/lib/palette-server-kill";
-import { buildServerProtectActions } from "@/lib/palette-server-protect";
-import { buildShellServerActions } from "@/lib/palette-shell";
+import { buildServerKillActions } from "@/lib/palette/server-kill";
+import { buildServerProtectActions } from "@/lib/palette/server-protect";
+import { buildShellServerActions } from "@/lib/palette/shell";
 import { canCloseShellWindow, canNewShellWindow, closeShellWindow, isShell, newShellWindow, switchShellServer } from "@/lib/shell";
-import { ShellTitlebarStrip } from "@/components/shell-titlebar-strip";
-import { ShellAccentReporter } from "@/components/shell-accent-reporter";
-import { ShellBadgeReporter } from "@/components/shell-badge-reporter";
+import { ShellTitlebarStrip } from "@/components/desktop-shell/titlebar-strip";
+import { ShellAccentReporter } from "@/components/desktop-shell/accent-reporter";
+import { ShellBadgeReporter } from "@/components/desktop-shell/badge-reporter";
 import { useShellServers } from "@/hooks/use-shell-servers";
 import { readLastPinnedBoard } from "@/lib/last-pinned-board";
-import { buildOpenActions, buildOpenLastUsedAction, buildOpenPrAction } from "@/lib/palette-open";
+import { buildOpenActions, buildOpenLastUsedAction, buildOpenPrAction } from "@/lib/palette/open";
 import { activePaneCwd, buildOpenTargets, readLastUsedOpenTarget, resolveLastUsedTarget } from "@/lib/open-in-app";
 import { useOpenTargets } from "@/hooks/use-open-targets";
 import { useRunOpenTarget } from "@/components/open-button";
-import { nextWaitingTarget, chatSearchForTarget, type WaitingTarget } from "@/lib/palette-agent-nav";
+import { nextWaitingTarget, chatSearchForTarget, type WaitingTarget } from "@/lib/palette/agent-nav";
 import { isWaiting } from "@/lib/waiting";
 import { useChatSubscription } from "@/hooks/use-chat-subscription";
 import {
@@ -155,7 +155,7 @@ import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo, SelectWindowResult } from "@/api/client";
 
 import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowRole, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerProtected, sendChatMessage, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, type SortWindowsBy } from "@/api/client";
-import { buildSessionSortActions } from "@/lib/palette-sort";
+import { buildSessionSortActions } from "@/lib/palette/sort";
 import { useBoards } from "@/hooks/use-boards";
 import { useWindowPins } from "@/hooks/use-window-pins";
 import { usePinActions } from "@/hooks/use-pin-actions";
@@ -2825,7 +2825,7 @@ function AppShell() {
       const srv = server;
       // Direct-pin palette actions (`Pin: Current Tab to <board>`) + the
       // `Pin: Current Tab to new board…` variant, from the pure
-      // buildPinActions builder (lib/palette-pin.ts). These close the
+      // buildPinActions builder (lib/palette/pin.ts). These close the
       // Constitution V keyboard-first gap: a direct pin is Cmd+K → type →
       // Enter, with the §2c success toast as feedback. They SUPERSEDE the old
       // inline `board-pin-current` opener — its popover-opening role is now the
@@ -2876,7 +2876,7 @@ function AppShell() {
   // Per the project review rule, the new `x` shortcut is DOCUMENTED at this
   // registration seam — not merely in this comment: `SELECTION_GESTURE_HINT`
   // rides the select-all entry's `shortcut` field, which the palette renders as
-  // a `<kbd>` badge (see lib/palette-selection.ts). It is deliberately absent
+  // a `<kbd>` badge (see lib/palette/selection.ts). It is deliberately absent
   // from `DEFAULT_BINDINGS`, which is a modifier-chord registry driving a
   // window-level dispatcher — a bare `x` there would hijack the key app-wide
   // rather than inside the focused tree.
@@ -3166,7 +3166,7 @@ function AppShell() {
       // `toggle-iframe-terminal` action, which mutated `@rk_type`; switching a
       // lens now never touches the window's identity. The gating (available AND
       // not-current) + hint composition live in the pure `buildViewActions`
-      // (lib/palette-view.ts) so they are unit-testable without mounting the
+      // (lib/palette/view.ts) so they are unit-testable without mounting the
       // shell. MOBILE supersedes them: a phone doesn't need collapse-to-single
       // `View:` semantics — the palette instead lists the top-bar switch
       // group's twin (`Tile: Switch to <Surface>`, Constitution V parity) via
@@ -3190,7 +3190,7 @@ function AppShell() {
       // actionId, so `withShortcutHints` decorates it with the effective ⌘;
       // combo). These REPLACE the retired `Panel: Web`/`Panel: Code` entries —
       // the layout model subsumes the panel. The gating + labels live in the
-      // pure `buildLayoutActions` (lib/palette-layout.ts), the
+      // pure `buildLayoutActions` (lib/palette/layout.ts), the
       // `buildViewActions` precedent. The entries
       // act on the RENDERED layout (260815-wkcw) — a transiently auto-opened
       // web tile offers `Tile: Hide Web`, and hiding it records the
@@ -3361,7 +3361,7 @@ function AppShell() {
   // the hidden button. No keyboard chord is registered — the target set is
   // data-driven per deployment, so the palette entries themselves are the
   // keyboard path (documented per the code-review shortcut rule; see
-  // lib/palette-open.ts). Data comes from the same module-cached
+  // lib/palette/open.ts). Data comes from the same module-cached
   // useOpenTargets fetch the TopBar entry uses (one fetch per page load).
   const openCtx = useOpenTargets(!!windowParam);
   const openPath = windowParam ? activePaneCwd(currentWindow) : "";

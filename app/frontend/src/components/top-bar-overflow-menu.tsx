@@ -7,8 +7,8 @@ import {
   type ReactNode,
 } from "react";
 import { useUpdateNotification } from "@/contexts/session-context";
-import { displayVersion } from "@/lib/palette-version";
-import { updateChipToolSummary } from "@/lib/palette-update";
+import { displayVersion } from "@/lib/palette/version";
+import { updateChipToolSummary } from "@/lib/palette/update";
 import { copyToClipboard } from "@/lib/clipboard";
 import { useToast } from "@/components/toast";
 import { LogoSpinner } from "@/components/logo-spinner";
@@ -24,7 +24,7 @@ import { formatCombo } from "@/lib/keybindings";
 /** Sentinel running version for local (non-ldflags) builds — the version row's
  *  check-again affordance is hidden for it (a dev daemon never checks; the same
  *  gate as the palette check entries). Kept local, same pattern as
- *  lib/palette-update.ts / hooks/use-update-check.ts. */
+ *  lib/palette/update.ts / hooks/use-update-check.ts. */
 const DEV_VERSION = "dev";
 
 /** Vertical gap between the chevron's bottom edge and the menu's top (matches

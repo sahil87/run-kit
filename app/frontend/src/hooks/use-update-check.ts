@@ -2,12 +2,12 @@ import { useCallback, useContext, useRef, useState } from "react";
 import { SessionContext, useUpdateNotification } from "@/contexts/session-context";
 import { useToast } from "@/components/toast";
 import { checkForUpdates } from "@/api/client";
-import { composeCheckToast, filterCheckRelevantTools } from "@/lib/palette-update";
+import { composeCheckToast, filterCheckRelevantTools } from "@/lib/palette/update";
 
 /** Sentinel running version for local (non-ldflags) builds — the toast's
  *  "Update Now" action slot is suppressed for it (mirrors the palette entry's
  *  gate in buildMaintenanceActions). Kept local, same pattern as
- *  lib/palette-update.ts. */
+ *  lib/palette/update.ts. */
 const DEV_VERSION = "dev";
 
 /**
@@ -41,7 +41,7 @@ const DEV_VERSION = "dev";
  * persistent update surfaces (chip / overflow-menu version row) instead of
  * evaporating after ~5s. The persisted subset comes from the SAME exported
  * predicate `composeCheckToast` filters with (`filterCheckRelevantTools` in
- * lib/palette-update.ts — one definition, two call sites), so the chip and the
+ * lib/palette/update.ts — one definition, two call sites), so the chip and the
  * toast can never disagree about what was found — and an all-up-to-date result
  * persists an EMPTY set, clearing any stale positive. The toast flow itself is
  * unchanged: this is in addition to it, never a replacement.

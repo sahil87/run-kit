@@ -22,7 +22,7 @@ afterEach(() => {
 
 // Builds an UpdateAvailable payload from matched tools, deriving the composite
 // key (sorted tool@latest) and the legacy current/latest from the run-kit row
-// (same helper shape as update-chip.test.tsx).
+// (same helper shape as top-bar.update-chip.test.tsx).
 function updateAvailable(tools: UpdateTool[]): UpdateAvailable {
   const key = tools
     .map((t) => `${t.tool}@${t.latest}`)

@@ -54,7 +54,7 @@ copy.
 ### `palette 'Pin: Current Tab to <board>' pins directly and shows the View board toast`
 
 **What it proves:** The command-palette direct-pin action
-(`lib/palette-pin.ts`, wired into AppShell `boardActions`) pins the current
+(`lib/palette/pin.ts`, wired into AppShell `boardActions`) pins the current
 window to an existing board without opening the popover, the successful pin
 surfaces the `Pinned to <board>` toast with a `View board` action
 (`use-pin-actions` + toast `action` support), the pin lands server-side, and

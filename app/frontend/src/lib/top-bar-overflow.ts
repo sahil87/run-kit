@@ -1,6 +1,6 @@
 /**
  * Pure fit computation for the top-bar right-cluster overflow (260715-h1ck).
- * Follows the `lib/palette-*.ts` pure-helper pattern: dependency-free and
+ * Follows the `lib/palette/*.ts` pure-helper pattern: dependency-free and
  * unit-testable without mounting the shell. The measurement wiring (the
  * ResizeObserver + child-width reads) lives in the component; this module owns
  * ONLY the arithmetic of "how many leading items fit".

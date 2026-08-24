@@ -29,7 +29,7 @@ import { detectPlatform, formatCombo } from "./keybindings";
  * drift this shared classifier exists to prevent. The classifier stays pure,
  * component-free, and text-agnostic (empty-text handling lives at the call
  * sites), so the full matrix is unit-testable without a mount (the
- * `palette-move.ts` extraction pattern).
+ * `palette/move.ts` extraction pattern).
  */
 
 /** What a keydown should do: submit the text, insert it without submitting,

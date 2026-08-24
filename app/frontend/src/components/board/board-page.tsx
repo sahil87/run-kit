@@ -22,7 +22,7 @@ import { useRegisterTopBarSlot } from "@/contexts/top-bar-slot-context";
 import { useRegisterFocusedPane } from "@/contexts/focused-pane-context";
 import { createSession, createWindow as createWindowApi, splitWindow, killWindow } from "@/api/client";
 import { setBoardOrder } from "@/api/boards";
-import { computeMoveOrder } from "@/lib/palette-move";
+import { computeMoveOrder } from "@/lib/palette/move";
 import { Dialog } from "@/components/dialog";
 import type { PaletteAction } from "@/components/command-palette";
 import { ValidBoardName } from "./board-name";

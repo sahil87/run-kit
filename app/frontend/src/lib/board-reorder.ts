@@ -14,7 +14,7 @@
  * up immediately BEFORE the moved pane (smaller orderKey), `after` is the one
  * immediately AFTER (larger orderKey); each is `null` at the respective edge.
  *
- * Extracting the neighbour arithmetic here (mirroring `palette-move.ts`) keeps
+ * Extracting the neighbour arithmetic here (mirroring `palette/move.ts`) keeps
  * the palette's Move Left/Right math unit-testable without mounting the board.
  */
 

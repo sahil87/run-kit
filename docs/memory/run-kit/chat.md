@@ -683,7 +683,7 @@ every `/api/sessions` response + SSE `sessions` event, needing no client parsing
 ### Requirement: Pure derivation helpers (dedup / turn-group / tool-pair / pending)
 `chat-stream.ts` SHALL export the pure helpers the hook + renderer compose, each
 unit-tested without an `EventSource` or a mounted component (mirroring the
-`palette-move.ts` / `palette-agent-nav.ts` extraction pattern):
+`palette/move.ts` / `palette/agent-nav.ts` extraction pattern):
 - `applyChatBackfill(conv)` — returns `conv.events` verbatim (backfill REPLACES,
   never appends).
 - `appendChatEvents(existing, incoming)` — appends `incoming` deduped by `id`
@@ -1217,7 +1217,7 @@ render the pane's input box at all, so the same Enter would make typed text vani
 an invisible target — and the premature-send hazard (a reflexive Enter firing a
 half-written prompt at a live agent) applies here undiluted. Declaring that divergence
 INSIDE the classifier, as a required parameter, preserves the single shared decision path
-(pure + unit-testable without a mount, the `palette-move.ts` extraction pattern): a call
+(pure + unit-testable without a mount, the `palette/move.ts` extraction pattern): a call
 site may choose which policy it gets but cannot invent a third, and a new surface must
 state its choice rather than silently inherit one — the two handlers had already drifted
 once, before the classifier existed. Pointer-independence still holds because the

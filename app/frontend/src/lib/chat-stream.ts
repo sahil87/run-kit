@@ -5,7 +5,7 @@
  * from the chat stream hook (`use-chat-subscription`, née `use-chat-stream`) and
  * the `ChatView` renderer so the pure parts (dedup, turn grouping, tool pairing,
  * pending derivation) are unit-testable without a live stream or a mounted
- * component — mirroring the `palette-move.ts` / `palette-agent-nav.ts` extraction
+ * component — mirroring the `palette/move.ts` / `palette/agent-nav.ts` extraction
  * pattern.
  */
 

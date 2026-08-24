@@ -12,7 +12,7 @@ import { useMatches } from "@tanstack/react-router";
 import { useChromeDispatch } from "./chrome-context";
 import { listServers, compareServersRanked, triggerUpdate, triggerForceUpdate, triggerRestart, type ServerInfo, type UpdateTriggerResult } from "@/api/client";
 import { StateSocket, type ChatSubscribeArgs, type ChatUnsubscribeArgs } from "@/lib/state-socket";
-import { computeUpdateKey } from "@/lib/palette-update";
+import { computeUpdateKey } from "@/lib/palette/update";
 import type { MetricsSnapshot, ProjectSession, Service, ServicesSnapshot } from "@/types";
 
 export type { ChatSubscribeArgs, ChatUnsubscribeArgs };

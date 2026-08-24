@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import type { Service, ProjectSession, MetricsSnapshot } from "@/types";
 import type { ServerInfo } from "@/api/client";
 import { ThemeProvider } from "@/contexts/theme-context";
@@ -50,6 +50,8 @@ let mockSessionsByServer: Map<string, ProjectSession[]> = new Map();
 let mockHostMetrics: MetricsSnapshot | null = null;
 const refreshServersMock = vi.fn();
 const markServerPendingMock = vi.fn();
+const attachServerMock = vi.fn();
+const restartNowMock = vi.fn().mockResolvedValue({ status: "ok" });
 vi.mock("@/contexts/session-context", () => ({
   useHostMetrics: () => mockHostMetrics,
   useHostServices: () => mockServices,
@@ -64,6 +66,11 @@ vi.mock("@/contexts/session-context", () => ({
     sessionsByServer: mockSessionsByServer,
     sessionOrderByServer: new Map<string, string[]>(),
     isConnectedByServer: new Map(mockServers.map((s) => [s.name, false])),
+    attachServer: attachServerMock,
+    daemonVersion: null,
+    daemonStarted: null,
+    daemonPort: null,
+    restartNow: restartNowMock,
   }),
 }));
 
@@ -136,6 +143,95 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+});
+
+describe("HostOverviewPage — system card (HOST HEALTH zone)", () => {
+  it("renders the run-kit system card inside the Host health zone even with no metrics", () => {
+    mockHostMetrics = null;
+    renderPage();
+
+    const zone = screen.getByRole("region", { name: "Host health" });
+    // The card renders independently of the metrics stream (the daemon serving
+    // the page is up by definition) — with the context's null fields it
+    // degrades to the version placeholder and not-running rows.
+    expect(zone.querySelector('[aria-label="run-kit system"]')).not.toBeNull();
+    expect(within(zone).getByText("run-kit")).toBeInTheDocument();
+  });
+
+  it("attaches the rk-daemon server so the service rows are live", () => {
+    renderPage();
+    expect(attachServerMock).toHaveBeenCalledWith("rk-daemon");
+  });
+
+  it("shows live service rows derived from the rk-daemon server's sessions", () => {
+    mockSessionsByServer = new Map([
+      [
+        "rk-daemon",
+        [
+          {
+            name: "rk-jobs",
+            windows: [
+              {
+                windowId: "@7",
+                index: 0,
+                name: "job-a",
+                worktreePath: "/tmp",
+                activity: "idle" as const,
+                isActiveWindow: true,
+                activityTimestamp: 0,
+              },
+            ],
+          },
+        ],
+      ],
+    ]);
+    renderPage();
+
+    const card = screen.getByLabelText("run-kit system");
+    expect(within(card).getByText("1 job")).toBeInTheDocument();
+    expect(within(card).getAllByText("not running")).toHaveLength(2);
+    expect(within(card).getByRole("button", { name: "View" })).toBeInTheDocument();
+  });
+
+  it("Restart routes through the context's restartNow", () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Restart" }));
+    expect(restartNowMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("HostOverviewPage — protected-server shield glyph (TMUX SERVERS tiles)", () => {
+  it("renders the shield glyph for @rk_protected servers and the rk-daemon server, absent otherwise", () => {
+    mockServers = [
+      { name: "runkit", sessionCount: 1 },
+      { name: "guarded", sessionCount: 0, protected: true },
+      { name: "rk-daemon", sessionCount: 2 },
+    ];
+    renderPage();
+
+    expect(screen.getByTestId("shield-guarded")).toBeInTheDocument();
+    expect(screen.getByTestId("shield-rk-daemon")).toBeInTheDocument();
+    expect(screen.queryByTestId("shield-runkit")).not.toBeInTheDocument();
+  });
+
+  it("rk-daemon keeps its dim (grey-name) treatment with the glyph additive", () => {
+    mockServers = [{ name: "rk-daemon", sessionCount: 2 }];
+    renderPage();
+
+    const shield = screen.getByTestId("shield-rk-daemon");
+    // The name container keeps the infra grey (text-text-secondary).
+    const nameDiv = shield.closest("div.font-medium");
+    expect(nameDiv).toHaveClass("text-text-secondary");
+    expect(nameDiv).toHaveTextContent("rk-daemon");
+  });
+
+  it("no server carries a glyph when nothing is protected (zero drift)", () => {
+    mockServers = [{ name: "runkit", sessionCount: 1 }];
+    renderPage();
+
+    expect(screen.queryByTestId(/^shield-/)).not.toBeInTheDocument();
+    expect(document.querySelectorAll('[data-icon="shield"]')).toHaveLength(0);
+  });
 });
 
 describe("HostOverviewPage — Services zone", () => {

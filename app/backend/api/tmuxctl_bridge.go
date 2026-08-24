@@ -234,17 +234,18 @@ func (s *Server) SetServerKillNotifier(fn func(server string)) {
 
 // SetVersion seeds the SSE hub's server-global `event: version` cached slot with
 // the running daemon version (ldflags-injected `main.version`), the per-process
-// boot id, and the brew-install flag. Called from `rk serve` after
-// NewRouterAndServer. Safe to call before any SSE client connects — initSSEHub
-// materialises the hub. The version cannot change for the process lifetime, so
-// the slot is delivered on connect only (no broadcast).
+// boot id, the brew-install flag, the process start time (epoch seconds), and the
+// bound port. Called from `rk serve` after NewRouterAndServer. Safe to call
+// before any SSE client connects — initSSEHub materialises the hub. The version
+// cannot change for the process lifetime, so the slot is delivered on connect
+// only (no broadcast).
 //
 // The version is ALSO stored on the Server for handleRestart's dev guard (a
 // "dev" build must not spawn `rk daemon restart` — see restart.go).
-func (s *Server) SetVersion(version, boot string, brew bool) {
+func (s *Server) SetVersion(version, boot string, brew bool, started int64, port int) {
 	s.version = version
 	s.initSSEHub()
-	s.sseHub.setVersion(version, boot, brew)
+	s.sseHub.setVersion(version, boot, brew, started, port)
 }
 
 // SetUpdateChecker injects the running update checker so the /api/update handler

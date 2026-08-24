@@ -682,12 +682,13 @@ func TestBroadcastBoardOrderNilNormalizedToEmpty(t *testing.T) {
 
 // TestVersionSlotReplayedOnConnect verifies the server-global `event: version`
 // cached slot: after setVersion, EVERY client (incl. `?metrics=1`) receives the
-// version frame on connect, carrying the additive `boot` + `brew` fields. There
-// is no broadcast path — the slot is delivered on connect only.
+// version frame on connect, carrying the additive `boot` + `brew` + `started` +
+// `port` fields. There is no broadcast path — the slot is delivered on connect
+// only.
 func TestVersionSlotReplayedOnConnect(t *testing.T) {
 	sf := &slowSessionFetcher{result: []sessions.ProjectSession{}}
 	hub := newSSEHub(sf, nil, nil, nil)
-	hub.setVersion("0.5.3", "abc123", true)
+	hub.setVersion("0.5.3", "abc123", true, 1700000000, 3000)
 
 	for name, server := range map[string]string{"default": "default", "metrics-only": metricsOnlyServer} {
 		c := hub.addTestClient(make(chan hubEvent, 16), server)
@@ -703,7 +704,7 @@ func TestVersionSlotReplayedOnConnect(t *testing.T) {
 		// Assert each required field independently rather than the exact
 		// serialized object — this tolerates JSON key-order changes and
 		// additive fields (the payload is explicitly additive; see setVersion).
-		for _, want := range []string{`"version":"0.5.3"`, `"boot":"abc123"`, `"brew":true`} {
+		for _, want := range []string{`"version":"0.5.3"`, `"boot":"abc123"`, `"brew":true`, `"started":1700000000`, `"port":3000`} {
 			if !strings.Contains(got[0], want) {
 				t.Errorf("%s client version payload = %q, missing %s", name, got[0], want)
 			}
@@ -732,7 +733,7 @@ func TestVersionSlotEmptyWhenUnset(t *testing.T) {
 func TestVersionSlotEmptyVersionSuppressed(t *testing.T) {
 	sf := &slowSessionFetcher{result: []sessions.ProjectSession{}}
 	hub := newSSEHub(sf, nil, nil, nil)
-	hub.setVersion("", "abc123", true)
+	hub.setVersion("", "abc123", true, 1700000000, 3000)
 	c := hub.addTestClient(make(chan hubEvent, 16), "default")
 	defer hub.removeClient(c)
 	var events []string

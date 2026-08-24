@@ -292,6 +292,19 @@ export function LayoutGlyph() {
   );
 }
 
+/** Shield — lucide shield, the protected-server class marker. Rendered on the
+ *  server-list surfaces (host TMUX SERVERS tiles, sidebar server group headers)
+ *  where `name === DAEMON_SERVER || server.protected` — the visible cause for
+ *  the guarded kill fork (typed-name confirm). The surrounding label carries
+ *  the accessible name; the glyph stays aria-hidden decoration. */
+export function ShieldGlyph() {
+  return (
+    <ControlGlyph name="shield">
+      <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
+    </ControlGlyph>
+  );
+}
+
 /**
  * Per-shape preset glyphs (260812-ab5v R9) — the ▦ chip popover's rows and the
  * overflow menu's `Layout: …` rows, one miniaturized arrangement pictogram per

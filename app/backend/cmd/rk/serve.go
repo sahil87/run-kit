@@ -166,6 +166,11 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 		defer stop()
 
+		// Process start feeds the version slot's `started` field (the host
+		// page's daemon uptime readout). Captured before the router so the
+		// whole boot sequence counts toward uptime.
+		started := time.Now().Unix()
+
 		router, apiServer := api.NewRouterAndServer(ctx, logger)
 
 		// Expose the running version to clients over SSE (server-global
@@ -177,7 +182,7 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 		// and the post-restart auto-reload. The checker suppresses itself for the
 		// "dev" sentinel / unparseable versions and is bound to the serve context.
 		selfBrew := resolveBrewInstalled()
-		apiServer.SetVersion(version, newBootID(), selfBrew)
+		apiServer.SetVersion(version, newBootID(), selfBrew, started, cfg.Port)
 		updateChecker := updatecheck.New(version, selfBrew)
 		updateChecker.OnQualify = apiServer.WireUpdateAvailableBroadcast()
 		updateChecker.Start(ctx)

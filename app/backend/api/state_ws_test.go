@@ -191,7 +191,7 @@ func TestStateWS_GlobalEventEnvelope(t *testing.T) {
 // cached host-global slots once on connect (hello), each byte-identical.
 func TestStateWS_HelloReplaysGlobalSlots(t *testing.T) {
 	hub := newSSEHub(&slowSessionFetcher{}, nil, nil, nil)
-	hub.setVersion("0.5.3", "abc", true)
+	hub.setVersion("0.5.3", "abc", true, 1700000000, 3000)
 	hub.broadcastServerOrder([]string{"x"})
 	hub.broadcastUpdateAvailable(updatecheck.Result{
 		Tools:   []updatecheck.ToolVerdict{{Tool: "run-kit", Installed: "0.5.3", Latest: "0.6.0", UpdateAvailable: true, Notable: true}},

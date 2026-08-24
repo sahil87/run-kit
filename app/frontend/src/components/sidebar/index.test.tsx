@@ -2311,6 +2311,22 @@ describe("Sidebar — server-group rail + server card (260817-ve5m)", () => {
     act(() => { fireEvent.click(toggle); });
     expect(setServerProtected).not.toHaveBeenCalled();
   });
+
+  it("server group headers render the shield glyph for protected servers (rk-daemon derived), absent otherwise", async () => {
+    renderSidebar({
+      servers: [
+        { name: "primary", sessionCount: 1, protected: false },
+        { name: "alpha", sessionCount: 0, protected: true },
+        { name: DAEMON_SERVER, sessionCount: 2 },
+      ],
+    });
+    await act(async () => {});
+
+    expect(screen.getByTestId("shield-alpha")).toBeInTheDocument();
+    // rk-daemon derives protected client-side even with the flag unset.
+    expect(screen.getByTestId(`shield-${DAEMON_SERVER}`)).toBeInTheDocument();
+    expect(screen.queryByTestId("shield-primary")).not.toBeInTheDocument();
+  });
 });
 
 describe("Sidebar — sessions-tree bottom scroll-edge fade (260813-kvk7)", () => {

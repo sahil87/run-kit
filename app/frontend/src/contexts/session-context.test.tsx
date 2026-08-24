@@ -943,6 +943,46 @@ describe("shouldReloadOnVersion — boot-aware reload guard", () => {
   });
 });
 
+describe("SessionProvider — version-slot started/port fields", () => {
+  it("parses started/port from a new-daemon version payload", async () => {
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await settle();
+
+    act(() => {
+      WS.global()?.emit("version", { version: "0.6.0", boot: "b1", brew: false, started: 1700000000, port: 3000 });
+    });
+
+    expect(result.current.daemonVersion).toBe("0.6.0");
+    expect(result.current.daemonStarted).toBe(1700000000);
+    expect(result.current.daemonPort).toBe(3000);
+  });
+
+  it("yields null daemonStarted/daemonPort on an older daemon's field-less payload (no throw, no NaN/0)", async () => {
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await settle();
+
+    act(() => {
+      WS.global()?.emit("version", { version: "0.5.3", boot: "b1", brew: true });
+    });
+
+    expect(result.current.daemonVersion).toBe("0.5.3");
+    expect(result.current.daemonStarted).toBeNull();
+    expect(result.current.daemonPort).toBeNull();
+  });
+
+  it("yields null for malformed field values (non-finite numbers)", async () => {
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await settle();
+
+    act(() => {
+      WS.global()?.emit("version", { version: "0.6.0", boot: "b1", brew: false, started: "soon", port: NaN });
+    });
+
+    expect(result.current.daemonStarted).toBeNull();
+    expect(result.current.daemonPort).toBeNull();
+  });
+});
+
 describe("SessionProvider — tab-local manual-check feed (260807-s6zs)", () => {
   const runKitRow = { tool: "run-kit", current: "3.8.7", latest: "3.9.1" };
   const tuRow = { tool: "tu", current: "0.9.1", latest: "0.9.2" };

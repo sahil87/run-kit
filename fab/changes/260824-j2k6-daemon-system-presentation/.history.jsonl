@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-24T04:05:59Z"}
+{"args":"Implement Change 2 (SYSTEM presentation) from fab/plans/sahil/26-08-23-rk-daemon-protection.md — stacked on Change 1 (Protected Server Class, PR #730, branch 260824-xaw2-protected-server-class); PR based on that branch, not main","cmd":"fab-new","event":"command","ts":"2026-08-24T04:05:59Z"}
+{"delta":"+4.3","event":"confidence","score":4.3,"trigger":"calc-score","ts":"2026-08-24T04:07:25Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-24T04:12:35Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-24T04:14:15Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-24T04:29:16Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-24T04:34:12Z"}
+{"event":"review","result":"passed","ts":"2026-08-24T04:34:12Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-24T04:40:25Z"}

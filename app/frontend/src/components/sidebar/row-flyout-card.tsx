@@ -384,13 +384,14 @@ export function canForkWindow(win: WindowInfo): boolean {
 }
 
 /**
- * The derived availability rule for the "Fix tab name" operator-request
- * affordance (260822-fih1-operator-request-fix-tab-name) — degrade to ABSENT,
- * never disabled: the row renders only when (a) the server has an operator
- * window, (b) the subject window carries a reconciled chat session (the
- * template needs its JSONL transcript), and (c) the subject is not itself the
- * operator. All three facts already ride the sessions payload. */
-export function canRequestFixTabName(win: WindowInfo, hasOperator: boolean): boolean {
+ * The derived availability rule for the window-scoped operator-request
+ * affordances (Fix tab name — 260822-fih1; Retire… — 260822-rfz2) — degrade to
+ * ABSENT, never disabled: the row renders only when (a) the server has an
+ * operator window, (b) the subject window carries a reconciled chat session
+ * (both templates need its JSONL transcript), and (c) the subject is not
+ * itself the operator. All three facts already ride the sessions payload. One
+ * rule serves every window-scoped operator action — no per-action copies. */
+export function canRequestWindowOperatorAction(win: WindowInfo, hasOperator: boolean): boolean {
   return hasOperator && win.chatSessionRef != null && win.chatSessionRef !== "" && win.role !== "operator";
 }
 
@@ -587,6 +588,49 @@ function WandIcon() {
   );
 }
 
+/** An archive-box glyph for the Retire… row. Same inline-SVG idiom and 12px
+ *  box as WandIcon above. */
+function RetireIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      width="12"
+      height="12"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      className="shrink-0"
+    >
+      <rect x="2.5" y="4" width="11" height="9" rx="1" />
+      <line x1="2.5" y1="6.5" x2="13.5" y2="6.5" />
+      <line x1="6.5" y1="9.5" x2="9.5" y2="9.5" />
+    </svg>
+  );
+}
+
+/**
+ * The "Retire…" action row (260822-rfz2-operator-digest-stuck-retire) — the
+ * flyout arm of the destructive retire-tab template. Unlike Fix tab name it
+ * fires NO request itself: it hands off to the shared per-action confirm
+ * dialog (the consumer runs the close-then-open idiom), so it needs no
+ * in-flight guard of its own. The danger red-rail treatment marks that the
+ * confirmed action ends in a window kill.
+ */
+function RetireActionRow({ onRetireTab }: { onRetireTab: () => void }) {
+  return (
+    <CardActionRow
+      icon={<RetireIcon />}
+      label="Retire…"
+      hint="asks the operator"
+      danger
+      testid="row-flyout-retire-action"
+      onClick={onRetireTab}
+    />
+  );
+}
+
 /**
  * Identity title for the card's title bar: `Window @N · pane %N · N panes` —
  * the tmux window id, the ACTIVE pane's id, and the pane count (all already on
@@ -628,6 +672,7 @@ export function WindowFlyoutContent({
   onChangeColorAction,
   onFork,
   onFixTabName,
+  onRetireTab,
   hasOperator = false,
   onPinAction,
   pinned = false,
@@ -643,10 +688,15 @@ export function WindowFlyoutContent({
   onFork?: () => Promise<void>;
   /** Fire the operator-request seam for this window (fix-tab-name). OPTIONAL:
    *  a consumer wiring no seam renders no row. Renders only when the
-   *  availability rule holds (canRequestFixTabName). */
+   *  availability rule holds (canRequestWindowOperatorAction). */
   onFixTabName?: () => Promise<void>;
+  /** Open the shared retire confirm dialog for this window (retire-tab).
+   *  OPTIONAL (mirrors `onFixTabName`): a consumer wiring no seam renders no
+   *  row. Renders only when the SAME availability rule holds — the consumer
+   *  closes the card BEFORE opening the dialog (the close-then-open idiom). */
+  onRetireTab?: () => void;
   /** Whether the server has an operator window — availability input (a) for
-   *  the Fix tab name row. */
+   *  the Fix tab name / Retire… rows. */
   hasOperator?: boolean;
   onPinAction?: () => void;
   pinned?: boolean;
@@ -673,8 +723,10 @@ export function WindowFlyoutContent({
   const forkHandler = canForkWindow(win) ? onFork : undefined;
   // The Fix tab name row keeps the same double gate: the derived availability
   // rule (operator present + subject chat ref + not the operator's own row)
-  // AND a wired handler.
-  const fixNameHandler = canRequestFixTabName(win, hasOperator) ? onFixTabName : undefined;
+  // AND a wired handler. The Retire… row shares the rule verbatim (one
+  // generalized predicate — no per-action copies).
+  const fixNameHandler = canRequestWindowOperatorAction(win, hasOperator) ? onFixTabName : undefined;
+  const retireHandler = canRequestWindowOperatorAction(win, hasOperator) ? onRetireTab : undefined;
 
   return (
     <>
@@ -773,11 +825,12 @@ export function WindowFlyoutContent({
           pointer types: the color/pin/kill home on coarse (where the in-row
           cluster is fine-pointer-only), additive + Tab-reachable on desktop
           (the FloatingFocusManager order). One row per action in a fixed
-          change-color → fork → pin → kill order (Change color… is the FIRST
+          change-color → fork → fix-tab-name → retire → pin → kill order
+          (Change color… is the FIRST
           action row of every tier's card). Optional-handler idiom: a consumer
           wiring no handler renders no row. All rows stopPropagation so an
           action never selects the underlying row (the PR-link/docs idiom). */}
-      {(onChangeColorAction || forkHandler || fixNameHandler || onPinAction || onKillAction) && (
+      {(onChangeColorAction || forkHandler || fixNameHandler || retireHandler || onPinAction || onKillAction) && (
         <CardActionList flush={!hasBody}>
           {onChangeColorAction && (
             <CardActionRow
@@ -789,6 +842,7 @@ export function WindowFlyoutContent({
           )}
           {forkHandler && <ForkActionRow onFork={forkHandler} />}
           {fixNameHandler && <FixTabNameActionRow onFixTabName={fixNameHandler} />}
+          {retireHandler && <RetireActionRow onRetireTab={retireHandler} />}
           {onPinAction && (
             <CardActionRow
               icon={<PinIcon filled={pinned} />}

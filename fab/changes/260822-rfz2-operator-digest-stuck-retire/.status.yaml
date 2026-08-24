@@ -5,17 +5,17 @@ created_by: sahil-noon
 change_type: feat
 issues: []
 progress:
-    intake: ready
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
-    review-pr: pending
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: active
 plan:
-    generated: false
-    task_count: 0
-    acceptance_count: 0
-    acceptance_completed: 0
+    generated: true
+    task_count: 11
+    acceptance_count: 21
+    acceptance_completed: 21
 confidence:
     certain: 3
     confident: 4
@@ -29,8 +29,29 @@ confidence:
         competence: 80.7
         disambiguation: 73.6
 stage_metrics:
-    intake: {started_at: "2026-08-22T12:41:20Z", driver: fab-new, iterations: 1}
-prs: []
+    intake: {started_at: "2026-08-22T12:41:20Z", driver: fab-new, iterations: 1, completed_at: "2026-08-22T12:59:07Z"}
+    apply: {started_at: "2026-08-22T12:59:07Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-22T14:11:19Z"}
+    review: {started_at: "2026-08-22T14:11:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-22T14:15:05Z"}
+    hydrate: {started_at: "2026-08-22T14:15:05Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-22T14:27:59Z"}
+    ship: {started_at: "2026-08-22T14:27:59Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-22T14:31:39Z"}
+    review-pr: {started_at: "2026-08-22T14:31:39Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/714
 change_type_source: explicit
+true_impact:
+    added: 3639
+    deleted: 104
+    net: 3535
+    excluding:
+        added: 2593
+        deleted: 70
+        net: 2523
+    tests:
+        added: 959
+        deleted: 4
+        net: 955
+    computed_at: "2026-08-22T14:31:39Z"
+    computed_at_stage: ship
+summary: 'Operator digest/stuck/retire: requiresWaiting zero-waiting 409, digest fields on operatorWindowFact (duration/PR/per-row transcript path), brief-me/whats-stuck/retire-tab templates, Brief me + What''s stuck palette entries, Retire… flyout row + shared confirm dialog, canRequestWindowOperatorAction rename sweep'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-22T12:47:49Z
+last_updated: 2026-08-22T14:31:39Z

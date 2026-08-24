@@ -153,7 +153,7 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo, SelectWindowResult } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowRole, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, sendChatMessage, sendOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, type SortWindowsBy } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowRole, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, sendChatMessage, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, type SortWindowsBy } from "@/api/client";
 import { buildSessionSortActions } from "@/lib/palette-sort";
 import { useBoards } from "@/hooks/use-boards";
 import { useWindowPins } from "@/hooks/use-window-pins";
@@ -178,6 +178,7 @@ const CreateSessionDialog = lazy(() => import("@/components/create-session-dialo
 const SessionNamePrompt = lazy(() => import("@/components/session-name-prompt").then(m => ({ default: m.SessionNamePrompt })));
 const SpawnAgentDialog = lazy(() => import("@/components/spawn-agent-dialog").then(m => ({ default: m.SpawnAgentDialog })));
 const OperatorComposeDialog = lazy(() => import("@/components/operator-compose-dialog").then(m => ({ default: m.OperatorComposeDialog })));
+const RetireConfirmDialog = lazy(() => import("@/components/retire-confirm-dialog").then(m => ({ default: m.RetireConfirmDialog })));
 const SwatchPopover = lazy(() => import("@/components/swatch-popover").then(m => ({ default: m.SwatchPopover })));
 const SettingsDialog = lazy(() => import("@/components/settings-dialog").then(m => ({ default: m.SettingsDialog })));
 
@@ -1242,6 +1243,9 @@ function AppShell() {
   // palette verbs and the pinned operator row's compose icon mount the one
   // dialog; the mode is only the entry point's pre-selection.
   const [operatorComposeMode, setOperatorComposeMode] = useState<"spawn" | "find" | null>(null);
+  // The retire confirm dialog's target (260822-rfz2) — set by EITHER retire
+  // entry point (the palette entry, the flyout row); null = closed.
+  const [retireTarget, setRetireTarget] = useState<{ server: string; windowId: string } | null>(null);
   const [iframeWindowName, setIframeWindowName] = useState("");
   const [iframeWindowUrl, setIframeWindowUrl] = useState("");
 
@@ -2102,7 +2106,7 @@ function AppShell() {
   // `server-dialogs-context` (260811-239r) — the dialogs mount in AppLayout now,
   // but gating this route's URL writeback while one is up is unchanged.
   dialogOpenRef.current =
-    dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || createServerOpen || killServerTarget != null || showTmuxCommands || showCreateWindowAtFolderDialog || showCreateIframeDialog || spawnAgentTarget != null || sessionNamePrompt != null || operatorComposeMode != null;
+    dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || createServerOpen || killServerTarget != null || showTmuxCommands || showCreateWindowAtFolderDialog || showCreateIframeDialog || spawnAgentTarget != null || sessionNamePrompt != null || operatorComposeMode != null || retireTarget != null;
 
   // Flat window list for palette actions
   const flatWindows = useMemo(() => {
@@ -2336,6 +2340,28 @@ function AppShell() {
         .catch((err: Error) => addToast(err.message || "Failed to reach the operator", "error")),
     [addToast],
   );
+
+  // Fire a server-scoped, non-destructive operator request directly (the
+  // brief-me / whats-stuck palette entries — 260822-rfz2): the same
+  // fire-and-forget shape as handleFixTabName — success toasts the hand-off
+  // (the digest/triage lands in the operator tab; there is no response
+  // channel), failure toasts the server's structured message (a zero-waiting
+  // whats-stuck surfaces its 409 here).
+  const handleServerOperatorAction = useCallback(
+    (srv: string, template: string, successToast: string): Promise<void> =>
+      sendServerOperatorRequest(srv, template, "")
+        .then(() => addToast(successToast, "info"))
+        .catch((err: Error) => addToast(err.message || "Failed to reach the operator", "error")),
+    [addToast],
+  );
+
+  // Open the shared retire confirm dialog for a subject window (260822-rfz2)
+  // — the per-action confirmation for the seam's first destructive template,
+  // shared by the palette entry and the flyout row. The POST fires only on
+  // confirm, inside the dialog.
+  const handleRetireTab = useCallback((srv: string, windowId: string) => {
+    setRetireTarget({ server: srv, windowId });
+  }, []);
 
   const handleCreateIframeWindow = useCallback(() => {
     const name = finalizeSafeName(iframeWindowName.trim());
@@ -2708,6 +2734,17 @@ function AppShell() {
                       void handleFixTabName(server, currentWindow.windowId);
                     },
                   },
+                  // Retire (260822-rfz2) — the palette arm of the destructive
+                  // retire-tab template, gated by the SAME availability triple
+                  // as fix-name. It opens the shared confirm dialog; the POST
+                  // fires only on confirm.
+                  {
+                    id: "window-retire-operator",
+                    label: "Tab: Retire (ask operator)",
+                    onSelect: () => {
+                      handleRetireTab(server, currentWindow.windowId);
+                    },
+                  },
                 ]
               : []),
             {
@@ -2748,7 +2785,7 @@ function AppShell() {
           ]
         : []),
     ],
-    [sessionName, currentWindow, sessions, hasOperatorWindow, handleCreateWindow, handleFixTabName, dialogs, executeSplit, executeClosePane, minWindowIndex, maxWindowIndex, navigate, server, addToast, setShowCreateWindowAtFolderDialog],
+    [sessionName, currentWindow, sessions, hasOperatorWindow, handleCreateWindow, handleFixTabName, handleRetireTab, dialogs, executeSplit, executeClosePane, minWindowIndex, maxWindowIndex, navigate, server, addToast, setShowCreateWindowAtFolderDialog],
   );
 
   // Boards palette block (server-route variant). AppShell only mounts under
@@ -3706,9 +3743,27 @@ function AppShell() {
         ? [
             { id: "operator-spawn-task", label: "Operator: Spawn task…", onSelect: () => handleOperatorCompose(server, "spawn") },
             { id: "operator-find-discussion", label: "Operator: Find discussion…", onSelect: () => handleOperatorCompose(server, "find") },
+            // Brief me / What's stuck (260822-rfz2) — the server-scoped,
+            // non-destructive digest/triage requests; they fire directly (no
+            // dialog, no confirm), same hasOperatorWindow omit-not-disable
+            // gate, no chords.
+            {
+              id: "operator-brief-me",
+              label: "Operator: Brief me",
+              onSelect: () => {
+                void handleServerOperatorAction(server, "brief-me", "Sent to operator — digest will appear in the operator tab");
+              },
+            },
+            {
+              id: "operator-whats-stuck",
+              label: "Operator: What's stuck",
+              onSelect: () => {
+                void handleServerOperatorAction(server, "whats-stuck", "Sent to operator — triage will appear in the operator tab");
+              },
+            },
           ]
         : [],
-    [hasOperatorWindow, handleOperatorCompose, server],
+    [hasOperatorWindow, handleOperatorCompose, handleServerOperatorAction, server],
   );
 
   const { actions: pushActions } = usePushSubscription();
@@ -4217,6 +4272,7 @@ function AppShell() {
       onSpawnAgent={handleOpenSpawnAgent}
       onForkWindow={handleForkWindow}
       onFixTabName={handleFixTabName}
+      onRetireTab={handleRetireTab}
       onOperatorCompose={hasOperatorWindow ? handleOperatorCompose : undefined}
       onCreateServer={openCreateServer}
       onKillServer={requestKillServer}
@@ -4523,6 +4579,16 @@ function AppShell() {
             server={server}
             initialMode={operatorComposeMode}
             onClose={() => setOperatorComposeMode(null)}
+          />
+        </Suspense>
+      )}
+
+      {retireTarget && (
+        <Suspense fallback={null}>
+          <RetireConfirmDialog
+            server={retireTarget.server}
+            windowId={retireTarget.windowId}
+            onClose={() => setRetireTarget(null)}
           />
         </Suspense>
       )}

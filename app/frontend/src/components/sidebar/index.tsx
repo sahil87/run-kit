@@ -2777,7 +2777,12 @@ function ServerGroupInner(props: ServerGroupProps) {
               (the same ∨ the flyout toggle computes above); unmarked servers
               render nothing — no layout shift. */}
           {serverProtected && (
-            <span className="inline-flex shrink-0" data-testid={`shield-${server}`}>
+            <span
+              role="img"
+              aria-label={`${server} is protected`}
+              className="inline-flex shrink-0"
+              data-testid={`shield-${server}`}
+            >
               <ShieldGlyph />
             </span>
           )}

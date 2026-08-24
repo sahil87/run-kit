@@ -455,7 +455,12 @@ export function HostOverviewPage() {
                 <div className={`${isInfraServer(name) || ephemeral ? "text-text-secondary" : "text-text-primary"} font-medium text-sm`}>
                   {isProtected && (
                     <Tip label="Protected server — kill requires typing the name">
-                      <span className="inline-flex align-[-2px] mr-1" data-testid={`shield-${name}`}>
+                      <span
+                        role="img"
+                        aria-label={`${name} is protected`}
+                        className="inline-flex align-[-2px] mr-1"
+                        data-testid={`shield-${name}`}
+                      >
                         <ShieldGlyph />
                       </span>
                     </Tip>

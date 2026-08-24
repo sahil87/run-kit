@@ -3,6 +3,7 @@ import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import type { ProjectSession } from "@/types";
 import type { SessionContextType } from "@/contexts/session-context";
 import { StandaloneSessionContextProvider } from "@/contexts/session-context";
+import { ToastProvider } from "@/components/toast";
 
 // --- Router mock: capture navigate calls. ---
 const navigateMock = vi.fn();
@@ -26,17 +27,19 @@ function daemonWindow(windowId: string, name: string, isActiveWindow = false) {
 
 function renderCard(overrides: Partial<SessionContextType> = {}) {
   return render(
-    <StandaloneSessionContextProvider
-      value={{
-        daemonVersion: "3.9.1",
-        daemonStarted: Math.floor(Date.now() / 1000) - 90000, // 1d 1h ago
-        daemonPort: 3000,
-        sessionsByServer: new Map(),
-        ...overrides,
-      }}
-    >
-      <SystemCard />
-    </StandaloneSessionContextProvider>,
+    <ToastProvider>
+      <StandaloneSessionContextProvider
+        value={{
+          daemonVersion: "3.9.1",
+          daemonStarted: Math.floor(Date.now() / 1000) - 90000, // 1d 1h ago
+          daemonPort: 3000,
+          sessionsByServer: new Map(),
+          ...overrides,
+        }}
+      >
+        <SystemCard />
+      </StandaloneSessionContextProvider>
+    </ToastProvider>,
   );
 }
 
@@ -73,12 +76,12 @@ describe("SystemCard — daemon line", () => {
     expect(restartNow).toHaveBeenCalledTimes(1);
   });
 
-  it("a rejected restartNow does not surface as an unhandled rejection", async () => {
+  it("a rejected restartNow surfaces a toast (not an unhandled rejection)", async () => {
     const restartNow = vi.fn().mockRejectedValue(new Error("409 dev build"));
     renderCard({ restartNow });
     fireEvent.click(screen.getByRole("button", { name: "Restart" }));
-    await Promise.resolve();
     expect(restartNow).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText("409 dev build")).toBeInTheDocument();
   });
 });
 

@@ -3,6 +3,7 @@ import { DAEMON_SERVER } from "@/api/client";
 import { useSessionContext } from "@/contexts/session-context";
 import { formatUptime } from "@/components/host-metrics";
 import { Tip } from "@/components/tip";
+import { useToast } from "@/components/toast";
 import { windowIdToUrlSegment } from "@/lib/router-url";
 import type { ProjectSession, WindowInfo } from "@/types";
 
@@ -72,14 +73,14 @@ function deriveServiceRows(sessions: ProjectSession[]): ServiceRow[] {
  * Restart fires immediately via the context's restartNow() — the same seam the
  * kill dialog's Restart primary and the palette's `run-kit: Restart Daemon`
  * entry use (no second restart implementation, no new palette entry). The
- * socket drop + reconnect drives the reload guard; a rejection surfaces as a
- * thrown error for the click handler to swallow (restart is best-effort — the
- * backend 409s only a dev build, where this page is the dev rig).
+ * socket drop + reconnect drives the reload guard; a rejection (the backend
+ * 409s a dev build) surfaces as a toast — the kill dialog's Restart precedent.
  */
 export function SystemCard() {
   const { daemonVersion, daemonStarted, daemonPort, sessionsByServer, restartNow } =
     useSessionContext();
   const navigate = useNavigate();
+  const { addToast } = useToast();
   const rows = deriveServiceRows(sessionsByServer.get(DAEMON_SERVER) ?? []);
   const uptime =
     daemonStarted !== null
@@ -101,7 +102,11 @@ export function SystemCard() {
         </span>
         <button
           type="button"
-          onClick={() => void restartNow().catch(() => {})}
+          onClick={() =>
+            void restartNow().catch((err: unknown) => {
+              addToast(err instanceof Error ? err.message : "Failed to restart run-kit");
+            })
+          }
           className="ml-auto shrink-0 border border-border rounded px-1.5 text-text-secondary hover:text-accent hover:border-accent transition-colors"
         >
           Restart
@@ -109,32 +114,35 @@ export function SystemCard() {
       </div>
       {/* Service rows: live status + View deep-links. Absent sibling sessions
           render not-running with no link. */}
-      {rows.map((row) => (
-        <div key={row.key} className="flex items-center gap-[1ch]">
-          <span className="text-text-secondary shrink-0">{row.label}</span>
-          <span className="text-text-secondary truncate">{row.status}</span>
-          {row.window && (
-            <Tip label={`Open ${row.window.name} terminal`}>
-              <button
-                type="button"
-                onClick={() =>
-                  navigate({
-                    to: "/$server/$window",
-                    params: {
-                      server: DAEMON_SERVER,
-                      window: windowIdToUrlSegment(row.window!.windowId),
-                    },
-                    search: {},
-                  })
-                }
-                className="ml-auto shrink-0 border border-border rounded px-1.5 text-text-secondary hover:text-accent hover:border-accent transition-colors"
-              >
-                View
-              </button>
-            </Tip>
-          )}
-        </div>
-      ))}
+      {rows.map((row) => {
+        const win = row.window;
+        return (
+          <div key={row.key} className="flex items-center gap-[1ch]">
+            <span className="text-text-secondary shrink-0">{row.label}</span>
+            <span className="text-text-secondary truncate">{row.status}</span>
+            {win && (
+              <Tip label={`Open ${win.name} terminal`}>
+                <button
+                  type="button"
+                  onClick={() =>
+                    navigate({
+                      to: "/$server/$window",
+                      params: {
+                        server: DAEMON_SERVER,
+                        window: windowIdToUrlSegment(win.windowId),
+                      },
+                      search: {},
+                    })
+                  }
+                  className="ml-auto shrink-0 border border-border rounded px-1.5 text-text-secondary hover:text-accent hover:border-accent transition-colors"
+                >
+                  View
+                </button>
+              </Tip>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

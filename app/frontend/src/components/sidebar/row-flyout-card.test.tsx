@@ -618,6 +618,56 @@ describe("Fix tab name action row (260822-fih1)", () => {
   });
 });
 
+describe("Note register (260824-bb5n)", () => {
+  // The window card's note row: the `@rk_note` one-line status note plus its
+  // relative age, dimmed past 24h (faded, never hidden). Degrade-to-absent: no
+  // `note` → no row, no reserved space. Epoch-0 (tolerant-parse) notes render
+  // text-only, undimmed.
+
+  it("renders the note with its relative age, undimmed when fresh", () => {
+    vi.setSystemTime(new Date("2026-08-24T12:00:00Z"));
+    const epoch = Math.floor(Date.now() / 1000) - 2 * 3600; // 2h ago
+    renderOpen(makeWindow({ note: "blocked on flaky e2e", noteEpoch: epoch }));
+
+    const row = screen.getByTestId("row-flyout-note");
+    expect(row).toHaveTextContent("blocked on flaky e2e · 2h ago");
+    expect(row.className).not.toContain("opacity-50");
+    expect(row).not.toHaveAttribute("data-stale");
+  });
+
+  it("renders dimmed when the note is older than 24h — faded, still legible", () => {
+    vi.setSystemTime(new Date("2026-08-24T12:00:00Z"));
+    const epoch = Math.floor(Date.now() / 1000) - 3 * 24 * 3600; // 3 days ago
+    renderOpen(makeWindow({ note: "awaiting design decision", noteEpoch: epoch }));
+
+    const row = screen.getByTestId("row-flyout-note");
+    expect(row).toHaveTextContent("awaiting design decision · 72h ago");
+    expect(row.className).toContain("opacity-50");
+    expect(row).toHaveAttribute("data-stale", "true");
+  });
+
+  it("renders text-only, undimmed, for an epoch-0 (tolerant-parse) note", () => {
+    renderOpen(makeWindow({ note: "just some text", noteEpoch: 0 }));
+
+    const row = screen.getByTestId("row-flyout-note");
+    expect(row).toHaveTextContent("just some text");
+    expect(row).not.toHaveTextContent("ago");
+    expect(row.className).not.toContain("opacity-50");
+  });
+
+  it("renders no note row when the payload carries no note", () => {
+    renderOpen(makeWindow({}));
+    expect(screen.queryByTestId("row-flyout-note")).toBeNull();
+  });
+
+  it("a note alone is enough body to lift the action list off the title bar (no flush gap)", () => {
+    renderOpen(makeWindow({ note: "waiting on review", noteEpoch: 0 }));
+    // The note counts as body — the action list renders its normal (non-flush)
+    // spacing. Asserted via the note row existing between title bar and actions.
+    expect(screen.getByTestId("row-flyout-note")).toBeInTheDocument();
+  });
+});
+
 describe("Retire action row (260822-rfz2)", () => {
   // The Retire… row shares the Fix tab name row's DOUBLE gate verbatim — the
   // generalized `canRequestWindowOperatorAction` rule AND a wired handler —

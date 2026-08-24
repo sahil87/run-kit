@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The operator actuation seam — templated work items for the server's operator window over two POST routes: window-scoped /api/windows/{windowId}/operator-request (fix-tab-name — also fired by the SSE-tick auto-name tracker on busy→idle; retire-tab — destructive, frontend-confirmed) and server-scoped /api/operator-request?server= (spawn-task/find-discussion — acceptsText client text, capped + dynamic-fence delimited; brief-me/whats-stuck — zero-waiting 409; color-tabs — semantic tab coloring via tmux set-option). Closed registry; one-FetchSessions facts; busy-gate 409, no queue; every caller delivers through the shared deliverOperatorPrompt core into the chat-send injection engine; derive-tick results. UI degrades to absent."
+description: "Operator actuation seam — templated work items for the server's operator window over two POST routes: window-scoped /api/windows/{windowId}/operator-request (fix-tab-name — also auto-fired on busy→idle; annotate-tab — one-line @rk_note; retire-tab — destructive) and server-scoped /api/operator-request?server= (spawn-task/find-discussion — acceptsText; brief-me/whats-stuck; color-tabs). Closed registry; busy-gate 409, no queue; chat-send delivery; derive-tick results; degrades to absent."
 ---
 # Operator Actuation
 
@@ -480,27 +480,55 @@ availability).
   the kill-only-this-window bound; with empty `FabChange` no fab clause
   appears.
 
+### Requirement: The `annotate-tab` template (window-scoped)
+The registry's `annotate-tab` entry (`requiresChatRef: true`, window-scoped —
+no `serverScoped`, no `acceptsText`) SHALL ride the window route unchanged and
+render from `operatorFacts` (the `renderFixTabName` shape): read the subject
+tab's transcript tail (~30 JSONL lines), then write a one-line `@rk_note`
+status note saying WHY the tab is in its current state via the exact
+epoch-prefixed actuation
+`tmux set-option -wt {windowId} @rk_note "$(date +%s):<one-line note>"`,
+bounded at ~100 characters (the bound lives in the prompt because the
+operator writes raw `set-option` — no API validation path applies; the
+`/options` endpoint's own cap is 120), with an explicit skip-the-write
+instruction when there is nothing meaningful to say, and the standard
+no-reply/no-other-action bound. The note surfaces via the normal derive tick
+— user-option mutations emit no control-mode event, so the write rides the
+~12s safety poll ([tmux-sessions](/run-kit/tmux-sessions.md) § Server-Scoped
+User Options).
+
+#### Scenario: Rendered prompt names the epoch-prefixed set-option actuation
+- **GIVEN** facts for window `@7` with a resolvable transcript
+- **WHEN** `annotate-tab` renders
+- **THEN** the prompt names `@7`, the transcript path, the exact
+  `tmux set-option -wt @7 @rk_note "$(date +%s):<one-line note>"` command
+  with the ~100-char bound and the skip-if-nothing-meaningful clause, and the
+  no-reply bound.
+- **AND GIVEN** `{"template": "annotate-tab"}` on the server-scoped route,
+  **THEN** it 400s naming the template as window-scoped.
+
 ### Requirement: Frontend availability — degrade to ABSENT, never disabled
-The window-scoped operator affordances — the flyout's `FixTabNameActionRow` and
-`RetireActionRow`
+The window-scoped operator affordances — the flyout's `FixTabNameActionRow`,
+`AnnotateTabActionRow`, and `RetireActionRow`
 ([ui/status-signals](/run-kit/ui/status-signals.md) § Row-hover register flyout
-card) and the palette's `Tab: Fix name (ask operator)` / `Tab: Retire (ask
-operator)` entries
+card) and the palette's `Tab: Fix name (ask operator)` / `Operator: Annotate
+tab` / `Tab: Retire (ask operator)` entries
 ([ui/keyboard-and-palette](/run-kit/ui/keyboard-and-palette.md) § Command
 Palette Actions) — SHALL render only when (a) the server has an operator window
 (`role === "operator"` present in the sessions payload), (b) the subject window
 carries a non-empty `chatSessionRef` (the template needs its JSONL transcript),
 and (c) the subject is not itself the operator window (the pure
 `canRequestWindowOperatorAction(win, hasOperator)` rule in
-`row-flyout-card.tsx`, ONE predicate serving both actions). All
+`row-flyout-card.tsx`, ONE predicate serving all three actions). All
 three facts already ride the sessions payload; an unavailable action is
-OMITTED, never disabled. The fix-name client call is
+OMITTED, never disabled. The fix-name and annotate client call is
 `sendOperatorRequest(server, windowId, template)` (`api/client.ts` — the
 `withServer` + `throwOnError` shape, so the structured 409/404 messages surface
 as the thrown Error's message), fired once per click cycle behind the row's
-in-flight guard; success toasts `"Sent to operator — tab will rename shortly"`,
+in-flight guard; success toasts `"Sent to operator — tab will rename shortly"`
+(fix-name) / `"Sent to operator — tab will be annotated shortly"` (annotate),
 failure toasts the server's message. No spinner beyond the guard — the rename
-arrives via the normal SSE derive tick.
+or note arrives via the normal SSE derive tick.
 
 Retire is the seam's first DESTRUCTIVE template (the confirmed action ends in a
 window kill), so NEITHER retire entry point fires a request directly: both open

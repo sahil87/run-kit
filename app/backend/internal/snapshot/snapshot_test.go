@@ -50,7 +50,8 @@ func TestCaptureServerAssemblesSnapshot(t *testing.T) {
 		[]tmux.LayoutWindow{
 			{Session: "alpha", WindowID: "@2", Index: 2, Name: "shell", Layout: "l2"},
 			{Session: "alpha", WindowID: "@1", Index: 1, Name: "serve", Active: true, Layout: "l1",
-				Color: "1", RkType: "web", RkURL: "http://x", Marker: "solid", Flair: "nyan", Role: "operator"},
+				Color: "1", RkType: "web", RkURL: "http://x", Marker: "solid", Flair: "nyan", Role: "operator",
+				Note: "1756036800:blocked on flaky e2e"},
 			{Session: "beta", WindowID: "@3", Index: 0, Name: "b", Layout: "l3"},
 		}, nil,
 		map[string][]tmux.LayoutPane{
@@ -88,7 +89,7 @@ func TestCaptureServerAssemblesSnapshot(t *testing.T) {
 		t.Fatalf("alpha windows = %+v", alpha.Windows)
 	}
 	w1 := alpha.Windows[0]
-	if !w1.Active || w1.Layout != "l1" || w1.Color != "1" || w1.RkType != "web" || w1.RkURL != "http://x" || w1.Marker != "solid" || w1.Flair != "nyan" || w1.Role != "operator" {
+	if !w1.Active || w1.Layout != "l1" || w1.Color != "1" || w1.RkType != "web" || w1.RkURL != "http://x" || w1.Marker != "solid" || w1.Flair != "nyan" || w1.Role != "operator" || w1.Note != "1756036800:blocked on flaky e2e" {
 		t.Errorf("window @1 = %+v", w1)
 	}
 	// Panes sorted by index.

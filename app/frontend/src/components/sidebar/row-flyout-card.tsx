@@ -21,6 +21,7 @@ import { CloseIcon, PaletteIcon } from "./icons";
 import { getFabParts, getPrSegments } from "./registers";
 import { PopupTitleBar, PopupTitleBarSecondary, notchFill } from "./popup-title-bar";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
+import { formatDuration } from "@/lib/format";
 import type { WindowInfo } from "@/types";
 
 /**
@@ -363,6 +364,38 @@ function ContinuationLine({ testid, children }: { testid?: string; children: Rea
   );
 }
 
+/** Notes older than this render dimmed — faded, never hidden; notes never
+ *  auto-expire client-side (only an overwrite or explicit clear removes one). */
+export const NOTE_STALE_SECONDS = 24 * 3600;
+
+/** The window card's note register — the `@rk_note` one-line status note plus
+ *  its relative age (`blocked on flaky e2e · 2h ago`). Degrade-to-absent: no
+ *  `note` on the payload renders nothing. Epoch-0 (tolerant-parse) notes
+ *  render text-only, undimmed. Static text derived from the already-passed
+ *  `win` — the card holds no clock, so the age is as of the last SSE frame
+ *  (the render-performance contract, same as every other register line). */
+function NoteLine({ win }: { win: WindowInfo }) {
+  if (!win.note) return null;
+  const epoch = win.noteEpoch ?? 0;
+  const ageSeconds = epoch > 0 ? Math.max(0, Math.floor(Date.now() / 1000) - epoch) : null;
+  const stale = ageSeconds !== null && ageSeconds > NOTE_STALE_SECONDS;
+  return (
+    <span
+      className={`min-w-0 truncate ${stale ? "opacity-50" : ""}`}
+      data-testid="row-flyout-note"
+      data-stale={stale ? "true" : undefined}
+    >
+      <span className="text-text-secondary">{"note "}</span>
+      <span className={stale ? "text-text-secondary" : "text-text-primary"}>
+        {win.note}
+        {ageSeconds !== null && (
+          <span className="text-text-secondary">{` · ${formatDuration(ageSeconds)} ago`}</span>
+        )}
+      </span>
+    </span>
+  );
+}
+
 /**
  * Provider whose conversations can be forked. The fork mechanism is Claude
  * Code's `--resume <id> --fork-session`, so the affordance is gated on the same
@@ -567,6 +600,73 @@ function FixTabNameActionRow({ onFixTabName }: { onFixTabName: () => Promise<voi
   );
 }
 
+/**
+ * The "Annotate tab" action row (260824-bb5n-tab-status-note) — the flyout arm
+ * of the annotate-tab operator template. Same shape as FixTabNameActionRow:
+ * fires one operator-request POST and toasts the outcome; the note itself
+ * arrives later via the normal SSE derive tick (user-option mutations emit no
+ * control-mode event, so agent-side writes ride the ~12s safety poll), so
+ * there is no spinner beyond the in-flight guard.
+ */
+function AnnotateTabActionRow({ onAnnotateTab }: { onAnnotateTab: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  // The card unmounts when the flyout closes, so a settle after unmount is a
+  // real possibility — guard the setState (the ForkActionRow idiom).
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  return (
+    <button
+      type="button"
+      // stopPropagation so the request never also selects the underlying row.
+      // The click is a no-op while a request is in flight — `disabled` already
+      // blocks it, this is the belt to that braces.
+      onClick={(e) => {
+        e.stopPropagation();
+        if (busy) return;
+        setBusy(true);
+        void onAnnotateTab().finally(() => {
+          if (mountedRef.current) setBusy(false);
+        });
+      }}
+      disabled={busy}
+      className={`${ACTION_ROW_CLASS} hover:text-text-primary hover:border-l-accent-green disabled:hover:border-l-transparent disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-text-secondary`}
+      title="Ask the operator to write a one-line status note for this tab"
+      data-testid="row-flyout-annotate-action"
+    >
+      <NoteIcon />
+      <span className="shrink-0">Annotate tab</span>
+      <span className={ACTION_ROW_HINT_CLASS}>asks the operator</span>
+    </button>
+  );
+}
+
+/** A one-line note glyph — a pencil over a short line. Same inline-SVG idiom
+ *  and 12px box as WandIcon below. */
+function NoteIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      width="12"
+      height="12"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      className="shrink-0"
+    >
+      <path d="M9.5 2.5l3 3L6 12H3v-3l6.5-6.5z" />
+      <line x1="3" y1="14" x2="13" y2="14" />
+    </svg>
+  );
+}
+
 /** A one-line "fix" glyph — a pencil with a check underline. Same inline-SVG
  *  idiom and 12px box as ForkIcon above. */
 function WandIcon() {
@@ -672,6 +772,7 @@ export function WindowFlyoutContent({
   onChangeColorAction,
   onFork,
   onFixTabName,
+  onAnnotateTab,
   onRetireTab,
   hasOperator = false,
   onPinAction,
@@ -690,6 +791,10 @@ export function WindowFlyoutContent({
    *  a consumer wiring no seam renders no row. Renders only when the
    *  availability rule holds (canRequestWindowOperatorAction). */
   onFixTabName?: () => Promise<void>;
+  /** Fire the operator-request seam for this window (annotate-tab). OPTIONAL
+   *  (mirrors `onFixTabName`): a consumer wiring no seam renders no row.
+   *  Renders only when the SAME availability rule holds. */
+  onAnnotateTab?: () => Promise<void>;
   /** Open the shared retire confirm dialog for this window (retire-tab).
    *  OPTIONAL (mirrors `onFixTabName`): a consumer wiring no seam renders no
    *  row. Renders only when the SAME availability rule holds — the consumer
@@ -715,7 +820,7 @@ export function WindowFlyoutContent({
   ));
   // Drives both the body block and the action list's `flush` spacing — they
   // must agree, or the card grows a gap with nothing in it.
-  const hasBody = Boolean(fabParts || prSegments);
+  const hasBody = Boolean(fabParts || prSegments || win.note);
   // The fork row keeps the DOUBLE gate: a forkable window AND a wired handler.
   // Derived as a narrowed handler (not a boolean) so the ForkActionRow call
   // site type-checks structurally instead of leaning on aliased-condition
@@ -726,6 +831,7 @@ export function WindowFlyoutContent({
   // AND a wired handler. The Retire… row shares the rule verbatim (one
   // generalized predicate — no per-action copies).
   const fixNameHandler = canRequestWindowOperatorAction(win, hasOperator) ? onFixTabName : undefined;
+  const annotateHandler = canRequestWindowOperatorAction(win, hasOperator) ? onAnnotateTab : undefined;
   const retireHandler = canRequestWindowOperatorAction(win, hasOperator) ? onRetireTab : undefined;
 
   return (
@@ -760,6 +866,7 @@ export function WindowFlyoutContent({
           without a `prNumber` is not content). */}
       {hasBody && (
         <>
+          <NoteLine win={win} />
           {fabParts && (
             <>
               <RegisterLine prefix="fab " testid="row-flyout-fab">
@@ -830,7 +937,7 @@ export function WindowFlyoutContent({
           action row of every tier's card). Optional-handler idiom: a consumer
           wiring no handler renders no row. All rows stopPropagation so an
           action never selects the underlying row (the PR-link/docs idiom). */}
-      {(onChangeColorAction || forkHandler || fixNameHandler || retireHandler || onPinAction || onKillAction) && (
+      {(onChangeColorAction || forkHandler || fixNameHandler || annotateHandler || retireHandler || onPinAction || onKillAction) && (
         <CardActionList flush={!hasBody}>
           {onChangeColorAction && (
             <CardActionRow
@@ -842,6 +949,7 @@ export function WindowFlyoutContent({
           )}
           {forkHandler && <ForkActionRow onFork={forkHandler} />}
           {fixNameHandler && <FixTabNameActionRow onFixTabName={fixNameHandler} />}
+          {annotateHandler && <AnnotateTabActionRow onAnnotateTab={annotateHandler} />}
           {retireHandler && <RetireActionRow onRetireTab={retireHandler} />}
           {onPinAction && (
             <CardActionRow

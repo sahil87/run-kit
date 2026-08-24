@@ -115,6 +115,7 @@ func restoreFixture() *Snapshot {
 				Name: "alpha", CreatedAt: 100, Color: "4",
 				Windows: []Window{
 					{Index: 1, ID: "@10", Name: "serve", Layout: "l1", Color: "2", Marker: "solid", Flair: "onepiece", Role: "operator",
+						Note: "1756036800:blocked on flaky e2e",
 						Panes: []Pane{
 							{ID: "%0", Index: 0, Cwd: "/proj", Command: "zsh"},
 							{ID: "%1", Index: 1, Cwd: "/proj/sub", Command: "claude", Active: true},
@@ -146,7 +147,7 @@ func TestRestoreRecreatesFullLayout(t *testing.T) {
 		`split-window @1 -c "/proj/sub"`,
 		`select-layout @1 l1`,
 		`select-pane %9`, // stored active pane %1 (position 1) → split-created %9
-		`window-opts @1 @color=2,@rk_marker=solid,@rk_flair=onepiece,@rk_role=operator`,
+		`window-opts @1 @color=2,@rk_marker=solid,@rk_flair=onepiece,@rk_role=operator,@rk_note=1756036800:blocked on flaky e2e`,
 		`new-window alpha:3 -n agent -c "/agent" -> @2`,
 		`select-window alpha:@2`, // stored active window @11 → new id @2
 		`session-color alpha=4`,

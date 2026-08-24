@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-24T05:44:55Z"}
+{"args":"Per-tab one-line status note (@rk_note) — window-scoped user option rendered as sidebar row tooltip/subtitle [bb5n]","cmd":"fab-new","event":"command","ts":"2026-08-24T05:44:55Z"}
+{"delta":"+3.4","event":"confidence","score":3.4,"trigger":"calc-score","ts":"2026-08-24T05:48:12Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-24T05:52:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-24T05:52:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-24T06:17:56Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-24T06:22:19Z"}
+{"event":"review","result":"passed","ts":"2026-08-24T06:22:19Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-24T06:33:48Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-08-24T06:34:49Z"}

@@ -338,5 +338,6 @@ func windowOptionOps(win Window) []tmux.WindowOptionOp {
 	add("@rk_marker", win.Marker)
 	add("@rk_flair", win.Flair)
 	add("@rk_role", win.Role)
+	add("@rk_note", win.Note)
 	return ops
 }

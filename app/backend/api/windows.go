@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -367,7 +368,13 @@ const (
 	optKeyMarker = "@rk_marker"
 	optKeyRole   = "@rk_role"
 	optKeyFlair  = "@rk_flair"
+	optKeyNote   = "@rk_note"
 )
+
+// windowNoteMaxLen caps the free-text @rk_note value (the tab's one-line
+// status note). The bound lives server-side (Constitution §I) and protects the
+// UI surfaces that render the note inline.
+const windowNoteMaxLen = 120
 
 // validateWindowOption enforces the per-key rules preserved from the old
 // dedicated handlers, returning a non-empty error message when value is invalid
@@ -413,6 +420,18 @@ func validateWindowOption(key string, value *string) string {
 		if errMsg := validate.ValidateFlairValue(*value); errMsg != "" {
 			return errMsg
 		}
+	case optKeyNote:
+		// Free-text one-line status note: trimmed, length-capped, and free of
+		// control characters (tabs/newlines would corrupt the tab-delimited
+		// list-windows read format). An empty string is valid and treated as
+		// unset below (mirroring @rk_marker).
+		trimmed := strings.TrimSpace(*value)
+		if len(trimmed) > windowNoteMaxLen {
+			return fmt.Sprintf("note exceeds %d characters", windowNoteMaxLen)
+		}
+		if strings.ContainsAny(trimmed, "\t\n\r") {
+			return "note cannot contain control characters"
+		}
 	}
 	return ""
 }
@@ -449,7 +468,7 @@ func (s *Server) handleWindowOptions(w http.ResponseWriter, r *http.Request) {
 	roleClear := false
 	for key, value := range body.Options {
 		switch key {
-		case optKeyColor, optKeyRkURL, optKeyRkType, optKeyMarker, optKeyRole, optKeyFlair:
+		case optKeyColor, optKeyRkURL, optKeyRkType, optKeyMarker, optKeyRole, optKeyFlair, optKeyNote:
 		default:
 			writeError(w, http.StatusBadRequest, "Unknown option key: "+key)
 			return
@@ -461,10 +480,18 @@ func (s *Server) handleWindowOptions(w http.ResponseWriter, r *http.Request) {
 		op := tmux.WindowOptionOp{Key: key, Value: value}
 		// An empty string means unset for @rk_type (revert to terminal mode) and
 		// @rk_marker (clear the marker) — matching the old handleWindowTypeUpdate
-		// behavior and the marker's "empty = no marker" contract. @rk_role and
-		// @rk_flair follow the same mapping ("" clears the role / the flair).
-		if (key == optKeyRkType || key == optKeyMarker || key == optKeyRole || key == optKeyFlair) && value != nil && *value == "" {
+		// behavior and the marker's "empty = no marker" contract. @rk_role,
+		// @rk_flair, and @rk_note follow the same mapping ("" clears the role /
+		// the flair / the note).
+		if (key == optKeyRkType || key == optKeyMarker || key == optKeyRole || key == optKeyFlair || key == optKeyNote) && value != nil && *value == "" {
 			op.Value = nil
+		}
+		// @rk_note: clients send bare text; the server owns the clock and stamps
+		// the "<unix-epoch>:" prefix at write time (no client-skew lies — agents
+		// writing raw set-option stamp their own epoch via $(date +%s)).
+		if key == optKeyNote && op.Value != nil {
+			stamped := fmt.Sprintf("%d:%s", time.Now().Unix(), strings.TrimSpace(*op.Value))
+			op.Value = &stamped
 		}
 		if key == optKeyRole {
 			if op.Value != nil {

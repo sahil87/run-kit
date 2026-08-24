@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"rk/internal/tmux"
 )
@@ -1500,4 +1502,102 @@ func TestWindowOptions_POST_wakesHub(t *testing.T) {
 		}
 		expectNoWake(t, tracker, before, "window options rejected")
 	})
+}
+
+// --- @rk_note tests (260824-bb5n-tab-status-note) ---
+
+// A bare-text note is stamped with the server-side "<unix-epoch>:" prefix
+// before the tmux write — the server owns the clock, never the client.
+func TestWindowOptionsNoteStampsEpoch(t *testing.T) {
+	ops := &mockTmuxOps{}
+	before := time.Now().Unix()
+	rec := postOptions(t, ops, "@2", `{"options":{"@rk_note":"blocked on flaky e2e"}}`)
+	after := time.Now().Unix()
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	op, ok := findOp(ops.setWindowOptionsOps, "@rk_note")
+	if !ok || op.Value == nil {
+		t.Fatalf("expected a valued @rk_note op, got %+v", op)
+	}
+	prefix, text, found := strings.Cut(*op.Value, ":")
+	if !found {
+		t.Fatalf("op value %q missing epoch prefix", *op.Value)
+	}
+	if text != "blocked on flaky e2e" {
+		t.Errorf("note text = %q, want %q", text, "blocked on flaky e2e")
+	}
+	epoch, err := strconv.ParseInt(prefix, 10, 64)
+	if err != nil {
+		t.Fatalf("epoch prefix %q not numeric: %v", prefix, err)
+	}
+	if epoch < before || epoch > after {
+		t.Errorf("epoch %d outside handler window [%d, %d]", epoch, before, after)
+	}
+}
+
+// Surrounding whitespace is trimmed before stamping.
+func TestWindowOptionsNoteTrims(t *testing.T) {
+	ops := &mockTmuxOps{}
+	rec := postOptions(t, ops, "@2", `{"options":{"@rk_note":"  hi  "}}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	op, ok := findOp(ops.setWindowOptionsOps, "@rk_note")
+	if !ok || op.Value == nil {
+		t.Fatalf("expected a valued @rk_note op, got %+v", op)
+	}
+	_, text, _ := strings.Cut(*op.Value, ":")
+	if text != "hi" {
+		t.Errorf("note text = %q, want %q (trimmed)", text, "hi")
+	}
+}
+
+// Over-length and control-char notes 400 with zero tmux calls
+// (validate-all-then-execute preserved).
+func TestWindowOptionsNoteValidation(t *testing.T) {
+	over := strings.Repeat("x", windowNoteMaxLen+1)
+	cases := map[string]string{
+		"over-length": `{"options":{"@rk_note":"` + over + `"}}`,
+		"tab char":    `{"options":{"@rk_note":"a\tb"}}`,
+		"newline":     `{"options":{"@rk_note":"a\nb"}}`,
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			ops := &mockTmuxOps{}
+			rec := postOptions(t, ops, "@2", body)
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("status = %d, want %d; body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+			}
+			if ops.setWindowOptionsCalled {
+				t.Error("SetWindowOptions must NOT be called for an invalid note")
+			}
+		})
+	}
+}
+
+// Empty string and JSON null both unset the note (the @rk_marker mapping) —
+// no "" value is ever written.
+func TestWindowOptionsNoteUnset(t *testing.T) {
+	for name, body := range map[string]string{
+		"empty string": `{"options":{"@rk_note":""}}`,
+		"json null":    `{"options":{"@rk_note":null}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			ops := &mockTmuxOps{}
+			rec := postOptions(t, ops, "@2", body)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+			}
+			op, ok := findOp(ops.setWindowOptionsOps, "@rk_note")
+			if !ok {
+				t.Fatal("expected @rk_note op")
+			}
+			if op.Value != nil {
+				t.Errorf("@rk_note value = %q, want nil (unset)", *op.Value)
+			}
+		})
+	}
 }

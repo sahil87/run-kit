@@ -1044,3 +1044,123 @@ describe("CmdK Retire Action (operator-request gate)", () => {
     expect(screen.queryByText("Tab: Retire (ask operator)")).not.toBeInTheDocument();
   });
 });
+
+/**
+ * Tests for the Set note palette entry (260824-bb5n R5) — `Window: Set note…`
+ * is registered for the current window on the terminal route (Constitution V),
+ * opening the note prompt pre-filled with the current note; an empty submit
+ * clears it. Mirrors the action-generation pattern in app.tsx.
+ */
+
+/** Build the Set note palette entry matching app.tsx's wiring. */
+function buildSetNoteActions(opts: {
+  currentNote?: string;
+  onOpen: (prefill: string) => void;
+}): PaletteAction[] {
+  return [
+    {
+      id: "window-set-note",
+      label: "Window: Set note…",
+      onSelect: () => opts.onOpen(opts.currentNote ?? ""),
+    },
+  ];
+}
+
+describe("CmdK Set Note Action (260824-bb5n)", () => {
+  afterEach(cleanup);
+
+  it("is listed and selecting it opens the prompt pre-filled with the current note", () => {
+    const onOpen = vi.fn();
+    const actions = buildSetNoteActions({ currentNote: "blocked on flaky e2e", onOpen });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    const input = screen.getByPlaceholderText(/^Type a command/);
+    fireEvent.change(input, { target: { value: "Set note" } });
+    expect(screen.getByText("Window: Set note…")).toBeInTheDocument();
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onOpen).toHaveBeenCalledWith("blocked on flaky e2e");
+  });
+
+  it("opens with an empty prefill when the window carries no note", () => {
+    const onOpen = vi.fn();
+    const actions = buildSetNoteActions({ onOpen });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    fireEvent.change(screen.getByPlaceholderText(/^Type a command/), { target: { value: "Set note" } });
+    fireEvent.keyDown(screen.getByPlaceholderText(/^Type a command/), { key: "Enter" });
+    expect(onOpen).toHaveBeenCalledWith("");
+  });
+});
+
+/**
+ * Tests for the Annotate tab palette entry (260824-bb5n R6) — `Operator:
+ * Annotate tab` is gated by the SAME three-part availability rule as fix-name
+ * (operator on the server, chat ref on the current window, not the operator's
+ * own window) and fires the annotate-tab operator-request template. Mirrors
+ * the buildFixTabNameActions precedent.
+ */
+
+/** Build the Annotate tab palette entry matching app.tsx's gate. */
+function buildAnnotateTabActions(opts: {
+  hasOperator: boolean;
+  chatSessionRef?: string;
+  currentRole?: string;
+  onAnnotate: () => void;
+}): PaletteAction[] {
+  if (!opts.hasOperator || !opts.chatSessionRef || opts.currentRole === "operator") return [];
+  return [{ id: "window-annotate-operator", label: "Operator: Annotate tab", onSelect: opts.onAnnotate }];
+}
+
+describe("CmdK Annotate Tab Action (operator-request gate)", () => {
+  afterEach(cleanup);
+
+  it("is listed when the rule holds and selecting it fires the annotate seam", () => {
+    const onAnnotate = vi.fn();
+    const actions = buildAnnotateTabActions({ hasOperator: true, chatSessionRef: "ref-1", onAnnotate });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    const input = screen.getByPlaceholderText(/^Type a command/);
+    fireEvent.change(input, { target: { value: "Annotate" } });
+    expect(screen.getByText("Operator: Annotate tab")).toBeInTheDocument();
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onAnnotate).toHaveBeenCalledOnce();
+  });
+
+  it("is absent without an operator on the server", () => {
+    const actions = buildAnnotateTabActions({ hasOperator: false, chatSessionRef: "ref-1", onAnnotate: vi.fn() });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    expect(screen.queryByText("Operator: Annotate tab")).not.toBeInTheDocument();
+  });
+
+  it("is absent when the current window carries no chat session ref", () => {
+    const actions = buildAnnotateTabActions({ hasOperator: true, onAnnotate: vi.fn() });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    expect(screen.queryByText("Operator: Annotate tab")).not.toBeInTheDocument();
+  });
+
+  it("is absent on the operator's own window", () => {
+    const actions = buildAnnotateTabActions({
+      hasOperator: true,
+      chatSessionRef: "ref-1",
+      currentRole: "operator",
+      onAnnotate: vi.fn(),
+    });
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    expect(screen.queryByText("Operator: Annotate tab")).not.toBeInTheDocument();
+  });
+});

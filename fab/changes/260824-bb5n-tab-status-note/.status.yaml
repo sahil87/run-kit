@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 12
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-08-24T06:17:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-24T06:22:19Z"}
     hydrate: {started_at: "2026-08-24T06:22:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-24T06:33:48Z"}
     ship: {started_at: "2026-08-24T06:33:48Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-24T06:36:33Z"}
-    review-pr: {started_at: "2026-08-24T06:36:33Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-08-24T06:36:33Z", driver: git-pr, iterations: 1, completed_at: "2026-08-24T06:47:28Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/734
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: 'Add @rk_note per-tab status note: derive in the sessions snapshot (field 14, tail-joined free text, tolerant epoch parse), /options allowlist write with server-stamped epoch + 120-char validation, flyout-card note line with relative age and 24h dimming, Window: Set note palette prompt, annotate-tab operator template, and layout-snapshot capture/restore'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-24T06:36:33Z
+last_updated: 2026-08-24T06:47:28Z

@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { act, render, screen, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
-import { ShellTitlebarStrip } from "./shell-titlebar-strip";
+import { ShellTitlebarStrip } from "./titlebar-strip";
 import {
   InstanceAccentValueProvider,
   type InstanceAccent,

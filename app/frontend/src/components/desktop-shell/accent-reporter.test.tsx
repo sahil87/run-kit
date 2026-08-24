@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, cleanup, waitFor } from "@testing-library/react";
-import { ShellAccentReporter } from "./shell-accent-reporter";
+import { ShellAccentReporter } from "./accent-reporter";
 import { InstanceAccentValueProvider } from "@/contexts/instance-accent-context";
 import type { InstanceAccent } from "@/contexts/instance-accent-context";
 

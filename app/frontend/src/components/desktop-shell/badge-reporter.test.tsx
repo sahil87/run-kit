@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, cleanup, waitFor } from "@testing-library/react";
-import { ShellBadgeReporter } from "./shell-badge-reporter";
+import { ShellBadgeReporter } from "./badge-reporter";
 import { StandaloneSessionContextProvider } from "@/contexts/session-context";
 import type { ProjectSession, WindowInfo } from "@/types";
 

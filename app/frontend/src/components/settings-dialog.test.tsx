@@ -458,7 +458,7 @@ describe("SettingsDialog", () => {
     fireEvent.keyDown(general.closest('[role="tablist"]')!, { key: "ArrowLeft" });
     expect(screen.getByRole("tab", { name: "General" })).toHaveAttribute("aria-selected", "true");
     fireEvent.keyDown(general.closest('[role="tablist"]')!, { key: "ArrowUp" });
-    expect(screen.getByRole("tab", { name: "Shortcuts" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "All settings" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("a deep-linked open lands on the requested tab", () => {

@@ -195,9 +195,10 @@ roving-tabindex arrow-key navigation with activate-on-focus.
 **Steps:**
 1. Open the dialog (Shift+Ctrl+,).
 2. Click the Appearance tab → it selects and the Theme mode group renders.
-3. Focus the Appearance tab; press ArrowDown → All settings selects and takes
-   focus (the registry-table tab sits between Appearance and Shortcuts).
-4. Press ArrowDown again → Shortcuts selects and takes focus.
+3. Focus the Appearance tab; press ArrowDown → Shortcuts selects and takes
+   focus.
+4. Press ArrowDown again → All settings selects and takes focus (the
+   registry-table tab is the rail's last entry).
 
 ### `the Settings: Appearance palette action deep-links the Appearance tab`
 

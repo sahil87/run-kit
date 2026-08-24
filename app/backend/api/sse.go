@@ -930,11 +930,14 @@ func (h *sseHub) broadcastBoardOrder(order []string) {
 // (addClient), which is exactly when the client needs it. An empty version is
 // ignored (leaves the slot empty → no `event: version` sent).
 //
-// `boot` and `brew` are ADDITIVE fields — older clients that parse only
-// `version` are unaffected. `boot` is a per-process id (regenerated on every
+// `boot`/`brew`/`started`/`port` are ADDITIVE fields — older clients that parse
+// only `version` are unaffected. `boot` is a per-process id (regenerated on every
 // daemon start) that lets a tab detect a same-version restart and reload; `brew`
 // gates the palette's force-update / restart maintenance entries client-side.
-func (h *sseHub) setVersion(version, boot string, brew bool) {
+// `started` (process start, epoch seconds) + `port` (the bound RK_PORT) feed the
+// host page's daemon uptime/port readout — both are server-derived constants
+// known at boot.
+func (h *sseHub) setVersion(version, boot string, brew bool, started int64, port int) {
 	if version == "" {
 		return
 	}
@@ -942,7 +945,9 @@ func (h *sseHub) setVersion(version, boot string, brew bool) {
 		Version string `json:"version"`
 		Boot    string `json:"boot"`
 		Brew    bool   `json:"brew"`
-	}{Version: version, Boot: boot, Brew: brew}
+		Started int64  `json:"started"`
+		Port    int    `json:"port"`
+	}{Version: version, Boot: boot, Brew: brew, Started: started, Port: port}
 	jsonBytes, err := json.Marshal(payload)
 	if err != nil {
 		slog.Warn("version slot marshal failed", "err", err)

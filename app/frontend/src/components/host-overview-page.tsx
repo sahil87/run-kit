@@ -1,6 +1,6 @@
-import { useState, useCallback, useMemo, useRef } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { createServer, createSession, createWindow, getSessions, isInfraServer } from "@/api/client";
+import { createServer, createSession, createWindow, getSessions, isInfraServer, DAEMON_SERVER } from "@/api/client";
 import { Dialog } from "@/components/dialog";
 import { finalizeSafeName, toSafeServerName } from "@/lib/names";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
@@ -10,6 +10,8 @@ import { useInstanceName } from "@/contexts/instance-name-context";
 import { WaitingBadge } from "@/components/waiting-badge";
 import { countWaitingInSessions } from "@/lib/waiting";
 import { HostMetrics } from "@/components/host-metrics";
+import { SystemCard } from "@/components/system-card";
+import { ShieldGlyph } from "@/components/top-bar-icons";
 import { useBoards } from "@/hooks/use-boards";
 import { useBoardListReorder } from "@/hooks/use-board-list-reorder";
 import { useServerReorder } from "@/hooks/use-server-reorder";
@@ -50,7 +52,14 @@ export function HostOverviewPage() {
     sessionOrderByServer,
     daemonVersion,
     isConnectedByServer,
+    attachServer,
   } = useSessionContext();
+  // The system card's service rows read the rk-daemon server's sessions —
+  // attach it through the existing lazy-attach seam so the rows are live (the
+  // host route has no current server, so nothing attaches it otherwise).
+  useEffect(() => {
+    attachServer(DAEMON_SERVER);
+  }, [attachServer]);
   // The status bar's connection dot on `/` (260814-ldbs): the host-global
   // read — connected while EVERY known server stream is up (the board route's
   // boardConnected rule). No servers → disconnected.
@@ -323,6 +332,11 @@ export function HostOverviewPage() {
               metadata (here the live hostname) stays in the zone body at its
               original `text-xs` sizing, right below the heading. */}
           <SectionHeading label="Host Health" className="mb-2" />
+          {/* run-kit system card — the daemon read as a SYSTEM surface
+              (version/uptime/port + Restart, service rows + View deep-links).
+              Renders independently of the metrics stream: the daemon serving
+              this page is up by definition. */}
+          <SystemCard />
           {hostMetrics && (
             <div className="text-xs text-text-secondary font-mono truncate mb-2">
               {/* Display name (o7q8): the settings override wins over the
@@ -405,9 +419,13 @@ export function HostOverviewPage() {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {orderedServers.map(({ name, sessionCount, ephemeral }) => {
+            {orderedServers.map(({ name, sessionCount, ephemeral, protected: protected_ }) => {
               const drag = getTileProps(name);
               const isDragSource = isDragging && draggingName === name;
+              // Protected-class marker: the rk-daemon server derives protected
+              // client-side (the same ∨ the sidebar toggle computes); the glyph
+              // is additive — dim-and-pin-last treatment unchanged.
+              const isProtected = name === DAEMON_SERVER || protected_ === true;
               return (
               <button
                 key={name}
@@ -435,6 +453,18 @@ export function HostOverviewPage() {
                     servers also get a `scratch` chip (the recovery tree's
                     resumable-chip styling) — surface, never hide. */}
                 <div className={`${isInfraServer(name) || ephemeral ? "text-text-secondary" : "text-text-primary"} font-medium text-sm`}>
+                  {isProtected && (
+                    <Tip label="Protected server — kill requires typing the name">
+                      <span
+                        role="img"
+                        aria-label={`${name} is protected`}
+                        className="inline-flex align-[-2px] mr-1"
+                        data-testid={`shield-${name}`}
+                      >
+                        <ShieldGlyph />
+                      </span>
+                    </Tip>
+                  )}
                   {name}
                   {ephemeral && (
                     <span className="ml-1.5 border border-border rounded px-1 text-text-secondary text-xs">

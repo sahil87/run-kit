@@ -206,6 +206,14 @@ export type SessionContextType = {
   /** The running daemon version reported over the server-global `event: version`
    *  (no leading "v"). `null` until the first `version` event. */
   daemonVersion: string | null;
+  /** The daemon process start time (epoch seconds) from the `event: version`
+   *  `started` field. `null` until observed — and STAYS null against an older
+   *  daemon whose payload lacks the field (the boot-field mixed-version
+   *  precedent). Feeds the host page's daemon uptime readout. */
+  daemonStarted: number | null;
+  /** The port the daemon bound, from the `event: version` `port` field. `null`
+   *  until observed / on an older daemon's field-less payload. */
+  daemonPort: number | null;
   /** A pending toolkit update (matched tools + composite key), from the
    *  server-global `event: update-available`. `null` when no update is pending. */
   updateAvailable: UpdateAvailable | null;
@@ -372,6 +380,11 @@ export function SessionProvider({ children }: SessionProviderProps) {
   // Running daemon version from the server-global `event: version` (no leading
   // "v"). `null` until the first event. Drives the reload guard + update chip.
   const [daemonVersion, setDaemonVersion] = useState<string | null>(null);
+  // Daemon process start (epoch seconds) + bound port, from the additive
+  // `started`/`port` version-slot fields. `null` until observed; an older
+  // daemon's field-less payload keeps both null (never NaN/0).
+  const [daemonStarted, setDaemonStarted] = useState<number | null>(null);
+  const [daemonPort, setDaemonPort] = useState<number | null>(null);
   // Whether the daemon is a Homebrew install, from the server-global
   // `event: version` `brew` field. `false` until the first version event (the
   // brew-gated `run-kit: Update Now` palette entry stays hidden until observed).
@@ -404,10 +417,12 @@ export function SessionProvider({ children }: SessionProviderProps) {
   // recompile storm guard) inside shouldReloadOnVersion.
   const firstVersionRef = useRef<string | null>(null);
   const firstBootRef = useRef<string | null>(null);
-  const applyVersion = useCallback((version: string, boot: string | null, brew: boolean) => {
+  const applyVersion = useCallback((version: string, boot: string | null, brew: boolean, started: number | null, port: number | null) => {
     if (!version) return;
     setDaemonVersion(version);
     setIsBrew(brew);
+    setDaemonStarted(started);
+    setDaemonPort(port);
     if (shouldReloadOnVersion(firstVersionRef.current, firstBootRef.current, version, boot)) {
       // New process behind the same tab — reload to load fresh assets / drop
       // stale in-memory state.
@@ -888,9 +903,15 @@ export function SessionProvider({ children }: SessionProviderProps) {
           fireStatusRefresh();
           break;
         case "version": {
-          const d = data as { version?: string; boot?: string; brew?: boolean };
+          const d = data as { version?: string; boot?: string; brew?: boolean; started?: number; port?: number };
           if (typeof d.version === "string") {
-            applyVersion(d.version, typeof d.boot === "string" ? d.boot : null, d.brew === true);
+            applyVersion(
+              d.version,
+              typeof d.boot === "string" ? d.boot : null,
+              d.brew === true,
+              typeof d.started === "number" && Number.isFinite(d.started) ? d.started : null,
+              typeof d.port === "number" && Number.isFinite(d.port) ? d.port : null,
+            );
           }
           break;
         }
@@ -1188,6 +1209,8 @@ export function SessionProvider({ children }: SessionProviderProps) {
       socketConnected,
       getServerReceiptTick,
       daemonVersion,
+      daemonStarted,
+      daemonPort,
       updateAvailable,
       manualCheck,
       applyManualCheckResult,
@@ -1221,6 +1244,8 @@ export function SessionProvider({ children }: SessionProviderProps) {
       socketConnected,
       getServerReceiptTick,
       daemonVersion,
+      daemonStarted,
+      daemonPort,
       updateAvailable,
       manualCheck,
       applyManualCheckResult,
@@ -1530,6 +1555,8 @@ export function StandaloneSessionContextProvider({
     socketConnected: value.socketConnected ?? false,
     getServerReceiptTick: value.getServerReceiptTick ?? (() => 0),
     daemonVersion: value.daemonVersion ?? null,
+    daemonStarted: value.daemonStarted ?? null,
+    daemonPort: value.daemonPort ?? null,
     updateAvailable: value.updateAvailable ?? null,
     manualCheck: value.manualCheck ?? null,
     applyManualCheckResult: value.applyManualCheckResult ?? (() => {}),

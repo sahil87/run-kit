@@ -15,6 +15,7 @@ import { Tip, TipGroup } from "@/components/tip";
 import { SwatchPopover } from "@/components/swatch-popover";
 import { FlairOverlay } from "@/components/flair-overlay";
 import { PaletteIcon, PlusIcon, CloseIcon } from "./icons";
+import { ShieldGlyph } from "@/components/top-bar-icons";
 import { useTheme } from "@/contexts/theme-context";
 import { displayVersion } from "@/lib/palette/version";
 import { copyToClipboard } from "@/lib/clipboard";
@@ -2772,6 +2773,19 @@ function ServerGroupInner(props: ServerGroupProps) {
             &#x25BC;
           </span>
           <span className="truncate">{server}</span>
+          {/* Protected-class marker: rk-daemon derives protected client-side
+              (the same ∨ the flyout toggle computes above); unmarked servers
+              render nothing — no layout shift. */}
+          {serverProtected && (
+            <span
+              role="img"
+              aria-label={`${server} is protected`}
+              className="inline-flex shrink-0"
+              data-testid={`shield-${server}`}
+            >
+              <ShieldGlyph />
+            </span>
+          )}
         </button>
         {/* Server action cluster (x4sf): palette → plus → close. The wrapper
             carries the header's text treatment (inline contrast-guarded accent

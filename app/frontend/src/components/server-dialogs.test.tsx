@@ -119,15 +119,19 @@ describe("ServerDialogs", () => {
     await waitFor(() => expect(refreshServers).toHaveBeenCalled());
   });
 
-  it("renders the DAEMON_SERVER warning only when the kill target is the daemon server", () => {
-    renderDialogs();
+  it("daemon target renders the protected fork by name derivation even when the server list is stale", () => {
+    // The daemon entry is absent from ctx.servers (stale/empty list) — the
+    // fork must still render for rk-daemon (derived from DAEMON_SERVER, never
+    // from the payload alone), so the typed-name guard cannot be bypassed.
+    renderDialogs({ servers: [{ name: "alpha", sessionCount: 1, protected: false }] });
     fireEvent.click(screen.getByText("kill-daemon"));
-    expect(screen.getByText(/hosts the run-kit daemon serving this dashboard/)).toBeInTheDocument();
+    expect(screen.getByText("Restart run-kit")).toBeInTheDocument();
+    expect(screen.getByText("Force kill")).toBeInTheDocument();
     fireEvent.click(screen.getByText("Cancel"));
 
     fireEvent.click(screen.getByText("kill-alpha"));
     expect(screen.getByText(/Kill server/)).toBeInTheDocument();
-    expect(screen.queryByText(/hosts the run-kit daemon serving this dashboard/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Force kill")).not.toBeInTheDocument();
   });
 
   it("navigates to / after killing the current server (terminal-route rule)", async () => {

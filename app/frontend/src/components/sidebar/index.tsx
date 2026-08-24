@@ -2636,6 +2636,9 @@ function ServerGroupInner(props: ServerGroupProps) {
               its protection is derived, not unmarkable. */}
           <button
             type="button"
+            role="switch"
+            aria-checked={serverProtected}
+            aria-label={`Protection for ${server}`}
             disabled={server === DAEMON_SERVER}
             data-testid="row-flyout-protect-toggle"
             onClick={(e) => {
@@ -2646,9 +2649,7 @@ function ServerGroupInner(props: ServerGroupProps) {
           >
             <span className="shrink-0">{serverProtected ? "Unprotect" : "Protect"}</span>
             <span
-              role="switch"
-              aria-checked={serverProtected}
-              aria-label={`Protection for ${server}`}
+              aria-hidden="true"
               className={`ml-auto w-7 h-4 rounded-full border ${serverProtected ? "bg-accent-green/30 border-accent-green" : "bg-bg-card border-border"} relative`}
             >
               <span

@@ -2283,7 +2283,8 @@ describe("Sidebar — server-group rail + server card (260817-ve5m)", () => {
     let toggle = screen.getByTestId("row-flyout-protect-toggle");
     expect(toggle).toHaveTextContent("Protect");
     expect(toggle).not.toBeDisabled();
-    expect(within(toggle).getByRole("switch")).toHaveAttribute("aria-checked", "false");
+    expect(toggle).toHaveAttribute("role", "switch");
+    expect(toggle).toHaveAttribute("aria-checked", "false");
     act(() => { fireEvent.click(toggle); });
     expect(setServerProtected).toHaveBeenCalledExactlyOnceWith("primary", true);
     act(() => { fireEvent.keyDown(document, { key: "Escape" }); });
@@ -2293,7 +2294,8 @@ describe("Sidebar — server-group rail + server card (260817-ve5m)", () => {
     tapRail("alpha");
     toggle = screen.getByTestId("row-flyout-protect-toggle");
     expect(toggle).toHaveTextContent("Unprotect");
-    expect(within(toggle).getByRole("switch")).toHaveAttribute("aria-checked", "true");
+    expect(toggle).toHaveAttribute("role", "switch");
+    expect(toggle).toHaveAttribute("aria-checked", "true");
     act(() => { fireEvent.click(toggle); });
     expect(setServerProtected).toHaveBeenCalledExactlyOnceWith("alpha", false);
     act(() => { fireEvent.keyDown(document, { key: "Escape" }); });
@@ -2304,7 +2306,8 @@ describe("Sidebar — server-group rail + server card (260817-ve5m)", () => {
     toggle = screen.getByTestId("row-flyout-protect-toggle");
     expect(toggle).toHaveTextContent("Unprotect");
     expect(toggle).toBeDisabled();
-    expect(within(toggle).getByRole("switch")).toHaveAttribute("aria-checked", "true");
+    expect(toggle).toHaveAttribute("role", "switch");
+    expect(toggle).toHaveAttribute("aria-checked", "true");
     act(() => { fireEvent.click(toggle); });
     expect(setServerProtected).not.toHaveBeenCalled();
   });

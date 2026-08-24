@@ -148,9 +148,13 @@ export function ServerDialogs() {
   // protected targets get the typed-name force unlock (daemon additionally
   // gets the Restart primary), non-protected targets keep the plain
   // two-button confirm byte-for-byte.
+  // The daemon's protection is derived from its constant name (never from the
+  // payload alone) so a stale or empty server list can't render it the
+  // unprotected two-button confirm.
   const killTargetProtected =
     killServerTarget != null &&
-    (ctx.servers.find((s) => s.name === killServerTarget)?.protected ?? false);
+    (killServerTarget === DAEMON_SERVER ||
+      (ctx.servers.find((s) => s.name === killServerTarget)?.protected ?? false));
 
   return (
     <>

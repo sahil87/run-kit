@@ -408,12 +408,13 @@ func writeColorTabsRow(b *strings.Builder, w operatorWindowFact) {
 // tabs), the categorize instruction (ONE coherent scheme across all tabs), the
 // actuation commands with the closed vocabularies enumerated verbatim, the
 // judgment clauses, the repaint note, and the bounds. An empty table still
-// delivers — there is simply nothing to color (the brief-me posture).
+// delivers — there is simply nothing to color and, matching the template's
+// no-reply posture, nothing to do.
 func renderColorTabs(f serverOperatorFacts) string {
 	var b strings.Builder
 	b.WriteString("[run-kit request] Color the tabs on this server: assign each tab a sidebar color by the kind of work it holds, so the sidebar self-organizes visually.\n\nTabs:\n")
 	if len(f.Windows) == 0 {
-		b.WriteString("  (none — report that there is nothing to color)\n")
+		b.WriteString("  (none — nothing to color; no action needed)\n")
 	}
 	for _, w := range f.Windows {
 		writeColorTabsRow(&b, w)

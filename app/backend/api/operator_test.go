@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -968,16 +969,42 @@ func TestRenderColorTabs(t *testing.T) {
 	}
 
 	// The prompt's marker/flair vocabularies must match the validate closed
-	// sets exactly (drift guard — the renderer writes them as literals).
-	for token := range validate.MarkerValues {
-		if token != "" && !strings.Contains(prompt, token) {
-			t.Errorf("prompt missing marker token %q from validate.MarkerValues", token)
+	// sets exactly (drift guard — the renderer writes them as literals). The
+	// rendered list is the parenthesized run after the option's set-option
+	// line; parse it and compare sets so an extra, removed, or misspelled
+	// token fails — a bare substring check would not.
+	promptVocab := func(option string) map[string]bool {
+		t.Helper()
+		anchor := "'" + option + "' '<value>'"
+		i := strings.Index(prompt, anchor)
+		if i < 0 {
+			t.Fatalf("prompt missing set-option line for %s:\n%s", option, prompt)
 		}
+		rest := prompt[i+len(anchor):]
+		open, close := strings.Index(rest, "("), strings.Index(rest, ")")
+		if open < 0 || close < open {
+			t.Fatalf("prompt missing vocabulary list for %s:\n%s", option, prompt)
+		}
+		vocab := make(map[string]bool)
+		for _, token := range strings.Fields(rest[open+1 : close]) {
+			vocab[token] = true
+		}
+		return vocab
 	}
-	for token := range validate.FlairValues {
-		if token != "" && !strings.Contains(prompt, token) {
-			t.Errorf("prompt missing flair token %q from validate.FlairValues", token)
+	closedSetTokens := func(set map[string]bool) map[string]bool {
+		tokens := make(map[string]bool)
+		for token := range set {
+			if token != "" {
+				tokens[token] = true
+			}
 		}
+		return tokens
+	}
+	if got, want := promptVocab("@rk_marker"), closedSetTokens(validate.MarkerValues); !maps.Equal(got, want) {
+		t.Errorf("prompt marker vocabulary = %v, want validate.MarkerValues %v", got, want)
+	}
+	if got, want := promptVocab("@rk_flair"), closedSetTokens(validate.FlairValues); !maps.Equal(got, want) {
+		t.Errorf("prompt flair vocabulary = %v, want validate.FlairValues %v", got, want)
 	}
 
 	empty := renderColorTabs(serverOperatorFacts{})

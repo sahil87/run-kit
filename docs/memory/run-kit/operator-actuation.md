@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The operator actuation seam — templated work items for the server's operator window over two POST routes: window-scoped /api/windows/{windowId}/operator-request (fix-tab-name — also fired by the SSE-tick auto-name tracker on busy→idle; retire-tab — destructive, frontend-confirmed) and server-scoped /api/operator-request?server= (spawn-task/find-discussion — acceptsText client text, capped + dynamic-fence delimited; brief-me/whats-stuck — zero-waiting 409). Closed registry; one-FetchSessions facts; busy-gate 409, no queue; every caller delivers through the shared deliverOperatorPrompt core into the chat-send injection engine; derive-tick results. UI degrades to absent."
+description: "The operator actuation seam — templated work items for the server's operator window over two POST routes: window-scoped /api/windows/{windowId}/operator-request (fix-tab-name — also fired by the SSE-tick auto-name tracker on busy→idle; retire-tab — destructive, frontend-confirmed) and server-scoped /api/operator-request?server= (spawn-task/find-discussion — acceptsText client text, capped + dynamic-fence delimited; brief-me/whats-stuck — zero-waiting 409; color-tabs — semantic tab coloring via tmux set-option). Closed registry; one-FetchSessions facts; busy-gate 409, no queue; every caller delivers through the shared deliverOperatorPrompt core into the chat-send injection engine; derive-tick results. UI degrades to absent."
 ---
 # Operator Actuation
 
@@ -105,7 +105,9 @@ server fact tables from the same fetch (Constitution X) — every non-operator
 window into the routing table as a digest-grade row (session, `@N`, name,
 worktree, rolled-up agent state + duration, fab change/stage when non-empty,
 the PR rollup `PrState`/`PrChecks`/`PrReview` filled only when `PrURL` is
-non-nil, and the per-row transcript JSONL path via `chat.TranscriptPath` — one
+non-nil, the current label state (`Color`/`Marker`/`Flair`, `""` when unset —
+only the `color-tabs` row writer renders them), and the per-row transcript
+JSONL path via `chat.TranscriptPath` — one
 resolution per window filling both the row and the corpus), every non-operator
 chat-carrying window additionally into the transcript corpus, a ref that fails
 to resolve degrading to a PATH-LESS table row and an OMITTED corpus row, never
@@ -414,6 +416,46 @@ listed; do not rename or kill any window.
   @N "<answer>" --answer` and `rk notify --title` verbatim, and carries the
   never-answer list.
 
+### Requirement: The `color-tabs` template (server-scoped)
+The registry's `color-tabs` entry (`serverScoped: true`, no `acceptsText`, no
+`requiresWaiting`) SHALL render a semantic tab-coloring prompt over the routing
+table — every non-operator window row via its own row writer
+(`writeColorTabsRow`): identity (session, `@N`, name), worktree, agent state,
+fab change/stage when non-empty, the row's current label state as
+`labels: color=<v|-> marker=<v|-> flair=<v|->` (`-` for an unset channel — the
+operator needs to see what is already set for its do-nothing judgment), and the
+transcript path or a `transcript unavailable` note. The prompt then instructs,
+in order: (1) READ each tab — the transcript JSONL tail (~30 lines; never
+capture-pane for an agent tab — alt-screen zero scrollback), with
+`rk mux capture @N` as the fallback for a tab with no transcript (plain shell
+windows have real scrollback); (2) CATEGORIZE — a suggested default scheme
+(feature → `blue`, bugfix → `red`, infra/tooling → `slate`, docs → `teal`,
+experiments → `purple`); the operator MAY substitute a scheme that better fits
+the server's work mix but MUST apply ONE coherent scheme across all tabs —
+same-category tabs share a hue; (3) ACTUATE through its own shell —
+`tmux set-option -t @N '@color' '<value>'` with the closed vocabularies
+enumerated verbatim (the 10 color family names, optional `-dark`/`-light`
+shade suffix; optional sparing `@rk_marker` / `@rk_flair` accents, color the
+primary channel) and the unset form `tmux set-option -t @N -u '@color'`;
+(4) JUDGMENT — do nothing to a tab whose current labels already fit the scheme;
+existing manual colors may be reassigned (reversible via the label picker);
+(5) the repaint note — the sidebar repaints within ~15 seconds of the last
+set-option (the safety poll), no further action needed; (6) BOUNDS — set only
+the three named options on the listed windows; do not rename, kill, or send
+keys to any window; do not reply. An empty routing table still delivers a
+trivially-answerable nothing-to-color prompt (the brief-me posture).
+
+#### Scenario: Rendered prompt carries label rows, vocabularies, and bounds
+- **GIVEN** facts with two work windows (one labeled `color=blue`, one
+  unlabeled with no transcript)
+- **WHEN** `color-tabs` renders
+- **THEN** the prompt contains both rows with their `labels:` clauses, the
+  `rk mux capture` fallback, all three closed vocabularies verbatim, the unset
+  form, the coherent-scheme and do-nothing clauses, the repaint note, and the
+  bounds; the operator's own row never appears.
+- **AND GIVEN** zero non-operator windows, **THEN** the prompt still renders
+  and delivery proceeds.
+
 ### Requirement: The `retire-tab` template (window-scoped, destructive)
 The registry's `retire-tab` entry (`requiresChatRef: true`, window-scoped — no
 `serverScoped`, no `acceptsText`) SHALL ride the window route unchanged and
@@ -494,6 +536,32 @@ Palette Actions) plus the pinned operator row's compose icon
   entry are absent (not disabled).
 
 ## Design Decisions
+
+### Actuation via raw tmux set-option, accepting the safety-poll repaint lag
+**Decision**: the `color-tabs` prompt names `tmux set-option -t @N '@color'
+'<value>'` (and `-u` to unset) as the actuation, with the closed vocabularies
+enumerated verbatim; the repaint arrives on the ~12s safety poll.
+**Why**: matches every shipped template's actuation style (rename-window,
+kill-window, rk riff, rk mux send); zero new failure modes (no daemon-URL
+resolution, works for remote-host operators); the operation is a minutes-long
+fire-and-forget batch, so a trailing ≤12s repaint is marginal. Invalid typed
+values degrade harmlessly (parseWindows drops unknown tokens;
+picker-reversible).
+**Rejected**: instructing the operator to `curl POST
+$(rk url)/api/windows/@N/options` (immediate repaint + validation, but a longer
+fragile prompt introducing an operator→HTTP dependency no template has); a new
+rk label verb (CLI-surface expansion for a cosmetic-latency win).
+*Introduced by*: 260824-4940-operator-semantic-tab-coloring
+
+### Label state rides the shared fact row
+**Decision**: `Color`/`Marker`/`Flair` join `operatorWindowFact`, filled in the
+one `buildServerOperatorFacts` pass; only `renderColorTabs` renders them (the
+digest row writer deliberately ignores them).
+**Why**: the digest-fields precedent below — one derivation site per
+Constitution X; templates that don't need the fields ignore them.
+**Rejected**: a color-tabs-only parallel facts struct (duplicates the
+exclusion/iteration logic the shared builder owns).
+*Introduced by*: 260824-4940-operator-semantic-tab-coloring
 
 ### Digest fields ride the shared fact row, not a parallel table
 **Decision**: `operatorWindowFact` carries the digest-grade fields

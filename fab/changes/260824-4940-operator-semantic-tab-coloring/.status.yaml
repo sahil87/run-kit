@@ -1,0 +1,57 @@
+id: 4940
+name: 260824-4940-operator-semantic-tab-coloring
+created: 2026-08-24T05:50:35Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 6
+    acceptance_count: 15
+    acceptance_completed: 15
+confidence:
+    certain: 3
+    confident: 6
+    tentative: 0
+    unresolved: 0
+    score: 4.3
+    fuzzy: true
+    dimensions:
+        signal: 66.7
+        reversibility: 85.6
+        competence: 81.1
+        disambiguation: 73.9
+stage_metrics:
+    intake: {started_at: "2026-08-24T05:50:35Z", driver: fab-new, iterations: 1, completed_at: "2026-08-24T05:59:02Z"}
+    apply: {started_at: "2026-08-24T05:59:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-24T06:07:43Z"}
+    review: {started_at: "2026-08-24T06:07:43Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-24T06:11:32Z"}
+    hydrate: {started_at: "2026-08-24T06:11:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-24T06:14:44Z"}
+    ship: {started_at: "2026-08-24T06:14:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-24T06:17:39Z"}
+    review-pr: {started_at: "2026-08-24T06:17:39Z", driver: git-pr, iterations: 1, completed_at: "2026-08-24T06:28:58Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/733
+change_type_source: explicit
+true_impact:
+    added: 678
+    deleted: 17
+    net: 661
+    excluding:
+        added: 289
+        deleted: 11
+        net: 278
+    tests:
+        added: 172
+        deleted: 0
+        net: 172
+    computed_at: "2026-08-24T06:17:39Z"
+    computed_at_stage: ship
+summary: 'color-tabs operator template: semantic tab coloring via tmux set-option; label state on the shared fact row; Operator: Color tabs palette entry'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-24T06:28:58Z

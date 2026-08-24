@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"rk/internal/sessions"
 	"rk/internal/tmux"
+	"rk/internal/validate"
 )
 
 // operatorReq builds a POST /operator-request request for subject window @1
@@ -921,5 +923,202 @@ func TestRenderRetireTab(t *testing.T) {
 	}
 	if strings.Contains(prompt, "fab change") {
 		t.Errorf("empty FabChange rendered a fab clause:\n%s", prompt)
+	}
+}
+
+// --- the color-tabs template -------------------------------------------------
+
+// TestRenderColorTabs: the prompt carries every row with its labels clause
+// (unset channels as "-"), the transcript path or the fallback instruction,
+// the suggested scheme, all three closed vocabularies verbatim, the unset
+// form, the judgment clauses, the repaint note, and the bounds.
+func TestRenderColorTabs(t *testing.T) {
+	facts := serverOperatorFacts{Windows: []operatorWindowFact{
+		{Session: "s", WindowID: "@1", Name: "feature-work", WorktreePath: "/wt/project",
+			AgentState: "active", Color: "blue", Marker: "solid",
+			TranscriptPath: "/t/feature.jsonl",
+			FabChange:      "260824-4940-operator-semantic-tab-coloring", FabStage: "apply"},
+		{Session: "s2", WindowID: "@2", Name: "scratch", WorktreePath: "/wt/scratch", AgentState: "idle"},
+	}}
+	prompt := renderColorTabs(facts)
+	for _, want := range []string{
+		"s @1", `"feature-work"`, "worktree=/wt/project", "state=active",
+		"fab=260824-4940-operator-semantic-tab-coloring at stage apply",
+		"labels: color=blue marker=solid flair=-",
+		"/t/feature.jsonl",
+		"s2 @2", `"scratch"`, "labels: color=- marker=- flair=-",
+		"transcript unavailable",
+		"NEVER capture-pane", "rk mux capture @N",
+		"feature → blue", "bugfix → red", "infra/tooling → slate", "docs → teal", "experiments → purple",
+		"ONE coherent scheme",
+		"tmux set-option -t @N '@color' '<value>'",
+		"red orange amber olive green teal blue purple magenta slate",
+		"-dark or -light",
+		"tmux set-option -t @N '@rk_marker' '<value>'",
+		"pipe dotted dashed solid double thick hatch block",
+		"tmux set-option -t @N '@rk_flair' '<value>'",
+		"rain scan nyan naruto onepiece pacman matrix aquarium roadrunner invaders cube warp",
+		"tmux set-option -t @N -u '@color'",
+		"DO NOTHING", "already fit", "reversible via the label picker",
+		"~15 seconds",
+		"set only the three named options", "Do not rename, kill, or send keys", "Do not reply",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+
+	// The prompt's marker/flair vocabularies must match the validate closed
+	// sets exactly (drift guard — the renderer writes them as literals). The
+	// rendered list is the parenthesized run after the option's set-option
+	// line; parse it and compare sets so an extra, removed, or misspelled
+	// token fails — a bare substring check would not.
+	promptVocab := func(option string) map[string]bool {
+		t.Helper()
+		anchor := "'" + option + "' '<value>'"
+		i := strings.Index(prompt, anchor)
+		if i < 0 {
+			t.Fatalf("prompt missing set-option line for %s:\n%s", option, prompt)
+		}
+		rest := prompt[i+len(anchor):]
+		open, close := strings.Index(rest, "("), strings.Index(rest, ")")
+		if open < 0 || close < open {
+			t.Fatalf("prompt missing vocabulary list for %s:\n%s", option, prompt)
+		}
+		vocab := make(map[string]bool)
+		for _, token := range strings.Fields(rest[open+1 : close]) {
+			vocab[token] = true
+		}
+		return vocab
+	}
+	closedSetTokens := func(set map[string]bool) map[string]bool {
+		tokens := make(map[string]bool)
+		for token := range set {
+			if token != "" {
+				tokens[token] = true
+			}
+		}
+		return tokens
+	}
+	if got, want := promptVocab("@rk_marker"), closedSetTokens(validate.MarkerValues); !maps.Equal(got, want) {
+		t.Errorf("prompt marker vocabulary = %v, want validate.MarkerValues %v", got, want)
+	}
+	if got, want := promptVocab("@rk_flair"), closedSetTokens(validate.FlairValues); !maps.Equal(got, want) {
+		t.Errorf("prompt flair vocabulary = %v, want validate.FlairValues %v", got, want)
+	}
+
+	empty := renderColorTabs(serverOperatorFacts{})
+	if !strings.Contains(empty, "nothing to color") {
+		t.Errorf("empty table prompt = %q, want a trivially-answerable nothing-to-color prompt", empty)
+	}
+}
+
+// TestRenderDigestTemplatesIgnoreLabelFields: the fact-row label extension
+// must not drift the existing templates — digest/spawn renders are
+// byte-identical whether or not the label fields are populated.
+func TestRenderDigestTemplatesIgnoreLabelFields(t *testing.T) {
+	base := operatorWindowFact{Session: "s", WindowID: "@1", Name: "zsh", WorktreePath: "/wt/project",
+		AgentState: "waiting", AgentIdleDuration: "3m", TranscriptPath: "/t/a.jsonl"}
+	labeled := base
+	labeled.Color, labeled.Marker, labeled.Flair = "blue", "solid", "nyan"
+
+	for name, render := range map[string]func(serverOperatorFacts) string{
+		"brief-me":   renderBriefMe,
+		"spawn-task": renderSpawnTask,
+	} {
+		plain := render(serverOperatorFacts{Windows: []operatorWindowFact{base}})
+		withLabels := render(serverOperatorFacts{Windows: []operatorWindowFact{labeled}})
+		if plain != withLabels {
+			t.Errorf("%s output drifted when label fields were populated:\n--- without ---\n%s\n--- with ---\n%s", name, plain, withLabels)
+		}
+		if strings.Contains(withLabels, "labels:") || strings.Contains(withLabels, "nyan") {
+			t.Errorf("%s rendered the label fields:\n%s", name, withLabels)
+		}
+	}
+}
+
+// TestBuildServerOperatorFactsLabelFields: the fact row carries the window's
+// current Color (dereferenced, "" when nil), Marker, and Flair from the same
+// fetch.
+func TestBuildServerOperatorFactsLabelFields(t *testing.T) {
+	blue := "blue"
+	sess := []sessions.ProjectSession{
+		{Name: "s", Windows: []tmux.WindowInfo{
+			{WindowID: "@1", Name: "labeled", Color: &blue, Marker: "solid"},
+			{WindowID: "@2", Name: "unlabeled"},
+		}},
+		{Name: "_rk-operator", Windows: []tmux.WindowInfo{
+			{WindowID: "@9", Name: "operator", Role: "operator", Color: &blue, Marker: "block", Flair: "nyan"},
+		}},
+	}
+	facts := buildServerOperatorFacts(sess, "")
+	if len(facts.Windows) != 2 {
+		t.Fatalf("Windows rows = %d, want 2 (operator excluded)", len(facts.Windows))
+	}
+	if row := facts.Windows[0]; row.Color != "blue" || row.Marker != "solid" || row.Flair != "" {
+		t.Errorf("row @1 labels = %+v, want color=blue marker=solid flair=\"\"", row)
+	}
+	if row := facts.Windows[1]; row.Color != "" || row.Marker != "" || row.Flair != "" {
+		t.Errorf("row @2 labels = %+v, want all empty (nil Color derefs to \"\")", row)
+	}
+}
+
+// TestServerOperatorRequestColorTabsSuccess: color-tabs on the server route
+// delivers through the unchanged seam — 200 {"ok":true}, exactly ONE
+// FetchSessions, injection targeting the operator's pane, and the rendered
+// prompt carrying the rows' labels clauses and the actuation commands.
+func TestServerOperatorRequestColorTabsSuccess(t *testing.T) {
+	fastChatSendProbe(t)
+	stageFixtureTranscript(t, testChatRef)
+	sess := operatorSessions("idle")
+	blue := "blue"
+	sess[0].Windows[0].Color = &blue
+	sess[0].Windows[0].Marker = "solid"
+	sf := &mockSessionFetcher{result: sess}
+	ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "❯ [Pasted text #1 +9 lines]"}}
+	router := NewTestRouter(slog.Default(), sf, ops, "host")
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, serverOperatorReq(`{"template":"color-tabs"}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"ok":true`) {
+		t.Errorf("200 body = %s, want {\"ok\":true}", rec.Body.String())
+	}
+	if sf.calls != 1 {
+		t.Errorf("FetchSessions ran %d times, want exactly 1", sf.calls)
+	}
+	if ops.pasteChatPaneID != "%9" || ops.sendEnterPaneID != "%9" {
+		t.Errorf("injection targeted paste=%q enter=%q, want the OPERATOR pane %%9",
+			ops.pasteChatPaneID, ops.sendEnterPaneID)
+	}
+	prompt := ops.setChatBufferText
+	for _, want := range []string{
+		"s @1", `"zsh"`, "labels: color=blue marker=solid flair=-",
+		"projects/someproj/" + testChatRef + ".jsonl",
+		"tmux set-option -t @N '@color' '<value>'",
+		"Do not reply",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "@9") {
+		t.Errorf("operator's own row leaked into the color-tabs prompt:\n%s", prompt)
+	}
+}
+
+// TestServerOperatorRequestColorTabsGuards: client text on color-tabs hits the
+// closed-lane 400, and color-tabs on the window-scoped route is a 400 — both
+// before any fetch.
+func TestServerOperatorRequestColorTabsGuards(t *testing.T) {
+	rec := assertNoFetch(t, serverOperatorReq(`{"template":"color-tabs","text":"evil client text"}`))
+	if !strings.Contains(rec.Body.String(), "color-tabs") {
+		t.Errorf("400 body = %s, want it to name the closed template", rec.Body.String())
+	}
+	rec = assertNoFetch(t, operatorReq(`{"template":"color-tabs"}`))
+	if !strings.Contains(rec.Body.String(), "color-tabs") {
+		t.Errorf("400 body = %s, want it to name the server-scoped id", rec.Body.String())
 	}
 }

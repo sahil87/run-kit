@@ -12,23 +12,26 @@ import (
 // rk mux kill <target> — kill a pane, gated on its reconciled @rk_agent_state
 // (rk's twin is safer than fab's ungated `fab pane kill`): `active` and
 // `waiting` panes REFUSE — never kill a working agent, and never silently drop
-// a pane holding a pending human question; `idle` and unknown kill. --force
-// skips the gate (the target's existence is still validated). Refusals name
-// the state on stderr, exit 1, and perform no tmux mutation. On success stdout
-// carries exactly one report line: `killed %N`. Exit codes follow the toolkit
-// convention: 0 success, 1 operational (refusal, missing pane, tmux failure),
-// 2 usage. No daemon dependency (the rk present pattern).
+// a pane holding a pending human question; `idle` and unknown kill. A pane
+// residing on a PROTECTED server (rk-daemon by derivation, or @rk_protected)
+// is likewise refused. --force skips both gates (the target's existence is
+// still validated). Refusals name the reason on stderr, exit 1, and perform
+// no tmux mutation. On success stdout carries exactly one report line:
+// `killed %N`. Exit codes follow the toolkit convention: 0 success,
+// 1 operational (refusal, missing pane, tmux failure), 2 usage. No daemon
+// dependency (the rk present pattern).
 
 var muxKillForceFlag bool
 
 var muxKillCmd = &cobra.Command{
 	Use:   "kill <target> [--force]",
-	Short: "Kill a pane, gated on its agent state",
+	Short: "Kill a pane, gated on its agent state and server protection",
 	Long: "Kill the target pane, gated on its reconciled @rk_agent_state: a pane " +
 		"whose agent is active or waiting (a pending human question) is refused " +
 		"— the refusal names the state on stderr, exits 1, and touches nothing. " +
-		"Idle and uninstrumented panes are killed. --force skips the gate; the " +
-		"target's existence is still validated.\n\n" +
+		"Idle and uninstrumented panes are killed. A pane on a protected server " +
+		"(rk-daemon, or one marked @rk_protected) is refused the same way. " +
+		"--force skips both gates; the target's existence is still validated.\n\n" +
 		"Targets: %N (pane), @N (window — resolves to its agent pane), " +
 		"=session:window (exact). Bare session:window names are rejected.",
 	Example: `  rk mux kill %12
@@ -42,7 +45,7 @@ var muxKillCmd = &cobra.Command{
 
 func init() {
 	muxKillCmd.Flags().BoolVar(&muxKillForceFlag, "force", false,
-		"Skip the agent-state gate (the target must still exist)")
+		"Skip the agent-state and protected-server gates (the target must still exist)")
 }
 
 // muxKill*Fn are package-level seams so runMuxKill can be tested without a
@@ -57,6 +60,9 @@ var (
 	}
 	muxKillPaneFn = func(ctx context.Context, paneID, server string) error {
 		return tmux.KillPaneCtx(ctx, paneID, server)
+	}
+	muxKillGuardedServerFn = func(ctx context.Context, server string) (bool, error) {
+		return tmux.IsGuardedServer(ctx, server)
 	}
 )
 
@@ -82,8 +88,8 @@ func runMuxKill(cmd *cobra.Command, target string) error {
 		return err
 	}
 
-	// The agent-state gate. --force skips it but the target's existence is
-	// still validated (the mux_send.go --force pattern).
+	// The agent-state and protected-server gates. --force skips both but the
+	// target's existence is still validated (the mux_send.go --force pattern).
 	if muxKillForceFlag {
 		ok, err := muxKillPaneExistsFn(ctx, paneID, server)
 		if err != nil {
@@ -93,6 +99,13 @@ func runMuxKill(cmd *cobra.Command, target string) error {
 			return fmt.Errorf("pane %s does not exist", paneID)
 		}
 	} else {
+		guarded, err := muxKillGuardedServerFn(ctx, server)
+		if err != nil {
+			return fmt.Errorf("read server protection: %w", err)
+		}
+		if guarded {
+			return fmt.Errorf("refusing to kill pane %s: server %s is protected (use --force to kill anyway)", paneID, server)
+		}
 		state, err := muxKillAgentStateFn(ctx, paneID, server)
 		if err != nil {
 			return fmt.Errorf("read agent state: %w", err)

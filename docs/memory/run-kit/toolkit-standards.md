@@ -434,8 +434,9 @@ surface measured against the same checks (`260815-82w7-mux-substrate-twins`):
   route through the shared `outputSink`: `capture`'s header block / `--raw`
   content / `--json` wrapper, `kill`'s single `killed %N` line, and
   `process`'s tree (or `--json`) are `Dataf` (data, surviving `--quiet`); the
-  kill gate's refusal and `process`'s agent-state-read warning are `Notef`
-  chatter on stderr.
+  kill gates' refusals (agent-state; protected-server — the refusal names the
+  server, exit 1, no mutation) and `process`'s agent-state-read warning are
+  `Notef` chatter on stderr (`260824-xaw2-protected-server-class`).
 - **Exit-code convention (P4)** — 0 success, 1 operational (missing pane,
   gate refusal, tmux failure), 2 usage (bad target form, `--lines < 1`,
   `--json --raw` together via cobra flag-group validation) — never fab's
@@ -443,9 +444,11 @@ surface measured against the same checks (`260815-82w7-mux-substrate-twins`):
 - **The `skill` standard gained three verb sections** — the `mux` topic page
   (canonical `docs/site/skill/mux.md`, embedded copy byte-identical under
   `TestSkillMuxEmbedMatchesCanonical`) teaches the three verbs (targets,
-  capture flags/output, the kill gate, process classification, report lines,
-  exit codes), and its framing line broadened beyond agent messaging to cover
-  pane inspection/removal.
+  capture flags/output, kill's two gates — agent-state and protected-server,
+  both skipped by `--force` with target existence still validated
+  (`260824-xaw2-protected-server-class`) — process classification, report
+  lines, exit codes), and its framing line broadened beyond agent messaging to
+  cover pane inspection/removal.
 
 The `panes` enumeration (`rk mux panes` — the whole-server substrate-facts
 query, the tenth family member; full contract in
@@ -481,9 +484,13 @@ thirteenth surface measured against the same checks
 
 - **help-dump: the flag registers platform-stable and unhidden.** `--ephemeral`
   is a plain `BoolVar` on both `newReapCmd` instances (family member + hidden
-  root alias), and the `Long:` block gains the union semantics and the opt-in
+  root alias), and the `Long:` block carries the union semantics, the opt-in
   safety framing — naming the option through `tmux.EphemeralOption`
-  (`fmt.Sprintf`) so the magic string has one source of truth. The cobra tree
+  (`fmt.Sprintf`) so the magic string has one source of truth — and the
+  unconditional protected-server skip: live `@rk_protected` servers are skipped
+  under the prefix sweep and under `--ephemeral` alike (protected beats
+  ephemeral; the dead socket file of a formerly-protected server stays
+  removable) (`260824-xaw2-protected-server-class`). The cobra tree
   walk publishes the flag with no help-dump code change, and the dumped
   contract stays identical on every platform. `Short:` stays the stable
   one-liner; the flag's own help string and `Long:` carry the surface.
@@ -492,9 +499,13 @@ thirteenth surface measured against the same checks
   10-entry display caps (`--all` to lift, exact header counts) cover
   option-matched entries with no new code, and `--quiet` remains legitimately
   a no-op.
-- **The `skill` standard is a no-op here** — the reaper stays an operator
-  janitor verb deliberately absent from the agent-facing topic pages (the
-  attractive-nuisance reasoning), so no topic-page content changes.
+- **The `skill` standard keeps the reaper out of the agent-facing verb
+  teaching** — the reaper stays an operator janitor verb (the
+  attractive-nuisance reasoning); the `mux` topic page's Gotchas carries the
+  protected-server sentence — `rk mux reap` skips live `@rk_protected` servers
+  unconditionally, `rk mux kill` refuses a pane on a protected server absent
+  `--force` — with the canonical and embedded copies byte-identical at the
+  150-line budget (`260824-xaw2-protected-server-class`).
 
 The `rk mux new` create verb (the family's eleventh member, operator tier —
 full contract in [agent-messaging](/run-kit/agent-messaging.md)) is the
@@ -530,7 +541,7 @@ fourteenth surface measured against the same checks
   collision behavior) and the Gotchas convention: create scratch servers with
   `rk mux new <name> --ephemeral`, bulk-clean with `rk mux reap --ephemeral`,
   never bare `tmux kill-server`. `docs/site/skill.md` gained the quickref
-  one-liner; both stay under the 150-line budget.
+  one-liner; both stay within the 150-line budget.
 
 #### Scenario: A new subcommand group keeps the help tree platform-stable
 - **GIVEN** the `rk desktop` group on a Linux host

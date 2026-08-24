@@ -852,6 +852,10 @@ export type ServerInfo = {
    *  fixtures may omit it. Within the regular class, ephemeral servers sort
    *  after non-ephemeral ones as a tie-break below rank. */
   ephemeral?: boolean;
+  /** True when the server is kill-guarded: rk-daemon by derivation, or any
+   *  server carrying the @rk_protected mark. Optional mirroring `ephemeral` —
+   *  the backend always sends it, but test fixtures may omit it. */
+  protected?: boolean;
 };
 
 /** The tmux server socket hosting the run-kit daemon itself (infrastructure,
@@ -932,11 +936,28 @@ export async function createServer(name: string): Promise<{ ok: boolean }> {
   return res.json();
 }
 
-export async function killServer(name: string): Promise<{ ok: boolean }> {
+export async function killServer(name: string, force = false): Promise<{ ok: boolean }> {
   const res = await fetch("/api/servers/kill", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, force }),
+  });
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/** Set or clear the @rk_protected mark on a server — the Protect/Unprotect
+ *  toggle. rk-daemon is rejected backend-side (400: its protection is derived,
+ *  not togglable). The backend wakes the SSE hub so covered clients repaint
+ *  without waiting for the safety poll. */
+export async function setServerProtected(
+  name: string,
+  protected_: boolean,
+): Promise<{ ok: boolean }> {
+  const res = await fetch("/api/servers/protect", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, protected: protected_ }),
   });
   if (!res.ok) await throwOnError(res);
   return res.json();

@@ -8,6 +8,27 @@ import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
 import { finalizeSafeName, toSafeServerName } from "@/lib/names";
+import type { ProjectSession } from "@/types";
+
+/** Blast-radius copy for a protected kill target, derived live from the
+ *  session data the client already holds (no endpoint). The daemon names its
+ *  hosted infrastructure; other protected servers get session/window counts. */
+function protectedBlastRadius(target: string, sessions: ProjectSession[]): string {
+  if (target === DAEMON_SERVER) {
+    const parts = ["the dashboard"];
+    const jobs = sessions.find((s) => s.name === "rk-jobs");
+    const running = jobs?.windows.filter((w) => w.activity === "active").length ?? 0;
+    if (running > 0) parts.push(`${running} running job${running === 1 ? "" : "s"}`);
+    if (sessions.some((s) => s.name === "rk-code-server")) parts.push("code-server");
+    const remotes = sessions.find((s) => s.name === "rk-remotes");
+    const tunnels = remotes?.windows.length ?? 0;
+    if (tunnels > 0) parts.push(`${tunnels} remote tunnel${tunnels === 1 ? "" : "s"}`);
+    return `kills ${parts.join(", ")}`;
+  }
+  const sessionCount = sessions.length;
+  const windowCount = sessions.reduce((n, s) => n + s.windows.length, 0);
+  return `kills ${sessionCount} session${sessionCount === 1 ? "" : "s"}, ${windowCount} window${windowCount === 1 ? "" : "s"}`;
+}
 
 /**
  * The single create-server + kill-server dialog implementation (260811-239r),
@@ -91,8 +112,8 @@ export function ServerDialogs() {
     setCreateServerName("");
   }, [createServerName, navigate, executeCreateServer, markServerPending, closeCreateServer]);
 
-  const { execute: executeKillServer } = useOptimisticAction<[string]>({
-    action: (name) => killServerApi(name),
+  const { execute: executeKillServer } = useOptimisticAction<[string, boolean]>({
+    action: (name, force) => killServerApi(name, force),
     onOptimistic: (name) => {
       killedServerNameRef.current = name;
       markKilled("server", name);
@@ -114,7 +135,7 @@ export function ServerDialogs() {
   const handleKillServer = useCallback(() => {
     if (!killServerTarget) return;
     const target = killServerTarget;
-    executeKillServer(target);
+    executeKillServer(target, false);
     // Route away only when killing the currently-active server; killing another
     // server in the panel should leave the user where they are. `currentServer`
     // (SessionContext's deepest-first route-param walk) is null on board
@@ -122,6 +143,14 @@ export function ServerDialogs() {
     if (target === currentServer) navigate({ to: "/" });
     clearKillServerTarget();
   }, [killServerTarget, currentServer, navigate, executeKillServer, clearKillServerTarget]);
+
+  // The kill-confirm forks on the target's `protected` payload flag (R10):
+  // protected targets get the typed-name force unlock (daemon additionally
+  // gets the Restart primary), non-protected targets keep the plain
+  // two-button confirm byte-for-byte.
+  const killTargetProtected =
+    killServerTarget != null &&
+    (ctx.servers.find((s) => s.name === killServerTarget)?.protected ?? false);
 
   return (
     <>
@@ -151,7 +180,26 @@ export function ServerDialogs() {
         </Dialog>
       )}
 
-      {killServerTarget && (
+      {killServerTarget && killTargetProtected && (
+        <ProtectedKillDialog
+          target={killServerTarget}
+          sessions={ctx.sessionsByServer.get(killServerTarget) ?? []}
+          onCancel={clearKillServerTarget}
+          onForceKill={() => {
+            executeKillServer(killServerTarget, true);
+            if (killServerTarget === currentServer) navigate({ to: "/" });
+            clearKillServerTarget();
+          }}
+          onRestart={() => {
+            void ctx.restartNow().catch((err: unknown) => {
+              addToast(err instanceof Error ? err.message : "Failed to restart run-kit");
+            });
+            clearKillServerTarget();
+          }}
+        />
+      )}
+
+      {killServerTarget && !killTargetProtected && (
         <Dialog title="Kill tmux server?" onClose={clearKillServerTarget}>
           <p className="text-text-secondary mb-2.5">
             Kill server <strong>{killServerTarget}</strong> and all its sessions? This cannot be undone.
@@ -178,5 +226,71 @@ export function ServerDialogs() {
         </Dialog>
       )}
     </>
+  );
+}
+
+/** The kill confirm for PROTECTED targets (rk-daemon by derivation, or any
+ *  @rk_protected server). The kill action is locked behind typing the exact
+ *  server name (auto-focused, Enter submits only on match, Esc cancels via the
+ *  Dialog's focus trap). The daemon additionally gets the "Restart run-kit"
+ *  primary — the safe action — wired to the existing POST /api/restart; other
+ *  protected servers keep Cancel as the safe default. */
+function ProtectedKillDialog({
+  target,
+  sessions,
+  onCancel,
+  onForceKill,
+  onRestart,
+}: {
+  target: string;
+  sessions: ProjectSession[];
+  onCancel: () => void;
+  onForceKill: () => void;
+  onRestart: () => void;
+}) {
+  const [typed, setTyped] = useState("");
+  const unlocked = typed === target;
+  const isDaemon = target === DAEMON_SERVER;
+
+  return (
+    <Dialog title="Kill protected server?" onClose={onCancel}>
+      <p className="text-signal-red mb-2.5">
+        <strong>{target}</strong> is a protected server — killing it{" "}
+        {protectedBlastRadius(target, sessions)}. This cannot be undone.
+      </p>
+      <input
+        autoFocus
+        type="text"
+        value={typed}
+        onChange={(e) => setTyped(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && unlocked && onForceKill()}
+        aria-label="Type the server name to unlock force kill"
+        placeholder={`Type ${target} to unlock force kill`}
+        className="w-full bg-transparent text-text-primary p-2 border border-border rounded outline-none placeholder:text-text-secondary"
+      />
+      <div className="flex gap-2 mt-2.5">
+        <button
+          onClick={onCancel}
+          className="flex-1 py-1.5 border border-border rounded hover:border-text-secondary"
+        >
+          Cancel
+        </button>
+        {isDaemon && (
+          <button
+            onClick={onRestart}
+            className="flex-1 py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary"
+          >
+            Restart run-kit
+          </button>
+        )}
+        <button
+          onClick={onForceKill}
+          disabled={!unlocked}
+          className="flex-1 py-1.5 bg-red-900/30 border border-red-900 rounded hover:bg-red-900/50 disabled:opacity-50"
+        >
+          Force kill
+        </button>
+      </div>
+    </Dialog>
   );
 }

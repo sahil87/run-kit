@@ -88,6 +88,44 @@ func TestMuxKillForce(t *testing.T) {
 	}
 }
 
+// TestMuxKillProtectedServerGate: a pane on a protected server is refused
+// without --force (stderr names the server, exit 1, no tmux mutation);
+// --force skips the gate and kills (R6).
+func TestMuxKillProtectedServerGate(t *testing.T) {
+	f := &muxFake{
+		guardedServers: map[string]bool{"vault": true},
+	}
+	installMuxFakes(t, f)
+
+	// -L vault: runMuxCmd's flag reset runs after the fake installs
+	// muxServerFlag, so the server scope arrives via the CLI flag instead.
+	stdout, _, err := runMuxCmd(t, "-L", "vault", "kill", "%5")
+	if err == nil || exitCode(err) != 1 {
+		t.Fatalf("err = %v, want exit-1 refusal", err)
+	}
+	if !strings.Contains(err.Error(), "vault") || !strings.Contains(err.Error(), "protected") {
+		t.Errorf("refusal %q must name the protected server", err.Error())
+	}
+	if len(f.killCalls) != 0 {
+		t.Errorf("kill ran on a refusal: %v", f.killCalls)
+	}
+	if stdout != "" {
+		t.Errorf("stdout = %q on a refusal, want empty", stdout)
+	}
+
+	// --force skips the protected gate (existence still validated).
+	stdout, _, err = runMuxCmd(t, "-L", "vault", "kill", "%5", "--force")
+	if err != nil {
+		t.Fatalf("--force: err = %v, want the kill to proceed", err)
+	}
+	if stdout != "killed %5\n" {
+		t.Errorf("stdout = %q, want the single report line", stdout)
+	}
+	if len(f.killCalls) != 1 || f.killCalls[0] != "%5" {
+		t.Errorf("kill calls = %v, want one kill of %%5", f.killCalls)
+	}
+}
+
 // TestMuxKillTargetAndErrors: bare session:window names are usage errors (exit
 // 2) naming the accepted forms; window targets resolve to the agent pane; a
 // tmux kill failure is exit 1 carrying tmux's diagnostic (R1/R4).

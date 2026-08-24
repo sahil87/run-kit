@@ -16,65 +16,76 @@ import (
 func TestClassifyReap(t *testing.T) {
 	const prefix = "rk-test"
 	noEphemeral := map[string]bool(nil)
+	noProtected := map[string]bool(nil)
 	cases := []struct {
 		name       string
 		socketName string
 		prefix     string
 		ephemeral  map[string]bool
+		protected  map[string]bool
 		serverLive bool
 		want       ReapAction
 	}{
 		// Matched live server → kill.
-		{"live rk-test unit", "rk-test-unit-29701-178", prefix, noEphemeral, true, ReapActionKill},
-		{"live rk-test e2e", "rk-test-e2e", prefix, noEphemeral, true, ReapActionKill},
-		{"live rk-test e2e-multi", "rk-test-e2e-multi-9-8", prefix, noEphemeral, true, ReapActionKill},
+		{"live rk-test unit", "rk-test-unit-29701-178", prefix, noEphemeral, noProtected, true, ReapActionKill},
+		{"live rk-test e2e", "rk-test-e2e", prefix, noEphemeral, noProtected, true, ReapActionKill},
+		{"live rk-test e2e-multi", "rk-test-e2e-multi-9-8", prefix, noEphemeral, noProtected, true, ReapActionKill},
 
 		// Matched dead socket → remove.
-		{"dead rk-test unit", "rk-test-unit-29701-178", prefix, noEphemeral, false, ReapActionRemove},
+		{"dead rk-test unit", "rk-test-unit-29701-178", prefix, noEphemeral, noProtected, false, ReapActionRemove},
 
 		// Matched .lock file → remove (no inheritance reasoning; probe ignored).
-		{"matched lock, dead", "rk-test-unit-1-2.lock", prefix, noEphemeral, false, ReapActionRemove},
-		{"matched lock, live", "rk-test-unit-1-2.lock", prefix, noEphemeral, true, ReapActionRemove},
-		{"matched e2e lock", "rk-test-e2e-multi-7.lock", prefix, noEphemeral, false, ReapActionRemove},
+		{"matched lock, dead", "rk-test-unit-1-2.lock", prefix, noEphemeral, noProtected, false, ReapActionRemove},
+		{"matched lock, live", "rk-test-unit-1-2.lock", prefix, noEphemeral, noProtected, true, ReapActionRemove},
+		{"matched e2e lock", "rk-test-e2e-multi-7.lock", prefix, noEphemeral, noProtected, false, ReapActionRemove},
 
 		// Unmatched (different prefix) → skip regardless of liveness.
-		{"unmatched non-test", "runkit", prefix, noEphemeral, true, ReapActionSkip},
-		{"unmatched non-test dead", "default", prefix, noEphemeral, false, ReapActionSkip},
-		{"unmatched lock", "kits.lock", prefix, noEphemeral, false, ReapActionSkip},
-		{"old rk-e2e no longer matched", "rk-e2e-coupling-640069", prefix, noEphemeral, true, ReapActionSkip},
+		{"unmatched non-test", "runkit", prefix, noEphemeral, noProtected, true, ReapActionSkip},
+		{"unmatched non-test dead", "default", prefix, noEphemeral, noProtected, false, ReapActionSkip},
+		{"unmatched lock", "kits.lock", prefix, noEphemeral, noProtected, false, ReapActionSkip},
+		{"old rk-e2e no longer matched", "rk-e2e-coupling-640069", prefix, noEphemeral, noProtected, true, ReapActionSkip},
 
 		// Unconditional skips even when they match the prefix.
-		{"control anchor matches nothing but skip", ControlAnchorSessionName, prefix, noEphemeral, true, ReapActionSkip},
-		{"rk-daemon under broad rk prefix", productionDaemonServer, "rk", noEphemeral, true, ReapActionSkip},
-		{"control anchor under broad prefix", ControlAnchorSessionName, "_rk", noEphemeral, true, ReapActionSkip},
+		{"control anchor matches nothing but skip", ControlAnchorSessionName, prefix, noEphemeral, noProtected, true, ReapActionSkip},
+		{"rk-daemon under broad rk prefix", productionDaemonServer, "rk", noEphemeral, noProtected, true, ReapActionSkip},
+		{"control anchor under broad prefix", ControlAnchorSessionName, "_rk", noEphemeral, noProtected, true, ReapActionSkip},
 
 		// Custom prefix matches its family.
-		{"custom prefix match live", "proj-a", "proj", noEphemeral, true, ReapActionKill},
-		{"custom prefix match dead", "proj-b", "proj", noEphemeral, false, ReapActionRemove},
-		{"custom prefix non-match", "runkit", "proj", noEphemeral, true, ReapActionSkip},
+		{"custom prefix match live", "proj-a", "proj", noEphemeral, noProtected, true, ReapActionKill},
+		{"custom prefix match dead", "proj-b", "proj", noEphemeral, noProtected, false, ReapActionRemove},
+		{"custom prefix non-match", "runkit", "proj", noEphemeral, noProtected, true, ReapActionSkip},
 
 		// Ephemeral dimension: option-marked names match regardless of prefix.
-		{"ephemeral live arbitrary name", "echotest", prefix, map[string]bool{"echotest": true}, true, ReapActionKill},
-		{"ephemeral match is live, classifies kill", "agyprobe", "proj", map[string]bool{"agyprobe": true}, true, ReapActionKill},
+		{"ephemeral live arbitrary name", "echotest", prefix, map[string]bool{"echotest": true}, noProtected, true, ReapActionKill},
+		{"ephemeral match is live, classifies kill", "agyprobe", "proj", map[string]bool{"agyprobe": true}, noProtected, true, ReapActionKill},
 
 		// Unconditional skips win over the ephemeral mark too.
-		{"control anchor marked ephemeral still skipped", ControlAnchorSessionName, prefix, map[string]bool{ControlAnchorSessionName: true}, true, ReapActionSkip},
-		{"rk-daemon marked ephemeral still skipped", productionDaemonServer, prefix, map[string]bool{productionDaemonServer: true}, true, ReapActionSkip},
+		{"control anchor marked ephemeral still skipped", ControlAnchorSessionName, prefix, map[string]bool{ControlAnchorSessionName: true}, noProtected, true, ReapActionSkip},
+		{"rk-daemon marked ephemeral still skipped", productionDaemonServer, prefix, map[string]bool{productionDaemonServer: true}, noProtected, true, ReapActionSkip},
+
+		// Protected dimension: a LIVE protected server is skipped
+		// unconditionally — under a prefix match, under the ephemeral mark,
+		// and under both (protected beats ephemeral). A formerly-protected
+		// server's DEAD socket file stays removable (inert).
+		{"protected live under prefix match skipped", "rk-test-vault", prefix, noEphemeral, map[string]bool{"rk-test-vault": true}, true, ReapActionSkip},
+		{"protected live under ephemeral mark skipped", "vault", prefix, map[string]bool{"vault": true}, map[string]bool{"vault": true}, true, ReapActionSkip},
+		{"protected beats ephemeral under prefix", "rk-test-vault", prefix, map[string]bool{"rk-test-vault": true}, map[string]bool{"rk-test-vault": true}, true, ReapActionSkip},
+		{"protected dead socket file still removed", "rk-test-vault", prefix, noEphemeral, map[string]bool{"rk-test-vault": true}, false, ReapActionRemove},
 
 		// The operator session is a SESSION name, never a socket — structurally
 		// out of the reaper's socket-dir sweep (ReapTestServers enumerates the
 		// tmux socket directory, whose entries are SERVER sockets, not session
 		// names). It carries no ephemeral mark and matches no test prefix, so it
 		// classifies skip.
-		{"operator session name matches no test prefix", OperatorSessionName, prefix, noEphemeral, false, ReapActionSkip},
-		{"operator session name is never ephemeral-marked", OperatorSessionName, prefix, map[string]bool{}, true, ReapActionSkip},
+		{"operator session name matches no test prefix", OperatorSessionName, prefix, noEphemeral, noProtected, false, ReapActionSkip},
+		{"operator session name is never ephemeral-marked", OperatorSessionName, prefix, map[string]bool{}, noProtected, true, ReapActionSkip},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := classifyReap(tc.socketName, tc.prefix, tc.ephemeral, tc.serverLive); got != tc.want {
-				t.Errorf("classifyReap(%q, prefix=%q, ephemeral=%v, live=%v) = %v, want %v",
-					tc.socketName, tc.prefix, tc.ephemeral, tc.serverLive, got, tc.want)
+			if got := classifyReap(tc.socketName, tc.prefix, tc.ephemeral, tc.protected, tc.serverLive); got != tc.want {
+				t.Errorf("classifyReap(%q, prefix=%q, ephemeral=%v, protected=%v, live=%v) = %v, want %v",
+					tc.socketName, tc.prefix, tc.ephemeral, tc.protected, tc.serverLive, got, tc.want)
 			}
 		})
 	}
@@ -127,7 +138,7 @@ func TestReapCandidates_dryRunDefaultMutatesNothing(t *testing.T) {
 
 	before := presentFiles(t, dir)
 
-	result, err := reapCandidates(context.Background(), dir, "rk-test", candidates, nil, probe, false)
+	result, err := reapCandidates(context.Background(), dir, "rk-test", candidates, nil, nil, probe, false)
 	if err != nil {
 		t.Fatalf("dry-run returned error: %v", err)
 	}
@@ -176,7 +187,7 @@ func TestReapCandidates_bruteForceMatchRemovesDeadAndLocks(t *testing.T) {
 	writeFiles(t, dir, candidates...)
 	probe := fakeProbe(map[string]bool{"runkit": true, ControlAnchorSessionName: true})
 
-	result, err := reapCandidates(context.Background(), dir, "rk-test", candidates, nil, probe, true)
+	result, err := reapCandidates(context.Background(), dir, "rk-test", candidates, nil, nil, probe, true)
 	if err != nil {
 		t.Fatalf("reap returned error: %v", err)
 	}
@@ -217,7 +228,7 @@ func TestReapCandidates_skipsControlAnchorAndDaemon(t *testing.T) {
 		"rk-other":               false,
 	})
 
-	result, err := reapCandidates(context.Background(), dir, "rk", candidates, nil, probe, true)
+	result, err := reapCandidates(context.Background(), dir, "rk", candidates, nil, nil, probe, true)
 	if err != nil {
 		t.Fatalf("reap returned error: %v", err)
 	}
@@ -285,7 +296,7 @@ func TestReapCandidates_partialFailureLogsAndContinues(t *testing.T) {
 	writeFiles(t, dir, "rk-test-unit-present", "rk-test-unit-9-dead.lock")
 	probe := fakeProbe(nil) // all dead
 
-	result, err := reapCandidates(context.Background(), dir, "rk-test", candidates, nil, probe, true)
+	result, err := reapCandidates(context.Background(), dir, "rk-test", candidates, nil, nil, probe, true)
 	if err == nil {
 		t.Fatal("expected aggregate error from the failed remove, got nil")
 	}
@@ -303,7 +314,7 @@ func TestReapCandidates_allSuccessNoAggregateError(t *testing.T) {
 	writeFiles(t, dir, candidates...)
 	probe := fakeProbe(map[string]bool{"runkit": true})
 
-	result, err := reapCandidates(context.Background(), dir, "rk-test", candidates, nil, probe, true)
+	result, err := reapCandidates(context.Background(), dir, "rk-test", candidates, nil, nil, probe, true)
 	if err != nil {
 		t.Fatalf("expected nil error on all-success, got %v", err)
 	}
@@ -328,7 +339,7 @@ func TestReapCandidates_ephemeralUnionDryRunPlan(t *testing.T) {
 	ephemeral := map[string]bool{"echotest": true}
 	probe := fakeProbe(map[string]bool{"echotest": true, "runkit": true, ControlAnchorSessionName: true})
 
-	result, err := reapCandidates(context.Background(), dir, "rk-test", candidates, ephemeral, probe, false)
+	result, err := reapCandidates(context.Background(), dir, "rk-test", candidates, ephemeral, nil, probe, false)
 	if err != nil {
 		t.Fatalf("dry-run returned error: %v", err)
 	}
@@ -372,7 +383,7 @@ func TestReapCandidates_ephemeralHardSkipsWin(t *testing.T) {
 		"scratch":                true,
 	})
 
-	result, err := reapCandidates(context.Background(), dir, "rk-test", candidates, ephemeral, probe, false)
+	result, err := reapCandidates(context.Background(), dir, "rk-test", candidates, ephemeral, nil, probe, false)
 	if err != nil {
 		t.Fatalf("dry-run returned error: %v", err)
 	}
@@ -385,6 +396,44 @@ func TestReapCandidates_ephemeralHardSkipsWin(t *testing.T) {
 				t.Errorf("%q in dry-run plan despite the unconditional skip", must)
 			}
 		}
+	}
+}
+
+// TestReapCandidates_protectedSkippedUnconditionally proves the protected
+// skip through the I/O core: a live prefix-matched server carrying BOTH marks
+// is skipped (protected beats ephemeral — reported nowhere, killed nowhere),
+// an unmarked sibling is reaped as before, and a formerly-protected server's
+// dead socket file is still removed.
+func TestReapCandidates_protectedSkippedUnconditionally(t *testing.T) {
+	dir := t.TempDir()
+	candidates := []string{
+		"rk-test-vault",  // live, prefix-matched, BOTH marks → skip
+		"rk-test-old",    // live, prefix-matched, unmarked → kill
+		"rk-test-legacy", // dead socket, formerly protected → remove
+	}
+	writeFiles(t, dir, candidates...)
+	ephemeral := map[string]bool{"rk-test-vault": true}
+	protected := map[string]bool{"rk-test-vault": true, "rk-test-legacy": true}
+	probe := fakeProbe(map[string]bool{"rk-test-vault": true, "rk-test-old": true})
+
+	result, err := reapCandidates(context.Background(), dir, "rk-test", candidates, ephemeral, protected, probe, true)
+	if err != nil {
+		t.Fatalf("reap returned error: %v", err)
+	}
+
+	if slices.Contains(result.Killed, "rk-test-vault") {
+		t.Errorf("protected server killed: %v (protected beats ephemeral)", result.Killed)
+	}
+	if !slices.Contains(result.Killed, "rk-test-old") {
+		t.Errorf("unmarked sibling not reaped: killed=%v", result.Killed)
+	}
+	if !slices.Contains(result.RemovedSockets, "rk-test-legacy") {
+		t.Errorf("formerly-protected dead socket not removed: removed=%v", result.RemovedSockets)
+	}
+
+	after := presentFiles(t, dir)
+	if !slices.Contains(after, "rk-test-vault") {
+		t.Errorf("protected server socket touched (remaining: %v)", after)
 	}
 }
 

@@ -40,6 +40,7 @@ type muxFake struct {
 	factsErr       error
 	killCalls      []string
 	killErr        error
+	guardedServers map[string]bool // server → protected (nil = none)
 	panePIDs       map[string]int // pane → shell pid (default: 1234)
 	panePIDErr     error
 	discoverTree   []processNode
@@ -77,6 +78,7 @@ func installMuxFakes(t *testing.T, f *muxFake) {
 	origStdin, origBuf := muxStdinFn, muxBufferNameFn
 	origCapPane, origCapFacts, origCapNow := muxCapturePaneFn, muxCaptureFactsFn, muxCaptureNowFn
 	origKillState, origKillExists, origKillPane := muxKillAgentStateFn, muxKillPaneExistsFn, muxKillPaneFn
+	origKillGuarded := muxKillGuardedServerFn
 	origProcPID, origProcFacts, origProcDiscover := muxProcessPanePIDFn, muxProcessFactsFn, muxProcessDiscoverFn
 	origPanesSessions, origPanesWindows := muxPanesSessionsFn, muxPanesWindowsFn
 	origPanesAlive, origPanesNow := muxPanesAliveFn, muxPanesNowFn
@@ -88,6 +90,7 @@ func installMuxFakes(t *testing.T, f *muxFake) {
 		muxStdinFn, muxBufferNameFn = origStdin, origBuf
 		muxCapturePaneFn, muxCaptureFactsFn, muxCaptureNowFn = origCapPane, origCapFacts, origCapNow
 		muxKillAgentStateFn, muxKillPaneExistsFn, muxKillPaneFn = origKillState, origKillExists, origKillPane
+		muxKillGuardedServerFn = origKillGuarded
 		muxProcessPanePIDFn, muxProcessFactsFn, muxProcessDiscoverFn = origProcPID, origProcFacts, origProcDiscover
 		muxPanesSessionsFn, muxPanesWindowsFn = origPanesSessions, origPanesWindows
 		muxPanesAliveFn, muxPanesNowFn = origPanesAlive, origPanesNow
@@ -195,6 +198,9 @@ func installMuxFakes(t *testing.T, f *muxFake) {
 	muxKillPaneFn = func(_ context.Context, paneID, _ string) error {
 		f.killCalls = append(f.killCalls, paneID)
 		return f.killErr
+	}
+	muxKillGuardedServerFn = func(_ context.Context, server string) (bool, error) {
+		return f.guardedServers[server], nil
 	}
 
 	muxProcessPanePIDFn = func(_ context.Context, paneID, _ string) (int, error) {

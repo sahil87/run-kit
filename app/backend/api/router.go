@@ -102,6 +102,12 @@ type TmuxOps interface {
 	GetServerRank(ctx context.Context, server string) (*int, error)
 	SetServerRank(ctx context.Context, server string, rank int) error
 	IsEphemeralServer(ctx context.Context, server string) (bool, error)
+	// IsGuardedServer is the combined kill-guard predicate (rk-daemon by
+	// derivation ∨ @rk_protected); Mark/UnmarkServerProtected write the
+	// @rk_protected mark for the protect toggle endpoint.
+	IsGuardedServer(ctx context.Context, server string) (bool, error)
+	MarkServerProtected(ctx context.Context, server string) error
+	UnmarkServerProtected(ctx context.Context, server string) error
 	ListBoards(ctx context.Context) ([]tmux.BoardSummary, error)
 	GetBoard(ctx context.Context, name string) ([]tmux.BoardEntry, error)
 	ListBoardEntries(ctx context.Context, server string) ([]tmux.BoardEntry, error)
@@ -425,6 +431,15 @@ func (p *prodTmuxOps) SetServerRank(ctx context.Context, server string, rank int
 }
 func (p *prodTmuxOps) IsEphemeralServer(ctx context.Context, server string) (bool, error) {
 	return tmux.IsEphemeralServer(ctx, server)
+}
+func (p *prodTmuxOps) IsGuardedServer(ctx context.Context, server string) (bool, error) {
+	return tmux.IsGuardedServer(ctx, server)
+}
+func (p *prodTmuxOps) MarkServerProtected(ctx context.Context, server string) error {
+	return tmux.MarkServerProtected(ctx, server)
+}
+func (p *prodTmuxOps) UnmarkServerProtected(ctx context.Context, server string) error {
+	return tmux.UnmarkServerProtected(ctx, server)
 }
 func (p *prodTmuxOps) ListBoards(ctx context.Context) ([]tmux.BoardSummary, error) {
 	return tmux.ListBoards(ctx)
@@ -757,6 +772,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/servers", s.handleServerCreate)
 	r.Post("/api/servers/order", s.handleServerOrderPost)
 	r.Post("/api/servers/kill", s.handleServerKill)
+	r.Post("/api/servers/protect", s.handleServerProtect)
 
 	// Recovery — reboot-orphaned server offers (read-only GET) plus the
 	// user-initiated restore/dismiss mutations (POST per §IX). See

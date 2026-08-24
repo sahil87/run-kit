@@ -42,6 +42,7 @@ function Triggers() {
     <div>
       <button onClick={openCreateServer}>open-create</button>
       <button onClick={() => requestKillServer("alpha")}>kill-alpha</button>
+      <button onClick={() => requestKillServer("vault")}>kill-vault</button>
       <button onClick={() => requestKillServer(client.DAEMON_SERVER)}>kill-daemon</button>
     </div>
   );
@@ -51,6 +52,9 @@ function renderDialogs(opts?: {
   currentServer?: string | null;
   markServerPending?: (name: string) => void;
   refreshServers?: () => void;
+  restartNow?: () => Promise<{ status: string }>;
+  servers?: client.ServerInfo[];
+  sessionsByServer?: Map<string, client.ProjectSession[]>;
 }) {
   render(
     <ToastProvider>
@@ -59,6 +63,9 @@ function renderDialogs(opts?: {
           currentServer: opts?.currentServer ?? null,
           markServerPending: opts?.markServerPending ?? vi.fn(),
           refreshServers: opts?.refreshServers ?? vi.fn(),
+          restartNow: opts?.restartNow,
+          servers: opts?.servers,
+          sessionsByServer: opts?.sessionsByServer,
         }}
       >
         <OptimisticProvider>
@@ -128,7 +135,7 @@ describe("ServerDialogs", () => {
     fireEvent.click(screen.getByText("kill-alpha"));
     fireEvent.click(screen.getByText("Kill"));
     // The POST is deferred a microtask inside useOptimisticAction.
-    await waitFor(() => expect(killServer).toHaveBeenCalledWith("alpha"));
+    await waitFor(() => expect(killServer).toHaveBeenCalledWith("alpha", false));
     expect(mockNavigate).toHaveBeenCalledWith({ to: "/" });
     await waitFor(() => expect(screen.queryByText(/Kill server/)).not.toBeInTheDocument());
   });
@@ -137,7 +144,7 @@ describe("ServerDialogs", () => {
     renderDialogs({ currentServer: null });
     fireEvent.click(screen.getByText("kill-alpha"));
     fireEvent.click(screen.getByText("Kill"));
-    await waitFor(() => expect(killServer).toHaveBeenCalledWith("alpha"));
+    await waitFor(() => expect(killServer).toHaveBeenCalledWith("alpha", false));
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
@@ -145,7 +152,82 @@ describe("ServerDialogs", () => {
     renderDialogs({ currentServer: "beta" });
     fireEvent.click(screen.getByText("kill-alpha"));
     fireEvent.click(screen.getByText("Kill"));
-    await waitFor(() => expect(killServer).toHaveBeenCalledWith("alpha"));
+    await waitFor(() => expect(killServer).toHaveBeenCalledWith("alpha", false));
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it("non-protected servers keep the plain two-button confirm (zero drift)", async () => {
+    renderDialogs({ servers: [{ name: "alpha", sessionCount: 1, protected: false }] });
+    fireEvent.click(screen.getByText("kill-alpha"));
+    expect(screen.getByText("Kill server", { exact: false })).toBeInTheDocument();
+    expect(screen.getByText("Kill")).toBeInTheDocument();
+    expect(screen.queryByText("Force kill")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Type the server name/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Kill"));
+    await waitFor(() => expect(killServer).toHaveBeenCalledWith("alpha", false));
+  });
+
+  it("protected non-daemon server: typed-name unlock, no Restart primary", async () => {
+    renderDialogs({ servers: [{ name: "vault", sessionCount: 2, protected: true }] });
+    fireEvent.click(screen.getByText("kill-vault"));
+
+    const forceKill = screen.getByText("Force kill");
+    expect(forceKill).toBeDisabled();
+    expect(screen.queryByText("Restart run-kit")).not.toBeInTheDocument();
+
+    // Wrong name keeps the button locked.
+    const input = screen.getByLabelText(/Type the server name/);
+    fireEvent.change(input, { target: { value: "vaul" } });
+    expect(forceKill).toBeDisabled();
+
+    // Exact match unlocks; Enter submits the force kill.
+    fireEvent.change(input, { target: { value: "vault" } });
+    expect(forceKill).not.toBeDisabled();
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(killServer).toHaveBeenCalledWith("vault", true));
+  });
+
+  it("protected dialog: Esc cancels without killing", async () => {
+    renderDialogs({ servers: [{ name: "vault", sessionCount: 1, protected: true }] });
+    fireEvent.click(screen.getByText("kill-vault"));
+    const input = screen.getByLabelText(/Type the server name/);
+    fireEvent.change(input, { target: { value: "vault" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByText("Force kill")).not.toBeInTheDocument());
+    expect(killServer).not.toHaveBeenCalled();
+  });
+
+  it("daemon target: Restart primary fires restartNow; typed name unlocks Force kill", async () => {
+    const restartNow = vi.fn().mockResolvedValue({ status: "spawned" });
+    renderDialogs({
+      restartNow,
+      servers: [{ name: client.DAEMON_SERVER, sessionCount: 3, protected: true }],
+      sessionsByServer: new Map<string, client.ProjectSession[]>([
+        [client.DAEMON_SERVER, [
+          { name: "rk-jobs", windows: [{ windowId: "@1", index: 0, name: "update", worktreePath: "", activity: "active", activityTimestamp: 0, isActiveWindow: true, panes: [] }] },
+          { name: "rk-code-server", windows: [] },
+          { name: "rk-remotes", windows: [
+            { windowId: "@2", index: 0, name: "a", worktreePath: "", activity: "idle", activityTimestamp: 0, isActiveWindow: true, panes: [] },
+            { windowId: "@3", index: 1, name: "b", worktreePath: "", activity: "idle", activityTimestamp: 0, isActiveWindow: false, panes: [] },
+          ] },
+        ]],
+      ]),
+    });
+    fireEvent.click(screen.getByText("kill-daemon"));
+
+    // Live blast-radius copy derived from the session data.
+    expect(screen.getByText(/kills the dashboard, 1 running job, code-server, 2 remote tunnels/)).toBeInTheDocument();
+
+    // Restart primary fires restartNow and closes — no kill.
+    fireEvent.click(screen.getByText("Restart run-kit"));
+    await waitFor(() => expect(restartNow).toHaveBeenCalled());
+    expect(killServer).not.toHaveBeenCalled();
+
+    // Reopen: typed exact name unlocks the force kill.
+    fireEvent.click(screen.getByText("kill-daemon"));
+    const input = screen.getByLabelText(/Type the server name/);
+    fireEvent.change(input, { target: { value: client.DAEMON_SERVER } });
+    fireEvent.click(screen.getByText("Force kill"));
+    await waitFor(() => expect(killServer).toHaveBeenCalledWith(client.DAEMON_SERVER, true));
   });
 });

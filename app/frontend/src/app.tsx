@@ -77,6 +77,7 @@ import {
 import { singleSelectedServer } from "@/lib/selection";
 import { useSelectionStore } from "@/store/selection-store";
 import { buildServerKillActions } from "@/lib/palette-server-kill";
+import { buildServerProtectActions } from "@/lib/palette-server-protect";
 import { buildShellServerActions } from "@/lib/palette-shell";
 import { canCloseShellWindow, canNewShellWindow, closeShellWindow, isShell, newShellWindow, switchShellServer } from "@/lib/shell";
 import { ShellTitlebarStrip } from "@/components/shell-titlebar-strip";
@@ -153,7 +154,7 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo, SelectWindowResult } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowRole, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, sendChatMessage, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, type SortWindowsBy } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowRole, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerProtected, sendChatMessage, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, type SortWindowsBy } from "@/api/client";
 import { buildSessionSortActions } from "@/lib/palette-sort";
 import { useBoards } from "@/hooks/use-boards";
 import { useWindowPins } from "@/hooks/use-window-pins";
@@ -3511,6 +3512,17 @@ function AppShell() {
         server,
         requestKillServer,
       ),
+      // Per-server protect/unprotect entries (rk-daemon excluded — derived,
+      // not togglable). The POST wakes the SSE hub backend-side, so the
+      // repaint rides the stream; ctx.refreshServers is belt-and-braces for
+      // the host page's one-time-fetched list.
+      ...buildServerProtectActions(servers, (name, next) => {
+        void setServerProtected(name, next)
+          .then(() => ctx.refreshServers())
+          .catch((err: unknown) => {
+            addToast(err instanceof Error ? err.message : "Failed to update server protection");
+          });
+      }),
       // Move up/down act on the CURRENT server within the regular class. Hidden
       // when the current server is infra (not reorderable) or at the boundary
       // (no wraparound).

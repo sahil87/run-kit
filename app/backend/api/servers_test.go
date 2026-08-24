@@ -527,3 +527,220 @@ func TestHandleServerKill_NotifiesAuditedKill(t *testing.T) {
 		t.Fatalf("unwired notifier: status = %d, want 200", rec.Code)
 	}
 }
+
+// TestHandleServerKill_ProtectedRefusedWithoutForce covers the kill guard
+// matrix: the daemon (derived) and an option-marked server refuse without
+// force (409, structured body, no audited-kill notify), proceed with force,
+// and a normal server is unaffected.
+func TestHandleServerKill_ProtectedRefusedWithoutForce(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	mock := &serversTmuxMock{}
+	mock.isProtectedByServer = map[string]bool{"vault": true}
+
+	s := &Server{logger: logger, tmux: mock, hostname: "test-host"}
+	var notified []string
+	s.SetServerKillNotifier(func(server string) { notified = append(notified, server) })
+	router := s.buildRouter()
+
+	// Daemon, no force → 409 with the structured protected flag, no notify.
+	req := httptest.NewRequest("POST", "/api/servers/kill", strings.NewReader(`{"name":"rk-daemon"}`))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != 409 {
+		t.Fatalf("daemon no-force: status = %d, want 409. body=%s", rec.Code, rec.Body.String())
+	}
+	var body map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body["protected"] != true {
+		t.Errorf("daemon no-force: protected = %v, want true. body=%s", body["protected"], rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "/api/restart") {
+		t.Errorf("daemon no-force: error must name the restart alternative. body=%s", rec.Body.String())
+	}
+	if len(notified) != 0 {
+		t.Errorf("notifier fired for a refused kill: %v (409 must precede the audit)", notified)
+	}
+
+	// Option-marked server, no force → 409.
+	req = httptest.NewRequest("POST", "/api/servers/kill", strings.NewReader(`{"name":"vault"}`))
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != 409 {
+		t.Fatalf("marked no-force: status = %d, want 409. body=%s", rec.Code, rec.Body.String())
+	}
+	if len(notified) != 0 {
+		t.Errorf("notifier fired for a refused kill: %v", notified)
+	}
+
+	// Daemon with force → kill proceeds (audited).
+	req = httptest.NewRequest("POST", "/api/servers/kill", strings.NewReader(`{"name":"rk-daemon","force":true}`))
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("daemon force: status = %d, want 200. body=%s", rec.Code, rec.Body.String())
+	}
+	if len(notified) != 1 || notified[0] != "rk-daemon" {
+		t.Errorf("notifier calls = %v, want [rk-daemon]", notified)
+	}
+
+	// Option-marked server with force → kill proceeds.
+	req = httptest.NewRequest("POST", "/api/servers/kill", strings.NewReader(`{"name":"vault","force":true}`))
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("marked force: status = %d, want 200. body=%s", rec.Code, rec.Body.String())
+	}
+
+	// Normal server, no force → unchanged path (200, audited).
+	req = httptest.NewRequest("POST", "/api/servers/kill", strings.NewReader(`{"name":"kit"}`))
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("normal no-force: status = %d, want 200. body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleServersList_IncludesProtectedField(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	mock := &serversTmuxMock{
+		servers: []string{"work", "rk-daemon"},
+		sessions: map[string][]tmux.SessionInfo{
+			"work":      {{Name: "s1"}},
+			"rk-daemon": {{Name: "s1"}},
+		},
+	}
+	mock.isProtectedByServer = map[string]bool{"work": true}
+
+	router := NewTestRouter(logger, nil, mock, "test-host")
+	req := httptest.NewRequest("GET", "/api/servers", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != 200 {
+		t.Fatalf("status = %d, want 200. body=%s", rec.Code, rec.Body.String())
+	}
+	var got []serverInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	byName := map[string]serverInfo{}
+	for _, e := range got {
+		byName[e.Name] = e
+	}
+	if !byName["work"].Protected {
+		t.Errorf("work protected = false, want true (marked)")
+	}
+	if !byName["rk-daemon"].Protected {
+		t.Errorf("rk-daemon protected = false, want true (derived)")
+	}
+	if !strings.Contains(rec.Body.String(), "\"protected\":true") {
+		t.Errorf("body missing protected:true. body=%s", rec.Body.String())
+	}
+}
+
+func TestHandleServersList_ProtectedReadErrorYieldsFalse(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	mock := &serversTmuxMock{
+		servers:  []string{"broken"},
+		sessions: map[string][]tmux.SessionInfo{"broken": {{Name: "s1"}}},
+	}
+	mock.isProtectedErrByServer = map[string]error{"broken": errors.New("boom")}
+
+	router := NewTestRouter(logger, nil, mock, "test-host")
+	req := httptest.NewRequest("GET", "/api/servers", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != 200 {
+		t.Fatalf("status = %d, want 200 (protected read failure must not surface as 5xx)", rec.Code)
+	}
+	var got []serverInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got) != 1 || got[0].Protected {
+		t.Fatalf("got %+v, want protected false on read error", got)
+	}
+}
+
+func TestHandleServerProtect_SetAndUnset(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	mock := &serversTmuxMock{}
+
+	router := NewTestRouter(logger, nil, mock, "test-host")
+
+	req := httptest.NewRequest("POST", "/api/servers/protect", strings.NewReader(`{"name":"myserver","protected":true}`))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("protect: status = %d, want 200. body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest("POST", "/api/servers/protect", strings.NewReader(`{"name":"myserver","protected":false}`))
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("unprotect: status = %d, want 200. body=%s", rec.Code, rec.Body.String())
+	}
+
+	if len(mock.markProtectedCalls) != 2 {
+		t.Fatalf("mark calls = %+v, want 2", mock.markProtectedCalls)
+	}
+	if mock.markProtectedCalls[0].Server != "myserver" || !mock.markProtectedCalls[0].Protected {
+		t.Errorf("call[0] = %+v, want {myserver true}", mock.markProtectedCalls[0])
+	}
+	if mock.markProtectedCalls[1].Server != "myserver" || mock.markProtectedCalls[1].Protected {
+		t.Errorf("call[1] = %+v, want {myserver false}", mock.markProtectedCalls[1])
+	}
+}
+
+func TestHandleServerProtect_DaemonRejected(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	mock := &serversTmuxMock{}
+
+	router := NewTestRouter(logger, nil, mock, "test-host")
+	req := httptest.NewRequest("POST", "/api/servers/protect", strings.NewReader(`{"name":"rk-daemon","protected":false}`))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != 400 {
+		t.Fatalf("status = %d, want 400 (derived protection is not togglable). body=%s", rec.Code, rec.Body.String())
+	}
+	if len(mock.markProtectedCalls) != 0 {
+		t.Errorf("mark calls = %+v, want none for the daemon", mock.markProtectedCalls)
+	}
+}
+
+func TestHandleServerProtect_InvalidNameRejected(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	mock := &serversTmuxMock{}
+
+	router := NewTestRouter(logger, nil, mock, "test-host")
+	req := httptest.NewRequest("POST", "/api/servers/protect", strings.NewReader(`{"name":"bad/name","protected":true}`))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != 400 {
+		t.Fatalf("status = %d, want 400 for invalid name", rec.Code)
+	}
+	if len(mock.markProtectedCalls) != 0 {
+		t.Errorf("mark calls = %+v, want none (validation before any write)", mock.markProtectedCalls)
+	}
+}
+
+func TestHandleServerProtect_WriteFailureSurfaces500(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	mock := &serversTmuxMock{}
+	mock.markProtectedErr = errors.New("no server running")
+
+	router := NewTestRouter(logger, nil, mock, "test-host")
+	req := httptest.NewRequest("POST", "/api/servers/protect", strings.NewReader(`{"name":"gone","protected":true}`))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != 500 {
+		t.Fatalf("status = %d, want 500 on option write failure (not silent success)", rec.Code)
+	}
+}

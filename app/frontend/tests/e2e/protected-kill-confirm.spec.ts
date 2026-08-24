@@ -1,0 +1,93 @@
+import { test, expect } from "@playwright/test";
+import { execFileSync } from "node:child_process";
+import { gotoServerReady } from "./_ready";
+import { TMUX_SERVER, TMUX_FAMILY, killServer } from "./_tmux";
+
+// A protected scratch server, created and marked @rk_protected via tmux (the
+// mark surface for non-UI actors; the UI Protect toggle posts the same
+// option). Named inside this worktree's socket family (TMUX_FAMILY anchor)
+// with the Playwright process.pid as the second-to-last hyphen field so the
+// family-anchored teardown and RK_SERVER_ALLOWLIST match it.
+const PROTECTED_SERVER = `${TMUX_FAMILY}pkc-${process.pid}-${Date.now().toString().slice(-6)}`;
+const DESKTOP_VIEWPORT = { width: 1024, height: 768 };
+
+function tmuxOn(server: string, args: string[]): void {
+  execFileSync("tmux", ["-L", server, ...args]);
+}
+
+test.describe("Protected server kill: typed-name confirm flow", () => {
+  test.beforeAll(() => {
+    killServer(PROTECTED_SERVER); // clean slate
+    tmuxOn(PROTECTED_SERVER, ["new-session", "-d", "-s", "pkc", "-x", "80", "-y", "24"]);
+    tmuxOn(PROTECTED_SERVER, ["set-option", "-s", "@rk_protected", "1"]);
+  });
+
+  test.afterAll(() => {
+    // Best-effort — a protected server is reaped only by name (the reaper
+    // skips it), so the family teardown glob alone is not enough here.
+    killServer(PROTECTED_SERVER);
+  });
+
+  test("Force kill stays locked on a wrong name, unlocks on the exact name, Esc cancels", async ({
+    page,
+  }) => {
+    test.setTimeout(45_000);
+    await page.setViewportSize(DESKTOP_VIEWPORT);
+
+    // Land on the primary e2e server route (the palette's Server: Kill
+    // entries live in the shared app shell; the target need not be current).
+    await gotoServerReady(page, TMUX_SERVER);
+
+    // Open the guarded dialog via the palette's Server: Kill entry.
+    await page.keyboard.press("Meta+k");
+    const paletteInput = page.getByPlaceholder("Type a command");
+    await expect(paletteInput).toBeVisible({ timeout: 5_000 });
+    await paletteInput.fill(`Server: Kill ${PROTECTED_SERVER}`);
+    await page.keyboard.press("Enter");
+
+    // The protected fork: typed-name input + Force kill (no plain Kill).
+    const confirmInput = page.getByLabel("Type the server name to unlock force kill");
+    await expect(confirmInput).toBeVisible({ timeout: 5_000 });
+    const forceKill = page.getByRole("button", { name: "Force kill" });
+    await expect(forceKill).toBeVisible();
+    await expect(page.getByRole("button", { name: "Kill", exact: true })).toHaveCount(0);
+
+    // A wrong name keeps Force kill locked, and Enter does nothing.
+    await confirmInput.fill(`${PROTECTED_SERVER}-wrong`);
+    await expect(forceKill).toBeDisabled();
+    await page.keyboard.press("Enter");
+    await expect(confirmInput).toBeVisible();
+
+    // The exact name unlocks it.
+    await confirmInput.fill(PROTECTED_SERVER);
+    await expect(forceKill).toBeEnabled();
+
+    // Esc cancels without killing — the server is still alive.
+    await page.keyboard.press("Escape");
+    await expect(confirmInput).toHaveCount(0);
+    tmuxOn(PROTECTED_SERVER, ["has-session"]);
+
+    // Reopen and force-kill for real: the server stops answering.
+    await page.keyboard.press("Meta+k");
+    await expect(paletteInput).toBeVisible({ timeout: 5_000 });
+    await paletteInput.fill(`Server: Kill ${PROTECTED_SERVER}`);
+    await page.keyboard.press("Enter");
+    await expect(confirmInput).toBeVisible({ timeout: 5_000 });
+    await confirmInput.fill(PROTECTED_SERVER);
+    await forceKill.click();
+    await expect(confirmInput).toHaveCount(0);
+    await expect
+      .poll(
+        () => {
+          try {
+            tmuxOn(PROTECTED_SERVER, ["has-session"]);
+            return true;
+          } catch {
+            return false;
+          }
+        },
+        { timeout: 10_000 },
+      )
+      .toBe(false);
+  });
+});

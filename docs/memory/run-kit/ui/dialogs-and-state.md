@@ -1,5 +1,5 @@
 ---
-description: "Component conventions, dialogs (session name prompt, window-at-folder, spawn-agent, tabbed settings with the registry-driven All-settings table, shell host add/edit form, width variants), clipboard utility, e2e host-global filesystem state, the Zustand window store, and optimistic UI + mutation feedback."
+description: "Component conventions, dialogs (session name prompt, window-at-folder, spawn-agent, server kill confirm with the protected fork, tabbed settings with the registry-driven All-settings table, shell host add/edit form, width variants), clipboard utility, e2e host-global filesystem state, the Zustand window store, and optimistic UI + mutation feedback."
 type: memory
 ---
 # run-kit UI — Dialogs & Client State
@@ -79,6 +79,17 @@ A `cancelled` ref guards the async setState; a `mountedRef` guards the submit pa
 All three entry points call `AppShell`'s `handleOpenSpawnAgent(server, session)`, which sets the explicit target state `spawnAgentTarget: {server, session} | null`. The dialog renders iff `spawnAgentTarget != null` and is lazy-imported + `Suspense`-wrapped (like `CreateSessionDialog`), receiving `server={spawnAgentTarget.server}` and `session={spawnAgentTarget.session}` (an explicit target, not the current server from `useSessionContext`). `spawnAgentTarget != null` is folded into `dialogOpenRef` so the active-window effect treats it like every other open dialog. (`gsmu`)
 
 **Cross-server nav on success** (`gsmu`): `onSpawned(windowId)` branches on whether the target IS the current route server. Same-server → reuse `navigateToWindow` (inherits the window-switch slide transition). Cross-server → `navigate({ to: "/$server/$window", params: { server: target, window: windowId } })` (+ close the mobile sidebar), mirroring `handleSidebarSelectWindow`. The falsy-`windowId` guard is preserved on both branches. The branch itself lives in the **shared `navigateToSpawnedWindow(srv, windowId)`** helper in `app.tsx`, which the row-flyout fork also calls (§ Row-hover register flyout card → Fork navigation on success) — one routing rule for every riff-shaped result, so the two call sites cannot drift.
+
+## Server Kill Dialog
+
+The single create-server + kill-server implementation (`app/frontend/src/components/server-dialogs.tsx`, mounted once in `AppLayout` via `server-dialogs-context`) forks the kill confirm on the target's `protected` payload flag — read from the already-fetched `ctx.servers` list (`?? false`, no new fetch; the flag derives from the `@rk_protected` tmux server option, see [tmux-sessions](/run-kit/tmux-sessions.md)). Kills are reachable from the palette's server actions ([keyboard-and-palette](/run-kit/ui/keyboard-and-palette.md)) and the server-tile surfaces. Both forks navigate away when the killed server is the current one. (`260824-xaw2-protected-server-class`)
+
+- **Non-protected target** — the plain two-button confirm ("Kill server <name> and all its sessions? This cannot be undone."), zero drift from the shared confirm path.
+- **Protected target** (`ProtectedKillDialog`, title "Kill protected server?") — three behaviors:
+  - **Typed-name force unlock** — an auto-focused text input (`placeholder="Type <name> to unlock force kill"`, `aria-label="Type the server name to unlock force kill"`); the destructive **Force kill** button stays disabled until the typed value EXACTLY equals the server name, Enter submits only on match, Escape cancels via the Dialog's focus trap. Keyboard-first per Constitution V.
+  - **Blast-radius copy** — red (`text-signal-red`) copy derived live from client-held session data (`ctx.sessionsByServer`, no endpoint): for `rk-daemon`, "kills the dashboard, N running job(s), code-server, M remote tunnel(s)" composed from the `rk-jobs` active-window count, `rk-code-server` presence, and the `rk-remotes` window count (each fragment omitted when zero/absent); for other protected servers, "kills N session(s), M window(s)".
+  - **Daemon Restart primary** — for `rk-daemon` only, a "Restart run-kit" primary button wired to `ctx.restartNow()` (the SessionContext restart path → `POST /api/restart`, failure toasts); non-daemon protected targets get no Restart primary — Cancel is the safe default.
+- **Force kill path** — Force kill calls `killServer(name, true)`; the client's `force` arg rides `POST /api/servers/kill` as `{name, force}`, and the killServer optimistic action passes it through (`useOptimisticAction<[string, boolean]>`). Without `force` the backend refuses protected targets with `409 {"error", "protected": true}` — see [architecture](/run-kit/architecture.md) § API Layer.
 
 ## Settings Dialog
 

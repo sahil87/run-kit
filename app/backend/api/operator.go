@@ -51,6 +51,13 @@ type operatorWindowFact struct {
 	PrReview string
 	FabChange string // rendered only when non-empty
 	FabStage  string
+	// Color/Marker/Flair are the window's current label state (@color,
+	// @rk_marker, @rk_flair) — "" when unset (WindowInfo.Color is *string,
+	// dereferenced in the builder). Only the color-tabs template renders them;
+	// the digest row writer deliberately ignores them.
+	Color  string
+	Marker string
+	Flair  string
 	// TranscriptPath is the chat-JSONL absolute path resolved by the SAME
 	// chat.TranscriptPath call that fills the Corpus row — resolved once per
 	// window, empty when the window has no chat ref OR the ref fails to
@@ -141,6 +148,14 @@ var operatorTemplates = map[string]operatorTemplate{
 		serverScoped:    true,
 		requiresWaiting: true,
 		renderServer:    renderWhatsStuck,
+	},
+	// color-tabs: the operator reads every tab's transcript tail, infers the
+	// kind of work each holds, and assigns sidebar colors (one coherent scheme)
+	// through its own shell via tmux set-option; the repaint arrives on the
+	// safety poll.
+	"color-tabs": {
+		serverScoped: true,
+		renderServer: renderColorTabs,
 	},
 	// retire-tab: the operator reads the subject tab's transcript, writes a
 	// close-out note, then kills exactly that window — the seam's first
@@ -359,6 +374,76 @@ Bounds: touch only the waiting windows listed above. Do not rename or kill any w
 	return b.String()
 }
 
+// writeColorTabsRow renders one fact-table row for the color-tabs template:
+// identity + worktree + state, the fab clause when present, the row's current
+// label state ("-" for an unset channel — the operator needs to see what is
+// already set for its do-nothing judgment), then the transcript path or the
+// unavailable note on an indented line.
+func writeColorTabsRow(b *strings.Builder, w operatorWindowFact) {
+	fmt.Fprintf(b, "  - %s %s %q worktree=%s state=%s", w.Session, w.WindowID, w.Name, w.WorktreePath, digestState(w))
+	if w.FabChange != "" {
+		fmt.Fprintf(b, " fab=%s", w.FabChange)
+		if w.FabStage != "" {
+			fmt.Fprintf(b, " at stage %s", w.FabStage)
+		}
+	}
+	label := func(v string) string {
+		if v == "" {
+			return "-"
+		}
+		return v
+	}
+	fmt.Fprintf(b, " labels: color=%s marker=%s flair=%s", label(w.Color), label(w.Marker), label(w.Flair))
+	if w.TranscriptPath != "" {
+		fmt.Fprintf(b, "\n    transcript: %s", w.TranscriptPath)
+	} else {
+		b.WriteString("\n    transcript unavailable")
+	}
+	b.WriteString("\n")
+}
+
+// renderColorTabs composes the color-tabs prompt: the routing table with each
+// row's current label state, the transcript-tail read instruction (never
+// capture-pane for agent tabs; rk mux capture is the fallback for plain shell
+// tabs), the categorize instruction (ONE coherent scheme across all tabs), the
+// actuation commands with the closed vocabularies enumerated verbatim, the
+// judgment clauses, the repaint note, and the bounds. An empty table still
+// delivers — there is simply nothing to color (the brief-me posture).
+func renderColorTabs(f serverOperatorFacts) string {
+	var b strings.Builder
+	b.WriteString("[run-kit request] Color the tabs on this server: assign each tab a sidebar color by the kind of work it holds, so the sidebar self-organizes visually.\n\nTabs:\n")
+	if len(f.Windows) == 0 {
+		b.WriteString("  (none — report that there is nothing to color)\n")
+	}
+	for _, w := range f.Windows {
+		writeColorTabsRow(&b, w)
+	}
+	b.WriteString(`
+For each tab, infer what kind of work it holds: read the tail of its transcript JSONL (the last ~30 lines are enough) — NEVER capture-pane for an agent tab; agent TUIs run alt-screen with zero scrollback. For a tab with no transcript, fall back to:
+  rk mux capture @N
+(plain shell windows have real scrollback)
+
+Then categorize. Suggested default scheme — one color family per work category:
+  feature → blue, bugfix → red, infra/tooling → slate, docs → teal, experiments → purple
+You MAY substitute a scheme that better fits this server's actual work mix (risk-based, project-based), but you MUST apply ONE coherent scheme across all tabs — same-category tabs share a hue. Consistency beats any particular mapping.
+
+Actuate through your own shell:
+  tmux set-option -t @N '@color' '<value>'
+value: one of red orange amber olive green teal blue purple magenta slate, optionally suffixed -dark or -light (risk/priority may ride the shade axis).
+Optional secondary accents — sparingly; color is the primary channel:
+  tmux set-option -t @N '@rk_marker' '<value>'   (pipe dotted dashed solid double thick hatch block)
+  tmux set-option -t @N '@rk_flair' '<value>'    (rain scan nyan naruto onepiece pacman matrix aquarium roadrunner invaders cube warp)
+Unset a label when a tab genuinely fits no category:
+  tmux set-option -t @N -u '@color'
+
+Judgment: DO NOTHING to a tab whose current labels already fit the scheme. Existing manual colors MAY be reassigned to fit the scheme (reversible via the label picker).
+
+The sidebar repaints within ~15 seconds of your last set-option — no further action is needed.
+
+Bounds: set only the three named options (@color, @rk_marker, @rk_flair), only on the windows listed above. Do not rename, kill, or send keys to any window. Do not reply to this message.`)
+	return b.String()
+}
+
 // renderRetireTab composes the retire-tab prompt — the seam's first
 // DESTRUCTIVE template (the per-action confirmation guardrail lives in the
 // frontend): read the subject's transcript, write a close-out note (the
@@ -512,6 +597,11 @@ func buildServerOperatorFacts(sess []sessions.ProjectSession, text string) serve
 				AgentIdleDuration: win.AgentIdleDuration,
 				FabChange:         win.FabChange,
 				FabStage:          win.FabStage,
+				Marker:            win.Marker,
+				Flair:             win.Flair,
+			}
+			if win.Color != nil {
+				row.Color = *win.Color
 			}
 			if win.PrURL != nil {
 				row.PrState, row.PrChecks, row.PrReview = win.PrState, win.PrChecks, win.PrReview

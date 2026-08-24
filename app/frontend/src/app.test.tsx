@@ -915,13 +915,14 @@ describe("CmdK Operator Compose Actions (hasOperatorWindow gate)", () => {
 });
 
 /**
- * Tests for the Operator digest/triage palette entries (260822-rfz2 R6) —
- * `Operator: Brief me` / `Operator: What's stuck` ride the same
- * hasOperatorWindow omit-not-disable gate as the compose entries and fire
- * directly (no dialog). Mirrors the action-generation pattern in app.tsx.
+ * Tests for the Operator digest/triage/labeling palette entries (260822-rfz2
+ * R6) — `Operator: Brief me` / `Operator: What's stuck` / `Operator: Color
+ * tabs` ride the same hasOperatorWindow omit-not-disable gate as the compose
+ * entries and fire directly (no dialog). Mirrors the action-generation pattern
+ * in app.tsx.
  */
 
-/** Build the server-scoped digest/triage palette entries matching app.tsx's gate. */
+/** Build the server-scoped digest/triage/labeling palette entries matching app.tsx's gate. */
 function buildOperatorDigestActions(opts: {
   hasOperator: boolean;
   onFire: (template: string) => void;
@@ -930,13 +931,14 @@ function buildOperatorDigestActions(opts: {
   return [
     { id: "operator-brief-me", label: "Operator: Brief me", onSelect: () => opts.onFire("brief-me") },
     { id: "operator-whats-stuck", label: "Operator: What's stuck", onSelect: () => opts.onFire("whats-stuck") },
+    { id: "operator-color-tabs", label: "Operator: Color tabs", onSelect: () => opts.onFire("color-tabs") },
   ];
 }
 
 describe("CmdK Operator Digest Actions (hasOperatorWindow gate)", () => {
   afterEach(cleanup);
 
-  it("both entries are listed with an operator, each firing its template directly", () => {
+  it("all entries are listed with an operator, each firing its template directly", () => {
     const onFire = vi.fn();
     const actions = buildOperatorDigestActions({ hasOperator: true, onFire });
 
@@ -947,6 +949,7 @@ describe("CmdK Operator Digest Actions (hasOperatorWindow gate)", () => {
     fireEvent.change(input, { target: { value: "Operator:" } });
     expect(screen.getByText("Operator: Brief me")).toBeInTheDocument();
     expect(screen.getByText("Operator: What's stuck")).toBeInTheDocument();
+    expect(screen.getByText("Operator: Color tabs")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Operator: Brief me"));
     expect(onFire).toHaveBeenCalledWith("brief-me");
@@ -955,9 +958,14 @@ describe("CmdK Operator Digest Actions (hasOperatorWindow gate)", () => {
     fireEvent.change(screen.getByPlaceholderText(/^Type a command/), { target: { value: "Operator:" } });
     fireEvent.click(screen.getByText("Operator: What's stuck"));
     expect(onFire).toHaveBeenCalledWith("whats-stuck");
+
+    openPalette();
+    fireEvent.change(screen.getByPlaceholderText(/^Type a command/), { target: { value: "Operator:" } });
+    fireEvent.click(screen.getByText("Operator: Color tabs"));
+    expect(onFire).toHaveBeenCalledWith("color-tabs");
   });
 
-  it("neither entry is listed without an operator on the server", () => {
+  it("no entry is listed without an operator on the server", () => {
     const actions = buildOperatorDigestActions({ hasOperator: false, onFire: vi.fn() });
 
     render(<CommandPalette actions={actions} />);
@@ -965,6 +973,7 @@ describe("CmdK Operator Digest Actions (hasOperatorWindow gate)", () => {
 
     expect(screen.queryByText("Operator: Brief me")).not.toBeInTheDocument();
     expect(screen.queryByText("Operator: What's stuck")).not.toBeInTheDocument();
+    expect(screen.queryByText("Operator: Color tabs")).not.toBeInTheDocument();
   });
 });
 

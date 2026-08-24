@@ -3755,10 +3755,10 @@ function AppShell() {
         ? [
             { id: "operator-spawn-task", label: "Operator: Spawn task…", onSelect: () => handleOperatorCompose(server, "spawn") },
             { id: "operator-find-discussion", label: "Operator: Find discussion…", onSelect: () => handleOperatorCompose(server, "find") },
-            // Brief me / What's stuck (260822-rfz2) — the server-scoped,
-            // non-destructive digest/triage requests; they fire directly (no
-            // dialog, no confirm), same hasOperatorWindow omit-not-disable
-            // gate, no chords.
+            // Brief me / What's stuck / Color tabs — the server-scoped,
+            // non-destructive digest/triage/labeling requests; they fire
+            // directly (no dialog, no confirm), same hasOperatorWindow
+            // omit-not-disable gate, no chords.
             {
               id: "operator-brief-me",
               label: "Operator: Brief me",
@@ -3771,6 +3771,13 @@ function AppShell() {
               label: "Operator: What's stuck",
               onSelect: () => {
                 void handleServerOperatorAction(server, "whats-stuck", "Sent to operator — triage will appear in the operator tab");
+              },
+            },
+            {
+              id: "operator-color-tabs",
+              label: "Operator: Color tabs",
+              onSelect: () => {
+                void handleServerOperatorAction(server, "color-tabs", "Sent to operator — tabs will be colored shortly");
               },
             },
           ]

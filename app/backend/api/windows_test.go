@@ -1563,6 +1563,8 @@ func TestWindowOptionsNoteValidation(t *testing.T) {
 		"over-length": `{"options":{"@rk_note":"` + over + `"}}`,
 		"tab char":    `{"options":{"@rk_note":"a\tb"}}`,
 		"newline":     `{"options":{"@rk_note":"a\nb"}}`,
+		"bell (C0)":   `{"options":{"@rk_note":"a\u0007b"}}`,
+		"DEL":         `{"options":{"@rk_note":"a\u007fb"}}`,
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -1578,12 +1580,14 @@ func TestWindowOptionsNoteValidation(t *testing.T) {
 	}
 }
 
-// Empty string and JSON null both unset the note (the @rk_marker mapping) —
-// no "" value is ever written.
+// Empty string, whitespace-only, and JSON null all unset the note (the
+// @rk_marker mapping) — no "" value and no bare "<epoch>:" stamp is ever
+// written.
 func TestWindowOptionsNoteUnset(t *testing.T) {
 	for name, body := range map[string]string{
-		"empty string": `{"options":{"@rk_note":""}}`,
-		"json null":    `{"options":{"@rk_note":null}}`,
+		"empty string":    `{"options":{"@rk_note":""}}`,
+		"whitespace only": `{"options":{"@rk_note":"   "}}`,
+		"json null":       `{"options":{"@rk_note":null}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			ops := &mockTmuxOps{}

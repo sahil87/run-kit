@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/go-chi/chi/v5"
 
@@ -423,14 +424,17 @@ func validateWindowOption(key string, value *string) string {
 	case optKeyNote:
 		// Free-text one-line status note: trimmed, length-capped, and free of
 		// control characters (tabs/newlines would corrupt the tab-delimited
-		// list-windows read format). An empty string is valid and treated as
-		// unset below (mirroring @rk_marker).
+		// list-windows read format; any other control rune would leak into
+		// tmux and the rendered UI). Empty and whitespace-only strings are
+		// valid and treated as unset below (mirroring @rk_marker).
 		trimmed := strings.TrimSpace(*value)
 		if len(trimmed) > windowNoteMaxLen {
 			return fmt.Sprintf("note exceeds %d characters", windowNoteMaxLen)
 		}
-		if strings.ContainsAny(trimmed, "\t\n\r") {
-			return "note cannot contain control characters"
+		for _, r := range trimmed {
+			if unicode.IsControl(r) {
+				return "note cannot contain control characters"
+			}
 		}
 	}
 	return ""
@@ -488,10 +492,16 @@ func (s *Server) handleWindowOptions(w http.ResponseWriter, r *http.Request) {
 		}
 		// @rk_note: clients send bare text; the server owns the clock and stamps
 		// the "<unix-epoch>:" prefix at write time (no client-skew lies — agents
-		// writing raw set-option stamp their own epoch via $(date +%s)).
+		// writing raw set-option stamp their own epoch via $(date +%s)). A value
+		// that trims to nothing is an unset, never a bare "<epoch>:" stamp.
 		if key == optKeyNote && op.Value != nil {
-			stamped := fmt.Sprintf("%d:%s", time.Now().Unix(), strings.TrimSpace(*op.Value))
-			op.Value = &stamped
+			trimmed := strings.TrimSpace(*op.Value)
+			if trimmed == "" {
+				op.Value = nil
+			} else {
+				stamped := fmt.Sprintf("%d:%s", time.Now().Unix(), trimmed)
+				op.Value = &stamped
+			}
 		}
 		if key == optKeyRole {
 			if op.Value != nil {

@@ -51,6 +51,6 @@ true_impact:
         net: 0
     computed_at: "2026-08-23T16:34:41Z"
     computed_at_stage: ship
-summary: 'sidebar: folding the current session takes effect immediately via a non-persisted manual-collapse latch (cleared on session change); expand-on-entry kept'
+summary: 'Close-out: pipeline complete end-to-end. Light lane (4 tasks) implemented the current-session collapse latch via orderOverrideRef-style render-time reconcile in Sidebar; folding the current session via chevron/ArrowLeft now takes effect immediately, o0cz read sites and memo tree unaffected. Shipped as PR #725. Review-PR: Copilot request initially silently dropped, re-requested via both surfaces (recovery pattern from #707), landed clean with zero inline comments. Nothing left open.'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-23T16:41:05Z
+last_updated: 2026-08-24T07:06:06Z

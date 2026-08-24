@@ -354,8 +354,8 @@ function NotificationsControl() {
 const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
   { id: "general", label: "General" },
   { id: "appearance", label: "Appearance" },
-  { id: "all", label: "All settings" },
   { id: "shortcuts", label: "Shortcuts" },
+  { id: "all", label: "All settings" },
 ];
 
 /** The tab rail (260818-bncw) — ONE `role="tablist"` markup: a vertical left

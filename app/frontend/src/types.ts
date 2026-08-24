@@ -113,6 +113,15 @@ export type WindowInfo = {
    *  the top of the server's session area; server-scoped radio, enforced
    *  backend-side so at most one window per server carries it). */
   role?: string;
+  /** Free-text one-line status note, from the `@rk_note` window option —
+   *  user/agent-authored annotation (the marker/flair user-preference class,
+   *  not derived state). Absent when the option is unset (degrade-to-absent:
+   *  no note row renders anywhere). Rendered with its relative age; notes
+   *  older than 24h render dimmed (faded, never hidden or auto-expired). */
+  note?: string;
+  /** Unix-seconds write time from the note's epoch prefix (`<epoch>:<text>`
+   *  schema); absent/0 for tolerant-parse notes (text-only, no age shown). */
+  noteEpoch?: number;
   /** Generic agent-lifecycle state from the `@rk_agent_state` pane option:
    *  `active` (turn in progress) | `waiting` (blocked on a human — permission
    *  prompt / question dialog) | `idle` (at rest). Empty/absent = unknown.

@@ -171,6 +171,11 @@ export type SidebarProps = {
    *  `onForkWindow`): when omitted — e.g. the board-route sidebar — the row
    *  flyout's Fix tab name affordance is hidden. */
   onFixTabName?: (server: string, windowId: string) => Promise<void>;
+  /** Ask the server's operator window to annotate a subject window with a
+   *  one-line @rk_note status note (260824-bb5n-tab-status-note). Optional
+   *  (mirrors `onFixTabName`): when omitted — e.g. the board-route sidebar —
+   *  the row flyout's Annotate tab affordance is hidden. */
+  onAnnotateTab?: (server: string, windowId: string) => Promise<void>;
   /** Open the shared retire confirm dialog for a subject window
    *  (260822-rfz2-operator-digest-stuck-retire). Optional (mirrors
    *  `onFixTabName`): when omitted — e.g. the board-route sidebar — the row
@@ -204,6 +209,7 @@ export function Sidebar({
   onSpawnAgent,
   onForkWindow,
   onFixTabName,
+  onAnnotateTab,
   onRetireTab,
   onOperatorCompose,
   onCreateServer,
@@ -1833,6 +1839,7 @@ export function Sidebar({
                 onWindowFlairChange={handleWindowFlairChange}
                 onForkWindow={onForkWindow}
                 onFixTabName={onFixTabName}
+                onAnnotateTab={onAnnotateTab}
                 onRetireTab={onRetireTab}
                 onOperatorCompose={onOperatorCompose}
                 onWindowDragStart={handleDragStart}
@@ -2239,6 +2246,10 @@ type ServerGroupProps = {
    *  Optional (the board-route sidebar passes none) — see
    *  `SidebarProps.onFixTabName`. */
   onFixTabName?: (server: string, windowId: string) => Promise<void>;
+  /** Forwarded to each `WindowRow` → its row flyout's Annotate tab affordance.
+   *  Optional (the board-route sidebar passes none) — see
+   *  `SidebarProps.onAnnotateTab`. */
+  onAnnotateTab?: (server: string, windowId: string) => Promise<void>;
   /** Forwarded to each `WindowRow` → its row flyout's Retire… affordance.
    *  Optional (the board-route sidebar passes none) — see
    *  `SidebarProps.onRetireTab`. */
@@ -2323,6 +2334,7 @@ function ServerGroupInner(props: ServerGroupProps) {
     onWindowFlairChange,
     onForkWindow,
     onFixTabName,
+    onAnnotateTab,
     onRetireTab,
     onOperatorCompose,
     onWindowDragStart,
@@ -2962,6 +2974,7 @@ function ServerGroupInner(props: ServerGroupProps) {
               onFlairChange={onWindowFlairChange}
               onForkWindow={onForkWindow}
               onFixTabName={onFixTabName}
+              onAnnotateTab={onAnnotateTab}
               onRetireTab={onRetireTab}
               onOperatorCompose={onOperatorCompose}
               hasOperator={hasOperator}
@@ -3140,6 +3153,7 @@ function ServerGroupInner(props: ServerGroupProps) {
                             onFlairChange={ghost ? undefined : onWindowFlairChange}
                             onForkWindow={ghost ? undefined : onForkWindow}
                             onFixTabName={ghost ? undefined : onFixTabName}
+                            onAnnotateTab={ghost ? undefined : onAnnotateTab}
                             onRetireTab={ghost ? undefined : onRetireTab}
                             hasOperator={hasOperator}
                           />

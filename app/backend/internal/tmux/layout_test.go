@@ -91,6 +91,26 @@ func TestParseLayoutWindows(t *testing.T) {
 			},
 		},
 		{
+			name: "13-field line carries the raw note verbatim",
+			lines: []string{
+				"kit\t@1\t1\tserve\t1\td5d2,204x48,0,0,1\t\t\t\t\t\t\t1756036800:blocked on flaky e2e",
+			},
+			want: []LayoutWindow{
+				{Session: "kit", WindowID: "@1", Index: 1, Name: "serve", Active: true,
+					Layout: "d5d2,204x48,0,0,1", Note: "1756036800:blocked on flaky e2e"},
+			},
+		},
+		{
+			name: "tab inside the note rejoins the tail",
+			lines: []string{
+				"kit\t@1\t1\tserve\t1\td5d2,204x48,0,0,1\t\t\t\t\t\t\t1756036800:two\tpart\tnote",
+			},
+			want: []LayoutWindow{
+				{Session: "kit", WindowID: "@1", Index: 1, Name: "serve", Active: true,
+					Layout: "d5d2,204x48,0,0,1", Note: "1756036800:two\tpart\tnote"},
+			},
+		},
+		{
 			name: "pin-session link rows skipped, home row kept once",
 			lines: []string{
 				"_rk-pin-7\t@7\t0\tpinned\t1\tllll,1x1,0,0,7\t\t\t\t",

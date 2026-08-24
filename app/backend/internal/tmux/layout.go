@@ -46,6 +46,9 @@ type LayoutWindow struct {
 	Marker string
 	Role   string
 	Flair  string
+	// Note is the raw @rk_note value ("<unix-epoch>:<text>") — restored
+	// verbatim so the note's age stays honest across a restore.
+	Note string
 }
 
 // LayoutPane is one pane in a layout snapshot read.
@@ -83,6 +86,9 @@ var layoutWindowFormat = strings.Join([]string{
 	"#{@rk_marker}",
 	"#{@rk_role}",
 	"#{@rk_flair}",
+	// @rk_note is free text in a tab-delimited format — it MUST stay the last
+	// field so parseLayoutWindows can rejoin the tail (mirrors parseWindows).
+	"#{@rk_note}",
 }, listDelim)
 
 // layoutPaneFormat lists the owning window id plus everything needed to
@@ -203,6 +209,12 @@ func parseLayoutWindows(lines []string) []LayoutWindow {
 		// Field 12 (@rk_flair) is optional — absent on older captures.
 		if len(parts) >= 12 {
 			win.Flair = strings.TrimSpace(parts[11])
+		}
+		// Field 13 (@rk_note) is optional — absent on older captures. Free
+		// text, so the tail is rejoined to survive tabs inside the value
+		// (mirrors parseWindows).
+		if len(parts) >= 13 {
+			win.Note = strings.Join(parts[12:], listDelim)
 		}
 		out = append(out, win)
 	}

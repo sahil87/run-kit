@@ -662,6 +662,52 @@ func TestParseWindowsFlair(t *testing.T) {
 	}
 }
 
+// windowLineNote builds a 14-field tab-delimited tmux line including the
+// trailing @rk_note field (@color/@rk_type/@rk_url/@rk_marker/@rk_role/
+// @rk_flair left empty).
+func windowLineNote(windowID string, index int, name, path string, activityTs int64, active int, paneCmd, note string) string {
+	return strings.Join([]string{
+		windowID, strconv.Itoa(index), name, path, strconv.FormatInt(activityTs, 10),
+		strconv.Itoa(active), paneCmd,
+		"", /*@color*/ "", /*@rk_type*/ "", /*@rk_url*/ "", /*@rk_marker*/ "", /*@rk_role*/ "", /*@rk_flair*/
+		note,
+	}, listDelim)
+}
+
+func TestParseWindowsNote(t *testing.T) {
+	const fakeNow int64 = 1700000000
+
+	tests := []struct {
+		name      string
+		line      string
+		wantNote  string
+		wantEpoch int64
+	}{
+		{"epoch-prefixed note", windowLineNote("@0", 0, "a", "/p", fakeNow, 1, "zsh", "1756036800:blocked on flaky e2e"), "blocked on flaky e2e", 1756036800},
+		{"bare text degrades to epoch 0", windowLineNote("@0", 0, "a", "/p", fakeNow, 1, "zsh", "just some text"), "just some text", 0},
+		{"non-numeric prefix keeps whole value", windowLineNote("@0", 0, "a", "/p", fakeNow, 1, "zsh", "abc:def"), "abc:def", 0},
+		{"colon inside text survives SplitN-2", windowLineNote("@0", 0, "a", "/p", fakeNow, 1, "zsh", "1756036800:waiting on review: PR #42"), "waiting on review: PR #42", 1756036800},
+		{"tab inside value rejoins the tail", windowLineNote("@0", 0, "a", "/p", fakeNow, 1, "zsh", "1756036800:two\tpart\tnote"), "two\tpart\tnote", 1756036800},
+		{"empty note field", windowLineNote("@0", 0, "a", "/p", fakeNow, 1, "zsh", ""), "", 0},
+		{"13-field line (no note field) has empty note", windowLineFlair("@0", 0, "a", "/p", fakeNow, 1, "zsh", "nyan"), "", 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseWindows([]string{tt.line}, fakeNow)
+			if len(got) != 1 {
+				t.Fatalf("parseWindows() returned %d windows, want 1", len(got))
+			}
+			if got[0].Note != tt.wantNote {
+				t.Errorf("Note = %q, want %q", got[0].Note, tt.wantNote)
+			}
+			if got[0].NoteEpoch != tt.wantEpoch {
+				t.Errorf("NoteEpoch = %d, want %d", got[0].NoteEpoch, tt.wantEpoch)
+			}
+		})
+	}
+}
+
 // sessionLineFlair builds a 7-field tab-delimited tmux line including the
 // trailing @rk_flair field (@session_color left empty, windows count 1).
 func sessionLineFlair(name, grouped, group, flair string) string {

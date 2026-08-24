@@ -1122,3 +1122,52 @@ func TestServerOperatorRequestColorTabsGuards(t *testing.T) {
 		t.Errorf("400 body = %s, want it to name the server-scoped id", rec.Body.String())
 	}
 }
+
+// --- the annotate-tab template (260824-bb5n-tab-status-note) -----------------
+
+// TestRenderAnnotateTab: the template renders every derived fact plus the exact
+// epoch-prefixed set-option actuation, the ~100-char bound, the skip-when-
+// nothing-meaningful clause, and the do-not-reply bound; the fab clause appears
+// only when FabChange is non-empty.
+func TestRenderAnnotateTab(t *testing.T) {
+	facts := operatorFacts{
+		WindowID:       "@5",
+		Name:           "zsh",
+		TranscriptPath: "/home/u/.claude/projects/p/ref.jsonl",
+		WorktreePath:   "/wt/project",
+	}
+	prompt := renderAnnotateTab(facts)
+	for _, want := range []string{
+		"tmux window @5", `"zsh"`, "/home/u/.claude/projects/p/ref.jsonl",
+		"worktree /wt/project",
+		`tmux set-option -wt @5 @rk_note "$(date +%s):<one-line note>"`,
+		"100 characters", "nothing meaningful", "Do not reply",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "fab change") {
+		t.Errorf("empty FabChange rendered a fab clause:\n%s", prompt)
+	}
+
+	facts.FabChange, facts.FabStage = "260824-bb5n-tab-status-note", "apply"
+	prompt = renderAnnotateTab(facts)
+	if !strings.Contains(prompt, "fab change 260824-bb5n-tab-status-note at stage apply") {
+		t.Errorf("non-empty FabChange did not render the fab clause:\n%s", prompt)
+	}
+}
+
+// TestAnnotateTabScopeGuards: annotate-tab is window-scoped — the server-scoped
+// route 400s it before any fetch, and client text hits the closed-lane 400
+// (no acceptsText).
+func TestAnnotateTabScopeGuards(t *testing.T) {
+	rec := assertNoFetch(t, serverOperatorReq(`{"template":"annotate-tab"}`))
+	if !strings.Contains(rec.Body.String(), "annotate-tab") {
+		t.Errorf("400 body = %s, want it to name the window-scoped id", rec.Body.String())
+	}
+	rec = assertNoFetch(t, operatorReq(`{"template":"annotate-tab","text":"evil client text"}`))
+	if !strings.Contains(rec.Body.String(), "annotate-tab") {
+		t.Errorf("400 body = %s, want it to name the closed template", rec.Body.String())
+	}
+}

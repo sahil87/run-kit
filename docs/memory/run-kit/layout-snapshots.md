@@ -22,7 +22,7 @@ The JSON schema (`snapshot.go`):
 |-------|--------|
 | `Snapshot` | `server`, `takenAt`, `serverRank` (nullable, `@rk_server_rank`), `sessionOrder` (`@rk_session_order`), `sessions[]`, plus tombstone-only `diedAt` / `auditedKill` |
 | `Session` | `name`, `createdAt` (unix seconds), `color` (raw `@session_color`), `windows[]` |
-| `Window` | `index`, `id`, `name`, `active`, `layout` (`#{window_layout}`), `color`, `rkType`, `rkUrl`, `marker`, `flair` (`@rk_flair`), `role` (`@rk_role`), `panes[]` |
+| `Window` | `index`, `id`, `name`, `active`, `layout` (`#{window_layout}`), `color`, `rkType`, `rkUrl`, `marker`, `flair` (`@rk_flair`), `role` (`@rk_role`), `note` (`@rk_note` — raw `<unix-epoch>:<text>` value), `panes[]` |
 | `Pane` | `id`, `index`, `cwd`, `command`, `active` |
 
 `Pane.Command` is informational only — reported by restore, never relaunched. `Pane.Active` is consumed by restore's active-pane re-select.
@@ -47,6 +47,8 @@ Capture assembles from the `internal/tmux` layout reads plus `GetSessionOrder`/`
 `isLayoutHiddenSession` excludes board pin-sessions (`PinSessionPrefix`) and the `_rk-ctl` control anchor — pinned windows persist via home-session membership and the anchor is daemon-recreated. `_rk-operator` is deliberately NOT excluded: the operator window is MOVED into it (single membership, unlike the linked pin-sessions — see [tmux-sessions](/run-kit/tmux-sessions.md) § Operator Session), so excluding it would drop the operator window from the capture entirely. Unlike `ListSessions`, these helpers deliberately do NOT map a dead-server error to an empty result.
 
 The `_rk-operator` + `@rk_role` round trip is load-bearing: capture takes `_rk-operator` as a regular session (windows nested under it, each carrying `role` from `@rk_role`), and restore recreates the session with its windows and re-applies `@rk_role` per window (§ Restore semantics) — so a snapshot taken with a promoted operator restores to hidden+pinned state (the restored `_rk-operator` satisfies the FetchSessions content rule), never a visible stray session with an orphaned role. Pinned by the live-tmux integration test `TestOperatorPromotionRoundTripLiveTmux` (`internal/snapshot/integration_test.go`).
+
+`@rk_note` is the capture format's **trailing optional field** (the `@rk_flair` idiom — absent on older captures): because the note is free text in a tab-delimited format it MUST stay last, and `parseLayoutWindows` rejoins the tail (`strings.Join(parts[12:], listDelim)`) so tabs inside the text cannot truncate sibling fields — the same read-side contract as `parseWindows` field 14 ([tmux-sessions](/run-kit/tmux-sessions.md) § Server-Scoped User Options).
 
 **Restore mutators**:
 
@@ -124,7 +126,7 @@ Readers: `LoadLatest`, `LoadAt(server, ts)` (history entry, then tombstone), `Re
 - **Refusal** — a server alive with ≥1 user-facing session (`ListSessions`, which maps a dead server to `(nil, nil)`) is refused. There is no `--force`: restore is for dead servers.
 - **Sessions** — recreated oldest-first with original names. The first window rides `CreateSessionForRestore` (which births the server with the standard pins) and is renumbered from the born base-index to its stored index when they differ; later windows are created at their explicit stored index.
 - **Panes** — fresh shells at the recorded cwd, appended as sequential detached splits. `select-layout` restores geometry best-effort; a failure is a report note, never fatal. A stored active pane beyond position 0 is re-selected via `SelectPane` (splits are detached, so position 0 needs no call).
-- **Options** — `@rk_server_rank`, `@rk_session_order`, session color, and per-window `@color` / `@rk_type` / `@rk_url` / `@rk_marker` / `@rk_flair` / `@rk_role` are reapplied from the snapshot (empty values are omitted, never unset), and each session's stored active window is re-selected. Every failure is a report note.
+- **Options** — `@rk_server_rank`, `@rk_session_order`, session color, and per-window `@color` / `@rk_type` / `@rk_url` / `@rk_marker` / `@rk_flair` / `@rk_role` / `@rk_note` are reapplied from the snapshot (empty values are omitted, never unset), and each session's stored active window is re-selected. Every failure is a report note. `@rk_note` round-trips **verbatim**, epoch prefix included, so the note's relative age stays honest across a restore.
 - **Missing cwd** — a deleted worktree falls back to the server default dir (no `-c`) with a note; it never fails the restore.
 - **Report** — what was recreated, what was skipped, per-window notes, and each window's former command so the user can decide what to resume (e.g. `claude -c` per agent window), closing with the attach hint.
 

@@ -799,6 +799,21 @@ export async function setWindowFlair(
   });
 }
 
+/** Set (or clear) the window's one-line status note via the unified /options
+ *  contract. `note` is bare free text — the server stamps the
+ *  "<unix-epoch>:" prefix at write time (server owns the clock). null OR ""
+ *  clears it (the server treats an empty @rk_note as unset). Mirrors
+ *  setWindowMarker. */
+export async function setWindowNote(
+  server: string,
+  windowId: string,
+  note: string | null,
+): Promise<{ ok: boolean }> {
+  return setWindowOptions(server, windowId, {
+    "@rk_note": note == null || note === "" ? "" : note,
+  });
+}
+
 export async function setSessionColor(
   server: string,
   session: string,

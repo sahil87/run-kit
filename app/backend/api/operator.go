@@ -164,6 +164,14 @@ var operatorTemplates = map[string]operatorTemplate{
 		requiresChatRef: true,
 		render:          renderRetireTab,
 	},
+	// annotate-tab: the operator reads the subject tab's transcript tail and
+	// writes a one-line @rk_note status note onto the window through its own
+	// shell; the note surfaces via the normal derive tick (user-option
+	// mutations emit no control-mode event).
+	"annotate-tab": {
+		requiresChatRef: true,
+		render:          renderAnnotateTab,
+	},
 }
 
 // renderFixTabName composes the fix-tab-name prompt. It is self-contained (the
@@ -474,6 +482,32 @@ Then kill EXACTLY this window and nothing else:
 
 Do not reply to this message. Do not rename, kill, or send keys to any other window.`,
 		f.WindowID, f.Name, f.TranscriptPath, closeout, f.WindowID)
+}
+
+// renderAnnotateTab composes the annotate-tab prompt (the renderFixTabName
+// shape): read the subject tab's transcript tail, then write a one-line
+// @rk_note via the exact epoch-prefixed set-option actuation. The ≤100-char
+// bound lives in the prompt because the operator writes raw set-option — no
+// API validation path applies (the API's own cap is 120).
+func renderAnnotateTab(f operatorFacts) string {
+	contextLine := fmt.Sprintf("Context: worktree %s", f.WorktreePath)
+	if f.FabChange != "" {
+		contextLine += fmt.Sprintf("; fab change %s at stage %s", f.FabChange, f.FabStage)
+	}
+	return fmt.Sprintf(`[run-kit request] Annotate tmux window %s (currently %q) on this server with a one-line status note.
+
+Read the recent conversation in the transcript to see what this tab is actually doing or waiting on: %s
+(read the tail of the file — the last ~30 JSONL lines are enough)
+
+%s.
+
+Then write a short one-line note (at most ~100 characters) that says WHY the tab is in its current state — e.g. "blocked on flaky e2e" or "awaiting design decision":
+  tmux set-option -wt %s @rk_note "$(date +%%s):<one-line note>"
+
+If there is nothing meaningful to say about the tab's current state, skip the write (do nothing).
+
+Do not reply to this message or take any other action.`,
+		f.WindowID, f.Name, f.TranscriptPath, contextLine, f.WindowID)
 }
 
 // delimitUserText wraps client-supplied text in a fenced block framed as data.

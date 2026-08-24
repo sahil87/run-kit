@@ -74,6 +74,15 @@ const ProtectedOption = "@rk_protected"
 // option family (validate.MarkerValues / ValidateRoleValue).
 const RoleOption = "@rk_role"
 
+// NoteOption is the tmux window user option carrying a free-text one-line
+// status note — user/agent-authored annotation (the @rk_marker/@rk_flair
+// user-preference class, not derived state). The value schema is
+// "<unix-epoch>:<text>" — the epoch prefix lets the UI age notes honestly
+// (the @rk_agent_state staleness precedent). Read-side parse is tolerant: a
+// non-numeric prefix degrades to the whole value as text with epoch 0, never
+// dropped. Empty/absent = no note (degrade-to-absent everywhere).
+const NoteOption = "@rk_note"
+
 // OriginalTMUX captures the TMUX env var before init() strips it.
 // Package-level var init runs before init(), so this sees the original value.
 // Used by cmd/rk/context.go to restore TMUX in child process environments
@@ -620,7 +629,17 @@ type WindowInfo struct {
 	// Pure decoration — an independent axis from Color and Marker. Unknown
 	// tokens are dropped to "" by parseWindows (the Marker idiom).
 	Flair string     `json:"flair,omitempty"`
-	Panes []PaneInfo `json:"panes,omitempty"`
+	// Note is the window's free-text one-line status note, sourced from the
+	// @rk_note window user option ("<unix-epoch>:<text>" — the epoch lands in
+	// NoteEpoch). Free text, NOT a closed set: no value validation on read; a
+	// non-numeric epoch prefix degrades tolerantly to the whole value as text
+	// with NoteEpoch 0 (rendered without an age, never dropped). Empty when
+	// the option is unset (degrade-to-absent).
+	Note string `json:"note,omitempty"`
+	// NoteEpoch is the unix-seconds write time from the note's epoch prefix;
+	// 0 for tolerant-parse notes (text-only, no age shown).
+	NoteEpoch int64     `json:"noteEpoch,omitempty"`
+	Panes     []PaneInfo `json:"panes,omitempty"`
 }
 
 // tmuxExecServer runs a tmux command targeting the specified server and returns stdout lines (empty lines filtered).
@@ -941,10 +960,12 @@ func parsePanes(lines []string) map[string][]PaneInfo {
 
 // parseWindows parses tmux list-windows output lines into WindowInfo structs.
 // nowUnix is the current Unix timestamp for activity threshold computation.
-// Lines have 13 tab-delimited fields: window_id, window_index, window_name,
+// Lines have 14 tab-delimited fields: window_id, window_index, window_name,
 // pane_current_path, window_activity, window_active, pane_current_command,
-// @color, @rk_type, @rk_url, @rk_marker, @rk_role, @rk_flair. Lines with fewer
-// than 8 fields are skipped; fields 9-13 are optional (empty string if absent).
+// @color, @rk_type, @rk_url, @rk_marker, @rk_role, @rk_flair, @rk_note. Lines
+// with fewer than 8 fields are skipped; fields 9-14 are optional (empty string
+// if absent). Field 14 (@rk_note) is free text in a tab-delimited format, so
+// it MUST be last and the tail is rejoined (strings.Join(parts[13:], "\t")).
 // Exported for testing.
 func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 	var windows []WindowInfo
@@ -1009,6 +1030,19 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 			}
 		}
 
+		// Note is free text ("<epoch>:<text>"), NOT a closed set — no value
+		// validation. The field is the format's last column, so the tail is
+		// rejoined to survive tabs inside the text (write-side validation also
+		// strips control chars — belt and braces). Tolerant epoch split: a
+		// non-numeric prefix keeps the whole value as text with epoch 0.
+		var note string
+		var noteEpoch int64
+		if len(parts) >= 14 {
+			if raw := strings.Join(parts[13:], listDelim); raw != "" {
+				note, noteEpoch = parseNoteValue(raw)
+			}
+		}
+
 		windows = append(windows, WindowInfo{
 			Index:             index,
 			WindowID:          windowID,
@@ -1024,9 +1058,26 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 			Marker:            marker,
 			Role:              role,
 			Flair:             flair,
+			Note:              note,
+			NoteEpoch:         noteEpoch,
 		})
 	}
 	return windows
+}
+
+// parseNoteValue splits an @rk_note value ("<unix-epoch>:<text>") into its
+// text and epoch. Tolerant: a missing colon or a non-numeric prefix keeps the
+// whole value as text with epoch 0 (rendered without an age, never dropped).
+func parseNoteValue(raw string) (string, int64) {
+	prefix, text, found := strings.Cut(raw, ":")
+	if !found {
+		return raw, 0
+	}
+	epoch, err := strconv.ParseInt(prefix, 10, 64)
+	if err != nil || epoch < 0 {
+		return raw, 0
+	}
+	return text, epoch
 }
 
 // paneFormat is the list-panes format string: window_id, pane_id, pane_index,
@@ -1069,6 +1120,10 @@ func ListWindows(ctx context.Context, session string, server string) ([]WindowIn
 		"#{@rk_marker}",
 		"#{@rk_role}",
 		"#{@rk_flair}",
+		// @rk_note is free text in a tab-delimited format — it MUST stay the
+		// last field so parseWindows can rejoin the tail (tabs inside the text
+		// would otherwise shift sibling columns).
+		"#{@rk_note}",
 	}, listDelim)
 
 	lines, err := tmuxExecServer(ctx, server, "list-windows", "-t", ExactSessionTarget(session), "-F", format)

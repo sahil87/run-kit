@@ -154,7 +154,7 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo, SelectWindowResult } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowRole, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerProtected, sendChatMessage, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, type SortWindowsBy } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowRole, setWindowNote, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerProtected, sendChatMessage, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, type SortWindowsBy } from "@/api/client";
 import { buildSessionSortActions } from "@/lib/palette/sort";
 import { useBoards } from "@/hooks/use-boards";
 import { useWindowPins } from "@/hooks/use-window-pins";
@@ -177,6 +177,7 @@ const CommandPalette = lazy(() => import("@/components/command-palette").then(m 
 const ThemeSelector = lazy(() => import("@/components/theme-selector").then(m => ({ default: m.ThemeSelector })));
 const CreateSessionDialog = lazy(() => import("@/components/create-session-dialog").then(m => ({ default: m.CreateSessionDialog })));
 const SessionNamePrompt = lazy(() => import("@/components/session-name-prompt").then(m => ({ default: m.SessionNamePrompt })));
+const WindowNotePrompt = lazy(() => import("@/components/window-note-prompt").then(m => ({ default: m.WindowNotePrompt })));
 const SpawnAgentDialog = lazy(() => import("@/components/spawn-agent-dialog").then(m => ({ default: m.SpawnAgentDialog })));
 const OperatorComposeDialog = lazy(() => import("@/components/operator-compose-dialog").then(m => ({ default: m.OperatorComposeDialog })));
 const RetireConfirmDialog = lazy(() => import("@/components/retire-confirm-dialog").then(m => ({ default: m.RetireConfirmDialog })));
@@ -1247,6 +1248,10 @@ function AppShell() {
   // The retire confirm dialog's target (260822-rfz2) — set by EITHER retire
   // entry point (the palette entry, the flyout row); null = closed.
   const [retireTarget, setRetireTarget] = useState<{ server: string; windowId: string } | null>(null);
+  // The note prompt's target (260824-bb5n) — a FROZEN snapshot captured when
+  // the palette action fires (the prompt's prefill can't churn under the
+  // user's edit); null = closed.
+  const [noteTarget, setNoteTarget] = useState<{ server: string; windowId: string; note: string } | null>(null);
   const [iframeWindowName, setIframeWindowName] = useState("");
   const [iframeWindowUrl, setIframeWindowUrl] = useState("");
 
@@ -2107,7 +2112,7 @@ function AppShell() {
   // `server-dialogs-context` (260811-239r) — the dialogs mount in AppLayout now,
   // but gating this route's URL writeback while one is up is unchanged.
   dialogOpenRef.current =
-    dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || createServerOpen || killServerTarget != null || showTmuxCommands || showCreateWindowAtFolderDialog || showCreateIframeDialog || spawnAgentTarget != null || sessionNamePrompt != null || operatorComposeMode != null || retireTarget != null;
+    dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || createServerOpen || killServerTarget != null || showTmuxCommands || showCreateWindowAtFolderDialog || showCreateIframeDialog || spawnAgentTarget != null || sessionNamePrompt != null || operatorComposeMode != null || retireTarget != null || noteTarget != null;
 
   // Flat window list for palette actions
   const flatWindows = useMemo(() => {
@@ -2363,6 +2368,34 @@ function AppShell() {
   const handleRetireTab = useCallback((srv: string, windowId: string) => {
     setRetireTarget({ server: srv, windowId });
   }, []);
+
+  // Ask the server's operator window to annotate a subject window with a
+  // one-line @rk_note status note (260824-bb5n): the same fire-and-forget
+  // shape as handleFixTabName — the note itself arrives via the normal SSE
+  // derive tick (user-option mutations emit no control-mode event, so
+  // agent-side writes ride the ~12s safety poll).
+  const handleAnnotateTab = useCallback(
+    (srv: string, windowId: string): Promise<void> =>
+      sendOperatorRequest(srv, windowId, "annotate-tab")
+        .then(() => addToast("Sent to operator — tab will be annotated shortly", "info"))
+        .catch((err: Error) => addToast(err.message || "Failed to reach the operator", "error")),
+    [addToast],
+  );
+
+  // Submit the note prompt (260824-bb5n): bare text through the unified
+  // /options contract — the server stamps the epoch prefix; an empty submit
+  // clears the note ("" maps to unset server-side). The change surfaces on
+  // the next SSE frame (the POST handler wakes the hub).
+  const handleNoteSubmit = useCallback(
+    (note: string) => {
+      if (!noteTarget) return;
+      const { server: srv, windowId } = noteTarget;
+      setNoteTarget(null);
+      setWindowNote(srv, windowId, note)
+        .catch((err: Error) => addToast(err.message || "Failed to set note", "error"));
+    },
+    [noteTarget, addToast],
+  );
 
   const handleCreateIframeWindow = useCallback(() => {
     const name = finalizeSafeName(iframeWindowName.trim());
@@ -2719,6 +2752,16 @@ function AppShell() {
                 }
               },
             },
+            // Set note (260824-bb5n) — the user write affordance for the
+            // @rk_note one-line status note: a prompt pre-filled with the
+            // current note; an empty submit clears it.
+            {
+              id: "window-set-note",
+              label: "Window: Set note…",
+              onSelect: () => {
+                setNoteTarget({ server, windowId: currentWindow.windowId, note: currentWindow.note ?? "" });
+              },
+            },
             // Fix tab name (260822-fih1) — the palette arm of the operator
             // actuation seam, gated by the same derived availability rule as
             // the flyout row (omit-not-disable): an operator on the server,
@@ -2733,6 +2776,16 @@ function AppShell() {
                     label: "Tab: Fix name (ask operator)",
                     onSelect: () => {
                       void handleFixTabName(server, currentWindow.windowId);
+                    },
+                  },
+                  // Annotate tab (260824-bb5n) — the palette arm of the
+                  // annotate-tab operator template, gated by the SAME
+                  // availability triple as fix-name.
+                  {
+                    id: "window-annotate-operator",
+                    label: "Operator: Annotate tab",
+                    onSelect: () => {
+                      void handleAnnotateTab(server, currentWindow.windowId);
                     },
                   },
                   // Retire (260822-rfz2) — the palette arm of the destructive
@@ -2786,7 +2839,7 @@ function AppShell() {
           ]
         : []),
     ],
-    [sessionName, currentWindow, sessions, hasOperatorWindow, handleCreateWindow, handleFixTabName, handleRetireTab, dialogs, executeSplit, executeClosePane, minWindowIndex, maxWindowIndex, navigate, server, addToast, setShowCreateWindowAtFolderDialog],
+    [sessionName, currentWindow, sessions, hasOperatorWindow, handleCreateWindow, handleFixTabName, handleAnnotateTab, handleRetireTab, dialogs, executeSplit, executeClosePane, minWindowIndex, maxWindowIndex, navigate, server, addToast, setShowCreateWindowAtFolderDialog],
   );
 
   // Boards palette block (server-route variant). AppShell only mounts under
@@ -4291,6 +4344,7 @@ function AppShell() {
       onSpawnAgent={handleOpenSpawnAgent}
       onForkWindow={handleForkWindow}
       onFixTabName={handleFixTabName}
+      onAnnotateTab={handleAnnotateTab}
       onRetireTab={handleRetireTab}
       onOperatorCompose={hasOperatorWindow ? handleOperatorCompose : undefined}
       onCreateServer={openCreateServer}
@@ -4608,6 +4662,16 @@ function AppShell() {
             server={retireTarget.server}
             windowId={retireTarget.windowId}
             onClose={() => setRetireTarget(null)}
+          />
+        </Suspense>
+      )}
+
+      {noteTarget && (
+        <Suspense fallback={null}>
+          <WindowNotePrompt
+            defaultNote={noteTarget.note}
+            onSubmit={handleNoteSubmit}
+            onClose={() => setNoteTarget(null)}
           />
         </Suspense>
       )}

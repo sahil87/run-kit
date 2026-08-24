@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tab Note (@rk_note) — Design Study</title>
+<style>
+  :root{
+    --bg:#0f1117; --card:#171b24; --inset:#0a0c12;
+    --text:#e8eaf0; --dim:#7a8394; --border:#454d66;
+    --accent:#5b8af0; --accent-b:#82a8f7; --green:#22c55e;
+    --amber:#eab308; --red:#ef4444;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);
+    font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    padding:40px 24px 80px;max-width:1180px;margin:0 auto}
+  h1{font-size:20px;letter-spacing:.02em}
+  h1 .tag{color:var(--green);font-size:12px;border:1px solid var(--green);
+    border-radius:3px;padding:1px 6px;vertical-align:3px;margin-left:10px}
+  .sub{color:var(--dim);margin:6px 0 34px;max-width:78ch}
+  h2{font-size:13px;color:var(--dim);text-transform:uppercase;letter-spacing:.14em;
+    margin:46px 0 6px;border-bottom:1px solid #262b38;padding-bottom:6px}
+  h2 b{color:var(--text)}
+  .cap{color:var(--dim);font-size:12px;margin:4px 0 18px;max-width:82ch}
+  .cap code, p code, li code{color:var(--accent-b);background:var(--inset);
+    padding:0 4px;border-radius:3px;font-size:12px}
+  .row-of{display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start}
+
+  /* ---------- sidebar fragment ---------- */
+  .sidebar{width:250px;background:var(--bg);border:1px solid #262b38;border-radius:6px;
+    padding:8px 0;flex:none}
+  .sb-head{color:var(--dim);font-size:11px;padding:3px 12px;letter-spacing:.08em}
+  .sb-row{display:flex;align-items:center;gap:7px;padding:3px 12px;white-space:nowrap;
+    position:relative;cursor:default}
+  .sb-row:hover{background:#1c2130}
+  .sb-row.hovered{background:#1c2130;outline:1px solid #2b3244}
+  .dot{width:7px;height:7px;border-radius:50%;flex:none}
+  .dot.g{background:var(--green)} .dot.b{background:var(--accent)}
+  .dot.a{background:var(--amber);box-shadow:0 0 6px 1px rgba(234,179,8,.55)}
+  .dot.i{background:#3a4152}
+  .sb-name{overflow:hidden;text-overflow:ellipsis}
+  .sb-pr{color:var(--dim);font-size:11px;margin-left:auto}
+  .sb-pr.ok{color:var(--green)}
+
+  /* ---------- flyout card (the shipped shell) ---------- */
+  .fly{width:330px;background:var(--card);border:1px solid var(--border);border-radius:6px;
+    padding:10px 12px;box-shadow:0 8px 28px rgba(0,0,0,.55),0 2px 8px rgba(0,0,0,.4);
+    flex:none;display:flex;flex-direction:column;gap:3px;font-size:12px}
+  .fly .bar{display:flex;align-items:baseline;gap:8px;border-bottom:1px solid #262b38;
+    padding-bottom:6px;margin-bottom:5px}
+  .fly .bar .t{color:var(--text)} .fly .bar .at{color:var(--dim)}
+  .fly .bar .info{margin-left:auto;color:var(--dim)}
+  .reg{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .reg .k{color:var(--dim)}
+  .reg .age{color:var(--dim)}
+  .reg.stale{opacity:.5}
+  .cont{color:var(--dim);padding-left:4ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .acts{margin-top:7px;border-top:1px solid #262b38;padding-top:5px;display:flex;
+    flex-direction:column}
+  .act{display:flex;align-items:center;gap:8px;color:var(--dim);padding:3px 8px;margin:0 -8px;
+    border-left:2px solid transparent;cursor:default}
+  .act:hover{color:var(--text);border-left-color:var(--green);background:#1c2130}
+  .act .hint{margin-left:auto;font-size:11px;color:#5a6274}
+  .act svg{flex:none}
+  .callout{position:relative}
+  .callout::after{content:attr(data-note);position:absolute;left:calc(100% + 14px);top:50%;
+    transform:translateY(-50%);color:var(--amber);font-size:11px;white-space:nowrap}
+
+  /* ---------- dialog ---------- */
+  .dlg{width:360px;background:var(--card);border:1px solid var(--border);border-radius:8px;
+    padding:14px;box-shadow:0 8px 28px rgba(0,0,0,.55);flex:none}
+  .dlg .ttl{margin-bottom:10px}
+  .dlg input{width:100%;background:transparent;border:1px solid var(--border);border-radius:4px;
+    color:var(--text);font:inherit;padding:7px 8px}
+  .dlg input::placeholder{color:var(--dim)}
+  .dlg .btn{width:100%;margin-top:12px;padding:6px;background:var(--card);
+    border:1px solid var(--border);border-radius:4px;color:var(--text);font:inherit;cursor:default}
+  .dlg .btn:hover{border-color:var(--dim)}
+
+  /* ---------- palette ---------- */
+  .pal{width:430px;background:var(--card);border:1px solid var(--border);border-radius:8px;
+    box-shadow:0 8px 28px rgba(0,0,0,.55);flex:none;overflow:hidden}
+  .pal .q{padding:9px 12px;border-bottom:1px solid #262b38;color:var(--dim)}
+  .pal .q b{color:var(--text)} .pal .q .caret{color:var(--accent-b)}
+  .pal .it{padding:5px 12px;display:flex;gap:8px;align-items:center}
+  .pal .it.sel{background:#1c2130;border-left:2px solid var(--accent)}
+  .pal .it .scope{color:var(--dim)}
+  .pal .it .lbl{color:var(--text)}
+  .pal .it .k{margin-left:auto;color:#5a6274;font-size:11px}
+
+  /* ---------- schema / pipeline ---------- */
+  .flow{background:var(--inset);border:1px solid #262b38;border-radius:6px;padding:14px 16px;
+    font-size:12px;overflow-x:auto}
+  .flow .c{color:var(--dim)} .flow .g{color:var(--green)} .flow .a{color:var(--accent-b)}
+  .flow .y{color:var(--amber)}
+  table{border-collapse:collapse;font-size:12px;margin:10px 0}
+  td,th{border:1px solid #262b38;padding:5px 10px;text-align:left;vertical-align:top}
+  th{color:var(--dim);font-weight:normal}
+  td .who{color:var(--accent-b)}
+
+  /* ---------- future grid ---------- */
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:18px}
+  .idea{background:var(--card);border:1px solid #262b38;border-radius:6px;padding:12px 14px}
+  .idea h3{font-size:12px;color:var(--text);margin-bottom:2px}
+  .idea .st{font-size:10px;border-radius:3px;padding:0 5px;margin-left:6px;vertical-align:1px}
+  .st.now{color:var(--green);border:1px solid var(--green)}
+  .st.next{color:var(--amber);border:1px solid var(--amber)}
+  .st.maybe{color:var(--dim);border:1px solid var(--dim)}
+  .idea p{color:var(--dim);font-size:11.5px;margin:5px 0 8px}
+  .mini{background:var(--inset);border:1px solid #232839;border-radius:4px;padding:8px 10px;
+    font-size:11.5px;overflow:hidden}
+  .mini .l{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mini .k{color:var(--dim)} .mini .hl{color:var(--text)} .mini .gg{color:var(--green)}
+  .mini .yy{color:var(--amber)} .mini .aa{color:var(--accent-b)} .mini .rr{color:var(--red)}
+  .mini .dim2{opacity:.5}
+  @media (max-width:760px){.callout::after{display:none}}
+</style>
+</head>
+<body>
+
+<h1>Tab Note <span style="color:var(--dim)">·</span> <code>@rk_note</code> <span class="tag">shipped · PR #734</span></h1>
+<p class="sub">A window-scoped one-liner — <i>why</i> a tab is in the state it's in, next to the derived
+signals that only say <i>what</i> state. Written by you, by the agent itself, or by the operator;
+read everywhere the window payload already flows. Degrades to absent: no option, no row.</p>
+
+<h2>1 · Where it lives — the <b>window flyout card</b></h2>
+<p class="cap">Hover a sidebar window row (or tap the coarse-pointer rail) → the row's flyout card.
+The note is the first body line, before the <code>fab</code>/<code>pr</code> registers.
+The row itself never grows a second line — fixed row height, virtualization-safe.</p>
+
+<div class="row-of">
+  <div class="sidebar">
+    <div class="sb-head">SESSIONS · run-kit</div>
+    <div class="sb-row"><span class="dot g"></span><span class="sb-name">daemon-system</span><span class="sb-pr ok">✓</span></div>
+    <div class="sb-row hovered"><span class="dot a"></span><span class="sb-name">tab-status-note</span><span class="sb-pr">#734</span></div>
+    <div class="sb-row"><span class="dot b"></span><span class="sb-name">config-consolidation</span></div>
+    <div class="sb-row"><span class="dot i"></span><span class="sb-name">companion-windows</span></div>
+    <div class="sb-head" style="margin-top:8px">_rk-operator</div>
+    <div class="sb-row"><span class="dot g"></span><span class="sb-name">operator</span></div>
+  </div>
+
+  <div class="fly">
+    <div class="bar"><span class="t">Window</span><span class="at">@7 · tab-status-note</span><span class="info">ⓘ</span></div>
+    <div class="reg callout" data-note="◀ the note line (new)"><span class="k">note </span><span>blocked on flaky e2e</span><span class="age"> · 2h ago</span></div>
+    <div class="reg"><span class="k">fab&nbsp;&nbsp;</span><span>bb5n · review-pr · done</span></div>
+    <div class="cont">tab-status-note</div>
+    <div class="reg"><span class="k">pr&nbsp;&nbsp;&nbsp;</span><span style="color:var(--green)">#734 open · checks ✓</span><span class="k"> ↗</span></div>
+    <div class="acts">
+      <div class="act"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2v7M4 6l4 4 4-4"/><path d="M3 13h10"/></svg><span>Fork conversation</span><span class="hint">same directory</span></div>
+      <div class="act"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 12l8-8 2 2-8 8H3v-2z"/></svg><span>Fix tab name</span><span class="hint">asks the operator</span></div>
+      <div class="act callout" data-note="◀ annotate-tab (new)"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M11 2l3 3-7 7H4v-3l7-7z"/><path d="M3 14h6"/></svg><span>Annotate tab</span><span class="hint">asks the operator</span></div>
+      <div class="act"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="6" r="3"/><path d="M8 9v5"/></svg><span>Pin to board…</span><span class="hint"></span></div>
+      <div class="act" style="color:#8a4b52"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 4l8 8M12 4l-8 8"/></svg><span>Kill window…</span><span class="hint"></span></div>
+    </div>
+  </div>
+
+  <div class="fly">
+    <div class="bar"><span class="t">Window</span><span class="at">@3 · companion-windows</span><span class="info">ⓘ</span></div>
+    <div class="reg stale"><span class="k">note </span><span>parked — resume after w7qc rebase</span><span class="age"> · 6d ago</span></div>
+    <div class="reg"><span class="k">fab&nbsp;&nbsp;</span><span>w7qc · intake · ready</span></div>
+    <div class="acts">
+      <div class="act"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M11 2l3 3-7 7H4v-3l7-7z"/><path d="M3 14h6"/></svg><span>Annotate tab</span><span class="hint">asks the operator</span></div>
+    </div>
+  </div>
+</div>
+<p class="cap" style="margin-top:14px">Left card: a <b>fresh</b> note (&lt; 24 h) — primary text with a dim relative age.
+Right card: a <b>stale</b> note (&gt; 24 h) — the whole line drops to 50 % opacity. Faded, never hidden:
+an old note keeps informing (“this was true 6 days ago”) without lying about freshness.
+A note with no epoch (hand-set without the prefix) renders text-only, undimmed, no age.</p>
+
+<h2>2 · Writing one — three writers, one option</h2>
+<div class="row-of">
+  <div>
+    <div class="pal">
+      <div class="q"><span class="caret">›</span> <b>note</b><span style="color:#3a4152">|</span></div>
+      <div class="it sel"><span class="scope">Window:</span><span class="lbl">Set note…</span><span class="k">↵</span></div>
+      <div class="it"><span class="scope">Operator:</span><span class="lbl">Annotate tab</span></div>
+      <div class="it"><span class="scope">Window:</span><span class="lbl">Rename</span></div>
+    </div>
+    <p class="cap" style="margin-top:8px"><code>⌘K</code> — both actions registered (Constitution V:
+    the palette is the complete action registry).</p>
+  </div>
+  <div>
+    <div class="dlg">
+      <div class="ttl">Set tab note</div>
+      <input value="blocked on flaky e2e" readonly>
+      <button class="btn">Set note</button>
+    </div>
+    <p class="cap" style="margin-top:8px">Prefilled + select-all'd, so typing replaces.
+    Empty submit → the button flips to <b>Clear note</b> and unsets the option.</p>
+  </div>
+  <div style="min-width:330px;flex:1">
+    <table>
+      <tr><th>writer</th><th>path</th></tr>
+      <tr><td><span class="who">you</span></td><td><code>Window: Set note…</code> → <code>POST /options {"@rk_note": text}</code> — server stamps the epoch, wakes SSE (instant repaint)</td></tr>
+      <tr><td><span class="who">the agent itself</span></td><td><code>tmux set-option -wt "$TMUX_PANE" @rk_note "$(date +%s):waiting on CI"</code> — zero rk dependency; lands within the ~12 s safety poll</td></tr>
+      <tr><td><span class="who">the operator</span></td><td><code>annotate-tab</code> template: reads the tab's transcript tail, writes the one-liner itself</td></tr>
+    </table>
+  </div>
+</div>
+
+<h2>3 · The mechanism (why it's cheap)</h2>
+<div class="flow">
+<span class="c"># one window-scoped tmux user option; value = epoch prefix + free text</span>
+@rk_note = <span class="y">1756036800</span><span class="c">:</span><span class="g">blocked on flaky e2e</span>
+
+<span class="c"># read: field 14 of the list-windows derive (free text ⇒ last field, tail-rejoined)</span>
+list-windows ─▶ parseWindows ─▶ WindowInfo{<span class="a">Note, NoteEpoch</span>} ─▶ /api/sessions + SSE ─▶ every client
+<span class="c"># write: 7th key on the existing /options allowlist (validated: ≤120 chars, no control runes)</span>
+<span class="c"># survives restarts: rides layout snapshots · dies with the window · absent ⇒ rendered nowhere</span>
+</div>
+<p class="cap">This is the pattern worth reusing: <b>one derived option + one payload field buys every
+surface at once</b> — anything that already receives the window payload (sidebar, boards, desktop shell,
+palette, operator facts) can render or search notes with a render-only change.</p>
+
+<h2>4 · Where this can go <span style="color:var(--dim);text-transform:none;letter-spacing:0">— your “many more things” hunch, mapped</span></h2>
+<div class="grid">
+
+  <div class="idea"><h3>brief-me writes the notes<span class="st next">near-term</span></h3>
+    <p>Fold one line into the server-scoped <code>brief-me</code> template: “also write a one-line
+    <code>@rk_note</code> per tab.” The standup digest stops evaporating in the operator transcript —
+    it lands on the rows it describes. (Explicit non-goal in #734; one prompt-line follow-up.)</p>
+    <div class="mini">
+      <div class="l"><span class="gg">●</span> <span class="hl">daemon-system</span> <span class="k">— note</span> shipping, CI green</div>
+      <div class="l"><span class="yy">●</span> <span class="hl">tab-status-note</span> <span class="k">— note</span> waiting: Copilot review</div>
+      <div class="l"><span class="aa">●</span> <span class="hl">config-consol…</span> <span class="k">— note</span> migrating settings keys</div>
+    </div>
+  </div>
+
+  <div class="idea"><h3>whats-stuck, sorted by note<span class="st next">near-term</span></h3>
+    <p>Triage reads the notes before the transcripts: waiting tabs whose note names a blocker
+    (“blocked on…”, “needs decision…”) escalate first; stale-note + waiting is the strongest
+    “look here” signal on the server.</p>
+    <div class="mini">
+      <div class="l"><span class="rr">▲</span> <span class="hl">relay-mux</span> <span class="k">waiting 3h ·</span> needs decision: keep h1 fallback?</div>
+      <div class="l"><span class="yy">▲</span> <span class="hl">e2e-flake</span> <span class="k">waiting 40m ·</span> blocked on flaky e2e</div>
+      <div class="l dim2"><span class="k">▽</span> <span class="hl">docs-pass</span> <span class="k">waiting 6d · note stale — probably abandoned</span></div>
+    </div>
+  </div>
+
+  <div class="idea"><h3>Board card subtitles<span class="st next">near-term</span></h3>
+    <p>Board pane cards already receive the window payload — render the note as the card subtitle.
+    A wall of terminals becomes a kanban you can actually read from across the room.</p>
+    <div class="mini">
+      <div class="l"><span class="hl">▣ tab-status-note</span> <span class="k">#734</span></div>
+      <div class="l"><span class="k">&nbsp;&nbsp;blocked on flaky e2e · 2h</span></div>
+      <div class="l" style="margin-top:4px"><span class="hl">▣ daemon-system</span> <span class="gg">✓</span></div>
+      <div class="l"><span class="k">&nbsp;&nbsp;shipping, CI green · 20m</span></div>
+    </div>
+  </div>
+
+  <div class="idea"><h3>Palette: find tab by note<span class="st maybe">idea</span></h3>
+    <p><code>⌘K</code> already fuzzy-matches window names; extend the haystack with the note text.
+    “Which tab was the flaky-e2e one?” becomes a three-keystroke jump instead of a sidebar scan.</p>
+    <div class="mini">
+      <div class="l"><span class="k">›</span> <span class="hl">flaky</span></div>
+      <div class="l"><span class="k">Go to:</span> <span class="hl">tab-status-note</span> <span class="k">· matched note: “blocked on <u>flaky</u> e2e”</span></div>
+    </div>
+  </div>
+
+  <div class="idea"><h3>Desktop status bar + host tiles<span class="st maybe">idea</span></h3>
+    <p>The Electron shell's window-mirror strip and the host-page server tiles both consume the same
+    payload — the active window's note is a natural one-liner there (degrades to absent, as everywhere).</p>
+    <div class="mini"><div class="l"><span class="k">⬤ fabKit1 ·</span> <span class="hl">tab-status-note</span> <span class="k">·</span> blocked on flaky e2e</div></div>
+  </div>
+
+  <div class="idea"><h3>Handoff context on fork/spawn<span class="st maybe">idea</span></h3>
+    <p>Fork conversation / spawn-agent flows can seed the child's first message with the parent's note —
+    the cheapest possible “here's where I left off” handoff, no transcript archaeology.</p>
+    <div class="mini"><div class="l"><span class="k">spawn ▸ context:</span> parent note — “resume after w7qc rebase”</div></div>
+  </div>
+
+  <div class="idea"><h3>Stale-note nudges<span class="st maybe">idea</span></h3>
+    <p>A waiting tab whose note just crossed the 24 h stale line is precisely the thing you forgot.
+    One <code>rk notify</code> per crossing: “e2e-flake has been ‘blocked on flaky e2e’ for a day.”</p>
+    <div class="mini"><div class="l"><span class="yy">⚠</span> <span class="k">run-kit:</span> e2e-flake stuck 24h — “blocked on flaky e2e”</div></div>
+  </div>
+
+  <div class="idea"><h3>Generalize: scoped note registry<span class="st maybe">idea</span></h3>
+    <p>The same recipe scales sideways: <code>@rk_session_note</code> (goal of the session),
+    server-scoped note (what this box is for). Same schema, same staleness rule, same
+    degrade-to-absent — the scope-split naming lesson from <code>@rk_session_flair</code> applies.</p>
+    <div class="mini"><div class="l"><span class="k">session</span> <span class="hl">run-kit</span> <span class="k">— note</span> hexokit rename prep</div></div>
+  </div>
+
+</div>
+
+<p class="cap" style="margin-top:30px;border-top:1px solid #262b38;padding-top:12px">
+Design study · change <code>260824-bb5n-tab-status-note</code> · shipped in
+<a href="https://github.com/sahil87/run-kit/pull/734" style="color:var(--accent-b)">PR #734</a> ·
+“shipped” panels mirror the real components (<code>row-flyout-card.tsx</code>,
+<code>window-note-prompt.tsx</code>, palette entries in <code>app.tsx</code>); “near-term/idea”
+panels are unbuilt sketches, tracked as backlog <code>[8fjh]</code>. Self-contained.</p>
+
+</body>
+</html>

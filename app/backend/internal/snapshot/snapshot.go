@@ -64,7 +64,10 @@ type Window struct {
 	Marker string `json:"marker,omitempty"`
 	Flair  string `json:"flair,omitempty"`
 	Role   string `json:"role,omitempty"`
-	Panes  []Pane `json:"panes"`
+	// Note is the raw @rk_note value ("<unix-epoch>:<text>") — the epoch rides
+	// along so the note's age stays honest across a restore.
+	Note  string `json:"note,omitempty"`
+	Panes []Pane `json:"panes"`
 }
 
 // Pane is one tmux pane in a snapshot. Command is informational only —
@@ -156,6 +159,7 @@ func CaptureServer(ctx context.Context, server string) (*Snapshot, error) {
 			Marker: w.Marker,
 			Flair:  w.Flair,
 			Role:   w.Role,
+			Note:   w.Note,
 		}
 		for _, p := range panes[w.WindowID] {
 			win.Panes = append(win.Panes, Pane{

@@ -24,7 +24,7 @@ import { formatCombo } from "@/lib/keybindings";
 import { Tip } from "@/components/tip";
 import { StatusDot } from "@/components/status-dot";
 import { HostMetrics, normalizeLoadPercent } from "@/components/host-metrics";
-import { displayVersion } from "@/lib/palette-version";
+import { displayVersion } from "@/lib/palette/version";
 import { formatMemory, gaugeColor } from "@/lib/gauge";
 import { getAgentLine, getFabLine, getPrSegments } from "./sidebar/registers";
 import { MENU_ROW_CLASS } from "@/components/top-bar-overflow-menu";

@@ -15,9 +15,9 @@ import { withShortcutHints } from "@/lib/keybindings";
 import { canCloseShellWindow, canNewShellWindow, closeShellWindow, newShellWindow } from "@/lib/shell";
 import { focusSidebarCurrentRow } from "@/lib/sidebar-events";
 import { HOST_MENU_OPEN_EVENT } from "@/lib/shell-strip";
-import { buildNavActions, type NavMode } from "@/lib/palette-nav";
-import { buildUpdateActions, buildMaintenanceActions, buildCheckActions } from "@/lib/palette-update";
-import { buildVersionAction, displayVersion } from "@/lib/palette-version";
+import { buildNavActions, type NavMode } from "@/lib/palette/nav";
+import { buildUpdateActions, buildMaintenanceActions, buildCheckActions } from "@/lib/palette/update";
+import { buildVersionAction, displayVersion } from "@/lib/palette/version";
 import { copyToClipboard } from "@/lib/clipboard";
 
 /**
@@ -25,7 +25,7 @@ import { copyToClipboard } from "@/lib/clipboard";
  * `CommandPalette` mounted in `AppLayout`, dissolving the seven "duplicated
  * from AppShell (DD-8)" blocks `board-page.tsx` used to carry (nav, terminal
  * font trio, refresh, help, shortcuts-overlay, settings, update/check/
- * maintenance/version). Composes the existing shared `lib/palette-*` builders
+ * maintenance/version). Composes the existing shared `lib/palette/*` builders
  * and decorates the result with `withShortcutHints` so every registered action
  * renders its effective chord (the same decoration AppShell applies to its
  * route list).
@@ -80,7 +80,7 @@ export function useGlobalPaletteActions(): PaletteAction[] {
 
   // Navigation actions (260714-uco1) — palette parity (Constitution V) for the
   // top-bar history arrows + hierarchy dropdown, from the pure
-  // `buildNavActions` (lib/palette-nav.ts). In board mode `server` is "" —
+  // `buildNavActions` (lib/palette/nav.ts). In board mode `server` is "" —
   // board mode never emits `Go: tmux Server` (its gate is
   // `mode === "terminal" && server`), so `onTmuxServer` is an unreachable
   // no-op there.

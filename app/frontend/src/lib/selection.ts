@@ -3,7 +3,7 @@
  *
  * Dependency-free (no React, no zustand, no API) so the range arithmetic,
  * single-server derivation, and pruning are unit-testable without mounting the
- * tree — the same discipline as lib/palette-move.ts and lib/board-reorder.ts.
+ * tree — the same discipline as lib/palette/move.ts and lib/board-reorder.ts.
  * The store (store/selection-store.ts) and the sidebar tree are thin consumers.
  *
  * The selection is keyed by the SAME composite `${server}:${windowId}` key the

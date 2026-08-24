@@ -334,7 +334,7 @@ describe("TopBar", () => {
       expect(mockHistoryBack).toHaveBeenCalledTimes(1);
       expect(mockHistoryForward).toHaveBeenCalledTimes(1);
       // 260813-kvk7: the hierarchy ▾ dropdown (ancestor navigation) is gone —
-      // it survives only in the palette's `Go:` entries (lib/palette-nav.ts).
+      // it survives only in the palette's `Go:` entries (lib/palette/nav.ts).
       expect(screen.queryByLabelText("Switch hierarchy")).not.toBeInTheDocument();
       expect(screen.queryByLabelText("Navigate up")).not.toBeInTheDocument();
     });

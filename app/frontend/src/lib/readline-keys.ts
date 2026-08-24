@@ -35,7 +35,7 @@
  * Ctrl+Backspace. Ctrl+U (view-source) IS interceptable and works everywhere.
  *
  * Pure classification + cursor math are exported for unit tests without a
- * mount (the `palette-move.ts` extraction pattern); `handleReadlineKey` is the
+ * mount (the `palette/move.ts` extraction pattern); `handleReadlineKey` is the
  * thin DOM applier both surfaces call.
  */
 

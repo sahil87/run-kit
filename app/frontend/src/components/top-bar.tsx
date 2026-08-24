@@ -7,7 +7,7 @@ import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
 import { useUpdateClick } from "@/hooks/use-update-click";
 import { useUpdateNotification } from "@/contexts/session-context";
-import { updateChipToolSummary } from "@/lib/palette-update";
+import { updateChipToolSummary } from "@/lib/palette/update";
 import { splitWindow, closePane } from "@/api/client";
 import { useWindowRename } from "@/hooks/use-window-rename";
 import { finalizeSafeName, toSafeWindowName } from "@/lib/names";
@@ -300,7 +300,7 @@ const LINK_CRUMB_CLASS =
  * reliably exposed by browsers, so a dim/disabled forward state is best-effort
  * only and deliberately omitted — clicking forward with no forward entry is a
  * harmless no-op. The same two actions are reachable from the command palette
- * (`Go: Back` / `Go: Forward`, Constitution V; see lib/palette-nav.ts).
+ * (`Go: Back` / `Go: Forward`, Constitution V; see lib/palette/nav.ts).
  *
  * Styling is the shared fixed-size token (`TOP_BAR_BUTTON`, 260731-oiho). The
  * pair sits in its own `shrink-0` group so the arrows never collapse under
@@ -1156,7 +1156,7 @@ export function TopBar({
                     prefix carries NO caret (260813-kvk7): the heading reads
                     `Tab: <name>` with the single ▾ owned by the tab
                     switcher; ancestor navigation lives in the palette
-                    (`Go: tmux Server` / `Go: Host`, lib/palette-nav.ts). */}
+                    (`Go: tmux Server` / `Go: Host`, lib/palette/nav.ts). */}
                 <WindowHeading
                   server={server}
                   windowId={currentWindow.windowId}

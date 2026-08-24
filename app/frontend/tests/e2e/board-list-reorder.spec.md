@@ -15,7 +15,7 @@ server/session-reorder drag specs are documented as `test.fixme` and the
 server-reorder e2e exercises the endpoint/socket surface instead of the drag). The
 derive-over-store override, render-time reconcile, MIME discrimination, self-
 target snap-back fix, debounce/flush, and palette Move actions are all covered by
-Vitest unit tests (`use-board-list-reorder.test.ts`, `palette-move.test.ts`,
+Vitest unit tests (`use-board-list-reorder.test.ts`, `palette/move.test.ts`,
 `boards.test.ts`, `boards-section.test.tsx`, `host-overview-page.test.tsx`). This
 spec exercises the load-bearing new backend surface — the order write, its
 API-layer rank-aware sort, and the server-global echo — end-to-end against

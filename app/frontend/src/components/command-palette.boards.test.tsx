@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { CommandPalette, type PaletteAction } from "./command-palette";
-import { buildNavActions } from "@/lib/palette-nav";
-import { buildUpdateActions } from "@/lib/palette-update";
+import { buildNavActions } from "@/lib/palette/nav";
+import { buildUpdateActions } from "@/lib/palette/update";
 
 /**
  * Tests for the board-related palette entries — covers conditional visibility
@@ -35,7 +35,7 @@ import { buildUpdateActions } from "@/lib/palette-update";
  * globals (i996 — palette parity for the top-bar history arrows + the board
  * breadcrumb's Host ancestor). Production builds them via
  * `buildNavActions("board", ...)` at the layout level (unit-tested in
- * `lib/palette-nav.test` — the source of truth for gating/labels); the mirror
+ * `lib/palette/nav.test` — the source of truth for gating/labels); the mirror
  * uses the SAME production helper, positioned after `conditional` as the
  * merged list does, matching the `buildUpdateActions` treatment.
  *
@@ -43,7 +43,7 @@ import { buildUpdateActions } from "@/lib/palette-update";
  * (260713-4zap; Dismiss-only since the dynamic `Update to v{X}` entry was
  * deleted — 260720-n2ai) — below `sm` the top-bar UpdateChip is hidden, so the
  * palette is a phone user's ONLY update surface. Production builds it via
- * `buildUpdateActions` (unit-tested in `lib/palette-update.test` — the source
+ * `buildUpdateActions` (unit-tested in `lib/palette/update.test` — the source
  * of truth for its shape/gating/wiring); here the mirror only verifies the
  * qualify-gated presence RULE, matching the `refreshEntry` treatment.
  */

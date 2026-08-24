@@ -5,7 +5,7 @@ import { resolveZenToggle } from "./zen-mode";
  * `resolveZenToggle` (260820-o8cr R4/R6) — the zen-mode state machine behind
  * AppShell's `toggleZen` (the chord, the palette entries, and the status-bar
  * exit button all resolve it). Pure-function tests in the
- * `palette-view.test.ts` precedent.
+ * `palette/view.test.ts` precedent.
  */
 
 const OFF = { zenActive: false, zenZoomed: false, layoutZoomed: false };

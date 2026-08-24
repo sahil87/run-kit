@@ -11,7 +11,7 @@ import {
 // neighbours inline from its final optimistic override and does NOT import this
 // module — see board-reorder.ts.) Covering the insert-before neighbour
 // arithmetic + boundary gating here proves the reorder POST's before/after are
-// correct without mounting the board (mirrors palette-move.test.ts).
+// correct without mounting the board (mirrors palette/move.test.ts).
 
 describe("computeReorderNeighbors (drag insert-before → POST before/after)", () => {
   it("moves an item to the end (drag first over last)", () => {

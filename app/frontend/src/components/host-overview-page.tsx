@@ -20,11 +20,11 @@ import { formatCombo } from "@/lib/keybindings";
 import { SectionHeading } from "@/components/section-heading";
 import { StatusBar } from "@/components/status-bar";
 import { RecoverySection, useRecoveryOffers } from "@/components/recovery-section";
-import { buildRecoveryActions } from "@/lib/palette-recovery";
+import { buildRecoveryActions } from "@/lib/palette/recovery";
 import { useRegisterPaletteActions } from "@/contexts/palette-actions-context";
 import { Tip } from "@/components/tip";
-import { displayVersion } from "@/lib/palette-version";
-import { deriveEffectiveSessionOrder } from "@/lib/palette-move";
+import { displayVersion } from "@/lib/palette/version";
+import { deriveEffectiveSessionOrder } from "@/lib/palette/move";
 import { readLastWindow, resolveServerLandingWindow } from "@/lib/last-window-per-server";
 
 /** Well-known / system ports (< 1024, the reserved range) — sshd:22, smtp:25,

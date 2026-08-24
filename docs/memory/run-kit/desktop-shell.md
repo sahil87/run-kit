@@ -458,7 +458,7 @@ The **window-chrome surfaces are hardware-only on every platform** for the same 
 
 The win/linux *menu* contract is nonetheless CI-provable without hardware: the compiled `dist/menu.js` can be loaded under a mocked `electron` module with `process.platform` forced, and the built template's accelerators asserted — that is how the "nothing in the unshifted Ctrl tier" invariant was verified.
 
-The vitest column of the split also covers `palette-shell.test.ts` (the palette-side suite of the `servers` bridge group), plus the SPA halves of the shell chrome — `shell-strip.test.ts`, `desktop-shell/titlebar-strip.test.tsx`, and `desktop-shell/badge-reporter.test.tsx`.
+The vitest column of the split also covers `palette/shell.test.ts` (the palette-side suite of the `servers` bridge group), plus the SPA halves of the shell chrome — `shell-strip.test.ts`, `desktop-shell/titlebar-strip.test.tsx`, and `desktop-shell/badge-reporter.test.tsx`.
 
 ## Design Decisions
 

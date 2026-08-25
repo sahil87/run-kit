@@ -482,10 +482,11 @@ summary {
    Always-on CSS-only overlays for rows carrying a flair value (`rain` / `scan` /
    `nyan` /
    `naruto` / `onepiece` / `pacman` / `matrix` / `aquarium` / `roadrunner` /
-   `invaders` / `cube` / `warp`) — pure decoration: no wiring to
+   `invaders` / `cube` / `warp` / `portal`) — pure decoration: no wiring to
    @rk_agent_state or
    the status pyramid, and it animates in EVERY row state. Mounted on window
-   and session rows (NOT server group headers) as an absolutely-positioned
+   rows, session rows, server group headers, and SERVER tiles as an
+   absolutely-positioned
    inner element (inset-0, overflow-hidden, pointer-events-none, z-5):
    clipping lives on the overlay, NEVER the
    row root (whose top-full popovers must stay unclipped).
@@ -1084,6 +1085,86 @@ summary {
 .rk-flair-cube .rk-cube-face:nth-child(5) { transform: rotateX(90deg) translateZ(8px); }
 .rk-flair-cube .rk-cube-face:nth-child(6) { transform: rotateX(-90deg) translateZ(8px); }
 
+/* portal: the catalogue's one in-box entrance/exit — a portal swirls at the
+   box's left edge, a figure walks out and across, a second portal opens at
+   the right edge and takes him back. ::after is the figure sheet (16×88,
+   four 22px walk frames) on the standard centered strip; ::before is TWO
+   layers of ONE portal sheet (20×220, ten 22px frames — a single
+   collapse-then-reopen arc, phase-shifted per portal: the entry disc plays
+   the collapse half, the exit disc the reopen half) lifted to z-index 6
+   (the rk-flair-scan lift) so the figure emerges from BEHIND the disc. Every
+   -x anchor is a PERCENTAGE, never px: the traversal endpoints ARE the two
+   discs, so they must hold at every box width — at an 18px picker cell a
+   px-anchored exit portal would land left of the box and invert the
+   traversal, while 0%/100% degrade to two overlapping discs reading as one
+   pulsing portal. No off-screen parking: the exit disc holds full-open
+   through 100% and the entry disc is already full at 0%, so the figure's
+   loop wrap happens behind opaque art at both ends. */
+@keyframes rk-flair-portal-x {
+  from { background-position-x: 0%; }
+  to { background-position-x: 100%; }
+}
+@keyframes rk-flair-portal-walk {
+  0% { background-position-y: 0px; }
+  25% { background-position-y: -22px; }
+  50% { background-position-y: -44px; }
+  75% { background-position-y: -66px; }
+  100% { background-position-y: -66px; }
+}
+/* Per-layer comma-separated -y values (entry disc, exit disc) on ONE
+   step-end rule — frame n sits at -22n px, frame 5 is the empty frame. The
+   gate period MUST equal the -x traversal period: the discs' open/close has
+   to line up with where the figure actually is at each moment. */
+@keyframes rk-flair-portal-gate {
+  0%  { background-position-y: 0px,    -110px; }
+  4%  { background-position-y: -22px,  -110px; }
+  8%  { background-position-y: -44px,  -110px; }
+  11% { background-position-y: -66px,  -110px; }
+  14% { background-position-y: -88px,  -110px; }
+  17% { background-position-y: -110px, -110px; }
+  80% { background-position-y: -110px, -132px; }
+  84% { background-position-y: -110px, -154px; }
+  88% { background-position-y: -110px, -176px; }
+  92% { background-position-y: -110px, -198px; }
+  96%, 100% { background-position-y: -110px, 0px; }
+}
+.rk-flair-portal::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 22px;
+  margin-top: -11px;
+  z-index: 6;
+  pointer-events: none;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='220' viewBox='0 0 20 220'%3E%3Cdefs%3E%3Cg id='pd'%3E%3Cg fill='%2397ce4c'%3E%3Crect x='8' y='5' width='4' height='1'/%3E%3Crect x='6' y='6' width='8' height='1'/%3E%3Crect x='5' y='7' width='10' height='1'/%3E%3Crect x='4' y='8' width='12' height='1'/%3E%3Crect x='3' y='9' width='14' height='2'/%3E%3Crect x='2' y='11' width='16' height='4'/%3E%3Crect x='3' y='15' width='14' height='2'/%3E%3Crect x='4' y='17' width='12' height='1'/%3E%3Crect x='5' y='18' width='10' height='2'/%3E%3Crect x='6' y='20' width='8' height='1'/%3E%3C/g%3E%3Cg fill='%23c7f06a'%3E%3Crect x='7' y='7' width='6' height='1'/%3E%3Crect x='5' y='8' width='10' height='2'/%3E%3Crect x='4' y='10' width='12' height='6'/%3E%3Crect x='5' y='16' width='10' height='2'/%3E%3Crect x='7' y='18' width='6' height='1'/%3E%3C/g%3E%3Cg fill='%23eaffc0'%3E%3Crect x='8' y='10' width='4' height='1'/%3E%3Crect x='7' y='11' width='6' height='4'/%3E%3Crect x='8' y='15' width='4' height='1'/%3E%3C/g%3E%3Cg fill='%2397ce4c' fill-opacity='0.45'%3E%3Crect x='18' y='8' width='1' height='1'/%3E%3Crect x='1' y='15' width='1' height='1'/%3E%3Crect x='12' y='3' width='1' height='1'/%3E%3C/g%3E%3C/g%3E%3Cg id='sa' fill='%234f7a24'%3E%3Crect x='12' y='7' width='2' height='1'/%3E%3Crect x='13' y='8' width='2' height='1'/%3E%3Crect x='14' y='9' width='2' height='1'/%3E%3Crect x='14' y='15' width='2' height='1'/%3E%3Crect x='13' y='16' width='2' height='1'/%3E%3Crect x='12' y='17' width='2' height='1'/%3E%3Crect x='5' y='16' width='2' height='1'/%3E%3Crect x='4' y='15' width='2' height='1'/%3E%3Crect x='3' y='14' width='2' height='1'/%3E%3Crect x='3' y='10' width='2' height='1'/%3E%3Crect x='4' y='9' width='2' height='1'/%3E%3Crect x='5' y='8' width='2' height='1'/%3E%3C/g%3E%3Cg id='sb' fill='%234f7a24'%3E%3Crect x='9' y='5' width='2' height='1'/%3E%3Crect x='10' y='6' width='2' height='1'/%3E%3Crect x='11' y='7' width='1' height='1'/%3E%3Crect x='16' y='11' width='1' height='2'/%3E%3Crect x='15' y='13' width='2' height='1'/%3E%3Crect x='9' y='20' width='2' height='1'/%3E%3Crect x='8' y='19' width='2' height='1'/%3E%3Crect x='7' y='18' width='1' height='1'/%3E%3Crect x='3' y='12' width='2' height='1'/%3E%3Crect x='2' y='13' width='1' height='2'/%3E%3C/g%3E%3Cg id='r14'%3E%3Cg fill='%2397ce4c'%3E%3Crect x='8' y='6' width='4' height='1'/%3E%3Crect x='6' y='7' width='2' height='1'/%3E%3Crect x='12' y='7' width='2' height='1'/%3E%3Crect x='5' y='8' width='2' height='1'/%3E%3Crect x='13' y='8' width='2' height='1'/%3E%3Crect x='4' y='9' width='1' height='2'/%3E%3Crect x='15' y='9' width='1' height='2'/%3E%3Crect x='3' y='11' width='1' height='4'/%3E%3Crect x='16' y='11' width='1' height='4'/%3E%3Crect x='4' y='15' width='1' height='2'/%3E%3Crect x='15' y='15' width='1' height='2'/%3E%3Crect x='5' y='17' width='2' height='1'/%3E%3Crect x='13' y='17' width='2' height='1'/%3E%3Crect x='6' y='18' width='2' height='1'/%3E%3Crect x='12' y='18' width='2' height='1'/%3E%3Crect x='8' y='19' width='4' height='1'/%3E%3C/g%3E%3Crect x='9' y='12' width='2' height='2' fill='%23c7f06a' fill-opacity='0.5'/%3E%3C/g%3E%3Cg id='r10' fill='%2397ce4c'%3E%3Crect x='9' y='8' width='2' height='1'/%3E%3Crect x='7' y='9' width='2' height='1'/%3E%3Crect x='11' y='9' width='2' height='1'/%3E%3Crect x='6' y='10' width='1' height='2'/%3E%3Crect x='13' y='10' width='1' height='2'/%3E%3Crect x='5' y='12' width='1' height='2'/%3E%3Crect x='14' y='12' width='1' height='2'/%3E%3Crect x='6' y='14' width='1' height='2'/%3E%3Crect x='13' y='14' width='1' height='2'/%3E%3Crect x='7' y='16' width='2' height='1'/%3E%3Crect x='11' y='16' width='2' height='1'/%3E%3Crect x='9' y='17' width='2' height='1'/%3E%3C/g%3E%3Cg id='sp5'%3E%3Crect x='9' y='10' width='2' height='6' fill='%23c7f06a'/%3E%3Crect x='7' y='12' width='6' height='2' fill='%23c7f06a'/%3E%3Crect x='9' y='12' width='2' height='2' fill='%23eaffc0'/%3E%3C/g%3E%3C/defs%3E%3Cuse href='%23pd'/%3E%3Cuse href='%23sa'/%3E%3Cg transform='translate(0,22)'%3E%3Cuse href='%23pd'/%3E%3Cuse href='%23sb'/%3E%3C/g%3E%3Cg transform='translate(0,44)'%3E%3Cuse href='%23r14'/%3E%3C/g%3E%3Cg transform='translate(0,66)'%3E%3Cuse href='%23r10'/%3E%3C/g%3E%3Cg transform='translate(0,88)'%3E%3Cuse href='%23sp5'/%3E%3C/g%3E%3Cg transform='translate(0,132)'%3E%3Cuse href='%23sp5'/%3E%3C/g%3E%3Cg transform='translate(0,154)'%3E%3Cuse href='%23r10'/%3E%3C/g%3E%3Cg transform='translate(0,176)'%3E%3Cuse href='%23r14'/%3E%3C/g%3E%3Cg transform='translate(0,198)'%3E%3Cuse href='%23pd'/%3E%3Cuse href='%23sb'/%3E%3C/g%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='220' viewBox='0 0 20 220'%3E%3Cdefs%3E%3Cg id='pd'%3E%3Cg fill='%2397ce4c'%3E%3Crect x='8' y='5' width='4' height='1'/%3E%3Crect x='6' y='6' width='8' height='1'/%3E%3Crect x='5' y='7' width='10' height='1'/%3E%3Crect x='4' y='8' width='12' height='1'/%3E%3Crect x='3' y='9' width='14' height='2'/%3E%3Crect x='2' y='11' width='16' height='4'/%3E%3Crect x='3' y='15' width='14' height='2'/%3E%3Crect x='4' y='17' width='12' height='1'/%3E%3Crect x='5' y='18' width='10' height='2'/%3E%3Crect x='6' y='20' width='8' height='1'/%3E%3C/g%3E%3Cg fill='%23c7f06a'%3E%3Crect x='7' y='7' width='6' height='1'/%3E%3Crect x='5' y='8' width='10' height='2'/%3E%3Crect x='4' y='10' width='12' height='6'/%3E%3Crect x='5' y='16' width='10' height='2'/%3E%3Crect x='7' y='18' width='6' height='1'/%3E%3C/g%3E%3Cg fill='%23eaffc0'%3E%3Crect x='8' y='10' width='4' height='1'/%3E%3Crect x='7' y='11' width='6' height='4'/%3E%3Crect x='8' y='15' width='4' height='1'/%3E%3C/g%3E%3Cg fill='%2397ce4c' fill-opacity='0.45'%3E%3Crect x='18' y='8' width='1' height='1'/%3E%3Crect x='1' y='15' width='1' height='1'/%3E%3Crect x='12' y='3' width='1' height='1'/%3E%3C/g%3E%3C/g%3E%3Cg id='sa' fill='%234f7a24'%3E%3Crect x='12' y='7' width='2' height='1'/%3E%3Crect x='13' y='8' width='2' height='1'/%3E%3Crect x='14' y='9' width='2' height='1'/%3E%3Crect x='14' y='15' width='2' height='1'/%3E%3Crect x='13' y='16' width='2' height='1'/%3E%3Crect x='12' y='17' width='2' height='1'/%3E%3Crect x='5' y='16' width='2' height='1'/%3E%3Crect x='4' y='15' width='2' height='1'/%3E%3Crect x='3' y='14' width='2' height='1'/%3E%3Crect x='3' y='10' width='2' height='1'/%3E%3Crect x='4' y='9' width='2' height='1'/%3E%3Crect x='5' y='8' width='2' height='1'/%3E%3C/g%3E%3Cg id='sb' fill='%234f7a24'%3E%3Crect x='9' y='5' width='2' height='1'/%3E%3Crect x='10' y='6' width='2' height='1'/%3E%3Crect x='11' y='7' width='1' height='1'/%3E%3Crect x='16' y='11' width='1' height='2'/%3E%3Crect x='15' y='13' width='2' height='1'/%3E%3Crect x='9' y='20' width='2' height='1'/%3E%3Crect x='8' y='19' width='2' height='1'/%3E%3Crect x='7' y='18' width='1' height='1'/%3E%3Crect x='3' y='12' width='2' height='1'/%3E%3Crect x='2' y='13' width='1' height='2'/%3E%3C/g%3E%3Cg id='r14'%3E%3Cg fill='%2397ce4c'%3E%3Crect x='8' y='6' width='4' height='1'/%3E%3Crect x='6' y='7' width='2' height='1'/%3E%3Crect x='12' y='7' width='2' height='1'/%3E%3Crect x='5' y='8' width='2' height='1'/%3E%3Crect x='13' y='8' width='2' height='1'/%3E%3Crect x='4' y='9' width='1' height='2'/%3E%3Crect x='15' y='9' width='1' height='2'/%3E%3Crect x='3' y='11' width='1' height='4'/%3E%3Crect x='16' y='11' width='1' height='4'/%3E%3Crect x='4' y='15' width='1' height='2'/%3E%3Crect x='15' y='15' width='1' height='2'/%3E%3Crect x='5' y='17' width='2' height='1'/%3E%3Crect x='13' y='17' width='2' height='1'/%3E%3Crect x='6' y='18' width='2' height='1'/%3E%3Crect x='12' y='18' width='2' height='1'/%3E%3Crect x='8' y='19' width='4' height='1'/%3E%3C/g%3E%3Crect x='9' y='12' width='2' height='2' fill='%23c7f06a' fill-opacity='0.5'/%3E%3C/g%3E%3Cg id='r10' fill='%2397ce4c'%3E%3Crect x='9' y='8' width='2' height='1'/%3E%3Crect x='7' y='9' width='2' height='1'/%3E%3Crect x='11' y='9' width='2' height='1'/%3E%3Crect x='6' y='10' width='1' height='2'/%3E%3Crect x='13' y='10' width='1' height='2'/%3E%3Crect x='5' y='12' width='1' height='2'/%3E%3Crect x='14' y='12' width='1' height='2'/%3E%3Crect x='6' y='14' width='1' height='2'/%3E%3Crect x='13' y='14' width='1' height='2'/%3E%3Crect x='7' y='16' width='2' height='1'/%3E%3Crect x='11' y='16' width='2' height='1'/%3E%3Crect x='9' y='17' width='2' height='1'/%3E%3C/g%3E%3Cg id='sp5'%3E%3Crect x='9' y='10' width='2' height='6' fill='%23c7f06a'/%3E%3Crect x='7' y='12' width='6' height='2' fill='%23c7f06a'/%3E%3Crect x='9' y='12' width='2' height='2' fill='%23eaffc0'/%3E%3C/g%3E%3C/defs%3E%3Cuse href='%23pd'/%3E%3Cuse href='%23sa'/%3E%3Cg transform='translate(0,22)'%3E%3Cuse href='%23pd'/%3E%3Cuse href='%23sb'/%3E%3C/g%3E%3Cg transform='translate(0,44)'%3E%3Cuse href='%23r14'/%3E%3C/g%3E%3Cg transform='translate(0,66)'%3E%3Cuse href='%23r10'/%3E%3C/g%3E%3Cg transform='translate(0,88)'%3E%3Cuse href='%23sp5'/%3E%3C/g%3E%3Cg transform='translate(0,132)'%3E%3Cuse href='%23sp5'/%3E%3C/g%3E%3Cg transform='translate(0,154)'%3E%3Cuse href='%23r10'/%3E%3C/g%3E%3Cg transform='translate(0,176)'%3E%3Cuse href='%23r14'/%3E%3C/g%3E%3Cg transform='translate(0,198)'%3E%3Cuse href='%23pd'/%3E%3Cuse href='%23sb'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 20px 220px;
+  background-repeat: no-repeat;
+  background-position: 0% 0px, 100% -110px;
+  animation: rk-flair-portal-gate 11s step-end infinite;
+}
+.rk-flair-portal::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 22px;
+  margin-top: -11px;
+  pointer-events: none;
+  opacity: 0.95;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='88' viewBox='0 0 16 88'%3E%3Cdefs%3E%3Cg id='rb'%3E%3Crect x='8' y='9' width='1' height='1' fill='%23f0f4f9'/%3E%3Crect x='10' y='9' width='1' height='1' fill='%23f0f4f9'/%3E%3Crect x='7' y='10' width='5' height='2' fill='%23f0f4f9'/%3E%3Crect x='7' y='12' width='1' height='2' fill='%23f0f4f9'/%3E%3Crect x='8' y='12' width='4' height='2' fill='%23e0ab86'/%3E%3Crect x='11' y='12' width='1' height='1' fill='%231a1d26'/%3E%3Crect x='6' y='14' width='7' height='3' fill='%23d3dbe6'/%3E%3Crect x='6' y='14' width='1' height='3' fill='%23b8c2d0'/%3E%3C/g%3E%3C/defs%3E%3Cuse href='%23rb'/%3E%3Cg fill='%2339404f'%3E%3Crect x='10' y='17' width='1' height='2'/%3E%3Crect x='10' y='19' width='2' height='2'/%3E%3Crect x='7' y='17' width='1' height='2'/%3E%3Crect x='6' y='19' width='2' height='2'/%3E%3C/g%3E%3Cg transform='translate(0,22)'%3E%3Cuse href='%23rb' transform='translate(0,-1)'/%3E%3Cg fill='%2339404f'%3E%3Crect x='8' y='16' width='1' height='2'/%3E%3Crect x='8' y='18' width='2' height='2'/%3E%3Crect x='10' y='16' width='1' height='2'/%3E%3Crect x='10' y='18' width='2' height='2'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,44)'%3E%3Cuse href='%23rb'/%3E%3Cg fill='%2339404f'%3E%3Crect x='11' y='17' width='1' height='2'/%3E%3Crect x='11' y='19' width='2' height='2'/%3E%3Crect x='7' y='17' width='1' height='2'/%3E%3Crect x='6' y='19' width='2' height='2'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,66)'%3E%3Cuse href='%23rb' transform='translate(0,-1)'/%3E%3Cg fill='%2339404f'%3E%3Crect x='8' y='16' width='1' height='2'/%3E%3Crect x='8' y='18' width='2' height='2'/%3E%3Crect x='10' y='16' width='1' height='2'/%3E%3Crect x='10' y='18' width='2' height='2'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  background-size: 16px 88px;
+  background-repeat: no-repeat;
+  background-position: 0% 0;
+  animation:
+    rk-flair-portal-x 11s linear infinite,
+    rk-flair-portal-walk 0.6s step-end infinite;
+}
+
 /* Reduced-motion gate — disable EVERY treatment above (Parts A and B). The
    decode scramble is skipped in JS (top-bar.tsx reads the same media query). */
 /* ── Row-flyout card entrance (window-row register flyout, E1) ─────────────
@@ -1246,7 +1327,7 @@ html[data-theme="light"] {
   .rk-window-switch-mask { animation: none; }
   /* Hatch-marker hazard wedge (.rk-hazard): static in every state by design —
      nothing to zero here; listed so the reduced-motion audit stays complete. */
-  /* Flair overlays (all twelve named states): motion-only ambient decoration
+  /* Flair overlays (all thirteen named states): motion-only ambient decoration
      with NO static label cue of their own — hidden entirely, including the
      onepiece wave baseline (a bare wave line without its ship would read as
      residue) and the cube/warp child spans (transform-driven treatments). */
@@ -1269,7 +1350,9 @@ html[data-theme="light"] {
   .rk-flair-cube .rk-cube-x,
   .rk-flair-cube .rk-cube-y,
   .rk-flair-cube .rk-cube,
-  .rk-flair-warp .rk-warp-plane { animation: none; display: none; }
+  .rk-flair-warp .rk-warp-plane,
+  .rk-flair-portal::before,
+  .rk-flair-portal::after { animation: none; display: none; }
   /* Flyout-card entrance: pure flourish — the card simply appears. */
   .rk-flyout-in { animation: none; }
   /* Gap-seam sash: the hover anti-flicker delay and fades are zeroed (the pill

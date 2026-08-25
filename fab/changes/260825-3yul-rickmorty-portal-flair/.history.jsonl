@@ -1,0 +1,8 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-25T07:31:53Z"}
+{"args":"Add a new Rick and Morty style portal-gun animation to the flair/hover-animation vocabulary described in fab/project/context.md (the rk-* hover-animation treatments in globals.css, FLAIR_STATES/flairTokens closed-set lockstep) -- a green swirling portal opens and a small pixel-art Rick and/or Morty figure steps through/emerges, following the sprite-sheet mold, picker band, and reduced-motion conventions used by the existing named flairs (nyan, naruto, onepiece, pacman, spidey, duel) -- research 260824-164i-spidey-swing-flair and 260825-br6k-lightsaber-duel-flair as the freshest precedents before choosing the concrete design","cmd":"fab-new","event":"command","ts":"2026-08-25T07:31:53Z"}
+{"delta":"+3.3","event":"confidence","score":3.3,"trigger":"calc-score","ts":"2026-08-25T07:36:12Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-25T07:40:19Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-25T08:19:48Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-25T08:24:47Z"}
+{"event":"review","result":"passed","ts":"2026-08-25T08:24:47Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-25T08:28:55Z"}

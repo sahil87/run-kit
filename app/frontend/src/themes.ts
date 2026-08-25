@@ -482,16 +482,15 @@ export const MARKER_STATES = ["", "pipe", "dotted", "dashed", "solid", "double",
 
 /** The row flair states. `""` (no flair) is the rest state. A flair is an
  *  always-on, ambient, CSS-only animated row overlay (globals.css
- *  `.rk-flair-*`) available on window rows and session rows (NOT server group
- *  headers — those mirror the SERVER-pane tiles, whose visual identity must
- *  stay flair-free). Flair is DECORATION ONLY — unlike the marker's label
- *  conventions, it carries no semantic at all: no wiring to `@rk_agent_state`
- *  or the status pyramid. `rain` and `scan` lead the display order — they are
- *  the marker axis's retired motion (the dashed data rain and the double
- *  scanlines + crawl + refresh band), now user-composable with ANY marker;
- *  both tint from `--rk-flair-color`. Mirrors the backend closed set minus the
- *  empty string, with `""` at the front. */
-export const FLAIR_STATES = ["", "rain", "scan", "nyan", "naruto", "onepiece", "pacman", "matrix", "aquarium", "roadrunner", "invaders", "cube", "warp"] as const;
+ *  `.rk-flair-*`) available on window rows, session rows, server group
+ *  headers, and SERVER tiles. Flair is DECORATION ONLY — unlike the marker's
+ *  label conventions, it carries no semantic at all: no wiring to
+ *  `@rk_agent_state` or the status pyramid. `rain` and `scan` lead the
+ *  display order — they are the marker axis's retired motion (the dashed data
+ *  rain and the double scanlines + crawl + refresh band), now user-composable
+ *  with ANY marker; both tint from `--rk-flair-color`. Mirrors the backend
+ *  closed set minus the empty string, with `""` at the front. */
+export const FLAIR_STATES = ["", "rain", "scan", "nyan", "naruto", "onepiece", "pacman", "matrix", "aquarium", "roadrunner", "invaders", "cube", "warp", "portal"] as const;
 
 /** A flair state — one of FLAIR_STATES. */
 export type FlairState = (typeof FLAIR_STATES)[number];

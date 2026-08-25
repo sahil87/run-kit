@@ -2066,7 +2066,7 @@ describe("Sidebar — server flair (group header + picker band)", () => {
     expect(flair.style.getPropertyValue("--rk-flair-color")).not.toBe("");
   });
 
-  it("the server picker renders the flair band (12 live cells) and a flair pick POSTs + mounts the overlay optimistically", async () => {
+  it("the server picker renders the flair band (13 live cells) and a flair pick POSTs + mounts the overlay optimistically", async () => {
     await renderWithFlairs({}); // alpha starts unflaired
 
     fireEvent.click(
@@ -2074,9 +2074,10 @@ describe("Sidebar — server flair (group header + picker band)", () => {
     );
     const popover = screen.getByRole("listbox", { name: "Color picker" });
 
-    // The flair band is present — the 12 named states as data-flair-value cells.
+    // The flair band is present — the 13 named states as data-flair-value cells.
     const cells = popover.querySelectorAll("[data-flair-value]");
-    expect(cells).toHaveLength(12);
+    expect(cells).toHaveLength(13);
+    expect(popover.querySelector("[data-flair-value='portal']")).not.toBeNull();
 
     fireEvent.click(within(popover).getByRole("option", { name: "Flair cube" }));
 

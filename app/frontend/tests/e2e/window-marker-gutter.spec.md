@@ -8,7 +8,7 @@ state (8-state closed set: pipe/dotted/dashed/solid/double/thick/hatch/block)
 persists via the `@rk_marker` window option; picking a NORMAL-shade color
 persists via `@color` in the legacy vocabulary (`familyToLegacy` write seam)
 while a DARK-shade color persists as the verbatim `{family}-dark` value;
-picking a flair (12-state closed set, rain/scan leading) persists via
+picking a flair (13-state closed set, rain/scan leading) persists via
 `@rk_flair`. The picker STAYS OPEN across picks (the dismissal contract —
 selection never closes; the ✕ cell, an outside click, or Escape dismisses), so
 combos are toggled live in one open session; each band's header − clears ONLY
@@ -41,7 +41,7 @@ border).
   picker is a `role="listbox"` named `Label picker`: the color band's 20
   swatches (2 shade rows × 10 family columns in a horizontal scroll strip) are
   `role="option"` `Color <family>` / `Color <family>-dark`; the marker band's 8
-  static cells are `Marker <state>`; the flair band's 12 live cells are `Flair
+  static cells are `Marker <state>`; the flair band's 13 live cells are `Flair
   <state>`; and each band header's right-aligned − clear cell is an option
   named `Clear color` / `Marker none` / `Flair none` (ringed —
   `aria-selected` — while its axis is unset). The band headers match as the

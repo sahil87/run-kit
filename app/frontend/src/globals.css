@@ -482,7 +482,7 @@ summary {
    Always-on CSS-only overlays for rows carrying a flair value (`rain` / `scan` /
    `nyan` /
    `naruto` / `onepiece` / `pacman` / `matrix` / `aquarium` / `roadrunner` /
-   `invaders` / `cube` / `warp` / `spidey`) — pure decoration: no wiring to
+   `invaders` / `cube` / `warp` / `spidey` / `duel`) — pure decoration: no wiring to
    @rk_agent_state or
    the status pyramid, and it animates in EVERY row state. Mounted on window
    and session rows (NOT server group headers) as an absolutely-positioned
@@ -1155,6 +1155,86 @@ summary {
     rk-flair-spidey-y 2.4s step-end infinite;
 }
 
+/* duel: the two-figure lightsaber duel — the catalogue's first INTERACTION
+   scene: a Jedi (blue blade, light robes) and a black-clad dark lord (red
+   blade) fighting while the pair drifts side to side. ::after is a centered
+   22px strip with BOTH combatants drawn into every frame of ONE sheet
+   (38×220, ten 22px frames, frame n at y=-22n) — the gap between them
+   changes per frame (advancing/retreating IS the content), which the
+   balanced-multi-layer rule forbids across separate layers, so the pair is
+   glued into a single scene per frame. The ten frames loop guard → advance
+   → high clash → press → low-sweep break → jump over the sweep → land +
+   downstrike → low clash → retreat → guard on the opposite foot (mirrored
+   footing, so the loop point reads as continued footwork, not a snap). The
+   two background-position longhands compose: -x wanders 0%→100% with
+   steps(60, jump-none) over 30s alternate (percentage positioning is
+   box-agnostic; facing-EACH-OTHER figures need no mirrored art when the
+   direction reverses — neither faces the way the pair travels), -y steps
+   the frames on explicit step-end keyframes over 5s — 0.5s/frame, exactly
+   one wander step per fight frame, so every footfall lands on an action.
+   Blades are the only fully saturated full-opacity strokes (1px cyan-blue
+   vs red) with a white flash at each clash; figures are near-silhouette —
+   the dark figure is charcoal with a 1px cool-gray rim, NEVER pure black
+   (invisible on the dark rows the themes ship by default). ::before is a
+   faint industrial-corridor tile (64px period, bottom-hugging, struts +
+   floor grating in neutral gray at 0.08/0.13) drifting one tile per 40s
+   loop in ONE direction — an alternate wander has no consistent traversal
+   direction to parallax against, so the backdrop drifts independently.
+   Pure background-position, never transform. */
+@keyframes rk-flair-duel-wander {
+  from { background-position-x: 0%; }
+  to { background-position-x: 100%; }
+}
+@keyframes rk-flair-duel-fight {
+  0% { background-position-y: 0px; }
+  10% { background-position-y: -22px; }
+  20% { background-position-y: -44px; }
+  30% { background-position-y: -66px; }
+  40% { background-position-y: -88px; }
+  50% { background-position-y: -110px; }
+  60% { background-position-y: -132px; }
+  70% { background-position-y: -154px; }
+  80% { background-position-y: -176px; }
+  90% { background-position-y: -198px; }
+  100% { background-position-y: -198px; }
+}
+@keyframes rk-flair-duel-corridor {
+  from { background-position-x: 0; }
+  to { background-position-x: -64px; }
+}
+.rk-flair-duel::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 12px;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='12' viewBox='0 0 64 12'%3E%3Cg fill='%237a8394' fill-opacity='0.08'%3E%3Crect x='4' y='0' width='2' height='12'/%3E%3Crect x='20' y='0' width='2' height='12'/%3E%3Crect x='36' y='0' width='2' height='12'/%3E%3Crect x='52' y='0' width='2' height='12'/%3E%3C/g%3E%3Cg fill='%237a8394' fill-opacity='0.13'%3E%3Crect x='0' y='10' width='64' height='1'/%3E%3Crect x='0' y='8' width='64' height='1'/%3E%3Crect x='8' y='5' width='5' height='3'/%3E%3Crect x='28' y='3' width='4' height='5'/%3E%3Crect x='44' y='6' width='6' height='2'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 64px 12px;
+  background-repeat: repeat-x;
+  background-position: 0 0;
+  animation: rk-flair-duel-corridor 40s linear infinite;
+}
+.rk-flair-duel::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 22px;
+  margin-top: -11px;
+  pointer-events: none;
+  opacity: 0.95;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='38' height='220' viewBox='0 0 38 220'%3E%3Cdefs%3E%3Cg id='jd'%3E%3Cg fill='%23c8cbd4'%3E%3Crect x='0' y='0' width='3' height='3'/%3E%3Crect x='0' y='3' width='4' height='5'/%3E%3Crect x='1' y='8' width='3' height='1'/%3E%3Crect x='0' y='9' width='1' height='4'/%3E%3Crect x='3' y='9' width='1' height='4'/%3E%3C/g%3E%3Crect x='0' y='0' width='1' height='2' fill='%239aa1ae'/%3E%3C/g%3E%3Cg id='jj'%3E%3Cg fill='%23c8cbd4'%3E%3Crect x='0' y='0' width='3' height='3'/%3E%3Crect x='0' y='3' width='4' height='5'/%3E%3Crect x='1' y='8' width='3' height='2'/%3E%3Crect x='3' y='9' width='1' height='2'/%3E%3C/g%3E%3Crect x='0' y='0' width='1' height='2' fill='%239aa1ae'/%3E%3C/g%3E%3Cg id='vd'%3E%3Cg fill='%2315181f'%3E%3Crect x='1' y='1' width='4' height='2'/%3E%3Crect x='1' y='3' width='5' height='1'/%3E%3Crect x='1' y='4' width='4' height='6'/%3E%3Crect x='1' y='10' width='1' height='3'/%3E%3Crect x='4' y='10' width='1' height='3'/%3E%3Crect x='6' y='4' width='1' height='8'/%3E%3C/g%3E%3Cg fill='%234a5262'%3E%3Crect x='1' y='0' width='3' height='1'/%3E%3Crect x='0' y='1' width='1' height='4'/%3E%3Crect x='1' y='5' width='1' height='5'/%3E%3Crect x='1' y='10' width='1' height='3'/%3E%3Crect x='6' y='3' width='1' height='1'/%3E%3Crect x='7' y='5' width='1' height='6'/%3E%3C/g%3E%3C/g%3E%3Cpath id='bu' d='M0 0 L5 -5'/%3E%3Cpath id='bv' d='M0 0 L-5 -5'/%3E%3Cpath id='bj' d='M0 0 L-7 0'/%3E%3Cpath id='bd' d='M0 0 L5 5'/%3E%3Cpath id='be' d='M0 0 L-5 5'/%3E%3Cpath id='bs' d='M0 0 L2 -7'/%3E%3Cpath id='bt' d='M0 0 L-2 -7'/%3E%3C/defs%3E%3Cg%3E%3Cuse href='%23jd' transform='translate(9,7)'/%3E%3Crect x='13' y='19' width='1' height='1' fill='%23c8cbd4'/%3E%3Cuse href='%23vd' transform='translate(24,7)'/%3E%3Cg stroke='%237fe3ff' stroke-width='1'%3E%3Cuse href='%23bs' transform='translate(14,13)'/%3E%3C/g%3E%3Cg stroke='%23ff5b5b' stroke-width='1'%3E%3Cuse href='%23bt' transform='translate(23,13)'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,22)'%3E%3Cuse href='%23jd' transform='translate(11,7)'/%3E%3Crect x='15' y='19' width='1' height='1' fill='%23c8cbd4'/%3E%3Cuse href='%23vd' transform='translate(23,7)'/%3E%3Crect x='22' y='19' width='1' height='1' fill='%2315181f'/%3E%3Cg stroke='%237fe3ff' stroke-width='1'%3E%3Cuse href='%23bu' transform='translate(15,12)'/%3E%3C/g%3E%3Cg stroke='%23ff5b5b' stroke-width='1'%3E%3Cuse href='%23bv' transform='translate(23,12)'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,44)'%3E%3Cuse href='%23jd' transform='translate(11,7)'/%3E%3Cuse href='%23vd' transform='translate(23,7)'/%3E%3Cg stroke='%237fe3ff' stroke-width='1'%3E%3Cuse href='%23bu' transform='translate(15,11)'/%3E%3C/g%3E%3Cg stroke='%23ff5b5b' stroke-width='1'%3E%3Cuse href='%23bv' transform='translate(23,11)'/%3E%3C/g%3E%3Crect x='18' y='6' width='2' height='2' fill='%23ffffff'/%3E%3C/g%3E%3Cg transform='translate(0,66)'%3E%3Cuse href='%23jd' transform='translate(12,7)'/%3E%3Crect x='16' y='11' width='1' height='3' fill='%23c8cbd4'/%3E%3Cuse href='%23vd' transform='translate(22,7)'/%3E%3Crect x='21' y='11' width='1' height='3' fill='%2315181f'/%3E%3Cg stroke='%237fe3ff' stroke-width='1'%3E%3Cuse href='%23bu' transform='translate(16,11)'/%3E%3C/g%3E%3Cg stroke='%23ff5b5b' stroke-width='1'%3E%3Cuse href='%23bv' transform='translate(22,11)'/%3E%3C/g%3E%3Crect x='18' y='7' width='2' height='2' fill='%23ffffff'/%3E%3C/g%3E%3Cg transform='translate(0,88)'%3E%3Cuse href='%23jd' transform='translate(11,7)'/%3E%3Cuse href='%23vd' transform='translate(23,7)'/%3E%3Cg stroke='%237fe3ff' stroke-width='1'%3E%3Cuse href='%23bs' transform='translate(14,12)'/%3E%3C/g%3E%3Cg stroke='%23ff5b5b' stroke-width='1'%3E%3Cuse href='%23bj' transform='translate(23,17)'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,110)'%3E%3Cuse href='%23jj' transform='translate(11,4)'/%3E%3Cuse href='%23vd' transform='translate(23,7)'/%3E%3Cg stroke='%237fe3ff' stroke-width='1'%3E%3Cuse href='%23bs' transform='translate(14,9)'/%3E%3C/g%3E%3Cg stroke='%23ff5b5b' stroke-width='1'%3E%3Cuse href='%23bj' transform='translate(24,16)'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,132)'%3E%3Cuse href='%23jd' transform='translate(11,7)'/%3E%3Cuse href='%23vd' transform='translate(23,7)'/%3E%3Cg stroke='%237fe3ff' stroke-width='1'%3E%3Cuse href='%23bd' transform='translate(15,9)'/%3E%3C/g%3E%3Cg stroke='%23ff5b5b' stroke-width='1'%3E%3Cuse href='%23bv' transform='translate(23,12)'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,154)'%3E%3Cuse href='%23jd' transform='translate(11,7)'/%3E%3Cuse href='%23vd' transform='translate(23,7)'/%3E%3Cg stroke='%237fe3ff' stroke-width='1'%3E%3Cuse href='%23bd' transform='translate(15,14)'/%3E%3C/g%3E%3Cg stroke='%23ff5b5b' stroke-width='1'%3E%3Cuse href='%23be' transform='translate(22,14)'/%3E%3C/g%3E%3Crect x='18' y='17' width='2' height='2' fill='%23ffffff'/%3E%3C/g%3E%3Cg transform='translate(0,176)'%3E%3Cuse href='%23jd' transform='translate(8,7)'/%3E%3Crect x='7' y='19' width='1' height='1' fill='%23c8cbd4'/%3E%3Cuse href='%23vd' transform='translate(25,7)'/%3E%3Cg stroke='%237fe3ff' stroke-width='1'%3E%3Cuse href='%23bd' transform='translate(12,12)'/%3E%3C/g%3E%3Cg stroke='%23ff5b5b' stroke-width='1'%3E%3Cuse href='%23be' transform='translate(26,12)'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,198)'%3E%3Cuse href='%23jd' transform='translate(9,7)'/%3E%3Crect x='8' y='19' width='1' height='1' fill='%23c8cbd4'/%3E%3Cuse href='%23vd' transform='translate(24,7)'/%3E%3Crect x='23' y='19' width='1' height='1' fill='%2315181f'/%3E%3Cg stroke='%237fe3ff' stroke-width='1'%3E%3Cuse href='%23bs' transform='translate(14,13)'/%3E%3C/g%3E%3Cg stroke='%23ff5b5b' stroke-width='1'%3E%3Cuse href='%23bt' transform='translate(23,13)'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  background-size: 38px 220px;
+  background-repeat: no-repeat;
+  background-position: 0% 0;
+  animation:
+    rk-flair-duel-wander 30s steps(60, jump-none) infinite alternate,
+    rk-flair-duel-fight 5s step-end infinite;
+}
+
 /* Reduced-motion gate — disable EVERY treatment above (Parts A and B). The
    decode scramble is skipped in JS (top-bar.tsx reads the same media query). */
 /* ── Row-flyout card entrance (window-row register flyout, E1) ─────────────
@@ -1317,7 +1397,7 @@ html[data-theme="light"] {
   .rk-window-switch-mask { animation: none; }
   /* Hatch-marker hazard wedge (.rk-hazard): static in every state by design —
      nothing to zero here; listed so the reduced-motion audit stays complete. */
-  /* Flair overlays (all thirteen named states): motion-only ambient decoration
+  /* Flair overlays (all fourteen named states): motion-only ambient decoration
      with NO static label cue of their own — hidden entirely, including the
      onepiece wave baseline (a bare wave line without its ship would read as
      residue) and the cube/warp child spans (transform-driven treatments). */
@@ -1342,7 +1422,9 @@ html[data-theme="light"] {
   .rk-flair-cube .rk-cube,
   .rk-flair-warp .rk-warp-plane,
   .rk-flair-spidey::before,
-  .rk-flair-spidey::after { animation: none; display: none; }
+  .rk-flair-spidey::after,
+  .rk-flair-duel::before,
+  .rk-flair-duel::after { animation: none; display: none; }
   /* Flyout-card entrance: pure flourish — the card simply appears. */
   .rk-flyout-in { animation: none; }
   /* Gap-seam sash: the hover anti-flicker delay and fades are zeroed (the pill

@@ -441,7 +441,7 @@ Actuate through your own shell:
 value: one of red orange amber olive green teal blue purple magenta slate, optionally suffixed -dark or -light (risk/priority may ride the shade axis).
 Optional secondary accents — sparingly; color is the primary channel:
   tmux set-option -t @N '@rk_marker' '<value>'   (pipe dotted dashed solid double thick hatch block)
-  tmux set-option -t @N '@rk_flair' '<value>'    (rain scan nyan naruto onepiece pacman matrix aquarium roadrunner invaders cube warp spidey)
+  tmux set-option -t @N '@rk_flair' '<value>'    (rain scan nyan naruto onepiece pacman matrix aquarium roadrunner invaders cube warp spidey duel)
 Unset a label when a tab genuinely fits no category:
   tmux set-option -t @N -u '@color'
 

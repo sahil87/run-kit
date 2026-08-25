@@ -1155,36 +1155,35 @@ summary {
     rk-flair-spidey-y 2.4s step-end infinite;
 }
 
-/* ironman: the nuke-catch, a TWO-ACT narrative loop on one ::after (the
-   catalogue's first). Act 1 (0-50%): the carry — a fused rider-on-missile
-   composition (gray finned missile, 2-frame orange exhaust flicker at the
-   tail, red/gold armored figure clinging beneath with a blue-white boot
-   repulsor glow) crossing LEFT→RIGHT with a glued 110px blue-white contrail
-   (left-edge faded through an SVG mask — the nyan trail mechanic). Portal
-   beat (50-54%): everything parked fully off-screen right — the empty row IS
-   the portal. A 54%/54.01% keyframe pair (the aquarium teleport) re-parks
-   the contrail at 200%-and-change so it NEVER enters in act 2 while
-   displacing by the same px as the sheet (glued-layer rule). Act 2
-   (54.01-100%): the fall — frames 4-5 only, the figure ALONE in a limp
-   two-pose tumble (rotations drawn in the artwork), NO exhaust, glow, or
-   contrail (the dark arc reactor sells the powerless free-fall), crossing
-   RIGHT→LEFT faster (46% of the loop vs act 1's 50%). The sheet is 36×144 —
-   six 24px frames: 0-3 the carry (frames 1/3 drawn 1px higher — the climb-bob
-   of the upward redirect), 4-5 the tumble. Both longhands share ONE 16s
-   duration so the frame narrative stays locked to the traversal: -y steps at
-   5fps (1.25% stops), flipping to the fall frames exactly at the teleport.
-   Offset arithmetic (glued layers displace by IDENTICAL px): act 1 sheet
-   -36px → calc(100% + 132px) and trail -128px → calc(100% + 114px) both
-   displace W+132; act 2 sheet calc(100% + 132px) → -40px and trail
-   calc(200% + 370px) → calc(100% + 124px) both displace -(W+136); the trail
-   trails the sheet's figure line by 92px in act 1. Every act boundary, the
-   teleport, and the loop wrap land fully off-screen. ::before is a TWO-LAYER
-   Manhattan parallax (distinct artwork from spidey's single strip): a near
-   96×12 tile (stepped rooftops, water towers, one taller stepped spire — the
-   tower stand-in; 12% fill) and a far 64×8 tile (lower sparser blocks, 6%
-   fill), both bottom-anchored repeat-x, drifting right→left at 12px/s vs
-   4px/s — each displaced by an exact multiple of its own period per loop
-   (192 = 2×96, 64 = 1×64), so both wrap points are invisible. */
+/* ironman: the fly-by zoom loop — ONE character, ONE background layer on
+   ::after (no glued companion layers; thruster/repulsor streaks are baked
+   into each frame at that frame's scale). Frame-encoded fake zoom: the DRAWN
+   figure's size varies across the sheet while the 36x30 frame geometry stays
+   fixed. The sheet is 36x660 — twenty-two 30px frames on a centered 30px
+   strip (spidey licenses the taller strip): an A/B thruster-flicker pair per
+   size beat so the cadence holds 5fps (1.25% stops on the shared 16s
+   duration) while the size narrative advances. Leg 1 — approach (0-40%):
+   right-facing flight frames growing ~=6->10->15->20px (frames 0-7) as
+   rk-flair-ironman-x carries the strip from -36px (fully off-screen left) to
+   calc(100% - 8px) — near the right edge, still fully on-screen. The turn
+   (40-60%): the ~=26-28px heroes — right-facing (frames 8-9, 40-46.25%),
+   three-quarter front with lit palm repulsors (frames 10-11, 46.25-53.75%),
+   left-facing (frames 12-13, 53.75-60%) — while -x creeps to
+   calc(100% - 4px) at 50% and then REVERSES on-screen; the front frame
+   straddles the reversal moment so it reads as a banked turn, never a bounce
+   or a teleport. Leg 2 — return (60-100%): left-facing frames shrinking
+   ~=20->15->10->6px (frames 14-21 — the approach art mirrored, so the baked
+   streaks correctly trail right) as -x runs back to -36px, receding into the
+   skyline. Both longhands share ONE 16s duration so the frame narrative
+   stays locked to the traversal; the loop boundary lives ONLY at the
+   far-left off-screen park (0% = 100% = -36px), so the wrap is invisible.
+   ::before is a TWO-LAYER Manhattan parallax (distinct artwork from spidey's
+   single strip): a near 96x12 tile (stepped rooftops, water towers, one
+   taller stepped spire — the tower stand-in; 12% fill) and a far 64x8 tile
+   (lower sparser blocks, 6% fill), both bottom-anchored repeat-x, drifting
+   right-to-left at 12px/s vs 4px/s — each displaced by an exact multiple of
+   its own period per loop (192 = 2x96, 64 = 1x64), so both wrap points are
+   invisible. */
 @keyframes rk-flair-ironman-city {
   from { background-position-x: 0, 0; }
   to { background-position-x: -192px, -64px; }
@@ -1203,93 +1202,94 @@ summary {
   animation: rk-flair-ironman-city 16s linear infinite;
 }
 @keyframes rk-flair-ironman-x {
-  0% { background-position-x: -36px, -128px; }
-  50% { background-position-x: calc(100% + 132px), calc(100% + 114px); }
-  54% { background-position-x: calc(100% + 132px), calc(100% + 114px); }
-  54.01% { background-position-x: calc(100% + 132px), calc(200% + 370px); }
-  100% { background-position-x: -40px, calc(100% + 124px); }
+  0% { background-position-x: -36px; }
+  40% { background-position-x: calc(100% - 8px); }
+  50% { background-position-x: calc(100% - 4px); }
+  60% { background-position-x: calc(100% - 24px); }
+  100% { background-position-x: -36px; }
 }
 @keyframes rk-flair-ironman-y {
-  0% { background-position-y: 0px, 0px; }
-  1.25% { background-position-y: -24px, 0px; }
-  2.5% { background-position-y: -48px, 0px; }
-  3.75% { background-position-y: -72px, 0px; }
-  5% { background-position-y: 0px, 0px; }
-  6.25% { background-position-y: -24px, 0px; }
-  7.5% { background-position-y: -48px, 0px; }
-  8.75% { background-position-y: -72px, 0px; }
-  10% { background-position-y: 0px, 0px; }
-  11.25% { background-position-y: -24px, 0px; }
-  12.5% { background-position-y: -48px, 0px; }
-  13.75% { background-position-y: -72px, 0px; }
-  15% { background-position-y: 0px, 0px; }
-  16.25% { background-position-y: -24px, 0px; }
-  17.5% { background-position-y: -48px, 0px; }
-  18.75% { background-position-y: -72px, 0px; }
-  20% { background-position-y: 0px, 0px; }
-  21.25% { background-position-y: -24px, 0px; }
-  22.5% { background-position-y: -48px, 0px; }
-  23.75% { background-position-y: -72px, 0px; }
-  25% { background-position-y: 0px, 0px; }
-  26.25% { background-position-y: -24px, 0px; }
-  27.5% { background-position-y: -48px, 0px; }
-  28.75% { background-position-y: -72px, 0px; }
-  30% { background-position-y: 0px, 0px; }
-  31.25% { background-position-y: -24px, 0px; }
-  32.5% { background-position-y: -48px, 0px; }
-  33.75% { background-position-y: -72px, 0px; }
-  35% { background-position-y: 0px, 0px; }
-  36.25% { background-position-y: -24px, 0px; }
-  37.5% { background-position-y: -48px, 0px; }
-  38.75% { background-position-y: -72px, 0px; }
-  40% { background-position-y: 0px, 0px; }
-  41.25% { background-position-y: -24px, 0px; }
-  42.5% { background-position-y: -48px, 0px; }
-  43.75% { background-position-y: -72px, 0px; }
-  45% { background-position-y: 0px, 0px; }
-  46.25% { background-position-y: -24px, 0px; }
-  47.5% { background-position-y: -48px, 0px; }
-  48.75% { background-position-y: -72px, 0px; }
-  50% { background-position-y: 0px, 0px; }
-  54% { background-position-y: 0px, 0px; }
-  54.01% { background-position-y: -96px, 0px; }
-  55.26% { background-position-y: -120px, 0px; }
-  56.51% { background-position-y: -96px, 0px; }
-  57.76% { background-position-y: -120px, 0px; }
-  59.01% { background-position-y: -96px, 0px; }
-  60.26% { background-position-y: -120px, 0px; }
-  61.51% { background-position-y: -96px, 0px; }
-  62.76% { background-position-y: -120px, 0px; }
-  64.01% { background-position-y: -96px, 0px; }
-  65.26% { background-position-y: -120px, 0px; }
-  66.51% { background-position-y: -96px, 0px; }
-  67.76% { background-position-y: -120px, 0px; }
-  69.01% { background-position-y: -96px, 0px; }
-  70.26% { background-position-y: -120px, 0px; }
-  71.51% { background-position-y: -96px, 0px; }
-  72.76% { background-position-y: -120px, 0px; }
-  74.01% { background-position-y: -96px, 0px; }
-  75.26% { background-position-y: -120px, 0px; }
-  76.51% { background-position-y: -96px, 0px; }
-  77.76% { background-position-y: -120px, 0px; }
-  79.01% { background-position-y: -96px, 0px; }
-  80.26% { background-position-y: -120px, 0px; }
-  81.51% { background-position-y: -96px, 0px; }
-  82.76% { background-position-y: -120px, 0px; }
-  84.01% { background-position-y: -96px, 0px; }
-  85.26% { background-position-y: -120px, 0px; }
-  86.51% { background-position-y: -96px, 0px; }
-  87.76% { background-position-y: -120px, 0px; }
-  89.01% { background-position-y: -96px, 0px; }
-  90.26% { background-position-y: -120px, 0px; }
-  91.51% { background-position-y: -96px, 0px; }
-  92.76% { background-position-y: -120px, 0px; }
-  94.01% { background-position-y: -96px, 0px; }
-  95.26% { background-position-y: -120px, 0px; }
-  96.51% { background-position-y: -96px, 0px; }
-  97.76% { background-position-y: -120px, 0px; }
-  99.01% { background-position-y: -96px, 0px; }
-  100% { background-position-y: -96px, 0px; }
+  0% { background-position-y: 0px; }
+  1.25% { background-position-y: -30px; }
+  2.5% { background-position-y: 0px; }
+  3.75% { background-position-y: -30px; }
+  5% { background-position-y: 0px; }
+  6.25% { background-position-y: -30px; }
+  7.5% { background-position-y: 0px; }
+  8.75% { background-position-y: -30px; }
+  10% { background-position-y: -60px; }
+  11.25% { background-position-y: -90px; }
+  12.5% { background-position-y: -60px; }
+  13.75% { background-position-y: -90px; }
+  15% { background-position-y: -60px; }
+  16.25% { background-position-y: -90px; }
+  17.5% { background-position-y: -60px; }
+  18.75% { background-position-y: -90px; }
+  20% { background-position-y: -120px; }
+  21.25% { background-position-y: -150px; }
+  22.5% { background-position-y: -120px; }
+  23.75% { background-position-y: -150px; }
+  25% { background-position-y: -120px; }
+  26.25% { background-position-y: -150px; }
+  27.5% { background-position-y: -120px; }
+  28.75% { background-position-y: -150px; }
+  30% { background-position-y: -180px; }
+  31.25% { background-position-y: -210px; }
+  32.5% { background-position-y: -180px; }
+  33.75% { background-position-y: -210px; }
+  35% { background-position-y: -180px; }
+  36.25% { background-position-y: -210px; }
+  37.5% { background-position-y: -180px; }
+  38.75% { background-position-y: -210px; }
+  40% { background-position-y: -240px; }
+  41.25% { background-position-y: -270px; }
+  42.5% { background-position-y: -240px; }
+  43.75% { background-position-y: -270px; }
+  45% { background-position-y: -240px; }
+  46.25% { background-position-y: -300px; }
+  47.5% { background-position-y: -330px; }
+  48.75% { background-position-y: -300px; }
+  50% { background-position-y: -330px; }
+  51.25% { background-position-y: -300px; }
+  52.5% { background-position-y: -330px; }
+  53.75% { background-position-y: -360px; }
+  55% { background-position-y: -390px; }
+  56.25% { background-position-y: -360px; }
+  57.5% { background-position-y: -390px; }
+  58.75% { background-position-y: -360px; }
+  60% { background-position-y: -420px; }
+  61.25% { background-position-y: -450px; }
+  62.5% { background-position-y: -420px; }
+  63.75% { background-position-y: -450px; }
+  65% { background-position-y: -420px; }
+  66.25% { background-position-y: -450px; }
+  67.5% { background-position-y: -420px; }
+  68.75% { background-position-y: -450px; }
+  70% { background-position-y: -480px; }
+  71.25% { background-position-y: -510px; }
+  72.5% { background-position-y: -480px; }
+  73.75% { background-position-y: -510px; }
+  75% { background-position-y: -480px; }
+  76.25% { background-position-y: -510px; }
+  77.5% { background-position-y: -480px; }
+  78.75% { background-position-y: -510px; }
+  80% { background-position-y: -540px; }
+  81.25% { background-position-y: -570px; }
+  82.5% { background-position-y: -540px; }
+  83.75% { background-position-y: -570px; }
+  85% { background-position-y: -540px; }
+  86.25% { background-position-y: -570px; }
+  87.5% { background-position-y: -540px; }
+  88.75% { background-position-y: -570px; }
+  90% { background-position-y: -600px; }
+  91.25% { background-position-y: -630px; }
+  92.5% { background-position-y: -600px; }
+  93.75% { background-position-y: -630px; }
+  95% { background-position-y: -600px; }
+  96.25% { background-position-y: -630px; }
+  97.5% { background-position-y: -600px; }
+  98.75% { background-position-y: -630px; }
+  100% { background-position-y: -600px; }
 }
 .rk-flair-ironman::after {
   content: "";
@@ -1297,16 +1297,14 @@ summary {
   left: 0;
   right: 0;
   top: 50%;
-  height: 24px;
-  margin-top: -12px;
+  height: 30px;
+  margin-top: -15px;
   pointer-events: none;
   opacity: 0.92;
-  background-image:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='144' viewBox='0 0 36 144'%3E%3Cdefs%3E%3Cg id='ms'%3E%3Crect x='9' y='6' width='22' height='1' fill='%23c3cad6'/%3E%3Crect x='9' y='7' width='22' height='2' fill='%239aa3b2'/%3E%3Crect x='9' y='9' width='22' height='1' fill='%237d8494'/%3E%3Crect x='9' y='10' width='22' height='1' fill='%236b7380'/%3E%3Crect x='31' y='7' width='3' height='2' fill='%238a93a3'/%3E%3Crect x='34' y='7' width='1' height='1' fill='%238a93a3'/%3E%3Crect x='9' y='4' width='2' height='2' fill='%237d8494'/%3E%3Crect x='9' y='11' width='2' height='2' fill='%237d8494'/%3E%3Crect x='18' y='12' width='3' height='3' fill='%23c92a2a'/%3E%3Crect x='19' y='13' width='2' height='1' fill='%23f2b632'/%3E%3Crect x='17' y='15' width='4' height='4' fill='%23c92a2a'/%3E%3Crect x='18' y='16' width='1' height='1' fill='%23bfe8ff'/%3E%3Crect x='17' y='18' width='4' height='1' fill='%23f2b632'/%3E%3Crect x='16' y='11' width='1' height='4' fill='%23c92a2a'/%3E%3Crect x='21' y='11' width='1' height='4' fill='%23c92a2a'/%3E%3Crect x='21' y='18' width='3' height='1' fill='%23c92a2a'/%3E%3Crect x='22' y='19' width='2' height='1' fill='%23c92a2a'/%3E%3Crect x='24' y='17' width='2' height='2' fill='%239fdcff' fill-opacity='0.85'/%3E%3Crect x='25' y='18' width='1' height='1' fill='%23e6f7ff'/%3E%3C/g%3E%3Cg id='fa'%3E%3Crect x='6' y='7' width='3' height='2' fill='%23ffa94d'/%3E%3Crect x='5' y='7' width='1' height='1' fill='%23ff7b24'/%3E%3C/g%3E%3Cg id='fb'%3E%3Crect x='7' y='7' width='2' height='2' fill='%23ffa94d'/%3E%3Crect x='4' y='8' width='1' height='1' fill='%23ff7b24'/%3E%3C/g%3E%3Cg id='im'%3E%3Crect x='17' y='8' width='3' height='3' fill='%23c92a2a'/%3E%3Crect x='18' y='9' width='2' height='1' fill='%23f2b632'/%3E%3Crect x='16' y='11' width='4' height='4' fill='%23c92a2a'/%3E%3Crect x='18' y='13' width='1' height='1' fill='%234a5568'/%3E%3Crect x='15' y='11' width='1' height='4' fill='%23c92a2a'/%3E%3Crect x='21' y='11' width='1' height='4' fill='%23c92a2a'/%3E%3Crect x='16' y='15' width='1' height='3' fill='%23c92a2a'/%3E%3Crect x='19' y='15' width='1' height='4' fill='%23c92a2a'/%3E%3Crect x='16' y='18' width='2' height='1' fill='%23f2b632'/%3E%3C/g%3E%3C/defs%3E%3Cg%3E%3Cuse href='%23ms'/%3E%3Cuse href='%23fa'/%3E%3C/g%3E%3Cg transform='translate(0,23)'%3E%3Cuse href='%23ms'/%3E%3Cuse href='%23fb'/%3E%3C/g%3E%3Cg transform='translate(0,48)'%3E%3Cuse href='%23ms'/%3E%3Cuse href='%23fa'/%3E%3C/g%3E%3Cg transform='translate(0,71)'%3E%3Cuse href='%23ms'/%3E%3Cuse href='%23fb'/%3E%3C/g%3E%3Cg transform='translate(0,96) rotate(28 18 12)'%3E%3Cuse href='%23im'/%3E%3C/g%3E%3Cg transform='translate(0,120) rotate(-24 18 12)'%3E%3Cuse href='%23im'/%3E%3C/g%3E%3C/svg%3E"),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='110' height='24' viewBox='0 0 110 24'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='0'%3E%3Cstop offset='0' stop-color='white' stop-opacity='0'/%3E%3Cstop offset='0.4' stop-color='white' stop-opacity='0.55'/%3E%3Cstop offset='1' stop-color='white' stop-opacity='0.9'/%3E%3C/linearGradient%3E%3Cmask id='m'%3E%3Crect width='110' height='24' fill='url(%23g)'/%3E%3C/mask%3E%3C/defs%3E%3Cg mask='url(%23m)'%3E%3Crect y='14' width='110' height='1' fill='%235fb8f0' opacity='0.5'/%3E%3Crect y='15' width='110' height='1' fill='%239fdcff' opacity='0.75'/%3E%3Crect y='16' width='110' height='1' fill='%235fb8f0' opacity='0.5'/%3E%3Crect x='20' y='13' width='2' height='1' fill='%23bfeaff' opacity='0.6'/%3E%3Crect x='52' y='17' width='2' height='1' fill='%23bfeaff' opacity='0.6'/%3E%3Crect x='80' y='13' width='1' height='1' fill='%23bfeaff' opacity='0.6'/%3E%3C/g%3E%3C/svg%3E");
-  background-size: 36px 144px, 110px 24px;
-  background-repeat: no-repeat, no-repeat;
-  background-position: -36px 0, -128px 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='660' viewBox='0 0 36 660'%3E%3Cdefs%3E%3Cg id='bS'%3E%3Crect x='14' y='13' width='4' height='3' fill='%23c92a2a'/%3E%3Crect x='18' y='12' width='2' height='3' fill='%23c92a2a'/%3E%3Crect x='19' y='13' width='1' height='2' fill='%23f2b632'/%3E%3C/g%3E%3Cg id='bM'%3E%3Crect x='12' y='12' width='2' height='4' fill='%23c92a2a'/%3E%3Crect x='14' y='12' width='4' height='4' fill='%23c92a2a'/%3E%3Crect x='15' y='13' width='2' height='2' fill='%23f2b632'/%3E%3Crect x='18' y='11' width='3' height='4' fill='%23c92a2a'/%3E%3Crect x='19' y='12' width='2' height='2' fill='%23f2b632'/%3E%3Crect x='20' y='12' width='1' height='1' fill='%23e6f7ff'/%3E%3C/g%3E%3Cg id='bL'%3E%3Crect x='10' y='12' width='2' height='2' fill='%23f2b632'/%3E%3Crect x='10' y='15' width='2' height='2' fill='%23f2b632'/%3E%3Crect x='12' y='13' width='3' height='4' fill='%23c92a2a'/%3E%3Crect x='15' y='12' width='5' height='5' fill='%23c92a2a'/%3E%3Crect x='17' y='13' width='2' height='2' fill='%23f2b632'/%3E%3Crect x='16' y='13' width='1' height='1' fill='%23bfe8ff'/%3E%3Crect x='20' y='11' width='4' height='4' fill='%23c92a2a'/%3E%3Crect x='21' y='12' width='3' height='2' fill='%23f2b632'/%3E%3Crect x='23' y='12' width='1' height='1' fill='%23e6f7ff'/%3E%3C/g%3E%3Cg id='bX'%3E%3Crect x='8' y='11' width='2' height='2' fill='%23f2b632'/%3E%3Crect x='8' y='16' width='2' height='2' fill='%23f2b632'/%3E%3Crect x='10' y='12' width='4' height='2' fill='%23c92a2a'/%3E%3Crect x='10' y='15' width='4' height='2' fill='%23c92a2a'/%3E%3Crect x='14' y='11' width='7' height='7' fill='%23c92a2a'/%3E%3Crect x='17' y='13' width='3' height='3' fill='%23f2b632'/%3E%3Crect x='18' y='14' width='1' height='1' fill='%23bfe8ff'/%3E%3Crect x='15' y='16' width='2' height='1' fill='%23f2b632'/%3E%3Crect x='19' y='10' width='2' height='1' fill='%23f2b632'/%3E%3Crect x='19' y='17' width='5' height='1' fill='%23c92a2a'/%3E%3Crect x='24' y='17' width='2' height='1' fill='%23f2b632'/%3E%3Crect x='21' y='11' width='1' height='2' fill='%23c92a2a'/%3E%3Crect x='22' y='9' width='5' height='5' fill='%23c92a2a'/%3E%3Crect x='23' y='10' width='4' height='3' fill='%23f2b632'/%3E%3Crect x='26' y='11' width='1' height='1' fill='%23e6f7ff'/%3E%3C/g%3E%3Cg id='bH'%3E%3Crect x='4' y='11' width='3' height='3' fill='%23f2b632'/%3E%3Crect x='4' y='16' width='3' height='3' fill='%23f2b632'/%3E%3Crect x='7' y='12' width='5' height='2' fill='%23c92a2a'/%3E%3Crect x='7' y='16' width='5' height='2' fill='%23c92a2a'/%3E%3Crect x='12' y='10' width='9' height='9' fill='%23c92a2a'/%3E%3Crect x='15' y='12' width='4' height='4' fill='%23f2b632'/%3E%3Crect x='17' y='13' width='2' height='2' fill='%239fdcff'/%3E%3Crect x='17' y='13' width='1' height='1' fill='%23e6f7ff'/%3E%3Crect x='15' y='16' width='3' height='2' fill='%23f2b632'/%3E%3Crect x='18' y='9' width='3' height='2' fill='%23f2b632'/%3E%3Crect x='19' y='17' width='7' height='2' fill='%23c92a2a'/%3E%3Crect x='26' y='17' width='3' height='2' fill='%23f2b632'/%3E%3Crect x='21' y='10' width='2' height='3' fill='%23c92a2a'/%3E%3Crect x='23' y='8' width='6' height='6' fill='%23c92a2a'/%3E%3Crect x='24' y='9' width='5' height='5' fill='%23f2b632'/%3E%3Crect x='26' y='10' width='3' height='1' fill='%23e6f7ff'/%3E%3Crect x='27' y='12' width='2' height='1' fill='%23c92a2a'/%3E%3C/g%3E%3Cg id='bF'%3E%3Crect x='16' y='4' width='5' height='5' fill='%23c92a2a'/%3E%3Crect x='17' y='6' width='3' height='3' fill='%23f2b632'/%3E%3Crect x='17' y='7' width='1' height='1' fill='%23e6f7ff'/%3E%3Crect x='19' y='7' width='1' height='1' fill='%23e6f7ff'/%3E%3Crect x='15' y='9' width='7' height='9' fill='%23c92a2a'/%3E%3Crect x='16' y='10' width='5' height='3' fill='%23f2b632'/%3E%3Crect x='18' y='11' width='1' height='1' fill='%23e6f7ff'/%3E%3Crect x='17' y='14' width='3' height='2' fill='%23f2b632'/%3E%3Crect x='13' y='9' width='2' height='3' fill='%23c92a2a'/%3E%3Crect x='22' y='9' width='2' height='3' fill='%23c92a2a'/%3E%3Crect x='13' y='9' width='2' height='1' fill='%23f2b632'/%3E%3Crect x='22' y='9' width='2' height='1' fill='%23f2b632'/%3E%3Crect x='12' y='12' width='2' height='5' fill='%23c92a2a'/%3E%3Crect x='23' y='12' width='2' height='5' fill='%23c92a2a'/%3E%3Crect x='12' y='17' width='2' height='2' fill='%23bfe8ff'/%3E%3Crect x='23' y='17' width='2' height='2' fill='%23bfe8ff'/%3E%3Crect x='16' y='18' width='2' height='6' fill='%23c92a2a'/%3E%3Crect x='19' y='18' width='2' height='6' fill='%23c92a2a'/%3E%3Crect x='16' y='24' width='2' height='3' fill='%23f2b632'/%3E%3Crect x='19' y='24' width='2' height='3' fill='%23f2b632'/%3E%3C/g%3E%3Cg id='sSa'%3E%3Crect x='12' y='13' width='2' height='2' fill='%239fdcff'/%3E%3Crect x='13' y='14' width='1' height='1' fill='%23e6f7ff'/%3E%3Crect x='8' y='14' width='4' height='1' fill='%239fdcff' fill-opacity='0.4'/%3E%3C/g%3E%3Cg id='sSb'%3E%3Crect x='12' y='14' width='1' height='1' fill='%239fdcff'/%3E%3Crect x='9' y='14' width='3' height='1' fill='%239fdcff' fill-opacity='0.3'/%3E%3C/g%3E%3Cg id='sMa'%3E%3Crect x='10' y='13' width='2' height='2' fill='%239fdcff'/%3E%3Crect x='11' y='13' width='1' height='1' fill='%23e6f7ff'/%3E%3Crect x='6' y='13' width='4' height='1' fill='%239fdcff' fill-opacity='0.4'/%3E%3Crect x='7' y='15' width='3' height='1' fill='%239fdcff' fill-opacity='0.3'/%3E%3C/g%3E%3Cg id='sMb'%3E%3Crect x='10' y='13' width='2' height='1' fill='%239fdcff'/%3E%3Crect x='7' y='13' width='3' height='1' fill='%239fdcff' fill-opacity='0.3'/%3E%3Crect x='8' y='15' width='2' height='1' fill='%239fdcff' fill-opacity='0.25'/%3E%3C/g%3E%3Cg id='sLa'%3E%3Crect x='8' y='12' width='2' height='2' fill='%239fdcff'/%3E%3Crect x='8' y='15' width='2' height='2' fill='%239fdcff'/%3E%3Crect x='9' y='12' width='1' height='1' fill='%23e6f7ff'/%3E%3Crect x='9' y='16' width='1' height='1' fill='%23e6f7ff'/%3E%3Crect x='4' y='13' width='4' height='1' fill='%239fdcff' fill-opacity='0.4'/%3E%3Crect x='3' y='15' width='5' height='1' fill='%239fdcff' fill-opacity='0.3'/%3E%3C/g%3E%3Cg id='sLb'%3E%3Crect x='8' y='13' width='2' height='2' fill='%239fdcff'/%3E%3Crect x='5' y='13' width='3' height='1' fill='%239fdcff' fill-opacity='0.3'/%3E%3Crect x='5' y='15' width='3' height='1' fill='%239fdcff' fill-opacity='0.25'/%3E%3C/g%3E%3Cg id='sXa'%3E%3Crect x='5' y='11' width='3' height='2' fill='%239fdcff'/%3E%3Crect x='5' y='16' width='3' height='2' fill='%239fdcff'/%3E%3Crect x='6' y='11' width='1' height='1' fill='%23e6f7ff'/%3E%3Crect x='6' y='17' width='1' height='1' fill='%23e6f7ff'/%3E%3Crect x='1' y='12' width='4' height='1' fill='%239fdcff' fill-opacity='0.4'/%3E%3Crect x='0' y='17' width='5' height='1' fill='%239fdcff' fill-opacity='0.35'/%3E%3Crect x='2' y='14' width='3' height='1' fill='%239fdcff' fill-opacity='0.25'/%3E%3C/g%3E%3Cg id='sXb'%3E%3Crect x='6' y='11' width='2' height='2' fill='%239fdcff'/%3E%3Crect x='6' y='16' width='2' height='2' fill='%239fdcff'/%3E%3Crect x='2' y='12' width='4' height='1' fill='%239fdcff' fill-opacity='0.3'/%3E%3Crect x='2' y='17' width='4' height='1' fill='%239fdcff' fill-opacity='0.25'/%3E%3C/g%3E%3Cg id='sHa'%3E%3Crect x='1' y='10' width='3' height='4' fill='%239fdcff'/%3E%3Crect x='1' y='16' width='3' height='4' fill='%239fdcff'/%3E%3Crect x='2' y='11' width='2' height='2' fill='%23e6f7ff'/%3E%3Crect x='2' y='17' width='2' height='2' fill='%23e6f7ff'/%3E%3Crect x='0' y='12' width='1' height='1' fill='%239fdcff' fill-opacity='0.5'/%3E%3Crect x='0' y='18' width='1' height='1' fill='%239fdcff' fill-opacity='0.4'/%3E%3C/g%3E%3Cg id='sHb'%3E%3Crect x='2' y='11' width='2' height='3' fill='%239fdcff'/%3E%3Crect x='2' y='16' width='2' height='3' fill='%239fdcff'/%3E%3Crect x='3' y='12' width='1' height='1' fill='%23e6f7ff'/%3E%3Crect x='3' y='17' width='1' height='1' fill='%23e6f7ff'/%3E%3C/g%3E%3Cg id='tFa'%3E%3Crect x='16' y='27' width='2' height='2' fill='%23e6f7ff'/%3E%3Crect x='19' y='27' width='2' height='2' fill='%23e6f7ff'/%3E%3Crect x='17' y='29' width='1' height='1' fill='%239fdcff' fill-opacity='0.6'/%3E%3Crect x='19' y='29' width='1' height='1' fill='%239fdcff' fill-opacity='0.6'/%3E%3C/g%3E%3Cg id='tFb'%3E%3Crect x='16' y='27' width='2' height='1' fill='%239fdcff'/%3E%3Crect x='19' y='27' width='2' height='1' fill='%239fdcff'/%3E%3C/g%3E%3C/defs%3E%3Cuse href='%23bS'/%3E%3Cuse href='%23sSa'/%3E%3Cg transform='translate(0,30)'%3E%3Cuse href='%23bS'/%3E%3Cuse href='%23sSb'/%3E%3C/g%3E%3Cg transform='translate(0,60)'%3E%3Cuse href='%23bM'/%3E%3Cuse href='%23sMa'/%3E%3C/g%3E%3Cg transform='translate(0,90)'%3E%3Cuse href='%23bM'/%3E%3Cuse href='%23sMb'/%3E%3C/g%3E%3Cg transform='translate(0,120)'%3E%3Cuse href='%23bL'/%3E%3Cuse href='%23sLa'/%3E%3C/g%3E%3Cg transform='translate(0,150)'%3E%3Cuse href='%23bL'/%3E%3Cuse href='%23sLb'/%3E%3C/g%3E%3Cg transform='translate(0,180)'%3E%3Cuse href='%23bX'/%3E%3Cuse href='%23sXa'/%3E%3C/g%3E%3Cg transform='translate(0,210)'%3E%3Cuse href='%23bX'/%3E%3Cuse href='%23sXb'/%3E%3C/g%3E%3Cg transform='translate(0,240)'%3E%3Cuse href='%23bH'/%3E%3Cuse href='%23sHa'/%3E%3C/g%3E%3Cg transform='translate(0,270)'%3E%3Cuse href='%23bH'/%3E%3Cuse href='%23sHb'/%3E%3C/g%3E%3Cg transform='translate(0,300)'%3E%3Cuse href='%23bF'/%3E%3Cuse href='%23tFa'/%3E%3C/g%3E%3Cg transform='translate(0,330)'%3E%3Cuse href='%23bF'/%3E%3Cuse href='%23tFb'/%3E%3C/g%3E%3Cg transform='translate(0,360)'%3E%3Cg transform='translate(36,0) scale(-1,1)'%3E%3Cuse href='%23bH'/%3E%3Cuse href='%23sHa'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,390)'%3E%3Cg transform='translate(36,0) scale(-1,1)'%3E%3Cuse href='%23bH'/%3E%3Cuse href='%23sHb'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,420)'%3E%3Cg transform='translate(36,0) scale(-1,1)'%3E%3Cuse href='%23bX'/%3E%3Cuse href='%23sXa'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,450)'%3E%3Cg transform='translate(36,0) scale(-1,1)'%3E%3Cuse href='%23bX'/%3E%3Cuse href='%23sXb'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,480)'%3E%3Cg transform='translate(36,0) scale(-1,1)'%3E%3Cuse href='%23bL'/%3E%3Cuse href='%23sLa'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,510)'%3E%3Cg transform='translate(36,0) scale(-1,1)'%3E%3Cuse href='%23bL'/%3E%3Cuse href='%23sLb'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,540)'%3E%3Cg transform='translate(36,0) scale(-1,1)'%3E%3Cuse href='%23bM'/%3E%3Cuse href='%23sMa'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,570)'%3E%3Cg transform='translate(36,0) scale(-1,1)'%3E%3Cuse href='%23bM'/%3E%3Cuse href='%23sMb'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,600)'%3E%3Cg transform='translate(36,0) scale(-1,1)'%3E%3Cuse href='%23bS'/%3E%3Cuse href='%23sSa'/%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0,630)'%3E%3Cg transform='translate(36,0) scale(-1,1)'%3E%3Cuse href='%23bS'/%3E%3Cuse href='%23sSb'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  background-size: 36px 660px;
+  background-repeat: no-repeat;
+  background-position: -36px 0;
   animation:
     rk-flair-ironman-x 16s linear infinite,
     rk-flair-ironman-y 16s step-end infinite;

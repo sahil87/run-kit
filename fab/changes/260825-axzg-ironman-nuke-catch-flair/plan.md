@@ -30,15 +30,21 @@
 - **WHEN** the city loop wraps
 - **THEN** no visible snap occurs on either layer (exact-multiple displacement), and the two layers visibly move at different speeds
 
-#### R4: Two-act character loop on one `::after`
-`.rk-flair-ironman::after` MUST render a two-act narrative loop (~14s total baseline; the loop MAY run longer — up to ~20s — if the carry act needs more room to read at the scene's pacing, per user direction; duration is a tuning constant) from ONE vertical SVG data-URI sprite sheet, using only the two `background-position` longhands (no transforms, no layout-affecting properties): **Act 1** (~0–47%) — a fused rider-on-missile composition (gray finned missile, orange 2-frame exhaust flicker, red/gold armored figure clinging beneath, blue-white repulsor glow) with a glued left-edge-faded blue-white contrail layer, crossing left→right, frames 0–3 stepped at ~5fps with a 1px climb-bob; **portal beat** (~47–53%) — all layers parked fully off-screen; **teleport** (`53%/53.01%` keyframe pair) between off-screen parks; **Act 2** (~53–100%) — frames 4–5 only: the figure alone in a limp two-pose tumble with NO exhaust/glow/contrail, crossing right→left faster. `rk-flair-ironman-x` and `rk-flair-ironman-y` MUST share one duration so acts stay in sync. All glued layers MUST displace by identical px (balanced from/to offsets); every act boundary and the loop boundary land fully off-screen. The overlay contract holds: mounted by the existing bare `FlairOverlay` span (`absolute inset-0 z-[5] overflow-hidden pointer-events-none`), box-agnostic (24px rows, 36px coarse rows, server tiles, 18px picker preview cells), colors baked in the artwork (no `--rk-flair-color`).
+#### R4: Fly-by zoom loop on one `::after` (REVISED — user rejected the two-act nuke-catch after seeing it shipped; this replaces it entirely)
+`.rk-flair-ironman::after` MUST render a single-character **fly-by zoom loop** (~12–18s, tunable) from ONE vertical SVG data-URI sprite sheet carrying ONE background layer (no glued companion layers — thruster/repulsor streaks are baked into each frame at the frame's own scale), using only the two `background-position` longhands (no transforms, no layout-affecting properties). The zoom is **frame-encoded fake 3D**: the drawn figure's SIZE varies across frames while the strip geometry stays fixed.
+
+- **Leg 1 — approach (~0–40%)**: Iron Man alone, right-facing horizontal flight pose, enters off-screen LEFT drawn TINY (~6px figure — far away, at city scale) and grows across ~4 frames (≈6 → 10 → 15 → 20px) as `-x` carries him toward the right — reads as flying toward the camera.
+- **The turn (~40–60%)**: at his largest (~26–30px hero frames — the "fully zoomed-in" beat; a 30px strip with slight overhang is licensed by the spidey precedent) he executes a 2–3 frame **banking turn** near the RIGHT edge, ON-screen and deliberate: right-facing → three-quarter front → left-facing. The `-x` keyframes REVERSE direction inside this window (no teleport — a direction reversal is just keyframe values, and the turn frames cover the reversal moment so it reads as a banked turn, never a bounce).
+- **Leg 2 — return (~60–100%)**: left-facing, shrinking back down (≈20 → 14 → 9 → 6px) as `-x` carries him back left, receding into the skyline — "returns to the city" — exiting off-screen left tiny.
+
+`rk-flair-ironman-x` and `rk-flair-ironman-y` MUST share one duration so the frame narrative stays in sync with the traversal. The loop boundary is at the far-LEFT off-screen park only (start = end), so the wrap is invisible; the right-edge turn is intentionally on-screen. The overlay contract holds: mounted by the existing bare `FlairOverlay` span (`absolute inset-0 z-[5] overflow-hidden pointer-events-none`), box-agnostic (24px rows, 36px coarse rows, server tiles, 18px picker preview cells), colors baked in the artwork (no `--rk-flair-color`), cadence ~5fps step-end, no strobing.
 
 - **GIVEN** a row with `@rk_flair = ironman`
 - **WHEN** one full loop plays
-- **THEN** the carry crosses left→right with contrail, the row is briefly empty, and the solo tumbling figure crosses right→left without effects — with no visible teleport snap and no bleed outside the row box
+- **THEN** a tiny figure enters left, grows while flying right, banks a visible turn at full size near the right edge, then shrinks while flying back left into the city — one continuous character, no empty-row gap, no snap at the wrap
 - **GIVEN** the sheet mold
 - **WHEN** frames are stepped
-- **THEN** only `background-position` animates — no transform, no child spans
+- **THEN** only `background-position` animates — no transform, no child spans, and the pseudo carries a single background layer (no glued-layer balancing needed)
 
 #### R5: Reduced-motion gate
 `.rk-flair-ironman::before, .rk-flair-ironman::after` MUST be added to the existing `prefers-reduced-motion` enumeration block (`animation: none; display: none`) — hidden entirely, no static fallback. Base rules MUST precede the gate block (source-order rule).
@@ -73,10 +79,10 @@ Every test that enumerates the flair vocabulary MUST be updated for the 14th val
 
 ### Design Decisions
 
-#### Two-act narrative loop via mid-loop teleport
-**Decision**: One `::after` runs two acts — carry left→right, off-screen portal beat, `53%/53.01%` teleport, solo fall right→left — with `-x` traversal and `-y` frame narrative sharing one duration.
-**Why**: The scene's story is out-with-the-nuke, back-without-it; aquarium's mid-loop teleport proves the mechanic; independent longhands let one sheet serve both acts.
-**Rejected**: Converging chase (glued layers displace identically — impossible); single-pass marquee (loses the story; kept as a simplification fallback if review finds the sync brittle).
+#### Frame-encoded zoom (fake 3D) with an on-screen banked reversal
+**Decision**: The fly-by reads as camera depth by varying the DRAWN figure size across sheet frames (~6px far → ~26–30px hero close-up → back), while `-x` traverses left → right-edge → left with a direction reversal covered by 2–3 banking-turn frames; `-x`/`-y` share one duration. Single background layer, effects baked per frame.
+**Why**: User rejected the shipped two-act nuke-catch and specified this shape (start tiny at the left, zoom in toward center, full close-up + a fight-scene-style turn at the right, recede back to the city); scale-in-frames is the only zoom available under the no-transform discipline; an on-screen reversal needs no teleport and the turn frames make it read as a bank, not a bounce.
+**Rejected**: The shipped two-act carry/teleport loop (user: "didn't like it at all"); transform/`background-size` animation for the zoom (violates the background-position-only discipline and the size longhands don't step cleanly per frame).
 *Introduced by*: 260825-axzg-ironman-nuke-catch-flair
 
 #### Two-layer parallax skyline, distinct from spidey's
@@ -85,10 +91,10 @@ Every test that enumerates the flair vocabulary MUST be updated for the 14th val
 **Rejected**: Reusing spidey's single 12px strip idiom — dialed the design down to the prior flair's ceiling.
 *Introduced by*: 260825-axzg-ironman-nuke-catch-flair
 
-#### Contrail glued act-1-only on the same pseudo
-**Decision**: The repulsor contrail is a background layer glued to the carry sprite on `::after`, parked off-screen with it in act 2; fallback is baking the trail into the carry frames.
-**Why**: Nyan's glued-trail mechanic is proven; only two pseudos exist per overlay and child spans are reserved for transform flairs.
-**Rejected**: A third visual element via child spans — reserved for cube/warp's transform exception.
+#### Effects baked per frame; no glued companion layers
+**Decision**: Thruster/repulsor streaks are drawn inside each sheet frame at that frame's scale; `::after` carries exactly one background layer.
+**Why**: A separate glued trail cannot change size with the figure (glued layers displace, never scale), and a fixed-size trail breaks the zoom illusion; a single layer also removes the equal-px balancing arithmetic entirely.
+**Rejected**: The shipped glued 110px contrail (scale-blind); child spans (reserved for cube/warp's transform exception).
 *Introduced by*: 260825-axzg-ironman-nuke-catch-flair
 
 ## Tasks
@@ -101,8 +107,8 @@ Every test that enumerates the flair vocabulary MUST be updated for the 14th val
 ### Phase 2: Core Implementation
 
 - [x] T003 Draw the two skyline silhouette SVG tiles (near 96×12, far 64×8, original artwork with Stark-spire) and add `rk-flair-ironman-city` keyframes + the `.rk-flair-ironman::before` rule in `app/frontend/src/globals.css` <!-- R3 -->
-- [x] T004 Draw the 6-frame vertical sprite sheet (frames 0–3 carry composition with exhaust flicker + climb-bob, frames 4–5 solo tumble) and the left-faded blue-white contrail layer as inline SVG data-URIs in `app/frontend/src/globals.css` <!-- R4 -->
-- [x] T005 Add `rk-flair-ironman-x` (two-act traversal with off-screen parks + 53%/53.01% teleport) and `rk-flair-ironman-y` (act-choreographed step-end frame narrative, same duration) keyframes and the `.rk-flair-ironman::after` rule with balanced glued-layer offsets in `app/frontend/src/globals.css` <!-- R4 -->
+- [x] T004 Draw the fly-by zoom sprite sheet (~9–11 frames: 4 right-facing approach frames growing ≈6→10→15→20px, 2–3 banking-turn hero frames at ≈26–30px, 3–4 left-facing return frames shrinking ≈20→6px; thruster streaks baked per frame at frame scale; original pixel art) as an inline SVG data-URI in `app/frontend/src/globals.css`, REPLACING the old two-act sheet + contrail layer <!-- R4 --> <!-- rework: user rejected the two-act nuke-catch — fly-by zoom loop replaces it -->
+- [x] T005 Rewrite `rk-flair-ironman-x` (off-screen-left park → right-edge on-screen reversal inside the turn window → back to off-screen-left; loop boundary only at far left) and `rk-flair-ironman-y` (growth → turn → shrink frame narrative, same duration) and the `.rk-flair-ironman::after` rule as a SINGLE background layer (no glued-layer offsets), REPLACING the teleport choreography, in `app/frontend/src/globals.css` <!-- R4 --> <!-- rework: user rejected the two-act nuke-catch — fly-by zoom loop replaces it -->
 
 ### Phase 3: Integration & Edge Cases
 
@@ -111,7 +117,8 @@ Every test that enumerates the flair vocabulary MUST be updated for the 14th val
 
 ### Phase 4: Polish
 
-- [x] T008 Run verification gates: `cd app/backend && go test ./...`, `cd app/frontend && npx tsc --noEmit`, `just build`; confirm `flair-overlay.tsx`/`swatch-popover.tsx` needed no changes <!-- R7 -->
+- [x] T008 Run verification gates: `cd app/backend && go test ./...`, `cd app/frontend && npx tsc --noEmit`, `just build`; confirm `flair-overlay.tsx`/`swatch-popover.tsx` needed no changes <!-- R7 --> <!-- rework: re-run after the R4 redesign -->
+
 
 ## Execution Order
 
@@ -126,11 +133,11 @@ Every test that enumerates the flair vocabulary MUST be updated for the 14th val
 - [x] A-001 R1: `FLAIR_STATES` contains `"ironman"` appended after `"spidey"`; the picker flair band renders 14 cells (7/7) with no `swatch-popover.tsx` change
 - [x] A-002 R2: `ValidateFlairValue("ironman")` passes on all three write paths (window option, session option, `server_flairs`); unknown tokens still 400
 - [x] A-003 R3: `.rk-flair-ironman::before` paints two skyline layers at different drift speeds, each displacing by an exact multiple of its own tile period per loop
-- [x] A-004 R4: `.rk-flair-ironman::after` plays the two-act loop — carry L→R with contrail, off-screen beat, solo effect-less fall R→L — via `background-position` longhands only on one shared duration
+- [x] A-004 R4: `.rk-flair-ironman::after` plays the fly-by zoom loop — a tiny figure enters off-screen left, grows across 4 right-facing frames while flying right, banks an on-screen turn at hero size near the right edge, then shrinks back left into the city — via `background-position` longhands only on one shared duration, single background layer
 
 ### Behavioral Correctness
 
-- [x] A-005 R4: All glued `::after` layers displace by identical px (balanced from/to constants); the teleport pair and both loop boundaries land fully off-screen (no visible snap)
+- [x] A-005 R4: The `::after` carries a single layer (no glued offsets to balance); the `-x` direction reversal sits inside the turn-frame window (covered by the banking frames) and the loop boundary lands fully off-screen left (0% = 100% = -36px — no visible snap)
 - [x] A-006 R5: Under `prefers-reduced-motion` the flair renders nothing (both pseudos `animation: none; display: none`), and the gate rules sit below the base rules in source order
 
 ### Scenario Coverage

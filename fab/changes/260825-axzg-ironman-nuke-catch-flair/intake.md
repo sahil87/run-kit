@@ -41,7 +41,9 @@ Why a flair and not anything else: settled by the spidey change's intake-time re
 
 The name is `ironman` — the homage naming register (naruto, onepiece, pacman, roadrunner, spidey). The sprite is an **original pixel-art homage** (red/gold armored figure + gray finned missile), drawn as tiny inline SVG like every other sheet — no film-derived assets.
 
-### 2. `.rk-flair-ironman` treatment in `globals.css` — the two-act loop
+### 2. `.rk-flair-ironman` treatment in `globals.css` — the animation design
+
+> **REVISED after first ship**: the user rejected the shipped two-act nuke-catch loop ("didn't like it at all") and redirected to a **fly-by zoom loop** — Iron Man alone: enters off-screen left drawn tiny (far away at city scale), grows across frames while flying right (frame-encoded fake zoom), banks a 2–3-frame turn at full close-up size (~26–30px) near the right edge (an on-screen `-x` direction reversal covered by the turn frames — no teleport), then shrinks while flying back left, receding into the city. Single background layer on `::after`; thruster effects baked per frame at frame scale; ~12–18s. The two-layer parallax skyline `::before` is kept. **`plan.md` R4 (revised) is authoritative**; the two-act design below is retained for provenance only.
 
 A frame-animated sheet flair following the established CSS discipline (background-position longhands only, no transforms, overlay pseudos, box-agnostic), with one structural novelty: a **two-act x-traversal** using the aquarium mid-loop teleport.
 

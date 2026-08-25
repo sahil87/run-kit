@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 8
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-08-25T08:38:29Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-25T08:44:33Z"}
     hydrate: {started_at: "2026-08-25T08:44:33Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-25T08:47:40Z"}
     ship: {started_at: "2026-08-25T08:47:40Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-25T08:50:05Z"}
-    review-pr: {started_at: "2026-08-25T08:50:05Z", driver: git-pr, iterations: 2}
+    review-pr: {started_at: "2026-08-25T08:50:05Z", driver: git-pr, iterations: 2, completed_at: "2026-08-25T08:51:59Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/739
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: 'Added the ironman flair (14th): two-act nuke-catch loop (carry L→R, 54%/54.01% teleport, solo fall R→L) on one ::after + two-layer parallax skyline ::before; closed sets + reduced-motion gate updated in lockstep'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-25T08:50:05Z
+last_updated: 2026-08-25T08:51:59Z

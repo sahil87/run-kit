@@ -27,9 +27,11 @@ import {
   stepWebZoom,
   webZoomKeyFor,
   writeWebZoom,
+  WEB_ZOOM_MAX,
+  WEB_ZOOM_MIN,
   type WebZoomDirection,
 } from "@/lib/web-zoom";
-import { createGestureArm, createWheelAccumulator } from "@/lib/zoom-gesture";
+import { applyWheelZoom, clampZoom } from "@/lib/zoom-gesture";
 import { hasWebUrl } from "@/lib/window-view";
 import {
   WEB_FIND_OPEN_EVENT,
@@ -66,6 +68,10 @@ interface IframeWindowProps {
    *  callback-seam shape. Absent ⇒ no reporting. */
   onPageMeta?: (meta: { title: string | null }) => void;
 }
+
+/** Trailing debounce for persisting gesture-driven zoom — a pinch emits
+ *  dozens of events; one write after quiescence is enough (260824-iafo R4). */
+const ZOOM_PERSIST_DEBOUNCE_MS = 250;
 
 /** The tile's error surface (260819-v6y4 R8) — rendered IN PLACE of the
  *  iframe's visible area; copy per the approved design study (states 05/06).
@@ -120,52 +126,88 @@ export function IframeWindow({
   const pageMetaRef = useRef(onPageMeta);
   pageMetaRef.current = onPageMeta;
 
-  // ── content zoom (260823-cwvv R2/R3) ────────────────────────────────────
+  // ── content zoom (260823-cwvv R2/R3; continuous gestures 260824-iafo) ────
   // Per-viewer, per-bucket zoom level: seeded from localStorage, re-seeded
   // whenever the address's bucket changes (a proxied tile navigating ports
-  // switches buckets), persisted on every change. Never POSTed.
+  // switches buckets). Never POSTed. Two trigger families: click/shortcut
+  // zoom steps the discrete ladder; GESTURES write a continuous float — the
+  // Chrome/macOS pinch behavior (quantized pinch visibly "clicks").
   const zoomBucket = webZoomKeyFor(rkUrl);
   const [zoom, setZoomState] = useState(() => readWebZoom(zoomBucket));
   // The mirror ref keeps persistence OUT of the setState updater — StrictMode
   // double-invokes updaters, which would duplicate localStorage writes — while
-  // burst gesture steps still accumulate correctly between renders.
+  // burst gesture events still compound correctly between renders.
   const zoomRef = useRef(zoom);
   zoomRef.current = zoom;
   const zoomBucketRef = useRef(zoomBucket);
+  // Gesture persistence is DEBOUNCED (trailing): a pinch emits dozens of
+  // events and localStorage-per-event is waste. The pending write FLUSHES
+  // (never drops) on bucket change and unmount, so navigating away mid-pinch
+  // keeps the final value. Click-path writes stay immediate.
+  const zoomPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelZoomPersist = useCallback(() => {
+    if (zoomPersistTimerRef.current === null) return;
+    clearTimeout(zoomPersistTimerRef.current);
+    zoomPersistTimerRef.current = null;
+  }, []);
+  const flushZoomPersist = useCallback(() => {
+    if (zoomPersistTimerRef.current === null) return;
+    cancelZoomPersist();
+    writeWebZoom(zoomBucketRef.current, zoomRef.current);
+  }, [cancelZoomPersist]);
+  useEffect(() => flushZoomPersist, [flushZoomPersist]);
   useEffect(() => {
     if (zoomBucketRef.current === zoomBucket) return;
+    // The pending write belongs to the OLD bucket — flush before re-seeding.
+    flushZoomPersist();
     zoomBucketRef.current = zoomBucket;
     const seeded = readWebZoom(zoomBucket);
     zoomRef.current = seeded;
     setZoomState(seeded);
-  }, [zoomBucket]);
+  }, [zoomBucket, flushZoomPersist]);
   const applyZoom = useCallback(
     (direction: WebZoomDirection) => {
       const prev = zoomRef.current;
       const next =
         direction === "reset" ? WEB_ZOOM_DEFAULT : stepWebZoom(prev, direction);
       if (next === prev) return;
+      // The immediate click-path write supersedes any pending gesture write.
+      cancelZoomPersist();
       zoomRef.current = next;
       writeWebZoom(zoomBucket, next);
       setZoomState(next);
     },
-    [zoomBucket],
+    [zoomBucket, cancelZoomPersist],
   );
   const applyZoomRef = useRef(applyZoom);
   applyZoomRef.current = applyZoom;
-
-  // Gesture→step plumbing (R6/R8): both listener arms (the tile wrapper and
-  // the same-origin frame document) share the zoom-gesture reduction. Only
-  // ctrl/meta-modified wheel and Safari gesture* events are intercepted —
-  // everything else passes through untouched. Returns the teardown.
-  const applyGestureSteps = useCallback((steps: number) => {
-    const direction: WebZoomDirection = steps > 0 ? "in" : "out";
-    for (let i = 0; i < Math.abs(steps); i++) applyZoomRef.current(direction);
+  // The continuous gesture setter: applied per event so the frame tracks the
+  // fingers, persisted on the trailing debounce.
+  const applyZoomFactor = useCallback((next: number) => {
+    const clamped = clampZoom(next, WEB_ZOOM_MIN, WEB_ZOOM_MAX);
+    if (clamped === zoomRef.current) return;
+    zoomRef.current = clamped;
+    setZoomState(clamped);
+    if (zoomPersistTimerRef.current !== null) clearTimeout(zoomPersistTimerRef.current);
+    zoomPersistTimerRef.current = setTimeout(() => {
+      zoomPersistTimerRef.current = null;
+      writeWebZoom(zoomBucketRef.current, zoomRef.current);
+    }, ZOOM_PERSIST_DEBOUNCE_MS);
   }, []);
+  const applyZoomFactorRef = useRef(applyZoomFactor);
+  applyZoomFactorRef.current = applyZoomFactor;
+
+  // Gesture plumbing (R6/R8; continuous 260824-iafo): both listener arms (the
+  // tile wrapper and the same-origin frame document) apply the continuous
+  // mapping per event — no thresholds, no ladder (the ladder is the click
+  // path's). Only ctrl/meta-modified wheel and Safari gesture* events are
+  // intercepted — everything else passes through untouched. Returns the
+  // teardown.
   const wireGestureListeners = useCallback(
     (target: Document | HTMLElement) => {
-      const feed = createWheelAccumulator();
-      const arm = createGestureArm();
+      // Safari's gesturechange scale is cumulative from gesturestart — capture
+      // the base once per pinch and multiply; no accumulator state.
+      let gestureBase = zoomRef.current;
       // Typed as Event: the listener must accept the union target's
       // (Document | HTMLElement) common signature, and a frame-document
       // WheelEvent is cross-realm (instanceof narrowing is unreliable) —
@@ -175,16 +217,23 @@ export function IframeWindow({
         if (typeof wheel.deltaY !== "number") return;
         if (!wheel.ctrlKey && !wheel.metaKey) return;
         e.preventDefault();
-        applyGestureSteps(feed(wheel.deltaY));
+        applyZoomFactorRef.current(
+          applyWheelZoom(zoomRef.current, wheel.deltaY, WEB_ZOOM_MIN, WEB_ZOOM_MAX),
+        );
       };
       // Safari's gesture* events are non-standard (no DOM-lib typing) — the
       // scale read narrows defensively so a foreign event can't throw.
-      const onGestureStart = () => arm.reset();
+      // gesturestart must preventDefault too: without it Safari's native
+      // pinch page-zoom can engage before the first gesturechange.
+      const onGestureStart = (e: Event) => {
+        e.preventDefault();
+        gestureBase = zoomRef.current;
+      };
       const onGestureChange = (e: Event) => {
         const scale = (e as { scale?: unknown }).scale;
         if (typeof scale !== "number") return;
         e.preventDefault();
-        applyGestureSteps(arm.change(scale));
+        applyZoomFactorRef.current(gestureBase * scale);
       };
       target.addEventListener("wheel", onWheel, { passive: false, capture: true });
       target.addEventListener("gesturestart", onGestureStart);
@@ -195,7 +244,7 @@ export function IframeWindow({
         target.removeEventListener("gesturechange", onGestureChange);
       };
     },
-    [applyGestureSteps],
+    [],
   );
 
   /** The current address in RAW form: the tracked frame location when known,

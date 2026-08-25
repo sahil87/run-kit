@@ -152,7 +152,7 @@ test.describe("Web tile — content zoom (260823-cwvv R2–R5)", () => {
     await page.keyboard.press("Escape");
   });
 
-  test("(e) ctrl-wheel inside the same-origin frame steps the zoom (gesture trigger)", async ({
+  test("(e) ctrl-wheel inside the same-origin frame zooms CONTINUOUSLY; a + click lands back on the ladder", async ({
     page,
   }) => {
     const id = await makeWindow(page, `wz-gesture-${Date.now()}`, `http://localhost:${stub.port}/`);
@@ -162,13 +162,23 @@ test.describe("Web tile — content zoom (260823-cwvv R2–R5)", () => {
     const handle = await iframe(page).elementHandle();
     const frame = await handle?.contentFrame();
     if (!frame) throw new Error("no contentFrame");
-    await frame.evaluate(() => {
-      document.dispatchEvent(
-        new WheelEvent("wheel", { deltaY: -60, ctrlKey: true, bubbles: true, cancelable: true }),
-      );
-    });
-    await expect(zoomReadout(page)).toHaveText("110%");
-    // The browser page itself never zoomed: the event was preventDefault'd.
-    await expect(iframe(page)).toHaveCSS("transform", /matrix\(1\.1/);
+    const wheel = (deltaY: number) =>
+      frame.evaluate((dy) => {
+        document.dispatchEvent(
+          new WheelEvent("wheel", { deltaY: dy, ctrlKey: true, bubbles: true, cancelable: true }),
+        );
+      }, deltaY);
+    // Continuous exponential mapping (260824-iafo): exp(0.6) ≈ 1.822 — an
+    // OFF-LADDER value, the pinch tracking the fingers instead of clicking
+    // between ladder stops.
+    await wheel(-60);
+    await expect(zoomReadout(page)).toHaveText("182%");
+    await expect(iframe(page)).toHaveCSS("transform", /matrix\(1\.82/);
+    // Every event compounds — no threshold swallows a small tick.
+    await wheel(-10);
+    await expect(zoomReadout(page)).toHaveText("201%");
+    // Click/shortcut zoom stays quantized: + from ~2.01 snaps to 2, steps to 2.5.
+    await page.getByLabel("Zoom in").click();
+    await expect(zoomReadout(page)).toHaveText("250%");
   });
 });

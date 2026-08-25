@@ -1,0 +1,56 @@
+id: iafo
+name: 260824-iafo-web-tile-continuous-gesture-zoom
+created: 2026-08-24T07:06:39Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 12
+    acceptance_completed: 12
+confidence:
+    certain: 3
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 4.9
+    fuzzy: true
+    dimensions:
+        signal: 73.0
+        reversibility: 86.0
+        competence: 86.0
+        disambiguation: 82.0
+stage_metrics:
+    intake: {started_at: "2026-08-24T07:06:39Z", driver: fab-new, iterations: 1, completed_at: "2026-08-24T07:07:37Z"}
+    apply: {started_at: "2026-08-24T07:07:37Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-24T07:15:36Z"}
+    review: {started_at: "2026-08-24T07:15:36Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-24T07:25:02Z"}
+    hydrate: {started_at: "2026-08-24T07:25:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-24T07:26:46Z"}
+    ship: {started_at: "2026-08-24T07:26:46Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-24T07:28:11Z"}
+    review-pr: {started_at: "2026-08-24T07:28:11Z", driver: git-pr, iterations: 1, completed_at: "2026-08-25T03:33:50Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/736
+change_type_source: explicit
+true_impact:
+    added: 556
+    deleted: 57
+    net: 499
+    excluding:
+        added: 271
+        deleted: 56
+        net: 215
+    tests:
+        added: 59
+        deleted: 14
+        net: 45
+    computed_at: "2026-08-24T07:28:11Z"
+    computed_at_stage: ship
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-25T03:33:50Z

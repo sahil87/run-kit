@@ -1,5 +1,6 @@
 # Archived Changes
 
+- **260823-cwvv-tile-content-zoom-gestures** — Tile Content Zoom with Gesture Triggers
 - **260820-sywl-welcome-host-hub** — Welcome Host Hub
 - **260820-o8cr-true-zen-mode** — True Zen Mode
 - **260820-nv0o-host-menu-shortcut-digit-select** — Host Menu Shortcut + Digit Select

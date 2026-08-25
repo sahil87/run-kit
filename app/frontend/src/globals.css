@@ -1098,8 +1098,12 @@ summary {
    per-frame anchor x walks BACKWARD (~9px/frame) against the traversal
    (~10-12px/frame on typical row widths), so each web's anchor point holds
    near-still in box space while the body swings past under it. ::before is
-   a faint web-filament tile drifting the opposite way (own keyframes,
-   never shared). ~9s traversal, loop boundaries fully off-screen. */
+   a faint NYC-skyline silhouette tile (72px period, two tone depths of a
+   neutral gray at 10%/16% fill — solid blocks only, Empire-State stepped
+   spire included) hugging the box BOTTOM at 12px tall, drifting the
+   opposite way one tile per loop (own keyframes, never shared) — rooftops
+   he swings over and dips behind. ~9s traversal, loop boundaries fully
+   off-screen. */
 @keyframes rk-flair-spidey-x {
   from { background-position-x: -32px; }
   to { background-position-x: calc(100% + 32px); }
@@ -1115,24 +1119,23 @@ summary {
   87.5% { background-position-y: -210px; }
   100% { background-position-y: -210px; }
 }
-@keyframes rk-flair-spidey-web {
+@keyframes rk-flair-spidey-city {
   from { background-position-x: 0; }
-  to { background-position-x: -56px; }
+  to { background-position-x: -72px; }
 }
 .rk-flair-spidey::before {
   content: "";
   position: absolute;
   left: 0;
   right: 0;
-  top: 50%;
-  height: 22px;
-  margin-top: -11px;
+  bottom: 0;
+  height: 12px;
   pointer-events: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='22' viewBox='0 0 56 22'%3E%3Cpath d='M6 0 L16 22' stroke='%23cdd6e4' stroke-opacity='0.09' stroke-width='1'/%3E%3Cpath d='M34 22 L44 2' stroke='%23cdd6e4' stroke-opacity='0.07' stroke-width='1'/%3E%3C/svg%3E");
-  background-size: 56px 22px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='12' viewBox='0 0 72 12'%3E%3Cg fill='%237a8394' fill-opacity='0.10'%3E%3Crect x='2' y='4' width='6' height='8'/%3E%3Crect x='20' y='5' width='5' height='7'/%3E%3Crect x='44' y='3' width='6' height='9'/%3E%3Crect x='62' y='5' width='6' height='7'/%3E%3C/g%3E%3Cg fill='%237a8394' fill-opacity='0.16'%3E%3Crect x='8' y='6' width='8' height='6'/%3E%3Crect x='10' y='3' width='4' height='3'/%3E%3Crect x='11' y='2' width='2' height='1'/%3E%3Crect x='12' y='0' width='1' height='2'/%3E%3Crect x='28' y='7' width='7' height='5'/%3E%3Crect x='36' y='5' width='4' height='7'/%3E%3Crect x='40' y='8' width='4' height='4'/%3E%3Crect x='55' y='7' width='2' height='1'/%3E%3Crect x='54' y='8' width='4' height='4'/%3E%3Crect x='66' y='7' width='5' height='5'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 72px 12px;
   background-repeat: repeat-x;
   background-position: 0 0;
-  animation: rk-flair-spidey-web 4s linear infinite;
+  animation: rk-flair-spidey-city 18s linear infinite;
 }
 .rk-flair-spidey::after {
   content: "";

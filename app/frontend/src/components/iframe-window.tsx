@@ -223,7 +223,10 @@ export function IframeWindow({
       };
       // Safari's gesture* events are non-standard (no DOM-lib typing) — the
       // scale read narrows defensively so a foreign event can't throw.
-      const onGestureStart = () => {
+      // gesturestart must preventDefault too: without it Safari's native
+      // pinch page-zoom can engage before the first gesturechange.
+      const onGestureStart = (e: Event) => {
+        e.preventDefault();
         gestureBase = zoomRef.current;
       };
       const onGestureChange = (e: Event) => {

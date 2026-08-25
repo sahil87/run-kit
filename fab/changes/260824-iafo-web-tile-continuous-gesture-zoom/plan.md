@@ -12,7 +12,7 @@
 
 - **GIVEN** current zoom 1.0 and two wheel events of deltaY −35 each
 - **WHEN** both feed `applyWheelZoom`
-- **THEN** zoom is `exp(0.35 * 2) ≈ 2.01×`-free — precisely `1 * e^0.35 * e^0.35 ≈ 2.014` clamped to ≤ 3, with NO intermediate quantization
+- **THEN** zoom is precisely `1 * e^0.35 * e^0.35 ≈ 2.014` (clamped to ≤ 3), with NO intermediate quantization at any step
 
 #### R2: `web-zoom.ts` stores and reads continuous floats
 `app/frontend/src/lib/web-zoom.ts` SHALL export `WEB_ZOOM_MIN = 0.5` / `WEB_ZOOM_MAX = 3` (the ladder ends, derived from `WEB_ZOOM_LEVELS`). `readWebZoom` SHALL STOP snapping stored values to the nearest ladder level — a stored float returns as-is, clamped to `[WEB_ZOOM_MIN, WEB_ZOOM_MAX]` (continuous is now a legitimate stored state); absent/unreadable still returns `WEB_ZOOM_DEFAULT`. `writeWebZoom` SHALL round the level to 2 decimals before storing; a value that rounds to exactly `1` removes the entry (the sparse-map rule survives float noise like 0.9999). `stepWebZoom` is UNCHANGED — its nearest-level snap is now the load-bearing bridge from a continuous gesture value to the button/palette ladder.

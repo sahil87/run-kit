@@ -65,7 +65,8 @@ export type ProjectSession = {
   sessionPath?: string;
   /** Row flair state: ""/absent (no flair) | "rain" | "scan" | "nyan" |
    *  "naruto" | "onepiece" | "pacman" | "matrix" | "aquarium" | "roadrunner" |
-   *  "invaders" | "cube" | "warp" | "spidey".
+   *  "invaders" | "cube" | "warp" | "spidey" | "custom" (the runtime-asset
+   *  slot — the user's own image served at /api/flair/custom).
    *  Decoration only (FLAIR_STATES in themes.ts) — an ambient CSS-only overlay
    *  with no status semantics. */
   flair?: string;
@@ -104,7 +105,7 @@ export type WindowInfo = {
   /** Row flair state, from the `@rk_flair` window option: ""/absent (no
    *  flair) | "rain" | "scan" | "nyan" | "naruto" | "onepiece" | "pacman" |
    *  "matrix" | "aquarium" | "roadrunner" | "invaders" | "cube" | "warp" |
-   *  "spidey". Decoration
+   *  "spidey" | "custom" (the runtime-asset slot). Decoration
    *  only (FLAIR_STATES in themes.ts) — an ambient CSS-only overlay with no
    *  status semantics. */
   flair?: string;

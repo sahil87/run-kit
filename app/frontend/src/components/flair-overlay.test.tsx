@@ -1,9 +1,11 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, cleanup } from "@testing-library/react";
 import { FlairOverlay } from "./flair-overlay";
+import { stubMatchMedia } from "../test-utils/match-media";
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
 });
 
 // The single mount for row flair overlays (R9): the overlay span carries
@@ -73,5 +75,31 @@ describe("FlairOverlay", () => {
     expect(
       (bare.querySelector(".rk-flair-scan") as HTMLElement).style.getPropertyValue("--rk-flair-color"),
     ).toBe("");
+  });
+
+  // The `custom` runtime-asset slot: the image owns the loop (no CSS
+  // animation), so the CSS reduced-motion gate cannot stop it — the component
+  // short-circuits to null under prefers-reduced-motion instead. Every other
+  // flair keeps the pure-CSS gate (its render path is untouched).
+  it("custom mounts nothing under prefers-reduced-motion: reduce", () => {
+    stubMatchMedia((query) => query === "(prefers-reduced-motion: reduce)");
+
+    const { container } = render(<FlairOverlay flair="custom" />);
+    expect(container.querySelector("[class*='rk-flair-']")).toBeNull();
+
+    // Other flairs are NOT gated in JS — the same media state still renders.
+    const { container: nyan } = render(<FlairOverlay flair="nyan" />);
+    expect(nyan.querySelector(".rk-flair-nyan")).not.toBeNull();
+  });
+
+  it("custom renders the bare overlay span when motion is allowed", () => {
+    stubMatchMedia(); // default: no query matches
+
+    const { container } = render(<FlairOverlay flair="custom" />);
+    const overlay = container.querySelector(".rk-flair-custom");
+    expect(overlay).not.toBeNull();
+    expect(overlay!.getAttribute("aria-hidden")).toBe("true");
+    expect(overlay!.className).toContain("pointer-events-none");
+    expect(overlay!.children).toHaveLength(0);
   });
 });

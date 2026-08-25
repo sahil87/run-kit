@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's configuration story: fixed root $HOME/.config/run-kit/ (no XDG_CONFIG_HOME), the internal/settings registry (key/type/default/description/category/ui/live) + 12-key inventory behind the GET/POST /api/settings pair (partial merge, all-or-nothing validation), override order (code default < config.yaml < env < CLI flag; env restricted to RK_PORT/RK_HOST/RK_CODE_SERVER_PORT + undocumented RK_TMUX_CONF/LOG_LEVEL escapes), value-home boundaries, the rk-owned hash-stamped managed tmux.conf (three-state daemon-start refresh, live-only reload sweep), migrations with breadcrumbs, ~/.rk tenants."
+description: "run-kit's configuration story: fixed root $HOME/.config/run-kit/ (no XDG_CONFIG_HOME), the internal/settings registry + 12-key inventory behind the GET/POST /api/settings pair, override order (code default < config.yaml < env < CLI flag; env restricted to RK_PORT/RK_HOST/RK_CODE_SERVER_PORT), value-home boundaries, the rk-owned hash-stamped managed tmux.conf, the fixed custom-flair.webp|gif runtime-asset filenames, migrations with breadcrumbs, ~/.rk tenants."
 ---
 # Configuration
 
@@ -12,7 +12,7 @@ run-kit's configuration story: one fixed config root, one registry-driven settin
 
 ## Config Root
 
-The config root is the constant `$HOME/.config/run-kit/`, built with `filepath.Join` from `os.UserHomeDir()`, owned by `internal/settings` and exported as `settings.Dir()`. The resolution never consults `$XDG_CONFIG_HOME` and never uses `os.UserConfigDir` — only `$HOME` moves it, and a test pins that env vars cannot. The settings file is `~/.config/run-kit/config.yaml`; the root also holds the rk-managed `tmux.conf` and the `tmux.d/` drop-in dir (§ Managed tmux.conf). (li54)
+The config root is the constant `$HOME/.config/run-kit/`, built with `filepath.Join` from `os.UserHomeDir()`, owned by `internal/settings` and exported as `settings.Dir()`. The resolution never consults `$XDG_CONFIG_HOME` and never uses `os.UserConfigDir` — only `$HOME` moves it, and a test pins that env vars cannot. The settings file is `~/.config/run-kit/config.yaml`; the root also holds the rk-managed `tmux.conf` and the `tmux.d/` drop-in dir (§ Managed tmux.conf), and OPTIONALLY the user-supplied custom flair asset — the fixed filenames `custom-flair.webp` (preferred) and `custom-flair.gif`, a config-dir FILE convention, not a settings-registry key (no env form, no registry entry), read at request time by `GET /api/flair/custom` (see [architecture](/run-kit/architecture.md) § REST API). (li54)
 
 ## Managed tmux.conf
 

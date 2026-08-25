@@ -1,0 +1,8 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-25T09:39:56Z"}
+{"args":"Bring-your-own-GIF custom flair slot: user-supplied image served from the config dir, looping as a row flair","cmd":"fab-new","event":"command","ts":"2026-08-25T09:39:56Z"}
+{"delta":"+4.6","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-08-25T09:41:29Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-25T09:42:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-25T10:04:19Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-25T10:09:57Z"}
+{"event":"review","result":"passed","ts":"2026-08-25T10:09:57Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-25T10:15:43Z"}

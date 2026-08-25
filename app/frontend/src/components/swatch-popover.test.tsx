@@ -30,24 +30,27 @@ const rgb = (hex: string): string => {
 
 /** The 8 named marker states (band order; − clear cell lives in the band header). */
 const MARKER_NAMED = MARKER_STATES.slice(1);
-/** The 13 named flair states (band order; − clear cell lives in the band header). */
+/** The 14 named flair states (band order; − clear cell lives in the band header). */
 const FLAIR_NAMED = FLAIR_STATES.slice(1);
 
 // Minimal ThemeProvider wrapper for tests
 import { ThemeProvider } from "@/contexts/theme-context";
 
 function mockMatchMedia() {
-  const mql = {
-    matches: true,
-    media: "(prefers-color-scheme: dark)",
+  // Query-accurate stub: dark scheme matches, everything else (notably
+  // prefers-reduced-motion) does not — a real dark-mode browser answers that
+  // way, and the custom flair's JS reduced-motion gate keys on it.
+  const mql = (query: string) => ({
+    matches: query === "(prefers-color-scheme: dark)",
+    media: query,
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
     dispatchEvent: vi.fn(),
     addListener: vi.fn(),
     removeListener: vi.fn(),
     onchange: null,
-  };
-  vi.stubGlobal("matchMedia", vi.fn().mockReturnValue(mql));
+  });
+  vi.stubGlobal("matchMedia", vi.fn().mockImplementation(mql));
 }
 
 function renderWithTheme(ui: React.ReactElement) {
@@ -403,9 +406,9 @@ describe("SwatchPopover", () => {
       return { onSelect, onSelectMarker, onSelectFlair, onClose, ...utils };
     }
 
-    it("full variant: 30 colors + 8 markers + 13 flairs + 3 header − + panel − + ✕ = 56 options, labelled Label picker", () => {
+    it("full variant: 30 colors + 8 markers + 14 flairs + 3 header − + panel − + ✕ = 57 options, labelled Label picker", () => {
       renderLabelPicker();
-      expect(screen.getAllByRole("option")).toHaveLength(56);
+      expect(screen.getAllByRole("option")).toHaveLength(57);
       expect(screen.getByRole("listbox").getAttribute("aria-label")).toBe("Label picker");
       for (const state of MARKER_NAMED) {
         expect(screen.getByRole("option", { name: `Marker ${state}` })).toBeTruthy();
@@ -454,7 +457,7 @@ describe("SwatchPopover", () => {
       expect(band.className).not.toContain("rk-band-scroll");
     });
 
-    it("the flair band lists the 13 states in display order, rain/scan leading, spidey last", () => {
+    it("the flair band lists the 14 states in display order, rain/scan leading, custom last", () => {
       renderLabelPicker();
       const cells = Array.from(
         screen.getByRole("listbox").querySelectorAll("[data-flair-value]"),
@@ -788,7 +791,7 @@ describe("SwatchPopover", () => {
       expect(onSelect).not.toHaveBeenCalled();
     });
 
-    it("the marker row walks all 8 states; the flair rows walk 7 and 6 columns (rain/nyan/… over scan/naruto/…)", () => {
+    it("the marker row walks all 8 states; the flair rows walk 7 and 7 columns (rain/nyan/… over scan/naruto/…)", () => {
       const { onSelectMarker, onSelectFlair, enter, arrow } = renderFull();
       // Uncolored → color header −. Down 5 → the marker band's row, col 0.
       arrow("ArrowDown", 5);
@@ -812,8 +815,8 @@ describe("SwatchPopover", () => {
       arrow("ArrowDown");
       enter();
       expect(onSelectFlair).toHaveBeenLastCalledWith("scan");
-      // Row 2 walks right: naruto, pacman, aquarium, invaders, warp — clamped.
-      for (const state of ["naruto", "pacman", "aquarium", "invaders", "warp", "warp"]) {
+      // Row 2 walks right: naruto, pacman, aquarium, invaders, warp, custom — clamped.
+      for (const state of ["naruto", "pacman", "aquarium", "invaders", "warp", "custom", "custom"]) {
         arrow("ArrowRight");
         enter();
         expect(onSelectFlair).toHaveBeenLastCalledWith(state);
@@ -821,11 +824,11 @@ describe("SwatchPopover", () => {
       // Row 2 is the bottom: ArrowDown is a no-op.
       arrow("ArrowDown");
       enter();
-      expect(onSelectFlair).toHaveBeenLastCalledWith("warp");
-      // Up in the same column returns to cube.
+      expect(onSelectFlair).toHaveBeenLastCalledWith("custom");
+      // Up in the same column returns to spidey.
       arrow("ArrowUp");
       enter();
-      expect(onSelectFlair).toHaveBeenLastCalledWith("cube");
+      expect(onSelectFlair).toHaveBeenLastCalledWith("spidey");
     });
 
     it("ArrowLeft at the left edge is a no-op", () => {

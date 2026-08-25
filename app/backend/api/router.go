@@ -784,6 +784,10 @@ func (s *Server) buildRouter() chi.Router {
 	// Keybindings
 	r.Get("/api/keybindings", s.handleKeybindings)
 
+	// Custom flair runtime asset — the user's own custom-flair.webp|gif served
+	// from the config root at request time (read-only GET). See api/flair.go.
+	r.Get("/api/flair/custom", s.handleCustomFlair)
+
 	// Settings (global, not per-server) — one registry-driven surface:
 	// GET returns registry metadata + current values; POST is a partial merge
 	// (present keys set, null unsets) per Constitution IX.

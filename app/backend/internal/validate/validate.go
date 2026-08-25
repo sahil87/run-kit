@@ -205,7 +205,7 @@ func ValidateInstanceName(value string) string {
 var (
 	markerTokens = []string{"pipe", "dotted", "dashed", "solid", "double", "thick", "hatch", "block"}
 	roleTokens   = []string{"operator"}
-	flairTokens  = []string{"rain", "scan", "nyan", "naruto", "onepiece", "pacman", "matrix", "aquarium", "roadrunner", "invaders", "cube", "warp", "spidey"}
+	flairTokens  = []string{"rain", "scan", "nyan", "naruto", "onepiece", "pacman", "matrix", "aquarium", "roadrunner", "invaders", "cube", "warp", "spidey", "troy"}
 )
 
 // closedSet builds the membership map for an ordered token slice, including
@@ -270,9 +270,9 @@ var FlairValues = closedSet(flairTokens)
 
 // ValidateFlairValue validates an @rk_flair value against flairTokens (one of
 // ""/rain/scan/nyan/naruto/onepiece/pacman/matrix/aquarium/roadrunner/
-// invaders/cube/warp/spidey). Returns an empty string if valid, an error message
-// otherwise. The single shared flair-value rule reused by the window-option
-// and session-flair handlers.
+// invaders/cube/warp/spidey/troy). Returns an empty string if valid, an
+// error message otherwise. The single shared flair-value rule reused by the
+// window-option and session-flair handlers.
 func ValidateFlairValue(value string) string {
 	return validateClosedSet(value, "Flair", FlairValues, flairTokens)
 }

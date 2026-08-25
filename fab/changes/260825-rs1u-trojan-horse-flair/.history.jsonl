@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-25T13:43:25Z"}
+{"args":"Add a new sidebar flair to the existing flair animation system inspired by the Iliad's Trojan Horse story: beach + castle wall + town skyline ambient backdrop; wooden horse pulled through the gate; night scene with town on fire. CSS-only sprite-sheet traversal, two-layer pattern, original pixel-art SVG data URIs, reduced-motion hidden, seamless integer-multiple loop math.","cmd":"fab-new","event":"command","ts":"2026-08-25T13:43:25Z"}
+{"delta":"+4.3","event":"confidence","score":4.3,"trigger":"calc-score","ts":"2026-08-25T13:45:14Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-25T13:48:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-25T13:49:09Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-25T14:03:53Z"}
+{"event":"review","result":"failed","ts":"2026-08-25T14:09:47Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-25T14:09:47Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-25T14:12:43Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-25T14:18:10Z"}
+{"event":"review","result":"passed","ts":"2026-08-25T14:18:10Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-25T14:21:31Z"}

@@ -1,5 +1,44 @@
 # Archived Changes
 
+- **260824-xf6p-all-settings-tab-last** — Make the All settings tab the last settings tab
+- **260824-xaw2-protected-server-class** — Protected Server Class
+- **260824-j2k6-daemon-system-presentation** — Daemon SYSTEM Presentation
+- **260824-iafo-web-tile-continuous-gesture-zoom** — Web Tile Continuous Gesture Zoom
+- **260824-bb5n-tab-status-note** — Per-Tab Status Note (@rk_note)
+- **260824-4940-operator-semantic-tab-coloring** — Operator Semantic Tab Coloring
+- **260823-tqkt-mux-await-any-multi-target** — rk mux await --any — multi-target any-of wait mode
+- **260823-qe3n-new-session-inline-name-prompt** — New Session Inline Name Prompt
+- **260823-li54-config-root-registry-core** — Config Root + Registry Core (Phase 1)
+- **260823-ke9i-switch-confirm-post-freshness** — Window-Switch Confirmation Survives Sleep/Wake
+- **260823-fe74-remove-session-create-at-folder** — Remove Session Create at Folder
+- **260823-f1ot-settings-api-hard-fold** — Settings API Hard Fold
+- **260823-c5yq-single-chord-palette-registry-session-copy** — Single-Chord Shortcut Model + Palette-Registry Constitution Amendment + Session Descriptor Copy
+- **260823-atrb-sidebar-current-session-collapse-latch** — Sidebar Current-Session Manual-Collapse Latch
+- **260823-8ocy-solidify-branch-pr-presence** — Solidify Branch→PR Presence Pipeline
+- **260823-5r41-settings-pane-live-apply** — Settings Pane + Live Apply
+- **260823-0tu6-tmux-conf-ownership** — tmux.conf Ownership (Config Phase 4)
+- **260822-wyn3-operator-compose-spawn-search** — Operator Compose — Spawn Routing & Semantic Search
+- **260822-wryh-label-picker-clear-all** — Label Picker Panel-Level − (Clear All Axes)
+- **260822-skcr-operator-session-physical-promotion** — Operator Session Physical Promotion
+- **260822-rfz2-operator-digest-stuck-retire** — Operator Digest, Stuck Triage & Retire
+- **260822-q675-operator-auto-name-idle** — Operator Auto-Name on Idle
+- **260822-pz2e-per-worktree-e2e-isolation** — Per-Worktree E2E Test Isolation + Concurrency Throttle
+- **260822-o0cz-sidebar-current-session-derived-expand** — Sidebar Current-Session Derived Expand
+- **260822-ju2p-arrow-tab-session-navigation** — Arrow-Key Tab & Session Navigation + Hosts H Rebind
+- **260822-ga8z-sort-tabs-status-date** — Sort Tabs by Status/Date
+- **260822-fih1-operator-request-fix-tab-name** — Operator Request Seam + Fix Tab Name
+- **260822-6dlb-light-shade-color-axis** — Light Shade — Third Rung of the Color Axis
+- **260821-zqlq-web-tile-always-tileable-onboarding** — Web Tile Always-Tileable with Onboarding Empty State
+- **260821-zelc-ephemeral-option-snapshot-reap** — Ephemeral Server Option — Snapshot Opt-Out + Reap
+- **260821-l1qe-ephemeral-server-surfacing** — Ephemeral Server Surfacing
+- **260821-k17a-picker-clear-cell-neutral-minus** — Label Picker Clear-Cell Neutral Minus
+- **260821-hbmh-ephemeral-creation-adoption** — Ephemeral Creation Verb + Adoption
+- **260821-f2b7-recovery-dismiss-all** — Recovery Dismiss All
+- **260821-76uz-web-tile-url-bar-glyphs** — Web Tile URL-Bar Glyphs Join the ControlGlyph Register
+- **260820-qzbt-desktop-multi-window** — Desktop-Shell Multi-Window
+- **260820-pjqd-tile-verb-button-visibility** — Tile-Header Verb Button Visibility Fix
+- **260820-lfla-ntw-keymap-tab-rename** — N/T/W Keymap Realignment + "Tab" Copy Sweep
+- **260820-arqw-server-flair-application** — Server Flair Application
 - **260823-cwvv-tile-content-zoom-gestures** — Tile Content Zoom with Gesture Triggers
 - **260820-sywl-welcome-host-hub** — Welcome Host Hub
 - **260820-o8cr-true-zen-mode** — True Zen Mode

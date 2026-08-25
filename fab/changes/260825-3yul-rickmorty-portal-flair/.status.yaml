@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 13
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-25T07:40:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-25T08:19:48Z"}
     review: {started_at: "2026-08-25T08:19:48Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-25T08:24:47Z"}
     hydrate: {started_at: "2026-08-25T08:24:47Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-25T08:28:55Z"}
-    ship: {started_at: "2026-08-25T08:28:55Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-25T08:28:55Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-25T08:34:17Z"}
+    review-pr: {started_at: "2026-08-25T08:34:17Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/740
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 664
+    deleted: 62
+    net: 602
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 133
+        deleted: 47
+        net: 86
     tests:
-        added: 0
-        deleted: 0
+        added: 5
+        deleted: 5
         net: 0
-    computed_at: "2026-08-25T08:28:55Z"
-    computed_at_stage: hydrate
+    computed_at: "2026-08-25T08:34:17Z"
+    computed_at_stage: ship
 summary: 'added 13th named flair portal (in-box portal entrance/exit, figure walks disc to disc); memory updated: visual-design catalogue bullet + 4 design decisions, sidebar/architecture/tmux-sessions enumerations to 13 states'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-25T08:28:55Z
+last_updated: 2026-08-25T08:34:17Z

@@ -482,7 +482,7 @@ summary {
    Always-on CSS-only overlays for rows carrying a flair value (`rain` / `scan` /
    `nyan` /
    `naruto` / `onepiece` / `pacman` / `matrix` / `aquarium` / `roadrunner` /
-   `invaders` / `cube` / `warp` / `spidey`) — pure decoration: no wiring to
+   `invaders` / `cube` / `warp` / `spidey` / `ironman`) — pure decoration: no wiring to
    @rk_agent_state or
    the status pyramid, and it animates in EVERY row state. Mounted on window
    and session rows (NOT server group headers) as an absolutely-positioned
@@ -1155,6 +1155,163 @@ summary {
     rk-flair-spidey-y 2.4s step-end infinite;
 }
 
+/* ironman: the nuke-catch, a TWO-ACT narrative loop on one ::after (the
+   catalogue's first). Act 1 (0-50%): the carry — a fused rider-on-missile
+   composition (gray finned missile, 2-frame orange exhaust flicker at the
+   tail, red/gold armored figure clinging beneath with a blue-white boot
+   repulsor glow) crossing LEFT→RIGHT with a glued 110px blue-white contrail
+   (left-edge faded through an SVG mask — the nyan trail mechanic). Portal
+   beat (50-54%): everything parked fully off-screen right — the empty row IS
+   the portal. A 54%/54.01% keyframe pair (the aquarium teleport) re-parks
+   the contrail at 200%-and-change so it NEVER enters in act 2 while
+   displacing by the same px as the sheet (glued-layer rule). Act 2
+   (54.01-100%): the fall — frames 4-5 only, the figure ALONE in a limp
+   two-pose tumble (rotations drawn in the artwork), NO exhaust, glow, or
+   contrail (the dark arc reactor sells the powerless free-fall), crossing
+   RIGHT→LEFT faster (46% of the loop vs act 1's 50%). The sheet is 36×144 —
+   six 24px frames: 0-3 the carry (frames 1/3 drawn 1px higher — the climb-bob
+   of the upward redirect), 4-5 the tumble. Both longhands share ONE 16s
+   duration so the frame narrative stays locked to the traversal: -y steps at
+   5fps (1.25% stops), flipping to the fall frames exactly at the teleport.
+   Offset arithmetic (glued layers displace by IDENTICAL px): act 1 sheet
+   -36px → calc(100% + 132px) and trail -128px → calc(100% + 114px) both
+   displace W+132; act 2 sheet calc(100% + 132px) → -40px and trail
+   calc(200% + 370px) → calc(100% + 124px) both displace -(W+136); the trail
+   trails the sheet's figure line by 92px in act 1. Every act boundary, the
+   teleport, and the loop wrap land fully off-screen. ::before is a TWO-LAYER
+   Manhattan parallax (distinct artwork from spidey's single strip): a near
+   96×12 tile (stepped rooftops, water towers, one taller stepped spire — the
+   tower stand-in; 12% fill) and a far 64×8 tile (lower sparser blocks, 6%
+   fill), both bottom-anchored repeat-x, drifting right→left at 12px/s vs
+   4px/s — each displaced by an exact multiple of its own period per loop
+   (192 = 2×96, 64 = 1×64), so both wrap points are invisible. */
+@keyframes rk-flair-ironman-city {
+  from { background-position-x: 0, 0; }
+  to { background-position-x: -192px, -64px; }
+}
+.rk-flair-ironman::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='12' viewBox='0 0 96 12'%3E%3Cg fill='%23828a99' fill-opacity='0.12'%3E%3Crect x='0' y='5' width='10' height='7'/%3E%3Crect x='3' y='3' width='3' height='2'/%3E%3Crect x='16' y='3' width='10' height='9'/%3E%3Crect x='18' y='1' width='6' height='2'/%3E%3Crect x='40' y='4' width='10' height='8'/%3E%3Crect x='42' y='2' width='6' height='2'/%3E%3Crect x='43' y='0' width='4' height='2'/%3E%3Crect x='56' y='6' width='8' height='6'/%3E%3Crect x='64' y='9' width='7' height='3'/%3E%3Crect x='66' y='7' width='3' height='2'/%3E%3Crect x='72' y='4' width='12' height='8'/%3E%3Crect x='75' y='2' width='6' height='2'/%3E%3Crect x='88' y='7' width='6' height='5'/%3E%3C/g%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='8' viewBox='0 0 64 8'%3E%3Cg fill='%23828a99' fill-opacity='0.06'%3E%3Crect x='2' y='4' width='7' height='4'/%3E%3Crect x='14' y='2' width='8' height='6'/%3E%3Crect x='30' y='5' width='7' height='3'/%3E%3Crect x='44' y='3' width='9' height='5'/%3E%3Crect x='58' y='5' width='5' height='3'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 96px 12px, 64px 8px;
+  background-repeat: repeat-x, repeat-x;
+  background-position: 0 bottom, 0 bottom;
+  animation: rk-flair-ironman-city 16s linear infinite;
+}
+@keyframes rk-flair-ironman-x {
+  0% { background-position-x: -36px, -128px; }
+  50% { background-position-x: calc(100% + 132px), calc(100% + 114px); }
+  54% { background-position-x: calc(100% + 132px), calc(100% + 114px); }
+  54.01% { background-position-x: calc(100% + 132px), calc(200% + 370px); }
+  100% { background-position-x: -40px, calc(100% + 124px); }
+}
+@keyframes rk-flair-ironman-y {
+  0% { background-position-y: 0px, 0px; }
+  1.25% { background-position-y: -24px, 0px; }
+  2.5% { background-position-y: -48px, 0px; }
+  3.75% { background-position-y: -72px, 0px; }
+  5% { background-position-y: 0px, 0px; }
+  6.25% { background-position-y: -24px, 0px; }
+  7.5% { background-position-y: -48px, 0px; }
+  8.75% { background-position-y: -72px, 0px; }
+  10% { background-position-y: 0px, 0px; }
+  11.25% { background-position-y: -24px, 0px; }
+  12.5% { background-position-y: -48px, 0px; }
+  13.75% { background-position-y: -72px, 0px; }
+  15% { background-position-y: 0px, 0px; }
+  16.25% { background-position-y: -24px, 0px; }
+  17.5% { background-position-y: -48px, 0px; }
+  18.75% { background-position-y: -72px, 0px; }
+  20% { background-position-y: 0px, 0px; }
+  21.25% { background-position-y: -24px, 0px; }
+  22.5% { background-position-y: -48px, 0px; }
+  23.75% { background-position-y: -72px, 0px; }
+  25% { background-position-y: 0px, 0px; }
+  26.25% { background-position-y: -24px, 0px; }
+  27.5% { background-position-y: -48px, 0px; }
+  28.75% { background-position-y: -72px, 0px; }
+  30% { background-position-y: 0px, 0px; }
+  31.25% { background-position-y: -24px, 0px; }
+  32.5% { background-position-y: -48px, 0px; }
+  33.75% { background-position-y: -72px, 0px; }
+  35% { background-position-y: 0px, 0px; }
+  36.25% { background-position-y: -24px, 0px; }
+  37.5% { background-position-y: -48px, 0px; }
+  38.75% { background-position-y: -72px, 0px; }
+  40% { background-position-y: 0px, 0px; }
+  41.25% { background-position-y: -24px, 0px; }
+  42.5% { background-position-y: -48px, 0px; }
+  43.75% { background-position-y: -72px, 0px; }
+  45% { background-position-y: 0px, 0px; }
+  46.25% { background-position-y: -24px, 0px; }
+  47.5% { background-position-y: -48px, 0px; }
+  48.75% { background-position-y: -72px, 0px; }
+  50% { background-position-y: 0px, 0px; }
+  54% { background-position-y: 0px, 0px; }
+  54.01% { background-position-y: -96px, 0px; }
+  55.26% { background-position-y: -120px, 0px; }
+  56.51% { background-position-y: -96px, 0px; }
+  57.76% { background-position-y: -120px, 0px; }
+  59.01% { background-position-y: -96px, 0px; }
+  60.26% { background-position-y: -120px, 0px; }
+  61.51% { background-position-y: -96px, 0px; }
+  62.76% { background-position-y: -120px, 0px; }
+  64.01% { background-position-y: -96px, 0px; }
+  65.26% { background-position-y: -120px, 0px; }
+  66.51% { background-position-y: -96px, 0px; }
+  67.76% { background-position-y: -120px, 0px; }
+  69.01% { background-position-y: -96px, 0px; }
+  70.26% { background-position-y: -120px, 0px; }
+  71.51% { background-position-y: -96px, 0px; }
+  72.76% { background-position-y: -120px, 0px; }
+  74.01% { background-position-y: -96px, 0px; }
+  75.26% { background-position-y: -120px, 0px; }
+  76.51% { background-position-y: -96px, 0px; }
+  77.76% { background-position-y: -120px, 0px; }
+  79.01% { background-position-y: -96px, 0px; }
+  80.26% { background-position-y: -120px, 0px; }
+  81.51% { background-position-y: -96px, 0px; }
+  82.76% { background-position-y: -120px, 0px; }
+  84.01% { background-position-y: -96px, 0px; }
+  85.26% { background-position-y: -120px, 0px; }
+  86.51% { background-position-y: -96px, 0px; }
+  87.76% { background-position-y: -120px, 0px; }
+  89.01% { background-position-y: -96px, 0px; }
+  90.26% { background-position-y: -120px, 0px; }
+  91.51% { background-position-y: -96px, 0px; }
+  92.76% { background-position-y: -120px, 0px; }
+  94.01% { background-position-y: -96px, 0px; }
+  95.26% { background-position-y: -120px, 0px; }
+  96.51% { background-position-y: -96px, 0px; }
+  97.76% { background-position-y: -120px, 0px; }
+  99.01% { background-position-y: -96px, 0px; }
+  100% { background-position-y: -96px, 0px; }
+}
+.rk-flair-ironman::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 24px;
+  margin-top: -12px;
+  pointer-events: none;
+  opacity: 0.92;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='144' viewBox='0 0 36 144'%3E%3Cdefs%3E%3Cg id='ms'%3E%3Crect x='9' y='6' width='22' height='1' fill='%23c3cad6'/%3E%3Crect x='9' y='7' width='22' height='2' fill='%239aa3b2'/%3E%3Crect x='9' y='9' width='22' height='1' fill='%237d8494'/%3E%3Crect x='9' y='10' width='22' height='1' fill='%236b7380'/%3E%3Crect x='31' y='7' width='3' height='2' fill='%238a93a3'/%3E%3Crect x='34' y='7' width='1' height='1' fill='%238a93a3'/%3E%3Crect x='9' y='4' width='2' height='2' fill='%237d8494'/%3E%3Crect x='9' y='11' width='2' height='2' fill='%237d8494'/%3E%3Crect x='18' y='12' width='3' height='3' fill='%23c92a2a'/%3E%3Crect x='19' y='13' width='2' height='1' fill='%23f2b632'/%3E%3Crect x='17' y='15' width='4' height='4' fill='%23c92a2a'/%3E%3Crect x='18' y='16' width='1' height='1' fill='%23bfe8ff'/%3E%3Crect x='17' y='18' width='4' height='1' fill='%23f2b632'/%3E%3Crect x='16' y='11' width='1' height='4' fill='%23c92a2a'/%3E%3Crect x='21' y='11' width='1' height='4' fill='%23c92a2a'/%3E%3Crect x='21' y='18' width='3' height='1' fill='%23c92a2a'/%3E%3Crect x='22' y='19' width='2' height='1' fill='%23c92a2a'/%3E%3Crect x='24' y='17' width='2' height='2' fill='%239fdcff' fill-opacity='0.85'/%3E%3Crect x='25' y='18' width='1' height='1' fill='%23e6f7ff'/%3E%3C/g%3E%3Cg id='fa'%3E%3Crect x='6' y='7' width='3' height='2' fill='%23ffa94d'/%3E%3Crect x='5' y='7' width='1' height='1' fill='%23ff7b24'/%3E%3C/g%3E%3Cg id='fb'%3E%3Crect x='7' y='7' width='2' height='2' fill='%23ffa94d'/%3E%3Crect x='4' y='8' width='1' height='1' fill='%23ff7b24'/%3E%3C/g%3E%3Cg id='im'%3E%3Crect x='17' y='8' width='3' height='3' fill='%23c92a2a'/%3E%3Crect x='18' y='9' width='2' height='1' fill='%23f2b632'/%3E%3Crect x='16' y='11' width='4' height='4' fill='%23c92a2a'/%3E%3Crect x='18' y='13' width='1' height='1' fill='%234a5568'/%3E%3Crect x='15' y='11' width='1' height='4' fill='%23c92a2a'/%3E%3Crect x='21' y='11' width='1' height='4' fill='%23c92a2a'/%3E%3Crect x='16' y='15' width='1' height='3' fill='%23c92a2a'/%3E%3Crect x='19' y='15' width='1' height='4' fill='%23c92a2a'/%3E%3Crect x='16' y='18' width='2' height='1' fill='%23f2b632'/%3E%3C/g%3E%3C/defs%3E%3Cg%3E%3Cuse href='%23ms'/%3E%3Cuse href='%23fa'/%3E%3C/g%3E%3Cg transform='translate(0,23)'%3E%3Cuse href='%23ms'/%3E%3Cuse href='%23fb'/%3E%3C/g%3E%3Cg transform='translate(0,48)'%3E%3Cuse href='%23ms'/%3E%3Cuse href='%23fa'/%3E%3C/g%3E%3Cg transform='translate(0,71)'%3E%3Cuse href='%23ms'/%3E%3Cuse href='%23fb'/%3E%3C/g%3E%3Cg transform='translate(0,96) rotate(28 18 12)'%3E%3Cuse href='%23im'/%3E%3C/g%3E%3Cg transform='translate(0,120) rotate(-24 18 12)'%3E%3Cuse href='%23im'/%3E%3C/g%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='110' height='24' viewBox='0 0 110 24'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='0'%3E%3Cstop offset='0' stop-color='white' stop-opacity='0'/%3E%3Cstop offset='0.4' stop-color='white' stop-opacity='0.55'/%3E%3Cstop offset='1' stop-color='white' stop-opacity='0.9'/%3E%3C/linearGradient%3E%3Cmask id='m'%3E%3Crect width='110' height='24' fill='url(%23g)'/%3E%3C/mask%3E%3C/defs%3E%3Cg mask='url(%23m)'%3E%3Crect y='14' width='110' height='1' fill='%235fb8f0' opacity='0.5'/%3E%3Crect y='15' width='110' height='1' fill='%239fdcff' opacity='0.75'/%3E%3Crect y='16' width='110' height='1' fill='%235fb8f0' opacity='0.5'/%3E%3Crect x='20' y='13' width='2' height='1' fill='%23bfeaff' opacity='0.6'/%3E%3Crect x='52' y='17' width='2' height='1' fill='%23bfeaff' opacity='0.6'/%3E%3Crect x='80' y='13' width='1' height='1' fill='%23bfeaff' opacity='0.6'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 36px 144px, 110px 24px;
+  background-repeat: no-repeat, no-repeat;
+  background-position: -36px 0, -128px 0;
+  animation:
+    rk-flair-ironman-x 16s linear infinite,
+    rk-flair-ironman-y 16s step-end infinite;
+}
+
 /* Reduced-motion gate — disable EVERY treatment above (Parts A and B). The
    decode scramble is skipped in JS (top-bar.tsx reads the same media query). */
 /* ── Row-flyout card entrance (window-row register flyout, E1) ─────────────
@@ -1317,7 +1474,7 @@ html[data-theme="light"] {
   .rk-window-switch-mask { animation: none; }
   /* Hatch-marker hazard wedge (.rk-hazard): static in every state by design —
      nothing to zero here; listed so the reduced-motion audit stays complete. */
-  /* Flair overlays (all thirteen named states): motion-only ambient decoration
+  /* Flair overlays (all fourteen named states): motion-only ambient decoration
      with NO static label cue of their own — hidden entirely, including the
      onepiece wave baseline (a bare wave line without its ship would read as
      residue) and the cube/warp child spans (transform-driven treatments). */
@@ -1342,7 +1499,9 @@ html[data-theme="light"] {
   .rk-flair-cube .rk-cube,
   .rk-flair-warp .rk-warp-plane,
   .rk-flair-spidey::before,
-  .rk-flair-spidey::after { animation: none; display: none; }
+  .rk-flair-spidey::after,
+  .rk-flair-ironman::before,
+  .rk-flair-ironman::after { animation: none; display: none; }
   /* Flyout-card entrance: pure flourish — the card simply appears. */
   .rk-flyout-in { animation: none; }
   /* Gap-seam sash: the hover anti-flicker delay and fades are zeroed (the pill

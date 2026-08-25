@@ -12,7 +12,7 @@ afterEach(() => {
 // flair (transforms on child spans would corrupt the drag ghost).
 describe("FlairOverlay", () => {
   it("renders the bare overlay span for sheet flairs (no children)", () => {
-    for (const flair of ["nyan", "spidey"]) {
+    for (const flair of ["nyan", "spidey", "ironman"]) {
       const { container } = render(<FlairOverlay flair={flair} />);
       const overlay = container.querySelector(`.rk-flair-${flair}`);
       expect(overlay).not.toBeNull();

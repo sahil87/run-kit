@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-25T07:09:07Z"}
+{"args":"Add an ironman flair: two-act Avengers-homage row animation (nuke carry + free-fall return) over a parallax NYC skyline","cmd":"fab-new","event":"command","ts":"2026-08-25T07:09:07Z"}
+{"delta":"+4.0","event":"confidence","score":4,"trigger":"calc-score","ts":"2026-08-25T07:12:10Z"}
+{"delta":"+0.2","event":"confidence","score":4.2,"trigger":"calc-score","ts":"2026-08-25T07:14:26Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-25T07:16:57Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-25T07:35:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-25T07:42:42Z"}
+{"event":"review","result":"passed","ts":"2026-08-25T07:42:42Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-25T08:06:30Z"}

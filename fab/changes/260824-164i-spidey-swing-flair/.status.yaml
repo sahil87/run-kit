@@ -1,0 +1,57 @@
+id: 164i
+name: 260824-164i-spidey-swing-flair
+created: 2026-08-24T13:45:31Z
+created_by: droid-ash
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 7
+    acceptance_count: 13
+    acceptance_completed: 13
+confidence:
+    certain: 2
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.1
+    fuzzy: true
+    dimensions:
+        signal: 67.5
+        reversibility: 70.0
+        competence: 84.2
+        disambiguation: 77.5
+stage_metrics:
+    intake: {started_at: "2026-08-24T13:45:31Z", driver: fab-new, iterations: 1, completed_at: "2026-08-24T13:49:32Z"}
+    apply: {started_at: "2026-08-24T13:49:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-24T14:06:50Z"}
+    review: {started_at: "2026-08-24T14:06:50Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-24T14:09:41Z"}
+    hydrate: {started_at: "2026-08-24T14:09:41Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-24T14:13:35Z"}
+    ship: {started_at: "2026-08-24T14:13:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-24T14:17:05Z"}
+    review-pr: {started_at: "2026-08-24T14:17:05Z", driver: git-pr, iterations: 1, completed_at: "2026-08-24T14:18:39Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/737
+change_type_source: explicit
+true_impact:
+    added: 439
+    deleted: 50
+    net: 389
+    excluding:
+        added: 98
+        deleted: 36
+        net: 62
+    tests:
+        added: 5
+        deleted: 5
+        net: 0
+    computed_at: "2026-08-24T14:17:05Z"
+    computed_at_stage: ship
+summary: 'Added the spidey web-swinger as the 13th named flair: FLAIR_STATES + flairTokens closed sets, sprite-sheet .rk-flair-spidey treatment with web-filament companion, reduced-motion gate, picker band absorbs the 13th cell (7/6 split)'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-24T14:18:39Z

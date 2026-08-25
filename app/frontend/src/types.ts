@@ -65,7 +65,7 @@ export type ProjectSession = {
   sessionPath?: string;
   /** Row flair state: ""/absent (no flair) | "rain" | "scan" | "nyan" |
    *  "naruto" | "onepiece" | "pacman" | "matrix" | "aquarium" | "roadrunner" |
-   *  "invaders" | "cube" | "warp".
+   *  "invaders" | "cube" | "warp" | "spidey".
    *  Decoration only (FLAIR_STATES in themes.ts) — an ambient CSS-only overlay
    *  with no status semantics. */
   flair?: string;
@@ -103,8 +103,8 @@ export type WindowInfo = {
   marker?: string;
   /** Row flair state, from the `@rk_flair` window option: ""/absent (no
    *  flair) | "rain" | "scan" | "nyan" | "naruto" | "onepiece" | "pacman" |
-   *  "matrix" | "aquarium" | "roadrunner" | "invaders" | "cube" | "warp".
-   *  Decoration
+   *  "matrix" | "aquarium" | "roadrunner" | "invaders" | "cube" | "warp" |
+   *  "spidey". Decoration
    *  only (FLAIR_STATES in themes.ts) — an ambient CSS-only overlay with no
    *  status semantics. */
   flair?: string;

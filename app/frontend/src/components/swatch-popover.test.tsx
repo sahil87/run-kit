@@ -30,7 +30,7 @@ const rgb = (hex: string): string => {
 
 /** The 8 named marker states (band order; − clear cell lives in the band header). */
 const MARKER_NAMED = MARKER_STATES.slice(1);
-/** The 12 named flair states (band order; − clear cell lives in the band header). */
+/** The 13 named flair states (band order; − clear cell lives in the band header). */
 const FLAIR_NAMED = FLAIR_STATES.slice(1);
 
 // Minimal ThemeProvider wrapper for tests
@@ -403,9 +403,9 @@ describe("SwatchPopover", () => {
       return { onSelect, onSelectMarker, onSelectFlair, onClose, ...utils };
     }
 
-    it("full variant: 30 colors + 8 markers + 12 flairs + 3 header − + panel − + ✕ = 55 options, labelled Label picker", () => {
+    it("full variant: 30 colors + 8 markers + 13 flairs + 3 header − + panel − + ✕ = 56 options, labelled Label picker", () => {
       renderLabelPicker();
-      expect(screen.getAllByRole("option")).toHaveLength(55);
+      expect(screen.getAllByRole("option")).toHaveLength(56);
       expect(screen.getByRole("listbox").getAttribute("aria-label")).toBe("Label picker");
       for (const state of MARKER_NAMED) {
         expect(screen.getByRole("option", { name: `Marker ${state}` })).toBeTruthy();
@@ -454,7 +454,7 @@ describe("SwatchPopover", () => {
       expect(band.className).not.toContain("rk-band-scroll");
     });
 
-    it("the flair band lists the 12 states in display order, rain/scan leading", () => {
+    it("the flair band lists the 13 states in display order, rain/scan leading, spidey last", () => {
       renderLabelPicker();
       const cells = Array.from(
         screen.getByRole("listbox").querySelectorAll("[data-flair-value]"),
@@ -788,7 +788,7 @@ describe("SwatchPopover", () => {
       expect(onSelect).not.toHaveBeenCalled();
     });
 
-    it("the marker row walks all 8 states; the flair rows walk 6 columns each (rain/nyan/… over scan/naruto/…)", () => {
+    it("the marker row walks all 8 states; the flair rows walk 7 and 6 columns (rain/nyan/… over scan/naruto/…)", () => {
       const { onSelectMarker, onSelectFlair, enter, arrow } = renderFull();
       // Uncolored → color header −. Down 5 → the marker band's row, col 0.
       arrow("ArrowDown", 5);
@@ -798,12 +798,12 @@ describe("SwatchPopover", () => {
         arrow("ArrowRight");
       }
       // Down into the flair band: header −, then flair row 1 — the raw column
-      // (7) clamps to col 5 on the 6-wide flair row (cube).
+      // (7) clamps to col 6 on the 7-wide flair row (spidey).
       arrow("ArrowDown", 2);
       enter();
-      expect(onSelectFlair).toHaveBeenLastCalledWith("cube");
-      // Walk row 1 left: roadrunner, matrix, onepiece, nyan, rain — clamped.
-      for (const state of ["roadrunner", "matrix", "onepiece", "nyan", "rain", "rain"]) {
+      expect(onSelectFlair).toHaveBeenLastCalledWith("spidey");
+      // Walk row 1 left: cube, roadrunner, matrix, onepiece, nyan, rain — clamped.
+      for (const state of ["cube", "roadrunner", "matrix", "onepiece", "nyan", "rain", "rain"]) {
         arrow("ArrowLeft");
         enter();
         expect(onSelectFlair).toHaveBeenLastCalledWith(state);

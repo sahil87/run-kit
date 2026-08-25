@@ -491,7 +491,7 @@ export const MARKER_STATES = ["", "pipe", "dotted", "dashed", "solid", "double",
  *  scanlines + crawl + refresh band), now user-composable with ANY marker;
  *  both tint from `--rk-flair-color`. Mirrors the backend closed set minus the
  *  empty string, with `""` at the front. */
-export const FLAIR_STATES = ["", "rain", "scan", "nyan", "naruto", "onepiece", "pacman", "matrix", "aquarium", "roadrunner", "invaders", "cube", "warp"] as const;
+export const FLAIR_STATES = ["", "rain", "scan", "nyan", "naruto", "onepiece", "pacman", "matrix", "aquarium", "roadrunner", "invaders", "cube", "warp", "spidey"] as const;
 
 /** A flair state — one of FLAIR_STATES. */
 export type FlairState = (typeof FLAIR_STATES)[number];

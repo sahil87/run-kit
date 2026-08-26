@@ -175,6 +175,16 @@ app/backend/rk
 app/backend/build/frontend/*
 !app/backend/build/frontend/.gitkeep
 
+# Go embed requires build/codebridge/ to exist for compilation; track the .gitkeep
+app/backend/build/codebridge/*
+!app/backend/build/codebridge/.gitkeep
+
+# Code bridge extension build output
+app/code-bridge/dist/
+app/code-bridge/dist-test/
+app/code-bridge/*.vsix
+app/code-bridge/node_modules/
+
 # tmux.conf is copied from configs/tmux/default.conf at build time
 app/backend/build/tmux.conf
 

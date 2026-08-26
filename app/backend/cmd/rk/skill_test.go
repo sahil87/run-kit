@@ -143,7 +143,7 @@ func TestSkillUnknownTopicFailsFast(t *testing.T) {
 	if exitCode(err) != exitUsage {
 		t.Errorf("skill bogus exit code = %d, want %d (usage)", exitCode(err), exitUsage)
 	}
-	for _, want := range []string{"unknown topic", "display"} {
+	for _, want := range []string{"unknown topic", "code, display, mux"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("skill bogus error %q missing %q", err.Error(), want)
 		}
@@ -183,6 +183,43 @@ func TestSkillDisplayEmbedMatchesCanonical(t *testing.T) {
 	}
 	if !bytes.Equal(skillDisplayTopic, canonical) {
 		t.Errorf("embedded display topic has drifted from canonical %s — run scripts/sync-skill.sh and commit the refreshed copy", canonicalPath)
+	}
+}
+
+// TestSkillCodePrintsTopicByteIdentical drives `rk skill code` and asserts
+// stdout equals the embedded topic bundle byte-for-byte, empty stderr, nil error.
+func TestSkillCodePrintsTopicByteIdentical(t *testing.T) {
+	stdout, stderr, err := runSkill(t, "code")
+	if err != nil {
+		t.Fatalf("skill code RunE err = %v, want nil (exit 0)", err)
+	}
+	if !bytes.Equal([]byte(stdout), skillCodeTopic) {
+		t.Errorf("stdout is not byte-identical to the embedded code topic (got %d bytes, want %d)",
+			len(stdout), len(skillCodeTopic))
+	}
+	if stderr != "" {
+		t.Errorf("skill code wrote to stderr: %q", stderr)
+	}
+}
+
+// TestSkillCodeEmbedMatchesCanonical is the code topic drift guard: the
+// embedded bytes MUST equal the canonical docs/site/skill/code.md.
+func TestSkillCodeEmbedMatchesCanonical(t *testing.T) {
+	canonicalPath := filepath.Join("..", "..", "..", "..", "docs", "site", "skill", "code.md")
+	canonical, err := os.ReadFile(canonicalPath)
+	if err != nil {
+		t.Fatalf("read canonical %s: %v", canonicalPath, err)
+	}
+	if !bytes.Equal(skillCodeTopic, canonical) {
+		t.Errorf("embedded code topic has drifted from canonical %s — run scripts/sync-skill.sh and commit the refreshed copy", canonicalPath)
+	}
+}
+
+// TestSkillCodeWithinLineBudget pins the code topic page's independent ≤150-line
+// budget.
+func TestSkillCodeWithinLineBudget(t *testing.T) {
+	if lines := countLines(skillCodeTopic); lines > skillLineBudget {
+		t.Errorf("code topic is %d lines, over the %d-line budget", lines, skillLineBudget)
 	}
 }
 

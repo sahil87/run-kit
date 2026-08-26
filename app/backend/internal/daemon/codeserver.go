@@ -73,14 +73,18 @@ var codeServerRunJob = func(ctx context.Context, window string, argv []string) (
 var codeServerSelfPath = selfpath.Resolve
 
 // codeServerSeedSettings is the write-once baseline for the rk-owned profile:
-// both settings are settings-only (no CLI flags exist — verified code-server
-// 4.112.0 / Code 1.112.0). chat.disableAIFeatures hides the "Build with
-// Agent" chat panel; workbench.startupEditor "none" suppresses the welcome
-// tab in the embedded /code lens. Seeded ONLY when settings.json is absent —
-// user edits win forever after.
+// the first two settings are settings-only (no CLI flags exist — verified
+// code-server 4.112.0 / Code 1.112.0). chat.disableAIFeatures hides the
+// "Build with Agent" chat panel; workbench.startupEditor "none" suppresses
+// the welcome tab in the embedded /code lens; rk.bridge.enabled keeps the
+// rk-code-bridge extension's command socket on in the managed profile (the
+// extension's own default is already true — the seed makes the profile
+// explicit). Seeded ONLY when settings.json is absent — user edits win
+// forever after.
 const codeServerSeedSettings = `{
     "chat.disableAIFeatures": true,
-    "workbench.startupEditor": "none"
+    "workbench.startupEditor": "none",
+    "rk.bridge.enabled": true
 }
 `
 
@@ -96,18 +100,6 @@ func codeServerProfileDir(home string) string {
 // the migration source.
 func codeServerLegacyProfileDir(home string) string {
 	return filepath.Join(home, ".rk", "code-server")
-}
-
-// codeServerExtensionsDir is code-server's DEFAULT extensions location:
-// $XDG_DATA_HOME/code-server/extensions, else ~/.local/share/code-server/
-// extensions. Pinned explicitly because code-server derives its default
-// extensions dir from the user-data-dir (<user-data-dir>/extensions), so
-// overriding the data dir alone would hide the user's installed extensions.
-func codeServerExtensionsDir(home string) string {
-	if v := os.Getenv("XDG_DATA_HOME"); v != "" {
-		return filepath.Join(v, "code-server", "extensions")
-	}
-	return filepath.Join(home, ".local", "share", "code-server", "extensions")
 }
 
 // migrateCodeServerProfile performs the one-shot rename of the legacy
@@ -255,7 +247,7 @@ func ensureCodeServerCore(cli bool) (EnsureOutcome, error) {
 		if err := seedCodeServerSettings(profileDir); err != nil {
 			slog.Warn("code-server settings seed failed; continuing with an unseeded profile", "err", err)
 		}
-		args = append(args, "--user-data-dir", profileDir, "--extensions-dir", codeServerExtensionsDir(home))
+		args = append(args, "--user-data-dir", profileDir, "--extensions-dir", codeserver.ExtensionsDir(home))
 	}
 	if err := codeServerSpawn(ctx, args...); err != nil {
 		if cli {

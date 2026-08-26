@@ -33,6 +33,14 @@ var skillBundle []byte
 //go:embed skill/display.md
 var skillDisplayTopic []byte
 
+// skillCodeTopic holds the `code` topic page, canonical at
+// docs/site/skill/code.md and synced into skill/code.md alongside the core
+// bundle. Same embed + drift-guard mechanism as the display topic, same
+// static-only rules, independently bounded at ≤150 lines.
+//
+//go:embed skill/code.md
+var skillCodeTopic []byte
+
 // skillMuxTopic holds the `mux` topic page, canonical at
 // docs/site/skill/mux.md and synced into skill/mux.md alongside the core
 // bundle. Same embed + drift-guard mechanism as the display topic, same
@@ -46,6 +54,7 @@ var skillMuxTopic []byte
 // here; an unknown topic fails fast (usage error naming the valid topics). Add a
 // row per topic page shipped.
 var skillTopics = map[string][]byte{
+	"code":    skillCodeTopic,
 	"display": skillDisplayTopic,
 	"mux":     skillMuxTopic,
 }

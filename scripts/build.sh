@@ -22,6 +22,17 @@ touch "$REPO_ROOT/app/backend/build/frontend/.gitkeep"
 VERSION="$(git describe --tags --abbrev=0 2>/dev/null || true)"
 VERSION="${VERSION#v}"
 [ -n "$VERSION" ] || VERSION="0.0.0-dev"
+
+echo "==> Building code bridge extension (v${VERSION})..."
+cd "$REPO_ROOT/app/code-bridge"
+pnpm install --frozen-lockfile
+pnpm run build
+pnpm run package -- "${VERSION}"
+
+echo "==> Copying code bridge VSIX to backend embed directory..."
+cp "rk-code-bridge-${VERSION}.vsix" "$REPO_ROOT/app/backend/build/codebridge/rk-code-bridge.vsix"
+echo "${VERSION}" > "$REPO_ROOT/app/backend/build/codebridge/VERSION"
+
 echo "==> Building rk v${VERSION}..."
 
 cd "$REPO_ROOT/app/backend"

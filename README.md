@@ -301,6 +301,7 @@ Supports `zsh`, `bash`, `fish`, and `powershell`. Completion-only — run-kit ha
 | `run-kit present` | Show a file, directory, `:port`, localhost URL, or external URL to the user as a web tile attached to the current window (`--window` spawns a standalone iframe window, `--notify` pushes). Prints the resolved URL. |
 | `run-kit doctor` | Check runtime dependencies. Run this first when something breaks. |
 | `run-kit agent setup` | Install agent-harness hooks (v1: Claude Code) so panes report busy/waiting/idle state (see [Agent state](#agent-state--run-kit-agent-setup)), plus the tmux guard shim that blocks `tmux kill-server` without an explicit `-L`/`-S` socket. Once per machine; `--uninstall` reverses both. |
+| `run-kit code` | Run VS Code palette commands in the open `code` lens editor from the shell — the shell side of the embedded `rk-code-bridge` code-server extension (`exec`, `hosts`, `commands`; installed by `run-kit code-server install`). |
 | `run-kit mux init-conf` | Scaffold the rk-managed `tmux.conf` (hash-stamped, do not edit) and the `tmux.d/user.conf` override file under `~/.config/run-kit/`. Optional — see [Customizing tmux](docs/site/customizing-tmux.md). |
 | `run-kit update` | Upgrade via Homebrew and restart the daemon. |
 | `run-kit desktop` | Install/update the macOS desktop app from GitHub Releases, quarantine-free (`install`, `update`, `status` — see [Desktop app](#desktop-app-macos)). |

@@ -4,9 +4,11 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 
@@ -41,10 +43,12 @@ func withCodeServerCLISeams(t *testing.T, home string, srv *httptest.Server) (ki
 	origHome, origNew := codeServerUserHomeFn, newCodeServerInstallerFn
 	origStart, origKill := codeServerStartFn, codeServerKillFn
 	origRunning, origSession := codeServerDaemonRunningFn, codeServerSessionCommandFn
+	origEmbedded, origBridgeInstall := codeBridgeEmbeddedFn, installBridgeExtensionFn
 	t.Cleanup(func() {
 		codeServerUserHomeFn, newCodeServerInstallerFn = origHome, origNew
 		codeServerStartFn, codeServerKillFn = origStart, origKill
 		codeServerDaemonRunningFn, codeServerSessionCommandFn = origRunning, origSession
+		codeBridgeEmbeddedFn, installBridgeExtensionFn = origEmbedded, origBridgeInstall
 	})
 
 	// Hermetic defaults for the respawn seams: daemon up, no session — the
@@ -52,6 +56,11 @@ func withCodeServerCLISeams(t *testing.T, home string, srv *httptest.Server) (ki
 	// the real probes wired (they would touch a live tmux socket).
 	codeServerDaemonRunningFn = func() bool { return true }
 	codeServerSessionCommandFn = func() (string, bool, error) { return "", false, nil }
+
+	// Hermetic default for the bridge step: a dev build (no bundled VSIX), so
+	// the extension install never runs unless a test opts in via
+	// stubBridgeStep.
+	codeBridgeEmbeddedFn = func() ([]byte, string, bool) { return nil, "", false }
 
 	codeServerUserHomeFn = func() (string, error) { return home, nil }
 	if srv != nil {
@@ -574,5 +583,142 @@ func TestCodeServerUpdateHomeErrorIsOperational(t *testing.T) {
 	err := runCodeServerUpdate(bareCmd(&bytes.Buffer{}, &bytes.Buffer{}), nil)
 	if err == nil {
 		t.Error("err = nil, want an operational error when home is unresolvable")
+	}
+}
+
+// --- R7: the bridge-extension install step ---
+
+// stubBridgeStep makes the extension seams report a bundled VSIX of the given
+// version and scripts the install step's (changed, err) outcome, returning a
+// call counter.
+func stubBridgeStep(t *testing.T, version string, changed bool, stepErr error) (calls *int) {
+	t.Helper()
+	calls = new(int)
+	codeBridgeEmbeddedFn = func() ([]byte, string, bool) { return []byte("VSIX"), version, true }
+	installBridgeExtensionFn = func(context.Context, string, []byte, string, io.Writer) (bool, error) {
+		*calls++
+		return changed, stepErr
+	}
+	return calls
+}
+
+// A dev build (no bundled VSIX) skips the extension step with a note and
+// never spawns the installer.
+func TestCodeServerInstallDevBuildSkipsBridgeStep(t *testing.T) {
+	home := t.TempDir()
+	srv := csReleaseServer(t, "4.132.0")
+	withCodeServerCLISeams(t, home, srv)
+	installRan := false
+	installBridgeExtensionFn = func(context.Context, string, []byte, string, io.Writer) (bool, error) {
+		installRan = true
+		return false, nil
+	}
+
+	var out, errOut bytes.Buffer
+	if err := runCodeServerInstall(bareCmd(&out, &errOut), nil); err != nil {
+		t.Fatal(err)
+	}
+	if installRan {
+		t.Error("extension install ran without a bundled VSIX")
+	}
+	if !strings.Contains(errOut.String(), "skipping the extension install") {
+		t.Errorf("stderr = %q, want the dev-build skip note", errOut.String())
+	}
+	if !strings.Contains(out.String(), "Installed code-server v4.132.0") {
+		t.Errorf("stdout = %q, want the binary outcome line", out.String())
+	}
+}
+
+// An extension install failure is a stderr warning, never the verb's exit
+// code — the binary install already succeeded.
+func TestCodeServerInstallBridgeFailureWarnsOnly(t *testing.T) {
+	home := t.TempDir()
+	srv := csReleaseServer(t, "4.132.0")
+	withCodeServerCLISeams(t, home, srv)
+	calls := stubBridgeStep(t, "1.2.3", false, fmt.Errorf("code-server --install-extension: exit status 1"))
+
+	var out, errOut bytes.Buffer
+	if err := runCodeServerInstall(bareCmd(&out, &errOut), nil); err != nil {
+		t.Fatalf("extension failure must not fail the verb, got %v", err)
+	}
+	if *calls != 1 {
+		t.Errorf("extension step calls = %d, want 1", *calls)
+	}
+	if !strings.Contains(errOut.String(), "Code bridge extension install failed") {
+		t.Errorf("stderr = %q, want the warning naming the failure", errOut.String())
+	}
+	if !strings.Contains(out.String(), "Installed code-server v4.132.0") {
+		t.Errorf("stdout = %q, want the binary outcome line", out.String())
+	}
+}
+
+// A changed extension prints its own stdout data line on install.
+func TestCodeServerInstallBridgeChangedPrintsDataLine(t *testing.T) {
+	home := t.TempDir()
+	srv := csReleaseServer(t, "4.132.0")
+	withCodeServerCLISeams(t, home, srv)
+	stubBridgeStep(t, "1.2.3", true, nil)
+
+	var out bytes.Buffer
+	if err := runCodeServerInstall(bareCmd(&out, &bytes.Buffer{}), nil); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Installed code bridge extension v1.2.3.\n") {
+		t.Errorf("stdout = %q, want the extension outcome line", out.String())
+	}
+}
+
+// An extension-only change (binary already current) still respawns the
+// session — a newly installed extension only loads on a code-server restart.
+func TestCodeServerUpdateBridgeOnlyChangeRespawns(t *testing.T) {
+	home := t.TempDir()
+	srv := csReleaseServer(t, "4.132.0")
+	kills, starts := withCodeServerCLISeams(t, home, srv)
+	if err := runCodeServerInstall(bareCmd(&bytes.Buffer{}, &bytes.Buffer{}), nil); err != nil {
+		t.Fatal(err)
+	}
+
+	stubBridgeStep(t, "1.2.3", true, nil)
+
+	var out bytes.Buffer
+	if err := runCodeServerUpdate(bareCmd(&out, &bytes.Buffer{}), nil); err != nil {
+		t.Fatal(err)
+	}
+	if *kills != 1 || *starts != 1 {
+		t.Errorf("kills=%d starts=%d, want 1/1 — an extension-only change respawns the session", *kills, *starts)
+	}
+	if !strings.Contains(out.String(), "Installed code bridge extension v1.2.3.") {
+		t.Errorf("stdout = %q, want the extension outcome line", out.String())
+	}
+	if strings.Contains(out.String(), "Updated code-server") {
+		t.Errorf("stdout = %q, want no binary update line — the binary did not change", out.String())
+	}
+}
+
+// The extension step runs even when the binary is already current (a pending
+// extension upgrade is caught up), and an unchanged extension keeps the
+// no-restart rule.
+func TestCodeServerUpdateAlreadyCurrentBridgeUnchangedNoRespawn(t *testing.T) {
+	home := t.TempDir()
+	srv := csReleaseServer(t, "4.132.0")
+	kills, starts := withCodeServerCLISeams(t, home, srv)
+	if err := runCodeServerInstall(bareCmd(&bytes.Buffer{}, &bytes.Buffer{}), nil); err != nil {
+		t.Fatal(err)
+	}
+
+	calls := stubBridgeStep(t, "1.2.3", false, nil)
+
+	var out bytes.Buffer
+	if err := runCodeServerUpdate(bareCmd(&out, &bytes.Buffer{}), nil); err != nil {
+		t.Fatal(err)
+	}
+	if *calls != 1 {
+		t.Errorf("extension step calls = %d, want 1 — the step runs on the already-current path", *calls)
+	}
+	if *kills != 0 || *starts != 0 {
+		t.Errorf("kills=%d starts=%d, want 0/0 — nothing changed", *kills, *starts)
+	}
+	if !strings.Contains(out.String(), "already current") {
+		t.Errorf("stdout = %q, want the already-current line", out.String())
 	}
 }

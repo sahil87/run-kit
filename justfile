@@ -19,6 +19,7 @@ _ensure-tmux-conf:
 # Copy default config files for local development
 setup: _ensure-tmux-conf
     cd app/frontend && pnpm install
+    cd app/code-bridge && pnpm install
     [ -f .env.local ] || cp .env .env.local
     cd app/frontend && pnpm exec playwright install --with-deps chromium
 

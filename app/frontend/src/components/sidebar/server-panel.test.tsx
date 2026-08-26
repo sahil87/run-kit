@@ -6,6 +6,7 @@ import { ThemeProvider } from "@/contexts/theme-context";
 import { ToastProvider } from "@/components/toast";
 import type { ServerInfo } from "@/api/client";
 import { stubMatchMedia } from "@/test-utils/match-media";
+import { computeRowTints, computeRowBorders, DEFAULT_DARK_THEME, type RowTint } from "@/themes";
 
 // jsdom does not implement matchMedia — ThemeProvider + useIsMobile both need it.
 // Default to the fine-pointer / desktop-width branch unless a test overrides.
@@ -20,6 +21,8 @@ function renderPanel(overrides: {
   serverColors?: Record<string, string>;
   serverFlairs?: Record<string, string>;
   waitingCounts?: Map<string, number>;
+  rowTints?: Map<string, RowTint>;
+  rowBorders?: Map<string, string>;
   onSwitchServer?: (name: string) => void;
   onCreateServer?: () => void;
   onRefreshServers?: () => void;
@@ -34,6 +37,8 @@ function renderPanel(overrides: {
     serverColors: overrides.serverColors ?? {},
     serverFlairs: overrides.serverFlairs,
     waitingCounts: overrides.waitingCounts,
+    rowTints: overrides.rowTints,
+    rowBorders: overrides.rowBorders,
     onSwitchServer: overrides.onSwitchServer ?? vi.fn(),
     onCreateServer: overrides.onCreateServer ?? vi.fn(),
     onRefreshServers: overrides.onRefreshServers ?? vi.fn(),
@@ -216,6 +221,29 @@ describe("ServerPanel", () => {
       expect(screen.getByTestId("server-tip")).toHaveTextContent("tmux -L solo · 1 session");
     });
 
+    it("appends the provenance line for an external server, nothing for managed/absent", () => {
+      renderPanel({
+        servers: [
+          { name: "ext", sessionCount: 2, windowCount: 3, managed: false },
+          { name: "own", sessionCount: 1, windowCount: 1, managed: true },
+        ],
+        server: "ext",
+      });
+      hoverTile(/ext/);
+      expect(screen.getByTestId("server-tip")).toHaveTextContent(
+        "tmux -L ext · 2 sessions · external — not started by run-kit",
+      );
+
+      cleanup();
+      renderPanel({
+        servers: [{ name: "own", sessionCount: 1, windowCount: 1, managed: true }],
+        server: "own",
+      });
+      hoverTile(/own/);
+      expect(screen.getByTestId("server-tip")).toHaveTextContent("tmux -L own · 1 session");
+      expect(screen.getByTestId("server-tip")).not.toHaveTextContent("external");
+    });
+
     it("dismisses on Escape and never opens on a coarse pointer", () => {
       renderPanel({
         servers: [{ name: "work", sessionCount: 2, windowCount: 5 }],
@@ -284,6 +312,109 @@ describe("ServerPanel", () => {
     const workName = screen.getByText("work", { selector: "div" });
     expect(workName).toHaveClass("text-text-primary");
     expect(workName).not.toHaveClass("text-text-secondary");
+  });
+
+  describe("server-class glyphs (shield + external)", () => {
+    // The stripe div is the h-0.5 color-signature slot at the tile's top.
+    function stripeOf(name: RegExp): HTMLElement {
+      const tile = screen.getByRole("option", { name });
+      const stripe = tile.querySelector(".h-0\\.5");
+      expect(stripe).not.toBeNull();
+      return stripe as HTMLElement;
+    }
+
+    it("renders the shield for protected/daemon tiles, absent otherwise", () => {
+      renderPanel({
+        server: "work",
+        servers: [
+          { name: "work", sessionCount: 2, windowCount: 3 },
+          { name: "guarded", sessionCount: 0, windowCount: 0, protected: true },
+          { name: "rk-daemon", sessionCount: 1, windowCount: 1 },
+        ],
+      });
+
+      expect(screen.getByTestId("shield-guarded")).toBeInTheDocument();
+      // rk-daemon derives protected client-side even with the flag unset.
+      expect(screen.getByTestId("shield-rk-daemon")).toBeInTheDocument();
+      expect(screen.queryByTestId("shield-work")).not.toBeInTheDocument();
+    });
+
+    it("renders ↗ + dimmed name for external (managed === false) only — absent field renders no treatment", () => {
+      renderPanel({
+        server: "ext",
+        servers: [
+          { name: "ext", sessionCount: 2, windowCount: 3, managed: false },
+          { name: "own", sessionCount: 1, windowCount: 1, managed: true },
+          { name: "old", sessionCount: 1, windowCount: 1 }, // old backend: no `managed`
+        ],
+      });
+
+      expect(screen.getByTestId("external-ext")).toBeInTheDocument();
+      const extName = screen.getByText("ext", { selector: "div" });
+      expect(extName).toHaveClass("text-text-secondary");
+      expect(extName).not.toHaveClass("text-text-primary");
+
+      for (const name of ["own", "old"]) {
+        expect(screen.queryByTestId(`external-${name}`)).not.toBeInTheDocument();
+        const nameDiv = screen.getByText(name, { selector: "div" });
+        expect(nameDiv).toHaveClass("text-text-primary");
+        expect(nameDiv).not.toHaveClass("text-text-secondary");
+      }
+    });
+
+    it("renders both glyphs shield-first when a server is protected AND external", () => {
+      renderPanel({
+        server: "ext",
+        servers: [{ name: "ext", sessionCount: 1, windowCount: 1, managed: false, protected: true }],
+      });
+
+      const nameDiv = screen.getByText("ext", { selector: "div" });
+      const glyphs = nameDiv.querySelectorAll("[data-testid^='shield-'], [data-testid^='external-']");
+      expect([...glyphs].map((g) => g.getAttribute("data-testid"))).toEqual([
+        "shield-ext",
+        "external-ext",
+      ]);
+    });
+
+    it("hatches the top stripe for an external server with no assigned color; an assigned color still wins", () => {
+      const rowTints = computeRowTints(DEFAULT_DARK_THEME.palette);
+      const rowBorders = computeRowBorders(DEFAULT_DARK_THEME.palette, DEFAULT_DARK_THEME.category);
+      renderPanel({
+        server: "ext",
+        servers: [
+          { name: "ext", sessionCount: 1, windowCount: 1, managed: false },
+          { name: "tinted", sessionCount: 1, windowCount: 1, managed: false },
+        ],
+        serverColors: { tinted: "4" },
+        rowTints,
+        rowBorders,
+      });
+
+      // Uncolored external (active): hatched placeholder in the border color.
+      // (^-anchored: "tinted is external" would also match a bare /ext/.)
+      const hatched = stripeOf(/^ext /);
+      expect(hatched.style.backgroundImage).toContain("repeating-linear-gradient");
+      expect(hatched.style.backgroundColor).toBe("");
+
+      // Colored external: the solid signature wins — no hatch.
+      const tinted = stripeOf(/tinted/);
+      expect(tinted.style.backgroundImage).toBe("");
+      expect(tinted.style.backgroundColor).not.toBe("");
+    });
+
+    it("keeps the stripe transparent on a non-active external tile (no hatch)", () => {
+      renderPanel({
+        server: "work",
+        servers: [
+          { name: "work", sessionCount: 2, windowCount: 3 },
+          { name: "ext", sessionCount: 1, windowCount: 1, managed: false },
+        ],
+      });
+
+      const stripe = stripeOf(/ext/);
+      expect(stripe.style.backgroundImage).toBe("");
+      expect(stripe.style.backgroundColor).toBe("transparent");
+    });
   });
 
   it("renders a waiting badge with the count on a server that has waiting windows", () => {

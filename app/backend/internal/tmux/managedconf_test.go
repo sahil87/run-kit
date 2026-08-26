@@ -337,36 +337,63 @@ func TestMigrateLegacyConfPaths(t *testing.T) {
 	})
 }
 
-// TestRefreshSweep pins the live-only sweep contract: exactly the enumerated
-// (live) servers are reloaded, a per-server error does not abort the rest, and
+// TestRefreshSweep pins the sweep contract: exactly the enumerated (live)
+// managed servers are reloaded — external servers and managed-check read
+// failures skip and continue — a per-server error does not abort the rest, and
 // an enumeration error degrades to a logged skip.
 func TestRefreshSweep(t *testing.T) {
 	// stub returns a pointer so appends made by the substituted reload func
 	// after the call are visible to the subtest (a plain slice return would be
-	// captured at value nil and never observe a reload).
-	stub := func(t *testing.T, servers []string, listErr error, failOn map[string]error) *[]string {
+	// captured at value nil and never observe a reload). managed maps server →
+	// IsManagedServer verdict; absent entries read managed.
+	stub := func(t *testing.T, servers []string, listErr error, failOn map[string]error, managed map[string]bool, managedErr map[string]error) *[]string {
 		t.Helper()
 		reloaded := &[]string{}
-		origList, origReload := sweepListServers, sweepReloadConfig
+		origList, origReload, origManaged := sweepListServers, sweepReloadConfig, sweepIsManaged
 		sweepListServers = func(context.Context) ([]string, error) { return servers, listErr }
 		sweepReloadConfig = func(server string) error {
 			*reloaded = append(*reloaded, server)
 			return failOn[server]
 		}
-		t.Cleanup(func() { sweepListServers, sweepReloadConfig = origList, origReload })
+		sweepIsManaged = func(_ context.Context, server string) (bool, error) {
+			if err := managedErr[server]; err != nil {
+				return false, err
+			}
+			if m, ok := managed[server]; ok {
+				return m, nil
+			}
+			return true, nil
+		}
+		t.Cleanup(func() { sweepListServers, sweepReloadConfig, sweepIsManaged = origList, origReload, origManaged })
 		return reloaded
 	}
 
-	t.Run("only live-enumerated servers are reloaded", func(t *testing.T) {
-		reloaded := stub(t, []string{"a", "b"}, nil, nil)
+	t.Run("only live-enumerated managed servers are reloaded", func(t *testing.T) {
+		reloaded := stub(t, []string{"a", "b"}, nil, nil, nil, nil)
 		RefreshSweep(context.Background())
 		if strings.Join(*reloaded, ",") != "a,b" {
 			t.Errorf("reloaded = %v, want exactly [a b] — dead sockets must never be touched", *reloaded)
 		}
 	})
 
+	t.Run("external servers are skipped", func(t *testing.T) {
+		reloaded := stub(t, []string{"a", "ext", "b"}, nil, nil, map[string]bool{"ext": false}, nil)
+		RefreshSweep(context.Background())
+		if strings.Join(*reloaded, ",") != "a,b" {
+			t.Errorf("reloaded = %v, want [a b] — an external server must never receive rk's conf", *reloaded)
+		}
+	})
+
+	t.Run("managed-check read failure skips and continues", func(t *testing.T) {
+		reloaded := stub(t, []string{"a", "wobble", "b"}, nil, nil, nil, map[string]error{"wobble": fmt.Errorf("tmux read wobble")})
+		RefreshSweep(context.Background())
+		if strings.Join(*reloaded, ",") != "a,b" {
+			t.Errorf("reloaded = %v, want [a b] — a read failure must skip that server, not abort", *reloaded)
+		}
+	})
+
 	t.Run("a per-server error does not abort the sweep", func(t *testing.T) {
-		reloaded := stub(t, []string{"a", "b"}, nil, map[string]error{"a": fmt.Errorf("boom")})
+		reloaded := stub(t, []string{"a", "b"}, nil, map[string]error{"a": fmt.Errorf("boom")}, nil, nil)
 		RefreshSweep(context.Background())
 		if strings.Join(*reloaded, ",") != "a,b" {
 			t.Errorf("reloaded = %v, want [a b] — a's failure must not prevent b", *reloaded)
@@ -374,7 +401,7 @@ func TestRefreshSweep(t *testing.T) {
 	})
 
 	t.Run("enumeration error reloads nothing", func(t *testing.T) {
-		reloaded := stub(t, nil, fmt.Errorf("socket dir unreadable"), nil)
+		reloaded := stub(t, nil, fmt.Errorf("socket dir unreadable"), nil, nil, nil)
 		RefreshSweep(context.Background())
 		if len(*reloaded) != 0 {
 			t.Errorf("reloaded = %v, want none on enumeration failure", *reloaded)

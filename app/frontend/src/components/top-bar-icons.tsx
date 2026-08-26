@@ -305,6 +305,21 @@ export function ShieldGlyph() {
   );
 }
 
+/** External — lucide arrow-up-right, the external-server class marker
+ *  (`managed === false`: the socket was not started by run-kit). Shares the
+ *  shield's leading-glyph slot on the server-list surfaces (strip tile, tree
+ *  header, host tile); when both classes apply the shield renders first. Same
+ *  drawing as the web URL bar's OpenExternalGlyph but a distinct data-icon —
+ *  the seam names the class, not the drawing (the close-glyph precedent). */
+export function ExternalGlyph() {
+  return (
+    <ControlGlyph name="external">
+      <path d="M7 7h10v10" />
+      <path d="M7 17 17 7" />
+    </ControlGlyph>
+  );
+}
+
 /**
  * Per-shape preset glyphs (260812-ab5v R9) — the ▦ chip popover's rows and the
  * overflow menu's `Layout: …` rows, one miniaturized arrangement pictogram per

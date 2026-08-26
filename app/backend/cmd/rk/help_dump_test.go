@@ -190,19 +190,19 @@ func TestCaptureNodeRealTreeSelfExcludesAndDepth(t *testing.T) {
 		t.Error("daemon should have its 'status' subcommand captured")
 	}
 
-	// The mux family is captured to full depth with exactly its eleven members;
+	// The mux family is captured to full depth with exactly its twelve members;
 	// snapshot carries its three children at depth.
 	mux, ok := childByName(n, "mux")
 	if !ok {
 		t.Fatal("mux should be present in the real tree")
 	}
-	for _, name := range []string{"send", "await", "capture", "kill", "process", "panes", "new", "reap", "snapshot", "init-conf", "guard"} {
+	for _, name := range []string{"send", "await", "capture", "kill", "process", "panes", "new", "adopt", "reap", "snapshot", "init-conf", "guard"} {
 		if _, ok := childByName(mux, name); !ok {
 			t.Errorf("mux should have its %q subcommand captured", name)
 		}
 	}
-	if len(mux.Commands) != 11 {
-		t.Errorf("mux has %d captured subcommands, want exactly 11 (send, await, capture, kill, process, panes, new, reap, snapshot, init-conf, guard)", len(mux.Commands))
+	if len(mux.Commands) != 12 {
+		t.Errorf("mux has %d captured subcommands, want exactly 12 (send, await, capture, kill, process, panes, new, adopt, reap, snapshot, init-conf, guard)", len(mux.Commands))
 	}
 	muxSnap, ok := childByName(mux, "snapshot")
 	if !ok {

@@ -109,7 +109,7 @@ type RenderOpts = {
    *  expanded regardless of its collapsed exception (derived expand). */
   currentSession?: string | null;
   currentWindowId?: string | null;
-  servers?: { name: string; sessionCount: number; protected?: boolean }[];
+  servers?: { name: string; sessionCount: number; protected?: boolean; managed?: boolean }[];
   /** Wrap the tree in <StrictMode> to surface impure state updaters (the
    *  double-invocation the real app gets via main.tsx). Off by default so the
    *  coupling tests keep their single-pass render. */
@@ -2323,10 +2323,63 @@ describe("Sidebar — server-group rail + server card (260817-ve5m)", () => {
     });
     await act(async () => {});
 
-    expect(screen.getByTestId("shield-alpha")).toBeInTheDocument();
+    // Scope to the tree — the SERVER panel's strip tiles render the same
+    // `shield-<name>` idiom, so an unscoped query matches both surfaces.
+    const tree = screen.getByRole("tree");
+    expect(within(tree).getByTestId("shield-alpha")).toBeInTheDocument();
     // rk-daemon derives protected client-side even with the flag unset.
-    expect(screen.getByTestId(`shield-${DAEMON_SERVER}`)).toBeInTheDocument();
-    expect(screen.queryByTestId("shield-primary")).not.toBeInTheDocument();
+    expect(within(tree).getByTestId(`shield-${DAEMON_SERVER}`)).toBeInTheDocument();
+    expect(within(tree).queryByTestId("shield-primary")).not.toBeInTheDocument();
+  });
+
+  it("server group headers render ↗ + dimmed name for external (managed === false) only; absent field renders no treatment", async () => {
+    renderSidebar({
+      servers: [
+        { name: "primary", sessionCount: 1, managed: true },
+        { name: "ext", sessionCount: 0, managed: false },
+        { name: "old", sessionCount: 0 }, // old backend: no `managed`
+      ],
+    });
+    await act(async () => {});
+
+    // Scope to the tree — the strip tile also renders the `external-<name>`
+    // idiom.
+    const tree = screen.getByRole("tree");
+    expect(within(tree).getByTestId("external-ext")).toBeInTheDocument();
+    const extHeader = getServerGroupHeader("ext")!;
+    expect(within(extHeader).getByText("ext")).toHaveClass("text-text-secondary");
+
+    for (const name of ["primary", "old"]) {
+      expect(within(tree).queryByTestId(`external-${name}`)).not.toBeInTheDocument();
+      const header = getServerGroupHeader(name)!;
+      expect(within(header).getByText(name)).not.toHaveClass("text-text-secondary");
+    }
+  });
+
+  it("renders both glyphs shield-first when an external server is also protected; nested session rows untouched", async () => {
+    // CURRENT server is the external one — its session rows render expanded.
+    renderSidebar({
+      currentServer: "ext",
+      servers: [
+        { name: "ext", sessionCount: 1, managed: false, protected: true },
+        { name: "primary", sessionCount: 0, managed: true },
+      ],
+    });
+    await act(async () => {});
+
+    const header = getServerGroupHeader("ext")!;
+    const headerSpan = within(header).getByText("ext");
+    const glyphs = headerSpan.parentElement!.querySelectorAll("[data-testid^='shield-'], [data-testid^='external-']");
+    expect([...glyphs].map((g) => g.getAttribute("data-testid"))).toEqual([
+      "shield-ext",
+      "external-ext",
+    ]);
+
+    // The nested session row renders unchanged (no glyph, primary text).
+    const extTree = header.closest("[role='tree']")!;
+    const sessionRow = within(extTree as HTMLElement).getByText("main");
+    expect(sessionRow.querySelector("[data-testid^='external-']")).toBeNull();
+    expect(sessionRow).not.toHaveClass("text-text-secondary");
   });
 });
 

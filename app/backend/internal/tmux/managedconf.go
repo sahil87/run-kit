@@ -194,20 +194,24 @@ func migrateLegacyDropIns(legacyDir, newDir string) {
 	}
 }
 
-// sweepListServers / sweepReloadConfig are the reload-sweep seams — tests
-// substitute them to prove the sweep only touches live-enumerated servers.
+// sweepListServers / sweepReloadConfig / sweepIsManaged are the reload-sweep
+// seams — tests substitute them to prove the sweep only touches live-enumerated
+// managed servers.
 var (
 	sweepListServers  = ListServers
 	sweepReloadConfig = ReloadConfig
+	sweepIsManaged    = IsManagedServer
 )
 
-// RefreshSweep reloads the tmux config on every live server. It runs only
-// after a stale managed conf was force-written — reloading unchanged config on
-// every start would be wasted tmux traffic, and a fresh (missing→written) file
-// needs no sweep because no server was started with older content. The
-// enumeration rides ListServers — live-socket-probed, load-bearing: a tmux
-// command on a dead socket resurrects a server. Per-server failures log and
-// continue; the sweep never fails daemon start.
+// RefreshSweep reloads the tmux config on every live managed server. It runs
+// only after a stale managed conf was force-written — reloading unchanged
+// config on every start would be wasted tmux traffic, and a fresh
+// (missing→written) file needs no sweep because no server was started with
+// older content. The enumeration rides ListServers — live-socket-probed,
+// load-bearing: a tmux command on a dead socket resurrects a server. External
+// (unmarked) servers are skipped — rk never pushes its conf onto a server it
+// did not birth; a managed-check read failure also skips (fail-closed).
+// Per-server failures log and continue; the sweep never fails daemon start.
 func RefreshSweep(ctx context.Context) {
 	servers, err := sweepListServers(ctx)
 	if err != nil {
@@ -215,6 +219,15 @@ func RefreshSweep(ctx context.Context) {
 		return
 	}
 	for _, server := range servers {
+		managed, err := sweepIsManaged(ctx, server)
+		if err != nil {
+			slog.Debug("tmux config reload sweep: managed check failed; skipping", "server", server, "err", err)
+			continue
+		}
+		if !managed {
+			slog.Debug("tmux config reload sweep: external server; skipping", "server", server)
+			continue
+		}
 		if err := sweepReloadConfig(server); err != nil {
 			slog.Warn("tmux config reload failed", "server", server, "err", err)
 		}

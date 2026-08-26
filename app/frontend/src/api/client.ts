@@ -871,6 +871,12 @@ export type ServerInfo = {
    *  server carrying the @rk_protected mark. Optional mirroring `ephemeral` —
    *  the backend always sends it, but test fixtures may omit it. */
   protected?: boolean;
+  /** True when the server is rk-managed: rk-daemon by derivation, or any
+   *  server carrying the @rk_managed provenance mark (rk-born or adopted).
+   *  Optional mirroring `protected` — an old backend omitting the field must
+   *  render NO external treatment, so consumers gate on `managed === false`,
+   *  never on absence. */
+  managed?: boolean;
 };
 
 /** The tmux server socket hosting the run-kit daemon itself (infrastructure,
@@ -885,6 +891,13 @@ const TEST_SERVER_PREFIX = "rk-test-";
  *  which are de-emphasized and sorted last in every server list. */
 export function isInfraServer(name: string): boolean {
   return name === DAEMON_SERVER || name.startsWith(TEST_SERVER_PREFIX);
+}
+
+/** True when the server is external (not started/managed by run-kit). Gates on
+ *  `managed === false` exactly — an absent field (old backend mid-deploy) is
+ *  unknown, NOT external, and renders no treatment. */
+export function isExternalServer(info: ServerInfo | undefined): boolean {
+  return info?.managed === false;
 }
 
 /** Sort comparator: regular servers first (alphabetical), then infrastructure
@@ -973,6 +986,22 @@ export async function setServerProtected(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, protected: protected_ }),
+  });
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/** Adopt an external (unmarked) server into run-kit management — the backend
+ *  stamps @rk_managed and sources the managed conf (rolling back the stamp
+ *  when the reload fails). Idempotent: an already-managed target returns 200
+ *  {"status":"already-managed"}; there is no un-adopt verb. The backend wakes
+ *  the SSE hub so covered clients repaint without waiting for the safety
+ *  poll. */
+export async function adoptServer(name: string): Promise<{ status: string }> {
+  const res = await fetch("/api/servers/adopt", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
   });
   if (!res.ok) await throwOnError(res);
   return res.json();

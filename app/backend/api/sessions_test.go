@@ -210,6 +210,16 @@ type mockTmuxOps struct {
 	}
 	markProtectedErr error
 
+	// Managed mark, per server. Same fan-out/rankMu sharing as protected;
+	// reloadConfig* backs the adopt handler's conf-source step.
+	isManagedByServer    map[string]bool
+	isManagedErrByServer map[string]error
+	markManagedCalls     []string
+	unmarkManagedCalls   []string
+	markManagedErr       error
+	reloadConfigCalls    []string
+	reloadConfigErr      error
+
 	// Boards
 	listBoardsCalled         bool
 	listBoardsResult         []tmux.BoardSummary
@@ -610,6 +620,38 @@ func (m *mockTmuxOps) UnmarkServerProtected(ctx context.Context, server string) 
 		Protected bool
 	}{server, false})
 	return m.markProtectedErr
+}
+func (m *mockTmuxOps) IsManagedServer(ctx context.Context, server string) (bool, error) {
+	m.rankMu.Lock()
+	defer m.rankMu.Unlock()
+	if m.isManagedErrByServer != nil {
+		if err, ok := m.isManagedErrByServer[server]; ok && err != nil {
+			return false, err
+		}
+	}
+	// rk-daemon is managed by derivation, never by the option map.
+	if server == daemonServerName {
+		return true, nil
+	}
+	return m.isManagedByServer[server], nil
+}
+func (m *mockTmuxOps) MarkServerManaged(ctx context.Context, server string) error {
+	m.rankMu.Lock()
+	defer m.rankMu.Unlock()
+	m.markManagedCalls = append(m.markManagedCalls, server)
+	return m.markManagedErr
+}
+func (m *mockTmuxOps) UnmarkServerManaged(ctx context.Context, server string) error {
+	m.rankMu.Lock()
+	defer m.rankMu.Unlock()
+	m.unmarkManagedCalls = append(m.unmarkManagedCalls, server)
+	return m.markManagedErr
+}
+func (m *mockTmuxOps) ReloadConfig(server string) error {
+	m.rankMu.Lock()
+	defer m.rankMu.Unlock()
+	m.reloadConfigCalls = append(m.reloadConfigCalls, server)
+	return m.reloadConfigErr
 }
 func (m *mockTmuxOps) ListBoards(ctx context.Context) ([]tmux.BoardSummary, error) {
 	m.listBoardsCalled = true

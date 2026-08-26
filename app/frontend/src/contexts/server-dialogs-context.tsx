@@ -13,13 +13,16 @@ export type ServerDialogsState = {
   // header cluster depends on this stability.
   openCreateServer: () => void;
   requestKillServer: (name: string) => void;
+  requestAdoptServer: (name: string) => void;
   // Close triggers — consumed by the layout-mounted ServerDialogs component.
   closeCreateServer: () => void;
   clearKillServerTarget: () => void;
+  clearAdoptServerTarget: () => void;
   // Open-state, readable by routes (AppShell's/BoardPage's modal-gating
   // predicates check these instead of the deleted route-local state).
   createServerOpen: boolean;
   killServerTarget: string | null;
+  adoptServerTarget: string | null;
 };
 
 const ServerDialogsContext = createContext<ServerDialogsState | null>(null);
@@ -27,28 +30,37 @@ const ServerDialogsContext = createContext<ServerDialogsState | null>(null);
 export function ServerDialogsProvider({ children }: { children: React.ReactNode }) {
   const [createServerOpen, setCreateServerOpen] = useState(false);
   const [killServerTarget, setKillServerTarget] = useState<string | null>(null);
+  const [adoptServerTarget, setAdoptServerTarget] = useState<string | null>(null);
 
   const openCreateServer = useCallback(() => setCreateServerOpen(true), []);
   const closeCreateServer = useCallback(() => setCreateServerOpen(false), []);
   const requestKillServer = useCallback((name: string) => setKillServerTarget(name), []);
   const clearKillServerTarget = useCallback(() => setKillServerTarget(null), []);
+  const requestAdoptServer = useCallback((name: string) => setAdoptServerTarget(name), []);
+  const clearAdoptServerTarget = useCallback(() => setAdoptServerTarget(null), []);
 
   const value = useMemo<ServerDialogsState>(
     () => ({
       openCreateServer,
       requestKillServer,
+      requestAdoptServer,
       closeCreateServer,
       clearKillServerTarget,
+      clearAdoptServerTarget,
       createServerOpen,
       killServerTarget,
+      adoptServerTarget,
     }),
     [
       openCreateServer,
       requestKillServer,
+      requestAdoptServer,
       closeCreateServer,
       clearKillServerTarget,
+      clearAdoptServerTarget,
       createServerOpen,
       killServerTarget,
+      adoptServerTarget,
     ],
   );
 

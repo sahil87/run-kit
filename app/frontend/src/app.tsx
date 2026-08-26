@@ -78,6 +78,7 @@ import { singleSelectedServer } from "@/lib/selection";
 import { useSelectionStore } from "@/store/selection-store";
 import { buildServerKillActions } from "@/lib/palette/server-kill";
 import { buildServerProtectActions } from "@/lib/palette/server-protect";
+import { buildServerAdoptActions } from "@/lib/palette/server-adopt";
 import { buildShellServerActions } from "@/lib/palette/shell";
 import { canCloseShellWindow, canNewShellWindow, closeShellWindow, isShell, newShellWindow, switchShellServer } from "@/lib/shell";
 import { ShellTitlebarStrip } from "@/components/desktop-shell/titlebar-strip";
@@ -1224,8 +1225,10 @@ function AppShell() {
   const {
     openCreateServer,
     requestKillServer,
+    requestAdoptServer,
     createServerOpen,
     killServerTarget,
+    adoptServerTarget,
   } = useServerDialogs();
   const { getAllActions } = usePaletteActionsApi();
   const paletteGlobals = usePaletteGlobals();
@@ -2112,7 +2115,7 @@ function AppShell() {
   // `server-dialogs-context` (260811-239r) — the dialogs mount in AppLayout now,
   // but gating this route's URL writeback while one is up is unchanged.
   dialogOpenRef.current =
-    dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || createServerOpen || killServerTarget != null || showTmuxCommands || showCreateWindowAtFolderDialog || showCreateIframeDialog || spawnAgentTarget != null || sessionNamePrompt != null || operatorComposeMode != null || retireTarget != null || noteTarget != null;
+    dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || createServerOpen || killServerTarget != null || adoptServerTarget != null || showTmuxCommands || showCreateWindowAtFolderDialog || showCreateIframeDialog || spawnAgentTarget != null || sessionNamePrompt != null || operatorComposeMode != null || retireTarget != null || noteTarget != null;
 
   // Flat window list for palette actions
   const flatWindows = useMemo(() => {
@@ -3576,6 +3579,11 @@ function AppShell() {
             addToast(err instanceof Error ? err.message : "Failed to update server protection");
           });
       }),
+      // Per-server adopt entries (EXTERNAL servers only — managed servers and
+      // rk-daemon emit none). Each entry funnels through the layout-mounted
+      // adopt confirm Dialog via the context trigger → ServerDialogs'
+      // handleAdoptServer.
+      ...buildServerAdoptActions(servers, requestAdoptServer),
       // Move up/down act on the CURRENT server within the regular class. Hidden
       // when the current server is infra (not reorderable) or at the boundary
       // (no wraparound).
@@ -3603,7 +3611,7 @@ function AppShell() {
         onSelect: () => handleSwitchServer(name),
       })),
     ],
-    [servers, server, handleSwitchServer, currentRegularIdx, regularOrder, moveCurrentServer, openCreateServer, requestKillServer],
+    [servers, server, handleSwitchServer, currentRegularIdx, regularOrder, moveCurrentServer, openCreateServer, requestKillServer, requestAdoptServer],
   );
 
   // Desktop-shell server switching (Constitution V): `Server: Switch to

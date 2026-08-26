@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard PASS status (help-dump, skill, principles, update, version, install-composition). Covers Principle 9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + Principle 9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`mux`/`agent`/`code` + the eleven-member `mux` family incl. `new` (create) and `reap --ephemeral`."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard PASS status (help-dump, skill, principles, update, version, install-composition). Covers Principle 9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + Principle 9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`mux`/`agent`/`code` + the twelve-member `mux` family incl. `new`, `reap --ephemeral`, `adopt`."
 ---
 # Toolkit Standards Conformance
 
@@ -390,15 +390,14 @@ surface measured against the same checks
   `docs/site/skill.md` or `docs/site/skill/mux.md`, and the byte-equality
   drift guards stay green.
 
-The guard surface (`rk mux guard` as the family's sixth member; `tmux-guard`
+The guard surface (`rk mux guard`; `tmux-guard`
 as a PERMANENT hidden root alias — full contract in
 [tmux-guard-shim](/run-kit/tmux-guard-shim.md)) is the tenth surface measured
 against the same checks (`260815-mi5s-mux-guard-move`):
 
-- **help-dump: eleven members dump; the permanent alias doesn't.** `muxCmd`
-  carries exactly eleven members (the messaging pair, the operator set, `guard`,
-  the substrate twins, and `panes` — see the eleventh and twelfth surfaces
-  below), and
+- **help-dump: twelve members dump; the permanent alias doesn't.** `muxCmd`
+  carries exactly twelve members (the messaging pair, the operator set, `guard`,
+  the substrate twins, `panes`, and `adopt` — see the surfaces below), and
   `tmux-guard` joins the excluded-hidden-root-forms assertion list — Hidden
   drops it from the dump like the other aliases. The help-dump test asserts
   both dynamically.
@@ -424,10 +423,11 @@ pane-mechanics verbs ported from `fab pane`, agent-state-aware — see
 contract in [agent-messaging](/run-kit/agent-messaging.md)) are the eleventh
 surface measured against the same checks (`260815-82w7-mux-substrate-twins`):
 
-- **help-dump: eleven members dump.** `muxCmd` carries exactly eleven members —
-  the messaging pair, the three twins, `panes`, and the operator set — and the
-  help-dump test asserts the eleven-member subtree dynamically, with
-  `capture`/`kill`/`process`/`panes` in the captured-children check. Every node is
+- **help-dump: twelve members dump.** `muxCmd` carries exactly twelve members —
+  the messaging pair, the three twins, `panes`, `adopt`, and the operator set —
+  and the
+  help-dump test asserts the twelve-member subtree dynamically, with
+  `capture`/`kill`/`process`/`panes`/`adopt` in the captured-children check. Every node is
   registered unconditionally with a `Long:` block, so the dumped contract
   stays platform-stable.
 - **Principle 9: report/data on stdout, chatter on stderr.** All three twins
@@ -451,13 +451,14 @@ surface measured against the same checks (`260815-82w7-mux-substrate-twins`):
   cover pane inspection/removal.
 
 The `panes` enumeration (`rk mux panes` — the whole-server substrate-facts
-query, the tenth family member; full contract in
+query; full contract in
 [agent-messaging](/run-kit/agent-messaging.md)) is the twelfth surface measured
 against the same checks (`260820-hol4-mux-panes-native-pane-map`):
 
-- **help-dump: eleven members dump.** `muxCmd` carries exactly eleven members —
-  the messaging pair, the three twins, `panes`, and the operator set — and the
-  help-dump test asserts the eleven-member subtree dynamically, with `panes` in
+- **help-dump: twelve members dump.** `muxCmd` carries exactly twelve members —
+  the messaging pair, the three twins, `panes`, `adopt`, and the operator set —
+  and the
+  help-dump test asserts the twelve-member subtree dynamically, with `panes` in
   the captured-children check. `panes` registers unconditionally with a
   `Long:` block, keeping the dumped contract platform-stable.
 - **Principle 9: rows are data, diagnostics are chatter.** The aligned table
@@ -507,14 +508,14 @@ thirteenth surface measured against the same checks
   `--force` — with the canonical and embedded copies byte-identical at the
   150-line budget (`260824-xaw2-protected-server-class`).
 
-The `rk mux new` create verb (the family's eleventh member, operator tier —
+The `rk mux new` create verb (operator tier —
 full contract in [agent-messaging](/run-kit/agent-messaging.md)) is the
 fourteenth surface measured against the same checks
 (`260821-hbmh-ephemeral-creation-adoption`):
 
-- **help-dump: eleven members dump; `UsageString` published.** `new` is
+- **help-dump: twelve members dump; `UsageString` published.** `new` is
   registered unconditionally on `muxCmd` with `Short`/`Long`/`Example` in the
-  family's style, so the cobra tree walk publishes it as the eleventh member
+  family's style, so the cobra tree walk publishes it as the twelfth member
   with no help-dump code change and the dumped contract stays
   platform-stable; `TestCaptureNodeRealTreeSelfExcludesAndDepth` pins the new
   count.
@@ -572,6 +573,31 @@ measured against the same checks (`260826-83jz-code-bridge-extension`):
   (`TestSkillCodeEmbedMatchesCanonical`), and the core bundle gained the
   topic-index line plus one capability row; the README command table gained
   the `run-kit code` row.
+
+The `rk mux adopt` provenance verb (operator tier — converts an external server
+to rk-managed, the bulk-migration path for pre-feature rk-born servers; full
+contract in [agent-messaging](/run-kit/agent-messaging.md) § `rk mux adopt`) is
+the sixteenth surface measured against the same checks
+(`260826-lv87-external-server-provenance-adopt`):
+
+- **help-dump: twelve members dump.** `muxAdoptCmd` is registered
+  unconditionally on `muxCmd` with `Short`/`Long`/`Example` in the family's
+  style — no backticks in flag help (the `mux new --ephemeral` defect rule) —
+  so the cobra tree walk publishes it as the twelfth member with no help-dump
+  code change and the dumped contract stays platform-stable; the help-dump test
+  asserts the twelve-member subtree dynamically, with `adopt` in the
+  captured-children check.
+- **Principles 1/2/4/9 — PASS.** P1 non-interactive (invocation is consent —
+  the bulk-migration role requires scriptability); P2 stream split (the
+  `adopted <name>` / `already managed <name>` report lines are stdout's only
+  data under the `outputSink` convention; diagnostics ride stderr); P4 exit
+  codes (0 success including the already-managed no-op, 1 operational — dead
+  socket, mark/reload failure — 2 usage: bad name, arg count, the
+  inherited `-L` rejection); P9 nothing to bound (one report line).
+- **The `skill` standard is a deliberate no-op here** — adopt is an operator
+  config-mutation verb (the `reap` attractive-nuisance posture), so the `mux`
+  topic page is NOT extended; the canonical and embedded copies stay
+  byte-identical under `TestSkillMuxEmbedMatchesCanonical` with no churn.
 
 #### Scenario: A new subcommand group keeps the help tree platform-stable
 - **GIVEN** the `rk desktop` group on a Linux host

@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, useReducer, memo } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "@tanstack/react-router";
-import { killSession as killSessionApi, killWindow as killWindowApi, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowFlair as setWindowFlairApi, setSessionFlair as setSessionFlairApi, getAllServerColors, setServerColor as setServerColorApi, getAllServerFlairs, setServerFlair as setServerFlairApi, setSessionOrder, setServerProtected, DAEMON_SERVER, type ServerInfo } from "@/api/client";
+import { killSession as killSessionApi, killWindow as killWindowApi, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowFlair as setWindowFlairApi, setSessionFlair as setSessionFlairApi, getAllServerColors, setServerColor as setServerColorApi, getAllServerFlairs, setServerFlair as setServerFlairApi, setSessionOrder, setServerProtected, isExternalServer, DAEMON_SERVER, type ServerInfo } from "@/api/client";
 import { useSessionContext, useUpdateNotification } from "@/contexts/session-context";
 import { useFocusedPane } from "@/contexts/focused-pane-context";
 import { resolveFocusedWindow, thinWindowFromFocusedPane } from "@/lib/focused-pane-window";
@@ -15,7 +15,7 @@ import { Tip, TipGroup } from "@/components/tip";
 import { SwatchPopover } from "@/components/swatch-popover";
 import { FlairOverlay } from "@/components/flair-overlay";
 import { PaletteIcon, PlusIcon, CloseIcon } from "./icons";
-import { ShieldGlyph } from "@/components/top-bar-icons";
+import { ExternalGlyph, ShieldGlyph } from "@/components/top-bar-icons";
 import { useTheme } from "@/contexts/theme-context";
 import { displayVersion } from "@/lib/palette/version";
 import { copyToClipboard } from "@/lib/clipboard";
@@ -2387,6 +2387,10 @@ function ServerGroupInner(props: ServerGroupProps) {
   const { addToast: addGroupToast } = useToast();
   const serverProtected = server === DAEMON_SERVER ||
     (allServers.find((s) => s.name === server)?.protected ?? false);
+  // External-class marker for the header row only (the shield's leading slot);
+  // nested session/window rows stay untouched. Absent `managed` = unknown =
+  // no treatment.
+  const serverExternal = isExternalServer(allServers.find((s) => s.name === server));
   const handleProtectToggle = useCallback(() => {
     void setServerProtected(server, !serverProtected)
       .then(() => refreshServers())
@@ -2784,7 +2788,9 @@ function ServerGroupInner(props: ServerGroupProps) {
           >
             &#x25BC;
           </span>
-          <span className="truncate">{server}</span>
+          {/* Server-name span — de-emphasized (grey) when the server is
+              external; the truncate keeps the class composition stable. */}
+          <span className={`truncate ${serverExternal ? "text-text-secondary" : ""}`}>{server}</span>
           {/* Protected-class marker: rk-daemon derives protected client-side
               (the same ∨ the flyout toggle computes above); unmarked servers
               render nothing — no layout shift. */}
@@ -2796,6 +2802,19 @@ function ServerGroupInner(props: ServerGroupProps) {
               data-testid={`shield-${server}`}
             >
               <ShieldGlyph />
+            </span>
+          )}
+          {/* External-class marker (managed === false): shares the shield's
+              leading slot, renders after it when both apply. The surrounding
+              label carries the accessible name; the glyph stays decoration. */}
+          {serverExternal && (
+            <span
+              role="img"
+              aria-label={`${server} is external`}
+              className="inline-flex shrink-0"
+              data-testid={`external-${server}`}
+            >
+              <ExternalGlyph />
             </span>
           )}
         </button>

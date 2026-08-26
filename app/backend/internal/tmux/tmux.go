@@ -66,6 +66,16 @@ const EphemeralOption = "@rk_ephemeral"
 // this option — derived state is not togglable.
 const ProtectedOption = "@rk_protected"
 
+// ManagedOption is the tmux server-scoped user option recording server
+// provenance: presence with a non-empty value (canonically "1") marks the
+// server rk-managed — birthed by an rk path whose -f <managed conf> actually
+// applied — and gates the conf-apply paths (an unmarked server is external and
+// never gets rk's tmux.conf sourced). Stamped only at server birth
+// (stampManagedOnBirth); unsetting is the adopt-failure rollback, never a
+// demote verb. The rk-daemon production server is managed by derivation from
+// its constant name (IsManagedServer), never by this option.
+const ManagedOption = "@rk_managed"
+
 // RoleOption is the tmux window user option that marks a window's orchestration
 // role. The value set is closed: "" (unset) | "operator". "operator" is a
 // server-scoped radio — at most one window per tmux server carries it, enforced
@@ -1366,6 +1376,10 @@ func CreateSession(name string, cwd string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
+	// new-session starts the tmux server when the socket is dead/absent; only
+	// a create that births the server earns the ManagedOption stamp.
+	birthsServer := !probeServerAlive(ctx, server)
+
 	// new-session may start the tmux server, so pass -f to load our config.
 	args := configArgs()
 	args = append(args, "new-session", "-d", "-s", name)
@@ -1376,7 +1390,11 @@ func CreateSession(name string, cwd string, server string) error {
 	full := append(serverArgs(server), args...)
 	// Server-birth-capable invocation: the env/dir overrides ensure the born
 	// server never inherits rk's own environment or CWD (see doc comment above).
-	return Run(ctx, full, RunOpts{Env: CleanEnvForServer(), Dir: ServerBirthDir()})
+	if err := Run(ctx, full, RunOpts{Env: CleanEnvForServer(), Dir: ServerBirthDir()}); err != nil {
+		return err
+	}
+	stampManagedOnBirth(ctx, server, birthsServer)
+	return nil
 }
 
 // ServerBirthDir returns the working directory every rk-birthed tmux server
@@ -3029,4 +3047,72 @@ func IsGuardedServer(ctx context.Context, name string) (bool, error) {
 		return true, nil
 	}
 	return IsProtectedServer(ctx, name)
+}
+
+// MarkServerManaged writes the ManagedOption provenance mark ("1")
+// server-scoped on the named server. Mirrors MarkServerProtected. Requires a
+// live server — server-scoped options need a running tmux process.
+func MarkServerManaged(ctx context.Context, server string) error {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	_, err := tmuxExecRawServer(ctx, server, "set-option", "-s", ManagedOption, "1")
+	return err
+}
+
+// UnmarkServerManaged removes the ManagedOption mark from the named server
+// (set-option -s -u). It exists only as the adopt-failure rollback — a stamped
+// server whose conf never applied is never left behind.
+func UnmarkServerManaged(ctx context.Context, server string) error {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	_, err := tmuxExecRawServer(ctx, server, "set-option", "-s", "-u", ManagedOption)
+	return err
+}
+
+// IsManagedServer is the combined provenance predicate: true when name is the
+// rk-daemon production server (managed by derivation from its constant socket
+// name — the derived state is not togglable and an option write on it is never
+// the source of truth) OR the server carries the ManagedOption mark (a
+// non-empty trimmed value is truthy; "1" is the documented convention). The
+// daemon check short-circuits before any tmux read, so the derived answer
+// needs no live server and never errors. The option read follows
+// IsProtectedServer's taxonomy exactly: an unset option ("invalid
+// option"/"unknown option" stderr) OR a dead/absent socket (IsServerGone)
+// reads as (false, nil) — liveness is the caller's concern, and a gone server
+// is never managed. Other subprocess failures propagate wrapped.
+func IsManagedServer(ctx context.Context, name string) (bool, error) {
+	if name == productionDaemonServer {
+		return true, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	out, err := tmuxExecRawServer(ctx, name, "show-option", "-sv", ManagedOption)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "invalid option") ||
+			strings.Contains(errMsg, "unknown option") ||
+			IsServerGone(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("read %s: %w", ManagedOption, err)
+	}
+	return strings.TrimSpace(out) != "", nil
+}
+
+// stampManagedOnBirth writes the ManagedOption provenance mark after a create
+// whose pre-probe read the server dead/absent (i.e. that create birthed the
+// server — the moment its -f <managed conf> actually applied). A stamp failure
+// degrades the server to external and never fails the create; the adopt verb
+// recovers it.
+func stampManagedOnBirth(ctx context.Context, server string, birthsServer bool) {
+	if !birthsServer {
+		return
+	}
+	if err := MarkServerManaged(ctx, server); err != nil {
+		slog.Warn("managed stamp failed; server reads external until adopted",
+			"server", server, "err", err)
+	}
 }

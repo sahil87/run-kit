@@ -12,7 +12,7 @@ import (
 
 // rk mux — the tmux-substrate command family (docs/specs/cli-layering.md):
 // operations that talk to tmux directly from the caller's context, with no
-// daemon dependency. Eleven members in two tiers. The pane-scoped tier takes the
+// daemon dependency. Twelve members in two tiers. The pane-scoped tier takes the
 // family's strict target grammar: `send` (deliver a message into an agent
 // pane, gated on its @rk_agent_state) and `await` (block until a pane's agent
 // state or a file signal fires) are the messaging pair; `capture` (scrollback
@@ -21,8 +21,9 @@ import (
 // the substrate twins; `panes` is the server-wide enumeration query — one row
 // per pane, no target. The operator tier: `new` creates a detached tmux
 // server on a named socket, optionally marked @rk_ephemeral for the reap
-// sweep; `reap` is the operator-invoked janitor for leaked test servers;
-// `snapshot` inspects and restores layout
+// sweep; `adopt` converts an external server to rk-managed (stamp @rk_managed,
+// source the managed conf); `reap` is the operator-invoked janitor for leaked
+// test servers; `snapshot` inspects and restores layout
 // snapshots; `init-conf` scaffolds the tmux config; `guard` fronts the real
 // tmux binary, refusing bare `kill-server` — the verb the installed PATH shim
 // execs (tmux_guard.go). The old root-level forms (reaper, snapshot,
@@ -58,6 +59,9 @@ var muxCmd = &cobra.Command{
 		"waiting unless --force; `process` shows the process tree running in a " +
 		"pane; `panes` enumerates every pane on the server, one row per pane, " +
 		"with substrate facts (window, command, cwd, reconciled agent state). " +
+		"`adopt` converts an external tmux server to rk-managed (stamp " +
+		"@rk_managed, source the managed config, roll back the stamp when the " +
+		"reload fails). " +
 		"`reap` reaps leaked test tmux servers and stale sockets by prefix; " +
 		"`snapshot` inspects and restores layout snapshots; `init-conf` scaffolds " +
 		"the default tmux.conf and tmux.d/ drop-in directory; `guard` fronts the " +
@@ -75,6 +79,7 @@ func init() {
 	muxCmd.AddCommand(muxProcessCmd)
 	muxCmd.AddCommand(muxPanesCmd)
 	muxCmd.AddCommand(muxNewCmd)
+	muxCmd.AddCommand(muxAdoptCmd)
 	muxCmd.AddCommand(reapFamilyCmd)
 	muxCmd.AddCommand(snapshotFamilyCmd)
 	muxCmd.AddCommand(initConfFamilyCmd)

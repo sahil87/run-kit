@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-26T06:56:06Z"}
+{"args":"External server provenance: @rk_managed server class stamped at every rk server-birth path, config isolation gating all three managed-conf apply paths on the mark, rk mux adopt + palette adopt verb, unified leading-glyph server-class UI (shield=protected, external-link arrow=external)","cmd":"fab-new","event":"command","ts":"2026-08-26T06:56:06Z"}
+{"delta":"+3.0","event":"confidence","score":3,"trigger":"calc-score","ts":"2026-08-26T07:01:00Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-26T07:02:11Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-26T07:03:55Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-26T07:05:03Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-26T07:36:50Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-26T07:41:52Z"}
+{"event":"review","result":"passed","ts":"2026-08-26T07:41:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-26T08:00:40Z"}

@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { createServer, killServer as killServerApi, DAEMON_SERVER } from "@/api/client";
+import { createServer, killServer as killServerApi, adoptServer as adoptServerApi, DAEMON_SERVER } from "@/api/client";
 import { Dialog } from "@/components/dialog";
 import { useServerDialogs } from "@/contexts/server-dialogs-context";
 import { useSessionContext } from "@/contexts/session-context";
@@ -50,8 +50,10 @@ export function ServerDialogs() {
   const {
     createServerOpen,
     killServerTarget,
+    adoptServerTarget,
     closeCreateServer,
     clearKillServerTarget,
+    clearAdoptServerTarget,
   } = useServerDialogs();
   const ctx = useSessionContext();
   const currentServer = ctx.currentServer;
@@ -144,6 +146,20 @@ export function ServerDialogs() {
     clearKillServerTarget();
   }, [killServerTarget, currentServer, navigate, executeKillServer, clearKillServerTarget]);
 
+  // Adopt is a config mutation, not a destruction — no optimistic killed mark.
+  // The backend wakes the SSE hub on success, so covered clients repaint off
+  // the stream; refreshServers is belt-and-braces for the host page's
+  // one-time-fetched list (mirrors the protect flow in app.tsx).
+  const handleAdoptServer = useCallback(() => {
+    if (!adoptServerTarget) return;
+    void adoptServerApi(adoptServerTarget)
+      .then(() => refreshServers())
+      .catch((err: unknown) => {
+        addToast(err instanceof Error ? err.message : "Failed to adopt server");
+      });
+    clearAdoptServerTarget();
+  }, [adoptServerTarget, refreshServers, addToast, clearAdoptServerTarget]);
+
   // The kill-confirm forks on the target's `protected` payload flag (R10):
   // protected targets get the typed-name force unlock (daemon additionally
   // gets the Restart primary), non-protected targets keep the plain
@@ -225,6 +241,29 @@ export function ServerDialogs() {
               className="flex-1 py-1.5 bg-red-900/30 border border-red-900 rounded hover:bg-red-900/50"
             >
               Kill
+            </button>
+          </div>
+        </Dialog>
+      )}
+
+      {adoptServerTarget && (
+        <Dialog title="Adopt server into run-kit?" onClose={clearAdoptServerTarget}>
+          <p className="text-text-secondary mb-2.5">
+            Adopt server <strong>{adoptServerTarget}</strong> into run-kit? run-kit's tmux config is
+            applied to it now — your own config returns only when the server restarts.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={clearAdoptServerTarget}
+              className="flex-1 py-1.5 border border-border rounded hover:border-text-secondary"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleAdoptServer}
+              className="flex-1 py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary"
+            >
+              Adopt
             </button>
           </div>
         </Dialog>

@@ -11,7 +11,7 @@ description: "run-kit's shll-toolkit-standards conformance posture — constitut
 run-kit is one of the shll toolkit CLIs, and its constitution
 (§ Toolkit Standards, v1.6.0) binds it to the toolkit's published standards — the
 set enumerated at runtime by `shll standards`, each readable with
-`shll standards <name>`. (`260717-zn03-constitution-toolkit-standards`, PR #379.)
+`shll standards <name>` (PR #379) (260717-zn03-constitution-toolkit-standards).
 This file records the **conformance posture**: which standards exist, how run-kit
 is measured against each, and where conformance is deferred. It is the
 baseline a future re-audit diffs against.
@@ -21,7 +21,7 @@ lives in the change folder
 (`fab/changes/260717-c424-toolkit-standards-conformance/conformance-report.md`)
 and is lifted into the **PR body only** at ship. There is no named consumer for a
 parallel in-repo copy, so committing one would only invite drift.
-(`260717-c424-toolkit-standards-conformance`.)
+(260717-c424-toolkit-standards-conformance)
 
 ## Requirements
 
@@ -32,7 +32,7 @@ Homebrew `rk`. The installed binary lags the tree — at the audit it was
 brew `rk` v3.7.2, which rejects `rk skill` (a standard adopted at HEAD by
 PR #381) and would false-negative an already-conformant surface. The canonical
 command name is `run-kit`; `rk` is the permanent short alias (both invoke the
-same binary). (`260717-c424-toolkit-standards-conformance`.)
+same binary). (260717-c424-toolkit-standards-conformance)
 
 #### Scenario: A standard adopted at HEAD but absent from the installed binary
 - **GIVEN** the `skill` standard, adopted at HEAD (`rk skill` + `docs/site/skill.md`)
@@ -44,7 +44,7 @@ same binary). (`260717-c424-toolkit-standards-conformance`.)
 run-kit's CLI SHALL conform to toolkit Principle 9 (bounded, high-signal output):
 unbounded surfaces carry explicit caps stated in the output, and what survives
 `--quiet` is the data and the errors — never progress, decoration, or chatter.
-(`260717-f8yv-cli-output-volume-controls`.)
+(260717-f8yv-cli-output-volume-controls)
 
 The shipped posture (mechanism lives in
 [architecture](/run-kit/architecture.md) § CLI Subcommands — the `outputSink`
@@ -112,7 +112,7 @@ convention plus the per-command rows):
 Any change adding or altering the CLI command tree MUST be checked against the
 standards governing that surface (constitution § Toolkit Standards) — in
 practice the `help-dump` contract and Principle 9's data-vs-chatter split.
-(`260730-pl4v-rk-desktop-install`.)
+(260730-pl4v-rk-desktop-install)
 
 The `rk desktop` group (`install`/`update`/`status` — see
 [architecture](/run-kit/architecture.md) § CLI Subcommands, `desktop` row) is the
@@ -183,7 +183,7 @@ measured against the same two checks:
 The `rk daemon run` verb (`--window <name> -- <cmd> [args…]` — see
 [architecture](/run-kit/architecture.md) § Daemon Lifecycle, the `rk-jobs`
 sibling session) is the third surface measured against the same two checks
-(`260812-z1ya-update-daemon-tmux-window`):
+(260812-z1ya-update-daemon-tmux-window):
 
 - **help-dump: platform-stable registration.** `daemonRunCmd` is registered
   unconditionally on `daemonCmd` (alongside start/stop/restart/status) and
@@ -201,7 +201,7 @@ sibling session) is the third surface measured against the same two checks
 The `rk role <operator|clear>` verb (`role.go` — see
 [architecture](/run-kit/architecture.md) § CLI Subcommands, `role` row) is the
 fourth surface measured against the same two checks
-(`260813-ifya-operator-role-pinned-row`):
+(260813-ifya-operator-role-pinned-row):
 
 - **help-dump: platform-stable registration.** `roleCmd` is registered
   unconditionally on `rootCmd` in `root.go`'s `init()` and carries a `Long:`
@@ -219,7 +219,7 @@ fourth surface measured against the same two checks
 The `rk code-server` group (`install`/`start`/`update` — see
 [architecture](/run-kit/architecture.md) § CLI Subcommands, `code-server` row)
 is the fifth surface measured against the same two checks
-(`260813-oid2-own-code-server-install`):
+(260813-oid2-own-code-server-install):
 
 - **help-dump: platform-stable registration.** The parent and all three
   children are registered unconditionally on `rootCmd` (`root.go`'s `init()`)
@@ -227,8 +227,8 @@ is the fifth surface measured against the same two checks
   subtree up with no help-dump code change and the dumped contract is
   identical on every platform — the `start` verb's daemon-running gate and the
   `update` verb's managed-install gate are operational outcomes at run time,
-  not registration conditions. The help-dump goldens were re-checked on the
-  change.
+  not registration conditions. The help-dump goldens cover the
+  subtree.
 - **Principle 9: outcome lines are data, acquisition narration is chatter.**
   Every verb routes through `newSink(cmd)`, and the `internal/codeserver`
   installer's `Progress` writer is bound to `sink.chatter`, so
@@ -237,7 +237,7 @@ is the fifth surface measured against the same two checks
   already-running / externally-managed / started lines, `update`'s
   not-managed skip and `Updated code-server vX -> vY` line — are `Dataf` on
   stdout and survive: silence there would misreport a no-op as success or hide
-  a mutation. The respawn additions (`260813-2s4u-respawn-aware-code-server-install`)
+  a mutation. The respawn additions (260813-2s4u-respawn-aware-code-server-install)
   follow the same split: `install`'s migration-respawn line (`Respawned
   code-server onto the managed v… (was running a non-managed binary).`) and
   both verbs' daemon-down recovery lines are `Dataf` (each reports a mutation
@@ -260,7 +260,7 @@ is the fifth surface measured against the same two checks
 The `rk present` verb (`present.go` — see
 [architecture](/run-kit/architecture.md) § CLI Subcommands, `present` row) is
 the sixth surface measured against the same checks
-(`260813-becu-rk-present-attach-verb`):
+(260813-becu-rk-present-attach-verb):
 
 - **help-dump: platform-stable registration.** `presentCmd` is registered
   unconditionally on `rootCmd` with a `Long:` block, so the cobra tree walk
@@ -275,7 +275,7 @@ the sixth surface measured against the same checks
 - **Exit-code convention (P4)** — 0 success, 1 operational (no `$TMUX_PANE`
   without `--window`, missing file, unreachable port, tmux failure), 2 usage
   (no target, unknown flag).
-- **readme-extraction: the README command table gained the `run-kit present`
+- **readme-extraction: the README command table carries the `run-kit present`
   row**, keeping the published command documentation closed over the tree.
 - **The `skill` standard is load-bearing on this surface** — the canonical
   `docs/site/skill.md` and `docs/site/skill/display.md` (synced to the
@@ -292,7 +292,7 @@ The `rk mux` family (`send`/`await` — see
 [architecture](/run-kit/architecture.md) § CLI Subcommands, `mux` row; full
 contract in [agent-messaging](/run-kit/agent-messaging.md)) is the seventh
 surface measured against the same checks
-(`260815-a5vf-rk-send-await-agent-messaging`):
+(260815-a5vf-rk-send-await-agent-messaging):
 
 - **help-dump: the family tree is platform-stable.** `muxCmd` and both children
   are registered unconditionally with `Long:` blocks, so the cobra tree walk
@@ -314,7 +314,7 @@ surface measured against the same checks
   flag-group violations such as `--answer --force` — classified via
   `exit_code.go`'s `flagGroupPrefix`, since cobra's ValidateFlagGroups errors
   bypass root's `FlagErrorFunc`).
-- **The `skill` standard gained a `mux` topic page** — `mux` is registered in
+- **The `skill` standard covers a `mux` topic page** — `mux` is registered in
   `skillTopics` (canonical `docs/site/skill/mux.md`, synced into the embed copy
   by `scripts/sync-skill.sh`, drift-guarded by
   `TestSkillMuxEmbedMatchesCanonical` like `display`), and the core bundle
@@ -324,7 +324,7 @@ surface measured against the same checks
 The `rk agent` family (`setup`/`hook` — see
 [architecture](/run-kit/architecture.md) § CLI Subcommands, `agent` row; full
 contract in [agent-state](/run-kit/agent-state.md)) is the eighth surface
-measured against the same checks (`260815-r2wp-agent-family`):
+measured against the same checks (260815-r2wp-agent-family):
 
 - **help-dump: the family dumps; the aliases don't.** `agentCmd` and both
   children are registered unconditionally with `Long:` blocks, so the cobra tree
@@ -356,8 +356,8 @@ then `guard`, joining `send`/`await` — see
 [architecture](/run-kit/architecture.md) § CLI Subcommands, `mux` row; full
 contract in [agent-messaging](/run-kit/agent-messaging.md)) is the ninth
 surface measured against the same checks
-(`260815-lsgf-mux-consolidation-low-risk`; `guard` added by
-`260815-mi5s-mux-guard-move` — see the tenth surface below):
+(260815-lsgf-mux-consolidation-low-risk); `guard` itself is the tenth surface
+below (260815-mi5s-mux-guard-move):
 
 - **help-dump: the grown family dumps; the moved/hidden names don't.**
   `muxCmd` carries exactly {`send`, `await`, `capture`, `kill`, `process`,
@@ -393,7 +393,7 @@ surface measured against the same checks
 The guard surface (`rk mux guard`; `tmux-guard`
 as a PERMANENT hidden root alias — full contract in
 [tmux-guard-shim](/run-kit/tmux-guard-shim.md)) is the tenth surface measured
-against the same checks (`260815-mi5s-mux-guard-move`):
+against the same checks (260815-mi5s-mux-guard-move):
 
 - **help-dump: twelve members dump; the permanent alias doesn't.** `muxCmd`
   carries exactly twelve members (the messaging pair, the operator set, `guard`,
@@ -411,7 +411,7 @@ against the same checks (`260815-mi5s-mux-guard-move`):
 - **Exit-code convention (P4)** — unchanged: a guard block exits 1
   (operational), and the pass path is an exec passthrough preserving the real
   tmux's own exit code.
-- **The `skill` standard gained a guard Gotcha bullet** — the `mux` topic
+- **The `skill` standard's `mux` topic carries a guard Gotcha bullet** — the `mux` topic
   page teaches that a bare `tmux kill-server` is refused machine-wide by the
   shim and names the `-L` remedy; canonical `docs/site/skill/mux.md` and the
   embedded copy stay byte-identical under
@@ -421,7 +421,7 @@ The substrate twins (`rk mux capture`/`kill`/`process` — the generic
 pane-mechanics verbs ported from `fab pane`, agent-state-aware — see
 [architecture](/run-kit/architecture.md) § CLI Subcommands, `mux` row; full
 contract in [agent-messaging](/run-kit/agent-messaging.md)) are the eleventh
-surface measured against the same checks (`260815-82w7-mux-substrate-twins`):
+surface measured against the same checks (260815-82w7-mux-substrate-twins):
 
 - **help-dump: twelve members dump.** `muxCmd` carries exactly twelve members —
   the messaging pair, the three twins, `panes`, `adopt`, and the operator set —
@@ -436,24 +436,24 @@ surface measured against the same checks (`260815-82w7-mux-substrate-twins`):
   `process`'s tree (or `--json`) are `Dataf` (data, surviving `--quiet`); the
   kill gates' refusals (agent-state; protected-server — the refusal names the
   server, exit 1, no mutation) and `process`'s agent-state-read warning are
-  `Notef` chatter on stderr (`260824-xaw2-protected-server-class`).
+  `Notef` chatter on stderr (260824-xaw2-protected-server-class).
 - **Exit-code convention (P4)** — 0 success, 1 operational (missing pane,
   gate refusal, tmux failure), 2 usage (bad target form, `--lines < 1`,
   `--json --raw` together via cobra flag-group validation) — never fab's
   pane-family 2/3 scheme.
-- **The `skill` standard gained three verb sections** — the `mux` topic page
+- **The `skill` standard's `mux` topic carries three verb sections** — the `mux` topic page
   (canonical `docs/site/skill/mux.md`, embedded copy byte-identical under
   `TestSkillMuxEmbedMatchesCanonical`) teaches the three verbs (targets,
   capture flags/output, kill's two gates — agent-state and protected-server,
   both skipped by `--force` with target existence still validated
-  (`260824-xaw2-protected-server-class`) — process classification, report
-  lines, exit codes), and its framing line broadened beyond agent messaging to
-  cover pane inspection/removal.
+  (260824-xaw2-protected-server-class) — process classification, report
+  lines, exit codes), and its framing line covers pane inspection/removal alongside
+  agent messaging.
 
 The `panes` enumeration (`rk mux panes` — the whole-server substrate-facts
 query; full contract in
 [agent-messaging](/run-kit/agent-messaging.md)) is the twelfth surface measured
-against the same checks (`260820-hol4-mux-panes-native-pane-map`):
+against the same checks (260820-hol4-mux-panes-native-pane-map):
 
 - **help-dump: twelve members dump.** `muxCmd` carries exactly twelve members —
   the messaging pair, the three twins, `panes`, `adopt`, and the operator set —
@@ -470,18 +470,18 @@ against the same checks (`260820-hol4-mux-panes-native-pane-map`):
   "alive, nothing to list" from a dead socket), 1 operational (tmux failure),
   2 usage (stray positional argument, flag misuse) — never fab's pane-family
   2/3 scheme.
-- **The `skill` standard gained a `## rk mux panes` section** — the `mux`
+- **The `skill` standard's `mux` topic carries a `## rk mux panes` section** — the `mux`
   topic page (canonical `docs/site/skill/mux.md`, embedded copy byte-identical
   under `TestSkillMuxEmbedMatchesCanonical`) teaches the enumeration
   (whole-server scope, no target argument, the 13-key `--json` schema with
-  null agent fields, exit codes), and the family framing broadened to cover
+  null agent fields, exit codes), and the family framing covers
   server-wide enumeration.
 
 The grown `rk mux reap --ephemeral` flag (the reaper's option-match dimension,
 unioning live `@rk_ephemeral`-marked servers into the prefix sweep — full
 contract in [tmux-sessions](/run-kit/tmux-sessions.md) § `rk mux reap`) is the
 thirteenth surface measured against the same checks
-(`260821-zelc-ephemeral-option-snapshot-reap`):
+(260821-zelc-ephemeral-option-snapshot-reap):
 
 - **help-dump: the flag registers platform-stable and unhidden.** `--ephemeral`
   is a plain `BoolVar` on both `newReapCmd` instances (family member + hidden
@@ -491,7 +491,7 @@ thirteenth surface measured against the same checks
   unconditional protected-server skip: live `@rk_protected` servers are skipped
   under the prefix sweep and under `--ephemeral` alike (protected beats
   ephemeral; the dead socket file of a formerly-protected server stays
-  removable) (`260824-xaw2-protected-server-class`). The cobra tree
+  removable) (260824-xaw2-protected-server-class). The cobra tree
   walk publishes the flag with no help-dump code change, and the dumped
   contract stays identical on every platform. `Short:` stays the stable
   one-liner; the flag's own help string and `Long:` carry the surface.
@@ -506,12 +506,12 @@ thirteenth surface measured against the same checks
   protected-server sentence — `rk mux reap` skips live `@rk_protected` servers
   unconditionally, `rk mux kill` refuses a pane on a protected server absent
   `--force` — with the canonical and embedded copies byte-identical at the
-  150-line budget (`260824-xaw2-protected-server-class`).
+  150-line budget (260824-xaw2-protected-server-class).
 
 The `rk mux new` create verb (operator tier —
 full contract in [agent-messaging](/run-kit/agent-messaging.md)) is the
 fourteenth surface measured against the same checks
-(`260821-hbmh-ephemeral-creation-adoption`):
+(260821-hbmh-ephemeral-creation-adoption):
 
 - **help-dump: twelve members dump; `UsageString` published.** `new` is
   registered unconditionally on `muxCmd` with `Short`/`Long`/`Example` in the
@@ -535,19 +535,19 @@ fourteenth surface measured against the same checks
   command/flag accuracy cross-check runs against help-dump, which includes
   `mux new`. The skill-topic edit lives under `docs/site/skill/`, inside the
   closed `docs/site/` tree.
-- **The `skill` standard gained an `rk mux new` section + the create/reap
+- **The `skill` standard's `mux` topic carries an `rk mux new` section + the create/reap
   convention line** — the `mux` topic page (canonical
   `docs/site/skill/mux.md`, embedded copy byte-identical under
   `TestSkillMuxEmbedMatchesCanonical`) teaches the verb (usage, `--ephemeral`,
   collision behavior) and the Gotchas convention: create scratch servers with
   `rk mux new <name> --ephemeral`, bulk-clean with `rk mux reap --ephemeral`,
-  never bare `tmux kill-server`. `docs/site/skill.md` gained the quickref
+  never bare `tmux kill-server`. `docs/site/skill.md` carries the quickref
   one-liner; both stay within the 150-line budget.
 
 The `rk code` group (`exec`/`hosts`/`commands` — see
 [architecture](/run-kit/architecture.md) § CLI Subcommands, `code` row; full
 contract in [code-bridge](/run-kit/code-bridge.md)) is the fifteenth surface
-measured against the same checks (`260826-83jz-code-bridge-extension`):
+measured against the same checks (260826-83jz-code-bridge-extension):
 
 - **help-dump: the three children register unconditionally.** The parent and
   all three children register on `rootCmd` with `Long:` blocks (no platform
@@ -555,7 +555,7 @@ measured against the same checks (`260826-83jz-code-bridge-extension`):
   help-dump code change; `TestCaptureNodeRealTreeSelfExcludesAndDepth` pins
   the `code` subtree at exactly `exec`/`hosts`/`commands`.
 - **Principle 9: result JSON is data, notes are chatter.** Every verb routes
-  through `newSink(cmd)`: the result JSON (`exec`), the aligned host rows
+  through `newSink(cmd)`: the result JSON (exec), the aligned host rows
   (`hosts`), and the sorted command ids (`commands`) are `Dataf` on stdout and
   survive `--quiet`; the `using host …` fallback note, prune notices, and the
   version-skew warning are `Notef` on stderr; `error: <kind>: <message>` lines
@@ -567,18 +567,18 @@ measured against the same checks (`260826-83jz-code-bridge-extension`):
   usage-class; a bridge-reported failure (`unknown-command`/`threw`/`timeout`/
   `bad-request`), a dial failure, and no-host/ambiguous resolution are
   operational (1).
-- **The `skill` standard gained the `code` topic page + a core-bundle row** —
+- **The `skill` standard covers the `code` topic page + a core-bundle row** —
   `rk skill code` serves `docs/site/skill/code.md` (91 lines, within the
   150-line budget) via the per-topic embed + drift guard
-  (`TestSkillCodeEmbedMatchesCanonical`), and the core bundle gained the
-  topic-index line plus one capability row; the README command table gained
+  (`TestSkillCodeEmbedMatchesCanonical`), and the core bundle carries the
+  topic-index line plus one capability row; the README command table carries
   the `run-kit code` row.
 
 The `rk mux adopt` provenance verb (operator tier — converts an external server
 to rk-managed, the bulk-migration path for pre-feature rk-born servers; full
 contract in [agent-messaging](/run-kit/agent-messaging.md) § `rk mux adopt`) is
 the sixteenth surface measured against the same checks
-(`260826-lv87-external-server-provenance-adopt`):
+(260826-lv87-external-server-provenance-adopt):
 
 - **help-dump: twelve members dump.** `muxAdoptCmd` is registered
   unconditionally on `muxCmd` with `Short`/`Long`/`Example` in the family's
@@ -645,7 +645,7 @@ capture timestamp is owned by the shll.ai puller; a tool cannot know its own
 capture time). The rest of the checklist passes: exit 0, stdout-only JSON, stderr
 empty, no `completion`/`help`/hidden nodes, `version` from the built binary
 (ldflags), re-verified against the flag-added command tree (R8).
-(`260717-c424-toolkit-standards-conformance`.)
+(260717-c424-toolkit-standards-conformance)
 
 *Nuance, not a violation*: the `version` field is `v`-prefixed (`v3.8.0`); the
 standard's example shows bare semver but its text mandates only "from the built
@@ -665,7 +665,7 @@ that would have escaped are absolute:
 The remaining relative forms are correct and stay relative: README →
 `docs/site/*.md` hub links, and between-`docs/site/` links. A closure sweep over
 `README.md` + `docs/site/**` shows zero escapes.
-(`260717-c424-toolkit-standards-conformance`.)
+(260717-c424-toolkit-standards-conformance)
 
 **Toolkit "shll toolkit" naming.** The toolkit's name is **"shll toolkit"**
 (sahil87/shll#56), and the readme-extraction standard's canonical README
@@ -676,7 +676,7 @@ order H1 → blockquote → badges), and the constitution § Toolkit Standards c
 reads "part of the shll toolkit". Identifiers stay by design: `sahil87/tap`
 formula names, `github.com/sahil87/…` / `raw.githubusercontent.com/sahil87/…`
 URLs, and the constitution's `sahil87/shll` canonical-source reference.
-(`260718-oa9b-shll-toolkit-rename`.)
+(260718-oa9b-shll-toolkit-rename)
 
 ### skill — PASS
 `rk skill` + `docs/site/skill.md` exist at HEAD (PR #381), so the standard's
@@ -684,7 +684,7 @@ URLs, and the constitution's `sahil87/shll` canonical-source reference.
 byte-identical stdout to canonical, ≤150 lines, static-only, in-genre briefing.
 See [architecture](/run-kit/architecture.md) § CLI Subcommands (`skill` row) for
 the embed mechanism and drift guard.
-(`260717-agst-rk-skill-agent-setup-hooks-only`.)
+(260717-agst-rk-skill-agent-setup-hooks-only)
 
 **Topic pages.** The shll skill standard has **topic pages** (`<tool> skill
 <topic>`, each canonical at `docs/site/skill/<topic>.md`, ≤150 lines, static-only,
@@ -698,7 +698,7 @@ and **empty stdout** — never a silent empty document; bare `rk skill` **never
 inlines** a topic page. Topic pages are a clause of the already-passing `skill` standard, not a new
 standard — the four @ `shll v0.0.23` are unchanged.
 See § Design Decisions → "Static derivation recipes replace `rk context`
-(a recipe is static content)". (`260718-icxz-skill-display-topic-url-retire-context`.)
+(a recipe is static content)". (260718-icxz-skill-display-topic-url-retire-context)
 
 ### principles — PASS
 Each of the ten principles is assessed against `bin/rk` behavior + source, and all
@@ -714,7 +714,7 @@ PASS — no principle gaps remain open. The conformance mechanisms:
 - **P5 (Visible mutation boundaries)** — the `agent-setup --dry-run` above also
   satisfies P5's destructive-write preview requirement.
 
-(`260717-c424-toolkit-standards-conformance`.)
+(260717-c424-toolkit-standards-conformance)
 
 **P4 (Fail fast — exit-code convention):** usage errors exit `2`, operational
 failures `1`. The model (all in `cmd/rk`, extending the existing `exitCodeError`
@@ -766,11 +766,11 @@ plumbing rather than a parallel mechanism):
     `0` success / `1` precondition / `2` validation-usage / `3` subprocess. Command
     tree unchanged (no flags added/removed), so the help-dump contract is unaffected.
 
-(`260717-rex1-unify-usage-error-exit-codes`.)
+(260717-rex1-unify-usage-error-exit-codes)
 
 **P9 (Bounded, high-signal output)** — see § Requirement: Bounded, high-signal
 output (Principle 9) for the shipped mechanism.
-(`260717-f8yv-cli-output-volume-controls`.)
+(260717-f8yv-cli-output-volume-controls)
 
 Principles 3, 6, 7, 8, 10 PASS (help published; stateless/derive-from-tmux;
 wraps `wt`/`fab`/`brew`; degrades gracefully; README + docs/site + `rk skill`
@@ -783,7 +783,7 @@ version`) are separate binary standards from the four above. run-kit conforms to
 both. The audit measures against the **current** update-standard text, which
 carries a **brew-handling safety clause** (incident "Observed 2026-07-19": a
 `SIGKILL` landing mid keg-swap).
-(`260719-er5k-update-version-standards-conformance`.)
+(260719-er5k-update-version-standards-conformance)
 
 ### update — PASS
 The subcommand contract passes throughout: `update` (alias `upgrade`) runs
@@ -800,8 +800,8 @@ own cited precedent). See [architecture](/run-kit/architecture.md) § CLI Subcom
 **The umbrella holds the same conformance across all three legs** — `rk
 update` updates the CLI, the macOS desktop app, and the rk-managed code-server
 install, and every clause the standard cares about holds across them
-(`260731-3byh-umbrella-update-auto-restart`; the code-server third leg
-`260813-oid2-own-code-server-install`). The brew
+(260731-3byh-umbrella-update-auto-restart) (260813-oid2-own-code-server-install).
+The brew
 leg is governed by the mutation bounds and graceful-cancel discipline below. `--skip-brew-update` is a literal substring of
 `rk update --help`. Exit 0 covers success, already-up-to-date, **and every
 skip** (not brew-installed, non-darwin, no desktop app, no managed
@@ -816,8 +816,8 @@ Requirement: A new command surface is checked against help-dump and Principle
 9), and the help-dump goldens cover it.
 
 **The code-server third leg is best-effort by design**
-(`260813-oid2-own-code-server-install`; mechanism in
-[architecture](/run-kit/architecture.md) § CLI Subcommands, `update` row). It
+(260813-oid2-own-code-server-install); mechanism in
+[architecture](/run-kit/architecture.md) § CLI Subcommands, `update` row. It
 runs **only when `~/.rk/code-server-bin` exists** — the ownership gate, the
 mirror of the standard's "self-update only when brew-installed" clause; a
 user-managed PATH install is never touched, and no managed dir is a silent
@@ -910,12 +910,12 @@ rendered on https://shll.ai) is a separate **binary+repo** standard from the six
 above. It has two halves, each audited and passing: **Policy A** (no
 inter-tool Homebrew dependencies; a sibling invoked at runtime is *probed*, never
 assumed, and degrades with an actionable install hint) audited @ **`shll
-v0.1.18`** (`260814-mx8e-install-policy-a-binary-audit`), and **Policy B**
+v0.1.18`** (260814-mx8e-install-policy-a-binary-audit), and **Policy B**
 (install *documentation* is centralized on shll.ai — per-tool READMEs and doc
 pages MUST NOT carry per-formula `brew install sahil87/tap/<tool>` install
 *instructions*; they point at the curl bootstrap
 `curl -fsSL https://shll.ai/install | sh` and `shll install <tool>` for subsets)
-audited @ **`shll v0.1.12`** (`260720-ec6i-install-docs-policy-b`). Policy A
+audited @ **`shll v0.1.12`** (260720-ec6i-install-docs-policy-b). Policy A
 binds all seven tap formulas + every sibling-invoking binary; Policy B binds the
 six roster-tool repos + the tap README. Individual formula installs remain
 *supported* — only *documenting* them per-repo is prohibited.
@@ -927,7 +927,7 @@ install instructions, and MUST NOT reference the retired `sahil87/tap/all`
 meta-formula. Install guidance points to the centralized shll.ai bootstrap
 (`curl -fsSL https://shll.ai/install | sh`, subset `sh -s -- run-kit`) and, for
 sibling-tool prerequisites, `shll install <tool>` + a https://shll.ai link.
-(`260720-ec6i-install-docs-policy-b`.)
+(260720-ec6i-install-docs-policy-b)
 
 ### install-composition — Policy B (docs half) PASS
 The docs half passes: `README.md` and `docs/site/` carry **no per-formula
@@ -970,16 +970,16 @@ behavior/pointer/history, not install instructions — outside Policy B's reach.
   + `shll install <tool>`
 - **AND** the desktop-app install section introduces no new hit — it leads with
   `run-kit desktop install` and its manual fallback is a GitHub Releases download,
-  never a brew formula (`260730-pl4v-rk-desktop-install`)
+  never a brew formula (260730-pl4v-rk-desktop-install)
 - **AND** the Policy-A binary hint in `app/backend/cmd/rk/upgrade.go` still prints
   `brew install sahil87/tap/run-kit` on a non-brew install — conformant binary
   output (Policy A mandates the hint there; Policy B binds docs only)
 
 ### install-composition — Policy A (binary half) PASS
 Audited @ **`shll v0.1.18`** against a HEAD `bin/rk`
-(`260814-mx8e-install-policy-a-binary-audit`; full evidence in that change
+(260814-mx8e-install-policy-a-binary-audit); full evidence lives in that change
 folder's `conformance-report.md`, lifted into the PR body per the
-report-lives-in-PR-body convention). All three checklist items of the standard's
+report-lives-in-PR-body convention. All three checklist items of the standard's
 "Verifying conformance" section hold:
 
 - **Formula**: `sahil87/tap/run-kit` declares zero `depends_on` of any class
@@ -1167,7 +1167,7 @@ heuristic into prose. Net CLI surface: −1 `context`, +1 `url`, +topic arg on
 reference.
 **Rejected**: a deprecation stub/alias for `rk context` ("completely get rid of";
 the version-locked binary embed makes removal atomic per-install — a binary lacking
-the command also ships the bundle that no longer references it, and external callers
+the command also ships the bundle that does not reference it, and external callers
 follow the fail-silent rk discipline and degrade to no-op); merging context INTO
 `rk skill` as a `context` subcommand (topic pages are static-only, and the dynamic
 Environment block has no place there — the recipe belongs in the bundle, the URL in

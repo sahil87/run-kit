@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 16
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-26T07:44:48Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-26T08:38:24Z"}
     review: {started_at: "2026-08-26T08:38:24Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-26T08:44:28Z"}
     hydrate: {started_at: "2026-08-26T08:44:28Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-26T08:56:22Z"}
-    ship: {started_at: "2026-08-26T08:56:22Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-26T08:56:22Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-26T08:59:05Z"}
+    review-pr: {started_at: "2026-08-26T08:59:05Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/745
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 7247
+    deleted: 59
+    net: 7188
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 6501
+        deleted: 33
+        net: 6468
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-08-26T08:56:22Z"
-    computed_at_stage: hydrate
+        added: 1891
+        deleted: 1
+        net: 1890
+    computed_at: "2026-08-26T08:59:06Z"
+    computed_at_stage: ship
 summary: adds the rk-code-bridge extension + rk code family — same-user Unix-socket exec into the code lens editor, embedded VSIX install, doctor row, skill topic
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-26T08:56:22Z
+last_updated: 2026-08-26T08:59:06Z

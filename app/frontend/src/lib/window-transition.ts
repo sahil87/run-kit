@@ -582,13 +582,13 @@ export function armGraceMask(timeoutMs: number = FIRST_WRITE_TIMEOUT_MS): GraceM
  *
  * - `Escape` — palette/dialog dismiss.
  * - Cmd (meta) chords — xterm does not forward meta-modified keys to the pty,
- *   so these are never terminal input (covers Cmd+K palette, Cmd+. view cycle,
- *   Cmd+B sidebar toggle on macOS wholesale) — EXCEPT Cmd+V (rework SF6):
+ *   so these are never terminal input (covers Cmd+K palette, Cmd+; layout
+ *   cycle, Cmd+B sidebar toggle on macOS wholesale) — EXCEPT Cmd+V (rework SF6):
  *   the browser's default paste action lands in xterm's focused textarea and
  *   thus the OLD pty, so the paste chord stays swallowed.
- * - The specific Ctrl-bound global chords: Ctrl+K (palette), Ctrl+. (view
- *   cycle), and Shift+Ctrl+B (sidebar toggle on Win/Linux) — shift is REQUIRED
- *   on the B chord because plain Ctrl+B is pty input (readline back-char) —
+ * - The specific Ctrl-bound global chords: Ctrl+K (palette) and Shift+Ctrl+B
+ *   (sidebar toggle on Win/Linux) — shift is REQUIRED on the B chord because
+ *   plain Ctrl+B is pty input (readline back-char) —
  *   all with `!altKey` required (rework NTH9): AltGr on Windows/Linux layouts
  *   reports `ctrlKey: true`, and AltGr+char is typed INPUT, never a chord (the
  *   same modifier discipline the retired `use-chat-view-shortcut.ts` used).
@@ -609,7 +609,7 @@ export function isMaskExemptKey(e: {
   if (e.metaKey) return e.key.toLowerCase() !== "v";
   if (e.ctrlKey && !e.altKey) {
     const key = e.key.toLowerCase();
-    if (key === "k" || key === ".") return true;
+    if (key === "k") return true;
     return e.shiftKey && key === "b";
   }
   return false;

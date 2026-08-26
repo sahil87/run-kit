@@ -4,7 +4,6 @@ import {
   hasChat,
   availableViews,
   defaultView,
-  nextView,
   windowViewStorageKey,
   readStoredView,
   type ViewWindow,
@@ -145,25 +144,6 @@ describe("defaultView", () => {
     expect(defaultView({ ...chatAndWebWin, rkType: "iframe" })).toBe("web");
   });
 });
-
-describe("nextView (Cmd/Ctrl+. cycle)", () => {
-  // availableViews returns HINT_ORDER (["web","tty"]); the observable cycle is
-  // tty→web→tty for the two-view case.
-  it("cycles tty→web→tty over the available list", () => {
-    expect(nextView(["web", "tty"], "tty")).toBe("web");
-    expect(nextView(["web", "tty"], "web")).toBe("tty");
-  });
-
-  it("is a no-op (null) for a single-view window", () => {
-    expect(nextView(["tty"], "tty")).toBeNull();
-  });
-
-  it("is a no-op (null) when the current view is not in the list (defensive)", () => {
-    expect(nextView(["tty"], "web")).toBeNull();
-    expect(nextView([], "tty")).toBeNull();
-  });
-});
-
 
 describe("localStorage helpers (value-bearing key, try/catch-noop)", () => {
   beforeEach(() => {

@@ -138,24 +138,6 @@ export function defaultView(win: ViewWindow | null | undefined): ViewName {
 }
 
 /**
- * The next view in the cycle (spec R8 — `Cmd/Ctrl+.` cycles lenses). Advances to
- * the element after `current` in `available`, wrapping around (tty→web→tty for
- * the two-view case). Returns `null` when there is nothing to cycle: fewer than
- * two views available, or `current` is not in the list (defensive — the caller
- * passes the resolved active view, which is always available). Pure so the
- * cycle order is unit-testable without a DOM/keydown event.
- */
-export function nextView(
-  available: ViewName[],
-  current: ViewName,
-): ViewName | null {
-  if (available.length <= 1) return null;
-  const idx = available.indexOf(current);
-  if (idx < 0) return null;
-  return available[(idx + 1) % available.length];
-}
-
-/**
  * Value-bearing per-window localStorage key (spec R2). Stores the chosen view
  * NAME; absence means "use the window's default view". Supersedes the chat
  * plan's key-present `board-autofit`-style convention — value-bearing

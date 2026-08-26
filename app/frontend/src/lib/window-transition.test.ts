@@ -745,10 +745,12 @@ describe("isMaskExemptKey (rework F2 — global chords survive the masked swallo
     expect(isMaskExemptKey(key("V", { metaKey: true }))).toBe(false);
   });
 
-  it("exempts the Ctrl-bound global chords: Ctrl+K, Ctrl+., Shift+Ctrl+B", () => {
+  it("exempts the Ctrl-bound global chords: Ctrl+K, Shift+Ctrl+B", () => {
     expect(isMaskExemptKey(key("k", { ctrlKey: true }))).toBe(true);
-    expect(isMaskExemptKey(key(".", { ctrlKey: true }))).toBe(true);
     expect(isMaskExemptKey(key("B", { ctrlKey: true, shiftKey: true }))).toBe(true);
+    // Ctrl+. is no shipped binding (the lens cycle is retired and `Period` is
+    // deliberately unbound), so it is pty-bound input and stays swallowed.
+    expect(isMaskExemptKey(key(".", { ctrlKey: true }))).toBe(false);
     // Plain Ctrl+B is pty input (readline back-char) — shift is what marks
     // the sidebar chord; Ctrl+\ is no longer any shipped binding.
     expect(isMaskExemptKey(key("b", { ctrlKey: true }))).toBe(false);

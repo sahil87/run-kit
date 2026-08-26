@@ -7,8 +7,6 @@ describe("buildViewActions (View: palette parity)", () => {
     expect(actions).toHaveLength(1);
     expect(actions[0].id).toBe("view-web");
     expect(actions[0].label).toBe("View: Web");
-    // Web is reachable only via the cycle chord.
-    expect(actions[0].shortcut).toBe("⌘.");
   });
 
   it("offers the OTHER view when web is current (web current → View: Terminal)", () => {
@@ -16,17 +14,14 @@ describe("buildViewActions (View: palette parity)", () => {
     expect(actions).toHaveLength(1);
     expect(actions[0].id).toBe("view-tty");
     expect(actions[0].label).toBe("View: Terminal");
-    // Leaving web → the cycle chord.
-    expect(actions[0].shortcut).toBe("⌘.");
   });
 
-  it("offers View: Web without a URL — web availability is unconditional (260821-zqlq)", () => {
+  it("offers View: Web without a URL — web availability is unconditional", () => {
     // The URL-less window's availableViews is ["web","tty"], so the entry
     // rides the same builder path as a content-bearing one (the onboarding
     // tile is what it opens).
     const actions = buildViewActions(["web", "tty"], "tty", () => {});
     expect(actions.map((a) => a.id)).toEqual(["view-web"]);
-    expect(actions[0].shortcut).toBe("⌘.");
   });
 
   it("yields no action for a single-view (tty-only) window", () => {
@@ -47,9 +42,14 @@ describe("buildViewActions (View: palette parity)", () => {
     expect(onSwitch).toHaveBeenCalledWith("web");
   });
 
-  // Chat lens (folded in from 260714-r7rq).
+  it("carries NO shortcut hint on any entry — no chord reaches a lens switch", () => {
+    const actions = buildViewActions(["chat", "web", "code", "tty"], "tty", () => {});
+    expect(actions.map((a) => a.id)).toEqual(["view-chat", "view-web", "view-code"]);
+    for (const a of actions) expect(a.shortcut).toBe("");
+  });
+
   describe("chat lens", () => {
-    it("offers View: Chat with NO shortcut hint (the chat chord is retired, 260812-0c6o)", () => {
+    it("offers View: Chat (palette-only by design — chat has no chord and no tile toggle)", () => {
       const actions = buildViewActions(["chat", "tty"], "tty", () => {});
       const chat = actions.find((a) => a.id === "view-chat");
       expect(chat).toBeTruthy();
@@ -57,22 +57,16 @@ describe("buildViewActions (View: palette parity)", () => {
       expect(chat!.shortcut).toBe("");
     });
 
-    it("offers View: Terminal with the cycle hint when leaving chat", () => {
+    it("offers View: Terminal when leaving chat", () => {
       const actions = buildViewActions(["chat", "tty"], "chat", () => {});
       const tty = actions.find((a) => a.id === "view-tty");
       expect(tty).toBeTruthy();
       expect(tty!.label).toBe("View: Terminal");
-      // Leaving chat, tty is reached via the lens cycle.
-      expect(tty!.shortcut).toBe("⌘.");
     });
 
     it("offers Chat AND Web on a stacked window (all three lenses)", () => {
       const actions = buildViewActions(["chat", "web", "tty"], "tty", () => {});
-      const ids = actions.map((a) => a.id);
-      expect(ids).toEqual(["view-chat", "view-web"]);
-      // Chat is unhinted; web rides the cycle.
-      expect(actions.find((a) => a.id === "view-chat")!.shortcut).toBe("");
-      expect(actions.find((a) => a.id === "view-web")!.shortcut).toBe("⌘.");
+      expect(actions.map((a) => a.id)).toEqual(["view-chat", "view-web"]);
     });
 
     it("onSelect switches to chat", () => {
@@ -82,24 +76,6 @@ describe("buildViewActions (View: palette parity)", () => {
       )!;
       chat.onSelect();
       expect(onSwitch).toHaveBeenCalledWith("chat");
-    });
-  });
-
-  describe("effective-binding hints (260730-g40a)", () => {
-    it("renders caller-supplied hint strings (registry-effective combos)", () => {
-      const actions = buildViewActions(["chat", "web", "tty"], "tty", () => {}, {
-        cycle: "Ctrl+.",
-      });
-      // Chat stays unhinted even with a caller-supplied cycle combo.
-      expect(actions.find((a) => a.id === "view-chat")!.shortcut).toBe("");
-      expect(actions.find((a) => a.id === "view-web")!.shortcut).toBe("Ctrl+.");
-    });
-
-    it("an empty hint (disabled binding) yields an empty shortcut string", () => {
-      const [action] = buildViewActions(["web", "tty"], "tty", () => {}, {
-        cycle: "",
-      });
-      expect(action.shortcut).toBe("");
     });
   });
 });

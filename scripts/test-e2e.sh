@@ -89,6 +89,11 @@ fi
 tmux -L "$E2E_TMUX_SERVER" new-session -d -s e2e-init -x 80 -y 24
 # Convention: test servers carry the @rk_ephemeral creator opt-out mark (belt-and-braces alongside the rk-test-* name umbrella).
 tmux -L "$E2E_TMUX_SERVER" set-option -s @rk_ephemeral 1
+# The rig's servers are rk's own substrate: mark them @rk_managed so the
+# WS-attach conf reload fires (specs rely on rk's tmux.conf — e.g.
+# allow-passthrough for wrapped OSC — reaching the server on first view;
+# an unmarked server is external and rk no longer pushes conf into it).
+tmux -L "$E2E_TMUX_SERVER" set-option -s @rk_managed 1
 
 # Start the dev server in its OWN process group, so cleanup can kill the whole
 # dev subtree (just -> air/vite/node children) by PGID without ever signalling

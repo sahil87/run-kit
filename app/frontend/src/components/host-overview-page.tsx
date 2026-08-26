@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { createServer, createSession, createWindow, getSessions, isInfraServer, DAEMON_SERVER } from "@/api/client";
+import { createServer, createSession, createWindow, getSessions, isExternalServer, isInfraServer, DAEMON_SERVER } from "@/api/client";
 import { Dialog } from "@/components/dialog";
 import { finalizeSafeName, toSafeServerName } from "@/lib/names";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
@@ -11,7 +11,7 @@ import { WaitingBadge } from "@/components/waiting-badge";
 import { countWaitingInSessions } from "@/lib/waiting";
 import { HostMetrics } from "@/components/host-metrics";
 import { SystemCard } from "@/components/system-card";
-import { ShieldGlyph } from "@/components/top-bar-icons";
+import { ExternalGlyph, ShieldGlyph } from "@/components/top-bar-icons";
 import { useBoards } from "@/hooks/use-boards";
 import { useBoardListReorder } from "@/hooks/use-board-list-reorder";
 import { useServerReorder } from "@/hooks/use-server-reorder";
@@ -419,13 +419,17 @@ export function HostOverviewPage() {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {orderedServers.map(({ name, sessionCount, ephemeral, protected: protected_ }) => {
+            {orderedServers.map((info) => {
+              const { name, sessionCount, ephemeral, protected: protected_ } = info;
               const drag = getTileProps(name);
               const isDragSource = isDragging && draggingName === name;
               // Protected-class marker: the rk-daemon server derives protected
               // client-side (the same ∨ the sidebar toggle computes); the glyph
               // is additive — dim-and-pin-last treatment unchanged.
               const isProtected = name === DAEMON_SERVER || protected_ === true;
+              // External-class marker (managed === false): ↗ before the name +
+              // the grey-name de-emphasis below. Absent field = no treatment.
+              const isExternal = isExternalServer(info);
               return (
               <button
                 key={name}
@@ -447,12 +451,13 @@ export function HostOverviewPage() {
                 <span className="absolute right-2 top-2">
                   <WaitingBadge count={countWaitingInSessions(sessionsByServer.get(name) ?? [])} />
                 </span>
-                {/* De-emphasize infra servers (daemon + test sockets) and
-                    @rk_ephemeral-marked scratch servers alike: grey the name
-                    only; the tile stays fully clickable/attachable. Marked
-                    servers also get a `scratch` chip (the recovery tree's
-                    resumable-chip styling) — surface, never hide. */}
-                <div className={`${isInfraServer(name) || ephemeral ? "text-text-secondary" : "text-text-primary"} font-medium text-sm`}>
+                {/* De-emphasize infra servers (daemon + test sockets),
+                    @rk_ephemeral-marked scratch servers, and external servers
+                    alike: grey the name only; the tile stays fully
+                    clickable/attachable. Marked servers also get a `scratch`
+                    chip (the recovery tree's resumable-chip styling) —
+                    surface, never hide. */}
+                <div className={`${isInfraServer(name) || ephemeral || isExternal ? "text-text-secondary" : "text-text-primary"} font-medium text-sm`}>
                   {isProtected && (
                     <Tip label="Protected server — kill requires typing the name">
                       <span
@@ -464,6 +469,16 @@ export function HostOverviewPage() {
                         <ShieldGlyph />
                       </span>
                     </Tip>
+                  )}
+                  {isExternal && (
+                    <span
+                      role="img"
+                      aria-label={`${name} is external`}
+                      className="inline-flex align-[-2px] mr-1"
+                      data-testid={`external-${name}`}
+                    >
+                      <ExternalGlyph />
+                    </span>
                   )}
                   {name}
                   {ephemeral && (

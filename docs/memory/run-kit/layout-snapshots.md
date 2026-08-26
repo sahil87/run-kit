@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Per-server tmux layout snapshots (`internal/snapshot`): the sessions/windows/panes + rk-options capture set (incl. `_rk-operator`/`@rk_role`), the `$XDG_STATE_HOME/run-kit/snapshots` store (atomic latest, 10-entry history, content-dedup, zero-session guard, `.died-{ts}` tombstones, legacy-dir move + breadcrumb), the Snapshotter cadence + `@rk_ephemeral` opt-out, the restore engine + `rk mux snapshot` CLI (no relaunch), and the recovery reader (`RestorableOffers`, `/api/recovery`; live state never derives from a snapshot)."
+description: "Per-server tmux layout snapshots (`internal/snapshot`): the sessions/windows/panes + rk-options capture set (incl. `_rk-operator`/`@rk_role`), the `$XDG_STATE_HOME/run-kit/snapshots` store (atomic latest, 10-entry history, content-dedup, zero-session guard, `.died-{ts}` tombstones, legacy-dir move + breadcrumb), the Snapshotter cadence + `@rk_ephemeral` opt-out, the restore engine + `rk mux snapshot` CLI (no relaunch; restore stamps `@rk_managed`), and the recovery reader."
 ---
 # Layout Snapshots & Restore
 
@@ -52,7 +52,7 @@ The `_rk-operator` + `@rk_role` round trip is load-bearing: capture takes `_rk-o
 
 **Restore mutators**:
 
-- `CreateSessionForRestore(name, windowName, cwd, server) (windowID, bornIndex, error)` — `new-session -d -P -F '#{window_id}\t#{window_index}'`; server-birth-capable, so it carries the same pins as `CreateSession` (config `-f`, `CleanEnvForServer`, `ServerBirthDir`). Returns the born index so the caller can renumber.
+- `CreateSessionForRestore(name, windowName, cwd, server) (windowID, bornIndex, error)` — `new-session -d -P -F '#{window_id}\t#{window_index}'`; server-birth-capable, so it carries the same pins as `CreateSession` (config `-f`, `CleanEnvForServer`, `ServerBirthDir`) plus the same `@rk_managed` birth stamp (the shared `stampManagedOnBirth` seam with its `probeServerAlive` pre-probe — restore applies the managed conf, so the restored server is rk-managed; the capture set is NOT extended to carry a pre-death mark, and a restored formerly-external server comes back managed — adopt semantics by construction). Returns the born index so the caller can renumber.
 - `CreateWindowAtIndex(session, index, name, cwd, server)` — `new-window -d -P` at an explicit `=session:index` target.
 - `RenumberWindow(session, windowID, index, server)` — `move-window -s <windowID> -t =session:<index>`. Distinct from `MoveWindow`, which is a reorder-among-existing-windows primitive built on adjacent swaps and no-ops onto a free index.
 - `SelectLayout(windowID, layout, server)` — `select-layout -t <windowID> -- <layout>`; the `--` pins the layout string positionally (mirrors `set-buffer` in `SetChatSendBuffer`).
@@ -210,6 +210,12 @@ The other api-side touchpoint is the write-path annotation: `api.Server.SetServe
 **Why**: Pinned windows come back through their home sessions (the capture keys each window to its non-pin owner), board membership is re-derivable UI state, and the anchor is tmuxctl-owned and auto-recreated on the next dial.
 **Rejected**: Capturing and replaying pin-session links (restores derived UI state at the cost of a link-recreation ordering problem on a fresh server). See [tmux-sessions](/run-kit/tmux-sessions.md) § Pin Sessions.
 *Introduced by*: 260805-htmy-daemon-layout-snapshots-restore
+
+### Restore stamps provenance unconditionally
+**Decision**: `CreateSessionForRestore` stamps `@rk_managed` on the server it births (the same `stampManagedOnBirth` seam as `CreateSession`); the snapshot capture set is not extended to carry a server's pre-death mark.
+**Why**: the stamp records which conf actually applied at birth, and restore applies the managed conf — so an unconditional stamp is truthful by construction. Capturing and faithfully restoring the old mark would leave a restored external server unmarked forever with no recovery path (the option dies with its server), while rk's restore genuinely does apply the managed conf.
+**Rejected**: extending the capture set with the pre-death mark (a stale fact restore would then re-lie with); skipping the stamp (strands restored servers as external despite running rk's conf).
+*Introduced by*: 260826-lv87-external-server-provenance-adopt
 
 ### Restorable-offer derivation lives in `internal/snapshot`
 **Decision**: The restorable-offer derivation is `Store.RestorableOffers(liveServers)` in `internal/snapshot`, taking the live-server list as an argument, not api-side logic.

@@ -1,8 +1,11 @@
 package tmux
 
 import (
+	"context"
+	"os/exec"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestParseLayoutSessions(t *testing.T) {
@@ -220,5 +223,57 @@ func TestBuildRestoreWindowArgs(t *testing.T) {
 	want = []string{"new-window", "-d", "-P", "-F", "#{window_id}", "-t", "=kit:5"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("buildRestoreWindowArgs(no name/cwd) = %v, want %v", got, want)
+	}
+}
+
+// TestCreateSessionForRestore_BirthStampsManaged proves the birth branch of
+// the provenance stamp: the first restore invocation on a fresh socket births
+// the server (and applies the managed conf via -f), so the newborn must read
+// managed.
+func TestCreateSessionForRestore_BirthStampsManaged(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available — skipping integration test")
+	}
+	server := testSocketName("unit")
+	t.Cleanup(func() {
+		killCtx, cancelKill := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelKill()
+		_ = exec.CommandContext(killCtx, "tmux", "-L", server, "kill-server").Run()
+	})
+
+	if _, _, err := CreateSessionForRestore("restored", "", "", server); err != nil {
+		t.Fatalf("CreateSessionForRestore: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	got, err := IsManagedServer(ctx, server)
+	if err != nil {
+		t.Fatalf("IsManagedServer after restore birth: %v", err)
+	}
+	if !got {
+		t.Error("got false, want true (a server this restore birthed must be stamped managed)")
+	}
+}
+
+// TestCreateSessionForRestore_ExistingServerNotStamped proves the non-birth
+// branch: restoring into an already-live (unmarked) server writes no stamp.
+func TestCreateSessionForRestore_ExistingServerNotStamped(t *testing.T) {
+	// Boot the server WITHOUT going through CreateSessionForRestore, so it is
+	// live but carries no ManagedOption mark.
+	server := withSessionOrderTmux(t)
+
+	if _, _, err := CreateSessionForRestore("restored", "", "", server); err != nil {
+		t.Fatalf("CreateSessionForRestore on live server: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	got, err := IsManagedServer(ctx, server)
+	if err != nil {
+		t.Fatalf("IsManagedServer on unmarked live server: %v", err)
+	}
+	if got {
+		t.Error("got true, want false (restore into an existing server writes no stamp)")
 	}
 }

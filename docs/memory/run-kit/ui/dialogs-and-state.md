@@ -1,5 +1,5 @@
 ---
-description: "Component conventions, dialogs (session name prompt, window-at-folder, spawn-agent, server kill confirm with the protected fork, tabbed settings with the registry-driven All-settings table, shell host add/edit form, width variants), clipboard utility, e2e host-global filesystem state, the Zustand window store, and optimistic UI + mutation feedback."
+description: "Component conventions, dialogs (session name prompt, window-at-folder, spawn-agent, server kill confirm with the protected fork, server adopt confirm, tabbed settings with the registry-driven All-settings table, shell host add/edit form, width variants), clipboard utility, e2e host-global filesystem state, the Zustand window store, and optimistic UI + mutation feedback."
 type: memory
 ---
 # run-kit UI — Dialogs & Client State
@@ -90,6 +90,10 @@ The single create-server + kill-server implementation (`app/frontend/src/compone
   - **Blast-radius copy** — red (`text-signal-red`) copy derived live from client-held session data (`ctx.sessionsByServer`, no endpoint): for `rk-daemon`, "kills the dashboard, N running job(s), code-server, M remote tunnel(s)" composed from the `rk-jobs` active-window count, `rk-code-server` presence, and the `rk-remotes` window count (each fragment omitted when zero/absent); for other protected servers, "kills N session(s), M window(s)".
   - **Daemon Restart primary** — for `rk-daemon` only, a "Restart run-kit" primary button wired to `ctx.restartNow()` (the SessionContext restart path → `POST /api/restart`, failure toasts); non-daemon protected targets get no Restart primary — Cancel is the safe default.
 - **Force kill path** — Force kill calls `killServer(name, true)`; the client's `force` arg rides `POST /api/servers/kill` as `{name, force}`, and the killServer optimistic action passes it through (`useOptimisticAction<[string, boolean]>`). Without `force` the backend refuses protected targets with `409 {"error", "protected": true}` — see [architecture](/run-kit/architecture.md) § API Layer.
+
+## Server Adopt Dialog
+
+The same `server-dialogs.tsx` layout-mounted home carries the **adopt confirm** (`Dialog title="Adopt server into run-kit?"`, opened via the `requestAdoptServer` context trigger beside `requestKillServer` — `server-dialogs-context`), the web entry for converting an external server to rk-managed ([tmux-sessions](/run-kit/tmux-sessions.md) § `@rk_managed`). Reachable from the palette's external-only `Server: Adopt <name> into run-kit` entries ([keyboard-and-palette](/run-kit/ui/keyboard-and-palette.md)). The copy states the semi-irreversibility plainly — run-kit's tmux config is applied now, and the user's own config returns only on server restart — under **neutral** (not danger-red) styling: adopt is a config mutation, not a destruction, so it forks nothing off the kill dialog's danger idiom and carries no optimistic killed-mark analog. Confirm calls `adoptServer(name)` (`POST /api/servers/adopt`) then `ctx.refreshServers()` — the backend wakes the SSE hub on success, so the repaint rides the stream and the refresh is belt-and-braces; failures toast. (`260826-lv87-external-server-provenance-adopt`)
 
 ## Settings Dialog
 

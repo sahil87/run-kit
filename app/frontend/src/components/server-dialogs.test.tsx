@@ -29,21 +29,24 @@ vi.mock("@/api/client", async (importOriginal) => {
     ...actual,
     createServer: vi.fn(),
     killServer: vi.fn(),
+    adoptServer: vi.fn(),
   };
 });
 
 const createServer = client.createServer as unknown as ReturnType<typeof vi.fn>;
 const killServer = client.killServer as unknown as ReturnType<typeof vi.fn>;
+const adoptServer = client.adoptServer as unknown as ReturnType<typeof vi.fn>;
 
 /** Test-side trigger panel standing in for the sidebar/palette call sites. */
 function Triggers() {
-  const { openCreateServer, requestKillServer } = useServerDialogs();
+  const { openCreateServer, requestKillServer, requestAdoptServer } = useServerDialogs();
   return (
     <div>
       <button onClick={openCreateServer}>open-create</button>
       <button onClick={() => requestKillServer("alpha")}>kill-alpha</button>
       <button onClick={() => requestKillServer("vault")}>kill-vault</button>
       <button onClick={() => requestKillServer(client.DAEMON_SERVER)}>kill-daemon</button>
+      <button onClick={() => requestAdoptServer("alpha")}>adopt-alpha</button>
     </div>
   );
 }
@@ -84,8 +87,10 @@ describe("ServerDialogs", () => {
     mockNavigate.mockReset();
     createServer.mockReset();
     killServer.mockReset();
+    adoptServer.mockReset();
     createServer.mockResolvedValue({ name: "x" });
     killServer.mockResolvedValue(undefined);
+    adoptServer.mockResolvedValue({ status: "ok" });
   });
   afterEach(cleanup);
 
@@ -233,5 +238,45 @@ describe("ServerDialogs", () => {
     fireEvent.change(input, { target: { value: client.DAEMON_SERVER } });
     fireEvent.click(screen.getByText("Force kill"));
     await waitFor(() => expect(killServer).toHaveBeenCalledWith(client.DAEMON_SERVER, true));
+  });
+
+  it("opens the adopt dialog via the context trigger and states the semi-irreversibility", () => {
+    renderDialogs();
+    fireEvent.click(screen.getByText("adopt-alpha"));
+    expect(screen.getByText("Adopt server into run-kit?")).toBeInTheDocument();
+    // The copy must state that run-kit's tmux config applies now and the
+    // user's own config returns only on server restart.
+    expect(screen.getByText(/your own config returns only when the server restarts/)).toBeInTheDocument();
+    expect(screen.getByText("Adopt")).toBeInTheDocument();
+    expect(screen.getByText("Cancel")).toBeInTheDocument();
+  });
+
+  it("confirm fires adoptServer and refreshes the server list", async () => {
+    const refreshServers = vi.fn();
+    renderDialogs({ refreshServers });
+    fireEvent.click(screen.getByText("adopt-alpha"));
+    fireEvent.click(screen.getByText("Adopt"));
+    expect(screen.queryByText("Adopt server into run-kit?")).not.toBeInTheDocument();
+    await waitFor(() => expect(adoptServer).toHaveBeenCalledWith("alpha"));
+    await waitFor(() => expect(refreshServers).toHaveBeenCalled());
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it("cancel closes the adopt dialog without adopting", async () => {
+    renderDialogs();
+    fireEvent.click(screen.getByText("adopt-alpha"));
+    fireEvent.click(screen.getByText("Cancel"));
+    await waitFor(() => expect(screen.queryByText("Adopt server into run-kit?")).not.toBeInTheDocument());
+    expect(adoptServer).not.toHaveBeenCalled();
+  });
+
+  it("a failed adopt toasts the error and does not refresh", async () => {
+    const refreshServers = vi.fn();
+    adoptServer.mockRejectedValue(new Error("reload failed"));
+    renderDialogs({ refreshServers });
+    fireEvent.click(screen.getByText("adopt-alpha"));
+    fireEvent.click(screen.getByText("Adopt"));
+    await waitFor(() => expect(screen.getByText("reload failed")).toBeInTheDocument());
+    expect(refreshServers).not.toHaveBeenCalled();
   });
 });

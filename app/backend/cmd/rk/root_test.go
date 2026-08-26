@@ -78,6 +78,7 @@ func TestRootCmdHasSubcommands(t *testing.T) {
 		{"mux", "capture"},
 		{"mux", "kill"},
 		{"mux", "process"},
+		{"mux", "adopt"},
 		{"mux", "reap"},
 		{"mux", "init-conf"},
 		{"mux", "guard"},

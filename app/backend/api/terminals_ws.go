@@ -44,8 +44,8 @@ import (
 // Per-stream behavior preserves handleRelay (relay.go): window-ID validation via
 // the shared validate.ValidateWindowID (the same validator decodeWindowID wraps —
 // REST and mux entry points cannot drift; constitution §I), then session
-// resolution → session-scoped SelectWindowInSession → forceTERM + best-effort
-// ReloadConfig → pty.StartWithSize at the open op's cols/rows. Session resolution
+// resolution → session-scoped SelectWindowInSession → forceTERM + managed-only
+// pre-attach ReloadConfig → pty.StartWithSize at the open op's cols/rows. Session resolution
 // PREFERS the window's `_rk-pin-*` pin-session when it exists (a pinned window is
 // linked into both its pin-session and its home session, and attaching to the
 // pin-session leaves home's active-window pointer untouched), otherwise resolves
@@ -313,7 +313,8 @@ func (tc *terminalsConn) handleDataFrame(msg []byte) {
 // startStream reproduces handleRelay's per-connection setup, per stream. It runs
 // on the socket READ LOOP but does only cheap, synchronous work there — validate
 // + register a placeholder stream under tc.mu — then dispatches the blocking
-// tmux work (resolve ≤5s, session-scoped select, best-effort ReloadConfig, PTY
+// tmux work (resolve ≤5s, session-scoped select, managed-only pre-attach
+// reload, PTY
 // attach) to a goroutine so it never serializes behind other panes' keystrokes
 // or opens (S2). The placeholder registration makes duplicate-id checks and
 // racing resize/close ops deterministic: a resize/close arriving before the
@@ -370,6 +371,33 @@ func forceTERM(env []string) []string {
 		}
 	}
 	return append(result, "TERM=xterm-256color")
+}
+
+// attachIsManaged / attachReloadConfig are the pre-attach reload seams — tests
+// substitute them to pin the managed-only gate without a live server.
+var (
+	attachIsManaged    = tmux.IsManagedServer
+	attachReloadConfig = tmux.ReloadConfig
+)
+
+// reloadConfigForAttach reloads the managed tmux.conf on the target server
+// before attach. Managed servers only: an external (unmarked) server never
+// receives rk's conf. A managed-check read failure fails closed (skip). Never
+// fails — a reload error only means the attach proceeds with the server's
+// current conf.
+func reloadConfigForAttach(server string) {
+	managed, err := attachIsManaged(context.Background(), server)
+	if err != nil {
+		slog.Debug("terminals: managed check failed; skipping pre-attach reload", "server", server, "err", err)
+		return
+	}
+	if !managed {
+		slog.Debug("terminals: external server; skipping pre-attach reload", "server", server)
+		return
+	}
+	if err := attachReloadConfig(server); err != nil {
+		slog.Debug("terminals: config reload before attach (best-effort)", "server", server, "err", err)
+	}
 }
 
 // attachStream performs the blocking tmux setup for a registered placeholder
@@ -464,11 +492,10 @@ func (tc *terminalsConn) attachStream(op openOp, st *stream) {
 	if confPath := tmux.ConfigPath(); confPath != "" {
 		attachArgs = append(attachArgs, "-f", confPath)
 	}
-	// Best-effort config reload so terminal-overrides (true color) and styles are
-	// active even if the server was created outside rk. Don't block the attach.
-	if err := tmux.ReloadConfig(server); err != nil {
-		slog.Debug("terminals: config reload before attach (best-effort)", "server", server, "err", err)
-	}
+	// Pre-attach reload so terminal-overrides (true color) and styles are live
+	// on this server. Managed servers only — rk never pushes its conf onto an
+	// external server. Best-effort: never blocks the attach.
+	reloadConfigForAttach(server)
 
 	attachArgs = append(attachArgs, "attach-session", "-t", session)
 	cmd := exec.CommandContext(ctx, "tmux", attachArgs...)

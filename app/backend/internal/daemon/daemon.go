@@ -409,6 +409,16 @@ func startSession(exe string) error {
 		return fmt.Errorf("creating tmux session: %w", err)
 	}
 
+	// Stamp the newborn server managed (belt-and-braces beside the
+	// IsManagedServer name-derivation). Best-effort: a stamp failure degrades
+	// the server to external for conf-pushing only and never fails daemon
+	// start. Fresh ctx — the birth ctx above may be near-spent.
+	stampCtx, stampCancel := context.WithTimeout(context.Background(), cmdTimeout)
+	if err := tmux.MarkServerManaged(stampCtx, serverSocket); err != nil {
+		slog.Warn("daemon server managed stamp failed", "server", serverSocket, "err", err)
+	}
+	stampCancel()
+
 	// Bring up the managed code-server beside the daemon (260811-a2bo).
 	// Best-effort and re-entrant: an absent binary or a spawn failure warns
 	// and NEVER fails daemon start — the dashboard must come up regardless.

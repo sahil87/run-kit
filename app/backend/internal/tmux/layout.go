@@ -303,11 +303,16 @@ func CreateSessionForRestore(name, windowName, cwd, server string) (string, int,
 	ctx, cancel := withTimeout()
 	defer cancel()
 
+	// new-session starts the tmux server when the socket is dead/absent; only
+	// a create that births the server earns the ManagedOption stamp.
+	birthsServer := !probeServerAlive(ctx, server)
+
 	full := append(serverArgs(server), buildRestoreSessionArgs(name, windowName, cwd)...)
 	out, err := RunOutput(ctx, full, RunOpts{Env: CleanEnvForServer(), Dir: ServerBirthDir()})
 	if err != nil {
 		return "", 0, err
 	}
+	stampManagedOnBirth(ctx, server, birthsServer)
 	parts := strings.Split(strings.TrimSpace(string(out)), listDelim)
 	if len(parts) < 2 || parts[0] == "" {
 		return "", 0, fmt.Errorf("new-session returned no window ID")

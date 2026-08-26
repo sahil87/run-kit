@@ -1,8 +1,10 @@
 package api
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"sync"
@@ -281,4 +283,55 @@ func TestTerminals_PingRepliesPong(t *testing.T) {
 		}
 		return
 	}
+}
+
+// TestReloadConfigForAttach pins the managed-only pre-attach reload gate: a
+// managed server is reloaded, an external server is skipped, and a managed-
+// check read failure fails closed (skip) — none of these paths error or block
+// the attach.
+func TestReloadConfigForAttach(t *testing.T) {
+	stub := func(t *testing.T, managed bool, managedErr, reloadErr error) *[]string {
+		t.Helper()
+		reloaded := &[]string{}
+		origManaged, origReload := attachIsManaged, attachReloadConfig
+		attachIsManaged = func(context.Context, string) (bool, error) { return managed, managedErr }
+		attachReloadConfig = func(server string) error {
+			*reloaded = append(*reloaded, server)
+			return reloadErr
+		}
+		t.Cleanup(func() { attachIsManaged, attachReloadConfig = origManaged, origReload })
+		return reloaded
+	}
+
+	t.Run("managed server reloads", func(t *testing.T) {
+		reloaded := stub(t, true, nil, nil)
+		reloadConfigForAttach("srv")
+		if strings.Join(*reloaded, ",") != "srv" {
+			t.Errorf("reloaded = %v, want [srv]", *reloaded)
+		}
+	})
+
+	t.Run("external server is skipped", func(t *testing.T) {
+		reloaded := stub(t, false, nil, nil)
+		reloadConfigForAttach("srv")
+		if len(*reloaded) != 0 {
+			t.Errorf("reloaded = %v, want none — an external server must never receive rk's conf", *reloaded)
+		}
+	})
+
+	t.Run("managed-check read failure fails closed", func(t *testing.T) {
+		reloaded := stub(t, false, fmt.Errorf("tmux read wobble"), nil)
+		reloadConfigForAttach("srv")
+		if len(*reloaded) != 0 {
+			t.Errorf("reloaded = %v, want none — a read failure must skip the reload", *reloaded)
+		}
+	})
+
+	t.Run("reload error does not propagate", func(t *testing.T) {
+		reloaded := stub(t, true, nil, fmt.Errorf("boom"))
+		reloadConfigForAttach("srv") // must not panic or return
+		if strings.Join(*reloaded, ",") != "srv" {
+			t.Errorf("reloaded = %v, want [srv] — the reload was attempted, error only logged", *reloaded)
+		}
+	})
 }

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -40,6 +41,11 @@ type serverInfo struct {
 	// @rk_protected mark. Read at request time; a read failure or a server
 	// gone mid-walk yields false.
 	Protected bool `json:"protected"`
+	// Managed is true when the server is rk-managed: the rk-daemon
+	// production server by derivation, or any server carrying the
+	// @rk_managed provenance mark (rk-born or adopted). Read at request
+	// time; a read failure or a server gone mid-walk yields false.
+	Managed bool `json:"managed"`
 }
 
 func (s *Server) handleServersList(w http.ResponseWriter, r *http.Request) {
@@ -60,18 +66,19 @@ func (s *Server) handleServersList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fan out ListSessions + GetServerRank + IsEphemeralServer +
-	// IsGuardedServer calls concurrently. A failure for one server yields
-	// sessionCount: 0 / windowCount: 0 / rank: null / ephemeral: false /
-	// protected: false for that entry; no 5xx to the client. The rank,
-	// ephemeral, and protected reads join this existing fan-out (one extra
-	// tmux call each per server, same concurrency pattern). The window count
-	// sums #{session_windows} over the sessions ListSessions already returns —
-	// no extra subprocess.
+	// IsGuardedServer + IsManagedServer calls concurrently. A failure for one
+	// server yields sessionCount: 0 / windowCount: 0 / rank: null /
+	// ephemeral: false / protected: false / managed: false for that entry; no
+	// 5xx to the client. The rank, ephemeral, protected, and managed reads
+	// join this existing fan-out (one extra tmux call each per server, same
+	// concurrency pattern). The window count sums #{session_windows} over the
+	// sessions ListSessions already returns — no extra subprocess.
 	counts := make(map[string]int, len(names))
 	windowCounts := make(map[string]int, len(names))
 	ranks := make(map[string]*int, len(names))
 	ephemeral := make(map[string]bool, len(names))
 	protected := make(map[string]bool, len(names))
+	managed := make(map[string]bool, len(names))
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	for _, name := range names {
@@ -103,12 +110,18 @@ func (s *Server) handleServersList(w http.ResponseWriter, r *http.Request) {
 				s.logger.Warn("servers: IsGuardedServer failed", "server", name, "err", gerr)
 				guarded = false
 			}
+			mgd, merr := s.tmux.IsManagedServer(r.Context(), name)
+			if merr != nil {
+				s.logger.Warn("servers: IsManagedServer failed", "server", name, "err", merr)
+				mgd = false
+			}
 			mu.Lock()
 			counts[name] = n
 			windowCounts[name] = windows
 			ranks[name] = rank
 			ephemeral[name] = marked
 			protected[name] = guarded
+			managed[name] = mgd
 			mu.Unlock()
 		}(name)
 	}
@@ -116,7 +129,7 @@ func (s *Server) handleServersList(w http.ResponseWriter, r *http.Request) {
 
 	out := make([]serverInfo, 0, len(names))
 	for _, name := range names {
-		out = append(out, serverInfo{Name: name, SessionCount: counts[name], WindowCount: windowCounts[name], Rank: ranks[name], Ephemeral: ephemeral[name], Protected: protected[name]})
+		out = append(out, serverInfo{Name: name, SessionCount: counts[name], WindowCount: windowCounts[name], Rank: ranks[name], Ephemeral: ephemeral[name], Protected: protected[name], Managed: managed[name]})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 
@@ -303,4 +316,65 @@ func (s *Server) handleServerProtect(w http.ResponseWriter, r *http.Request) {
 	s.sseHub.wake(body.Name)
 
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleServerAdopt converts an external (unmarked) server to rk-managed: the
+// @rk_managed stamp lands first, then the managed conf is sourced via
+// ReloadConfig; a failed reload best-effort unmarks, so a stamped server whose
+// conf never applied is never left behind.
+// POST /api/servers/adopt ← {"name": "srv"} → 200 {"status":"ok"}
+//
+// Adopt is idempotent by contract (the CLI's bulk-migration role needs it): an
+// already-managed target — including rk-daemon by derivation — returns
+// 200 {"status":"already-managed"} with no tmux mutation (deliberately unlike
+// protect's 400 for the daemon). Adopt never auto-assigns a server color, and
+// no un-adopt verb exists. The SSE hub is woken on success (the
+// protect-endpoint precedent: user-option mutations emit no control-mode
+// event).
+func (s *Server) handleServerAdopt(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body")
+		return
+	}
+
+	if errMsg := validate.ValidateServerName(body.Name); errMsg != "" {
+		writeError(w, http.StatusBadRequest, errMsg)
+		return
+	}
+
+	managed, err := s.tmux.IsManagedServer(r.Context(), body.Name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if managed {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "already-managed"})
+		return
+	}
+
+	if err := s.tmux.MarkServerManaged(r.Context(), body.Name); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := s.tmux.ReloadConfig(body.Name); err != nil {
+		// Best-effort rollback: a stamped server whose conf never applied is
+		// never left behind. Fresh context, not r.Context() — a canceled or
+		// deadline-exhausted request must not abort the unmark (the CLI
+		// adopt's fresh-bound rollback pattern); the tmux layer applies its
+		// own TmuxTimeout.
+		_ = s.tmux.UnmarkServerManaged(context.Background(), body.Name)
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Wake the SSE hub: set-option and source-file are invisible to the
+	// tmuxctl control-mode parser, so without this the change waits for the
+	// safety tick. initSSEHub is idempotent.
+	s.initSSEHub()
+	s.sseHub.wake(body.Name)
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

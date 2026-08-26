@@ -2619,6 +2619,97 @@ func TestIsGuardedServer_deadServerReturnsFalse(t *testing.T) {
 	}
 }
 
+func TestIsManagedServer_markedServerReturnsTrue(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := MarkServerManaged(ctx, server); err != nil {
+		t.Fatalf("MarkServerManaged: %v", err)
+	}
+
+	got, err := IsManagedServer(ctx, server)
+	if err != nil {
+		t.Fatalf("IsManagedServer marked: %v", err)
+	}
+	if !got {
+		t.Error("got false, want true (option-marked server)")
+	}
+}
+
+func TestIsManagedServer_unsetAfterSetReturnsFalse(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := MarkServerManaged(ctx, server); err != nil {
+		t.Fatalf("MarkServerManaged: %v", err)
+	}
+	// Un-setting is the adopt-failure rollback — the server reads external again.
+	if err := UnmarkServerManaged(ctx, server); err != nil {
+		t.Fatalf("UnmarkServerManaged: %v", err)
+	}
+
+	got, err := IsManagedServer(ctx, server)
+	if err != nil {
+		t.Fatalf("IsManagedServer after unset: %v", err)
+	}
+	if got {
+		t.Error("got true, want false (option unset)")
+	}
+}
+
+func TestIsManagedServer_unmarkedServerReturnsFalse(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	got, err := IsManagedServer(ctx, server)
+	if err != nil {
+		t.Fatalf("IsManagedServer unmarked: %v", err)
+	}
+	if got {
+		t.Error("got true, want false (unmarked server)")
+	}
+}
+
+func TestIsManagedServer_deadServerReturnsFalse(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available — skipping integration test")
+	}
+	// A socket name with no running server: the read must degrade to false,
+	// not bubble a "no server running" / "failed to connect" error — liveness
+	// is the caller's concern.
+	server := testSocketName("unit")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	got, err := IsManagedServer(ctx, server)
+	if err != nil {
+		t.Fatalf("IsManagedServer on dead server: %v", err)
+	}
+	if got {
+		t.Error("got true, want false (no server)")
+	}
+}
+
+func TestIsManagedServer_daemonNameReturnsTrue(t *testing.T) {
+	// Derived provenance needs no live server and never touches tmux — the
+	// short-circuit must hold even with no tmux binary/socket involved (this
+	// test spawns no subprocess: rk-daemon has no socket here and no tmux
+	// availability is required).
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	got, err := IsManagedServer(ctx, productionDaemonServer)
+	if err != nil {
+		t.Fatalf("IsManagedServer daemon: %v", err)
+	}
+	if !got {
+		t.Error("got false, want true (daemon managed by derivation)")
+	}
+}
+
 func TestServerAllowed(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -3207,6 +3298,58 @@ func TestCreateSession_ServerBirthCwdIsHome(t *testing.T) {
 	want := mustEvalSymlinks(t, ServerBirthDir())
 	if got != want {
 		t.Errorf("session_path = %q, want %q (server birth must be anchored to home, not rk's CWD)", got, want)
+	}
+}
+
+// TestCreateSession_BirthStampsManaged proves the birth branch of the
+// provenance stamp: CreateSession first-touching a fresh socket births the
+// server, so the newborn must read managed.
+func TestCreateSession_BirthStampsManaged(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available — skipping integration test")
+	}
+	server := testSocketName("unit")
+	t.Cleanup(func() {
+		killCtx, cancelKill := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelKill()
+		_ = exec.CommandContext(killCtx, "tmux", "-L", server, "kill-server").Run()
+	})
+
+	if err := CreateSession("birth", "", server); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	got, err := IsManagedServer(ctx, server)
+	if err != nil {
+		t.Fatalf("IsManagedServer after birth: %v", err)
+	}
+	if !got {
+		t.Error("got false, want true (a server this call birthed must be stamped managed)")
+	}
+}
+
+// TestCreateSession_ExistingServerNotStamped proves the non-birth branch:
+// adding a session to an already-live (unmarked) server writes no stamp —
+// provenance must not lie about a server rk did not birth.
+func TestCreateSession_ExistingServerNotStamped(t *testing.T) {
+	// Boot the server WITHOUT going through CreateSession, so it is live but
+	// carries no ManagedOption mark.
+	server := withSessionOrderTmux(t)
+
+	if err := CreateSession("extra", "", server); err != nil {
+		t.Fatalf("CreateSession on live server: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	got, err := IsManagedServer(ctx, server)
+	if err != nil {
+		t.Fatalf("IsManagedServer on unmarked live server: %v", err)
+	}
+	if got {
+		t.Error("got true, want false (session create on an existing server writes no stamp)")
 	}
 }
 

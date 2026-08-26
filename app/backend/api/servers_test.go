@@ -744,3 +744,174 @@ func TestHandleServerProtect_WriteFailureSurfaces500(t *testing.T) {
 		t.Fatalf("status = %d, want 500 on option write failure (not silent success)", rec.Code)
 	}
 }
+
+func TestHandleServersList_IncludesManagedField(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	mock := &serversTmuxMock{
+		servers: []string{"work", "rk-daemon", "ext"},
+		sessions: map[string][]tmux.SessionInfo{
+			"work":      {{Name: "s1"}},
+			"rk-daemon": {{Name: "s1"}},
+			"ext":       {{Name: "s1"}},
+		},
+	}
+	mock.isManagedByServer = map[string]bool{"work": true}
+
+	router := NewTestRouter(logger, nil, mock, "test-host")
+	req := httptest.NewRequest("GET", "/api/servers", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != 200 {
+		t.Fatalf("status = %d, want 200. body=%s", rec.Code, rec.Body.String())
+	}
+	var got []serverInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	byName := map[string]serverInfo{}
+	for _, e := range got {
+		byName[e.Name] = e
+	}
+	if !byName["work"].Managed {
+		t.Errorf("work managed = false, want true (marked)")
+	}
+	if !byName["rk-daemon"].Managed {
+		t.Errorf("rk-daemon managed = false, want true (derived)")
+	}
+	if byName["ext"].Managed {
+		t.Errorf("ext managed = true, want false (unmarked)")
+	}
+	if !strings.Contains(rec.Body.String(), "\"managed\":true") {
+		t.Errorf("body missing managed:true. body=%s", rec.Body.String())
+	}
+}
+
+func TestHandleServersList_ManagedReadErrorYieldsFalse(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	mock := &serversTmuxMock{
+		servers:  []string{"broken"},
+		sessions: map[string][]tmux.SessionInfo{"broken": {{Name: "s1"}}},
+	}
+	mock.isManagedErrByServer = map[string]error{"broken": errors.New("boom")}
+
+	router := NewTestRouter(logger, nil, mock, "test-host")
+	req := httptest.NewRequest("GET", "/api/servers", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != 200 {
+		t.Fatalf("status = %d, want 200 (managed read failure must not surface as 5xx)", rec.Code)
+	}
+	var got []serverInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got) != 1 || got[0].Managed {
+		t.Fatalf("got %+v, want managed false on read error", got)
+	}
+}
+
+// TestHandleServerAdopt_Success: an unmarked server is stamped, then its conf
+// is sourced — mark before reload — and the response reports status ok.
+func TestHandleServerAdopt_Success(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	mock := &serversTmuxMock{}
+
+	router := NewTestRouter(logger, nil, mock, "test-host")
+	req := httptest.NewRequest("POST", "/api/servers/adopt", strings.NewReader(`{"name":"ext"}`))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != 200 {
+		t.Fatalf("status = %d, want 200. body=%s", rec.Code, rec.Body.String())
+	}
+	var body map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body["status"] != "ok" {
+		t.Errorf("status = %q, want ok. body=%s", body["status"], rec.Body.String())
+	}
+	if len(mock.markManagedCalls) != 1 || mock.markManagedCalls[0] != "ext" {
+		t.Errorf("mark calls = %v, want one mark of ext", mock.markManagedCalls)
+	}
+	if len(mock.reloadConfigCalls) != 1 || mock.reloadConfigCalls[0] != "ext" {
+		t.Errorf("reload calls = %v, want one reload of ext", mock.reloadConfigCalls)
+	}
+	if len(mock.unmarkManagedCalls) != 0 {
+		t.Errorf("unmark ran on a successful adopt: %v", mock.unmarkManagedCalls)
+	}
+}
+
+// TestHandleServerAdopt_AlreadyManaged: an already-managed target (marked or
+// the daemon by derivation) returns 200 already-managed idempotently, with no
+// tmux mutation.
+func TestHandleServerAdopt_AlreadyManaged(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	mock := &serversTmuxMock{}
+	mock.isManagedByServer = map[string]bool{"mine": true}
+
+	router := NewTestRouter(logger, nil, mock, "test-host")
+	for _, name := range []string{"mine", "rk-daemon"} {
+		req := httptest.NewRequest("POST", "/api/servers/adopt", strings.NewReader(`{"name":"`+name+`"}`))
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != 200 {
+			t.Fatalf("%s: status = %d, want 200. body=%s", name, rec.Code, rec.Body.String())
+		}
+		var body map[string]string
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if body["status"] != "already-managed" {
+			t.Errorf("%s: status = %q, want already-managed. body=%s", name, body["status"], rec.Body.String())
+		}
+	}
+	if len(mock.markManagedCalls) != 0 || len(mock.reloadConfigCalls) != 0 || len(mock.unmarkManagedCalls) != 0 {
+		t.Errorf("mutation ran on already-managed targets: marks=%v reloads=%v unmarks=%v",
+			mock.markManagedCalls, mock.reloadConfigCalls, mock.unmarkManagedCalls)
+	}
+}
+
+// TestHandleServerAdopt_ReloadFailureRollsBack: a failed reload best-effort
+// unmarks the just-stamped server and returns an error — a stamped server
+// whose conf never applied is never left behind.
+func TestHandleServerAdopt_ReloadFailureRollsBack(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	mock := &serversTmuxMock{}
+	mock.reloadConfigErr = errors.New("source-file: boom")
+
+	router := NewTestRouter(logger, nil, mock, "test-host")
+	req := httptest.NewRequest("POST", "/api/servers/adopt", strings.NewReader(`{"name":"ext"}`))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != 500 {
+		t.Fatalf("status = %d, want 500 on reload failure. body=%s", rec.Code, rec.Body.String())
+	}
+	if len(mock.markManagedCalls) != 1 || mock.markManagedCalls[0] != "ext" {
+		t.Errorf("mark calls = %v, want one mark of ext", mock.markManagedCalls)
+	}
+	if len(mock.unmarkManagedCalls) != 1 || mock.unmarkManagedCalls[0] != "ext" {
+		t.Errorf("unmark calls = %v, want one rollback unmark of ext", mock.unmarkManagedCalls)
+	}
+}
+
+func TestHandleServerAdopt_InvalidNameRejected(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	mock := &serversTmuxMock{}
+
+	router := NewTestRouter(logger, nil, mock, "test-host")
+	req := httptest.NewRequest("POST", "/api/servers/adopt", strings.NewReader(`{"name":"bad/name"}`))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != 400 {
+		t.Fatalf("status = %d, want 400 for invalid name", rec.Code)
+	}
+	if len(mock.markManagedCalls) != 0 || len(mock.reloadConfigCalls) != 0 {
+		t.Errorf("mutation ran on an invalid name: marks=%v reloads=%v", mock.markManagedCalls, mock.reloadConfigCalls)
+	}
+}

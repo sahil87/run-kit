@@ -108,6 +108,15 @@ type TmuxOps interface {
 	IsGuardedServer(ctx context.Context, server string) (bool, error)
 	MarkServerProtected(ctx context.Context, server string) error
 	UnmarkServerProtected(ctx context.Context, server string) error
+	// IsManagedServer is the combined managed-class predicate (rk-daemon by
+	// derivation ∨ @rk_managed); Mark/UnmarkServerManaged write the
+	// @rk_managed provenance mark for the adopt endpoint (Unmark exists only
+	// as the adopt-failure rollback), and ReloadConfig sources the managed
+	// conf onto the server.
+	IsManagedServer(ctx context.Context, server string) (bool, error)
+	MarkServerManaged(ctx context.Context, server string) error
+	UnmarkServerManaged(ctx context.Context, server string) error
+	ReloadConfig(server string) error
 	ListBoards(ctx context.Context) ([]tmux.BoardSummary, error)
 	GetBoard(ctx context.Context, name string) ([]tmux.BoardEntry, error)
 	ListBoardEntries(ctx context.Context, server string) ([]tmux.BoardEntry, error)
@@ -441,6 +450,18 @@ func (p *prodTmuxOps) MarkServerProtected(ctx context.Context, server string) er
 func (p *prodTmuxOps) UnmarkServerProtected(ctx context.Context, server string) error {
 	return tmux.UnmarkServerProtected(ctx, server)
 }
+func (p *prodTmuxOps) IsManagedServer(ctx context.Context, server string) (bool, error) {
+	return tmux.IsManagedServer(ctx, server)
+}
+func (p *prodTmuxOps) MarkServerManaged(ctx context.Context, server string) error {
+	return tmux.MarkServerManaged(ctx, server)
+}
+func (p *prodTmuxOps) UnmarkServerManaged(ctx context.Context, server string) error {
+	return tmux.UnmarkServerManaged(ctx, server)
+}
+func (p *prodTmuxOps) ReloadConfig(server string) error {
+	return tmux.ReloadConfig(server)
+}
 func (p *prodTmuxOps) ListBoards(ctx context.Context) ([]tmux.BoardSummary, error) {
 	return tmux.ListBoards(ctx)
 }
@@ -773,6 +794,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/servers/order", s.handleServerOrderPost)
 	r.Post("/api/servers/kill", s.handleServerKill)
 	r.Post("/api/servers/protect", s.handleServerProtect)
+	r.Post("/api/servers/adopt", s.handleServerAdopt)
 
 	// Recovery — reboot-orphaned server offers (read-only GET) plus the
 	// user-initiated restore/dismiss mutations (POST per §IX). See

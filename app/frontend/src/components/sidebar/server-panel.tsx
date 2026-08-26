@@ -2,7 +2,8 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { CollapsiblePanel } from "./collapsible-panel";
 import { LogoSpinner } from "@/components/logo-spinner";
 import { UNCOLORED_SELECTED_KEY, type RowTint } from "@/themes";
-import { isInfraServer, type ServerInfo } from "@/api/client";
+import { isExternalServer, isInfraServer, DAEMON_SERVER, type ServerInfo } from "@/api/client";
+import { ExternalGlyph, ShieldGlyph } from "@/components/top-bar-icons";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useServerReorder, type ServerTileDragProps } from "@/hooks/use-server-reorder";
 import { useToast } from "@/components/toast";
@@ -130,7 +131,8 @@ export function ServerPanel({
           role="listbox"
           aria-label="Tmux servers"
         >
-          {orderedServers.map(({ name, sessionCount, windowCount }) => {
+          {orderedServers.map((info) => {
+            const { name, sessionCount, windowCount } = info;
             const color = serverColors[name];
             const tint = color != null && rowTints ? rowTints.get(color) ?? null : null;
             const uncoloredSelectedTint = rowTints?.get(UNCOLORED_SELECTED_KEY) ?? null;
@@ -145,6 +147,11 @@ export function ServerPanel({
               : rowBorders
               ? rowBorders.get(UNCOLORED_SELECTED_KEY) ?? "var(--color-border)"
               : "var(--color-border)";
+            const external = isExternalServer(info);
+            // An external server with no assigned color gets a hatched stripe
+            // placeholder in place of the color signature; an assigned color
+            // still wins the solid stripe above.
+            const hatchStripe = external && color == null && isActive ? "var(--color-border)" : undefined;
             return (
               <ServerTile
                 key={name}
@@ -155,10 +162,13 @@ export function ServerPanel({
                 tint={tint}
                 uncoloredSelectedTint={uncoloredSelectedTint}
                 stripeBg={stripeBg}
+                hatchStripe={hatchStripe}
                 flair={serverFlairs?.[name]}
                 flairColor={color != null && rowBorders ? rowBorders.get(color) : undefined}
                 isActive={isActive}
                 isMobile={isMobile}
+                isProtected={name === DAEMON_SERVER || info.protected === true}
+                isExternal={external}
                 dragProps={getTileProps(name)}
                 isDragSource={isDragging && draggingName === name}
                 tileRef={isActive ? activeTileRef : undefined}
@@ -182,6 +192,15 @@ type ServerTileProps = {
   tint: RowTint | null;
   uncoloredSelectedTint: RowTint | null;
   stripeBg: string;
+  /** Hatched-stripe color: set (instead of stripeBg being meaningful) when an
+   *  external server has no assigned color — a repeating-linear-gradient
+   *  placeholder fills the color-signature slot. Border stays solid. */
+  hatchStripe?: string;
+  /** The server-class glyph predicates (system-owned leading slot, never the
+   *  style channel): shield for protected/daemon, ↗ for external. Both render
+   *  when both apply, shield first. */
+  isProtected: boolean;
+  isExternal: boolean;
   /** The server's flair token, or undefined when unset. */
   flair?: string;
   /** The guarded stripe color source (rowBorders-derived) — the tint for
@@ -207,6 +226,9 @@ function ServerTile({
   tint,
   uncoloredSelectedTint,
   stripeBg,
+  hatchStripe,
+  isProtected,
+  isExternal,
   flair,
   flairColor,
   isActive,
@@ -224,10 +246,11 @@ function ServerTile({
     ? tint?.selected ?? uncoloredSelectedTint?.selected
     : tint?.base;
   const uncoloredHoverClass = !tint && !isActive ? "hover:bg-bg-card/50" : "";
-  // De-emphasize infrastructure servers (daemon + test sockets): grey the name,
-  // not disabled. Hover/click/active-selection stay unchanged so the tile
-  // remains fully attachable and never reads as dead/disconnected.
-  const nameClass = isInfraServer(name) ? "text-text-secondary" : "text-text-primary";
+  // De-emphasize infrastructure servers (daemon + test sockets) and external
+  // servers alike: grey the name, not disabled. Hover/click/active-selection
+  // stay unchanged so the tile remains fully attachable and never reads as
+  // dead/disconnected.
+  const nameClass = isInfraServer(name) || isExternal ? "text-text-secondary" : "text-text-primary";
 
   // Tile-level identity tip: `Server <name>` title bar + the socket flag and
   // session count in the body (server names ARE socket names, so the `tmux
@@ -271,11 +294,39 @@ function ServerTile({
             spans — the drag ghost rule) and under prefers-reduced-motion. */}
         <FlairOverlay flair={flair} hidden={isDragSource} color={flairColor} />
         {/* Top color stripe — the server signature/active marker (top border =
-            server, left border = window rows). */}
-        <div className="h-0.5" style={{ backgroundColor: stripeBg }} />
+            server, left border = window rows). External+uncolored renders a
+            hatched placeholder in the signature slot instead of a solid fill. */}
+        <div
+          className="h-0.5"
+          style={
+            hatchStripe
+              ? { backgroundImage: `repeating-linear-gradient(45deg, ${hatchStripe} 0 2px, transparent 2px 5px)` }
+              : { backgroundColor: stripeBg }
+          }
+        />
         {/* Body */}
         <div className="px-1.5 pt-0.5 pb-1.5">
           <div className={`text-[11px] leading-tight font-medium ${nameClass} whitespace-nowrap overflow-hidden text-ellipsis`}>
+            {isProtected && (
+              <span
+                role="img"
+                aria-label={`${name} is protected`}
+                className="inline-flex align-[-2px] mr-0.5"
+                data-testid={`shield-${name}`}
+              >
+                <ShieldGlyph />
+              </span>
+            )}
+            {isExternal && (
+              <span
+                role="img"
+                aria-label={`${name} is external`}
+                className="inline-flex align-[-2px] mr-0.5"
+                data-testid={`external-${name}`}
+              >
+                <ExternalGlyph />
+              </span>
+            )}
             {name}
           </div>
           {/* Window count + waiting rollup (260708-4li7): a bare window-count
@@ -306,6 +357,7 @@ function ServerTile({
         }
       >
         {`tmux -L ${name} · ${sessionCount} session${sessionCount === 1 ? "" : "s"}`}
+        {isExternal && " · external — not started by run-kit"}
       </IdentityTipCard>
     </div>
   );

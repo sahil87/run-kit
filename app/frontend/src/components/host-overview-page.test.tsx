@@ -234,6 +234,41 @@ describe("HostOverviewPage — protected-server shield glyph (TMUX SERVERS tiles
   });
 });
 
+describe("HostOverviewPage — external-server glyph (TMUX SERVERS tiles)", () => {
+  it("renders ↗ + grey name for managed === false only; managed true and absent field render no treatment", () => {
+    mockServers = [
+      { name: "ext", sessionCount: 1, managed: false },
+      { name: "own", sessionCount: 1, managed: true },
+      { name: "old", sessionCount: 1 }, // old backend: no `managed`
+    ];
+    renderPage();
+
+    expect(screen.getByTestId("external-ext")).toBeInTheDocument();
+    const extName = screen.getByTestId("external-ext").closest("div.font-medium")!;
+    expect(extName).toHaveClass("text-text-secondary");
+
+    for (const name of ["own", "old"]) {
+      expect(screen.queryByTestId(`external-${name}`)).not.toBeInTheDocument();
+      const nameDiv = screen.getByText(name, { selector: "div.font-medium" });
+      expect(nameDiv).toHaveClass("text-text-primary");
+      expect(nameDiv).not.toHaveClass("text-text-secondary");
+    }
+  });
+
+  it("renders ↗ before the name, after the shield when both classes apply", () => {
+    mockServers = [{ name: "ext", sessionCount: 1, managed: false, protected: true }];
+    renderPage();
+
+    const nameDiv = screen.getByTestId("external-ext").closest("div.font-medium")!;
+    const glyphs = nameDiv.querySelectorAll("[data-testid^='shield-'], [data-testid^='external-']");
+    expect([...glyphs].map((g) => g.getAttribute("data-testid"))).toEqual([
+      "shield-ext",
+      "external-ext",
+    ]);
+    expect(nameDiv).toHaveTextContent("ext");
+  });
+});
+
 describe("HostOverviewPage — Services zone", () => {
   it("renders a 'No services' fallback when the services list is empty", async () => {
     mockServices = [];

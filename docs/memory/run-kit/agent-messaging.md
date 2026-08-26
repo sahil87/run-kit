@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The `rk mux` family — 11 tmux-substrate verbs, no daemon dependency. Pane-scoped members (`send`/`await` messaging + `capture`/`kill`/`process` substrate twins) share the strict %N/@N/=session:window grammar and with `panes` consume inherited `-L`; `await --any` wakes on the first of N panes. Operator members `new`/`reap`/`snapshot`/`init-conf`/`guard` reject `-L` (`guard` excepted): `new` spawns a detached server (`--ephemeral` marks `@rk_ephemeral`); `reap` sweeps those under `--ephemeral`."
+description: "The `rk mux` family — 12 tmux-substrate verbs, no daemon dependency. Pane-scoped members (`send`/`await` + `capture`/`kill`/`process` twins) share the strict %N/@N/=session:window grammar and with `panes` consume inherited `-L`; `await --any` wakes on the first of N panes. Operator members `new`/`reap`/`snapshot`/`init-conf`/`guard`/`adopt` reject `-L` (`guard` excepted): `new` spawns a detached server (`--ephemeral` marks `@rk_ephemeral`); `adopt` stamps `@rk_managed` + reloads the conf."
 ---
 # Agent-to-Agent Messaging (`rk mux`)
 
@@ -11,7 +11,7 @@ description: "The `rk mux` family — 11 tmux-substrate verbs, no daemon depende
 `rk mux` is the tmux-substrate CLI family (per `docs/specs/cli-layering.md`):
 operations that talk to tmux directly from the caller's context with **no daemon
 dependency** (the `rk present` pattern), so they work while `rk serve` is down.
-The family has eleven members. The messaging pair is the conversation loop's
+The family has twelve members. The messaging pair is the conversation loop's
 halves: `rk mux send` delivers a message into another agent's pane — the
 agent→agent counterpart of `rk present`'s agent→user attach — and `rk mux await`
 blocks until a peer's state (or a file signal) fires — under `--any`, until the
@@ -23,7 +23,8 @@ panes` is the whole-server enumeration query — one row per pane across all
 sessions, substrate facts only (no change/stage; choreography enrichment stays
 the fab layer's), the family's only server-scoped enumeration (no target
 argument). The
-operator tier groups the create verb, the janitor/recovery/scaffold verbs, and
+operator tier groups the create verb, the janitor/recovery/scaffold verbs, the
+provenance verb, and
 the guard: `rk mux new` (detached server creation on a named socket — the
 family's create verb; `--ephemeral` marks the new server `@rk_ephemeral`
 before return), `rk mux reap` (test-socket and scratch-server cleanup — a prefix sweep,
@@ -31,7 +32,10 @@ unioned with every live `@rk_ephemeral`-marked server under `--ephemeral`;
 full contract in [tmux-sessions](/run-kit/tmux-sessions.md) § `rk mux reap`), `rk mux snapshot list|show|restore`
 (layout recovery, [layout-snapshots](/run-kit/layout-snapshots.md)),
 `rk mux init-conf` (scaffolds the rk-managed tmux.conf and the
-`tmux.d/user.conf` override starter under `~/.config/run-kit/`), and `rk mux guard` (fronts the real
+`tmux.d/user.conf` override starter under `~/.config/run-kit/`), `rk mux adopt` (converts an
+external tmux server to rk-managed — stamps `@rk_managed` then sources the
+managed conf, rolling the stamp back on a failed reload; idempotent, and the
+bulk-migration path for rk-born servers that predate the stamp), and `rk mux guard` (fronts the real
 tmux binary, refusing a bare `kill-server` — the verb the installed PATH shim
 execs; full contract in [tmux-guard-shim](/run-kit/tmux-guard-shim.md)). The
 pane-scoped verbs (send/await/capture/kill/process) are first-party readers of
@@ -415,6 +419,39 @@ unmarked server behind.
   **THEN** `tmux.IsEphemeralServer(ctx, "scratch")` reads `true` after
   return, and a failed mark kills the fresh server with exit 1.
 
+### Requirement: `rk mux adopt` — convert an external server to managed
+`rk mux adopt <server>` (`cmd/rk/mux_adopt.go`, `mux_new.go` as the template)
+SHALL convert an external (unmarked) tmux server into an rk-managed one
+(stamping `@rk_managed`, const `tmux.ManagedOption`; the full class contract is
+[tmux-sessions](/run-kit/tmux-sessions.md) § Server-Scoped User Options).
+`<server>` SHALL be validated via `validate.ValidateServerName` before any
+subprocess (usage error, exit 2); as an operator-tier member it rejects an
+explicitly-set inherited `-L/--server` via `muxRejectInheritedServerFlag`
+(usage error, exit 2) and takes exactly one positional. The socket SHALL be
+probed live first (`tmux.ServerAlive`) — a dead/absent socket is operational
+(exit 1) because `set-option -s` and `source-file` both need a running tmux
+process. Semantics: an already-managed target — including `rk-daemon` by
+derivation — SHALL print `already managed <name>` and exit 0 with no mutation
+(idempotent by contract: the bulk-migration role requires it); otherwise the
+verb SHALL **stamp first, then reload** (`tmux.MarkServerManaged` then
+`tmux.ReloadConfig`), and a failed reload SHALL best-effort
+`tmux.UnmarkServerManaged` (under a fresh timeout context — a slow probe must
+not hand the rollback an exhausted deadline) and exit 1, so a stamped server
+whose conf never applied is never left behind. The verb is **non-interactive**
+— invocation is consent — and never assigns a server color; there is no
+un-adopt verb. On success stdout carries exactly one report line:
+`adopted <name>`; diagnostics ride stderr; exit codes follow the toolkit
+convention (0/1/2). The same stamp→reload-with-rollback semantics back the
+HTTP twin `POST /api/servers/adopt` ([tmux-sessions](/run-kit/tmux-sessions.md)
+§ API Server Parameter).
+
+#### Scenario: Adopt twice mutates once; a dead socket is operational
+- **GIVEN** a live unmarked server `ext`
+- **WHEN** `rk mux adopt ext` runs
+- **THEN** stdout is `adopted ext`, exit 0, and `IsManagedServer` reads true;
+  **AND WHEN** it runs again, **THEN** stdout is `already managed ext`, exit 0,
+  no mutation; **AND GIVEN** no live server on the socket, **THEN** exit 1
+
 ### Requirement: `rk mux init-conf` — managed tmux.conf scaffold
 `rk mux init-conf [--force]` SHALL write the rk-managed tmux.conf to
 `~/.config/run-kit/tmux.conf` through the shared managed write path
@@ -448,7 +485,7 @@ Constitution §I); the verbs hold no state beyond the invocation (Constitution
 §II).
 
 ### Requirement: Operator members reject an explicit inherited `-L`; old root forms are deprecation aliases
-The operator members (`new`, `reap`, `snapshot list|show|restore`, `init-conf`) do not
+The operator members (`new`, `reap`, `snapshot list|show|restore`, `init-conf`, `adopt`) do not
 consume the mux parent's persistent `-L/--server` flag; each SHALL return a usage
 error (exit 2) naming `--server` when the inherited flag was explicitly set
 (e.g. `rk mux -L foo reap`), rather than silently ignoring it. **`guard` is
@@ -660,6 +697,12 @@ safe.
 mode the verb eliminates); retry loops (a failing `set-option` on a server
 that just booted signals something structurally wrong).
 *Introduced by*: 260821-hbmh-ephemeral-creation-adoption
+
+### Adopt rolls back its stamp on a failed reload
+**Decision**: `rk mux adopt` (and the `POST /api/servers/adopt` endpoint) stamp `@rk_managed` first, then source the managed conf; a failed reload best-effort unmarks and fails the verb.
+**Why**: the mark means "the managed conf applied" — a stamped server whose conf never applied would be a lying provenance record; the rollback keeps the stamp truthful. Ordering stamp-first guarantees the rollback target exists.
+**Rejected**: reload-then-stamp (a crash between the two leaves a confed-but-external server — the inverse lie); leaving the stamp on reload failure (silently opts the server into future conf reloads it never received).
+*Introduced by*: 260826-lv87-external-server-provenance-adopt
 
 ### Fleet-wake MUSTs split between rk guarantee and caller protocol
 **Decision**: rk implements no exclusion filtering, no re-arm logic, and no

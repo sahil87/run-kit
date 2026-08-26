@@ -411,7 +411,7 @@ withheld, recoverable — § 409 on probe failure), which the batch records as o
 recipient's failure and steps past rather than aborting the remaining sends. The
 broadcast's own `200` count is what the frontend calls **delivered**, and it
 drives whether the composed prompt is cleared or retained for a retry.
-(`260808-ebgs`)
+(260808-ebgs)
 
 ### Requirement: Send endpoint `POST /api/windows/{windowId}/chat/send`
 The backend SHALL expose `POST /api/windows/{windowId}/chat/send?server={server}`
@@ -909,7 +909,7 @@ server-side via `*bool` nil-or-true, so serializing `true` adds noise without
 meaning). Gating only step 5 reuses the whole hardened injection path — the paste
 must still echo before the text is left staged in the composer, so an insert is a
 verified paste minus the keypress, not a weaker second path. It restores the
-capability the docked-compose-strip cutover (`260718-dhdj`) removed when it flipped
+capability the docked-compose-strip cutover (260718-dhdj) removed when it flipped
 to always-submit: staging text in the agent's input box (pre-load a prompt, append
 to a queued steer, leave a draft for a human) without firing it.
 **Rejected**: always serializing the field (churns every existing mocked body for

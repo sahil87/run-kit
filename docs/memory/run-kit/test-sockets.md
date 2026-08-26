@@ -8,7 +8,7 @@ description: "Test-socket isolation on the tmux substrate: unified rk-test-<role
 
 ## Unified Test-Socket Naming — `rk-test-<role>-<pid>-<ns>`
 
-**Every** test tmux-socket name — Go *and* Playwright — follows one umbrella form (`260530-cf3g-unify-test-socket-reaping`):
+**Every** test tmux-socket name — Go *and* Playwright — follows one umbrella form (260530-cf3g-unify-test-socket-reaping):
 
 ```
 rk-test-<role>-<pid>-<ns>
@@ -60,11 +60,11 @@ There is no pre-sweep: the post-sweep means **each run reaps its OWN dead-PID re
 
 ## `rk mux reap` — Brute-Force-by-Prefix Operator Cleanup
 
-`rk mux reap` (`260529-fww2-rk-reaper-command`, `260530-cf3g-unify-test-socket-reaping`) is an **operator-invoked** member of the `rk mux` family ([agent-messaging](/run-kit/agent-messaging.md)), built by the `newReapCmd(use, deprecated)` two-instance constructor and registered on `muxCmd`. The old root form survives as `reapAliasCmd` — a **hidden deprecation alias** `rk reaper` at the root that prints cobra's `Deprecated` pointer to stderr and still runs byte-identically (a human-typed verb, so the alias is removable in a future release — unlike the permanent `agent-hook` contract). Neither form is wired into any startup path. The command body (`cmd/rk/reaper.go`) is thin — flag parsing + summary rendering; all scan/classify/reap logic lives in `internal/tmux/reaper.go` (constitution §III). The family member rejects an explicitly-set inherited `-L/--server` with a usage error (exit 2); the root alias carries no `-L` flag.
+`rk mux reap` is an **operator-invoked** member of the `rk mux` family ([agent-messaging](/run-kit/agent-messaging.md)), built by the `newReapCmd(use, deprecated)` two-instance constructor and registered on `muxCmd` (260529-fww2-rk-reaper-command). `reapAliasCmd` is a **hidden deprecation alias** `rk reaper` at the root that prints cobra's `Deprecated` pointer to stderr and runs byte-identically (a human-typed verb, so the alias is removable in a future release — unlike the permanent `agent-hook` contract). Neither form is wired into any startup path. The command body (`cmd/rk/reaper.go`) is thin — flag parsing + summary rendering; all scan/classify/reap logic lives in `internal/tmux/reaper.go` (constitution §III). The family member rejects an explicitly-set inherited `-L/--server` with a usage error (exit 2); the root alias carries no `-L` flag.
 
 ### No relay startup sweep
 
-There is no relay startup sweep. Relay ephemerals do not exist (the relay attaches directly), and board pin-sessions (`_rk-pin-*`) are PERSISTENT across rk restarts (a valid state, not an orphan), so there is no in-server session class to reap at startup. The reaper is the operator-only janitor for **whole test servers and dead/stale sockets/`.lock` files** — different scope, different trigger. (`260529-fww2`, `260602-qn62-move-based-board-pin-sessions`)
+There is no relay startup sweep. Relay ephemerals do not exist (the relay attaches directly), and board pin-sessions (`_rk-pin-*`) are PERSISTENT across rk restarts (a valid state, not an orphan), so there is no in-server session class to reap at startup. The reaper is the operator-only janitor for **whole test servers and dead/stale sockets/`.lock` files** — different scope, different trigger. (260602-qn62-move-based-board-pin-sessions)
 
 ### Brute-force-by-prefix — no liveness probe to match
 
@@ -110,22 +110,22 @@ Because the manual reaper has **no live-run protection by design** (no name allo
 
 ## `/api/servers` Lists Every Server — No Test-Socket Hide
 
-There is no `/api/servers` test-socket hide filter (`260530-cf3g-unify-test-socket-reaping`). `handleServersList` (`api/servers.go`) returns the output of `tmux.ListServers` directly, so the response includes **every** tmux server discovered — including leaked `rk-test-*` orphans. The reaper is the **sole** mechanism that keeps this list clean.
+There is no `/api/servers` test-socket hide filter (260530-cf3g-unify-test-socket-reaping). `handleServersList` (`api/servers.go`) returns the output of `tmux.ListServers` directly, so the response includes **every** tmux server discovered — including leaked `rk-test-*` orphans. The reaper is the **sole** mechanism that keeps this list clean.
 
 **Accepted consequence**: after a crashed test run, the dev UI lists the orphans **and opens an SSE stream per orphan server** until the operator runs `rk mux reap`. This is intended ("surface everything") — the user sees exactly the pile the reaper will reap. The `servers_test.go` fixture asserts that ALL servers (including `rk-test-*` / `rk-test-e2e-*`) are returned (`TestHandleServersList_ReturnsAllServersIncludingTestSockets`).
 
 ## `RK_SERVER_ALLOWLIST` — Env-Gated Test-Isolation Filter in `ListServers`
 
-`ListServers` applies an **env-gated allowlist filter** read from `RK_SERVER_ALLOWLIST` (const `tmux.ServerAllowlistEnv`, `internal/tmux/tmux.go`) (`260531-tmnm-test-scoped-server-enumeration`). The env var is read **in-package** via `os.Getenv` — matching the `RK_TMUX_CONF`/`OriginalTMUX` precedent — **NOT** threaded through `internal/config` (`ListServers` is a `ctx`-only free function and `internal/tmux` has no `config` dependency to carry it).
+`ListServers` applies an **env-gated allowlist filter** read from `RK_SERVER_ALLOWLIST` (const `tmux.ServerAllowlistEnv`, `internal/tmux/tmux.go`) (260531-tmnm-test-scoped-server-enumeration). The env var is read **in-package** via `os.Getenv` — matching the `RK_TMUX_CONF`/`OriginalTMUX` precedent — **NOT** threaded through `internal/config` (`ListServers` is a `ctx`-only free function and `internal/tmux` has no `config` dependency to carry it).
 
 - **Unset / whitespace-only (production default)**: the filter is a no-op — `ListServers` returns all live servers. The `/api/servers` "surface every server" contract (see § above) and the `IsTestServerName` design intent are preserved exactly. An empty value is treated as unset, so a blank env never means "match nothing".
 - **Set (test only)**: the post-probe live-server list is narrowed to names admitted by `matchesServerAllowlist(name, allowlist)` — a pure, table-tested predicate (`TestMatchesServerAllowlist`, no live tmux server needed). The allowlist is a **comma-separated list of prefixes**; each token is trimmed, empty tokens skipped, and a name matches when it `strings.HasPrefix` ANY token (exact match = prefix-of-itself).
 
 **Why prefix, not exact**: multi-server e2e specs create secondaries in `beforeAll` named `rk-test-e2e-<token>-<role>-<pid>-<epoch>` (e.g. `rk-test-e2e-<token>-multi-*`, `…-scope-*`, `…-msb-*`). Exact match on the primary (`rk-test-e2e-<token>-0`) would wrongly exclude them and break those specs; the harness therefore exports the **family anchor** `rk-test-e2e-<token>-` — trailing hyphen included — as the allowlist, admitting the primary plus this-run secondaries. Because the token is hyphen-free, the anchor prefixes a sibling worktree's family only when the tokens are equal, so the prefix match can never bleed across worktrees; and the anchor still excludes the broader `rk-test-` umbrella — a `rk-test-relay-*` Go-test server is NOT admitted.
 
-**Why the filter lives in `ListServers`, not the `/api/servers` handler**: the board route attaches servers from **two** distinct `ListServers`-rooted paths — (1) `GET /api/servers` (`api/servers.go`) populating `useSessionContext().servers`, and (2) the internal `board.go` board-entry enumeration (`ListBoards` / `GetBoard`, which iterate `ListServers` per-server — `260602-qn62`). Filtering only the HTTP handler would leave path (2) unscoped, so the SSE inflation persists. Placing it in `ListServers` means **all** enumeration consumers inherit the scope when the env is set: `/api/servers` and `board.go`. This is the intended outcome in the test environment (the only environment that sets the var).
+**Why the filter lives in `ListServers`, not the `/api/servers` handler**: the board route attaches servers from **two** distinct `ListServers`-rooted paths — (1) `GET /api/servers` (`api/servers.go`) populating `useSessionContext().servers`, and (2) the internal `board.go` board-entry enumeration (`ListBoards` / `GetBoard`, which iterate `ListServers` per-server) (260602-qn62). Filtering only the HTTP handler would leave path (2) unscoped, so the SSE inflation persists. Placing it in `ListServers` means **all** enumeration consumers inherit the scope when the env is set: `/api/servers` and `board.go`. This is the intended outcome in the test environment (the only environment that sets the var).
 
-**Why it matters**: on the board route the frontend attaches **all** known servers (boards are cross-server by design). All N per-server subscriptions ride ONE state-socket WebSocket that holds no HTTP/1.1 pool slot (`260716-qf3j-state-socket`), so scoping the backend READ path to the worktree's e2e family does not relieve connection-pool pressure; the allowlist's value is that it **bounds which servers a test backend enumerates**, one subscription per test server rather than one per live `kit`/`runWork`/orphan server on a busy operator box.
+**Why it matters**: on the board route the frontend attaches **all** known servers (boards are cross-server by design). All N per-server subscriptions ride ONE state-socket WebSocket that holds no HTTP/1.1 pool slot (260716-qf3j-state-socket), so scoping the backend READ path to the worktree's e2e family does not relieve connection-pool pressure; the allowlist's value is that it **bounds which servers a test backend enumerates**, one subscription per test server rather than one per live `kit`/`runWork`/orphan server on a busy operator box.
 
 ### Allowlist vs `IsTestServerName` denylist — opposite directions
 
@@ -145,20 +145,39 @@ The `tmuxctl` supervisor's **enumeration** is **unaffected**: it does NOT call `
 
 ## Design Decisions
 
-1. **Never `kill 0` from a non-detached shell script.** A script that runs inline (sourced into an interactive shell or spawned by an agent) shares the **caller's** process group, so `kill 0` / `kill -- -$$` SIGTERMs the caller's unrelated processes — including live tmux servers and `-CC` control clients. The safe pattern for "tear down the subtree I launched" is to launch the subtree into its **own** process group — `set -m` job control (`bash -c "… exec <cmd>" &`, portable: macOS has no `setsid`) makes the background job a group leader, so `PGID=$!` — then **verify via `ps` that the child's real PGID is not the script's own** (abort on match — a silent job-control failure would re-arm the grenade), and kill **only** that group by negative PGID: `kill -- "-$PGID"`. Guard with `[ -n "$PGID" ]` so a trap firing before launch is a no-op. (Root cause of a 16-server death burst with zero `audit=kill-server` lines; constitution VI.) *Introduced by*: `260530-cf3g-unify-test-socket-reaping`
+### Never `kill 0` from a non-detached shell script
+**Decision**: Launch the subtree you intend to tear down into its **own** process group — `set -m` job control (`bash -c "… exec <cmd>" &`, portable: macOS has no `setsid`) makes the background job a group leader, so `PGID=$!` — then **verify via `ps` that the child's real PGID is not the script's own** (abort on match — a silent job-control failure would re-arm the grenade), and kill **only** that group by negative PGID: `kill -- "-$PGID"`. Guard with `[ -n "$PGID" ]` so a trap firing before launch is a no-op.
+**Why**: A script that runs inline (sourced into an interactive shell or spawned by an agent) shares the **caller's** process group, so `kill 0` / `kill -- -$$` SIGTERMs the caller's unrelated processes — including live tmux servers and `-CC` control clients. Root cause of a 16-server death burst with zero `audit=kill-server` lines; constitution VI.
+**Rejected**: `kill 0` / `kill -- -$$` from the script's own (shared) process group.
+*Introduced by*: 260530-cf3g-unify-test-socket-reaping
 
-2. **Embedded-PID naming: PID = second-to-last hyphen field.** When a name encodes `<prefix>-<role>-<pid>-<ns>` and `<role>` may itself contain hyphens (e.g. `e2e-multi`), parse the PID from the **right** (`strings.Split(name, "-")`, element `len-2`) rather than a fixed left index, and keep `<ns>` a single hyphen-free token. This decouples PID extraction from the role's segment count — a left-index parse breaks the moment a role gains a hyphen. *Introduced by*: `260530-cf3g-unify-test-socket-reaping`
+### Embedded-PID naming: PID = second-to-last hyphen field
+**Decision**: When a name encodes `<prefix>-<role>-<pid>-<ns>` and `<role>` may itself contain hyphens (e.g. `e2e-multi`), parse the PID from the **right** (`strings.Split(name, "-")`, element `len-2`) and keep `<ns>` a single hyphen-free token.
+**Why**: This decouples PID extraction from the role's segment count.
+**Rejected**: A fixed left index — it breaks the moment a role gains a hyphen.
+*Introduced by*: 260530-cf3g-unify-test-socket-reaping
 
-3. **Manual cleanup tools default to dry-run; only `--force` bypasses safety guards.** A brute-force-by-prefix janitor (`rk mux reap`) is intentionally not PID-gated — the operator asserts nothing live needs the matched artifacts. The safety budget is: dry-run-default preview, unconditional hard-skips for production-critical names (`_rk-ctl`, `rk-daemon`), a dangerous-prefix guard (empty/≤3 chars), and a documented operating contract ("don't run while tests run"). Crucially `--yes` (confirm) and `--force` (bypass guard) are **separate** — confirming an action does not waive typo protection. *Introduced by*: `260530-cf3g-unify-test-socket-reaping`
+### Manual cleanup tools default to dry-run; only `--force` bypasses safety guards
+**Decision**: A brute-force-by-prefix janitor (`rk mux reap`) is intentionally not PID-gated — the operator asserts nothing live needs the matched artifacts. The safety budget is: dry-run-default preview, unconditional hard-skips for production-critical names (`_rk-ctl`, `rk-daemon`), a dangerous-prefix guard (empty/≤3 chars), and a documented operating contract ("don't run while tests run"). `--yes` (confirm) and `--force` (bypass guard) are **separate** flags.
+**Why**: Confirming an action does not waive typo protection.
+*Introduced by*: 260530-cf3g-unify-test-socket-reaping
 
-4. **Test isolation via an env-gated allowlist at the enumeration root, not the HTTP handler.** When a behavior fans out to multiple backend paths (here: the board route reaches `ListServers` via both `/api/servers` and internal `board.go` enumeration), scope it at the shared **root function** (`ListServers`), not at one consumer (`handleServersList`). A handler-only filter leaves sibling paths unscoped. Gate the filter behind an env var read **in-package** (matching the package's existing `os.Getenv` precedent — no new cross-package import for one scoping value) so production (env UNSET) is a byte-for-byte no-op and only the test harness narrows the list. Extract the match logic as a pure predicate (`matchesServerAllowlist`) so it is table-testable without live tmux servers. *Introduced by*: `260531-tmnm-test-scoped-server-enumeration`
+### Test isolation via an env-gated allowlist at the enumeration root, not the HTTP handler
+**Decision**: When a behavior fans out to multiple backend paths (here: the board route reaches `ListServers` via both `/api/servers` and internal `board.go` enumeration), scope it at the shared **root function** (`ListServers`), not at one consumer (`handleServersList`). Gate the filter behind an env var read **in-package** so production (env UNSET) is a byte-for-byte no-op and only the test harness narrows the list. Extract the match logic as a pure predicate (`matchesServerAllowlist`).
+**Why**: A handler-only filter leaves sibling paths unscoped. The in-package read matches the package's existing `os.Getenv` precedent — no new cross-package import for one scoping value. A pure predicate is table-testable without live tmux servers.
+**Rejected**: Filtering only in `handleServersList` — leaves the `board.go` enumeration path unscoped.
+*Introduced by*: 260531-tmnm-test-scoped-server-enumeration
 
-5. **A forward allowlist and a reverse denylist can coexist — keep them distinct.** Hiding *normal* servers *from tests* (`RK_SERVER_ALLOWLIST`) is the opposite direction from hiding *test* servers *from normal operation* (the `IsTestServerName` resurrection guard). They are not interchangeable: the e2e family (`rk-test-e2e-<token>-*`) is matched by `IsTestServerName`, so a `!IsTestServerName` denylist would hide the very servers the tests need. When you need the opposite-direction scoping, add a new mechanism rather than flipping the existing one. *Introduced by*: `260531-tmnm-test-scoped-server-enumeration`
+### A forward allowlist and a reverse denylist can coexist — keep them distinct
+**Decision**: Hiding *normal* servers *from tests* (`RK_SERVER_ALLOWLIST`) and hiding *test* servers *from normal operation* (the `IsTestServerName` resurrection guard) are separate mechanisms; when opposite-direction scoping is needed, add a new mechanism rather than flipping the existing one.
+**Why**: They are not interchangeable: the e2e family (`rk-test-e2e-<token>-*`) is matched by `IsTestServerName`, so a `!IsTestServerName` denylist would hide the very servers the tests need.
+**Rejected**: Repurposing `IsTestServerName` as a `!IsTestServerName` denylist for test scoping.
+*Introduced by*: 260531-tmnm-test-scoped-server-enumeration
 
 ### Keep the test-server allowlist on bounded enumeration, not pool relief
 **Decision**: `RK_SERVER_ALLOWLIST` stays in force purely as a bound on how many tmux servers a test backend enumerates; connection-pool pressure is not part of its justification.
-**Why**: Every enumerated server costs a subscription, so an unscoped test backend on a busy operator box subscribes to every live `kit`/`runWork`/orphan server as well as the test ones. Pool relief is not the lever — all per-server subscriptions ride ONE pool-free state socket (`260716-qf3j-state-socket`). The related pool-starvation failure mode is recorded in `e2e-flakiness-board-route-dynamic-import-hang`.
-*Introduced by*: `260531-tmnm-test-scoped-server-enumeration`
+**Why**: Every enumerated server costs a subscription, so an unscoped test backend on a busy operator box subscribes to every live `kit`/`runWork`/orphan server as well as the test ones. Pool relief is not the lever — all per-server subscriptions ride ONE pool-free state socket (260716-qf3j-state-socket). The related pool-starvation failure mode is recorded in `e2e-flakiness-board-route-dynamic-import-hang`.
+*Introduced by*: 260531-tmnm-test-scoped-server-enumeration
 
 ### Keep the `rk-test-` umbrella in the e2e family anchor
 **Decision**: The e2e socket family anchor is `rk-test-e2e-<token>-` (primary `rk-test-e2e-<token>-0`), keeping the `rk-test-` umbrella rather than shortening to `rk-e2e-<token>-`.
@@ -168,7 +187,7 @@ The `tmuxctl` supervisor's **enumeration** is **unaffected**: it does NOT call `
 
 ### `E2E_TMUX_FAMILY` as a first-class exported env var
 **Decision**: The derivation helper (`scripts/e2e-env.sh`) exports both the anchor (`E2E_TMUX_FAMILY`, trailing hyphen included) and the primary (`E2E_TMUX_SERVER = family + "0"`); the trap glob, `RK_SERVER_ALLOWLIST`, `global-teardown.ts`, and spec secondary names all consume the family.
-**Why**: With a role segment on the primary (`-0`), the primary's own name is no longer the family prefix — globbing `${E2E_TMUX_SERVER}*` would match only `…-0*` and leak secondaries. A dedicated anchor variable keeps every matcher on the same string instead of four sites re-deriving "strip the trailing role".
+**Why**: With a role segment on the primary (`-0`), the primary's own name is not the family prefix — globbing `${E2E_TMUX_SERVER}*` would match only `…-0*` and leak secondaries. A dedicated anchor variable keeps every matcher on the same string instead of four sites re-deriving "strip the trailing role".
 **Rejected**: deriving the family in each consumer by string-stripping the primary's `-0` tail — four fragile copies of the same slice, and a preset `E2E_TMUX_SERVER` override would strip a character that isn't a role segment.
 *Introduced by*: 260822-pz2e-per-worktree-e2e-isolation
 

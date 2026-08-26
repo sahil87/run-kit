@@ -5,7 +5,7 @@ type: memory
 # Agent-State Tier (`@rk_agent_state`)
 
 The generic agent-lifecycle tier: a tmux **pane** user option that any agent
-harness writes and run-kit reads natively. (`260705-dmex`) The cross-repo
+harness writes and run-kit reads natively. (260705-dmex) The cross-repo
 contract lives in [`docs/specs/agent-state.md`](../../specs/agent-state.md) (this
 memory file records what run-kit actually implemented).
 
@@ -27,7 +27,7 @@ Per constitution **Principle X — Hooks Carry Only the Underivable**, hooks pus
 only ephemeral in-flight lifecycle state; everything derivable (PR links,
 branches, worktrees) is derived server-side — which is why PR links use branch→PR
 derivation (see [architecture](/run-kit/architecture.md)
-§ Backend Libraries → `internal/prstatus`, § Branch→PR Derivation). (`260705-dmex`)
+§ Backend Libraries → `internal/prstatus`, § Branch→PR Derivation). (260705-dmex)
 
 ## The Convention
 
@@ -122,7 +122,7 @@ agent-state gate** and the **`rk mux await` observer** (both in
 The hook body installed into harness settings is a stable
 *interface* (`agentStateHookCommand` above) and **all logic lives in this Go
 subcommand** — so a hook fix reaches every running agent on `brew upgrade rk`
-with no settings churn and no session restarts. (`260707-qfps`) The canonical
+with no settings churn and no session restarts. (260707-qfps) The canonical
 invocation is `rk agent hook --agent <name> <state>` — the `hook` member of the
 `agent` family (`agent.go`); the old root form `rk agent-hook <state>` is a
 **permanent hidden alias** (never deprecated, never warns — installed
@@ -130,7 +130,7 @@ settings.json hook lines carry that literal frozen at install time, so it must
 resolve silently forever; cli-layering delegation rule 3). Both instances are
 factory-built (`newAgentHookCmd`) off the one `runAgentHook` core with the
 `--agent` flag bound per-instance, and both carry the complete never-fail
-machinery below. (`260815-r2wp-agent-family`) `<state>` ∈ `active | waiting |
+machinery below. (260815-r2wp-agent-family) `<state>` ∈ `active | waiting |
 idle`, `--agent` selects the harness
 whose comm literal drives pid resolution (v1: `claude`, default).
 
@@ -207,7 +207,7 @@ session of that agent, anywhere, reports state. The old root form
 factory-built instance (`newAgentSetupCmd`) sharing the `runAgentSetup` core,
 `Hidden` + cobra `Deprecated`, printing a one-line stderr pointer naming the new
 form while running identically with the same flags and exit codes.
-(`260815-r2wp-agent-family`) Modeled on guppi's explicit
+(260815-r2wp-agent-family) Modeled on guppi's explicit
 `agent-setup` command rather than a silent sync ("explicit feels honest").
 
 **Consent flags** (toolkit Principle 1/5): because it mutates
@@ -216,7 +216,7 @@ gated through a `consent` struct (`yes` / `dryRun` / `stdinIsTTY`) resolved once
 per run in the `RunE` and threaded through `runAgentSetup` → `applyAgentConfig`
 → `applyAgentHooks` / `removeLegacySkill`. The single decision point is
 `consent.authorizeWrite(out, reader, dryRunNote, promptSuffix) (bool, error)`:
-(`260717-c424`)
+(260717-c424)
 
 - **`--dry-run`** → print the dry-run note, write nothing, return `(false, nil)`.
   Needs no consent, and **wins over `--yes`** (a preview must never mutate).
@@ -251,12 +251,12 @@ PATH-resolved `tmux` invocation, so `tmux kill-server` without an explicit
 `rk agent setup` writes `exec "<abs-rk>" mux guard "$@"`; first-generation
 installs exec'ing the literal `tmux-guard` keep working
 through the permanent hidden root alias and roll over only on the next re-run
-(`260815-mi5s-mux-guard-move`). Its install/uninstall contract, decision rule, and
+(260815-mi5s-mux-guard-move). Its install/uninstall contract, decision rule, and
 doctor check live in [tmux-guard-shim](/run-kit/tmux-guard-shim.md); the shim
 reuses this installer's `consent`/`authorizeWrite` machinery, its
 summary-on-consent / full-diff-on-`--dry-run` rendering split, and its
 `resolveRkPath`/`validateHookPath` path discipline.
-(`260805-blyf-tmux-guard-path-shim`)
+(260805-blyf-tmux-guard-path-shim)
 
 The command surface is `rk agent setup` / `rk agent setup --uninstall`, and
 `--uninstall` reverses both families. The
@@ -265,7 +265,7 @@ by the `skill` subcommand, aggregated by the coming `shll agent-setup`), describ
 in [architecture](/run-kit/architecture.md) § CLI Subcommands; the only skill trace
 in `rk agent setup` is a **one-release legacy cleanup** that removes a stale
 `rk-display` copy left by an older run-kit (see § Legacy `rk-display` Cleanup).
-(`260717-agst`)
+(260717-agst)
 
 **Per-agent registry** (`agentRegistry(home) []agentConfig`): each `agentConfig`
 carries a display `name`, a `settingsPath`, the agent binary's `comm` (process
@@ -296,7 +296,7 @@ This is the **third-generation** form; installs written earlier carry the
 second-generation `agent-hook` literal (or the first-generation inlined
 one-liner) and keep working unmodified through the permanent hidden alias —
 they roll over to the new form only on the next `rk agent setup` re-run (no
-proactive migration). (`260815-r2wp-agent-family`)
+proactive migration). (260815-r2wp-agent-family)
 
 The interpreter is absolute like `<abs-rk>` itself: hooks fire under the
 harness's environment, and a bare `sh` fails on sessions whose PATH lacks /bin.
@@ -308,7 +308,7 @@ reconciler clears stranded values). state and comm are fixed registry literals;
 the only machine-derived interpolation is `<abs-rk>`, closed by
 `validateHookPath` (below). Delegating to the binary means hook *logic* changes
 ship with the binary on `brew upgrade rk`, no settings churn, no session
-restarts. (`260707-qfps`)
+restarts. (260707-qfps)
 
 **Install-time path resolution** (`resolveRkPath()`): the `<abs-rk>` embedded in
 the wrapper is resolved once per `runAgentSetup` invocation. It prefers
@@ -323,7 +323,7 @@ non-empty + absolute). The `os.Executable()` fallback runs **without**
 hook). **Installed hooks embedding `…/bin/rk` remain valid indefinitely**: `rk`
 stays a real on-PATH symlink (per the canonical-swap invariants — see
 [architecture](/run-kit/architecture.md) § Homebrew Distribution), so a hook
-resolved to `/opt/homebrew/bin/rk` keeps working. (`260709-gidk`) Before any merge
+resolved to `/opt/homebrew/bin/rk` keeps working. (260709-gidk) Before any merge
 the path is run through `validateHookPath`: a path containing any of `' " $ ` backslash (all
 shell-active inside the wrapper's double-in-single quoting) **fails the install
 with a clear error** — reject-don't-escape (escaping would have to survive three
@@ -390,7 +390,7 @@ at its boundary (so everything below stays pure over injected paths), then runs:
 2. **`applyTmuxShim`** — the user-global tmux guard shim (one shim, one PATH
    block, not per agent), applied once **after** the loop. See
    [tmux-guard-shim](/run-kit/tmux-guard-shim.md) § `rk agent setup`
-   install/uninstall contract. (`260805-blyf-tmux-guard-path-shim`)
+   install/uninstall contract. (260805-blyf-tmux-guard-path-shim)
 
 `applyAgentConfig` is the thin per-agent wrapper, running in order:
 
@@ -412,7 +412,7 @@ codex/copilot/gemini/opencode rows may leave it empty). `skillsDir` exists
 user-global Claude Code skill at `{skillsDir}/rk-display/SKILL.md` (so
 `~/.claude/skills/rk-display/SKILL.md` for Claude Code) left by an older run-kit
 that once installed it. The visual-display context-injection role belongs to the
-**`rk skill` bundle**, aggregated by the coming `shll agent-setup`. (`260717-agst`)
+**`rk skill` bundle**, aggregated by the coming `shll agent-setup`. (260717-agst)
 
 - **Runs on BOTH the install and uninstall passes.** `removeLegacySkill` is called
   from `applyAgentConfig` regardless of `--uninstall`. Rationale: re-running plain
@@ -461,7 +461,7 @@ reading the old sink.
 ## UI Surfacing
 
 The `agentState` three-state value is a first-class UI input across every surface
-(design authority `docs/specs/status-pyramid.md`, palette v3). (`260706-y1ar`) What consumes it:
+(design authority `docs/specs/status-pyramid.md`, palette v3). (260706-y1ar) What consumes it:
 
 - **`StatusDot` (palette-v3 two-family ladder)**: a fresh `agentState` on a
   non-fab window drives the **warm ad-hoc-agent family** — yellow working / orange
@@ -504,7 +504,7 @@ nothing to gate on, without it. The scope here is backend + hooks + spec — the
 is no frontend and no read/stream endpoint. The
 cross-repo contract is in [`docs/specs/agent-state.md`](../../specs/agent-state.md)
 § Chat Session Identity; this section records what run-kit actually implemented.
-(`260713-nh86`)
+(260713-nh86)
 
 **Why a hook, not derivation.** Claude Code sessions are disk-owned — each
 persists to `~/.claude/projects/<cwd-slug>/<session-id>.jsonl` and any process in
@@ -789,7 +789,7 @@ repurposed for cleanup by `260717-agst`)
 `tmux.AgentState*` rather than re-declaring `"@rk_agent_state"` and the state
 literals locally; `cmd/rk/agent_hook.go` (the writer) likewise aliases the same
 `tmux.AgentState*` constants and reuses `agentRegistry`, so writer and reader have
-one source per binary. (`260707-qfps`)
+one source per binary. (260707-qfps)
 **Why**: the option name and states are the cross-repo contract; a second copy in
 the installer would let the writer and the reader drift (A-021, resolved at
 rework cycle 1 after review flagged the local re-declaration).
@@ -822,7 +822,7 @@ state, including the two `Notification` matchers) lives in the settings matchers
 the wrapper passes a fixed state literal + `--agent <comm>`. The binary reads the
 harness's hook JSON on stdin **only** to extract `session_id` for the `@rk_chat`
 stamp — NOT to derive state, which stays driven by the settings matchers + the
-positional token (see § Chat Session Identity → Writer). (`260713-nh86`)
+positional token (see § Chat Session Identity → Writer). (260713-nh86)
 **Why**: the mapping churns far less than the logic, and matcher changes require a
 settings write regardless; stdin-JSON parsing does not change the installed
 command shape, so state derivation via stdin gains nothing over the matchers.

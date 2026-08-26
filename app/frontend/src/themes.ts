@@ -489,9 +489,12 @@ export const MARKER_STATES = ["", "pipe", "dotted", "dashed", "solid", "double",
  *  or the status pyramid. `rain` and `scan` lead the display order — they are
  *  the marker axis's retired motion (the dashed data rain and the double
  *  scanlines + crawl + refresh band), now user-composable with ANY marker;
- *  both tint from `--rk-flair-color`. Mirrors the backend closed set minus the
+ *  both tint from `--rk-flair-color`. `custom` is the runtime-asset slot: the
+ *  user's own `custom-flair.webp|gif` served from the config root at
+ *  `/api/flair/custom` — the image owns the loop, so its reduced-motion stop
+ *  is a JS mount gate in FlairOverlay. Mirrors the backend closed set minus the
  *  empty string, with `""` at the front. */
-export const FLAIR_STATES = ["", "rain", "scan", "nyan", "naruto", "onepiece", "pacman", "matrix", "aquarium", "roadrunner", "invaders", "cube", "warp", "spidey"] as const;
+export const FLAIR_STATES = ["", "rain", "scan", "nyan", "naruto", "onepiece", "pacman", "matrix", "aquarium", "roadrunner", "invaders", "cube", "warp", "spidey", "custom"] as const;
 
 /** A flair state — one of FLAIR_STATES. */
 export type FlairState = (typeof FLAIR_STATES)[number];

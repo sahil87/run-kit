@@ -957,7 +957,7 @@ func TestRenderColorTabs(t *testing.T) {
 		"tmux set-option -t @N '@rk_marker' '<value>'",
 		"pipe dotted dashed solid double thick hatch block",
 		"tmux set-option -t @N '@rk_flair' '<value>'",
-		"rain scan nyan naruto onepiece pacman matrix aquarium roadrunner invaders cube warp spidey",
+		"rain scan nyan naruto onepiece pacman matrix aquarium roadrunner invaders cube warp spidey custom",
 		"tmux set-option -t @N -u '@color'",
 		"DO NOTHING", "already fit", "reversible via the label picker",
 		"~15 seconds",

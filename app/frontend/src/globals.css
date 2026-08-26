@@ -482,7 +482,7 @@ summary {
    Always-on CSS-only overlays for rows carrying a flair value (`rain` / `scan` /
    `nyan` /
    `naruto` / `onepiece` / `pacman` / `matrix` / `aquarium` / `roadrunner` /
-   `invaders` / `cube` / `warp` / `spidey`) — pure decoration: no wiring to
+   `invaders` / `cube` / `warp` / `spidey` / `custom`) — pure decoration: no wiring to
    @rk_agent_state or
    the status pyramid, and it animates in EVERY row state. Mounted on window
    and session rows (NOT server group headers) as an absolutely-positioned
@@ -498,7 +498,10 @@ summary {
    the row/preview mount; --color-border fallback).
 
    Sprites are ORIGINAL pixel art as inline SVG data URIs — no external
-   requests, no copyrighted assets. Constraints the rules below rely on:
+   requests, no copyrighted assets. The ONE exception is `custom`, the
+   runtime-asset slot: its image is the user's own file, fetched same-origin
+   from /api/flair/custom — the repo still ships no image (see its block
+   below). Constraints the rules below rely on:
    - Traversal is background-position only, NEVER transform (an animated
      translateY range grows the compositor layer beyond the row box and the
      HTML5 drag-ghost snapshot then carries a sliver of the neighboring row
@@ -1155,6 +1158,29 @@ summary {
     rk-flair-spidey-y 2.4s step-end infinite;
 }
 
+/* custom: the runtime-asset slot — the user's OWN moving image served from
+   /api/flair/custom (the fixed `custom-flair.webp` / `custom-flair.gif`
+   filenames in the config root; the repo ships NO image — an absent asset 404s
+   and a failed background fetch simply paints nothing, so the token is inert
+   until the user drops a file there). ::after paints the image FULL-BLEED
+   (cover, centered, no-repeat — the expected content is rectangular footage,
+   not a 22px sprite strip) under a readability scrim so row text stays legible
+   over full-motion content. NO `animation:` property and NO keyframes: the loop
+   belongs to the image file itself (its own GIF/WebP loop flag). That also
+   means the CSS reduced-motion gate CANNOT stop it — the real stop is the JS
+   mount gate in FlairOverlay; the enumeration entry below is uniformity only. */
+.rk-flair-custom::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.4; /* readability scrim over full-motion footage — tunable */
+  background-image: url("/api/flair/custom");
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
 /* Reduced-motion gate — disable EVERY treatment above (Parts A and B). The
    decode scramble is skipped in JS (top-bar.tsx reads the same media query). */
 /* ── Row-flyout card entrance (window-row register flyout, E1) ─────────────
@@ -1317,10 +1343,13 @@ html[data-theme="light"] {
   .rk-window-switch-mask { animation: none; }
   /* Hatch-marker hazard wedge (.rk-hazard): static in every state by design —
      nothing to zero here; listed so the reduced-motion audit stays complete. */
-  /* Flair overlays (all thirteen named states): motion-only ambient decoration
+  /* Flair overlays (all fourteen named states): motion-only ambient decoration
      with NO static label cue of their own — hidden entirely, including the
      onepiece wave baseline (a bare wave line without its ship would read as
-     residue) and the cube/warp child spans (transform-driven treatments). */
+     residue) and the cube/warp child spans (transform-driven treatments). For
+     `custom` this entry is uniformity only — a raster's own loop cannot be
+     paused from CSS, so its real reduced-motion stop is the JS mount gate in
+     FlairOverlay. */
   .rk-flair-rain::before,
   .rk-flair-scan::before,
   .rk-flair-scan::after,
@@ -1342,7 +1371,8 @@ html[data-theme="light"] {
   .rk-flair-cube .rk-cube,
   .rk-flair-warp .rk-warp-plane,
   .rk-flair-spidey::before,
-  .rk-flair-spidey::after { animation: none; display: none; }
+  .rk-flair-spidey::after,
+  .rk-flair-custom::after { animation: none; display: none; }
   /* Flyout-card entrance: pure flourish — the card simply appears. */
   .rk-flyout-in { animation: none; }
   /* Gap-seam sash: the hover anti-flicker delay and fades are zeroed (the pill

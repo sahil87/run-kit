@@ -26,6 +26,14 @@ export default defineConfig({
     host: process.env.RK_HOST ?? "127.0.0.1",
     allowedHosts: true,
     proxy: {
+      // Custom flair runtime asset (GET /api/flair/custom) — explicit entry
+      // mirroring /generated-icons so the flair route's dev wiring is visible;
+      // declared before /api so it wins the prefix match (same target either
+      // way).
+      "/api/flair": {
+        target: `http://127.0.0.1:${(parseInt(process.env.RK_PORT ?? "3000") + 1)}`,
+        changeOrigin: true,
+      },
       "/api": {
         target: `http://127.0.0.1:${(parseInt(process.env.RK_PORT ?? "3000") + 1)}`,
         changeOrigin: true,

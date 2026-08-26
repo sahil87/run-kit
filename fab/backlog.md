@@ -50,6 +50,7 @@
 - [ ] [a81v] 2026-08-27: Chat kind:chat subscription: a swallowed subscribe `error` frame wedges the lens un-acked until a lens toggle / socket reconnect (should-fix, OPEN). (relocated from docs/memory/run-kit/api-and-sockets.md by /docs-distill-memory)
 - [ ] [zyyb] 2026-08-27: /ws/state heartbeat follow-ups: server-side idle read deadline + reaping of silent connections; fix the stale sse.go:100-105 comment that overstates keepalive/liveness handling at the WebSocket layer (no server-side reaping exists). (relocated from docs/memory/run-kit/api-and-sockets.md by /docs-distill-memory)
 - [ ] [fcnx] 2026-08-27: Suppress the 5s window-switch bounce timer while the state socket is disconnected (heartbeat + wake probes recover the socket within the confirmation window). (relocated from docs/memory/run-kit/api-and-sockets.md by /docs-distill-memory)
+- [ ] [i7vl] 2026-08-27: Delete the code-server profile migration scaffolding (`codeServerLegacyProfileDir` + the rename) once no supported host can still carry the legacy dir. (relocated from docs/memory/run-kit/architecture.md by /docs-distill-memory)
 
 ## Deferred
 

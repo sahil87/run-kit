@@ -452,7 +452,7 @@ The sidebar session/window tree is a **third consumer** (see § Sidebar → Keyb
 
 ### Enablement-bearing chords keep their own listeners; the registry owns definition and suppression
 **Decision**: `command-palette`, `sidebar-toggle`, and `host-menu-open` dispatch from component/hook-local listeners that read their combo from the effective map and gate on the shared suppression predicate; the other chords (including the board pane-cycle) run through `useKeybindingDispatch`.
-**Why**: Centralizing *definition* and *suppression* is the registry's charter; centralizing *enablement* is not — palette open-state and lens availability are local state, and routing them through one dispatcher would need context plumbing for zero user-visible gain.
+**Why**: Centralizing *definition* and *suppression* is the registry's charter; centralizing *enablement* is not — palette open-state, sidebar state, and the shell hosts-menu state are local state, and routing them through one dispatcher would need context plumbing for zero user-visible gain.
 **Rejected**: One dispatcher for every chord (high regression risk, new context plumbing); leaving these chords out of the registry entirely (they would be unrebindable and invisible to the shortcuts panel).
 *Introduced by*: 260730-g40a-keyboard-shortcut-registry-overlay
 

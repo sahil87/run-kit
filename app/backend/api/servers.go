@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -360,8 +361,11 @@ func (s *Server) handleServerAdopt(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.tmux.ReloadConfig(body.Name); err != nil {
 		// Best-effort rollback: a stamped server whose conf never applied is
-		// never left behind.
-		_ = s.tmux.UnmarkServerManaged(r.Context(), body.Name)
+		// never left behind. Fresh context, not r.Context() — a canceled or
+		// deadline-exhausted request must not abort the unmark (the CLI
+		// adopt's fresh-bound rollback pattern); the tmux layer applies its
+		// own TmuxTimeout.
+		_ = s.tmux.UnmarkServerManaged(context.Background(), body.Name)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

@@ -2385,12 +2385,12 @@ function ServerGroupInner(props: ServerGroupProps) {
   // protected with the toggle DISABLED (derived, not unmarkable).
   const { servers: allServers, refreshServers } = useSessionContext();
   const { addToast: addGroupToast } = useToast();
-  const serverProtected = server === DAEMON_SERVER ||
-    (allServers.find((s) => s.name === server)?.protected ?? false);
+  const serverInfo = allServers.find((s) => s.name === server);
+  const serverProtected = server === DAEMON_SERVER || (serverInfo?.protected ?? false);
   // External-class marker for the header row only (the shield's leading slot);
   // nested session/window rows stay untouched. Absent `managed` = unknown =
   // no treatment.
-  const serverExternal = isExternalServer(allServers.find((s) => s.name === server));
+  const serverExternal = isExternalServer(serverInfo);
   const handleProtectToggle = useCallback(() => {
     void setServerProtected(server, !serverProtected)
       .then(() => refreshServers())

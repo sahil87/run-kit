@@ -217,6 +217,7 @@ type mockTmuxOps struct {
 	markManagedCalls     []string
 	unmarkManagedCalls   []string
 	markManagedErr       error
+	unmarkManagedErr     error
 	reloadConfigCalls    []string
 	reloadConfigErr      error
 
@@ -645,7 +646,7 @@ func (m *mockTmuxOps) UnmarkServerManaged(ctx context.Context, server string) er
 	m.rankMu.Lock()
 	defer m.rankMu.Unlock()
 	m.unmarkManagedCalls = append(m.unmarkManagedCalls, server)
-	return m.markManagedErr
+	return m.unmarkManagedErr
 }
 func (m *mockTmuxOps) ReloadConfig(server string) error {
 	m.rankMu.Lock()

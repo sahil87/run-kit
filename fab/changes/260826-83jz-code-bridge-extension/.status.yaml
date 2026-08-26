@@ -1,0 +1,36 @@
+id: 83jz
+name: 260826-83jz-code-bridge-extension
+created: 2026-08-26T07:26:16Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: ready
+    apply: pending
+    review: pending
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+plan:
+    generated: false
+    task_count: 0
+    acceptance_count: 0
+    acceptance_completed: 0
+confidence:
+    certain: 3
+    confident: 6
+    tentative: 0
+    unresolved: 0
+    score: 3.7
+    fuzzy: true
+    dimensions:
+        signal: 65.0
+        reversibility: 85.6
+        competence: 71.7
+        disambiguation: 65.0
+stage_metrics:
+    intake: {started_at: "2026-08-26T07:26:16Z", driver: fab-new, iterations: 1}
+prs: []
+change_type_source: explicit
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-26T07:28:52Z

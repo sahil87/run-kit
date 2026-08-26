@@ -333,6 +333,24 @@ plain `node --test` over a real Unix socket (the intake's smoke-test requirement
 - All acceptance items must pass before `/fab-continue` (hydrate)
 - If an item is not applicable, mark checked and prefix with **N/A**: `- [x] A-NNN **N/A**: {reason}`
 
+## Follow-on Work
+
+Not part of this change (see § Non-Goals). What turns the shipped capability into something agents
+actually use, in order — mirrored in `docs/specs/code-bridge.md` § Follow-on work:
+
+1. **Agent discovery.** `rk skill code` covers the rk side; each consuming repo's toolkit skill (e.g.
+   loom's `.claude/skills/shll-toolkit`) needs a pointer so an agent asked to "prep PR #N" reaches for
+   `rk code exec` instead of describing clicks. *Consumer repos.*
+2. **`/review-prep <pr>` recipe.** Worktree + `gh pr checkout`, wait for `rk code hosts` to show the
+   folder, then `pr.refreshList`, focus the PR sidebar, open the first diffs, `rk notify`. The motivating
+   use case — the item that makes the bridge visible day to day. *Consumer repos.*
+3. **Latch gap — `@rk_code_folder` + `rk code open <folder>`.** The recipe keeps one human step (open
+   the code surface once so the folder latches). Landing the deferred `@rk_code_folder` tmux-option store
+   from `right-panel.md` and wrapping it as `rk code open` removes it. *Own run-kit change.*
+4. **Fold into existing review skills.** `git-pr-review`-style skills that review via `gh` in the
+   terminal can additionally stage the review in the code tile — an amendment, not a new skill.
+   *Consumer repos.*
+
 ## Deletion Candidates
 
 - None — this change adds new functionality without making existing code redundant. The only relocated symbol, `codeServerExtensionsDir` (`internal/daemon/codeserver.go` → exported `codeserver.ExtensionsDir` in `internal/codeserver/extension.go`), was moved with its sole daemon call site updated in the same diff; no orphan remains.

@@ -184,6 +184,27 @@ mile — refresh, focus, open the diffs the reviewer should start with — not t
 | P2 | `rk code exec / hosts / commands`; host resolution; embed + install step; `rk doctor` line | Distribution and version-skew story |
 | P3 | `rk skill code` topic page; `rk code open` once `@rk_code_folder` exists | Agent-facing ergonomics |
 
+## Follow-on work (after this change ships)
+
+The bridge is a capability; nothing invokes it until the agent side is wired. In order:
+
+1. **Agent discovery — `rk skill code` + consumer skills.** P3's topic page covers the rk side. Each
+   consuming repo's toolkit skill (e.g. loom's `.claude/skills/shll-toolkit`) needs a matching pointer
+   so an agent asked to "prep PR #N" reaches for `rk code exec` instead of describing clicks.
+2. **A "prepare PR for review" recipe as a consumer-side skill** (e.g. `/review-prep <pr>`): worktree +
+   `gh pr checkout`, wait for the host to register (`rk code hosts`), then `pr.refreshList`, focus the
+   PR sidebar, open the first diffs, `rk notify`. This is the motivating use case — without it the bridge
+   is unused.
+3. **Close the latch gap — `@rk_code_folder` + `rk code open`.** The recipe above keeps one human step
+   (open the code surface once so the folder latches). Landing the deferred `@rk_code_folder`
+   tmux-option store from `right-panel.md` and wrapping it as `rk code open <folder>` removes the only
+   manual step in the loop. Own run-kit change, not this one.
+4. **Fold into existing review skills.** Consumer `git-pr-review`-style skills that review via `gh` in
+   the terminal can additionally stage the review visually in the code tile — an amendment, not a new
+   skill.
+
+Item 2 is the one that makes the feature visible day to day; 1 is its prerequisite, 3 its polish.
+
 ## Open questions
 
 1. **Command group name**: `rk code exec` (lean — `code-server` is install management, `code` is the

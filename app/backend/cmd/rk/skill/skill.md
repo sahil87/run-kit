@@ -8,6 +8,7 @@ Depth for a specific job lives in topic pages — pull one at use-time:
 
 - **panes, iframes & visual display** → `rk skill display`
 - **agent-to-agent messaging** (send a message into another agent's pane, wait for its state) → `rk skill mux`
+- **act inside the `code` lens editor** (run VS Code palette commands in the open code-server window from the shell) → `rk skill code`
 
 ## When to use
 
@@ -36,6 +37,7 @@ One line each, keyed to the subcommand or tmux option that does it:
 - `rk mux send <target> [<msg>|-]` — deliver a message into another agent's pane, gated on its `@rk_agent_state`, with probe-verified delivery. Depth: `rk skill mux`.
 - `rk mux await <target>` — block until a pane's agent state (or a `--file` signal) fires; prints a one-word report. Depth: `rk skill mux`.
 - `rk mux new <name> [--ephemeral]` — create a detached tmux server on socket `<name>`; scratch servers are created with `--ephemeral` and bulk-cleaned with `rk mux reap --ephemeral` (never bare `tmux kill-server`). Depth: `rk skill mux`.
+- `rk code exec <command> [json-arg…]` — act inside the `code` lens editor: run a VS Code palette command in an open code-server window, resolving its host via `--host`/`--folder`/the cwd's git toplevel. `rk code hosts` lists live hosts; `rk code commands` grep-lists command ids. Depth: `rk skill code`.
 - `rk skill display` — the visual-display topic page: target forms, attach vs. standalone windows, the proxy, and the canonical Visual Display Recipe, in depth.
 - **Proxy** — reach a local service through the run-kit server:
 

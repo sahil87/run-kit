@@ -1,3 +1,10 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-26T07:26:16Z"}
 {"args":"rk code bridge: VS Code extension + rk code CLI to run command-palette commands inside the code-server tile over a unix socket","cmd":"fab-new","event":"command","ts":"2026-08-26T07:26:16Z"}
 {"delta":"+3.7","event":"confidence","score":3.7,"trigger":"calc-score","ts":"2026-08-26T07:28:52Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-26T07:39:12Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-26T07:44:48Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-26T08:38:24Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-26T08:44:28Z"}
+{"event":"review","result":"passed","ts":"2026-08-26T08:44:28Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-26T08:56:22Z"}
+{"cmd":"fab-issue","event":"command","ts":"2026-08-26T08:56:22Z"}

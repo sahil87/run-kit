@@ -1,0 +1,668 @@
+package main
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"net"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"rk/internal/codebridge"
+
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+)
+
+// --- seams + fixtures ---
+
+// fakeCodeHost is an in-test code-bridge host: a Unix-socket NDJSON server
+// (one request per connection, like the extension) plus a host record under a
+// temp XDG_STATE_HOME. __ping and __commands are served from the struct
+// fields; any other command goes to respond (default: ok with a null result).
+type fakeCodeHost struct {
+	hostID   string
+	folder   string
+	sock     string
+	commands []string
+	respond  func(req codebridge.Request) codebridge.Response
+
+	ln   net.Listener
+	mu   sync.Mutex
+	reqs []codebridge.Request
+}
+
+// startFakeCodeHost serves a fake bridge host and writes its host record. The
+// record's pid is the test process (always kill-0 alive), so LiveHosts gates
+// only on the socket ping.
+func startFakeCodeHost(t *testing.T, stateHome, hostID, folder, extVersion, startedAt string) *fakeCodeHost {
+	t.Helper()
+	cbDir := filepath.Join(stateHome, "run-kit", "cb")
+	if err := os.MkdirAll(filepath.Join(cbDir, "hosts"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	h := &fakeCodeHost{hostID: hostID, folder: folder, sock: filepath.Join(cbDir, hostID+".sock")}
+	ln, err := net.Listen("unix", h.sock)
+	if err != nil {
+		t.Fatalf("listen %s: %v", h.sock, err)
+	}
+	h.ln = ln
+	go h.serve()
+	t.Cleanup(func() { _ = ln.Close() })
+
+	rec := codebridge.HostRecord{
+		HostID:     hostID,
+		Folder:     folder,
+		PID:        os.Getpid(),
+		Sock:       h.sock,
+		ExtVersion: extVersion,
+		StartedAt:  startedAt,
+	}
+	data, err := json.Marshal(rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cbDir, "hosts", hostID+".json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
+func (h *fakeCodeHost) serve() {
+	for {
+		conn, err := h.ln.Accept()
+		if err != nil {
+			return
+		}
+		go h.handle(conn)
+	}
+}
+
+func (h *fakeCodeHost) handle(conn net.Conn) {
+	defer conn.Close()
+	line, err := bufio.NewReader(conn).ReadBytes('\n')
+	if err != nil && len(line) == 0 {
+		return
+	}
+	var req codebridge.Request
+	if err := json.Unmarshal(line, &req); err != nil {
+		return
+	}
+	h.mu.Lock()
+	h.reqs = append(h.reqs, req)
+	h.mu.Unlock()
+
+	resp := codebridge.Response{ID: req.ID, OK: true, Ms: 1}
+	switch req.Command {
+	case "__ping":
+		resp.Result = json.RawMessage(fmt.Sprintf(`{"folder":%q,"pid":%d,"version":"test"}`, h.folder, os.Getpid()))
+	case "__commands":
+		ids := h.commands
+		if ids == nil {
+			ids = []string{}
+		}
+		b, _ := json.Marshal(ids)
+		resp.Result = b
+	default:
+		if h.respond != nil {
+			resp = h.respond(req)
+			resp.ID = req.ID
+		} else {
+			resp.Result = json.RawMessage("null")
+		}
+	}
+	b, _ := json.Marshal(resp)
+	_, _ = conn.Write(append(b, '\n'))
+}
+
+// commandRequest returns the first recorded request for command (skipping the
+// __ping liveness probes).
+func (h *fakeCodeHost) commandRequest(command string) (codebridge.Request, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, r := range h.reqs {
+		if r.Command == command {
+			return r, true
+		}
+	}
+	return codebridge.Request{}, false
+}
+
+// installCodeBridgeEnv points the code-bridge state dir at a temp
+// XDG_STATE_HOME and returns it.
+func installCodeBridgeEnv(t *testing.T) string {
+	t.Helper()
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	return stateHome
+}
+
+// withCodeTargetFolder pins the default-folder resolution (the git-toplevel
+// seam) so tests never depend on the repo the test binary runs in.
+func withCodeTargetFolder(t *testing.T, folder string) {
+	t.Helper()
+	orig := codeTargetFolderFn
+	t.Cleanup(func() { codeTargetFolderFn = orig })
+	codeTargetFolderFn = func(context.Context) (string, error) { return folder, nil }
+}
+
+// withCodeEmbedded pins the bundled-version seam; ok=false models a dev build
+// with an empty embed dir.
+func withCodeEmbedded(t *testing.T, version string, ok bool) {
+	t.Helper()
+	orig := codeEmbeddedFn
+	t.Cleanup(func() { codeEmbeddedFn = orig })
+	codeEmbeddedFn = func() ([]byte, string, bool) { return []byte("vsix"), version, ok }
+}
+
+// runCodeCmd drives `rk code <args...>` through the real cobra Execute() seam
+// (the present_test.go runPresentCmd pattern) so arg/flag validation and exit
+// classification run exactly as in production. The code children's flags and
+// the root persistent --quiet are reset before and after so no state bleeds.
+func runCodeCmd(t *testing.T, args ...string) (string, string, error) {
+	t.Helper()
+	resetRootFlagState(t)
+	resetCodeFlagState(t)
+	var stdout, stderr bytes.Buffer
+	rootCmd.SetOut(&stdout)
+	rootCmd.SetErr(&stderr)
+	rootCmd.SetArgs(append([]string{"code"}, args...))
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		rootCmd.SetArgs(nil)
+	})
+	err := rootCmd.Execute()
+	return stdout.String(), stderr.String(), err
+}
+
+func resetCodeFlagState(t *testing.T) {
+	t.Helper()
+	reset := func() {
+		for _, c := range []*cobra.Command{codeExecCmd, codeHostsCmd, codeCommandsCmd} {
+			c.Flags().VisitAll(func(f *pflag.Flag) {
+				_ = f.Value.Set(f.DefValue)
+				f.Changed = false
+			})
+			c.SilenceErrors = false
+		}
+		codeExecFolderFlag, codeExecHostFlag = "", ""
+		codeExecAllFlag, codeExecJSONFlag = false, false
+		codeExecTimeoutFlag = codeDefaultTimeout
+		codeHostsJSONFlag = false
+		codeCmdsFolderFlag, codeCmdsHostFlag = "", ""
+		if f := rootCmd.PersistentFlags().Lookup("quiet"); f != nil {
+			_ = f.Value.Set("false")
+			f.Changed = false
+		}
+		quiet = false
+	}
+	reset()
+	t.Cleanup(reset)
+}
+
+func codeStartedAgo(d time.Duration) string {
+	return time.Now().Add(-d).UTC().Format(time.RFC3339)
+}
+
+// --- exec ---
+
+func TestCodeExecPrintsResultJSON(t *testing.T) {
+	stateHome := installCodeBridgeEnv(t)
+	h := startFakeCodeHost(t, stateHome, "h1", "/repo", "3.19.0", codeStartedAgo(time.Minute))
+	h.respond = func(codebridge.Request) codebridge.Response {
+		return codebridge.Response{OK: true, Result: json.RawMessage(`{"opened":true}`), Ms: 7}
+	}
+	withCodeTargetFolder(t, "/repo")
+
+	stdout, stderr, err := runCodeCmd(t, "exec", "workbench.open", "2908")
+	if err != nil {
+		t.Fatalf("exec error: %v (stderr: %s)", err, stderr)
+	}
+	if want := "{\"opened\":true}\n"; stdout != want {
+		t.Errorf("stdout = %q, want exactly the result JSON %q", stdout, want)
+	}
+	if stderr != "" {
+		t.Errorf("stderr = %q, want empty (exact folder match: no notes)", stderr)
+	}
+
+	req, ok := h.commandRequest("workbench.open")
+	if !ok {
+		t.Fatal("host never received the workbench.open request")
+	}
+	if req.ID == "" {
+		t.Error("request id is empty, want a fresh random id")
+	}
+	if len(req.Args) != 1 || string(req.Args[0]) != "2908" {
+		t.Errorf("args = %s, want [2908] (a number, not a string)", rawArgs(req.Args))
+	}
+	if req.TimeoutMs != 30000 {
+		t.Errorf("timeoutMs = %d, want 30000 (the 30s default)", req.TimeoutMs)
+	}
+}
+
+func TestCodeExecNullResultPrintsNull(t *testing.T) {
+	stateHome := installCodeBridgeEnv(t)
+	startFakeCodeHost(t, stateHome, "h1", "/repo", "3.19.0", codeStartedAgo(time.Minute))
+	withCodeTargetFolder(t, "/repo")
+
+	stdout, _, err := runCodeCmd(t, "exec", "some.voidCommand")
+	if err != nil {
+		t.Fatalf("exec error: %v", err)
+	}
+	if stdout != "null\n" {
+		t.Errorf("stdout = %q, want %q for a null result", stdout, "null\n")
+	}
+}
+
+func TestCodeExecJSONEnvelope(t *testing.T) {
+	stateHome := installCodeBridgeEnv(t)
+	h := startFakeCodeHost(t, stateHome, "h1", "/repo", "3.19.0", codeStartedAgo(time.Minute))
+	h.respond = func(codebridge.Request) codebridge.Response {
+		return codebridge.Response{OK: true, Result: json.RawMessage(`{"opened":true}`), Ms: 7}
+	}
+	withCodeTargetFolder(t, "/repo")
+
+	stdout, _, err := runCodeCmd(t, "exec", "workbench.open", "--json")
+	if err != nil {
+		t.Fatalf("exec --json error: %v", err)
+	}
+	var env codebridge.Response
+	if err := json.Unmarshal([]byte(stdout), &env); err != nil {
+		t.Fatalf("stdout is not the response envelope: %v (%q)", err, stdout)
+	}
+	if !env.OK || string(env.Result) != `{"opened":true}` || env.Ms != 7 || env.ID == "" {
+		t.Errorf("envelope = %+v, want ok:true result:{\"opened\":true} ms:7 with a fresh id", env)
+	}
+}
+
+func TestCodeExecArgSugar(t *testing.T) {
+	stateHome := installCodeBridgeEnv(t)
+	h := startFakeCodeHost(t, stateHome, "h1", "/repo", "3.19.0", codeStartedAgo(time.Minute))
+	withCodeTargetFolder(t, "/repo")
+
+	// A literal -- ends flag parsing, so dash-prefixed tokens pass as args.
+	_, _, err := runCodeCmd(t, "exec", "vscode.open", `{"$uri":"file:///tmp/a.ts"}`, "plain", "--", "-5", "-x")
+	if err != nil {
+		t.Fatalf("exec error: %v", err)
+	}
+	req, ok := h.commandRequest("vscode.open")
+	if !ok {
+		t.Fatal("host never received the vscode.open request")
+	}
+	want := []string{`{"$uri":"file:///tmp/a.ts"}`, `"plain"`, `-5`, `"-x"`}
+	if len(req.Args) != len(want) {
+		t.Fatalf("args = %s, want %d entries", rawArgs(req.Args), len(want))
+	}
+	for i, w := range want {
+		if string(req.Args[i]) != w {
+			t.Errorf("args[%d] = %s, want %s", i, req.Args[i], w)
+		}
+	}
+}
+
+func TestCodeExecTimeoutFlag(t *testing.T) {
+	stateHome := installCodeBridgeEnv(t)
+	h := startFakeCodeHost(t, stateHome, "h1", "/repo", "3.19.0", codeStartedAgo(time.Minute))
+	withCodeTargetFolder(t, "/repo")
+
+	if _, _, err := runCodeCmd(t, "exec", "some.cmd", "--timeout", "5s"); err != nil {
+		t.Fatalf("exec error: %v", err)
+	}
+	req, ok := h.commandRequest("some.cmd")
+	if !ok {
+		t.Fatal("host never received the request")
+	}
+	if req.TimeoutMs != 5000 {
+		t.Errorf("timeoutMs = %d, want 5000 from --timeout 5s", req.TimeoutMs)
+	}
+}
+
+func TestCodeExecUsageErrorsExitTwo(t *testing.T) {
+	installCodeBridgeEnv(t)
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{"missing command", []string{"exec"}},
+		{"--host with --folder", []string{"exec", "x", "--host", "h1", "--folder", "/f"}},
+		{"unknown flag", []string{"exec", "x", "--bogus"}},
+		{"hosts arg-count violation", []string{"hosts", "x"}},
+		{"commands arg-count violation", []string{"commands", "x"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := runCodeCmd(t, tc.args...)
+			if err == nil || exitCode(err) != exitUsage {
+				t.Errorf("rk code %v: err = %v (code %d), want usage exit 2", tc.args, err, exitCode(err))
+			}
+		})
+	}
+}
+
+func TestCodeExecUnknownCommandSuggests(t *testing.T) {
+	stateHome := installCodeBridgeEnv(t)
+	h := startFakeCodeHost(t, stateHome, "h1", "/repo", "3.19.0", codeStartedAgo(time.Minute))
+	h.commands = []string{"pr.refreshList", "pr.checkout", "workbench.action.files.openFile"}
+	h.respond = func(codebridge.Request) codebridge.Response {
+		return codebridge.Response{OK: false, Error: &codebridge.BridgeError{
+			Kind:    codebridge.ErrKindUnknownCommand,
+			Message: "command 'pr.refreshLis' not found",
+		}}
+	}
+	withCodeTargetFolder(t, "/repo")
+
+	stdout, stderr, err := runCodeCmd(t, "exec", "pr.refreshLis")
+	if err == nil || exitCode(err) != 1 {
+		t.Fatalf("err = %v (code %d), want operational exit 1", err, exitCode(err))
+	}
+	if stdout != "" {
+		t.Errorf("stdout = %q, want empty on failure", stdout)
+	}
+	errLine := "error: unknown-command: command 'pr.refreshLis' not found"
+	if !strings.Contains(stderr, errLine) {
+		t.Errorf("stderr = %q, want it to contain %q", stderr, errLine)
+	}
+	if !strings.Contains(stderr, "did you mean:") {
+		t.Errorf("stderr = %q, want a did-you-mean list", stderr)
+	}
+	if !strings.Contains(stderr, "pr.refreshList") {
+		t.Errorf("stderr = %q, want the closest match pr.refreshList", stderr)
+	}
+	if strings.Index(stderr, errLine) > strings.Index(stderr, "did you mean:") {
+		t.Errorf("stderr = %q, want the error line before the did-you-mean list", stderr)
+	}
+}
+
+func TestCodeExecNoHostHint(t *testing.T) {
+	installCodeBridgeEnv(t)
+	withCodeTargetFolder(t, "/nope")
+
+	stdout, stderr, err := runCodeCmd(t, "exec", "some.cmd")
+	if err == nil || exitCode(err) != 1 {
+		t.Fatalf("err = %v (code %d), want operational exit 1", err, exitCode(err))
+	}
+	if stdout != "" {
+		t.Errorf("stdout = %q, want empty on failure", stdout)
+	}
+	want := "error: no code-bridge host — open the code lens on /nope (or check `rk doctor`)"
+	if !strings.Contains(stderr, want) {
+		t.Errorf("stderr = %q, want it to contain %q", stderr, want)
+	}
+}
+
+func TestCodeExecAmbiguousHostsListThem(t *testing.T) {
+	stateHome := installCodeBridgeEnv(t)
+	startFakeCodeHost(t, stateHome, "aa01", "/a", "3.19.0", codeStartedAgo(time.Minute))
+	startFakeCodeHost(t, stateHome, "bb02", "/b", "3.19.0", codeStartedAgo(time.Minute))
+	withCodeTargetFolder(t, "/elsewhere")
+
+	_, stderr, err := runCodeCmd(t, "exec", "some.cmd")
+	if err == nil || exitCode(err) != 1 {
+		t.Fatalf("err = %v (code %d), want operational exit 1", err, exitCode(err))
+	}
+	for _, want := range []string{"aa01  /a", "bb02  /b"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr = %q, want it to list %q", stderr, want)
+		}
+	}
+}
+
+func TestCodeExecSingleHostFallbackNote(t *testing.T) {
+	stateHome := installCodeBridgeEnv(t)
+	startFakeCodeHost(t, stateHome, "h1", "/repo", "3.19.0", codeStartedAgo(time.Minute))
+	withCodeTargetFolder(t, "/elsewhere")
+
+	stdout, stderr, err := runCodeCmd(t, "exec", "some.cmd")
+	if err != nil {
+		t.Fatalf("exec error: %v (stderr: %s)", err, stderr)
+	}
+	if stdout != "null\n" {
+		t.Errorf("stdout = %q, want the result", stdout)
+	}
+	if !strings.Contains(stderr, "using host h1 (/repo)") {
+		t.Errorf("stderr = %q, want the using-host note", stderr)
+	}
+}
+
+func TestCodeExecVersionSkewWarning(t *testing.T) {
+	stateHome := installCodeBridgeEnv(t)
+	startFakeCodeHost(t, stateHome, "h1", "/repo", "3.18.0", codeStartedAgo(time.Minute))
+	withCodeTargetFolder(t, "/repo")
+
+	withCodeEmbedded(t, "3.19.0", true)
+	_, stderr, err := runCodeCmd(t, "exec", "some.cmd")
+	if err != nil {
+		t.Fatalf("exec error: %v", err)
+	}
+	want := "code bridge extension v3.18.0 is older than the bundled v3.19.0 — run rk code-server update"
+	if !strings.Contains(stderr, want) {
+		t.Errorf("stderr = %q, want the skew warning %q", stderr, want)
+	}
+
+	// Equal versions are not "older" — no warning.
+	withCodeEmbedded(t, "3.18.0", true)
+	_, stderr, err = runCodeCmd(t, "exec", "some.cmd")
+	if err != nil {
+		t.Fatalf("exec error: %v", err)
+	}
+	if strings.Contains(stderr, "is older than the bundled") {
+		t.Errorf("stderr = %q, want no skew warning for equal versions", stderr)
+	}
+
+	// A dev build without an embedded VSIX skips silently.
+	withCodeEmbedded(t, "", false)
+	_, stderr, err = runCodeCmd(t, "exec", "some.cmd")
+	if err != nil {
+		t.Fatalf("exec error: %v", err)
+	}
+	if strings.Contains(stderr, "is older than the bundled") {
+		t.Errorf("stderr = %q, want no skew warning when nothing is bundled", stderr)
+	}
+}
+
+// --- exec --all ---
+
+func TestCodeExecAllFanOut(t *testing.T) {
+	stateHome := installCodeBridgeEnv(t)
+	a := startFakeCodeHost(t, stateHome, "aa01", "/a", "3.19.0", codeStartedAgo(time.Minute))
+	a.respond = func(codebridge.Request) codebridge.Response {
+		return codebridge.Response{OK: true, Result: json.RawMessage(`{"host":"a"}`), Ms: 1}
+	}
+	b := startFakeCodeHost(t, stateHome, "bb02", "/b", "3.19.0", codeStartedAgo(time.Minute))
+	b.respond = func(codebridge.Request) codebridge.Response {
+		return codebridge.Response{OK: true, Result: json.RawMessage(`{"host":"b"}`), Ms: 1}
+	}
+	withCodeTargetFolder(t, "/elsewhere") // --all ignores folder resolution
+
+	stdout, _, err := runCodeCmd(t, "exec", "--all", "some.cmd")
+	if err != nil {
+		t.Fatalf("exec --all error: %v", err)
+	}
+	want := "aa01\t{\"host\":\"a\"}\nbb02\t{\"host\":\"b\"}\n"
+	if stdout != want {
+		t.Errorf("stdout = %q, want %q (hostId TAB result rows, sorted by host id)", stdout, want)
+	}
+}
+
+func TestCodeExecAllJSON(t *testing.T) {
+	stateHome := installCodeBridgeEnv(t)
+	startFakeCodeHost(t, stateHome, "aa01", "/a", "3.19.0", codeStartedAgo(time.Minute))
+	startFakeCodeHost(t, stateHome, "bb02", "/b", "3.19.0", codeStartedAgo(time.Minute))
+	withCodeTargetFolder(t, "/elsewhere")
+
+	stdout, _, err := runCodeCmd(t, "exec", "--all", "--json", "some.cmd")
+	if err != nil {
+		t.Fatalf("exec --all --json error: %v", err)
+	}
+	var results []codeAllResult
+	if err := json.Unmarshal([]byte(stdout), &results); err != nil {
+		t.Fatalf("stdout is not the --all array: %v (%q)", err, stdout)
+	}
+	if len(results) != 2 {
+		t.Fatalf("results = %d entries, want 2", len(results))
+	}
+	for i, want := range []struct{ id, folder string }{{"aa01", "/a"}, {"bb02", "/b"}} {
+		if results[i].HostID != want.id || results[i].Folder != want.folder {
+			t.Errorf("results[%d] = {%s %s}, want {%s %s}", i, results[i].HostID, results[i].Folder, want.id, want.folder)
+		}
+		if !results[i].Response.OK {
+			t.Errorf("results[%d].response.ok = false, want true", i)
+		}
+	}
+}
+
+func TestCodeExecAllPartialFailureExitsOne(t *testing.T) {
+	stateHome := installCodeBridgeEnv(t)
+	a := startFakeCodeHost(t, stateHome, "aa01", "/a", "3.19.0", codeStartedAgo(time.Minute))
+	a.respond = func(codebridge.Request) codebridge.Response {
+		return codebridge.Response{OK: true, Result: json.RawMessage(`{"host":"a"}`), Ms: 1}
+	}
+	b := startFakeCodeHost(t, stateHome, "bb02", "/b", "3.19.0", codeStartedAgo(time.Minute))
+	b.respond = func(codebridge.Request) codebridge.Response {
+		return codebridge.Response{OK: false, Error: &codebridge.BridgeError{Kind: codebridge.ErrKindThrew, Message: "boom"}}
+	}
+	withCodeTargetFolder(t, "/elsewhere")
+
+	stdout, stderr, err := runCodeCmd(t, "exec", "--all", "some.cmd")
+	if err == nil || exitCode(err) != 1 {
+		t.Fatalf("err = %v (code %d), want exit 1 when any host errors", err, exitCode(err))
+	}
+	if want := "aa01\t{\"host\":\"a\"}\n"; stdout != want {
+		t.Errorf("stdout = %q, want only the successful host's row %q", stdout, want)
+	}
+	if !strings.Contains(stderr, "error: bb02: threw: boom") {
+		t.Errorf("stderr = %q, want the failing host's error line", stderr)
+	}
+
+	// --json still carries one entry per live host, the failure as a not-ok
+	// envelope.
+	stdout, _, err = runCodeCmd(t, "exec", "--all", "--json", "some.cmd")
+	if err == nil || exitCode(err) != 1 {
+		t.Fatalf("--json: err = %v (code %d), want exit 1", err, exitCode(err))
+	}
+	var results []codeAllResult
+	if err := json.Unmarshal([]byte(stdout), &results); err != nil {
+		t.Fatalf("--all --json stdout: %v (%q)", err, stdout)
+	}
+	if len(results) != 2 || results[1].Response.OK || results[1].Response.Error == nil ||
+		results[1].Response.Error.Kind != codebridge.ErrKindThrew {
+		t.Errorf("results = %+v, want the failing host as a not-ok threw envelope", results)
+	}
+}
+
+// --- hosts ---
+
+func TestCodeHostsTable(t *testing.T) {
+	stateHome := installCodeBridgeEnv(t)
+	startFakeCodeHost(t, stateHome, "aa01", "/repo", "3.19.0", codeStartedAgo(3*time.Minute))
+	startFakeCodeHost(t, stateHome, "bb02", "/other", "3.18.0", codeStartedAgo(3*time.Minute))
+
+	stdout, stderr, err := runCodeCmd(t, "hosts")
+	if err != nil {
+		t.Fatalf("hosts error: %v", err)
+	}
+	if stderr != "" {
+		t.Errorf("stderr = %q, want empty (no prunes)", stderr)
+	}
+	for _, want := range []string{"ID", "FOLDER", "PID", "AGE", "EXT", "aa01", "/repo", "bb02", "/other", "3m", "3.19.0"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("stdout = %q, want it to contain %q", stdout, want)
+		}
+	}
+
+	// --quiet parity: data rows survive; only chatter would be dropped.
+	quietStdout, _, err := runCodeCmd(t, "hosts", "--quiet")
+	if err != nil {
+		t.Fatalf("hosts --quiet error: %v", err)
+	}
+	if quietStdout != stdout {
+		t.Errorf("--quiet stdout = %q, want the same rows as %q", quietStdout, stdout)
+	}
+}
+
+func TestCodeHostsJSON(t *testing.T) {
+	stateHome := installCodeBridgeEnv(t)
+	startFakeCodeHost(t, stateHome, "aa01", "/repo", "3.19.0", codeStartedAgo(time.Minute))
+	startFakeCodeHost(t, stateHome, "bb02", "/other", "3.18.0", codeStartedAgo(time.Minute))
+
+	stdout, _, err := runCodeCmd(t, "hosts", "--json")
+	if err != nil {
+		t.Fatalf("hosts --json error: %v", err)
+	}
+	var records []codebridge.HostRecord
+	if err := json.Unmarshal([]byte(stdout), &records); err != nil {
+		t.Fatalf("stdout is not a host-record array: %v (%q)", err, stdout)
+	}
+	if len(records) != 2 || records[0].HostID != "aa01" || records[1].HostID != "bb02" {
+		t.Errorf("records = %+v, want aa01 and bb02 sorted by host id", records)
+	}
+}
+
+func TestCodeHostsEmpty(t *testing.T) {
+	installCodeBridgeEnv(t)
+
+	stdout, _, err := runCodeCmd(t, "hosts")
+	if err != nil {
+		t.Fatalf("hosts error: %v", err)
+	}
+	if stdout != "" {
+		t.Errorf("stdout = %q, want nothing for zero hosts", stdout)
+	}
+
+	stdout, _, err = runCodeCmd(t, "hosts", "--json")
+	if err != nil {
+		t.Fatalf("hosts --json error: %v", err)
+	}
+	if stdout != "[]\n" {
+		t.Errorf("stdout = %q, want %q for zero hosts under --json", stdout, "[]\n")
+	}
+}
+
+// --- commands ---
+
+func TestCodeCommandsSorted(t *testing.T) {
+	stateHome := installCodeBridgeEnv(t)
+	h := startFakeCodeHost(t, stateHome, "h1", "/repo", "3.19.0", codeStartedAgo(time.Minute))
+	h.commands = []string{"workbench.open", "pr.checkout", "git.fetch"}
+	withCodeTargetFolder(t, "/repo")
+
+	stdout, _, err := runCodeCmd(t, "commands")
+	if err != nil {
+		t.Fatalf("commands error: %v", err)
+	}
+	if want := "git.fetch\npr.checkout\nworkbench.open\n"; stdout != want {
+		t.Errorf("stdout = %q, want sorted ids %q", stdout, want)
+	}
+}
+
+func TestCodeCommandsByHostFlag(t *testing.T) {
+	stateHome := installCodeBridgeEnv(t)
+	startFakeCodeHost(t, stateHome, "aa01", "/a", "3.19.0", codeStartedAgo(time.Minute))
+	b := startFakeCodeHost(t, stateHome, "bb02", "/b", "3.19.0", codeStartedAgo(time.Minute))
+	b.commands = []string{"only.on.b"}
+	withCodeTargetFolder(t, "/a")
+
+	stdout, _, err := runCodeCmd(t, "commands", "--host", "bb02")
+	if err != nil {
+		t.Fatalf("commands --host error: %v", err)
+	}
+	if stdout != "only.on.b\n" {
+		t.Errorf("stdout = %q, want the --host-targeted command list", stdout)
+	}
+}
+
+// rawArgs renders request args for test failure messages.
+func rawArgs(args []json.RawMessage) string {
+	parts := make([]string, len(args))
+	for i, a := range args {
+		parts[i] = string(a)
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
+}

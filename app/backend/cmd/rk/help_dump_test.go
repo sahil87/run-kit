@@ -217,6 +217,20 @@ func TestCaptureNodeRealTreeSelfExcludesAndDepth(t *testing.T) {
 		t.Errorf("mux snapshot has %d captured subcommands, want exactly 3 (list, show, restore)", len(muxSnap.Commands))
 	}
 
+	// The code group is captured to full depth with exactly its three members.
+	code, ok := childByName(n, "code")
+	if !ok {
+		t.Fatal("code should be present in the real tree")
+	}
+	for _, name := range []string{"exec", "hosts", "commands"} {
+		if _, ok := childByName(code, name); !ok {
+			t.Errorf("code should have its %q subcommand captured", name)
+		}
+	}
+	if len(code.Commands) != 3 {
+		t.Errorf("code has %d captured subcommands, want exactly 3 (exec, hosts, commands)", len(code.Commands))
+	}
+
 	// The moved/hidden root forms are excluded from the dump: the three mux
 	// deprecation aliases, the permanent tmux-guard contract (hidden), and
 	// shell-init (hidden, machine-invoked).

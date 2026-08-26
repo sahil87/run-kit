@@ -1089,3 +1089,137 @@ func TestTmuxConfigCheckNeverFlipsVerdict(t *testing.T) {
 		t.Error("runDoctorChecks must append the tmux config row unconditionally")
 	}
 }
+
+// --- code bridge row ----------------------------------------------------------
+
+// writeBridgeFixture plants an installed rk-code-bridge extension of the given
+// version under a temp extensions dir (code-server's <publisher>.<name>-<v>
+// layout) and returns the dir.
+func writeBridgeFixture(t *testing.T, version string) string {
+	t.Helper()
+	dir := t.TempDir()
+	pkgDir := filepath.Join(dir, "run-kit.rk-code-bridge-"+version)
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := fmt.Sprintf(`{"name":"rk-code-bridge","publisher":"run-kit","version":%q}`, version)
+	if err := os.WriteFile(filepath.Join(pkgDir, "package.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// TestCodeBridgeCheckNotInstalled pins the absent-extension row: the
+// remediation note, no host enumeration, and the always-OK shape.
+func TestCodeBridgeCheckNotInstalled(t *testing.T) {
+	c := codeBridgeCheck(t.TempDir(), "1.2.3", func() (int, error) {
+		t.Error("listHosts must not run when the extension is absent")
+		return 0, nil
+	})
+	if c.Name != "code bridge" {
+		t.Errorf("name = %q, want %q", c.Name, "code bridge")
+	}
+	if !c.OK {
+		t.Errorf("not-installed row must stay OK, got %+v", c)
+	}
+	if c.Note != "not installed — run rk code-server install" {
+		t.Errorf("note = %q, want the install remediation", c.Note)
+	}
+}
+
+// TestCodeBridgeCheckInstalledWithLiveHosts pins the installed row: version
+// plus live host count, and no bundled-is-newer clause when the embedded
+// version matches.
+func TestCodeBridgeCheckInstalledWithLiveHosts(t *testing.T) {
+	dir := writeBridgeFixture(t, "1.2.3")
+	c := codeBridgeCheck(dir, "1.2.3", func() (int, error) { return 2, nil })
+	if !c.OK {
+		t.Errorf("installed row must stay OK, got %+v", c)
+	}
+	if want := "installed v1.2.3; 2 live host(s)"; c.Note != want {
+		t.Errorf("note = %q, want %q", c.Note, want)
+	}
+}
+
+// TestCodeBridgeCheckBundledNewer pins the skew clause: appended when the
+// embedded version is newer, absent on a dev build (no bundled VSIX → "").
+func TestCodeBridgeCheckBundledNewer(t *testing.T) {
+	dir := writeBridgeFixture(t, "1.2.3")
+
+	newer := codeBridgeCheck(dir, "1.3.0", func() (int, error) { return 0, nil })
+	want := "installed v1.2.3; 0 live host(s); bundled v1.3.0 is newer — run rk code-server update"
+	if newer.Note != want {
+		t.Errorf("note = %q, want %q", newer.Note, want)
+	}
+
+	devBuild := codeBridgeCheck(dir, "", func() (int, error) { return 1, nil })
+	if strings.Contains(devBuild.Note, "bundled") {
+		t.Errorf("dev-build note = %q, want no bundled-is-newer clause", devBuild.Note)
+	}
+	if want := "installed v1.2.3; 1 live host(s)"; devBuild.Note != want {
+		t.Errorf("dev-build note = %q, want %q", devBuild.Note, want)
+	}
+}
+
+// TestCodeBridgeCheckEnumerationError pins the degradation: a host-enumeration
+// failure is an OK row naming the failure, with the installed version intact.
+func TestCodeBridgeCheckEnumerationError(t *testing.T) {
+	dir := writeBridgeFixture(t, "1.2.3")
+	c := codeBridgeCheck(dir, "", func() (int, error) { return 0, fmt.Errorf("socket dir unreadable") })
+	if !c.OK {
+		t.Errorf("enumeration error must never fail the row, got %+v", c)
+	}
+	if !strings.Contains(c.Note, "installed v1.2.3") || !strings.Contains(c.Note, "socket dir unreadable") {
+		t.Errorf("note = %q, want the installed version plus the failure", c.Note)
+	}
+}
+
+// TestCodeBridgeCheckNeverFlipsVerdict proves the appended row cannot change
+// the overall report verdict and appears in --json like every other check.
+// The production seams are stubbed so the sweep stays off the real state dir.
+func TestCodeBridgeCheckNeverFlipsVerdict(t *testing.T) {
+	origVersion, origHosts := codeBridgeEmbeddedVersion, codeBridgeLiveHostCount
+	codeBridgeEmbeddedVersion = func() string { return "" }
+	codeBridgeLiveHostCount = func() (int, error) { return 0, nil }
+	t.Cleanup(func() { codeBridgeEmbeddedVersion, codeBridgeLiveHostCount = origVersion, origHosts })
+
+	report := runDoctorChecks()
+	found := false
+	for _, c := range report.Checks {
+		if c.Name == "code bridge" {
+			found = true
+			if !c.OK {
+				t.Errorf("code bridge row must always be OK-shaped, got %+v", c)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("runDoctorChecks must append the code bridge row")
+	}
+
+	data, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Checks []struct {
+			Name string `json:"name"`
+			OK   bool   `json:"ok"`
+		} `json:"checks"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	jsonFound := false
+	for _, c := range decoded.Checks {
+		if c.Name == "code bridge" {
+			jsonFound = true
+			if !c.OK {
+				t.Error("--json code bridge row must be ok:true")
+			}
+		}
+	}
+	if !jsonFound {
+		t.Error("--json report is missing the code bridge row")
+	}
+}

@@ -74,6 +74,7 @@ func init() {
 	rootCmd.AddCommand(remoteCmd)
 	rootCmd.AddCommand(roleCmd)
 	rootCmd.AddCommand(codeServerCmd)
+	rootCmd.AddCommand(codeCmd)
 	rootCmd.AddCommand(presentCmd)
 	rootCmd.AddCommand(muxCmd)
 	// Hidden root aliases for the mux family (see mux.go): these three are

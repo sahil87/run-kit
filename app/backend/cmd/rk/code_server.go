@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"rk/internal/codebridge"
 	"rk/internal/codeserver"
 	"rk/internal/daemon"
 
@@ -39,6 +40,15 @@ var codeServerKillFn = daemon.KillCodeServerSession
 // socket.
 var codeServerDaemonRunningFn = daemon.IsRunning
 var codeServerSessionCommandFn = daemon.CodeServerSessionCommand
+
+// codeBridgeEmbeddedFn is the package seam over codebridge.Embedded — the
+// embed dir is empty in test binaries, so tests substitute it to drive the
+// bundled/dev-build branches of the extension install step.
+var codeBridgeEmbeddedFn = codebridge.Embedded
+
+// installBridgeExtensionFn is the package seam over the installer package's
+// extension step so tests capture calls without a managed code-server binary.
+var installBridgeExtensionFn = codeserver.InstallBridgeExtension
 
 var codeServerCmd = &cobra.Command{
 	Use:   "code-server",
@@ -182,6 +192,36 @@ func codeServerInstallToLatest(cmd *cobra.Command, sink outputSink, home string)
 	return res, true, nil
 }
 
+// installBridgeExtension runs the bridge-extension step after a successful
+// binary install. Best-effort by contract: a dev build without a bundled VSIX
+// skips with a note, and any install failure is a warning, never the verb's
+// exit code — the code-server binary itself is already installed. Returns
+// whether the installed extension changed: update keys its respawn on it
+// because a newly installed extension only loads on a code-server restart.
+func installBridgeExtension(cmd *cobra.Command, sink outputSink, home string) bool {
+	vsix, version, ok := codeBridgeEmbeddedFn()
+	if !ok {
+		sink.Notef("No bundled code bridge extension in this build — skipping the extension install.\n")
+		return false
+	}
+	// cmd.Context() is set by Execute(); direct RunE invocations (the
+	// package's test idiom) leave it nil, so fall back explicitly (mirrors
+	// codeServerInstallToLatest).
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	changed, err := installBridgeExtensionFn(ctx, home, vsix, version, sink.chatter)
+	if err != nil {
+		sink.Notef("Code bridge extension install failed: %v — the code-server binary itself is installed; retry the extension with `rk code-server update`.\n", err)
+		return false
+	}
+	if changed {
+		sink.Dataf("Installed code bridge extension v%s.\n", version)
+	}
+	return changed
+}
+
 func runCodeServerInstall(cmd *cobra.Command, _ []string) error {
 	sink := newSink(cmd)
 	home, err := codeServerHome()
@@ -195,6 +235,9 @@ func runCodeServerInstall(cmd *cobra.Command, _ []string) error {
 	if changed {
 		sink.Dataf("Installed code-server v%s (%s).\n", res.Version, res.Path)
 	}
+	// The bridge step never gates the migration respawn: install's respawn
+	// rule stays migration-only.
+	installBridgeExtension(cmd, sink, home)
 	return migrateForeignCodeServerSession(sink, home, res.Version)
 }
 
@@ -342,16 +385,18 @@ func runCodeServerUpdateFlow(cmd *cobra.Command, sink outputSink) error {
 	if err != nil {
 		return fmt.Errorf("reading the active code-server version: %w", err)
 	}
-	res, changed, err := codeServerInstallToLatest(cmd, sink, home)
+	res, binaryChanged, err := codeServerInstallToLatest(cmd, sink, home)
 	if err != nil {
 		return err
 	}
-	if !changed {
+	extensionChanged := installBridgeExtension(cmd, sink, home)
+	if !binaryChanged && !extensionChanged {
 		return nil // already current — no restart either
 	}
 
 	// Take effect: kill + respawn via the daemon-gated helper — no tmux is
-	// touched when the daemon is down.
+	// touched when the daemon is down. The respawn fires on EITHER change: a
+	// newly installed extension only loads on a code-server restart.
 	out, err := respawnCodeServerSession(sink, res.Version)
 	if err != nil {
 		return err
@@ -364,10 +409,12 @@ func runCodeServerUpdateFlow(cmd *cobra.Command, sink outputSink) error {
 		// kill.
 		sink.Dataf("Daemon not running — the session was not respawned. v%s is installed; after `rk serve -d`, apply it with: tmux -L rk-daemon kill-session -t '=rk-code-server' && rk code-server start\n", res.Version)
 	}
-	if before == "" {
-		sink.Dataf("Installed code-server v%s (%s).\n", res.Version, res.Path)
-	} else {
-		sink.Dataf("Updated code-server v%s -> v%s (%s).\n", before, res.Version, res.Path)
+	if binaryChanged {
+		if before == "" {
+			sink.Dataf("Installed code-server v%s (%s).\n", res.Version, res.Path)
+		} else {
+			sink.Dataf("Updated code-server v%s -> v%s (%s).\n", before, res.Version, res.Path)
+		}
 	}
 	return nil
 }

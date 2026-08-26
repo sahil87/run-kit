@@ -69,6 +69,31 @@ jobs:
       - name: Run frontend unit tests
         run: just test-frontend
 
+  code-bridge:
+    name: Code bridge (tsc + node --test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+
+      # app/code-bridge has no packageManager field — pin pnpm via the
+      # frontend manifest like the other pnpm jobs.
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4
+        with:
+          package_json_file: app/frontend/package.json
+
+      - name: Install code bridge dependencies
+        run: cd app/code-bridge && pnpm install --frozen-lockfile
+
+      - name: Type-check
+        run: cd app/code-bridge && npx tsc --noEmit
+
+      - name: Run code bridge tests
+        run: cd app/code-bridge && pnpm test
+
   e2e:
     name: E2E (shard ${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
@@ -183,7 +208,7 @@ jobs:
   # ruleset from the job topology: changing the shard count needs no ruleset
   # edit, because the matrix's aggregate result still surfaces as `needs.e2e`.
   #
-  # Hard gates = backend + frontend + e2e (all three required). The e2e job had
+  # Hard gates = backend + frontend + e2e + code-bridge (all four required). The e2e job had
   # its `continue-on-error: true` removed so a failing shard actually fails the
   # job (and thus this gate) — given e2e's known CI flakiness, admin bypass on
   # the main ruleset is the intended escape hatch for overriding a known-flake.
@@ -198,17 +223,19 @@ jobs:
   ci-gate:
     name: CI gate
     runs-on: ubuntu-latest
-    needs: [backend, frontend, e2e]
+    needs: [backend, frontend, e2e, code-bridge]
     if: ${{ always() }}
     steps:
       - name: Verify required jobs succeeded
         run: |
-          echo "backend  = ${{ needs.backend.result }}"
-          echo "frontend = ${{ needs.frontend.result }}"
-          echo "e2e      = ${{ needs.e2e.result }}"
+          echo "backend     = ${{ needs.backend.result }}"
+          echo "frontend    = ${{ needs.frontend.result }}"
+          echo "e2e         = ${{ needs.e2e.result }}"
+          echo "code-bridge = ${{ needs.code-bridge.result }}"
           if [ "${{ needs.backend.result }}" != "success" ] || \
              [ "${{ needs.frontend.result }}" != "success" ] || \
-             [ "${{ needs.e2e.result }}" != "success" ]; then
+             [ "${{ needs.e2e.result }}" != "success" ] || \
+             [ "${{ needs.code-bridge.result }}" != "success" ]; then
             echo "::error::A required CI job did not succeed — blocking merge."
             exit 1
           fi

@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard PASS status (help-dump, readme-extraction, skill, principles, update, version, install-composition). Covers Principle 9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + Principle 9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`mux`/`agent` + the eleven-member `mux` family incl. `new` (create) and `reap --ephemeral`."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard PASS status (help-dump, skill, principles, update, version, install-composition). Covers Principle 9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + Principle 9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`mux`/`agent`/`code` + the eleven-member `mux` family incl. `new` (create) and `reap --ephemeral`."
 ---
 # Toolkit Standards Conformance
 
@@ -542,6 +542,36 @@ fourteenth surface measured against the same checks
   `rk mux new <name> --ephemeral`, bulk-clean with `rk mux reap --ephemeral`,
   never bare `tmux kill-server`. `docs/site/skill.md` gained the quickref
   one-liner; both stay within the 150-line budget.
+
+The `rk code` group (`exec`/`hosts`/`commands` — see
+[architecture](/run-kit/architecture.md) § CLI Subcommands, `code` row; full
+contract in [code-bridge](/run-kit/code-bridge.md)) is the fifteenth surface
+measured against the same checks (`260826-83jz-code-bridge-extension`):
+
+- **help-dump: the three children register unconditionally.** The parent and
+  all three children register on `rootCmd` with `Long:` blocks (no platform
+  gating, nothing hidden), so the dumped contract is platform-stable with no
+  help-dump code change; `TestCaptureNodeRealTreeSelfExcludesAndDepth` pins
+  the `code` subtree at exactly `exec`/`hosts`/`commands`.
+- **Principle 9: result JSON is data, notes are chatter.** Every verb routes
+  through `newSink(cmd)`: the result JSON (`exec`), the aligned host rows
+  (`hosts`), and the sorted command ids (`commands`) are `Dataf` on stdout and
+  survive `--quiet`; the `using host …` fallback note, prune notices, and the
+  version-skew warning are `Notef` on stderr; `error: <kind>: <message>` lines
+  are ungated stderr writes so they always survive.
+- **Exit-code convention (P4)** — usage errors 2, operational failures 1: the
+  children re-wrap their own `Args` validators with `usageArgs` in `init()`
+  (root's wrap loop covers only direct children — the `code_server.go`
+  idiom), so a missing command id, `--host` with `--folder`, or a stray arg is
+  usage-class; a bridge-reported failure (`unknown-command`/`threw`/`timeout`/
+  `bad-request`), a dial failure, and no-host/ambiguous resolution are
+  operational (1).
+- **The `skill` standard gained the `code` topic page + a core-bundle row** —
+  `rk skill code` serves `docs/site/skill/code.md` (91 lines, within the
+  150-line budget) via the per-topic embed + drift guard
+  (`TestSkillCodeEmbedMatchesCanonical`), and the core bundle gained the
+  topic-index line plus one capability row; the README command table gained
+  the `run-kit code` row.
 
 #### Scenario: A new subcommand group keeps the help tree platform-stable
 - **GIVEN** the `rk desktop` group on a Linux host

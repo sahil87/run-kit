@@ -106,6 +106,9 @@ func TestEnsureCodeServerSeedsSettingsWhenAbsent(t *testing.T) {
 	if string(got) != codeServerSeedSettings {
 		t.Errorf("seeded settings.json =\n%s\nwant:\n%s", got, codeServerSeedSettings)
 	}
+	if !strings.Contains(string(got), `"rk.bridge.enabled": true`) {
+		t.Errorf("seeded settings.json must enable the code bridge, got:\n%s", got)
+	}
 }
 
 func TestEnsureCodeServerPreservesExistingSettings(t *testing.T) {

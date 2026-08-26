@@ -83,6 +83,19 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
 
+      - name: Build and package code bridge extension
+        run: |
+          cd app/code-bridge
+          pnpm install --frozen-lockfile
+          pnpm run build
+          pnpm run package -- "${{ steps.version.outputs.version }}"
+
+      - name: Copy code bridge VSIX to backend embed directory
+        run: |
+          cp "app/code-bridge/rk-code-bridge-${{ steps.version.outputs.version }}.vsix" \
+            app/backend/build/codebridge/rk-code-bridge.vsix
+          echo "${{ steps.version.outputs.version }}" > app/backend/build/codebridge/VERSION
+
       - name: Cross-compile
         run: |
           cd app/backend

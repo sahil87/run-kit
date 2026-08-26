@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"rk/internal/codebridge"
 	"rk/internal/codeserver"
 	"rk/internal/config"
 	"rk/internal/tmux"
@@ -93,6 +94,11 @@ func runDoctorChecks() doctorReport {
 	// when unresolvable — the managed-install rung is then skipped.
 	home, _ := os.UserHomeDir()
 	report.Checks = append(report.Checks, codeServerCheck(home, exec.LookPath, dialTCP))
+
+	// code bridge — the rk-code-bridge extension behind `rk code exec`,
+	// installed by `rk code-server install`/`update`. Always OK-shaped (the
+	// code-server posture): absence is a note, never a verdict flipper.
+	report.Checks = append(report.Checks, codeBridgeCheck(codeserver.ExtensionsDir(home), codeBridgeEmbeddedVersion(), codeBridgeLiveHostCount))
 
 	// Ephemeral servers — informational hygiene count, always OK-shaped (the
 	// code-server/drift posture): scratch servers are deliberate creator
@@ -320,6 +326,64 @@ func codeServerCheck(home string, lookPath func(string) (string, error), dial fu
 		return check
 	}
 	check.Note = "installed (PATH); " + reachability()
+	return check
+}
+
+// codeBridgeEmbeddedVersion / codeBridgeLiveHostCount are the seams for the
+// code bridge row's production inputs — tests substitute them so
+// runDoctorChecks never touches the real embed dir or state dir. The version
+// is "" when the build carries no VSIX (a dev build — the row then omits the
+// bundled-is-newer clause); the host count is the same liveness-pruning
+// enumeration `rk code hosts` performs.
+var codeBridgeEmbeddedVersion = func() string {
+	_, version, ok := codebridge.Embedded()
+	if !ok {
+		return ""
+	}
+	return version
+}
+var codeBridgeLiveHostCount = func() (int, error) {
+	dir, err := codebridge.HostsDir()
+	if err != nil {
+		return 0, err
+	}
+	// Bounded: each ping is capped inside LiveHosts and the sweep as a whole
+	// gets a ceiling so doctor never hangs on a dead socket.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	live, _, err := codebridge.LiveHosts(ctx, dir)
+	if err != nil {
+		return 0, err
+	}
+	return len(live), nil
+}
+
+// codeBridgeCheck reports the rk-code-bridge extension's state: not installed
+// (a remediation note), else the installed version and live host count, plus
+// a bundled-is-newer clause when the embedded VSIX is ahead. Always OK-shaped
+// — the bridge is optional tooling, never a dependency failure. Pure over the
+// injected (extensionsDir, embeddedVersion, listHosts) triple so tests never
+// touch the real state dir.
+func codeBridgeCheck(extensionsDir string, embeddedVersion string, listHosts func() (int, error)) doctorCheck {
+	check := doctorCheck{Name: "code bridge", OK: true}
+	installed, err := codeserver.InstalledBridgeVersion(extensionsDir)
+	if err != nil {
+		check.Note = fmt.Sprintf("state unreadable: %v", err)
+		return check
+	}
+	if installed == "" {
+		check.Note = "not installed — run rk code-server install"
+		return check
+	}
+	n, err := listHosts()
+	if err != nil {
+		check.Note = fmt.Sprintf("installed v%s; live host count unavailable — enumeration failed: %v", installed, err)
+	} else {
+		check.Note = fmt.Sprintf("installed v%s; %d live host(s)", installed, n)
+	}
+	if embeddedVersion != "" && codebridge.OlderThan(installed, embeddedVersion) {
+		check.Note += fmt.Sprintf("; bundled v%s is newer — run rk code-server update", embeddedVersion)
+	}
 	return check
 }
 

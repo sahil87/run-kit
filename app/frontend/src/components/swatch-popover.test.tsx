@@ -30,7 +30,7 @@ const rgb = (hex: string): string => {
 
 /** The 8 named marker states (band order; − clear cell lives in the band header). */
 const MARKER_NAMED = MARKER_STATES.slice(1);
-/** The 14 named flair states (band order; − clear cell lives in the band header). */
+/** The 13 named flair states (band order; − clear cell lives in the band header). */
 const FLAIR_NAMED = FLAIR_STATES.slice(1);
 
 // Minimal ThemeProvider wrapper for tests
@@ -403,9 +403,9 @@ describe("SwatchPopover", () => {
       return { onSelect, onSelectMarker, onSelectFlair, onClose, ...utils };
     }
 
-    it("full variant: 30 colors + 8 markers + 14 flairs + 3 header − + panel − + ✕ = 57 options, labelled Label picker", () => {
+    it("full variant: 30 colors + 8 markers + 13 flairs + 3 header − + panel − + ✕ = 56 options, labelled Label picker", () => {
       renderLabelPicker();
-      expect(screen.getAllByRole("option")).toHaveLength(57);
+      expect(screen.getAllByRole("option")).toHaveLength(56);
       expect(screen.getByRole("listbox").getAttribute("aria-label")).toBe("Label picker");
       for (const state of MARKER_NAMED) {
         expect(screen.getByRole("option", { name: `Marker ${state}` })).toBeTruthy();
@@ -454,7 +454,7 @@ describe("SwatchPopover", () => {
       expect(band.className).not.toContain("rk-band-scroll");
     });
 
-    it("the flair band lists the 14 states in display order, rain/scan leading, ironman last", () => {
+    it("the flair band lists the 13 states in display order, rain/scan leading, spidey last", () => {
       renderLabelPicker();
       const cells = Array.from(
         screen.getByRole("listbox").querySelectorAll("[data-flair-value]"),
@@ -788,7 +788,7 @@ describe("SwatchPopover", () => {
       expect(onSelect).not.toHaveBeenCalled();
     });
 
-    it("the marker row walks all 8 states; the flair rows walk 7 columns each (rain/nyan/… over scan/naruto/…)", () => {
+    it("the marker row walks all 8 states; the flair rows walk 7 and 6 columns (rain/nyan/… over scan/naruto/…)", () => {
       const { onSelectMarker, onSelectFlair, enter, arrow } = renderFull();
       // Uncolored → color header −. Down 5 → the marker band's row, col 0.
       arrow("ArrowDown", 5);
@@ -812,8 +812,8 @@ describe("SwatchPopover", () => {
       arrow("ArrowDown");
       enter();
       expect(onSelectFlair).toHaveBeenLastCalledWith("scan");
-      // Row 2 walks right: naruto, pacman, aquarium, invaders, warp, ironman — clamped.
-      for (const state of ["naruto", "pacman", "aquarium", "invaders", "warp", "ironman", "ironman"]) {
+      // Row 2 walks right: naruto, pacman, aquarium, invaders, warp — clamped.
+      for (const state of ["naruto", "pacman", "aquarium", "invaders", "warp", "warp"]) {
         arrow("ArrowRight");
         enter();
         expect(onSelectFlair).toHaveBeenLastCalledWith(state);
@@ -821,11 +821,11 @@ describe("SwatchPopover", () => {
       // Row 2 is the bottom: ArrowDown is a no-op.
       arrow("ArrowDown");
       enter();
-      expect(onSelectFlair).toHaveBeenLastCalledWith("ironman");
-      // Up in the same column returns to spidey.
+      expect(onSelectFlair).toHaveBeenLastCalledWith("warp");
+      // Up in the same column returns to cube.
       arrow("ArrowUp");
       enter();
-      expect(onSelectFlair).toHaveBeenLastCalledWith("spidey");
+      expect(onSelectFlair).toHaveBeenLastCalledWith("cube");
     });
 
     it("ArrowLeft at the left edge is a no-op", () => {

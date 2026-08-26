@@ -28,7 +28,7 @@
   "scripts": {
     "build": "node esbuild.mjs",
     "package": "vsce package --no-dependencies --no-update-package-json",
-    "test": "tsc -p tsconfig.test.json && node --test \"dist-test/test/*.test.js\"",
+    "test": "tsc -p tsconfig.test.json && node --test dist-test/test/*.test.js",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

@@ -132,8 +132,8 @@ export function CodeSurface({
   // replaces the document). A matching chord is stopped before the embedded
   // app's keybinding service sees it and re-dispatched on the PARENT document
   // (bubbling reaches both the document-level listeners — the command
-  // palette's chord — and the window-level ones — the keybinding dispatcher,
-  // the ⌘. view cycle). Keyed on `reachable`: the iframe only MOUNTS when
+  // palette's chord — and the window-level ones — the keybinding
+  // dispatcher). Keyed on `reachable`: the iframe only MOUNTS when
   // reachable (the not-running empty state renders otherwise), so a
   // reachability flip re-runs this effect against the fresh iframe. Cleanup
   // removes the listener from the document it was attached to. The

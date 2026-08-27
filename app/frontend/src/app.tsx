@@ -3,7 +3,6 @@ import { useNavigate, useMatches, useSearch, Outlet } from "@tanstack/react-rout
 import {
   availableViews,
   hasWebUrl,
-  nextView,
   readStoredView,
   type ViewName,
 } from "@/lib/window-view";
@@ -38,7 +37,7 @@ import {
   withAutoWeb,
   type AutoExpandState,
 } from "@/lib/present-auto-expand";
-import { matchesCombo, hasReclaimableMatch, shouldSuppressChord, withShortcutHints, formatCombo } from "@/lib/keybindings";
+import { hasReclaimableMatch, shouldSuppressChord, withShortcutHints, formatCombo } from "@/lib/keybindings";
 import { WEB_FIND_OPEN_EVENT } from "@/lib/find-in-page";
 import { TERMINAL_FIND_OPEN_EVENT } from "@/lib/terminal-find";
 import { EXPORT_EVENT, type ExportAction } from "@/lib/terminal-export";
@@ -736,7 +735,7 @@ function AppShell() {
     [searchLayout, storedLayout, effectiveWindow],
   );
   const serializedLayout = serializeLayout(layout);
-  // The lens model's consumers (view-cycle chord, palette `View:` actions)
+  // The lens model's consumers (the palette `View:` actions)
   // key off slot A — R12's shim: a
   // multi-tile layout reflects slot A's surface; selecting a view collapses
   // to `single:<view>` (see `switchView`).
@@ -879,8 +878,8 @@ function AppShell() {
   // replaceState (the mirror's default-drops-param rule applies here too — a
   // mutation BACK to the window's default, e.g. closing the last non-tty
   // tile, leaves a clean URL; localStorage still records the choice). Tile
-  // verbs, surface toggles, the view-cycle chord, and the palette `View:` actions
-  // all funnel through this. Stable across SSE ticks.
+  // verbs, surface toggles, and the palette `View:` actions all funnel
+  // through this. Stable across SSE ticks.
   const applyLayout = useCallback(
     (next: Layout) => {
       if (!windowParam) return;
@@ -1149,10 +1148,10 @@ function AppShell() {
     return true;
   }, [server, windowParam, restoreFocus]);
 
-  // The effective keybinding map (260730-g40a): drives the migrated `⌘.` lens
-  // cycle below, the shifted-tier dispatch mount (see the `useKeybindingDispatch`
-  // call further down, after the palette actions it reuses), the shortcuts
-  // overlay, and the palette `shortcut` hints.
+  // The effective keybinding map (260730-g40a): drives the shifted-tier
+  // dispatch mount (see the `useKeybindingDispatch` call further down, after
+  // the palette actions it reuses), the shortcuts overlay, and the palette
+  // `shortcut` hints.
   const keybindings = useKeybindings();
   const { byAction: bindingByAction, host: bindingHost } = keybindings;
 
@@ -1161,7 +1160,7 @@ function AppShell() {
   // 260812-wfic R9; kind-aware generalization 260819-ie2i R3): a keydown
   // inside a lens iframe is reclaimed exactly when it matches an ENABLED
   // registry binding that is meaningful under that iframe's kind — so
-  // run-kit's chords (palette, view-cycle, code-toggle, …) survive iframe
+  // run-kit's chords (palette, layout-cycle, code-toggle, …) survive iframe
   // focus while the embedded app's OWN Ctrl/⌘ chords pass through, the
   // tmux-pane split pair (`ttyOnly`) stays with code-server's keybinding
   // service in BOTH iframe kinds, and ⌘F (`webOnly` web-find) is reclaimed
@@ -1171,38 +1170,6 @@ function AppShell() {
       hasReclaimableMatch(e, keybindings.bindings, kind),
     [keybindings.bindings],
   );
-
-  // `Cmd/Ctrl+.` cycles the current window's lenses (Constitution V — every view
-  // action is keyboard-reachable; palette parity is the `View:` actions above).
-  // The chord comes from the registry (`view-cycle`, default ⌘. — a free binding
-  // in the `⌘<punctuation>` family; `Ctrl+.` is inert in readline, unlike
-  // `Ctrl+/`→undo or `Ctrl+<letter>` control chars) and is per-device
-  // rebindable. Kept at its own listener (not the shifted-tier dispatcher):
-  // its enablement is lens-local state. Window-level with `preventDefault()` so
-  // xterm doesn't also receive it; input gating is the shared
-  // `shouldSuppressChord` predicate. The live view/window values and binding are
-  // read via refs so the listener is stable across SSE ticks.
-  const viewCycleRef = useRef<{ views: ViewName[]; active: ViewName }>({
-    views: currentViews,
-    active: resolvedView,
-  });
-  viewCycleRef.current = { views: currentViews, active: resolvedView };
-  const viewCycleBindingRef = useRef(bindingByAction.get("view-cycle"));
-  viewCycleBindingRef.current = bindingByAction.get("view-cycle");
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      const binding = viewCycleBindingRef.current;
-      if (!binding?.enabled || !matchesCombo(e, binding)) return;
-      if (shouldSuppressChord(e.target)) return;
-      const { views, active } = viewCycleRef.current;
-      const next = nextView(views, active); // null when nothing to cycle
-      if (!next) return;
-      e.preventDefault();
-      switchView(next);
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [switchView]);
 
   // The docked compose strip is a single global surface (260718-dhdj) rendered
   // at one of two docks (260813-j3jb — inside the first tty tile on the desktop
@@ -3212,16 +3179,14 @@ function AppShell() {
       // palette is the ONLY lens-switch surface since the ViewSwitcher's
       // retirement, 260812-0c6o). Each lens is offered
       // only when it is AVAILABLE for the current window AND is not the current
-      // view — so the palette shows the destination, never the current lens. The
-      // per-entry shortcut hint tracks the binding that reaches it — the
-      // EFFECTIVE `view-cycle` combo from the keybinding
-      // registry (260730-g40a), so overrides are reflected; a disabled binding
-      // contributes an empty hint (rendered as none). `View: Chat` carries no
-      // hint — the `chat-toggle` chord is retired (260812-0c6o). These REPLACE
-      // the retired
+      // view — so the palette shows the destination, never the current lens. No
+      // entry carries a shortcut hint: no chord reaches a single-tile lens
+      // switch (the ⌘1/⌘2/⌘3 digits are three-state TILE toggles, a different
+      // action, and hinting them here would misdescribe it). These REPLACE the
+      // retired
       // `toggle-iframe-terminal` action, which mutated `@rk_type`; switching a
       // lens now never touches the window's identity. The gating (available AND
-      // not-current) + hint composition live in the pure `buildViewActions`
+      // not-current) + label composition live in the pure `buildViewActions`
       // (lib/palette/view.ts) so they are unit-testable without mounting the
       // shell. MOBILE supersedes them: a phone doesn't need collapse-to-single
       // `View:` semantics — the palette instead lists the top-bar switch
@@ -3231,12 +3196,7 @@ function AppShell() {
         ? windowParam
           ? buildTileSwitchActions(panelSurfaces, mobileActiveTile, switchToTile)
           : []
-        : buildViewActions(currentViews, resolvedView, switchView, {
-            cycle: (() => {
-              const b = bindingByAction.get("view-cycle");
-              return b?.enabled ? formatCombo(b, bindingHost.platform) : "";
-            })(),
-          })),
+        : buildViewActions(currentViews, resolvedView, switchView)),
       // Layout entries (260812-ab5v R11, T012) — Constitution V palette parity
       // for the surface toggles, tile verbs, and ▦ chip: `Tile: Show/Hide
       // <Surface>` (the top-bar toggle group's actions), `Layout: Expand`/`Restore` (the

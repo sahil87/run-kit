@@ -4,8 +4,8 @@
  * One module owns every app chord as DATA: the run-kit action tier
  * (`Shift+CmdOrCtrl+<key>` on Windows/Linux; on macOS several actions demote
  * to the unshifted ⌘ tier — see `macTier`/`defaultComboFor`, 260730-n789),
- * the migrated legacy chords (⌘K palette, ⌘. lens
- * cycle, board ⌘[/⌘] pane cycle — combos unchanged), the
+ * the migrated legacy chords (⌘K palette, board ⌘[/⌘] pane cycle — combos
+ * unchanged), the
  * claimed-key map (shell menu accelerators, OS keys, browser-reserved keys —
  * per tier), the per-device override layer
  * (`localStorage["runkit-keybindings"]`, diffs
@@ -32,7 +32,7 @@ import type { ViewName } from "./window-view";
  * The three chord tiers:
  * - `shifted` — `Shift+CmdOrCtrl` (the run-kit action tier; uniform per intake
  *   decision (B): letter consistency over chord weight).
- * - `cmd` — unshifted `CmdOrCtrl` (legacy punctuation chords: ⌘K ⌘. ⌘[⌘]).
+ * - `cmd` — unshifted `CmdOrCtrl` (legacy punctuation chords: ⌘K ⌘; ⌘[⌘]).
  *   Matches Meta OR Ctrl, preserving each legacy listener's exact predicate.
  * - `ctrl` — plain Ctrl on BOTH platforms. `focus-hop` is the one shipped
  *   default on it (mac only, via `macTier` — plain Ctrl belongs to the pane
@@ -165,10 +165,15 @@ export const KEYBINDINGS_STORAGE_KEY = "runkit-keybindings";
  *
  * Legacy migrations (combos unchanged — established, browser-safe
  * punctuation): ⌘K palette (ignoreInputs preserves its fire-everywhere
- * behavior), ⌘. lens cycle, board ⌘[/⌘].
+ * behavior), board ⌘[/⌘].
  *
  * `KeyP` is deliberately unbound on EVERY tier — reserved for a future
  * create/open-PR action (the Conductor ⇧⌘P convention). Do not spend it.
+ * `Period` (⌘. / Ctrl+.) is likewise deliberately unbound on EVERY tier: ⌘.
+ * is the macOS Cancel/Stop chord (dialog Cancel, Safari/Xcode Stop) and is
+ * reflex-hit, so anything bound to it fires by accident — the lens cycle that
+ * once lived there kept landing users in the Chat lens. `settings-open` stays
+ * on the OS-conventional ⌘, and must not migrate here. Do not spend it.
  * The ⇧⌘digit layer is likewise reserved on mac for future positional tile
  * jumps (the ⇧⌘P precedent) — partial there: ⇧⌘3/4/5 stay macOS system
  * screenshot claims (MAC_SCREENSHOT_CLAIMS below).
@@ -211,7 +216,7 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // Split pane (260807-rbx5) — per-platform pairs, reusing the
   // `Tab: Split Horizontal|Vertical` palette bodies. Direction semantics
   // follow the top-bar chip (260806-2x2h): horizontal = side-by-side
-  // (tmux `-h`), the primary/default split. Terminal scope (the view-cycle
+  // (tmux `-h`), the primary/default split. Terminal scope (the layout-cycle
   // precedent — the palette bodies exist only on window routes).
   //
   // Mac refines both rows to `KeyD` (`macCode`) for the iTerm2/Warp/Ghostty
@@ -293,16 +298,15 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // ctrl-tier default (mac only: plain Ctrl belongs to the pane on Win/Linux,
   // so the base tier there is shifted and `macTier` does the demotion; the
   // mac terminal seam refuses it via refusal rule 3). No mapLabel: Backquote
-  // has no keycap cell in the overlay grids (the Period/Backslash/Comma
-  // no-cell precedent).
+  // has no keycap cell in the overlay grids (the Backslash/Comma no-cell
+  // precedent).
   { actionId: "focus-hop", code: "Backquote", tier: "shifted", macTier: "ctrl", scope: "terminal", kind: "builtin", label: "Focus terminal ↔ code", description: "hop focus between the tty and code tiles" },
   // — legacy chords, migrated with combos unchanged —
   { actionId: "command-palette", code: "KeyK", tier: "cmd", scope: "global", kind: "builtin", label: "Command palette", ignoreInputs: true },
-  { actionId: "view-cycle", code: "Period", tier: "cmd", scope: "terminal", kind: "builtin", label: "Cycle view lens", description: "tty → web → chat" },
   // ⌘; layout-shape cycle (260812-ab5v-surface-layout-core R9/R11): the ▦
   // chip's chord — the NEXT same-arity preset, order kept (tmux `next-layout`
-  // muscle memory). It joins the legacy `⌘<punctuation>` family beside ⌘.
-  // view-cycle: Semicolon is free in every claimed set and ⌘; is not
+  // muscle memory). It joins the legacy `⌘<punctuation>` family beside ⌘K
+  // and ⌘[/⌘]: Semicolon is free in every claimed set and ⌘; is not
   // browser-reserved on either platform (⌘, is the browser's Preferences
   // claim; ⌘/ is the cheatsheet). Terminal scope like its siblings — the
   // palette body (`Layout: Cycle Shape`) exists only on window routes, so

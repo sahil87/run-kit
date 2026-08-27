@@ -201,7 +201,14 @@ describe("DEFAULT_BINDINGS integrity", () => {
 
   it("migrates the surviving legacy chords with combos unchanged", () => {
     expect(byId(resolved(), "command-palette")).toMatchObject({ code: "KeyK", tier: "cmd" });
-    expect(byId(resolved(), "view-cycle")).toMatchObject({ code: "Period", tier: "cmd", scope: "terminal" });
+    expect(byId(resolved(), "layout-cycle")).toMatchObject({ code: "Semicolon", tier: "cmd", scope: "terminal" });
+    // The ⌘. lens cycle is retired and `Period` is deliberately unbound on
+    // every tier — a reflex-hit Cancel/Stop chord kept landing users in the
+    // Chat lens. No default row may occupy the keycap.
+    expect(resolved().find((b) => b.actionId === "view-cycle")).toBeUndefined();
+    for (const host of ALL_HOSTS) {
+      expect(resolved(host).some((b) => b.code === "Period")).toBe(false);
+    }
     // 260813-j3jb: the Ctrl+` `layout-zoom` row is removed (it collided with
     // code-server's own Ctrl+`); the zoom ACTION survives via palette + ⛶ verb.
     expect(resolved().find((b) => b.actionId === "layout-zoom")).toBeUndefined();
@@ -707,8 +714,6 @@ describe("palette parity invariant", () => {
   //                    Mode" — the full zen toggle, 260820-o8cr; `Layout:
   //                    Expand`/`Restore` remain as the expand-only verb)
   //   focus-hop      ⇄ tile-focus-tty / tile-focus-code
-  //   view-cycle     ⇄ the View: <lens> destinations (view-tty / view-web /
-  //                    view-code — the `buildViewActions` id shape)
   // window-prev / window-next resolve to "Tab: Previous" / "Tab: Next",
   // session-prev / session-next to "Session: Previous" / "Session: Next",
   // and sidebar-toggle to "Sidebar: Toggle" (ids = actionIds, so the chord
@@ -740,7 +745,6 @@ describe("palette parity invariant", () => {
     "web-toggle": ["tile-show-web", "tile-hide-web", "tile-focus-web"],
     "zen-toggle": ["view-zen-enter", "view-zen-exit"],
     "focus-hop": ["tile-focus-tty", "tile-focus-code"],
-    "view-cycle": ["view-tty", "view-web", "view-code"],
     "web-find": ["web-find"], // Web: Find in page (260819-ie2i)
     "terminal-find": ["terminal-find"], // Terminal: Find
     "web-address": ["web-address"], // Web: Focus address bar (260819-v6y4)
@@ -1071,17 +1075,32 @@ describe("scopesOverlap / findConflicts", () => {
 
   it("flags a cmd-tier binding masking a ctrl-tier one on the same code and scope", () => {
     // focus-hop ships the registry's one ctrl-tier default (mac ⌃`): a
-    // view-cycle override onto ⌘` collides with it — a plain Ctrl chord
+    // layout-cycle override onto ⌘` collides with it — a plain Ctrl chord
     // matches both tiers, and both are terminal-scoped: a real conflict, not
     // a shadow.
     const bindings = resolveBindings(
       DEFAULT_BINDINGS,
-      { "view-cycle": { code: "Backquote", tier: "cmd" } },
+      { "layout-cycle": { code: "Backquote", tier: "cmd" } },
       SHELL_MAC,
     );
     const conflicts = findConflicts(bindings);
     expect(conflicts).toHaveLength(1);
-    expect([conflicts[0].a, conflicts[0].b].sort()).toEqual(["focus-hop", "view-cycle"]);
+    expect([conflicts[0].a, conflicts[0].b].sort()).toEqual(["focus-hop", "layout-cycle"]);
+  });
+
+  it("ignores a stored override for an actionId no default carries (a stale `view-cycle` entry)", () => {
+    // Per-device overrides outlive the rows they targeted; resolution walks
+    // DEFAULT_BINDINGS, so an orphan key must neither throw, add a phantom
+    // row, nor take part in conflict detection.
+    const overrides = parseOverrides(JSON.stringify({ "view-cycle": { code: "Period", tier: "cmd" } }));
+    expect(overrides).toEqual({ "view-cycle": { code: "Period", tier: "cmd" } });
+    for (const host of ALL_HOSTS) {
+      const bindings = resolveBindings(DEFAULT_BINDINGS, overrides, host);
+      expect(bindings).toHaveLength(DEFAULT_BINDINGS.length);
+      expect(bindings.find((b) => b.actionId === "view-cycle")).toBeUndefined();
+      expect(bindings.some((b) => b.code === "Period")).toBe(false);
+      expect(findConflicts(bindings)).toEqual([]);
+    }
   });
 
   it("treats a same-combo global↔scoped pair as a shadow, not a conflict (260730-n789)", () => {
@@ -1223,12 +1242,13 @@ describe("applyCapture (steal-with-warning)", () => {
   });
 
   it("does not steal across disjoint scopes", () => {
-    // view-cycle is terminal-scope; board-cycle-next owns cmd+BracketRight in
-    // board scope — capturing it for view-cycle must not unbind the board pair.
+    // layout-cycle is terminal-scope; board-cycle-next owns cmd+BracketRight
+    // in board scope — capturing it for layout-cycle must not unbind the board
+    // pair.
     const { stolenFrom } = applyCapture(
       resolved(),
       {},
-      "view-cycle",
+      "layout-cycle",
       { code: "BracketRight", tier: "cmd" },
       SHELL_OTHER,
     );
@@ -2168,12 +2188,18 @@ describe("hasReclaimableMatch — the lens-iframe reclaim carve-out (260812-wfic
     ).toBe(false);
   });
 
-  it("non-gated registry chords are reclaimed under BOTH kinds (⌘K, ⌘.)", () => {
+  it("non-gated registry chords are reclaimed under BOTH kinds (⌘K, ⌘;)", () => {
     const bindings = resolved(SHELL_MAC);
     expect(hasReclaimableMatch(chord({ code: "KeyK", metaKey: true }), bindings, "code")).toBe(true);
     expect(hasReclaimableMatch(chord({ code: "KeyK", metaKey: true }), bindings, "web")).toBe(true);
-    expect(hasReclaimableMatch(chord({ code: "Period", metaKey: true }), bindings, "code")).toBe(true);
-    expect(hasReclaimableMatch(chord({ code: "Period", metaKey: true }), bindings, "web")).toBe(true);
+    expect(hasReclaimableMatch(chord({ code: "Semicolon", metaKey: true }), bindings, "code")).toBe(true);
+    expect(hasReclaimableMatch(chord({ code: "Semicolon", metaKey: true }), bindings, "web")).toBe(true);
+  });
+
+  it("an unbound chord is NOT reclaimed in either kind (⌘. — the retired lens cycle falls through to the embedded app)", () => {
+    const bindings = resolved(SHELL_MAC);
+    expect(hasReclaimableMatch(chord({ code: "Period", metaKey: true }), bindings, "code")).toBe(false);
+    expect(hasReclaimableMatch(chord({ code: "Period", metaKey: true }), bindings, "web")).toBe(false);
   });
 
   it("webOnly chords (⌘F web-find) reclaim ONLY inside a web iframe — the code iframe keeps code-server's find", () => {

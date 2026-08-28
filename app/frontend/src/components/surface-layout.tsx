@@ -805,16 +805,21 @@ export function SurfaceLayout({
   // ⏶ Zoom: one surface fills the layout area; the shared layout is
   // untouched. Per-viewer and PERSISTED as the zoomed surface KIND under
   // `rk-layout-zoom:{server}:{@N}` — the same key the mobile switch group
-  // reads. Tracked here as a SLOT index (duplicate tty tiles zoom
-  // independently within a session); the stored kind resolves to its first
-  // slot. Cleared (state AND key) when the layout can no longer host the
-  // zoom: a close collapsed the arity, or the zoomed kind left `layout.order`.
+  // reads. The KIND is the identity (`zoomedKindRef`); the rendered slot is
+  // derived from it, so a shared reorder (promote/swap from any viewer) moves
+  // the zoom with its surface instead of leaving it on whichever kind now
+  // occupies the old index. Duplicate tty tiles resolve to the first slot.
+  // Cleared (state AND key) when the layout can no longer host the zoom: a
+  // close collapsed the arity, or the zoomed kind left `layout.order`.
   const [zoomedIndex, setZoomedIndex] = useState<number | null>(() => {
     const kind = readStoredZoom(server, windowId);
     if (!kind) return null;
     const slot = layout.order.indexOf(kind);
     return slot >= 0 ? slot : null;
   });
+  const zoomedKindRef = useRef<SurfaceKind | null>(
+    zoomedIndex !== null ? (layout.order[zoomedIndex] ?? null) : null,
+  );
   // Every zoom flip writes the key through this one seam (the zoomed slot's
   // kind; `null` on unzoom). Flip initiators only: mount with no zoom writes
   // nothing, so the mobile switch group's writes to the same key are never
@@ -825,16 +830,22 @@ export function SurfaceLayout({
     (slot: number | null) => {
       setZoomedIndex(slot);
       const kind = slot !== null ? layout.order[slot] : undefined;
+      zoomedKindRef.current = kind ?? null;
       writeStoredZoom(server, windowId, kind ?? null);
     },
     [layout.order, server, windowId],
   );
   useEffect(() => {
     if (zoomedIndex === null) return;
-    const kind = layout.order[zoomedIndex];
-    if (layout.order.length <= 1 || kind === undefined || !layout.order.includes(kind)) {
+    const kind = zoomedKindRef.current;
+    const slot = kind === null ? -1 : layout.order.indexOf(kind);
+    if (layout.order.length <= 1 || slot < 0) {
       flipZoom(null);
+      return;
     }
+    // A reorder moved the zoomed kind: follow it (the key already holds the
+    // kind, so no write).
+    if (slot !== zoomedIndex) setZoomedIndex(slot);
   }, [zoomedIndex, layout.order, flipZoom]);
   const zoomed = zoomedIndex !== null;
 

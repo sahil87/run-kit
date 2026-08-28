@@ -337,7 +337,7 @@ func TestOldFormatSnapshotDecodes(t *testing.T) {
 			"name": "alpha", "createdAt": 100,
 			"windows": [{
 				"index": 1, "id": "@1", "name": "serve",
-				"type": "iframe", "url": "http://x", "marker": "solid",
+				"rkType": "iframe", "rkUrl": "http://x", "marker": "solid",
 				"panes": [{"id": "%0", "index": 0, "cwd": "/proj"}]
 			}]
 		}]

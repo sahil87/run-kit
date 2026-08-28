@@ -383,6 +383,24 @@ describe("SurfaceLayout pane segment (260813-w1lf content verbs)", () => {
 });
 
 describe("SurfaceLayout zoom", () => {
+  it("a shared reorder moves the zoom with its surface KIND, never the slot index", () => {
+    const { rerender } = renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
+    fireEvent.click(screen.getByRole("button", { name: "Expand Code" }));
+    expect(screen.getByTestId("surface-tile-tty").classList.contains("hidden")).toBe(true);
+    expect(localStorage.getItem("rk-layout-zoom:srv:@1")).toBe("code");
+    // Another viewer promotes code: slot 0 is now code, slot 1 is tty. The
+    // zoom must follow code (still zoomed, tty still hidden) rather than stay
+    // on slot 1 and zoom the terminal.
+    rerender(layoutElement({ layout: { shape: "split-h", order: ["code", "tty"] } }));
+    expect(screen.getByTestId("surface-tile-tty").classList.contains("hidden")).toBe(true);
+    expect(screen.getByTestId("surface-tile-code").classList.contains("hidden")).toBe(false);
+    expect(localStorage.getItem("rk-layout-zoom:srv:@1")).toBe("code");
+    // The zoomed kind leaving the layout clears the zoom and the key.
+    rerender(layoutElement({ layout: { shape: "split-h", order: ["tty", "web"] } }));
+    expect(screen.getByTestId("surface-tile-tty").classList.contains("hidden")).toBe(false);
+    expect(localStorage.getItem("rk-layout-zoom:srv:@1")).toBeNull();
+  });
+
   it("zoom hides the other tiles at display level WITHOUT unmounting", () => {
     renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
     fireEvent.click(screen.getByRole("button", { name: "Expand Code" }));

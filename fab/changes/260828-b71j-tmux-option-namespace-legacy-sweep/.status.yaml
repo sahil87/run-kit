@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 9
@@ -33,22 +33,24 @@ stage_metrics:
     apply: {started_at: "2026-08-28T04:37:17Z", driver: fab-fff, iterations: 3, completed_at: "2026-08-28T04:42:14Z"}
     review: {started_at: "2026-08-28T04:42:14Z", driver: fab-fff, iterations: 3, completed_at: "2026-08-28T04:49:54Z"}
     hydrate: {started_at: "2026-08-28T04:49:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-28T05:09:22Z"}
-    ship: {started_at: "2026-08-28T05:09:22Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-28T05:09:22Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-28T05:11:01Z"}
+    review-pr: {started_at: "2026-08-28T05:11:01Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/752
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 2076
+    deleted: 193
+    net: 1883
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 1539
+        deleted: 143
+        net: 1396
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-08-28T05:09:22Z"
-    computed_at_stage: hydrate
+        added: 875
+        deleted: 80
+        net: 795
+    computed_at: "2026-08-28T05:11:01Z"
+    computed_at_stage: ship
 summary: moves @color/@session_color to scope-named @rk_win_color/@rk_ses_color and adds the table-driven MigrateLegacyOptions sweep — right-scope move + wrong-scope purge, once-per-daemon at the ReloadConfig seams; doctor row and registry/migration memory updated
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-28T05:09:22Z
+last_updated: 2026-08-28T05:11:01Z

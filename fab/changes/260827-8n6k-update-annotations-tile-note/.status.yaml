@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 12
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-27T06:21:28Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-28T02:25:20Z"}
     review: {started_at: "2026-08-28T02:25:20Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-28T02:29:59Z"}
     hydrate: {started_at: "2026-08-28T02:29:59Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-28T02:54:23Z"}
-    ship: {started_at: "2026-08-28T02:54:23Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-28T02:54:23Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-28T02:57:22Z"}
+    review-pr: {started_at: "2026-08-28T02:57:22Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/751
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1005
+    deleted: 775
+    net: 230
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 435
+        deleted: 689
+        net: -254
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-08-28T02:54:23Z"
-    computed_at_stage: hydrate
+        added: 149
+        deleted: 72
+        net: 77
+    computed_at: "2026-08-28T02:57:22Z"
+    computed_at_stage: ship
 summary: Server tiles render @rk_note (+age, 24h stale dimming) instead of the capture preview when noted; new server-scoped update-annotations operator template with optional session scope (acceptsSession); session-card Update annotations row + palette entry; window-card Annotate row and the retire-tab template/dialog/row/palette entry retired
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-28T02:54:23Z
+last_updated: 2026-08-28T02:57:22Z

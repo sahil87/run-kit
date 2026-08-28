@@ -1,7 +1,7 @@
 /**
  * Web tile browser chrome e2e: explicit error states replace the silent blank
  * iframe, back/forward drive the same-origin frame history per-viewer with
- * zero `@rk_win_url` writes, the address bar splits display form from raw edit
+ * zero option writes, the address bar splits display form from raw edit
  * form, and the retired `>_` switch-to-terminal button is gone.
  *
  * Shared setup: `beforeAll` creates a dedicated session `e2e-webchrome-<ts>`
@@ -11,8 +11,9 @@
  * plumbing param or it would 404 against the `default` server) and
  * `page-two.html`; `afterAll` kills the session and removes the scratch dir.
  * `beforeEach` sets a 1440×800 desktop viewport. `makeWindow(name, {url?,
- * presentRoot?})` runs `tmux new-window` plus direct `set-option -w` stamps of
- * `@rk_win_url` / `@rk_win_present_root`; `url` is omittable so `/present/…`
+ * presentRoot?})` runs `tmux new-window` plus a slot-1 web tab stamp
+ * (`stampWebTab`) and a direct `set-option -w` stamp of
+ * `@rk_win_present_root`; `url` is omittable so `/present/…`
  * addresses can embed the resolved `@N` id before navigation. `gotoWebTile`
  * deep-links `/<server>/<@N>?view=web` and waits for the `Proxied content`
  * iframe. `trackOptionPosts` records every `POST /api/windows/…/options` for
@@ -27,7 +28,7 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { READY_TIMEOUT } from "./_ready";
-import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
+import { TMUX_SERVER, createSession, killSession, newWindow, stampWebTab, windowOption } from "./_tmux";
 import { resolveWindow as resolveWindowRaw } from "./_ready";
 
 // Own session so this file never collides with other specs (fullyParallel off).
@@ -52,10 +53,10 @@ function setWindowOpt(windowId: string, key: string, value: string): void {
   });
 }
 
-/** Create a window and stamp @rk_win_url (plus @rk_win_present_root when the address
- *  is a /present/ one). Returns the @N id. `url` may be omitted when the
- *  address needs the resolved id (the /present/ path embeds it) — stamp it
- *  via setWindowOpt before navigating. */
+/** Create a window and stamp its slot-1 web tab (plus @rk_win_present_root
+ *  when the address is a /present/ one). Returns the @N id. `url` may be
+ *  omitted when the address needs the resolved id (the /present/ path embeds
+ *  it) — stamp it via setWindowOpt before navigating. */
 async function makeWindow(
   page: Page,
   name: string,
@@ -63,7 +64,7 @@ async function makeWindow(
 ): Promise<string> {
   newWindow(TEST_SESSION, name, { cwd: "/tmp" });
   const id = await resolveWindow(page, name);
-  if (opts.url !== undefined) setWindowOpt(id, "@rk_win_url", opts.url);
+  if (opts.url !== undefined) stampWebTab(id, opts.url);
   if (opts.presentRoot) setWindowOpt(id, "@rk_win_present_root", opts.presentRoot);
   return id;
 }
@@ -130,7 +131,7 @@ test.describe("Web tile browser chrome (260819-v6y4)", () => {
    * Proves: a probed-blocked external URL renders the refusal error box
    * ("{host} refuses embedding" + the reason line) instead of a silent blank
    * iframe, and the in-error "Open in browser ↗" button pops the current
-   * address in a new tab without any `@rk_win_url` write.
+   * address in a new tab without any option write.
    *
    * Steps:
    * 1. Record `/options` POSTs; stub `window.open`; `page.route` mock
@@ -138,7 +139,7 @@ test.describe("Web tile browser chrome (260819-v6y4)", () => {
    *    `embeddable: false` with `X-Frame-Options: DENY`; abort the external
    *    iframe navigation so the test is hermetic.
    * 2. Create a window with
-   *    `@rk_win_url = https://framed-refusal.example/some/page`; deep-link
+   *    web tab `https://framed-refusal.example/some/page`; deep-link
    *    `?view=web`.
    * 3. Assert the error box is visible with the refusal copy, and the iframe
    *    is hidden.
@@ -148,7 +149,6 @@ test.describe("Web tile browser chrome (260819-v6y4)", () => {
   test("(a) a frame-refused external URL renders the error state with the Open-in-browser escape hatch", async ({
     page,
   }) => {
-    const optionPosts = trackOptionPosts(page);
     await stubWindowOpen(page);
     // Mock the frame-check probe (trailing `*` — the glob must cover the
     // query string) and abort the external navigation so the test is hermetic.
@@ -170,6 +170,11 @@ test.describe("Web tile browser chrome (260819-v6y4)", () => {
       url: "https://framed-refusal.example/some/page",
     });
     await gotoWebTile(page, id);
+    // Count option POSTs only once the tile is up: the `?view=web` arrival may
+    // itself translate into one `@rk_win_layout` write, which is the deep
+    // link's business, not the chrome's.
+    await expect.poll(() => windowOption(id, "@rk_win_layout"), { timeout: 10_000 }).toBe("single:web");
+    const optionPosts = trackOptionPosts(page);
 
     // The refusal state replaces a silent blank iframe (design study state 05).
     const errBox = page.getByTestId("web-tile-error");
@@ -178,7 +183,7 @@ test.describe("Web tile browser chrome (260819-v6y4)", () => {
     await expect(errBox).toContainText("X-Frame-Options: DENY");
     await expect(page.getByTitle("Proxied content")).toBeHidden();
 
-    // The escape hatch pops the CURRENT address — @rk_win_url untouched.
+    // The escape hatch pops the CURRENT address — no option write.
     await errBox.getByRole("button", { name: "Open in browser" }).click();
     await expect
       .poll(() => page.evaluate(() => (window as unknown as { __openedUrls: string[] }).__openedUrls))
@@ -189,11 +194,11 @@ test.describe("Web tile browser chrome (260819-v6y4)", () => {
   /**
    * Proves: ◀/▶ navigate the frame's own history (view state); the address
    * bar's display form tracks the frame's current location; neither touches
-   * `@rk_win_url` (the substrate/view split).
+   * the option (the substrate/view split).
    *
    * Steps:
    * 1. Create a window with `@rk_win_present_root` = the scratch dir and
-   *    `@rk_win_url` = `/present/<@N>/page-one.html?server=<e2e-server>`;
+   *    web tab `/present/<@N>/page-one.html?server=<e2e-server>`;
    *    deep-link `?view=web`.
    * 2. Assert the frame shows page one and the address input's rest value is
    *    the display form `page-one.html`.
@@ -207,10 +212,13 @@ test.describe("Web tile browser chrome (260819-v6y4)", () => {
   test("(b) back/forward drive the same-origin frame history per-viewer — zero option POSTs", async ({
     page,
   }) => {
-    const optionPosts = trackOptionPosts(page);
     const id = await makeWindow(page, `wc-nav-${Date.now()}`, { presentRoot: presentDir });
-    setWindowOpt(id, "@rk_win_url", `/present/${id}/page-one.html?server=${TMUX_SERVER}`);
+    stampWebTab(id, `/present/${id}/page-one.html?server=${TMUX_SERVER}`);
     await gotoWebTile(page, id);
+    // Count option POSTs only once the tile is up (the arrival's translation
+    // write is the deep link's, not the chrome's).
+    await expect.poll(() => windowOption(id, "@rk_win_layout"), { timeout: 10_000 }).toBe("single:web");
+    const optionPosts = trackOptionPosts(page);
 
     const frame = page.frameLocator('iframe[title="Proxied content"]');
     await expect(frame.locator("#go")).toBeVisible({ timeout: 10_000 });
@@ -253,7 +261,7 @@ test.describe("Web tile browser chrome (260819-v6y4)", () => {
     page,
   }) => {
     const id = await makeWindow(page, `wc-display-${Date.now()}`, { presentRoot: presentDir });
-    setWindowOpt(id, "@rk_win_url", `/present/${id}/page-one.html?server=${TMUX_SERVER}`);
+    stampWebTab(id, `/present/${id}/page-one.html?server=${TMUX_SERVER}`);
     await gotoWebTile(page, id);
     const frame = page.frameLocator('iframe[title="Proxied content"]');
     await expect(frame.locator("#go")).toBeVisible({ timeout: 10_000 });
@@ -288,7 +296,7 @@ test.describe("Web tile browser chrome (260819-v6y4)", () => {
    */
   test("(d) no switch-to-terminal button renders in the web tile (R13)", async ({ page }) => {
     const id = await makeWindow(page, `wc-noswitch-${Date.now()}`, { presentRoot: presentDir });
-    setWindowOpt(id, "@rk_win_url", `/present/${id}/page-one.html?server=${TMUX_SERVER}`);
+    stampWebTab(id, `/present/${id}/page-one.html?server=${TMUX_SERVER}`);
     await gotoWebTile(page, id);
     await expect(webTile(page).getByLabel("Switch to terminal")).toHaveCount(0);
     // The chrome that replaced it IS present (design-study button order).

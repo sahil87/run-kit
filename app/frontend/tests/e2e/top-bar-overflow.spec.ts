@@ -1,7 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
-import { execSync } from "node:child_process";
 import { resolveWindow as resolveWindowRaw, gotoWindow as gotoWindowRaw } from "./_ready";
-import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
+import { TMUX_SERVER, createSession, killSession, newWindow, stampWebTab, windowOption } from "./_tmux";
 import { stubProxyPorts } from "./_web-tile";
 
 // Regression proof for the top-bar overflow chevron menu and for the fix
@@ -39,7 +38,7 @@ import { stubProxyPorts } from "./_web-tile";
 // creates a dedicated session with an extra named window (`overflow-win-<ts>`)
 // so the terminal route renders the right cluster; the second describe adds a
 // SECOND, web-capable long-named window (`overflow-view-long-worktree-<ts>`
-// with a non-empty `@rk_win_url` ⇒ `[tty|web]`; the repo-cwd pane also
+// with a stamped web tab ⇒ `[tty|web]`; the repo-cwd pane also
 // derives a `gitRoot` ⇒ `code`, so its toggle group shows Terminal/Web/Code)
 // so the palette's `View: Web` action actually renders (the palette gates on
 // a multi-view window). `resolveWindow`/`gotoWindow` (from `_ready.ts`)
@@ -669,7 +668,7 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
 // The ViewSwitcher is RETIRED (260812-0c6o) — lens switching is palette-only
 // (plus the top bar's surface-toggle group, 260815-19me — the rail that used
 // to carry the open-tile toggles is REMOVED). This block uses a web-capable
-// window (a non-empty `@rk_win_url` ⇒ `[tty|web]`; the repo-cwd pane also derives
+// window (a stamped web tab ⇒ `[tty|web]`; the repo-cwd pane also derives
 // a gitRoot ⇒ `code`) with a long name to prove the removal
 // contract: no `view-toggle` testid and no in-bar "Window view" group at ANY
 // width, the chevron menu carries NO `View:` menuitemradio rows (the Fixed
@@ -691,16 +690,14 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
     }
   });
 
-  async function gotoViewWindow(page: Page): Promise<void> {
+  async function gotoViewWindow(page: Page): Promise<string> {
     const id = await resolveWindow(page, VIEW_WINDOW_NAME);
-    // Stamp `@rk_win_url` so the window offers the `web` lens (`[tty|web]` → the
-    // multi-view gate passes and the palette's `View: Web` action renders).
-    // Set before navigating so the first snapshot carries it.
-    execSync(
-      `tmux -L ${TMUX_SERVER} set-option -w -t ${id} @rk_win_url "${VIEW_URL}"`,
-      { stdio: "ignore" },
-    );
+    // Stamp the slot-1 web tab so the window offers the `web` lens
+    // (`[tty|web]` → the multi-view gate passes and the palette's `View: Web`
+    // action renders). Set before navigating so the first snapshot carries it.
+    stampWebTab(id, VIEW_URL);
     await gotoWindow(page, id);
+    return id;
   }
 
   /**
@@ -915,7 +912,7 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
 
     // One `menuitemcheckbox` row per shown surface (chat excluded —
     // SURFACE_RAIL_HIDDEN), aria-checked = tile open. This window offers
-    // [tty|web|code] (`@rk_win_url` ⇒ web; the repo-cwd pane derives a gitRoot ⇒
+    // [tty|web|code] (a stamped web tab ⇒ web; the repo-cwd pane derives a gitRoot ⇒
     // code) and only the tty tile is open.
     const ttyRow = menu.getByRole("menuitemcheckbox", { name: "Terminal tile" });
     await expect(ttyRow).toBeVisible();
@@ -933,19 +930,20 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
    * — the distinguishing case (the bar has room, yet the menu holds no
    * `View:` rows): running the palette's `View: Web` action switches the
    * lens (the selection becomes a `single:web` layout through the shared
-   * mutation path, mirrored into the URL as `?layout=single:web`).
+   * mutation path, POSTed to the window's `@rk_win_layout` option — the URL
+   * stays bare).
    *
    * Steps:
    * 1. Navigate to the web-capable window; set 1440×800; gate on the
    *    renamable heading.
    * 2. Press `Meta+k`; fill `View: Web`; click the `View: Web` option.
-   * 3. Assert the decoded `layout` param reads `single:web` and the proxied
-   *    iframe (`title="Proxied content"`) renders.
+   * 3. Assert the window's `@rk_win_layout` option reads `single:web` and
+   *    the proxied iframe (`title="Proxied content"`) renders.
    */
   test("a palette `View:` action switches the lens — even at a wide width", async ({
     page,
   }) => {
-    await gotoViewWindow(page);
+    const viewWindowId = await gotoViewWindow(page);
     const heading = page.getByRole("button", { name: `Rename tab ${VIEW_WINDOW_NAME}` });
     // A wide width is the distinguishing case: the bar has room, yet lens
     // switching is palette-only (260812-0c6o) — the menu holds no `View:` rows.
@@ -953,8 +951,8 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
     await expect(heading).toBeVisible({ timeout: 10_000 });
 
     // The command palette's `View: Web` action switches the lens: the selection
-    // becomes a `single:web` layout and the URL mirrors `?layout=single:web`
-    // (decoded — the router may percent-encode the `:`).
+    // becomes a `single:web` layout POSTed to the shared option (the URL never
+    // carries it).
     await page.keyboard.press("Meta+k");
     const paletteInput = page.getByPlaceholder("Type a command");
     await expect(paletteInput).toBeVisible({ timeout: 5_000 });
@@ -963,8 +961,9 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
     await expect(webOption).toBeVisible();
     await webOption.click();
     await expect
-      .poll(() => new URL(page.url()).searchParams.get("layout"), { timeout: 10_000 })
+      .poll(() => windowOption(viewWindowId, "@rk_win_layout"), { timeout: 10_000 })
       .toBe("single:web");
+    expect(new URL(page.url()).search).toBe("");
     await expect(page.getByTitle("Proxied content")).toBeVisible({ timeout: 10_000 });
   });
 });

@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-28T19:10:21Z"}
+{"args":"Change 2 from fab/plans/sahil/26-08-28-ui-state-tmux-options.md -- Frontend: layout + code root read from tmux options, ladder retired (LARGE). Change 1 already merged to main. Implement exactly the Change 2 section; do not implement Changes 3-5.","cmd":"fab-new","event":"command","ts":"2026-08-28T19:10:21Z"}
+{"delta":"+4.6","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-08-28T19:13:35Z"}
+{"delta":"+0.0","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-08-28T19:13:55Z"}
+{"delta":"+0.0","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-08-28T19:14:10Z"}
+{"delta":"+0.0","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-08-28T19:14:24Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-28T19:17:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-28T19:17:40Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-28T22:28:57Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-28T22:43:05Z"}
+{"event":"review","result":"passed","ts":"2026-08-28T22:43:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-28T22:54:32Z"}

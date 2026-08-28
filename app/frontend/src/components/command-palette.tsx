@@ -24,6 +24,11 @@ export type PaletteAction = {
    * Space/click toggles options (order badges = selection order), Enter
    * applies, Esc/backdrop/⌘K cancel. */
   optionPicker?: PaletteOptionPicker;
+  /** Renders the row dimmed and inert (selecting it is a no-op) — the
+   *  palette's disabled affordance (e.g. a switch target whose growth is
+   *  disallowed). Prefer omitting the row when the action is simply
+   *  unavailable. */
+  disabled?: boolean;
   onSelect: () => void;
 };
 
@@ -137,6 +142,7 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
 
   const handleSelect = useCallback(
     (action: PaletteAction) => {
+      if (action.disabled) return;
       if (action.optionPicker) {
         setPicking(action);
         setPickedKeys([]);
@@ -267,13 +273,18 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
                   id={`${listId}-option-${action.id}`}
                   role="option"
                   aria-selected={i === selectedIndex}
+                  aria-disabled={action.disabled || undefined}
                   onClick={() =>
                     optKey !== undefined ? togglePick(optKey) : handleSelect(action)
                   }
-                  className={`w-full text-left px-2.5 py-1.5 text-[11px] flex items-center justify-between cursor-pointer ${
-                    i === selectedIndex
-                      ? "bg-bg-card text-text-primary"
-                      : "text-text-secondary hover:text-text-primary hover:bg-bg-card/50"
+                  className={`w-full text-left px-2.5 py-1.5 text-[11px] flex items-center justify-between ${
+                    action.disabled
+                      ? "opacity-40 cursor-not-allowed text-text-secondary"
+                      : `cursor-pointer ${
+                          i === selectedIndex
+                            ? "bg-bg-card text-text-primary"
+                            : "text-text-secondary hover:text-text-primary hover:bg-bg-card/50"
+                        }`
                   }`}
                 >
                   <span>

@@ -3,17 +3,16 @@ import { render, cleanup, fireEvent, screen } from "@testing-library/react";
 import { IframeWindow } from "./iframe-window";
 import { StandaloneSessionContextProvider } from "@/contexts/session-context";
 
-// Mock the API client. `IframeWindow` calls `updateWindowUrl` (the URL bar's
-// Enter-commit — global substrate state) and `checkFrame` (the frame-refusal
-// probe for external URLs — default embeddable so existing tests render the
-// iframe).
+// Mock the API client. `IframeWindow` reads only `checkFrame` from it (the
+// frame-refusal probe for external URLs — default embeddable so existing tests
+// render the iframe); the URL bar's Enter-commit goes through the `onWriteUrl`
+// prop (a per-test spy — the caller owns the slot write).
 vi.mock("@/api/client", () => ({
-  updateWindowUrl: vi.fn().mockResolvedValue({ ok: true }),
   checkFrame: vi.fn().mockResolvedValue({ reachable: true, embeddable: true, status: 200, reason: "" }),
   listServers: vi.fn().mockResolvedValue([]),
 }));
 
-import { updateWindowUrl, checkFrame } from "@/api/client";
+import { checkFrame } from "@/api/client";
 
 function iframeElement(
   props: React.ComponentProps<typeof IframeWindow>,
@@ -38,11 +37,13 @@ function iframeElement(
   );
 }
 
+const onWriteUrl = vi.fn().mockResolvedValue({ ok: true });
+
 function renderIframe(
   props: Parameters<typeof iframeElement>[0],
   server = "runkit",
 ) {
-  return render(iframeElement(props, server));
+  return render(iframeElement({ onWriteUrl, ...props }, server));
 }
 
 afterEach(cleanup);
@@ -54,8 +55,7 @@ describe("IframeWindow", () => {
 
   it("renders iframe with proxied URL", () => {
     renderIframe({
-      windowId: "@2",
-      rkUrl: "http://localhost:8080/docs",
+      url: "http://localhost:8080/docs",
     });
 
     const iframe = screen.getByTitle("Proxied content") as HTMLIFrameElement;
@@ -65,8 +65,7 @@ describe("IframeWindow", () => {
 
   it("rest shows the display form; focus reveals the raw value (260819-v6y4 R7)", () => {
     renderIframe({
-      windowId: "@2",
-      rkUrl: "http://localhost:8080/docs",
+      url: "http://localhost:8080/docs",
     });
 
     const input = screen.getByLabelText("URL") as HTMLInputElement;
@@ -80,11 +79,10 @@ describe("IframeWindow", () => {
     expect(input.value).toBe("localhost:8080/docs");
   });
 
-  it("calls updateWindowUrl on Enter with server as first arg", () => {
+  it("calls onWriteUrl on Enter with the normalized address", () => {
     renderIframe(
       {
-        windowId: "@2",
-        rkUrl: "http://localhost:8080/docs",
+        url: "http://localhost:8080/docs",
       },
       "server-B",
     );
@@ -93,13 +91,12 @@ describe("IframeWindow", () => {
     fireEvent.change(input, { target: { value: "http://localhost:8080/api" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
-    expect(updateWindowUrl).toHaveBeenCalledWith("server-B", "@2", "http://localhost:8080/api");
+    expect(onWriteUrl).toHaveBeenCalledWith("http://localhost:8080/api");
   });
 
   it("renders refresh button", () => {
     renderIframe({
-      windowId: "@2",
-      rkUrl: "http://localhost:8080/docs",
+      url: "http://localhost:8080/docs",
     });
 
     const refreshBtn = screen.getByLabelText("Refresh");
@@ -108,8 +105,7 @@ describe("IframeWindow", () => {
 
   it("passes through non-localhost URLs unchanged", () => {
     renderIframe({
-      windowId: "@2",
-      rkUrl: "https://example.com/docs",
+      url: "https://example.com/docs",
     });
 
     const iframe = screen.getByTitle("Proxied content") as HTMLIFrameElement;
@@ -127,8 +123,7 @@ describe("IframeWindow", () => {
     it("fires on pointerdown and keydown inside the frame document", () => {
       const onInteract = vi.fn();
       renderIframe({
-        windowId: "@2",
-        rkUrl: "http://localhost:8080/docs",
+        url: "http://localhost:8080/docs",
         onInteract,
       });
       const doc = getIframe().contentDocument!;
@@ -141,8 +136,7 @@ describe("IframeWindow", () => {
     it("a same-document load does not double-attach; a replaced document is re-attached", () => {
       const onInteract = vi.fn();
       renderIframe({
-        windowId: "@2",
-        rkUrl: "http://localhost:8080/docs",
+        url: "http://localhost:8080/docs",
         onInteract,
       });
       const iframe = getIframe();
@@ -168,8 +162,7 @@ describe("IframeWindow", () => {
     it("blur fallback fires only when the iframe is the active element, and dies on unmount", () => {
       const onInteract = vi.fn();
       const { unmount } = renderIframe({
-        windowId: "@2",
-        rkUrl: "http://localhost:8080/docs",
+        url: "http://localhost:8080/docs",
         onInteract,
       });
       const iframe = getIframe();
@@ -195,7 +188,7 @@ describe("IframeWindow", () => {
     });
 
     it("reports nothing and errors nothing when the prop is omitted", () => {
-      renderIframe({ windowId: "@2", rkUrl: "http://localhost:8080/docs" });
+      renderIframe({ url: "http://localhost:8080/docs" });
       const iframe = getIframe();
       expect(() => {
         iframe.contentDocument!.dispatchEvent(new Event("pointerdown"));
@@ -207,12 +200,11 @@ describe("IframeWindow", () => {
     it("a handler supplied after mount reports (hidden tile with slot -1 becoming visible)", () => {
       const onInteract = vi.fn();
       const { rerender } = renderIframe({
-        windowId: "@2",
-        rkUrl: "http://localhost:8080/docs",
+        url: "http://localhost:8080/docs",
       });
       rerender(
         iframeElement(
-          { windowId: "@2", rkUrl: "http://localhost:8080/docs", onInteract },
+          { url: "http://localhost:8080/docs", onInteract },
           "runkit",
         ),
       );
@@ -223,8 +215,7 @@ describe("IframeWindow", () => {
     it("unmount removes the frame-document listeners", () => {
       const onInteract = vi.fn();
       const { unmount } = renderIframe({
-        windowId: "@2",
-        rkUrl: "http://localhost:8080/docs",
+        url: "http://localhost:8080/docs",
         onInteract,
       });
       const doc = getIframe().contentDocument!;
@@ -240,8 +231,7 @@ describe("IframeWindow", () => {
   // is covered by the surface-toggle path web-view-lens.spec.ts asserts.
   it("no switch-to-terminal button renders in the URL bar", () => {
     renderIframe({
-      windowId: "@2",
-      rkUrl: "http://localhost:8080/docs",
+      url: "http://localhost:8080/docs",
     });
     expect(screen.queryByLabelText("Switch to terminal")).toBeNull();
   });
@@ -256,8 +246,7 @@ describe("IframeWindow", () => {
     it("a matching chord is prevented in the frame and re-dispatched on the parent document", () => {
       const onInteract = vi.fn();
       renderIframe({
-        windowId: "@2",
-        rkUrl: "http://localhost:8080/docs",
+        url: "http://localhost:8080/docs",
         onInteract,
         shouldReclaimChord: (e) => e.code === "KeyK",
       });
@@ -290,8 +279,7 @@ describe("IframeWindow", () => {
     it("a non-matching keydown passes through untouched (no prevent, no re-dispatch)", () => {
       const onInteract = vi.fn();
       renderIframe({
-        windowId: "@2",
-        rkUrl: "http://localhost:8080/docs",
+        url: "http://localhost:8080/docs",
         onInteract,
         shouldReclaimChord: () => false,
       });
@@ -315,7 +303,7 @@ describe("IframeWindow", () => {
 
     it("without the predicate the seam stays report-only (legacy behavior)", () => {
       const onInteract = vi.fn();
-      renderIframe({ windowId: "@2", rkUrl: "http://localhost:8080/docs", onInteract });
+      renderIframe({ url: "http://localhost:8080/docs", onInteract });
       const parentReceived = vi.fn();
       document.addEventListener("keydown", parentReceived);
       try {
@@ -362,7 +350,7 @@ describe("IframeWindow", () => {
     }
 
     it("opens via the web-find:open CustomEvent with the input focused, and via the ⌕ button", () => {
-      renderIframe({ windowId: "@2", rkUrl: "http://localhost:8080/docs" });
+      renderIframe({ url: "http://localhost:8080/docs" });
       expect(screen.queryByTestId("web-find-bar")).toBeNull();
       openBarViaEvent();
       const input = screen.getByLabelText("Find query") as HTMLInputElement;
@@ -374,7 +362,7 @@ describe("IframeWindow", () => {
     });
 
     it("counts matches, Enter/Shift+Enter cycle with wrap, Escape closes", () => {
-      renderIframe({ windowId: "@2", rkUrl: "http://localhost:8080/docs" });
+      renderIframe({ url: "http://localhost:8080/docs" });
       seedFrameDocument("<p>version one</p><p>the version floor</p><p>Version</p>");
       openBarViaEvent();
       const input = screen.getByLabelText("Find query");
@@ -398,7 +386,7 @@ describe("IframeWindow", () => {
     });
 
     it("a query with no matches reads 0/0 and navigation is a no-op; clearing the query clears the count", () => {
-      renderIframe({ windowId: "@2", rkUrl: "http://localhost:8080/docs" });
+      renderIframe({ url: "http://localhost:8080/docs" });
       seedFrameDocument("<p>nothing here</p>");
       openBarViaEvent();
       const input = screen.getByLabelText("Find query");
@@ -413,7 +401,7 @@ describe("IframeWindow", () => {
     });
 
     it("a cross-origin frame renders the bar disabled with the hint (R7)", () => {
-      renderIframe({ windowId: "@2", rkUrl: "https://example.com/docs" });
+      renderIframe({ url: "https://example.com/docs" });
       const iframe = getIframe();
       // Simulate cross-origin: contentDocument/contentWindow access throws.
       Object.defineProperty(iframe, "contentDocument", {
@@ -441,7 +429,7 @@ describe("IframeWindow", () => {
     });
 
     it("a frame navigation resets matches and the query (R8)", () => {
-      renderIframe({ windowId: "@2", rkUrl: "http://localhost:8080/docs" });
+      renderIframe({ url: "http://localhost:8080/docs" });
       seedFrameDocument("<p>version one</p>");
       openBarViaEvent();
       const input = screen.getByLabelText("Find query") as HTMLInputElement;
@@ -461,40 +449,40 @@ describe("IframeWindow", () => {
 
   describe("address bar display/edit split (R7) + submit normalization (R4)", () => {
     it("Enter normalizes bare loopback input and POSTs the proxy path", () => {
-      renderIframe({ windowId: "@2", rkUrl: "/proxy/8080/docs" }, "server-B");
+      renderIframe({ url: "/proxy/8080/docs" }, "server-B");
       const input = screen.getByLabelText("URL") as HTMLInputElement;
       fireEvent.focus(input);
       fireEvent.change(input, { target: { value: "localhost:5173" } });
       fireEvent.keyDown(input, { key: "Enter" });
-      expect(updateWindowUrl).toHaveBeenCalledWith("server-B", "@2", "/proxy/5173/");
+      expect(onWriteUrl).toHaveBeenCalledWith("/proxy/5173/");
     });
 
     it("Escape reverts the edit to the rest display form without a POST", () => {
-      renderIframe({ windowId: "@2", rkUrl: "/proxy/8080/docs" });
+      renderIframe({ url: "/proxy/8080/docs" });
       const input = screen.getByLabelText("URL") as HTMLInputElement;
       fireEvent.focus(input);
       expect(input.value).toBe("/proxy/8080/docs");
       fireEvent.change(input, { target: { value: "example.com" } });
       fireEvent.keyDown(input, { key: "Escape" });
-      expect(updateWindowUrl).not.toHaveBeenCalled();
+      expect(onWriteUrl).not.toHaveBeenCalled();
       expect(input.value).toBe("localhost:8080/docs");
     });
 
     it("an invalid scheme surfaces inline feedback and fires NO POST", () => {
-      renderIframe({ windowId: "@2", rkUrl: "/proxy/8080/docs" });
+      renderIframe({ url: "/proxy/8080/docs" });
       const input = screen.getByLabelText("URL") as HTMLInputElement;
       fireEvent.focus(input);
       fireEvent.change(input, { target: { value: "javascript:alert(1)" } });
       fireEvent.keyDown(input, { key: "Enter" });
-      expect(updateWindowUrl).not.toHaveBeenCalled();
+      expect(onWriteUrl).not.toHaveBeenCalled();
       expect(screen.getByRole("alert").textContent).toContain("http");
       // The next keystroke clears the inline rejection.
       fireEvent.change(input, { target: { value: "javascript:alert(2)" } });
       expect(screen.queryByRole("alert")).toBeNull();
     });
 
-    it("same-origin in-frame navigation tracks the display form only — @rk_win_url untouched", () => {
-      renderIframe({ windowId: "@2", rkUrl: "/proxy/8080/docs" });
+    it("same-origin in-frame navigation tracks the display form only — the stored web tab option untouched", () => {
+      renderIframe({ url: "/proxy/8080/docs" });
       const iframe = screen.getByTitle("Proxied content") as HTMLIFrameElement;
       const realWin = iframe.contentWindow!;
       Object.defineProperty(iframe, "contentWindow", {
@@ -509,13 +497,13 @@ describe("IframeWindow", () => {
       fireEvent.load(iframe);
       const input = screen.getByLabelText("URL") as HTMLInputElement;
       expect(input.value).toBe("localhost:8080/next?x=1");
-      expect(updateWindowUrl).not.toHaveBeenCalled();
+      expect(onWriteUrl).not.toHaveBeenCalled();
     });
   });
 
   describe("back/forward + open-in-browser chrome (R5/R9)", () => {
     it("renders back/forward/refresh/find/open with their register data-icon SVGs on a same-origin tile", () => {
-      renderIframe({ windowId: "@2", rkUrl: "/proxy/8080/docs" });
+      renderIframe({ url: "/proxy/8080/docs" });
       // Glyph identity via the ControlGlyph data-icon seam (the pjqd
       // precedent) — the buttons render register SVGs, not unicode spans.
       const glyphs: Array<[string, string]> = [
@@ -532,7 +520,7 @@ describe("IframeWindow", () => {
     });
 
     it("hides back/forward on a cross-origin frame", () => {
-      renderIframe({ windowId: "@2", rkUrl: "https://example.com/docs" });
+      renderIframe({ url: "https://example.com/docs" });
       const iframe = screen.getByTitle("Proxied content") as HTMLIFrameElement;
       Object.defineProperty(iframe, "contentDocument", {
         get() {
@@ -554,18 +542,18 @@ describe("IframeWindow", () => {
       expect(screen.getByLabelText("Open in browser")).toBeTruthy();
     });
 
-    it("↗ opens the current address in a new tab without touching @rk_win_url", () => {
+    it("↗ opens the current address in a new tab without touching the stored web tab option", () => {
       const open = vi.spyOn(window, "open").mockReturnValue(null);
-      renderIframe({ windowId: "@2", rkUrl: "/present/@320/file.html?server=runKit" });
+      renderIframe({ url: "/present/@320/file.html?server=runKit" });
       fireEvent.click(screen.getByLabelText("Open in browser"));
       expect(open).toHaveBeenCalledWith("/present/@320/file.html?server=runKit", "_blank", "noopener");
-      expect(updateWindowUrl).not.toHaveBeenCalled();
+      expect(onWriteUrl).not.toHaveBeenCalled();
       open.mockRestore();
     });
 
     it("the web-open-external CustomEvent opens the current address (palette seam)", () => {
       const open = vi.spyOn(window, "open").mockReturnValue(null);
-      renderIframe({ windowId: "@2", rkUrl: "/proxy/8080/docs" });
+      renderIframe({ url: "/proxy/8080/docs" });
       fireEvent(document, new CustomEvent("web-open-external"));
       expect(open).toHaveBeenCalledWith("/proxy/8080/docs", "_blank", "noopener");
       open.mockRestore();
@@ -580,7 +568,7 @@ describe("IframeWindow", () => {
         status: 200,
         reason: "X-Frame-Options: DENY",
       });
-      renderIframe({ windowId: "@2", rkUrl: "https://github.com/sahil87/run-kit" });
+      renderIframe({ url: "https://github.com/sahil87/run-kit" });
       const box = await screen.findByTestId("web-tile-error");
       expect(box.textContent).toContain("github.com refuses embedding");
       expect(box.textContent).toContain("X-Frame-Options: DENY");
@@ -595,7 +583,7 @@ describe("IframeWindow", () => {
         status: 0,
         reason: "connect failed: connection refused",
       });
-      renderIframe({ windowId: "@2", rkUrl: "https://dead.example/" });
+      renderIframe({ url: "https://dead.example/" });
       const box = await screen.findByTestId("web-tile-error");
       expect(box.textContent).toContain("dead.example can't be reached");
       expect(box.textContent).toContain("connect failed");
@@ -605,7 +593,7 @@ describe("IframeWindow", () => {
       const fetchStub = vi.fn().mockResolvedValue({ status: 502 });
       vi.stubGlobal("fetch", fetchStub);
       try {
-        renderIframe({ windowId: "@2", rkUrl: "/proxy/8080/" });
+        renderIframe({ url: "/proxy/8080/" });
         const box = await screen.findByTestId("web-tile-error");
         expect(box.textContent).toContain("nothing listening on :8080");
         expect(box.textContent).toContain("connection refused — the dev server may have stopped");
@@ -623,7 +611,7 @@ describe("IframeWindow", () => {
   describe("page meta + address focus seams (R10/R12)", () => {
     it("reports the same-origin document title on load; null cross-origin", () => {
       const onPageMeta = vi.fn();
-      renderIframe({ windowId: "@2", rkUrl: "/proxy/8080/docs", onPageMeta });
+      renderIframe({ url: "/proxy/8080/docs", onPageMeta });
       const iframe = screen.getByTitle("Proxied content") as HTMLIFrameElement;
       const doc = document.implementation.createHTMLDocument("tmux Version Floor");
       Object.defineProperty(iframe, "contentDocument", { value: doc, configurable: true });
@@ -647,7 +635,7 @@ describe("IframeWindow", () => {
     });
 
     it("the web-address:focus CustomEvent focuses the input in edit mode, selected (⌘L)", () => {
-      renderIframe({ windowId: "@2", rkUrl: "/proxy/8080/docs" });
+      renderIframe({ url: "/proxy/8080/docs" });
       const input = screen.getByLabelText("URL") as HTMLInputElement;
       fireEvent(document, new CustomEvent("web-address:focus"));
       expect(input).toHaveFocus();
@@ -659,32 +647,32 @@ describe("IframeWindow", () => {
 
   describe("load progress line (R11)", () => {
     it("renders from mount/src-change until the frame's load event clears it", () => {
-      renderIframe({ windowId: "@2", rkUrl: "/proxy/8080/docs" });
+      renderIframe({ url: "/proxy/8080/docs" });
       // src is set at mount → loading until the first load event.
       expect(screen.getByTestId("web-load-progress")).toBeTruthy();
       fireEvent.load(screen.getByTitle("Proxied content"));
       expect(screen.queryByTestId("web-load-progress")).toBeNull();
 
       // An external src change re-arms it until the next load.
-      const { rerender } = renderIframe({ windowId: "@3", rkUrl: "/proxy/8080/docs" });
+      const { rerender } = renderIframe({ url: "/proxy/8080/docs" });
       const second = screen.getAllByTitle("Proxied content")[1];
       fireEvent.load(second);
       expect(screen.queryAllByTestId("web-load-progress")).toHaveLength(0);
-      rerender(iframeElement({ windowId: "@3", rkUrl: "/proxy/9000/other" }));
+      rerender(iframeElement({ url: "/proxy/9000/other" }));
       expect(screen.getByTestId("web-load-progress")).toBeTruthy();
       fireEvent.load(second);
       expect(screen.queryByTestId("web-load-progress")).toBeNull();
     });
   });
 
-  // ── 260821-zqlq: the onboarding content state (empty/whitespace @rk_win_url) ──
+  // ── 260821-zqlq: the onboarding content state (empty/whitespace the stored web tab option) ──
 
   describe("onboarding state (260821-zqlq)", () => {
     it("renders the onboarding panel with heading, subhead, three rows, and footer — no iframe, no probes", () => {
-      renderIframe({ windowId: "@2", rkUrl: "" });
+      renderIframe({ url: "" });
       const box = screen.getByTestId("web-tile-onboarding");
       expect(box.textContent).toContain("Nothing to show yet");
-      expect(box.textContent).toContain("this tile follows the window's web address (@rk_win_url)");
+      expect(box.textContent).toContain("this tile follows the window's active web tab (@rk_win_web_N)");
       expect(box.textContent).toContain("Ask your agent to show something.");
       expect(box.textContent).toContain("rk present ./report.html");
       expect(box.textContent).toContain("Preview a dev server.");
@@ -698,7 +686,7 @@ describe("IframeWindow", () => {
     });
 
     it("renders the reduced URL bar — refresh + live address input with placeholder; back/forward/find/↗ hidden", () => {
-      renderIframe({ windowId: "@2", rkUrl: "" });
+      renderIframe({ url: "" });
       expect(screen.getByLabelText("Refresh")).toBeTruthy();
       const input = screen.getByLabelText("URL") as HTMLInputElement;
       expect(input.placeholder).toBe("localhost:3000 · /present/… · https://…");
@@ -709,40 +697,40 @@ describe("IframeWindow", () => {
       expect(screen.queryByTestId("web-find-bar")).toBeNull();
     });
 
-    it("a whitespace-only rkUrl renders onboarding (the trim rule)", () => {
-      renderIframe({ windowId: "@2", rkUrl: "  \t " });
+    it("a whitespace-only url renders onboarding (the trim rule)", () => {
+      renderIframe({ url: "  \t " });
       expect(screen.getByTestId("web-tile-onboarding")).toBeTruthy();
       expect(screen.queryByTitle("Proxied content")).toBeNull();
     });
 
     it("the address input is fully live — Enter submits through the existing pipeline and boots the tile", () => {
-      renderIframe({ windowId: "@2", rkUrl: "" }, "server-B");
+      renderIframe({ url: "" }, "server-B");
       const input = screen.getByLabelText("URL") as HTMLInputElement;
       fireEvent.change(input, { target: { value: "localhost:3000" } });
       fireEvent.keyDown(input, { key: "Enter" });
-      expect(updateWindowUrl).toHaveBeenCalledWith("server-B", "@2", "/proxy/3000/");
+      expect(onWriteUrl).toHaveBeenCalledWith("/proxy/3000/");
     });
 
     it("an invalid address surfaces the inline alert with NO POST", () => {
-      renderIframe({ windowId: "@2", rkUrl: "" });
+      renderIframe({ url: "" });
       const input = screen.getByLabelText("URL") as HTMLInputElement;
       fireEvent.change(input, { target: { value: "javascript:alert(1)" } });
       fireEvent.keyDown(input, { key: "Enter" });
-      expect(updateWindowUrl).not.toHaveBeenCalled();
+      expect(onWriteUrl).not.toHaveBeenCalled();
       expect(screen.getByRole("alert").textContent).toContain("http");
     });
 
     it("the web-find:open event no-ops on an onboarding tile (no bar, no throw)", () => {
-      renderIframe({ windowId: "@2", rkUrl: "" });
+      renderIframe({ url: "" });
       expect(() => fireEvent(document, new CustomEvent("web-find:open"))).not.toThrow();
       expect(screen.queryByTestId("web-find-bar")).toBeNull();
     });
 
-    it("flips onboarding → live iframe when rkUrl becomes non-empty, and back on empty", () => {
-      const { rerender } = renderIframe({ windowId: "@2", rkUrl: "" });
+    it("flips onboarding → live iframe when url becomes non-empty, and back on empty", () => {
+      const { rerender } = renderIframe({ url: "" });
       expect(screen.getByTestId("web-tile-onboarding")).toBeTruthy();
 
-      rerender(iframeElement({ windowId: "@2", rkUrl: "/proxy/3000/" }));
+      rerender(iframeElement({ url: "/proxy/3000/" }));
       expect(screen.queryByTestId("web-tile-onboarding")).toBeNull();
       const iframe = screen.getByTitle("Proxied content") as HTMLIFrameElement;
       expect(iframe.src).toContain("/proxy/3000/");
@@ -750,15 +738,15 @@ describe("IframeWindow", () => {
       expect(screen.getByLabelText("Find in page")).toBeTruthy();
       expect(screen.getByLabelText("Open in browser")).toBeTruthy();
 
-      rerender(iframeElement({ windowId: "@2", rkUrl: "" }));
+      rerender(iframeElement({ url: "" }));
       expect(screen.getByTestId("web-tile-onboarding")).toBeTruthy();
       expect(screen.queryByTitle("Proxied content")).toBeNull();
     });
 
     it("the attach seam survives a flip: interaction reports after the iframe mounts late", () => {
       const onInteract = vi.fn();
-      const { rerender } = renderIframe({ windowId: "@2", rkUrl: "", onInteract });
-      rerender(iframeElement({ windowId: "@2", rkUrl: "/proxy/3000/", onInteract }));
+      const { rerender } = renderIframe({ url: "", onInteract });
+      rerender(iframeElement({ url: "/proxy/3000/", onInteract }));
       const iframe = screen.getByTitle("Proxied content") as HTMLIFrameElement;
       // The mount-time attach races jsdom's async frame navigation; the
       // frame's load event re-attaches against the settled document (the same
@@ -780,7 +768,7 @@ describe("IframeWindow content zoom (260823-cwvv R2–R5, R8)", () => {
   const readout = () => screen.getByLabelText("Reset zoom");
 
   it("renders the zoom control at 100% with no transform on the frame", () => {
-    renderIframe({ windowId: "@2", rkUrl: "/proxy/3000/" });
+    renderIframe({ url: "/proxy/3000/" });
     expect(readout().textContent).toBe("100%");
     const iframe = screen.getByTitle("Proxied content") as HTMLIFrameElement;
     expect(iframe.style.transform).toBe("");
@@ -788,12 +776,12 @@ describe("IframeWindow content zoom (260823-cwvv R2–R5, R8)", () => {
   });
 
   it("the onboarding state renders NO zoom control", () => {
-    renderIframe({ windowId: "@2", rkUrl: "" });
+    renderIframe({ url: "" });
     expect(screen.queryByTestId("web-zoom-control")).toBeNull();
   });
 
   it("+ steps the readout 100 → 110 → 125 and scales the frame", () => {
-    renderIframe({ windowId: "@2", rkUrl: "/proxy/3000/" });
+    renderIframe({ url: "/proxy/3000/" });
     fireEvent.click(screen.getByLabelText("Zoom in"));
     expect(readout().textContent).toBe("110%");
     fireEvent.click(screen.getByLabelText("Zoom in"));
@@ -805,7 +793,7 @@ describe("IframeWindow content zoom (260823-cwvv R2–R5, R8)", () => {
   });
 
   it("− steps down and reset returns to 100%", () => {
-    renderIframe({ windowId: "@2", rkUrl: "/proxy/3000/" });
+    renderIframe({ url: "/proxy/3000/" });
     fireEvent.click(screen.getByLabelText("Zoom out"));
     expect(readout().textContent).toBe("90%");
     fireEvent.click(readout());
@@ -815,31 +803,31 @@ describe("IframeWindow content zoom (260823-cwvv R2–R5, R8)", () => {
   });
 
   it("persists per bucket and re-seeds from storage", () => {
-    const first = renderIframe({ windowId: "@2", rkUrl: "/proxy/3000/" });
+    const first = renderIframe({ url: "/proxy/3000/" });
     fireEvent.click(screen.getByLabelText("Zoom in"));
     fireEvent.click(screen.getByLabelText("Zoom in"));
     expect(localStorage.getItem("runkit-web-zoom")).toBe('{"proxy:3000":1.25}');
     first.unmount();
-    renderIframe({ windowId: "@3", rkUrl: "http://localhost:3000/app" });
+    renderIframe({ url: "http://localhost:3000/app" });
     expect(readout().textContent).toBe("125%");
     // A different bucket (another port) starts at 100%.
     cleanup();
-    renderIframe({ windowId: "@4", rkUrl: "/proxy/4000/" });
+    renderIframe({ url: "/proxy/4000/" });
     expect(readout().textContent).toBe("100%");
   });
 
   it("re-seeds when the bucket changes on the same mounted tile", () => {
-    const { rerender } = renderIframe({ windowId: "@2", rkUrl: "/proxy/3000/" });
+    const { rerender } = renderIframe({ url: "/proxy/3000/" });
     fireEvent.click(screen.getByLabelText("Zoom in"));
     expect(readout().textContent).toBe("110%");
-    rerender(iframeElement({ windowId: "@2", rkUrl: "/proxy/4000/" }));
+    rerender(iframeElement({ url: "/proxy/4000/" }));
     expect(readout().textContent).toBe("100%");
-    rerender(iframeElement({ windowId: "@2", rkUrl: "/proxy/3000/" }));
+    rerender(iframeElement({ url: "/proxy/3000/" }));
     expect(readout().textContent).toBe("110%");
   });
 
   it("reset at 100% writes nothing; returning to 100% removes the entry", () => {
-    renderIframe({ windowId: "@2", rkUrl: "/proxy/3000/" });
+    renderIframe({ url: "/proxy/3000/" });
     expect(localStorage.getItem("runkit-web-zoom")).toBeNull();
     fireEvent.click(screen.getByLabelText("Zoom in"));
     expect(localStorage.getItem("runkit-web-zoom")).toBe('{"proxy:3000":1.1}');
@@ -848,7 +836,7 @@ describe("IframeWindow content zoom (260823-cwvv R2–R5, R8)", () => {
   });
 
   it("the web-zoom document event steps and resets the tile", () => {
-    renderIframe({ windowId: "@2", rkUrl: "/proxy/3000/" });
+    renderIframe({ url: "/proxy/3000/" });
     fireEvent(document, new CustomEvent("web-zoom", { detail: { direction: "in" } }));
     expect(readout().textContent).toBe("110%");
     fireEvent(document, new CustomEvent("web-zoom", { detail: { direction: "out" } }));
@@ -858,7 +846,7 @@ describe("IframeWindow content zoom (260823-cwvv R2–R5, R8)", () => {
   });
 
   it("the web-zoom event no-ops on an onboarding tile", () => {
-    renderIframe({ windowId: "@2", rkUrl: "" });
+    renderIframe({ url: "" });
     expect(() =>
       fireEvent(document, new CustomEvent("web-zoom", { detail: { direction: "in" } })),
     ).not.toThrow();
@@ -866,7 +854,7 @@ describe("IframeWindow content zoom (260823-cwvv R2–R5, R8)", () => {
   });
 
   it("ctrl-wheel on the wrapper zooms CONTINUOUSLY and is prevented; plain wheel passes through (260824-iafo R3)", () => {
-    renderIframe({ windowId: "@2", rkUrl: "/proxy/3000/" });
+    renderIframe({ url: "/proxy/3000/" });
     const wrapper = screen.getByTestId("web-zoom-frame-wrapper").parentElement as HTMLElement;
     const ctrlWheel = new WheelEvent("wheel", { deltaY: -60, ctrlKey: true, bubbles: true, cancelable: true });
     const preventSpy = vi.spyOn(ctrlWheel, "preventDefault");
@@ -883,7 +871,7 @@ describe("IframeWindow content zoom (260823-cwvv R2–R5, R8)", () => {
   });
 
   it("ctrl-wheel inside the same-origin frame document zooms continuously per event", () => {
-    renderIframe({ windowId: "@2", rkUrl: "/proxy/3000/" });
+    renderIframe({ url: "/proxy/3000/" });
     const iframe = screen.getByTitle("Proxied content") as HTMLIFrameElement;
     fireEvent.load(iframe);
     const doc = iframe.contentDocument!;
@@ -895,7 +883,7 @@ describe("IframeWindow content zoom (260823-cwvv R2–R5, R8)", () => {
   });
 
   it("Safari gesturechange scales from the gesturestart base (260824-iafo R3)", () => {
-    renderIframe({ windowId: "@2", rkUrl: "/proxy/3000/" });
+    renderIframe({ url: "/proxy/3000/" });
     const wrapper = screen.getByTestId("web-zoom-frame-wrapper").parentElement as HTMLElement;
     const gesture = (type: string, scale?: number) => {
       const e = new Event(type, { bubbles: true, cancelable: true });
@@ -917,7 +905,7 @@ describe("IframeWindow content zoom (260823-cwvv R2–R5, R8)", () => {
   it("a bucket change flushes the pending gesture write to the OLD bucket (260824-iafo R4)", () => {
     vi.useFakeTimers();
     try {
-      const view = renderIframe({ windowId: "@2", rkUrl: "/proxy/3000/" });
+      const view = renderIframe({ url: "/proxy/3000/" });
       const wrapper = screen.getByTestId("web-zoom-frame-wrapper").parentElement as HTMLElement;
       fireEvent(
         wrapper,
@@ -926,7 +914,7 @@ describe("IframeWindow content zoom (260823-cwvv R2–R5, R8)", () => {
       expect(localStorage.getItem("runkit-web-zoom")).toBeNull();
       // The address moves to a different bucket while the write is pending —
       // the flush belongs to the OLD bucket, and the new bucket seeds fresh.
-      view.rerender(iframeElement({ windowId: "@2", rkUrl: "/proxy/4000/" }, "runkit"));
+      view.rerender(iframeElement({ url: "/proxy/4000/" }, "runkit"));
       expect(JSON.parse(localStorage.getItem("runkit-web-zoom")!)).toEqual({ "proxy:3000": 1.82 });
       expect(readout().textContent).toBe("100%");
     } finally {
@@ -937,7 +925,7 @@ describe("IframeWindow content zoom (260823-cwvv R2–R5, R8)", () => {
   it("gesture persistence is debounced-trailing and flushes on unmount (260824-iafo R4)", () => {
     vi.useFakeTimers();
     try {
-      const view = renderIframe({ windowId: "@2", rkUrl: "/proxy/3000/" });
+      const view = renderIframe({ url: "/proxy/3000/" });
       const wrapper = screen.getByTestId("web-zoom-frame-wrapper").parentElement as HTMLElement;
       const wheel = () =>
         fireEvent(
@@ -961,7 +949,7 @@ describe("IframeWindow content zoom (260823-cwvv R2–R5, R8)", () => {
   });
 
   it("a + click from a gesture-set float snaps to the ladder and steps (260824-iafo R3)", () => {
-    renderIframe({ windowId: "@2", rkUrl: "/proxy/3000/" });
+    renderIframe({ url: "/proxy/3000/" });
     const wrapper = screen.getByTestId("web-zoom-frame-wrapper").parentElement as HTMLElement;
     fireEvent(
       wrapper,

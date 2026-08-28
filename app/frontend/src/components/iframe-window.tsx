@@ -1,6 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { checkFrame, updateWindowUrl } from "@/api/client";
-import { useSessionContext } from "@/contexts/session-context";
+import { checkFrame } from "@/api/client";
 import { Tip, TipGroup } from "@/components/tip";
 import { FindBar } from "@/components/find-bar";
 import {
@@ -32,7 +31,6 @@ import {
   type WebZoomDirection,
 } from "@/lib/web-zoom";
 import { applyWheelZoom, clampZoom } from "@/lib/zoom-gesture";
-import { hasWebUrl } from "@/lib/window-view";
 import {
   WEB_FIND_OPEN_EVENT,
   applyHighlights,
@@ -44,8 +42,13 @@ import {
 } from "@/lib/find-in-page";
 
 interface IframeWindowProps {
-  windowId: string;
-  rkUrl: string;
+  /** The address the tile renders (the window's ACTIVE web tab). */
+  url: string;
+  /** Address-bar write seam: Enter submits the normalized address through
+   *  this callback, which POSTs it to the active web slot's window option.
+   *  The component stays payload-shape agnostic — the caller owns the slot.
+   *  Absent ⇒ the submit is a local no-op. */
+  onWriteUrl?: (url: string) => Promise<unknown>;
   /** Tile-focus seam: fired when a pointerdown/keydown arrives inside the
    *  same-origin contentDocument, or — the cross-origin fallback — when the
    *  parent window blurs with this iframe as the active element. Clicks
@@ -86,25 +89,21 @@ type TileError =
  *  display/edit address bar, find, open-in-browser, a load progress line, and
  *  explicit error states. */
 export function IframeWindow({
-  windowId,
-  rkUrl,
+  url,
+  onWriteUrl,
   onInteract,
   shouldReclaimChord,
   onPageMeta,
 }: IframeWindowProps) {
-  // IframeWindow renders only from AppShell terminal routes where currentServer
-  // is set. Fall back to empty string when null (action no-ops with bad server).
-  const { currentServer } = useSessionContext();
-  const server = currentServer ?? "";
   // Content selector (260821-zqlq): web availability is unconditional — an
-  // empty/whitespace @rk_win_url renders the ONBOARDING state (reduced live URL
+  // empty/whitespace address renders the ONBOARDING state (reduced live URL
   // bar + the three fill-path instructions) in place of the iframe and its
-  // probe machinery; hasWebUrl's trim rule is the single source.
-  const onboarding = !hasWebUrl({ rkUrl });
-  const [inputUrl, setInputUrl] = useState(rkUrl);
+  // probe machinery; the trim rule is the single source.
+  const onboarding = url.trim() === "";
+  const [inputUrl, setInputUrl] = useState(url);
   // Edit mode (R7): at rest the address bar shows the kind-specific DISPLAY
   // form; focus reveals the raw editable value (select-all). Enter is the ONE
-  // write to @rk_win_url; Escape reverts.
+  // write (through `onWriteUrl`); Escape reverts.
   const [editing, setEditing] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   // Per-viewer current-path tracking (R7): the same-origin frame's location,
@@ -118,7 +117,7 @@ export function IframeWindow({
   const [probeNonce, setProbeNonce] = useState(0);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const addressInputRef = useRef<HTMLInputElement>(null);
-  const currentSrcRef = useRef(rkUrl);
+  const currentSrcRef = useRef(url);
   const interactRef = useRef(onInteract);
   interactRef.current = onInteract;
   const reclaimRef = useRef(shouldReclaimChord);
@@ -132,7 +131,7 @@ export function IframeWindow({
   // switches buckets). Never POSTed. Two trigger families: click/shortcut
   // zoom steps the discrete ladder; GESTURES write a continuous float — the
   // Chrome/macOS pinch behavior (quantized pinch visibly "clicks").
-  const zoomBucket = webZoomKeyFor(rkUrl);
+  const zoomBucket = webZoomKeyFor(url);
   const [zoom, setZoomState] = useState(() => readWebZoom(zoomBucket));
   // The mirror ref keeps persistence OUT of the setState updater — StrictMode
   // double-invokes updaters, which would duplicate localStorage writes — while
@@ -248,8 +247,9 @@ export function IframeWindow({
   );
 
   /** The current address in RAW form: the tracked frame location when known,
-   *  else the stored @rk_win_url. The ↗ button and the edit reveal read this. */
-  const rawAddress = trackedLocation ?? rkUrl;
+   *  else the active web tab's address. The ↗ button and the edit reveal read
+   *  this. */
+  const rawAddress = trackedLocation ?? url;
 
   // ── find-in-page state (260819-ie2i R5–R8) ──────────────────────────────
   const [findOpen, setFindOpen] = useState(false);
@@ -348,7 +348,7 @@ export function IframeWindow({
         // Current-path tracking + title reporting: same-origin only. The
         // tracked location is stored root-relative (viewer origin stripped)
         // so the display-form derivation sees the same shape as a stored
-        // relative @rk_win_url. about:blank (the cross-origin reload bounce's
+        // relative web address. about:blank (the cross-origin reload bounce's
         // midpoint) reports nothing.
         if (doc) {
           try {
@@ -415,11 +415,11 @@ export function IframeWindow({
   // but a stale dispatch must no-op on a contentless tile — no bar, no crash.
   useEffect(() => {
     const open = () => {
-      if (hasWebUrl({ rkUrl })) setFindOpen(true);
+      if (url.trim() !== "") setFindOpen(true);
     };
     document.addEventListener(WEB_FIND_OPEN_EVENT, open);
     return () => document.removeEventListener(WEB_FIND_OPEN_EVENT, open);
-  }, [rkUrl]);
+  }, [url]);
 
   // The `web-address:focus` seam (260819-v6y4 R12): ⌘L and the palette action
   // dispatch one document CustomEvent; the mounted web tile focuses its
@@ -441,11 +441,11 @@ export function IframeWindow({
   // doesn't). Relative addresses resolve against the viewer origin.
   useEffect(() => {
     const openExternal = () => {
-      window.open(trackedLocation ?? rkUrl, "_blank", "noopener");
+      window.open(trackedLocation ?? url, "_blank", "noopener");
     };
     document.addEventListener(WEB_OPEN_EXTERNAL_EVENT, openExternal);
     return () => document.removeEventListener(WEB_OPEN_EXTERNAL_EVENT, openExternal);
-  }, [trackedLocation, rkUrl]);
+  }, [trackedLocation, url]);
 
   // The `web-zoom` seam (R5): the three `Web: Zoom` palette actions dispatch
   // one document CustomEvent (`detail.direction`); the mounted web tile is
@@ -454,7 +454,7 @@ export function IframeWindow({
   // dispatch must no-op on a contentless tile.
   useEffect(() => {
     const onZoom = (e: Event) => {
-      if (!hasWebUrl({ rkUrl })) return;
+      if (url.trim() === "") return;
       const direction = (e as CustomEvent<{ direction?: unknown }>).detail?.direction;
       if (direction === "in" || direction === "out" || direction === "reset") {
         applyZoomRef.current(direction);
@@ -462,7 +462,7 @@ export function IframeWindow({
     };
     document.addEventListener(WEB_ZOOM_EVENT, onZoom);
     return () => document.removeEventListener(WEB_ZOOM_EVENT, onZoom);
-  }, [rkUrl]);
+  }, [url]);
 
   // Zoom gestures on the tile's own chrome (R8): the URL bar, find bar, and
   // error surface are parent-document DOM, so the wrapper arm covers them —
@@ -524,20 +524,20 @@ export function IframeWindow({
     [findMatches.length, findQuery, findFrame],
   );
 
-  // Sync URL bar text and iframe src when rkUrl changes externally (SSE push).
+  // Sync URL bar text and iframe src when url changes externally (SSE push).
   // Only update iframe src when the URL has actually changed to avoid unnecessary reloads.
   useEffect(() => {
-    setInputUrl(rkUrl);
+    setInputUrl(url);
     setTrackedLocation(null);
     setSubmitError(null);
-    if (rkUrl !== currentSrcRef.current) {
-      currentSrcRef.current = rkUrl;
+    if (url !== currentSrcRef.current) {
+      currentSrcRef.current = url;
       setLoading(true);
       if (iframeRef.current) {
-        iframeRef.current.src = toProxySrc(rkUrl);
+        iframeRef.current.src = toProxySrc(url);
       }
     }
-  }, [rkUrl]);
+  }, [url]);
 
   // Error-state probes (R8). External absolute URLs: the backend frame-check
   // probe reads the refusal headers cross-origin iframes can't signal.
@@ -545,17 +545,17 @@ export function IframeWindow({
   // proxy's 502 (nothing listening). Probe results RENDER OVER the iframe
   // area; the iframe stays mounted (hidden) so its listeners survive and a
   // Retry needs no remount. Present/relative kinds never probe.
-  const addressKind = classifyAddress(rkUrl);
+  const addressKind = classifyAddress(url);
   useEffect(() => {
     let cancelled = false;
     if (addressKind === "external") {
-      let host = rkUrl;
+      let host = url;
       try {
-        host = new URL(rkUrl).host;
+        host = new URL(url).host;
       } catch {
         /* displayForm posture — degrade to raw */
       }
-      checkFrame(rkUrl).then((res) => {
+      checkFrame(url).then((res) => {
         if (cancelled) return;
         if (!res.reachable) {
           setTileError({ kind: "unreachable", host, reason: res.reason });
@@ -568,10 +568,10 @@ export function IframeWindow({
         }
       });
     } else if (addressKind === "proxy") {
-      const port = proxyPortOf(rkUrl);
+      const port = proxyPortOf(url);
       // A same-origin fetch failure is the app server itself being down —
       // not a dead upstream — so it leaves the iframe alone.
-      fetch(toProxySrc(rkUrl))
+      fetch(toProxySrc(url))
         .then((res) => {
           if (cancelled) return;
           if (res.status === 502 && port !== null) {
@@ -590,10 +590,11 @@ export function IframeWindow({
     return () => {
       cancelled = true;
     };
-  }, [rkUrl, addressKind, probeNonce]);
+  }, [url, addressKind, probeNonce]);
 
   // Real reload (R6): same-origin frames reload their CURRENT location
-  // (in-page state and the navigated-to page survive — no reset to @rk_win_url);
+  // (in-page state and the navigated-to page survive — no reset to the stored
+  // address);
   // the about:blank bounce remains ONLY as the cross-origin fallback.
   const handleRefresh = useCallback(() => {
     const iframe = iframeRef.current;
@@ -619,7 +620,7 @@ export function IframeWindow({
   }, [crossOrigin]);
 
   // Back/forward (R5): contentWindow.history, same-origin only (the buttons
-  // are hidden when crossOrigin), per-viewer — never an @rk_win_url write. A
+  // are hidden when crossOrigin), per-viewer — never a web-option write. A
   // boundary click is a harmless no-op (no canGoBack signal exists).
   const navigateFrameHistory = useCallback((delta: -1 | 1) => {
     try {
@@ -634,8 +635,8 @@ export function IframeWindow({
   }, []);
 
   // Open in browser (R9): the CURRENT address in a new tab — relative
-  // addresses resolve naturally against the viewer's origin (the stored
-  // @rk_win_url stays relative per the display contract).
+  // addresses resolve naturally against the viewer's origin (stored web
+  // addresses stay relative per the display contract).
   const handleOpenExternal = useCallback(() => {
     window.open(rawAddress, "_blank", "noopener");
   }, [rawAddress]);
@@ -652,11 +653,11 @@ export function IframeWindow({
     setSubmitError(null);
     setEditing(false);
     addressInputRef.current?.blur();
-    updateWindowUrl(server, windowId, normalized).catch(() => {
+    onWriteUrl?.(normalized)?.catch(() => {
       // Revert input on failure
-      setInputUrl(rkUrl);
+      setInputUrl(url);
     });
-  }, [inputUrl, server, windowId, rkUrl]);
+  }, [inputUrl, onWriteUrl, url]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -886,7 +887,7 @@ export function IframeWindow({
         </div>
       )}
 
-      {/* Onboarding (260821-zqlq): an empty/whitespace @rk_win_url selects this
+      {/* Onboarding (260821-zqlq): an empty/whitespace web address selects this
           content state in place of the iframe + probe machinery — the web
           lens is always tileable, and this panel is its discoverability
           surface. Copy per the user-approved mock. The address bar above
@@ -904,7 +905,7 @@ export function IframeWindow({
           </span>
           <span className="text-text-primary text-[13px]">Nothing to show yet</span>
           <span className="text-text-secondary text-[11px] text-center mb-5">
-            this tile follows the window&apos;s web address (@rk_win_url) — three ways to fill it:
+            this tile follows the window&apos;s active web tab (@rk_win_web_N) — three ways to fill it:
           </span>
           <div className="flex flex-col gap-3 w-full max-w-[440px]">
             <div className="flex gap-2.5 items-start">
@@ -964,7 +965,7 @@ export function IframeWindow({
         >
           <iframe
             ref={iframeRef}
-            src={toProxySrc(rkUrl)}
+            src={toProxySrc(url)}
             className={`border-0 ${tileError ? "hidden" : ""}`}
             style={
               zoom === 1

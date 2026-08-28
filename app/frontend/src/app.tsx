@@ -4,39 +4,34 @@ import {
   availableViews,
   hasWebUrl,
   readStoredView,
+  windowViewStorageKey,
   type ViewName,
 } from "@/lib/window-view";
 import {
   availableSurfaces,
+  panelStorageKey,
   readStoredPanel,
   type SurfaceName,
 } from "@/lib/right-panel";
 import {
-  readLatchedCodeFolder,
-  writeLatchedCodeFolder,
+  codeRootFor,
+  codeRootSeed,
 } from "@/lib/code-folder-latch";
 import {
   addSurface,
   closeSurface,
-  hintLayout,
+  effectiveLayout,
+  legacyTranslationDecision,
   promote,
-  readStoredLayout,
-  resolveLayout,
-  seedLayoutFromLegacy,
+  readStoredZoom,
   serializeLayout,
   swapWithNext,
   translateLegacyParams,
-  writeStoredLayout,
+  writeStoredZoom,
   SURFACE_RAIL_HIDDEN,
   type Layout,
   type SurfaceKind,
 } from "@/lib/surface-layout";
-import {
-  foldLayoutMutation,
-  observeRkUrl,
-  withAutoWeb,
-  type AutoExpandState,
-} from "@/lib/present-auto-expand";
 import { hasReclaimableMatch, shouldSuppressChord, withShortcutHints, formatCombo } from "@/lib/keybindings";
 import { WEB_FIND_OPEN_EVENT } from "@/lib/find-in-page";
 import { TERMINAL_FIND_OPEN_EVENT } from "@/lib/terminal-find";
@@ -154,7 +149,7 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo, SelectWindowResult } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowRole, setWindowNote, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerProtected, sendChatMessage, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, type SortWindowsBy } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerProtected, sendChatMessage, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, type SortWindowsBy } from "@/api/client";
 import { buildSessionSortActions } from "@/lib/palette/sort";
 import { useBoards } from "@/hooks/use-boards";
 import { useWindowPins } from "@/hooks/use-window-pins";
@@ -578,20 +573,27 @@ export function resolveServerView(
 }
 
 /**
- * The window as the CODE surface sees it (260813-if5d): its `gitRoot` replaced
- * by the window's latched code folder when one exists, the live derivation
- * otherwise. One substitution point is what makes `hasCode`, `availableTiles`,
- * `degradeLayout`, the tile render guard, `tileMeta`, and `codeServerSrc` all
- * follow the latch while the pure lib modules stay DOM-free and unchanged: the
- * latch is read where the storage identity (server, window id) lives and fed in
- * as an ordinary window record. Unlatched windows pass through by identity, so
- * the substitution adds no render churn before the first code open.
+ * Read one localStorage key, tolerating unavailable storage (SSR/jsdom/quota)
+ * — the try/catch-noop pattern the lib storage helpers use. The route-entry
+ * translation effect reads the retired `rk-layout:` key through this directly
+ * (the store's own helpers are deleted with the ladder; only the one-shot
+ * translation still touches the key, and it deletes it).
  */
-export function withLatchedCodeFolder<T extends { gitRoot?: string }>(
-  win: T | null,
-  latch: string | undefined,
-): T | null {
-  return win && latch ? { ...win, gitRoot: latch } : win;
+function readStorageValue(key: string): string | undefined {
+  try {
+    return localStorage.getItem(key) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Delete a localStorage key, tolerating unavailable storage. */
+function removeStorageKey(key: string): void {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    /* noop — best-effort */
+  }
 }
 
 /**
@@ -633,6 +635,7 @@ function AppShell() {
   const { sidebarOpen, sidebarWidth, fixedWidth, composeStripEnabled, scrollLocked } = useChromeState();
   const { setCurrentSession, setCurrentWindow, setSidebarOpen, setSidebarWidth, persistSidebarWidth, toggleFixedWidth, toggleComposeStrip } = useChromeDispatch();
   const navigate = useNavigate();
+  const { addToast } = useToast();
   const isMobile = useIsMobile();
   const wsRef = useRef<WebSocket | null>(null);
   const focusTerminalRef = useRef<(() => void) | null>(null);
@@ -666,54 +669,26 @@ function AppShell() {
     [sessions],
   );
 
-  // Code-folder latch (260813-if5d; spec right-panel.md § The code lens): the
-  // code surface's folder is per-window LATCHED state, not the live SSE
-  // derivation — `gitRoot` follows the active pane's cwd, so a pane switch or a
-  // `cd` would otherwise retarget (or unmount) the embedded editor and lose its
-  // in-flight state. localStorage stays the source of truth and is read AT
-  // RENDER, keyed per (server, window id) — the `storedLayout` read below does
-  // the same. Deliberately not mirrored into state via an effect: an effect
-  // lands a frame late, so a window switch would render the PREVIOUS window's
-  // latch once, and the code iframe that mounts in that frame fixes its `src`
-  // for its whole mount generation — the stale folder would stick. The epoch
-  // bump is what re-reads after a write; `latchCodeFolder` is the only writer
-  // (the seed effect below at first open, then the editor's own navigation).
-  const [latchEpoch, setLatchEpoch] = useState(0);
-  const latchedCodeFolder = useMemo(
-    () => (windowParam ? readLatchedCodeFolder(server, windowParam) : undefined),
-    [server, windowParam, latchEpoch],
-  );
-  const latchCodeFolder = useCallback((folder: string) => {
-    if (!windowParam || folder.length === 0) return;
-    writeLatchedCodeFolder(server, windowParam, folder);
-    setLatchEpoch((n) => n + 1);
-  }, [server, windowParam]);
-  // The live backend derivation (active pane's cwd walked to its repo root). Its
-  // ONLY remaining job is seeding the latch — nothing renders from it.
-  const derivedGitRoot = currentWindow?.gitRoot ?? "";
-  // The window every code-availability/render consumer below sees (§
-  // withLatchedCodeFolder): latched folder when latched, live derivation as the
-  // seed otherwise.
-  const effectiveWindow = useMemo(
-    () => withLatchedCodeFolder(currentWindow, latchedCodeFolder),
-    [currentWindow, latchedCodeFolder],
-  );
+  // The window every capability/render consumer below sees. The code root
+  // (`@rk_win_code_root`, the payload's `codeRoot`) is shared tab state — no
+  // per-viewer substitution layer; availability (`hasCode`) reads it straight
+  // from the record, so a window stays code-capable after its active pane
+  // leaves the repo.
+  const effectiveWindow = currentWindow;
 
-  // Surface-layout state (260812-ab5v-surface-layout-core; spec
-  // surface-layout.md L1–L3). The terminal route's center is a LAYOUT of 1–3
-  // surface tiles; the retired `?view=`/`?panel=` params feed a permanent
-  // translation shim (`?view=X` → `single:X`, `?view=X&panel=Y` →
-  // `split-h:X,Y`) so old deep links never break. Resolution (URL > per-window
-  // localStorage > default-view hint > `single:tty`, with tile-by-tile
-  // availability degradation) lives in the pure `resolveLayout`. The search
-  // params are read with `strict:false` because AppShell also mounts on
-  // `/$server` (no window) — a non-strict read returns `undefined` there
-  // rather than throwing. The router module registration
-  // (`validateTerminalSearch` in lib/router-url.ts) types `.view`/`.panel`/
-  // `.layout`, so no casts are needed.
+  // Surface-layout state (spec surface-layout.md): the terminal route's center
+  // is a LAYOUT of 1–3 surface tiles. The (shape, order) half is shared tab
+  // state — the `@rk_win_layout` window option, read from the payload via
+  // `effectiveLayout` (parse + degrade, never a rewrite); every verb POSTs the
+  // new value and the SSE tick repaints. The retired `?layout=`/`?view=`/
+  // `?panel=` params are inbound-only translation inputs (the route-entry
+  // translation effect below); nothing writes them. The search params are
+  // read with `strict:false` because AppShell also mounts on `/$server` (no
+  // window) — a non-strict read returns `undefined` there rather than
+  // throwing. The router module registration (`validateTerminalSearch` in
+  // lib/router-url.ts) types `.view`/`.panel`/`.layout`, so no casts are
+  // needed.
   const search = useSearch({ strict: false });
-  const searchView = search.view;
-  const searchPanel = search.panel;
   // The host-level code-server signal (260811-k3vp; portless since
   // 260811-a2bo) — `reachable` gates only the surface CONTENT (passed to
   // CodeSurface below); availability is gitRoot-derived (hasCode). `null` = no
@@ -724,91 +699,111 @@ function AppShell() {
     [effectiveWindow],
   );
 
-  // The URL's EFFECTIVE layout candidate: a carried `?layout=` wins; absent
-  // that, the legacy params translate through the shim. Compared against the
-  // serialized resolved layout for the replaceState mirror below.
-  const searchLayout = search.layout ?? translateLegacyParams(searchView, searchPanel);
-  const storedLayout = windowParam ? readStoredLayout(server, windowParam) : undefined;
-  const layout = useMemo(
-    () => resolveLayout(searchLayout, storedLayout, effectiveWindow),
-    [searchLayout, storedLayout, effectiveWindow],
-  );
-  const serializedLayout = serializeLayout(layout);
-  // The lens model's consumers (the palette `View:` actions)
-  // key off slot A — R12's shim: a
-  // multi-tile layout reflects slot A's surface; selecting a view collapses
+  // The layout the window renders: the payload's `@rk_win_layout` value,
+  // parsed and degraded (`effectiveLayout`), overlaid by the optimistic
+  // `pendingLayout` while a verb's POST is in flight. `pendingLayout` is keyed
+  // to the route so a window switch drops a pending write to the old window,
+  // and cleared the moment the SSE record carries the written value (the
+  // options handler wakes the hub, so confirmation lands in the same tick) or
+  // when the POST rejects (see `applyLayout`).
+  const [pendingLayout, setPendingLayout] = useState<{
+    key: string;
+    value: string;
+  } | null>(null);
+  const baseLayout = useMemo(() => effectiveLayout(effectiveWindow), [effectiveWindow]);
+  const layout: Layout = useMemo(() => {
+    if (
+      pendingLayout !== null &&
+      pendingLayout.key === `${server}:${windowParam ?? ""}` &&
+      pendingLayout.value !== effectiveWindow?.layout
+    ) {
+      return effectiveLayout({ ...effectiveWindow, layout: pendingLayout.value });
+    }
+    return baseLayout;
+  }, [pendingLayout, server, windowParam, effectiveWindow, baseLayout]);
+  useEffect(() => {
+    if (pendingLayout !== null && pendingLayout.value === effectiveWindow?.layout) {
+      setPendingLayout(null);
+    }
+  }, [pendingLayout, effectiveWindow]);
+  // The lens model's consumers (the palette `View:` actions) key off slot A:
+  // a multi-tile layout reflects slot A's surface; selecting a view collapses
   // to `single:<view>` (see `switchView`).
   const resolvedView: ViewName = layout.order[0];
 
-  // Present auto-expand (260815-wkcw; spec surface-layout.md R7/L3
-  // carve-out): a viewer MOUNTED on a window's route that observes the
-  // window's `rkUrl` transition (empty→set or value→new value) transiently
-  // auto-opens the `web` tile. The observation state is per-window IN-MEMORY
-  // bookkeeping in a ref Map keyed `${server}:${windowId}` (the
-  // zoom/`mobileActiveTile` transient state class — no localStorage, no
-  // `?layout=` mirror, resets on reload); `autoWebOpen` mirrors the current
-  // window's `active` flag into state so `renderLayout` recomputes — the
-  // mirror carries its key and `renderLayout` gates on the CURRENT route key,
-  // so a window switch away from an active auto-open can never flash a
-  // phantom web tile on the destination route while its observation effect is
-  // still pending. A window switch silently catches `lastUrl` up (a change
-  // that happened while the viewer was away is NOT an observed transition —
-  // R1) and clears `active` (leaving+returning resolves via the normal
-  // ladder), while the dismissal latch survives the switch. Skipped while the
-  // window record is unknown — a brief `currentWindow === null` snapshot-race
-  // frame must not fake a transition.
-  const autoExpandRef = useRef(new Map<string, AutoExpandState>());
-  const autoExpandKeyRef = useRef<string | null>(null);
-  const [autoWebOpen, setAutoWebOpen] = useState<{ key: string; active: boolean }>({
-    key: "",
-    active: false,
-  });
+  // An external `@rk_win_layout` write (an agent's `set-option -w`, a snapshot
+  // restore) repaints on the next option tick — the layout write IS the expand
+  // mechanism; there is no client-side transient override.
+
+  // One-shot legacy translation (one release; spec ui-state.md § Migration):
+  // per (server, window) arrival — gated on the window record so a
+  // pre-snapshot frame never acts — translate the retired `?layout=`/`?view=`/
+  // `?panel=` params and their localStorage predecessors into `@rk_win_layout`
+  // when the option is still empty (a set option always wins), drop the params
+  // from the URL, and delete exactly the four retired keys for THIS window (no
+  // prefix sweep — other tabs translate on their own arrival). The retired
+  // code-folder latch migrates alongside into `@rk_win_code_root`. The per-key
+  // ref makes the effect genuinely one-shot: the payload still reads empty
+  // while the POST is in flight, and a replayed effect must not POST again.
+  const translationDoneRef = useRef(new Set<string>());
   useEffect(() => {
     if (!windowParam || !effectiveWindow) return;
     const key = `${server}:${windowParam}`;
-    const prev = autoExpandRef.current.get(key);
-    const remount = autoExpandKeyRef.current !== key;
-    autoExpandKeyRef.current = key;
-    const next = observeRkUrl(
-      remount && prev
-        ? { ...prev, lastUrl: (effectiveWindow.rkUrl ?? "").trim(), active: false }
-        : prev,
-      effectiveWindow.rkUrl ?? "",
-    );
-    autoExpandRef.current.set(key, next);
-    setAutoWebOpen({ key, active: next.active });
-    // `effectiveWindow !== null` is a dep: `rkUrl` is undefined BOTH while the
-    // window record is unresolved and once it resolves URL-less, so keying on
-    // the value alone would never initialize on the resolving frame — the
-    // first observation would then be the stamped value itself, misread as a
-    // cold entry.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the rkUrl VALUE, not the window record's identity
-  }, [server, windowParam, effectiveWindow?.rkUrl, effectiveWindow !== null]);
-
-  // The render-time transient override (R2): when the auto-open is active and
-  // the resolved layout lacks `web`, render as if `web` were appended through
-  // the existing growth conventions (`addSurface` — 1→2 `split-h`, 2→3
-  // `main-left`; arity 3 without `web` is a no-op). SurfaceLayout and every
-  // verb callback act on THIS rendered layout, so "touching it makes it
-  // yours" (L3) falls out of the ordinary mutation path; `layout` keeps
-  // feeding the URL-mirror effect, localStorage, and the window-switch
-  // classification — the override writes nothing.
-  const renderLayout = useMemo(
-    () =>
-      withAutoWeb(
-        layout,
-        autoWebOpen.active && autoWebOpen.key === `${server}:${windowParam}`,
+    if (translationDoneRef.current.has(key)) return;
+    const carried = search.layout ?? translateLegacyParams(search.view, search.panel);
+    // Nothing to translate and no params to drop: the bare-route steady state.
+    // Skipping WITHOUT marking the key done keeps a later arrival that DOES
+    // carry params (a deep link visited after a plain one) translatable, and
+    // stops the replace → effect re-fire → replace loop on the bare route
+    // (every navigate gives `search.view`/… fresh identities, so the effect
+    // re-fires after its own cleanup navigation).
+    if (
+      carried === undefined &&
+      readStorageValue(`rk-layout:${server}:${windowParam}`) === undefined &&
+      readStoredView(server, windowParam) === undefined &&
+      readStoredPanel(server, windowParam) === undefined &&
+      readStorageValue(`runkit-code-folder:${server}:${windowParam}`) === undefined
+    ) {
+      return;
+    }
+    translationDoneRef.current.add(key);
+    const decision = legacyTranslationDecision({
+      carried,
+      storedLayout: readStorageValue(`rk-layout:${server}:${windowParam}`),
+      storedLegacy: translateLegacyParams(
+        readStoredView(server, windowParam),
+        readStoredPanel(server, windowParam),
       ),
-    [layout, autoWebOpen, server, windowParam],
-  );
-
-  // One-time migration seeding (R2): when no `rk-layout:` key exists for the
-  // window, translate the legacy `runkit-window-view`/`runkit-window-panel`
-  // keys into the equivalent layout value. Declared BEFORE the mirror effect
-  // so seeding lands first within a commit (effects run in order).
-  useEffect(() => {
-    if (windowParam) seedLayoutFromLegacy(server, windowParam);
-  }, [server, windowParam]);
+      winLayout: effectiveWindow.layout,
+    });
+    if (decision.write) {
+      // Render the translated arrangement immediately — a carried deep link
+      // must not wait for the option tick — through the same optimistic
+      // overlay a verb uses; a rejected write reverts to the payload's layout.
+      const write = decision.write;
+      setPendingLayout({ key, value: write });
+      setWindowOptions(server, windowParam, { "@rk_win_layout": write }).catch(() => {
+        setPendingLayout((p) => (p?.key === key && p.value === write ? null : p));
+      });
+    }
+    if (decision.dropParams) {
+      navigate({
+        to: "/$server/$window",
+        params: { server, window: windowParam },
+        search: {},
+        replace: true,
+      });
+    }
+    removeStorageKey(`rk-layout:${server}:${windowParam}`);
+    removeStorageKey(windowViewStorageKey(server, windowParam));
+    removeStorageKey(panelStorageKey(server, windowParam));
+    const codeFolderKey = `runkit-code-folder:${server}:${windowParam}`;
+    const codeFolder = readStorageValue(codeFolderKey);
+    removeStorageKey(codeFolderKey);
+    if (!effectiveWindow.codeRoot && codeFolder && codeFolder.trim() !== "") {
+      setWindowOptions(server, windowParam, { "@rk_win_code_root": codeFolder }).catch(() => {});
+    }
+  }, [server, windowParam, effectiveWindow, search.layout, search.view, search.panel, navigate]);
 
   // Per-server last-window memory: record the viewed window against its server
   // on EVERY arrival path (sidebar click, palette, deep link, board hop, tmux
@@ -820,96 +815,66 @@ function AppShell() {
     if (server && windowParam) writeLastWindow(server, windowParam);
   }, [server, windowParam]);
 
-  // Seed rule (if5d R2): the first time the code surface actually renders for a
-  // window, the LIVE derivation latches — and derivation never moves the editor
-  // again (not on a pane switch, not on tile close/reopen, not on reload). Keyed
-  // on the resolved layout's order, the choke point every entry path (view
-  // switcher, surface toggle, `?view=code`/`?layout=` deep link, mobile
-  // switch group)
-  // resolves through — never on availability alone: a code lens that is merely
-  // OFFERED seeds nothing. An empty derivation seeds nothing either, so a window
-  // that was never inside a repo behaves exactly as it did before the latch.
-  const codeTileOpen = layout.order.includes("code");
-  useEffect(() => {
-    if (latchedCodeFolder || !codeTileOpen) return;
-    latchCodeFolder(derivedGitRoot);
-  }, [latchedCodeFolder, codeTileOpen, derivedGitRoot, latchCodeFolder]);
-
-  // Mirror the APPLIED layout into the URL via replaceState (L2 — never
-  // pushState for layout changes), so the address bar is at all times a valid
-  // deep link to what is on screen. The window's DEFAULT layout (`hintLayout`
-  // — `single:tty`, or `single:web` for a legacy iframe window) mirrors as a
-  // CLEAN URL with the param dropped: the retired `?view=` convention ("tty
-  // DROPS the param") carried forward, so bare internal-nav URLs stay bare
-  // and history/bookmark noise stays zero for the overwhelmingly common
-  // default case (a bare URL IS the deep link to the default). Only when the
-  // URL's RAW `layout` param differs from the desired one (a carried legacy
-  // `view`/`panel` shim input must ALSO be rewritten — R2's "the URL is
-  // rewritten via replaceState" — which is why the comparison keys off
-  // `search.layout`, not the translated `searchLayout`) — otherwise this
-  // effect would navigate every render. Gated on `currentWindow` so a cold
-  // deep link is NOT clobbered by the pre-snapshot frame (capabilities
-  // unknown → everything degrades to tty). The stored value is re-read
-  // post-seed so a just-migrated legacy window mirrors its SEEDED layout, not
-  // the pre-seed fallback. localStorage is deliberately NOT written here —
-  // arrival via a carried `?layout=` is not a user mutation (L3).
-  // Resolves against the LATCHED window (if5d) for the same reason the render
-  // does: keying the mirror off the live derivation would degrade a latched code
-  // tile away and rewrite the URL the moment the active pane left the repo.
+  // Code-root seed (spec right-panel.md § The code lens): the first time the
+  // code tile actually renders for a window whose `@rk_win_code_root` is still
+  // empty, the derived gitRoot is POSTed once — never on availability alone
+  // (a code lens that is merely OFFERED seeds nothing), never over a set root
+  // (that would clobber the editor's own navigation). The per-key ref
+  // suppresses a second POST while the first is in flight — the payload still
+  // reads empty until the option tick confirms.
+  const codeRootSeedInFlightRef = useRef(new Set<string>());
   useEffect(() => {
     if (!windowParam || !effectiveWindow) return;
-    const target = serializeLayout(
-      resolveLayout(searchLayout, readStoredLayout(server, windowParam), effectiveWindow),
-    );
-    const desired =
-      target === serializeLayout(hintLayout(effectiveWindow)) ? undefined : target;
-    if (search.layout === desired) return;
-    navigate({
-      to: "/$server/$window",
-      params: { server, window: windowParam },
-      search: desired ? { layout: desired } : {},
-      replace: true,
-    });
-  }, [server, windowParam, effectiveWindow, search.layout, searchLayout, navigate]);
+    const seed = codeRootSeed(effectiveWindow, layout);
+    if (seed === null) return;
+    const key = `${server}:${windowParam}`;
+    if (codeRootSeedInFlightRef.current.has(key)) return;
+    codeRootSeedInFlightRef.current.add(key);
+    setWindowOptions(server, windowParam, { "@rk_win_code_root": seed }).catch(() => {});
+  }, [server, windowParam, effectiveWindow, layout]);
 
-  // The ONE mutation path (R3 write discipline — user-initiated mutations
-  // only): persist per-window in localStorage AND mirror the URL via
-  // replaceState (the mirror's default-drops-param rule applies here too — a
-  // mutation BACK to the window's default, e.g. closing the last non-tty
-  // tile, leaves a clean URL; localStorage still records the choice). Tile
-  // verbs, surface toggles, and the palette `View:` actions all funnel
+  // Follow write (spec right-panel.md § The code lens): after the seed, the
+  // editor's OWN navigation (CodeSurface's load-event seam) is the only writer
+  // of `@rk_win_code_root`. The terminal never moves the code root.
+  const handleCodeFolderNavigated = useCallback(
+    (folder: string) => {
+      if (!windowParam || !effectiveWindow || folder === codeRootFor(effectiveWindow)) return;
+      setWindowOptions(server, windowParam, { "@rk_win_code_root": folder }).catch(
+        (err: Error) => addToast(err.message || "Failed to set code folder", "error"),
+      );
+    },
+    [server, windowParam, effectiveWindow, addToast],
+  );
+
+  // The ONE layout mutation path (write discipline — user-initiated mutations
+  // only): POST the serialized layout to `@rk_win_layout` through the unified
+  // /options seam; the SSE tick repaints. `pendingLayout` renders the new
+  // arrangement optimistically until the payload confirms; a rejection reverts
+  // to the payload's layout with the same toast other option writes use. Tile
+  // verbs, surface toggles, and the palette `View:`/`Tile:` actions all funnel
   // through this. Stable across SSE ticks.
   const applyLayout = useCallback(
     (next: Layout) => {
       if (!windowParam) return;
-      // Present auto-expand (260815-wkcw): any user mutation while the
-      // transient override is active takes ownership of the rendered layout
-      // (L3) — one that closes a web tile the viewer ACTUALLY SAW records the
-      // dismissal latch for the current rkUrl value; otherwise (web kept, or
-      // the override was an arity-3 visual no-op) it merely deactivates.
-      const autoKey = `${server}:${windowParam}`;
-      const autoState = autoExpandRef.current.get(autoKey);
-      if (autoState?.active) {
-        autoExpandRef.current.set(autoKey, foldLayoutMutation(autoState, layout, next));
-        setAutoWebOpen({ key: autoKey, active: false });
-      }
-      writeStoredLayout(server, windowParam, next);
-      const serialized = serializeLayout(next);
-      const isDefault = serialized === serializeLayout(hintLayout(currentWindow));
-      navigate({
-        to: "/$server/$window",
-        params: { server, window: windowParam },
-        search: isDefault ? {} : { layout: serialized },
-        replace: true,
-      });
+      const key = `${server}:${windowParam}`;
+      const value = serializeLayout(next);
+      setPendingLayout({ key, value });
+      setWindowOptions(server, windowParam, { "@rk_win_layout": value }).catch(
+        (err: Error) => {
+          // Revert the optimistic overlay — a newer pending write (if any)
+          // stands.
+          setPendingLayout((p) => (p?.key === key && p.value === value ? null : p));
+          addToast(err.message || "Failed to apply layout", "error");
+        },
+      );
     },
-    [server, windowParam, currentWindow, navigate, layout],
+    [server, windowParam, addToast],
   );
 
   // Switch the current window's lens (window-view spec R2/R7) — R12's shim:
   // selecting a view sets the layout to `single:<view>` through the shared
-  // mutation path (a user mutation — persisted + mirrored). Never mutates
-  // `@rk_win_lens` (that is substrate state, not view state).
+  // mutation path (an `@rk_win_layout` write — the choice is shared tab
+  // state). Never mutates `@rk_win_lens` (the retired write-compat key).
   const switchView = useCallback(
     (view: ViewName) => applyLayout({ shape: "single", order: [view] }),
     [applyLayout],
@@ -922,18 +887,16 @@ function AppShell() {
   // fourth) is a null no-op; the boolean return reports whether the mutation
   // applied (focus-hop's open-then-focus flag depends on it). Stable across
   // SSE ticks. Shared by the top-bar surface-toggle group, the tile verbs,
-  // and the palette. Acts on the RENDERED layout (260815-wkcw) so a
-  // transiently auto-opened web tile toggles closed here exactly like a
-  // manually opened one.
+  // and the palette.
   const togglePanel = useCallback(
     (surface: SurfaceName) => {
-      const next = renderLayout.order.includes(surface)
-        ? closeSurface(renderLayout, surface)
-        : addSurface(renderLayout, surface);
+      const next = layout.order.includes(surface)
+        ? closeSurface(layout, surface)
+        : addSurface(layout, surface);
       if (next) applyLayout(next);
       return next !== null;
     },
-    [renderLayout, applyLayout],
+    [layout, applyLayout],
   );
 
   // The surfaces the current window can tile (shortcut order, tty/code/web —
@@ -980,43 +943,57 @@ function AppShell() {
   // toggled back into a zoom. Plain zoom verbs (⛶, `Layout: Expand`/`Restore`)
   // drive the seam directly and never touch zen state.
   const toggleZen = useCallback(() => {
-    const decision = resolveZenToggle({ zenActive, zenZoomed, layoutZoomed }, renderLayout.order.length);
+    const decision = resolveZenToggle({ zenActive, zenZoomed, layoutZoomed }, layout.order.length);
     setZenActive(decision.zenActive);
     setZenZoomed(decision.zenZoomed);
     if (decision.fireZoomToggle) layoutZoomToggleRef.current?.();
-  }, [zenActive, zenZoomed, layoutZoomed, renderLayout.order.length, setZenActive, setZenZoomed]);
+  }, [zenActive, zenZoomed, layoutZoomed, layout.order.length, setZenActive, setZenZoomed]);
 
-  // Mobile slot-A state (T014/R13): below `isMobileViewport()` the center
-  // renders ONE tile; the top-bar switch group swaps WHICH surface that is.
-  // This is TRANSIENT local state — the shared layout is never
-  // mutated (it stays desktop's arrangement; no URL/localStorage write, the
-  // same discipline as zoom). Resets on a window switch; a surface that left
-  // the layout falls back to slot A. Reads the RENDERED layout (260815-wkcw)
-  // so a transiently auto-opened web surface is reachable as a switch target —
-  // the fallback stays slot A (the visible tile is never auto-swapped, R4).
-  const [mobileSlotA, setMobileSlotA] = useState<SurfaceName | null>(null);
-  useEffect(() => setMobileSlotA(null), [server, windowParam]);
-  const mobileActiveTile: SurfaceName =
-    mobileSlotA && renderLayout.order.includes(mobileSlotA)
-      ? mobileSlotA
-      : renderLayout.order[0];
+  // Mobile active tile (spec surface-layout.md § Mobile): below
+  // `isMobileViewport()` the center renders ONE tile; the top-bar switch group
+  // swaps WHICH surface that is. The choice is the per-viewer zoom key
+  // (`rk-layout-zoom:{server}:{@N}` — a surface kind, the same key desktop
+  // zoom persists): a stored kind still in the layout wins, else slot A. The
+  // epoch re-reads the key after each `switchToTile` write — localStorage
+  // writes don't re-render.
+  const [mobileZoomEpoch, setMobileZoomEpoch] = useState(0);
+  const mobileActiveTile: SurfaceName = useMemo(() => {
+    void mobileZoomEpoch;
+    const stored = windowParam ? readStoredZoom(server, windowParam) : undefined;
+    return stored && layout.order.includes(stored) ? stored : layout.order[0];
+  }, [server, windowParam, layout, mobileZoomEpoch]);
 
-  // Switch-to-tile (mobile-primary): an ALREADY-OPEN surface swaps the visible
-  // tile transiently (no URL/localStorage write — the zoom discipline, so a
-  // shared multi-tile arrangement arriving via `?layout=` survives); an
-  // available-but-not-open surface goes through `switchView` (→
-  // `applyLayout(single:<surface>)`) so the persistence, URL mirror, and
-  // code-folder latch seeding (keys on `layout.order.includes("code")`) all
-  // apply — a transient-only arm would silently break latch seeding.
+  // Switch-to-tile (mobile-primary): an ALREADY-OPEN surface writes only the
+  // per-viewer zoom key — the shared layout is never touched, so a phone
+  // reading `web` leaves a desktop viewer's arrangement alone. An
+  // available-but-not-open surface grows the SHARED layout through
+  // `addSurface` → `applyLayout` (the same add mutation every entry point
+  // uses — a phone posture must not destroy shared tab state) AND writes the
+  // zoom key so the phone shows it. A `null` growth (3 tiles already) is a
+  // no-op — the switch-group button and the `Tile: Switch to` palette row
+  // render disabled instead (`switchTargetDisabled`).
   const switchToTile = useCallback(
     (surface: SurfaceName) => {
-      if (renderLayout.order.includes(surface)) {
-        setMobileSlotA(surface);
-      } else {
-        switchView(surface);
+      if (!windowParam) return;
+      if (!layout.order.includes(surface)) {
+        const next = addSurface(layout, surface);
+        if (!next) return;
+        applyLayout(next);
       }
+      writeStoredZoom(server, windowParam, surface);
+      setMobileZoomEpoch((n) => n + 1);
     },
-    [renderLayout, switchView],
+    [layout, applyLayout, server, windowParam],
+  );
+
+  // Switch-group/palette gating: a not-open surface whose growth is
+  // disallowed (`addSurface` → null, e.g. 3 tiles already) renders disabled
+  // instead of no-oping silently (the toggle group's full-layout disabled
+  // affordance, extended to switch mode).
+  const switchTargetDisabled = useCallback(
+    (surface: SurfaceName) =>
+      !layout.order.includes(surface) && addSurface(layout, surface) === null,
+    [layout],
   );
 
   // Focused tile (260812-wfic R2/R8): SurfaceLayout owns the focused SLOT as
@@ -1030,7 +1007,7 @@ function AppShell() {
   // `zoomToggleRef` pattern). Until the component reports (first render,
   // window switch), slot A is the fallback — never a hardcoded tty guess, so
   // a persisted layout with a non-tty slot A can't briefly enable the split
-  // chords. The reset effect mirrors `mobileSlotA` above.
+  // chords. Resets on a window switch.
   const [reportedFocusedKind, setReportedFocusedKind] = useState<SurfaceKind | null>(null);
   useEffect(() => setReportedFocusedKind(null), [server, windowParam]);
   const focusedTileKind: SurfaceKind = isMobile
@@ -1046,11 +1023,11 @@ function AppShell() {
   const focusOnLandingRef = useRef<SurfaceKind | null>(null);
   useEffect(() => {
     const kind = focusOnLandingRef.current;
-    if (kind !== null && renderLayout.order.includes(kind)) {
+    if (kind !== null && layout.order.includes(kind)) {
       focusOnLandingRef.current = null;
       layoutFocusTileRef.current?.(kind);
     }
-  }, [renderLayout]);
+  }, [layout]);
 
   // Focus restore + steal guard (spec right-panel.md § The code lens): the
   // tile grid REMOUNTS on every window switch (the `${server}:${windowId}`
@@ -1222,7 +1199,6 @@ function AppShell() {
   const [iframeWindowUrl, setIframeWindowUrl] = useState("");
 
   const { removeGhost, addGhostSession } = useOptimisticContext();
-  const { addToast } = useToast();
   const addGhostWindowStore = useWindowStore((s) => s.addGhostWindow);
   const removeWindowGhost = useWindowStore((s) => s.removeGhost);
   const setWindowsForSession = useWindowStore((s) => s.setWindowsForSession);
@@ -2093,43 +2069,20 @@ function AppShell() {
   switchTransitionRef.current = {
     order: flatWindows.map((fw) => fw.window.windowId),
     // A target is UNGATED (ungated capture, no xterm first-write receipt seam)
-    // exactly when its effective MAIN SLOT (slot A of the resolved layout,
+    // exactly when its effective MAIN SLOT (slot A of the layout,
     // 260812-ab5v) is NOT `tty` — i.e. it renders the IframeWindow (web),
     // ChatView (chat), or CodeSurface (code) surface in its main slot, none of
     // which has the terminal's first-write seam (260714-t97o-web-view-lens R12;
-    // chat folded in from 260714-r7rq). The URL `?layout=` param is NOT known
-    // for a not-yet-navigated target, so we resolve from localStorage + the
-    // window's default hint only (URL passed `undefined`) — honoring BOTH the
-    // new `rk-layout:` key and its legacy `runkit-window-view`/`-panel`
-    // predecessors via the translation shim (the per-window seeding only runs
-    // for the CURRENT window at route entry). `resolveLayout` bakes in
-    // availability degradation, so an iframe-typed window with no `rkUrl`, a
-    // chat-capable window whose last layout is `single:tty`, or any window
-    // whose last layout is tty-led resolves tty-led and STAYS on the gated
-    // terminal path — getting this wrong reintroduces the
-    // blank-pane/stuck-transition class of bugs (ui-patterns.md §
-    // Window-Switch Slide Transition).
+    // chat folded in from 260714-r7rq). The classification reads the payload's
+    // shared `@rk_win_layout` via `effectiveLayout` — the same layout the
+    // target route will render, no localStorage involved. Degradation is
+    // baked in, so a window whose layout resolves tty-led (unset option,
+    // unavailable slot A) STAYS on the gated terminal path — getting this
+    // wrong reintroduces the blank-pane/stuck-transition class of bugs
+    // (ui-patterns.md § Window-Switch Slide Transition).
     ungatedIds: new Set(
       flatWindows
-        .filter(
-          (fw) =>
-            resolveLayout(
-              readStoredLayout(server, fw.window.windowId) ??
-                translateLegacyParams(
-                  readStoredView(server, fw.window.windowId),
-                  readStoredPanel(server, fw.window.windowId),
-                ),
-              undefined,
-              // Latched (if5d) like the current window's own resolution: a
-              // window whose code folder is latched still resolves code-led
-              // after its active pane leaves the repo, so the classification
-              // matches what the target will actually render.
-              withLatchedCodeFolder(
-                fw.window,
-                readLatchedCodeFolder(server, fw.window.windowId),
-              ),
-            ).order[0] !== "tty",
-        )
+        .filter((fw) => effectiveLayout(fw.window).order[0] !== "tty")
         .map((fw) => fw.window.windowId),
     ),
     currentWindowId: windowParam ?? "",
@@ -2372,7 +2325,7 @@ function AppShell() {
     const name = finalizeSafeName(iframeWindowName.trim());
     const url = iframeWindowUrl.trim();
     if (!name || !url || !sessionName) return;
-    createWindow(server, sessionName, name, undefined, "iframe", url)
+    createWindow(server, sessionName, name, undefined, url)
       .catch((err) => addToast(err.message || "Failed to create iframe tab"))
       .finally(() => {
         setShowCreateIframeDialog(false);
@@ -3184,7 +3137,7 @@ function AppShell() {
       // the pure `buildTileSwitchActions` (the switch-to-tile verb).
       ...(isMobile
         ? windowParam
-          ? buildTileSwitchActions(panelSurfaces, mobileActiveTile, switchToTile)
+          ? buildTileSwitchActions(panelSurfaces, mobileActiveTile, switchToTile, switchTargetDisabled)
           : []
         : buildViewActions(currentViews, resolvedView, switchView)),
       // Layout entries (260812-ab5v R11, T012) — Constitution V palette parity
@@ -3197,16 +3150,13 @@ function AppShell() {
       // combo). These REPLACE the retired `Panel: Web`/`Panel: Code` entries —
       // the layout model subsumes the panel. The gating + labels live in the
       // pure `buildLayoutActions` (lib/palette/layout.ts), the
-      // `buildViewActions` precedent. The entries
-      // act on the RENDERED layout (260815-wkcw) — a transiently auto-opened
-      // web tile offers `Tile: Hide Web`, and hiding it records the
-      // dismissal latch through `applyLayout`. The `code-toggle` chord (⌘2 /
+      // `buildViewActions` precedent. The `code-toggle` chord (⌘2 /
       // ⇧Ctrl+2) is documented via the code surface's Show/Hide entry hint
       // (the `toggleTarget`/`toggleShortcut` seam; enabled-else-undefined).
       ...(windowParam
-        ? buildLayoutActions(renderLayout, panelSurfaces, {
+        ? buildLayoutActions(layout, panelSurfaces, {
             zoomed: layoutZoomed,
-            zoomEnabled: !isMobile && renderLayout.order.length > 1,
+            zoomEnabled: !isMobile && layout.order.length > 1,
             onApply: applyLayout,
             onZoomToggle: () => layoutZoomToggleRef.current?.(),
             // `Tile: Focus <Surface>` (260812-wfic R10) — keyboard parity
@@ -3246,13 +3196,13 @@ function AppShell() {
         onSelect: toggleFixedWidth,
       },
       // `Terminal: Find` — the palette discovery surface for the tty tile's
-      // find bar, shown only when the RENDERED layout includes a tty tile
+      // find bar, shown only when the layout includes a tty tile
       // (the `Web: Find in page` gating precedent). The id IS the registry
       // actionId, so `withShortcutHints` renders the effective ⇧Ctrl+F/⌘F
       // combo for free; the body dispatches the `terminal-find:open`
       // CustomEvent the chord's gated handler resolves to — one seam for all
       // three entry points, SurfaceLayout its single receiver.
-      ...(windowParam && renderLayout.order.includes("tty")
+      ...(windowParam && layout.order.includes("tty")
         ? [
             {
               id: "terminal-find",
@@ -3262,7 +3212,7 @@ function AppShell() {
           ]
         : []),
       // `Web: Find in page` (260819-ie2i R4) — the palette discovery surface
-      // for the web tile's find bar, shown only when the RENDERED layout
+      // for the web tile's find bar, shown only when the layout
       // includes an open web tile. The id IS the registry actionId, so
       // `withShortcutHints` renders the effective ⌘F/Ctrl+F combo for free
       // (the code-review shortcut rule); the body dispatches the
@@ -3270,7 +3220,7 @@ function AppShell() {
       // one seam for all entry points. CONTENT-gated on hasWebUrl
       // (260821-zqlq): an onboarding tile has no searchable content, so the
       // entry is absent there (not disabled — the availability idiom).
-      ...(windowParam && renderLayout.order.includes("web")
+      ...(windowParam && layout.order.includes("web")
         ? [
             // Onboarding gate (260821-zqlq): the web tile is now always
             // open-able, so find is gated on CONTENT (hasWebUrl), not tile
@@ -3323,14 +3273,14 @@ function AppShell() {
           ]
         : []),
       // `Terminal: …` export entries (260819-shqo R9) — palette twins of the
-      // tty tile header's ⇩ menu rows, shown only when the RENDERED layout
+      // tty tile header's ⇩ menu rows, shown only when the layout
       // includes a tty tile (mobile relies on these: the header is
       // desktop-only). Each dispatches the one `terminal-export` CustomEvent
       // seam (`detail.action`); the mounted SurfaceLayout export cluster is
       // the single receiver (the `web-find:open` precedent — one terminal
       // route mount). No shortcut hints — no bindings exist (intake: menu +
       // palette only).
-      ...(windowParam && renderLayout.order.includes("tty")
+      ...(windowParam && layout.order.includes("tty")
         ? (
             [
               ["terminal-export-snapshot", "Terminal: Download snapshot (HTML)", "snapshot"],
@@ -3351,7 +3301,7 @@ function AppShell() {
           }))
         : []),
     ],
-    [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, composeStripEnabled, currentViews, resolvedView, switchView, bindingByAction, bindingHost, windowParam, isMobile, renderLayout, panelSurfaces, applyLayout, layoutZoomed, focusedTileKind, mobileActiveTile, switchToTile, currentAltScreen, zenOn, toggleZen],
+    [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, composeStripEnabled, currentViews, resolvedView, switchView, bindingByAction, bindingHost, windowParam, isMobile, layout, panelSurfaces, applyLayout, layoutZoomed, focusedTileKind, mobileActiveTile, switchToTile, switchTargetDisabled, currentAltScreen, zenOn, toggleZen],
   );
 
   // Navigation actions (`Go: Back` / `Go: Forward` / ancestor entries,
@@ -3934,7 +3884,7 @@ function AppShell() {
         windowParam,
         isMobile,
         panelSurfaces,
-        order: renderLayout.order,
+        order: layout.order,
         focusedTileKind,
         togglePanel,
         focusTile: (k) => layoutFocusTileRef.current?.(k),
@@ -4045,7 +3995,7 @@ function AppShell() {
           ? () => {
               if (focusedTileKind === "code") {
                 layoutFocusTileRef.current?.("tty");
-              } else if (renderLayout.order.includes("code")) {
+              } else if (layout.order.includes("code")) {
                 layoutFocusTileRef.current?.("code");
               } else if (togglePanel("code")) {
                 // Flag only an APPLIED open: a full 3-tile layout refuses the
@@ -4061,7 +4011,7 @@ function AppShell() {
       // ring) gates the chord for free.
       "layout-cycle": fromPalette("layout-cycle"),
     };
-  }, [paletteActions, paletteGlobals, server, windowParam, macros, sessionName, executeMacro, toggleComposeStrip, composeStripEnabled, addToast, isMobile, panelSurfaces, togglePanel, restoreFocus, bindingByAction, focusedTileKind, renderLayout, layout, toggleZen]);
+  }, [paletteActions, paletteGlobals, server, windowParam, macros, sessionName, executeMacro, toggleComposeStrip, composeStripEnabled, addToast, isMobile, panelSurfaces, togglePanel, restoreFocus, bindingByAction, focusedTileKind, layout, toggleZen]);
   useKeybindingDispatch(keybindingHandlers);
 
   const displayName = currentWindow?.name ?? windowParam ?? "";
@@ -4220,15 +4170,13 @@ function AppShell() {
       // registers SWITCH mode (the visible tile + the switch-to-tile verb),
       // gated on ≥2 surfaces surviving the SURFACE_RAIL_HIDDEN render filter
       // (with fewer there is nothing to switch to — no group). Absent on
-      // board/host routes → no group. Desktop reads the RENDERED layout
-      // (260815-wkcw) so a transiently auto-opened web tile reads lit and its
-      // toggle closes it.
+      // board/host routes → no group.
       surfaceToggles:
         windowParam && !isMobile
           ? {
               mode: "toggle" as const,
               available: panelSurfaces,
-              open: renderLayout.order,
+              open: layout.order,
               onToggle: togglePanel,
               showDot: surfaceDot,
             }
@@ -4239,15 +4187,16 @@ function AppShell() {
                 available: panelSurfaces,
                 active: mobileActiveTile,
                 onSwitch: switchToTile,
+                // A not-open surface whose growth is disallowed (3 tiles
+                // already) renders disabled instead of no-oping silently.
+                disabled: switchTargetDisabled,
                 showDot: surfaceDot,
               }
             : undefined,
       // ▦ Layout chip machinery (260812-ab5v R9): the on-screen layout + the
       // single mutation path. The top bar's chip/rows jump presets through
-      // `applyLayout` like every other mutation — from the RENDERED layout
-      // (260815-wkcw), so a preset jump during a transient auto-open persists
-      // what the user sees (the same take-ownership rule as the tile verbs).
-      layout: renderLayout,
+      // `applyLayout` like every other mutation.
+      layout,
       onApplyLayout: applyLayout,
     }),
     [
@@ -4268,7 +4217,8 @@ function AppShell() {
       togglePanel,
       mobileActiveTile,
       switchToTile,
-      renderLayout,
+      switchTargetDisabled,
+      layout,
       applyLayout,
     ],
   );
@@ -4470,23 +4420,21 @@ function AppShell() {
               // its hide-never-unmount set, zoom, and ratio-drag state are
               // per-window (the RightPanel keying precedent).
               key={`${server}:${windowParam}`}
-              // The RENDERED layout (260815-wkcw): the ladder-resolved
-              // `layout` plus the transient present auto-expand override —
-              // a mounted viewer observing an rkUrl transition sees the web
-              // tile appended through the ordinary growth shapes, with no
-              // URL/localStorage write.
-              layout={renderLayout}
+              // The rendered layout: the payload's `@rk_win_layout` value,
+              // overlaid by the optimistic `pendingLayout` while a verb's
+              // POST is in flight.
+              layout={layout}
               server={server}
               windowId={windowParam}
               sessionName={sessionName ?? ""}
-              // The LATCHED window (if5d): the code tile's render guard, its
-              // header basename, and CodeSurface's `src` all read `gitRoot` from
-              // here, so none of them can follow the terminal.
+              // The payload's window record: the code tile reads the shared
+              // code root (`codeRootFor`), the web tile the active web tab.
               window={effectiveWindow}
               isMobile={isMobile}
               // On mobile the top-bar switch group picks which slot renders
-              // (transient — the layout itself is untouched).
-              mobileActiveSlot={renderLayout.order.indexOf(mobileActiveTile)}
+              // (per-viewer — the zoom key; the layout itself is untouched
+              // for an already-open surface).
+              mobileActiveSlot={layout.order.indexOf(mobileActiveTile)}
               wsRef={wsRef}
               focusRef={focusTerminalRef}
               scrollLocked={scrollLocked}
@@ -4506,18 +4454,14 @@ function AppShell() {
                 busy: currentWindow?.agentState === "active",
               }}
               codeReachable={codeServer?.reachable ?? false}
-              // Follow rule (if5d R3): after the seed, the editor's own
-              // navigation is the ONLY writer of the latch.
-              onCodeFolderNavigated={latchCodeFolder}
+              // Follow rule: after the seed, the editor's own navigation is
+              // the ONLY writer of `@rk_win_code_root`.
+              onCodeFolderNavigated={handleCodeFolderNavigated}
               shouldReclaimChord={reclaimChordForKind}
-              // Tile verbs act on the RENDERED layout (260815-wkcw) — a
-              // mutation during an active auto-open persists from what the
-              // viewer sees, and closing the transient web tile records the
-              // dismissal latch through `applyLayout`.
-              onPromote={(surface) => applyLayout(promote(renderLayout, surface))}
-              onSwap={(surface) => applyLayout(swapWithNext(renderLayout, surface))}
+              onPromote={(surface) => applyLayout(promote(layout, surface))}
+              onSwap={(surface) => applyLayout(swapWithNext(layout, surface))}
               onClose={(surface) => {
-                const next = closeSurface(renderLayout, surface);
+                const next = closeSurface(layout, surface);
                 if (next) applyLayout(next);
               }}
               // tty pane-segment verbs (260813-w1lf): the tile header's

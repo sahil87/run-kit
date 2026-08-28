@@ -326,8 +326,9 @@ func TestWindowOptionOpsSkipsEmptyFamily(t *testing.T) {
 }
 
 // TestOldFormatSnapshotDecodes: a snapshot JSON written by an older binary
-// (rkType/rkUrl window keys) decodes without error — the retired keys are
-// ignored, no on-disk migration — and restores without web state.
+// (carrying window keys this struct no longer declares) decodes without error
+// — the retired keys are ignored, no on-disk migration — and restores without
+// web state.
 func TestOldFormatSnapshotDecodes(t *testing.T) {
 	old := `{
 		"server": "kit",
@@ -336,7 +337,7 @@ func TestOldFormatSnapshotDecodes(t *testing.T) {
 			"name": "alpha", "createdAt": 100,
 			"windows": [{
 				"index": 1, "id": "@1", "name": "serve",
-				"rkType": "iframe", "rkUrl": "http://x", "marker": "solid",
+				"type": "iframe", "url": "http://x", "marker": "solid",
 				"panes": [{"id": "%0", "index": 0, "cwd": "/proj"}]
 			}]
 		}]

@@ -26,32 +26,17 @@ export function urlSegmentToWindowId(segment: string): string {
   return segment.startsWith("@") ? segment : `@${segment}`;
 }
 
-// The `?view=` search param carries the per-viewer window-view lens (spec R2,
-// change 260714-t97o-web-view-lens; chat lens folded in from 260714-r7rq; the
-// `code` lens joined in 260811-k3vp). It is per-VIEWER client state, NOT part
-// of the window's identity — no new route (Constitution IV). `web`, `chat`, and
-// `code` are the valid values (`tty` is the absence of the param — the
-// always-available default lens); any other/unknown value is DROPPED (treated
-// as absent), never errored, so a stale/garbage deep link degrades to the
-// default view rather than a route error. The registry is open-ended:
-// `desktop` extends this union when it ships.
-//
-// The `?panel=` search param (260811-2r1w-right-panel-shell-web-surface, spec
-// right-panel.md P1) carries the per-viewer RIGHT-PANEL surface — handled
-// exactly like `?view=`: `web` and `code` are the valid values (closed is the
-// absence of the param), unknown values are dropped here and availability-gated
-// downstream by the layout ladder's degradation (`resolveLayout`, after the
-// legacy shim translates the param). `view` and `panel` are independent slots and
-// may both be present (`?view=web&panel=code`).
-//
-// The `?layout=` search param (260812-ab5v-surface-layout-core, spec
-// surface-layout.md L1) SUBSUMES and retires both: `?layout=<shape>:<a>,<b>[,<c>]`
-// is the whole tile layout. `view`/`panel` remain ACCEPTED (the permanent
-// translation shim in `lib/surface-layout.ts` maps them to an equivalent
-// layout) but the route mirrors the resolved layout back as `?layout=` only.
-// The value is passed through as a raw string — validation/degradation lives
-// in `resolveLayout` (this module is a deliberately dependency-free leaf, so
-// the parse helpers can't be imported here).
+// The `?view=` / `?panel=` / `?layout=` search params are RETIRED as state
+// carriers: the tab's layout is the shared `@rk_win_layout` window option and
+// the URL is the bare route. They stay ACCEPTED inbound for one release as
+// translation-only inputs — the route-entry translation effect in app.tsx
+// translates them into the option (when unset), then replaces the URL with
+// the bare route. Nothing in the frontend writes them. Unknown `view`/`panel`
+// values are DROPPED here (treated as absent), never errored, so a
+// stale/garbage deep link degrades to the default layout rather than a route
+// error. `layout` passes through as a raw string — validation lives in
+// `lib/surface-layout.ts`'s `parseLayout` (this module is a deliberately
+// dependency-free leaf, so the parse helpers can't be imported here).
 export type TerminalSearch = {
   view?: "web" | "chat" | "code";
   panel?: "web" | "code";

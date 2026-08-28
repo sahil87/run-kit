@@ -1,11 +1,5 @@
 # Surface Layout — The Center Is a Layout of Surfaces
 
-> **Amended by [`ui-state.md`](ui-state.md) (2026-08-28, draft):** § State — the resolution ladder (L1–L4) retires; shape+order live in
-> `@rk_win_layout`, `?layout=` dies after one release, ratios and zoom stay per-viewer.
-> Shapes and verbs are unchanged.
-> Read this file's rules through that lens until the in-place amendment lands
-> with implementation.
-
 > The terminal route's center becomes a **layout manager**: one to three tiles,
 > each rendering a **surface** (a (substrate, lens) pair per
 > [`right-panel.md`](right-panel.md)), arranged by a **preset shape** with a
@@ -93,72 +87,18 @@ crossing R7 — punted.
 
 ---
 
-## State — the resolution ladder
+## State
 
-### L1 — One URL param, shape:order encoded
+Shape and order are shared tab state in the `@rk_win_layout` window option —
+see [`ui-state.md`](ui-state.md) § Layout in tmux for the encoding, the
+degradation rule, and deep-link handling. Unset renders `single:tty`; the URL
+is always the bare route.
 
-`?layout=<shape>:<surface>,<surface>[,<surface>]` on the existing
-`/$server/$window` route (Constitution IV — no new routes, no new params
-beyond this one). Example: `?layout=main-left:tty,code,web`. This **subsumes
-and retires `?view=` and `?panel=`**: `?view=X` translates to `?layout=X`,
-`?view=X&panel=Y[,Z]` to the matching 2/3-tile shape, via a permanent
-translation shim at route entry so old deep links never break. Unknown shapes
-or unavailable surfaces degrade tile-by-tile toward `tty` (R2's fallback
-spirit).
-
-### L2 — Resolution order: URL > localStorage > default
-
-On route entry:
-
-1. **URL carries `?layout=`** → apply it (deep links, notifications, shared
-   links, history entries win).
-2. **else localStorage** `rk-layout:{server}:{@N window id}` → the viewer's
-   last layout *for this window* (value-bearing key, R2 convention; keyed by
-   the immutable `@N` id — rename-proof).
-3. **else the window's default-view hint** (R5 — a legacy `@rk_win_lens=iframe`
-   window defaults to a single `web` tile).
-4. **else** single `tty` tile.
-
-The applied layout is mirrored into the URL via `replaceState`, so the address
-bar is at all times a valid deep link to what is on screen — **except the
-window's default layout, which mirrors as a clean URL with the param
-dropped** (the retired `?view=` convention, "tty drops the param", carried
-forward at phase-2 ship: a bare URL *is* the deep link to the default, and
-bare internal-nav URLs stay bare). **URL = address
-(of this exact sight, shareable with anyone); localStorage = the viewer's
-window→layout map (consulted when arriving without an explicit address);
-settings.yaml boards = shared named layouts** (phase 4).
-
-### L3 — Write on user mutation only
-
-localStorage is written when the viewer *changes* the layout (verbs, rail
-toggles, shape chip, divider drags) — never on merely arriving via a URL that
-carries `?layout=`. Following someone's deep link shows their arrangement;
-touching anything makes it yours.
-
-**Transient auto-open carve-out (present).** A fresh `rk present` on a window
-is an implicit request for attention: a viewer *mounted on that window's
-route* who observes the `rkUrl` transition on the state stream MAY transiently
-auto-open the `web` tile (render-time override composed through the ordinary
-growth shapes; closing it latches that exact value against re-opening). This
-keeps R7's substrate-vs-view split intact — the auto-open is a per-viewer,
-client-side reaction of the same class as zoom, and L3 is untouched because
-nothing is written (no localStorage, no `?layout=` mirror). Cold route entry
-never auto-opens; viewers on other routes get no layout theft (the rail's
-availability signal and `rk present --notify` remain their nudge).
-
-### L4 — History gets "what you saw"
-
-Layout changes use `replaceState` (no history entry per tweak); window
-switches push entries as today. Each history entry therefore carries the
-layout it had when the viewer left, and rung 1 honors it — back/forward
-restores the historical arrangement, not the current localStorage value.
-
-Internal navigation (sidebar rows, ▾ switcher, palette) always targets the
-**bare route** — the destination window resolves its own layout via the
-ladder. Nothing at the navigation source knows or carries the target's layout.
-Code that reads layout must read resolved state, never parse `location.search`
-before the ladder has run.
+Two values stay per-viewer localStorage, as reading postures: divider ratios
+(`rk-layout-ratios:*`) and tile zoom (`rk-layout-zoom:*`). There is no present
+auto-open carve-out: showing a surface is an ordinary `@rk_win_layout` write
+every viewer renders. History entries are bare routes — layout changes never
+touch the URL, and back/forward shows whatever the tab's shared layout holds.
 
 ---
 
@@ -183,7 +123,7 @@ was retired).*
 | **⇄ Swap** | Swap with neighbor (directional chords: swap-left/right/up/down); order permutes |
 | **▦ Cycle shape** | Next preset, same order — one chip on the layout (top-bar right cluster), not per-tile; its popover shows the preset glyphs for direct jump |
 | **✕ Close** | Surface leaves; layout collapses to the smaller shape |
-| **Switch-to-tile** (mobile-primary) | No arrangement change — swaps WHICH surface the mobile single slot renders: transient (no URL/localStorage write, L3 untouched) when the target is already open in the resolved layout; `single:<surface>` through the shared mutation path (persisted + mirrored) when it is available but not open. Lives in the top-bar switch group (§ Mobile) and the `Tile: Switch to <Surface>` palette entries that supersede `View:` at mobile width |
+| **Switch-to-tile** (mobile-primary) | Swaps WHICH surface the mobile single slot renders: a target already open in the layout writes only the viewer's zoom key (`rk-layout-zoom:*` — no tmux write); an available-but-not-open target grows the shared layout through the shared `--add` mutation (`addSurface` → `@rk_win_layout` write) plus the zoom key; when growth is impossible (arity 3 without the kind) the button is disabled. Lives in the top-bar switch group (§ Mobile) and the `Tile: Switch to <Surface>` palette entries that supersede `View:` at mobile width |
 
 **Rail semantics change**: rail buttons become **open-tile toggles** — lit for
 every open tile; clicking an unlit icon adds that surface to the next slot,
@@ -227,15 +167,15 @@ button), rendered only when ≥2 surfaces are available, with radio semantics
 is pinned in-bar at mobile — it never drops into the overflow chevron (other
 chips yield first) and registers no overflow-menu rows — and carries the same
 availability dots as the desktop toggles. Terminal and panel never share width
-on a phone. A phone arriving at a 3-tile `?layout=` URL shows slot A and
+on a phone. A phone arriving at a tab with a 3-tile shared layout shows slot A and
 offers the rest via the switch group.
 
 The buttons run the **switch-to-tile** verb (§ Verbs): an already-open target
-swaps the visible tile transiently; an available-but-not-open target applies
-`single:<surface>` through the shared mutation path. The transient auto-open
-carve-out (§ L3) NEVER auto-swaps the visible tile on mobile: an auto-opened
-web surface reads as an unpressed button with its content dot lit, reachable
-by tap. The palette mirrors the group with `Tile: Switch to <Surface>` entries
+writes only the viewer's zoom key (no tmux write); an available-but-not-open
+target grows the shared layout via the shared `--add` mutation (`addSurface` →
+`@rk_win_layout` write) plus the zoom key, and renders disabled when growth is
+impossible (arity 3 without the kind). The palette mirrors the group with
+`Tile: Switch to <Surface>` entries
 (Constitution V), which supersede the `View:` lens entries at mobile width.
 
 ---

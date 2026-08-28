@@ -1,10 +1,5 @@
 # Right Panel — A Second Slot Beside the Terminal
 
-> **Amended by [`ui-state.md`](ui-state.md) (2026-08-28, draft):** P1 (per-viewer, URL-addressable panel choice) is superseded by shared
-> `@rk_win_layout`; § Companion Windows is unshipped and tracked there as an open question.
-> Read this file's rules through that lens until the in-place amendment lands
-> with implementation.
-
 > A collapsible right-side panel on the terminal route that renders a **second
 > (substrate, lens) pair** beside the tty, behind an icon rail rendered on
 > every desktop terminal route and collapsible from the top bar
@@ -99,7 +94,7 @@ Both needs share one substrate: a collapsed-by-default right panel.
 | Surface | Substrate | Lens | Available when |
 |---------|-----------|------|----------------|
 | `web` | current window | `web` | always — the lens exists on every window (like `tty`); `@rk_win_url` selects the CONTENT (empty/whitespace → the tile's onboarding state, non-empty → the live iframe), never availability — the `code` row's availability-vs-content split (amended 2026-08-21, change `260821-zqlq`) |
-| `code` | current window | `code` (new lens, below) | the window's code folder is **LATCHED, or** a git root is derivable from the active pane's cwd (since `260811-a2bo` the code-server endpoint always resolves by convention: preset `RK_CODE_SERVER_PORT`, else `RK_PORT+2`). The latch is what makes availability STABLE: derivation seeds it once, at first open, so a window that has ever opened the code surface keeps offering it even after its active pane leaves the repo — the rail button, the switcher segment, and `?view=code`/`?layout=` deep links no longer strobe with the terminal's cwd (see § The `code` lens). **Availability is the STABLE capability signal only** — code-server *reachability* never gates the button/segment (it would strobe the rail); reachability selects the surface's CONTENT instead: live iframe when up, the portless "code-server not running — check rk doctor" empty state when down (amended 2026-08-11, change `260811-k3vp`; port dropped by `260811-a2bo`; latch added 2026-08-13, change `260813-if5d`) |
+| `code` | current window | `code` (new lens, below) | the window's code folder is **LATCHED, or** a git root is derivable from the active pane's cwd (since `260811-a2bo` the code-server endpoint always resolves by convention: preset `RK_CODE_SERVER_PORT`, else `RK_PORT+2`). The latch is what makes availability STABLE: it lives in the `@rk_win_code_root` window option, seeded from the derived git root the first time the code surface renders and moved afterwards only by code-server's own folder navigation, so a window that has ever opened the code surface keeps offering it even after its active pane leaves the repo — the rail button, the switcher segment, and `?view=code`/`?layout=` deep links no longer strobe with the terminal's cwd (see § The `code` lens). **Availability is the STABLE capability signal only** — code-server *reachability* never gates the button/segment (it would strobe the rail); reachability selects the surface's CONTENT instead: live iframe when up, the portless "code-server not running — check rk doctor" empty state when down (amended 2026-08-11, change `260811-k3vp`; port dropped by `260811-a2bo`; latch added 2026-08-13, change `260813-if5d`) |
 | `agents` | companion window | `tty` | a companion window owned by this window exists |
 
 ### The `code` lens (new view-registry row)
@@ -202,13 +197,13 @@ session, hidden from navigation, rendered through its owner's panel.
 
 ## Rules
 
-### P1 — Panel choice is per-viewer, URL-addressable
+### P1 — Panel choice is shared tab state; width stays per-viewer
 
-Mirrors window-views R2: an optional `?panel=<surface>` search param on the
-existing `/$server/$window` route (Constitution IV — no new routes) for deep
-links (a waiting-agent notification opens `?panel=agents`); last state per
-window persists in localStorage as a value-bearing key (surface name or
-closed; absent = closed). Panel width is a per-viewer localStorage value.
+Mirrors window-views R2: which surface the panel/tile shows is shared tab
+state in the `@rk_win_layout` window option — every viewer of the tab renders
+the same arrangement, and deep links (a waiting-agent notification) address
+the tab's bare route (Constitution IV — no new routes). Panel width is a
+per-viewer localStorage value.
 
 ### P2 — The panel is additive; the tty stays put
 

@@ -326,7 +326,7 @@ func formerCommands(win Window) []string {
 // set-option ops SetWindowOptions applies. Empty values are omitted (never
 // unset — a restore only reapplies what was captured). The web-tab family is
 // emitted slot by slot (URL and root together); the active pointer only when
-// > 0. A snapshot written by an older binary (whose rkType/rkUrl keys this
+// > 0. A snapshot written by an older binary (whose retired web keys this
 // struct no longer declares) decodes with those keys ignored and simply
 // restores without web state — no on-disk migration.
 func windowOptionOps(win Window) []tmux.WindowOptionOp {

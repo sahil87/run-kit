@@ -1,20 +1,33 @@
 import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { READY_TIMEOUT, resolveWindow as resolveWindowRaw } from "./_ready";
-import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
+import {
+  TMUX_SERVER,
+  createSession,
+  killSession,
+  newWindow,
+  stampWebTab,
+  windowOption,
+} from "./_tmux";
 import { stubProxyPorts } from "./_web-tile";
 
-// Surface-layout core e2e (spec docs/specs/surface-layout.md). Covers the
-// resolution ladder (URL `?layout=` > localStorage `rk-layout:` > hint >
-// `single:tty`), the permanent `?view=`/`?panel=` translation shim, tile
-// verbs + the top-bar surface-toggle group (the right rail is REMOVED —
-// composed-frame unification), refresh/window-switch/history semantics
-// (L2–L4), divider-ratio persistence (R5), the mobile slot-A + top-bar
-// switch-group branch (R13), the focused-tile accent border, the tty-scoped
-// split-chord gate, the tty pane segment (Split H · Split V · Close Pane —
-// any arity, zoom-visible, tty-only) + the terminal bar's split demotion
-// (menuOnly; the chevron menu keeps the three rows), and the gap-seam chrome
-// (rest grip dots, hover/drag sash pill, main-* intersection zone).
+// Surface-layout core e2e (spec docs/specs/surface-layout.md + ui-state.md §
+// Layout in tmux). The (shape, order) half of a window's layout is SHARED tab
+// state — the `@rk_win_layout` tmux window option: tile verbs + the top-bar
+// surface-toggle group POST it through /options, and every assertion here
+// reads tmux (`windowOption`), never the URL or localStorage. The retired
+// `?layout=`/`?view=`/`?panel=` params are inbound-only (one release of
+// route-entry translation into the option); history entries are bare routes.
+// Per-viewer state stays local: divider ratios (`rk-layout-ratios:*`,
+// persisted across reload) and zoom (`rk-layout-zoom:*`, the surface KIND —
+// desktop zoom AND the mobile single-tile choice). Also covered: the mobile
+// slot-A + top-bar switch-group branch, the focused-tile accent border, the
+// tty-scoped split-chord gate, the tty pane segment (Split H · Split V ·
+// Close Pane — any arity, zoom-visible, tty-only) + the terminal bar's split
+// demotion (menuOnly; the chevron menu keeps the three rows), the gap-seam
+// chrome (rest grip dots, hover/drag sash pill, main-* intersection zone),
+// and the two-viewer convergence/isolation contract (a toggle in one browser
+// context repaints a second; zoom stays per-viewer).
 //
 // Perf budget (binding): the plaintext e2e origin is HTTP/1.1 with a 6-slot
 // connection pool — only ONE test mounts 3 tiles (the verbs test); every
@@ -31,15 +44,15 @@ import { stubProxyPorts } from "./_web-tile";
 // tile chrome, never frame content) and sets a wide desktop viewport
 // (1440×800) — multi-tile is desktop-only; the mobile test overrides to
 // 375×812 with `hasTouch`. `makeWindow(name, {url?})` creates a window via
-// tmux and stamps `@rk_win_url` (execFileSync argument arrays — no shell
-// strings); windows inherit the tmux server's repo-root cwd, so every window
-// is code-capable. `paneCount(id)` reads the live tmux pane count (the
-// split-chord gate's ground truth, not a DOM read). `expectLayoutParam` is a
-// retrying read of the DECODED `?layout=` param (the router may
-// percent-encode `:`/`,`; the replaceState mirror lands a beat late). Focus
-// clicks target the tile header at {x: 6, y: 15} — the focus seam is
-// pointerdown-capture anywhere in the tile, and the 30px header's padding is
-// never a verb button.
+// tmux and stamps the slot-1 web tab (`stampWebTab` — `@rk_win_web_1` +
+// `@rk_win_web_active 1`); windows inherit the tmux server's repo-root cwd,
+// so every window is code-capable. `paneCount(id)` reads the live tmux pane
+// count (the split-chord gate's ground truth, not a DOM read).
+// `expectWindowLayout` is a retrying read of the window's `@rk_win_layout`
+// option (the POST + option tick land asynchronously); `expectBareUrl`
+// asserts the route carries no search params. Focus clicks target the tile
+// header at {x: 6, y: 15} — the focus seam is pointerdown-capture anywhere
+// in the tile, and the 30px header's padding is never a verb button.
 
 // Own session so this file never collides with other specs (fullyParallel off).
 const TEST_SESSION = `e2e-surflayout-${Date.now()}`;
@@ -56,15 +69,15 @@ async function resolveWindow(page: Page, windowName: string): Promise<string> {
   return (await resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION, windowName)).windowId;
 }
 
-/** Create a window and (optionally) stamp @rk_win_url via tmux (execFileSync with
- *  argument arrays — no shell string construction). Windows inherit the tmux
- *  server's repo-root cwd, so every window here is code-capable (gitRoot
- *  derived). Returns the @N id. */
+/** Create a window and (optionally) stamp its slot-1 web tab via tmux
+ *  (`stampWebTab` — `@rk_win_web_1` + `@rk_win_web_active 1`). Windows
+ *  inherit the tmux server's repo-root cwd, so every window here is
+ *  code-capable (gitRoot derived). Returns the @N id. */
 async function makeWindow(page: Page, name: string, opts: { url?: string } = {}): Promise<string> {
   newWindow(TEST_SESSION, name);
   const id = await resolveWindow(page, name);
   if (opts.url !== undefined) {
-    execFileSync("tmux", ["-L", TMUX_SERVER, "set-option", "-w", "-t", id, "@rk_win_url", opts.url]);
+    stampWebTab(id, opts.url);
   }
   return id;
 }
@@ -91,13 +104,17 @@ async function gotoWindow(page: Page, windowId: string, search = ""): Promise<vo
   });
 }
 
-/** Assert the mirrored `?layout=` param (decoded — the router may
- *  percent-encode `:`/`,`). Retrying: the replaceState mirror lands a beat
- *  after the mutation/arrival that triggered it. */
-async function expectLayoutParam(page: Page, expected: string | null): Promise<void> {
+/** Assert the shared layout a window carries — its `@rk_win_layout` tmux
+ *  option (retrying: a verb's POST and the option tick land asynchronously). */
+async function expectWindowLayout(windowId: string, expected: string): Promise<void> {
   await expect
-    .poll(() => new URL(page.url()).searchParams.get("layout"), { timeout: 10_000 })
+    .poll(() => windowOption(windowId, "@rk_win_layout"), { timeout: 10_000 })
     .toBe(expected);
+}
+
+/** Assert the route is bare — layout state lives in tmux, never the URL. */
+function expectBareUrl(page: Page): void {
+  expect(new URL(page.url()).search).toBe("");
 }
 
 // The surface toggles live in the top bar's `surface-toggles` group (the right
@@ -144,34 +161,32 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
   });
 
   /**
-   * Proves: the permanent translation shim — a legacy deep link maps to
-   * `split-h:code,web` (view in slot A), the URL is rewritten via
-   * `replaceState` to the mirrored `?layout=` form with the legacy params
-   * gone, and both tiles render (code iframe + proxied web iframe), never a
-   * broken tile.
+   * Proves: one-shot inbound translation — a legacy `?view=code&panel=web`
+   * deep link on a window whose `@rk_win_layout` is UNSET lands the mapped
+   * `split-h:code,web` (view in slot A) in tmux with exactly one option
+   * write, the URL is replaced with the bare route (legacy params gone), and
+   * both tiles render (code iframe + proxied web iframe), never a broken
+   * tile.
    *
    * Steps:
-   * 1. Create a web-capable window (`@rk_win_url`; repo cwd ⇒ code-capable).
+   * 1. Create a web-capable window (stamped web tab; repo cwd ⇒ code-capable).
    * 2. Navigate with `?view=code&panel=web`.
-   * 3. Assert the `layout` param reads `split-h:code,web` and `view` is
-   *    absent.
+   * 3. Assert `@rk_win_layout` reads `split-h:code,web` and the URL is bare.
    * 4. Assert the `surface-tile-code` and `surface-tile-web` tiles are
    *    visible and the `Proxied content` iframe renders.
    */
-  test("legacy ?view=code&panel=web deep link resolves to split-h:code,web (shim, A-016)", async ({
+  test("legacy ?view=code&panel=web deep link translates into @rk_win_layout once and drops the params", async ({
     page,
   }) => {
     test.setTimeout(30_000);
     const id = await makeWindow(page, `sl-shim-${Date.now()}`, { url: IFRAME_URL });
     await gotoWindow(page, id, "?view=code&panel=web");
 
-    // The translation shim maps the retired params to split-h:code,web (view in
-    // slot A) and the URL is REWRITTEN via replaceState to the mirrored
-    // ?layout= form (R2) — the legacy params are gone.
-    await expectLayoutParam(page, "split-h:code,web");
-    await expect
-      .poll(() => new URL(page.url()).searchParams.get("view"))
-      .toBeNull();
+    // The route-entry translation maps the retired params to
+    // split-h:code,web (view in slot A) and POSTs the option; the URL is
+    // replaced with the bare route.
+    await expectWindowLayout(id, "split-h:code,web");
+    await expect.poll(() => new URL(page.url()).search, { timeout: 10_000 }).toBe("");
     // Both tiles render: the code tile (a repo-cwd window is code-capable) and
     // the web tile with its proxied iframe.
     await expect(tile(page, "code")).toBeVisible({ timeout: 10_000 });
@@ -180,10 +195,39 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
   });
 
   /**
+   * Proves: the shared layout WINS over a carried param — on a window whose
+   * `@rk_win_layout` is already set, a `?view=web` deep link writes nothing
+   * (the option keeps its value), the URL is still cleaned to the bare
+   * route, and the set layout renders (the code tile, not the web one the
+   * param asked for).
+   *
+   * Steps:
+   * 1. Create a web-capable window and stamp `@rk_win_layout single:code`.
+   * 2. Navigate with `?view=web`.
+   * 3. Assert the option still reads `single:code` and the URL is bare.
+   * 4. Assert the code tile is visible and no web tile exists.
+   */
+  test("a set @rk_win_layout beats a carried ?view= param: no write, params dropped, shared layout renders", async ({
+    page,
+  }) => {
+    test.setTimeout(30_000);
+    const id = await makeWindow(page, `sl-setwins-${Date.now()}`, { url: IFRAME_URL });
+    execFileSync("tmux", ["-L", TMUX_SERVER, "set-option", "-w", "-t", id, "@rk_win_layout", "single:code"]);
+    await gotoWindow(page, id, "?view=web");
+
+    // No write — the option keeps its value; the param only gets dropped.
+    // (A beat so a would-be write could land before asserting the value.)
+    await expect.poll(() => new URL(page.url()).search, { timeout: 10_000 }).toBe("");
+    expect(windowOption(id, "@rk_win_layout")).toBe("single:code");
+    await expect(tile(page, "code")).toBeVisible({ timeout: 10_000 });
+    await expect(tile(page, "web")).toHaveCount(0);
+  });
+
+  /**
    * Proves: the top-bar `surface-toggles` group's open-tile toggles grow the
    * layout (1→2 `split-h`, 2→3 `main-left`) and every tile verb mutates
-   * (shape, order) exactly as specified, each outcome persisted + mirrored
-   * into the URL. Also the main-left intersection zone: a mid-seam hover
+   * (shape, order) exactly as specified, each outcome POSTed to the shared
+   * `@rk_win_layout` option. Also the main-left intersection zone: a mid-seam hover
    * lights only that sash, the junction hover lights BOTH, and a diagonal
    * drag moves BOTH ratios (persisted on release, URL untouched, terminal
    * still the same mounted element). This is the file's ONE bounded 3-tile
@@ -191,11 +235,11 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
    *
    * Steps:
    * 1. Create a web-capable window; navigate; assert the terminal.
-   * 2. Click the `Web tile` top-bar toggle; assert
-   *    `?layout=split-h:tty,web`, the web tile visible, and the button lit
+   * 2. Click the `Web tile` top-bar toggle; assert the option reads
+   *    `split-h:tty,web`, the web tile visible, and the button lit
    *    (`aria-pressed`).
-   * 3. Click the `Code tile` top-bar toggle; assert
-   *    `?layout=main-left:tty,web,code` and the code tile visible.
+   * 3. Click the `Code tile` top-bar toggle; assert the option reads
+   *    `main-left:tty,web,code` and the code tile visible.
    * 4. Intersection: assert the `surface-divider-intersection` zone is
    *    visible; hover divider 0 mid-seam (`y: 100`, far from the junction)
    *    and assert only its `.rk-sash` lights (opacity 1, after the ~150ms
@@ -206,13 +250,14 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
    *    (+80/−60px), up; assert BOTH `aria-valuenow`s changed, the terminal
    *    is the SAME element, the localStorage `rk-layout-ratios:…:main-left`
    *    entry holds both new ratios (neither the equal-split default), and
-   *    the URL still reads `?layout=main-left:tty,web,code`.
-   * 6. Hover the code tile, click `Promote Code`; assert
-   *    `?layout=main-left:code,tty,web` (slot A permuted, shape unchanged).
-   * 7. Hover the tty tile, click `Swap Terminal`; assert
-   *    `?layout=main-left:code,web,tty` (swapped with the next neighbor).
-   * 8. Hover the web tile, click `Close Web`; assert
-   *    `?layout=split-h:code,tty`, the web tile hidden, the code tile and
+   *    the option still reads `main-left:tty,web,code` (a drag mutates
+   *    ratios only).
+   * 6. Hover the code tile, click `Promote Code`; assert the option reads
+   *    `main-left:code,tty,web` (slot A permuted, shape unchanged).
+   * 7. Hover the tty tile, click `Swap Terminal`; assert the option reads
+   *    `main-left:code,web,tty` (swapped with the next neighbor).
+   * 8. Hover the web tile, click `Close Web`; assert the option reads
+   *    `split-h:code,tty`, the web tile hidden, the code tile and
    *    terminal still visible, and the web top-bar toggle unlit.
    */
   test("build a 3-tile layout via the top-bar surface toggles; promote/swap/close verbs mutate (shape, order) in the URL (A-017)", async ({
@@ -231,12 +276,12 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     await expect(codeToggle).toBeVisible({ timeout: READY_TIMEOUT });
 
     await webToggle.click();
-    await expectLayoutParam(page, "split-h:tty,web");
+    await expectWindowLayout(id, "split-h:tty,web");
     await expect(tile(page, "web")).toBeVisible({ timeout: 10_000 });
     await expect(webToggle).toHaveAttribute("aria-pressed", "true");
 
     await codeToggle.click();
-    await expectLayoutParam(page, "main-left:tty,web,code");
+    await expectWindowLayout(id, "main-left:tty,web,code");
     await expect(tile(page, "code")).toBeVisible({ timeout: 10_000 });
     await expect(codeToggle).toHaveAttribute("aria-pressed", "true");
 
@@ -293,25 +338,26 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     expect(persisted).toHaveLength(2);
     expect(persisted[0]).not.toBeCloseTo(100 / 3, 1);
     expect(persisted[1]).not.toBeCloseTo(200 / 3, 1);
-    // The URL layout string is untouched by the drag.
-    await expectLayoutParam(page, "main-left:tty,web,code");
+    // The shared option is untouched by the drag — ratios are per-viewer.
+    expect(windowOption(id, "@rk_win_layout")).toBe("main-left:tty,web,code");
+    expectBareUrl(page);
 
     // ◧ Promote on the code tile: slot A becomes code, the rest permute
     // unchanged (shape untouched) — hover first (the verbs are visible at
     // rest since 260812-wfic; the hover still exercises the hover affordance).
     await tile(page, "code").hover();
     await tile(page, "code").getByRole("button", { name: "Promote Code" }).click();
-    await expectLayoutParam(page, "main-left:code,tty,web");
+    await expectWindowLayout(id, "main-left:code,tty,web");
 
     // ⇄ Swap on the tty tile: exchanges with the NEXT neighbor (web).
     await tile(page, "tty").hover();
     await tile(page, "tty").getByRole("button", { name: "Swap Terminal" }).click();
-    await expectLayoutParam(page, "main-left:code,web,tty");
+    await expectWindowLayout(id, "main-left:code,web,tty");
 
     // ✕ Close on the web tile: the layout collapses 3→2 (split-h), order kept.
     await tile(page, "web").hover();
     await tile(page, "web").getByRole("button", { name: "Close Web" }).click();
-    await expectLayoutParam(page, "split-h:code,tty");
+    await expectWindowLayout(id, "split-h:code,tty");
     await expect(tile(page, "web")).toBeHidden();
     await expect(tile(page, "code")).toBeVisible();
     await expect(terminal(page)).toBeVisible();
@@ -341,8 +387,8 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
    * 3. Assert the top bar (banner) has NO `Split horizontally` button; open
    *    the `More controls` chevron menu and assert the Split horizontal /
    *    Split vertical / Close pane rows are visible; Escape-close it.
-   * 4. Open the web tile via the top-bar toggle; assert
-   *    `?layout=split-h:tty,web`, the segment still visible on the tty
+   * 4. Open the web tile via the top-bar toggle; assert the option reads
+   *    `split-h:tty,web`, the segment still visible on the tty
    *    tile, and NO `pane-segment` on the web tile.
    * 5. Click the tty tile's `Expand Terminal` verb; assert the segment
    *    stays visible while `Promote Terminal` is gone and `Close Terminal`
@@ -387,7 +433,7 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     await expect(webToggle).toBeVisible({ timeout: READY_TIMEOUT });
     await webToggle.click();
     await expect(tile(page, "web")).toBeVisible({ timeout: 10_000 });
-    await expectLayoutParam(page, "split-h:tty,web");
+    await expectWindowLayout(id, "split-h:tty,web");
     await expect(segment).toBeVisible();
     await expect(tile(page, "web").getByTestId("pane-segment")).toHaveCount(0);
 
@@ -405,80 +451,78 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
   });
 
   /**
-   * Proves: a top-bar toggle writes the value-bearing
-   * `rk-layout:{server}:{@N}` key, and a FULL load of the bare route (no
-   * carried `?layout=`, so the URL rung is empty) resolves the stored layout
-   * and mirrors it back into the URL.
+   * Proves: a top-bar toggle POSTs the shared `@rk_win_layout` option, and a
+   * FULL load of the bare route re-renders the same tile set — persistence
+   * comes from tmux, not the browser; the URL stays bare throughout.
    *
    * Steps:
    * 1. Create a web-capable window; navigate; open the web tile via the
    *    top-bar toggle.
-   * 2. Assert `?layout=split-h:tty,web` and the web tile visible.
+   * 2. Assert the option reads `split-h:tty,web`, the web tile visible, and
+   *    the URL bare.
    * 3. `page.goto` the BARE window route (a real reload, no search string).
-   * 4. Assert the web tile and terminal render again and the URL mirrors
-   *    `split-h:tty,web`.
+   * 4. Assert the web tile and terminal render again and the URL is still
+   *    bare.
    */
-  test("a user-built layout restores from localStorage on a bare re-arrival (ladder rung 2)", async ({
+  test("a user-built layout persists in tmux across a bare-route reload", async ({
     page,
   }) => {
     test.setTimeout(30_000);
     const id = await makeWindow(page, `sl-persist-${Date.now()}`, { url: IFRAME_URL });
     await gotoWindow(page, id);
 
-    // A user mutation (top-bar toggle) writes rk-layout:{server}:{@N} AND mirrors
-    // the URL.
+    // A user mutation (top-bar toggle) POSTs the shared option.
     const webToggle = surfaceToggle(page, "Web");
     await expect(webToggle).toBeVisible({ timeout: READY_TIMEOUT });
     await webToggle.click();
-    await expectLayoutParam(page, "split-h:tty,web");
+    await expectWindowLayout(id, "split-h:tty,web");
     await expect(tile(page, "web")).toBeVisible({ timeout: 10_000 });
+    expectBareUrl(page);
 
-    // Re-arrive via a FULL load of the BARE route (no ?layout= carried) — the
-    // URL rung is empty, so the localStorage rung must supply the layout.
+    // Re-arrive via a FULL load of the BARE route — the option supplies the
+    // layout (no localStorage, no URL state).
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(id)}`);
     await expect(page.locator("[aria-label='Connected']")).toBeVisible({
       timeout: READY_TIMEOUT,
     });
     await expect(tile(page, "web")).toBeVisible({ timeout: 10_000 });
     await expect(terminal(page)).toBeVisible();
-    // …and the resolved layout is mirrored back into the URL.
-    await expectLayoutParam(page, "split-h:tty,web");
+    expectBareUrl(page);
   });
 
   /**
    * Proves: internal navigation (sidebar) targets the bare route, so each
-   * window resolves its own layout: B (never customized) falls to
-   * `single:tty` (the default — mirrored as a CLEAN URL, param dropped),
-   * while A restores its stored `split-h:tty,web` (mirrored into the URL).
-   * The A→B hop is a REAL client-side navigation (sidebar row click), not a
-   * `page.goto`.
+   * window renders its own `@rk_win_layout`: B (never customized) renders
+   * `single:tty` (the fallback), while A renders its option's
+   * `split-h:tty,web`. The A→B hop is a REAL client-side navigation
+   * (sidebar row click), not a `page.goto`, and the URL stays bare
+   * throughout.
    *
    * Steps:
    * 1. Create window A (web-capable) and window B (plain).
-   * 2. On A, open the web tile via the top-bar toggle; assert
-   *    `?layout=split-h:tty,web`.
+   * 2. On A, open the web tile via the top-bar toggle; assert the option
+   *    reads `split-h:tty,web`.
    * 3. Click B's row in the `Sessions` sidebar; assert selection settles on
-   *    B (`aria-current="page"`), no web tile exists, and the URL is clean
-   *    (the default drops the param).
-   * 4. Click A's row; assert the web tile renders again and the URL mirrors
-   *    `split-h:tty,web`.
+   *    B (`aria-current="page"`), no web tile exists, and the URL is bare.
+   * 4. Click A's row; assert the web tile renders again and the URL stays
+   *    bare.
    */
-  test("window switch A→B→A restores each window's own layout (A-012)", async ({ page }) => {
+  test("window switch A→B→A renders each window's own shared layout", async ({ page }) => {
     test.setTimeout(40_000);
     const a = await makeWindow(page, `sl-switch-a-${Date.now()}`, { url: IFRAME_URL });
     const b = await makeWindow(page, `sl-switch-b-${Date.now()}`);
 
-    // On A, build split-h:tty,web (a user mutation → localStorage write).
+    // On A, build split-h:tty,web (a user mutation → @rk_win_layout write).
     await gotoWindow(page, a);
     const webToggle = surfaceToggle(page, "Web");
     await expect(webToggle).toBeVisible({ timeout: READY_TIMEOUT });
     await webToggle.click();
-    await expectLayoutParam(page, "split-h:tty,web");
+    await expectWindowLayout(a, "split-h:tty,web");
     await expect(tile(page, "web")).toBeVisible({ timeout: 10_000 });
 
     // Switch to B via a REAL client-side navigation (sidebar row click) —
-    // internal nav targets the BARE route; B resolves independently (never
-    // customized → hint/default rung → single:tty).
+    // internal nav targets the BARE route; B renders its own (unset) layout:
+    // the single:tty fallback.
     const sidebar = page.locator("nav[aria-label='Sessions']");
     const rowB = sidebar.locator(`[data-window-id="${b}"]`).getByRole("button").first();
     await expect(rowB).toBeVisible({ timeout: 10_000 });
@@ -486,46 +530,47 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     await expect(rowB).toHaveAttribute("aria-current", "page", { timeout: 10_000 });
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
     await expect(tile(page, "web")).toHaveCount(0);
-    await expectLayoutParam(page, null); // default layout mirrors as a CLEAN URL (param dropped)
+    expectBareUrl(page);
 
-    // Back to A via the sidebar (bare route again) — A's stored layout
-    // resolves and is mirrored into the URL.
+    // Back to A via the sidebar (bare route again) — A's option renders
+    // again.
     const rowA = sidebar.locator(`[data-window-id="${a}"]`).getByRole("button").first();
     await rowA.click();
     await expect(rowA).toHaveAttribute("aria-current", "page", { timeout: 10_000 });
     await expect(tile(page, "web")).toBeVisible({ timeout: 10_000 });
-    await expectLayoutParam(page, "split-h:tty,web");
+    expectBareUrl(page);
   });
 
   /**
-   * Proves: layout mutations use `replaceState` (no history entry per tweak)
-   * while window switches push; back/forward therefore restore the
-   * arrangement each history entry carried (rung 1 honors the entry's URL),
-   * and backing past the window lands on the pre-window route with no stale
-   * pre-mutation entry in between.
+   * Proves: every history entry is a BARE route — layout mutations never
+   * touch the URL (the shared option changed), and window switches push, so
+   * back/forward re-render each window's CURRENT shared layout (A's
+   * `split-h:tty,web` — a mutation mid-session is shared state, not a URL
+   * snapshot), and backing past the window lands on the pre-window route
+   * with no stale entry in between.
    *
    * Steps:
    * 1. Create windows A (web-capable) and B (plain).
    * 2. Navigate to the server route (history entry E0), then to A (E1).
-   * 3. Open the web tile on A via the top-bar toggle (replaceState — E1
-   *    updated in place); assert `?layout=split-h:tty,web`.
-   * 4. Sidebar-click B (push E2); assert B resolves `single:tty` (bare URL —
-   *    the default drops the param).
-   * 5. `goBack` → A renders `split-h:tty,web` again (the layout E1 carried).
-   * 6. `goForward` → B's default (bare URL) restores.
+   * 3. Open the web tile on A via the top-bar toggle; assert the option
+   *    reads `split-h:tty,web` and the URL stays bare.
+   * 4. Sidebar-click B (push E2); assert B renders `single:tty` (its option
+   *    is unset) and the URL stays bare.
+   * 5. `goBack` → A renders `split-h:tty,web` again (its shared layout).
+   * 6. `goForward` → B's fallback renders.
    * 7. `goBack` twice → the SECOND back lands on the bare server route
-   *    (`/<server>`, E0) — a pushed layout entry would have stranded a stale
-   *    A URL in between.
+   *    (`/<server>`, E0) — no per-mutation entries exist to strand.
    */
-  test("back/forward restore historical layouts; layout tweaks add NO history entries (L4)", async ({
+  test("back/forward re-render the shared layout; layout tweaks add NO history entries", async ({
     page,
   }) => {
     test.setTimeout(40_000);
     const a = await makeWindow(page, `sl-hist-a-${Date.now()}`, { url: IFRAME_URL });
     const b = await makeWindow(page, `sl-hist-b-${Date.now()}`);
 
-    // History: [E0 server route] → [E1 window A] → (top-bar toggle: replaceState,
-    // E1 updated in place) → [E2 window B via sidebar push].
+    // History: [E0 server route] → [E1 window A] → (top-bar toggle: an option
+    // POST, E1 untouched — the URL never carries layout state) → [E2 window B
+    // via sidebar push].
     await page.goto(`/${TMUX_SERVER}`);
     await expect(page.locator("[aria-label='Connected']")).toBeVisible({
       timeout: READY_TIMEOUT,
@@ -534,32 +579,32 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     const webToggle = surfaceToggle(page, "Web");
     await expect(webToggle).toBeVisible({ timeout: READY_TIMEOUT });
     await webToggle.click();
-    await expectLayoutParam(page, "split-h:tty,web");
+    await expectWindowLayout(a, "split-h:tty,web");
+    expectBareUrl(page);
 
     const sidebar = page.locator("nav[aria-label='Sessions']");
     const rowB = sidebar.locator(`[data-window-id="${b}"]`).getByRole("button").first();
     await expect(rowB).toBeVisible({ timeout: 10_000 });
     await rowB.click();
     await expect(rowB).toHaveAttribute("aria-current", "page", { timeout: 10_000 });
-    await expectLayoutParam(page, null); // default layout mirrors as a CLEAN URL (param dropped)
+    expectBareUrl(page);
 
-    // Back → the A entry carries the layout it had when the viewer LEFT (rung 1
-    // honors it) — split-h:tty,web renders again.
+    // Back → A's shared layout renders again.
     await page.goBack();
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
     await expect(tile(page, "web")).toBeVisible({ timeout: 10_000 });
-    await expectLayoutParam(page, "split-h:tty,web");
+    expectBareUrl(page);
 
-    // Forward → B's entry restores its own (single:tty).
+    // Forward → B's fallback (single:tty) renders.
     await page.goForward();
-    await expectLayoutParam(page, null); // default layout mirrors as a CLEAN URL (param dropped)
+    await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
+    await expect(tile(page, "web")).toHaveCount(0);
+    expectBareUrl(page);
 
-    // Back twice more: past A, straight to the E0 server route. If the top-bar
-    // toggle had PUSHED an entry, the second back would land on a stale
-    // pre-mutation A URL instead — the replaceState discipline (L4) is what
-    // makes the window route disappear from history here.
+    // Back twice more: past A, straight to the E0 server route — a mutation
+    // never adds a history entry.
     await page.goBack();
-    await expectLayoutParam(page, "split-h:tty,web");
+    await expect(tile(page, "web")).toBeVisible({ timeout: 10_000 });
     await page.goBack();
     await expect
       .poll(() => new URL(page.url()).pathname, { timeout: 10_000 })
@@ -585,8 +630,7 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
    * 4. Drag the divider 150px right (mouse down/move/up in steps), asserting
    *    the sash is still lit mid-drag.
    * 5. Assert `aria-valuenow` grew past 50, the terminal is the SAME element
-   *    (still mounted, still visible), and the URL layout string is
-   *    unchanged.
+   *    (still mounted, still visible), and the shared option is unchanged.
    * 6. Re-arrive via a full load of the bare route; assert the web tile
    *    renders and the divider reads exactly the dragged value (ratio
    *    persisted per window+shape).
@@ -640,8 +684,10 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     // The terminal stayed MOUNTED (same xterm element) through the drag.
     const xtermAfter = await terminal(page).elementHandle();
     expect(await page.evaluate(([x, y]) => x === y, [xtermBefore, xtermAfter])).toBe(true);
-    // Ratios never appear in the URL — the layout string is untouched by a drag.
-    await expectLayoutParam(page, "split-h:tty,web");
+    // Ratios are per-viewer local state — the shared option is untouched by
+    // a drag, and the URL never carries layout state.
+    expect(windowOption(id, "@rk_win_layout")).toBe("split-h:tty,web");
+    expectBareUrl(page);
 
     // The ratio persists per (window, shape): a bare reload resolves the same
     // layout AND the dragged divider position.
@@ -660,20 +706,22 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
    * with code-server's own toggle-terminal chord), so the chord falls
    * through untouched even with xterm focused; the zoom action itself
    * survives via the tile's ⛶ verb (the same seam as the palette's
-   * `Layout: Expand`/`Restore`) and stays TRANSIENT (no URL/localStorage
-   * change).
+   * `Layout: Expand`/`Restore`) and stays PER-VIEWER (the zoomed KIND under
+   * `rk-layout-zoom:{server}:{@N}` — the shared option and the URL are
+   * untouched).
    *
    * Steps:
    * 1. Create a web-capable window; navigate; open the web tile via the
-   *    top-bar toggle; assert the `split-h:tty,web` URL mirror.
+   *    top-bar toggle; assert the option reads `split-h:tty,web`.
    * 2. Click the terminal (xterm focus), then press `Control+``; after a
    *    500ms grace beat assert BOTH tiles and the divider are still visible
    *    (no zoom).
    * 3. Click the tty tile's `Expand Terminal` verb; assert the web tile
    *    hides at display level (still mounted — count 1), the divider is
-   *    gone, the terminal stays visible, and the URL is untouched.
+   *    gone, the terminal stays visible, the option and URL are untouched,
+   *    and the zoom key holds `tty`.
    * 4. Click the now-`Restore Terminal` verb; assert the web tile and the
-   *    divider return.
+   *    divider return and the zoom key is cleared.
    */
   test("Ctrl+` is inert (binding removed, 260813-j3jb); the ⛶ verb toggles the slot-A zoom", async ({
     page,
@@ -685,7 +733,7 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     await expect(webToggle).toBeVisible({ timeout: READY_TIMEOUT });
     await webToggle.click();
     await expect(tile(page, "web")).toBeVisible({ timeout: 10_000 });
-    await expectLayoutParam(page, "split-h:tty,web");
+    await expectWindowLayout(id, "split-h:tty,web");
 
     // The Ctrl+` layout-zoom binding is REMOVED (it collides with code-server's
     // own Ctrl+`): the chord must fall through untouched — no zoom, both tiles
@@ -704,14 +752,28 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     await expect(tile(page, "web")).toHaveCount(1);
     await expect(divider(page, 0)).toHaveCount(0);
     await expect(terminal(page)).toBeVisible();
-    // Zoom is transient (R6): the URL is untouched.
-    await expectLayoutParam(page, "split-h:tty,web");
+    // Zoom is per-viewer (spec ui-state.md): the shared option and the URL
+    // are untouched; the zoomed KIND lands in the viewer's zoom key.
+    expect(windowOption(id, "@rk_win_layout")).toBe("split-h:tty,web");
+    expectBareUrl(page);
+    expect(
+      await page.evaluate(
+        (key) => localStorage.getItem(key),
+        `rk-layout-zoom:${TMUX_SERVER}:${id}`,
+      ),
+    ).toBe("tty");
 
     // Restore via the same verb (now labeled Restore) — both tiles and the
-    // divider return.
+    // divider return, and the zoom key clears.
     await page.getByRole("button", { name: "Restore Terminal", exact: true }).click();
     await expect(tile(page, "web")).toBeVisible({ timeout: 10_000 });
     await expect(divider(page, 0)).toBeVisible();
+    expect(
+      await page.evaluate(
+        (key) => localStorage.getItem(key),
+        `rk-layout-zoom:${TMUX_SERVER}:${id}`,
+      ),
+    ).toBeNull();
   });
 
   // The ▦ Surfaces chip lives in the bottom bar, which 260814-ldbs
@@ -723,32 +785,35 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
 
     /**
      * Proves: below `isMobileViewport()` the layout manager renders only
-     * slot A — no grid, no dividers — and the remaining resolved surfaces
-     * are reachable via the top-bar switch group (radio semantics: the
-     * visible tile pressed), whose tap is TRANSIENT when the target is
-     * already open (the URL/desktop arrangement never changes). The nested
-     * describe runs `test.use({ hasTouch: true })` so `(pointer: coarse)`
-     * matches — a real phone is coarse AND narrow, and the bottom bar is
-     * pointer-gated, so a fine-pointer narrow window would exercise a
-     * different bar by design.
+     * the active tile — no grid, no dividers — and the remaining resolved
+     * surfaces are reachable via the top-bar switch group (radio semantics:
+     * the visible tile pressed), whose tap on an ALREADY-OPEN surface is
+     * PER-VIEWER (only the zoom key changes — the shared option, and so the
+     * desktop arrangement, never does). The nested describe runs
+     * `test.use({ hasTouch: true })` so `(pointer: coarse)` matches — a
+     * real phone is coarse AND narrow, and the bottom bar is pointer-gated,
+     * so a fine-pointer narrow window would exercise a different bar by
+     * design.
      *
      * Steps:
      * 1. Set the 375×812 viewport (context already has `hasTouch`); create
      *    a web-capable window.
-     * 2. Navigate to `?layout=main-left:tty,code,web`, gating on the
-     *    terminal (not the `Connected` dot — it lives in the desktop-only
-     *    status bar; the sidebar is an unmounted drawer at 375px anyway).
-     * 3. Assert the tty tile is visible, the code/web tiles are
-     *    mounted-hidden, no divider exists (and no
-     *    `surface-divider-intersection` — the gap-seam chrome is
+     * 2. Navigate to `?layout=main-left:tty,code,web` (inbound translation
+     *    writes the option), gating on the terminal (not the `Connected`
+     *    dot — it lives in the desktop-only status bar; the sidebar is an
+     *    unmounted drawer at 375px anyway).
+     * 3. Assert the option reads `main-left:tty,code,web`, the tty tile is
+     *    visible, the code/web tiles are mounted-hidden, no divider exists
+     *    (and no `surface-divider-intersection` — the gap-seam chrome is
      *    desktop-only), the banner's `Terminal tile` / `Code tile` /
      *    `Web tile` buttons render with Terminal `aria-pressed=true`, and
      *    no `mobile-surfaces-chip` exists in the DOM.
      * 4. Click the `Code tile` button; assert the code tile becomes visible
      *    (tty hidden), the pressed state flips (Code pressed, Terminal
-     *    not), and the URL still reads `?layout=main-left:tty,code,web`.
+     *    not), the zoom key holds `code`, and the option still reads
+     *    `main-left:tty,code,web` — the tap sent NO layout write.
      */
-    test("375px mobile: a 3-tile ?layout= URL renders slot A + the top-bar switch group for the rest (R13, A-018)", async ({
+    test("375px mobile: a 3-tile layout renders slot A + the top-bar switch group; switching an open tile writes only the zoom key", async ({
       page,
     }) => {
       test.setTimeout(30_000);
@@ -759,6 +824,7 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
       // unmounted drawer anyway). Gate on the terminal.
       await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(id)}?layout=main-left:tty,code,web`);
       await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
+      await expectWindowLayout(id, "main-left:tty,code,web");
 
       // Slot A (tty) renders full-width; the other resolved surfaces stay
       // mounted-hidden (no multi-tile grid, no dividers below the threshold).
@@ -776,20 +842,28 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
       const codeToggle = banner.getByRole("button", { name: "Code tile", exact: true });
       const webToggle = banner.getByRole("button", { name: "Web tile", exact: true });
       // READY_TIMEOUT: on a cold deep link the multi-surface layout (and so the
-      // group) resolves only once the window payload lands with rkUrl/gitRoot.
+      // group) resolves only once the window payload lands with webTabs/gitRoot.
       await expect(webToggle).toBeVisible({ timeout: READY_TIMEOUT });
       await expect(ttyToggle).toHaveAttribute("aria-pressed", "true");
       await expect(codeToggle).toHaveAttribute("aria-pressed", "false");
       await expect(page.getByTestId("mobile-surfaces-chip")).toHaveCount(0);
 
-      // Tapping the Code button swaps the mobile slot-A surface — TRANSIENT:
-      // the URL (and the desktop arrangement it encodes) is untouched.
+      // Tapping the Code button swaps the mobile single tile — PER-VIEWER:
+      // the shared option (and so every desktop viewer's arrangement) is
+      // untouched; only this viewer's zoom key changes.
       await codeToggle.click();
       await expect(tile(page, "code")).toBeVisible({ timeout: 10_000 });
       await expect(tile(page, "tty")).toBeHidden();
       await expect(codeToggle).toHaveAttribute("aria-pressed", "true");
       await expect(ttyToggle).toHaveAttribute("aria-pressed", "false");
-      await expectLayoutParam(page, "main-left:tty,code,web");
+      expect(
+        await page.evaluate(
+          (key) => localStorage.getItem(key),
+          `rk-layout-zoom:${TMUX_SERVER}:${id}`,
+        ),
+      ).toBe("code");
+      expect(windowOption(id, "@rk_win_layout")).toBe("main-left:tty,code,web");
+      expectBareUrl(page);
     });
   });
 
@@ -939,5 +1013,105 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     await expect
       .poll(() => paneCount(id), { timeout: 10_000 })
       .toBe(before + 1);
+  });
+
+  /**
+   * Proves: the layout is SHARED tab state — a tile toggle in one browser
+   * context repaints a SECOND, already-mounted context with no interaction
+   * on it (the options handler wakes the SSE hub, so the tick lands within
+   * the poll bound).
+   *
+   * Steps:
+   * 1. Create a web-capable window; open it in context A (the default page)
+   *    and in a second browser context B; assert both render `single:tty`.
+   * 2. In A, click the `Web tile` toggle; assert the option reads
+   *    `split-h:tty,web` and A's web tile appears.
+   * 3. Assert B's web tile appears with NO interaction on B; close B.
+   */
+  test("two viewers of one window converge: a toggle in context A repaints context B", async ({
+    page,
+    browser,
+  }) => {
+    test.setTimeout(40_000);
+    const id = await makeWindow(page, `sl-shared-${Date.now()}`, { url: IFRAME_URL });
+    const ctxB = await browser.newContext({ viewport: DESKTOP_VIEWPORT });
+    const pageB = await ctxB.newPage();
+    await stubProxyPorts(pageB, 8080);
+    try {
+      await gotoWindow(page, id);
+      await gotoWindow(pageB, id);
+      await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
+      await expect(terminal(pageB)).toBeVisible({ timeout: 10_000 });
+      await expect(tile(pageB, "web")).toHaveCount(0);
+
+      // A toggles the web tile on; B never touches anything.
+      const webToggle = surfaceToggle(page, "Web");
+      await expect(webToggle).toBeVisible({ timeout: READY_TIMEOUT });
+      await webToggle.click();
+      await expectWindowLayout(id, "split-h:tty,web");
+      await expect(tile(page, "web")).toBeVisible({ timeout: 10_000 });
+
+      // B repaints on the option tick — no interaction, no reload.
+      await expect(tile(pageB, "web")).toBeVisible({ timeout: 10_000 });
+    } finally {
+      await ctxB.close();
+    }
+  });
+
+  /**
+   * Proves: zoom is PER-VIEWER — zooming the tty tile in context A writes
+   * only A's `rk-layout-zoom:` key; context B keeps both tiles unzoomed,
+   * and B has no zoom key of its own.
+   *
+   * Steps:
+   * 1. Create a web-capable window with `split-h:tty,web` stamped via tmux;
+   *    open it in context A and in a second context B; assert both render
+   *    both tiles.
+   * 2. In A, click the tty tile's `Expand Terminal` verb; assert A's web
+   *    tile hides (display-level, still mounted) and A's zoom key holds
+   *    `tty`.
+   * 3. Assert B's web tile stays VISIBLE (unzoomed) and B's zoom key is
+   *    absent; the shared option is unchanged.
+   */
+  test("zoom in context A does not zoom context B (per-viewer zoom key)", async ({
+    page,
+    browser,
+  }) => {
+    test.setTimeout(40_000);
+    const id = await makeWindow(page, `sl-zoomiso-${Date.now()}`, { url: IFRAME_URL });
+    execFileSync("tmux", ["-L", TMUX_SERVER, "set-option", "-w", "-t", id, "@rk_win_layout", "split-h:tty,web"]);
+    const ctxB = await browser.newContext({ viewport: DESKTOP_VIEWPORT });
+    const pageB = await ctxB.newPage();
+    await stubProxyPorts(pageB, 8080);
+    try {
+      await gotoWindow(page, id);
+      await gotoWindow(pageB, id);
+      await expect(tile(page, "web")).toBeVisible({ timeout: 10_000 });
+      await expect(tile(pageB, "web")).toBeVisible({ timeout: 10_000 });
+
+      // A zooms the tty tile (the ⛶ verb) — a per-viewer posture.
+      await page.getByRole("button", { name: "Expand Terminal", exact: true }).click();
+      await expect(tile(page, "web")).toBeHidden({ timeout: 10_000 });
+      expect(
+        await page.evaluate(
+          (key) => localStorage.getItem(key),
+          `rk-layout-zoom:${TMUX_SERVER}:${id}`,
+        ),
+      ).toBe("tty");
+
+      // B is untouched: both tiles stay visible and B holds no zoom key.
+      // (A settle beat so a would-be repaint could land first.)
+      await pageB.waitForTimeout(500);
+      await expect(tile(pageB, "web")).toBeVisible();
+      expect(
+        await pageB.evaluate(
+          (key) => localStorage.getItem(key),
+          `rk-layout-zoom:${TMUX_SERVER}:${id}`,
+        ),
+      ).toBeNull();
+      expect(windowOption(id, "@rk_win_layout")).toBe("split-h:tty,web");
+    } finally {
+      await ctxB.close();
+    }
   });
 });

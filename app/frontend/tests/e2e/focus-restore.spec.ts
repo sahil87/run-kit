@@ -37,9 +37,9 @@ import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
  * - `beforeEach`: desktop viewport (1440×800) — restore and guard are
  *   desktop-only by design.
  * - The code tile is opened via the `Code tile` rail toggle, not a `?layout=`
- *   URL param: a rail click is a layout MUTATION persisted to
- *   `rk-layout:{server}:{@N}`, so the tile survives in-app window switches (a
- *   URL param is dropped by sidebar navigation and never persisted). The
+ *   URL param: a rail click is a layout MUTATION POSTed to the shared
+ *   `@rk_win_layout` option, so the tile survives in-app window switches (a
+ *   URL param is inbound-only — translated once, then dropped). The
  *   click's pointerdown also disarms that visit's guard, so the grab on the
  *   tile-opening visit stands — the revert under test happens on the
  *   away-and-back RETURN.
@@ -151,9 +151,9 @@ const railCodeButton = (page: Page) =>
   page.getByRole("button", { name: "Code tile" });
 
 /** Open the code tile the way a USER does — the rail toggle. A rail click is
- *  a layout MUTATION (writes `rk-layout:{server}:{@N}`), so the code tile
- *  survives in-app window switches; a `?layout=` URL param does not (sidebar
- *  navigation drops the search string and URL layouts are never persisted).
+ *  a layout MUTATION (POSTs `@rk_win_layout`), so the code tile survives
+ *  in-app window switches; a `?layout=` URL param does not (sidebar
+ *  navigation targets the bare route and URL layouts are never persisted).
  *  The click's pointerdown also disarms the first visit's guard, so the
  *  stub's grab on THIS visit stands (the user just asked for the editor) —
  *  the revert under test happens on the away-and-back RETURN. */

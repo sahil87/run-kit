@@ -6,7 +6,7 @@
  * Shared setup: own tmux session (`e2e-webzoom-<ts>`) created in `beforeAll`,
  * killed in `afterAll`; desktop viewport 1440×800. A stub HTTP server on an
  * ephemeral port serves a static page; windows get
- * `@rk_win_url = http://localhost:<port>/` stamped directly via tmux, so the
+ * slot-1 web tab stamped via `stampWebTab`, so the
  * tile rides the same-origin `/proxy/<port>/` path. Each test starts from a
  * fresh browser context, so `runkit-web-zoom` begins empty WITHOUT any
  * `addInitScript` (deliberate — an init script would also wipe the key on the
@@ -17,7 +17,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import http from "node:http";
 import { READY_TIMEOUT, resolveWindow as resolveWindowRaw } from "./_ready";
-import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
+import { TMUX_SERVER, createSession, killSession, newWindow, stampWebTab } from "./_tmux";
 
 // Own session so this file never collides with other specs (fullyParallel off).
 const TEST_SESSION = `e2e-webzoom-${Date.now()}`;
@@ -51,15 +51,11 @@ async function resolveWindow(page: Page, windowName: string): Promise<string> {
   return (await resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION, windowName)).windowId;
 }
 
-/** Create a window and stamp @rk_win_url directly via tmux — the web-tile-find seam. */
+/** Create a window and stamp its slot-1 web tab via tmux — the web-tile-find seam. */
 async function makeWindow(page: Page, name: string, url: string): Promise<string> {
   newWindow(TEST_SESSION, name);
   const id = await resolveWindow(page, name);
-  execFileSync(
-    "tmux",
-    ["-L", TMUX_SERVER, "set-option", "-w", "-t", id, "@rk_win_url", url],
-    { stdio: "ignore" },
-  );
+  stampWebTab(id, url);
   return id;
 }
 
@@ -185,11 +181,11 @@ test.describe("Web tile — content zoom (260823-cwvv R2–R5)", () => {
   });
 
   /**
-   * Proves: the onboarding state (empty `@rk_win_url`) hides the zoom control
+   * Proves: the onboarding state (an empty web tab family) hides the zoom control
    * and the palette registers nothing for a contentless tile.
    *
    * Steps:
-   * 1. Open a window with an empty `@rk_win_url` in the web lens; assert the
+   * 1. Open a window with an empty web tab family in the web lens; assert the
    *    onboarding panel renders.
    * 2. Assert the `web-zoom-control` testid is absent.
    * 3. Open the palette, type `Web: Zoom`, and assert no `Web: Zoom` options

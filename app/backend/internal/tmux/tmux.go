@@ -753,13 +753,6 @@ type WindowInfo struct {
 	// CodeRoot is the absolute folder the code surface opens, sourced from
 	// CodeRootOption. "" when unset.
 	CodeRoot string `json:"codeRoot,omitempty"`
-	// RkUrl / RkType are DERIVED compatibility fields, never parsed from tmux:
-	// computed from WebTabs/WebActive and Layout at the API build site
-	// (internal/sessions FetchSessions), they keep the retired rkUrl/rkType
-	// JSON keys alive for one release.
-	// compat: removed by the frontend layout change (ui-state plan Change 2)
-	RkUrl  string `json:"rkUrl,omitempty"`
-	RkType string `json:"rkType,omitempty"`
 	// GitRoot is the git toplevel derived from the window's active-pane cwd
 	// (config.FindGitRoot — a filesystem walk, no subprocess), computed rk-side
 	// in FetchSessions. Empty when the cwd is not inside a git repo. It keys
@@ -1266,9 +1259,10 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 			rawNote = parts[22]
 		}
 		// Retired @rk_win_url (idx 23) is the dual-read fallback for an empty
-		// slot 1: the frontend polls it mid-session (present-auto-expand /
-		// web-view-lens live flip), so the family surfaces it as web_1 with the
-		// active pointer defaulted — the same shape a first WebAdd produces.
+		// slot 1: external writers may still stamp it live, where the
+		// once-per-server sweep cannot see it, so the family surfaces it as web_1
+		// with the active pointer defaulted — the same shape a first WebAdd
+		// produces. Compat until the cleanup change removes the fallback.
 		if len(webTabs) == 0 && len(parts) >= 24 {
 			if legacyURL := strings.TrimSpace(parts[23]); legacyURL != "" {
 				webTabs = []string{legacyURL}

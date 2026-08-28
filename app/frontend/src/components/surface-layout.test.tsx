@@ -53,7 +53,8 @@ beforeEach(() => {
 });
 
 const FULL_WINDOW = {
-  rkUrl: "http://localhost:8080",
+  webTabs: ["http://localhost:8080"],
+  webActive: 1,
   chatProvider: "claude",
   gitRoot: "/repo",
 };
@@ -204,7 +205,7 @@ describe("SurfaceLayout shape rendering", () => {
     expect(screen.getByTestId("mock-chat")).toBeTruthy();
   });
 
-  it("renders tile meta: git-root basename for code, rkUrl host for web", () => {
+  it("renders tile meta: git-root basename for code, web-url host for web", () => {
     renderLayout({ layout: { shape: "split-h", order: ["code", "web"] } });
     const codeTile = screen.getByTestId("surface-tile-code");
     expect(codeTile.textContent).toContain("repo");
@@ -220,7 +221,7 @@ describe("SurfaceLayout shape rendering", () => {
     it("a presented file gets the green present badge and the basename display form", () => {
       renderLayout({
         layout: { shape: "split-h", order: ["tty", "web"] },
-        window: { rkUrl: "/present/@320/tmux-version-floor.html?server=runKit&v=1" },
+        window: { webTabs: ["/present/@320/tmux-version-floor.html?server=runKit&v=1"], webActive: 1 },
       });
       const webTile = screen.getByTestId("surface-tile-web");
       const badge = within(webTile).getByTestId("web-kind-badge");
@@ -233,7 +234,7 @@ describe("SurfaceLayout shape rendering", () => {
     it("a proxied port gets the amber :{port} proxy badge (relative URL — the old new URL throw)", () => {
       renderLayout({
         layout: { shape: "split-h", order: ["tty", "web"] },
-        window: { rkUrl: "/proxy/3000/board/runKit" },
+        window: { webTabs: ["/proxy/3000/board/runKit"], webActive: 1 },
       });
       const webTile = screen.getByTestId("surface-tile-web");
       const badge = within(webTile).getByTestId("web-kind-badge");
@@ -245,7 +246,7 @@ describe("SurfaceLayout shape rendering", () => {
     it("an external URL gets the blue external badge", () => {
       renderLayout({
         layout: { shape: "split-h", order: ["tty", "web"] },
-        window: { rkUrl: "https://shll.ai/rk/skill" },
+        window: { webTabs: ["https://shll.ai/rk/skill"], webActive: 1 },
       });
       const webTile = screen.getByTestId("surface-tile-web");
       const badge = within(webTile).getByTestId("web-kind-badge");
@@ -622,7 +623,7 @@ describe("SurfaceLayout degradation + availability guards", () => {
     // component is the second line of defense.
     renderLayout({
       layout: { shape: "split-h", order: ["tty", "code"] },
-      window: { rkUrl: "http://localhost:8080" }, // no gitRoot
+      window: { webTabs: ["http://localhost:8080"], webActive: 1 }, // no gitRoot
     });
     expect(screen.getByTestId("surface-tile-code")).toBeTruthy();
     expect(screen.queryByTestId("mock-code")).toBeNull();

@@ -11,7 +11,7 @@ vi.mock("@/components/terminal-client", () => ({
   TerminalClient: () => <div data-testid="mock-terminal" />,
 }));
 vi.mock("@/api/client", () => ({
-  updateWindowUrl: vi.fn().mockResolvedValue({ ok: true }),
+  setWindowOptions: vi.fn().mockResolvedValue({ ok: true }),
   checkFrame: vi.fn().mockResolvedValue({ reachable: true, embeddable: true, status: 200, reason: "" }),
   listServers: vi.fn().mockResolvedValue([]),
 }));
@@ -39,7 +39,7 @@ describe("integration: SurfaceLayout + real IframeWindow", () => {
         server="srv"
         windowId="@1"
         sessionName="sess"
-        window={{ rkUrl: "/proxy/8080/docs" }}
+        window={{ webTabs: ["/proxy/8080/docs"], webActive: 1 }}
         isMobile={false}
         wsRef={{ current: null }}
         focusRef={{ current: null }}

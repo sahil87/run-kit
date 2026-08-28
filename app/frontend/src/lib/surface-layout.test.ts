@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   ALL_SHAPES,
   SHAPE_ARITY,
@@ -8,31 +8,29 @@ import {
   closeSurface,
   cycleShape,
   degradeLayout,
-  hintLayout,
-  layoutStorageKey,
+  effectiveLayout,
+  legacyTranslationDecision,
   parseLayout,
   promote,
   ratiosStorageKey,
-  readStoredLayout,
   readStoredRatios,
-  resolveLayout,
-  seedLayoutFromLegacy,
+  readStoredZoom,
   serializeLayout,
   setShape,
   shapesForArity,
   swapWithNext,
   translateLegacyParams,
-  writeStoredLayout,
   writeStoredRatios,
+  writeStoredZoom,
+  zoomStorageKey,
   type Layout,
 } from "./surface-layout";
 import type { ViewWindow } from "./window-view";
 
 const plain: ViewWindow = {};
-const webWin: ViewWindow = { rkUrl: "http://localhost:8080" };
-const iframeWin: ViewWindow = { rkType: "iframe", rkUrl: "http://localhost:8080" };
+const webWin: ViewWindow = { webTabs: ["http://localhost:8080"] };
 const fullWin: ViewWindow = {
-  rkUrl: "http://localhost:8080",
+  webTabs: ["http://localhost:8080"],
   chatProvider: "claude",
   gitRoot: "/repo",
 };
@@ -118,7 +116,7 @@ describe("degradeLayout", () => {
 
   it("drops an unavailable surface 3→2 as split-h, preserving order with slot A kept", () => {
     const layout: Layout = { shape: "main-left", order: ["tty", "code", "web"] };
-    // No gitRoot → code unavailable; rkUrl present → web stays.
+    // No gitRoot → code unavailable; web is always available.
     expect(degradeLayout(layout, webWin)).toEqual({
       shape: "split-h",
       order: ["tty", "web"],
@@ -130,7 +128,7 @@ describe("degradeLayout", () => {
     expect(degradeLayout(layout, webWin)).toEqual({ shape: "single", order: ["web"] });
   });
 
-  it("returns null when nothing is available (fully invalid → next ladder rung)", () => {
+  it("returns null when nothing is available (fully invalid → the single:tty fallback)", () => {
     const layout: Layout = { shape: "split-h", order: ["chat", "code"] };
     expect(degradeLayout(layout, plain)).toBeNull();
   });
@@ -154,11 +152,39 @@ describe("degradeLayout", () => {
   });
 });
 
-describe("hintLayout", () => {
-  it("yields single:web for a legacy @rk_win_lens=iframe window, single:tty otherwise", () => {
-    expect(hintLayout(iframeWin)).toEqual({ shape: "single", order: ["web"] });
-    expect(hintLayout(plain)).toEqual({ shape: "single", order: ["tty"] });
-    expect(hintLayout(webWin)).toEqual({ shape: "single", order: ["tty"] });
+describe("effectiveLayout", () => {
+  it("falls back to single:tty for an unset or absent layout", () => {
+    expect(effectiveLayout(plain)).toEqual({ shape: "single", order: ["tty"] });
+    expect(effectiveLayout({ layout: "" })).toEqual({ shape: "single", order: ["tty"] });
+    expect(effectiveLayout(null)).toEqual({ shape: "single", order: ["tty"] });
+    expect(effectiveLayout(undefined)).toEqual({ shape: "single", order: ["tty"] });
+  });
+
+  it("returns a valid layout as written", () => {
+    const win: ViewWindow = { layout: "main-left:tty,code,web", gitRoot: "/repo" };
+    expect(effectiveLayout(win)).toEqual({
+      shape: "main-left",
+      order: ["tty", "code", "web"],
+    });
+  });
+
+  it("degrades a partially-unavailable layout in place, keeping order and slot A", () => {
+    const win: ViewWindow = { layout: "main-left:tty,code,web", gitRoot: "" };
+    expect(effectiveLayout(win)).toEqual({ shape: "split-h", order: ["tty", "web"] });
+    // The read never rewrites the option value.
+    expect(win.layout).toBe("main-left:tty,code,web");
+  });
+
+  it("falls back to single:tty when nothing in the layout is available", () => {
+    expect(effectiveLayout({ layout: "single:chat" })).toEqual({
+      shape: "single",
+      order: ["tty"],
+    });
+  });
+
+  it("falls back to single:tty for a malformed layout string", () => {
+    expect(effectiveLayout({ layout: "garbage" })).toEqual({ shape: "single", order: ["tty"] });
+    expect(effectiveLayout({ layout: "grid:tty" })).toEqual({ shape: "single", order: ["tty"] });
   });
 });
 
@@ -180,75 +206,93 @@ describe("translateLegacyParams", () => {
   });
 });
 
-describe("resolveLayout", () => {
-  it("prefers a valid URL layout over storage and the hint", () => {
-    expect(resolveLayout("split-h:tty,web", "single:web", iframeWin)).toEqual({
-      shape: "split-h",
-      order: ["tty", "web"],
+describe("legacyTranslationDecision", () => {
+  it("prefers the carried URL layout over both stored values", () => {
+    expect(
+      legacyTranslationDecision({
+        carried: "split-h:tty,web",
+        storedLayout: "single:code",
+        storedLegacy: "single:chat",
+        winLayout: "",
+      }),
+    ).toEqual({ write: "split-h:tty,web", dropParams: true });
+  });
+
+  it("falls back to the stored layout, then the stored legacy translation", () => {
+    expect(
+      legacyTranslationDecision({
+        storedLayout: "single:code",
+        storedLegacy: "single:chat",
+        winLayout: "",
+      }),
+    ).toEqual({ write: "single:code", dropParams: false });
+    expect(legacyTranslationDecision({ storedLegacy: "single:chat", winLayout: "" })).toEqual({
+      write: "single:chat",
+      dropParams: false,
     });
   });
 
-  it("falls to stored when the URL value is absent or malformed", () => {
-    expect(resolveLayout(undefined, "single:web", iframeWin)).toEqual({
-      shape: "single",
-      order: ["web"],
-    });
-    expect(resolveLayout("grid:tty", "single:web", iframeWin)).toEqual({
-      shape: "single",
-      order: ["web"],
-    });
+  it("writes nothing when the window option is already set — params still drop", () => {
+    expect(
+      legacyTranslationDecision({ carried: "split-h:tty,web", winLayout: "single:code" }),
+    ).toEqual({ dropParams: true });
+    expect(
+      legacyTranslationDecision({ storedLayout: "single:web", winLayout: "single:code" }),
+    ).toEqual({ dropParams: false });
   });
 
-  it("falls through a fully-invalid URL value to the next rung", () => {
-    // chat unavailable on a plain window — the URL value degrades to nothing.
-    expect(resolveLayout("single:chat", undefined, plain)).toEqual({
-      shape: "single",
-      order: ["tty"],
-    });
-  });
-
-  it("keeps a web deep link on a URL-less window (web never degrades)", () => {
-    expect(resolveLayout("split-h:tty,web", undefined, plain)).toEqual({
-      shape: "split-h",
-      order: ["tty", "web"],
-    });
-    expect(resolveLayout("single:web", undefined, plain)).toEqual({
-      shape: "single",
-      order: ["web"],
-    });
-  });
-
-  it("degrades a partially-available URL value tile-by-tile in place", () => {
-    expect(resolveLayout("main-left:tty,code,web", undefined, webWin)).toEqual({
-      shape: "split-h",
-      order: ["tty", "web"],
-    });
-  });
-
-  it("uses the hint rung when URL and storage are silent", () => {
-    expect(resolveLayout(undefined, undefined, iframeWin)).toEqual({
-      shape: "single",
-      order: ["web"],
-    });
-    expect(resolveLayout(undefined, undefined, plain)).toEqual({
-      shape: "single",
-      order: ["tty"],
+  it("writes nothing when no candidate parses", () => {
+    expect(legacyTranslationDecision({ winLayout: "" })).toEqual({ dropParams: false });
+    expect(legacyTranslationDecision({ carried: "garbage", winLayout: "" })).toEqual({
+      dropParams: true,
     });
   });
 });
 
-describe("storage keys + read/write", () => {
+describe("zoom storage (per-viewer surface kind)", () => {
   beforeEach(() => localStorage.clear());
-
-  it("uses rk-layout:{server}:{windowId} and rk-layout-ratios:{server}:{windowId}:{shape}", () => {
-    expect(layoutStorageKey("s", "@1")).toBe("rk-layout:s:@1");
-    expect(ratiosStorageKey("s", "@1", "split-h")).toBe("rk-layout-ratios:s:@1:split-h");
+  afterEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
   });
 
-  it("round-trips a stored layout string", () => {
-    writeStoredLayout("s", "@1", { shape: "split-h", order: ["tty", "code"] });
-    expect(readStoredLayout("s", "@1")).toBe("split-h:tty,code");
-    expect(readStoredLayout("s", "@2")).toBeUndefined();
+  it("uses rk-layout-zoom:{server}:{windowId}", () => {
+    expect(zoomStorageKey("s", "@1")).toBe("rk-layout-zoom:s:@1");
+  });
+
+  it("round-trips a surface kind, scoped per (server, windowId)", () => {
+    expect(readStoredZoom("s", "@3")).toBeUndefined();
+    writeStoredZoom("s", "@3", "web");
+    expect(readStoredZoom("s", "@3")).toBe("web");
+    expect(readStoredZoom("s", "@4")).toBeUndefined();
+    expect(readStoredZoom("other", "@3")).toBeUndefined();
+  });
+
+  it("clears the key on null (unzoom)", () => {
+    writeStoredZoom("s", "@3", "web");
+    writeStoredZoom("s", "@3", null);
+    expect(readStoredZoom("s", "@3")).toBeUndefined();
+    expect(localStorage.getItem("rk-layout-zoom:s:@3")).toBeNull();
+  });
+
+  it("rejects a stored value that is not a surface kind", () => {
+    localStorage.setItem("rk-layout-zoom:s:@3", "bogus");
+    expect(readStoredZoom("s", "@3")).toBeUndefined();
+  });
+
+  it("swallows a localStorage read failure, returning undefined", () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("SecurityError");
+    });
+    expect(readStoredZoom("s", "@3")).toBeUndefined();
+  });
+});
+
+describe("ratios storage", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("uses rk-layout-ratios:{server}:{windowId}:{shape}", () => {
+    expect(ratiosStorageKey("s", "@1", "split-h")).toBe("rk-layout-ratios:s:@1:split-h");
   });
 
   it("round-trips ratios; rejects garbage", () => {
@@ -262,40 +306,6 @@ describe("storage keys + read/write", () => {
     expect(readStoredRatios("s", "@1", "row")).toBeUndefined();
     localStorage.setItem("rk-layout-ratios:s:@1:row", "[]");
     expect(readStoredRatios("s", "@1", "row")).toBeUndefined();
-  });
-});
-
-describe("seedLayoutFromLegacy", () => {
-  beforeEach(() => localStorage.clear());
-
-  it("seeds rk-layout from legacy view + panel keys when no layout key exists", () => {
-    localStorage.setItem("runkit-window-view:s:@1", "code");
-    localStorage.setItem("runkit-window-panel:s:@1", "web");
-    seedLayoutFromLegacy("s", "@1");
-    expect(localStorage.getItem("rk-layout:s:@1")).toBe("split-h:code,web");
-    // Legacy keys are left in place (other tabs may run older code).
-    expect(localStorage.getItem("runkit-window-view:s:@1")).toBe("code");
-  });
-
-  it("seeds a single-tile layout from a legacy view key alone", () => {
-    localStorage.setItem("runkit-window-view:s:@1", "web");
-    seedLayoutFromLegacy("s", "@1");
-    expect(localStorage.getItem("rk-layout:s:@1")).toBe("single:web");
-  });
-
-  it("does not overwrite an existing layout key", () => {
-    localStorage.setItem("rk-layout:s:@1", "row:tty,code,web");
-    localStorage.setItem("runkit-window-view:s:@1", "code");
-    seedLayoutFromLegacy("s", "@1");
-    expect(localStorage.getItem("rk-layout:s:@1")).toBe("row:tty,code,web");
-  });
-
-  it("no-ops without legacy keys or with a malformed seed", () => {
-    seedLayoutFromLegacy("s", "@1");
-    expect(localStorage.getItem("rk-layout:s:@1")).toBeNull();
-    localStorage.setItem("runkit-window-view:s:@1", "nonsense");
-    seedLayoutFromLegacy("s", "@1");
-    expect(localStorage.getItem("rk-layout:s:@1")).toBeNull();
   });
 });
 

@@ -185,18 +185,21 @@ export async function createWindow(
   session: string,
   name?: string,
   cwd?: string,
-  rkType?: string,
-  rkUrl?: string,
+  webUrl?: string,
 ): Promise<{ ok: boolean }> {
   // `name` is optional: omitting it (or passing an empty string) tells the
   // backend to let tmux auto-name the window to its folder basename via
   // automatic-rename-format. Explicit names (renames, iframe windows) are
-  // still sent. Matches the existing omit-when-absent handling for cwd/rkType.
+  // still sent. Matches the existing omit-when-absent handling for cwd/webUrl.
   const body: Record<string, string> = {};
   if (name) body.name = name;
   if (cwd) body.cwd = cwd;
-  if (rkType) body.rkType = rkType;
-  if (rkUrl) body.rkUrl = rkUrl;
+  // The web arm: a URL creates an iframe window pointed at it. The backend
+  // keeps these body field names this release (the options write is its job).
+  if (webUrl) {
+    body.rkType = "iframe";
+    body.rkUrl = webUrl;
+  }
   const res = await fetch(withServer(`/api/sessions/${encodeURIComponent(session)}/windows`, server), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -440,9 +443,11 @@ export async function closePane(
 
 /**
  * Partial-merge window options via the unified POST /options endpoint. Each
- * value is a string (set) or null (unset); absent keys are left untouched. Only
- * the allowlisted keys `@rk_win_color`/`@rk_win_url`/`@rk_win_lens` are accepted server-side.
- * The whole merge is applied as one atomic chained tmux invocation.
+ * value is a string (set) or null (unset); absent keys are left untouched. The
+ * server-side allowlist covers the `@rk_win_*` family (`color`, `layout`,
+ * `web_<n>`, `web_active`, `code_root`, `role`, `flair`, `note`, …) plus the
+ * retired write-compat keys the backend translates for one release. The whole
+ * merge is applied as one atomic chained tmux invocation.
  */
 export async function setWindowOptions(
   server: string,
@@ -459,14 +464,6 @@ export async function setWindowOptions(
   );
   if (!res.ok) await throwOnError(res);
   return res.json();
-}
-
-export async function updateWindowUrl(
-  server: string,
-  windowId: string,
-  url: string,
-): Promise<{ ok: boolean }> {
-  return setWindowOptions(server, windowId, { "@rk_win_url": url });
 }
 
 /** The GET /api/frame-check response — the backend probe's derived verdict

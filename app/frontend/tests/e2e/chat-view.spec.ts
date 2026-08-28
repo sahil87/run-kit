@@ -10,7 +10,8 @@ import { mockStateSocket } from "./_state-socket-mock";
 // `relay-mux-stale-ws-stub-class`).
 //
 // Chat read frontend: a read-only HTML chat view over the same agent pane,
-// reachable via the `?view=chat` deep link (shimmed to `?layout=single:chat`)
+// reachable via the `?view=chat` deep link (translated inbound to the shared
+// `@rk_win_layout` option as `single:chat`, the params dropped)
 // or the command palette's `View: Chat` action on the existing terminal route.
 // The ViewSwitcher is RETIRED: the palette is the ONLY lens-switch surface,
 // the top-bar `surface-toggles` group (the right rail is REMOVED —
@@ -54,16 +55,14 @@ async function switchLens(page: Page, label: "Terminal" | "Chat"): Promise<void>
   await expect(page.getByRole("dialog", { name: "Command palette" })).toBeHidden();
 }
 
-/** Assert the mirrored `?layout=` param (decoded — the router may
- *  percent-encode `:`/`,`). The surface-layout shim (260812-ab5v) translates
- *  `?view=chat` → `single:chat` at route entry and REWRITES the URL via
- *  replaceState; the palette `View:` actions set `single:<view>`
- *  through the same mutation path (R12). Retrying: the mirror lands a beat
- *  after the arrival/switch that triggered it. */
-async function expectLayoutParam(page: Page, expected: string | null): Promise<void> {
+/** Assert the route is bare — layout state lives in the shared
+ *  `@rk_win_layout` option, never the URL; the retired `?layout=`/`?view=`
+ *  params are inbound-only (translated once, then dropped). Retrying: the
+ *  drop lands a beat after the arrival/switch that triggered it. */
+async function expectBareUrl(page: Page): Promise<void> {
   await expect
-    .poll(() => new URL(page.url()).searchParams.get("layout"), { timeout: 10_000 })
-    .toBe(expected);
+    .poll(() => new URL(page.url()).search, { timeout: 10_000 })
+    .toBe("");
 }
 
 // Two windows: @1 is a chat-capable claude window; @2 is a plain (no
@@ -160,6 +159,13 @@ async function mockBackend(
 ) {
   await page.routeWebSocket(/\/ws\/terminals/, () => {});
   await page.route("**/api/windows/*/select*", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' }),
+  );
+  // The `?view=chat` deep link translates into ONE `@rk_win_layout` option
+  // write; the mocked payload never reflects it, so the optimistic overlay is
+  // what renders the chat lens — the POST just has to succeed (trailing `*`:
+  // the client appends `?server=`).
+  await page.route("**/api/windows/*/options*", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' }),
   );
   await page.route("**/api/servers", (route) =>
@@ -293,7 +299,7 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     // Hide-never-unmount (P3): the chat tile stays mounted at display level
     // after closing within this window visit — hidden, not gone.
     await expect(page.getByTestId("chat-view")).toBeHidden();
-    await expectLayoutParam(page, null); // default layout mirrors as a CLEAN URL (param dropped)
+    await expectBareUrl(page);
 
     // @2 has no chatProvider → the palette offers no `View: Chat` action.
     await page.goto(`/${SERVER}/2`);
@@ -314,10 +320,10 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
 
   /**
    * Proves: activating the palette's `View: Chat` action (the only lens-switch
-   * surface) flips the view without changing the window — the URL mirrors
-   * `?layout=single:chat` on the same @1 (the shim: a view selection is a
-   * single-tile layout mutation through the shared path) and the chat renderer
-   * mounts. The center heading is a static `Tab:` throughout (it does not
+   * surface) flips the view without changing the window — a view selection
+   * is a single-tile layout mutation through the shared path (written to
+   * `@rk_win_layout`, the URL staying bare) and the chat renderer mounts. The
+   * center heading is a static `Tab:` throughout (it does not
    * change with the lens), so the heading anchor does not jump on the switch.
    * The window rename affordance carries over.
    *
@@ -325,11 +331,11 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
    * 1. Mock the backend; navigate to `/default/1`; gate on the `Tab:` prefix.
    * 2. `switchLens("Chat")` — open the palette (`Meta+k`), fill `View: Chat`,
    *    click the option, and wait for the palette to close.
-   * 3. Assert the decoded `layout` param is `single:chat`, the `chat-view`
-   *    renderer is visible, the heading still shows the `Tab:` prefix, and the
-   *    `Rename tab agent-win` heading button is present.
+   * 3. Assert the `chat-view` renderer is visible, the heading still shows
+   *    the `Tab:` prefix, and the `Rename tab agent-win` heading button is
+   *    present.
    */
-  test("flipping to chat preserves the window and updates the URL (heading stays `Tab:`)", async ({ page }) => {
+  test("flipping to chat preserves the window (heading stays `Tab:`)", async ({ page }) => {
     await mockBackend(page, backfillCleared());
     await page.goto(`/${SERVER}/1`);
 
@@ -338,12 +344,11 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     await expect(page.getByText("Tab:", { exact: true })).toBeVisible({ timeout: 10_000 });
 
     // Switch via the palette's `View: Chat` action — the only lens-switch
-    // surface (260812-0c6o). R12's shim turns the selection into
-    // a `single:chat` layout through the shared mutation path.
+    // surface (260812-0c6o). The selection is a `single:chat` layout mutation
+    // through the shared mutation path (the URL never carries it).
     await switchLens(page, "Chat");
 
-    // Same window (@1 → segment `1`), now mirrored as ?layout=single:chat.
-    await expectLayoutParam(page, "single:chat");
+
     // The renderer mounts; the heading stays `Tab:` across the lens switch
     // (the anchor no longer jumps). The chat lens is proven by the chat-view.
     await expect(page.getByTestId("chat-view")).toBeVisible();
@@ -361,8 +366,8 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
    * 1. Mock the backend; navigate to `/default/1`; gate on the `Tab:` prefix
    *    (the always-present readiness surface).
    * 2. Press `Control+\``; wait a beat for any erroneous handler to fire.
-   * 3. Assert the `layout` param is ABSENT (default `single:tty` drops it), the
-   *    `chat-view` testid has count 0, and the `Tab:` prefix is still shown.
+   * 3. Assert the URL stays bare, the `chat-view` testid has count 0, and
+   *    the `Tab:` prefix is still shown.
    */
   test("Ctrl+` no longer flips to the chat lens (the chord is fully unbound, 260813-j3jb)", async ({ page }) => {
     await mockBackend(page, backfillCleared());
@@ -376,7 +381,7 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     await page.keyboard.press("Control+`");
     // Give any erroneous handler a beat to fire, then assert nothing changed.
     await page.waitForTimeout(500);
-    await expectLayoutParam(page, null);
+    await expectBareUrl(page);
     await expect(page.getByTestId("chat-view")).toHaveCount(0);
     await expect(page.getByText("Tab:", { exact: true })).toBeVisible();
   });

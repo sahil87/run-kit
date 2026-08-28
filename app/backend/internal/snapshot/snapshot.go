@@ -65,7 +65,7 @@ type Window struct {
 	// WebTabs is the dense @rk_win_web_<n> family (index 0 is tmux slot 1);
 	// WebRoots is parallel to WebTabs ("" = no root); WebActive is the 1-based
 	// active index (0 = unset). /present/ URLs are stored and restored VERBATIM
-	// — no @N window-id remap (parity with the retired rkUrl handling).
+	// — a restore never rewrites them to the new window's @N id.
 	WebTabs   []string `json:"webTabs,omitempty"`
 	WebRoots  []string `json:"webRoots,omitempty"`
 	WebActive int      `json:"webActive,omitempty"`

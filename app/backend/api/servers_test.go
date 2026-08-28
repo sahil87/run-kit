@@ -813,10 +813,12 @@ func TestHandleServersList_ManagedReadErrorYieldsFalse(t *testing.T) {
 }
 
 // TestHandleServerAdopt_Success: an unmarked server is stamped, then its conf
-// is sourced — mark before reload — and the response reports status ok.
+// is sourced — mark before reload — the legacy sweep runs, and the response
+// reports status ok.
 func TestHandleServerAdopt_Success(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	mock := &serversTmuxMock{}
+	swept := stubAdoptMigrateLegacy(t, false)
 
 	router := NewTestRouter(logger, nil, mock, "test-host")
 	req := httptest.NewRequest("POST", "/api/servers/adopt", strings.NewReader(`{"name":"ext"}`))
@@ -842,6 +844,60 @@ func TestHandleServerAdopt_Success(t *testing.T) {
 	if len(mock.unmarkManagedCalls) != 0 {
 		t.Errorf("unmark ran on a successful adopt: %v", mock.unmarkManagedCalls)
 	}
+	if strings.Join(*swept, ",") != "ext" {
+		t.Errorf("swept = %v, want [ext] — adoption is the explicit sweep retry path", *swept)
+	}
+}
+
+// stubAdoptMigrateLegacy substitutes the adopt handler's legacy-sweep seam and
+// records the servers it was asked to sweep.
+func stubAdoptMigrateLegacy(t *testing.T, changed bool) *[]string {
+	t.Helper()
+	swept := &[]string{}
+	orig := adoptMigrateLegacy
+	adoptMigrateLegacy = func(_ context.Context, server string) (bool, error) {
+		*swept = append(*swept, server)
+		return changed, nil
+	}
+	t.Cleanup(func() { adoptMigrateLegacy = orig })
+	return swept
+}
+
+// TestHandleServerAdopt_LegacySweepGate: the sweep runs only after a
+// successful adopt — never for an already-managed target (no mutation path)
+// and never after a rolled-back reload.
+func TestHandleServerAdopt_LegacySweepGate(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
+	t.Run("already-managed target is not swept", func(t *testing.T) {
+		mock := &serversTmuxMock{}
+		mock.isManagedByServer = map[string]bool{"mine": true}
+		swept := stubAdoptMigrateLegacy(t, false)
+
+		router := NewTestRouter(logger, nil, mock, "test-host")
+		req := httptest.NewRequest("POST", "/api/servers/adopt", strings.NewReader(`{"name":"mine"}`))
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if len(*swept) != 0 {
+			t.Errorf("swept = %v, want none — no mutation ran", *swept)
+		}
+	})
+
+	t.Run("rolled-back reload is not swept", func(t *testing.T) {
+		mock := &serversTmuxMock{}
+		mock.reloadConfigErr = errors.New("source-file: boom")
+		swept := stubAdoptMigrateLegacy(t, false)
+
+		router := NewTestRouter(logger, nil, mock, "test-host")
+		req := httptest.NewRequest("POST", "/api/servers/adopt", strings.NewReader(`{"name":"ext"}`))
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if len(*swept) != 0 {
+			t.Errorf("swept = %v, want none — the reload failed and rolled back", *swept)
+		}
+	})
 }
 
 // TestHandleServerAdopt_AlreadyManaged: an already-managed target (marked or

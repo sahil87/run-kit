@@ -11,7 +11,7 @@ const resolveWindow = (page: Page, windowName: string) =>
   resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION, windowName);
 
 /** Poll the snapshot until the named window's window-option field equals
- *  `expected` (marker = @rk_marker, color = @color, flair = @rk_flair). */
+ *  `expected` (marker = @rk_marker, color = @rk_win_color, flair = @rk_flair). */
 async function expectWindowField(
   page: Page,
   windowName: string,
@@ -199,7 +199,7 @@ test.describe("Window left-edge label zone + banded picker", () => {
     await picker.getByLabel("Close picker").click();
   });
 
-  test("picking a color persists via @color — normal shade through the legacy seam, dark/light shades verbatim", async ({ page }) => {
+  test("picking a color persists via @rk_win_color — normal shade through the legacy seam, dark/light shades verbatim", async ({ page }) => {
     const ts = Date.now();
     const winName = `marker-color-${ts}`;
     newWindow(TEST_SESSION, winName);
@@ -215,7 +215,7 @@ test.describe("Window left-edge label zone + banded picker", () => {
     // Open the picker from the left-edge zone and pick the "orange" family
     // (NORMAL shade). The picker maps it to the LEGACY descriptor "1+3" at the
     // write seam (familyToLegacy) — the vocabulary pre-existing colors are
-    // stored in — so @color persists as "1+3", not the family name. `exact`
+    // stored in — so @rk_win_color persists as "1+3", not the family name. `exact`
     // because the shade band also contains "Color orange-dark" and
     // "Color orange-light", which Playwright's substring name matching would
     // otherwise collide with.
@@ -305,9 +305,9 @@ test.describe("Window left-edge label zone + banded picker", () => {
     // the API with the legacy value renders the real family tint.
     const setRes = await page.request.post(
       `/api/windows/${encodeURIComponent(target0.windowId)}/options?server=${encodeURIComponent(TMUX_SERVER)}`,
-      { data: { options: { "@color": "1+3" } } },
+      { data: { options: { "@rk_win_color": "1+3" } } },
     );
-    expect(setRes.ok(), "setting @color=1+3 via the options API").toBeTruthy();
+    expect(setRes.ok(), "setting @rk_win_color=1+3 via the options API").toBeTruthy();
 
     const sidebar = page.locator("nav[aria-label='Sessions']");
     const row = sidebar.locator(`[data-window-id="${target0.windowId}"]`);

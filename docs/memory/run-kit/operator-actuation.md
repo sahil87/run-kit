@@ -433,10 +433,10 @@ windows have real scrollback); (2) CATEGORIZE — a suggested default scheme
 experiments → `purple`); the operator MAY substitute a scheme that better fits
 the server's work mix but MUST apply ONE coherent scheme across all tabs —
 same-category tabs share a hue; (3) ACTUATE through its own shell —
-`tmux set-option -t @N '@color' '<value>'` with the closed vocabularies
+`tmux set-option -t @N '@rk_win_color' '<value>'` with the closed vocabularies
 enumerated verbatim (the 10 color family names, optional `-dark`/`-light`
 shade suffix; optional sparing `@rk_marker` / `@rk_flair` accents, color the
-primary channel) and the unset form `tmux set-option -t @N -u '@color'`;
+primary channel) and the unset form `tmux set-option -t @N -u '@rk_win_color'`;
 (4) JUDGMENT — do nothing to a tab whose current labels already fit the scheme;
 existing manual colors may be reassigned (reversible via the label picker);
 (5) the repaint note — the sidebar repaints within ~15 seconds of the last
@@ -566,7 +566,7 @@ Palette Actions) plus the pinned operator row's compose icon
 ## Design Decisions
 
 ### Actuation via raw tmux set-option, accepting the safety-poll repaint lag
-**Decision**: the `color-tabs` prompt names `tmux set-option -t @N '@color'
+**Decision**: the `color-tabs` prompt names `tmux set-option -t @N '@rk_win_color'
 '<value>'` (and `-u` to unset) as the actuation, with the closed vocabularies
 enumerated verbatim; the repaint arrives on the ~12s safety poll.
 **Why**: matches every shipped template's actuation style (rename-window,

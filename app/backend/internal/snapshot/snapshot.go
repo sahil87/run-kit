@@ -45,7 +45,7 @@ type Session struct {
 	Name string `json:"name"`
 	// CreatedAt is the session's creation time in unix seconds.
 	CreatedAt int64 `json:"createdAt"`
-	// Color is the raw @session_color option value ("" when unset).
+	// Color is the raw @rk_ses_color option value ("" when unset).
 	Color   string   `json:"color,omitempty"`
 	Windows []Window `json:"windows"`
 }

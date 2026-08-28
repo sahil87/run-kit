@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"os/exec"
@@ -105,6 +106,11 @@ func runDoctorChecks() doctorReport {
 	// opt-in, never a dependency failure.
 	report.Checks = append(report.Checks, ephemeralServersCheck())
 
+	// Legacy tmux options — informational count of live servers still carrying
+	// the pre-scope-named option keys, always OK-shaped: the attach/adopt-time
+	// sweep is the healer, doctor only reports.
+	report.Checks = append(report.Checks, legacyOptionsCheck())
+
 	// tmux config — the managed-conf ownership/drift row, always OK-shaped
 	// (informational only: remediation is the note's recipe, never a failure).
 	report.Checks = append(report.Checks, tmuxConfigCheck())
@@ -159,6 +165,80 @@ func ephemeralServersCheck() doctorCheck {
 		return check
 	}
 	check.Note = fmt.Sprintf("%d live server(s) marked @rk_ephemeral — sweep with `rk mux reap --ephemeral`", len(marked))
+	return check
+}
+
+// legacyOptionsScanResult is one live server's legacy-option tally: how many
+// pre-scope-named option keys it still holds at any scope, and whether rk
+// manages it (the daemon sweep never touches an unmanaged server).
+type legacyOptionsScanResult struct {
+	Server  string
+	Count   int
+	Managed bool
+}
+
+// legacyOptionsScan is the seam for the legacy-options row — tests substitute
+// it to drive every note shape without live tmux servers. The default
+// enumerates only live servers via ListServers (a tmux command on a dead
+// socket resurrects a server) and shares the migrator's table and scope walk
+// via CountLegacyOptions.
+var legacyOptionsScan = func(ctx context.Context) ([]legacyOptionsScanResult, error) {
+	servers, err := tmux.ListServers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]legacyOptionsScanResult, 0, len(servers))
+	for _, server := range servers {
+		count, err := tmux.CountLegacyOptions(ctx, server)
+		if err != nil {
+			// One failing server (socket died mid-scan) must not abort the
+			// whole row — count the rest (the per-carrier sweep posture).
+			slog.Debug("legacy options scan: skipping server", "server", server, "err", err)
+			continue
+		}
+		managed, err := tmux.IsManagedServer(ctx, server)
+		if err != nil {
+			slog.Debug("legacy options scan: managed check failed; skipping server", "server", server, "err", err)
+			continue
+		}
+		results = append(results, legacyOptionsScanResult{Server: server, Count: count, Managed: managed})
+	}
+	return results, nil
+}
+
+// legacyOptionsCheck reports how many live servers still carry legacy option
+// names (@color/@session_color) at any scope. Always OK-shaped (the
+// ephemeral-servers posture — informational, never a verdict flipper):
+// remediation is the attach/adopt-time sweep named in the note, never doctor
+// itself (doctor diagnoses, it never migrates). External servers are counted
+// with a distinct phrasing because the daemon will never heal those. An
+// enumeration failure degrades to an OK row naming the skip.
+func legacyOptionsCheck() doctorCheck {
+	check := doctorCheck{Name: "legacy tmux options", OK: true}
+	ctx, cancel := context.WithTimeout(context.Background(), tmux.TmuxTimeout)
+	defer cancel()
+	results, err := legacyOptionsScan(ctx)
+	if err != nil {
+		check.Note = fmt.Sprintf("skipped — enumeration failed: %v", err)
+		return check
+	}
+	dirty, external := 0, 0
+	for _, r := range results {
+		if r.Count > 0 {
+			dirty++
+			if !r.Managed {
+				external++
+			}
+		}
+	}
+	if dirty == 0 {
+		check.Note = "none"
+		return check
+	}
+	check.Note = fmt.Sprintf("%d server(s) still carry legacy option names (@color/@session_color) — attach from the dashboard or run `rk mux adopt <server>` to sweep", dirty)
+	if external > 0 {
+		check.Note += fmt.Sprintf(", of which %d external — rk will not rewrite those", external)
+	}
 	return check
 }
 

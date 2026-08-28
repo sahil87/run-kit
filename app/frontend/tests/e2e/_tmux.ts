@@ -167,3 +167,24 @@ export function listWindows(
     return { windowId: line.slice(0, tab), name: line.slice(tab + 1) };
   });
 }
+
+/** Set a user option at SESSION scope (exact-match `=name:` target — a bare
+ *  `-t <session>` is a window target). Throws on failure. */
+export function setSessionOption(
+  session: string,
+  option: string,
+  value: string,
+  opts: TmuxOptions = {},
+): void {
+  tmux(["set-option", "-t", `=${session}:`, option, value], opts);
+}
+
+/** Read a user option held at SESSION scope (`-qv`: empty when unset, exit 0
+ *  either way). */
+export function sessionOption(
+  session: string,
+  option: string,
+  opts: TmuxOptions = {},
+): string {
+  return tmux(["show-options", "-qv", "-t", `=${session}:`, option], opts).trim();
+}

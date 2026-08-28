@@ -75,7 +75,7 @@ func TestCaptureRestoreRoundTripLiveTmux(t *testing.T) {
 	tmuxCmd(t, socket, "new-window", "-d", "-t", "=alpha:", "-n", "agent", "-c", tmpCwd)
 	tmuxCmd(t, socket, "split-window", "-d", "-t", "=alpha:agent", "-c", home)
 	tmuxCmd(t, socket, "new-session", "-d", "-s", "beta", "-n", "b", "-c", home, "-x", "120", "-y", "40")
-	tmuxCmd(t, socket, "set-option", "-t", "=alpha:", "@session_color", "4")
+	tmuxCmd(t, socket, "set-option", "-t", "=alpha:", "@rk_ses_color", "4")
 	tmuxCmd(t, socket, "set-option", "-w", "-t", "=alpha:agent", "@rk_marker", "solid")
 	tmuxCmd(t, socket, "set-option", "-w", "-t", "=alpha:agent", "@rk_role", "operator")
 	tmuxCmd(t, socket, "set-option", "-s", "@rk_server_rank", "7")

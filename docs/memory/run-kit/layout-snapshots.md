@@ -21,7 +21,7 @@ The JSON schema (`snapshot.go`):
 | Level | Fields |
 |-------|--------|
 | `Snapshot` | `server`, `takenAt`, `serverRank` (nullable, `@rk_server_rank`), `sessionOrder` (`@rk_session_order`), `sessions[]`, plus tombstone-only `diedAt` / `auditedKill` |
-| `Session` | `name`, `createdAt` (unix seconds), `color` (raw `@session_color`), `windows[]` |
+| `Session` | `name`, `createdAt` (unix seconds), `color` (raw `@rk_ses_color`), `windows[]` |
 | `Window` | `index`, `id`, `name`, `active`, `layout` (`#{window_layout}`), `color`, `rkType`, `rkUrl`, `marker`, `flair` (`@rk_flair`), `role` (`@rk_role`), `note` (`@rk_note` — raw `<unix-epoch>:<text>` value), `panes[]` |
 | `Pane` | `id`, `index`, `cwd`, `command`, `active` |
 
@@ -40,7 +40,7 @@ Capture assembles from the `internal/tmux` layout reads plus `GetSessionOrder`/`
 
 **Reads** (tab-delimited `-F` formats + pure `parseLayout*` helpers, same shape as `parseSessions`):
 
-- `ListLayoutSessions` — `#{session_name}`, `#{session_created}`, `#{@session_color}`.
+- `ListLayoutSessions` — `#{session_name}`, `#{session_created}`, `#{@rk_ses_color}`.
 - `ListLayoutWindows` — `list-windows -a`, keyed to the non-pin owning session, **deduplicated by window id** (a board-pinned window is linked into both its home session and its `_rk-pin-*` pin-session, so `-a` surfaces it once per link; the first non-hidden occurrence wins).
 - `ListLayoutPanes` — `list-panes -a` grouped into a `windowID → panes` map, deduped by pane id.
 
@@ -126,7 +126,7 @@ Readers: `LoadLatest`, `LoadAt(server, ts)` (history entry, then tombstone), `Re
 - **Refusal** — a server alive with ≥1 user-facing session (`ListSessions`, which maps a dead server to `(nil, nil)`) is refused. There is no `--force`: restore is for dead servers.
 - **Sessions** — recreated oldest-first with original names. The first window rides `CreateSessionForRestore` (which births the server with the standard pins) and is renumbered from the born base-index to its stored index when they differ; later windows are created at their explicit stored index.
 - **Panes** — fresh shells at the recorded cwd, appended as sequential detached splits. `select-layout` restores geometry best-effort; a failure is a report note, never fatal. A stored active pane beyond position 0 is re-selected via `SelectPane` (splits are detached, so position 0 needs no call).
-- **Options** — `@rk_server_rank`, `@rk_session_order`, session color, and per-window `@color` / `@rk_type` / `@rk_url` / `@rk_marker` / `@rk_flair` / `@rk_role` / `@rk_note` are reapplied from the snapshot (empty values are omitted, never unset), and each session's stored active window is re-selected. Every failure is a report note. `@rk_note` round-trips **verbatim**, epoch prefix included, so the note's relative age stays honest across a restore.
+- **Options** — `@rk_server_rank`, `@rk_session_order`, session color (`@rk_ses_color`), and per-window `@rk_win_color` / `@rk_type` / `@rk_url` / `@rk_marker` / `@rk_flair` / `@rk_role` / `@rk_note` are reapplied from the snapshot (empty values are omitted, never unset), and each session's stored active window is re-selected. Every failure is a report note. `@rk_note` round-trips **verbatim**, epoch prefix included, so the note's relative age stays honest across a restore.
 - **Missing cwd** — a deleted worktree falls back to the server default dir (no `-c`) with a note; it never fails the restore.
 - **Report** — what was recreated, what was skipped, per-window notes, and each window's former command so the user can decide what to resume (e.g. `claude -c` per agent window), closing with the attach hint.
 

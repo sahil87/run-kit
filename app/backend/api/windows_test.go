@@ -38,11 +38,11 @@ func postOptions(t *testing.T, ops *mockTmuxOps, windowID, body string) *httptes
 	return rec
 }
 
-// Set color only — the merge issues one SetWindowOptions call with just @color;
+// Set color only — the merge issues one SetWindowOptions call with just @rk_win_color;
 // @rk_url/@rk_type are left untouched (absent from the op list).
 func TestWindowOptionsSetColorOnly(t *testing.T) {
 	ops := &mockTmuxOps{}
-	rec := postOptions(t, ops, "@2", `{"options":{"@color":"5"}}`)
+	rec := postOptions(t, ops, "@2", `{"options":{"@rk_win_color":"5"}}`)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
@@ -54,28 +54,28 @@ func TestWindowOptionsSetColorOnly(t *testing.T) {
 		t.Errorf("windowID = %q, want %q", ops.setWindowOptionsWindowID, "@2")
 	}
 	if len(ops.setWindowOptionsOps) != 1 {
-		t.Fatalf("ops = %v, want exactly 1 (@color)", ops.setWindowOptionsOps)
+		t.Fatalf("ops = %v, want exactly 1 (@rk_win_color)", ops.setWindowOptionsOps)
 	}
-	op, ok := findOp(ops.setWindowOptionsOps, "@color")
+	op, ok := findOp(ops.setWindowOptionsOps, "@rk_win_color")
 	if !ok || op.Value == nil || *op.Value != "5" {
-		t.Errorf("@color op = %+v, want value \"5\"", op)
+		t.Errorf("@rk_win_color op = %+v, want value \"5\"", op)
 	}
 }
 
-// Explicit null unsets — a nil Value op is recorded for @color.
+// Explicit null unsets — a nil Value op is recorded for @rk_win_color.
 func TestWindowOptionsNullUnsets(t *testing.T) {
 	ops := &mockTmuxOps{}
-	rec := postOptions(t, ops, "@2", `{"options":{"@color":null}}`)
+	rec := postOptions(t, ops, "@2", `{"options":{"@rk_win_color":null}}`)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	op, ok := findOp(ops.setWindowOptionsOps, "@color")
+	op, ok := findOp(ops.setWindowOptionsOps, "@rk_win_color")
 	if !ok {
-		t.Fatal("expected @color op")
+		t.Fatal("expected @rk_win_color op")
 	}
 	if op.Value != nil {
-		t.Errorf("@color value = %q, want nil (unset)", *op.Value)
+		t.Errorf("@rk_win_color value = %q, want nil (unset)", *op.Value)
 	}
 }
 
@@ -100,10 +100,10 @@ func TestWindowOptionsMultiKeyOneCall(t *testing.T) {
 	}
 }
 
-// Out-of-range @color → 400 and zero tmux calls (validate-all-then-execute).
+// Out-of-range @rk_win_color → 400 and zero tmux calls (validate-all-then-execute).
 func TestWindowOptionsColorOutOfRange(t *testing.T) {
 	ops := &mockTmuxOps{}
-	rec := postOptions(t, ops, "@0", `{"options":{"@color":"99"}}`)
+	rec := postOptions(t, ops, "@0", `{"options":{"@rk_win_color":"99"}}`)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
@@ -113,12 +113,12 @@ func TestWindowOptionsColorOutOfRange(t *testing.T) {
 	}
 }
 
-// Out-of-vocabulary @color (neither a family name nor numeric) → 400 and zero
+// Out-of-vocabulary @rk_win_color (neither a family name nor numeric) → 400 and zero
 // tmux calls. Family names themselves ("red", "red-dark") are VALID — see
 // TestWindowOptionsColorFamilyName.
 func TestWindowOptionsColorNonNumeric(t *testing.T) {
 	ops := &mockTmuxOps{}
-	rec := postOptions(t, ops, "@0", `{"options":{"@color":"bluish"}}`)
+	rec := postOptions(t, ops, "@0", `{"options":{"@rk_win_color":"bluish"}}`)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
@@ -128,19 +128,19 @@ func TestWindowOptionsColorNonNumeric(t *testing.T) {
 	}
 }
 
-// Family-name @color values (both shades) are accepted alongside the numeric
+// Family-name @rk_win_color values (both shades) are accepted alongside the numeric
 // vocabulary — dark shades have no legacy numeric form and are stored verbatim.
 func TestWindowOptionsColorFamilyName(t *testing.T) {
 	for _, v := range []string{"red", "blue-dark"} {
 		ops := &mockTmuxOps{}
-		rec := postOptions(t, ops, "@2", `{"options":{"@color":"`+v+`"}}`)
+		rec := postOptions(t, ops, "@2", `{"options":{"@rk_win_color":"`+v+`"}}`)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status(%q) = %d, want %d; body=%s", v, rec.Code, http.StatusOK, rec.Body.String())
 		}
-		op, ok := findOp(ops.setWindowOptionsOps, "@color")
+		op, ok := findOp(ops.setWindowOptionsOps, "@rk_win_color")
 		if !ok || op.Value == nil || *op.Value != v {
-			t.Errorf("@color op = %+v, want value %q", op, v)
+			t.Errorf("@rk_win_color op = %+v, want value %q", op, v)
 		}
 	}
 }
@@ -205,7 +205,7 @@ func TestWindowOptionsRkURLSchemeAllowlist(t *testing.T) {
 // valid + one invalid key) must also abort with zero tmux calls (atomic).
 func TestWindowOptionsUnknownKeyRejected(t *testing.T) {
 	ops := &mockTmuxOps{}
-	rec := postOptions(t, ops, "@0", `{"options":{"@color":"5","@evil":"x"}}`)
+	rec := postOptions(t, ops, "@0", `{"options":{"@rk_win_color":"5","@evil":"x"}}`)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
@@ -489,7 +489,7 @@ func TestWindowOptionsRkTypeSetVerbatim(t *testing.T) {
 
 func TestWindowOptionsInvalidWindowID(t *testing.T) {
 	ops := &mockTmuxOps{}
-	rec := postOptions(t, ops, "abc", `{"options":{"@color":"5"}}`)
+	rec := postOptions(t, ops, "abc", `{"options":{"@rk_win_color":"5"}}`)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
@@ -1457,7 +1457,7 @@ func TestWindowCreateWithoutRkTypeUsesStandardCreate(t *testing.T) {
 
 // TestWindowOptions_POST_wakesHub verifies the handleWindowOptions wake seam: a
 // successful /options POST wakes the request's server so the poll loop runs a
-// fresh pass promptly (the fix for the 5–10s @color/@rk_url/@rk_type latency),
+// fresh pass promptly (the fix for the 5–10s @rk_win_color/@rk_url/@rk_type latency),
 // while a rejected (unknown-key) POST does not wake. Shares newWakeSeamServer /
 // expectWake / expectNoWake with the session-color seam test in sessions_test.go.
 func TestWindowOptions_POST_wakesHub(t *testing.T) {
@@ -1465,7 +1465,7 @@ func TestWindowOptions_POST_wakesHub(t *testing.T) {
 		server, tracker := newWakeSeamServer(t, &mockTmuxOps{})
 		before := tracker.count.Load()
 		router := server.buildRouter()
-		req := httptest.NewRequest(http.MethodPost, "/api/windows/@2/options?server=default", strings.NewReader(`{"options":{"@color":"5"}}`))
+		req := httptest.NewRequest(http.MethodPost, "/api/windows/@2/options?server=default", strings.NewReader(`{"options":{"@rk_win_color":"5"}}`))
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)

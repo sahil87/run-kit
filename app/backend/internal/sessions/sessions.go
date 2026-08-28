@@ -20,7 +20,7 @@ import (
 // ProjectSession is a tmux session with its windows and optional fab enrichment.
 type ProjectSession struct {
 	Name string `json:"name"`
-	// Color value descriptor ("4" / "1+3"), sourced from the @session_color tmux option.
+	// Color value descriptor ("4" / "1+3"), sourced from the @rk_ses_color tmux option.
 	SessionColor *string `json:"sessionColor,omitempty"`
 	// SessionID is the tmux session id ("$N" form, from #{session_id}) — the
 	// canonical target handle. Additive JSON key.

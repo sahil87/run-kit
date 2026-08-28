@@ -196,11 +196,13 @@ func migrateLegacyDropIns(legacyDir, newDir string) {
 
 // sweepListServers / sweepReloadConfig / sweepIsManaged are the reload-sweep
 // seams — tests substitute them to prove the sweep only touches live-enumerated
-// managed servers.
+// managed servers. sweepMigrateLegacy is the legacy-option sweep seam on the
+// same pattern.
 var (
-	sweepListServers  = ListServers
-	sweepReloadConfig = ReloadConfig
-	sweepIsManaged    = IsManagedServer
+	sweepListServers   = ListServers
+	sweepReloadConfig  = ReloadConfig
+	sweepIsManaged     = IsManagedServer
+	sweepMigrateLegacy = MigrateLegacyOptionsOnce
 )
 
 // RefreshSweep reloads the tmux config on every live managed server. It runs
@@ -230,6 +232,12 @@ func RefreshSweep(ctx context.Context) {
 		}
 		if err := sweepReloadConfig(server); err != nil {
 			slog.Warn("tmux config reload failed", "server", server, "err", err)
+		}
+		// Legacy-option sweep rides the same managed gate — rk never rewrites
+		// options on a server it did not birth. No hub wake: RefreshSweep runs
+		// at daemon start, before any client connects.
+		if _, err := sweepMigrateLegacy(ctx, server); err != nil {
+			slog.Warn("legacy option sweep failed", "server", server, "err", err)
 		}
 	}
 }

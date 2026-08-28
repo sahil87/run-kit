@@ -16,9 +16,12 @@ type muxAdoptFake struct {
 	isManagedErr error
 	markErr      error
 	reloadErr    error
+	migrated     bool
+	migrateErr   error
 	markCalls    []string // server names passed to MarkServerManaged
 	unmarkCalls  []string
 	reloadCalls  []string
+	migrateCalls []string
 }
 
 // installMuxAdoptFakes wires the mux-adopt seams to the fake and restores the
@@ -27,9 +30,11 @@ func installMuxAdoptFakes(t *testing.T, f *muxAdoptFake) {
 	t.Helper()
 	origAlive, origIsManaged := muxAdoptServerAliveFn, muxAdoptIsManagedFn
 	origMark, origUnmark, origReload := muxAdoptMarkManagedFn, muxAdoptUnmarkManagedFn, muxAdoptReloadConfigFn
+	origMigrate := muxAdoptMigrateLegacyFn
 	t.Cleanup(func() {
 		muxAdoptServerAliveFn, muxAdoptIsManagedFn = origAlive, origIsManaged
 		muxAdoptMarkManagedFn, muxAdoptUnmarkManagedFn, muxAdoptReloadConfigFn = origMark, origUnmark, origReload
+		muxAdoptMigrateLegacyFn = origMigrate
 	})
 
 	muxAdoptServerAliveFn = func(_ context.Context, _ string) error { return f.aliveErr }
@@ -47,6 +52,10 @@ func installMuxAdoptFakes(t *testing.T, f *muxAdoptFake) {
 	muxAdoptReloadConfigFn = func(server string) error {
 		f.reloadCalls = append(f.reloadCalls, server)
 		return f.reloadErr
+	}
+	muxAdoptMigrateLegacyFn = func(_ context.Context, server string) (bool, error) {
+		f.migrateCalls = append(f.migrateCalls, server)
+		return f.migrated, f.migrateErr
 	}
 }
 
@@ -72,6 +81,50 @@ func TestMuxAdoptSuccess(t *testing.T) {
 	if len(f.unmarkCalls) != 0 {
 		t.Errorf("unmark ran on a successful adopt: %v", f.unmarkCalls)
 	}
+	if len(f.migrateCalls) != 1 || f.migrateCalls[0] != "ext1" {
+		t.Errorf("migrate calls = %v, want one sweep of ext1", f.migrateCalls)
+	}
+}
+
+// TestMuxAdoptLegacySweepReport: the sweep is unconditional (the CLI is the
+// operator's explicit retry), prints the migration line only when legacy names
+// moved, and never fails the adopt on a sweep error.
+func TestMuxAdoptLegacySweepReport(t *testing.T) {
+	t.Run("clean server stays silent", func(t *testing.T) {
+		f := &muxAdoptFake{}
+		installMuxAdoptFakes(t, f)
+		stdout, _, err := runMuxCmd(t, "adopt", "ext1")
+		if err != nil {
+			t.Fatalf("err = %v, want success", err)
+		}
+		if stdout != "adopted ext1\n" {
+			t.Errorf("stdout = %q, want no migration line on a clean sweep", stdout)
+		}
+	})
+
+	t.Run("changed server reports the migration", func(t *testing.T) {
+		f := &muxAdoptFake{migrated: true}
+		installMuxAdoptFakes(t, f)
+		stdout, _, err := runMuxCmd(t, "adopt", "ext1")
+		if err != nil {
+			t.Fatalf("err = %v, want success", err)
+		}
+		if stdout != "adopted ext1\nmigrated legacy options on ext1\n" {
+			t.Errorf("stdout = %q, want the migration line", stdout)
+		}
+	})
+
+	t.Run("sweep failure does not fail the adopt", func(t *testing.T) {
+		f := &muxAdoptFake{migrateErr: errors.New("sweep boom")}
+		installMuxAdoptFakes(t, f)
+		stdout, _, err := runMuxCmd(t, "adopt", "ext1")
+		if err != nil {
+			t.Fatalf("err = %v, want success — a sweep failure is best-effort", err)
+		}
+		if stdout != "adopted ext1\n" {
+			t.Errorf("stdout = %q, want the plain report line", stdout)
+		}
+	})
 }
 
 // TestMuxAdoptAlreadyManaged: an already-managed target prints the

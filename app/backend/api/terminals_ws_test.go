@@ -14,6 +14,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"rk/internal/testutil"
+	"rk/internal/tmux"
 )
 
 // payload returns the frame's wire bytes regardless of tier — a test-only
@@ -286,26 +287,30 @@ func TestTerminals_PingRepliesPong(t *testing.T) {
 }
 
 // TestReloadConfigForAttach pins the managed-only pre-attach reload gate: a
-// managed server is reloaded, an external server is skipped, and a managed-
-// check read failure fails closed (skip) — none of these paths error or block
-// the attach.
+// managed server is reloaded and swept, an external server is skipped, and a
+// managed-check read failure fails closed (skip) — none of these paths error
+// or block the attach.
 func TestReloadConfigForAttach(t *testing.T) {
 	stub := func(t *testing.T, managed bool, managedErr, reloadErr error) *[]string {
 		t.Helper()
 		reloaded := &[]string{}
-		origManaged, origReload := attachIsManaged, attachReloadConfig
+		origManaged, origReload, origMigrate := attachIsManaged, attachReloadConfig, attachMigrateLegacy
 		attachIsManaged = func(context.Context, string) (bool, error) { return managed, managedErr }
 		attachReloadConfig = func(server string) error {
 			*reloaded = append(*reloaded, server)
 			return reloadErr
 		}
-		t.Cleanup(func() { attachIsManaged, attachReloadConfig = origManaged, origReload })
+		attachMigrateLegacy = func(context.Context, string) (bool, error) { return false, nil }
+		t.Cleanup(func() {
+			attachIsManaged, attachReloadConfig, attachMigrateLegacy = origManaged, origReload, origMigrate
+			tmux.ResetLegacyMigrationForTest()
+		})
 		return reloaded
 	}
 
 	t.Run("managed server reloads", func(t *testing.T) {
 		reloaded := stub(t, true, nil, nil)
-		reloadConfigForAttach("srv")
+		(&Server{}).reloadConfigForAttach("srv")
 		if strings.Join(*reloaded, ",") != "srv" {
 			t.Errorf("reloaded = %v, want [srv]", *reloaded)
 		}
@@ -313,7 +318,7 @@ func TestReloadConfigForAttach(t *testing.T) {
 
 	t.Run("external server is skipped", func(t *testing.T) {
 		reloaded := stub(t, false, nil, nil)
-		reloadConfigForAttach("srv")
+		(&Server{}).reloadConfigForAttach("srv")
 		if len(*reloaded) != 0 {
 			t.Errorf("reloaded = %v, want none — an external server must never receive rk's conf", *reloaded)
 		}
@@ -321,7 +326,7 @@ func TestReloadConfigForAttach(t *testing.T) {
 
 	t.Run("managed-check read failure fails closed", func(t *testing.T) {
 		reloaded := stub(t, false, fmt.Errorf("tmux read wobble"), nil)
-		reloadConfigForAttach("srv")
+		(&Server{}).reloadConfigForAttach("srv")
 		if len(*reloaded) != 0 {
 			t.Errorf("reloaded = %v, want none — a read failure must skip the reload", *reloaded)
 		}
@@ -329,9 +334,81 @@ func TestReloadConfigForAttach(t *testing.T) {
 
 	t.Run("reload error does not propagate", func(t *testing.T) {
 		reloaded := stub(t, true, nil, fmt.Errorf("boom"))
-		reloadConfigForAttach("srv") // must not panic or return
+		(&Server{}).reloadConfigForAttach("srv") // must not panic or return
 		if strings.Join(*reloaded, ",") != "srv" {
 			t.Errorf("reloaded = %v, want [srv] — the reload was attempted, error only logged", *reloaded)
+		}
+	})
+}
+
+// TestReloadConfigForAttachLegacySweep pins the sweep half of the pre-attach
+// seam: the sweep runs for managed servers only, behind the same gate, off
+// the attach goroutine (the once-guard taken synchronously up front), and at
+// most once per server. Each subtest uses its own server name: the sweep runs
+// in a goroutine, so a shared name would let the previous subtest's in-flight
+// sweep fire into the next subtest's fresh stub.
+func TestReloadConfigForAttachLegacySweep(t *testing.T) {
+	stub := func(t *testing.T, managed bool) chan string {
+		t.Helper()
+		swept := make(chan string, 8)
+		origManaged, origReload, origMigrate := attachIsManaged, attachReloadConfig, attachMigrateLegacy
+		attachIsManaged = func(context.Context, string) (bool, error) { return managed, nil }
+		attachReloadConfig = func(string) error { return nil }
+		attachMigrateLegacy = func(_ context.Context, server string) (bool, error) {
+			// Ignore leaked sends from earlier tests' in-flight sweep
+			// goroutines — only this test's own names count.
+			if strings.HasPrefix(server, "sweep-") {
+				swept <- server
+			}
+			return false, nil
+		}
+		tmux.ResetLegacyMigrationForTest()
+		t.Cleanup(func() {
+			attachIsManaged, attachReloadConfig, attachMigrateLegacy = origManaged, origReload, origMigrate
+			tmux.ResetLegacyMigrationForTest()
+		})
+		return swept
+	}
+
+	t.Run("managed server is swept off the attach path", func(t *testing.T) {
+		swept := stub(t, true)
+		(&Server{}).reloadConfigForAttach("sweep-managed")
+		select {
+		case got := <-swept:
+			if got != "sweep-managed" {
+				t.Errorf("swept = %q, want sweep-managed", got)
+			}
+		case <-time.After(2 * time.Second):
+			t.Error("sweep never ran — the async sweep must fire for a managed server")
+		}
+	})
+
+	t.Run("external server is not swept", func(t *testing.T) {
+		swept := stub(t, false)
+		(&Server{}).reloadConfigForAttach("sweep-external")
+		select {
+		case got := <-swept:
+			t.Errorf("swept %q — an external server must never be swept", got)
+		case <-time.After(100 * time.Millisecond):
+		}
+	})
+
+	t.Run("the once-guard runs the sweep at most once per server", func(t *testing.T) {
+		swept := stub(t, true)
+		(&Server{}).reloadConfigForAttach("sweep-once")
+		(&Server{}).reloadConfigForAttach("sweep-once")
+		select {
+		case got := <-swept:
+			if got != "sweep-once" {
+				t.Errorf("swept = %q, want sweep-once", got)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("sweep never ran")
+		}
+		select {
+		case got := <-swept:
+			t.Errorf("sweep ran twice (%q) — the once-guard must be taken synchronously", got)
+		case <-time.After(100 * time.Millisecond):
 		}
 	})
 }

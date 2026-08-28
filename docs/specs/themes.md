@@ -220,7 +220,7 @@ always-on, composable with any marker, and fully hidden under
 Marker state persists as the `@rk_marker` **window user option** (`""` plus the
 8 tokens above — additive growth, stored values never rewritten), written
 through the unified `POST /api/windows/{id}/options` endpoint (the same
-allowlist + validate-all path as `@color`), read back through the sessions
+allowlist + validate-all path as `@rk_win_color`), read back through the sessions
 enrichment onto the window payload as `marker`, and wired into the SSE-hub wake
 seam so the mutation repaints in one poll pass rather than the 12s safety tick.
 Marker, color, and flair are fully independent axes — a window may be any

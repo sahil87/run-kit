@@ -9,7 +9,7 @@
 > Sections marked **[current]** describe shipped behavior; **[target]** is the
 > design intent this spec commits to.
 >
-> Companions: [`agent-state.md`](agent-state.md) defines `@rk_chat` (the chat
+> Companions: [`agent-state.md`](agent-state.md) defines `@rk_pane_chat` (the chat
 > view's capability signal); [`status-pyramid.md`](status-pyramid.md) is
 > untouched by this model — status signals describe the substrate, never the
 > lens.
@@ -31,7 +31,7 @@ each invented its own typing and view-state machinery:
 |---------|--------------------|-------------|-----------------|
 | iframe window | `@rk_win_lens=iframe` + `@rk_win_url` window options | server-side mutation — the `>_` button POSTs `@rk_win_lens: null` | everyone; the window's identity changes globally |
 | desktop (PR #71, unmerged) | `desktop:` window-name prefix + `@rk_vnc_port` | fixed at creation — the relay sniffs the type and branches, so the tty is unreachable | everyone, permanently |
-| chat (planned) | `@rk_chat` pane option | client-side `?view=chat` + localStorage, per-viewer | just you |
+| chat (planned) | `@rk_pane_chat` pane option | client-side `?view=chat` + localStorage, per-viewer | just you |
 
 Three conventions for "what kind of thing is this window", three for "which
 view am I in". Left alone, every future projection (log viewer, diff viewer,
@@ -62,7 +62,7 @@ Separate **what runs** from **what you can look at**:
 |------|---------------|----------|--------|
 | `tty` | always | xterm.js `TerminalClient` | **[current]** |
 | `web` | always (the lens exists on every window, like `tty`); `@rk_win_url` selects the renderer's CONTENT — empty/whitespace renders the onboarding state (a reduced live URL bar + fill-path instructions), non-empty renders the live iframe — mirroring the `code` row's availability-vs-content split | `IframeWindow` (proxy iframe + URL bar; onboarding content state when `@rk_win_url` is empty) | **[current]** as a lens — change `260714-t97o-web-view-lens`; always-available + onboarding `260821-zqlq-web-tile-always-tileable-onboarding` |
-| `chat` | `@rk_chat` pane option present | chat renderer | **[target]** — [`agent-chat-view.md`](../../fab/plans/sahil/26-07-13-agent-chat-view.md) changes 2–3 |
+| `chat` | `@rk_pane_chat` pane option present | chat renderer | **[target]** — [`agent-chat-view.md`](../../fab/plans/sahil/26-07-13-agent-chat-view.md) changes 2–3 |
 | `code` | the window's code folder is LATCHED, or a git root is derivable from the active pane's cwd — derivation seeds the latch once, at first open, and the terminal never moves it afterwards (right-panel.md § The `code` lens); the code-server endpoint always resolves by convention, so it gates nothing, and reachability governs the renderer's CONTENT (live iframe vs not-running empty state), never availability | `CodeSurface` (lean proxy iframe, no URL bar) | **[current]** — change `260811-k3vp-right-panel-code-lens`, endpoint by convention `260811-a2bo`, folder latched `260813-if5d`; also the right panel's CODE surface (right-panel.md § Surface Registry) |
 | `desktop` | VNC-port window option present (set by the desktop launcher, reconciler-cleared) | noVNC canvas | **[target]** — [`fab/plans/sahil/26-07-14-desktop-view.md`](../../fab/plans/sahil/26-07-14-desktop-view.md) |
 

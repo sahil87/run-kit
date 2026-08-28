@@ -473,7 +473,7 @@ export const UNCOLORED_SELECTED_KEY = `${UNCOLORED_SELECTED_ANSI}`;
  *  classes (pipe = hairline, hatch = diagonals, block = block dashes), never a
  *  new weight between existing ones. Suggested semantics (`hatch` =
  *  in-progress, `thick` = completed, …) are LABEL CONVENTIONS only — no wiring
- *  to @rk_agent_state or the status pyramid. Markers are FULLY STATIC: the
+ *  to @rk_pane_agent_state or the status pyramid. Markers are FULLY STATIC: the
  *  label system's only texture pairing is hatch ↔ hazard wedge; all row motion
  *  lives on the flair axis (the motion split). */
 export const MARKER_STATES = ["", "pipe", "dotted", "dashed", "solid", "double", "thick", "hatch", "block"] as const;
@@ -485,7 +485,7 @@ export const MARKER_STATES = ["", "pipe", "dotted", "dashed", "solid", "double",
  *  `.rk-flair-*`) available on window rows and session rows (NOT server group
  *  headers — those mirror the SERVER-pane tiles, whose visual identity must
  *  stay flair-free). Flair is DECORATION ONLY — unlike the marker's label
- *  conventions, it carries no semantic at all: no wiring to `@rk_agent_state`
+ *  conventions, it carries no semantic at all: no wiring to `@rk_pane_agent_state`
  *  or the status pyramid. `rain` and `scan` lead the display order — they are
  *  the marker axis's retired motion (the dashed data rain and the double
  *  scanlines + crawl + refresh band), now user-composable with ANY marker;

@@ -2,7 +2,7 @@
 
 E2E coverage for the protected-server kill confirm dialog (the typed-name
 force-kill unlock). Runs against a scratch server created through the UI and
-marked `@rk_protected` via raw tmux — the same mark the UI Protect toggle
+marked `@rk_srv_protected` via raw tmux — the same mark the UI Protect toggle
 writes — inside this worktree's isolated e2e socket family.
 
 ## Shared setup
@@ -11,7 +11,7 @@ writes — inside this worktree's isolated e2e socket family.
   status-bar Connected dot.
 - `beforeAll` creates the scratch server via tmux (`new-session` on its own
   socket inside this worktree's e2e socket family) and marks it
-  `@rk_protected 1` server-scoped — the same option the UI Protect toggle
+  `@rk_srv_protected 1` server-scoped — the same option the UI Protect toggle
   writes through `POST /api/servers/protect`.
 - `afterAll` kills the scratch server best-effort (a protected server needs
   the named kill — the reaper's family glob skips it).
@@ -31,7 +31,7 @@ the server from the UI.
 
 **Steps**:
 
-1. `beforeAll` has already created and `@rk_protected`-marked the scratch
+1. `beforeAll` has already created and `@rk_srv_protected`-marked the scratch
    server; the test starts on the primary e2e server route.
 2. Open the palette, run `Server: Kill <name>`; assert the guarded dialog
    shows the typed-name input and a `Force kill` button — and NO plain `Kill`

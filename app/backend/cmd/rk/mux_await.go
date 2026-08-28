@@ -61,7 +61,7 @@ var muxAwaitCmd = &cobra.Command{
 	Short: "Block until an agent pane reaches a state (or a file appears)",
 	Long: "Block until any waitable signal fires on the target pane, then print a " +
 		"one-line report and exit:\n" +
-		"  <state>   the pane's @rk_agent_state reached a state in --until (default idle)\n" +
+		"  <state>   the pane's "+tmux.AgentStateOption+" reached a state in --until (default idle)\n" +
 		"  file      the --file path appeared (OR-composed with the state signal)\n" +
 		"  running   --timeout (default 300s, 0 = indefinite) expired — exit 0; the\n" +
 		"            timeout bounds the observer, never the pane\n" +
@@ -141,7 +141,7 @@ func prodAwaitDeps(server string) awaitDeps {
 
 // muxReadPaneState is the production state read: a pane lookup that maps a
 // "can't find pane" failure to gone=true (the pane died mid-wait), and the
-// reconciled @rk_agent_state otherwise ("" = unknown/uninstrumented).
+// reconciled @rk_pane_agent_state otherwise ("" = unknown/uninstrumented).
 func muxReadPaneState(ctx context.Context, paneID, server string) (state string, gone bool, err error) {
 	state, err = tmux.PaneAgentState(ctx, paneID, server)
 	if err != nil && strings.Contains(err.Error(), "can't find pane") {

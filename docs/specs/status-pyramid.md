@@ -6,7 +6,7 @@
 > Agent-State Tier (PR #314); sections marked **[target]** differ from shipped
 > code, sections marked **[current]** describe behavior that already exists.
 >
-> Companions: [`agent-state.md`](agent-state.md) defines the `@rk_agent_state`
+> Companions: [`agent-state.md`](agent-state.md) defines the `@rk_pane_agent_state`
 > convention this spec consumes (states, staleness, reconciler, rollup);
 > the dot's shape/hue rendering vocabulary lives in `status-dot.tsx` /
 > `pr-status-model.ts` (`statusDotState`, `PHASE_HUE`, `fabShape`,
@@ -23,7 +23,7 @@ display-precedence ladder built on them.
 | Layer | Signal | Exists when | Source |
 |-------|--------|-------------|--------|
 | L0 — tmux output | `activity` (active/idle), `activityTimestamp` | always, every window | `#{window_activity}` within 10s (`ActivityThresholdSeconds`) |
-| L1 — agent lifecycle | `agentState` (active / waiting / idle) + epoch | an instrumented agent runs in a pane of the window | `@rk_agent_state` pane option, window rollup `waiting > active > idle`; absent = unknown; PID-liveness reconciler clears dead-agent values, shell-name fallback for legacy two-segment values (see agent-state.md) |
+| L1 — agent lifecycle | `agentState` (active / waiting / idle) + epoch | an instrumented agent runs in a pane of the window | `@rk_pane_agent_state` pane option, window rollup `waiting > active > idle`; absent = unknown; PID-liveness reconciler clears dead-agent values, shell-name fallback for legacy two-segment values (see agent-state.md) |
 | L2 — fab pipeline | `fabChange`, `fabStage`, `fabDisplayState` | the pane's worktree has an active change | cwd → `.fab-status.yaml` → `.status.yaml`, via the pane-map join |
 | L3 — PR | `prNumber`/`prUrl` + `prState`/`prChecks`/`prReview`/`prIsDraft` | the pane's branch resolves to a PR — never for the repo's default branch (#389, see invariant 6) | branch → `gh` lookup in the prstatus collector (post-#314; previously fab's `.status.yaml` `prs:` list) |
 
@@ -47,7 +47,7 @@ L0 speaks about **bytes, not intent** — it answers "is output happening", neve
 misleading cases were all *agent* panes (a spinner repainting below a permission
 prompt reads "active"; a silently thinking agent reads "idle"); the agent tier
 now owns every such window, and L0 never speaks for a pane with a fresh
-`@rk_agent_state`. What remains is its honest domain, exactly three jobs:
+`@rk_pane_agent_state`. What remains is its honest domain, exactly three jobs:
 
 1. Bottom-tier solid/ring for windows with no PR, no change, no agent.
 2. The elapsed ticker for those windows (`idle 23m` on a forgotten shell pane).
@@ -193,7 +193,7 @@ waiting   →  additive yellow halo, over anything (core hue + shape kept)
    (`git symbolic-ref refs/remotes/origin/HEAD`, per-repo cached, fail-open
    on lookup failure) and resolves excluded pairs to an authoritative
    negative, clearing any stale positive within one pass.
-7. **Unknown beats wrong**: absent `@rk_agent_state`, or a value on a pane whose
+7. **Unknown beats wrong**: absent `@rk_pane_agent_state`, or a value on a pane whose
    command is a plain shell (reconciler), means *no agent tier* — the ladder
    falls through to tmux. Nothing renders a guessed agent state.
 
@@ -295,7 +295,7 @@ Minimalism — the function is deleted):
 ```
 waiting Xm   (attention token; NOT muted by output)   ← new
 (output flowing → no duration)                        ← unchanged mute
-idle Xm      (computed from @rk_agent_state epoch)     ← source swap
+idle Xm      (computed from @rk_pane_agent_state epoch)     ← source swap
 tmux elapsed (activityTimestamp ticker)                ← unchanged
 ```
 
@@ -334,7 +334,7 @@ the rollup badges + palette nav cover discovery), a second per-row indicator
 - **Stuck** — `idle` ≥ threshold (default 15m, matching the fab-operator's 🔴
   rule) at a non-terminal fab stage → *slow* pulse, distinct from waiting's
   fast pulse. Attention-tier, so it overlays like waiting; not v1.
-- **Error** — the `@rk_agent_state` convention has no error state in v1; if one
+- **Error** — the `@rk_pane_agent_state` convention has no error state in v1; if one
   is added, it joins the overlay (never the tier ladder).
 
 One overlay at a time: `waiting` outranks `stuck`.

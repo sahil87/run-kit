@@ -137,12 +137,12 @@ button still tips "Close a tile first" (the Tip wraps a span so the tooltip
 survives the disabled control's swallowed pointer events). Since chat is
 hidden from the group (`SURFACE_RAIL_HIDDEN`), the only way to hold an unlit
 shown toggle at 3 open tiles is an open CHAT tile — the window is made
-chat-capable by stamping the pane `@rk_chat` option on a NON-shell pane (the
+chat-capable by stamping the pane `@rk_pane_chat` option on a NON-shell pane (the
 backend reconciler zeroes chat on plain-shell panes). Closing one tile
 re-enables the unlit toggle.
 Steps:
 1. Create a window running `exec sleep 600` (a non-shell pane command); stamp
-   `@rk_win_url` (window option) and `@rk_chat claude:e2e-disabled-at-3` (pane
+   `@rk_win_url` (window option) and `@rk_pane_chat claude:e2e-disabled-at-3` (pane
    option, resolved via `#{pane_id}`).
 2. Navigate with `?layout=main-left:tty,web,chat`; assert the terminal and
    that the URL mirrors the 3-tile layout unchanged (nothing degraded).

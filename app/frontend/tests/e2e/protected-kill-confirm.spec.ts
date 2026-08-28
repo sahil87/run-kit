@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { gotoServerReady } from "./_ready";
 import { TMUX_SERVER, TMUX_FAMILY, killServer } from "./_tmux";
 
-// A protected scratch server, created and marked @rk_protected via tmux (the
+// A protected scratch server, created and marked @rk_srv_protected via tmux (the
 // mark surface for non-UI actors; the UI Protect toggle posts the same
 // option). Named inside this worktree's socket family (TMUX_FAMILY anchor)
 // with the Playwright process.pid as the second-to-last hyphen field so the
@@ -19,7 +19,7 @@ test.describe("Protected server kill: typed-name confirm flow", () => {
   test.beforeAll(() => {
     killServer(PROTECTED_SERVER); // clean slate
     tmuxOn(PROTECTED_SERVER, ["new-session", "-d", "-s", "pkc", "-x", "80", "-y", "24"]);
-    tmuxOn(PROTECTED_SERVER, ["set-option", "-s", "@rk_protected", "1"]);
+    tmuxOn(PROTECTED_SERVER, ["set-option", "-s", "@rk_srv_protected", "1"]);
   });
 
   test.afterAll(() => {

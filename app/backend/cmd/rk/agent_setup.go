@@ -48,8 +48,10 @@ import (
 // rkHookMarker is the LEGACY substring that identifies an rk-owned hook command:
 // the pre-indirection self-contained one-liner inlined `tmux set-option … @rk_agent_state`,
 // so the option name appearing in a command string was the "this entry is ours"
-// signal. It IS the option name — one source of truth per binary (A-021), the
-// canonical convention string lives in internal/tmux, not re-declared here.
+// signal. It IS the retired option name — first-generation one-liners inline
+// the unscoped name, so the marker binds to LegacyAgentStateOption (binding it
+// to the renamed constant would stop `rk agent setup` from recognising and
+// stripping gen-1 entries).
 //
 // The NEW-generation command (agentStateHookCommand below) delegates to
 // `rk agent hook` and no longer contains the option name, so it is instead
@@ -58,7 +60,7 @@ import (
 // markers so a re-run of `rk agent setup` on the new binary strips
 // older-generation entries and replaces them in place, and `--uninstall`
 // removes every generation.
-const rkHookMarker = tmux.AgentStateOption
+const rkHookMarker = tmux.LegacyAgentStateOption
 
 // rkHookMarkerAgentHook identifies the second-generation delegating hook
 // command by its ` agent-hook ` invocation substring. The surrounding spaces
@@ -246,7 +248,7 @@ func agentRegistry(home string) []agentConfig {
 				{event: "Notification", matcher: "permission_prompt|elicitation_dialog|agent_needs_input", state: agentStateWaiting},
 				{event: "Notification", matcher: "idle_prompt", state: agentStateIdle},
 				{event: "Stop", state: agentStateIdle},
-				// SessionStart stamps @rk_chat only (token "stamp" — see
+				// SessionStart stamps @rk_pane_chat only (token "stamp" — see
 				// agentHookStampToken): the pane→session mapping appears within
 				// seconds of session start, before any prompt, and re-stamps on
 				// every session-id rotation (SessionStart fires on startup/resume/
@@ -341,7 +343,7 @@ func newAgentSetupCmd(use string, deprecated bool) *cobra.Command {
 	c := &cobra.Command{
 		Use:   use,
 		Short: "Install agent-harness hooks that report agent state to run-kit",
-		Long: "Install (or --uninstall) the hooks that write the @rk_agent_state tmux " +
+		Long: "Install (or --uninstall) the hooks that write the " + tmux.AgentStateOption + " tmux " +
 			"pane option so run-kit can show any agent's active/waiting/idle state. " +
 			"v1 targets Claude Code (~/.claude/settings.json). The install is a JSON " +
 			"merge: existing hooks are preserved, re-running is idempotent, and a diff " +
@@ -847,20 +849,28 @@ func removeRkEntries(arr []any) []any {
 	return out
 }
 
-// isRkEntry reports whether a hook-entry object is rk-owned. It matches ALL
-// THREE generations of the hook command: the LEGACY self-contained one-liner
-// (which inlined the @rk_agent_state option name → rkHookMarker), the
-// second-generation delegating one-liner (`rk agent-hook` →
+// isRkEntry reports whether a hook-entry object is rk-owned — one walk of the
+// entry's hooks[] (rkEntryCommands owns it), true when any command carries a
+// marker. Non-rk hooks carry no marker and are preserved untouched.
+func isRkEntry(entry map[string]any) bool {
+	return len(rkEntryCommands(entry)) > 0
+}
+
+// rkEntryCommands returns the marker-carrying command strings of a hook-entry
+// object. It matches ALL THREE generations of the hook command: the LEGACY
+// self-contained one-liner (which inlined the @rk_agent_state option name →
+// rkHookMarker), the second-generation delegating one-liner (`rk agent-hook` →
 // rkHookMarkerAgentHook), and the third-generation family form (`rk agent hook`
 // → rkHookMarkerAgentHookFamily); the delegating forms no longer contain the
 // option name. Matching all three is what lets `rk agent setup` on the new
 // binary strip older-generation entries and replace them in place, and lets
-// `--uninstall` remove every generation. Non-rk hooks carry no marker and are
-// preserved untouched.
-func isRkEntry(entry map[string]any) bool {
+// `--uninstall` remove every generation. rk doctor's agent-hooks row consumes
+// the returned commands for generation classification.
+func rkEntryCommands(entry map[string]any) []string {
 	if entry == nil {
-		return false
+		return nil
 	}
+	var cmds []string
 	for _, hv := range asSlice(entry["hooks"]) {
 		handler := asMap(hv)
 		if handler == nil {
@@ -873,10 +883,10 @@ func isRkEntry(entry map[string]any) bool {
 		if strings.Contains(cmd, rkHookMarker) ||
 			strings.Contains(cmd, rkHookMarkerAgentHook) ||
 			strings.Contains(cmd, rkHookMarkerAgentHookFamily) {
-			return true
+			cmds = append(cmds, cmd)
 		}
 	}
-	return false
+	return cmds
 }
 
 // --- tmux guard shim (second managed artifact) ----------------------------------

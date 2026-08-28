@@ -205,7 +205,7 @@ moves into the layout.
 | `?view=` and `?panel=` params | **Retired** behind the permanent translation shim |
 | Same-folder twin windows | **Collapse** — one window, `web`/`code` tiles in its layout |
 | `@rk_win_url` | **Stays** — the web tile's content selector *and* shared content address (edit it and every viewer sees the new page; empty/whitespace renders the tile's onboarding state). Never was view state |
-| `@rk_chat`, `@rk_agent_state` | **Stay** — capability, status |
+| `@rk_pane_chat`, `@rk_pane_agent_state` | **Stay** — capability, status |
 | Synthetic iframe windows for **external URLs** (no owning pane) | **Stay** as the compat shim — the honest residual (window-views § Two Species step 2); a web tile's content needs a substrate signal |
 
 ---

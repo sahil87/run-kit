@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
+
+	"rk/internal/tmux"
 
 	"github.com/spf13/cobra"
 )
@@ -546,4 +549,88 @@ func TestIsAgentStateValidator(t *testing.T) {
 			t.Errorf("isAgentState(%q) = true, want false", s)
 		}
 	}
+}
+
+// captureDualWriteArgv points the dual-write tmux seam at an argv recorder,
+// returning the recorder for assertions.
+func captureDualWriteArgv(t *testing.T) *[][]string {
+	t.Helper()
+	var captured [][]string
+	orig := agentHookTmuxRun
+	agentHookTmuxRun = func(_ context.Context, args []string) error {
+		captured = append(captured, args)
+		return nil
+	}
+	t.Cleanup(func() { agentHookTmuxRun = orig })
+	return &captured
+}
+
+// assertDualWriteArgv pins the deprecation-window write contract: ONE tmux
+// invocation whose argv sets the scope-named option AND the retired unscoped
+// name to the identical value, chained by a discrete ";" argv element — tmux
+// command chaining, no shell (the interpolation surface stays closed).
+func assertDualWriteArgv(t *testing.T, args []string, pane, option, legacy, value string) {
+	t.Helper()
+	want := []string{"set-option", "-pt", pane, option, value, ";", "set-option", "-pt", pane, legacy, value}
+	// A -S <socket> prefix may precede the chained commands; locate them.
+	start := 0
+	if len(args) >= 2 && args[0] == "-S" {
+		start = 2
+	}
+	if len(args)-start != len(want) {
+		t.Fatalf("argv = %v, want %v (one chained invocation, both names once each)", args, want)
+	}
+	for i, w := range want {
+		if args[start+i] != w {
+			t.Fatalf("argv[%d] = %q, want %q (full argv %v)", start+i, args[start+i], w, args)
+		}
+	}
+}
+
+func TestWriteAgentStateImplDualWritesBothNames(t *testing.T) {
+	captured := captureDualWriteArgv(t)
+	writeAgentStateImpl(context.Background(), "%3", agentStateActive, 4242)
+	if len(*captured) != 1 {
+		t.Fatalf("tmux invocations = %d, want 1 (chained dual-write)", len(*captured))
+	}
+	args := (*captured)[0]
+	joined := strings.Join(args, " ")
+	if strings.Count(joined, tmux.AgentStateOption) != 1 || strings.Count(joined, tmux.LegacyAgentStateOption) != 1 {
+		t.Errorf("argv %v must carry %s and %s exactly once each", args, tmux.AgentStateOption, tmux.LegacyAgentStateOption)
+	}
+	// The value is epoch-stamped at write time; assert the shared value shape
+	// (identical across both writes) rather than the exact epoch.
+	var values []string
+	for i, a := range args {
+		if strings.HasPrefix(a, agentStateActive+":") {
+			values = append(values, a)
+			_ = i
+		}
+	}
+	if len(values) != 2 || values[0] != values[1] {
+		t.Errorf("dual-write values = %v, want two identical <state>:<epoch>:<pid> values", values)
+	}
+	if !strings.HasSuffix(values[0], ":4242") {
+		t.Errorf("value %q missing the pid segment", values[0])
+	}
+	assertDualWriteArgv(t, args, "%3", tmux.AgentStateOption, tmux.LegacyAgentStateOption, values[0])
+}
+
+func TestWriteChatImplDualWritesBothNames(t *testing.T) {
+	captured := captureDualWriteArgv(t)
+	writeChatImpl(context.Background(), "%3", "claude", "6f0d9e2a-1c3b-4f7e-9a2d-8b5c4e1f0a37")
+	if len(*captured) != 1 {
+		t.Fatalf("tmux invocations = %d, want 1 (chained dual-write)", len(*captured))
+	}
+	assertDualWriteArgv(t, (*captured)[0], "%3", chatOption, tmux.LegacyChatOption, "claude:6f0d9e2a-1c3b-4f7e-9a2d-8b5c4e1f0a37")
+}
+
+func TestDualWriteNeverFailsOnTmuxError(t *testing.T) {
+	// The never-fail contract survives a failing chain (e.g. the second
+	// set-option failing): the error is swallowed, not propagated.
+	orig := agentHookTmuxRun
+	agentHookTmuxRun = func(_ context.Context, _ []string) error { return fmt.Errorf("boom") }
+	t.Cleanup(func() { agentHookTmuxRun = orig })
+	writeAgentStateImpl(context.Background(), "%3", agentStateActive, 0)
+	writeChatImpl(context.Background(), "%3", "claude", "abc123")
 }

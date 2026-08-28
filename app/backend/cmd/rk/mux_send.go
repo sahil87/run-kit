@@ -63,7 +63,7 @@ var muxSendCmd = &cobra.Command{
 	Short: "Deliver a message into an agent's pane, gated on its agent state",
 	Long: "Deliver a message into an agent's tmux pane with probe-verified delivery " +
 		"(bracketed paste + echo probe + probe-gated Enter), gated on the pane's " +
-		"@rk_agent_state: idle sends; waiting refuses unless --answer (this send IS " +
+		tmux.AgentStateOption + ": idle sends; waiting refuses unless --answer (this send IS " +
 		"the answer it waits for); active always refuses; unknown warns and sends. " +
 		"--force skips the gate.\n\n" +
 		"Payload (exactly one): a positional message, `-` to read it from stdin, or " +

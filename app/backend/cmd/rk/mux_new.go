@@ -36,7 +36,7 @@ var muxNewCmd = &cobra.Command{
 		"environment, home-anchored CWD) — the sanctioned way for agents and " +
 		"scripts to create scratch servers instead of improvising raw " +
 		"new-session calls.\n\n" +
-		"Pass --ephemeral to mark the new server @rk_ephemeral 1 before the " +
+		"Pass --ephemeral to mark the new server "+tmux.EphemeralOption+" 1 before the " +
 		"command returns, opting it into the `rk mux reap --ephemeral` bulk " +
 		"cleanup sweep and out of layout-snapshot coverage. If the mark fails, " +
 		"the just-created server is killed — a --ephemeral invocation never " +

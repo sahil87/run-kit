@@ -408,3 +408,147 @@ func TestMigrateLegacyOptions_scopePrefixRename(t *testing.T) {
 		t.Error("second sweep reported changed=true, want false (zero set-option calls)")
 	}
 }
+
+// paneIDOf resolves a pane ID (%N) for a window on the test server.
+func paneIDOf(t *testing.T, server, target string) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	full := []string{"-L", server, "list-panes", "-t", target, "-F", "#{pane_id}"}
+	out, err := exec.CommandContext(ctx, "tmux", full...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("list-panes %q: %v\n%s", target, err, string(out))
+	}
+	id := strings.TrimSpace(string(out))
+	if id == "" {
+		t.Fatalf("no pane found for target %q", target)
+	}
+	return id
+}
+
+// TestMigrateLegacyOptions_paneCopyOnlyKeepsOld covers the CopyOnly pane
+// rows: the sweep copies @rk_agent_state/@rk_chat forward to their scope-named
+// successors but NEVER unsets the retired name at pane scope (the dual state
+// is sanctioned — rk agent hook dual-writes both and fab-kit still reads the
+// retired name). A second sweep is a no-op, and CountLegacyOptions excludes
+// the sanctioned right-scope holds.
+func TestMigrateLegacyOptions_paneCopyOnlyKeepsOld(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	pane := paneIDOf(t, server, "boot:0")
+	legacyTmuxDo(t, server, "set-option", "-p", "-t", pane, LegacyAgentStateOption, "idle:1")
+	legacyTmuxDo(t, server, "set-option", "-p", "-t", pane, LegacyChatOption, "claude:abc123")
+
+	if err := MigrateLegacyOptions(context.Background(), server); err != nil {
+		t.Fatalf("MigrateLegacyOptions: %v", err)
+	}
+
+	if v, ok := legacyHeld(t, server, "-p", "-t", pane, AgentStateOption); !ok || v != "idle:1" {
+		t.Errorf("%s = %q (held=%v), want \"idle:1\" (copied forward)", AgentStateOption, v, ok)
+	}
+	if v, ok := legacyHeld(t, server, "-p", "-t", pane, ChatOption); !ok || v != "claude:abc123" {
+		t.Errorf("%s = %q (held=%v), want \"claude:abc123\" (copied forward)", ChatOption, v, ok)
+	}
+	if v, ok := legacyHeld(t, server, "-p", "-t", pane, LegacyAgentStateOption); !ok || v != "idle:1" {
+		t.Errorf("%s = %q (held=%v), want \"idle:1\" — CopyOnly must never unset the retired name", LegacyAgentStateOption, v, ok)
+	}
+	if v, ok := legacyHeld(t, server, "-p", "-t", pane, LegacyChatOption); !ok || v != "claude:abc123" {
+		t.Errorf("%s = %q (held=%v), want \"claude:abc123\" — CopyOnly must never unset the retired name", LegacyChatOption, v, ok)
+	}
+
+	// The sanctioned dual state is not counted, and a second sweep issues
+	// nothing.
+	if n, err := CountLegacyOptions(context.Background(), server); err != nil || n != 0 {
+		t.Errorf("CountLegacyOptions with sanctioned pane holds = %d (err=%v), want 0", n, err)
+	}
+	changed, err := sweepLegacyOptions(context.Background(), server)
+	if err != nil {
+		t.Fatalf("second sweep: %v", err)
+	}
+	if changed {
+		t.Error("second sweep reported changed=true, want false (idempotent dual state)")
+	}
+}
+
+// TestMigrateLegacyOptions_copyOnlyPreExistingNewIssuesNothing: a carrier
+// already holding BOTH names (the steady state after dual-writing hooks fire)
+// is a no-op — no copy, no unset.
+func TestMigrateLegacyOptions_copyOnlyPreExistingNewIssuesNothing(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	pane := paneIDOf(t, server, "boot:0")
+	legacyTmuxDo(t, server, "set-option", "-p", "-t", pane, LegacyAgentStateOption, "idle:1")
+	legacyTmuxDo(t, server, "set-option", "-p", "-t", pane, AgentStateOption, "active:2:4242")
+
+	changed, err := sweepLegacyOptions(context.Background(), server)
+	if err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if changed {
+		t.Error("sweep reported changed=true on a pre-dual carrier, want false (both held issues nothing)")
+	}
+	if v, ok := legacyHeld(t, server, "-p", "-t", pane, AgentStateOption); !ok || v != "active:2:4242" {
+		t.Errorf("%s = %q (held=%v), want the pre-existing value untouched", AgentStateOption, v, ok)
+	}
+	if v, ok := legacyHeld(t, server, "-p", "-t", pane, LegacyAgentStateOption); !ok || v != "idle:1" {
+		t.Errorf("%s = %q (held=%v), want \"idle:1\" — CopyOnly must never unset the retired name", LegacyAgentStateOption, v, ok)
+	}
+}
+
+// TestMigrateLegacyOptions_copyOnlyWrongScopePurgedAndCounted: a CopyOnly
+// row's Old at a WRONG scope can only be a stray — it is purged like any
+// other row and counted by CountLegacyOptions before the sweep.
+func TestMigrateLegacyOptions_copyOnlyWrongScopePurgedAndCounted(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	id := windowID(t, server, "boot:0")
+	legacyTmuxDo(t, server, "set-option", "-w", "-t", id, LegacyAgentStateOption, "idle:1")
+
+	if n, err := CountLegacyOptions(context.Background(), server); err != nil || n != 1 {
+		t.Errorf("CountLegacyOptions with a wrong-scope CopyOnly hold = %d (err=%v), want 1", n, err)
+	}
+
+	if err := MigrateLegacyOptions(context.Background(), server); err != nil {
+		t.Fatalf("MigrateLegacyOptions: %v", err)
+	}
+	if v, ok := legacyHeld(t, server, "-w", "-t", id, LegacyAgentStateOption); ok {
+		t.Errorf("%s still held at window scope: %q — wrong-scope strays are purged", LegacyAgentStateOption, v)
+	}
+	if n, err := CountLegacyOptions(context.Background(), server); err != nil || n != 0 {
+		t.Errorf("CountLegacyOptions after the sweep = %d (err=%v), want 0", n, err)
+	}
+}
+
+// TestMigrateLegacyOptions_serverRowsMoveFully: the server rows
+// (@rk_ephemeral/@rk_protected) migrate like every other non-CopyOnly row —
+// copy to the scope-named successor, then unset the retired name — because no
+// cross-repo reader consumes them.
+func TestMigrateLegacyOptions_serverRowsMoveFully(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	legacyTmuxDo(t, server, "set-option", "-s", LegacyEphemeralOption, "1")
+	legacyTmuxDo(t, server, "set-option", "-s", LegacyProtectedOption, "1")
+
+	if err := MigrateLegacyOptions(context.Background(), server); err != nil {
+		t.Fatalf("MigrateLegacyOptions: %v", err)
+	}
+
+	if v, ok := legacyHeld(t, server, "-s", EphemeralOption); !ok || v != "1" {
+		t.Errorf("%s = %q (held=%v), want \"1\" (moved)", EphemeralOption, v, ok)
+	}
+	if v, ok := legacyHeld(t, server, "-s", ProtectedOption); !ok || v != "1" {
+		t.Errorf("%s = %q (held=%v), want \"1\" (moved)", ProtectedOption, v, ok)
+	}
+	if v, ok := legacyHeld(t, server, "-s", LegacyEphemeralOption); ok {
+		t.Errorf("%s still held at server scope: %q", LegacyEphemeralOption, v)
+	}
+	if v, ok := legacyHeld(t, server, "-s", LegacyProtectedOption); ok {
+		t.Errorf("%s still held at server scope: %q", LegacyProtectedOption, v)
+	}
+	if n, err := CountLegacyOptions(context.Background(), server); err != nil || n != 0 {
+		t.Errorf("CountLegacyOptions after the sweep = %d (err=%v), want 0", n, err)
+	}
+	changed, err := sweepLegacyOptions(context.Background(), server)
+	if err != nil {
+		t.Fatalf("second sweep: %v", err)
+	}
+	if changed {
+		t.Error("second sweep reported changed=true, want false (idempotent)")
+	}
+}

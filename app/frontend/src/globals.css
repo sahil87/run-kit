@@ -483,7 +483,7 @@ summary {
    `nyan` /
    `naruto` / `onepiece` / `pacman` / `matrix` / `aquarium` / `roadrunner` /
    `invaders` / `cube` / `warp` / `spidey` / `ironman`) — pure decoration: no wiring to
-   @rk_agent_state or
+   @rk_pane_agent_state or
    the status pyramid, and it animates in EVERY row state. Mounted on window
    and session rows (NOT server group headers) as an absolutely-positioned
    inner element (inset-0, overflow-hidden, pointer-events-none, z-5):

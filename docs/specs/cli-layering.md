@@ -3,7 +3,7 @@
 > Decided 2026-08-15 (discussion session; alongside intake 260815-a5vf `rk send`/`rk await`).
 > run-kit (`rk`) and fab-kit (`fab`) are the **only two CLIs**. A third "tmux management"
 > binary was considered and rejected: the substrate verbs are only valuable with rk's
-> conventions present (`@rk_agent_state`, hooks, reconcilers), a third binary would add a
+> conventions present (`@rk_pane_agent_state`, hooks, reconcilers), a third binary would add a
 > third axis of version skew and distribution overhead, and the hexokit rename already
 > broadens rk's identity beyond the web dashboard.
 
@@ -11,7 +11,7 @@
 
 | Layer | Tool | Owns |
 |-------|------|------|
-| **Substrate** | `rk` | tmux conventions (the `@rk_*` option registry), agent instrumentation (`agent setup`/`agent hook`, the `@rk_agent_state` lifecycle), pane interaction verbs (`mux send`/`mux await`; future `capture`/`kill`/`process`), server hygiene (guard shim, reaper, layout snapshots, tmux.conf scaffold) — with the daemon, web UI, and desktop shell as consumers of this layer, not its definition |
+| **Substrate** | `rk` | tmux conventions (the `@rk_*` option registry), agent instrumentation (`agent setup`/`agent hook`, the `@rk_pane_agent_state` lifecycle), pane interaction verbs (`mux send`/`mux await`; future `capture`/`kill`/`process`), server hygiene (guard shim, reaper, layout snapshots, tmux.conf scaffold) — with the daemon, web UI, and desktop shell as consumers of this layer, not its definition |
 | **Choreography** | `fab` | changes, stages, dispatch records, provider/profile resolution, confidence scoring, memory indexes, PR metadata — everything keyed to a change or a pipeline stage |
 
 ## Delegation rules
@@ -19,7 +19,7 @@
 1. **Each tool delegates to the other for facts the other layer owns; neither reimplements the other's layer.** Both directions exist and both are correct: fab consumes substrate facts from rk (agent state, gated sends), rk consumes choreography facts from fab (`fab agent --print` for launcher resolution in riff, `fab pane map` for the change/stage join in sessions).
 2. **fab → rk delegation is capability-probed and fail-open**: `command -v rk` gates every use; absence degrades to raw tmux / fab's internal builders, never to an error. fab-kit remains installable without rk; its skills carry the degraded path.
 3. **Machine-invoked entry points are contracts**: commands baked into installed artifacts (hook lines in agent settings, the guard PATH shim, shell rc sourcing) keep their invocation names working permanently — renames ship with hidden aliases, and installers write the new form going forward.
-4. **What fab may assume of rk when present**: the `@rk_agent_state` schema per [agent-state.md](agent-state.md); the `rk mux send`/`rk mux await` contracts (gate matrix, probe-verified delivery, report words) once 260815-a5vf ships; `rk notify`'s fail-silent contract.
+4. **What fab may assume of rk when present**: the `@rk_pane_agent_state` schema per [agent-state.md](agent-state.md); the `rk mux send`/`rk mux await` contracts (gate matrix, probe-verified delivery, report words) once 260815-a5vf ships; `rk notify`'s fail-silent contract.
 
 ## rk command surface — grouping plan
 

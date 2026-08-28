@@ -39,7 +39,7 @@ agents, gray = just a terminal, yellow glow = needs me now.**
      mid-ship), not a stage check.
    - a **`skipped`** display-state makes the window *not fab-owned* — the change has left its
      journey, so the ladder simply falls through (agent tier, then floor).
-2. **Warm family — ad-hoc agent** (no fab change, but a fresh `@rk_agent_state`) → **yellow**
+2. **Warm family — ad-hoc agent** (no fab change, but a fresh `@rk_pane_agent_state`) → **yellow**
    (solid mid-turn, ring when the agent is idle).
 3. **Floor** (no fab change, no fresh agent) → **monochrome gray** tmux activity.
 
@@ -53,7 +53,7 @@ agents, gray = just a terminal, yellow glow = needs me now.**
 |-----|-------|-----------|-------|
 | blue | `text-signal-blue` | `#60a5fa` (dark; `#2563eb` light) | fab **building** — intake · apply · review (pre-PR work) |
 | green | `text-accent-green` | theme green | fab **PR-ready / done** — ship · review-pr · done (local work complete) |
-| yellow | `text-signal-yellow` | `#facc15` (dark; `#b07d02` light) | **ad-hoc agent** — a fresh `@rk_agent_state`, no fab change |
+| yellow | `text-signal-yellow` | `#facc15` (dark; `#b07d02` light) | **ad-hoc agent** — a fresh `@rk_pane_agent_state`, no fab change |
 | gray | `text-text-secondary` | gray | **floor** — plain terminal; color is reserved for a journey |
 
 The purple and orange PR hues are **retired from the dot** — purple survives in the glyph and the
@@ -165,7 +165,7 @@ and can be mentally derived from it:
 
 ```
 out  active · 4s since last output        (L0: tmux activity)
-agt  waiting 3m                            (L1: @rk_agent_state + epoch)
+agt  waiting 3m                            (L1: @rk_pane_agent_state + epoch)
 fab  260705-dmex · review · failed         (L2: fabChange · stage · displayState)
 PR   #314 open · checks fail · draft        (L3: prNumber/state/checks/review/draft)
 ```

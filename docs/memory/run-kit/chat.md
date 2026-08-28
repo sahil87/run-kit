@@ -8,7 +8,7 @@ description: "The chat subsystem backend — rk-owned neutral event schema (Even
 
 ## Overview
 
-`internal/chat` turns a window's reconciled `@rk_chat = <provider>:<session-ref>`
+`internal/chat` turns a window's reconciled `@rk_pane_chat = <provider>:<session-ref>`
 (from [agent-state](/run-kit/agent-state.md) § Chat Session Identity) into the
 conversation it names. It is a **read-only** view over the agent pane plus a
 narrow **send** path: the pane stays the agent's parent process (Constitution VI);
@@ -97,7 +97,7 @@ carries `toolUseId`/`toolName`). An idle session ending in a `text` block yields
 `nil` Pending. Permission-gated tools fall under the same unpaired-tail rule with
 no special-casing; if such a tool's `tool_use` is not persisted until the
 permission is granted, Pending under-fills for that class in v1 (the intake's
-lone accepted worst case — `@rk_agent_state=waiting` still drives the badge).
+lone accepted worst case — `@rk_pane_agent_state=waiting` still drives the badge).
 
 #### Scenario: AskUserQuestion tail vs. text tail
 - **GIVEN** a transcript whose tail is an `AskUserQuestion` tool_use with no
@@ -114,7 +114,7 @@ from int64) (<-chan Update, error)` — plus a `Conversation` result (`Provider`
 marshalling to `{"provider","sessionRef","events","pending","offset"}`), an
 `Update` increment (see below), a package-level `map[string]Adapter` registry
 guarded by a `sync.RWMutex`, `Register`/`Lookup`, and the `ErrNoAdapter`
-sentinel. Lookup is by the `@rk_chat` provider prefix; a well-formed but
+sentinel. Lookup is by the `@rk_pane_chat` provider prefix; a well-formed but
 unregistered provider returns `ErrNoAdapter` (the API layer maps it to a
 404-class JSON error, so presence-gating stays provider-agnostic and
 codex/gemini adapters are additive). The one registered provider is `claude`, from
@@ -231,7 +231,7 @@ beyond the per-connection offset** (Constitution II). Because priming replays
 
 ### Requirement: Backfill endpoint `GET /api/windows/{windowId}/chat` (`api/chat.go`)
 `handleChatBackfill` SHALL validate the `{windowId}` (`parseWindowID`, `400` on
-malformed), resolve the window's **reconciled** `@rk_chat` rollup server-side via
+malformed), resolve the window's **reconciled** `@rk_pane_chat` rollup server-side via
 `resolveWindowChat` (`FetchSessions` + a window lookup by stable `WindowID`,
 reading the rolled-up `ChatProvider`/`ChatSessionRef` by the active-pane-first /
 else-first-pane rule), route to the provider adapter, and return
@@ -248,7 +248,7 @@ It NEVER trusts a client-supplied ref (URLs carry no session UUIDs). It is a GET
 "no chat session".
 
 #### Scenario: Live claude window returns rk-schema JSON
-- **GIVEN** a live `claude` window with a reconciled `@rk_chat`
+- **GIVEN** a live `claude` window with a reconciled `@rk_pane_chat`
 - **WHEN** a client GETs the backfill route
 - **THEN** it returns `200` with the conversation as rk-schema JSON.
 
@@ -313,7 +313,7 @@ subscription** (Constitution II). It runs a two-phase machine:
 - **TAIL**: an incremental `TailFrom(ref, from)` ships ONLY the bytes the client's
   GET did not carry (`Events` → `chat`+`chat-state`).
 - **DORMANT**: on a **rotation** (the ~2s `chatRefResolveInterval` re-resolve —
-  session rotation via `/clear`/`/compact` re-stamps `@rk_chat` within one hook
+  session rotation via `/clear`/`/compact` re-stamps `@rk_pane_chat` within one hook
   fire — sees a fresh ref) OR a **shrink** (`TailFrom`'s `Reset`), the producer
   cancels the tail and — crucially — does NOT re-tail the new ref from 0 (that
   would re-stream a whole conversation over the shared socket, violating D5).
@@ -322,7 +322,7 @@ subscription** (Constitution II). It runs a two-phase machine:
   tolerant of `ErrTranscriptNotFound`/`ErrInvalidRef`), re-emitting each tick
   until the client's re-subscribe REPLACES this producer with a fresh tail. This
   preserves the **lazy-transcript "not yet" tolerance** (Claude Code writes the
-  `.jsonl` only on the first prompt while `@rk_chat` re-stamps at `SessionStart`)
+  `.jsonl` only on the first prompt while `@rk_pane_chat` re-stamps at `SessionStart`)
   on BOTH the initial subscribe and rotation — the client cannot 404-wedge because
   no `chat-reset` fires until the file is resolvable (and the hook additionally
   retries a GET 404 on a 500ms backoff).
@@ -334,7 +334,7 @@ subscription** (Constitution II). It runs a two-phase machine:
 - **GIVEN** an acked chat subscription
 - **WHEN** the client unsubscribes, disconnects, or repeat-subscribes the same key
 - **THEN** the producer goroutine's context is cancelled and it exits.
-- **AND GIVEN** the window's `@rk_chat` re-stamps to a session whose transcript
+- **AND GIVEN** the window's `@rk_pane_chat` re-stamps to a session whose transcript
   does not exist yet, **THEN** the subscription stays live (no `chat-error`) and
   once the file appears a single `chat-reset` fires so the client re-composes.
 
@@ -356,7 +356,7 @@ The **GET backfill** SHALL return, as JSON error objects (`writeError` shape):
 404-class response (via `writeChatReadError`) when the transcript is missing
 (`ErrTranscriptNotFound`) or the reconciled ref is malformed (`ErrInvalidRef`) for
 a live ref — because the client only ever supplies a windowID, a bad ref is a
-property of the reconciled `@rk_chat`, not a server fault; any other adapter read
+property of the reconciled `@rk_pane_chat`, not a server fault; any other adapter read
 error is a `500`. On the **state-socket subscription**, the equivalent
 subscribe-time failures surface as an `error` frame carrying `req` (above), and a
 transient/not-yet tail failure goes DORMANT (converging via `chat-reset`) rather
@@ -674,7 +674,7 @@ changes.
 ### Window-keyed routes, server-resolved ref
 **Decision**: Both endpoints key on `{windowId}` (mirroring every
 `/api/windows/{windowId}/*` route, `?server=` query); the backend re-resolves the
-reconciled `@rk_chat` rollup server-side per request/tick.
+reconciled `@rk_pane_chat` rollup server-side per request/tick.
 **Why**: URLs carry no session UUIDs, and the backend never trusts a
 client-supplied ref over the reconciler — the same reconciliation `FetchSessions`
 applies.

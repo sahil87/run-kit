@@ -46,7 +46,7 @@ var muxCaptureCmd = &cobra.Command{
 	Short: "Capture a pane's scrollback with substrate context",
 	Long: "Capture the last N lines of the target pane's scrollback (default 50) as " +
 		"plain text — no ANSI escapes — enriched with substrate facts only: the " +
-		"pane's cwd and its reconciled @rk_agent_state with idle/waiting duration. " +
+		"pane's cwd and its reconciled "+tmux.AgentStateOption+" with idle/waiting duration. " +
 		"--raw prints the captured text only (byte-identical to tmux's output); " +
 		"--json emits the metadata wrapper. The content is never trimmed.\n\n" +
 		"Targets: %N (pane), @N (window — resolves to its agent pane), " +

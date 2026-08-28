@@ -22,7 +22,7 @@
 
 | Spec | Description |
 |------|-------------|
-| [Agent State](agent-state.md) | The `@rk_agent_state` pane-option convention — two-tier ownership, value schema, writer/reader rules, shell reconciler, and the `rk agent setup` per-agent hook registry (cross-repo contract with fab-kit) |
+| [Agent State](agent-state.md) | The `@rk_pane_agent_state` pane-option convention — two-tier ownership, value schema, writer/reader rules, shell reconciler, and the `rk agent setup` per-agent hook registry (cross-repo contract with fab-kit) |
 | [API](api.md) | HTTP, SSE, and WebSocket endpoint specification — the target API surface |
 | [Architecture](architecture.md) | System architecture, repository structure, data flow, build & deploy |
 | [Code Bridge](code-bridge.md) | `rk code exec` + the `rk-code-bridge` code-server extension — run VS Code palette commands in the `code` lens from a shell over a same-user Unix socket under `$XDG_STATE_HOME/run-kit/cb/`; protocol, host resolution, security stance, distribution via `rk code-server install`, phasing |

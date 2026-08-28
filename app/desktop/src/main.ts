@@ -1448,8 +1448,20 @@ function registerIpcHandlers(): void {
             { kind: "store", url: currentHost?.url ?? null },
             parsed.url,
           );
-          if (!currentHost || !switchToHost(hostId).ok) return;
-          if (target === null) return;
+          if (!currentHost) return;
+          // A host with no live view gets its view created by switchToHost,
+          // which loads `url + lastPath` (creation-time restore). Stamping the
+          // deep-link path as lastPath first makes that single creation load
+          // land on the target — the explicit loadURL below is only for warm
+          // views, so a first-click never navigates twice.
+          const priorView = getView(views, hostId);
+          const hadLiveView =
+            priorView !== null && !priorView.handle.webContents.isDestroyed();
+          if (!hadLiveView && target !== null) {
+            setHostLastPath(userDataDir(), hostId, parsed.url);
+          }
+          if (!switchToHost(hostId).ok) return;
+          if (target === null || !hadLiveView) return;
           const targetView = getView(views, hostId);
           if (!targetView || targetView.handle.webContents.isDestroyed()) return;
           void targetView.handle.webContents.loadURL(target);

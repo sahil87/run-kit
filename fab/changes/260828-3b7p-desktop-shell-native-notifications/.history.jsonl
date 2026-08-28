@@ -1,0 +1,14 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-28T11:23:33Z"}
+{"args":"desktop-shell native notifications — rk notify reaches the Electron viewer shell via a notify event on /ws/state, SPA shell-gated forwarder over a new runkitShell notify:show bridge channel, Electron Notification with click-to-navigate to the originating host/window; stacks on 260828-njqa-notify-deep-links (PR #756)","cmd":"fab-new","event":"command","ts":"2026-08-28T11:23:33Z"}
+{"delta":"+4.5","event":"confidence","score":4.5,"trigger":"calc-score","ts":"2026-08-28T11:25:53Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-28T11:26:29Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-28T12:10:21Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-28T12:11:30Z"}
+{"event":"review","result":"failed","ts":"2026-08-28T12:21:11Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-28T12:21:11Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-28T12:26:52Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-28T12:27:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-28T12:32:18Z"}
+{"event":"review","result":"passed","ts":"2026-08-28T12:32:18Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-28T12:33:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-28T12:48:18Z"}

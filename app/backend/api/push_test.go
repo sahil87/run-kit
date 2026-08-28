@@ -2,8 +2,10 @@ package api
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 )
@@ -116,6 +118,57 @@ func TestNotify_noSubscriptionsReturnsSummary(t *testing.T) {
 	}
 	if result.Sent != 0 || result.Pruned != 0 {
 		t.Errorf("summary = %+v, want {0,0}", result)
+	}
+}
+
+func TestNotify_noSubscriptionsStillBroadcasts(t *testing.T) {
+	isolatePush(t)
+	server := &Server{
+		logger:   slog.New(slog.NewTextHandler(os.Stderr, nil)),
+		sessions: &mockSessionFetcher{},
+		tmux:     &mockTmuxOps{},
+		hostname: "test-host",
+	}
+	router := server.buildRouter()
+	server.initSSEHub()
+	sc := newTestStateConn(server.sseHub, "notify-test", 8)
+	server.sseHub.replayGlobalSlots(sc)
+	t.Cleanup(func() { server.sseHub.dropStateConn(sc) })
+	drainFrames(sc.ch)
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/notify",
+		strings.NewReader(`{"body":"hi","url":"/noon/57"}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var result struct {
+		Sent   int `json:"sent"`
+		Pruned int `json:"pruned"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result.Sent != 0 || result.Pruned != 0 {
+		t.Errorf("summary = %+v, want {0,0}", result)
+	}
+
+	frames := decodeEnvelopes(drainFrames(sc.ch))
+	if len(frames) != 1 {
+		t.Fatalf("received %d frames, want 1 notify", len(frames))
+	}
+	frame := frames[0]
+	if rawStr(frame, "kind") != kindGlobal || rawStr(frame, "type") != "notify" {
+		t.Fatalf("envelope = %v, want global notify", frame)
+	}
+	if string(frame["data"]) != `{"title":"RunKit","body":"hi","url":"/noon/57"}` {
+		t.Errorf("data = %s", frame["data"])
 	}
 }
 

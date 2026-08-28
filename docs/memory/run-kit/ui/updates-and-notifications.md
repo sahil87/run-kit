@@ -1,5 +1,5 @@
 ---
-description: "Web Push notification opt-in and the update-notification system: ambient + manual check feeds, reload guard, top-bar UpdateChip, palette actions, maintenance entries, steady-state version surfaces."
+description: "Notification delivery surfaces: Web Push opt-in, desktop-shell native forwarding, and toolkit update notifications with ambient/manual feeds, reload guard, UpdateChip, palette and maintenance actions, and steady-state version surfaces."
 type: memory
 ---
 # run-kit UI — Updates & Notifications
@@ -7,6 +7,8 @@ type: memory
 ## Notifications (Web Push opt-in)
 
 Browser Web Push lets `rk notify` (and any process on the box) deliver an OS notification that reaches the user **even when the RunKit PWA tab is closed**. The end-to-end backend/delivery model lives in `architecture.md` § Web Push Notifications; this section covers the frontend opt-in surface. (`260615-xd9r`)
+
+Inside the desktop shell, `SessionContext` listens for the host-global `notify` event through the shared global-event handler on both server-backed and metrics-only state-socket subscription modes. It tolerantly narrows optional `title`/`body`/`url` strings to empty-string defaults and, only when `isShell()` is true, fire-and-forgets `showShellNotification({title, body, url})`. A plain browser ignores the event, so browser behavior remains the Web Push opt-in and service-worker flow. Native presentation and click routing live in [desktop-shell](/run-kit/desktop-shell.md) § Native Notifications & Click Routing. (`260828-3b7p-desktop-shell-native-notifications`)
 
 **Two surfaces, one hook, no bell.** The opt-in is a Cmd+K palette entry (the keyboard-first path, Constitution §V) plus the settings dialog's **Notifications** preference row (§ Settings Dialog); both read `state` and call the same `enable`/`sendTest` from one `usePushSubscription()`, so they cannot drift. There is **no bell chip in the top bar** — notifications are an app-global preference and live in the settings dialog (§ Chrome (Top Bar) → Right cluster; § Design Decisions → App-global actions live in the top bar). The palette label reflects subscription state and is **terminal-themed text**, never a bell icon:
 
@@ -154,6 +156,12 @@ The row has TWO forms, chosen by the **verdict-derived** `asUpdateSurface` compu
 **`copyToClipboard` success signal.** `lib/clipboard.ts` `copyToClipboard` returns `Promise<boolean>` — `true` on a successful copy (Clipboard API OR the `execCommand` non-secure-context fallback), `false` when both fail. Callers that `void`-ignore the return (`terminal-client.tsx`, `status-panel.tsx`) are unaffected; the palette-version `onSelect` consumes the boolean to toast confirmation vs. error (fail soft with an error toast in a non-secure context). The return-value cases (Clipboard-API success, `execCommand`-fallback success, total failure) are unit-tested in `terminal-client.test.ts` (the home of the `copyToClipboard` describe block).
 
 ## Design Decisions
+
+### Shell notification forwarding stays in the global event handler
+**Decision**: `SessionContext` forwards `notify` directly from its existing global state-socket listener through `showShellNotification`, gated by `isShell()` and without adding React state or a component.
+**Why**: notification delivery is a fire-and-forget side effect with no browser UI state, and the shared global handler already receives the event for every subscription kind.
+**Rejected**: a render-nothing reporter component or provider state, because either adds an intermediate render path to a pass-through event.
+*Introduced by*: 260828-3b7p-desktop-shell-native-notifications
 
 ### Single static `Update Now` — no dynamic version label
 **Decision**: the palette has ONE update action, the static `run-kit: Update Now` (a full-roster force update in `buildMaintenanceActions`); the former qualifying-gated `run-kit: Update to v{X}` entry and its `updateActionLabel` label composition (the single-run-kit / single-sibling / N-tools label shapes) are deleted.

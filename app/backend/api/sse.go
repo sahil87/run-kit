@@ -434,6 +434,7 @@ func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector, svc *ports.Collect
 		}
 		return "", "", false, nil
 	}
+	h.waitingPush.broadcast = h.broadcastNotify
 	return h
 }
 
@@ -1023,6 +1024,28 @@ func (h *sseHub) broadcastStatusRefresh(completedAt time.Time) {
 	}
 	// Rendered before the lock — see broadcastSessionOrder.
 	ev := preRendered(hubEvent{kind: kindGlobal, typ: "status-refresh", data: string(jsonBytes)})
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.broadcastGlobalLocked(ev)
+}
+
+// broadcastNotify pushes an ephemeral host-global notification to every live
+// state-socket connection. It is broadcast-only: there is no cached slot, so a
+// connection arriving after the event never receives a stale notification.
+func (h *sseHub) broadcastNotify(title, body, url string) {
+	payload := struct {
+		Title string `json:"title"`
+		Body  string `json:"body"`
+		URL   string `json:"url,omitempty"`
+	}{Title: title, Body: body, URL: url}
+	jsonBytes, err := json.Marshal(payload)
+	if err != nil {
+		slog.Warn("notify broadcast marshal failed", "err", err)
+		return
+	}
+	// Render before the lock so fan-out shares one envelope marshal.
+	ev := preRendered(hubEvent{kind: kindGlobal, typ: "notify", data: string(jsonBytes)})
 
 	h.mu.Lock()
 	defer h.mu.Unlock()

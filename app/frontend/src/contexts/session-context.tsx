@@ -13,6 +13,7 @@ import { useChromeDispatch } from "./chrome-context";
 import { listServers, compareServersRanked, triggerUpdate, triggerForceUpdate, triggerRestart, type ServerInfo, type UpdateTriggerResult } from "@/api/client";
 import { StateSocket, type ChatSubscribeArgs, type ChatUnsubscribeArgs } from "@/lib/state-socket";
 import { computeUpdateKey } from "@/lib/palette-update";
+import { isShell, showShellNotification } from "@/lib/shell";
 import type { MetricsSnapshot, ProjectSession, Service, ServicesSnapshot } from "@/types";
 
 export type { ChatSubscribeArgs, ChatUnsubscribeArgs };
@@ -869,6 +870,19 @@ export function SessionProvider({ children }: SessionProviderProps) {
         case "status-refresh":
           fireStatusRefresh();
           break;
+        case "notify": {
+          if (!isShell()) break;
+          let title = "";
+          let body = "";
+          let url = "";
+          if (typeof data === "object" && data !== null) {
+            if ("title" in data && typeof data.title === "string") title = data.title;
+            if ("body" in data && typeof data.body === "string") body = data.body;
+            if ("url" in data && typeof data.url === "string") url = data.url;
+          }
+          void showShellNotification({ title, body, url });
+          break;
+        }
         case "version": {
           const d = data as { version?: string; boot?: string; brew?: boolean };
           if (typeof d.version === "string") {

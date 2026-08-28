@@ -16,6 +16,7 @@ import {
   reorderShellHosts,
   setShellAccent,
   setShellBadge,
+  showShellNotification,
   shellInfo,
   switchShellServer,
 } from "./shell";
@@ -264,6 +265,56 @@ describe("setShellBadge", () => {
       badge: { set: () => Promise.reject(new Error("ipc gone")) },
     };
     expect(await setShellBadge(1)).toBe(false);
+  });
+});
+
+describe("showShellNotification", () => {
+  const payload = { title: "RunKit", body: "waiting for input", url: "/noon/57" };
+
+  it("resolves true on an { ok: true } ack and passes the payload through", async () => {
+    let seen: unknown;
+    window.runkitShell = {
+      version: "1.2.3",
+      platform: "darwin",
+      notify: {
+        show: (next: unknown) => {
+          seen = next;
+          return Promise.resolve({ ok: true });
+        },
+      },
+    };
+    expect(await showShellNotification(payload)).toBe(true);
+    expect(seen).toEqual(payload);
+  });
+
+  it("resolves false in a plain browser and on an older shell without notify", async () => {
+    expect(await showShellNotification(payload)).toBe(false);
+    window.runkitShell = { version: "1.2.3", platform: "darwin" };
+    expect(await showShellNotification(payload)).toBe(false);
+  });
+
+  it("resolves false when the notify group is malformed", async () => {
+    window.runkitShell = {
+      version: "1.2.3",
+      platform: "darwin",
+      notify: { show: "nope" },
+    };
+    expect(await showShellNotification(payload)).toBe(false);
+  });
+
+  it("resolves false on a denied result and on a rejected invoke", async () => {
+    window.runkitShell = {
+      version: "1.2.3",
+      platform: "darwin",
+      notify: { show: () => Promise.resolve({ ok: false, error: "Not allowed" }) },
+    };
+    expect(await showShellNotification(payload)).toBe(false);
+    window.runkitShell = {
+      version: "1.2.3",
+      platform: "darwin",
+      notify: { show: () => Promise.reject(new Error("ipc gone")) },
+    };
+    expect(await showShellNotification(payload)).toBe(false);
   });
 });
 

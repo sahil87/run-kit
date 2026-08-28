@@ -83,7 +83,10 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(title) == "" {
 		title = "RunKit"
 	}
-	result, err := push.Notify(r.Context(), title, body.Body, notifyDeepLinkPath(body.URL))
+	url := notifyDeepLinkPath(body.URL)
+	s.initSSEHub()
+	s.sseHub.broadcastNotify(title, body.Body, url)
+	result, err := push.Notify(r.Context(), title, body.Body, url)
 	if err != nil {
 		// Pruning may have failed; the send summary is still meaningful.
 		s.logger.Warn("notify completed with error", "error", err, "sent", result.Sent, "pruned", result.Pruned)

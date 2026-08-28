@@ -34,6 +34,7 @@ import {
   Menu,
   nativeImage,
   net,
+  Notification,
   session,
   shell,
   WebContents,
@@ -73,6 +74,7 @@ import {
 } from "./remote-host";
 import { availableUpdateVersion, isUpdateCheckDue } from "./update-check";
 import { isEditorDeeplink, isHttpUrl, windowOpenAction } from "./window-open";
+import { notificationTitle, notifyClickNavigationTarget } from "./notify";
 import {
   addHost,
   findHostByOrigin,
@@ -1183,6 +1185,16 @@ function parseSetUrlPayload(value: unknown): { id: string; url: string } | null 
   return { id: value.id, url: value.url };
 }
 
+function parseNotifyPayload(
+  value: unknown,
+): { title: string; body: string; url: string } | null {
+  if (typeof value !== "object" || value === null) return null;
+  if (!("title" in value) || typeof value.title !== "string") return null;
+  if (!("body" in value) || typeof value.body !== "string") return null;
+  if (!("url" in value) || typeof value.url !== "string") return null;
+  return { title: value.title, body: value.body, url: value.url };
+}
+
 function registerIpcHandlers(): void {
   ipcMain.handle(
     "welcome:test-host",
@@ -1383,6 +1395,71 @@ function registerIpcHandlers(): void {
     // must not paint a surface it no longer backs.
     if (mainWindow && event.sender.id === mainWindow.webContents.id) {
       applyBadge(count);
+    }
+    return { ok: true };
+  });
+
+  // notify:show — an allowed host view may ask the shell to surface a native
+  // notification. Sender identity resolves the host id (origins are not
+  // unique); non-view senders acknowledge without showing. Receipt never
+  // navigates: current host/view state is re-read inside `click` before any
+  // switching or guarded loadURL.
+  ipcMain.handle("notify:show", (event, payload: unknown): IpcResult => {
+    if (!isHostsSender(event)) return { ok: false, error: "Not allowed" };
+    const parsed = parseNotifyPayload(payload);
+    if (!parsed) return { ok: false, error: "Invalid request" };
+    const entry = findViewByWebContentsId(views, event.sender.id);
+    if (!entry) return { ok: true };
+    const hostId = entry.hostId;
+    let title = parsed.title;
+    if (hostId !== DEV_HOST_ID) {
+      const host = loadHosts(userDataDir()).hosts.find((item) => item.id === hostId);
+      if (!host) return { ok: true };
+      title = notificationTitle(parsed.title, host.name, views.activeHostId === hostId);
+    }
+    if (!Notification.isSupported()) return { ok: true };
+
+    try {
+      const notification = new Notification({
+        title,
+        body: parsed.body,
+      });
+      notification.on("click", () => {
+        try {
+          const win = mainWindow;
+          if (!win || win.isDestroyed()) return;
+          if (win.isMinimized()) win.restore();
+          win.show();
+          win.focus();
+
+          if (hostId === DEV_HOST_ID) {
+            const devView = getView(views, hostId);
+            if (!devView || devView.handle.webContents.isDestroyed()) return;
+            const target = notifyClickNavigationTarget(
+              { kind: "dev", origin: originOf(devView.handle.webContents.getURL()) },
+              parsed.url,
+            );
+            if (target !== null) void devView.handle.webContents.loadURL(target);
+            return;
+          }
+
+          const currentHost = loadHosts(userDataDir()).hosts.find((item) => item.id === hostId);
+          const target = notifyClickNavigationTarget(
+            { kind: "store", url: currentHost?.url ?? null },
+            parsed.url,
+          );
+          if (!currentHost || !switchToHost(hostId).ok) return;
+          if (target === null) return;
+          const targetView = getView(views, hostId);
+          if (!targetView || targetView.handle.webContents.isDestroyed()) return;
+          void targetView.handle.webContents.loadURL(target);
+        } catch {
+          // Native-notification clicks are fail-silent like the delivery path.
+        }
+      });
+      notification.show();
+    } catch {
+      // Unsupported desktop integration must never reject the renderer invoke.
     }
     return { ok: true };
   });

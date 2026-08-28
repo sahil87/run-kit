@@ -70,11 +70,12 @@ type waitingEpisode struct {
 // its own mutex so it is independent of the hub lock (the push fan-out runs
 // outside any hub critical section).
 type waitingPushTracker struct {
-	mu       sync.Mutex
-	episodes map[string]waitingEpisode
-	sustain  time.Duration
-	now      func() time.Time                                         // clock seam for tests
-	notify   func(ctx context.Context, title, body, url string) error // push seam for tests
+	mu        sync.Mutex
+	episodes  map[string]waitingEpisode
+	sustain   time.Duration
+	now       func() time.Time                                         // clock seam for tests
+	notify    func(ctx context.Context, title, body, url string) error // push seam for tests
+	broadcast func(title, body, url string)                            // state-socket seam for tests
 }
 
 func newWaitingPushTracker() *waitingPushTracker {
@@ -198,10 +199,10 @@ func pushWindowsForServer(server string, sess []sessions.ProjectSession) []pushW
 // notifyWaiting runs one server's waiting-push decision and fans out any
 // resulting pushes. The pure decision (`decide`) runs SYNCHRONOUSLY — it only
 // mutates the in-memory episode map, no I/O — so the caller observes the
-// tracker's state advance in-tick. The actual push sends are fired off in a
-// detached goroutine (fire-and-forget) so a slow/hung Web Push endpoint can
-// never stall the SSE poll loop, which is a documented ZERO-network hot path
-// (each SSE tick is serialized per window with a short timeout). Push errors are
+// tracker's state advance in-tick. The state-socket broadcasts and actual push
+// sends are fired off in a detached goroutine (fire-and-forget) so neither can
+// stall the SSE poll loop, which is a documented ZERO-network hot path (each
+// SSE tick is serialized per window with a short timeout). Push errors are
 // logged, never surfaced, matching the /api/notify posture. Returns the
 // per-window live keys observed (so the caller can accumulate the cross-server
 // live set for retain()). Takes no context: the pure decision needs none and
@@ -214,16 +215,22 @@ func (t *waitingPushTracker) notifyWaiting(server string, sess []sessions.Projec
 		live[waitingKey(w.server, w.windowID)] = true
 	}
 	pushes := t.decide(wins)
-	if len(pushes) > 0 && t.notify != nil {
-		// Detach the network sends from the hot path. Snapshot `pushes` (it is a
-		// fresh slice from decide, not shared) and hand it to a goroutine. Using
+	if len(pushes) > 0 && (t.notify != nil || t.broadcast != nil) {
+		// Detach delivery from the hot path. Snapshot `pushes` (it is a fresh
+		// slice from decide, not shared) and hand it to a goroutine. Using
 		// context.Background() rather than the tick ctx: the send outlives the
 		// tick by design, so it must not be cancelled when the poll iteration
 		// returns.
+		notify, broadcast := t.notify, t.broadcast
 		go func(ps []waitingPush) {
 			for _, p := range ps {
-				if err := t.notify(context.Background(), p.title, p.body, p.url); err != nil {
-					slog.Warn("waiting-push notify failed", "err", err, "window", p.title)
+				if broadcast != nil {
+					broadcast(p.title, p.body, p.url)
+				}
+				if notify != nil {
+					if err := notify(context.Background(), p.title, p.body, p.url); err != nil {
+						slog.Warn("waiting-push notify failed", "err", err, "window", p.title)
+					}
 				}
 			}
 		}(pushes)

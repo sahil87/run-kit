@@ -448,6 +448,53 @@ export async function setShellBadge(count: number): Promise<boolean> {
   );
 }
 
+/** Payload forwarded to the shell's native-notification surface. */
+export interface ShellNotificationPayload {
+  title: string;
+  body: string;
+  url: string;
+}
+
+/** The bridge's `notify` group — thin IPC invoker resolving unknown shapes. */
+interface ShellNotifyBridge {
+  show: (payload: ShellNotificationPayload) => Promise<unknown>;
+}
+
+function isNotifyBridge(value: unknown): value is ShellNotifyBridge {
+  if (typeof value !== "object" || value === null) return false;
+  if (!("show" in value)) return false;
+  return typeof value.show === "function";
+}
+
+/** The `notify` group when the bridge carries one — absent on older shells. */
+function notifyBridge(): ShellNotifyBridge | null {
+  const candidate = typeof window === "undefined" ? undefined : window.runkitShell;
+  if (typeof candidate !== "object" || candidate === null) return null;
+  if (!("notify" in candidate)) return null;
+  return isNotifyBridge(candidate.notify) ? candidate.notify : null;
+}
+
+/**
+ * Ask the shell to show a native notification. Resolves `false` in a plain
+ * browser, on an older shell without the `notify` group, or when the shell
+ * rejects/denies the call. Never throws.
+ */
+export async function showShellNotification(
+  payload: ShellNotificationPayload,
+): Promise<boolean> {
+  const bridge = notifyBridge();
+  if (!bridge) return false;
+  let result: unknown;
+  try {
+    result = await bridge.show(payload);
+  } catch {
+    return false;
+  }
+  return (
+    typeof result === "object" && result !== null && "ok" in result && result.ok === true
+  );
+}
+
 /** The bridge's `accent` group — thin IPC invoker resolving unknown shapes. */
 interface ShellAccentBridge {
   set: (hex: string) => Promise<unknown>;

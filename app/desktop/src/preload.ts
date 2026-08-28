@@ -15,6 +15,9 @@
  *   - `badge`: the SPA's waiting-agent-count report (`badge:set`) driving the
  *     dock/taskbar badge. Gated exactly like `servers:*` (registered host
  *     origins + welcome) main-side; payloads are validated in main.
+ *   - `notify`: the SPA's native-notification forwarder (`notify:show`). The
+ *     main process validates the payload and resolves the sender view before
+ *     showing anything; navigation remains notification-click-initiated.
  *   - `accent`: the SPA's raw instance-accent report (`accent:set`, a strict
  *     hex string) persisted per host for the switcher's edge bars — the
  *     full-strength color the theme-color meta's 35% titlebar blend cannot
@@ -64,6 +67,10 @@ contextBridge.exposeInMainWorld("runkitShell", {
   },
   badge: {
     set: (count: number): Promise<unknown> => ipcRenderer.invoke("badge:set", count),
+  },
+  notify: {
+    show: (payload: { title: string; body: string; url: string }): Promise<unknown> =>
+      ipcRenderer.invoke("notify:show", payload),
   },
   accent: {
     set: (hex: string): Promise<unknown> => ipcRenderer.invoke("accent:set", hex),

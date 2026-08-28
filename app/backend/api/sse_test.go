@@ -657,6 +657,48 @@ func TestBroadcastStatusRefreshFansOutToAllClients(t *testing.T) {
 	}
 }
 
+// TestBroadcastNotifyFansOutWithoutReplay verifies notifications are
+// host-global, pre-rendered state-socket events delivered once per connection,
+// with no cached slot for a connection arriving after the broadcast.
+func TestBroadcastNotifyFansOutWithoutReplay(t *testing.T) {
+	hub := newSSEHub(&slowSessionFetcher{}, nil, nil, nil)
+	first := newTestStateConn(hub, "conn-1", 8)
+	second := newTestStateConn(hub, "conn-2", 8)
+	hub.replayGlobalSlots(first)
+	hub.replayGlobalSlots(second)
+	t.Cleanup(func() {
+		hub.dropStateConn(first)
+		hub.dropStateConn(second)
+	})
+	drainFrames(first.ch)
+	drainFrames(second.ch)
+
+	hub.broadcastNotify("RunKit", "waiting for input", "/noon/57?view=chat")
+
+	for name, sc := range map[string]*stateConn{"first": first, "second": second} {
+		frames := decodeEnvelopes(drainFrames(sc.ch))
+		if len(frames) != 1 {
+			t.Fatalf("%s connection received %d frames, want 1", name, len(frames))
+		}
+		frame := frames[0]
+		if rawStr(frame, "op") != "event" || rawStr(frame, "kind") != kindGlobal || rawStr(frame, "type") != "notify" {
+			t.Errorf("%s envelope = %v, want global notify event", name, frame)
+		}
+		if string(frame["data"]) != `{"title":"RunKit","body":"waiting for input","url":"/noon/57?view=chat"}` {
+			t.Errorf("%s data = %s", name, frame["data"])
+		}
+	}
+
+	late := newTestStateConn(hub, "conn-late", 8)
+	hub.replayGlobalSlots(late)
+	t.Cleanup(func() { hub.dropStateConn(late) })
+	for _, frame := range decodeEnvelopes(drainFrames(late.ch)) {
+		if rawStr(frame, "type") == "notify" {
+			t.Fatalf("late connection received replayed notify: %v", frame)
+		}
+	}
+}
+
 // TestBroadcastBoardOrderNilNormalizedToEmpty verifies a nil order broadcasts
 // (and caches) as "[]" rather than "null", matching broadcastServerOrder.
 func TestBroadcastBoardOrderNilNormalizedToEmpty(t *testing.T) {

@@ -223,6 +223,7 @@ async function settle() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  delete window.runkitShell;
   MockWebSocket.reset();
   MockWebSocket.outage = false;
   vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
@@ -232,6 +233,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  delete window.runkitShell;
   vi.unstubAllGlobals();
 });
 
@@ -304,6 +306,67 @@ describe("SessionProvider — single state socket, per-server subscriptions", ()
 
     expect(result.current.servers.map((s) => s.name)).toEqual(["work", "runkit"]);
     expect(vi.mocked(listServers).mock.calls.length).toBe(callsBefore);
+  });
+
+  it("forwards notify events from a server-attached stream inside the shell", async () => {
+    const show = vi.fn().mockResolvedValue({ ok: true });
+    window.runkitShell = {
+      version: "1.2.3",
+      platform: "darwin",
+      notify: { show },
+    };
+    vi.mocked(listServers).mockResolvedValue([{ name: "runkit", sessionCount: 0 }]);
+    setMockMatches([{ params: { server: "runkit" } }]);
+    renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await settle();
+
+    act(() => {
+      WS.global()!.emit("notify", {
+        title: "RunKit",
+        body: "waiting for input",
+        url: "/runkit/7?view=chat",
+      });
+    });
+
+    expect(show).toHaveBeenCalledOnce();
+    expect(show).toHaveBeenCalledWith({
+      title: "RunKit",
+      body: "waiting for input",
+      url: "/runkit/7?view=chat",
+    });
+  });
+
+  it("forwards notify events from the metrics-only stream with tolerant defaults", async () => {
+    const show = vi.fn().mockResolvedValue({ ok: true });
+    window.runkitShell = {
+      version: "1.2.3",
+      platform: "darwin",
+      notify: { show },
+    };
+    renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await settle();
+    expect(WS.forHostMetrics()).toBeDefined();
+
+    act(() => {
+      WS.forHostMetrics()!.emit("notify", { title: 123, body: "hello" });
+    });
+
+    expect(show).toHaveBeenCalledWith({ title: "", body: "hello", url: "" });
+  });
+
+  it("does not forward notify events outside a valid shell", async () => {
+    const show = vi.fn().mockResolvedValue({ ok: true });
+    // The callable notify group makes an accidental wrapper call observable,
+    // while missing shell metadata keeps isShell() false.
+    window.runkitShell = { notify: { show } };
+    renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await settle();
+
+    act(() => {
+      WS.global()!.emit("notify", { title: "RunKit", body: "hello", url: "/x" });
+    });
+
+    expect(show).not.toHaveBeenCalled();
   });
 
   it("ignores session-order events whose server field doesn't match the key", async () => {

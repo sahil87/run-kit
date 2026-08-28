@@ -3,6 +3,9 @@ package api
 import (
 	"testing"
 	"time"
+
+	"rk/internal/sessions"
+	"rk/internal/tmux"
 )
 
 // newTestWaitingTracker builds a tracker with a controllable clock and a short
@@ -234,5 +237,54 @@ func TestWaitingPush_CarriesChatDeepLink(t *testing.T) {
 	}
 	if byTitle["plain"].url != "/s/2" {
 		t.Errorf("plain window url = %q, want /s/2", byTitle["plain"].url)
+	}
+}
+
+func TestWaitingPush_BroadcastsDetachedWithMatchingPayload(t *testing.T) {
+	tr, clock := newTestWaitingTracker(15 * time.Second)
+	broadcasts := make(chan waitingPush, 2)
+	release := make(chan struct{})
+	defer close(release)
+	tr.broadcast = func(title, body, url string) {
+		broadcasts <- waitingPush{title: title, body: body, url: url}
+		<-release
+	}
+
+	sess := []sessions.ProjectSession{{
+		Name: "agents",
+		Windows: []tmux.WindowInfo{{
+			WindowID:     "@7",
+			Name:         "operator",
+			AgentState:   tmux.AgentStateWaiting,
+			ChatProvider: "claude",
+		}},
+	}}
+	tr.notifyWaiting("buildbox", sess)
+	*clock = clock.Add(16 * time.Second)
+
+	// The seam blocks until release is closed; notifyWaiting must still return
+	// immediately because delivery runs in the detached goroutine.
+	tr.notifyWaiting("buildbox", sess)
+	select {
+	case got := <-broadcasts:
+		want := waitingPush{
+			title: "operator",
+			body:  "waiting for input",
+			url:   "/buildbox/7?view=chat",
+		}
+		if got != want {
+			t.Errorf("broadcast = %+v, want %+v", got, want)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("detached broadcast did not start")
+	}
+
+	// The same waiting episode is already marked pushed, so another tick cannot
+	// enqueue a second broadcast.
+	tr.notifyWaiting("buildbox", sess)
+	select {
+	case got := <-broadcasts:
+		t.Fatalf("duplicate broadcast in one waiting episode: %+v", got)
+	case <-time.After(50 * time.Millisecond):
 	}
 }

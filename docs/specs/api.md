@@ -461,6 +461,21 @@ cached slot. The payload is byte-identical in shape to the
 including the `source` field — the ambient slot carries `"released"` (github
 checks are side-channel and never reach this slot).
 
+#### `event: notify` (state socket / SSE global event)
+
+Broadcast as `kind:"global"` / `type:"notify"` when a notification is sent.
+The payload carries the notification content and an optional same-origin deep
+link path:
+
+```json
+{ "title": "RunKit", "body": "waiting for input", "url": "/utils2/3?view=chat" }
+```
+
+`url` may be absent when the notification has no deep link. This event is
+deliberately never cached or replayed to late subscribers; unlike `version`
+and `update-available`, it is an ephemeral attention signal rather than
+durable state.
+
 ---
 
 ### SPA Fallback

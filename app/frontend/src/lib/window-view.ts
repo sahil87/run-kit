@@ -5,7 +5,7 @@
  * pane); a VIEW is a lens over one derivable output of that pane. Which lenses a
  * window offers is a capability set derived from window options (Constitution
  * II/X); which lens YOU look through is per-viewer client state carried in the
- * URL + localStorage — never a server-side `@rk_type` mutation.
+ * URL + localStorage — never a server-side `@rk_win_lens` mutation.
  *
  * Everything here is pure and DOM-free (the localStorage read is a thin
  * try/catch wrapper) — the same pure-helper + colocated-unit-test pattern as
@@ -53,7 +53,7 @@ const HINT_ORDER: ViewName[] = ["chat", "code", "web", "tty"];
 
 /**
  * Whether a window carries a usable web URL. Requires non-whitespace content:
- * `@rk_url` can be set to whitespace via an external `tmux set-option`, and a
+ * `@rk_win_url` can be set to whitespace via an external `tmux set-option`, and a
  * bare-truthy check would then render an iframe with a blank/whitespace `src`.
  * Matches the `.trim()` guard on the URL-bar submit (`iframe-window.tsx`).
  * This is the web surface's CONTENT selector (onboarding state vs live iframe)
@@ -116,8 +116,8 @@ export function availableViews(
 
 /**
  * The window's default lens (spec R5) — a derived HINT, not a lock. Applies only
- * when the URL carries no `?view=` and localStorage has no entry. `@rk_type` is
- * demoted from identity to this creation-time hint: a legacy `@rk_type=iframe`
+ * when the URL carries no `?view=` and localStorage has no entry. `@rk_win_lens` is
+ * demoted from identity to this creation-time hint: a legacy `@rk_win_lens=iframe`
  * window with a URL defaults to `web`; everything else defaults to `tty`. No
  * data migration — existing windows keep working.
  *

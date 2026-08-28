@@ -1,7 +1,7 @@
 # server-reorder.spec.ts
 
 Behavioural contract for the server-reorder backend surface: the
-`POST /api/servers/order` endpoint (writes each server's `@rk_server_rank`),
+`POST /api/servers/order` endpoint (writes each server's `@rk_srv_rank`),
 the nullable `rank` field on `GET /api/servers` (array stays alphabetical), and
 the **server-global** `server-order` broadcast that fans out to every state-socket
 connection — including a metrics-only subscription with no attached tmux server.

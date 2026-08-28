@@ -152,7 +152,7 @@ The board-pin active-board cue (once a 4px accent left border) now rides the
 **persistent filled pin glyph**, rendered accent-colored when the row is pinned
 to the board currently being viewed.
 
-### Left-edge label zone (single target) + `@rk_marker`
+### Left-edge label zone (single target) + `@rk_win_marker`
 
 Each **window** row (windows only — session rows and server tiles are out of
 scope) devotes the **entire 26px to the left of the status dot** (12px group
@@ -217,7 +217,7 @@ color affordance.
 always-on, composable with any marker, and fully hidden under
 `prefers-reduced-motion` like every flair.
 
-Marker state persists as the `@rk_marker` **window user option** (`""` plus the
+Marker state persists as the `@rk_win_marker` **window user option** (`""` plus the
 8 tokens above — additive growth, stored values never rewritten), written
 through the unified `POST /api/windows/{id}/options` endpoint (the same
 allowlist + validate-all path as `@rk_win_color`), read back through the sessions

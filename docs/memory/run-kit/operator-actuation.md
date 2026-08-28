@@ -9,7 +9,7 @@ description: "Operator actuation seam — templated work items for the server's 
 ## Overview
 
 The operator actuation seam lets run-kit hand the server's operator window (the
-`@rk_role=operator` window — [tmux-sessions](/run-kit/tmux-sessions.md) § Operator
+`@rk_win_role=operator` window — [tmux-sessions](/run-kit/tmux-sessions.md) § Operator
 Session, [ui/sidebar](/run-kit/ui/sidebar.md) § Operator Pinned Row) a templated
 work item over two routes: the window-scoped
 `POST /api/windows/{windowId}/operator-request` (a work item ABOUT a subject
@@ -465,7 +465,7 @@ the server's work mix but MUST apply ONE coherent scheme across all tabs —
 same-category tabs share a hue; (3) ACTUATE through its own shell —
 `tmux set-option -t @N '@rk_win_color' '<value>'` with the closed vocabularies
 enumerated verbatim (the 10 color family names, optional `-dark`/`-light`
-shade suffix; optional sparing `@rk_marker` / `@rk_flair` accents, color the
+shade suffix; optional sparing `@rk_win_marker` / `@rk_win_flair` accents, color the
 primary channel) and the unset form `tmux set-option -t @N -u '@rk_win_color'`;
 (4) JUDGMENT — do nothing to a tab whose current labels already fit the scheme;
 existing manual colors may be reassigned (reversible via the label picker);
@@ -496,13 +496,13 @@ when non-empty, and the per-row transcript JSONL path or the `rk mux capture
 scrollback, agent TUIs do not). For each tab the prompt instructs the operator
 to: READ the transcript tail (~30 JSONL lines; NEVER capture-pane an agent
 tab), with `rk mux capture @N` as the fallback for a transcript-less tab; then
-WRITE or refresh a short one-line `@rk_note` saying WHY the tab is in its
+WRITE or refresh a short one-line `@rk_win_note` saying WHY the tab is in its
 current state via the exact epoch-prefixed actuation
-`tmux set-option -wt @N @rk_note "$(date +%s):<one-line note>"`, bounded at
+`tmux set-option -wt @N @rk_win_note "$(date +%s):<one-line note>"`, bounded at
 ~100 characters — the WRITE form only (skip leaves an existing note in place;
 no unset form is offered), with the explicit skip-the-write clause when there
 is nothing meaningful to say; then the repaint note (~15s safety poll) and the
-bounds (set only `@rk_note`, only on the listed windows; do not rename, kill,
+bounds (set only `@rk_win_note`, only on the listed windows; do not rename, kill,
 or send keys; do not reply). An empty row table still delivers a
 trivially-answerable prompt (the brief-me posture). The notes surface via the
 normal derive tick — user-option mutations emit no control-mode event, so the
@@ -516,7 +516,7 @@ acceptsSession lane above).
 - **WHEN** `update-annotations` renders
 - **THEN** the prompt lists both rows (the operator's own row never appears),
   the transcript-tail read instruction with the `rk mux capture` fallback, the
-  exact epoch-prefixed `tmux set-option -wt @N @rk_note` command with the
+  exact epoch-prefixed `tmux set-option -wt @N @rk_win_note` command with the
   ~100-char bound, the skip-when-nothing-meaningful clause, the repaint note,
   and the write-only bounds.
 - **AND GIVEN** zero non-operator windows, **THEN** the prompt still renders
@@ -528,10 +528,10 @@ acceptsSession lane above).
 The registry's `annotate-tab` entry (`requiresChatRef: true`, window-scoped —
 no `serverScoped`, no `acceptsText`) SHALL ride the window route unchanged and
 render from `operatorFacts` (the `renderFixTabName` shape): read the subject
-tab's transcript tail (~30 JSONL lines), then write a one-line `@rk_note`
+tab's transcript tail (~30 JSONL lines), then write a one-line `@rk_win_note`
 status note saying WHY the tab is in its current state via the exact
 epoch-prefixed actuation
-`tmux set-option -wt {windowId} @rk_note "$(date +%s):<one-line note>"`,
+`tmux set-option -wt {windowId} @rk_win_note "$(date +%s):<one-line note>"`,
 bounded at ~100 characters (the bound lives in the prompt because the
 operator writes raw `set-option` — no API validation path applies; the
 `/options` endpoint's own cap is 120), with an explicit skip-the-write
@@ -545,7 +545,7 @@ User Options).
 - **GIVEN** facts for window `@7` with a resolvable transcript
 - **WHEN** `annotate-tab` renders
 - **THEN** the prompt names `@7`, the transcript path, the exact
-  `tmux set-option -wt @7 @rk_note "$(date +%s):<one-line note>"` command
+  `tmux set-option -wt @7 @rk_win_note "$(date +%s):<one-line note>"` command
   with the ~100-char bound and the skip-if-nothing-meaningful clause, and the
   no-reply bound.
 - **AND GIVEN** `{"template": "annotate-tab"}` on the server-scoped route,
@@ -616,12 +616,12 @@ guard.
 
 ### Dedicated `update-annotations` template instead of a brief-me fold
 **Decision**: a dedicated server-scoped template writes/refreshes per-tab
-`@rk_note` annotations; `brief-me` stays a read-only digest.
+`@rk_win_note` annotations; `brief-me` stays a read-only digest.
 **Why**: folding note-writing into brief-me would change its digest contract
 (read-only, reply-in-own-window) and be un-scopeable — brief-me has no session
 parameter, and adding one for the fold's sake would widen two contracts at
 once. A dedicated template gets its own palette entry and a session scope.
-**Rejected**: appending "also write a @rk_note per tab" to `renderBriefMe`.
+**Rejected**: appending "also write a @rk_win_note per tab" to `renderBriefMe`.
 *Introduced by*: 260827-8n6k-update-annotations-tile-note
 
 ### Session scope as a declarative registry flag with consumer-side filtering

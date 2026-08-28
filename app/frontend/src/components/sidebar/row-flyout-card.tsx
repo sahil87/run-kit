@@ -368,7 +368,7 @@ function ContinuationLine({ testid, children }: { testid?: string; children: Rea
  *  auto-expire client-side (only an overwrite or explicit clear removes one). */
 export const NOTE_STALE_SECONDS = 24 * 3600;
 
-/** The window card's note register — the `@rk_note` one-line status note plus
+/** The window card's note register — the `@rk_win_note` one-line status note plus
  *  its relative age (`blocked on flaky e2e · 2h ago`). Degrade-to-absent: no
  *  `note` on the payload renders nothing. Epoch-0 (tolerant-parse) notes
  *  render text-only, undimmed. Static text derived from the already-passed

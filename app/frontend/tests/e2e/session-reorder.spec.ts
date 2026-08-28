@@ -19,7 +19,7 @@ test.describe("Sidebar session reorder persistence", () => {
     for (const name of SESSIONS) killSession(name);
     // Reset the user-option so the next run starts clean.
     try {
-      execSync(`tmux -L ${TMUX_SERVER} set-option -us @rk_session_order`, {
+      execSync(`tmux -L ${TMUX_SERVER} set-option -us @rk_srv_session_order`, {
         stdio: "ignore",
       });
     } catch {

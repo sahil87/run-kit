@@ -3,7 +3,7 @@
 > The model for every "parallel view" of a tmux window run-kit renders: what a
 > window row *is*, what a view *is*, how view availability is derived, and how
 > view choice is expressed. This spec unifies three features that grew up with
-> three unrelated mechanisms — iframe windows (`@rk_type=iframe`), desktop
+> three unrelated mechanisms — iframe windows (`@rk_win_lens=iframe`), desktop
 > streaming (PR #71), and the agent chat view
 > ([`fab/plans/sahil/26-07-13-agent-chat-view.md`](../../fab/plans/sahil/26-07-13-agent-chat-view.md)).
 > Sections marked **[current]** describe shipped behavior; **[target]** is the
@@ -29,7 +29,7 @@ each invented its own typing and view-state machinery:
 
 | Feature | Availability signal | View choice | Who sees a flip |
 |---------|--------------------|-------------|-----------------|
-| iframe window | `@rk_type=iframe` + `@rk_url` window options | server-side mutation — the `>_` button POSTs `@rk_type: null` | everyone; the window's identity changes globally |
+| iframe window | `@rk_win_lens=iframe` + `@rk_win_url` window options | server-side mutation — the `>_` button POSTs `@rk_win_lens: null` | everyone; the window's identity changes globally |
 | desktop (PR #71, unmerged) | `desktop:` window-name prefix + `@rk_vnc_port` | fixed at creation — the relay sniffs the type and branches, so the tty is unreachable | everyone, permanently |
 | chat (planned) | `@rk_chat` pane option | client-side `?view=chat` + localStorage, per-viewer | just you |
 
@@ -61,7 +61,7 @@ Separate **what runs** from **what you can look at**:
 | View | Available when | Renderer | Status |
 |------|---------------|----------|--------|
 | `tty` | always | xterm.js `TerminalClient` | **[current]** |
-| `web` | always (the lens exists on every window, like `tty`); `@rk_url` selects the renderer's CONTENT — empty/whitespace renders the onboarding state (a reduced live URL bar + fill-path instructions), non-empty renders the live iframe — mirroring the `code` row's availability-vs-content split | `IframeWindow` (proxy iframe + URL bar; onboarding content state when `@rk_url` is empty) | **[current]** as a lens — change `260714-t97o-web-view-lens`; always-available + onboarding `260821-zqlq-web-tile-always-tileable-onboarding` |
+| `web` | always (the lens exists on every window, like `tty`); `@rk_win_url` selects the renderer's CONTENT — empty/whitespace renders the onboarding state (a reduced live URL bar + fill-path instructions), non-empty renders the live iframe — mirroring the `code` row's availability-vs-content split | `IframeWindow` (proxy iframe + URL bar; onboarding content state when `@rk_win_url` is empty) | **[current]** as a lens — change `260714-t97o-web-view-lens`; always-available + onboarding `260821-zqlq-web-tile-always-tileable-onboarding` |
 | `chat` | `@rk_chat` pane option present | chat renderer | **[target]** — [`agent-chat-view.md`](../../fab/plans/sahil/26-07-13-agent-chat-view.md) changes 2–3 |
 | `code` | the window's code folder is LATCHED, or a git root is derivable from the active pane's cwd — derivation seeds the latch once, at first open, and the terminal never moves it afterwards (right-panel.md § The `code` lens); the code-server endpoint always resolves by convention, so it gates nothing, and reachability governs the renderer's CONTENT (live iframe vs not-running empty state), never availability | `CodeSurface` (lean proxy iframe, no URL bar) | **[current]** — change `260811-k3vp-right-panel-code-lens`, endpoint by convention `260811-a2bo`, folder latched `260813-if5d`; also the right panel's CODE surface (right-panel.md § Surface Registry) |
 | `desktop` | VNC-port window option present (set by the desktop launcher, reconciler-cleared) | noVNC canvas | **[target]** — [`fab/plans/sahil/26-07-14-desktop-view.md`](../../fab/plans/sahil/26-07-14-desktop-view.md) |
@@ -77,12 +77,12 @@ a route.
 ### R1 — Availability is derived, never declared as identity
 
 A lens's capability signal is a pane/window option or a request-time
-derivation. `@rk_type` as a *mutable identity* is retired; it survives only as
+derivation. `@rk_win_lens` as a *mutable identity* is retired; it survives only as
 a creation-time **default-view hint** (§ Migration). No window-name prefixes
 (`desktop:`) — names belong to users.
 
 Web availability carries no signal at all: the `web` lens is **always
-available** (like `tty`). `@rk_url` is its *content selector*, never its
+available** (like `tty`). `@rk_win_url` is its *content selector*, never its
 availability gate — an empty/whitespace value renders the tile's onboarding
 state (whose live address bar is itself the initialization path), a non-empty
 value renders the live iframe. This is the `code` row's model: a stable
@@ -141,14 +141,14 @@ on a lens switch. Whichever change ships first (`web-view-lens` or chat change
 
 ### R5 — Default view is a derived hint, not a lock
 
-A window MAY carry a default lens (e.g. `@rk_type=iframe` legacy windows
+A window MAY carry a default lens (e.g. `@rk_win_lens=iframe` legacy windows
 default to `web`; a headless codex-server pane defaults to `chat`). The
 default applies only when the URL carries no `?view=` and localStorage has no
 entry. It never removes the switcher.
 
 Capabilities are **orthogonal and stack**: nothing prevents one window from
 offering `web` + `chat` + `desktop` simultaneously (an agent pane in a window
-with `@rk_url` set, say). The switcher simply grows segments (R4); the only
+with `@rk_win_url` set, say). The switcher simply grows segments (R4); the only
 question stacking raises is which *default* wins when several hints apply, and
 the registry's fixed order answers it: `desktop > chat > web > tty` (a
 desktop window's tty is supervisor logs; a chat hint is more specific to the
@@ -162,7 +162,7 @@ web → n/a (falls back to SSE health), chat → chat stream, desktop → VNC WS
 
 ### R7 — Substrate state stays global; view state stays local
 
-Mutating the *content address* of a lens (e.g. editing `@rk_url` in the web
+Mutating the *content address* of a lens (e.g. editing `@rk_win_url` in the web
 view's URL bar) is substrate state — shared, POSTed, visible to everyone.
 Switching *which lens you look through* is view state — local, URL-carried.
 The current `>_` button conflates these; the retrofit separates them.
@@ -201,7 +201,7 @@ every current change; noted so nobody designs against it.
 
 | Feature | From [current] | To [target] | Vehicle |
 |---------|---------------|-------------|---------|
-| iframe | `@rk_type` mutation flips the view for everyone; render gate `rkType === "iframe" && rkUrl` | `web` lens: `?view=web`, chip, no type mutation; `@rk_type=iframe` demoted to default-view hint; `@rk_url` stays global substrate state | change `260714-t97o-web-view-lens` (drafted) |
+| iframe | `@rk_win_lens` mutation flips the view for everyone; render gate `rkType === "iframe" && rkUrl` | `web` lens: `?view=web`, chip, no type mutation; `@rk_win_lens=iframe` demoted to default-view hint; `@rk_win_url` stays global substrate state | change `260714-t97o-web-view-lens` (drafted) |
 | desktop | PR #71: name-prefix typing, relay sniffing, tty unreachable, bitrotted against current main | `desktop` lens per [`desktop-view.md`](../../fab/plans/sahil/26-07-14-desktop-view.md); supersede PR #71, salvage its components | new change stack (planned) |
 | chat | planned as `?view=chat` | already conforms; adopt R2's value-bearing localStorage + R4's shared switcher | chat plan changes 1–4 (change 1 in progress) |
 | Host "Open in window" | creates a synthetic iframe window | deep-link to owning row's `?view=web` when derivable; synthetic fallback | follow-up after `web-view-lens` |

@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Per-server tmux layout snapshots (`internal/snapshot`): the sessions/windows/panes + rk-options capture set (incl. `_rk-operator`/`@rk_role`), the `$XDG_STATE_HOME/run-kit/snapshots` store (atomic latest, 10-entry history, content-dedup, zero-session guard, `.died-{ts}` tombstones, legacy-dir move + breadcrumb), the Snapshotter cadence + `@rk_ephemeral` opt-out, the restore engine + `rk mux snapshot` CLI (no relaunch; restore stamps `@rk_managed`), and the recovery reader."
+description: "Per-server tmux layout snapshots (`internal/snapshot`): the sessions/windows/panes + rk-options capture set (incl. `_rk-operator`/`@rk_win_role`), the `$XDG_STATE_HOME/run-kit/snapshots` store (atomic latest, 10-entry history, content-dedup, zero-session guard, `.died-{ts}` tombstones, legacy-dir move + breadcrumb), the Snapshotter cadence + `@rk_ephemeral` opt-out, the restore engine + `rk mux snapshot` CLI (no relaunch; restore stamps `@rk_srv_managed`), and the recovery reader."
 ---
 # Layout Snapshots & Restore
 
@@ -20,9 +20,9 @@ The JSON schema (`snapshot.go`):
 
 | Level | Fields |
 |-------|--------|
-| `Snapshot` | `server`, `takenAt`, `serverRank` (nullable, `@rk_server_rank`), `sessionOrder` (`@rk_session_order`), `sessions[]`, plus tombstone-only `diedAt` / `auditedKill` |
+| `Snapshot` | `server`, `takenAt`, `serverRank` (nullable, `@rk_srv_rank`), `sessionOrder` (`@rk_srv_session_order`), `sessions[]`, plus tombstone-only `diedAt` / `auditedKill` |
 | `Session` | `name`, `createdAt` (unix seconds), `color` (raw `@rk_ses_color`), `windows[]` |
-| `Window` | `index`, `id`, `name`, `active`, `layout` (`#{window_layout}`), `color`, `rkType`, `rkUrl`, `marker`, `flair` (`@rk_flair`), `role` (`@rk_role`), `note` (`@rk_note` — raw `<unix-epoch>:<text>` value), `panes[]` |
+| `Window` | `index`, `id`, `name`, `active`, `layout` (`#{window_layout}`), `color`, `rkType`, `rkUrl`, `marker`, `flair` (`@rk_win_flair`), `role` (`@rk_win_role`), `note` (`@rk_win_note` — raw `<unix-epoch>:<text>` value), `panes[]` |
 | `Pane` | `id`, `index`, `cwd`, `command`, `active` |
 
 `Pane.Command` is informational only — reported by restore, never relaunched. `Pane.Active` is consumed by restore's active-pane re-select.
@@ -46,13 +46,13 @@ Capture assembles from the `internal/tmux` layout reads plus `GetSessionOrder`/`
 
 `isLayoutHiddenSession` excludes board pin-sessions (`PinSessionPrefix`) and the `_rk-ctl` control anchor — pinned windows persist via home-session membership and the anchor is daemon-recreated. `_rk-operator` is deliberately NOT excluded: the operator window is MOVED into it (single membership, unlike the linked pin-sessions — see [tmux-sessions](/run-kit/tmux-sessions.md) § Operator Session), so excluding it would drop the operator window from the capture entirely. Unlike `ListSessions`, these helpers deliberately do NOT map a dead-server error to an empty result.
 
-The `_rk-operator` + `@rk_role` round trip is load-bearing: capture takes `_rk-operator` as a regular session (windows nested under it, each carrying `role` from `@rk_role`), and restore recreates the session with its windows and re-applies `@rk_role` per window (§ Restore semantics) — so a snapshot taken with a promoted operator restores to hidden+pinned state (the restored `_rk-operator` satisfies the FetchSessions content rule), never a visible stray session with an orphaned role. Pinned by the live-tmux integration test `TestOperatorPromotionRoundTripLiveTmux` (`internal/snapshot/integration_test.go`).
+The `_rk-operator` + `@rk_win_role` round trip is load-bearing: capture takes `_rk-operator` as a regular session (windows nested under it, each carrying `role` from `@rk_win_role`), and restore recreates the session with its windows and re-applies `@rk_win_role` per window (§ Restore semantics) — so a snapshot taken with a promoted operator restores to hidden+pinned state (the restored `_rk-operator` satisfies the FetchSessions content rule), never a visible stray session with an orphaned role. Pinned by the live-tmux integration test `TestOperatorPromotionRoundTripLiveTmux` (`internal/snapshot/integration_test.go`).
 
-`@rk_note` is the capture format's **trailing optional field** (the `@rk_flair` idiom — absent on older captures): because the note is free text in a tab-delimited format it MUST stay last, and `parseLayoutWindows` rejoins the tail (`strings.Join(parts[12:], listDelim)`) so tabs inside the text cannot truncate sibling fields — the same read-side contract as `parseWindows` field 14 ([tmux-sessions](/run-kit/tmux-sessions.md) § Server-Scoped User Options).
+The window capture format (`layoutWindowFormat`) carries the rk-owned presentation options as positional fields after `window_layout`: `@rk_win_color`, `@rk_win_lens`, `@rk_win_url`, `@rk_win_marker`, `@rk_win_role`, `@rk_win_flair`, then the **dual-read legacy fields** `@rk_type`, `@rk_url`, then `@rk_win_note` as a strict single field, and legacy `@rk_note` **LAST**. The three dual-read keys (lens/URL/note) are read new-then-legacy positionally — `parseLayoutWindows` prefers the new field and falls back to the legacy one — the same rule as `parseWindows`. Only the legacy note gets tail-rejoin (`strings.Join(parts[N:], listDelim)`): it is free text in a tab-delimited format and MUST stay last so tabs inside the text cannot truncate sibling fields; the new note is control-char-stripped at write time (`api/windows.go` note validation), so a single field is safe. The legacy fields exist for the deprecation window only ([tmux-sessions](/run-kit/tmux-sessions.md) § Deprecation Ledger).
 
 **Restore mutators**:
 
-- `CreateSessionForRestore(name, windowName, cwd, server) (windowID, bornIndex, error)` — `new-session -d -P -F '#{window_id}\t#{window_index}'`; server-birth-capable, so it carries the same pins as `CreateSession` (config `-f`, `CleanEnvForServer`, `ServerBirthDir`) plus the same `@rk_managed` birth stamp (the shared `stampManagedOnBirth` seam with its `probeServerAlive` pre-probe — restore applies the managed conf, so the restored server is rk-managed; the capture set is NOT extended to carry a pre-death mark, and a restored formerly-external server comes back managed — adopt semantics by construction). Returns the born index so the caller can renumber.
+- `CreateSessionForRestore(name, windowName, cwd, server) (windowID, bornIndex, error)` — `new-session -d -P -F '#{window_id}\t#{window_index}'`; server-birth-capable, so it carries the same pins as `CreateSession` (config `-f`, `CleanEnvForServer`, `ServerBirthDir`) plus the same `@rk_srv_managed` birth stamp (the shared `stampManagedOnBirth` seam with its `probeServerAlive` pre-probe — restore applies the managed conf, so the restored server is rk-managed; the capture set is NOT extended to carry a pre-death mark, and a restored formerly-external server comes back managed — adopt semantics by construction). Returns the born index so the caller can renumber.
 - `CreateWindowAtIndex(session, index, name, cwd, server)` — `new-window -d -P` at an explicit `=session:index` target.
 - `RenumberWindow(session, windowID, index, server)` — `move-window -s <windowID> -t =session:<index>`. Distinct from `MoveWindow`, which is a reorder-among-existing-windows primitive built on adjacent swaps and no-ops onto a free index.
 - `SelectLayout(windowID, layout, server)` — `select-layout -t <windowID> -- <layout>`; the `--` pins the layout string positionally (mirrors `set-buffer` in `SetChatSendBuffer`).
@@ -126,7 +126,7 @@ Readers: `LoadLatest`, `LoadAt(server, ts)` (history entry, then tombstone), `Re
 - **Refusal** — a server alive with ≥1 user-facing session (`ListSessions`, which maps a dead server to `(nil, nil)`) is refused. There is no `--force`: restore is for dead servers.
 - **Sessions** — recreated oldest-first with original names. The first window rides `CreateSessionForRestore` (which births the server with the standard pins) and is renumbered from the born base-index to its stored index when they differ; later windows are created at their explicit stored index.
 - **Panes** — fresh shells at the recorded cwd, appended as sequential detached splits. `select-layout` restores geometry best-effort; a failure is a report note, never fatal. A stored active pane beyond position 0 is re-selected via `SelectPane` (splits are detached, so position 0 needs no call).
-- **Options** — `@rk_server_rank`, `@rk_session_order`, session color (`@rk_ses_color`), and per-window `@rk_win_color` / `@rk_type` / `@rk_url` / `@rk_marker` / `@rk_flair` / `@rk_role` / `@rk_note` are reapplied from the snapshot (empty values are omitted, never unset), and each session's stored active window is re-selected. Every failure is a report note. `@rk_note` round-trips **verbatim**, epoch prefix included, so the note's relative age stays honest across a restore.
+- **Options** — `@rk_srv_rank`, `@rk_srv_session_order`, session color (`@rk_ses_color`), and per-window `@rk_win_color` / `@rk_win_lens` / `@rk_win_url` / `@rk_win_marker` / `@rk_win_flair` / `@rk_win_role` / `@rk_win_note` are reapplied from the snapshot (empty values are omitted, never unset), and each session's stored active window is re-selected. Every failure is a report note. `@rk_win_note` round-trips **verbatim**, epoch prefix included, so the note's relative age stays honest across a restore.
 - **Missing cwd** — a deleted worktree falls back to the server default dir (no `-c`) with a note; it never fails the restore.
 - **Report** — what was recreated, what was skipped, per-window notes, and each window's former command so the user can decide what to resume (e.g. `claude -c` per agent window), closing with the attach hint.
 
@@ -212,7 +212,7 @@ The other api-side touchpoint is the write-path annotation: `api.Server.SetServe
 *Introduced by*: 260805-htmy-daemon-layout-snapshots-restore
 
 ### Restore stamps provenance unconditionally
-**Decision**: `CreateSessionForRestore` stamps `@rk_managed` on the server it births (the same `stampManagedOnBirth` seam as `CreateSession`); the snapshot capture set is not extended to carry a server's pre-death mark.
+**Decision**: `CreateSessionForRestore` stamps `@rk_srv_managed` on the server it births (the same `stampManagedOnBirth` seam as `CreateSession`); the snapshot capture set is not extended to carry a server's pre-death mark.
 **Why**: the stamp records which conf actually applied at birth, and restore applies the managed conf — so an unconditional stamp is truthful by construction. Capturing and faithfully restoring the old mark would leave a restored external server unmarked forever with no recovery path (the option dies with its server), while rk's restore genuinely does apply the managed conf.
 **Rejected**: extending the capture set with the pre-death mark (a stale fact restore would then re-lie with); skipping the stamp (strands restored servers as external despite running rk's conf).
 *Introduced by*: 260826-lv87-external-server-provenance-adopt
@@ -240,3 +240,15 @@ The other api-side touchpoint is the write-path annotation: `api.Server.SetServe
 **Why**: Treating skip as failure would make the server due every tick — exactly the per-tick subprocess the cost constraint forbids. The safety cadence (60s) doubles as the un-mark detection bound.
 **Rejected**: A separate ephemeral-state cache with its own refresh timer — more state for the same behavior the existing bookkeeping already provides.
 *Introduced by*: 260821-zelc-ephemeral-option-snapshot-reap
+
+### Note-pair capture ordering: new note single field, legacy note last
+**Decision**: in `ListWindows`' format and `layoutWindowFormat` alike, `@rk_win_note` occupies a strict single field second-to-last and legacy `@rk_note` stays LAST with tail-rejoin (`strings.Join(parts[N:], listDelim)`); the parser prefers the new field and falls back to the rejoined legacy tail.
+**Why**: two free-text fields cannot both enjoy tail-rejoin; legacy notes already in the wild keep their exact read path, while rk-written new notes are control-char-stripped at write time (`api/windows.go` note validation) so a single field is safe. Putting `@rk_win_note` last instead would regress legacy-note reads during the transition window.
+**Rejected**: capturing the note pair via a separate `show-options` read — a second tmux call per capture for a transition-only concern.
+*Introduced by*: 260828-3o5d-rk-option-scope-prefix-rename
+
+### Dual-read carried in the list format, not a second call
+**Decision**: legacy and new fields for the three dual-read keys (`@rk_win_lens`/`@rk_type`, `@rk_win_url`/`@rk_url`, `@rk_win_note`/`@rk_note`) ride the same `list-windows` format line in both `ListWindows` and `layoutWindowFormat`; parsers pick new-then-legacy positionally.
+**Why**: zero extra subprocess per read; capture and parse live in the same binary, so positional fields are unambiguous.
+**Rejected**: a `show-options` dual-read per window — O(windows) extra tmux calls on every sidebar tick and every snapshot.
+*Introduced by*: 260828-3o5d-rk-option-scope-prefix-rename

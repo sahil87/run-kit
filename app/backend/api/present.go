@@ -2,7 +2,7 @@ package api
 
 // The /present/{windowId}/ content route (260813-becu-rk-present-attach-verb).
 // It serves files for `rk present` file/dir targets with NO registration
-// state: the serve root is read from the window's @rk_present_root tmux option
+// state: the serve root is read from the window's @rk_win_present_root tmux option
 // AT REQUEST TIME (Constitution II/X — derive from tmux; the root lives in
 // tmux and dies with the window). A dead window or unset option is a 404.
 //
@@ -33,14 +33,14 @@ var presentWindowIDPattern = regexp.MustCompile(`^@[0-9]+$`)
 
 // presentRootOption is the window user option carrying the absolute serve root
 // for /present/ requests, set by `rk present` for file/dir targets.
-const presentRootOption = "@rk_present_root"
+const presentRootOption = tmux.PresentRootOption
 
 // getWindowOptionFn is the handler's tmux read seam, so the containment table
 // is testable without a live server.
 var getWindowOptionFn = tmux.GetWindowOption
 
 // handlePresent serves GET /present/{windowId}/* from the window's
-// request-time @rk_present_root.
+// request-time @rk_win_present_root.
 func (s *Server) handlePresent(w http.ResponseWriter, r *http.Request) {
 	windowID := chi.URLParam(r, "windowId")
 	if !presentWindowIDPattern.MatchString(windowID) {

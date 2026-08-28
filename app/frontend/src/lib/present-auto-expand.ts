@@ -3,7 +3,7 @@
  * 260815-wkcw-present-auto-expand-web-tile; spec docs/specs/surface-layout.md
  * R7/L3 carve-out).
  *
- * When an agent runs `rk present` (default arm) it sets `@rk_url` on its own
+ * When an agent runs `rk present` (default arm) it sets `@rk_win_url` on its own
  * window; a viewer mounted on that window's route observes the `rkUrl`
  * TRANSITION on the state stream (empty→set, or value→different value) and
  * transiently auto-opens the `web` tile. The reaction is view state of the

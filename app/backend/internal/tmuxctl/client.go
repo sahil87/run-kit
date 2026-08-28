@@ -19,12 +19,6 @@ import (
 	"rk/internal/tmux"
 )
 
-// AnchorKeepaliveOption is the server-scoped tmux user-option set on the
-// anchor session as a defensive marker. v1 has no runtime consumer; the
-// marker exists so future code can identify the anchor without depending on
-// the literal session name.
-const AnchorKeepaliveOption = "@rk_ctl_keepalive"
-
 // Backoff bounds for the reconnect FSM. The sequence is 250ms → 500ms → 1s →
 // 2s → 5s → 5s … with reset on the first non-%begin event observed after a
 // successful reconnect.
@@ -52,7 +46,7 @@ type sleepFn func(ctx context.Context, d time.Duration) <-chan struct{}
 
 // stampOrigin is the deployment origin (e.g. "http://127.0.0.1:3001") the serve
 // process injects once at startup (cmd/rk/serve.go) so every dial can stamp it
-// onto the covered tmux server's @rk_origin option. Empty (the zero value,
+// onto the covered tmux server's @rk_srv_origin option. Empty (the zero value,
 // e.g. when tmuxctl is used outside `rk serve`) means "no stamping".
 //
 // Written once before Supervisor.Start and read from dial goroutines — no
@@ -71,7 +65,7 @@ func SetStampOrigin(origin string) {
 var setServerOriginFn = tmux.SetServerOrigin
 
 // stampServerOrigin writes the injected deployment origin to the dialed
-// server's @rk_origin user option. Runs on every dial AND every reconnect
+// server's @rk_srv_origin user option. Runs on every dial AND every reconnect
 // (from productionDial), which is what heals the value across daemon restarts
 // and stamps servers born after startup. Skipped when no origin was injected
 // (non-serve consumers) or the socket is not admitted by this deployment's
@@ -85,7 +79,7 @@ func stampServerOrigin(ctx context.Context, socket string) {
 		return
 	}
 	if err := setServerOriginFn(ctx, socket, stampOrigin); err != nil {
-		slog.Debug("tmuxctl: stamp @rk_origin failed (non-fatal)", "socket", socket, "origin", stampOrigin, "err", err)
+		slog.Debug("tmuxctl: stamp @rk_srv_origin failed (non-fatal)", "socket", socket, "origin", stampOrigin, "err", err)
 	}
 }
 
@@ -407,7 +401,7 @@ func productionDial(ctx context.Context, socket string) (*exec.Cmd, io.ReadWrite
 	}
 
 	// Origin stamp, on the same every-dial/every-reconnect contract as the
-	// backstop above: stamps @rk_origin with the injected deployment origin so
+	// backstop above: stamps @rk_srv_origin with the injected deployment origin so
 	// pane-side `rk url`/`rk notify` resolve the covering deployment. Skipped
 	// when no origin was injected or the socket fails the deployment's
 	// allowlist; non-fatal on write error.
@@ -452,8 +446,8 @@ var errServerDead = errors.New("tmuxctl: tmux server is not running on socket (d
 // including the alive-but-zero-real-session floor case), AND yields the first
 // real session for the attach target.
 // Folding the probe into the existing listing keeps net tmux round-trips flat at
-// 4 (SetExitEmptyOff, this list-sessions probe+first-session, createAnchor,
-// setAnchorKeepalive). createAnchor — whose `new-session` would otherwise
+// 3 (SetExitEmptyOff, this list-sessions probe+first-session, createAnchor).
+// createAnchor — whose `new-session` would otherwise
 // implicitly start a dead server — is reached ONLY after the probe confirms the
 // server is already up, so it can never resurrect.
 //
@@ -497,11 +491,6 @@ func resolveBootstrap(ctx context.Context, socket string) (string, error) {
 	// if they look like "session already exists" (concurrent rk created it first).
 	if err := createAnchor(ctx, socket); err != nil && !isDuplicateSessionError(err) {
 		return "", fmt.Errorf("create anchor: %w", err)
-	}
-
-	// Set the keepalive marker (idempotent — safe to re-set).
-	if err := setAnchorKeepalive(ctx, socket); err != nil {
-		slog.Debug("tmuxctl: set anchor keepalive failed (non-fatal)", "socket", socket, "err", err)
 	}
 
 	// Attach target: prefer an existing real session; else the anchor.
@@ -649,18 +638,6 @@ func anchorCommand(ctx context.Context, socket string) (*exec.Cmd, *bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	return cmd, &stderr
-}
-
-func setAnchorKeepalive(ctx context.Context, socket string) error {
-	args := []string{}
-	if socket != "default" && socket != "" {
-		args = append(args, "-L", socket)
-	}
-	args = append(args, "set-option", "-t", "=" + tmux.ControlAnchorSessionName, AnchorKeepaliveOption, "1")
-	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(cctx, "tmux", args...)
-	return cmd.Run()
 }
 
 // isDuplicateSessionError detects tmux's "duplicate session" error so the

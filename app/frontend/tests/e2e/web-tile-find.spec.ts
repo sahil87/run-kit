@@ -43,14 +43,14 @@ async function resolveWindow(page: Page, windowName: string): Promise<string> {
   return (await resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION, windowName)).windowId;
 }
 
-/** Create a window and stamp @rk_url directly via tmux — the same
+/** Create a window and stamp @rk_win_url directly via tmux — the same
  *  window-option seam web-view-lens.spec.ts uses. Returns the @N id. */
 async function makeWindow(page: Page, name: string, url: string): Promise<string> {
   newWindow(TEST_SESSION, name);
   const id = await resolveWindow(page, name);
   execFileSync(
     "tmux",
-    ["-L", TMUX_SERVER, "set-option", "-w", "-t", id, "@rk_url", url],
+    ["-L", TMUX_SERVER, "set-option", "-w", "-t", id, "@rk_win_url", url],
     { stdio: "ignore" },
   );
   return id;

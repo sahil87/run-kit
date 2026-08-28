@@ -14,7 +14,7 @@ copying its value forward.
 - `beforeAll` creates a dedicated scratch tmux server inside this worktree's
   socket family (`${TMUX_FAMILY}legacy-<pid>-<epoch>`) with one session
   (`e2e-legacy-<timestamp>`, one window `legacy-win`) via the shared `_tmux`
-  helpers — `createSession` marks the server `@rk_managed`, so the managed-only
+  helpers — `createSession` marks the server `@rk_srv_managed`, so the managed-only
   sweep gate passes. It then seeds the bug: `set-option -t =<session>: @color
   1+3` (SESSION scope, exact-match target). A dedicated server is required
   because the sweep runs at most once per server per daemon lifetime — the

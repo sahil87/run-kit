@@ -96,24 +96,24 @@ export type WindowInfo = {
    *  legacy descriptor at the write seam (familyToLegacy). Drives the row's hue
    *  (label axis). */
   color?: string;
-  /** Left-gutter marker state, from the `@rk_marker` window option:
+  /** Left-gutter marker state, from the `@rk_win_marker` window option:
    *  ""/absent (no marker) | "pipe" | "dotted" | "dashed" | "solid" |
    *  "double" | "thick" | "hatch" | "block". An INDEPENDENT
    *  label axis from `color` — see docs/specs/themes.md. */
   marker?: string;
-  /** Row flair state, from the `@rk_flair` window option: ""/absent (no
+  /** Row flair state, from the `@rk_win_flair` window option: ""/absent (no
    *  flair) | "rain" | "scan" | "nyan" | "naruto" | "onepiece" | "pacman" |
    *  "matrix" | "aquarium" | "roadrunner" | "invaders" | "cube" | "warp" |
    *  "spidey" | "ironman". Decoration
    *  only (FLAIR_STATES in themes.ts) — an ambient CSS-only overlay with no
    *  status semantics. */
   flair?: string;
-  /** Window role from the `@rk_role` window option: ""/absent (no role) |
+  /** Window role from the `@rk_win_role` window option: ""/absent (no role) |
    *  "operator" (the server's operator window — the sidebar pins its row at
    *  the top of the server's session area; server-scoped radio, enforced
    *  backend-side so at most one window per server carries it). */
   role?: string;
-  /** Free-text one-line status note, from the `@rk_note` window option —
+  /** Free-text one-line status note, from the `@rk_win_note` window option —
    *  user/agent-authored annotation (the marker/flair user-preference class,
    *  not derived state). Absent when the option is unset (degrade-to-absent:
    *  no note row renders anywhere). Rendered with its relative age; notes

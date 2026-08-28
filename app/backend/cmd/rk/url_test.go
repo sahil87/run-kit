@@ -41,7 +41,7 @@ func TestURLCommandRegistered(t *testing.T) {
 	}
 }
 
-// TestURLDefault asserts the config default (no env, no covering @rk_origin)
+// TestURLDefault asserts the config default (no env, no covering @rk_srv_origin)
 // prints the loopback URL newline-terminated with empty stderr.
 func TestURLDefault(t *testing.T) {
 	t.Setenv("RK_HOST", "")
@@ -79,7 +79,7 @@ func TestURLFromEnv(t *testing.T) {
 }
 
 // TestURLFromTmuxOption asserts a pane in a covered server (no explicit env)
-// prints the daemon-stamped @rk_origin instead of the 3000 default.
+// prints the daemon-stamped @rk_srv_origin instead of the 3000 default.
 func TestURLFromTmuxOption(t *testing.T) {
 	t.Setenv("RK_HOST", "")
 	t.Setenv("RK_PORT", "")
@@ -97,10 +97,10 @@ func TestURLFromTmuxOption(t *testing.T) {
 
 // TestURLHelpStatesHeuristic pins the help contract: the Long text names the
 // value a heuristic (not a liveness probe) and documents the
-// env → @rk_origin → default precedence rung.
+// env → @rk_srv_origin → default precedence rung.
 func TestURLHelpStatesHeuristic(t *testing.T) {
 	long := urlCmd.Long
-	for _, want := range []string{"heuristic", "not proof", "@rk_origin"} {
+	for _, want := range []string{"heuristic", "not proof", "@rk_srv_origin"} {
 		if !bytes.Contains([]byte(long), []byte(want)) {
 			t.Errorf("url Long text missing %q; got:\n%s", want, long)
 		}

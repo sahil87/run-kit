@@ -234,14 +234,14 @@ func validateClosedSet(value, label string, set map[string]bool, tokens []string
 	return label + " must be one of: " + strings.Join(tokens, ", ") + " (or empty to clear)"
 }
 
-// MarkerValues is the closed set of accepted @rk_marker window-option values,
+// MarkerValues is the closed set of accepted @rk_win_marker window-option values,
 // derived from markerTokens. The empty string means "unset" (no marker); the
 // eight named states drive the left-gutter marker's stripe style in the UI
 // (pipe 1px; dotted/dashed/solid 3px; double/thick/block 6px; hatch 45°
 // diagonals — all fully static, all periods dividing the 12px weld module).
 var MarkerValues = closedSet(markerTokens)
 
-// ValidateMarkerValue validates an @rk_marker value: one of ""/pipe/dotted/
+// ValidateMarkerValue validates an @rk_win_marker value: one of ""/pipe/dotted/
 // dashed/solid/double/thick/hatch/block. Returns an empty string if valid, an
 // error message otherwise. The single shared marker-value rule reused by the
 // window-option handler.
@@ -249,26 +249,26 @@ func ValidateMarkerValue(value string) string {
 	return validateClosedSet(value, "Marker", MarkerValues, markerTokens)
 }
 
-// RoleValues is the closed set of accepted @rk_role window-option values,
+// RoleValues is the closed set of accepted @rk_win_role window-option values,
 // derived from roleTokens. The empty string means "unset" (no role);
 // "operator" marks the window as the server's operator (the orchestrator
 // window, pinned below the SESSIONS header in the sidebar).
 var RoleValues = closedSet(roleTokens)
 
-// ValidateRoleValue validates an @rk_role value: one of ""/operator. Returns
+// ValidateRoleValue validates an @rk_win_role value: one of ""/operator. Returns
 // an empty string if valid, an error message otherwise. The single shared
 // role-value rule reused by the window-option handler and the rk role CLI.
 func ValidateRoleValue(value string) string {
 	return validateClosedSet(value, "Role", RoleValues, roleTokens)
 }
 
-// FlairValues is the closed set of accepted @rk_flair values (window and
+// FlairValues is the closed set of accepted @rk_win_flair values (window and
 // session user options), derived from flairTokens. The empty string means
 // "unset" (no flair); the named states select the per-row flair animation in
 // the UI.
 var FlairValues = closedSet(flairTokens)
 
-// ValidateFlairValue validates an @rk_flair value against flairTokens (one of
+// ValidateFlairValue validates an @rk_win_flair value against flairTokens (one of
 // ""/rain/scan/nyan/naruto/onepiece/pacman/matrix/aquarium/roadrunner/
 // invaders/cube/warp/spidey/ironman). Returns an empty string if valid, an
 // error message otherwise. The single shared flair-value rule reused by the
@@ -277,7 +277,7 @@ func ValidateFlairValue(value string) string {
 	return validateClosedSet(value, "Flair", FlairValues, flairTokens)
 }
 
-// ValidateRkURLValue validates an @rk_url window-option value against the
+// ValidateRkURLValue validates an @rk_win_url window-option value against the
 // scheme allowlist (constitution §I — the value becomes an iframe src on
 // every viewer's web tile): absolute http:/https: URLs with a host, and
 // root-relative paths ("/…" but not scheme-relative "//…"). Everything else

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os/exec"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -94,23 +95,13 @@ func TestParseLayoutWindows(t *testing.T) {
 			},
 		},
 		{
-			name: "13-field line carries the raw note verbatim",
+			name: "new note in its strict single field (idx 14), verbatim",
 			lines: []string{
-				"kit\t@1\t1\tserve\t1\td5d2,204x48,0,0,1\t\t\t\t\t\t\t1756036800:blocked on flaky e2e",
+				"kit\t@1\t1\tserve\t1\td5d2,204x48,0,0,1\t\t\t\t\t\t\t\t\t1756036800:blocked on flaky e2e",
 			},
 			want: []LayoutWindow{
 				{Session: "kit", WindowID: "@1", Index: 1, Name: "serve", Active: true,
 					Layout: "d5d2,204x48,0,0,1", Note: "1756036800:blocked on flaky e2e"},
-			},
-		},
-		{
-			name: "tab inside the note rejoins the tail",
-			lines: []string{
-				"kit\t@1\t1\tserve\t1\td5d2,204x48,0,0,1\t\t\t\t\t\t\t1756036800:two\tpart\tnote",
-			},
-			want: []LayoutWindow{
-				{Session: "kit", WindowID: "@1", Index: 1, Name: "serve", Active: true,
-					Layout: "d5d2,204x48,0,0,1", Note: "1756036800:two\tpart\tnote"},
 			},
 		},
 		{
@@ -140,6 +131,82 @@ func TestParseLayoutWindows(t *testing.T) {
 			got := parseLayoutWindows(tt.lines)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("parseLayoutWindows() = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+// layoutLineDualRead builds a layout line with both halves of each dual-read
+// pair placed explicitly: the NEW lens/URL at idx 7/8, the legacy lens/URL at
+// idx 12/13, the NEW note as a strict single field at idx 14, and the legacy
+// note appended LAST (idx 15+ — tail-rejoined, so tabs in its text survive).
+// Mirrors windowLineDualRead (tmux_test.go).
+func layoutLineDualRead(newLens, newURL, legacyLens, legacyURL, newNote, legacyNote string) string {
+	fields := []string{
+		"kit", "@1", "1", "serve", "1", "d5d2,204x48,0,0,1",
+		"",         // color
+		newLens,    // @rk_win_lens (new)
+		newURL,     // @rk_win_url (new)
+		"",         // marker
+		"",         // role
+		"",         // flair
+		legacyLens, // @rk_type (legacy)
+		legacyURL,  // @rk_url (legacy)
+		newNote,    // @rk_win_note (new — strict single field)
+	}
+	return strings.Join(fields, listDelim) + listDelim + legacyNote
+}
+
+// TestParseLayoutWindowsDualRead pins the prefer-new fallback for the three
+// dual-read keys (@rk_win_lens↔@rk_type, @rk_win_url↔@rk_url,
+// @rk_win_note↔@rk_note) in parseLayoutWindows — same rule as parseWindows:
+// legacy-only values report, new-only values report, and when BOTH fields
+// carry a value the NEW name wins. The legacy note tail rejoin survives tabs.
+func TestParseLayoutWindowsDualRead(t *testing.T) {
+	tests := []struct {
+		name                                   string
+		newLens, newURL, legacyLens, legacyURL string
+		newNote, legacyNote                    string
+		wantLens, wantURL, wantNote            string
+	}{
+		{
+			name:       "legacy-only (pre-rename writer)",
+			legacyLens: "iframe", legacyURL: "http://legacy", legacyNote: "123:old",
+			wantLens: "iframe", wantURL: "http://legacy", wantNote: "123:old",
+		},
+		{
+			name:    "new-only",
+			newLens: "iframe", newURL: "http://new", newNote: "456:new",
+			wantLens: "iframe", wantURL: "http://new", wantNote: "456:new",
+		},
+		{
+			name:    "both — new wins",
+			newLens: "web", newURL: "http://new", newNote: "456:new",
+			legacyLens: "iframe", legacyURL: "http://legacy", legacyNote: "123:old",
+			wantLens: "web", wantURL: "http://new", wantNote: "456:new",
+		},
+		{
+			name:       "legacy note with tabs rejoins the tail",
+			legacyNote: "123:two\tpart\tnote",
+			wantNote:   "123:two\tpart\tnote",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			line := layoutLineDualRead(tt.newLens, tt.newURL, tt.legacyLens, tt.legacyURL, tt.newNote, tt.legacyNote)
+			got := parseLayoutWindows([]string{line})
+			if len(got) != 1 {
+				t.Fatalf("parseLayoutWindows() returned %d windows, want 1", len(got))
+			}
+			if got[0].RkType != tt.wantLens {
+				t.Errorf("RkType = %q, want %q", got[0].RkType, tt.wantLens)
+			}
+			if got[0].RkURL != tt.wantURL {
+				t.Errorf("RkURL = %q, want %q", got[0].RkURL, tt.wantURL)
+			}
+			if got[0].Note != tt.wantNote {
+				t.Errorf("Note = %q, want %q", got[0].Note, tt.wantNote)
 			}
 		})
 	}

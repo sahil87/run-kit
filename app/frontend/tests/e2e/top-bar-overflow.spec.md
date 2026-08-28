@@ -47,7 +47,7 @@ the rail: the chevron is the SOLE element of the trailing exempt block.
   ▦ Layout chip + refresh in-bar;
   split / fixed-width / Aa / close-pane are menuOnly rows). The retired
   ViewSwitcher block adds a SECOND, **web-capable** long-named window
-  (`overflow-view-long-worktree-<ts>` with a non-empty `@rk_url` ⇒ `[tty|web]`;
+  (`overflow-view-long-worktree-<ts>` with a non-empty `@rk_win_url` ⇒ `[tty|web]`;
   the repo-cwd pane also derives a `gitRoot` ⇒ `code`, so its toggle group
   shows Terminal/Web/Code)
   so the palette's `View: Web` action actually renders (the palette gates on a
@@ -224,7 +224,7 @@ one-shot chrome rows — Keyboard — have their own coverage above).
 ## Tests — the view-switcher is retired (260812-0c6o)
 
 Uses the web-capable long-named window (see Shared setup) so the `[tty|web]`
-multi-view gate passes. `@rk_url` is stamped via `tmux set-option -w` before
+multi-view gate passes. `@rk_win_url` is stamped via `tmux set-option -w` before
 navigating. The ViewSwitcher is RETIRED: the palette's `View: …` actions are the
 ONLY lens-switch surface — no pill in-bar, no `View:` rows in the chevron menu,
 no `view-toggle` testid anywhere — and the VIEW menu section survives via the
@@ -279,7 +279,7 @@ holding one
 `aria-checked` = tile open (chat excluded — SURFACE_RAIL_HIDDEN).
 
 **Steps:**
-1. Navigate to the web-capable window (offers `[tty|web|code]` — `@rk_url` ⇒
+1. Navigate to the web-capable window (offers `[tty|web|code]` — `@rk_win_url` ⇒
    web; the repo-cwd pane derives a `gitRoot` ⇒ code; chat never gets a row).
 2. Step the viewport down from 800px in 10px increments (staying above the
    640px mobile boundary), gating on the renamable heading each step, until a

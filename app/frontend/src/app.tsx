@@ -909,7 +909,7 @@ function AppShell() {
   // Switch the current window's lens (window-view spec R2/R7) — R12's shim:
   // selecting a view sets the layout to `single:<view>` through the shared
   // mutation path (a user mutation — persisted + mirrored). Never mutates
-  // `@rk_type` (that is substrate state, not view state).
+  // `@rk_win_lens` (that is substrate state, not view state).
   const switchView = useCallback(
     (view: ViewName) => applyLayout({ shape: "single", order: [view] }),
     [applyLayout],
@@ -2341,7 +2341,7 @@ function AppShell() {
   );
 
   // Ask the server's operator window to annotate a subject window with a
-  // one-line @rk_note status note (260824-bb5n): the same fire-and-forget
+  // one-line @rk_win_note status note (260824-bb5n): the same fire-and-forget
   // shape as handleFixTabName — the note itself arrives via the normal SSE
   // derive tick (user-option mutations emit no control-mode event, so
   // agent-side writes ride the ~12s safety poll).
@@ -2448,7 +2448,7 @@ function AppShell() {
   // File upload ref for palette
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Effective session order for the current server: SSE order (@rk_session_order)
+  // Effective session order for the current server: SSE order (@rk_srv_session_order)
   // filtered to live session names, with any un-ordered live sessions appended
   // in natural order — the "SSE order ?? natural" derivation (the sidebar's
   // transient drag override is component-local and not visible here). Drives the
@@ -2504,7 +2504,7 @@ function AppShell() {
             },
             // Move up/down within the effective session order (boundary =
             // hidden, no wraparound). Persisted via the existing setSessionOrder
-            // (@rk_session_order), the same primitive the sidebar drag uses.
+            // (@rk_srv_session_order), the same primitive the sidebar drag uses.
             ...(currentSessionOrderIdx > 0
               ? [
                   {
@@ -2608,7 +2608,7 @@ function AppShell() {
               },
             },
             // Operator mark/unmark pair (260813-ifya) — the manual fallback for
-            // the `@rk_role=operator` window option: Mark is listed when the
+            // the `@rk_win_role=operator` window option: Mark is listed when the
             // current window is NOT the operator, Unmark when it IS. Both POST
             // through the unified /options contract (`setWindowRole`); the
             // write wakes the SSE hub, so the sidebar's pinned row moves on
@@ -2637,9 +2637,9 @@ function AppShell() {
                   },
                 ]),
             // NOTE: the old `toggle-iframe-terminal` action (which mutated
-            // `@rk_type`) was REPLACED by the `View: Terminal` / `View: Web`
+            // `@rk_win_lens`) was REPLACED by the `View: Terminal` / `View: Web`
             // actions in `viewActions` (260714-t97o-web-view-lens) — switching a
-            // lens is per-viewer view state, never a `@rk_type` mutation.
+            // lens is per-viewer view state, never a `@rk_win_lens` mutation.
             // Move up/down — the sole window-move pair (up/down vocabulary
             // parity with the Session/Server/Board Move entries; windows render
             // as vertical sidebar rows). Boundary = hidden, no wraparound.
@@ -2724,7 +2724,7 @@ function AppShell() {
               },
             },
             // Set note (260824-bb5n) — the user write affordance for the
-            // @rk_note one-line status note: a prompt pre-filled with the
+            // @rk_win_note one-line status note: a prompt pre-filled with the
             // current note; an empty submit clears it.
             {
               id: "window-set-note",
@@ -3174,7 +3174,7 @@ function AppShell() {
       // switch (the ⌘1/⌘2/⌘3 digits are three-state TILE toggles, a different
       // action, and hinting them here would misdescribe it). These REPLACE the
       // retired
-      // `toggle-iframe-terminal` action, which mutated `@rk_type`; switching a
+      // `toggle-iframe-terminal` action, which mutated `@rk_win_lens`; switching a
       // lens now never touches the window's identity. The gating (available AND
       // not-current) + label composition live in the pure `buildViewActions`
       // (lib/palette/view.ts) so they are unit-testable without mounting the

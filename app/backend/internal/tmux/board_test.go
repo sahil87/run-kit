@@ -399,14 +399,14 @@ func TestPin_RePinToDifferentBoardRestamps(t *testing.T) {
 		t.Fatalf("Pin to main: %v", err)
 	}
 	// Re-pin the already-pinned window to a DIFFERENT board. This must re-stamp
-	// @rk_board (not silently no-op leaving it on "main"), and must not move the
+	// @rk_ses_pin_board (not silently no-op leaving it on "main"), and must not move the
 	// window or churn its pin-session.
 	if err := Pin(ctx, server, wid, "deploy"); err != nil {
 		t.Fatalf("Pin to deploy (re-pin): %v", err)
 	}
 	got, _ := showSessionOption(ctx, server, pin, BoardOption)
 	if got != "deploy" {
-		t.Errorf("re-pin to different board did not re-stamp @rk_board: got %q, want %q", got, "deploy")
+		t.Errorf("re-pin to different board did not re-stamp @rk_ses_pin_board: got %q, want %q", got, "deploy")
 	}
 	pinWindows := windowsInSession(t, server, pin)
 	if len(pinWindows) != 1 {
@@ -519,7 +519,7 @@ func TestUnpin_RecreatesDeadHome(t *testing.T) {
 	}
 	// The recreated home must not carry board membership vars.
 	if b, _ := showSessionOption(ctx, server, "temp", BoardOption); b != "" {
-		t.Errorf("recreated home retained @rk_board=%q", b)
+		t.Errorf("recreated home retained @rk_ses_pin_board=%q", b)
 	}
 }
 
@@ -536,7 +536,7 @@ func unlinkWindowFromSession(t *testing.T, server, session, windowID string) {
 }
 
 // A legacy move-based pin presents as the last-link case (the window is a member
-// ONLY of its pin-session), but its recorded @rk_home may still be ALIVE. In that
+// ONLY of its pin-session), but its recorded @rk_ses_pin_home may still be ALIVE. In that
 // case Unpin must RESTORE the window into that live home (link it back, kill the
 // pin-session) rather than stranding it in a stray `recovered<id>` session. Both
 // other recovery tests kill the home first; this covers the untested live-home
@@ -554,7 +554,7 @@ func TestUnpin_LegacyPinLiveHomeRestoresIntoHome(t *testing.T) {
 	}
 	// Simulate a legacy move-based pin: strip the home link so the window lives
 	// ONLY in the pin-session, while "home" stays alive (it keeps its boot window).
-	// @rk_home still records "home".
+	// @rk_ses_pin_home still records "home".
 	unlinkWindowFromSession(t, server, "home", wid)
 	if home, ok, _ := resolveHomeSession(ctx, server, wid); ok {
 		t.Fatalf("precondition: window still has a live non-pin home %q — expected last-link state", home)
@@ -607,7 +607,7 @@ func TestUnpin_BoardMismatchIsNoOp(t *testing.T) {
 		t.Errorf("mismatched-board Unpin removed the pin-session %s (should be a no-op)", pin)
 	}
 	if b, _ := showSessionOption(ctx, server, pin, BoardOption); b != "main" {
-		t.Errorf("mismatched-board Unpin changed @rk_board to %q, want unchanged 'main'", b)
+		t.Errorf("mismatched-board Unpin changed @rk_ses_pin_board to %q, want unchanged 'main'", b)
 	}
 	// The correct board name still unpins.
 	if err := Unpin(ctx, server, wid, "main"); err != nil {
@@ -633,21 +633,21 @@ func TestUnpin_HomelessPinRecoversWindow(t *testing.T) {
 	if err := Pin(ctx, server, wid, "main"); err != nil {
 		t.Fatalf("Pin: %v", err)
 	}
-	// Simulate a legacy/corrupt pin-session that lost @rk_home (stamp-before-link
+	// Simulate a legacy/corrupt pin-session that lost @rk_ses_pin_home (stamp-before-link
 	// makes this unreachable in practice, but Unpin must still never strand a
-	// window). Clear @rk_home, THEN kill the home so the pin link is the window's
+	// window). Clear @rk_ses_pin_home, THEN kill the home so the pin link is the window's
 	// last link (a live home membership would take the normal kill-session path
-	// instead of recovery). With no home membership AND no @rk_home to re-derive
+	// instead of recovery). With no home membership AND no @rk_ses_pin_home to re-derive
 	// from, Unpin RECOVERS the window by renaming the pin-session to a `recovered*`
 	// session — the window resurfaces in SESSIONS rather than being lost.
 	if _, err := tmuxExecRawServer(ctx, server, "set-option", "-t", pin, "-u", HomeOption); err != nil {
-		t.Fatalf("clear @rk_home: %v", err)
+		t.Fatalf("clear @rk_ses_pin_home: %v", err)
 	}
 	if err := KillSession("temp", server); err != nil {
 		t.Fatalf("kill home: %v", err)
 	}
 	if err := Unpin(ctx, server, wid, "main"); err != nil {
-		t.Fatalf("Unpin of @rk_home-less pin returned error, want recovery: %v", err)
+		t.Fatalf("Unpin of @rk_ses_pin_home-less pin returned error, want recovery: %v", err)
 	}
 	if hasSession(t, server, pin) {
 		t.Errorf("pin-session %s survived recovery Unpin", pin)
@@ -662,7 +662,7 @@ func TestUnpin_HomelessPinRecoversWindow(t *testing.T) {
 	}
 	// The recovered session must carry no board membership (it's a plain session).
 	if b, _ := showSessionOption(ctx, server, recovered, BoardOption); b != "" {
-		t.Errorf("recovered session retained @rk_board=%q", b)
+		t.Errorf("recovered session retained @rk_ses_pin_board=%q", b)
 	}
 }
 
@@ -684,10 +684,10 @@ func TestUnpin_RecoveryNameCollisionFallsBackToSuffix(t *testing.T) {
 	if err := Pin(ctx, server, wid, "main"); err != nil {
 		t.Fatalf("Pin: %v", err)
 	}
-	// Force the @rk_home-empty recovery branch and kill the live home so the pin
+	// Force the @rk_ses_pin_home-empty recovery branch and kill the live home so the pin
 	// link is the last link.
 	if _, err := tmuxExecRawServer(ctx, server, "set-option", "-t", pin, "-u", HomeOption); err != nil {
-		t.Fatalf("clear @rk_home: %v", err)
+		t.Fatalf("clear @rk_ses_pin_home: %v", err)
 	}
 	if err := KillSession("temp", server); err != nil {
 		t.Fatalf("kill home: %v", err)
@@ -808,7 +808,7 @@ func TestEmptyBoardVanishesOnLastUnpin(t *testing.T) {
 	if err := Unpin(ctx, server, wid, "deploy"); err != nil {
 		t.Fatal(err)
 	}
-	// After the last unpin, no pin carries @rk_board=deploy on this server.
+	// After the last unpin, no pin carries @rk_ses_pin_board=deploy on this server.
 	entries2, err := ListBoardEntries(ctx, server)
 	if err != nil {
 		t.Fatal(err)

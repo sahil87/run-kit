@@ -13,7 +13,7 @@ import (
 //
 // Resolution precedence (see resolveOrigin): explicit RK_HOST/RK_PORT env in
 // the caller's environment wins; inside a tmux pane, the covering server's
-// @rk_origin tmux option (stamped by the covering daemon) is read next;
+// @rk_srv_origin tmux option (stamped by the covering daemon) is read next;
 // otherwise the config default (127.0.0.1:3000).
 //
 // The value is a HEURISTIC, NOT a liveness probe: it does not read a .env
@@ -25,7 +25,7 @@ var urlCmd = &cobra.Command{
 	Short: "Print the run-kit server URL (env → tmux option → default)",
 	Long: "Print the run-kit server URL resolved for this caller. Precedence: " +
 		"explicit RK_HOST/RK_PORT env vars win; when run inside a tmux pane, the " +
-		"covering tmux server's @rk_origin option (stamped by the run-kit daemon " +
+		"covering tmux server's @rk_srv_origin option (stamped by the run-kit daemon " +
 		"covering that server) is used next; otherwise the config default " +
 		"(127.0.0.1:3000) applies. This is a heuristic: it reports " +
 		"what the server WOULD bind, not proof that a server is running. It " +

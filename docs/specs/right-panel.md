@@ -7,7 +7,7 @@
 > This spec extends [`window-views.md`](window-views.md) — that spec defines
 > what lenses *are* and how availability derives; this one adds a second
 > *placement* for them, one new lens (`code`), and the **companion window**
-> convention (`@rk_owner`) that lets hidden sibling substrates render in the
+> convention that lets hidden sibling substrates render in the
 > panel. Phase 1 — the rail, the panel shell (resize + per-viewer
 > width, hide-never-unmount), and the `web` surface with its toggle chord and
 > palette entry — is **[current]** as of change
@@ -18,7 +18,7 @@
 > `260811-k3vp-right-panel-code-lens`; the top-bar rail toggle and the
 > full-height column layout (rail+panel as a Shell grid column, the bottom bar
 > scoped to the terminal column) are **[current]** as of change
-> `260812-nm4p-top-bar-rail-toggle`; the `@rk_owner` companion convention and
+> `260812-nm4p-top-bar-rail-toggle`; the companion convention and
 > the `agents` surface, the amber attention dot, and mobile remain
 > **[target]**.
 >
@@ -93,9 +93,9 @@ Both needs share one substrate: a collapsed-by-default right panel.
 
 | Surface | Substrate | Lens | Available when |
 |---------|-----------|------|----------------|
-| `web` | current window | `web` | always — the lens exists on every window (like `tty`); `@rk_url` selects the CONTENT (empty/whitespace → the tile's onboarding state, non-empty → the live iframe), never availability — the `code` row's availability-vs-content split (amended 2026-08-21, change `260821-zqlq`) |
+| `web` | current window | `web` | always — the lens exists on every window (like `tty`); `@rk_win_url` selects the CONTENT (empty/whitespace → the tile's onboarding state, non-empty → the live iframe), never availability — the `code` row's availability-vs-content split (amended 2026-08-21, change `260821-zqlq`) |
 | `code` | current window | `code` (new lens, below) | the window's code folder is **LATCHED, or** a git root is derivable from the active pane's cwd (since `260811-a2bo` the code-server endpoint always resolves by convention: preset `RK_CODE_SERVER_PORT`, else `RK_PORT+2`). The latch is what makes availability STABLE: derivation seeds it once, at first open, so a window that has ever opened the code surface keeps offering it even after its active pane leaves the repo — the rail button, the switcher segment, and `?view=code`/`?layout=` deep links no longer strobe with the terminal's cwd (see § The `code` lens). **Availability is the STABLE capability signal only** — code-server *reachability* never gates the button/segment (it would strobe the rail); reachability selects the surface's CONTENT instead: live iframe when up, the portless "code-server not running — check rk doctor" empty state when down (amended 2026-08-11, change `260811-k3vp`; port dropped by `260811-a2bo`; latch added 2026-08-13, change `260813-if5d`) |
-| `agents` | companion window | `tty` | a window with `@rk_owner=<this window's id>` exists |
+| `agents` | companion window | `tty` | a companion window owned by this window exists |
 
 ### The `code` lens (new view-registry row)
 
@@ -165,13 +165,13 @@ the shared switcher; the panel is merely its natural home.
 
 ---
 
-## Companion Windows (`@rk_owner`)
+## Companion Windows
 
 A **companion** is a real tmux window owned by another window in the same
 session, hidden from navigation, rendered through its owner's panel.
 
-- **Ownership is a window option**: `@rk_owner=<owner window id>` (the
-  immutable `@N` id — rename-proof in both directions). The companion's
+- **Ownership is a window option**: a user option on the companion carrying
+  the owner's immutable `@N` window id (rename-proof in both directions). The companion's
   *name* is sugar for raw-tmux readability (e.g. `<owner-name>-subagents`)
   and is **never parsed** — names belong to users (window-views R1).
 - **Annotate, don't omit.** The snapshot/SSE payload keeps companions, tagged
@@ -185,9 +185,9 @@ session, hidden from navigation, rendered through its owner's panel.
   companion moved), the companion loses companion status and appears as a
   normal window. Fail-open — never silently strand a live worker. There is no
   kill-cascade; companions outlive their owner until reaped deliberately.
-- **`@rk_owner` joins every `@rk_*` round-trip set** — snapshot
+- **The ownership option joins every `@rk_*` round-trip set** — snapshot
   capture/restore in particular (it round-trips an explicit option list;
-  dropping `@rk_owner` would resurrect companions as visible orphans on every
+  dropping it would resurrect companions as visible orphans on every
   restore). Note: owner window *ids* are not stable across a restore, so
   restore must remap the stored owner reference like any other id.
 - **Creation**: `rk riff` grows a spawn shape that targets tier-2 workers
@@ -309,4 +309,4 @@ evicted; registrations at different scopes coexist.
 |---|--------|-------|
 | 1 | Rail + panel shell + `web` surface | The layout, resize/refit mechanics, P1–P7; smallest slice, immediate value |
 | 2 | `code` lens + surface | Registry row, git-root derivation, code-server embed. Proxy prerequisites (spiked, proven): `SetXForwarded()` in the proxy's Rewrite hook (without it code-server's origin check 403s every WS handshake — loads, then sits disconnected), a `/proxy/{port}` → `/proxy/{port}/` redirect, `allow-downloads` in the iframe sandbox. First-run checks against a live code-server: SW registration scope reads `/proxy/{port}/` in devtools (expected per source), hot-exit round-trip. Open Question 1 (keyboard) spikes here |
-| 3 | `@rk_owner` companions + `agents` surface | The convention, annotate+filter sweep, rollup, riff spawn shape |
+| 3 | Companion windows + `agents` surface | The convention, annotate+filter sweep, rollup, riff spawn shape |

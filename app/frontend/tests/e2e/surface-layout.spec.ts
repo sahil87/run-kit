@@ -39,7 +39,7 @@ async function resolveWindow(page: Page, windowName: string): Promise<string> {
   return (await resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION, windowName)).windowId;
 }
 
-/** Create a window and (optionally) stamp @rk_url via tmux (execFileSync with
+/** Create a window and (optionally) stamp @rk_win_url via tmux (execFileSync with
  *  argument arrays — no shell string construction). Windows inherit the tmux
  *  server's repo-root cwd, so every window here is code-capable (gitRoot
  *  derived). Returns the @N id. */
@@ -47,7 +47,7 @@ async function makeWindow(page: Page, name: string, opts: { url?: string } = {})
   newWindow(TEST_SESSION, name);
   const id = await resolveWindow(page, name);
   if (opts.url !== undefined) {
-    execFileSync("tmux", ["-L", TMUX_SERVER, "set-option", "-w", "-t", id, "@rk_url", opts.url]);
+    execFileSync("tmux", ["-L", TMUX_SERVER, "set-option", "-w", "-t", id, "@rk_win_url", opts.url]);
   }
   return id;
 }

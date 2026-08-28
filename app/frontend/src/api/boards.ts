@@ -45,7 +45,7 @@ export interface ReorderResponse {
 
 /**
  * GET /api/boards — derived from `_rk-pin-*` pin-sessions grouped by their
- * `@rk_board` session var, summarized across reachable servers and sorted by
+ * `@rk_ses_pin_board` session var, summarized across reachable servers and sorted by
  * name. Boards are server-scoped (a pinned window's session lives on one tmux
  * server); a board exists only while at least one pin carries its name.
  */

@@ -11,7 +11,7 @@ import (
 )
 
 // rk mux adopt <server> — convert an external (unmarked) tmux server into an
-// rk-managed one: stamp @rk_managed first, then source the managed conf via
+// rk-managed one: stamp @rk_srv_managed first, then source the managed conf via
 // tmux.ReloadConfig; a failed reload best-effort unmarks, so a stamped server
 // whose conf never applied is never left behind. An operator-tier member: the
 // socket name is its positional argument, so an explicitly-set inherited -L is
@@ -30,7 +30,7 @@ var muxAdoptCmd = &cobra.Command{
 	Use:   "adopt <server>",
 	Short: "Adopt an external tmux server into run-kit management",
 	Long: "Adopt an external (unmarked) tmux server into run-kit management: " +
-		"stamp @rk_managed on it, then source run-kit's managed tmux config. " +
+		"stamp @rk_srv_managed on it, then source run-kit's managed tmux config. " +
 		"If the config reload fails, the stamp is rolled back — a stamped " +
 		"server whose config never applied is never left behind.\n\n" +
 		"Adopt is idempotent: an already-managed server (including rk-daemon) " +

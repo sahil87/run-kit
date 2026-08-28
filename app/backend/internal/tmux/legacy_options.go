@@ -49,6 +49,28 @@ type legacyOption struct {
 var legacyOptions = []legacyOption{
 	{Old: "@color", New: ColorOption, Scope: scopeWindow},
 	{Old: "@session_color", New: SessionColorOption, Scope: scopeSession},
+	// Scope-prefix rename (260828-3o5d): retired unscoped rk names → their
+	// win/ses/srv successors. Window rows:
+	{Old: legacyTypeOption, New: LensOption, Scope: scopeWindow},
+	{Old: legacyURLOption, New: URLOption, Scope: scopeWindow},
+	{Old: "@rk_present_root", New: PresentRootOption, Scope: scopeWindow},
+	{Old: "@rk_marker", New: MarkerOption, Scope: scopeWindow},
+	{Old: "@rk_flair", New: FlairOption, Scope: scopeWindow},
+	{Old: legacyNoteOption, New: NoteOption, Scope: scopeWindow},
+	{Old: "@rk_role", New: RoleOption, Scope: scopeWindow},
+	// Session rows:
+	{Old: "@rk_session_flair", New: SessionFlairOption, Scope: scopeSession},
+	{Old: "@rk_board", New: BoardOption, Scope: scopeSession},
+	{Old: "@rk_home", New: HomeOption, Scope: scopeSession},
+	{Old: "@rk_board_order", New: BoardOrderOption, Scope: scopeSession},
+	// Retired with no successor (unset-only): the control anchor is identified
+	// by ControlAnchorSessionName instead.
+	{Old: "@rk_ctl_keepalive", New: "", Scope: scopeSession},
+	// Server rows:
+	{Old: "@rk_session_order", New: SessionOrderOption, Scope: scopeServer},
+	{Old: "@rk_server_rank", New: ServerRankOption, Scope: scopeServer},
+	{Old: "@rk_origin", New: OriginOption, Scope: scopeServer},
+	{Old: "@rk_managed", New: ManagedOption, Scope: scopeServer},
 }
 
 // scopeTarget is one carrier to inspect: a scope plus the -t argument naming

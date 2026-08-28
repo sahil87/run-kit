@@ -57,7 +57,7 @@ export default defineConfig({
         ws: true,
       },
       // The `rk present` content route (/present/{windowId}/*) — forwarded to
-      // the Go backend, which serves files from the window's @rk_present_root.
+      // the Go backend, which serves files from the window's @rk_win_present_root.
       // Plain GETs; without this the dev server answers the SPA fallback and
       // presented tiles render run-kit inside themselves.
       "/present": {

@@ -244,7 +244,7 @@ export function degradeLayout(
 
 /**
  * The default-view hint as a layout (ladder rung 3): a legacy
- * `@rk_type=iframe` window yields `single:web` (via `defaultView`);
+ * `@rk_win_lens=iframe` window yields `single:web` (via `defaultView`);
  * everything else `single:tty`.
  */
 export function hintLayout(win: ViewWindow | null | undefined): Layout {

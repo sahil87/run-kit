@@ -14,7 +14,7 @@ async function setRole(
 ) {
   return page.request.post(
     `/api/windows/${encodeURIComponent(windowId)}/options?server=${encodeURIComponent(TMUX_SERVER)}`,
-    { data: { options: { "@rk_role": role } } },
+    { data: { options: { "@rk_win_role": role } } },
   );
 }
 
@@ -53,7 +53,7 @@ test.describe("Operator session physical promotion (skcr)", () => {
 
     // Promote via the same options POST route the palette commands use.
     const setRes = await setRole(page, target.windowId, "operator");
-    expect(setRes.ok(), "setting @rk_role=operator via the options API").toBeTruthy();
+    expect(setRes.ok(), "setting @rk_win_role=operator via the options API").toBeTruthy();
 
     // The work group no longer lists the operator window (membership MOVED,
     // so tmux window-cycling traverses only the remaining windows — the
@@ -76,7 +76,7 @@ test.describe("Operator session physical promotion (skcr)", () => {
     // Demote (null per the partial-merge contract): the window moves OUT to a
     // visible conventional session group and the pinned slot disappears.
     const clearRes = await setRole(page, target.windowId, null);
-    expect(clearRes.ok(), "clearing @rk_role via the options API").toBeTruthy();
+    expect(clearRes.ok(), "clearing @rk_win_role via the options API").toBeTruthy();
     await expect(page.locator(`[data-session-group="${OPERATOR_SESSION}"]`)).toHaveCount(0, {
       timeout: 6_000,
     });

@@ -25,7 +25,6 @@
 //     view of tmux sockets; nothing is written to disk.
 //   - No new network surface. The Client is a local subprocess.
 //   - Process execution via exec.CommandContext with explicit argument slices.
-//   - Anchor session named `_rk-ctl` is created and tagged with
-//     `@rk_ctl_keepalive=1` when needed; filtered from user-facing UIs via
-//     tmux.ControlAnchorSessionName.
+//   - Anchor session named `_rk-ctl` is created when needed; filtered from
+//     user-facing UIs via tmux.ControlAnchorSessionName.
 package tmuxctl

@@ -29,8 +29,8 @@ type ProjectSession struct {
 	// derived state; display abbreviation is the frontend's concern.
 	SessionPath string `json:"sessionPath,omitempty"`
 	// Flair is the session's per-row flair decoration ("" = unset; one of the
-	// validate.FlairValues closed set), sourced from the @rk_session_flair tmux
-	// session option (scope-split from the window @rk_flair — see
+	// validate.FlairValues closed set), sourced from the @rk_ses_flair tmux
+	// session option (scope-split from the window @rk_win_flair — see
 	// tmux.SetSessionFlair).
 	Flair   string            `json:"flair,omitempty"`
 	Windows []tmux.WindowInfo `json:"windows"`

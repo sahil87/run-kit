@@ -70,7 +70,7 @@ Net effect at `rk -h`: ~23 visible root commands → ~15.
 | `pane ready`, `pane deliver`, `pane capture`, `pane kill`, `pane process` | substrate mechanics | rk grows canonical twins over time; fab's copies become dispatch-internal (pane arm must work rk-less), dropped from skill-facing guidance |
 | `pane open` | choreography | stays — provider/profile resolution from fab config |
 | `pane map` | hybrid | long-term: rk owns enumeration (`rk mux panes`), fab enriches with change/stage; today rk's server consumes `fab pane map` for the join |
-| `pane window-name` | mechanics generic, convention fab's | stays until the marker convention itself moves (rk's native channel is `@rk_flair` + status pyramid) |
+| `pane window-name` | mechanics generic, convention fab's | stays until the marker convention itself moves (rk's native channel is `@rk_win_flair` + status pyramid) |
 | `change`, `status`, `dispatch`, `score`, `resolve`, `resolve-agent`, `preflight`, `log`, `memory-index`, `impact`, `pr-meta`, `batch`, `operator`, `agent`, `config`, workspace commands (`init`, `sync`, `setup`, `upgrade-repo`, `update`, `doctor`), `kit-path`, `skill`, `shell-init` | choreography / fab-internal | stay in fab |
 
 ## Execution plan

@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The `rk mux` family — 12 tmux-substrate verbs, no daemon dependency. Pane-scoped members (`send`/`await` + `capture`/`kill`/`process` twins) share the strict %N/@N/=session:window grammar and with `panes` consume inherited `-L`; `await --any` wakes on the first of N panes. Operator members `new`/`reap`/`snapshot`/`init-conf`/`guard`/`adopt` reject `-L` (`guard` excepted): `new` spawns a detached server (`--ephemeral` marks `@rk_ephemeral`); `adopt` stamps `@rk_managed` + reloads the conf."
+description: "The `rk mux` family — 12 tmux-substrate verbs, no daemon dependency. Pane-scoped members (`send`/`await` + `capture`/`kill`/`process` twins) share the strict %N/@N/=session:window grammar and with `panes` consume inherited `-L`; `await --any` wakes on the first of N panes. Operator members `new`/`reap`/`snapshot`/`init-conf`/`guard`/`adopt` reject `-L` (`guard` excepted): `new` spawns a detached server (`--ephemeral` marks `@rk_ephemeral`); `adopt` stamps `@rk_srv_managed` + reloads the conf."
 ---
 # Agent-to-Agent Messaging (`rk mux`)
 
@@ -33,7 +33,7 @@ full contract in [tmux-sessions](/run-kit/tmux-sessions.md) § `rk mux reap`), `
 (layout recovery, [layout-snapshots](/run-kit/layout-snapshots.md)),
 `rk mux init-conf` (scaffolds the rk-managed tmux.conf and the
 `tmux.d/user.conf` override starter under `~/.config/run-kit/`), `rk mux adopt` (converts an
-external tmux server to rk-managed — stamps `@rk_managed` then sources the
+external tmux server to rk-managed — stamps `@rk_srv_managed` then sources the
 managed conf, rolling the stamp back on a failed reload; idempotent, and the
 bulk-migration path for rk-born servers that predate the stamp), and `rk mux guard` (fronts the real
 tmux binary, refusing a bare `kill-server` — the verb the installed PATH shim
@@ -422,7 +422,7 @@ unmarked server behind.
 ### Requirement: `rk mux adopt` — convert an external server to managed
 `rk mux adopt <server>` (`cmd/rk/mux_adopt.go`, `mux_new.go` as the template)
 SHALL convert an external (unmarked) tmux server into an rk-managed one
-(stamping `@rk_managed`, const `tmux.ManagedOption`; the full class contract is
+(stamping `@rk_srv_managed`, const `tmux.ManagedOption`; the full class contract is
 [tmux-sessions](/run-kit/tmux-sessions.md) § Server-Scoped User Options).
 `<server>` SHALL be validated via `validate.ValidateServerName` before any
 subprocess (usage error, exit 2); as an operator-tier member it rejects an
@@ -699,7 +699,7 @@ that just booted signals something structurally wrong).
 *Introduced by*: 260821-hbmh-ephemeral-creation-adoption
 
 ### Adopt rolls back its stamp on a failed reload
-**Decision**: `rk mux adopt` (and the `POST /api/servers/adopt` endpoint) stamp `@rk_managed` first, then source the managed conf; a failed reload best-effort unmarks and fails the verb.
+**Decision**: `rk mux adopt` (and the `POST /api/servers/adopt` endpoint) stamp `@rk_srv_managed` first, then source the managed conf; a failed reload best-effort unmarks and fails the verb.
 **Why**: the mark means "the managed conf applied" — a stamped server whose conf never applied would be a lying provenance record; the rollback keeps the stamp truthful. Ordering stamp-first guarantees the rollback target exists.
 **Rejected**: reload-then-stamp (a crash between the two leaves a confed-but-external server — the inverse lie); leaving the stamp on reload failure (silently opts the server into future conf reloads it never received).
 *Introduced by*: 260826-lv87-external-server-provenance-adopt

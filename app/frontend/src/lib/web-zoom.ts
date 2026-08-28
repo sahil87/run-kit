@@ -10,7 +10,7 @@
  *    first. Gesture zoom is CONTINUOUS (260824-iafo) — off-ladder floats are
  *    legitimate stored state, and the snap is the bridge from a gesture-set
  *    float to the button/palette ladder.
- * 2. `webZoomKeyFor` — the persistence bucket for a stored `@rk_url`, derived
+ * 2. `webZoomKeyFor` — the persistence bucket for a stored `@rk_win_url`, derived
  *    via `classifyAddress`: `external` → the URL's origin, `proxy`/loopback →
  *    `proxy:{port}`, `present`/`relative` → the single viewer-origin bucket
  *    `self`. Matches browser per-origin zoom expectations.
@@ -77,7 +77,7 @@ export function stepWebZoom(current: number, direction: "in" | "out"): number {
 }
 
 /**
- * The persistence bucket for a stored `@rk_url`: `external` → the URL's
+ * The persistence bucket for a stored `@rk_win_url`: `external` → the URL's
  * origin (`https://example.com`); `proxy`/loopback → `proxy:{port}`;
  * `present`/`relative` → the single viewer-origin bucket `self` (presented
  * files rotate paths, so per-path buckets would fragment state). Never

@@ -84,13 +84,13 @@ type TmuxOps interface {
 	SetWindowOption(ctx context.Context, windowID, server, option, value string) error
 	UnsetWindowOption(ctx context.Context, windowID, server, option string) error
 	SetWindowOptions(ctx context.Context, windowID, server string, ops []tmux.WindowOptionOp) error
-	// ClearWindowRoleExceptOnServer is the server-scoped @rk_role radio clear:
+	// ClearWindowRoleExceptOnServer is the server-scoped @rk_win_role radio clear:
 	// it unsets the role option on every window of the server except
 	// keepWindowID (see tmux.ClearWindowRoleExcept) and returns the cleared
 	// window IDs so the caller can demote displaced carriers.
 	ClearWindowRoleExceptOnServer(ctx context.Context, server, keepWindowID string) ([]string, error)
 	// MoveWindowIntoOperatorSessionOnServer / DemoteWindowFromOperatorSessionOnServer
-	// are the physical promotion halves of the @rk_role contract: role-set moves
+	// are the physical promotion halves of the @rk_win_role contract: role-set moves
 	// the window into the per-server operator session, role-clear moves a member
 	// back out to its cwd-basename session (see tmux.MoveWindowIntoOperatorSession
 	// / tmux.DemoteWindowFromOperatorSession).
@@ -109,8 +109,8 @@ type TmuxOps interface {
 	MarkServerProtected(ctx context.Context, server string) error
 	UnmarkServerProtected(ctx context.Context, server string) error
 	// IsManagedServer is the combined managed-class predicate (rk-daemon by
-	// derivation ∨ @rk_managed); Mark/UnmarkServerManaged write the
-	// @rk_managed provenance mark for the adopt endpoint (Unmark exists only
+	// derivation ∨ @rk_srv_managed); Mark/UnmarkServerManaged write the
+	// @rk_srv_managed provenance mark for the adopt endpoint (Unmark exists only
 	// as the adopt-failure rollback), and ReloadConfig sources the managed
 	// conf onto the server.
 	IsManagedServer(ctx context.Context, server string) (bool, error)
@@ -826,7 +826,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.HandleFunc("/proxy/{port}", s.handleProxy)
 
 	// Content route for `rk present` file/dir targets — the serve root is the
-	// window's @rk_present_root option, read from tmux at request time.
+	// window's @rk_win_present_root option, read from tmux at request time.
 	r.HandleFunc("/present/{windowId}/*", s.handlePresent)
 	r.HandleFunc("/present/{windowId}", s.handlePresent)
 

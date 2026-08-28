@@ -155,7 +155,7 @@ describe("degradeLayout", () => {
 });
 
 describe("hintLayout", () => {
-  it("yields single:web for a legacy @rk_type=iframe window, single:tty otherwise", () => {
+  it("yields single:web for a legacy @rk_win_lens=iframe window, single:tty otherwise", () => {
     expect(hintLayout(iframeWin)).toEqual({ shape: "single", order: ["web"] });
     expect(hintLayout(plain)).toEqual({ shape: "single", order: ["tty"] });
     expect(hintLayout(webWin)).toEqual({ shape: "single", order: ["tty"] });

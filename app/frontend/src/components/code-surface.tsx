@@ -6,7 +6,7 @@ import { useEffect, useRef } from "react";
  * 260811-a2bo; spec docs/specs/right-panel.md § The code lens).
  *
  * Deliberately a NEW lean component, NOT `IframeWindow`: the code-server URL is
- * fully DERIVED (`/code/?folder=<git root>`), so the URL bar — `@rk_url`
+ * fully DERIVED (`/code/?folder=<git root>`), so the URL bar — `@rk_win_url`
  * substrate state — is meaningless here, and IframeWindow reuse would drag in
  * inapplicable chrome. It is exactly an iframe plus the not-running empty
  * state.

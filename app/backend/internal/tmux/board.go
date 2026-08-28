@@ -10,17 +10,18 @@ import (
 )
 
 // Board membership is derived entirely from single-window pin-sessions
-// (`_rk-pin-*`) and their session-scoped user options — there is no `@rk_board`
-// server-option encoding (Constitution II: state derived from tmux). A board is
-// the set of pin-sessions sharing a `@rk_board` value.
+// (`_rk-pin-*`) and their session-scoped user options — there is no
+// `@rk_ses_pin_board` server-option encoding (Constitution II: state derived
+// from tmux). A board is the set of pin-sessions sharing a
+// `@rk_ses_pin_board` value.
 //
-//   - @rk_board       — which board this pinned window belongs to
-//   - @rk_home        — the home session to restore the window to on unpin
-//   - @rk_board_order — fractional order key within the board (ComputeOrderKey)
+//   - @rk_ses_pin_board — which board this pinned window belongs to
+//   - @rk_ses_pin_home  — the home session to restore the window to on unpin
+//   - @rk_ses_pin_order — fractional order key within the board (ComputeOrderKey)
 const (
-	BoardOption      = "@rk_board"
-	HomeOption       = "@rk_home"
-	BoardOrderOption = "@rk_board_order"
+	BoardOption      = "@rk_ses_pin_board"
+	HomeOption       = "@rk_ses_pin_home"
+	BoardOrderOption = "@rk_ses_pin_order"
 )
 
 // BoardEntry represents a single (server, windowID) pin to a named board,
@@ -107,8 +108,8 @@ func unsetSessionOption(ctx context.Context, server, session, option string) err
 
 // pinEntry derives the BoardEntry for a single pin-session by reading its
 // session vars. Returns (entry, true, nil) when the session carries a valid
-// @rk_board value; (zero, false, nil) when it is not a board pin (no/invalid
-// @rk_board) — a defensive skip rather than an error.
+// @rk_ses_pin_board value; (zero, false, nil) when it is not a board pin (no/invalid
+// @rk_ses_pin_board) — a defensive skip rather than an error.
 func pinEntry(ctx context.Context, server, pinSession string) (BoardEntry, bool, error) {
 	windowID, ok := WindowIDFromPinSession(pinSession)
 	if !ok {
@@ -263,7 +264,7 @@ func nextAppendKey(entries []BoardEntry) string {
 // board still derives entirely from `_rk-pin-*` session options.
 //
 // Idempotent: if `_rk-pin-<id>` already exists, Pin is a no-op (no re-link, no
-// order-key churn) when the board matches, and re-stamps `@rk_board` when it
+// order-key churn) when the board matches, and re-stamps `@rk_ses_pin_board` when it
 // differs.
 //
 // Security (Constitution §I): windowID and board are validated before any
@@ -286,18 +287,18 @@ func Pin(ctx context.Context, server, windowID, board string) error {
 	// Idempotency: the pin-session already exists → the window is already pinned.
 	// Re-pin makes the requested board win and repairs the order key if it went
 	// missing, so the pin is always board-derivable and sortable. We do NOT try to
-	// repair @rk_home here: @rk_home durability is guaranteed at creation by the
+	// repair @rk_ses_pin_home here: @rk_ses_pin_home durability is guaranteed at creation by the
 	// stamp-before-link ordering below (it is written while the pin-session is
-	// still empty, so the window never enters a pin-session lacking @rk_home).
+	// still empty, so the window never enters a pin-session lacking @rk_ses_pin_home).
 	// A window has exactly one pin-session, so this is the sole authoritative
 	// place its board membership lives.
 	if _, err := tmuxExecRawServer(ctx, server, "has-session", "-t", ExactSessionTarget(pinSession)); err == nil {
-		// @rk_board: always set to the requested board (different-board re-pin must
+		// @rk_ses_pin_board: always set to the requested board (different-board re-pin must
 		// not silently keep the old board; same-board is a harmless idempotent set).
 		if err := setSessionOption(ctx, server, pinSession, BoardOption, board); err != nil {
 			return fmt.Errorf("re-stamp %s on existing pin %q: %w", BoardOption, pinSession, err)
 		}
-		// @rk_board_order: repair only if missing/invalid so GetBoard can sort it.
+		// @rk_ses_pin_order: repair only if missing/invalid so GetBoard can sort it.
 		curOrder, oerr := showSessionOption(ctx, server, pinSession, BoardOrderOption)
 		if oerr != nil {
 			return fmt.Errorf("read %s on existing pin %q: %w", BoardOrderOption, pinSession, oerr)
@@ -367,7 +368,7 @@ func Pin(ctx context.Context, server, windowID, board string) error {
 	//   - The window has NOT been linked yet, so a stamp failure strands nothing —
 	//     we simply kill the empty placeholder-only pin-session and return; the
 	//     window is untouched in its home session.
-	//   - Once the link succeeds (below), @rk_home is already durably present, so
+	//   - Once the link succeeds (below), @rk_ses_pin_home is already durably present, so
 	//     the window can ALWAYS be unpinned. There is no window-linked-but-unstamped
 	//     window, hence no double-fault rollback, no "un-unpinnable" pin-session,
 	//     and the idempotent recovery story is trivially true.
@@ -413,13 +414,13 @@ func Pin(ctx context.Context, server, windowID, board string) error {
 // session died while pinned, or it is a legacy move-based pin that lives only in
 // the pin-session), a plain kill-session would DESTROY the window. This case is
 // detected first (no live non-pin membership) and instead takes a recovery path
-// chosen by the recorded `@rk_home`:
-//   - `@rk_home` names a session that is STILL ALIVE (a legacy move-based pin
+// chosen by the recorded `@rk_ses_pin_home`:
+//   - `@rk_ses_pin_home` names a session that is STILL ALIVE (a legacy move-based pin
 //     whose home outlived the move) → LINK the window back into that live home,
 //     then kill the pin-session, so the window lands in its real home.
-//   - `@rk_home` names a session that is GONE → rename the (single-window)
+//   - `@rk_ses_pin_home` names a session that is GONE → rename the (single-window)
 //     pin-session to that home name, recreating the dead home in place.
-//   - `@rk_home` is empty/corrupt (or any of the above fails) → rename the
+//   - `@rk_ses_pin_home` is empty/corrupt (or any of the above fails) → rename the
 //     pin-session to a collision-guarded `recovered<id>` name.
 //
 // In every branch the membership options are cleared and the window resurfaces
@@ -452,7 +453,7 @@ func Unpin(ctx context.Context, server, windowID, board string) error {
 	// mismatch as a no-op success — the window stays pinned to its real board, and
 	// the handler's broadcast (which names the URL board) describes a state that
 	// did not change, so suppressing the unpin keeps SSE consistent. An unreadable
-	// @rk_board is a real error.
+	// @rk_ses_pin_board is a real error.
 	curBoard, err := showSessionOption(ctx, server, pinSession, BoardOption)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", BoardOption, err)
@@ -469,7 +470,7 @@ func Unpin(ctx context.Context, server, windowID, board string) error {
 	// Normal path: the window is still linked into a live non-pin (home) session,
 	// so killing the pin-session drops only the pin link — tmux keeps the window
 	// alive in home at its existing position (no move-back, no append). Detect a
-	// surviving non-pin membership directly rather than trusting @rk_home: a
+	// surviving non-pin membership directly rather than trusting @rk_ses_pin_home: a
 	// window could have been re-homed, and only an actual live link makes the
 	// kill-session safe.
 	if _, hasHome, herr := resolveHomeSession(ctx, server, windowID); herr != nil {
@@ -483,8 +484,8 @@ func Unpin(ctx context.Context, server, windowID, board string) error {
 	// plain kill-session would DESTROY the window, so instead resurface it in the
 	// SESSIONS sidebar without ever losing it.
 	//
-	// No recorded @rk_home. With stamp-before-link (see Pin) this should be
-	// unreachable for pins created by this build — @rk_home is durably set before
+	// No recorded @rk_ses_pin_home. With stamp-before-link (see Pin) this should be
+	// unreachable for pins created by this build — @rk_ses_pin_home is durably set before
 	// the window is ever linked into the pin-session — but a legacy/corrupt
 	// pin-session could still lack it. Rather than hard-failing and stranding the
 	// window invisibly (it is filtered from SESSIONS as a `_rk-pin-*` name and,
@@ -492,7 +493,7 @@ func Unpin(ctx context.Context, server, windowID, board string) error {
 	// pin-session to a deterministic `recovered<id>` name so the window resurfaces.
 	// A window is never left unrecoverable.
 	if home == "" {
-		slog.Warn("board: unpin found pin-session with no @rk_home — recovering window into a renamed session",
+		slog.Warn("board: unpin found pin-session with no @rk_ses_pin_home — recovering window into a renamed session",
 			"server", server, "pin", pinSession)
 		return recoverPinToRenamedSession(ctx, server, pinSession)
 	}
@@ -509,7 +510,7 @@ func Unpin(ctx context.Context, server, windowID, board string) error {
 			// Linking into the live home failed — do not strand the window in the
 			// invisible pin-session. Fall back to the deterministic recovered-name
 			// rename so it still resurfaces under a visible session.
-			slog.Warn("board: unpin could not link window into live @rk_home — recovering into a renamed session",
+			slog.Warn("board: unpin could not link window into live @rk_ses_pin_home — recovering into a renamed session",
 				"server", server, "pin", pinSession, "home", home, "err", err)
 			return recoverPinToRenamedSession(ctx, server, pinSession)
 		}
@@ -585,7 +586,7 @@ func killPinSessionIfPresent(ctx context.Context, server, pinSession string) err
 }
 
 // Reorder updates the order key of an existing pin by rewriting only its
-// pin-session's @rk_board_order var. Returns an error if the pin-session does
+// pin-session's @rk_ses_pin_order var. Returns an error if the pin-session does
 // not exist, is not on the named board, or newOrderKey is invalid.
 func Reorder(ctx context.Context, server, windowID, board, newOrderKey string) error {
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)

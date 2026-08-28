@@ -441,7 +441,7 @@ export async function closePane(
 /**
  * Partial-merge window options via the unified POST /options endpoint. Each
  * value is a string (set) or null (unset); absent keys are left untouched. Only
- * the allowlisted keys `@rk_win_color`/`@rk_url`/`@rk_type` are accepted server-side.
+ * the allowlisted keys `@rk_win_color`/`@rk_win_url`/`@rk_win_lens` are accepted server-side.
  * The whole merge is applied as one atomic chained tmux invocation.
  */
 export async function setWindowOptions(
@@ -466,7 +466,7 @@ export async function updateWindowUrl(
   windowId: string,
   url: string,
 ): Promise<{ ok: boolean }> {
-  return setWindowOptions(server, windowId, { "@rk_url": url });
+  return setWindowOptions(server, windowId, { "@rk_win_url": url });
 }
 
 /** The GET /api/frame-check response — the backend probe's derived verdict
@@ -763,20 +763,20 @@ export async function setWindowColor(
 
 /** Set (or clear) the window's left-gutter marker via the unified /options
  *  contract. `marker` is one of "dotted"/"solid"/"double"; null OR "" clears it
- *  (the server treats an empty @rk_marker as unset). Mirrors setWindowColor. */
+ *  (the server treats an empty @rk_win_marker as unset). Mirrors setWindowColor. */
 export async function setWindowMarker(
   server: string,
   windowId: string,
   marker: string | null,
 ): Promise<{ ok: boolean }> {
   return setWindowOptions(server, windowId, {
-    "@rk_marker": marker == null || marker === "" ? "" : marker,
+    "@rk_win_marker": marker == null || marker === "" ? "" : marker,
   });
 }
 
 /** Set (or clear) the window's role via the unified /options contract.
  *  `role` is "operator"; null OR "" clears it (the server treats an empty
- *  @rk_role as unset). Setting "operator" clears the role from every other
+ *  @rk_win_role as unset). Setting "operator" clears the role from every other
  *  window on the server (radio semantics, enforced backend-side). Mirrors
  *  setWindowMarker. */
 export async function setWindowRole(
@@ -785,13 +785,13 @@ export async function setWindowRole(
   role: string | null,
 ): Promise<{ ok: boolean }> {
   return setWindowOptions(server, windowId, {
-    "@rk_role": role == null || role === "" ? "" : role,
+    "@rk_win_role": role == null || role === "" ? "" : role,
   });
 }
 
 /** Set (or clear) the window's flair overlay via the unified /options
  *  contract. `flair` is one of "nyan"/"naruto"/"onepiece"; null OR "" clears
- *  it (the server treats an empty @rk_flair as unset). Mirrors
+ *  it (the server treats an empty @rk_win_flair as unset). Mirrors
  *  setWindowMarker. */
 export async function setWindowFlair(
   server: string,
@@ -799,14 +799,14 @@ export async function setWindowFlair(
   flair: string | null,
 ): Promise<{ ok: boolean }> {
   return setWindowOptions(server, windowId, {
-    "@rk_flair": flair == null || flair === "" ? "" : flair,
+    "@rk_win_flair": flair == null || flair === "" ? "" : flair,
   });
 }
 
 /** Set (or clear) the window's one-line status note via the unified /options
  *  contract. `note` is bare free text — the server stamps the
  *  "<unix-epoch>:" prefix at write time (server owns the clock). null OR ""
- *  clears it (the server treats an empty @rk_note as unset). Mirrors
+ *  clears it (the server treats an empty @rk_win_note as unset). Mirrors
  *  setWindowMarker. */
 export async function setWindowNote(
   server: string,
@@ -814,7 +814,7 @@ export async function setWindowNote(
   note: string | null,
 ): Promise<{ ok: boolean }> {
   return setWindowOptions(server, windowId, {
-    "@rk_note": note == null || note === "" ? "" : note,
+    "@rk_win_note": note == null || note === "" ? "" : note,
   });
 }
 
@@ -863,7 +863,7 @@ export type ServerInfo = {
    *  `#{session_windows}`; group copies excluded). Optional mirroring `rank` —
    *  the backend always sends it, but test fixtures may omit it. */
   windowCount?: number;
-  /** User-defined display rank (@rk_server_rank). null/undefined when unset —
+  /** User-defined display rank (@rk_srv_rank). null/undefined when unset —
    *  unranked servers sort after ranked ones within the regular class. */
   rank?: number | null;
   /** True when the server carries the @rk_ephemeral scratch mark. Optional
@@ -876,7 +876,7 @@ export type ServerInfo = {
    *  the backend always sends it, but test fixtures may omit it. */
   protected?: boolean;
   /** True when the server is rk-managed: rk-daemon by derivation, or any
-   *  server carrying the @rk_managed provenance mark (rk-born or adopted).
+   *  server carrying the @rk_srv_managed provenance mark (rk-born or adopted).
    *  Optional mirroring `protected` — an old backend omitting the field must
    *  render NO external treatment, so consumers gate on `managed === false`,
    *  never on absence. */
@@ -996,7 +996,7 @@ export async function setServerProtected(
 }
 
 /** Adopt an external (unmarked) server into run-kit management — the backend
- *  stamps @rk_managed and sources the managed conf (rolling back the stamp
+ *  stamps @rk_srv_managed and sources the managed conf (rolling back the stamp
  *  when the reload fails). Idempotent: an already-managed target returns 200
  *  {"status":"already-managed"}; there is no un-adopt verb. The backend wakes
  *  the SSE hub so covered clients repaint without waiting for the safety

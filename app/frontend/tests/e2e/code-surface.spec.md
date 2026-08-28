@@ -134,7 +134,7 @@ growth), and closing the web tile keeps its iframe subtree mounted
 (display-level hide); the re-opened web iframe is the identical element
 (in-memory state preserved).
 Steps:
-1. Create a repo-cwd window and stamp `@rk_url` (both surfaces available);
+1. Create a repo-cwd window and stamp `@rk_win_url` (both surfaces available);
    navigate; assert both top-bar toggles.
 2. Open web; assert the `Proxied content` iframe is visible. Click the code
    top-bar toggle; assert the code iframe is visible AND the web iframe still is.

@@ -309,3 +309,100 @@ func TestMarkThenReportSweep_composes(t *testing.T) {
 		t.Error("second MarkLegacyMigrationAttempt = true, want false — the guard is burned on attempt")
 	}
 }
+
+// legacySeed is one seeded legacy option: the retired name, its scope-named
+// successor ("" for the unset-only @rk_ctl_keepalive row), the value, and the
+// show-options args selecting the scope it is legitimate at.
+type legacySeed struct {
+	old, new, val string
+	showArgs      []string
+}
+
+// TestMigrateLegacyOptions_scopePrefixRename seeds ALL 16 scope-prefix legacy
+// names at their correct scopes on a real test socket (7 window options on
+// the boot window, 5 session options incl. the retired @rk_ctl_keepalive, 4
+// server options via set-option -s) and asserts the sweep moves each onto its
+// scope-named successor at the same scope, deletes the keepalive, and leaves
+// no legacy name behind. A second sweep issues zero set/unset calls, and a
+// legacy name at a WRONG scope is purged with no copy-forward.
+func TestMigrateLegacyOptions_scopePrefixRename(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	id := windowID(t, server, "boot:0")
+
+	windowSeeds := []legacySeed{
+		{legacyTypeOption, LensOption, "iframe", []string{"-w", "-t", id}},
+		{legacyURLOption, URLOption, "https://example.test/app", []string{"-w", "-t", id}},
+		{"@rk_present_root", PresentRootOption, "/srv/root", []string{"-w", "-t", id}},
+		{"@rk_marker", MarkerOption, "solid", []string{"-w", "-t", id}},
+		{"@rk_flair", FlairOption, "nyan", []string{"-w", "-t", id}},
+		{legacyNoteOption, NoteOption, "1756036800:old-note", []string{"-w", "-t", id}},
+		{"@rk_role", RoleOption, "operator", []string{"-w", "-t", id}},
+	}
+	sessionSeeds := []legacySeed{
+		{"@rk_session_flair", SessionFlairOption, "naruto", []string{"-t", "=boot:"}},
+		{"@rk_board", BoardOption, "main", []string{"-t", "=boot:"}},
+		{"@rk_home", HomeOption, "boot", []string{"-t", "=boot:"}},
+		{"@rk_board_order", BoardOrderOption, "main,deploy", []string{"-t", "=boot:"}},
+		// Retired with no successor: unset-only row.
+		{"@rk_ctl_keepalive", "", "1", []string{"-t", "=boot:"}},
+	}
+	serverSeeds := []legacySeed{
+		{"@rk_session_order", SessionOrderOption, "boot,extra", []string{"-s"}},
+		{"@rk_server_rank", ServerRankOption, "7", []string{"-s"}},
+		{"@rk_origin", OriginOption, "http://127.0.0.1:3001", []string{"-s"}},
+		{"@rk_managed", ManagedOption, "1", []string{"-s"}},
+	}
+
+	for _, s := range windowSeeds {
+		legacyTmuxDo(t, server, "set-option", "-w", "-t", id, s.old, s.val)
+	}
+	for _, s := range sessionSeeds {
+		legacyTmuxDo(t, server, "set-option", "-t", "=boot:", s.old, s.val)
+	}
+	for _, s := range serverSeeds {
+		legacyTmuxDo(t, server, "set-option", "-s", s.old, s.val)
+	}
+	// A window option name held on the SERVER table is a wrong-scope hold:
+	// the sweep purges it and never copies the value forward.
+	legacyTmuxDo(t, server, "set-option", "-s", "@rk_role", "contaminated")
+
+	if err := MigrateLegacyOptions(context.Background(), server); err != nil {
+		t.Fatalf("MigrateLegacyOptions: %v", err)
+	}
+
+	seeds := append(append(append([]legacySeed{}, windowSeeds...), sessionSeeds...), serverSeeds...)
+	for _, s := range seeds {
+		if s.new != "" {
+			if v, ok := legacyHeld(t, server, append(s.showArgs, s.new)...); !ok || v != s.val {
+				t.Errorf("%s = %q (held=%v), want %q at the same scope", s.new, v, ok, s.val)
+			}
+		}
+		if v, ok := legacyHeld(t, server, append(s.showArgs, s.old)...); ok {
+			t.Errorf("legacy %s still held after the sweep: %q", s.old, v)
+		}
+	}
+
+	// Wrong-scope purge: gone from the server table, and the contaminated
+	// value never reached the legitimate successor (the window-scope row
+	// migrated its own value).
+	if v, ok := legacyHeld(t, server, "-s", "@rk_role"); ok {
+		t.Errorf("wrong-scope @rk_role still held at server scope: %q", v)
+	}
+	if v, ok := legacyHeld(t, server, "-w", "-t", id, RoleOption); !ok || v != "operator" {
+		t.Errorf("window %s = %q (held=%v), want %q — the wrong-scope value must not copy forward", RoleOption, v, ok, "operator")
+	}
+
+	// No legacy name remains at any scope.
+	if n, err := CountLegacyOptions(context.Background(), server); err != nil || n != 0 {
+		t.Errorf("CountLegacyOptions after the sweep = %d (err=%v), want 0", n, err)
+	}
+
+	// Idempotent: a second sweep issues zero set/unset calls.
+	changed, err := sweepLegacyOptions(context.Background(), server)
+	if err != nil {
+		t.Fatalf("second sweep: %v", err)
+	}
+	if changed {
+		t.Error("second sweep reported changed=true, want false (zero set-option calls)")
+	}
+}

@@ -3,7 +3,7 @@
 Proves the web tile's browser chrome (change `260819-v6y4-web-tile-browser-chrome`,
 visual source of truth `web-tile-chrome-design-study.html` in that change folder):
 explicit error states replace the silent blank iframe (R8), back/forward drive the
-same-origin frame history per-viewer with zero `@rk_url` writes (R5 + spec
+same-origin frame history per-viewer with zero `@rk_win_url` writes (R5 + spec
 window-views R7), the address bar splits display form from raw edit form (R7),
 and the retired `>_` switch-to-terminal button is gone (R13).
 
@@ -19,7 +19,7 @@ and the retired `>_` switch-to-terminal button is gone (R13).
 - **`afterAll`**: kill the session, remove the scratch dir.
 - **`beforeEach`**: 1440×800 desktop viewport.
 - **`makeWindow(name, {url?, presentRoot?})`**: `tmux new-window` + direct
-  `set-option -w` stamps of `@rk_url` / `@rk_present_root` (execFileSync arg
+  `set-option -w` stamps of `@rk_win_url` / `@rk_win_present_root` (execFileSync arg
   arrays — never a shell string). `url` is omittable so `/present/…` addresses can
   embed the resolved `@N` id before navigation.
 - **`gotoWebTile(id)`**: deep-link `/<server>/<@N>?view=web` and wait for the
@@ -37,13 +37,13 @@ and the retired `>_` switch-to-terminal button is gone (R13).
 What it proves: R8 — a probed-blocked external URL renders the design-study
 state-05 refusal box ("{host} refuses embedding" + the reason line) instead of a
 silent blank iframe, and the in-error "Open in browser ↗" button pops the current
-address in a new tab without any `@rk_url` write.
+address in a new tab without any `@rk_win_url` write.
 Steps:
 1. Record `/options` POSTs; stub `window.open`; `page.route` mock
    `/api/frame-check*` (trailing `*` covers the query string) to answer
    `embeddable: false` with `X-Frame-Options: DENY`; abort the external iframe
    navigation so the test is hermetic.
-2. Create a window with `@rk_url = https://framed-refusal.example/some/page`;
+2. Create a window with `@rk_win_url = https://framed-refusal.example/some/page`;
    deep-link `?view=web`.
 3. Assert the error box is visible with the refusal copy, and the iframe is hidden.
 4. Click the error box's "Open in browser" button; assert `__openedUrls` received
@@ -52,9 +52,9 @@ Steps:
 ### (b) back/forward drive the same-origin frame history per-viewer — zero option POSTs
 What it proves: R5/R7 — ◀/▶ navigate the frame's own history (view state); the
 address bar's display form tracks the frame's current location; neither touches
-`@rk_url` (the R7 substrate/view split).
+`@rk_win_url` (the R7 substrate/view split).
 Steps:
-1. Create a window with `@rk_present_root` = the scratch dir and `@rk_url` =
+1. Create a window with `@rk_win_present_root` = the scratch dir and `@rk_win_url` =
    `/present/<@N>/page-one.html?server=<e2e-server>`; deep-link `?view=web`.
 2. Assert the frame shows page one and the address input's rest value is the
    display form `page-one.html`.

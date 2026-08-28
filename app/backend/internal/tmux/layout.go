@@ -46,7 +46,7 @@ type LayoutWindow struct {
 	Marker string
 	Role   string
 	Flair  string
-	// Note is the raw @rk_note value ("<unix-epoch>:<text>") — restored
+	// Note is the raw @rk_win_note value ("<unix-epoch>:<text>") — restored
 	// verbatim so the note's age stays honest across a restore.
 	Note string
 }
@@ -72,7 +72,10 @@ var layoutSessionFormat = strings.Join([]string{
 
 // layoutWindowFormat lists the owning session plus everything needed to
 // recreate the window (id, index, name, active flag, layout string) and the
-// rk-owned presentation options.
+// rk-owned presentation options. Lens/URL/note are dual-read: the legacy
+// lens/URL fields ride after the flair field and the legacy note stays LAST
+// (parseLayoutWindows prefers the new fields, falling back to the legacy
+// ones).
 var layoutWindowFormat = strings.Join([]string{
 	"#{session_name}",
 	"#{window_id}",
@@ -81,14 +84,18 @@ var layoutWindowFormat = strings.Join([]string{
 	"#{window_active}",
 	"#{window_layout}",
 	"#{" + ColorOption + "}",
-	"#{@rk_type}",
-	"#{@rk_url}",
-	"#{@rk_marker}",
-	"#{@rk_role}",
-	"#{@rk_flair}",
-	// @rk_note is free text in a tab-delimited format — it MUST stay the last
-	// field so parseLayoutWindows can rejoin the tail (mirrors parseWindows).
-	"#{@rk_note}",
+	"#{" + LensOption + "}",
+	"#{" + URLOption + "}",
+	"#{" + MarkerOption + "}",
+	"#{" + RoleOption + "}",
+	"#{" + FlairOption + "}",
+	"#{" + legacyTypeOption + "}",
+	"#{" + legacyURLOption + "}",
+	// The new note is a strict single field; the legacy note is free text in a
+	// tab-delimited format — it MUST stay the last field so parseLayoutWindows
+	// can rejoin the tail (mirrors parseWindows).
+	"#{" + NoteOption + "}",
+	"#{" + legacyNoteOption + "}",
 }, listDelim)
 
 // layoutPaneFormat lists the owning window id plus everything needed to
@@ -190,6 +197,15 @@ func parseLayoutWindows(lines []string) []LayoutWindow {
 			continue
 		}
 		seen[windowID] = true
+		rkType := strings.TrimSpace(parts[7])
+		rkURL := strings.TrimSpace(parts[8])
+		// Dual-read fallback (pre-rename writers): legacy lens/URL fields.
+		if rkType == "" && len(parts) >= 13 {
+			rkType = strings.TrimSpace(parts[12])
+		}
+		if rkURL == "" && len(parts) >= 14 {
+			rkURL = strings.TrimSpace(parts[13])
+		}
 		win := LayoutWindow{
 			Session:  session,
 			WindowID: windowID,
@@ -198,23 +214,28 @@ func parseLayoutWindows(lines []string) []LayoutWindow {
 			Active:   strings.TrimSpace(parts[4]) == "1",
 			Layout:   strings.TrimSpace(parts[5]),
 			Color:    strings.TrimSpace(parts[6]),
-			RkType:   strings.TrimSpace(parts[7]),
-			RkURL:    strings.TrimSpace(parts[8]),
+			RkType:   rkType,
+			RkURL:    rkURL,
 			Marker:   strings.TrimSpace(parts[9]),
 		}
-		// Field 11 (@rk_role) is optional — absent on older captures.
+		// Field 11 (@rk_win_role) is optional — absent on older captures.
 		if len(parts) >= 11 {
 			win.Role = strings.TrimSpace(parts[10])
 		}
-		// Field 12 (@rk_flair) is optional — absent on older captures.
+		// Field 12 (@rk_win_flair) is optional — absent on older captures.
 		if len(parts) >= 12 {
 			win.Flair = strings.TrimSpace(parts[11])
 		}
-		// Field 13 (@rk_note) is optional — absent on older captures. Free
-		// text, so the tail is rejoined to survive tabs inside the value
-		// (mirrors parseWindows).
-		if len(parts) >= 13 {
-			win.Note = strings.Join(parts[12:], listDelim)
+		// Field 15 (@rk_win_note) is optional — absent on older captures. A
+		// strict single field (write-side validation strips control chars).
+		if len(parts) >= 15 {
+			win.Note = parts[14]
+		}
+		// The legacy note is optional and LAST: free text, so its tail is
+		// rejoined to survive tabs inside the value. It fills in only when the
+		// new note field came back empty (dual-read; mirrors parseWindows).
+		if win.Note == "" && len(parts) >= 16 {
+			win.Note = strings.Join(parts[15:], listDelim)
 		}
 		out = append(out, win)
 	}

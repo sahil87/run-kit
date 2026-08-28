@@ -89,11 +89,23 @@ fi
 tmux -L "$E2E_TMUX_SERVER" new-session -d -s e2e-init -x 80 -y 24
 # Convention: test servers carry the @rk_ephemeral creator opt-out mark (belt-and-braces alongside the rk-test-* name umbrella).
 tmux -L "$E2E_TMUX_SERVER" set-option -s @rk_ephemeral 1
-# The rig's servers are rk's own substrate: mark them @rk_managed so the
+# The rig's servers are rk's own substrate: mark them @rk_srv_managed so the
 # WS-attach conf reload fires (specs rely on rk's tmux.conf — e.g.
 # allow-passthrough for wrapped OSC — reaching the server on first view;
 # an unmarked server is external and rk no longer pushes conf into it).
-tmux -L "$E2E_TMUX_SERVER" set-option -s @rk_managed 1
+tmux -L "$E2E_TMUX_SERVER" set-option -s @rk_srv_managed 1
+
+# Pre-seed LEGACY option names so the daemon's once-per-server migration sweep
+# converges them to @rk_srv_*/@rk_win_* on attach (the WS-attach/reload-config
+# sweep hook). Removed when the legacy-name deprecation window closes. The
+# e2e-init first window carries window-scope legacy role/url/note; the legacy
+# sweep spec asserts the convergence.
+E2E_INIT_WIN_ID="$(tmux -L "$E2E_TMUX_SERVER" display-message -p -t e2e-init '#{window_id}')"
+tmux -L "$E2E_TMUX_SERVER" set-option -s @rk_origin e2e-legacy
+tmux -L "$E2E_TMUX_SERVER" set-option -s @rk_session_order e2e-init
+tmux -L "$E2E_TMUX_SERVER" set-option -w -t "$E2E_INIT_WIN_ID" @rk_role operator
+tmux -L "$E2E_TMUX_SERVER" set-option -w -t "$E2E_INIT_WIN_ID" @rk_url /about:blank
+tmux -L "$E2E_TMUX_SERVER" set-option -w -t "$E2E_INIT_WIN_ID" @rk_note '1:e2e-legacy-note'
 
 # Start the dev server in its OWN process group, so cleanup can kill the whole
 # dev subtree (just -> air/vite/node children) by PGID without ever signalling

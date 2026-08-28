@@ -44,9 +44,9 @@ tiles.
 - **`beforeEach`**: set a wide desktop viewport (1440×800) — multi-tile is
   desktop-only (R13); the mobile test overrides to 375×812.
 - **`makeWindow(name, {url?})`**: create a window via `tmux new-window`, then
-  stamp `@rk_url` with `tmux set-option -w` (`execFileSync` argument arrays —
+  stamp `@rk_win_url` with `tmux set-option -w` (`execFileSync` argument arrays —
   no shell strings). Windows inherit the tmux server's repo-root cwd, so every
-  window is code-capable (gitRoot derived); `@rk_url` adds web availability.
+  window is code-capable (gitRoot derived); `@rk_win_url` adds web availability.
   Returns the stable `@N` id.
 - **`paneCount(id)`**: `tmux display-message -t <id> -p '#{window_panes}'` —
   the split-chord gate's ground truth (a real backend split, not a DOM read).
@@ -87,7 +87,7 @@ maps to `split-h:code,web` (view in slot A), the URL is rewritten via
 `replaceState` to the mirrored `?layout=` form with the legacy params gone,
 and both tiles render (code iframe + proxied web iframe), never a broken tile.
 Steps:
-1. Create a web-capable window (`@rk_url`; repo cwd ⇒ code-capable).
+1. Create a web-capable window (`@rk_win_url`; repo cwd ⇒ code-capable).
 2. Navigate with `?view=code&panel=web`.
 3. Assert the `layout` param reads `split-h:code,web` and `view` is absent.
 4. Assert the `surface-tile-code` and `surface-tile-web` tiles are visible and

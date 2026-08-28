@@ -203,7 +203,7 @@ func normalizeConnID(raw string) string {
 }
 
 // orderBootstrapMaxAttempts caps how many times poll() will try to read
-// @rk_session_order from tmux when previous reads errored. Limits the blast
+// @rk_srv_session_order from tmux when previous reads errored. Limits the blast
 // radius of a hung or misbehaving tmux while still recovering from transient
 // failures. After the cap is hit the bootstrap stops attempting; a successful
 // POST (which populates previousOrderJSON via broadcast) re-establishes the
@@ -234,7 +234,7 @@ type sseHub struct {
 	services               *ports.Collector
 	cachedServicesJSON     string // latest listening-services JSON for new clients
 	// cachedServerOrderJSON is the latest server-global `event: server-order`
-	// payload. Unlike previousOrderJSON (per-server @rk_session_order), server
+	// payload. Unlike previousOrderJSON (per-server @rk_srv_session_order), server
 	// rank order is a HOST-global concern, so it is a single slot fanned to
 	// EVERY client (incl. the `?metrics=1` metrics-only stream) and replayed on
 	// connect — mirroring cachedMetricsJSON / cachedServicesJSON.
@@ -1745,7 +1745,7 @@ func (h *sseHub) poll() {
 
 // wake marks the server for an immediate snapshot pass. Non-blocking and safe
 // from any goroutine; called by the option-mutation handlers after a successful
-// tmux write (set-option @rk_win_color/@rk_ses_color/@rk_url/@rk_type is invisible to
+// tmux write (set-option @rk_win_color/@rk_ses_color/@rk_win_url/@rk_win_lens is invisible to
 // the tmuxctl control-mode parser, so no subscriber notification fires — the
 // wake is the freshness driver for these mutations). Per-server, keyed by the
 // same server name the poll set uses; a wake for a server with no connected

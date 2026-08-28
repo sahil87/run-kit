@@ -886,9 +886,9 @@ func TestRenderColorTabs(t *testing.T) {
 		"tmux set-option -t @N '@rk_win_color' '<value>'",
 		"red orange amber olive green teal blue purple magenta slate",
 		"-dark or -light",
-		"tmux set-option -t @N '@rk_marker' '<value>'",
+		"tmux set-option -t @N '@rk_win_marker' '<value>'",
 		"pipe dotted dashed solid double thick hatch block",
-		"tmux set-option -t @N '@rk_flair' '<value>'",
+		"tmux set-option -t @N '@rk_win_flair' '<value>'",
 		"rain scan nyan naruto onepiece pacman matrix aquarium roadrunner invaders cube warp spidey ironman",
 		"tmux set-option -t @N -u '@rk_win_color'",
 		"DO NOTHING", "already fit", "reversible via the label picker",
@@ -932,10 +932,10 @@ func TestRenderColorTabs(t *testing.T) {
 		}
 		return tokens
 	}
-	if got, want := promptVocab("@rk_marker"), closedSetTokens(validate.MarkerValues); !maps.Equal(got, want) {
+	if got, want := promptVocab("@rk_win_marker"), closedSetTokens(validate.MarkerValues); !maps.Equal(got, want) {
 		t.Errorf("prompt marker vocabulary = %v, want validate.MarkerValues %v", got, want)
 	}
-	if got, want := promptVocab("@rk_flair"), closedSetTokens(validate.FlairValues); !maps.Equal(got, want) {
+	if got, want := promptVocab("@rk_win_flair"), closedSetTokens(validate.FlairValues); !maps.Equal(got, want) {
 		t.Errorf("prompt flair vocabulary = %v, want validate.FlairValues %v", got, want)
 	}
 
@@ -1072,7 +1072,7 @@ func TestRenderAnnotateTab(t *testing.T) {
 	for _, want := range []string{
 		"tmux window @5", `"zsh"`, "/home/u/.claude/projects/p/ref.jsonl",
 		"worktree /wt/project",
-		`tmux set-option -wt @5 @rk_note "$(date +%s):<one-line note>"`,
+		`tmux set-option -wt @5 @rk_win_note "$(date +%s):<one-line note>"`,
 		"100 characters", "nothing meaningful", "Do not reply",
 	} {
 		if !strings.Contains(prompt, want) {
@@ -1109,7 +1109,7 @@ func TestAnnotateTabScopeGuards(t *testing.T) {
 // TestRenderUpdateAnnotations: the prompt carries every row via the digest row
 // writer (with the operator's own row excluded by construction — renders only
 // receive non-operator facts), the transcript-tail read instruction with the
-// capture fallback, the exact epoch-prefixed @rk_note actuation with the
+// capture fallback, the exact epoch-prefixed @rk_win_note actuation with the
 // ~100-char bound, the skip-if-nothing-meaningful clause, the repaint note,
 // and the write-only bounds. An empty table stays deliverable.
 func TestRenderUpdateAnnotations(t *testing.T) {
@@ -1125,15 +1125,15 @@ func TestRenderUpdateAnnotations(t *testing.T) {
 		"fab=260827-8n6k-update-annotations-tile-note at stage apply",
 		"s @2", `"plain"`, "transcript unavailable",
 		"NEVER capture-pane", "rk mux capture @N",
-		`tmux set-option -wt @N @rk_note "$(date +%s):<one-line note>"`,
+		`tmux set-option -wt @N @rk_win_note "$(date +%s):<one-line note>"`,
 		"100 characters", "skip its write", "repaint within ~15 seconds",
-		"only @rk_note", "Do not reply",
+		"only @rk_win_note", "Do not reply",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("prompt missing %q:\n%s", want, prompt)
 		}
 	}
-	if strings.Contains(prompt, "-u @rk_note") {
+	if strings.Contains(prompt, "-u @rk_win_note") {
 		t.Errorf("the unset form leaked into the write-only prompt:\n%s", prompt)
 	}
 
@@ -1160,7 +1160,7 @@ func TestUpdateAnnotationsGuards(t *testing.T) {
 // TestServerOperatorRequestUpdateAnnotationsSuccess: the template delivers
 // through the unchanged seam — 200 {"ok":true}, exactly ONE FetchSessions,
 // injection targeting the operator's pane, and the rendered prompt carrying
-// the row and the @rk_note actuation.
+// the row and the @rk_win_note actuation.
 func TestServerOperatorRequestUpdateAnnotationsSuccess(t *testing.T) {
 	fastChatSendProbe(t)
 	stageFixtureTranscript(t, testChatRef)
@@ -1184,7 +1184,7 @@ func TestServerOperatorRequestUpdateAnnotationsSuccess(t *testing.T) {
 	for _, want := range []string{
 		"s @1", `"zsh"`,
 		"projects/someproj/" + testChatRef + ".jsonl",
-		`tmux set-option -wt @N @rk_note "$(date +%s):<one-line note>"`,
+		`tmux set-option -wt @N @rk_win_note "$(date +%s):<one-line note>"`,
 		"Do not reply",
 	} {
 		if !strings.Contains(prompt, want) {

@@ -15,7 +15,7 @@ const DESKTOP_VIEWPORT = { width: 1440, height: 800 };
 const URL_A = "http://localhost:8080/";
 const URL_B = "http://localhost:8081/";
 
-// The `tmux set-option -w @rk_url` write is invisible to the control-mode
+// The `tmux set-option -w @rk_win_url` write is invisible to the control-mode
 // parser, so on a quiet server the guaranteed pickup is the 12s safety
 // ticker — the auto-open assertions budget well past it.
 const PRESENT_TIMEOUT = 30_000;
@@ -25,12 +25,12 @@ async function resolveWindow(page: Page, windowName: string): Promise<string> {
   return (await resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION, windowName)).windowId;
 }
 
-/** Stamp (or clear, `null`) `@rk_url` on a window — exactly the write path
+/** Stamp (or clear, `null`) `@rk_win_url` on a window — exactly the write path
  *  `rk present`'s default arm takes. */
 function setWindowUrl(windowId: string, url: string | null): void {
   const args = url === null
-    ? ["-L", TMUX_SERVER, "set-option", "-w", "-u", "-t", windowId, "@rk_url"]
-    : ["-L", TMUX_SERVER, "set-option", "-w", "-t", windowId, "@rk_url", url];
+    ? ["-L", TMUX_SERVER, "set-option", "-w", "-u", "-t", windowId, "@rk_win_url"]
+    : ["-L", TMUX_SERVER, "set-option", "-w", "-t", windowId, "@rk_win_url", url];
   execFileSync("tmux", args, { stdio: "ignore" });
 }
 

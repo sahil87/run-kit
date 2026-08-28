@@ -1,0 +1,432 @@
+# UI State — Every Addressable Thing Is a tmux Option
+
+> **Status**: DRAFT v0.2 (2026-08-28) — discussion artifact, iterating. Decided
+> 2026-08-28: zoom is per-viewer (not tmux); navigation is not tmux state in
+> v1; `?layout=` dies after one release of link translation. Assumes
+> `fab/plans/sahil/26-08-28-tmux-option-scope-naming.md` has shipped: every
+> option below uses the `@rk_<scope>_<name>` scheme and the plan's target map
+> is the starting inventory.
+>
+> **Supersedes / amends**: [`window-views.md`](window-views.md) R2 + R7 (choice
+> is no longer per-viewer), [`surface-layout.md`](surface-layout.md) § State —
+> the resolution ladder (L1–L4 retire), [`right-panel.md`](right-panel.md)
+> § Companion Windows (unshipped; folded into § Open Questions). Banners on those three files point here;
+> in-place amendments land with implementation. Terminology
+> stays: rows are substrates, views are lenses.
+
+## Contents
+
+- Goal
+- The Layer Stack
+- The One Rule — Tab State vs Viewer Preferences
+- Addressing Grammar
+- The Option Inventory
+- Layout in tmux
+- Web Tabs
+- Code Surface + Code Bridge
+- Viewer Behaviour — What Follows, What Doesn't
+- `rk tab` — The CLI Surface
+- What Dies, What Stays
+- Migration
+- Open Questions
+
+---
+
+## Goal
+
+An agent (or the operator at a shell) can **fully address and drive the
+run-kit UI with tmux commands alone** — open a tab, choose its layout, add a
+web tab, point the code surface at a folder, collapse it to one surface — and every
+viewer looking at that tab sees the result. run-kit's frontend becomes a
+faithful *renderer of tmux state*, not a second store that must be nudged.
+
+Corollary: `rk present`, the layout verbs, the surface toggles, the code
+bridge's host resolution, and the `?layout=` deep links all become **sugar
+over `set-option`**.
+
+---
+
+## The Layer Stack
+
+Two axes. The first is tmux's and needs nothing new; the second is run-kit's
+and this spec defines it.
+
+```
+axis 1 — tmux substrate                     axis 2 — run-kit lenses over a tab
+host ─ server (-L) ─ session ─ window ─ pane         tab ─ surface ─ [web tab]
+                              └─ "tab" ─────────────► @N
+```
+
+| Noun | Is | Address | Notes |
+|---|---|---|---|
+| **host** | a machine running `rk serve` | implicit (local daemon / `$TMUX` socket) | cross-host goes through `rk remote` tunnels; **not** in the address string (v1) |
+| **server** | a tmux server | `-L <name>` | as `rk mux` today |
+| **session** | tmux session | `=<name>:` | exact-match form, never fuzzy |
+| **tab** | a tmux **window** | `@N` | immutable id; window *name* belongs to the user and is never parsed |
+| **pane** | tmux pane | `%N` | substrate only — lenses render over the tab, not a pane |
+| **surface** | a lens kind over the tab | `@N/<surface>` | `tty` · `web` · `code` · `chat` · `desktop` · `agents` (open registry, window-views.md) |
+| **web tab** | one page inside the `web` surface | `@N/web/<n>` | 1-based index; the only surface with sub-addresses (v1) |
+
+The **tab is not the terminal**. `tty` is a lens over the window's panes and
+is the one surface that can never be closed (R3), but it is a surface like
+the others. `rk tab …` never means "the tty".
+
+---
+
+## The One Rule — Tab State vs Viewer Preferences
+
+> **Anything addressable as `@N/…` is a tmux option. Anything about the
+> viewer's device is not.**
+
+| Class | Lives in | Agent-writable? | Examples |
+|---|---|---|---|
+| **Tab state** — what the tab shows | tmux window options `@rk_win_*` | **yes** | layout shape+order, web tab set + active, code folder, note, color, marker |
+| **Substrate facts** — derived from processes | pane/window options written by hooks or derived by the daemon | by hooks | agent state, chat identity, git root, ports |
+| **Viewer preferences** — how this device renders | browser storage | no | theme, terminal font size, sidebar width/open, keybindings, macros, compose drafts, web zoom, **tile zoom / mobile single-tile choice**, divider ratios |
+| **Navigation** — which tab this viewer is on | the URL route | *by intent only* (§ Viewer Behaviour) | `/$server/@N` |
+
+Today's leak is class 1 living in class 3: `rk-layout:*`, `runkit-window-view:*`,
+`runkit-window-panel:*`, `runkit-code-folder:*` are all per-browser keys
+holding tab state (ratios and zoom stay local — they are reading postures). They move to `@rk_win_*` and the
+localStorage keys die.
+
+Why shared is *correct*, not a compromise: tmux already shares pane layout,
+active pane, and window order across every attached client. Two people
+attached to the same tmux window see the same panes. run-kit's per-viewer
+layout was the deviation from the substrate it renders; this spec removes
+the deviation. Mobile is handled by a **degradation rule**, not by separate
+state (§ Layout in tmux).
+
+---
+
+## Addressing Grammar
+
+One string, most-specific-wins, extending tmux's own:
+
+```
+[-L <server>] [=<session>:]@N[/<surface>[/<n>]]
+
+@12              the tab
+@12/web          the web surface of the tab
+@12/web/2        web tab 2 inside it
+@12/code         the code surface
+-L fabKit1 =fabKit:@3/web/1
+```
+
+Rules:
+
+- `@N` is mandatory when addressing a tab from outside it. Inside a pane,
+  every verb defaults to **the caller's own tab** (`$TMUX_PANE` → `@N`, the
+  `rk present` resolution) — the common agent case needs no address at all.
+- Session/server qualifiers are exactly `rk mux`'s grammar (strict `%N/@N/=session:`);
+  nothing fuzzy, no name-based window targets (a window name is a user label).
+- Surfaces are addressed by *kind*, not by tile position. Position is a
+  property of the layout (`@rk_win_layout`), so "slot A" is a layout
+  question, never an address.
+- Web tabs are **indexed, not named** — fewer round trips on the command line
+  (`rk tab web rm 2`, not `rk tab web rm --name docs`). Titles are derived
+  from the page and are display-only.
+
+---
+
+## The Option Inventory
+
+Starting point: the scope-naming plan's target map (22 options → 21 after
+`@rk_ctl_keepalive` deletes). This spec **adds** the rows marked *new*,
+**renames** two, and **retires** one.
+
+### Server (`@rk_srv_*`) — unchanged
+
+`@rk_srv_session_order` · `@rk_srv_rank` · `@rk_srv_origin` · `@rk_srv_managed` · `@rk_srv_ephemeral` · `@rk_srv_protected`
+
+### Session (`@rk_ses_*`) — unchanged
+
+`@rk_ses_color` · `@rk_ses_flair` · `@rk_ses_pin_board` · `@rk_ses_pin_home` · `@rk_ses_pin_order`
+
+### Window = tab (`@rk_win_*`)
+
+| Option | Value | Writer | Status |
+|---|---|---|---|
+| `@rk_win_color` | color token | UI, agents | plan |
+| `@rk_win_marker` / `@rk_win_flair` | marker/flair tokens | UI, agents | plan |
+| `@rk_win_note` | `<epoch>:<text>` | agents, operator | plan |
+| `@rk_win_role` | `operator` … | `rk role` | plan |
+| **`@rk_win_layout`** | `<shape>:<surface>[,<surface>…]` e.g. `main-left:tty,code,web` | UI verbs, `rk tab layout`, agents | **new** — replaces `rk-layout:*` localStorage, `?layout=`, `?view=`, `?panel=` |
+| **`@rk_win_web_<n>`** | URL (relative `/proxy/…`, `/present/…`, or absolute) | `rk tab web add`, UI address bar, `rk present` (sugar) | **new** — indexed set, `n ≥ 1`, dense (rm renumbers) |
+| **`@rk_win_web_<n>_root`** | absolute dir | `rk tab web add <file|dir>` | **new** — replaces `@rk_win_present_root`, now per web tab |
+| **`@rk_win_web_active`** | `n` | UI tab strip, `rk tab web select` | **new** |
+| **`@rk_win_code_root`** | absolute folder | first code-surface open (seed), code-server folder navigation, `rk tab code set` | **new** — replaces the `runkit-code-folder:*` localStorage latch |
+| `@rk_win_url` | — | — | **retired** → `@rk_win_web_1` (migration row) |
+| `@rk_win_present_root` | — | — | **retired** → `@rk_win_web_1_root` |
+| `@rk_win_lens` (ex `@rk_type`) | — | — | **retired** — the "default view hint" (R5) is subsumed by `@rk_win_layout`; `rk present --window` writes `@rk_win_layout=single:web` instead |
+
+### Pane (`@rk_pane_*`) — unchanged
+
+`@rk_pane_agent_state` · `@rk_pane_chat`
+
+### Option-value conventions
+
+- Absent and empty read alike as "unset" (the `hasWebUrl` trim rule, generalized).
+- Values are plain strings; **no JSON**. Multi-valued state is either an
+  indexed family (`_web_<n>`) or a `:`/`,`-delimited scalar with a fixed
+  grammar (`@rk_win_layout`). Every value must be writable by hand with one
+  `tmux set-option -w` and readable with one `#{@…}` format.
+- Every `@rk_win_*` row joins the **snapshot round-trip set** (`internal/snapshot`
+  capture + restore); indexed families are captured by enumeration.
+- Invalid values degrade, never error: an unknown shape or unavailable surface
+  in `@rk_win_layout` degrades tile-by-tile toward `single:tty` at render
+  time (the R2 fallback spirit) — the option is left as written so the author
+  can see their mistake with `show-options`.
+
+---
+
+## Layout in tmux
+
+`@rk_win_layout` carries exactly what `?layout=` carried: **shape** (one of
+the surface-layout presets — `single`, `split-h`, `split-v`, `row`, `col`,
+`main-left`, `main-right`, `main-top`) and **order** (surfaces filling slots,
+first = slot A). The preset set is unchanged and deliberately not a free
+tree (surface-layout.md § Shape presets).
+
+What moves into tmux, what does not:
+
+| Layout value | Home | Why |
+|---|---|---|
+| shape | `@rk_win_layout` | agent-controllable, viewport-independent |
+| order | `@rk_win_layout` | same |
+| **zoom** (full-center one tile) | **per-viewer, localStorage** (`rk-layout-zoom:{server}:{@N}`) | decided 2026-08-28: zoom is a *reading posture*, like ratios — a phone zooming `web` must not zoom the desktop. An agent wanting one surface writes `single:<surface>` to the layout instead |
+| **ratios** (divider positions) | **per-viewer, localStorage** (`rk-layout-ratios:*` stays) | viewport-dependent — a 40/60 split means different things at 1440px and 390px; tmux itself re-flows pane sizes per client width |
+
+Every existing verb (Promote, Swap, Cycle shape, Close, rail toggles) becomes
+a **write to `@rk_win_layout`** through `POST /api/windows/{id}/options`,
+exactly like color and note today. The frontend holds no layout state of its
+own; it renders the option and repaints on the SSE/`/ws/state` option tick.
+The row-color safety-poll latency lesson applies: the POST handler must wake
+the hub so a viewer's own click repaints immediately.
+
+**Default.** Unset `@rk_win_layout` renders `single:tty`. The bare URL is the
+deep link to the tab; there is nothing else to encode.
+
+**Mobile degradation rule.** A coarse-pointer/narrow viewer renders **one
+tile**: the viewer's local zoom if set, else slot A of the shared layout.
+The mobile "switch-to-tile" verb writes the local zoom key only — it never
+touches `@rk_win_layout`, so a phone user reading `web` leaves the desktop
+viewer's arrangement alone. The *set* of tiles available to switch among is
+the shared layout's order; adding a surface that is not in the layout goes
+through the shared `--add` mutation like everywhere else.
+
+**Deep links.** `?layout=` is **retired**. For one release the existing
+route-entry shim translates old `?view=`/`?panel=`/`?layout=` links into a
+one-shot write of `@rk_win_layout` (only when the option is unset; otherwise
+the param is dropped and the shared layout wins). After that release the
+param is ignored. The URL is always the bare route `/$server/@N`; "look at my
+arrangement" is expressed as `rk tab layout @N …`, not as a link.
+
+---
+
+## Web Tabs
+
+**One `web` surface per tab; N web tabs inside it.** Chosen over "N web
+surfaces per tab" because:
+
+1. surface-layout v1 fixed *one tile per surface kind* and named the reason
+   two web tiles were punted — distinct page addresses would have to become
+   per-viewer state. With the address set in tmux the objection is gone, but
+   the *layout encoding* still names kinds; web tabs keep it that way.
+2. Two webviews in one tab would need a second arrangement model nested
+   inside the first. Web tabs are a strip, not a layout.
+3. Boards (surface-layout phase 4) tile surfaces across tabs; `@N/web/2` is
+   addressable by a board tile for free.
+
+State: `@rk_win_web_<n>` (URL), `@rk_win_web_<n>_root` (present root, file/dir
+kinds only), `@rk_win_web_active`. **`n ≤ 8`** — the daemon reads window
+options through `ListWindows`' fixed tmux format string (one call per server
+per tick) and a format string cannot enumerate a family, so the URL slots are
+spelled out `#{@rk_win_web_1}`…`#{@rk_win_web_8}`; roots stay out of the tick
+(the `/present/{windowId}/{n}/*` handler reads `_<n>_root` at request time,
+as it reads `@rk_win_present_root` today). `web add` on a full strip exits 1.
+The set is **dense and 1-based**; removing
+tab 2 of 3 renumbers 3→2 and the daemon fixes up `_active`. Renumbering is
+acceptable because addresses are for commands, not for durable references —
+the same trade tmux makes with window indices.
+
+Rendering: the web tile grows a tab strip when `n ≥ 2` (hidden at `n = 1`,
+today's chrome unchanged). Each web tab keeps its own iframe mounted (P3 —
+hide, never unmount) so switching does not reload a dev server page.
+Address-bar edits write `@rk_win_web_<active>`. Same-origin in-page
+navigation updates the *display* only (as today) — the stored URL is the
+tab's home, not its current location.
+
+**Identity is the URL, not the index (decided 2026-08-28).** `web add` is
+idempotent on an identical resolved URL: it returns the existing index
+instead of appending, and for file/dir kinds bumps that entry's `?v=`
+cache-buster — which is exactly `rk present`'s re-present-is-refresh
+contract, now falling out of the add verb. An agent that needs "my" web tab
+back simply re-adds the same target; no durable ids, indices stay dense.
+
+**Declared only (decided 2026-08-28).** Every member of the family is written
+by someone. Ports detected on the tab's panes (`internal/ports`) are *not*
+auto-materialised as web tabs — a derived member coming and going would
+renumber declared ones under an agent's feet. Instead the strip offers a
+detected port as a one-click **"+ add as web tab"** affordance, which is an
+ordinary declared write.
+
+**`rk present` is absorbed.** Its five target kinds and the `ProbePort`
+step live on unchanged in `internal/present`; the verb becomes sugar:
+
+```
+rk present <target>               ≡  rk tab web add <target> --show
+rk present --window[=name] <t>    ≡  rk tab new [--name] && rk tab web add <t> --layout single:web
+```
+
+`--show` = ensure `web` is in `@rk_win_layout` (grow through the ordinary
+growth shapes) and set `_active` to the new index. The L3 "transient
+auto-open carve-out" dies — auto-open is now just the layout write every
+viewer renders.
+
+---
+
+## Code Surface + Code Bridge
+
+`@rk_win_code_root` replaces the per-browser latch. Seed rule unchanged:
+written once, the first time the code surface renders for the tab, from the
+derived git root; afterwards only code-server's own folder navigation (the
+`load`-event seam) or an explicit `rk tab code set <folder>` moves it. The
+terminal never moves it.
+
+The code bridge already keys hosts by `folder` in `cb/hosts/<hostId>.json`.
+With the folder in tmux, `rk code exec` gains a **tab-addressed form**:
+
+```
+rk code exec [--tab @N] <command> [args…]     # host = the one whose folder == @N's @rk_win_code_root
+```
+
+Default `--tab` is the caller's own tab, so an agent in a pane says
+`rk code exec workbench.action.files.openFile $uri` and hits *its* editor.
+Host resolution by cwd remains the fallback when the tab has no code root.
+The bridge is thus the code surface's command channel exactly as
+`set-option` is every other surface's — it is the one surface whose interior
+(open files, cursor) is not tmux state and never will be.
+
+---
+
+## Viewer Behaviour — What Follows, What Doesn't
+
+With tab state in tmux, "does the agent control the UI?" reduces to one
+question: **which tab is the viewer on?**
+
+| Agent action | Viewer on that tab | Viewer on another tab |
+|---|---|---|
+| any `@rk_win_*` write (layout, web add, code root, color…) | repaints on the next option tick | nothing visible beyond sidebar signals (color, marker, dot) |
+| `rk tab new` | — | new row appears in the sidebar |
+| "look at this" (`--notify`) | already looking | Web Push with a deep link, as `rk present --notify` today |
+
+Navigation is deliberately **not** tmux state in v1. tmux's own "active
+window" is per-session-per-client and run-kit's route is the analogue; an
+agent that could yank every viewer's route would make the dashboard
+unusable with two people or two agents. The nudge channel is push
+notification + sidebar attention (right-panel P4: hidden must never mean
+invisible-when-stuck).
+
+Opt-in **follow mode** — a viewer toggles "follow session X" and their route
+tracks the session's tmux active window (`select-window` from a pane then
+navigates the follower) — is the natural v2 and needs no new option: it
+reads a tmux fact that already exists.
+
+---
+
+## `rk tab` — The CLI Surface
+
+All verbs are thin: resolve address → one or two `set-option` (or
+`new-window`) calls → print the resulting address on stdout (data), diagnostics
+on stderr. They **work with `rk serve` down** (the `rk mux`/`rk present`
+pattern — tmux is the store, the daemon is a renderer).
+
+```
+rk tab new [--session =S] [--cwd DIR] [--name N] [--layout L]      → prints @N
+rk tab layout [@N] <shape>:<surface,…>                            # set
+rk tab layout [@N] --add <surface> | --rm <surface> | --promote <surface> | --cycle
+rk tab web add    [@N] <target> [--show]                           → prints @N/web/<n>
+rk tab web rm     [@N/web/<n>]
+rk tab web select [@N/web/<n>]
+rk tab web ls     [@N]
+rk tab code set   [@N] <folder>
+rk tab show       [@N]                                             # dump every @rk_win_* of the tab
+```
+
+`--add/--rm/--promote/--cycle` are the same three layout mutations the UI
+verbs perform (surface-layout § Verbs), so agent and human go through one
+growth/collapse table. Address arguments accept the full grammar; omitted
+`@N` means the caller's tab.
+
+Placement (cli-layering.md): `rk tab` is substrate — it manipulates tmux
+options and windows and knows nothing about pipelines. fab's `fab pane`
+migration map may route "open the worker's tab with code on the right"
+through it later.
+
+---
+
+## What Dies, What Stays
+
+| Dies | Replaced by |
+|---|---|
+| `rk-layout:{server}:{@N}` localStorage | `@rk_win_layout` |
+| `runkit-window-view:*`, `runkit-window-panel:*` (legacy of `?view=`/`?panel=`) | `@rk_win_layout` |
+| `runkit-code-folder:*` latch | `@rk_win_code_root` |
+| `?layout=`, `?view=`, `?panel=`; L1–L4 ladder | `@rk_win_layout`; one release of link translation, then bare routes only |
+| `@rk_win_lens` / R5 default-view hint | `@rk_win_layout` |
+| `@rk_win_url` + `@rk_win_present_root` | `@rk_win_web_1` + `@rk_win_web_1_root` |
+| L3 present auto-open carve-out | `--show` writes the layout |
+| `rk present` as a first-class verb | kept as sugar over `rk tab web add` |
+
+| Stays |
+|---|
+| `rk-layout-ratios:*` (viewport-dependent) + the new per-viewer zoom key |
+| every viewer preference key (theme, fonts, sidebar, keybindings, macros, drafts, web zoom) |
+| the preset shape set, the verb table, the rail-as-toggle semantics |
+| window-views R1 (availability derived), R3 (tty always reachable), R4 (one switcher), R6 (dot = current lens health) |
+
+---
+
+## Migration
+
+Rides the scope-naming plan's `MigrateLegacyOptions` table (managed-conf
+apply path, once per server per daemon lifetime, idempotent):
+
+- `@rk_win_url` → `@rk_win_web_1`; `@rk_win_present_root` → `@rk_win_web_1_root`; set `_active=1` when `_web_1` exists.
+- `@rk_win_lens=iframe` → `@rk_win_layout=single:web` (only when `_layout` unset), then unset `_lens`.
+- localStorage → tmux is **client-side, one-shot, on route entry**: if the tab has no `@rk_win_layout` and this browser holds `rk-layout:{server}:{@N}`, POST it once, then delete the key. Same for the code-folder latch. Last browser to arrive wins on a never-visited tab — acceptable; it is the viewer's own last layout either way.
+- Snapshot restore: the new rows enter the explicit option list; window ids remap as today.
+
+---
+
+## Open Questions
+
+**Decided (2026-08-28)** — recorded so the reasoning survives:
+
+- *Zoom is per-viewer.* Zoom and the mobile single-tile choice are reading
+  postures, not tab state; they live in localStorage beside ratios. An
+  agent that wants one surface writes `single:<surface>` to the layout.
+- *Navigation is not tmux state (v1).* Agents nudge (push + sidebar
+  attention), never move a viewer's route. Follow-mode is the v2 candidate.
+- *`?layout=` dies.* One release of translation into a one-shot option
+  write, then the URL is always the bare route.
+- *Web-tab identity is the URL.* `web add` is idempotent on an identical
+  URL (returns the index, bumps `?v=`); no ids (§ Web Tabs).
+- *Web tabs are declared, never derived.* Detected ports become a one-click
+  add affordance, not auto-members (§ Web Tabs).
+
+**OQ1 — Ratios in tmux?** Percent ratios *could* be shared (`@rk_win_ratios`)
+so an agent can say "code gets 70%". Deferred: viewport-dependence is real
+and tmux's own model re-flows per client. Revisit when an agent actually
+asks for it.
+
+**OQ2 — Companions (`@rk_owner`).** Never shipped (no code references at
+`67f4a553`). If revived it is one more `@rk_win_*` row (`@rk_win_owner`) and
+`rk tab` must decide whether `@N` of a companion is a valid target. Keep the
+right-panel.md section as a target note; nothing here depends on it.
+
+**OQ3 — Boards.** A board is a layout of surfaces across tabs. With tab
+state in tmux, does a board become `@rk_ses_pin_*` referencing `@N/<surface>`
+addresses? Likely yes, and it would retire settings.yaml boards — out of
+scope here, noted so nobody designs against it.

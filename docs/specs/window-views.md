@@ -1,5 +1,10 @@
 # Window Views — Rows Are Substrates, Views Are Lenses
 
+> **Amended by [`ui-state.md`](ui-state.md) (2026-08-28, draft):** R2 and R7 no longer hold — lens *choice* (layout) is shared tmux
+> state (`@rk_win_layout`), not per-viewer URL state; R1/R3/R4/R6 unchanged.
+> Read this file's rules through that lens until the in-place amendment lands
+> with implementation.
+
 > The model for every "parallel view" of a tmux window run-kit renders: what a
 > window row *is*, what a view *is*, how view availability is derived, and how
 > view choice is expressed. This spec unifies three features that grew up with

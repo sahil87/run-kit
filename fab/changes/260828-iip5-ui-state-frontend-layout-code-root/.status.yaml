@@ -37,6 +37,7 @@ stage_metrics:
     review-pr: {started_at: "2026-08-28T23:22:42Z", driver: git-pr, iterations: 1}
 prs:
     - ""
+    - https://github.com/sahil87/run-kit/pull/760
 change_type_source: explicit
 true_impact:
     added: 3025
@@ -54,4 +55,4 @@ true_impact:
     computed_at_stage: ship
 summary: frontend renders layout/code-root from tmux options — verbs POST @rk_win_layout with a pendingLayout optimistic overlay, one-shot legacy ?layout/view/panel + localStorage translation, @rk_win_code_root seed/follow, zoom persisted per viewer as rk-layout-zoom kind, backend rkUrl/rkType read shim deleted
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-28T23:22:42Z
+last_updated: 2026-08-28T23:23:00Z

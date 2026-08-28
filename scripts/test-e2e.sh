@@ -102,7 +102,7 @@ tmux -L "$E2E_TMUX_SERVER" set-option -s @rk_srv_managed 1
 # sweep spec asserts the convergence.
 E2E_INIT_WIN_ID="$(tmux -L "$E2E_TMUX_SERVER" display-message -p -t e2e-init '#{window_id}')"
 tmux -L "$E2E_TMUX_SERVER" set-option -s @rk_origin e2e-legacy
-tmux -L "$E2E_TMUX_SERVER" set-option -s @rk_session_order e2e-init
+tmux -L "$E2E_TMUX_SERVER" set-option -s @rk_session_order '["e2e-init"]'
 tmux -L "$E2E_TMUX_SERVER" set-option -w -t "$E2E_INIT_WIN_ID" @rk_role operator
 tmux -L "$E2E_TMUX_SERVER" set-option -w -t "$E2E_INIT_WIN_ID" @rk_url /about:blank
 tmux -L "$E2E_TMUX_SERVER" set-option -w -t "$E2E_INIT_WIN_ID" @rk_note '1:e2e-legacy-note'

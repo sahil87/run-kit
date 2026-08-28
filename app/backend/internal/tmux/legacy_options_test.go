@@ -335,7 +335,9 @@ func TestMigrateLegacyOptions_scopePrefixRename(t *testing.T) {
 		{"@rk_present_root", PresentRootOption, "/srv/root", []string{"-w", "-t", id}},
 		{"@rk_marker", MarkerOption, "solid", []string{"-w", "-t", id}},
 		{"@rk_flair", FlairOption, "nyan", []string{"-w", "-t", id}},
-		{legacyNoteOption, NoteOption, "1756036800:old-note", []string{"-w", "-t", id}},
+		// Spaced value: the copy must carry the raw text, not the quoted
+		// enumeration form (`"1756036800:old note"`) tmux prints without -v.
+		{legacyNoteOption, NoteOption, "1756036800:old note", []string{"-w", "-t", id}},
 		{"@rk_role", RoleOption, "operator", []string{"-w", "-t", id}},
 	}
 	sessionSeeds := []legacySeed{
@@ -347,7 +349,7 @@ func TestMigrateLegacyOptions_scopePrefixRename(t *testing.T) {
 		{"@rk_ctl_keepalive", "", "1", []string{"-t", "=boot:"}},
 	}
 	serverSeeds := []legacySeed{
-		{"@rk_session_order", SessionOrderOption, "boot,extra", []string{"-s"}},
+		{"@rk_session_order", SessionOrderOption, `["boot","extra"]`, []string{"-s"}},
 		{"@rk_server_rank", ServerRankOption, "7", []string{"-s"}},
 		{"@rk_origin", OriginOption, "http://127.0.0.1:3001", []string{"-s"}},
 		{"@rk_managed", ManagedOption, "1", []string{"-s"}},

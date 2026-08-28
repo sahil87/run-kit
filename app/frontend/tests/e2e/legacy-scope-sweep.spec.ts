@@ -21,9 +21,9 @@ const LEGACY_WINDOW_SEEDS: Array<{ option: string; value: string }> = [
 ];
 const LEGACY_SERVER_SEEDS: Array<{ option: string; value: string }> = [
   { option: "@rk_origin", value: "e2e-legacy" },
-  // Comma form (no brackets) — tmux show-options echoes a bracketed value
-  // with its set-time quoting, which would falsify an exact-match assertion.
-  { option: "@rk_session_order", value: TEST_SESSION },
+  // Session order is a JSON-encoded string array (GetSessionOrder decodes
+  // it); `show-options -v` echoes the raw value, so exact-match holds.
+  { option: "@rk_session_order", value: JSON.stringify([TEST_SESSION]) },
 ];
 const NEW_WINDOW = ["@rk_win_role", "@rk_win_url", "@rk_win_note"] as const;
 const NEW_SERVER = ["@rk_srv_origin", "@rk_srv_session_order"] as const;

@@ -681,9 +681,11 @@ func hookRkPath(cmd string) string {
 	return rest[1 : 1+end]
 }
 
-// agentHooksCheck reports the rk-owned agent-hooks install state across the
-// agent registry: which hook generations are installed and whether a gen-3
-// entry's embedded rk path still resolves to an executable. The hooks are
+// agentHooksCheck reports the rk-owned agent-hooks install state for the
+// first (currently only) agent in agentRegistry — the loop returns on its
+// first iteration, so aggregating across several agents is future work if the
+// registry ever grows: which hook generations are installed and whether a
+// gen-3 entry's embedded rk path still resolves to an executable. The hooks are
 // OPTIONAL — an absent settings file or a file with no rk entries is a passing
 // check with an informational note. The check fails when any gen-1/gen-2 entry
 // survives (those write the retired option names — the dual-read window

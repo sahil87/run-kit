@@ -1009,16 +1009,18 @@ func parsePanes(lines []string) map[string][]PaneInfo {
 		}
 		isActive := strings.TrimSpace(parts[5]) == "1"
 		command := strings.TrimSpace(parts[4])
-		// Dual-read: the scope-named field wins when non-empty, else the
-		// retired unscoped field (both ride the same list-panes call during
-		// the deprecation window).
-		agentStateRaw := parts[9]
+		// Dual-read: the scope-named field wins when its trimmed value is
+		// non-empty, else the retired unscoped field (both ride the same
+		// list-panes call during the deprecation window). Trimming per field
+		// matches the parse helpers' own TrimSpace, so a whitespace-only new
+		// value never blocks the legacy fallback.
+		agentStateRaw := strings.TrimSpace(parts[9])
 		if agentStateRaw == "" {
-			agentStateRaw = parts[6]
+			agentStateRaw = strings.TrimSpace(parts[6])
 		}
-		chatRaw := parts[10]
+		chatRaw := strings.TrimSpace(parts[10])
 		if chatRaw == "" {
-			chatRaw = parts[7]
+			chatRaw = strings.TrimSpace(parts[7])
 		}
 		agentState, agentEpoch, agentPID := parseAgentState(agentStateRaw)
 		chatProvider, chatRef := parseChatRef(chatRaw)

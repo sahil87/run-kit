@@ -1294,6 +1294,19 @@ func TestParsePanes(t *testing.T) {
 		}
 	})
 
+	t.Run("dual-read: whitespace-only new agent-state field falls back to legacy", func(t *testing.T) {
+		// The parse helpers TrimSpace their input, so a blank-but-present new
+		// value must not block the legacy fallback (trimmed-value semantics).
+		lines := []string{paneLineFull("@0", "%1", 0, "/tmp", "claude", 1, "idle:100", "claude:abc", "0", "  ", " ")}
+		p := parsePanes(lines)["@0"][0]
+		if p.AgentState != "idle" || p.AgentStateEpoch != 100 {
+			t.Errorf("new blank: AgentState=%q epoch=%d, want idle/100 (legacy fallback)", p.AgentState, p.AgentStateEpoch)
+		}
+		if p.ChatProvider != "claude" || p.ChatSessionRef != "abc" {
+			t.Errorf("new blank chat: ChatProvider=%q ChatSessionRef=%q, want claude/abc (legacy fallback)", p.ChatProvider, p.ChatSessionRef)
+		}
+	})
+
 	t.Run("dual-read: both agent-state fields empty yields empty state", func(t *testing.T) {
 		lines := []string{paneLineFull("@0", "%1", 0, "/tmp", "claude", 1, "", "", "0", "", "")}
 		p := parsePanes(lines)["@0"][0]

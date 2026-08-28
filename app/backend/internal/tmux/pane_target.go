@@ -120,9 +120,11 @@ func PaneFactsCtx(ctx context.Context, paneID, server string) (PaneFacts, error)
 
 // parsePaneFacts parses the cwd\tcommand\t@rk_agent_state\t@rk_pane_agent_state
 // quadruple read by PaneFactsCtx — the 4th field (the scope-named option) wins
-// when non-empty. Only the trailing newline is trimmed before the split —
-// TrimSpace would eat the tabs delimiting an empty first or last field and
-// shift the remaining fields into the wrong slots.
+// when its trimmed value is non-empty. Only the trailing newline is trimmed
+// before the split — TrimSpace on the whole raw string would eat the tabs
+// delimiting an empty first or last field and shift the remaining fields into
+// the wrong slots; the per-field trim below is safe because it runs after the
+// split.
 func parsePaneFacts(raw string) PaneFacts {
 	var facts PaneFacts
 	parts := strings.SplitN(strings.TrimRight(raw, "\r\n"), "\t", 4)
@@ -132,10 +134,10 @@ func parsePaneFacts(raw string) PaneFacts {
 		command = parts[1]
 	}
 	if len(parts) == 4 {
-		stateRaw = parts[3]
+		stateRaw = strings.TrimSpace(parts[3])
 	}
 	if stateRaw == "" && len(parts) >= 3 {
-		stateRaw = parts[2]
+		stateRaw = strings.TrimSpace(parts[2])
 	}
 	state, epoch, pid := parseAgentState(stateRaw)
 	if state == "" {

@@ -86,6 +86,16 @@ func TestParsePaneFacts(t *testing.T) {
 			"/home/u/proj\tzsh\twaiting:123\n",
 			PaneFacts{CWD: "/home/u/proj"},
 		},
+		{
+			"scope-named field wins over legacy when set",
+			"/home/u/proj\tnvim\tidle:100\twaiting:123\n",
+			PaneFacts{CWD: "/home/u/proj", AgentState: "waiting", AgentStateEpoch: 123},
+		},
+		{
+			"whitespace-only scope-named field falls back to legacy",
+			"/home/u/proj\tnvim\twaiting:123\t  \n",
+			PaneFacts{CWD: "/home/u/proj", AgentState: "waiting", AgentStateEpoch: 123},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

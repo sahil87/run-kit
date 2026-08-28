@@ -1,8 +1,8 @@
 # UI State in tmux Options — `@rk_win_layout`, Web Tabs, `rk tab`
 
-**Drafted**: 2026-08-28 · against `67f4a553` · spec: [`docs/specs/ui-state.md`](../../../docs/specs/ui-state.md) (v0.2)
+**Drafted**: 2026-08-28 · against `7971264c` (rebased from `67f4a553`) · spec: [`docs/specs/ui-state.md`](../../../docs/specs/ui-state.md) (v0.2)
 **Shape**: 5 changes, run-kit only (fab-kit untouched — it reads one pane option and nothing here)
-**Prerequisite**: `26-08-28-tmux-option-scope-naming.md` shipped (Changes 1–3) — every name below is the `@rk_<scope>_<name>` form and `MigrateLegacyOptions` exists.
+**Prerequisite**: `26-08-28-tmux-option-scope-naming.md` Changes 1–3 — **shipped** (#752, #753, #755). Every name below is the `@rk_<scope>_<name>` form; `internal/tmux/legacy_options.go` holds the table-driven `MigrateLegacyOptions` / `MigrateLegacyOptionsOnce`. Its Change 4 (fab-kit) is not needed here.
 
 ## Diagnosis
 
@@ -10,11 +10,13 @@ Tab state lives in the browser. `rk-layout:{server}:{@N}`, `runkit-window-view:*
 
 Target: tab state is `@rk_win_*`; the frontend renders options and writes them back through the one `POST /api/windows/{id}/options` seam it already uses for color/marker/note; a `rk tab` verb family gives agents the same seam from a shell.
 
-### Facts that shape the plan (verified at `67f4a553`)
+### Facts that shape the plan (verified at `7971264c`)
 
 - **Options reach the frontend via a fixed format string.** `ListWindows` reads `#{@rk_win_url}` as one positional field (tmux-sessions.md "field 10"); indexed families cannot be enumerated in a format → **cap web tabs at 8** and spell the slots out. Roots stay out of the tick: `api/present.go` already does `tmux.GetWindowOption` per request.
 - **One write seam already exists.** `api/windows.go:366-372` (`optKey*` allowlist) + `handleWindowOptions` (`:444`) partial-merge with `null`-clears; `api/client.ts:443 setWindowOptions`. New keys are allowlist rows, not new endpoints.
-- **Snapshots store struct fields**, not option names (`snapshot.go:62-63 RkType/RkURL`; `restore.go:335-341` maps at restore) → new fields on the struct, no on-disk migration.
+- **Snapshots store struct fields**, not option names (`snapshot.go:62-63 RkType/RkURL`; `restore.go` maps to `tmux.*Option` constants at restore) → new fields on the struct, no on-disk migration.
+- **A second writer of `@rk_win_lens`/`@rk_win_url` exists**: `POST /api/windows` (`api/windows.go:94-97`, the sidebar's "Open in window" for a port, `client.ts createWindow(..., "iframe", url)`) creates iframe windows directly — it must be retargeted, not just the `/options` allowlist.
+- Constants already named: `tmux.URLOption`, `tmux.LensOption`, `tmux.PresentRootOption` (`tmux.go:115-124`), with `legacy*Option` twins in the migration table.
 - **Layout logic is already pure.** `lib/surface-layout.ts` (506 lines, colocated tests) holds parse/serialize/degrade/promote/swap/close; only the *resolution + storage* half (`resolveLayout`, `read/writeStoredLayout`, `seedLayoutFromLegacy`, `translateLegacyParams`) dies. Ratios (`:380-426`) stay.
 - **`rk present` resolution is already tmux-free** (`internal/present.ParseTarget`, `Target.URL`, `ProbePort`) and will be reused verbatim by `rk tab web add`.
 - **`rk code exec` host resolution** (`cmd/rk/code.go:98,186`) is cwd/`--folder` based; adding a `--tab` arm is one more resolver ahead of it.
@@ -30,7 +32,8 @@ Everything the frontend and CLI will read or write; ships alone so 2–4 build o
 - Constants: `LayoutOption="@rk_win_layout"`, `WebTabOption(n)`, `WebTabRootOption(n)`, `WebActiveOption`, `CodeRootOption`, `MaxWebTabs=8`. Retire `URLOption`/`PresentRootOption`/`LensOption` constants (kept as `legacy*` for the migration table only).
 - `ListWindows` format: replace the `@rk_win_url`/`@rk_win_lens` fields with `layout`, `web_1..web_8`, `web_active`, `code_root` (field-count comment block updated; parser tolerant of empty slots). `Window` struct gains `Layout string`, `WebTabs []string` (dense, trailing empties trimmed), `WebActive int`, `CodeRoot string`; `RkURL`/`RkType` removed.
 - **Web-tab family ops** (pure over a `[]string` + tmux ops): `WebAdd(url) (index, existed)` — idempotent on identical URL, appends at `len+1`, refuses at 8; `WebRemove(n)` — shifts `n+1..len` down (URL *and* root), unsets the last slot, clamps/repoints `_active`; `WebSelect(n)`. Live in `internal/tmux/webtabs.go`, drive `SetWindowOptions` chained ops so each verb is one tmux round trip.
-- `MigrateLegacyOptions` rows: `@rk_win_url→@rk_win_web_1` (+ `_active=1`), `@rk_win_present_root→@rk_win_web_1_root`, `@rk_win_lens=iframe→@rk_win_layout=single:web` (only when `_layout` unset), then unset legacy. Table-driven like the existing rows.
+- `POST /api/windows` (`windows.go:94-97`): `rkType="iframe"` + `rkUrl` → write `@rk_win_layout=single:web` + `@rk_win_web_1` (+ `_active=1`); `client.ts createWindow` signature loses the `rkType` arm in Change 2.
+- `MigrateLegacyOptions` rows (`legacy_options.go` table): `@rk_win_url→@rk_win_web_1` (+ `_active=1`), `@rk_win_present_root→@rk_win_web_1_root`, `@rk_win_lens=iframe→@rk_win_layout=single:web` (only when `_layout` unset), then unset legacy. Table-driven like the existing rows.
 
 ### `api`
 - `windows.go` allowlist: add `@rk_win_layout`, `@rk_win_web_1..8`, `@rk_win_web_active`, `@rk_win_code_root`; drop `@rk_win_url`/`@rk_win_lens`. Validation: `_layout` must parse (shape ∈ presets, surfaces ∈ registry, no repeats) — reject 400 rather than store garbage; `_web_n` must be a relative `/proxy|/present` path or absolute `http(s)`; `_active` ∈ 1..len. Handler wakes the hub after a successful write (row-color safety-poll lesson).

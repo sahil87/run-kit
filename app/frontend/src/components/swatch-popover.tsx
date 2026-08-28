@@ -75,7 +75,7 @@ const COLOR_ROW_LIGHT = PICKER_COLOR_VALUES.filter((_, i) => i % 3 === 0);
 const COLOR_ROW_NORMAL = PICKER_COLOR_VALUES.filter((_, i) => i % 3 === 1);
 const COLOR_ROW_DARK = PICKER_COLOR_VALUES.filter((_, i) => i % 3 === 2);
 
-/** The flair band's two rows in column-flow order over the 14 named states
+/** The flair band's two rows in column-flow order over the 15 named states
  *  (grid-flow-col + two fixed rows fills DOWN each column first): row 1 takes
  *  the even indices, row 2 the odd. */
 const FLAIR_NAMED = FLAIR_STATES.slice(1);

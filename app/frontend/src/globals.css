@@ -1310,6 +1310,56 @@ summary {
     rk-flair-ironman-y 16s step-end infinite;
 }
 
+
+/* noon: ::after is an 80x88 4-frame sheet of the brand wordmark. Both n
+   glyphs WALK, counter-phase (2 frames apart, so opposite legs lead), while
+   the two o pills hold still; a 0.3/0.4/0.55 alpha ramp rises to the lead
+   walker, so the row resolves to "noon" mid-traverse. Art is defs+use — the o
+   pill, the n shoulder and one leg are defined once and instanced. ::before is
+   a 30px dust tile drifting the opposite way. ~7s traversal, ~8fps. */
+@keyframes rk-flair-noon-x {
+  from { background-position-x: -80px; }
+  to { background-position-x: calc(100% + 80px); }
+}
+@keyframes rk-flair-noon-y {
+  0% { background-position-y: 0px; }
+  25% { background-position-y: -22px; }
+  50% { background-position-y: -44px; }
+  75% { background-position-y: -66px; }
+  100% { background-position-y: -66px; }
+}
+@keyframes rk-flair-noon-dust {
+  from { background-position-x: 0; }
+  to { background-position-x: -30px; }
+}
+.rk-flair-noon::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='30' height='22' viewBox='0 0 30 22'%3E%3Cg fill='%23D2451A'%3E%3Crect x='4' y='5' width='1' height='1' fill-opacity='.3'/%3E%3Crect x='17' y='12' width='1' height='1' fill-opacity='.22'/%3E%3Crect x='25' y='7' width='1' height='1' fill-opacity='.26'/%3E%3Crect x='10' y='16' width='1' height='1' fill-opacity='.18'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 30px 22px;
+  background-repeat: repeat-x;
+  background-position: 0 50%;
+  animation: rk-flair-noon-dust 11s linear infinite;
+}
+.rk-flair-noon::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 22px;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='88' viewBox='0 0 80 88'%3E%3Cdefs%3E%3Cpath id='o' fill-rule='evenodd' d='M7.7 0A7.7 7.7 0 0 1 15.4 7.7V13.3A7.7 7.7 0 0 1 7.7 21A7.7 7.7 0 0 1 0 13.3V7.7A7.7 7.7 0 0 1 7.7 0ZM7.7 4.2A3.5 3.5 0 0 1 11.2 7.7V13.3A3.5 3.5 0 0 1 7.7 16.8A3.5 3.5 0 0 1 4.2 13.3V7.7A3.5 3.5 0 0 1 7.7 4.2Z'/%3E%3Cpath id='s' d='M0 7.7A7.7 7.7 0 0 1 15.4 7.7L11.2 7.7A3.5 3.5 0 0 0 4.2 7.7Z'/%3E%3Crect id='l' y='5.4' width='4.2' height='14.9' rx='2.1'/%3E%3C/defs%3E%3Cg fill='%23D2451A'%3E%3Cg transform='translate(0 0)'%3E%3Cg transform='translate(6 1)'%3E%3Cg fill-opacity='0.3'%3E%3Cuse href='%23s'/%3E%3Cg transform='rotate(-16 2.1 7.7)'%3E%3Cuse href='%23l'/%3E%3C/g%3E%3Cg transform='rotate(12.5 13.3 7.7)'%3E%3Cuse href='%23l' x='11.2'/%3E%3C/g%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(23.5 1)'%3E%3Cuse href='%23o' fill-opacity='0.4'/%3E%3C/g%3E%3Cg transform='translate(41 1)'%3E%3Cuse href='%23o' fill-opacity='0.55'/%3E%3C/g%3E%3Cg transform='translate(58.5 1)'%3E%3Cg fill-opacity='0.95'%3E%3Cuse href='%23s'/%3E%3Cg transform='rotate(12.5 2.1 7.7)'%3E%3Cuse href='%23l'/%3E%3C/g%3E%3Cg transform='rotate(-16 13.3 7.7)'%3E%3Cuse href='%23l' x='11.2'/%3E%3C/g%3E%3C/g%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0 22)'%3E%3Cg transform='translate(6 0)'%3E%3Cg fill-opacity='0.3'%3E%3Cuse href='%23s'/%3E%3Cg transform='rotate(-4.5 2.1 7.7)'%3E%3Cuse href='%23l'/%3E%3C/g%3E%3Cg transform='rotate(3.5 13.3 7.7)'%3E%3Cuse href='%23l' x='11.2'/%3E%3C/g%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(23.5 1)'%3E%3Cuse href='%23o' fill-opacity='0.4'/%3E%3C/g%3E%3Cg transform='translate(41 1)'%3E%3Cuse href='%23o' fill-opacity='0.55'/%3E%3C/g%3E%3Cg transform='translate(58.5 0)'%3E%3Cg fill-opacity='0.95'%3E%3Cuse href='%23s'/%3E%3Cg transform='rotate(3.5 2.1 7.7)'%3E%3Cuse href='%23l'/%3E%3C/g%3E%3Cg transform='rotate(-4.5 13.3 7.7)'%3E%3Cuse href='%23l' x='11.2'/%3E%3C/g%3E%3C/g%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0 44)'%3E%3Cg transform='translate(6 1)'%3E%3Cg fill-opacity='0.3'%3E%3Cuse href='%23s'/%3E%3Cg transform='rotate(12.5 2.1 7.7)'%3E%3Cuse href='%23l'/%3E%3C/g%3E%3Cg transform='rotate(-16 13.3 7.7)'%3E%3Cuse href='%23l' x='11.2'/%3E%3C/g%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(23.5 1)'%3E%3Cuse href='%23o' fill-opacity='0.4'/%3E%3C/g%3E%3Cg transform='translate(41 1)'%3E%3Cuse href='%23o' fill-opacity='0.55'/%3E%3C/g%3E%3Cg transform='translate(58.5 1)'%3E%3Cg fill-opacity='0.95'%3E%3Cuse href='%23s'/%3E%3Cg transform='rotate(-16 2.1 7.7)'%3E%3Cuse href='%23l'/%3E%3C/g%3E%3Cg transform='rotate(12.5 13.3 7.7)'%3E%3Cuse href='%23l' x='11.2'/%3E%3C/g%3E%3C/g%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(0 66)'%3E%3Cg transform='translate(6 0)'%3E%3Cg fill-opacity='0.3'%3E%3Cuse href='%23s'/%3E%3Cg transform='rotate(3.5 2.1 7.7)'%3E%3Cuse href='%23l'/%3E%3C/g%3E%3Cg transform='rotate(-4.5 13.3 7.7)'%3E%3Cuse href='%23l' x='11.2'/%3E%3C/g%3E%3C/g%3E%3C/g%3E%3Cg transform='translate(23.5 1)'%3E%3Cuse href='%23o' fill-opacity='0.4'/%3E%3C/g%3E%3Cg transform='translate(41 1)'%3E%3Cuse href='%23o' fill-opacity='0.55'/%3E%3C/g%3E%3Cg transform='translate(58.5 0)'%3E%3Cg fill-opacity='0.95'%3E%3Cuse href='%23s'/%3E%3Cg transform='rotate(-4.5 2.1 7.7)'%3E%3Cuse href='%23l'/%3E%3C/g%3E%3Cg transform='rotate(3.5 13.3 7.7)'%3E%3Cuse href='%23l' x='11.2'/%3E%3C/g%3E%3C/g%3E%3C/g%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  background-size: 80px 88px;
+  background-repeat: no-repeat;
+  background-position: -80px 0;
+  animation:
+    rk-flair-noon-x 7s linear infinite,
+    rk-flair-noon-y 0.125s step-end infinite;
+}
+
 /* Reduced-motion gate — disable EVERY treatment above (Parts A and B). The
    decode scramble is skipped in JS (top-bar.tsx reads the same media query). */
 /* ── Row-flyout card entrance (window-row register flyout, E1) ─────────────
@@ -1499,7 +1549,9 @@ html[data-theme="light"] {
   .rk-flair-spidey::before,
   .rk-flair-spidey::after,
   .rk-flair-ironman::before,
-  .rk-flair-ironman::after { animation: none; display: none; }
+  .rk-flair-ironman::after,
+  .rk-flair-noon::before,
+  .rk-flair-noon::after { animation: none; display: none; }
   /* Flyout-card entrance: pure flourish — the card simply appears. */
   .rk-flyout-in { animation: none; }
   /* Gap-seam sash: the hover anti-flicker delay and fades are zeroed (the pill

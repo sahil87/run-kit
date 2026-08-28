@@ -369,17 +369,21 @@ export async function sendOperatorRequest(
  * carries the user's typed `text` (admitted only on templates the backend
  * declares acceptsText, capped and delimited there). Same shape as
  * sendOperatorRequest: `withServer` + `throwOnError`, so the structured
- * 409/404 messages surface as the thrown Error's message.
+ * 409/404 messages surface as the thrown Error's message. The optional
+ * `session` scopes the template's facts to one session (admitted only on
+ * templates the backend declares acceptsSession; included in the body only
+ * when non-empty).
  */
 export async function sendServerOperatorRequest(
   server: string,
   template: string,
   text: string,
+  session?: string,
 ): Promise<void> {
   const res = await fetch(withServer("/api/operator-request", server), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ template, text }),
+    body: JSON.stringify(session ? { template, text, session } : { template, text }),
   });
   if (!res.ok) await throwOnError(res);
 }

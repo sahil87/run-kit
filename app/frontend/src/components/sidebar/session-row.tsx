@@ -9,7 +9,7 @@ import { WaitingBadge } from "@/components/waiting-badge";
 import { countWaitingWindows } from "@/lib/waiting";
 import { toSafeSessionName } from "@/lib/names";
 import { abbreviateHomePath } from "@/lib/format";
-import { PaletteIcon, BotIcon, PlusIcon, CloseIcon } from "./icons";
+import { PaletteIcon, BotIcon, PlusIcon, CloseIcon, NotePencilIcon } from "./icons";
 import { Tip } from "@/components/tip";
 import { useIdentityTip, IdentityTipCard } from "./identity-tip";
 import { PopupTitleBar, PopupTitleBarSecondary } from "./popup-title-bar";
@@ -76,6 +76,11 @@ type SessionRowProps = {
    *  `onColorChange`): the bot button renders only when supplied — the board-route
    *  sidebar passes no handler, so the button is hidden there. */
   onSpawnAgent?: (server: string, session: string) => void;
+  /** Fire the update-annotations operator request scoped to THIS row's session
+   *  (260827-8n6k). Optional (mirrors `onSpawnAgent`): the card row renders only
+   *  when supplied — the consumer also gates on the server having an operator
+   *  window, so no operator ⇒ no row (degrade to absent, never disabled). */
+  onUpdateAnnotations?: (server: string, session: string) => void;
   /** Roving-tabindex value: `0` for the single roving-focused tree row, `-1`
    *  otherwise. Defaults to `-1`. Only the two affected rows change this per
    *  arrow keypress, preserving the Wave-2 memo tree. */
@@ -126,6 +131,7 @@ function SessionRowInner({
   onFlairChange,
   onWaitingBadgeClick,
   onSpawnAgent,
+  onUpdateAnnotations,
   tabIndex = -1,
   ariaSetSize,
   ariaPosInSet,
@@ -195,6 +201,15 @@ function SessionRowInner({
               label="Spawn agent…"
               testid="row-flyout-spawn-action"
               onClick={() => onSpawnAgent(server, name)}
+            />
+          )}
+          {onUpdateAnnotations && (
+            <CardActionRow
+              icon={<NotePencilIcon />}
+              label="Update annotations"
+              hint="asks the operator"
+              testid="row-flyout-annotate-session-action"
+              onClick={() => onUpdateAnnotations(server, name)}
             />
           )}
           <CardActionRow

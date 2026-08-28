@@ -418,12 +418,11 @@ export function canForkWindow(win: WindowInfo): boolean {
 
 /**
  * The derived availability rule for the window-scoped operator-request
- * affordances (Fix tab name — 260822-fih1; Retire… — 260822-rfz2) — degrade to
+ * affordance (Fix tab name — 260822-fih1) — degrade to
  * ABSENT, never disabled: the row renders only when (a) the server has an
  * operator window, (b) the subject window carries a reconciled chat session
- * (both templates need its JSONL transcript), and (c) the subject is not
- * itself the operator. All three facts already ride the sessions payload. One
- * rule serves every window-scoped operator action — no per-action copies. */
+ * (the template needs its JSONL transcript), and (c) the subject is not
+ * itself the operator. All three facts already ride the sessions payload. */
 export function canRequestWindowOperatorAction(win: WindowInfo, hasOperator: boolean): boolean {
   return hasOperator && win.chatSessionRef != null && win.chatSessionRef !== "" && win.role !== "operator";
 }
@@ -600,73 +599,6 @@ function FixTabNameActionRow({ onFixTabName }: { onFixTabName: () => Promise<voi
   );
 }
 
-/**
- * The "Annotate tab" action row (260824-bb5n-tab-status-note) — the flyout arm
- * of the annotate-tab operator template. Same shape as FixTabNameActionRow:
- * fires one operator-request POST and toasts the outcome; the note itself
- * arrives later via the normal SSE derive tick (user-option mutations emit no
- * control-mode event, so agent-side writes ride the ~12s safety poll), so
- * there is no spinner beyond the in-flight guard.
- */
-function AnnotateTabActionRow({ onAnnotateTab }: { onAnnotateTab: () => Promise<void> }) {
-  const [busy, setBusy] = useState(false);
-  // The card unmounts when the flyout closes, so a settle after unmount is a
-  // real possibility — guard the setState (the ForkActionRow idiom).
-  const mountedRef = useRef(true);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-
-  return (
-    <button
-      type="button"
-      // stopPropagation so the request never also selects the underlying row.
-      // The click is a no-op while a request is in flight — `disabled` already
-      // blocks it, this is the belt to that braces.
-      onClick={(e) => {
-        e.stopPropagation();
-        if (busy) return;
-        setBusy(true);
-        void onAnnotateTab().finally(() => {
-          if (mountedRef.current) setBusy(false);
-        });
-      }}
-      disabled={busy}
-      className={`${ACTION_ROW_CLASS} hover:text-text-primary hover:border-l-accent-green disabled:hover:border-l-transparent disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-text-secondary`}
-      title="Ask the operator to write a one-line status note for this tab"
-      data-testid="row-flyout-annotate-action"
-    >
-      <NoteIcon />
-      <span className="shrink-0">Annotate tab</span>
-      <span className={ACTION_ROW_HINT_CLASS}>asks the operator</span>
-    </button>
-  );
-}
-
-/** A one-line note glyph — a pencil over a short line. Same inline-SVG idiom
- *  and 12px box as WandIcon below. */
-function NoteIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      width="12"
-      height="12"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.4"
-      strokeLinecap="round"
-      className="shrink-0"
-    >
-      <path d="M9.5 2.5l3 3L6 12H3v-3l6.5-6.5z" />
-      <line x1="3" y1="14" x2="13" y2="14" />
-    </svg>
-  );
-}
-
 /** A one-line "fix" glyph — a pencil with a check underline. Same inline-SVG
  *  idiom and 12px box as ForkIcon above. */
 function WandIcon() {
@@ -685,49 +617,6 @@ function WandIcon() {
       <path d="M10.5 2.5l3 3L6 13H3v-3l7.5-7.5z" />
       <path d="M8.5 4.5l3 3" />
     </svg>
-  );
-}
-
-/** An archive-box glyph for the Retire… row. Same inline-SVG idiom and 12px
- *  box as WandIcon above. */
-function RetireIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      width="12"
-      height="12"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.4"
-      strokeLinecap="round"
-      className="shrink-0"
-    >
-      <rect x="2.5" y="4" width="11" height="9" rx="1" />
-      <line x1="2.5" y1="6.5" x2="13.5" y2="6.5" />
-      <line x1="6.5" y1="9.5" x2="9.5" y2="9.5" />
-    </svg>
-  );
-}
-
-/**
- * The "Retire…" action row (260822-rfz2-operator-digest-stuck-retire) — the
- * flyout arm of the destructive retire-tab template. Unlike Fix tab name it
- * fires NO request itself: it hands off to the shared per-action confirm
- * dialog (the consumer runs the close-then-open idiom), so it needs no
- * in-flight guard of its own. The danger red-rail treatment marks that the
- * confirmed action ends in a window kill.
- */
-function RetireActionRow({ onRetireTab }: { onRetireTab: () => void }) {
-  return (
-    <CardActionRow
-      icon={<RetireIcon />}
-      label="Retire…"
-      hint="asks the operator"
-      danger
-      testid="row-flyout-retire-action"
-      onClick={onRetireTab}
-    />
   );
 }
 
@@ -772,8 +661,6 @@ export function WindowFlyoutContent({
   onChangeColorAction,
   onFork,
   onFixTabName,
-  onAnnotateTab,
-  onRetireTab,
   hasOperator = false,
   onPinAction,
   pinned = false,
@@ -791,17 +678,8 @@ export function WindowFlyoutContent({
    *  a consumer wiring no seam renders no row. Renders only when the
    *  availability rule holds (canRequestWindowOperatorAction). */
   onFixTabName?: () => Promise<void>;
-  /** Fire the operator-request seam for this window (annotate-tab). OPTIONAL
-   *  (mirrors `onFixTabName`): a consumer wiring no seam renders no row.
-   *  Renders only when the SAME availability rule holds. */
-  onAnnotateTab?: () => Promise<void>;
-  /** Open the shared retire confirm dialog for this window (retire-tab).
-   *  OPTIONAL (mirrors `onFixTabName`): a consumer wiring no seam renders no
-   *  row. Renders only when the SAME availability rule holds — the consumer
-   *  closes the card BEFORE opening the dialog (the close-then-open idiom). */
-  onRetireTab?: () => void;
   /** Whether the server has an operator window — availability input (a) for
-   *  the Fix tab name / Retire… rows. */
+   *  the Fix tab name row. */
   hasOperator?: boolean;
   onPinAction?: () => void;
   pinned?: boolean;
@@ -828,11 +706,8 @@ export function WindowFlyoutContent({
   const forkHandler = canForkWindow(win) ? onFork : undefined;
   // The Fix tab name row keeps the same double gate: the derived availability
   // rule (operator present + subject chat ref + not the operator's own row)
-  // AND a wired handler. The Retire… row shares the rule verbatim (one
-  // generalized predicate — no per-action copies).
+  // AND a wired handler.
   const fixNameHandler = canRequestWindowOperatorAction(win, hasOperator) ? onFixTabName : undefined;
-  const annotateHandler = canRequestWindowOperatorAction(win, hasOperator) ? onAnnotateTab : undefined;
-  const retireHandler = canRequestWindowOperatorAction(win, hasOperator) ? onRetireTab : undefined;
 
   return (
     <>
@@ -932,12 +807,12 @@ export function WindowFlyoutContent({
           pointer types: the color/pin/kill home on coarse (where the in-row
           cluster is fine-pointer-only), additive + Tab-reachable on desktop
           (the FloatingFocusManager order). One row per action in a fixed
-          change-color → fork → fix-tab-name → retire → pin → kill order
+          change-color → fork → fix-tab-name → pin → kill order
           (Change color… is the FIRST
           action row of every tier's card). Optional-handler idiom: a consumer
           wiring no handler renders no row. All rows stopPropagation so an
           action never selects the underlying row (the PR-link/docs idiom). */}
-      {(onChangeColorAction || forkHandler || fixNameHandler || annotateHandler || retireHandler || onPinAction || onKillAction) && (
+      {(onChangeColorAction || forkHandler || fixNameHandler || onPinAction || onKillAction) && (
         <CardActionList flush={!hasBody}>
           {onChangeColorAction && (
             <CardActionRow
@@ -949,8 +824,6 @@ export function WindowFlyoutContent({
           )}
           {forkHandler && <ForkActionRow onFork={forkHandler} />}
           {fixNameHandler && <FixTabNameActionRow onFixTabName={fixNameHandler} />}
-          {annotateHandler && <AnnotateTabActionRow onAnnotateTab={annotateHandler} />}
-          {retireHandler && <RetireActionRow onRetireTab={retireHandler} />}
           {onPinAction && (
             <CardActionRow
               icon={<PinIcon filled={pinned} />}

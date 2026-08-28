@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Operator actuation seam — templated work items for the server's operator window over two POST routes: window-scoped /api/windows/{windowId}/operator-request (fix-tab-name — also auto-fired on busy→idle; annotate-tab — one-line @rk_note; retire-tab — destructive) and server-scoped /api/operator-request?server= (spawn-task/find-discussion — acceptsText; brief-me/whats-stuck; color-tabs). Closed registry; busy-gate 409, no queue; chat-send delivery; derive-tick results; degrades to absent."
+description: "Operator actuation seam — templated work items for the server's operator window over two POST routes: window-scoped /api/windows/{windowId}/operator-request (fix-tab-name — also auto-fired on busy→idle; annotate-tab) and server-scoped /api/operator-request?server= (spawn-task/find-discussion — acceptsText; brief-me/whats-stuck; color-tabs; update-annotations — acceptsSession). Closed registry; busy-gate 409, no queue; chat-send delivery; derive-tick results."
 ---
 # Operator Actuation
 
@@ -46,11 +46,13 @@ the window-scoped `POST /api/windows/{windowId}/operator-request?server={server}
 window the request is about — and the server-scoped
 `POST /api/operator-request?server={server}` (`handleServerOperatorRequest`),
 which takes NO subject window. The shared JSON body is
-`{"template": "<id>", "text": "<optional client string>"}`. The template id is
+`{"template": "<id>", "text": "<optional client string>", "session": "<optional
+session name>"}`. The template id is
 checked against the closed in-code registry `operatorTemplates`
 (`map[string]operatorTemplate` — each entry declaring a `requiresChatRef` fact
 requirement, an `acceptsText` client-text admission, a `serverScoped` scope
-discriminator, a `requiresWaiting` zero-waiting precondition, and a PURE render
+discriminator, a `requiresWaiting` zero-waiting precondition, an
+`acceptsSession` session-scope admission, and a PURE render
 func for its scope — `render
 func(operatorFacts) string` window-scoped, `renderServer
 func(serverOperatorFacts) string` server-scoped — plain string composition, no
@@ -93,6 +95,34 @@ already carries arbitrary user text through this exact engine).
 - **THEN** it returns `400` with no session fetch and no tmux call.
 - **AND GIVEN** valid text containing backtick runs, **THEN** the rendered
   prompt's fence is longer than any run in the text.
+
+### Requirement: The `acceptsSession` session-scope lane — declared, live-validated, consumer-filtered
+Server-scoped templates that accept a per-session fact scope SHALL declare
+`acceptsSession: true` (a declarative registry flag beside `acceptsText`, with
+the same closed-lane posture); `handleServerOperatorRequest` SHALL enforce the
+lane's rules: a non-empty `session` on a template NOT declaring
+`acceptsSession` ⇒ 400 naming the template BEFORE any fetch or tmux call; on a
+declaring template the name is validated against the LIVE session names from
+the handler's ONE `FetchSessions` pass (Constitution I/X — the same fetch
+serves operator lookup, fact derivation, and session validation), an unknown
+name ⇒ 404 `no session <name> on this server` with no delivery. A validated
+session scopes the facts CONSUMER-SIDE: `facts.Windows` and `facts.Corpus` are
+filtered to that session's rows AFTER `buildServerOperatorFacts` runs — the
+shared builder keeps its one shape and signature for every template. An absent
+`session` covers the whole server. An empty filtered row set still delivers a
+trivially-answerable prompt (the brief-me posture; only `whats-stuck` rejects
+an empty subject set).
+
+#### Scenario: Session scope validates and filters from the one fetch
+- **GIVEN** `{"template": "update-annotations", "session": "run-kit"}` with a
+  live session `run-kit`
+- **WHEN** the handler runs
+- **THEN** the rendered prompt lists only `run-kit`'s windows.
+- **AND GIVEN** an unknown session name, **THEN** 404 naming the session, no
+  delivery.
+- **AND GIVEN** `{"template": "brief-me", "session": "run-kit"}` (`brief-me`
+  declares no `acceptsSession`), **THEN** 400 naming `brief-me`, before any
+  fetch.
 
 ### Requirement: Server-scoped route over the shared delivery seam
 `handleServerOperatorRequest` SHALL run body validation (registry + scope +
@@ -456,29 +486,43 @@ trivially-answerable nothing-to-color prompt (the brief-me posture).
 - **AND GIVEN** zero non-operator windows, **THEN** the prompt still renders
   and delivery proceeds.
 
-### Requirement: The `retire-tab` template (window-scoped, destructive)
-The registry's `retire-tab` entry (`requiresChatRef: true`, window-scoped — no
-`serverScoped`, no `acceptsText`) SHALL ride the window route unchanged and
-render from `operatorFacts`: read the subject's transcript (path fact, ~30
-lines), write a close-out note capturing what was done/decided/left open —
-via `idea "<close-out note>"` (the backlog) or, only when `FabChange` is
-non-empty, a note against that fab change (both verbs offered, the operator's
-judgment which fits; an empty `FabChange` renders no fab clause) — then kill
-EXACTLY the named window via `tmux kill-window -t {windowId}` and nothing
-else ("Do not reply to this message. Do not rename, kill, or send keys to any
-other window."). This is the seam's first DESTRUCTIVE template; its per-action
-confirmation guardrail lives in the FRONTEND (both retire entry points route
-through one shared confirm dialog before any request fires — § Frontend
-availability).
+### Requirement: The `update-annotations` template (server-scoped)
+The registry's `update-annotations` entry (`serverScoped: true`,
+`acceptsSession: true`, no `acceptsText`) SHALL render a note-writing prompt
+over the routing table — one `writeDigestRow` row per non-operator window
+(identity session/`@N`/name, worktree, agent state + duration, fab change/stage
+when non-empty, and the per-row transcript JSONL path or the `rk mux capture
+@N` fallback note for a tab with no transcript — plain shell windows have real
+scrollback, agent TUIs do not). For each tab the prompt instructs the operator
+to: READ the transcript tail (~30 JSONL lines; NEVER capture-pane an agent
+tab), with `rk mux capture @N` as the fallback for a transcript-less tab; then
+WRITE or refresh a short one-line `@rk_note` saying WHY the tab is in its
+current state via the exact epoch-prefixed actuation
+`tmux set-option -wt @N @rk_note "$(date +%s):<one-line note>"`, bounded at
+~100 characters — the WRITE form only (skip leaves an existing note in place;
+no unset form is offered), with the explicit skip-the-write clause when there
+is nothing meaningful to say; then the repaint note (~15s safety poll) and the
+bounds (set only `@rk_note`, only on the listed windows; do not rename, kill,
+or send keys; do not reply). An empty row table still delivers a
+trivially-answerable prompt (the brief-me posture). The notes surface via the
+normal derive tick — user-option mutations emit no control-mode event, so the
+writes ride the ~12s safety poll
+([tmux-sessions](/run-kit/tmux-sessions.md) § Server-Scoped User Options). The
+optional `session` body field scopes the fact table to one session (the
+acceptsSession lane above).
 
-#### Scenario: Rendered prompt carries facts, both close-out verbs, the bound
-- **GIVEN** facts for window `@5` with a resolvable transcript and non-empty
-  `FabChange`
-- **WHEN** `retire-tab` renders
-- **THEN** the prompt names `@5`, the transcript path, both close-out verbs
-  with the fab change named, the exact `tmux kill-window -t @5` command, and
-  the kill-only-this-window bound; with empty `FabChange` no fab clause
-  appears.
+#### Scenario: Rendered prompt carries the rows, actuation, and bounds
+- **GIVEN** a server with two agent windows and an idle operator
+- **WHEN** `update-annotations` renders
+- **THEN** the prompt lists both rows (the operator's own row never appears),
+  the transcript-tail read instruction with the `rk mux capture` fallback, the
+  exact epoch-prefixed `tmux set-option -wt @N @rk_note` command with the
+  ~100-char bound, the skip-when-nothing-meaningful clause, the repaint note,
+  and the write-only bounds.
+- **AND GIVEN** zero non-operator windows, **THEN** the prompt still renders
+  and delivery proceeds.
+- **AND GIVEN** `{"template": "update-annotations"}` on the window-scoped
+  route, **THEN** it 400s naming the server-scoped id.
 
 ### Requirement: The `annotate-tab` template (window-scoped)
 The registry's `annotate-tab` entry (`requiresChatRef: true`, window-scoped —
@@ -508,20 +552,22 @@ User Options).
   **THEN** it 400s naming the template as window-scoped.
 
 ### Requirement: Frontend availability — degrade to ABSENT, never disabled
-The window-scoped operator affordances — the flyout's `FixTabNameActionRow`,
-`AnnotateTabActionRow`, and `RetireActionRow`
+The window-scoped operator affordances — the flyout's `FixTabNameActionRow`
 ([ui/status-signals](/run-kit/ui/status-signals.md) § Row-hover register flyout
 card) and the palette's `Tab: Fix name (ask operator)` / `Operator: Annotate
-tab` / `Tab: Retire (ask operator)` entries
+tab` entries
 ([ui/keyboard-and-palette](/run-kit/ui/keyboard-and-palette.md) § Command
 Palette Actions) — SHALL render only when (a) the server has an operator window
 (`role === "operator"` present in the sessions payload), (b) the subject window
 carries a non-empty `chatSessionRef` (the template needs its JSONL transcript),
 and (c) the subject is not itself the operator window (the pure
 `canRequestWindowOperatorAction(win, hasOperator)` rule in
-`row-flyout-card.tsx`, ONE predicate serving all three actions). All
+`row-flyout-card.tsx`, ONE predicate serving both actions). All
 three facts already ride the sessions payload; an unavailable action is
-OMITTED, never disabled. The fix-name and annotate client call is
+OMITTED, never disabled. The window flyout card carries NO annotate row — the
+`annotate-tab` verb is palette-only (the palette is the action registry of
+record, Constitution V); the card keeps only the note DISPLAY line
+(`NoteLine`). The fix-name and annotate client call is
 `sendOperatorRequest(server, windowId, template)` (`api/client.ts` — the
 `withServer` + `throwOnError` shape, so the structured 409/404 messages surface
 as the thrown Error's message), fired once per click cycle behind the row's
@@ -530,28 +576,29 @@ in-flight guard; success toasts `"Sent to operator — tab will rename shortly"`
 failure toasts the server's message. No spinner beyond the guard — the rename
 or note arrives via the normal SSE derive tick.
 
-Retire is the seam's first DESTRUCTIVE template (the confirmed action ends in a
-window kill), so NEITHER retire entry point fires a request directly: both open
-the ONE shared per-action confirm dialog (`RetireConfirmDialog` —
-"Ask the operator to summarize and close this tab? The window will be killed."
-— fed by the `retireTarget` state in `app.tsx`, the flyout row running the
-close-then-open idiom first). Confirm fires exactly ONE
-`sendOperatorRequest(server, windowId, "retire-tab")` behind the dialog's
-in-flight guard; success toasts
-`"Sent to operator — tab will be summarized and closed"`, failure toasts the
-server's structured message; Cancel/Escape closes with no request. The
-non-destructive server-scoped entries (`Operator: Brief me` /
-`Operator: What's stuck`) need no confirmation and fire directly.
-
 The server-scoped half's client call is
-`sendServerOperatorRequest(server, template, text)` (`api/client.ts` — the
-same `withServer` + `throwOnError` shape, posting `{template, text}` to
+`sendServerOperatorRequest(server, template, text, session?)` (`api/client.ts`
+— the same `withServer` + `throwOnError` shape, posting `{template, text}` —
+plus `session` only when the optional trailing argument is non-empty — to
 `/api/operator-request`, so the structured 409/404 messages surface as the
-thrown Error's message), driven by the shared `OperatorComposeDialog` and its
-two palette entries
+thrown Error's message), driven by the shared `OperatorComposeDialog` and the
+server-scoped palette entries
 ([ui/keyboard-and-palette](/run-kit/ui/keyboard-and-palette.md) § Command
 Palette Actions) plus the pinned operator row's compose icon
-([ui/sidebar](/run-kit/ui/sidebar.md) § Operator Pinned Row).
+([ui/sidebar](/run-kit/ui/sidebar.md) § Operator Pinned Row). The
+`update-annotations` template has TWO fire surfaces: the palette's
+`Operator: Update annotations` (server-wide — no `session` field — gated on
+the same `hasOperatorWindow` omit-not-disable rule) and the session card's
+`Update annotations` row (`session-row.tsx` — session-scoped, the `session`
+field set to the card's session name, threaded as an optional
+`onUpdateAnnotations` prop the way `onSpawnAgent` is and passed only when the
+server has an operator window; the card is coarse-only, so the palette entry
+is the keyboard/fine-pointer path). Both fire directly — no dialog, no
+confirm — success toasting the hand-off
+(`"Sent to operator — notes will be updated shortly"`), failure the server's
+structured message; the notes arrive via the normal SSE derive tick (user-option
+writes ride the ~12s safety poll), so there is no spinner beyond the in-flight
+guard.
 
 #### Scenario: Gating and single-flight
 - **GIVEN** a window row on a server with an operator and a chat-carrying
@@ -562,8 +609,31 @@ Palette Actions) plus the pinned operator row's compose icon
 - **AND GIVEN** no operator on the server, OR a subject without
   `chatSessionRef`, OR the operator's own row, **THEN** the row and the palette
   entry are absent (not disabled).
+- **AND GIVEN** no operator on the server, **THEN** neither
+  update-annotations fire surface renders (omitted, not disabled).
 
 ## Design Decisions
+
+### Dedicated `update-annotations` template instead of a brief-me fold
+**Decision**: a dedicated server-scoped template writes/refreshes per-tab
+`@rk_note` annotations; `brief-me` stays a read-only digest.
+**Why**: folding note-writing into brief-me would change its digest contract
+(read-only, reply-in-own-window) and be un-scopeable — brief-me has no session
+parameter, and adding one for the fold's sake would widen two contracts at
+once. A dedicated template gets its own palette entry and a session scope.
+**Rejected**: appending "also write a @rk_note per tab" to `renderBriefMe`.
+*Introduced by*: 260827-8n6k-update-annotations-tile-note
+
+### Session scope as a declarative registry flag with consumer-side filtering
+**Decision**: `acceptsSession` sits beside `acceptsText`; the handler filters
+`buildServerOperatorFacts` output to the named session rather than
+parameterising the builder.
+**Why**: mirrors the closed-lane posture of `acceptsText` (undeclared ⇒ 400
+before any fetch) and the "ordering lives in the consumer" precedent; the
+shared builder keeps one shape for all templates.
+**Rejected**: a `session` parameter on `buildServerOperatorFacts` (touches
+every caller for one consumer).
+*Introduced by*: 260827-8n6k-update-annotations-tile-note
 
 ### Actuation via raw tmux set-option, accepting the safety-poll repaint lag
 **Decision**: the `color-tabs` prompt names `tmux set-option -t @N '@color'
@@ -623,20 +693,6 @@ declarative flag matches `requiresChatRef`/`acceptsText`.
 **Rejected**: 404 (nothing is missing); 200 with a no-op delivery (wastes the
 operator); an error-returning render signature (widens every entry's contract
 for one template's precondition).
-*Introduced by*: 260822-rfz2-operator-digest-stuck-retire
-
-### Destructive templates are confirm-gated in the frontend, once
-**Decision**: the seam's destructive templates (`retire-tab`) never fire from
-an entry point directly — the palette entry and the flyout row both open ONE
-shared `Dialog`-based confirm (`RetireConfirmDialog` over `app.tsx`
-`retireTarget` state), and the request fires only on confirm.
-**Why**: two entry points, one confirmation UX; the flyout row cannot reach
-the palette's in-palette confirm sub-step, so `confirmLabel` would cover only
-one entry point and fork the flow.
-**Rejected**: palette `confirmLabel` for the palette arm + a dialog for the
-flyout arm (two divergent confirm UIs for one destructive action); operator-
-or backend-side confirmation (the prompt is fire-and-forget by design — no
-round trip exists to confirm against).
 *Introduced by*: 260822-rfz2-operator-digest-stuck-retire
 
 ### Scope discriminator on the shared registry

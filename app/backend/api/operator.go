@@ -106,8 +106,13 @@ type operatorTemplate struct {
 	// server's WAITING windows: a server with zero waiting fact rows is a 409
 	// ("nothing is waiting on this server") before render/delivery.
 	requiresWaiting bool
-	render          func(f operatorFacts) string
-	renderServer    func(f serverOperatorFacts) string
+	// acceptsSession declares that the server-scoped route body may carry a
+	// `session` field scoping this template's facts to that session. The
+	// closed posture is the default (mirrors acceptsText): a non-empty session
+	// on a template without this declaration is a 400.
+	acceptsSession bool
+	render         func(f operatorFacts) string
+	renderServer   func(f serverOperatorFacts) string
 }
 
 // operatorTemplates is the closed in-code template registry. An id outside
@@ -157,12 +162,14 @@ var operatorTemplates = map[string]operatorTemplate{
 		serverScoped: true,
 		renderServer: renderColorTabs,
 	},
-	// retire-tab: the operator reads the subject tab's transcript, writes a
-	// close-out note, then kills exactly that window — the seam's first
-	// destructive template (the per-action confirm lives in the frontend).
-	"retire-tab": {
-		requiresChatRef: true,
-		render:          renderRetireTab,
+	// update-annotations: the operator reads every listed tab's transcript tail
+	// and writes/refreshes a one-line @rk_note per tab through its own shell;
+	// notes surface via the normal derive tick (~12s safety poll). The optional
+	// session body field scopes the fact table to one session.
+	"update-annotations": {
+		serverScoped:   true,
+		acceptsSession: true,
+		renderServer:   renderUpdateAnnotations,
 	},
 	// annotate-tab: the operator reads the subject tab's transcript tail and
 	// writes a one-line @rk_note status note onto the window through its own
@@ -453,35 +460,36 @@ Bounds: set only the three named options (@color, @rk_marker, @rk_flair), only o
 	return b.String()
 }
 
-// renderRetireTab composes the retire-tab prompt — the seam's first
-// DESTRUCTIVE template (the per-action confirmation guardrail lives in the
-// frontend): read the subject's transcript, write a close-out note (the
-// `idea` backlog verb; the fab-change note clause appears only when FabChange
-// is non-empty), then kill EXACTLY the named window and nothing else.
-func renderRetireTab(f operatorFacts) string {
-	closeout := `Write a close-out note capturing what was done, what was decided, and what is left open — via the backlog:
-  idea "<close-out note>"`
-	if f.FabChange != "" {
-		stage := ""
-		if f.FabStage != "" {
-			stage = " at stage " + f.FabStage
-		}
-		closeout = fmt.Sprintf(`Write a close-out note capturing what was done, what was decided, and what is left open — whichever fits (your judgment):
-  - the backlog: idea "<close-out note>"
-  - a note against the fab change %s%s`, f.FabChange, stage)
+// renderUpdateAnnotations composes the update-annotations prompt (the
+// renderColorTabs posture): the routing table, the transcript-tail read
+// instruction (never capture-pane for agent tabs; rk mux capture is the
+// fallback for plain shell tabs), the epoch-prefixed @rk_note actuation with
+// the ~100-char bound, the skip-the-write clause, the repaint note, and the
+// write-only bounds. An empty table still delivers — there is simply nothing
+// to annotate.
+func renderUpdateAnnotations(f serverOperatorFacts) string {
+	var b strings.Builder
+	b.WriteString("[run-kit request] Update annotations: write or refresh a one-line @rk_note status note on each tab listed below.\n\nTabs:\n")
+	if len(f.Windows) == 0 {
+		b.WriteString("  (none — nothing to annotate; no action needed)\n")
 	}
-	return fmt.Sprintf(`[run-kit request] Retire tmux window %s (currently %q) on this server: summarize it, record a close-out note, then close it.
+	for _, w := range f.Windows {
+		writeDigestRow(&b, w)
+	}
+	b.WriteString(`
+For each tab: read the tail of its transcript JSONL (the last ~30 lines are enough) — NEVER capture-pane for an agent tab; agent TUIs run alt-screen with zero scrollback. For a tab with no transcript, fall back to:
+  rk mux capture @N
+(plain shell windows have real scrollback)
 
-Read the tab's transcript to see what it worked on: %s
-(read the tail of the file — the last ~30 JSONL lines are enough)
+Then write or refresh a short one-line note (at most ~100 characters) that says WHY the tab is in its current state — e.g. "blocked on flaky e2e" or "awaiting design decision":
+  tmux set-option -wt @N @rk_note "$(date +%s):<one-line note>"
 
-%s
+If there is nothing meaningful to say about a tab's current state, skip its write (leave any existing note in place).
 
-Then kill EXACTLY this window and nothing else:
-  tmux kill-window -t %s
+The notes repaint within ~15 seconds of your last set-option — no further action is needed.
 
-Do not reply to this message. Do not rename, kill, or send keys to any other window.`,
-		f.WindowID, f.Name, f.TranscriptPath, closeout, f.WindowID)
+Bounds: set only @rk_note, only on the windows listed above. Do not rename, kill, or send keys to any window. Do not reply to this message or take any other action.`)
+	return b.String()
 }
 
 // renderAnnotateTab composes the annotate-tab prompt (the renderFixTabName
@@ -537,9 +545,13 @@ func delimitUserText(label, text string) string {
 // operatorRequestBody is the POST body for both operator-request routes. The
 // template id is a closed-set key; the optional text reaches a rendered prompt
 // only on templates declaring acceptsText (validated by validateOperatorText).
+// The optional session scopes a server-scoped template's facts to one session
+// — only on templates declaring acceptsSession (a non-empty value on any other
+// template is a 400).
 type operatorRequestBody struct {
 	Template string `json:"template"`
 	Text     string `json:"text"`
+	Session  string `json:"session"`
 }
 
 // validateOperatorText enforces the acceptsText lane rules before any session
@@ -832,6 +844,12 @@ func (s *Server) handleServerOperatorRequest(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
+	if body.Session != "" && !tmpl.acceptsSession {
+		// The closed-lane posture (mirrors validateOperatorText): the session
+		// scope is rejected before any fetch or tmux call.
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("operator template %q does not accept a session scope", body.Template))
+		return
+	}
 
 	server := serverFromRequest(r)
 
@@ -847,6 +865,37 @@ func (s *Server) handleServerOperatorRequest(w http.ResponseWriter, r *http.Requ
 	}
 
 	facts := buildServerOperatorFacts(sess, body.Text)
+	if body.Session != "" {
+		// The session name is validated against the LIVE session names from
+		// this handler's ONE FetchSessions pass (Constitution I/X), then the
+		// shared builder's output is filtered to that session's rows —
+		// consumer-side, so buildServerOperatorFacts keeps its one shape.
+		known := false
+		for si := range sess {
+			if sess[si].Name == body.Session {
+				known = true
+				break
+			}
+		}
+		if !known {
+			writeError(w, http.StatusNotFound, fmt.Sprintf("no session %s on this server", body.Session))
+			return
+		}
+		windows := facts.Windows[:0]
+		for _, row := range facts.Windows {
+			if row.Session == body.Session {
+				windows = append(windows, row)
+			}
+		}
+		facts.Windows = windows
+		corpus := facts.Corpus[:0]
+		for _, row := range facts.Corpus {
+			if row.Session == body.Session {
+				corpus = append(corpus, row)
+			}
+		}
+		facts.Corpus = corpus
+	}
 	if tmpl.requiresWaiting {
 		// The template's subject matter is the waiting tabs — with none waiting
 		// there is nothing to deliver (the same 409 valid-request-wrong-state

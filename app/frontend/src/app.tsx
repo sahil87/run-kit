@@ -180,7 +180,6 @@ const SessionNamePrompt = lazy(() => import("@/components/session-name-prompt").
 const WindowNotePrompt = lazy(() => import("@/components/window-note-prompt").then(m => ({ default: m.WindowNotePrompt })));
 const SpawnAgentDialog = lazy(() => import("@/components/spawn-agent-dialog").then(m => ({ default: m.SpawnAgentDialog })));
 const OperatorComposeDialog = lazy(() => import("@/components/operator-compose-dialog").then(m => ({ default: m.OperatorComposeDialog })));
-const RetireConfirmDialog = lazy(() => import("@/components/retire-confirm-dialog").then(m => ({ default: m.RetireConfirmDialog })));
 const SwatchPopover = lazy(() => import("@/components/swatch-popover").then(m => ({ default: m.SwatchPopover })));
 const SettingsDialog = lazy(() => import("@/components/settings-dialog").then(m => ({ default: m.SettingsDialog })));
 
@@ -1215,9 +1214,6 @@ function AppShell() {
   // palette verbs and the pinned operator row's compose icon mount the one
   // dialog; the mode is only the entry point's pre-selection.
   const [operatorComposeMode, setOperatorComposeMode] = useState<"spawn" | "find" | null>(null);
-  // The retire confirm dialog's target (260822-rfz2) — set by EITHER retire
-  // entry point (the palette entry, the flyout row); null = closed.
-  const [retireTarget, setRetireTarget] = useState<{ server: string; windowId: string } | null>(null);
   // The note prompt's target (260824-bb5n) — a FROZEN snapshot captured when
   // the palette action fires (the prompt's prefill can't churn under the
   // user's edit); null = closed.
@@ -2082,7 +2078,7 @@ function AppShell() {
   // `server-dialogs-context` (260811-239r) — the dialogs mount in AppLayout now,
   // but gating this route's URL writeback while one is up is unchanged.
   dialogOpenRef.current =
-    dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || createServerOpen || killServerTarget != null || adoptServerTarget != null || showTmuxCommands || showCreateWindowAtFolderDialog || showCreateIframeDialog || spawnAgentTarget != null || sessionNamePrompt != null || operatorComposeMode != null || retireTarget != null || noteTarget != null;
+    dialogs.showRenameSessionDialog || dialogs.showKillConfirm || dialogs.showKillSessionConfirm || createServerOpen || killServerTarget != null || adoptServerTarget != null || showTmuxCommands || showCreateWindowAtFolderDialog || showCreateIframeDialog || spawnAgentTarget != null || sessionNamePrompt != null || operatorComposeMode != null || noteTarget != null;
 
   // Flat window list for palette actions
   const flatWindows = useMemo(() => {
@@ -2331,13 +2327,18 @@ function AppShell() {
     [addToast],
   );
 
-  // Open the shared retire confirm dialog for a subject window (260822-rfz2)
-  // — the per-action confirmation for the seam's first destructive template,
-  // shared by the palette entry and the flyout row. The POST fires only on
-  // confirm, inside the dialog.
-  const handleRetireTab = useCallback((srv: string, windowId: string) => {
-    setRetireTarget({ server: srv, windowId });
-  }, []);
+  // Fire the update-annotations request scoped to ONE session (the session
+  // card's row — 260827-8n6k): the same fire-and-forget shape — success
+  // toasts the hand-off, and the notes themselves arrive via the normal SSE
+  // derive tick (user-option writes ride the ~12s safety poll).
+  const handleUpdateAnnotations = useCallback(
+    (srv: string, session: string): void => {
+      void sendServerOperatorRequest(srv, "update-annotations", "", session)
+        .then(() => addToast("Sent to operator — notes will be updated shortly", "info"))
+        .catch((err: Error) => addToast(err.message || "Failed to reach the operator", "error"));
+    },
+    [addToast],
+  );
 
   // Ask the server's operator window to annotate a subject window with a
   // one-line @rk_note status note (260824-bb5n): the same fire-and-forget
@@ -2758,17 +2759,6 @@ function AppShell() {
                       void handleAnnotateTab(server, currentWindow.windowId);
                     },
                   },
-                  // Retire (260822-rfz2) — the palette arm of the destructive
-                  // retire-tab template, gated by the SAME availability triple
-                  // as fix-name. It opens the shared confirm dialog; the POST
-                  // fires only on confirm.
-                  {
-                    id: "window-retire-operator",
-                    label: "Tab: Retire (ask operator)",
-                    onSelect: () => {
-                      handleRetireTab(server, currentWindow.windowId);
-                    },
-                  },
                 ]
               : []),
             {
@@ -2809,7 +2799,7 @@ function AppShell() {
           ]
         : []),
     ],
-    [sessionName, currentWindow, sessions, hasOperatorWindow, handleCreateWindow, handleFixTabName, handleAnnotateTab, handleRetireTab, dialogs, executeSplit, executeClosePane, minWindowIndex, maxWindowIndex, navigate, server, addToast, setShowCreateWindowAtFolderDialog],
+    [sessionName, currentWindow, sessions, hasOperatorWindow, handleCreateWindow, handleFixTabName, handleAnnotateTab, dialogs, executeSplit, executeClosePane, minWindowIndex, maxWindowIndex, navigate, server, addToast, setShowCreateWindowAtFolderDialog],
   );
 
   // Boards palette block (server-route variant). AppShell only mounts under
@@ -3801,6 +3791,13 @@ function AppShell() {
                 void handleServerOperatorAction(server, "color-tabs", "Sent to operator — tabs will be colored shortly");
               },
             },
+            {
+              id: "operator-update-annotations",
+              label: "Operator: Update annotations",
+              onSelect: () => {
+                void handleServerOperatorAction(server, "update-annotations", "Sent to operator — notes will be updated shortly");
+              },
+            },
           ]
         : [],
     [hasOperatorWindow, handleOperatorCompose, handleServerOperatorAction, server],
@@ -4310,10 +4307,9 @@ function AppShell() {
       onCreateWindow={handleSidebarCreateWindow}
       onCreateSession={handleSidebarCreateSession}
       onSpawnAgent={handleOpenSpawnAgent}
+      onUpdateAnnotations={hasOperatorWindow ? handleUpdateAnnotations : undefined}
       onForkWindow={handleForkWindow}
       onFixTabName={handleFixTabName}
-      onAnnotateTab={handleAnnotateTab}
-      onRetireTab={handleRetireTab}
       onOperatorCompose={hasOperatorWindow ? handleOperatorCompose : undefined}
       onCreateServer={openCreateServer}
       onKillServer={requestKillServer}
@@ -4620,16 +4616,6 @@ function AppShell() {
             server={server}
             initialMode={operatorComposeMode}
             onClose={() => setOperatorComposeMode(null)}
-          />
-        </Suspense>
-      )}
-
-      {retireTarget && (
-        <Suspense fallback={null}>
-          <RetireConfirmDialog
-            server={retireTarget.server}
-            windowId={retireTarget.windowId}
-            onClose={() => setRetireTarget(null)}
           />
         </Suspense>
       )}

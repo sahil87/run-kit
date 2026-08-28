@@ -518,6 +518,35 @@ describe("SessionRow", () => {
       expect(screen.getByTestId("row-flyout-kill-action")).toBeInTheDocument();
     });
 
+    it("renders Update annotations between Spawn agent… and New tab when the handler is wired, routed session-scoped", () => {
+      const onUpdateAnnotations = vi.fn();
+      render(
+        <SessionRow
+          {...rowProps(makeSession({ name: "agent-work" }))}
+          onSpawnAgent={noop}
+          onUpdateAnnotations={onUpdateAnnotations}
+        />,
+      );
+      tapRail();
+      const spawn = screen.getByTestId("row-flyout-spawn-action");
+      const annotate = screen.getByTestId("row-flyout-annotate-session-action");
+      const create = screen.getByTestId("row-flyout-create-action");
+      expect(annotate).toHaveTextContent("Update annotations");
+      expect(annotate).toHaveTextContent("asks the operator");
+      expect(spawn.compareDocumentPosition(annotate) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(annotate.compareDocumentPosition(create) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+      act(() => { fireEvent.click(annotate); });
+      expect(onUpdateAnnotations).toHaveBeenCalledWith("srv", "agent-work");
+    });
+
+    it("omits the Update annotations row when no handler is wired (omit-not-disable; no operator)", () => {
+      render(<SessionRow {...rowProps(makeSession({ name: "agent-work" }))} />);
+      tapRail();
+      expect(screen.queryByTestId("row-flyout-annotate-session-action")).toBeNull();
+      expect(screen.getByTestId("row-flyout-create-action")).toBeInTheDocument();
+    });
+
     it("Change color… closes the card and opens the color popover; the open popover inhibits re-opening", () => {
       render(
         <ThemeProvider>

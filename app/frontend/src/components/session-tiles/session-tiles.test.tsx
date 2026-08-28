@@ -246,6 +246,85 @@ describe("SessionTiles", () => {
     });
   });
 
+  // Tile note body (8n6k) — a window carrying a @rk_note renders the note
+  // (+ relative age) as the tile body INSTEAD of the capture preview; no note
+  // → the preview renders exactly as before. Staleness dimming rides the
+  // shared NOTE_STALE_SECONDS; epoch-0 notes render text-only.
+  describe("tile note body", () => {
+    function renderWithNote(
+      note: Partial<ProjectSession["windows"][number]>,
+      previews: Record<string, string> = { "@0": "preview line" },
+    ) {
+      const withNote: ProjectSession[] = [
+        {
+          name: "run-kit",
+          windows: [{ ...sessions[0].windows[0], ...note }],
+        },
+      ];
+      const previewsByServer = new Map<string, Record<string, string>>();
+      previewsByServer.set(SERVER, previews);
+      return render(
+        <ThemeProvider>
+          <StandaloneSessionContextProvider
+            value={{ previewsByServer, setPreviewScope: vi.fn() }}
+          >
+            <SessionTiles
+              server={SERVER}
+              sessions={withNote}
+              onNavigate={vi.fn()}
+              onCreateSession={vi.fn()}
+              onCreateWindow={vi.fn()}
+            />
+          </StandaloneSessionContextProvider>
+        </ThemeProvider>,
+      );
+    }
+
+    it("renders the note + age instead of the preview when a note exists", () => {
+      renderWithNote({
+        note: "blocked on flaky e2e",
+        noteEpoch: nowSeconds - 2 * 3600,
+      });
+      fireEvent.click(screen.getByLabelText("Expand run-kit"));
+
+      const note = screen.getByTestId("window-tile-note-@0");
+      expect(note).toHaveTextContent("blocked on flaky e2e");
+      expect(note).toHaveTextContent("ago");
+      expect(screen.queryByTestId("window-tile-preview-@0")).toBeNull();
+      expect(note.className).not.toContain("opacity-50");
+    });
+
+    it("renders the preview unchanged when the window has no note", () => {
+      renderWithNote({});
+      fireEvent.click(screen.getByLabelText("Expand run-kit"));
+
+      expect(screen.getByTestId("window-tile-preview-@0")).toBeInTheDocument();
+      expect(screen.queryByTestId("window-tile-note-@0")).toBeNull();
+    });
+
+    it("dims a stale (>24h) note, still legible", () => {
+      renderWithNote({
+        note: "blocked on flaky e2e",
+        noteEpoch: nowSeconds - 3 * 24 * 3600,
+      });
+      fireEvent.click(screen.getByLabelText("Expand run-kit"));
+
+      const note = screen.getByTestId("window-tile-note-@0");
+      expect(note.className).toContain("opacity-50");
+      expect(note).toHaveTextContent("blocked on flaky e2e");
+    });
+
+    it("renders an epoch-0 note text-only (no age, undimmed)", () => {
+      renderWithNote({ note: "blocked on flaky e2e" });
+      fireEvent.click(screen.getByLabelText("Expand run-kit"));
+
+      const note = screen.getByTestId("window-tile-note-@0");
+      expect(note).toHaveTextContent("blocked on flaky e2e");
+      expect(note).not.toHaveTextContent("ago");
+      expect(note.className).not.toContain("opacity-50");
+    });
+  });
+
   it("wires the New Session and New Tab actions", () => {
     const onCreateSession = vi.fn();
     const onCreateWindow = vi.fn();

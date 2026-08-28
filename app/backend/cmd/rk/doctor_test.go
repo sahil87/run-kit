@@ -9,8 +9,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"rk/internal/codeserver"
 	"rk/internal/tmux"
@@ -766,7 +768,7 @@ func TestEphemeralServersCheckBranches(t *testing.T) {
 		if !c.OK {
 			t.Errorf("nonzero count must stay OK, got %+v", c)
 		}
-		want := "2 live server(s) marked @rk_ephemeral — sweep with `rk mux reap --ephemeral`"
+		want := "2 live server(s) marked " + tmux.EphemeralOption + " — sweep with `rk mux reap --ephemeral`"
 		if c.Note != want {
 			t.Errorf("note = %q, want %q", c.Note, want)
 		}
@@ -1329,5 +1331,167 @@ func TestCodeBridgeCheckNeverFlipsVerdict(t *testing.T) {
 	}
 	if !jsonFound {
 		t.Error("--json report is missing the code bridge row")
+	}
+}
+
+// --- agent hooks check -----------------------------------------------------
+
+// agentHooksFixture builds the (readFile, stat) seams for agentHooksCheck
+// tests from a settings.json body plus a set of executable paths.
+func agentHooksFixture(t *testing.T, home string, settingsBody []byte, readErr error, executables map[string]bool) (func(string) ([]byte, error), func(string) (os.FileInfo, error)) {
+	t.Helper()
+	settingsPath := filepath.Join(home, ".claude", "settings.json")
+	readFile := func(path string) ([]byte, error) {
+		if path != settingsPath {
+			return nil, os.ErrNotExist
+		}
+		if readErr != nil {
+			return nil, readErr
+		}
+		if settingsBody == nil {
+			return nil, os.ErrNotExist
+		}
+		return settingsBody, nil
+	}
+	stat := func(path string) (os.FileInfo, error) {
+		if executables[path] {
+			return fakeFileInfo{mode: 0o755}, nil
+		}
+		return nil, os.ErrNotExist
+	}
+	return readFile, stat
+}
+
+// fakeFileInfo is the minimal os.FileInfo for the stat seam.
+type fakeFileInfo struct{ mode os.FileMode }
+
+func (f fakeFileInfo) Name() string       { return "rk" }
+func (f fakeFileInfo) Size() int64        { return 0 }
+func (f fakeFileInfo) Mode() os.FileMode  { return f.mode }
+func (f fakeFileInfo) ModTime() time.Time { return time.Time{} }
+func (f fakeFileInfo) IsDir() bool        { return false }
+func (f fakeFileInfo) Sys() any           { return nil }
+
+// hookSettingsJSON wraps one hook command into a settings.json body.
+func hookSettingsJSON(command string) []byte {
+	return []byte(`{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":` +
+		strconv.Quote(command) + `}]}]}}`)
+}
+
+func TestAgentHooksCheckAbsentFileIsNotInstalled(t *testing.T) {
+	home := t.TempDir()
+	readFile, stat := agentHooksFixture(t, home, nil, nil, nil)
+	c := agentHooksCheck(home, readFile, stat)
+	if !c.OK {
+		t.Errorf("OK = false, want true (absent settings file is the optional not-installed case): %s", c.Hint)
+	}
+	if !strings.Contains(c.Note, "not installed") {
+		t.Errorf("Note = %q, want the not-installed note", c.Note)
+	}
+}
+
+func TestAgentHooksCheckNoRkEntriesIsNotInstalled(t *testing.T) {
+	home := t.TempDir()
+	body := []byte(`{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"/usr/local/bin/guard.sh"}]}]}}`)
+	readFile, stat := agentHooksFixture(t, home, body, nil, nil)
+	c := agentHooksCheck(home, readFile, stat)
+	if !c.OK {
+		t.Errorf("OK = false, want true (no rk entries): %s", c.Hint)
+	}
+	if !strings.Contains(c.Note, "not installed") {
+		t.Errorf("Note = %q, want the not-installed note", c.Note)
+	}
+}
+
+func TestAgentHooksCheckGen3Installed(t *testing.T) {
+	home := t.TempDir()
+	readFile, stat := agentHooksFixture(t, home, hookSettingsJSON(agentStateHookCommand("/opt/homebrew/bin/rk", "active", "claude")), nil,
+		map[string]bool{"/opt/homebrew/bin/rk": true})
+	c := agentHooksCheck(home, readFile, stat)
+	if !c.OK {
+		t.Errorf("OK = false, want true (gen-3 with a live rk path): %s", c.Hint)
+	}
+	if !strings.Contains(c.Note, "generation 3") {
+		t.Errorf("Note = %q, want the generation-3 installed note", c.Note)
+	}
+}
+
+func TestAgentHooksCheckGen1StaleFails(t *testing.T) {
+	home := t.TempDir()
+	gen1 := `sh -c '[ -n "$TMUX_PANE" ] || exit 0; tmux set-option -pt "$TMUX_PANE" ` + rkHookMarker + ` "active:$(date +%s)" 2>/dev/null || true'`
+	readFile, stat := agentHooksFixture(t, home, hookSettingsJSON(gen1), nil, nil)
+	c := agentHooksCheck(home, readFile, stat)
+	if c.OK {
+		t.Error("OK = true, want false (gen-1 entries write legacy option names)")
+	}
+	if !strings.Contains(c.Hint, "generation 1") {
+		t.Errorf("Hint = %q, want a generation-1 stale-hint", c.Hint)
+	}
+}
+
+func TestAgentHooksCheckGen2StaleFails(t *testing.T) {
+	home := t.TempDir()
+	gen2 := `/bin/sh -c '[ -n "$TMUX_PANE" ] || exit 0; "/opt/homebrew/bin/rk" agent-hook --agent claude active 2>/dev/null || true'`
+	readFile, stat := agentHooksFixture(t, home, hookSettingsJSON(gen2), nil, nil)
+	c := agentHooksCheck(home, readFile, stat)
+	if c.OK {
+		t.Error("OK = true, want false (gen-2 entries are stale)")
+	}
+	if !strings.Contains(c.Hint, "generation 2") {
+		t.Errorf("Hint = %q, want a generation-2 stale-hint", c.Hint)
+	}
+}
+
+func TestAgentHooksCheckGen3DanglingPathFails(t *testing.T) {
+	home := t.TempDir()
+	readFile, stat := agentHooksFixture(t, home, hookSettingsJSON(agentStateHookCommand("/removed/keg/rk", "active", "claude")), nil, nil)
+	c := agentHooksCheck(home, readFile, stat)
+	if c.OK {
+		t.Error("OK = true, want false (gen-3 with a dangling rk path writes nothing)")
+	}
+	if !strings.Contains(c.Hint, "/removed/keg/rk") {
+		t.Errorf("Hint = %q, want the dangling path named", c.Hint)
+	}
+}
+
+func TestAgentHooksCheckUnreadableFileFails(t *testing.T) {
+	home := t.TempDir()
+	readFile, stat := agentHooksFixture(t, home, nil, os.ErrPermission, nil)
+	c := agentHooksCheck(home, readFile, stat)
+	if c.OK {
+		t.Error("OK = true, want false (a present-but-unreadable settings file is not the not-installed case)")
+	}
+	if !strings.Contains(c.Hint, "unreadable") {
+		t.Errorf("Hint = %q, want the unreadable-file hint", c.Hint)
+	}
+}
+
+func TestClassifyHookGeneration(t *testing.T) {
+	gen1 := `tmux set-option -pt "$TMUX_PANE" ` + rkHookMarker + ` "active:1"`
+	gen2 := `"rk" agent-hook --agent claude active`
+	gen3 := agentStateHookCommand("/opt/homebrew/bin/rk", "idle", "claude")
+	cases := []struct {
+		cmd  string
+		want int
+	}{
+		{gen1, 1},
+		{gen2, 2},
+		{gen3, 3},
+		{"/usr/local/bin/guard.sh", 0},
+	}
+	for _, c := range cases {
+		if got := classifyHookGeneration(c.cmd); got != c.want {
+			t.Errorf("classifyHookGeneration(%q) = %d, want %d", c.cmd, got, c.want)
+		}
+	}
+}
+
+func TestHookRkPath(t *testing.T) {
+	cmd := agentStateHookCommand("/opt/homebrew/bin/rk", "active", "claude")
+	if got := hookRkPath(cmd); got != "/opt/homebrew/bin/rk" {
+		t.Errorf("hookRkPath = %q, want /opt/homebrew/bin/rk", got)
+	}
+	if got := hookRkPath("no quoted token"); got != "" {
+		t.Errorf("hookRkPath on an unquoted command = %q, want empty", got)
 	}
 }

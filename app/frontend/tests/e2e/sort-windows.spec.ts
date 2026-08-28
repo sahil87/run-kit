@@ -61,14 +61,14 @@ function setWaiting(name: string): void {
     "-p",
     "-t",
     `=${SESSION}:=${name}`,
-    "@rk_agent_state",
+    "@rk_pane_agent_state",
     `waiting:${Math.floor(Date.now() / 1000)}:${pid}`,
   ]);
 }
 
 /** Clear a window's agent-state option. */
 function clearAgentState(name: string): void {
-  tmux(["set-option", "-p", "-u", "-t", `=${SESSION}:=${name}`, "@rk_agent_state"]);
+  tmux(["set-option", "-p", "-u", "-t", `=${SESSION}:=${name}`, "@rk_pane_agent_state"]);
 }
 
 /** This spec's sidebar window rows, in display order (raw read; callers poll). */

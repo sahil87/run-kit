@@ -75,8 +75,9 @@ func badPaneTarget(s string) error {
 	return fmt.Errorf("invalid target %q: want a pane ID (%%N), a window ID (@N), or an exact session:window (=session:window)", s)
 }
 
-// PaneAgentState reads ONE pane's reconciled @rk_agent_state on the given
-// server: the raw value is parsed via parseAgentState and then reconciled
+// PaneAgentState reads ONE pane's reconciled agent-state option on the given
+// server: the raw value (dual-read @rk_pane_agent_state then @rk_agent_state)
+// is parsed via parseAgentState and then reconciled
 // exactly as the sessions path (parsePanes) does — a pid-carrying value is
 // trusted iff the agent process is alive (kill-0 liveness); a legacy
 // two-segment value falls back to the shell-command heuristic (a plain-shell
@@ -90,7 +91,7 @@ func PaneAgentState(ctx context.Context, paneID, server string) (string, error) 
 
 // PaneFacts is a single pane's substrate fact bundle, read in one
 // display-message round trip by PaneFactsCtx. AgentState/AgentStateEpoch/
-// AgentPID carry the reconciled @rk_agent_state read (AgentState "" = unknown:
+// AgentPID carry the reconciled agent-state read (AgentState "" = unknown:
 // absent, unparseable, or reconciled away); AgentPID is the live agent pid a
 // 3-segment value carried (0 when the value carried none — the pid is never
 // reported for a reconciled-away state).
@@ -103,32 +104,37 @@ type PaneFacts struct {
 
 // PaneFactsCtx reads ONE pane's substrate facts on the given server in a single
 // display-message round trip: the pane cwd (#{pane_current_path}) plus the
-// reconciled @rk_agent_state (the same parse + pid-liveness/shell-command
+// reconciled agent-state read (the same parse + pid-liveness/shell-command
 // reconcile the sessions path applies — shared with PaneAgentState, which this
-// superset read backs). A tmux failure (e.g. the pane does not exist) is
-// returned as the error.
+// superset read backs). Both option names are requested and the scope-named
+// one wins when non-empty (dual-read window). A tmux failure (e.g. the pane
+// does not exist) is returned as the error.
 func PaneFactsCtx(ctx context.Context, paneID, server string) (PaneFacts, error) {
 	raw, err := tmuxExecRawServer(ctx, server, "display-message", "-pt", paneID,
-		"#{pane_current_path}\t#{pane_current_command}\t#{@rk_agent_state}")
+		"#{pane_current_path}\t#{pane_current_command}\t#{"+LegacyAgentStateOption+"}\t#{"+AgentStateOption+"}")
 	if err != nil {
 		return PaneFacts{}, err
 	}
 	return parsePaneFacts(raw), nil
 }
 
-// parsePaneFacts parses the cwd\tcommand\t@rk_agent_state triple read by
-// PaneFactsCtx. Only the trailing newline is trimmed before the split —
+// parsePaneFacts parses the cwd\tcommand\t@rk_agent_state\t@rk_pane_agent_state
+// quadruple read by PaneFactsCtx — the 4th field (the scope-named option) wins
+// when non-empty. Only the trailing newline is trimmed before the split —
 // TrimSpace would eat the tabs delimiting an empty first or last field and
 // shift the remaining fields into the wrong slots.
 func parsePaneFacts(raw string) PaneFacts {
 	var facts PaneFacts
-	parts := strings.SplitN(strings.TrimRight(raw, "\r\n"), "\t", 3)
+	parts := strings.SplitN(strings.TrimRight(raw, "\r\n"), "\t", 4)
 	facts.CWD = parts[0]
 	command, stateRaw := "", ""
 	if len(parts) >= 2 {
 		command = parts[1]
 	}
-	if len(parts) == 3 {
+	if len(parts) == 4 {
+		stateRaw = parts[3]
+	}
+	if stateRaw == "" && len(parts) >= 3 {
 		stateRaw = parts[2]
 	}
 	state, epoch, pid := parseAgentState(stateRaw)

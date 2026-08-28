@@ -962,31 +962,40 @@ func TestRoleCarriersToClear(t *testing.T) {
 	}
 }
 
-// paneLine builds an 8-field tab-delimited list-panes line with an empty
-// @rk_agent_state and empty @rk_chat (the common case). Use paneLineAgent to
-// carry an agent state, or paneLineChat to also carry a chat value.
+// paneLine builds an 11-field tab-delimited list-panes line with empty
+// agent-state and chat fields on both name generations (the common case). Use
+// paneLineAgent to carry a legacy agent state, paneLineChat to also carry a
+// legacy chat value, or paneLineFull for full per-generation control.
 func paneLine(windowID string, paneID string, paneIndex int, cwd, command string, active int) string {
 	return paneLineChat(windowID, paneID, paneIndex, cwd, command, active, "", "")
 }
 
-// paneLineAgent builds an 8-field tab-delimited list-panes line including the
-// @rk_agent_state field (field 6), with an empty @rk_chat.
+// paneLineAgent builds an 11-field tab-delimited list-panes line carrying the
+// agent state in the LEGACY field (6) only, with an empty legacy chat field.
 func paneLineAgent(windowID string, paneID string, paneIndex int, cwd, command string, active int, agentState string) string {
 	return paneLineChat(windowID, paneID, paneIndex, cwd, command, active, agentState, "")
 }
 
-// paneLineChat builds a 9-field tab-delimited list-panes line including both the
-// @rk_agent_state field (field 6) and the @rk_chat field (field 7), with
-// alternate_on (field 8) pinned to "0" (normal screen).
+// paneLineChat builds an 11-field tab-delimited list-panes line carrying the
+// agent state and chat in the LEGACY fields (6/7) only, with alternate_on
+// (field 8) pinned to "0" (normal screen) and the scope-named fields (9/10)
+// empty.
 func paneLineChat(windowID string, paneID string, paneIndex int, cwd, command string, active int, agentState, chat string) string {
 	return paneLineAlt(windowID, paneID, paneIndex, cwd, command, active, agentState, chat, "0")
 }
 
-// paneLineAlt builds a 9-field tab-delimited list-panes line with an explicit
-// alternate_on value (field 8).
+// paneLineAlt builds an 11-field tab-delimited list-panes line with an
+// explicit alternate_on value (field 8) and empty scope-named fields (9/10).
 func paneLineAlt(windowID string, paneID string, paneIndex int, cwd, command string, active int, agentState, chat, alt string) string {
-	return fmt.Sprintf("%s%s%s%s%d%s%s%s%s%s%d%s%s%s%s%s%s",
-		windowID, listDelim, paneID, listDelim, paneIndex, listDelim, cwd, listDelim, command, listDelim, active, listDelim, agentState, listDelim, chat, listDelim, alt)
+	return paneLineFull(windowID, paneID, paneIndex, cwd, command, active, agentState, chat, alt, "", "")
+}
+
+// paneLineFull builds an 11-field tab-delimited list-panes line with full
+// control over both generations of the agent-state/chat fields: legacy at 6/7
+// (with alt at 8), scope-named at 9/10.
+func paneLineFull(windowID string, paneID string, paneIndex int, cwd, command string, active int, agentState, chat, alt, newAgentState, newChat string) string {
+	return fmt.Sprintf("%s%s%s%s%d%s%s%s%s%s%d%s%s%s%s%s%s%s%s%s%s",
+		windowID, listDelim, paneID, listDelim, paneIndex, listDelim, cwd, listDelim, command, listDelim, active, listDelim, agentState, listDelim, chat, listDelim, alt, listDelim, newAgentState, listDelim, newChat)
 }
 
 // totalPanes sums the number of panes across all windows in the map.
@@ -1249,19 +1258,86 @@ func TestParsePanes(t *testing.T) {
 		}
 	})
 
-	t.Run("back-compat: an 8-field line (no alternate_on) is skipped by the < 9 guard", func(t *testing.T) {
-		// The 9th field is required now; a pane emitted without it is skipped
-		// (alternate_on always resolves — tmux emits "0"/"1" for it — so a real
-		// 8-field line only occurs pre-upgrade).
-		eightField := fmt.Sprintf("0%s%%1%s0%s/tmp%sclaude%s1%sactive:1751790000%s",
-			listDelim, listDelim, listDelim, listDelim, listDelim, listDelim, listDelim)
+	t.Run("back-compat: a 9-field line (no scope-named fields) is skipped by the < 11 guard", func(t *testing.T) {
+		// The 11th field is required now; a pane emitted without it is skipped
+		// (the format always emits both generations — tmux resolves an unset
+		// option to an empty field — so a short line is a parse anomaly).
+		nineField := fmt.Sprintf("0%s%%1%s0%s/tmp%sclaude%s1%sactive:1751790000%s%s0",
+			listDelim, listDelim, listDelim, listDelim, listDelim, listDelim, listDelim, listDelim)
 		valid := paneLineChat("@1", "%2", 0, "/tmp", "claude", 1, "", "")
-		byWindow := parsePanes([]string{eightField, valid})
+		byWindow := parsePanes([]string{nineField, valid})
 		if totalPanes(byWindow) != 1 {
-			t.Fatalf("got %d panes, want 1 (8-field line skipped)", totalPanes(byWindow))
+			t.Fatalf("got %d panes, want 1 (9-field line skipped)", totalPanes(byWindow))
 		}
 		if byWindow["@0"] != nil {
-			t.Errorf("byWindow[@0] should be nil (8-field line skipped), got %v", byWindow["@0"])
+			t.Errorf("byWindow[@0] should be nil (9-field line skipped), got %v", byWindow["@0"])
+		}
+	})
+
+	t.Run("dual-read: new agent-state field wins over legacy", func(t *testing.T) {
+		restore := agentProcessAlive
+		agentProcessAlive = func(pid int) bool { return pid == 4242 }
+		defer func() { agentProcessAlive = restore }()
+
+		lines := []string{paneLineFull("@0", "%1", 0, "/tmp", "claude", 1, "idle:100", "", "0", "active:200:4242", "")}
+		p := parsePanes(lines)["@0"][0]
+		if p.AgentState != "active" || p.AgentStateEpoch != 200 {
+			t.Errorf("both set: AgentState=%q epoch=%d, want active/200 (new wins)", p.AgentState, p.AgentStateEpoch)
+		}
+	})
+
+	t.Run("dual-read: legacy agent-state field used when new is empty", func(t *testing.T) {
+		lines := []string{paneLineFull("@0", "%1", 0, "/tmp", "claude", 1, "idle:100", "", "0", "", "")}
+		p := parsePanes(lines)["@0"][0]
+		if p.AgentState != "idle" || p.AgentStateEpoch != 100 {
+			t.Errorf("new empty: AgentState=%q epoch=%d, want idle/100 (legacy fallback)", p.AgentState, p.AgentStateEpoch)
+		}
+	})
+
+	t.Run("dual-read: both agent-state fields empty yields empty state", func(t *testing.T) {
+		lines := []string{paneLineFull("@0", "%1", 0, "/tmp", "claude", 1, "", "", "0", "", "")}
+		p := parsePanes(lines)["@0"][0]
+		if p.AgentState != "" || p.AgentStateEpoch != 0 {
+			t.Errorf("both empty: AgentState=%q epoch=%d, want empty/0", p.AgentState, p.AgentStateEpoch)
+		}
+	})
+
+	t.Run("dual-read: new chat field wins over legacy", func(t *testing.T) {
+		lines := []string{paneLineFull("@0", "%1", 0, "/tmp", "claude", 1, "active:1751790000", "claude:legacy-ref", "0", "", "claude:new-ref")}
+		p := parsePanes(lines)["@0"][0]
+		if p.ChatSessionRef != "new-ref" {
+			t.Errorf("both set: ChatSessionRef=%q, want new-ref (new wins)", p.ChatSessionRef)
+		}
+	})
+
+	t.Run("dual-read: legacy chat field used when new is empty", func(t *testing.T) {
+		lines := []string{paneLineFull("@0", "%1", 0, "/tmp", "claude", 1, "active:1751790000", "claude:legacy-ref", "0", "", "")}
+		p := parsePanes(lines)["@0"][0]
+		if p.ChatSessionRef != "legacy-ref" {
+			t.Errorf("new empty: ChatSessionRef=%q, want legacy-ref (legacy fallback)", p.ChatSessionRef)
+		}
+	})
+
+	t.Run("dual-read: both chat fields empty yields empty chat", func(t *testing.T) {
+		lines := []string{paneLineFull("@0", "%1", 0, "/tmp", "claude", 1, "active:1751790000", "", "0", "", "")}
+		p := parsePanes(lines)["@0"][0]
+		if p.ChatProvider != "" || p.ChatSessionRef != "" {
+			t.Errorf("both empty: ChatProvider=%q ChatSessionRef=%q, want empty", p.ChatProvider, p.ChatSessionRef)
+		}
+	})
+
+	t.Run("dual-read: new agent-state only (no legacy) parses", func(t *testing.T) {
+		restore := agentProcessAlive
+		agentProcessAlive = func(pid int) bool { return pid == 4242 }
+		defer func() { agentProcessAlive = restore }()
+
+		lines := []string{paneLineFull("@0", "%1", 0, "/tmp", "claude", 1, "", "", "0", "active:200:4242", "claude:new-ref")}
+		p := parsePanes(lines)["@0"][0]
+		if p.AgentState != "active" || p.AgentStateEpoch != 200 {
+			t.Errorf("new only: AgentState=%q epoch=%d, want active/200", p.AgentState, p.AgentStateEpoch)
+		}
+		if p.ChatSessionRef != "new-ref" {
+			t.Errorf("new only: ChatSessionRef=%q, want new-ref", p.ChatSessionRef)
 		}
 	})
 
@@ -2635,6 +2711,67 @@ func TestIsProtectedServer_noServerReturnsFalse(t *testing.T) {
 	}
 	if got {
 		t.Error("got true, want false (no server)")
+	}
+}
+
+func TestIsEphemeralServer_legacyOnlyReturnsTrue(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	args := append(serverArgs(server), "set-option", "-s", LegacyEphemeralOption, "1")
+	if out, err := exec.CommandContext(ctx, "tmux", args...).CombinedOutput(); err != nil {
+		t.Fatalf("set %s: %v\n%s", LegacyEphemeralOption, err, string(out))
+	}
+
+	got, err := IsEphemeralServer(ctx, server)
+	if err != nil {
+		t.Fatalf("IsEphemeralServer legacy-marked: %v", err)
+	}
+	if !got {
+		t.Error("got false, want true (legacy mark dual-read)")
+	}
+}
+
+func TestIsProtectedServer_legacyOnlyReturnsTrue(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	args := append(serverArgs(server), "set-option", "-s", LegacyProtectedOption, "1")
+	if out, err := exec.CommandContext(ctx, "tmux", args...).CombinedOutput(); err != nil {
+		t.Fatalf("set %s: %v\n%s", LegacyProtectedOption, err, string(out))
+	}
+
+	got, err := IsProtectedServer(ctx, server)
+	if err != nil {
+		t.Fatalf("IsProtectedServer legacy-marked: %v", err)
+	}
+	if !got {
+		t.Error("got false, want true (legacy mark dual-read)")
+	}
+}
+
+func TestUnmarkServerProtected_clearsBothNames(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// A demote must disarm the guard whichever name armed it.
+	args := append(serverArgs(server), "set-option", "-s", LegacyProtectedOption, "1")
+	if out, err := exec.CommandContext(ctx, "tmux", args...).CombinedOutput(); err != nil {
+		t.Fatalf("set %s: %v\n%s", LegacyProtectedOption, err, string(out))
+	}
+
+	if err := UnmarkServerProtected(ctx, server); err != nil {
+		t.Fatalf("UnmarkServerProtected: %v", err)
+	}
+	got, err := IsProtectedServer(ctx, server)
+	if err != nil {
+		t.Fatalf("IsProtectedServer after unmark: %v", err)
+	}
+	if got {
+		t.Error("got true, want false (legacy mark must be disarmed by unmark)")
 	}
 }
 

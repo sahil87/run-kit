@@ -13,7 +13,7 @@
  * panes). All targets here use the `=name` exact-match session form
  * (`=name:` where the command takes a target-window) — never bare `-t name`.
  *
- * EPHEMERAL + MANAGED MARKING: `createSession` sets the `@rk_ephemeral 1`
+ * EPHEMERAL + MANAGED MARKING: `createSession` sets the `@rk_srv_ephemeral 1`
  * creator opt-out mark and the `@rk_srv_managed 1` provenance mark (both
  * server-scoped) on the target server after its `new-session` succeeds —
  * one seam covering the primary and every `rk-test-e2e-<role>-<pid>-<epoch>`
@@ -96,12 +96,12 @@ export function createSession(
       if (first.command) args.push(first.command);
     }
     tmux(args, opts);
-    // Convention: every server the specs birth carries the @rk_ephemeral
+    // Convention: every server the specs birth carries the @rk_srv_ephemeral
     // creator opt-out mark (idempotent — the primary is already marked by
     // scripts/test-e2e.sh) plus @rk_srv_managed, so the WS-attach conf reload
     // still sources rk's tmux.conf into it (an unmarked server is external
     // and rk no longer pushes conf — allow-passthrough etc. would be off).
-    tmux(["set-option", "-s", "@rk_ephemeral", "1"], opts);
+    tmux(["set-option", "-s", "@rk_srv_ephemeral", "1"], opts);
     tmux(["set-option", "-s", "@rk_srv_managed", "1"], opts);
     for (const w of rest) {
       newWindow(session, w.name, { server: opts.server, command: w.command });

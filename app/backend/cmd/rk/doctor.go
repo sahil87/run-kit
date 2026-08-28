@@ -106,6 +106,17 @@ func runDoctorChecks() doctorReport {
 	// opt-in, never a dependency failure.
 	report.Checks = append(report.Checks, ephemeralServersCheck())
 
+	// Agent hooks — the rk-owned settings.json hook entries' install state:
+	// stale generations still write the retired option names, and a gen-3 hook
+	// whose embedded rk path dangles writes nothing at all.
+	if home != "" {
+		c := agentHooksCheck(home, os.ReadFile, os.Stat)
+		report.Checks = append(report.Checks, c)
+		if !c.OK {
+			report.OK = false
+		}
+	}
+
 	// Legacy tmux options — informational count of live servers still carrying
 	// the pre-scope-named option keys, always OK-shaped: the attach/adopt-time
 	// sweep is the healer, doctor only reports.
@@ -164,7 +175,7 @@ func ephemeralServersCheck() doctorCheck {
 		check.Note = "none"
 		return check
 	}
-	check.Note = fmt.Sprintf("%d live server(s) marked @rk_ephemeral — sweep with `rk mux reap --ephemeral`", len(marked))
+	check.Note = fmt.Sprintf("%d live server(s) marked %s — sweep with `rk mux reap --ephemeral`", len(marked), tmux.EphemeralOption)
 	return check
 }
 
@@ -623,4 +634,125 @@ var doctorCmd = &cobra.Command{
 
 func init() {
 	doctorCmd.Flags().BoolVar(&doctorJSON, "json", false, "Emit the dependency report as JSON to stdout")
+}
+
+// --- agent hooks check -----------------------------------------------------
+
+// rkHookCommands returns the marker-carrying command strings of an rk-owned
+// hook entry (nil for a non-rk entry) — one shared walk with isRkEntry's
+// ownership test (rkEntryCommands owns it).
+func rkHookCommands(entry map[string]any) []string {
+	return rkEntryCommands(entry)
+}
+
+// classifyHookGeneration classifies an rk-owned hook command by its marker:
+// 1 = the retired self-contained one-liner (inlines LegacyAgentStateOption),
+// 2 = the delegating ` agent-hook ` root form, 3 = the delegating
+// ` agent hook ` family form. 0 means no marker matched (an rk entry with an
+// unrecognized command shape).
+func classifyHookGeneration(cmd string) int {
+	switch {
+	case strings.Contains(cmd, rkHookMarker):
+		return 1
+	case strings.Contains(cmd, rkHookMarkerAgentHook):
+		return 2
+	case strings.Contains(cmd, rkHookMarkerAgentHookFamily):
+		return 3
+	}
+	return 0
+}
+
+// hookRkPath extracts the rk binary path embedded in a gen-3 hook command —
+// the first double-quoted token after `; ` in agentStateHookCommand's exact
+// template. "" when the command does not carry one.
+func hookRkPath(cmd string) string {
+	i := strings.Index(cmd, "; ")
+	if i < 0 {
+		return ""
+	}
+	rest := cmd[i+2:]
+	if !strings.HasPrefix(rest, `"`) {
+		return ""
+	}
+	end := strings.Index(rest[1:], `"`)
+	if end < 0 {
+		return ""
+	}
+	return rest[1 : 1+end]
+}
+
+// agentHooksCheck reports the rk-owned agent-hooks install state across the
+// agent registry: which hook generations are installed and whether a gen-3
+// entry's embedded rk path still resolves to an executable. The hooks are
+// OPTIONAL — an absent settings file or a file with no rk entries is a passing
+// check with an informational note. The check fails when any gen-1/gen-2 entry
+// survives (those write the retired option names — the dual-read window
+// absorbs them, but the stale entries are what keep the window open), or when
+// a gen-3 entry's embedded rk path dangles (the hook fires and writes
+// nothing, silently). Pure over an injected (home, readFile, stat) triple in
+// the tmuxGuardShimCheck style so tests never depend on the host.
+func agentHooksCheck(home string, readFile func(string) ([]byte, error), stat func(string) (os.FileInfo, error)) doctorCheck {
+	check := doctorCheck{Name: "agent hooks", failLabel: "agent hooks", OK: true}
+	for _, agent := range agentRegistry(home) {
+		data, err := readFile(agent.settingsPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				check.Note = "not installed (optional — install with `rk agent setup`)"
+				return check
+			}
+			// A present-but-unreadable settings file is NOT the absent case:
+			// the hooks it carries may be firing (or failing) on every turn
+			// while doctor cannot vouch for them.
+			check.OK = false
+			check.Hint = fmt.Sprintf("unreadable settings file at %s (%v) — fix its permissions or remove it, then re-run `rk doctor`", agent.settingsPath, err)
+			return check
+		}
+		var settings map[string]any
+		if err := json.Unmarshal(data, &settings); err != nil {
+			check.OK = false
+			check.Hint = fmt.Sprintf("settings file at %s is not parseable JSON (%v) — fix it, then re-run `rk doctor`", agent.settingsPath, err)
+			return check
+		}
+		var stale, gen3 int
+		staleGen := 0
+		for _, ev := range asMap(settings["hooks"]) {
+			for _, e := range asSlice(ev) {
+				for _, cmd := range rkHookCommands(asMap(e)) {
+					switch gen := classifyHookGeneration(cmd); gen {
+					case 1, 2:
+						stale++
+						if staleGen == 0 || gen < staleGen {
+							staleGen = gen
+						}
+					case 3:
+						gen3++
+						if path := hookRkPath(cmd); path != "" {
+							if info, statErr := stat(path); statErr != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+								check.OK = false
+								check.Hint = fmt.Sprintf("gen-3 hook in %s execs %q, which is not an existing regular executable — hooks fire and write nothing; re-run `rk agent setup`", agent.settingsPath, path)
+								return check
+							}
+						}
+					}
+				}
+			}
+		}
+		if stale > 0 {
+			check.OK = false
+			noun := "entries"
+			if stale == 1 {
+				noun = "entry"
+			}
+			check.Hint = fmt.Sprintf("%d stale hook %s in %s (generation %d) — they write legacy option names; re-run `rk agent setup` to replace them", stale, noun, agent.settingsPath, staleGen)
+			return check
+		}
+		if gen3 == 0 {
+			check.Note = "not installed (optional — install with `rk agent setup`)"
+			return check
+		}
+		check.Note = fmt.Sprintf("installed (generation 3, %s); writes %s + %s", agent.comm, tmux.AgentStateOption, tmux.LegacyAgentStateOption)
+		return check
+	}
+	check.Note = "not installed (optional — install with `rk agent setup`)"
+	return check
 }

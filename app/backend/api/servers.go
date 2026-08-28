@@ -246,7 +246,7 @@ func (s *Server) handleServerKill(w http.ResponseWriter, r *http.Request) {
 	if guarded && !body.Force {
 		// The restart alternative applies only to the daemon; an
 		// option-marked server's alternatives are unmark or force.
-		msg := body.Name + " is protected (@rk_protected). Unprotect it first, or pass force to kill anyway."
+		msg := body.Name + " is protected (" + tmux.ProtectedOption + "). Unprotect it first, or pass force to kill anyway."
 		if body.Name == daemonServerName {
 			msg = body.Name + " is protected — it hosts the run-kit daemon. Use Restart (POST /api/restart) instead, or pass force to kill anyway."
 		}

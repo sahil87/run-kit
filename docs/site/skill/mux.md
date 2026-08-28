@@ -12,10 +12,10 @@ command -v rk >/dev/null 2>&1 && [ -n "$TMUX_PANE" ] || exit 0
 
 ```sh
 rk mux new scratch1                    # detached server on socket scratch1
-rk mux new scratch2 --ephemeral        # … and mark it @rk_ephemeral 1
+rk mux new scratch2 --ephemeral        # … and mark it @rk_srv_ephemeral 1
 ```
 
-Creates a detached tmux server listening on socket `<name>` with one session named `<name>`, through run-kit's server-birth path (sanitized environment, home-anchored CWD). This is the sanctioned way to create a scratch server — never improvise with raw `tmux -L <name> new-session`. `--ephemeral` marks the new server `@rk_ephemeral 1` before the command returns: the server opts out of layout-snapshot coverage and into the `rk mux reap --ephemeral` bulk-cleanup sweep (the create/reap convention — scratch servers are created with `rk mux new <name> --ephemeral` and bulk-cleaned with `rk mux reap --ephemeral`). If the mark fails, the just-created server is killed — a `--ephemeral` invocation never leaves an unmarked server behind.
+Creates a detached tmux server listening on socket `<name>` with one session named `<name>`, through run-kit's server-birth path (sanitized environment, home-anchored CWD). This is the sanctioned way to create a scratch server — never improvise with raw `tmux -L <name> new-session`. `--ephemeral` marks the new server `@rk_srv_ephemeral 1` before the command returns: the server opts out of layout-snapshot coverage and into the `rk mux reap --ephemeral` bulk-cleanup sweep (the create/reap convention — scratch servers are created with `rk mux new <name> --ephemeral` and bulk-cleaned with `rk mux reap --ephemeral`). If the mark fails, the just-created server is killed — a `--ephemeral` invocation never leaves an unmarked server behind.
 
 **Collision**: a live server already answering on `<name>` refuses (exit 1, nothing touched); a dead or stale socket proceeds. stdout carries exactly one report line: `created <name>`. Exit codes: 0 success, 1 operational (collision, tmux failure, mark failure), 2 usage.
 
@@ -30,9 +30,9 @@ rk mux send %5 "yes, go ahead" --answer               # answer a WAITING agent's
 rk mux send %5 --key Enter                            # raw tmux key names (no paste/probe)
 ```
 
-**Targets**: `%N` (pane), `@N` (window — resolves to the pane carrying `@rk_agent_state`, falling back to the active pane), `=session:window` (exact). Bare `session:window` names are rejected (tmux resolves bare names against windows first — a window named like a session would hijack the target). `-L <server>` targets another tmux server (default: your own, from `$TMUX`).
+**Targets**: `%N` (pane), `@N` (window — resolves to the pane carrying `@rk_pane_agent_state`, falling back to the active pane), `=session:window` (exact). Bare `session:window` names are rejected (tmux resolves bare names against windows first — a window named like a session would hijack the target). `-L <server>` targets another tmux server (default: your own, from `$TMUX`).
 
-**The gate** (reads the target's `@rk_agent_state`):
+**The gate** (reads the target's `@rk_pane_agent_state`):
 
 | state | plain | `--answer` |
 |-------|-------|------------|
@@ -57,7 +57,7 @@ rk mux await %5 --timeout 120            # give up waiting after 120s
 rk mux await %5 --notify                 # Web Push yourself/the human on wake
 ```
 
-**stdout is one report word**: the reached `--until` state (default `idle`), `file`, `running` (timeout expired — exit 0; the timeout bounds YOU, never the pane), or `gone` (the pane died — exit 1). The first check runs before any sleep, so an already-fired signal returns immediately. An uninstrumented pane (no `@rk_agent_state`) with no `--file` errors immediately — there is nothing to wait on.
+**stdout is one report word**: the reached `--until` state (default `idle`), `file`, `running` (timeout expired — exit 0; the timeout bounds YOU, never the pane), or `gone` (the pane died — exit 1). The first check runs before any sleep, so an already-fired signal returns immediately. An uninstrumented pane (no `@rk_pane_agent_state`) with no `--file` errors immediately — there is nothing to wait on.
 
 `--after-active` requires observing `active` before an `--until` state counts — use it when awaiting a pane you just sent to OUTSIDE `rk mux send --await`, so the peer's pre-send `idle` doesn't end your wait instantly.
 
@@ -105,7 +105,7 @@ cwd: /home/x/code/repo | agent: idle (5m)
 <content>
 ```
 
-The context line carries only substrate facts — the pane's cwd and its **reconciled** `@rk_agent_state` (a stale or dead-pid value reads as absent) with a duration for `idle`/`waiting` (never `active`); empty parts are omitted, and the line disappears when nothing resolved. `--json` emits `{"pane", "lines", "content", "cwd", "agent_state", "agent_state_duration"}` (`agent_*` are `null` when uninstrumented). `--json` and `--raw` are mutually exclusive. A missing pane or tmux failure is exit 1 with tmux's diagnostic; bad targets/flags are exit 2.
+The context line carries only substrate facts — the pane's cwd and its **reconciled** `@rk_pane_agent_state` (a stale or dead-pid value reads as absent) with a duration for `idle`/`waiting` (never `active`); empty parts are omitted, and the line disappears when nothing resolved. `--json` emits `{"pane", "lines", "content", "cwd", "agent_state", "agent_state_duration"}` (`agent_*` are `null` when uninstrumented). `--json` and `--raw` are mutually exclusive. A missing pane or tmux failure is exit 1 with tmux's diagnostic; bad targets/flags are exit 2.
 
 ## `rk mux kill` — remove a pane, gated
 
@@ -115,7 +115,7 @@ rk mux kill %12 --force        # skip both gates (agent-state + protected server
 rk mux kill @3                 # window target → its agent pane
 ```
 
-**Two gates**, both skipped by `--force` (target existence still validated). **Agent-state** (reads the target's reconciled `@rk_agent_state`): `active` and `waiting` **refuse** — the refusal names the state on stderr, exits 1, and touches nothing (never kill a working agent, never drop a pane holding a pending human question); `idle` and uninstrumented panes are killed. **Protected server**: a pane on a protected server (`rk-daemon` by derivation, or any server marked `@rk_protected 1`) is refused the same way — the refusal names the protected server on stderr. Success prints exactly one stdout line: `killed %N`. A missing pane or tmux failure is exit 1.
+**Two gates**, both skipped by `--force` (target existence still validated). **Agent-state** (reads the target's reconciled `@rk_pane_agent_state`): `active` and `waiting` **refuse** — the refusal names the state on stderr, exits 1, and touches nothing (never kill a working agent, never drop a pane holding a pending human question); `idle` and uninstrumented panes are killed. **Protected server**: a pane on a protected server (`rk-daemon` by derivation, or any server marked `@rk_srv_protected 1`) is refused the same way — the refusal names the protected server on stderr. Success prints exactly one stdout line: `killed %N`. A missing pane or tmux failure is exit 1.
 
 ## `rk mux process` — what runs in a pane
 
@@ -124,7 +124,7 @@ rk mux process %5
 rk mux process %5 --json
 ```
 
-Discovers the pane's process tree (the shell's `#{pane_pid}` and its descendants) and prints it as indented `PID comm [class]` lines under a `Pane %5 (PID 1234)` header, with a trailing `Agent process detected.` when an agent is present. Classification by comm: `agent` (`claude`, `claude-code`, `codex`, `gemini`, `copilot`), `node`, `git` (`git`, `gh`), else `other` (tag omitted). **Agent-state cross-check**: when the pane's `@rk_agent_state` carries a live pid, that tree node is `agent` regardless of comm (e.g. an agent behind a wrapper) — instrumentation beats heuristics. `--json` emits `{"pane", "pane_pid", "processes": [{pid, ppid, comm, cmdline, classification, children}], "has_agent"}`.
+Discovers the pane's process tree (the shell's `#{pane_pid}` and its descendants) and prints it as indented `PID comm [class]` lines under a `Pane %5 (PID 1234)` header, with a trailing `Agent process detected.` when an agent is present. Classification by comm: `agent` (`claude`, `claude-code`, `codex`, `gemini`, `copilot`), `node`, `git` (`git`, `gh`), else `other` (tag omitted). **Agent-state cross-check**: when the pane's `@rk_pane_agent_state` carries a live pid, that tree node is `agent` regardless of comm (e.g. an agent behind a wrapper) — instrumentation beats heuristics. `--json` emits `{"pane", "pane_pid", "processes": [{pid, ppid, comm, cmdline, classification, children}], "has_agent"}`.
 
 ## `rk mux panes` — enumerate every pane on the server
 
@@ -139,11 +139,11 @@ The whole-server enumeration query — no target argument; it is the one mux mem
 ## Gotchas
 
 - All five pane-scoped verbs share the same target grammar — `%N`, `@N`, `=session:window` (bare `session:window` rejected) — and the same `-L <server>` flag (default: your own server, from `$TMUX`).
-- Scratch-server convention: create with `rk mux new <name> --ephemeral`, bulk-clean with `rk mux reap --ephemeral`; never bare `tmux kill-server` — a bare `tmux kill-server` (no `-L`/`-S`) is refused machine-wide by the rk tmux guard shim — use `tmux -L <name> kill-server` for scratch servers (`rk mux guard` is the verb the shim execs). Protected servers (`rk-daemon` always; any server marked `@rk_protected 1`) are skipped by `rk mux reap` unconditionally — even under `--ephemeral` or a prefix match (protected beats ephemeral) — and refuse `rk mux kill` without `--force`.
+- Scratch-server convention: create with `rk mux new <name> --ephemeral`, bulk-clean with `rk mux reap --ephemeral`; never bare `tmux kill-server` — a bare `tmux kill-server` (no `-L`/`-S`) is refused machine-wide by the rk tmux guard shim — use `tmux -L <name> kill-server` for scratch servers (`rk mux guard` is the verb the shim execs). Protected servers (`rk-daemon` always; any server marked `@rk_srv_protected 1`) are skipped by `rk mux reap` unconditionally — even under `--ephemeral` or a prefix match (protected beats ephemeral) — and refuse `rk mux kill` without `--force`.
 - `--answer` and `--force` are mutually exclusive on `send` (usage error, exit 2) — say what you mean.
 - `--await` cannot combine with `--no-enter` (nothing was submitted to wait on).
 - `--key` sends key names raw (no paste, no probe — keys have no echo to verify).
-- `send --await` on an UNINSTRUMENTED pane (no `@rk_agent_state`): the message still delivers and `delivered %N` prints; the wait then applies its own rule — if the pane still has no state, the command errors "nothing observable to wait on" (exit 1). The delivery is never rolled back or hidden by a failed wait.
+- `send --await` on an UNINSTRUMENTED pane (no `@rk_pane_agent_state`): the message still delivers and `delivered %N` prints; the wait then applies its own rule — if the pane still has no state, the command errors "nothing observable to wait on" (exit 1). The delivery is never rolled back or hidden by a failed wait.
 - `await --notify` fires on EVERY report — including `running` (timeout) and `gone` (pane died), not just a reached state. That is deliberate: you asked to be woken when the wait ends, however it ends.
 - `await --any`: `gone %N` names the dead pane and exits 1 (armed panes get immediate death detection; re-arm minus the dead pane); a fired signal in the same sweep beats a death; an uninstrumented member fails the whole arm on the first sweep, exit 1; all targets share one `-L` server, and two targets resolving to the same pane are exit 2.
 - The verbs talk to tmux directly from your context — no daemon dependency, so they work while `rk serve` is down.

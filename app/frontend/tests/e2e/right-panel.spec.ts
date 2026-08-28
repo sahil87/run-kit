@@ -245,7 +245,7 @@ test.describe("Top-bar surface toggles — open-tile toggles over the surface la
     // Disabled-at-3 needs an UNLIT shown toggle while 3 tiles are open — with
     // chat hidden from the group (SURFACE_RAIL_HIDDEN) the only way is an open
     // CHAT tile: a chat-capable window deep-linked to main-left:tty,web,chat
-    // leaves the CODE toggle unlit at 3 open tiles. Chat capability: @rk_chat
+    // leaves the CODE toggle unlit at 3 open tiles. Chat capability: @rk_pane_chat
     // is a PANE option reconciled by the pane's liveness — a plain-shell pane
     // never surfaces chat (tmux.go's reconciler), so the window runs a
     // non-shell command (`exec` guarantees pane_current_command = sleep).
@@ -256,7 +256,7 @@ test.describe("Top-bar surface toggles — open-tile toggles over the surface la
     const paneId = execFileSync("tmux", ["-L", TMUX_SERVER, "display-message", "-t", id, "-p", "#{pane_id}"])
       .toString()
       .trim();
-    execFileSync("tmux", ["-L", TMUX_SERVER, "set-option", "-p", "-t", paneId, "@rk_chat", "claude:e2e-disabled-at-3"]);
+    execFileSync("tmux", ["-L", TMUX_SERVER, "set-option", "-p", "-t", paneId, "@rk_pane_chat", "claude:e2e-disabled-at-3"]);
 
     await gotoWindow(page, id, "?layout=main-left:tty,web,chat");
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });

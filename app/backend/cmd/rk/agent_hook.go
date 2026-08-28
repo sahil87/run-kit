@@ -67,7 +67,7 @@ const agentHookStampToken = "stamp"
 // blocking the agent's turn while we read.
 const hookStdinReadLimit = 1 << 20
 
-// chatOption is the @rk_chat pane-option name, aliased from internal/tmux so the
+// chatOption is the @rk_pane_chat pane-option name, aliased from internal/tmux so the
 // cross-repo convention has ONE source of truth per binary (A-021) — the writer
 // and the reader (internal/tmux) never drift.
 const chatOption = tmux.ChatOption
@@ -85,7 +85,7 @@ func newAgentHookCmd(use string) *cobra.Command {
 	c := &cobra.Command{
 		Use:   use,
 		Short: "Report an agent's lifecycle state to run-kit (invoked by installed hooks)",
-		Long: "Write the @rk_agent_state tmux pane option for the current pane so " +
+		Long: "Write the " + tmux.AgentStateOption + " tmux pane option for the current pane so " +
 			"run-kit can show this agent's active/waiting/idle state. This is the " +
 			"stable interface installed by `run-kit agent setup` — the harness config " +
 			"carries only a thin wrapper and all logic lives in the binary, so hook " +
@@ -408,12 +408,23 @@ func writeAgentState(ctx context.Context, pane, state string, pid int) {
 	writeAgentStateFn(ctx, pane, state, pid)
 }
 
-// writeAgentStateImpl runs `tmux [-S <socket>] set-option -pt <pane>
-// @rk_agent_state <value>` via exec.CommandContext with a timeout
-// (Constitution §I). Nothing user-provided is interpolated into a shell: state
-// is a fixed registry literal, pane and socket are passed as discrete argv
-// elements, and pid is an integer. Any error is swallowed — the hook must never
-// fail the agent.
+// agentHookTmuxRun is a package-level seam for the dual-write tmux invocation
+// so tests can capture the argv without spawning tmux.
+var agentHookTmuxRun = func(ctx context.Context, args []string) error {
+	return tmux.Run(ctx, args, tmux.RunOpts{})
+}
+
+// dualWritePaneOption runs ONE tmux invocation that writes value to both the
+// scope-named pane option and its retired unscoped sibling:
+//
+//	tmux [-S <socket>] set-option -pt <pane> <new> <value> ; set-option -pt <pane> <old> <value>
+//
+// The `;` is a discrete argv element — tmux command chaining, no shell
+// (Constitution §I), and one subprocess per hook fire instead of two. The
+// legacy write is the deprecation-window contract: readers on older installs
+// (and fab-kit) still read the retired name, so the write must land under both
+// until the follow-up removal change drops the second command. Any error is
+// swallowed — the hook must never fail the agent.
 //
 // The server is targeted via `-S <socket>` derived from the ORIGINAL $TMUX
 // (tmux.OriginalTMUX), NOT os.Getenv("TMUX"): internal/tmux's init() strips
@@ -424,42 +435,46 @@ func writeAgentState(ctx context.Context, pane, state string, pid int) {
 // than relying on the child re-exporting $TMUX) also survives hook contexts like
 // `tmux run-shell` that set $TMUX_PANE but not $TMUX. When it is empty we fall
 // back to a bare invocation (best effort — the wrapper's `|| true` still holds).
-func writeAgentStateImpl(ctx context.Context, pane, state string, pid int) {
-	value := formatAgentStateValue(state, time.Now().Unix(), pid)
+func dualWritePaneOption(ctx context.Context, pane, option, legacyOption, value string) {
 	args := tmuxSocketArgs(tmux.OriginalTMUX)
-	args = append(args, "set-option", "-pt", pane, tmux.AgentStateOption, value)
+	args = append(args,
+		"set-option", "-pt", pane, option, value,
+		";",
+		"set-option", "-pt", pane, legacyOption, value,
+	)
 	cctx, cancel := context.WithTimeout(ctx, agentHookCmdTimeout)
 	defer cancel()
 	// Errors are intentionally ignored (never-fail contract).
-	_ = tmux.Run(cctx, args, tmux.RunOpts{})
+	_ = agentHookTmuxRun(cctx, args)
+}
+
+// writeAgentStateImpl writes the agent-state pane option under both names
+// (dual-write — see dualWritePaneOption). Nothing user-provided is
+// interpolated into a shell: state is a fixed registry literal, pane and
+// socket are passed as discrete argv elements, and pid is an integer.
+func writeAgentStateImpl(ctx context.Context, pane, state string, pid int) {
+	value := formatAgentStateValue(state, time.Now().Unix(), pid)
+	dualWritePaneOption(ctx, pane, tmux.AgentStateOption, tmux.LegacyAgentStateOption, value)
 }
 
 // writeChatFn is a package-level seam so runAgentHook can be tested without
 // spawning tmux; the default writes via exec.CommandContext.
 var writeChatFn = writeChatImpl
 
-// writeChat writes the @rk_chat pane option with value "<provider>:<sessionID>".
+// writeChat writes the @rk_pane_chat pane option with value "<provider>:<sessionID>".
 // Indirects through the test seam.
 func writeChat(ctx context.Context, pane, provider, sessionID string) {
 	writeChatFn(ctx, pane, provider, sessionID)
 }
 
-// writeChatImpl runs `tmux [-S <socket>] set-option -pt <pane> @rk_chat
-// <provider>:<sessionID>` via exec.CommandContext with a timeout
-// (Constitution §I). Nothing user-provided is interpolated into a shell: provider
-// is a fixed registry comm literal, sessionID is a pre-validated argv element
-// (isValidSessionID rejects whitespace/control), and pane/socket are discrete
-// argv elements. The server is targeted the same way writeAgentStateImpl targets
-// it — via `-S <socket>` derived from tmux.OriginalTMUX (see that function for
-// why OriginalTMUX, not os.Getenv("TMUX")). Any error is swallowed (never-fail).
+// writeChatImpl writes the chat pane option under both names (dual-write —
+// see dualWritePaneOption). Nothing user-provided is interpolated into a
+// shell: provider is a fixed registry comm literal, sessionID is a
+// pre-validated argv element (isValidSessionID rejects whitespace/control),
+// and pane/socket are discrete argv elements.
 func writeChatImpl(ctx context.Context, pane, provider, sessionID string) {
 	value := fmt.Sprintf("%s:%s", provider, sessionID)
-	args := tmuxSocketArgs(tmux.OriginalTMUX)
-	args = append(args, "set-option", "-pt", pane, chatOption, value)
-	cctx, cancel := context.WithTimeout(ctx, agentHookCmdTimeout)
-	defer cancel()
-	// Errors are intentionally ignored (never-fail contract).
-	_ = tmux.Run(cctx, args, tmux.RunOpts{})
+	dualWritePaneOption(ctx, pane, chatOption, tmux.LegacyChatOption, value)
 }
 
 // formatAgentStateValue formats the cross-repo @rk_agent_state value

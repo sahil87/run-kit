@@ -183,7 +183,7 @@ and move*. Exactly one texture pairing exists: `hatch` (the in-progress marker)
 carries the static hazard-wedge weave; `thick` (completed) is deliberately
 quiet, and `double` is a plain twin stripe. Suggested semantics (`hatch` =
 in-progress, `thick` = completed, `double` = review, `pipe` = parked, `block` =
-archived) are **label conventions only** — no wiring to `@rk_agent_state` or the
+archived) are **label conventions only** — no wiring to `@rk_pane_agent_state` or the
 status pyramid.
 
 The **banded Label picker** (~190px wide, constant height regardless of any

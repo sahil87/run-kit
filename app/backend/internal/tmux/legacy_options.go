@@ -37,11 +37,16 @@ func (s optionScope) String() string {
 
 // legacyOption is one migration-table row: a retired option name, its
 // scope-named successor ("" = unset-only row), and the ONE scope the name is
-// legitimate at.
+// legitimate at. CopyOnly marks a row whose Old must NEVER be unset at its
+// right scope during the deprecation window — the copy to New still runs, but
+// Old stays: the daemon cannot see which rk version writes hooks on other
+// machines, and fab-kit still reads the retired name, so the dual state is
+// sanctioned (writers dual-write both). Wrong-scope holds are still purged.
 type legacyOption struct {
-	Old   string
-	New   string
-	Scope optionScope
+	Old      string
+	New      string
+	Scope    optionScope
+	CopyOnly bool
 }
 
 // legacyOptions is the migration table. A rename or retirement appends a row
@@ -71,6 +76,13 @@ var legacyOptions = []legacyOption{
 	{Old: "@rk_server_rank", New: ServerRankOption, Scope: scopeServer},
 	{Old: "@rk_origin", New: OriginOption, Scope: scopeServer},
 	{Old: "@rk_managed", New: ManagedOption, Scope: scopeServer},
+	{Old: LegacyEphemeralOption, New: EphemeralOption, Scope: scopeServer},
+	{Old: LegacyProtectedOption, New: ProtectedOption, Scope: scopeServer},
+	// Pane rows are CopyOnly: `rk agent hook` dual-writes both names and
+	// fab-kit still reads the retired one, so the sweep copies forward but
+	// never unsets Old at pane scope (wrong-scope strays are still purged).
+	{Old: LegacyAgentStateOption, New: AgentStateOption, Scope: scopePane, CopyOnly: true},
+	{Old: LegacyChatOption, New: ChatOption, Scope: scopePane, CopyOnly: true},
 }
 
 // scopeTarget is one carrier to inspect: a scope plus the -t argument naming
@@ -164,7 +176,9 @@ func sweepLegacyTargets(ctx context.Context, server string, targets []scopeTarge
 // then unset Old. Old is unset ONLY once New is known to hold a value at this
 // scope — already held, or the copy just succeeded — so a failed copy never
 // deletes the sole source of truth; the row is retried on the next sweep.
-// Reports whether a set/unset was issued.
+// A CopyOnly row skips the unset entirely: the dual state (Old + New held) is
+// sanctioned during the deprecation window, so a carrier already holding both
+// issues nothing. Reports whether a set/unset was issued.
 func moveLegacyAt(ctx context.Context, server string, row legacyOption, st scopeTarget) (bool, error) {
 	held, err := heldOptions(ctx, server, st)
 	if err != nil {
@@ -191,6 +205,9 @@ func moveLegacyAt(ctx context.Context, server string, row legacyOption, st scope
 			slog.Info("legacy option sweep: migrated", "server", server, "option", row.Old, "to", row.New, "scope", st.scope, "target", st.target)
 			changed = true
 		}
+	}
+	if row.CopyOnly {
+		return changed, nil
 	}
 	if err := unsetOptionAt(ctx, server, st, row.Old); err != nil {
 		slog.Warn("legacy option sweep: unset failed", "server", server, "option", row.Old, "scope", st.scope, "target", st.target, "error", err)
@@ -341,7 +358,11 @@ func setOptionArgs(st scopeTarget) []string {
 
 // CountLegacyOptions reports how many legacy option names are still held at
 // any scope on the server — the diagnostic sibling of MigrateLegacyOptions
-// (rk doctor), sharing the table and the scope walk.
+// (rk doctor), sharing the table and the scope walk. A CopyOnly row's Old
+// held at its RIGHT scope is not counted: the dual state is sanctioned during
+// the deprecation window (the writer dual-writes both), so counting it would
+// keep every instrumented server permanently dirty. A CopyOnly Old held at a
+// wrong scope still counts (a stray the sweep will purge).
 func CountLegacyOptions(ctx context.Context, server string) (int, error) {
 	targets, err := enumerateScopeTargets(ctx, server)
 	if err != nil {
@@ -354,9 +375,13 @@ func CountLegacyOptions(ctx context.Context, server string) (int, error) {
 			return 0, err
 		}
 		for _, row := range legacyOptions {
-			if _, ok := held[row.Old]; ok {
-				count++
+			if _, ok := held[row.Old]; !ok {
+				continue
 			}
+			if row.CopyOnly && !st.global && st.scope == row.Scope {
+				continue
+			}
+			count++
 		}
 	}
 	return count, nil

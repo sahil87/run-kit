@@ -52,7 +52,15 @@ const OriginOption = "@rk_srv_origin"
 // (IsTestServerName(name) ⇒ treated as ephemeral). "This server is scratch"
 // is creator intent — underivable from tmux/filesystem/git — which is why it
 // rides a user option like the rest of the @rk_* convention family.
-const EphemeralOption = "@rk_ephemeral"
+//
+// Dual-read window: external creators (e2e scripts, agents by convention)
+// still stamp the retired unscoped name, so readers accept
+// LegacyEphemeralOption as a fallback until the follow-up removal change.
+const EphemeralOption = "@rk_srv_ephemeral"
+
+// LegacyEphemeralOption is the retired unscoped name of EphemeralOption,
+// dual-read for the deprecation window and removed by the follow-up change.
+const LegacyEphemeralOption = "@rk_ephemeral"
 
 // ProtectedOption is the tmux server-scoped user option marking the whole
 // server protected: presence with a non-empty value (canonically "1") arms
@@ -64,7 +72,15 @@ const EphemeralOption = "@rk_ephemeral"
 // conflict (protected beats ephemeral). The rk-daemon production server is
 // protected by derivation from its constant name (IsGuardedServer), never by
 // this option — derived state is not togglable.
-const ProtectedOption = "@rk_protected"
+//
+// Dual-read window: external creators still stamp the retired unscoped name,
+// so readers accept LegacyProtectedOption as a fallback until the follow-up
+// removal change.
+const ProtectedOption = "@rk_srv_protected"
+
+// LegacyProtectedOption is the retired unscoped name of ProtectedOption,
+// dual-read for the deprecation window and removed by the follow-up change.
+const LegacyProtectedOption = "@rk_protected"
 
 // ManagedOption is the tmux server-scoped user option recording server
 // provenance: presence with a non-empty value (canonically "1") marks the
@@ -407,9 +423,18 @@ func WindowIDFromPinSession(name string) (string, bool) {
 // `rk agent setup`). Value schema: "<state>:<epoch_seconds>", state ∈
 // active|waiting|idle. It is the tier-2 signal owned by run-kit (tier 1 —
 // change/stage — stays fab's). See docs/specs/agent-state.md.
-const AgentStateOption = "@rk_agent_state"
+//
+// Dual-read window: `rk agent hook` dual-writes this name and the retired
+// unscoped one, and every installed rk (and fab-kit) still reads the retired
+// name, so readers prefer this name and fall back to
+// LegacyAgentStateOption until the follow-up removal change.
+const AgentStateOption = "@rk_pane_agent_state"
 
-// Agent lifecycle states carried by @rk_agent_state. Any other token parses as
+// LegacyAgentStateOption is the retired unscoped name of AgentStateOption,
+// dual-read for the deprecation window and removed by the follow-up change.
+const LegacyAgentStateOption = "@rk_agent_state"
+
+// Agent lifecycle states carried by @rk_pane_agent_state. Any other token parses as
 // unknown (empty state, zero epoch).
 const (
 	AgentStateActive  = "active"
@@ -422,11 +447,19 @@ const (
 // (e.g. "claude:6f0d9e2a-1c3b-4f7e-9a2d-8b5c4e1f0a37"). <provider> is the
 // rk agent setup registry agent name; <session-ref> is a provider-defined opaque
 // reference (the session UUID for claude). It is written by the same
-// `rk agent hook` binary that writes @rk_agent_state, on the same fires. The
+// `rk agent hook` binary that writes @rk_pane_agent_state, on the same fires. The
 // pane→session mapping is underivable from disk/tmux/git (multiple transcripts
 // share a cwd), which is exactly the class of fact Constitution X reserves for
 // hooks. See docs/specs/agent-state.md § Chat Session Identity.
-const ChatOption = "@rk_chat"
+//
+// Dual-read window: `rk agent hook` dual-writes this name and the retired
+// unscoped one, so readers prefer this name and fall back to
+// LegacyChatOption until the follow-up removal change.
+const ChatOption = "@rk_pane_chat"
+
+// LegacyChatOption is the retired unscoped name of ChatOption, dual-read for
+// the deprecation window and removed by the follow-up change.
+const LegacyChatOption = "@rk_chat"
 
 // shellCommands is the set of plain-shell pane_current_command values that the
 // LEGACY reconciler fallback treats as "no agent" — applied only to
@@ -922,10 +955,11 @@ func ListSessions(ctx context.Context, server string) ([]SessionInfo, error) {
 }
 
 // parsePanes parses tmux list-panes output lines into a window-id→[]PaneInfo map.
-// Lines are 8-field tab-delimited: window_id, pane_id, pane_index, cwd,
-// command, is_active, @rk_agent_state, @rk_chat. Field 0 (window_id) is
-// consumed for grouping and not stored in PaneInfo. Lines with fewer than 8
-// fields are silently skipped. Empty input returns nil.
+// Lines are 11-field tab-delimited: window_id, pane_id, pane_index, cwd,
+// command, is_active, @rk_agent_state, @rk_chat, alternate_on,
+// @rk_pane_agent_state, @rk_pane_chat. Field 0 (window_id) is consumed for
+// grouping and not stored in PaneInfo. Lines with fewer than 11 fields are
+// silently skipped. Empty input returns nil.
 //
 // The grouping key is the stable window ID (@N), NOT the window index: the
 // panes come from a separate list-panes call than the windows they are joined
@@ -936,7 +970,8 @@ func ListSessions(ctx context.Context, server string) ([]SessionInfo, error) {
 // only attach a pane to the window that actually owns it — at worst a window
 // gets an empty pane list, a visible degradation instead of wrong data.
 //
-// The @rk_agent_state field (field 6) is parsed into
+// The agent-state raw value is dual-read: field 9 (@rk_pane_agent_state) wins
+// when non-empty, else field 6 (@rk_agent_state); it is parsed into
 // AgentState/AgentStateEpoch (+ an optional agent pid) via parseAgentState,
 // then reconciled: pid-carrying values are trusted iff the agent process is
 // alive (kill-0 liveness — precise, wrapper-launch-proof); legacy two-segment
@@ -944,8 +979,9 @@ func ListSessions(ctx context.Context, server string) ([]SessionInfo, error) {
 // agent — the guppi auto-clear lesson that prevents a stranded `active` after
 // a kill).
 //
-// The @rk_chat field (field 7) is parsed into ChatProvider/ChatSessionRef via
-// parseChatRef and reconciled by the SAME liveness signal: @rk_chat carries no
+// The chat raw value is dual-read the same way (field 10 wins, else field 7)
+// and parsed into ChatProvider/ChatSessionRef via parseChatRef, reconciled by
+// the SAME liveness signal: @rk_pane_chat carries no
 // pid, so a dead agent (or a plain-shell pane with no live pid-bearing
 // agent-state) must not leave a live-looking chat ref (plan risk #4). The chat
 // fields are zeroed on exactly the same condition that zeros the agent-state
@@ -959,7 +995,7 @@ func parsePanes(lines []string) map[string][]PaneInfo {
 	byWindow := make(map[string][]PaneInfo)
 	for _, line := range lines {
 		parts := strings.Split(line, listDelim)
-		if len(parts) < 9 {
+		if len(parts) < 11 {
 			continue
 		}
 		windowID := strings.TrimSpace(parts[0])
@@ -973,8 +1009,19 @@ func parsePanes(lines []string) map[string][]PaneInfo {
 		}
 		isActive := strings.TrimSpace(parts[5]) == "1"
 		command := strings.TrimSpace(parts[4])
-		agentState, agentEpoch, agentPID := parseAgentState(parts[6])
-		chatProvider, chatRef := parseChatRef(parts[7])
+		// Dual-read: the scope-named field wins when non-empty, else the
+		// retired unscoped field (both ride the same list-panes call during
+		// the deprecation window).
+		agentStateRaw := parts[9]
+		if agentStateRaw == "" {
+			agentStateRaw = parts[6]
+		}
+		chatRaw := parts[10]
+		if chatRaw == "" {
+			chatRaw = parts[7]
+		}
+		agentState, agentEpoch, agentPID := parseAgentState(agentStateRaw)
+		chatProvider, chatRef := parseChatRef(chatRaw)
 		altScreen := strings.TrimSpace(parts[8]) == "1"
 		// Reconciler. Primary form (pid-carrying values from current
 		// agent setup hooks): PID liveness — the state is trusted iff the agent
@@ -987,7 +1034,7 @@ func parsePanes(lines []string) map[string][]PaneInfo {
 		// agent regardless of a leftover value.
 		//
 		// stale is the single dead/no-agent decision shared by both tiers:
-		// @rk_chat has no pid of its own, so it borrows the same pane's
+		// the chat option has no pid of its own, so it borrows the same pane's
 		// agent-state liveness (written by the same binary on the same fires) —
 		// a dead agent zeros BOTH the agent-state and chat fields, and a
 		// plain-shell pane never surfaces chat.
@@ -1159,10 +1206,14 @@ func parseNoteValue(raw string) (string, int64) {
 
 // paneFormat is the list-panes format string: window_id, pane_id, pane_index,
 // pane_current_path, pane_current_command, pane_active, @rk_agent_state,
-// @rk_chat, alternate_on (9 fields). The @rk_agent_state field carries the
-// generic agent-lifecycle state and @rk_chat the pane→chat-session mapping
-// (see AgentStateOption / ChatOption / docs/specs/agent-state.md); both cost
-// no extra subprocess since they ride the existing list-panes call.
+// @rk_chat, alternate_on, @rk_pane_agent_state, @rk_pane_chat (11 fields).
+// Fields 6–7 carry the retired unscoped names and fields 9–10 the scope-named
+// successors — dual-read during the deprecation window, new wins (the
+// @rk_win_note dual-read precedent); the follow-up removal change drops 6–7.
+// The agent-state/chat fields carry the generic agent-lifecycle state and the
+// pane→chat-session mapping (see AgentStateOption / ChatOption /
+// docs/specs/agent-state.md); they cost no extra subprocess since they ride
+// the existing list-panes call.
 var paneFormat = strings.Join([]string{
 	"#{window_id}",
 	"#{pane_id}",
@@ -1170,9 +1221,11 @@ var paneFormat = strings.Join([]string{
 	"#{pane_current_path}",
 	"#{pane_current_command}",
 	"#{pane_active}",
-	"#{@rk_agent_state}",
-	"#{@rk_chat}",
+	"#{" + LegacyAgentStateOption + "}",
+	"#{" + LegacyChatOption + "}",
 	"#{alternate_on}",
+	"#{" + AgentStateOption + "}",
+	"#{" + ChatOption + "}",
 }, listDelim)
 
 // ListWindows returns windows for a given session on the specified server.
@@ -3031,28 +3084,44 @@ func SetServerOrigin(ctx context.Context, server, origin string) error {
 	return err
 }
 
-// IsEphemeralServer reports whether the named server carries the
-// EphemeralOption mark (a non-empty trimmed value is truthy; "1" is the
-// documented convention). Mirrors GetServerOrigin's taxonomy exactly: an
-// unset option ("invalid option"/"unknown option" stderr) OR a dead/absent
-// socket (IsServerGone) reads as (false, nil) — liveness is the caller's
-// concern, and a gone server is never ephemeral. Other subprocess failures
-// propagate wrapped.
-func IsEphemeralServer(ctx context.Context, server string) (bool, error) {
+// isUnsetOptionErr reports whether a tmux subprocess error is the "option is
+// not set" diagnostic (show-option/set-option -u against an absent user
+// option) — distinct from a dead server (IsServerGone) and from real failures.
+func isUnsetOptionErr(err error) bool {
+	errMsg := err.Error()
+	return strings.Contains(errMsg, "invalid option") ||
+		strings.Contains(errMsg, "unknown option")
+}
+
+// readServerMarkDual reads a server-scoped boolean mark new-name-first:
+// option via `show-option -sv`; when it is unset, the retired legacy name is
+// read the same way (externally-written keys are dual-read for a release
+// before the old name is dropped). A non-empty trimmed value of whichever
+// resolved is truthy. An unset option on BOTH names OR a dead/absent socket
+// (IsServerGone) reads as (false, nil) — liveness is the caller's concern, and
+// a gone server is never marked. Other subprocess failures propagate wrapped.
+func readServerMarkDual(ctx context.Context, server, option, legacy string) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
 
-	out, err := tmuxExecRawServer(ctx, server, "show-option", "-sv", EphemeralOption)
+	out, err := tmuxExecRawServer(ctx, server, "show-option", "-sv", option)
+	if err != nil && isUnsetOptionErr(err) {
+		out, err = tmuxExecRawServer(ctx, server, "show-option", "-sv", legacy)
+	}
 	if err != nil {
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "invalid option") ||
-			strings.Contains(errMsg, "unknown option") ||
-			IsServerGone(err) {
+		if isUnsetOptionErr(err) || IsServerGone(err) {
 			return false, nil
 		}
-		return false, fmt.Errorf("read %s: %w", EphemeralOption, err)
+		return false, fmt.Errorf("read %s: %w", option, err)
 	}
 	return strings.TrimSpace(out) != "", nil
+}
+
+// IsEphemeralServer reports whether the named server carries the
+// EphemeralOption mark — read new-name-first with LegacyEphemeralOption as
+// the dual-read fallback (readServerMarkDual owns the taxonomy).
+func IsEphemeralServer(ctx context.Context, server string) (bool, error) {
+	return readServerMarkDual(ctx, server, EphemeralOption, LegacyEphemeralOption)
 }
 
 // MarkServerEphemeral writes the EphemeralOption creator opt-out mark ("1")
@@ -3067,27 +3136,10 @@ func MarkServerEphemeral(ctx context.Context, server string) error {
 }
 
 // IsProtectedServer reports whether the named server carries the
-// ProtectedOption mark (a non-empty trimmed value is truthy; "1" is the
-// documented convention). Exact mirror of IsEphemeralServer's taxonomy: an
-// unset option ("invalid option"/"unknown option" stderr) OR a dead/absent
-// socket (IsServerGone) reads as (false, nil) — liveness is the caller's
-// concern, and a gone server is never protected. Other subprocess failures
-// propagate wrapped.
+// ProtectedOption mark — read new-name-first with LegacyProtectedOption as
+// the dual-read fallback (readServerMarkDual owns the taxonomy).
 func IsProtectedServer(ctx context.Context, server string) (bool, error) {
-	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
-	defer cancel()
-
-	out, err := tmuxExecRawServer(ctx, server, "show-option", "-sv", ProtectedOption)
-	if err != nil {
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "invalid option") ||
-			strings.Contains(errMsg, "unknown option") ||
-			IsServerGone(err) {
-			return false, nil
-		}
-		return false, fmt.Errorf("read %s: %w", ProtectedOption, err)
-	}
-	return strings.TrimSpace(out) != "", nil
+	return readServerMarkDual(ctx, server, ProtectedOption, LegacyProtectedOption)
 }
 
 // MarkServerProtected writes the ProtectedOption mark ("1") server-scoped on
@@ -3102,13 +3154,23 @@ func MarkServerProtected(ctx context.Context, server string) error {
 }
 
 // UnmarkServerProtected removes the ProtectedOption mark from the named
-// server (set-option -s -u) — unset demotes; there is no tombstone value.
+// server (set-option -s -u) — unset demotes; there is no tombstone value. The
+// retired legacy name is unset too: either name may be the armed one during
+// the dual-read window, and a demote that left LegacyProtectedOption behind
+// would re-arm the guard through the fallback read.
 func UnmarkServerProtected(ctx context.Context, server string) error {
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
 
-	_, err := tmuxExecRawServer(ctx, server, "set-option", "-s", "-u", ProtectedOption)
-	return err
+	for _, name := range []string{ProtectedOption, LegacyProtectedOption} {
+		if _, err := tmuxExecRawServer(ctx, server, "set-option", "-s", "-u", name); err != nil {
+			if isUnsetOptionErr(err) {
+				continue
+			}
+			return fmt.Errorf("unset %s: %w", name, err)
+		}
+	}
+	return nil
 }
 
 // IsGuardedServer is the combined kill-guard predicate: true when name is the

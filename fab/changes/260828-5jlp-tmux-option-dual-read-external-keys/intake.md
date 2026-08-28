@@ -32,8 +32,9 @@ the user resolved both:
    `rk agent setup`. **User decision: add an `agent hooks` `rk doctor` row; no hook-text
    change and no generation bump.**
 
-Also verified: `MigrateLegacyOptions` (plan Change 1) does **not** exist in the tree yet and no
-fab change has been created for Change 1 — see § Dependency on Change 1 below.
+Update at `60afc45d`: plan Changes 1 (#752 `ca14545f`) and 2 (#753 `60afc45d`) have since merged and this
+branch is rebased onto them — `internal/tmux/legacy_options.go` now holds the migration table; see
+§ Migration table below.
 
 ## Why
 
@@ -67,29 +68,29 @@ follow-up gated on Change 4 having shipped.
 
 ## What Changes
 
-### Dependency on Change 1 (`MigrateLegacyOptions`)
+### Migration infrastructure already present (Changes 1 + 2 landed)
 
-Plan Change 1 introduces `internal/tmux.MigrateLegacyOptions(ctx, server)` — a table of
-`{oldName, newName, scope}` rows swept once per server per daemon lifetime from the
-managed-conf apply path, plus `rk mux adopt`. At `67f4a553` it **does not exist**, and the plan
-allows Changes 1 and 3 to run in parallel worktrees.
+`internal/tmux/legacy_options.go` (from #752/#753) provides everything this change extends:
+`legacyOption{Old, New string; Scope optionScope}` rows in the `legacyOptions` table;
+`sweepLegacyTargets` → `moveLegacyAt` (right scope: copy when New unset, then unset Old) /
+`purgeLegacyAt` (wrong scope: unset only); `MigrateLegacyOptionsOnce` (in-memory once-guard, called
+from `managedconf.go:205` RefreshSweep, `api/tmux_config.go:52` reload, `api/terminals_ws.go:411`
+WS-attach, `api/servers.go:326` adopt, `cmd/rk/mux_adopt.go`); `CountLegacyOptions` feeding the
+`rk doctor` `legacy option names` row (`doctor.go:184-238`). Tests in `legacy_options_test.go` use a
+real `-L` test socket (`legacyTmuxDo` / `legacyHeld` helpers). Change 2 also set the dual-read
+precedent for a format-string field: `` appends the new field and keeps the legacy
+`#{@rk_note}` field LAST (`tmux.go:1210`), new wins.
 
-Rule for apply: **check whether `MigrateLegacyOptions` exists on the branch at apply time.**
-
-- If it exists (Change 1 merged/rebased in): extend its table with the four rows below.
-- If it does not: introduce the function, its row type, and the once-per-server hook into the
-  managed-conf apply path in the **exact shape Change 1 specifies** (plan § Change 1 —
-  `{oldName, newName, scope}` rows; per-row scope flag `-s` server / bare `-t <session>:`
-  session / `-w` window / `-p` pane; enumerate carriers with `list-sessions` /
-  `list-windows -a` / `list-panes -a` and `#{@old}`; copy when new is unset, then unset old;
-  also unset a legacy name found at a wrong scope; in-memory `migrated[server]` set, no disk
-  state), populated with only this change's four rows. Change 1 then rebases onto it and adds
-  its own rows. A per-row **`copyOnly bool`** field is needed either way (below), so add it to
-  the row type regardless of who created the table.
+This change adds a **`CopyOnly bool`** field to `legacyOption`. `moveLegacyAt` skips the trailing
+`unsetOptionAt(Old)` when `row.CopyOnly` (copy still happens when New is unset; a row with both
+held issues nothing). `purgeLegacyAt` is unchanged — wrong-scope strays are still removed.
+`CountLegacyOptions` MUST NOT count a `CopyOnly` row held at its right scope (that is the sanctioned
+state for the deprecation window), but still counts it at a wrong scope; otherwise the doctor row
+reports every instrumented server dirty forever.
 
 ### `internal/tmux` — constants and dual-read
 
-New constants alongside the existing ones (`tmux.go:55,67,363,382`); the old names become
+New constants alongside the existing ones (`tmux.go:55,67,410,429`); the old names become
 `Legacy*` constants that stay exported for the deprecation window:
 
 ```go
@@ -106,12 +107,12 @@ const LegacyChatOption = "@rk_chat"
 Readers accept both names, **new wins when both are set**, reads stay tmux-derived with no
 cache (Constitution II):
 
-- `IsEphemeralServer` / `IsProtectedServer` (`tmux.go:2966,3001`): read new via
+- `IsEphemeralServer` / `IsProtectedServer` (`tmux.go:3041,3076`): read new via
   `show-option -sv`; if unset (the existing `invalid option`/`unknown option` taxonomy), read
   old the same way. Truthy = non-empty trimmed value of whichever resolved. `IsServerGone`
   and wrapped-error semantics unchanged. `tmux.EphemeralServers` / `enumerateMarkedServers`
   (`reaper.go`) inherit this through the predicates — no change there.
-- `paneFormat` (`tmux.go:1099`) grows from 9 to **11 fields**: append
+- `paneFormat` (`tmux.go:1166`) grows from 9 to **11 fields**: append
   `#{@rk_pane_agent_state}` and `#{@rk_pane_chat}` **after** `#{alternate_on}` (appending
   keeps fields 0–8 stable for every existing parser index). `parsePanes` resolves
   `agentStateRaw = field9 if non-empty else field6`, `chatRaw = field10 if non-empty else
@@ -130,8 +131,8 @@ cache (Constitution II):
 
 - **Server keys switch to new names now** (no dual-write — no external reader, and the
   migration below unsets old):
-  - `MarkServerEphemeral` (`tmux.go:2990`), `MarkServerProtected` / `UnmarkServerProtected`
-    (`tmux.go:3025,3035`) write/unset `@rk_srv_*`. `UnmarkServerProtected` MUST also unset
+  - `MarkServerEphemeral` (`tmux.go:3061`), `MarkServerProtected` / `UnmarkServerProtected`
+    (`tmux.go:3096,3106`) write/unset `@rk_srv_*`. `UnmarkServerProtected` MUST also unset
     the legacy name (a demote must not leave the old mark arming the guard through the
     fallback read).
   - `scripts/test-e2e.sh:91` → `set-option -s @rk_srv_ephemeral 1`.
@@ -165,10 +166,10 @@ Add four rows to `MigrateLegacyOptions`:
 
 | old | new | scope flag | copyOnly |
 |---|---|---|---|
-| `@rk_ephemeral` | `@rk_srv_ephemeral` | `-s` | false |
-| `@rk_protected` | `@rk_srv_protected` | `-s` | false |
-| `@rk_agent_state` | `@rk_pane_agent_state` | `-p` (enumerate `list-panes -a`) | **true** |
-| `@rk_chat` | `@rk_pane_chat` | `-p` | **true** |
+| `@rk_ephemeral` | `@rk_srv_ephemeral` | `scopeServer` | false |
+| `@rk_protected` | `@rk_srv_protected` | `scopeServer` | false |
+| `@rk_agent_state` | `@rk_pane_agent_state` | `scopePane` | **true** |
+| `@rk_chat` | `@rk_pane_chat` | `scopePane` | **true** |
 
 `copyOnly = true` means: copy old → new when new is unset, **never unset old**. The daemon
 cannot see which rk version writes hooks on other machines, and fab-kit still reads the old
@@ -248,8 +249,7 @@ shows `rk doctor` `agent hooks` OK everywhere for about a week of updates:
 
 - **Backend Go**: `internal/tmux/tmux.go` (constants, `paneFormat`, `parsePanes`,
   `IsEphemeralServer`, `IsProtectedServer`, `Mark*`/`Unmark*`), `internal/tmux/pane_target.go`,
-  `internal/tmux/reaper.go` (comments), `internal/tmux/migrate.go` (new or extended —
-  `MigrateLegacyOptions`), `cmd/rk/agent_hook.go` (dual-write), `cmd/rk/agent_setup.go`
+  `internal/tmux/reaper.go` (comments), `internal/tmux/legacy_options.go` (+ `_test.go` — `CopyOnly` rows), `cmd/rk/agent_hook.go` (dual-write), `cmd/rk/agent_setup.go`
   (`rkHookMarker` repoint), `cmd/rk/doctor.go` (+ `doctor_test.go`), `cmd/rk/doctor.go:161`,
   `api/servers.go:247` literals. 8 `_test.go` files reference the literals and need re-pointing;
   new units: dual-read precedence (new-only / old-only / both-set / neither) for both pane
@@ -283,15 +283,15 @@ shows `rk doctor` `agent hooks` OK everywhere for about a week of updates:
 | 3 | Certain | Target names are `@rk_srv_ephemeral`, `@rk_srv_protected`, `@rk_pane_agent_state`, `@rk_pane_chat` | Plan § Target map + context.md rule | S:100 R:80 A:100 D:100 |
 | 4 | Certain | Reads stay tmux-derived, no cache; new wins when both set | Plan Change 3 text; Constitution II | S:95 R:90 A:95 D:95 |
 | 5 | Certain | Server keys switch writers to new names now and migrate fully (copy + unset old) | Plan text; no external reader for server keys | S:90 R:80 A:90 D:90 |
-| 6 | Confident | If `MigrateLegacyOptions` is absent at apply time, this change introduces it in Change 1's specified shape with only its four rows; otherwise extends it | Plan allows 1 ∥ 3 with trivial rebase; table absent at 67f4a553 and no Change 1 fab change exists | S:70 R:80 A:75 D:70 |
+| 6 | Certain | Extend the existing `legacyOptions` table (Changes 1+2 landed at #752/#753) with a `CopyOnly` field and four rows; `CountLegacyOptions` skips right-scope CopyOnly rows | Verified in tree at 60afc45d | S:90 R:85 A:95 D:90 |
 | 7 | Confident | Dual-write uses one tmux exec with `;`-chained `set-option` commands (argv elements, no shell) | Constitution I; halves hook-fire subprocess cost vs two execs; tmux supports `;` chaining | S:60 R:90 A:80 D:70 |
 | 8 | Confident | `paneFormat` appends the two new fields (fields 9–10) rather than replacing 6–7 | Keeps every existing index stable; removal in follow-up drops 6–7 then | S:65 R:85 A:85 D:75 |
 | 9 | Certain | `rkHookMarker` is repointed to `LegacyAgentStateOption` | Its purpose is recognising gen-1 inline one-liners, which carry the old literal | S:75 R:90 A:90 D:85 |
 | 10 | Certain | `UnmarkServerProtected` also unsets the legacy name | A demote that leaves the old mark would re-arm the guard through the fallback read | S:70 R:90 A:85 D:80 |
 | 11 | Confident | Migration pane rows are copy-only via a `copyOnly bool` row field; wrong-scope unset still applies | Plan text ("only copy-forward, never unset old"); field name is this intake's choice | S:80 R:85 A:80 D:70 |
 | 12 | Confident | Doctor also FAILs on a gen-3 hook whose embedded rk path is missing/non-executable | Mirrors `tmuxGuardShimCheck`'s dangling-target rule; same brew-rename failure class | S:55 R:90 A:80 D:70 |
-| 13 | Certain | Change 1's `legacy option names` server-count doctor row is NOT added here | Plan assigns it to Change 1; avoids a merge collision | S:70 R:90 A:80 D:75 |
+| 13 | Certain | The existing `legacy option names` doctor row is kept, with CopyOnly right-scope holds excluded from its count | Row landed in #752; counting sanctioned dual-state would make it permanently dirty | S:70 R:90 A:80 D:75 |
 | 14 | Confident | Follow-up removal window = one release after fab-kit Change 4 ships AND ~a week of `rk doctor` clean on the fleet | User said "after a few releases (after a week of updates)"; exact gate is a judgment call recorded in the ledger, not enforced by code | S:55 R:95 A:60 D:55 |
 | 15 | Confident | e2e pre-seeding with legacy names is optional; Go unit on a test socket is the required migration coverage | Plan's sequencing note suggests it; cost/benefit left to apply | S:50 R:90 A:65 D:55 |
 
-15 assumptions (8 certain, 7 confident, 0 tentative, 0 unresolved).
+15 assumptions (9 certain, 6 confident, 0 tentative, 0 unresolved).

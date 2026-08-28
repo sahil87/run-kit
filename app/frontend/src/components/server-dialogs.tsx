@@ -273,7 +273,7 @@ export function ServerDialogs() {
 }
 
 /** The kill confirm for PROTECTED targets (rk-daemon by derivation, or any
- *  @rk_protected server). The kill action is locked behind typing the exact
+ *  @rk_srv_protected server). The kill action is locked behind typing the exact
  *  server name (auto-focused, Enter submits only on match, Esc cancels via the
  *  Dialog's focus trap). The daemon additionally gets the "Restart run-kit"
  *  primary — the safe action — wired to the existing POST /api/restart; other

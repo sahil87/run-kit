@@ -26,11 +26,11 @@ var muxKillForceFlag bool
 var muxKillCmd = &cobra.Command{
 	Use:   "kill <target> [--force]",
 	Short: "Kill a pane, gated on its agent state and server protection",
-	Long: "Kill the target pane, gated on its reconciled @rk_agent_state: a pane " +
+	Long: "Kill the target pane, gated on its reconciled " + tmux.AgentStateOption + ": a pane " +
 		"whose agent is active or waiting (a pending human question) is refused " +
 		"— the refusal names the state on stderr, exits 1, and touches nothing. " +
 		"Idle and uninstrumented panes are killed. A pane on a protected server " +
-		"(rk-daemon, or one marked @rk_protected) is refused the same way. " +
+		"(rk-daemon, or one marked " + tmux.ProtectedOption + ") is refused the same way. " +
 		"--force skips both gates; the target's existence is still validated.\n\n" +
 		"Targets: %N (pane), @N (window — resolves to its agent pane), " +
 		"=session:window (exact). Bare session:window names are rejected.",

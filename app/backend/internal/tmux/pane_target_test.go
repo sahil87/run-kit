@@ -173,12 +173,12 @@ func TestAgentStateStale(t *testing.T) {
 
 	// And the same decision reaches the parsePanes rollup.
 	agentProcessAlive = func(int) bool { return false }
-	lines := []string{"@1\t%1\t0\t/tmp\tvim\t1\tactive:1700000000:4242\t\t0"}
+	lines := []string{"@1\t%1\t0\t/tmp\tvim\t1\tactive:1700000000:4242\t\t0\t\t"}
 	got := parsePanes(lines)["@1"]
 	if len(got) != 1 || got[0].AgentState != "" {
 		t.Errorf("dead-pid pane = %+v, want reconciled to unknown", got)
 	}
-	legacy := []string{"@1\t%1\t0\t/tmp\tbash\t1\tactive:1700000000\t\t0"}
+	legacy := []string{"@1\t%1\t0\t/tmp\tbash\t1\tactive:1700000000\t\t0\t\t"}
 	got = parsePanes(legacy)["@1"]
 	if len(got) != 1 || got[0].AgentState != "" {
 		t.Errorf("legacy shell pane = %+v, want reconciled to unknown", got)
@@ -244,6 +244,50 @@ func TestPaneFactsCtx(t *testing.T) {
 	state, err := PaneAgentState(ctx, paneID, server)
 	if err != nil || state != AgentStateWaiting {
 		t.Errorf("PaneAgentState = %q, %v, want waiting, nil", state, err)
+	}
+}
+
+// TestPaneFactsCtx_dualRead exercises the legacy-name fallback of the fact
+// read: a pane stamped only with the retired unscoped option (an older
+// `rk agent hook` generation) still resolves through the same parse +
+// reconcile, and the scope-named field wins when both are set.
+func TestPaneFactsCtx_dualRead(t *testing.T) {
+	server, _ := withRealSessionTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	orig := agentProcessAlive
+	t.Cleanup(func() { agentProcessAlive = orig })
+	agentProcessAlive = func(int) bool { return true }
+
+	lines, err := tmuxExecServer(ctx, server, "list-panes", "-t", "real:win0", "-F", "#{pane_id}")
+	if err != nil {
+		t.Fatalf("list panes: %v", err)
+	}
+	paneID := lines[0]
+
+	// Legacy-only: the retired name still resolves.
+	if _, err := tmuxExecServer(ctx, server, "set-option", "-pt", paneID, LegacyAgentStateOption, "idle:1700000000:4242"); err != nil {
+		t.Fatalf("set legacy agent state: %v", err)
+	}
+	facts, err := PaneFactsCtx(ctx, paneID, server)
+	if err != nil {
+		t.Fatalf("PaneFactsCtx: %v", err)
+	}
+	if facts.AgentState != AgentStateIdle || facts.AgentStateEpoch != 1700000000 || facts.AgentPID != 4242 {
+		t.Errorf("legacy-only pane = %+v, want idle/1700000000/4242", facts)
+	}
+
+	// Both set: the scope-named value wins.
+	if _, err := tmuxExecServer(ctx, server, "set-option", "-pt", paneID, AgentStateOption, "waiting:1700000001:4242"); err != nil {
+		t.Fatalf("set agent state: %v", err)
+	}
+	facts, err = PaneFactsCtx(ctx, paneID, server)
+	if err != nil {
+		t.Fatalf("PaneFactsCtx: %v", err)
+	}
+	if facts.AgentState != AgentStateWaiting || facts.AgentStateEpoch != 1700000001 {
+		t.Errorf("both-set pane = %+v, want waiting/1700000001 (new wins)", facts)
 	}
 }
 

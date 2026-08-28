@@ -546,6 +546,23 @@ func TestIsRkEntryMatchesAllGenerations(t *testing.T) {
 	}
 }
 
+// TestIsRkEntryMatchesGen1LiteralInline pins the gen-1 recogniser to the
+// RETIRED option name: a first-generation one-liner inlines the unscoped
+// @rk_agent_state literal, so the marker MUST be bound to the legacy name —
+// binding it to the renamed constant would let gen-1 entries survive
+// `rk agent setup` (never stripped, never replaced).
+func TestIsRkEntryMatchesGen1LiteralInline(t *testing.T) {
+	if rkHookMarker != "@rk"+"_agent_state" {
+		t.Fatalf("rkHookMarker = %q, want the retired unscoped option name (gen-1 recogniser)", rkHookMarker)
+	}
+	entry := map[string]any{
+		"hooks": []any{map[string]any{"type": "command", "command": `tmux set-option -pt "$TMUX_PANE" @rk_agent_state "idle:1" 2>/dev/null || true`}},
+	}
+	if !isRkEntry(entry) {
+		t.Error("gen-1 inline @rk_agent_state entry must be recognised as rk-owned")
+	}
+}
+
 func TestMergeHooksReplacesOlderGenerationsInPlace(t *testing.T) {
 	// A settings file whose rk hooks are all OLDER-generation (gen-1 inlined and
 	// gen-2 `agent-hook`), plus a non-rk hook.

@@ -34,7 +34,7 @@ One line each, keyed to the subcommand or tmux option that does it:
 - `rk notify <message> [--title <t>]` — Web Push a message to every subscribed browser/device. Fail-silent by contract (see Output contracts).
 - `rk url` — print the run-kit **server URL** (config-derived: RK_HOST/RK_PORT, default `http://127.0.0.1:3000`). It is a heuristic, not a liveness probe. Run it at use-time; never hardcode the value.
 - `rk present <path|url>` — attach web content beside your own terminal: a file, a directory, a `:port`, a localhost URL, or an external URL. Prints the resolved URL to stdout. Depth: `rk skill display`.
-- `rk mux send <target> [<msg>|-]` — deliver a message into another agent's pane, gated on its `@rk_agent_state`, with probe-verified delivery. Depth: `rk skill mux`.
+- `rk mux send <target> [<msg>|-]` — deliver a message into another agent's pane, gated on its `@rk_pane_agent_state`, with probe-verified delivery. Depth: `rk skill mux`.
 - `rk mux await <target>` — block until a pane's agent state (or a `--file` signal) fires; prints a one-word report. Depth: `rk skill mux`.
 - `rk mux new <name> [--ephemeral]` — create a detached tmux server on socket `<name>`; scratch servers are created with `--ephemeral` and bulk-cleaned with `rk mux reap --ephemeral` (never bare `tmux kill-server`). Depth: `rk skill mux`.
 - `rk code exec <command> [json-arg…]` — act inside the `code` lens editor: run a VS Code palette command in an open code-server window, resolving its host via `--host`/`--folder`/the cwd's git toplevel. `rk code hosts` lists live hosts; `rk code commands` grep-lists command ids. Depth: `rk skill code`.

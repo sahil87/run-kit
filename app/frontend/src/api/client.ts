@@ -866,13 +866,13 @@ export type ServerInfo = {
   /** User-defined display rank (@rk_srv_rank). null/undefined when unset —
    *  unranked servers sort after ranked ones within the regular class. */
   rank?: number | null;
-  /** True when the server carries the @rk_ephemeral scratch mark. Optional
+  /** True when the server carries the @rk_srv_ephemeral scratch mark. Optional
    *  mirroring `rank`/`windowCount` — the backend always sends it, but test
    *  fixtures may omit it. Within the regular class, ephemeral servers sort
    *  after non-ephemeral ones as a tie-break below rank. */
   ephemeral?: boolean;
   /** True when the server is kill-guarded: rk-daemon by derivation, or any
-   *  server carrying the @rk_protected mark. Optional mirroring `ephemeral` —
+   *  server carrying the @rk_srv_protected mark. Optional mirroring `ephemeral` —
    *  the backend always sends it, but test fixtures may omit it. */
   protected?: boolean;
   /** True when the server is rk-managed: rk-daemon by derivation, or any
@@ -978,7 +978,7 @@ export async function killServer(name: string, force = false): Promise<{ ok: boo
   return res.json();
 }
 
-/** Set or clear the @rk_protected mark on a server — the Protect/Unprotect
+/** Set or clear the @rk_srv_protected mark on a server — the Protect/Unprotect
  *  toggle. rk-daemon is rejected backend-side (400: its protection is derived,
  *  not togglable). The backend wakes the SSE hub so covered clients repaint
  *  without waiting for the safety poll. */

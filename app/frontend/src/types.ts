@@ -122,7 +122,7 @@ export type WindowInfo = {
   /** Unix-seconds write time from the note's epoch prefix (`<epoch>:<text>`
    *  schema); absent/0 for tolerant-parse notes (text-only, no age shown). */
   noteEpoch?: number;
-  /** Generic agent-lifecycle state from the `@rk_agent_state` pane option:
+  /** Generic agent-lifecycle state from the `@rk_pane_agent_state` pane option:
    *  `active` (turn in progress) | `waiting` (blocked on a human — permission
    *  prompt / question dialog) | `idle` (at rest). Empty/absent = unknown.
    *  Window-level rollup with precedence `waiting > active > idle`. See
@@ -157,7 +157,7 @@ export type WindowInfo = {
    *  git repo. The per-window half of the code lens/surface availability gate
    *  (`hasCode`); keyed by git ROOT so editor state follows the code. */
   gitRoot?: string;
-  /** Window-level rollup of the panes' `@rk_chat` pane option (active-pane-first,
+  /** Window-level rollup of the panes' `@rk_pane_chat` pane option (active-pane-first,
    *  else first pane). `chatProvider` is the routing key (e.g. `claude`) and the
    *  SOLE gate for every chat affordance in the UI; `chatSessionRef` is the
    *  provider session id. Both are emitted by the backend on every

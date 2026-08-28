@@ -24,7 +24,7 @@ move-window batch → SSE derive tick → sidebar order.
   · Enter apply` placeholder).
 - `pickSortKeys(page, labels)` clicks each named option row (toggles it on in
   click order = priority order), then presses Enter to apply.
-- `setWaiting(name)` sets a window's pane option `@rk_agent_state` to
+- `setWaiting(name)` sets a window's pane option `@rk_pane_agent_state` to
   `waiting:<epoch>:<pid>` — the 3-segment form carrying the pane's own live
   pid (a 2-segment value on a shell pane would be reconciled away);
   `clearAgentState(name)` removes it in `finally` so tests stay independent.
@@ -60,7 +60,7 @@ outranks plain windows — after applying `By status` it sits at the top of the
 session, in tmux and in the sidebar.
 
 **Steps:**
-1. Mark the last window's pane waiting (3-segment `@rk_agent_state` carrying
+1. Mark the last window's pane waiting (3-segment `@rk_pane_agent_state` carrying
    the pane's own live pid).
 2. Navigate to the first window's terminal route and wait for the session to
    render in the sidebar.

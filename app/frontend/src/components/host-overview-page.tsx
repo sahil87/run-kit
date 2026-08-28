@@ -452,7 +452,7 @@ export function HostOverviewPage() {
                   <WaitingBadge count={countWaitingInSessions(sessionsByServer.get(name) ?? [])} />
                 </span>
                 {/* De-emphasize infra servers (daemon + test sockets),
-                    @rk_ephemeral-marked scratch servers, and external servers
+                    @rk_srv_ephemeral-marked scratch servers, and external servers
                     alike: grey the name only; the tile stays fully
                     clickable/attachable. Marked servers also get a `scratch`
                     chip (the recovery tree's resumable-chip styling) —

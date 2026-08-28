@@ -201,7 +201,7 @@ describe("HostOverviewPage — system card (HOST HEALTH zone)", () => {
 });
 
 describe("HostOverviewPage — protected-server shield glyph (TMUX SERVERS tiles)", () => {
-  it("renders the shield glyph for @rk_protected servers and the rk-daemon server, absent otherwise", () => {
+  it("renders the shield glyph for @rk_srv_protected servers and the rk-daemon server, absent otherwise", () => {
     mockServers = [
       { name: "runkit", sessionCount: 1 },
       { name: "guarded", sessionCount: 0, protected: true },
@@ -564,7 +564,7 @@ describe("HostOverviewPage — BOARDS zone", () => {
   });
 });
 
-describe("HostOverviewPage — TMUX SERVERS scratch badge (@rk_ephemeral)", () => {
+describe("HostOverviewPage — TMUX SERVERS scratch badge (@rk_srv_ephemeral)", () => {
   it("renders the scratch chip + greyed name on a marked tile; unmarked tiles render unchanged", () => {
     mockServers = [
       { name: "alpha", sessionCount: 1 },

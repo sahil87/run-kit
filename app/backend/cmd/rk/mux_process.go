@@ -39,7 +39,7 @@ var muxProcessCmd = &cobra.Command{
 	Short: "Show the process tree running in a pane",
 	Long: "Discover the process tree running in the target pane: the pane's shell " +
 		"PID (#{pane_pid}) and its descendants, classified agent / node / git / " +
-		"other. A pane whose @rk_agent_state carries a live agent pid has that " +
+		"other. A pane whose "+tmux.AgentStateOption+" carries a live agent pid has that " +
 		"tree node classified agent regardless of its comm — the instrumentation " +
 		"is authoritative, comm heuristics are the fallback. Prints the tree, " +
 		"plus a trailing `Agent process detected.` when any node classifies " +

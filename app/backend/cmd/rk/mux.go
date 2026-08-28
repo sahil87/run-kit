@@ -52,7 +52,7 @@ var muxCmd = &cobra.Command{
 		"context — no daemon dependency. `new` creates a detached tmux server on a " +
 		"named socket, optionally marked ephemeral for the reap sweep; `send` " +
 		"delivers a message into an agent's " +
-		"pane gated on its @rk_agent_state, with probe-verified delivery; `await` " +
+		"pane gated on its "+tmux.AgentStateOption+", with probe-verified delivery; `await` " +
 		"blocks until a pane's agent state (or a file signal) fires; `capture` " +
 		"prints a pane's scrollback with substrate context (cwd, reconciled agent " +
 		"state); `kill` removes a pane, refusing a pane whose agent is active or " +

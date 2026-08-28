@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The `rk mux` family — 12 tmux-substrate verbs, no daemon dependency. Pane-scoped members (`send`/`await` + `capture`/`kill`/`process` twins) share the strict %N/@N/=session:window grammar and with `panes` consume inherited `-L`; `await --any` wakes on the first of N panes. Operator members `new`/`reap`/`snapshot`/`init-conf`/`guard`/`adopt` reject `-L` (`guard` excepted): `new` spawns a detached server (`--ephemeral` marks `@rk_ephemeral`); `adopt` stamps `@rk_srv_managed` + reloads the conf."
+description: "The `rk mux` family — 12 tmux-substrate verbs, no daemon dependency. Pane-scoped members (`send`/`await` + `capture`/`kill`/`process` twins) share the strict %N/@N/=session:window grammar and with `panes` consume inherited `-L`; `await --any` wakes on the first of N panes. Operator members `new`/`reap`/`snapshot`/`init-conf`/`guard`/`adopt` reject `-L` (`guard` excepted): `new` spawns a detached server (`--ephemeral` marks `@rk_srv_ephemeral`); `adopt` stamps `@rk_srv_managed`."
 ---
 # Agent-to-Agent Messaging (`rk mux`)
 
@@ -26,9 +26,9 @@ argument). The
 operator tier groups the create verb, the janitor/recovery/scaffold verbs, the
 provenance verb, and
 the guard: `rk mux new` (detached server creation on a named socket — the
-family's create verb; `--ephemeral` marks the new server `@rk_ephemeral`
+family's create verb; `--ephemeral` marks the new server `@rk_srv_ephemeral`
 before return), `rk mux reap` (test-socket and scratch-server cleanup — a prefix sweep,
-unioned with every live `@rk_ephemeral`-marked server under `--ephemeral`;
+unioned with every live `@rk_srv_ephemeral`-marked server under `--ephemeral`;
 full contract in [tmux-sessions](/run-kit/tmux-sessions.md) § `rk mux reap`), `rk mux snapshot list|show|restore`
 (layout recovery, [layout-snapshots](/run-kit/layout-snapshots.md)),
 `rk mux init-conf` (scaffolds the rk-managed tmux.conf and the
@@ -39,7 +39,7 @@ bulk-migration path for rk-born servers that predate the stamp), and `rk mux gua
 tmux binary, refusing a bare `kill-server` — the verb the installed PATH shim
 execs; full contract in [tmux-guard-shim](/run-kit/tmux-guard-shim.md)). The
 pane-scoped verbs (send/await/capture/kill/process) are first-party readers of
-the `@rk_agent_state` convention ([agent-state](/run-kit/agent-state.md)) and
+the `@rk_pane_agent_state` convention ([agent-state](/run-kit/agent-state.md)) and
 share the pane-level primitives in `internal/tmux/pane_target.go`. Delivery
 reuses the hardened injection engine the chat-send HTTP route also drives — the
 shared `internal/inject` package ([chat](/run-kit/chat.md) § Send Path) — so the
@@ -70,7 +70,7 @@ target grammar resolves a bare name against window names before session names,
 so a window named like a session would hijack the target (the `=` prefix forces
 exact-match parsing). Window forms resolve server-side to the window's **agent
 pane** (`tmux.ResolveAgentPane` / the pure `SelectAgentPane`): the pane carrying
-a known post-reconcile `@rk_agent_state` — preferring the active pane when
+a known post-reconcile `@rk_pane_agent_state` — preferring the active pane when
 several qualify — falling back to the window's active pane (the
 `resolveWindowChat` precedent: a window target must route to the agent pane, not
 whatever split happens to be active).
@@ -80,7 +80,7 @@ whatever split happens to be active).
 - **WHEN** the target parses
 - **THEN** it is a usage error (exit 2) naming `%N`, `@N`, and
   `=session:window`; **AND GIVEN** `@3` whose pane `%7` carries
-  `@rk_agent_state`, **THEN** delivery targets `%7`.
+  `@rk_pane_agent_state`, **THEN** delivery targets `%7`.
 
 ### Requirement: `rk mux send` payload forms (XOR)
 `rk mux send` SHALL take exactly one payload kind — a positional `<message>`,
@@ -102,7 +102,9 @@ key input otherwise forces on callers.
 
 ### Requirement: The agent-state gate
 Before any delivery `rk mux send` SHALL read the target pane's reconciled
-`@rk_agent_state` (`tmux.PaneAgentState` — the same parse + pid-liveness
+agent-state value (`tmux.PaneAgentState` — requesting both names via
+`PaneFactsCtx` and preferring the scope-named `@rk_pane_agent_state`; the same
+parse + pid-liveness
 reconcile the sessions path applies; a legacy two-segment or dead-pid value
 reads as unknown, never partial trust) and apply fab-kit's `idleGate` matrix
 verbatim:
@@ -120,7 +122,7 @@ exclusive via cobra `MarkFlagsMutuallyExclusive` — a usage error (exit 2), not
 silent force-wins precedence.
 
 #### Scenario: Refusal names the state
-- **GIVEN** a pane with `@rk_agent_state=active:…`
+- **GIVEN** a pane with `@rk_pane_agent_state=active:…`
 - **WHEN** `rk mux send %5 "x" --answer` runs
 - **THEN** it refuses naming `active`, exits 1, and performs no tmux mutation.
 
@@ -183,7 +185,7 @@ the state reads so a fired signal wins over a mid-sweep pane death; the internal
 poll tick is ~2s (not configurable); under `--any` each sweep reads the target
 panes in listed order and the first `--until` match wins, while a death is
 recorded but the sweep continues — a state signal found later in the same sweep
-is reported instead of the death; an uninstrumented pane (no `@rk_agent_state`)
+is reported instead of the death; an uninstrumented pane (no agent-state option — `@rk_pane_agent_state` or its legacy name — set)
 with no `--file` errors immediately — nothing observable to wait on — under
 `--any` failing the whole arm on the first sweep, naming the offending pane;
 `--after-active` requires observing `active` at least once before an `--until`
@@ -236,7 +238,8 @@ immediately after a send would otherwise return instantly on the peer's
 *pre-send* `idle`. Two grace outcomes fall through to the await rather than
 ending the composition: grace expiry (`running` — hooks may lag, or the peer
 finished within the grace) and the uninstrumented verdict (the pane carries no
-`@rk_agent_state`; the delivery already happened, and the await phase re-applies
+agent-state option — `@rk_pane_agent_state` or its legacy name — set; the
+delivery already happened, and the await phase re-applies
 the uninstrumented rule itself in case state appeared in the meantime). A `gone`
 verdict propagates as the final report (stdout) with exit 1. `--await` with
 `--no-enter` is a usage error (nothing was submitted to wait on). `--timeout`
@@ -273,7 +276,7 @@ with the agent fields `null` when the pane is uninstrumented. A missing pane or
 tmux failure is operational (exit 1) carrying tmux's stderr diagnostic.
 
 #### Scenario: Reconciled state with duration, no choreography fields
-- **GIVEN** a pane whose `@rk_agent_state` is `waiting:<epoch 2m ago>:<live-pid>`
+- **GIVEN** a pane whose `@rk_pane_agent_state` is `waiting:<epoch 2m ago>:<live-pid>`
 - **WHEN** `rk mux capture %5` runs
 - **THEN** the context line contains `agent: waiting (2m)` and no
   `change:`/`stage:` parts; **AND GIVEN** a dead-pid value, **THEN** no
@@ -286,11 +289,12 @@ both evaluated against the resolved `-L` server scope and both skipped by
 
 1. **Protected-server gate** (checked first): a pane residing on a protected
    server — the derived daemon server `rk-daemon`, or any server marked
-   `@rk_protected` — is refused. The predicate is `tmux.IsGuardedServer` (the
+   `@rk_srv_protected` — is refused. The predicate is `tmux.IsGuardedServer` (the
    daemon name short-circuits before any tmux read), reached through the
    `muxKillGuardedServerFn` seam; a failure reading the protection state is
    operational (`read server protection: …`).
-2. **Agent-state gate**: the resolved pane's reconciled `@rk_agent_state`:
+2. **Agent-state gate**: the resolved pane's reconciled `@rk_pane_agent_state`
+   (through the same new-wins dual-read as the send gate):
 
 | State | plain | `--force` |
 |-------|-------|-----------|
@@ -308,14 +312,14 @@ report line: `killed %N`. A missing pane or tmux kill failure is operational
 (exit 1).
 
 #### Scenario: Refusal names the state and touches nothing
-- **GIVEN** a pane with `@rk_agent_state=active:<epoch>:<live-pid>`
+- **GIVEN** a pane with `@rk_pane_agent_state=active:<epoch>:<live-pid>`
 - **WHEN** `rk mux kill %5` runs
 - **THEN** it refuses naming `active`, exits 1, and the pane survives; **AND
   WHEN** `rk mux kill %5 --force` runs, **THEN** the pane is killed and stdout
   is `killed %5`.
 
 #### Scenario: Protected-server refusal names the server
-- **GIVEN** a pane on a server marked `@rk_protected`
+- **GIVEN** a pane on a server marked `@rk_srv_protected`
 - **WHEN** `rk mux kill %5` runs
 - **THEN** it refuses naming the protected server, exits 1, and the pane
   survives; **AND WHEN** `rk mux kill %5 --force` runs, **THEN** both gates
@@ -332,7 +336,7 @@ to `""`), with the pure `parsePSCmdlines` parser in an un-tagged file so it
 unit-tests on every platform. Classification by lowercased comm: `agent` for
 `claude`, `claude-code`, `codex`, `gemini`, `copilot`; `node` for `node`;
 `git` for `git`/`gh`; else `other`. Additionally, when the pane's reconciled
-`@rk_agent_state` carries a live pid (3-segment value), the tree node with that
+`@rk_pane_agent_state` carries a live pid (3-segment value), the tree node with that
 PID SHALL be classified `agent` regardless of comm — the instrumentation is
 authoritative, comm heuristics are fallback; a failed state read degrades to
 comm-only with a stderr warning. `has_agent` is true iff any node classifies
@@ -344,7 +348,7 @@ children}], "has_agent"}`.
 
 #### Scenario: Instrumented agent behind a wrapper comm
 - **GIVEN** an agent launched through a wrapper whose comm is `my-wrapper`, with
-  `@rk_agent_state=active:<epoch>:<that-pid>`
+  `@rk_pane_agent_state=active:<epoch>:<that-pid>` (or the legacy name — the dual-read accepts either)
 - **WHEN** `rk mux process %5` runs
 - **THEN** that node is tagged `[agent]` and `Agent process detected.` prints.
 
@@ -356,7 +360,8 @@ It consumes the family's inherited `-L/--server` with the standard resolution
 order (`-L` wins → the caller's `$TMUX` socket basename → `default`) and, being
 a query against a server, does NOT call `muxRejectInheritedServerFlag`.
 Enumeration reuses `tmux.ListSessions` + `tmux.ListWindows` (whose panes already
-carry the reconciled `@rk_agent_state`) through the `parseSessions` chokepoint,
+carry the reconciled agent-state value via the `paneFormat` new-wins dual-read —
+see [agent-state](/run-kit/agent-state.md)) through the `parseSessions` chokepoint,
 so `_rk-pin-*` pin-sessions and the `_rk-ctl` anchor contribute no rows and a
 pinned window lists exactly once, via its home session. Rows carry **substrate
 facts only** — no change/stage/display-state keys (choreography enrichment is
@@ -403,7 +408,7 @@ rejects an explicitly-set inherited `-L/--server` via
 positional (stray/missing args are usage errors), and follows the toolkit
 exit-code convention (0 success / 1 operational / 2 usage).
 
-`--ephemeral` SHALL set `@rk_ephemeral 1` (const `tmux.EphemeralOption`)
+`--ephemeral` SHALL set `@rk_srv_ephemeral 1` (const `tmux.EphemeralOption`)
 server-scoped on the new server via `tmux.MarkServerEphemeral` (mirroring
 `SetServerOrigin`: `set-option -s` under the `TmuxTimeout` bound) immediately
 after creation, before the command returns. If the mark fails after a
@@ -613,7 +618,7 @@ subtler footgun).
 
 ### Protected-server gate joins the kill refusal set
 **Decision**: `rk mux kill` refuses panes on protected servers (the derived
-daemon server `rk-daemon`, or any server marked `@rk_protected`) under the
+daemon server `rk-daemon`, or any server marked `@rk_srv_protected`) under the
 same refusal shape as the agent-state gate — naming the protected server on
 stderr, exit 1, no tmux mutation; the existing `--force` flag skips both
 gates, with target existence still validated.

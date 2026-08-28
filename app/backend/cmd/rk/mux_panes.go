@@ -43,7 +43,7 @@ var muxPanesCmd = &cobra.Command{
 	Short: "Enumerate every pane on the server with substrate facts",
 	Long: "List one row per pane across all sessions of the resolved tmux server: " +
 		"session, window (index:name), pane id, active markers, command, cwd, and " +
-		"the pane's reconciled @rk_agent_state with idle/waiting duration. " +
+		"the pane's reconciled "+tmux.AgentStateOption+" with idle/waiting duration. " +
 		"Internal sessions (`_rk-pin-*` pin-sessions, the `_rk-ctl` anchor) are " +
 		"excluded; a pinned window lists once, via its home session. Substrate " +
 		"facts only — no change/stage fields.\n\n" +

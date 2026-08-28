@@ -139,7 +139,10 @@ func sweepLegacyTargets(ctx context.Context, server string, targets []scopeTarge
 
 // moveLegacyAt performs the right-scope move for one carrier: when Old is
 // held at this scope, copy its value to New (only when New is unset there),
-// then unset Old. Reports whether a set/unset was issued.
+// then unset Old. Old is unset ONLY once New is known to hold a value at this
+// scope — already held, or the copy just succeeded — so a failed copy never
+// deletes the sole source of truth; the row is retried on the next sweep.
+// Reports whether a set/unset was issued.
 func moveLegacyAt(ctx context.Context, server string, row legacyOption, st scopeTarget) (bool, error) {
 	held, err := heldOptions(ctx, server, st)
 	if err != nil {
@@ -151,28 +154,22 @@ func moveLegacyAt(ctx context.Context, server string, row legacyOption, st scope
 		return false, nil
 	}
 	changed := false
-	var firstErr error
 	if row.New != "" {
 		if _, newHeld := held[row.New]; !newHeld {
 			if err := setOptionAt(ctx, server, st, row.New, oldVal); err != nil {
-				slog.Warn("legacy option sweep: set failed", "server", server, "option", row.New, "scope", st.scope, "target", st.target, "error", err)
-				firstErr = err
-			} else {
-				slog.Info("legacy option sweep: migrated", "server", server, "option", row.Old, "to", row.New, "scope", st.scope, "target", st.target)
-				changed = true
+				slog.Warn("legacy option sweep: set failed, legacy option kept", "server", server, "option", row.New, "scope", st.scope, "target", st.target, "error", err)
+				return false, err
 			}
+			slog.Info("legacy option sweep: migrated", "server", server, "option", row.Old, "to", row.New, "scope", st.scope, "target", st.target)
+			changed = true
 		}
 	}
 	if err := unsetOptionAt(ctx, server, st, row.Old); err != nil {
 		slog.Warn("legacy option sweep: unset failed", "server", server, "option", row.Old, "scope", st.scope, "target", st.target, "error", err)
-		if firstErr == nil {
-			firstErr = err
-		}
-	} else {
-		slog.Info("legacy option sweep: unset", "server", server, "option", row.Old, "scope", st.scope, "target", st.target)
-		changed = true
+		return changed, err
 	}
-	return changed, firstErr
+	slog.Info("legacy option sweep: unset", "server", server, "option", row.Old, "scope", st.scope, "target", st.target)
+	return true, nil
 }
 
 // purgeLegacyAt unsets Old where it is held at a wrong scope. Values are
@@ -181,17 +178,17 @@ func moveLegacyAt(ctx context.Context, server string, row legacyOption, st scope
 func purgeLegacyAt(ctx context.Context, server string, row legacyOption, st scopeTarget) (bool, error) {
 	held, err := heldOptions(ctx, server, st)
 	if err != nil {
-		slog.Warn("legacy option sweep: read failed", "server", server, "option", row.Old, "scope", st.scope, "target", st.target, "error", err)
+		slog.Warn("legacy option sweep: read failed", "server", server, "option", row.Old, "scope", st.scope, "target", st.target, "global", st.global, "error", err)
 		return false, err
 	}
 	if _, ok := held[row.Old]; !ok {
 		return false, nil
 	}
 	if err := unsetOptionAt(ctx, server, st, row.Old); err != nil {
-		slog.Warn("legacy option sweep: unset failed", "server", server, "option", row.Old, "scope", st.scope, "target", st.target, "error", err)
+		slog.Warn("legacy option sweep: unset failed", "server", server, "option", row.Old, "scope", st.scope, "target", st.target, "global", st.global, "error", err)
 		return false, err
 	}
-	slog.Info("legacy option sweep: purged wrong-scope", "server", server, "option", row.Old, "scope", st.scope, "target", st.target)
+	slog.Info("legacy option sweep: purged wrong-scope", "server", server, "option", row.Old, "scope", st.scope, "target", st.target, "global", st.global)
 	return true, nil
 }
 

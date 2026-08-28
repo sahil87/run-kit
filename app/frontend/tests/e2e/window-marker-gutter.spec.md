@@ -6,7 +6,7 @@ dot is ONE target that opens the banded Label picker (color · marker · flair
 bands under a composite preview row) — it does NOT cycle. Picking a marker
 state (8-state closed set: pipe/dotted/dashed/solid/double/thick/hatch/block)
 persists via the `@rk_marker` window option; picking a NORMAL-shade color
-persists via `@color` in the legacy vocabulary (`familyToLegacy` write seam)
+persists via `@rk_win_color` in the legacy vocabulary (`familyToLegacy` write seam)
 while a DARK-shade color persists as the verbatim `{family}-dark` value;
 picking a flair (12-state closed set, rain/scan leading) persists via
 `@rk_flair`. The picker STAYS OPEN across picks (the dismissal contract —
@@ -31,7 +31,7 @@ border).
 - `expectMarker` / `expectColor` / `expectFlair` (all via the shared
   `expectWindowField` helper) poll the same snapshot until the named window's
   `marker` / `color` / `flair` field equals `expected` — they persist as tmux
-  options (`@rk_marker` / `@color` / `@rk_flair`) and surface on the SSE window
+  options (`@rk_marker` / `@rk_win_color` / `@rk_flair`) and surface on the SSE window
   payload, so a UI change is observable server-side within a couple of poll
   cycles.
 - `openLabelPicker(row, page)` clicks the row's `Set tab label` zone and
@@ -122,11 +122,11 @@ owner, dashed), and the flair header − clears only the flair axis.
    `expectMarker` stays `dashed` (axes are independent).
 6. Close via the ✕ cell.
 
-### `picking a color persists via @color — normal shade through the legacy seam, dark/light shades verbatim`
+### `picking a color persists via @rk_win_color — normal shade through the legacy seam, dark/light shades verbatim`
 
 **What it proves:** The banded picker's color band writes through the
 `familyToLegacy` seam — picking the `orange` family (normal shade) persists
-`@color` as the legacy descriptor `1+3` (the vocabulary pre-existing colors are
+`@rk_win_color` as the legacy descriptor `1+3` (the vocabulary pre-existing colors are
 stored in), not the family name — while picking `orange-dark` or `orange-light`
 persists the verbatim `{family}-{shade}` value: non-normal shades have no
 legacy form and the backend's `ValidateColorValue`/`NormalizeColorValue` accept
@@ -185,7 +185,7 @@ tint half is actually exercised.
 
 **Steps:**
 1. Create `marker-sel-<ts>` via the shared `_tmux` helper; navigate + wait for `Connected`.
-2. `resolveWindow` it, then set `@color` = `"1+3"` (the LEGACY descriptor for the
+2. `resolveWindow` it, then set `@rk_win_color` = `"1+3"` (the LEGACY descriptor for the
    `orange` family) via the `POST /api/windows/{id}/options` endpoint the UI
    uses; assert the response is OK.
 3. Click the row button; assert it becomes `aria-current="page"`.

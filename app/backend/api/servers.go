@@ -3,11 +3,13 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"os"
 	"sort"
 	"sync"
 
+	"rk/internal/tmux"
 	"rk/internal/validate"
 )
 
@@ -318,6 +320,11 @@ func (s *Server) handleServerProtect(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+// adoptMigrateLegacy is the adopt handler's legacy-option sweep seam — tests
+// substitute it to prove the sweep runs on a successful adopt without a live
+// tmux server.
+var adoptMigrateLegacy = tmux.MigrateLegacyOptionsOnce
+
 // handleServerAdopt converts an external (unmarked) server to rk-managed: the
 // @rk_managed stamp lands first, then the managed conf is sourced via
 // ReloadConfig; a failed reload best-effort unmarks, so a stamped server whose
@@ -368,6 +375,13 @@ func (s *Server) handleServerAdopt(w http.ResponseWriter, r *http.Request) {
 		_ = s.tmux.UnmarkServerManaged(context.Background(), body.Name)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+
+	// Legacy-option sweep after the conf lands — adoption is the explicit
+	// retry path for a server whose attach-time sweep never ran. Best-effort:
+	// a sweep failure never fails the adopt.
+	if _, err := adoptMigrateLegacy(r.Context(), body.Name); err != nil {
+		slog.Warn("legacy option sweep failed (best-effort)", "err", err, "server", body.Name)
 	}
 
 	// Wake the SSE hub: set-option and source-file are invisible to the

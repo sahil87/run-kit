@@ -93,6 +93,15 @@ const RoleOption = "@rk_role"
 // dropped. Empty/absent = no note (degrade-to-absent everywhere).
 const NoteOption = "@rk_note"
 
+// ColorOption is the window-scoped (-w) user option carrying a window's
+// color descriptor ("4" / "1+3"). Scope-named per fab/project/context.md.
+const ColorOption = "@rk_win_color"
+
+// SessionColorOption is the session-scoped user option carrying a session's
+// color descriptor. Distinct from ColorOption so hierarchical format
+// lookup never leaks one scope's value into the other.
+const SessionColorOption = "@rk_ses_color"
+
 // OriginalTMUX captures the TMUX env var before init() strips it.
 // Package-level var init runs before init(), so this sees the original value.
 // Used by cmd/rk/context.go to restore TMUX in child process environments
@@ -714,7 +723,7 @@ type SessionInfo struct {
 
 // parseSessions parses tmux list-sessions output lines into SessionInfo structs,
 // filtering out session-group copies.
-// Format: name, grouped, group, group_size, @color, windows, @rk_session_flair,
+// Format: name, grouped, group, group_size, @rk_ses_color, windows, @rk_session_flair,
 // session_id, session_path (9 fields).
 // Exported for testing.
 func parseSessions(lines []string) []SessionInfo {
@@ -857,7 +866,7 @@ func ListSessions(ctx context.Context, server string) ([]SessionInfo, error) {
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
 
-	format := fmt.Sprintf("#{session_name}%s#{session_grouped}%s#{session_group}%s#{session_group_size}%s#{@session_color}%s#{session_windows}%s#{@rk_session_flair}%s#{session_id}%s#{session_path}", listDelim, listDelim, listDelim, listDelim, listDelim, listDelim, listDelim, listDelim)
+	format := fmt.Sprintf("#{session_name}%s#{session_grouped}%s#{session_group}%s#{session_group_size}%s#{%s}%s#{session_windows}%s#{@rk_session_flair}%s#{session_id}%s#{session_path}", listDelim, listDelim, listDelim, listDelim, SessionColorOption, listDelim, listDelim, listDelim, listDelim)
 
 	lines, err := tmuxExecServer(ctx, server, "list-sessions", "-F", format)
 	if err != nil {
@@ -972,7 +981,7 @@ func parsePanes(lines []string) map[string][]PaneInfo {
 // nowUnix is the current Unix timestamp for activity threshold computation.
 // Lines have 14 tab-delimited fields: window_id, window_index, window_name,
 // pane_current_path, window_activity, window_active, pane_current_command,
-// @color, @rk_type, @rk_url, @rk_marker, @rk_role, @rk_flair, @rk_note. Lines
+// @rk_win_color, @rk_type, @rk_url, @rk_marker, @rk_role, @rk_flair, @rk_note. Lines
 // with fewer than 8 fields are skipped; fields 9-14 are optional (empty string
 // if absent). Field 14 (@rk_note) is free text in a tab-delimited format, so
 // it MUST be last and the tail is rejoined (strings.Join(parts[13:], "\t")).
@@ -1124,7 +1133,7 @@ func ListWindows(ctx context.Context, session string, server string) ([]WindowIn
 		"#{window_activity}",
 		"#{window_active}",
 		"#{pane_current_command}",
-		"#{@color}",
+		"#{" + ColorOption + "}",
 		"#{@rk_type}",
 		"#{@rk_url}",
 		"#{@rk_marker}",
@@ -2310,25 +2319,25 @@ func SendEnterToPaneCtx(ctx context.Context, paneID string, server string) error
 	return err
 }
 
-// SetSessionColor sets the @session_color user option on a session. The value
-// is a color-value descriptor ("4" / "1+3"), validated by the caller before it
-// reaches the shared setSessionOption (board.go), which passes it as a
-// discrete arg (no shell string) so a '+' in a blend value is safe
+// SetSessionColor sets the SessionColorOption user option on a session. The
+// value is a color-value descriptor ("4" / "1+3"), validated by the caller
+// before it reaches the shared setSessionOption (board.go), which passes it as
+// a discrete arg (no shell string) so a '+' in a blend value is safe
 // (constitution §I).
-// Uses a distinct name from window @color to avoid tmux option inheritance.
+// Uses a distinct name from window ColorOption to avoid tmux option inheritance.
 func SetSessionColor(session string, colorValue string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	return setSessionOption(ctx, server, session, "@session_color", colorValue)
+	return setSessionOption(ctx, server, session, SessionColorOption, colorValue)
 }
 
-// UnsetSessionColor removes the @session_color user option from a session.
+// UnsetSessionColor removes the SessionColorOption user option from a session.
 func UnsetSessionColor(session string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	return unsetSessionOption(ctx, server, session, "@session_color")
+	return unsetSessionOption(ctx, server, session, SessionColorOption)
 }
 
 // SetSessionFlair sets the @rk_session_flair user option on a session. The
@@ -2340,8 +2349,8 @@ func UnsetSessionColor(session string, server string) error {
 // scopes in BOTH directions — a flairless window inherits its session's
 // value, and list-sessions resolves the session's CURRENT window's window
 // option ahead of the session option. Distinct per-scope names sever both
-// fallbacks — the exact same reason window color is @color while session
-// color is @session_color.
+// fallbacks — the exact same reason window color is @rk_win_color while
+// session color is @rk_ses_color.
 func SetSessionFlair(session string, flair string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
@@ -2358,24 +2367,25 @@ func UnsetSessionFlair(session string, server string) error {
 	return unsetSessionOption(ctx, server, session, "@rk_session_flair")
 }
 
-// SetWindowColor sets the @color user option on a window by its window ID. The
-// value is a color-value descriptor ("4" / "1+3"), validated by the caller. In
-// practice window color now flows through SetWindowOptions; this remains for
-// interface symmetry. Passed as a discrete arg (no shell string) per §I.
+// SetWindowColor sets the ColorOption user option on a window by its window
+// ID. The value is a color-value descriptor ("4" / "1+3"), validated by the
+// caller. In practice window color now flows through SetWindowOptions; this
+// remains for interface symmetry. Passed as a discrete arg (no shell string)
+// per §I.
 func SetWindowColor(windowID string, colorValue string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	_, err := tmuxExecServer(ctx, server, "set-option", "-w", "-t", windowID, "@color", colorValue)
+	_, err := tmuxExecServer(ctx, server, "set-option", "-w", "-t", windowID, ColorOption, colorValue)
 	return err
 }
 
-// UnsetWindowColor removes the @color user option from a window by its window ID.
+// UnsetWindowColor removes the ColorOption user option from a window by its window ID.
 func UnsetWindowColor(windowID string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	_, err := tmuxExecServer(ctx, server, "set-option", "-wu", "-t", windowID, "@color")
+	_, err := tmuxExecServer(ctx, server, "set-option", "-wu", "-t", windowID, ColorOption)
 	return err
 }
 

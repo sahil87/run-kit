@@ -89,7 +89,7 @@ export type WindowInfo = {
   isActiveWindow: boolean;
   paneCommand?: string;
   activityTimestamp: number;
-  /** Color value from the `@color` window option — a legacy numeric/blend
+  /** Color value from the `@rk_win_color` window option — a legacy numeric/blend
    *  descriptor ("4" / "1+3"); the backend only validates/stores this vocabulary
    *  (ValidateColorValue). Family names ("orange") are frontend read aliases that
    *  resolve 1:1 to a family (resolveFamily) — the picker maps them back to the

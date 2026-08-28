@@ -32,7 +32,7 @@ func sessionLineColor(name, grouped, group, color string) string {
 }
 
 // sessionLineWindows builds a full 6-field line including the trailing
-// #{session_windows} count (@color left empty).
+// #{session_windows} count (@rk_win_color left empty).
 func sessionLineWindows(name, grouped, group string, groupSize, windows int) string {
 	return strings.Join([]string{name, grouped, group, strconv.Itoa(groupSize), "", strconv.Itoa(windows)}, listDelim)
 }
@@ -52,14 +52,14 @@ func windowLineColor(windowID string, index int, name, path string, activityTs i
 // windowLine9 builds a 10-field tab-delimited tmux line including color, rkType and rkUrl.
 func windowLine9(windowID string, index int, name, path string, activityTs int64, active int, paneCmd, rkType, rkUrl string) string {
 	return fmt.Sprintf("%s%s%d%s%s%s%s%s%d%s%d%s%s%s%s%s%s%s%s",
-		windowID, listDelim, index, listDelim, name, listDelim, path, listDelim, activityTs, listDelim, active, listDelim, paneCmd, listDelim, "" /*@color*/, listDelim, rkType, listDelim, rkUrl)
+		windowID, listDelim, index, listDelim, name, listDelim, path, listDelim, activityTs, listDelim, active, listDelim, paneCmd, listDelim, "" /*@rk_win_color*/, listDelim, rkType, listDelim, rkUrl)
 }
 
 // windowLineMarker builds an 11-field tab-delimited tmux line including the
-// trailing @rk_marker field (@color/@rk_type/@rk_url left empty).
+// trailing @rk_marker field (@rk_win_color/@rk_type/@rk_url left empty).
 func windowLineMarker(windowID string, index int, name, path string, activityTs int64, active int, paneCmd, marker string) string {
 	return fmt.Sprintf("%s%s%d%s%s%s%s%s%d%s%d%s%s%s%s%s%s%s%s%s%s",
-		windowID, listDelim, index, listDelim, name, listDelim, path, listDelim, activityTs, listDelim, active, listDelim, paneCmd, listDelim, "" /*@color*/, listDelim, "" /*@rk_type*/, listDelim, "" /*@rk_url*/, listDelim, marker)
+		windowID, listDelim, index, listDelim, name, listDelim, path, listDelim, activityTs, listDelim, active, listDelim, paneCmd, listDelim, "" /*@rk_win_color*/, listDelim, "" /*@rk_type*/, listDelim, "" /*@rk_url*/, listDelim, marker)
 }
 
 func TestParseSessions(t *testing.T) {
@@ -187,7 +187,7 @@ func TestParseSessions(t *testing.T) {
 			want: []SessionInfo{{Name: "alpha"}, {Name: "beta"}, {Name: "gamma"}},
 		},
 		{
-			name: "session with @color set",
+			name: "session with @rk_win_color set",
 			lines: []string{
 				sessionLineColor("alpha", "0", "alpha", "4"),
 				sessionLineColor("beta", "0", "beta", ""),
@@ -439,12 +439,12 @@ func TestParseWindows(t *testing.T) {
 }
 
 func TestParseWindowsTrailingEmptyFields(t *testing.T) {
-	// Regression test: tmux format output ends with empty fields (e.g., @color, @rk_type,
+	// Regression test: tmux format output ends with empty fields (e.g., @rk_win_color, @rk_type,
 	// @rk_url unset). When the last line's trailing tabs are stripped (as strings.TrimSpace
 	// does), the field count drops below 8 and the window is silently lost.
 	const fakeNow int64 = 1700000000
 
-	// Simulate the real 10-field tmux format where @color, @rk_type, @rk_url are empty.
+	// Simulate the real 10-field tmux format where @rk_win_color, @rk_type, @rk_url are empty.
 	// Each field is tab-separated; empty trailing fields produce trailing tabs.
 	fullLine := func(windowID string, index int, name string) string {
 		return fmt.Sprintf("%s\t%d\t%s\t/path\t%d\t0\tzsh\t\t\t", windowID, index, name, fakeNow)
@@ -592,10 +592,10 @@ func TestParseWindowsMarker(t *testing.T) {
 }
 
 // windowLineRole builds a 12-field tab-delimited tmux line including the
-// trailing @rk_role field (@color/@rk_type/@rk_url/@rk_marker left empty).
+// trailing @rk_role field (@rk_win_color/@rk_type/@rk_url/@rk_marker left empty).
 func windowLineRole(windowID string, index int, name, path string, activityTs int64, active int, paneCmd, role string) string {
 	return fmt.Sprintf("%s%s%d%s%s%s%s%s%d%s%d%s%s%s%s%s%s%s%s%s%s%s%s",
-		windowID, listDelim, index, listDelim, name, listDelim, path, listDelim, activityTs, listDelim, active, listDelim, paneCmd, listDelim, "" /*@color*/, listDelim, "" /*@rk_type*/, listDelim, "" /*@rk_url*/, listDelim, "" /*@rk_marker*/, listDelim, role)
+		windowID, listDelim, index, listDelim, name, listDelim, path, listDelim, activityTs, listDelim, active, listDelim, paneCmd, listDelim, "" /*@rk_win_color*/, listDelim, "" /*@rk_type*/, listDelim, "" /*@rk_url*/, listDelim, "" /*@rk_marker*/, listDelim, role)
 }
 
 func TestParseWindowsRole(t *testing.T) {
@@ -626,11 +626,11 @@ func TestParseWindowsRole(t *testing.T) {
 }
 
 // windowLineFlair builds a 13-field tab-delimited tmux line including the
-// trailing @rk_flair field (@color/@rk_type/@rk_url/@rk_marker/@rk_role left
+// trailing @rk_flair field (@rk_win_color/@rk_type/@rk_url/@rk_marker/@rk_role left
 // empty).
 func windowLineFlair(windowID string, index int, name, path string, activityTs int64, active int, paneCmd, flair string) string {
 	return fmt.Sprintf("%s%s%d%s%s%s%s%s%d%s%d%s%s%s%s%s%s%s%s%s%s%s%s%s%s",
-		windowID, listDelim, index, listDelim, name, listDelim, path, listDelim, activityTs, listDelim, active, listDelim, paneCmd, listDelim, "" /*@color*/, listDelim, "" /*@rk_type*/, listDelim, "" /*@rk_url*/, listDelim, "" /*@rk_marker*/, listDelim, "" /*@rk_role*/, listDelim, flair)
+		windowID, listDelim, index, listDelim, name, listDelim, path, listDelim, activityTs, listDelim, active, listDelim, paneCmd, listDelim, "" /*@rk_win_color*/, listDelim, "" /*@rk_type*/, listDelim, "" /*@rk_url*/, listDelim, "" /*@rk_marker*/, listDelim, "" /*@rk_role*/, listDelim, flair)
 }
 
 func TestParseWindowsFlair(t *testing.T) {
@@ -663,13 +663,13 @@ func TestParseWindowsFlair(t *testing.T) {
 }
 
 // windowLineNote builds a 14-field tab-delimited tmux line including the
-// trailing @rk_note field (@color/@rk_type/@rk_url/@rk_marker/@rk_role/
+// trailing @rk_note field (@rk_win_color/@rk_type/@rk_url/@rk_marker/@rk_role/
 // @rk_flair left empty).
 func windowLineNote(windowID string, index int, name, path string, activityTs int64, active int, paneCmd, note string) string {
 	return strings.Join([]string{
 		windowID, strconv.Itoa(index), name, path, strconv.FormatInt(activityTs, 10),
 		strconv.Itoa(active), paneCmd,
-		"", /*@color*/ "", /*@rk_type*/ "", /*@rk_url*/ "", /*@rk_marker*/ "", /*@rk_role*/ "", /*@rk_flair*/
+		"", /*@rk_win_color*/ "", /*@rk_type*/ "", /*@rk_url*/ "", /*@rk_marker*/ "", /*@rk_role*/ "", /*@rk_flair*/
 		note,
 	}, listDelim)
 }
@@ -709,7 +709,7 @@ func TestParseWindowsNote(t *testing.T) {
 }
 
 // sessionLineFlair builds a 7-field tab-delimited tmux line including the
-// trailing @rk_flair field (@session_color left empty, windows count 1).
+// trailing @rk_flair field (@rk_ses_color left empty, windows count 1).
 func sessionLineFlair(name, grouped, group, flair string) string {
 	return strings.Join([]string{name, grouped, group, "0", "", "1", flair}, listDelim)
 }
@@ -1931,7 +1931,7 @@ func TestSetWindowOptions_chainedSetAndUnset(t *testing.T) {
 	server := withSessionOrderTmux(t)
 	id := windowID(t, server, "boot:0")
 
-	// Pre-set @rk_type so the batch can unset it while setting @color/@rk_url.
+	// Pre-set @rk_type so the batch can unset it while setting @rk_win_color/@rk_url.
 	setupCtx, setupCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	if out, err := exec.CommandContext(setupCtx, "tmux", "-L", server, "set-option", "-w", "-t", id, "@rk_type", "iframe").CombinedOutput(); err != nil {
 		setupCancel()
@@ -1944,7 +1944,7 @@ func TestSetWindowOptions_chainedSetAndUnset(t *testing.T) {
 	color := "5"
 	url := "https://example.test"
 	ops := []WindowOptionOp{
-		{Key: "@color", Value: &color},
+		{Key: "@rk_win_color", Value: &color},
 		{Key: "@rk_url", Value: &url},
 		{Key: "@rk_type", Value: nil}, // unset
 	}
@@ -1952,8 +1952,8 @@ func TestSetWindowOptions_chainedSetAndUnset(t *testing.T) {
 		t.Fatalf("SetWindowOptions: %v", err)
 	}
 
-	if v, ok := windowOption(t, server, id, "@color"); !ok || v != "5" {
-		t.Errorf("@color = %q (set=%v), want \"5\"", v, ok)
+	if v, ok := windowOption(t, server, id, "@rk_win_color"); !ok || v != "5" {
+		t.Errorf("@rk_win_color = %q (set=%v), want \"5\"", v, ok)
 	}
 	if v, ok := windowOption(t, server, id, "@rk_url"); !ok || v != url {
 		t.Errorf("@rk_url = %q (set=%v), want %q", v, ok, url)

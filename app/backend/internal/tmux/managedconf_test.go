@@ -349,7 +349,7 @@ func TestRefreshSweep(t *testing.T) {
 	stub := func(t *testing.T, servers []string, listErr error, failOn map[string]error, managed map[string]bool, managedErr map[string]error) *[]string {
 		t.Helper()
 		reloaded := &[]string{}
-		origList, origReload, origManaged := sweepListServers, sweepReloadConfig, sweepIsManaged
+		origList, origReload, origManaged, origMigrate := sweepListServers, sweepReloadConfig, sweepIsManaged, sweepMigrateLegacy
 		sweepListServers = func(context.Context) ([]string, error) { return servers, listErr }
 		sweepReloadConfig = func(server string) error {
 			*reloaded = append(*reloaded, server)
@@ -364,7 +364,10 @@ func TestRefreshSweep(t *testing.T) {
 			}
 			return true, nil
 		}
-		t.Cleanup(func() { sweepListServers, sweepReloadConfig, sweepIsManaged = origList, origReload, origManaged })
+		sweepMigrateLegacy = func(context.Context, string) (bool, error) { return false, nil }
+		t.Cleanup(func() {
+			sweepListServers, sweepReloadConfig, sweepIsManaged, sweepMigrateLegacy = origList, origReload, origManaged, origMigrate
+		})
 		return reloaded
 	}
 
@@ -405,6 +408,22 @@ func TestRefreshSweep(t *testing.T) {
 		RefreshSweep(context.Background())
 		if len(*reloaded) != 0 {
 			t.Errorf("reloaded = %v, want none on enumeration failure", *reloaded)
+		}
+	})
+
+	t.Run("legacy sweep rides the managed gate", func(t *testing.T) {
+		stub(t, []string{"a", "ext"}, nil, nil, map[string]bool{"ext": false}, nil)
+		migrated := []string{}
+		origMigrate := sweepMigrateLegacy
+		sweepMigrateLegacy = func(_ context.Context, server string) (bool, error) {
+			migrated = append(migrated, server)
+			return false, nil
+		}
+		t.Cleanup(func() { sweepMigrateLegacy = origMigrate })
+
+		RefreshSweep(context.Background())
+		if strings.Join(migrated, ",") != "a" {
+			t.Errorf("migrated = %v, want [a] — an external server must never be swept", migrated)
 		}
 	})
 }

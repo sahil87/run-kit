@@ -332,7 +332,7 @@ func windowOptionOps(win Window) []tmux.WindowOptionOp {
 			ops = append(ops, tmux.WindowOptionOp{Key: key, Value: &v})
 		}
 	}
-	add("@color", win.Color)
+	add(tmux.ColorOption, win.Color)
 	add("@rk_type", win.RkType)
 	add("@rk_url", win.RkURL)
 	add("@rk_marker", win.Marker)

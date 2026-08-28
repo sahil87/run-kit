@@ -24,7 +24,7 @@ type LayoutSession struct {
 	// Created is the session's creation time in unix seconds
 	// (#{session_created}).
 	Created int64
-	// Color is the raw @session_color option value ("" when unset).
+	// Color is the raw @rk_ses_color option value ("" when unset).
 	Color string
 }
 
@@ -67,7 +67,7 @@ type LayoutPane struct {
 var layoutSessionFormat = strings.Join([]string{
 	"#{session_name}",
 	"#{session_created}",
-	"#{@session_color}",
+	"#{" + SessionColorOption + "}",
 }, listDelim)
 
 // layoutWindowFormat lists the owning session plus everything needed to
@@ -80,7 +80,7 @@ var layoutWindowFormat = strings.Join([]string{
 	"#{window_name}",
 	"#{window_active}",
 	"#{window_layout}",
-	"#{@color}",
+	"#{" + ColorOption + "}",
 	"#{@rk_type}",
 	"#{@rk_url}",
 	"#{@rk_marker}",

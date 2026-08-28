@@ -1,0 +1,18 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-28T02:57:10Z"}
+{"args":"Change 1 from fab/plans/sahil/26-08-28-tmux-option-scope-naming.md: run-kit namespace + legacy option-name migration sweep (fix)","cmd":"fab-new","event":"command","ts":"2026-08-28T02:57:10Z"}
+{"delta":"+0.0","event":"confidence","score":4.5,"trigger":"calc-score","ts":"2026-08-28T02:59:29Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-28T03:18:51Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-28T03:20:42Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-28T03:51:35Z"}
+{"event":"review","result":"failed","ts":"2026-08-28T04:06:28Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-28T04:06:28Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-28T04:25:03Z"}
+{"event":"review","result":"failed","ts":"2026-08-28T04:37:17Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-28T04:37:17Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-28T04:42:14Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-28T04:49:54Z"}
+{"event":"review","result":"passed","ts":"2026-08-28T04:49:54Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-28T05:09:22Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-08-28T05:11:01Z"}
+{"cmd":"git-pr-review","event":"command","ts":"2026-08-28T05:11:58Z"}
+{"event":"review","result":"passed","ts":"2026-08-28T05:23:20Z"}

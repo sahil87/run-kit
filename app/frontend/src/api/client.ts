@@ -441,7 +441,7 @@ export async function closePane(
 /**
  * Partial-merge window options via the unified POST /options endpoint. Each
  * value is a string (set) or null (unset); absent keys are left untouched. Only
- * the allowlisted keys `@color`/`@rk_url`/`@rk_type` are accepted server-side.
+ * the allowlisted keys `@rk_win_color`/`@rk_url`/`@rk_type` are accepted server-side.
  * The whole merge is applied as one atomic chained tmux invocation.
  */
 export async function setWindowOptions(
@@ -754,10 +754,10 @@ export async function setWindowColor(
   windowId: string,
   color: string | null,
 ): Promise<{ ok: boolean }> {
-  // @color is a color-value descriptor string ("4" / "1+3") on the unified
-  // /options contract; null clears it.
+  // @rk_win_color is a color-value descriptor string ("4" / "1+3") on the
+  // unified /options contract; null clears it.
   return setWindowOptions(server, windowId, {
-    "@color": color,
+    "@rk_win_color": color,
   });
 }
 
@@ -1039,7 +1039,7 @@ export type RecoveryWindow = {
 };
 
 /** One recorded session inside a recovery offer. `color` is the raw
- *  @session_color descriptor ("4" / "1+3"), absent when unset. */
+ *  @rk_ses_color descriptor ("4" / "1+3"), absent when unset. */
 export type RecoverySession = {
   name: string;
   color?: string;

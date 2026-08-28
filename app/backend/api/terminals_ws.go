@@ -373,19 +373,25 @@ func forceTERM(env []string) []string {
 	return append(result, "TERM=xterm-256color")
 }
 
-// attachIsManaged / attachReloadConfig are the pre-attach reload seams — tests
-// substitute them to pin the managed-only gate without a live server.
+// attachIsManaged / attachReloadConfig / attachMigrateLegacy are the
+// pre-attach reload seams — tests substitute them to pin the managed-only
+// gate without a live server. attachMigrateLegacy is the NON-re-marking
+// entry: the once-guard is taken synchronously in reloadConfigForAttach
+// before the sweep is spawned, so the seam must not mark again.
 var (
-	attachIsManaged    = tmux.IsManagedServer
-	attachReloadConfig = tmux.ReloadConfig
+	attachIsManaged     = tmux.IsManagedServer
+	attachReloadConfig  = tmux.ReloadConfig
+	attachMigrateLegacy = tmux.MigrateLegacyOptionsReport
 )
 
 // reloadConfigForAttach reloads the managed tmux.conf on the target server
 // before attach. Managed servers only: an external (unmarked) server never
 // receives rk's conf. A managed-check read failure fails closed (skip). Never
 // fails — a reload error only means the attach proceeds with the server's
-// current conf.
-func reloadConfigForAttach(server string) {
+// current conf. The legacy-option sweep rides the same gate; when it changed
+// something the SSE hub is woken so the sidebar repaints without waiting for
+// the safety poll (set-option is invisible to the control-mode parser).
+func (s *Server) reloadConfigForAttach(server string) {
 	managed, err := attachIsManaged(context.Background(), server)
 	if err != nil {
 		slog.Debug("terminals: managed check failed; skipping pre-attach reload", "server", server, "err", err)
@@ -398,6 +404,23 @@ func reloadConfigForAttach(server string) {
 	if err := attachReloadConfig(server); err != nil {
 		slog.Debug("terminals: config reload before attach (best-effort)", "server", server, "err", err)
 	}
+	// The sweep runs off the attach path: it is O(carriers) tmux round-trips
+	// and must not hold the first-attach goroutine. The once-guard is taken
+	// synchronously so concurrent attaches never double-run; the hub wake from
+	// inside the goroutine already decouples the repaint.
+	if !tmux.MarkLegacyMigrationAttempt(server) {
+		return
+	}
+	go func() {
+		changed, err := attachMigrateLegacy(context.Background(), server)
+		if err != nil {
+			slog.Warn("terminals: legacy option sweep failed (best-effort)", "server", server, "err", err)
+		}
+		if changed {
+			s.initSSEHub()
+			s.sseHub.wake(server)
+		}
+	}()
 }
 
 // attachStream performs the blocking tmux setup for a registered placeholder
@@ -495,7 +518,7 @@ func (tc *terminalsConn) attachStream(op openOp, st *stream) {
 	// Pre-attach reload so terminal-overrides (true color) and styles are live
 	// on this server. Managed servers only — rk never pushes its conf onto an
 	// external server. Best-effort: never blocks the attach.
-	reloadConfigForAttach(server)
+	tc.s.reloadConfigForAttach(server)
 
 	attachArgs = append(attachArgs, "attach-session", "-t", session)
 	cmd := exec.CommandContext(ctx, "tmux", attachArgs...)

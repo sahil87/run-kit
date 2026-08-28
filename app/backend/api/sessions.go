@@ -147,7 +147,7 @@ func (s *Server) handleSessionStringOption(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// handleSessionColor sets or clears the @session_color session option.
+// handleSessionColor sets or clears the @rk_ses_color session option.
 // POST /api/sessions/{session}/color ← {"color": "1+3"} sets; null clears.
 func (s *Server) handleSessionColor(w http.ResponseWriter, r *http.Request) {
 	s.handleSessionStringOption(w, r, sessionStringOption{

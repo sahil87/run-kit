@@ -883,14 +883,14 @@ func TestRenderColorTabs(t *testing.T) {
 		"NEVER capture-pane", "rk mux capture @N",
 		"feature → blue", "bugfix → red", "infra/tooling → slate", "docs → teal", "experiments → purple",
 		"ONE coherent scheme",
-		"tmux set-option -t @N '@color' '<value>'",
+		"tmux set-option -t @N '@rk_win_color' '<value>'",
 		"red orange amber olive green teal blue purple magenta slate",
 		"-dark or -light",
 		"tmux set-option -t @N '@rk_marker' '<value>'",
 		"pipe dotted dashed solid double thick hatch block",
 		"tmux set-option -t @N '@rk_flair' '<value>'",
 		"rain scan nyan naruto onepiece pacman matrix aquarium roadrunner invaders cube warp spidey ironman",
-		"tmux set-option -t @N -u '@color'",
+		"tmux set-option -t @N -u '@rk_win_color'",
 		"DO NOTHING", "already fit", "reversible via the label picker",
 		"~15 seconds",
 		"set only the three named options", "Do not rename, kill, or send keys", "Do not reply",
@@ -1029,7 +1029,7 @@ func TestServerOperatorRequestColorTabsSuccess(t *testing.T) {
 	for _, want := range []string{
 		"s @1", `"zsh"`, "labels: color=blue marker=solid flair=-",
 		"projects/someproj/" + testChatRef + ".jsonl",
-		"tmux set-option -t @N '@color' '<value>'",
+		"tmux set-option -t @N '@rk_win_color' '<value>'",
 		"Do not reply",
 	} {
 		if !strings.Contains(prompt, want) {

@@ -67,6 +67,9 @@ var (
 	muxAdoptReloadConfigFn = func(server string) error {
 		return tmux.ReloadConfig(server)
 	}
+	muxAdoptMigrateLegacyFn = func(ctx context.Context, server string) (bool, error) {
+		return tmux.MigrateLegacyOptionsReport(ctx, server)
+	}
 )
 
 // runMuxAdopt is the testable core: reject -L → validate → probe live →
@@ -117,5 +120,17 @@ func runMuxAdopt(cmd *cobra.Command, name string) error {
 	}
 
 	sink.Dataf("adopted %s\n", name)
+
+	// Legacy-option sweep — unconditional (not the daemon's once-guard): the
+	// CLI is the operator's explicit retry verb. A sweep failure does not
+	// fail the adopt (the conf landed; the sweep re-runs on attach). The
+	// report line prints only when legacy names moved — a clean server stays
+	// silent (toolkit quiet-success posture).
+	changed, err := muxAdoptMigrateLegacyFn(ctx, name)
+	if err != nil {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "legacy option sweep on %s failed: %v\n", name, err)
+	} else if changed {
+		sink.Dataf("migrated legacy options on %s\n", name)
+	}
 	return nil
 }

@@ -51,7 +51,7 @@ type operatorWindowFact struct {
 	PrReview string
 	FabChange string // rendered only when non-empty
 	FabStage  string
-	// Color/Marker/Flair are the window's current label state (@color,
+	// Color/Marker/Flair are the window's current label state (@rk_win_color,
 	// @rk_marker, @rk_flair) — "" when unset (WindowInfo.Color is *string,
 	// dereferenced in the builder). Only the color-tabs template renders them;
 	// the digest row writer deliberately ignores them.
@@ -444,19 +444,19 @@ Then categorize. Suggested default scheme — one color family per work category
 You MAY substitute a scheme that better fits this server's actual work mix (risk-based, project-based), but you MUST apply ONE coherent scheme across all tabs — same-category tabs share a hue. Consistency beats any particular mapping.
 
 Actuate through your own shell:
-  tmux set-option -t @N '@color' '<value>'
+  tmux set-option -t @N '@rk_win_color' '<value>'
 value: one of red orange amber olive green teal blue purple magenta slate, optionally suffixed -dark or -light (risk/priority may ride the shade axis).
 Optional secondary accents — sparingly; color is the primary channel:
   tmux set-option -t @N '@rk_marker' '<value>'   (pipe dotted dashed solid double thick hatch block)
   tmux set-option -t @N '@rk_flair' '<value>'    (rain scan nyan naruto onepiece pacman matrix aquarium roadrunner invaders cube warp spidey ironman)
 Unset a label when a tab genuinely fits no category:
-  tmux set-option -t @N -u '@color'
+  tmux set-option -t @N -u '@rk_win_color'
 
 Judgment: DO NOTHING to a tab whose current labels already fit the scheme. Existing manual colors MAY be reassigned to fit the scheme (reversible via the label picker).
 
 The sidebar repaints within ~15 seconds of your last set-option — no further action is needed.
 
-Bounds: set only the three named options (@color, @rk_marker, @rk_flair), only on the windows listed above. Do not rename, kill, or send keys to any window. Do not reply to this message.`)
+Bounds: set only the three named options (@rk_win_color, @rk_marker, @rk_flair), only on the windows listed above. Do not rename, kill, or send keys to any window. Do not reply to this message.`)
 	return b.String()
 }
 

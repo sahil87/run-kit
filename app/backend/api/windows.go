@@ -363,7 +363,7 @@ func (s *Server) handleWindowMoveToSession(w http.ResponseWriter, r *http.Reques
 // (constitution §I — closed key set bounds the injection/abuse surface, and a
 // closed set is what makes per-key validation possible).
 const (
-	optKeyColor  = "@color"
+	optKeyColor  = tmux.ColorOption
 	optKeyRkURL  = "@rk_url"
 	optKeyRkType = "@rk_type"
 	optKeyMarker = "@rk_marker"
@@ -441,7 +441,7 @@ func validateWindowOption(key string, value *string) string {
 }
 
 // handleWindowOptions applies a partial-merge of window options to {windowId}.
-// POST /api/windows/{windowId}/options ← {"options": {"@color": "5", "@rk_url":
+// POST /api/windows/{windowId}/options ← {"options": {"@rk_win_color": "5", "@rk_url":
 // "...", "@rk_type": null, "@rk_marker": "solid"}} → 200 {"ok": true}.
 //
 // Semantics: only keys present in `options` are touched; a present key with a
@@ -566,7 +566,7 @@ func (s *Server) handleWindowOptions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Wake the SSE hub so the option change (@color/@rk_url/@rk_type) surfaces on
+	// Wake the SSE hub so the option change (@rk_win_color/@rk_url/@rk_type) surfaces on
 	// the next poll pass instead of the 12s safety tick — set-option is invisible
 	// to the tmuxctl control-mode parser, so no subscriber notification fires.
 	// Mirrors handleSessionOrderPost's initSSEHub-then-hub-call pattern; initSSEHub

@@ -811,6 +811,114 @@ func TestEphemeralServersCheckNeverFlipsVerdict(t *testing.T) {
 	}
 }
 
+// stubLegacyScan substitutes the legacy-options scan seam for a test: results
+// is the per-server tally (nil = none), err the enumeration failure to inject.
+func stubLegacyScan(t *testing.T, results []legacyOptionsScanResult, err error) {
+	t.Helper()
+	orig := legacyOptionsScan
+	legacyOptionsScan = func(context.Context) ([]legacyOptionsScanResult, error) { return results, err }
+	t.Cleanup(func() { legacyOptionsScan = orig })
+}
+
+// TestLegacyOptionsCheckBranches pins the four note shapes: a clean fleet
+// reads "none", dirty servers carry the sweep remediation, external servers
+// get the never-rewritten suffix, and an enumeration failure degrades to an
+// OK row naming the skip — the row is always OK-shaped (informational, never
+// a verdict flipper).
+func TestLegacyOptionsCheckBranches(t *testing.T) {
+	t.Run("clean fleet reads none", func(t *testing.T) {
+		stubLegacyScan(t, []legacyOptionsScanResult{{Server: "a", Count: 0, Managed: true}}, nil)
+		c := legacyOptionsCheck()
+		if !c.OK || c.Note != "none" {
+			t.Errorf("clean fleet must be OK with note %q, got %+v", "none", c)
+		}
+	})
+
+	t.Run("dirty servers carry the sweep remediation", func(t *testing.T) {
+		stubLegacyScan(t, []legacyOptionsScanResult{
+			{Server: "a", Count: 2, Managed: true},
+			{Server: "b", Count: 1, Managed: true},
+			{Server: "c", Count: 0, Managed: true},
+		}, nil)
+		c := legacyOptionsCheck()
+		if !c.OK {
+			t.Errorf("dirty servers must stay OK, got %+v", c)
+		}
+		want := "2 server(s) still carry legacy option names (@color/@session_color) — attach from the dashboard or run `rk mux adopt <server>` to sweep"
+		if c.Note != want {
+			t.Errorf("note = %q, want %q", c.Note, want)
+		}
+	})
+
+	t.Run("external servers get the never-rewritten suffix", func(t *testing.T) {
+		stubLegacyScan(t, []legacyOptionsScanResult{
+			{Server: "a", Count: 1, Managed: true},
+			{Server: "b", Count: 3, Managed: false},
+		}, nil)
+		c := legacyOptionsCheck()
+		if !c.OK {
+			t.Errorf("must stay OK, got %+v", c)
+		}
+		if !strings.Contains(c.Note, "2 server(s)") || !strings.Contains(c.Note, ", of which 1 external — rk will not rewrite those") {
+			t.Errorf("note = %q, want the external suffix", c.Note)
+		}
+	})
+
+	t.Run("enumeration error degrades to a skip note", func(t *testing.T) {
+		stubLegacyScan(t, nil, fmt.Errorf("socket dir unreadable"))
+		c := legacyOptionsCheck()
+		if !c.OK {
+			t.Errorf("enumeration error must never fail the row, got %+v", c)
+		}
+		if !strings.Contains(c.Note, "skipped") || !strings.Contains(c.Note, "socket dir unreadable") {
+			t.Errorf("note = %q, want a skip note naming the failure", c.Note)
+		}
+	})
+
+}
+
+// TestLegacyOptionsCheckNeverFlipsVerdict proves the appended row cannot
+// change the overall report verdict: with a dirty server in the scan,
+// runDoctorChecks stays OK and the row is present.
+func TestLegacyOptionsCheckNeverFlipsVerdict(t *testing.T) {
+	stubLegacyScan(t, []legacyOptionsScanResult{{Server: "a", Count: 5, Managed: true}}, nil)
+	found := false
+	for _, c := range runDoctorChecks().Checks {
+		if c.Name == "legacy tmux options" {
+			found = true
+			if !c.OK {
+				t.Errorf("legacy tmux options row must always be OK-shaped, got %+v", c)
+			}
+		}
+	}
+	if !found {
+		t.Error("runDoctorChecks must append the legacy tmux options row unconditionally")
+	}
+}
+
+// TestLegacyOptionsScanSkipsFailingServer: the default scan skips a server
+// whose per-server probes fail and still counts the rest (a socket dying
+// mid-scan must not abort the whole row). Drives the production scan through
+// the shared tmuxServerList seam; CountLegacyOptions/IsManagedServer fail on
+// the dead name, the live one enumerates clean.
+func TestLegacyOptionsScanSkipsFailingServer(t *testing.T) {
+	orig := tmuxServerList
+	tmuxServerList = func(context.Context) ([]string, error) {
+		return []string{"rk-doctor-dead-definitely-not-live", "rk-daemon"}, nil
+	}
+	t.Cleanup(func() { tmuxServerList = orig })
+
+	results, err := legacyOptionsScan(context.Background())
+	if err != nil {
+		t.Fatalf("scan errored on a dead server: %v — a failing server must be skipped", err)
+	}
+	for _, r := range results {
+		if r.Server == "rk-doctor-dead-definitely-not-live" {
+			t.Errorf("results = %+v — the dead server must be skipped, not counted", results)
+		}
+	}
+}
+
 // TestCodeServerCheckAbsentBinaryIsWarnNotFail proves the daemon-managed
 // editor's doctor row never fails the report (260811-a2bo): an absent binary
 // is the WARN case — OK with a remediation note — matching daemon start's

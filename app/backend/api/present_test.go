@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"rk/internal/tmux"
 )
 
 // presentFixture builds a serve-root tree exercising the containment matrix:
@@ -64,8 +66,10 @@ func stubWindowOption(t *testing.T, root string) (calls *int, servers *[]string)
 	getWindowOptionFn = func(_ context.Context, _ /* windowID */, server, option string) (string, error) {
 		n++
 		seen = append(seen, server)
-		if option != presentRootOption {
-			t.Errorf("handler read option %q, want %q", option, presentRootOption)
+		// Slot 1 reads its own root, then (only when that is empty) the retired
+		// @rk_win_present_root — both are legitimate slot-1 reads.
+		if option != tmux.WebTabRootOption(1) && option != tmux.LegacyWinPresentRootOption {
+			t.Errorf("handler read option %q, want %q or %q", option, tmux.WebTabRootOption(1), tmux.LegacyWinPresentRootOption)
 		}
 		return root, nil
 	}
@@ -207,5 +211,98 @@ func TestPresentServerParam(t *testing.T) {
 		if got[i] != want[i] {
 			t.Errorf("call %d server = %q, want %q", i, got[i], want[i])
 		}
+	}
+}
+
+// TestPresentIndexedSlot verifies the slot sniff: an indexed form reads
+// @rk_win_web_<n>_root, the n-less form reads slot 1, and an out-of-range slot
+// segment ("9") is treated as a FILE NAME under slot 1 — never a root read
+// outside 1..8.
+func TestPresentIndexedSlot(t *testing.T) {
+	root, _ := presentFixture(t)
+	var option string
+	getWindowOptionFn = func(_ context.Context, _ /* windowID */, server, opt string) (string, error) {
+		option = opt
+		return root, nil
+	}
+	t.Cleanup(func() { getWindowOptionFn = defaultGetWindowOption })
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	rec := getPresent(t, router, "/present/@7/2/mock.html")
+	if rec.Code != 200 {
+		t.Fatalf("indexed form status = %d, want 200 (body: %q)", rec.Code, rec.Body.String())
+	}
+	if want := tmux.WebTabRootOption(2); option != want {
+		t.Errorf("indexed form read option %q, want %q", option, want)
+	}
+
+	rec = getPresent(t, router, "/present/@7/mock.html")
+	if rec.Code != 200 {
+		t.Fatalf("n-less form status = %d, want 200 (body: %q)", rec.Code, rec.Body.String())
+	}
+	if want := tmux.WebTabRootOption(1); option != want {
+		t.Errorf("n-less form read option %q, want %q", option, want)
+	}
+
+	// "9" is not a slot (gate is ^[1-8]$): the request is the file "9/x.html"
+	// under slot 1 — it must read ONLY the slot-1 root and 404 on the missing
+	// file.
+	rec = getPresent(t, router, "/present/@7/9/x.html")
+	if rec.Code != 404 {
+		t.Errorf("out-of-range slot status = %d, want 404", rec.Code)
+	}
+	if want := tmux.WebTabRootOption(1); option != want {
+		t.Errorf("out-of-range slot read option %q, want %q (slot-1 root only)", option, want)
+	}
+}
+
+// TestPresentLegacyRootFallback: slot 1 with an empty @rk_win_web_1_root falls
+// back to the retired @rk_win_present_root (live-stamped by external writers);
+// an indexed slot other than 1 never does.
+func TestPresentLegacyRootFallback(t *testing.T) {
+	root, _ := presentFixture(t)
+	var reads []string
+	getWindowOptionFn = func(_ context.Context, _ /* windowID */, _ string, opt string) (string, error) {
+		reads = append(reads, opt)
+		if opt == tmux.LegacyWinPresentRootOption {
+			return root, nil
+		}
+		return "", nil
+	}
+	t.Cleanup(func() { getWindowOptionFn = defaultGetWindowOption })
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	rec := getPresent(t, router, "/present/@7/mock.html")
+	if rec.Code != 200 {
+		t.Fatalf("n-less form with legacy root status = %d, want 200 (body: %q)", rec.Code, rec.Body.String())
+	}
+	want := []string{tmux.WebTabRootOption(1), tmux.LegacyWinPresentRootOption}
+	if strings.Join(reads, ",") != strings.Join(want, ",") {
+		t.Errorf("reads = %v, want %v", reads, want)
+	}
+
+	reads = nil
+	rec = getPresent(t, router, "/present/@7/2/mock.html")
+	if rec.Code != 404 {
+		t.Errorf("slot 2 with empty root status = %d, want 404 (no legacy fallback)", rec.Code)
+	}
+	if len(reads) != 1 || reads[0] != tmux.WebTabRootOption(2) {
+		t.Errorf("slot-2 reads = %v, want only %q", reads, tmux.WebTabRootOption(2))
+	}
+}
+
+// TestPresentIndexedBareRedirects: a bare indexed form (/present/@7/2) gets the
+// same 308 trailing-slash redirect as the n-less form.
+func TestPresentIndexedBareRedirects(t *testing.T) {
+	root, _ := presentFixture(t)
+	stubWindowOption(t, root)
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	rec := getPresent(t, router, "/present/@7/2?server=dev")
+	if rec.Code != http.StatusPermanentRedirect {
+		t.Fatalf("status = %d, want 308", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/present/@7/2/?server=dev" {
+		t.Errorf("Location = %q, want /present/@7/2/?server=dev (query preserved)", loc)
 	}
 }

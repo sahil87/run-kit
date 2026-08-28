@@ -1,0 +1,17 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-28T12:52:11Z"}
+{"args":"Change 1 from fab/plans/sahil/26-08-28-ui-state-tmux-options.md -- Backend: options, payload, snapshot, migration for UI state in tmux options (@rk_win_layout, web tabs, code root). Implement exactly the Change 1 section of that plan file; do not implement Changes 2-5.","cmd":"fab-new","event":"command","ts":"2026-08-28T12:52:11Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-08-28T12:55:11Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-08-28T12:55:36Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-28T12:59:42Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-28T13:03:24Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-28T15:00:52Z"}
+{"event":"review","result":"failed","ts":"2026-08-28T15:05:31Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-28T15:05:31Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-28T15:23:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-28T15:31:21Z"}
+{"event":"review","result":"passed","ts":"2026-08-28T15:31:21Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-28T15:47:01Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-08-28T15:48:02Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-08-28T15:48:54Z"}
+{"cmd":"git-pr-review","event":"command","ts":"2026-08-28T15:50:13Z"}
+{"event":"review","result":"passed","ts":"2026-08-28T16:09:47Z"}

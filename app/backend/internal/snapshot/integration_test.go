@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -78,6 +79,16 @@ func TestCaptureRestoreRoundTripLiveTmux(t *testing.T) {
 	tmuxCmd(t, socket, "set-option", "-t", "=alpha:", "@rk_ses_color", "4")
 	tmuxCmd(t, socket, "set-option", "-w", "-t", "=alpha:agent", "@rk_win_marker", "solid")
 	tmuxCmd(t, socket, "set-option", "-w", "-t", "=alpha:agent", "@rk_win_role", "operator")
+	// A full web-tab family: 3 dense tabs, roots on 1 and 3, active=2, layout
+	// and code root — the round trip must reproduce it identically.
+	tmuxCmd(t, socket, "set-option", "-w", "-t", "=alpha:agent", "@rk_win_layout", "split-h:tty,web")
+	tmuxCmd(t, socket, "set-option", "-w", "-t", "=alpha:agent", "@rk_win_web_1", "/proxy/1/")
+	tmuxCmd(t, socket, "set-option", "-w", "-t", "=alpha:agent", "@rk_win_web_1_root", "/r1")
+	tmuxCmd(t, socket, "set-option", "-w", "-t", "=alpha:agent", "@rk_win_web_2", "/present/@9/2/a.html?server=s&v=1")
+	tmuxCmd(t, socket, "set-option", "-w", "-t", "=alpha:agent", "@rk_win_web_3", "https://x/")
+	tmuxCmd(t, socket, "set-option", "-w", "-t", "=alpha:agent", "@rk_win_web_3_root", "/r3")
+	tmuxCmd(t, socket, "set-option", "-w", "-t", "=alpha:agent", "@rk_win_web_active", "2")
+	tmuxCmd(t, socket, "set-option", "-w", "-t", "=alpha:agent", "@rk_win_code_root", "/w")
 	tmuxCmd(t, socket, "set-option", "-s", "@rk_srv_rank", "7")
 
 	before, err := CaptureServer(context.Background(), socket)
@@ -144,6 +155,21 @@ func TestCaptureRestoreRoundTripLiveTmux(t *testing.T) {
 			if gw.Role != win.Role {
 				t.Errorf("window %s role = %q, want %q", win.Name, gw.Role, win.Role)
 			}
+			if gw.RkLayout != win.RkLayout {
+				t.Errorf("window %s rkLayout = %q, want %q", win.Name, gw.RkLayout, win.RkLayout)
+			}
+			if !slices.Equal(gw.WebTabs, win.WebTabs) {
+				t.Errorf("window %s webTabs = %v, want %v", win.Name, gw.WebTabs, win.WebTabs)
+			}
+			if !slices.Equal(gw.WebRoots, win.WebRoots) {
+				t.Errorf("window %s webRoots = %v, want %v", win.Name, gw.WebRoots, win.WebRoots)
+			}
+			if gw.WebActive != win.WebActive {
+				t.Errorf("window %s webActive = %d, want %d", win.Name, gw.WebActive, win.WebActive)
+			}
+			if gw.CodeRoot != win.CodeRoot {
+				t.Errorf("window %s codeRoot = %q, want %q", win.Name, gw.CodeRoot, win.CodeRoot)
+			}
 			if len(gw.Panes) != len(win.Panes) {
 				t.Errorf("window %s panes = %d, want %d", win.Name, len(gw.Panes), len(win.Panes))
 				continue
@@ -165,7 +191,10 @@ func TestCaptureRestoreRoundTripLiveTmux(t *testing.T) {
 		t.Fatalf("show restored window options: %v\n%s", optsErr, optsOut)
 	}
 	opts := string(optsOut)
-	for _, want := range []string{"@rk_win_role operator", "@rk_win_marker solid"} {
+	for _, want := range []string{"@rk_win_role operator", "@rk_win_marker solid",
+		"@rk_win_layout split-h:tty,web", "@rk_win_web_1 /proxy/1/", "@rk_win_web_1_root /r1",
+		"@rk_win_web_2 /present/@9/2/a.html?server=s&v=1", "@rk_win_web_3 https://x/",
+		"@rk_win_web_3_root /r3", "@rk_win_web_active 2", "@rk_win_code_root /w"} {
 		if !strings.Contains(opts, want) {
 			t.Errorf("restored window options missing %q:\n%s", want, opts)
 		}

@@ -2,6 +2,7 @@ package snapshot
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -279,5 +280,91 @@ func TestRestoreEmptySnapshotErrors(t *testing.T) {
 	}
 	if _, err := restore(context.Background(), "kit", &Snapshot{Server: "kit"}, restoreOps{}); err == nil {
 		t.Error("sessionless snapshot must error")
+	}
+}
+
+// TestWindowOptionOpsWebFamily pins the restore mapping for the web-tab
+// family: layout, dense slots with URL and root together, the active pointer
+// only when > 0, and the code root.
+func TestWindowOptionOpsWebFamily(t *testing.T) {
+	win := Window{
+		RkLayout:  "split-h:tty,web",
+		WebTabs:   []string{"/proxy/1/", "/present/@9/2/a.html?server=s&v=1", "https://x/"},
+		WebRoots:  []string{"/r1", "", "/r3"},
+		WebActive: 2,
+		CodeRoot:  "/w",
+	}
+	ops := windowOptionOps(win)
+	var got []string
+	for _, op := range ops {
+		got = append(got, op.Key+"="+*op.Value)
+	}
+	want := []string{
+		"@rk_win_layout=split-h:tty,web",
+		"@rk_win_web_1=/proxy/1/",
+		"@rk_win_web_1_root=/r1",
+		"@rk_win_web_2=/present/@9/2/a.html?server=s&v=1",
+		"@rk_win_web_3=https://x/",
+		"@rk_win_web_3_root=/r3",
+		"@rk_win_web_active=2",
+		"@rk_win_code_root=/w",
+	}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("ops = %v, want %v", got, want)
+	}
+}
+
+// TestWindowOptionOpsSkipsEmptyFamily: no layout, no tabs, no active pointer,
+// no code root → no web-family ops at all (the skip-when-empty rule).
+func TestWindowOptionOpsSkipsEmptyFamily(t *testing.T) {
+	win := Window{Color: "2"}
+	for _, op := range windowOptionOps(win) {
+		if strings.HasPrefix(op.Key, "@rk_win_web") || op.Key == "@rk_win_layout" || op.Key == "@rk_win_code_root" {
+			t.Errorf("unexpected web-family op %v for an empty family", op)
+		}
+	}
+}
+
+// TestOldFormatSnapshotDecodes: a snapshot JSON written by an older binary
+// (rkType/rkUrl window keys) decodes without error — the retired keys are
+// ignored, no on-disk migration — and restores without web state.
+func TestOldFormatSnapshotDecodes(t *testing.T) {
+	old := `{
+		"server": "kit",
+		"takenAt": "2026-01-01T00:00:00Z",
+		"sessions": [{
+			"name": "alpha", "createdAt": 100,
+			"windows": [{
+				"index": 1, "id": "@1", "name": "serve",
+				"rkType": "iframe", "rkUrl": "http://x", "marker": "solid",
+				"panes": [{"id": "%0", "index": 0, "cwd": "/proj"}]
+			}]
+		}]
+	}`
+	var snap Snapshot
+	if err := json.Unmarshal([]byte(old), &snap); err != nil {
+		t.Fatalf("old-format decode: %v", err)
+	}
+	win := snap.Sessions[0].Windows[0]
+	if len(win.WebTabs) != 0 || win.RkLayout != "" || win.WebActive != 0 {
+		t.Errorf("old-format window gained web state: %+v", win)
+	}
+
+	f := &fakeRestore{bornIndex: 1}
+	report, err := restore(context.Background(), "kit", &snap, f.ops())
+	if err != nil {
+		t.Fatalf("restore old-format snapshot: %v", err)
+	}
+	if len(report.Sessions) != 1 {
+		t.Fatalf("report = %+v", report)
+	}
+	// The retired keys restore nothing; the surviving marker still applies.
+	for _, op := range []string{"@rk_win_url", "@rk_win_lens", "@rk_win_web_"} {
+		if strings.Contains(f.trace(), op) {
+			t.Errorf("restore wrote a retired/web-family option %q:\n%s", op, f.trace())
+		}
+	}
+	if !strings.Contains(f.trace(), "@rk_win_marker=solid") {
+		t.Errorf("marker not restored:\n%s", f.trace())
 	}
 }

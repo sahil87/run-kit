@@ -65,7 +65,42 @@ func TestParseLayoutSessions(t *testing.T) {
 	}
 }
 
+// layoutLine builds a layout-capture line with every field placed explicitly:
+// rk_layout at idx 7, the web slots at idx 8..15, their roots at 16..23,
+// web_active at 24, code_root at 25, marker 26, role 27, flair 28, the note at
+// 29 (strict single field), and the legacy note appended LAST (30+).
+func layoutLine(session, id, index, name, active, layout, color, rkLayout, webActive, codeRoot, marker, role, flair, note, legacyNote string, tabs, roots []string) string {
+	fields := []string{session, id, index, name, active, layout, color, rkLayout}
+	var slots, slotRoots [MaxWebTabs]string
+	copy(slots[:], tabs)
+	copy(slotRoots[:], roots)
+	for _, s := range slots {
+		fields = append(fields, s)
+	}
+	for _, r := range slotRoots {
+		fields = append(fields, r)
+	}
+	fields = append(fields, webActive, codeRoot, marker, role, flair, note)
+	return strings.Join(fields, listDelim) + listDelim + legacyNote
+}
+
 func TestParseLayoutWindows(t *testing.T) {
+	// lineThroughMarker builds a line that stops at the marker field (idx 26) —
+	// role/flair/note absent, exercising the optional trailing fields.
+	lineThroughMarker := func(marker string) string {
+		fields := make([]string, 27)
+		copy(fields, []string{"kit", "@1", "1", "serve", "1", "d5d2,204x48,0,0,1", "4"})
+		fields[26] = marker
+		return strings.Join(fields, listDelim)
+	}
+	// lineThroughNote builds a line that stops at the note field (idx 29).
+	lineThroughNote := func(note string) string {
+		fields := make([]string, 30)
+		copy(fields, []string{"kit", "@1", "1", "serve", "1", "d5d2,204x48,0,0,1"})
+		fields[29] = note
+		return strings.Join(fields, listDelim)
+	}
+
 	tests := []struct {
 		name  string
 		lines []string
@@ -74,30 +109,59 @@ func TestParseLayoutWindows(t *testing.T) {
 		{
 			name: "windows with options and active flag",
 			lines: []string{
-				"kit\t@1\t1\tserve\t1\td5d2,204x48,0,0,1\t4\tweb\thttp://x\tsolid\toperator",
+				layoutLine("kit", "@1", "1", "serve", "1", "d5d2,204x48,0,0,1", "4", "split-h:tty,web", "1", "", "solid", "operator", "", "", "",
+					[]string{"http://x"}, nil),
 				"kit\t@2\t2\tshell\t0\tabcd,204x48,0,0,2\t\t\t\t",
 			},
 			want: []LayoutWindow{
 				{Session: "kit", WindowID: "@1", Index: 1, Name: "serve", Active: true,
-					Layout: "d5d2,204x48,0,0,1", Color: "4", RkType: "web", RkURL: "http://x", Marker: "solid", Role: "operator"},
+					Layout: "d5d2,204x48,0,0,1", Color: "4", RkLayout: "split-h:tty,web",
+					WebTabs: []string{"http://x"}, WebRoots: []string{""}, WebActive: 1,
+					Marker: "solid", Role: "operator"},
 				{Session: "kit", WindowID: "@2", Index: 2, Name: "shell", Active: false,
 					Layout: "abcd,204x48,0,0,2"},
 			},
 		},
 		{
-			name: "10-field line (no role field) leaves Role empty",
+			name: "web family with roots and active index",
 			lines: []string{
-				"kit\t@1\t1\tserve\t1\td5d2,204x48,0,0,1\t4\tweb\thttp://x\tsolid",
+				layoutLine("kit", "@1", "1", "serve", "1", "d5d2,204x48,0,0,1", "", "", "2", "", "", "", "", "", "",
+					[]string{"/proxy/3000/", "/present/@1/2/a.html?server=s&v=1", "https://x/"},
+					[]string{"/r1", "", "/r3"}),
 			},
 			want: []LayoutWindow{
 				{Session: "kit", WindowID: "@1", Index: 1, Name: "serve", Active: true,
-					Layout: "d5d2,204x48,0,0,1", Color: "4", RkType: "web", RkURL: "http://x", Marker: "solid"},
+					Layout:   "d5d2,204x48,0,0,1",
+					WebTabs:  []string{"/proxy/3000/", "/present/@1/2/a.html?server=s&v=1", "https://x/"},
+					WebRoots: []string{"/r1", "", "/r3"}, WebActive: 2},
 			},
 		},
 		{
-			name: "new note in its strict single field (idx 14), verbatim",
+			name: "gap truncates to the dense prefix, active clamps",
 			lines: []string{
-				"kit\t@1\t1\tserve\t1\td5d2,204x48,0,0,1\t\t\t\t\t\t\t\t\t1756036800:blocked on flaky e2e",
+				layoutLine("kit", "@1", "1", "serve", "1", "d5d2,204x48,0,0,1", "", "", "3", "", "", "", "", "", "",
+					[]string{"/proxy/3000/", "", "https://x/"}, nil),
+			},
+			want: []LayoutWindow{
+				{Session: "kit", WindowID: "@1", Index: 1, Name: "serve", Active: true,
+					Layout:  "d5d2,204x48,0,0,1",
+					WebTabs: []string{"/proxy/3000/"}, WebRoots: []string{""}, WebActive: 1},
+			},
+		},
+		{
+			name: "line without a role field leaves Role empty",
+			lines: []string{
+				lineThroughMarker("solid"),
+			},
+			want: []LayoutWindow{
+				{Session: "kit", WindowID: "@1", Index: 1, Name: "serve", Active: true,
+					Layout: "d5d2,204x48,0,0,1", Color: "4", Marker: "solid"},
+			},
+		},
+		{
+			name: "new note in its strict single field (idx 29), verbatim",
+			lines: []string{
+				lineThroughNote("1756036800:blocked on flaky e2e"),
 			},
 			want: []LayoutWindow{
 				{Session: "kit", WindowID: "@1", Index: 1, Name: "serve", Active: true,
@@ -136,54 +200,32 @@ func TestParseLayoutWindows(t *testing.T) {
 	}
 }
 
-// layoutLineDualRead builds a layout line with both halves of each dual-read
-// pair placed explicitly: the NEW lens/URL at idx 7/8, the legacy lens/URL at
-// idx 12/13, the NEW note as a strict single field at idx 14, and the legacy
-// note appended LAST (idx 15+ — tail-rejoined, so tabs in its text survive).
-// Mirrors windowLineDualRead (tmux_test.go).
-func layoutLineDualRead(newLens, newURL, legacyLens, legacyURL, newNote, legacyNote string) string {
-	fields := []string{
-		"kit", "@1", "1", "serve", "1", "d5d2,204x48,0,0,1",
-		"",         // color
-		newLens,    // @rk_win_lens (new)
-		newURL,     // @rk_win_url (new)
-		"",         // marker
-		"",         // role
-		"",         // flair
-		legacyLens, // @rk_type (legacy)
-		legacyURL,  // @rk_url (legacy)
-		newNote,    // @rk_win_note (new — strict single field)
-	}
-	return strings.Join(fields, listDelim) + listDelim + legacyNote
-}
-
-// TestParseLayoutWindowsDualRead pins the prefer-new fallback for the three
-// dual-read keys (@rk_win_lens↔@rk_type, @rk_win_url↔@rk_url,
-// @rk_win_note↔@rk_note) in parseLayoutWindows — same rule as parseWindows:
-// legacy-only values report, new-only values report, and when BOTH fields
-// carry a value the NEW name wins. The legacy note tail rejoin survives tabs.
-func TestParseLayoutWindowsDualRead(t *testing.T) {
+// TestParseLayoutWindowsNoteDualRead pins the prefer-new fallback for the note
+// dual-read pair (@rk_win_note↔@rk_note) in parseLayoutWindows — same rule as
+// parseWindows: legacy-only values report, new-only values report, and when
+// BOTH fields carry a value the NEW name wins. The legacy note tail rejoin
+// survives tabs.
+func TestParseLayoutWindowsNoteDualRead(t *testing.T) {
 	tests := []struct {
-		name                                   string
-		newLens, newURL, legacyLens, legacyURL string
-		newNote, legacyNote                    string
-		wantLens, wantURL, wantNote            string
+		name                string
+		newNote, legacyNote string
+		wantNote            string
 	}{
 		{
 			name:       "legacy-only (pre-rename writer)",
-			legacyLens: "iframe", legacyURL: "http://legacy", legacyNote: "123:old",
-			wantLens: "iframe", wantURL: "http://legacy", wantNote: "123:old",
+			legacyNote: "123:old",
+			wantNote:   "123:old",
 		},
 		{
-			name:    "new-only",
-			newLens: "iframe", newURL: "http://new", newNote: "456:new",
-			wantLens: "iframe", wantURL: "http://new", wantNote: "456:new",
+			name:     "new-only",
+			newNote:  "456:new",
+			wantNote: "456:new",
 		},
 		{
-			name:    "both — new wins",
-			newLens: "web", newURL: "http://new", newNote: "456:new",
-			legacyLens: "iframe", legacyURL: "http://legacy", legacyNote: "123:old",
-			wantLens: "web", wantURL: "http://new", wantNote: "456:new",
+			name:       "both — new wins",
+			newNote:    "456:new",
+			legacyNote: "123:old",
+			wantNote:   "456:new",
 		},
 		{
 			name:       "legacy note with tabs rejoins the tail",
@@ -194,16 +236,11 @@ func TestParseLayoutWindowsDualRead(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			line := layoutLineDualRead(tt.newLens, tt.newURL, tt.legacyLens, tt.legacyURL, tt.newNote, tt.legacyNote)
+			line := layoutLine("kit", "@1", "1", "serve", "1", "d5d2,204x48,0,0,1",
+				"", "", "", "", "", "", "", tt.newNote, tt.legacyNote, nil, nil)
 			got := parseLayoutWindows([]string{line})
 			if len(got) != 1 {
 				t.Fatalf("parseLayoutWindows() returned %d windows, want 1", len(got))
-			}
-			if got[0].RkType != tt.wantLens {
-				t.Errorf("RkType = %q, want %q", got[0].RkType, tt.wantLens)
-			}
-			if got[0].RkURL != tt.wantURL {
-				t.Errorf("RkURL = %q, want %q", got[0].RkURL, tt.wantURL)
 			}
 			if got[0].Note != tt.wantNote {
 				t.Errorf("Note = %q, want %q", got[0].Note, tt.wantNote)

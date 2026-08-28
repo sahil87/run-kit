@@ -1,19 +1,21 @@
-// Package present resolves `rk present` targets and derives the @rk_win_url value
-// each target kind attaches to a tmux window. It is pure (no tmux, no HTTP):
-// the only I/O is os.Stat for file/dir classification and a TCP dial for the
-// reachability probe, so every rule is unit-testable without a live server.
+// Package present resolves `rk present` targets and derives the
+// @rk_win_web_<n> slot value each target kind attaches to a tmux window. It is
+// pure (no tmux, no HTTP): the only I/O is os.Stat for file/dir classification
+// and a TCP dial for the reachability probe, so every rule is unit-testable
+// without a live server.
 //
 // The five target kinds (spec: fab change 260813-becu-rk-present-attach-verb):
 //
-//	file          existing regular file   → /present/<windowId>/<base>?server=<s>&v=<bust>
-//	dir           existing directory      → /present/<windowId>/?server=<s>&v=<bust>
+//	file          existing regular file   → /present/<windowId>/<n>/<base>?server=<s>&v=<bust>
+//	dir           existing directory      → /present/<windowId>/<n>/?server=<s>&v=<bust>
 //	port          ":NNNN"                 → /proxy/<port>/
 //	local URL     http://localhost…       → /proxy/<port>/<path+query>
 //	external URL  any other http(s) URL   → attached verbatim
 //
 // File/dir targets also carry a serve Root (the file's parent dir / the dir
-// itself) which the CLI sets as the @rk_win_present_root window option; the
-// /present/{windowId}/ route reads it back from tmux at request time.
+// itself) stored as the @rk_win_web_<n>_root window option; the
+// /present/{windowId}/{n}/ route reads it back from tmux at request time. <n>
+// is the web-tab slot the target lands in.
 package present
 
 import (
@@ -73,8 +75,8 @@ var localhostHosts = map[string]bool{
 type Target struct {
 	Kind Kind
 	// Root is the absolute serve root — the file's parent directory or the
-	// directory itself. Set for KindFile/KindDir only; the CLI attaches it as
-	// the @rk_win_present_root window option.
+	// directory itself. Set for KindFile/KindDir only; stored as the
+	// @rk_win_web_<n>_root window option beside the slot's URL.
 	Root string
 	// Name is the display basename for the target: the file/dir base name,
 	// "port-<port>" for port/local-URL targets, the hostname for external
@@ -162,29 +164,46 @@ func parsePort(s string) (int, error) {
 	return port, nil
 }
 
-// PresentURL composes the @rk_win_url value for a file/dir target carried by
-// windowID on the named tmux server. The `?v=` cache-buster (unix seconds at
-// invocation, supplied by now) makes re-presenting the same target a refresh:
-// the new @rk_win_url differs and an open web tile re-navigates. name is the
-// file basename, or empty for a directory target (serves the root's
-// index.html). The form is always relative — never an absolute origin.
-func PresentURL(windowID, name, server string, now func() int64) string {
-	path := "/present/" + windowID + "/"
+// PresentURL composes the @rk_win_web_<n> slot value for a file/dir target
+// carried by windowID on the named tmux server. n is the 1-based web-tab slot
+// the URL will live in. The `?v=` cache-buster (unix seconds at invocation,
+// supplied by now) makes re-presenting the same target a refresh: the new slot
+// value differs and an open web tile re-navigates. name is the file basename,
+// or empty for a directory target (serves the root's index.html). The form is
+// always relative — never an absolute origin.
+func PresentURL(windowID string, n int, name, server string, now func() int64) string {
+	path := fmt.Sprintf("/present/%s/%d/", windowID, n)
 	if name != "" {
 		path += url.PathEscape(name)
 	}
 	return fmt.Sprintf("%s?server=%s&v=%d", path, url.QueryEscape(server), now())
 }
 
-// URL derives the @rk_win_url value for this target carried by windowID on the
-// named server. now supplies the unix-seconds cache-buster for /present/
+// BumpVersion returns the /present/ URL with its `?v=` cache-buster replaced by
+// now — the re-present-is-refresh contract applied to an already-stored slot
+// value. Non-/present/ URLs (and unparseable ones) are returned verbatim.
+func BumpVersion(raw string, now func() int64) string {
+	u, err := url.Parse(raw)
+	if err != nil || !strings.HasPrefix(u.Path, "/present/") {
+		return raw
+	}
+	q := u.Query()
+	q.Set("v", strconv.FormatInt(now(), 10))
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+// URL derives the @rk_win_web_<n> slot value for this target carried by
+// windowID on the named server. n is the web-tab slot the target lands in —
+// only file/dir kinds embed it (their /present/ URL is slot-addressed); other
+// kinds ignore it. now supplies the unix-seconds cache-buster for /present/
 // URLs only; port/URL targets re-set verbatim with no buster.
-func (t Target) URL(windowID, server string, now func() int64) string {
+func (t Target) URL(windowID string, n int, server string, now func() int64) string {
 	switch t.Kind {
 	case KindFile:
-		return PresentURL(windowID, t.Name, server, now)
+		return PresentURL(windowID, n, t.Name, server, now)
 	case KindDir:
-		return PresentURL(windowID, "", server, now)
+		return PresentURL(windowID, n, "", server, now)
 	case KindPort:
 		return fmt.Sprintf("/proxy/%d/", t.Port)
 	case KindLocalURL:
@@ -198,8 +217,8 @@ func (t Target) URL(windowID, server string, now func() int64) string {
 	}
 }
 
-// NeedsRoot reports whether the target carries a serve root (@rk_win_present_root)
-// — file and directory targets only.
+// NeedsRoot reports whether the target carries a serve root
+// (@rk_win_web_<n>_root) — file and directory targets only.
 func (t Target) NeedsRoot() bool {
 	return t.Kind == KindFile || t.Kind == KindDir
 }

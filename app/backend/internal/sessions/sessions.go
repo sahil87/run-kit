@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"rk/internal/config"
+	"rk/internal/layoutspec"
 	"rk/internal/prstatus"
 	"rk/internal/tmux"
 )
@@ -559,6 +560,22 @@ func windowPRKey(w *tmux.WindowInfo) (repoDir, branch string) {
 	return repoDir, branch
 }
 
+// deriveWebCompat computes the retired rkUrl/rkType JSON fields from the
+// window's web-tab family and layout: rkUrl is the ACTIVE tab's URL (omitted
+// when the family is empty), rkType reports "iframe" when the layout parses
+// and its order contains a web surface (the retired @rk_win_lens=iframe
+// semantics the frontend's hint ladder keys on). Derived at marshal time,
+// never stored — the parsed WindowInfo fields are the only source.
+// compat: removed by the frontend layout change (ui-state plan Change 2)
+func deriveWebCompat(w *tmux.WindowInfo) {
+	if w.WebActive >= 1 && w.WebActive <= len(w.WebTabs) {
+		w.RkUrl = w.WebTabs[w.WebActive-1]
+	}
+	if l, err := layoutspec.Parse(w.Layout); err == nil && l.Has("web") {
+		w.RkType = "iframe"
+	}
+}
+
 // enrichWindowPR populates the window's PrURL/PrNumber (and a fallback PrState)
 // from its branch (Constitution §X — PR links are derivable, not pushed):
 // any pane on a branch with a PR (open, merged, or closed) gets its link, in
@@ -703,6 +720,9 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 			// derived from its active pane's cwd (Constitution II/X — nothing
 			// stored, nothing pushed). Empty when the cwd is not a repo.
 			sd.windows[j].GitRoot = deriveGitRoot(&sd.windows[j])
+			// Retired rkUrl/rkType JSON keys, derived from the web-tab family
+			// and layout for one release (see deriveWebCompat).
+			deriveWebCompat(&sd.windows[j])
 			// PR-from-branch derivation (260705-dmex): register the window's
 			// branch with the prstatus refresher and join its last-good PR from
 			// the in-memory snapshot — no subprocess on this hot path.

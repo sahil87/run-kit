@@ -330,9 +330,9 @@ func TestReapCandidates_allSuccessNoAggregateError(t *testing.T) {
 func TestReapCandidates_ephemeralUnionDryRunPlan(t *testing.T) {
 	dir := t.TempDir()
 	candidates := []string{
-		"echotest",           // ephemeral-marked live, prefix-unmatched → kill (option dimension)
-		"rk-test-old",        // prefix-matched dead socket → remove (prefix dimension)
-		"runkit",             // matched by NEITHER dimension → skip
+		"echotest",    // ephemeral-marked live, prefix-unmatched → kill (option dimension)
+		"rk-test-old", // prefix-matched dead socket → remove (prefix dimension)
+		"runkit",      // matched by NEITHER dimension → skip
 		ControlAnchorSessionName,
 	}
 	writeFiles(t, dir, candidates...)

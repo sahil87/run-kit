@@ -311,58 +311,66 @@ func TestMarkThenReportSweep_composes(t *testing.T) {
 }
 
 // legacySeed is one seeded legacy option: the retired name, its scope-named
-// successor ("" for the unset-only @rk_ctl_keepalive row), the value, and the
-// show-options args selecting the scope it is legitimate at.
+// successor ("" for the unset-only @rk_ctl_keepalive row), the value seeded
+// under the OLD name, the value expected under the NEW name after the sweep
+// (differs from oldVal for value-mapped rows like @rk_type=iframe →
+// @rk_win_layout=single:web), and the show-options args selecting the scope it
+// is legitimate at.
 type legacySeed struct {
-	old, new, val string
-	showArgs      []string
+	old, oldVal, new, newVal string
+	showArgs                 []string
 }
 
 // TestMigrateLegacyOptions_scopePrefixRename seeds ALL 16 scope-prefix legacy
 // names at their correct scopes on a real test socket (7 window options on
 // the boot window, 5 session options incl. the retired @rk_ctl_keepalive, 4
 // server options via set-option -s) and asserts the sweep moves each onto its
-// scope-named successor at the same scope, deletes the keepalive, and leaves
-// no legacy name behind. A second sweep issues zero set/unset calls, and a
-// legacy name at a WRONG scope is purged with no copy-forward.
+// scope-named successor at the same scope — the lens/URL/root rows chaining
+// onward into the indexed web-tab family in the same sweep — deletes the
+// keepalive, and leaves no legacy name behind. A second sweep issues zero
+// set/unset calls, and a legacy name at a WRONG scope is purged with no
+// copy-forward.
 func TestMigrateLegacyOptions_scopePrefixRename(t *testing.T) {
 	server := withSessionOrderTmux(t)
 	id := windowID(t, server, "boot:0")
 
 	windowSeeds := []legacySeed{
-		{legacyTypeOption, LensOption, "iframe", []string{"-w", "-t", id}},
-		{legacyURLOption, URLOption, "https://example.test/app", []string{"-w", "-t", id}},
-		{"@rk_present_root", PresentRootOption, "/srv/root", []string{"-w", "-t", id}},
-		{"@rk_marker", MarkerOption, "solid", []string{"-w", "-t", id}},
-		{"@rk_flair", FlairOption, "nyan", []string{"-w", "-t", id}},
+		// @rk_type=iframe chains to @rk_win_lens → @rk_win_layout=single:web in
+		// one sweep (the lens has no live reader). @rk_url → @rk_win_url is a
+		// terminal dual-read (never swept to web_1) — asserted separately below.
+		{legacyTypeOption, "iframe", LayoutOption, "single:web", []string{"-w", "-t", id}},
+		{legacyURLOption, "https://example.test/app", legacyWinURLOption, "https://example.test/app", []string{"-w", "-t", id}},
+		{"@rk_present_root", "/srv/root", WebTabRootOption(1), "/srv/root", []string{"-w", "-t", id}},
+		{"@rk_marker", "solid", MarkerOption, "solid", []string{"-w", "-t", id}},
+		{"@rk_flair", "nyan", FlairOption, "nyan", []string{"-w", "-t", id}},
 		// Spaced value: the copy must carry the raw text, not the quoted
 		// enumeration form (`"1756036800:old note"`) tmux prints without -v.
-		{legacyNoteOption, NoteOption, "1756036800:old note", []string{"-w", "-t", id}},
-		{"@rk_role", RoleOption, "operator", []string{"-w", "-t", id}},
+		{legacyNoteOption, "1756036800:old note", NoteOption, "1756036800:old note", []string{"-w", "-t", id}},
+		{"@rk_role", "operator", RoleOption, "operator", []string{"-w", "-t", id}},
 	}
 	sessionSeeds := []legacySeed{
-		{"@rk_session_flair", SessionFlairOption, "naruto", []string{"-t", "=boot:"}},
-		{"@rk_board", BoardOption, "main", []string{"-t", "=boot:"}},
-		{"@rk_home", HomeOption, "boot", []string{"-t", "=boot:"}},
-		{"@rk_board_order", BoardOrderOption, "main,deploy", []string{"-t", "=boot:"}},
+		{"@rk_session_flair", "naruto", SessionFlairOption, "naruto", []string{"-t", "=boot:"}},
+		{"@rk_board", "main", BoardOption, "main", []string{"-t", "=boot:"}},
+		{"@rk_home", "boot", HomeOption, "boot", []string{"-t", "=boot:"}},
+		{"@rk_board_order", "main,deploy", BoardOrderOption, "main,deploy", []string{"-t", "=boot:"}},
 		// Retired with no successor: unset-only row.
-		{"@rk_ctl_keepalive", "", "1", []string{"-t", "=boot:"}},
+		{"@rk_ctl_keepalive", "1", "", "", []string{"-t", "=boot:"}},
 	}
 	serverSeeds := []legacySeed{
-		{"@rk_session_order", SessionOrderOption, `["boot","extra"]`, []string{"-s"}},
-		{"@rk_server_rank", ServerRankOption, "7", []string{"-s"}},
-		{"@rk_origin", OriginOption, "http://127.0.0.1:3001", []string{"-s"}},
-		{"@rk_managed", ManagedOption, "1", []string{"-s"}},
+		{"@rk_session_order", `["boot","extra"]`, SessionOrderOption, `["boot","extra"]`, []string{"-s"}},
+		{"@rk_server_rank", "7", ServerRankOption, "7", []string{"-s"}},
+		{"@rk_origin", "http://127.0.0.1:3001", OriginOption, "http://127.0.0.1:3001", []string{"-s"}},
+		{"@rk_managed", "1", ManagedOption, "1", []string{"-s"}},
 	}
 
 	for _, s := range windowSeeds {
-		legacyTmuxDo(t, server, "set-option", "-w", "-t", id, s.old, s.val)
+		legacyTmuxDo(t, server, "set-option", "-w", "-t", id, s.old, s.oldVal)
 	}
 	for _, s := range sessionSeeds {
-		legacyTmuxDo(t, server, "set-option", "-t", "=boot:", s.old, s.val)
+		legacyTmuxDo(t, server, "set-option", "-t", "=boot:", s.old, s.oldVal)
 	}
 	for _, s := range serverSeeds {
-		legacyTmuxDo(t, server, "set-option", "-s", s.old, s.val)
+		legacyTmuxDo(t, server, "set-option", "-s", s.old, s.oldVal)
 	}
 	// A window option name held on the SERVER table is a wrong-scope hold:
 	// the sweep purges it and never copies the value forward.
@@ -375,12 +383,20 @@ func TestMigrateLegacyOptions_scopePrefixRename(t *testing.T) {
 	seeds := append(append(append([]legacySeed{}, windowSeeds...), sessionSeeds...), serverSeeds...)
 	for _, s := range seeds {
 		if s.new != "" {
-			if v, ok := legacyHeld(t, server, append(s.showArgs, s.new)...); !ok || v != s.val {
-				t.Errorf("%s = %q (held=%v), want %q at the same scope", s.new, v, ok, s.val)
+			if v, ok := legacyHeld(t, server, append(s.showArgs, s.new)...); !ok || v != s.newVal {
+				t.Errorf("%s = %q (held=%v), want %q at the same scope", s.new, v, ok, s.newVal)
 			}
 		}
 		if v, ok := legacyHeld(t, server, append(s.showArgs, s.old)...); ok {
 			t.Errorf("legacy %s still held after the sweep: %q", s.old, v)
+		}
+	}
+	// The chained intermediate names that DO converge are gone; @rk_win_url is
+	// the terminal dual-read (held, asserted in the seed loop above) and is NOT
+	// swept to web_1.
+	for _, mid := range []string{legacyWinLensOption, LegacyWinPresentRootOption} {
+		if v, ok := legacyHeld(t, server, "-w", "-t", id, mid); ok {
+			t.Errorf("intermediate %s still held after the sweep: %q", mid, v)
 		}
 	}
 
@@ -550,5 +566,129 @@ func TestMigrateLegacyOptions_serverRowsMoveFully(t *testing.T) {
 	}
 	if changed {
 		t.Error("second sweep reported changed=true, want false (idempotent)")
+	}
+}
+
+// TestMigrateLegacyOptions_windowFamilyConverges: a window carrying the two
+// retired web names with no live reader (@rk_win_present_root + @rk_win_lens)
+// converges onto the indexed family in one sweep — web_1_root +
+// layout=single:web (the Transform value map) — with the retired names gone
+// and a second sweep issuing zero set/unset calls. @rk_win_url is NOT swept
+// (dual-read, never unset — see the table comment); a pre-set web_1 proves the
+// sweep leaves the family alone.
+func TestMigrateLegacyOptions_windowFamilyConverges(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	id := windowID(t, server, "boot:0")
+	legacyTmuxDo(t, server, "set-option", "-w", "-t", id, legacyWinURLOption, "/proxy/1/")
+	legacyTmuxDo(t, server, "set-option", "-w", "-t", id, WebTabOption(1), "/proxy/1/")
+	legacyTmuxDo(t, server, "set-option", "-w", "-t", id, WebActiveOption, "1")
+	legacyTmuxDo(t, server, "set-option", "-w", "-t", id, LegacyWinPresentRootOption, "/tmp")
+	legacyTmuxDo(t, server, "set-option", "-w", "-t", id, legacyWinLensOption, "iframe")
+
+	changed, err := sweepLegacyOptions(context.Background(), server)
+	if err != nil {
+		t.Fatalf("first sweep: %v", err)
+	}
+	if !changed {
+		t.Error("first sweep reported changed=false, want true")
+	}
+
+	for opt, want := range map[string]string{
+		WebTabOption(1):     "/proxy/1/",
+		WebTabRootOption(1): "/tmp",
+		WebActiveOption:     "1",
+		LayoutOption:        "single:web",
+	} {
+		if v, ok := legacyHeld(t, server, "-w", "-t", id, opt); !ok || v != want {
+			t.Errorf("%s = %q (held=%v), want %q", opt, v, ok, want)
+		}
+	}
+	// @rk_win_url is dual-read, never swept: it stays (the frontend polls it).
+	if v, ok := legacyHeld(t, server, "-w", "-t", id, legacyWinURLOption); !ok || v != "/proxy/1/" {
+		t.Errorf("%s = %q (held=%v), want \"/proxy/1/\" (dual-read, never swept)", legacyWinURLOption, v, ok)
+	}
+	for _, old := range []string{LegacyWinPresentRootOption, legacyWinLensOption} {
+		if v, ok := legacyHeld(t, server, "-w", "-t", id, old); ok {
+			t.Errorf("legacy %s still held after the sweep: %q", old, v)
+		}
+	}
+
+	changed, err = sweepLegacyOptions(context.Background(), server)
+	if err != nil {
+		t.Fatalf("second sweep: %v", err)
+	}
+	if changed {
+		t.Error("second sweep reported changed=true, want false (zero set-option calls)")
+	}
+}
+
+// TestMigrateLegacyOptions_lensTransformKeepsExistingLayout: @rk_win_lens=
+// iframe never overwrites an existing @rk_win_layout — the copy is
+// New-unset-only; the retired name is unset either way.
+func TestMigrateLegacyOptions_lensTransformKeepsExistingLayout(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	id := windowID(t, server, "boot:0")
+	legacyTmuxDo(t, server, "set-option", "-w", "-t", id, legacyWinLensOption, "iframe")
+	legacyTmuxDo(t, server, "set-option", "-w", "-t", id, LayoutOption, "row:tty,code,web")
+
+	if err := MigrateLegacyOptions(context.Background(), server); err != nil {
+		t.Fatalf("MigrateLegacyOptions: %v", err)
+	}
+
+	if v, ok := legacyHeld(t, server, "-w", "-t", id, LayoutOption); !ok || v != "row:tty,code,web" {
+		t.Errorf("%s = %q (held=%v), want %q (pre-existing value untouched)", LayoutOption, v, ok, "row:tty,code,web")
+	}
+	if v, ok := legacyHeld(t, server, "-w", "-t", id, legacyWinLensOption); ok {
+		t.Errorf("%s still held after the sweep: %q", legacyWinLensOption, v)
+	}
+}
+
+// TestMigrateLegacyOptions_lensNonIframeDropped: a @rk_win_lens value other
+// than iframe has no layout representation — no copy, but the retired name is
+// still unset.
+func TestMigrateLegacyOptions_lensNonIframeDropped(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	id := windowID(t, server, "boot:0")
+	legacyTmuxDo(t, server, "set-option", "-w", "-t", id, legacyWinLensOption, "terminal")
+
+	if err := MigrateLegacyOptions(context.Background(), server); err != nil {
+		t.Fatalf("MigrateLegacyOptions: %v", err)
+	}
+
+	if v, ok := legacyHeld(t, server, "-w", "-t", id, LayoutOption); ok {
+		t.Errorf("%s = %q, want unset (a non-iframe lens never copies)", LayoutOption, v)
+	}
+	if v, ok := legacyHeld(t, server, "-w", "-t", id, legacyWinLensOption); ok {
+		t.Errorf("%s still held after the sweep: %q", legacyWinLensOption, v)
+	}
+}
+
+// TestMigrateLegacyOptions_doublyLegacyConvergesInOneSweep: a window carrying
+// the unscoped pre-rename names (@rk_url + @rk_type=iframe) converges in ONE
+// sweep — @rk_url → @rk_win_url (dual-read by the frontend) and @rk_type →
+// @rk_win_lens → @rk_win_layout=single:web (the lens has no live reader, so
+// its sweep row converges it the same pass).
+func TestMigrateLegacyOptions_doublyLegacyConvergesInOneSweep(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	id := windowID(t, server, "boot:0")
+	legacyTmuxDo(t, server, "set-option", "-w", "-t", id, legacyURLOption, "/proxy/1/")
+	legacyTmuxDo(t, server, "set-option", "-w", "-t", id, legacyTypeOption, "iframe")
+
+	if err := MigrateLegacyOptions(context.Background(), server); err != nil {
+		t.Fatalf("MigrateLegacyOptions: %v", err)
+	}
+
+	// @rk_url → @rk_win_url (the dual-read name the frontend polls).
+	if v, ok := legacyHeld(t, server, "-w", "-t", id, legacyWinURLOption); !ok || v != "/proxy/1/" {
+		t.Errorf("%s = %q (held=%v), want \"/proxy/1/\" after ONE sweep", legacyWinURLOption, v, ok)
+	}
+	// @rk_type → @rk_win_lens → @rk_win_layout in the same pass.
+	if v, ok := legacyHeld(t, server, "-w", "-t", id, LayoutOption); !ok || v != "single:web" {
+		t.Errorf("%s = %q (held=%v), want \"single:web\" after ONE sweep", LayoutOption, v, ok)
+	}
+	for _, old := range []string{legacyURLOption, legacyTypeOption, legacyWinLensOption} {
+		if v, ok := legacyHeld(t, server, "-w", "-t", id, old); ok {
+			t.Errorf("legacy %s still held after one sweep: %q", old, v)
+		}
 	}
 }

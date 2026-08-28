@@ -40,12 +40,21 @@ type LayoutWindow struct {
 	// replayable via select-layout when the pane count matches.
 	Layout string
 	// Raw rk-owned window option values ("" when unset).
-	Color  string
-	RkType string
-	RkURL  string
-	Marker string
-	Role   string
-	Flair  string
+	Color string
+	// RkLayout is the raw @rk_win_layout value ("<shape>:<surface>[,<surface>…]")
+	// — named RkLayout because Layout already holds the tmux pane-layout string.
+	RkLayout string
+	// WebTabs is the dense @rk_win_web_<n> family (slots 1..MaxWebTabs walked
+	// in order, stop at the first empty); WebRoots is parallel to WebTabs
+	// ("" where the slot has no root); WebActive is the 1-based active index
+	// (0 when no tabs — the clampWebActive degrade rule).
+	WebTabs   []string
+	WebRoots  []string
+	WebActive int
+	CodeRoot  string
+	Marker    string
+	Role      string
+	Flair     string
 	// Note is the raw @rk_win_note value ("<unix-epoch>:<text>") — restored
 	// verbatim so the note's age stays honest across a restore.
 	Note string
@@ -72,31 +81,39 @@ var layoutSessionFormat = strings.Join([]string{
 
 // layoutWindowFormat lists the owning session plus everything needed to
 // recreate the window (id, index, name, active flag, layout string) and the
-// rk-owned presentation options. Lens/URL/note are dual-read: the legacy
-// lens/URL fields ride after the flair field and the legacy note stays LAST
-// (parseLayoutWindows prefers the new fields, falling back to the legacy
-// ones).
-var layoutWindowFormat = strings.Join([]string{
-	"#{session_name}",
-	"#{window_id}",
-	"#{window_index}",
-	"#{window_name}",
-	"#{window_active}",
-	"#{window_layout}",
-	"#{" + ColorOption + "}",
-	"#{" + LensOption + "}",
-	"#{" + URLOption + "}",
-	"#{" + MarkerOption + "}",
-	"#{" + RoleOption + "}",
-	"#{" + FlairOption + "}",
-	"#{" + legacyTypeOption + "}",
-	"#{" + legacyURLOption + "}",
-	// The new note is a strict single field; the legacy note is free text in a
-	// tab-delimited format — it MUST stay the last field so parseLayoutWindows
-	// can rejoin the tail (mirrors parseWindows).
-	"#{" + NoteOption + "}",
-	"#{" + legacyNoteOption + "}",
-}, listDelim)
+// rk-owned presentation options. The web-tab family is spelled out slot by
+// slot — URLs AND roots (this format runs once per snapshot, not per tick, so
+// the tick-cost argument behind ListWindows omitting roots does not apply).
+// The new note is a strict single field and the legacy note stays LAST (its
+// free-text tail is rejoined by parseLayoutWindows; mirrors parseWindows).
+var layoutWindowFormat = func() string {
+	fields := []string{
+		"#{session_name}",
+		"#{window_id}",
+		"#{window_index}",
+		"#{window_name}",
+		"#{window_active}",
+		"#{window_layout}",
+		"#{" + ColorOption + "}",
+		"#{" + LayoutOption + "}",
+	}
+	for n := 1; n <= MaxWebTabs; n++ {
+		fields = append(fields, "#{"+WebTabOption(n)+"}")
+	}
+	for n := 1; n <= MaxWebTabs; n++ {
+		fields = append(fields, "#{"+WebTabRootOption(n)+"}")
+	}
+	fields = append(fields,
+		"#{"+WebActiveOption+"}",
+		"#{"+CodeRootOption+"}",
+		"#{"+MarkerOption+"}",
+		"#{"+RoleOption+"}",
+		"#{"+FlairOption+"}",
+		"#{"+NoteOption+"}",
+		"#{"+legacyNoteOption+"}",
+	)
+	return strings.Join(fields, listDelim)
+}()
 
 // layoutPaneFormat lists the owning window id plus everything needed to
 // recreate the pane (index, cwd) and report it (command).
@@ -197,15 +214,6 @@ func parseLayoutWindows(lines []string) []LayoutWindow {
 			continue
 		}
 		seen[windowID] = true
-		rkType := strings.TrimSpace(parts[7])
-		rkURL := strings.TrimSpace(parts[8])
-		// Dual-read fallback (pre-rename writers): legacy lens/URL fields.
-		if rkType == "" && len(parts) >= 13 {
-			rkType = strings.TrimSpace(parts[12])
-		}
-		if rkURL == "" && len(parts) >= 14 {
-			rkURL = strings.TrimSpace(parts[13])
-		}
 		win := LayoutWindow{
 			Session:  session,
 			WindowID: windowID,
@@ -214,28 +222,53 @@ func parseLayoutWindows(lines []string) []LayoutWindow {
 			Active:   strings.TrimSpace(parts[4]) == "1",
 			Layout:   strings.TrimSpace(parts[5]),
 			Color:    strings.TrimSpace(parts[6]),
-			RkType:   rkType,
-			RkURL:    rkURL,
-			Marker:   strings.TrimSpace(parts[9]),
 		}
-		// Field 11 (@rk_win_role) is optional — absent on older captures.
-		if len(parts) >= 11 {
-			win.Role = strings.TrimSpace(parts[10])
+		// Field 8 (@rk_win_layout) is optional — absent on older captures.
+		if len(parts) >= 8 {
+			win.RkLayout = strings.TrimSpace(parts[7])
 		}
-		// Field 12 (@rk_win_flair) is optional — absent on older captures.
-		if len(parts) >= 12 {
-			win.Flair = strings.TrimSpace(parts[11])
+		// Fields 9..16 are the dense @rk_win_web_<n> slots (a shorter line
+		// carries only its leading slots); fields 17..24 their parallel roots
+		// ("" where the slot has no root).
+		if len(parts) > 8 {
+			end := min(16, len(parts))
+			win.WebTabs = denseWebTabs(parts[8:end])
 		}
-		// Field 15 (@rk_win_note) is optional — absent on older captures. A
+		if len(parts) >= 24 {
+			for i := range win.WebTabs {
+				win.WebRoots = append(win.WebRoots, strings.TrimSpace(parts[16+i]))
+			}
+		}
+		var activeRaw string
+		if len(parts) >= 25 {
+			activeRaw = parts[24]
+		}
+		win.WebActive = clampWebActive(activeRaw, len(win.WebTabs))
+		if len(parts) >= 26 {
+			win.CodeRoot = strings.TrimSpace(parts[25])
+		}
+		// Field 27 (@rk_win_marker) is optional — absent on older captures.
+		if len(parts) >= 27 {
+			win.Marker = strings.TrimSpace(parts[26])
+		}
+		// Field 28 (@rk_win_role) is optional — absent on older captures.
+		if len(parts) >= 28 {
+			win.Role = strings.TrimSpace(parts[27])
+		}
+		// Field 29 (@rk_win_flair) is optional — absent on older captures.
+		if len(parts) >= 29 {
+			win.Flair = strings.TrimSpace(parts[28])
+		}
+		// Field 30 (@rk_win_note) is optional — absent on older captures. A
 		// strict single field (write-side validation strips control chars).
-		if len(parts) >= 15 {
-			win.Note = parts[14]
+		if len(parts) >= 30 {
+			win.Note = parts[29]
 		}
 		// The legacy note is optional and LAST: free text, so its tail is
 		// rejoined to survive tabs inside the value. It fills in only when the
 		// new note field came back empty (dual-read; mirrors parseWindows).
-		if win.Note == "" && len(parts) >= 16 {
-			win.Note = strings.Join(parts[15:], listDelim)
+		if win.Note == "" && len(parts) >= 31 {
+			win.Note = strings.Join(parts[30:], listDelim)
 		}
 		out = append(out, win)
 	}

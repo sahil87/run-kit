@@ -3,6 +3,7 @@ package tmux
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -37,8 +38,8 @@ const ServerRankOption = "@rk_srv_rank"
 // `rk notify`) read it at request time to resolve their server's origin when
 // no explicit RK_HOST/RK_PORT env is set. It is NOT an environment variable:
 // nothing sprays into child process environments, and a daemon restarted on a
-// new port re-stamps on its next dial. Named "origin" (not URLOption, which is
-// the window-scoped present/iframe URL) after internal/remote's "origin via
+// new port re-stamps on its next dial. Named "origin" (not the window-scoped
+// @rk_win_web_<n> present/iframe URL) after internal/remote's "origin via
 // `rk url`" language.
 const OriginOption = "@rk_srv_origin"
 
@@ -109,19 +110,55 @@ const RoleOption = "@rk_win_role"
 // dropped. Empty/absent = no note (degrade-to-absent everywhere).
 const NoteOption = "@rk_win_note"
 
-// LensOption is the tmux window user option selecting the window's lens (view
-// kind) — "" (unset, terminal mode) | "iframe" | ... . Dual-read with
-// legacyTypeOption: readers prefer this name and fall back to the legacy one.
-const LensOption = "@rk_win_lens"
+// LayoutOption carries the tab's surface layout: "<shape>:<surface>[,<surface>…]",
+// e.g. "main-left:tty,code,web". Unset renders single:tty.
+const LayoutOption = "@rk_win_layout"
 
-// URLOption is the tmux window user option carrying the window's web URL (the
-// `rk present` attach target). Dual-read with legacyURLOption: readers prefer
-// this name and fall back to the legacy one.
-const URLOption = "@rk_win_url"
+// layoutspecSingleWeb is the @rk_win_layout value a retired @rk_win_lens=iframe
+// reads as (and the value MigrateLegacyOptions writes for it).
+const layoutspecSingleWeb = "single:web"
 
-// PresentRootOption is the tmux window user option carrying the absolute serve
-// root for /present/ requests, set by `rk present` for file/dir targets.
-const PresentRootOption = "@rk_win_present_root"
+// MaxWebTabs bounds the indexed @rk_win_web_<n> family: ListWindows reads
+// options through one fixed tmux format string, which cannot enumerate a
+// family, so the URL slots are spelled out 1..MaxWebTabs.
+const MaxWebTabs = 8
+
+// WebTabOption returns "@rk_win_web_<n>" (1 ≤ n ≤ MaxWebTabs); panics outside
+// the range — callers validate first, the bound is a programming contract, not
+// user input.
+func WebTabOption(n int) string {
+	if n < 1 || n > MaxWebTabs {
+		panic(fmt.Sprintf("WebTabOption(%d): out of range 1..%d", n, MaxWebTabs))
+	}
+	return "@rk_win_web_" + strconv.Itoa(n)
+}
+
+// WebTabRootOption returns "@rk_win_web_<n>_root" — the absolute serve root for
+// a file/dir present target held in slot n, read at request time by the
+// /present/ route and never enumerated into ListWindows. Same range contract
+// as WebTabOption.
+func WebTabRootOption(n int) string {
+	if n < 1 || n > MaxWebTabs {
+		panic(fmt.Sprintf("WebTabRootOption(%d): out of range 1..%d", n, MaxWebTabs))
+	}
+	return "@rk_win_web_" + strconv.Itoa(n) + "_root"
+}
+
+// WebActiveOption is the 1-based index of the web tab the web surface shows.
+const WebActiveOption = "@rk_win_web_active"
+
+// CodeRootOption is the absolute folder the code surface opens (replaces the
+// per-browser runkit-code-folder:* latch; seeded/followed by the frontend in a
+// later change).
+const CodeRootOption = "@rk_win_code_root"
+
+// ErrWebTabsFull is returned by WebAdd when the window already carries
+// MaxWebTabs tabs and the URL is new; api maps it to 409.
+var ErrWebTabsFull = errors.New("web tabs full")
+
+// ErrWebTabRange is returned by WebRemove/WebSelect for a slot outside
+// 1..len(tabs); api maps it to 400.
+var ErrWebTabRange = errors.New("web tab index out of range")
 
 // MarkerOption is the tmux window user option carrying the left-gutter marker
 // state: a closed-set token (validate.MarkerValues), "" when unset.
@@ -131,14 +168,19 @@ const MarkerOption = "@rk_win_marker"
 // decoration: a closed-set token (validate.FlairValues), "" when unset.
 const FlairOption = "@rk_win_flair"
 
-// legacyTypeOption / legacyURLOption / legacyNoteOption are the retired names
-// of LensOption / URLOption / NoteOption. They live here exactly once and are
-// shared by the legacyOptions migration table and the dual-read list formats
-// (readers prefer the new name, fall back to these).
+// legacyTypeOption / legacyURLOption / legacyNoteOption are the retired
+// unscoped names of the window lens/URL/note options; legacyWinLensOption /
+// legacyWinURLOption / LegacyWinPresentRootOption are the retired scoped names
+// superseded by LayoutOption and the indexed @rk_win_web_<n> family. They live
+// here exactly once, shared by the legacyOptions migration table, the /options
+// compat translator, and the note dual-read (the last dual-read reader).
 const (
-	legacyTypeOption = "@rk_type"
-	legacyURLOption  = "@rk_url"
-	legacyNoteOption = "@rk_note"
+	legacyTypeOption           = "@rk_type"
+	legacyURLOption            = "@rk_url"
+	legacyNoteOption           = "@rk_note"
+	legacyWinLensOption        = "@rk_win_lens"
+	legacyWinURLOption         = "@rk_win_url"
+	LegacyWinPresentRootOption = "@rk_win_present_root"
 )
 
 // ColorOption is the window-scoped (-w) user option carrying a window's
@@ -665,8 +707,8 @@ type WindowInfo struct {
 	// reconciled @rk_chat (the active pane's chat if set, else the first pane
 	// carrying one), computed rk-side in FetchSessions by rollupChat. Per-pane
 	// truth is preserved on Panes[].ChatProvider/ChatSessionRef. See ChatOption.
-	ChatProvider    string `json:"chatProvider,omitempty"`
-	ChatSessionRef  string `json:"chatSessionRef,omitempty"`
+	ChatProvider   string `json:"chatProvider,omitempty"`
+	ChatSessionRef string `json:"chatSessionRef,omitempty"`
 	// AltScreen is the window-level rollup of the ACTIVE pane's AltScreen (the
 	// same active-pane rule CaptureWindowHistoryCtx targets), computed rk-side
 	// in FetchSessions. True means tmux holds no scrollback for the window's
@@ -695,8 +737,29 @@ type WindowInfo struct {
 	// Surfaced in the StatusDotTip as an ambient "checked Xs ago" freshness
 	// line; a manual refresh visibly resets it.
 	PrFetchedAt *time.Time `json:"prFetchedAt,omitempty"`
-	RkType      string     `json:"rkType,omitempty"`
-	RkUrl       string     `json:"rkUrl,omitempty"`
+	// Layout is the tab's surface layout, sourced from the LayoutOption window
+	// user option ("<shape>:<surface>[,<surface>…]"). "" (unset) renders
+	// single:tty. Read-side is tolerant: the raw value rides through unvalidated
+	// (validation is write-side; consumers parse).
+	Layout string `json:"layout,omitempty"`
+	// WebTabs is the dense @rk_win_web_<n> family: slots 1..MaxWebTabs walked in
+	// order, stopping at the first empty (a hand-written gap degrades to the
+	// prefix — the write paths never produce gaps). Index 0 is tmux slot 1.
+	WebTabs []string `json:"webTabs,omitempty"`
+	// WebActive is the 1-based index into WebTabs the web surface shows, sourced
+	// from WebActiveOption. 0 when no tabs; a non-numeric or out-of-range stored
+	// value clamps to 1 when tabs exist (degrade, never error).
+	WebActive int `json:"webActive,omitempty"`
+	// CodeRoot is the absolute folder the code surface opens, sourced from
+	// CodeRootOption. "" when unset.
+	CodeRoot string `json:"codeRoot,omitempty"`
+	// RkUrl / RkType are DERIVED compatibility fields, never parsed from tmux:
+	// computed from WebTabs/WebActive and Layout at the API build site
+	// (internal/sessions FetchSessions), they keep the retired rkUrl/rkType
+	// JSON keys alive for one release.
+	// compat: removed by the frontend layout change (ui-state plan Change 2)
+	RkUrl  string `json:"rkUrl,omitempty"`
+	RkType string `json:"rkType,omitempty"`
 	// GitRoot is the git toplevel derived from the window's active-pane cwd
 	// (config.FindGitRoot — a filesystem walk, no subprocess), computed rk-side
 	// in FetchSessions. Empty when the cwd is not inside a git repo. It keys
@@ -707,18 +770,18 @@ type WindowInfo struct {
 	// @rk_win_marker window user option: "" (unset)/"dotted"/"dashed"/"solid"/
 	// "double"/"thick". An independent label axis from Color — see
 	// docs/specs/themes.md. Unknown tokens are dropped to "" by parseWindows.
-	Marker string     `json:"marker,omitempty"`
+	Marker string `json:"marker,omitempty"`
 	// Role is the window's orchestration role, sourced from the @rk_win_role window
 	// user option: "" (unset)/"operator". "operator" is a server-scoped radio —
 	// at most one window per server carries it — and the sidebar pins that
 	// window's row below the SESSIONS header. Unknown tokens are dropped to ""
 	// by parseWindows (the Marker idiom).
-	Role  string     `json:"role,omitempty"`
+	Role string `json:"role,omitempty"`
 	// Flair is the window's per-row flair decoration, sourced from the
 	// @rk_win_flair window user option: "" (unset)/"nyan"/"naruto"/"onepiece".
 	// Pure decoration — an independent axis from Color and Marker. Unknown
 	// tokens are dropped to "" by parseWindows (the Marker idiom).
-	Flair string     `json:"flair,omitempty"`
+	Flair string `json:"flair,omitempty"`
 	// Note is the window's free-text one-line status note, sourced from the
 	// NoteOption window user option ("<unix-epoch>:<text>" — the epoch lands in
 	// NoteEpoch). Free text, NOT a closed set: no value validation on read; a
@@ -728,7 +791,7 @@ type WindowInfo struct {
 	Note string `json:"note,omitempty"`
 	// NoteEpoch is the unix-seconds write time from the note's epoch prefix;
 	// 0 for tolerant-parse notes (text-only, no age shown).
-	NoteEpoch int64     `json:"noteEpoch,omitempty"`
+	NoteEpoch int64      `json:"noteEpoch,omitempty"`
 	Panes     []PaneInfo `json:"panes,omitempty"`
 }
 
@@ -1064,19 +1127,54 @@ func parsePanes(lines []string) map[string][]PaneInfo {
 	return byWindow
 }
 
+// denseWebTabs walks the @rk_win_web_<n> slot values in order and stops at the
+// first empty slot — a gap means everything after it is ignored (the write
+// paths never produce gaps; a hand-written gap degrades to the prefix, never
+// an error). Index 0 of the result is tmux slot 1.
+func denseWebTabs(slots []string) []string {
+	var tabs []string
+	for _, s := range slots {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			break
+		}
+		tabs = append(tabs, s)
+	}
+	return tabs
+}
+
+// clampWebActive normalizes the raw @rk_win_web_active value against the dense
+// tab count: 0 when there are no tabs; otherwise the stored 1-based index,
+// clamped to 1 when non-numeric or out of range (degrade, never error —
+// Constitution II: the option is left as written).
+func clampWebActive(raw string, tabs int) int {
+	if tabs == 0 {
+		return 0
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || n < 1 || n > tabs {
+		return 1
+	}
+	return n
+}
+
 // parseWindows parses tmux list-windows output lines into WindowInfo structs.
 // nowUnix is the current Unix timestamp for activity threshold computation.
-// Lines have 17 tab-delimited fields plus the legacy-note tail: window_id,
+// Lines have 24 tab-delimited fields plus the legacy-note tail: window_id,
 // window_index, window_name, pane_current_path, window_activity,
-// window_active, pane_current_command, @rk_win_color, @rk_win_lens,
-// @rk_win_url, @rk_win_marker, @rk_win_role, @rk_win_flair, then the legacy
-// lens and URL fields, then @rk_win_note as a STRICT SINGLE FIELD, then the
-// legacy note LAST. Lines with fewer than 8 fields are skipped; fields 9+ are
-// optional (empty string if absent). Lens/URL/note are dual-read: the new
-// field wins when non-empty, else the legacy field. The legacy note is free
-// text in a tab-delimited format, so it MUST be last and its tail is rejoined
-// (strings.Join(parts[16:], "\t")); the new note rides one field because
-// write-side validation strips control chars.
+// window_active, pane_current_command, @rk_win_color, @rk_win_layout,
+// @rk_win_web_1 .. @rk_win_web_8, @rk_win_web_active, @rk_win_code_root,
+// @rk_win_marker, @rk_win_role, @rk_win_flair, then @rk_win_note as a STRICT
+// SINGLE FIELD, then the retired @rk_win_url (dual-read web_1 fallback), the
+// retired @rk_win_lens (dual-read single:web layout fallback), then the legacy
+// note LAST. Lines with fewer than 8 fields are skipped; fields 8+
+// are optional (empty string if absent). The web-tab slots read dense (walk
+// 1..8, stop at the first empty) and web_active degrades
+// (non-numeric/out-of-range clamps per clampWebActive, never an error). The
+// note is dual-read: the new field wins when non-empty, else the legacy note,
+// whose free-text tail is rejoined (tabs inside it would otherwise shift
+// sibling columns); the new note rides one field because write-side validation
+// strips control chars.
 // Exported for testing.
 func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 	var windows []WindowInfo
@@ -1104,29 +1202,34 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 			color = &normalized
 		}
 
-		var rkType, rkUrl string
+		var layout string
+		var webTabs []string
+		var webActive int
+		var codeRoot string
 		if len(parts) >= 9 {
-			rkType = strings.TrimSpace(parts[8])
+			layout = strings.TrimSpace(parts[8])
 		}
-		if len(parts) >= 10 {
-			rkUrl = strings.TrimSpace(parts[9])
+		// The web slots are positional: a shorter line carries only its leading
+		// slots — walk what is present (denseWebTabs stops at the first empty).
+		if len(parts) > 9 {
+			end := min(17, len(parts))
+			webTabs = denseWebTabs(parts[9:end])
 		}
-		// Dual-read fallback: a window stamped by a pre-rename writer carries
-		// the legacy lens/URL fields instead — take them only when the new
-		// fields came back empty.
-		if rkType == "" && len(parts) >= 14 {
-			rkType = strings.TrimSpace(parts[13])
+		var activeRaw string
+		if len(parts) >= 18 {
+			activeRaw = parts[17]
 		}
-		if rkUrl == "" && len(parts) >= 15 {
-			rkUrl = strings.TrimSpace(parts[14])
+		webActive = clampWebActive(activeRaw, len(webTabs))
+		if len(parts) >= 19 {
+			codeRoot = strings.TrimSpace(parts[18])
 		}
 
 		// Marker is a closed-set token ("dotted"/"dashed"/"solid"/"double"/
 		// "thick"); drop any value outside the set (including "") to the
 		// empty unset state.
 		var marker string
-		if len(parts) >= 11 {
-			if m := strings.TrimSpace(parts[10]); validate.MarkerValues[m] {
+		if len(parts) >= 20 {
+			if m := strings.TrimSpace(parts[19]); validate.MarkerValues[m] {
 				marker = m
 			}
 		}
@@ -1134,8 +1237,8 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 		// Role is a closed-set token ("operator"); drop any value outside the
 		// set (including "") to the empty unset state. Same idiom as Marker.
 		var role string
-		if len(parts) >= 12 {
-			if r := strings.TrimSpace(parts[11]); validate.RoleValues[r] {
+		if len(parts) >= 21 {
+			if r := strings.TrimSpace(parts[20]); validate.RoleValues[r] {
 				role = r
 			}
 		}
@@ -1144,26 +1247,44 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 		// value outside the set (including "") to the empty unset state. Same
 		// idiom as Marker.
 		var flair string
-		if len(parts) >= 13 {
-			if f := strings.TrimSpace(parts[12]); validate.FlairValues[f] {
+		if len(parts) >= 22 {
+			if f := strings.TrimSpace(parts[21]); validate.FlairValues[f] {
 				flair = f
 			}
 		}
 
 		// Note is free text ("<epoch>:<text>"), NOT a closed set — no value
 		// validation. Dual-read: the new note is a strict single field (idx
-		// 15 — joining is WRONG for it) and wins when non-empty; the legacy
+		// 22 — joining is WRONG for it) and wins when non-empty; the legacy
 		// note is the format's last column, so its tail is rejoined to survive
 		// tabs inside the text. Tolerant epoch split: a non-numeric prefix
 		// keeps the whole value as text with epoch 0.
 		var note string
 		var noteEpoch int64
 		var rawNote string
-		if len(parts) >= 16 {
-			rawNote = parts[15]
+		if len(parts) >= 23 {
+			rawNote = parts[22]
 		}
-		if rawNote == "" && len(parts) >= 17 {
-			rawNote = strings.Join(parts[16:], listDelim)
+		// Retired @rk_win_url (idx 23) is the dual-read fallback for an empty
+		// slot 1: the frontend polls it mid-session (present-auto-expand /
+		// web-view-lens live flip), so the family surfaces it as web_1 with the
+		// active pointer defaulted — the same shape a first WebAdd produces.
+		if len(webTabs) == 0 && len(parts) >= 24 {
+			if legacyURL := strings.TrimSpace(parts[23]); legacyURL != "" {
+				webTabs = []string{legacyURL}
+				webActive = 1
+			}
+		}
+		// Retired @rk_win_lens (idx 24): "iframe" was the web default-view hint;
+		// with @rk_win_layout unset it reads as the single:web layout the
+		// migration row would write — the same live-stamp dual-read as web_1.
+		if layout == "" && len(parts) >= 25 {
+			if legacyLens := strings.TrimSpace(parts[24]); legacyLens == "iframe" {
+				layout = layoutspecSingleWeb
+			}
+		}
+		if rawNote == "" && len(parts) >= 26 {
+			rawNote = strings.Join(parts[25:], listDelim)
 		}
 		if rawNote != "" {
 			note, noteEpoch = parseNoteValue(rawNote)
@@ -1179,8 +1300,10 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 			PaneCommand:       paneCmd,
 			ActivityTimestamp: activityTs,
 			Color:             color,
-			RkType:            rkType,
-			RkUrl:             rkUrl,
+			Layout:            layout,
+			WebTabs:           webTabs,
+			WebActive:         webActive,
+			CodeRoot:          codeRoot,
 			Marker:            marker,
 			Role:              role,
 			Flair:             flair,
@@ -1238,7 +1361,7 @@ func ListWindows(ctx context.Context, session string, server string) ([]WindowIn
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
 
-	format := strings.Join([]string{
+	fields := []string{
 		"#{window_id}",
 		"#{window_index}",
 		"#{window_name}",
@@ -1247,23 +1370,33 @@ func ListWindows(ctx context.Context, session string, server string) ([]WindowIn
 		"#{window_active}",
 		"#{pane_current_command}",
 		"#{" + ColorOption + "}",
-		"#{" + LensOption + "}",
-		"#{" + URLOption + "}",
-		"#{" + MarkerOption + "}",
-		"#{" + RoleOption + "}",
-		"#{" + FlairOption + "}",
-		// Dual-read transition fields: the legacy lens/URL names are still
-		// captured so windows stamped by pre-rename writers keep reporting
-		// (parseWindows prefers the new fields above).
-		"#{" + legacyTypeOption + "}",
-		"#{" + legacyURLOption + "}",
+		"#{" + LayoutOption + "}",
+	}
+	// The indexed web-tab family is spelled out slot by slot — one fixed format
+	// string cannot enumerate a family (see MaxWebTabs).
+	for n := 1; n <= MaxWebTabs; n++ {
+		fields = append(fields, "#{"+WebTabOption(n)+"}")
+	}
+	fields = append(fields,
+		"#{"+WebActiveOption+"}",
+		"#{"+CodeRootOption+"}",
+		"#{"+MarkerOption+"}",
+		"#{"+RoleOption+"}",
+		"#{"+FlairOption+"}",
 		// The new note is a strict single field (write-side validation strips
-		// control chars); the legacy note is free text in a tab-delimited
-		// format — it MUST stay the last field so parseWindows can rejoin the
-		// tail (tabs inside the text would otherwise shift sibling columns).
-		"#{" + NoteOption + "}",
-		"#{" + legacyNoteOption + "}",
-	}, listDelim)
+		// control chars). legacyWinURLOption is the retired @rk_win_url, dual-read
+		// as a web_1 fallback and legacyWinLensOption the retired @rk_win_lens,
+		// dual-read as a single:web layout fallback (both are stamped live by
+		// external writers mid-session — the once-per-server sweep cannot see
+		// them). The legacy note is free text in a tab-delimited format — it MUST
+		// stay the last field so parseWindows can rejoin the tail (tabs inside the
+		// text would otherwise shift sibling columns).
+		"#{"+NoteOption+"}",
+		"#{"+legacyWinURLOption+"}",
+		"#{"+legacyWinLensOption+"}",
+		"#{"+legacyNoteOption+"}",
+	)
+	format := strings.Join(fields, listDelim)
 
 	lines, err := tmuxExecServer(ctx, server, "list-windows", "-t", ExactSessionTarget(session), "-F", format)
 	if err != nil {

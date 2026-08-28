@@ -50,7 +50,8 @@ func TestCaptureServerAssemblesSnapshot(t *testing.T) {
 		[]tmux.LayoutWindow{
 			{Session: "alpha", WindowID: "@2", Index: 2, Name: "shell", Layout: "l2"},
 			{Session: "alpha", WindowID: "@1", Index: 1, Name: "serve", Active: true, Layout: "l1",
-				Color: "1", RkType: "web", RkURL: "http://x", Marker: "solid", Flair: "nyan", Role: "operator",
+				Color: "1", RkLayout: "split-h:tty,web", WebTabs: []string{"/proxy/1/", "/present/@1/2/a.html?server=s&v=1", "https://x/"},
+				WebRoots: []string{"/r1", "", "/r3"}, WebActive: 2, CodeRoot: "/w", Marker: "solid", Flair: "nyan", Role: "operator",
 				Note: "1756036800:blocked on flaky e2e"},
 			{Session: "beta", WindowID: "@3", Index: 0, Name: "b", Layout: "l3"},
 		}, nil,
@@ -89,7 +90,11 @@ func TestCaptureServerAssemblesSnapshot(t *testing.T) {
 		t.Fatalf("alpha windows = %+v", alpha.Windows)
 	}
 	w1 := alpha.Windows[0]
-	if !w1.Active || w1.Layout != "l1" || w1.Color != "1" || w1.RkType != "web" || w1.RkURL != "http://x" || w1.Marker != "solid" || w1.Flair != "nyan" || w1.Role != "operator" || w1.Note != "1756036800:blocked on flaky e2e" {
+	if !w1.Active || w1.Layout != "l1" || w1.Color != "1" || w1.RkLayout != "split-h:tty,web" ||
+		len(w1.WebTabs) != 3 || w1.WebTabs[0] != "/proxy/1/" || w1.WebTabs[2] != "https://x/" ||
+		len(w1.WebRoots) != 3 || w1.WebRoots[0] != "/r1" || w1.WebRoots[1] != "" || w1.WebRoots[2] != "/r3" ||
+		w1.WebActive != 2 || w1.CodeRoot != "/w" ||
+		w1.Marker != "solid" || w1.Flair != "nyan" || w1.Role != "operator" || w1.Note != "1756036800:blocked on flaky e2e" {
 		t.Errorf("window @1 = %+v", w1)
 	}
 	// Panes sorted by index.

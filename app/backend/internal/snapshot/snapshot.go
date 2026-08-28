@@ -59,11 +59,20 @@ type Window struct {
 	// Layout is the tmux layout string, replayed best-effort on restore.
 	Layout string `json:"layout,omitempty"`
 	Color  string `json:"color,omitempty"`
-	RkType string `json:"rkType,omitempty"`
-	RkURL  string `json:"rkUrl,omitempty"`
-	Marker string `json:"marker,omitempty"`
-	Flair  string `json:"flair,omitempty"`
-	Role   string `json:"role,omitempty"`
+	// RkLayout is the raw @rk_win_layout value ("<shape>:<surface>[,<surface>…]")
+	// — named RkLayout because Layout already holds the tmux pane-layout string.
+	RkLayout string `json:"rkLayout,omitempty"`
+	// WebTabs is the dense @rk_win_web_<n> family (index 0 is tmux slot 1);
+	// WebRoots is parallel to WebTabs ("" = no root); WebActive is the 1-based
+	// active index (0 = unset). /present/ URLs are stored and restored VERBATIM
+	// — no @N window-id remap (parity with the retired rkUrl handling).
+	WebTabs   []string `json:"webTabs,omitempty"`
+	WebRoots  []string `json:"webRoots,omitempty"`
+	WebActive int      `json:"webActive,omitempty"`
+	CodeRoot  string   `json:"codeRoot,omitempty"`
+	Marker    string   `json:"marker,omitempty"`
+	Flair     string   `json:"flair,omitempty"`
+	Role      string   `json:"role,omitempty"`
 	// Note is the raw @rk_win_note value ("<unix-epoch>:<text>") — the epoch rides
 	// along so the note's age stays honest across a restore.
 	Note  string `json:"note,omitempty"`
@@ -148,18 +157,21 @@ func CaptureServer(ctx context.Context, server string) (*Snapshot, error) {
 	bySession := map[string][]Window{}
 	for _, w := range windows {
 		win := Window{
-			Index:  w.Index,
-			ID:     w.WindowID,
-			Name:   w.Name,
-			Active: w.Active,
-			Layout: w.Layout,
-			Color:  w.Color,
-			RkType: w.RkType,
-			RkURL:  w.RkURL,
-			Marker: w.Marker,
-			Flair:  w.Flair,
-			Role:   w.Role,
-			Note:   w.Note,
+			Index:     w.Index,
+			ID:        w.WindowID,
+			Name:      w.Name,
+			Active:    w.Active,
+			Layout:    w.Layout,
+			Color:     w.Color,
+			RkLayout:  w.RkLayout,
+			WebTabs:   w.WebTabs,
+			WebRoots:  w.WebRoots,
+			WebActive: w.WebActive,
+			CodeRoot:  w.CodeRoot,
+			Marker:    w.Marker,
+			Flair:     w.Flair,
+			Role:      w.Role,
+			Note:      w.Note,
 		}
 		for _, p := range panes[w.WindowID] {
 			win.Panes = append(win.Panes, Pane{

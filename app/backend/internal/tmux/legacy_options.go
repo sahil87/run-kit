@@ -42,11 +42,16 @@ func (s optionScope) String() string {
 // Old stays: the daemon cannot see which rk version writes hooks on other
 // machines, and fab-kit still reads the retired name, so the dual state is
 // sanctioned (writers dual-write both). Wrong-scope holds are still purged.
+//
+// Transform, when non-nil, maps the raw Old value onto the value copied to
+// New; ok=false means the value has no representation in the new scheme — no
+// copy, but Old is still unset.
 type legacyOption struct {
-	Old      string
-	New      string
-	Scope    optionScope
-	CopyOnly bool
+	Old       string
+	New       string
+	Scope     optionScope
+	CopyOnly  bool
+	Transform func(string) (string, bool)
 }
 
 // legacyOptions is the migration table. A rename or retirement appends a row
@@ -56,9 +61,18 @@ var legacyOptions = []legacyOption{
 	{Old: "@session_color", New: SessionColorOption, Scope: scopeSession},
 	// Scope-prefix rename (260828-3o5d): retired unscoped rk names → their
 	// win/ses/srv successors. Window rows:
-	{Old: legacyTypeOption, New: LensOption, Scope: scopeWindow},
-	{Old: legacyURLOption, New: URLOption, Scope: scopeWindow},
-	{Old: "@rk_present_root", New: PresentRootOption, Scope: scopeWindow},
+	{Old: legacyTypeOption, New: legacyWinLensOption, Scope: scopeWindow},
+	{Old: legacyURLOption, New: legacyWinURLOption, Scope: scopeWindow},
+	{Old: "@rk_present_root", New: LegacyWinPresentRootOption, Scope: scopeWindow},
+	// Retired web names with no live reader: the lens and present-root migrate
+	// forward in one sweep (nothing reads them mid-session). legacyWinURLOption
+	// (@rk_win_url) has NO sweep row — the frontend polls it mid-session via the
+	// derived rkUrl field (present-auto-expand / web-view-lens), so it is
+	// dual-READ (see parseWindows / ReadWebTabFamily) and never unset: unsetting
+	// it would strand a viewer watching for the live transition, and the value
+	// cannot both hold @rk_win_url (legacy-scope-sweep) and converge to web_1.
+	{Old: LegacyWinPresentRootOption, New: WebTabRootOption(1), Scope: scopeWindow},
+	{Old: legacyWinLensOption, New: LayoutOption, Scope: scopeWindow, Transform: legacyLensToLayout},
 	{Old: "@rk_marker", New: MarkerOption, Scope: scopeWindow},
 	{Old: "@rk_flair", New: FlairOption, Scope: scopeWindow},
 	{Old: legacyNoteOption, New: NoteOption, Scope: scopeWindow},
@@ -171,14 +185,25 @@ func sweepLegacyTargets(ctx context.Context, server string, targets []scopeTarge
 	return changed, firstErr
 }
 
+// legacyLensToLayout maps the retired @rk_win_lens value onto its
+// @rk_win_layout successor: only "iframe" has a layout representation
+// (layoutspecSingleWeb); any other value is dropped (ok=false — Old is still unset).
+func legacyLensToLayout(v string) (string, bool) {
+	if v == "iframe" {
+		return layoutspecSingleWeb, true
+	}
+	return "", false
+}
+
 // moveLegacyAt performs the right-scope move for one carrier: when Old is
-// held at this scope, copy its value to New (only when New is unset there),
-// then unset Old. Old is unset ONLY once New is known to hold a value at this
-// scope — already held, or the copy just succeeded — so a failed copy never
-// deletes the sole source of truth; the row is retried on the next sweep.
-// A CopyOnly row skips the unset entirely: the dual state (Old + New held) is
-// sanctioned during the deprecation window, so a carrier already holding both
-// issues nothing. Reports whether a set/unset was issued.
+// held at this scope, copy its value to New (only when New is unset there;
+// through Transform when the row declares one — a Transform miss copies
+// nothing), then unset Old. Old is unset ONLY once New is known to hold a
+// value at this scope — already held, or the copy just succeeded — so a
+// failed copy never deletes the sole source of truth; the row is retried on
+// the next sweep. A CopyOnly row skips the unset entirely: the dual state
+// (Old + New held) is sanctioned during the deprecation window, so a carrier
+// already holding both issues nothing. Reports whether a set/unset was issued.
 func moveLegacyAt(ctx context.Context, server string, row legacyOption, st scopeTarget) (bool, error) {
 	held, err := heldOptions(ctx, server, st)
 	if err != nil {
@@ -198,12 +223,18 @@ func moveLegacyAt(ctx context.Context, server string, row legacyOption, st scope
 				slog.Warn("legacy option sweep: value read failed, legacy option kept", "server", server, "option", row.Old, "scope", st.scope, "target", st.target, "error", err)
 				return false, err
 			}
-			if err := setOptionAt(ctx, server, st, row.New, oldVal); err != nil {
-				slog.Warn("legacy option sweep: set failed, legacy option kept", "server", server, "option", row.New, "scope", st.scope, "target", st.target, "error", err)
-				return false, err
+			newVal, copy := oldVal, true
+			if row.Transform != nil {
+				newVal, copy = row.Transform(oldVal)
 			}
-			slog.Info("legacy option sweep: migrated", "server", server, "option", row.Old, "to", row.New, "scope", st.scope, "target", st.target)
-			changed = true
+			if copy {
+				if err := setOptionAt(ctx, server, st, row.New, newVal); err != nil {
+					slog.Warn("legacy option sweep: set failed, legacy option kept", "server", server, "option", row.New, "scope", st.scope, "target", st.target, "error", err)
+					return false, err
+				}
+				slog.Info("legacy option sweep: migrated", "server", server, "option", row.Old, "to", row.New, "scope", st.scope, "target", st.target)
+				changed = true
+			}
 		}
 	}
 	if row.CopyOnly {

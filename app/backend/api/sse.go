@@ -1745,7 +1745,7 @@ func (h *sseHub) poll() {
 
 // wake marks the server for an immediate snapshot pass. Non-blocking and safe
 // from any goroutine; called by the option-mutation handlers after a successful
-// tmux write (set-option @rk_win_color/@rk_ses_color/@rk_win_url/@rk_win_lens is invisible to
+// tmux write (set-option @rk_win_color/@rk_ses_color/@rk_win_web_<n>/@rk_win_layout is invisible to
 // the tmuxctl control-mode parser, so no subscriber notification fires — the
 // wake is the freshness driver for these mutations). Per-server, keyed by the
 // same server name the poll set uses; a wake for a server with no connected

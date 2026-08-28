@@ -133,6 +133,8 @@ Repo: `~/code/sahil87/fab-kit`.
 
 After Change 4 is released and `rk doctor` shows zero legacy names on the operator's fleet for a comfortable window: drop old-name reads and the pane-row copy-only rule; migration table becomes unset-only for all rows; delete after one more release.
 
+Change 3 as drafted (260828-5jlp) also **dual-writes** the pane keys — `rk agent hook` sets both `@rk_pane_agent_state`/`@rk_agent_state` and `@rk_pane_chat`/`@rk_chat` — so fab-kit stays sighted between 3 and 4. The full removal ledger (constants, fallback reads, the second `set-option`, `copyOnly` rows, `rkHookMarker`, doctor gen<3 branches) lives in that change's intake § Deprecation ledger; the doctor piece is an `agent hooks` row with **no hook-text bump** (gen-3 text names no option).
+
 ---
 
 ## Execution notes for the operator

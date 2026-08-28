@@ -66,10 +66,9 @@ var legacyOptions = []legacyOption{
 	{Old: "@rk_present_root", New: LegacyWinPresentRootOption, Scope: scopeWindow},
 	// Retired web names with no live reader: the lens and present-root migrate
 	// forward in one sweep (nothing reads them mid-session). legacyWinURLOption
-	// (@rk_win_url) has NO sweep row — the frontend polls it mid-session via the
-	// derived rkUrl field (present-auto-expand / web-view-lens), so it is
-	// dual-READ (see parseWindows / ReadWebTabFamily) and never unset: unsetting
-	// it would strand a viewer watching for the live transition, and the value
+	// (@rk_win_url) has NO sweep row — the web-tab family dual-READs it as the
+	// slot-1 fallback (see parseWindows / ReadWebTabFamily) and it is never
+	// unset: unsetting would drop a window's only web state, and the value
 	// cannot both hold @rk_win_url (legacy-scope-sweep) and converge to web_1.
 	{Old: LegacyWinPresentRootOption, New: WebTabRootOption(1), Scope: scopeWindow},
 	{Old: legacyWinLensOption, New: LayoutOption, Scope: scopeWindow, Transform: legacyLensToLayout},

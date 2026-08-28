@@ -53,7 +53,8 @@ beforeEach(() => {
 });
 
 const FULL_WINDOW = {
-  rkUrl: "http://localhost:8080",
+  webTabs: ["http://localhost:8080"],
+  webActive: 1,
   chatProvider: "claude",
   gitRoot: "/repo",
 };
@@ -204,7 +205,7 @@ describe("SurfaceLayout shape rendering", () => {
     expect(screen.getByTestId("mock-chat")).toBeTruthy();
   });
 
-  it("renders tile meta: git-root basename for code, rkUrl host for web", () => {
+  it("renders tile meta: git-root basename for code, web-url host for web", () => {
     renderLayout({ layout: { shape: "split-h", order: ["code", "web"] } });
     const codeTile = screen.getByTestId("surface-tile-code");
     expect(codeTile.textContent).toContain("repo");
@@ -220,7 +221,7 @@ describe("SurfaceLayout shape rendering", () => {
     it("a presented file gets the green present badge and the basename display form", () => {
       renderLayout({
         layout: { shape: "split-h", order: ["tty", "web"] },
-        window: { rkUrl: "/present/@320/tmux-version-floor.html?server=runKit&v=1" },
+        window: { webTabs: ["/present/@320/tmux-version-floor.html?server=runKit&v=1"], webActive: 1 },
       });
       const webTile = screen.getByTestId("surface-tile-web");
       const badge = within(webTile).getByTestId("web-kind-badge");
@@ -233,7 +234,7 @@ describe("SurfaceLayout shape rendering", () => {
     it("a proxied port gets the amber :{port} proxy badge (relative URL — the old new URL throw)", () => {
       renderLayout({
         layout: { shape: "split-h", order: ["tty", "web"] },
-        window: { rkUrl: "/proxy/3000/board/runKit" },
+        window: { webTabs: ["/proxy/3000/board/runKit"], webActive: 1 },
       });
       const webTile = screen.getByTestId("surface-tile-web");
       const badge = within(webTile).getByTestId("web-kind-badge");
@@ -245,7 +246,7 @@ describe("SurfaceLayout shape rendering", () => {
     it("an external URL gets the blue external badge", () => {
       renderLayout({
         layout: { shape: "split-h", order: ["tty", "web"] },
-        window: { rkUrl: "https://shll.ai/rk/skill" },
+        window: { webTabs: ["https://shll.ai/rk/skill"], webActive: 1 },
       });
       const webTile = screen.getByTestId("surface-tile-web");
       const badge = within(webTile).getByTestId("web-kind-badge");
@@ -382,6 +383,24 @@ describe("SurfaceLayout pane segment (260813-w1lf content verbs)", () => {
 });
 
 describe("SurfaceLayout zoom", () => {
+  it("a shared reorder moves the zoom with its surface KIND, never the slot index", () => {
+    const { rerender } = renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
+    fireEvent.click(screen.getByRole("button", { name: "Expand Code" }));
+    expect(screen.getByTestId("surface-tile-tty").classList.contains("hidden")).toBe(true);
+    expect(localStorage.getItem("rk-layout-zoom:srv:@1")).toBe("code");
+    // Another viewer promotes code: slot 0 is now code, slot 1 is tty. The
+    // zoom must follow code (still zoomed, tty still hidden) rather than stay
+    // on slot 1 and zoom the terminal.
+    rerender(layoutElement({ layout: { shape: "split-h", order: ["code", "tty"] } }));
+    expect(screen.getByTestId("surface-tile-tty").classList.contains("hidden")).toBe(true);
+    expect(screen.getByTestId("surface-tile-code").classList.contains("hidden")).toBe(false);
+    expect(localStorage.getItem("rk-layout-zoom:srv:@1")).toBe("code");
+    // The zoomed kind leaving the layout clears the zoom and the key.
+    rerender(layoutElement({ layout: { shape: "split-h", order: ["tty", "web"] } }));
+    expect(screen.getByTestId("surface-tile-tty").classList.contains("hidden")).toBe(false);
+    expect(localStorage.getItem("rk-layout-zoom:srv:@1")).toBeNull();
+  });
+
   it("zoom hides the other tiles at display level WITHOUT unmounting", () => {
     renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
     fireEvent.click(screen.getByRole("button", { name: "Expand Code" }));
@@ -622,7 +641,7 @@ describe("SurfaceLayout degradation + availability guards", () => {
     // component is the second line of defense.
     renderLayout({
       layout: { shape: "split-h", order: ["tty", "code"] },
-      window: { rkUrl: "http://localhost:8080" }, // no gitRoot
+      window: { webTabs: ["http://localhost:8080"], webActive: 1 }, // no gitRoot
     });
     expect(screen.getByTestId("surface-tile-code")).toBeTruthy();
     expect(screen.queryByTestId("mock-code")).toBeNull();

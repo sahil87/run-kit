@@ -4,8 +4,8 @@
  * The single-panel slot model itself was superseded by the surface layout
  * manager (260812-ab5v, `lib/surface-layout.ts`); what remains here is the
  * shared surface-registry alias (`SurfaceName`/`availableSurfaces` — the rail
- * and layout consumers), the legacy `runkit-window-panel` READ used to seed
- * the layout shim, and the layout-divider clamp.
+ * and layout consumers), the retired `runkit-window-panel` READ, kept one
+ * release as an inbound-only translation input, and the layout-divider clamp.
  *
  * Everything here mirrors the `window-view.ts` pattern: pure and DOM-free
  * except a thin try/catch-noop localStorage read. Surface availability
@@ -34,10 +34,9 @@ export type SurfaceName = SurfaceKind;
  * Delegates to `surface-layout.ts`'s
  * `availableTiles` — the ONE registry rail + layout + switcher share — which
  * in turn keys off `window-view.ts`'s capability helpers (`hasWebUrl` for
- * `web`, `hasChat` for `chat`, `hasCode` for `code` — gitRoot-derived since
- * 260811-a2bo) as the single availability source. Reachability is NOT part of
- * availability (it governs a surface's content — live iframe vs the
- * not-running empty state).
+ * `web`, `hasChat` for `chat`, `hasCode` for `code`) as the single
+ * availability source. Reachability is NOT part of availability (it governs a
+ * surface's content — live iframe vs the not-running empty state).
  */
 export function availableSurfaces(
   win: ViewWindow | null | undefined,
@@ -48,22 +47,21 @@ export function availableSurfaces(
 /**
  * Value-bearing per-window localStorage key (spec P1 — mirrors
  * `windowViewStorageKey`). Held the open surface NAME under the retired panel
- * model; absence meant "panel closed". LEGACY: nothing writes this key
- * anymore — it exists so `readStoredPanel` can seed the layout shim from
- * pre-layout browsers (`seedLayoutFromLegacy`, `lib/surface-layout.ts`).
+ * model. RETIRED: nothing writes this key — it survives one release as an
+ * inbound-only translation input: the route-entry translation effect reads it
+ * (via `readStoredPanel`), translates it into `@rk_win_layout`, and deletes
+ * it.
  */
 export function panelStorageKey(server: string, windowId: string): string {
   return `runkit-window-panel:${server}:${windowId}`;
 }
 
 /**
- * Read the persisted open surface for a window. Returns `undefined` when
- * absent or when localStorage is unavailable (SSR/jsdom/quota) — the
- * try/catch-noop pattern from `window-view.ts`/`chrome-context.tsx`. The value
- * is NOT validated against the window's current capabilities here (a stored
- * `web` for a window that lost its URL is filtered by the consumer —
- * `surface-layout.ts`'s legacy seed feeds the `resolveLayout` ladder, whose
- * availability degradation drops it).
+ * Read the persisted open surface for a window — a one-release translation
+ * input (see `panelStorageKey`). Returns `undefined` when absent or when
+ * localStorage is unavailable (SSR/jsdom/quota) — the try/catch-noop pattern
+ * from `window-view.ts`/`chrome-context.tsx`. The value is NOT validated here;
+ * the translation consumer parses + degrades it.
  */
 export function readStoredPanel(
   server: string,

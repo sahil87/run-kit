@@ -1,60 +1,44 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import {
-  codeFolderStorageKey,
-  readLatchedCodeFolder,
-  writeLatchedCodeFolder,
-} from "./code-folder-latch";
+import { describe, it, expect } from "vitest";
+import { codeRootFor, codeRootSeed } from "./code-folder-latch";
+import type { Layout } from "./surface-layout";
 
-describe("code-folder latch (per-window localStorage, try/catch-noop)", () => {
-  beforeEach(() => {
-    localStorage.clear();
-  });
-  afterEach(() => {
-    vi.restoreAllMocks();
-    localStorage.clear();
+const codeOpen: Layout = { shape: "split-h", order: ["tty", "code"] };
+const codeClosed: Layout = { shape: "single", order: ["tty"] };
+
+describe("codeRootFor", () => {
+  it("prefers the shared codeRoot over the derived gitRoot", () => {
+    expect(codeRootFor({ codeRoot: "/latched", gitRoot: "/repo" })).toBe("/latched");
   });
 
-  it("builds a value-bearing per-window key (the windowViewStorageKey convention)", () => {
-    expect(codeFolderStorageKey("srv", "@3")).toBe("runkit-code-folder:srv:@3");
+  it("falls back to gitRoot while the option is unset (pre-seed)", () => {
+    expect(codeRootFor({ gitRoot: "/repo" })).toBe("/repo");
+    expect(codeRootFor({ codeRoot: "", gitRoot: "/repo" })).toBe("/repo");
   });
 
-  it("round-trips a latched folder", () => {
-    expect(readLatchedCodeFolder("srv", "@3")).toBeUndefined();
-    writeLatchedCodeFolder("srv", "@3", "/home/user/repo");
-    expect(readLatchedCodeFolder("srv", "@3")).toBe("/home/user/repo");
-    // The follow rule re-latches in place (editor navigation, not the terminal).
-    writeLatchedCodeFolder("srv", "@3", "/home/user/other");
-    expect(readLatchedCodeFolder("srv", "@3")).toBe("/home/user/other");
+  it("is empty when neither root exists", () => {
+    expect(codeRootFor({})).toBe("");
+    expect(codeRootFor({ codeRoot: "", gitRoot: "" })).toBe("");
+    expect(codeRootFor(null)).toBe("");
+    expect(codeRootFor(undefined)).toBe("");
+  });
+});
+
+describe("codeRootSeed", () => {
+  it("seeds gitRoot when the code tile is open, the option is empty, and gitRoot is non-empty", () => {
+    expect(codeRootSeed({ gitRoot: "/repo" }, codeOpen)).toBe("/repo");
   });
 
-  it("scopes keys per (server, windowId)", () => {
-    writeLatchedCodeFolder("srv", "@3", "/repo");
-    expect(readLatchedCodeFolder("srv", "@4")).toBeUndefined();
-    expect(readLatchedCodeFolder("other", "@3")).toBeUndefined();
+  it("is null when the code tile is not open", () => {
+    expect(codeRootSeed({ gitRoot: "/repo" }, codeClosed)).toBeNull();
   });
 
-  it("never stores an empty folder (an empty derivation seeds nothing)", () => {
-    writeLatchedCodeFolder("srv", "@3", "");
-    expect(localStorage.getItem(codeFolderStorageKey("srv", "@3"))).toBeNull();
-    expect(readLatchedCodeFolder("srv", "@3")).toBeUndefined();
+  it("is null when codeRoot is already set — the editor's navigation owns the root", () => {
+    expect(codeRootSeed({ codeRoot: "/latched", gitRoot: "/repo" }, codeOpen)).toBeNull();
   });
 
-  it("treats an externally-stored empty value as absent", () => {
-    localStorage.setItem(codeFolderStorageKey("srv", "@3"), "");
-    expect(readLatchedCodeFolder("srv", "@3")).toBeUndefined();
-  });
-
-  it("swallows a localStorage read failure, returning undefined", () => {
-    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
-      throw new Error("SecurityError");
-    });
-    expect(readLatchedCodeFolder("srv", "@3")).toBeUndefined();
-  });
-
-  it("swallows a localStorage write failure (no throw)", () => {
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-      throw new Error("QuotaExceededError");
-    });
-    expect(() => writeLatchedCodeFolder("srv", "@3", "/repo")).not.toThrow();
+  it("is null when gitRoot is empty — an empty derivation seeds nothing", () => {
+    expect(codeRootSeed({}, codeOpen)).toBeNull();
+    expect(codeRootSeed({ gitRoot: "" }, codeOpen)).toBeNull();
+    expect(codeRootSeed(null, codeOpen)).toBeNull();
   });
 });

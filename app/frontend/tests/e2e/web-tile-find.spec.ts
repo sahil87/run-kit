@@ -15,8 +15,9 @@
  * `/proxy/<port>/` path via `toProxySrc`, while `http://0.0.0.0:<port>/`
  * bypasses it and stays a cross-origin absolute URL. `beforeEach` sets a
  * 1440×800 desktop viewport. `makeWindow(name, url)` runs `tmux new-window`
- * plus a `set-option -w @rk_win_url` stamp and returns the `@N` id;
- * `gotoWebWindow` deep-links `?view=web` (the shim resolves `single:web` — ONE
+ * plus a slot-1 web tab stamp (`stampWebTab`) and returns the `@N` id;
+ * `gotoWebWindow` deep-links `?view=web` (inbound translation resolves
+ * `single:web` — ONE
  * tile, inside the connection-pool budget) and waits for the iframe;
  * `focusFrame` clicks `#inner` inside the frame so keydowns go to the framed
  * document; `frameEvaluate` evaluates in the framed document via the iframe
@@ -27,7 +28,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import http from "node:http";
 import { READY_TIMEOUT, resolveWindow as resolveWindowRaw } from "./_ready";
-import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
+import { TMUX_SERVER, createSession, killSession, newWindow, stampWebTab } from "./_tmux";
 
 // Own session so this file never collides with other specs (fullyParallel off).
 const TEST_SESSION = `e2e-webfind-${Date.now()}`;
@@ -68,16 +69,12 @@ async function resolveWindow(page: Page, windowName: string): Promise<string> {
   return (await resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION, windowName)).windowId;
 }
 
-/** Create a window and stamp @rk_win_url directly via tmux — the same
+/** Create a window and stamp its slot-1 web tab via tmux — the same
  *  window-option seam web-view-lens.spec.ts uses. Returns the @N id. */
 async function makeWindow(page: Page, name: string, url: string): Promise<string> {
   newWindow(TEST_SESSION, name);
   const id = await resolveWindow(page, name);
-  execFileSync(
-    "tmux",
-    ["-L", TMUX_SERVER, "set-option", "-w", "-t", id, "@rk_win_url", url],
-    { stdio: "ignore" },
-  );
+  stampWebTab(id, url);
   return id;
 }
 
@@ -139,7 +136,7 @@ test.describe("Web tile — keyboard reclaim + find-in-page (260819-ie2i)", () =
    * and non-claimed keys pass through to the framed page untouched.
    *
    * Steps:
-   * 1. Create a window with `@rk_win_url = http://localhost:<port>/`; open
+   * 1. Create a window with web tab `http://localhost:<port>/`; open
    *    `?view=web`; wait for the iframe and the frame's `#inner` button.
    * 2. Click `#inner` (focus enters the frame); press `Meta+k`; assert the
    *    palette input is visible; close it with Escape.
@@ -277,7 +274,7 @@ test.describe("Web tile — keyboard reclaim + find-in-page (260819-ie2i)", () =
    * button is the reachable entry point.
    *
    * Steps:
-   * 1. Create a window with `@rk_win_url = http://0.0.0.0:<port>/` (bypasses
+   * 1. Create a window with web tab `http://0.0.0.0:<port>/` (bypasses
    *    `toProxySrc` → cross-origin); open `?view=web`; wait for the iframe.
    * 2. Click the ⌕ `Find in page` button.
    * 3. Assert the bar is visible with the text `page is cross-origin — find

@@ -160,6 +160,11 @@ type TopBarProps = {
         available: SurfaceKind[];
         active: SurfaceKind;
         onSwitch: (surface: SurfaceKind) => void;
+        /** Per-surface disabled predicate (switch mode): a not-open surface
+         *  whose growth the shared layout cannot host (3 tiles already)
+         *  renders disabled instead of no-oping silently — the toggle mode's
+         *  full-layout affordance. */
+        disabled?: (surface: SurfaceKind) => boolean;
         /** Same contract as the toggle-mode `showDot`. */
         showDot?: (surface: SurfaceKind) => boolean;
       };
@@ -386,7 +391,8 @@ type SurfaceTogglesToggle = Extract<SurfaceToggles, { mode: "toggle" }>;
 function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
   // Max 3 tiles (Constitution IV): at 3, further adds are disallowed — the
   // unlit buttons render disabled instead of no-oping silently. Toggle mode
-  // only: switch mode never adds a tile, so nothing disables there.
+  // checks the open-tile count; switch mode asks the caller's per-surface
+  // predicate (a not-open target whose growth is disallowed disables).
   const full = toggles.mode === "toggle" && toggles.open.length >= 3;
   const shown = toggles.available.filter((surface) => !SURFACE_RAIL_HIDDEN.has(surface));
   return (
@@ -399,7 +405,11 @@ function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
             toggles.mode === "toggle"
               ? toggles.open.includes(surface)
               : toggles.active === surface;
-          const disabled = toggles.mode === "toggle" && !pressed && full;
+          const disabled =
+            !pressed &&
+            (toggles.mode === "toggle"
+              ? full
+              : (toggles.disabled?.(surface) ?? false));
           const label = SURFACE_LABEL[surface];
           return (
             <Tip key={surface} label={disabled ? "Close a tile first" : label}>

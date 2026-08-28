@@ -2,17 +2,25 @@ import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import http from "node:http";
 import { READY_TIMEOUT, resolveWindow as resolveWindowRaw } from "./_ready";
-import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
+import {
+  TMUX_SERVER,
+  createSession,
+  killSession,
+  newWindow,
+  stampWebTab,
+  windowOption,
+} from "./_tmux";
 import { stubProxyPorts } from "./_web-tile";
 
 /**
  * The code surface end to end (`docs/specs/right-panel.md` § The code lens +
  * § Surface Registry; `docs/specs/surface-layout.md`): the `code` lens joins
- * the view registry (`?view=code` → `single:code` via the permanent shim + the
- * palette's `View: Code` action — the switcher menu rows are retired) AND the
- * tileable code surface (`Code tile` top-bar toggle — the right rail is
- * REMOVED, its toggles moved into the top bar's `surface-toggles` group;
- * `?panel=code` → `split-h:tty,code` via the shim), with availability =
+ * the view registry (`?view=code` → `single:code` via the inbound one-shot
+ * translation + the palette's `View: Code` action — the switcher menu rows
+ * are retired) AND the tileable code surface (`Code tile` top-bar toggle —
+ * the right rail is REMOVED, its toggles moved into the top bar's
+ * `surface-toggles` group; `?panel=code` → `split-h:tty,code` via the same
+ * translation), with availability =
  * gitRoot derived (the port resolves by convention — `RK_CODE_SERVER_PORT`
  * preset, else `RK_PORT+2` — and no longer gates), and code-server
  * reachability governing only the surface CONTENT (live iframe vs the
@@ -54,9 +62,10 @@ import { stubProxyPorts } from "./_web-tile";
  * - `GIT_ROOT`: `git rev-parse --show-toplevel` from the spec process — the
  *   toplevel every in-repo test window derives (windows inherit the tmux
  *   server's repo-root cwd).
- * - `expectLayoutParam(page, expected)`: retrying read of the DECODED
- *   `?layout=` search param (the router may percent-encode `:`/`,`); the
- *   `replaceState` mirror lands a beat after the arrival/mutation.
+ * - `expectWindowLayout(id, expected)`: retrying read of the window's
+ *   `@rk_win_layout` tmux option — the SHARED layout the translation / verbs
+ *   write (never the URL; the URL stays bare after translation drops the
+ *   inbound params).
  * - Locators: the `Code tile` / `Web tile` top-bar toggles (role + accessible
  *   name SCOPED to the `banner` — the top bar's aria-hidden measurement probe
  *   duplicates every in-bar control, so accessible-name queries are the only
@@ -166,13 +175,17 @@ const codeIframe = (page: Page) => page.getByTitle("Code editor");
 const notRunning = (page: Page) => page.getByTestId("code-surface-empty");
 const terminal = (page: Page) => page.locator(".xterm").first();
 
-/** Assert the mirrored `?layout=` param (decoded — the router may
- *  percent-encode `:`/`,`). Retrying: the replaceState mirror lands a beat
- *  after the arrival/mutation that triggered it. */
-async function expectLayoutParam(page: Page, expected: string | null): Promise<void> {
+/** Assert the shared layout a window carries — its `@rk_win_layout` tmux
+ *  option (retrying: a verb's POST and the option tick land asynchronously). */
+async function expectWindowLayout(windowId: string, expected: string): Promise<void> {
   await expect
-    .poll(() => new URL(page.url()).searchParams.get("layout"), { timeout: 10_000 })
+    .poll(() => windowOption(windowId, "@rk_win_layout"), { timeout: 10_000 })
     .toBe(expected);
+}
+
+/** Assert the route is bare — layout state lives in tmux, never the URL. */
+function expectBareUrl(page: Page): void {
+  expect(new URL(page.url()).search).toBe("");
 }
 
 // The dead-port error state (260819-v6y4 R8) hides the iframe when nothing
@@ -283,34 +296,37 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
   });
 
   /**
-   * Proves: the retired `?panel=code` deep link resolves through the permanent
-   * shim (a bare panel value maps against the tty default slot A →
-   * `split-h:tty,code`), and the tile's renderer iframes the fully derived
-   * RELATIVE `/code/` URL (never an absolute origin; the port never appears)
-   * with the sandbox set (incl. `allow-downloads`); the terminal stays mounted
-   * beside the tile (the layout is additive).
+   * Proves: the retired `?panel=code` deep link translates inbound (a bare
+   * panel value maps against the tty default slot A → `split-h:tty,code`,
+   * written to `@rk_win_layout` once, params dropped from the URL), and the
+   * tile's renderer iframes the fully derived RELATIVE `/code/` URL (never an
+   * absolute origin; the port never appears) with the sandbox set (incl.
+   * `allow-downloads`); the terminal stays mounted beside the tile (the
+   * layout is additive).
    *
    * Steps:
    * 1. Create a repo-cwd window; navigate with `?panel=code`.
    * 2. Assert the `surface-tile-code` tile and the `Code editor` iframe are
-   *    visible, the mirrored URL reads `split-h:tty,code`, the iframe `src`
-   *    attribute is exactly `/code/?folder=<url-encoded git root>`, and its
-   *    sandbox contains `allow-downloads`.
+   *    visible, the option reads `split-h:tty,code`, the URL is bare, the
+   *    iframe `src` attribute is exactly
+   *    `/code/?folder=<url-encoded git root>`, and its sandbox contains
+   *    `allow-downloads`.
    * 3. Assert the terminal is still visible.
    */
-  test("?panel=code opens the code tile (shim); the iframe src is the stable /code/?folder=<git root>", async ({
+  test("?panel=code opens the code tile (inbound translation); the iframe src is the stable /code/?folder=<git root>", async ({
     page,
   }) => {
     const id = await makeWindow(page, `cs-panel-${Date.now()}`);
     await gotoWindow(page, id, "?panel=code");
 
-    // The retired ?panel= param resolves through the shim (bare panel value →
-    // split-h:tty,code). The code TILE renders its iframe (stub reachable) at
-    // the fully DERIVED relative src on the STABLE /code/ route (260811-a2bo)
-    // — never an absolute origin, and the port never appears (it's a
-    // server-side implementation detail).
+    // The retired ?panel= param translates inbound (bare panel value →
+    // split-h:tty,code, one option write). The code TILE renders its iframe
+    // (stub reachable) at the fully DERIVED relative src on the STABLE /code/
+    // route (260811-a2bo) — never an absolute origin, and the port never
+    // appears (it's a server-side implementation detail).
     await expect(codeTile(page)).toBeVisible({ timeout: 10_000 });
-    await expectLayoutParam(page, "split-h:tty,code");
+    await expectWindowLayout(id, "split-h:tty,code");
+    await expect.poll(() => new URL(page.url()).search, { timeout: 10_000 }).toBe("");
     const iframe = codeIframe(page);
     await expect(iframe).toBeVisible({ timeout: READY_TIMEOUT });
     await expect(iframe).toHaveAttribute(
@@ -347,15 +363,16 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
   });
 
   /**
-   * Proves: `code` is a full view-registry lens — the shim maps `?view=code` to
-   * `single:code`, the code tile fills the center, and the top-bar toggle group
-   * stays put (tiles are additive).
+   * Proves: `code` is a full view-registry lens — the inbound translation
+   * maps `?view=code` to `single:code` (one option write, params dropped),
+   * the code tile fills the center, and the top-bar toggle group stays put
+   * (tiles are additive).
    *
    * Steps:
    * 1. Create a repo-cwd window; navigate with `?view=code`.
-   * 2. Assert the `Code editor` iframe is visible, the mirrored URL reads
-   *    `single:code`, and the group still renders (the `Terminal tile` toggle
-   *    is visible in the banner).
+   * 2. Assert the `Code editor` iframe is visible, the option reads
+   *    `single:code`, the URL is bare, and the group still renders (the
+   *    `Terminal tile` toggle is visible in the banner).
    */
   test("?view=code renders the code lens as the single slot-A tile", async ({
     page,
@@ -363,8 +380,10 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     const id = await makeWindow(page, `cs-view-${Date.now()}`);
     await gotoWindow(page, id, "?view=code");
     await expect(codeIframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
-    // The shim maps ?view=code → single:code and the URL mirror rewrites it.
-    await expectLayoutParam(page, "single:code");
+    // The inbound translation maps ?view=code → single:code (one write) and
+    // drops the param.
+    await expectWindowLayout(id, "single:code");
+    await expect.poll(() => new URL(page.url()).search, { timeout: 10_000 }).toBe("");
     // The top-bar toggle group is still there (tiles are additive — it never
     // leaves): the Terminal toggle renders (unlit) beside the lit Code toggle.
     await expect(
@@ -381,8 +400,8 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
    * Steps:
    * 1. Create a `/tmp`-cwd window; navigate with `?view=code&panel=code`.
    * 2. Assert the terminal is visible, neither the code iframe nor the code
-   *    tile exists in the DOM, and the resolved layout is `single:tty` (the
-   *    default — the mirror DROPS the param, leaving a clean URL).
+   *    tile exists in the DOM, the option stays UNSET (the grammar-rejected
+   *    carried value is never written), and the URL is bare.
    */
   test("unavailable params fall through: ?view=code&panel=code resolves to plain tty on a /tmp window", async ({
     page,
@@ -390,14 +409,16 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     const id = await makeWindow(page, `cs-fallthrough-${Date.now()}`, {
       cwd: "/tmp",
     });
-    // The shim maps this to split-h:code,code — a repeated non-tty kind, which
-    // the grammar rejects — and code is unavailable here anyway (no gitRoot);
-    // both paths degrade tile-by-tile to single:tty, never a broken iframe.
+    // The inbound shim maps this to split-h:code,code — a repeated non-tty
+    // kind, which the grammar rejects — and code is unavailable here anyway
+    // (no gitRoot); the invalid carried value is never written, the fallback
+    // single:tty renders, never a broken iframe.
     await gotoWindow(page, id, "?view=code&panel=code");
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
     await expect(codeIframe(page)).toHaveCount(0);
     await expect(codeTile(page)).toHaveCount(0);
-    await expectLayoutParam(page, null); // default layout mirrors as a CLEAN URL (param dropped)
+    await expect.poll(() => new URL(page.url()).search, { timeout: 10_000 }).toBe("");
+    expect(windowOption(id, "@rk_win_layout")).toBe("");
   });
 
   /**
@@ -408,7 +429,7 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
    * (in-memory state preserved).
    *
    * Steps:
-   * 1. Create a repo-cwd window and stamp `@rk_win_url` (both surfaces
+   * 1. Create a repo-cwd window and stamp the slot-1 web tab (both surfaces
    *    available); navigate; assert both top-bar toggles.
    * 2. Open web; assert the `Proxied content` iframe is visible. Click the code
    *    top-bar toggle; assert the code iframe is visible AND the web iframe
@@ -421,17 +442,9 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     page,
   }) => {
     const id = await makeWindow(page, `cs-p3-${Date.now()}`);
-    // Stamp @rk_win_url so BOTH surfaces are available on this repo-cwd window.
-    execFileSync("tmux", [
-      "-L",
-      TMUX_SERVER,
-      "set-option",
-      "-w",
-      "-t",
-      id,
-      "@rk_win_url",
-      "http://localhost:8080/",
-    ]);
+    // Stamp the slot-1 web tab so BOTH surfaces are available on this repo-cwd
+    // window.
+    stampWebTab(id, "http://localhost:8080/");
     await gotoWindow(page, id);
     await expect(webToggle(page)).toBeVisible({ timeout: READY_TIMEOUT });
     await expect(codeToggle(page)).toBeVisible();

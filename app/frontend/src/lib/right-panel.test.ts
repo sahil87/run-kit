@@ -7,8 +7,7 @@ import {
 } from "./right-panel";
 import type { ViewWindow } from "./window-view";
 
-const webWin: ViewWindow = { rkUrl: "http://localhost:8080" };
-const whitespaceWin: ViewWindow = { rkUrl: "  \t " };
+const webWin: ViewWindow = { webTabs: ["http://localhost:8080"] };
 const plain: ViewWindow = {};
 
 beforeEach(() => {
@@ -22,7 +21,6 @@ describe("availableSurfaces", () => {
   it("offers tty first, then web — unconditionally (260821-zqlq)", () => {
     expect(availableSurfaces(webWin)).toEqual(["tty", "web"]);
     expect(availableSurfaces(plain)).toEqual(["tty", "web"]);
-    expect(availableSurfaces(whitespaceWin)).toEqual(["tty", "web"]);
     expect(availableSurfaces(null)).toEqual(["tty", "web"]);
     expect(availableSurfaces(undefined)).toEqual(["tty", "web"]);
   });
@@ -37,7 +35,7 @@ describe("availableSurfaces", () => {
   it("offers code exactly when gitRoot is set", () => {
     const codeWin: ViewWindow = { gitRoot: "/repo" };
     expect(availableSurfaces(codeWin)).toEqual(["tty", "code", "web"]);
-    expect(availableSurfaces({ rkUrl: "http://localhost:8080", chatProvider: "claude", gitRoot: "/repo" }))
+    expect(availableSurfaces({ webTabs: ["http://localhost:8080"], chatProvider: "claude", gitRoot: "/repo" }))
       .toEqual(["tty", "code", "web", "chat"]);
   });
 

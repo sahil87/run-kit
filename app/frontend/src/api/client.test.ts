@@ -38,7 +38,6 @@ import {
   setWindowRole,
   setWindowFlair,
   setSessionFlair,
-  updateWindowUrl,
   triggerUpdate,
   triggerForceUpdate,
   triggerRestart,
@@ -707,18 +706,6 @@ describe("POST verb migration + /options contract", () => {
     );
     await setWindowColor("default", "@2", null);
     expect(capturedBody.options).toEqual({ "@rk_win_color": null });
-  });
-
-  it("updateWindowUrl POSTs /options with @rk_win_url", async () => {
-    let capturedBody: { options?: Record<string, string | null> } = {};
-    mswServer.use(
-      http.post("/api/windows/:windowId/options", async ({ request }) => {
-        capturedBody = (await request.json()) as typeof capturedBody;
-        return HttpResponse.json({ ok: true });
-      }),
-    );
-    await updateWindowUrl("default", "@2", "https://x");
-    expect(capturedBody.options).toEqual({ "@rk_win_url": "https://x" });
   });
 
   it("setWindowRole POSTs /options with @rk_win_role; null and empty string both clear", async () => {

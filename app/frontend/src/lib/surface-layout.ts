@@ -4,13 +4,14 @@
  *
  * The terminal route's center is a LAYOUT MANAGER: one to three tiles, each
  * rendering a surface (a (substrate, lens) pair), arranged by a preset SHAPE
- * with a surface ORDER and per-viewer RATIOS. A layout is fully determined by
- * `(shape, order, ratios)`; ratios live per-viewer in localStorage and never
- * in the URL. This module owns the shape/parse/serialize rules, the
- * resolution ladder (URL `?layout=` > localStorage > default-view hint >
- * `single:tty`), the permanent translation shim for the retired `?view=` /
- * `?panel=` params (and their localStorage predecessors), availability
- * degradation, and the (shape, order) mutations behind the tile verbs.
+ * with a surface ORDER and per-viewer RATIOS. The (shape, order) half is
+ * shared tab state: it rides the `@rk_win_layout` window option in the window
+ * payload, and `effectiveLayout` is its only read (parse + degrade, never a
+ * rewrite). Ratios and the zoomed surface are per-viewer localStorage state,
+ * never in the URL. This module owns the shape/parse/serialize rules,
+ * availability degradation, the (shape, order) mutations behind the tile
+ * verbs, and the one-release inbound-only translation input for the retired
+ * `?view=` / `?panel=` params (and their localStorage predecessors).
  *
  * Everything here mirrors the shipped `window-view.ts` / `right-panel.ts`
  * pattern: pure and DOM-free except thin try/catch-noop localStorage
@@ -23,14 +24,11 @@
  */
 
 import {
-  defaultView,
   hasChat,
   hasCode,
-  windowViewStorageKey,
   type ViewName,
   type ViewWindow,
 } from "./window-view";
-import { panelStorageKey } from "./right-panel";
 
 /**
  * A tileable surface kind. Identical to the window-view lens registry
@@ -243,22 +241,29 @@ export function degradeLayout(
 }
 
 /**
- * The default-view hint as a layout (ladder rung 3): a legacy
- * `@rk_win_lens=iframe` window yields `single:web` (via `defaultView`);
- * everything else `single:tty`.
+ * The layout a window renders: the shared `@rk_win_layout` value from the
+ * payload, parsed and degraded against the window's available tiles (order
+ * preserved, slot A kept). An unset, malformed, or fully-unavailable value
+ * falls back to `single:tty` (`tty` is in every `availableTiles` result).
+ * Purely a READ — the option value is never rewritten here.
  */
-export function hintLayout(win: ViewWindow | null | undefined): Layout {
-  return { shape: "single", order: [defaultView(win)] };
+export function effectiveLayout(win: ViewWindow | null | undefined): Layout {
+  const parsed = parseLayout(win?.layout);
+  if (parsed) {
+    const degraded = degradeLayout(parsed, win);
+    if (degraded) return degraded;
+  }
+  return { shape: "single", order: ["tty"] };
 }
 
 /**
- * The permanent translation shim for the retired params (L1/R2):
+ * One-release inbound-only translation input for the retired params:
  * `?view=X` → `single:X`; `?view=X&panel=Y` → `split-h:X,Y` (X in slot A —
  * the visual continuation of the legacy main+panel split); a bare `?panel=Y`
  * translates against the tty default main slot. Returns `undefined` when
  * neither legacy param is present. The result is an UNVALIDATED layout
- * string — it feeds `resolveLayout`, whose parse + degrade passes reject or
- * shrink anything invalid (e.g. `?view=web&panel=web`).
+ * string — the caller parses + degrades it. Its only consumer is the
+ * route-entry translation effect; nothing resolves a live layout from it.
  */
 export function translateLegacyParams(
   view: string | null | undefined,
@@ -271,98 +276,78 @@ export function translateLegacyParams(
 }
 
 /**
- * Resolve the effective layout (L2/R3) with precedence:
- *   URL `?layout=` (already shim-translated by the caller) → localStorage
- *   `rk-layout:{server}:{windowId}` → the window's default-view hint →
- *   `single:tty`.
- * Every candidate passes parse + availability degradation; an unknown shape
- * or fully-invalid value falls through to the next rung, so a malformed or
- * stale deep link never renders a broken tile. The terminal fallback is
- * always available (`tty` is in every `availableTiles` result).
- *
- * `searchLayout`/`stored` are untrusted strings — validated here, so callers
- * may pass raw values.
+ * The one-shot route-entry translation decision. `carried` is the URL's
+ * layout (`?layout=` ?? the legacy-param translation), `storedLayout` /
+ * `storedLegacy` the localStorage predecessors, `winLayout` the window's
+ * current `@rk_win_layout` value. Precedence: carried > storedLayout >
+ * storedLegacy. `write` holds the serialized layout to POST exactly once and
+ * is present ONLY when the option is empty and the winning candidate parses —
+ * a set option always wins and writes nothing. `dropParams` is true when the
+ * URL carried a layout-bearing param, telling the caller to navigate to the
+ * bare route.
  */
-export function resolveLayout(
-  searchLayout: string | null | undefined,
-  stored: string | null | undefined,
-  win: ViewWindow | null | undefined,
-): Layout {
-  const candidates = [searchLayout, stored, serializeLayout(hintLayout(win))];
-  for (const candidate of candidates) {
-    const parsed = parseLayout(candidate);
-    if (!parsed) continue;
-    const degraded = degradeLayout(parsed, win);
-    if (degraded) return degraded;
-  }
-  return { shape: "single", order: ["tty"] };
+export function legacyTranslationDecision(input: {
+  carried?: string;
+  storedLayout?: string;
+  storedLegacy?: string;
+  winLayout?: string;
+}): { write?: string; dropParams: boolean } {
+  const { carried, storedLayout, storedLegacy, winLayout } = input;
+  const dropParams = carried !== undefined;
+  if (winLayout) return { dropParams };
+  const parsed = parseLayout(carried ?? storedLayout ?? storedLegacy);
+  if (!parsed) return { dropParams };
+  return { write: serializeLayout(parsed), dropParams };
 }
 
-// ── per-window layout persistence (L2/L3) ──────────────────────────────────
+// ── per-viewer zoom (one surface fills the layout area; the shared layout is
+//    untouched) ─────────────────────────────────────────────────────────────
 
 /**
- * Value-bearing per-window layout localStorage key (L2 — mirrors
- * `windowViewStorageKey`'s convention). Keyed by the immutable `@N` window id
- * (rename-proof). Absence means "use the hint/default rungs".
+ * Value-bearing per-window zoom localStorage key (the ratios-key convention).
+ * Stores a surface KIND, not a slot index: desktop zoom resolves it to the
+ * kind's first slot in the layout, and the mobile switch group addresses
+ * surfaces by kind. Absence means "no zoom".
  */
-export function layoutStorageKey(server: string, windowId: string): string {
-  return `rk-layout:${server}:${windowId}`;
+export function zoomStorageKey(server: string, windowId: string): string {
+  return `rk-layout-zoom:${server}:${windowId}`;
 }
 
 /**
- * Read the persisted layout STRING for a window. Returns `undefined` when
- * absent or when localStorage is unavailable (SSR/jsdom/quota) — the
- * try/catch-noop pattern from `window-view.ts`. The value is NOT validated
- * here; `resolveLayout` parses + degrades it.
+ * Read the persisted zoomed surface kind for a window. Returns `undefined`
+ * when absent, when the stored value is not a surface kind (untrusted-
+ * localStorage discipline: validate on read), or when localStorage is
+ * unavailable (SSR/jsdom/quota) — the try/catch-noop pattern.
  */
-export function readStoredLayout(
+export function readStoredZoom(
   server: string,
   windowId: string,
-): string | undefined {
+): SurfaceKind | undefined {
   try {
-    return localStorage.getItem(layoutStorageKey(server, windowId)) ?? undefined;
+    const raw = localStorage.getItem(zoomStorageKey(server, windowId));
+    return raw !== null && isSurfaceKind(raw) ? raw : undefined;
   } catch {
     return undefined;
   }
 }
 
 /**
- * Persist a window's layout. Best-effort (try/catch-noop). Callers MUST only
- * invoke this on user-initiated mutations (verbs, rail toggles, chip,
- * divider release) — never on merely arriving via a carried `?layout=` (L3).
+ * Persist the zoomed surface kind; `null` clears the key (unzoom). Best-effort
+ * (try/catch-noop); callers invoke on user-initiated zoom flips only.
  */
-export function writeStoredLayout(
+export function writeStoredZoom(
   server: string,
   windowId: string,
-  layout: Layout,
+  kind: SurfaceKind | null,
 ): void {
   try {
-    localStorage.setItem(layoutStorageKey(server, windowId), serializeLayout(layout));
-  } catch {
-    /* noop — best-effort persistence */
-  }
-}
-
-/**
- * One-time migration seeding (R2): when no `rk-layout:` key exists for a
- * window, translate the legacy predecessor keys (`runkit-window-view`,
- * `runkit-window-panel`) into the equivalent layout value and store it.
- * Legacy keys are LEFT IN PLACE (other tabs may run older code). A no-op
- * when the layout key already exists, when neither legacy key is present,
- * or when the translated value is malformed.
- */
-export function seedLayoutFromLegacy(server: string, windowId: string): void {
-  try {
-    const key = layoutStorageKey(server, windowId);
-    if (localStorage.getItem(key) !== null) return;
-    const view = localStorage.getItem(windowViewStorageKey(server, windowId));
-    const panel = localStorage.getItem(panelStorageKey(server, windowId));
-    const seeded = translateLegacyParams(view, panel);
-    if (seeded && parseLayout(seeded)) {
-      localStorage.setItem(key, seeded);
+    if (kind === null) {
+      localStorage.removeItem(zoomStorageKey(server, windowId));
+    } else {
+      localStorage.setItem(zoomStorageKey(server, windowId), kind);
     }
   } catch {
-    /* noop — best-effort migration */
+    /* noop — best-effort persistence */
   }
 }
 

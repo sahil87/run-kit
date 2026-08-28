@@ -247,8 +247,9 @@ export function HostOverviewPage() {
     setCreateName("");
   }, [createName, navigate, executeCreateServer, markServerPending]);
 
-  // "Open in tab" — open a listening service's UI in an @rk_win_lens=iframe tmux
-  // window via the existing /proxy/{port}/ reverse proxy. `/` is server-less, so
+  // "Open in tab" — open a listening service's UI in an iframe tmux window
+  // (the `createWindow` web arm) via the existing /proxy/{port}/ reverse
+  // proxy. `/` is server-less, so
   // resolve a target (server, session): the first-listed server, reusing its
   // first known session or creating an instant one, then create the iframe
   // window there and navigate to the server (the window surfaces via SSE).
@@ -285,7 +286,6 @@ export function HostOverviewPage() {
           // (validate.ValidateName), so `:${port}` fails — use `port-${port}`.
           `port-${port}`,
           undefined,
-          "iframe",
           `/proxy/${port}/`,
         );
         navigate({ to: "/$server", params: { server } });
@@ -534,7 +534,7 @@ export function HostOverviewPage() {
             non-HTTP port yields a failed iframe — that is user-initiated,
             visible, and harmless (the iframe load IS the on-demand probe).
             "Open in tab" is therefore gated solely on a tmux server existing.
-            Each tile opens the port's UI in an @rk_win_lens=iframe tmux window via
+            Each tile opens the port's UI in an iframe tmux window via
             the /proxy/{port}/ proxy. Well-known ports (< 1024) are de-emphasized
             (grey, sorted last) like infra servers. Placed last, after the
             tmux-server tiles. */}

@@ -188,3 +188,40 @@ export function sessionOption(
 ): string {
   return tmux(["show-options", "-qv", "-t", `=${session}:`, option], opts).trim();
 }
+
+/** Set a user option at WINDOW scope (a window-id target like `@3`). Throws
+ *  on failure. */
+export function setWindowOption(
+  windowId: string,
+  option: string,
+  value: string,
+  opts: TmuxOptions = {},
+): void {
+  tmux(["set-option", "-w", "-t", windowId, option, value], opts);
+}
+
+/** Read a user option held at WINDOW scope (`-wvq`: empty when unset, exit 0
+ *  either way — tmux exits 1 for an unknown WINDOW option only when the
+ *  window id is bad, which mid-test callers should see). */
+export function windowOption(
+  windowId: string,
+  option: string,
+  opts: TmuxOptions = {},
+): string {
+  try {
+    return tmux(["show-option", "-wvq", "-t", windowId, option], opts).trim();
+  } catch {
+    return "";
+  }
+}
+
+/** Stamp the slot-1 web tab the way the frontend's address bar / migration
+ *  does: `@rk_win_web_1` plus `@rk_win_web_active 1`. */
+export function stampWebTab(
+  windowId: string,
+  url: string,
+  opts: TmuxOptions = {},
+): void {
+  setWindowOption(windowId, "@rk_win_web_1", url, opts);
+  setWindowOption(windowId, "@rk_win_web_active", "1", opts);
+}

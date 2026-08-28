@@ -1,17 +1,19 @@
 # UI State — Every Addressable Thing Is a tmux Option
 
-> **Status**: DRAFT v0.2 (2026-08-28) — discussion artifact, iterating. Decided
-> 2026-08-28: zoom is per-viewer (not tmux); navigation is not tmux state in
-> v1; `?layout=` dies after one release of link translation. Assumes
+> **Status**: § Layout in tmux and § Code Surface + Code Bridge are
+> **[current]**; the Web Tabs strip (§ Web Tabs) and § `rk tab` remain
+> **[planned]**. Decided 2026-08-28: zoom is per-viewer (not tmux);
+> navigation is not tmux state in v1; `?layout=` dies after one release of
+> link translation. Assumes
 > `fab/plans/sahil/26-08-28-tmux-option-scope-naming.md` has shipped: every
 > option below uses the `@rk_<scope>_<name>` scheme and the plan's target map
 > is the starting inventory.
 >
 > **Supersedes / amends**: [`window-views.md`](window-views.md) R2 + R7 (choice
-> is no longer per-viewer), [`surface-layout.md`](surface-layout.md) § State —
-> the resolution ladder (L1–L4 retire), [`right-panel.md`](right-panel.md)
-> § Companion Windows (unshipped; folded into § Open Questions). Banners on those three files point here;
-> in-place amendments land with implementation. Terminology
+> is shared, not per-viewer), [`surface-layout.md`](surface-layout.md) § State,
+> [`right-panel.md`](right-panel.md)
+> § Companion Windows (unshipped; folded into § Open Questions) — the layout
+> and code-root amendments are applied in place in those files. Terminology
 > stays: rows are substrates, views are lenses.
 
 ## Contents
@@ -180,7 +182,7 @@ Starting point: the scope-naming plan's target map (22 options → 21 after
 
 ---
 
-## Layout in tmux
+## Layout in tmux **[current]**
 
 `@rk_win_layout` carries exactly what `?layout=` carried: **shape** (one of
 the surface-layout presets — `single`, `split-h`, `split-v`, `row`, `col`,
@@ -224,7 +226,7 @@ arrangement" is expressed as `rk tab layout @N …`, not as a link.
 
 ---
 
-## Web Tabs
+## Web Tabs **[planned]**
 
 **One `web` surface per tab; N web tabs inside it.** Chosen over "N web
 surfaces per tab" because:
@@ -286,7 +288,7 @@ viewer renders.
 
 ---
 
-## Code Surface + Code Bridge
+## Code Surface + Code Bridge **[current]**
 
 `@rk_win_code_root` replaces the per-browser latch. Seed rule unchanged:
 written once, the first time the code surface renders for the tab, from the
@@ -335,7 +337,7 @@ reads a tmux fact that already exists.
 
 ---
 
-## `rk tab` — The CLI Surface
+## `rk tab` — The CLI Surface **[planned]**
 
 All verbs are thin: resolve address → one or two `set-option` (or
 `new-window`) calls → print the resulting address on stdout (data), diagnostics

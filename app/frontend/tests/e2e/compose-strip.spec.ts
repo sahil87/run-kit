@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { execFileSync, execSync } from "node:child_process";
 import { pinWindow } from "./_boards";
 import { READY_TIMEOUT, resolveWindow } from "./_ready";
-import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
+import { TMUX_SERVER, createSession, killSession, listWindows, stampWebTab } from "./_tmux";
 
 /**
  * Docked compose strip e2e coverage. The strip replaces the modal
@@ -35,9 +35,9 @@ import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
  *
  * Shared setup: `beforeAll` creates two tmux sessions on the `rk-test-e2e`
  * server — `e2e-compose-<ts>`, a single window running `cat` so STDIN typed
- * via the strip echoes back into the pane (its window carries `@rk_win_url`,
+ * via the strip echoes back into the pane (its window carries a stamped web tab,
  * stamped up front: the backend's window payload refreshes on an interval, and
- * the split-layout test's web tile reads rkUrl from it), and
+ * the split-layout test's web tile reads the active web tab from it), and
  * `e2e-compose-board-<ts>`, two named windows (`cs-alpha`, `cs-bravo`) pinned
  * to a fresh per-run-unique board (`cs<digits>`) for the target-label test.
  * `afterAll` breaks out of `cat` (C-c) and kills both sessions. Each test
@@ -105,12 +105,13 @@ test.describe("Docked compose strip", () => {
     // this is how we verify Enter sends `text + \r` end-to-end.
     createSession(TERM_SESSION);
     tmux(`send-keys -t ${TERM_SESSION} 'cat' Enter`);
-    // Stamp @rk_win_url up front: the split-layout test's web tile reads rkUrl
+    // Stamp the slot-1 web tab up front: the split-layout test's web tile reads
+    // the active tab
     // from the backend's window payload, which refreshes on an interval —
     // setting the option mid-test raced that propagation (a >10s cold wait).
     const first = listWindows(TERM_SESSION)[0];
     if (first) {
-      execFileSync("tmux", ["-L", TMUX_SERVER, "set-option", "-w", "-t", first.windowId, "@rk_win_url", "http://localhost:8080/"]);
+      stampWebTab(first.windowId, "http://localhost:8080/");
     }
     // Board-route session with two named windows for the target-label test.
     createSession(BOARD_SESSION, { windows: ["cs-alpha", "cs-bravo"] });
@@ -537,8 +538,8 @@ test.describe("Docked compose strip", () => {
    * tile carries the strip with it (the dock rides the tile).
    *
    * Steps:
-   * 1. Set a 1440×800 viewport; resolve the `cat` session's window (its
-   *    `@rk_win_url` was stamped in `beforeAll` — the backend's window payload
+   * 1. Set a 1440×800 viewport; resolve the `cat` session's window (its slot-1
+   *    web tab was stamped in `beforeAll` — the backend's window payload
    *    refreshes on an interval, so a mid-test set raced that propagation; the
    *    iframe content is never asserted).
    * 2. Navigate to `/<server>/<windowId>?layout=split-h:tty,web`; wait for the
@@ -554,8 +555,9 @@ test.describe("Docked compose strip", () => {
     test.setTimeout(60_000);
     await page.setViewportSize({ width: 1440, height: 800 });
     const windowId = await resolveWindowId(page, TERM_SESSION);
-    // @rk_win_url was stamped in beforeAll (the backend payload refreshes on an
-    // interval — setting it here raced that propagation). The iframe src is
+    // The slot-1 web tab was stamped in beforeAll (the backend payload
+    // refreshes on an interval — setting it here raced that propagation). The
+    // iframe src is
     // deterministic regardless of whether anything listens there (we assert
     // dock placement, never iframe content).
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}?layout=split-h:tty,web`, {

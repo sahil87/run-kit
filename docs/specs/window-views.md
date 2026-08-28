@@ -1,10 +1,5 @@
 # Window Views — Rows Are Substrates, Views Are Lenses
 
-> **Amended by [`ui-state.md`](ui-state.md) (2026-08-28, draft):** R2 and R7 no longer hold — lens *choice* (layout) is shared tmux
-> state (`@rk_win_layout`), not per-viewer URL state; R1/R3/R4/R6 unchanged.
-> Read this file's rules through that lens until the in-place amendment lands
-> with implementation.
-
 > The model for every "parallel view" of a tmux window run-kit renders: what a
 > window row *is*, what a view *is*, how view availability is derived, and how
 > view choice is expressed. This spec unifies three features that grew up with
@@ -93,16 +88,16 @@ state (whose live address bar is itself the initialization path), a non-empty
 value renders the live iframe. This is the `code` row's model: a stable
 capability signal gates presence; a fluctuating condition governs content.
 
-### R2 — Choice is per-viewer, in the URL
+### R2 — Lens choice is shared tab state
 
-View state lives in a `?view=` search param on the existing
-`/$server/$window` route (Constitution IV: no new routes). Unknown or
-unavailable values fall back to `tty`. Deep links (push notifications, Host
-tiles) address a lens by URL. Last-chosen view per window persists in
-localStorage as a **value-bearing key** (stores the view name; absent = the
-window's default view). *This supersedes the chat plan's key-present
-`board-autofit`-style convention — value-bearing generalizes past two states;
-chat change 3 should read this spec at pickup.*
+Which lenses a tab shows is shared tab state: the `@rk_win_layout` window
+option carries shape and order, and every viewer of the tab renders the same
+arrangement ([`ui-state.md`](ui-state.md) § Layout in tmux). Unknown shapes or
+unavailable surfaces degrade tile-by-tile toward `tty`; the option itself is
+left as written. Deep links (push notifications, Host tiles) address the tab's
+bare route. The only per-viewer part of lens choice is the viewer's zoom /
+mobile single-tile choice, held in the `rk-layout-zoom:{server}:{@N}`
+localStorage key (a surface kind; absent = no zoom).
 
 ### R3 — The tty is always reachable
 
@@ -144,33 +139,23 @@ indicator is added to the bar**), and the heading's left anchor no longer jumps
 on a lens switch. Whichever change ships first (`web-view-lens` or chat change
 3) builds the generalized switcher; the other reuses it.
 
-### R5 — Default view is a derived hint, not a lock
+### R5 — retired
 
-A window MAY carry a default lens (e.g. `@rk_win_lens=iframe` legacy windows
-default to `web`; a headless codex-server pane defaults to `chat`). The
-default applies only when the URL carries no `?view=` and localStorage has no
-entry. It never removes the switcher.
-
-Capabilities are **orthogonal and stack**: nothing prevents one window from
-offering `web` + `chat` + `desktop` simultaneously (an agent pane in a window
-with `@rk_win_url` set, say). The switcher simply grows segments (R4); the only
-question stacking raises is which *default* wins when several hints apply, and
-the registry's fixed order answers it: `desktop > chat > web > tty` (a
-desktop window's tty is supervisor logs; a chat hint is more specific to the
-pane's process than a URL hint). The user's own choice — URL param, then
-localStorage — always outranks any hint.
+R5 — retired: the default-view hint is subsumed by an explicit `single:web`
+layout ([`ui-state.md`](ui-state.md)).
 
 ### R6 — The connection dot reports the current lens's health
 
 "Dot-everywhere = per-page live-data health" extends per-lens: tty → relay WS,
 web → n/a (falls back to SSE health), chat → chat stream, desktop → VNC WS.
 
-### R7 — Substrate state stays global; view state stays local
+### R7 — Content address and lens choice are substrate state; postures stay local
 
-Mutating the *content address* of a lens (e.g. editing `@rk_win_url` in the web
-view's URL bar) is substrate state — shared, POSTed, visible to everyone.
-Switching *which lens you look through* is view state — local, URL-carried.
-The current `>_` button conflates these; the retrofit separates them.
+Mutating the *content address* of a lens (`@rk_win_web_<n>`, edited in the web
+view's URL bar) and choosing *which lenses the tab shows* (`@rk_win_layout`)
+are both substrate state — shared tmux window options, POSTed, visible to
+every viewer and agent. Only render postures stay local to the viewer: tile
+zoom (`rk-layout-zoom:*`), divider ratios (`rk-layout-ratios:*`), and focus.
 
 ---
 

@@ -83,16 +83,16 @@ export function stepWebZoom(current: number, direction: "in" | "out"): number {
  * files rotate paths, so per-path buckets would fragment state). Never
  * throws — unparseable input degrades to `self`.
  */
-export function webZoomKeyFor(rkUrl: string): string {
+export function webZoomKeyFor(url: string): string {
   try {
-    const kind = classifyAddress(rkUrl);
+    const kind = classifyAddress(url);
     if (kind === "external") {
-      const origin = new URL(rkUrl).origin;
+      const origin = new URL(url).origin;
       if (origin !== "null") return origin;
       return "self";
     }
     if (kind === "proxy") {
-      const port = proxyPortOf(rkUrl);
+      const port = proxyPortOf(url);
       if (port !== null) return `proxy:${port}`;
       return "self";
     }

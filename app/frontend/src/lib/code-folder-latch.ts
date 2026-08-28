@@ -1,69 +1,44 @@
 /**
- * Per-window code-folder LATCH (change 260813-if5d-latch-code-surface-folder;
- * spec docs/specs/right-panel.md § The code lens).
+ * Code-surface folder helpers (spec docs/specs/right-panel.md § The code lens).
  *
- * The code surface's folder is NOT the live backend derivation. `gitRoot` is
- * re-derived per SSE tick from the ACTIVE pane's cwd, so a pane switch or a
- * `cd` would retarget (or unmount) the embedded editor and take its in-flight
- * state with it — open tabs, dirty buffers, undo stacks. Derivation therefore
- * only SEEDS: the first time the code surface actually renders for a window it
- * latches the derived root, and from then on the only writer is the editor's
- * own navigation (File > Open Folder, reported by `CodeSurface`'s load-event
- * seam). The terminal never moves the editor.
+ * The code surface's folder is SHARED tab state: it lives in the
+ * `@rk_win_code_root` window option and arrives in the window payload as
+ * `codeRoot`. `gitRoot` is re-derived per SSE tick from the ACTIVE pane's cwd,
+ * so a pane switch or a `cd` would retarget (or unmount) the embedded editor
+ * and take its in-flight state with it — open tabs, dirty buffers, undo
+ * stacks. Derivation therefore only SEEDS (`codeRootSeed`): the first render
+ * of the code tile with an empty option writes the derived root once, and from
+ * then on the only writer is the editor's own navigation (File > Open Folder,
+ * reported by `CodeSurface`'s load-event seam). The terminal never moves the
+ * editor.
  *
- * Storage is per-browser localStorage keyed by (server, window id) — the
- * `windowViewStorageKey` convention. Consequences accepted by design: another
- * browser/profile derives its own latch (code-server's own tabs/layout state is
- * already per-browser), and a tmux window id remapped by a snapshot restore
- * orphans its key (a missing latch simply re-seeds on the next open).
- *
- * Pure and DOM-free apart from the thin try/catch-noop storage wrappers — the
- * `window-view.ts` / `right-panel.ts` module contract.
+ * Pure and DOM-free — the `window-view.ts` / `right-panel.ts` module contract.
  */
 
+import type { ViewWindow } from "./window-view";
+import type { Layout } from "./surface-layout";
+
 /**
- * Value-bearing per-window latch key (mirrors `windowViewStorageKey`). Stores
- * the absolute folder PATH; absence means "not latched yet" — the next render
- * of the code surface seeds it from derivation.
+ * The folder the code surface opens: the shared code root, falling back to
+ * the derived `gitRoot` while the option is still unset (pre-seed renders and
+ * availability gating). "" when neither exists — the code surface is
+ * unavailable then (`hasCode` keys off the same pair).
  */
-export function codeFolderStorageKey(server: string, windowId: string): string {
-  return `runkit-code-folder:${server}:${windowId}`;
+export function codeRootFor(win: ViewWindow | null | undefined): string {
+  return win?.codeRoot || win?.gitRoot || "";
 }
 
 /**
- * Read a window's latched code folder. Returns `undefined` when absent, when
- * the stored value is empty, or when localStorage is unavailable
- * (SSR/jsdom/quota) — the try/catch-noop pattern from `window-view.ts`. An
- * empty value is treated as absent so a latch can never render a
- * `?folder=`-less workspace.
+ * The one-time seed for `@rk_win_code_root`: the derived `gitRoot`, but only
+ * when the code tile is actually open AND the option is still empty — seeding
+ * a closed tile would pin a root the user never asked for, and seeding over a
+ * set root would clobber the editor's own navigation. `null` means "no write".
  */
-export function readLatchedCodeFolder(
-  server: string,
-  windowId: string,
-): string | undefined {
-  try {
-    const raw = localStorage.getItem(codeFolderStorageKey(server, windowId));
-    return raw !== null && raw.length > 0 ? raw : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Latch a window's code folder. Best-effort — a localStorage failure (private
- * mode / quota / SSR) is swallowed (try/catch-noop). An empty folder is IGNORED
- * rather than stored: an empty derivation seeds nothing, so a window that was
- * never inside a repo behaves exactly as it did before the latch existed.
- */
-export function writeLatchedCodeFolder(
-  server: string,
-  windowId: string,
-  folder: string,
-): void {
-  if (folder.length === 0) return;
-  try {
-    localStorage.setItem(codeFolderStorageKey(server, windowId), folder);
-  } catch {
-    /* noop — best-effort persistence */
-  }
+export function codeRootSeed(
+  win: ViewWindow | null | undefined,
+  layout: Layout,
+): string | null {
+  return layout.order.includes("code") && !win?.codeRoot && win?.gitRoot
+    ? win.gitRoot
+    : null;
 }

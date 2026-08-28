@@ -150,8 +150,22 @@ export type WindowInfo = {
    *  the viewer-wide collector. Collector-join-owned (set on a URL hit, absent
    *  on a miss); surfaced as the row flyout card's "checked Xs ago" freshness line. */
   prFetchedAt?: string;
-  rkType?: string;
-  rkUrl?: string;
+  /** The tab's surface layout, from the `@rk_win_layout` window option
+   *  (`<shape>:<surface>[,<surface>…]`). Empty/absent renders `single:tty`.
+   *  Read-side is tolerant: the raw value rides through unvalidated (validation
+   *  is write-side; consumers parse). */
+  layout?: string;
+  /** The dense `@rk_win_web_<n>` family: slots 1..N walked in order, stopping
+   *  at the first empty (a hand-written gap degrades to the prefix). Index 0 is
+   *  tmux slot 1. */
+  webTabs?: string[];
+  /** The 1-based index into `webTabs` the web surface shows, from
+   *  `@rk_win_web_active`. 0/absent when no tabs; a non-numeric or out-of-range
+   *  stored value clamps to 1 backend-side (degrade, never error). */
+  webActive?: number;
+  /** The absolute folder the code surface opens, from `@rk_win_code_root`.
+   *  Empty/absent when unset. */
+  codeRoot?: string;
   /** The window's git toplevel, derived server-side from the active pane's cwd
    *  (`internal/sessions` `deriveGitRoot`). Empty/absent when the cwd is not a
    *  git repo. The per-window half of the code lens/surface availability gate

@@ -69,6 +69,9 @@ export type LayoutPaletteAction = {
   id: string;
   label: string;
   shortcut?: string;
+  /** Renders the row disabled (no-op on select) — the switch group's
+   *  full-layout affordance (`addSurface` → null). */
+  disabled?: boolean;
   onSelect: () => void;
 };
 
@@ -228,18 +231,22 @@ export function buildLayoutActions(
  * destination, never the current tile (the `buildViewActions` pattern). A
  * single-surface window yields an empty array — there is nothing to switch
  * to. On mobile these supersede the `View:` entries; the bodies invoke the
- * caller's switch-to-tile verb.
+ * caller's switch-to-tile verb. A destination whose growth the layout cannot
+ * host (`addSurface` → null, reported via `isDisabled`) renders DISABLED —
+ * the switch group's full-layout affordance.
  */
 export function buildTileSwitchActions(
   available: SurfaceKind[],
   visible: SurfaceKind,
   onSwitch: (surface: SurfaceKind) => void,
+  isDisabled?: (surface: SurfaceKind) => boolean,
 ): LayoutPaletteAction[] {
   return available
     .filter((kind) => kind !== visible && !SURFACE_RAIL_HIDDEN.has(kind))
     .map((kind) => ({
       id: `tile-switch-${kind}`,
       label: `Tile: Switch to ${SURFACE_LABEL[kind]}`,
+      disabled: isDisabled?.(kind) ?? false,
       onSelect: () => onSwitch(kind),
     }));
 }

@@ -1,0 +1,58 @@
+id: iip5
+name: 260828-iip5-ui-state-frontend-layout-code-root
+created: 2026-08-28T19:10:21Z
+created_by: sahil-noon
+change_type: refactor
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 23
+    acceptance_count: 38
+    acceptance_completed: 38
+confidence:
+    certain: 12
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.6
+    fuzzy: true
+    dimensions:
+        signal: 78.1
+        reversibility: 89.1
+        competence: 85.9
+        disambiguation: 82.5
+stage_metrics:
+    intake: {started_at: "2026-08-28T19:10:21Z", driver: fab-new, iterations: 1, completed_at: "2026-08-28T19:17:40Z"}
+    apply: {started_at: "2026-08-28T19:17:40Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-28T22:28:57Z"}
+    review: {started_at: "2026-08-28T22:28:57Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-28T22:43:05Z"}
+    hydrate: {started_at: "2026-08-28T22:43:05Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-28T22:54:32Z"}
+    ship: {started_at: "2026-08-28T22:54:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-28T23:22:42Z"}
+    review-pr: {started_at: "2026-08-28T23:22:42Z", driver: git-pr, iterations: 1, completed_at: "2026-08-28T23:33:54Z"}
+prs:
+    - ""
+    - https://github.com/sahil87/run-kit/pull/760
+change_type_source: explicit
+true_impact:
+    added: 3025
+    deleted: 2653
+    net: 372
+    excluding:
+        added: 2235
+        deleted: 2377
+        net: -142
+    tests:
+        added: 1372
+        deleted: 1339
+        net: 33
+    computed_at: "2026-08-28T23:22:42Z"
+    computed_at_stage: ship
+summary: frontend renders layout/code-root from tmux options — verbs POST @rk_win_layout with a pendingLayout optimistic overlay, one-shot legacy ?layout/view/panel + localStorage translation, @rk_win_code_root seed/follow, zoom persisted per viewer as rk-layout-zoom kind, backend rkUrl/rkType read shim deleted
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-28T23:33:54Z

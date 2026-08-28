@@ -326,7 +326,6 @@ describe("HostOverviewPage — Services zone", () => {
       "services",
       "port-5173",
       undefined,
-      "iframe",
       "/proxy/5173/",
     );
     expect(navigateMock).toHaveBeenCalledWith({ to: "/$server", params: { server: "runkit" } });
@@ -355,7 +354,6 @@ describe("HostOverviewPage — Services zone", () => {
       "existing",
       "port-3000",
       undefined,
-      "iframe",
       "/proxy/3000/",
     );
   });
@@ -378,7 +376,6 @@ describe("HostOverviewPage — Services zone", () => {
       "main",
       "port-8080",
       undefined,
-      "iframe",
       "/proxy/8080/",
     );
   });

@@ -19,13 +19,16 @@ import {
   SURFACE_GLYPH,
   SURFACE_LABEL,
   readStoredRatios,
+  readStoredZoom,
   writeStoredRatios,
+  writeStoredZoom,
   type Layout,
   type LayoutRatios,
   type LayoutShape,
   type SurfaceKind,
 } from "@/lib/surface-layout";
 import { clampRatio, MIN_PANEL_WIDTH_PX } from "@/lib/right-panel";
+import { codeRootFor } from "@/lib/code-folder-latch";
 import {
   disarmGuard,
   focusMemoryKey,
@@ -45,6 +48,7 @@ import {
   ZoomGlyph,
 } from "@/components/top-bar-icons";
 import type { ViewWindow } from "@/lib/window-view";
+import { activeWebUrl } from "@/lib/window-view";
 import {
   IDLE_PROGRESS,
   isValuedProgress,
@@ -57,7 +61,7 @@ import type { WindowInfo } from "@/types";
 import type { Terminal } from "@xterm/xterm";
 import type { SerializeAddon } from "@xterm/addon-serialize";
 import { copyToClipboard } from "@/lib/clipboard";
-import { fetchWindowHistory } from "@/api/client";
+import { fetchWindowHistory, setWindowOptions } from "@/api/client";
 import { useToast } from "@/components/toast";
 import {
   EXPORT_EVENT,
@@ -89,7 +93,7 @@ import {
  *   35px `bg-bg-card` header (32px content + 3px bottom rule, aligned with
  *   the sidebar rail's `border-t-[3px]` seam) —
  *   kind glyph (`SURFACE_GLYPH`) + surface name + the small meta as an inset
- *   chip (git-root basename for code, `@rk_win_url` host for web) — with
+ *   chip (code-root basename for code, the active web tab's host for web) — with
  *   rest-visible boxed verb buttons (24×24, 26×26 coarse; 14px SVG glyphs
  *   from the `top-bar-icons.tsx` register): zoom, promote, swap-with-next,
  *   ✕ close (a hairline rule separates ✕ from the safe verbs; its hover turns
@@ -115,9 +119,10 @@ import {
  *   `onFocusedKindChange` (app.tsx mirrors it for the `ttyOnly` shortcut
  *   gate) and settable by kind through the `focusTileRef` seam (the
  *   `zoomToggleRef` pattern — the palette's `Tile: Focus <Surface>`).
- * - **Zoom (R6)**: transient component state ONLY — one tile full-center, the
- *   others hidden at display level. No URL/localStorage write; the toggle
- *   renders only when arity > 1.
+ * - **Zoom (R6)**: one tile full-center, the others hidden at display level.
+ *   Per-viewer state, persisted as the zoomed surface KIND under
+ *   `rk-layout-zoom:{server}:{@N}` (the mobile switch group reads the same
+ *   key); the toggle renders only when arity > 1.
  * - **Hide-never-unmount (P3)**: a surface opened earlier this route visit
  *   stays mounted (`hidden` class) when closed or zoomed away, so iframe /
  *   terminal / chat state survives. The "ever opened" bookkeeping is keyed by
@@ -172,15 +177,15 @@ interface SurfaceLayoutProps {
   /** The route window id (`@N`). */
   windowId: string;
   sessionName: string;
-  /** The SSE-derived window record — tile meta + renderer props (rkUrl,
-   *  gitRoot) narrow from it; an unavailable kind renders an empty tile body
-   *  (the ladder's degradation should already have dropped it). */
+  /** The SSE-derived window record — tile meta + renderer props (web URL,
+   *  code root) narrow from it; an unavailable kind renders an empty tile body
+   *  (degradation should already have dropped it). */
   window: ViewWindow | null;
   /** Below `isMobileViewport()` only ONE slot renders (R13) — no dividers, no
    *  verb chrome. `mobileActiveSlot` picks WHICH slot: the top-bar switch
-   *  group swaps the slot-A surface via transient app-level state WITHOUT
-   *  mutating the shared layout (the layout stays desktop's arrangement).
-   *  Absent/out-of-range → slot 0. */
+   *  group swaps the shown surface via the per-viewer zoom key WITHOUT
+   *  mutating the shared layout for an already-open surface (the layout stays
+   *  desktop's arrangement). Absent/out-of-range → slot 0. */
   isMobile: boolean;
   mobileActiveSlot?: number;
   /** Shared terminal plumbing — handed to the FIRST tty tile only. */
@@ -226,11 +231,12 @@ interface SurfaceLayoutProps {
    *  a parent/e2e observe without owning anything. */
   onRatioChange?: (index: number, pct: number) => void;
   onRatioCommit?: () => void;
-  /** ⏶ Zoom palette seam (T012/R11): zoom stays INTERNAL transient state (R6),
-   *  but the palette's `Layout: Expand`/`Restore` entries must observe and
-   *  trigger it. The component registers a FOCUSED-slot zoom toggle into this
-   *  ref (260819-qwr7 R7 — cleared on unmount) and reports zoom flips via
-   *  `onZoomChange` so the palette list rebuilds. */
+  /** ⏶ Zoom palette seam (T012/R11): zoom is component-owned state persisted
+   *  to the per-viewer zoom key, but the palette's `Layout: Expand`/`Restore`
+   *  entries must observe and trigger it. The component registers a
+   *  FOCUSED-slot zoom toggle into this ref (260819-qwr7 R7 — cleared on
+   *  unmount) and reports zoom flips via `onZoomChange` so the palette list
+   *  rebuilds. */
   zoomToggleRef?: React.MutableRefObject<(() => void) | null>;
   onZoomChange?: (zoomed: boolean) => void;
   /** Focused-tile reporting (260812-wfic R2): fired with the focused slot's
@@ -494,19 +500,21 @@ function intersectionAxes(shape: LayoutShape): { xIndex: number; yIndex: number 
   }
 }
 
-/** Small header meta (R7): the code folder's basename for code, the `@rk_win_url`
- *  display form for web (the kind-specific pretty form — never throws, so a
- *  relative `/present/…`/`/proxy/…` address gets header meta too,
- *  260819-v6y4 R10). `gitRoot` arrives
- *  LATCHED (260813-if5d), so the header names the folder the editor is actually
- *  in — never the pane the terminal happens to sit in. */
+/** Small header meta (R7): the code root's basename for code, the active web
+ *  tab's display form for web (the kind-specific pretty form — never throws,
+ *  so a relative `/present/…`/`/proxy/…` address gets header meta too,
+ *  260819-v6y4 R10). The code root arrives via `codeRootFor` — the shared
+ *  `@rk_win_code_root` — so the header names the folder the editor is actually
+ *  in, never the pane the terminal happens to sit in. */
 function tileMeta(kind: SurfaceKind, win: ViewWindow | null): string | null {
-  if (kind === "code" && win?.gitRoot) {
-    const parts = win.gitRoot.split("/").filter(Boolean);
+  const codeRoot = kind === "code" ? codeRootFor(win) : "";
+  if (codeRoot) {
+    const parts = codeRoot.split("/").filter(Boolean);
     return parts.length > 0 ? parts[parts.length - 1] : null;
   }
-  if (kind === "web" && win?.rkUrl) {
-    return displayForm(win.rkUrl);
+  const webUrl = kind === "web" ? activeWebUrl(win) : "";
+  if (webUrl) {
+    return displayForm(webUrl);
   }
   return null;
 }
@@ -794,15 +802,51 @@ export function SurfaceLayout({
     });
   }, [layout.order]);
 
-  // ⏶ Zoom — transient only (R6): NO URL/localStorage write. Tracked as a
-  // slot index so duplicate tty tiles zoom independently; cleared when the
-  // layout can no longer host the zoomed slot (a close collapsed the arity).
-  const [zoomedIndex, setZoomedIndex] = useState<number | null>(null);
+  // ⏶ Zoom: one surface fills the layout area; the shared layout is
+  // untouched. Per-viewer and PERSISTED as the zoomed surface KIND under
+  // `rk-layout-zoom:{server}:{@N}` — the same key the mobile switch group
+  // reads. The KIND is the identity (`zoomedKindRef`); the rendered slot is
+  // derived from it, so a shared reorder (promote/swap from any viewer) moves
+  // the zoom with its surface instead of leaving it on whichever kind now
+  // occupies the old index. Duplicate tty tiles resolve to the first slot.
+  // Cleared (state AND key) when the layout can no longer host the zoom: a
+  // close collapsed the arity, or the zoomed kind left `layout.order`.
+  const [zoomedIndex, setZoomedIndex] = useState<number | null>(() => {
+    const kind = readStoredZoom(server, windowId);
+    if (!kind) return null;
+    const slot = layout.order.indexOf(kind);
+    return slot >= 0 ? slot : null;
+  });
+  const zoomedKindRef = useRef<SurfaceKind | null>(
+    zoomedIndex !== null ? (layout.order[zoomedIndex] ?? null) : null,
+  );
+  // Every zoom flip writes the key through this one seam (the zoomed slot's
+  // kind; `null` on unzoom). Flip initiators only: mount with no zoom writes
+  // nothing, so the mobile switch group's writes to the same key are never
+  // clobbered by a steady-state unzoomed desktop render.
+  const zoomedIndexRef = useRef(zoomedIndex);
+  zoomedIndexRef.current = zoomedIndex;
+  const flipZoom = useCallback(
+    (slot: number | null) => {
+      setZoomedIndex(slot);
+      const kind = slot !== null ? layout.order[slot] : undefined;
+      zoomedKindRef.current = kind ?? null;
+      writeStoredZoom(server, windowId, kind ?? null);
+    },
+    [layout.order, server, windowId],
+  );
   useEffect(() => {
-    setZoomedIndex((z) =>
-      z !== null && (layout.order.length <= 1 || z >= layout.order.length) ? null : z,
-    );
-  }, [layout.order.length]);
+    if (zoomedIndex === null) return;
+    const kind = zoomedKindRef.current;
+    const slot = kind === null ? -1 : layout.order.indexOf(kind);
+    if (layout.order.length <= 1 || slot < 0) {
+      flipZoom(null);
+      return;
+    }
+    // A reorder moved the zoomed kind: follow it (the key already holds the
+    // kind, so no write).
+    if (slot !== zoomedIndex) setZoomedIndex(slot);
+  }, [zoomedIndex, layout.order, flipZoom]);
   const zoomed = zoomedIndex !== null;
 
   // Zoom flip reporting for the palette seam (T012/R11): the `Layout: Expand`/
@@ -931,13 +975,15 @@ export function SurfaceLayout({
   useEffect(() => {
     if (!zoomToggleRef) return;
     zoomToggleRef.current = () =>
-      setZoomedIndex((z) =>
-        z === null ? Math.min(focusedSlotRef.current, layout.order.length - 1) : null,
+      flipZoom(
+        zoomedIndexRef.current === null
+          ? Math.min(focusedSlotRef.current, layout.order.length - 1)
+          : null,
       );
     return () => {
       zoomToggleRef.current = null;
     };
-  }, [zoomToggleRef, layout.order.length]);
+  }, [zoomToggleRef, layout.order.length, flipZoom]);
 
   // Palette focus seam (R10): `Tile: Focus <Surface>` routes through this
   // ref — focus the FIRST slot of the given kind (duplicate tty tiles: slot A
@@ -1210,13 +1256,19 @@ export function SurfaceLayout({
           </div>
         );
       case "web":
-        // Web availability is unconditional (260821-zqlq): an empty rkUrl
-        // renders IframeWindow's onboarding content branch, so the tile
-        // mounts regardless — the `win` guard narrows for the props.
+        // Web availability is unconditional (260821-zqlq): an empty active
+        // web tab renders IframeWindow's onboarding content branch, so the
+        // tile mounts regardless — the `win` guard narrows for the props.
         return win ? (
           <IframeWindow
-            windowId={windowId}
-            rkUrl={win.rkUrl ?? ""}
+            url={activeWebUrl(win)}
+            // Address-bar write seam: the ACTIVE web slot's option write
+            // (n = webActive, slot 1 while the pointer is unset) — the
+            // component stays payload-shape agnostic.
+            onWriteUrl={(url) => {
+              const n = win.webActive !== undefined && win.webActive >= 1 ? win.webActive : 1;
+              return setWindowOptions(server, windowId, { [`@rk_win_web_${n}`]: url });
+            }}
             onInteract={slot >= 0 ? () => focusSlot(slot) : undefined}
             // Page-title seam (260819-v6y4 R10): the header render is this
             // component's, but only the mounted iframe can read the
@@ -1229,13 +1281,15 @@ export function SurfaceLayout({
             shouldReclaimChord={shouldReclaimChord?.("web")}
           />
         ) : null;
-      case "code":
-        // `win.gitRoot` is the window's LATCHED code folder (260813-if5d — the
-        // parent substitutes it), so a pane switch can neither null this tile
-        // nor retarget the editor; the live derivation only ever seeded it.
-        return win?.gitRoot ? (
+      case "code": {
+        // The code root (`codeRootFor`): the shared `@rk_win_code_root` when
+        // set, the derived gitRoot pre-seed — a pane switch can neither null
+        // this tile nor retarget the editor; the live derivation only ever
+        // seeds it (the parent's seed effect, on first code-tile render).
+        const codeRoot = codeRootFor(win);
+        return codeRoot ? (
           <CodeSurface
-            gitRoot={win.gitRoot}
+            gitRoot={codeRoot}
             reachable={codeReachable}
             shouldReclaimChord={shouldReclaimChord?.("code")}
             onInteract={
@@ -1255,6 +1309,7 @@ export function SurfaceLayout({
             onFolderNavigated={onCodeFolderNavigated}
           />
         ) : null;
+      }
       case "chat":
         return (
           <ChatView
@@ -1298,18 +1353,19 @@ export function SurfaceLayout({
     // the page title reported up from the iframe, falling back to the
     // address's display form. The `relative` kind renders no badge (the plain
     // label + meta fallback below covers it). An ONBOARDING web tile
-    // (empty/whitespace rkUrl, 260821-zqlq) renders the plain `://  Web`
-    // label — no badge, no page title, no meta chip; the badge derivation is
-    // trimmed-keyed so empty input never reaches classifyAddress.
-    const webRkUrl = win?.rkUrl?.trim() ?? "";
+    // (empty/whitespace active web tab, 260821-zqlq) renders the plain
+    // `://  Web` label — no badge, no page title, no meta chip; the badge
+    // derivation is trimmed-keyed so empty input never reaches
+    // classifyAddress.
+    const webUrl = activeWebUrl(win).trim();
     const webBadge: { text: string; cls: string } | null = (() => {
-      if (kind !== "web" || webRkUrl === "") return null;
-      const kindOf = classifyAddress(webRkUrl);
+      if (kind !== "web" || webUrl === "") return null;
+      const kindOf = classifyAddress(webUrl);
       if (kindOf === "present") {
         return { text: "present", cls: "text-accent-green border-accent-green/40 bg-accent-green/10" };
       }
       if (kindOf === "proxy") {
-        const port = proxyPortOf(webRkUrl);
+        const port = proxyPortOf(webUrl);
         return {
           text: `:${port ?? "?"} proxy`,
           cls: "text-signal-yellow border-signal-yellow/40 bg-signal-yellow/10",
@@ -1577,7 +1633,7 @@ export function SurfaceLayout({
                   <button
                     type="button"
                     aria-label={isZoomed ? `Restore ${label}` : `Expand ${label}`}
-                    onClick={() => setZoomedIndex(isZoomed ? null : slot)}
+                    onClick={() => flipZoom(isZoomed ? null : slot)}
                     className={`${VERB_BUTTON_CLASS} hover:text-text-primary${
                       isZoomed ? " text-accent-green" : ""
                     }`}
@@ -1718,9 +1774,9 @@ export function SurfaceLayout({
 
   // Mobile (R13): ONE slot only, full-width, no verb chrome, no dividers.
   // Which slot is `mobileActiveSlot` — the top-bar switch group swaps the
-  // shown surface via transient app-level state, NEVER mutating the shared
-  // layout (it stays desktop's arrangement). All resolved surfaces stay
-  // mounted-hidden so switching loses no state.
+  // shown surface via the per-viewer zoom key, touching the shared layout
+  // only when the target surface is not open (an `addSurface` growth). All
+  // resolved surfaces stay mounted-hidden so switching loses no state.
   //
   // IMPORTANT (both branches): visible + hidden tiles render from ONE flat
   // array. Two separate `{arr1}{arr2}` expression slots reconcile

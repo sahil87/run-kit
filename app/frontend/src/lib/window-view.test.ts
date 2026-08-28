@@ -1,37 +1,62 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   hasWebUrl,
+  activeWebUrl,
   hasChat,
+  hasCode,
   availableViews,
-  defaultView,
   windowViewStorageKey,
   readStoredView,
   type ViewWindow,
 } from "./window-view";
 
-const iframeWithUrl: ViewWindow = { rkType: "iframe", rkUrl: "http://localhost:8080" };
-const iframeNoUrl: ViewWindow = { rkType: "iframe", rkUrl: "" };
-const iframeWhitespaceUrl: ViewWindow = { rkType: "iframe", rkUrl: "  \t " };
-const plainWithUrl: ViewWindow = { rkUrl: "http://localhost:3000" };
-const plainWhitespaceUrl: ViewWindow = { rkUrl: "   " };
+const tabsWin: ViewWindow = { webTabs: ["http://localhost:8080"] };
+const twoTabsWin: ViewWindow = {
+  webTabs: ["/proxy/3000/", "/present/@7/2/x.html"],
+  webActive: 2,
+};
+const emptyTabsWin: ViewWindow = { webTabs: [] };
 const plain: ViewWindow = {};
 const chatWin: ViewWindow = { chatProvider: "claude" };
-const chatAndWebWin: ViewWindow = { chatProvider: "claude", rkUrl: "http://localhost:8080" };
+const chatAndWebWin: ViewWindow = {
+  chatProvider: "claude",
+  webTabs: ["http://localhost:8080"],
+};
 const chatEmptyProvider: ViewWindow = { chatProvider: "" };
 
 describe("hasWebUrl", () => {
-  it("is true only for a non-whitespace rkUrl", () => {
-    expect(hasWebUrl(iframeWithUrl)).toBe(true);
-    expect(hasWebUrl(plainWithUrl)).toBe(true);
+  it("is true when the window carries at least one web tab", () => {
+    expect(hasWebUrl(tabsWin)).toBe(true);
+    expect(hasWebUrl(twoTabsWin)).toBe(true);
   });
 
-  it("is false for empty, whitespace-only, or missing rkUrl", () => {
-    expect(hasWebUrl(iframeNoUrl)).toBe(false);
-    expect(hasWebUrl(iframeWhitespaceUrl)).toBe(false);
-    expect(hasWebUrl(plainWhitespaceUrl)).toBe(false);
+  it("is false for an empty or missing tab family", () => {
+    expect(hasWebUrl(emptyTabsWin)).toBe(false);
     expect(hasWebUrl(plain)).toBe(false);
     expect(hasWebUrl(null)).toBe(false);
     expect(hasWebUrl(undefined)).toBe(false);
+  });
+});
+
+describe("activeWebUrl", () => {
+  it("returns the webActive slot of the family (1-based)", () => {
+    expect(activeWebUrl(twoTabsWin)).toBe("/present/@7/2/x.html");
+    expect(activeWebUrl(tabsWin)).toBe("http://localhost:8080");
+  });
+
+  it("returns \"\" for an empty or missing family", () => {
+    expect(activeWebUrl(emptyTabsWin)).toBe("");
+    expect(activeWebUrl(plain)).toBe("");
+    expect(activeWebUrl(null)).toBe("");
+  });
+
+  it("falls back to slot 1 when webActive is 0/absent", () => {
+    expect(activeWebUrl({ webTabs: ["a"], webActive: 0 })).toBe("a");
+    expect(activeWebUrl({ webTabs: ["a", "b"] })).toBe("a");
+  });
+
+  it("returns \"\" when webActive points out of range", () => {
+    expect(activeWebUrl({ webTabs: ["a"], webActive: 5 })).toBe("");
   });
 });
 
@@ -49,22 +74,30 @@ describe("hasChat", () => {
   });
 });
 
+describe("hasCode", () => {
+  it("is true with a shared codeRoot alone — a tab stays code-capable after its active pane leaves the repo", () => {
+    expect(hasCode({ codeRoot: "/repo" })).toBe(true);
+    expect(hasCode({ codeRoot: "/repo", gitRoot: "" })).toBe(true);
+  });
+
+  it("is true with a derived gitRoot alone (the pre-seed fallback)", () => {
+    expect(hasCode({ gitRoot: "/repo" })).toBe(true);
+    expect(hasCode({ codeRoot: "", gitRoot: "/repo" })).toBe(true);
+  });
+
+  it("is false when neither root exists", () => {
+    expect(hasCode(plain)).toBe(false);
+    expect(hasCode({ codeRoot: "", gitRoot: "" })).toBe(false);
+    expect(hasCode(null)).toBe(false);
+    expect(hasCode(undefined)).toBe(false);
+  });
+});
+
 describe("availableViews", () => {
-  it("offers tty + web when rkUrl is set (any rkType)", () => {
-    expect(availableViews(iframeWithUrl)).toEqual(["web", "tty"]);
-    expect(availableViews(plainWithUrl)).toEqual(["web", "tty"]);
-  });
-
-  it("always offers web, even with no rkUrl — availability is unconditional; hasWebUrl selects content", () => {
-    expect(availableViews(iframeNoUrl)).toEqual(["web", "tty"]);
+  it("always offers web + tty, tabs or not — availability is unconditional; hasWebUrl selects content", () => {
+    expect(availableViews(tabsWin)).toEqual(["web", "tty"]);
+    expect(availableViews(emptyTabsWin)).toEqual(["web", "tty"]);
     expect(availableViews(plain)).toEqual(["web", "tty"]);
-  });
-
-  it("offers web for a whitespace-only rkUrl — onboarding content, never a blank-src iframe", () => {
-    // `@rk_win_url` can be set to whitespace via external `tmux set-option`;
-    // hasWebUrl's `.trim()` keeps it reading as onboarding content.
-    expect(availableViews(iframeWhitespaceUrl)).toEqual(["web", "tty"]);
-    expect(availableViews(plainWhitespaceUrl)).toEqual(["web", "tty"]);
   });
 
   it("offers chat + web + tty when chatProvider is set", () => {
@@ -85,63 +118,25 @@ describe("availableViews", () => {
     expect(availableViews(undefined)).toEqual(["web", "tty"]);
   });
 
-  // The `code` lens (260811-k3vp, availability simplified by 260811-a2bo):
-  // available exactly when the window's gitRoot derived — the one stable
-  // capability signal (the port resolves by convention; reachability governs
-  // content, not availability).
+  // The `code` lens: available exactly when hasCode holds (a shared codeRoot
+  // or the derived gitRoot); reachability governs content, not availability.
   it("offers code when gitRoot is set", () => {
     const codeWin: ViewWindow = { gitRoot: "/repo" };
     expect(availableViews(codeWin)).toEqual(["code", "web", "tty"]);
   });
 
-  it("gates code off without a gitRoot", () => {
+  it("gates code off without a gitRoot or codeRoot", () => {
     expect(availableViews(plain)).toEqual(["web", "tty"]);
     expect(availableViews(null)).toEqual(["web", "tty"]);
   });
 
   it("stacks chat + code + web + tty in registry order", () => {
-    const all: ViewWindow = { chatProvider: "claude", gitRoot: "/repo", rkUrl: "http://localhost:8080" };
+    const all: ViewWindow = {
+      chatProvider: "claude",
+      gitRoot: "/repo",
+      webTabs: ["http://localhost:8080"],
+    };
     expect(availableViews(all)).toEqual(["chat", "code", "web", "tty"]);
-  });
-});
-
-describe("defaultView", () => {
-  it("defaults an iframe-typed window WITH a url to web (the demoted hint)", () => {
-    expect(defaultView(iframeWithUrl)).toBe("web");
-  });
-
-  it("defaults a plain window to tty", () => {
-    expect(defaultView(plain)).toBe("tty");
-    expect(defaultView(null)).toBe("tty");
-  });
-
-  it("defaults an iframe-typed window WITHOUT a url to tty (the hint requires a URL)", () => {
-    expect(defaultView(iframeNoUrl)).toBe("tty");
-  });
-
-  it("defaults an iframe-typed window with a WHITESPACE url to tty (not web)", () => {
-    // Consistent with hasWebUrl: a whitespace `@rk_win_url` is onboarding content,
-    // so the legacy iframe-typed default hint must not fire.
-    expect(defaultView(iframeWhitespaceUrl)).toBe("tty");
-  });
-
-  it("defaults a plain-typed window WITH a url to tty (iframe hint absent)", () => {
-    // rkUrl makes web AVAILABLE, but the default hint requires rkType==="iframe".
-    expect(defaultView(plainWithUrl)).toBe("tty");
-  });
-
-  it("defaults a chat-capable window to tty (chat contributes NO default hint)", () => {
-    // A chat-capable window still defaults to the terminal unless the viewer
-    // chose chat (preserves #351's terminal-default). Chat is in HINT_ORDER for
-    // capability ordering only, not as a default hint.
-    expect(defaultView(chatWin)).toBe("tty");
-  });
-
-  it("defaults a chat+web window to web (only the iframe hint fires)", () => {
-    // No `rkType=iframe`, so even the web hint doesn't fire → tty.
-    expect(defaultView(chatAndWebWin)).toBe("tty");
-    // With the iframe type, the web hint wins (chat still contributes none).
-    expect(defaultView({ ...chatAndWebWin, rkType: "iframe" })).toBe("web");
   });
 });
 

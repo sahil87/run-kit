@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 9
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-28T12:21:11Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-28T12:26:52Z"}
     review: {started_at: "2026-08-28T12:26:52Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-28T12:32:18Z"}
     hydrate: {started_at: "2026-08-28T12:32:18Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-28T12:48:18Z"}
-    ship: {started_at: "2026-08-28T12:48:18Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-28T12:48:18Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-28T12:48:52Z"}
+    review-pr: {started_at: "2026-08-28T12:48:52Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/756
 change_type_source: explicit
 true_impact:
-    added: 688
-    deleted: 19
-    net: 669
+    added: 1676
+    deleted: 48
+    net: 1628
     excluding:
-        added: 362
-        deleted: 15
-        net: 347
+        added: 922
+        deleted: 29
+        net: 893
     tests:
-        added: 272
+        added: 537
         deleted: 0
-        net: 272
-    computed_at: "2026-08-28T12:48:18Z"
-    computed_at_stage: hydrate
+        net: 537
+    computed_at: "2026-08-28T12:48:52Z"
+    computed_at_stage: ship
 summary: documents state-socket notify delivery, desktop native notifications and click routing, and shell-only SPA forwarding
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-28T12:48:18Z
+last_updated: 2026-08-28T12:48:52Z

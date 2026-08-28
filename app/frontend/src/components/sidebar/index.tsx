@@ -161,6 +161,13 @@ export type SidebarProps = {
    *  Optional (mirrors `SessionRow.onSpawnAgent`): when omitted (e.g. the
    *  board-route sidebar) the per-row bot button is hidden. */
   onSpawnAgent?: (server: string, session: string) => void;
+  /** Ask the server's operator window to write/refresh one-line @rk_note
+   *  annotations for the session's tabs (the update-annotations template's
+   *  session scope — 260827-8n6k). Optional (mirrors `onSpawnAgent`): when
+   *  omitted — e.g. the board-route sidebar — the session card's Update
+   *  annotations row is hidden. The consumer additionally gates on the server
+   *  having an operator window. */
+  onUpdateAnnotations?: (server: string, session: string) => void;
   /** Fork a window's agent conversation into a new window in the same session
    *  and directory (260806-s4av). Optional (mirrors `onSpawnAgent`): when
    *  omitted — e.g. the board-route sidebar — the row flyout's fork affordance is
@@ -171,16 +178,6 @@ export type SidebarProps = {
    *  `onForkWindow`): when omitted — e.g. the board-route sidebar — the row
    *  flyout's Fix tab name affordance is hidden. */
   onFixTabName?: (server: string, windowId: string) => Promise<void>;
-  /** Ask the server's operator window to annotate a subject window with a
-   *  one-line @rk_note status note (260824-bb5n-tab-status-note). Optional
-   *  (mirrors `onFixTabName`): when omitted — e.g. the board-route sidebar —
-   *  the row flyout's Annotate tab affordance is hidden. */
-  onAnnotateTab?: (server: string, windowId: string) => Promise<void>;
-  /** Open the shared retire confirm dialog for a subject window
-   *  (260822-rfz2-operator-digest-stuck-retire). Optional (mirrors
-   *  `onFixTabName`): when omitted — e.g. the board-route sidebar — the row
-   *  flyout's Retire… affordance is hidden. */
-  onRetireTab?: (server: string, windowId: string) => void;
   /** Open the operator compose dialog from the pinned operator row
    *  (260822-wyn3). Optional (mirrors `onForkWindow`): when omitted — e.g. the
    *  board-route sidebar — the pinned row renders no compose icon. */
@@ -207,10 +204,9 @@ export function Sidebar({
   onCreateWindow,
   onCreateSession,
   onSpawnAgent,
+  onUpdateAnnotations,
   onForkWindow,
   onFixTabName,
-  onAnnotateTab,
-  onRetireTab,
   onOperatorCompose,
   onCreateServer,
   onKillServer,
@@ -1819,6 +1815,7 @@ export function Sidebar({
                 onCreateWindow={onCreateWindow}
                 onCreateSession={onCreateSession}
                 onSpawnAgent={onSpawnAgent}
+                onUpdateAnnotations={onUpdateAnnotations}
                 onSessionRowKill={handleSessionRowKill}
                 onWindowRowKill={handleWindowRowKill}
                 onSessionStartEditing={handleStartSessionEditing}
@@ -1839,8 +1836,6 @@ export function Sidebar({
                 onWindowFlairChange={handleWindowFlairChange}
                 onForkWindow={onForkWindow}
                 onFixTabName={onFixTabName}
-                onAnnotateTab={onAnnotateTab}
-                onRetireTab={onRetireTab}
                 onOperatorCompose={onOperatorCompose}
                 onWindowDragStart={handleDragStart}
                 onWindowDragOver={handleDragOver}
@@ -2212,6 +2207,10 @@ type ServerGroupProps = {
   onCreateWindow: (server: string, session: string) => void;
   onCreateSession: (server: string) => void;
   onSpawnAgent?: (server: string, session: string) => void;
+  /** Forwarded to each `SessionRow` → its coarse session card's Update
+   *  annotations row. Optional (the board-route sidebar passes none) — see
+   *  `SidebarProps.onUpdateAnnotations`. */
+  onUpdateAnnotations?: (server: string, session: string) => void;
   onSessionRowKill: (server: string, name: string, windowCount: number, ctrl: boolean) => void;
   onWindowRowKill: (server: string, session: string, windowId: string, ctrl: boolean) => void;
   onSessionStartEditing: (server: string, name: string) => void;
@@ -2246,14 +2245,6 @@ type ServerGroupProps = {
    *  Optional (the board-route sidebar passes none) — see
    *  `SidebarProps.onFixTabName`. */
   onFixTabName?: (server: string, windowId: string) => Promise<void>;
-  /** Forwarded to each `WindowRow` → its row flyout's Annotate tab affordance.
-   *  Optional (the board-route sidebar passes none) — see
-   *  `SidebarProps.onAnnotateTab`. */
-  onAnnotateTab?: (server: string, windowId: string) => Promise<void>;
-  /** Forwarded to each `WindowRow` → its row flyout's Retire… affordance.
-   *  Optional (the board-route sidebar passes none) — see
-   *  `SidebarProps.onRetireTab`. */
-  onRetireTab?: (server: string, windowId: string) => void;
   /** Forwarded ONLY to the pinned operator row's `WindowRow` → its trailing
    *  compose icon (260822-wyn3). Optional — see `SidebarProps.onOperatorCompose`. */
   onOperatorCompose?: (server: string) => void;
@@ -2314,6 +2305,7 @@ function ServerGroupInner(props: ServerGroupProps) {
     onCreateWindow,
     onCreateSession,
     onSpawnAgent,
+    onUpdateAnnotations,
     onSessionRowKill,
     onWindowRowKill,
     onSessionStartEditing,
@@ -2334,8 +2326,6 @@ function ServerGroupInner(props: ServerGroupProps) {
     onWindowFlairChange,
     onForkWindow,
     onFixTabName,
-    onAnnotateTab,
-    onRetireTab,
     onOperatorCompose,
     onWindowDragStart,
     onWindowDragOver,
@@ -2993,8 +2983,6 @@ function ServerGroupInner(props: ServerGroupProps) {
               onFlairChange={onWindowFlairChange}
               onForkWindow={onForkWindow}
               onFixTabName={onFixTabName}
-              onAnnotateTab={onAnnotateTab}
-              onRetireTab={onRetireTab}
               onOperatorCompose={onOperatorCompose}
               hasOperator={hasOperator}
             />
@@ -3075,6 +3063,7 @@ function ServerGroupInner(props: ServerGroupProps) {
                     onColorChange={onSessionColorChange}
                     onFlairChange={onSessionFlairChange}
                     onSpawnAgent={onSpawnAgent}
+                    onUpdateAnnotations={hasOperator ? onUpdateAnnotations : undefined}
                   />
 
                   {!isCollapsed && (
@@ -3172,8 +3161,6 @@ function ServerGroupInner(props: ServerGroupProps) {
                             onFlairChange={ghost ? undefined : onWindowFlairChange}
                             onForkWindow={ghost ? undefined : onForkWindow}
                             onFixTabName={ghost ? undefined : onFixTabName}
-                            onAnnotateTab={ghost ? undefined : onAnnotateTab}
-                            onRetireTab={ghost ? undefined : onRetireTab}
                             hasOperator={hasOperator}
                           />
                         );

@@ -1,0 +1,14 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-27T06:17:00Z"}
+{"args":"Make the shipped @rk_note per-tab status note (260824-bb5n, PR #734) useful: session tiles render the note instead of the preview when present; new server-scoped update-annotations operator template with optional session scope; session flyout card action row + palette entry; remove the window flyout Annotate tab action row","cmd":"fab-new","event":"command","ts":"2026-08-27T06:17:00Z"}
+{"delta":"+4.1","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-08-27T06:19:59Z"}
+{"cmd":"fab-draft","event":"command","ts":"2026-08-27T06:20:09Z"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-08-27T06:21:13Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-27T06:21:28Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-27T06:21:28Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-28T02:25:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-28T02:29:59Z"}
+{"event":"review","result":"passed","ts":"2026-08-28T02:29:59Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-28T02:54:23Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-08-28T02:57:22Z"}
+{"cmd":"git-pr-review","event":"command","ts":"2026-08-28T02:59:24Z"}
+{"event":"review","result":"passed","ts":"2026-08-28T03:04:58Z"}

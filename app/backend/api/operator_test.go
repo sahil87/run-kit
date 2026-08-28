@@ -711,52 +711,18 @@ func TestServerOperatorRequestWhatsStuckSuccess(t *testing.T) {
 	}
 }
 
-// TestOperatorRequestRetireTabSuccess: retire-tab rides the WINDOW route — an
-// idle operator receives the rendered prompt (transcript path, both close-out
-// verbs with the fab change named, the exact bounded kill command) through the
-// full injection sequence targeting the operator's pane.
-func TestOperatorRequestRetireTabSuccess(t *testing.T) {
-	fastChatSendProbe(t)
-	stageFixtureTranscript(t, testChatRef)
-	sf := &mockSessionFetcher{result: operatorSessions("idle")}
-	ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "❯ [Pasted text #1 +9 lines]"}}
-	router := NewTestRouter(slog.Default(), sf, ops, "host")
-
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, operatorReq(`{"template":"retire-tab"}`))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
-	}
-	if ops.pasteChatPaneID != "%9" || ops.sendEnterPaneID != "%9" {
-		t.Errorf("injection targeted paste=%q enter=%q, want the OPERATOR pane %%9",
-			ops.pasteChatPaneID, ops.sendEnterPaneID)
-	}
-	prompt := ops.setChatBufferText
-	for _, want := range []string{
-		"tmux window @1", `"zsh"`,
-		"projects/someproj/" + testChatRef + ".jsonl",
-		`idea "<close-out note>"`,
-		"fab change 260822-fih1-operator-request-fix-tab-name at stage apply",
-		"tmux kill-window -t @1",
-		"EXACTLY this window", "Do not reply",
-	} {
-		if !strings.Contains(prompt, want) {
-			t.Errorf("prompt missing %q:\n%s", want, prompt)
-		}
-	}
-}
-
 // TestServerOperatorRequestNewScopeGuards: the scope discriminator covers the
 // new ids both directions — brief-me (server-scoped) on the window route and
-// retire-tab (window-scoped) on the server route are 400s before any fetch.
+// retire-tab (now retired — an unknown id) on the server route are 400s before
+// any fetch.
 func TestServerOperatorRequestNewScopeGuards(t *testing.T) {
 	rec := assertNoFetch(t, operatorReq(`{"template":"brief-me"}`))
 	if !strings.Contains(rec.Body.String(), "brief-me") {
 		t.Errorf("400 body = %s, want it to name the server-scoped id", rec.Body.String())
 	}
 	rec = assertNoFetch(t, serverOperatorReq(`{"template":"retire-tab"}`))
-	if !strings.Contains(rec.Body.String(), "retire-tab") {
-		t.Errorf("400 body = %s, want it to name the window-scoped id", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), "unknown operator template") {
+		t.Errorf("400 body = %s, want the unknown-template rejection", rec.Body.String())
 	}
 }
 
@@ -889,40 +855,6 @@ func TestRenderWhatsStuck(t *testing.T) {
 	}
 	if strings.Contains(prompt, "@2") || strings.Contains(prompt, "active-b") {
 		t.Errorf("non-waiting row leaked into the triage prompt:\n%s", prompt)
-	}
-}
-
-// TestRenderRetireTab: the prompt names the window, the transcript path, both
-// close-out verbs with the fab change named (conditional on FabChange), the
-// exact bounded kill command, and the do-not-reply bound; with an empty
-// FabChange only the `idea` verb appears.
-func TestRenderRetireTab(t *testing.T) {
-	facts := operatorFacts{
-		WindowID:       "@5",
-		Name:           "zsh",
-		TranscriptPath: "/home/u/.claude/projects/p/ref.jsonl",
-		FabChange:      "260822-rfz2-operator-digest-stuck-retire",
-		FabStage:       "apply",
-	}
-	prompt := renderRetireTab(facts)
-	for _, want := range []string{
-		"tmux window @5", `"zsh"`, "/home/u/.claude/projects/p/ref.jsonl",
-		`idea "<close-out note>"`,
-		"fab change 260822-rfz2-operator-digest-stuck-retire at stage apply",
-		"tmux kill-window -t @5", "EXACTLY this window", "Do not reply",
-	} {
-		if !strings.Contains(prompt, want) {
-			t.Errorf("prompt missing %q:\n%s", want, prompt)
-		}
-	}
-
-	facts.FabChange, facts.FabStage = "", ""
-	prompt = renderRetireTab(facts)
-	if !strings.Contains(prompt, `idea "<close-out note>"`) {
-		t.Errorf("empty FabChange dropped the idea verb:\n%s", prompt)
-	}
-	if strings.Contains(prompt, "fab change") {
-		t.Errorf("empty FabChange rendered a fab clause:\n%s", prompt)
 	}
 }
 
@@ -1169,5 +1101,150 @@ func TestAnnotateTabScopeGuards(t *testing.T) {
 	rec = assertNoFetch(t, operatorReq(`{"template":"annotate-tab","text":"evil client text"}`))
 	if !strings.Contains(rec.Body.String(), "annotate-tab") {
 		t.Errorf("400 body = %s, want it to name the closed template", rec.Body.String())
+	}
+}
+
+// --- the update-annotations template (260827-8n6k) ----------------------------
+
+// TestRenderUpdateAnnotations: the prompt carries every row via the digest row
+// writer (with the operator's own row excluded by construction — renders only
+// receive non-operator facts), the transcript-tail read instruction with the
+// capture fallback, the exact epoch-prefixed @rk_note actuation with the
+// ~100-char bound, the skip-if-nothing-meaningful clause, the repaint note,
+// and the write-only bounds. An empty table stays deliverable.
+func TestRenderUpdateAnnotations(t *testing.T) {
+	facts := serverOperatorFacts{Windows: []operatorWindowFact{
+		{Session: "s", WindowID: "@1", Name: "zsh", AgentState: "waiting", AgentIdleDuration: "3m",
+			TranscriptPath: "/t/zsh.jsonl", WorktreePath: "/wt/project",
+			FabChange: "260827-8n6k-update-annotations-tile-note", FabStage: "apply"},
+		{Session: "s", WindowID: "@2", Name: "plain", AgentState: "idle"},
+	}}
+	prompt := renderUpdateAnnotations(facts)
+	for _, want := range []string{
+		"s @1", `"zsh"`, "state=waiting 3m", "/t/zsh.jsonl",
+		"fab=260827-8n6k-update-annotations-tile-note at stage apply",
+		"s @2", `"plain"`, "transcript unavailable",
+		"NEVER capture-pane", "rk mux capture @N",
+		`tmux set-option -wt @N @rk_note "$(date +%s):<one-line note>"`,
+		"100 characters", "skip its write", "repaint within ~15 seconds",
+		"only @rk_note", "Do not reply",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "-u @rk_note") {
+		t.Errorf("the unset form leaked into the write-only prompt:\n%s", prompt)
+	}
+
+	empty := renderUpdateAnnotations(serverOperatorFacts{})
+	if !strings.Contains(empty, "nothing to annotate") {
+		t.Errorf("empty table prompt = %q, want a trivially-answerable prompt", empty)
+	}
+}
+
+// TestUpdateAnnotationsGuards: the template is server-scoped (window route
+// 400s it naming the id) and carries no acceptsText (client text hits the
+// closed-lane 400) — both before any fetch.
+func TestUpdateAnnotationsGuards(t *testing.T) {
+	rec := assertNoFetch(t, operatorReq(`{"template":"update-annotations"}`))
+	if !strings.Contains(rec.Body.String(), "update-annotations") {
+		t.Errorf("400 body = %s, want it to name the server-scoped id", rec.Body.String())
+	}
+	rec = assertNoFetch(t, serverOperatorReq(`{"template":"update-annotations","text":"evil client text"}`))
+	if !strings.Contains(rec.Body.String(), "update-annotations") {
+		t.Errorf("400 body = %s, want it to name the closed template", rec.Body.String())
+	}
+}
+
+// TestServerOperatorRequestUpdateAnnotationsSuccess: the template delivers
+// through the unchanged seam — 200 {"ok":true}, exactly ONE FetchSessions,
+// injection targeting the operator's pane, and the rendered prompt carrying
+// the row and the @rk_note actuation.
+func TestServerOperatorRequestUpdateAnnotationsSuccess(t *testing.T) {
+	fastChatSendProbe(t)
+	stageFixtureTranscript(t, testChatRef)
+	sf := &mockSessionFetcher{result: operatorSessions("idle")}
+	ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "❯ [Pasted text #1 +9 lines]"}}
+	router := NewTestRouter(slog.Default(), sf, ops, "host")
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, serverOperatorReq(`{"template":"update-annotations"}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if sf.calls != 1 {
+		t.Errorf("FetchSessions ran %d times, want exactly 1", sf.calls)
+	}
+	if ops.pasteChatPaneID != "%9" || ops.sendEnterPaneID != "%9" {
+		t.Errorf("injection targeted paste=%q enter=%q, want the OPERATOR pane %%9",
+			ops.pasteChatPaneID, ops.sendEnterPaneID)
+	}
+	prompt := ops.setChatBufferText
+	for _, want := range []string{
+		"s @1", `"zsh"`,
+		"projects/someproj/" + testChatRef + ".jsonl",
+		`tmux set-option -wt @N @rk_note "$(date +%s):<one-line note>"`,
+		"Do not reply",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "@9") {
+		t.Errorf("operator's own row leaked into the prompt:\n%s", prompt)
+	}
+}
+
+// TestServerOperatorRequestSessionLane: the optional session field scopes the
+// fact rows on a declaring template — a known name is filtered consumer-side
+// (only that session's rows render), an unknown name is the route's
+// absent-entity 404, and a non-empty session on a non-declaring template is
+// the closed-lane 400 BEFORE any fetch.
+func TestServerOperatorRequestSessionLane(t *testing.T) {
+	fastChatSendProbe(t)
+	stageFixtureTranscript(t, testChatRef)
+	sess := operatorSessions("idle")
+	sess[0].Name = "run-kit"
+	sess = append(sess, sessions.ProjectSession{Name: "other", Windows: []tmux.WindowInfo{
+		{WindowID: "@3", Name: "elsewhere"},
+	}})
+
+	// Known session — only its rows render.
+	sf := &mockSessionFetcher{result: sess}
+	ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "❯ [Pasted text #1 +9 lines]"}}
+	router := NewTestRouter(slog.Default(), sf, ops, "host")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, serverOperatorReq(`{"template":"update-annotations","session":"run-kit"}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	prompt := ops.setChatBufferText
+	if !strings.Contains(prompt, "run-kit @1") {
+		t.Errorf("scoped prompt missing the run-kit row:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "elsewhere") {
+		t.Errorf("scoped prompt carried another session's row:\n%s", prompt)
+	}
+
+	// Unknown session — 404 naming the name, no delivery.
+	ops = &mockTmuxOps{}
+	router = NewTestRouter(slog.Default(), &mockSessionFetcher{result: sess}, ops, "host")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, serverOperatorReq(`{"template":"update-annotations","session":"nope"}`))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "no session nope on this server") {
+		t.Errorf("404 body = %s, want it to name the session", rec.Body.String())
+	}
+	if len(ops.chatCalls) != 0 {
+		t.Errorf("injection ran (%v) for an unknown session", ops.chatCalls)
+	}
+
+	// Session on a non-declaring template — the closed-lane 400, pre-fetch.
+	rec = assertNoFetch(t, serverOperatorReq(`{"template":"brief-me","session":"run-kit"}`))
+	if !strings.Contains(rec.Body.String(), "brief-me") {
+		t.Errorf("400 body = %s, want it to name the non-declaring template", rec.Body.String())
 	}
 }

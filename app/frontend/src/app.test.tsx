@@ -932,6 +932,7 @@ function buildOperatorDigestActions(opts: {
     { id: "operator-brief-me", label: "Operator: Brief me", onSelect: () => opts.onFire("brief-me") },
     { id: "operator-whats-stuck", label: "Operator: What's stuck", onSelect: () => opts.onFire("whats-stuck") },
     { id: "operator-color-tabs", label: "Operator: Color tabs", onSelect: () => opts.onFire("color-tabs") },
+    { id: "operator-update-annotations", label: "Operator: Update annotations", onSelect: () => opts.onFire("update-annotations") },
   ];
 }
 
@@ -950,6 +951,7 @@ describe("CmdK Operator Digest Actions (hasOperatorWindow gate)", () => {
     expect(screen.getByText("Operator: Brief me")).toBeInTheDocument();
     expect(screen.getByText("Operator: What's stuck")).toBeInTheDocument();
     expect(screen.getByText("Operator: Color tabs")).toBeInTheDocument();
+    expect(screen.getByText("Operator: Update annotations")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Operator: Brief me"));
     expect(onFire).toHaveBeenCalledWith("brief-me");
@@ -963,6 +965,11 @@ describe("CmdK Operator Digest Actions (hasOperatorWindow gate)", () => {
     fireEvent.change(screen.getByPlaceholderText(/^Type a command/), { target: { value: "Operator:" } });
     fireEvent.click(screen.getByText("Operator: Color tabs"));
     expect(onFire).toHaveBeenCalledWith("color-tabs");
+
+    openPalette();
+    fireEvent.change(screen.getByPlaceholderText(/^Type a command/), { target: { value: "Operator:" } });
+    fireEvent.click(screen.getByText("Operator: Update annotations"));
+    expect(onFire).toHaveBeenCalledWith("update-annotations");
   });
 
   it("no entry is listed without an operator on the server", () => {
@@ -974,74 +981,7 @@ describe("CmdK Operator Digest Actions (hasOperatorWindow gate)", () => {
     expect(screen.queryByText("Operator: Brief me")).not.toBeInTheDocument();
     expect(screen.queryByText("Operator: What's stuck")).not.toBeInTheDocument();
     expect(screen.queryByText("Operator: Color tabs")).not.toBeInTheDocument();
-  });
-});
-
-/**
- * Tests for the Retire palette entry (260822-rfz2 R7) — `Tab: Retire (ask
- * operator)` is gated by the SAME three-part availability rule as fix-name
- * and opens the shared confirm dialog instead of firing directly. Mirrors the
- * buildFixTabNameActions precedent.
- */
-
-/** Build the Retire palette entry matching app.tsx's gate. */
-function buildRetireActions(opts: {
-  hasOperator: boolean;
-  chatSessionRef?: string;
-  currentRole?: string;
-  onRetire: () => void;
-}): PaletteAction[] {
-  if (!opts.hasOperator || !opts.chatSessionRef || opts.currentRole === "operator") return [];
-  return [{ id: "window-retire-operator", label: "Tab: Retire (ask operator)", onSelect: opts.onRetire }];
-}
-
-describe("CmdK Retire Action (operator-request gate)", () => {
-  afterEach(cleanup);
-
-  it("is listed when the rule holds and selecting it opens the confirm flow", () => {
-    const onRetire = vi.fn();
-    const actions = buildRetireActions({ hasOperator: true, chatSessionRef: "ref-1", onRetire });
-
-    render(<CommandPalette actions={actions} />);
-    openPalette();
-
-    const input = screen.getByPlaceholderText(/^Type a command/);
-    fireEvent.change(input, { target: { value: "Retire" } });
-    expect(screen.getByText("Tab: Retire (ask operator)")).toBeInTheDocument();
-    fireEvent.keyDown(input, { key: "Enter" });
-    expect(onRetire).toHaveBeenCalledOnce();
-  });
-
-  it("is absent without an operator on the server", () => {
-    const actions = buildRetireActions({ hasOperator: false, chatSessionRef: "ref-1", onRetire: vi.fn() });
-
-    render(<CommandPalette actions={actions} />);
-    openPalette();
-
-    expect(screen.queryByText("Tab: Retire (ask operator)")).not.toBeInTheDocument();
-  });
-
-  it("is absent when the current window carries no chat session ref", () => {
-    const actions = buildRetireActions({ hasOperator: true, onRetire: vi.fn() });
-
-    render(<CommandPalette actions={actions} />);
-    openPalette();
-
-    expect(screen.queryByText("Tab: Retire (ask operator)")).not.toBeInTheDocument();
-  });
-
-  it("is absent on the operator's own window", () => {
-    const actions = buildRetireActions({
-      hasOperator: true,
-      chatSessionRef: "ref-1",
-      currentRole: "operator",
-      onRetire: vi.fn(),
-    });
-
-    render(<CommandPalette actions={actions} />);
-    openPalette();
-
-    expect(screen.queryByText("Tab: Retire (ask operator)")).not.toBeInTheDocument();
+    expect(screen.queryByText("Operator: Update annotations")).not.toBeInTheDocument();
   });
 });
 

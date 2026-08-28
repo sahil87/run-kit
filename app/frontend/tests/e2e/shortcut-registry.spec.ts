@@ -75,6 +75,13 @@ async function mockBackend(page: Page, sessionsJson?: string) {
   await page.route("**/api/windows/*/select*", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' }),
   );
+  // Tile chords (⌃`, Ctrl+2…) are shared `@rk_win_layout` writes; the mocked
+  // payload never reflects them, so the optimistic overlay is what renders
+  // the opened tile — the POST just has to succeed (trailing `*`: the client
+  // appends `?server=`).
+  await page.route("**/api/windows/*/options*", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' }),
+  );
   await page.route("**/api/servers", (route) =>
     route.fulfill({
       status: 200,

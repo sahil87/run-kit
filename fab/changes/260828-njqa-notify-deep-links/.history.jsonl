@@ -1,0 +1,14 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-28T10:31:44Z"}
+{"args":"rk notify deep-links — clicking a Web Push notification jumps the dashboard to the originating tmux window: /api/notify accepts optional url (soft-drop invalid), rk notify gains --url flag + tmux-derived window route auto-derivation","cmd":"fab-new","event":"command","ts":"2026-08-28T10:31:44Z"}
+{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-08-28T10:33:42Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-08-28T10:34:50Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-28T10:36:29Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-28T10:44:40Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-28T10:48:24Z"}
+{"event":"review","result":"failed","ts":"2026-08-28T10:56:28Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-28T10:56:28Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-28T10:58:57Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-28T11:00:23Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-28T11:05:54Z"}
+{"event":"review","result":"passed","ts":"2026-08-28T11:05:54Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-28T11:07:19Z"}

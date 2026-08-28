@@ -48,14 +48,28 @@ func (s *Server) handlePushSubscribe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// notifyDeepLinkPath soft-validates an optional deep-link target from a notify
+// request: only a same-origin relative path is accepted — it must start with
+// "/" but not "//" (a protocol-relative "//evil.example" resolves to an
+// external origin). Anything else drops to "" rather than erroring: callers of
+// /api/notify are fail-soft by contract, and the service worker re-validates
+// the value before navigating anyway.
+func notifyDeepLinkPath(raw string) string {
+	if !strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, "//") {
+		return ""
+	}
+	return raw
+}
+
 // handleNotify sends a Web Push to all stored subscriptions and prunes dead
 // ones. The CLI ignores the response body; it is returned for observability.
-// POST /api/notify ← {title?, body} → {"sent": N, "pruned": M}
+// POST /api/notify ← {title?, body, url?} → {"sent": N, "pruned": M}
 func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxPushBodyBytes)
 	var body struct {
 		Title string `json:"title"`
 		Body  string `json:"body"`
+		URL   string `json:"url"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid JSON body")
@@ -69,9 +83,7 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(title) == "" {
 		title = "RunKit"
 	}
-	// The generic /api/notify path carries no deep-link URL (empty ⇒ the SW
-	// falls back to the app root on click).
-	result, err := push.Notify(r.Context(), title, body.Body, "")
+	result, err := push.Notify(r.Context(), title, body.Body, notifyDeepLinkPath(body.URL))
 	if err != nil {
 		// Pruning may have failed; the send summary is still meaningful.
 		s.logger.Warn("notify completed with error", "error", err, "sent", result.Sent, "pruned", result.Pruned)

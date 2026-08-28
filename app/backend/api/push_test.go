@@ -118,3 +118,47 @@ func TestNotify_noSubscriptionsReturnsSummary(t *testing.T) {
 		t.Errorf("summary = %+v, want {0,0}", result)
 	}
 }
+
+func TestNotifyDeepLinkPath(t *testing.T) {
+	cases := []struct {
+		raw, want string
+	}{
+		{"/noon/57", "/noon/57"},
+		{"/", "/"},
+		{"/noon/57?view=chat", "/noon/57?view=chat"},
+		{"//evil.example", ""},
+		{"https://evil.example/x", ""},
+		{"no-leading-slash", ""},
+		{"", ""},
+	}
+	for _, tc := range cases {
+		if got := notifyDeepLinkPath(tc.raw); got != tc.want {
+			t.Errorf("notifyDeepLinkPath(%q) = %q, want %q", tc.raw, got, tc.want)
+		}
+	}
+}
+
+// TestNotify_urlNeverRejects asserts the soft-drop contract: any url value —
+// valid or hostile — still yields a 200 send summary, never a 400 (`body`
+// remains the only required field).
+func TestNotify_urlNeverRejects(t *testing.T) {
+	isolatePush(t)
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	for _, body := range []string{
+		`{"body":"hi","url":"/noon/57"}`,
+		`{"body":"hi","url":"//evil.example"}`,
+		`{"body":"hi","url":"https://evil.example"}`,
+		`{"body":"hi","url":"garbage"}`,
+		`{"body":"hi","url":""}`,
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/api/notify", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Errorf("body %q: status = %d, want %d (invalid urls soft-drop, never 400)", body, rec.Code, http.StatusOK)
+		}
+	}
+}

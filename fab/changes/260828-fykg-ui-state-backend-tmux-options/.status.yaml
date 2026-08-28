@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 19
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-08-28T15:23:27Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-28T15:31:21Z"}
     hydrate: {started_at: "2026-08-28T15:31:21Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-28T15:47:01Z"}
     ship: {started_at: "2026-08-28T15:47:01Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-28T15:48:54Z"}
-    review-pr: {started_at: "2026-08-28T15:48:54Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-08-28T15:48:54Z", driver: git-pr, iterations: 1, completed_at: "2026-08-28T16:09:47Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/759
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: 'moves window web state to the indexed @rk_win_web_<n> family + @rk_win_layout/@rk_win_code_root (ListWindows/webtab verbs/layoutspec validation/snapshot round-trip/migration rows), with one-release compat: derived rkUrl/rkType JSON, /options retired-key translation, @rk_win_url dual-read, n-less /present arm'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-28T15:48:54Z
+last_updated: 2026-08-28T16:09:47Z

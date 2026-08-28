@@ -2,6 +2,35 @@ import { test, expect } from "@playwright/test";
 import { apiBase, pinWindow } from "./_boards";
 import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
+// Behavioural contract for the board pane reorder backend surface as consumed
+// by the frontend wiring: the fractional-index POST /api/boards/{name}/reorder
+// endpoint (moves a pinned pane by minting an orderKey strictly between its
+// new before/after neighbours), the reordered GET /api/boards/{name} result
+// (entries sorted by orderKey), and the per-server `board-changed`
+// state-socket event (change: "reorder") that useBoardEntries refetches on
+// with a 50ms debounce to reconcile the optimistic drag override.
+//
+// The frontend reorder is wired two ways — header drag-and-drop and the
+// palette Move Focused Pane Left/Right — but both converge on ONE reorderPin
+// POST carrying the moved pane's new neighbour windowIds. Native HTML5 drag is
+// unreliable to simulate in Playwright and page.reload() does not commit under
+// the SPA's long-lived state socket, so a "drag then reload and assert order"
+// e2e cannot be made deterministic; this spec exercises the endpoint, the
+// reordered GET, and the socket echo against the live backend, which IS
+// deterministic. The neighbour arithmetic (computeReorderNeighbors /
+// computeMoveNeighbors), the custom-MIME guard, the insert-before splice, and
+// the derive-over-store reconcile are covered by Vitest unit tests
+// (board-reorder.test.ts, use-board-pane-reorder.test.ts).
+//
+// Shared setup: beforeAll creates `e2e-board-reorder-<ts>` on E2E_TMUX_SERVER
+// (default `rk-test-e2e`) with windows win-a/win-b; afterAll kills the home
+// session (pin-sessions are reaped per test via unpin, or by the
+// isolated-server global teardown on failure). Each test pins both windows to
+// a fresh board `reo<ts>` (pin order = win-a, win-b), reorders, asserts, then
+// unpins both so the board disappears (empty boards are not kept). winIds()
+// reads the two windows' tmux ids in index order; apiBase() resolves the
+// backend origin.
+
 const TEST_SESSION = `e2e-board-reorder-${Date.now()}`;
 const BOARD_NAME = `reo${Date.now().toString().slice(-6)}`;
 
@@ -33,6 +62,22 @@ test.describe("Board pane reorder — reorder endpoint + board-changed SSE", () 
     // (global-teardown.ts kills the whole `rk-test-e2e*` server socket).
   });
 
+  /**
+   * Proves: pinning win-a then win-b yields board order [win-a, win-b]; a
+   * single POST …/reorder moving win-b before win-a (before: null, after:
+   * win-a) returns {ok: true, newOrderKey} and GET …/{board} then returns
+   * [win-b, win-a] — the orderKey is authoritative and one POST per move is
+   * sufficient (fractional indexing).
+   *
+   * Steps:
+   * 1. Resolve win-a / win-b ids; POST …/pin each (assert ok).
+   * 2. GET …/{board}; assert windowId order is [win-a, win-b].
+   * 3. POST …/reorder {server, windowId: win-b, before: null, after: win-a};
+   *    assert ok + non-empty newOrderKey.
+   * 4. Poll GET …/{board} until the windowId order equals [win-b, win-a]
+   *    (absorbs the tmux user-option write settling).
+   * 5. Unpin both windows (cleanup).
+   */
   test("reorder POST reorders entries by orderKey and GET reflects the new order", async ({
     request,
     baseURL,
@@ -84,6 +129,26 @@ test.describe("Board pane reorder — reorder endpoint + board-changed SSE", () 
     }
   });
 
+  /**
+   * Proves: a successful reorder POST fans out a `board-changed` per-server
+   * event (with change: "reorder", the board name, and the moved windowId) to
+   * a state-socket connection subscribed to that server — the echo
+   * useBoardEntries refetches on to reconcile the optimistic override.
+   *
+   * Steps:
+   * 1. Pin both windows via page.request.
+   * 2. Navigate to /board/<board> so the SPA's state socket connects.
+   * 3. In the page context, open a WebSocket to /ws/state, send `hello` +
+   *    `subscribe {kind:"server",key:<TMUX_SERVER>}`, and resolve on the first
+   *    {op:"event",kind:"server",type:"board-changed"} frame's data.
+   * 4. On the socket's onopen (deterministic — no fixed delay),
+   *    POST …/reorder {windowId: win-b, before: null, after: win-a} from the
+   *    page origin.
+   * 5. Await the resolved frame; parse it and assert change === "reorder",
+   *    board === <board>, and windowId === win-b (rejects if no frame arrives
+   *    within the timeout).
+   * 6. Unpin both windows (cleanup).
+   */
   test("a successful reorder POST broadcasts a board-changed SSE event", async ({
     page,
     baseURL,

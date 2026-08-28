@@ -1,14 +1,20 @@
 import { test, expect, type Page } from "@playwright/test";
 import { mockStateSocket } from "./_state-socket-mock";
 
-// Fully mocked (no tmux/gh) — inject the SSE `sessions` payload + server list
-// via page.route, then drive the command palette. See agent-next-waiting.spec.md
-// for intent + steps.
+// Fully mocked — no tmux, no gh, no real backend. page.route stubs:
+//   **/api/servers → a single server `default`.
+//   **/api/windows/*/select* → 200 (the trailing `*` is required so the
+//   client's appended `?server=` query is still intercepted).
+//   /ws/terminals → stubbed.
+// mockStateSocket injects the `sessions` event: session `dev` with two
+// windows — @1 "active-win" (agentState active, the active window) and @2
+// "waiting-win" (agentState waiting or idle, per test).
 //
-// Agent: Next waiting (260706-y1ar; status-pyramid.md § Attention Propagation).
-// The keyboard-first attention nav (Constitution V): cycles focus through
-// windows whose rolled-up agentState is `waiting`, navigating to them; no-op
-// with a "No agents waiting" toast when none.
+// Agent: Next waiting (docs/specs/status-pyramid.md § Attention Propagation) —
+// the keyboard-first attention nav (Constitution V): cycles to the next
+// window whose rolled-up agentState is `waiting`; no-ops with a
+// "No agents waiting" toast when none. runNextWaiting() opens the palette
+// (Meta+k), fills "Agent: Next waiting", and presses Enter.
 
 const SERVER = "default";
 
@@ -67,6 +73,16 @@ async function runNextWaiting(page: Page) {
 }
 
 test.describe("Agent: Next waiting palette action", () => {
+  /**
+   * Proves: invoking `Agent: Next waiting` from a non-waiting window navigates
+   * to the window whose agentState is `waiting`.
+   *
+   * Steps:
+   * 1. Mock the backend with @2 waiting; navigate to /default/1 (the active
+   *    window) and assert "active-win" is visible.
+   * 2. Run the `Agent: Next waiting` palette action.
+   * 3. Assert the URL navigated to /default/2 (the waiting window @2).
+   */
   test("navigates to the waiting window when one exists", async ({ page }) => {
     await mockBackend(page, true);
     // Start on the active (non-waiting) window.
@@ -79,6 +95,17 @@ test.describe("Agent: Next waiting palette action", () => {
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/2(?:$|[/?#])`));
   });
 
+  /**
+   * Proves: with no waiting windows the action does not navigate and surfaces
+   * the "No agents waiting" info toast.
+   *
+   * Steps:
+   * 1. Mock the backend with @2 idle (no window waiting); navigate to
+   *    /default/1 and assert "active-win" is visible.
+   * 2. Run the `Agent: Next waiting` palette action.
+   * 3. Assert the URL is still /default/1 (no navigation) and the
+   *    "No agents waiting" toast is visible.
+   */
   test("no-op with a 'No agents waiting' toast when none are waiting", async ({ page }) => {
     await mockBackend(page, false);
     await page.goto(`/${SERVER}/1`);
@@ -91,13 +118,23 @@ test.describe("Agent: Next waiting palette action", () => {
     await expect(page.getByText("No agents waiting")).toBeVisible({ timeout: 5_000 });
   });
 
-  // A-019: the waiting halo's STATIC (reduced-motion) form. Under
-  // prefers-reduced-motion the constant-yellow halo must not pulse — the
-  // globals.css @media block zeroes the animation and paints a static ring.
-  // Only real-browser CSS evaluates media queries + globals.css (jsdom does
-  // not), so this lives in e2e. The waiting-win's sidebar StatusDot carries the
-  // rk-waiting-halo class; we assert its computed animation is `none` and a
-  // static box-shadow ring remains.
+  /**
+   * Proves: under `prefers-reduced-motion: reduce` the waiting halo renders as
+   * a STATIC yellow ring — the globals.css reduced-motion block zeroes the
+   * pulse animation, but a visible box-shadow ring remains (attention is never
+   * encoded in motion alone). Only real-browser CSS evaluates media queries +
+   * globals.css (jsdom does not), so this lives in e2e.
+   *
+   * Steps:
+   * 1. Emulate reduced motion; mock the backend with @2 waiting; navigate to
+   *    /default/1.
+   * 2. Locate the waiting window's status dot by its composed aria-label
+   *    (`agent — active — agent waiting 3m`) and assert it carries the
+   *    `rk-waiting-halo` class.
+   * 3. Assert its computed `animation-name` is `none` (no pulse).
+   * 4. Assert its computed `box-shadow` is non-empty (the static ring still
+   *    paints).
+   */
   test("waiting halo is a static ring under prefers-reduced-motion", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await mockBackend(page, true);

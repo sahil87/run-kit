@@ -2,6 +2,33 @@ import { test, expect, type Page } from "@playwright/test";
 import { gotoServerReady, resolveWindow } from "./_ready";
 import { TMUX_SERVER, createSession, killSession } from "./_tmux";
 
+/**
+ * Sidebar keyboard navigation: the session/window tree is a W3C-APG
+ * disclosure tree (role="tree" / treeitem / group) with a single roving tab
+ * stop, and arrow keys move/expand/collapse/activate rows without hijacking
+ * rename inputs or the terminal.
+ *
+ * DOM contract: the scrollable Sessions region carries role="tree" with
+ * aria-label="Session tree". Session rows are role="treeitem" aria-level="1",
+ * carry a data-session-row handle equal to `${server}:${session}`, and
+ * aria-expanded mirrors their collapse state. Window rows are role="treeitem"
+ * aria-level="2" and carry two handles: the bare data-window-id (@N, for
+ * tests/automation/pin lookups) and a data-row-key equal to
+ * `${server}:${windowId}`. The latter is the globally-unique roving key —
+ * bare tmux ids (@N) repeat across servers, so the roving cursor and
+ * Enter/Space activation key on the namespaced handle. The roving key is read
+ * off whichever treeitem currently has tabindex="0" (its data-row-key for
+ * windows, data-session-row for sessions — never the bare data-window-id).
+ *
+ * Shared setup: beforeAll creates `e2e-kbnav-<timestamp>` with two windows
+ * (`edit`, `test`) so the tree has a session row plus ≥2 window rows;
+ * afterAll kills it. openTree(page) navigates to `/${TMUX_SERVER}`, waits for
+ * Connected, asserts the role="tree" element and the test session's row are
+ * visible, and returns the tree locator. rovingKey(page) returns the
+ * globally-unique roving key of the treeitem[tabindex="0"]. resolveWindowId
+ * polls /api/sessions to map a window's display name to its stable tmux id.
+ */
+
 const TEST_SESSION = `e2e-kbnav-${Date.now()}`;
 
 /** Resolve a window's stable tmux id (`@N`) by its display name. */
@@ -46,6 +73,16 @@ test.describe("Sidebar keyboard navigation", () => {
     });
   }
 
+  /**
+   * Proves: the tree exposes APG roles and maintains the roving-tabindex
+   * invariant — at least 3 treeitems (1 session + 2 windows) and exactly one
+   * with tabindex="0".
+   *
+   * Steps:
+   * 1. openTree.
+   * 2. Assert [role="tree"] [role="treeitem"] count ≥ 3.
+   * 3. Assert [role="tree"] [role="treeitem"][tabindex="0"] has count exactly 1.
+   */
   test("tree has role=tree with treeitem rows and exactly one tab stop", async ({ page }) => {
     await openTree(page);
     const items = page.locator('[role="tree"] [role="treeitem"]');
@@ -54,6 +91,21 @@ test.describe("Sidebar keyboard navigation", () => {
     await expect(tabStops).toHaveCount(1);
   });
 
+  /**
+   * Proves: ArrowDown/ArrowUp move the roving tab stop between the session
+   * row and its first window row, keyed on the server-namespaced roving key.
+   *
+   * Steps:
+   * 1. openTree; resolve the `edit` window id; derive its namespaced roving
+   *    key `${server}:${editId}`.
+   * 2. Focus OUR session row (the shared e2e tmux server may hold other
+   *    sessions; focusing does not move the roving tab stop — navigation
+   *    anchors on the focused row's nearest treeitem).
+   * 3. Press ArrowDown; assert the roving key is the `edit` window's
+   *    namespaced key.
+   * 4. Press ArrowUp from that row; assert the roving key is back on the
+   *    session row.
+   */
   test("ArrowDown/ArrowUp move the roving cursor and stop at the ends", async ({ page }) => {
     await openTree(page);
     const winEdit = await resolveWindowId(page, "edit");
@@ -78,6 +130,20 @@ test.describe("Sidebar keyboard navigation", () => {
     expect(await rovingKey(page)).toBe(sessionKey);
   });
 
+  /**
+   * Proves: ArrowLeft collapses an expanded session; ArrowRight re-expands it
+   * (focus stays on the session) and a second ArrowRight descends to its
+   * first window child, moving the roving cursor.
+   *
+   * Steps:
+   * 1. openTree; focus OUR session row (keys anchor on the focused row's
+   *    nearest treeitem, regardless of which row holds the roving tab stop).
+   * 2. Press ArrowLeft; assert the session row's aria-expanded="false".
+   * 3. Press ArrowRight; assert aria-expanded="true" (collapse/expand toggle
+   *    the row but do not move the tab stop).
+   * 4. Resolve the `edit` window id; press ArrowRight again; assert the
+   *    roving key is that window's namespaced key (`${server}:${editId}`).
+   */
   test("ArrowLeft collapses the session; ArrowRight expands then descends", async ({ page }) => {
     await openTree(page);
     const sessionKey = `${TMUX_SERVER}:${TEST_SESSION}`;
@@ -103,6 +169,19 @@ test.describe("Sidebar keyboard navigation", () => {
     expect(await rovingKey(page)).toBe(`${TMUX_SERVER}:${winEdit}`);
   });
 
+  /**
+   * Proves: Enter activates the focused window row — it navigates the URL to
+   * that window and marks the row aria-current="page".
+   *
+   * Steps:
+   * 1. openTree; resolve the `edit` window id.
+   * 2. Focus OUR session row, then press ArrowDown to descend to its first
+   *    window (edit); assert the roving key is the `edit` window's
+   *    namespaced key.
+   * 3. Press Enter on that row.
+   * 4. Assert the URL matches `/${TMUX_SERVER}/.+` and the
+   *    [data-window-id=edit] row shows aria-current="page" within 5s.
+   */
   test("Enter on a window row navigates to that window", async ({ page }) => {
     await openTree(page);
     const winEdit = await resolveWindowId(page, "edit");
@@ -122,6 +201,18 @@ test.describe("Sidebar keyboard navigation", () => {
     ).toBeVisible({ timeout: 5_000 });
   });
 
+  /**
+   * Proves: when a row's rename <input> is focused, ArrowDown moves the text
+   * caret (the tree handler early-returns) and the Escape-cancel rename
+   * contract still works.
+   *
+   * Steps:
+   * 1. openTree; focus the tab stop; press Home; record the roving key.
+   * 2. Double-click the session name button to enter rename mode; assert the
+   *    `Rename session` input is visible and focus it.
+   * 3. Press ArrowDown inside the input; assert the roving key is unchanged.
+   * 4. Press Escape; assert the rename input is hidden (cancel still works).
+   */
   test("arrows inside a rename input are not hijacked by the tree", async ({ page }) => {
     const tree = await openTree(page);
     await page.locator('[role="tree"] [role="treeitem"][tabindex="0"]').focus();

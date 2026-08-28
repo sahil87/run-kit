@@ -4,11 +4,57 @@ import { resolveWindow as resolveWindowRaw, gotoWindow as gotoWindowRaw } from "
 import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 import { stubProxyPorts } from "./_web-tile";
 
-// Regression proof for the top-bar overflow chevron menu (260715-h1ck) AND for
-// the review M1 fix (the measured right cell must FILL its `1fr` grid track, not
-// be content-sized). On the pre-M1 code the right cell measured only the exempt
-// block → budget < 0 → `visibleCount` deadlocks at 0 → NOTHING renders in-bar at
-// ANY width, so assertion (b)/(e) below (in-bar controls at wide widths) fail.
+// Regression proof for the top-bar overflow chevron menu and for the fix
+// that the measured right cell must FILL its `1fr` grid track (not be
+// content-sized). On the old content-sized cell the fit budget went negative
+// and `visibleCount` deadlocked at 0 — NOTHING rendered in-bar at any width;
+// the wide-width in-bar assertions here fail on that code and pass on the
+// fixed code.
+//
+// Covers the width sweep (1280 → 1024 → 800 → 700 → 640 → 500 → 375): (a) no
+// top-bar bounding-box overlap; (b) L1 drops before L2 before L3; (c) the
+// chevron menu contains the dropped + menuOnly rows + the version row,
+// grouped under Tiles / View / Tab / App section labels (Tiles is desktop
+// widths only — at mobile the surface-toggles entry forks to the pinned
+// switch group with no menu rows); (d) the version row copies to the
+// clipboard; (e) the exempt chevron is always visible (no connection dot in
+// the bar — it lives in the desktop status bar / mobile drawer footer);
+// (f) menu actions work from the menu; (g) the demoted controls
+// (fixed-width, Aa, close-pane, the merged split control in terminal mode,
+// plus the Help / Keyboard chrome rows — all `menuOnly`) render in-bar
+// NOWHERE at any width while their rows are ALWAYS in the menu; (h) the
+// Settings gear is a real fit candidate — the LAST one (Refresh drops before
+// it) — rendering in-bar between Refresh and the chevron at desktop widths.
+// The terminal fit tiers: L1 = the surface-toggle group (the L1 HEAD,
+// leftmost, first to drop as one unit ON DESKTOP) + the ▦ Layout chip
+// (overflowed, it renders one `Layout: …` radio row per arity-valid shape);
+// L2 = empty; L3 = Refresh + Settings gear — the in-bar end state is
+// [toggles] · ▦Layout · Refresh · Gear · chevron, with the chevron the SOLE
+// element of the trailing exempt block.
+//
+// Shared setup: `beforeEach` route-stubs `/proxy/8080/**` with a static 200
+// page (stubProxyPorts from _web-tile.ts — the dead-port error state hides
+// the iframe when nothing listens on the stamped URL, and these tests assert
+// tile chrome, never frame content). Real isolated tmux server: `beforeAll`
+// creates a dedicated session with an extra named window (`overflow-win-<ts>`)
+// so the terminal route renders the right cluster; the second describe adds a
+// SECOND, web-capable long-named window (`overflow-view-long-worktree-<ts>`
+// with a non-empty `@rk_win_url` ⇒ `[tty|web]`; the repo-cwd pane also
+// derives a `gitRoot` ⇒ `code`, so its toggle group shows Terminal/Web/Code)
+// so the palette's `View: Web` action actually renders (the palette gates on
+// a multi-view window). `resolveWindow`/`gotoWindow` (from `_ready.ts`)
+// resolve the window id and navigate to `/${server}/${id}`. In-bar control
+// visibility is measured via accessible-name ROLE queries scoped to the
+// banner landmark, which exclude the always-present off-screen `inert` +
+// `aria-hidden` measurement-probe copy — a match means the control is in-bar
+// (the surface-toggle group is detected via its `Terminal tile` button —
+// `getByTestId("surface-toggles")` is AMBIGUOUS, the probe carries a second
+// copy when the group is in-bar; banner-scoping avoids the tty tile header's
+// own `Close pane` button). The ViewSwitcher is RETIRED, so its absence is
+// checked two ways: no accessible `role="group"` named `Window view` AND no
+// `view-toggle` testid anywhere in the DOM (the probe carries no pill copy
+// either — fit candidates only). `intersects()` is the standard rect-overlap
+// helper (shared shape with top-bar-overlap.spec.ts).
 
 const TEST_SESSION = `e2e-overflow-${Date.now().toString().slice(-6)}`;
 const WINDOW_NAME = `overflow-win-${Date.now().toString().slice(-6)}`;
@@ -150,6 +196,24 @@ test.afterAll(() => {
 });
 
 test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
+  /**
+   * Proves: the exempt chevron renders at every width while the bar carries
+   * NO `role="status"` connection dot (the dot lives in the desktop status
+   * bar / mobile drawer footer), the right cluster never overlaps the
+   * center heading or the breadcrumb nav with no horizontal page overflow,
+   * and the demoted menuOnly controls render in-bar NOWHERE at any width.
+   *
+   * Steps:
+   * 1. Navigate to the long-named terminal window.
+   * 2. For each width in the sweep: assert the `More controls` chevron is
+   *    visible AND genuinely hit-testable (`elementFromPoint` at its center
+   *    resolves inside it — a narrow `1fr` track could otherwise clip it);
+   *    assert the right cell contains zero `role="status"` elements; assert
+   *    the in-bar count of the `MENU_ONLY` controls (split / fixed-width /
+   *    Aa / close-pane) is 0; assert the right cell's box does not
+   *    intersect the heading box nor the nav box; assert
+   *    `document.body.scrollWidth ≤ width`.
+   */
   test("the chevron is always visible (no bar dot) and the top bar never overlaps across the width sweep", async ({
     page,
   }) => {
@@ -214,6 +278,41 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     }
   });
 
+  /**
+   * Proves: the M1 fix (in-bar controls exist at wide widths) AND the
+   * pyramid drop order — overflow consumes from the front, so L1 (the
+   * surface-toggle group + the ▦ Layout chip; the group is the L1 head and
+   * drops first, as one unit) empties before L3 (Refresh · Settings gear)
+   * starts dropping (L2 is empty); each tier's in-bar count is monotonic
+   * non-increasing as width shrinks WITHIN each viewport regime — below
+   * 640px the surface-toggle group forks to SWITCH mode and becomes PINNED
+   * in-bar (exempt from the fit), freeing width, so the monotonic baseline
+   * resets once at the desktop→mobile crossing and the mobile tier counts
+   * exclude the pinned group's `Terminal tile` button (asserted separately
+   * to be in-bar at every mobile width on this code-capable window); at
+   * 375px the pyramid's front is gone while the L3 tail survives — the
+   * ORDER (not an all-gone cliff) is the contract.
+   *
+   * Steps:
+   * 1. At 1280px assert at least some L3 controls render in-bar (the direct
+   *    M1 regression assertion — pre-fix this is 0).
+   * 2. Sweep the widths; at each, count in-bar members of L1 / L2 / L3
+   *    (accessible-name role queries with EXACT string matching — a
+   *    substring "Layout" would false-positive on sidebar window rows
+   *    carrying the worktree slug; the probe is excluded), re-reading until
+   *    two consecutive (L1, L2, L3) snapshots agree — the tier reads are
+   *    not atomic and the ResizeObserver-driven re-fit can re-render
+   *    between them, so invariants are asserted on a settled layout. Assert
+   *    L1 and L2 counts are non-increasing (re-baselining once when the
+   *    sweep crosses the 640px mobile boundary; the mobile L1 count
+   *    excludes the pinned `Terminal tile` button); assert L2 is full while
+   *    any L1 is in-bar and L3 is full while any L2 is in-bar. At mobile
+   *    widths, assert the pinned `Terminal tile` button IS in-bar.
+   * 3. At 375px assert the L1 FIT-candidate count is 0 (the layout chip
+   *    overflowed; the pinned switch group is exempt from the count;
+   *    Refresh survives — the ORDER, not an all-gone cliff, is the
+   *    contract).
+   */
   test("controls overflow in pyramid order (L1 before L2 before L3) as width shrinks", async ({
     page,
   }) => {
@@ -292,6 +391,31 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     expect(await inBarCount(page, L1_MOBILE), "L1 fit candidates (▦ layout chip) gone at 375px").toBe(0);
   });
 
+  /**
+   * Proves: at 375px the menu lists the menuOnly split rows (two one-action
+   * rows, horizontal first), the overflowed ▦ Layout chip's
+   * `Layout: Single` radio row (one row per arity-valid shape; this 1-tile
+   * window has just the one), the menuOnly trio's rows, and the relocated
+   * App-section chrome rows (Help — run-kit docs, Keyboard shortcuts; the
+   * Theme… row is gone — theme switching lives in the settings dialog and
+   * the palette), plus the always-present version row — grouped under the
+   * View / Tab / App uppercase section labels. The TILES section is ABSENT
+   * at this mobile width: the surface-toggles entry is in SWITCH mode there
+   * — pinned in-bar and registering NO menu rows. Whichever L3 controls
+   * still fit at 375px stay in-bar (the suffix rule), so no Refresh /
+   * Settings row is asserted either way.
+   *
+   * Steps:
+   * 1. At 375px open the `More controls` menu.
+   * 2. Assert the Split horizontal / Split vertical / `Layout: Single`
+   *    (radio) / Fixed width (checkbox) / Terminal font (stepper group) /
+   *    Close pane rows are present, plus a `RunKit` version row; assert NO
+   *    `Tiles` section label and NO `Terminal tile` checkbox row (the
+   *    mobile switch mode registers no menu rows); assert the View / Tab /
+   *    App section labels render; assert the Help / Keyboard shortcuts rows
+   *    are PRESENT, the Theme… row is ABSENT, and the notification row is
+   *    ABSENT (the bell lives in the settings dialog).
+   */
   test("the chevron menu contains the overflowed + menuOnly rows plus the version row, grouped under section labels", async ({
     page,
   }) => {
@@ -347,6 +471,30 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     await expect(menu.getByRole("menuitem", { name: /RunKit/ })).toBeVisible();
   });
 
+  /**
+   * Proves: the demotion is menu-ONLY, not space-driven — at 1280px the bar
+   * has room (the surface-toggle group AND the ▦ Layout chip are in-bar,
+   * group leftmost — the in-bar order [toggles] · ▦Layout · Refresh · Gear
+   * · chevron) yet the demoted set AND the menuOnly chrome rows render only
+   * as menu rows; the Settings gear is a real fit candidate, rendering
+   * in-bar between Refresh and the chevron; and an in-bar entry's rows are
+   * NOT duplicated into the menu.
+   *
+   * Steps:
+   * 1. Navigate to the terminal window; set 1280×800; gate on the in-bar
+   *    `Terminal tile` toggle button AND the ▦ `Layout` chip; assert the
+   *    toggle button's box is LEFT of the Layout chip's (registry order —
+   *    the group is the L1 head).
+   * 2. Assert the in-bar count of the `MENU_ONLY` set (split included) and
+   *    of the Help / Keyboard shortcuts rows is 0; assert the
+   *    `Open settings` gear is visible in-bar with a bounding box between
+   *    Refresh's and the chevron's.
+   * 3. Open the menu; assert the Fixed width checkbox row, the Terminal
+   *    font stepper group, the Close pane row, and the two chrome rows are
+   *    present; assert the Split horizontal / Split vertical rows ARE
+   *    present (menuOnly — always in the menu, wide width included) and NO
+   *    `Settings` row (the gear is in-bar, so it contributes no menu row).
+   */
   test("the menuOnly rows (split / fixed-width / Aa / close-pane / Help / Keyboard) are in the menu even at a WIDE width", async ({
     page,
   }) => {
@@ -400,6 +548,20 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     await expect(menu.getByRole("menuitem", { name: "Settings" })).toHaveCount(0);
   });
 
+  /**
+   * Proves: the relocated chrome rows are functional, not just present —
+   * Help is a safe external link, and Keyboard shortcuts deep-links into
+   * the settings dialog's Shortcuts tab (the standalone overlay and its
+   * `shortcuts-overlay:open` event seam are retired).
+   *
+   * Steps:
+   * 1. Navigate to the terminal window; set 375×800; open the
+   *    `More controls` menu.
+   * 2. Assert the Help row's `href` / `target="_blank"` /
+   *    `rel="noopener…"`.
+   * 3. Click `Keyboard shortcuts`; assert the `Settings` dialog is visible
+   *    with the `settings-shortcuts-panel` testid inside; Escape-close it.
+   */
   test("the App-section chrome rows work: Help links out, Keyboard opens the overlay", async ({
     page,
   }) => {
@@ -429,6 +591,17 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     await expect(page.getByRole("dialog", { name: "Settings" })).toHaveCount(0);
   });
 
+  /**
+   * Proves: clicking the version row copies the displayed version form.
+   *
+   * Steps:
+   * 1. Grant clipboard permissions; open the menu at 375px.
+   * 2. Read the version row's text; click it.
+   * 3. If the row shows `RunKit v…` (a version was reported), assert the
+   *    clipboard holds the `v…` form; if it is the plain `RunKit` (no
+   *    version yet), the copy is a no-op and the clipboard assertion is
+   *    skipped.
+   */
   test("the version row copies the version to the clipboard", async ({ page, context }) => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     const id = await resolveWindow(page, WINDOW_NAME);
@@ -453,6 +626,18 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
     }
   });
 
+  /**
+   * Proves: a menu action mutates app state from within the menu. The
+   * fixed-width checkbox row is the representative stateful menu action
+   * (the one-shot chrome rows — Keyboard — have their own coverage above).
+   *
+   * Steps:
+   * 1. Open the menu at 375px; read the `Fixed width` row's `aria-checked`.
+   * 2. Click the row (the checkbox activation closes the menu).
+   * 3. Reopen the menu and assert the `aria-checked` state flipped; click
+   *    once more to restore the default full-width preference for later
+   *    specs.
+   */
   test("a menu action (fixed-width toggle) works from the menu", async ({ page }) => {
     // The fixed-width checkbox row is the representative stateful menu action
     // (the one-shot chrome rows — Keyboard — have their own event coverage
@@ -518,6 +703,23 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
     await gotoWindow(page, id);
   }
 
+  /**
+   * Proves: the removal contract — the retired switcher has no bar slot, no
+   * menu rows, and no measurement-probe copy at ANY width (including
+   * 1440px, where the whole cluster has room), while the VIEW section still
+   * carries the Fixed width / Terminal font rows.
+   *
+   * Steps:
+   * 1. Navigate to the web-capable window.
+   * 2. Sweep 1440 → 1280 → … → 375 (`[1440, ...WIDTHS]`), gating on the
+   *    renamable heading each iteration. At each width assert the
+   *    accessible `Window view` group has count 0 AND
+   *    `getByTestId("view-toggle")` has count 0.
+   * 3. At 1440px and 375px open the `More controls` menu and assert NO
+   *    `View:` menuitemradio rows, plus the Fixed width checkbox row and
+   *    the Terminal font stepper group visible; Escape-close between
+   *    widths.
+   */
   test("no `view-toggle` anywhere at any width; the menu carries no `View:` rows but keeps Fixed width + Terminal font", async ({
     page,
   }) => {
@@ -567,6 +769,28 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
     }
   });
 
+  /**
+   * Proves: with the right rail removed (its open-tile toggles relocated
+   * into the top bar as ONE bordered group) and the split control menuOnly
+   * in terminal mode, the surface-toggle group is terminal's FIRST fit
+   * candidate (the L1 head) — on DESKTOP, whenever its `Terminal tile`
+   * button is still in-bar, nothing has dropped yet, so every L1/L2/L3
+   * control is also in-bar (the surviving set is a suffix of the fit
+   * order). On MOBILE (<640px) the same entry forks to SWITCH mode and is
+   * PINNED: it stays in-bar at every mobile width (never overflowed, no
+   * Tiles menu rows) while other candidates drop around it.
+   *
+   * Steps:
+   * 1. Navigate to the web-capable window.
+   * 2. Sweep 1440 → … → 375, gating on the renamable heading each
+   *    iteration; at 1440px gate on a RETRYING `Terminal tile` visibility
+   *    expect (post-resize re-fit settle). At each DESKTOP width, if the
+   *    group is in-bar assert the full L1+L2+L3 in-bar count; at each
+   *    MOBILE width (<640px) assert the `Terminal tile` button IS in-bar
+   *    (the pinned switch group never overflows).
+   * 3. Assert the group was seen in-bar at some wide width (the desktop
+   *    side of the contract).
+   */
   test("the surface-toggle group is the first fit candidate to yield on desktop (the ▦ Layout chip next); on mobile it is PINNED in-bar", async ({
     page,
   }) => {
@@ -623,6 +847,28 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
     expect(sawInBar, "the surface-toggle group was in-bar at some (wide) width").toBe(true);
   });
 
+  /**
+   * Proves: when the group overflows at a DESKTOP width (below 640px the
+   * entry switches to the pinned in-bar switch group with NO menu rows),
+   * the chevron menu gains a Tiles section as its FIRST section (its label
+   * sits above View's), holding one `menuitemcheckbox` row per shown
+   * surface named `<Label> tile` with `aria-checked` = tile open (chat
+   * excluded — SURFACE_RAIL_HIDDEN).
+   *
+   * Steps:
+   * 1. Navigate to the web-capable window (offers `[tty|web|code]`).
+   * 2. Step the viewport down from 800px in 10px increments (staying above
+   *    the 640px mobile boundary), gating on the renamable heading each
+   *    step, until a bounded RETRYING expect confirms the in-bar
+   *    `Terminal tile` button is gone (the group is the L1 head — first to
+   *    drop — so a narrow-enough desktop width always reaches this). Assert
+   *    such a width was found.
+   * 3. Open the `More controls` menu; assert the `Tiles` and `View` section
+   *    labels are both visible and the Tiles label's box sits ABOVE View's.
+   * 4. Assert the `Terminal tile` checkbox row is visible with
+   *    `aria-checked="true"` (the tty tile is open) and the `Web tile` /
+   *    `Code tile` rows are visible with `aria-checked="false"`.
+   */
   test("the overflowed surface-toggle group renders a Tiles menu section FIRST (before View)", async ({
     page,
   }) => {
@@ -682,6 +928,20 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
     await expect(codeRow).toHaveAttribute("aria-checked", "false");
   });
 
+  /**
+   * Proves: the palette is a fully functional lens switcher at a WIDE width
+   * — the distinguishing case (the bar has room, yet the menu holds no
+   * `View:` rows): running the palette's `View: Web` action switches the
+   * lens (the selection becomes a `single:web` layout through the shared
+   * mutation path, mirrored into the URL as `?layout=single:web`).
+   *
+   * Steps:
+   * 1. Navigate to the web-capable window; set 1440×800; gate on the
+   *    renamable heading.
+   * 2. Press `Meta+k`; fill `View: Web`; click the `View: Web` option.
+   * 3. Assert the decoded `layout` param reads `single:web` and the proxied
+   *    iframe (`title="Proxied content"`) renders.
+   */
   test("a palette `View:` action switches the lens — even at a wide width", async ({
     page,
   }) => {

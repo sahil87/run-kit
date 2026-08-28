@@ -1,6 +1,24 @@
 import { test, expect, type Page } from "@playwright/test";
 import { TMUX_SERVER } from "./_tmux";
 
+/**
+ * Uniform chip sizing in the bottom bar at mobile width: every visible button
+ * in the `Terminal keys` toolbar (Tab, `^`, `⌥`, `F▴`, the ArrowPad trigger,
+ * `>_`, `⌘K`, and the coarse-only `⌨` toggle) must render the exact same box.
+ * All chips share one class (`KBD_CLASS` in `src/components/kbd-chip.ts`); a
+ * chip that hardcodes its own size drifts.
+ *
+ * Shared setup:
+ * - Viewport is iPhone 14-sized (375×812) in both describes via `test.use`.
+ * - The touch describe adds `hasTouch: true`, which flips Chromium's
+ *   `(pointer: coarse)` media query — activating the Tailwind `coarse:` variant
+ *   (the real 36×36 touch-target path) and revealing the coarse-only `⌨` chip.
+ * - Chips are measured by `collectChipSizes`: every button inside
+ *   `toolbar[name='Terminal keys']` via `getByRole` (accessibility-tree match,
+ *   so pointer-hidden chips are excluded automatically), bounding boxes rounded
+ *   to whole px. Popup contents (F▴ menu, arrow popup) stay closed and unmeasured.
+ */
+
 // iPhone 14 viewport
 const MOBILE_VIEWPORT = { width: 375, height: 812 };
 
@@ -47,6 +65,18 @@ test.describe("Bottom bar chip size — touch device", () => {
   // Tailwind `coarse:` variant — the real mobile touch-target path.
   test.use({ hasTouch: true, viewport: MOBILE_VIEWPORT });
 
+  /**
+   * Proves: on a touch device at mobile width the chip row is visually uniform
+   * (one distinct width×height across all chips) and every chip meets the 36px
+   * minimum touch target from `coarse:min-h/w-[36px]`.
+   *
+   * Steps:
+   * 1. Navigate to `/${TMUX_SERVER}` with `hasTouch: true` at 375×812.
+   * 2. Collect the size of every button in the `Terminal keys` toolbar.
+   * 3. Assert the set of distinct `width×height` values has exactly one entry
+   *    (the failure message lists every chip's label and size).
+   * 4. Assert each chip's width and height is ≥ 36.
+   */
   test("all chips share one size and meet the 36px touch target", async ({
     page,
   }) => {
@@ -68,10 +98,17 @@ test.describe("Bottom bar chip size — touch device", () => {
 test.describe("Bottom bar chip size — fine pointer", () => {
   test.use({ viewport: MOBILE_VIEWPORT });
 
-  // 260814-ldbs R3: the bar is pointer-gated out of existence on FINE
-  // pointers — at ANY width, mobile included (a narrow fine-pointer window
-  // has a hardware keyboard; the chips are key-simulation affordances).
-  // The former same-size measurement now lives only in the touch describe.
+  /**
+   * Proves: the fine-pointer half of the pointer split is the bar's absence —
+   * on a fine pointer the bar is gated out of existence at ANY width, mobile
+   * included (a narrow fine-pointer window still has a hardware keyboard; the
+   * chips are key-simulation affordances). Chip sizing is exercised only in the
+   * touch describe above, where the bar exists.
+   *
+   * Steps:
+   * 1. Navigate to `/${TMUX_SERVER}` at 375×812 (no touch emulation).
+   * 2. Assert the `Terminal keys` toolbar has count 0.
+   */
   test("the bar does not render at mobile width", async ({ page }) => {
     await page.goto(`/${TMUX_SERVER}`);
     await page.waitForLoadState("domcontentloaded");

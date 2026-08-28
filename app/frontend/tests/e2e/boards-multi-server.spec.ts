@@ -2,6 +2,22 @@ import { test, expect } from "@playwright/test";
 import { pinWindow, trackPin, unpinAll } from "./_boards";
 import { TMUX_SERVER, TMUX_FAMILY, createSession, killServer, killSession, listWindows } from "./_tmux";
 
+// The board view aggregates pinned windows sharing a board name across
+// multiple tmux servers. In the move-based model each pinned window's
+// pin-session (`_rk-pin-<id>`) lives on a single tmux server (boards are
+// server-scoped), but GET /api/boards/<name> and the board page UNION every
+// pin-session carrying that pin-board name across all reachable servers.
+//
+// Shared setup: beforeAll creates a session with one named window on the
+// primary e2e tmux server (srv-a-win) plus a second tmux server (named inside
+// this worktree's socket family via the TMUX_FAMILY anchor, with the
+// Playwright process.pid embedded so the automatic post-sweep can parse it)
+// with its own session (srv-b-win). Every pin is registered with the shared
+// `_boards.ts` cleanup registry (trackPin); afterAll runs unpinAll
+// (best-effort unpin of every tracked entry, so the persistent primary e2e
+// server carries no stale `_rk-pin-*` pin-sessions into later runs), then
+// kills the primary session and the secondary tmux server entirely.
+
 const TMUX_SERVER_A = TMUX_SERVER;
 // Second tmux server, set up explicitly so the cross-server union has a real
 // counterpart. Named inside this worktree's socket family (TMUX_FAMILY anchor)
@@ -31,6 +47,25 @@ test.describe("Boards: multi-server union", () => {
     killServer(TMUX_SERVER_B);
   });
 
+  /**
+   * Proves: pinning windows from two different tmux servers to the same board
+   * name makes both windows appear on the board page — the cross-server
+   * board-name aggregation contract holds end-to-end through the HTTP API and
+   * the UI render path, even though each pin-session is server-local.
+   *
+   * Steps:
+   * 1. Read each server's window id via tmux list-windows so pin POSTs target
+   *    real windows.
+   * 2. POST /api/boards/<name>/pin for server A's window via page.request and
+   *    record the entry for cleanup.
+   * 3. POST /api/boards/<name>/pin for server B's window via page.request and
+   *    record the entry for cleanup.
+   * 4. GET /api/boards/<name> and assert the returned entries include both
+   *    server names — the API-level union holds.
+   * 5. Navigate to /board/<name> (domcontentloaded — no waiting on every xterm
+   *    WebSocket) and assert both `srv-a-win` and `srv-b-win` are visible —
+   *    the UI render path also holds.
+   */
   test("a board with windows from two servers shows the union on /board/<name>", async ({
     page,
   }) => {

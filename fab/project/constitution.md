@@ -39,8 +39,8 @@ Agent-harness hooks (lifecycle telemetry pushed by hook commands into tmux or th
 ### Test Integrity
 Tests MUST conform to the implementation spec — never the other way around. When tests fail, the fix SHALL either (a) update the tests to match the spec, or (b) update the implementation to match the spec. Modifying implementation code solely to accommodate test fixtures or test infrastructure is prohibited. Specs are the source of truth; tests verify conformance to specs.
 
-### Test Companion Docs (`.spec.md`)
-Every Playwright spec file (`*.spec.ts` under `app/frontend/tests/`) MUST ship with a sibling `*.spec.md` documenting, for each `test()` in the file: (a) **what it proves** — the user-visible behavior under test, in one or two sentences, and (b) **steps** — a numbered list mirroring the test body so a reviewer can reason about intent without reading Playwright APIs. Any shared setup (`beforeAll`, fixtures, viewport) goes in a Shared setup section. The companion file is part of the test definition: PRs that add or modify a `.spec.ts` SHALL update the matching `.spec.md` in the same commit. Unit tests (`*.test.ts`/`*.test.tsx`, `*_test.go`) are exempt — their scope is narrow enough that the test name plus code is self-documenting.
+### Test Intent Comments
+Every Playwright `test()` in `app/frontend/tests/e2e/*.spec.ts` MUST carry a JSDoc block immediately above it stating (a) **Proves:** the user-visible behavior under test, in one or two sentences, and (b) **Steps:** a numbered list mirroring the test body, so a reviewer can reason about intent without reading Playwright APIs. Each spec file MUST open with a file-header comment covering shared setup — `beforeAll`/`beforeEach`, fixtures, viewport, `page.route` stubs, and any host-global state the file saves/restores. Intent comments state what the test proves and why the setup is shaped as it is; they SHALL NOT narrate history or cite change IDs / PR numbers (git history and `docs/memory/` own provenance). There are no companion `.spec.md` files: PRs that add or modify a `test()` SHALL update its intent comment in the same commit. Unit tests (`*.test.ts`/`*.test.tsx`, `*_test.go`) are exempt — their scope is narrow enough that the test name plus code is self-documenting.
 
 ### Process Execution
 All `exec.CommandContext` calls MUST use a context with timeout (default 5-10 seconds for tmux operations, 30 seconds for build operations). Zombie processes from hung tmux commands MUST NOT block the server.
@@ -53,4 +53,4 @@ This tool is part of the shll toolkit and MUST conform to the toolkit's publishe
 
 ## Governance
 
-**Version**: 1.10.0 | **Ratified**: 2026-03-02 | **Last Amended**: 2026-08-23
+**Version**: 1.11.0 | **Ratified**: 2026-03-02 | **Last Amended**: 2026-08-28

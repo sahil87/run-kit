@@ -1,3 +1,28 @@
+/**
+ * Web tile keyboard reclaim + find-in-page e2e: registry chords are reclaimed
+ * from inside a same-origin web-tile frame, ⌘F opens a find bar that searches
+ * the framed page parent-side (CSS Custom Highlight API against the frame
+ * window — no script injection), and a cross-origin tile degrades to a
+ * disabled bar with an inline hint.
+ *
+ * Shared setup: `beforeAll` creates a dedicated session `e2e-webfind-<ts>`
+ * (80×24) so this file never collides with other specs; a nested `beforeAll`
+ * starts the stub HTTP server, and `afterAll` kills the session and closes
+ * the stub. `startStub()` binds an ephemeral port on `0.0.0.0` serving a fixed
+ * page — a focusable `#inner` button (the click-into-frame target) and exactly
+ * three case-varied occurrences of `version`. The dual binding serves both
+ * origin cases: `http://localhost:<port>/` converts to the same-origin
+ * `/proxy/<port>/` path via `toProxySrc`, while `http://0.0.0.0:<port>/`
+ * bypasses it and stays a cross-origin absolute URL. `beforeEach` sets a
+ * 1440×800 desktop viewport. `makeWindow(name, url)` runs `tmux new-window`
+ * plus a `set-option -w @rk_win_url` stamp and returns the `@N` id;
+ * `gotoWebWindow` deep-links `?view=web` (the shim resolves `single:web` — ONE
+ * tile, inside the connection-pool budget) and waits for the iframe;
+ * `focusFrame` clicks `#inner` inside the frame so keydowns go to the framed
+ * document; `frameEvaluate` evaluates in the framed document via the iframe
+ * element's `contentFrame()` (same-origin only) for the highlight-registry /
+ * style-element probes.
+ */
 import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import http from "node:http";
@@ -108,6 +133,19 @@ test.describe("Web tile — keyboard reclaim + find-in-page (260819-ie2i)", () =
     await page.setViewportSize(DESKTOP_VIEWPORT);
   });
 
+  /**
+   * Proves: the web tile's attach seam reclaims registry chords from in-frame
+   * keydowns — the command palette opens while focus is inside the frame —
+   * and non-claimed keys pass through to the framed page untouched.
+   *
+   * Steps:
+   * 1. Create a window with `@rk_win_url = http://localhost:<port>/`; open
+   *    `?view=web`; wait for the iframe and the frame's `#inner` button.
+   * 2. Click `#inner` (focus enters the frame); press `Meta+k`; assert the
+   *    palette input is visible; close it with Escape.
+   * 3. Click `#inner` again; press `a`; assert the palette never appeared
+   *    (the frame swallowed the plain key, nothing in the parent reacted).
+   */
   test("(a) a registry chord pressed INSIDE the same-origin frame is reclaimed — ⌘K opens the palette", async ({
     page,
   }) => {
@@ -129,6 +167,27 @@ test.describe("Web tile — keyboard reclaim + find-in-page (260819-ie2i)", () =
     await expect(page.getByPlaceholder("Type a command")).toHaveCount(0);
   });
 
+  /**
+   * Proves: the full find flow on same-origin content — the chord reclaims
+   * from inside the frame, the counter tracks TreeWalker matches, navigation
+   * wraps, the highlight styling lands as one inert `<style>` element plus the
+   * frame window's Highlight registry (never a `<script>`), and Escape closes
+   * + clears.
+   *
+   * Steps:
+   * 1. Create a window on the same-origin stub URL; open `?view=web`; wait
+   *    for the frame.
+   * 2. Click into the frame; press `Meta+f`; assert the find bar is visible
+   *    and its input focused.
+   * 3. Fill `version`; assert the counter reads `1/3`.
+   * 4. Poll the framed document: `#rk-find-highlight-style` exists AND
+   *    `CSS.highlights` holds `rk-find`/`rk-find-active`; assert the frame
+   *    contains no `<script>`.
+   * 5. Press Enter three times: counter reads `2/3`, `3/3`, then wraps to
+   *    `1/3`; press `Shift+Enter`: reads `3/3`.
+   * 6. Press Escape: the bar is gone and the frame's highlight style element
+   *    is removed.
+   */
   test("(b) ⌘F opens the find bar; a query highlights + counts; Enter advances n/N with wrap; Escape closes", async ({
     page,
   }) => {
@@ -186,6 +245,17 @@ test.describe("Web tile — keyboard reclaim + find-in-page (260819-ie2i)", () =
       .toBe(true);
   });
 
+  /**
+   * Proves: the palette discovery surface — the `Web: Find in page` action
+   * exists when the layout includes an open web tile and opens the bar through
+   * the same `web-find:open` seam as the chord.
+   *
+   * Steps:
+   * 1. Create a window on the same-origin stub URL; open `?view=web`.
+   * 2. Press `Meta+k`; fill `Web: Find`; assert the `Web: Find in page`
+   *    option is visible; click it.
+   * 3. Assert the find bar is visible.
+   */
   test("(b′) the `Web: Find in page` palette entry opens the bar (registry id-join hint)", async ({
     page,
   }) => {
@@ -201,6 +271,19 @@ test.describe("Web tile — keyboard reclaim + find-in-page (260819-ie2i)", () =
     await expect(findBar(page)).toBeVisible({ timeout: 5_000 });
   });
 
+  /**
+   * Proves: the cross-origin degradation — no search is attempted, the input
+   * and navigation buttons are disabled, and the inline hint renders; the ⌕
+   * button is the reachable entry point.
+   *
+   * Steps:
+   * 1. Create a window with `@rk_win_url = http://0.0.0.0:<port>/` (bypasses
+   *    `toProxySrc` → cross-origin); open `?view=web`; wait for the iframe.
+   * 2. Click the ⌕ `Find in page` button.
+   * 3. Assert the bar is visible with the text `page is cross-origin — find
+   *    unavailable`, the find input and Next button are disabled, and no
+   *    match counter renders.
+   */
   test("(c) a cross-origin tile renders the find bar disabled with the hint", async ({ page }) => {
     // 0.0.0.0 bypasses toProxySrc (only localhost/127.0.0.1 convert), so the
     // iframe src stays ABSOLUTE — a different origin than the app's dev server.

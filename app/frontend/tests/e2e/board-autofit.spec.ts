@@ -2,6 +2,26 @@ import { test, expect, type Page } from "@playwright/test";
 import { pinWindow, trackPin, unpinAll, unpinWindow } from "./_boards";
 import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
+// End-to-end contract for the per-board desktop autofit toggle: the top-bar
+// board-mode button, the `Board: Toggle Autofit` palette action (Constitution
+// V parity), the DesktopRow flex-fill layout branch (equal-share panes ≤ 4,
+// ~25% floor + horizontal scroll > 4), hidden resize handles while on, the
+// non-destructive round-trip (stored per-pane widths untouched), and
+// per-board localStorage persistence across reload. The observable behavior
+// IS the rendered layout, so the spec asserts real DOM geometry (pane
+// bounding-box widths, the scroll-row's scrollWidth vs clientWidth) against a
+// live desktop board built by pinning real idle tmux windows via the API.
+//
+// Shared setup: beforeAll creates a fresh session `e2e-board-autofit-<ts>` on
+// E2E_TMUX_SERVER (default `rk-test-e2e`) with 6 windows `win-0..win-5`, each
+// running `sleep 300` so panes are stable and long-lived (the same
+// deterministic setup as boards-desktop-suspend). afterAll unpins every
+// tracked pin via the shared `_boards.ts` registry (unpinAll) and kills the
+// session (best-effort — any surviving `_rk-pin-*` is reaped by the
+// isolated-server global teardown). Each test uses fresh board names and
+// resets autofit to off + unpins at the end so a persisted localStorage key
+// never leaks between tests.
+
 // Own session per file to avoid cross-test interference.
 const TEST_SESSION = `e2e-board-autofit-${Date.now()}`;
 // Board names are constrained to alphanumeric/-/_ — fresh names per run so a
@@ -78,6 +98,29 @@ test.describe("Boards: desktop autofit toggle (738w)", () => {
     killSession(TEST_SESSION);
   });
 
+  /**
+   * Proves: with 2 panes, autofit OFF leaves a large dead strip (fixed 480px
+   * panes don't fill a 1920px row) and shows resize handles; toggling ON via
+   * the top-bar button makes the panes equal-share flex items that fill the
+   * row with no horizontal scroll and no resize handles; toggling OFF restores
+   * the exact prior fixed-width layout (the stored per-pane widths were never
+   * mutated).
+   *
+   * Steps:
+   * 1. Pin win-0..win-1 to board A; goto /board/A; assert 2 panes.
+   * 2. OFF baseline: read pane widths + row box; assert total pane width is
+   *    well under the row width (dead strip); assert a `resize pane` handle is
+   *    attached.
+   * 3. Assert the `Toggle board autofit` button is visible with
+   *    aria-pressed="false"; click it; assert aria-pressed="true".
+   * 4. ON: assert pane widths are equal within 3px (flex 1 1 0); assert the
+   *    total pane width jumped by >200px vs OFF; assert the row's
+   *    scrollWidth ≤ clientWidth + 2 (no scroll); assert 0 resize handles.
+   * 5. Click the button again; assert aria-pressed="false" and the restored
+   *    total pane width equals the OFF baseline within 3px; assert a handle is
+   *    attached.
+   * 6. Unpin win-0..win-1.
+   */
   test("autofit ON with 2 panes fills the row equally with no horizontal scroll; OFF restores fixed widths", async ({
     page,
   }) => {
@@ -149,6 +192,20 @@ test.describe("Boards: desktop autofit toggle (738w)", () => {
     }
   });
 
+  /**
+   * Proves: with 5 panes and autofit ON, each pane floors at ~25% of the
+   * scrollport (the percentage arm resolves against the row's client box, not
+   * the scrolled content width) and the row overflows horizontally — the
+   * "max 4 visible, scroll past 4" behavior.
+   *
+   * Steps:
+   * 1. Pin win-0..win-4 to board A; goto /board/A; assert 5 panes.
+   * 2. Click the autofit button; assert aria-pressed="true".
+   * 3. Read the row's clientWidth; assert each pane width is within ~10px of
+   *    clientWidth × 0.25 (gap-adjusted calc(25% - 4.5px)).
+   * 4. Assert the row's scrollWidth > clientWidth (horizontal scroll present).
+   * 5. Toggle off; unpin win-0..win-4.
+   */
   test("autofit ON with 5 panes floors each at ~25% and the row scrolls horizontally", async ({
     page,
   }) => {
@@ -191,6 +248,23 @@ test.describe("Boards: desktop autofit toggle (738w)", () => {
     }
   });
 
+  /**
+   * Proves: the `Board: Toggle Autofit` palette action flips the same state
+   * the button reflects (Constitution V parity); the preference persists
+   * per-board across a full page reload; and board B has its own independent
+   * key (still off when board A is on).
+   *
+   * Steps:
+   * 1. Pin 2 panes to board A and 2 panes to board B.
+   * 2. goto /board/A; assert 2 panes and aria-pressed="false".
+   * 3. Open the palette (Control+k), filter "Toggle Autofit", click the
+   *    `Board: Toggle Autofit` option; assert the button now reads
+   *    aria-pressed="true".
+   * 4. Reload the page; assert board A's button is still aria-pressed="true"
+   *    (persisted).
+   * 5. goto /board/B; assert aria-pressed="false" (per-board isolation).
+   * 6. Return to board A, reset it to off via the button, and unpin all panes.
+   */
   test("autofit preference persists per board across reload, and the palette action flips it", async ({
     page,
   }) => {

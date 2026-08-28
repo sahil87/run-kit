@@ -2,6 +2,34 @@ import { test, expect } from "@playwright/test";
 import { resolveWindow as resolveWindowRaw, gotoWindow as gotoWindowRaw } from "./_ready";
 import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 
+// Top-bar overlap fixes e2e — in the mid-width band between the `sm`
+// breakpoint (640px) and ~900px, the left breadcrumb crumbs compress to an
+// ellipsis and clip inside the nav box instead of overflowing and painting
+// over the centered `Tab: <name>` heading. Proves the degradation ladder —
+// long crumbs truncate (the `min-w-0` chain unblocks the existing `truncate
+// max-w-[16ch]`), the breadcrumb `<nav>` clips residual overflow
+// (`overflow-hidden` + an explicit `min-w-[46px] sm:min-w-[150px]` floor),
+// the server crumb hides below `md` and reappears at `md+` (below `md` the
+// ancestor navigation paths are the palette's `Go: tmux Server` / `Go:
+// Host`), and the center heading is never compressed into overlap (the
+// center grid track's `min-w-0` was removed so the `auto` column holds its
+// content floor, with the `sm:min-w-[28ch]` inner anchor kept at `sm:`). The
+// 375px mobile leaf and 1024px+ desktop layouts are re-verified for no
+// regression.
+//
+// Shared setup: file-level `beforeAll` creates a dedicated tmux session on
+// the isolated test server with a deliberately LONG session name
+// (`e2e-overlap-longsessionname-<ts>`, ~35 chars, well over the crumb's 16ch
+// cap) and a window with a deliberately LONG name
+// (`overlap-verylongwindowname-<ts>`), so both the session crumb and the
+// centered heading are under genuine truncation pressure in the overlap band;
+// `afterAll` kills the session. `resolveWindow`/`gotoWindow` are thin
+// file-local wrappers over the shared helpers in `_ready.ts` (the server +
+// session are bound here so call sites keep their two-arg shape).
+// `intersects(a, b)` is a rect-overlap helper (AABB test) used to assert the
+// nav box and heading box share no area. Viewports: MOBILE 375×812, MID
+// 700×800 (heart of the pre-fix overlap band), DESKTOP 1024×800 (>= `md`).
+
 // A deliberately LONG session name so the session crumb is under real
 // truncation pressure in the 640-900px band (the overlap regression band).
 const TEST_SESSION = `e2e-overlap-longsessionname-${Date.now().toString().slice(-6)}`;
@@ -50,6 +78,36 @@ test.afterAll(() => {
 });
 
 test.describe("Top-bar overlap fixes (260715-q8ey)", () => {
+  /**
+   * Proves: the core regression is fixed — at 700px on a terminal route
+   * with a long window name and a long session name, the left breadcrumb
+   * nav's bounding box and the centered heading's bounding box do not
+   * intersect, and the long session crumb is truncated (ellipsis) and
+   * clipped inside the nav box rather than overflowing across the heading.
+   * No horizontal page overflow is introduced at this width.
+   *
+   * Steps:
+   * 1. Resolve the long-named window's id; set a 700×800 viewport; navigate
+   *    to it.
+   * 2. Assert the `Breadcrumb` nav and the `Rename tab <long>` heading are
+   *    visible.
+   * 3. Compute both bounding boxes and assert they do NOT intersect (the
+   *    overlap regression assertion).
+   * 4. Locate the session crumb — a NON-interactive static chip (a plain
+   *    span carrying `truncate max-w-[16ch]` and the session name; the
+   *    `Switch session` dropdown is gone) — and assert
+   *    `scrollWidth > clientWidth` on that chip (the name is truncated to
+   *    an ellipsis) while its text content is still the full session name
+   *    (the ellipsis is visual only).
+   * 5. Assert the nav's computed `overflow-x` is `hidden` — the clip
+   *    backstop is active, so content past the nav floor is clipped at the
+   *    nav edge rather than painted over the heading (a clipped child
+   *    legitimately keeps a layout box wider than its clipping parent, so
+   *    the meaningful proof is the computed style + the no-overlap
+   *    assertion in step 3, not a layout-box comparison).
+   * 6. Assert `document.body.scrollWidth ≤ 700` (no horizontal page
+   *    overflow).
+   */
   test("at ~700px with long names the breadcrumb nav and center heading do NOT overlap; crumbs clip/ellipsis (no visible overflow)", async ({
     page,
   }) => {
@@ -113,6 +171,21 @@ test.describe("Top-bar overlap fixes (260715-q8ey)", () => {
     expect(bodyWidth).toBeLessThanOrEqual(MID_VIEWPORT.width);
   });
 
+  /**
+   * Proves: the tunable-floor sweep — the explicit nav floor
+   * (`min-w-[46px] sm:min-w-[150px]`) plus `overflow-hidden` holds the
+   * no-overlap invariant across the entire responsive band, not just at
+   * 700px, and no width in the band introduces horizontal page overflow.
+   * This is the harness that would surface a bad floor value (overlap →
+   * floor too small; page overflow at a benign width → floor too large).
+   *
+   * Steps:
+   * 1. Resolve the long-named window's id; navigate to it.
+   * 2. For each width in [375, 640, 700, 768, 1024], set a `<width>×800`
+   *    viewport, wait for the heading, and assert: (a) if the nav has a
+   *    box, it does NOT intersect the heading box; (b)
+   *    `document.body.scrollWidth ≤ width` (no horizontal page overflow).
+   */
   test("across the 375/640/700/768/1024 sweep the nav never overlaps the heading and the page never overflows horizontally", async ({
     page,
   }) => {
@@ -150,6 +223,21 @@ test.describe("Top-bar overlap fixes (260715-q8ey)", () => {
     }
   });
 
+  /**
+   * Proves: the server-link crumb was demoted from `sm:` to `md:` — it is
+   * hidden in the 640–768px band (where it is the redundant first-to-give
+   * element) and visible again at `md+`.
+   *
+   * Steps:
+   * 1. Resolve the long-named window's id. Locate the server crumb by its
+   *    `href="/${server}"` scoped to the breadcrumb nav (its accessible
+   *    name is the server text, so href disambiguates it from the brand
+   *    link `/`).
+   * 2. Set a 700px viewport; navigate; assert the nav is visible and the
+   *    server crumb is hidden (in the DOM but CSS-hidden via
+   *    `hidden md:flex`).
+   * 3. Set a 1024px viewport; assert the server crumb becomes visible.
+   */
   test("the server crumb is hidden below `md` and visible at `md+`", async ({
     page,
   }) => {
@@ -174,6 +262,25 @@ test.describe("Top-bar overlap fixes (260715-q8ey)", () => {
     await expect(serverCrumb).toBeVisible();
   });
 
+  /**
+   * Proves: the change does not regress the 375px mobile leaf — both crumbs
+   * hide below `sm` (session `sm:flex`, server `md:flex`), leaving only the
+   * brand + centered heading; the top bar stays a single line with no
+   * horizontal page overflow (the layout the mobile budget already relied
+   * on).
+   *
+   * Steps:
+   * 1. Resolve the long-named window's id; set a 375×812 viewport; navigate
+   *    (gating readiness on the heading, since the connection dot is
+   *    `hidden sm:inline`).
+   * 2. Assert the heading is visible.
+   * 3. Assert the server crumb (`a[href="/${server}"]` in the nav) and the
+   *    session crumb (the static chip span carrying the session name) are
+   *    both hidden.
+   * 4. Assert `document.body.scrollWidth ≤ 375` (no horizontal overflow).
+   * 5. Assert the header's rendered height is under 56px (a wrap would
+   *    roughly double the ~39px single-line chrome).
+   */
   test("375px mobile leaf layout is unchanged (single line, no horizontal overflow, crumbs hidden)", async ({
     page,
   }) => {
@@ -205,6 +312,23 @@ test.describe("Top-bar overlap fixes (260715-q8ey)", () => {
     expect(box!.height).toBeLessThan(56);
   });
 
+  /**
+   * Proves: at desktop width the fix introduces no regression — the nav and
+   * heading boxes still do not intersect, and the `sm:min-w-[28ch]` center
+   * anchor was NOT demoted to `md:` (it still reserves its width, so the
+   * heading's left edge stays anchored).
+   *
+   * Steps:
+   * 1. Resolve the long-named window's id; set a 1024×800 viewport;
+   *    navigate.
+   * 2. Assert the nav and heading are visible; assert their boxes do NOT
+   *    intersect (desktop sanity, no regression while solving the mid-width
+   *    band).
+   * 3. Query the anchored inner center box (the `div.sm:min-w-[28ch]`
+   *    element) and assert its rendered width exceeds a conservative slack
+   *    floor (>180px) — proving the `sm:` anchor is present and reserving
+   *    width (not dropped to `md:`).
+   */
   test("1024px+ has no regression: nav and heading do not overlap and the `sm:min-w-[28ch]` center anchor is intact", async ({
     page,
   }) => {

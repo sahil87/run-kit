@@ -1,6 +1,18 @@
 import { test, expect } from "@playwright/test";
 import { createSession, killSession } from "./_tmux";
 
+/**
+ * The Host host-console home: the HOST HEALTH zone on `/` (`HostOverviewPage`)
+ * renders live host-global metrics from the server-independent
+ * `useHostMetrics()` stream, above the existing tmux-server tile grid, and the
+ * grid itself is unaffected.
+ *
+ * Shared setup: `beforeAll` creates a detached tmux session
+ * (`e2e-host-health-<ts>`) on the isolated e2e tmux server (`E2E_TMUX_SERVER`,
+ * default `rk-test-e2e`) so the server-tile grid has a server to render;
+ * `afterAll` kills that session (best-effort).
+ */
+
 const TEST_SESSION = `e2e-host-health-${Date.now()}`;
 
 test.describe("HOST HEALTH home zone", () => {
@@ -13,6 +25,26 @@ test.describe("HOST HEALTH home zone", () => {
     killSession(TEST_SESSION);
   });
 
+  /**
+   * Proves: on the home route `/`, the HOST HEALTH zone is present, shows live
+   * host metrics once the server-independent metrics tick arrives, and the
+   * server-tile grid below it still renders — the zone is additive and metrics
+   * reach `/` without an attached server.
+   *
+   * Steps:
+   * 1. Navigate to `/`.
+   * 2. Assert the `Host health` region (labelled section) is visible.
+   * 3. Assert its `Host Health` heading is visible.
+   * 4. Wait for the `cpu` metric label to appear — proving the server-neutral
+   *    `?metrics=1` stream delivered a snapshot to `/` (the backend sends its
+   *    cached metrics on connect) and the shared `HostMetrics` component
+   *    replaced the "No metrics" placeholder. The 10s timeout only absorbs a
+   *    cold air-compiled backend on the first connection.
+   * 5. Assert the `mem` metric label is also visible.
+   * 6. Assert the `+ New Server` button (always present in the server-tile
+   *    grid) is visible — proving the existing grid still renders below the
+   *    new zone.
+   */
   test("renders live host metrics on / above the server grid", async ({ page }) => {
     await page.goto("/");
 

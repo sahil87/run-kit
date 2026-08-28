@@ -2,6 +2,23 @@ import { test, expect } from "@playwright/test";
 import { gotoServerReady } from "./_ready";
 import { TMUX_SERVER, createSession, killSession } from "./_tmux";
 
+/**
+ * Behavioural contract for the ServerPanel tile grid — a swatch-style grid of
+ * tile buttons. Validates that tiles render per server (bare window-count
+ * meta; the identity hover-card replaces the native `title` attribute),
+ * active-tile state, click-to-switch behaviour, and the mobile single-row
+ * horizontal-swipe layout. The panel defaults open, so tests assert the grid
+ * directly without an expand click.
+ *
+ * Shared setup: `beforeAll` creates two temporary sessions on the e2e tmux
+ * server (`E2E_TMUX_SERVER`, default `rk-test-e2e`) so the active server's
+ * tile shows a non-zero window count and there is enough content to exercise
+ * the grid; `afterAll` kills them. Resize drag interaction itself and the
+ * collapsed → open transition are covered by unit tests
+ * (`collapsible-panel.test.tsx`, `server-panel.test.tsx`) — e2e coverage here
+ * focuses on presence + layout.
+ */
+
 const MOBILE_VIEWPORT = { width: 375, height: 812 };
 const DESKTOP_VIEWPORT = { width: 1024, height: 768 };
 const SETUP_SESSIONS = [
@@ -18,6 +35,26 @@ test.describe("Server Panel Tile Grid", () => {
     for (const name of SETUP_SESSIONS) killSession(name);
   });
 
+  /**
+   * Proves: on a desktop viewport (1024×768), the Server panel is open by
+   * default and renders a grid of server tiles. The e2e server's tile carries
+   * NO native `title` attribute — hovering it opens the identity hover-card
+   * (`Server <name>` title bar; `tmux -L <name> · N sessions` body — the
+   * socket flag + session count) — the tile's visible count line is a bare
+   * window-count number, and the old `N sess` meta line no longer renders.
+   *
+   * Steps:
+   * 1. Navigate to `/${TMUX_SERVER}` and wait for `Connected`.
+   * 2. Locate the Server header button (`name: /^Server/`); assert visible
+   *    and `aria-expanded="true"` (default-open, no click).
+   * 3. Locate the grid listbox via `getByRole('listbox', { name: /Tmux servers/ })`.
+   * 4. Within the grid, assert at least one `option` tile whose name includes
+   *    the e2e server.
+   * 5. Assert that tile has no `title` attribute; hover it and assert the
+   *    `server-tip` card appears with `Server <name>` in its title bar and a
+   *    `tmux -L <name> · N sessions` body line.
+   * 6. Assert the old meta line `/\d+ sess/` has zero matches in the grid.
+   */
   test("Desktop: tile grid renders with session counts", async ({ page }) => {
     await page.setViewportSize(DESKTOP_VIEWPORT);
     await gotoServerReady(page, TMUX_SERVER);
@@ -47,6 +84,16 @@ test.describe("Server Panel Tile Grid", () => {
     await expect(grid.locator("text=/\\d+ sess/")).toHaveCount(0);
   });
 
+  /**
+   * Proves: the active server's tile carries `aria-current="true"` in the
+   * default-open grid.
+   *
+   * Steps:
+   * 1. Navigate to `/${TMUX_SERVER}` and wait for `Connected`.
+   * 2. Locate the grid listbox directly (panel defaults open — no click).
+   * 3. Find the tile option matching the current server; assert
+   *    `aria-current="true"`.
+   */
   test("Desktop: active tile has aria-current", async ({ page }) => {
     await page.setViewportSize(DESKTOP_VIEWPORT);
     await gotoServerReady(page, TMUX_SERVER);
@@ -57,6 +104,20 @@ test.describe("Server Panel Tile Grid", () => {
     await expect(activeOption).toHaveAttribute("aria-current", "true");
   });
 
+  /**
+   * Proves: on a 375×812 viewport, the tile grid does not wrap into multiple
+   * rows — it lays out as a single horizontal strip with `overflow-x: auto`.
+   *
+   * Steps:
+   * 1. Set viewport 375×812.
+   * 2. Navigate to `/${TMUX_SERVER}`.
+   * 3. Click the `Toggle navigation` button to open the mobile sidebar drawer.
+   * 4. Within the `Sessions` navigation region, locate the grid listbox
+   *    (panel defaults open — no expand click).
+   * 5. Evaluate the grid element's computed `grid-auto-flow` — assert
+   *    `column` (desktop would be `row`).
+   * 6. Evaluate `overflow-x` — assert `auto` or `scroll`.
+   */
   test("Mobile: grid renders as a single horizontal row", async ({ page }) => {
     await page.setViewportSize(MOBILE_VIEWPORT);
     await page.goto(`/${TMUX_SERVER}`);
@@ -77,6 +138,19 @@ test.describe("Server Panel Tile Grid", () => {
     expect(["auto", "scroll"]).toContain(overflowX);
   });
 
+  /**
+   * Proves: the resize drag handle (`role="separator"` with name matching
+   * `Resize Server panel`) is NOT rendered on mobile viewports — the
+   * single-row layout does not need vertical resize — even with the panel
+   * open by default.
+   *
+   * Steps:
+   * 1. Set viewport 375×812.
+   * 2. Navigate and open the mobile sidebar drawer via `Toggle navigation`.
+   * 3. Assert the grid listbox is visible (default-open).
+   * 4. Assert `getByRole('separator', { name: /Resize.*Server/ })` is not
+   *    visible.
+   */
   test("Mobile: drag handle is hidden", async ({ page }) => {
     await page.setViewportSize(MOBILE_VIEWPORT);
     await page.goto(`/${TMUX_SERVER}`);
@@ -94,6 +168,17 @@ test.describe("Server Panel Tile Grid", () => {
     ).not.toBeVisible();
   });
 
+  /**
+   * Proves: on a 1024×768 desktop viewport, the Server panel is resizable —
+   * the bottom drag handle is rendered and reachable from the default-open
+   * state.
+   *
+   * Steps:
+   * 1. Set viewport 1024×768.
+   * 2. Navigate, wait for `Connected`.
+   * 3. Assert `getByRole('separator', { name: /Resize.*Server/ })` is visible
+   *    (no expand click — the panel defaults open).
+   */
   test("Desktop: drag handle is visible on resizable panel", async ({ page }) => {
     await page.setViewportSize(DESKTOP_VIEWPORT);
     await gotoServerReady(page, TMUX_SERVER);

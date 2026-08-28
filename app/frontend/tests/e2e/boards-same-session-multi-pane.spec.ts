@@ -2,6 +2,23 @@ import { test, expect } from "@playwright/test";
 import { isTerminalsSocket, pinWindow, unpinWindow } from "./_boards";
 import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
+// Pinning two windows from the SAME tmux session to one board renders each
+// pane with its own window's content. In the move-based model each pinned
+// window is MOVED into its own single-window pin-session (`_rk-pin-<id>`) and
+// a board pane attaches its relay DIRECTLY to that pin-session (whose sole
+// window is permanently active). Under the terminals mux all panes share ONE
+// `/ws/terminals` socket and each pane issues its own `open` control op
+// carrying its windowId; two windows from one source session therefore become
+// two independent pin-sessions, each with its own muxed stream, so each pane
+// sees only its own window's PTY.
+//
+// Shared setup: beforeAll creates an `e2e-board-same-<timestamp>` session on
+// the e2e tmux server with two named windows (win-a, win-b); each window's
+// initial command prints a marker then sleeps so the pane has a live PTY for
+// the relay to attach to (the markers are NOT scraped — see the note below).
+// A unique board name (`mp<digits>`) is used per run so reruns don't collide.
+// afterAll kills the test session.
+
 const TEST_SESSION = `e2e-board-same-${Date.now()}`;
 const BOARD_NAME = `mp${Date.now().toString().slice(-6)}`;
 
@@ -38,6 +55,30 @@ test.describe("Boards: same-session multi-pane", () => {
     killSession(TEST_SESSION);
   });
 
+  /**
+   * Proves: pinning two distinct windows of the same tmux session into a
+   * single board produces two independent pane terminals — each mounts its own
+   * live xterm instance and issues its own per-window `open` op on the single
+   * terminals mux socket, with no shared/aliased stream. This is the
+   * multi-pane same-session isolation invariant: each window is moved into its
+   * own pin-session and relayed directly, verified at the connection layer
+   * (xterm's WebGL canvas exposes no DOM text to scrape).
+   *
+   * Steps:
+   * 1. Resolve the window ids of win-a and win-b via list-windows.
+   * 2. Register a page.on("websocket") listener that, for the /ws/terminals
+   *    socket, records the windowId of every `open` control op it sends
+   *    (ignoring Vite HMR / state / SSE sockets and binary data frames).
+   * 3. POST /api/boards/<name>/pin for win-a, then for win-b.
+   * 4. Navigate to /board/<name> (domcontentloaded).
+   * 5. Assert both `win-a` and `win-b` pane headers render.
+   * 6. Assert exactly two `.xterm` instances mount (both panes' terminals are
+   *    live).
+   * 7. Poll until an `open` op has been sent for BOTH window ids, and assert
+   *    at least two distinct `open` windowIds were seen — each pane opens its
+   *    own muxed stream (isolation proof).
+   * 8. Unpin both windows via the API to clean up (empty boards are removed).
+   */
   test("two windows from one session each open their own relay pane", async ({
     page,
   }) => {

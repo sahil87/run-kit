@@ -2,6 +2,18 @@ import { test, expect } from "@playwright/test";
 import { pinWindow, trackPin, unpinAll } from "./_boards";
 import { TMUX_SERVER, createSession, killSession, listWindows, newWindow } from "./_tmux";
 
+// The board page renders as a single-pane swipe carousel on mobile viewports
+// (the `min-width: 640px` breakpoint gates the carousel layout), with a
+// pagination indicator showing the current slot.
+//
+// Shared setup: beforeAll creates an `e2e-board-mobile-<timestamp>` session on
+// the e2e tmux server with three named windows (m-a, m-b, m-c) so the carousel
+// has multiple slots to render. A unique board name (`mob<digits>`) is used
+// per run. Every pin is registered with the shared `_boards.ts` cleanup
+// registry (trackPin); afterAll runs unpinAll (best-effort unpin of every
+// tracked entry, so the persistent e2e server carries no stale `_rk-pin-*`
+// pin-sessions into later runs) and kills the test session.
+
 const TEST_SESSION = `e2e-board-mobile-${Date.now()}`;
 const BOARD_NAME = `mob${Date.now().toString().slice(-6)}`;
 
@@ -20,6 +32,26 @@ test.describe("Boards: mobile carousel", () => {
     killSession(TEST_SESSION);
   });
 
+  /**
+   * Proves: at a 375px-wide viewport the board page renders one pane card at a
+   * time with a 3-dot pagination indicator, the first dot annotated as
+   * `current` — the mobile breakpoint gates the carousel layout.
+   *
+   * Steps:
+   * 1. Set the viewport to 375×812 (iPhone-class).
+   * 2. Reconcile windows: list (name, id) pairs and create any of m-a/m-b/m-c
+   *    that are missing — re-runs must not accumulate duplicates, otherwise
+   *    pinning by name becomes non-deterministic.
+   * 3. Re-list windows, build a name → id map, and POST
+   *    /api/boards/<name>/pin for each of m-a/m-b/m-c BY NAME (not by slicing
+   *    the first three ids). Record each entry for cleanup.
+   * 4. Navigate to /board/<name>.
+   * 5. Locate the pagination strip ([aria-label^='pane ']) and assert it
+   *    contains 3 dots, the first labelled with `current`.
+   * 6. Assert exactly 3 role=group board-pane elements render (matching the
+   *    entry count) but only 1 is visible — the others are hidden via the
+   *    carousel's slot-switching CSS.
+   */
   test("at 375x812 the board renders one pane card at a time with pagination dots", async ({
     page,
   }) => {

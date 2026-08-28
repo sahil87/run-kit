@@ -1,3 +1,26 @@
+/**
+ * Web tile browser chrome e2e: explicit error states replace the silent blank
+ * iframe, back/forward drive the same-origin frame history per-viewer with
+ * zero `@rk_win_url` writes, the address bar splits display form from raw edit
+ * form, and the retired `>_` switch-to-terminal button is gone.
+ *
+ * Shared setup: `beforeAll` creates a dedicated session `e2e-webchrome-<ts>`
+ * (80×24) plus a scratch present dir (`mkdtemp`) holding `page-one.html`
+ * (which links to `page-two.html?server=<e2e-server>` — the `/present/` route
+ * reads the tmux server from the query, so the in-frame link must carry the
+ * plumbing param or it would 404 against the `default` server) and
+ * `page-two.html`; `afterAll` kills the session and removes the scratch dir.
+ * `beforeEach` sets a 1440×800 desktop viewport. `makeWindow(name, {url?,
+ * presentRoot?})` runs `tmux new-window` plus direct `set-option -w` stamps of
+ * `@rk_win_url` / `@rk_win_present_root`; `url` is omittable so `/present/…`
+ * addresses can embed the resolved `@N` id before navigation. `gotoWebTile`
+ * deep-links `/<server>/<@N>?view=web` and waits for the `Proxied content`
+ * iframe. `trackOptionPosts` records every `POST /api/windows/…/options` for
+ * the zero-mutation (substrate/view split) assertions; `stubWindowOpen`
+ * replaces `window.open` with a recorder on `window.__openedUrls` (no real
+ * tabs). Chrome-side locators are scoped to `surface-tile-web`; frame content
+ * is reached via `frameLocator('iframe[title="Proxied content"]')`.
+ */
 import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
@@ -103,6 +126,25 @@ test.describe("Web tile browser chrome (260819-v6y4)", () => {
     await page.setViewportSize(DESKTOP_VIEWPORT);
   });
 
+  /**
+   * Proves: a probed-blocked external URL renders the refusal error box
+   * ("{host} refuses embedding" + the reason line) instead of a silent blank
+   * iframe, and the in-error "Open in browser ↗" button pops the current
+   * address in a new tab without any `@rk_win_url` write.
+   *
+   * Steps:
+   * 1. Record `/options` POSTs; stub `window.open`; `page.route` mock
+   *    `/api/frame-check*` (trailing `*` covers the query string) to answer
+   *    `embeddable: false` with `X-Frame-Options: DENY`; abort the external
+   *    iframe navigation so the test is hermetic.
+   * 2. Create a window with
+   *    `@rk_win_url = https://framed-refusal.example/some/page`; deep-link
+   *    `?view=web`.
+   * 3. Assert the error box is visible with the refusal copy, and the iframe
+   *    is hidden.
+   * 4. Click the error box's "Open in browser" button; assert `__openedUrls`
+   *    received the address and zero `/options` POSTs fired.
+   */
   test("(a) a frame-refused external URL renders the error state with the Open-in-browser escape hatch", async ({
     page,
   }) => {
@@ -144,6 +186,24 @@ test.describe("Web tile browser chrome (260819-v6y4)", () => {
     expect(optionPosts, `no /options POST; got ${optionPosts.join(", ")}`).toHaveLength(0);
   });
 
+  /**
+   * Proves: ◀/▶ navigate the frame's own history (view state); the address
+   * bar's display form tracks the frame's current location; neither touches
+   * `@rk_win_url` (the substrate/view split).
+   *
+   * Steps:
+   * 1. Create a window with `@rk_win_present_root` = the scratch dir and
+   *    `@rk_win_url` = `/present/<@N>/page-one.html?server=<e2e-server>`;
+   *    deep-link `?view=web`.
+   * 2. Assert the frame shows page one and the address input's rest value is
+   *    the display form `page-one.html`.
+   * 3. Click the in-frame link; assert page two renders and the input tracks
+   *    `page-two.html`.
+   * 4. Click the tile's Back button; assert page one returns and the input
+   *    reads `page-one.html`.
+   * 5. Click Forward; assert page two again. Assert zero `/options` POSTs
+   *    throughout.
+   */
   test("(b) back/forward drive the same-origin frame history per-viewer — zero option POSTs", async ({
     page,
   }) => {
@@ -176,6 +236,19 @@ test.describe("Web tile browser chrome (260819-v6y4)", () => {
     expect(optionPosts, `no /options POST; got ${optionPosts.join(", ")}`).toHaveLength(0);
   });
 
+  /**
+   * Proves: at rest the address bar shows the pretty form (basename, plumbing
+   * params hidden); focusing reveals the raw editable value with select-all;
+   * Escape reverts without a POST.
+   *
+   * Steps:
+   * 1. Same presented rig as (b); wait for page one.
+   * 2. Assert the input value is `page-one.html`.
+   * 3. Click the input; assert the value becomes the raw
+   *    `/present/<@N>/page-one.html?server=<e2e-server>` and the selection
+   *    spans all of it.
+   * 4. Press Escape; assert the value is back to `page-one.html`.
+   */
   test("(c) the address bar shows the display form at rest and the raw value on focus; Escape reverts", async ({
     page,
   }) => {
@@ -203,6 +276,16 @@ test.describe("Web tile browser chrome (260819-v6y4)", () => {
     await expect(input).toHaveValue("page-one.html");
   });
 
+  /**
+   * Proves: the `>_` switch-to-terminal affordance is gone from the web tile
+   * (view switching is owned by the top-bar surface toggles and the palette);
+   * the chrome row (◀ ▶ ↻ ↗) renders in its place.
+   *
+   * Steps:
+   * 1. Same presented rig; deep-link `?view=web`.
+   * 2. Assert no "Switch to terminal" button exists in the web tile.
+   * 3. Assert Back, Forward, Refresh, and Open in browser buttons are visible.
+   */
   test("(d) no switch-to-terminal button renders in the web tile (R13)", async ({ page }) => {
     const id = await makeWindow(page, `wc-noswitch-${Date.now()}`, { presentRoot: presentDir });
     setWindowOpt(id, "@rk_win_url", `/present/${id}/page-one.html?server=${TMUX_SERVER}`);

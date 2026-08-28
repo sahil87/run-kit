@@ -1,20 +1,39 @@
 import { test, expect, type Page } from "@playwright/test";
 import { mockStateSocket } from "./_state-socket-mock";
 
-// Fully mocked (no tmux/wt/fab) — inject the SSE `sessions` payload + server
-// list via page.route, mock the two riff endpoints, then drive both spawn
-// entry points. See spawn-agent.spec.md for intent + steps.
+// Web-UI agent spawn flow — surfacing `rk riff` as a one-action spawn
+// dialog. The dialog opens from ALL THREE entry points (Cmd+K
+// `Agent: Spawn`, the window-switcher `+ New Agent`, and the sidebar
+// session-row bot button), renders the mockup-v2 field set (Where radio /
+// Worktree name / Agent tier) with the correct defaults and conditional
+// Worktree visibility, hides the Agent Tier field when the presets endpoint
+// returns `tiers: []` (a non-fab repo), carries `where`/`tier` in the POST
+// body on a checkout + tier task-submit, and renders a 400's error in-dialog
+// without navigating.
 //
-// Web-UI Spawn Agent (260713-sbk1; mockup-v2 fields added in 260714-q9cg). The
-// dialog opens from Cmd+K `Agent: Spawn` AND the window-switcher `+ New Agent`,
-// renders the v2 field set (Where / Worktree / Agent tier), a checkout+tier
-// task-submit spawns and navigates to the returned window carrying `where`/
-// `tier` in the POST body, and a 400 renders the error in-dialog.
-//
-// The riff-endpoint mocks use TRAILING `*` globs (`**/api/riff*`,
-// `**/api/riff/presets*`) because the client's withServer appends `?server=` —
-// a no-star glob would silently fall through and mutate live tmux
-// (playwright-glob-query-string-fallthrough memory).
+// Shared setup: fully mocked — no tmux, no wt, no fab, no real backend.
+// Injected via page.route: `**/api/servers` → a single server `default`;
+// `**/api/windows/*/select*` → 200; `/ws/state` (state socket, via
+// mockStateSocket) → the subscribe ack + `sessions` event carry the mocked
+// payload: session `dev` with one active window `@1` "main";
+// `**/api/riff/presets*` → `{presets: [...], tiers: [...]}` (empty presets +
+// the fab-kit built-in tiers by default); `**/api/riff*` → intercepts POST
+// only (falls back otherwise so the presets GET, which also matches this
+// glob, is not swallowed), captures the request body and fulfills with the
+// mock's status/body; the terminals mux WebSocket (`/ws/terminals`) is
+// stubbed. The riff-endpoint mocks use TRAILING `*` globs because the
+// client's withServer appends `?server=` — a no-star glob would silently
+// fall through and hit live tmux. BUILTIN_TIERS mirrors the backend's
+// fabconfig.BuiltinTiers (`default, doing, fast, operator, review`); the
+// presets mock returns these as `tiers` unless a test overrides them.
+// gotoTerminal(page) navigates to `/default/1` and waits for the "main"
+// window to render (the state-socket payload landed). openViaPalette opens
+// the palette (Meta+k), fills "Agent: Spawn", presses Enter.
+// openViaDropdown clicks the `Switch tab` trigger then the `+ New Agent`
+// menu item. openViaSidebarBot hovers the session row — the icon cluster is
+// pointer-events-none at rest — then clicks the `Spawn agent in {session}`
+// bot button. OK_SPAWN is the success mock: POST /api/riff → 200
+// {server, session:"dev", window:"riff-swift-fox", windowId:"@7"}.
 
 const SERVER = "default";
 
@@ -130,6 +149,16 @@ const OK_SPAWN: RiffMock = {
 };
 
 test.describe("Web-UI Spawn Agent", () => {
+  /**
+   * Proves: the palette action opens the spawn-agent dialog on the terminal
+   * route, titled with the target session.
+   *
+   * Steps:
+   * 1. Mock the backend (OK_SPAWN); gotoTerminal.
+   * 2. openViaPalette.
+   * 3. Assert the `Spawn agent in dev` dialog and its `Task` field are
+   *    visible.
+   */
   test("opens the spawn dialog from the Cmd+K Agent: Spawn action", async ({ page }) => {
     await mockBackend(page, OK_SPAWN);
     await gotoTerminal(page);
@@ -141,6 +170,16 @@ test.describe("Web-UI Spawn Agent", () => {
     await expect(page.getByLabel("Task")).toBeVisible();
   });
 
+  /**
+   * Proves: the second entry point — the `+ New Agent` item beside
+   * `+ New Tab` in the top-bar tab switcher — opens the same dialog.
+   *
+   * Steps:
+   * 1. Mock the backend (OK_SPAWN); gotoTerminal.
+   * 2. openViaDropdown (click `Switch tab`, then `+ New Agent`).
+   * 3. Assert the `Spawn agent in dev` dialog and its `Task` field are
+   *    visible.
+   */
   test("opens the spawn dialog from the window-switcher + New Agent item", async ({ page }) => {
     await mockBackend(page, OK_SPAWN);
     await gotoTerminal(page);
@@ -151,6 +190,20 @@ test.describe("Web-UI Spawn Agent", () => {
     await expect(page.getByLabel("Task")).toBeVisible();
   });
 
+  /**
+   * Proves: the v2 dialog renders the new fields with the mockup defaults —
+   * the Where radio defaults to "new worktree", the Worktree name field is
+   * visible in worktree mode, the Agent tier dropdown defaults to "default",
+   * and selecting "this checkout" hides the Worktree field.
+   *
+   * Steps:
+   * 1. Mock the backend (OK_SPAWN); gotoTerminal; openViaPalette.
+   * 2. Assert the "new worktree" radio is checked and "this checkout" is not.
+   * 3. Assert the Worktree name field is visible and the Agent dropdown
+   *    value is "default".
+   * 4. Check the "this checkout" radio; assert the Worktree name field is
+   *    hidden.
+   */
   test("renders the mockup-v2 fields (Where radio, Worktree, Agent tier)", async ({ page }) => {
     await mockBackend(page, OK_SPAWN);
     await gotoTerminal(page);
@@ -172,6 +225,20 @@ test.describe("Web-UI Spawn Agent", () => {
     await expect(page.getByLabel("Worktree name")).toBeHidden();
   });
 
+  /**
+   * Proves: typing a task and pressing Enter POSTs /api/riff with the task +
+   * session and, on success, navigates to the returned window; a
+   * defaults-only body omits `where`/`tier` (backend defaults), keeping the
+   * shipped path's body.
+   *
+   * Steps:
+   * 1. Mock the backend (OK_SPAWN); gotoTerminal.
+   * 2. openViaPalette; fill the `Task` field with "fix the bug"; press Enter.
+   * 3. Assert the URL navigated to /default/7 (the returned windowId @7).
+   * 4. Assert the captured POST body matches
+   *    { task: "fix the bug", session: "dev" } and carries neither `where`
+   *    nor `tier`.
+   */
   test("submitting a task spawns and navigates to the returned window", async ({ page }) => {
     const { spawnBodies } = await mockBackend(page, OK_SPAWN);
     await gotoTerminal(page);
@@ -191,6 +258,21 @@ test.describe("Web-UI Spawn Agent", () => {
     expect(spawnBodies()[0]).not.toHaveProperty("tier");
   });
 
+  /**
+   * Proves: selecting "this checkout" and a non-default tier sends those
+   * choices in the POST body (and omits `worktreeName` in checkout mode),
+   * then navigates on success.
+   *
+   * Steps:
+   * 1. Mock the backend (OK_SPAWN); gotoTerminal; openViaPalette.
+   * 2. Check the "this checkout" radio; select tier "doing" in the Agent
+   *    dropdown.
+   * 3. Fill the `Task` field with "explore the code"; press Enter.
+   * 4. Assert the URL navigated to /default/7.
+   * 5. Assert the captured POST body matches
+   *    { task: "explore the code", session: "dev", where: "checkout",
+   *    tier: "doing" } and carries no `worktreeName`.
+   */
   test("a checkout + tier task-submit carries where and tier in the POST body", async ({ page }) => {
     const { spawnBodies } = await mockBackend(page, OK_SPAWN);
     await gotoTerminal(page);
@@ -215,6 +297,17 @@ test.describe("Web-UI Spawn Agent", () => {
     expect(spawnBodies()[0]).not.toHaveProperty("worktreeName");
   });
 
+  /**
+   * Proves: a 400 (e.g. non-repo cwd) renders the error message inside the
+   * still-open dialog and performs no navigation (nothing was created).
+   *
+   * Steps:
+   * 1. Mock POST /api/riff → 400 {error: "The session's working directory
+   *    is not inside a git repository"}.
+   * 2. gotoTerminal; openViaPalette; fill the `Task` field; press Enter.
+   * 3. Assert the error text is visible, the `Spawn agent in dev` dialog is
+   *    still visible, and the URL is unchanged (/default/1).
+   */
   test("a 400 renders its error in-dialog and does not navigate", async ({ page }) => {
     await mockBackend(page, {
       spawnStatus: 400,
@@ -234,6 +327,19 @@ test.describe("Web-UI Spawn Agent", () => {
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/1(?:$|[/?#])`));
   });
 
+  /**
+   * Proves: the fab gate — when the presets endpoint returns `tiers: []` (a
+   * git repo that is not a fab project), the dialog hides the Agent Tier
+   * field entirely (no label, no control), while the rest of the dialog is
+   * unaffected.
+   *
+   * Steps:
+   * 1. Mock the backend with { ...OK_SPAWN, tiers: [] }; gotoTerminal;
+   *    openViaPalette.
+   * 2. Assert the `Spawn agent in dev` dialog and its `Task` field are
+   *    visible.
+   * 3. Assert the `Agent tier` control has count 0 (absent).
+   */
   test("a non-fab repo (tiers: []) renders the dialog WITHOUT the Agent Tier field", async ({ page }) => {
     // The fab gate (gsmu): a non-fab repo's presets endpoint returns tiers:[],
     // so the dialog hides the Agent Tier field entirely.
@@ -247,6 +353,17 @@ test.describe("Web-UI Spawn Agent", () => {
     await expect(page.getByLabel("Agent tier", { exact: true })).toHaveCount(0);
   });
 
+  /**
+   * Proves: the third entry point — the session-row bot button in the
+   * sidebar — opens the spawn dialog targeting that row's session.
+   *
+   * Steps:
+   * 1. Mock the backend (OK_SPAWN); gotoTerminal.
+   * 2. openViaSidebarBot(page, "dev") — hover the `dev` session row, then
+   *    click its `Spawn agent in dev` bot button.
+   * 3. Assert the `Spawn agent in dev` dialog and its `Task` field are
+   *    visible.
+   */
   test("the sidebar bot button opens the dialog titled with the row's session", async ({ page }) => {
     // The third entry point (gsmu): the session-row bot button, hover-gated.
     await mockBackend(page, OK_SPAWN);

@@ -4,25 +4,42 @@ import { READY_TIMEOUT, resolveWindow as resolveWindowRaw } from "./_ready";
 import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 import { stubProxyPorts } from "./_web-tile";
 
-// Surface-layout core e2e (260812-ab5v-surface-layout-core; spec
-// docs/specs/surface-layout.md, plan tasks T016). Covers the resolution ladder
-// (URL `?layout=` > localStorage `rk-layout:` > hint > `single:tty`), the
-// permanent `?view=`/`?panel=` translation shim, tile verbs + the top-bar
-// surface-toggle group (the right rail is REMOVED — composed-frame
-// unification; the ONLY 3-tile test in the file — the plaintext origin's h1
-// connection pool is 6 slots, so every other flow stays at ≤2 tiles, per the
-// spec's Performance note), refresh/window-switch/history semantics (L2–L4), divider
-// ratio persistence (R5), the mobile slot-A + top-bar switch-group branch
-// (R13), and —
-// from 260812-wfic — the focused-tile accent border (R2) and the tty-scoped
-// split-chord gate (R8). 260813-w1lf adds the tty pane segment (Split H ·
-// Split V · Close Pane — any arity, zoom-visible, tty-only) and the terminal
-// bar's split demotion (menuOnly; the chevron menu keeps the three rows).
-// 260814-011r adds the gap-seam chrome: rest grip dots + the hover/drag sash
-// pill (asserted in the divider-drag test, ≤2 tiles) and the main-*
-// intersection zone (hover lights both sashes, drag moves both ratios —
-// folded into the ONE 3-tile verbs test to respect the pool budget). See
-// surface-layout.spec.md for intent + steps.
+// Surface-layout core e2e (spec docs/specs/surface-layout.md). Covers the
+// resolution ladder (URL `?layout=` > localStorage `rk-layout:` > hint >
+// `single:tty`), the permanent `?view=`/`?panel=` translation shim, tile
+// verbs + the top-bar surface-toggle group (the right rail is REMOVED —
+// composed-frame unification), refresh/window-switch/history semantics
+// (L2–L4), divider-ratio persistence (R5), the mobile slot-A + top-bar
+// switch-group branch (R13), the focused-tile accent border, the tty-scoped
+// split-chord gate, the tty pane segment (Split H · Split V · Close Pane —
+// any arity, zoom-visible, tty-only) + the terminal bar's split demotion
+// (menuOnly; the chevron menu keeps the three rows), and the gap-seam chrome
+// (rest grip dots, hover/drag sash pill, main-* intersection zone).
+//
+// Perf budget (binding): the plaintext e2e origin is HTTP/1.1 with a 6-slot
+// connection pool — only ONE test mounts 3 tiles (the verbs test); every
+// other flow stays at ≤2 tiles.
+//
+// Shared setup: `beforeAll` creates one dedicated session
+// `e2e-surflayout-<ts>` (80×24) so this file never collides with other specs
+// (`fullyParallel` off), then warms the dev server with a throwaway
+// terminal-route page load (Vite's cold transform of the app + xterm graph
+// would otherwise eat the first test's budget); `afterAll` kills the session
+// (best-effort). `beforeEach` stubs `/proxy/8080/**` with a static 200 page
+// (stubProxyPorts from _web-tile.ts — the dead-port error state hides the
+// iframe when nothing listens on the stamped URL, and these tests assert
+// tile chrome, never frame content) and sets a wide desktop viewport
+// (1440×800) — multi-tile is desktop-only; the mobile test overrides to
+// 375×812 with `hasTouch`. `makeWindow(name, {url?})` creates a window via
+// tmux and stamps `@rk_win_url` (execFileSync argument arrays — no shell
+// strings); windows inherit the tmux server's repo-root cwd, so every window
+// is code-capable. `paneCount(id)` reads the live tmux pane count (the
+// split-chord gate's ground truth, not a DOM read). `expectLayoutParam` is a
+// retrying read of the DECODED `?layout=` param (the router may
+// percent-encode `:`/`,`; the replaceState mirror lands a beat late). Focus
+// clicks target the tile header at {x: 6, y: 15} — the focus seam is
+// pointerdown-capture anywhere in the tile, and the 30px header's padding is
+// never a verb button.
 
 // Own session so this file never collides with other specs (fullyParallel off).
 const TEST_SESSION = `e2e-surflayout-${Date.now()}`;
@@ -126,6 +143,21 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     await page.setViewportSize(DESKTOP_VIEWPORT);
   });
 
+  /**
+   * Proves: the permanent translation shim — a legacy deep link maps to
+   * `split-h:code,web` (view in slot A), the URL is rewritten via
+   * `replaceState` to the mirrored `?layout=` form with the legacy params
+   * gone, and both tiles render (code iframe + proxied web iframe), never a
+   * broken tile.
+   *
+   * Steps:
+   * 1. Create a web-capable window (`@rk_win_url`; repo cwd ⇒ code-capable).
+   * 2. Navigate with `?view=code&panel=web`.
+   * 3. Assert the `layout` param reads `split-h:code,web` and `view` is
+   *    absent.
+   * 4. Assert the `surface-tile-code` and `surface-tile-web` tiles are
+   *    visible and the `Proxied content` iframe renders.
+   */
   test("legacy ?view=code&panel=web deep link resolves to split-h:code,web (shim, A-016)", async ({
     page,
   }) => {
@@ -147,6 +179,42 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     await expect(webIframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
   });
 
+  /**
+   * Proves: the top-bar `surface-toggles` group's open-tile toggles grow the
+   * layout (1→2 `split-h`, 2→3 `main-left`) and every tile verb mutates
+   * (shape, order) exactly as specified, each outcome persisted + mirrored
+   * into the URL. Also the main-left intersection zone: a mid-seam hover
+   * lights only that sash, the junction hover lights BOTH, and a diagonal
+   * drag moves BOTH ratios (persisted on release, URL untouched, terminal
+   * still the same mounted element). This is the file's ONE bounded 3-tile
+   * test (the origin's 6-slot connection-pool budget).
+   *
+   * Steps:
+   * 1. Create a web-capable window; navigate; assert the terminal.
+   * 2. Click the `Web tile` top-bar toggle; assert
+   *    `?layout=split-h:tty,web`, the web tile visible, and the button lit
+   *    (`aria-pressed`).
+   * 3. Click the `Code tile` top-bar toggle; assert
+   *    `?layout=main-left:tty,web,code` and the code tile visible.
+   * 4. Intersection: assert the `surface-divider-intersection` zone is
+   *    visible; hover divider 0 mid-seam (`y: 100`, far from the junction)
+   *    and assert only its `.rk-sash` lights (opacity 1, after the ~150ms
+   *    delay) while divider 1's stays 0; hover the junction and assert BOTH
+   *    sashes light.
+   * 5. Intersection drag: capture both dividers' `aria-valuenow` and the
+   *    xterm element; mouse down on the junction, move diagonally
+   *    (+80/−60px), up; assert BOTH `aria-valuenow`s changed, the terminal
+   *    is the SAME element, the localStorage `rk-layout-ratios:…:main-left`
+   *    entry holds both new ratios (neither the equal-split default), and
+   *    the URL still reads `?layout=main-left:tty,web,code`.
+   * 6. Hover the code tile, click `Promote Code`; assert
+   *    `?layout=main-left:code,tty,web` (slot A permuted, shape unchanged).
+   * 7. Hover the tty tile, click `Swap Terminal`; assert
+   *    `?layout=main-left:code,web,tty` (swapped with the next neighbor).
+   * 8. Hover the web tile, click `Close Web`; assert
+   *    `?layout=split-h:code,tty`, the web tile hidden, the code tile and
+   *    terminal still visible, and the web top-bar toggle unlit.
+   */
   test("build a 3-tile layout via the top-bar surface toggles; promote/swap/close verbs mutate (shape, order) in the URL (A-017)", async ({
     page,
   }) => {
@@ -251,6 +319,35 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     await expect(webToggle).toHaveAttribute("aria-pressed", "false");
   });
 
+  /**
+   * Proves: the two verb families — the tty tile's bordered pane segment
+   * (content verbs: Split pane horizontally / Split pane vertically / Close
+   * pane, the last carrying the boxed ⊠ `close-pane-boxed` glyph) renders
+   * at arity 1 (`single:tty`, where zero LAYOUT verbs render), stays
+   * tty-only at arity 2 (the web tile's header has none), and remains
+   * visible while the tile is zoomed (◧/⇄ hide; ✕/⛶ stay) — while the
+   * terminal-mode top bar carries NO in-bar split chip (the `split`
+   * registry entry is `menuOnly`) and the chevron menu always carries the
+   * Split horizontal / Split vertical / Close pane rows. Stays within the
+   * ≤2-tile perf budget.
+   *
+   * Steps:
+   * 1. Create a web-capable window; navigate (default `single:tty`); assert
+   *    the terminal.
+   * 2. Assert the tty tile's `pane-segment` testid is visible with the
+   *    three content-verb buttons; assert the Close pane button carries the
+   *    `close-pane-boxed` glyph and NO `Expand Terminal` layout verb
+   *    renders.
+   * 3. Assert the top bar (banner) has NO `Split horizontally` button; open
+   *    the `More controls` chevron menu and assert the Split horizontal /
+   *    Split vertical / Close pane rows are visible; Escape-close it.
+   * 4. Open the web tile via the top-bar toggle; assert
+   *    `?layout=split-h:tty,web`, the segment still visible on the tty
+   *    tile, and NO `pane-segment` on the web tile.
+   * 5. Click the tty tile's `Expand Terminal` verb; assert the segment
+   *    stays visible while `Promote Terminal` is gone and `Close Terminal`
+   *    stays.
+   */
   test("the tty header carries the pane segment at any arity (visible while zoomed); the terminal bar dropped its split chip (260813-w1lf)", async ({
     page,
   }) => {
@@ -307,6 +404,20 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     ).toBeVisible();
   });
 
+  /**
+   * Proves: a top-bar toggle writes the value-bearing
+   * `rk-layout:{server}:{@N}` key, and a FULL load of the bare route (no
+   * carried `?layout=`, so the URL rung is empty) resolves the stored layout
+   * and mirrors it back into the URL.
+   *
+   * Steps:
+   * 1. Create a web-capable window; navigate; open the web tile via the
+   *    top-bar toggle.
+   * 2. Assert `?layout=split-h:tty,web` and the web tile visible.
+   * 3. `page.goto` the BARE window route (a real reload, no search string).
+   * 4. Assert the web tile and terminal render again and the URL mirrors
+   *    `split-h:tty,web`.
+   */
   test("a user-built layout restores from localStorage on a bare re-arrival (ladder rung 2)", async ({
     page,
   }) => {
@@ -334,6 +445,24 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     await expectLayoutParam(page, "split-h:tty,web");
   });
 
+  /**
+   * Proves: internal navigation (sidebar) targets the bare route, so each
+   * window resolves its own layout: B (never customized) falls to
+   * `single:tty` (the default — mirrored as a CLEAN URL, param dropped),
+   * while A restores its stored `split-h:tty,web` (mirrored into the URL).
+   * The A→B hop is a REAL client-side navigation (sidebar row click), not a
+   * `page.goto`.
+   *
+   * Steps:
+   * 1. Create window A (web-capable) and window B (plain).
+   * 2. On A, open the web tile via the top-bar toggle; assert
+   *    `?layout=split-h:tty,web`.
+   * 3. Click B's row in the `Sessions` sidebar; assert selection settles on
+   *    B (`aria-current="page"`), no web tile exists, and the URL is clean
+   *    (the default drops the param).
+   * 4. Click A's row; assert the web tile renders again and the URL mirrors
+   *    `split-h:tty,web`.
+   */
   test("window switch A→B→A restores each window's own layout (A-012)", async ({ page }) => {
     test.setTimeout(40_000);
     const a = await makeWindow(page, `sl-switch-a-${Date.now()}`, { url: IFRAME_URL });
@@ -368,6 +497,26 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     await expectLayoutParam(page, "split-h:tty,web");
   });
 
+  /**
+   * Proves: layout mutations use `replaceState` (no history entry per tweak)
+   * while window switches push; back/forward therefore restore the
+   * arrangement each history entry carried (rung 1 honors the entry's URL),
+   * and backing past the window lands on the pre-window route with no stale
+   * pre-mutation entry in between.
+   *
+   * Steps:
+   * 1. Create windows A (web-capable) and B (plain).
+   * 2. Navigate to the server route (history entry E0), then to A (E1).
+   * 3. Open the web tile on A via the top-bar toggle (replaceState — E1
+   *    updated in place); assert `?layout=split-h:tty,web`.
+   * 4. Sidebar-click B (push E2); assert B resolves `single:tty` (bare URL —
+   *    the default drops the param).
+   * 5. `goBack` → A renders `split-h:tty,web` again (the layout E1 carried).
+   * 6. `goForward` → B's default (bare URL) restores.
+   * 7. `goBack` twice → the SECOND back lands on the bare server route
+   *    (`/<server>`, E0) — a pushed layout entry would have stranded a stale
+   *    A URL in between.
+   */
   test("back/forward restore historical layouts; layout tweaks add NO history entries (L4)", async ({
     page,
   }) => {
@@ -417,6 +566,31 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
       .toBe(`/${TMUX_SERVER}`);
   });
 
+  /**
+   * Proves: divider drags mutate RATIOS only — clamped, persisted per
+   * (window, shape) on release, and never encoded in the URL; tiles stay
+   * mounted and live mid-drag (no suspension/unmount). Also the gap-seam
+   * sash states: rest shows 3 grip dots and no fill, hover lights the sash
+   * pill after the ~150ms delay, and the sash stays lit through the drag.
+   *
+   * Steps:
+   * 1. Create a web-capable window; navigate; open the web tile via the
+   *    top-bar toggle.
+   * 2. Assert the `surface-divider-0` separator reads `aria-valuenow=50`
+   *    (equal split) and capture the xterm element handle.
+   * 3. Sash states: assert the divider carries 3 `.rk-grips i` dots and its
+   *    `.rk-sash` is at opacity 0; hover the divider and assert the sash
+   *    reaches opacity 1 (retrying — the ~150ms anti-flicker delay plus
+   *    fade).
+   * 4. Drag the divider 150px right (mouse down/move/up in steps), asserting
+   *    the sash is still lit mid-drag.
+   * 5. Assert `aria-valuenow` grew past 50, the terminal is the SAME element
+   *    (still mounted, still visible), and the URL layout string is
+   *    unchanged.
+   * 6. Re-arrive via a full load of the bare route; assert the web tile
+   *    renders and the divider reads exactly the dragged value (ratio
+   *    persisted per window+shape).
+   */
   test("a divider drag persists the ratio across reload and never touches the URL (R5)", async ({
     page,
   }) => {
@@ -481,6 +655,26 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     });
   });
 
+  /**
+   * Proves: the `layout-zoom` default binding is REMOVED (Ctrl+` collides
+   * with code-server's own toggle-terminal chord), so the chord falls
+   * through untouched even with xterm focused; the zoom action itself
+   * survives via the tile's ⛶ verb (the same seam as the palette's
+   * `Layout: Expand`/`Restore`) and stays TRANSIENT (no URL/localStorage
+   * change).
+   *
+   * Steps:
+   * 1. Create a web-capable window; navigate; open the web tile via the
+   *    top-bar toggle; assert the `split-h:tty,web` URL mirror.
+   * 2. Click the terminal (xterm focus), then press `Control+``; after a
+   *    500ms grace beat assert BOTH tiles and the divider are still visible
+   *    (no zoom).
+   * 3. Click the tty tile's `Expand Terminal` verb; assert the web tile
+   *    hides at display level (still mounted — count 1), the divider is
+   *    gone, the terminal stays visible, and the URL is untouched.
+   * 4. Click the now-`Restore Terminal` verb; assert the web tile and the
+   *    divider return.
+   */
   test("Ctrl+` is inert (binding removed, 260813-j3jb); the ⛶ verb toggles the slot-A zoom", async ({
     page,
   }) => {
@@ -527,6 +721,33 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
   test.describe("mobile (375px, coarse pointer)", () => {
     test.use({ hasTouch: true });
 
+    /**
+     * Proves: below `isMobileViewport()` the layout manager renders only
+     * slot A — no grid, no dividers — and the remaining resolved surfaces
+     * are reachable via the top-bar switch group (radio semantics: the
+     * visible tile pressed), whose tap is TRANSIENT when the target is
+     * already open (the URL/desktop arrangement never changes). The nested
+     * describe runs `test.use({ hasTouch: true })` so `(pointer: coarse)`
+     * matches — a real phone is coarse AND narrow, and the bottom bar is
+     * pointer-gated, so a fine-pointer narrow window would exercise a
+     * different bar by design.
+     *
+     * Steps:
+     * 1. Set the 375×812 viewport (context already has `hasTouch`); create
+     *    a web-capable window.
+     * 2. Navigate to `?layout=main-left:tty,code,web`, gating on the
+     *    terminal (not the `Connected` dot — it lives in the desktop-only
+     *    status bar; the sidebar is an unmounted drawer at 375px anyway).
+     * 3. Assert the tty tile is visible, the code/web tiles are
+     *    mounted-hidden, no divider exists (and no
+     *    `surface-divider-intersection` — the gap-seam chrome is
+     *    desktop-only), the banner's `Terminal tile` / `Code tile` /
+     *    `Web tile` buttons render with Terminal `aria-pressed=true`, and
+     *    no `mobile-surfaces-chip` exists in the DOM.
+     * 4. Click the `Code tile` button; assert the code tile becomes visible
+     *    (tty hidden), the pressed state flips (Code pressed, Terminal
+     *    not), and the URL still reads `?layout=main-left:tty,code,web`.
+     */
     test("375px mobile: a 3-tile ?layout= URL renders slot A + the top-bar switch group for the rest (R13, A-018)", async ({
       page,
     }) => {
@@ -572,6 +793,23 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     });
   });
 
+  /**
+   * Proves: in the resting desktop state (fine pointer, compose strip
+   * closed — the bottombar row is empty) the sidebar card and the content
+   * column share one bottom edge, exactly 6px (the stage padding) above the
+   * status bar. Guards the row-gap regression class: grid gaps charge
+   * between tracks even at zero track height, so a stage row-gap would sink
+   * the content column 6px below the row-spanning sidebar; the seam is
+   * footer-owned and content-gated (`:has(>*)`) instead.
+   *
+   * Steps:
+   * 1. Create a fresh window; navigate to its terminal route; wait for the
+   *    Connected gate and the terminal tile.
+   * 2. Measure bounding boxes of the sidebar `<aside>`, the `status-bar`
+   *    testid, and the tty tile.
+   * 3. Assert sidebar bottom == tile bottom (±1px) and status-bar top −
+   *    sidebar bottom == 6px (±1px).
+   */
   test("stage bottom-edge parity: sidebar card and content column both end 6px above the status bar", async ({
     page,
   }) => {
@@ -600,6 +838,22 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     expect(Math.abs(statusBar!.y - sidebarBottom - 6)).toBeLessThanOrEqual(1);
   });
 
+  /**
+   * Proves: the focused-tile state — the framed tile border turns
+   * `border-accent-green` on the tile that last received pointer
+   * interaction (the tmux active-pane metaphor), defaults to slot A, and
+   * moves with each click. Unfocused tiles carry the dimmed gap-seam
+   * `rk-card-border`.
+   *
+   * Steps:
+   * 1. Create a web-capable window; navigate; open the web tile via the
+   *    top-bar toggle.
+   * 2. Assert the tty tile (slot A) carries `border-accent-green` and the
+   *    web tile the dimmed `rk-card-border`.
+   * 3. Click the web tile's header (`{x: 6, y: 15}`); assert the accent
+   *    border moved to the web tile and left the tty tile.
+   * 4. Click the tty tile's header; assert the border returned.
+   */
   test("the focused-tile accent border follows clicks across tiles (260812-wfic R2, A-013)", async ({
     page,
   }) => {
@@ -629,6 +883,27 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     await expect(tile(page, "web")).not.toHaveClass(/border-accent-green/);
   });
 
+  /**
+   * Proves: the `ttyOnly` dispatcher gate — a `ttyOnly` binding's handler
+   * is absent unless the tty tile owns focus, so the split chord (⇧Ctrl+\
+   * on this Linux host) falls through untouched (no `preventDefault`, no
+   * split POST) while the code tile is focused, and splits exactly as
+   * before while the tty tile is focused. Ground truth is the live tmux
+   * pane count, not the DOM.
+   *
+   * Steps:
+   * 1. Create a plain (code-capable) window; navigate; assert the terminal.
+   * 2. Open the code tile via the top-bar toggle; assert the tile renders.
+   *    Pane count = 1.
+   * 3. Click the code tile's header; assert its `border-accent-green` (the
+   *    gate's input is visibly engaged).
+   * 4. Press `Shift+Control+Backslash`; wait a beat; assert the pane count
+   *    is UNCHANGED (the chord fell through — code-server would own it on a
+   *    real reachable code-server).
+   * 5. Click the tty tile's header; assert its `border-accent-green`.
+   * 6. Press `Shift+Control+Backslash` again; assert the pane count grows
+   *    to 2 (retrying — the split POST + tmux mutation land asynchronously).
+   */
   test("the split chord is tty-scoped: inert with the code tile focused, splits with tty focused (260812-wfic R8, A-014)", async ({
     page,
   }) => {

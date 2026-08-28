@@ -5,6 +5,66 @@ import { READY_TIMEOUT, resolveWindow as resolveWindowRaw } from "./_ready";
 import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 import { stubProxyPorts } from "./_web-tile";
 
+/**
+ * The code surface end to end (`docs/specs/right-panel.md` § The code lens +
+ * § Surface Registry; `docs/specs/surface-layout.md`): the `code` lens joins
+ * the view registry (`?view=code` → `single:code` via the permanent shim + the
+ * palette's `View: Code` action — the switcher menu rows are retired) AND the
+ * tileable code surface (`Code tile` top-bar toggle — the right rail is
+ * REMOVED, its toggles moved into the top bar's `surface-toggles` group;
+ * `?panel=code` → `split-h:tty,code` via the shim), with availability =
+ * gitRoot derived (the port resolves by convention — `RK_CODE_SERVER_PORT`
+ * preset, else `RK_PORT+2` — and no longer gates), and code-server
+ * reachability governing only the surface CONTENT (live iframe vs the
+ * not-running empty state). The iframe src is the STABLE
+ * `/code/?folder=<git root>` route — the port never appears in a URL. Also
+ * covers the `/code` → `/code/` redirect and the keyboard-capture spike: a
+ * run-kit registry chord pressed inside the same-origin iframe is reclaimed by
+ * the parent.
+ *
+ * Shared setup:
+ * - `beforeEach`: `stubProxyPorts(page, 8080)` (`_web-tile.ts`) route-stubs
+ *   `/proxy/8080/**` with a static 200 page — the dead-port error state hides
+ *   the iframe when nothing listens on the stamped `http://localhost:8080/`
+ *   URL, and these tests assert tile chrome, never frame content. Each
+ *   describe's `beforeEach` also sets a wide desktop viewport (1440×800) — the
+ *   top-bar surface-toggle group is desktop terminal-route only.
+ * - tmux server: the isolated `rk-test-e2e` socket (`E2E_TMUX_SERVER`); never
+ *   run Playwright directly — `just test-e2e code-surface`.
+ * - code-server stub: code-server is not installable in the test env, so the
+ *   first describe binds a stub HTTP server (node `http`) on
+ *   `RK_CODE_SERVER_PORT` (default 3939 — the same env the test-e2e script
+ *   seeds the backend with) serving a minimal page with a focusable `#inner`
+ *   button; the second describe runs with the stub DOWN. The backend's
+ *   reachability probe is TTL-cached (~5s), so down-state assertions use a 30s
+ *   budget. The port is validated against the backend's own 1-65535 range
+ *   before the stub binds, so an out-of-range env value fails with a named
+ *   error instead of surfacing as unrelated missing-affordance assertions. The
+ *   backend resolves the same port server-side (the preset wins) and forwards
+ *   `/code/*` to it.
+ * - `beforeAll`: create one dedicated session `e2e-codesurface-<ts>` (80×24) so
+ *   this file never collides with other specs (`fullyParallel` off), then warm
+ *   the dev server with a throwaway TERMINAL-route page load (Vite's cold
+ *   transform of the app + xterm graph would otherwise eat the first test's
+ *   10s budget). `afterAll` kills the session (best-effort); the
+ *   stub-listening describe also closes the stub.
+ * - `makeWindow(name, {cwd?})`: create a window via `tmux new-window`
+ *   (optionally with `-c /tmp` for a NON-repo cwd — the availability-negative
+ *   case). Returns the stable `@N` id.
+ * - `GIT_ROOT`: `git rev-parse --show-toplevel` from the spec process — the
+ *   toplevel every in-repo test window derives (windows inherit the tmux
+ *   server's repo-root cwd).
+ * - `expectLayoutParam(page, expected)`: retrying read of the DECODED
+ *   `?layout=` search param (the router may percent-encode `:`/`,`); the
+ *   `replaceState` mirror lands a beat after the arrival/mutation.
+ * - Locators: the `Code tile` / `Web tile` top-bar toggles (role + accessible
+ *   name SCOPED to the `banner` — the top bar's aria-hidden measurement probe
+ *   duplicates every in-bar control, so accessible-name queries are the only
+ *   unambiguous ones), the `surface-tile-code` tile testid, the `Code editor`
+ *   iframe title, the `code-surface-empty` testid, the `.xterm` terminal
+ *   surface, and the command palette (the only lens-switch surface).
+ */
+
 // Own session so this file never collides with other specs (fullyParallel off).
 const TEST_SESSION = `e2e-codesurface-${Date.now()}`;
 const DESKTOP_VIEWPORT = { width: 1440, height: 800 };
@@ -159,6 +219,24 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     await page.setViewportSize(DESKTOP_VIEWPORT);
   });
 
+  /**
+   * Proves: availability derives from the SSE `gitRoot` field alone
+   * (Constitution II/X — no client-side declaration; the port is conventional
+   * and does not gate); a non-repo cwd (`/tmp`) derives no gitRoot, so neither
+   * affordance renders. The `View: Code` lens switch is palette-only — the
+   * chevron menu carries no `View:` rows. The test carries a 30s budget: two
+   * window creations plus two full page loads land marginal at the 10s default
+   * under suite load.
+   *
+   * Steps:
+   * 1. Create a repo-cwd window; navigate; assert the terminal, then the `Code
+   *    tile` top-bar toggle (SSE-gated).
+   * 2. Open the palette with `View: Code`; assert the option is visible;
+   *    Escape. Open the "More controls" menu; assert it carries NO `View:`
+   *    rows; Escape.
+   * 3. Create a `/tmp`-cwd window; navigate; assert NO `Code tile` button and
+   *    no `View: Code` palette option.
+   */
   test("the Code tile top-bar toggle appears only on a git-repo window; the palette's `View: Code` action gates the same way", async ({
     page,
   }) => {
@@ -204,6 +282,22 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     await page.keyboard.press("Escape");
   });
 
+  /**
+   * Proves: the retired `?panel=code` deep link resolves through the permanent
+   * shim (a bare panel value maps against the tty default slot A →
+   * `split-h:tty,code`), and the tile's renderer iframes the fully derived
+   * RELATIVE `/code/` URL (never an absolute origin; the port never appears)
+   * with the sandbox set (incl. `allow-downloads`); the terminal stays mounted
+   * beside the tile (the layout is additive).
+   *
+   * Steps:
+   * 1. Create a repo-cwd window; navigate with `?panel=code`.
+   * 2. Assert the `surface-tile-code` tile and the `Code editor` iframe are
+   *    visible, the mirrored URL reads `split-h:tty,code`, the iframe `src`
+   *    attribute is exactly `/code/?folder=<url-encoded git root>`, and its
+   *    sandbox contains `allow-downloads`.
+   * 3. Assert the terminal is still visible.
+   */
   test("?panel=code opens the code tile (shim); the iframe src is the stable /code/?folder=<git root>", async ({
     page,
   }) => {
@@ -230,6 +324,15 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     await expect(terminal(page)).toBeVisible();
   });
 
+  /**
+   * Proves: the relative-base rule on the stable route — code-server resolves
+   * `./x` against the trailing slash, so the backend 308-redirects the bare
+   * `/code` to `/code/` with the query preserved.
+   *
+   * Steps:
+   * 1. `GET /code?folder=/repo` through the dev proxy with `maxRedirects: 0`.
+   * 2. Assert status 308 and `Location: /code/?folder=/repo`.
+   */
   test("/code 308-redirects to /code/ (query preserved) before proxying", async ({
     page,
   }) => {
@@ -243,6 +346,17 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     expect(res.headers()["location"]).toBe("/code/?folder=/repo");
   });
 
+  /**
+   * Proves: `code` is a full view-registry lens — the shim maps `?view=code` to
+   * `single:code`, the code tile fills the center, and the top-bar toggle group
+   * stays put (tiles are additive).
+   *
+   * Steps:
+   * 1. Create a repo-cwd window; navigate with `?view=code`.
+   * 2. Assert the `Code editor` iframe is visible, the mirrored URL reads
+   *    `single:code`, and the group still renders (the `Terminal tile` toggle
+   *    is visible in the banner).
+   */
   test("?view=code renders the code lens as the single slot-A tile", async ({
     page,
   }) => {
@@ -258,6 +372,18 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     ).toBeVisible();
   });
 
+  /**
+   * Proves: the resolve/degrade fall-throughs — `?view=code&panel=code` shims
+   * to `split-h:code,code`, which the grammar rejects (a repeated non-tty
+   * kind), and `code` is unavailable on a `/tmp` window anyway (no gitRoot);
+   * both paths land on `single:tty`, never a broken iframe.
+   *
+   * Steps:
+   * 1. Create a `/tmp`-cwd window; navigate with `?view=code&panel=code`.
+   * 2. Assert the terminal is visible, neither the code iframe nor the code
+   *    tile exists in the DOM, and the resolved layout is `single:tty` (the
+   *    default — the mirror DROPS the param, leaving a clean URL).
+   */
   test("unavailable params fall through: ?view=code&panel=code resolves to plain tty on a /tmp window", async ({
     page,
   }) => {
@@ -274,6 +400,23 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     await expectLayoutParam(page, null); // default layout mirrors as a CLEAN URL (param dropped)
   });
 
+  /**
+   * Proves: hide-never-unmount generalized to tiles — with two surfaces
+   * available, opening web then code renders BOTH iframes simultaneously (tiles
+   * are additive), and closing the web tile keeps its iframe subtree mounted
+   * (display-level hide); the re-opened web iframe is the identical element
+   * (in-memory state preserved).
+   *
+   * Steps:
+   * 1. Create a repo-cwd window and stamp `@rk_win_url` (both surfaces
+   *    available); navigate; assert both top-bar toggles.
+   * 2. Open web; assert the `Proxied content` iframe is visible. Click the code
+   *    top-bar toggle; assert the code iframe is visible AND the web iframe
+   *    still is.
+   * 3. Close web via its lit toggle; assert the web iframe is hidden but still
+   *    in the DOM (count 1). Capture its element handle, reopen web, and assert
+   *    the visible iframe is the same element.
+   */
   test("tiles coexist and a closed tile hides but never unmounts its iframe (P3 across surfaces)", async ({
     page,
   }) => {
@@ -316,6 +459,19 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     ).toBe(true);
   });
 
+  /**
+   * Proves: a capture-phase `keydown` listener on the same-origin iframe's
+   * `contentDocument` intercepts a run-kit registry chord (⌘K/Ctrl+K) before
+   * the embedded app sees it and re-dispatches it to the parent, so the command
+   * palette opens despite iframe focus.
+   *
+   * Steps:
+   * 1. Create a repo-cwd window; navigate with `?panel=code`; assert the code
+   *    iframe is visible (stub up).
+   * 2. Click the stub page's `#inner` button INSIDE the frame (focus is now in
+   *    the iframe).
+   * 3. Press `Control+K`; assert the `Command palette` dialog opens.
+   */
   test("keyboard spike: a registry chord pressed INSIDE the iframe reaches the parent (chord reclaim)", async ({
     page,
   }) => {
@@ -346,6 +502,20 @@ test.describe("Code lens & CODE surface (phase 2) — stub down", () => {
     await page.setViewportSize(DESKTOP_VIEWPORT);
   });
 
+  /**
+   * Proves: reachability governs CONTENT, not availability — with the stub
+   * down, the top-bar toggle still renders (capability signals are stable) but
+   * the code tile shows the terse portless `code-server not running — check rk
+   * doctor` empty state instead of a dead iframe.
+   *
+   * Steps:
+   * 1. (Stub is closed — this describe never binds the port.)
+   * 2. Create a repo-cwd window; navigate with `?panel=code`; assert the `Code
+   *    tile` top-bar toggle is visible.
+   * 3. Assert the `code-surface-empty` state reads `code-server not running —
+   *    check rk doctor` (30s budget — the backend's ~5s probe TTL must expire
+   *    first) and no `Code editor` iframe exists.
+   */
   test("the surface renders the not-running empty state when the port is unreachable", async ({
     page,
   }) => {

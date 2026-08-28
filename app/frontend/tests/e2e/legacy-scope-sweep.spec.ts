@@ -8,6 +8,14 @@ import { TMUX_FAMILY, createSession, killServer, listWindows } from "./_tmux";
 // this daemon process has never swept (the legacy-color-sweep precedent).
 // Named inside this worktree's socket family (TMUX_FAMILY anchor) so the
 // allowlist, teardown glob, and post-sweep all match by prefix.
+// beforeAll creates the scratch server with one session (one window) via the
+// shared _tmux helpers — createSession marks the server @rk_srv_managed, so
+// the managed-only sweep gate passes — then seeds the legacy names:
+// window-scope @rk_role/@rk_url/@rk_note and server-scope
+// @rk_origin/@rk_session_order. afterAll kills the scratch server.
+// windowOption/serverOption read options at window/server scope on the
+// scratch server ("" = unset); the poll helpers wrap each read in
+// expect.poll.
 const SWEEP_SERVER = `${TMUX_FAMILY}scope-sweep-${process.pid}-${Date.now().toString().slice(-6)}`;
 const TEST_SESSION = `e2e-sweep-${Date.now()}`;
 const WIN_NAME = "sweep-win";
@@ -87,6 +95,30 @@ test.describe("Legacy scope-prefix sweep (@rk_* → scoped rk names)", () => {
     killServer(SWEEP_SERVER);
   });
 
+  /**
+   * Proves: after one `reload-config` call, every seeded legacy name is unset
+   * at its scope while the corresponding scope-prefixed new name carries the
+   * exact seeded value at the same scope — the rename's copy-then-unset
+   * semantics exercised end-to-end on the e2e subscription stack.
+   *
+   * Steps:
+   * 1. Sanity-check each seed: window-scope `@rk_role=operator`,
+   *    `@rk_url=/about:blank`, `@rk_note=1:e2e-legacy-note` and server-scope
+   *    `@rk_origin=e2e-legacy`, `@rk_session_order=["<session>"]` read back
+   *    their seeded values.
+   * 2. Navigate to `/<scratch-server>` and wait for `Connected`
+   *    (`gotoServerReady`) so the spec runs on the managed-server arm,
+   *    mirroring real attaches.
+   * 3. POST `/api/tmux/reload-config?server=<scratch-server>` (the
+   *    attach-equivalent sweep hook; first call for this server runs the
+   *    once-guarded sweep); assert the response is OK.
+   * 4. For each window-scope legacy name: poll until it reads unset; assert
+   *    the new name (`@rk_win_role`/`@rk_win_url`/`@rk_win_note`) reads the
+   *    seeded value at window scope.
+   * 5. For each server-scope legacy name: poll until it reads unset; assert
+   *    the new name (`@rk_srv_origin`/`@rk_srv_session_order`) reads the
+   *    seeded value at server scope.
+   */
   test("window- and server-scope legacy names converge onto the scope-prefixed rk names", async ({
     page,
   }) => {

@@ -1,3 +1,19 @@
+// Touch-input path for the embedded xterm.js terminal on mobile:
+// swipe-to-scroll, tap-to-focus, and wrapper measurability. Chromium doesn't
+// ship with `pointer:coarse` by default, so each test shims
+// window.matchMedia('(pointer: coarse)') via page.addInitScript before
+// navigation.
+// Per-file timeout is 30s — terminal mounts and tmux scrollback generation
+// can each take several seconds. beforeAll creates `e2e-scroll-<timestamp>`;
+// afterAll kills it. Each test sets a 375×812 viewport and calls
+// mockTouchDevice(page) before navigating. The terminal route is keyed by the
+// tmux window id (`@N`), not the index, so each test first calls
+// resolveFirstWindowId(page) — which polls the backend snapshot for
+// TEST_SESSION's first window id — and deep-links to the 2-segment route
+// `/${TMUX_SERVER}/<@id>` (id URL-encoded); the owning session is derived
+// server-side from the SSE snapshot. Touch events are dispatched via CDP
+// (Input.dispatchTouchEvent) rather than page.touchscreen — the raw CDP path
+// mirrors iOS input most closely.
 import { test, expect } from "@playwright/test";
 import { resolveWindow } from "./_ready";
 import { TMUX_SERVER, createSession, killSession } from "./_tmux";
@@ -50,6 +66,29 @@ test.describe("Mobile touch scroll", () => {
     killSession(TEST_SESSION);
   });
 
+  /**
+   * Proves: a vertical swipe on the terminal wrapper produces SGR
+   * mouse-scroll escape sequences (`\x1b[<64;col;rowM`) sent to the tmux PTY
+   * via the `/ws/terminals` mux.
+   *
+   * Steps:
+   * 1. Resolve the first window id and navigate to
+   *    `/${TMUX_SERVER}/<@id>` (2-segment route); wait for `.xterm-screen`
+   *    (xterm mount complete) plus a 2s settle.
+   * 2. Type `seq 1 200\n` into the terminal to guarantee scrollback content.
+   * 3. Monkey-patch `WebSocket.prototype.send` to append any frame whose
+   *    decoded payload contains `\x1b[<6` into `window.__scrollSeqs` — pane
+   *    keystrokes ride the mux as binary `[u32 BE streamId][payload]` frames,
+   *    so binary sends are decoded past the 4-byte header before matching
+   *    (strings pass through as-is).
+   * 4. Dispatch `touchStart` at the wrapper center, then 15 small downward
+   *    `touchMove` events (simulating finger drag down), then `touchEnd`.
+   * 5. Read back `window.__scrollSeqs` and assert: at least one sequence was
+   *    captured; the first matches `\x1b[<64;\d+;\d+M` (button 64 = scroll up
+   *    in SGR encoding — finger down = see older content); and it does NOT
+   *    contain the degenerate `;1;1M` coordinates, which would indicate the
+   *    terminal bounding box wasn't measured correctly.
+   */
   test("touch swipe sends SGR scroll sequences via WebSocket", async ({
     page,
   }) => {
@@ -125,6 +164,18 @@ test.describe("Mobile touch scroll", () => {
     expect(seqs[0]).not.toContain(";1;1M");
   });
 
+  /**
+   * Proves: the xterm wrapper stays mounted and has positive dimensions at
+   * mobile size. A navigation-driven unmount would leave the locator present
+   * but un-measurable, which has caused past flakes.
+   *
+   * Steps:
+   * 1. Navigate to the terminal route.
+   * 2. Wait for `.xterm-screen` to be visible.
+   * 3. Assert `[role='application']` has exactly one match within 3s.
+   * 4. Read its `boundingBox()` with a 3s timeout.
+   * 5. Assert `box.width > 0` and `box.height > 0`.
+   */
   test("role=application wrapper has measurable bounding box at 375x812", async ({
     page,
   }) => {
@@ -146,6 +197,19 @@ test.describe("Mobile touch scroll", () => {
     expect(box!.height).toBeGreaterThan(0);
   });
 
+  /**
+   * Proves: a bare tap (touchStart + touchEnd without movement) focuses
+   * `.xterm-helper-textarea`. On iOS, this is what triggers the virtual
+   * keyboard — regressions here break mobile typing.
+   *
+   * Steps:
+   * 1. Navigate to the terminal route and wait for `.xterm-screen` + a 2s
+   *    settle.
+   * 2. Blur any active element via `page.evaluate`.
+   * 3. Dispatch `touchStart` + `touchEnd` at the wrapper center with a 100ms
+   *    gap between them; wait 500ms for focus handlers to run.
+   * 4. Assert `document.activeElement` has the class `xterm-helper-textarea`.
+   */
   test("tap on terminal focuses textarea for keyboard", async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 });
     await mockTouchDevice(page);

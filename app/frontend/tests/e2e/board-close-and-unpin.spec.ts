@@ -2,6 +2,34 @@ import { test, expect } from "@playwright/test";
 import { pinWindow } from "./_boards";
 import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
+// Board pane-management contracts (link-based pinning + kill-vs-unpin
+// legibility). On /board/<name> the tile-header pin glyph is the unpin
+// affordance (safe, reversible, UNCONFIRMED), while the top-bar's Kill is a
+// chevron-menu row (menuOnly — no in-bar ✕) that is consequence-gated: the row
+// reads `Kill` and opens a confirm dialog whose safe `Unpin instead` action is
+// default-focused, because a board Kill is a real window-kill that destroys
+// the window everywhere (its home session included). Because Pin LINKS (not
+// moves) the window, a pinned window also stays a member of its home session
+// (dual presence).
+//
+// These e2e tests prove the click → HTTP → board-state contract and the dialog
+// gating: the tile-header unpin drives POST /api/boards/<name>/unpin directly;
+// GET /api/sessions lists a pinned window under a NON-pin session; confirmed
+// Kill drives POST /api/windows/<id>/kill (a window-kill, not a close-pane)
+// and the single-pane tile self-heals away; `Unpin instead` drives POST
+// /unpin and leaves the window alive. The per-mode button set, the
+// disabled-at-no-focused-tile rule, the board SplitButtons, the pin-glyph
+// rendering, the `{session} › {window}` crumb, the pinned-row → board
+// navigation, and the `Board: Split/Kill/Unpin Focused Pane` palette actions
+// are covered by unit tests (top-bar.test.tsx, board-header.test.tsx,
+// window-row.test.tsx, command-palette.boards.test.tsx).
+//
+// Shared setup: beforeAll creates `e2e-board-close-<timestamp>` on the e2e
+// tmux server with three windows (win-a, win-b, win-c); afterAll kills it.
+// Each test uses a fresh board name (per-test prefix + timestamp suffix) so
+// reruns don't collide on the persistent server. windowId(name) resolves a
+// window's tmux id by matching list-windows output.
+
 // Own session per file to avoid cross-test interference.
 const TEST_SESSION = `e2e-board-close-${Date.now()}`;
 
@@ -21,6 +49,24 @@ test.describe("Boards: tile-header unpin + top-bar consequence-gated Kill (co9z)
     killSession(TEST_SESSION);
   });
 
+  /**
+   * Proves: with `win-a` pinned via the HTTP API, /board/<name> renders the
+   * tile and the tile-header unpin button carries the per-window
+   * `Unpin win-a from board` label; clicking it drives
+   * POST /api/boards/<name>/unpin directly (unpin is reversible, so the
+   * tile-header unpin stays UNCONFIRMED), and the now-empty board is dropped
+   * from GET /api/boards.
+   *
+   * Steps:
+   * 1. Pin win-a via POST /api/boards/<board>/pin.
+   * 2. Navigate to /board/<board>; assert `win-a` is visible.
+   * 3. Assert the tile-header button named `Unpin win-a from board` is visible.
+   * 4. Arm a waitForRequest for the click-triggered
+   *    POST /api/boards/<board>/unpin, click the header unpin glyph, and await
+   *    that request.
+   * 5. Poll GET /api/boards until the board disappears (empty boards are
+   *    removed).
+   */
   test("the per-tile header pin glyph unpins the focused pane (POST /unpin), emptying the board", async ({ page }) => {
     test.setTimeout(30_000);
     // Fresh board name per test so reruns don't collide on the persistent server.
@@ -61,6 +107,23 @@ test.describe("Boards: tile-header unpin + top-bar consequence-gated Kill (co9z)
       .toBe(false);
   });
 
+  /**
+   * Proves: because Pin LINKS (not moves) the window, a pinned window remains
+   * a member of its home session and is still listed under a NON-pin session
+   * by GET /api/sessions — the same derive-from-tmux source the SESSIONS
+   * sidebar renders from (the window would be absent under the old move
+   * model). Asserted against the backend session listing — deterministic, no
+   * sidebar-expand DOM timing.
+   *
+   * Steps:
+   * 1. Pin win-c via POST /api/boards/<board>/pin.
+   * 2. Poll GET /api/sessions?server=<server> until some NON-`_rk-pin-*`
+   *    session lists a window whose windowId matches win-c (dual presence via
+   *    the backend snapshot).
+   * 3. Navigate to /board/<board> and assert `win-c` is visible — board
+   *    membership is unaffected.
+   * 4. Unpin via POST /api/boards/<board>/unpin to clean up (board vanishes).
+   */
   test("a pinned window stays a member of its home session (dual presence)", async ({ page }) => {
     test.setTimeout(30_000);
     const board = `dual${Date.now().toString().slice(-6)}`;
@@ -99,6 +162,36 @@ test.describe("Boards: tile-header unpin + top-bar consequence-gated Kill (co9z)
     });
   });
 
+  /**
+   * Proves: with `win-b` pinned, the board Kill is a chevron-menu row (no
+   * in-bar ✕) that reads `Kill` (never `Close pane` / `Unpin pane from board`)
+   * and is consequence-gated: clicking it opens a confirm dialog whose
+   * `Unpin instead` action is default-focused; confirming `Kill` drives
+   * POST /api/windows/<id>/kill (a WINDOW-kill — "closes it everywhere").
+   * Killing the single-pane window collapses the pin-session with no
+   * board-changed event, so ONLY the board page's own refetch (driven by
+   * `executeKillWindow`'s `onSettled`) can drop the dead tile — the test
+   * asserts the tile disappears from the DOM (empty-state appears) to exercise
+   * that self-heal refetch directly, then confirms the emptied board vanishes
+   * from the server listing.
+   *
+   * Steps:
+   * 1. Pin win-b via POST /api/boards/<board>/pin (single-window pin — its
+   *    window-kill is the self-heal path).
+   * 2. Navigate to /board/<board> and assert `win-b` is visible.
+   * 3. Scope to the top-bar-right cluster: assert NO in-bar `Kill` button
+   *    exists, open the `More controls` chevron menu, assert NO `Close pane` /
+   *    `Unpin pane from board` row exists and the `Kill` row is visible, then
+   *    click it.
+   * 4. Assert the dialog appears and its `Unpin instead` button is focused.
+   * 5. Arm a waitForRequest for the click-triggered
+   *    POST /api/windows/<id>/kill, click the dialog's exact `Kill` button,
+   *    and await that request.
+   * 6. Assert the `win-b` tile disappears from the DOM and the
+   *    `No panes pinned to this board yet` empty-state becomes visible — the
+   *    load-bearing self-heal-refetch assertion.
+   * 7. Poll GET /api/boards until the board disappears.
+   */
   test("the chevron menu's Kill row opens the consequence-gated Kill dialog; confirming Kill destroys the window (POST /kill) and the tile self-heals away", async ({ page }) => {
     test.setTimeout(30_000);
     const board = `krm${Date.now().toString().slice(-6)}`;
@@ -168,6 +261,23 @@ test.describe("Boards: tile-header unpin + top-bar consequence-gated Kill (co9z)
       .toBe(false);
   });
 
+  /**
+   * Proves: the dialog's `Unpin instead` escape is the SAFE path — it drives
+   * POST /api/boards/<name>/unpin (not /kill), empties the board, and leaves
+   * the window alive on the tmux server.
+   *
+   * Steps:
+   * 1. Pin win-a to a fresh board via POST /api/boards/<board>/pin.
+   * 2. Navigate to /board/<board> and assert `win-a` is visible.
+   * 3. Open the `More controls` chevron menu (scoped to the top-bar-right
+   *    cluster) and click its `Kill` row to open the dialog; assert the dialog
+   *    is visible.
+   * 4. Arm a waitForRequest for POST /api/boards/<board>/unpin, click
+   *    `Unpin instead`, and await that request.
+   * 5. Poll GET /api/boards until the board disappears.
+   * 6. Assert the window id is still present in tmux list-windows — unpin did
+   *    not destroy it.
+   */
   test("the Kill dialog's `Unpin instead` unpins (POST /unpin) without killing the window", async ({ page }) => {
     test.setTimeout(30_000);
     const board = `esc${Date.now().toString().slice(-6)}`;

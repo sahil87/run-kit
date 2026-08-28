@@ -529,7 +529,7 @@ describe("markerStripeStyle", () => {
   });
 
   it("FLAIR_STATES is the closed set in display order (empty first, rain/scan leading)", () => {
-    expect(FLAIR_STATES).toEqual(["", "rain", "scan", "nyan", "naruto", "onepiece", "pacman", "matrix", "aquarium", "roadrunner", "invaders", "cube", "warp", "spidey", "ironman"]);
+    expect(FLAIR_STATES).toEqual(["", "rain", "scan", "nyan", "naruto", "onepiece", "pacman", "matrix", "aquarium", "roadrunner", "invaders", "cube", "warp", "spidey", "ironman", "noon"]);
   });
 });
 

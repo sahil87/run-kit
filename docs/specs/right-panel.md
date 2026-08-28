@@ -1,5 +1,10 @@
 # Right Panel — A Second Slot Beside the Terminal
 
+> **Amended by [`ui-state.md`](ui-state.md) (2026-08-28, draft):** P1 (per-viewer, URL-addressable panel choice) is superseded by shared
+> `@rk_win_layout`; § Companion Windows is unshipped and tracked there as an open question.
+> Read this file's rules through that lens until the in-place amendment lands
+> with implementation.
+
 > A collapsible right-side panel on the terminal route that renders a **second
 > (substrate, lens) pair** beside the tty, behind an icon rail rendered on
 > every desktop terminal route and collapsible from the top bar

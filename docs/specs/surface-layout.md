@@ -1,5 +1,11 @@
 # Surface Layout — The Center Is a Layout of Surfaces
 
+> **Amended by [`ui-state.md`](ui-state.md) (2026-08-28, draft):** § State — the resolution ladder (L1–L4) retires; shape+order live in
+> `@rk_win_layout`, `?layout=` dies after one release, ratios and zoom stay per-viewer.
+> Shapes and verbs are unchanged.
+> Read this file's rules through that lens until the in-place amendment lands
+> with implementation.
+
 > The terminal route's center becomes a **layout manager**: one to three tiles,
 > each rendering a **surface** (a (substrate, lens) pair per
 > [`right-panel.md`](right-panel.md)), arranged by a **preset shape** with a

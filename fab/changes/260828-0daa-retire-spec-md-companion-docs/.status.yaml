@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 12
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-28T11:24:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-28T11:46:44Z"}
     review: {started_at: "2026-08-28T11:46:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-28T11:57:55Z"}
     hydrate: {started_at: "2026-08-28T11:57:55Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-28T11:59:54Z"}
-    ship: {started_at: "2026-08-28T11:59:54Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-28T11:59:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-28T12:01:29Z"}
+    review-pr: {started_at: "2026-08-28T12:01:29Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/758
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 8666
+    deleted: 9892
+    net: -1226
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 8243
+        deleted: 9855
+        net: -1612
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-08-28T11:59:54Z"
-    computed_at_stage: hydrate
+        added: 8243
+        deleted: 352
+        net: 7891
+    computed_at: "2026-08-28T12:01:29Z"
+    computed_at_stage: ship
 summary: states the Test Intent Comments convention in the e2e testing section (per-test Proves/Steps JSDoc + file header, unit tests exempt) and records the design decision retiring companion docs
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-28T11:59:54Z
+last_updated: 2026-08-28T12:01:29Z

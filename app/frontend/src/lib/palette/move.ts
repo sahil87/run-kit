@@ -12,7 +12,7 @@ export type MoveDelta = -1 | 1;
 
 /**
  * Derive the effective session display order for a server: the persisted SSE
- * order (`@rk_session_order`) filtered to live session names, with any live
+ * order (`@rk_srv_session_order`) filtered to live session names, with any live
  * sessions not present in the persisted order appended in their natural order.
  * This is the "SSE order ?? natural" derivation the palette Session: Move
  * actions gate on (the sidebar's transient drag override is component-local and

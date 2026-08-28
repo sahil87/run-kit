@@ -164,8 +164,8 @@ func (s *Server) handleSessionColor(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleSessionFlair sets or clears the @rk_session_flair session option
-// (scope-split from the window @rk_flair — see tmux.SetSessionFlair).
+// handleSessionFlair sets or clears the @rk_ses_flair session option
+// (scope-split from the window @rk_win_flair — see tmux.SetSessionFlair).
 // POST /api/sessions/{session}/flair ← {"flair": "onepiece"} sets; null/"" clears.
 func (s *Server) handleSessionFlair(w http.ResponseWriter, r *http.Request) {
 	s.handleSessionStringOption(w, r, sessionStringOption{

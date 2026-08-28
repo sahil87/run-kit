@@ -97,14 +97,14 @@ export function IframeWindow({
   const { currentServer } = useSessionContext();
   const server = currentServer ?? "";
   // Content selector (260821-zqlq): web availability is unconditional — an
-  // empty/whitespace @rk_url renders the ONBOARDING state (reduced live URL
+  // empty/whitespace @rk_win_url renders the ONBOARDING state (reduced live URL
   // bar + the three fill-path instructions) in place of the iframe and its
   // probe machinery; hasWebUrl's trim rule is the single source.
   const onboarding = !hasWebUrl({ rkUrl });
   const [inputUrl, setInputUrl] = useState(rkUrl);
   // Edit mode (R7): at rest the address bar shows the kind-specific DISPLAY
   // form; focus reveals the raw editable value (select-all). Enter is the ONE
-  // write to @rk_url; Escape reverts.
+  // write to @rk_win_url; Escape reverts.
   const [editing, setEditing] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   // Per-viewer current-path tracking (R7): the same-origin frame's location,
@@ -248,7 +248,7 @@ export function IframeWindow({
   );
 
   /** The current address in RAW form: the tracked frame location when known,
-   *  else the stored @rk_url. The ↗ button and the edit reveal read this. */
+   *  else the stored @rk_win_url. The ↗ button and the edit reveal read this. */
   const rawAddress = trackedLocation ?? rkUrl;
 
   // ── find-in-page state (260819-ie2i R5–R8) ──────────────────────────────
@@ -348,7 +348,7 @@ export function IframeWindow({
         // Current-path tracking + title reporting: same-origin only. The
         // tracked location is stored root-relative (viewer origin stripped)
         // so the display-form derivation sees the same shape as a stored
-        // relative @rk_url. about:blank (the cross-origin reload bounce's
+        // relative @rk_win_url. about:blank (the cross-origin reload bounce's
         // midpoint) reports nothing.
         if (doc) {
           try {
@@ -593,7 +593,7 @@ export function IframeWindow({
   }, [rkUrl, addressKind, probeNonce]);
 
   // Real reload (R6): same-origin frames reload their CURRENT location
-  // (in-page state and the navigated-to page survive — no reset to @rk_url);
+  // (in-page state and the navigated-to page survive — no reset to @rk_win_url);
   // the about:blank bounce remains ONLY as the cross-origin fallback.
   const handleRefresh = useCallback(() => {
     const iframe = iframeRef.current;
@@ -619,7 +619,7 @@ export function IframeWindow({
   }, [crossOrigin]);
 
   // Back/forward (R5): contentWindow.history, same-origin only (the buttons
-  // are hidden when crossOrigin), per-viewer — never an @rk_url write. A
+  // are hidden when crossOrigin), per-viewer — never an @rk_win_url write. A
   // boundary click is a harmless no-op (no canGoBack signal exists).
   const navigateFrameHistory = useCallback((delta: -1 | 1) => {
     try {
@@ -635,7 +635,7 @@ export function IframeWindow({
 
   // Open in browser (R9): the CURRENT address in a new tab — relative
   // addresses resolve naturally against the viewer's origin (the stored
-  // @rk_url stays relative per the display contract).
+  // @rk_win_url stays relative per the display contract).
   const handleOpenExternal = useCallback(() => {
     window.open(rawAddress, "_blank", "noopener");
   }, [rawAddress]);
@@ -886,7 +886,7 @@ export function IframeWindow({
         </div>
       )}
 
-      {/* Onboarding (260821-zqlq): an empty/whitespace @rk_url selects this
+      {/* Onboarding (260821-zqlq): an empty/whitespace @rk_win_url selects this
           content state in place of the iframe + probe machinery — the web
           lens is always tileable, and this panel is its discoverability
           surface. Copy per the user-approved mock. The address bar above
@@ -904,7 +904,7 @@ export function IframeWindow({
           </span>
           <span className="text-text-primary text-[13px]">Nothing to show yet</span>
           <span className="text-text-secondary text-[11px] text-center mb-5">
-            this tile follows the window&apos;s web address (@rk_url) — three ways to fill it:
+            this tile follows the window&apos;s web address (@rk_win_url) — three ways to fill it:
           </span>
           <div className="flex flex-col gap-3 w-full max-w-[440px]">
             <div className="flex gap-2.5 items-start">

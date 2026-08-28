@@ -2885,7 +2885,7 @@ describe("Sidebar — desktop selected-row autoscroll (nris)", () => {
 });
 
 describe("Sidebar — operator pinned row (260813-ifya)", () => {
-  // A window carrying `role: "operator"` (the `@rk_role` option) is pinned at
+  // A window carrying `role: "operator"` (the `@rk_win_role` option) is pinned at
   // the top of its server group's session area — MOVED out of its session
   // group (rendered exactly once), with no badge/chrome, and not draggable.
   const OPERATOR_SESSIONS: ProjectSession[] = [

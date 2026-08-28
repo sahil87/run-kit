@@ -8,7 +8,7 @@ Companion to `operator-session-promotion.spec.ts`.
   `rk-test-e2e` tmux server), torn down in `afterAll` along with `_rk-operator`.
 - Viewport: default desktop.
 - All role changes go through the same `POST /api/windows/{windowId}/options`
-  partial-merge route the palette client uses (`@rk_role: "operator"` to set,
+  partial-merge route the palette client uses (`@rk_win_role: "operator"` to set,
   `null` to clear), never a client-side shortcut.
 
 ## Tests
@@ -30,12 +30,12 @@ group, no longer pinned.
    resolve the operator window's id.
 2. Assert the fresh operator window renders once inside its work-session
    group, and no `_rk-operator` session group exists.
-3. Promote: POST `@rk_role: "operator"`; assert it succeeds.
+3. Promote: POST `@rk_win_role: "operator"`; assert it succeeds.
 4. Assert the work group no longer lists the operator window (count 0), no
    `_rk-operator` session group renders, and the pinned operator row renders
    exactly once ABOVE the work group (smaller y).
 5. Click the pinned row; assert the URL navigates to the operator window's
    `@N` route.
-6. Demote: POST `@rk_role: null`; assert it succeeds.
+6. Demote: POST `@rk_win_role: null`; assert it succeeds.
 7. Assert no `_rk-operator` session group renders, and the window reappears
    under a visible session group exactly once (no longer the pinned slot).

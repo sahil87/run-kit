@@ -27,9 +27,9 @@ import (
 type Snapshot struct {
 	Server  string    `json:"server"`
 	TakenAt time.Time `json:"takenAt"`
-	// ServerRank mirrors the @rk_server_rank server option (nil when unset).
+	// ServerRank mirrors the @rk_srv_rank server option (nil when unset).
 	ServerRank *int `json:"serverRank,omitempty"`
-	// SessionOrder mirrors the @rk_session_order server option.
+	// SessionOrder mirrors the @rk_srv_session_order server option.
 	SessionOrder []string  `json:"sessionOrder,omitempty"`
 	Sessions     []Session `json:"sessions"`
 	// DiedAt / AuditedKill are tombstone-only fields, stamped by
@@ -64,7 +64,7 @@ type Window struct {
 	Marker string `json:"marker,omitempty"`
 	Flair  string `json:"flair,omitempty"`
 	Role   string `json:"role,omitempty"`
-	// Note is the raw @rk_note value ("<unix-epoch>:<text>") — the epoch rides
+	// Note is the raw @rk_win_note value ("<unix-epoch>:<text>") — the epoch rides
 	// along so the note's age stays honest across a restore.
 	Note  string `json:"note,omitempty"`
 	Panes []Pane `json:"panes"`
@@ -108,7 +108,7 @@ var (
 // dead-server to empty), so a capture racing server death can never overwrite
 // a good snapshot with an empty one.
 //
-// The rk option reads (@rk_session_order / @rk_server_rank) are best-effort:
+// The rk option reads (@rk_srv_session_order / @rk_srv_rank) are best-effort:
 // a malformed stored value must not sink the layout capture, so their errors
 // degrade to slog.Debug with the field left empty.
 func CaptureServer(ctx context.Context, server string) (*Snapshot, error) {

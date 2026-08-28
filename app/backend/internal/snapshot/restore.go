@@ -333,11 +333,11 @@ func windowOptionOps(win Window) []tmux.WindowOptionOp {
 		}
 	}
 	add(tmux.ColorOption, win.Color)
-	add("@rk_type", win.RkType)
-	add("@rk_url", win.RkURL)
-	add("@rk_marker", win.Marker)
-	add("@rk_flair", win.Flair)
-	add("@rk_role", win.Role)
-	add("@rk_note", win.Note)
+	add(tmux.LensOption, win.RkType)
+	add(tmux.URLOption, win.RkURL)
+	add(tmux.MarkerOption, win.Marker)
+	add(tmux.FlairOption, win.Flair)
+	add(tmux.RoleOption, win.Role)
+	add(tmux.NoteOption, win.Note)
 	return ops
 }

@@ -4,7 +4,7 @@ Validates that the board view aggregates pinned windows sharing a board name
 across multiple tmux servers. In the move-based model each pinned window's
 pin-session (`_rk-pin-<id>`) lives on a single tmux server (boards are
 server-scoped), but `GET /api/boards/<name>` and the board page UNION every
-pin-session carrying that `@rk_board` name across all reachable servers.
+pin-session carrying that `@rk_ses_pin_board` name across all reachable servers.
 
 ## Shared setup
 

@@ -28,7 +28,7 @@ async function resolveWindow(page: Page, windowName: string): Promise<string> {
   return (await resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION, windowName)).windowId;
 }
 
-/** Create a window and (optionally) stamp @rk_url / @rk_type directly via tmux —
+/** Create a window and (optionally) stamp @rk_win_url / @rk_win_lens directly via tmux —
  *  the same window-option seam the backend tmux test uses. `cwd: "/tmp"` makes
  *  the window NON-repo (no gitRoot → code unavailable) — the deterministic
  *  single-view (tty-only) case; a repo-cwd window is code-capable since k3vp,
@@ -43,12 +43,12 @@ async function makeWindow(
   const id = await resolveWindow(page, name);
   if (opts.url !== undefined) {
     execSync(
-      `tmux -L ${TMUX_SERVER} set-option -w -t ${id} @rk_url "${opts.url}"`,
+      `tmux -L ${TMUX_SERVER} set-option -w -t ${id} @rk_win_url "${opts.url}"`,
       { stdio: "ignore" },
     );
   }
   if (opts.iframeType) {
-    execSync(`tmux -L ${TMUX_SERVER} set-option -w -t ${id} @rk_type iframe`, {
+    execSync(`tmux -L ${TMUX_SERVER} set-option -w -t ${id} @rk_win_lens iframe`, {
       stdio: "ignore",
     });
   }
@@ -136,7 +136,7 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
   });
 
   test("lens switching is palette-only — web is always offered, the menu carries no `View:` rows (260812-0c6o, 260821-zqlq)", async ({ page }) => {
-    // A plain window (no @rk_url, NON-repo cwd so code is unavailable) offers
+    // A plain window (no @rk_win_url, NON-repo cwd so code is unavailable) offers
     // tty + web: web availability is unconditional (260821-zqlq), so the
     // palette's `View: Web` action renders even before the window has a URL
     // (it opens the onboarding tile — the discovery path the gating used to
@@ -148,7 +148,7 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     await expect(page.getByRole("option", { name: "View: Web" })).toBeVisible();
     await page.keyboard.press("Escape");
 
-    // A window with @rk_url offers tty + web → the palette's `View: Web` action
+    // A window with @rk_win_url offers tty + web → the palette's `View: Web` action
     // renders — and there is STILL no in-bar pill and no `view-toggle` testid
     // anywhere; the chevron menu carries no `View:` lens rows (the retired
     // switcher's removal).
@@ -174,7 +174,7 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     const name = `wv-flip-${Date.now()}`;
     const id = await makeWindow(page, name, { url: IFRAME_URL });
 
-    // Record any window-option mutation (the retired @rk_type flip). A view
+    // Record any window-option mutation (the retired @rk_win_lens flip). A view
     // switch must NEVER hit /options.
     const optionPosts: string[] = [];
     page.on("request", (req) => {
@@ -222,11 +222,11 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     await expect(page.getByText("Tab:", { exact: true })).toBeVisible();
   });
 
-  test("?view=web on a window with no @rk_url resolves to the onboarding web tile (260821-zqlq)", async ({
+  test("?view=web on a window with no @rk_win_url resolves to the onboarding web tile (260821-zqlq)", async ({
     page,
   }) => {
     // Web is always tileable, so the deep link keeps its tile instead of
-    // degrading to tty; with no @rk_url the tile renders the ONBOARDING
+    // degrading to tty; with no @rk_win_url the tile renders the ONBOARDING
     // content state in place of the iframe.
     const id = await makeWindow(page, `wv-nourl-${Date.now()}`, { cwd: "/tmp" });
     await gotoWindow(page, id, "web");
@@ -274,7 +274,7 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     await expectLayoutParam(page, "split-h:tty,web");
   });
 
-  test("the onboarding address bar boots the tile for real (Enter → @rk_url POST)", async ({
+  test("the onboarding address bar boots the tile for real (Enter → @rk_win_url POST)", async ({
     page,
   }) => {
     const id = await makeWindow(page, `wv-boot-${Date.now()}`, { cwd: "/tmp" });
@@ -282,7 +282,7 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     const onboarding = page.getByTestId("web-tile-onboarding");
     await expect(onboarding).toBeVisible({ timeout: 10_000 });
     // Typing a bare loopback address and pressing Enter runs the existing
-    // pipeline: normalize → /proxy/8080/ → POST /options (@rk_url) — SSE
+    // pipeline: normalize → /proxy/8080/ → POST /options (@rk_win_url) — SSE
     // delivers the new value and the tile flips live with no further action.
     const address = page.getByTestId("surface-tile-web").getByLabel("URL");
     await address.fill("localhost:8080");
@@ -292,7 +292,7 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     await expectLayoutParam(page, "single:web");
   });
 
-  test("tmux set-option @rk_url flips the open onboarding tile live; unsetting returns to onboarding", async ({
+  test("tmux set-option @rk_win_url flips the open onboarding tile live; unsetting returns to onboarding", async ({
     page,
   }) => {
     // The live flip rides the existing rkUrl sync seam — an agent-side
@@ -302,17 +302,17 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     await gotoWindow(page, id, "web");
     const onboarding = page.getByTestId("web-tile-onboarding");
     await expect(onboarding).toBeVisible({ timeout: 10_000 });
-    execSync(`tmux -L ${TMUX_SERVER} set-option -w -t ${id} @rk_url "${IFRAME_URL}"`, {
+    execSync(`tmux -L ${TMUX_SERVER} set-option -w -t ${id} @rk_win_url "${IFRAME_URL}"`, {
       stdio: "ignore",
     });
     await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
     await expect(onboarding).toHaveCount(0);
-    execSync(`tmux -L ${TMUX_SERVER} set-option -w -u -t ${id} @rk_url`, { stdio: "ignore" });
+    execSync(`tmux -L ${TMUX_SERVER} set-option -w -u -t ${id} @rk_win_url`, { stdio: "ignore" });
     await expect(onboarding).toBeVisible({ timeout: 10_000 });
     await expect(iframe(page)).toHaveCount(0);
   });
 
-  test("legacy @rk_type=iframe window defaults to web (ladder hint rung)", async ({
+  test("legacy @rk_win_lens=iframe window defaults to web (ladder hint rung)", async ({
     page,
   }) => {
     const id = await makeWindow(page, `wv-legacy-${Date.now()}`, {
@@ -322,7 +322,7 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     // No ?view param, no localStorage → the iframe-typed default hint wins →
     // single:web (ladder rung 3 in the layout model). It is this window's
     // DEFAULT, so the mirror leaves the URL clean (param dropped) — exactly
-    // the retired @rk_type behavior (bare URL rendered the iframe).
+    // the retired @rk_win_lens behavior (bare URL rendered the iframe).
     await gotoWindow(page, id);
     await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
     await expectLayoutParam(page, null);

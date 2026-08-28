@@ -76,9 +76,9 @@ func TestCaptureRestoreRoundTripLiveTmux(t *testing.T) {
 	tmuxCmd(t, socket, "split-window", "-d", "-t", "=alpha:agent", "-c", home)
 	tmuxCmd(t, socket, "new-session", "-d", "-s", "beta", "-n", "b", "-c", home, "-x", "120", "-y", "40")
 	tmuxCmd(t, socket, "set-option", "-t", "=alpha:", "@rk_ses_color", "4")
-	tmuxCmd(t, socket, "set-option", "-w", "-t", "=alpha:agent", "@rk_marker", "solid")
-	tmuxCmd(t, socket, "set-option", "-w", "-t", "=alpha:agent", "@rk_role", "operator")
-	tmuxCmd(t, socket, "set-option", "-s", "@rk_server_rank", "7")
+	tmuxCmd(t, socket, "set-option", "-w", "-t", "=alpha:agent", "@rk_win_marker", "solid")
+	tmuxCmd(t, socket, "set-option", "-w", "-t", "=alpha:agent", "@rk_win_role", "operator")
+	tmuxCmd(t, socket, "set-option", "-s", "@rk_srv_rank", "7")
 
 	before, err := CaptureServer(context.Background(), socket)
 	if err != nil {
@@ -156,14 +156,33 @@ func TestCaptureRestoreRoundTripLiveTmux(t *testing.T) {
 			}
 		}
 	}
+
+	// The restored window carries the renamed (scope-prefixed) option names
+	// only — restore writes the new names, never the legacy literals.
+	optsOut, optsErr := exec.CommandContext(ctx, "tmux", "-L", socket,
+		"show-options", "-w", "-t", "=alpha:agent").CombinedOutput()
+	if optsErr != nil {
+		t.Fatalf("show restored window options: %v\n%s", optsErr, optsOut)
+	}
+	opts := string(optsOut)
+	for _, want := range []string{"@rk_win_role operator", "@rk_win_marker solid"} {
+		if !strings.Contains(opts, want) {
+			t.Errorf("restored window options missing %q:\n%s", want, opts)
+		}
+	}
+	for _, legacy := range []string{"@rk_role", "@rk_marker"} {
+		if strings.Contains(opts, legacy) {
+			t.Errorf("restored window options carry the legacy literal %q:\n%s", legacy, opts)
+		}
+	}
 }
 
 // TestOperatorPromotionRoundTripLiveTmux proves a snapshot taken with a
 // PROMOTED operator (the window physically moved into `_rk-operator`, the
 // content-hidden home) restores the `_rk-operator` session containing the
-// window with its `@rk_role=operator` option — the restored state is
+// window with its `@rk_win_role=operator` option — the restored state is
 // hidden+pinned, not a visible stray. Capture is session-generic (no pin-style
-// session filtering) and restore re-applies `@rk_role` per window
+// session filtering) and restore re-applies `@rk_win_role` per window
 // (restore.go), so the round trip is the load-bearing behavior.
 func TestOperatorPromotionRoundTripLiveTmux(t *testing.T) {
 	if _, err := exec.LookPath("tmux"); err != nil {
@@ -189,7 +208,7 @@ func TestOperatorPromotionRoundTripLiveTmux(t *testing.T) {
 		t.Skipf("could not start isolated tmux server: %v\n%s", err, out)
 	}
 	tmuxCmd(t, socket, "new-window", "-d", "-t", "=work:", "-n", "operator", "-c", home)
-	tmuxCmd(t, socket, "set-option", "-w", "-t", "=work:operator", "@rk_role", "operator")
+	tmuxCmd(t, socket, "set-option", "-w", "-t", "=work:operator", "@rk_win_role", "operator")
 	// Physical promotion: create the operator home and move the window in.
 	tmuxCmd(t, socket, "new-session", "-d", "-s", "_rk-operator", "-c", home)
 	opWinID := ""

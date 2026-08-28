@@ -161,7 +161,7 @@ export type SidebarProps = {
    *  Optional (mirrors `SessionRow.onSpawnAgent`): when omitted (e.g. the
    *  board-route sidebar) the per-row bot button is hidden. */
   onSpawnAgent?: (server: string, session: string) => void;
-  /** Ask the server's operator window to write/refresh one-line @rk_note
+  /** Ask the server's operator window to write/refresh one-line @rk_win_note
    *  annotations for the session's tabs (the update-annotations template's
    *  session scope — 260827-8n6k). Optional (mirrors `onSpawnAgent`): when
    *  omitted — e.g. the board-route sidebar — the session card's Update
@@ -2416,7 +2416,7 @@ function ServerGroupInner(props: ServerGroupProps) {
   const naturalNames = useMemo(() => visibleSessions.map((s) => s.name), [visibleSessions]);
 
   // Operator pinned row (260813-ifya): the one window on this server carrying
-  // `role === "operator"` (the `@rk_role` window option) renders ONCE, pinned
+  // `role === "operator"` (the `@rk_win_role` window option) renders ONCE, pinned
   // at the top of this group's session area — MOVED out of its session group
   // (excluded from that group's window rows below), never copied. The backend
   // enforces server-scoped radio (at most one carrier per server); the first

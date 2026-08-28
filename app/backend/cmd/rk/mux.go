@@ -21,7 +21,7 @@ import (
 // the substrate twins; `panes` is the server-wide enumeration query — one row
 // per pane, no target. The operator tier: `new` creates a detached tmux
 // server on a named socket, optionally marked @rk_ephemeral for the reap
-// sweep; `adopt` converts an external server to rk-managed (stamp @rk_managed,
+// sweep; `adopt` converts an external server to rk-managed (stamp @rk_srv_managed,
 // source the managed conf); `reap` is the operator-invoked janitor for leaked
 // test servers; `snapshot` inspects and restores layout
 // snapshots; `init-conf` scaffolds the tmux config; `guard` fronts the real
@@ -60,7 +60,7 @@ var muxCmd = &cobra.Command{
 		"pane; `panes` enumerates every pane on the server, one row per pane, " +
 		"with substrate facts (window, command, cwd, reconciled agent state). " +
 		"`adopt` converts an external tmux server to rk-managed (stamp " +
-		"@rk_managed, source the managed config, roll back the stamp when the " +
+		"@rk_srv_managed, source the managed config, roll back the stamp when the " +
 		"reload fails). " +
 		"`reap` reaps leaked test tmux servers and stale sockets by prefix; " +
 		"`snapshot` inspects and restores layout snapshots; `init-conf` scaffolds " +

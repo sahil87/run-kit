@@ -2,7 +2,7 @@
  * Web-tile address model (260819-v6y4 R3/R4).
  *
  * A pure, DOM-free module — the `window-view.ts` contract — owning every
- * derivation over a stored `@rk_url` (or an address-bar keystroke):
+ * derivation over a stored `@rk_win_url` (or an address-bar keystroke):
  *
  * 1. `classifyAddress` — the four address kinds behind the header badge and
  *    the error-state posture: `present` (an `rk present` file), `proxy` (a
@@ -19,7 +19,7 @@
  * 5. `toProxySrc` — the iframe-src mapping: absolute loopback URLs ride the
  *    same-origin proxy, everything else passes through.
  *
- * The STORED `@rk_url` is never rewritten by display work — the display
+ * The STORED `@rk_win_url` is never rewritten by display work — the display
  * contract (`docs/site/skill/display.md`) keeps relative addresses relative.
  */
 
@@ -169,7 +169,7 @@ export function normalizeAddressInput(input: string): string {
 }
 
 /**
- * The frontend mirror of the backend @rk_url scheme allowlist (R1): absolute
+ * The frontend mirror of the backend @rk_win_url scheme allowlist (R1): absolute
  * http:/https: URLs with a host, and root-relative paths (a single leading
  * `/`, not scheme-relative `//`). Everything else is rejected — inline
  * feedback, no POST; the backend remains the enforcement point.

@@ -9,7 +9,7 @@
  * layout-mounted adopt confirm Dialog).
  *
  * EXTERNAL servers only: the backend's `managed` flag marks rk-daemon by
- * derivation and any @rk_managed server (rk-born or adopted), so consumers
+ * derivation and any @rk_srv_managed server (rk-born or adopted), so consumers
  * gate on `managed === false` — an old backend omitting the field renders NO
  * adopt entries. rk-daemon is additionally guarded by name, matching the
  * protect builder's exclusion.

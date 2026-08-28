@@ -1,4 +1,4 @@
-// Package present resolves `rk present` targets and derives the @rk_url value
+// Package present resolves `rk present` targets and derives the @rk_win_url value
 // each target kind attaches to a tmux window. It is pure (no tmux, no HTTP):
 // the only I/O is os.Stat for file/dir classification and a TCP dial for the
 // reachability probe, so every rule is unit-testable without a live server.
@@ -12,7 +12,7 @@
 //	external URL  any other http(s) URL   → attached verbatim
 //
 // File/dir targets also carry a serve Root (the file's parent dir / the dir
-// itself) which the CLI sets as the @rk_present_root window option; the
+// itself) which the CLI sets as the @rk_win_present_root window option; the
 // /present/{windowId}/ route reads it back from tmux at request time.
 package present
 
@@ -74,7 +74,7 @@ type Target struct {
 	Kind Kind
 	// Root is the absolute serve root — the file's parent directory or the
 	// directory itself. Set for KindFile/KindDir only; the CLI attaches it as
-	// the @rk_present_root window option.
+	// the @rk_win_present_root window option.
 	Root string
 	// Name is the display basename for the target: the file/dir base name,
 	// "port-<port>" for port/local-URL targets, the hostname for external
@@ -162,10 +162,10 @@ func parsePort(s string) (int, error) {
 	return port, nil
 }
 
-// PresentURL composes the @rk_url value for a file/dir target carried by
+// PresentURL composes the @rk_win_url value for a file/dir target carried by
 // windowID on the named tmux server. The `?v=` cache-buster (unix seconds at
 // invocation, supplied by now) makes re-presenting the same target a refresh:
-// the new @rk_url differs and an open web tile re-navigates. name is the
+// the new @rk_win_url differs and an open web tile re-navigates. name is the
 // file basename, or empty for a directory target (serves the root's
 // index.html). The form is always relative — never an absolute origin.
 func PresentURL(windowID, name, server string, now func() int64) string {
@@ -176,7 +176,7 @@ func PresentURL(windowID, name, server string, now func() int64) string {
 	return fmt.Sprintf("%s?server=%s&v=%d", path, url.QueryEscape(server), now())
 }
 
-// URL derives the @rk_url value for this target carried by windowID on the
+// URL derives the @rk_win_url value for this target carried by windowID on the
 // named server. now supplies the unix-seconds cache-buster for /present/
 // URLs only; port/URL targets re-set verbatim with no buster.
 func (t Target) URL(windowID, server string, now func() int64) string {
@@ -198,7 +198,7 @@ func (t Target) URL(windowID, server string, now func() int64) string {
 	}
 }
 
-// NeedsRoot reports whether the target carries a serve root (@rk_present_root)
+// NeedsRoot reports whether the target carries a serve root (@rk_win_present_root)
 // — file and directory targets only.
 func (t Target) NeedsRoot() bool {
 	return t.Kind == KindFile || t.Kind == KindDir

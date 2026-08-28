@@ -13,7 +13,7 @@ const DESKTOP_VIEWPORT = { width: 1440, height: 800 };
 
 // The presented two-page flow (test b) is served from a scratch dir through
 // the real `/present/{windowId}/*` route — the window carries the serve root
-// in @rk_present_root, exactly as `rk present` stamps it.
+// in @rk_win_present_root, exactly as `rk present` stamps it.
 let presentDir: string;
 
 /** Resolve a window's stable tmux id (`@N`) from the backend snapshot by name. */
@@ -29,7 +29,7 @@ function setWindowOpt(windowId: string, key: string, value: string): void {
   });
 }
 
-/** Create a window and stamp @rk_url (plus @rk_present_root when the address
+/** Create a window and stamp @rk_win_url (plus @rk_win_present_root when the address
  *  is a /present/ one). Returns the @N id. `url` may be omitted when the
  *  address needs the resolved id (the /present/ path embeds it) — stamp it
  *  via setWindowOpt before navigating. */
@@ -40,8 +40,8 @@ async function makeWindow(
 ): Promise<string> {
   newWindow(TEST_SESSION, name, { cwd: "/tmp" });
   const id = await resolveWindow(page, name);
-  if (opts.url !== undefined) setWindowOpt(id, "@rk_url", opts.url);
-  if (opts.presentRoot) setWindowOpt(id, "@rk_present_root", opts.presentRoot);
+  if (opts.url !== undefined) setWindowOpt(id, "@rk_win_url", opts.url);
+  if (opts.presentRoot) setWindowOpt(id, "@rk_win_present_root", opts.presentRoot);
   return id;
 }
 
@@ -136,7 +136,7 @@ test.describe("Web tile browser chrome (260819-v6y4)", () => {
     await expect(errBox).toContainText("X-Frame-Options: DENY");
     await expect(page.getByTitle("Proxied content")).toBeHidden();
 
-    // The escape hatch pops the CURRENT address — @rk_url untouched.
+    // The escape hatch pops the CURRENT address — @rk_win_url untouched.
     await errBox.getByRole("button", { name: "Open in browser" }).click();
     await expect
       .poll(() => page.evaluate(() => (window as unknown as { __openedUrls: string[] }).__openedUrls))
@@ -149,7 +149,7 @@ test.describe("Web tile browser chrome (260819-v6y4)", () => {
   }) => {
     const optionPosts = trackOptionPosts(page);
     const id = await makeWindow(page, `wc-nav-${Date.now()}`, { presentRoot: presentDir });
-    setWindowOpt(id, "@rk_url", `/present/${id}/page-one.html?server=${TMUX_SERVER}`);
+    setWindowOpt(id, "@rk_win_url", `/present/${id}/page-one.html?server=${TMUX_SERVER}`);
     await gotoWebTile(page, id);
 
     const frame = page.frameLocator('iframe[title="Proxied content"]');
@@ -180,7 +180,7 @@ test.describe("Web tile browser chrome (260819-v6y4)", () => {
     page,
   }) => {
     const id = await makeWindow(page, `wc-display-${Date.now()}`, { presentRoot: presentDir });
-    setWindowOpt(id, "@rk_url", `/present/${id}/page-one.html?server=${TMUX_SERVER}`);
+    setWindowOpt(id, "@rk_win_url", `/present/${id}/page-one.html?server=${TMUX_SERVER}`);
     await gotoWebTile(page, id);
     const frame = page.frameLocator('iframe[title="Proxied content"]');
     await expect(frame.locator("#go")).toBeVisible({ timeout: 10_000 });
@@ -205,7 +205,7 @@ test.describe("Web tile browser chrome (260819-v6y4)", () => {
 
   test("(d) no switch-to-terminal button renders in the web tile (R13)", async ({ page }) => {
     const id = await makeWindow(page, `wc-noswitch-${Date.now()}`, { presentRoot: presentDir });
-    setWindowOpt(id, "@rk_url", `/present/${id}/page-one.html?server=${TMUX_SERVER}`);
+    setWindowOpt(id, "@rk_win_url", `/present/${id}/page-one.html?server=${TMUX_SERVER}`);
     await gotoWebTile(page, id);
     await expect(webTile(page).getByLabel("Switch to terminal")).toHaveCount(0);
     // The chrome that replaced it IS present (design-study button order).

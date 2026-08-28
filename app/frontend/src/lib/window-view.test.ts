@@ -61,7 +61,7 @@ describe("availableViews", () => {
   });
 
   it("offers web for a whitespace-only rkUrl — onboarding content, never a blank-src iframe", () => {
-    // `@rk_url` can be set to whitespace via external `tmux set-option`;
+    // `@rk_win_url` can be set to whitespace via external `tmux set-option`;
     // hasWebUrl's `.trim()` keeps it reading as onboarding content.
     expect(availableViews(iframeWhitespaceUrl)).toEqual(["web", "tty"]);
     expect(availableViews(plainWhitespaceUrl)).toEqual(["web", "tty"]);
@@ -120,7 +120,7 @@ describe("defaultView", () => {
   });
 
   it("defaults an iframe-typed window with a WHITESPACE url to tty (not web)", () => {
-    // Consistent with hasWebUrl: a whitespace `@rk_url` is onboarding content,
+    // Consistent with hasWebUrl: a whitespace `@rk_win_url` is onboarding content,
     // so the legacy iframe-typed default hint must not fire.
     expect(defaultView(iframeWhitespaceUrl)).toBe("tty");
   });

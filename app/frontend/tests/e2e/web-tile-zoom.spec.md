@@ -5,7 +5,7 @@ Content zoom on the web tile (260823-cwvv R2–R5): the URL-bar zoom control, pe
 ## Shared setup
 
 - Own tmux session (`e2e-webzoom-<ts>`); desktop viewport 1440×800.
-- A stub HTTP server on an ephemeral port serves a static page; windows get `@rk_url = http://localhost:<port>/` stamped directly via tmux, so the tile rides the same-origin `/proxy/<port>/` path.
+- A stub HTTP server on an ephemeral port serves a static page; windows get `@rk_win_url = http://localhost:<port>/` stamped directly via tmux, so the tile rides the same-origin `/proxy/<port>/` path.
 - Each test starts from a fresh browser context, so `runkit-web-zoom` begins empty without any `addInitScript` (deliberate — an init script would also wipe the key on the persistence test's re-navigation).
 - Navigation goes straight to the web lens (`?view=web` → single:web) and waits for the iframe + zoom control.
 
@@ -39,9 +39,9 @@ Content zoom on the web tile (260823-cwvv R2–R5): the URL-bar zoom control, pe
 
 ### (d) an onboarding tile renders no zoom control and no Web: Zoom palette entries
 
-**Proves**: the onboarding state (empty `@rk_url`) hides the zoom control and the palette registers nothing for a contentless tile (R4/R5 gating).
+**Proves**: the onboarding state (empty `@rk_win_url`) hides the zoom control and the palette registers nothing for a contentless tile (R4/R5 gating).
 
-1. Open a window with an empty `@rk_url` in the web lens; assert the onboarding panel renders.
+1. Open a window with an empty `@rk_win_url` in the web lens; assert the onboarding panel renders.
 2. Assert the `web-zoom-control` testid is absent.
 3. Open the palette, type `Web: Zoom`, and assert no `Web: Zoom` options exist.
 

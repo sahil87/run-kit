@@ -229,7 +229,7 @@ Windows are `"active"` (last tmux activity within 10 seconds) or `"idle"`. No "e
 ## Design Decisions
 
 ### A written note outranks the capture preview as the tile body
-**Decision**: on the session-tiles density view, a window carrying a non-empty `@rk_note` renders the note (+ relative age, 24h stale dimming) as its tile body in place of the `capture-pane` preview; un-noted windows keep the preview unchanged, and the whole branch is render-only over payload fields that already ride SSE.
+**Decision**: on the session-tiles density view, a window carrying a non-empty `@rk_win_note` renders the note (+ relative age, 24h stale dimming) as its tile body in place of the `capture-pane` preview; un-noted windows keep the preview unchanged, and the whole branch is render-only over payload fields that already ride SSE.
 **Why**: the tile body answers "why is this tab here / what is it blocked on" — a written note answers exactly that where a raw terminal capture cannot; making notes visible on the monitoring-density view is what makes them worth writing. Degrade-to-absent keeps un-noted windows at zero behavior change, and render-only means no backend or preview-scope change.
 **Rejected**: note as a second box below the preview (doubles tile height on a density view, and the capture is the weaker signal when a curated note exists); hiding the preview unconditionally (un-noted windows lose their only body).
 *Introduced by*: 260827-8n6k-update-annotations-tile-note

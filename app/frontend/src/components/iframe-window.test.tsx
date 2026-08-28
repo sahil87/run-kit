@@ -493,7 +493,7 @@ describe("IframeWindow", () => {
       expect(screen.queryByRole("alert")).toBeNull();
     });
 
-    it("same-origin in-frame navigation tracks the display form only — @rk_url untouched", () => {
+    it("same-origin in-frame navigation tracks the display form only — @rk_win_url untouched", () => {
       renderIframe({ windowId: "@2", rkUrl: "/proxy/8080/docs" });
       const iframe = screen.getByTitle("Proxied content") as HTMLIFrameElement;
       const realWin = iframe.contentWindow!;
@@ -554,7 +554,7 @@ describe("IframeWindow", () => {
       expect(screen.getByLabelText("Open in browser")).toBeTruthy();
     });
 
-    it("↗ opens the current address in a new tab without touching @rk_url", () => {
+    it("↗ opens the current address in a new tab without touching @rk_win_url", () => {
       const open = vi.spyOn(window, "open").mockReturnValue(null);
       renderIframe({ windowId: "@2", rkUrl: "/present/@320/file.html?server=runKit" });
       fireEvent.click(screen.getByLabelText("Open in browser"));
@@ -677,14 +677,14 @@ describe("IframeWindow", () => {
     });
   });
 
-  // ── 260821-zqlq: the onboarding content state (empty/whitespace @rk_url) ──
+  // ── 260821-zqlq: the onboarding content state (empty/whitespace @rk_win_url) ──
 
   describe("onboarding state (260821-zqlq)", () => {
     it("renders the onboarding panel with heading, subhead, three rows, and footer — no iframe, no probes", () => {
       renderIframe({ windowId: "@2", rkUrl: "" });
       const box = screen.getByTestId("web-tile-onboarding");
       expect(box.textContent).toContain("Nothing to show yet");
-      expect(box.textContent).toContain("this tile follows the window's web address (@rk_url)");
+      expect(box.textContent).toContain("this tile follows the window's web address (@rk_win_url)");
       expect(box.textContent).toContain("Ask your agent to show something.");
       expect(box.textContent).toContain("rk present ./report.html");
       expect(box.textContent).toContain("Preview a dev server.");

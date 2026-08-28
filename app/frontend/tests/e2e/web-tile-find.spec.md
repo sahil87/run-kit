@@ -22,7 +22,7 @@ and a cross-origin tile degrades to a disabled bar with an inline hint.
   same-origin `/proxy/<port>/` path via `toProxySrc`, while
   `http://0.0.0.0:<port>/` bypasses it and stays a cross-origin absolute URL.
 - **`beforeEach`**: wide desktop viewport (1440×800).
-- **`makeWindow(name, url)`**: `tmux new-window` + `tmux set-option -w @rk_url`
+- **`makeWindow(name, url)`**: `tmux new-window` + `tmux set-option -w @rk_win_url`
   (argument-array `execFileSync`, no shell strings). Returns the `@N` id.
 - **`gotoWebWindow(id)`**: deep-links `?view=web` (the shim resolves
   `single:web` — ONE tile, inside the h1 connection-pool budget) and waits for
@@ -41,7 +41,7 @@ in-frame keydowns (R1) — the command palette opens while focus is inside the
 frame — and non-claimed keys pass through to the framed page untouched (R1's
 passthrough half).
 Steps:
-1. Create a window with `@rk_url = http://localhost:<port>/`; open `?view=web`;
+1. Create a window with `@rk_win_url = http://localhost:<port>/`; open `?view=web`;
    wait for the iframe and the frame's `#inner` button.
 2. Click `#inner` (focus enters the frame); press `Meta+k`; assert the palette
    input is visible; close it with Escape.
@@ -83,7 +83,7 @@ What it proves: the cross-origin degradation (R7) — no search is attempted,
 the input and navigation buttons are disabled, and the inline hint renders;
 the ⌕ button is the reachable entry point.
 Steps:
-1. Create a window with `@rk_url = http://0.0.0.0:<port>/` (bypasses
+1. Create a window with `@rk_win_url = http://0.0.0.0:<port>/` (bypasses
    `toProxySrc` → cross-origin); open `?view=web`; wait for the iframe.
 2. Click the ⌕ `Find in page` button.
 3. Assert the bar is visible with the text `page is cross-origin — find

@@ -11,11 +11,11 @@
 >
 > Companions: [`window-views.md`](window-views.md) (lenses, availability
 > derivation — R1–R3 and R5–R7 carry over (R1 and R3 amended by
-> `260821-zqlq`: web is unconditionally available and `@rk_url` selects its
+> `260821-zqlq`: web is unconditionally available and `@rk_win_url` selects its
 > content; R4's switcher is retired
 > here), [`right-panel.md`](right-panel.md) (surfaces, the rail, companions —
 > P6 and the panel-slot mechanics are superseded here; the rail, availability,
-> `@rk_owner`, and P4 carry forward), [`agent-state.md`](agent-state.md),
+> companions, and P4 carry forward), [`agent-state.md`](agent-state.md),
 > [`status-pyramid.md`](status-pyramid.md) (untouched — status describes
 > substrates, never tiles).
 
@@ -31,7 +31,7 @@
    window while the content the user wants sits squeezed in the panel.
 2. **View exclusivity confuses.** `View: Terminal / Code / Chat` menu rows
    read as "pick where you are" when the honest question is "pick what to
-   show." Same-folder twin windows (a real window plus an `@rk_type=iframe`
+   show." Same-folder twin windows (a real window plus an `@rk_win_lens=iframe`
    sibling whose only job is to hold a different renderer) exist purely to
    work around the one-lens-at-a-time model.
 
@@ -78,9 +78,9 @@ board).
 ### One tile per surface kind (v1)
 
 The layout encoding names surface *kinds* (`tty`, `code`, `web`, `agents`);
-content rides the substrate's content signal (`@rk_url` etc. — for `web` a
+content rides the substrate's content signal (`@rk_win_url` etc. — for `web` a
 content *selector*, not an availability gate: the `web` surface is always
-tileable like `tty`, and an empty/whitespace `@rk_url` renders the tile's
+tileable like `tty`, and an empty/whitespace `@rk_win_url` renders the tile's
 onboarding content state; window-views.md § The View Registry). Two `web`
 tiles with different pages would push content addresses into per-viewer state,
 crossing R7 — punted.
@@ -109,7 +109,7 @@ On route entry:
 2. **else localStorage** `rk-layout:{server}:{@N window id}` → the viewer's
    last layout *for this window* (value-bearing key, R2 convention; keyed by
    the immutable `@N` id — rename-proof).
-3. **else the window's default-view hint** (R5 — a legacy `@rk_type=iframe`
+3. **else the window's default-view hint** (R5 — a legacy `@rk_win_lens=iframe`
    window defaults to a single `web` tile).
 4. **else** single `tty` tile.
 
@@ -199,13 +199,13 @@ moves into the layout.
 
 | Mechanism | Verdict |
 |-----------|---------|
-| `@rk_type=iframe` as identity | **Dies.** Demoted to a default-layout hint (ladder rung 3) during migration, then removable. Snapshot round-trip option set updates accordingly |
-| The `>_` button's `POST @rk_type: null` | **Dies** — the R7 conflation |
+| `@rk_win_lens=iframe` as identity | **Dies.** Demoted to a default-layout hint (ladder rung 3) during migration, then removable. Snapshot round-trip option set updates accordingly |
+| The `>_` button's `POST @rk_win_lens: null` | **Dies** — the R7 conflation |
 | The `ViewSwitcher` pill + `View:` chevron-menu rows (R4) | **Dies** — replaced by rail toggles + the ▦ chip. "Which view am I in" stops being a question because views stop being exclusive |
 | `?view=` and `?panel=` params | **Retired** behind the permanent translation shim |
 | Same-folder twin windows | **Collapse** — one window, `web`/`code` tiles in its layout |
-| `@rk_url` | **Stays** — the web tile's content selector *and* shared content address (edit it and every viewer sees the new page; empty/whitespace renders the tile's onboarding state). Never was view state |
-| `@rk_chat`, `@rk_owner`, `@rk_agent_state` | **Stay** — capability, topology, status |
+| `@rk_win_url` | **Stays** — the web tile's content selector *and* shared content address (edit it and every viewer sees the new page; empty/whitespace renders the tile's onboarding state). Never was view state |
+| `@rk_chat`, `@rk_agent_state` | **Stay** — capability, status |
 | Synthetic iframe windows for **external URLs** (no owning pane) | **Stay** as the compat shim — the honest residual (window-views § Two Species step 2); a web tile's content needs a substrate signal |
 
 ---
@@ -276,5 +276,5 @@ Execution detail, per-change scope, and pickup notes live in the plan:
 |---|--------|-------|
 | 1 | Spec (this file) + plan | Authored in the 2026-08-12 discussion session; lands with phase 2's PR |
 | 2 | **Layout core** | The tile renderer replacing main slot + panel: presets, ladder, verbs, ▦ chip, rail toggles, translation shim |
-| 3 | **Retirement sweep** | `@rk_type` identity → hint, `>_` POST, ViewSwitcher, `View:` rows, snapshot option-set update |
+| 3 | **Retirement sweep** | `@rk_win_lens` identity → hint, `>_` POST, ViewSwitcher, `View:` rows, snapshot option-set update |
 | 4 | **Boards + extras** | Boards adopt the renderer; `@rk_default_layout`; drag-drop sugar |

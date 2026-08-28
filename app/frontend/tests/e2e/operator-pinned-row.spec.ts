@@ -23,11 +23,11 @@ async function setRole(
 ) {
   return page.request.post(
     `/api/windows/${encodeURIComponent(windowId)}/options?server=${encodeURIComponent(TMUX_SERVER)}`,
-    { data: { options: { "@rk_role": role } } },
+    { data: { options: { "@rk_win_role": role } } },
   );
 }
 
-test.describe("Operator pinned row (@rk_role)", () => {
+test.describe("Operator pinned row (@rk_win_role)", () => {
   test.beforeAll(() => {
     createSession(TEST_SESSION);
   });
@@ -62,7 +62,7 @@ test.describe("Operator pinned row (@rk_role)", () => {
 
     // Mark via the same options POST route the palette commands use.
     const setRes = await setRole(page, target.windowId, "operator");
-    expect(setRes.ok(), "setting @rk_role=operator via the options API").toBeTruthy();
+    expect(setRes.ok(), "setting @rk_win_role=operator via the options API").toBeTruthy();
 
     // Move-don't-copy: the row leaves its session group and renders exactly
     // once — pinned ABOVE the session group (a smaller y than the group box).
@@ -83,7 +83,7 @@ test.describe("Operator pinned row (@rk_role)", () => {
     // (260822-skcr physical promotion). The pinned slot disappears entirely
     // and the row reappears as an ordinary in-group row of the destination.
     const clearRes = await setRole(page, target.windowId, null);
-    expect(clearRes.ok(), "clearing @rk_role via the options API").toBeTruthy();
+    expect(clearRes.ok(), "clearing @rk_win_role via the options API").toBeTruthy();
     const destRow = page.locator(
       `[data-session-group="${DEST_SESSION}"] [data-window-id="${target.windowId}"]`,
     );

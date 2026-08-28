@@ -18,7 +18,7 @@ disabled-at-3 with the "Close a tile first" tip. The rail-collapse chrome — th
 `Panel: Toggle rail` palette action — is GONE, and its tests are deleted with
 it (collapse semantics have no successor: tiles are content-column state and
 the rail no longer exists). What remains covered: capability gating (tty
-always; web via `@rk_url`; code via gitRoot), the add/close arity walk (1→2
+always; web via `@rk_win_url`; code via gitRoot), the add/close arity walk (1→2
 `split-h`, 2→3 `main-left`), disabled-at-3 with its tooltip,
 hide-never-unmount across tile close/reopen, the retired `?panel=`/`?view=`
 deep links resolving through the permanent translation shim, value-bearing
@@ -43,7 +43,7 @@ coverage lives in `surface-layout.spec.ts`; the overflow menu's Tiles section
   keeps it in-bar; the mobile test overrides to 375×812. (The retired
   `runkit-rail-open` reset init script is gone with the preference.)
 - **`makeWindow(name, {url?})`**: create a window via `tmux new-window`, then
-  stamp `@rk_url` with `tmux set-option -w` (`execFileSync` argument arrays —
+  stamp `@rk_win_url` with `tmux set-option -w` (`execFileSync` argument arrays —
   no shell strings). The option surfaces as `rkUrl` in the SSE snapshot, so no
   live HTTP server behind the iframe is needed (assertions are on
   chrome/layout/render, never on iframe content). Default-cwd windows inherit
@@ -70,28 +70,28 @@ coverage lives in `surface-layout.spec.ts`; the overflow menu's Tiles section
 
 ## Tests
 
-### the toggle group renders on the desktop terminal route with the always-available tty + web toggles; the web dot follows @rk_url
+### the toggle group renders on the desktop terminal route with the always-available tty + web toggles; the web dot follows @rk_win_url
 What it proves: the group renders on the desktop terminal route with `tty`
 always available (R8) — lit for the default `single:tty` layout — `web` always
-available (260821-zqlq) with its corner dot driven by `@rk_url` (the dot means
+available (260821-zqlq) with its corner dot driven by `@rk_win_url` (the dot means
 "has content", not "exists"), and `code` available via the derived gitRoot (a
 repo-cwd window). Also pins the shared glyph vocabulary (`>_`, `{}`, `://`)
 and the per-surface dot semantics.
 Steps:
-1. Create a plain repo-cwd window (no `@rk_url`); navigate; assert the
+1. Create a plain repo-cwd window (no `@rk_win_url`); navigate; assert the
    terminal, the lit `Terminal tile` toggle (with the `>_` glyph and one
    corner dot), the unlit `Web tile` toggle (with the `://` glyph and NO
    corner dot), and the unlit `Code tile` toggle (with the `{}` glyph).
-2. Create a window WITH `@rk_url`; navigate; assert the terminal and the
+2. Create a window WITH `@rk_win_url`; navigate; assert the terminal and the
    visible (unlit) `Web tile` toggle now carrying its corner dot.
 
-### a window with no git root and no @rk_url shows the tty + web toggles only
+### a window with no git root and no @rk_win_url shows the tty + web toggles only
 What it proves: the remaining per-surface capability gate — a window offering
 no code (cwd `/tmp`, no gitRoot) renders the group with the always-available
 tty AND web toggles (260821-zqlq; the web toggle dotless until a URL lands)
 and no `Code tile` button.
 Steps:
-1. Create a window with cwd `/tmp` and no `@rk_url`; navigate.
+1. Create a window with cwd `/tmp` and no `@rk_win_url`; navigate.
 2. Assert the terminal is visible (proving the SSE window payload landed, so
    the count-0 assertions are settled), the `Terminal tile` toggle renders,
    the `Web tile` toggle renders with NO corner dot, and no `Code tile`
@@ -142,7 +142,7 @@ backend reconciler zeroes chat on plain-shell panes). Closing one tile
 re-enables the unlit toggle.
 Steps:
 1. Create a window running `exec sleep 600` (a non-shell pane command); stamp
-   `@rk_url` (window option) and `@rk_chat claude:e2e-disabled-at-3` (pane
+   `@rk_win_url` (window option) and `@rk_chat claude:e2e-disabled-at-3` (pane
    option, resolved via `#{pane_id}`).
 2. Navigate with `?layout=main-left:tty,web,chat`; assert the terminal and
    that the URL mirrors the 3-tile layout unchanged (nothing degraded).
@@ -170,7 +170,7 @@ Steps:
 What it proves: L1 URL-addressability plus the shim — the retired `?panel=web`
 maps to `split-h:tty,web` (a bare panel value against the tty default slot A)
 and opens the tile cold; the native `?layout=` form resolves identically; on a
-window WITHOUT `@rk_url` the web tile is still always available (260821-zqlq)
+window WITHOUT `@rk_win_url` the web tile is still always available (260821-zqlq)
 and renders its ONBOARDING content state in place of the iframe; an unknown
 value (`bogus`, dropped by `validateTerminalSearch`) resolves `single:tty`.
 Never a broken iframe.
@@ -183,7 +183,7 @@ Steps:
    `split-h:tty,web`.
 2. Create a second web-capable window; navigate with
    `?layout=split-h:tty,web`; assert the same render.
-3. Create a plain window (no `@rk_url`); navigate with `?panel=web`; assert
+3. Create a plain window (no `@rk_win_url`); navigate with `?panel=web`; assert
    the terminal, both `Terminal tile` AND `Web tile` toggle buttons, the
    `web-tile-onboarding` panel, and no iframe.
 4. Navigate the first window with `?panel=bogus`; assert the terminal and no

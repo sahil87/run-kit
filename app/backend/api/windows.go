@@ -73,7 +73,7 @@ func (s *Server) handleWindowCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// When rkType is present, create the window and set its @rk_type/@rk_url
+	// When rkType is present, create the window and set its @rk_win_lens/@rk_win_url
 	// options atomically in one chained tmux command — prevents the SSE poll
 	// from seeing the window before its metadata is set. The option set reuses
 	// the same allowlisted keys and the same WindowOptionOp chaining primitive
@@ -364,15 +364,15 @@ func (s *Server) handleWindowMoveToSession(w http.ResponseWriter, r *http.Reques
 // closed set is what makes per-key validation possible).
 const (
 	optKeyColor  = tmux.ColorOption
-	optKeyRkURL  = "@rk_url"
-	optKeyRkType = "@rk_type"
-	optKeyMarker = "@rk_marker"
-	optKeyRole   = "@rk_role"
-	optKeyFlair  = "@rk_flair"
-	optKeyNote   = "@rk_note"
+	optKeyRkURL  = tmux.URLOption
+	optKeyRkType = tmux.LensOption
+	optKeyMarker = tmux.MarkerOption
+	optKeyRole   = tmux.RoleOption
+	optKeyFlair  = tmux.FlairOption
+	optKeyNote   = tmux.NoteOption
 )
 
-// windowNoteMaxLen caps the free-text @rk_note value (the tab's one-line
+// windowNoteMaxLen caps the free-text @rk_win_note value (the tab's one-line
 // status note). The bound lives server-side (Constitution §I) and protects the
 // UI surfaces that render the note inline.
 const windowNoteMaxLen = 120
@@ -404,20 +404,20 @@ func validateWindowOption(key string, value *string) string {
 		// string verbatim. An empty string is treated as unset below.
 	case optKeyMarker:
 		// Left-gutter marker state: one of dotted/solid/double. An empty string
-		// is valid and treated as unset below (mirroring @rk_type).
+		// is valid and treated as unset below (mirroring @rk_win_lens).
 		if errMsg := validate.ValidateMarkerValue(*value); errMsg != "" {
 			return errMsg
 		}
 	case optKeyRole:
 		// Orchestration role: "operator" (or empty to clear). An empty string
-		// is valid and treated as unset below (mirroring @rk_marker).
+		// is valid and treated as unset below (mirroring @rk_win_marker).
 		if errMsg := validate.ValidateRoleValue(*value); errMsg != "" {
 			return errMsg
 		}
 	case optKeyFlair:
 		// Per-row flair decoration: one of nyan/naruto/onepiece (or empty to
 		// clear). An empty string is valid and treated as unset below
-		// (mirroring @rk_marker).
+		// (mirroring @rk_win_marker).
 		if errMsg := validate.ValidateFlairValue(*value); errMsg != "" {
 			return errMsg
 		}
@@ -426,7 +426,7 @@ func validateWindowOption(key string, value *string) string {
 		// control characters (tabs/newlines would corrupt the tab-delimited
 		// list-windows read format; any other control rune would leak into
 		// tmux and the rendered UI). Empty and whitespace-only strings are
-		// valid and treated as unset below (mirroring @rk_marker).
+		// valid and treated as unset below (mirroring @rk_win_marker).
 		trimmed := strings.TrimSpace(*value)
 		if len(trimmed) > windowNoteMaxLen {
 			return fmt.Sprintf("note exceeds %d characters", windowNoteMaxLen)
@@ -441,8 +441,8 @@ func validateWindowOption(key string, value *string) string {
 }
 
 // handleWindowOptions applies a partial-merge of window options to {windowId}.
-// POST /api/windows/{windowId}/options ← {"options": {"@rk_win_color": "5", "@rk_url":
-// "...", "@rk_type": null, "@rk_marker": "solid"}} → 200 {"ok": true}.
+// POST /api/windows/{windowId}/options ← {"options": {"@rk_win_color": "5", "@rk_win_url":
+// "...", "@rk_win_lens": null, "@rk_win_marker": "solid"}} → 200 {"ok": true}.
 //
 // Semantics: only keys present in `options` are touched; a present key with a
 // non-null value sets it, an explicit null unsets it. ALL keys are validated
@@ -482,15 +482,15 @@ func (s *Server) handleWindowOptions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		op := tmux.WindowOptionOp{Key: key, Value: value}
-		// An empty string means unset for @rk_type (revert to terminal mode) and
-		// @rk_marker (clear the marker) — matching the old handleWindowTypeUpdate
-		// behavior and the marker's "empty = no marker" contract. @rk_role,
-		// @rk_flair, and @rk_note follow the same mapping ("" clears the role /
+		// An empty string means unset for @rk_win_lens (revert to terminal mode) and
+		// @rk_win_marker (clear the marker) — matching the old handleWindowTypeUpdate
+		// behavior and the marker's "empty = no marker" contract. @rk_win_role,
+		// @rk_win_flair, and @rk_win_note follow the same mapping ("" clears the role /
 		// the flair / the note).
 		if (key == optKeyRkType || key == optKeyMarker || key == optKeyRole || key == optKeyFlair || key == optKeyNote) && value != nil && *value == "" {
 			op.Value = nil
 		}
-		// @rk_note: clients send bare text; the server owns the clock and stamps
+		// @rk_win_note: clients send bare text; the server owns the clock and stamps
 		// the "<unix-epoch>:" prefix at write time (no client-skew lies — agents
 		// writing raw set-option stamp their own epoch via $(date +%s)). A value
 		// that trims to nothing is an unset, never a bare "<epoch>:" stamp.
@@ -522,7 +522,7 @@ func (s *Server) handleWindowOptions(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Setting @rk_role=operator is a server-scoped radio: clear the role from
+	// Setting @rk_win_role=operator is a server-scoped radio: clear the role from
 	// every other window on the server BEFORE the batched set, so at most one
 	// window carries it. Enforcement lives here (server-side), never in clients.
 	var displaced []string
@@ -566,7 +566,7 @@ func (s *Server) handleWindowOptions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Wake the SSE hub so the option change (@rk_win_color/@rk_url/@rk_type) surfaces on
+	// Wake the SSE hub so the option change (@rk_win_color/@rk_win_url/@rk_win_lens) surfaces on
 	// the next poll pass instead of the 12s safety tick — set-option is invisible
 	// to the tmuxctl control-mode parser, so no subscriber notification fires.
 	// Mirrors handleSessionOrderPost's initSSEHub-then-hub-call pattern; initSSEHub

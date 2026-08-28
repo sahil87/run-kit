@@ -5,11 +5,11 @@ Validates the window row's left-edge label zone (260719-hwtr, extended by
 dot is ONE target that opens the banded Label picker (color · marker · flair
 bands under a composite preview row) — it does NOT cycle. Picking a marker
 state (8-state closed set: pipe/dotted/dashed/solid/double/thick/hatch/block)
-persists via the `@rk_marker` window option; picking a NORMAL-shade color
+persists via the `@rk_win_marker` window option; picking a NORMAL-shade color
 persists via `@rk_win_color` in the legacy vocabulary (`familyToLegacy` write seam)
 while a DARK-shade color persists as the verbatim `{family}-dark` value;
 picking a flair (12-state closed set, rain/scan leading) persists via
-`@rk_flair`. The picker STAYS OPEN across picks (the dismissal contract —
+`@rk_win_flair`. The picker STAYS OPEN across picks (the dismissal contract —
 selection never closes; the ✕ cell, an outside click, or Escape dismisses), so
 combos are toggled live in one open session; each band's header − clears ONLY
 its own axis; hatch rows carry the static hazard wedge while thick/double/
@@ -31,7 +31,7 @@ border).
 - `expectMarker` / `expectColor` / `expectFlair` (all via the shared
   `expectWindowField` helper) poll the same snapshot until the named window's
   `marker` / `color` / `flair` field equals `expected` — they persist as tmux
-  options (`@rk_marker` / `@rk_win_color` / `@rk_flair`) and surface on the SSE window
+  options (`@rk_win_marker` / `@rk_win_color` / `@rk_win_flair`) and surface on the SSE window
   payload, so a UI change is observable server-side within a couple of poll
   cycles.
 - `openLabelPicker(row, page)` clicks the row's `Set tab label` zone and
@@ -55,12 +55,12 @@ border).
 
 ## Tests
 
-### `the label zone opens the banded picker; picking a marker persists via @rk_marker (no cycling)`
+### `the label zone opens the banded picker; picking a marker persists via @rk_win_marker (no cycling)`
 
 **What it proves:** The left-edge zone opens the banded picker (not a cycle);
 the band chrome names all three axes (`[ color ]` / `[ marker ]` / `[ flair ]`
 headers) and rings the marker header − while the axis is unset; picking a
-marker state directly persists it as `@rk_marker`, ANY state is reachable in
+marker state directly persists it as `@rk_win_marker`, ANY state is reachable in
 one pick (no stepping), the three 9hh6 categorical additions (`pipe`, `hatch`,
 `block`) round-trip through the widened backend closed set exactly like the
 original five, the header − clears the axis, and the picker stays open across
@@ -103,10 +103,10 @@ from the marker axis entirely).
    (the rain is a flair now).
 5. Close via the ✕ cell.
 
-### `rain + scan are FLAIRS: they persist via @rk_flair and compose with any marker`
+### `rain + scan are FLAIRS: they persist via @rk_win_flair and compose with any marker`
 
 **What it proves:** The two migrated motion treatments live on the flair axis:
-picking `Flair rain` / `Flair scan` persists `@rk_flair` and mounts the
+picking `Flair rain` / `Flair scan` persists `@rk_win_flair` and mounts the
 always-on overlay on the row alongside ANY marker (rain composes with its old
 owner, dashed), and the flair header − clears only the flair axis.
 

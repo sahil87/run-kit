@@ -11,7 +11,7 @@ const resolveWindow = (page: Page, windowName: string) =>
   resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION, windowName);
 
 /** Poll the snapshot until the named window's window-option field equals
- *  `expected` (marker = @rk_marker, color = @rk_win_color, flair = @rk_flair). */
+ *  `expected` (marker = @rk_win_marker, color = @rk_win_color, flair = @rk_win_flair). */
 async function expectWindowField(
   page: Page,
   windowName: string,
@@ -63,7 +63,7 @@ test.describe("Window left-edge label zone + banded picker", () => {
     killSession(TEST_SESSION);
   });
 
-  test("the label zone opens the banded picker; picking a marker persists via @rk_marker (no cycling)", async ({ page }) => {
+  test("the label zone opens the banded picker; picking a marker persists via @rk_win_marker (no cycling)", async ({ page }) => {
     const ts = Date.now();
     const winName = `marker-win-${ts}`;
     newWindow(TEST_SESSION, winName);
@@ -161,7 +161,7 @@ test.describe("Window left-edge label zone + banded picker", () => {
     await picker.getByLabel("Close picker").click();
   });
 
-  test("rain + scan are FLAIRS: they persist via @rk_flair and compose with any marker", async ({ page }) => {
+  test("rain + scan are FLAIRS: they persist via @rk_win_flair and compose with any marker", async ({ page }) => {
     const ts = Date.now();
     const winName = `marker-flair-${ts}`;
     newWindow(TEST_SESSION, winName);

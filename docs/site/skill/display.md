@@ -38,7 +38,7 @@ The notify send is fail-silent (like `rk notify`) — never branch on it.
 
 ## Attach vs. standalone window
 
-Default attaches to your own window — one `@rk_url` per window, so last write wins on multi-pane windows. Use `--window` for the residual cases:
+Default attaches to your own window — one `@rk_win_url` per window, so last write wins on multi-pane windows. Use `--window` for the residual cases:
 
 - an **external URL with no owning pane** (you are presenting something unrelated to your work),
 - a **second simultaneous mock** (your window's tile is already taken),
@@ -49,7 +49,7 @@ rk present --window https://staging.example.com   # name from the host
 rk present --window=report ./dist/                # explicit name
 ```
 
-`--window` spawns a new tmux window in your session carrying `@rk_type=iframe` — the one remaining legitimate producer of that hint.
+`--window` spawns a new tmux window in your session carrying `@rk_win_lens=iframe` — the one remaining legitimate producer of that hint.
 
 ## Proxy
 
@@ -65,9 +65,11 @@ A service on port 8080 is available at `/proxy/8080/`. The **relative** form wor
 
 ### Tmux user options
 
-- `@rk_url` — the window's attached web content (availability signal for the rail's web tile).
-- `@rk_present_root` — the absolute serve root for `/present/<windowId>/...` file serving; set by `rk present` for file/dir targets, dies with the window.
-- `@rk_type` — window type: `terminal` (default) or `iframe`. A creation-time default-view hint only — attaching `@rk_url` to a tty-led window does NOT steal its default view.
+- `@rk_win_url` — the window's attached web content (availability signal for the rail's web tile).
+- `@rk_win_present_root` — the absolute serve root for `/present/<windowId>/...` file serving; set by `rk present` for file/dir targets, dies with the window.
+- `@rk_win_lens` — window lens: `terminal` (default) or `iframe`. A creation-time default-view hint only — attaching `@rk_win_url` to a tty-led window does NOT steal its default view.
+
+Legacy option names (`@rk_type`, `@rk_url`, `@rk_note`) are still read for now; `@rk_present_root` is not — always write `@rk_win_present_root`.
 
 ### SSE reactivity
 
@@ -83,8 +85,8 @@ On an rk too old to have `present`, spawn an iframe window by hand. Serve the co
 
 ```sh
 tmux new-window -n <name>
-tmux set-option -w @rk_type iframe
-tmux set-option -w @rk_url /proxy/<port>/<filename>
+tmux set-option -w @rk_win_lens iframe
+tmux set-option -w @rk_win_url /proxy/<port>/<filename>
 ```
 
-Change the page later by re-setting `@rk_url`. Every step SHALL fail silently if its prerequisite is unavailable (run-kit missing, port in use, server fails to start) — skip the remaining steps without surfacing an error.
+Change the page later by re-setting `@rk_win_url`. Every step SHALL fail silently if its prerequisite is unavailable (run-kit missing, port in use, server fails to start) — skip the remaining steps without surfacing an error.

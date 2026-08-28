@@ -39,7 +39,7 @@ func postOptions(t *testing.T, ops *mockTmuxOps, windowID, body string) *httptes
 }
 
 // Set color only — the merge issues one SetWindowOptions call with just @rk_win_color;
-// @rk_url/@rk_type are left untouched (absent from the op list).
+// @rk_win_url/@rk_win_lens are left untouched (absent from the op list).
 func TestWindowOptionsSetColorOnly(t *testing.T) {
 	ops := &mockTmuxOps{}
 	rec := postOptions(t, ops, "@2", `{"options":{"@rk_win_color":"5"}}`)
@@ -82,7 +82,7 @@ func TestWindowOptionsNullUnsets(t *testing.T) {
 // Multi-key merge is a single SetWindowOptions invocation carrying both keys.
 func TestWindowOptionsMultiKeyOneCall(t *testing.T) {
 	ops := &mockTmuxOps{}
-	rec := postOptions(t, ops, "@2", `{"options":{"@rk_url":"https://x","@rk_type":"iframe"}}`)
+	rec := postOptions(t, ops, "@2", `{"options":{"@rk_win_url":"https://x","@rk_win_lens":"iframe"}}`)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
@@ -90,13 +90,13 @@ func TestWindowOptionsMultiKeyOneCall(t *testing.T) {
 	if len(ops.setWindowOptionsOps) != 2 {
 		t.Fatalf("ops = %v, want 2 (one invocation, both keys)", ops.setWindowOptionsOps)
 	}
-	urlOp, ok := findOp(ops.setWindowOptionsOps, "@rk_url")
+	urlOp, ok := findOp(ops.setWindowOptionsOps, "@rk_win_url")
 	if !ok || urlOp.Value == nil || *urlOp.Value != "https://x" {
-		t.Errorf("@rk_url op = %+v, want value \"https://x\"", urlOp)
+		t.Errorf("@rk_win_url op = %+v, want value \"https://x\"", urlOp)
 	}
-	typeOp, ok := findOp(ops.setWindowOptionsOps, "@rk_type")
+	typeOp, ok := findOp(ops.setWindowOptionsOps, "@rk_win_lens")
 	if !ok || typeOp.Value == nil || *typeOp.Value != "iframe" {
-		t.Errorf("@rk_type op = %+v, want value \"iframe\"", typeOp)
+		t.Errorf("@rk_win_lens op = %+v, want value \"iframe\"", typeOp)
 	}
 }
 
@@ -145,10 +145,10 @@ func TestWindowOptionsColorFamilyName(t *testing.T) {
 	}
 }
 
-// Empty @rk_url → 400 and zero tmux calls.
+// Empty @rk_win_url → 400 and zero tmux calls.
 func TestWindowOptionsEmptyUrl(t *testing.T) {
 	ops := &mockTmuxOps{}
-	rec := postOptions(t, ops, "@0", `{"options":{"@rk_url":""}}`)
+	rec := postOptions(t, ops, "@0", `{"options":{"@rk_win_url":""}}`)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
@@ -158,7 +158,7 @@ func TestWindowOptionsEmptyUrl(t *testing.T) {
 	}
 }
 
-// @rk_url scheme allowlist (R1): absolute http:/https: URLs and root-relative
+// @rk_win_url scheme allowlist (R1): absolute http:/https: URLs and root-relative
 // paths pass; javascript:/data:/file:, scheme-relative //…, bare hosts, and
 // whitespace-only values are rejected with 400 and zero tmux calls.
 func TestWindowOptionsRkURLSchemeAllowlist(t *testing.T) {
@@ -172,7 +172,7 @@ func TestWindowOptionsRkURLSchemeAllowlist(t *testing.T) {
 	}
 	for _, url := range accepted {
 		ops := &mockTmuxOps{}
-		rec := postOptions(t, ops, "@0", fmt.Sprintf(`{"options":{"@rk_url":%q}}`, url))
+		rec := postOptions(t, ops, "@0", fmt.Sprintf(`{"options":{"@rk_win_url":%q}}`, url))
 		if rec.Code != http.StatusOK {
 			t.Errorf("accept %q: status = %d, want %d; body=%s", url, rec.Code, http.StatusOK, rec.Body.String())
 		}
@@ -191,7 +191,7 @@ func TestWindowOptionsRkURLSchemeAllowlist(t *testing.T) {
 	}
 	for _, url := range rejected {
 		ops := &mockTmuxOps{}
-		rec := postOptions(t, ops, "@0", fmt.Sprintf(`{"options":{"@rk_url":%q}}`, url))
+		rec := postOptions(t, ops, "@0", fmt.Sprintf(`{"options":{"@rk_win_url":%q}}`, url))
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("reject %q: status = %d, want %d", url, rec.Code, http.StatusBadRequest)
 		}
@@ -215,45 +215,63 @@ func TestWindowOptionsUnknownKeyRejected(t *testing.T) {
 	}
 }
 
-// Set @rk_marker only — one SetWindowOptions call with just @rk_marker.
+// The retired pre-rename names are NOT dual-accepted: the allowlist hard-cuts
+// to the scope-prefixed names, so a legacy key in the body → 400 with zero
+// tmux calls (writers switched at the rename; the tmux-side dual-read covers
+// only out-of-band stampers).
+func TestWindowOptionsLegacyKeysRejected(t *testing.T) {
+	for _, key := range []string{"@rk_type", "@rk_url", "@rk_note", "@rk_marker", "@rk_flair", "@rk_role"} {
+		ops := &mockTmuxOps{}
+		rec := postOptions(t, ops, "@0", fmt.Sprintf(`{"options":{%q:"x"}}`, key))
+
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("legacy key %s: status = %d, want %d", key, rec.Code, http.StatusBadRequest)
+		}
+		if ops.setWindowOptionsCalled {
+			t.Errorf("legacy key %s: SetWindowOptions must NOT be called", key)
+		}
+	}
+}
+
+// Set @rk_win_marker only — one SetWindowOptions call with just @rk_win_marker.
 func TestWindowOptionsSetMarkerOnly(t *testing.T) {
 	ops := &mockTmuxOps{}
-	rec := postOptions(t, ops, "@2", `{"options":{"@rk_marker":"solid"}}`)
+	rec := postOptions(t, ops, "@2", `{"options":{"@rk_win_marker":"solid"}}`)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 	if len(ops.setWindowOptionsOps) != 1 {
-		t.Fatalf("ops = %v, want exactly 1 (@rk_marker)", ops.setWindowOptionsOps)
+		t.Fatalf("ops = %v, want exactly 1 (@rk_win_marker)", ops.setWindowOptionsOps)
 	}
-	op, ok := findOp(ops.setWindowOptionsOps, "@rk_marker")
+	op, ok := findOp(ops.setWindowOptionsOps, "@rk_win_marker")
 	if !ok || op.Value == nil || *op.Value != "solid" {
-		t.Errorf("@rk_marker op = %+v, want value \"solid\"", op)
+		t.Errorf("@rk_win_marker op = %+v, want value \"solid\"", op)
 	}
 }
 
-// @rk_marker empty string unsets (nil Value op), mirroring @rk_type — "" clears.
+// @rk_win_marker empty string unsets (nil Value op), mirroring @rk_win_lens — "" clears.
 func TestWindowOptionsMarkerEmptyUnsets(t *testing.T) {
 	ops := &mockTmuxOps{}
-	rec := postOptions(t, ops, "@2", `{"options":{"@rk_marker":""}}`)
+	rec := postOptions(t, ops, "@2", `{"options":{"@rk_win_marker":""}}`)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	op, ok := findOp(ops.setWindowOptionsOps, "@rk_marker")
+	op, ok := findOp(ops.setWindowOptionsOps, "@rk_win_marker")
 	if !ok {
-		t.Fatal("expected @rk_marker op")
+		t.Fatal("expected @rk_win_marker op")
 	}
 	if op.Value != nil {
-		t.Errorf("@rk_marker value = %q, want nil (empty string unsets)", *op.Value)
+		t.Errorf("@rk_win_marker value = %q, want nil (empty string unsets)", *op.Value)
 	}
 }
 
-// Invalid @rk_marker (outside the 5-state closed set) → 400 and zero tmux
+// Invalid @rk_win_marker (outside the 5-state closed set) → 400 and zero tmux
 // calls (validate-all-then-execute).
 func TestWindowOptionsMarkerInvalid(t *testing.T) {
 	ops := &mockTmuxOps{}
-	rec := postOptions(t, ops, "@0", `{"options":{"@rk_marker":"wavy"}}`)
+	rec := postOptions(t, ops, "@0", `{"options":{"@rk_win_marker":"wavy"}}`)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
@@ -267,57 +285,57 @@ func TestWindowOptionsMarkerInvalid(t *testing.T) {
 func TestWindowOptionsMarkerDashedThick(t *testing.T) {
 	for _, v := range []string{"dashed", "thick"} {
 		ops := &mockTmuxOps{}
-		rec := postOptions(t, ops, "@2", `{"options":{"@rk_marker":"`+v+`"}}`)
+		rec := postOptions(t, ops, "@2", `{"options":{"@rk_win_marker":"`+v+`"}}`)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status(%q) = %d, want %d; body=%s", v, rec.Code, http.StatusOK, rec.Body.String())
 		}
-		op, ok := findOp(ops.setWindowOptionsOps, "@rk_marker")
+		op, ok := findOp(ops.setWindowOptionsOps, "@rk_win_marker")
 		if !ok || op.Value == nil || *op.Value != v {
-			t.Errorf("@rk_marker op = %+v, want value %q", op, v)
+			t.Errorf("@rk_win_marker op = %+v, want value %q", op, v)
 		}
 	}
 }
 
-// Set @rk_flair only — one SetWindowOptions call with just @rk_flair.
+// Set @rk_win_flair only — one SetWindowOptions call with just @rk_win_flair.
 func TestWindowOptionsSetFlairOnly(t *testing.T) {
 	ops := &mockTmuxOps{}
-	rec := postOptions(t, ops, "@2", `{"options":{"@rk_flair":"nyan"}}`)
+	rec := postOptions(t, ops, "@2", `{"options":{"@rk_win_flair":"nyan"}}`)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 	if len(ops.setWindowOptionsOps) != 1 {
-		t.Fatalf("ops = %v, want exactly 1 (@rk_flair)", ops.setWindowOptionsOps)
+		t.Fatalf("ops = %v, want exactly 1 (@rk_win_flair)", ops.setWindowOptionsOps)
 	}
-	op, ok := findOp(ops.setWindowOptionsOps, "@rk_flair")
+	op, ok := findOp(ops.setWindowOptionsOps, "@rk_win_flair")
 	if !ok || op.Value == nil || *op.Value != "nyan" {
-		t.Errorf("@rk_flair op = %+v, want value \"nyan\"", op)
+		t.Errorf("@rk_win_flair op = %+v, want value \"nyan\"", op)
 	}
 }
 
-// @rk_flair empty string unsets (nil Value op), mirroring @rk_marker — "" clears.
+// @rk_win_flair empty string unsets (nil Value op), mirroring @rk_win_marker — "" clears.
 func TestWindowOptionsFlairEmptyUnsets(t *testing.T) {
 	ops := &mockTmuxOps{}
-	rec := postOptions(t, ops, "@2", `{"options":{"@rk_flair":""}}`)
+	rec := postOptions(t, ops, "@2", `{"options":{"@rk_win_flair":""}}`)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	op, ok := findOp(ops.setWindowOptionsOps, "@rk_flair")
+	op, ok := findOp(ops.setWindowOptionsOps, "@rk_win_flair")
 	if !ok {
-		t.Fatal("expected @rk_flair op")
+		t.Fatal("expected @rk_win_flair op")
 	}
 	if op.Value != nil {
-		t.Errorf("@rk_flair value = %q, want nil (empty string unsets)", *op.Value)
+		t.Errorf("@rk_win_flair value = %q, want nil (empty string unsets)", *op.Value)
 	}
 }
 
-// Invalid @rk_flair (outside the 3-state closed set) → 400 and zero tmux
+// Invalid @rk_win_flair (outside the 3-state closed set) → 400 and zero tmux
 // calls (validate-all-then-execute).
 func TestWindowOptionsFlairInvalid(t *testing.T) {
 	ops := &mockTmuxOps{}
-	rec := postOptions(t, ops, "@0", `{"options":{"@rk_flair":"pikachu"}}`)
+	rec := postOptions(t, ops, "@0", `{"options":{"@rk_win_flair":"pikachu"}}`)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
@@ -327,21 +345,21 @@ func TestWindowOptionsFlairInvalid(t *testing.T) {
 	}
 }
 
-// Set @rk_role=operator — one SetWindowOptions call carrying the role op, with
+// Set @rk_win_role=operator — one SetWindowOptions call carrying the role op, with
 // the server-scoped radio clear issued first (keeping the target window).
 func TestWindowOptionsSetRoleOperator(t *testing.T) {
 	ops := &mockTmuxOps{}
-	rec := postOptions(t, ops, "@7", `{"options":{"@rk_role":"operator"}}`)
+	rec := postOptions(t, ops, "@7", `{"options":{"@rk_win_role":"operator"}}`)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 	if len(ops.setWindowOptionsOps) != 1 {
-		t.Fatalf("ops = %v, want exactly 1 (@rk_role)", ops.setWindowOptionsOps)
+		t.Fatalf("ops = %v, want exactly 1 (@rk_win_role)", ops.setWindowOptionsOps)
 	}
-	op, ok := findOp(ops.setWindowOptionsOps, "@rk_role")
+	op, ok := findOp(ops.setWindowOptionsOps, "@rk_win_role")
 	if !ok || op.Value == nil || *op.Value != "operator" {
-		t.Errorf("@rk_role op = %+v, want value \"operator\"", op)
+		t.Errorf("@rk_win_role op = %+v, want value \"operator\"", op)
 	}
 	if !ops.clearWindowRoleCalled {
 		t.Error("ClearWindowRoleExceptOnServer was not called for a role set")
@@ -362,7 +380,7 @@ func TestWindowOptionsSetRoleOperator(t *testing.T) {
 // of the operator session before moving the new operator in.
 func TestWindowOptionsSetRoleOperatorDemotesDisplaced(t *testing.T) {
 	ops := &mockTmuxOps{clearWindowRoleResult: []string{"@3"}}
-	rec := postOptions(t, ops, "@7", `{"options":{"@rk_role":"operator"}}`)
+	rec := postOptions(t, ops, "@7", `{"options":{"@rk_win_role":"operator"}}`)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
@@ -378,21 +396,21 @@ func TestWindowOptionsSetRoleOperatorDemotesDisplaced(t *testing.T) {
 	}
 }
 
-// @rk_role empty string unsets (nil Value op), mirroring @rk_marker — and an
+// @rk_win_role empty string unsets (nil Value op), mirroring @rk_win_marker — and an
 // unset must NOT trigger the radio clear (nothing is being marked).
 func TestWindowOptionsRoleEmptyUnsets(t *testing.T) {
 	ops := &mockTmuxOps{}
-	rec := postOptions(t, ops, "@7", `{"options":{"@rk_role":""}}`)
+	rec := postOptions(t, ops, "@7", `{"options":{"@rk_win_role":""}}`)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	op, ok := findOp(ops.setWindowOptionsOps, "@rk_role")
+	op, ok := findOp(ops.setWindowOptionsOps, "@rk_win_role")
 	if !ok {
-		t.Fatal("expected @rk_role op")
+		t.Fatal("expected @rk_win_role op")
 	}
 	if op.Value != nil {
-		t.Errorf("@rk_role value = %q, want nil (empty string unsets)", *op.Value)
+		t.Errorf("@rk_win_role value = %q, want nil (empty string unsets)", *op.Value)
 	}
 	if ops.clearWindowRoleCalled {
 		t.Error("ClearWindowRoleExceptOnServer must NOT be called for a role unset")
@@ -410,28 +428,28 @@ func TestWindowOptionsRoleEmptyUnsets(t *testing.T) {
 	}
 }
 
-// Explicit null unsets @rk_role (partial-merge contract) without a radio clear.
+// Explicit null unsets @rk_win_role (partial-merge contract) without a radio clear.
 func TestWindowOptionsRoleNullUnsets(t *testing.T) {
 	ops := &mockTmuxOps{}
-	rec := postOptions(t, ops, "@7", `{"options":{"@rk_role":null}}`)
+	rec := postOptions(t, ops, "@7", `{"options":{"@rk_win_role":null}}`)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	op, ok := findOp(ops.setWindowOptionsOps, "@rk_role")
+	op, ok := findOp(ops.setWindowOptionsOps, "@rk_win_role")
 	if !ok || op.Value != nil {
-		t.Errorf("@rk_role op = %+v, want nil value (null unsets)", op)
+		t.Errorf("@rk_win_role op = %+v, want nil value (null unsets)", op)
 	}
 	if ops.clearWindowRoleCalled {
 		t.Error("ClearWindowRoleExceptOnServer must NOT be called for a role unset")
 	}
 }
 
-// Invalid @rk_role (outside the closed set) → 400 and zero tmux calls
+// Invalid @rk_win_role (outside the closed set) → 400 and zero tmux calls
 // (validate-all-then-execute).
 func TestWindowOptionsRoleInvalid(t *testing.T) {
 	ops := &mockTmuxOps{}
-	rec := postOptions(t, ops, "@7", `{"options":{"@rk_role":"manager"}}`)
+	rec := postOptions(t, ops, "@7", `{"options":{"@rk_win_role":"manager"}}`)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
@@ -444,46 +462,46 @@ func TestWindowOptionsRoleInvalid(t *testing.T) {
 	}
 }
 
-// @rk_type empty string unsets (nil Value op); non-empty sets verbatim.
+// @rk_win_lens empty string unsets (nil Value op); non-empty sets verbatim.
 func TestWindowOptionsRkTypeEmptyUnsets(t *testing.T) {
 	ops := &mockTmuxOps{}
-	rec := postOptions(t, ops, "@2", `{"options":{"@rk_type":""}}`)
+	rec := postOptions(t, ops, "@2", `{"options":{"@rk_win_lens":""}}`)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	op, ok := findOp(ops.setWindowOptionsOps, "@rk_type")
+	op, ok := findOp(ops.setWindowOptionsOps, "@rk_win_lens")
 	if !ok {
-		t.Fatal("expected @rk_type op")
+		t.Fatal("expected @rk_win_lens op")
 	}
 	if op.Value != nil {
-		t.Errorf("@rk_type value = %q, want nil (empty string unsets)", *op.Value)
+		t.Errorf("@rk_win_lens value = %q, want nil (empty string unsets)", *op.Value)
 	}
 }
 
 func TestWindowOptionsRkTypeNullUnsets(t *testing.T) {
 	ops := &mockTmuxOps{}
-	rec := postOptions(t, ops, "@2", `{"options":{"@rk_type":null}}`)
+	rec := postOptions(t, ops, "@2", `{"options":{"@rk_win_lens":null}}`)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	op, ok := findOp(ops.setWindowOptionsOps, "@rk_type")
+	op, ok := findOp(ops.setWindowOptionsOps, "@rk_win_lens")
 	if !ok || op.Value != nil {
-		t.Errorf("@rk_type op = %+v, want nil value (null unsets)", op)
+		t.Errorf("@rk_win_lens op = %+v, want nil value (null unsets)", op)
 	}
 }
 
 func TestWindowOptionsRkTypeSetVerbatim(t *testing.T) {
 	ops := &mockTmuxOps{}
-	rec := postOptions(t, ops, "@2", `{"options":{"@rk_type":"iframe"}}`)
+	rec := postOptions(t, ops, "@2", `{"options":{"@rk_win_lens":"iframe"}}`)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	op, ok := findOp(ops.setWindowOptionsOps, "@rk_type")
+	op, ok := findOp(ops.setWindowOptionsOps, "@rk_win_lens")
 	if !ok || op.Value == nil || *op.Value != "iframe" {
-		t.Errorf("@rk_type op = %+v, want value \"iframe\"", op)
+		t.Errorf("@rk_win_lens op = %+v, want value \"iframe\"", op)
 	}
 }
 
@@ -1381,13 +1399,13 @@ func TestWindowCreateWithIframeType(t *testing.T) {
 	if ops.createWindowWithOptionsName != "docs" {
 		t.Errorf("name = %q, want %q", ops.createWindowWithOptionsName, "docs")
 	}
-	typeOp, ok := findOp(ops.createWindowWithOptionsOps, "@rk_type")
+	typeOp, ok := findOp(ops.createWindowWithOptionsOps, "@rk_win_lens")
 	if !ok || typeOp.Value == nil || *typeOp.Value != "iframe" {
-		t.Errorf("@rk_type op = %+v, want value \"iframe\"", typeOp)
+		t.Errorf("@rk_win_lens op = %+v, want value \"iframe\"", typeOp)
 	}
-	urlOp, ok := findOp(ops.createWindowWithOptionsOps, "@rk_url")
+	urlOp, ok := findOp(ops.createWindowWithOptionsOps, "@rk_win_url")
 	if !ok || urlOp.Value == nil || *urlOp.Value != "http://localhost:8080/docs" {
-		t.Errorf("@rk_url op = %+v, want value \"http://localhost:8080/docs\"", urlOp)
+		t.Errorf("@rk_win_url op = %+v, want value \"http://localhost:8080/docs\"", urlOp)
 	}
 }
 
@@ -1457,7 +1475,7 @@ func TestWindowCreateWithoutRkTypeUsesStandardCreate(t *testing.T) {
 
 // TestWindowOptions_POST_wakesHub verifies the handleWindowOptions wake seam: a
 // successful /options POST wakes the request's server so the poll loop runs a
-// fresh pass promptly (the fix for the 5–10s @rk_win_color/@rk_url/@rk_type latency),
+// fresh pass promptly (the fix for the 5–10s @rk_win_color/@rk_win_url/@rk_win_lens latency),
 // while a rejected (unknown-key) POST does not wake. Shares newWakeSeamServer /
 // expectWake / expectNoWake with the session-color seam test in sessions_test.go.
 func TestWindowOptions_POST_wakesHub(t *testing.T) {
@@ -1479,7 +1497,7 @@ func TestWindowOptions_POST_wakesHub(t *testing.T) {
 		server, tracker := newWakeSeamServer(t, &mockTmuxOps{})
 		before := tracker.count.Load()
 		router := server.buildRouter()
-		req := httptest.NewRequest(http.MethodPost, "/api/windows/@2/options?server=default", strings.NewReader(`{"options":{"@rk_marker":"double"}}`))
+		req := httptest.NewRequest(http.MethodPost, "/api/windows/@2/options?server=default", strings.NewReader(`{"options":{"@rk_win_marker":"double"}}`))
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
@@ -1504,22 +1522,22 @@ func TestWindowOptions_POST_wakesHub(t *testing.T) {
 	})
 }
 
-// --- @rk_note tests (260824-bb5n-tab-status-note) ---
+// --- @rk_win_note tests (260824-bb5n-tab-status-note) ---
 
 // A bare-text note is stamped with the server-side "<unix-epoch>:" prefix
 // before the tmux write — the server owns the clock, never the client.
 func TestWindowOptionsNoteStampsEpoch(t *testing.T) {
 	ops := &mockTmuxOps{}
 	before := time.Now().Unix()
-	rec := postOptions(t, ops, "@2", `{"options":{"@rk_note":"blocked on flaky e2e"}}`)
+	rec := postOptions(t, ops, "@2", `{"options":{"@rk_win_note":"blocked on flaky e2e"}}`)
 	after := time.Now().Unix()
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
 	}
-	op, ok := findOp(ops.setWindowOptionsOps, "@rk_note")
+	op, ok := findOp(ops.setWindowOptionsOps, "@rk_win_note")
 	if !ok || op.Value == nil {
-		t.Fatalf("expected a valued @rk_note op, got %+v", op)
+		t.Fatalf("expected a valued @rk_win_note op, got %+v", op)
 	}
 	prefix, text, found := strings.Cut(*op.Value, ":")
 	if !found {
@@ -1540,14 +1558,14 @@ func TestWindowOptionsNoteStampsEpoch(t *testing.T) {
 // Surrounding whitespace is trimmed before stamping.
 func TestWindowOptionsNoteTrims(t *testing.T) {
 	ops := &mockTmuxOps{}
-	rec := postOptions(t, ops, "@2", `{"options":{"@rk_note":"  hi  "}}`)
+	rec := postOptions(t, ops, "@2", `{"options":{"@rk_win_note":"  hi  "}}`)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
 	}
-	op, ok := findOp(ops.setWindowOptionsOps, "@rk_note")
+	op, ok := findOp(ops.setWindowOptionsOps, "@rk_win_note")
 	if !ok || op.Value == nil {
-		t.Fatalf("expected a valued @rk_note op, got %+v", op)
+		t.Fatalf("expected a valued @rk_win_note op, got %+v", op)
 	}
 	_, text, _ := strings.Cut(*op.Value, ":")
 	if text != "hi" {
@@ -1560,11 +1578,11 @@ func TestWindowOptionsNoteTrims(t *testing.T) {
 func TestWindowOptionsNoteValidation(t *testing.T) {
 	over := strings.Repeat("x", windowNoteMaxLen+1)
 	cases := map[string]string{
-		"over-length": `{"options":{"@rk_note":"` + over + `"}}`,
-		"tab char":    `{"options":{"@rk_note":"a\tb"}}`,
-		"newline":     `{"options":{"@rk_note":"a\nb"}}`,
-		"bell (C0)":   `{"options":{"@rk_note":"a\u0007b"}}`,
-		"DEL":         `{"options":{"@rk_note":"a\u007fb"}}`,
+		"over-length": `{"options":{"@rk_win_note":"` + over + `"}}`,
+		"tab char":    `{"options":{"@rk_win_note":"a\tb"}}`,
+		"newline":     `{"options":{"@rk_win_note":"a\nb"}}`,
+		"bell (C0)":   `{"options":{"@rk_win_note":"a\u0007b"}}`,
+		"DEL":         `{"options":{"@rk_win_note":"a\u007fb"}}`,
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -1581,13 +1599,13 @@ func TestWindowOptionsNoteValidation(t *testing.T) {
 }
 
 // Empty string, whitespace-only, and JSON null all unset the note (the
-// @rk_marker mapping) — no "" value and no bare "<epoch>:" stamp is ever
+// @rk_win_marker mapping) — no "" value and no bare "<epoch>:" stamp is ever
 // written.
 func TestWindowOptionsNoteUnset(t *testing.T) {
 	for name, body := range map[string]string{
-		"empty string":    `{"options":{"@rk_note":""}}`,
-		"whitespace only": `{"options":{"@rk_note":"   "}}`,
-		"json null":       `{"options":{"@rk_note":null}}`,
+		"empty string":    `{"options":{"@rk_win_note":""}}`,
+		"whitespace only": `{"options":{"@rk_win_note":"   "}}`,
+		"json null":       `{"options":{"@rk_win_note":null}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			ops := &mockTmuxOps{}
@@ -1595,12 +1613,12 @@ func TestWindowOptionsNoteUnset(t *testing.T) {
 			if rec.Code != http.StatusOK {
 				t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
 			}
-			op, ok := findOp(ops.setWindowOptionsOps, "@rk_note")
+			op, ok := findOp(ops.setWindowOptionsOps, "@rk_win_note")
 			if !ok {
-				t.Fatal("expected @rk_note op")
+				t.Fatal("expected @rk_win_note op")
 			}
 			if op.Value != nil {
-				t.Errorf("@rk_note value = %q, want nil (unset)", *op.Value)
+				t.Errorf("@rk_win_note value = %q, want nil (unset)", *op.Value)
 			}
 		})
 	}

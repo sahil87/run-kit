@@ -709,7 +709,7 @@ describe("POST verb migration + /options contract", () => {
     expect(capturedBody.options).toEqual({ "@rk_win_color": null });
   });
 
-  it("updateWindowUrl POSTs /options with @rk_url", async () => {
+  it("updateWindowUrl POSTs /options with @rk_win_url", async () => {
     let capturedBody: { options?: Record<string, string | null> } = {};
     mswServer.use(
       http.post("/api/windows/:windowId/options", async ({ request }) => {
@@ -718,10 +718,10 @@ describe("POST verb migration + /options contract", () => {
       }),
     );
     await updateWindowUrl("default", "@2", "https://x");
-    expect(capturedBody.options).toEqual({ "@rk_url": "https://x" });
+    expect(capturedBody.options).toEqual({ "@rk_win_url": "https://x" });
   });
 
-  it("setWindowRole POSTs /options with @rk_role; null and empty string both clear", async () => {
+  it("setWindowRole POSTs /options with @rk_win_role; null and empty string both clear", async () => {
     const bodies: Array<{ options?: Record<string, string | null> }> = [];
     mswServer.use(
       http.post("/api/windows/:windowId/options", async ({ request }) => {
@@ -732,12 +732,12 @@ describe("POST verb migration + /options contract", () => {
     await setWindowRole("default", "@2", "operator");
     await setWindowRole("default", "@2", null);
     await setWindowRole("default", "@2", "");
-    expect(bodies[0].options).toEqual({ "@rk_role": "operator" });
-    expect(bodies[1].options).toEqual({ "@rk_role": "" });
-    expect(bodies[2].options).toEqual({ "@rk_role": "" });
+    expect(bodies[0].options).toEqual({ "@rk_win_role": "operator" });
+    expect(bodies[1].options).toEqual({ "@rk_win_role": "" });
+    expect(bodies[2].options).toEqual({ "@rk_win_role": "" });
   });
 
-  it("setWindowFlair POSTs /options with @rk_flair; null and empty string both clear", async () => {
+  it("setWindowFlair POSTs /options with @rk_win_flair; null and empty string both clear", async () => {
     const bodies: Array<{ options?: Record<string, string | null> }> = [];
     mswServer.use(
       http.post("/api/windows/:windowId/options", async ({ request }) => {
@@ -748,9 +748,9 @@ describe("POST verb migration + /options contract", () => {
     await setWindowFlair("s", "@1", "nyan");
     await setWindowFlair("s", "@1", null);
     await setWindowFlair("s", "@1", "");
-    expect(bodies[0].options).toEqual({ "@rk_flair": "nyan" });
-    expect(bodies[1].options).toEqual({ "@rk_flair": "" });
-    expect(bodies[2].options).toEqual({ "@rk_flair": "" });
+    expect(bodies[0].options).toEqual({ "@rk_win_flair": "nyan" });
+    expect(bodies[1].options).toEqual({ "@rk_win_flair": "" });
+    expect(bodies[2].options).toEqual({ "@rk_win_flair": "" });
   });
 
   it("setSessionFlair POSTs /api/sessions/{session}/flair with {flair}; null clears", async () => {

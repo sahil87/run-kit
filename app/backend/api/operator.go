@@ -52,7 +52,7 @@ type operatorWindowFact struct {
 	FabChange string // rendered only when non-empty
 	FabStage  string
 	// Color/Marker/Flair are the window's current label state (@rk_win_color,
-	// @rk_marker, @rk_flair) — "" when unset (WindowInfo.Color is *string,
+	// @rk_win_marker, @rk_win_flair) — "" when unset (WindowInfo.Color is *string,
 	// dereferenced in the builder). Only the color-tabs template renders them;
 	// the digest row writer deliberately ignores them.
 	Color  string
@@ -163,7 +163,7 @@ var operatorTemplates = map[string]operatorTemplate{
 		renderServer: renderColorTabs,
 	},
 	// update-annotations: the operator reads every listed tab's transcript tail
-	// and writes/refreshes a one-line @rk_note per tab through its own shell;
+	// and writes/refreshes a one-line @rk_win_note per tab through its own shell;
 	// notes surface via the normal derive tick (~12s safety poll). The optional
 	// session body field scopes the fact table to one session.
 	"update-annotations": {
@@ -172,7 +172,7 @@ var operatorTemplates = map[string]operatorTemplate{
 		renderServer:   renderUpdateAnnotations,
 	},
 	// annotate-tab: the operator reads the subject tab's transcript tail and
-	// writes a one-line @rk_note status note onto the window through its own
+	// writes a one-line @rk_win_note status note onto the window through its own
 	// shell; the note surfaces via the normal derive tick (user-option
 	// mutations emit no control-mode event).
 	"annotate-tab": {
@@ -447,8 +447,8 @@ Actuate through your own shell:
   tmux set-option -t @N '@rk_win_color' '<value>'
 value: one of red orange amber olive green teal blue purple magenta slate, optionally suffixed -dark or -light (risk/priority may ride the shade axis).
 Optional secondary accents — sparingly; color is the primary channel:
-  tmux set-option -t @N '@rk_marker' '<value>'   (pipe dotted dashed solid double thick hatch block)
-  tmux set-option -t @N '@rk_flair' '<value>'    (rain scan nyan naruto onepiece pacman matrix aquarium roadrunner invaders cube warp spidey ironman)
+  tmux set-option -t @N '@rk_win_marker' '<value>'   (pipe dotted dashed solid double thick hatch block)
+  tmux set-option -t @N '@rk_win_flair' '<value>'    (rain scan nyan naruto onepiece pacman matrix aquarium roadrunner invaders cube warp spidey ironman)
 Unset a label when a tab genuinely fits no category:
   tmux set-option -t @N -u '@rk_win_color'
 
@@ -456,20 +456,20 @@ Judgment: DO NOTHING to a tab whose current labels already fit the scheme. Exist
 
 The sidebar repaints within ~15 seconds of your last set-option — no further action is needed.
 
-Bounds: set only the three named options (@rk_win_color, @rk_marker, @rk_flair), only on the windows listed above. Do not rename, kill, or send keys to any window. Do not reply to this message.`)
+Bounds: set only the three named options (@rk_win_color, @rk_win_marker, @rk_win_flair), only on the windows listed above. Do not rename, kill, or send keys to any window. Do not reply to this message.`)
 	return b.String()
 }
 
 // renderUpdateAnnotations composes the update-annotations prompt (the
 // renderColorTabs posture): the routing table, the transcript-tail read
 // instruction (never capture-pane for agent tabs; rk mux capture is the
-// fallback for plain shell tabs), the epoch-prefixed @rk_note actuation with
+// fallback for plain shell tabs), the epoch-prefixed @rk_win_note actuation with
 // the ~100-char bound, the skip-the-write clause, the repaint note, and the
 // write-only bounds. An empty table still delivers — there is simply nothing
 // to annotate.
 func renderUpdateAnnotations(f serverOperatorFacts) string {
 	var b strings.Builder
-	b.WriteString("[run-kit request] Update annotations: write or refresh a one-line @rk_note status note on each tab listed below.\n\nTabs:\n")
+	b.WriteString("[run-kit request] Update annotations: write or refresh a one-line @rk_win_note status note on each tab listed below.\n\nTabs:\n")
 	if len(f.Windows) == 0 {
 		b.WriteString("  (none — nothing to annotate; no action needed)\n")
 	}
@@ -482,19 +482,19 @@ For each tab: read the tail of its transcript JSONL (the last ~30 lines are enou
 (plain shell windows have real scrollback)
 
 Then write or refresh a short one-line note (at most ~100 characters) that says WHY the tab is in its current state — e.g. "blocked on flaky e2e" or "awaiting design decision":
-  tmux set-option -wt @N @rk_note "$(date +%s):<one-line note>"
+  tmux set-option -wt @N @rk_win_note "$(date +%s):<one-line note>"
 
 If there is nothing meaningful to say about a tab's current state, skip its write (leave any existing note in place).
 
 The notes repaint within ~15 seconds of your last set-option — no further action is needed.
 
-Bounds: set only @rk_note, only on the windows listed above. Do not rename, kill, or send keys to any window. Do not reply to this message or take any other action.`)
+Bounds: set only @rk_win_note, only on the windows listed above. Do not rename, kill, or send keys to any window. Do not reply to this message or take any other action.`)
 	return b.String()
 }
 
 // renderAnnotateTab composes the annotate-tab prompt (the renderFixTabName
 // shape): read the subject tab's transcript tail, then write a one-line
-// @rk_note via the exact epoch-prefixed set-option actuation. The ≤100-char
+// @rk_win_note via the exact epoch-prefixed set-option actuation. The ≤100-char
 // bound lives in the prompt because the operator writes raw set-option — no
 // API validation path applies (the API's own cap is 120).
 func renderAnnotateTab(f operatorFacts) string {
@@ -510,7 +510,7 @@ Read the recent conversation in the transcript to see what this tab is actually 
 %s.
 
 Then write a short one-line note (at most ~100 characters) that says WHY the tab is in its current state — e.g. "blocked on flaky e2e" or "awaiting design decision":
-  tmux set-option -wt %s @rk_note "$(date +%%s):<one-line note>"
+  tmux set-option -wt %s @rk_win_note "$(date +%%s):<one-line note>"
 
 If there is nothing meaningful to say about the tab's current state, skip the write (do nothing).
 

@@ -199,7 +199,7 @@ Inside a board:
 - **Drag the pane edge** to resize (desktop only; widths persist per-board in `localStorage`).
 - **On mobile**, panes render as a single-pane swipe carousel.
 
-Pin state lives in tmux (via the `@rk_board` window option) so it follows the window, not the browser — open the same board URL on your phone and you see the same panes. Pane widths are intentionally local to each device.
+Pin state lives in tmux (via the `@rk_ses_pin_board` session option on the window's `_rk-pin-*` pin session) so it follows the window, not the browser — open the same board URL on your phone and you see the same panes. Pane widths are intentionally local to each device.
 
 ## Drive it from your phone (HTTPS over Tailscale)
 

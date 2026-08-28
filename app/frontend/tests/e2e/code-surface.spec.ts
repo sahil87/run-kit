@@ -278,7 +278,7 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     page,
   }) => {
     const id = await makeWindow(page, `cs-p3-${Date.now()}`);
-    // Stamp @rk_url so BOTH surfaces are available on this repo-cwd window.
+    // Stamp @rk_win_url so BOTH surfaces are available on this repo-cwd window.
     execFileSync("tmux", [
       "-L",
       TMUX_SERVER,
@@ -286,7 +286,7 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
       "-w",
       "-t",
       id,
-      "@rk_url",
+      "@rk_win_url",
       "http://localhost:8080/",
     ]);
     await gotoWindow(page, id);

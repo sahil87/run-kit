@@ -11,7 +11,7 @@ type WindowNotePromptProps = {
 
 /**
  * The prompt behind `Window: Set note…` (palette): a single text input
- * prefilled with the window's current `@rk_note` text, select-all'd so typing
+ * prefilled with the window's current `@rk_win_note` text, select-all'd so typing
  * replaces it. An empty submit CLEARS the note (the options endpoint maps ""
  * to unset). Escape/backdrop close via the Dialog shell. Mirrors the
  * SessionNamePrompt shape (the save-as-style prompt idiom).

@@ -13,11 +13,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// rk role <operator|clear> — set or clear the @rk_role window option on the
+// rk role <operator|clear> — set or clear the @rk_win_role window option on the
 // CURRENT window (derived from $TMUX_PANE), marking it as the tmux server's
 // operator (the orchestrator window the sidebar pins below the SESSIONS
 // header) or clearing that marking. "operator" is a server-scoped radio:
-// setting it clears @rk_role from every other window on the server (the shared
+// setting it clears @rk_win_role from every other window on the server (the shared
 // tmux.ClearWindowRoleExcept helper — the same enforcement the window-options
 // POST handler applies; never trusted to clients).
 //
@@ -39,7 +39,7 @@ const roleCmdTimeout = 5 * time.Second
 var roleCmd = &cobra.Command{
 	Use:   "role <operator|clear>",
 	Short: "Mark or unmark the current window as the server's operator",
-	Long: "Set or clear the @rk_role tmux window option on the current window " +
+	Long: "Set or clear the @rk_win_role tmux window option on the current window " +
 		"(derived from $TMUX_PANE). `operator` marks the window as the server's " +
 		"operator — clearing the role from every other window on the server — " +
 		"and the sidebar pins its row below the SESSIONS header. `clear` " +
@@ -76,7 +76,7 @@ var (
 	}
 )
 
-// roleActions maps the CLI token to the @rk_role value it writes ("" = unset).
+// roleActions maps the CLI token to the @rk_win_role value it writes ("" = unset).
 var roleActions = map[string]string{
 	"operator": "operator",
 	"clear":    "",
@@ -113,7 +113,7 @@ func runRole(cmd *cobra.Command, token string) error {
 	// writeAgentStateImpl for the full rationale), never a bare invocation.
 	// agent hook's never-fail contract lets it degrade to the default socket
 	// here; this command must NOT: a bare invocation would resolve $TMUX_PANE
-	// against — and radio-clear @rk_role across — whichever server owns the
+	// against — and radio-clear @rk_win_role across — whichever server owns the
 	// default socket (spawning one if it is dead). $TMUX_PANE without $TMUX is
 	// exactly the `tmux run-shell` shape, so the pane guard above does not cover
 	// it; refuse instead of guessing a server.

@@ -267,7 +267,7 @@ the sixth surface measured against the same checks
   picks it up with no help-dump code change; the `$TMUX_PANE` guard is an
   operational exit 1 at run time, not a registration condition.
 - **Principle 9: the resolved URL is the only stdout line — data.** stdout
-  carries exactly the resolved `@rk_url` value (relative for `/present`/
+  carries exactly the resolved `@rk_win_url` value (relative for `/present`/
   `/proxy` targets, absolute for external URLs) and prints it even
   under `--quiet` (silence would hide the command's one result); diagnostics
   go to stderr. `--notify`'s send failure is the documented fail-silent
@@ -280,7 +280,7 @@ the sixth surface measured against the same checks
 - **The `skill` standard is load-bearing on this surface** — the canonical
   `docs/site/skill.md` and `docs/site/skill/display.md` (synced to the
   embedded copies by `scripts/sync-skill.sh`) teach `rk present` as the
-  primary Visual Display Recipe, with the manual `@rk_url` attach path kept
+  primary Visual Display Recipe, with the manual `@rk_win_url` attach path kept
   as a short appendix for older rk versions. Both files stay within the
   ≤150-line budget and under the byte-equality drift guards
   (`TestSkillEmbedMatchesCanonical`, `TestSkillDisplayEmbedMatchesCanonical`),
@@ -1144,7 +1144,7 @@ conventions) move to the new **`rk skill display`** topic page; (2) its genuinel
 **dynamic** residue — the ~4-line "where am I" Environment block (pane id, session,
 window, window type, server URL) — is taught to agents as a **static derivation
 recipe** in the core `rk skill` bundle: a fixed `$TMUX_PANE` / `tmux
-display-message -p '#S'`/`'#W'` / `tmux show-option -w @rk_type` / **`rk url`**
+display-message -p '#S'`/`'#W'` / `tmux show-option -w @rk_win_lens` / **`rk url`**
 snippet. A **derivation recipe is static content even though its result is
 dynamic** — the recipe text never varies by where/when it runs, so the bundle can
 teach it without violating the standard's static-only rule.
@@ -1156,7 +1156,7 @@ every Environment value is derivable by the agent directly (`$TMUX_PANE`, `tmux
 display-message`, env-backed config), so the command was pure duplication once the
 topic page existed. The one derivation that earns a stable command seam is the
 server URL → **`rk url`** (a resolver over explicit `RK_HOST`/`RK_PORT` env →
-the pane server's `@rk_origin` tmux option → the `127.0.0.1:3000` default, so
+the pane server's `@rk_srv_origin` tmux option → the `127.0.0.1:3000` default, so
 it stays accurate on non-default deployments where panes carry no `RK_*` env;
 ecosystem precedent
 `gh browse --no-browser` / `docker port` / `minikube service --url`), which also

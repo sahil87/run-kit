@@ -22,13 +22,13 @@ import (
 
 // SessionOrderOption is the tmux server-scoped user option that stores the
 // JSON-encoded sidebar session order.
-const SessionOrderOption = "@rk_session_order"
+const SessionOrderOption = "@rk_srv_session_order"
 
 // ServerRankOption is the tmux server-scoped user option that stores this
 // server's user-defined display rank (an integer, ascending) among the other
 // tmux servers. Order data rides each server so a killed server takes only its
 // own rank — no cross-server merge rule is needed. Mirrors SessionOrderOption.
-const ServerRankOption = "@rk_server_rank"
+const ServerRankOption = "@rk_srv_rank"
 
 // OriginOption is the tmux server-scoped user option that stores the full
 // origin string (e.g. "http://127.0.0.1:3001") of the run-kit deployment
@@ -37,10 +37,10 @@ const ServerRankOption = "@rk_server_rank"
 // `rk notify`) read it at request time to resolve their server's origin when
 // no explicit RK_HOST/RK_PORT env is set. It is NOT an environment variable:
 // nothing sprays into child process environments, and a daemon restarted on a
-// new port re-stamps on its next dial. Named "origin" (not @rk_url, which is
+// new port re-stamps on its next dial. Named "origin" (not URLOption, which is
 // the window-scoped present/iframe URL) after internal/remote's "origin via
 // `rk url`" language.
-const OriginOption = "@rk_origin"
+const OriginOption = "@rk_srv_origin"
 
 // EphemeralOption is the tmux server-scoped user option marking the whole
 // server ephemeral (scratch): presence with a non-empty value (canonically
@@ -74,24 +74,56 @@ const ProtectedOption = "@rk_protected"
 // (stampManagedOnBirth); unsetting is the adopt-failure rollback, never a
 // demote verb. The rk-daemon production server is managed by derivation from
 // its constant name (IsManagedServer), never by this option.
-const ManagedOption = "@rk_managed"
+const ManagedOption = "@rk_srv_managed"
 
 // RoleOption is the tmux window user option that marks a window's orchestration
 // role. The value set is closed: "" (unset) | "operator". "operator" is a
 // server-scoped radio — at most one window per tmux server carries it, enforced
 // by every rk write path (ClearWindowRoleExcept) — and the sidebar pins that
-// window's row directly below the SESSIONS header. Mirrors the @rk_marker
+// window's row directly below the SESSIONS header. Mirrors the MarkerOption
 // option family (validate.MarkerValues / ValidateRoleValue).
-const RoleOption = "@rk_role"
+const RoleOption = "@rk_win_role"
 
 // NoteOption is the tmux window user option carrying a free-text one-line
-// status note — user/agent-authored annotation (the @rk_marker/@rk_flair
+// status note — user/agent-authored annotation (the MarkerOption/FlairOption
 // user-preference class, not derived state). The value schema is
 // "<unix-epoch>:<text>" — the epoch prefix lets the UI age notes honestly
 // (the @rk_agent_state staleness precedent). Read-side parse is tolerant: a
 // non-numeric prefix degrades to the whole value as text with epoch 0, never
 // dropped. Empty/absent = no note (degrade-to-absent everywhere).
-const NoteOption = "@rk_note"
+const NoteOption = "@rk_win_note"
+
+// LensOption is the tmux window user option selecting the window's lens (view
+// kind) — "" (unset, terminal mode) | "iframe" | ... . Dual-read with
+// legacyTypeOption: readers prefer this name and fall back to the legacy one.
+const LensOption = "@rk_win_lens"
+
+// URLOption is the tmux window user option carrying the window's web URL (the
+// `rk present` attach target). Dual-read with legacyURLOption: readers prefer
+// this name and fall back to the legacy one.
+const URLOption = "@rk_win_url"
+
+// PresentRootOption is the tmux window user option carrying the absolute serve
+// root for /present/ requests, set by `rk present` for file/dir targets.
+const PresentRootOption = "@rk_win_present_root"
+
+// MarkerOption is the tmux window user option carrying the left-gutter marker
+// state: a closed-set token (validate.MarkerValues), "" when unset.
+const MarkerOption = "@rk_win_marker"
+
+// FlairOption is the tmux window user option carrying the per-row flair
+// decoration: a closed-set token (validate.FlairValues), "" when unset.
+const FlairOption = "@rk_win_flair"
+
+// legacyTypeOption / legacyURLOption / legacyNoteOption are the retired names
+// of LensOption / URLOption / NoteOption. They live here exactly once and are
+// shared by the legacyOptions migration table and the dual-read list formats
+// (readers prefer the new name, fall back to these).
+const (
+	legacyTypeOption = "@rk_type"
+	legacyURLOption  = "@rk_url"
+	legacyNoteOption = "@rk_note"
+)
 
 // ColorOption is the window-scoped (-w) user option carrying a window's
 // color descriptor ("4" / "1+3"). Scope-named per fab/project/context.md.
@@ -101,6 +133,12 @@ const ColorOption = "@rk_win_color"
 // color descriptor. Distinct from ColorOption so hierarchical format
 // lookup never leaks one scope's value into the other.
 const SessionColorOption = "@rk_ses_color"
+
+// SessionFlairOption is the session-scoped user option carrying a session's
+// per-row flair decoration (a validate.FlairValues token, "" when unset).
+// Scope-split from FlairOption for the same reason SessionColorOption is
+// split from ColorOption — see SetSessionFlair.
+const SessionFlairOption = "@rk_ses_flair"
 
 // OriginalTMUX captures the TMUX env var before init() strips it.
 // Package-level var init runs before init(), so this sees the original value.
@@ -319,7 +357,7 @@ const (
 	// tmux session names disallow `@`) — the window stays a member of its home
 	// session too (dual membership). Sessions matching this prefix are filtered
 	// out of user-facing session lists — a board is the set of pin-sessions
-	// sharing an `@rk_board` value, not a session itself. Pin-sessions are
+	// sharing an `@rk_ses_pin_board` value, not a session itself. Pin-sessions are
 	// persistent across rk restarts (Constitution VI); there is no startup sweep.
 	PinSessionPrefix = "_rk-pin-"
 	// ControlAnchorSessionName is the literal name of the hidden anchor session
@@ -329,7 +367,7 @@ const (
 	// tmuxctl, not user-facing.
 	ControlAnchorSessionName = "_rk-ctl"
 	// OperatorSessionName is the literal name of the per-server session an
-	// operator window (@rk_role=operator) is physically MOVED into on role-set
+	// operator window (RoleOption "operator") is physically MOVED into on role-set
 	// (single membership — unlike the link-based pin-sessions). It is never
 	// name-skipped in parseSessions: the payload nests windows under sessions,
 	// so a parse-level skip would erase the pinned operator row's data source.
@@ -633,23 +671,23 @@ type WindowInfo struct {
 	// state follows the code, so it is keyed by git ROOT, never window id.
 	GitRoot string `json:"gitRoot,omitempty"`
 	// Marker is the window's left-gutter marker state, sourced from the
-	// @rk_marker window user option: "" (unset)/"dotted"/"dashed"/"solid"/
+	// @rk_win_marker window user option: "" (unset)/"dotted"/"dashed"/"solid"/
 	// "double"/"thick". An independent label axis from Color — see
 	// docs/specs/themes.md. Unknown tokens are dropped to "" by parseWindows.
 	Marker string     `json:"marker,omitempty"`
-	// Role is the window's orchestration role, sourced from the @rk_role window
+	// Role is the window's orchestration role, sourced from the @rk_win_role window
 	// user option: "" (unset)/"operator". "operator" is a server-scoped radio —
 	// at most one window per server carries it — and the sidebar pins that
 	// window's row below the SESSIONS header. Unknown tokens are dropped to ""
 	// by parseWindows (the Marker idiom).
 	Role  string     `json:"role,omitempty"`
 	// Flair is the window's per-row flair decoration, sourced from the
-	// @rk_flair window user option: "" (unset)/"nyan"/"naruto"/"onepiece".
+	// @rk_win_flair window user option: "" (unset)/"nyan"/"naruto"/"onepiece".
 	// Pure decoration — an independent axis from Color and Marker. Unknown
 	// tokens are dropped to "" by parseWindows (the Marker idiom).
 	Flair string     `json:"flair,omitempty"`
 	// Note is the window's free-text one-line status note, sourced from the
-	// @rk_note window user option ("<unix-epoch>:<text>" — the epoch lands in
+	// NoteOption window user option ("<unix-epoch>:<text>" — the epoch lands in
 	// NoteEpoch). Free text, NOT a closed set: no value validation on read; a
 	// non-numeric epoch prefix degrades tolerantly to the whole value as text
 	// with NoteEpoch 0 (rendered without an age, never dropped). Empty when
@@ -711,8 +749,8 @@ type SessionInfo struct {
 	// Path is the session working directory (#{session_path}). Additive JSON key.
 	Path string `json:"path,omitempty"`
 	// Flair is the session's per-row flair decoration, sourced from the
-	// @rk_session_flair session user option (scope-split from the window's
-	// @rk_flair — see SetSessionFlair): "" (unset)/"nyan"/"naruto"/"onepiece".
+	// SessionFlairOption session user option (scope-split from the window's
+	// FlairOption — see SetSessionFlair): "" (unset)/"nyan"/"naruto"/"onepiece".
 	// Unknown tokens are dropped to "" by parseSessions (the window-Marker
 	// closed-set idiom).
 	Flair string `json:"flair,omitempty"`
@@ -723,7 +761,7 @@ type SessionInfo struct {
 
 // parseSessions parses tmux list-sessions output lines into SessionInfo structs,
 // filtering out session-group copies.
-// Format: name, grouped, group, group_size, @rk_ses_color, windows, @rk_session_flair,
+// Format: name, grouped, group, group_size, @rk_ses_color, windows, @rk_ses_flair,
 // session_id, session_path (9 fields).
 // Exported for testing.
 func parseSessions(lines []string) []SessionInfo {
@@ -837,7 +875,7 @@ func parseSessions(lines []string) []SessionInfo {
 
 // ListPinSessionNames returns every `_rk-pin-*` session name on the given
 // server. Board membership is derived from these single-window pin-sessions and
-// their session vars (`@rk_board`/`@rk_home`/`@rk_board_order`). Returns nil
+// their session vars (`@rk_ses_pin_board`/`@rk_ses_pin_home`/`@rk_ses_pin_order`). Returns nil
 // (no error) if the server is not running. Read-only.
 func ListPinSessionNames(ctx context.Context, server string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
@@ -866,7 +904,7 @@ func ListSessions(ctx context.Context, server string) ([]SessionInfo, error) {
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
 
-	format := fmt.Sprintf("#{session_name}%s#{session_grouped}%s#{session_group}%s#{session_group_size}%s#{%s}%s#{session_windows}%s#{@rk_session_flair}%s#{session_id}%s#{session_path}", listDelim, listDelim, listDelim, listDelim, SessionColorOption, listDelim, listDelim, listDelim, listDelim)
+	format := fmt.Sprintf("#{session_name}%s#{session_grouped}%s#{session_group}%s#{session_group_size}%s#{%s}%s#{session_windows}%s#{%s}%s#{session_id}%s#{session_path}", listDelim, listDelim, listDelim, listDelim, SessionColorOption, listDelim, listDelim, SessionFlairOption, listDelim, listDelim)
 
 	lines, err := tmuxExecServer(ctx, server, "list-sessions", "-F", format)
 	if err != nil {
@@ -979,12 +1017,17 @@ func parsePanes(lines []string) map[string][]PaneInfo {
 
 // parseWindows parses tmux list-windows output lines into WindowInfo structs.
 // nowUnix is the current Unix timestamp for activity threshold computation.
-// Lines have 14 tab-delimited fields: window_id, window_index, window_name,
-// pane_current_path, window_activity, window_active, pane_current_command,
-// @rk_win_color, @rk_type, @rk_url, @rk_marker, @rk_role, @rk_flair, @rk_note. Lines
-// with fewer than 8 fields are skipped; fields 9-14 are optional (empty string
-// if absent). Field 14 (@rk_note) is free text in a tab-delimited format, so
-// it MUST be last and the tail is rejoined (strings.Join(parts[13:], "\t")).
+// Lines have 17 tab-delimited fields plus the legacy-note tail: window_id,
+// window_index, window_name, pane_current_path, window_activity,
+// window_active, pane_current_command, @rk_win_color, @rk_win_lens,
+// @rk_win_url, @rk_win_marker, @rk_win_role, @rk_win_flair, then the legacy
+// lens and URL fields, then @rk_win_note as a STRICT SINGLE FIELD, then the
+// legacy note LAST. Lines with fewer than 8 fields are skipped; fields 9+ are
+// optional (empty string if absent). Lens/URL/note are dual-read: the new
+// field wins when non-empty, else the legacy field. The legacy note is free
+// text in a tab-delimited format, so it MUST be last and its tail is rejoined
+// (strings.Join(parts[16:], "\t")); the new note rides one field because
+// write-side validation strips control chars.
 // Exported for testing.
 func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 	var windows []WindowInfo
@@ -1019,6 +1062,15 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 		if len(parts) >= 10 {
 			rkUrl = strings.TrimSpace(parts[9])
 		}
+		// Dual-read fallback: a window stamped by a pre-rename writer carries
+		// the legacy lens/URL fields instead — take them only when the new
+		// fields came back empty.
+		if rkType == "" && len(parts) >= 14 {
+			rkType = strings.TrimSpace(parts[13])
+		}
+		if rkUrl == "" && len(parts) >= 15 {
+			rkUrl = strings.TrimSpace(parts[14])
+		}
 
 		// Marker is a closed-set token ("dotted"/"dashed"/"solid"/"double"/
 		// "thick"); drop any value outside the set (including "") to the
@@ -1050,16 +1102,22 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 		}
 
 		// Note is free text ("<epoch>:<text>"), NOT a closed set — no value
-		// validation. The field is the format's last column, so the tail is
-		// rejoined to survive tabs inside the text (write-side validation also
-		// strips control chars — belt and braces). Tolerant epoch split: a
-		// non-numeric prefix keeps the whole value as text with epoch 0.
+		// validation. Dual-read: the new note is a strict single field (idx
+		// 15 — joining is WRONG for it) and wins when non-empty; the legacy
+		// note is the format's last column, so its tail is rejoined to survive
+		// tabs inside the text. Tolerant epoch split: a non-numeric prefix
+		// keeps the whole value as text with epoch 0.
 		var note string
 		var noteEpoch int64
-		if len(parts) >= 14 {
-			if raw := strings.Join(parts[13:], listDelim); raw != "" {
-				note, noteEpoch = parseNoteValue(raw)
-			}
+		var rawNote string
+		if len(parts) >= 16 {
+			rawNote = parts[15]
+		}
+		if rawNote == "" && len(parts) >= 17 {
+			rawNote = strings.Join(parts[16:], listDelim)
+		}
+		if rawNote != "" {
+			note, noteEpoch = parseNoteValue(rawNote)
 		}
 
 		windows = append(windows, WindowInfo{
@@ -1084,7 +1142,7 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 	return windows
 }
 
-// parseNoteValue splits an @rk_note value ("<unix-epoch>:<text>") into its
+// parseNoteValue splits a note option value ("<unix-epoch>:<text>") into its
 // text and epoch. Tolerant: a missing colon or a non-numeric prefix keeps the
 // whole value as text with epoch 0 (rendered without an age, never dropped).
 func parseNoteValue(raw string) (string, int64) {
@@ -1134,15 +1192,22 @@ func ListWindows(ctx context.Context, session string, server string) ([]WindowIn
 		"#{window_active}",
 		"#{pane_current_command}",
 		"#{" + ColorOption + "}",
-		"#{@rk_type}",
-		"#{@rk_url}",
-		"#{@rk_marker}",
-		"#{@rk_role}",
-		"#{@rk_flair}",
-		// @rk_note is free text in a tab-delimited format — it MUST stay the
-		// last field so parseWindows can rejoin the tail (tabs inside the text
-		// would otherwise shift sibling columns).
-		"#{@rk_note}",
+		"#{" + LensOption + "}",
+		"#{" + URLOption + "}",
+		"#{" + MarkerOption + "}",
+		"#{" + RoleOption + "}",
+		"#{" + FlairOption + "}",
+		// Dual-read transition fields: the legacy lens/URL names are still
+		// captured so windows stamped by pre-rename writers keep reporting
+		// (parseWindows prefers the new fields above).
+		"#{" + legacyTypeOption + "}",
+		"#{" + legacyURLOption + "}",
+		// The new note is a strict single field (write-side validation strips
+		// control chars); the legacy note is free text in a tab-delimited
+		// format — it MUST stay the last field so parseWindows can rejoin the
+		// tail (tabs inside the text would otherwise shift sibling columns).
+		"#{" + NoteOption + "}",
+		"#{" + legacyNoteOption + "}",
 	}, listDelim)
 
 	lines, err := tmuxExecServer(ctx, server, "list-windows", "-t", ExactSessionTarget(session), "-F", format)
@@ -1888,9 +1953,9 @@ func GetWindowOption(ctx context.Context, windowID, server, option string) (stri
 	return strings.TrimRight(raw, "\n"), nil
 }
 
-// roleCarriersFormat is the list-windows format for the @rk_role radio clear:
-// window id plus its current @rk_role value.
-var roleCarriersFormat = strings.Join([]string{"#{window_id}", "#{@rk_role}"}, listDelim)
+// roleCarriersFormat is the list-windows format for the RoleOption radio clear:
+// window id plus its current role value.
+var roleCarriersFormat = strings.Join([]string{"#{window_id}", "#{" + RoleOption + "}"}, listDelim)
 
 // roleCarriersToClear parses roleCarriersFormat lines into the window IDs whose
 // RoleOption must be unset: every window carrying a non-empty role except
@@ -1912,7 +1977,7 @@ func roleCarriersToClear(lines []string, keepWindowID string) []string {
 }
 
 // ClearWindowRoleExcept unsets RoleOption on every window on the target server
-// except keepWindowID — the server-scoped radio half of the @rk_role contract:
+// except keepWindowID — the server-scoped radio half of the @rk_win_role contract:
 // at most one window per server carries "operator". prefix is the
 // server-targeting argv prefix (serverArgs(server) from the daemon/API, ["-S",
 // socket] from an in-pane CLI) so every rk writer shares this one enforcement
@@ -2340,11 +2405,11 @@ func UnsetSessionColor(session string, server string) error {
 	return unsetSessionOption(ctx, server, session, SessionColorOption)
 }
 
-// SetSessionFlair sets the @rk_session_flair user option on a session. The
+// SetSessionFlair sets the SessionFlairOption user option on a session. The
 // value is a closed-set flair token ("nyan" / "naruto" / "onepiece"),
 // validated by the caller. Mirrors SetSessionColor.
 //
-// SCOPE-SPLIT NAMING (@rk_session_flair, NOT @rk_flair): tmux user-option
+// SCOPE-SPLIT NAMING (@rk_ses_flair, NOT @rk_win_flair): tmux user-option
 // lookup is hierarchical and format expansion leaks a shared name across
 // scopes in BOTH directions — a flairless window inherits its session's
 // value, and list-sessions resolves the session's CURRENT window's window
@@ -2355,16 +2420,16 @@ func SetSessionFlair(session string, flair string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	return setSessionOption(ctx, server, session, "@rk_session_flair", flair)
+	return setSessionOption(ctx, server, session, SessionFlairOption, flair)
 }
 
-// UnsetSessionFlair removes the @rk_session_flair user option from a session.
+// UnsetSessionFlair removes the SessionFlairOption user option from a session.
 // Mirrors UnsetSessionColor.
 func UnsetSessionFlair(session string, server string) error {
 	ctx, cancel := withTimeout()
 	defer cancel()
 
-	return unsetSessionOption(ctx, server, session, "@rk_session_flair")
+	return unsetSessionOption(ctx, server, session, SessionFlairOption)
 }
 
 // SetWindowColor sets the ColorOption user option on a window by its window
@@ -2646,7 +2711,7 @@ func matchesServerAllowlist(name, allowlist string) bool {
 // otherwise matchesServerAllowlist decides. It is the shared "does this
 // deployment cover this server?" predicate — consumers beyond enumeration
 // (e.g. the tmuxctl origin stamp, which must not write a non-admitted host
-// server's @rk_origin) gate on it.
+// server's @rk_srv_origin) gate on it.
 func ServerAllowed(name string) bool {
 	return matchesServerAllowlist(name, os.Getenv(ServerAllowlistEnv))
 }
@@ -2813,7 +2878,7 @@ func KillServer(server string) error {
 }
 
 // GetSessionOrder reads the user-defined session order from tmux user-option
-// @rk_session_order. The stored value is a JSON-encoded array of session names.
+// @rk_srv_session_order. The stored value is a JSON-encoded array of session names.
 //
 // Returns an empty (non-nil) slice and a nil error when the option is unset.
 // "Unset" is detected by tmux's stderr message ("unknown option") OR by the
@@ -2857,7 +2922,7 @@ func GetSessionOrder(ctx context.Context, server string) ([]string, error) {
 }
 
 // SetSessionOrder writes the session order to tmux user-option
-// @rk_session_order as a JSON-encoded array. A nil slice is treated as the
+// @rk_srv_session_order as a JSON-encoded array. A nil slice is treated as the
 // empty slice (encoded as "[]") so that round-trips through GetSessionOrder
 // are lossless.
 func SetSessionOrder(ctx context.Context, server string, order []string) error {
@@ -2876,7 +2941,7 @@ func SetSessionOrder(ctx context.Context, server string, order []string) error {
 }
 
 // GetServerRank reads this server's user-defined display rank from the
-// server-scoped user option @rk_server_rank.
+// server-scoped user option @rk_srv_rank.
 //
 // Returns (nil, nil) when the option is unset. "Unset" is detected by tmux's
 // stderr ("invalid option"/"unknown option") OR by the "no server running" /
@@ -2918,7 +2983,7 @@ func GetServerRank(ctx context.Context, server string) (*int, error) {
 }
 
 // SetServerRank writes this server's display rank to the server-scoped user
-// option @rk_server_rank as a decimal integer string. Mirrors SetSessionOrder.
+// option @rk_srv_rank as a decimal integer string. Mirrors SetSessionOrder.
 func SetServerRank(ctx context.Context, server string, rank int) error {
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
@@ -2928,7 +2993,7 @@ func SetServerRank(ctx context.Context, server string, rank int) error {
 }
 
 // GetServerOrigin reads this server's covering-deployment origin from the
-// server-scoped user option @rk_origin.
+// server-scoped user option @rk_srv_origin.
 //
 // Returns ("", nil) when the option is unset. "Unset" is detected by tmux's
 // stderr ("invalid option"/"unknown option") OR by the dead/absent socket
@@ -2957,7 +3022,7 @@ func GetServerOrigin(ctx context.Context, server string) (string, error) {
 }
 
 // SetServerOrigin writes this server's covering-deployment origin to the
-// server-scoped user option @rk_origin. Mirrors SetServerRank.
+// server-scoped user option @rk_srv_origin. Mirrors SetServerRank.
 func SetServerOrigin(ctx context.Context, server, origin string) error {
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()

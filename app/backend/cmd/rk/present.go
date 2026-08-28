@@ -16,11 +16,11 @@ import (
 )
 
 // rk present <target> — the one-verb "show this to the user": resolve a
-// file/dir/port/URL target, derive its @rk_url value, and attach it to the
+// file/dir/port/URL target, derive its @rk_win_url value, and attach it to the
 // caller's own tmux window (or, with --window, a fresh standalone iframe
 // window). It never WRITES the viewer's layout — layout persistence is
 // per-viewer client state (docs/specs/surface-layout.md R7/L3) — but a viewer
-// mounted on this window's route who observes the @rk_url transition MAY see
+// mounted on this window's route who observes the @rk_win_url transition MAY see
 // the web tile auto-open transiently (render-time only, nothing persisted);
 // other viewers get the rail availability signal, and --notify is the
 // out-of-band nudge.
@@ -50,7 +50,7 @@ var presentCmd = &cobra.Command{
 		"  :5173                a local port already serving — attached via /proxy/5173/\n" +
 		"  http://localhost:N/… same, rewritten to the relative /proxy/N/… form\n" +
 		"  https://…            an external URL — attached verbatim\n\n" +
-		"By default the content attaches to the caller's own tmux window (@rk_url),\n" +
+		"By default the content attaches to the caller's own tmux window (@rk_win_url),\n" +
 		"and the resolved URL prints to stdout (relative for /present and /proxy\n" +
 		"targets, absolute for external URLs). --window spawns a standalone\n" +
 		"iframe window instead; --notify sends a Web Push after attaching (fail-silent).\n" +
@@ -102,14 +102,11 @@ var (
 	presentNowFn    = func() int64 { return time.Now().Unix() }
 )
 
-// Window option keys this command writes. @rk_type is touched ONLY by the
-// --window arm — attaching to the caller's own window must not steal its
-// default view (HINT_ORDER gives a web default hint only via @rk_type=iframe).
-const (
-	presentURLOption  = "@rk_url"
-	presentRootOption = "@rk_present_root"
-	presentTypeOption = "@rk_type"
-)
+// Window option keys this command writes come from the tmux package
+// (tmux.URLOption / tmux.PresentRootOption / tmux.LensOption).
+// tmux.LensOption is touched ONLY by the --window arm — attaching to the
+// caller's own window must not steal its default view (HINT_ORDER gives a
+// web default hint only via @rk_win_lens=iframe).
 
 // runPresent is the testable core: parse → probe → attach (or create) → print
 // → optionally notify. Every tmux call runs under one bounded context.
@@ -181,8 +178,8 @@ func callerContext() (prefix []string, serverName string, ok bool) {
 	return prefix, filepath.Base(socket), true
 }
 
-// presentAttach implements the default arm: set @rk_url (and, for file/dir
-// targets, @rk_present_root) on the caller's OWN window, located via
+// presentAttach implements the default arm: set @rk_win_url (and, for file/dir
+// targets, @rk_win_present_root) on the caller's OWN window, located via
 // $TMUX_PANE. No window creation, no API call, no layout mutation.
 func presentAttach(ctx context.Context, target present.Target) (string, error) {
 	pane := os.Getenv("TMUX_PANE")
@@ -205,16 +202,16 @@ func presentAttach(ctx context.Context, target present.Target) (string, error) {
 
 	url := target.URL(windowID, serverName, presentNowFn)
 	urlOp := url
-	ops := []tmux.WindowOptionOp{{Key: presentURLOption, Value: &urlOp}}
+	ops := []tmux.WindowOptionOp{{Key: tmux.URLOption, Value: &urlOp}}
 	if target.NeedsRoot() {
 		root := target.Root
-		ops = append(ops, tmux.WindowOptionOp{Key: presentRootOption, Value: &root})
+		ops = append(ops, tmux.WindowOptionOp{Key: tmux.PresentRootOption, Value: &root})
 	} else {
 		// Clear any stale serve root left by a previous file/dir present on
 		// this window — otherwise /present/{windowId}/... would keep serving
 		// the old filesystem root after the window moved on to a port/URL
 		// target (nil Value = set-option -u).
-		ops = append(ops, tmux.WindowOptionOp{Key: presentRootOption, Value: nil})
+		ops = append(ops, tmux.WindowOptionOp{Key: tmux.PresentRootOption, Value: nil})
 	}
 	if err := presentSetWindowOptionsFn(ctx, windowID, serverName, ops); err != nil {
 		return "", fmt.Errorf("attach to window %s: %w", windowID, err)
@@ -223,9 +220,9 @@ func presentAttach(ctx context.Context, target present.Target) (string, error) {
 }
 
 // presentViaNewWindow implements the --window arm: create a standalone iframe
-// window in the caller's session carrying @rk_type=iframe + @rk_url (+ root
+// window in the caller's session carrying @rk_win_lens=iframe + @rk_win_url (+ root
 // for file/dir targets). For file/dir targets the /present/ URL embeds the
-// NEW window's id, so creation runs with @rk_type alone (atomic at creation)
+// NEW window's id, so creation runs with @rk_win_lens alone (atomic at creation)
 // and the id-dependent options follow in one SetWindowOptions batch.
 func presentViaNewWindow(ctx context.Context, cmd *cobra.Command, target present.Target) (string, error) {
 	name := presentWindowFlag
@@ -258,7 +255,7 @@ func presentViaNewWindow(ctx context.Context, cmd *cobra.Command, target present
 	iframe := "iframe"
 	if target.NeedsRoot() {
 		id, err := presentCreateWindowIDFn(session, name, "", serverName,
-			[]tmux.WindowOptionOp{{Key: presentTypeOption, Value: &iframe}})
+			[]tmux.WindowOptionOp{{Key: tmux.LensOption, Value: &iframe}})
 		if err != nil {
 			return "", fmt.Errorf("create window: %w", err)
 		}
@@ -266,8 +263,8 @@ func presentViaNewWindow(ctx context.Context, cmd *cobra.Command, target present
 		urlOp := url
 		root := target.Root
 		if err := presentSetWindowOptionsFn(ctx, id, serverName, []tmux.WindowOptionOp{
-			{Key: presentURLOption, Value: &urlOp},
-			{Key: presentRootOption, Value: &root},
+			{Key: tmux.URLOption, Value: &urlOp},
+			{Key: tmux.PresentRootOption, Value: &root},
 		}); err != nil {
 			return "", fmt.Errorf("attach window %s: %w", id, err)
 		}
@@ -277,8 +274,8 @@ func presentViaNewWindow(ctx context.Context, cmd *cobra.Command, target present
 	url := target.URL("", serverName, presentNowFn)
 	urlOp := url
 	if err := presentCreateWindowFn(session, name, "", serverName, []tmux.WindowOptionOp{
-		{Key: presentTypeOption, Value: &iframe},
-		{Key: presentURLOption, Value: &urlOp},
+		{Key: tmux.LensOption, Value: &iframe},
+		{Key: tmux.URLOption, Value: &urlOp},
 	}); err != nil {
 		return "", fmt.Errorf("create window: %w", err)
 	}

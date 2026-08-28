@@ -45,7 +45,7 @@ coverage lives in `chat-view.spec.ts`.
 - `beforeAll` creates two tmux sessions on the `rk-test-e2e` server:
   - `e2e-compose-<ts>` — a single window running `cat`, so STDIN typed via the
     strip echoes back into the pane (used to verify Cmd/Ctrl+Enter sends
-    `text + \r`). Its window carries a `@rk_url` option (stamped here, not
+    `text + \r`). Its window carries a `@rk_win_url` option (stamped here, not
     mid-test — the backend's window payload refreshes on an interval, and the
     split-layout test's web tile reads rkUrl from it).
   - `e2e-compose-board-<ts>` — two named windows (`cs-alpha`, `cs-bravo`) pinned
@@ -213,7 +213,7 @@ Zooming the tile carries the strip with it (the dock rides the tile).
 
 **Steps:**
 
-1. Set a 1440×800 viewport; resolve the `cat` session's window (its `@rk_url`
+1. Set a 1440×800 viewport; resolve the `cat` session's window (its `@rk_win_url`
    was stamped in `beforeAll` — the backend's window payload refreshes on an
    interval, so a mid-test set raced that propagation; the iframe content is
    never asserted).

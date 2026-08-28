@@ -56,10 +56,10 @@ func windowLine9(windowID string, index int, name, path string, activityTs int64
 }
 
 // windowLineMarker builds an 11-field tab-delimited tmux line including the
-// trailing @rk_marker field (@rk_win_color/@rk_type/@rk_url left empty).
+// trailing @rk_win_marker field (@rk_win_color/@rk_win_lens/@rk_win_url left empty).
 func windowLineMarker(windowID string, index int, name, path string, activityTs int64, active int, paneCmd, marker string) string {
 	return fmt.Sprintf("%s%s%d%s%s%s%s%s%d%s%d%s%s%s%s%s%s%s%s%s%s",
-		windowID, listDelim, index, listDelim, name, listDelim, path, listDelim, activityTs, listDelim, active, listDelim, paneCmd, listDelim, "" /*@rk_win_color*/, listDelim, "" /*@rk_type*/, listDelim, "" /*@rk_url*/, listDelim, marker)
+		windowID, listDelim, index, listDelim, name, listDelim, path, listDelim, activityTs, listDelim, active, listDelim, paneCmd, listDelim, "" /*@rk_win_color*/, listDelim, "" /*@rk_win_lens*/, listDelim, "" /*@rk_win_url*/, listDelim, marker)
 }
 
 func TestParseSessions(t *testing.T) {
@@ -439,12 +439,12 @@ func TestParseWindows(t *testing.T) {
 }
 
 func TestParseWindowsTrailingEmptyFields(t *testing.T) {
-	// Regression test: tmux format output ends with empty fields (e.g., @rk_win_color, @rk_type,
-	// @rk_url unset). When the last line's trailing tabs are stripped (as strings.TrimSpace
+	// Regression test: tmux format output ends with empty fields (e.g., @rk_win_color, @rk_win_lens,
+	// @rk_win_url unset). When the last line's trailing tabs are stripped (as strings.TrimSpace
 	// does), the field count drops below 8 and the window is silently lost.
 	const fakeNow int64 = 1700000000
 
-	// Simulate the real 10-field tmux format where @rk_win_color, @rk_type, @rk_url are empty.
+	// Simulate the real 10-field tmux format where @rk_win_color, @rk_win_lens, @rk_win_url are empty.
 	// Each field is tab-separated; empty trailing fields produce trailing tabs.
 	fullLine := func(windowID string, index int, name string) string {
 		return fmt.Sprintf("%s\t%d\t%s\t/path\t%d\t0\tzsh\t\t\t", windowID, index, name, fakeNow)
@@ -592,10 +592,10 @@ func TestParseWindowsMarker(t *testing.T) {
 }
 
 // windowLineRole builds a 12-field tab-delimited tmux line including the
-// trailing @rk_role field (@rk_win_color/@rk_type/@rk_url/@rk_marker left empty).
+// trailing @rk_win_role field (@rk_win_color/@rk_win_lens/@rk_win_url/@rk_win_marker left empty).
 func windowLineRole(windowID string, index int, name, path string, activityTs int64, active int, paneCmd, role string) string {
 	return fmt.Sprintf("%s%s%d%s%s%s%s%s%d%s%d%s%s%s%s%s%s%s%s%s%s%s%s",
-		windowID, listDelim, index, listDelim, name, listDelim, path, listDelim, activityTs, listDelim, active, listDelim, paneCmd, listDelim, "" /*@rk_win_color*/, listDelim, "" /*@rk_type*/, listDelim, "" /*@rk_url*/, listDelim, "" /*@rk_marker*/, listDelim, role)
+		windowID, listDelim, index, listDelim, name, listDelim, path, listDelim, activityTs, listDelim, active, listDelim, paneCmd, listDelim, "" /*@rk_win_color*/, listDelim, "" /*@rk_win_lens*/, listDelim, "" /*@rk_win_url*/, listDelim, "" /*@rk_win_marker*/, listDelim, role)
 }
 
 func TestParseWindowsRole(t *testing.T) {
@@ -626,11 +626,11 @@ func TestParseWindowsRole(t *testing.T) {
 }
 
 // windowLineFlair builds a 13-field tab-delimited tmux line including the
-// trailing @rk_flair field (@rk_win_color/@rk_type/@rk_url/@rk_marker/@rk_role left
+// trailing @rk_win_flair field (@rk_win_color/@rk_win_lens/@rk_win_url/@rk_win_marker/@rk_win_role left
 // empty).
 func windowLineFlair(windowID string, index int, name, path string, activityTs int64, active int, paneCmd, flair string) string {
 	return fmt.Sprintf("%s%s%d%s%s%s%s%s%d%s%d%s%s%s%s%s%s%s%s%s%s%s%s%s%s",
-		windowID, listDelim, index, listDelim, name, listDelim, path, listDelim, activityTs, listDelim, active, listDelim, paneCmd, listDelim, "" /*@rk_win_color*/, listDelim, "" /*@rk_type*/, listDelim, "" /*@rk_url*/, listDelim, "" /*@rk_marker*/, listDelim, "" /*@rk_role*/, listDelim, flair)
+		windowID, listDelim, index, listDelim, name, listDelim, path, listDelim, activityTs, listDelim, active, listDelim, paneCmd, listDelim, "" /*@rk_win_color*/, listDelim, "" /*@rk_win_lens*/, listDelim, "" /*@rk_win_url*/, listDelim, "" /*@rk_win_marker*/, listDelim, "" /*@rk_win_role*/, listDelim, flair)
 }
 
 func TestParseWindowsFlair(t *testing.T) {
@@ -662,15 +662,18 @@ func TestParseWindowsFlair(t *testing.T) {
 	}
 }
 
-// windowLineNote builds a 14-field tab-delimited tmux line including the
-// trailing @rk_note field (@rk_win_color/@rk_type/@rk_url/@rk_marker/@rk_role/
-// @rk_flair left empty).
+// windowLineNote builds a 16-field tab-delimited tmux line whose note rides
+// the NEW @rk_win_note field (idx 15 — a strict single field;
+// @rk_win_color/@rk_win_lens/@rk_win_url/@rk_win_marker/@rk_win_role/@rk_win_flair
+// and the legacy lens/URL fields left empty). The legacy-note tail rejoin is
+// exercised by the dual-read test instead.
 func windowLineNote(windowID string, index int, name, path string, activityTs int64, active int, paneCmd, note string) string {
 	return strings.Join([]string{
 		windowID, strconv.Itoa(index), name, path, strconv.FormatInt(activityTs, 10),
 		strconv.Itoa(active), paneCmd,
-		"", /*@rk_win_color*/ "", /*@rk_type*/ "", /*@rk_url*/ "", /*@rk_marker*/ "", /*@rk_role*/ "", /*@rk_flair*/
-		note,
+		"", /*@rk_win_color*/ "", /*@rk_win_lens*/ "", /*@rk_win_url*/ "", /*@rk_win_marker*/ "", /*@rk_win_role*/ "", /*@rk_win_flair*/
+		"", /*legacy lens field*/ "", /*legacy URL field*/
+		note, // @rk_win_note (new, strict single field)
 	}, listDelim)
 }
 
@@ -687,7 +690,6 @@ func TestParseWindowsNote(t *testing.T) {
 		{"bare text degrades to epoch 0", windowLineNote("@0", 0, "a", "/p", fakeNow, 1, "zsh", "just some text"), "just some text", 0},
 		{"non-numeric prefix keeps whole value", windowLineNote("@0", 0, "a", "/p", fakeNow, 1, "zsh", "abc:def"), "abc:def", 0},
 		{"colon inside text survives SplitN-2", windowLineNote("@0", 0, "a", "/p", fakeNow, 1, "zsh", "1756036800:waiting on review: PR #42"), "waiting on review: PR #42", 1756036800},
-		{"tab inside value rejoins the tail", windowLineNote("@0", 0, "a", "/p", fakeNow, 1, "zsh", "1756036800:two\tpart\tnote"), "two\tpart\tnote", 1756036800},
 		{"empty note field", windowLineNote("@0", 0, "a", "/p", fakeNow, 1, "zsh", ""), "", 0},
 		{"13-field line (no note field) has empty note", windowLineFlair("@0", 0, "a", "/p", fakeNow, 1, "zsh", "nyan"), "", 0},
 	}
@@ -708,8 +710,89 @@ func TestParseWindowsNote(t *testing.T) {
 	}
 }
 
+// windowLineDualRead builds a full 17-field line (plus the legacy-note tail)
+// with both halves of each dual-read pair placed explicitly: the NEW lens/URL
+// at idx 8/9, the legacy lens/URL at idx 13/14, the NEW note as a strict
+// single field at idx 15, and the legacy note appended LAST (idx 16+ —
+// tail-rejoined, so tabs in its text survive).
+func windowLineDualRead(newLens, newURL, legacyLens, legacyURL, newNote, legacyNote string) string {
+	fields := []string{
+		"@0", "0", "a", "/p", "1700000000", "1", "zsh",
+		"",         // @rk_win_color
+		newLens,    // @rk_win_lens (new)
+		newURL,     // @rk_win_url (new)
+		"",         // @rk_win_marker
+		"",         // @rk_win_role
+		"",         // @rk_win_flair
+		legacyLens, // @rk_type (legacy)
+		legacyURL,  // @rk_url (legacy)
+		newNote,    // @rk_win_note (new — strict single field)
+	}
+	return strings.Join(fields, listDelim) + listDelim + legacyNote
+}
+
+// TestParseWindowsDualRead pins the prefer-new fallback for the three
+// dual-read keys (@rk_win_lens↔@rk_type, @rk_win_url↔@rk_url,
+// @rk_win_note↔@rk_note) in parseWindows: values stamped only by a
+// pre-rename writer keep reporting through the legacy fields, and when BOTH
+// fields carry a value the NEW name wins. The legacy note rides the format's
+// last column, so tabs inside its text survive the tail rejoin.
+func TestParseWindowsDualRead(t *testing.T) {
+	tests := []struct {
+		name                                      string
+		newLens, newURL, legacyLens, legacyURL    string
+		newNote, legacyNote                       string
+		wantLens, wantURL, wantNote               string
+		wantEpoch                                 int64
+	}{
+		{
+			name:      "legacy-only (pre-rename writer)",
+			legacyLens: "iframe", legacyURL: "http://legacy", legacyNote: "123:old",
+			wantLens: "iframe", wantURL: "http://legacy", wantNote: "old", wantEpoch: 123,
+		},
+		{
+			name:    "new-only",
+			newLens: "iframe", newURL: "http://new", newNote: "456:new",
+			wantLens: "iframe", wantURL: "http://new", wantNote: "new", wantEpoch: 456,
+		},
+		{
+			name:    "both — new wins",
+			newLens: "web", newURL: "http://new", newNote: "456:new",
+			legacyLens: "iframe", legacyURL: "http://legacy", legacyNote: "123:old",
+			wantLens: "web", wantURL: "http://new", wantNote: "new", wantEpoch: 456,
+		},
+		{
+			name:       "legacy note with tabs rejoins the tail",
+			legacyNote: "123:two\tpart\tnote",
+			wantNote:   "two\tpart\tnote", wantEpoch: 123,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			line := windowLineDualRead(tt.newLens, tt.newURL, tt.legacyLens, tt.legacyURL, tt.newNote, tt.legacyNote)
+			got := parseWindows([]string{line}, 1700000000)
+			if len(got) != 1 {
+				t.Fatalf("parseWindows() returned %d windows, want 1", len(got))
+			}
+			if got[0].RkType != tt.wantLens {
+				t.Errorf("RkType = %q, want %q", got[0].RkType, tt.wantLens)
+			}
+			if got[0].RkUrl != tt.wantURL {
+				t.Errorf("RkUrl = %q, want %q", got[0].RkUrl, tt.wantURL)
+			}
+			if got[0].Note != tt.wantNote {
+				t.Errorf("Note = %q, want %q", got[0].Note, tt.wantNote)
+			}
+			if got[0].NoteEpoch != tt.wantEpoch {
+				t.Errorf("NoteEpoch = %d, want %d", got[0].NoteEpoch, tt.wantEpoch)
+			}
+		})
+	}
+}
+
 // sessionLineFlair builds a 7-field tab-delimited tmux line including the
-// trailing @rk_flair field (@rk_ses_color left empty, windows count 1).
+// trailing @rk_ses_flair field (@rk_ses_color left empty, windows count 1).
 func sessionLineFlair(name, grouped, group, flair string) string {
 	return strings.Join([]string{name, grouped, group, "0", "", "1", flair}, listDelim)
 }
@@ -1931,11 +2014,11 @@ func TestSetWindowOptions_chainedSetAndUnset(t *testing.T) {
 	server := withSessionOrderTmux(t)
 	id := windowID(t, server, "boot:0")
 
-	// Pre-set @rk_type so the batch can unset it while setting @rk_win_color/@rk_url.
+	// Pre-set @rk_win_lens so the batch can unset it while setting @rk_win_color/@rk_win_url.
 	setupCtx, setupCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	if out, err := exec.CommandContext(setupCtx, "tmux", "-L", server, "set-option", "-w", "-t", id, "@rk_type", "iframe").CombinedOutput(); err != nil {
+	if out, err := exec.CommandContext(setupCtx, "tmux", "-L", server, "set-option", "-w", "-t", id, "@rk_win_lens", "iframe").CombinedOutput(); err != nil {
 		setupCancel()
-		t.Fatalf("pre-set @rk_type: %v\n%s", err, string(out))
+		t.Fatalf("pre-set @rk_win_lens: %v\n%s", err, string(out))
 	}
 	setupCancel()
 
@@ -1945,8 +2028,8 @@ func TestSetWindowOptions_chainedSetAndUnset(t *testing.T) {
 	url := "https://example.test"
 	ops := []WindowOptionOp{
 		{Key: "@rk_win_color", Value: &color},
-		{Key: "@rk_url", Value: &url},
-		{Key: "@rk_type", Value: nil}, // unset
+		{Key: "@rk_win_url", Value: &url},
+		{Key: "@rk_win_lens", Value: nil}, // unset
 	}
 	if err := SetWindowOptions(ctx, id, server, ops); err != nil {
 		t.Fatalf("SetWindowOptions: %v", err)
@@ -1955,11 +2038,11 @@ func TestSetWindowOptions_chainedSetAndUnset(t *testing.T) {
 	if v, ok := windowOption(t, server, id, "@rk_win_color"); !ok || v != "5" {
 		t.Errorf("@rk_win_color = %q (set=%v), want \"5\"", v, ok)
 	}
-	if v, ok := windowOption(t, server, id, "@rk_url"); !ok || v != url {
-		t.Errorf("@rk_url = %q (set=%v), want %q", v, ok, url)
+	if v, ok := windowOption(t, server, id, "@rk_win_url"); !ok || v != url {
+		t.Errorf("@rk_win_url = %q (set=%v), want %q", v, ok, url)
 	}
-	if v, ok := windowOption(t, server, id, "@rk_type"); ok {
-		t.Errorf("@rk_type = %q, want unset", v)
+	if v, ok := windowOption(t, server, id, "@rk_win_lens"); ok {
+		t.Errorf("@rk_win_lens = %q, want unset", v)
 	}
 }
 
@@ -1973,21 +2056,21 @@ func TestGetWindowOption_roundTrip(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if v, err := GetWindowOption(ctx, id, server, "@rk_present_root"); err != nil || v != "" {
+	if v, err := GetWindowOption(ctx, id, server, "@rk_win_present_root"); err != nil || v != "" {
 		t.Errorf("unset option = (%q, %v), want (\"\", nil)", v, err)
 	}
 
-	if err := SetWindowOption(ctx, id, server, "@rk_present_root", "/tmp/some dir/root"); err != nil {
+	if err := SetWindowOption(ctx, id, server, "@rk_win_present_root", "/tmp/some dir/root"); err != nil {
 		t.Fatalf("SetWindowOption: %v", err)
 	}
-	if v, err := GetWindowOption(ctx, id, server, "@rk_present_root"); err != nil || v != "/tmp/some dir/root" {
+	if v, err := GetWindowOption(ctx, id, server, "@rk_win_present_root"); err != nil || v != "/tmp/some dir/root" {
 		t.Errorf("set option = (%q, %v), want (\"/tmp/some dir/root\", nil)", v, err)
 	}
 
-	if err := UnsetWindowOption(ctx, id, server, "@rk_present_root"); err != nil {
+	if err := UnsetWindowOption(ctx, id, server, "@rk_win_present_root"); err != nil {
 		t.Fatalf("UnsetWindowOption: %v", err)
 	}
-	if v, err := GetWindowOption(ctx, id, server, "@rk_present_root"); err != nil || v != "" {
+	if v, err := GetWindowOption(ctx, id, server, "@rk_win_present_root"); err != nil || v != "" {
 		t.Errorf("after unset = (%q, %v), want (\"\", nil)", v, err)
 	}
 }
@@ -2353,7 +2436,7 @@ func TestSetServerOrigin_roundTrip(t *testing.T) {
 	}
 
 	// Round-trip through the raw tmux CLI, byte-equal — this is what a pane-side
-	// `show-option -sv @rk_origin` (the resolver's read) sees.
+	// `show-option -sv @rk_srv_origin` (the resolver's read) sees.
 	args := append(serverArgs(server), "show-option", "-sv", OriginOption)
 	out, err := exec.CommandContext(ctx, "tmux", args...).CombinedOutput()
 	if err != nil {

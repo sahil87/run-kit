@@ -20,7 +20,7 @@ value stays dismissed until the value changes.
 - **`beforeEach`**: set a wide desktop viewport (1440×800) — the `Connected`
   readiness dot is read from the status bar (`getByTestId("status-bar")`); the
   sidebar footer's own dot is mobile-only since 260815-19me.
-- **`setWindowUrl(id, url | null)`**: stamp or clear `@rk_url` via
+- **`setWindowUrl(id, url | null)`**: stamp or clear `@rk_win_url` via
   `tmux set-option -w` — exactly the write path `rk present`'s default arm
   takes. The write is invisible to the control-mode parser, so every
   post-write assertion budgets `PRESENT_TIMEOUT` (30s) to clear the 12s SSE
@@ -30,7 +30,7 @@ value stays dismissed until the value changes.
 - **`awaitSnapshotReady(page, id)`**: wait for the tty tile's
   `role="application"` aria-label to carry the SSE-derived session name — that
   proves the terminal route's `currentWindow` resolved, so the auto-expand
-  effect has initialized before the test writes `@rk_url` (the write is always
+  effect has initialized before the test writes `@rk_win_url` (the write is always
   an OBSERVED transition, never a cold first read). The sidebar row is NOT
   sufficient — it renders from an earlier, shallower payload than the route's
   window record.
@@ -51,7 +51,7 @@ the resolved layout, the URL, and localStorage all stay `single:tty`-clean.
 
 1. Create a window, navigate to its route, assert the terminal renders and the
    URL carries no `?layout=`; wait for the snapshot-readiness gate.
-2. `tmux set-option -w @rk_url <URL_A>` (the present-default-arm write).
+2. `tmux set-option -w @rk_win_url <URL_A>` (the present-default-arm write).
 3. Assert the web iframe becomes visible beside the still-visible terminal.
 4. Assert the URL still carries no `?layout=` and localStorage has no
    `rk-layout:` key; assert the top-bar `Web tile` toggle is pressed.
@@ -63,10 +63,10 @@ suppresses re-opening for THAT EXACT `rkUrl` value (unset + re-set), while a
 different value (a re-present's fresh timestamp) re-triggers.
 
 1. Create a window, navigate, wait for the snapshot-readiness gate, set
-   `@rk_url` to URL_A; assert the iframe opens.
+   `@rk_win_url` to URL_A; assert the iframe opens.
 2. Close the web tile via its ✕ (`Close Web`); assert the iframe is HIDDEN
    (the tile stays mounted-but-hidden via SurfaceLayout's everOpened set).
-3. Unset `@rk_url`; assert the top-bar `Web tile` toggle's corner dot drops
+3. Unset `@rk_win_url`; assert the top-bar `Web tile` toggle's corner dot drops
    (web is always available since 260821-zqlq, so the toggle stays RENDERED —
    its dot is the content signal, proving the client observed the clear).
 4. Re-set the SAME URL_A; assert the dot returns with the toggle UNPRESSED and
@@ -76,9 +76,9 @@ different value (a re-present's fresh timestamp) re-triggers.
 ### cold arrival with rkUrl already set never auto-opens
 
 What it proves: cold route entry is ladder-only (R1) — a reload/deep link onto
-a window whose `@rk_url` is already set renders `single:tty`, not the web tile.
+a window whose `@rk_win_url` is already set renders `single:tty`, not the web tile.
 
-1. Create a window and stamp `@rk_url` BEFORE navigating.
+1. Create a window and stamp `@rk_win_url` BEFORE navigating.
 2. Navigate to its route; assert the terminal renders.
 3. Assert the top-bar `Web tile` toggle is visible (the snapshot carrying
    `rkUrl` landed) but UNPRESSED, the iframe is absent, and the URL carries no

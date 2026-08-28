@@ -1230,7 +1230,7 @@ func TestSessionFlairClearNull(t *testing.T) {
 }
 
 // An empty string clears (same as null) — the "empty = unset" contract shared
-// with the window @rk_flair option.
+// with the window @rk_win_flair option.
 func TestSessionFlairClearEmpty(t *testing.T) {
 	ops := &mockTmuxOps{}
 	router := newTestRouter(&mockSessionFetcher{}, ops)
@@ -1356,7 +1356,7 @@ func TestSessionOrder_GET_set(t *testing.T) {
 }
 
 func TestSessionOrder_GET_tmuxError(t *testing.T) {
-	ops := &mockTmuxOps{getSessionOrderErr: fmt.Errorf("decode @rk_session_order: invalid character")}
+	ops := &mockTmuxOps{getSessionOrderErr: fmt.Errorf("decode @rk_srv_session_order: invalid character")}
 	router := newTestRouter(&mockSessionFetcher{}, ops)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/sessions/order?server=default", nil)

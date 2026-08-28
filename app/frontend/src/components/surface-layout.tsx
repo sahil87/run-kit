@@ -89,7 +89,7 @@ import {
  *   35px `bg-bg-card` header (32px content + 3px bottom rule, aligned with
  *   the sidebar rail's `border-t-[3px]` seam) —
  *   kind glyph (`SURFACE_GLYPH`) + surface name + the small meta as an inset
- *   chip (git-root basename for code, `@rk_url` host for web) — with
+ *   chip (git-root basename for code, `@rk_win_url` host for web) — with
  *   rest-visible boxed verb buttons (24×24, 26×26 coarse; 14px SVG glyphs
  *   from the `top-bar-icons.tsx` register): zoom, promote, swap-with-next,
  *   ✕ close (a hairline rule separates ✕ from the safe verbs; its hover turns
@@ -494,7 +494,7 @@ function intersectionAxes(shape: LayoutShape): { xIndex: number; yIndex: number 
   }
 }
 
-/** Small header meta (R7): the code folder's basename for code, the `@rk_url`
+/** Small header meta (R7): the code folder's basename for code, the `@rk_win_url`
  *  display form for web (the kind-specific pretty form — never throws, so a
  *  relative `/present/…`/`/proxy/…` address gets header meta too,
  *  260819-v6y4 R10). `gitRoot` arrives

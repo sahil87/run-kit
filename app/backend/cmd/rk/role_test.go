@@ -107,7 +107,7 @@ func TestRoleTargetsPaneOwnSocket(t *testing.T) {
 
 // $TMUX_PANE without a usable $TMUX (the `tmux run-shell` shape) must hard-error
 // rather than fall back to a bare invocation — a bare call would resolve the
-// pane and radio-clear @rk_role against whichever server owns the default
+// pane and radio-clear @rk_win_role against whichever server owns the default
 // socket.
 func TestRoleUnderivableSocketErrors(t *testing.T) {
 	t.Setenv("TMUX_PANE", "%3")
@@ -143,7 +143,7 @@ func TestRoleUnknownTokenErrors(t *testing.T) {
 }
 
 // `rk role operator` resolves the current window, runs the radio clear, sets
-// @rk_role=operator on it, moves it into the operator session (option write
+// @rk_win_role=operator on it, moves it into the operator session (option write
 // first), and prints a one-line confirmation to stdout.
 func TestRoleOperatorSets(t *testing.T) {
 	t.Setenv("TMUX_PANE", "%3")
@@ -159,7 +159,7 @@ func TestRoleOperatorSets(t *testing.T) {
 	if got := strings.Join((*calls)[0], " "); !strings.Contains(got, "display-message -pt %3 #{window_id}") {
 		t.Errorf("call[0] = %q, want the window-id resolution", got)
 	}
-	if got := strings.Join((*calls)[1], " "); !strings.Contains(got, "set-option -w -t @7 @rk_role operator") {
+	if got := strings.Join((*calls)[1], " "); !strings.Contains(got, "set-option -w -t @7 @rk_win_role operator") {
 		t.Errorf("call[1] = %q, want the role set on @7", got)
 	}
 	if *clearKeepID != "@7" {
@@ -219,12 +219,12 @@ func TestRoleOperatorMoveFailureKeepsRoleSet(t *testing.T) {
 	if len(*calls) != 2 {
 		t.Fatalf("tmux calls = %v, want the option set to have landed before the move", *calls)
 	}
-	if got := strings.Join((*calls)[1], " "); !strings.Contains(got, "set-option -w -t @7 @rk_role operator") {
+	if got := strings.Join((*calls)[1], " "); !strings.Contains(got, "set-option -w -t @7 @rk_win_role operator") {
 		t.Errorf("call[1] = %q, want the role set to have landed", got)
 	}
 }
 
-// `rk role clear` unsets @rk_role on the current window, skips the radio clear
+// `rk role clear` unsets @rk_win_role on the current window, skips the radio clear
 // (nothing is being marked), and demotes the window out of the operator
 // session (a no-op for non-members).
 func TestRoleClearUnsets(t *testing.T) {
@@ -238,7 +238,7 @@ func TestRoleClearUnsets(t *testing.T) {
 	if len(*calls) != 2 {
 		t.Fatalf("tmux calls = %v, want 2 (display-message, set-option -wu — no radio clear)", *calls)
 	}
-	if got := strings.Join((*calls)[1], " "); !strings.Contains(got, "set-option -wu -t @7 @rk_role") {
+	if got := strings.Join((*calls)[1], " "); !strings.Contains(got, "set-option -wu -t @7 @rk_win_role") {
 		t.Errorf("call[1] = %q, want the role unset on @7", got)
 	}
 	if *clearKeepID != "" {

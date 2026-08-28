@@ -52,7 +52,7 @@ async function resolveWindow(page: Page, windowName: string): Promise<string> {
   return (await resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION, windowName)).windowId;
 }
 
-/** Create a window and (optionally) stamp @rk_url via tmux (execFileSync with
+/** Create a window and (optionally) stamp @rk_win_url via tmux (execFileSync with
  *  argument arrays — no shell string construction). Windows inherit the tmux
  *  server's repo-root cwd, so every default-cwd window here is code-capable
  *  (gitRoot derived — the surface-layout.spec.ts pattern). Returns the @N id. */
@@ -60,7 +60,7 @@ async function makeWindow(page: Page, name: string, opts: { url?: string } = {})
   newWindow(TEST_SESSION, name);
   const id = await resolveWindow(page, name);
   if (opts.url !== undefined) {
-    execFileSync("tmux", ["-L", TMUX_SERVER, "set-option", "-w", "-t", id, "@rk_url", opts.url]);
+    execFileSync("tmux", ["-L", TMUX_SERVER, "set-option", "-w", "-t", id, "@rk_win_url", opts.url]);
   }
   return id;
 }
@@ -118,9 +118,9 @@ test.describe("Top-bar surface toggles — open-tile toggles over the surface la
     await page.setViewportSize(DESKTOP_VIEWPORT);
   });
 
-  test("the toggle group renders on the desktop terminal route with the always-available tty + web toggles; the web dot follows @rk_url", async ({ page }) => {
+  test("the toggle group renders on the desktop terminal route with the always-available tty + web toggles; the web dot follows @rk_win_url", async ({ page }) => {
     test.setTimeout(30_000);
-    // A plain repo-cwd window (no @rk_url) gets the group with the tty toggle
+    // A plain repo-cwd window (no @rk_win_url) gets the group with the tty toggle
     // (always available, R8) LIT for the default single:tty layout, the web
     // toggle (always available, 260821-zqlq) UNLIT with NO corner dot (the dot
     // signals "has content" — hasWebUrl), and the CODE toggle (gitRoot derived
@@ -147,7 +147,7 @@ test.describe("Top-bar surface toggles — open-tile toggles over the surface la
     await expect(codeToggle).toHaveAttribute("aria-pressed", "false");
     await expect(codeToggle).toContainText("{}");
 
-    // A window with @rk_url: the web toggle's dot lights (content present).
+    // A window with @rk_win_url: the web toggle's dot lights (content present).
     const web = await makeWindow(page, `rp-cap-${Date.now()}`, { url: IFRAME_URL });
     await gotoWindow(page, web);
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
@@ -159,7 +159,7 @@ test.describe("Top-bar surface toggles — open-tile toggles over the surface la
     await expect(webToggle.locator("span.rounded-full")).toHaveCount(1);
   });
 
-  test("a window with no git root and no @rk_url shows the tty + web toggles only", async ({ page }) => {
+  test("a window with no git root and no @rk_win_url shows the tty + web toggles only", async ({ page }) => {
     test.setTimeout(30_000);
     // cwd /tmp keeps the window git-root-less, so the code toggle stays out;
     // web is always available (260821-zqlq) — the group renders the tty and
@@ -252,7 +252,7 @@ test.describe("Top-bar surface toggles — open-tile toggles over the surface la
     const name = `rp-full-${Date.now()}`;
     newWindow(TEST_SESSION, name, { command: "exec sleep 600" });
     const id = await resolveWindow(page, name);
-    execFileSync("tmux", ["-L", TMUX_SERVER, "set-option", "-w", "-t", id, "@rk_url", IFRAME_URL]);
+    execFileSync("tmux", ["-L", TMUX_SERVER, "set-option", "-w", "-t", id, "@rk_win_url", IFRAME_URL]);
     const paneId = execFileSync("tmux", ["-L", TMUX_SERVER, "display-message", "-t", id, "-p", "#{pane_id}"])
       .toString()
       .trim();
@@ -328,7 +328,7 @@ test.describe("Top-bar surface toggles — open-tile toggles over the surface la
     await expect(webIframe(page)).toBeVisible({ timeout: 10_000 });
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
 
-    // ?panel=web on a window with NO @rk_url → web is always available
+    // ?panel=web on a window with NO @rk_win_url → web is always available
     // (260821-zqlq), so the tile opens and renders the ONBOARDING state in
     // place of the iframe; the group shows the web toggle.
     const plain = await makeWindow(page, `rp-nourl-${Date.now()}`);

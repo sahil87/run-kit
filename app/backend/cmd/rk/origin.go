@@ -28,7 +28,7 @@ var (
 //     environment resolves exactly as config.Load() sees it — a deliberate
 //     operator override. No tmux subprocess is spawned on this rung.
 //  2. Tmux option: inside a tmux pane ($TMUX captured at package init —
-//     internal/tmux's init() strips it), read @rk_origin from the pane's OWN
+//     internal/tmux's init() strips it), read @rk_srv_origin from the pane's OWN
 //     server via the $TMUX socket path. The value is validated (parseable
 //     http/https URL with a non-empty host) before use; empty, unreadable, or
 //     invalid values fall through.

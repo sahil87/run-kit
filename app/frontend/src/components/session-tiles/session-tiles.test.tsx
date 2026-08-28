@@ -246,7 +246,7 @@ describe("SessionTiles", () => {
     });
   });
 
-  // Tile note body (8n6k) — a window carrying a @rk_note renders the note
+  // Tile note body (8n6k) — a window carrying a @rk_win_note renders the note
   // (+ relative age) as the tile body INSTEAD of the capture preview; no note
   // → the preview renders exactly as before. Staleness dimming rides the
   // shared NOTE_STALE_SECONDS; epoch-0 notes render text-only.

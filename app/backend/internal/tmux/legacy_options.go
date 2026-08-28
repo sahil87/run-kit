@@ -49,6 +49,28 @@ type legacyOption struct {
 var legacyOptions = []legacyOption{
 	{Old: "@color", New: ColorOption, Scope: scopeWindow},
 	{Old: "@session_color", New: SessionColorOption, Scope: scopeSession},
+	// Scope-prefix rename (260828-3o5d): retired unscoped rk names → their
+	// win/ses/srv successors. Window rows:
+	{Old: legacyTypeOption, New: LensOption, Scope: scopeWindow},
+	{Old: legacyURLOption, New: URLOption, Scope: scopeWindow},
+	{Old: "@rk_present_root", New: PresentRootOption, Scope: scopeWindow},
+	{Old: "@rk_marker", New: MarkerOption, Scope: scopeWindow},
+	{Old: "@rk_flair", New: FlairOption, Scope: scopeWindow},
+	{Old: legacyNoteOption, New: NoteOption, Scope: scopeWindow},
+	{Old: "@rk_role", New: RoleOption, Scope: scopeWindow},
+	// Session rows:
+	{Old: "@rk_session_flair", New: SessionFlairOption, Scope: scopeSession},
+	{Old: "@rk_board", New: BoardOption, Scope: scopeSession},
+	{Old: "@rk_home", New: HomeOption, Scope: scopeSession},
+	{Old: "@rk_board_order", New: BoardOrderOption, Scope: scopeSession},
+	// Retired with no successor (unset-only): the control anchor is identified
+	// by ControlAnchorSessionName instead.
+	{Old: "@rk_ctl_keepalive", New: "", Scope: scopeSession},
+	// Server rows:
+	{Old: "@rk_session_order", New: SessionOrderOption, Scope: scopeServer},
+	{Old: "@rk_server_rank", New: ServerRankOption, Scope: scopeServer},
+	{Old: "@rk_origin", New: OriginOption, Scope: scopeServer},
+	{Old: "@rk_managed", New: ManagedOption, Scope: scopeServer},
 }
 
 // scopeTarget is one carrier to inspect: a scope plus the -t argument naming
@@ -149,13 +171,19 @@ func moveLegacyAt(ctx context.Context, server string, row legacyOption, st scope
 		slog.Warn("legacy option sweep: read failed", "server", server, "option", row.Old, "scope", st.scope, "target", st.target, "error", err)
 		return false, err
 	}
-	oldVal, ok := held[row.Old]
-	if !ok {
+	if _, ok := held[row.Old]; !ok {
 		return false, nil
 	}
 	changed := false
 	if row.New != "" {
 		if _, newHeld := held[row.New]; !newHeld {
+			// The enumeration value is shell-quoted display text; copy the
+			// raw value so JSON/spaced values do not gain literal quotes.
+			oldVal, err := rawOptionAt(ctx, server, st, row.Old)
+			if err != nil {
+				slog.Warn("legacy option sweep: value read failed, legacy option kept", "server", server, "option", row.Old, "scope", st.scope, "target", st.target, "error", err)
+				return false, err
+			}
 			if err := setOptionAt(ctx, server, st, row.New, oldVal); err != nil {
 				slog.Warn("legacy option sweep: set failed, legacy option kept", "server", server, "option", row.New, "scope", st.scope, "target", st.target, "error", err)
 				return false, err
@@ -226,7 +254,9 @@ func enumerateScopeTargets(ctx context.Context, server string) ([]scopeTarget, e
 // heldOptions returns the user options held at exactly this carrier's scope —
 // show-options without -A reports only what the scope's own table holds,
 // never inherited values (the enumeration format cannot distinguish held from
-// inherited). Output lines are "name value".
+// inherited). Output lines are "name value" where value is tmux's
+// shell-quoted DISPLAY form ('["a"]', "has space"): use it for presence only
+// and read the raw value through rawOptionAt before copying it anywhere.
 func heldOptions(ctx context.Context, server string, st scopeTarget) (map[string]string, error) {
 	args := showOptionsArgs(st)
 	lines, err := execLegacyTmux(ctx, server, args...)
@@ -241,6 +271,19 @@ func heldOptions(ctx context.Context, server string, st scopeTarget) (map[string
 		}
 	}
 	return held, nil
+}
+
+// rawOptionAt reads one option's raw (unquoted) value at exactly st's scope
+// via show-options -qv — the -v form prints the value verbatim, unlike the
+// quoted enumeration heldOptions parses.
+func rawOptionAt(ctx context.Context, server string, st scopeTarget, option string) (string, error) {
+	args := showOptionsArgs(st)
+	args = append(args, "-qv", option)
+	out, err := execLegacyTmuxRaw(ctx, server, args...)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSuffix(out, "\n"), nil
 }
 
 // showOptionsArgs builds the show-options argv selecting exactly st's table.

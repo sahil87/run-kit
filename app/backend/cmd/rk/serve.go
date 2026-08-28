@@ -197,7 +197,7 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 		supervisor := tmuxctl.NewSupervisor(api.NewHubSinkFactory())
 
 		// Inject this deployment's origin (derived from the same config the
-		// server binds with) so every supervisor dial stamps @rk_origin on the
+		// server binds with) so every supervisor dial stamps @rk_srv_origin on the
 		// covered tmux server — pane-side `rk url`/`rk notify` resolve it from
 		// there. The startup enumeration covers pre-existing servers (healing
 		// the value across restarts on a new port); fsnotify dials cover births.

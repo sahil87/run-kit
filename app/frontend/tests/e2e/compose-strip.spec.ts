@@ -81,12 +81,12 @@ test.describe("Docked compose strip", () => {
     // this is how we verify Enter sends `text + \r` end-to-end.
     createSession(TERM_SESSION);
     tmux(`send-keys -t ${TERM_SESSION} 'cat' Enter`);
-    // Stamp @rk_url up front: the split-layout test's web tile reads rkUrl
+    // Stamp @rk_win_url up front: the split-layout test's web tile reads rkUrl
     // from the backend's window payload, which refreshes on an interval —
     // setting the option mid-test raced that propagation (a >10s cold wait).
     const first = listWindows(TERM_SESSION)[0];
     if (first) {
-      execFileSync("tmux", ["-L", TMUX_SERVER, "set-option", "-w", "-t", first.windowId, "@rk_url", "http://localhost:8080/"]);
+      execFileSync("tmux", ["-L", TMUX_SERVER, "set-option", "-w", "-t", first.windowId, "@rk_win_url", "http://localhost:8080/"]);
     }
     // Board-route session with two named windows for the target-label test.
     createSession(BOARD_SESSION, { windows: ["cs-alpha", "cs-bravo"] });
@@ -375,7 +375,7 @@ test.describe("Docked compose strip", () => {
     test.setTimeout(60_000);
     await page.setViewportSize({ width: 1440, height: 800 });
     const windowId = await resolveWindowId(page, TERM_SESSION);
-    // @rk_url was stamped in beforeAll (the backend payload refreshes on an
+    // @rk_win_url was stamped in beforeAll (the backend payload refreshes on an
     // interval — setting it here raced that propagation). The iframe src is
     // deterministic regardless of whether anything listens there (we assert
     // dock placement, never iframe content).

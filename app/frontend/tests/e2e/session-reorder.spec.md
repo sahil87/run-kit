@@ -12,7 +12,7 @@ the server has, the sidebar shows," not the drag mechanics themselves.
 - Spawns three named tmux sessions on the e2e tmux server (`rk-test-e2e` by default,
   overridable via `E2E_TMUX_SERVER`): `reorder-alpha-{ts}`, `reorder-bravo-{ts}`,
   `reorder-charlie-{ts}`.
-- `afterAll` kills the sessions and unsets `@rk_session_order` to leave the
+- `afterAll` kills the sessions and unsets `@rk_srv_session_order` to leave the
   server clean for the next run.
 
 ## Tests

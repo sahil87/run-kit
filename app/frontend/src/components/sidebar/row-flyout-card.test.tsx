@@ -609,7 +609,7 @@ describe("Fix tab name action row (260822-fih1)", () => {
 });
 
 describe("Note register (260824-bb5n)", () => {
-  // The window card's note row: the `@rk_note` one-line status note plus its
+  // The window card's note row: the `@rk_win_note` one-line status note plus its
   // relative age, dimmed past 24h (faded, never hidden). Degrade-to-absent: no
   // `note` → no row, no reserved space. Epoch-0 (tolerant-parse) notes render
   // text-only, undimmed.

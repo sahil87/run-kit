@@ -29,7 +29,7 @@ type serverInfo struct {
 	// group copies are already filtered, so shared windows are not
 	// double-counted). Derived from tmux at request time, no cache.
 	WindowCount int `json:"windowCount"`
-	// Rank is this server's user-defined display rank (@rk_server_rank).
+	// Rank is this server's user-defined display rank (@rk_srv_rank).
 	// nil (JSON null) when unset or unreadable — the frontend sorts unranked
 	// servers after ranked ones. The array's alphabetical order is unchanged
 	// (an asserted API contract); rank drives display order client-side only.
@@ -45,7 +45,7 @@ type serverInfo struct {
 	Protected bool `json:"protected"`
 	// Managed is true when the server is rk-managed: the rk-daemon
 	// production server by derivation, or any server carrying the
-	// @rk_managed provenance mark (rk-born or adopted). Read at request
+	// @rk_srv_managed provenance mark (rk-born or adopted). Read at request
 	// time; a read failure or a server gone mid-walk yields false.
 	Managed bool `json:"managed"`
 }
@@ -326,7 +326,7 @@ func (s *Server) handleServerProtect(w http.ResponseWriter, r *http.Request) {
 var adoptMigrateLegacy = tmux.MigrateLegacyOptionsOnce
 
 // handleServerAdopt converts an external (unmarked) server to rk-managed: the
-// @rk_managed stamp lands first, then the managed conf is sourced via
+// @rk_srv_managed stamp lands first, then the managed conf is sourced via
 // ReloadConfig; a failed reload best-effort unmarks, so a stamped server whose
 // conf never applied is never left behind.
 // POST /api/servers/adopt ← {"name": "srv"} → 200 {"status":"ok"}

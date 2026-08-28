@@ -484,7 +484,7 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
 // The ViewSwitcher is RETIRED (260812-0c6o) — lens switching is palette-only
 // (plus the top bar's surface-toggle group, 260815-19me — the rail that used
 // to carry the open-tile toggles is REMOVED). This block uses a web-capable
-// window (a non-empty `@rk_url` ⇒ `[tty|web]`; the repo-cwd pane also derives
+// window (a non-empty `@rk_win_url` ⇒ `[tty|web]`; the repo-cwd pane also derives
 // a gitRoot ⇒ `code`) with a long name to prove the removal
 // contract: no `view-toggle` testid and no in-bar "Window view" group at ANY
 // width, the chevron menu carries NO `View:` menuitemradio rows (the Fixed
@@ -508,11 +508,11 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
 
   async function gotoViewWindow(page: Page): Promise<void> {
     const id = await resolveWindow(page, VIEW_WINDOW_NAME);
-    // Stamp `@rk_url` so the window offers the `web` lens (`[tty|web]` → the
+    // Stamp `@rk_win_url` so the window offers the `web` lens (`[tty|web]` → the
     // multi-view gate passes and the palette's `View: Web` action renders).
     // Set before navigating so the first snapshot carries it.
     execSync(
-      `tmux -L ${TMUX_SERVER} set-option -w -t ${id} @rk_url "${VIEW_URL}"`,
+      `tmux -L ${TMUX_SERVER} set-option -w -t ${id} @rk_win_url "${VIEW_URL}"`,
       { stdio: "ignore" },
     );
     await gotoWindow(page, id);
@@ -669,7 +669,7 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
 
     // One `menuitemcheckbox` row per shown surface (chat excluded —
     // SURFACE_RAIL_HIDDEN), aria-checked = tile open. This window offers
-    // [tty|web|code] (`@rk_url` ⇒ web; the repo-cwd pane derives a gitRoot ⇒
+    // [tty|web|code] (`@rk_win_url` ⇒ web; the repo-cwd pane derives a gitRoot ⇒
     // code) and only the tty tile is open.
     const ttyRow = menu.getByRole("menuitemcheckbox", { name: "Terminal tile" });
     await expect(ttyRow).toBeVisible();

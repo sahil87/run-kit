@@ -703,3 +703,42 @@ func TestValidateRemoteTarget(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateWebTabURL(t *testing.T) {
+	accepted := []string{
+		"/proxy/3000/",
+		"/proxy/80/app",
+		"/present/@320/2/file.html?server=runKit&v=1",
+		"/present/@7/mock.html?server=dev&v=1",
+		"https://example.com",
+		"https://example.com/path?q=1",
+		"http://localhost:3000/x",
+		"http://192.168.1.20:8080/lan",
+	}
+	for _, v := range accepted {
+		if got := ValidateWebTabURL(v); got != "" {
+			t.Errorf("accept %q: got %q, want valid", v, got)
+		}
+	}
+
+	rejected := []string{
+		"javascript:alert(1)",
+		"data:text/html,<script>alert(1)</script>",
+		"file:///etc/passwd",
+		"//evil.com/x",
+		"ftp://example.com/x",
+		"example.com",
+		"localhost:3000",
+		"https://",
+		"/",                  // root-relative outside the two prefixes
+		"/app/index.html",    // same
+		"/proxy",             // the prefix without its slash
+		"/proxyevil/x",       // prefix lookalike
+		" /proxy/3000/",      // leading whitespace
+	}
+	for _, v := range rejected {
+		if got := ValidateWebTabURL(v); got == "" {
+			t.Errorf("reject %q: got valid, want error", v)
+		}
+	}
+}

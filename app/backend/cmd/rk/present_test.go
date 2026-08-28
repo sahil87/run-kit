@@ -18,14 +18,19 @@ import (
 // observers for the faked tmux/notify interactions. The default fake session
 // is pane %3 on window @7 of server "dev" (socket /tmp/tmux-1000/dev).
 type presentFake struct {
-	displayArgs  [][]string
-	setOpsWindow []string
-	setOpsServer []string
-	setOps       [][]tmux.WindowOptionOp
-	created      []presentCreated
-	createdID    []presentCreatedID
-	notified     []string
-	probed       []int
+	displayArgs [][]string
+	webAdds     []presentWebAdd
+	family      tmux.WebTabFamily
+	created     []presentCreated
+	createdID   []presentCreatedID
+	notified    []string
+	probed      []int
+}
+
+type presentWebAdd struct {
+	windowID, server, url, root string
+	index                       int
+	existed                     bool
 }
 
 type presentCreated struct {
@@ -54,11 +59,24 @@ func installPresentFakes(t *testing.T) *presentFake {
 		}
 		return nil, fmt.Errorf("unexpected tmux read: %s", joined)
 	}
-	presentSetWindowOptionsFn = func(_ context.Context, windowID, server string, ops []tmux.WindowOptionOp) error {
-		f.setOpsWindow = append(f.setOpsWindow, windowID)
-		f.setOpsServer = append(f.setOpsServer, server)
-		f.setOps = append(f.setOps, ops)
-		return nil
+	// The fake WebAdd honors the contract the production tmux.WebAdd owns: the
+	// slot is len(family)+1 on a fresh append (an empty family lands slot 1 and
+	// arms _active), and an identical stored URL is an idempotent hit on its
+	// existing slot. Tests assert the (windowID, server, url, root) it was
+	// driven with — the invariants themselves are tmux.WebAdd's (webtabs_test).
+	presentWebAddFn = func(_ context.Context, windowID, server, url, root string) (int, bool, error) {
+		for i, tab := range f.family.Tabs {
+			if tab == url {
+				f.webAdds = append(f.webAdds, presentWebAdd{windowID, server, url, root, i + 1, true})
+				return i + 1, true, nil
+			}
+		}
+		n := len(f.family.Tabs) + 1
+		f.webAdds = append(f.webAdds, presentWebAdd{windowID, server, url, root, n, false})
+		return n, false, nil
+	}
+	presentReadFamilyFn = func(_ context.Context, windowID, server string) (tmux.WebTabFamily, error) {
+		return f.family, nil
 	}
 	presentCreateWindowFn = func(session, name, cwd, server string, ops []tmux.WindowOptionOp) error {
 		f.created = append(f.created, presentCreated{session, name, server, ops})
@@ -82,8 +100,11 @@ func installPresentFakes(t *testing.T) *presentFake {
 		presentRunOutputFn = func(ctx context.Context, args []string) ([]byte, error) {
 			return tmux.RunOutput(ctx, args, tmux.RunOpts{})
 		}
-		presentSetWindowOptionsFn = func(ctx context.Context, windowID, server string, ops []tmux.WindowOptionOp) error {
-			return tmux.SetWindowOptions(ctx, windowID, server, ops)
+		presentWebAddFn = func(ctx context.Context, windowID, server, url, root string) (int, bool, error) {
+			return tmux.WebAdd(ctx, windowID, server, url, root)
+		}
+		presentReadFamilyFn = func(ctx context.Context, windowID, server string) (tmux.WebTabFamily, error) {
+			return tmux.ReadWebTabFamily(ctx, windowID, server)
 		}
 		presentCreateWindowFn = func(session, name, cwd, server string, ops []tmux.WindowOptionOp) error {
 			return tmux.CreateWindowWithOptions(session, name, cwd, server, ops)
@@ -149,16 +170,6 @@ func opValue(ops []tmux.WindowOptionOp, key string) (string, bool) {
 	return "", false
 }
 
-// opUnset reports whether ops carries an unset (nil-Value) op for key.
-func opUnset(ops []tmux.WindowOptionOp, key string) bool {
-	for _, op := range ops {
-		if op.Key == key && op.Value == nil {
-			return true
-		}
-	}
-	return false
-}
-
 func TestPresentUsageErrorsExitTwo(t *testing.T) {
 	installPresentFakes(t)
 	t.Setenv("TMUX_PANE", "%3")
@@ -216,16 +227,17 @@ func TestPresentUnreachablePortExitsOne(t *testing.T) {
 	if stdout != "" {
 		t.Errorf("stdout = %q, want empty on failure", stdout)
 	}
-	if len(f.setOps) != 0 {
-		t.Error("unreachable port still wrote window options")
+	if len(f.webAdds) != 0 {
+		t.Error("unreachable port still added a web tab")
 	}
 }
 
-// TestPresentAttachComposition pins the default arm's option set per target
-// kind: file/dir get @rk_win_url + @rk_win_present_root on the caller's OWN window;
-// port/URL targets set @rk_win_url and UNSET @rk_win_present_root (clearing any stale
-// serve root from a previous file/dir present), with no cache-buster. stdout
-// carries exactly the URL.
+// TestPresentAttachComposition pins the default arm's WebAdd call per target
+// kind: file/dir targets pass the slot URL + the serve root; port/URL targets
+// pass root "" (WebAdd clears any stale serve root from a previous file/dir
+// present). stdout carries exactly the URL of the slot WebAdd returned. The
+// family invariants (_active arming, dense append, ?v= refresh) are
+// tmux.WebAdd's, pinned in webtabs_test — here only the arm's contract.
 func TestPresentAttachComposition(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "mock.html")
@@ -237,11 +249,11 @@ func TestPresentAttachComposition(t *testing.T) {
 		name      string
 		arg       string
 		wantURL   string
-		wantRoot  string // "" = no root op expected
+		wantRoot  string // "" = root cleared (non-file/dir kind)
 		wantProbe bool
 	}{
-		{"file", file, "/present/@7/mock.html?server=dev&v=1700000000", dir, false},
-		{"dir", dir, "/present/@7/?server=dev&v=1700000000", dir, false},
+		{"file", file, "/present/@7/1/mock.html?server=dev&v=1700000000", dir, false},
+		{"dir", dir, "/present/@7/1/?server=dev&v=1700000000", dir, false},
 		{"port", ":5173", "/proxy/5173/", "", true},
 		{"local URL", "http://localhost:8080/docs?x=1", "/proxy/8080/docs?x=1", "", true},
 		{"external URL", "https://staging.example.com/app", "https://staging.example.com/app", "", false},
@@ -258,30 +270,23 @@ func TestPresentAttachComposition(t *testing.T) {
 			if stdout != tc.wantURL+"\n" {
 				t.Errorf("stdout = %q, want exactly %q", stdout, tc.wantURL+"\n")
 			}
-			if len(f.setOps) != 1 {
-				t.Fatalf("SetWindowOptions calls = %d, want 1", len(f.setOps))
+			if len(f.webAdds) != 1 {
+				t.Fatalf("WebAdd calls = %d, want 1", len(f.webAdds))
 			}
-			if f.setOpsWindow[0] != "@7" || f.setOpsServer[0] != "dev" {
-				t.Errorf("attach target = (%q, %q), want (@7, dev)", f.setOpsWindow[0], f.setOpsServer[0])
+			add := f.webAdds[0]
+			if add.windowID != "@7" || add.server != "dev" {
+				t.Errorf("attach target = (%q, %q), want (@7, dev)", add.windowID, add.server)
 			}
-			ops := f.setOps[0]
-			if u, ok := opValue(ops, tmux.URLOption); !ok || u != tc.wantURL {
-				t.Errorf("@rk_win_url = %q (set=%v), want %q", u, ok, tc.wantURL)
+			if add.url != tc.wantURL {
+				t.Errorf("WebAdd url = %q, want %q", add.url, tc.wantURL)
 			}
-			root, hasRoot := opValue(ops, tmux.PresentRootOption)
-			if tc.wantRoot == "" {
-				if hasRoot {
-					t.Errorf("unexpected @rk_win_present_root = %q", root)
-				}
-				if !opUnset(ops, tmux.PresentRootOption) {
-					t.Error("non-file/dir target did not unset @rk_win_present_root — a stale serve root would survive")
-				}
+			if add.root != tc.wantRoot {
+				t.Errorf("WebAdd root = %q, want %q", add.root, tc.wantRoot)
 			}
-			if tc.wantRoot != "" && (!hasRoot || root != tc.wantRoot) {
-				t.Errorf("@rk_win_present_root = %q (set=%v), want %q", root, hasRoot, tc.wantRoot)
-			}
-			if _, hasType := opValue(ops, tmux.LensOption); hasType {
-				t.Error("attach arm touched @rk_win_lens — must not steal the window's default view")
+			// Empty family ⇒ the fresh append lands slot 1 (and production
+			// WebAdd arms _active=1 — its own invariant).
+			if add.index != 1 || add.existed {
+				t.Errorf("WebAdd returned (index=%d, existed=%v), want (1, false)", add.index, add.existed)
 			}
 			if tc.wantProbe && len(f.probed) == 0 {
 				t.Error("expected a reachability probe, got none")
@@ -294,6 +299,26 @@ func TestPresentAttachComposition(t *testing.T) {
 				t.Errorf("URL target %q carries a buster, want none", tc.wantURL)
 			}
 		})
+	}
+}
+
+// TestPresentAttachNonEmptyFamily pins the dense-append contract: on a window
+// already holding two tabs the default arm appends at slot 3 (it never evicts
+// tab 1), and the printed URL carries the new slot.
+func TestPresentAttachNonEmptyFamily(t *testing.T) {
+	f := installPresentFakes(t)
+	t.Setenv("TMUX_PANE", "%3")
+	f.family = tmux.WebTabFamily{Tabs: []string{"/proxy/3000/", "/proxy/3001/"}, Active: 1}
+
+	stdout, _, err := runPresentCmd(t, ":5173")
+	if err != nil {
+		t.Fatalf("runPresent: %v", err)
+	}
+	if stdout != "/proxy/5173/\n" {
+		t.Errorf("stdout = %q, want /proxy/5173/", stdout)
+	}
+	if len(f.webAdds) != 1 || f.webAdds[0].index != 3 || f.webAdds[0].existed {
+		t.Errorf("WebAdd = %+v, want one call landing slot 3 (dense append, tab 1 untouched)", f.webAdds)
 	}
 }
 
@@ -366,17 +391,29 @@ func TestPresentWindowExternalURL(t *testing.T) {
 	if c.name != "staging-example-com" {
 		t.Errorf("window name = %q, want sanitized host staging-example-com", c.name)
 	}
-	if tp, ok := opValue(c.ops, tmux.LensOption); !ok || tp != "iframe" {
-		t.Errorf("@rk_win_lens = %q (set=%v), want iframe", tp, ok)
+	// Creation carries the layout alone; the URL lands via WebAdd on the new
+	// window's empty family (slot 1 + _active=1, WebAdd's invariant).
+	if tp, ok := opValue(c.ops, tmux.LayoutOption); !ok || tp != "single:web" {
+		t.Errorf("@rk_win_layout = %q (set=%v), want single:web", tp, ok)
 	}
-	if u, ok := opValue(c.ops, tmux.URLOption); !ok || u != "https://staging.example.com" {
-		t.Errorf("@rk_win_url = %q (set=%v), want the verbatim URL", u, ok)
+	if len(c.ops) != 1 {
+		t.Errorf("creation ops = %+v, want @rk_win_layout alone (the URL follows via WebAdd)", c.ops)
+	}
+	if len(f.webAdds) != 1 {
+		t.Fatalf("WebAdd calls = %d, want 1", len(f.webAdds))
+	}
+	if f.webAdds[0].url != "https://staging.example.com" {
+		t.Errorf("WebAdd url = %q, want the verbatim URL", f.webAdds[0].url)
+	}
+	if f.webAdds[0].index != 1 || f.webAdds[0].existed {
+		t.Errorf("WebAdd returned (index=%d, existed=%v), want (1, false)", f.webAdds[0].index, f.webAdds[0].existed)
 	}
 }
 
 // TestPresentWindowFileTwoStep pins the file/dir --window flow: the /present/
-// URL embeds the NEW window's id, so creation sets @rk_win_lens alone and the
-// id-dependent options land in a follow-up batch on the returned id.
+// URL embeds the NEW window's id, so creation sets @rk_win_layout alone and
+// WebAdd adds the id-addressed URL + serve root on the returned id's empty
+// family (slot 1).
 func TestPresentWindowFileTwoStep(t *testing.T) {
 	f := installPresentFakes(t)
 	t.Setenv("TMUX_PANE", "%3")
@@ -391,7 +428,7 @@ func TestPresentWindowFileTwoStep(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runPresent --window file: %v", err)
 	}
-	wantURL := "/present/@42/mock.report.html?server=dev&v=1700000000"
+	wantURL := "/present/@42/1/mock.report.html?server=dev&v=1700000000"
 	if stdout != wantURL+"\n" {
 		t.Errorf("stdout = %q, want %q (new window's id in the URL)", stdout, wantURL)
 	}
@@ -403,16 +440,23 @@ func TestPresentWindowFileTwoStep(t *testing.T) {
 		t.Errorf("window name = %q, want mock-report-html (periods sanitized)", c.name)
 	}
 	if len(c.ops) != 1 {
-		t.Errorf("creation ops = %+v, want @rk_win_lens alone (URL needs the new id)", c.ops)
+		t.Errorf("creation ops = %+v, want @rk_win_layout alone (URL needs the new id)", c.ops)
 	}
-	if len(f.setOps) != 1 || f.setOpsWindow[0] != "@42" {
-		t.Fatalf("follow-up option set = windows %v, want [@42]", f.setOpsWindow)
+	if len(f.webAdds) != 1 {
+		t.Fatalf("WebAdd calls = %d, want 1", len(f.webAdds))
 	}
-	if u, _ := opValue(f.setOps[0], tmux.URLOption); u != wantURL {
-		t.Errorf("@rk_win_url = %q, want %q", u, wantURL)
+	add := f.webAdds[0]
+	if add.windowID != "@42" {
+		t.Errorf("WebAdd window = %q, want @42 (the new window)", add.windowID)
 	}
-	if root, ok := opValue(f.setOps[0], tmux.PresentRootOption); !ok || root != dir {
-		t.Errorf("@rk_win_present_root = %q (set=%v), want %q", root, ok, dir)
+	if add.url != wantURL {
+		t.Errorf("WebAdd url = %q, want %q", add.url, wantURL)
+	}
+	if add.root != dir {
+		t.Errorf("WebAdd root = %q, want %q", add.root, dir)
+	}
+	if add.index != 1 || add.existed {
+		t.Errorf("WebAdd returned (index=%d, existed=%v), want (1, false)", add.index, add.existed)
 	}
 }
 

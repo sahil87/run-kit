@@ -267,7 +267,7 @@ the sixth surface measured against the same checks
   picks it up with no help-dump code change; the `$TMUX_PANE` guard is an
   operational exit 1 at run time, not a registration condition.
 - **Principle 9: the resolved URL is the only stdout line — data.** stdout
-  carries exactly the resolved `@rk_win_url` value (relative for `/present`/
+  carries exactly the resolved web-tab slot value (relative for `/present`/
   `/proxy` targets, absolute for external URLs) and prints it even
   under `--quiet` (silence would hide the command's one result); diagnostics
   go to stderr. `--notify`'s send failure is the documented fail-silent
@@ -280,8 +280,10 @@ the sixth surface measured against the same checks
 - **The `skill` standard is load-bearing on this surface** — the canonical
   `docs/site/skill.md` and `docs/site/skill/display.md` (synced to the
   embedded copies by `scripts/sync-skill.sh`) teach `rk present` as the
-  primary Visual Display Recipe, with the manual `@rk_win_url` attach path kept
-  as a short appendix for older rk versions. Both files stay within the
+  primary Visual Display Recipe against the indexed `@rk_win_web_<n>` family
+  (the retired names noted as compat-only), with the manual
+  `@rk_win_layout`/`@rk_win_web_1` attach path kept as a short appendix for
+  older rk versions. Both files stay within the
   ≤150-line budget and under the byte-equality drift guards
   (`TestSkillEmbedMatchesCanonical`, `TestSkillDisplayEmbedMatchesCanonical`),
   so the skill standard keeps passing. No version-skew machinery is needed:

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,6 +27,33 @@ func findOp(ops []tmux.WindowOptionOp, key string) (tmux.WindowOptionOp, bool) {
 		}
 	}
 	return tmux.WindowOptionOp{}, false
+}
+
+// stubWebTabFamily pins the family-read seam to a fixed family for the test's
+// duration: the /options handler reads the current family once per batch when
+// a family-relative key is present, and must never consult a real tmux server.
+// Tests posting a family-relative key (@rk_win_web_*, _active, or the retired
+// @rk_win_url/@rk_win_lens compat keys) MUST call this first.
+func stubWebTabFamily(t *testing.T, fam tmux.WebTabFamily) {
+	t.Helper()
+	prev := webTabFamilyFn
+	webTabFamilyFn = func(context.Context, string, string) (tmux.WebTabFamily, error) { return fam, nil }
+	t.Cleanup(func() { webTabFamilyFn = prev })
+}
+
+// stubWebRemove captures the slots WebRemove was asked to remove (a null on a
+// web slot routes through it) instead of hitting tmux. Returned slice is in
+// call order.
+func stubWebRemove(t *testing.T) *[]int {
+	t.Helper()
+	removed := []int{}
+	prev := webRemoveFn
+	webRemoveFn = func(_ context.Context, _, _ string, n int) error {
+		removed = append(removed, n)
+		return nil
+	}
+	t.Cleanup(func() { webRemoveFn = prev })
+	return &removed
 }
 
 func postOptions(t *testing.T, ops *mockTmuxOps, windowID, body string) *httptest.ResponseRecorder {
@@ -80,23 +108,31 @@ func TestWindowOptionsNullUnsets(t *testing.T) {
 }
 
 // Multi-key merge is a single SetWindowOptions invocation carrying both keys.
+// The retired @rk_win_url/@rk_win_lens keys ride the compat translation onto
+// the web-tab family (@rk_win_web_1 + @rk_win_layout), with the compat
+// _active=1 armed because the family is empty.
 func TestWindowOptionsMultiKeyOneCall(t *testing.T) {
+	stubWebTabFamily(t, tmux.WebTabFamily{})
 	ops := &mockTmuxOps{}
 	rec := postOptions(t, ops, "@2", `{"options":{"@rk_win_url":"https://x","@rk_win_lens":"iframe"}}`)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	if len(ops.setWindowOptionsOps) != 2 {
-		t.Fatalf("ops = %v, want 2 (one invocation, both keys)", ops.setWindowOptionsOps)
+	if len(ops.setWindowOptionsOps) != 3 {
+		t.Fatalf("ops = %v, want 3 (one invocation: web_1 + layout + armed _active)", ops.setWindowOptionsOps)
 	}
-	urlOp, ok := findOp(ops.setWindowOptionsOps, "@rk_win_url")
+	urlOp, ok := findOp(ops.setWindowOptionsOps, "@rk_win_web_1")
 	if !ok || urlOp.Value == nil || *urlOp.Value != "https://x" {
-		t.Errorf("@rk_win_url op = %+v, want value \"https://x\"", urlOp)
+		t.Errorf("@rk_win_web_1 op = %+v, want value \"https://x\"", urlOp)
 	}
-	typeOp, ok := findOp(ops.setWindowOptionsOps, "@rk_win_lens")
-	if !ok || typeOp.Value == nil || *typeOp.Value != "iframe" {
-		t.Errorf("@rk_win_lens op = %+v, want value \"iframe\"", typeOp)
+	layoutOp, ok := findOp(ops.setWindowOptionsOps, "@rk_win_layout")
+	if !ok || layoutOp.Value == nil || *layoutOp.Value != "single:web" {
+		t.Errorf("@rk_win_layout op = %+v, want value \"single:web\"", layoutOp)
+	}
+	activeOp, ok := findOp(ops.setWindowOptionsOps, "@rk_win_web_active")
+	if !ok || activeOp.Value == nil || *activeOp.Value != "1" {
+		t.Errorf("@rk_win_web_active op = %+v, want value \"1\" (armed on empty family)", activeOp)
 	}
 }
 
@@ -147,6 +183,7 @@ func TestWindowOptionsColorFamilyName(t *testing.T) {
 
 // Empty @rk_win_url → 400 and zero tmux calls.
 func TestWindowOptionsEmptyUrl(t *testing.T) {
+	stubWebTabFamily(t, tmux.WebTabFamily{})
 	ops := &mockTmuxOps{}
 	rec := postOptions(t, ops, "@0", `{"options":{"@rk_win_url":""}}`)
 
@@ -158,17 +195,20 @@ func TestWindowOptionsEmptyUrl(t *testing.T) {
 	}
 }
 
-// @rk_win_url scheme allowlist (R1): absolute http:/https: URLs and root-relative
-// paths pass; javascript:/data:/file:, scheme-relative //…, bare hosts, and
-// whitespace-only values are rejected with 400 and zero tmux calls.
+// @rk_win_url scheme allowlist (R1): absolute http:/https: URLs and
+// root-relative /proxy/ or /present/ paths pass; javascript:/data:/file:,
+// scheme-relative //…, bare hosts, other root-relative paths, and
+// whitespace-only values are rejected with 400 and zero tmux calls. The
+// retired key rides the compat translation onto @rk_win_web_1, so validation
+// is the shared ValidateWebTabURL rule.
 func TestWindowOptionsRkURLSchemeAllowlist(t *testing.T) {
+	stubWebTabFamily(t, tmux.WebTabFamily{})
 	accepted := []string{
 		"https://example.com",
 		"https://example.com/path?q=1",
 		"http://localhost:3000/x",
 		"/proxy/3000/",
 		"/present/@320/file.html?server=runKit&v=1",
-		"/",
 	}
 	for _, url := range accepted {
 		ops := &mockTmuxOps{}
@@ -188,6 +228,7 @@ func TestWindowOptionsRkURLSchemeAllowlist(t *testing.T) {
 		"localhost:3000",
 		"   ",
 		"https://",
+		"/",
 	}
 	for _, url := range rejected {
 		ops := &mockTmuxOps{}
@@ -250,7 +291,8 @@ func TestWindowOptionsSetMarkerOnly(t *testing.T) {
 	}
 }
 
-// @rk_win_marker empty string unsets (nil Value op), mirroring @rk_win_lens — "" clears.
+// @rk_win_marker empty string unsets (nil Value op), mirroring the retired
+// @rk_win_lens contract — "" clears.
 func TestWindowOptionsMarkerEmptyUnsets(t *testing.T) {
 	ops := &mockTmuxOps{}
 	rec := postOptions(t, ops, "@2", `{"options":{"@rk_win_marker":""}}`)
@@ -462,46 +504,66 @@ func TestWindowOptionsRoleInvalid(t *testing.T) {
 	}
 }
 
-// @rk_win_lens empty string unsets (nil Value op); non-empty sets verbatim.
+// @rk_win_lens is the retired compat key: "iframe" translates to
+// @rk_win_layout=single:web ONLY when the window carries no layout; every
+// other value, null, and the already-laid-out case are no-ops (nothing
+// reaches tmux). The empty string is not "iframe", so it no-ops too — there
+// is no longer a lens option to unset.
 func TestWindowOptionsRkTypeEmptyUnsets(t *testing.T) {
+	stubWebTabFamily(t, tmux.WebTabFamily{})
 	ops := &mockTmuxOps{}
 	rec := postOptions(t, ops, "@2", `{"options":{"@rk_win_lens":""}}`)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	op, ok := findOp(ops.setWindowOptionsOps, "@rk_win_lens")
-	if !ok {
-		t.Fatal("expected @rk_win_lens op")
-	}
-	if op.Value != nil {
-		t.Errorf("@rk_win_lens value = %q, want nil (empty string unsets)", *op.Value)
+	if ops.setWindowOptionsCalled {
+		t.Errorf("empty @rk_win_lens is a no-op, but SetWindowOptions was called: %v", ops.setWindowOptionsOps)
 	}
 }
 
 func TestWindowOptionsRkTypeNullUnsets(t *testing.T) {
+	stubWebTabFamily(t, tmux.WebTabFamily{})
 	ops := &mockTmuxOps{}
 	rec := postOptions(t, ops, "@2", `{"options":{"@rk_win_lens":null}}`)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	op, ok := findOp(ops.setWindowOptionsOps, "@rk_win_lens")
-	if !ok || op.Value != nil {
-		t.Errorf("@rk_win_lens op = %+v, want nil value (null unsets)", op)
+	if ops.setWindowOptionsCalled {
+		t.Errorf("null @rk_win_lens is a no-op, but SetWindowOptions was called: %v", ops.setWindowOptionsOps)
 	}
 }
 
 func TestWindowOptionsRkTypeSetVerbatim(t *testing.T) {
+	stubWebTabFamily(t, tmux.WebTabFamily{})
 	ops := &mockTmuxOps{}
 	rec := postOptions(t, ops, "@2", `{"options":{"@rk_win_lens":"iframe"}}`)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
-	op, ok := findOp(ops.setWindowOptionsOps, "@rk_win_lens")
-	if !ok || op.Value == nil || *op.Value != "iframe" {
-		t.Errorf("@rk_win_lens op = %+v, want value \"iframe\"", op)
+	op, ok := findOp(ops.setWindowOptionsOps, "@rk_win_layout")
+	if !ok || op.Value == nil || *op.Value != "single:web" {
+		t.Errorf("@rk_win_layout op = %+v, want value \"single:web\" (translated from @rk_win_lens=iframe)", op)
+	}
+	if _, ok := findOp(ops.setWindowOptionsOps, "@rk_win_lens"); ok {
+		t.Error("retired @rk_win_lens must never reach tmux")
+	}
+}
+
+// The lens→layout translation never clobbers an existing @rk_win_layout
+// (compat reads the family first).
+func TestWindowOptionsRkLensKeepsExistingLayout(t *testing.T) {
+	stubWebTabFamily(t, tmux.WebTabFamily{Layout: "row:tty,code,web"})
+	ops := &mockTmuxOps{}
+	rec := postOptions(t, ops, "@2", `{"options":{"@rk_win_lens":"iframe"}}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if ops.setWindowOptionsCalled {
+		t.Errorf("_lens=iframe with an existing _layout must be a no-op, but ops ran: %v", ops.setWindowOptionsOps)
 	}
 }
 
@@ -1399,13 +1461,25 @@ func TestWindowCreateWithIframeType(t *testing.T) {
 	if ops.createWindowWithOptionsName != "docs" {
 		t.Errorf("name = %q, want %q", ops.createWindowWithOptionsName, "docs")
 	}
-	typeOp, ok := findOp(ops.createWindowWithOptionsOps, "@rk_win_lens")
-	if !ok || typeOp.Value == nil || *typeOp.Value != "iframe" {
-		t.Errorf("@rk_win_lens op = %+v, want value \"iframe\"", typeOp)
+	// The iframe body is retargeted onto the indexed web-tab family
+	// (layout=single:web + web_1 + web_active=1) — no @rk_win_lens/@rk_win_url.
+	layoutOp, ok := findOp(ops.createWindowWithOptionsOps, "@rk_win_layout")
+	if !ok || layoutOp.Value == nil || *layoutOp.Value != "single:web" {
+		t.Errorf("@rk_win_layout op = %+v, want value \"single:web\"", layoutOp)
 	}
-	urlOp, ok := findOp(ops.createWindowWithOptionsOps, "@rk_win_url")
+	urlOp, ok := findOp(ops.createWindowWithOptionsOps, "@rk_win_web_1")
 	if !ok || urlOp.Value == nil || *urlOp.Value != "http://localhost:8080/docs" {
-		t.Errorf("@rk_win_url op = %+v, want value \"http://localhost:8080/docs\"", urlOp)
+		t.Errorf("@rk_win_web_1 op = %+v, want value \"http://localhost:8080/docs\"", urlOp)
+	}
+	activeOp, ok := findOp(ops.createWindowWithOptionsOps, "@rk_win_web_active")
+	if !ok || activeOp.Value == nil || *activeOp.Value != "1" {
+		t.Errorf("@rk_win_web_active op = %+v, want value \"1\"", activeOp)
+	}
+	if _, ok := findOp(ops.createWindowWithOptionsOps, "@rk_win_lens"); ok {
+		t.Error("retired @rk_win_lens must NOT be written")
+	}
+	if _, ok := findOp(ops.createWindowWithOptionsOps, "@rk_win_url"); ok {
+		t.Error("retired @rk_win_url must NOT be written")
 	}
 }
 
@@ -1621,5 +1695,163 @@ func TestWindowOptionsNoteUnset(t *testing.T) {
 				t.Errorf("@rk_win_note value = %q, want nil (unset)", *op.Value)
 			}
 		})
+	}
+}
+
+// --- Indexed web-tab family tests (@rk_win_web_<n> / _active / _layout / _code_root) ---
+
+// Out-of-range and malformed indexed keys are NOT allowlisted: @rk_win_web_9,
+// the slot-0 form, and the _root twin all 400 with zero tmux calls.
+func TestWindowOptionsWebSlotOutOfRangeRejected(t *testing.T) {
+	for _, key := range []string{"@rk_win_web_9", "@rk_win_web_0", "@rk_win_web_1_root"} {
+		ops := &mockTmuxOps{}
+		rec := postOptions(t, ops, "@0", fmt.Sprintf(`{"options":{%q:"/proxy/1/"}}`, key))
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("key %s: status = %d, want %d", key, rec.Code, http.StatusBadRequest)
+		}
+		if ops.setWindowOptionsCalled {
+			t.Errorf("key %s: SetWindowOptions must NOT be called", key)
+		}
+	}
+}
+
+// Layout values run through the shared layoutspec grammar: an unknown shape, a
+// wrong arity, and a repeated non-tty surface all 400 with zero tmux calls; a
+// valid shape (and the duplicate-tty exception) set verbatim; empty unsets.
+func TestWindowOptionsLayoutValidation(t *testing.T) {
+	invalid := []string{"grid:tty", "single:tty,web", "split-h:web,web", "row:tty,code,chat,web", "single:desktop"}
+	for _, v := range invalid {
+		ops := &mockTmuxOps{}
+		rec := postOptions(t, ops, "@0", fmt.Sprintf(`{"options":{"@rk_win_layout":%q}}`, v))
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("layout %q: status = %d, want %d", v, rec.Code, http.StatusBadRequest)
+		}
+		if ops.setWindowOptionsCalled {
+			t.Errorf("layout %q: SetWindowOptions must NOT be called", v)
+		}
+	}
+	for _, v := range []string{"single:web", "main-left:tty,code,web", "row:tty,tty,web"} {
+		ops := &mockTmuxOps{}
+		rec := postOptions(t, ops, "@0", fmt.Sprintf(`{"options":{"@rk_win_layout":%q}}`, v))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("layout %q: status = %d, want %d; body=%s", v, rec.Code, http.StatusOK, rec.Body.String())
+		}
+		op, ok := findOp(ops.setWindowOptionsOps, "@rk_win_layout")
+		if !ok || op.Value == nil || *op.Value != v {
+			t.Errorf("layout %q: op = %+v, want value %q", v, op, v)
+		}
+	}
+	// Empty string unsets (revert to the single:tty render).
+	ops := &mockTmuxOps{}
+	rec := postOptions(t, ops, "@0", `{"options":{"@rk_win_layout":""}}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("empty layout: status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	op, ok := findOp(ops.setWindowOptionsOps, "@rk_win_layout")
+	if !ok || op.Value != nil {
+		t.Errorf("empty layout: op = %+v, want nil value (unset)", op)
+	}
+}
+
+// A gap write (slot beyond len+1) is a 400 with zero tmux calls — the family
+// is dense on every write path.
+func TestWindowOptionsWebGapRejected(t *testing.T) {
+	stubWebTabFamily(t, tmux.WebTabFamily{Tabs: []string{"/proxy/1/"}, Active: 1})
+	ops := &mockTmuxOps{}
+	rec := postOptions(t, ops, "@0", `{"options":{"@rk_win_web_3":"/proxy/3/"}}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if ops.setWindowOptionsCalled {
+		t.Error("SetWindowOptions must NOT be called for a gap write")
+	}
+}
+
+// The active pointer must address a live tab at write time; the batch's own
+// append counts. Null is allowed only on an empty family.
+func TestWindowOptionsWebActiveValidation(t *testing.T) {
+	t.Run("out of range", func(t *testing.T) {
+		stubWebTabFamily(t, tmux.WebTabFamily{Tabs: []string{"/proxy/1/", "/proxy/2/"}, Active: 1})
+		ops := &mockTmuxOps{}
+		rec := postOptions(t, ops, "@0", `{"options":{"@rk_win_web_active":"3"}}`)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+		}
+		if ops.setWindowOptionsCalled {
+			t.Error("SetWindowOptions must NOT be called for an out-of-range active pointer")
+		}
+	})
+	t.Run("null with tabs", func(t *testing.T) {
+		stubWebTabFamily(t, tmux.WebTabFamily{Tabs: []string{"/proxy/1/"}, Active: 1})
+		ops := &mockTmuxOps{}
+		rec := postOptions(t, ops, "@0", `{"options":{"@rk_win_web_active":null}}`)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+		}
+	})
+	t.Run("batch append counts", func(t *testing.T) {
+		stubWebTabFamily(t, tmux.WebTabFamily{Tabs: []string{"/proxy/1/"}, Active: 1})
+		ops := &mockTmuxOps{}
+		rec := postOptions(t, ops, "@0", `{"options":{"@rk_win_web_2":"/proxy/2/","@rk_win_web_active":"2"}}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+		}
+		activeOp, ok := findOp(ops.setWindowOptionsOps, "@rk_win_web_active")
+		if !ok || activeOp.Value == nil || *activeOp.Value != "2" {
+			t.Errorf("@rk_win_web_active op = %+v, want value \"2\"", activeOp)
+		}
+	})
+	t.Run("null on empty family", func(t *testing.T) {
+		stubWebTabFamily(t, tmux.WebTabFamily{})
+		ops := &mockTmuxOps{}
+		rec := postOptions(t, ops, "@0", `{"options":{"@rk_win_web_active":null}}`)
+		if rec.Code != http.StatusOK {
+			t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+		}
+		op, ok := findOp(ops.setWindowOptionsOps, "@rk_win_web_active")
+		if !ok || op.Value != nil {
+			t.Errorf("@rk_win_web_active op = %+v, want nil value (unset)", op)
+		}
+	})
+}
+
+// A null on a web slot routes through WebRemove (density holds); the slot must
+// exist.
+func TestWindowOptionsWebSlotNullRemoves(t *testing.T) {
+	stubWebTabFamily(t, tmux.WebTabFamily{Tabs: []string{"/proxy/1/", "/proxy/2/"}, Active: 2})
+	removed := stubWebRemove(t)
+	ops := &mockTmuxOps{}
+	rec := postOptions(t, ops, "@0", `{"options":{"@rk_win_web_1":null}}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if len(*removed) != 1 || (*removed)[0] != 1 {
+		t.Errorf("WebRemove calls = %v, want [1]", *removed)
+	}
+}
+
+// The retired @rk_win_url compat key replaces the ACTIVE slot's URL; null
+// removes the active slot via WebRemove.
+func TestWindowOptionsLegacyURLTargetsActiveSlot(t *testing.T) {
+	stubWebTabFamily(t, tmux.WebTabFamily{Tabs: []string{"/proxy/1/", "/proxy/2/"}, Active: 2})
+	ops := &mockTmuxOps{}
+	rec := postOptions(t, ops, "@0", `{"options":{"@rk_win_url":"/proxy/9/"}}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	op, ok := findOp(ops.setWindowOptionsOps, "@rk_win_web_2")
+	if !ok || op.Value == nil || *op.Value != "/proxy/9/" {
+		t.Errorf("@rk_win_web_2 op = %+v, want value \"/proxy/9/\" (active slot)", op)
+	}
+
+	stubWebTabFamily(t, tmux.WebTabFamily{Tabs: []string{"/proxy/1/", "/proxy/2/"}, Active: 2})
+	removed := stubWebRemove(t)
+	ops = &mockTmuxOps{}
+	rec = postOptions(t, ops, "@0", `{"options":{"@rk_win_url":null}}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("null: status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if len(*removed) != 1 || (*removed)[0] != 2 {
+		t.Errorf("WebRemove calls = %v, want [2] (the active slot)", *removed)
 	}
 }

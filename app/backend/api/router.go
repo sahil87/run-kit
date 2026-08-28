@@ -753,6 +753,10 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/windows/{windowId}/move-to-session", s.handleWindowMoveToSession)
 	r.Post("/api/windows/{windowId}/rename", s.handleWindowRename)
 	r.Post("/api/windows/{windowId}/options", s.handleWindowOptions)
+	// Web-tab verbs (POST only, §IX) — see api/windows_web.go.
+	r.Post("/api/windows/{windowId}/web", s.handleWindowWebAdd)
+	r.Post("/api/windows/{windowId}/web/{n}/remove", s.handleWindowWebRemove)
+	r.Post("/api/windows/{windowId}/web/{n}/select", s.handleWindowWebSelect)
 	r.Post("/api/windows/{windowId}/keys", s.handleWindowKeys)
 	r.Post("/api/windows/{windowId}/select", s.handleWindowSelect)
 	r.Post("/api/windows/{windowId}/split", s.handleWindowSplit)
@@ -826,7 +830,9 @@ func (s *Server) buildRouter() chi.Router {
 	r.HandleFunc("/proxy/{port}", s.handleProxy)
 
 	// Content route for `rk present` file/dir targets — the serve root is the
-	// window's @rk_win_present_root option, read from tmux at request time.
+	// window's @rk_win_web_<n>_root option, read from tmux at request time. The
+	// one handler sniffs the optional slot segment (^[1-8]$) itself: the n-less
+	// form maps to slot 1 for one release (see api/present.go).
 	r.HandleFunc("/present/{windowId}/*", s.handlePresent)
 	r.HandleFunc("/present/{windowId}", s.handlePresent)
 

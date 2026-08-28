@@ -60,7 +60,7 @@ This bundle is static, so it can't report your live location — derive it direc
 echo "$TMUX_PANE"                                # pane ID, e.g. %82 (empty ⇒ not in tmux)
 tmux display-message -t "$TMUX_PANE" -p '#S'     # session
 tmux display-message -t "$TMUX_PANE" -p '#W'     # window
-tmux show-option -w -t "$TMUX_PANE" -qv @rk_win_lens # window lens hint (empty ⇒ terminal)
+tmux show-option -w -t "$TMUX_PANE" -qv @rk_win_layout # surface layout (empty ⇒ single terminal)
 rk url                                           # server URL (config-derived)
 ```
 
@@ -84,7 +84,7 @@ rk url                                           # server URL (config-derived)
 
 ## Gotchas
 
-- `@rk_win_lens` / `@rk_win_url` changes are picked up by the server's SSE polling automatically — no refresh, no API call.
+- `@rk_win_layout` / `@rk_win_web_<n>` changes are picked up by the server's SSE polling automatically — no refresh, no API call. The retired `@rk_win_lens` / `@rk_win_url` are accepted only via compat for one release.
 - Legacy option names (`@rk_type`, `@rk_url`, `@rk_note`) are still read for now.
 - Killing a tmux window kills the backing process — no separate cleanup step is needed.
 - `set-option -w` targets the **current** window: create the window first, then set options from within it (or pass `-t <window>`).

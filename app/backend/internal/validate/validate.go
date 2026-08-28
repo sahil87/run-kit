@@ -277,17 +277,18 @@ func ValidateFlairValue(value string) string {
 	return validateClosedSet(value, "Flair", FlairValues, flairTokens)
 }
 
-// ValidateRkURLValue validates an @rk_win_url window-option value against the
-// scheme allowlist (constitution §I — the value becomes an iframe src on
-// every viewer's web tile): absolute http:/https: URLs with a host, and
-// root-relative paths ("/…" but not scheme-relative "//…"). Everything else
-// — javascript:/data:/file: and any other scheme, scheme-relative "//…",
-// bare hosts — is rejected with a message naming the accepted forms. The
-// empty/whitespace check stays with the caller (it owns the "cannot be
-// empty" wording). Returns empty string if valid, an error message otherwise.
-func ValidateRkURLValue(value string) string {
-	const accepted = "URL must be an http:// or https:// URL, or a root-relative path (/…)"
-	if strings.HasPrefix(value, "/") && !strings.HasPrefix(value, "//") {
+// ValidateWebTabURL validates an @rk_win_web_<n> window-option value against
+// the scheme allowlist (constitution §I — the value becomes an iframe src on
+// every viewer's web tile): root-relative paths under the server's own /proxy/
+// or /present/ prefixes, and absolute http:/https: URLs with a host.
+// Everything else — javascript:/data:/file: and any other scheme,
+// scheme-relative "//…", other root-relative paths, bare hosts — is rejected
+// with a message naming the accepted forms. The empty/whitespace check stays
+// with the caller (it owns the "cannot be empty" wording). Returns empty
+// string if valid, an error message otherwise.
+func ValidateWebTabURL(value string) string {
+	const accepted = "URL must be an http:// or https:// URL, or a /proxy/ or /present/ path"
+	if strings.HasPrefix(value, "/proxy/") || strings.HasPrefix(value, "/present/") {
 		return ""
 	}
 	u, err := url.Parse(value)

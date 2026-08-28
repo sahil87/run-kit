@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 
 	"rk/internal/tmux"
 )
@@ -323,7 +324,11 @@ func formerCommands(win Window) []string {
 
 // windowOptionOps maps a snapshot window's stored rk options onto the chained
 // set-option ops SetWindowOptions applies. Empty values are omitted (never
-// unset — a restore only reapplies what was captured).
+// unset — a restore only reapplies what was captured). The web-tab family is
+// emitted slot by slot (URL and root together); the active pointer only when
+// > 0. A snapshot written by an older binary (whose rkType/rkUrl keys this
+// struct no longer declares) decodes with those keys ignored and simply
+// restores without web state — no on-disk migration.
 func windowOptionOps(win Window) []tmux.WindowOptionOp {
 	var ops []tmux.WindowOptionOp
 	add := func(key, value string) {
@@ -333,8 +338,17 @@ func windowOptionOps(win Window) []tmux.WindowOptionOp {
 		}
 	}
 	add(tmux.ColorOption, win.Color)
-	add(tmux.LensOption, win.RkType)
-	add(tmux.URLOption, win.RkURL)
+	add(tmux.LayoutOption, win.RkLayout)
+	for i, tab := range win.WebTabs {
+		add(tmux.WebTabOption(i+1), tab)
+		if i < len(win.WebRoots) {
+			add(tmux.WebTabRootOption(i+1), win.WebRoots[i])
+		}
+	}
+	if win.WebActive > 0 {
+		add(tmux.WebActiveOption, strconv.Itoa(win.WebActive))
+	}
+	add(tmux.CodeRootOption, win.CodeRoot)
 	add(tmux.MarkerOption, win.Marker)
 	add(tmux.FlairOption, win.Flair)
 	add(tmux.RoleOption, win.Role)

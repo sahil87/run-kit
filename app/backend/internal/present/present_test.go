@@ -74,7 +74,7 @@ func TestParseTarget_portForm(t *testing.T) {
 	if got.Name != "port-5173" {
 		t.Errorf("name = %q, want port-5173", got.Name)
 	}
-	if u := got.URL("@7", "dev", fixedNow); u != "/proxy/5173/" {
+	if u := got.URL("@7", 1, "dev", fixedNow); u != "/proxy/5173/" {
 		t.Errorf("url = %q, want /proxy/5173/", u)
 	}
 
@@ -113,7 +113,7 @@ func TestParseTarget_localURLs(t *testing.T) {
 			if got.PathQuery != tc.wantPQ {
 				t.Errorf("pathQuery = %q, want %q", got.PathQuery, tc.wantPQ)
 			}
-			if u := got.URL("@7", "dev", fixedNow); u != tc.wantURL {
+			if u := got.URL("@7", 1, "dev", fixedNow); u != tc.wantURL {
 				t.Errorf("url = %q, want %q (relative form, never an absolute origin)", u, tc.wantURL)
 			}
 		})
@@ -135,7 +135,7 @@ func TestParseTarget_externalURLsVerbatim(t *testing.T) {
 			if got.Kind != KindExternalURL {
 				t.Fatalf("kind = %v, want KindExternalURL", got.Kind)
 			}
-			if u := got.URL("@7", "dev", fixedNow); u != arg {
+			if u := got.URL("@7", 1, "dev", fixedNow); u != arg {
 				t.Errorf("url = %q, want verbatim %q", u, arg)
 			}
 			if got.Root != "" {
@@ -156,7 +156,7 @@ func TestTargetURL_presentForms(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if u, want := ft.URL("@7", "dev", fixedNow), "/present/@7/mock.html?server=dev&v=1700000000"; u != want {
+	if u, want := ft.URL("@7", 1, "dev", fixedNow), "/present/@7/1/mock.html?server=dev&v=1700000000"; u != want {
 		t.Errorf("file url = %q, want %q", u, want)
 	}
 	if !ft.NeedsRoot() {
@@ -167,7 +167,7 @@ func TestTargetURL_presentForms(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if u, want := dt.URL("@12", "default", fixedNow), "/present/@12/?server=default&v=1700000000"; u != want {
+	if u, want := dt.URL("@12", 1, "default", fixedNow), "/present/@12/1/?server=default&v=1700000000"; u != want {
 		t.Errorf("dir url = %q, want %q", u, want)
 	}
 
@@ -179,7 +179,7 @@ func TestTargetURL_presentForms(t *testing.T) {
 	if pt.NeedsRoot() {
 		t.Error("port target NeedsRoot = true, want false")
 	}
-	if u := pt.URL("@7", "dev", fixedNow); strings.Contains(u, "v=") {
+	if u := pt.URL("@7", 1, "dev", fixedNow); strings.Contains(u, "v=") {
 		t.Errorf("port url %q carries a cache-buster, want none", u)
 	}
 }
@@ -188,8 +188,8 @@ func TestTargetURL_presentForms(t *testing.T) {
 // invocations of the same file target differ ONLY in the v= value.
 func TestTargetURL_rePresentBumpsOnlyV(t *testing.T) {
 	tgt := Target{Kind: KindFile, Root: "/x", Name: "a b.html"}
-	first := tgt.URL("@7", "dev", func() int64 { return 100 })
-	second := tgt.URL("@7", "dev", func() int64 { return 200 })
+	first := tgt.URL("@7", 1, "dev", func() int64 { return 100 })
+	second := tgt.URL("@7", 1, "dev", func() int64 { return 200 })
 	if first == second {
 		t.Fatal("re-present produced identical URLs — the buster must change")
 	}
@@ -234,5 +234,31 @@ func TestNeedsProbe(t *testing.T) {
 		if got := (Target{Kind: k}).NeedsProbe(); got != want {
 			t.Errorf("Kind(%v).NeedsProbe() = %v, want %v", k, got, want)
 		}
+	}
+}
+
+// TestBumpVersion pins the idempotent-re-add refresh: a /present/ slot value
+// gets its v= rewritten in place; every other URL form passes through
+// untouched.
+func TestBumpVersion(t *testing.T) {
+	now200 := func() int64 { return 200 }
+	tests := []struct {
+		name string
+		url  string
+		want string
+	}{
+		{"present URL bumps v", "/present/@3/2/a.html?server=s&v=100", "/present/@3/2/a.html?server=s&v=200"},
+		{"n-less present URL bumps v", "/present/@3/a.html?server=s&v=100", "/present/@3/a.html?server=s&v=200"},
+		{"present URL without v gains it", "/present/@3/1/?server=s", "/present/@3/1/?server=s&v=200"},
+		{"proxy URL verbatim", "/proxy/3000/", "/proxy/3000/"},
+		{"external URL verbatim", "https://example.test/app?v=100", "https://example.test/app?v=100"},
+		{"empty verbatim", "", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := BumpVersion(tc.url, now200); got != tc.want {
+				t.Errorf("BumpVersion(%q) = %q, want %q", tc.url, got, tc.want)
+			}
+		})
 	}
 }

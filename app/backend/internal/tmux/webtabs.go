@@ -96,16 +96,17 @@ func ReadWebTabFamily(ctx context.Context, windowID, server string) (WebTabFamil
 
 // WebAdd appends url to the window's web-tab family and returns its 1-based
 // index. Idempotent on an identical stored URL: returns (existing, true) with
-// no append. For /present/ URLs identity is the TARGET (window, name, server —
-// the slot index and ?v= cache-buster are incidental), so a re-presented
-// target finds its existing slot, and the hit ALSO rewrites the slot with a
-// fresh ?v= cache-buster (the re-present-is-refresh contract, falling out of
-// the add verb). root, when non-empty, is written to WebTabRootOption(n); when
-// empty the slot's root is unset (a port/URL target replacing a stale file/dir
-// root). WebActiveOption is set to 1 only when the family was empty before —
-// the first tab becomes active; otherwise the pointer is untouched ("add" is
-// not "show"). Returns ErrWebTabsFull when the family already holds MaxWebTabs
-// tabs and url is new. Every write rides one chained SetWindowOptions call.
+// no append. For /present/ URLs identity is the TARGET (window, name, server,
+// serve root — the slot index and ?v= cache-buster are incidental), so a
+// re-presented target finds its existing slot, and the hit ALSO rewrites the
+// slot with a fresh ?v= cache-buster (the re-present-is-refresh contract,
+// falling out of the add verb). root, when non-empty, is written to
+// WebTabRootOption(n); when empty the slot's root is unset (a port/URL target
+// replacing a stale file/dir root). WebActiveOption is set to 1 only when the
+// family was empty before — the first tab becomes active; otherwise the
+// pointer is untouched ("add" is not "show"). Returns ErrWebTabsFull when the
+// family already holds MaxWebTabs tabs and url is new. Every write rides one
+// chained SetWindowOptions call.
 func WebAdd(ctx context.Context, windowID, server, url, root string) (int, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
@@ -120,11 +121,30 @@ func WebAdd(ctx context.Context, windowID, server, url, root string) (int, bool,
 		}
 		n := i + 1
 		if strings.HasPrefix(tab, "/present/") {
+			// The URL alone under-identifies a /present/ target: a directory
+			// URL carries no name, and two files can share a basename — so
+			// the serve root is part of the identity. Two roots = two tabs.
+			// An empty stored root (the @rk_win_url dual-read path carries
+			// none) is a wildcard that adopts the incoming root on the hit.
+			stored := ""
+			if i < len(f.Roots) {
+				stored = f.Roots[i]
+			}
+			if stored != "" && root != "" && stored != root {
+				continue
+			}
+			var ops []WindowOptionOp
 			// The bump rewrites the STORED url — it carries the slot's own
 			// index; the incoming url may have been computed for a fresh slot.
 			bumped := present.BumpVersion(tab, webNowFn)
 			if bumped != tab {
-				if err := SetWindowOptions(ctx, windowID, server, []WindowOptionOp{{Key: WebTabOption(n), Value: &bumped}}); err != nil {
+				ops = append(ops, WindowOptionOp{Key: WebTabOption(n), Value: &bumped})
+			}
+			if stored == "" && root != "" {
+				ops = append(ops, WindowOptionOp{Key: WebTabRootOption(n), Value: &root})
+			}
+			if len(ops) > 0 {
+				if err := SetWindowOptions(ctx, windowID, server, ops); err != nil {
 					return 0, false, err
 				}
 			}
@@ -259,8 +279,9 @@ func repointActive(active, n, newLen int) int {
 // URL: /present/ URLs compare by TARGET identity — window id, file name and
 // server — because the slot index and the ?v= cache-buster embedded in the
 // path/query legitimately differ between two computes of one target (a
-// re-present must find its existing slot, not append a duplicate). Every
-// other URL kind compares verbatim.
+// re-present must find its existing slot, not append a duplicate). The serve
+// root completes /present/ identity and is compared by WebAdd, which holds
+// both roots. Every other URL kind compares verbatim.
 func webTabURLIdentical(stored, incoming string) bool {
 	if stored == incoming {
 		return true

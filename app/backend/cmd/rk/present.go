@@ -88,9 +88,6 @@ var (
 	presentRunOutputFn    = func(ctx context.Context, args []string) ([]byte, error) {
 		return tmux.RunOutput(ctx, args, tmux.RunOpts{})
 	}
-	presentCreateWindowFn = func(session, name, cwd, server string, ops []tmux.WindowOptionOp) error {
-		return tmux.CreateWindowWithOptions(session, name, cwd, server, ops)
-	}
 	presentCreateWindowIDFn = func(session, name, cwd, server string, ops []tmux.WindowOptionOp) (string, error) {
 		return tmux.CreateWindowWithOptionsID(session, name, cwd, server, ops)
 	}
@@ -226,11 +223,10 @@ func presentAttach(ctx context.Context, target present.Target) (string, error) {
 // presentViaNewWindow implements the --window arm: create a standalone window
 // in the caller's session carrying @rk_win_layout=single:web, then add the
 // target to its (empty) web-tab family via WebAdd — which arms _active=1 and
-// stores the slot's root. File/dir targets create with @rk_win_layout alone
-// (their /present/ URL embeds the NEW window's id) and add on the returned id;
-// the family is empty on a fresh window, so the slot is always 1. Port/URL
-// targets have no id-dependent URL, so they create with the layout and add by
-// session-scoped re-resolution.
+// stores the slot's root. Both kinds create with @rk_win_layout alone and add
+// on the id creation returns (a /present/ URL embeds the NEW window's id; a
+// port/URL target simply needs the id to address the family); the family is
+// empty on a fresh window, so the slot is always 1.
 func presentViaNewWindow(ctx context.Context, cmd *cobra.Command, target present.Target) (string, error) {
 	name := presentWindowFlag
 	if name == presentFlagAuto {
@@ -273,19 +269,14 @@ func presentViaNewWindow(ctx context.Context, cmd *cobra.Command, target present
 		return target.URL(id, index, serverName, presentNowFn), nil
 	}
 
-	if err := presentCreateWindowFn(session, name, "", serverName,
-		[]tmux.WindowOptionOp{{Key: tmux.LayoutOption, Value: &layout}}); err != nil {
-		return "", fmt.Errorf("create window: %w", err)
-	}
-	// Port/URL targets carry no window-id in their URL, so re-resolve the new
-	// window's id by session+name and add the target to its empty family.
-	out, err := presentRunOutputFn(ctx, append(prefix, "display-message", "-pt", session+":"+name, "#{window_id}"))
+	// Port/URL targets carry no window-id in their URL, but the add still
+	// needs the NEW window's id — taken from creation, never re-resolved by
+	// session:name (window names are not unique; a same-named sibling would
+	// receive the tab).
+	id, err := presentCreateWindowIDFn(session, name, "", serverName,
+		[]tmux.WindowOptionOp{{Key: tmux.LayoutOption, Value: &layout}})
 	if err != nil {
-		return "", fmt.Errorf("resolve new window %q: %w", name, err)
-	}
-	id := strings.TrimSpace(string(out))
-	if errMsg := validate.ValidateWindowID(id, "Window ID"); errMsg != "" {
-		return "", fmt.Errorf("resolve new window %q: %s", name, errMsg)
+		return "", fmt.Errorf("create window: %w", err)
 	}
 	url := target.URL(id, 1, serverName, presentNowFn)
 	if _, _, err := presentWebAddFn(ctx, id, serverName, url, ""); err != nil {

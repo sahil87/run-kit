@@ -21,7 +21,6 @@ type presentFake struct {
 	displayArgs [][]string
 	webAdds     []presentWebAdd
 	family      tmux.WebTabFamily
-	created     []presentCreated
 	createdID   []presentCreatedID
 	notified    []string
 	probed      []int
@@ -31,11 +30,6 @@ type presentWebAdd struct {
 	windowID, server, url, root string
 	index                       int
 	existed                     bool
-}
-
-type presentCreated struct {
-	session, name, server string
-	ops                   []tmux.WindowOptionOp
 }
 
 type presentCreatedID struct {
@@ -78,10 +72,6 @@ func installPresentFakes(t *testing.T) *presentFake {
 	presentReadFamilyFn = func(_ context.Context, windowID, server string) (tmux.WebTabFamily, error) {
 		return f.family, nil
 	}
-	presentCreateWindowFn = func(session, name, cwd, server string, ops []tmux.WindowOptionOp) error {
-		f.created = append(f.created, presentCreated{session, name, server, ops})
-		return nil
-	}
 	presentCreateWindowIDFn = func(session, name, cwd, server string, ops []tmux.WindowOptionOp) (string, error) {
 		f.createdID = append(f.createdID, presentCreatedID{session, name, server, ops})
 		return "@42", nil
@@ -105,9 +95,6 @@ func installPresentFakes(t *testing.T) *presentFake {
 		}
 		presentReadFamilyFn = func(ctx context.Context, windowID, server string) (tmux.WebTabFamily, error) {
 			return tmux.ReadWebTabFamily(ctx, windowID, server)
-		}
-		presentCreateWindowFn = func(session, name, cwd, server string, ops []tmux.WindowOptionOp) error {
-			return tmux.CreateWindowWithOptions(session, name, cwd, server, ops)
 		}
 		presentCreateWindowIDFn = func(session, name, cwd, server string, ops []tmux.WindowOptionOp) (string, error) {
 			return tmux.CreateWindowWithOptionsID(session, name, cwd, server, ops)
@@ -381,10 +368,10 @@ func TestPresentWindowExternalURL(t *testing.T) {
 	if stdout != "https://staging.example.com\n" {
 		t.Errorf("stdout = %q, want the verbatim URL", stdout)
 	}
-	if len(f.created) != 1 {
-		t.Fatalf("CreateWindowWithOptions calls = %d, want 1", len(f.created))
+	if len(f.createdID) != 1 {
+		t.Fatalf("CreateWindowWithOptionsID calls = %d, want 1", len(f.createdID))
 	}
-	c := f.created[0]
+	c := f.createdID[0]
 	if c.session != "work" || c.server != "dev" {
 		t.Errorf("created in (%q, %q), want (work, dev)", c.session, c.server)
 	}
@@ -404,6 +391,9 @@ func TestPresentWindowExternalURL(t *testing.T) {
 	}
 	if f.webAdds[0].url != "https://staging.example.com" {
 		t.Errorf("WebAdd url = %q, want the verbatim URL", f.webAdds[0].url)
+	}
+	if f.webAdds[0].windowID != "@42" {
+		t.Errorf("WebAdd window = %q, want @42 (the id creation returned — never a session:name re-resolution)", f.webAdds[0].windowID)
 	}
 	if f.webAdds[0].index != 1 || f.webAdds[0].existed {
 		t.Errorf("WebAdd returned (index=%d, existed=%v), want (1, false)", f.webAdds[0].index, f.webAdds[0].existed)

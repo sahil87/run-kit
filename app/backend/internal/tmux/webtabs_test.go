@@ -421,3 +421,59 @@ func TestWebAddPresentDistinctTargetsNoFalseMatch(t *testing.T) {
 	}
 	webMustHeld(t, server, id, WebTabOption(1), "/present/@5/1/a.html?server=s&v=100")
 }
+
+// TestWebAddPresentDistinctRootsAppend: two directory targets share one URL
+// identity (a dir URL has no name segment), so the serve root must split them
+// into two tabs — and the first tab's root must survive untouched.
+func TestWebAddPresentDistinctRootsAppend(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	id := windowID(t, server, "boot:0")
+	pinWebNow(t, 100)
+	if _, _, err := WebAdd(context.Background(), id, server, "/present/@5/1/?server=s&v=100", "/tmp/a"); err != nil {
+		t.Fatalf("WebAdd a: %v", err)
+	}
+	pinWebNow(t, 200)
+	n, existed, err := WebAdd(context.Background(), id, server, "/present/@5/2/?server=s&v=200", "/tmp/b")
+	if err != nil {
+		t.Fatalf("WebAdd b: %v", err)
+	}
+	if n != 2 || existed {
+		t.Errorf("WebAdd b = (%d, %v), want (2, false) — a different root is a different target", n, existed)
+	}
+	webMustHeld(t, server, id, WebTabOption(1), "/present/@5/1/?server=s&v=100")
+	webMustHeld(t, server, id, WebTabRootOption(1), "/tmp/a")
+	webMustHeld(t, server, id, WebTabRootOption(2), "/tmp/b")
+
+	// Re-presenting the first directory hits slot 1 (bump only), not slot 2.
+	pinWebNow(t, 300)
+	n, existed, err = WebAdd(context.Background(), id, server, "/present/@5/3/?server=s&v=300", "/tmp/a")
+	if err != nil {
+		t.Fatalf("WebAdd a again: %v", err)
+	}
+	if n != 1 || !existed {
+		t.Errorf("WebAdd a again = (%d, %v), want (1, true)", n, existed)
+	}
+	webMustHeld(t, server, id, WebTabOption(1), "/present/@5/1/?server=s&v=300")
+	webMustHeld(t, server, id, WebTabRootOption(2), "/tmp/b")
+	webMustUnset(t, server, id, WebTabOption(3))
+}
+
+// TestWebAddPresentEmptyStoredRootAdopts: a slot with no root (the @rk_win_url
+// dual-read path) still identity-matches by URL, and the hit writes the
+// incoming root so the slot stops serving from nowhere.
+func TestWebAddPresentEmptyStoredRootAdopts(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	id := windowID(t, server, "boot:0")
+	seedWebFamily(t, server, id, []string{"/present/@5/1/a.html?server=s&v=100"}, nil, 1)
+
+	pinWebNow(t, 200)
+	n, existed, err := WebAdd(context.Background(), id, server, "/present/@5/2/a.html?server=s&v=200", "/tmp/root")
+	if err != nil {
+		t.Fatalf("WebAdd: %v", err)
+	}
+	if n != 1 || !existed {
+		t.Errorf("WebAdd = (%d, %v), want (1, true)", n, existed)
+	}
+	webMustHeld(t, server, id, WebTabOption(1), "/present/@5/1/a.html?server=s&v=200")
+	webMustHeld(t, server, id, WebTabRootOption(1), "/tmp/root")
+}

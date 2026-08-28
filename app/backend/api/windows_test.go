@@ -1855,3 +1855,35 @@ func TestWindowOptionsLegacyURLTargetsActiveSlot(t *testing.T) {
 		t.Errorf("WebRemove calls = %v, want [2] (the active slot)", *removed)
 	}
 }
+
+// A batch that removes a web slot AND writes another slot or the active
+// pointer is order-dependent (the removal renumbers after the set), so it is
+// rejected before any tmux call; removals alone still pass.
+func TestWindowOptionsWebRemoveMixedRejected(t *testing.T) {
+	for _, body := range []string{
+		`{"options":{"@rk_win_web_1":null,"@rk_win_web_2":"/proxy/9/"}}`,
+		`{"options":{"@rk_win_web_1":null,"@rk_win_web_active":"2"}}`,
+		`{"options":{"@rk_win_url":null,"@rk_win_web_1":"/proxy/9/"}}`,
+	} {
+		stubWebTabFamily(t, tmux.WebTabFamily{Tabs: []string{"/proxy/1/", "/proxy/2/", "/proxy/3/"}, Active: 3})
+		removed := stubWebRemove(t)
+		ops := &mockTmuxOps{}
+		rec := postOptions(t, ops, "@0", body)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: status = %d, want %d; body=%s", body, rec.Code, http.StatusBadRequest, rec.Body.String())
+		}
+		if len(*removed) != 0 || len(ops.setWindowOptionsOps) != 0 {
+			t.Errorf("%s: tmux calls issued (removed=%v, set=%v), want none", body, *removed, ops.setWindowOptionsOps)
+		}
+	}
+
+	stubWebTabFamily(t, tmux.WebTabFamily{Tabs: []string{"/proxy/1/", "/proxy/2/", "/proxy/3/"}, Active: 3})
+	removed := stubWebRemove(t)
+	rec := postOptions(t, &mockTmuxOps{}, "@0", `{"options":{"@rk_win_web_1":null,"@rk_win_web_3":null,"@rk_win_color":"5"}}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("removals + color: status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if len(*removed) != 2 || (*removed)[0] != 3 || (*removed)[1] != 1 {
+		t.Errorf("WebRemove calls = %v, want [3 1] (highest-first)", *removed)
+	}
+}

@@ -717,6 +717,10 @@ func (s *Server) handleWindowOptions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if mixedWebRemoveBatch(options) {
+		writeError(w, http.StatusBadRequest, "a web tab removal (null) cannot be combined with other web-tab writes in one request")
+		return
+	}
 	ops, removeSlots, roleSet, roleClear := buildWindowOptionOps(options, armActive)
 
 	if len(ops) == 0 && len(removeSlots) == 0 {
@@ -812,4 +816,28 @@ func (s *Server) handleWindowKeys(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// mixedWebRemoveBatch reports whether a batch removes a web slot (null) AND
+// writes another slot or the active pointer. A removal renumbers the family
+// after the chained set runs, so such a batch has no single meaning — the
+// other write addresses a pre-shift index the caller cannot see post-shift.
+// Rejected up front; callers sequence two requests. Multiple removals alone
+// are fine (they execute highest-first, so lower indexes stay stable).
+func mixedWebRemoveBatch(options map[string]*string) bool {
+	removes, others := false, false
+	for key, value := range options {
+		if _, ok := webTabIndex(key); ok {
+			if value == nil {
+				removes = true
+			} else {
+				others = true
+			}
+			continue
+		}
+		if key == optKeyWebActive {
+			others = true
+		}
+	}
+	return removes && others
 }

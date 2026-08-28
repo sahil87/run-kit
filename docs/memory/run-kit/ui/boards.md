@@ -80,7 +80,7 @@ A per-board **desktop** toggle that stretches panes to fill the row instead of u
 - **`MAX_LIVE_RELAY_PANES = 4`** (§ Desktop Relay-Connection Suspension) equals the 4-visible max the 25% floor produces, so on plaintext origins autofit never forces a visible-but-paused pane; the focused pane is exempt from the cap anyway (`selectLivePanes`). >4 panes still overflow horizontally and off-screen panes still suspend.
 - **xterm refit rides the existing `terminal-client.tsx` ResizeObserver** (no autofit-specific wiring): a container `ResizeObserver` rAF-debounces `fitAddon.fit()` + a paired `{type:"resize",cols,rows}` WS message; flex reflow (window resize, pin/unpin, toggle flips) changes each visible pane's size and fires that observer per pane.
 
-**Tests**: unit `use-board-autofit.test.ts` (default-off, "on"-sentinel round-trip + key removal, per-board isolation, board-switch reload, malformed tolerance); Playwright `tests/e2e/board-autofit.spec.ts` (equal-fill/no-scroll at 2–3 panes, ~25%-floor/scroll at 5+, per-board persistence across reload, handles-hidden-while-on, top-bar button + palette action parity) — run via `just test-e2e`/`just pw` only.
+**Tests**: unit `use-board-autofit.test.ts` (default-off, "on"-sentinel round-trip + key removal, per-board isolation, board-switch reload, malformed tolerance); Playwright `app/frontend/tests/e2e/board-autofit.spec.ts` (equal-fill/no-scroll at 2–3 panes, ~25%-floor/scroll at 5+, per-board persistence across reload, handles-hidden-while-on, top-bar button + palette action parity) — run via `just test-e2e`/`just pw` only.
 
 ### Board Pane Reorder
 

@@ -88,6 +88,12 @@ func (s *Server) handlePresent(w http.ResponseWriter, r *http.Request) {
 
 	server := serverFromRequest(r)
 	root, err := getWindowOptionFn(r.Context(), windowID, server, tmux.WebTabRootOption(n))
+	// Slot 1 dual-reads the retired @rk_win_present_root: external writers
+	// stamp it live mid-session, where the once-per-server migration sweep
+	// cannot see it (the same rule as the @rk_win_url read-side fallback).
+	if err == nil && root == "" && n == 1 {
+		root, err = getWindowOptionFn(r.Context(), windowID, server, tmux.LegacyWinPresentRootOption)
+	}
 	if err != nil || root == "" || !filepath.IsAbs(root) {
 		http.NotFound(w, r)
 		return

@@ -844,11 +844,11 @@ func TestParseWindowsNote(t *testing.T) {
 	}
 }
 
-// windowLineNoteDualRead builds a full 24-field line (plus the legacy-note
+// windowLineNoteDualRead builds a full 25-field line (plus the legacy-note
 // tail) with both halves of the note dual-read pair placed explicitly: the NEW
 // note as a strict single field at idx 22, and the legacy note appended LAST
-// (idx 24+ — tail-rejoined, so tabs in its text survive). Idx 23 is the
-// retired @rk_win_url dual-read fallback (left empty here).
+// (idx 25+ — tail-rejoined, so tabs in its text survive). Idx 23/24 are the
+// retired @rk_win_url / @rk_win_lens dual-read fallbacks (left empty here).
 func windowLineNoteDualRead(newNote, legacyNote string) string {
 	fields := []string{
 		"@0", "0", "a", "/p", "1700000000", "1", "zsh",
@@ -862,6 +862,7 @@ func windowLineNoteDualRead(newNote, legacyNote string) string {
 		"",      // @rk_win_flair
 		newNote, // @rk_win_note (new — strict single field)
 		"",      // @rk_win_url (retired dual-read fallback — empty here)
+		"",      // @rk_win_lens (retired dual-read fallback — empty here)
 	}
 	return strings.Join(fields, listDelim) + listDelim + legacyNote
 }
@@ -918,8 +919,9 @@ func TestParseWindowsNoteDualRead(t *testing.T) {
 	}
 }
 
-// windowLineLegacyURL builds a full 24-field line with the retired @rk_win_url
-// (idx 23) set to legacyURL and the indexed web slots empty.
+// windowLineLegacyURL builds a full 25-field line with the retired @rk_win_url
+// (idx 23) set to legacyURL, the retired @rk_win_lens (idx 24) empty, and the
+// indexed web slots empty.
 func windowLineLegacyURL(legacyURL string) string {
 	fields := []string{
 		"@0", "0", "a", "/p", "1700000000", "1", "zsh",
@@ -933,9 +935,41 @@ func windowLineLegacyURL(legacyURL string) string {
 		"",        // @rk_win_flair
 		"",        // @rk_win_note
 		legacyURL, // @rk_win_url (retired dual-read fallback)
+		"",        // @rk_win_lens (retired dual-read fallback)
 		"",        // legacy note (last)
 	}
 	return strings.Join(fields, listDelim)
+}
+
+// TestParseWindowsLegacyLensFallback pins the @rk_win_lens dual-read: with
+// @rk_win_layout unset, a live-stamped "iframe" reads as the single:web layout
+// (so the derived rkType compat field stays "iframe"); any other lens value is
+// ignored, and a present @rk_win_layout always wins.
+func TestParseWindowsLegacyLensFallback(t *testing.T) {
+	withLens := func(layout, lens string) string {
+		parts := strings.Split(windowLineLegacyURL(""), listDelim)
+		parts[8] = layout
+		parts[24] = lens
+		return strings.Join(parts, listDelim)
+	}
+	cases := []struct {
+		name, layout, lens, want string
+	}{
+		{"iframe with layout unset reads single:web", "", "iframe", "single:web"},
+		{"other lens value ignored", "", "terminal", ""},
+		{"explicit layout wins over lens", "row:tty,code,web", "iframe", "row:tty,code,web"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := parseWindows([]string{withLens(tc.layout, tc.lens)}, 1700000000)
+			if len(got) != 1 {
+				t.Fatalf("parseWindows() returned %d windows, want 1", len(got))
+			}
+			if got[0].Layout != tc.want {
+				t.Errorf("Layout = %q, want %q", got[0].Layout, tc.want)
+			}
+		})
+	}
 }
 
 // TestParseWindowsLegacyURLFallback pins the @rk_win_url dual-read: with an

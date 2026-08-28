@@ -114,6 +114,10 @@ const NoteOption = "@rk_win_note"
 // e.g. "main-left:tty,code,web". Unset renders single:tty.
 const LayoutOption = "@rk_win_layout"
 
+// layoutspecSingleWeb is the @rk_win_layout value a retired @rk_win_lens=iframe
+// reads as (and the value MigrateLegacyOptions writes for it).
+const layoutspecSingleWeb = "single:web"
+
 // MaxWebTabs bounds the indexed @rk_win_web_<n> family: ListWindows reads
 // options through one fixed tmux format string, which cannot enumerate a
 // family, so the URL slots are spelled out 1..MaxWebTabs.
@@ -166,7 +170,7 @@ const FlairOption = "@rk_win_flair"
 
 // legacyTypeOption / legacyURLOption / legacyNoteOption are the retired
 // unscoped names of the window lens/URL/note options; legacyWinLensOption /
-// legacyWinURLOption / legacyWinPresentRootOption are the retired scoped names
+// legacyWinURLOption / LegacyWinPresentRootOption are the retired scoped names
 // superseded by LayoutOption and the indexed @rk_win_web_<n> family. They live
 // here exactly once, shared by the legacyOptions migration table, the /options
 // compat translator, and the note dual-read (the last dual-read reader).
@@ -176,7 +180,7 @@ const (
 	legacyNoteOption           = "@rk_note"
 	legacyWinLensOption        = "@rk_win_lens"
 	legacyWinURLOption         = "@rk_win_url"
-	legacyWinPresentRootOption = "@rk_win_present_root"
+	LegacyWinPresentRootOption = "@rk_win_present_root"
 )
 
 // ColorOption is the window-scoped (-w) user option carrying a window's
@@ -1161,8 +1165,9 @@ func clampWebActive(raw string, tabs int) int {
 // window_active, pane_current_command, @rk_win_color, @rk_win_layout,
 // @rk_win_web_1 .. @rk_win_web_8, @rk_win_web_active, @rk_win_code_root,
 // @rk_win_marker, @rk_win_role, @rk_win_flair, then @rk_win_note as a STRICT
-// SINGLE FIELD, then the retired @rk_win_url (dual-read web_1 fallback), then
-// the legacy note LAST. Lines with fewer than 8 fields are skipped; fields 8+
+// SINGLE FIELD, then the retired @rk_win_url (dual-read web_1 fallback), the
+// retired @rk_win_lens (dual-read single:web layout fallback), then the legacy
+// note LAST. Lines with fewer than 8 fields are skipped; fields 8+
 // are optional (empty string if absent). The web-tab slots read dense (walk
 // 1..8, stop at the first empty) and web_active degrades
 // (non-numeric/out-of-range clamps per clampWebActive, never an error). The
@@ -1270,8 +1275,16 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 				webActive = 1
 			}
 		}
-		if rawNote == "" && len(parts) >= 25 {
-			rawNote = strings.Join(parts[24:], listDelim)
+		// Retired @rk_win_lens (idx 24): "iframe" was the web default-view hint;
+		// with @rk_win_layout unset it reads as the single:web layout the
+		// migration row would write — the same live-stamp dual-read as web_1.
+		if layout == "" && len(parts) >= 25 {
+			if legacyLens := strings.TrimSpace(parts[24]); legacyLens == "iframe" {
+				layout = layoutspecSingleWeb
+			}
+		}
+		if rawNote == "" && len(parts) >= 26 {
+			rawNote = strings.Join(parts[25:], listDelim)
 		}
 		if rawNote != "" {
 			note, noteEpoch = parseNoteValue(rawNote)
@@ -1372,12 +1385,15 @@ func ListWindows(ctx context.Context, session string, server string) ([]WindowIn
 		"#{"+FlairOption+"}",
 		// The new note is a strict single field (write-side validation strips
 		// control chars). legacyWinURLOption is the retired @rk_win_url, dual-read
-		// as a web_1 fallback (the frontend polls it mid-session — it is never
-		// swept). The legacy note is free text in a tab-delimited format — it MUST
+		// as a web_1 fallback and legacyWinLensOption the retired @rk_win_lens,
+		// dual-read as a single:web layout fallback (both are stamped live by
+		// external writers mid-session — the once-per-server sweep cannot see
+		// them). The legacy note is free text in a tab-delimited format — it MUST
 		// stay the last field so parseWindows can rejoin the tail (tabs inside the
 		// text would otherwise shift sibling columns).
 		"#{"+NoteOption+"}",
 		"#{"+legacyWinURLOption+"}",
+		"#{"+legacyWinLensOption+"}",
 		"#{"+legacyNoteOption+"}",
 	)
 	format := strings.Join(fields, listDelim)

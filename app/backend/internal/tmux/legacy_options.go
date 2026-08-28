@@ -63,7 +63,7 @@ var legacyOptions = []legacyOption{
 	// win/ses/srv successors. Window rows:
 	{Old: legacyTypeOption, New: legacyWinLensOption, Scope: scopeWindow},
 	{Old: legacyURLOption, New: legacyWinURLOption, Scope: scopeWindow},
-	{Old: "@rk_present_root", New: legacyWinPresentRootOption, Scope: scopeWindow},
+	{Old: "@rk_present_root", New: LegacyWinPresentRootOption, Scope: scopeWindow},
 	// Retired web names with no live reader: the lens and present-root migrate
 	// forward in one sweep (nothing reads them mid-session). legacyWinURLOption
 	// (@rk_win_url) has NO sweep row — the frontend polls it mid-session via the
@@ -71,7 +71,7 @@ var legacyOptions = []legacyOption{
 	// dual-READ (see parseWindows / ReadWebTabFamily) and never unset: unsetting
 	// it would strand a viewer watching for the live transition, and the value
 	// cannot both hold @rk_win_url (legacy-scope-sweep) and converge to web_1.
-	{Old: legacyWinPresentRootOption, New: WebTabRootOption(1), Scope: scopeWindow},
+	{Old: LegacyWinPresentRootOption, New: WebTabRootOption(1), Scope: scopeWindow},
 	{Old: legacyWinLensOption, New: LayoutOption, Scope: scopeWindow, Transform: legacyLensToLayout},
 	{Old: "@rk_marker", New: MarkerOption, Scope: scopeWindow},
 	{Old: "@rk_flair", New: FlairOption, Scope: scopeWindow},
@@ -187,10 +187,10 @@ func sweepLegacyTargets(ctx context.Context, server string, targets []scopeTarge
 
 // legacyLensToLayout maps the retired @rk_win_lens value onto its
 // @rk_win_layout successor: only "iframe" has a layout representation
-// ("single:web"); any other value is dropped (ok=false — Old is still unset).
+// (layoutspecSingleWeb); any other value is dropped (ok=false — Old is still unset).
 func legacyLensToLayout(v string) (string, bool) {
 	if v == "iframe" {
-		return "single:web", true
+		return layoutspecSingleWeb, true
 	}
 	return "", false
 }

@@ -394,7 +394,7 @@ func TestMigrateLegacyOptions_scopePrefixRename(t *testing.T) {
 	// The chained intermediate names that DO converge are gone; @rk_win_url is
 	// the terminal dual-read (held, asserted in the seed loop above) and is NOT
 	// swept to web_1.
-	for _, mid := range []string{legacyWinLensOption, legacyWinPresentRootOption} {
+	for _, mid := range []string{legacyWinLensOption, LegacyWinPresentRootOption} {
 		if v, ok := legacyHeld(t, server, "-w", "-t", id, mid); ok {
 			t.Errorf("intermediate %s still held after the sweep: %q", mid, v)
 		}
@@ -582,7 +582,7 @@ func TestMigrateLegacyOptions_windowFamilyConverges(t *testing.T) {
 	legacyTmuxDo(t, server, "set-option", "-w", "-t", id, legacyWinURLOption, "/proxy/1/")
 	legacyTmuxDo(t, server, "set-option", "-w", "-t", id, WebTabOption(1), "/proxy/1/")
 	legacyTmuxDo(t, server, "set-option", "-w", "-t", id, WebActiveOption, "1")
-	legacyTmuxDo(t, server, "set-option", "-w", "-t", id, legacyWinPresentRootOption, "/tmp")
+	legacyTmuxDo(t, server, "set-option", "-w", "-t", id, LegacyWinPresentRootOption, "/tmp")
 	legacyTmuxDo(t, server, "set-option", "-w", "-t", id, legacyWinLensOption, "iframe")
 
 	changed, err := sweepLegacyOptions(context.Background(), server)
@@ -607,7 +607,7 @@ func TestMigrateLegacyOptions_windowFamilyConverges(t *testing.T) {
 	if v, ok := legacyHeld(t, server, "-w", "-t", id, legacyWinURLOption); !ok || v != "/proxy/1/" {
 		t.Errorf("%s = %q (held=%v), want \"/proxy/1/\" (dual-read, never swept)", legacyWinURLOption, v, ok)
 	}
-	for _, old := range []string{legacyWinPresentRootOption, legacyWinLensOption} {
+	for _, old := range []string{LegacyWinPresentRootOption, legacyWinLensOption} {
 		if v, ok := legacyHeld(t, server, "-w", "-t", id, old); ok {
 			t.Errorf("legacy %s still held after the sweep: %q", old, v)
 		}

@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { mockStateSocket } from "./_state-socket-mock";
 
-// Operator digest, stuck triage & retire (260822-rfz2 R6/R7/R8). Fully mocked
+// Operator digest & stuck triage (260822-rfz2 R6/R7). Fully mocked
 // (no tmux): the sessions payload rides the state-socket mock with an operator
 // window present, and both operator-request endpoints are stubbed via
 // page.route. Both route mocks carry a trailing `*` — the client appends
@@ -84,8 +84,9 @@ async function mockBackend(page: Page, withOperator: boolean, behavior: OpBehavi
       body: JSON.stringify(behavior.body),
     });
   });
-  // The window-scoped operator-request seam (retire-tab) — same trailing-`*`
-  // rule; a no-star mock silently falls through to live tmux.
+  // The window-scoped operator-request seam — same trailing-`*` rule; a
+  // no-star mock silently falls through to live tmux. Guards against any
+  // stray window-scoped fire reaching a live backend; no test expects one.
   await page.route("**/api/windows/*/operator-request*", (route) => {
     windowBodies.push(route.request().postDataJSON() as Record<string, unknown>);
     return route.fulfill({
@@ -159,63 +160,5 @@ test.describe("Operator digest & triage (260822-rfz2)", () => {
 
     await openPaletteWith(page, "Operator:");
     await expect(page.getByRole("option", { name: /^Operator:/ })).toHaveCount(0);
-  });
-});
-
-test.describe("Retire tab (260822-rfz2)", () => {
-  test("the flyout Retire… row opens the confirm dialog; confirm fires one retire-tab request and toasts the hand-off", async ({
-    page,
-  }) => {
-    const { windowBodies } = await mockBackend(page, true);
-    await gotoWindow(page);
-
-    // Open the row flyout for the chat-carrying work window and click Retire….
-    const row = page.locator("[role='treeitem'][data-window-id='@1']");
-    await row.hover();
-    const retireRow = page.getByTestId("row-flyout-retire-action");
-    await expect(retireRow).toBeVisible();
-    await retireRow.click();
-
-    // The card closed BEFORE the dialog opened (close-then-open idiom).
-    await expect(page.getByTestId("row-flyout-card")).toHaveCount(0);
-    const dialog = page.getByRole("dialog");
-    await expect(dialog).toBeVisible();
-    await expect(
-      dialog.getByText("Ask the operator to summarize and close this tab? The window will be killed."),
-    ).toBeVisible();
-
-    await dialog.getByRole("button", { name: "Retire" }).click();
-
-    await expect.poll(() => windowBodies).toEqual([{ template: "retire-tab" }]);
-    await expect(dialog).not.toBeVisible();
-    await expect(page.getByText("Sent to operator — tab will be summarized and closed")).toBeVisible();
-  });
-
-  test("cancel in the confirm dialog fires no request", async ({ page }) => {
-    const { windowBodies } = await mockBackend(page, true);
-    await gotoWindow(page);
-
-    const row = page.locator("[role='treeitem'][data-window-id='@1']");
-    await row.hover();
-    await page.getByTestId("row-flyout-retire-action").click();
-
-    const dialog = page.getByRole("dialog");
-    await expect(dialog).toBeVisible();
-    await dialog.getByRole("button", { name: "Cancel" }).click();
-
-    await expect(dialog).not.toBeVisible();
-    // Give any stray request a beat to arrive — none may fire.
-    await page.waitForTimeout(300);
-    expect(windowBodies).toHaveLength(0);
-  });
-
-  test("the Retire… row is absent when the server has no operator window", async ({ page }) => {
-    await mockBackend(page, false);
-    await gotoWindow(page);
-
-    const row = page.locator("[role='treeitem'][data-window-id='@1']");
-    await row.hover();
-    await expect(page.getByTestId("row-flyout-card")).toBeVisible();
-    await expect(page.getByTestId("row-flyout-retire-action")).toHaveCount(0);
   });
 });

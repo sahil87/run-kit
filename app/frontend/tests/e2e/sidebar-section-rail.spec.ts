@@ -5,11 +5,25 @@ import { TMUX_SERVER } from "./_tmux";
 const MOBILE_VIEWPORT = { width: 375, height: 812 };
 
 /**
- * Section-visibility micro-rail (iha5): four icon-only toggles (Boards ·
- * Server · Pane · Host) at the top of the sidebar `<nav>`, gating the
- * optional sections on persisted booleans. Defaults reproduce the pre-rail
- * rendering (Boards/Server on, Pane/Host off) on BOTH viewports. See
- * sidebar-section-rail.spec.md for intent + steps.
+ * Section-visibility micro-rail: a horizontal row of four icon-only
+ * aria-pressed toggle buttons — Boards · Server · Pane · Host, in that fixed
+ * order — rendered as the first child of the sidebar's <nav>. Each toggle
+ * flips a persisted `runkit-sidebar-section-*` boolean; the gated section
+ * fully unmounts/remounts. Defaults (Boards/Server on, Pane/Host off)
+ * reproduce the pre-rail rendering on BOTH viewports, so the mobile drawer is
+ * pure nav + footer unless the user opts in. Sessions has no toggle
+ * (always-on core nav), and the rail itself always renders.
+ *
+ * Shared setup: no test session needed — the rail and the PANE panel's empty
+ * state render on the plain server route. Desktop tests use
+ * gotoServerReady(page, TMUX_SERVER) (status-bar Connected gate —
+ * desktop-only chrome) and scope queries to the nav[aria-label='Sessions']
+ * sidebar. The mobile describe runs test.use({ hasTouch: true, viewport:
+ * 375×812 }) — hasTouch flips Chromium's (pointer: coarse) media query so
+ * useIsMobile() reports mobile; navigation is a direct page.goto (no
+ * gotoWindow), then the drawer is opened via the `Toggle navigation` button.
+ * railToggle(page, section) locates a rail button by its state-stable
+ * aria-label (`Toggle {Section} section`); the state lives on aria-pressed.
  */
 
 /** A rail toggle by its state-stable aria-label. */
@@ -40,6 +54,21 @@ async function ensureDrawerOpen(page: Page) {
 }
 
 test.describe("Sidebar section-visibility rail", () => {
+  /**
+   * Proves: the rail mounts at the top of the sidebar with exactly the four
+   * contracted toggles in order, Sessions excluded, and the default
+   * visibility booleans match the pre-rail rendering (PANE/HOST panels
+   * absent).
+   *
+   * Steps:
+   * 1. gotoServerReady(TMUX_SERVER).
+   * 2. Assert the section-rail testid is visible inside the sidebar nav.
+   * 3. Read all rail buttons' aria-labels; assert exact order
+   *    Boards → Server → Pane → Host and that no `Sessions section` toggle
+   *    exists anywhere.
+   * 4. Assert aria-pressed is true/true/false/false across the four toggles.
+   * 5. Assert no /^Pane/ or /^Host/ panel header exists in the sidebar.
+   */
   test("rail renders four toggles in order with the defaults (Boards/Server pressed, Pane/Host not)", async ({
     page,
   }) => {
@@ -69,6 +98,18 @@ test.describe("Sidebar section-visibility rail", () => {
     await expect(sidebar.getByRole("button", { name: /^Host/ })).toHaveCount(0);
   });
 
+  /**
+   * Proves: a rail click flips the persisted boolean, mounts the section (the
+   * desktop removal is an opt-in default, not a hard gate), and the state
+   * survives a full page reload.
+   *
+   * Steps:
+   * 1. gotoServerReady(TMUX_SERVER).
+   * 2. Click `Toggle Pane section`; assert aria-pressed="true" and the PANE
+   *    panel header appears in the sidebar.
+   * 3. page.reload(); assert the toggle is still pressed and the PANE header
+   *    is still rendered (localStorage persistence).
+   */
   test("toggling Pane on mounts the PANE panel and persists across reload (desktop)", async ({
     page,
   }) => {
@@ -87,6 +128,17 @@ test.describe("Sidebar section-visibility rail", () => {
     });
   });
 
+  /**
+   * Proves: toggle-off fully unmounts a default-on section (header gone, not
+   * merely collapsed), while the rail itself stays rendered.
+   *
+   * Steps:
+   * 1. gotoServerReady(TMUX_SERVER); assert the Boards section header
+   *    renders.
+   * 2. Click `Toggle Boards section`; assert aria-pressed="false" and zero
+   *    /^Boards/ buttons remain in the sidebar.
+   * 3. Assert the section-rail testid is still visible.
+   */
   test("toggling Boards off removes the section (desktop)", async ({ page }) => {
     const sidebar = await gotoServerReady(page, TMUX_SERVER);
     await expect(sidebar.getByRole("button", { name: /^Boards/ })).toBeVisible({
@@ -103,6 +155,20 @@ test.describe("Sidebar section-visibility rail", () => {
   test.describe("mobile drawer (375px, coarse)", () => {
     test.use({ hasTouch: true, viewport: MOBILE_VIEWPORT });
 
+    /**
+     * Proves: at 375px/coarse the drawer defaults to pure nav + footer (no
+     * PANE/HOST panels), and the rail is the in-drawer path to opt a section
+     * in, with the same reload persistence as desktop.
+     *
+     * Steps:
+     * 1. page.goto(/${TMUX_SERVER}), open the drawer via `Toggle navigation`.
+     * 2. Assert Pane/Host toggles read aria-pressed="false" and no PANE/HOST
+     *    headers exist in the drawer.
+     * 3. Click `Toggle Pane section`; assert the PANE header appears in the
+     *    drawer.
+     * 4. page.reload(), re-open the drawer (ensureDrawerOpen); assert the
+     *    PANE header is still rendered.
+     */
     test("rail defaults hold in the drawer; toggling Pane on mounts the panel and persists across reload", async ({
       page,
     }) => {

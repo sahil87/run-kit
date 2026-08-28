@@ -2,6 +2,24 @@ import { test, expect } from "@playwright/test";
 import { gotoServerReady } from "./_ready";
 import { TMUX_SERVER, TMUX_FAMILY, killServer } from "./_tmux";
 
+/**
+ * Behavioural contract for the transient "Server not found" flash after
+ * creating a tmux server: creating a server through the command palette must
+ * land on the working server view without ever rendering the "Server not
+ * found" error screen, and the not-found screen must still show for a
+ * genuinely-unknown server URL.
+ *
+ * Shared setup: no `beforeAll` session setup — the first test relies only on
+ * the always-present e2e tmux server (`E2E_TMUX_SERVER`, the worktree's
+ * derived e2e primary) being non-empty so the server list is loaded and
+ * non-empty (the precondition under which the old `servers.length > 0` guard
+ * misfired). `afterAll` `kill-server`s the server the test created; the name
+ * is built from this worktree's `TMUX_FAMILY` anchor with the Playwright
+ * `process.pid` as the second-to-last hyphen field, so the family-anchored
+ * global teardown also reaps it if `afterAll` is missed. Desktop viewport
+ * (1024×768).
+ */
+
 // Server created through the UI during the test. Named inside this worktree's
 // socket family (TMUX_FAMILY anchor) with the Playwright process.pid as the
 // second-to-last hyphen field so the automatic post-sweep can parse it and the
@@ -17,6 +35,30 @@ test.describe("Create server → waiting → view (no 'Server not found' flash)"
     killServer(CREATED_SERVER);
   });
 
+  /**
+   * Proves: when the user creates a new server via the command palette while at
+   * least one server already exists (list loaded and non-empty), the UI
+   * navigates to the new server and reaches the connected server view without
+   * the "Server not found" error screen appearing — the pending-marker +
+   * three-way guard suppress the false negative the old binary guard produced.
+   *
+   * Steps:
+   * 1. Navigate to the existing e2e server (`/${TMUX_SERVER_A}`) and wait for
+   *    the `Connected` indicator in the status bar (the desktop sidebar footer
+   *    is gone, so the status-bar dot is the gate).
+   * 2. Open the command palette (`Meta+k`), type `Server: Create`, press Enter.
+   * 3. In the "Create tmux server" dialog, fill the `Server name` field with
+   *    the freshly-generated server name and click the `Create` button.
+   * 4. Assert the URL navigates to `/${CREATED_SERVER}`.
+   * 5. Race two outcomes — whichever appears first wins: the `Connected`
+   *    indicator becoming visible vs. the "Server not found" text becoming
+   *    visible. Each side swallows its own 15s timeout so the loser can't
+   *    surface as an unhandled rejection.
+   * 6. Assert the race winner is `connected`, not `not-found`. Racing (rather
+   *    than asserting `toHaveCount(0)` only after `Connected` settles) is what
+   *    catches a *transient* flash: if the error screen renders even briefly
+   *    during navigation it wins the race and the test fails.
+   */
   test("creating a server lands on the server view, never flashing 'Server not found'", async ({
     page,
   }) => {
@@ -73,6 +115,15 @@ test.describe("Create server → waiting → view (no 'Server not found' flash)"
     );
   });
 
+  /**
+   * Proves: the not-found screen is preserved for real typos / deleted servers —
+   * a name that was never created and is not pending fails fast once the server
+   * list has loaded.
+   *
+   * Steps:
+   * 1. Navigate directly to a randomly-generated, never-created server URL.
+   * 2. Assert the "Server not found" screen becomes visible.
+   */
   test("a genuinely-unknown server URL still shows 'Server not found'", async ({
     page,
   }) => {

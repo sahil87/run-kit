@@ -9,14 +9,14 @@
  *
  * It guards against a systematic gate-timeout freeze: the polished capture gates
  * the new-state snapshot on the incoming window's first inbound bytes, released
- * at message-receipt time inside `ws.onmessage` (260703-l4nf). A regression that
+ * at message-receipt time inside `ws.onmessage`. A regression that
  * makes that release unreachable (e.g. moving it back to a write seam that never
  * fires during View-Transition render suppression, or a UA group animation
  * holding `transition.finished` open) would make an animated switch hang instead
  * of completing. The assertion — the incoming window's content becomes visible
  * within a sane latency bound (well under 1s) — fails loudly on such a hang.
  *
- * Confirmation-gated motion (260715-38kg): the slide is now an EARNED signal —
+ * Confirmation-gated motion: the slide is an EARNED signal —
  * it plays ONLY when the incoming bytes confirm within the ~300ms budget; a
  * timeout SKIPS the slide and shows a LogoSpinner "pending" mask instead, and a
  * failed switch bounces the URL back to tmux truth. Those timing-sensitive
@@ -29,6 +29,23 @@
  * confirmed write past the ~300ms budget); the assertion only rules out a mask
  * left STUCK — it polls `.rk-window-switch-mask` to count 0 within the budget,
  * not an instant absence.
+ *
+ * Shared setup: `test.use({ contextOptions: { reducedMotion: "no-preference"
+ * } })` opts this file's tests into motion, overriding the config-wide
+ * reduced-motion emulation. `reducedMotion` is not a top-level `use` fixture
+ * in this Playwright version; it only reaches the browser context via
+ * `contextOptions`, so both the config and this override set it there —
+ * without it the wrapper short-circuits to an instant switch and the
+ * transition never runs. `beforeAll` creates `e2e-switch-transition-<ts>`;
+ * `afterAll` kills it. `resolveWindowId(page, name)` polls `GET /api/sessions`
+ * until the window surfaces, returning its stable `@N` id (the handle for
+ * both URL navigation and buffer reads). `markerVisible(page, id, marker)`
+ * reads the live xterm `Terminal` from `window.__rkTerminals[id]` (populated
+ * only in dev/e2e builds) and scans its buffer for the marker text — the
+ * WebGL canvas is not DOM-readable, so the parsed buffer is the honest
+ * "content painted" signal. `SWITCH_COMPLETE_BUDGET_MS` (1s) is deliberately
+ * loose against the gate's own ~300ms budget so it fails only on a genuine
+ * hang, not on ordinary localhost jitter.
  */
 import { test, expect, type Page } from "@playwright/test";
 import { execSync } from "node:child_process";
@@ -95,6 +112,56 @@ test.describe("Window-switch slide transition (animated path)", () => {
     killSession(TEST_SESSION);
   });
 
+  /**
+   * Proves: a same-session window switch driven through the sidebar (the
+   * `navigateToWindow` seam that wraps the body in
+   * `document.startViewTransition`) completes — the incoming window's content
+   * becomes visible and the transition tears down — well under 1s. A gate
+   * that never releases, or a UA group animation that holds
+   * `transition.finished` open past the slide, would freeze the switch and
+   * blow past the bound. It also proves the confirmation-gated-motion
+   * anti-stuck-mask invariant: the pending `LogoSpinner` mask is never left
+   * stuck once the switch settles — SSE confirmation and any late incoming
+   * write lift it.
+   *
+   * Steps:
+   * 1. Create two windows `xa-<ts>` and `xb-<ts>` in the shared session and
+   *    `send-keys "echo <marker>" Enter` a distinct letter-only marker into
+   *    each, so each pane carries unambiguous content that the incoming
+   *    redraw repaints.
+   * 2. Navigate to `/${TMUX_SERVER}` (`gotoServerReady`) so the sidebar is
+   *    populated; `resolveWindowId` both windows to their `@id`s.
+   * 3. Deep-link into window A's terminal (`/${TMUX_SERVER}/<idA>`) so there
+   *    is an OUTGOING window in view — the gate requires one (a first switch
+   *    with no outgoing window is an instant switch, not the animated path
+   *    under test).
+   * 4. Wait for `.xterm-screen` visible, A's terminal registered, and A's
+   *    marker painted — the switch must start from a real, populated outgoing
+   *    terminal.
+   * 5. Assert `document.startViewTransition` is a function (View Transitions
+   *    support). Playwright's Desktop Chrome has it; asserting makes a runner
+   *    that silently lacks it fail loudly rather than pass on the instant
+   *    fallback.
+   * 6. Click window B's sidebar row button (the `navigateToWindow` seam) and
+   *    start a wall clock.
+   * 7. Assert B's row becomes `aria-current="page"` — the switch was
+   *    accepted.
+   * 8. Assert B's marker becomes visible in `__rkTerminals[idB]`'s buffer
+   *    within `SWITCH_COMPLETE_BUDGET_MS`, and that the measured elapsed time
+   *    is under the budget — the core anti-freeze guard.
+   * 9. Assert the `data-window-switch-direction` attribute the wrapper set on
+   *    `<html>` is cleared within the budget — the transition's lifetime
+   *    (pointer-dead window, `transition.finished`) settles on the slide's
+   *    timeline.
+   * 10. Poll `.rk-window-switch-mask` to count 0 within the budget — the
+   *     pending mask is NOT stuck once the switch settles. On a healthy
+   *     switch the gate releases fast and the mask never arms; if localhost
+   *     timing pushes the first confirmed write past the ~300ms budget the
+   *     mask may briefly arm, but SSE confirmation (the `aria-current` in
+   *     step 7) and any late incoming write MUST lift it. A regression that
+   *     never lifts the mask (the stuck-mask class of bug) leaves it present
+   *     and fails.
+   */
   test("a same-session animated switch completes within a sane latency bound", async ({
     page,
   }) => {

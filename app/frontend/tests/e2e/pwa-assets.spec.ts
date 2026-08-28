@@ -1,11 +1,34 @@
 import { test, expect } from "@playwright/test";
 
-// PWA identity assets served dynamically by the Go backend through the Vite
-// dev proxy (260722-eo8e). All assertions are tint-agnostic: the box running
-// the e2e suite may or may not have an instance accent in its real
-// ~/.config/run-kit/config.yaml, so the tests pin the serving pipeline (proxy → Go
-// handler → valid asset), never the tint state.
+// PWA identity assets (`/manifest.json`, `/generated-icons/*`) served
+// dynamically by the Go backend through the Vite dev proxy. All assertions
+// are tint-agnostic: the box running the e2e suite may or may not have an
+// instance accent in its real ~/.config/run-kit/config.yaml, so the tests pin
+// the serving pipeline (proxy → Go handler → valid asset), never the tint
+// state (the tint itself is golden-pixel tested in Go: api/pwa_test.go,
+// internal/icontint).
+//
+// Shared setup: none beyond the standard externally-managed e2e dev server
+// (Vite proxying to the Go backend) — the tests use Playwright's `request`
+// fixture against baseURL; no page or tmux state.
 test.describe("PWA assets", () => {
+  /**
+   * Proves: /manifest.json reaches the Go dynamic handler (not Vite's
+   * public-dir static copy) and still parses as the RunKit manifest. The
+   * discriminator is the application/manifest+json content-type — only the
+   * Go handler sets it; Vite would serve the static file as
+   * application/json.
+   *
+   * Steps:
+   * 1. request.get("/manifest.json").
+   * 2. Assert status 200 and content-type contains
+   *    application/manifest+json.
+   * 3. Parse the JSON; assert `name` is `RunKit` and there are exactly 3
+   *    icons.
+   * 4. Assert each icon `src` matches /generated-icons/icon-*.png with an
+   *    optional ?c=<descriptor> cache-buster (present only when the box has
+   *    an accent configured — tint-agnostic).
+   */
   test("manifest is served by the Go handler through the dev proxy", async ({
     request,
   }) => {
@@ -26,6 +49,16 @@ test.describe("PWA assets", () => {
     }
   });
 
+  /**
+   * Proves: the proxied /generated-icons/icon-192.png route returns a real
+   * PNG (magic-byte check) with the right content-type, tinted or not.
+   *
+   * Steps:
+   * 1. request.get("/generated-icons/icon-192.png").
+   * 2. Assert status 200 and content-type contains image/png.
+   * 3. Assert the first 8 body bytes are the PNG signature
+   *    89 50 4E 47 0D 0A 1A 0A.
+   */
   test("dock icon PNG is served intact", async ({ request }) => {
     const res = await request.get("/generated-icons/icon-192.png");
     expect(res.status()).toBe(200);
@@ -37,6 +70,18 @@ test.describe("PWA assets", () => {
     );
   });
 
+  /**
+   * Proves: the proxied /generated-icons/favicon.svg route is answered by the
+   * Go favicon handler — it returns SVG content and the Cache-Control:
+   * no-cache header that handler sets (the favicon tint resolves from
+   * settings per request, so tabs must revalidate to pick up accent changes).
+   *
+   * Steps:
+   * 1. request.get("/generated-icons/favicon.svg").
+   * 2. Assert status 200 and content-type contains image/svg+xml.
+   * 3. Assert `cache-control` contains `no-cache`.
+   * 4. Assert the body contains `<svg`.
+   */
   test("favicon SVG is served with revalidation caching", async ({
     request,
   }) => {

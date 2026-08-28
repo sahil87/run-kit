@@ -13,6 +13,11 @@ import {
 // this daemon process has never swept. Named inside this worktree's socket
 // family (TMUX_FAMILY anchor) so the allowlist, teardown glob, and post-sweep
 // all match by prefix (the multi-server spec's convention).
+// beforeAll creates the scratch server with one session (one window) via the
+// shared _tmux helpers — createSession marks the server @rk_srv_managed, so
+// the managed-only sweep gate passes — then seeds the bug: a session-scoped
+// legacy @color. afterAll kills the scratch server. expectSessionOption polls
+// the session-scoped option until it reads the expected value ("" = unset).
 const LEGACY_SERVER = `${TMUX_FAMILY}legacy-${process.pid}-${Date.now().toString().slice(-6)}`;
 const TEST_SESSION = `e2e-legacy-${Date.now()}`;
 const WIN_NAME = "legacy-win";
@@ -43,6 +48,32 @@ test.describe("Legacy option sweep (session-scoped @color)", () => {
     killServer(LEGACY_SERVER);
   });
 
+  /**
+   * Proves: a session-scoped legacy `@color` no longer tints any window row
+   * (the snapshot's window `color` field reads `@rk_win_color`, which the
+   * legacy key can never reach, and the row button carries no inline tint);
+   * triggering the reload-config sweep hook purges the wrong-scope key and
+   * copies nothing forward (no `@rk_ses_color` appears); and the picker's
+   * `Clear color` against the purged key leaves the row uncolored.
+   *
+   * Steps:
+   * 1. Sanity-check the seed: `@color` reads `1+3` at session scope on the
+   *    scratch server.
+   * 2. Navigate to `/<scratch-server>` and wait for the session row;
+   *    `resolveWindow` the window and assert its `color` field is empty.
+   * 3. Assert the row button's inline `background-color` style is empty (the
+   *    tint is an inline style applied only for a known color value).
+   * 4. POST `/api/tmux/reload-config?server=<scratch-server>` (an
+   *    attach-equivalent sweep hook; first call for this server runs the
+   *    once-guarded sweep); assert the response is OK.
+   * 5. Poll until `@color` reads unset at session scope; assert the session
+   *    gained no `@rk_ses_color` (wrong-scope values are purged, never copied)
+   *    and the window's `color` field is still empty.
+   * 6. Open the row's `Label picker` from the `Set tab label` zone; click
+   *    `Clear color`; poll the snapshot until the window's `color` field is
+   *    empty and assert the row button still carries no inline tint.
+   * 7. Close the picker via the `Close picker` (✕) cell.
+   */
   test("a session-scoped legacy @color tints nothing, the sweep purges it, and the picker clear stays a no-op", async ({
     page,
   }) => {

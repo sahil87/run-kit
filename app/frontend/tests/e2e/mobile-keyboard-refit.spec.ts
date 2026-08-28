@@ -5,7 +5,11 @@
 // the surface-layout mobile tile must SIZE the terminal (a content-sized tile
 // pins xterm at its 80×24 default — the canvas measures the tile, which
 // measures the canvas — and the terminal goes deaf to every viewport change),
-// and the bottom-bar safe floor must toggle with html.kb-open (260805-fi9m).
+// and the bottom-bar safe floor must toggle with html.kb-open (1rem on coarse
+// pointers while collapsed, 6px while kb-open is set).
+// test.use pins an iPhone-sized viewport (375×812) with hasTouch: true.
+// beforeAll/afterAll create and kill a dedicated session; the test adds its
+// own `probe` window.
 import { test, expect } from "@playwright/test";
 import { execSync } from "node:child_process";
 import { resolveWindow as resolveWindowRaw } from "./_ready";
@@ -35,6 +39,26 @@ test.afterAll(() => {
   killSession(TEST_SESSION);
 });
 
+/**
+ * Proves: the terminal grid tracks the viewport through a keyboard
+ * open/collapse cycle end to end (xterm rows AND the tmux pane), and the
+ * bottom-bar safe floor toggles with the keyboard signal.
+ *
+ * Steps:
+ * 1. Create a `probe` window, resolve its windowId, goto the terminal route.
+ * 2. Poll `window.__rkTerminals[windowId].rows > 10` (terminal ready).
+ * 3. Baseline: assert `pointer: coarse` matches, `kb-open` absent, rows > 30
+ *    (24 is the content-sized-tile fixed point — the regression tripwire),
+ *    and the toolbar's computed `padding-bottom` is `16px` (raised floor).
+ * 4. Shrink the viewport to 375×512 (−300px, width constant — "keyboard
+ *    open").
+ * 5. Poll `html.kb-open` present; poll rows < baseline (terminal shrank);
+ *    assert the floor dropped to `6px`.
+ * 6. Restore the viewport to 375×812 ("keyboard collapsed").
+ * 7. Poll `kb-open` absent; poll rows ≥ baseline (terminal re-expanded); poll
+ *    tmux `pane_height ≥ rows − 2` (tmux was told — 2 status lines); assert
+ *    the floor returned to `16px` and `--app-height` is `812px`.
+ */
 test("keyboard open/collapse: xterm+tmux refit and the bottom-bar floor toggles", async ({ page }) => {
   newWindow(TEST_SESSION, WINDOW_NAME);
   const { windowId } = await resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION, WINDOW_NAME);

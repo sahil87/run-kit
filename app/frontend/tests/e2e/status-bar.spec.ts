@@ -1,11 +1,14 @@
 import { test, expect, type Page } from "@playwright/test";
 import { mockStateSocket } from "./_state-socket-mock";
 
-// Status bar e2e (260814-ldbs-shell-stage-status-bar; R3/R4/R5). Fully mocked
-// (no tmux/gh) — the pane-register-panel.spec.ts / tooltips.spec.ts idiom: the
-// state socket delivers one session with two windows, plus host-metrics and
-// version slots for the host cluster. See status-bar.spec.md for intent +
-// steps.
+// Status bar e2e. Fully mocked (no tmux/gh) — the pane-register-panel.spec.ts /
+// tooltips.spec.ts idiom: the state socket (mockStateSocket from
+// _state-socket-mock.ts) delivers one session (`dev`) with one window (`@1`,
+// all signal layers: waiting agent, fab change, open PR, git branch), a
+// host-metrics snapshot (`e2e-box`), and a version slot (`0.9.3`).
+// `/ws/terminals` is stubbed; `/api/servers` + window-select are fulfilled
+// inline. `beforeEach` installs the mock. Default Playwright desktop viewport
+// (1280px) unless a test resizes.
 //
 // Subjects: the full-width attached status strip at the shell bottom
 // (desktop-only), the fine-pointer bottom-bar DELETION, the window-cluster /
@@ -92,6 +95,22 @@ test.describe("Status bar (260814-ldbs)", () => {
     await mockBackend(page);
   });
 
+  /**
+   * Proves: on the desktop terminal route the status bar renders with BOTH
+   * clusters — the window cluster mirrors the current window's registers
+   * (tmux pane, cwd basename, git branch, agent state, fab change, PR as an
+   * open-first anchor) and the host cluster shows compact metrics,
+   * host+version, and the connection dot — while the fine-pointer bottom bar
+   * is gone from the DOM entirely.
+   *
+   * Steps:
+   * 1. Navigate to `/default/1`; wait for the status bar.
+   * 2. Assert zero `Terminal keys` toolbars in the DOM.
+   * 3. Assert the window cluster's register values (`pane 1/1 %1`, `wt`,
+   *    `main`, `waiting 3m`, the fab line, the `Open PR #603` link).
+   * 4. Assert the host cluster (`17%`, `e2e-box`, `v0.9.3`) and the
+   *    `Connected` dot.
+   */
   test("desktop terminal route: status bar present with BOTH clusters; no bottom bar exists", async ({ page }) => {
     await page.goto(`/${SERVER}/1`);
     await expect(statusBar(page)).toBeVisible({ timeout: 10_000 });
@@ -118,6 +137,18 @@ test.describe("Status bar (260814-ldbs)", () => {
     await expect(statusBar(page).getByLabel("Connected")).toBeVisible();
   });
 
+  /**
+   * Proves: off the terminal route the status bar still renders (uniform
+   * frame) but with the host cluster only — a route with no live window data
+   * renders no window segments and no placeholder rows, and the bottom bar
+   * is absent there too.
+   *
+   * Steps:
+   * 1. Navigate to `/default`; wait for the status bar.
+   * 2. Assert no `status-bar-window` element exists.
+   * 3. Assert the host cluster shows the hostname and server name.
+   * 4. Assert zero `Terminal keys` toolbars.
+   */
   test("server route (no window): host cluster only — no window cluster, no errors", async ({ page }) => {
     await page.goto(`/${SERVER}`);
     await expect(statusBar(page)).toBeVisible({ timeout: 10_000 });
@@ -127,6 +158,34 @@ test.describe("Status bar (260814-ldbs)", () => {
     await expect(keyToolbar(page)).toHaveCount(0);
   });
 
+  /**
+   * Proves: the no-scroll degradation ladder at the ~800px band. The window
+   * cluster renders in descending relevance (git → pr → fab → agt → tmx →
+   * cwd) and display order equals survival order, so the rightmost segment
+   * dies first: deterministic CSS breakpoint classes hide cwd (≥xl) and tmx
+   * (≥lg) while git/agt/fab/PR survive (there is no `out` segment — deleted
+   * outright); the bar never scrolls; the `…` chevron (hidden at full width)
+   * appears and its menu lists the dropped segments in strip order; the
+   * menu's rows are keyboard-reachable by arrow-nav, which skips the rows a
+   * breakpoint currently hides; Escape closes it.
+   *
+   * Steps:
+   * 1. Navigate to `/default/1`; wait for the window cluster.
+   * 2. At 1440px assert all window segments visible and the chevron hidden.
+   * 3. Resize to 800×600; assert cwd/tmx hidden, git/agt still visible, and
+   *    `scrollWidth ≤ clientWidth` on the bar.
+   * 4. Click the chevron; assert the menu lists `tmx`/`cwd` rows and no
+   *    `out` row.
+   * 5. Assert focus enters the panel on the first VISIBLE row (`tmx` — the
+   *    menu mirrors the strip order git → tmx → cwd, and git's row is hidden
+   *    while its segment survives ≥md), that ArrowDown/ArrowUp move to `cwd`
+   *    and back, and that ArrowUp off the first row wraps to the last
+   *    VISIBLE row (the compose action) rather than the breakpoint-hidden
+   *    version row — a `display: none` row cannot take focus, so arrow-nav
+   *    must skip it. This is the browser-only half of the contract; the unit
+   *    suite covers the rove itself, where jsdom computes no layout.
+   * 6. Press Escape; assert the menu closes.
+   */
   test("narrow desktop width: low-priority segments drop (never scroll) and the … chevron lists them", async ({ page }) => {
     await page.goto(`/${SERVER}/1`);
     await expect(windowCluster(page)).toBeVisible({ timeout: 10_000 });
@@ -180,6 +239,16 @@ test.describe("Status bar (260814-ldbs)", () => {
     await expect(menu).toBeHidden();
   });
 
+  /**
+   * Proves: the status bar's `a▏` hint is the desktop compose opener (the
+   * relocated bottom-bar affordance): clicking it mounts the compose strip
+   * and the hint reflects the pressed state.
+   *
+   * Steps:
+   * 1. Navigate to `/default/1`; wait for the `status-bar-compose` button.
+   * 2. Click it; assert the `compose-strip` element renders.
+   * 3. Assert the hint is `aria-pressed="true"`.
+   */
   test("the compose hint opens the compose strip (the relocated bottom-bar affordance)", async ({ page }) => {
     await page.goto(`/${SERVER}/1`);
     const compose = statusBar(page).getByTestId("status-bar-compose");
@@ -189,6 +258,17 @@ test.describe("Status bar (260814-ldbs)", () => {
     await expect(compose).toHaveAttribute("aria-pressed", "true");
   });
 
+  /**
+   * Proves: below the desktop breakpoint the status bar does not exist —
+   * mobile keeps its own chrome and the PANE/HOST panels live in the drawer
+   * (covered by sidebar-panels.spec.ts).
+   *
+   * Steps:
+   * 1. Set a 375×812 viewport; navigate to `/default/1`; gate on the
+   *    `Toggle navigation` button (the sidebar-footed `Connected` dot is
+   *    unmounted with the closed drawer).
+   * 2. Assert zero `status-bar` elements in the DOM.
+   */
   test("mobile viewport: no status bar at all (the drawer keeps the panels)", async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 });
     await page.goto(`/${SERVER}/1`);
@@ -209,6 +289,21 @@ test.describe("Status bar (260814-ldbs)", () => {
   test.describe("coarse pointer at desktop width (the iPad seam)", () => {
     test.use({ hasTouch: true, viewport: { width: 1440, height: 800 } });
 
+    /**
+     * Proves: `useIsMobile()` is width-OR-coarse, so a coarse pointer at a
+     * DESKTOP width (an iPad in landscape) renders the mobile experience
+     * app-wide: the key-chip bar survives and the status bar does NOT exist
+     * (the status bar lives exactly where the desktop grids live —
+     * `!isMobile` — on every route).
+     *
+     * Steps:
+     * 1. `test.use({ hasTouch: true, viewport: 1440×800 })` — `hasTouch`
+     *    flips Chromium's `(pointer: coarse)` at a desktop width (the
+     *    bottom-bar-chip-size seam).
+     * 2. Navigate to `/default/1`; gate on the `Toggle navigation` button.
+     * 3. Assert the `Terminal keys` toolbar (the chip bar) IS visible.
+     * 4. Assert zero `status-bar` elements in the DOM.
+     */
     test("coarse + wide = mobile experience: chip bar present, NO status bar", async ({ page }) => {
       await page.goto(`/${SERVER}/1`);
       // Mobile chrome at desktop width: the hamburger and (coarse) chip bar…

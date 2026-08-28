@@ -31,7 +31,7 @@ CWD display (line 1) uses `shortenPath()` to shorten the active pane's `cwd` (fa
 - **`beforeAll`** raw-byte-reads `config.yaml` (`readFileSync(path, "utf8")`). Absent detection is **ENOENT-only**: a `code === "ENOENT"` read error means "no file to restore" (afterAll then deletes any residue); ANY other read error (EACCES/EIO — the file EXISTS but couldn't be snapshotted) is **rethrown**, so afterAll never `rmSync`-deletes real settings on a failed snapshot.
 - **`afterAll`** (always runs, even on test failure) restores VERBATIM: write the original bytes back if the file existed, else `rmSync({ force: true })` to delete residue — a byte-identical round-trip. Teardown errors are swallowed so they never mask a test failure.
 
-This is the general pattern for **any** host-global filesystem state an e2e touches: explicit save/restore in the spec, because the harness scopes tmux, ports, and `$XDG_STATE_HOME` but not `$HOME`. The companion `.spec.md` documents the save/restore in its Shared setup section (constitution Test Companion Docs).
+This is the general pattern for **any** host-global filesystem state an e2e touches: explicit save/restore in the spec, because the harness scopes tmux, ports, and `$XDG_STATE_HOME` but not `$HOME`. The spec file's header intent comment documents the save/restore (per the constitution's Test Intent Comments rule).
 
 ## Session Name Prompt
 

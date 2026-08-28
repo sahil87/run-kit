@@ -1,12 +1,15 @@
 import { test, expect, type Page } from "@playwright/test";
 import { mockStateSocket } from "./_state-socket-mock";
 
-// Operator compose — spawn routing & semantic search (260822-wyn3 R6). Fully
-// mocked (no tmux): the sessions payload rides the state-socket mock with an
-// operator window present, and the server-scoped operator-request endpoint is
-// stubbed via page.route. The route mock carries a trailing `*` — the client
-// appends `?server=` (withServer), so a bare glob would silently miss. See
-// operator-compose.spec.md for intent + steps.
+// Operator compose — spawn routing & semantic search: the two palette verbs,
+// the shared dialog, the per-verb toasts, the structured-failure toast, and
+// the no-operator gating. Fully mocked (no tmux): the sessions payload rides
+// the state-socket mock — a work window `@1` plus, when the test wants one,
+// an operator window `@9` with `role: "operator"` in `_rk-operator` — and the
+// server-scoped operator-request endpoint is stubbed via page.route. The
+// route mock carries a trailing `*` — the client appends `?server=`
+// (withServer), so a bare glob would silently miss. Each spec lands on the
+// `@1` terminal route before driving the palette.
 
 const SERVER = "default";
 
@@ -99,6 +102,24 @@ async function openPaletteWith(page: Page, query: string) {
 }
 
 test.describe("Operator compose (260822-wyn3)", () => {
+  /**
+   * Proves: the palette verb opens the compose dialog with the spawn mode
+   * active and the input focused, and submitting POSTs
+   * `{template: "spawn-task", text}` to the server-scoped endpoint, closing
+   * the dialog and toasting "Sent to operator — it will spawn the agent".
+   *
+   * Steps:
+   * 1. Mock the backend with an operator window and a 200 operator-request
+   *    stub.
+   * 2. Open the palette, filter to `Operator:`, select
+   *    `Operator: Spawn task…`.
+   * 3. Assert the dialog shows with the "Spawn task" segment `aria-pressed`
+   *    and the input focused.
+   * 4. Type "fix the flaky test", press Enter.
+   * 5. Assert exactly one POST body
+   *    `{template: "spawn-task", text: "fix the flaky test"}`, the dialog
+   *    closed, and the spawn-wording toast visible.
+   */
   test("palette 'Operator: Spawn task…' opens the dialog pre-selected to spawn; Enter submits the body and toasts the spawn wording", async ({
     page,
   }) => {
@@ -121,6 +142,21 @@ test.describe("Operator compose (260822-wyn3)", () => {
     await expect(page.getByText("Sent to operator — it will spawn the agent")).toBeVisible();
   });
 
+  /**
+   * Proves: the find verb mirrors the spawn verb — pre-selected find mode,
+   * `{template: "find-discussion", text}` POST, and the "…answer appears in
+   * the operator tab" toast.
+   *
+   * Steps:
+   * 1. Mock the backend with an operator window and a 200 operator-request
+   *    stub.
+   * 2. Open the palette, filter to `Operator:`, select
+   *    `Operator: Find discussion…`.
+   * 3. Assert the "Find discussion" segment is `aria-pressed`.
+   * 4. Type "where did we discuss the fence length", press Enter.
+   * 5. Assert the POST body `{template: "find-discussion", text: …}` and the
+   *    find-wording toast.
+   */
   test("palette 'Operator: Find discussion…' opens the dialog pre-selected to find; Enter submits the query and toasts the find wording", async ({
     page,
   }) => {
@@ -143,6 +179,17 @@ test.describe("Operator compose (260822-wyn3)", () => {
     await expect(page.getByText("Sent to operator — the answer appears in the operator tab")).toBeVisible();
   });
 
+  /**
+   * Proves: the busy-operator 409's structured `error` message reaches the
+   * user as the error toast (the `throwOnError` seam), not a generic failure.
+   *
+   * Steps:
+   * 1. Mock the backend with an operator window and a 409 stub carrying the
+   *    busy message.
+   * 2. Open the dialog via `Operator: Spawn task…`, type a task, press Enter.
+   * 3. Assert the POST fired and the toast carries the server's
+   *    "operator is busy (active) …" message.
+   */
   test("a structured backend 409 surfaces as the failure toast", async ({ page }) => {
     const opBodies = await mockBackend(page, true, {
       status: 409,
@@ -161,6 +208,16 @@ test.describe("Operator compose (260822-wyn3)", () => {
     await expect(page.getByText(/operator is busy \(active\)/)).toBeVisible();
   });
 
+  /**
+   * Proves: the degrade-to-absent gate — with no `role: "operator"` window in
+   * the sessions payload, both `Operator:` palette entries are omitted (not
+   * disabled).
+   *
+   * Steps:
+   * 1. Mock the backend WITHOUT an operator window.
+   * 2. Open the palette, filter to `Operator:`.
+   * 3. Assert zero `Operator:` options.
+   */
   test("neither palette entry is listed when the server has no operator window", async ({ page }) => {
     await mockBackend(page, false);
     await gotoWindow(page);

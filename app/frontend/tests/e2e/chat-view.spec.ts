@@ -3,24 +3,34 @@ import { mockStateSocket } from "./_state-socket-mock";
 
 // Fully mocked (no tmux/gh) — inject the `sessions` payload over the state-socket
 // mock + the server list + the chat backfill (a plain GET) via page.route, then
-// drive the chat view. Chat moved onto the state socket (260717-vhvz): the
-// backfill demoted to GET /api/windows/{id}/chat and incremental events ride the
-// `kind:"chat"` subscription — there is NO chat SSE stub. See chat-view.spec.md
-// for intent + steps.
+// drive the chat view. Chat rides the state socket: the backfill is a plain
+// GET /api/windows/{id}/chat and incremental events ride the `kind:"chat"`
+// subscription — there is NO chat SSE stub. The terminals mux WebSocket
+// (/ws/terminals) is stubbed; there is NO /relay/ or SSE stub (memory
+// `relay-mux-stale-ws-stub-class`).
 //
-// Chat read frontend (260714-r7rq — Change 3 of the agent-chat-view plan): a
-// read-only HTML chat view over the same agent pane, reachable via the
-// `?view=chat` deep link (shimmed to `?layout=single:chat` since
-// 260812-ab5v-surface-layout-core) or the command palette's `View: Chat`
-// action on the existing terminal route. The ViewSwitcher is RETIRED
-// (260812-0c6o): the palette is the ONLY lens-switch surface, the top-bar
-// `surface-toggles` group (the right rail is REMOVED — composed-frame
-// unification) shows NO chat toggle (SURFACE_RAIL_HIDDEN — chat is
-// palette-only), and the
-// `` Ctrl+` `` chat-toggle chord is gone (unbound since 260813-j3jb — the
-// chord belongs to code-server). Palette
-// selections set `single:<view>` through the shared layout mutation path
-// (surface-layout R12).
+// Chat read frontend: a read-only HTML chat view over the same agent pane,
+// reachable via the `?view=chat` deep link (shimmed to `?layout=single:chat`)
+// or the command palette's `View: Chat` action on the existing terminal route.
+// The ViewSwitcher is RETIRED: the palette is the ONLY lens-switch surface,
+// the top-bar `surface-toggles` group (the right rail is REMOVED —
+// composed-frame unification) shows NO chat toggle (SURFACE_RAIL_HIDDEN —
+// chat is palette-only), and the
+// `` Ctrl+` `` chat-toggle chord is gone (fully unbound — the chord belongs to
+// code-server). Palette selections set `single:<view>` through the shared
+// layout mutation path.
+//
+// Fixtures: `backfillWithPending()` is an offset-bearing Conversation with a
+// user message, an assistant markdown message, a tool_use/tool_result pair,
+// and a tail pending question; `backfillCleared()` has two plain messages and
+// no pending. `mockBackend(page, conv, chatOpts?, winName?)` wires the routes
+// (`conv` is the GET backfill body; `chatOpts` drives the socket's post-ack
+// chat frames — the mock answers a `kind:"chat"` subscribe with an ack
+// carrying `{offset}`, no snapshot). `mockChatSend(page, { status, error })`
+// routes the chat-send POST (`**/api/windows/*/chat/send*`), records each
+// request's body, and fulfils either `200 {"ok":true}` or a non-200
+// `writeError` JSON `{ error }` so the client's throwOnError surfaces the
+// structured message.
 
 const SERVER = "default";
 const MOBILE = { width: 375, height: 812 };
@@ -213,6 +223,38 @@ async function mockChatSend(
 }
 
 test.describe("Chat read frontend — view toggle, heading, rendering", () => {
+  /**
+   * Proves: the palette's `View: Chat` action is gated on the current window
+   * carrying a non-empty `chatProvider` — present on @1 (claude), absent on @2
+   * (plain, which offers only `tty`) — and the retirement contract: even on the
+   * capable window there is no in-bar pill, no `view-toggle` testid anywhere in
+   * the DOM, no `View:` rows in the chevron menu, and NO chat toggle in the
+   * top-bar `surface-toggles` group (chat is palette-only) while the tty toggle
+   * remains — INCLUDING while a chat tile is already open (the tile renders
+   * normally and the palette switches back to the terminal, closing it). A
+   * `?view=chat` deep link on a chat-less window degrades gracefully to the
+   * terminal (the shim's `single:chat` translation degrades tile-by-tile to
+   * `single:tty` — chat is unavailable there).
+   *
+   * Steps:
+   * 1. Mock the backend; navigate to `/default/1`; gate on the `Tab:` heading.
+   *    Assert the `Window view` group has count 0 AND `view-toggle` has count 0.
+   *    Assert the banner (top bar) shows the `Terminal tile` toggle but NO
+   *    `Chat tile` toggle. Open the palette with `View: Chat` and assert the
+   *    option is visible; Escape. Open the "More controls" menu and assert it
+   *    carries NO `View:` rows; Escape-close.
+   * 2. `switchLens("Chat")`; assert the `chat-view` renders, the group STILL has
+   *    no `Chat tile` toggle, and the `Terminal tile` toggle remains. Then
+   *    `switchLens("Terminal")`; assert the `chat-view` is hidden (the tile
+   *    stays mounted, display-hidden) and the `layout` param is dropped (the
+   *    default `single:tty` mirrors as a clean URL).
+   * 3. Navigate to `/default/2`; assert "plain-win" is visible; open the palette
+   *    and assert it offers NO `View: Chat` option; Escape-close.
+   * 4. Navigate to `/default/2?view=chat`; assert no `chat-view` renders, no
+   *    `Window view` group renders, and the static `Tab:` heading prefix shows
+   *    (the terminal branch mounted despite the param; the heading is `Tab:` in
+   *    every lens).
+   */
   test("the `View: Chat` palette action appears only on a chatProvider window; the top-bar toggle group has no chat toggle (260812-0c6o)", async ({ page }) => {
     await mockBackend(page, backfillCleared());
 
@@ -270,6 +312,23 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     await expect(page.getByText("Tab:", { exact: true })).toBeVisible();
   });
 
+  /**
+   * Proves: activating the palette's `View: Chat` action (the only lens-switch
+   * surface) flips the view without changing the window — the URL mirrors
+   * `?layout=single:chat` on the same @1 (the shim: a view selection is a
+   * single-tile layout mutation through the shared path) and the chat renderer
+   * mounts. The center heading is a static `Tab:` throughout (it does not
+   * change with the lens), so the heading anchor does not jump on the switch.
+   * The window rename affordance carries over.
+   *
+   * Steps:
+   * 1. Mock the backend; navigate to `/default/1`; gate on the `Tab:` prefix.
+   * 2. `switchLens("Chat")` — open the palette (`Meta+k`), fill `View: Chat`,
+   *    click the option, and wait for the palette to close.
+   * 3. Assert the decoded `layout` param is `single:chat`, the `chat-view`
+   *    renderer is visible, the heading still shows the `Tab:` prefix, and the
+   *    `Rename tab agent-win` heading button is present.
+   */
   test("flipping to chat preserves the window and updates the URL (heading stays `Tab:`)", async ({ page }) => {
     await mockBackend(page, backfillCleared());
     await page.goto(`/${SERVER}/1`);
@@ -292,6 +351,19 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     await expect(page.getByRole("button", { name: `Rename tab agent-win` })).toBeVisible();
   });
 
+  /**
+   * Proves: the `Ctrl+\`` chord no longer reaches the chat lens — the chord is
+   * fully unbound (the interim layout-zoom rebind was removed; `Ctrl+\``
+   * belongs to code-server), so it falls through untouched: no `single:chat`
+   * layout, no chat view, no heading change.
+   *
+   * Steps:
+   * 1. Mock the backend; navigate to `/default/1`; gate on the `Tab:` prefix
+   *    (the always-present readiness surface).
+   * 2. Press `Control+\``; wait a beat for any erroneous handler to fire.
+   * 3. Assert the `layout` param is ABSENT (default `single:tty` drops it), the
+   *    `chat-view` testid has count 0, and the `Tab:` prefix is still shown.
+   */
   test("Ctrl+` no longer flips to the chat lens (the chord is fully unbound, 260813-j3jb)", async ({ page }) => {
     await mockBackend(page, backfillCleared());
     await page.goto(`/${SERVER}/1`);
@@ -309,6 +381,18 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     await expect(page.getByText("Tab:", { exact: true })).toBeVisible();
   });
 
+  /**
+   * Proves: a cold navigation straight to `?view=chat` renders the chat view
+   * (URL precedence over the terminal default), including the live send input
+   * (the old read-only disabled footer is gone) and a markdown-rendered
+   * assistant message.
+   *
+   * Steps:
+   * 1. Mock the backend; navigate directly to `/default/1?view=chat`.
+   * 2. Assert the `chat-view` and static `Tab:` prefix are visible, the
+   *    `chat-send-disabled` footer has count 0, the `chat-send-input` is
+   *    visible, and the assistant text ("done") is shown.
+   */
   test("deep link ?view=chat cold-loads into the chat view", async ({ page }) => {
     await mockBackend(page, backfillCleared());
     await page.goto(`/${SERVER}/1?view=chat`);
@@ -323,6 +407,22 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     await expect(page.getByTestId("chat-view")).toContainText("done");
   });
 
+  /**
+   * Proves: the renderer draws distinct user/assistant bubbles, a collapsible
+   * tool-call card (collapsed by default, expandable to reveal
+   * `toolInput`/`toolOutput`), and an attention-styled pending bubble at the
+   * tail.
+   *
+   * Steps:
+   * 1. Mock a backfill with the pending question; navigate to
+   *    `/default/1?view=chat`.
+   * 2. Assert the user and assistant bubbles contain their text.
+   * 3. Assert the tool card is visible, shows `Bash`, and does NOT show the
+   *    output ("all green") while collapsed.
+   * 4. Click the card header; assert it now shows the input ("just test") and
+   *    the output.
+   * 5. Assert the pending bubble contains "Ship it?".
+   */
   test("renders bubbles + a collapsible tool card, and the pending bubble at the tail", async ({ page }) => {
     await mockBackend(page, backfillWithPending());
     await page.goto(`/${SERVER}/1?view=chat`);
@@ -344,6 +444,17 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     await expect(page.getByTestId("chat-pending")).toContainText("Ship it?");
   });
 
+  /**
+   * Proves: a `chat-state` frame with `pending: null` retracts the pending
+   * bubble (the retractable-state contract — always applied, including null).
+   *
+   * Steps:
+   * 1. Mock the GET backfill with a pending, and a `chat-state` `pending: null`
+   *    emitted over the state socket after the chat subscribe ack; navigate to
+   *    `/default/1?view=chat`.
+   * 2. Assert the `chat-view` is visible, then assert the `chat-pending` bubble
+   *    has count 0.
+   */
   test("the pending bubble clears on a chat-state pending:null", async ({ page }) => {
     // The GET backfill carries a pending; then a `chat-state` pending:null rides
     // the state socket after the subscribe ack and clears it on the same lens.
@@ -355,6 +466,30 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     await expect(page.getByTestId("chat-pending")).toHaveCount(0, { timeout: 5_000 });
   });
 
+  /**
+   * Proves: at 375px with a realistically long window name, the retired
+   * switcher leaves no chrome anywhere — the center heading keeps its room
+   * because there is never an inline pill — and chat's rail-hidden status means
+   * the top-bar switch group renders no chat button (here only tty survives the
+   * hidden filter, so the ≥2 gate renders no group at all); the palette's
+   * `Tile: Switch to Terminal` entry is the way back (the `View:` lens entries
+   * are superseded on mobile), and the top-bar single-row budget still holds
+   * (no wrap, no horizontal page overflow).
+   *
+   * Steps:
+   * 1. Mock the backend with a long @1 window name
+   *    (`riff-gallant-jackal-worktree-mobile`); set the viewport to 375×812;
+   *    navigate to `/default/1?view=chat`.
+   * 2. Assert the `chat-view` is visible (the lens resolved / window loaded).
+   * 3. Assert the in-bar switcher group ("Window view") has count 0 AND the
+   *    `view-toggle` testid has count 0.
+   * 4. Open the palette with `View: Terminal`; assert NO `View: Terminal`
+   *    option (mobile supersession); refill with `Switch`; assert the
+   *    `Tile: Switch to Terminal` option is visible; Escape-close.
+   * 5. Assert `document.body.scrollWidth <= 375`.
+   * 6. Assert the header's bounding-box height is < 56px (a wrap would ~double
+   *    it).
+   */
   test("375px: the chat lens renders with a long window name and no switcher chrome (no horizontal overflow)", async ({ page }) => {
     // 260812-0c6o: the ViewSwitcher is retired — at phone width with a
     // realistically long window name the heading keeps its room and there is
@@ -397,6 +532,17 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     expect(box!.height).toBeLessThan(56);
   });
 
+  /**
+   * Proves: under the config's global `reducedMotion: reduce`, no element
+   * inside the chat view reports a running CSS animation (the view has no
+   * decorative motion; attention/pending are color + text, never motion-only).
+   *
+   * Steps:
+   * 1. Mock the backend; navigate to `/default/1?view=chat`; assert the
+   *    `chat-view` is visible.
+   * 2. Evaluate `getComputedStyle(...).animationName` across the view subtree;
+   *    assert none is a running animation (all `none`).
+   */
   test("reduced-motion is honored — the chat view carries no running animations", async ({ page }) => {
     // The global config emulates reducedMotion: "reduce"; the chat view has no
     // decorative motion, so nothing inside it should report a running animation.
@@ -417,6 +563,23 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
 });
 
 test.describe("Chat send — input, POST, error surfacing, busy hint", () => {
+  /**
+   * Proves: plain Enter is NOT a send — it inserts a newline so lines
+   * accumulate locally, no POST fires; pressing Cmd/Ctrl+Enter (the only submit
+   * chord) fires EXACTLY one chat-send POST carrying the accumulated text; on a
+   * 200 the input clears and no inline error shows. The additive wire contract
+   * keeps the default body shape exactly `{ text }` — no `submit` field.
+   *
+   * Steps:
+   * 1. Mock the backend + `mockChatSend` (200); navigate to
+   *    `/default/1?view=chat`.
+   * 2. Fill `chat-send-input` with "run the tests" and press Enter; assert the
+   *    value is now `run the tests\n` and NO POST was recorded.
+   * 3. Press `ControlOrMeta+Enter`.
+   * 4. Assert exactly one recorded POST body equal to `run the tests\n`, and
+   *    that the parsed body carries NO `submit` field.
+   * 5. Assert the input is now empty and `chat-send-error` has count 0.
+   */
   test("typing + Cmd/Ctrl+Enter fires exactly one POST with the typed body and clears on success", async ({ page }) => {
     await mockBackend(page, backfillCleared());
     const send = await mockChatSend(page); // 200
@@ -445,6 +608,24 @@ test.describe("Chat send — input, POST, error surfacing, busy hint", () => {
     await expect(page.getByTestId("chat-send-error")).toHaveCount(0);
   });
 
+  /**
+   * Proves: the Insert button (the insert-without-submit affordance — paste
+   * into the agent's input box, gated Enter skipped server-side) fires exactly
+   * one chat-send POST with the explicit body `{ text, submit: false }` and
+   * clears the input on success. Also asserts `enterkeyhint="enter"` (the
+   * truthful keyboard hint — Enter inserts a newline on every pointer type;
+   * chord/readline behavior is unit-tested in `chat-view.test.tsx` /
+   * `compose-keys.test.ts` / `readline-keys.test.ts`).
+   *
+   * Steps:
+   * 1. Mock the backend + `mockChatSend` (200); navigate to
+   *    `/default/1?view=chat`.
+   * 2. Assert `chat-send-input` carries `enterkeyhint="enter"`.
+   * 3. Fill the input with "stage this prompt" and click `chat-send-insert`.
+   * 4. Assert exactly one recorded parsed body equal to
+   *    `{ text: "stage this prompt", submit: false }`.
+   * 5. Assert the input is now empty and `chat-send-error` has count 0.
+   */
   test("the Insert button POSTs submit:false and clears (insert-without-submit, 260719-mxvw)", async ({ page }) => {
     await mockBackend(page, backfillCleared());
     const send = await mockChatSend(page); // 200
@@ -466,6 +647,18 @@ test.describe("Chat send — input, POST, error surfacing, busy hint", () => {
     await expect(page.getByTestId("chat-send-error")).toHaveCount(0);
   });
 
+  /**
+   * Proves: a 409 (probe failure) response renders the server's structured
+   * error in an inline `role="alert"` line and RETAINS the typed text (so the
+   * user can retry) — never a silent failure.
+   *
+   * Steps:
+   * 1. Mock `mockChatSend` with `status: 409` and the probe-failure `error`;
+   *    navigate to `/default/1?view=chat`.
+   * 2. Fill the input with "ship it" and press `ControlOrMeta+Enter`.
+   * 3. Assert `chat-send-error` is visible and contains "Enter withheld".
+   * 4. Assert the input still holds "ship it".
+   */
   test("a 409 probe failure surfaces the inline error and keeps the text", async ({ page }) => {
     await mockBackend(page, backfillCleared());
     await mockChatSend(page, {
@@ -489,6 +682,16 @@ test.describe("Chat send — input, POST, error surfacing, busy hint", () => {
     await expect(input).toHaveValue("ship it");
   });
 
+  /**
+   * Proves: while the current window's `agentState` is `active` (as in the
+   * shared @1 payload) the non-blocking busy hint renders and the input stays
+   * ENABLED (Allow + probe policy — no client-side block).
+   *
+   * Steps:
+   * 1. Mock the backend + `mockChatSend`; navigate to `/default/1?view=chat`.
+   * 2. Assert the `chat-send-input` and `chat-send-busy-hint` are visible.
+   * 3. Assert the input is enabled.
+   */
   test("the busy hint renders when the window agentState is active (input stays enabled)", async ({ page }) => {
     // @1's sessions payload carries agentState: "active" → busy hint shows.
     await mockBackend(page, backfillCleared());
@@ -501,6 +704,19 @@ test.describe("Chat send — input, POST, error surfacing, busy hint", () => {
     await expect(page.getByTestId("chat-send-input")).toBeEnabled();
   });
 
+  /**
+   * Proves: on a 375px viewport the send input renders as a footer below the
+   * transcript with no horizontal page overflow (mobile ergonomics — the input
+   * is inside the pane, not the bars).
+   *
+   * Steps:
+   * 1. Set the viewport to 375×812; mock the backend + `mockChatSend`; navigate
+   *    to `/default/1?view=chat`.
+   * 2. Assert the `chat-send-input` is visible.
+   * 3. Assert `document.body.scrollWidth <= 375`.
+   * 4. Assert the input's bounding-box `y` is at or below the `chat-view`'s `y`
+   *    (footer position).
+   */
   test("375px: the send input sits below the transcript with no horizontal overflow", async ({ page }) => {
     await mockBackend(page, backfillCleared());
     await mockChatSend(page);

@@ -1,16 +1,29 @@
 import { test, expect, type Page } from "@playwright/test";
 import { mockStateSocket } from "./_state-socket-mock";
 
-// Open-in-App split-button (260722-6d0f; row icons + host fallback
-// 260722-fc3b). Fully mocked — no tmux server, no wt on the host: the
-// sessions payload rides the state-socket mock and the `wt open --list
-// --json` registry is stubbed via page.route (the e2e host may not carry a
-// wt new enough for the flag — shipped in wt v0.1.5; the stub is what lights
-// the control up deterministically). The e2e client is localhost, so the
-// LOCAL view renders (host section only; the deeplink branch — including the
-// 260722-fc3b derived `user@hostname` fallback and its remote-shows-deeplinks
-// gate — is remote-only and covered by Vitest: `location.hostname` cannot be
-// non-local against the e2e server). See open-in-app.spec.md.
+// Open-in-App split-button. Fully mocked — no tmux server, no wt on the
+// host: the sessions payload rides the state-socket mock and the
+// `wt open --list --json` registry is stubbed via page.route (the e2e host
+// may not carry a wt new enough for the flag — shipped in wt v0.1.5; the
+// stub is what lights the control up deterministically). The e2e client is
+// localhost, so the LOCAL view renders (host section only; the deeplink
+// branch — including the derived `user@hostname` fallback and its
+// remote-shows-deeplinks gate — is remote-only and covered by Vitest:
+// `location.hostname` cannot be non-local against the e2e server).
+// Routes installed per test via `mockBackend(page, registry)`:
+// `**/api/servers` → a single server `default`; `**/api/open-apps*` → the
+// stubbed registry (the VS Code entry uses the REAL wt registry id `code`,
+// not `vscode`, so the test also pins the `code` → VS Code glyph mapping;
+// `[]` reproduces the default local deployment); `**/api/windows/*/select*` →
+// `{ok:true}`; the `/ws/terminals` mux socket is accepted and held open; the
+// state socket carries one session `dev` with window `@1` "feature-work"
+// whose ACTIVE pane's cwd `/tmp/wt/sub` is distinct from the window's
+// `/tmp/wt` worktreePath, so the launch-body assertion pins the
+// active-pane-cwd derivation. Each test navigates to the percent-encoded
+// window route `/default/%401` and anchors on the ▦ Layout chip (the
+// currentWindow gate) before asserting — the Open entry additionally waits on
+// its own async registry fetch, so it gets its own visibility wait where
+// needed.
 
 const SERVER = "default";
 
@@ -96,6 +109,33 @@ const openChevron = (page: Page) =>
 const layoutAnchor = (page: Page) => page.getByRole("button", { name: "Layout", exact: true });
 
 test.describe("Open-in-App split-button (260722-6d0f)", () => {
+  /**
+   * Proves: with host apps available, the split-button (primary "Open in app"
+   * + chevron "Open in… (choose app)") renders in the right cluster at a wide
+   * viewport; the chevron menu lists each registry app as a flat menuitem row
+   * with NO "on host" section header (a local client sees a single-kind
+   * list); each row leads with its resolved monochrome icon (`code` → the VS
+   * Code brand glyph via `data-icon="vscode"`, iTerm → the generic
+   * terminal-prompt glyph via `data-icon="terminal"` — kind fallback);
+   * clicking a target POSTs `{path: <active pane cwd>, app: <wt app id>}` to
+   * `/api/open` and closes the menu; and the primary segment relabels to the
+   * last-used target ("Open in iTerm") after a launch.
+   *
+   * Steps:
+   * 1. Install the mocked backend with a two-app registry (`code`/VS Code,
+   *    `iterm`/iTerm) and a recording stub on the `/api/open` route glob.
+   * 2. Set a 1440px viewport, navigate to `/default/%401`, wait for the
+   *    ▦ Layout anchor.
+   * 3. Assert the primary and chevron segments are visible in-bar.
+   * 4. Click the chevron; assert the "Open in app" menu shows `VS Code` and
+   *    `iTerm` rows and no "on host" text.
+   * 5. Assert the VS Code row contains an `svg[data-icon='vscode']` glyph and
+   *    the iTerm row an `svg[data-icon='terminal']` glyph.
+   * 6. Click `iTerm`; poll the recorded POST body until it equals
+   *    `{path: "/tmp/wt/sub", app: "iterm"}`; assert the menu closed.
+   * 7. Assert the primary segment now reads "Open in iTerm" (last-used
+   *    persisted).
+   */
   test("renders with a stubbed registry; menu lists the host apps; launching POSTs the pane cwd", async ({
     page,
   }) => {
@@ -152,6 +192,18 @@ test.describe("Open-in-App split-button (260722-6d0f)", () => {
     await expect(page.getByRole("button", { name: "Open in iTerm" })).toBeVisible();
   });
 
+  /**
+   * Proves: each available open target registers a command-palette entry
+   * (`Open: VS Code`, `Open: iTerm`), keeping the control keyboard-first.
+   * (Palette rows stay text-only — icons are a menu-row affordance.)
+   *
+   * Steps:
+   * 1. Install the mocked backend with the two-app registry; navigate and
+   *    wait for the ▦ Layout anchor, then for the Open primary segment (the
+   *    registry fetch landed).
+   * 2. Open the palette (`Meta+k`), type `Open:`.
+   * 3. Assert both `Open: VS Code` and `Open: iTerm` options are listed.
+   */
   test("every target is palette-reachable as an Open: entry (Constitution V)", async ({
     page,
   }) => {
@@ -170,10 +222,24 @@ test.describe("Open-in-App split-button (260722-6d0f)", () => {
     await expect(page.getByRole("option", { name: "Open: iTerm" })).toBeVisible();
   });
 
-  // NOTE (260722-fc3b): the zero-target state on a LOCAL client is purely
-  // "empty registry" — sshHost/sshUser never mattered locally, and the new
-  // remote-shows-deeplinks gate cannot fire here (localhost). The remote gate
-  // is covered by Vitest.
+  /**
+   * Proves: the zero-target state on a local client (empty registry —
+   * sshHost/sshUser never mattered locally, and the remote-shows-deeplinks
+   * gate cannot fire on `localhost`; the remote gate is covered by Vitest)
+   * renders NO Open surface anywhere — bar, overflow chevron menu, and
+   * palette all stay clean, so the existing top-bar chrome specs (overflow
+   * pyramid, overlap sweep) are unaffected by this feature in the default e2e
+   * environment.
+   *
+   * Steps:
+   * 1. Install the mocked backend with an EMPTY registry; navigate and wait
+   *    for the ▦ Layout anchor.
+   * 2. Assert neither split-button segment exists (role queries — the
+   *    aria-hidden measurement probe is excluded).
+   * 3. Open the "More controls" chevron menu; assert it contains no `Open:`
+   *    rows; close it with Escape.
+   * 4. Open the palette, type `Open:`; assert no `Open:` options are listed.
+   */
   test("absent in the default local deployment (empty registry): no button, no menu rows, no palette entries", async ({
     page,
   }) => {

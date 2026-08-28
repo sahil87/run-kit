@@ -3,19 +3,25 @@ import { READY_TIMEOUT } from "./_ready";
 import { TMUX_SERVER } from "./_tmux";
 
 /**
- * Sidebar footer (260812-d1at) is MOBILE-ONLY (260815-19me composed-frame
- * unification): the desktop sidebar renders NO footer at all — the full-width
- * status bar at the bottom of desktop routes owns the connection dot
- * (aria-label "Connected"/"Disconnected") and the version readout. The mobile
- * drawer keeps the footer byte-identical (dot semantics, click-to-copy
- * version; the update-available hint stays unit-tested in
- * `sidebar/index.test.tsx`). Runs against the isolated e2e server
+ * The sidebar footer is MOBILE-ONLY: the desktop sidebar renders NO footer at
+ * all — the full-width status bar at the bottom of desktop routes owns the
+ * connection dot (aria-label "Connected"/"Disconnected") and the version
+ * readout. The footer itself is a passive justify-between row: readouts left
+ * (connection dot with role="status", version click-to-copy) and a quiet
+ * status/hints slot right (empty at rest; the update-available hint is
+ * unit-tested in `sidebar/index.test.tsx`). The mobile drawer keeps the
+ * footer byte-identical. Runs against the isolated e2e server
  * (`just test-e2e`).
  *
- * NOTE: `_ready.ts`'s `gotoServerReady` gates on the status-bar
- * `[aria-label='Connected']` dot (the desktop sidebar footer is gone). The
- * mobile cases here gate on the always-mounted `Toggle navigation`
- * hamburger instead (a closed drawer leaves the footer unmounted).
+ * Setup: the desktop case uses the default viewport (sidebar open by
+ * default) and gates readiness on the status bar's [aria-label='Connected']
+ * dot — `_ready.ts`'s `gotoServerReady` gates there too (the desktop sidebar
+ * footer is gone). The mobile cases run under
+ * `test.use({ hasTouch: true, viewport: 375x812 })` — `hasTouch` flips
+ * Chromium's `(pointer: coarse)` media query so `useIsMobile()` reports
+ * mobile — and open the drawer via the always-mounted `Toggle navigation`
+ * hamburger (a closed drawer leaves the footer unmounted); footer locators
+ * are scoped to the drawer's `navigation[name='Sessions']`.
  */
 
 const MOBILE_VIEWPORT = { width: 375, height: 812 };
@@ -39,6 +45,21 @@ async function gotoDrawer(page: Page, path: string) {
 }
 
 test.describe("Sidebar footer — mobile-only (260815-19me)", () => {
+  /**
+   * Proves: on desktop the Sessions nav contains no footer readouts (no
+   * connection dot, no version copy button), while the status bar's host
+   * cluster carries both the Connected dot and the version readout.
+   *
+   * Steps:
+   * 1. Navigate to /<e2e server>.
+   * 2. Wait for the status bar's Connected dot (readiness gate + proof of
+   *    the dot's new home).
+   * 3. Assert the Sessions nav is visible and contains zero
+   *    [aria-label='Connected']/[aria-label='Disconnected'] elements and zero
+   *    RunKit … (copy) buttons.
+   * 4. Assert the status-bar host cluster shows the version readout (anchored
+   *    dev / v… regex matches the version span, not the hostname parent).
+   */
   test("desktop: the sidebar has NO footer — the status bar owns the connection dot + version readout", async ({
     page,
   }) => {
@@ -71,6 +92,17 @@ test.describe("Sidebar footer — mobile-only (260815-19me)", () => {
     // seam sidebar-panels.spec.ts / bottom-bar-chip-size.spec.ts use).
     test.use({ hasTouch: true, viewport: MOBILE_VIEWPORT });
 
+    /**
+     * Proves: on mobile the footer's connection dot keeps its semantics
+     * inside the drawer's Sessions nav, and no status bar renders to
+     * duplicate it.
+     *
+     * Steps:
+     * 1. gotoDrawer('/<e2e server>') (hamburger → drawer visible).
+     * 2. Assert [aria-label='Connected'] is visible inside the drawer's
+     *    navigation[name='Sessions'].
+     * 3. Assert data-testid="status-bar" has zero matches on the page.
+     */
     test("the drawer keeps the footer: connection dot present, status bar absent", async ({
       page,
     }) => {
@@ -85,6 +117,16 @@ test.describe("Sidebar footer — mobile-only (260815-19me)", () => {
       await expect(statusBar(page)).toHaveCount(0);
     });
 
+    /**
+     * Proves: the drawer footer's version line renders once the daemon
+     * reports a version and click-copies exactly the displayed form (`v0.9.3`,
+     * or the bare `dev` sentinel on a dev daemon).
+     *
+     * Steps:
+     * 1. Grant clipboard permissions; gotoDrawer('/<e2e server>').
+     * 2. Wait for the RunKit … (copy) button in the drawer; read its text.
+     * 3. Click it and assert the clipboard equals the displayed text.
+     */
     test("version readout copies the displayed version form", async ({ page, context }) => {
       await context.grantPermissions(["clipboard-read", "clipboard-write"]);
       const drawer = await gotoDrawer(page, `/${TMUX_SERVER}`);

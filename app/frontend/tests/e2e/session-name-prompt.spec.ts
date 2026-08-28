@@ -3,6 +3,20 @@ import { execFileSync } from "node:child_process";
 import { gotoServerReady } from "./_ready";
 import { TMUX_SERVER, createSession, killSession } from "./_tmux";
 
+/**
+ * Covers the save-as-style session name prompt behind the palette's
+ * `Session: Create` action (one flow, two entry points — the `create-session`
+ * chord resolves through the same palette body, but the chord is
+ * browser-reserved in a non-shell host, so e2e exercises the palette entry
+ * point).
+ *
+ * Shared setup: `beforeAll` seeds one detached session (`e2e-prompt-<ts>`) on
+ * the isolated `rk-test-e2e` tmux server so the `/$server` route has stable
+ * content; `afterAll` kills the seed session plus (best-effort) the sessions
+ * the tests create: the prefill-accepted `session` and the typed
+ * `e2e_named_<ts>`.
+ */
+
 const SEED_SESSION = `e2e-prompt-${Date.now()}`;
 const TYPED_NAME = `e2e_named_${Date.now()}`;
 
@@ -47,6 +61,18 @@ test.describe("Session name prompt (Session: Create)", () => {
     killSession(TYPED_NAME);
   });
 
+  /**
+   * Proves: Escape closes the prompt without creating a session — the cancel
+   * path is a true no-op.
+   *
+   * Steps:
+   * 1. Go to `/$server` (ready-gated).
+   * 2. Open the prompt via the palette; read the prefilled value and assert
+   *    it matches the no-current-window fallback shape `session(-N)`.
+   * 3. Press Escape; assert the dialog unmounts.
+   * 4. Assert via `tmux has-session` on the isolated server that no session
+   *    with the prefilled name exists.
+   */
   test("Escape cancels — prompt closes, nothing is created", async ({ page }) => {
     await gotoServerReady(page, TMUX_SERVER);
     const { dialog, input } = await openPrompt(page);
@@ -61,6 +87,18 @@ test.describe("Session name prompt (Session: Create)", () => {
     expect(tmuxHasSession(prefill)).toBe(false);
   });
 
+  /**
+   * Proves: the prompt opens pre-filled with the auto-derived name instant
+   * create would have used, and a bare Enter creates exactly that session.
+   *
+   * Steps:
+   * 1. Go to `/$server`; open the prompt via the palette.
+   * 2. Assert the input is prefilled with the derived fallback name
+   *    (`session(-N)` — no current window on the density route).
+   * 3. Press Enter in the input; assert the dialog closes.
+   * 4. Assert the session tile for the prefilled name appears on the density
+   *    view (SSE-driven, 10s timeout).
+   */
   test("Enter accepts the prefilled default — today's behavior plus one keystroke", async ({
     page,
   }) => {
@@ -78,6 +116,18 @@ test.describe("Session name prompt (Session: Create)", () => {
     });
   });
 
+  /**
+   * Proves: the prefill is select-all'd on open, so typing replaces it in one
+   * gesture and Enter creates the typed name instead.
+   *
+   * Steps:
+   * 1. Go to `/$server`; open the prompt via the palette.
+   * 2. Type a unique name (`e2e_named_<ts>`) — no manual clearing — and
+   *    assert the input value equals exactly the typed name (selection
+   *    replaced).
+   * 3. Press Enter; assert the dialog closes.
+   * 4. Assert the session tile for the typed name appears.
+   */
   test("typing overrides the default — the typed name is created", async ({ page }) => {
     await gotoServerReady(page, TMUX_SERVER);
     const { dialog, input } = await openPrompt(page);

@@ -1,3 +1,14 @@
+// The unified sidebar renders one collapsible group per tmux server
+// discovered via /api/servers, and cross-server navigation works end-to-end
+// through the URL.
+// beforeAll creates a session on the primary tmux server (the worktree's
+// derived e2e primary) and a second tmux server (named inside this worktree's
+// socket family — the TMUX_FAMILY anchor — with the Playwright process.pid as
+// the second-to-last hyphen field, so the automatic post-sweep can parse it
+// and the family-anchored teardown glob reaps it) with its own session, each
+// containing one named window (`msb-a-win`, `msb-b-win`). The second-server
+// pattern matches boards-multi-server.spec.ts. afterAll kills the primary
+// session and the secondary tmux server entirely.
 import { test, expect } from "@playwright/test";
 import { gotoServerReady } from "./_ready";
 import { TMUX_SERVER, TMUX_FAMILY, createSession, killServer, killSession } from "./_tmux";
@@ -24,6 +35,18 @@ test.describe("Multi-server sidebar", () => {
     killServer(TMUX_SERVER_B);
   });
 
+  /**
+   * Proves: the unified sidebar enumerates every server returned by
+   * `/api/servers` and renders a per-server collapsible group, with the
+   * current server visually marked.
+   *
+   * Steps:
+   * 1. Navigate to `/${TMUX_SERVER_A}` and wait for `Connected` (warms SSE).
+   * 2. Assert a header with `data-server='${TMUX_SERVER_A}'` is visible.
+   * 3. Assert a header with `data-server='${TMUX_SERVER_B}'` is visible.
+   * 4. Assert `data-current-server='true'` is present on the
+   *    `${TMUX_SERVER_A}` header (the matched route's server param).
+   */
   test("renders one collapsible group per server in the Sessions area", async ({
     page,
   }) => {
@@ -46,6 +69,24 @@ test.describe("Multi-server sidebar", () => {
     await expect(currentMarker.first()).toBeVisible();
   });
 
+  /**
+   * Proves: cross-server navigation works — a click on a session in a
+   * non-current server's tree routes to `/{otherServer}/{N}` on the 2-segment
+   * route (the window id's numeric part `N`; `@N` sans `@` in the address
+   * bar, restored to `@N` by parse; the session is derived from the SSE
+   * snapshot, not the URL), flipping the URL and (via the route-driven
+   * dispatch) `currentServer`.
+   *
+   * Steps:
+   * 1. Navigate to `/${TMUX_SERVER_A}` and wait for `Connected`.
+   * 2. Click the "Expand …" button inside the second server's group header
+   *    (default-collapsed for non-current servers).
+   * 3. Locate the session row by its accessible name
+   *    `Navigate to ${TEST_SESSION_B}` and click it.
+   * 4. Assert the URL matches `/${TMUX_SERVER_B}/<N>` — server B plus the
+   *    session's first window id's numeric part (`@N` rendered as `N`; no
+   *    session segment), via Playwright `toHaveURL` regex.
+   */
   test("clicking a session in the second server's group navigates to /$secondServer/...", async ({
     page,
   }) => {

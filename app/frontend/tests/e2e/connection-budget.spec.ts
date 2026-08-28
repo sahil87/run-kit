@@ -3,22 +3,31 @@ import { isTerminalsSocket, pinWindow } from "./_boards";
 import { READY_TIMEOUT, gotoServerReady, gotoWindow } from "./_ready";
 import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
-// Connection-budget guard — FINAL any-route form (state socket 260716-qf3j +
-// terminals mux 260717-803u + chat-on-state-socket 260717-vhvz).
+// Connection-budget guard for the socket-unification effort.
 //
-// The socket-unification effort collapsed EVERY long-lived stream onto ONE of two
-// muxed WebSockets: session-state + host-metrics + CHAT ride `/ws/state` (change
-// 1 + change 3), and ALL terminal pane relays ride `/ws/terminals` (change 2).
-// The chat lens was the last remaining EventSource; change 3 moved it onto the
-// state socket as a `kind:"chat"` subscription, so NO route holds an SSE anymore.
-// This spec asserts the user-facing budget invariant across every route type
-// (Host, tmux Server, Terminal, Board, and the chat lens): a tab holds AT MOST
-// two rk WebSockets total — exactly one `/ws/state` plus (only on routes with
-// live panes) exactly one `/ws/terminals` — and ZERO `text/event-stream`
-// responses from rk endpoints (the Vite HMR WS is excluded by URL). An
-// established WebSocket holds no HTTP/1.1 connection-pool slot, so this is what
-// clears the pool starvation that blocked terminal-relay handshakes on
-// Firefox/WebKit for plaintext origins.
+// EVERY long-lived stream rides ONE of two muxed WebSockets: session-state +
+// host-metrics + CHAT ride `/ws/state`, and ALL terminal pane relays ride
+// `/ws/terminals`. The chat lens rides the state socket as a `kind:"chat"`
+// subscription, so NO route holds an SSE anymore. This spec asserts the
+// user-facing budget invariant across every route type (Host, tmux Server,
+// Terminal, Board, and the chat lens): a tab holds AT MOST two rk WebSockets
+// total — exactly one `/ws/state` plus (only on routes with live panes)
+// exactly one `/ws/terminals` — and ZERO `text/event-stream` responses from rk
+// endpoints (the Vite HMR WS is excluded by URL). An established WebSocket
+// holds no HTTP/1.1 connection-pool slot, so this is what clears the pool
+// starvation that blocked terminal-relay handshakes on Firefox/WebKit for
+// plaintext origins.
+//
+// Shared setup: runs against the live isolated e2e backend (real tmux via
+// `just test-e2e`). `beforeAll` creates one tmux session on `E2E_TMUX_SERVER`;
+// `afterAll` kills it. Each test installs two counters on the page before
+// navigating: `page.on("websocket")` counts LIVE sockets per class (opened −
+// closed via each socket's `close` event — NOT a URL-keyed Set, which would
+// dedupe two concurrent same-URL sockets to 1 and silently pass the budget,
+// the exact shape a StrictMode double-mount leak or a reconnect-without-close
+// bug would produce), and `page.on("response")` records any response whose
+// `content-type` includes `text/event-stream` (the budget requires that list
+// to be empty).
 
 const TEST_SESSION = `e2e-connbudget-${Date.now()}`;
 
@@ -73,6 +82,18 @@ test.describe("Connection budget — 2 muxed WS (state + terminals), zero SSE", 
     killSession(TEST_SESSION);
   });
 
+  /**
+   * Proves: the bare Host home — which attaches zero tmux servers, subscribes
+   * only to metrics, and renders no live pane — opens exactly one `/ws/state`
+   * WebSocket, no `/ws/terminals` socket, and no SSE.
+   *
+   * Steps:
+   * 1. Install the counters, `goto('/')`.
+   * 2. Wait for the Host health region (readiness = the metrics subscription is
+   *    live).
+   * 3. Poll until the state-socket count is 1; assert the terminals-socket
+   *    count is 0 and the `text/event-stream` response list is empty.
+   */
   test("the Host home (/) holds one /ws/state WS, no terminals WS, and zero SSE", async ({ page }) => {
     test.setTimeout(30_000);
     const c = installCounters(page);
@@ -86,6 +107,18 @@ test.describe("Connection budget — 2 muxed WS (state + terminals), zero SSE", 
     expect(c.eventStreamUrls(), "no text/event-stream responses").toEqual([]);
   });
 
+  /**
+   * Proves: a single-server route subscribes to one server over the one state
+   * socket and renders static session-tile previews (not live terminals), so it
+   * opens no `/ws/terminals` socket and no SSE.
+   *
+   * Steps:
+   * 1. Install the counters, `goto('/${TMUX_SERVER}')`.
+   * 2. Wait for the status bar's Connected dot (the server subscription acked;
+   *    the desktop sidebar footer is gone).
+   * 3. Poll state-socket count === 1; assert terminals-socket count === 0 and
+   *    no `text/event-stream` responses.
+   */
   test("a tmux Server route (/$server) holds one /ws/state WS, no terminals WS, and zero SSE", async ({ page }) => {
     test.setTimeout(30_000);
     const c = installCounters(page);
@@ -97,6 +130,17 @@ test.describe("Connection budget — 2 muxed WS (state + terminals), zero SSE", 
     expect(c.eventStreamUrls(), "no text/event-stream responses").toEqual([]);
   });
 
+  /**
+   * Proves: the terminal route keeps state on the one state socket while its
+   * terminal I/O rides the one terminals mux socket — exactly two rk WebSockets
+   * total, and no SSE.
+   *
+   * Steps:
+   * 1. Resolve the session's first window id via `tmux list-windows`.
+   * 2. Install the counters, `goto('/${TMUX_SERVER}/${windowId}')`.
+   * 3. Wait for the Connected dot; poll state-socket count === 1 AND
+   *    terminals-socket count === 1; assert no `text/event-stream` responses.
+   */
   test("a Terminal route (/$server/$window) holds exactly 2 WS (state + terminals) and zero SSE", async ({ page }) => {
     test.setTimeout(30_000);
     const c = installCounters(page);
@@ -112,6 +156,24 @@ test.describe("Connection budget — 2 muxed WS (state + terminals), zero SSE", 
     expect(c.eventStreamUrls(), "no text/event-stream responses").toEqual([]);
   });
 
+  /**
+   * Proves: appending `?view=chat` to a window route introduces NO
+   * `text/event-stream` response and NO WebSocket beyond the fixed budget (one
+   * `/ws/state` + at most one `/ws/terminals`). The invariant holds regardless
+   * of whether the window is chat-capable — the test does NOT exercise the chat
+   * subscription path itself: the plain e2e test window carries no
+   * `@rk_pane_chat`, so the lens resolution falls back to tty and the terminals
+   * socket stays; had the window been chat-capable, chat would ride the
+   * already-held state socket rather than adding a stream.
+   *
+   * Steps:
+   * 1. Resolve the session's first window id via `tmux list-windows`.
+   * 2. Install the counters, `goto('/${TMUX_SERVER}/${windowId}?view=chat')`.
+   * 3. Wait for the Connected dot; poll state-socket count === 1, assert
+   *    terminals-socket count <= 1 (this window falls back to tty, so the
+   *    terminals mux stays live — hence `<= 1`, not exactly 1), and assert no
+   *    `text/event-stream` responses.
+   */
   test("a ?view=chat route holds AT MOST 2 WS and zero SSE (no extra socket vs the base route)", async ({ page }) => {
     // FINAL any-route form (260717-vhvz): the chat lens was the last EventSource
     // in the app; it moved onto the state socket as a `kind:"chat"` subscription,
@@ -137,6 +199,21 @@ test.describe("Connection budget — 2 muxed WS (state + terminals), zero SSE", 
     expect(c.eventStreamUrls(), "no text/event-stream responses on a ?view=chat route").toEqual([]);
   });
 
+  /**
+   * Proves: the board route — historically the pool-starvation hotspot, because
+   * it attaches every contributing tmux server AND held one relay socket per
+   * pane — now subscribes to all servers over the SINGLE state socket AND muxes
+   * every pane's terminal I/O over the SINGLE terminals socket, so the total is
+   * still exactly two rk WebSockets regardless of pane count, with zero SSE.
+   *
+   * Steps:
+   * 1. Pin the session's first window to a fresh board via
+   *    `POST /api/boards/{name}/pin`.
+   * 2. Install the counters, `goto('/board/${board}')`.
+   * 3. Wait for the Connected dot; poll state-socket count === 1 AND
+   *    terminals-socket count === 1; assert no `text/event-stream` responses.
+   * 4. Unpin the window (cleanup), in a `finally`.
+   */
   test("a Board route (/board/$name) holds exactly 2 WS (state + terminals) and zero SSE", async ({ page, request }) => {
     test.setTimeout(40_000);
     const board = `cb-board-${Date.now().toString().slice(-6)}`;

@@ -23,6 +23,23 @@
  * distribution and prints a summary in afterAll; it does NOT assert a latency
  * budget (localhost timing is too noisy for a stable perf gate). Run on demand:
  *   just pw test echo-latency
+ *
+ * Shared setup: the per-file timeout is raised to 90s (120s on CI) — the file
+ * runs FULL_PATH_TRIALS + BASELINE_TRIALS + UNDER_LOAD_TRIALS (40 + 40 + 30)
+ * echo round-trips back to back. `beforeAll` creates session `e2e-echo-<ts>`
+ * (80×24) and starts `cat` in it — `cat` echoes every line of stdin verbatim,
+ * the cleanest echo source with no prompt/completion/PS1 noise. The throughput
+ * guard uses its own `e2e-burst-<ts>` session and the under-load test its own
+ * `e2e-echo-load-<ts>` session, so the flood and the tick stream never pollute
+ * the idle measurements. `afterAll` sends `C-c` to break out of `cat`, kills
+ * all three sessions, then prints the summary table (full-path / network /
+ * render / under-load / baseline p50/p95/p99, the run-kit tax, the attribution
+ * verdict, the distribution histograms, and the throughput time).
+ * `resolveFirstWindowId(page, session?)` polls `/api/sessions` for the named
+ * session's first window's stable `@N` id (the terminal route is keyed by
+ * window id, not index). Trials alternate the two chars `x`/`o` and reset the
+ * line (Enter) each trial, so global char-uniqueness is never needed. A shared
+ * `samples` array collects `{ label, ms }` rows that `afterAll` summarizes.
  */
 import { test, expect } from "@playwright/test";
 import { execSync } from "node:child_process";
@@ -524,6 +541,38 @@ test.describe("Echo latency benchmark", () => {
     console.log("=== END BENCHMARK ===\n");
   });
 
+  /**
+   * Proves: a keystroke typed in the browser echoes back into the visible xterm
+   * buffer with a measurable latency; the test characterizes that latency as a
+   * p50/p95/p99 distribution over 40 trials, exercising the full input path
+   * including the rAF render flush.
+   *
+   * Steps:
+   * 1. `page.addInitScript(INSTALL_SEND_STAMP)` and
+   *    `page.addInitScript(INSTALL_RECV_STAMP)` — wrap
+   *    `WebSocket.prototype.send` and the `WebSocket` constructor before the app
+   *    loads so the relay socket is wrapped at construction (send stamp +
+   *    first-inbound-frame recv stamp).
+   * 2. `resolveFirstWindowId(page)` to get the deep-link `@N`.
+   * 3. Navigate to `/${server}/${windowId}`; wait for `.xterm-screen` visible.
+   * 4. Poll until `window.__rkTerminals[windowId]` exists (terminal mounted +
+   *    opened).
+   * 5. Assert `window.__rkRenderer[windowId] === "webgl"` — fail loudly if the
+   *    renderer silently fell back to canvas (slower; non-comparable numbers).
+   * 6. Click `[role='application']` and focus `.xterm-helper-textarea` so
+   *    `keyboard.press` routes into xterm.
+   * 7. Warmup: press Enter, then repeatedly press `w` (250ms cadence, up to
+   *    15s) until a `w` shows on the cursor row — confirms the full input path
+   *    is live and absorbs the cold-backend connect delay instead of guessing
+   *    with a fixed sleep.
+   * 8. For each of 40 trials (char alternates `x`/`o`): press Enter (fresh
+   *    line) and settle ~30ms; `measureEcho(page, windowId, ch, …)` snapshots
+   *    the `ch` count on the cursor row, clears both stamps, presses the key,
+   *    and rAF-polls the row until the count increases — returning
+   *    `{ full, network, render }` (rejecting on a 5s deadline or if the
+   *    keystroke produced no WebSocket send); push one row per label.
+   * 9. Assert 40 full-path samples were collected.
+   */
   test("full-path keystroke→echo distribution", async ({ page }) => {
     // Idempotent across a Playwright retry — this test records all three labels.
     resetSamples("full-path");
@@ -614,6 +663,24 @@ test.describe("Echo latency benchmark", () => {
     );
   });
 
+  /**
+   * Proves: the latency floor — pure tmux echo with no browser and no
+   * WebSocket — so the run-kit tax can be isolated. Characterized as a
+   * p50/p95/p99 distribution over 40 trials.
+   *
+   * Steps:
+   * 1. Re-assert a fresh `cat`: `send-keys C-c` then `send-keys 'cat' Enter`
+   *    and settle ~500ms (the full-path test attached a browser relay to this
+   *    session, so its disconnect may have left `cat` in an unknown state;
+   *    restarting it makes the baseline independent of test ordering).
+   * 2. For each of 40 trials (char alternates `x`/`o`): `send-keys Enter`
+   *    (fresh line) and settle ~20ms; mark `performance.now()`,
+   *    `tmux send-keys '<char>'`, then busy-poll `capture-pane -p` (trailing
+   *    blanks stripped) until the last non-empty line ends with the char, or
+   *    the 5s deadline passes.
+   * 3. Assert it landed; push `{ label: "baseline", ms }`; assert 40 baseline
+   *    samples were collected.
+   */
   test("baseline tmux-only echo distribution", async ({ page }) => {
     resetSamples("baseline"); // idempotent across a Playwright retry
     // Pure tmux echo: send a char via the tmux CLI directly into the same
@@ -663,6 +730,42 @@ test.describe("Echo latency benchmark", () => {
     );
   });
 
+  /**
+   * Proves: echo latency while the pane is ALSO receiving a background stream —
+   * "typing while an agent is producing output", the everyday condition the
+   * idle benchmark deliberately excludes. Concurrent output splits echoes into
+   * a fast mode and a slow mode (measured ~4ms vs ~22ms clusters); the slow
+   * mode originates upstream of the client flush (tmux paces updates to
+   * attached clients while a pane streams — a controlled experiment with a
+   * uniform `setTimeout(0)` flush reproduced the same bimodal histogram), so
+   * the recorded distribution and its histogram characterize the split wherever
+   * it comes from and guard against a client change making it worse.
+   *
+   * Steps:
+   * 1. `page.addInitScript(INSTALL_SEND_STAMP)` — send stamp only; the recv
+   *    stamp is NOT installed (under load the first inbound frame after a send
+   *    may be a tick rather than the echo, so the network/render split is
+   *    meaningless and only `full` is recorded).
+   * 2. Create `LOAD_SESSION`; start the load + echo pair in it:
+   *    `seq 1 2000 | while read i; do echo tick; sleep 0.05; done & cat` — a
+   *    background tick line every ~50ms plus the same interactive `cat`; the
+   *    generator is bounded (2000 ticks ≈ 100s) so it self-terminates even if
+   *    cleanup fails.
+   * 3. Navigate to the window; wait for `.xterm-screen` + the registered
+   *    terminal; assert the WebGL renderer (same rationale as the idle test);
+   *    focus.
+   * 4. Two-stage warmup: poll until `tick` is visible in the bottom rows
+   *    (inbound stream live through the relay), then press `w` until it appears
+   *    (keystroke path live; `w` is never used as a probe char).
+   * 5. For each of 30 trials (probe char rotates through a 19-char alphabet
+   *    that shares no letter with `tick`): `measureEchoUnderLoad` waits until
+   *    the probe char is absent from the bottom 8 rows (so its next appearance
+   *    is unambiguously this trial's echo), clears the send stamp, presses the
+   *    key, and rAF-polls the bottom rows until the char appears; push
+   *    `{ label: "under-load", ms }` and settle 40ms so trials approximate a
+   *    human typing cadence.
+   * 6. Assert 30 under-load samples were collected.
+   */
   test("under-load keystroke→echo distribution", async ({ page }) => {
     resetSamples("under-load"); // idempotent across a Playwright retry
     await page.addInitScript(INSTALL_SEND_STAMP);
@@ -782,6 +885,32 @@ test.describe("Echo latency benchmark", () => {
     );
   });
 
+  /**
+   * Proves: optimizing echo latency (the adaptive flush in
+   * `terminal-client.tsx`, which writes small idle chunks immediately instead
+   * of always waiting for a `requestAnimationFrame`) did NOT regress burst
+   * rendering. A large, countable flood must still render completely and
+   * quickly via the under-load coalescing path — no dropped/garbled output, no
+   * renderer melt. Lives in the same file as the echo benchmark so a change
+   * that shaves echo latency at the cost of flood performance fails in the same
+   * run that shows the latency win.
+   *
+   * Steps:
+   * 1. Create a dedicated `BURST_SESSION` (so the flood doesn't disturb the
+   *    echo session's interactive `cat`).
+   * 2. `resolveFirstWindowId(page, BURST_SESSION)`; navigate; wait for
+   *    `.xterm-screen` and the registered terminal handle; focus the terminal.
+   * 3. Mark `performance.now()`, then `keyboard.type("seq 1 N\n")` (N =
+   *    `THROUGHPUT_LINES`, 20000): `seq` emits predictable output whose final
+   *    line `N` is a unique end-marker; the relay delivers it as many multi-KB
+   *    frames, exercising the coalescing branch.
+   * 4. In-page `requestAnimationFrame` loop tracks `term.buffer.active.length`;
+   *    quiescence = the end-marker line is present in the last rows of
+   *    scrollback AND the line count has been stable for ~150ms; returns the
+   *    in-page elapsed time, or rejects past the 30s deadline.
+   * 5. Assert wall-clock under the deadline; push `{ label: "throughput", ms }`
+   *    (the in-page quiescence time) for the summary.
+   */
   test("throughput guard — burst output renders fully and fast", async ({ page }) => {
     resetSamples("throughput"); // idempotent across a Playwright retry
     // Flood the terminal with a large, countable burst (`seq 1 N`) and measure

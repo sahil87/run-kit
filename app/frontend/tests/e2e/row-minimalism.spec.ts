@@ -1,13 +1,23 @@
 import { test, expect, type Page } from "@playwright/test";
 import { mockStateSocket } from "./_state-socket-mock";
 
-// Fully mocked (no tmux/gh) — inject the SSE `sessions` payload + server list
-// via page.route, exercising the frontend Row-Minimalism display rule
-// deterministically. See row-minimalism.spec.md for intent + steps.
+// Row Minimalism (docs/specs/status-pyramid.md § Row Minimalism): the window
+// ROW renders NO stage word and NO duration text — the row's externally
+// visible status signals are the leading StatusDot plus, for a window with an
+// owned PR, the rest-state PR glyph in the trailing cluster (the fixtures
+// here carry no `prNumber`, so no glyph renders in these tests); the exact
+// stage + durations live in the row flyout card and the PANE panel register
+// view.
 //
-// Row Minimalism (260706-y1ar; status-pyramid.md § Row Minimalism): the window
-// ROW renders NO stage word and NO duration text — the leading StatusDot is the
-// row's only externally visible status signal.
+// Shared setup: fully mocked — no tmux server, no `gh`, no real backend
+// reads (the isolated e2e tmux server has neither, and `gh` is unavailable in
+// CI). `**/api/servers` serves a single `default` server;
+// `**/api/windows/*/select*` answers 200 (window selection POST); the
+// `/ws/terminals` mux WebSocket is stubbed so the terminal route mounts
+// without churn; `/ws/state` (via mockStateSocket) serves a session `dev`
+// with two windows — `@1` "feature-work", a fab window at stage `review`
+// (active), and `@2` "scratch-shell", an idle agent window with a 2m idle
+// duration. `beforeEach` installs the routes before navigation.
 
 const SERVER = "default";
 
@@ -65,6 +75,24 @@ test.describe("Row Minimalism", () => {
     await mockBackend(page);
   });
 
+  /**
+   * Proves: the trailing status cluster (stage word + duration) is removed
+   * from the window row — neither the "review" stage word nor the "2m"
+   * duration appears anywhere in the sidebar navigation tree — while the
+   * window names and the leading StatusDot remain.
+   *
+   * Steps:
+   * 1. Navigate to `/default/1`; wait for the sidebar tree to populate from
+   *    the mocked SSE frame.
+   * 2. Assert both window names ("feature-work", "scratch-shell") are visible
+   *    (the rows render).
+   * 3. Scope to the sidebar tree (`role="tree"`) and assert it contains no
+   *    exact "review" text (count 0) and no exact "2m" text (count 0).
+   * 4. Assert the leading StatusDot is present as the status signal: the fab
+   *    review window shows the blue `role="img"` dot with aria-label
+   *    `building — active` (compositional vocabulary — the label composes hue
+   *    word + status word, not the stage word).
+   */
   test("window rows show no stage word and no duration text (only the dot + name)", async ({ page }) => {
     await page.goto(`/${SERVER}/1`);
 

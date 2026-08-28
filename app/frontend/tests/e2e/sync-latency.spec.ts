@@ -6,6 +6,23 @@
  *
  * Threshold: 500ms. Anything above suggests the action is waiting for SSE
  * rather than using an optimistic update.
+ *
+ * Shared setup: `beforeAll` creates sessions `e2e-lat-a-<ts>` and
+ * `e2e-lat-b-<ts>` so the tests have distinct targets for rename, drag, and
+ * cross-session move; the per-test timeout is bumped (20s, 45s on CI) since
+ * some drag interactions legitimately exceed Playwright's default 10s.
+ * `setup(page)` navigates to `/${TMUX_SERVER}`, waits for `Connected`, then
+ * gates on ANY session row being rendered (`aria-label^='Navigate to '`) —
+ * name-agnostic on purpose: test 2 renames the shared SESSION_A via the UI,
+ * so a gate hard-wired to a specific name would strand every later
+ * `setup()` once the rename lands, time out, and trigger a Playwright
+ * worker restart (which re-seeds a fresh, un-renamed SESSION_A and breaks
+ * tests assuming the rename). `afterAll` best-effort kills both sessions,
+ * the renamed variant, the kill-session scratch, the instant-create
+ * defaults (`session`, `session-2`…`session-11`), and any live
+ * `e2e-lat-xtgt-<ts>` cross-drag targets (enumerated by prefix), then
+ * prints a summary table of all timings, flagging any action that exceeded
+ * the 500ms threshold.
  */
 import { test, expect } from "@playwright/test";
 import { execSync } from "node:child_process";
@@ -109,6 +126,20 @@ test.describe("Sync Latency Audit", () => {
     console.log("=== END SUMMARY ===\n");
   });
 
+  /**
+   * Proves: clicking the Dashboard's `+ New Session` card creates a session
+   * instantly (no dialog, auto-derived name) and a ghost entry renders in
+   * the sidebar in ≤500ms.
+   *
+   * Steps:
+   * 1. `setup(page)` — navigate, wait for `Connected`, return the sidebar
+   *    locator.
+   * 2. Count existing `button[aria-label^='Navigate to ']` rows.
+   * 3. Start the timer.
+   * 4. Click `button:has-text('+ New Session')`.
+   * 5. Poll until the count increases (timeout 8s).
+   * 6. `record("Create session (UI)", elapsed)`.
+   */
   test("1. Create session via UI", async ({ page }) => {
     const sidebar = await setup(page);
 
@@ -129,6 +160,25 @@ test.describe("Sync Latency Audit", () => {
     record("Create session (UI)", Date.now() - t0);
   });
 
+  /**
+   * Proves: double-clicking a session name opens an inline input; pressing
+   * Enter commits an optimistic rename and the new name renders in ≤500ms.
+   * The input applies the live session-kind safe-name transform (hyphens
+   * convert to `_`), so the committed name is the underscored form of what
+   * was filled.
+   *
+   * Steps:
+   * 1. `setup`.
+   * 2. Wait for the `Navigate to ${SESSION_A}` button (this test runs
+   *    before any rename, so SESSION_A's original name is still present).
+   * 3. Double-click the session name to enter edit mode.
+   * 4. Clear and fill the input with `${SESSION_A}-renamed`; assert the
+   *    input value is its underscored form (the live transform converted
+   *    the hyphens).
+   * 5. Start timer, press Enter.
+   * 6. Wait for the new (underscored) name text to appear; `record`. (The
+   *    `afterAll` sweep kills the underscored name.)
+   */
   test("2. Rename session via UI (double-click)", async ({ page }) => {
     const sidebar = await setup(page);
 
@@ -157,6 +207,29 @@ test.describe("Sync Latency Audit", () => {
     record("Rename session (UI double-click)", Date.now() - t0);
   });
 
+  /**
+   * Proves: the session row's `+` (New tab) button creates a window
+   * optimistically — a ghost window row appears under SESSION_B in ≤500ms,
+   * without waiting for the SSE poll. This is an audit: it records the real
+   * appearance latency and the summary flags it `[SLOW] ← SSE-dependent`
+   * (rather than hard-failing the suite) if the create path ever regresses
+   * to SSE-dependent (>500ms). Tolerant if the button isn't visible
+   * (session not expanded).
+   *
+   * Steps:
+   * 1. `setup`.
+   * 2. Assert session B is visible.
+   * 3. If the `New tab in ${SESSION_B}` button is visible: scope to
+   *    SESSION_B's window rows via the wrapper's stable
+   *    `data-session-group="${SESSION_B}"` handle and count its
+   *    `[data-window-id]` rows; start the timer, click `+` (no dialog on
+   *    the current-server create path — the dialog guard is a tolerant
+   *    no-op); poll (bounded 8s) until the window-row count exceeds the
+   *    pre-click count and `record` the elapsed latency. The name is
+   *    auto-derived, so detection is by count increase (mirroring test 1),
+   *    not by name.
+   * 4. Otherwise log SKIP.
+   */
   test("3. Create window via sidebar + button", async ({ page }) => {
     const sidebar = await setup(page);
 
@@ -208,6 +281,17 @@ test.describe("Sync Latency Audit", () => {
     }
   });
 
+  /**
+   * Proves: double-click rename on a window runs optimistically — the new
+   * name renders in ≤500ms.
+   *
+   * Steps:
+   * 1. Create a `rename-me` window in session B via the tmux helper.
+   * 2. `setup`; assert `rename-me` is visible.
+   * 3. Double-click the window name to enter edit mode; clear and fill
+   *    `renamed-win`.
+   * 4. Start timer, press Enter, wait for the new name, `record`.
+   */
   test("4. Rename window via UI (double-click)", async ({ page }) => {
     newWindow(SESSION_B, "rename-me");
 
@@ -232,6 +316,19 @@ test.describe("Sync Latency Audit", () => {
     record("Rename window (UI double-click)", Date.now() - t0);
   });
 
+  /**
+   * Proves: Ctrl+click on the window's kill button performs an instant kill
+   * with no confirm dialog; the row disappears in ≤500ms.
+   *
+   * Steps:
+   * 1. Create a `kill-me` window in session B via the tmux helper.
+   * 2. `setup`; assert `kill-me` is visible.
+   * 3. Hover the `kill-me` row — the icon cluster is `pointer-events-none`
+   *    at rest (stray-click hardening), so group-hover must restore
+   *    interactivity before the kill button can receive the click.
+   * 4. Start timer, `click({ modifiers: ['Control'] })` on the kill button.
+   * 5. Wait for `kill-me` to disappear, `record`.
+   */
   test("5. Kill window via Ctrl+click (instant)", async ({ page }) => {
     newWindow(SESSION_B, "kill-me");
 
@@ -252,6 +349,20 @@ test.describe("Sync Latency Audit", () => {
     record("Kill window (Ctrl+click)", Date.now() - t0);
   });
 
+  /**
+   * Proves: dragging a window over another within the same session reorders
+   * them optimistically.
+   *
+   * Steps:
+   * 1. Create `dnd-first` and `dnd-second` in session B.
+   * 2. `setup`.
+   * 3. Read bounding boxes of both rows.
+   * 4. Timer, perform mouse `move → down → move → up` from second onto
+   *    first.
+   * 5. Poll up to 5s (50 × 100ms) for the order to flip (second above first
+   *    by `y`).
+   * 6. `record` either success or "order did not change".
+   */
   test("6. Move window within session (drag-drop reorder)", async ({ page }) => {
     newWindow(SESSION_B, "dnd-first");
     newWindow(SESSION_B, "dnd-second");
@@ -298,6 +409,23 @@ test.describe("Sync Latency Audit", () => {
     }
   });
 
+  /**
+   * Proves: dragging a window onto a different session row moves it across
+   * sessions. Self-contained: the test creates its own dedicated target
+   * session `e2e-lat-xtgt-<ts>` rather than relying on test 2 having
+   * renamed the shared SESSION_A — that coupling broke on any Playwright
+   * worker restart (the re-seeded SESSION_A is never renamed).
+   *
+   * Steps:
+   * 1. Create a dedicated target session `e2e-lat-xtgt-<ts>` via the tmux
+   *    helper.
+   * 2. Create `cross-mv` window in session B.
+   * 3. `setup`; assert both `cross-mv` and the target session are visible.
+   * 4. Read bounding boxes.
+   * 5. Timer, drag-drop source over target.
+   * 6. Poll up to 5s for the source row to disappear from under session B.
+   * 7. `record` either "moved" or "may not have moved".
+   */
   test("7. Move window to another session (cross-session drag)", async ({ page }) => {
     // Self-contained: create both the source window and a dedicated target
     // session this test owns. Earlier this dragged onto `${SESSION_A}-renamed`,
@@ -348,6 +476,16 @@ test.describe("Sync Latency Audit", () => {
     }
   });
 
+  /**
+   * Proves: baseline — external tmux mutations (no optimistic path) must
+   * take at least one SSE poll interval (~2.5s) to show up. A faster time
+   * here would imply an unintended optimistic path.
+   *
+   * Steps:
+   * 1. `setup`.
+   * 2. Timer, run `tmux new-window -t ${SESSION_B} -n ext-<ts>`.
+   * 3. Wait for the window to appear, `record`. Expected to be [SLOW].
+   */
   test("8. External tmux change (SSE baseline)", async ({ page }) => {
     const sidebar = await setup(page);
     const winName = `ext-${Date.now()}`;
@@ -359,6 +497,20 @@ test.describe("Sync Latency Audit", () => {
     record("External tmux new-window (SSE baseline)", Date.now() - t0);
   });
 
+  /**
+   * Proves: the kill-session confirm dialog is dismissed and the session
+   * row disappears in ≤500ms after confirming.
+   *
+   * Steps:
+   * 1. Create `e2e-kill-${SESSION_A}` via the tmux helper.
+   * 2. `setup`; assert the session row is visible.
+   * 3. Timer, click the `Kill session <name>` button.
+   * 4. Wait for `[role='dialog']` to appear.
+   * 5. Click `button:has-text('Kill')` inside the dialog (with
+   *    `{ force: true }` to bypass occasional overlay pointer
+   *    interception).
+   * 6. Wait for the row to disappear, `record`.
+   */
   test("9. Kill session via UI (with dialog)", async ({ page }) => {
     const killVictim = `e2e-kill-${SESSION_A}`;
     createSession(killVictim);

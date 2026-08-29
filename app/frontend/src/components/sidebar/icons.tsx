@@ -1,4 +1,5 @@
 /** Shared sidebar icons. */
+import type { WindowInfo } from "@/types";
 
 /** Icon column treatment shared by the sidebar info panels (Pane, Host):
  *  brighter token, bold weight, +2px size. leading-none keeps the taller
@@ -204,8 +205,7 @@ export function GitPullRequestIcon({ size = 13 }: { size?: number }) {
  *  an ✕ where the merge arc was, a truncated target rail, and the target
  *  circle. GitHub disambiguates closed by SHAPE, not color — red ✕ icon =
  *  closed, red normal icon = failing — so this icon is what lets closed and
- *  failing coexist (and what separates a muted closed glyph from a muted
- *  draft). Same fixed idiom as the siblings (`currentColor` stroke,
+ *  failing share the red token. Same fixed idiom as the siblings (`currentColor` stroke,
  *  `strokeWidth={2}`, `fill="none"`, round caps/joins, 24-unit viewBox, 13px
  *  default size). (xuej) */
 export function GitPullRequestClosedIcon({ size = 13 }: { size?: number }) {
@@ -232,6 +232,48 @@ export function GitPullRequestClosedIcon({ size = 13 }: { size?: number }) {
       <circle cx="18" cy="18" r="3" />
     </svg>
   );
+}
+
+/** Draft-PR variant of the rest-state PR glyph — a lucide
+ *  `git-pull-request-draft` silhouette: the same source circle + rail, but a
+ *  DOTTED merge rail (two short dashes) where the arc sits, and the target
+ *  circle. Draft is the only gray glyph state, and gray-arc vs green-arc was a
+ *  color-only distinction — the shape is what makes a draft readable next to an
+ *  open PR (and next to the closed ✕) without relying on hue. Same fixed idiom
+ *  as the siblings. */
+export function GitPullRequestDraftIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {/* source branch: circle + vertical rail */}
+      <circle cx="6" cy="6" r="3" />
+      <path d="M6 9v12" />
+      {/* dotted merge rail — the "draft" mark, where the arc would be */}
+      <path d="M18 6V5" />
+      <path d="M18 11v-1" />
+      <circle cx="18" cy="18" r="3" />
+    </svg>
+  );
+}
+
+/** State → icon for the rest-state PR glyph, shared by the sidebar window row
+ *  (fine-pointer overlay + coarse rail slot) and the session-tile header so the
+ *  three sites cannot drift. Closed is checked FIRST so a closed draft reads
+ *  closed — the same open-gate `prGlyphColor` applies to its draft branch.
+ *  Callers gate on `prOwnsGlyph` before reaching here. */
+export function prGlyphIcon(win: WindowInfo) {
+  if (win.prState === "closed") return <GitPullRequestClosedIcon />;
+  if (win.prState === "open" && win.prIsDraft) return <GitPullRequestDraftIcon />;
+  return <GitPullRequestIcon />;
 }
 
 /** Boards-section toggle glyph for the section rail — a lucide `layout-grid`

@@ -9,7 +9,7 @@ import { FlairOverlay } from "@/components/flair-overlay";
 import { StatusDot } from "@/components/status-dot";
 import { prOwnsGlyph, prGlyphColor } from "@/components/pr-status-model";
 import { PinPopover } from "./pin-popover";
-import { PaletteIcon, CloseIcon, GitPullRequestIcon, GitPullRequestClosedIcon, ComposeIcon } from "./icons";
+import { PaletteIcon, CloseIcon, prGlyphIcon, ComposeIcon } from "./icons";
 import { PinIcon } from "@/components/pin-icon";
 import {
   useRowFlyout,
@@ -709,21 +709,22 @@ function WindowRowInner({
             glyph renders in the status rail's fixed 16px slot instead — one
             PR channel per pointer world (the rail slot IS the coarse home).
             Color via the shared PR vocabulary (prGlyphColor),
-            six-way: muted closed (dead PR), red failing, gray open-draft,
-            yellow checks-running, green open, purple merged — closed sits
-            ABOVE fail (stale checks are noise), draft is open-gated and sits
-            BELOW fail and ABOVE pending. Icon picked by state (xuej): a
-            closed PR gets the distinct ✕ `GitPullRequestClosedIcon` — shape,
-            not color, separates closed from failing and from draft — and the
-            glyph is the row's ONLY PR channel (the dot never renders PR
-            state; see pr-status-model.ts). */}
+            six-way: red closed (GitHub's closed red), red failing, gray
+            open-draft, yellow checks-running, green open, purple merged —
+            closed sits ABOVE fail (stale checks are noise), draft is
+            open-gated and sits BELOW fail and ABOVE pending. Icon picked by
+            state via the shared prGlyphIcon: ✕ for closed, dotted rail for
+            an open draft, arc otherwise — shape separates closed from
+            failing (both red) and draft from open (both arc-less/arc), color
+            separates closed from draft. The glyph is the row's ONLY PR
+            channel (the dot never renders PR state; see pr-status-model.ts). */}
         {!ghost && prOwnsGlyph(win) && (
           <span
             aria-hidden="true"
             data-testid="row-pr-glyph"
             className={`absolute right-0 top-1/2 -translate-y-1/2 flex items-center justify-center px-0.5 min-w-[24px] min-h-[24px] pointer-events-none group-hover:hidden group-has-[:focus-visible]/icons:hidden ${prGlyphColor(win)}`}
           >
-            {win.prState === "closed" ? <GitPullRequestClosedIcon /> : <GitPullRequestIcon />}
+            {prGlyphIcon(win)}
           </span>
         )}
         {onOperatorCompose && (
@@ -817,7 +818,7 @@ function WindowRowInner({
                 data-testid="row-pr-glyph"
                 className={`flex items-center justify-center pointer-events-none ${prGlyphColor(win)}`}
               >
-                {win.prState === "closed" ? <GitPullRequestClosedIcon /> : <GitPullRequestIcon />}
+                {prGlyphIcon(win)}
               </span>
             )}
           </span>

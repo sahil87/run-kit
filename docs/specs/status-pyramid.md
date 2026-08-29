@@ -66,7 +66,7 @@ output. Not v1.
 |---------|---------|------------|
 | Core hue **[current — compositional vocabulary]** | which journey + position in it (the LOCAL story) | **cool = fab pipeline**: blue (building — intake·apply·review) → green (PR-ready/done — ship·review-pr·done) · **warm = ad-hoc agent**: yellow · gray = floor (no agent, no journey). Purple/orange are retired from the dot |
 | Shape | health/status of the owning tier — the SAME meaning in every hue | solid (running/live) · ring (at rest — stage pending · parked done · idle agent · quiet shell) · failed (dotted ring + red center) |
-| PR glyph **[current]** | the REMOTE story — the branch's PR on GitHub; never the dot | right-edge git-pull-request glyph, five states via `prGlyphColor`: red failing > gray open-draft > yellow checks-running > green open > purple merged; gated on `prOwnsGlyph` (owned PR — never closed), un-family-gated |
+| PR glyph **[current]** | the REMOTE story — the branch's PR on GitHub; never the dot | right-edge git-pull-request glyph, six states via `prGlyphColor`: red closed (✕ icon) > purple merged > red failing > gray open-draft (dotted-rail icon) > yellow checks-running > green open; gated on `prOwnsGlyph` (owned PR: open/merged/closed), un-family-gated |
 | Animation **[current]** | attention — **additive, never destructive** | constant-**yellow** pulsing halo = `waiting`, over any tier; core hue AND shape are kept. (future) slow-pulse halo = stuck. No halo = no attention needed |
 | Duration text | how long in the current resting state | `waiting Xm` (attention token) · `idle Xm` · tmux elapsed |
 | Hover card (row flyout) | full detail | hue-word + status-word label, the four registers, PR link, docs link |
@@ -154,10 +154,12 @@ waiting   →  additive yellow halo, over anything (core hue + shape kept)
    never consults `prNumber`. An adopted change (PR pre-exists) or a reused
    branch with an open PR shows its glyph earlier; the dot stays stage-true.
 2. **PR state never reaches the dot.** The remote story — open, checks
-   running, failing, merged — lives on the row's rest-state glyph
-   (`prGlyphColor`: red > draft-gray > pending-yellow > open-green >
-   merged-purple) and the register surfaces. Dot and glyph never share a fact:
-   dot-red = my pipeline failed here, glyph-red = the PR is failing on GitHub.
+   running, failing, merged, closed — lives on the row's rest-state glyph
+   (`prGlyphColor`: closed-red > merged-purple > fail-red > draft-gray >
+   pending-yellow > open-green; shape carries what color cannot — ✕ for
+   closed, dotted rail for draft) and the register surfaces. Dot and glyph
+   never share a fact: dot-red = my pipeline failed here, glyph-red = the PR
+   is failing on GitHub or was closed there (the ✕ tells which).
 3. **Agent state owns the warm family, but never surfaces in the dot on
    fab windows** — a fab window's shape carries pipeline health, which is
    rarer and more actionable than routine agent state. Agent state on fab
@@ -177,7 +179,7 @@ waiting   →  additive yellow halo, over anything (core hue + shape kept)
    merged-purple signal silently decayed minutes after merge. The revised rule:
    the branch→PR derivation queries **all states** and picks by precedence
    **open (most recently updated) > merged (most recent)**; closed-unmerged is
-   derived (register view) but earns no glyph. A merged PR then renders the
+   derived and renders the red ✕ glyph. A merged PR then renders the
    glyph's **durable purple merged state statelessly and restart-proof** for as
    long as the pane sits on that branch — no grace clock, no negative-stamp
    machinery (`wentNegativeAt` retired). Branch-reuse edge: an open PR always
@@ -227,7 +229,7 @@ row's rest-state PR glyph (the dot's column never encodes PR state).
 | 18 | fab | ship→done · PR checks running | green · solid | **yellow** (checks running) | |
 | 19 | fab | ship→done · PR checks fail / changes requested | green · solid | red | |
 | 20 | fab | ship→done · PR merged | green · solid (live) / green · ring (parked done) | purple — durable via state-all derivation (D2 revised) | |
-| 21 | fab | PR closed-unmerged · change live | the live stage tier (closed earns no glyph) **[current]** | — | |
+| 21 | fab | PR closed-unmerged · change live | the live stage tier (closed renders the red ✕ glyph, never a dot tier) **[current]** | — | |
 | 22 | fab | displayState skipped | falls through — agent tier, else gray floor **[current]** | per PR state | |
 
 ---
@@ -240,10 +242,12 @@ width back (less truncation, especially on mobile).
 
 The row carries **two glyph-only status signals**: the leading StatusDot, and —
 for a window with an owned PR (`prOwnsGlyph`: `prNumber` present with a known
-owned state, `open` or `merged` — closed and unknown/unconfident states never
+owned state, `open`, `merged` or `closed` — unknown/unconfident states never
 own) — a **rest-state git-pull-request glyph** in the trailing cluster's
-last slot, colored from the shared PR vocabulary (`prGlyphColor`: red failing >
-gray open-draft > yellow checks-running > green open > purple merged). The
+last slot, colored from the shared PR vocabulary (`prGlyphColor`: red closed >
+purple merged > red failing > gray open-draft > yellow checks-running > green
+open) with the icon picked by state (✕ closed, dotted-rail draft, arc
+otherwise — closed and failing share red and separate by shape). The
 glyph is informational decoration: `aria-hidden`, never focusable, never
 clickable. It swaps out entirely on row hover, on coarse pointers, and on
 keyboard focus within the cluster, where the pin + kill actions take the slots.
@@ -356,5 +360,5 @@ One overlay at a time: `waiting` outranks `stuck`.
 | ID | Question | Resolution |
 |----|----------|-----------|
 | ~~D1~~ | ~~PR tier gate: `prNumber` alone?~~ | **Dissolved (compositional vocabulary — aqo6)**: no family owns the dot via PR — the PR was evicted to the row's rest-state glyph, which is un-family-gated as it already was (any pane with an owned PR shows it; derivation stays universal in the register view). *History*: palette v3 first resolved this per-family (purple = `fabChange && prNumber`, orange = `fresh agentState && prNumber`) before the eviction removed PR dot-ownership entirely |
-| D2 | Merged/closed PR retention under branch-derivation | **Revised after production observation** (first resolution — `--state open` + 10-min in-memory grace — decayed the merged-purple signal on grace expiry or rk restart): derivation queries **all PR states**; precedence open (most recent) > merged (most recent); merged renders **the glyph's durable purple state** statelessly; closed-unmerged earns no glyph (register line only). Grace-window machinery retired. Post-eviction the consumer is the GLYPH, not a dot square — the derivation itself is unchanged. **Default-branch carve-out (#389)**: the derivation never runs for a pane on the repo's default branch — head-name-only matching makes every such candidate degenerate, so excluded pairs resolve to an authoritative negative (invariant 6). **[current]** |
+| D2 | Merged/closed PR retention under branch-derivation | **Revised after production observation** (first resolution — `--state open` + 10-min in-memory grace — decayed the merged-purple signal on grace expiry or rk restart): derivation queries **all PR states**; precedence open (most recent) > merged (most recent); merged renders **the glyph's durable purple state** statelessly; closed-unmerged renders the glyph's red ✕ state (GitHub's closed color, matching `PR_STATE_COLORS.closed` on the register line). Grace-window machinery retired. Post-eviction the consumer is the GLYPH, not a dot square — the derivation itself is unchanged. **Default-branch carve-out (#389)**: the derivation never runs for a pane on the repo's default branch — head-name-only matching makes every such candidate degenerate, so excluded pairs resolve to an authoritative negative (invariant 6). **[current]** |
 | ~~D3~~ | ~~Is a 7px halo pulse salient enough for `waiting`?~~ | **Resolved (additive halo, palette v3 — carried forward unchanged)**: `waiting` = constant-**yellow** pulsing halo around the dot, core hue and shape untouched. Rejected: hue-flip (destroys family identity precisely when attention is highest — e.g. fab intake asking); self-colored halo (reduced-motion form nearly invisible + collides with the `ring` shape); fuchsia (its motivating amber collision no longer exists). Reduced-motion: static yellow outer ring |

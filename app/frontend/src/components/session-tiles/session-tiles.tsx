@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo, useEffect } from "react";
 import { parseFabChange, formatDuration } from "@/lib/format";
 import { StatusDot } from "@/components/status-dot";
 import { prOwnsGlyph, prGlyphColor } from "@/components/pr-status-model";
-import { GitPullRequestIcon, GitPullRequestClosedIcon } from "@/components/sidebar/icons";
+import { prGlyphIcon } from "@/components/sidebar/icons";
 import { NOTE_STALE_SECONDS } from "@/components/sidebar/row-flyout-card";
 import { AnsiText } from "@/components/session-tiles/ansi-text";
 import { SectionHeading } from "@/components/section-heading";
@@ -184,12 +184,12 @@ export function SessionTiles({
                               {/* Rest-state PR glyph (aqo6 → xuej) — the tile's
                                   only PR channel, mirroring the sidebar row's
                                   glyph (window-row.tsx): same prOwnsGlyph gate
-                                  (closed earns the glyph too — muted), same
-                                  shared prGlyphColor vocabulary (muted closed /
-                                  red failing / gray draft / yellow
-                                  checks-running / green open / purple merged),
-                                  same state-picked icon (closed → the ✕
-                                  GitPullRequestClosedIcon), same aria-hidden
+                                  (closed earns the glyph too), same shared
+                                  prGlyphColor vocabulary (red closed / red
+                                  failing / gray draft / yellow checks-running /
+                                  green open / purple merged), same state-picked
+                                  icon via prGlyphIcon (✕ closed / dotted-rail
+                                  draft / arc otherwise), same aria-hidden
                                   decoration semantics (the dot's aria-label +
                                   the register surfaces carry the info). Never
                                   on ghost windows. */}
@@ -199,7 +199,7 @@ export function SessionTiles({
                                   data-testid="tile-pr-glyph"
                                   className={`flex items-center shrink-0 ${prGlyphColor(win)}`}
                                 >
-                                  {win.prState === "closed" ? <GitPullRequestClosedIcon /> : <GitPullRequestIcon />}
+                                  {prGlyphIcon(win)}
                                 </span>
                               )}
                             </span>

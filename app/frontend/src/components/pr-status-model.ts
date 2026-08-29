@@ -155,8 +155,8 @@ function hasFreshAgent(win: WindowInfo): boolean {
  * Gate for the row's rest-state PR glyph (93dy → aqo6 → xuej): `prNumber`
  * present with a KNOWN owned state — `open`, `merged`, or `closed`. Open,
  * failing, and merged PRs all earn the glyph; a dead closed PR earns it too,
- * in its distinct closed-icon muted form (the ✕ shape says "closed", the
- * `text-text-secondary` token says "dead — ignore"). The gate is a positive
+ * in its distinct closed-icon red form (the ✕ shape says "closed", the
+ * `text-signal-red` token is GitHub's closed color). The gate is a positive
  * allowlist, not `!== "closed"`: the backend's branch channel deliberately
  * maps an unconfident state to `""` (MapBranchState — serialized as an
  * ABSENT `prState` via omitempty), and a stateless PR MUST NOT own the glyph
@@ -175,12 +175,13 @@ export function prOwnsGlyph(win: WindowInfo): boolean {
  * Color token for the rest-state PR glyph (window row + session tiles),
  * reusing the shared PR vocabulary so the glyph stays in lock-step with the
  * segments. SIX-WAY mapping, and the branch order IS the design:
- *   1. `text-text-secondary` for a CLOSED PR (xuej) — a dead PR renders
- *      muted (the established inert/no-journey token, shared with draft;
- *      the ✕ closed icon is what separates closed from draft). Closed sits
- *      ABOVE fail on purpose: a closed PR's check/review state is historical
- *      noise. (The GitHub-exact red variant was considered and rejected by
- *      the user: dead PRs should not draw rest-state attention.)
+ *   1. `text-signal-red` for a CLOSED PR — GitHub's closed red, and the
+ *      same token `PR_STATE_COLORS.closed` already paints the status-panel /
+ *      flyout "closed" segment, so glyph and text agree. Closed and fail-ish
+ *      share red; the ✕ closed icon (not the color) separates them. Closed
+ *      sits ABOVE fail on purpose: a closed PR's check/review state is
+ *      historical noise, and a closed PR with PASSING checks must not fall
+ *      through to green.
  *   2. `text-signal-purple` for MERGED — the same landed-PR rationale:
  *      historical checks/review are noise (mirrors status-panel suppressing
  *      checks/review once `!open`), so merged sits above fail too.
@@ -190,7 +191,9 @@ export function prOwnsGlyph(win: WindowInfo): boolean {
  *      problem first and a draft second.
  *   4. `text-text-secondary` for an OPEN DRAFT (e30p) — GitHub renders drafts
  *      gray, and this is already the "inert / no journey" token in this model
- *      (`PHASE_HUE.none`). Draft sits ABOVE pending on purpose: drafts stay
+ *      (`PHASE_HUE.none`); draft is the ONLY gray glyph state, and it also
+ *      carries its own shape (`GitPullRequestDraftIcon`). Draft sits ABOVE
+ *      pending on purpose: drafts stay
  *      muted even while their checks run (pending would un-mute them). The
  *      branch is GATED ON `prState === "open"` so the closed path is
  *      untouched BY CONSTRUCTION (a closed draft reads closed, GitHub
@@ -211,7 +214,7 @@ export function prOwnsGlyph(win: WindowInfo): boolean {
  * and closed are glyph-only distinctions.
  */
 export function prGlyphColor(win: WindowInfo): string {
-  if (win.prState === "closed") return "text-text-secondary"; // dead PR: muted; stale checks are noise
+  if (win.prState === "closed") return "text-signal-red"; // dead PR: GitHub red; the ✕ shape separates it from fail-ish
   if (win.prState === "merged") return "text-signal-purple"; // landed: stale checks are noise too
   if (isFailish(win)) return "text-signal-red";
   if (win.prState === "open" && win.prIsDraft) return "text-text-secondary";

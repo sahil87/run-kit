@@ -436,9 +436,9 @@ describe("WindowRow", () => {
       expect(dot.className).not.toContain("rounded-none");
     });
 
-    it("D2: a closed-unmerged PR on a live fab change leaves the fab tier untouched (and earns no glyph)", () => {
-      // A closed PR never reaches any surface: the dot renders the live stage
-      // (it never consulted the PR anyway) and prOwnsGlyph excludes closed.
+    it("D2: a closed-unmerged PR on a live fab change leaves the fab tier untouched", () => {
+      // The dot renders the live stage (it never consults the PR); the closed
+      // PR lives only on the rest-state glyph, never on any dot tier.
       const win = makeWindow({
         windowId: "@0",
         index: 0,
@@ -511,6 +511,27 @@ describe("WindowRow", () => {
       const glyph = screen.getByTestId("row-pr-glyph");
       expect(glyph.className).toContain("text-text-secondary");
       expect(glyph.className).not.toContain("text-accent-green");
+      // Draft owns its own shape: the dotted merge rail replaces the arc.
+      expect(glyph.querySelector('path[d="M18 6V5"]')).not.toBeNull();
+      expect(glyph.querySelector('path[d="M18 11v-1"]')).not.toBeNull();
+      expect(glyph.querySelector('path[d="M13 6h3a2 2 0 0 1 2 2v7"]')).toBeNull();
+      expect(glyph.querySelector('path[d="m21 3-6 6"]')).toBeNull();
+    });
+
+    it("keeps the draft shape but turns red for a failing draft (fail wins the color, draft keeps the shape)", () => {
+      const win = makeWindow({
+        windowId: "@0",
+        index: 0,
+        prNumber: 386,
+        prState: "open",
+        prIsDraft: true,
+        prChecks: "fail",
+      });
+      renderRowWithIcons(win);
+      const glyph = screen.getByTestId("row-pr-glyph");
+      expect(glyph.className).toContain("text-signal-red");
+      expect(glyph.querySelector('path[d="M18 6V5"]')).not.toBeNull();
+      expect(glyph.querySelector('path[d="M13 6h3a2 2 0 0 1 2 2v7"]')).toBeNull();
     });
 
     it("renders the glyph yellow for an open PR with checks running (aqo6 pending state)", () => {
@@ -529,17 +550,27 @@ describe("WindowRow", () => {
       expect(glyph.className).not.toContain("text-signal-purple");
     });
 
-    // xuej: closed earns the glyph — muted gray with the distinct ✕ closed
-    // icon (GitPullRequestClosedIcon). Shape, not color, separates closed
-    // from failing (red normal icon) and from draft (gray normal icon).
-    it("renders the glyph muted with the closed ✕ icon for a closed-unmerged PR", () => {
+    // Closed earns the glyph — GitHub red with the distinct ✕ closed icon.
+    // Shape separates closed from failing (both red); color separates closed
+    // from draft (gray).
+    it("renders the glyph red with the closed ✕ icon for a closed-unmerged PR", () => {
       const win = makeWindow({ windowId: "@0", index: 0, prNumber: 386, prState: "closed" });
       renderRowWithIcons(win);
       const glyph = screen.getByTestId("row-pr-glyph");
-      expect(glyph.className).toContain("text-text-secondary");
+      expect(glyph.className).toContain("text-signal-red");
+      expect(glyph.className).not.toContain("text-text-secondary");
       // The closed ✕ mark (m21 3-6 6) replaces the merge arc of the normal icon.
       expect(glyph.querySelector('path[d="m21 3-6 6"]')).not.toBeNull();
       expect(glyph.querySelector('path[d="M13 6h3a2 2 0 0 1 2 2v7"]')).toBeNull();
+    });
+
+    it("a closed draft reads closed (✕, red) — closed wins over the draft shape", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, prNumber: 386, prState: "closed", prIsDraft: true });
+      renderRowWithIcons(win);
+      const glyph = screen.getByTestId("row-pr-glyph");
+      expect(glyph.className).toContain("text-signal-red");
+      expect(glyph.querySelector('path[d="m21 3-6 6"]')).not.toBeNull();
+      expect(glyph.querySelector('path[d="M18 6V5"]')).toBeNull();
     });
 
     it("keeps the normal PR icon for open and merged PRs (state-picked icon)", () => {
@@ -548,6 +579,7 @@ describe("WindowRow", () => {
         const { unmount } = renderRowWithIcons(win);
         const glyph = screen.getByTestId("row-pr-glyph");
         expect(glyph.querySelector('path[d="m21 3-6 6"]')).toBeNull();
+        expect(glyph.querySelector('path[d="M18 6V5"]')).toBeNull();
         expect(glyph.querySelector('path[d="M13 6h3a2 2 0 0 1 2 2v7"]')).not.toBeNull();
         unmount();
       }

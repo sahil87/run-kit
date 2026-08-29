@@ -142,12 +142,6 @@ vite.config.ts.timestamp-*
 
 keys/
 
-/.agents
-/.claude
-/.cursor
-/.opencode
-/.codex
-/.gemini
 /.vscode
 
 .fab-status.yaml
@@ -192,6 +186,5 @@ app/backend/build/tmux.conf
 
 !fab/.fab-version
 
-/.kimi
 
 /.claude/settings.local.json

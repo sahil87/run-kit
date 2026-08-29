@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { useWindowStore, entryKey, GHOST_WINDOW_TTL_MS } from "./window-store";
+import { useWindowStore, entryKey, GHOST_WINDOW_TTL_MS, webFamilyAfterRemove } from "./window-store";
 import { makeWindow } from "@/test-utils/fixtures";
 
 const SRV = "test";
@@ -554,6 +554,69 @@ describe("window-store", () => {
 
       // @1 still present
       expect(get(SRV, "@1")?.name).toBe("zsh");
+    });
+  });
+
+  describe("webOverride", () => {
+    it("setWebOverride merges into the entry; clearWebOverride reverts", () => {
+      const { setWindowsForSession, setWebOverride, clearWebOverride } = getStore();
+      setWindowsForSession(SRV, "alpha", [makeWindow({ windowId: "@0", index: 0 })]);
+
+      setWebOverride(SRV, "alpha", "@0", { webActive: 3 });
+      expect(get(SRV, "@0")?.webOverride).toEqual({ webActive: 3 });
+
+      // A second optimistic write merges rather than replaces (a remove
+      // landing while a select is in flight keeps the shifted family).
+      setWebOverride(SRV, "alpha", "@0", { webTabs: ["/a", "/b"], webActive: 2 });
+      expect(get(SRV, "@0")?.webOverride).toEqual({ webTabs: ["/a", "/b"], webActive: 2 });
+
+      clearWebOverride(SRV, "alpha", "@0");
+      expect(get(SRV, "@0")?.webOverride).toBeUndefined();
+    });
+
+    it("survives an SSE rebuild of the same window (the pendingName precedent)", () => {
+      const { setWindowsForSession, setWebOverride } = getStore();
+      setWindowsForSession(SRV, "alpha", [makeWindow({ windowId: "@0", index: 0 })]);
+      setWebOverride(SRV, "alpha", "@0", { webActive: 2 });
+
+      // A mid-flight tick still carrying the OLD value must not drop the
+      // override — the consumer clears it once the payload matches.
+      setWindowsForSession(SRV, "alpha", [makeWindow({ windowId: "@0", index: 0 })]);
+
+      expect(get(SRV, "@0")?.webOverride).toEqual({ webActive: 2 });
+    });
+
+    it("no-ops when the entry is missing or the session mismatches", () => {
+      const { setWindowsForSession, setWebOverride } = getStore();
+      setWindowsForSession(SRV, "alpha", [makeWindow({ windowId: "@0", index: 0 })]);
+
+      setWebOverride(SRV, "beta", "@0", { webActive: 2 });
+      setWebOverride(SRV, "alpha", "@9", { webActive: 2 });
+
+      expect(get(SRV, "@0")?.webOverride).toBeUndefined();
+    });
+
+    it("clearWebOverride leaves a clean entry untouched", () => {
+      const { setWindowsForSession, clearWebOverride } = getStore();
+      setWindowsForSession(SRV, "alpha", [makeWindow({ windowId: "@0", index: 0 })]);
+
+      clearWebOverride(SRV, "alpha", "@0");
+
+      expect(get(SRV, "@0")?.webOverride).toBeUndefined();
+    });
+  });
+
+  describe("webFamilyAfterRemove", () => {
+    // Mirrors the backend's repointActive table (webtabs_test.go): the
+    // 1-based slot leaves, later slots shift down, the pointer repoints.
+    it.each([
+      { name: "empty family unsets", tabs: ["/a"], active: 1, n: 1, webTabs: [], webActive: 0 },
+      { name: "active on removed middle keeps slot", tabs: ["/a", "/b", "/c"], active: 2, n: 2, webTabs: ["/a", "/c"], webActive: 2 },
+      { name: "active on removed last steps back", tabs: ["/a", "/b", "/c"], active: 3, n: 3, webTabs: ["/a", "/b"], webActive: 2 },
+      { name: "active after removed steps down", tabs: ["/a", "/b", "/c"], active: 3, n: 1, webTabs: ["/b", "/c"], webActive: 2 },
+      { name: "active before removed unchanged", tabs: ["/a", "/b", "/c"], active: 1, n: 2, webTabs: ["/a", "/c"], webActive: 1 },
+    ])("$name", ({ tabs, active, n, webTabs, webActive }) => {
+      expect(webFamilyAfterRemove(tabs, active, n)).toEqual({ webTabs, webActive });
     });
   });
 });

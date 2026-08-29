@@ -1,8 +1,8 @@
 # UI State — Every Addressable Thing Is a tmux Option
 
-> **Status**: § Layout in tmux and § Code Surface + Code Bridge are
-> **[current]**; the Web Tabs strip (§ Web Tabs) and § `rk tab` remain
-> **[planned]**. Decided 2026-08-28: zoom is per-viewer (not tmux);
+> **Status**: § Layout in tmux, § Code Surface + Code Bridge, and § Web
+> Tabs are **[current]**; the § Web Tabs `rk present` paragraph and §
+> `rk tab` remain **[planned]**. Decided 2026-08-28: zoom is per-viewer (not tmux);
 > navigation is not tmux state in v1; `?layout=` dies after one release of
 > link translation. Assumes
 > `fab/plans/sahil/26-08-28-tmux-option-scope-naming.md` has shipped: every
@@ -226,7 +226,7 @@ arrangement" is expressed as `rk tab layout @N …`, not as a link.
 
 ---
 
-## Web Tabs **[planned]**
+## Web Tabs **[current]**
 
 **One `web` surface per tab; N web tabs inside it.** Chosen over "N web
 surfaces per tab" because:
@@ -270,10 +270,11 @@ back simply re-adds the same target; no durable ids, indices stay dense.
 by someone. Ports detected on the tab's panes (`internal/ports`) are *not*
 auto-materialised as web tabs — a derived member coming and going would
 renumber declared ones under an agent's feet. Instead the strip offers a
-detected port as a one-click **"+ add as web tab"** affordance, which is an
+detected port as a one-click **"+ add as web tab"** affordance (deferred —
+needs per-window port attribution; tracked in `fab/backlog.md`), which is an
 ordinary declared write.
 
-**`rk present` is absorbed.** Its five target kinds and the `ProbePort`
+**`rk present` is absorbed [planned].** Its five target kinds and the `ProbePort`
 step live on unchanged in `internal/present`; the verb becomes sugar:
 
 ```

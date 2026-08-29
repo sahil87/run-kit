@@ -38,6 +38,9 @@ import {
   setWindowRole,
   setWindowFlair,
   setSessionFlair,
+  addWebTab,
+  removeWebTab,
+  selectWebTab,
   triggerUpdate,
   triggerForceUpdate,
   triggerRestart,
@@ -418,6 +421,73 @@ describe("API client", () => {
     );
     await renameSession("server with spaces", "foo", "bar");
     expect(capturedUrl).toContain("?server=server%20with%20spaces");
+  });
+});
+
+describe("web tab verb wrappers", () => {
+  it("addWebTab POSTs {target} to /api/windows/:windowId/web with server query", async () => {
+    let capturedUrl = "";
+    let capturedMethod = "";
+    let capturedBody: { target?: string } = {};
+    mswServer.use(
+      http.post("/api/windows/:windowId/web", async ({ request }) => {
+        capturedUrl = request.url;
+        capturedMethod = request.method;
+        capturedBody = (await request.json()) as { target?: string };
+        return HttpResponse.json(
+          { index: 3, existed: false, url: "/proxy/3003/" },
+          { status: 201 },
+        );
+      }),
+    );
+    const result = await addWebTab("s", "@5", "/proxy/3003/");
+    expect(capturedMethod).toBe("POST");
+    expect(capturedUrl).toMatch(/\/api\/windows\/%405\/web\?server=s$/);
+    expect(capturedBody).toEqual({ target: "/proxy/3003/" });
+    expect(result).toEqual({ index: 3, existed: false, url: "/proxy/3003/" });
+  });
+
+  it("removeWebTab POSTs /api/windows/:windowId/web/:n/remove with server query", async () => {
+    let capturedUrl = "";
+    let capturedMethod = "";
+    mswServer.use(
+      http.post("/api/windows/:windowId/web/:n/remove", ({ request }) => {
+        capturedUrl = request.url;
+        capturedMethod = request.method;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const result = await removeWebTab("s", "@5", 2);
+    expect(result.ok).toBe(true);
+    expect(capturedMethod).toBe("POST");
+    expect(capturedUrl).toMatch(/\/api\/windows\/%405\/web\/2\/remove\?server=s$/);
+  });
+
+  it("selectWebTab POSTs /api/windows/:windowId/web/:n/select with server query", async () => {
+    let capturedUrl = "";
+    let capturedMethod = "";
+    mswServer.use(
+      http.post("/api/windows/:windowId/web/:n/select", ({ request }) => {
+        capturedUrl = request.url;
+        capturedMethod = request.method;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const result = await selectWebTab("s", "@5", 3);
+    expect(result.ok).toBe(true);
+    expect(capturedMethod).toBe("POST");
+    expect(capturedUrl).toMatch(/\/api\/windows\/%405\/web\/3\/select\?server=s$/);
+  });
+
+  it("a 409 rejects with the server's error text verbatim (family cap)", async () => {
+    mswServer.use(
+      http.post("/api/windows/:windowId/web", () =>
+        HttpResponse.json({ error: "web tabs full (8)" }, { status: 409 }),
+      ),
+    );
+    await expect(addWebTab("s", "@5", "/proxy/3009/")).rejects.toThrow(
+      "web tabs full (8)",
+    );
   });
 });
 

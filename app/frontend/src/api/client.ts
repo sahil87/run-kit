@@ -466,6 +466,65 @@ export async function setWindowOptions(
   return res.json();
 }
 
+/**
+ * Append a web tab to the window's tab family via
+ * POST /api/windows/{windowId}/web (201). `target` is the stored address
+ * (callers pass the normalized form). A non-2xx rejects with the server's
+ * `error` text verbatim — the family-cap 409 message must reach the UI.
+ */
+export async function addWebTab(
+  server: string,
+  windowId: string,
+  target: string,
+): Promise<{ index: number; existed: boolean; url: string }> {
+  const res = await fetch(
+    withServer(`/api/windows/${encodeURIComponent(windowId)}/web`, server),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target }),
+    },
+  );
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/**
+ * Remove web tab `n` (the 1-based tmux slot) via
+ * POST /api/windows/{windowId}/web/{n}/remove. A non-2xx rejects with the
+ * server's `error` text verbatim.
+ */
+export async function removeWebTab(
+  server: string,
+  windowId: string,
+  n: number,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(
+    withServer(`/api/windows/${encodeURIComponent(windowId)}/web/${n}/remove`, server),
+    { method: "POST" },
+  );
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/**
+ * Select web tab `n` (the 1-based tmux slot) via
+ * POST /api/windows/{windowId}/web/{n}/select. A non-2xx rejects with the
+ * server's `error` text verbatim.
+ */
+export async function selectWebTab(
+  server: string,
+  windowId: string,
+  n: number,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(
+    withServer(`/api/windows/${encodeURIComponent(windowId)}/web/${n}/select`, server),
+    { method: "POST" },
+  );
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
 /** The GET /api/frame-check response — the backend probe's derived verdict
  *  on whether an absolute external URL can be framed (260819-v6y4 R2). */
 export interface FrameCheckResult {

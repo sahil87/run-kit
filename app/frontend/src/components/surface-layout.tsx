@@ -55,14 +55,22 @@ import {
   reduceProgress,
   type TtyProgress,
 } from "@/lib/tty-progress";
-import { classifyAddress, displayForm, proxyPortOf } from "@/lib/web-url";
+import { classifyAddress, displayForm, proxyPortOf, toWebAddTarget } from "@/lib/web-url";
 import type { ChatEvent, ChatPending } from "@/lib/chat-stream";
 import type { WindowInfo } from "@/types";
 import type { Terminal } from "@xterm/xterm";
 import type { SerializeAddon } from "@xterm/addon-serialize";
 import { copyToClipboard } from "@/lib/clipboard";
-import { fetchWindowHistory, setWindowOptions } from "@/api/client";
+import {
+  addWebTab,
+  fetchWindowHistory,
+  removeWebTab,
+  selectWebTab,
+  setWindowOptions,
+} from "@/api/client";
 import { useToast } from "@/components/toast";
+import { useOptimisticAction } from "@/hooks/use-optimistic-action";
+import { entryKey, useWindowStore, webFamilyAfterRemove } from "@/store/window-store";
 import {
   EXPORT_EVENT,
   buildExportFilename,
@@ -1221,6 +1229,62 @@ export function SurfaceLayout({
     };
   }, [draggingIntersection]);
 
+  // ── Web-tab strip verbs (optimistic select/remove) ─────────────────────
+  // Select/remove ride the window store's per-entry `webOverride` (the
+  // pendingName/killed precedent): the optimistic write repaints the strip
+  // immediately while the POST is in flight; the SSE tick is authoritative
+  // and the reconcile effect drops the override once the payload matches. A
+  // rejection reverts the override and toasts. Add is NOT optimistic — the
+  // slot index is server-assigned.
+  const webOverride = useWindowStore(
+    (s) => s.entries.get(entryKey(server, windowId))?.webOverride,
+  );
+  const setWebOverride = useWindowStore((s) => s.setWebOverride);
+  const clearWebOverride = useWindowStore((s) => s.clearWebOverride);
+
+  const { execute: selectWebTabOptimistic } = useOptimisticAction<[number]>({
+    action: (n) => selectWebTab(server, windowId, n),
+    onOptimistic: (n) => setWebOverride(server, sessionName, windowId, { webActive: n }),
+    onAlwaysRollback: () => clearWebOverride(server, sessionName, windowId),
+    onError: (err) => addToast(err.message || "Failed to select web tab", "error"),
+  });
+
+  const { execute: removeWebTabOptimistic } = useOptimisticAction<[number]>({
+    action: (n) => removeWebTab(server, windowId, n),
+    onOptimistic: (n) => {
+      // Compound on any in-flight override so back-to-back strip clicks
+      // shift the family the user is looking at, not the stale payload.
+      const tabs = webOverride?.webTabs ?? win?.webTabs ?? [];
+      const active = webOverride?.webActive ?? win?.webActive ?? 0;
+      setWebOverride(server, sessionName, windowId, webFamilyAfterRemove(tabs, active, n));
+    },
+    onAlwaysRollback: () => clearWebOverride(server, sessionName, windowId),
+    onError: (err) => addToast(err.message || "Failed to close web tab", "error"),
+  });
+
+  // Reconcile: the options write wakes the SSE hub, so the confirming tick
+  // lands within ~1–2s; once the payload matches, the override has nothing
+  // left to say.
+  useEffect(() => {
+    if (!webOverride || !win) return;
+    const payloadTabs = win.webTabs ?? [];
+    const tabsSettled =
+      webOverride.webTabs === undefined ||
+      (webOverride.webTabs.length === payloadTabs.length &&
+        webOverride.webTabs.every((url, i) => url === payloadTabs[i]));
+    const activeSettled =
+      webOverride.webActive === undefined ||
+      webOverride.webActive === (win.webActive ?? 0);
+    if (tabsSettled && activeSettled) clearWebOverride(server, sessionName, windowId);
+  }, [webOverride, win, server, sessionName, windowId, clearWebOverride]);
+
+  // A window switch remounts this component (the `${server}:${windowId}`
+  // key) — drop any in-flight override for the window left behind.
+  useEffect(
+    () => () => clearWebOverride(server, sessionName, windowId),
+    [server, sessionName, windowId, clearWebOverride],
+  );
+
   /** A tile's renderer, unchanged from the legacy lens/panel mounts. The
    *  iframe tiles (code, web) also wire the focus seam (260812-wfic R2):
    *  in-frame pointerdowns/keydowns stay in the frame's document and moving
@@ -1261,14 +1325,37 @@ export function SurfaceLayout({
         // tile mounts regardless — the `win` guard narrows for the props.
         return win ? (
           <IframeWindow
-            url={activeWebUrl(win)}
+            tabs={webOverride?.webTabs ?? win.webTabs ?? []}
+            active={webOverride?.webActive ?? win.webActive}
             // Address-bar write seam: the ACTIVE web slot's option write
             // (n = webActive, slot 1 while the pointer is unset) — the
-            // component stays payload-shape agnostic.
+            // component stays payload-shape agnostic. The active pointer is
+            // read through the same optimistic override the strip renders,
+            // so a submit during an in-flight select/remove targets the tab
+            // the user is looking at, not the stale payload slot.
             onWriteUrl={(url) => {
-              const n = win.webActive !== undefined && win.webActive >= 1 ? win.webActive : 1;
+              const active = webOverride?.webActive ?? win.webActive;
+              const n = active !== undefined && active >= 1 ? active : 1;
               return setWindowOptions(server, windowId, { [`@rk_win_web_${n}`]: url });
             }}
+            // Strip verbs: select/remove are optimistic (the webOverride
+            // block above); add is NOT optimistic — the slot index is
+            // server-assigned, the SSE tick repaints the family. The
+            // component types the verbs as promise-returning (the `+` flow
+            // chains onSelectTab after onAddTab resolves); the optimistic
+            // executors are fire-and-forget, so the wrappers resolve at once.
+            // The add route resolves targets like `rk present`, so the
+            // component's relative /proxy/ draft is re-expressed as the
+            // absolute loopback URL (toWebAddTarget) the backend parses.
+            onSelectTab={(n) => {
+              selectWebTabOptimistic(n);
+              return Promise.resolve();
+            }}
+            onCloseTab={(n) => {
+              removeWebTabOptimistic(n);
+              return Promise.resolve();
+            }}
+            onAddTab={(target) => addWebTab(server, windowId, toWebAddTarget(target))}
             onInteract={slot >= 0 ? () => focusSlot(slot) : undefined}
             // Page-title seam (260819-v6y4 R10): the header render is this
             // component's, but only the mounted iframe can read the

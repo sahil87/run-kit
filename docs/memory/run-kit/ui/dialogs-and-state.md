@@ -1,5 +1,5 @@
 ---
-description: "Component conventions, dialogs (session name prompt, window-at-folder, spawn-agent, server kill confirm with the protected fork, server adopt confirm, tabbed settings with the registry-driven All-settings table, shell host add/edit form, width variants), clipboard utility, e2e host-global filesystem state, the Zustand window store, and optimistic UI + mutation feedback."
+description: "Component conventions, dialogs (session name prompt, window-at-folder, spawn-agent, server kill confirm with the protected fork, server adopt confirm, tabbed settings with the registry-driven All-settings table, shell host add/edit form, width variants), clipboard utility, e2e host-global filesystem state, the Zustand window store (incl. the per-window web-tab override), and optimistic UI + mutation feedback."
 type: memory
 ---
 # run-kit UI — Dialogs & Client State
@@ -185,6 +185,7 @@ type WindowEntry = {
   name: string;
   pendingName?: string;    // non-undefined = optimistic rename, pending SSE confirmation
   killed: boolean;         // true = optimistically hidden, pending SSE confirmation
+  webOverride?: { webTabs?: string[]; webActive?: number };  // optimistic web-tab family, display only
 };
 
 type GhostWindow = {
@@ -218,13 +219,15 @@ type WindowStore = {
 
 | Action | Effect |
 |--------|--------|
-| `setWindowsForSession(session, incoming)` | SSE reconciliation — merges by `windowId`, preserves `killed`/`pendingName`, removes absent windows, reconciles ghosts |
+| `setWindowsForSession(session, incoming)` | SSE reconciliation — merges by `windowId`, preserves `killed`/`pendingName`/`webOverride`, removes absent windows, reconciles ghosts |
 | `addGhostWindow(session, name, currentWindowIds?)` | Creates a ghost entry; returns `optimisticId` for rollback |
 | `removeGhost(optimisticId)` | Removes a ghost by ID (API failure rollback) |
 | `killWindow(session, windowId)` | Sets `killed: true` |
 | `restoreWindow(session, windowId)` | Sets `killed: false` (API failure rollback or always-settled cleanup) |
 | `renameWindow(session, windowId, newName)` | Sets `pendingName` |
 | `clearRename(session, windowId)` | Clears `pendingName` (settled or rollback) |
+| `setWebOverride(server, session, windowId, override)` | Merges an optimistic web-tab family override (`webTabs?`/`webActive?`) into the entry |
+| `clearWebOverride(server, session, windowId)` | Clears the web override (SSE confirmed, rollback, or route change) |
 | `swapWindowOrder(session, srcIndex, dstIndex)` | Swaps index values of two entries (optimistic reorder); no-op if either missing |
 | `clearSession(session)` | Removes all windows and ghosts for the session |
 
@@ -265,6 +268,8 @@ All mutating API calls use the `useOptimisticAction` hook (`app/frontend/src/hoo
 2. **Button loading states** (fire-and-forget): Split pane and close pane top-bar buttons show a spinner SVG (`animate-spin`) and `disabled` attribute during `isPending`. Command palette equivalents use the same hook for error toast feedback (palette closes, so spinner not visible).
 
 4. **Field-overlay state** (single-writer route state): the terminal route's surface layout rides a `pendingLayout { key, value }` overlay in `app.tsx` — the ONE field case that is NOT a Zustand-store ghost/kill/rename row. `applyLayout` sets it before POSTing `@rk_win_layout`; the rendered layout is `effectiveLayout({ ...window, layout: pendingLayout.value })` while `key` matches the current route, and it clears when the SSE payload's `layout` equals the pending value, on POST rejection (revert to the payload value; the failure surfaces through the mutation-feedback path), or on a route change. The overlay lives in `app.tsx` state, not the window store: the layout has exactly one writer surface (the terminal route) and one consumer, and the store's optimistic machinery is ghost-row shaped, not field-override shaped. Degradation still applies to the pending value, so tiles reorder immediately and never flicker back when the tick confirms. (iip5)
+
+5. **Per-window field override in the Zustand store** (the web-tab strip's select/remove verbs): the strip's verbs ride the store's per-entry `webOverride { webTabs?, webActive? }` (`SurfaceLayout`'s `useOptimisticAction` pair — display only): select sets `{ webActive: n }`; remove sets the locally shifted family from the pure `webFamilyAfterRemove(tabs, active, n)` (a display-only mirror of the backend's repoint rule — slots past `n` shift down, the pointer becomes 0 on an emptied family, `min(n, newLen)` when it pointed at `n`, `active-1` when past `n`), compounding on any in-flight override so back-to-back closes shift the family the user is looking at, not the stale payload. The verb POST wakes the SSE hub; a `SurfaceLayout` reconcile effect clears the override once the payload's `webTabs`/`webActive` match it (the `pendingName` discipline), a rejection rolls the override back and toasts the error, and a window switch drops it via the parent's `${server}:${windowId}` key. ADD is NOT optimistic — the slot index is server-assigned, so the new tab renders on the confirming tick. (9kip)
 
 3. **Inline progress** (async data): File upload shows an "Uploading..." badge in the terminal area. Directory autocomplete shows a spinner in the path input trailing slot. Server list refresh shows a spinner on the dropdown trigger.
 

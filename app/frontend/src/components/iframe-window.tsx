@@ -9,6 +9,7 @@ import {
   WebBackGlyph,
   WebForwardGlyph,
 } from "@/components/top-bar-icons";
+import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import {
   WEB_ADDRESS_FOCUS_EVENT,
   WEB_OPEN_EXTERNAL_EVENT,
@@ -18,6 +19,8 @@ import {
   normalizeAddressInput,
   proxyPortOf,
   toProxySrc,
+  webTabTitle,
+  type AddressKind,
 } from "@/lib/web-url";
 import {
   WEB_ZOOM_DEFAULT,
@@ -42,13 +45,25 @@ import {
 } from "@/lib/find-in-page";
 
 interface IframeWindowProps {
-  /** The address the tile renders (the window's ACTIVE web tab). */
-  url: string;
+  /** Dense web-tab family (the window's `webTabs ?? []`). */
+  tabs: string[];
+  /** 1-based active slot (the window's `webActive`); 0/undefined with a
+   *  non-empty family selects slot 1, out-of-range clamps. */
+  active?: number;
   /** Address-bar write seam: Enter submits the normalized address through
    *  this callback, which POSTs it to the active web slot's window option.
    *  The component stays payload-shape agnostic — the caller owns the slot.
    *  Absent ⇒ the submit is a local no-op. */
   onWriteUrl?: (url: string) => Promise<unknown>;
+  /** Strip verbs — absent ⇒ the control is not rendered / the gesture is a
+   *  no-op. The caller owns the POSTs; the component re-renders from the
+   *  next `tabs`/`active` props and never renumbers locally. */
+  onSelectTab?: (n: number) => Promise<unknown>;
+  onCloseTab?: (n: number) => Promise<unknown>;
+  /** `+` — declared add of the address-bar draft. Resolves to the server's
+   *  {index, existed}; the component then calls onSelectTab(index) because
+   *  the add verb selects only an empty family. */
+  onAddTab?: (target: string) => Promise<{ index: number; existed: boolean }>;
   /** Tile-focus seam: fired when a pointerdown/keydown arrives inside the
    *  same-origin contentDocument, or — the cross-origin fallback — when the
    *  parent window blurs with this iframe as the active element. Clicks
@@ -64,17 +79,24 @@ interface IframeWindowProps {
    *  untouched (typing into a framed form is unchanged); every keydown still
    *  reports `onInteract` first. Absent ⇒ report-only (legacy behavior). */
   shouldReclaimChord?: (e: KeyboardEvent) => boolean;
-  /** Page-meta seam (260819-v6y4 R10): fired on every frame `load` with the
-   *  same-origin document's title, `null` when cross-origin or empty. The
-   *  header (SurfaceLayout) owns the render, but only the mounted iframe can
-   *  read `contentDocument.title` — the `onInteract`/`onFolderNavigated`
-   *  callback-seam shape. Absent ⇒ no reporting. */
+  /** Page-meta seam (260819-v6y4 R10): fired on every ACTIVE frame `load`
+   *  with the same-origin document's title, `null` when cross-origin or
+   *  empty. The header (SurfaceLayout) owns the render, but only the mounted
+   *  iframe can read `contentDocument.title` — the
+   *  `onInteract`/`onFolderNavigated` callback-seam shape. Absent ⇒ no
+   *  reporting. */
   onPageMeta?: (meta: { title: string | null }) => void;
 }
 
 /** Trailing debounce for persisting gesture-driven zoom — a pinch emits
  *  dozens of events; one write after quiescence is enough (260824-iafo R4). */
 const ZOOM_PERSIST_DEBOUNCE_MS = 250;
+
+/** Backend family cap (`@rk_win_web_1..8`) — bounds the mounted frames. */
+const WEB_TAB_FAMILY_CAP = 8;
+/** The tab strip renders only when the family has at least this many tabs;
+ *  below it the tile's DOM is the single-tab chrome. */
+const WEB_TAB_STRIP_MIN = 2;
 
 /** The tile's error surface (260819-v6y4 R8) — rendered IN PLACE of the
  *  iframe's visible area; copy per the approved design study (states 05/06).
@@ -85,39 +107,367 @@ type TileError =
   | { kind: "unreachable"; host: string; reason: string }
   | { kind: "dead-port"; port: number };
 
-/** Renders an iframe with browser chrome: back/forward + reload, a
- *  display/edit address bar, find, open-in-browser, a load progress line, and
- *  explicit error states. */
-export function IframeWindow({
+/** The chrome-relevant slice of one frame's state, reported up by each
+ *  WebFrame; the parent's chrome binds to the ACTIVE frame's entry. */
+interface FrameChromeState {
+  loading: boolean;
+  crossOrigin: boolean;
+  trackedLocation: string | null;
+  tileError: TileError | null;
+}
+
+/** Parent → frame commands, registered per frame URL. */
+interface FrameHandle {
+  iframeRef: { current: HTMLIFrameElement | null };
+  refresh: () => void;
+  retry: () => void;
+  navigate: (delta: -1 | 1) => void;
+}
+
+interface WebFrameProps {
+  url: string;
+  active: boolean;
+  zoom: number;
+  wireGestureListeners: (target: Document | HTMLElement) => () => void;
+  onChromeState: (url: string, state: FrameChromeState) => void;
+  /** Fired on the frame's `load` events with the same-origin document title
+   *  (null cross-origin/empty) — the parent consumes it for the ACTIVE frame
+   *  only (page-meta seam + find reset). */
+  onFrameLoad: (url: string, title: string | null) => void;
+  registerFrame: (url: string, handle: FrameHandle) => void;
+  unregisterFrame: (url: string) => void;
+  interactRef: { current: (() => void) | undefined };
+  reclaimRef: { current: ((e: KeyboardEvent) => boolean) | undefined };
+}
+
+/** One mounted web tab (P3 — hide, never unmount): owns its iframe element
+ *  plus the frame-scoped state (loading, cross-origin, tracked location,
+ *  probe/error). Identity is the URL — a selection change neither remounts
+ *  the frame nor rewrites its `src`. Inactive frames run no probe; a frame
+ *  probes on first mount and on activation. */
+function WebFrame({
   url,
+  active,
+  zoom,
+  wireGestureListeners,
+  onChromeState,
+  onFrameLoad,
+  registerFrame,
+  unregisterFrame,
+  interactRef,
+  reclaimRef,
+}: WebFrameProps) {
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  // Load feedback (R11): set on mount/reload, cleared on `load`.
+  const [loading, setLoading] = useState(true);
+  const [crossOrigin, setCrossOrigin] = useState(false);
+  // Per-viewer current-path tracking (R7): the same-origin frame's location,
+  // read on its `load` events and kept in root-relative form (the viewer
+  // origin stripped). Display-only — NEVER POSTed (spec window-views R7).
+  const [trackedLocation, setTrackedLocation] = useState<string | null>(null);
+  const [tileError, setTileError] = useState<TileError | null>(null);
+  // Bumped by the dead-port Retry button to re-run detection + reload.
+  const [probeNonce, setProbeNonce] = useState(0);
+  const onFrameLoadRef = useRef(onFrameLoad);
+  onFrameLoadRef.current = onFrameLoad;
+
+  useEffect(() => {
+    onChromeState(url, { loading, crossOrigin, trackedLocation, tileError });
+  }, [url, loading, crossOrigin, trackedLocation, tileError, onChromeState]);
+
+  // Interaction + reclaim seam: attach capture-phase pointerdown/keydown
+  // listeners to the same-origin contentDocument after every load — each
+  // navigation replaces the document, so the listener on the discarded one
+  // dies with it and the fresh document gets a new pair. The keydown handler
+  // reports `onInteract` first, then consults the reclaim predicate: a match
+  // is prevented in the frame and re-dispatched on the PARENT document (the
+  // CodeSurface `onKey` mechanism — bubbling reaches both the document-level
+  // palette listener and the window-level keybinding dispatcher). Cross-origin
+  // frames fail the location probe / contentDocument read; there the
+  // window-blur check is the fallback (activeElement lands on the iframe when
+  // focus enters it, but no focusin fires in the parent). blur only fires when
+  // focus LEAVES the parent — later in-frame clicks report nothing, which is
+  // fine: the tile is already focused by then. Listeners attach regardless of
+  // whether `onInteract` is currently set: the prop can arrive after mount (a
+  // hidden tile handed slot -1 becoming visible), and gating the attach on it
+  // would strand the seam — `report` reads the ref, so it simply no-ops until
+  // then. Every load also RESETS the find state (R8): matches, highlights, and
+  // the query die with the document they were collected from.
+  //
+  // The same load pass (260819-v6y4) clears the progress line, tracks the
+  // frame's current location for the address bar's display form, and reports
+  // the page title up through onFrameLoad — all same-origin-gated reads with
+  // the attach seam's try/catch posture.
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    let attachedDoc: Document | null = null;
+    let attachedGestures: (() => void) | null = null;
+    const report = () => interactRef.current?.();
+    const onKey = (e: KeyboardEvent) => {
+      report();
+      const reclaim = reclaimRef.current;
+      if (!reclaim?.(e)) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: e.key,
+          code: e.code,
+          ctrlKey: e.ctrlKey,
+          metaKey: e.metaKey,
+          shiftKey: e.shiftKey,
+          altKey: e.altKey,
+          bubbles: true,
+        }),
+      );
+    };
+    const attach = (fromLoad: boolean) => {
+      let doc: Document | null = null;
+      try {
+        // Same-origin probe: a cross-origin frame throws on location access
+        // and yields a null contentDocument — either one marks the tile
+        // cross-origin (find disabled, back/forward hidden, reload degrades
+        // to the bounce; the blur fallback stays the only interaction
+        // signal, unchanged).
+        void iframe.contentWindow?.location.href;
+        doc = iframe.contentDocument;
+      } catch {
+        doc = null;
+      }
+      setCrossOrigin(!doc);
+      // The load-gated work (R7/R10/R11) runs on the frame's `load` events
+      // ONLY — the mount-time attach sees the initial about:blank document,
+      // so clearing the progress line or tracking the location there would
+      // fire before the real src has loaded.
+      if (fromLoad) {
+        setLoading(false);
+        // Current-path tracking + title reporting: same-origin only. The
+        // tracked location is stored root-relative (viewer origin stripped)
+        // so the display-form derivation sees the same shape as a stored
+        // relative web address. about:blank (the cross-origin reload bounce's
+        // midpoint) reports nothing.
+        if (doc) {
+          try {
+            const loc = iframe.contentWindow?.location;
+            if (loc && loc.origin === window.location.origin && loc.href !== "about:blank") {
+              setTrackedLocation(loc.pathname + loc.search + loc.hash);
+            }
+          } catch {
+            /* noop */
+          }
+          onFrameLoadRef.current(url, doc.title !== "" ? doc.title : null);
+        } else {
+          onFrameLoadRef.current(url, null);
+        }
+      }
+      // R8 highlight reset — no stale highlight survives a navigation. The
+      // query/match reset lives on the parent's onFrameLoad (one find bar,
+      // bound to the active frame).
+      try {
+        const win = iframe.contentWindow;
+        if (doc && win) clearHighlights(win, doc);
+      } catch {
+        /* noop */
+      }
+      if (doc && doc !== attachedDoc) {
+        doc.addEventListener("pointerdown", report, true);
+        doc.addEventListener("keydown", onKey, true);
+        attachedDoc = doc;
+        // Zoom gestures (R8): same-origin frames only — a cross-origin frame
+        // never reaches this branch, so its gestures stay with the browser
+        // (the accepted platform limit; the chrome control + palette remain).
+        attachedGestures = wireGestureListeners(doc);
+      }
+    };
+    const onWindowBlur = () => {
+      if (document.activeElement === iframe) report();
+    };
+    const onLoad = () => attach(true);
+    attach(false);
+    iframe.addEventListener("load", onLoad);
+    window.addEventListener("blur", onWindowBlur);
+    return () => {
+      iframe.removeEventListener("load", onLoad);
+      window.removeEventListener("blur", onWindowBlur);
+      attachedGestures?.();
+      try {
+        attachedDoc?.removeEventListener("pointerdown", report, true);
+        attachedDoc?.removeEventListener("keydown", onKey, true);
+      } catch {
+        /* noop */
+      }
+    };
+    // Keyed on `url`: the frame mounts with its tab (React key), so this is
+    // effectively mount-scoped; the dep documents the frame's identity.
+  }, [url, wireGestureListeners, interactRef, reclaimRef]);
+
+  // Error-state probes (R8). External absolute URLs: the backend frame-check
+  // probe reads the refusal headers cross-origin iframes can't signal.
+  // Proxied ports: a same-origin fetch of the proxied path reads the reverse
+  // proxy's 502 (nothing listening). Probe results RENDER OVER the iframe
+  // area; the iframe stays mounted (hidden) so its listeners survive and a
+  // Retry needs no remount. Present/relative kinds never probe.
+  const addressKind = classifyAddress(url);
+  useEffect(() => {
+    if (!active) return;
+    let cancelled = false;
+    if (addressKind === "external") {
+      let host = url;
+      try {
+        host = new URL(url).host;
+      } catch {
+        /* displayForm posture — degrade to raw */
+      }
+      checkFrame(url).then((res) => {
+        if (cancelled) return;
+        if (!res.reachable) {
+          setTileError({ kind: "unreachable", host, reason: res.reason });
+          setLoading(false);
+        } else if (!res.embeddable) {
+          setTileError({ kind: "refused", host, reason: res.reason });
+          setLoading(false);
+        } else {
+          setTileError(null);
+        }
+      });
+    } else if (addressKind === "proxy") {
+      const port = proxyPortOf(url);
+      // A same-origin fetch failure is the app server itself being down —
+      // not a dead upstream — so it leaves the iframe alone.
+      fetch(toProxySrc(url))
+        .then((res) => {
+          if (cancelled) return;
+          if (res.status === 502 && port !== null) {
+            setTileError({ kind: "dead-port", port });
+            setLoading(false);
+          } else {
+            setTileError(null);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setTileError(null);
+        });
+    } else {
+      setTileError(null);
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [url, active, addressKind, probeNonce]);
+
+  // Real reload (R6): same-origin frames reload their CURRENT location
+  // (in-page state and the navigated-to page survive — no reset to the stored
+  // address);
+  // the about:blank bounce remains ONLY as the cross-origin fallback.
+  const refresh = useCallback(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    setLoading(true);
+    if (!crossOrigin) {
+      try {
+        iframe.contentWindow?.location.reload();
+        return;
+      } catch {
+        /* fall through to the bounce */
+      }
+    }
+    // Force reload by briefly clearing src then re-setting it
+    const src = iframe.src;
+    iframe.src = "about:blank";
+    // Use setTimeout(0) to ensure the browser processes the blank navigation
+    setTimeout(() => {
+      if (iframeRef.current) {
+        iframeRef.current.src = src;
+      }
+    }, 0);
+  }, [crossOrigin]);
+
+  // Back/forward (R5): contentWindow.history, same-origin only (the buttons
+  // are hidden when crossOrigin), per-viewer — never a web-option write. A
+  // boundary click is a harmless no-op (no canGoBack signal exists).
+  const navigate = useCallback((delta: -1 | 1) => {
+    try {
+      const win = iframeRef.current?.contentWindow;
+      if (!win) return;
+      if (delta < 0) win.history.back();
+      else win.history.forward();
+      setLoading(true);
+    } catch {
+      /* noop */
+    }
+  }, []);
+
+  const retry = useCallback(() => {
+    setTileError(null);
+    setLoading(true);
+    setProbeNonce((n) => n + 1);
+    refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    registerFrame(url, { iframeRef, refresh, retry, navigate });
+    return () => unregisterFrame(url);
+  }, [url, registerFrame, unregisterFrame, refresh, retry, navigate]);
+
+  return (
+    <iframe
+      ref={iframeRef}
+      src={toProxySrc(url)}
+      hidden={!active}
+      className={`border-0 ${active && tileError ? "hidden" : ""}`}
+      style={
+        !active || zoom === 1
+          ? { width: "100%", height: "100%" }
+          : {
+              width: `${100 / zoom}%`,
+              height: `${100 / zoom}%`,
+              transform: `scale(${zoom})`,
+              transformOrigin: "0 0",
+            }
+      }
+      title="Proxied content"
+      sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals allow-downloads"
+    />
+  );
+}
+
+/** Renders a web-tab family with ONE browser-chrome set and one mounted
+ *  iframe per tab (P3): back/forward + reload, a display/edit address bar,
+ *  find, open-in-browser, a load progress line, explicit error states, and
+ *  the tab strip — every chrome control bound to the ACTIVE frame. The
+ *  document CustomEvents (`web-find:open`, `web-address:focus`,
+ *  `web-open-external`, `web-zoom`) keep exactly one listener here, so one
+ *  IframeWindow per layout stays the single receiver. */
+export function IframeWindow({
+  tabs,
+  active,
   onWriteUrl,
+  onSelectTab,
+  onCloseTab,
+  onAddTab,
   onInteract,
   shouldReclaimChord,
   onPageMeta,
 }: IframeWindowProps) {
-  // Content selector (260821-zqlq): web availability is unconditional — an
-  // empty/whitespace address renders the ONBOARDING state (reduced live URL
-  // bar + the three fill-path instructions) in place of the iframe and its
-  // probe machinery; the trim rule is the single source.
-  const onboarding = url.trim() === "";
+  // Content selector: the family drives everything. Onboarding (the reduced
+  // live URL bar + the three fill-path instructions) renders iff the family
+  // is EMPTY; with ≥1 tab every frame mounts regardless of the active slot.
+  const onboarding = tabs.length === 0;
+  const activeIndex = onboarding ? 0 : Math.min(Math.max(active ?? 1, 1), tabs.length);
+  const url = activeIndex >= 1 ? (tabs[activeIndex - 1] ?? "") : "";
+  const urlRef = useRef(url);
+  urlRef.current = url;
   const [inputUrl, setInputUrl] = useState(url);
   // Edit mode (R7): at rest the address bar shows the kind-specific DISPLAY
   // form; focus reveals the raw editable value (select-all). Enter is the ONE
   // write (through `onWriteUrl`); Escape reverts.
   const [editing, setEditing] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  // Per-viewer current-path tracking (R7): the same-origin frame's location,
-  // read on its `load` events and kept in root-relative form (the viewer
-  // origin stripped). Display-only — NEVER POSTed (spec window-views R7).
-  const [trackedLocation, setTrackedLocation] = useState<string | null>(null);
-  // Load feedback (R11): set on src change/reload, cleared on `load`.
-  const [loading, setLoading] = useState(true);
-  const [tileError, setTileError] = useState<TileError | null>(null);
-  // Bumped by the dead-port Retry button to re-run detection + reload.
-  const [probeNonce, setProbeNonce] = useState(0);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+  // One-shot new-tab arm (the `+` empty/same-draft path): the next Enter
+  // routes through onAddTab instead of onWriteUrl; Escape/blur clears it.
+  const [newTabArmed, setNewTabArmed] = useState(false);
   const addressInputRef = useRef<HTMLInputElement>(null);
-  const currentSrcRef = useRef(url);
   const interactRef = useRef(onInteract);
   interactRef.current = onInteract;
   const reclaimRef = useRef(shouldReclaimChord);
@@ -125,12 +475,62 @@ export function IframeWindow({
   const pageMetaRef = useRef(onPageMeta);
   pageMetaRef.current = onPageMeta;
 
+  // ── per-frame state (P3: one chrome, N frames) ──────────────────────────
+  // Each WebFrame reports its chrome slice up; the map is keyed by URL (the
+  // frame's identity — a remove-shift re-keys by URL, not slot). The chrome
+  // below reads ONLY the active frame's entry.
+  const [chromeStates, setChromeStates] = useState<ReadonlyMap<string, FrameChromeState>>(
+    new Map(),
+  );
+  const handleChromeState = useCallback((frameUrl: string, state: FrameChromeState) => {
+    setChromeStates((prev) => {
+      const cur = prev.get(frameUrl);
+      if (
+        cur &&
+        cur.loading === state.loading &&
+        cur.crossOrigin === state.crossOrigin &&
+        cur.trackedLocation === state.trackedLocation &&
+        cur.tileError === state.tileError
+      ) {
+        return prev;
+      }
+      const next = new Map(prev);
+      next.set(frameUrl, state);
+      return next;
+    });
+  }, []);
+  const frameHandles = useRef(new Map<string, FrameHandle>());
+  const registerFrame = useCallback((frameUrl: string, handle: FrameHandle) => {
+    frameHandles.current.set(frameUrl, handle);
+  }, []);
+  const unregisterFrame = useCallback((frameUrl: string) => {
+    frameHandles.current.delete(frameUrl);
+  }, []);
+
+  const activeChrome = url !== "" ? chromeStates.get(url) : undefined;
+  const activeLoading = activeChrome?.loading ?? !onboarding;
+  const crossOrigin = activeChrome?.crossOrigin ?? false;
+  const trackedLocation = activeChrome?.trackedLocation ?? null;
+  const tileError = activeChrome?.tileError ?? null;
+
+  // The tile header and the find bar track the ACTIVE tab only: a load on the
+  // active frame reports its title up and resets the find state (R8) — the
+  // query, matches, and count die with the document they were collected from.
+  const handleFrameLoad = useCallback((frameUrl: string, title: string | null) => {
+    if (frameUrl !== urlRef.current) return;
+    pageMetaRef.current?.({ title });
+    setFindQuery("");
+    setFindMatches([]);
+    setFindActive(0);
+  }, []);
+
   // ── content zoom (260823-cwvv R2/R3; continuous gestures 260824-iafo) ────
   // Per-viewer, per-bucket zoom level: seeded from localStorage, re-seeded
   // whenever the address's bucket changes (a proxied tile navigating ports
-  // switches buckets). Never POSTed. Two trigger families: click/shortcut
-  // zoom steps the discrete ladder; GESTURES write a continuous float — the
-  // Chrome/macOS pinch behavior (quantized pinch visibly "clicks").
+  // switches buckets — as does an active-tab change). Never POSTed. Two
+  // trigger families: click/shortcut zoom steps the discrete ladder; GESTURES
+  // write a continuous float — the Chrome/macOS pinch behavior (quantized
+  // pinch visibly "clicks").
   const zoomBucket = webZoomKeyFor(url);
   const [zoom, setZoomState] = useState(() => readWebZoom(zoomBucket));
   // The mirror ref keeps persistence OUT of the setState updater — StrictMode
@@ -251,23 +651,20 @@ export function IframeWindow({
    *  this. */
   const rawAddress = trackedLocation ?? url;
 
-  // ── find-in-page state (260819-ie2i R5–R8) ──────────────────────────────
+  // ── find-in-page state (260819-ie2i R5–R8) — one bar, bound to the ACTIVE
+  // frame's document ───────────────────────────────────────────────────────
   const [findOpen, setFindOpen] = useState(false);
   const [findQuery, setFindQuery] = useState("");
   const [findMatches, setFindMatches] = useState<Range[]>([]);
   const [findActive, setFindActive] = useState(0);
-  // Cross-origin frames reject contentDocument/location access — no reclaim,
-  // no search; the find bar renders disabled with the hint (R7). Back/forward
-  // hide and reload degrades to the about:blank bounce on the same signal.
-  const [crossOrigin, setCrossOrigin] = useState(false);
   // Which highlight path the last apply took — the `window.find()` fallback
   // needs per-step navigation calls the Highlight API does not.
   const highlightApiRef = useRef(false);
 
-  /** The frame's document + window, or null when unavailable/cross-origin.
-   *  Same try/catch posture as the attach seam. */
+  /** The ACTIVE frame's document + window, or null when
+   *  unavailable/cross-origin. Same try/catch posture as the attach seam. */
   const findFrame = useCallback((): { doc: Document; win: Window } | null => {
-    const iframe = iframeRef.current;
+    const iframe = frameHandles.current.get(url)?.iframeRef.current;
     if (!iframe) return null;
     try {
       const doc = iframe.contentDocument;
@@ -276,160 +673,36 @@ export function IframeWindow({
     } catch {
       return null;
     }
-  }, []);
-
-  // Interaction + reclaim seam: attach capture-phase pointerdown/keydown
-  // listeners to the same-origin contentDocument after every load — each
-  // navigation replaces the document, so the listener on the discarded one
-  // dies with it and the fresh document gets a new pair. The keydown handler
-  // reports `onInteract` first, then consults the reclaim predicate: a match
-  // is prevented in the frame and re-dispatched on the PARENT document (the
-  // CodeSurface `onKey` mechanism — bubbling reaches both the document-level
-  // palette listener and the window-level keybinding dispatcher). Cross-origin
-  // frames fail the location probe / contentDocument read; there the
-  // window-blur check is the fallback (activeElement lands on the iframe when
-  // focus enters it, but no focusin fires in the parent). blur only fires when
-  // focus LEAVES the parent — later in-frame clicks report nothing, which is
-  // fine: the tile is already focused by then. Listeners attach regardless of
-  // whether `onInteract` is currently set: the prop can arrive after mount (a
-  // hidden tile handed slot -1 becoming visible), and gating the attach on it
-  // would strand the seam — `report` reads the ref, so it simply no-ops until
-  // then. Every load also RESETS the find state (R8): matches, highlights, and
-  // the query die with the document they were collected from.
-  //
-  // The same load pass (260819-v6y4) clears the progress line, tracks the
-  // frame's current location for the address bar's display form, and reports
-  // the page title through onPageMeta — all same-origin-gated reads with the
-  // attach seam's try/catch posture.
-  useEffect(() => {
-    const iframe = iframeRef.current;
-    if (!iframe) return;
-    let attachedDoc: Document | null = null;
-    let attachedGestures: (() => void) | null = null;
-    const report = () => interactRef.current?.();
-    const onKey = (e: KeyboardEvent) => {
-      report();
-      const reclaim = reclaimRef.current;
-      if (!reclaim?.(e)) return;
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      document.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: e.key,
-          code: e.code,
-          ctrlKey: e.ctrlKey,
-          metaKey: e.metaKey,
-          shiftKey: e.shiftKey,
-          altKey: e.altKey,
-          bubbles: true,
-        }),
-      );
-    };
-    const attach = (fromLoad: boolean) => {
-      let doc: Document | null = null;
-      try {
-        // Same-origin probe: a cross-origin frame throws on location access
-        // and yields a null contentDocument — either one marks the tile
-        // cross-origin (find disabled, back/forward hidden, reload degrades
-        // to the bounce; the blur fallback stays the only interaction
-        // signal, unchanged).
-        void iframe.contentWindow?.location.href;
-        doc = iframe.contentDocument;
-      } catch {
-        doc = null;
-      }
-      setCrossOrigin(!doc);
-      // The load-gated work (R7/R10/R11) runs on the frame's `load` events
-      // ONLY — the mount-time attach sees the initial about:blank document,
-      // so clearing the progress line or tracking the location there would
-      // fire before the real src has loaded.
-      if (fromLoad) {
-        setLoading(false);
-        // Current-path tracking + title reporting: same-origin only. The
-        // tracked location is stored root-relative (viewer origin stripped)
-        // so the display-form derivation sees the same shape as a stored
-        // relative web address. about:blank (the cross-origin reload bounce's
-        // midpoint) reports nothing.
-        if (doc) {
-          try {
-            const loc = iframe.contentWindow?.location;
-            if (loc && loc.origin === window.location.origin && loc.href !== "about:blank") {
-              setTrackedLocation(loc.pathname + loc.search + loc.hash);
-            }
-          } catch {
-            /* noop */
-          }
-          pageMetaRef.current?.({ title: doc.title !== "" ? doc.title : null });
-        } else {
-          pageMetaRef.current?.({ title: null });
-        }
-      }
-      // R8 reset — no stale highlight or count survives a navigation, and the
-      // search term does not persist.
-      setFindQuery("");
-      setFindMatches([]);
-      setFindActive(0);
-      try {
-        const win = iframe.contentWindow;
-        if (doc && win) clearHighlights(win, doc);
-      } catch {
-        /* noop */
-      }
-      if (doc && doc !== attachedDoc) {
-        doc.addEventListener("pointerdown", report, true);
-        doc.addEventListener("keydown", onKey, true);
-        attachedDoc = doc;
-        // Zoom gestures (R8): same-origin frames only — a cross-origin frame
-        // never reaches this branch, so its gestures stay with the browser
-        // (the accepted platform limit; the chrome control + palette remain).
-        attachedGestures = wireGestureListeners(doc);
-      }
-    };
-    const onWindowBlur = () => {
-      if (document.activeElement === iframe) report();
-    };
-    const onLoad = () => attach(true);
-    attach(false);
-    iframe.addEventListener("load", onLoad);
-    window.addEventListener("blur", onWindowBlur);
-    return () => {
-      iframe.removeEventListener("load", onLoad);
-      window.removeEventListener("blur", onWindowBlur);
-      attachedGestures?.();
-      try {
-        attachedDoc?.removeEventListener("pointerdown", report, true);
-        attachedDoc?.removeEventListener("keydown", onKey, true);
-      } catch {
-        /* noop */
-      }
-    };
-    // Keyed on `onboarding`: the iframe mounts only outside onboarding, so
-    // the empty-deps mount would strand every seam (load, reclaim, page meta)
-    // on a tile that booted as onboarding and flipped live later.
-  }, [onboarding, wireGestureListeners]);
+  }, [url]);
 
   // The `web-find:open` seam (R4): the ⌘F chord handler, the palette action,
   // and any future opener dispatch one document CustomEvent; the mounted web
-  // tile is its single receiver (at most one web tile per layout). Onboarding
-  // double-guard (260821-zqlq): the event sources are content-gated upstream,
-  // but a stale dispatch must no-op on a contentless tile — no bar, no crash.
+  // tile is its single receiver (one IframeWindow per layout, regardless of
+  // tab count). Onboarding double-guard (260821-zqlq): the event sources are
+  // content-gated upstream, but a stale dispatch must no-op on a contentless
+  // tile — no bar, no crash.
   useEffect(() => {
     const open = () => {
-      if (url.trim() !== "") setFindOpen(true);
+      if (urlRef.current !== "") setFindOpen(true);
     };
     document.addEventListener(WEB_FIND_OPEN_EVENT, open);
     return () => document.removeEventListener(WEB_FIND_OPEN_EVENT, open);
-  }, [url]);
+  }, []);
 
   // The `web-address:focus` seam (260819-v6y4 R12): ⌘L and the palette action
   // dispatch one document CustomEvent; the mounted web tile focuses its
-  // address input (the focus handler enters edit mode + select-all).
+  // address input (the focus handler enters edit mode + select-all). A
+  // `detail.newTab` dispatch additionally arms the one-shot new-tab mode (the
+  // palette's `Web: New tab from address` path).
   useEffect(() => {
-    const focusAddress = () => {
+    const focusAddress = (e: Event) => {
       const input = addressInputRef.current;
       if (!input) return;
       input.focus();
       input.select();
+      if ((e as CustomEvent<{ newTab?: unknown }>).detail?.newTab === true) {
+        setNewTabArmed(true);
+      }
     };
     document.addEventListener(WEB_ADDRESS_FOCUS_EVENT, focusAddress);
     return () => document.removeEventListener(WEB_ADDRESS_FOCUS_EVENT, focusAddress);
@@ -454,7 +727,7 @@ export function IframeWindow({
   // dispatch must no-op on a contentless tile.
   useEffect(() => {
     const onZoom = (e: Event) => {
-      if (url.trim() === "") return;
+      if (urlRef.current === "") return;
       const direction = (e as CustomEvent<{ direction?: unknown }>).detail?.direction;
       if (direction === "in" || direction === "out" || direction === "reset") {
         applyZoomRef.current(direction);
@@ -462,7 +735,7 @@ export function IframeWindow({
     };
     document.addEventListener(WEB_ZOOM_EVENT, onZoom);
     return () => document.removeEventListener(WEB_ZOOM_EVENT, onZoom);
-  }, [url]);
+  }, []);
 
   // Zoom gestures on the tile's own chrome (R8): the URL bar, find bar, and
   // error surface are parent-document DOM, so the wrapper arm covers them —
@@ -524,115 +797,28 @@ export function IframeWindow({
     [findMatches.length, findQuery, findFrame],
   );
 
-  // Sync URL bar text and iframe src when url changes externally (SSE push).
-  // Only update iframe src when the URL has actually changed to avoid unnecessary reloads.
+  // Sync the URL bar text when the active address changes externally (an SSE
+  // push, a tab select, or a same-slot replace). The iframe side needs no
+  // sync: a changed tab URL re-keys (remounts) exactly that frame.
   useEffect(() => {
     setInputUrl(url);
-    setTrackedLocation(null);
     setSubmitError(null);
-    if (url !== currentSrcRef.current) {
-      currentSrcRef.current = url;
-      setLoading(true);
-      if (iframeRef.current) {
-        iframeRef.current.src = toProxySrc(url);
-      }
-    }
   }, [url]);
 
-  // Error-state probes (R8). External absolute URLs: the backend frame-check
-  // probe reads the refusal headers cross-origin iframes can't signal.
-  // Proxied ports: a same-origin fetch of the proxied path reads the reverse
-  // proxy's 502 (nothing listening). Probe results RENDER OVER the iframe
-  // area; the iframe stays mounted (hidden) so its listeners survive and a
-  // Retry needs no remount. Present/relative kinds never probe.
-  const addressKind = classifyAddress(url);
-  useEffect(() => {
-    let cancelled = false;
-    if (addressKind === "external") {
-      let host = url;
-      try {
-        host = new URL(url).host;
-      } catch {
-        /* displayForm posture — degrade to raw */
-      }
-      checkFrame(url).then((res) => {
-        if (cancelled) return;
-        if (!res.reachable) {
-          setTileError({ kind: "unreachable", host, reason: res.reason });
-          setLoading(false);
-        } else if (!res.embeddable) {
-          setTileError({ kind: "refused", host, reason: res.reason });
-          setLoading(false);
-        } else {
-          setTileError(null);
-        }
-      });
-    } else if (addressKind === "proxy") {
-      const port = proxyPortOf(url);
-      // A same-origin fetch failure is the app server itself being down —
-      // not a dead upstream — so it leaves the iframe alone.
-      fetch(toProxySrc(url))
-        .then((res) => {
-          if (cancelled) return;
-          if (res.status === 502 && port !== null) {
-            setTileError({ kind: "dead-port", port });
-            setLoading(false);
-          } else {
-            setTileError(null);
-          }
-        })
-        .catch(() => {
-          if (!cancelled) setTileError(null);
-        });
-    } else {
-      setTileError(null);
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, [url, addressKind, probeNonce]);
-
-  // Real reload (R6): same-origin frames reload their CURRENT location
-  // (in-page state and the navigated-to page survive — no reset to the stored
-  // address);
-  // the about:blank bounce remains ONLY as the cross-origin fallback.
   const handleRefresh = useCallback(() => {
-    const iframe = iframeRef.current;
-    if (!iframe) return;
-    setLoading(true);
-    if (!crossOrigin) {
-      try {
-        iframe.contentWindow?.location.reload();
-        return;
-      } catch {
-        /* fall through to the bounce */
-      }
-    }
-    // Force reload by briefly clearing src then re-setting it
-    const src = iframe.src;
-    iframe.src = "about:blank";
-    // Use setTimeout(0) to ensure the browser processes the blank navigation
-    setTimeout(() => {
-      if (iframeRef.current) {
-        iframeRef.current.src = src;
-      }
-    }, 0);
-  }, [crossOrigin]);
+    frameHandles.current.get(url)?.refresh();
+  }, [url]);
 
-  // Back/forward (R5): contentWindow.history, same-origin only (the buttons
-  // are hidden when crossOrigin), per-viewer — never a web-option write. A
-  // boundary click is a harmless no-op (no canGoBack signal exists).
-  const navigateFrameHistory = useCallback((delta: -1 | 1) => {
-    try {
-      const win = iframeRef.current?.contentWindow;
-      if (!win) return;
-      if (delta < 0) win.history.back();
-      else win.history.forward();
-      setLoading(true);
-    } catch {
-      /* noop */
-    }
-  }, []);
+  const handleRetry = useCallback(() => {
+    frameHandles.current.get(url)?.retry();
+  }, [url]);
+
+  const navigateFrameHistory = useCallback(
+    (delta: -1 | 1) => {
+      frameHandles.current.get(url)?.navigate(delta);
+    },
+    [url],
+  );
 
   // Open in browser (R9): the CURRENT address in a new tab — relative
   // addresses resolve naturally against the viewer's origin (stored web
@@ -640,6 +826,39 @@ export function IframeWindow({
   const handleOpenExternal = useCallback(() => {
     window.open(rawAddress, "_blank", "noopener");
   }, [rawAddress]);
+
+  // Declared add (`+` / armed Enter): the server assigns the slot; the
+  // client selects it afterwards because the add verb selects only an empty
+  // family ("add is not show").
+  const submitNewTab = useCallback(
+    (target: string) => {
+      if (!onAddTab) return;
+      onAddTab(target)
+        .then(({ index }) => onSelectTab?.(index))
+        .catch((err: unknown) => {
+          setSubmitError(err instanceof Error ? err.message : String(err));
+        });
+    },
+    [onAddTab, onSelectTab],
+  );
+
+  const handleAddTabClick = useCallback(() => {
+    if (!onAddTab) return;
+    setSubmitError(null);
+    const draft = normalizeAddressInput(inputUrl);
+    if (draft === "" || draft === url) {
+      // Nothing new to add — focus the bar and arm the one-shot new-tab mode
+      // so the next Enter adds instead of replacing.
+      setNewTabArmed(true);
+      const input = addressInputRef.current;
+      if (input) {
+        input.focus();
+        input.select();
+      }
+      return;
+    }
+    submitNewTab(draft);
+  }, [inputUrl, url, onAddTab, submitNewTab]);
 
   const handleSubmit = useCallback(() => {
     const normalized = normalizeAddressInput(inputUrl);
@@ -653,11 +872,19 @@ export function IframeWindow({
     setSubmitError(null);
     setEditing(false);
     addressInputRef.current?.blur();
+    if (newTabArmed) {
+      setNewTabArmed(false);
+      submitNewTab(normalized);
+      return;
+    }
+    // Same-URL submit is a no-op — re-submitting the stored address never
+    // POSTs.
+    if (normalized === url) return;
     onWriteUrl?.(normalized)?.catch(() => {
       // Revert input on failure
       setInputUrl(url);
     });
-  }, [inputUrl, onWriteUrl, url]);
+  }, [inputUrl, newTabArmed, onWriteUrl, submitNewTab, url]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -665,8 +892,10 @@ export function IframeWindow({
         e.preventDefault();
         handleSubmit();
       } else if (e.key === "Escape") {
-        // Revert to the rest display form without a POST.
+        // Revert to the rest display form without a POST; the new-tab arm
+        // dies with the edit.
         e.preventDefault();
+        setNewTabArmed(false);
         setInputUrl(rawAddress);
         setSubmitError(null);
         setEditing(false);
@@ -683,8 +912,140 @@ export function IframeWindow({
     if (editing) addressInputRef.current?.select();
   }, [editing]);
 
+  // ── tab strip (renders only at ≥2 tabs; below, the DOM is the single-tab
+  // chrome) — a roving-focus tablist: only the ACTIVE tab is in the tab
+  // order, ←/→/Home/End move focus without writing, Enter/Space select,
+  // Delete/Backspace close. Focused-but-not-active is a viewer posture. ────
+  const coarsePointer = useCoarsePointer();
+  const tabRefs = useRef(new Map<number, HTMLElement>());
+  const [focusedTab, setFocusedTab] = useState(0); // 0 = none
+  useEffect(() => {
+    if (focusedTab < 1 || focusedTab > tabs.length) return;
+    tabRefs.current.get(focusedTab)?.focus();
+  }, [focusedTab, tabs.length]);
+  const handleTabKeyDown = (e: React.KeyboardEvent) => {
+    const count = tabs.length;
+    if (count === 0) return;
+    const current = focusedTab >= 1 && focusedTab <= count ? focusedTab : activeIndex;
+    let next = 0;
+    switch (e.key) {
+      case "ArrowLeft":
+        next = Math.max(1, current - 1);
+        break;
+      case "ArrowRight":
+        next = Math.min(count, current + 1);
+        break;
+      case "Home":
+        next = 1;
+        break;
+      case "End":
+        next = count;
+        break;
+      case "Enter":
+      case " ":
+        e.preventDefault();
+        onSelectTab?.(current);
+        return;
+      case "Delete":
+      case "Backspace":
+        e.preventDefault();
+        onCloseTab?.(current);
+        return;
+      default:
+        return;
+    }
+    e.preventDefault();
+    setFocusedTab(next);
+  };
+
+  const stripFull = tabs.length >= WEB_TAB_FAMILY_CAP;
+
   return (
     <div ref={wrapperRef} className="flex flex-col flex-1 min-h-0">
+      {tabs.length >= WEB_TAB_STRIP_MIN && (
+        <TipGroup>
+          <div
+            role="tablist"
+            data-testid="web-tab-strip"
+            className="shrink-0 flex items-stretch gap-px px-1 border-b border-border bg-bg-card overflow-x-auto font-mono text-[11px] select-none"
+          >
+            {tabs.map((tabUrl, i) => {
+              const n = i + 1;
+              const isActive = n === activeIndex;
+              const kind = classifyAddress(tabUrl);
+              const label = webTabTitle(tabUrl) || `#${n}`;
+              return (
+                <div
+                  key={tabUrl}
+                  ref={(el) => {
+                    if (el) tabRefs.current.set(n, el);
+                    else tabRefs.current.delete(n);
+                  }}
+                  role="tab"
+                  aria-selected={isActive}
+                  data-testid="web-tab"
+                  data-index={n}
+                  tabIndex={isActive ? 0 : -1}
+                  title={displayForm(tabUrl)}
+                  onClick={() => onSelectTab?.(n)}
+                  onFocus={() => setFocusedTab(n)}
+                  onKeyDown={handleTabKeyDown}
+                  className={`group flex items-center gap-1.5 px-2 py-1 cursor-pointer outline-none ${
+                    isActive
+                      ? "bg-bg-primary text-text-primary"
+                      : "text-text-secondary hover:text-text-primary"
+                  }`}
+                >
+                  {kind !== "relative" && (
+                    <span
+                      aria-hidden="true"
+                      className={`shrink-0 inline-block w-1.5 h-1.5 rounded-full ${KIND_DOT_CLASS[kind]}`}
+                    />
+                  )}
+                  <span className="whitespace-nowrap">{label}</span>
+                  {onCloseTab && (
+                    <button
+                      type="button"
+                      aria-label={`Close web tab ${n}`}
+                      data-testid="web-tab-close"
+                      tabIndex={-1}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onCloseTab(n);
+                      }}
+                      className={`shrink-0 rounded px-0.5 hover:text-text-primary ${
+                        isActive || coarsePointer
+                          ? ""
+                          : "invisible group-hover:visible group-focus-within:visible"
+                      }`}
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+            {onAddTab && (
+              <Tip label={stripFull ? `web tabs full (${WEB_TAB_FAMILY_CAP})` : undefined}>
+                <button
+                  type="button"
+                  aria-label="Add web tab from address"
+                  data-testid="web-tab-add"
+                  disabled={stripFull}
+                  // Keep the address bar's focus (and its draft) through the
+                  // click — a blur would revert the input to the rest value.
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={handleAddTabClick}
+                  className="self-center shrink-0 w-6 h-6 mx-1 flex items-center justify-center rounded text-text-secondary enabled:hover:bg-bg-inset enabled:hover:text-text-primary disabled:opacity-50"
+                >
+                  +
+                </button>
+              </Tip>
+            )}
+          </div>
+        </TipGroup>
+      )}
+
       {/* URL Bar — one warm-tip cluster (260722-73al). Button order per the
           approved design study: ◀ ▶ ↻ [address] ⌕ ↗ (the `>_` switch-to-
           terminal button was removed, 260819-v6y4 R13 — the top-bar surface
@@ -739,6 +1100,7 @@ export function IframeWindow({
             setEditing(false);
             setSubmitError(null);
             setInputUrl(rawAddress);
+            setNewTabArmed(false);
           }}
           onKeyDown={handleKeyDown}
           className="flex-1 min-w-0 bg-bg-card text-text-primary text-sm px-2 py-1 rounded border border-border outline-none focus:border-text-secondary"
@@ -833,13 +1195,13 @@ export function IframeWindow({
       )}
 
       {/* Load progress line (R11): the 2px indeterminate sweep on the
-          content's top edge while the frame loads; zeroed under
+          content's top edge while the ACTIVE frame loads; zeroed under
           prefers-reduced-motion (globals.css). */}
-      {loading && !onboarding && <div className="rk-web-progress" data-testid="web-load-progress" />}
+      {activeLoading && !onboarding && <div className="rk-web-progress" data-testid="web-load-progress" />}
 
-      {/* Error states (R8) render in place of the iframe's VISIBLE area (the
-          iframe stays mounted but hidden so its listeners survive a Retry).
-          Copy per the approved design study (states 05/06). */}
+      {/* Error states (R8) render in place of the ACTIVE iframe's VISIBLE
+          area (the iframe stays mounted but hidden so its listeners survive
+          a Retry). Copy per the approved design study (states 05/06). */}
       {tileError && (
         <div
           className="flex-1 min-h-0 flex flex-col items-center justify-center gap-2.5 text-center px-6"
@@ -864,12 +1226,7 @@ export function IframeWindow({
           </span>
           {tileError.kind === "dead-port" ? (
             <button
-              onClick={() => {
-                setTileError(null);
-                setLoading(true);
-                setProbeNonce((n) => n + 1);
-                handleRefresh();
-              }}
+              onClick={handleRetry}
               className="mt-1 px-3.5 h-[30px] rounded border border-border text-accent-green text-sm hover:bg-bg-card"
               aria-label="Retry"
             >
@@ -887,8 +1244,8 @@ export function IframeWindow({
         </div>
       )}
 
-      {/* Onboarding (260821-zqlq): an empty/whitespace web address selects this
-          content state in place of the iframe + probe machinery — the web
+      {/* Onboarding (260821-zqlq): an EMPTY web-tab family selects this
+          content state in place of the frames + probe machinery — the web
           lens is always tileable, and this panel is its discoverability
           surface. Copy per the user-approved mock. The address bar above
           stays fully live: an Enter submit boots the tile for real. */}
@@ -953,35 +1310,44 @@ export function IframeWindow({
           </span>
         </div>
       ) : (
-        // Scale wrapper (R2): the iframe renders at 1/s of the tile scaled
-        // back up by s, so the guest's CSS viewport shrinks/grows like real
-        // browser zoom — responsive layouts adapt, and the mechanism works
-        // for every address kind without reaching into the guest document.
-        // At s = 1 no transform is applied — identical layout to before.
+        // Scale wrapper (R2): the ACTIVE iframe renders at 1/s of the tile
+        // scaled back up by s, so the guest's CSS viewport shrinks/grows like
+        // real browser zoom — responsive layouts adapt, and the mechanism
+        // works for every address kind without reaching into the guest
+        // document. At s = 1 no transform is applied — identical layout to
+        // before. Every tab's frame stays mounted (P3 — hidden, never
+        // unmounted); a selection change re-keys nothing and rewrites no src.
         <div
           className="flex-1 min-h-0 overflow-hidden"
           data-testid="web-zoom-frame-wrapper"
           data-zoom={zoom}
         >
-          <iframe
-            ref={iframeRef}
-            src={toProxySrc(url)}
-            className={`border-0 ${tileError ? "hidden" : ""}`}
-            style={
-              zoom === 1
-                ? { width: "100%", height: "100%" }
-                : {
-                    width: `${100 / zoom}%`,
-                    height: `${100 / zoom}%`,
-                    transform: `scale(${zoom})`,
-                    transformOrigin: "0 0",
-                  }
-            }
-            title="Proxied content"
-            sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals allow-downloads"
-          />
+          {tabs.map((tabUrl, i) => (
+            <WebFrame
+              key={tabUrl}
+              url={tabUrl}
+              active={i + 1 === activeIndex}
+              zoom={zoom}
+              wireGestureListeners={wireGestureListeners}
+              onChromeState={handleChromeState}
+              onFrameLoad={handleFrameLoad}
+              registerFrame={registerFrame}
+              unregisterFrame={unregisterFrame}
+              interactRef={interactRef}
+              reclaimRef={reclaimRef}
+            />
+          ))}
         </div>
       )}
     </div>
   );
 }
+
+/** Tab-strip kind dot — the tile-header badge hues (green present / yellow
+ *  proxy / blue external); the relative kind renders no dot. */
+const KIND_DOT_CLASS: Record<AddressKind, string> = {
+  present: "bg-accent-green",
+  proxy: "bg-signal-yellow",
+  external: "bg-signal-blue",
+  relative: "",
+};

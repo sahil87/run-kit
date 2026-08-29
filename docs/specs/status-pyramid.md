@@ -178,8 +178,10 @@ waiting   →  additive yellow halo, over anything (core hue + shape kept)
    wrong in production: the grace expires (and any rk restart wipes it), so the
    merged-purple signal silently decayed minutes after merge. The revised rule:
    the branch→PR derivation queries **all states** and picks by precedence
-   **open (most recently updated) > merged (most recent)**; closed-unmerged is
-   derived and renders the red ✕ glyph. A merged PR then renders the
+   **open (most recently updated) > merged (most recent) > closed (most
+   recent)** (`pickBranchPR`); a closed-unmerged PR is therefore selected only
+   when the branch has no open or merged PR, and renders the red ✕ glyph. A
+   merged PR then renders the
    glyph's **durable purple merged state statelessly and restart-proof** for as
    long as the pane sits on that branch — no grace clock, no negative-stamp
    machinery (`wentNegativeAt` retired). Branch-reuse edge: an open PR always
@@ -360,5 +362,5 @@ One overlay at a time: `waiting` outranks `stuck`.
 | ID | Question | Resolution |
 |----|----------|-----------|
 | ~~D1~~ | ~~PR tier gate: `prNumber` alone?~~ | **Dissolved (compositional vocabulary — aqo6)**: no family owns the dot via PR — the PR was evicted to the row's rest-state glyph, which is un-family-gated as it already was (any pane with an owned PR shows it; derivation stays universal in the register view). *History*: palette v3 first resolved this per-family (purple = `fabChange && prNumber`, orange = `fresh agentState && prNumber`) before the eviction removed PR dot-ownership entirely |
-| D2 | Merged/closed PR retention under branch-derivation | **Revised after production observation** (first resolution — `--state open` + 10-min in-memory grace — decayed the merged-purple signal on grace expiry or rk restart): derivation queries **all PR states**; precedence open (most recent) > merged (most recent); merged renders **the glyph's durable purple state** statelessly; closed-unmerged renders the glyph's red ✕ state (GitHub's closed color, matching `PR_STATE_COLORS.closed` on the register line). Grace-window machinery retired. Post-eviction the consumer is the GLYPH, not a dot square — the derivation itself is unchanged. **Default-branch carve-out (#389)**: the derivation never runs for a pane on the repo's default branch — head-name-only matching makes every such candidate degenerate, so excluded pairs resolve to an authoritative negative (invariant 6). **[current]** |
+| D2 | Merged/closed PR retention under branch-derivation | **Revised after production observation** (first resolution — `--state open` + 10-min in-memory grace — decayed the merged-purple signal on grace expiry or rk restart): derivation queries **all PR states**; precedence open (most recent) > merged (most recent) > closed (most recent); merged renders **the glyph's durable purple state** statelessly; closed-unmerged renders the glyph's red ✕ state (GitHub's closed color, matching `PR_STATE_COLORS.closed` on the register line). Grace-window machinery retired. Post-eviction the consumer is the GLYPH, not a dot square — the derivation itself is unchanged. **Default-branch carve-out (#389)**: the derivation never runs for a pane on the repo's default branch — head-name-only matching makes every such candidate degenerate, so excluded pairs resolve to an authoritative negative (invariant 6). **[current]** |
 | ~~D3~~ | ~~Is a 7px halo pulse salient enough for `waiting`?~~ | **Resolved (additive halo, palette v3 — carried forward unchanged)**: `waiting` = constant-**yellow** pulsing halo around the dot, core hue and shape untouched. Rejected: hue-flip (destroys family identity precisely when attention is highest — e.g. fab intake asking); self-colored halo (reduced-motion form nearly invisible + collides with the `ring` shape); fuchsia (its motivating amber collision no longer exists). Reduced-motion: static yellow outer ring |

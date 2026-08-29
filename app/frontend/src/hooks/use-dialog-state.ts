@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, useRef } from "react";
 import { renameSession, killSession, killWindow } from "@/api/client";
 import { finalizeSafeName } from "@/lib/names";
+import { pushRecentlyClosed } from "@/hooks/use-recently-closed";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useSessionContext } from "@/contexts/session-context";
@@ -111,7 +112,13 @@ export function useDialogState({ sessionName, windowId, onKillComplete, onSessio
   }, [sessionName, server, onKillComplete, executeKillSession]);
 
   const { execute: executeKillWindow } = useOptimisticAction<[string, string, string]>({
-    action: (srv, _session, wid) => killWindow(srv, wid),
+    action: async (srv, _session, wid) => {
+      const res = await killWindow(srv, wid);
+      // The kill-seam record (absent when the capture failed server-side) goes
+      // straight onto the mirror — the reopen entry lights up without a refetch.
+      if (res.closed) pushRecentlyClosed(srv, res.closed);
+      return res;
+    },
     onOptimistic: (srv, session, wid) => {
       lastKillWindowRef.current = { server: srv, session, windowId: wid };
       killWindowStore(srv, session, wid);

@@ -14,10 +14,13 @@ type ToastEntry = {
   message: string;
   variant: ToastVariant;
   action?: ToastAction;
+  /** Runs when the toast TIMES OUT without its action being selected. The
+   *  action path never fires it — a selected action owns its own follow-up. */
+  onDismiss?: () => void;
 };
 
 type ToastContextType = {
-  addToast: (message: string, variant?: ToastVariant, action?: ToastAction) => void;
+  addToast: (message: string, variant?: ToastVariant, action?: ToastAction, onDismiss?: () => void) => void;
 };
 
 const ToastContext = createContext<ToastContextType | null>(null);
@@ -30,9 +33,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<ToastEntry[]>([]);
 
   const addToast = useCallback(
-    (message: string, variant: ToastVariant = "error", action?: ToastAction) => {
+    (message: string, variant: ToastVariant = "error", action?: ToastAction, onDismiss?: () => void) => {
       const id = String(++nextId);
-      setToasts((prev) => [...prev, { id, message, variant, action }]);
+      setToasts((prev) => [...prev, { id, message, variant, action, onDismiss }]);
     },
     [],
   );
@@ -76,10 +79,15 @@ function Toast({ entry, onDismiss }: { entry: ToastEntry; onDismiss: () => void 
   onDismissRef.current = onDismiss;
 
   useEffect(() => {
-    timerRef.current = setTimeout(() => onDismissRef.current(), TOAST_DURATION);
+    timerRef.current = setTimeout(() => {
+      entry.onDismiss?.();
+      onDismissRef.current();
+    }, TOAST_DURATION);
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
+    // entry is immutable for a toast's lifetime (created once by addToast).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const accentColor = entry.variant === "error" ? "var(--color-ansi-1)" : "var(--color-ansi-4)";

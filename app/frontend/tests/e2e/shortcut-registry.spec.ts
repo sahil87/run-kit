@@ -660,10 +660,9 @@ test.describe("macOS per-platform defaults (spoofed platform)", () => {
   });
 
   /**
-   * Proves: the N/T/W demotion is desktop-shell-only — in a mac BROWSER host
-   * `create-session` keeps its shifted default, which resolves
-   * browser-reserved (disabled), and no cmd-tier binding exists on N; neither
-   * chord dispatches.
+   * Proves: `create-session` spends no chord on any mac host — its mac-keyless
+   * default refinement leaves it unbound on both the shell and the browser —
+   * so neither ⌘N nor ⇧⌘N dispatches anything; the action stays palette-only.
    *
    * Steps:
    * 1. Spoof the mac platform; mock the backend plus a POST-tracking route on
@@ -684,8 +683,8 @@ test.describe("macOS per-platform defaults (spoofed platform)", () => {
     });
     await gotoWindowOne(page);
 
-    // N refines on every mac host (⇧⌘T canonical); a mac BROWSER resolves it
-    // reserved on both tiers.
+    // create-session spends no chord on any mac host (a mac-keyless default)
+    // and reopen-window's ⇧⌘T is browser-reserved here — palette-only both.
     await page.keyboard.press("Meta+KeyN");
     await page.keyboard.press("Shift+Meta+KeyN");
     await page.waitForTimeout(300);
@@ -1025,5 +1024,153 @@ test.describe("browser-reserved keys", () => {
     await page.waitForTimeout(300);
     expect(created).toBe(false);
     await expect(page).toHaveURL(new RegExp(`/${SERVER}/1(?:$|[/?#])`));
+  });
+});
+
+
+// Reopen-closed-tab chords. The mac-shell test spoofs BOTH host facts —
+// navigator.platform (mac, for the macCode refinement) and the
+// window.runkitShell bridge marker (shell presence, which drops the
+// browser-reserved claims from the resolver). The ring lives server-side, so
+// each test mocks `GET /api/windows/closed*` itself; the Win/Linux test rides
+// the plain browser host where the shifted N/T defaults are NOT claimed (the
+// mac-only "new window"/"reopen tab" claims don't apply), so the chords are
+// live there.
+const CLOSED_RECORD = {
+  id: "1700000000000000001",
+  closedAt: "2026-08-29T00:00:00Z",
+  server: SERVER,
+  session: "dev",
+  window: { index: 3, id: "@9", name: "win-closed", panes: [{ id: "%9", index: 0, cwd: "/tmp/win-closed" }] },
+};
+
+test.describe("reopen closed tab chord", () => {
+  /**
+   * Proves: on the mac desktop shell ⇧⌘T is the reopen-closed-tab reflex —
+   * with a non-empty recently-closed ring it dispatches `reopen-window`
+   * (POST /api/windows/closed/{id}/reopen) and the app navigates to the
+   * reopened window.
+   *
+   * Steps:
+   * 1. Spoof the mac SHELL host (platform + runkitShell bridge marker).
+   * 2. Mock the backend plus a one-record `GET /api/windows/closed*` listing
+   *    and a body-capturing POST route on the reopen glob (trailing `*` — the
+   *    client appends `?server=`); open `/default/1`.
+   * 3. Press Shift+Meta+T → exactly one reopen POST for the record id, and
+   *    the URL moves to the reopened window `/default/5`.
+   */
+  test("⇧⌘T reopens the top of the ring in the mac shell", async ({ page }) => {
+    await spoofMacPlatform(page);
+    await page.addInitScript(() => {
+      window.runkitShell = { version: "1", platform: "darwin" };
+    });
+    await mockBackend(page);
+    await page.route("**/api/windows/closed*", (route) => {
+      const url = route.request().url();
+      if (route.request().method() === "GET" && /\/api\/windows\/closed(\?|$)/.test(url)) {
+        return route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ closed: [CLOSED_RECORD] }),
+        });
+      }
+      return route.fallback();
+    });
+    const reopenPosts: string[] = [];
+    await page.route("**/api/windows/closed/*/reopen*", (route) => {
+      reopenPosts.push(route.request().url());
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ server: SERVER, session: "dev", window: "win-closed", windowId: "@5" }),
+      });
+    });
+    await gotoWindowOne(page);
+
+    await page.keyboard.press("Shift+Meta+KeyT");
+    await expect.poll(() => reopenPosts.length).toBe(1);
+    expect(reopenPosts[0]).toContain(`/api/windows/closed/${CLOSED_RECORD.id}/reopen`);
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/5(?:$|[/?#])`));
+  });
+
+  /**
+   * Proves: ⇧⌘T in the mac shell on an EMPTY ring is inert — the palette
+   * entry's stack gating is the chord gating (no entry → no handler), so the
+   * press makes no request and changes nothing.
+   *
+   * Steps:
+   * 1. Spoof the mac SHELL host; mock the backend with an empty
+   *    `GET /api/windows/closed*` listing and a counting POST route on the
+   *    reopen glob; open `/default/1`.
+   * 2. Press Shift+Meta+T.
+   * 3. Wait 300ms; assert zero reopen POSTs and the URL is unchanged.
+   */
+  test("⇧⌘T on an empty ring makes no request (entry gated away)", async ({ page }) => {
+    await spoofMacPlatform(page);
+    await page.addInitScript(() => {
+      window.runkitShell = { version: "1", platform: "darwin" };
+    });
+    await mockBackend(page);
+    let reopenPosts = 0;
+    await page.route("**/api/windows/closed*", (route) => {
+      const url = route.request().url();
+      if (route.request().method() === "GET" && /\/api\/windows\/closed(\?|$)/.test(url)) {
+        return route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: '{"closed":[]}',
+        });
+      }
+      if (route.request().method() === "POST" && url.includes("/reopen")) reopenPosts++;
+      return route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' });
+    });
+    await gotoWindowOne(page);
+
+    await page.keyboard.press("Shift+Meta+KeyT");
+    await page.waitForTimeout(300);
+    expect(reopenPosts).toBe(0);
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/1(?:$|[/?#])`));
+  });
+
+  /**
+   * Proves: Win/Linux keeps its shifted-tier defaults — ⇧Ctrl+T still creates
+   * a window (POST /api/sessions/{session}/windows) and ⇧Ctrl+N still opens
+   * the session-name prompt — while `reopen-window` spends no chord there
+   * (its keyless base leaves it palette-only). The chords are browser-reserved
+   * in a plain browser host (the shifted N/T/W claims), so the test spoofs a
+   * non-mac SHELL host (the runkitShell bridge marker, Linux platform) where
+   * the defaults resolve live.
+   *
+   * Steps:
+   * 1. Spoof the non-mac shell host; mock the backend (empty closed ring)
+   *    plus a body-capturing POST route on the window-create glob (trailing
+   *    `*` — the client appends `?server=`); open `/default/1`.
+   * 2. Press Shift+Control+T → one create-window POST for session `dev`.
+   * 3. Press Shift+Control+N → the session-name prompt dialog opens.
+   */
+  test("⇧Ctrl+T creates a window and ⇧Ctrl+N opens the session prompt (no regression)", async ({ page }) => {
+    await page.addInitScript(() => {
+      window.runkitShell = { version: "1", platform: "linux" };
+    });
+    await mockBackend(page);
+    await page.route("**/api/windows/closed*", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: '{"closed":[]}' }),
+    );
+    const creates: string[] = [];
+    await page.route("**/api/sessions/*/windows*", (route) => {
+      if (route.request().method() === "POST") {
+        creates.push(route.request().url());
+        return route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' });
+      }
+      return route.fallback();
+    });
+    await gotoWindowOne(page);
+
+    await page.keyboard.press("Shift+Control+KeyT");
+    await expect.poll(() => creates.length).toBe(1);
+    expect(creates[0]).toContain("/api/sessions/dev/windows");
+
+    await page.keyboard.press("Shift+Control+KeyN");
+    await expect(page.getByRole("dialog")).toBeVisible();
   });
 });

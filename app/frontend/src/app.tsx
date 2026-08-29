@@ -121,6 +121,7 @@ import { SessionProvider } from "@/contexts/session-context";
 import { ToastProvider } from "@/components/toast";
 import { OptimisticProvider } from "@/contexts/optimistic-context";
 import { useDialogState } from "@/hooks/use-dialog-state";
+import { useRecentlyClosed, buildReopenWindowAction, pushRecentlyClosed, popRecentlyClosed } from "@/hooks/use-recently-closed";
 import { useSessionsScope } from "@/hooks/use-sessions-scope";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { TopBar, type TopBarMode } from "@/components/top-bar";
@@ -149,7 +150,7 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo, SelectWindowResult } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerProtected, sendChatMessage, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, selectWebTab, removeWebTab, type SortWindowsBy } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerProtected, sendChatMessage, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, selectWebTab, removeWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, HttpError, type SortWindowsBy } from "@/api/client";
 import { buildWebTabActions } from "@/lib/palette/web-tabs";
 import { buildSessionSortActions } from "@/lib/palette/sort";
 import { useBoards } from "@/hooks/use-boards";
@@ -637,6 +638,9 @@ function AppShell() {
   const { setCurrentSession, setCurrentWindow, setSidebarOpen, setSidebarWidth, persistSidebarWidth, toggleFixedWidth, toggleComposeStrip } = useChromeDispatch();
   const navigate = useNavigate();
   const { addToast } = useToast();
+  // The current server's recently-closed mirror — gates the
+  // `Tab: Reopen closed` palette entry (and thereby the reopen chord).
+  const { stack: recentlyClosedStack } = useRecentlyClosed(server);
   const isMobile = useIsMobile();
   const wsRef = useRef<WebSocket | null>(null);
   const focusTerminalRef = useRef<(() => void) | null>(null);
@@ -2232,6 +2236,60 @@ function AppShell() {
     [server, navigateToWindow, navigate, isMobile, setSidebarOpen],
   );
 
+  // Reopen the top of the server's recently-closed ring as a fresh shell.
+  // Success pops the mirror, navigates (the fork flow's navigation), and
+  // toasts; when the record carried an agent identity the toast offers
+  // "Resume agent", which swaps the fresh shell for the resumed agent window.
+  // The record survives plain reopen server-side so the toast action can
+  // resolve it — a toast that times out without the action dismisses it.
+  // A 409 (owning session gone) drops the mirror copy too: the backend has
+  // already dropped the record, so keeping the entry would offer a dead end.
+  const reopenClosed = useCallback(async () => {
+    const top = recentlyClosedStack[0];
+    if (!server || !top) return;
+    const dismissRecord = () => {
+      dismissClosedWindow(server, top.id).catch(() => {});
+    };
+    try {
+      const res = await reopenClosedWindow(server, top.id);
+      popRecentlyClosed(server, top.id);
+      if (res.windowId) navigateToSpawnedWindow(server, res.windowId);
+      const hasAgent = top.chatProvider !== undefined && top.chatRef !== undefined;
+      addToast(
+        `Reopened "${top.window.name}" (fresh shell)`,
+        "info",
+        hasAgent && res.windowId
+          ? {
+              label: "Resume agent",
+              onSelect: () => {
+                resumeClosedWindow(server, top.id, res.windowId)
+                  .then((r) => {
+                    if (r.windowId) navigateToSpawnedWindow(server, r.windowId);
+                  })
+                  // The fresh-shell window stays; only the resume failed.
+                  .catch((err: Error) => addToast(err.message || "Failed to resume agent", "error"));
+              },
+            }
+          : undefined,
+        dismissRecord,
+      );
+    } catch (err) {
+      if (err instanceof HttpError && err.status === 409) {
+        popRecentlyClosed(server, top.id);
+      }
+      addToast(err instanceof Error ? err.message : "Failed to reopen tab", "error");
+    }
+  }, [server, recentlyClosedStack, navigateToSpawnedWindow, addToast]);
+
+  // `Tab: Reopen closed` — stack-gated on the CURRENT server's mirror so the
+  // dispatcher's fromPalette lookup gates the reopen chord for free (absent
+  // entry → no handler → untouched fall-through). Offered on every AppShell
+  // route for the server, not only the killed window's session.
+  const reopenActions: PaletteAction[] = useMemo(
+    () => buildReopenWindowAction(recentlyClosedStack, () => void reopenClosed()),
+    [recentlyClosedStack, reopenClosed],
+  );
+
   // Fork a window's agent conversation (260806-s4av): a NEW window in the SAME
   // session and directory, resuming that agent's session with --fork-session. The
   // backend derives everything from the windowId, so the client sends nothing but
@@ -2915,7 +2973,12 @@ function AppShell() {
       const result = await executeSelectionBatch(
         keys,
         ({ server: targetServer, windowId }) =>
-          killWindow(targetServer, windowId),
+          // Each kill's record goes onto ITS server's mirror (a cross-server
+          // selection is legal for close) so the palette entry lights up
+          // without a refetch.
+          killWindow(targetServer, windowId).then((res) => {
+            if (res.closed) pushRecentlyClosed(targetServer, res.closed);
+          }),
       );
       const { message, failed } = batchToast(
         { success: "Closed", failure: "Closed", noun: "tab" },
@@ -3829,11 +3892,11 @@ function AppShell() {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...sessionActions, ...sessionsScopeActions, ...windowActions, ...windowCycleActions, ...sessionJumpActions, ...boardActions, ...selectionActions, ...viewActions, ...openActions, ...themeActions, ...configActions, ...statusRefreshActions, ...serverActions, ...shellServerActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions, ...operatorComposeActions, ...macroPaletteActions],
+        [...sessionActions, ...sessionsScopeActions, ...windowActions, ...reopenActions, ...windowCycleActions, ...sessionJumpActions, ...boardActions, ...selectionActions, ...viewActions, ...openActions, ...themeActions, ...configActions, ...statusRefreshActions, ...serverActions, ...shellServerActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions, ...operatorComposeActions, ...macroPaletteActions],
         bindingByAction,
         bindingHost.platform,
       ),
-    [sessionActions, sessionsScopeActions, windowActions, windowCycleActions, sessionJumpActions, boardActions, selectionActions, viewActions, openActions, themeActions, configActions, statusRefreshActions, serverActions, shellServerActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions, operatorComposeActions, macroPaletteActions, bindingByAction, bindingHost],
+    [sessionActions, sessionsScopeActions, windowActions, reopenActions, windowCycleActions, sessionJumpActions, boardActions, selectionActions, viewActions, openActions, themeActions, configActions, statusRefreshActions, serverActions, shellServerActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions, operatorComposeActions, macroPaletteActions, bindingByAction, bindingHost],
   );
   // Publish this route's (already shortcut-decorated) list into the
   // palette-actions slot — the single layout-mounted CommandPalette renders
@@ -3922,6 +3985,10 @@ function AppShell() {
       "create-session": fromPalette("create-session"),
       "create-window": fromPalette("create-window"),
       "kill-window": fromPalette("kill-window"),
+      // ⇧⌘T reopen closed tab (mac shell) — the palette entry's stack gating
+      // IS the chord gating: an empty mirror mounts no entry, so fromPalette
+      // yields no handler and the chord falls through untouched.
+      "reopen-window": fromPalette("reopen-window"),
       "agent-next-waiting": fromPalette("agent-next-waiting"),
       "go-back": fromPalette("go-back"),
       "go-forward": fromPalette("go-forward"),

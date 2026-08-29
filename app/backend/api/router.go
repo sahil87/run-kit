@@ -774,6 +774,12 @@ func (s *Server) buildRouter() chi.Router {
 	// Conversation fork — a new window in the SAME session + directory, resuming
 	// the window's agent session with --fork-session. See api/fork.go.
 	r.Post("/api/windows/{windowId}/fork", s.handleWindowFork)
+	// Recently-closed windows — the kill-seam ring (read GET; mutations POST per
+	// §IX). See api/closed.go.
+	r.Get("/api/windows/closed", s.handleClosedList)
+	r.Post("/api/windows/closed/{id}/reopen", s.handleClosedReopen)
+	r.Post("/api/windows/closed/{id}/dismiss", s.handleClosedDismiss)
+	r.Post("/api/windows/closed/{id}/resume", s.handleClosedResume)
 	r.Get("/api/directories", s.handleDirectories)
 	r.Post("/api/sessions/{session}/upload", s.handleUpload)
 	r.Post("/api/preview-scope", s.handlePreviewScope)

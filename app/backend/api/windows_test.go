@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"rk/internal/snapshot"
 	"rk/internal/tmux"
 )
 
@@ -1885,5 +1886,126 @@ func TestWindowOptionsWebRemoveMixedRejected(t *testing.T) {
 	}
 	if len(*removed) != 2 || (*removed)[0] != 3 || (*removed)[1] != 1 {
 		t.Errorf("WebRemove calls = %v, want [3 1] (highest-first)", *removed)
+	}
+}
+
+// --- Kill-seam recording (the recently-closed ring) ---
+//
+// The recorder seams (newClosedRouter, stubCaptureWindow) live in
+// closed_test.go, shared with the /api/windows/closed route tests.
+
+// TestWindowKillRecordsClosedWindow: with a wired snapshot store, the window is
+// captured and pushed BEFORE the kill; the response carries the pushed record
+// (store-stamped id/closedAt plus the resolved chat identity) and the ring
+// holds it.
+func TestWindowKillRecordsClosedWindow(t *testing.T) {
+	store := snapshot.NewStore(t.TempDir())
+	stubCaptureWindow(t, snapshot.Window{
+		Index: 2, ID: "@5", Name: "agent", Color: "4",
+		Panes: []snapshot.Pane{{ID: "%1", Index: 0, Cwd: "/proj", Command: "claude", Active: true}},
+	}, "dev", nil)
+	sf := &mockSessionFetcher{result: forkSessions("dev", "@5", "agent", "claude", testForkRef, "/proj")}
+	ops := &mockTmuxOps{}
+	router := newClosedRouter(sf, ops, nil, store)
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/windows/%405/kill?server=work", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if !ops.killWindowCalled || ops.killWindowID != "@5" {
+		t.Fatalf("kill = called %v on %q, want @5", ops.killWindowCalled, ops.killWindowID)
+	}
+
+	var body struct {
+		Ok     bool                   `json:"ok"`
+		Closed *snapshot.ClosedWindow `json:"closed"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !body.Ok || body.Closed == nil {
+		t.Fatalf("body = %s, want ok + closed", rec.Body.String())
+	}
+	got := body.Closed
+	if got.ID == "" || got.ClosedAt.IsZero() {
+		t.Errorf("record missing store-stamped identity: %+v", got)
+	}
+	if got.Server != "work" || got.Session != "dev" {
+		t.Errorf("record server/session = %q/%q, want work/dev", got.Server, got.Session)
+	}
+	if got.Window.Name != "agent" || got.Window.Color != "4" || len(got.Window.Panes) != 1 {
+		t.Errorf("record window = %+v, want the captured window", got.Window)
+	}
+	if got.ChatProvider != "claude" || got.ChatRef != testForkRef {
+		t.Errorf("record chat = %q/%q, want claude/%s", got.ChatProvider, got.ChatRef, testForkRef)
+	}
+
+	// The same record is on the server's ring.
+	list, err := store.ListClosed("work")
+	if err != nil || len(list) != 1 {
+		t.Fatalf("ring = %+v, %v — want exactly the pushed record", list, err)
+	}
+	if list[0].ID != got.ID || list[0].ChatRef != testForkRef {
+		t.Errorf("ring record = %+v, want the response's record", list[0])
+	}
+}
+
+// TestWindowKillCaptureFailureStillKills: a capture read failure (window already
+// gone, tmux fault) must NEVER block or fail the kill — 200 {"ok": true} with
+// no "closed" key, nothing on the ring.
+func TestWindowKillCaptureFailureStillKills(t *testing.T) {
+	store := snapshot.NewStore(t.TempDir())
+	stubCaptureWindow(t, snapshot.Window{}, "", errors.New("capture: window gone"))
+	ops := &mockTmuxOps{}
+	router := newClosedRouter(&mockSessionFetcher{}, ops, nil, store)
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/windows/%405/kill?server=work", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if !ops.killWindowCalled {
+		t.Error("KillWindow was not called after a capture failure")
+	}
+	if body := strings.TrimSpace(rec.Body.String()); body != `{"ok":true}` {
+		t.Errorf("body = %q, want exactly {\"ok\":true} (no closed key)", body)
+	}
+	if list, _ := store.ListClosed("work"); len(list) != 0 {
+		t.Errorf("ring gained a record despite capture failure: %+v", list)
+	}
+}
+
+// TestWindowKillNilStoreStillKills: with no snapshot store wired the kill is
+// exactly the pre-recording behavior — no capture attempt, 200 {"ok": true}.
+func TestWindowKillNilStoreStillKills(t *testing.T) {
+	stubCaptureWindow(t, snapshot.Window{}, "", nil) // must not be reached
+	captureCalled := false
+	prev := captureWindowFn
+	captureWindowFn = func(context.Context, string, string) (snapshot.Window, string, error) {
+		captureCalled = true
+		return snapshot.Window{}, "", nil
+	}
+	t.Cleanup(func() { captureWindowFn = prev })
+
+	ops := &mockTmuxOps{}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/windows/%405/kill?server=work", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if captureCalled {
+		t.Error("capture ran with a nil store")
+	}
+	if !ops.killWindowCalled {
+		t.Error("KillWindow was not called")
+	}
+	if body := strings.TrimSpace(rec.Body.String()); body != `{"ok":true}` {
+		t.Errorf("body = %q, want exactly {\"ok\":true}", body)
 	}
 }

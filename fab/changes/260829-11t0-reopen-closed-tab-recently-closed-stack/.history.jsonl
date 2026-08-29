@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-29T11:52:34Z"}
+{"args":"Reopen closed tab — ⇧⌘T rebinding + recently-closed window stack (fresh shell, re-stamped @rk_win_* options, optional agent --resume relaunch)","cmd":"fab-new","event":"command","ts":"2026-08-29T11:52:34Z"}
+{"delta":"+0.2","event":"confidence","score":0.2,"trigger":"calc-score","ts":"2026-08-29T11:56:16Z"}
+{"delta":"+0.0","event":"confidence","score":0.2,"trigger":"calc-score","ts":"2026-08-29T11:57:24Z"}
+{"delta":"+0.0","event":"confidence","score":0.2,"trigger":"calc-score","ts":"2026-08-29T12:02:10Z"}
+{"delta":"+1.7","event":"confidence","score":1.9,"trigger":"calc-score","ts":"2026-08-29T12:03:11Z"}
+{"delta":"+1.2","event":"confidence","score":3.1,"trigger":"calc-score","ts":"2026-08-29T12:03:29Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-29T12:08:13Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-29T12:41:06Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-29T12:53:29Z"}
+{"event":"review","result":"passed","ts":"2026-08-29T12:53:29Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-29T13:22:58Z"}

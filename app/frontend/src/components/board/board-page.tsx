@@ -35,6 +35,7 @@ import { withShortcutHints, formatCombo } from "@/lib/keybindings";
 import { runComposeToggleChord } from "@/lib/compose-strip-events";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
+import { pushRecentlyClosed } from "@/hooks/use-recently-closed";
 import { useKeybindingDispatch } from "@/hooks/use-keybinding-dispatch";
 import { NotFoundPage } from "@/router";
 
@@ -548,7 +549,11 @@ function BoardPageContent({ name }: { name: string }) {
     });
   }, [entries, focusedIndex]);
   const { execute: executeKillWindow } = useOptimisticAction<[string, string]>({
-    action: (srv, windowId) => killWindow(srv, windowId),
+    action: async (srv, windowId) => {
+      const res = await killWindow(srv, windowId);
+      if (res.closed) pushRecentlyClosed(srv, res.closed);
+      return res;
+    },
     onSettled: () => refetch(),
     onError: (err) => addToast(err.message || "Failed to kill tab"),
   });

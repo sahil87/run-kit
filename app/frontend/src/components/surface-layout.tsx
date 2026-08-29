@@ -1329,9 +1329,13 @@ export function SurfaceLayout({
             active={webOverride?.webActive ?? win.webActive}
             // Address-bar write seam: the ACTIVE web slot's option write
             // (n = webActive, slot 1 while the pointer is unset) — the
-            // component stays payload-shape agnostic.
+            // component stays payload-shape agnostic. The active pointer is
+            // read through the same optimistic override the strip renders,
+            // so a submit during an in-flight select/remove targets the tab
+            // the user is looking at, not the stale payload slot.
             onWriteUrl={(url) => {
-              const n = win.webActive !== undefined && win.webActive >= 1 ? win.webActive : 1;
+              const active = webOverride?.webActive ?? win.webActive;
+              const n = active !== undefined && active >= 1 ? active : 1;
               return setWindowOptions(server, windowId, { [`@rk_win_web_${n}`]: url });
             }}
             // Strip verbs: select/remove are optimistic (the webOverride

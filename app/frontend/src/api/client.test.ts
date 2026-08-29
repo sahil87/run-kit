@@ -435,7 +435,7 @@ describe("web tab verb wrappers", () => {
         capturedMethod = request.method;
         capturedBody = (await request.json()) as { target?: string };
         return HttpResponse.json(
-          { ok: true, index: 3, existed: false, url: "/proxy/3003/" },
+          { index: 3, existed: false, url: "/proxy/3003/" },
           { status: 201 },
         );
       }),
@@ -444,7 +444,7 @@ describe("web tab verb wrappers", () => {
     expect(capturedMethod).toBe("POST");
     expect(capturedUrl).toMatch(/\/api\/windows\/%405\/web\?server=s$/);
     expect(capturedBody).toEqual({ target: "/proxy/3003/" });
-    expect(result).toEqual({ ok: true, index: 3, existed: false, url: "/proxy/3003/" });
+    expect(result).toEqual({ index: 3, existed: false, url: "/proxy/3003/" });
   });
 
   it("removeWebTab POSTs /api/windows/:windowId/web/:n/remove with server query", async () => {

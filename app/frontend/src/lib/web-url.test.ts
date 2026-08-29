@@ -6,6 +6,8 @@ import {
   normalizeAddressInput,
   proxyPortOf,
   toProxySrc,
+  toWebAddTarget,
+  webTabTitle,
 } from "./web-url";
 
 describe("classifyAddress (260819-v6y4 R3)", () => {
@@ -67,6 +69,22 @@ describe("displayForm (260819-v6y4 R3)", () => {
     expect(displayForm("not a url")).toBe("not a url");
     expect(displayForm("")).toBe("");
     expect(displayForm("/present/")).toBe("/present/");
+  });
+});
+
+describe("webTabTitle", () => {
+  it("derives the strip label per address kind", () => {
+    expect(webTabTitle("/present/@3/1/report.html?v=17&server=x")).toBe("report.html");
+    expect(webTabTitle("/proxy/3000/docs/api?q=1")).toBe("localhost:3000/docs/api");
+    expect(webTabTitle("http://localhost:5173/?x=1")).toBe("localhost:5173/");
+    expect(webTabTitle("https://docs.example.com/a/b#c")).toBe("docs.example.com");
+    expect(webTabTitle("/foo")).toBe("/foo");
+    expect(webTabTitle("")).toBe("");
+  });
+
+  it("treats whitespace-only input as empty and never throws", () => {
+    expect(webTabTitle("   ")).toBe("");
+    expect(webTabTitle("not a url")).toBe("not a url");
   });
 });
 
@@ -145,5 +163,21 @@ describe("toProxySrc", () => {
     expect(toProxySrc("/proxy/8080/docs")).toBe("/proxy/8080/docs");
     expect(toProxySrc("https://shll.ai/")).toBe("https://shll.ai/");
     expect(toProxySrc("http://localhost/")).toBe("http://localhost/");
+  });
+});
+
+describe("toWebAddTarget", () => {
+  it("re-expresses a relative /proxy/{port} address as the absolute loopback URL", () => {
+    expect(toWebAddTarget("/proxy/3003/")).toBe("http://localhost:3003/");
+    expect(toWebAddTarget("/proxy/3003/docs")).toBe("http://localhost:3003/docs");
+    expect(toWebAddTarget("/proxy/3003/docs?x=1")).toBe("http://localhost:3003/docs?x=1");
+    expect(toWebAddTarget("/proxy/3003")).toBe("http://localhost:3003/");
+  });
+
+  it("passes every non-proxy-path address through unchanged", () => {
+    expect(toWebAddTarget("http://localhost:3003/docs")).toBe("http://localhost:3003/docs");
+    expect(toWebAddTarget("https://shll.ai/")).toBe("https://shll.ai/");
+    expect(toWebAddTarget("/present/@3/1/report.html?v=1")).toBe("/present/@3/1/report.html?v=1");
+    expect(toWebAddTarget("/foo")).toBe("/foo");
   });
 });

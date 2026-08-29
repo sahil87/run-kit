@@ -2,7 +2,7 @@
  * Web-tile address model (260819-v6y4 R3/R4).
  *
  * A pure, DOM-free module — the `window-view.ts` contract — owning every
- * derivation over a stored `@rk_win_url` (or an address-bar keystroke):
+ * derivation over a stored `@rk_win_web_<n>` (or an address-bar keystroke):
  *
  * 1. `classifyAddress` — the four address kinds behind the header badge and
  *    the error-state posture: `present` (an `rk present` file), `proxy` (a
@@ -19,8 +19,9 @@
  * 5. `toProxySrc` — the iframe-src mapping: absolute loopback URLs ride the
  *    same-origin proxy, everything else passes through.
  *
- * The STORED `@rk_win_url` is never rewritten by display work — the display
- * contract (`docs/site/skill/display.md`) keeps relative addresses relative.
+ * The STORED `@rk_win_web_<n>` is never rewritten by display work — the
+ * display contract (`docs/site/skill/display.md`) keeps relative addresses
+ * relative.
  */
 
 export type AddressKind = "present" | "proxy" | "external" | "relative";
@@ -142,6 +143,47 @@ export function displayForm(url: string): string {
 }
 
 /**
+ * The tab-strip label for a stored address, per kind:
+ * - present  → the file's basename; plumbing params and the tab's own query
+ *   and hash are dropped
+ * - proxy    → `localhost:{port}{path}` with no search/hash
+ * - external → the host only
+ * - relative → the raw path
+ *
+ * Never throws; empty/whitespace input is `""` (callers fall back to `#n`).
+ */
+export function webTabTitle(url: string): string {
+  const value = url.trim();
+  if (value === "") return "";
+  try {
+    const kind = classifyAddress(value);
+    if (kind === "present") {
+      const u = new URL(value, "http://x");
+      const segments = u.pathname.split("/").filter(Boolean);
+      const base = segments.length > 0 ? segments[segments.length - 1] : "";
+      return base === "" || base === "present" ? value : base;
+    }
+    if (kind === "proxy") {
+      const abs = parseHttpUrl(value);
+      if (abs) return `localhost:${abs.port}${abs.pathname}`;
+      const port = proxyPathPort(value);
+      if (port !== null) {
+        const rest = value.replace(/^\/proxy\/\d+/, "").split(/[?#]/)[0];
+        return `localhost:${port}${rest === "" ? "/" : rest}`;
+      }
+      return value;
+    }
+    if (kind === "external") {
+      const abs = parseHttpUrl(value);
+      if (abs) return abs.host;
+    }
+    return value;
+  } catch {
+    return value;
+  }
+}
+
+/**
  * Submit-time input normalization (R4):
  * - bare loopback `localhost:{port}[{path}]` / `127.0.0.1:{port}[{path}]`
  *   (no scheme) → `/proxy/{port}{path or /}` — ride the same-origin proxy,
@@ -196,4 +238,20 @@ export function toProxySrc(url: string): string {
     }
   }
   return url;
+}
+
+/**
+ * The `POST …/web` add-target form of an address: the backend resolves the
+ * target exactly like `rk present` (`:port`, local URL, external URL,
+ * file/dir), which has no root-relative `/proxy/` form — a relative proxy
+ * address would be misread as a filesystem path. Re-express it as the
+ * absolute loopback URL it rides (the backend rewrites that back to the
+ * identical `/proxy/{port}` slot value); every other address passes through
+ * unchanged.
+ */
+export function toWebAddTarget(url: string): string {
+  const port = proxyPathPort(url);
+  if (port === null) return url;
+  const rest = url.replace(/^\/proxy\/\d+/, "");
+  return `http://localhost:${port}${rest === "" ? "/" : rest}`;
 }

@@ -149,7 +149,8 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo, SelectWindowResult } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerProtected, sendChatMessage, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, type SortWindowsBy } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerProtected, sendChatMessage, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, selectWebTab, removeWebTab, type SortWindowsBy } from "@/api/client";
+import { buildWebTabActions } from "@/lib/palette/web-tabs";
 import { buildSessionSortActions } from "@/lib/palette/sort";
 import { useBoards } from "@/hooks/use-boards";
 import { useWindowPins } from "@/hooks/use-window-pins";
@@ -3254,6 +3255,27 @@ function AppShell() {
                     onSelect: () =>
                       document.dispatchEvent(new CustomEvent(WEB_ZOOM_EVENT, { detail: { direction } })),
                   })),
+                  // `Web: Next/Previous/Close tab` + `Web: New tab from
+                  // address` (260828-9kip R11) — palette parity (Constitution
+                  // V) for the web tile's tab strip; same content gate as
+                  // web-find (the verbs need a live family). The tab-count
+                  // gating (≥2 for next/prev/close) and the wrap math live in
+                  // the pure `buildWebTabActions` (lib/palette/web-tabs.ts),
+                  // the `buildViewActions` precedent; select/close POST the
+                  // client wrappers (the next SSE tick reconciles, a toast
+                  // shows a rejection), and new-tab dispatches the
+                  // `web-address:focus` seam with `detail.newTab` so the tile
+                  // arms its one-shot new-tab mode. No chords.
+                  ...buildWebTabActions(effectiveWindow?.webTabs ?? [], effectiveWindow?.webActive, {
+                    onSelectTab: (n) =>
+                      void selectWebTab(server, windowParam, n).catch((err: Error) =>
+                        addToast(err.message || "Failed to select web tab", "error"),
+                      ),
+                    onCloseTab: (n) =>
+                      void removeWebTab(server, windowParam, n).catch((err: Error) =>
+                        addToast(err.message || "Failed to close web tab", "error"),
+                      ),
+                  }),
                 ]
               : []),
             // `Web: Focus address bar` + `Web: Open in browser` (260819-v6y4
@@ -3301,7 +3323,7 @@ function AppShell() {
           }))
         : []),
     ],
-    [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, composeStripEnabled, currentViews, resolvedView, switchView, bindingByAction, bindingHost, windowParam, isMobile, layout, panelSurfaces, applyLayout, layoutZoomed, focusedTileKind, mobileActiveTile, switchToTile, switchTargetDisabled, currentAltScreen, zenOn, toggleZen],
+    [sessionName, fixedWidth, toggleFixedWidth, toggleComposeStrip, composeStripEnabled, currentViews, resolvedView, switchView, bindingByAction, bindingHost, windowParam, isMobile, layout, panelSurfaces, applyLayout, layoutZoomed, focusedTileKind, mobileActiveTile, switchToTile, switchTargetDisabled, currentAltScreen, zenOn, toggleZen, server, effectiveWindow, addToast],
   );
 
   // Navigation actions (`Go: Back` / `Go: Forward` / ancestor entries,

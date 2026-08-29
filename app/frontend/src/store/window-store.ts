@@ -1,6 +1,16 @@
 import { create } from "zustand";
 import type { PaneInfo, WindowInfo } from "@/types";
 
+/**
+ * Optimistic per-window web-tab family override (display only). Set while a
+ * select/remove POST is in flight; the SSE tick reconciles and the consumer
+ * clears it once the payload matches (the pendingLayout discipline).
+ */
+export type WebTabOverride = {
+  webTabs?: string[];
+  webActive?: number;
+};
+
 /** A single window entry in the store. */
 export type WindowEntry = {
   server: string;
@@ -12,6 +22,7 @@ export type WindowEntry = {
   killed: boolean;
   createdAt: number;
   panes: PaneInfo[];
+  webOverride?: WebTabOverride;
 };
 
 /** Merged window type that includes optimistic flag. */
@@ -74,6 +85,17 @@ type WindowStoreActions = {
   /** Clear a pending rename from a window. */
   clearRename: (server: string, session: string, windowId: string) => void;
 
+  /** Merge an optimistic web-tab family override into a window. */
+  setWebOverride: (
+    server: string,
+    session: string,
+    windowId: string,
+    override: WebTabOverride,
+  ) => void;
+
+  /** Clear a window's web-tab override (SSE confirmed, rollback, or route change). */
+  clearWebOverride: (server: string, session: string, windowId: string) => void;
+
   /** Remove a specific ghost window by its optimisticId. */
   removeGhost: (optimisticId: string) => void;
 
@@ -92,6 +114,25 @@ type WindowStoreActions = {
 /** Compose the entries-map key. tmux windowIds are unique per server only. */
 export function entryKey(server: string, windowId: string): string {
   return `${server}:${windowId}`;
+}
+
+/**
+ * The web-tab family after slot n (1-based) leaves it — a display-only mirror
+ * of the backend's WebRemove rule (internal/tmux/webtabs.go `repointActive`):
+ * slots past n shift down one; the active pointer becomes 0 when the family
+ * empties, min(n, newLen) when it pointed at n, active-1 when past n, else
+ * unchanged. The server write is authoritative; the next SSE tick reconciles.
+ */
+export function webFamilyAfterRemove(
+  tabs: string[],
+  active: number,
+  n: number,
+): { webTabs: string[]; webActive: number } {
+  const webTabs = tabs.filter((_, i) => i !== n - 1);
+  const newLen = webTabs.length;
+  const webActive =
+    newLen === 0 ? 0 : active === n ? Math.min(n, newLen) : active > n ? active - 1 : active;
+  return { webTabs, webActive };
 }
 
 /**
@@ -146,8 +187,8 @@ export const useWindowStore = create<WindowStoreState & WindowStoreActions>((set
         newEntries.delete(key);
       }
 
-      // Add/update entries for incoming windows (preserve killed/pendingName
-      // if a prior entry existed under the same composite key).
+      // Add/update entries for incoming windows (preserve killed/pendingName/
+      // webOverride if a prior entry existed under the same composite key).
       for (const w of windows) {
         const key = entryKey(server, w.windowId);
         const existing = state.entries.get(key);
@@ -163,6 +204,7 @@ export const useWindowStore = create<WindowStoreState & WindowStoreActions>((set
           killed: existingMatches ? (existing.killed ?? false) : false,
           createdAt: existingMatches ? existing.createdAt : Date.now(),
           panes: w.panes ?? [],
+          webOverride: existingMatches ? existing.webOverride : undefined,
         });
       }
 
@@ -282,6 +324,29 @@ export const useWindowStore = create<WindowStoreState & WindowStoreActions>((set
       if (!entry || entry.server !== server || entry.session !== session) return state;
       const newEntries = new Map(state.entries);
       newEntries.set(key, { ...entry, pendingName: undefined });
+      return { entries: newEntries };
+    });
+  },
+
+  setWebOverride: (server, session, windowId, override) => {
+    set((state) => {
+      const key = entryKey(server, windowId);
+      const entry = state.entries.get(key);
+      if (!entry || entry.server !== server || entry.session !== session) return state;
+      const newEntries = new Map(state.entries);
+      newEntries.set(key, { ...entry, webOverride: { ...entry.webOverride, ...override } });
+      return { entries: newEntries };
+    });
+  },
+
+  clearWebOverride: (server, session, windowId) => {
+    set((state) => {
+      const key = entryKey(server, windowId);
+      const entry = state.entries.get(key);
+      if (!entry || entry.server !== server || entry.session !== session) return state;
+      if (!entry.webOverride) return state;
+      const newEntries = new Map(state.entries);
+      newEntries.set(key, { ...entry, webOverride: undefined });
       return { entries: newEntries };
     });
   },

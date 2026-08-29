@@ -12,6 +12,9 @@ vi.mock("@/components/terminal-client", () => ({
 }));
 vi.mock("@/api/client", () => ({
   setWindowOptions: vi.fn().mockResolvedValue({ ok: true }),
+  addWebTab: vi.fn(),
+  removeWebTab: vi.fn(),
+  selectWebTab: vi.fn(),
   checkFrame: vi.fn().mockResolvedValue({ reachable: true, embeddable: true, status: 200, reason: "" }),
   listServers: vi.fn().mockResolvedValue([]),
 }));
@@ -19,7 +22,7 @@ vi.mock("@/api/client", () => ({
 afterEach(cleanup);
 
 describe("integration: SurfaceLayout + real IframeWindow", () => {
-  it("renders without an update-depth loop", async () => {
+  it("renders a 2-tab window without an update-depth loop", async () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     render(
       <StandaloneSessionContextProvider
@@ -39,7 +42,7 @@ describe("integration: SurfaceLayout + real IframeWindow", () => {
         server="srv"
         windowId="@1"
         sessionName="sess"
-        window={{ webTabs: ["/proxy/8080/docs"], webActive: 1 }}
+        window={{ webTabs: ["/proxy/8080/docs", "/proxy/8081/api"], webActive: 2 }}
         isMobile={false}
         wsRef={{ current: null }}
         focusRef={{ current: null }}
@@ -55,11 +58,13 @@ describe("integration: SurfaceLayout + real IframeWindow", () => {
       </StandaloneSessionContextProvider>,
     );
     await new Promise((r) => setTimeout(r, 300));
-    // Simulate the frame's load event (the presented-page path) — the e2e
+    // Simulate each frame's load event (the presented-page path) — the e2e
     // rig showed a Maximum-update-depth loop when real same-origin content
-    // loaded; guard the seam here.
+    // loaded; guard the seam here. A 2-tab family mounts one iframe per tab.
     const { fireEvent } = await import("@testing-library/react");
-    fireEvent.load(document.querySelector("iframe")!);
+    const frames = document.querySelectorAll("iframe");
+    expect(frames.length).toBe(2);
+    for (const frame of frames) fireEvent.load(frame);
     await new Promise((r) => setTimeout(r, 300));
     const depthErrors = errSpy.mock.calls.filter((c) =>
       String(c[0]).includes("Maximum update depth"),

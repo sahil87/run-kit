@@ -5,6 +5,8 @@ import { ToastProvider } from "@/components/toast";
 import { ratiosStorageKey, type Layout, type SurfaceKind } from "@/lib/surface-layout";
 import type { WindowInfo } from "@/types";
 import { stubMatchMedia } from "@/test-utils/match-media";
+import { makeWindow } from "@/test-utils/fixtures";
+import { entryKey, useWindowStore } from "@/store/window-store";
 
 // jsdom does not implement matchMedia — Tip's coarse-pointer check needs it.
 // Default to the fine-pointer branch (tooltips enabled).
@@ -38,6 +40,19 @@ vi.mock("@/components/iframe-window", () => ({
 }));
 vi.mock("@/components/chat-view", () => ({
   ChatView: () => <div data-testid="mock-chat" />,
+}));
+
+// The web-tab strip verbs POST through the client; the optimistic-override
+// tests assert the call shape and control the resolution timing.
+const apiSpy = vi.hoisted(() => ({
+  addWebTab: vi.fn(),
+  removeWebTab: vi.fn(),
+  selectWebTab: vi.fn(),
+  setWindowOptions: vi.fn(),
+}));
+vi.mock("@/api/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/api/client")>()),
+  ...apiSpy,
 }));
 
 // jsdom lacks pointer capture — the divider drag handlers call it. Stub the
@@ -147,6 +162,9 @@ beforeEach(() => {
   localStorage.clear();
   terminalSpy.mockClear();
   codeSpy.mockClear();
+  iframeSpy.mockClear();
+  for (const spy of Object.values(apiSpy)) spy.mockReset();
+  useWindowStore.setState({ entries: new Map(), ghosts: [] });
 });
 
 afterEach(() => {
@@ -1386,5 +1404,162 @@ describe("SurfaceLayout export menu (260819-shqo)", () => {
   it("does not render on non-tty tiles", () => {
     renderLayout({ layout: { shape: "single", order: ["web"] } });
     expect(screen.queryByRole("button", { name: "Export terminal output" })).toBeNull();
+  });
+});
+
+describe("SurfaceLayout web-tab strip wiring", () => {
+  type IframeProps = {
+    tabs?: string[];
+    active?: number;
+    onWriteUrl?: (url: string) => Promise<unknown>;
+    onSelectTab?: (n: number) => Promise<unknown>;
+    onCloseTab?: (n: number) => Promise<unknown>;
+    onAddTab?: (target: string) => Promise<{ index: number; existed: boolean }>;
+  };
+  const lastIframeProps = () => iframeSpy.mock.lastCall?.[0] as IframeProps;
+  /** The store entry the optimistic overrides ride (server/session match the
+   *  renderLayout defaults). */
+  const seedWindowEntry = () => {
+    useWindowStore
+      .getState()
+      .setWindowsForSession("srv", "sess", [makeWindow({ windowId: "@1" })]);
+  };
+  const storedOverride = () =>
+    useWindowStore.getState().entries.get(entryKey("srv", "@1"))?.webOverride;
+
+  const TWO_TABS = ["/proxy/3001/", "/proxy/3002/"];
+
+  it("passes the tab family through and onWriteUrl writes the active slot's option", async () => {
+    renderLayout({
+      layout: { shape: "split-h", order: ["tty", "web"] },
+      window: { webTabs: TWO_TABS, webActive: 2 },
+    });
+    const props = lastIframeProps();
+    expect(props.tabs).toEqual(TWO_TABS);
+    expect(props.active).toBe(2);
+    await act(async () => {
+      await props.onWriteUrl?.("http://localhost:9000/");
+    });
+    expect(apiSpy.setWindowOptions).toHaveBeenCalledWith("srv", "@1", {
+      "@rk_win_web_2": "http://localhost:9000/",
+    });
+  });
+
+  it("onWriteUrl falls back to slot 1 while the active pointer is unset", async () => {
+    renderLayout({
+      layout: { shape: "split-h", order: ["tty", "web"] },
+      window: { webTabs: TWO_TABS },
+    });
+    await act(async () => {
+      await lastIframeProps().onWriteUrl?.("http://localhost:9000/");
+    });
+    expect(apiSpy.setWindowOptions).toHaveBeenCalledWith("srv", "@1", {
+      "@rk_win_web_1": "http://localhost:9000/",
+    });
+  });
+
+  it("onSelectTab applies an optimistic webActive override while the POST is in flight", async () => {
+    seedWindowEntry();
+    let resolveSelect!: (value: { ok: boolean }) => void;
+    apiSpy.selectWebTab.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSelect = resolve;
+      }),
+    );
+    const { rerender } = renderLayout({
+      layout: { shape: "split-h", order: ["tty", "web"] },
+      window: { webTabs: TWO_TABS, webActive: 1 },
+    });
+
+    await act(async () => {
+      await lastIframeProps().onSelectTab?.(2);
+    });
+    expect(apiSpy.selectWebTab).toHaveBeenCalledWith("srv", "@1", 2);
+    // In flight: the strip repaints from the override, not the stale payload.
+    expect(lastIframeProps().active).toBe(2);
+    expect(storedOverride()).toEqual({ webActive: 2 });
+
+    // The POST resolves, then the confirming SSE tick (a rerender carrying
+    // the written value) drops the override.
+    await act(async () => {
+      resolveSelect({ ok: true });
+    });
+    rerender(
+      layoutElement({
+        layout: { shape: "split-h", order: ["tty", "web"] },
+        window: { webTabs: TWO_TABS, webActive: 2 },
+      }),
+    );
+    expect(storedOverride()).toBeUndefined();
+    expect(lastIframeProps().active).toBe(2);
+  });
+
+  it("onCloseTab optimistically shifts the family and repoints the active slot", async () => {
+    seedWindowEntry();
+    apiSpy.removeWebTab.mockReturnValue(new Promise(() => {}));
+    renderLayout({
+      layout: { shape: "split-h", order: ["tty", "web"] },
+      window: { webTabs: ["/a", "/b", "/c"], webActive: 3 },
+    });
+
+    await act(async () => {
+      await lastIframeProps().onCloseTab?.(2);
+    });
+    expect(apiSpy.removeWebTab).toHaveBeenCalledWith("srv", "@1", 2);
+    // The display-only repointActive mirror: slot 2 leaves, the former tab 3
+    // slides into slot 2 and stays active.
+    expect(lastIframeProps().tabs).toEqual(["/a", "/c"]);
+    expect(lastIframeProps().active).toBe(2);
+  });
+
+  it("a rejected select reverts the override and toasts the error", async () => {
+    seedWindowEntry();
+    apiSpy.selectWebTab.mockRejectedValue(new Error("no such tab"));
+    renderLayout({
+      layout: { shape: "split-h", order: ["tty", "web"] },
+      window: { webTabs: TWO_TABS, webActive: 1 },
+    });
+
+    await act(async () => {
+      await lastIframeProps().onSelectTab?.(2);
+    });
+    expect(lastIframeProps().active).toBe(1);
+    expect(storedOverride()).toBeUndefined();
+    expect(screen.getByRole("alert").textContent).toContain("no such tab");
+  });
+
+  it("a rejected remove restores the family and toasts the error", async () => {
+    seedWindowEntry();
+    apiSpy.removeWebTab.mockRejectedValue(new Error("web tabs busy"));
+    renderLayout({
+      layout: { shape: "split-h", order: ["tty", "web"] },
+      window: { webTabs: ["/a", "/b", "/c"], webActive: 3 },
+    });
+
+    await act(async () => {
+      await lastIframeProps().onCloseTab?.(2);
+    });
+    expect(lastIframeProps().tabs).toEqual(["/a", "/b", "/c"]);
+    expect(lastIframeProps().active).toBe(3);
+    expect(storedOverride()).toBeUndefined();
+    expect(screen.getByRole("alert").textContent).toContain("web tabs busy");
+  });
+
+  it("onAddTab re-expresses the relative proxy draft as a loopback target — no optimistic override", async () => {
+    seedWindowEntry();
+    apiSpy.addWebTab.mockResolvedValue({ index: 3, existed: false, url: "/proxy/3003/" });
+    renderLayout({
+      layout: { shape: "split-h", order: ["tty", "web"] },
+      window: { webTabs: TWO_TABS, webActive: 1 },
+    });
+
+    let result: { index: number; existed: boolean } | undefined;
+    await act(async () => {
+      result = await lastIframeProps().onAddTab?.("/proxy/3003/");
+    });
+    expect(apiSpy.addWebTab).toHaveBeenCalledWith("srv", "@1", "http://localhost:3003/");
+    expect(result).toEqual({ index: 3, existed: false, url: "/proxy/3003/" });
+    expect(storedOverride()).toBeUndefined();
+    expect(lastIframeProps().tabs).toEqual(TWO_TABS);
   });
 });

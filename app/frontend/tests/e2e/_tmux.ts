@@ -225,3 +225,17 @@ export function stampWebTab(
   setWindowOption(windowId, "@rk_win_web_1", url, opts);
   setWindowOption(windowId, "@rk_win_web_active", "1", opts);
 }
+
+/** Stamp a full web-tab family: one `@rk_win_web_<i>` per URL (1-based slot
+ *  order) plus `@rk_win_web_active`. */
+export function stampWebTabs(
+  windowId: string,
+  urls: string[],
+  active: number,
+  opts: TmuxOptions = {},
+): void {
+  urls.forEach((url, i) => {
+    setWindowOption(windowId, `@rk_win_web_${i + 1}`, url, opts);
+  });
+  setWindowOption(windowId, "@rk_win_web_active", String(active), opts);
+}

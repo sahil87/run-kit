@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 15
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-29T00:18:57Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-29T01:22:50Z"}
     review: {started_at: "2026-08-29T01:22:50Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-29T01:26:37Z"}
     hydrate: {started_at: "2026-08-29T01:26:37Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-29T01:35:55Z"}
-    ship: {started_at: "2026-08-29T01:35:55Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-29T01:35:55Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-29T01:38:20Z"}
+    review-pr: {started_at: "2026-08-29T01:38:20Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/761
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 2927
+    deleted: 475
+    net: 2452
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 2212
+        deleted: 441
+        net: 1771
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-08-29T01:35:55Z"
-    computed_at_stage: hydrate
+        added: 611
+        deleted: 1
+        net: 610
+    computed_at: "2026-08-29T01:38:20Z"
+    computed_at_stage: ship
 change_type_source: explicit
 summary: 'renders the web-tab family as a ≥2 tab strip over one chrome + N URL-keyed iframes (P3), adds addWebTab/removeWebTab/selectWebTab + webTabTitle + the four Web: … tab palette actions, and rides optimistic webActive/webTabs overrides'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-29T01:35:55Z
+last_updated: 2026-08-29T01:38:20Z

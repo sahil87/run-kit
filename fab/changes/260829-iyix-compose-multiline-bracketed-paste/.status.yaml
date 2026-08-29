@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 5
@@ -33,22 +33,24 @@ stage_metrics:
     apply: {started_at: "2026-08-29T11:28:08Z", driver: fab-ff, iterations: 2, completed_at: "2026-08-29T11:29:40Z"}
     review: {started_at: "2026-08-29T11:29:40Z", driver: fab-ff, iterations: 2, completed_at: "2026-08-29T11:38:37Z"}
     hydrate: {started_at: "2026-08-29T11:38:37Z", driver: fab-ff, iterations: 1, completed_at: "2026-08-29T11:40:57Z"}
-    ship: {started_at: "2026-08-29T11:40:57Z", driver: fab-ff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-29T11:40:57Z", driver: fab-ff, iterations: 1, completed_at: "2026-08-29T11:49:34Z"}
+    review-pr: {started_at: "2026-08-29T11:49:34Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/765
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1038
+    deleted: 39
+    net: 999
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 613
+        deleted: 31
+        net: 582
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-08-29T11:40:57Z"
-    computed_at_stage: hydrate
+        added: 278
+        deleted: 1
+        net: 277
+    computed_at: "2026-08-29T11:49:34Z"
+    computed_at_stage: ship
 summary: Compose strip multi-line submit/insert-line ride POST /api/windows/{id}/paste (tmux bracketed paste via the shared inject engine, active-pane target) instead of raw relay bytes — fixes newline collapse in Claude Code panes
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-29T11:40:57Z
+last_updated: 2026-08-29T11:49:34Z

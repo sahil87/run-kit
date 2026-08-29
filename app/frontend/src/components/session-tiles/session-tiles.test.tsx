@@ -221,14 +221,13 @@ describe("SessionTiles", () => {
       expect(screen.getByTestId("tile-pr-glyph").className).toContain("text-signal-purple");
     });
 
-    // xuej: closed earns the glyph — muted with the distinct ✕ closed icon
-    // (same state-picked icon as the sidebar row). No glyph only without a
-    // prNumber.
-    it("renders the glyph muted with the closed ✕ icon for a closed-unmerged PR", () => {
+    // Closed earns the glyph — red with the distinct ✕ closed icon (same
+    // state-picked icon as the sidebar row). No glyph only without a prNumber.
+    it("renders the glyph red with the closed ✕ icon for a closed-unmerged PR", () => {
       renderWithPr({ prNumber: 386, prState: "closed" });
       fireEvent.click(screen.getByLabelText("Expand run-kit"));
       const glyph = screen.getByTestId("tile-pr-glyph");
-      expect(glyph.className).toContain("text-text-secondary");
+      expect(glyph.className).toContain("text-signal-red");
       expect(glyph.querySelector('path[d="m21 3-6 6"]')).not.toBeNull();
       expect(glyph.querySelector('path[d="M13 6h3a2 2 0 0 1 2 2v7"]')).toBeNull();
       cleanup();
@@ -242,7 +241,25 @@ describe("SessionTiles", () => {
       fireEvent.click(screen.getByLabelText("Expand run-kit"));
       const glyph = screen.getByTestId("tile-pr-glyph");
       expect(glyph.querySelector('path[d="m21 3-6 6"]')).toBeNull();
+      expect(glyph.querySelector('path[d="M18 6V5"]')).toBeNull();
       expect(glyph.querySelector('path[d="M13 6h3a2 2 0 0 1 2 2v7"]')).not.toBeNull();
+    });
+
+    it("renders the dotted-rail draft icon in gray for an open draft, and ✕ red for a closed draft", () => {
+      renderWithPr({ prNumber: 386, prState: "open", prIsDraft: true, prChecks: "pass" });
+      fireEvent.click(screen.getByLabelText("Expand run-kit"));
+      let glyph = screen.getByTestId("tile-pr-glyph");
+      expect(glyph.className).toContain("text-text-secondary");
+      expect(glyph.querySelector('path[d="M18 6V5"]')).not.toBeNull();
+      expect(glyph.querySelector('path[d="M18 11v-1"]')).not.toBeNull();
+      expect(glyph.querySelector('path[d="M13 6h3a2 2 0 0 1 2 2v7"]')).toBeNull();
+      cleanup();
+      renderWithPr({ prNumber: 386, prState: "closed", prIsDraft: true });
+      fireEvent.click(screen.getByLabelText("Expand run-kit"));
+      glyph = screen.getByTestId("tile-pr-glyph");
+      expect(glyph.className).toContain("text-signal-red");
+      expect(glyph.querySelector('path[d="m21 3-6 6"]')).not.toBeNull();
+      expect(glyph.querySelector('path[d="M18 6V5"]')).toBeNull();
     });
   });
 

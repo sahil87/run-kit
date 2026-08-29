@@ -82,16 +82,19 @@ the order is the design:
 
 | Color | Token | Icon | Means |
 |-------|-------|------|-------|
-| gray | `text-text-secondary` | ✕ closed icon | **closed** — a dead PR, muted; sits above fail (stale checks are noise); the ✕ shape separates it from draft |
-| red | `text-signal-red` | normal | checks fail / changes requested — fail stays on top (of open states) |
-| gray | `text-text-secondary` | normal | open **draft** — muted even while its checks run (draft outranks pending) |
+| red | `text-signal-red` | ✕ closed icon | **closed** — GitHub's closed red (matches the register's `PR_STATE_COLORS.closed`); sits above fail (stale checks are noise, and passing checks must not fall through to green); the ✕ shape separates it from a failing PR |
+| purple | `text-signal-purple` | normal | merged |
+| red | `text-signal-red` | normal (or draft) | checks fail / changes requested — fail stays on top of every open state; a failing draft keeps the draft shape |
+| gray | `text-text-secondary` | dotted-rail draft icon | open **draft** — the only gray glyph state; muted even while its checks run (draft outranks pending) |
 | yellow | `text-signal-yellow` | normal | open, **checks running** (`prChecks: pending`) |
 | green | `text-accent-green` | normal | open, checks pass or no decisive signal |
-| purple | `text-signal-purple` | normal | merged |
 
-A closed-unmerged PR earns the **muted ✕ glyph** (its register line is unchanged) — a dead PR is a
-glance-level "this window needs a decision" signal, and shape (not color) separates it from both a
-failing PR (red normal icon) and a draft (gray normal icon). The glyph is
+A closed-unmerged PR earns the **red ✕ glyph** (its register line is unchanged) — a dead PR is a
+glance-level "this window needs a decision" signal. Shape and color divide the work: closed and
+failing share red and are separated by shape (✕ vs arc); draft is the only gray state and also
+carries its own shape (the dotted merge rail, GitHub's draft silhouette), so it never reads as an
+open PR in a dim theme or to a colorblind viewer. The icon is picked once, by `prGlyphIcon`
+(✕ closed first, dotted-rail draft, arc otherwise), at every glyph site. The glyph is
 deliberately **not family-gated**: any pane whose branch has an owned PR shows it — even a plain
 floor pane whose dot stays gray (derivation is universal, Constitution Principle X).
 
@@ -129,7 +132,7 @@ precedence: an **open** PR (most recently updated) wins; else the most recent **
 the most recent **closed** PR. A **merged** PR therefore keeps resolving positive on every pass, so
 the **glyph's purple merged state is durable statelessly** — derived fresh from `gh` each cycle,
 with no in-memory grace clock and nothing for an rk restart to wipe. A **closed-unmerged** PR is
-still derived (it shows in the L3 register) and now feeds the muted ✕ glyph as well. Branch-reuse
+still derived (it shows in the L3 register) and feeds the red ✕ glyph as well. Branch-reuse
 edge: an open PR always outranks an older merged one on the same branch. (Pre-eviction this
 durability fed the dot's purple done-square; the mechanism is unchanged — only its consumer moved
 to the glyph.)
@@ -149,7 +152,7 @@ Where each removed signal survives:
 | stage word (`review`) | the dot's core hue at a glance (blue = pre-PR, green = PR-ready); the exact stage in the hover card and the PANE panel |
 | failed-red stage text | the dot's `failed` shape (dotted ring + red center) |
 | `done`-parking suppression | the dot's green resting ring |
-| PR states (merged / failing / pending / closed) | the right-edge PR glyph (purple / red / yellow / muted ✕) |
+| PR states (merged / failing / pending / draft / closed) | the right-edge PR glyph (purple / red / yellow / gray dotted-rail / red ✕) |
 | idle / elapsed duration | the hover card's `agt` register + the PANE panel register view |
 | `waiting Xm` | the additive halo + the `agt` register on both surfaces |
 
@@ -174,7 +177,7 @@ The register keys are fixed-width 3-char (`out`/`agt`/`fab`/`PR`), matching the 
 `tmx`/`cwd`/`git` vocabulary. Absent layers render as absent (a plain shell pane shows only `out`).
 The L3 PR register shows for **any** pane with a `prNumber` (universal derivation, even a plain
 pane whose dot stays gray). The row's rest-state PR glyph is stricter — it renders only for an
-**owned** PR; a closed PR keeps its register line and shows the muted ✕ row glyph (unknown or
+**owned** PR; a closed PR keeps its register line and shows the red ✕ row glyph (unknown or
 unconfident states still show no glyph). The **session tiles**
 (the `/$server` dashboard) carry the same dot + rest-state glyph pair per window tile.
 
@@ -182,10 +185,11 @@ unconfident states still show no glyph). The **session tiles**
 
 - **On the dot**: only as the small center dot inside a `failed` dotted ring — never as a whole-dot
   color, and never as an attention signal (attention is the yellow halo).
-- **On the glyph**: a failing PR (checks fail / changes requested) — the remote-failure signal.
+- **On the glyph**: a failing PR (checks fail / changes requested) — the remote-failure signal —
+  or a closed PR (the ✕ shape says which).
 
 The two channels never share a fact: dot-red is *your pipeline failed here*, glyph-red is *the PR
-is failing on GitHub*.
+is failing on GitHub or was closed there*.
 
 ## Accessibility
 

@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-29T01:51:15Z"}
+{"args":"Closed PR row glyph renders red (GitHub coloring) and open-draft PRs get a distinct dotted-rail GitPullRequestDraftIcon so closed vs draft is distinguishable at a glance on sidebar window rows and session tiles","cmd":"fab-new","event":"command","ts":"2026-08-29T01:51:15Z"}
+{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-08-29T01:53:48Z"}
+{"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-08-29T01:54:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-29T01:55:53Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-29T02:01:22Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-29T02:06:24Z"}
+{"event":"review","result":"passed","ts":"2026-08-29T02:06:24Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-29T02:08:06Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-08-29T02:09:44Z"}
+{"event":"review","result":"passed","ts":"2026-08-29T02:17:27Z"}

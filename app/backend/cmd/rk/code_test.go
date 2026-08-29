@@ -192,11 +192,11 @@ func resetCodeFlagState(t *testing.T) {
 			})
 			c.SilenceErrors = false
 		}
-		codeExecFolderFlag, codeExecHostFlag = "", ""
+		codeExecFolderFlag, codeExecHostFlag, codeExecTabFlag = "", "", ""
 		codeExecAllFlag, codeExecJSONFlag = false, false
 		codeExecTimeoutFlag = codeDefaultTimeout
 		codeHostsJSONFlag = false
-		codeCmdsFolderFlag, codeCmdsHostFlag = "", ""
+		codeCmdsFolderFlag, codeCmdsHostFlag, codeCmdsTabFlag = "", "", ""
 		if f := rootCmd.PersistentFlags().Lookup("quiet"); f != nil {
 			_ = f.Value.Set("false")
 			f.Changed = false
@@ -665,4 +665,146 @@ func rawArgs(args []json.RawMessage) string {
 		parts[i] = string(a)
 	}
 	return "[" + strings.Join(parts, ", ") + "]"
+}
+
+// --- --tab ---
+
+// withCodeTabSeams pins the --tab arm's tmux reads: the own-tab resolver and
+// the @rk_win_code_root read. windowID is what the address resolves to;
+// codeRoot is the option's value.
+func withCodeTabSeams(t *testing.T, windowID, server, codeRoot string) {
+	t.Helper()
+	origTMUX := ownTabOriginalTMUXFn
+	origRun := ownTabRunOutputFn
+	origGet := codeGetWindowOptionFn
+	ownTabOriginalTMUXFn = func() string { return "/tmp/tmux-1000/dev,123,0" }
+	ownTabRunOutputFn = func(_ context.Context, args []string) ([]byte, error) {
+		joined := strings.Join(args, " ")
+		if strings.Contains(joined, "#{window_id}") {
+			return []byte(windowID + "\n"), nil
+		}
+		return nil, fmt.Errorf("unexpected tmux read: %s", joined)
+	}
+	codeGetWindowOptionFn = func(_ context.Context, _, _, option string) (string, error) {
+		if option != "@rk_win_code_root" {
+			return "", fmt.Errorf("unexpected option read: %s", option)
+		}
+		return codeRoot, nil
+	}
+	t.Cleanup(func() {
+		ownTabOriginalTMUXFn = origTMUX
+		ownTabRunOutputFn = origRun
+		codeGetWindowOptionFn = origGet
+	})
+	_ = server
+}
+
+func TestCodeExecTabCodeRootWinsOverCwd(t *testing.T) {
+	stateHome := installCodeBridgeEnv(t)
+	startFakeCodeHost(t, stateHome, "aa01", "/w/proj", "3.19.0", codeStartedAgo(time.Minute))
+	other := startFakeCodeHost(t, stateHome, "bb02", "/elsewhere", "3.19.0", codeStartedAgo(time.Minute))
+	other.commands = []string{"x.other"}
+	withCodeTargetFolder(t, "/elsewhere")
+	withCodeTabSeams(t, "@9", "dev", "/w/proj")
+	t.Setenv("TMUX_PANE", "%3")
+
+	stdout, _, err := runCodeCmd(t, "exec", "--tab", "@9", "x.y")
+	if err != nil {
+		t.Fatalf("exec --tab: %v", err)
+	}
+	if stdout != "null\n" {
+		t.Errorf("stdout = %q", stdout)
+	}
+	// The /w/proj host answered (its fake recorded the command).
+	if _, ok := other.commandRequest("x.y"); ok {
+		t.Errorf("the cwd host answered; want the @rk_win_code_root host")
+	}
+}
+
+// --tab =session:window rides the same resolver as the rk tab family: the
+// target reaches tmux verbatim as one display-message read (no tabaddr parse).
+func TestCodeExecTabSessionWindowTarget(t *testing.T) {
+	stateHome := installCodeBridgeEnv(t)
+	startFakeCodeHost(t, stateHome, "aa01", "/w/proj", "3.19.0", codeStartedAgo(time.Minute))
+	withCodeTargetFolder(t, "/elsewhere")
+	withCodeTabSeams(t, "@9", "dev", "/w/proj")
+	inner := ownTabRunOutputFn
+	var targets []string
+	ownTabRunOutputFn = func(ctx context.Context, args []string) ([]byte, error) {
+		for i, a := range args {
+			if a == "-pt" && i+1 < len(args) {
+				targets = append(targets, args[i+1])
+			}
+		}
+		return inner(ctx, args)
+	}
+	t.Setenv("TMUX_PANE", "%3")
+
+	stdout, _, err := runCodeCmd(t, "exec", "--tab==boot:0", "x.y")
+	if err != nil {
+		t.Fatalf("exec --tab =boot:0: %v", err)
+	}
+	if stdout != "null\n" {
+		t.Errorf("stdout = %q", stdout)
+	}
+	if len(targets) != 1 || targets[0] != "=boot:0" {
+		t.Errorf("display-message targets = %v, want [=boot:0]", targets)
+	}
+}
+
+func TestCodeExecTabEmptyRootFallsThrough(t *testing.T) {
+	stateHome := installCodeBridgeEnv(t)
+	startFakeCodeHost(t, stateHome, "aa01", "/elsewhere", "3.19.0", codeStartedAgo(time.Minute))
+	withCodeTargetFolder(t, "/elsewhere")
+	withCodeTabSeams(t, "@9", "dev", "")
+	t.Setenv("TMUX_PANE", "%3")
+
+	_, stderr, err := runCodeCmd(t, "exec", "--tab=@9", "x.y")
+	if err != nil {
+		t.Fatalf("exec --tab with an empty root: %v", err)
+	}
+	if !strings.Contains(stderr, "tab @9 has no @rk_win_code_root") {
+		t.Errorf("stderr = %q, want the fall-through note", stderr)
+	}
+}
+
+func TestCodeExecTabHostConflictExitsTwo(t *testing.T) {
+	installCodeBridgeEnv(t)
+	if _, _, err := runCodeCmd(t, "exec", "--tab", "--host", "aa01", "x.y"); err == nil || exitCode(err) != exitUsage {
+		t.Errorf("--tab --host: err = %v (code %d), want exit 2", err, exitCode(err))
+	}
+	if _, _, err := runCodeCmd(t, "exec", "--tab=@9", "--folder", "/x", "x.y"); err == nil || exitCode(err) != exitUsage {
+		t.Errorf("--tab --folder: err = %v (code %d), want exit 2", err, exitCode(err))
+	}
+}
+
+func TestCodeExecTabOutsideTmuxExitsOne(t *testing.T) {
+	stateHome := installCodeBridgeEnv(t)
+	startFakeCodeHost(t, stateHome, "aa01", "/x", "3.19.0", codeStartedAgo(time.Minute))
+	withCodeTargetFolder(t, "/x")
+	withCodeTabSeams(t, "@9", "dev", "/x")
+	t.Setenv("TMUX_PANE", "")
+
+	_, _, err := runCodeCmd(t, "exec", "--tab", "x.y")
+	if err == nil || exitCode(err) != 1 {
+		t.Fatalf("err = %v (code %d), want exit 1", err, exitCode(err))
+	}
+}
+
+func TestCodeCommandsTabArm(t *testing.T) {
+	stateHome := installCodeBridgeEnv(t)
+	h := startFakeCodeHost(t, stateHome, "aa01", "/w/proj", "3.19.0", codeStartedAgo(time.Minute))
+	h.commands = []string{"only.on.proj"}
+	startFakeCodeHost(t, stateHome, "bb02", "/elsewhere", "3.19.0", codeStartedAgo(time.Minute))
+	withCodeTargetFolder(t, "/elsewhere")
+	withCodeTabSeams(t, "@9", "dev", "/w/proj")
+	t.Setenv("TMUX_PANE", "%3")
+
+	stdout, _, err := runCodeCmd(t, "commands", "--tab=@9")
+	if err != nil {
+		t.Fatalf("commands --tab: %v", err)
+	}
+	if stdout != "only.on.proj\n" {
+		t.Errorf("stdout = %q, want the code-root host's commands", stdout)
+	}
 }

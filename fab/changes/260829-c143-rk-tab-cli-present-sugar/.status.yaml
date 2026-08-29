@@ -1,0 +1,57 @@
+id: c143
+name: 260829-c143-rk-tab-cli-present-sugar
+created: 2026-08-29T02:01:35Z
+created_by: Sahil Ahuja
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 22
+    acceptance_count: 33
+    acceptance_completed: 33
+confidence:
+    certain: 9
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.6
+    fuzzy: true
+    dimensions:
+        signal: 76.3
+        reversibility: 86.7
+        competence: 86.7
+        disambiguation: 81.7
+stage_metrics:
+    intake: {started_at: "2026-08-29T02:01:35Z", driver: fab-new, iterations: 1, completed_at: "2026-08-29T02:08:38Z"}
+    apply: {started_at: "2026-08-29T02:08:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-29T02:36:33Z"}
+    review: {started_at: "2026-08-29T02:36:33Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-29T02:43:51Z"}
+    hydrate: {started_at: "2026-08-29T02:43:51Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-29T02:54:17Z"}
+    ship: {started_at: "2026-08-29T02:54:17Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-29T02:56:10Z"}
+    review-pr: {started_at: "2026-08-29T02:56:10Z", driver: git-pr, iterations: 1, completed_at: "2026-08-29T03:08:21Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/763
+change_type_source: explicit
+true_impact:
+    added: 3473
+    deleted: 226
+    net: 3247
+    excluding:
+        added: 2747
+        deleted: 182
+        net: 2565
+    tests:
+        added: 1197
+        deleted: 14
+        net: 1183
+    computed_at: "2026-08-29T02:56:10Z"
+    computed_at_stage: ship
+summary: adds the rk tab CLI family (new/layout/web add|rm|select|ls/code set/show), makes rk present sugar over rk tab web add --show (writes @rk_win_layout, selects the tab), and adds the rk code exec --tab host-resolution arm
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-29T03:08:21Z

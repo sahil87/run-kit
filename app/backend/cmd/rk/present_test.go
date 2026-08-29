@@ -18,12 +18,14 @@ import (
 // observers for the faked tmux/notify interactions. The default fake session
 // is pane %3 on window @7 of server "dev" (socket /tmp/tmux-1000/dev).
 type presentFake struct {
-	displayArgs [][]string
-	webAdds     []presentWebAdd
-	family      tmux.WebTabFamily
-	createdID   []presentCreatedID
-	notified    []string
-	probed      []int
+	displayArgs  [][]string
+	webAdds      []presentWebAdd
+	family       tmux.WebTabFamily
+	createdID    []presentCreatedID
+	layoutWrites []presentLayoutWrite
+	selects      []presentWebSelect
+	notified     []string
+	probed       []int
 }
 
 type presentWebAdd struct {
@@ -37,12 +39,22 @@ type presentCreatedID struct {
 	ops                   []tmux.WindowOptionOp
 }
 
+type presentLayoutWrite struct {
+	windowID, server string
+	ops              []tmux.WindowOptionOp
+}
+
+type presentWebSelect struct {
+	windowID, server string
+	n                int
+}
+
 func installPresentFakes(t *testing.T) *presentFake {
 	t.Helper()
 	f := &presentFake{}
 
-	presentOriginalTMUXFn = func() string { return "/tmp/tmux-1000/dev,123,0" }
-	presentRunOutputFn = func(_ context.Context, args []string) ([]byte, error) {
+	ownTabOriginalTMUXFn = func() string { return "/tmp/tmux-1000/dev,123,0" }
+	ownTabRunOutputFn = func(_ context.Context, args []string) ([]byte, error) {
 		f.displayArgs = append(f.displayArgs, args)
 		joined := strings.Join(args, " ")
 		switch {
@@ -76,6 +88,15 @@ func installPresentFakes(t *testing.T) *presentFake {
 		f.createdID = append(f.createdID, presentCreatedID{session, name, server, ops})
 		return "@42", nil
 	}
+	tabCreateWindowIDFn = presentCreateWindowIDFn
+	tabSetWindowOptionsFn = func(_ context.Context, windowID, server string, ops []tmux.WindowOptionOp) error {
+		f.layoutWrites = append(f.layoutWrites, presentLayoutWrite{windowID, server, ops})
+		return nil
+	}
+	webSelectFn = func(_ context.Context, windowID, server string, n int) error {
+		f.selects = append(f.selects, presentWebSelect{windowID, server, n})
+		return nil
+	}
 	presentProbeFn = func(_ context.Context, port int) error {
 		f.probed = append(f.probed, port)
 		return nil
@@ -86,8 +107,8 @@ func installPresentFakes(t *testing.T) *presentFake {
 	presentNowFn = func() int64 { return 1700000000 }
 
 	t.Cleanup(func() {
-		presentOriginalTMUXFn = func() string { return tmux.OriginalTMUX }
-		presentRunOutputFn = func(ctx context.Context, args []string) ([]byte, error) {
+		ownTabOriginalTMUXFn = func() string { return tmux.OriginalTMUX }
+		ownTabRunOutputFn = func(ctx context.Context, args []string) ([]byte, error) {
 			return tmux.RunOutput(ctx, args, tmux.RunOpts{})
 		}
 		presentWebAddFn = func(ctx context.Context, windowID, server, url, root string) (int, bool, error) {
@@ -98,6 +119,13 @@ func installPresentFakes(t *testing.T) *presentFake {
 		}
 		presentCreateWindowIDFn = func(session, name, cwd, server string, ops []tmux.WindowOptionOp) (string, error) {
 			return tmux.CreateWindowWithOptionsID(session, name, cwd, server, ops)
+		}
+		tabCreateWindowIDFn = presentCreateWindowIDFn
+		tabSetWindowOptionsFn = func(ctx context.Context, windowID, server string, ops []tmux.WindowOptionOp) error {
+			return tmux.SetWindowOptions(ctx, windowID, server, ops)
+		}
+		webSelectFn = func(ctx context.Context, windowID, server string, n int) error {
+			return tmux.WebSelect(ctx, windowID, server, n)
 		}
 		presentProbeFn = func(ctx context.Context, port int) error { return present.ProbePort(ctx, port) }
 		presentNotifyFn = sendNotify
@@ -457,4 +485,95 @@ func TestPresentWindowExplicitNameAndOutsideTmux(t *testing.T) {
 	if _, _, err := runPresentCmd(t, "--window=my mock", ":5173"); err == nil {
 		t.Fatal("--window with a space in the explicit name: err = nil, want ValidateNewName rejection")
 	}
+}
+
+// TestPresentEquivalentToWebAddShow: `rk present <t>` and `rk tab web add
+// <t> --show` leave byte-identical @rk_win_* state on two fresh windows
+// (modulo the window id embedded in /present/ URLs — the windows differ by
+// construction) — the R12 one-code-path contract, asserted on a real test
+// socket.
+func TestPresentEquivalentToWebAddShow(t *testing.T) {
+	env := withTabTestServer(t)
+	port := tabTestListener(t)
+	target := fmt.Sprintf(":%d", port)
+
+	// Present onto the boot window (own tab), then web add --show onto a
+	// second fresh window; both families start empty.
+	idB := strings.TrimSpace(tabTmuxOut(t, env.server, "new-window", "-d", "-t", "=boot:", "-P", "-F", "#{window_id}"))
+
+	presentURL, _, err := runPresentCmd(t, target)
+	if err != nil {
+		t.Fatalf("present: %v", err)
+	}
+	addrOut, _, err := runTabCmd(t, "web", "add", idB, target, "--show")
+	if err != nil {
+		t.Fatalf("web add --show: %v", err)
+	}
+	if addrOut != idB+"/web/1\n" {
+		t.Errorf("web add stdout = %q, want %s/web/1", addrOut, idB)
+	}
+
+	optsA := tmuxShowOptions(t, env.server, env.bootID)
+	optsB := tmuxShowOptions(t, env.server, idB)
+	if len(optsA) == 0 || len(optsB) == 0 {
+		t.Fatalf("options: A=%v B=%v", optsA, optsB)
+	}
+	if len(optsA) != len(optsB) {
+		t.Errorf("option sets differ: A=%v B=%v", optsA, optsB)
+	}
+	for k, va := range optsA {
+		vb, ok := optsB[k]
+		if !ok {
+			t.Errorf("option %s present on the present window, missing on the web-add window (A=%v B=%v)", k, optsA, optsB)
+			continue
+		}
+		// /present/ URLs embed the window id; normalize before comparing.
+		if strings.ReplaceAll(va, env.bootID, "@W") != strings.ReplaceAll(vb, idB, "@W") {
+			t.Errorf("option %s differs: present=%q web-add=%q", k, va, vb)
+		}
+	}
+	// present's stdout stays the URL of the slot it landed in.
+	if want := fmt.Sprintf("/proxy/%d/\n", port); presentURL != want {
+		t.Errorf("present stdout = %q, want %q", presentURL, want)
+	}
+}
+
+// TestPresentShowsWebTile: presenting onto a fresh single:tty window now
+// writes @rk_win_layout (split-h:tty,web) and selects the added slot — the
+// documented behaviour change (R12).
+func TestPresentShowsWebTile(t *testing.T) {
+	env := withTabTestServer(t)
+	port := tabTestListener(t)
+
+	stdout, _, err := runPresentCmd(t, fmt.Sprintf(":%d", port))
+	if err != nil {
+		t.Fatalf("present: %v", err)
+	}
+	if want := fmt.Sprintf("/proxy/%d/\n", port); stdout != want {
+		t.Errorf("stdout = %q, want %q", stdout, want)
+	}
+	id := env.bootID
+	if got := tabWindowOption(t, env.server, id, tmux.LayoutOption); got != "split-h:tty,web" {
+		t.Errorf("@rk_win_layout = %q, want split-h:tty,web", got)
+	}
+	if got := tabWindowOption(t, env.server, id, tmux.WebActiveOption); got != "1" {
+		t.Errorf("@rk_win_web_active = %q, want 1", got)
+	}
+	if got := tabWindowOption(t, env.server, id, tmux.WebTabOption(1)); got != fmt.Sprintf("/proxy/%d/", port) {
+		t.Errorf("@rk_win_web_1 = %q", got)
+	}
+}
+
+// tmuxShowOptions dumps a window's options as a key→value map.
+func tmuxShowOptions(t *testing.T, server, windowID string) map[string]string {
+	t.Helper()
+	raw := tabTmuxOut(t, server, "show-options", "-w", "-t", windowID)
+	opts := map[string]string{}
+	for _, line := range strings.Split(raw, "\n") {
+		k, v, found := strings.Cut(line, " ")
+		if found {
+			opts[k] = v
+		}
+	}
+	return opts
 }

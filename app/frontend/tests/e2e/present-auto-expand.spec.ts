@@ -59,8 +59,9 @@ async function resolveWindow(page: Page, windowName: string): Promise<string> {
   return (await resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION, windowName)).windowId;
 }
 
-/** Write the shared layout — the mechanism an agent uses to grow a tab
- *  (until `rk present --show`, Change 4). */
+/** Write the shared layout — the same write `rk present`'s --show arm makes;
+ *  the `rk present` ≡ `rk tab web add --show` equivalence is pinned on a real
+ *  socket by TestPresentEquivalentToWebAddShow (app/backend/cmd/rk). */
 function setLayoutOption(windowId: string, value: string): void {
   execFileSync("tmux", ["-L", TMUX_SERVER, "set-option", "-w", "-t", windowId, "@rk_win_layout", value], {
     stdio: "ignore",

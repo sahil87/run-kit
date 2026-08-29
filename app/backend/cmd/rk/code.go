@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"rk/internal/codebridge"
+	"rk/internal/tmux"
 
 	"github.com/spf13/cobra"
 )
@@ -51,12 +52,14 @@ const (
 var (
 	codeExecFolderFlag  string
 	codeExecHostFlag    string
+	codeExecTabFlag     string
 	codeExecAllFlag     bool
 	codeExecTimeoutFlag time.Duration
 	codeExecJSONFlag    bool
 	codeHostsJSONFlag   bool
 	codeCmdsFolderFlag  string
 	codeCmdsHostFlag    string
+	codeCmdsTabFlag     string
 )
 
 var codeCmd = &cobra.Command{
@@ -94,9 +97,11 @@ is rewritten to a vscode.Uri by the extension), and anything that is not
 valid JSON is sent as a string, so bare words work. A literal '--' ends flag
 parsing, so negative numbers and dash-prefixed strings pass as args.
 
-Host resolution: --host wins; then --folder (default: the git toplevel of the
-cwd) matched exact, then longest-prefix, against the hosts' folders; then a
-single live host as fallback. --all fans out to every live host.
+Host resolution: --host wins; then --tab (the tab's @rk_win_code_root as the
+folder; an empty root falls through to the cwd default with a note); then
+--folder (default: the git toplevel of the cwd) matched exact, then
+longest-prefix, against the hosts' folders; then a single live host as
+fallback. --all fans out to every live host (ignoring --tab).
 
 Output: the result JSON on stdout ('null' prints null); --json prints the raw
 response envelope (with --all, a JSON array of {hostId, folder, response}).
@@ -127,7 +132,8 @@ var codeCommandsCmd = &cobra.Command{
 	Use:   "commands [--folder <path>]",
 	Short: "List the command ids a code-bridge host can execute",
 	Long: `Resolve a code-bridge host exactly like 'rk code exec' (--host wins, then
---folder or the git toplevel of the cwd, then the single-host fallback), ask
+--tab — the tab's @rk_win_code_root — then --folder or the git toplevel of the
+cwd, then the single-host fallback), ask
 it for the full vscode.commands.getCommands(true) list, and print one command
 id per line, sorted — a grep-able view of what the palette can do.`,
 	Args:         cobra.NoArgs,
@@ -142,6 +148,9 @@ func init() {
 		"Target host by workspace folder (default: git toplevel of the cwd)")
 	codeExecCmd.Flags().StringVar(&codeExecHostFlag, "host", "",
 		"Target host by id (see rk code hosts)")
+	codeExecCmd.Flags().StringVar(&codeExecTabFlag, "tab", "",
+		"Target the host whose folder is the tab's @rk_win_code_root (bare --tab = the caller's own tab; pass @N for another; --all ignores it)")
+	codeExecCmd.Flags().Lookup("tab").NoOptDefVal = presentFlagAuto
 	codeExecCmd.Flags().BoolVar(&codeExecAllFlag, "all", false,
 		"Fan out to every live host")
 	codeExecCmd.Flags().DurationVar(&codeExecTimeoutFlag, "timeout", codeDefaultTimeout,
@@ -149,6 +158,8 @@ func init() {
 	codeExecCmd.Flags().BoolVar(&codeExecJSONFlag, "json", false,
 		"Print the raw response envelope instead of the result")
 	codeExecCmd.MarkFlagsMutuallyExclusive("host", "folder")
+	codeExecCmd.MarkFlagsMutuallyExclusive("tab", "host")
+	codeExecCmd.MarkFlagsMutuallyExclusive("tab", "folder")
 
 	codeHostsCmd.Flags().BoolVar(&codeHostsJSONFlag, "json", false,
 		"Print the host records as a JSON array")
@@ -157,7 +168,12 @@ func init() {
 		"Target host by workspace folder (default: git toplevel of the cwd)")
 	codeCommandsCmd.Flags().StringVar(&codeCmdsHostFlag, "host", "",
 		"Target host by id (see rk code hosts)")
+	codeCommandsCmd.Flags().StringVar(&codeCmdsTabFlag, "tab", "",
+		"Target the host whose folder is the tab's @rk_win_code_root (bare --tab = the caller's own tab; pass @N for another)")
+	codeCommandsCmd.Flags().Lookup("tab").NoOptDefVal = presentFlagAuto
 	codeCommandsCmd.MarkFlagsMutuallyExclusive("host", "folder")
+	codeCommandsCmd.MarkFlagsMutuallyExclusive("tab", "host")
+	codeCommandsCmd.MarkFlagsMutuallyExclusive("tab", "folder")
 
 	codeCmd.AddCommand(codeExecCmd)
 	codeCmd.AddCommand(codeHostsCmd)
@@ -251,12 +267,32 @@ func codeSkewWarn(sink outputSink, host codebridge.HostRecord) {
 	}
 }
 
-// resolveCodeHost maps the --host/--folder flags (and the git-toplevel
+// codeGetWindowOptionFn is the @rk_win_code_root read seam behind the --tab
+// arm (the codeTargetFolderFn pattern) so tests drive the tab resolution
+// without a live server.
+var codeGetWindowOptionFn = func(ctx context.Context, windowID, server, option string) (string, error) {
+	return tmux.GetWindowOption(ctx, windowID, server, option)
+}
+
+// resolveCodeHost maps the --host/--tab/--folder flags (and the git-toplevel
 // default) onto codebridge.Resolve, renders the failure classes, and applies
 // the using-host note (single-host fallback) and the version-skew warning to
-// the chosen host.
-func resolveCodeHost(cmd *cobra.Command, sink outputSink, ctx context.Context, live []codebridge.HostRecord, hostID, folder string) (codebridge.HostRecord, error) {
+// the chosen host. Order: --host wins; --tab resolves the tab's
+// @rk_win_code_root into the folder selector (empty root falls through to the
+// --folder/cwd default with a note); --folder; then the cwd default. tab is
+// "" when the flag is absent, presentFlagAuto for a bare --tab (own tab), or
+// an address.
+func resolveCodeHost(cmd *cobra.Command, sink outputSink, ctx context.Context, live []codebridge.HostRecord, hostID, folder, tab string) (codebridge.HostRecord, error) {
 	sel := codebridge.Selector{HostID: hostID, Folder: folder}
+	if sel.HostID == "" && tab != "" {
+		tabFolder, err := codeTabFolder(ctx, sink, tab)
+		if err != nil {
+			return codebridge.HostRecord{}, err
+		}
+		if tabFolder != "" {
+			sel.Folder = tabFolder
+		}
+	}
 	if sel.HostID == "" && sel.Folder == "" {
 		f, err := codeTargetFolderFn(ctx)
 		if err != nil {
@@ -273,6 +309,28 @@ func resolveCodeHost(cmd *cobra.Command, sink outputSink, ctx context.Context, l
 	}
 	codeSkewWarn(sink, host)
 	return host, nil
+}
+
+// codeTabFolder resolves the --tab address to the tab's @rk_win_code_root
+// ("" = fall through to the cwd default, with a note). The address is @N,
+// =session:window, or the presentFlagAuto sentinel for the caller's own tab.
+func codeTabFolder(ctx context.Context, sink outputSink, tab string) (string, error) {
+	addrArg := tab
+	if tab == presentFlagAuto {
+		addrArg = ""
+	}
+	_, windowID, server, err := resolveTabAddr(ctx, addrArg, "")
+	if err != nil {
+		return "", err
+	}
+	codeRoot, err := codeGetWindowOptionFn(ctx, windowID, server, tmux.CodeRootOption)
+	if err != nil {
+		return "", err
+	}
+	if codeRoot == "" {
+		sink.Notef("tab %s has no @rk_win_code_root — falling back to the cwd\n", windowID)
+	}
+	return codeRoot, nil
 }
 
 // codeResolveError prints the resolution failure — the ambiguous case lists
@@ -400,7 +458,7 @@ func runCodeExec(cmd *cobra.Command, args []string) error {
 		return runCodeExecAll(cmd, sink, ctx, live, args[0], codebridge.ParseArgs(args[1:]))
 	}
 
-	host, err := resolveCodeHost(cmd, sink, ctx, live, codeExecHostFlag, codeExecFolderFlag)
+	host, err := resolveCodeHost(cmd, sink, ctx, live, codeExecHostFlag, codeExecFolderFlag, codeExecTabFlag)
 	if err != nil {
 		return err
 	}
@@ -553,7 +611,7 @@ func runCodeCommands(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	host, err := resolveCodeHost(cmd, sink, ctx, live, codeCmdsHostFlag, codeCmdsFolderFlag)
+	host, err := resolveCodeHost(cmd, sink, ctx, live, codeCmdsHostFlag, codeCmdsFolderFlag, codeCmdsTabFlag)
 	if err != nil {
 		return err
 	}

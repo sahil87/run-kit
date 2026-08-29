@@ -9,6 +9,7 @@ Depth for a specific job lives in topic pages — pull one at use-time:
 - **panes, iframes & visual display** → `rk skill display`
 - **agent-to-agent messaging** (send a message into another agent's pane, wait for its state) → `rk skill mux`
 - **act inside the `code` lens editor** (run VS Code palette commands in the open code-server window from the shell) → `rk skill code`
+- **drive the tab UI** (layouts, web-tab strip, code folder — `rk tab --help`); works with `rk serve` down
 
 ## When to use
 
@@ -33,11 +34,15 @@ One line each, keyed to the subcommand or tmux option that does it:
 
 - `rk notify <message> [--title <t>]` — Web Push a message to every subscribed browser/device. Fail-silent by contract (see Output contracts).
 - `rk url` — print the run-kit **server URL** (config-derived: RK_HOST/RK_PORT, default `http://127.0.0.1:3000`). It is a heuristic, not a liveness probe. Run it at use-time; never hardcode the value.
-- `rk present <path|url>` — attach web content beside your own terminal: a file, a directory, a `:port`, a localhost URL, or an external URL. Prints the resolved URL to stdout. Depth: `rk skill display`.
+- `rk present <path|url>` — attach web content beside your own terminal: a file, a directory, a `:port`, a localhost URL, or an external URL. Prints the resolved URL to stdout. Alias of `rk tab web add <target> --show` — it also opens the web tile. Depth: `rk skill display`.
+- `rk tab new [--layout L] [--name N]` — create a window (born with a layout when given); prints `@N`.
+- `rk tab layout [@N] [L|--add S|--rm S|--promote S|--cycle]` — read or mutate the tab's surface layout (`split-h:tty,web`, …); unset reads as `single:tty`.
+- `rk tab web add|rm|select|ls` — manage the tab's web-tab strip (add takes a `present` target; rm/select address `@N/web/<n>` or bare `<n>`; `ls [--json]` lists).
+- `rk tab code set [@N] <folder>` — point the tab's code surface at a folder; `rk tab show [@N] [--json]` dumps every `@rk_win_*` option.
 - `rk mux send <target> [<msg>|-]` — deliver a message into another agent's pane, gated on its `@rk_pane_agent_state`, with probe-verified delivery. Depth: `rk skill mux`.
 - `rk mux await <target>` — block until a pane's agent state (or a `--file` signal) fires; prints a one-word report. Depth: `rk skill mux`.
 - `rk mux new <name> [--ephemeral]` — create a detached tmux server on socket `<name>`; scratch servers are created with `--ephemeral` and bulk-cleaned with `rk mux reap --ephemeral` (never bare `tmux kill-server`). Depth: `rk skill mux`.
-- `rk code exec <command> [json-arg…]` — act inside the `code` lens editor: run a VS Code palette command in an open code-server window, resolving its host via `--host`/`--folder`/the cwd's git toplevel. `rk code hosts` lists live hosts; `rk code commands` grep-lists command ids. Depth: `rk skill code`.
+- `rk code exec <command> [json-arg…]` — act inside the `code` lens editor: run a VS Code palette command in an open code-server window, resolving its host via `--host`/`--tab` (the tab's `@rk_win_code_root`)/`--folder`/the cwd's git toplevel. `rk code hosts` lists live hosts; `rk code commands` grep-lists command ids. Depth: `rk skill code`.
 - `rk skill display` — the visual-display topic page: target forms, attach vs. standalone windows, the proxy, and the canonical Visual Display Recipe, in depth.
 - **Proxy** — reach a local service through the run-kit server:
 
@@ -78,6 +83,7 @@ rk url                                           # server URL (config-derived)
 
 - **`rk notify` is fail-silent by contract.** Any error — server unreachable, no subscriptions, non-2xx — exits **0** and prints nothing, so it never stalls a calling loop. Do not branch on its output.
 - **`rk present` prints only the resolved URL to stdout** (data — printed even under `--quiet`); diagnostics go to stderr. Its exit codes follow the convention below; its `--notify` send stays fail-silent like `rk notify`.
+- **`rk tab` verbs print one datum to stdout** — `tab new` prints `@N`, `tab web add` prints `@N/web/<n>` (the URL echoes to stderr), `tab layout` prints the resulting layout value, `tab web ls`/`tab show` print rows (`--json` objects). rm/select print nothing on success.
 - **`rk mux send`/`rk mux await` print exactly one report line to stdout** — `delivered|staged|sent <pane>` for send (the await report word under `--await`), and the reached state / `file` / `running` / `gone` for await. Diagnostics go to stderr; `gone` and gate refusals exit 1.
 - **`rk skill`, `rk url`, and `rk help-dump` print data to stdout** (stdout is data; stderr is diagnostics). `rk skill` emits this bundle byte-identical with empty stderr and exit 0; `rk skill <topic>` (e.g. `display`) prints one topic page under the same contract, and an unknown topic exits non-zero with the valid topics on stderr; `rk url` prints the server URL newline-terminated; `rk help-dump` emits the machine-readable command tree.
 - **Exit codes follow the toolkit convention: `0` success, `1` operational failure, `2` usage error** — usage/flag/arg-count/unknown-command errors exit `2`; operational failures (dead server, failed check) exit `1`; `rk riff` subprocess failures exit `3`. The diagnostic is on stderr. (`rk notify` is the exception above — runtime failures exit `0`.)

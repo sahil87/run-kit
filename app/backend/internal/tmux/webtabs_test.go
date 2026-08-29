@@ -296,6 +296,10 @@ func TestShiftWebTabs(t *testing.T) {
 			wantTabs: []string{"a", "c"}, wantRts: []string{"r1", "r3"},
 		},
 		{
+			name: "middle slot carries the root", tabs: []string{"a", "b", "c"}, roots: []string{"", "r2", ""}, n: 1,
+			wantTabs: []string{"b", "c"}, wantRts: []string{"r2", ""},
+		},
+		{
 			name: "first", tabs: []string{"a", "b"}, roots: nil, n: 1,
 			wantTabs: []string{"b"}, wantRts: []string{""},
 		},
@@ -476,4 +480,33 @@ func TestWebAddPresentEmptyStoredRootAdopts(t *testing.T) {
 	}
 	webMustHeld(t, server, id, WebTabOption(1), "/present/@5/1/a.html?server=s&v=200")
 	webMustHeld(t, server, id, WebTabRootOption(1), "/tmp/root")
+}
+
+func TestShowWindowOptions(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	id := windowID(t, server, "boot:0")
+
+	// Nothing set: an empty (non-nil) map, not an error.
+	opts, err := ShowWindowOptions(context.Background(), id, server)
+	if err != nil {
+		t.Fatalf("ShowWindowOptions on an unset window: %v", err)
+	}
+	if opts == nil || len(opts) != 0 {
+		t.Errorf("ShowWindowOptions = %v, want empty", opts)
+	}
+
+	legacyTmuxDo(t, server, "set-option", "-w", "-t", id, LayoutOption, "split-h:tty,web")
+	legacyTmuxDo(t, server, "set-option", "-w", "-t", id, WebTabOption(1), "/proxy/8080/")
+	legacyTmuxDo(t, server, "set-option", "-w", "-t", id, "@rk_ses_foreign", "x") // wrong scope token on a window option
+
+	opts, err = ShowWindowOptions(context.Background(), id, server)
+	if err != nil {
+		t.Fatalf("ShowWindowOptions: %v", err)
+	}
+	if len(opts) != 2 {
+		t.Fatalf("ShowWindowOptions = %v, want exactly the two @rk_win_ options", opts)
+	}
+	if opts[LayoutOption] != "split-h:tty,web" || opts[WebTabOption(1)] != "/proxy/8080/" {
+		t.Errorf("ShowWindowOptions = %v", opts)
+	}
 }

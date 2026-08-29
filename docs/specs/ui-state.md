@@ -1,8 +1,8 @@
 # UI State — Every Addressable Thing Is a tmux Option
 
-> **Status**: § Layout in tmux, § Code Surface + Code Bridge, and § Web
-> Tabs are **[current]**; the § Web Tabs `rk present` paragraph and §
-> `rk tab` remain **[planned]**. Decided 2026-08-28: zoom is per-viewer (not tmux);
+> **Status**: § Layout in tmux, § Code Surface + Code Bridge, § Web
+> Tabs (incl. the `rk present` paragraph), and § `rk tab` are **[current]**.
+> Decided 2026-08-28: zoom is per-viewer (not tmux);
 > navigation is not tmux state in v1; `?layout=` dies after one release of
 > link translation. Assumes
 > `fab/plans/sahil/26-08-28-tmux-option-scope-naming.md` has shipped: every
@@ -274,7 +274,7 @@ detected port as a one-click **"+ add as web tab"** affordance (deferred —
 needs per-window port attribution; tracked in `fab/backlog.md`), which is an
 ordinary declared write.
 
-**`rk present` is absorbed [planned].** Its five target kinds and the `ProbePort`
+**`rk present` is absorbed [current].** Its five target kinds and the `ProbePort`
 step live on unchanged in `internal/present`; the verb becomes sugar:
 
 ```
@@ -338,7 +338,7 @@ reads a tmux fact that already exists.
 
 ---
 
-## `rk tab` — The CLI Surface **[planned]**
+## `rk tab` — The CLI Surface **[current]**
 
 All verbs are thin: resolve address → one or two `set-option` (or
 `new-window`) calls → print the resulting address on stdout (data), diagnostics

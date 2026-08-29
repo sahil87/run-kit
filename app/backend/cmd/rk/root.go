@@ -76,6 +76,7 @@ func init() {
 	rootCmd.AddCommand(codeServerCmd)
 	rootCmd.AddCommand(codeCmd)
 	rootCmd.AddCommand(presentCmd)
+	rootCmd.AddCommand(tabCmd)
 	rootCmd.AddCommand(muxCmd)
 	// Hidden root aliases for the mux family (see mux.go): these three are
 	// deprecation-grade — they warn on stderr and still run, pointing at the

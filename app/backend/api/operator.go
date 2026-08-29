@@ -594,7 +594,7 @@ func findOperatorWindow(sess []sessions.ProjectSession) *tmux.WindowInfo {
 // active/waiting ⇒ a 409-class operatorReject; idle or unknown proceeds, with
 // the novelty echo probe as the final fail-closed guard), chat-pane resolution
 // over the OPERATOR window's panes (injection targets the pane, never the
-// window), and in-process delivery through injectChatMessage under ONE shared
+// window), and in-process delivery through injectIntoPane under ONE shared
 // chatSendTotalBudget deadline. Rejections surface as operatorReject; probe
 // and injection failures are returned RAW for the callers' errors.As mappings.
 func (s *Server) deliverOperatorPrompt(ctx context.Context, server string, operator *tmux.WindowInfo, prompt string) error {
@@ -616,7 +616,7 @@ func (s *Server) deliverOperatorPrompt(ctx context.Context, server string, opera
 	ctx, cancel := context.WithTimeout(ctx, chatSendTotalBudget)
 	defer cancel()
 
-	return s.injectChatMessage(ctx, server, operatorPaneID, prompt, true)
+	return s.injectIntoPane(ctx, server, operatorPaneID, prompt, true)
 }
 
 // buildServerOperatorFacts pre-derives the server-scoped fact tables from the

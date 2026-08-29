@@ -388,13 +388,20 @@ text; the pane is re-resolved server-side per request) and the same
 `writeError`/status-mapping vocabulary. Everything lives in `api/chat.go`
 (handler + probe/lock orchestration) over new pane-targeted `internal/tmux`
 primitives; the read endpoints, stream, and schema are untouched. The
-`injectChatMessage` engine seam has a second in-process consumer: the
+`injectIntoPane` engine seam (`api/chat.go` — the daemon's ONE adapter over
+`chatSendEngine` + `chatSendTmux`) has three in-process consumers. The
 operator-request handler (`api/operator.go`) delivers its rendered template
 prompt through the SAME engine (`submit:true`) into the OPERATOR window's
 resolved pane — same per-(server,paneID) lock, shared deadline, sanitize, and
 novelty probe — after its own single-`FetchSessions` resolution and busy gate
 ([operator-actuation](/run-kit/operator-actuation.md); that endpoint's busy
-policy is REJECT, unlike this path's Allow + probe below). (260822-fih1)
+policy is REJECT, unlike this path's Allow + probe below) (260822-fih1). The
+compose strip's `POST /api/windows/{windowId}/paste` (`api/paste.go`) pastes a
+multi-line draft into the window's **active** pane — no chat session required,
+active-pane (not chat-pane) resolution, otherwise the identical
+sanitize → paste → probe → gated-Enter contract and 409 mapping
+([api-and-sockets](/run-kit/api-and-sockets.md);
+[ui/compose-and-bottom-bar](/run-kit/ui/compose-and-bottom-bar.md)) (260829-iyix).
 
 **Two frontend consumers, one unchanged per-window contract.** The chat lens's
 own send form (§ Send-form input box) is the single-window one. The second is the

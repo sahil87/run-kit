@@ -1,0 +1,56 @@
+id: iyix
+name: 260829-iyix-compose-multiline-bracketed-paste
+created: 2026-08-29T10:58:18Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 20
+    acceptance_completed: 20
+confidence:
+    certain: 7
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.9
+    fuzzy: true
+    dimensions:
+        signal: 75.0
+        reversibility: 86.5
+        competence: 88.0
+        disambiguation: 82.5
+stage_metrics:
+    intake: {started_at: "2026-08-29T10:58:18Z", driver: fab-new, iterations: 1, completed_at: "2026-08-29T11:00:10Z"}
+    apply: {started_at: "2026-08-29T11:28:08Z", driver: fab-ff, iterations: 2, completed_at: "2026-08-29T11:29:40Z"}
+    review: {started_at: "2026-08-29T11:29:40Z", driver: fab-ff, iterations: 2, completed_at: "2026-08-29T11:38:37Z"}
+    hydrate: {started_at: "2026-08-29T11:38:37Z", driver: fab-ff, iterations: 1, completed_at: "2026-08-29T11:40:57Z"}
+    ship: {started_at: "2026-08-29T11:40:57Z", driver: fab-ff, iterations: 1, completed_at: "2026-08-29T11:49:34Z"}
+    review-pr: {started_at: "2026-08-29T11:49:34Z", driver: git-pr, iterations: 1, completed_at: "2026-08-29T11:55:35Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/765
+true_impact:
+    added: 1038
+    deleted: 39
+    net: 999
+    excluding:
+        added: 613
+        deleted: 31
+        net: 582
+    tests:
+        added: 278
+        deleted: 1
+        net: 277
+    computed_at: "2026-08-29T11:49:34Z"
+    computed_at_stage: ship
+summary: Compose strip multi-line submit/insert-line ride POST /api/windows/{id}/paste (tmux bracketed paste via the shared inject engine, active-pane target) instead of raw relay bytes — fixes newline collapse in Claude Code panes
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-29T11:55:35Z

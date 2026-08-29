@@ -236,7 +236,7 @@ func (s *Server) handleChatSend(w http.ResponseWriter, r *http.Request) {
 	// Provider-agnostic tmux injection behind a small function seam so Change 5's
 	// protocol-based codex send can later branch on provider without reshaping
 	// this handler. v1 makes NO provider branch.
-	if err := s.injectChatMessage(ctx, server, paneID, body.Text, submit); err != nil {
+	if err := s.injectIntoPane(ctx, server, paneID, body.Text, submit); err != nil {
 		var probeErr inject.ProbeFailure
 		if errors.As(err, &probeErr) {
 			// Probe failed — no Enter was sent; the pasted text is left visible in
@@ -252,8 +252,9 @@ func (s *Server) handleChatSend(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// injectChatMessage is the handler's thin adapter onto the shared injection
-// engine (internal/inject) — the engine runs baseline capture → set-buffer →
+// injectIntoPane is the daemon's ONE adapter onto the shared injection
+// engine (internal/inject), serving /chat/send, /paste, and the operator
+// request path — the engine runs baseline capture → set-buffer →
 // paste-buffer (-d -p, bracketed) → NOVELTY echo probe → send-keys Enter (only
 // on probe success AND submit), serialized per (server, paneID) with the
 // set→paste critical section additionally serialized across panes. See
@@ -261,6 +262,6 @@ func (s *Server) handleChatSend(w http.ResponseWriter, r *http.Request) {
 //
 // A tmux failure is returned verbatim (→ 500); a probe failure is returned as
 // inject.ProbeFailure (→ 409, Enter withheld).
-func (s *Server) injectChatMessage(ctx context.Context, server, paneID, text string, submit bool) error {
+func (s *Server) injectIntoPane(ctx context.Context, server, paneID, text string, submit bool) error {
 	return chatSendEngine.Send(ctx, chatSendTmux{s.tmux}, server, paneID, text, submit)
 }

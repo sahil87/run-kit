@@ -1,0 +1,14 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-29T10:58:18Z"}
+{"args":"Compose strip: route multi-line submits through bracketed paste (tmux paste-buffer -p via internal/inject) instead of raw WS bytes — fixes newline collapse in Claude Code panes","cmd":"fab-new","event":"command","ts":"2026-08-29T10:58:18Z"}
+{"delta":"+4.9","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-08-29T11:00:00Z"}
+{"cmd":"fab-ff","event":"command","ts":"2026-08-29T11:00:00Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"apply","ts":"2026-08-29T11:00:10Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"review","ts":"2026-08-29T11:10:47Z"}
+{"event":"review","result":"failed","ts":"2026-08-29T11:28:08Z"}
+{"action":"re-entry","driver":"fab-ff","event":"stage-transition","stage":"apply","ts":"2026-08-29T11:28:08Z"}
+{"action":"re-entry","driver":"fab-ff","event":"stage-transition","stage":"review","ts":"2026-08-29T11:29:40Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"hydrate","ts":"2026-08-29T11:38:37Z"}
+{"event":"review","result":"passed","ts":"2026-08-29T11:38:37Z"}
+{"action":"enter","driver":"fab-ff","event":"stage-transition","stage":"ship","ts":"2026-08-29T11:40:57Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-08-29T11:49:34Z"}
+{"event":"review","result":"passed","ts":"2026-08-29T11:55:35Z"}

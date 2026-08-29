@@ -15,6 +15,7 @@ import {
   killWindow,
   renameWindow,
   sendChatMessage,
+  pasteToWindow,
   fetchWindowHistory,
   getDirectories,
   uploadFile,
@@ -340,6 +341,50 @@ describe("API client", () => {
     await expect(sendChatMessage("runkit", "@0", "hi")).rejects.toThrow(
       probeError,
     );
+  });
+
+  it("pasteToWindow POSTs /api/windows/:windowId/paste with {text} and server query", async () => {
+    let capturedUrl = "";
+    let capturedMethod = "";
+    let capturedBody: { text?: string; submit?: boolean } = {};
+    mswServer.use(
+      http.post("/api/windows/:windowId/paste", async ({ request }) => {
+        capturedUrl = request.url;
+        capturedMethod = request.method;
+        capturedBody = (await request.json()) as { text?: string; submit?: boolean };
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const result = await pasteToWindow("runkit", "@0", "one\ntwo");
+    expect(result.ok).toBe(true);
+    expect(capturedMethod).toBe("POST");
+    expect(capturedUrl).toMatch(/\/api\/windows\/%400\/paste\?server=runkit$/);
+    expect(capturedBody.text).toBe("one\ntwo");
+    // Default submit ⇒ no `submit` key — same additive shape as chat send.
+    expect("submit" in capturedBody).toBe(false);
+  });
+
+  it("pasteToWindow serializes submit:false into the body (paste without Enter)", async () => {
+    let capturedBody: { text?: string; submit?: boolean } = {};
+    mswServer.use(
+      http.post("/api/windows/:windowId/paste", async ({ request }) => {
+        capturedBody = (await request.json()) as { text?: string; submit?: boolean };
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const result = await pasteToWindow("runkit", "@0", "one\ntwo", false);
+    expect(result.ok).toBe(true);
+    expect(capturedBody).toEqual({ text: "one\ntwo", submit: false });
+  });
+
+  it("pasteToWindow throws the server's structured error on a non-ok response (409 probe failure)", async () => {
+    const probeError = "agent input not ready — message pasted but not echoed; Enter withheld.";
+    mswServer.use(
+      http.post("/api/windows/:windowId/paste", () =>
+        HttpResponse.json({ error: probeError }, { status: 409 }),
+      ),
+    );
+    await expect(pasteToWindow("runkit", "@0", "a\nb")).rejects.toThrow(probeError);
   });
 
   it("getDirectories sends GET /api/directories?prefix=...", async () => {

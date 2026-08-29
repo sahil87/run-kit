@@ -12,10 +12,12 @@ import { useWindowStore, entryKey } from "@/store/window-store";
 import type { UploadedFile } from "@/hooks/use-file-upload";
 import { stubMatchMedia } from "@/test-utils/match-media";
 import {
+  getComposeDraft,
   getComposeSentHistory,
   hydrateComposeDrafts,
   hydrateComposeSentHistory,
   pushComposeSentHistory,
+  setComposeAttachments,
 } from "@/lib/compose-draft-store";
 import {
   consumeComposeStripFocusOnOpen,
@@ -35,6 +37,19 @@ vi.mock("@/hooks/use-file-upload", async (orig) => {
   return {
     ...actual,
     useFileUpload: () => ({ uploadFiles: uploadFilesMock, uploading: uploadState.uploading }),
+  };
+});
+
+// Mock the paste route so multi-line sends never hit the network. Tests set
+// the resolution per case (resolved ⇒ delivered, rejected ⇒ draft kept).
+const pasteToWindowMock = vi.fn<
+  (server: string, windowId: string, text: string, submit?: boolean) => Promise<{ ok: boolean }>
+>();
+vi.mock("@/api/client", async (orig) => {
+  const actual = await orig<typeof import("@/api/client")>();
+  return {
+    ...actual,
+    pasteToWindow: (...args: Parameters<typeof actual.pasteToWindow>) => pasteToWindowMock(...args),
   };
 });
 
@@ -2113,5 +2128,136 @@ describe("ComposeStrip", () => {
     });
     expect(screen.queryByRole("toolbar")).not.toBeInTheDocument();
     expect(input()).toBeInTheDocument();
+  });
+});
+
+// Multi-line delivery: submit and insert-line on a draft with a LITERAL
+// newline ride POST /paste (tmux bracketed paste); single-line text and the
+// Alt+Enter raw insert stay on the relay websocket byte-for-byte.
+describe("ComposeStrip multi-line paste route", () => {
+  beforeEach(() => {
+    useWindowStore.setState({ entries: new Map(), ghosts: [] });
+    // Same store hygiene as the main describe: drafts and sent history are
+    // module stores persisted to localStorage, so wipe + re-hydrate.
+    localStorage.clear();
+    hydrateComposeDrafts();
+    hydrateComposeSentHistory();
+    stubPointer(false);
+    pasteToWindowMock.mockReset();
+    pasteToWindowMock.mockResolvedValue({ ok: true });
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  function mountFocused() {
+    const ws = makeWs();
+    render(<Harness focus={{ wsRef: ws.ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />);
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    return ws;
+  }
+
+  it("multi-line + Ctrl/Cmd+Enter → pasteToWindow(submit) — nothing on the websocket; delivered clears and records history", async () => {
+    const ws = mountFocused();
+    act(() => fireEvent.change(input(), { target: { value: "one\ntwo" } }));
+    await act(async () => {
+      fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true });
+    });
+    expect(pasteToWindowMock).toHaveBeenCalledTimes(1);
+    expect(pasteToWindowMock).toHaveBeenCalledWith("srv", "@1", "one\ntwo", true);
+    expect(ws.sent).toEqual([]);
+    expect(input().value).toBe("");
+    expect(getComposeSentHistory(entryKey("srv", "@1"))).toEqual(["one\ntwo"]);
+  });
+
+  it("multi-line + plain Enter (insert-line) → pasteToWindow without submit", async () => {
+    const ws = mountFocused();
+    act(() => fireEvent.change(input(), { target: { value: "one\ntwo" } }));
+    await act(async () => {
+      fireEvent.keyDown(input(), { key: "Enter" });
+    });
+    expect(pasteToWindowMock).toHaveBeenCalledWith("srv", "@1", "one\ntwo", false);
+    expect(ws.sent).toEqual([]);
+    expect(input().value).toBe("");
+  });
+
+  it("multi-line + Alt+Enter (raw insert) stays byte-exact on the websocket", () => {
+    const ws = mountFocused();
+    act(() => fireEvent.change(input(), { target: { value: "one\ntwo" } }));
+    act(() => fireEvent.keyDown(input(), { key: "Enter", altKey: true }));
+    expect(pasteToWindowMock).not.toHaveBeenCalled();
+    expect(ws.sent).toEqual(["one\ntwo"]);
+  });
+
+  it("single-line + Ctrl+Enter stays on the websocket (regression pin)", () => {
+    const ws = mountFocused();
+    act(() => fireEvent.change(input(), { target: { value: "one" } }));
+    act(() => fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true }));
+    expect(pasteToWindowMock).not.toHaveBeenCalled();
+    expect(ws.sent).toEqual(["one\r"]);
+  });
+
+  it("a rejected paste keeps the draft and records nothing", async () => {
+    pasteToWindowMock.mockRejectedValue(new Error("agent input not ready"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const ws = mountFocused();
+    act(() => fireEvent.change(input(), { target: { value: "one\ntwo" } }));
+    await act(async () => {
+      fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true });
+    });
+    expect(pasteToWindowMock).toHaveBeenCalledTimes(1);
+    expect(ws.sent).toEqual([]);
+    expect(input().value).toBe("one\ntwo");
+    expect(getComposeSentHistory(entryKey("srv", "@1"))).toEqual([]);
+    warn.mockRestore();
+  });
+
+  it("a newline-only draft is EMPTY: Ctrl+Enter sends the bare \\r on the websocket, never the paste route", () => {
+    const ws = mountFocused();
+    act(() => fireEvent.change(input(), { target: { value: "\n" } }));
+    act(() => fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true }));
+    expect(pasteToWindowMock).not.toHaveBeenCalled();
+    expect(ws.sent).toEqual(["\r"]);
+    expect(input().value).toBe("");
+  });
+
+  it("text typed while the paste is in flight survives the delivered clear; the sent text is still recorded", async () => {
+    let resolvePaste: (v: { ok: boolean }) => void = () => undefined;
+    pasteToWindowMock.mockImplementation(
+      () => new Promise<{ ok: boolean }>((res) => { resolvePaste = res; }),
+    );
+    mountFocused();
+    act(() => fireEvent.change(input(), { target: { value: "one\ntwo" } }));
+    act(() => fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true }));
+    expect(pasteToWindowMock).toHaveBeenCalledWith("srv", "@1", "one\ntwo", true);
+    // The user keeps typing before the POST resolves.
+    act(() => fireEvent.change(input(), { target: { value: "one\ntwo\nthree" } }));
+    await act(async () => {
+      resolvePaste({ ok: true });
+    });
+    expect(input().value).toBe("one\ntwo\nthree");
+    expect(getComposeSentHistory(entryKey("srv", "@1"))).toEqual(["one\ntwo"]);
+  });
+
+  it("an attachment added while the paste is in flight survives the delivered clear", async () => {
+    let resolvePaste: (v: { ok: boolean }) => void = () => undefined;
+    pasteToWindowMock.mockImplementation(
+      () => new Promise<{ ok: boolean }>((res) => { resolvePaste = res; }),
+    );
+    mountFocused();
+    act(() => fireEvent.change(input(), { target: { value: "one\ntwo" } }));
+    act(() => fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true }));
+    expect(pasteToWindowMock).toHaveBeenCalledTimes(1);
+    // Same text, but a new attachment lands before the POST resolves.
+    const late = { path: "/tmp/late.png", file: new File(["x"], "late.png") };
+    act(() => setComposeAttachments(entryKey("srv", "@1"), [late]));
+    await act(async () => {
+      resolvePaste({ ok: true });
+    });
+    expect(input().value).toBe("one\ntwo");
+    expect(getComposeDraft(entryKey("srv", "@1")).attachments).toEqual([late]);
+    expect(getComposeSentHistory(entryKey("srv", "@1"))).toEqual(["one\ntwo"]);
   });
 });

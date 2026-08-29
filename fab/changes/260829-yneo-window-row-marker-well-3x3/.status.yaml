@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 24
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-29T18:21:20Z", driver: fab-fff, iterations: 10, completed_at: "2026-08-29T18:28:41Z"}
     review: {started_at: "2026-08-29T18:28:41Z", driver: fab-fff, iterations: 10, completed_at: "2026-08-29T18:43:54Z"}
     hydrate: {started_at: "2026-08-29T18:43:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-29T19:02:38Z"}
-    ship: {started_at: "2026-08-29T19:02:38Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-29T19:02:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-29T19:05:42Z"}
+    review-pr: {started_at: "2026-08-29T19:05:42Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/767
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 4527
+    deleted: 1823
+    net: 2704
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 2153
+        deleted: 1725
+        net: 428
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-08-29T19:02:38Z"
-    computed_at_stage: hydrate
+        added: 365
+        deleted: 607
+        net: -242
+    computed_at: "2026-08-29T19:05:42Z"
+    computed_at_stage: ship
 summary: hydrated marker mode-stage storage, normalization, marker well and pad interactions, rail-only coarse behavior, palette actions, and snapshot/API contracts
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-29T19:02:38Z
+last_updated: 2026-08-29T19:05:42Z

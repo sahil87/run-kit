@@ -4,10 +4,8 @@ import { Tip, TipGroup } from "@/components/tip";
 import { FlairOverlay } from "@/components/flair-overlay";
 import {
   PICKER_COLOR_VALUES,
-  MARKER_STATES,
   FLAIR_STATES,
   UNCOLORED_SELECTED_KEY,
-  markerStripeStyle,
   computeRowTints,
   computeRowBorders,
   colorValueToHex,
@@ -32,25 +30,15 @@ type SwatchPopoverProps = {
    *  vocabularies. `null` clears the color. */
   onSelect: (color: string | null) => void;
   /** Dismissal model: selection NEVER dismisses — the picker stays open so
-   *  color + marker + flair combos can be previewed live against the row. It
+   *  color + flair combos can be previewed live against the row. It
    *  closes only via the explicit ✕ cell, a click outside, or Escape; callers
-   *  must NOT close in their onSelect/onSelectMarker/onSelectFlair
-   *  handlers. */
+   *  must NOT close in their onSelect/onSelectFlair handlers. */
   onClose: () => void;
   /** The row's real name for the composite preview (a window/session name);
    *  callers without a row get a neutral sample name. */
   rowName?: string;
-  /** When `onSelectMarker` is supplied, the popover renders the banded Label
-   *  picker: a `[ marker ]` band between the color and flair bands — a single
-   *  static row of the 8 marker states (its − clear cell lives in the band header). The
-   *  cells are mini row previews of the currently selected color (tint base +
-   *  guarded stripe + the hatch hazard texture). Selection calls
-   *  `onSelectMarker` DIRECTLY — any state is one click, `""` clears (via the
-   *  header − clear cell). When ABSENT, no marker band renders. */
-  selectedMarker?: string;
-  onSelectMarker?: (marker: string) => void;
   /** When `onSelectFlair` is supplied, a `[ flair ]` band renders below the
-   *  marker band — a 2-row column-flow strip of the 14 named FLAIR_STATES
+   *  color band — a 2-row column-flow strip of the 14 named FLAIR_STATES
    *  (rain/scan leading), each cell carrying its always-on rk-flair-* overlay.
    *  Selection calls `onSelectFlair` DIRECTLY — `""` clears (via the header
    *  − clear cell). Offered at all three flair-capable call sites: window
@@ -147,8 +135,6 @@ export function SwatchPopover({
   onSelect,
   onClose,
   rowName,
-  selectedMarker,
-  onSelectMarker,
   selectedFlair,
   onSelectFlair,
 }: SwatchPopoverProps) {
@@ -159,7 +145,6 @@ export function SwatchPopover({
     [theme.palette, theme.category],
   );
 
-  const showMarkers = !!onSelectMarker;
   const showFlair = !!onSelectFlair;
 
   // Normalize the selection to its canonical display value so a legacy-stored
@@ -174,15 +159,13 @@ export function SwatchPopover({
   // the popover stays open on pick, and the preview must not lag the click.
   // `undefined` = no override; color's `null` = cleared (gray sentinel).
   const [previewOverride, setPreviewOverride] = useState<string | null | undefined>(undefined);
-  const [markerOverride, setMarkerOverride] = useState<string | undefined>(undefined);
   const [flairOverride, setFlairOverride] = useState<string | undefined>(undefined);
   const previewValue = previewOverride === undefined ? selectedValue : previewOverride ?? undefined;
-  const previewMarker = markerOverride ?? selectedMarker ?? "";
   const previewFlair = flairOverride ?? selectedFlair ?? "";
   const previewTint =
     (previewValue != null ? rowTints.get(previewValue) : undefined) ??
     rowTints.get(UNCOLORED_SELECTED_KEY);
-  const previewStripeColor =
+  const previewFlairColor =
     (previewValue != null ? rowBorders.get(previewValue) : undefined) ??
     rowBorders.get(UNCOLORED_SELECTED_KEY) ??
     theme.palette.foreground;
@@ -197,7 +180,6 @@ export function SwatchPopover({
     [onSelect],
   );
 
-  const currentMarker = selectedMarker ?? "";
   const currentFlair = selectedFlair ?? "";
 
   // Panel-level clear-all: the header row names the WHOLE label, so its −
@@ -206,30 +188,23 @@ export function SwatchPopover({
   // overrides make the preview + caption drop to unset immediately.
   const clearAll = useCallback(() => {
     emit(null);
-    if (onSelectMarker) {
-      setMarkerOverride("");
-      onSelectMarker("");
-    }
     if (onSelectFlair) {
       setFlairOverride("");
       onSelectFlair("");
     }
-  }, [emit, onSelectMarker, onSelectFlair]);
+  }, [emit, onSelectFlair]);
 
   // Ring rule at the panel scope: unset iff EVERY offered axis is unset —
   // props-computed like the band headers' isUnset, so after a clear-all the
   // caller echo rings the panel − and every offered band − together.
-  const allUnset =
-    selectedValue == null &&
-    (!showMarkers || currentMarker === "") &&
-    (!showFlair || currentFlair === "");
+  const allUnset = selectedValue == null && (!showFlair || currentFlair === "");
 
   /** The logical row stack the keyboard walks: [− ✕] · [color −] · color shade
-   *  rows (light, normal, dark) · ([marker −] · marker row) · ([flair −] ·
-   *  flair rows). Each entry is a row of cell ids; vertical moves preserve the
-   *  column as a GOAL COLUMN (carried raw through the single-cell header rows,
-   *  clamped to the target row's extent only for display/activation);
-   *  horizontal moves operate on the clamped column. */
+   *  rows (light, normal, dark) · ([flair −] · flair rows). Each entry is a
+   *  row of cell ids; vertical moves preserve the column as a GOAL COLUMN
+   *  (carried raw through the single-cell header rows, clamped to the target
+   *  row's extent only for display/activation); horizontal moves operate on
+   *  the clamped column. */
   const grid = useMemo<string[][]>(() => {
     const rows: string[][] = [
       [cellId("clear-all"), cellId("close")],
@@ -238,12 +213,6 @@ export function SwatchPopover({
       COLOR_ROW_NORMAL.map((v) => cellId("color", v)),
       COLOR_ROW_DARK.map((v) => cellId("color", v)),
     ];
-    if (showMarkers) {
-      rows.push(
-        [cellId("clear-marker")],
-        MARKER_STATES.slice(1).map((s) => cellId("marker", s)),
-      );
-    }
     if (showFlair) {
       rows.push(
         [cellId("clear-flair")],
@@ -252,7 +221,7 @@ export function SwatchPopover({
       );
     }
     return rows;
-  }, [showMarkers, showFlair]);
+  }, [showFlair]);
 
   // Initial focus FOLLOWS SELECTION: the selected swatch, or the color band's
   // header − clear cell when uncolored — never an arbitrary swatch, whose focus ring
@@ -318,31 +287,19 @@ export function SwatchPopover({
       if (id === cellId("close")) onClose();
       else if (id === cellId("clear-all")) clearAll();
       else if (id === cellId("clear-color")) emit(null);
-      else if (id === cellId("clear-marker")) onSelectMarker?.("");
       else if (id === cellId("clear-flair")) onSelectFlair?.("");
       else if (id.startsWith("color:")) emit(id.slice("color:".length));
-      else if (id.startsWith("marker:")) {
-        const state = id.slice("marker:".length);
-        setMarkerOverride(state);
-        onSelectMarker?.(state);
-      } else if (id.startsWith("flair:")) {
+      else if (id.startsWith("flair:")) {
         const state = id.slice("flair:".length);
         setFlairOverride(state);
         onSelectFlair?.(state);
       }
     },
-    [effectiveId, emit, clearAll, onClose, onSelectMarker, onSelectFlair],
+    [effectiveId, emit, clearAll, onClose, onSelectFlair],
   );
 
   // Mouse picks repaint the preview overrides immediately (same immediacy the
   // keyboard path gets through activate).
-  const pickMarker = useCallback(
-    (state: string) => {
-      setMarkerOverride(state);
-      onSelectMarker?.(state);
-    },
-    [onSelectMarker],
-  );
   const pickFlair = useCallback(
     (state: string) => {
       setFlairOverride(state);
@@ -424,15 +381,12 @@ export function SwatchPopover({
   const isFocused = (id: string) => keyboardActive && focusedId === id;
 
   // The combo caption: family name (shade legible from the preview itself) ·
-  // marker pattern name · flair name, ∅ for unset axes — legs only for the
-  // axes this variant shows (flair last/lightest).
+  // flair name, ∅ for unset axes — legs only for the axes this variant shows
+  // (flair last/lightest).
   const captionLegs = [
     parseColorValue(previewValue)?.family.name ?? "∅",
-    ...(showMarkers ? [previewMarker || "∅"] : []),
     ...(showFlair ? [previewFlair || "∅"] : []),
   ];
-
-  const previewStripe = markerStripeStyle(previewMarker, previewStripeColor);
 
   return (
     // TipGroup: the band cells are a warm-tip cluster — sweeping across the
@@ -441,36 +395,26 @@ export function SwatchPopover({
     <div
       ref={containerRef}
       role="listbox"
-      aria-label={showMarkers ? "Label picker" : "Color picker"}
+      aria-label={showFlair ? "Label picker" : "Color picker"}
       tabIndex={0}
       onKeyDown={handleKeyDown}
       className="bg-bg-primary border border-border p-1.5 z-50 w-[190px]"
       style={{ boxShadow: "3px 3px 0 rgba(0,0,0,.35)" }}
     >
       {/* Composite preview row: the row's actual RESTING look — tint base +
-          marker stripe + the static paired texture (hatch ↔ hazard wedge) +
           the live flair overlay (reused FlairOverlay — the cube/warp
-          child-markup contract) + the row name. The − clear-all and ✕ close
+          child-markup contract) + the row name. The marker is NOT this
+          picker's axis — no stripe renders here (the row itself carries the
+          marker well). The − clear-all and ✕ close
           cells sit beside it — this row names the WHOLE label, so its −
           clears every offered axis (the band −s clear one each). */}
       <div className="flex items-center gap-1.5">
         <div
           aria-hidden="true"
           className="relative h-[24px] flex-1 min-w-0 overflow-hidden flex items-center pl-[30px] pr-2"
-          style={
-            {
-              backgroundColor: previewTint?.base,
-              "--rk-marker-color": previewStripeColor,
-            } as React.CSSProperties
-          }
+          style={{ backgroundColor: previewTint?.base }}
         >
-          {previewMarker === "hatch" && (
-            <span className="rk-hazard absolute inset-0 pointer-events-none" />
-          )}
-          <FlairOverlay flair={previewFlair || undefined} color={previewStripeColor} />
-          {previewStripe && (
-            <span className="absolute inset-y-0 left-[4px] w-[6px]" style={previewStripe} />
-          )}
+          <FlairOverlay flair={previewFlair || undefined} color={previewFlairColor} />
           <span className="relative z-10 truncate text-xs text-text-primary">
             {rowName ?? SAMPLE_ROW_NAME}
           </span>
@@ -567,60 +511,6 @@ export function SwatchPopover({
         </div>
       </div>
 
-      {/* ── [ marker ] band — one static row of the 8 states (semantic states
-             never hide behind a scroll). Cells are mini row previews of the
-             selected color: tint.base background, guarded stripe (2px inset),
-             and the ONE texture pairing (hatch ↔ hazard, preview modifier —
-             masked at 18px the weave is invisible under the stripe). The −
-             lives in the band header. ── */}
-      {showMarkers && (
-        <>
-          <BandHeader
-            axis="marker"
-            clearLabel="Marker none"
-            isUnset={currentMarker === ""}
-            onClear={() => pickMarker("")}
-            focused={isFocused(cellId("clear-marker"))}
-            cellRef={setCellRef(cellId("clear-marker"))}
-          />
-          <div className="flex gap-[3px] mt-1">
-            {MARKER_STATES.slice(1).map((state) => {
-              const isSelected = currentMarker === state;
-              const id = cellId("marker", state);
-              const stripe = markerStripeStyle(state, previewStripeColor);
-              return (
-                <Tip key={state} label={state}>
-                <button
-                  ref={setCellRef(id)}
-                  role="option"
-                  aria-selected={isSelected}
-                  aria-label={`Marker ${state}`}
-                  data-marker-value={state}
-                  onClick={() => pickMarker(state)}
-                  className={`${CELL} overflow-hidden transition-all relative ${
-                    isFocused(id) ? "ring-1 ring-text-secondary" : ""
-                  } ${isSelected ? "ring-1 ring-text-primary" : ""}`}
-                  style={
-                    {
-                      backgroundColor: previewTint?.base,
-                      "--rk-marker-color": previewStripeColor,
-                    } as React.CSSProperties
-                  }
-                >
-                  {state === "hatch" && (
-                    <span aria-hidden="true" className="rk-hazard rk-hazard-preview absolute inset-0 pointer-events-none" />
-                  )}
-                  {stripe && (
-                    <span className="absolute inset-y-0 right-0" style={{ left: 2, ...stripe }} />
-                  )}
-                </button>
-                </Tip>
-              );
-            })}
-          </div>
-        </>
-      )}
-
       {/* ── [ flair ] band — 2-row column-flow strip of the 14 named states
              (rain/scan leading); motion IS the flair identity, so the cells
              stay live. The − clear cell lives in the band header. ── */}
@@ -652,7 +542,7 @@ export function SwatchPopover({
                   } ${isSelected ? "ring-1 ring-text-primary" : ""}`}
                   style={{ backgroundColor: previewTint?.base }}
                 >
-                  <FlairOverlay flair={state} color={previewStripeColor} />
+                  <FlairOverlay flair={state} color={previewFlairColor} />
                 </button>
                 </Tip>
               );

@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import {
   THEMES,
   getThemeById,
@@ -11,9 +13,16 @@ import {
   computeRowBorders,
   HUE_FAMILIES,
   PICKER_COLOR_VALUES,
-  MARKER_STATES,
+  MARKER_MODES,
+  MARKER_STAGES,
+  MARKER_STAGE_GLOSS,
+  MARKER_STAGE_WIDTHS,
+  MARKER_INK,
+  parseMarker,
+  formatMarker,
+  markerFillStyle,
+  MarkerChevrons,
   FLAIR_STATES,
-  markerStripeStyle,
   UNCOLORED_SELECTED_KEY,
   parseColorValue,
   formatColorValue,
@@ -477,55 +486,61 @@ describe("shade axis (light + normal + dark)", () => {
   });
 });
 
-describe("markerStripeStyle", () => {
-  const color = "#123456";
-
-  it("covers all eight states with the documented widths", () => {
-    expect(markerStripeStyle("", color)).toBeUndefined();
-    expect(markerStripeStyle("pipe", color)).toEqual({ borderLeft: `1px solid ${color}` });
-    expect(markerStripeStyle("solid", color)).toEqual({ borderLeft: `3px solid ${color}` });
-    expect(markerStripeStyle("double", color)).toEqual({ borderLeft: `6px double ${color}` });
-    expect(markerStripeStyle("thick", color)).toEqual({ borderLeft: `6px solid ${color}` });
-    expect(markerStripeStyle("unknown", color)).toBeUndefined();
+describe("marker (3×3 mode × stage)", () => {
+  it("MARKER_MODES / MARKER_STAGES / MARKER_STAGE_GLOSS are the closed axes", () => {
+    expect(MARKER_MODES).toEqual(["manual", "auto", "blocked"]);
+    expect(MARKER_STAGES).toEqual([1, 2, 3]);
+    expect(MARKER_STAGE_GLOSS).toEqual({ 1: "early", 2: "mid", 3: "done" });
   });
 
-  it("dotted is a one-period fixed tile (3px 6px, repeat-y) — element-height independent", () => {
-    const s = markerStripeStyle("dotted", color)!;
-    // A plain linear-gradient of ONE period repeated with repeat-y: the tile
-    // height is fixed (6px), so the rhythm holds at ANY element height (the
-    // 18px picker preview cells included) — not just the 24/36px rows the old
-    // `3px 100%` + no-repeat form happened to weld on.
-    expect(s.backgroundImage).toBe(`linear-gradient(to bottom, ${color} 0 3px, transparent 3px 6px)`);
-    expect(s.backgroundSize).toBe("3px 6px");
-    expect(s.backgroundRepeat).toBe("repeat-y");
+  it("parseMarker parses '<mode>:<stage>' and bare modes at stage 1", () => {
+    expect(parseMarker("auto:2")).toEqual({ mode: "auto", stage: 2 });
+    expect(parseMarker("blocked")).toEqual({ mode: "blocked", stage: 1 });
+    expect(parseMarker("manual:3")).toEqual({ mode: "manual", stage: 3 });
+    expect(parseMarker(" manual:1 ")).toEqual({ mode: "manual", stage: 1 });
   });
 
-  it("dashed is a one-period fixed tile (8px dash / 4px gap, 12px period)", () => {
-    const s = markerStripeStyle("dashed", color)!;
-    expect(s.backgroundImage).toBe(`linear-gradient(to bottom, ${color} 0 8px, transparent 8px 12px)`);
-    expect(s.backgroundSize).toBe("3px 12px");
-    expect(s.backgroundRepeat).toBe("repeat-y");
+  it("parseMarker returns null for empty, retired, and malformed values — never throws", () => {
+    for (const v of ["", "  ", null, undefined, "hatch", "pipe", "dotted", "dashed", "solid", "double", "thick", "block", "auto:4", "auto:0", "auto:x", "auto:1:2", "manual:"]) {
+      expect(parseMarker(v)).toBeNull();
+    }
   });
 
-  it("hatch is a 45° diagonal weave on a 12px×12px tile (welds on the 12px module)", () => {
-    const s = markerStripeStyle("hatch", color)!;
+  it("formatMarker round-trips every mode × stage", () => {
+    for (const mode of MARKER_MODES) {
+      for (const stage of MARKER_STAGES) {
+        const m = { mode, stage };
+        expect(parseMarker(formatMarker(m))).toEqual(m);
+      }
+    }
+    expect(formatMarker({ mode: "manual", stage: 3 })).toBe("manual:3");
+  });
+
+  it("manual fills 7 / 15 / 22px of solid marker ink (⅓ / ⅔ / full of the well)", () => {
+    expect(MARKER_STAGE_WIDTHS).toEqual({ 1: 7, 2: 15, 3: 22 });
+    expect(markerFillStyle({ mode: "manual", stage: 1 })).toEqual({ width: 7, background: MARKER_INK });
+    expect(markerFillStyle({ mode: "manual", stage: 2 })).toEqual({ width: 15, background: MARKER_INK });
+    expect(markerFillStyle({ mode: "manual", stage: 3 })).toEqual({ width: 22, background: MARKER_INK });
+  });
+
+  it("blocked keeps the 45° hatch on the phase-aligned 12px tile, in marker ink", () => {
     // The NON-repeating 45° linear-gradient with 25/50/75% stops phase-aligns
     // across every 12px tile boundary (the same math as the .rk-hazard wedge) —
     // a repeating-linear-gradient would not (12/√2 is no multiple of its period).
-    expect(s.backgroundImage).toBe(`linear-gradient(45deg, ${color} 0 25%, transparent 25% 50%, ${color} 50% 75%, transparent 75%)`);
+    const s = markerFillStyle({ mode: "blocked", stage: 1 })!;
+    expect(s.width).toBe(7);
+    expect(s.backgroundImage).toBe(`linear-gradient(45deg, ${MARKER_INK} 0 25%, transparent 25% 50%, ${MARKER_INK} 50% 75%, transparent 75%)`);
     expect(s.backgroundSize).toBe("12px 12px");
     expect(s.backgroundRepeat).toBe("repeat");
   });
 
-  it("block is a one-period fixed tile (9px block / 3px gap on a 12px period, 6px wide)", () => {
-    const s = markerStripeStyle("block", color)!;
-    expect(s.backgroundImage).toBe(`linear-gradient(to bottom, ${color} 0 9px, transparent 9px 12px)`);
-    expect(s.backgroundSize).toBe("6px 12px");
-    expect(s.backgroundRepeat).toBe("repeat-y");
-  });
-
-  it("MARKER_STATES is the closed set in display order (empty first)", () => {
-    expect(MARKER_STATES).toEqual(["", "pipe", "dotted", "dashed", "solid", "double", "thick", "hatch", "block"]);
+  it("auto renders no fill — MarkerChevrons draws 1 / 2 / 3 chevrons", () => {
+    expect(markerFillStyle({ mode: "auto", stage: 2 })).toBeUndefined();
+    for (const count of [1, 2, 3] as const) {
+      const html = renderToStaticMarkup(createElement(MarkerChevrons, { count }));
+      expect(html.match(/<path/g)).toHaveLength(count);
+      expect(html).toContain(`stroke="${MARKER_INK}"`);
+    }
   });
 
   it("FLAIR_STATES is the closed set in display order (empty first, rain/scan leading)", () => {

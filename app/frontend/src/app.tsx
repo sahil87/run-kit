@@ -149,7 +149,7 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo, SelectWindowResult } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerProtected, sendChatMessage, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, selectWebTab, removeWebTab, type SortWindowsBy } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerProtected, sendChatMessage, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, selectWebTab, removeWebTab, type SortWindowsBy } from "@/api/client";
 import { buildWebTabActions } from "@/lib/palette/web-tabs";
 import { buildSessionSortActions } from "@/lib/palette/sort";
 import { useBoards } from "@/hooks/use-boards";
@@ -571,6 +571,34 @@ export function resolveServerView(
   if (server === pendingServer) return "waiting";
   if (serversLoaded) return "not-found";
   return "view";
+}
+
+/** Palette entries for the current row's two independent pickers: the color +
+ *  flair Label picker and the marker pad. Both reach the row through its
+ *  imperative CustomEvent opener (the `pin-popover:open` idiom), which is the
+ *  keyboard path to affordances that otherwise need a pointer. Exported so the
+ *  registration is testable through the production builder, not a copy. */
+export function buildTabPickerActions(server: string, windowId: string): PaletteAction[] {
+  return [
+    {
+      id: "window-label",
+      label: "Tab: Label",
+      onSelect: () => {
+        document.dispatchEvent(
+          new CustomEvent("label-popover:open", { detail: { server, windowId } }),
+        );
+      },
+    },
+    {
+      id: "window-marker",
+      label: "Tab: Marker",
+      onSelect: () => {
+        document.dispatchEvent(
+          new CustomEvent("marker-pad:open", { detail: { server, windowId } }),
+        );
+      },
+    },
+  ];
 }
 
 /**
@@ -2242,6 +2270,18 @@ function AppShell() {
   // RETURNS the settle promise (already error-handled here, so it never rejects):
   // the flyout's fork button awaits it to hold its in-flight disabled state, so
   // repeated clicks cannot fire multiple mutating POSTs and create N forks.
+  // The marker write seam, owned by the route that owns a server context. The
+  // board-route sidebar mounts without it, so its rows carry no marker strip
+  // and no Marker card row — the same optional-handler gate fork and spawn use.
+  const handleWindowMarkerChange = useCallback(
+    (srv: string, _session: string, windowId: string, marker: string | null) => {
+      setWindowMarkerApi(srv, windowId, marker).catch((err: Error) =>
+        addToast(err.message || "Failed to set tab marker", "error"),
+      );
+    },
+    [addToast],
+  );
+
   const handleForkWindow = useCallback(
     (srv: string, windowId: string): Promise<void> =>
       forkWindow(srv, windowId)
@@ -2541,26 +2581,13 @@ function AppShell() {
               label: "Tab: Set Color",
               onSelect: () => setShowColorPicker("window"),
             },
-            {
-              // Keyboard/touch parity for the left-edge label zone (Constitution
-              // V): open the combined Label picker (colors + marker) for the
-              // current window's sidebar row via the imperative
-              // `label-popover:open` event — mirroring the `pin-popover:open`
-              // pattern the "Board: Pin Current Tab" action uses. One
-              // interaction model everywhere (hwtr, replacing "Tab: Cycle
-              // Marker"); the picker's keyboard nav makes this a complete
-              // keyboard path.
-              id: "window-label",
-              label: "Tab: Label",
-              onSelect: () => {
-                if (!currentWindow) return;
-                document.dispatchEvent(
-                  new CustomEvent("label-popover:open", {
-                    detail: { server, windowId: currentWindow.windowId },
-                  }),
-                );
-              },
-            },
+            // Keyboard parity for the row's pointer-only pickers (Constitution
+            // V): the color + flair Label picker and the marker pad, each
+            // opened on the current window's sidebar row through its
+            // CustomEvent opener — the `pin-popover:open` pattern the
+            // "Board: Pin Current Tab" action uses. Both pickers carry their
+            // own keyboard nav, so these entries complete the keyboard path.
+            ...buildTabPickerActions(server, currentWindow.windowId),
             // Operator mark/unmark pair (260813-ifya) — the manual fallback for
             // the `@rk_win_role=operator` window option: Mark is listed when the
             // current window is NOT the operator, Unmark when it IS. Both POST
@@ -4281,6 +4308,7 @@ function AppShell() {
       onSpawnAgent={handleOpenSpawnAgent}
       onUpdateAnnotations={hasOperatorWindow ? handleUpdateAnnotations : undefined}
       onForkWindow={handleForkWindow}
+      onWindowMarkerChange={handleWindowMarkerChange}
       onFixTabName={handleFixTabName}
       onOperatorCompose={hasOperatorWindow ? handleOperatorCompose : undefined}
       onCreateServer={openCreateServer}

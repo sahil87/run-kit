@@ -1,15 +1,37 @@
-import { useEffect, useState, useRef, useMemo, memo } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState, useRef, useMemo, memo } from "react";
 import { isGhostWindow } from "@/contexts/optimistic-context";
 import type { ProjectSession } from "@/types";
 import type { MergedSession } from "@/contexts/optimistic-context";
 import type { BoardSummary } from "@/api/boards";
-import { UNCOLORED_SELECTED_KEY, markerStripeStyle, type RowTint } from "@/themes";
+import {
+  UNCOLORED_SELECTED_KEY,
+  MARKER_INK,
+  MARKER_STAGE_WIDTHS,
+  parseMarker,
+  formatMarker,
+  markerFillStyle,
+  MarkerChevrons,
+  type Marker,
+  type RowTint,
+} from "@/themes";
 import { SwatchPopover } from "@/components/swatch-popover";
 import { FlairOverlay } from "@/components/flair-overlay";
 import { StatusDot } from "@/components/status-dot";
 import { prOwnsGlyph, prGlyphColor } from "@/components/pr-status-model";
 import { PinPopover } from "./pin-popover";
-import { PaletteIcon, CloseIcon, prGlyphIcon, ComposeIcon } from "./icons";
+import {
+  MarkerPad,
+  MARKER_PAD_POPOVER_INSET_PX,
+  MARKER_PAD_POPOVER_PREFERRED_WIDTH_PX,
+  MARKER_WELL_BACKGROUND,
+  MARKER_WELL_EDGE,
+  markerPadPopoverLayout,
+  placeMarkerPad,
+  selectCell,
+  stepStage,
+  sameCell,
+} from "./marker-pad";
+import { CloseIcon, prGlyphIcon, ComposeIcon } from "./icons";
 import { PinIcon } from "@/components/pin-icon";
 import {
   useRowFlyout,
@@ -34,12 +56,15 @@ type WindowRowProps = {
   /** Color value: an owned family name ("orange") or a legacy numeric/blend
    *  descriptor ("4" / "1+3") — the row's hue (label axis). */
   color?: string;
-  /** Left-gutter marker state ("" | "dotted" | "dashed" | "solid" | "double"
-   *  | "thick") — an independent label axis from `color`. */
+  /** Marker well value — `<mode>[:<stage>]` (e.g. "manual", "auto:2",
+   *  "blocked:3"); a bare mode renders at stage 1. Parsed via `parseMarker`;
+   *  anything unparseable renders no well. Legacy tokens never arrive here —
+   *  the backend normalizes them to the mode×stage vocabulary on read. */
   marker?: string;
   rowTints?: Map<string, RowTint>;
   /** Contrast-adjusted full-saturation guarded color per color value. Used for
-   *  SERVER tile edges and — here — the left-gutter marker's family color. */
+   *  SERVER tile edges and — here — the `FlairOverlay`'s family hue (the
+   *  marker well reads the fixed `var(--color-marker-ink)`, never this). */
   rowBorders?: Map<string, string>;
   editingWindow: { session: string; windowId: string } | null;
   // Note: callers may pass an object that also carries a `server` field — the
@@ -90,13 +115,14 @@ type WindowRowProps = {
   onDrop?: (e: React.DragEvent, server: string, session: string, index: number) => void;
   onDragEnd?: () => void;
   onColorChange?: (server: string, session: string, windowId: string, color: string | null) => void;
-  /** Persist a marker state for this window. The combined Label picker passes the
-   *  EXACT picked state here (no cycling — any state is one click). Omitted on
-   *  ghost rows (the label zone is disabled). */
+  /** Persist a marker for this window — the stored `<mode>[:<stage>]` form, or
+   *  null to clear. Written by the marker pad (the row strip's press target or
+   *  the card's Marker row); the pad passes the EXACT picked cell, never a
+   *  cycled state. Omitted on ghost rows (no marker interaction mounts). */
   onMarkerChange?: (server: string, session: string, windowId: string, marker: string | null) => void;
-  /** Persist a flair state for this window. The Label picker's flair section
-   *  passes the EXACT picked state here ("" mapped to null clears). Omitted on
-   *  ghost rows (the label zone is disabled). */
+  /** Persist a flair state for this window. The color + flair picker (the card's
+   *  `Change color…` row / the `Tab: Label` palette action) passes the EXACT
+   *  picked state here ("" mapped to null clears). Omitted on ghost rows. */
   onFlairChange?: (server: string, session: string, windowId: string, flair: string | null) => void;
   /** Fork this window's agent conversation into a new window in the same session
    *  and directory (260806-s4av). Identity-arg like its siblings. Optional
@@ -144,7 +170,7 @@ type WindowRowProps = {
    *  `pinnedToBoard`) serves every row; the row binds its own (server,
    *  windowId). Used by the pin popover to render checkmarks. */
   isPinnedToBoard?: (board: string, server: string, windowId: string) => boolean;
-  /** The single board this window is pinned to (co9z), or undefined if unpinned.
+  /** The single board this window is pinned to, or undefined if unpinned.
    *  When set, the pin popover offers a "Go to {board}" navigation row so the
    *  pinned-row indicator becomes a path to the owning board. */
   pinnedBoard?: string;
@@ -224,11 +250,179 @@ function WindowRowInner({
   // Drag is wired only for non-ghost rows that opted in via `draggable`.
   const dragEnabled = draggable && !ghost;
   const isEditing = editingWindow?.session === session && editingWindow.windowId === win.windowId;
-  // The combined Label picker (colors + marker) opened by the left-edge label
-  // zone (or the `Tab: Label` palette action). Replaces the former
-  // right-cluster color popover + gutter click-to-cycle (hwtr).
+  // The color + flair picker, opened by the flyout card's `Change color…`
+  // row or the palette's `label-popover:open` event (the effect below).
   const [showLabelPicker, setShowLabelPicker] = useState(false);
   const [showPinPopover, setShowPinPopover] = useState(false);
+
+  // ── Spring-loaded marker pad ─────────────────────────────────────────────
+  // The well strip (x=0–22) is an invisible fine-pointer press target: a
+  // pointerdown captures the pointer and opens the pad with the current cell
+  // highlighted; pointermove selects RELATIVE to the press point (one pitch =
+  // one cell, clamped at the grid edges) and live-previews the cell on the
+  // row; pointerup commits a CHANGED cell (or closes nothing — an unchanged
+  // cell leaves the pad open as a click menu). The row's flyout and its
+  // HTML5 drag are suppressed while the pad is open/armed (a strip press
+  // never selects the row). The pad itself owns click/keyboard mode.
+  const markerWired = !ghost && !!onMarkerChange && !!server;
+  const [showMarkerPad, setShowMarkerPad] = useState(false);
+  // Marker preview: undefined = no preview (show the committed value);
+  // `null` = preview the ∅ cell; a Marker = preview that cell. The well and
+  // the hazard read this over `parsedMarker` so a drag paints live.
+  const [markerPreview, setMarkerPreview] = useState<Marker | null | undefined>(undefined);
+  const parsedMarker = useMemo(() => parseMarker(marker), [marker]);
+  const displayMarker = markerPreview !== undefined ? markerPreview : parsedMarker;
+  const stripRef = useRef<HTMLDivElement>(null);
+  const padAnchorRef = useRef<HTMLDivElement>(null);
+  const pressRef = useRef<{ originX: number; originY: number; start: Marker | null } | null>(null);
+  const [padPosition, setPadPosition] = useState({ left: MARKER_WELL_WIDTH, top: 0 });
+  const [padLayout, setPadLayout] = useState(() =>
+    markerPadPopoverLayout(
+      MARKER_PAD_POPOVER_PREFERRED_WIDTH_PX + MARKER_PAD_POPOVER_INSET_PX,
+    ),
+  );
+  const padPitchRef = useRef(padLayout.cellPx);
+
+  const padClose = () => {
+    setMarkerPreview(undefined);
+    setShowMarkerPad(false);
+    pressRef.current = null;
+  };
+  const padCommit = (cell: Marker | null) => {
+    padClose();
+    onMarkerChange?.(srv, session, win.windowId, cell ? formatMarker(cell) : null);
+  };
+
+  const onStripDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    const sidebarCandidate = e.currentTarget.closest("[data-sidebar-scroll]");
+    if (sidebarCandidate instanceof HTMLElement) {
+      const nextLayout = markerPadPopoverLayout(sidebarCandidate.getBoundingClientRect().width);
+      padPitchRef.current = nextLayout.cellPx;
+      setPadLayout(nextLayout);
+    }
+    pressRef.current = {
+      originX: e.clientX,
+      originY: e.clientY,
+      start: markerPreview !== undefined ? markerPreview : parsedMarker,
+    };
+    setShowMarkerPad(true);
+    // jsdom lacks the pointer-capture APIs — optional-call so unit tests can
+    // drive the gesture without stubbing them (the useRailScrub idiom).
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+  const onStripMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const press = pressRef.current;
+    if (!press) return;
+    const next = selectCell(
+      press.start,
+      e.clientX - press.originX,
+      e.clientY - press.originY,
+      padPitchRef.current,
+    );
+    setMarkerPreview(next);
+  };
+  const onStripUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const press = pressRef.current;
+    if (!press) return;
+    pressRef.current = null;
+    // Recompute from the release coordinates instead of depending on the
+    // pointermove state update having rendered before pointerup.
+    const cell = selectCell(
+      press.start,
+      e.clientX - press.originX,
+      e.clientY - press.originY,
+      padPitchRef.current,
+    );
+    if (!sameCell(cell, press.start)) {
+      // Moved release: commit the highlighted cell and close.
+      padCommit(cell);
+    } else {
+      // No-move (or move-back-to-start) release: leave the pad open as a
+      // click menu (review the committed value; hover previews, click picks).
+      setMarkerPreview(undefined);
+    }
+    if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+  };
+  // Wheel steps the stage (clamped, mode unchanged) on MARKED rows only —
+  // unmarked rows must not intercept the sidebar's scroll.
+  // React registers `wheel` PASSIVELY at the root, where preventDefault is a
+  // no-op — so the strip owns a native non-passive listener; without it the
+  // sidebar would scroll away under the row whose stage is being stepped.
+  const onStripWheel = useCallback(
+    (e: WheelEvent) => {
+      if (!parsedMarker) return;
+      // Only a vertical wheel steps. A horizontal (or momentum-tail) event
+      // carries deltaY === 0 and falls through untouched — swallowing it would
+      // stop the scroll and step a direction nobody asked for.
+      if (e.deltaY === 0) return;
+      e.preventDefault();
+      const next = stepStage(parsedMarker, e.deltaY > 0 ? 1 : -1);
+      if (!sameCell(next, parsedMarker)) {
+        onMarkerChange?.(srv, session, win.windowId, formatMarker(next));
+      }
+    },
+    [parsedMarker, onMarkerChange, srv, session, win.windowId],
+  );
+  useEffect(() => {
+    const el = stripRef.current;
+    if (!el) return;
+    el.addEventListener("wheel", onStripWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onStripWheel);
+  }, [onStripWheel]);
+
+  // Clamp the popover pad inside the sidebar's box (the pointer is 0–22px
+  // from the sidebar's left edge, so absolute placement would clip; relative
+  // selection keeps "one pitch right = +1 stage" true regardless of where
+  // the pad lands). Vertically centered on the row when unconstrained.
+  useLayoutEffect(() => {
+    if (!showMarkerPad) return;
+    const anchor = padAnchorRef.current;
+    const row = anchor?.parentElement;
+    if (!anchor || !row) return;
+    const sidebarCandidate = row.closest("[data-sidebar-scroll]");
+    const sidebar = sidebarCandidate instanceof HTMLElement ? sidebarCandidate : document.documentElement;
+    const bounds = sidebar.getBoundingClientRect();
+    const rowRect = row.getBoundingClientRect();
+    const nextLayout = markerPadPopoverLayout(bounds.width);
+    padPitchRef.current = nextLayout.cellPx;
+    if (
+      nextLayout.width !== padLayout.width ||
+      nextLayout.cellPx !== padLayout.cellPx ||
+      nextLayout.labelPx !== padLayout.labelPx
+    ) {
+      setPadLayout(nextLayout);
+    }
+    const padHeight = anchor.offsetHeight;
+    setPadPosition(
+      placeMarkerPad(
+        { left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height },
+        { left: rowRect.left, top: rowRect.top, width: rowRect.width, height: rowRect.height },
+        { width: nextLayout.width, height: padHeight },
+        MARKER_WELL_WIDTH,
+      ),
+    );
+  }, [showMarkerPad, padLayout.width, padLayout.cellPx, padLayout.labelPx]);
+
+  // Click-menu dismissal: Escape / an outside pointerdown revert the preview
+  // to the committed marker and close.
+  useEffect(() => {
+    if (!showMarkerPad) return;
+    const onDocDown = (e: PointerEvent) => {
+      if (
+        padAnchorRef.current?.contains(e.target as Node) ||
+        stripRef.current?.contains(e.target as Node)
+      ) {
+        return;
+      }
+      padClose();
+    };
+    document.addEventListener("pointerdown", onDocDown);
+    return () => document.removeEventListener("pointerdown", onDocDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showMarkerPad]);
   const pinBtnRef = useRef<HTMLButtonElement>(null);
   // When the pin affordance is wired up, reserve a few extra px on the right so
   // labels don't run under the icon group. Also gates the flyout card's Pin
@@ -236,7 +430,7 @@ function WindowRowInner({
   // fine-pointer-only).
   const showPinIcon = !ghost && !!server;
 
-  // Row-hover register flyout card (93dy) — the tier-2 hover surface that
+  // Row-hover register flyout card — the tier-2 hover surface that
   // replaced the per-dot StatusDotTip. ALL flyout state is row-local (this
   // hook), so the WindowRow memo stays effective. Suppressed while the row's
   // popovers are open (the card must not fight them) and on ghost rows (no
@@ -256,7 +450,10 @@ function WindowRowInner({
     return () => onFixTabName(srv, win.windowId);
   }, [onFixTabName, ghost, srv, win.windowId]);
   const flyout = useRowFlyout({
-    suppressed: ghost || showPinPopover || showLabelPicker,
+    // The marker pad co-gates the flyout: while the pad is open or armed (a
+    // strip press) the hover card must not open, and the pointer traveling
+    // from the strip over the row body must not fight the pad.
+    suppressed: ghost || showPinPopover || showLabelPicker || showMarkerPad,
     content: ({ close }) => (
       <WindowFlyoutContent
         win={win}
@@ -270,11 +467,19 @@ function WindowRowInner({
         // on touch). Optional-handler idiom: ghost rows and unwired seams
         // render no row.
         onChangeColorAction={
-          onColorChange && onMarkerChange
+          onColorChange
             ? () => {
                 close();
                 setShowLabelPicker(true);
               }
+            : undefined
+        }
+        // The Marker row writes through the same seam as the strip/pad; the
+        // card stays open so several marker choices can be previewed in place.
+        marker={markerWired ? marker : undefined}
+        onMarkerCommit={
+          markerWired
+            ? (m) => onMarkerChange?.(srv, session, win.windowId, m)
             : undefined
         }
         onFork={handleFork}
@@ -296,23 +501,25 @@ function WindowRowInner({
     ),
   });
 
-  // Slide-to-scrub (coarse pointers): pointerdown on the rail (primary) or the
-  // dot tap zone (secondary) opens this row's flyout card and captures the
-  // pointer; while the scrub is active, pointermove hit-tests the finger
-  // position against rail-bearing rows of ALL tiers and retargets the
-  // single-open card via the module-scoped registry (the touch translation of
-  // the desktop hover sweep). The scrub NEVER selects or navigates a row;
-  // release keeps the last card open (outside-press dismissal is unchanged).
-  // `touch-action: none` on the target keeps a drag that starts here from
-  // scrolling the drawer; drags starting elsewhere scroll normally.
+  // Slide-to-scrub (coarse pointers): pointerdown on the 56px right-edge rail
+  // opens this row's flyout card and captures the pointer; while the scrub is
+  // active, pointermove hit-tests the finger position against rail-bearing
+  // rows of ALL tiers and retargets the single-open card via the
+  // module-scoped registry (the touch translation of the desktop hover
+  // sweep). The rail is the SOLE coarse flyout trigger — the status dot is a
+  // plain glyph (everything left of the rail is tap = select). The scrub
+  // NEVER selects or navigates a row; release keeps the last card open
+  // (outside-press dismissal is unchanged). `touch-action: none` on the
+  // target keeps a drag that starts here from scrolling the drawer; drags
+  // starting elsewhere scroll normally.
   const scrub = useRailScrub(flyout.openNow);
 
-  // Listen for the imperative `pin-popover:open` / `label-popover:open` events
-  // dispatched by the command palette's "Board: Pin Current Tab" and
-  // "Tab: Label" actions. Only the row whose (server, windowId) matches the
-  // event detail opens its popover; other rows ignore the event. Mirrors the
-  // `palette:open` document-event pattern used elsewhere — see app.tsx command
-  // palette wiring.
+  // Listen for the imperative `pin-popover:open` / `label-popover:open` /
+  // `marker-pad:open` events dispatched by the command palette's "Board:
+  // Pin Current Tab", "Tab: Label", and "Tab: Marker" actions. Only the row
+  // whose (server, windowId) matches the event detail opens its popover/pad;
+  // other rows ignore the event. Mirrors the `palette:open` document-event
+  // pattern used elsewhere — see app.tsx command palette wiring.
   useEffect(() => {
     if (!server) return;
     function isMatch(e: Event): boolean {
@@ -325,13 +532,20 @@ function WindowRowInner({
     function labelHandler(e: Event) {
       if (isMatch(e)) setShowLabelPicker(true);
     }
+    // The palette's marker entry opens the pad in click-menu mode; the pad
+    // focuses the committed cell itself on mount (MarkerPad).
+    function padHandler(e: Event) {
+      if (isMatch(e) && !ghost && onMarkerChange) setShowMarkerPad(true);
+    }
     document.addEventListener("pin-popover:open", pinHandler);
     document.addEventListener("label-popover:open", labelHandler);
+    document.addEventListener("marker-pad:open", padHandler);
     return () => {
       document.removeEventListener("pin-popover:open", pinHandler);
       document.removeEventListener("label-popover:open", labelHandler);
+      document.removeEventListener("marker-pad:open", padHandler);
     };
-  }, [server, win.windowId]);
+  }, [server, win.windowId, ghost, onMarkerChange]);
 
   const tint = useMemo(() => {
     if (color == null || !rowTints) return null;
@@ -344,11 +558,11 @@ function WindowRowInner({
     return rowTints.get(UNCOLORED_SELECTED_KEY) ?? null;
   }, [color, rowTints, isSelected]);
 
-  // The row's guarded family color, used for the left-gutter MARKER (contrast-
-  // adjusted full-saturation family hex, baked into rowBorders). Colored rows
-  // use their family; uncolored rows use the gray sentinel. The 4px selection
-  // border this once fed was removed in the axis split — selection is now tint
-  // depth + typography alone (R6/R7).
+  // The row's guarded family color (contrast-adjusted full-saturation hex,
+  // baked into rowBorders). Its only consumer on the row is the FlairOverlay
+  // `color` prop — the marker well and the blocked hazard read the fixed
+  // `--color-marker-ink` token instead. Selection is expressed through tint
+  // depth and typography rather than this color.
   const markerColor = useMemo(() => {
     if (!rowBorders) return "var(--color-border)";
     if (color != null) return rowBorders.get(color) ?? "var(--color-border)";
@@ -370,19 +584,14 @@ function WindowRowInner({
   }, [tint, uncoloredSelectedTint, isSelected, flyout.open]);
 
   // Build className for the button. The row box is FULL-BLEED — it starts at
-  // the physical sidebar edge (the former 12px group `ml-3` indent moved into
-  // this button's left padding), so the tint/hover/selection fills span
-  // edge-to-edge. On FINE pointers the label zone is an absolute z-20 sibling
-  // spanning the leftmost 26px of the row, so the button content must start
-  // CLEAR of it — otherwise the interactive StatusDot sits under the zone and
-  // its hover/click steals the dot's hover-card + row select. The dot sits at
-  // `pl-[30px]` (12px absorbed indent + 18px prior padding) — 4px clear of the
-  // zone's inner edge. On COARSE pointers the interactive zone does not render
-  // (260817-ve5m — the touch color path is the card's `Change color…` row), so
-  // the content start reclaims it: `coarse:pl-4` ≈16px (4px stripe inset + 10px
-  // max stripe width + 2px clearance), funding ~8px of the wider 56px rail.
-  // When the pin icon is wired up, reserve a few extra px on the right so labels
-  // don't run under the icon group.
+  // the physical sidebar edge and carries the 12px hierarchy indent inside its
+  // own left padding, never as a group margin, so the tint/hover/selection
+  // fills span edge-to-edge. The marker well occupies the 22px leftmost strip on BOTH
+  // pointer classes, so the content start is `pl-[30px]` on every pointer —
+  // an 8px gap between the well's right edge (x=22) and the status dot (x=30)
+  // that clears the waiting halo's 3px spread. Right-side reserves only
+  // change on the tail: when the pin icon is wired up, reserve a few extra px
+  // so labels don't run under the icon group.
   const buttonClass = useMemo(() => {
     const rightPad = showPinIcon ? "pr-[68px]" : "pr-11";
     // Coarse reserve (non-ghost rows): the name must truncate before the
@@ -390,22 +599,24 @@ function WindowRowInner({
     // matches STATUS_RAIL_WIDTH_PX — Tailwind scans literal classes only).
     // Inert on fine pointers; ghost rows have no rail and no reserve.
     const coarsePad = ghost ? "" : " coarse:pr-[56px]";
-    // Dense rows on fine pointers (24px); touch keeps the 36px target via the
+    // Dense rows on fine pointers use 24px; touch keeps the 36px target via the
     // `coarse:` variant (context.md § Mobile Responsive Design).
-    const base = `w-full text-left flex items-center justify-between gap-2 py-px pl-[30px] coarse:pl-4 ${rightPad}${coarsePad} text-xs transition-colors min-h-[24px] coarse:min-h-[36px]`;
+    const base = `w-full text-left flex items-center justify-between gap-2 py-px pl-[30px] ${rightPad}${coarsePad} text-xs transition-colors min-h-[24px] coarse:min-h-[36px]`;
     if (isSelected) {
       // Selection = deeper tint (tint.selected / gray sentinel via buttonStyle)
       // + bold + brightened text. No border (removed in the axis split).
       return `${base} text-text-primary font-medium`;
     }
     if (tint) {
-      // Colored non-selected: inline bg via buttonStyle, hover via JS. Held
-      // (flyout open): the text brightening persists off-:hover too.
+      // Colored non-selected: inline bg via buttonStyle. Plain hover brightens
+      // text only — the background stay at tint.base. Held (flyout open): the
+      // text brightening persists off-:hover too.
       return `${base} text-text-secondary hover:text-text-primary${flyout.open ? " text-text-primary" : ""}`;
     }
-    // Uncolored non-selected. Held (flyout open): the hover shade + text
-    // brightening persist while the pointer is on the card (held-row cue).
-    return `${base} text-text-secondary hover:text-text-primary hover:bg-bg-card/50${
+    // Uncolored non-selected. Plain hover brightens text only (no background
+    // shade). Held (flyout open): the shade + text brightening persist while
+    // the pointer is on the card (held-row cue).
+    return `${base} text-text-secondary hover:text-text-primary${
       flyout.open ? " text-text-primary bg-bg-card/50" : ""
     }`;
   }, [tint, isSelected, showPinIcon, ghost, flyout.open]);
@@ -415,7 +626,7 @@ function WindowRowInner({
   // uncolored gray sentinel) into the inset base — derived from the existing
   // tint system, never a new token. While the row's card is OPEN (tap-held or
   // mid-scrub) the rail shows the held treatment — band steps up one shade,
-  // seam brightens (R8); it travels row-to-row with the single-open card.
+  // and seam brightens; it travels row-to-row with the single-open card.
   const railStyle = useMemo(() => {
     if (!coarse || ghost) return undefined;
     const selected = tint?.selected ?? uncoloredSelectedTint?.selected;
@@ -431,26 +642,18 @@ function WindowRowInner({
     return undefined;
   }, [coarse, ghost, isSelected, tint, uncoloredSelectedTint, flyout.open]);
 
-  // ── Left-edge label zone ────────────────────────────────────────────────
-  // On FINE pointers the 26px left of the status dot is ONE target opening the
-  // combined Label picker (colors + marker); on COARSE pointers the interactive
-  // zone + its palette-icon reveal are REMOVED (260817-ve5m — invisible at
-  // rest on touch yet eating ~26px of a narrow drawer; the touch color path is
-  // the card's `Change color…` row) while the DISPLAY-ONLY marker stripe stays
-  // rendered on every pointer (it is information, not an affordance).
-  const labelZoneEnabled = !ghost && !!onColorChange && !!onMarkerChange && !!server;
-  const stripeStyle = markerStripeStyle(marker ?? "", markerColor);
-  const [zoneHover, setZoneHover] = useState(false);
-  const openLabelPicker = (e: React.MouseEvent) => {
-    // Must not select the row and must coexist with drag-reorder.
-    e.stopPropagation();
-    setShowLabelPicker(true);
-  };
-  // Hatch pairs with the STATIC hazard wedge (in-progress / "work zone" cue) —
-  // the marker axis's ONLY texture pairing, never animated in any state. All
-  // other markers are texture-free: the motion split moved the dashed rain and
-  // the double scanlines to the flair axis (rain/scan).
-  const isHatch = marker === "hatch";
+  // ── Marker well ──────────────────────────────────────────────────────────
+  // The left strip (0–22px) is the DISPLAY-ONLY marker well on BOTH pointer
+  // classes: rendered only when the row parses to a marker; drawn flush at
+  // x=0 (12% ink wash + 1px 30%-ink right edge) with the shared fill inside.
+  // The label axis (color + flair) has no left-edge affordance anymore — its
+  // picker opens via the flyout card's `Change color…` row or the
+  // `label-popover:open` palette event (the effect above).
+  // Only `blocked` pairs with the STATIC hazard wedge (in-progress / "work
+  // zone" cue) — the marker axis's ONLY texture pairing, never animated in
+  // any state. manual/auto rows mount no texture. The WELL and the wedge
+  // paint from `displayMarker` so a pad drag live-previews the row.
+  const isBlocked = displayMarker?.mode === "blocked";
 
   return (
     <div
@@ -491,7 +694,7 @@ function WindowRowInner({
       // overlay's pseudos read it via inheritance). See globals.css § scanlines
       // and docs/specs/themes.md.
       className={`relative group${ghost ? " opacity-50 animate-pulse" : ""}`}
-      // The row root is the flyout card's floating REFERENCE (93dy): the card
+      // The row root is the flyout card's floating reference: the card
       // anchors to the whole ROW (placement "right" → the sidebar's right
       // edge), and the reference props wire hover (mouseOnly + safePolygon),
       // keyboard focus (the roving treeitem), and dismiss. Spread FIRST so the
@@ -502,8 +705,9 @@ function WindowRowInner({
       onDragStart={
         dragEnabled && onDragStart
           ? (e) => {
-              // An active touch scrub must not escalate into an HTML5 row drag.
-              if (scrub.scrubActiveRef.current) {
+              // An active touch scrub or an armed/open marker pad must not
+              // escalate into an HTML5 row drag.
+              if (scrub.scrubActiveRef.current || pressRef.current || showMarkerPad) {
                 e.preventDefault();
                 return;
               }
@@ -517,8 +721,8 @@ function WindowRowInner({
       onDrop={dragEnabled && onDrop ? (e) => onDrop(e, srv, session, win.index) : undefined}
       onDragEnd={dragEnabled ? onDragEnd : undefined}
       style={{
-        ...(isHatch
-          ? ({ "--rk-marker-color": markerColor } as React.CSSProperties)
+        ...(isBlocked
+          ? ({ "--rk-marker-color": MARKER_INK } as React.CSSProperties)
           : {}),
         // Bulk-selection treatment (260807-nf9f): a 2px inset accent ring, the
         // same `box-shadow` idiom the session-row drop target uses — it reads as
@@ -534,14 +738,15 @@ function WindowRowInner({
             : {}),
       }}
     >
-      {/* Hazard-wedge overlay for hatch-marker rows (in-progress / "work
+      {/* Hazard-wedge overlay for blocked-marker rows (in-progress / "work
           zone" cue — the marker axis's only texture pairing). A dedicated
           clipped inner element (never the root, whose `top-full` popovers
           must stay unclipped), pointer-events-none, z-5, STATIC in every
           state (rest, hover, selected): no animated twin exists by explicit
           design decision. The wedge reads the `--rk-marker-color` custom
-          property set on the root above. */}
-      {isHatch && (
+          property set on the root above (marker ink — the stage never varies
+          it). */}
+      {isBlocked && (
         <div
           aria-hidden="true"
           className="absolute inset-0 z-[5] overflow-hidden pointer-events-none rk-hazard"
@@ -552,38 +757,77 @@ function WindowRowInner({
           — in EVERY row state (rest, hover, selected). Same overlay discipline
           as the hazard texture above (dedicated clipped inner element, never
           the root, pointer-events-none, z-5) and composes with the color tint
-          and the marker stripe. The row's guarded color rides as `color` so
-          the tinted flairs (rain/scan) match the row's family. Hidden
+          and the marker well. The row's guarded color rides as `color` so the
+          tinted flairs (rain/scan) match the row's family. Hidden
           entirely under prefers-reduced-motion (globals.css § Flair overlays)
           and while this row is the drag source (cube/warp animate transforms
           on child spans — the drag ghost rule). */}
       <FlairOverlay flair={win.flair} hidden={isDragSource} color={markerColor} />
-      {/* Display-only marker stripe (all pointers, incl. coarse — it is
-          information, not an affordance): anchored `STRIPE_EDGE_INSET`px from
-          the sidebar's physical left edge, spanning the former zone's width.
-          pointer-events-none — on coarse there is NO interactive zone beneath
-          it (the touch color path is the card's `Change color…` row). z-10
-          keeps it above the row button bg, below the z-20 label zone's icon. */}
-      {labelZoneEnabled && stripeStyle && (
+      {/* Display-only marker well, rendered on BOTH pointer classes only
+          when the row parses to a marker: flush at x=0, 22px wide, 12%-ink
+          wash + 1px 30%-ink right edge, with the shared fill inside from x=0.
+          Solid/hatch fills weld full-height across stacked rows; chevrons
+          draw a centered glyph row instead. pointer-events-none, z-10 stays
+          above the row button bg. */}
+      {displayMarker && (
         <div
           aria-hidden="true"
-          className="absolute inset-y-0 z-10 pointer-events-none"
-          style={{ left: STRIPE_EDGE_INSET, width: LABEL_ZONE_WIDTH - STRIPE_EDGE_INSET, ...stripeStyle }}
+          data-testid="marker-well"
+          className="absolute inset-y-0 left-0 z-10 pointer-events-none"
+          style={{
+            width: MARKER_WELL_WIDTH,
+            background: MARKER_WELL_BACKGROUND,
+            borderRight: MARKER_WELL_EDGE,
+          }}
+        >
+          {markerFillStyle(displayMarker) && (
+            <span aria-hidden className="absolute inset-y-0 left-0" style={markerFillStyle(displayMarker)} />
+          )}
+          {displayMarker.mode === "auto" && (
+            <span
+              aria-hidden
+              className="absolute inset-y-0 left-0 flex items-center"
+              style={{ width: MARKER_STAGE_WIDTHS[3] }}
+            >
+              <MarkerChevrons count={displayMarker.stage} />
+            </span>
+          )}
+        </div>
+      )}
+      {/* The strip's press target + the pad anchor — FINE pointers only. The
+          strip is an invisible w-[22px] overlay (`markerWired` rows only); the
+          pad anchor carries its popover chrome + the clamp offset. The pad
+          reads the committed value while the preview is held by the row. */}
+      {markerWired && !coarse && (
+        <div
+          ref={stripRef}
+          data-testid="marker-strip"
+          aria-hidden="true"
+          onPointerDown={onStripDown}
+          onPointerMove={onStripMove}
+          onPointerUp={onStripUp}
+          className="absolute inset-y-0 left-0 w-[22px] cursor-pointer z-20"
         />
       )}
-      {/* The interactive label zone is FINE-POINTER-ONLY (260817-ve5m): on
-          coarse it is invisible at rest while consuming ~26px of a narrow
-          drawer, so it and its palette-icon reveal are render-gated off —
-          the stripe above stays. Fine-pointer geometry/behavior unchanged. */}
-      {labelZoneEnabled && !coarse && (
-        <LabelZone
-          markerColor={markerColor}
-          colored={color != null}
-          hover={zoneHover}
-          onEnter={() => setZoneHover(true)}
-          onLeave={() => setZoneHover(false)}
-          onClick={openLabelPicker}
-        />
+      {showMarkerPad && markerWired && (
+        <div
+          ref={padAnchorRef}
+          className="absolute z-50"
+          style={padPosition}
+          data-testid="marker-pad-anchor"
+        >
+          <MarkerPad
+            mode="popover"
+            cellPx={padLayout.cellPx}
+            popoverWidth={padLayout.width}
+            labelPx={padLayout.labelPx}
+            value={parsedMarker}
+            highlight={markerPreview}
+            onPreview={setMarkerPreview}
+            onCommit={padCommit}
+            onCancel={padClose}
+          />
+        </div>
       )}
       <button
         onClick={(e) => {
@@ -611,11 +855,6 @@ function WindowRowInner({
         className={buttonClass}
         style={buttonStyle}
         aria-current={isSelected ? "page" : undefined}
-        onMouseEnter={tint && !isSelected ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = tint.hover; } : undefined}
-        // Held-row cue: while the flyout is open, leaving the row (the pointer
-        // traveling onto the card) must NOT drop the hover shade — the close
-        // re-render restores tint.base via buttonStyle when the card goes.
-        onMouseLeave={tint && !isSelected ? (e) => { if (!flyout.open) (e.currentTarget as HTMLElement).style.backgroundColor = tint.base; } : undefined}
       >
         {/* No `truncate` on this wrapper: the dot's waiting halo is a
             box-shadow that paints OUTSIDE the 7px dot, and `truncate`'s
@@ -630,23 +869,11 @@ function WindowRowInner({
               activity (filled=active, hollow ring=idle). The PR story lives on
               the trailing rest-state glyph, never here. See StatusDot /
               statusDotState.
-              On COARSE pointers the wrapper grows into a proper leading tap
-              zone (≥32×36px, dot centered — the row-cluster touch-target
-              convention; fine-pointer geometry is untouched) carrying
-              `touch-action: none`, and wires the slide-to-scrub gesture (the
-              shared `useRailScrub` trio): pointerdown opens the flyout card
-              (touch has no hover; hover-open is mouseOnly), a captured slide
-              retargets the card across rows, release keeps the last card open.
-              The trailing click only stops propagation, so a tap never selects
-              the row.
-              On fine pointers the wrapper is inert and a dot click selects
-              the row as before. */}
-          <span
-            className="flex items-center shrink-0 coarse:min-w-[32px] coarse:min-h-[36px] coarse:justify-center coarse:touch-none"
-            {...(coarse && !ghost ? scrub.handlers : {})}
-            onClick={coarse && !ghost ? (e) => e.stopPropagation() : undefined}
-            data-testid="status-dot-tap"
-          >
+              The dot is a plain glyph on BOTH pointer classes — no tap zone,
+              no scrub handlers: the 56px status rail is the sole coarse flyout
+              trigger, and a tap on the dot selects the row like everything
+              left of the rail. */}
+          <span className="flex items-center shrink-0" data-testid="status-dot-tap">
             <StatusDot win={win} />
           </span>
           {isEditing ? (
@@ -677,10 +904,11 @@ function WindowRowInner({
             word + durations survive in the row-hover flyout card
             (row-flyout-card.tsx) and the PANE panel's register view. Hover-
             reveal action icons (pin/kill) below are actions, not status. The
-            color affordance lives in the left-edge label zone (hwtr). */}
+            color affordance lives in the card's `Change color…` row and the
+            `Tab: Label` palette action. */}
       </button>
-      {/* Hover-reveal buttons: pin + kill (actions only — the color button moved
-          to the left label zone, hwtr). FINE-POINTER-ONLY: on coarse pointers the
+      {/* Hover-reveal buttons: pin + kill only; color is changed from the card
+          or the `Tab: Label` palette action. FINE-POINTER-ONLY: on coarse pointers the
           whole cluster is not rendered at all — its buttons are fine-only (pin/
           kill live on the flyout card's action rows; an always-visible ✕ per row
           is a fat-finger hazard on a phone), the PR glyph's coarse home is the
@@ -787,15 +1015,13 @@ function WindowRowInner({
           rail exists): a 56px recessed inset band giving the flyout gesture
           a visible, learnable home — ONE continuous strip down the tree,
           shared with the session-row and server-group rails (260817-ve5m).
-          It is the PRIMARY tap/scrub target
-          (the dot's tap zone stays as a secondary target on the SAME shared
-          `useRailScrub` handlers): pointerdown opens the card + captures the
-          pointer, a slide retargets via the shared registry, release keeps
-          the last card. `touch-none` keeps a press-and-slide here from
-          scrolling the drawer; the click stopPropagation keeps a rail tap
-          from selecting the row. Two FIXED slots column-align down the
-          sidebar: a 16px PR-glyph slot (an empty span when the row owns no
-          PR — on coarse the glyph lives HERE, not in the fine-pointer
+          It is the SOLE flyout trigger: pointerdown opens the card +
+          captures the pointer, a slide retargets via the shared registry,
+          release keeps the last card. `touch-none` keeps a press-and-slide
+          here from scrolling the drawer; the click stopPropagation keeps a
+          rail tap from selecting the row. Two FIXED slots column-align down
+          the sidebar: a 16px PR-glyph slot (an empty span when the row owns
+          no PR — on coarse the glyph lives HERE, not in the fine-pointer
           overlay) and a 12px chevron hint on EVERY row (a consistent rail is
           a learnable rail). While this row's card is open the rail carries
           the held treatment (band a shade up, brightened seam — `railStyle`).
@@ -845,21 +1071,19 @@ function WindowRowInner({
           onClose={() => setShowPinPopover(false)}
         />
       )}
-      {showLabelPicker && onColorChange && onMarkerChange && (
-        // Banded Label picker (colors + marker + flair), anchored at the row's
-        // BOTTOM-LEFT (twin of the shipped right-anchored color popover). The
-        // row root stays overflow-free so this `top-full` popover is not
-        // clipped.
+      {showLabelPicker && onColorChange && (
+        // Color + flair picker, anchored at the row's BOTTOM-LEFT. The row
+        // root stays overflow-free so this `top-full` popover is not clipped.
         <div className="absolute left-0 top-full z-50">
           <SwatchPopover
             selectedColor={color}
             rowName={win.name}
             // Selection does NOT close (the picker's dismissal contract) — the
-            // user can toggle color + marker combos and watch the row update
+            // user can toggle color + flair combos and watch the row update
             // live. Dismissal is the picker's ✕ / outside click / Escape.
+            // Markers are NOT part of this picker — they live in the marker
+            // pad (strip press / the card's Marker row / `Tab: Marker`).
             onSelect={(c) => onColorChange(srv, session, win.windowId, c)}
-            selectedMarker={marker}
-            onSelectMarker={(m) => onMarkerChange(srv, session, win.windowId, m === "" ? null : m)}
             selectedFlair={win.flair}
             onSelectFlair={
               onFlairChange
@@ -870,97 +1094,18 @@ function WindowRowInner({
           />
         </div>
       )}
-      {/* Row-hover register flyout card (93dy) — portalled to document.body,
+      {/* Row-hover register flyout card — portalled to document.body,
           mounted ONLY while open (perf contract). */}
       {flyout.card}
     </div>
   );
 }
 
-/** Label-zone geometry (px). The row box is full-bleed (starts at the physical
- *  sidebar edge), so the zone is a plain `left-0` overlay spanning the 26px
- *  left of the status dot at `pl-[30px]` — 4px clear of the zone's inner edge,
- *  so the zone never steals the dot's hover-card/click (must-fix-3). The
- *  marker stripe anchors near-flush at the sidebar edge (`STRIPE_EDGE_INSET`);
- *  the hover palette-icon zone is inset `ICON_EDGE_INSET`px off that edge,
- *  spanning to `ICON_EDGE_INSET + ICON_ZONE_WIDTH` — past the widest (double,
- *  4+6=10px) stripe, so the hover icon sits beside the stripe rather than over
- *  it. The icon keeps an explicit `z-10` (layering below) as a guard for any
- *  residual sub-pixel overlap. */
-const LABEL_ZONE_WIDTH = 26; // full zone: icon home + clearance before the dot
-const ICON_ZONE_WIDTH = 12; // 12px icon zone: home of the hover palette icon
-const ICON_EDGE_INSET = 12; // icon-zone inset off the physical sidebar edge — clears the widest (double, 4+6=10px) marker stripe so the hover icon sits beside it, not over it
-const STRIPE_EDGE_INSET = 4; // stripe inset from the zone's/sidebar's left edge (near-flush per the full-bleed spec)
-
-type LabelZoneProps = {
-  markerColor: string;
-  /** True on colored rows — the palette icon is drawn in the guarded family
-   *  color; false borrows the inherited monochrome token. */
-  colored: boolean;
-  hover: boolean;
-  onEnter: () => void;
-  onLeave: () => void;
-  onClick: (e: React.MouseEvent) => void;
-};
-
-/** The left-edge label zone (hwtr) — FINE POINTERS ONLY (260817-ve5m removed
- *  it on coarse, where it was invisible at rest while consuming ~26px of a
- *  narrow drawer; the touch path to color/marker is the card's
- *  `Change color…` row). The whole 26px left of the status dot is ONE target
- *  that OPENS the combined Label picker (colors + marker). It never cycles and
- *  never selects the row (click stopPropagation lives in `onClick`). A
- *  hover-revealed PaletteIcon in the 12px icon zone + a family-tinted zone
- *  glow make it discoverable (two-stage: row-hover ~65%/12% → zone-hover
- *  100%/24%). The display-only marker stripe is NOT rendered here — it is
- *  hoisted to the row root so it stays on coarse too. The icon zone is inset
- *  `ICON_EDGE_INSET`px off the physical edge (spanning to `ICON_EDGE_INSET +
- *  ICON_ZONE_WIDTH`) so the hover icon clears both the sidebar boundary and
- *  the widest (10px) stripe, sitting beside it (the zone's own `z-20` paints
- *  the icon over the row-level stripe). `cursor: pointer` (menu-opener
- *  semantics). `aria-label` names it for pointer AT users and test selection
- *  (getByLabelText / getByLabel). */
-function LabelZone({ markerColor, colored, hover, onEnter, onLeave, onClick }: LabelZoneProps) {
-  return (
-    <div
-      aria-label="Set tab label"
-      onClick={onClick}
-      onMouseEnter={onEnter}
-      onMouseLeave={onLeave}
-      // z-20 sits above the row-select button (z-10 icon cluster) at the left
-      // edge. The row box is full-bleed, so `left-0` IS the physical sidebar
-      // edge and the whole 26px is one hit target. Cursor pointer = it opens
-      // a menu, not a cycle.
-      className="absolute left-0 top-0 bottom-0 z-20 cursor-pointer"
-      style={{ width: LABEL_ZONE_WIDTH }}
-    >
-      {/* Zone glow: transparent at rest; ~12% family color on ROW hover
-          (group-hover); ~24% when the zone ITSELF is hovered. */}
-      <div
-        className="absolute inset-0 transition-colors opacity-0 group-hover:opacity-100"
-        style={{
-          backgroundColor: `color-mix(in srgb, ${markerColor} ${hover ? 24 : 12}%, transparent)`,
-        }}
-      />
-      {/* Palette icon in the 12px icon zone, inset `ICON_EDGE_INSET`px off the
-          physical sidebar edge — beside (past) the widest marker stripe, not
-          over it; family-tinted on colored rows / inherited monochrome
-          otherwise. Fades in on row hover (~65%) and reaches full opacity when
-          the zone is hovered. */}
-      <div
-        className="absolute inset-y-0 z-10 flex items-center justify-center transition-opacity opacity-0 group-hover:opacity-65"
-        style={{
-          left: ICON_EDGE_INSET,
-          width: ICON_ZONE_WIDTH,
-          color: colored ? markerColor : undefined,
-          ...(hover ? { opacity: 1 } : {}),
-        }}
-        aria-hidden="true"
-      >
-        <PaletteIcon size={11} />
-      </div>
-    </div>
-  );
-}
+/** Marker well width (px). The well occupies the row's flush leftmost strip
+ *  (x=0–22) on every pointer class; the row's content start (`pl-[30px]`)
+ *  holds an 8px gap off its right edge so the status dot's waiting halo
+ *  (3px spread) never overlaps the well. */
+const MARKER_WELL_WIDTH = 22;
 
 /** Memoized window row. Re-renders only when its own props change identity —
  *  an SSE tick on an unrelated server, or the per-second clock tick (now scoped

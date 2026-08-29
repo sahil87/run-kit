@@ -191,7 +191,9 @@ func TestCaptureRestoreRoundTripLiveTmux(t *testing.T) {
 		t.Fatalf("show restored window options: %v\n%s", optsErr, optsOut)
 	}
 	opts := string(optsOut)
-	for _, want := range []string{"@rk_win_role operator", "@rk_win_marker solid",
+	// The marker was set with the flat pre-mode:stage token "solid" — capture normalizes
+	// it on read (NormalizeMarker), so restore replays the current vocabulary.
+	for _, want := range []string{"@rk_win_role operator", "@rk_win_marker manual:1",
 		"@rk_win_layout split-h:tty,web", "@rk_win_web_1 /proxy/1/", "@rk_win_web_1_root /r1",
 		"@rk_win_web_2 /present/@9/2/a.html?server=s&v=1", "@rk_win_web_3 https://x/",
 		"@rk_win_web_3_root /r3", "@rk_win_web_active 2", "@rk_win_code_root /w"} {

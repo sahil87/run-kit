@@ -82,9 +82,10 @@ function renderRow(win: WindowInfo) {
 }
 
 /** Render with `server` and `onColorChange` wired so the right-cluster action
- *  icons (pin / kill) exist in the DOM. The color affordance moved to the left
- *  label zone (hwtr); `onMarkerChange` is intentionally NOT wired here so the
- *  label zone does not mount for these right-cluster hardening checks. */
+ *  icons (pin / kill) exist in the DOM. The color affordance lives in the flyout
+ *  card's `Change color…` row, not in the right cluster; `onMarkerChange` is
+ *  intentionally NOT wired here so the marker strip's press target does not
+ *  mount for these right-cluster hardening checks. */
 function renderRowWithIcons(win: WindowInfo) {
   return render(
     <WindowRow
@@ -673,8 +674,8 @@ describe("WindowRow", () => {
       renderRowWithIcons(win);
       const pin = screen.getByLabelText("Pin my-shell to a board");
       const kill = screen.getByLabelText("Kill tab my-shell");
-      // The color button moved to the left label zone (hwtr) — the right cluster
-      // is actions-only now (pin + kill).
+      // The color action lives in the flyout card, never in the right cluster —
+      // the cluster is actions-only (pin + kill).
       expect(screen.queryByLabelText("Set color for my-shell")).toBeNull();
       for (const btn of [pin, kill]) {
         expect(btn.className).toContain("opacity-0");
@@ -936,10 +937,9 @@ describe("WindowRow", () => {
     });
   });
 
-  // ── Axis split (260718-3prk) + left-edge label zone (hwtr): selection =
-  // tint depth + typography (no border); active-board cue on the pin glyph; the
-  // 26px left-edge zone opens the combined Label picker (no cycling). ──
-  describe("axis split + label zone: selection, pin-glyph cue, label picker", () => {
+  // Marker well + pad: selection remains tint depth + typography, while the
+  // fixed-ink marker occupies the flush 22px well and owns its own gesture.
+  describe("axis split + marker well and pad", () => {
     const rowTints = computeRowTints(DEFAULT_DARK_THEME.palette);
     const rowBorders = computeRowBorders(DEFAULT_DARK_THEME.palette, DEFAULT_DARK_THEME.category);
 
@@ -951,11 +951,11 @@ describe("WindowRow", () => {
     });
 
     /** Render with the axis-split props wired (color, marker, tint/border maps,
-     *  server + onColorChange + onMarkerChange so the label zone mounts). The
+     *  server + onColorChange + onMarkerChange so the marker pad mounts). The
      *  row reads `color` and `marker` as PROPS (the real sidebar passes
      *  `color={win.color}` / `marker={win.marker}`), so mirror that here. Wrapped
-     *  in ThemeProvider so the combined Label picker (SwatchPopover → useTheme)
-     *  can mount when the zone is clicked. */
+     *  in ThemeProvider so the color + flair picker can mount from its
+     *  CustomEvent/card paths. */
     function renderAxis(win: WindowInfo, extra: Partial<React.ComponentProps<typeof WindowRow>> = {}) {
       return render(
         <ThemeProvider>
@@ -976,6 +976,7 @@ describe("WindowRow", () => {
             onRenameBlur={noop}
             onKillClick={noop}
             onColorChange={noop}
+            onFlairChange={noop}
             onMarkerChange={noop}
             rowTints={rowTints}
             rowBorders={rowBorders}
@@ -1023,93 +1024,115 @@ describe("WindowRow", () => {
       expect(pin.className).toContain("text-text-secondary");
     });
 
-    it("renders the label zone (cursor pointer) on fine pointers when the write seams are wired", () => {
-      const win = makeWindow({ windowId: "@0", index: 0 });
-      renderAxis(win);
-      // The 26px left-edge zone OPENS the picker — a menu-opener, so `pointer`
-      // (not the old `cell` cursor). Fine-pointer-only since 260817-ve5m (the
-      // coarse pointer path is the card's `Change color…` row).
-      const zone = screen.getByLabelText("Set tab label");
-      expect(zone.className).toContain("cursor-pointer");
-      expect(zone.className).not.toContain("cursor-[cell]");
-    });
-
-    it("clicking the label zone opens the picker and does NOT select the row (no cycling)", () => {
-      const win = makeWindow({ windowId: "@0", index: 0, marker: "dotted", color: "orange" });
-      const onMarkerChange = vi.fn();
-      const onSelectWindow = vi.fn();
-      renderAxis(win, { onMarkerChange, onSelectWindow });
-      act(() => { screen.getByLabelText("Set tab label").click(); });
-      // The click opens the combined Label picker (a listbox), it does NOT cycle
-      // the marker and does NOT select the row (stopPropagation).
-      expect(screen.getByRole("listbox", { name: "Label picker" })).toBeInTheDocument();
-      expect(onMarkerChange).not.toHaveBeenCalled();
-      expect(onSelectWindow).not.toHaveBeenCalled();
-    });
-
-    it("picking a marker cell in the opened picker writes the EXACT state (no cycling)", () => {
-      const win = makeWindow({ windowId: "@0", index: 0, marker: "dotted", color: "orange" });
-      const onMarkerChange = vi.fn();
-      renderAxis(win, { onMarkerChange });
-      act(() => { screen.getByLabelText("Set tab label").click(); });
-      // Pick "double" directly — the write is the picked state, not a cycle step.
-      act(() => { screen.getByRole("option", { name: "Marker double" }).click(); });
-      expect(onMarkerChange).toHaveBeenCalledWith("srv", "alpha", "@0", "double");
-    });
-
-    it("picking the 'none' marker cell clears the marker (null)", () => {
-      const win = makeWindow({ windowId: "@0", index: 0, marker: "double", color: "orange" });
-      const onMarkerChange = vi.fn();
-      renderAxis(win, { onMarkerChange });
-      act(() => { screen.getByLabelText("Set tab label").click(); });
-      act(() => { screen.getByRole("option", { name: "Marker none" }).click(); });
-      // The row maps the empty marker state to null for the clear write.
-      expect(onMarkerChange).toHaveBeenCalledWith("srv", "alpha", "@0", null);
-    });
-
-    it("picking a color in the opened picker writes via the legacy vocabulary seam", () => {
-      const win = makeWindow({ windowId: "@0", index: 0, color: "orange" });
-      const onColorChange = vi.fn();
-      renderAxis(win, { onColorChange });
-      act(() => { screen.getByLabelText("Set tab label").click(); });
-      // Picking "green" emits the legacy descriptor "2" (familyToLegacy seam).
-      act(() => { screen.getByRole("option", { name: "Color green" }).click(); });
-      expect(onColorChange).toHaveBeenCalledWith("srv", "alpha", "@0", "2");
-    });
-
-    it("picking markers/colors keeps the Label picker OPEN (live toggling); the ✕ cell closes it", () => {
-      const win = makeWindow({ windowId: "@0", index: 0, color: "orange" });
-      const onColorChange = vi.fn();
-      const onMarkerChange = vi.fn();
-      renderAxis(win, { onColorChange, onMarkerChange });
-      act(() => { screen.getByLabelText("Set tab label").click(); });
-      // Toggle a marker AND a color — the picker stays open through both, so
-      // combos can be compared live against the row.
-      act(() => { screen.getByRole("option", { name: "Marker double" }).click(); });
-      act(() => { screen.getByRole("option", { name: "Color green" }).click(); });
-      expect(onMarkerChange).toHaveBeenCalledTimes(1);
-      expect(onColorChange).toHaveBeenCalledTimes(1);
-      expect(screen.getByRole("listbox", { name: "Label picker" })).toBeInTheDocument();
-      // The explicit dismiss is the ✕ cell (outside click and Escape also work).
-      act(() => { screen.getByLabelText("Close picker").click(); });
-      expect(screen.queryByRole("listbox", { name: "Label picker" })).toBeNull();
-    });
-
-    it("markers carry NO row motion — dashed/double rows mount no rain/scanline overlay (the motion split moved both to the flair axis)", () => {
-      for (const marker of ["dashed", "double", "thick", "solid", "dotted"]) {
-        const win = makeWindow({ windowId: "@0", index: 0, color: "green", marker });
-        const { container, unmount } = renderAxis(win, { isSelected: true });
-        expect(container.querySelector(".rk-dash-rain")).toBeNull();
-        expect(container.querySelector("[class*='rk-scanlines']")).toBeNull();
-        // No marker texture var leaks onto the root for non-hatch markers.
-        const row = container.querySelector('[data-window-id="@0"]') as HTMLElement;
-        expect(row.style.getPropertyValue("--rk-marker-color")).toBe("");
+    it("renders the flush 22px well only for valid markers, with shared mode/stage fills", () => {
+      const cases = [
+        { marker: "manual:1", width: "7px", fill: "solid", paths: 0 },
+        { marker: "blocked:2", width: "15px", fill: "hatch", paths: 0 },
+        { marker: "auto:3", width: "", fill: "chevrons", paths: 3 },
+      ];
+      for (const { marker, width, fill, paths } of cases) {
+        const { unmount } = renderAxis(makeWindow({ windowId: "@0", index: 0, marker }));
+        const well = screen.getByTestId("marker-well");
+        expect(well.className).toContain("left-0");
+        expect(well.className).toContain("pointer-events-none");
+        expect(well.style.width).toBe("22px");
+        expect(well.style.background).toContain("var(--color-marker-ink) 12%");
+        expect(well.style.borderRight).toContain("var(--color-marker-ink) 30%");
+        const renderedFill = well.querySelector(":scope > span") as HTMLElement | null;
+        if (fill === "chevrons") {
+          expect(well.querySelectorAll("path")).toHaveLength(paths);
+        } else {
+          expect(renderedFill?.style.width).toBe(width);
+          if (fill === "solid") expect(renderedFill?.style.background).toBe("var(--color-marker-ink)");
+          if (fill === "hatch") expect(renderedFill?.style.backgroundImage).toContain("linear-gradient(45deg");
+        }
         unmount();
       }
+
+      renderAxis(makeWindow({ windowId: "@1", index: 1 }));
+      expect(screen.queryByTestId("marker-well")).toBeNull();
     });
 
-    it("the rain is a FLAIR now: a dashed row with flair rain mounts the tinted rk-flair-rain overlay", () => {
-      const win = makeWindow({ windowId: "@0", index: 0, color: "green", marker: "dashed", flair: "rain" });
+    it("press-drag-release live-previews and commits the relative stage cell without selecting the row", () => {
+      const onMarkerChange = vi.fn();
+      const onSelectWindow = vi.fn();
+      renderAxis(makeWindow({ marker: "manual:1" }), { onMarkerChange, onSelectWindow });
+      const strip = screen.getByTestId("marker-strip");
+
+      act(() => {
+        fireEvent.pointerDown(strip, { pointerId: 1, clientX: 4, clientY: 10 });
+        fireEvent.pointerMove(strip, { pointerId: 1, clientX: 30, clientY: 10 });
+      });
+      expect(screen.getByTestId("marker-pad-header")).toHaveTextContent("manual · mid");
+      const fill = screen.getByTestId("marker-well").querySelector(":scope > span") as HTMLElement;
+      expect(fill.style.width).toBe("15px");
+
+      act(() => {
+        fireEvent.pointerUp(strip, { pointerId: 1, clientX: 30, clientY: 10 });
+      });
+      expect(onMarkerChange).toHaveBeenCalledWith("srv", "alpha", "@0", "manual:2");
+      expect(onSelectWindow).not.toHaveBeenCalled();
+      expect(screen.queryByTestId("marker-pad")).toBeNull();
+    });
+
+    it("a no-move release leaves the click menu open; hover previews and Escape reverts", () => {
+      const onMarkerChange = vi.fn();
+      renderAxis(makeWindow({ marker: "manual:1" }), { onMarkerChange });
+      const strip = screen.getByTestId("marker-strip");
+      act(() => {
+        fireEvent.pointerDown(strip, { pointerId: 1, clientX: 4, clientY: 10 });
+        fireEvent.pointerUp(strip, { pointerId: 1, clientX: 4, clientY: 10 });
+      });
+      expect(onMarkerChange).not.toHaveBeenCalled();
+      expect(screen.getByTestId("marker-pad")).toBeInTheDocument();
+
+      act(() => {
+        fireEvent.mouseEnter(screen.getByTestId("marker-pad-cell-blocked-3"));
+      });
+      expect(screen.getByTestId("marker-well").parentElement?.querySelector(".rk-hazard")).toBeTruthy();
+      act(() => {
+        fireEvent.keyDown(screen.getByTestId("marker-pad"), { key: "Escape" });
+      });
+      expect(screen.queryByTestId("marker-pad")).toBeNull();
+      expect(screen.getByTestId("marker-well").parentElement?.querySelector(".rk-hazard")).toBeNull();
+      expect(onMarkerChange).not.toHaveBeenCalled();
+    });
+
+    it("wheel steps marked rows only and leaves an unmarked row's scroll untouched", () => {
+      const onMarkerChange = vi.fn();
+      renderAxis(makeWindow({ marker: "auto:2" }), { onMarkerChange });
+      const markedEvent = new WheelEvent("wheel", { deltaY: 1, bubbles: true, cancelable: true });
+      act(() => screen.getByTestId("marker-strip").dispatchEvent(markedEvent));
+      expect(onMarkerChange).toHaveBeenCalledWith("srv", "alpha", "@0", "auto:3");
+
+      cleanup();
+      const onUnmarkedChange = vi.fn();
+      renderAxis(makeWindow({ marker: "" }), { onMarkerChange: onUnmarkedChange });
+      const unmarkedEvent = new WheelEvent("wheel", { deltaY: 1, bubbles: true, cancelable: true });
+      act(() => screen.getByTestId("marker-strip").dispatchEvent(unmarkedEvent));
+      expect(unmarkedEvent.defaultPrevented).toBe(false);
+      expect(onUnmarkedChange).not.toHaveBeenCalled();
+    });
+
+    it("only a vertical wheel steps: deltaY 0 (a horizontal scroll) passes through", () => {
+      const onMarkerChange = vi.fn();
+      renderAxis(makeWindow({ marker: "auto:2" }), { onMarkerChange });
+      const strip = screen.getByTestId("marker-strip");
+
+      const sideways = new WheelEvent("wheel", { deltaX: 40, deltaY: 0, bubbles: true, cancelable: true });
+      act(() => strip.dispatchEvent(sideways));
+      expect(sideways.defaultPrevented).toBe(false);
+      expect(onMarkerChange).not.toHaveBeenCalled();
+
+      // A negative deltaY still steps back — the direction split is > 0 / < 0.
+      const up = new WheelEvent("wheel", { deltaY: -1, bubbles: true, cancelable: true });
+      act(() => strip.dispatchEvent(up));
+      expect(up.defaultPrevented).toBe(true);
+      expect(onMarkerChange).toHaveBeenCalledWith("srv", "alpha", "@0", "auto:1");
+    });
+
+    it("flair animation remains independent from the marker axis", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, color: "green", marker: "manual:1", flair: "rain" });
       const { container } = renderAxis(win);
       const overlay = container.querySelector(".rk-flair-rain") as HTMLElement;
       expect(overlay).toBeTruthy();
@@ -1119,41 +1142,33 @@ describe("WindowRow", () => {
       expect(overlay.style.getPropertyValue("--rk-flair-color")).not.toBe("");
     });
 
-    it("a hatch-marker row gets the static hazard-wedge overlay (clipped inner element, NOT the root) + marker color var", () => {
-      const win = makeWindow({ windowId: "@0", index: 0, color: "green", marker: "hatch" });
+    it("blocked markers alone get the static hazard wedge in fixed marker ink", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, color: "green", marker: "blocked:2" });
       const { container } = renderAxis(win);
       const row = container.querySelector('[data-window-id="@0"]') as HTMLElement;
-      // The clip lives on a dedicated inner element so the root stays free to
-      // overflow for the `top-full` popovers — the root carries NEITHER the
-      // hazard class NOR overflow-hidden.
       expect(row.className).not.toContain("rk-hazard");
       expect(row.className).not.toContain("overflow-hidden");
       const overlay = row.querySelector(".rk-hazard") as HTMLElement;
       expect(overlay).toBeTruthy();
       expect(overlay.className).toContain("overflow-hidden");
       expect(overlay.className).toContain("pointer-events-none");
-      // The marker color rides on the ROOT (the overlay's ::before inherits it).
-      expect(row.style.getPropertyValue("--rk-marker-color")).not.toBe("");
+      expect(row.style.getPropertyValue("--rk-marker-color")).toBe("var(--color-marker-ink)");
+
+      cleanup();
+      for (const marker of ["manual:2", "auto:2"]) {
+        const { container: next, unmount } = renderAxis(makeWindow({ windowId: "@1", index: 1, marker }));
+        expect(next.querySelector(".rk-hazard")).toBeNull();
+        expect((next.querySelector('[data-window-id="@1"]') as HTMLElement).style.getPropertyValue("--rk-marker-color")).toBe("");
+        unmount();
+      }
     });
 
     it("the hazard wedge is STATIC in every state — no animation class even when selected", () => {
-      const win = makeWindow({ windowId: "@0", index: 0, color: "green", marker: "hatch" });
+      const win = makeWindow({ windowId: "@0", index: 0, color: "green", marker: "blocked:3" });
       const { container } = renderAxis(win, { isSelected: true });
       const overlay = container.querySelector(".rk-hazard") as HTMLElement;
       expect(overlay).toBeTruthy();
-      // No animated twin exists for hatch (explicit design decision) — a
-      // selected hatch row renders exactly the same static overlay.
       expect(overlay.className).not.toContain("crawl");
-    });
-
-    it("non-hatch rows render no hazard overlay (thick went quiet, double released its scanlines)", () => {
-      for (const marker of ["thick", "double", "dashed", "solid"]) {
-        const win = makeWindow({ windowId: "@0", index: 0, marker });
-        const { container, unmount } = renderAxis(win);
-        const row = container.querySelector('[data-window-id="@0"]') as HTMLElement;
-        expect(row.querySelector(".rk-hazard")).toBeNull();
-        unmount();
-      }
     });
 
     it("the Window: Label palette action (label-popover:open) opens this row's picker", () => {
@@ -1170,26 +1185,18 @@ describe("WindowRow", () => {
       expect(screen.getByRole("listbox", { name: "Label picker" })).toBeInTheDocument();
     });
 
-    it("dashed and thick stripes render display-only at the row's left edge", () => {
-      const dashed = makeWindow({ windowId: "@0", index: 0, marker: "dashed", color: "orange" });
-      const { unmount } = renderAxis(dashed);
-      // The stripe is hoisted to the ROW ROOT (260817-ve5m) so it stays
-      // rendered on coarse pointers, where the interactive zone is gone.
-      let row = document.querySelector('[data-window-id="@0"]') as HTMLElement;
-      // Dashed: a fixed-rhythm one-period gradient tile (element-height
-      // independent), not a border.
-      const dashedStripe = row.querySelector('[style*="background-image"]') as HTMLElement | null;
-      expect(dashedStripe).not.toBeNull();
-      expect(dashedStripe!.style.backgroundSize).toBe("3px 12px");
-      expect(dashedStripe!.style.backgroundRepeat).toBe("repeat-y");
-      unmount();
-      const thick = makeWindow({ windowId: "@1", index: 1, marker: "thick", color: "orange" });
-      renderAxis(thick);
-      row = document.querySelector('[data-window-id="@1"]') as HTMLElement;
-      const thickStripe = row.querySelector('[style*="border-left"]') as HTMLElement | null;
-      expect(thickStripe).not.toBeNull();
-      // Thick = 6px continuous solid bar.
-      expect(thickStripe!.style.borderLeft).toContain("6px solid");
+    it("the Window: Marker palette action opens this row's pad", () => {
+      renderAxis(makeWindow({ windowId: "@0", index: 0, marker: "auto:1" }));
+      expect(screen.queryByTestId("marker-pad")).toBeNull();
+      act(() => {
+        document.dispatchEvent(
+          new CustomEvent("marker-pad:open", {
+            detail: { server: "srv", windowId: "@0" },
+          }),
+        );
+      });
+      expect(screen.getByTestId("marker-pad")).toBeInTheDocument();
+      expect(screen.getByTestId("marker-pad-cell-auto-1")).toHaveAttribute("aria-selected", "true");
     });
 
     it("ghost rows get no label zone", () => {
@@ -1217,44 +1224,23 @@ describe("WindowRow", () => {
       expect(screen.queryByLabelText("Set tab label")).toBeNull();
     });
 
-    it("renders the display-only marker stripe for the current state (no ghost/next preview)", () => {
-      const win = makeWindow({ windowId: "@0", index: 0, marker: "solid", color: "orange" });
+    it("never restores the retired label-zone affordance on a marked row", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, marker: "manual:2", color: "orange" });
       const { container } = renderAxis(win);
-      const zone = screen.getByLabelText("Set tab label");
-      // The stripe is a display-only ROW-LEVEL element (hoisted out of the
-      // zone in 260817-ve5m so it survives the zone's coarse removal) with a
-      // left border in the guarded color; it anchors near-flush at the
-      // sidebar's left edge.
-      const row = container.querySelector('[data-window-id="@0"]') as HTMLElement;
-      const stripe = row.querySelector('[style*="border-left"]') as HTMLElement | null;
-      expect(stripe).not.toBeNull();
-      expect(stripe!.style.borderLeft).toContain("solid");
-      // Display-only — never a click target.
-      expect(stripe!.className).toContain("pointer-events-none");
-      // Edge-anchored: a small 4px inset from the sidebar edge (full-bleed
-      // rows), not the old 17px post-icon-zone placement.
-      expect(stripe!.style.left).toBe("4px");
-      // No next-state ghost preview element exists anymore, and the zone
-      // itself no longer carries a stripe.
-      expect(row.querySelectorAll('[style*="border-left"]').length).toBe(1);
-      expect(zone.querySelector('[style*="border-left"]')).toBeNull();
-      // Container must not be present twice (single zone).
-      expect(container.querySelectorAll('[aria-label="Set tab label"]').length).toBe(1);
+      expect(screen.queryByLabelText("Set tab label")).toBeNull();
+      expect(container.querySelectorAll('[data-testid="marker-well"]')).toHaveLength(1);
+      expect(container.querySelectorAll('[data-testid="marker-strip"]')).toHaveLength(1);
     });
 
-    it("hover palette-icon container is inset off the physical sidebar edge", () => {
-      const win = makeWindow({ windowId: "@0", index: 0, marker: "solid", color: "orange" });
-      renderAxis(win);
-      const zone = screen.getByLabelText("Set tab label");
-      // The icon container is the zone's only aria-hidden child (the glow and
-      // stripe carry no aria-hidden).
-      const icon = zone.querySelector('[aria-hidden="true"]') as HTMLElement | null;
-      expect(icon).not.toBeNull();
-      // Inset ICON_EDGE_INSET (12px) off the sidebar edge — past the widest
-      // (double) stripe's 10px right edge — with the 12px icon-zone width
-      // unchanged, so the hover icon sits beside the stripe, not over it.
-      expect(icon!.style.left).toBe("12px");
-      expect(icon!.style.width).toBe("12px");
+    it("hover leaves a colored row's background tint unchanged", () => {
+      const { container } = renderAxis(makeWindow({ windowId: "@0", index: 0, color: "orange" }));
+      const row = container.querySelector('[data-window-id="@0"]') as HTMLElement;
+      const button = row.querySelector("button") as HTMLElement;
+      const before = button.style.backgroundColor;
+      act(() => fireEvent.mouseEnter(row));
+      expect(button.style.backgroundColor).toBe(before);
+      act(() => fireEvent.mouseLeave(row));
+      expect(button.style.backgroundColor).toBe(before);
     });
   });
 });
@@ -1361,122 +1347,22 @@ describe("coarse pointer: rest glyph, relocated cluster, tap zone + scrub (ys3q)
     expect(screen.getByLabelText("Kill tab my-shell")).toBeInTheDocument();
   });
 
-  it("grows the dot tap zone with coarse-only touch-target classes; fine-pointer geometry untouched", () => {
-    renderRow(makeWindow({ windowId: "@0", index: 0 }));
+  it("keeps the status dot a plain glyph on coarse pointers", () => {
+    renderCoarseRow(makeWindow({ windowId: "@0", index: 0 }));
     const zone = screen.getByTestId("status-dot-tap");
-    expect(zone.className).toContain("coarse:min-w-[32px]");
-    expect(zone.className).toContain("coarse:min-h-[36px]");
-    expect(zone.className).toContain("coarse:justify-center");
-    expect(zone.className).toContain("coarse:touch-none");
-    // The base geometry stays shrink-wrapped — every added class is
-    // coarse:-prefixed, so a fine pointer sees today's layout.
-    expect(zone.className).toContain("flex items-center shrink-0");
-    expect(zone.className).not.toMatch(/(?:^| )min-w-/);
+    expect(zone.className).toBe("flex items-center shrink-0");
+    expect(zone.className).not.toContain("touch-none");
   });
 
-  it("pointerdown on the tap zone opens the flyout card; the tap never selects the row and release keeps the card", () => {
+  it("clicking the status dot selects the row and never opens the coarse card", () => {
     const onSelectWindow = vi.fn();
     renderCoarseRow(makeWindow({ windowId: "@0", index: 0, name: "my-shell" }), { onSelectWindow });
     const zone = screen.getByTestId("status-dot-tap");
     act(() => {
-      fireEvent.pointerDown(zone, { pointerId: 1, pointerType: "touch" });
-    });
-    expect(screen.getByTestId("row-flyout-card")).toBeInTheDocument();
-    expect(onSelectWindow).not.toHaveBeenCalled();
-    // The tap's trailing click is stopPropagation'd (no selection), and the
-    // release leaves the card open (dismissal is the outside-press path).
-    act(() => {
-      fireEvent.pointerUp(zone, { pointerId: 1, pointerType: "touch" });
       fireEvent.click(zone);
     });
-    expect(onSelectWindow).not.toHaveBeenCalled();
-    expect(screen.getByTestId("row-flyout-card")).toBeInTheDocument();
-  });
-
-  it("a captured slide retargets the single-open card across rows; non-row elements leave it open; release keeps it", () => {
-    mockCoarsePointer();
-    const rowProps = {
-      session: "alpha",
-      isSelected: false,
-      isDragOver: false,
-      editingWindow: null,
-      editingName: "",
-      inputRef: { current: null },
-      onSelectWindow: noop,
-      onStartEditing: noop,
-      onWindowNameChange: noop,
-      onRenameKeyDown: noop as React.KeyboardEventHandler<HTMLInputElement>,
-      onRenameBlur: noop,
-      onKillClick: noop,
-      server: "srv",
-    };
-    render(
-      <>
-        <WindowRow
-          {...rowProps}
-          win={makeWindow({ windowId: "@1", index: 0, name: "win-a", fabChange: "260816-aaaa-x", fabStage: "apply", fabDisplayState: "active" })}
-        />
-        <WindowRow {...rowProps} win={makeWindow({ windowId: "@2", index: 1, name: "win-b" })} />
-      </>,
-    );
-    const rows = screen.getAllByRole("treeitem");
-    const zoneA = rows[0].querySelector('[data-testid="status-dot-tap"]')!;
-    act(() => {
-      fireEvent.pointerDown(zoneA, { pointerId: 1, pointerType: "touch" });
-    });
-    expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Tab @1");
-
-    // jsdom has no elementFromPoint — stub the scrub's hit-test seam.
-    const elFromPoint = vi.fn();
-    (document as Document & { elementFromPoint?: unknown }).elementFromPoint = elFromPoint;
-    try {
-      // Finger over row B → the card retargets (single open card).
-      elFromPoint.mockReturnValue(rows[1].querySelector("button"));
-      act(() => {
-        fireEvent.pointerMove(zoneA, { pointerId: 1, clientX: 5, clientY: 5 });
-      });
-      expect(screen.getAllByTestId("row-flyout-card")).toHaveLength(1);
-      expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Tab @2");
-
-      // Finger over a non-row element → no flicker-close.
-      elFromPoint.mockReturnValue(document.body);
-      act(() => {
-        fireEvent.pointerMove(zoneA, { pointerId: 1, clientX: 5, clientY: 6 });
-      });
-      expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Tab @2");
-
-      // Release keeps the last card open.
-      act(() => {
-        fireEvent.pointerUp(zoneA, { pointerId: 1, pointerType: "touch" });
-      });
-      expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("Tab @2");
-    } finally {
-      delete (document as { elementFromPoint?: unknown }).elementFromPoint;
-    }
-  });
-
-  it("an active scrub suppresses HTML5 dragstart; a normal drag works after release", () => {
-    const onDragStart = vi.fn();
-    renderCoarseRow(makeWindow({ windowId: "@0", index: 0, name: "my-shell" }), {
-      draggable: true,
-      onDragStart,
-    });
-    const root = screen.getByRole("treeitem");
-    const zone = screen.getByTestId("status-dot-tap");
-    act(() => {
-      fireEvent.pointerDown(zone, { pointerId: 1, pointerType: "touch" });
-    });
-    act(() => {
-      fireEvent.dragStart(root);
-    });
-    expect(onDragStart).not.toHaveBeenCalled();
-    act(() => {
-      fireEvent.pointerUp(zone, { pointerId: 1, pointerType: "touch" });
-    });
-    act(() => {
-      fireEvent.dragStart(root);
-    });
-    expect(onDragStart).toHaveBeenCalledTimes(1);
+    expect(onSelectWindow).toHaveBeenCalledWith("srv", "alpha", "@0");
+    expect(screen.queryByTestId("row-flyout-card")).toBeNull();
   });
 
   it("ghost rows wire no scrub — pointerdown on the zone opens nothing", () => {
@@ -1667,9 +1553,9 @@ describe("coarse pointer: rest glyph, relocated cluster, tap zone + scrub (ys3q)
       }
     });
 
-    // Held-rail highlight (260817-ve5m R8): while the row's card is open its
-    // rail lightens (band a shade up + brightened seam); at rest the plain
-    // band. Keyed on the row-local flyout open state.
+    // Held-rail highlight: while the row's card is open its rail lightens
+    // (band a shade up + brightened seam); at rest the plain band. Keyed on
+    // the row-local flyout open state.
     it("lightens the rail (band + seam) only while the row's card is open", () => {
       renderCoarseRow(makeWindow({ windowId: "@0", index: 0, name: "my-shell" }));
       const rail = screen.getByTestId("status-rail");
@@ -1699,9 +1585,9 @@ describe("coarse pointer: rest glyph, relocated cluster, tap zone + scrub (ys3q)
     });
   });
 
-  // Coarse left-zone reclaim (260817-ve5m R3): the interactive label zone +
-  // its palette-icon reveal are desktop-only; the display-only marker stripe
-  // (and the row overlays) stay; the content start reclaims the zone's width.
+  // Coarse left zone: no interactive strip target mounts on coarse pointers;
+  // the display-only marker well (and the row overlays) still render, and the
+  // content start is the same 30px as on fine pointers.
   describe("coarse left-zone reclaim", () => {
     /** Coarse + dark-scheme stub — the Label picker (SwatchPopover → useTheme)
      *  needs the color-scheme query answered too. */
@@ -1742,6 +1628,7 @@ describe("coarse pointer: rest glyph, relocated cluster, tap zone + scrub (ys3q)
             onRenameBlur={noop}
             onKillClick={noop}
             onColorChange={noop}
+            onFlairChange={noop}
             onMarkerChange={noop}
             rowTints={computeRowTints(DEFAULT_DARK_THEME.palette)}
             rowBorders={computeRowBorders(DEFAULT_DARK_THEME.palette, DEFAULT_DARK_THEME.category)}
@@ -1752,67 +1639,70 @@ describe("coarse pointer: rest glyph, relocated cluster, tap zone + scrub (ys3q)
       );
     }
 
-    it("no interactive zone or icon reveal on coarse; the display-only stripe stays; content starts at ≈16px", () => {
-      const win = makeWindow({ windowId: "@0", index: 0, name: "my-shell", marker: "solid", color: "orange" });
+    it("keeps the same marker well and row geometry on coarse pointers", () => {
+      const win = makeWindow({ windowId: "@0", index: 0, name: "my-shell", marker: "blocked:2", color: "orange" });
       renderCoarseAxis(win);
-      // The interactive zone + its reveal are gone from the DOM on coarse.
       expect(screen.queryByLabelText("Set tab label")).toBeNull();
-      // The display-only stripe REMAINS (information, not an affordance),
-      // pointer-events-none, anchored at the 4px inset.
       const row = screen.getByRole("treeitem");
-      const stripe = row.querySelector('[style*="border-left"]') as HTMLElement | null;
-      expect(stripe).not.toBeNull();
-      expect(stripe!.className).toContain("pointer-events-none");
-      expect(stripe!.style.left).toBe("4px");
-      // Coarse rows mount the same static overlays: a hatch row still carries
-      // its hazard wedge (and dashed rows carry no rain anywhere — the motion
-      // split).
-      cleanup();
-      mockCoarseDark();
-      renderCoarseAxis(makeWindow({ windowId: "@1", index: 1, marker: "hatch", color: "orange" }));
-      expect(screen.getByRole("treeitem").querySelector(".rk-hazard")).toBeTruthy();
-      cleanup();
-      mockCoarseDark();
-      renderCoarseAxis(makeWindow({ windowId: "@1", index: 1, marker: "dashed", color: "orange" }));
-      expect(screen.getByRole("treeitem").querySelector(".rk-dash-rain")).toBeNull();
-    });
-
-    it("splits the content start: fine pointers keep pl-[30px], coarse reclaims to pl-4", () => {
-      renderCoarseAxis(makeWindow({ windowId: "@0", index: 0, name: "my-shell" }));
-      const button = screen.getByRole("treeitem").querySelector("button")!;
+      const well = screen.getByTestId("marker-well");
+      expect(well.className).toContain("left-0");
+      expect(well.style.width).toBe("22px");
+      expect(row.querySelector(".rk-hazard")).toBeTruthy();
+      expect(screen.queryByTestId("marker-strip")).toBeNull();
+      const button = row.querySelector("button")!;
       expect(button.className).toContain("pl-[30px]");
-      expect(button.className).toContain("coarse:pl-4");
+      expect(button.className).not.toContain("coarse:pl-4");
+      expect(screen.getByTestId("status-dot-tap").className).toBe("flex items-center shrink-0");
     });
 
-    it("the window card's FIRST action row is Change color…, closing the card and opening the label picker (never selecting the row)", () => {
+    it("orders Color → Marker → Pin → Kill and commits marker changes without closing the card", () => {
       const onSelectWindow = vi.fn();
-      renderCoarseAxis(makeWindow({ windowId: "@0", index: 0, name: "my-shell" }), { onSelectWindow });
+      const onMarkerChange = vi.fn();
+      renderCoarseAxis(makeWindow({ windowId: "@0", index: 0, name: "my-shell", marker: "manual:1" }), {
+        onSelectWindow,
+        onMarkerChange,
+      });
       act(() => {
         fireEvent.pointerDown(screen.getByTestId("status-rail"), { pointerId: 1, pointerType: "touch" });
       });
       const card = screen.getByTestId("row-flyout-card");
-      // Row order: Change color… → Pin → Kill (no fork — no chat provider).
       const color = screen.getByTestId("row-flyout-color-action");
+      const marker = screen.getByTestId("row-flyout-marker-action");
       expect(color).toHaveTextContent("Change color…");
       const pin = screen.getByTestId("row-flyout-pin-action");
       const kill = screen.getByTestId("row-flyout-kill-action");
       expect(card.querySelector('[data-testid="row-flyout-actions"]')).toContainElement(color);
+      expect(color.compareDocumentPosition(marker) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(marker.compareDocumentPosition(pin) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       expect(color.compareDocumentPosition(pin) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       expect(pin.compareDocumentPosition(kill) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-      // Close-then-open handoff: the card closes, the row's combined Label
-      // picker opens, and the row was never selected.
+      act(() => fireEvent.click(screen.getByTestId("marker-pad-cell-blocked-3")));
+      expect(onMarkerChange).toHaveBeenCalledWith("srv", "alpha", "@0", "blocked:3");
+      expect(screen.getByTestId("row-flyout-card")).toBeInTheDocument();
+      expect(screen.getByTestId("marker-pad-header")).toHaveTextContent("blocked · done");
+
       act(() => {
         fireEvent.click(color);
       });
       expect(screen.queryByTestId("row-flyout-card")).toBeNull();
       expect(screen.getByRole("listbox", { name: "Label picker" })).toBeInTheDocument();
       expect(onSelectWindow).not.toHaveBeenCalled();
-      // Popover-over-card precedence: while the picker is open the card's
-      // suppressed gate inhibits re-opening.
       act(() => {
         fireEvent.pointerDown(screen.getByTestId("status-rail"), { pointerId: 2, pointerType: "touch" });
       });
       expect(screen.queryByTestId("row-flyout-card")).toBeNull();
+    });
+
+    it("holds the coarse row's background and bright text while its rail card is open", () => {
+      renderCoarseAxis(makeWindow({ windowId: "@0", index: 0, name: "held" }));
+      const row = screen.getByRole("treeitem");
+      const button = row.querySelector("button")!;
+      act(() => {
+        fireEvent.pointerDown(screen.getByTestId("status-rail"), { pointerId: 1, pointerType: "touch" });
+      });
+      expect(screen.getByTestId("row-flyout-card")).toBeInTheDocument();
+      expect(button.className).toMatch(/(?:^| )bg-bg-card\/50/);
+      expect(button.className).toMatch(/(?:^| )text-text-primary/);
     });
   });
 });

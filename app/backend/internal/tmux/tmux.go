@@ -50,7 +50,7 @@ const OriginOption = "@rk_srv_origin"
 // durable — snapshot coverage resumes on the next due pass with no other
 // action. The option dies with the tmux server, so no consumer can read it
 // post-mortem: IsTestServerName remains the dead-socket fallback
-// (IsTestServerName(name) ⇒ treated as ephemeral). "This server is scratch"
+// A true IsTestServerName result makes the server ephemeral. "This server is scratch"
 // is creator intent — underivable from tmux/filesystem/git — which is why it
 // rides a user option like the rest of the @rk_* convention family.
 //
@@ -157,12 +157,41 @@ const CodeRootOption = "@rk_win_code_root"
 var ErrWebTabsFull = errors.New("web tabs full")
 
 // ErrWebTabRange is returned by WebRemove/WebSelect for a slot outside
-// 1..len(tabs); api maps it to 400.
+// 1 through the tab count; api maps it to 400.
 var ErrWebTabRange = errors.New("web tab index out of range")
 
-// MarkerOption is the tmux window user option carrying the left-gutter marker
-// state: a closed-set token (validate.MarkerValues), "" when unset.
+// MarkerOption is the tmux window user option carrying the left-gutter marker:
+// a closed-set `<mode>[:<stage>]` token (validate.MarkerValues — mode ∈
+// manual/auto/blocked, stage ∈ 1/2/3, bare mode = stage 1), "" when unset.
 const MarkerOption = "@rk_win_marker"
+
+// legacyMarkerValues is the read-side compatibility table: option values
+// written by an older client are rewritten into the mode × stage model before
+// the closed-set check, so a live server or a stored snapshot never surfaces a
+// value the validator rejects. Stripe tokens carry manual stages; the two
+// texture tokens carry blocked stages.
+var legacyMarkerValues = map[string]string{
+	"pipe": "manual:1", "dotted": "manual:1", "dashed": "manual:1", "solid": "manual:1",
+	"double": "manual:2", "thick": "manual:3",
+	"hatch": "blocked:2", "block": "blocked:3",
+}
+
+// NormalizeMarker maps a raw @rk_win_marker read to the current vocabulary:
+// flat pre-mode:stage tokens map forward per legacyMarkerValues, current
+// `<mode>[:<stage>]` tokens (and "") pass through, anything else normalizes to
+// the empty unset state. Read-side only — writes must already be in the current
+// vocabulary (ValidateMarkerValue); the tmux option rewrites itself on the next
+// marker write. This is a same-name VALUE remap, so it lives at the parse seam
+// rather than in the legacy_options.go sweep table (which maps option NAMES).
+func NormalizeMarker(raw string) string {
+	if v, ok := legacyMarkerValues[raw]; ok {
+		return v
+	}
+	if validate.MarkerValues[raw] {
+		return raw
+	}
+	return ""
+}
 
 // FlairOption is the tmux window user option carrying the per-row flair
 // decoration: a closed-set token (validate.FlairValues), "" when unset.
@@ -759,10 +788,12 @@ type WindowInfo struct {
 	// the code lens/surface availability (docs/specs/right-panel.md) — editor
 	// state follows the code, so it is keyed by git ROOT, never window id.
 	GitRoot string `json:"gitRoot,omitempty"`
-	// Marker is the window's left-gutter marker state, sourced from the
-	// @rk_win_marker window user option: "" (unset)/"dotted"/"dashed"/"solid"/
-	// "double"/"thick". An independent label axis from Color — see
-	// docs/specs/themes.md. Unknown tokens are dropped to "" by parseWindows.
+	// Marker is the window's left-gutter marker, sourced from the
+	// @rk_win_marker window user option as a `<mode>[:<stage>]` token
+	// (manual/auto/blocked × 1/2/3 — the categorical SHAPE axis × the ordinal
+	// stage axis), "" when unset. An independent label axis from Color — see
+	// docs/specs/themes.md. Flat pre-mode:stage tokens normalize forward on read and
+	// unknown tokens drop to "" (NormalizeMarker, applied by parseWindows).
 	Marker string `json:"marker,omitempty"`
 	// Role is the window's orchestration role, sourced from the @rk_win_role window
 	// user option: "" (unset)/"operator". "operator" is a server-scoped radio —
@@ -1217,14 +1248,12 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 			codeRoot = strings.TrimSpace(parts[18])
 		}
 
-		// Marker is a closed-set token ("dotted"/"dashed"/"solid"/"double"/
-		// "thick"); drop any value outside the set (including "") to the
-		// empty unset state.
+		// Marker is a closed-set `<mode>[:<stage>]` token; flat pre-mode:stage tokens
+		// normalize forward on read (NormalizeMarker), anything else drops to
+		// the empty unset state.
 		var marker string
 		if len(parts) >= 20 {
-			if m := strings.TrimSpace(parts[19]); validate.MarkerValues[m] {
-				marker = m
-			}
+			marker = NormalizeMarker(strings.TrimSpace(parts[19]))
 		}
 
 		// Role is a closed-set token ("operator"); drop any value outside the

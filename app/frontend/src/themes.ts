@@ -1,4 +1,3 @@
-import type { CSSProperties } from "react";
 import themeDefs from "@configs/themes.json";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -462,21 +461,12 @@ export const UNCOLORED_SELECTED_ANSI = 8;
 /** Sentinel color-value key for the uncolored-selected gray tint. */
 export const UNCOLORED_SELECTED_KEY = `${UNCOLORED_SELECTED_ANSI}`;
 
-// ── Left-edge marker (independent label axis) ────────────────────────────────
-
-/** The window marker states. `""` (no marker) is the rest state. A marker is
- *  chosen directly from the banded Label picker (any state in one click — no
- *  cycling) or the `Tab: Label` palette action. Mirrors the backend closed
- *  set (validate.MarkerValues) minus the empty string, with `""` at the front
- *  followed by the display order pipe → dotted → dashed → solid → double →
- *  thick → hatch → block. Growth is CATEGORICAL: new states are new pattern
- *  classes (pipe = hairline, hatch = diagonals, block = block dashes), never a
- *  new weight between existing ones. Suggested semantics (`hatch` =
- *  in-progress, `thick` = completed, …) are LABEL CONVENTIONS only — no wiring
- *  to @rk_pane_agent_state or the status pyramid. Markers are FULLY STATIC: the
- *  label system's only texture pairing is hatch ↔ hazard wedge; all row motion
- *  lives on the flair axis (the motion split). */
-export const MARKER_STATES = ["", "pipe", "dotted", "dashed", "solid", "double", "thick", "hatch", "block"] as const;
+// ── Left-edge marker (3×3 mode × stage) ──────────────────────────────────────
+// The marker vocabulary (MARKER_MODES × MARKER_STAGES, parse/format, the fill
+// style and the chevron renderer) lives in ./marker — a sibling .tsx module so
+// the chevron SVG component stays out of this pure-TS file — re-exported here
+// so consumers keep the single "@/themes" import path.
+export * from "./marker";
 
 // ── Row flair (decoration-only channel) ──────────────────────────────────────
 
@@ -495,74 +485,6 @@ export const FLAIR_STATES = ["", "rain", "scan", "nyan", "naruto", "onepiece", "
 
 /** A flair state — one of FLAIR_STATES. */
 export type FlairState = (typeof FLAIR_STATES)[number];
-
-/** Inline style rendering a marker state as a left-edge stripe in the given
- *  color: pipe 1px, dotted 3px, dashed 3px, solid 3px, double 6px, thick 6px,
- *  hatch 6px (45° diagonals), block 6px (block dashes). The empty state renders
- *  no stripe. Shared by the window-row display-only stripe and the Label
- *  picker's marker band + composite preview so the stripe vocabulary lives in
- *  exactly one place.
- *
- *  `dotted`/`dashed`/`block` are fixed-rhythm backgrounds, NOT dotted/dashed
- *  borders: a dotted border distributes its dots per-element, restarting the
- *  pattern at every row, so stacked dotted-marker rows showed visible seams
- *  while solid/double merged continuously.
- *
- *  TILE-HEIGHT RULE: each gradient is drawn as a fixed tile (`3px 6px` dotted
- *  — 3px dot / 3px gap; `3px 12px` dashed — 8px dash / 4px gap; `6px 12px`
- *  block — 9px block / 3px gap) repeated with `repeat-y`, so the rhythm is
- *  element-height-INDEPENDENT. The former `repeating-linear-gradient` +
- *  `backgroundSize: "3px 100%"` + `no-repeat` form only welded because rows
- *  happen to be 24/36px (multiples of the period); in any other element height
- *  (e.g. the 18px picker band cells) that tile truncated the pattern at its
- *  boundary. Every period divides the 12px weld module, so stacked rows merge
- *  seamlessly (6px and 12px divide 24 and 36 exactly).
- *
- *  `hatch` welds the same way with a NON-repeating 45° linear-gradient on a
- *  12px×12px tile: at 45° the gradient axis advances (x+y)/√2, and the 12px
- *  tile edge shifts it by exactly 50% of the gradient length — the 25%/50%/75%
- *  stops make the second half of the tile the first half shifted, so the
- *  diagonals phase-align across every tile boundary (the same math the
- *  .rk-hazard wedge relies on). A naive repeating-linear-gradient does NOT
- *  phase-align to 12px (12/√2 is not a multiple of the period). */
-export function markerStripeStyle(state: string, color: string): CSSProperties | undefined {
-  switch (state) {
-    case "pipe":
-      return { borderLeft: `1px solid ${color}` };
-    case "dotted":
-      return {
-        backgroundImage: `linear-gradient(to bottom, ${color} 0 3px, transparent 3px 6px)`,
-        backgroundSize: "3px 6px",
-        backgroundRepeat: "repeat-y",
-      };
-    case "dashed":
-      return {
-        backgroundImage: `linear-gradient(to bottom, ${color} 0 8px, transparent 8px 12px)`,
-        backgroundSize: "3px 12px",
-        backgroundRepeat: "repeat-y",
-      };
-    case "solid":
-      return { borderLeft: `3px solid ${color}` };
-    case "double":
-      return { borderLeft: `6px double ${color}` };
-    case "thick":
-      return { borderLeft: `6px solid ${color}` };
-    case "hatch":
-      return {
-        backgroundImage: `linear-gradient(45deg, ${color} 0 25%, transparent 25% 50%, ${color} 50% 75%, transparent 75%)`,
-        backgroundSize: "12px 12px",
-        backgroundRepeat: "repeat",
-      };
-    case "block":
-      return {
-        backgroundImage: `linear-gradient(to bottom, ${color} 0 9px, transparent 9px 12px)`,
-        backgroundSize: "6px 12px",
-        backgroundRepeat: "repeat-y",
-      };
-    default:
-      return undefined;
-  }
-}
 
 /** A parsed color value: an owned family (canonical name, optionally
  *  `-dark`-/`-light`-suffixed) OR a legacy numeric/blend descriptor that maps
@@ -756,8 +678,8 @@ export function computeRowTints(palette: ThemePalette): Map<string, RowTint> {
  * OKLab L until it clears BORDER_MIN_CONTRAST vs the theme background —
  * bidirectional: light shades on light themes are pushed darker). The window
  * row no longer uses these for a selection border (removed in the axis split),
- * but SERVER tiles still use them for their stripe/edge, and the marker gutter
- * uses them as the guarded family color. Computed once per theme alongside
+ * but SERVER tiles still use them for their stripe/edge, and the window row's
+ * flair overlay tints from them. Computed once per theme alongside
  * computeRowTints.
  */
 export function computeRowBorders(palette: ThemePalette, category: "dark" | "light"): Map<string, string> {

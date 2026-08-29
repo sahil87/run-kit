@@ -96,10 +96,12 @@ export type WindowInfo = {
    *  legacy descriptor at the write seam (familyToLegacy). Drives the row's hue
    *  (label axis). */
   color?: string;
-  /** Left-gutter marker state, from the `@rk_win_marker` window option:
-   *  ""/absent (no marker) | "pipe" | "dotted" | "dashed" | "solid" |
-   *  "double" | "thick" | "hatch" | "block". An INDEPENDENT
-   *  label axis from `color` — see docs/specs/themes.md. */
+  /** Marker well value, from the `@rk_win_marker` window option:
+   *  ""/absent (no marker) | `<mode>[:<stage>]` where mode ∈
+   *  "manual" | "auto" | "blocked" and stage ∈ 1 | 2 | 3 (a bare mode
+   *  renders at stage 1). The backend normalizes flat pre-mode:stage tokens
+   *  (pipe/dotted/…/block) to this vocabulary on read, so legacy values
+   *  never arrive here. Parsed via `parseMarker` (themes.ts). */
   marker?: string;
   /** Row flair state, from the `@rk_win_flair` window option: ""/absent (no
    *  flair) | "rain" | "scan" | "nyan" | "naruto" | "onepiece" | "pacman" |

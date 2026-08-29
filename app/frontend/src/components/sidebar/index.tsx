@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, useReducer, memo } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "@tanstack/react-router";
-import { killSession as killSessionApi, killWindow as killWindowApi, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowFlair as setWindowFlairApi, setSessionFlair as setSessionFlairApi, getAllServerColors, setServerColor as setServerColorApi, getAllServerFlairs, setServerFlair as setServerFlairApi, setSessionOrder, setServerProtected, isExternalServer, DAEMON_SERVER, type ServerInfo } from "@/api/client";
+import { killSession as killSessionApi, killWindow as killWindowApi, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, setWindowFlair as setWindowFlairApi, setSessionFlair as setSessionFlairApi, getAllServerColors, setServerColor as setServerColorApi, getAllServerFlairs, setServerFlair as setServerFlairApi, setSessionOrder, setServerProtected, isExternalServer, DAEMON_SERVER, type ServerInfo } from "@/api/client";
 import { useSessionContext, useUpdateNotification } from "@/contexts/session-context";
 import { useFocusedPane } from "@/contexts/focused-pane-context";
 import { resolveFocusedWindow, thinWindowFromFocusedPane } from "@/lib/focused-pane-window";
@@ -173,6 +173,12 @@ export type SidebarProps = {
    *  omitted — e.g. the board-route sidebar — the row flyout's fork affordance is
    *  hidden. The flyout additionally gates on `chatProvider === "claude"`. */
   onForkWindow?: (server: string, windowId: string) => Promise<void>;
+  /** Persist a window's `<mode>[:<stage>]` marker; null clears it. The strip
+   *  pad, the card's inline Marker row, and the `Tab: Marker` palette entry all
+   *  write through this one seam. Optional (mirrors `onForkWindow`): when
+   *  omitted — e.g. the board-route sidebar — rows carry no marker strip and no
+   *  Marker card row. */
+  onWindowMarkerChange?: (server: string, session: string, windowId: string, marker: string | null) => void;
   /** Ask the server's operator window to fix a subject window's tab name
    *  (260822-fih1-operator-request-fix-tab-name). Optional (mirrors
    *  `onForkWindow`): when omitted — e.g. the board-route sidebar — the row
@@ -206,6 +212,7 @@ export function Sidebar({
   onSpawnAgent,
   onUpdateAnnotations,
   onForkWindow,
+  onWindowMarkerChange,
   onFixTabName,
   onOperatorCompose,
   onCreateServer,
@@ -382,7 +389,7 @@ export function Sidebar({
   }, [currentServer, attachServer, readServerOpen]);
 
   // Per-session window-list collapse, keyed by `${server}:${session.name}` and
-  // persisted as collapsed exceptions in `runkit-session-collapsed` (kddk).
+  // persisted as collapsed exceptions in `runkit-session-collapsed`.
   // Seeded lazily from storage so a collapsed session paints collapsed on the
   // first frame; read sites keep their `?? false` default, so an unknown key
   // (a new session, a cleared browser) stays expanded exactly as before.
@@ -479,7 +486,7 @@ export function Sidebar({
     },
     [activeBoardName, pinnedToBoard],
   );
-  // Navigate to a board (co9z): the pinned-row indicator's navigation
+  // Navigate to a board: the pinned-row indicator's navigation
   // affordance. Stable identity so it does not churn ServerGroup's React.memo.
   const onNavigateToBoard = useCallback(
     (board: string) => {
@@ -969,7 +976,7 @@ export function Sidebar({
   // deferred to the next frame so it runs AFTER the trap's mount-focus
   // (committed in Shell's effect) and wins the same-tick race.
   const isMobile = useIsMobile();
-  // Section-visibility rail (iha5): four shared booleans gate the optional
+  // Section-visibility rail: four shared booleans gate the optional
   // sections. Read locally here — nothing threads through the memoized
   // ServerGroup/SessionRow/WindowRow tree (R6a untouched).
   const [boardsSectionVisible] = useSidebarSectionVisible("boards");
@@ -1048,7 +1055,7 @@ export function Sidebar({
   // The selection prune's liveness registry, kept SEPARATE from the visible-row
   // one above. Each ServerGroup registers every real window its SSE snapshot
   // knows — collapsed sessions included — so folding a session away never reads
-  // as "the window is gone" (260807-nf9f R4). `dataKeysVersion` bumps only when
+  // as "the window is gone". `dataKeysVersion` bumps only when
   // a group's DATA key set changes (a window actually created/killed/moved, a
   // group mounting or unmounting), never on a collapse/expand and never on the
   // several-per-second passive SSE activity ticks.
@@ -1130,7 +1137,7 @@ export function Sidebar({
     row.focus();
   }, [rovingKey]);
 
-  // ⌘B focus-arm seam (R5): the shell's stateful sidebar chord focuses the
+  // The shell's stateful sidebar chord focuses the
   // current row through this module registry (`lib/sidebar-events.ts`) — no
   // DOM reach-around from shell.tsx. The `focus()` + `setRovingKey` pairing
   // is the mobile drawer-open effect's exact contract: the `tabIndex=0`
@@ -1164,7 +1171,7 @@ export function Sidebar({
     });
   }, [rowKeyOf]);
 
-  // Escape return (R5): Escape with focus inside the sidebar returns focus
+  // Escape with focus inside the sidebar returns focus
   // to the route's remembered surface WITHOUT hiding — the same resolution
   // the ⌘B hide arm uses (no origin storage; the registered restorer IS the
   // terminal route's restore router — board/host routes register none and
@@ -1597,18 +1604,9 @@ export function Sidebar({
     );
   }, [addToast]);
 
-  // Persist a window's marker state. The combined Label picker (opened from the
-  // left-edge zone or the `Tab: Label` palette action) passes the EXACT state
-  // the user picked — this only writes it. Mirrors handleWindowColorChange.
-  const handleWindowMarkerChange = useCallback((server: string, _session: string, windowId: string, marker: string | null) => {
-    setWindowMarkerApi(server, windowId, marker).catch((err) =>
-      addToast(err.message || "Failed to set tab marker"),
-    );
-  }, [addToast]);
-
   // Persist a window's flair state. The Label picker's flair section passes
   // the EXACT picked state ("" → null clears) — this only writes it. Mirrors
-  // handleWindowMarkerChange.
+  // handleWindowColorChange.
   const handleWindowFlairChange = useCallback((server: string, _session: string, windowId: string, flair: string | null) => {
     setWindowFlairApi(server, windowId, flair).catch((err) =>
       addToast(err.message || "Failed to set tab flair"),
@@ -1623,7 +1621,7 @@ export function Sidebar({
   }, [addToast]);
 
   // Server color write seam — the SINGLE implementation both the SERVER-panel
-  // tiles and the session-tree group headers funnel through (x4sf): optimistic
+  // tiles and the session-tree group headers funnel through: optimistic
   // `serverColors` update (the local repaint — server user-option mutations
   // emit no control-mode event, so covered servers otherwise wait on the 12s
   // safety poll) + POST + failure toast. Stable identity-arg callback so it
@@ -1669,7 +1667,7 @@ export function Sidebar({
     // opens sibling tips instantly.
     <TipGroup>
     <nav ref={navRef} aria-label="Sessions" className="flex flex-col h-full">
-      {/* Section-visibility rail (iha5) — always the first child; toggles the
+      {/* Section-visibility rail — always the first child; toggles the
           optional sections below. Not self-hideable; Sessions has no toggle. */}
       <SectionRail />
 
@@ -1731,6 +1729,7 @@ export function Sidebar({
         </div>
         <div
           ref={treeRef}
+          data-sidebar-scroll=""
           role="tree"
           aria-label="Session tree"
           // W3C-APG multiselect tree (260807-nf9f): window rows can be selected
@@ -1831,7 +1830,7 @@ export function Sidebar({
                 onServerFlairChange={handleServerFlairChange}
                 onKillServer={onKillServer}
                 onWindowColorChange={handleWindowColorChange}
-                onWindowMarkerChange={handleWindowMarkerChange}
+                onWindowMarkerChange={onWindowMarkerChange}
                 onSessionFlairChange={handleSessionFlairChange}
                 onWindowFlairChange={handleWindowFlairChange}
                 onForkWindow={onForkWindow}
@@ -1869,7 +1868,7 @@ export function Sidebar({
         />
       </div>
 
-      {/* Status panels — visibility-gated per section (iha5 R5): the PANE and
+      {/* Status panels are visibility-gated per section: the PANE and
           HOST panels mount independently under their own rail/palette toggles
           on EVERY viewport. Both default OFF, so the default rendering matches
           the pre-rail behavior (260814-ldbs's drawer-only fork becomes a
@@ -2081,7 +2080,7 @@ function BottomPanels({
   currentSessionName,
   currentWindowId,
 }: {
-  /** Per-section visibility toggles (iha5) — each panel mounts independently
+  /** Per-section visibility toggles — each panel mounts independently
    *  under its own boolean, on every viewport. */
   showPane: boolean;
   showHost: boolean;
@@ -2180,7 +2179,7 @@ type ServerGroupProps = {
   boardsLoading: boolean;
   pinnedSet: Set<string>;
   pinnedToBoard: (board: string, server: string, windowId: string) => boolean;
-  /** Reverse lookup: the single board a window is pinned to (co9z), or undefined
+  /** Reverse lookup: the single board a window is pinned to, or undefined
    *  if unpinned. Powers the pinned-row → board navigation affordance. Stable. */
   boardForWindow: (server: string, windowId: string) => string | undefined;
   isPinnedToActiveBoardFor: (winServer: string, windowId: string) => boolean;
@@ -2222,17 +2221,19 @@ type ServerGroupProps = {
   onWindowRenameKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   onWindowRenameBlur: () => void;
   onSessionColorChange: (server: string, name: string, color: string | null) => void;
-  /** Server color write seam (x4sf) — the same shared handler `ServerPanel`
+  /** Server color write seam — the same shared handler `ServerPanel`
    *  receives (optimistic update + POST + toast). Stable identity. */
   onServerColorChange: (server: string, color: string | null) => void;
   /** Server flair write seam — mirrors `onServerColorChange` (optimistic
    *  update + POST + toast). Stable identity. */
   onServerFlairChange: (server: string, flair: string | null) => void;
-  /** Kill-server request (x4sf) — routes to the parent's confirmation dialog
+  /** Kill-server request — routes to the parent's confirmation dialog
    *  (`killServerTarget` in app.tsx / board-page.tsx); never kills directly. */
   onKillServer: (name: string) => void;
   onWindowColorChange: (server: string, session: string, windowId: string, color: string | null) => void;
-  onWindowMarkerChange: (server: string, session: string, windowId: string, marker: string | null) => void;
+  /** Optional (the board-route sidebar passes none) — see
+   *  `SidebarProps.onWindowMarkerChange`. */
+  onWindowMarkerChange?: (server: string, session: string, windowId: string, marker: string | null) => void;
   /** Flair write seams — the picker's flair section funnels through these.
    *  The session one mirrors its color counterpart; the window one mirrors
    *  `onWindowMarkerChange`. Stable identity-arg callbacks. */
@@ -2505,7 +2506,7 @@ function ServerGroupInner(props: ServerGroupProps) {
   // group itself is open. Deliberately independent of `collapsed`/`isOpen`
   // (unlike `rowSignature` above, which tracks the VISIBLE row set): the
   // selection prune keys on this, and treating a folded-away window as departed
-  // would silently destroy a live selection on every collapse (260807-nf9f R4).
+  // would silently destroy a live selection on every collapse.
   // Ghost/optimistic rows are excluded — they have no real windowId to select.
   const { dataKeys, dataSignature } = useMemo(() => {
     const keys = new Set<string>();
@@ -2564,7 +2565,7 @@ function ServerGroupInner(props: ServerGroupProps) {
   const headerBg = headerTint ? (isCurrent ? headerTint.selected : headerTint.base) : undefined;
   const headerHoverBg = headerTint && !isCurrent ? headerTint.hover : undefined;
 
-  // Header color picker (x4sf). Local per-group boolean — each group renders
+  // Header color picker. Local per-group boolean — each group renders
   // exactly one header, so the ServerPanel's keyed `colorPickerFor` map isn't
   // needed (the session-row precedent). The popover is portalled to
   // document.body with fixed coordinates anchored at the palette button,
@@ -2692,7 +2693,7 @@ function ServerGroupInner(props: ServerGroupProps) {
 
   // Rail band: the header's family tint mixed into the inset base (the shared
   // rail-tint idiom); while this header's card is open the band steps up one
-  // shade and the seam brightens (the held treatment, R8).
+  // shade and the seam brightens while held.
   const railStyle = useMemo(() => {
     if (!groupCoarsePointer) return undefined;
     if (flyout.open) {
@@ -2778,7 +2779,7 @@ function ServerGroupInner(props: ServerGroupProps) {
           >
             &#x25BC;
           </span>
-          {/* Server-name span — de-emphasized (grey) when the server is
+          {/* Server-name span — de-emphasized with grey styling when the server is
               external; the truncate keeps the class composition stable. */}
           <span className={`truncate ${serverExternal ? "text-text-secondary" : ""}`}>{server}</span>
           {/* Protected-class marker: rk-daemon derives protected client-side
@@ -2808,7 +2809,7 @@ function ServerGroupInner(props: ServerGroupProps) {
             </span>
           )}
         </button>
-        {/* Server action cluster (x4sf): palette → plus → close. The wrapper
+        {/* Server action cluster: palette → plus → close. The wrapper
             carries the header's text treatment (inline contrast-guarded accent
             for non-current headers / text-text-primary for the current one) so
             the icons stay legible on the tinted fill; buttons INHERIT it at
@@ -3214,4 +3215,3 @@ function ServerGroupInner(props: ServerGroupProps) {
  *  primitive that flips true→false once when the board list finishes loading —
  *  a legitimate one-time re-render of every group, not per-tick churn.) */
 const ServerGroup = memo(ServerGroupInner);
-

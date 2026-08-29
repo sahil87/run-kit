@@ -248,8 +248,11 @@ func parseLayoutWindows(lines []string) []LayoutWindow {
 			win.CodeRoot = strings.TrimSpace(parts[25])
 		}
 		// Field 27 (@rk_win_marker) is optional — absent on older captures.
+		// Normalized like parseWindows so a restored value rewrites to the
+		// current vocabulary (flat pre-mode:stage tokens map forward, unknowns drop
+		// to unset).
 		if len(parts) >= 27 {
-			win.Marker = strings.TrimSpace(parts[26])
+			win.Marker = NormalizeMarker(strings.TrimSpace(parts[26]))
 		}
 		// Field 28 (@rk_win_role) is optional — absent on older captures.
 		if len(parts) >= 28 {
@@ -411,7 +414,7 @@ func CreateWindowAtIndex(session string, index int, name, cwd, server string) (s
 	return strings.TrimSpace(lines[0]), nil
 }
 
-// RenumberWindow moves a window to an explicit (free) index within its
+// RenumberWindow moves a window to an explicit free index within its
 // session: `move-window -s <windowID> -t =session:<index>`. Unlike MoveWindow
 // (a reorder-among-existing-windows primitive built on adjacent swaps, which
 // no-ops when the target index is unoccupied), this RENUMBERS the window —

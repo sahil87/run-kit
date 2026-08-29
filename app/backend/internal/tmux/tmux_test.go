@@ -668,6 +668,27 @@ func TestParseWindowsMixedTypes(t *testing.T) {
 	}
 }
 
+func TestNormalizeMarker(t *testing.T) {
+	tests := []struct {
+		raw  string
+		want string
+	}{
+		// Flat pre-mode:stage tokens map forward onto the mode × stage model.
+		{"pipe", "manual:1"}, {"dotted", "manual:1"}, {"dashed", "manual:1"}, {"solid", "manual:1"},
+		{"double", "manual:2"}, {"thick", "manual:3"},
+		{"hatch", "blocked:2"}, {"block", "blocked:3"},
+		// The current vocabulary passes through untouched ("" = unset included).
+		{"", ""}, {"manual", "manual"}, {"manual:1", "manual:1"}, {"auto:2", "auto:2"}, {"blocked:3", "blocked:3"},
+		// Anything else drops to the empty unset state.
+		{"wavy", ""}, {"auto:4", ""}, {"Manual", ""},
+	}
+	for _, tt := range tests {
+		if got := NormalizeMarker(tt.raw); got != tt.want {
+			t.Errorf("NormalizeMarker(%q) = %q, want %q", tt.raw, got, tt.want)
+		}
+	}
+}
+
 func TestParseWindowsMarker(t *testing.T) {
 	const fakeNow int64 = 1700000000
 
@@ -676,11 +697,11 @@ func TestParseWindowsMarker(t *testing.T) {
 		line       string
 		wantMarker string
 	}{
-		{"dotted marker", windowLineMarker("@0", 0, "a", "/p", fakeNow, 1, "zsh", "dotted"), "dotted"},
-		{"dashed marker", windowLineMarker("@0", 0, "a", "/p", fakeNow, 1, "zsh", "dashed"), "dashed"},
-		{"solid marker", windowLineMarker("@0", 0, "a", "/p", fakeNow, 1, "zsh", "solid"), "solid"},
-		{"double marker", windowLineMarker("@0", 0, "a", "/p", fakeNow, 1, "zsh", "double"), "double"},
-		{"thick marker", windowLineMarker("@0", 0, "a", "/p", fakeNow, 1, "zsh", "thick"), "thick"},
+		{"new token passes through", windowLineMarker("@0", 0, "a", "/p", fakeNow, 1, "zsh", "auto:2"), "auto:2"},
+		{"bare mode passes through", windowLineMarker("@0", 0, "a", "/p", fakeNow, 1, "zsh", "blocked"), "blocked"},
+		{"legacy solid normalizes to manual:1", windowLineMarker("@0", 0, "a", "/p", fakeNow, 1, "zsh", "solid"), "manual:1"},
+		{"legacy double normalizes to manual:2", windowLineMarker("@0", 0, "a", "/p", fakeNow, 1, "zsh", "double"), "manual:2"},
+		{"legacy hatch normalizes to blocked:2", windowLineMarker("@0", 0, "a", "/p", fakeNow, 1, "zsh", "hatch"), "blocked:2"},
 		{"empty marker", windowLineMarker("@0", 0, "a", "/p", fakeNow, 1, "zsh", ""), ""},
 		{"unknown marker dropped to empty", windowLineMarker("@0", 0, "a", "/p", fakeNow, 1, "zsh", "wavy"), ""},
 		{"10-field line (no marker field) has empty marker", windowLineLayout("@0", 0, "a", "/p", fakeNow, 1, "zsh", "", ""), ""},

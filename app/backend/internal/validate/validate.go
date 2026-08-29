@@ -203,7 +203,7 @@ func ValidateInstanceName(value string) string {
 // its error message are both derived from this single slice, so adding a token
 // cannot drift the map and the message out of sync.
 var (
-	markerTokens = []string{"pipe", "dotted", "dashed", "solid", "double", "thick", "hatch", "block"}
+	markerTokens = []string{"manual", "manual:1", "manual:2", "manual:3", "auto", "auto:1", "auto:2", "auto:3", "blocked", "blocked:1", "blocked:2", "blocked:3"}
 	roleTokens   = []string{"operator"}
 	flairTokens  = []string{"rain", "scan", "nyan", "naruto", "onepiece", "pacman", "matrix", "aquarium", "roadrunner", "invaders", "cube", "warp", "spidey", "ironman", "noon"}
 )
@@ -235,16 +235,17 @@ func validateClosedSet(value, label string, set map[string]bool, tokens []string
 }
 
 // MarkerValues is the closed set of accepted @rk_win_marker window-option values,
-// derived from markerTokens. The empty string means "unset" (no marker); the
-// eight named states drive the left-gutter marker's stripe style in the UI
-// (pipe 1px; dotted/dashed/solid 3px; double/thick/block 6px; hatch 45°
-// diagonals — all fully static, all periods dividing the 12px weld module).
+// derived from markerTokens. The empty string means "unset" (no marker). The
+// value schema is `<mode>[:<stage>]` — mode ∈ manual/auto/blocked (the
+// categorical SHAPE axis: solid fill / chevrons / hatch), stage ∈ 1/2/3 (the
+// ordinal axis: ⅓ / ⅔ / full of the marker well; a bare mode renders at
+// stage 1) — all fully static.
 var MarkerValues = closedSet(markerTokens)
 
-// ValidateMarkerValue validates an @rk_win_marker value: one of ""/pipe/dotted/
-// dashed/solid/double/thick/hatch/block. Returns an empty string if valid, an
-// error message otherwise. The single shared marker-value rule reused by the
-// window-option handler.
+// ValidateMarkerValue validates an @rk_win_marker value: one of the twelve
+// `<mode>[:<stage>]` tokens (manual/manual:1…blocked:3). Returns an empty
+// string if valid, an error message otherwise. The single shared marker-value
+// rule reused by the window-option handler.
 func ValidateMarkerValue(value string) string {
 	return validateClosedSet(value, "Marker", MarkerValues, markerTokens)
 }

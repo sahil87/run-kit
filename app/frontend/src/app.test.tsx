@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { CommandPalette, type PaletteAction } from "@/components/command-palette";
-import { resolveServerView } from "@/app";
+import { buildTabPickerActions, resolveServerView } from "@/app";
 import { availableViews, hasCode } from "@/lib/window-view";
 import type { ServerInfo } from "@/api/client";
 
@@ -1082,5 +1082,29 @@ describe("CmdK Annotate Tab Action (operator-request gate)", () => {
     openPalette();
 
     expect(screen.queryByText("Operator: Annotate tab")).not.toBeInTheDocument();
+  });
+});
+
+describe("CmdK Tab picker actions", () => {
+  afterEach(cleanup);
+
+  it("registers Tab: Marker beside Tab: Label and dispatches marker-pad:open for the current tab", () => {
+    const actions = buildTabPickerActions("srv", "@42");
+    expect(actions.map((action) => action.id)).toEqual(["window-label", "window-marker"]);
+
+    const onOpen = vi.fn();
+    document.addEventListener("marker-pad:open", onOpen, { once: true });
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    const input = screen.getByPlaceholderText(/^Type a command/);
+    fireEvent.change(input, { target: { value: "Tab: Marker" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(onOpen).toHaveBeenCalledOnce();
+    expect((onOpen.mock.calls[0][0] as CustomEvent).detail).toEqual({
+      server: "srv",
+      windowId: "@42",
+    });
   });
 });

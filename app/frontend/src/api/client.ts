@@ -288,7 +288,7 @@ export class HttpError extends Error {
  * Fetch a window's chat backfill (260717-vhvz). GETs the full conversation as
  * rk-schema JSON, including the transcript byte `offset` the backfill read up to.
  * The chat lens then subscribes `kind:"chat"` on the state socket with
- * `from: offset`, so the GET(offset)→subscribe(from) composition is gap-free and
+ * `from: offset`, so GET at offset followed by subscribe at from is gap-free and
  * duplicate-free (the chat SSE stream this replaced is retired). On a non-ok
  * response it throws an `HttpError` carrying the status so the caller can
  * distinguish a 404 (transcript not written yet — retry) from a real fault.
@@ -526,7 +526,7 @@ export async function selectWebTab(
 }
 
 /** The GET /api/frame-check response — the backend probe's derived verdict
- *  on whether an absolute external URL can be framed (260819-v6y4 R2). */
+ *  on whether an absolute external URL can be framed. */
 export interface FrameCheckResult {
   reachable: boolean;
   embeddable: boolean;
@@ -817,9 +817,12 @@ export async function setWindowColor(
   });
 }
 
-/** Set (or clear) the window's left-gutter marker via the unified /options
- *  contract. `marker` is one of "dotted"/"solid"/"double"; null OR "" clears it
- *  (the server treats an empty @rk_win_marker as unset). Mirrors setWindowColor. */
+/** Set (or clear) the window's marker well value via the unified /options
+ *  contract. `marker` is `<mode>[:<stage>]` — mode ∈ "manual"/"auto"/"blocked",
+ *  stage ∈ 1/2/3 (a bare mode stores as-is and renders at stage 1); null OR ""
+ *  clears it (the server treats an empty @rk_win_marker as unset). Any value
+ *  outside that closed set is rejected server-side. Mirrors
+ *  setWindowColor. */
 export async function setWindowMarker(
   server: string,
   windowId: string,

@@ -349,7 +349,10 @@ func windowOptionOps(win Window) []tmux.WindowOptionOp {
 		add(tmux.WebActiveOption, strconv.Itoa(win.WebActive))
 	}
 	add(tmux.CodeRootOption, win.CodeRoot)
-	add(tmux.MarkerOption, win.Marker)
+	// Snapshots written before the mode:stage vocabulary carry flat marker
+	// tokens; restore re-applies the normalized value so a live server never
+	// holds a token the validator would now reject.
+	add(tmux.MarkerOption, tmux.NormalizeMarker(win.Marker))
 	add(tmux.FlairOption, win.Flair)
 	add(tmux.RoleOption, win.Role)
 	add(tmux.NoteOption, win.Note)

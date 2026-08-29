@@ -43,6 +43,10 @@
   --color-signal-purple: #c084fc;
   --color-signal-blue: #60a5fa;
   --color-signal-red: #f87171;
+  /* Marker ink: the ONE fixed, theme-paired hue every window-row marker paints
+     in (well wash + edge, solid/hatch fills, chevrons, pad cells, the blocked
+     hazard wedge). Never the row's family hue, never gray. */
+  --color-marker-ink: #f59e0b;
   --font-mono: "MonaspiceNe Nerd Font Mono", monospace;
 }
 
@@ -61,6 +65,7 @@ html[data-theme="dark"] {
   --color-signal-purple: #c084fc;
   --color-signal-blue: #60a5fa;
   --color-signal-red: #f87171;
+  --color-marker-ink: #f59e0b;
 }
 
 html[data-theme="light"] {
@@ -80,6 +85,7 @@ html[data-theme="light"] {
   --color-signal-purple: #9333ea;
   --color-signal-blue: #2563eb;
   --color-signal-red: #dc2626;
+  --color-marker-ink: #d97706;
 }
 
 body {
@@ -164,7 +170,7 @@ summary {
   overflow: hidden;
 }
 
-/* Web-tile load progress (260819-v6y4 R11): a 2px accent-green indeterminate
+/* Web-tile load progress: a 2px accent-green indeterminate
    sweep on the web tile content's top edge while the iframe loads, per the
    approved design study. Rendered only while loading (the element's presence
    IS the state). Reduced motion: the sweep is zeroed to a static dim line
@@ -359,7 +365,7 @@ summary {
      `rounded-*` utility (rounded-full for circles, rounded-none for the
      `done` square); an unlayered `border-radius: 9999px` here would beat
      Tailwind v4's layered `rounded-none` and force a waiting done-SQUARE to
-     render as a circle (breaking "shape untouched" — R2). Letting the shadow
+     render as a circle, breaking the shape-preservation constraint. Letting the shadow
      inherit the element radius keeps square corners sharp. */
   animation: rk-waiting-halo 1.4s ease-in-out infinite;
 }
@@ -427,18 +433,20 @@ summary {
   -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 32px), transparent 100%);
 }
 
-/* ── Hatch-marker hazard wedge (260723-wwoi; thick → hatch in 9hh6) ───────────
-   A window row whose left-gutter marker is `hatch` gets a static "hazard
-   wedge" — a 45° weave in the row's guarded marker color (--rk-marker-color)
+/* ── Blocked-marker hazard wedge ──────────────────────────────────────────────
+   A window row whose left-gutter marker mode is `blocked` gets a static "hazard
+   wedge" — a 45° weave in the marker ink (--rk-marker-color, set to
+   var(--color-marker-ink) by the row)
    at 18% alpha, confined by a
    mask to a left-edge wedge: full strength for the first ~22% of the row,
    fading out by ~55% — a taped-off corner, not full-row wallpaper (full-width
    was tried in the design mocks and rejected as louder than the selected row;
    an earlier 13% / fade-from-zero-to-38% wedge tapered so aggressively it was
    hard to make out and was re-tuned by user request). The 12px square tile makes
-   adjacent hatch rows weld seamlessly (24/36px row heights are multiples).
-   Hazard stripes culturally mean "work zone", so the wedge pairs with hatch
-   (in-progress) — the marker axis's ONLY texture pairing.
+   adjacent blocked rows weld seamlessly (24/36px row heights are multiples).
+   Hazard stripes culturally mean "work zone", so the wedge pairs with the
+   `blocked` mode — the marker axis's ONLY texture pairing (it does not vary by
+   stage).
 
    NEVER ANIMATED — IN ANY STATE (rest, hover, selected): an explicit user
    decision after seeing animated variants. There is no `-crawl` twin and no
@@ -465,17 +473,6 @@ summary {
   background-size: 12px 12px;
   -webkit-mask-image: linear-gradient(to right, #000 22%, transparent 55%);
   mask-image: linear-gradient(to right, #000 22%, transparent 55%);
-}
-
-/* Picker preview modifier (swatch-popover hatch marker cell + composite
-   preview): the 18px cell stands
-   for the row's LEFT CORNER — entirely inside the wedge's full-strength zone —
-   so the preview drops the mask. Applied to the tiny cell itself, the wedge
-   mask would fade the weave out by ~10px, mostly under the 6px hatch stripe,
-   leaving it invisible. Still static — the no-animation rule above holds. */
-.rk-hazard-preview::before {
-  -webkit-mask-image: none;
-  mask-image: none;
 }
 
 /* ── Flair overlays (decoration-only channel) ────────────────────────────────
@@ -1465,7 +1462,7 @@ html[data-theme="light"] {
 .rk-divider.rk-sash-hot .rk-grips i { background-color: var(--color-bg-inset); transition-delay: 150ms; }
 .rk-divider.rk-sash-lit .rk-grips i { background-color: var(--color-bg-inset); transition-delay: 0ms; }
 
-/* ── Picker band scroll strip (9hh6) ─────────────────────────────────────────
+/* ── Picker band scroll strip ────────────────────────────────────────────────
    The Label picker's color band scrolls HORIZONTALLY inside a fixed-height
    strip (family columns slide; both shade rows stay visible — vertical scroll
    would break the shade pairing). `.rk-band-scroll` is the scroller: thin

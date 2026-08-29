@@ -277,7 +277,7 @@ func TestWindowOptionsLegacyKeysRejected(t *testing.T) {
 // Set @rk_win_marker only — one SetWindowOptions call with just @rk_win_marker.
 func TestWindowOptionsSetMarkerOnly(t *testing.T) {
 	ops := &mockTmuxOps{}
-	rec := postOptions(t, ops, "@2", `{"options":{"@rk_win_marker":"solid"}}`)
+	rec := postOptions(t, ops, "@2", `{"options":{"@rk_win_marker":"auto:2"}}`)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
@@ -286,8 +286,8 @@ func TestWindowOptionsSetMarkerOnly(t *testing.T) {
 		t.Fatalf("ops = %v, want exactly 1 (@rk_win_marker)", ops.setWindowOptionsOps)
 	}
 	op, ok := findOp(ops.setWindowOptionsOps, "@rk_win_marker")
-	if !ok || op.Value == nil || *op.Value != "solid" {
-		t.Errorf("@rk_win_marker op = %+v, want value \"solid\"", op)
+	if !ok || op.Value == nil || *op.Value != "auto:2" {
+		t.Errorf("@rk_win_marker op = %+v, want value \"auto:2\"", op)
 	}
 }
 
@@ -309,23 +309,26 @@ func TestWindowOptionsMarkerEmptyUnsets(t *testing.T) {
 	}
 }
 
-// Invalid @rk_win_marker (outside the 5-state closed set) → 400 and zero tmux
-// calls (validate-all-then-execute).
+// Invalid @rk_win_marker (outside the 12-token closed set) → 400 and zero tmux
+// calls (validate-all-then-execute). Flat pre-mode:stage tokens are rejected on
+// write exactly like unknown ones — they map forward on READ only.
 func TestWindowOptionsMarkerInvalid(t *testing.T) {
-	ops := &mockTmuxOps{}
-	rec := postOptions(t, ops, "@0", `{"options":{"@rk_win_marker":"wavy"}}`)
+	for _, v := range []string{"wavy", "hatch", "solid", "auto:4"} {
+		ops := &mockTmuxOps{}
+		rec := postOptions(t, ops, "@0", `{"options":{"@rk_win_marker":"`+v+`"}}`)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
-	}
-	if ops.setWindowOptionsCalled {
-		t.Error("SetWindowOptions must NOT be called for invalid marker")
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("status(%q) = %d, want %d", v, rec.Code, http.StatusBadRequest)
+		}
+		if ops.setWindowOptionsCalled {
+			t.Errorf("SetWindowOptions must NOT be called for invalid marker %q", v)
+		}
 	}
 }
 
-// The two 260723-wwoi marker states round-trip through the widened closed set.
-func TestWindowOptionsMarkerDashedThick(t *testing.T) {
-	for _, v := range []string{"dashed", "thick"} {
+// The new `<mode>[:<stage>]` tokens round-trip through the closed set.
+func TestWindowOptionsMarkerModeStageTokens(t *testing.T) {
+	for _, v := range []string{"manual:2", "blocked:3", "auto"} {
 		ops := &mockTmuxOps{}
 		rec := postOptions(t, ops, "@2", `{"options":{"@rk_win_marker":"`+v+`"}}`)
 
@@ -1571,7 +1574,7 @@ func TestWindowOptions_POST_wakesHub(t *testing.T) {
 		server, tracker := newWakeSeamServer(t, &mockTmuxOps{})
 		before := tracker.count.Load()
 		router := server.buildRouter()
-		req := httptest.NewRequest(http.MethodPost, "/api/windows/@2/options?server=default", strings.NewReader(`{"options":{"@rk_win_marker":"double"}}`))
+		req := httptest.NewRequest(http.MethodPost, "/api/windows/@2/options?server=default", strings.NewReader(`{"options":{"@rk_win_marker":"manual:2"}}`))
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)

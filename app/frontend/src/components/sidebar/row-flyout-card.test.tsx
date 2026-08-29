@@ -55,6 +55,8 @@ function Row({
   win,
   suppressed = false,
   onChangeColorAction,
+  marker,
+  onMarkerCommit,
   onFork,
   onFixTabName,
   hasOperator = false,
@@ -67,6 +69,8 @@ function Row({
   win: WindowInfo;
   suppressed?: boolean;
   onChangeColorAction?: () => void;
+  marker?: string;
+  onMarkerCommit?: (marker: string | null) => void;
   onFork?: () => Promise<void>;
   onFixTabName?: () => Promise<void>;
   hasOperator?: boolean;
@@ -89,6 +93,8 @@ function Row({
               }
             : undefined
         }
+        marker={marker}
+        onMarkerCommit={onMarkerCommit}
         onFork={onFork}
         onFixTabName={onFixTabName}
         hasOperator={hasOperator}
@@ -732,7 +738,7 @@ describe("Flyout warm-window delay group (module-scoped)", () => {
 });
 
 
-// Sectioned action rows (change color → fork → pin → kill): the card is the
+// Sectioned action rows (change color → marker → fork → pin → kill): the card is the
 // color/pin/kill home on
 // coarse pointers (where the in-row cluster is fine-pointer-only) and additive
 // + Tab-reachable on desktop. Optional-handler idiom: a consumer wiring no
@@ -774,11 +780,13 @@ describe("Pin/Kill action rows (ys3q)", () => {
     expect(screen.getByTestId("row-flyout-pin-action")).not.toHaveTextContent("undefined");
   });
 
-  it("rows render in the fixed change-color → fork → pin → kill order with the sectioned-list geometry", () => {
+  it("rows render in the fixed change-color → marker → fork → pin → kill order with the sectioned-list geometry", () => {
     render(
       <Row
         win={makeWindow({ chatProvider: "claude" })}
         onChangeColorAction={() => {}}
+        marker="auto:2"
+        onMarkerCommit={() => {}}
         onFork={() => Promise.resolve()}
         onPinAction={() => {}}
         onKillAction={() => {}}
@@ -789,10 +797,13 @@ describe("Pin/Kill action rows (ys3q)", () => {
     // (260817-ve5m), exact wording.
     const color = screen.getByTestId("row-flyout-color-action");
     expect(color).toHaveTextContent("Change color…");
+    const marker = screen.getByTestId("row-flyout-marker-action");
+    expect(marker).toHaveTextContent("Marker");
     const fork = screen.getByTestId("row-flyout-fork-action");
     const pin = screen.getByTestId("row-flyout-pin-action");
     const kill = screen.getByTestId("row-flyout-kill-action");
-    expect(color.compareDocumentPosition(fork) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(color.compareDocumentPosition(marker) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(marker.compareDocumentPosition(fork) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(fork.compareDocumentPosition(pin) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(pin.compareDocumentPosition(kill) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // One section with hairlines between its rows; touch height on coarse,
@@ -802,6 +813,7 @@ describe("Pin/Kill action rows (ys3q)", () => {
     const section = fork.parentElement!;
     expect(section.className).toContain("divide-y");
     expect(section).toContainElement(color);
+    expect(section).toContainElement(marker);
     expect(section).toContainElement(pin);
     expect(section).toContainElement(kill);
     for (const row of [color, fork, pin, kill]) {
@@ -810,6 +822,30 @@ describe("Pin/Kill action rows (ys3q)", () => {
     }
     // Red treatment on kill.
     expect(kill.className).toContain("hover:text-signal-red");
+  });
+
+  it("the inline Marker pad commits immediately, keeps the card open, and retains the picked highlight", () => {
+    const onMarkerCommit = vi.fn();
+    render(
+      <Row
+        win={makeWindow({ marker: "manual:1" })}
+        marker="manual:1"
+        onMarkerCommit={onMarkerCommit}
+      />,
+    );
+    hoverOpen();
+
+    const markerAction = screen.getByTestId("row-flyout-marker-action");
+    expect(markerAction).toHaveTextContent("Marker");
+    const target = screen.getByTestId("marker-pad-cell-blocked-3");
+    act(() => {
+      fireEvent.click(target);
+    });
+
+    expect(onMarkerCommit).toHaveBeenCalledWith("blocked:3");
+    expect(target).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("marker-pad-header")).toHaveTextContent("blocked · done");
+    expect(screen.getByTestId("row-flyout-card")).toBeInTheDocument();
   });
 
   it("kill invokes onKillAction and never selects the underlying row (stopPropagation); the card stays open for the confirm dialog", () => {

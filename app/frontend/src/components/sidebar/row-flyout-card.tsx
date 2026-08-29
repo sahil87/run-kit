@@ -20,16 +20,19 @@ import { PinIcon } from "@/components/pin-icon";
 import { CloseIcon, PaletteIcon } from "./icons";
 import { getFabParts, getPrSegments } from "./registers";
 import { PopupTitleBar, PopupTitleBarSecondary, notchFill } from "./popup-title-bar";
+import { MarkerPad, MARKER_PAD_INLINE_CELL_PX } from "./marker-pad";
+import { parseMarker, formatMarker } from "@/themes";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { formatDuration } from "@/lib/format";
 import type { WindowInfo } from "@/types";
 
 /**
- * Row-hover register flyout card (93dy) — the sidebar's tier-2 hover-card and
+ * Row-hover register flyout card — the sidebar's tier-2 hover-card and
  * the app's one status-detail hover surface. ONE shared card shell serves all
  * three rail-bearing row tiers (260817-ve5m): the WINDOW card opens on
  * fine-pointer WHOLE-ROW hover, keyboard row focus (the roving-tabindex
- * treeitem — Constitution V), and the coarse rail/dot tap; the SESSION and
+ * treeitem — Constitution V), and the coarse rail tap; the status dot stays a
+ * plain row-selection glyph. The SESSION and
  * SERVER cards are coarse-only surfaces (desktop keeps the identity tips +
  * hover clusters) whose sole trigger is the rail tap/scrub (`openNow`).
  *
@@ -177,9 +180,10 @@ export function scrubTargetAt(
  * `scrubTargetAt` and retargets the single-open card across rows AND tiers;
  * pointerup/pointercancel releases the capture and the last card STAYS open
  * (dismissal is the existing `useDismiss` outside-press). The scrub NEVER
- * selects, navigates, or toggles a row. Spread `handlers` onto a tier's rail
- * element (and the window row's secondary dot tap zone); `touch-action: none`
- * on the target keeps a press-and-slide from scrolling the drawer.
+ * selects, navigates, or toggles a row. Spread `handlers` onto a tier's rail;
+ * on coarse pointers that 56px rail is the window row's sole flyout trigger,
+ * while the plain status-dot glyph remains part of the tap-to-select row body.
+ * `touch-action: none` on the target keeps a press-and-slide from scrolling.
  */
 export function useRailScrub(openNow: () => void) {
   const activeRef = useRef(false);
@@ -659,6 +663,8 @@ function WindowFlyoutTitle({ win }: { win: WindowInfo }) {
 export function WindowFlyoutContent({
   win,
   onChangeColorAction,
+  marker,
+  onMarkerCommit,
   onFork,
   onFixTabName,
   hasOperator = false,
@@ -673,6 +679,14 @@ export function WindowFlyoutContent({
    *  it (the Pin-row close-then-open idiom). OPTIONAL: a consumer wiring no
    *  color seam renders no row. */
   onChangeColorAction?: () => void;
+  /** The row's committed marker string (`<mode>[:<stage>]`, "" when unset) —
+   *  parsed here via `parseMarker`. OPTIONAL (paired with `onMarkerCommit`):
+   *  a consumer wiring no marker seam renders no Marker row. */
+  marker?: string;
+  /** Write the marker for this window. The card's inline pad calls it with the
+   *  formatted token (or `null` to clear) on a cell tap; the card STAYS open
+   *  (the pad is click-mode, never a close-then-open handoff). */
+  onMarkerCommit?: (marker: string | null) => void;
   onFork?: () => Promise<void>;
   /** Fire the operator-request seam for this window (fix-tab-name). OPTIONAL:
    *  a consumer wiring no seam renders no row. Renders only when the
@@ -708,6 +722,11 @@ export function WindowFlyoutContent({
   // rule (operator present + subject chat ref + not the operator's own row)
   // AND a wired handler.
   const fixNameHandler = canRequestWindowOperatorAction(win, hasOperator) ? onFixTabName : undefined;
+  // The marker row is a narrowed handler (optional-handler idiom like the
+  // fork/fix rows): a consumer wiring `marker` + `onMarkerCommit` renders the
+  // pad inline; ghosts and board-route sidebars pass neither and render none.
+  const markerValue = parseMarker(marker);
+  const markerCommit = onMarkerCommit;
 
   return (
     <>
@@ -807,12 +826,12 @@ export function WindowFlyoutContent({
           pointer types: the color/pin/kill home on coarse (where the in-row
           cluster is fine-pointer-only), additive + Tab-reachable on desktop
           (the FloatingFocusManager order). One row per action in a fixed
-          change-color → fork → fix-tab-name → pin → kill order
-          (Change color… is the FIRST
-          action row of every tier's card). Optional-handler idiom: a consumer
+          change-color → marker → fork → fix-tab-name → pin → kill order
+          (Change color… is the FIRST action row of every tier's card; the
+          Marker row hosts the inline marker pad). Optional-handler idiom: a consumer
           wiring no handler renders no row. All rows stopPropagation so an
           action never selects the underlying row (the PR-link/docs idiom). */}
-      {(onChangeColorAction || forkHandler || fixNameHandler || onPinAction || onKillAction) && (
+      {(onChangeColorAction || markerCommit || forkHandler || fixNameHandler || onPinAction || onKillAction) && (
         <CardActionList flush={!hasBody}>
           {onChangeColorAction && (
             <CardActionRow
@@ -821,6 +840,24 @@ export function WindowFlyoutContent({
               testid="row-flyout-color-action"
               onClick={onChangeColorAction}
             />
+          )}
+          {/* Marker row: the pad inline in click mode (28px cells). A cell tap
+              writes the marker immediately via onMarkerCommit and the card
+              STAYS open (no close-then-open handoff — the pad is a live
+              picker, not a popover opener). ∅ clears. Renders on BOTH pointer
+              classes (the desktop card gets it too). */}
+          {markerCommit && (
+            <div data-testid="row-flyout-marker-action" className="px-2 py-1.5">
+              <div className="mb-1 text-[10px] text-text-primary">Marker</div>
+              <MarkerPad
+                mode="inline"
+                cellPx={MARKER_PAD_INLINE_CELL_PX}
+                value={markerValue}
+                onPreview={() => {}}
+                onCommit={(cell) => markerCommit(cell ? formatMarker(cell) : null)}
+                onCancel={() => {}}
+              />
+            </div>
           )}
           {forkHandler && <ForkActionRow onFork={forkHandler} />}
           {fixNameHandler && <FixTabNameActionRow onFixTabName={fixNameHandler} />}
@@ -881,7 +918,7 @@ type RowFlyout = {
    *  while the pointer travels onto the card (the held-row continuity cue) —
    *  the state is row-local, so the open/close re-render never leaves the row. */
   open: boolean;
-  /** Imperative open — the coarse-pointer dot-tap trigger. */
+  /** Imperative open — the coarse-pointer 56px rail trigger. */
   openNow: () => void;
   /** Imperative close — the row calls this on drag start. */
   close: () => void;
@@ -898,7 +935,8 @@ type RowFlyout = {
  * hover-opens; `safePolygon` bridges row → card so links are clickable; delay
  * via the module-scoped warm window), `useFocus` (keyboard row focus — the
  * roving treeitem), `useDismiss` (Escape / outside press / blur), plus the
- * exposed `openNow` for the coarse rail/dot tap. The coarse-only tiers
+ * exposed `openNow` for the coarse rail tap; the window status dot is a plain
+ * glyph whose tap selects the row. The coarse-only tiers
  * (session/server) disable hover/focus entirely — their one trigger is
  * `openNow` from the rail.
  */
@@ -934,7 +972,7 @@ export function useRowFlyout({ suppressed = false, coarseOnly = false, content }
       // `mouseenter` there must not steal the card back from the scrub's
       // retarget. The scrub's own `openNow` calls carry no reason and pass.
       if (scrubActive && (reason === "hover" || reason === "focus")) return;
-      // `useFocus` re-fires onOpenChange(true) for focusin bubbling from the
+      // `useFocus` re-fires onOpenChange with true for focusin bubbling from the
       // card, so only a transition where this card was NOT already the active
       // one counts as a fresh open for the entrance animation.
       if (activeFlyout !== self) coldOpenRef.current = !flyoutIsWarm();
@@ -954,7 +992,7 @@ export function useRowFlyout({ suppressed = false, coarseOnly = false, content }
   }, []);
 
   // Reset the focus-entered flag on each FRESH open, keyed to the real open
-  // state — NOT inside handleOpenChange: useFocus re-fires onOpenChange(true)
+  // state — NOT inside handleOpenChange: useFocus re-fires onOpenChange with true
   // for every focusin that bubbles from the portalled card through the React
   // tree (the card is a React child of the row root), and a reset there would
   // land in the same batch as the capture-phase set and negate it.
@@ -1051,7 +1089,8 @@ export function useRowFlyout({ suppressed = false, coarseOnly = false, content }
     // rail's `openNow` (fine pointers keep the identity tip + hover cluster).
     enabled: !suppressed && !coarseOnly,
     // Touch never hover-opens (intake #17): the coarse-pointer path is the
-    // explicit rail/dot-tap (`openNow`) + PANE-panel-on-selection.
+    // explicit rail tap (`openNow`) + PANE-panel-on-selection; tapping the
+    // plain status-dot glyph selects the row.
     mouseOnly: true,
     move: false,
     // Function form — evaluated at event time against the module-scoped warm
@@ -1068,7 +1107,7 @@ export function useRowFlyout({ suppressed = false, coarseOnly = false, content }
 
   const openNow = useCallback(() => {
     // Honor the same gate the useHover/useFocus triggers honor via `enabled`:
-    // a rail/dot-tap while a row popover (PinPopover/SwatchPopover) is open
+    // a rail tap while a row popover (PinPopover/SwatchPopover) is open
     // must not flash the card or close another row's card.
     if (suppressed) return;
     handleOpenChange(true);

@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mode Axis — Semantic Shapes</title>
+<style>
+  :root { --bg:#0f1117; --card:#171b24; --inset:#0a0c12; --tp:#e8eaf0; --ts:#7a8394; --border:#454d66;
+    --accent:#5b8af0; --green:#22c55e; --yellow:#facc15; --purple:#c084fc; --blue:#60a5fa; --red:#f87171; --fam:#f59e0b; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--tp); font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; padding:28px 32px 90px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  h2 { font-size:15px; margin:40px 0 10px; border-bottom:1px solid var(--border); padding-bottom:6px; }
+  h3 { font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--ts); margin:22px 0 8px; font-weight:600; }
+  p, li { color:#b6bcc9; font-size:13px; max-width:84ch; }
+  .sub { color:var(--ts); margin:0 0 14px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:18px; align-items:start; }
+  .study { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:12px 12px 10px; }
+  .cap { font-size:11px; color:var(--ts); margin-top:8px; line-height:1.45; }
+  .cap b, .study > b { color:var(--tp); font-weight:600; }
+  .tag { display:inline-block; font-size:10px; letter-spacing:.05em; text-transform:uppercase; padding:1px 6px; border-radius:3px; border:1px solid var(--border); color:var(--ts); margin-right:6px; vertical-align:middle; }
+  .tag.rec{border-color:var(--green);color:var(--green)} .tag.alt{border-color:var(--blue);color:var(--blue)} .tag.bad{border-color:var(--red);color:var(--red)} .tag.now{border-color:#6b7280;color:#cbd5e1}
+  code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11.5px; background:var(--inset); padding:0 4px; border-radius:3px; color:#cbd5e1; }
+  table { border-collapse:collapse; font-size:12px; margin-top:8px; width:100%; }
+  td,th { border:1px solid var(--border); padding:4px 8px; text-align:left; color:#b6bcc9; vertical-align:top; }
+  th { color:var(--tp); font-weight:600; }
+  .q { border-left:3px solid var(--accent); padding:6px 10px; margin:12px 0; background:color-mix(in srgb,var(--accent) 8%,transparent); border-radius:0 4px 4px 0; }
+  .q p { margin:0; }
+  .ok { color:var(--green); } .no { color:var(--red); } .meh { color:var(--yellow); }
+
+  .side { background:var(--bg); border:1px solid var(--border); border-radius:6px; overflow:visible; font-size:12px; position:relative; max-width:300px; }
+  .sess { display:flex; align-items:center; gap:6px; height:26px; padding:0 8px; color:var(--ts); font-weight:500; }
+  .sess .chev{font-size:10px;opacity:.8}
+  .row { position:relative; display:flex; align-items:center; gap:6px; min-height:24px; padding:1px 44px 1px 30px; color:var(--ts); font-size:12px; }
+  .row.sel { color:var(--tp); font-weight:500; background:color-mix(in srgb,var(--fam) 40%,transparent); }
+  .row.hov { color:var(--tp); background:color-mix(in srgb,var(--card) 50%,transparent); }
+  .row .name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .row .gloss { margin-left:auto; font-size:10px; color:var(--ts); opacity:.8; }
+  .dot { flex:none; width:7px; height:7px; border-radius:50%; background:var(--green); }
+  .dot.idle{background:#6b7280} .dot.ring{background:transparent;border:1.8px solid var(--green)}
+  .dot.halo{box-shadow:0 0 0 3px color-mix(in srgb,var(--yellow) 35%,transparent);background:var(--yellow)}
+  .stripe { position:absolute; left:4px; top:0; bottom:0; width:22px; pointer-events:none; }
+
+  /* shape catalog */
+  .cat { display:grid; grid-template-columns:84px repeat(3,58px) 1fr; gap:4px 8px; align-items:center; font-size:11px; color:var(--ts); }
+  .cat .h { font-size:10px; text-align:center; letter-spacing:.04em; }
+  .cat .nm { color:var(--tp); font-weight:600; font-size:11.5px; }
+  .cat .nm small { display:block; color:var(--ts); font-weight:400; font-size:10px; }
+  .cell { position:relative; height:24px; background:var(--bg); border:1px solid color-mix(in srgb,var(--border) 60%,transparent); border-radius:3px; overflow:hidden; }
+  .cell .stripe { left:3px; }
+  .cell .cdot { position:absolute; left:29px; top:50%; width:7px; height:7px; margin-top:-3.5px; border-radius:50%; background:#6b7280; }
+  .cat .rd { font-size:10.5px; line-height:1.35; }
+  .stack { position:relative; height:72px; }
+  .stack .stripe { left:3px; }
+
+  /* pad + spring demo */
+  .strip-hit { position:absolute; left:0; top:0; bottom:0; width:26px; cursor:ew-resize; z-index:3; }
+  .row.hov .strip-hit { background:color-mix(in srgb,var(--fam) 10%,transparent); }
+  .pad { position:absolute; z-index:50; background:var(--card); border:1px solid var(--border); border-radius:6px; box-shadow:0 10px 28px rgba(0,0,0,.6); padding:6px; user-select:none; touch-action:none; font-size:10px; color:var(--ts); }
+  .pad.static { position:static; box-shadow:none; display:inline-block; }
+  .pad .hd { display:flex; justify-content:space-between; gap:8px; padding:0 2px 5px; color:var(--tp); font-size:10.5px; min-height:16px; white-space:nowrap; }
+  .pad .hd b { color:var(--fam); font-weight:600; }
+  .pad .g { display:grid; grid-template-columns:62px repeat(6,24px); grid-auto-rows:22px; gap:2px; }
+  .pad .pl { display:flex; align-items:center; justify-content:flex-end; padding-right:6px; font-size:9.5px; letter-spacing:.03em; white-space:nowrap; }
+  .pad .pl b { color:var(--tp); font-weight:600; margin-right:4px; }
+  .pad .pc { position:relative; background:var(--bg); border:1px solid color-mix(in srgb,var(--border) 55%,transparent); border-radius:3px; overflow:hidden; }
+  .pad .pc .stripe { left:2px; width:20px; }
+  .pad .pc.on { border-color:var(--fam); box-shadow:inset 0 0 0 1px var(--fam); }
+  .pad .pc.hot { border-color:var(--tp); }
+  .pad .clear { grid-column:2; grid-row:2 / span 5; display:grid; place-items:center; color:var(--ts); font-size:13px; }
+  .pad .clear.on { color:var(--fam); }
+  .pad .colh { text-align:center; font-size:9px; display:grid; place-items:center; }
+  .hint { font-size:11px; color:var(--blue); margin:6px 0 0; }
+</style>
+</head>
+<body>
+
+<h1>Mode Axis — Semantic Shapes</h1>
+<p class="sub">Third study. Keeps the spring-loaded pad and the width = stage axis; asks what the <b>vertical axis</b> should <i>mean</i> and which shapes carry those meanings. Also fixes the dashed ≈ block collision (8/12 vs 9/12 duty cycle — indistinguishable at any width).</p>
+
+<h2>1 · First the tension: who writes the mode?</h2>
+<p>The memory records a hard split: <b>markers and colors are user preferences</b> (what you think about a task); <b>the status dot is derived</b> (activity / PR / agent signals); "the two axes never mix, by design." Your examples — <i>in conversation, auto mode, blocked, waiting</i> — sit right on that seam, so the write model has to be decided before the shapes.</p>
+<div class="grid">
+  <div class="study"><span class="tag now">W-A · declared</span> human sets it, nothing else touches it
+    <div class="cap">Today's model. Mode = "how I'm running this task". Zero plumbing, zero flicker, never lies about tooling. Cost: it goes stale — you forget to flip <i>auto</i> back to <i>hands-on</i> when the run ends, and the stripe silently drifts from reality.</div></div>
+  <div class="study"><span class="tag bad">W-B · derived per turn</span> agent-state drives the shape
+    <div class="cap">rk knows only <code>active | waiting | idle</code> (per turn, seconds apart), fab stage, and PR state. Mapping those onto the stripe (1) duplicates the dot's channel in a second place, (2) re-textures the stripe every turn — a marker that also carries your manual stage can't shimmer, (3) can't produce <i>auto</i> or <i>blocked</i> at all — neither is derivable anywhere today. <b>Rejected.</b></div></div>
+  <div class="study"><span class="tag rec">W-C · lifecycle-stamped</span> same option, two writers, boundary events only
+    <div class="cap">The <code>@rk_pane_agent_state</code> precedent: a user-owned option that tooling may stamp at <b>lifecycle boundaries</b>, never per turn. <code>fab fff</code> stamps <i>auto</i> when it starts and clears it when it exits; <code>fab ship</code>/wait-for-review stamps <i>waiting</i>; the operator's annotate step may stamp <i>conversing</i>; a human stamps <i>blocked</i> (nobody else can know). Rule: tooling writes only the mode it owns and only on enter/exit, and never overwrites a human-set <i>blocked</i>. The dot keeps the fast signal; the stripe gets the slow one. This is the "modes a process takes during its lifetime" reading — coarse phases, not turns.</div></div>
+</div>
+
+<h2>2 · Two candidate vocabularies</h2>
+<div class="grid">
+  <div class="study"><span class="tag rec">V1 · how the work proceeds</span>
+    <table>
+      <tr><th>Mode</th><th>Means</th><th>Typical writer</th></tr>
+      <tr><td><b>hands-on</b></td><td>I'm driving — editing, running, deciding</td><td>human (default when any mode is set)</td></tr>
+      <tr><td><b>conversing</b></td><td>pairing turn-by-turn with the agent; exploratory</td><td>human · operator annotate</td></tr>
+      <tr><td><b>auto</b></td><td>unattended run — fab fff / autopilot / bypass permissions</td><td>fab on enter/exit</td></tr>
+      <tr><td><b>waiting</b></td><td>ball is with someone else: PR review, CI, another team</td><td>fab ship · human</td></tr>
+      <tr><td><b>blocked</b></td><td>can't proceed; needs a decision or an external unblock</td><td>human only</td></tr>
+    </table>
+    <div class="cap">Five modes, each a distinct <i>way of working</i>. "Needs me right now" is deliberately absent — that's the agent-state <i>waiting</i> halo on the dot, fast and derived. Stage stays orthogonal: an <i>auto</i> row at stage 4 is "autopilot, nearly done".</div></div>
+  <div class="study"><span class="tag alt">V2 · whose turn is it</span>
+    <table>
+      <tr><th>Mode</th><th>Means</th></tr>
+      <tr><td><b>mine</b></td><td>the next move is mine</td></tr>
+      <tr><td><b>agent's</b></td><td>the agent is working it</td></tr>
+      <tr><td><b>theirs</b></td><td>someone outside this box (reviewer, CI, other team)</td></tr>
+      <tr><td><b>parked</b></td><td>nobody's — intentionally idle</td></tr>
+      <tr><td><b>blocked</b></td><td>can't move until X</td></tr>
+    </table>
+    <div class="cap">A turn-taking model answers the one question you ask when scanning a tree: <i>"who is this waiting on?"</i>. It's crisper than V1 but loses <i>conversing</i> (the turn alternates every minute — exactly the flicker W-B was rejected for) and <i>auto</i> collapses into <i>agent's</i>. Worth keeping as the framing for the <b>glosses</b> in the pad: V1 words, V2 sub-text ("auto · agent's turn").</div></div>
+</div>
+
+<h2>3 · Shape catalog — what each texture says on its own</h2>
+<p>Every candidate at stage 2 / 3 / 5 (6 / 11 / 22px), plus three rows stacked to check welding. The reading column is what the shape says <i>before</i> anyone tells you the legend — the test for "the shape reflects the meaning".</p>
+<div class="study">
+  <div class="cat" id="cat"></div>
+  <div class="cap"><b>Collisions:</b> dashed ≈ block at every width (drop one). hollow ≈ solid at stage 1 (2px) — fine, stage 1 = barely started. chevron vs hatch are distinct from 6px up (V's vs one-direction diagonals). wave needs ≥ 6px to read; below that it's a wobbly solid. crosshatch at 22px is very loud — reserve for the one state that deserves loud.</div>
+</div>
+
+<h2>4 · Mapping options</h2>
+<div class="grid" id="maps"></div>
+
+<div class="q"><p><b>Recommendation: M1.</b> The shapes were chosen so each one is <i>iconic</i> for its mode without a legend: dots = the "…" typing indicator (conversing); chevrons = ⏩ fast-forward (auto — and <code>fab fff</code> is literally fast-forward); hollow = an empty channel with nothing flowing (waiting on others); hatch = barrier tape (blocked — keeps the shipped hazard-wedge pairing); solid = the plain default (hands-on). M2 swaps in the more literal but weaker-at-small-width textures (wave for speech, crosshatch for barred); it wins only at stage ≥ 3.</p></div>
+
+<h2>5 · The pad with modes on the vertical axis</h2>
+<div class="grid">
+  <div class="study"><span class="tag rec">live · spring-loaded</span> press in the strip, drag, release
+    <div class="side" id="i3">
+      <div class="sess"><span class="chev">▾</span> fab-kit</div>
+      <div class="row hov" data-p="conversing" data-s="2"><div class="stripe"></div><div class="strip-hit"></div><div class="dot ring"></div><span class="name">swift-mink</span></div>
+      <div class="row" data-p="auto" data-s="3"><div class="stripe"></div><div class="dot"></div><span class="name">buffed-pika</span></div>
+      <div class="row" data-p="blocked" data-s="2"><div class="stripe"></div><div class="dot idle"></div><span class="name">iron-heron</span></div>
+    </div>
+    <p class="hint">try: press on swift-mink's strip; drag down to change mode, right to change stage; release. Release without moving to leave the pad open.</p>
+    <div class="cap">Row labels now carry the mode word + a V2 gloss, so the pad doubles as the legend — the vocabulary teaches itself every time it opens. Column ∅ clears both axes. <b>Edge rule</b>: the pad wants the current cell under the pointer, but the pointer is in the row's left 26px and the sidebar is flush with the screen edge — so the pad <i>clamps</i> inside the sidebar and the press-drag is <b>relative</b>: the highlighted cell follows your displacement (one cell pitch right = +1 stage, one down = next mode), and over-dragging sticks to the edge cell. Same motion, no clipping.</div></div>
+  <div class="study"><span class="tag alt">static</span> the pad at rest, for reading
+    <div id="padstatic"></div>
+    <div class="cap">62px label column fits the longest word (<i>conversing</i>) at 9.5px. On mobile the same pad sits inline in the card with 28px cells and gets a third column of space for the gloss.</div></div>
+</div>
+
+<h2>6 · Iteration: right-pointing chevrons for auto (count = stage) · crosshatch for waiting</h2>
+<p>Auto gets a <b>count</b> encoding — N right-pointing chevrons, »»» — while every other mode keeps <b>width</b> = stage. Three ways to lay N chevrons in a 22px strip, then crosshatch as the waiting texture beside hatch (blocked) at every stage, and the swapped assignment for comparison.</p>
+<div class="study">
+  <div class="cat" id="cat6" style="grid-template-columns:110px repeat(5,58px) 1fr"></div>
+  <div class="cap"><b>What to look at:</b> (1) at stage 1 the three chevron variants differ most — a 4px column of tiny ›'s vs one lone › vs one centered ›; (2) whether a count-encoded auto row sits comfortably next to width-encoded neighbours in the trees below; (3) crosshatch vs hatch at stage 2 (6px) — the width where most rows will live.</div>
+</div>
+<h3>Trees — auto + waiting variants</h3>
+<div class="grid" id="trees6"></div>
+<h3>Pad + live row on M1b</h3>
+<div class="grid">
+  <div class="study"><span class="tag rec">live · spring-loaded</span> chevron columns · crosshatch waiting
+    <div class="side" id="i6">
+      <div class="sess"><span class="chev">▾</span> fab-kit</div>
+      <div class="row hov" data-map="M1b" data-p="auto" data-s="2"><div class="stripe"></div><div class="strip-hit"></div><div class="dot"></div><span class="name">buffed-pika</span></div>
+      <div class="row" data-map="M1b" data-p="waiting" data-s="3"><div class="stripe"></div><div class="dot idle"></div><span class="name">calm-lynx</span></div>
+      <div class="row" data-map="M1b" data-p="blocked" data-s="2"><div class="stripe"></div><div class="dot idle"></div><span class="name">iron-heron</span></div>
+    </div>
+    <p class="hint">try: press on buffed-pika's strip and drag right — the chevron count steps 1→5.</p></div>
+  <div class="study"><span class="tag alt">static</span> the M1b pad
+    <div id="padstatic6"></div>
+    <div class="cap">Chevron rows in the pad are the one place the count reads unambiguously (1 › … 5 ›'s on a 20px cell). Crosshatch and hatch sit adjacent as the two "stalled" textures.</div></div>
+</div>
+
+<script>
+const FAM = '#f59e0b';
+const W = [0, 2, 6, 11, 16, 22];
+const svgURI = s => `url("data:image/svg+xml;utf8,${encodeURIComponent(s)}")`;
+function shapeCSS(shape, w, color = FAM) {
+  if (!w) return '';
+  switch (shape) {
+    case 'solid':  return `border-left:${w}px solid ${color};`;
+    case 'dotted': return `background:linear-gradient(to bottom,${color} 0 3px,transparent 3px 6px) 0 0/${w}px 6px repeat-y;`;
+    case 'dashed': return `background:linear-gradient(to bottom,${color} 0 8px,transparent 8px 12px) 0 0/${w}px 12px repeat-y;`;
+    case 'block':  return `background:linear-gradient(to bottom,${color} 0 9px,transparent 9px 12px) 0 0/${w}px 12px repeat-y;`;
+    case 'hatch':  return `width:${w}px;background:linear-gradient(45deg,${color} 0 25%,transparent 25% 50%,${color} 50% 75%,transparent 75%) 0 0/12px 12px repeat;`;
+    case 'crosshatch': return `width:${w}px;background:linear-gradient(45deg,${color} 0 20%,transparent 20% 50%,${color} 50% 70%,transparent 70%) 0 0/12px 12px repeat, linear-gradient(-45deg,${color} 0 20%,transparent 20% 50%,${color} 50% 70%,transparent 70%) 0 0/12px 12px repeat;`;
+    case 'hollow': { const b = w <= 2 ? w : 1.5; return `width:${w}px;border-left:${b}px solid ${color};border-right:${w <= 2 ? 0 : b}px solid ${color};`; }
+    case 'chevron': {
+      if (w <= 3) return `border-left:${w}px solid ${color};`;
+      const sw = w <= 6 ? 1.5 : 2;
+      const s = `<svg xmlns='http://www.w3.org/2000/svg' width='${w}' height='8' viewBox='0 0 ${w} 8'><path d='M0.5 1 L${w/2} 5 L${w-0.5} 1' fill='none' stroke='${color}' stroke-width='${sw}' stroke-linecap='round' stroke-linejoin='round'/></svg>`;
+      return `width:${w}px;background:${svgURI(s)} 0 0/${w}px 8px repeat-y;`;
+    }
+    case 'wave': {
+      if (w <= 3) return `border-left:${w}px solid ${color};`;
+      const a = w * 0.3, b = w * 0.95, c = -w * 0.35, sw = w <= 6 ? 1.5 : 2;
+      const s = `<svg xmlns='http://www.w3.org/2000/svg' width='${w}' height='12' viewBox='0 0 ${w} 12'><path d='M${a} 0 C${b} 2 ${b} 4 ${a} 6 C${c} 8 ${c} 10 ${a} 12' fill='none' stroke='${color}' stroke-width='${sw}'/></svg>`;
+      return `width:${w}px;background:${svgURI(s)} 0 0/${w}px 12px repeat-y;`;
+    }
+  }
+  return '';
+}
+const CATALOG = [
+  ['solid',      'continuous, plain',            'the default line — "just a task"; nothing special is happening to it'],
+  ['dotted',     '… typing indicator',           'intermittent small beats — a dialogue in progress, tentative'],
+  ['dashed',     'pause / intermittent',         'on-off — waiting, paused. Collides with block'],
+  ['block',      'bricks / frozen',              'heavy segments — archived, immovable. Collides with dashed'],
+  ['hatch',      'hazard tape',                  'caution, barrier — blocked / do not cross (has the wedge pairing)'],
+  ['crosshatch', 'barred / X',                   'stronger barrier than hatch; loud at width'],
+  ['chevron',    '⏩ fast-forward',               'V\'s pointing down = running ahead on its own — autopilot'],
+  ['hollow',     'empty channel',                'outline, nothing flowing inside — waiting for someone to fill it'],
+  ['wave',       'speech / signal',              'a voice line — conversation; needs ≥ 6px'],
+];
+(function () {
+  const g = document.getElementById('cat');
+  ['', 'stage 2', 'stage 3', 'stage 5', 'reads as'].forEach(t => g.appendChild(Object.assign(document.createElement('div'), { className: 'h', textContent: t })));
+  for (const [sh, gloss, rd] of CATALOG) {
+    const nm = document.createElement('div'); nm.className = 'nm'; nm.innerHTML = `${sh}<small>${gloss}</small>`; g.appendChild(nm);
+    for (const s of [2, 3, 5]) {
+      const c = document.createElement('div'); c.className = 'cell stack';
+      for (let i = 0; i < 3; i++) { const st = document.createElement('div'); st.className = 'stripe'; st.style.cssText = shapeCSS(sh, W[s]) + `top:${i*24}px;bottom:auto;height:24px;`; c.appendChild(st); }
+      const d = document.createElement('i'); d.className = 'cdot'; d.style.top = '12px'; c.appendChild(d);
+      const d2 = document.createElement('i'); d2.className = 'cdot'; d2.style.top = '36px'; c.appendChild(d2);
+      const d3 = document.createElement('i'); d3.className = 'cdot'; d3.style.top = '60px'; c.appendChild(d3);
+      g.appendChild(c);
+    }
+    g.appendChild(Object.assign(document.createElement('div'), { className: 'rd', textContent: rd }));
+  }
+})();
+
+// mappings
+const MAPS = {
+  M1: { tag: 'rec', title: 'iconic at small width', map: { 'hands-on': 'solid', conversing: 'dotted', auto: 'chevron', waiting: 'hollow', blocked: 'hatch' } },
+  M2: { tag: 'alt', title: 'literal textures', map: { 'hands-on': 'solid', conversing: 'wave', auto: 'chevron', waiting: 'dashed', blocked: 'crosshatch' } },
+  M3: { tag: 'alt', title: 'shipped shapes only (no new textures)', map: { 'hands-on': 'solid', conversing: 'dotted', auto: 'double', waiting: 'dashed', blocked: 'hatch' } },
+};
+const _shape = shapeCSS;
+// s = stage (1..5) for count-encoded shapes; derived from w when not passed
+function shapeCSS2(sh, w, color, s) {
+  const col = color || FAM; const n = s ?? Math.max(0, W.indexOf(w));
+  if (sh === 'double') { const t = Math.max(1, Math.round(w / 3)); return `width:${w}px;border-left:${t}px solid ${col};border-right:${t}px solid ${col};`; }
+  if (sh.startsWith('chevR')) {
+    if (!n) return '';
+    const P = 4.4; // pitch: 5 chevrons fit the 22px strip
+    const ch = (x, y0, h) => `M${x.toFixed(2)} ${y0} L${(x + 2.8).toFixed(2)} ${(y0 + h / 2).toFixed(1)} L${x.toFixed(2)} ${y0 + h}`;
+    const wrap = (d, wd, ht) => svgURI(`<svg xmlns='http://www.w3.org/2000/svg' width='${wd}' height='${ht}' viewBox='0 0 ${wd} ${ht}'><path d='${d}' fill='none' stroke='${col}' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>`);
+    if (sh === 'chevR-cols') { const wd = n * P; let d = ''; for (let i = 0; i < n; i++) d += ch(i * P + 0.5, 1, 6); return `width:${wd}px;background:${wrap(d, wd, 8)} 0 0/${wd}px 8px repeat-y;`; }
+    if (sh === 'chevR-row') { const wd = n * P + 0.6; let d = ''; for (let i = 0; i < n; i++) d += ch(i * P + 0.6, 1, 8); return `width:22px;background:${wrap(d, wd, 10)} 0 50%/${wd}px 10px no-repeat;`; }
+    if (sh === 'chevR-spread') { let d = ''; for (let i = 0; i < n; i++) d += ch((22 / (n + 1)) * (i + 1) - 1.4, 1, 8); return `width:22px;background:${wrap(d, 22, 10)} 0 50%/22px 10px no-repeat;`; }
+  }
+  return _shape(sh, w, col);
+}
+const GLOSS = { 'hands-on': 'mine', conversing: 'alternating', auto: "agent's", waiting: "theirs", blocked: 'stuck' };
+const TREE = [['rosy-otter','hands-on',1,'idle'],['buffed-pika','auto',3,''],['swift-mink','conversing',2,'ring'],['iron-heron','blocked',2,'idle'],['calm-lynx','waiting',4,''],['old-crane','auto',5,'idle'],['pale-wren','hands-on',5,'halo sel']];
+(function () {
+  const host = document.getElementById('maps');
+  for (const [k, m] of Object.entries(MAPS)) {
+    const st = document.createElement('div'); st.className = 'study';
+    st.innerHTML = `<span class="tag ${m.tag}">${k}</span> ${m.title}`;
+    const side = document.createElement('div'); side.className = 'side'; side.innerHTML = '<div class="sess"><span class="chev">▾</span> fab-kit</div>';
+    for (const [n, mode, s, d] of TREE) {
+      const r = document.createElement('div'); r.className = 'row' + (d.includes('sel') ? ' sel' : ''); r.style.paddingRight = '8px';
+      const stp = document.createElement('div'); stp.className = 'stripe'; stp.style.cssText = shapeCSS2(m.map[mode], W[s], undefined, s); r.appendChild(stp);
+      const dot = document.createElement('div'); dot.className = 'dot ' + d.replace('sel','').trim(); r.appendChild(dot);
+      r.appendChild(Object.assign(document.createElement('span'), { className: 'name', textContent: n }));
+      r.appendChild(Object.assign(document.createElement('span'), { className: 'gloss', textContent: `${mode} · ${s}` }));
+      side.appendChild(r);
+    }
+    st.appendChild(side);
+    const tbl = document.createElement('table');
+    tbl.innerHTML = '<tr>' + Object.entries(m.map).map(([mode, sh]) => `<td><b>${mode}</b><br><span style="color:var(--ts)">${sh}</span></td>`).join('') + '</tr>';
+    st.appendChild(tbl);
+    const cap = document.createElement('div'); cap.className = 'cap';
+    cap.textContent = k === 'M1' ? 'Every shape distinct from 6px up; only new textures are chevron + hollow (both one-tile SVG / two borders — cheap). Hatch keeps its wedge.'
+      : k === 'M2' ? 'Wave and crosshatch are the most literal but need stage ≥ 3 to read; dashed for waiting reintroduces a pause-vs-brick ambiguity if block ever returns.'
+      : 'No new drawing code: double (two thin edges) stands in for auto — but "two rails" reads as track/review more than as autopilot, and dashed for waiting is the weakest pairing. Ship-fast fallback.';
+    st.appendChild(cap);
+    host.appendChild(st);
+  }
+})();
+
+// pad with modes
+const MODES = ['hands-on', 'conversing', 'auto', 'waiting', 'blocked'];
+const MAPSETS = {
+  M1:  MAPS.M1.map,
+  M1b: { 'hands-on': 'solid', conversing: 'dotted', auto: 'chevR-cols',   waiting: 'crosshatch', blocked: 'hatch' },
+  M1c: { 'hands-on': 'solid', conversing: 'dotted', auto: 'chevR-row',    waiting: 'crosshatch', blocked: 'hatch' },
+  M1d: { 'hands-on': 'solid', conversing: 'dotted', auto: 'chevR-spread', waiting: 'crosshatch', blocked: 'hatch' },
+  M1e: { 'hands-on': 'solid', conversing: 'dotted', auto: 'chevR-cols',   waiting: 'hatch',      blocked: 'crosshatch' },
+};
+function paintRow(row) { const M = MAPSETS[row.dataset.map || 'M1']; const p = row.dataset.p, s = +row.dataset.s; row.querySelector('.stripe').style.cssText = shapeCSS2(M[p], W[s], undefined, s); }
+document.querySelectorAll('.row[data-p]').forEach(paintRow);
+function makePad(row, onCommit, mapKey) {
+  const M = MAPSETS[mapKey || (row && row.dataset.map) || 'M1'];
+  const pad = document.createElement('div'); pad.className = 'pad';
+  const hd = document.createElement('div'); hd.className = 'hd'; pad.appendChild(hd);
+  const g = document.createElement('div'); g.className = 'g'; pad.appendChild(g);
+  g.appendChild(Object.assign(document.createElement('div'), { className: 'colh' }));
+  for (let s = 0; s <= 5; s++) g.appendChild(Object.assign(document.createElement('div'), { className: 'colh', textContent: s === 0 ? '∅' : s }));
+  const cells = {};
+  MODES.forEach((p, ri) => {
+    const pl = document.createElement('div'); pl.className = 'pl'; pl.innerHTML = `<b>${p}</b><span>${GLOSS[p]}</span>`; g.appendChild(pl);
+    if (ri === 0) { const cl = document.createElement('div'); cl.className = 'pc clear'; cl.textContent = '∅'; cl.dataset.p = 'hands-on'; cl.dataset.s = '0'; g.appendChild(cl); cells['0'] = cl; }
+    for (let s = 1; s <= 5; s++) { const c = document.createElement('div'); c.className = 'pc'; c.dataset.p = p; c.dataset.s = s; const st = document.createElement('div'); st.className = 'stripe'; st.style.cssText = shapeCSS2(M[p], W[s], undefined, s); c.appendChild(st); g.appendChild(c); cells[p + s] = c; }
+  });
+  const cur = { p: row ? row.dataset.p : 'conversing', s: row ? +row.dataset.s : 2 };
+  function mark(p, s, hot) {
+    Object.values(cells).forEach(c => { c.classList.toggle('on', +c.dataset.s === cur.s && (cur.s === 0 || c.dataset.p === cur.p)); c.classList.remove('hot'); });
+    const c = s === 0 ? cells['0'] : cells[p + s]; if (c && hot) c.classList.add('hot');
+    hd.innerHTML = s === 0 ? `<span>clear marker</span><span></span>` : `<span><b>${p}</b> · stage ${s}</span><span>${GLOSS[p]}</span>`;
+  }
+  mark(cur.p, cur.s, false);
+  if (!row) return pad;
+  function preview(p, s) { row.dataset.p = p; row.dataset.s = s; paintRow(row); mark(p, s, true); }
+  const cellAt = (x, y) => { const el = document.elementFromPoint(x, y); const c = el && el.closest('.pc'); return c ? { p: c.dataset.p, s: +c.dataset.s } : null; };
+  // spring-drag hit test: pointer + the clamp offset, clamped into the cell area so an over-drag sticks to the edge cell
+  pad.off = { dx: 0, dy: 0 };
+  const cellAtDrag = (x, y) => {
+    const vx = x + pad.off.dx, vy = y + pad.off.dy;
+    const rects = Object.values(cells).map(c => [c, c.getBoundingClientRect()]);
+    const L = Math.min(...rects.map(([, r]) => r.left)), R = Math.max(...rects.map(([, r]) => r.right)) - 1;
+    const T = Math.min(...rects.map(([, r]) => r.top)), B = Math.max(...rects.map(([, r]) => r.bottom)) - 1;
+    const cx = Math.max(L, Math.min(R, vx)), cy = Math.max(T, Math.min(B, vy));
+    let best = null, bd = 1e9;
+    for (const [c, r] of rects) { if (cx >= r.left && cx < r.right && cy >= r.top && cy < r.bottom) return { p: c.dataset.p, s: +c.dataset.s }; const d = Math.hypot(cx - (r.left + r.width / 2), cy - (r.top + r.height / 2)); if (d < bd) { bd = d; best = c; } }
+    return best ? { p: best.dataset.p, s: +best.dataset.s } : null;
+  };
+  pad.cellAtDrag = cellAtDrag;
+  g.addEventListener('pointermove', e => { const c = cellAt(e.clientX, e.clientY); if (c) preview(c.p, c.s); });
+  g.addEventListener('pointerleave', () => { row.dataset.p = cur.p; row.dataset.s = cur.s; paintRow(row); mark(cur.p, cur.s, false); });
+  g.addEventListener('click', e => { const c = cellAt(e.clientX, e.clientY); if (c) { cur.p = c.p; cur.s = c.s; preview(c.p, c.s); onCommit && onCommit(); } });
+  pad.cellAt = cellAt; pad.preview = preview;
+  pad.commit = c => { cur.p = c.p; cur.s = c.s; row.dataset.p = c.p; row.dataset.s = c.s; paintRow(row); mark(c.p, c.s, false); onCommit && onCommit(); };
+  pad.revert = () => { row.dataset.p = cur.p; row.dataset.s = cur.s; paintRow(row); };
+  pad.placeUnder = (x, y, p, s) => {
+    const host = row.closest('.side'); const hr = host.getBoundingClientRect(); host.appendChild(pad); pad.style.left = '0px'; pad.style.top = '0px';
+    const c = s === 0 ? cells['0'] : cells[p + s]; const cr = c.getBoundingClientRect(), pr = pad.getBoundingClientRect();
+    const wantL = x - hr.left - ((cr.left + cr.width / 2) - pr.left), wantT = y - hr.top - ((cr.top + cr.height / 2) - pr.top);
+    // clamp inside the sidebar box (the real sidebar is flush with the screen's left edge); remember how far we moved
+    const L = Math.max(0, Math.min(Math.max(0, hr.width - pr.width), wantL)), T = Math.max(0, wantT);
+    pad.style.left = L + 'px'; pad.style.top = T + 'px';
+    pad.off = { dx: L - wantL, dy: T - wantT };
+  };
+  return pad;
+}
+function wireSpring(sel) {
+  const row = document.querySelector(sel + ' .row.hov'); const hit = row.querySelector('.strip-hit'); let pad = null, press = null;
+  const close = () => { if (pad) { pad.remove(); pad = null; } };
+  hit.addEventListener('pointerdown', e => { e.stopPropagation(); if (pad) { pad.revert(); close(); } hit.setPointerCapture(e.pointerId); pad = makePad(row, () => setTimeout(close, 120)); pad.placeUnder(e.clientX, e.clientY, row.dataset.p, +row.dataset.s); pad.preview(row.dataset.p, +row.dataset.s); press = { x: e.clientX, y: e.clientY, moved: false }; });
+  hit.addEventListener('pointermove', e => { if (!press || !pad) return; if (Math.hypot(e.clientX - press.x, e.clientY - press.y) > 4) press.moved = true; const c = pad.cellAtDrag(e.clientX, e.clientY); if (c) pad.preview(c.p, c.s); });
+  hit.addEventListener('pointerup', e => { if (!press || !pad) return; if (press.moved) { const c = pad.cellAtDrag(e.clientX, e.clientY) || { p: row.dataset.p, s: +row.dataset.s }; pad.commit(c); setTimeout(close, 120); } press = null; });
+  document.addEventListener('pointerdown', e => { if (pad && !press && !pad.contains(e.target) && e.target !== hit) { pad.revert(); close(); } });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && pad) { pad.revert(); close(); } });
+}
+wireSpring('#i3'); wireSpring('#i6');
+{ const sp = makePad(null, null, 'M1'); sp.classList.add('static'); document.getElementById('padstatic').appendChild(sp); }
+{ const sp = makePad(null, null, 'M1b'); sp.classList.add('static'); document.getElementById('padstatic6').appendChild(sp); }
+
+// ---- §6 catalog + trees ----
+(function () {
+  const g = document.getElementById('cat6');
+  ['', 'stage 1', 'stage 2', 'stage 3', 'stage 4', 'stage 5', 'reads as'].forEach(t => g.appendChild(Object.assign(document.createElement('div'), { className: 'h', textContent: t })));
+  const ROWS = [
+    ['chevR-cols',   'N columns, tiled',     'width grows with count like every other mode; the tiled texture reads "running" at any row height; countable to ~3, then a density'],
+    ['chevR-row',    'N glyphs, one row',    'a literal »»» badge — most countable, but a floating glyph in a strip of full-height stripes'],
+    ['chevR-spread', 'N spread over 22px',   'fixed 22px box, chevrons spread — stage 1 is a lone centered ›, stage 5 is dense; width no longer encodes stage'],
+    ['hatch',        'hazard tape',          'one-direction diagonals — barrier'],
+    ['crosshatch',   'barred / mesh',        'two-direction — a mesh or gate; at 6px it reads as a fine grille, at 22px it is the loudest texture on the page'],
+  ];
+  for (const [sh, gloss, rd] of ROWS) {
+    const nm = document.createElement('div'); nm.className = 'nm'; nm.innerHTML = `${sh}<small>${gloss}</small>`; g.appendChild(nm);
+    for (let s = 1; s <= 5; s++) {
+      const c = document.createElement('div'); c.className = 'cell stack';
+      for (let i = 0; i < 3; i++) { const st = document.createElement('div'); st.className = 'stripe'; st.style.cssText = shapeCSS2(sh, W[s], undefined, s) + `top:${i*24}px;bottom:auto;height:24px;`; c.appendChild(st); }
+      [12, 36, 60].forEach(t => { const d = document.createElement('i'); d.className = 'cdot'; d.style.top = t + 'px'; c.appendChild(d); });
+      g.appendChild(c);
+    }
+    g.appendChild(Object.assign(document.createElement('div'), { className: 'rd', textContent: rd }));
+  }
+  const TREE6 = [['rosy-otter','auto',1,'idle'],['buffed-pika','auto',3,''],['swift-mink','conversing',2,'ring'],['iron-heron','blocked',2,'idle'],['calm-lynx','waiting',4,''],['old-crane','auto',5,'idle'],['pale-wren','waiting',2,'halo sel']];
+  const T6 = { M1b: ['rec', 'auto = chevron columns · waiting = crosshatch'], M1c: ['alt', 'auto = chevron row · waiting = crosshatch'], M1d: ['alt', 'auto = chevrons spread · waiting = crosshatch'], M1e: ['alt', 'swap: waiting = hatch · blocked = crosshatch'] };
+  const host = document.getElementById('trees6');
+  for (const [k, [tag, title]] of Object.entries(T6)) {
+    const st = document.createElement('div'); st.className = 'study'; st.innerHTML = `<span class="tag ${tag}">${k}</span> ${title}`;
+    const side = document.createElement('div'); side.className = 'side'; side.innerHTML = '<div class="sess"><span class="chev">▾</span> fab-kit</div>';
+    for (const [n, mode, s, d] of TREE6) {
+      const r = document.createElement('div'); r.className = 'row' + (d.includes('sel') ? ' sel' : ''); r.style.paddingRight = '8px';
+      const stp = document.createElement('div'); stp.className = 'stripe'; stp.style.cssText = shapeCSS2(MAPSETS[k][mode], W[s], undefined, s); r.appendChild(stp);
+      const dot = document.createElement('div'); dot.className = 'dot ' + d.replace('sel','').trim(); r.appendChild(dot);
+      r.appendChild(Object.assign(document.createElement('span'), { className: 'name', textContent: n }));
+      r.appendChild(Object.assign(document.createElement('span'), { className: 'gloss', textContent: `${mode} · ${s}` }));
+      side.appendChild(r);
+    }
+    st.appendChild(side); host.appendChild(st);
+  }
+})();
+</script>
+</body>
+</html>

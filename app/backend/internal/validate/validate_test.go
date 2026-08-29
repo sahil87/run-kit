@@ -485,18 +485,20 @@ func TestValidateColorValue(t *testing.T) {
 
 func TestValidateMarkerValue(t *testing.T) {
 	// The empty string is valid — it means "unset" (no marker). The closed set
-	// is the 8 named states (display order pipe/dotted/dashed/solid/double/
-	// thick/hatch/block).
-	valid := []string{"", "pipe", "dotted", "dashed", "solid", "double", "thick", "hatch", "block"}
+	// is the twelve `<mode>[:<stage>]` tokens (mode ∈ manual/auto/blocked,
+	// stage ∈ 1/2/3, bare mode = stage 1).
+	valid := []string{"", "manual", "manual:1", "manual:2", "manual:3", "auto", "auto:1", "auto:2", "auto:3", "blocked", "blocked:1", "blocked:2", "blocked:3"}
 	for _, v := range valid {
 		if msg := ValidateMarkerValue(v); msg != "" {
 			t.Errorf("ValidateMarkerValue(%q) = %q, want valid", v, msg)
 		}
 	}
 	// Anything outside the closed set is rejected (case-sensitive, no whitespace
-	// tolerance — the frontend only ever writes the canonical tokens). Flair
-	// tokens are NOT markers — the axes are independent closed sets.
-	invalid := []string{"Dotted", "Dashed", "DASHED", "THICK", "Hatch", "dot", "dash", " solid ", " thick ", "4", "1+3", "none", "true", "rain", "scan", "nyan"}
+	// tolerance — the frontend only ever writes the canonical tokens). The
+	// flat pre-mode:stage tokens are rejected outright (read-side normalization
+	// maps them forward; writes must use the new vocabulary). Flair tokens are
+	// NOT markers — the axes are independent closed sets.
+	invalid := []string{"pipe", "dotted", "dashed", "solid", "double", "thick", "hatch", "block", "Manual", "AUTO", "Blocked", "auto:4", "auto:0", "auto:x", " manual ", "4", "1+3", "none", "true", "rain", "scan", "nyan"}
 	for _, v := range invalid {
 		if msg := ValidateMarkerValue(v); msg == "" {
 			t.Errorf("ValidateMarkerValue(%q) = valid, want error", v)

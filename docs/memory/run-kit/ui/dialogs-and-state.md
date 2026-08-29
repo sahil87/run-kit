@@ -1,5 +1,5 @@
 ---
-description: "Component conventions, dialogs (session name prompt, window-at-folder, spawn-agent, server kill confirm with the protected fork, server adopt confirm, tabbed settings with the registry-driven All-settings table, shell host add/edit form, width variants), clipboard utility, e2e host-global filesystem state, the Zustand window store (incl. the per-window web-tab override), and optimistic UI + mutation feedback."
+description: "Component conventions, dialogs (session name prompt, window-at-folder, spawn-agent, server kill confirm with the protected fork, server adopt confirm, tabbed settings with the registry-driven All-settings table, shell host add/edit form, width variants), clipboard utility, e2e host-global filesystem state, the Zustand window store (incl. the per-window web-tab override), optimistic UI + mutation feedback, and the recently-closed mirror (useRecentlyClosed + the toast onTimeout/onDismiss seam)."
 type: memory
 ---
 # run-kit UI — Dialogs & Client State
@@ -273,7 +273,7 @@ All mutating API calls use the `useOptimisticAction` hook (`app/frontend/src/hoo
 
 3. **Inline progress** (async data): File upload shows an "Uploading..." badge in the terminal area. Directory autocomplete shows a spinner in the path input trailing slot. Server list refresh shows a spinner on the dropdown trigger.
 
-**Error toast system**: `ToastProvider` + `Toast` component (`app/frontend/src/components/toast.tsx`). Fixed bottom-right, auto-dismiss after 4 seconds, stacked vertically. Error variant has `var(--color-ansi-1)` (red) left accent border; info variant uses `var(--color-ansi-4)` (blue). Theme-aware via CSS custom properties. Despite the "error" name it is the general toast surface (the `info` variant carries success/neutral messages). `addToast(message, variant?, action?)` takes an optional THIRD positional `action?: { label, onSelect }` (260718-gxrq) rendered as a keyboard-focusable `<button>` inside the toast body — selecting it dismisses the toast then runs `onSelect`; the third parameter is optional, so two-arg call sites stay valid. Used for the post-pin "Pinned to <board>" + "View board" toast (§ Post-pin success feedback + toast optional action).
+**Error toast system**: `ToastProvider` + `Toast` component (`app/frontend/src/components/toast.tsx`). Fixed bottom-right, auto-dismiss after 4 seconds, stacked vertically. Error variant has `var(--color-ansi-1)` (red) left accent border; info variant uses `var(--color-ansi-4)` (blue). Theme-aware via CSS custom properties. Despite the "error" name it is the general toast surface (the `info` variant carries success/neutral messages). `addToast(message, variant?, action?, onDismiss?)` takes an optional THIRD positional `action?: { label, onSelect }` (260718-gxrq) rendered as a keyboard-focusable `<button>` inside the toast body — selecting it dismisses the toast then runs `onSelect`; an optional FOURTH positional `onDismiss?: () => void` fires ONLY when the toast TIMES OUT (it is not fired when `action` was selected — the action owns its own follow-up); three-arg call sites stay valid. Used for the post-pin "Pinned to <board>" + "View board" toast (§ Post-pin success feedback + toast optional action), and the post-reopen "Resume agent" toast action whose onTimeout dismisses the closed record (§ Recently-closed mirror below).
 
 **Type guard**: `isGhostWindow(win)` exported from `optimistic-context.tsx` — narrows `WindowInfo | MergedWindow` to `MergedWindow & { optimistic: true }`. Used in the sidebar and the `SessionTiles` density view instead of `as` casts. `MergedWindow` type is defined in and exported from `app/frontend/src/store/window-store.ts`; it includes `windowId: string` as a required non-optional field.
 
@@ -295,6 +295,11 @@ When the next SSE update arrives without the `windowId`, `setWindowsForSession` 
 | `executeKillWindow` | `app/frontend/src/components/sidebar.tsx` | Ctrl+Click direct kill |
 | `executeKillFromDialog` | `app/frontend/src/components/sidebar.tsx` | Confirmation dialog kill |
 | `executeKillWindow` | `app/frontend/src/hooks/use-dialog-state.ts` | Command palette kill |
+| `executeKillWindow` (cross-server push) | `app/frontend/src/components/board/board-page.tsx` | Board-row kill — the kill response's `closed` goes onto ITS server's mirror (the route server's mirror is the palette gate) |
+
+### Recently-closed mirror (`useRecentlyClosed`)
+
+The server-side `{server}.closed/` ring ([layout-snapshots](/run-kit/layout-snapshots.md) § Recently-closed window ring) is the AUTHORITY; the frontend keeps only a module-level mirror string-keyed per server (`stacks: Map<string, ClosedWindow[]>` inside `hooks/use-recently-closed.ts`, exported helpers `pushRecentlyClosed(server, rec)`/`popRecentlyClosed(server, id)` plus the `buildReopenWindowAction(stack, onReopen)` palette-entry builder). The mirror exists ONLY to gate the `Tab: Reopen closed` palette entry and render its description — the server record is authoritative. It is seeded by `listClosedWindows(server)` on each `useRecentlyClosed(server)` hook mount (fail-silent — the gate just stays hidden until the next mount), pushed from every kill-flow response that carries `closed` (the three `use-dialog-state.ts` kill flows and the board route's `executeKillWindow`), and popped on reopen/dismiss/409. Every subscriber redraws via `useSyncExternalStore` (the same no-React-state-shape as `use-local-storage-enum.ts`). A top-of-stack only entry (`buildReopenWindowAction` returns `[]` on an empty stack) carries id `reopen-window`, description `"<name> — fresh shell in <session>"`, so `withShortcutHints` renders the effective combo on the row. On a `409` session-gone reopen the mirror pops too — the backend already dropped the record, so the entry would be a dead end.
 
 **Session kills are unaffected**: Session names are stable across kills (tmux never renumbers sessions). Session kill/restore remain in `OptimisticContext`.
 
@@ -379,6 +384,12 @@ Any value that scopes an HTTP request to a particular backend resource (server, 
 The regression test in `app/frontend/src/hooks/use-dialog-state.test.tsx` flips `SessionProvider`'s `server` prop between `openRenameSessionDialog("foo")` and `handleRenameSession()` and asserts the API call uses the post-flip server (`server-B`), proving the capture point is the handler invocation, not the dialog open.
 
 ## Design Decisions
+
+### The server record is the authority; the mirror exists only to gate the palette entry
+**Decision**: `useRecentlyClosed(server)` keeps a per-server module-level `Map<string, ClosedWindow[]>` mirror (exported push/pop helpers) seeded from `GET /api/windows/closed` on mount, pushed from kill responses, and popped on reopen/dismiss/409 — a `useSyncExternalStore` React seam — but the server-side `{server}.closed/` ring stays authoritative.
+**Why**: A client-only stack loses the record across reloads and cannot capture `@rk_win_web_<n>_root` (omitted from `ListWindows`); the mirror is the cheap way to gate the `Tab: Reopen closed` entry and render its description without a refetch per palette open, while the server keeps the record the toast's resume action must still resolve.
+**Rejected**: Zustand slice in `store/window-store.ts` (the ghost/kill/rename overlay is window-shaped, not ring-shaped, and a module-scope map is cheaper); re-fetching the ring on every palette open (the gate would flicker).
+*Introduced by*: 260829-11t0-reopen-closed-tab-recently-closed-stack
 
 ### Window-switch feedback stays optimistic
 **Decision**: window-switch navigation stays optimistic — the heading/URL flip at click (acknowledged intent) and the sidebar highlight stays SSE-derived (confirmation); the slide plays only on confirmed-fast arrival, with a pending mask + failure bounce-back layered on.

@@ -81,7 +81,9 @@ export type KeyBinding = {
    *  convention has no legal cross-platform letter: the split pair wants
    *  iTerm2's ⌘D/⇧⌘D on mac, but both rows on `KeyD` would collide on the
    *  Win/Linux shifted tier and plain Ctrl+D is the pane's EOF — so Win/Linux
-   *  keeps its own divider-mnemonic codes and mac refines to `KeyD`. Composes
+   *  keeps its own divider-mnemonic codes and mac refines to `KeyD`. An empty
+   *  string refines to a KEYLESS mac default (palette-only on mac —
+   *  create-session). Composes
    *  with `macTier`; only the DEFAULT is refined, same as `macTier`. */
   macCode?: string;
   scope: BindingScope;
@@ -133,8 +135,8 @@ export const KEYBINDINGS_STORAGE_KEY = "runkit-keybindings";
  * The default registry. Order is display order within each overlay group.
  *
  * Shifted tier — the starter actions (canonical letters):
- * N/T/W new-session/new-tab/close-tab (plus the keyless-base app-window
- * pair new/close-app-window), ↑/↓ prev/next tab and ←/→ prev/next session,
+ * N/T/W new-session/new-tab/close-tab (plus the keyless-base mac-only trio
+ * new/close-app-window and reopen-window), ↑/↓ prev/next tab and ←/→ prev/next session,
  * [/] back/forward, A next-waiting-agent, / the cheatsheet — joined by E
  * compose-strip
  * toggle and O open-last-used (260801-sm6g), , settings (260801-mqim), and the
@@ -143,16 +145,18 @@ export const KEYBINDINGS_STORAGE_KEY = "runkit-keybindings";
  * decide per-route applicability by handler presence.
  *
  * macOS demotions (260730-n789 — letters constant, modifier varies; the split
- * pair's, compose-toggle's, and create-session's `macCode`s are the
+ * pair's, compose-toggle's, and the keyless-base trio's `macCode`s are the
  * deliberate code exceptions):
  * [/]// and the VS Code-aligned ⌘B sidebar keycap default to the unshifted ⌘
  * tier on every mac host (interceptable in browsers — ⌘B bold is
  * the same class as the shipped ⌘[/⌘]/⌘/ and ⌘D interceptions, not
  * reserved like ⌘N/T/W); the window-cycle arrows (⌘↑/⌘↓), the positional
  * surface digits (⌘1 tty / ⌘2 code / ⌘3 web), and ⌘I compose demote the same
- * way. T/W and , demote on every mac host, and N/T/W also refine their
- * CODES (`macCode`): create-session rides ⇧⌘T, the two keyless-base
- * app-window actions spend ⌘N/⇧⌘W, and settings rides ⌘,. One canonical
+ * way. T/W and , demote on every mac host, and the tab-model letters also
+ * refine their CODES (`macCode`): reopen-window rides ⇧⌘T, the two
+ * keyless-base app-window actions spend ⌘N/⇧⌘W, and settings rides ⌘,.
+ * create-session refines the other way — a KEYLESS mac code (`macCode: ""`),
+ * palette-only on every mac host. One canonical
  * chord per action — in a mac browser the canonical combos are
  * browser-reserved (claims data below), so they resolve disabled there
  * and stay palette-only. A stays
@@ -181,16 +185,24 @@ export const KEYBINDINGS_STORAGE_KEY = "runkit-keybindings";
 export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // — run-kit shifted tier (global) —
   // The mac N/T/W map follows the universal tab-model convention
-  // (Chrome/Safari/iTerm2): unshifted ⌘ = the tab/tmux level, shifted = the
-  // bigger variant. ⌘T new tab (create-window, unchanged), ⇧⌘T new session
-  // (create-session's `macCode` — the split-pair precedent: tier-disjoint
-  // from create-window on one code), ⌘W close tab (kill-window, unchanged),
-  // with the app-window pair beside them (⌘N new / ⇧⌘W close — the two
-  // keyless-base bridge actions below). Win/Linux keeps ⇧Ctrl+N/T/W
-  // untouched (plain Ctrl belongs to the pane).
-  { actionId: "create-session", code: "KeyN", tier: "shifted", macCode: "KeyT", scope: "global", kind: "builtin", label: "New session", description: "a new group of tabs", mapLabel: "new session" },
+  // (Chrome/Safari/iTerm2): ⌘T new tab (create-window, unchanged), ⇧⌘T
+  // reopen closed tab (reopen-window's `macCode` — the split-pair precedent:
+  // tier-disjoint from create-window on one code), ⌘W close tab (kill-window,
+  // unchanged), with the app-window pair beside them (⌘N new / ⇧⌘W close —
+  // the two keyless-base bridge actions below). create-session spends NO mac
+  // chord: its mac-keyless refinement keeps it palette-only on both mac
+  // hosts, so ⇧⌘N (a chord no other mac host gives this app) never fires.
+  // Win/Linux keeps ⇧Ctrl+N/T/W untouched (plain Ctrl belongs to the pane).
+  { actionId: "create-session", code: "KeyN", tier: "shifted", macCode: "", scope: "global", kind: "builtin", label: "New session", description: "a new group of tabs", mapLabel: "new session" },
   { actionId: "create-window", code: "KeyT", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "New tab", description: "in the current session", mapLabel: "new tab" },
   { actionId: "kill-window", code: "KeyW", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Close tab", description: "confirm flow", mapLabel: "close tab" },
+  // ⇧⌘T reopen closed tab — the universal browser/VS Code/iTerm2 reflex.
+  // Keyless base (the app-window pair precedent): no Win/Linux shifted-tier
+  // chord is free (T is create-window, N is create-session), so it stays
+  // palette-only there. In a mac BROWSER the shifted KeyT is browser-owned
+  // (the "reopen tab" claim already in claimedKeys) and resolves reserved —
+  // palette-only there too, exactly like create-window's ⌘T.
+  { actionId: "reopen-window", code: "", tier: "shifted", macCode: "KeyT", scope: "global", kind: "builtin", label: "Reopen closed tab", description: "fresh shell — same session, name, folder, layout and web tabs", mapLabel: "reopen tab" },
   // The app-window pair (260820-lfla) — SPA bindings over the shell's
   // `shell:new-window` / `shell:close-window` bridge channels, NEVER shell
   // menu accelerators (menu.ts's unshifted-⌘ fall-through rule is
@@ -639,14 +651,17 @@ export function writeStoredOverrides(overrides: BindingOverrides): void {
 /**
  * The host-effective DEFAULT combo for a binding (260730-n789): on mac hosts
  * a `macTier` and/or `macCode` refinement (260807-rbx5) replaces the base
- * tier/code — one canonical chord per action on every mac host. This is
+ * tier/code — one canonical chord per action on every mac host. An
+ * empty-string `macCode` is a refinement to KEYLESS (unbound on mac), not a
+ * missing refinement — the `!== undefined` tests keep it from falling back
+ * to the base code. This is
  * the single seam where platform is consulted for defaults; both
  * `resolveBindings` (fallback + `isDefault`) and `applyCapture` (own-default
  * detection) read defaults through it, so a `macCode` binding's own-default
  * re-capture and conflict detection come for free.
  */
 export function defaultComboFor(def: KeyBinding, host: BindingHost): BindingCombo {
-  if (host.platform === "mac" && (def.macTier || def.macCode)) {
+  if (host.platform === "mac" && (def.macTier !== undefined || def.macCode !== undefined)) {
     return { code: def.macCode ?? def.code, tier: def.macTier ?? def.tier };
   }
   return { code: def.code, tier: def.tier };

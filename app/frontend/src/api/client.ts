@@ -209,13 +209,119 @@ export async function createWindow(
   return res.json();
 }
 
+// --- Recently-closed windows (the per-server kill-seam record ring) ---
+
+/** One pane of a closed window's kill-time capture. */
+export interface ClosedWindowPane {
+  id: string;
+  index: number;
+  cwd?: string;
+  command?: string;
+  active?: boolean;
+}
+
+/** One entry on a server's recently-closed ring: the window as captured before
+ *  the kill, plus any agent identity the active pane carried. The frontend
+ *  reads only `window.name`, `session`, and the chat pair — the rest round-
+ *  trips to the reopen/resume routes untouched. */
+export interface ClosedWindow {
+  id: string;
+  /** RFC3339 kill timestamp. */
+  closedAt: string;
+  server: string;
+  session: string;
+  window: {
+    index: number;
+    id: string;
+    name: string;
+    active?: boolean;
+    layout?: string;
+    color?: string;
+    rkLayout?: string;
+    webTabs?: string[];
+    webRoots?: string[];
+    webActive?: number;
+    codeRoot?: string;
+    marker?: string;
+    flair?: string;
+    role?: string;
+    note?: string;
+    panes: ClosedWindowPane[];
+  };
+  chatProvider?: string;
+  chatRef?: string;
+}
+
 export async function killWindow(
   server: string,
   windowId: string,
-): Promise<{ ok: boolean }> {
+): Promise<{ ok: boolean; closed?: ClosedWindow }> {
   const res = await fetch(
     withServer(`/api/windows/${encodeURIComponent(windowId)}/kill`, server),
     { method: "POST" },
+  );
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/** List a server's recently-closed ring, newest-first. */
+export async function listClosedWindows(server: string): Promise<ClosedWindow[]> {
+  const res = await deduplicatedFetch(withServer("/api/windows/closed", server));
+  if (!res.ok) await throwOnError(res);
+  const data = (await res.json()) as { closed?: ClosedWindow[] };
+  return data.closed ?? [];
+}
+
+/** Reopen a closed record as a fresh-shell window (same session/name/cwd/
+ *  options). Returns the riff-shaped spawn result so the caller navigates as
+ *  it does after a fork. Throws an HttpError carrying the status: 409 names
+ *  the vanished owning session (the record is dropped server-side), 404 an
+ *  unknown record id. */
+export async function reopenClosedWindow(
+  server: string,
+  id: string,
+): Promise<RiffSpawnResult> {
+  const res = await fetch(
+    withServer(`/api/windows/closed/${encodeURIComponent(id)}/reopen`, server),
+    { method: "POST" },
+  );
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new HttpError(res.status, (data as { error?: string }).error ?? `Request failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+/** Drop a closed record without reopening it (toast dismissed, resume
+ *  declined). Idempotent by contract; callers tolerate a 404. */
+export async function dismissClosedWindow(
+  server: string,
+  id: string,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(
+    withServer(`/api/windows/closed/${encodeURIComponent(id)}/dismiss`, server),
+    { method: "POST" },
+  );
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/** Resume the record's captured agent into a NEW window, replacing the
+ *  just-reopened fresh-shell window (`replaceWindowId`, killed server-side).
+ *  Throws on a non-ok response: 400 for a non-repo cwd, 404 when the record
+ *  carries no resolvable claude agent ref. */
+export async function resumeClosedWindow(
+  server: string,
+  id: string,
+  replaceWindowId: string,
+): Promise<RiffSpawnResult> {
+  const res = await fetch(
+    withServer(`/api/windows/closed/${encodeURIComponent(id)}/resume`, server),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ replaceWindowId }),
+    },
   );
   if (!res.ok) await throwOnError(res);
   return res.json();

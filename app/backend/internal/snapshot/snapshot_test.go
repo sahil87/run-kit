@@ -127,3 +127,92 @@ func TestCaptureServerDeadServerErrorPropagates(t *testing.T) {
 		t.Errorf("capture error should stay IsServerGone-classifiable: %v", err)
 	}
 }
+
+// stubWindowReads swaps the single-window read seams (CaptureWindow's seams)
+// for the duration of a test, mirroring stubLayoutReads.
+func stubWindowReads(t *testing.T,
+	win tmux.LayoutWindow, found bool, winErr error,
+	panes []tmux.LayoutPane, paneErr error,
+) {
+	t.Helper()
+	origWin, origPanes := listLayoutWindow, listLayoutPanesForWindow
+	listLayoutWindow = func(ctx context.Context, server, windowID string) (tmux.LayoutWindow, bool, error) {
+		return win, found, winErr
+	}
+	listLayoutPanesForWindow = func(ctx context.Context, server, windowID string) ([]tmux.LayoutPane, error) {
+		return panes, paneErr
+	}
+	t.Cleanup(func() { listLayoutWindow, listLayoutPanesForWindow = origWin, origPanes })
+}
+
+// TestCaptureWindowAssemblesRecord: a live window captures exactly the Window
+// shape CaptureServer would give it (full @rk_win_* set, panes index-sorted)
+// plus the owning session name.
+func TestCaptureWindowAssemblesRecord(t *testing.T) {
+	stubWindowReads(t,
+		tmux.LayoutWindow{Session: "alpha", WindowID: "@7", Index: 2, Name: "agent", Active: true,
+			Layout: "l7", Color: "2", RkLayout: "single:web", WebTabs: []string{"/proxy/1/"},
+			WebRoots: []string{"/r1"}, WebActive: 1, CodeRoot: "/w", Marker: "solid",
+			Note: "1756036800:blocked"},
+		true, nil,
+		[]tmux.LayoutPane{
+			{WindowID: "@7", PaneID: "%8", Index: 1, Cwd: "/b", Command: "claude", Active: true},
+			{WindowID: "@7", PaneID: "%7", Index: 0, Cwd: "/a", Command: "zsh"},
+		}, nil,
+	)
+
+	win, session, err := CaptureWindow(context.Background(), "kit", "@7")
+	if err != nil {
+		t.Fatalf("CaptureWindow: %v", err)
+	}
+	if session != "alpha" {
+		t.Errorf("session = %q, want alpha", session)
+	}
+	if win.ID != "@7" || win.Index != 2 || win.Name != "agent" || !win.Active ||
+		win.Layout != "l7" || win.Color != "2" || win.RkLayout != "single:web" ||
+		len(win.WebTabs) != 1 || win.WebTabs[0] != "/proxy/1/" || win.WebRoots[0] != "/r1" ||
+		win.WebActive != 1 || win.CodeRoot != "/w" || win.Marker != "solid" ||
+		win.Note != "1756036800:blocked" {
+		t.Errorf("window = %+v", win)
+	}
+	// Panes index-sorted (the reads return pane order unsorted).
+	if len(win.Panes) != 2 || win.Panes[0].ID != "%7" || win.Panes[1].ID != "%8" {
+		t.Fatalf("panes = %+v, want index order %%7,%%8", win.Panes)
+	}
+	if !win.Panes[1].Active || win.Panes[1].Command != "claude" {
+		t.Errorf("pane %%8 = %+v", win.Panes[1])
+	}
+}
+
+// TestCaptureWindowGoneIsAnError: a window that no longer exists (killed before
+// the capture ran) is an error — the caller records nothing and kills anyway,
+// so gone-vs-read-error is deliberately NOT distinguished.
+func TestCaptureWindowGoneIsAnError(t *testing.T) {
+	stubWindowReads(t, tmux.LayoutWindow{}, false, nil, nil, nil)
+
+	_, _, err := CaptureWindow(context.Background(), "kit", "@99")
+	if err == nil {
+		t.Fatal("want error for a gone window")
+	}
+	if !strings.Contains(err.Error(), "@99") {
+		t.Errorf("error should name the window: %v", err)
+	}
+}
+
+// TestCaptureWindowReadErrorsPropagate: a tmux read failure (dead server,
+// exec fault) on either read surfaces as an error.
+func TestCaptureWindowReadErrorsPropagate(t *testing.T) {
+	dead := errors.New("layout list-windows: exit status 1: no server running")
+	stubWindowReads(t, tmux.LayoutWindow{}, false, dead, nil, nil)
+	if _, _, err := CaptureWindow(context.Background(), "kit", "@7"); err == nil {
+		t.Fatal("want error for a failed window read")
+	}
+
+	paneDead := errors.New("layout list-panes: exit status 1")
+	stubWindowReads(t,
+		tmux.LayoutWindow{Session: "alpha", WindowID: "@7", Index: 1, Name: "w"}, true, nil,
+		nil, paneDead)
+	if _, _, err := CaptureWindow(context.Background(), "kit", "@7"); err == nil {
+		t.Fatal("want error for a failed pane read")
+	}
+}

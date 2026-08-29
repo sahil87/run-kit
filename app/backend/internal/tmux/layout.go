@@ -190,6 +190,46 @@ func ListLayoutWindows(ctx context.Context, server string) ([]LayoutWindow, erro
 	return parseLayoutWindows(lines), nil
 }
 
+// ListLayoutWindow reads the single window windowID with the same
+// layoutWindowFormat as the server-wide walk — the kill-seam capture reads one
+// window, so it must not walk every window on the server. The -f filter
+// receives windowID as a discrete argv element; callers have already validated
+// the @N shape (no format injection). found=false means the window is gone
+// (already killed); a dead/unreachable server returns an error, never
+// found=false — the list-windows read itself failing must not masquerade as
+// "window gone".
+func ListLayoutWindow(ctx context.Context, server, windowID string) (win LayoutWindow, found bool, err error) {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	lines, err := tmuxExecServer(ctx, server, "list-windows", "-a",
+		"-F", layoutWindowFormat, "-f", "#{==:#{window_id},"+windowID+"}")
+	if err != nil {
+		return LayoutWindow{}, false, fmt.Errorf("layout list-windows: %w", err)
+	}
+	for _, w := range parseLayoutWindows(lines) {
+		if w.WindowID == windowID {
+			return w, true, nil
+		}
+	}
+	return LayoutWindow{}, false, nil
+}
+
+// ListLayoutPanesForWindow is ListLayoutPanes scoped to one window — the
+// kill-seam capture companion of ListLayoutWindow. Same read, same parser, same
+// -f discipline; a window with no panes returns an empty slice (never an error).
+func ListLayoutPanesForWindow(ctx context.Context, server, windowID string) ([]LayoutPane, error) {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	lines, err := tmuxExecServer(ctx, server, "list-panes", "-a",
+		"-F", layoutPaneFormat, "-f", "#{==:#{window_id},"+windowID+"}")
+	if err != nil {
+		return nil, fmt.Errorf("layout list-panes: %w", err)
+	}
+	return parseLayoutPanes(lines)[windowID], nil
+}
+
 // parseLayoutWindows parses layoutWindowFormat lines, skipping hidden-session
 // rows and malformed lines, deduplicating by window id (first non-hidden
 // occurrence wins). Accessible to same-package tests.

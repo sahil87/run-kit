@@ -397,8 +397,11 @@ describe("SettingsShortcutsPanel desktop-pill rows (260823-c5yq)", () => {
       expect(screen.queryByText("desktop")).toBeNull();
       expect(screen.queryByText("browser")).toBeNull();
       expect(screen.queryByText(/^in (browser|desktop app):/)).toBeNull();
-      // All six canonical chords are live — their keycap buttons rebind.
-      expect(screen.getByLabelText("Change binding for New session")).toBeInTheDocument();
+      // The mac-canonical chords are live — their keycap buttons rebind.
+      // New session is the exception: its mac-keyless default refinement
+      // leaves it unbound on mac, so no live keycap renders for it.
+      expect(screen.queryByLabelText("Change binding for New session")).toBeNull();
+      expect(screen.getByLabelText("Change binding for Reopen closed tab")).toBeInTheDocument();
       expect(screen.getByLabelText("Change binding for Settings")).toBeInTheDocument();
     } finally {
       delete window.runkitShell;

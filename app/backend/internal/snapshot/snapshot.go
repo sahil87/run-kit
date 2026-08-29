@@ -110,6 +110,10 @@ var (
 	listLayoutPanes    = tmux.ListLayoutPanes
 	getSessionOrder    = tmux.GetSessionOrder
 	getServerRank      = tmux.GetServerRank
+	// Single-window variants for the kill-seam capture (CaptureWindow) — a kill
+	// must not walk every window on the server.
+	listLayoutWindow         = tmux.ListLayoutWindow
+	listLayoutPanesForWindow = tmux.ListLayoutPanesForWindow
 )
 
 // CaptureServer derives a full layout snapshot of the named server from tmux.
@@ -156,33 +160,7 @@ func CaptureServer(ctx context.Context, server string) (*Snapshot, error) {
 	// compares serialized content, so equal layouts must serialize equally.
 	bySession := map[string][]Window{}
 	for _, w := range windows {
-		win := Window{
-			Index:     w.Index,
-			ID:        w.WindowID,
-			Name:      w.Name,
-			Active:    w.Active,
-			Layout:    w.Layout,
-			Color:     w.Color,
-			RkLayout:  w.RkLayout,
-			WebTabs:   w.WebTabs,
-			WebRoots:  w.WebRoots,
-			WebActive: w.WebActive,
-			CodeRoot:  w.CodeRoot,
-			Marker:    w.Marker,
-			Flair:     w.Flair,
-			Role:      w.Role,
-			Note:      w.Note,
-		}
-		for _, p := range panes[w.WindowID] {
-			win.Panes = append(win.Panes, Pane{
-				ID:      p.PaneID,
-				Index:   p.Index,
-				Cwd:     p.Cwd,
-				Command: p.Command,
-				Active:  p.Active,
-			})
-		}
-		sort.Slice(win.Panes, func(i, j int) bool { return win.Panes[i].Index < win.Panes[j].Index })
+		win := layoutWindowToSnapshot(w, panes[w.WindowID])
 		bySession[w.Session] = append(bySession[w.Session], win)
 	}
 
@@ -204,4 +182,62 @@ func CaptureServer(ctx context.Context, server string) (*Snapshot, error) {
 	}
 
 	return snap, nil
+}
+
+// layoutWindowToSnapshot maps one layout-read window plus its panes onto the
+// snapshot Window shape. The single mapping shared by CaptureServer and
+// CaptureWindow — the kill-seam record must capture exactly what a server
+// snapshot would (panes sorted by index).
+func layoutWindowToSnapshot(w tmux.LayoutWindow, panes []tmux.LayoutPane) Window {
+	win := Window{
+		Index:     w.Index,
+		ID:        w.WindowID,
+		Name:      w.Name,
+		Active:    w.Active,
+		Layout:    w.Layout,
+		Color:     w.Color,
+		RkLayout:  w.RkLayout,
+		WebTabs:   w.WebTabs,
+		WebRoots:  w.WebRoots,
+		WebActive: w.WebActive,
+		CodeRoot:  w.CodeRoot,
+		Marker:    w.Marker,
+		Flair:     w.Flair,
+		Role:      w.Role,
+		Note:      w.Note,
+	}
+	for _, p := range panes {
+		win.Panes = append(win.Panes, Pane{
+			ID:      p.PaneID,
+			Index:   p.Index,
+			Cwd:     p.Cwd,
+			Command: p.Command,
+			Active:  p.Active,
+		})
+	}
+	sort.Slice(win.Panes, func(i, j int) bool { return win.Panes[i].Index < win.Panes[j].Index })
+	return win
+}
+
+// CaptureWindow derives the snapshot Window for ONE window plus its owning
+// (non-pin) session name — the kill-seam capture behind the recently-closed
+// ring. It reads only that window (the single-window layout reads), never the
+// whole server. A window that is already gone and any tmux read failure both
+// surface as errors; the caller (the kill handler) treats every failure alike
+// (record nothing, kill anyway), so the two are deliberately not
+// distinguished. The reads carry no @rk_pane_chat — agent identity is the
+// caller's separate FetchSessions walk.
+func CaptureWindow(ctx context.Context, server, windowID string) (Window, string, error) {
+	lw, found, err := listLayoutWindow(ctx, server, windowID)
+	if err != nil {
+		return Window{}, "", fmt.Errorf("capture %s window %s: %w", server, windowID, err)
+	}
+	if !found {
+		return Window{}, "", fmt.Errorf("capture %s: window %s is gone", server, windowID)
+	}
+	panes, err := listLayoutPanesForWindow(ctx, server, windowID)
+	if err != nil {
+		return Window{}, "", fmt.Errorf("capture %s window %s: %w", server, windowID, err)
+	}
+	return layoutWindowToSnapshot(lw, panes), lw.Session, nil
 }

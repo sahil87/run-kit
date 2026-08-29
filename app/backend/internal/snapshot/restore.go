@@ -14,18 +14,23 @@ import (
 // tests inject fakes so the engine's ordering/fallback logic is unit-testable
 // without a live tmux server.
 type restoreOps struct {
-	listSessions    func(ctx context.Context, server string) ([]tmux.SessionInfo, error)
-	createSession   func(name, windowName, cwd, server string) (windowID string, bornIndex int, err error)
-	createWindowAt  func(session string, index int, name, cwd, server string) (windowID string, err error)
-	renumberWindow  func(session, windowID string, index int, server string) error
-	splitWindow     func(windowID string, horizontal bool, cwd, server string) (paneID string, err error)
-	selectLayout    func(windowID, layout, server string) error
-	selectPane      func(paneID, server string) error
-	selectWindow    func(session, windowID, server string) error
-	setSessionColor func(session, color, server string) error
-	setWindowOpts   func(ctx context.Context, windowID, server string, ops []tmux.WindowOptionOp) error
-	setSessionOrder func(ctx context.Context, server string, order []string) error
-	setServerRank   func(ctx context.Context, server string, rank int) error
+	listSessions   func(ctx context.Context, server string) ([]tmux.SessionInfo, error)
+	createSession  func(name, windowName, cwd, server string) (windowID string, bornIndex int, err error)
+	createWindowAt func(session string, index int, name, cwd, server string) (windowID string, err error)
+	// createWindowAppend creates the window after the session's current window
+	// (new-window -a) — the documented fallback when the stored index is now
+	// occupied (the restore engine's append posture, minus MoveWindow: a reopen
+	// never renumbers a live session's neighbours).
+	createWindowAppend func(session, name, cwd, server string) (windowID string, err error)
+	renumberWindow     func(session, windowID string, index int, server string) error
+	splitWindow        func(windowID string, horizontal bool, cwd, server string) (paneID string, err error)
+	selectLayout       func(windowID, layout, server string) error
+	selectPane         func(paneID, server string) error
+	selectWindow       func(session, windowID, server string) error
+	setSessionColor    func(session, color, server string) error
+	setWindowOpts      func(ctx context.Context, windowID, server string, ops []tmux.WindowOptionOp) error
+	setSessionOrder    func(ctx context.Context, server string, order []string) error
+	setServerRank      func(ctx context.Context, server string, rank int) error
 	// dirExists reports whether a stored pane cwd still exists on disk (a
 	// deleted worktree falls back to the server default dir with a note).
 	dirExists func(path string) bool
@@ -34,9 +39,14 @@ type restoreOps struct {
 // ProductionRestoreOps returns the restoreOps wired to internal/tmux.
 func productionRestoreOps() restoreOps {
 	return restoreOps{
-		listSessions:    tmux.ListSessions,
-		createSession:   tmux.CreateSessionForRestore,
-		createWindowAt:  tmux.CreateWindowAtIndex,
+		listSessions:   tmux.ListSessions,
+		createSession:  tmux.CreateSessionForRestore,
+		createWindowAt: tmux.CreateWindowAtIndex,
+		// Append passes nil options: the @rk_win_* re-stamp runs as a follow-up
+		// setWindowOpts once the new id is known, so it can degrade per-step.
+		createWindowAppend: func(session, name, cwd, server string) (string, error) {
+			return tmux.CreateWindowWithOptionsID(session, name, cwd, server, nil)
+		},
 		renumberWindow:  tmux.RenumberWindow,
 		splitWindow:     tmux.SplitWindow,
 		selectLayout:    tmux.SelectLayout,
@@ -236,7 +246,7 @@ func restore(ctx context.Context, server string, snap *Snapshot, ops restoreOps)
 			}
 
 			// rk presentation options ride one chained set-option call.
-			if wops := windowOptionOps(win); len(wops) > 0 {
+			if wops := WindowOptionOps(win); len(wops) > 0 {
 				if oerr := ops.setWindowOpts(ctx, windowID, server, wops); oerr != nil {
 					rw.Notes = append(rw.Notes, fmt.Sprintf("window options not reapplied: %v", oerr))
 				}
@@ -322,14 +332,16 @@ func formerCommands(win Window) []string {
 	return out
 }
 
-// windowOptionOps maps a snapshot window's stored rk options onto the chained
-// set-option ops SetWindowOptions applies. Empty values are omitted (never
-// unset — a restore only reapplies what was captured). The web-tab family is
-// emitted slot by slot (URL and root together); the active pointer only when
-// > 0. A snapshot written by an older binary (whose retired web keys this
-// struct no longer declares) decodes with those keys ignored and simply
-// restores without web state — no on-disk migration.
-func windowOptionOps(win Window) []tmux.WindowOptionOp {
+// WindowOptionOps maps a snapshot window's stored rk options onto the chained
+// set-option ops SetWindowOptions applies. Exported so every re-stamp path
+// (restore, closed-window reopen/resume) shares the ONE option mapping — no
+// second option list anywhere. Empty values are omitted (never unset — a
+// restore only reapplies what was captured). The web-tab family is emitted
+// slot by slot (URL and root together); the active pointer only when > 0. A
+// snapshot written by an older binary (whose retired web keys this struct no
+// longer declares) decodes with those keys ignored and simply restores without
+// web state — no on-disk migration.
+func WindowOptionOps(win Window) []tmux.WindowOptionOp {
 	var ops []tmux.WindowOptionOp
 	add := func(key, value string) {
 		if value != "" {

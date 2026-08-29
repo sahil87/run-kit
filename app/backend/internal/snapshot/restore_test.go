@@ -21,6 +21,8 @@ type fakeRestore struct {
 	nextWindow int
 	// failCreateAt makes createWindowAt fail for the given index.
 	failCreateAt map[int]error
+	// opsCreateAppendErr makes createWindowAppend fail (reopen fallback path).
+	opsCreateAppendErr error
 	// failSplit makes every splitWindow call fail.
 	failSplit error
 	// failLayout makes selectLayout fail.
@@ -50,6 +52,15 @@ func (f *fakeRestore) ops() restoreOps {
 			f.nextWindow++
 			id := fmt.Sprintf("@%d", f.nextWindow)
 			f.calls = append(f.calls, fmt.Sprintf("new-window %s:%d -n %s -c %q -> %s", session, index, name, cwd, id))
+			return id, nil
+		},
+		createWindowAppend: func(session, name, cwd, server string) (string, error) {
+			if f.opsCreateAppendErr != nil {
+				return "", f.opsCreateAppendErr
+			}
+			f.nextWindow++
+			id := fmt.Sprintf("@%d", f.nextWindow)
+			f.calls = append(f.calls, fmt.Sprintf("new-window-append %s -n %s -c %q -> %s", session, name, cwd, id))
 			return id, nil
 		},
 		renumberWindow: func(session, windowID string, index int, server string) error {
@@ -294,7 +305,7 @@ func TestWindowOptionOpsWebFamily(t *testing.T) {
 		WebActive: 2,
 		CodeRoot:  "/w",
 	}
-	ops := windowOptionOps(win)
+	ops := WindowOptionOps(win)
 	var got []string
 	for _, op := range ops {
 		got = append(got, op.Key+"="+*op.Value)
@@ -318,7 +329,7 @@ func TestWindowOptionOpsWebFamily(t *testing.T) {
 // no code root → no web-family ops at all (the skip-when-empty rule).
 func TestWindowOptionOpsSkipsEmptyFamily(t *testing.T) {
 	win := Window{Color: "2"}
-	for _, op := range windowOptionOps(win) {
+	for _, op := range WindowOptionOps(win) {
 		if strings.HasPrefix(op.Key, "@rk_win_web") || op.Key == "@rk_win_layout" || op.Key == "@rk_win_code_root" {
 			t.Errorf("unexpected web-family op %v for an empty family", op)
 		}

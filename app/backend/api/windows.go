@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"rk/internal/layoutspec"
+	"rk/internal/snapshot"
 	"rk/internal/tmux"
 	"rk/internal/validate"
 )
@@ -171,12 +172,27 @@ func (s *Server) handleWindowKill(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid window ID")
 		return
 	}
+	server := serverFromRequest(r)
 
-	if err := s.tmux.KillWindow(windowID, serverFromRequest(r)); err != nil {
+	// Record the window onto the recently-closed ring BEFORE the kill — the
+	// @rk_win_* option set dies with the window and is never derivable after.
+	// Recording is strictly best-effort: any failure is slog.Debug inside
+	// recordClosedWindow and the kill proceeds with no record (response then
+	// omits "closed").
+	var closed *snapshot.ClosedWindow
+	if s.snapshotStore != nil {
+		closed = s.recordClosedWindow(server, windowID)
+	}
+
+	if err := s.tmux.KillWindow(windowID, server); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
+	if closed != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "closed": closed})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 

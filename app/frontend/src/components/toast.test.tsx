@@ -221,4 +221,61 @@ describe("Toast system", () => {
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
   });
+
+  describe("onDismiss callback", () => {
+    function DismissConsumer({ onDismiss }: { onDismiss: () => void }) {
+      const { addToast } = useToast();
+      return (
+        <div>
+          <button onClick={() => addToast("Gone soon", "info", undefined, onDismiss)}>
+            Plain Toast
+          </button>
+          <button
+            onClick={() =>
+              addToast("Reopened", "info", { label: "Resume agent", onSelect: () => {} }, onDismiss)
+            }
+          >
+            Action Toast
+          </button>
+        </div>
+      );
+    }
+
+    it("fires when the toast times out", () => {
+      const onDismiss = vi.fn();
+      render(
+        <ToastProvider>
+          <DismissConsumer onDismiss={onDismiss} />
+        </ToastProvider>,
+      );
+      act(() => {
+        screen.getByText("Plain Toast").click();
+      });
+      act(() => {
+        vi.advanceTimersByTime(4000);
+      });
+      expect(onDismiss).toHaveBeenCalledOnce();
+    });
+
+    it("does not fire when the action is selected (the action owns the follow-up)", () => {
+      const onDismiss = vi.fn();
+      render(
+        <ToastProvider>
+          <DismissConsumer onDismiss={onDismiss} />
+        </ToastProvider>,
+      );
+      act(() => {
+        screen.getByText("Action Toast").click();
+      });
+      act(() => {
+        screen.getByRole("button", { name: "Resume agent" }).click();
+      });
+      expect(onDismiss).not.toHaveBeenCalled();
+      // The toast is already gone; the expired timer must not fire it later.
+      act(() => {
+        vi.advanceTimersByTime(4000);
+      });
+      expect(onDismiss).not.toHaveBeenCalled();
+    });
+  });
 });

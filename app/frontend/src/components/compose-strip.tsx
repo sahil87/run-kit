@@ -514,13 +514,18 @@ export function ComposeStrip({
       // submit is still the bare `\r` "press Enter in the pane" on the WS path.
       if (!empty && focused && text.includes("\n") && (mode === "submit" || mode === "insert-line")) {
         const sentKey = draftKey;
+        const sentFiles = files;
         void pasteToWindow(focused.server, focused.windowId, text, mode === "submit")
           .then(() => {
             // The POST resolves asynchronously (network + tmux round trip);
-            // text typed into the draft meanwhile is NOT ours to clear — only
-            // an unchanged draft takes the full clear. Either way the sent
-            // text is recorded so ↑ can recover it.
-            if (getComposeDraft(sentKey).text === text) {
+            // text typed or attachments added/removed meanwhile are NOT ours
+            // to clear — only a draft unchanged in BOTH takes the full clear.
+            // Either way the sent text is recorded so ↑ can recover it.
+            const live = getComposeDraft(sentKey);
+            const filesUnchanged =
+              live.attachments.length === sentFiles.length &&
+              live.attachments.every((a, i) => a === sentFiles[i]);
+            if (live.text === text && filesUnchanged) {
               finishDeliveredSend();
               return;
             }

@@ -12,10 +12,12 @@ import { useWindowStore, entryKey } from "@/store/window-store";
 import type { UploadedFile } from "@/hooks/use-file-upload";
 import { stubMatchMedia } from "@/test-utils/match-media";
 import {
+  getComposeDraft,
   getComposeSentHistory,
   hydrateComposeDrafts,
   hydrateComposeSentHistory,
   pushComposeSentHistory,
+  setComposeAttachments,
 } from "@/lib/compose-draft-store";
 import {
   consumeComposeStripFocusOnOpen,
@@ -2236,6 +2238,26 @@ describe("ComposeStrip multi-line paste route", () => {
       resolvePaste({ ok: true });
     });
     expect(input().value).toBe("one\ntwo\nthree");
+    expect(getComposeSentHistory(entryKey("srv", "@1"))).toEqual(["one\ntwo"]);
+  });
+
+  it("an attachment added while the paste is in flight survives the delivered clear", async () => {
+    let resolvePaste: (v: { ok: boolean }) => void = () => undefined;
+    pasteToWindowMock.mockImplementation(
+      () => new Promise<{ ok: boolean }>((res) => { resolvePaste = res; }),
+    );
+    mountFocused();
+    act(() => fireEvent.change(input(), { target: { value: "one\ntwo" } }));
+    act(() => fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true }));
+    expect(pasteToWindowMock).toHaveBeenCalledTimes(1);
+    // Same text, but a new attachment lands before the POST resolves.
+    const late = { path: "/tmp/late.png", file: new File(["x"], "late.png") };
+    act(() => setComposeAttachments(entryKey("srv", "@1"), [late]));
+    await act(async () => {
+      resolvePaste({ ok: true });
+    });
+    expect(input().value).toBe("one\ntwo");
+    expect(getComposeDraft(entryKey("srv", "@1")).attachments).toEqual([late]);
     expect(getComposeSentHistory(entryKey("srv", "@1"))).toEqual(["one\ntwo"]);
   });
 });

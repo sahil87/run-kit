@@ -55,7 +55,12 @@ func (s *Server) handleWindowPaste(w http.ResponseWriter, r *http.Request) {
 
 	server := serverFromRequest(r)
 
-	paneID, found, err := s.resolveWindowActivePane(r.Context(), server, windowID)
+	// One shared deadline bounds the WHOLE route — pane resolution included —
+	// so a slow FetchSessions cannot push the request past the 5s rule.
+	ctx, cancel := context.WithTimeout(r.Context(), chatSendTotalBudget)
+	defer cancel()
+
+	paneID, found, err := s.resolveWindowActivePane(ctx, server, windowID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -64,9 +69,6 @@ func (s *Server) handleWindowPaste(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "window not found")
 		return
 	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), chatSendTotalBudget)
-	defer cancel()
 
 	submit := body.Submit == nil || *body.Submit
 

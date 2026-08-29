@@ -91,7 +91,7 @@ func runTabLayout(cmd *cobra.Command, args []string) error {
 	}
 
 	ctx := tabContext(cmd)
-	_, windowID, server, err := resolveTabAddr(ctx, addrArg)
+	_, windowID, server, err := resolveTabAddr(ctx, addrArg, tabServerFlag)
 	if err != nil {
 		return err
 	}
@@ -105,7 +105,7 @@ func runTabLayout(cmd *cobra.Command, args []string) error {
 			return usageError(err)
 		}
 		v := parsed.String()
-		if err := webSetWindowOptionsFn(ctx, windowID, server, []tmux.WindowOptionOp{{Key: tmux.LayoutOption, Value: &v}}); err != nil {
+		if err := tabSetWindowOptionsFn(ctx, windowID, server, []tmux.WindowOptionOp{{Key: tmux.LayoutOption, Value: &v}}); err != nil {
 			return err
 		}
 		sink.Dataf("%s\n", v)
@@ -153,7 +153,7 @@ func runTabLayout(cmd *cobra.Command, args []string) error {
 	}
 
 	v := next.String()
-	if err := webSetWindowOptionsFn(ctx, windowID, server, []tmux.WindowOptionOp{{Key: tmux.LayoutOption, Value: &v}}); err != nil {
+	if err := tabSetWindowOptionsFn(ctx, windowID, server, []tmux.WindowOptionOp{{Key: tmux.LayoutOption, Value: &v}}); err != nil {
 		return err
 	}
 	sink.Dataf("%s\n", v)

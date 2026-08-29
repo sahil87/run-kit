@@ -85,9 +85,6 @@ func init() {
 // webAddShow and resolveTabNewSession ride these, so the seams also drive the
 // rk tab verbs that share the code path.
 var (
-	presentRunOutputFn = func(ctx context.Context, args []string) ([]byte, error) {
-		return tmux.RunOutput(ctx, args, tmux.RunOpts{})
-	}
 	presentWebAddFn = func(ctx context.Context, windowID, server, url, root string) (int, bool, error) {
 		return tmux.WebAdd(ctx, windowID, server, url, root)
 	}

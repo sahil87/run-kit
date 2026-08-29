@@ -721,6 +721,37 @@ func TestCodeExecTabCodeRootWinsOverCwd(t *testing.T) {
 	}
 }
 
+// --tab =session:window rides the same resolver as the rk tab family: the
+// target reaches tmux verbatim as one display-message read (no tabaddr parse).
+func TestCodeExecTabSessionWindowTarget(t *testing.T) {
+	stateHome := installCodeBridgeEnv(t)
+	startFakeCodeHost(t, stateHome, "aa01", "/w/proj", "3.19.0", codeStartedAgo(time.Minute))
+	withCodeTargetFolder(t, "/elsewhere")
+	withCodeTabSeams(t, "@9", "dev", "/w/proj")
+	inner := ownTabRunOutputFn
+	var targets []string
+	ownTabRunOutputFn = func(ctx context.Context, args []string) ([]byte, error) {
+		for i, a := range args {
+			if a == "-pt" && i+1 < len(args) {
+				targets = append(targets, args[i+1])
+			}
+		}
+		return inner(ctx, args)
+	}
+	t.Setenv("TMUX_PANE", "%3")
+
+	stdout, _, err := runCodeCmd(t, "exec", "--tab==boot:0", "x.y")
+	if err != nil {
+		t.Fatalf("exec --tab =boot:0: %v", err)
+	}
+	if stdout != "null\n" {
+		t.Errorf("stdout = %q", stdout)
+	}
+	if len(targets) != 1 || targets[0] != "=boot:0" {
+		t.Errorf("display-message targets = %v, want [=boot:0]", targets)
+	}
+}
+
 func TestCodeExecTabEmptyRootFallsThrough(t *testing.T) {
 	stateHome := installCodeBridgeEnv(t)
 	startFakeCodeHost(t, stateHome, "aa01", "/elsewhere", "3.19.0", codeStartedAgo(time.Minute))

@@ -96,9 +96,11 @@ func Parse(s string) (Addr, error) {
 	return a, nil
 }
 
-// String serializes the address back to its exact input form (round-trips
-// with Parse): "@12/web/3", "@12/web", "@12", "web/3", "web", "3" (bare index
-// on the own tab), "" (empty Addr).
+// String serializes the address in canonical form: "@12/web/3", "@12/web",
+// "@12", "web/3", "web", "" (empty Addr). Parse(String(a)) == a for every
+// Addr, and String is byte-identical to the input for every canonical form;
+// the bare-integer shorthand is the one non-canonical input — Parse("3")
+// yields {Surface: "web", Index: 3}, which prints as "web/3".
 func (a Addr) String() string {
 	var b strings.Builder
 	b.WriteString(a.WindowID)

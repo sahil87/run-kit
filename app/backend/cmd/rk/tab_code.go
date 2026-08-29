@@ -66,13 +66,13 @@ func runTabCodeSet(cmd *cobra.Command, args []string) error {
 	}
 
 	ctx := tabContext(cmd)
-	_, windowID, server, err := resolveTabAddr(ctx, addrArg)
+	_, windowID, server, err := resolveTabAddr(ctx, addrArg, tabServerFlag)
 	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(ctx, tabCmdTimeout)
 	defer cancel()
-	if err := webSetWindowOptionsFn(ctx, windowID, server, []tmux.WindowOptionOp{{Key: tmux.CodeRootOption, Value: &abs}}); err != nil {
+	if err := tabSetWindowOptionsFn(ctx, windowID, server, []tmux.WindowOptionOp{{Key: tmux.CodeRootOption, Value: &abs}}); err != nil {
 		return err
 	}
 	newSink(cmd).Dataf("%s\n", abs)

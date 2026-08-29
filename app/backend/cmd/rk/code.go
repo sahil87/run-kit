@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"rk/internal/codebridge"
-	"rk/internal/tabaddr"
 	"rk/internal/tmux"
 
 	"github.com/spf13/cobra"
@@ -320,11 +319,7 @@ func codeTabFolder(ctx context.Context, sink outputSink, tab string) (string, er
 	if tab == presentFlagAuto {
 		addrArg = ""
 	}
-	addr, err := tabaddr.Parse(addrArg)
-	if err != nil {
-		return "", usageError(err)
-	}
-	windowID, server, err := resolveTabWindow(ctx, addr, "")
+	_, windowID, server, err := resolveTabAddr(ctx, addrArg, "")
 	if err != nil {
 		return "", err
 	}

@@ -31,7 +31,6 @@ func withTabTestServer(t *testing.T) *tabTestEnv {
 		t.Skip("tmux not available — skipping integration test")
 	}
 	server := fmt.Sprintf("rk-test-tab-%d-%d", os.Getpid(), time.Now().UnixNano())
-	socket := filepath.Join(os.TempDir(), fmt.Sprintf("tmux-%d", os.Getuid()), server)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -44,6 +43,9 @@ func withTabTestServer(t *testing.T) *tabTestEnv {
 		_ = exec.CommandContext(killCtx, "tmux", "-L", server, "kill-server").Run()
 	})
 
+	// Ask tmux for its own socket path rather than deriving it: -L sockets live
+	// under TMUX_TMPDIR or /tmp (not os.TempDir(), which differs on macOS).
+	socket := tabTmuxOut(t, server, "display-message", "-p", "#{socket_path}")
 	env := &tabTestEnv{server: server, socket: socket}
 	env.bootID = tabTmuxOut(t, server, "display-message", "-p", "#{window_id}")
 	env.paneID = tabTmuxOut(t, server, "display-message", "-p", "#{pane_id}")

@@ -127,29 +127,34 @@ func tabContext(cmd *cobra.Command) context.Context {
 	return context.Background()
 }
 
-// resolveTabAddr parses the optional address argument ("" = own tab) and
-// resolves it to (windowID, server) through the shared own-tab resolver.
-func resolveTabAddr(ctx context.Context, arg string) (tabaddr.Addr, string, string, error) {
+// resolveTabAddr parses the optional address argument ("" = own tab, @N[/...],
+// or =session:window) and resolves it to (windowID, server) through the
+// shared own-tab resolver. serverFlag is the -L/--server value ("" when the
+// verb has no such flag). Every address-taking verb — the rk tab family and
+// rk code exec|commands --tab — enters here so the accepted grammar cannot
+// drift between them.
+func resolveTabAddr(ctx context.Context, arg, serverFlag string) (tabaddr.Addr, string, string, error) {
 	if strings.HasPrefix(arg, "=") {
 		// =session:window targets are resolved by resolveTabWindow directly —
 		// the tabaddr grammar is the tab-relative part only.
-		windowID, server, err := resolveTabWindow(ctx, tabaddr.Addr{WindowID: arg}, tabServerFlag)
+		windowID, server, err := resolveTabWindow(ctx, tabaddr.Addr{WindowID: arg}, serverFlag)
 		return tabaddr.Addr{WindowID: arg}, windowID, server, err
 	}
 	addr, err := tabaddr.Parse(arg)
 	if err != nil {
 		return addr, "", "", usageError(err)
 	}
-	windowID, server, err := resolveTabWindow(ctx, addr, tabServerFlag)
+	windowID, server, err := resolveTabWindow(ctx, addr, serverFlag)
 	return addr, windowID, server, err
 }
 
-// webAddShowFn / webSelectFn are the layout-write and select seams behind
-// webAddShow's --show arm — package-level so tests drive the show path
-// without a live server (the present*Fn pattern); the defaults delegate to
-// internal/tmux.
+// tabSetWindowOptionsFn is the @rk_win_* write seam for the whole rk tab
+// family (tab layout, tab code set, and webAddShow's --show arm); webSelectFn
+// is the select seam behind --show. Package-level so tests drive the write
+// paths without a live server (the present*Fn pattern); the defaults delegate
+// to internal/tmux.
 var (
-	webSetWindowOptionsFn = func(ctx context.Context, windowID, server string, ops []tmux.WindowOptionOp) error {
+	tabSetWindowOptionsFn = func(ctx context.Context, windowID, server string, ops []tmux.WindowOptionOp) error {
 		return tmux.SetWindowOptions(ctx, windowID, server, ops)
 	}
 	webSelectFn = func(ctx context.Context, windowID, server string, n int) error {
@@ -203,7 +208,7 @@ func webAddShow(ctx context.Context, windowID, server string, target present.Tar
 			return 0, "", fmt.Errorf("show web on window %s: %w", windowID, nerr)
 		}
 		v := next.String()
-		if err := webSetWindowOptionsFn(ctx, windowID, server, []tmux.WindowOptionOp{{Key: tmux.LayoutOption, Value: &v}}); err != nil {
+		if err := tabSetWindowOptionsFn(ctx, windowID, server, []tmux.WindowOptionOp{{Key: tmux.LayoutOption, Value: &v}}); err != nil {
 			return 0, "", fmt.Errorf("write layout for window %s: %w", windowID, err)
 		}
 	}
@@ -220,7 +225,7 @@ func runTabWebAdd(cmd *cobra.Command, args []string) error {
 		addrArg, targetArg = args[0], args[1]
 	}
 	ctx := tabContext(cmd)
-	_, windowID, server, err := resolveTabAddr(ctx, addrArg)
+	_, windowID, server, err := resolveTabAddr(ctx, addrArg, tabServerFlag)
 	if err != nil {
 		return err
 	}
@@ -324,7 +329,7 @@ func runTabWebLs(cmd *cobra.Command, args []string) error {
 		addrArg = args[0]
 	}
 	ctx := tabContext(cmd)
-	_, windowID, server, err := resolveTabAddr(ctx, addrArg)
+	_, windowID, server, err := resolveTabAddr(ctx, addrArg, tabServerFlag)
 	if err != nil {
 		return err
 	}

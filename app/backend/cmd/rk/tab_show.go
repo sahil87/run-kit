@@ -43,7 +43,7 @@ func runTabShow(cmd *cobra.Command, args []string) error {
 		addrArg = args[0]
 	}
 	ctx := tabContext(cmd)
-	_, windowID, server, err := resolveTabAddr(ctx, addrArg)
+	_, windowID, server, err := resolveTabAddr(ctx, addrArg, tabServerFlag)
 	if err != nil {
 		return err
 	}

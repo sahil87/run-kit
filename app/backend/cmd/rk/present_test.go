@@ -89,7 +89,7 @@ func installPresentFakes(t *testing.T) *presentFake {
 		return "@42", nil
 	}
 	tabCreateWindowIDFn = presentCreateWindowIDFn
-	webSetWindowOptionsFn = func(_ context.Context, windowID, server string, ops []tmux.WindowOptionOp) error {
+	tabSetWindowOptionsFn = func(_ context.Context, windowID, server string, ops []tmux.WindowOptionOp) error {
 		f.layoutWrites = append(f.layoutWrites, presentLayoutWrite{windowID, server, ops})
 		return nil
 	}
@@ -111,7 +111,6 @@ func installPresentFakes(t *testing.T) *presentFake {
 		ownTabRunOutputFn = func(ctx context.Context, args []string) ([]byte, error) {
 			return tmux.RunOutput(ctx, args, tmux.RunOpts{})
 		}
-		presentRunOutputFn = ownTabRunOutputFn
 		presentWebAddFn = func(ctx context.Context, windowID, server, url, root string) (int, bool, error) {
 			return tmux.WebAdd(ctx, windowID, server, url, root)
 		}
@@ -122,7 +121,7 @@ func installPresentFakes(t *testing.T) *presentFake {
 			return tmux.CreateWindowWithOptionsID(session, name, cwd, server, ops)
 		}
 		tabCreateWindowIDFn = presentCreateWindowIDFn
-		webSetWindowOptionsFn = func(ctx context.Context, windowID, server string, ops []tmux.WindowOptionOp) error {
+		tabSetWindowOptionsFn = func(ctx context.Context, windowID, server string, ops []tmux.WindowOptionOp) error {
 			return tmux.SetWindowOptions(ctx, windowID, server, ops)
 		}
 		webSelectFn = func(ctx context.Context, windowID, server string, n int) error {

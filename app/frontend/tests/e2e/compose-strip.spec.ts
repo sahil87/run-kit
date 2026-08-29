@@ -17,7 +17,11 @@ import { TMUX_SERVER, createSession, killSession, listWindows, stampWebTab } fro
  * line (`text + "\n"`, clears the draft; empty Enter is a full no-op);
  * Cmd/Ctrl+Enter = submit (`text + "\r"`; EMPTY textarea sends a bare `\r` —
  * "press Enter in the pane"); Alt+Enter = chord-only byte-exact raw insert;
- * Shift+Enter is the only local newline. Drafts are PER TARGET: keyed by the
+ * Shift+Enter is the only local newline. A draft holding a literal newline
+ * takes a different transport for submit/insert-line: `POST
+ * /api/windows/:id/paste` (tmux bracketed paste into the active pane) instead
+ * of raw relay bytes, so embedded newlines survive in agent composers; on the
+ * `cat` pane the paste degrades to raw bytes. Drafts are PER TARGET: keyed by the
  * focused window and persisted (text only) to localStorage, so they stay with
  * their addressee across navigation, dock flips, and survive reloads.
  * Both docks are container-aligned — no measurement, no inline margin/width
@@ -390,6 +394,59 @@ test.describe("Docked compose strip", () => {
     await input.press("Escape");
     await expect(input).not.toBeFocused();
     await expect(page.getByTestId("compose-strip")).toBeVisible();
+  });
+
+  /**
+   * Proves: a MULTI-LINE draft submitted with Cmd/Ctrl+Enter reaches the pane
+   * with every line intact — the strip routes text containing a literal
+   * newline through `POST /api/windows/:id/paste` (tmux bracketed paste) rather
+   * than raw relay bytes, and the draft clears on delivery. On the `cat` pane
+   * (no bracketed-paste mode requested) the paste degrades to raw bytes and
+   * each line commits, so both markers echo back.
+   *
+   * Steps:
+   * 1. Navigate to the `cat` session's window; wait for `.xterm-screen` and the
+   *    relay stream (`window.__rkTerminals[windowId]`).
+   * 2. Enable the strip via the `a▏` chip; click the input.
+   * 3. Type marker A, press Shift+Enter (local newline), type marker B; assert
+   *    the textarea holds both lines separated by `\n`.
+   * 4. Press `ControlOrMeta+Enter`; assert the input clears to `""`.
+   * 5. Poll `capture-pane` until it contains BOTH markers.
+   */
+  test("multi-line Cmd/Ctrl+Enter delivers every line (bracketed-paste route)", async ({ page }) => {
+    test.setTimeout(60_000);
+    const windowId = await resolveWindowId(page, TERM_SESSION);
+    await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(page.locator(".xterm-screen")).toBeVisible({ timeout: 15_000 });
+    await expect
+      .poll(() => page.evaluate((w) => Boolean(window.__rkTerminals?.[w]), windowId), {
+        timeout: 15_000,
+      })
+      .toBe(true);
+
+    await page.getByRole("button", { name: "Compose text" }).click();
+    const input = page.getByTestId("compose-strip-input");
+    await expect(input).toBeVisible();
+    await input.click();
+
+    const lineA = `CSMLA${Date.now()}`;
+    const lineB = `CSMLB${Date.now()}`;
+    await input.pressSequentially(lineA);
+    await input.press("Shift+Enter");
+    await input.pressSequentially(lineB);
+    await expect(input).toHaveValue(`${lineA}\n${lineB}`);
+
+    await input.press("ControlOrMeta+Enter");
+    await expect(input).toHaveValue("");
+
+    await expect
+      .poll(() => tmuxCapture(TERM_SESSION), { timeout: 10_000 })
+      .toContain(lineA);
+    await expect
+      .poll(() => tmuxCapture(TERM_SESSION), { timeout: 10_000 })
+      .toContain(lineB);
   });
 
   /**

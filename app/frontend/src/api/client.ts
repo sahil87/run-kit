@@ -340,6 +340,36 @@ export async function sendChatMessage(
 }
 
 /**
+ * Paste text into a window's ACTIVE pane through tmux bracketed paste —
+ * `POST /api/windows/:windowId/paste`. The compose strip's delivery path for
+ * MULTI-LINE text: raw relay bytes carrying embedded newlines collapse in
+ * Claude Code's input, a bracketed paste lands as one literal block. Unlike
+ * `sendChatMessage` the route needs no chat session on the window. Same wire
+ * contract otherwise: body `{ text }`, `submit: false` serialized only when
+ * false (paste without the gated Enter), non-ok surfaced via `throwOnError`
+ * (the 409 probe-failure message becomes the Error's message).
+ */
+export async function pasteToWindow(
+  server: string,
+  windowId: string,
+  text: string,
+  submit = true,
+): Promise<{ ok: boolean }> {
+  const body: { text: string; submit?: boolean } = { text };
+  if (!submit) body.submit = false;
+  const res = await fetch(
+    withServer(`/api/windows/${encodeURIComponent(windowId)}/paste`, server),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/**
  * Hand the server's operator window a templated work item ABOUT the subject
  * window (`windowId`) — the operator actuation seam's one consumer-facing call
  * (260822-fih1-operator-request-fix-tab-name). The body carries ONLY the

@@ -243,6 +243,36 @@ Send keystrokes to a window.
 { "ok": true }
 ```
 
+#### `POST /api/windows/:windowId/paste`
+
+Paste text into a window's **active pane** through tmux bracketed paste — the compose strip's transport for multi-line text (raw relay bytes carrying embedded newlines collapse in Claude Code's input; a bracketed paste lands as one literal block). Requires no chat session on the window, unlike `/chat/send`.
+
+**Request:**
+```json
+{
+  "text": "line one\nline two",
+  "submit": true
+}
+```
+
+| Field | Type | Required | Validation |
+|-------|------|----------|------------|
+| `text` | `string` | yes | Control bytes stripped (`inject.Sanitize`) **before** the check; non-empty after trim |
+| `submit` | `boolean` | no | Default `true`. `false` pastes without the gated Enter (text left staged in the pane's input) |
+
+**Behavior:**
+- Resolves the window's active pane (first pane if none is flagged) from the session snapshot
+- Drives the shared `internal/inject` engine: baseline `capture-pane` → `set-buffer -b rk-chat-send -- <text>` → `paste-buffer -d -p -t <pane>` → novelty echo probe → `send-keys Enter` only on probe success **and** `submit`
+- `-p` brackets only when the pane's application requested bracketed paste; a plain shell receives raw bytes
+- One shared 4s deadline bounds the whole sequence; per-`(server, pane)` serialization as for `/chat/send`
+
+**Responses:**
+- `200` `{ "ok": true }`
+- `400` invalid window id · invalid JSON · empty text after sanitization
+- `404` window not found (or no panes)
+- `409` echo probe failed — Enter withheld, text remains in the pane's input (retrying would duplicate it)
+- `500` session fetch or tmux subprocess failure
+
 ---
 
 ### Directories

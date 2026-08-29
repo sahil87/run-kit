@@ -12,6 +12,7 @@ import { useFocusedTerminal, type FocusedTerminal } from "@/contexts/focused-ter
 import { useChromeDispatch } from "@/contexts/chrome-context";
 import { useFileUpload } from "@/hooks/use-file-upload";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
+import { pasteToWindow } from "@/api/client";
 import {
   classifyComposeEnter,
   composeSubmitKeycap,
@@ -67,7 +68,12 @@ import {
  * `surface: "strip"` — 260802-lj98, the terminal-faithful Enter matrix): plain
  * Enter = INSERT LINE — `ws.send(text + "\n")` over the relay stream and clear
  * that target's draft, so consecutive Enters stage sentence-per-line in the
- * agent's composer (Claude Code treats a raw `"\n"` as newline-insert),
+ * agent's composer (Claude Code treats a SINGLE trailing raw `"\n"` as
+ * newline-insert — that premise does NOT extend to newlines embedded in a
+ * multi-line burst, which Ink parses as one key event and collapses; hence
+ * MULTI-LINE submit/insert-line POST `/api/windows/{id}/paste` — tmux
+ * bracketed paste through the shared inject engine — while single-line text,
+ * the bare `\r`, and Alt+Enter raw insert stay on the relay stream),
  * visibly, exactly like typing into the pane itself. The chat send form
  * deliberately diverges (keeps Enter=newline): it cannot show the pane's input
  * box, so Enter-as-insert there would make typed text vanish — the one
@@ -438,6 +444,31 @@ export function ComposeStrip({
     (mode: Exclude<ComposeEnterAction, "default">) => {
       if (draftKey === null) return; // no target — nothing to send or clear
       const empty = text.trim() === ""; // whitespace-only counts as empty
+      // Delivered (either transport): clear THIS target's draft + attachments;
+      // the strip stays open and does NOT grab or return focus. (An empty
+      // submit's bare `\r` has nothing meaningful to clear — a whitespace-only
+      // draft is simply discarded here.) The module store is the source of
+      // truth for the draft; revoke only the cleared draft's preview URLs
+      // (other targets' previews recreate lazily when their draft is shown).
+      const finishDeliveredSend = () => {
+        for (const uf of files) {
+          const url = blobUrlsRef.current.get(uf.file);
+          if (url) {
+            URL.revokeObjectURL(url);
+            blobUrlsRef.current.delete(uf.file);
+          }
+        }
+        // Record the transmitted text BEFORE clearing so ↑ can recover it —
+        // the clear stays unconditional (recovery over verification). Every
+        // mode pushes the pre-trailing-byte text; the store's own whitespace
+        // guard makes an empty submit's bare `\r` push nothing. A guard-blocked
+        // or failed send never reaches here, so nothing is cleared or recorded.
+        pushComposeSentHistory(draftKey, text);
+        clearComposeDraft(draftKey);
+        // A send is a walk-ending event: the next ↑ starts fresh from the
+        // newest entry (which is the text just sent).
+        endRecall();
+      };
       // Selection broadcast is deliberately TEXT-SUBMIT only. There is no
       // shared terminal websocket for raw/insert modes and no shared worktree
       // for upload; Cmd/Ctrl+Enter and the Send button both reach this submit
@@ -467,6 +498,40 @@ export function ComposeStrip({
       // Enter in the pane", completing the stage-then-submit loop (whitespace
       // is discarded, never transmitted); empty insert/insert-line never send.
       if (empty && mode !== "submit") return;
+      // MULTI-LINE submit / insert-line ride tmux bracketed paste (POST
+      // /paste) instead of raw relay bytes: a block written to the PTY as one
+      // non-bracketed chunk is parsed by Claude Code as a single key event
+      // whose embedded `\n` collapse. `paste-buffer -p` brackets only when the
+      // pane app requested bracketed paste, so a plain shell still gets raw
+      // bytes. Keyed on a LITERAL newline (never the visual wrap probe).
+      // insert-line pastes without Enter — an N-line paste already stages N
+      // lines, so the trailing `\n` the WS path appends would add an empty
+      // line. Alt+Enter raw insert stays byte-exact on the WS path. A failed
+      // POST keeps the draft (nothing recorded, nothing cleared — the same
+      // contract as the guard-blocked WS send below); success clears exactly
+      // like a delivered WS send.
+      // A whitespace-only draft is EMPTY here too (`!empty`): a newline-only
+      // submit is still the bare `\r` "press Enter in the pane" on the WS path.
+      if (!empty && focused && text.includes("\n") && (mode === "submit" || mode === "insert-line")) {
+        const sentKey = draftKey;
+        void pasteToWindow(focused.server, focused.windowId, text, mode === "submit")
+          .then(() => {
+            // The POST resolves asynchronously (network + tmux round trip);
+            // text typed into the draft meanwhile is NOT ours to clear — only
+            // an unchanged draft takes the full clear. Either way the sent
+            // text is recorded so ↑ can recover it.
+            if (getComposeDraft(sentKey).text === text) {
+              finishDeliveredSend();
+              return;
+            }
+            pushComposeSentHistory(sentKey, text);
+            endRecall();
+          })
+          .catch((err: unknown) => {
+            console.warn("compose paste failed; draft kept", err);
+          });
+        return;
+      }
       const ws = focused?.wsRef.current;
       // Guard-blocked send: the focused stream is not open. Early-return WITHOUT
       // clearing — the draft is preserved so nothing is silently lost against a
@@ -486,29 +551,7 @@ export function ComposeStrip({
       if (mode === "submit") ws.send(empty ? "\r" : text + "\r");
       else if (mode === "insert-line") ws.send(text + "\n");
       else ws.send(text);
-      // Delivered: clear THIS target's draft + attachments; the strip stays
-      // open and does NOT grab or return focus. (An empty submit's bare `\r`
-      // has nothing meaningful to clear — a whitespace-only draft is simply
-      // discarded here.) The module store is the source of truth for the
-      // draft; revoke only the cleared draft's preview URLs (other targets'
-      // previews recreate lazily when their draft is shown).
-      for (const uf of files) {
-        const url = blobUrlsRef.current.get(uf.file);
-        if (url) {
-          URL.revokeObjectURL(url);
-          blobUrlsRef.current.delete(uf.file);
-        }
-      }
-      // Record the transmitted text BEFORE clearing so ↑ can recover it — the
-      // clear stays unconditional (recovery over verification). All three modes
-      // push the pre-trailing-byte text; the store's own whitespace guard makes
-      // an empty submit's bare `\r` push nothing. A guard-blocked send returned
-      // above, so nothing was cleared and nothing is recorded.
-      pushComposeSentHistory(draftKey, text);
-      clearComposeDraft(draftKey);
-      // A send is a walk-ending event: the next ↑ starts fresh from the newest
-      // entry (which is the text just sent).
-      endRecall();
+      finishDeliveredSend();
     },
     [
       draftKey,

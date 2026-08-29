@@ -193,3 +193,5 @@ app/backend/build/tmux.conf
 !fab/.fab-version
 
 /.kimi
+
+/.claude/settings.local.json

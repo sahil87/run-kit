@@ -114,13 +114,15 @@ func (s *Server) handleClosedList(w http.ResponseWriter, r *http.Request) {
 
 // loadClosedRecord resolves the {id} path param to a record, writing the error
 // response and returning false on any failure (nil store, invalid id, store
-// fault, unknown id — all 404-class except a store fault).
+// fault, unknown id — all 404-class except a store fault). The id shape is
+// checked here so a malformed param never reaches the store as a 500.
 func (s *Server) loadClosedRecord(w http.ResponseWriter, r *http.Request, server string) (*snapshot.ClosedWindow, bool) {
-	if s.snapshotStore == nil {
-		writeError(w, http.StatusNotFound, "no closed-window record "+chi.URLParam(r, "id"))
+	id := chi.URLParam(r, "id")
+	if s.snapshotStore == nil || !snapshot.ValidClosedID(id) {
+		writeError(w, http.StatusNotFound, "no closed-window record "+id)
 		return nil, false
 	}
-	rec, err := s.snapshotStore.LoadClosed(server, chi.URLParam(r, "id"))
+	rec, err := s.snapshotStore.LoadClosed(server, id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return nil, false
@@ -134,7 +136,8 @@ func (s *Server) loadClosedRecord(w http.ResponseWriter, r *http.Request, server
 
 // handleClosedReopen recreates the record's window as a fresh shell (same
 // session/name/index-where-feasible/cwd/options/panes/layout) via
-// snapshot.ReopenWindow, then drops the record. A gone session is a 409 naming
+// snapshot.ReopenWindow, then drops the record unless it carries an agent
+// identity (the resume toast still needs it). A gone session is a 409 naming
 // the session AND drops the record — it can never reopen. Engine failures keep
 // the record (a transient fault must not lose it).
 func (s *Server) handleClosedReopen(w http.ResponseWriter, r *http.Request) {
@@ -160,10 +163,16 @@ func (s *Server) handleClosedReopen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The window exists — a delete failure leaves a stale record the ring cap
-	// eventually prunes; it must not turn a successful reopen into an error.
-	if derr := s.snapshotStore.DeleteClosed(server, rec.ID); derr != nil {
-		slog.Warn("closed-window record not dropped after reopen", "server", server, "id", rec.ID, "err", derr)
+	// A record with an agent identity SURVIVES the plain reopen: the client's
+	// post-reopen toast resolves the same id for its "Resume agent" action and
+	// drops it via dismiss/resume. Without an agent there is nothing left to
+	// offer, so the record is dropped here. A delete failure leaves a stale
+	// record the ring cap eventually prunes; it must not turn a successful
+	// reopen into an error.
+	if rec.ChatProvider == "" {
+		if derr := s.snapshotStore.DeleteClosed(server, rec.ID); derr != nil {
+			slog.Warn("closed-window record not dropped after reopen", "server", server, "id", rec.ID, "err", derr)
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]string{
 		"server":   server,

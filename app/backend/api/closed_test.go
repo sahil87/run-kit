@@ -157,6 +157,44 @@ func TestClosedReopenSuccess(t *testing.T) {
 	}
 }
 
+// TestClosedReopenKeepsAgentRecord: a record carrying an agent identity stays
+// on the ring after a plain reopen — the post-reopen toast's "Resume agent"
+// action resolves the same id, and dismiss/resume are what drop it.
+func TestClosedReopenKeepsAgentRecord(t *testing.T) {
+	store := snapshot.NewStore(t.TempDir())
+	rec := closedRecord("work", "dev", "serve", "/tmp")
+	rec.ChatProvider = forkProviderClaude
+	rec.ChatRef = "0f0e1d2c-3b4a-4596-8778-99aabbccddee"
+	rec = pushClosed(t, store, rec)
+
+	stubReopenWindow(t, "@42", nil)
+	router := newClosedRouter(&mockSessionFetcher{}, &mockTmuxOps{}, nil, store)
+
+	r := httptest.NewRecorder()
+	router.ServeHTTP(r, httptest.NewRequest(http.MethodPost, "/api/windows/closed/"+rec.ID+"/reopen?server=work", nil))
+
+	if r.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", r.Code, r.Body.String())
+	}
+	if got, _ := store.LoadClosed("work", rec.ID); got == nil {
+		t.Fatalf("agent record dropped by plain reopen; resume would 404")
+	}
+}
+
+// TestClosedReopenMalformedID: a non-record-shaped id is a 404, never a 500 —
+// input validation is not a server fault.
+func TestClosedReopenMalformedID(t *testing.T) {
+	store := snapshot.NewStore(t.TempDir())
+	router := newClosedRouter(&mockSessionFetcher{}, &mockTmuxOps{}, nil, store)
+	for _, id := range []string{"abc", "12..34", "%2e%2e"} {
+		r := httptest.NewRecorder()
+		router.ServeHTTP(r, httptest.NewRequest(http.MethodPost, "/api/windows/closed/"+id+"/reopen?server=work", nil))
+		if r.Code != http.StatusNotFound {
+			t.Errorf("id %q: status = %d, want 404; body=%s", id, r.Code, r.Body.String())
+		}
+	}
+}
+
 // TestClosedReopenUnknownID: an id with no record is a 404 and the engine is
 // never driven. A nil store behaves the same.
 func TestClosedReopenUnknownID(t *testing.T) {

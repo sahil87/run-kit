@@ -53,6 +53,11 @@ func (s *Store) closedDir(server string) string {
 // whole filename grammar. Same discipline as the tombstone infix: anything
 // else (path separators, dots, non-digits) is rejected before it can address a
 // path on disk.
+// ValidClosedID reports whether id has the record-id shape (the unix-nanos
+// file stem) — the api layer checks it before touching the store so a
+// malformed path param is a not-found, never a store fault.
+func ValidClosedID(id string) bool { return validClosedID(id) }
+
 func validClosedID(id string) bool {
 	if id == "" {
 		return false

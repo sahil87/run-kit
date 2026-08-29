@@ -57,11 +57,12 @@ rk code exec vscode.diff '{"$uri":"file:///…/a.ts"}' '{"$uri":"file:///…/b.t
 ### Host resolution
 
 - `--host <id>` wins (ids come from `rk code hosts`).
+- Else `--tab [@N]` — the tab's `@rk_win_code_root` (written by `rk tab code set`) becomes the target folder; bare `--tab` means your own tab. A tab with no code root falls through to the cwd default with a stderr note.
 - Else the target folder — `--folder <path>`, or by default the git toplevel of the cwd — is matched against each host's folder: exact match first, then longest-prefix (path-component aware, so a worktree under a registered repo resolves to the repo's host instead of matching nothing).
 - No match and exactly one live host → it is used, with a `using host <id> (<folder>)` note on stderr. Several → exit 1 listing them. None → exit 1 with the open-the-lens hint.
-- `--all` fans out to every live host: one `<hostId>\t<result JSON>` row per host on stdout (`--json` → an array of `{hostId, folder, response}`); exit is 1 when any host errored, else 0.
+- `--all` fans out to every live host (ignoring `--tab`): one `<hostId>\t<result JSON>` row per host on stdout (`--json` → an array of `{hostId, folder, response}`); exit is 1 when any host errored, else 0.
 
-`--host` and `--folder` are mutually exclusive (usage error).
+`--host`, `--tab`, and `--folder` are mutually exclusive (usage error). `rk code commands` takes the same three flags.
 
 ### Exit codes
 
@@ -82,8 +83,7 @@ rk notify "PR ready in the code tile" --title review
 
 ## Gotchas
 
-- The code lens's folder is a **per-viewer latch** in browser localStorage — seeded once from the active pane's git root when the surface first opens, moved only by the editor's own navigation. A CLI cannot set it. Recipe: be in the repo when the user first opens the code surface, or ask them to File > Open Folder.
-- There is deliberately **no `rk code open`** — the honest hook is the deferred `@rk_code_folder` tmux-option upgrade path; until it lands, the latch above rules.
+- The code surface's folder is the tab's `@rk_win_code_root` tmux option — set it with `rk tab code set [@N] <folder>` (prints the absolute path); `rk code exec --tab` resolves its host by the same option.
 - Resolution never caches: a stale record that fails the pid+ping check is pruned on every call, and the next call re-enumerates from the sockets (the registry is a discovery hint only).
 - Security posture is **same-user-only**: file sockets (0600, dir 0700) under the user's state dir, never TCP — anything the caller does through the bridge it could already do as the same user. A page in the user's browser cannot reach the socket; a same-user process can.
 - The off switch is the managed profile's VS Code setting `rk.bridge.enabled` (seeded true at install). A host running an extension older than the bundled one draws a version-skew warning on stderr suggesting `rk code-server update`.

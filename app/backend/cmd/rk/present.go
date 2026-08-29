@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -15,22 +14,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// rk present <target> — the one-verb "show this to the user": resolve a
-// file/dir/port/URL target, derive its web-tab URL, and attach it to slot 1 of
-// the caller's own tmux window (or, with --window, a fresh standalone iframe
-// window carrying @rk_win_layout=single:web). It never WRITES the viewer's
-// layout — layout persistence is per-viewer client state
-// (docs/specs/surface-layout.md R7/L3) — but a viewer mounted on this window's
-// route who observes the @rk_win_web_1 transition MAY see the web tile
-// auto-open transiently (render-time only, nothing persisted); other viewers
-// get the rail availability signal, and --notify is the out-of-band nudge.
+// rk present <target> — sugar over the rk tab family: the default arm is
+// exactly `rk tab web add <target> --show` on the caller's own tab (attach
+// the target, ensure web is in the tab's layout, select the tab), and
+// --window[=name] is `rk tab new --layout single:web [--name]` followed by
+// the same add on the new window. Both arms ride webAddShow — one code path,
+// no duplicated attach logic (docs/specs/ui-state.md § Web Tabs).
 //
-// Exit codes follow the toolkit convention (Principle 4): 0 success, 1
-// operational failure (not in tmux, missing file, unreachable port, tmux
-// failure), 2 usage error (no target, unknown flag). Only the --notify send
-// deviates — fail-silent per rk notify's documented contract. Stdout carries
-// exactly the resolved URL (data — printed even under --quiet); diagnostics
-// go to stderr.
+// Stdout carries exactly the resolved URL (relative for /present and /proxy
+// targets, absolute for external URLs) — present's documented data contract;
+// `rk tab web add` prints the address instead. Exit codes follow the toolkit
+// convention (Principle 4): 0 success, 1 operational failure (not in tmux,
+// missing file, unreachable port, tmux failure), 2 usage error (no target,
+// unknown flag). Only the --notify send deviates — fail-silent per rk
+// notify's documented contract. Diagnostics go to stderr.
 
 // presentCmdTimeout bounds every tmux subprocess the command spawns
 // (Constitution §I: 5-10s for short-lived tmux helpers).
@@ -44,19 +41,21 @@ var (
 var presentCmd = &cobra.Command{
 	Use:   "present <target> [--window[=name]] [--notify[=msg]]",
 	Short: "Show a file, directory, port, or URL to the user as a web tile",
-	Long: "Attach web content to the user's view. The target resolves to one of:\n" +
+	Long: "Attach web content to the user's view. Alias of\n" +
+		"'rk tab web add <target> --show' on the caller's own tab (plus\n" +
+		"--window = 'rk tab new --layout single:web' then the add, and\n" +
+		"--notify): the target attaches to the tab's web-tab strip, the web\n" +
+		"tile is ensured in the tab's layout, and the tab is selected.\n\n" +
+		"The target resolves to one of:\n" +
 		"  ./mock.html          a file — served live, attached to this window\n" +
 		"  ./dist/              a directory — served live (index.html default)\n" +
 		"  :5173                a local port already serving — attached via /proxy/5173/\n" +
 		"  http://localhost:N/… same, rewritten to the relative /proxy/N/… form\n" +
 		"  https://…            an external URL — attached verbatim\n\n" +
-		"By default the content attaches to the caller's own tmux window (@rk_win_web_1),\n" +
-		"and the resolved URL prints to stdout (relative for /present and /proxy\n" +
-		"targets, absolute for external URLs). --window spawns a standalone\n" +
-		"iframe window instead; --notify sends a Web Push after attaching (fail-silent).\n" +
-		"A viewer currently on this window's route may see the web tile auto-open\n" +
-		"transiently (render-time only, nothing persisted); layout persistence stays\n" +
-		"per-viewer.",
+		"Stdout carries exactly the resolved URL (relative for /present and\n" +
+		"/proxy targets, absolute for external URLs). --window spawns a\n" +
+		"standalone iframe window instead; --notify sends a Web Push after\n" +
+		"attaching (fail-silent).",
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runPresent(cmd, args[0])
@@ -83,13 +82,11 @@ func init() {
 // present*Fn are package-level seams so runPresent can be tested without a
 // live tmux server or push endpoint (the role.go pattern); the defaults
 // delegate to internal/tmux / internal/present / the rk notify send path.
+// webAddShow and resolveTabNewSession ride these, so the seams also drive the
+// rk tab verbs that share the code path.
 var (
-	presentOriginalTMUXFn = func() string { return tmux.OriginalTMUX }
-	presentRunOutputFn    = func(ctx context.Context, args []string) ([]byte, error) {
+	presentRunOutputFn = func(ctx context.Context, args []string) ([]byte, error) {
 		return tmux.RunOutput(ctx, args, tmux.RunOpts{})
-	}
-	presentCreateWindowIDFn = func(session, name, cwd, server string, ops []tmux.WindowOptionOp) (string, error) {
-		return tmux.CreateWindowWithOptionsID(session, name, cwd, server, ops)
 	}
 	presentWebAddFn = func(ctx context.Context, windowID, server, url, root string) (int, bool, error) {
 		return tmux.WebAdd(ctx, windowID, server, url, root)
@@ -102,13 +99,9 @@ var (
 	presentNowFn    = func() int64 { return time.Now().Unix() }
 )
 
-// Window option keys this command writes come from the tmux package
-// (tmux.WebTabOption / tmux.WebTabRootOption / tmux.LayoutOption).
-// tmux.LayoutOption is touched ONLY by the --window arm — attaching to the
-// caller's own window must not steal its default view.
-
-// runPresent is the testable core: parse → probe → attach (or create) → print
-// → optionally notify. Every tmux call runs under one bounded context.
+// runPresent is the testable core: parse → probe → webAddShow (own tab, or a
+// fresh single:web window) → print → optionally notify. Every tmux call runs
+// under one bounded context.
 func runPresent(cmd *cobra.Command, arg string) error {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -158,75 +151,28 @@ func runPresent(cmd *cobra.Command, arg string) error {
 	return nil
 }
 
-// callerContext resolves the caller's tmux context: the -S socket prefix from
-// the ORIGINAL $TMUX (internal/tmux's init() strips $TMUX from the process —
-// see writeAgentStateImpl for the full rationale) and the server name the
-// ?server= query param and the -L primitives address it by (socket basename,
-// matching ListServers naming). Returns ok=false when $TMUX is unset or
-// malformed — the caller decides whether that is fatal.
-func callerContext() (prefix []string, serverName string, ok bool) {
-	tmuxEnv := presentOriginalTMUXFn()
-	prefix = tmuxSocketArgs(tmuxEnv)
-	if len(prefix) == 0 {
-		return nil, "", false
-	}
-	socket := tmuxEnv
-	if i := strings.IndexByte(socket, ','); i >= 0 {
-		socket = socket[:i]
-	}
-	return prefix, filepath.Base(socket), true
-}
-
-// presentAttach implements the default arm: add the target to the caller's
-// OWN window's web-tab family via WebAdd (located via $TMUX_PANE), then print
-// the URL of the slot it landed in. WebAdd owns the family invariants: dense
-// append on a non-empty family, the _active=1 arming on an empty family, the
-// ?v= refresh on a re-presented /present/ target, and the stale-root clear
-// (root "" for port/URL targets). The slot the URL is computed for is the
-// slot a fresh append lands in (len+1); an idempotent hit re-finds its
-// existing slot by target identity. No window creation, no API call, no
-// layout mutation.
+// presentAttach implements the default arm: `rk tab web add <target> --show`
+// on the caller's OWN window — WebAdd lands the target in the web-tab family
+// (dense append, idempotent hit, _active arming — its own invariants), the
+// show arm ensures web is in the window's layout (a full 3-tile layout
+// without web yields its last slot) and selects the slot. The window resolves
+// through the shared own-tab resolver (owntab.go).
 func presentAttach(ctx context.Context, target present.Target) (string, error) {
-	pane := os.Getenv("TMUX_PANE")
-	if pane == "" {
-		return "", fmt.Errorf("not inside a tmux pane ($TMUX_PANE is unset) — use --window to spawn a standalone window")
-	}
-	prefix, serverName, ok := callerContext()
-	if !ok {
-		return "", fmt.Errorf("cannot derive this pane's tmux server socket from $TMUX (unset or malformed) — refusing to target the default server")
-	}
-
-	out, err := presentRunOutputFn(ctx, append(prefix, "display-message", "-pt", pane, "#{window_id}"))
+	windowID, server, err := ownWindowID(ctx)
 	if err != nil {
-		return "", fmt.Errorf("resolve current window: %w", err)
+		return "", err
 	}
-	windowID := strings.TrimSpace(string(out))
-	if errMsg := validate.ValidateWindowID(windowID, "Window ID"); errMsg != "" {
-		return "", fmt.Errorf("resolve current window: %s", errMsg)
-	}
-
-	fam, err := presentReadFamilyFn(ctx, windowID, serverName)
-	if err != nil {
-		return "", fmt.Errorf("read web-tab family for %s: %w", windowID, err)
-	}
-	root := ""
-	if target.NeedsRoot() {
-		root = target.Root
-	}
-	index, _, err := presentWebAddFn(ctx, windowID, serverName, target.URL(windowID, len(fam.Tabs)+1, serverName, presentNowFn), root)
-	if err != nil {
-		return "", fmt.Errorf("attach to window %s: %w", windowID, err)
-	}
-	return target.URL(windowID, index, serverName, presentNowFn), nil
+	_, url, err := webAddShow(ctx, windowID, server, target, true)
+	return url, err
 }
 
-// presentViaNewWindow implements the --window arm: create a standalone window
-// in the caller's session carrying @rk_win_layout=single:web, then add the
-// target to its (empty) web-tab family via WebAdd — which arms _active=1 and
-// stores the slot's root. Both kinds create with @rk_win_layout alone and add
-// on the id creation returns (a /present/ URL embeds the NEW window's id; a
-// port/URL target simply needs the id to address the family); the family is
-// empty on a fresh window, so the slot is always 1.
+// presentViaNewWindow implements the --window arm: `rk tab new --layout
+// single:web [--name]` (session resolution via the shared resolveTabNewSession)
+// followed by the same add on the new window's empty family — WebAdd arms
+// _active=1 and stores the slot's root; no --show needed, single:web already
+// shows the tile. The /present/ URL of a file/dir target embeds the NEW
+// window's id, so the add always runs on the id creation returns (never a
+// session:name re-resolution — window names are not unique).
 func presentViaNewWindow(ctx context.Context, cmd *cobra.Command, target present.Target) (string, error) {
 	name := presentWindowFlag
 	if name == presentFlagAuto {
@@ -235,68 +181,26 @@ func presentViaNewWindow(ctx context.Context, cmd *cobra.Command, target present
 		return "", fmt.Errorf("--window name: %s", errMsg)
 	}
 
-	// Session resolution: the caller's current session when inside tmux;
-	// outside a pane, the default server's current session (resolvable only
-	// when a server is running — otherwise operational failure).
-	pane := os.Getenv("TMUX_PANE")
-	prefix, serverName, _ := callerContext()
-	var session string
-	var err error
-	if pane != "" {
-		if len(prefix) == 0 {
-			return "", fmt.Errorf("cannot derive this pane's tmux server socket from $TMUX (unset or malformed)")
-		}
-		session, err = presentCallerValue(ctx, append(prefix, "display-message", "-pt", pane, "#{session_name}"))
-	} else {
-		serverName = "default"
-		session, err = presentCallerValue(ctx, []string{"display-message", "-p", "#{session_name}"})
-	}
+	session, server, err := resolveTabNewSession(ctx, "")
 	if err != nil {
-		return "", fmt.Errorf("resolve target session: %w", err)
+		return "", err
 	}
 
 	layout := "single:web"
-	if target.NeedsRoot() {
-		id, err := presentCreateWindowIDFn(session, name, "", serverName,
-			[]tmux.WindowOptionOp{{Key: tmux.LayoutOption, Value: &layout}})
-		if err != nil {
-			return "", fmt.Errorf("create window: %w", err)
-		}
-		index, _, err := presentWebAddFn(ctx, id, serverName, target.URL(id, 1, serverName, presentNowFn), target.Root)
-		if err != nil {
-			return "", fmt.Errorf("attach window %s: %w", id, err)
-		}
-		return target.URL(id, index, serverName, presentNowFn), nil
-	}
-
-	// Port/URL targets carry no window-id in their URL, but the add still
-	// needs the NEW window's id — taken from creation, never re-resolved by
-	// session:name (window names are not unique; a same-named sibling would
-	// receive the tab).
-	id, err := presentCreateWindowIDFn(session, name, "", serverName,
+	id, err := tabCreateWindowIDFn(session, name, "", server,
 		[]tmux.WindowOptionOp{{Key: tmux.LayoutOption, Value: &layout}})
 	if err != nil {
 		return "", fmt.Errorf("create window: %w", err)
 	}
-	url := target.URL(id, 1, serverName, presentNowFn)
-	if _, _, err := presentWebAddFn(ctx, id, serverName, url, ""); err != nil {
+	root := ""
+	if target.NeedsRoot() {
+		root = target.Root
+	}
+	index, _, err := presentWebAddFn(ctx, id, server, target.URL(id, 1, server, presentNowFn), root)
+	if err != nil {
 		return "", fmt.Errorf("attach window %s: %w", id, err)
 	}
-	return url, nil
-}
-
-// presentCallerValue runs a display-message-style tmux read and returns the
-// trimmed single-line output.
-func presentCallerValue(ctx context.Context, args []string) (string, error) {
-	out, err := presentRunOutputFn(ctx, args)
-	if err != nil {
-		return "", err
-	}
-	v := strings.TrimSpace(string(out))
-	if v == "" {
-		return "", fmt.Errorf("empty response from tmux")
-	}
-	return v, nil
+	return target.URL(id, index, server, presentNowFn), nil
 }
 
 // presentWindowName derives the default standalone-window name from the

@@ -2135,6 +2135,32 @@ func GetWindowOption(ctx context.Context, windowID, server, option string) (stri
 	return strings.TrimRight(raw, "\n"), nil
 }
 
+// rkWinOptionPrefix is the user-option namespace run-kit writes at window
+// scope; ShowWindowOptions filters to it so foreign options never leak out.
+const rkWinOptionPrefix = "@rk_win_"
+
+// ShowWindowOptions reads every `@rk_win_*` window user option in one
+// `show-options -w` call — the GetWindowOption read counterpart generalised to
+// the whole family (`rk tab show`). Returns an empty (non-nil) map when
+// nothing is set: an unset window is a state, not an error.
+func ShowWindowOptions(ctx context.Context, windowID, server string) (map[string]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	raw, err := tmuxExecRawServer(ctx, server, "show-options", "-wq", "-t", windowID)
+	if err != nil {
+		return nil, err
+	}
+	opts := map[string]string{}
+	for _, line := range strings.Split(strings.TrimRight(raw, "\n"), "\n") {
+		key, value, found := strings.Cut(line, " ")
+		if !found || !strings.HasPrefix(key, rkWinOptionPrefix) {
+			continue
+		}
+		opts[key] = value
+	}
+	return opts, nil
+}
+
 // roleCarriersFormat is the list-windows format for the RoleOption radio clear:
 // window id plus its current role value.
 var roleCarriersFormat = strings.Join([]string{"#{window_id}", "#{" + RoleOption + "}"}, listDelim)

@@ -57,14 +57,14 @@ Newline-delimited JSON over the socket, **one request per connection** — the b
 ## The `rk code` family
 
 ```
-rk code exec <command> [json-arg…]  [--folder <path>] [--host <id>] [--all] [--timeout 30s] [--json]
+rk code exec <command> [json-arg…]  [--folder <path>] [--host <id>] [--tab [@N]] [--all] [--timeout 30s] [--json]
 rk code hosts [--json]
-rk code commands [--folder <path>] [--host <id>]
+rk code commands [--folder <path>] [--host <id>] [--tab [@N]]
 ```
 
-- **`exec`** runs any palette command id on the resolved host. Each positional after the command is parsed as a JSON literal (numbers stay numbers, objects pass verbatim — including the `$uri` marker the extension rewrites); anything not valid JSON is sent as a string, so bare words work. A literal `--` ends flag parsing, so negative numbers and `-`-prefixed strings pass as args. `--host` and `--folder` are mutually exclusive. The request carries a fresh random `id` and `timeoutMs` = `--timeout` (default 30s); the Go dial+read deadline adds 2s so the extension's own `timeout` error wins while a hung host stays bounded.
+- **`exec`** runs any palette command id on the resolved host. Each positional after the command is parsed as a JSON literal (numbers stay numbers, objects pass verbatim — including the `$uri` marker the extension rewrites); anything not valid JSON is sent as a string, so bare words work. A literal `--` ends flag parsing, so negative numbers and `-`-prefixed strings pass as args. `--host`, `--tab`, and `--folder` are pairwise mutually exclusive. The request carries a fresh random `id` and `timeoutMs` = `--timeout` (default 30s); the Go dial+read deadline adds 2s so the extension's own `timeout` error wins while a hung host stays bounded.
 - **Output contract** (toolkit Principle 9): the result JSON is stdout data (`null` prints `null`); `--json` prints the raw response envelope. Every verb routes through `newSink(cmd)` — results are `Dataf` (survive `--quiet`); the `using host …` fallback note, prune notices, and the version-skew warning are `Notef` (stderr); error lines are ungated `error: <kind>: <message>` on stderr (a dial/read failure prints `error: <message>` with no kind).
-- **Exit codes** (Principle 4): `0` ok; `1` operational (no host, dial failure, `timeout`/`threw`/`unknown-command`/`bad-request`); `2` usage (missing command, `--host` with `--folder`, unknown flag, stray arg) — the children re-wrap their `Args` validators with `usageArgs` in `init()`. On `unknown-command` the five closest command ids (prefix, then substring, then edit distance over a best-effort `__commands` fetch) print as a `did you mean:` list on stderr.
+- **Exit codes** (Principle 4): `0` ok; `1` operational (no host, dial failure, `timeout`/`threw`/`unknown-command`/`bad-request`, `--tab` outside tmux without an explicit `@N`); `2` usage (missing command, `--tab`/`--host`/`--folder` flag conflicts, unknown flag, stray arg) — the children re-wrap their `Args` validators with `usageArgs` in `init()`. On `unknown-command` the five closest command ids (prefix, then substring, then edit distance over a best-effort `__commands` fetch) print as a `did you mean:` list on stderr.
 - **`hosts`** prints live hosts as aligned `ID  FOLDER  PID  AGE  EXT` rows (age humanised from `startedAt`; a malformed timestamp renders `unknown`), pruning dead records as a side effect. `--json` prints the record array. Zero hosts prints nothing (`[]` under `--json`) and exits 0.
 - **`commands`** resolves a host like `exec`, sends `__commands`, and prints one command id per line, sorted — a grep-able view of what the palette can do.
 - **Version skew**: when a chosen host's `extVersion` is older than the embedded extension version (`codebridge.OlderThan` — numeric component compare, non-numeric tails like `0.0.0-dev` degrade to their numeric prefix), the CLI prints `code bridge extension v<a> is older than the bundled v<b> — run rk code-server update` on stderr, at most once per invocation. A dev build without an embedded VSIX skips silently. The protocol is additive-only, so skew degrades, never breaks.
@@ -77,8 +77,9 @@ The registry is a **discovery hint only** — liveness is re-derived on every ca
 Resolution order for a single-host verb:
 
 1. `--host <id>` — exact match on `hostId`; an unmatched explicit `--host` is an error, never a fallback.
-2. The target folder — `--folder`, or by default the git toplevel of the cwd (`git rev-parse --show-toplevel` via `exec.CommandContext` with a 5s timeout, falling back to the cwd itself outside a repo) — matched against record `folder` by exact path first, then the record whose `folder` is the longest **path-component-aware** prefix of the target (`/repo` matches `/repo/x`, not `/repository`).
-3. No match: exactly one live host → use it with a `using host <id> (<folder>)` note on stderr; several → exit 1 listing them (`id  folder` rows); none → exit 1 with `no code-bridge host — open the code lens on <folder> (or check ` + "`rk doctor`" + `)`.
+2. `--tab [@N]` — the tab's `@rk_win_code_root` as the folder source (a `--folder` source, not a new host selector): bare `--tab` resolves the caller's own tab via the shared own-tab resolver (`$TMUX_PANE` → `@N`; outside tmux with no `@N` is exit 1), `@N`/`=session:window` names another tab. The option read is `tmux.GetWindowOption`; a non-empty root feeds the same folder match below. An EMPTY root falls through to the cwd default with a `tab @N has no @rk_win_code_root — falling back to the cwd` note. `--all` ignores `--tab` (the fan-out resolves no tab).
+3. The target folder — `--folder`, or by default the git toplevel of the cwd (`git rev-parse --show-toplevel` via `exec.CommandContext` with a 5s timeout, falling back to the cwd itself outside a repo) — matched against record `folder` by exact path first, then the record whose `folder` is the longest **path-component-aware** prefix of the target (`/repo` matches `/repo/x`, not `/repository`).
+4. No match: exactly one live host → use it with a `using host <id> (<folder>)` note on stderr; several → exit 1 listing them (`id  folder` rows); none → exit 1 with `no code-bridge host — open the code lens on <folder> (or check ` + "`rk doctor`" + `)`.
 
 `--all` fans out to every live host: default output prints one `<hostId>\t<result JSON>` row per successful host; `--json` prints an array of `{hostId, folder, response}` (a host that failed at the transport layer carries a synthesized not-ok envelope, so the array always has one entry per live host). Exit is `1` when any host errored, else `0`.
 
@@ -106,7 +107,7 @@ The bridge is a same-user, local-only RCE into the editor — that is the featur
 
 ## Non-goals
 
-- **`rk code open`** — deferred to the `@rk_code_folder` tmux-option upgrade path: the `code` lens's folder is a per-viewer latch in localStorage, seeded once from the active pane's git root and moved only by the editor's own navigation, so a CLI cannot set it today. Until then: be in the repo when the user first opens the code surface, or ask them to File > Open Folder.
+- **`rk code open`** — deferred: the code surface's folder is the shared `@rk_win_code_root` tmux option (seeded from the derived git root, moved by the editor's own navigation or `rk tab code set`), so a bridge-level open verb would duplicate the tab verb's write. Until then: `rk tab code set <folder>`, or File > Open Folder in the editor.
 - **Remote exec over `rk remote` tunnels** — local-only; a thin daemon proxy can be added later if cross-machine exec is needed.
 - **A `rk.bridge.deny` allowlist** — see § Security stance.
 - **Marketplace publishing** — distribution is the embedded VSIX only.
@@ -139,7 +140,7 @@ The bridge SHALL speak NDJSON with exactly one request and one response per conn
 - **THEN** exactly one `{"id":null,"ok":false,"error":{"kind":"bad-request",…}}` line returns and the socket closes
 
 ### Requirement: Live-verified host resolution
-The CLI MUST treat a registry record as live only when `kill -0` (or `EPERM`) and a 2s `__ping` both succeed, pruning failing records; resolution SHALL be `--host` exact → folder exact → longest path-component-aware prefix → single-live-host fallback with a stderr note → exit 1 (listing candidates when several, the open-the-lens hint when none).
+The CLI MUST treat a registry record as live only when `kill -0` (or `EPERM`) and a 2s `__ping` both succeed, pruning failing records; resolution SHALL be `--host` exact → `--tab`'s `@rk_win_code_root` → folder exact → longest path-component-aware prefix → single-live-host fallback with a stderr note → exit 1 (listing candidates when several, the open-the-lens hint when none). `--tab` SHALL fall through to the cwd default with a note when the tab's code root is empty, and MUST be mutually exclusive with `--host` and `--folder`.
 
 #### Scenario: Worktree resolves to its own host
 - **GIVEN** live records A (`/repo`), B (`/repo/.worktrees/x`), C (`/other`), cwd `/repo/.worktrees/x/sub`
@@ -191,6 +192,12 @@ The CLI MUST treat a registry record as live only when `kill -0` (or `EPERM`) an
 **Why**: The extension's own `timeout` error — a classified, actionable kind — wins the race, while a hung host (dead socket, no response) stays bounded on the client side.
 **Rejected**: A single deadline on both sides (a client-side win surfaces as an unclassified transport error); relying on the extension alone (a wedged extension host blocks the CLI indefinitely).
 *Introduced by*: 260826-83jz-code-bridge-extension
+
+### `--tab` is a `--folder` source, not a new host selector
+**Decision**: `--tab` resolves the tab's `@rk_win_code_root` into `Selector.Folder` and reuses the existing exact/longest-prefix folder match in `codebridge.Resolve`; the tab is resolved through the shared `cmd/rk/owntab.go` resolver (bare `--tab` = own tab via `NoOptDefVal`).
+**Why**: the folder IS the host identity the bridge already matches on, so the tab needs no new selector dimension; an empty root degrades to the ordinary cwd default rather than failing.
+**Rejected**: a new `Selector.WindowID` field with its own matcher (duplicates the folder logic); failing on an empty code root (the tab simply never had `rk tab code set` run).
+*Introduced by*: 260829-c143-rk-tab-cli-present-sugar
 
 ### One state-dir resolution rule, mirrored in two runtimes
 **Decision**: `codebridge.StateDir()` mirrors `snapshot.DefaultDir()`'s rule exactly, and the extension implements the same rule in TypeScript.

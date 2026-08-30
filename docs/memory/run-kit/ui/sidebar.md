@@ -284,7 +284,7 @@ The session/window tree is a **W3C-APG two-level disclosure tree** with roving-t
 - The scrollable Sessions region (`<div role="tree" aria-label="Session tree">`, `index.tsx:1070`) carries `role="tree"`; the outer `<nav aria-label="Sessions">` stays the separate landmark, so the landmark and the tree widget don't collide on one element.
 - **Session rows** (`SessionRow`, `session-row.tsx:113-128`) are `role="treeitem"` `aria-level={1}` with `aria-expanded={!isCollapsed}` (lifted onto the treeitem from the chevron), `aria-setsize`/`aria-posinset` (position among `orderedSessions`), and `data-session-row="${server}:${name}"` as the stable focus handle. `aria-controls={windowGroupId}` is emitted **ONLY while expanded** — the `role="group"` window list is mounted only when `!isCollapsed`, so a collapsed row pointing `aria-controls` at an unmounted id would be invalid ARIA (SF-5, enforced via `aria-controls={isCollapsed ? undefined : windowGroupId}`).
 - **Window rows** (`WindowRow`, `window-row.tsx:204-217`) are `role="treeitem"` `aria-level={2}` LEAF nodes (no `aria-expanded`) with `aria-setsize`/`aria-posinset` (position among `session.windows`), reusing their existing `data-window-id` handle.
-- The **window-list container** (`<div role="group" id={windowGroupId}>`, `index.tsx:1597`) is `role="group"`; that id — `windowGroupId` = `windows-${server}-${session.name}` (`index.tsx:1549`) — is threaded down for the parent session's `aria-controls`. The wrapper carries no left margin — window rows are full-bleed, and the 22px marker well occupies the left edge and content begins at 30px (§ Marker Well). Server-group `<section>` headers stay structural wrappers — server collapse/expand remains mouse/Tab-button only for v1.
+- The **window-list container** (`<div role="group" id={windowGroupId}>`, `index.tsx:1597`) is `role="group"`; that id — `windowGroupId` = `windows-${server}-${session.name}` (`index.tsx:1549`) — is threaded down for the parent session's `aria-controls`. The wrapper carries no left margin — window rows are full-bleed, with a 22px fine-pointer / 36px coarse-pointer marker track at the left edge and content beginning at 30px / 44px respectively (§ Marker Well). Server-group `<section>` headers stay structural wrappers — server collapse/expand remains mouse/Tab-button only for v1.
 
 **Roving-tabindex arrow nav**: exactly one tree row carries `tabIndex={0}` (the roving row), the rest `-1` (`tabIndex={rovingKey === key ? 0 : -1}`, threaded as a single primitive into the memo'd rows so an arrow press flips `tabIndex` on only the two affected rows — the Wave-2 memo skip is preserved). The keydown handler is on the `role="tree"` container (`handleTreeKeyDown`) and early-returns when the target is an `<input>`/`<textarea>`/`isContentEditable` (so a row's rename input keeps Enter=commit / Escape=cancel and arrows move the caret). Bindings (APG-standard, each `preventDefault()`s):
 - **ArrowDown/ArrowUp** — next/prev visible row; **stop at the ends (no wrap)**; flow **continuously across all open server groups** as one flat list.
@@ -440,7 +440,7 @@ The publication channel that lets the sidebar PANE panel follow the board's focu
 
 The window row's visual channels are orthogonal: **hue = label** (family tint), **tint depth = selection**, and **marker well + strip = mode × stage display and editing** (§ Marker Well). The color + flair Label picker opens through the flyout or command palette; marker editing opens its own pad. Selection and the board-pin cue are borderless. The row is single-line and fixed-height; the `@rk_win_note` one-line status note lives in the window flyout card ([ui/status-signals](/run-kit/ui/status-signals.md) § Row-hover register flyout card).
 
-**Full-bleed row box**: the row button spans the sidebar edge-to-edge. Family tint, 40% selection tint, drag shadow, and hazard/flair overlays reach the physical left edge. The 22px marker well occupies `left-0`; content uses `pl-[30px]` on both pointer classes, leaving an 8px gap before the status dot. Plain hover changes text only. A held-open flyout applies `tint.hover` (or `bg-bg-card/50` when uncolored), and selection continues to use `tint.selected`.
+**Full-bleed row box**: the row button spans the sidebar edge-to-edge. Family tint, 40% selection tint, drag shadow, and hazard/flair overlays reach the physical left edge. The marker track occupies `left-0` at 22px on fine pointers and 36px on coarse; content uses `pl-[30px]` and `coarse:pl-[44px]` respectively, preserving the 8px gap that keeps the status dot's waiting halo clear of the track. Plain hover changes text only. A held-open flyout applies `tint.hover` (or `bg-bg-card/50` when uncolored), and selection continues to use `tint.selected`.
 
 **Selection = tint depth + typography, borderless**: a selected colored row deepens to the 40% family tint (`rowTints.get(color).selected`); an uncolored selected row uses the gray sentinel's deeper 0.5 tint. The name goes `font-medium` + `text-text-primary`. There is **no** left accent border on selection.
 
@@ -448,13 +448,13 @@ The window row's visual channels are orthogonal: **hue = label** (family tint), 
 
 ### Marker Well and Interactive Strip (`window-row.tsx`)
 
-The window row reserves a 22px full-height marker well at the physical left edge. Rows with a marker write seam overlay it with an invisible `data-testid="marker-strip"` press target on both pointer classes. The target is `aria-hidden`; its pointer handlers stop propagation, so a strip press never selects or navigates the row, and an armed press or open pad prevents the row's HTML5 drag path. The 56px right-edge status rail remains the sole coarse-pointer trigger for the row flyout card.
+Every window row reserves a full-height marker track at the physical left edge: 22px on fine pointers and 36px on coarse. Rows with a marker write seam overlay it with an invisible `data-testid="marker-strip"` press target at the same pointer-class width. The target is `aria-hidden`; its pointer handlers stop propagation, so a strip press never selects or navigates the row, and an armed press or open pad prevents the row's HTML5 drag path. The 56px right-edge status rail remains the sole coarse-pointer trigger for the row flyout card.
 
 **Pointer policies**: on fine pointers, press opens the marker pad, a two-dimensional drag live-previews the relative grid cell in the row well, and release recomputes and commits the released cell. A no-move release commits nothing and leaves the pad open as a click menu. A native non-passive wheel listener steps the committed marker's stage on marked rows; unmarked rows and `deltaY === 0` pass through without suppressing sidebar scroll. On coarse pointers, a tap opens the same pad in click-menu mode; the path does not capture the pointer and does not map `pointermove` to cells, so a swipe beginning in the strip can still scroll the drawer.
 
-**Geometry and layers**: the well spans `left-0` at `z-10`, paints `MARKER_WELL_BACKGROUND` (12% marker-ink wash) over its full box, and adds `MARKER_WELL_EDGE` (30% marker-ink right edge). The row content uses `pl-[30px]` on both fine and coarse pointers, leaving 8px between the well and the status dot. The row is full-bleed, so family tint, selection tint, drag shadow, hazard, and flair reach the sidebar seam.
+**Geometry and layers**: the track spans `left-0` at `z-10`, paints `MARKER_WELL_BACKGROUND` (12% marker-ink wash) over every row, and adds `MARKER_WELL_EDGE` (30% marker-ink right edge). It is 22px wide on fine pointers and 36px on coarse. The row content uses `pl-[30px]` and `coarse:pl-[44px]` respectively, preserving the 8px gap that holds the status dot's waiting halo clear of the track. The row is full-bleed, so family tint, selection tint, drag shadow, hazard, and flair reach the sidebar seam.
 
-**Mode × stage rendering**: `parseMarker` resolves the normalized `WindowInfo.marker`; empty or invalid values paint no well. `markerFillStyle` renders manual as a solid fill, auto as one/two/three chevrons, and blocked as a non-repeating 45° gradient. Stage 1/2/3 uses 7/15/22px of extent or one/two/three chevrons. Every fill, chevron, well wash, edge, and blocked hazard reads `--color-marker-ink` (#f59e0b dark / #d97706 light), independent of the row's family hue.
+**Mode × stage rendering**: `parseMarker` resolves the normalized `WindowInfo.marker`; empty or invalid values paint no fill or chevrons while retaining the track chrome. `markerFillStyle` renders manual as a solid fill, auto as one/two/three chevrons, and blocked as a non-repeating 45° gradient. Stage 1/2/3 uses 7/15/22px of extent on fine pointers and 12/24/36px on coarse; chevron geometry scales by the same 36/22 ratio. Every fill, chevron, track wash, edge, and blocked hazard reads `--color-marker-ink` (#f59e0b dark / #d97706 light), independent of the row's family hue.
 
 **Blocked hazard**: blocked mode mounts the static `.rk-hazard` wedge using the fixed marker ink. It carries no activity semantics and has no wiring to `@rk_agent_state` or the status pyramid; marker values are user-owned labels.
 
@@ -728,18 +728,30 @@ The create-server and kill-server confirm dialogs render **exactly once**, mount
 
 ### The row's background shade belongs to the held state alone
 **Decision**: Plain hover changes no row background; only `flyout.open` shades.
-**Why**: With the well occupying the left 22px on every row, a hover shade plus a wash plus a family tint stacks three background layers and makes the well's 12% wash unreadable. The held state is the only background change that carries information.
+**Why**: With the track occupying the left 22px on fine pointers and 36px on coarse, a hover shade plus a wash plus a family tint stacks three background layers and makes the track's 12% wash unreadable. The held state is the only background change that carries information.
 **Rejected**: A lighter hover shade; moving the wash above the hover fill, which inverts the z-order used by hazard and flair overlays.
 *Introduced by*: 260830-srec-marker-migrate-well-ink-retirements
 
+### The marker track is row chrome, not marker rendering
+
+**Decision**: the 12% wash + 30% edge render on every window row; only the fill is gated on a parsed
+marker.
+**Why**: the track is the affordance that says "a marker goes here". Gating it on the marker made the
+22px press/tap target invisible on exactly the rows a user most wants to mark, so phase 3 shipped a
+write path that could not be discovered.
+**Rejected**: drawing only the 1px edge on unmarked rows — it gives the gutter a column without
+tinting the sidebar, but reads as a hairline rather than a target; and leaving the marked-rows-only
+rule and teaching discovery through the palette entry alone, which abandons the pointer affordance.
+*Introduced by*: 260830-hbsr-marker-track-and-pad-refinements
+
 ### The coarse marker tap does not capture the pointer
 **Decision**: On coarse pointers, `pointerdown` opens the marker pad and returns without `setPointerCapture` or `pointermove` cell selection.
-**Why**: Capturing the pointer in the left 22px of every row would swallow a vertical swipe beginning there and stop the sidebar drawer from scrolling. Click-menu mode needs no drag path.
+**Why**: Capturing the pointer in the 36px coarse track of every row would swallow a vertical swipe beginning there and stop the sidebar drawer from scrolling. Click-menu mode needs no drag path.
 **Rejected**: Sharing the fine-pointer gesture on touch; gating the marker strip off on coarse pointers.
 *Introduced by*: 260830-imj9-marker-pad-spring-loaded-gesture
 
 ### The gesture lives in the row; the grid math lives in the pad
-**Decision**: `marker-pad.tsx` exports pure grid, stage, header, fit, and placement helpers plus the renderer and keyboard model; `window-row.tsx` owns the pointer gesture, preview state, and wheel listener.
+**Decision**: `marker-pad.tsx` exports pure grid, stage, fit, and placement helpers plus the renderer and keyboard model; `window-row.tsx` owns the pointer gesture, preview state, and wheel listener.
 **Why**: The row owns the well that receives live preview, while pure pad helpers make clamping, the clear-cell row rule, and minimum-width fitting directly unit-testable.
 **Rejected**: Putting the gesture inside the pad, which does not exist until the press begins; a shared hook with only one consumer.
 *Introduced by*: 260830-imj9-marker-pad-spring-loaded-gesture

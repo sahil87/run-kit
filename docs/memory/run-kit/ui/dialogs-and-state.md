@@ -170,7 +170,7 @@ The strip is the only consumer (the edit pencil / F2 path in edit mode, the `+ A
 
 ## Marker Pad Popup
 
-`app/frontend/src/components/sidebar/marker-pad.tsx` is the window row's single marker-editing popup. It has one chrome and does not render inside the row flyout card. Its listbox is a three-mode-row grid with one clear cell (`∅`) spanning the rows and three stage cells per mode. The header names the highlighted cell as `<mode> · <gloss>` or `∅`.
+`app/frontend/src/components/sidebar/marker-pad.tsx` is the window row's single marker-editing popup. It has one chrome and does not render inside the row flyout card. Its listbox is a three-mode-row grid with one clear cell (`∅`) spanning the rows and three stage cells per mode. The top-left reads `Marker`; the columns are headed `∅`, `1`, `2`, and `3`, with `early`/`mid`/`done` supplied as the numbered headings' accessible labels. The highlighted cell retains its ring and tints its mode-row label and stage-column heading in the marker ink; selecting `∅` tints only the `∅` heading.
 
 The popup fits the measured sidebar width through `markerPadPopoverLayout`: at the 160px sidebar minimum it uses `{width: 152, cellPx: 22, labelPx: 42}`; with room it caps at `{width: 180, cellPx: 26, labelPx: 54}`. `placeMarkerPad` returns row-relative coordinates, vertically centers when unconstrained, and clamps the popup inside every sidebar edge.
 
@@ -400,10 +400,23 @@ The regression test in `app/frontend/src/hooks/use-dialog-state.test.tsx` flips 
 *Introduced by*: 260830-imj9-marker-pad-spring-loaded-gesture
 
 ### One marker-pad chrome; the coarse entry is the strip
-**Decision**: The marker pad has one popup chrome. A coarse-pointer tap on the 22 × 36px marker strip opens that same pad in click-menu mode.
+**Decision**: The marker pad has one popup chrome. A coarse-pointer tap on the 36 × 36px marker strip opens that same pad in click-menu mode.
 **Why**: One chrome keeps one keyboard model, placement path, and test surface, while the 56px right-edge rail remains the sole coarse flyout trigger.
 **Rejected**: A Marker row inside the row flyout card; leaving coarse pointers with only the command-palette path.
 *Introduced by*: 260830-imj9-marker-pad-spring-loaded-gesture
+
+### The pad names itself; the labels carry the selection
+
+**Decision**: the pad's top-left reads `Marker`, stage columns are headed `1`/`2`/`3`, and the
+highlighted cell tints its mode-row label and stage-column heading in the marker ink. The
+`<mode> · <gloss>` header line is deleted.
+**Why**: the top-left is where a reader looks for the name of the surface, and spending it on the
+current value duplicated what the highlight ring already showed. Tinting the two labels states the
+selection on the axes themselves, which also labels the previously unlabelled ordinal axis.
+**Rejected**: keeping the value line and adding a separate title row, which costs a second line of a
+pad that must fit a 160px sidebar; and labelling columns with the gloss words (`early`/`mid`/`done`),
+which does not fit the cell width — the gloss is retained as the headings' accessible label instead.
+*Introduced by*: 260830-hbsr-marker-track-and-pad-refinements
 
 ### Marker-pad width derives from the measured sidebar
 **Decision**: `markerPadPopoverLayout(sidebarWidth)` computes popup width, cell pitch, and label-track width; the label track shrinks before a cell drops below 22px.

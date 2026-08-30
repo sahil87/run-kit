@@ -4,7 +4,6 @@ import type { Marker } from "@/marker";
 import {
   MarkerPad,
   markerPadPopoverLayout,
-  padHeader,
   placeMarkerPad,
   sameCell,
   selectCell,
@@ -108,9 +107,7 @@ describe("marker helpers", () => {
     expect(stepStage(marker("auto", 1), -1)).toEqual(marker("auto", 1));
   });
 
-  it("formats headers and compares cells", () => {
-    expect(padHeader(null)).toBe("∅");
-    expect(padHeader(marker("auto", 2))).toBe("auto · mid");
+  it("compares cells", () => {
     expect(sameCell(null, null)).toBe(true);
     expect(sameCell(null, marker("manual", 1))).toBe(false);
     expect(sameCell(marker("auto", 2), marker("auto", 2))).toBe(true);
@@ -138,9 +135,17 @@ describe("MarkerPad", () => {
     return { onPreview, onCommit, onCancel };
   }
 
-  it("renders the clear cell and all nine mode-stage cells", () => {
+  it("renders the Marker title, stage headings, clear cell, and all nine mode-stage cells", () => {
     renderPad();
-    expect(screen.getByTestId("marker-pad-header")).toHaveTextContent("∅");
+    expect(screen.getByText("Marker")).toBeInTheDocument();
+    expect(screen.getByTestId("marker-pad-stage-heading-clear")).toHaveTextContent("∅");
+    for (const [stage, gloss] of [[1, "early"], [2, "mid"], [3, "done"]] as const) {
+      const heading = screen.getByTestId(`marker-pad-stage-heading-${stage}`);
+      expect(heading).toHaveTextContent(String(stage));
+      expect(heading).toHaveAttribute("aria-label", `Stage ${stage}: ${gloss}`);
+      expect(heading).toHaveAttribute("title", gloss);
+    }
+    expect(screen.queryByTestId("marker-pad-header")).toBeNull();
     expect(screen.getByTestId("marker-pad-cell-clear")).toHaveAttribute(
       "aria-selected",
       "true",
@@ -152,12 +157,31 @@ describe("MarkerPad", () => {
     }
   });
 
-  it("highlights, names, and focuses the committed value", () => {
+  it("highlights the committed row label and stage heading while focusing its cell", () => {
     renderPad({ value: marker("auto", 2) });
-    expect(screen.getByTestId("marker-pad-header")).toHaveTextContent("auto · mid");
     const cell = screen.getByTestId("marker-pad-cell-auto-2");
     expect(cell).toHaveAttribute("aria-selected", "true");
     expect(document.activeElement).toBe(cell);
+    expect(screen.getByTestId("marker-pad-mode-label-auto").style.color).toBe(
+      "var(--color-marker-ink)",
+    );
+    expect(screen.getByTestId("marker-pad-stage-heading-2").style.color).toBe(
+      "var(--color-marker-ink)",
+    );
+    expect(screen.getByTestId("marker-pad-mode-label-manual").style.color).toBe("");
+    expect(screen.getByTestId("marker-pad-stage-heading-1").style.color).toBe("");
+    expect(cell.className).toContain("ring-1 ring-text-primary");
+    expect(screen.queryByText("auto · mid")).toBeNull();
+  });
+
+  it("highlights only the clear heading when the clear cell is selected", () => {
+    renderPad();
+    expect(screen.getByTestId("marker-pad-stage-heading-clear").style.color).toBe(
+      "var(--color-marker-ink)",
+    );
+    for (const mode of ["manual", "auto", "blocked"]) {
+      expect(screen.getByTestId(`marker-pad-mode-label-${mode}`).style.color).toBe("");
+    }
   });
 
   it("renders shared mini-well chrome at the fitted pitch", () => {
@@ -173,6 +197,10 @@ describe("MarkerPad", () => {
     expect(cell.style.width).toBe("22px");
     expect(screen.getByTestId("marker-pad").style.width).toBe("152px");
     expect(screen.getByText("blocked").parentElement?.style.width).toBe("42px");
+    const fullFill = screen
+      .getByTestId("marker-pad-cell-manual-3")
+      .querySelector(":scope > span") as HTMLElement;
+    expect(fullFill.style.width).toBe("22px");
   });
 
   it("previews on hover without committing", () => {
@@ -180,7 +208,12 @@ describe("MarkerPad", () => {
     fireEvent.mouseEnter(screen.getByTestId("marker-pad-cell-blocked-3"));
     expect(onPreview).toHaveBeenCalledWith(marker("blocked", 3));
     expect(onCommit).not.toHaveBeenCalled();
-    expect(screen.getByTestId("marker-pad-header")).toHaveTextContent("blocked · done");
+    expect(screen.getByTestId("marker-pad-mode-label-blocked").style.color).toBe(
+      "var(--color-marker-ink)",
+    );
+    expect(screen.getByTestId("marker-pad-stage-heading-3").style.color).toBe(
+      "var(--color-marker-ink)",
+    );
   });
 
   it("commits a clicked cell and clears from the clear cell", () => {
@@ -245,10 +278,15 @@ describe("MarkerPad", () => {
       <MarkerPad {...props} highlight={marker("manual", 1)} />,
     );
     rerender(<MarkerPad {...props} highlight={marker("auto", 3)} />);
-    expect(screen.getByTestId("marker-pad-header")).toHaveTextContent("auto · done");
     expect(screen.getByTestId("marker-pad-cell-auto-3")).toHaveAttribute(
       "aria-selected",
       "true",
+    );
+    expect(screen.getByTestId("marker-pad-mode-label-auto").style.color).toBe(
+      "var(--color-marker-ink)",
+    );
+    expect(screen.getByTestId("marker-pad-stage-heading-3").style.color).toBe(
+      "var(--color-marker-ink)",
     );
   });
 });

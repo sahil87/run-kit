@@ -82,7 +82,7 @@
 <div class="grid">
   <div class="study"><span class="tag rec">shapes</span> 3 stages over 22px
     <div class="cat" id="cat"></div>
-    <div class="cap">Manual: solid at <b>7 / 15 / 22px</b> — thirds of the 22px well, so the fill reads 1/3 → 2/3 → full (see § 3 for the well itself). Auto: <b>1 / 2 / 3 chevrons</b>, each 4.2px wide × 10px tall at 7.2px pitch, so three fill the strip. Blocked: hatch at the same three widths (crosshatch shown as the alternative). Stage glosses: <i>early · mid · done</i>.</div></div>
+    <div class="cap">Manual: solid at <b>7 / 15 / 22px on fine pointers · 12 / 24 / 36px on coarse pointers</b> — thirds of each pointer class's well, so the fill reads 1/3 → 2/3 → full (see § 3 for the well itself). Auto: <b>1 / 2 / 3 chevrons</b>, scaled with the pointer-class well so three fill the strip. Blocked: hatch at the same pointer-class widths (crosshatch shown as the alternative). Stage glosses: <i>early · mid · done</i>.</div></div>
   <div class="study"><span class="tag rec">pad</span> static, for reading
     <div id="padstatic"></div>
     <div class="cap">54px label column + ∅ + three 26px cells = 166px wide, 4 rows = 110px tall. Small enough that on mobile it fits inline in the card without shrinking (28px cells → 174px).</div>
@@ -298,7 +298,7 @@ function buildWells() {
     ['T1', 'rec', 'faint track on marked rows', 'A 10% ink wash across the 22px well, only on rows that carry a marker. The empty two-thirds now read as "unfilled", not as a gap; unmarked rows stay clean.'],
     ['T2', 'alt', 'column hairline + track', 'T1 plus a 1px hairline at x=26 down the whole tree, so the marker column exists even on unmarked rows. Learnable, but it adds a permanent line to every sidebar — including the ones that never use markers.'],
     ['T3', 'alt', 'outlined cell per row', 'A 1px 35%-ink outline, inset 3px top/bottom, rounded 2px. The strongest "this is a gauge" read — and the busiest: stacked marked rows become a ladder of boxes, and the outline eats 2px of the 22px fill.'],
-    ['T4', 'rec', 'track + right edge, marked rows only', 'T1\'s wash plus a 1px 30%-ink edge at x=26 on marked rows only. The edge closes the square so ⅓ and ⅔ read against a visible end; unmarked rows still carry nothing; stacked marked rows share one continuous edge instead of a ladder. Wash 12% so it survives light mode.'],
+    ['T4', 'rec', 'track + right edge, every row', 'T1\'s wash plus a 1px 30%-ink edge on every row. The edge closes the square so ⅓ and ⅔ read against a visible end; unmarked rows keep the track chrome without a fill; stacked rows share one continuous edge instead of a ladder. Wash 12% so it survives light mode.'],
   ];
   for (const [k, tag, title, cap] of V) {
     const st = document.createElement('div'); st.className = 'study'; st.innerHTML = `<span class="tag ${tag}">${k}</span> ${title}`;

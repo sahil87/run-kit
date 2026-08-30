@@ -19,7 +19,15 @@ export const MARKER_STAGE_GLOSS: Record<MarkerStage, string> = { 1: "early", 2: 
 export type Marker = { mode: MarkerMode; stage: MarkerStage };
 
 export const MARKER_INK = "var(--color-marker-ink)";
+export const MARKER_WELL_WIDTH_FINE = 22;
+export const MARKER_WELL_WIDTH_COARSE = 36;
 export const MARKER_STAGE_WIDTHS: Record<MarkerStage, number> = { 1: 7, 2: 15, 3: 22 };
+export const MARKER_STAGE_WIDTHS_COARSE: Record<MarkerStage, number> = {
+  1: 12,
+  2: 24,
+  3: 36,
+};
+export const MARKER_COARSE_SCALE = MARKER_WELL_WIDTH_COARSE / MARKER_WELL_WIDTH_FINE;
 export const MARKER_CHEVRON_WIDTH = 4.2;
 export const MARKER_CHEVRON_HEIGHT = 10;
 export const MARKER_CHEVRON_PITCH = 7.2;
@@ -72,8 +80,11 @@ export function formatMarker(marker: Marker): string {
 }
 
 /** Return the full-height fill style for modes that paint a tiled or solid shape. */
-export function markerFillStyle(marker: Marker): CSSProperties | undefined {
-  const width = MARKER_STAGE_WIDTHS[marker.stage];
+export function markerFillStyle(
+  marker: Marker,
+  stageWidths: Record<MarkerStage, number> = MARKER_STAGE_WIDTHS,
+): CSSProperties | undefined {
+  const width = stageWidths[marker.stage];
   switch (marker.mode) {
     case "manual":
       return { width, background: MARKER_INK };
@@ -90,27 +101,37 @@ export function markerFillStyle(marker: Marker): CSSProperties | undefined {
 }
 
 /** Draw one right-pointing chevron per automatic stage. */
-export function MarkerChevrons({ count }: { count: MarkerStage }) {
-  const width = (count - 1) * MARKER_CHEVRON_PITCH + MARKER_CHEVRON_WIDTH;
-  const half = MARKER_CHEVRON_HEIGHT / 2;
-  const inset = MARKER_CHEVRON_STROKE / 2;
+export function MarkerChevrons({
+  count,
+  scale = 1,
+}: {
+  count: MarkerStage;
+  scale?: number;
+}) {
+  const chevronWidth = MARKER_CHEVRON_WIDTH * scale;
+  const chevronHeight = MARKER_CHEVRON_HEIGHT * scale;
+  const chevronPitch = MARKER_CHEVRON_PITCH * scale;
+  const chevronStroke = MARKER_CHEVRON_STROKE * scale;
+  const width = (count - 1) * chevronPitch + chevronWidth;
+  const half = chevronHeight / 2;
+  const inset = chevronStroke / 2;
   return (
     <svg
       aria-hidden
       width={width}
-      height={MARKER_CHEVRON_HEIGHT}
-      viewBox={`0 0 ${width} ${MARKER_CHEVRON_HEIGHT}`}
+      height={chevronHeight}
+      viewBox={`0 0 ${width} ${chevronHeight}`}
       fill="none"
       stroke={MARKER_INK}
-      strokeWidth={MARKER_CHEVRON_STROKE}
+      strokeWidth={chevronStroke}
     >
       {Array.from({ length: count }, (_, index) => {
-        const x = index * MARKER_CHEVRON_PITCH + inset;
-        const tipX = x + MARKER_CHEVRON_WIDTH - inset;
+        const x = index * chevronPitch + inset;
+        const tipX = x + chevronWidth - inset;
         return (
           <path
             key={index}
-            d={`M ${x} ${inset} L ${tipX} ${half} L ${x} ${MARKER_CHEVRON_HEIGHT - inset}`}
+            d={`M ${x} ${inset} L ${tipX} ${half} L ${x} ${chevronHeight - inset}`}
             strokeLinecap="round"
             strokeLinejoin="round"
           />

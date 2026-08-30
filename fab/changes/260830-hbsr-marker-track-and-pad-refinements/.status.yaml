@@ -1,0 +1,57 @@
+id: hbsr
+name: 260830-hbsr-marker-track-and-pad-refinements
+created: 2026-08-30T17:48:40Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 21
+    acceptance_count: 28
+    acceptance_completed: 28
+confidence:
+    certain: 6
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.6
+    fuzzy: true
+    dimensions:
+        signal: 75.0
+        reversibility: 84.5
+        competence: 86.0
+        disambiguation: 80.5
+stage_metrics:
+    intake: {started_at: "2026-08-30T17:48:40Z", driver: fab-new, iterations: 1, completed_at: "2026-08-30T17:52:00Z"}
+    apply: {started_at: "2026-08-30T18:16:41Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-30T18:22:30Z"}
+    review: {started_at: "2026-08-30T18:22:30Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-30T18:29:16Z"}
+    hydrate: {started_at: "2026-08-30T18:29:16Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-30T18:34:24Z"}
+    ship: {started_at: "2026-08-30T18:34:24Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-30T18:48:10Z"}
+    review-pr: {started_at: "2026-08-30T18:39:17Z", driver: git-pr-review, iterations: 1, completed_at: "2026-08-30T18:47:39Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/775
+change_type_source: explicit
+true_impact:
+    added: 1032
+    deleted: 142
+    net: 890
+    excluding:
+        added: 278
+        deleted: 127
+        net: 151
+    tests:
+        added: 73
+        deleted: 43
+        net: 30
+    computed_at: "2026-08-30T18:48:10Z"
+    computed_at_stage: ship
+summary: Documented the always-on pointer-class marker track and labelled marker pad
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-30T18:48:10Z

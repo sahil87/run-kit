@@ -131,6 +131,7 @@ type TmuxOps interface {
 	// and recovery rather than granting each subprocess its own timeout.
 	SetChatSendBuffer(ctx context.Context, text, server string) error
 	PasteChatSendBuffer(ctx context.Context, paneID, server string) error
+	PasteChatSendBufferRaw(ctx context.Context, paneID, server string) error
 	SendEnterToPane(ctx context.Context, paneID, server string) error
 	CapturePane(ctx context.Context, paneID string, lines int, server string) (string, error)
 	// CaptureWindowHistory serves GET /api/windows/{windowId}/history: the full
@@ -486,6 +487,9 @@ func (p *prodTmuxOps) SetChatSendBuffer(ctx context.Context, text, server string
 func (p *prodTmuxOps) PasteChatSendBuffer(ctx context.Context, paneID, server string) error {
 	return tmux.PasteChatSendBufferCtx(ctx, paneID, server)
 }
+func (p *prodTmuxOps) PasteChatSendBufferRaw(ctx context.Context, paneID, server string) error {
+	return tmux.PasteChatSendBufferRawCtx(ctx, paneID, server)
+}
 func (p *prodTmuxOps) SendEnterToPane(ctx context.Context, paneID, server string) error {
 	return tmux.SendEnterToPaneCtx(ctx, paneID, server)
 }
@@ -761,7 +765,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/windows/{windowId}/web/{n}/remove", s.handleWindowWebRemove)
 	r.Post("/api/windows/{windowId}/web/{n}/select", s.handleWindowWebSelect)
 	r.Post("/api/windows/{windowId}/keys", s.handleWindowKeys)
-	r.Post("/api/windows/{windowId}/paste", s.handleWindowPaste)
+	r.Post("/api/windows/{windowId}/send", s.handleWindowSend)
 	r.Post("/api/windows/{windowId}/select", s.handleWindowSelect)
 	r.Post("/api/windows/{windowId}/split", s.handleWindowSplit)
 	r.Post("/api/windows/{windowId}/close-pane", s.handleClosePaneKill)
@@ -887,4 +891,8 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 // writeError writes a JSON error response.
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+func writeErrorCode(w http.ResponseWriter, status int, code, msg string) {
+	writeJSON(w, status, map[string]string{"error": msg, "code": code})
 }

@@ -15,7 +15,8 @@ import {
   killWindow,
   renameWindow,
   sendChatMessage,
-  pasteToWindow,
+  sendToWindow,
+  ApiError,
   fetchWindowHistory,
   getDirectories,
   uploadFile,
@@ -343,48 +344,77 @@ describe("API client", () => {
     );
   });
 
-  it("pasteToWindow POSTs /api/windows/:windowId/paste with {text} and server query", async () => {
+  it("sendToWindow POSTs /api/windows/:windowId/send with intent and server query", async () => {
     let capturedUrl = "";
     let capturedMethod = "";
-    let capturedBody: { text?: string; submit?: boolean } = {};
+    let capturedBody: { text?: string; mode?: string } = {};
     mswServer.use(
-      http.post("/api/windows/:windowId/paste", async ({ request }) => {
+      http.post("/api/windows/:windowId/send", async ({ request }) => {
         capturedUrl = request.url;
         capturedMethod = request.method;
-        capturedBody = (await request.json()) as { text?: string; submit?: boolean };
+        const body: unknown = await request.json();
+        if (typeof body === "object" && body !== null) capturedBody = body;
         return HttpResponse.json({ ok: true });
       }),
     );
-    const result = await pasteToWindow("runkit", "@0", "one\ntwo");
+    const result = await sendToWindow("runkit", "@0", "one\ntwo", "submit");
     expect(result.ok).toBe(true);
     expect(capturedMethod).toBe("POST");
-    expect(capturedUrl).toMatch(/\/api\/windows\/%400\/paste\?server=runkit$/);
-    expect(capturedBody.text).toBe("one\ntwo");
-    // Default submit ⇒ no `submit` key — same additive shape as chat send.
-    expect("submit" in capturedBody).toBe(false);
+    expect(capturedUrl).toMatch(/\/api\/windows\/%400\/send\?server=runkit$/);
+    expect(capturedBody).toEqual({ text: "one\ntwo", mode: "submit" });
   });
 
-  it("pasteToWindow serializes submit:false into the body (paste without Enter)", async () => {
-    let capturedBody: { text?: string; submit?: boolean } = {};
+  it("sendToWindow carries raw and enter modes without changing their text", async () => {
+    const capturedBodies: unknown[] = [];
     mswServer.use(
-      http.post("/api/windows/:windowId/paste", async ({ request }) => {
-        capturedBody = (await request.json()) as { text?: string; submit?: boolean };
+      http.post("/api/windows/:windowId/send", async ({ request }) => {
+        capturedBodies.push(await request.json());
         return HttpResponse.json({ ok: true });
       }),
     );
-    const result = await pasteToWindow("runkit", "@0", "one\ntwo", false);
-    expect(result.ok).toBe(true);
-    expect(capturedBody).toEqual({ text: "one\ntwo", submit: false });
+    await sendToWindow("runkit", "@0", "one\ntwo", "raw");
+    await sendToWindow("runkit", "@0", "", "enter");
+    expect(capturedBodies).toEqual([
+      { text: "one\ntwo", mode: "raw" },
+      { text: "", mode: "enter" },
+    ]);
   });
 
-  it("pasteToWindow throws the server's structured error on a non-ok response (409 probe failure)", async () => {
+  it("sendToWindow throws ApiError with the server message, status, and code", async () => {
     const probeError = "agent input not ready — message pasted but not echoed; Enter withheld.";
     mswServer.use(
-      http.post("/api/windows/:windowId/paste", () =>
-        HttpResponse.json({ error: probeError }, { status: 409 }),
+      http.post("/api/windows/:windowId/send", () =>
+        HttpResponse.json({ error: probeError, code: "probe_failure" }, { status: 409 }),
       ),
     );
-    await expect(pasteToWindow("runkit", "@0", "a\nb")).rejects.toThrow(probeError);
+    try {
+      await sendToWindow("runkit", "@0", "a\nb", "submit");
+      expect.fail("sendToWindow should reject");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      if (!(err instanceof ApiError)) return;
+      expect(err.message).toBe(probeError);
+      expect(err.status).toBe(409);
+      expect(err.code).toBe("probe_failure");
+    }
+  });
+
+  it("ApiError tolerates a response without a code", async () => {
+    mswServer.use(
+      http.post("/api/windows/:windowId/send", () =>
+        HttpResponse.json({ error: "plain failure" }, { status: 500 }),
+      ),
+    );
+    try {
+      await sendToWindow("runkit", "@0", "hello", "submit");
+      expect.fail("sendToWindow should reject");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      if (!(err instanceof ApiError)) return;
+      expect(err.message).toBe("plain failure");
+      expect(err.status).toBe(500);
+      expect(err.code).toBeUndefined();
+    }
   });
 
   it("getDirectories sends GET /api/directories?prefix=...", async () => {

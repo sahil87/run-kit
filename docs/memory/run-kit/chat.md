@@ -387,22 +387,23 @@ window-keyed / server-resolved contract (the client supplies only a windowID + t
 text; the pane is re-resolved server-side per request) and the same
 `writeError`/status-mapping vocabulary. The handler lives in `api/chat.go` over
 pane-targeted `internal/tmux` primitives. The
-`injectIntoPane` engine seam (`api/chat.go` — the daemon's ONE adapter over
-`chatSendEngine` + `chatSendTmux`) serves four daemon routes: chat send, the two
-operator-request routes, and compose-strip paste. The operator-request handlers
+`injectIntoPane` (`api/chat.go`) is the thin adapter over `chatSendEngine` +
+`chatSendTmux` used by chat send and the two operator-request routes. The operator-request handlers
 (`api/operator.go`) deliver rendered prompts through the SAME engine
 (`submit:true`) into the OPERATOR window's resolved pane — same
 per-(server,paneID) lock, shared deadline, sanitize, novelty probe, observation,
 and recovery — after their own session resolution and busy gate
 ([operator-actuation](/run-kit/operator-actuation.md); that endpoint's busy
 policy is REJECT, unlike this path's Allow + probe below) (260822-fih1). The
-compose strip's `POST /api/windows/{windowId}/paste` (`api/paste.go`) pastes a
-multi-line draft into the window's **active** pane — no chat session required,
-active-pane (not chat-pane) resolution, otherwise the identical
-sanitize → paste → probe → gated-Enter → observation/recovery contract and 409
-mapping
+compose strip's `POST /api/windows/{windowId}/send` (`api/send.go`) resolves the
+window's **active** pane with no chat-session requirement. Its text-bearing modes
+all use this engine and adapter: `submit`/`insert-line` call `Engine.Send`, while
+`raw` calls `Engine.SendRaw`; `enter` calls `Engine.PressEnter`. Thus every compose
+send enters the same per-pane serialization domain, while probed modes retain the
+sanitize → paste → probe → optional Enter → observation/recovery contract and
+machine-readable 409 mapping
 ([api-and-sockets](/run-kit/api-and-sockets.md);
-[ui/compose-and-bottom-bar](/run-kit/ui/compose-and-bottom-bar.md)) (260829-iyix).
+[ui/compose-and-bottom-bar](/run-kit/ui/compose-and-bottom-bar.md)) (260830-s7wp).
 
 **Two frontend consumers, one unchanged per-window contract.** The chat lens's
 own send form (§ Send-form input box) is the single-window one. The second is the
@@ -578,12 +579,16 @@ signal. `pasteCollapseRe` matches BOTH chip forms whitespace-stripped:
 The chip counts as a successful echo ONLY when the paste is collapsible and ONLY as
 a *fresh* occurrence vs baseline; a short single-line send keeps exact-needle-only
 matching. A short settle (`inject.ProbeSettle = 80ms`)
-precedes the first capture, then up to `inject.ProbeAttempts = 3` captures with an
+precedes the first capture, then up to `inject.ProbeAttempts = 8` captures with an
 `inject.ProbeGap = 80ms` gap (settle/gap are package **vars** solely so tests can
-shrink them). The probe **fails closed**: an empty needle, a pane that scrolls
+shrink them). The wall-clock probe ceiling is about 640ms (`80 + 7*80`), shared
+with the post-Enter observation tail and bounded recovery under the caller's 4s
+deadline; the first successful capture still returns after one settle. The probe
+**fails closed**: an empty needle, a pane that scrolls
 between baseline and probe, or a count that never rises → `inject.ProbeFailure` → no
 Enter, `409`. This is the guard against a blind Enter into e.g. a permission
 dialog. A `CapturePane` subprocess error is distinct (→ `500`, not a clean miss).
+(260830-s7wp)
 
 #### Scenario: A stale chip / common needle already in-frame does not false-pass
 - **GIVEN** a baseline capture that ALREADY contains the needle or a paste-collapse
@@ -649,20 +654,23 @@ resend guidance.
   message.
 
 ### Requirement: Per-(server,paneID) whole-sequence lock + shared-buffer mutex
-Concurrent sends SHALL be serialized so no two cross texts or double-submit. The
+Concurrent injections SHALL be serialized so no two cross texts or double-submit. The
 `internal/inject` engine holds a **per-(server,paneID) mutex** (a guarded, never-evicted
 `map[string]*sync.Mutex`, keyed `server\x00paneID`) across the WHOLE sequence
 (baseline → set → paste → probe → Enter → observation/recovery → return) so a
 second send to the SAME pane only
 begins after the first fully finishes — closing the same-pane double-paste window
 (two sends racing one composer both pasting before either probes → merged
-submission). DISTINCT panes stay fully concurrent (each takes its own lock). Because
+submission). `Engine.SendRaw` holds that lock across set-buffer → raw paste, and
+`Engine.PressEnter` holds it across the Enter, so neither primitive can interleave
+with a probed sequence on the same pane. DISTINCT panes stay fully concurrent
+(each takes its own lock). Because
 the named tmux buffer (`rk-chat-send`) is a single server-wide resource with rk as
 its sole writer, the set → paste critical section is ADDITIONALLY guarded by a small
 per-engine mutex (the engine's `setPasteMu`) **nested inside** the per-pane lock — held
-only for those two fast subprocesses — so cross-pane sends cannot interleave as
+only for those two fast subprocesses, including `SendRaw` — so cross-pane sends cannot interleave as
 A-set / B-set / A-paste (pane A would receive B's text; B's own `-d` paste would
-500 on the already-deleted buffer).
+500 on the already-deleted buffer). (260830-s7wp)
 
 #### Scenario: Same-pane sends serialize; distinct panes stay concurrent
 - **GIVEN** two concurrent sends to the same `(server,paneID)`
@@ -688,16 +696,22 @@ first three steps. `muxCmdTimeout` remains 5s on the CLI path.
 - **THEN** the sequence aborts (the ctx cancels every remaining subprocess) rather
   than blocking the route for multiples of 5s.
 
-### Requirement: New pane-targeted tmux primitives on `TmuxOps`
-`internal/tmux` SHALL carry the pane-targeted primitives the injection needs
-(`SetChatSendBufferCtx`, `PasteChatSendBufferCtx`, `SendEnterToPaneCtx`, plus the
-`ChatSendBuffer` name constant — see [tmux-sessions](/run-kit/tmux-sessions.md)),
-and `api/router.go`'s `TmuxOps` interface (with `prodTmuxOps` + the test
-`mockTmuxOps`) SHALL surface them as `SetChatSendBuffer` / `PasteChatSendBuffer` /
-`SendEnterToPane` / `SendKeysToPane` / `CapturePane` so the handler is fully
-testable against the fake. `SendKeysToPane` is context-bound and sends recovery's
-`C-u` to the resolved pane. `SendKeys` remains the separate window-targeted
-`/keys` helper.
+### Requirement: Pane-targeted tmux primitives and the injection interface
+`internal/tmux` SHALL carry the pane-targeted primitives the injection needs:
+`SetChatSendBufferCtx`, bracketed `PasteChatSendBufferCtx`, raw
+`PasteChatSendBufferRawCtx`, `SendEnterToPaneCtx`, and the `ChatSendBuffer` name
+constant (see [tmux-sessions](/run-kit/tmux-sessions.md)). The generic raw primitive
+is `PasteBufferRawCtx(ctx, name, paneID, server)`, issuing
+`paste-buffer -d -r -b <name> -t <pane>`: `-r` preserves LF bytes and the absence
+of `-p` avoids bracketed-paste markers. `inject.Tmux` SHALL expose the matching
+`PasteBufferRaw` method beside `PasteBuffer`.
+
+`api/router.go`'s `TmuxOps` interface (with `prodTmuxOps` + the test `mockTmuxOps`)
+SHALL surface these as `SetChatSendBuffer` / `PasteChatSendBuffer` /
+`PasteChatSendBufferRaw` / `SendEnterToPane` / `SendKeysToPane` / `CapturePane` so
+the handlers are fully testable against the fake. `SendKeysToPane` is context-bound
+and sends recovery's `C-u` to the resolved pane. `SendKeys` remains the separate
+window-targeted `/keys` helper. (260830-s7wp)
 
 #### Scenario: The status matrix is exercisable against a fake tmux
 - **GIVEN** the handler driven by `mockTmuxOps`
@@ -977,8 +991,9 @@ send queue (Constitution II).
 
 ### Per-(server,paneID) whole-sequence lock + nested shared-buffer mutex
 **Decision**: Serialize the whole injection sequence per `(server, paneID)` with a
-never-evicted mutex map, and nest a small package-level mutex around just the
-set → paste critical section (which uses the one server-wide named buffer).
+never-evicted mutex map, and nest a small engine mutex around just the set → paste
+critical section (which uses the one server-wide named buffer). Raw injection and
+bare Enter take the same per-pane lock; raw injection also takes the buffer mutex.
 **Why**: Two sends to the SAME pane racing one composer could each paste before
 either completes probing, Enter, observation, and recovery, merging into one
 doubled submission — the per-pane whole-sequence lock closes that window while

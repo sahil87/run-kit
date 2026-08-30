@@ -150,6 +150,9 @@ func (a chatSendTmux) SetBuffer(ctx context.Context, _, text, server string) err
 func (a chatSendTmux) PasteBuffer(ctx context.Context, _, paneID, server string) error {
 	return a.ops.PasteChatSendBuffer(ctx, paneID, server)
 }
+func (a chatSendTmux) PasteBufferRaw(ctx context.Context, _, paneID, server string) error {
+	return a.ops.PasteChatSendBufferRaw(ctx, paneID, server)
+}
 func (a chatSendTmux) SendEnter(ctx context.Context, paneID, server string) error {
 	return a.ops.SendEnterToPane(ctx, paneID, server)
 }
@@ -260,7 +263,7 @@ func (s *Server) handleChatSend(w http.ResponseWriter, r *http.Request) {
 }
 
 // injectIntoPane is the daemon's ONE adapter onto the shared injection
-// engine (internal/inject), serving /chat/send, /paste, and the operator
+// engine (internal/inject), serving /chat/send and the operator
 // request path — the engine runs baseline capture → set-buffer →
 // paste-buffer (-d -p, bracketed) → NOVELTY echo probe → send-keys Enter →
 // whole-frame submit verification and evidence-gated recovery, serialized per

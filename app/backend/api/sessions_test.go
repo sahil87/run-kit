@@ -45,15 +45,15 @@ type moveWindowCall struct {
 // the test goroutine reads them, so those two are guarded by killMu and
 // accessed via KillSessionWasCalled.
 type mockTmuxOps struct {
-	createSessionCalled bool
-	createSessionName   string
-	createSessionCwd    string
-	killMu                 sync.Mutex
-	killSessionCalled      bool
-	killSessionName        string
-	renameSessionCalled    bool
-	renameSessionSession   string
-	renameSessionName      string
+	createSessionCalled  bool
+	createSessionName    string
+	createSessionCwd     string
+	killMu               sync.Mutex
+	killSessionCalled    bool
+	killSessionName      string
+	renameSessionCalled  bool
+	renameSessionSession string
+	renameSessionName    string
 
 	createWindowCalled  bool
 	createWindowSession string
@@ -68,24 +68,24 @@ type mockTmuxOps struct {
 	// moveWindowCalls records every MoveWindow invocation in order (the
 	// single-value swapWindow* fields above keep only the last). Sort-batch
 	// handler tests assert the full call sequence.
-	moveWindowCalls []moveWindowCall
+	moveWindowCalls               []moveWindowCall
 	moveWindowToSessionCalled     bool
 	moveWindowToSessionWindowID   string
 	moveWindowToSessionDstSession string
 	moveWindowToSessionErr        error
-	renameWindowCalled   bool
-	renameWindowWindowID string
-	renameWindowName     string
-	sendKeysCalled       bool
-	sendKeysWindowID     string
-	sendKeysKeys         string
+	renameWindowCalled            bool
+	renameWindowWindowID          string
+	renameWindowName              string
+	sendKeysCalled                bool
+	sendKeysWindowID              string
+	sendKeysKeys                  string
 
 	selectWindowInSessionCalled   bool
 	selectWindowInSessionSession  string
 	selectWindowInSessionWindowID string
 
-	listWindowsResult  []tmux.WindowInfo
-	listWindowsErr     error
+	listWindowsResult []tmux.WindowInfo
+	listWindowsErr    error
 	// listWindowsBySession, when non-nil, makes ListWindows session-aware:
 	// it returns the windows mapped to the queried session name (empty slice
 	// for an unmapped session). This is required to faithfully model the
@@ -95,15 +95,15 @@ type mockTmuxOps struct {
 	// appears under two distinct session keys.
 	listWindowsBySession map[string][]tmux.WindowInfo
 	listSessionsResult   []tmux.SessionInfo
-	listServersResult  []string
+	listServersResult    []string
 
 	resolveWindowSessionResult string
 	resolveWindowSessionErr    error
 	resolveWindowSessionID     string
 
-	activeWindowIDResult string
-	activeWindowIDErr    error
-	activeWindowIDServer string
+	activeWindowIDResult  string
+	activeWindowIDErr     error
+	activeWindowIDServer  string
 	activeWindowIDSession string
 
 	// hasSessionNames, when non-nil, makes HasSession return true only for the
@@ -125,26 +125,26 @@ type mockTmuxOps struct {
 	killActivePaneCalled   bool
 	killActivePaneWindowID string
 
-	setSessionColorCalled  bool
-	setSessionColorSession string
-	setSessionColorColor   string
-	setSessionColorErr     error
+	setSessionColorCalled    bool
+	setSessionColorSession   string
+	setSessionColorColor     string
+	setSessionColorErr       error
 	unsetSessionColorCalled  bool
 	unsetSessionColorSession string
 	unsetSessionColorErr     error
 
-	setSessionFlairCalled  bool
-	setSessionFlairSession string
-	setSessionFlairFlair   string
-	setSessionFlairErr     error
+	setSessionFlairCalled    bool
+	setSessionFlairSession   string
+	setSessionFlairFlair     string
+	setSessionFlairErr       error
 	unsetSessionFlairCalled  bool
 	unsetSessionFlairSession string
 	unsetSessionFlairErr     error
 
-	setWindowColorCalled   bool
-	setWindowColorWindowID string
-	setWindowColorColor    string
-	setWindowColorErr      error
+	setWindowColorCalled     bool
+	setWindowColorWindowID   string
+	setWindowColorColor      string
+	setWindowColorErr        error
 	unsetWindowColorCalled   bool
 	unsetWindowColorWindowID string
 	unsetWindowColorErr      error
@@ -188,10 +188,10 @@ type mockTmuxOps struct {
 
 	// Server rank. rankMu guards the concurrent fan-out reads/writes (the
 	// /api/servers handler calls GetServerRank once per server in parallel).
-	rankMu             sync.Mutex
-	getServerRankByServer map[string]*int
+	rankMu                   sync.Mutex
+	getServerRankByServer    map[string]*int
 	getServerRankErrByServer map[string]error
-	setServerRankCalls    []struct {
+	setServerRankCalls       []struct {
 		Server string
 		Rank   int
 	}
@@ -257,19 +257,21 @@ type mockTmuxOps struct {
 	// order (and that no send-keys follows a failed probe). chatMu guards ALL
 	// chat-send mock fields: the concurrency test drives two sends on separate
 	// goroutines under -race, so the recorder must not itself race.
-	chatMu               sync.Mutex
-	chatCalls            []string
-	setChatBufferText    string
-	setChatBufferTexts   []string // every text passed, in order (concurrency assertions)
-	pasteChatPaneID      string
-	pasteChatPaneIDs     []string // every paste target pane, in order (cross-pane concurrency assertions)
-	sendEnterPaneID      string
-	sendEnterCalled      bool
-	sendPaneKeys         [][]string
-	setChatBufferErr     error
-	pasteChatBufferErr   error
-	sendEnterErr         error
-	sendPaneKeysErr      error
+	chatMu                sync.Mutex
+	chatCalls             []string
+	setChatBufferText     string
+	setChatBufferTexts    []string // every text passed, in order (concurrency assertions)
+	pasteChatPaneID       string
+	pasteChatPaneIDs      []string // every paste target pane, in order (cross-pane concurrency assertions)
+	pasteChatRawPaneID    string
+	sendEnterPaneID       string
+	sendEnterCalled       bool
+	sendPaneKeys          [][]string
+	setChatBufferErr      error
+	pasteChatBufferErr    error
+	pasteChatRawBufferErr error
+	sendEnterErr          error
+	sendPaneKeysErr       error
 	// capturePaneResults is consumed one entry per CapturePane call (baseline +
 	// probe retries), falling back to capturePaneResult once exhausted.
 	// capturePaneErr forces a capture failure.
@@ -740,6 +742,13 @@ func (m *mockTmuxOps) PasteChatSendBuffer(ctx context.Context, paneID, server st
 	m.pasteChatPaneID = paneID
 	m.pasteChatPaneIDs = append(m.pasteChatPaneIDs, paneID)
 	return m.pasteChatBufferErr
+}
+func (m *mockTmuxOps) PasteChatSendBufferRaw(ctx context.Context, paneID, server string) error {
+	m.chatMu.Lock()
+	defer m.chatMu.Unlock()
+	m.chatCalls = append(m.chatCalls, "paste-buffer-raw")
+	m.pasteChatRawPaneID = paneID
+	return m.pasteChatRawBufferErr
 }
 func (m *mockTmuxOps) SendEnterToPane(ctx context.Context, paneID, server string) error {
 	m.chatMu.Lock()

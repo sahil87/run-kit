@@ -27,6 +27,7 @@ import {
   setComposeStripFocused,
 } from "@/lib/compose-strip-events";
 import { BottomBar } from "./bottom-bar";
+import { ApiError, type WindowSendMode } from "@/api/client";
 
 // Mock useFileUpload so tests never hit the network. The mock records calls,
 // returns deterministic paths so attachment path lines can be asserted, and
@@ -41,16 +42,25 @@ vi.mock("@/hooks/use-file-upload", async (orig) => {
   };
 });
 
-// Mock the paste route so multi-line sends never hit the network. Tests set
-// the resolution per case (resolved ⇒ delivered, rejected ⇒ draft kept).
-const pasteToWindowMock = vi.fn<
-  (server: string, windowId: string, text: string, submit?: boolean) => Promise<{ ok: boolean }>
+const sendToWindowMock = vi.fn<
+  (server: string, windowId: string, text: string, mode: WindowSendMode) => Promise<{ ok: boolean }>
 >();
 vi.mock("@/api/client", async (orig) => {
   const actual = await orig<typeof import("@/api/client")>();
   return {
     ...actual,
-    pasteToWindow: (...args: Parameters<typeof actual.pasteToWindow>) => pasteToWindowMock(...args),
+    sendToWindow: (...args: Parameters<typeof actual.sendToWindow>) => sendToWindowMock(...args),
+  };
+});
+
+const addToastMock = vi.fn<
+  (message: string, variant?: "error" | "info", action?: { label: string; onSelect: () => void }) => void
+>();
+vi.mock("@/components/toast", async (orig) => {
+  const actual = await orig<typeof import("@/components/toast")>();
+  return {
+    ...actual,
+    useToast: () => ({ addToast: addToastMock }),
   };
 });
 
@@ -151,6 +161,9 @@ describe("ComposeStrip", () => {
     setComposeStripFocused(false);
     uploadFilesMock.mockReset();
     uploadState.uploading = false;
+    sendToWindowMock.mockReset();
+    sendToWindowMock.mockResolvedValue({ ok: true });
+    addToastMock.mockReset();
     vi.stubGlobal(
       "matchMedia",
       vi.fn().mockReturnValue({
@@ -443,7 +456,7 @@ describe("ComposeStrip", () => {
     expect(screen.getByTestId("compose-strip-target").textContent).toBe("renamed-win");
   });
 
-  it("plain Enter inserts the line — sends text + \\n and clears the draft — on ANY pointer type (260802-lj98)", () => {
+  it("plain Enter sends insert-line intent and clears the draft on any pointer type", async () => {
     for (const coarse of [false, true]) {
       stubPointer(coarse);
       const { ref, sent } = makeWs();
@@ -457,11 +470,9 @@ describe("ComposeStrip", () => {
       );
       act(() => fireEvent.click(screen.getByTestId("set-focus")));
       act(() => fireEvent.change(input(), { target: { value: "stage this line" } }));
-      act(() => fireEvent.keyDown(input(), { key: "Enter" }));
-      // Insert-line: the trailing \n stages the line in the agent's composer
-      // (a plain shell pane executes it — terminal-conventional, documented).
-      expect(sent).toEqual(["stage this line\n"]);
-      // Same clear-on-delivery as submit.
+      await act(async () => fireEvent.keyDown(input(), { key: "Enter" }));
+      expect(sendToWindowMock).toHaveBeenLastCalledWith("srv", "@1", "stage this line", "insert-line");
+      expect(sent).toEqual([]);
       expect(input().value).toBe("");
       view.unmount();
     }
@@ -533,7 +544,7 @@ describe("ComposeStrip", () => {
     expect(input().value).toBe("draft"); // no submit fired, draft intact
   });
 
-  it("empty Cmd/Ctrl+Enter sends a bare \\r — 'press Enter in the pane' (260802-lj98)", () => {
+  it("empty Cmd/Ctrl+Enter sends enter intent", async () => {
     const { ref, sent } = makeWs();
     render(
       <ChromeProvider>
@@ -544,11 +555,12 @@ describe("ComposeStrip", () => {
       </ChromeProvider>,
     );
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
-    act(() => fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true }));
-    expect(sent).toEqual(["\r"]); // completes the stage-then-submit loop
+    await act(async () => fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true }));
+    expect(sendToWindowMock).toHaveBeenCalledWith("srv", "@1", "", "enter");
+    expect(sent).toEqual([]);
   });
 
-  it("whitespace-only Cmd/Ctrl+Enter counts as empty: bare \\r, whitespace discarded, draft cleared", () => {
+  it("whitespace-only Cmd/Ctrl+Enter sends enter intent and discards whitespace", async () => {
     const { ref, sent } = makeWs();
     render(
       <ChromeProvider>
@@ -560,9 +572,10 @@ describe("ComposeStrip", () => {
     );
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
     act(() => fireEvent.change(input(), { target: { value: "   " } }));
-    act(() => fireEvent.keyDown(input(), { key: "Enter", metaKey: true }));
-    expect(sent).toEqual(["\r"]); // stray spaces are never transmitted
-    expect(input().value).toBe(""); // the whitespace draft is discarded
+    await act(async () => fireEvent.keyDown(input(), { key: "Enter", metaKey: true }));
+    expect(sendToWindowMock).toHaveBeenCalledWith("srv", "@1", "", "enter");
+    expect(sent).toEqual([]);
+    expect(input().value).toBe("");
   });
 
   it("Cmd/Ctrl+Enter during IME composition does not send", () => {
@@ -584,7 +597,7 @@ describe("ComposeStrip", () => {
 
   // ── Enter=insert-line matrix (260802-lj98, revising 260801-hsxm) ───────────
 
-  it("Cmd/Ctrl+Enter sends text + trailing carriage return on BOTH pointer types (the only submit chord)", () => {
+  it("Cmd/Ctrl+Enter sends submit intent on both pointer types", async () => {
     for (const coarse of [false, true]) {
       for (const mod of [{ metaKey: true }, { ctrlKey: true }]) {
         stubPointer(coarse);
@@ -599,15 +612,16 @@ describe("ComposeStrip", () => {
         );
         act(() => fireEvent.click(screen.getByTestId("set-focus")));
         act(() => fireEvent.change(input(), { target: { value: "chord" } }));
-        act(() => fireEvent.keyDown(input(), { key: "Enter", ...mod }));
-        expect(sent).toEqual(["chord\r"]);
+        await act(async () => fireEvent.keyDown(input(), { key: "Enter", ...mod }));
+        expect(sendToWindowMock).toHaveBeenLastCalledWith("srv", "@1", "chord", "submit");
+        expect(sent).toEqual([]);
         expect(input().value).toBe("");
         view.unmount();
       }
     }
   });
 
-  it("Alt+Enter inserts WITHOUT the trailing carriage return and clears the draft", () => {
+  it("Alt+Enter sends raw intent and clears the draft", async () => {
     const { ref, sent } = makeWs();
     render(
       <ChromeProvider>
@@ -619,12 +633,13 @@ describe("ComposeStrip", () => {
     );
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
     act(() => fireEvent.change(input(), { target: { value: "stage me" } }));
-    act(() => fireEvent.keyDown(input(), { key: "Enter", altKey: true }));
-    expect(sent).toEqual(["stage me"]); // raw bytes, no \r
-    expect(input().value).toBe(""); // same clear-on-delivery as submit
+    await act(async () => fireEvent.keyDown(input(), { key: "Enter", altKey: true }));
+    expect(sendToWindowMock).toHaveBeenCalledWith("srv", "@1", "stage me", "raw");
+    expect(sent).toEqual([]);
+    expect(input().value).toBe("");
   });
 
-  it("the Insert button follows Enter — sends text + \\n and clears; hidden in the empty compact state", () => {
+  it("the Insert button sends insert-line intent and clears", async () => {
     const { ref, sent } = makeWs();
     render(
       <ChromeProvider>
@@ -643,12 +658,13 @@ describe("ComposeStrip", () => {
     // With text the strip is in card form and Insert renders, enabled.
     act(() => fireEvent.change(input(), { target: { value: "via button" } }));
     expect(insertBtn().disabled).toBe(false);
-    act(() => fireEvent.click(insertBtn()));
-    expect(sent).toEqual(["via button\n"]); // insert-line, same as plain Enter
+    await act(async () => fireEvent.click(insertBtn()));
+    expect(sendToWindowMock).toHaveBeenCalledWith("srv", "@1", "via button", "insert-line");
+    expect(sent).toEqual([]);
     expect(input().value).toBe("");
   });
 
-  it("the Send button mirrors its chord's empty case: enabled with a target in the secondary face, an empty click sends bare \\r", () => {
+  it("the Send button sends submit intent, then enter intent when empty", async () => {
     const { ref, sent } = makeWs();
     render(
       <ChromeProvider>
@@ -675,15 +691,16 @@ describe("ComposeStrip", () => {
     act(() => fireEvent.change(input(), { target: { value: "via send" } }));
     expect(sendBtn().className).toContain("border-accent");
     expect(insertBtn().disabled).toBe(false);
-    act(() => fireEvent.click(sendBtn()));
-    expect(sent).toEqual(["via send\r"]);
+    await act(async () => fireEvent.click(sendBtn()));
+    expect(sendToWindowMock).toHaveBeenLastCalledWith("srv", "@1", "via send", "submit");
+    expect(sent).toEqual([]);
     expect(input().value).toBe("");
-    // The empty click itself sends the bare \r (the chord's empty case).
-    act(() => fireEvent.click(sendBtn()));
-    expect(sent).toEqual(["via send\r", "\r"]);
+    await act(async () => fireEvent.click(sendBtn()));
+    expect(sendToWindowMock).toHaveBeenLastCalledWith("srv", "@1", "", "enter");
+    expect(sent).toEqual([]);
   });
 
-  it("a guard-blocked insert (stream not OPEN) preserves the draft", () => {
+  it("a closed relay stream does not block raw compose delivery", async () => {
     const { ref, sent } = makeWs(false); // CLOSED
     render(
       <ChromeProvider>
@@ -695,9 +712,10 @@ describe("ComposeStrip", () => {
     );
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
     act(() => fireEvent.change(input(), { target: { value: "keep insert" } }));
-    act(() => fireEvent.keyDown(input(), { key: "Enter", altKey: true }));
+    await act(async () => fireEvent.keyDown(input(), { key: "Enter", altKey: true }));
     expect(sent).toEqual([]);
-    expect(input().value).toBe("keep insert");
+    expect(sendToWindowMock).toHaveBeenCalledWith("srv", "@1", "keep insert", "raw");
+    expect(input().value).toBe("");
   });
 
   it("enterkeyhint states the truth: 'send' on every pointer type (Enter transmits the line)", () => {
@@ -879,15 +897,16 @@ describe("ComposeStrip", () => {
     expect(input().value).toBe("for B");
   });
 
-  it("a delivered send clears only the focused target's draft", () => {
+  it("a delivered send clears only the focused target's draft", async () => {
     renderTwoTargets();
     act(() => fireEvent.click(screen.getByTestId("focus-a")));
     act(() => fireEvent.change(input(), { target: { value: "keep A" } }));
 
     act(() => fireEvent.click(screen.getByTestId("focus-b")));
     act(() => fireEvent.change(input(), { target: { value: "send B" } }));
-    act(() => fireEvent.click(sendBtn()));
-    expect(wsB.sent).toEqual(["send B\r"]);
+    await act(async () => fireEvent.click(sendBtn()));
+    expect(sendToWindowMock).toHaveBeenCalledWith("srv", "@b", "send B", "submit");
+    expect(wsB.sent).toEqual([]);
     expect(input().value).toBe(""); // B's draft cleared after delivery
 
     // A's draft was NOT collateral damage of B's send.
@@ -1099,9 +1118,7 @@ describe("ComposeStrip", () => {
     expect(input().value).toBe("in-tile draft");
   });
 
-  it("a guard-blocked send (stream not OPEN) preserves the draft", () => {
-    // wsRef is CLOSED → the readyState guard blocks the send. The draft must be
-    // preserved (early-return before clearing), not silently discarded.
+  it("a closed relay stream does not block submit delivery", async () => {
     const { ref, sent } = makeWs(false); // CLOSED
     render(
       <ChromeProvider>
@@ -1113,12 +1130,13 @@ describe("ComposeStrip", () => {
     );
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
     act(() => fireEvent.change(input(), { target: { value: "keep-me" } }));
-    act(() => fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true }));
-    expect(sent).toEqual([]); // nothing delivered
-    expect(input().value).toBe("keep-me"); // draft preserved
+    await act(async () => fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true }));
+    expect(sent).toEqual([]);
+    expect(sendToWindowMock).toHaveBeenCalledWith("srv", "@1", "keep-me", "submit");
+    expect(input().value).toBe("");
   });
 
-  it("clears the draft only after a delivered send", () => {
+  it("clears the draft only after a delivered send", async () => {
     const { ref, sent } = makeWs(true); // OPEN
     render(
       <ChromeProvider>
@@ -1130,9 +1148,10 @@ describe("ComposeStrip", () => {
     );
     act(() => fireEvent.click(screen.getByTestId("set-focus")));
     act(() => fireEvent.change(input(), { target: { value: "deliver" } }));
-    act(() => fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true }));
-    expect(sent).toEqual(["deliver\r"]);
-    expect(input().value).toBe(""); // cleared after delivery
+    await act(async () => fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true }));
+    expect(sendToWindowMock).toHaveBeenCalledWith("srv", "@1", "deliver", "submit");
+    expect(sent).toEqual([]);
+    expect(input().value).toBe("");
   });
 
   it("clears the focused terminal on board-pane unmount (stale-target guard)", () => {
@@ -1325,7 +1344,7 @@ describe("ComposeStrip", () => {
   it.each([
     ["fine", false],
     ["coarse", true],
-  ])("shows the history chip after a send on a %s pointer and keeps it enabled with a draft", (_label, coarse) => {
+  ])("shows the history chip after a send on a %s pointer and keeps it enabled with a draft", async (_label, coarse) => {
     stubPointer(coarse);
     const { sent } = renderFocused();
     expect(screen.queryByTestId("compose-strip-history")).toBeNull();
@@ -1333,9 +1352,10 @@ describe("ComposeStrip", () => {
     act(() => input().focus());
     type("recoverable text");
     expect(screen.queryByTestId("compose-strip-history")).toBeNull();
-    act(() => fireEvent.keyDown(input(), { key: "Enter" }));
+    await act(async () => fireEvent.keyDown(input(), { key: "Enter" }));
 
-    expect(sent).toEqual(["recoverable text\n"]);
+    expect(sendToWindowMock).toHaveBeenCalledWith("srv", "@1", "recoverable text", "insert-line");
+    expect(sent).toEqual([]);
     expect(screen.getByTestId("compose-strip-history")).toBeEnabled();
     type("draft typed after the send");
     expect(screen.getByTestId("compose-strip-history")).toBeEnabled();
@@ -1345,7 +1365,7 @@ describe("ComposeStrip", () => {
     pushComposeSentHistory(KEY, "older\nentry");
     pushComposeSentHistory(KEY, "newest entry");
     const { sent } = renderFocused();
-    pasteToWindowMock.mockClear();
+    sendToWindowMock.mockClear();
     type("draft already in progress");
     act(() => input().focus());
     const before = [...getComposeSentHistory(KEY)];
@@ -1361,7 +1381,7 @@ describe("ComposeStrip", () => {
     expect(document.activeElement).toBe(input());
     expect(screen.queryByTestId("compose-history-flyout")).toBeNull();
     expect(sent).toEqual([]);
-    expect(pasteToWindowMock).not.toHaveBeenCalled();
+    expect(sendToWindowMock).not.toHaveBeenCalled();
     expect(getComposeSentHistory(KEY)).toEqual(before);
   });
 
@@ -1427,34 +1447,35 @@ describe("ComposeStrip", () => {
   });
 
   it.each([
-    ["insert-line (plain Enter)", { key: "Enter" }, "sent text\n"],
-    ["insert (Alt+Enter)", { key: "Enter", altKey: true }, "sent text"],
-    ["submit (Cmd/Ctrl+Enter)", { key: "Enter", ctrlKey: true }, "sent text\r"],
-  ])("records history on a delivered %s send, before the clear", (_label, chord, wire) => {
+    ["insert-line (plain Enter)", { key: "Enter" }, "insert-line"],
+    ["insert (Alt+Enter)", { key: "Enter", altKey: true }, "raw"],
+    ["submit (Cmd/Ctrl+Enter)", { key: "Enter", ctrlKey: true }, "submit"],
+  ] as const)("records history on a delivered %s send, before the clear", async (_label, chord, mode) => {
     const { sent } = renderFocused();
     type("sent text");
-    act(() => fireEvent.keyDown(input(), chord));
-    // Wire bytes unchanged by this change.
-    expect(sent).toEqual([wire]);
-    // Draft cleared as before — and the text is recoverable.
+    await act(async () => fireEvent.keyDown(input(), chord));
+    expect(sendToWindowMock).toHaveBeenCalledWith("srv", "@1", "sent text", mode);
+    expect(sent).toEqual([]);
     expect(input().value).toBe("");
     expect(getComposeSentHistory(KEY)).toEqual(["sent text"]);
   });
 
-  it("an empty submit's bare \\r records nothing", () => {
+  it("an empty submit's enter intent records nothing", async () => {
     const { sent } = renderFocused();
-    act(() => fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true }));
-    expect(sent).toEqual(["\r"]);
+    await act(async () => fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true }));
+    expect(sendToWindowMock).toHaveBeenCalledWith("srv", "@1", "", "enter");
+    expect(sent).toEqual([]);
     expect(getComposeSentHistory(KEY)).toEqual([]);
   });
 
-  it("a guard-blocked send (stream not OPEN) records nothing and keeps the draft", () => {
+  it("a closed relay stream still records a delivered insert-line", async () => {
     const { sent } = renderFocused(false);
-    type("never delivered");
-    act(() => fireEvent.keyDown(input(), { key: "Enter" }));
+    type("delivered through API");
+    await act(async () => fireEvent.keyDown(input(), { key: "Enter" }));
     expect(sent).toEqual([]);
-    expect(input().value).toBe("never delivered"); // draft preserved
-    expect(getComposeSentHistory(KEY)).toEqual([]); // nothing to recover — nothing lost
+    expect(sendToWindowMock).toHaveBeenCalledWith("srv", "@1", "delivered through API", "insert-line");
+    expect(input().value).toBe("");
+    expect(getComposeSentHistory(KEY)).toEqual(["delivered through API"]);
   });
 
   it("↑ on an empty textarea recalls the newest sent text", () => {
@@ -1529,15 +1550,16 @@ describe("ComposeStrip", () => {
     expect(input().value).toBe("recalled and edited");
   });
 
-  it("sending ends the walk — the next ↑ starts fresh from the newest entry", () => {
+  it("sending ends the walk — the next ↑ starts fresh from the newest entry", async () => {
     pushComposeSentHistory(KEY, "old one");
     const { sent } = renderFocused();
     arrow("ArrowUp");
     expect(input().value).toBe("old one");
     // Re-sending the recalled text: adjacent-dedupe means it does not burn a
     // second slot, and the walk ends.
-    act(() => fireEvent.keyDown(input(), { key: "Enter" }));
-    expect(sent).toEqual(["old one\n"]);
+    await act(async () => fireEvent.keyDown(input(), { key: "Enter" }));
+    expect(sendToWindowMock).toHaveBeenCalledWith("srv", "@1", "old one", "insert-line");
+    expect(sent).toEqual([]);
     expect(getComposeSentHistory(KEY)).toEqual(["old one"]);
     arrow("ArrowUp");
     expect(input().value).toBe("old one"); // fresh walk from the newest
@@ -1777,8 +1799,9 @@ describe("ComposeStrip", () => {
     });
     expect(screen.getByTestId("compose-strip-previews")).toBeInTheDocument();
 
-    act(() => fireEvent.keyDown(input(), { key: "Enter" }));
-    expect(sent).toEqual(["/wt/.uploads/x.png\n"]);
+    await act(async () => fireEvent.keyDown(input(), { key: "Enter" }));
+    expect(sendToWindowMock).toHaveBeenCalledWith("srv", "@1", "/wt/.uploads/x.png", "insert-line");
+    expect(sent).toEqual([]);
     expect(screen.queryByTestId("compose-strip-previews")).not.toBeInTheDocument();
 
     arrow("ArrowUp");
@@ -2236,20 +2259,16 @@ describe("ComposeStrip", () => {
   });
 });
 
-// Multi-line delivery: submit and insert-line on a draft with a LITERAL
-// newline ride POST /paste (tmux bracketed paste); single-line text and the
-// Alt+Enter raw insert stay on the relay websocket byte-for-byte.
-describe("ComposeStrip multi-line paste route", () => {
+describe("ComposeStrip window send path", () => {
   beforeEach(() => {
     useWindowStore.setState({ entries: new Map(), ghosts: [] });
-    // Same store hygiene as the main describe: drafts and sent history are
-    // module stores persisted to localStorage, so wipe + re-hydrate.
     localStorage.clear();
     hydrateComposeDrafts();
     hydrateComposeSentHistory();
     stubPointer(false);
-    pasteToWindowMock.mockReset();
-    pasteToWindowMock.mockResolvedValue({ ok: true });
+    sendToWindowMock.mockReset();
+    sendToWindowMock.mockResolvedValue({ ok: true });
+    addToastMock.mockReset();
   });
   afterEach(() => {
     cleanup();
@@ -2264,105 +2283,154 @@ describe("ComposeStrip multi-line paste route", () => {
     return ws;
   }
 
-  it("multi-line + Ctrl/Cmd+Enter → pasteToWindow(submit) — nothing on the websocket; delivered clears and records history", async () => {
+  it("multi-line + Ctrl/Cmd+Enter sends submit intent and records history", async () => {
     const ws = mountFocused();
     act(() => fireEvent.change(input(), { target: { value: "one\ntwo" } }));
     await act(async () => {
       fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true });
     });
-    expect(pasteToWindowMock).toHaveBeenCalledTimes(1);
-    expect(pasteToWindowMock).toHaveBeenCalledWith("srv", "@1", "one\ntwo", true);
+    expect(sendToWindowMock).toHaveBeenCalledTimes(1);
+    expect(sendToWindowMock).toHaveBeenCalledWith("srv", "@1", "one\ntwo", "submit");
     expect(ws.sent).toEqual([]);
     expect(input().value).toBe("");
     expect(getComposeSentHistory(entryKey("srv", "@1"))).toEqual(["one\ntwo"]);
   });
 
-  it("multi-line + plain Enter (insert-line) → pasteToWindow without submit", async () => {
+  it("multi-line + plain Enter sends insert-line intent", async () => {
     const ws = mountFocused();
     act(() => fireEvent.change(input(), { target: { value: "one\ntwo" } }));
     await act(async () => {
       fireEvent.keyDown(input(), { key: "Enter" });
     });
-    expect(pasteToWindowMock).toHaveBeenCalledWith("srv", "@1", "one\ntwo", false);
+    expect(sendToWindowMock).toHaveBeenCalledWith("srv", "@1", "one\ntwo", "insert-line");
     expect(ws.sent).toEqual([]);
     expect(input().value).toBe("");
   });
 
-  it("multi-line + Alt+Enter (raw insert) stays byte-exact on the websocket", () => {
-    const ws = mountFocused();
-    act(() => fireEvent.change(input(), { target: { value: "one\ntwo" } }));
-    act(() => fireEvent.keyDown(input(), { key: "Enter", altKey: true }));
-    expect(pasteToWindowMock).not.toHaveBeenCalled();
-    expect(ws.sent).toEqual(["one\ntwo"]);
-  });
-
-  it("single-line + Ctrl+Enter stays on the websocket (regression pin)", () => {
-    const ws = mountFocused();
-    act(() => fireEvent.change(input(), { target: { value: "one" } }));
-    act(() => fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true }));
-    expect(pasteToWindowMock).not.toHaveBeenCalled();
-    expect(ws.sent).toEqual(["one\r"]);
-  });
-
-  it("a rejected paste keeps the draft and records nothing", async () => {
-    pasteToWindowMock.mockRejectedValue(new Error("agent input not ready"));
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  it("multi-line + Alt+Enter sends raw intent without touching the websocket", async () => {
     const ws = mountFocused();
     act(() => fireEvent.change(input(), { target: { value: "one\ntwo" } }));
     await act(async () => {
+      fireEvent.keyDown(input(), { key: "Enter", altKey: true });
+    });
+    expect(sendToWindowMock).toHaveBeenCalledWith("srv", "@1", "one\ntwo", "raw");
+    expect(ws.sent).toEqual([]);
+  });
+
+  it("single-line + Ctrl+Enter sends submit intent without touching the websocket", async () => {
+    const ws = mountFocused();
+    act(() => fireEvent.change(input(), { target: { value: "one" } }));
+    await act(async () => {
       fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true });
     });
-    expect(pasteToWindowMock).toHaveBeenCalledTimes(1);
+    expect(sendToWindowMock).toHaveBeenCalledWith("srv", "@1", "one", "submit");
     expect(ws.sent).toEqual([]);
-    expect(input().value).toBe("one\ntwo");
-    expect(getComposeSentHistory(entryKey("srv", "@1"))).toEqual([]);
-    warn.mockRestore();
   });
 
-  it("a newline-only draft is EMPTY: Ctrl+Enter sends the bare \\r on the websocket, never the paste route", () => {
+  it("a newline-only submit sends enter intent and records no history", async () => {
     const ws = mountFocused();
     act(() => fireEvent.change(input(), { target: { value: "\n" } }));
-    act(() => fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true }));
-    expect(pasteToWindowMock).not.toHaveBeenCalled();
-    expect(ws.sent).toEqual(["\r"]);
+    await act(async () => {
+      fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true });
+    });
+    expect(sendToWindowMock).toHaveBeenCalledWith("srv", "@1", "", "enter");
+    expect(ws.sent).toEqual([]);
     expect(input().value).toBe("");
+    expect(getComposeSentHistory(entryKey("srv", "@1"))).toEqual([]);
   });
 
-  it("text typed while the paste is in flight survives the delivered clear; the sent text is still recorded", async () => {
-    let resolvePaste: (v: { ok: boolean }) => void = () => undefined;
-    pasteToWindowMock.mockImplementation(
-      () => new Promise<{ ok: boolean }>((res) => { resolvePaste = res; }),
+  it("locks both send controls while a request is in flight", async () => {
+    let resolveSend: (value: { ok: boolean }) => void = () => undefined;
+    sendToWindowMock.mockImplementation(
+      () => new Promise<{ ok: boolean }>((resolve) => { resolveSend = resolve; }),
+    );
+    mountFocused();
+    act(() => fireEvent.change(input(), { target: { value: "hello" } }));
+    act(() => fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true }));
+    expect(screen.getByTestId("compose-strip-send")).toHaveTextContent("Sending…");
+    expect(screen.getByTestId("compose-strip-send")).toBeDisabled();
+    act(() => fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true }));
+    expect(sendToWindowMock).toHaveBeenCalledTimes(1);
+    await act(async () => resolveSend({ ok: true }));
+    expect(screen.getByTestId("compose-strip-send")).toHaveTextContent("Send");
+  });
+
+  it("probe failure shows staged-text recovery and keeps the draft", async () => {
+    sendToWindowMock.mockRejectedValue(
+      new ApiError("probe failed", 409, "probe_failure"),
+    );
+    mountFocused();
+    act(() => fireEvent.change(input(), { target: { value: "hello" } }));
+    await act(async () => {
+      fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true });
+    });
+    expect(addToastMock).toHaveBeenCalledTimes(1);
+    expect(addToastMock.mock.calls[0]?.[0]).toContain("staged in the pane");
+    const action = addToastMock.mock.calls[0]?.[2];
+    expect(action?.label).toBe("Press Enter in pane");
+    expect(input().value).toBe("hello");
+    expect(getComposeSentHistory(entryKey("srv", "@1"))).toEqual([]);
+
+    sendToWindowMock.mockResolvedValue({ ok: true });
+    await act(async () => action?.onSelect());
+    expect(sendToWindowMock).toHaveBeenLastCalledWith("srv", "@1", "", "enter");
+  });
+
+  it("submit-unverified failure warns that Enter was sent and offers no action", async () => {
+    sendToWindowMock.mockRejectedValue(
+      new ApiError("submit unknown", 409, "submit_unverified"),
+    );
+    mountFocused();
+    act(() => fireEvent.change(input(), { target: { value: "hello" } }));
+    await act(async () => {
+      fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true });
+    });
+    expect(addToastMock.mock.calls[0]?.[0]).toContain("Enter was sent");
+    expect(addToastMock.mock.calls[0]?.[2]).toBeUndefined();
+    expect(input().value).toBe("hello");
+    expect(getComposeSentHistory(entryKey("srv", "@1"))).toEqual([]);
+  });
+
+  it("ordinary failure says nothing was delivered and keeps the draft", async () => {
+    sendToWindowMock.mockRejectedValue(new Error("network down"));
+    mountFocused();
+    act(() => fireEvent.change(input(), { target: { value: "hello" } }));
+    await act(async () => {
+      fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true });
+    });
+    expect(addToastMock.mock.calls[0]?.[0]).toContain("nothing was delivered");
+    expect(addToastMock.mock.calls[0]?.[2]).toBeUndefined();
+    expect(input().value).toBe("hello");
+    expect(getComposeSentHistory(entryKey("srv", "@1"))).toEqual([]);
+  });
+
+  it("a changed draft survives asynchronous delivery", async () => {
+    let resolveSend: (value: { ok: boolean }) => void = () => undefined;
+    sendToWindowMock.mockImplementation(
+      () => new Promise<{ ok: boolean }>((resolve) => { resolveSend = resolve; }),
     );
     mountFocused();
     act(() => fireEvent.change(input(), { target: { value: "one\ntwo" } }));
     act(() => fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true }));
-    expect(pasteToWindowMock).toHaveBeenCalledWith("srv", "@1", "one\ntwo", true);
-    // The user keeps typing before the POST resolves.
     act(() => fireEvent.change(input(), { target: { value: "one\ntwo\nthree" } }));
-    await act(async () => {
-      resolvePaste({ ok: true });
-    });
+    await act(async () => resolveSend({ ok: true }));
     expect(input().value).toBe("one\ntwo\nthree");
     expect(getComposeSentHistory(entryKey("srv", "@1"))).toEqual(["one\ntwo"]);
   });
 
-  it("an attachment added while the paste is in flight survives the delivered clear", async () => {
-    let resolvePaste: (v: { ok: boolean }) => void = () => undefined;
-    pasteToWindowMock.mockImplementation(
-      () => new Promise<{ ok: boolean }>((res) => { resolvePaste = res; }),
+  it("an attachment added during delivery survives", async () => {
+    let resolveSend: (value: { ok: boolean }) => void = () => undefined;
+    sendToWindowMock.mockImplementation(
+      () => new Promise<{ ok: boolean }>((resolve) => { resolveSend = resolve; }),
     );
     mountFocused();
     act(() => fireEvent.change(input(), { target: { value: "one\ntwo" } }));
     act(() => fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true }));
-    expect(pasteToWindowMock).toHaveBeenCalledTimes(1);
-    // Same text, but a new attachment lands before the POST resolves.
-    const late = { path: "/tmp/late.png", file: new File(["x"], "late.png") };
-    act(() => setComposeAttachments(entryKey("srv", "@1"), [late]));
-    await act(async () => {
-      resolvePaste({ ok: true });
-    });
+    const attachment = { path: "/tmp/late.png", file: new File(["x"], "late.png") };
+    act(() => setComposeAttachments(entryKey("srv", "@1"), [attachment]));
+    await act(async () => resolveSend({ ok: true }));
     expect(input().value).toBe("one\ntwo");
-    expect(getComposeDraft(entryKey("srv", "@1")).attachments).toEqual([late]);
+    expect(getComposeDraft(entryKey("srv", "@1")).attachments).toEqual([attachment]);
     expect(getComposeSentHistory(entryKey("srv", "@1"))).toEqual(["one\ntwo"]);
   });
 });

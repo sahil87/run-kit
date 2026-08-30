@@ -13,15 +13,14 @@ import { TMUX_SERVER, createSession, killSession, listWindows, stampWebTab } fro
  * makes the target self-evident), or full-width at the shell footer (selection
  * broadcast, the board route, mobile, no-tty layouts). The dock split doubles
  * as the mode signal: in-tile = sends to this terminal, footer =
- * broadcast/fallback. Enter matrix (terminal-faithful): plain Enter = insert
- * line (`text + "\n"`, clears the draft; empty Enter is a full no-op);
- * Cmd/Ctrl+Enter = submit (`text + "\r"`; EMPTY textarea sends a bare `\r` —
- * "press Enter in the pane"); Alt+Enter = chord-only byte-exact raw insert;
- * Shift+Enter is the only local newline. A draft holding a literal newline
- * takes a different transport for submit/insert-line: `POST
- * /api/windows/:id/paste` (tmux bracketed paste into the active pane) instead
- * of raw relay bytes, so embedded newlines survive in agent composers; on the
- * `cat` pane the paste degrades to raw bytes. Drafts are PER TARGET: keyed by the
+ * broadcast/fallback. Enter matrix (terminal-faithful): plain Enter = verified
+ * insert-line (stages the text without Enter and clears the draft; empty Enter
+ * is a full no-op);
+ * Cmd/Ctrl+Enter = submit; EMPTY textarea sends a bare Enter; Alt+Enter =
+ * chord-only byte-exact raw insert; Shift+Enter is the only local newline.
+ * Every terminal-target intent uses `POST /api/windows/:id/send`; the backend
+ * chooses bracketed verified delivery, byte-exact raw delivery, or bare Enter.
+ * Drafts are PER TARGET: keyed by the
  * focused window and persisted (text only) to localStorage, so they stay with
  * their addressee across navigation, dock flips, and survive reloads.
  * Both docks are container-aligned — no measurement, no inline margin/width
@@ -315,14 +314,12 @@ test.describe("Docked compose strip", () => {
   });
 
   /**
-   * Proves: plain Enter in the strip is a send (insert-line): it transmits
-   * `text + "\n"` over the focused pane's relay stream and clears the draft —
-   * on the `cat` pane the `\n` commits the line (terminal-conventional Enter),
-   * so the marker appears twice (tty input echo + `cat`'s output line). An
-   * EMPTY textarea + Enter is a FULL no-op (the keydown is consumed — no local
-   * newline appears, nothing is sent). Cmd/Ctrl+Enter (the only submit chord)
-   * still sends `text + \r`, and Escape blurs the textarea without closing the
-   * strip.
+   * Proves: plain Enter in the strip performs a verified insert-line and
+   * clears the draft without pressing Enter in the pane, so the `cat` pane
+   * shows one tty input echo. An EMPTY textarea + Enter is a FULL no-op (the
+   * keydown is consumed — no local newline appears, nothing is sent).
+   * Cmd/Ctrl+Enter remains the only submit chord, and Escape blurs the
+   * textarea without closing the strip.
    *
    * Steps:
    * 1. Navigate to the `cat` session's window; wait for `.xterm-screen` and for
@@ -332,16 +329,15 @@ test.describe("Docked compose strip", () => {
    *    newline — the keydown was consumed and nothing was sent).
    * 4. Fill the input with a unique marker and press Enter; assert the input
    *    clears to `""` and the strip stays visible.
-   * 5. Poll `capture-pane` until the marker appears at least TWICE — the tty
-   *    input echo plus `cat`'s echoed output line, proving `text + "\n"`
-   *    reached the pane and committed.
+   * 5. Poll `capture-pane` until the marker appears exactly once, proving the
+   *    verified insert-line reached the pane without pressing Enter.
    * 6. Fill a second marker and press `ControlOrMeta+Enter`; assert the input
    *    clears; poll `capture-pane` until it contains the marker (proves
    *    `text + \r` still submits).
    * 7. Focus the input, press Escape; assert the input is no longer focused and
    *    the strip is still visible.
    */
-  test("Enter sends the line (text + newline); empty Enter is a no-op; Cmd/Ctrl+Enter submits; Escape blurs", async ({ page }) => {
+  test("Enter stages the line; empty Enter is a no-op; Cmd/Ctrl+Enter submits; Escape blurs", async ({ page }) => {
     test.setTimeout(60_000);
     const windowId = await resolveWindowId(page, TERM_SESSION);
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}`, {
@@ -366,10 +362,6 @@ test.describe("Docked compose strip", () => {
     await input.press("Enter");
     await expect(input).toHaveValue("");
 
-    // Type a unique marker and press plain Enter — insert line: the strip
-    // transmits `marker\n` and clears. On the `cat` pane the `\n` commits the
-    // line (terminal-conventional Enter), so the marker appears twice: the tty
-    // input echo plus cat's echoed output line.
     const marker = `CSENT${Date.now()}`;
     await input.fill(marker);
     await input.press("Enter");
@@ -380,7 +372,7 @@ test.describe("Docked compose strip", () => {
         () => (tmuxCapture(TERM_SESSION).match(new RegExp(marker, "g")) ?? []).length,
         { timeout: 10_000 },
       )
-      .toBeGreaterThanOrEqual(2);
+      .toBe(1);
 
     // Cmd/Ctrl+Enter — the ONLY submit chord — still sends `text + \r`.
     const chordMarker = `CSSUB${Date.now()}`;
@@ -401,9 +393,8 @@ test.describe("Docked compose strip", () => {
 
   /**
    * Proves: a MULTI-LINE draft submitted with Cmd/Ctrl+Enter reaches the pane
-   * with every line intact — the strip routes text containing a literal
-   * newline through `POST /api/windows/:id/paste` (tmux bracketed paste) rather
-   * than raw relay bytes, and the draft clears on delivery. On the `cat` pane
+   * with every line intact through the unified window-send route, and the
+   * draft clears on delivery. On the `cat` pane
    * (no bracketed-paste mode requested) the paste degrades to raw bytes and
    * each line commits, so both markers echo back.
    *
@@ -416,7 +407,7 @@ test.describe("Docked compose strip", () => {
    * 4. Press `ControlOrMeta+Enter`; assert the input clears to `""`.
    * 5. Poll `capture-pane` until it contains BOTH markers.
    */
-  test("multi-line Cmd/Ctrl+Enter delivers every line (bracketed-paste route)", async ({ page }) => {
+  test("multi-line Cmd/Ctrl+Enter delivers every line", async ({ page }) => {
     test.setTimeout(60_000);
     const windowId = await resolveWindowId(page, TERM_SESSION);
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}`, {
@@ -453,14 +444,56 @@ test.describe("Docked compose strip", () => {
   });
 
   /**
+   * Proves: a SINGLE-line Cmd/Ctrl+Enter submit uses the unified `/send`
+   * request and reaches the active pane without writing through the relay.
+   *
+   * Steps:
+   * 1. Navigate to the `cat` session's window and wait for the terminal stream.
+   * 2. Enable the compose strip and fill it with a unique single-line marker.
+   * 3. Start observing the window's `/send` request, then press
+   *    `ControlOrMeta+Enter` and assert its body carries `mode: "submit"`.
+   * 4. Assert the draft clears and poll `capture-pane` for the marker.
+   */
+  test("single-line Cmd/Ctrl+Enter reaches the pane through send", async ({ page }) => {
+    test.setTimeout(60_000);
+    const windowId = await resolveWindowId(page, TERM_SESSION);
+    await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(page.locator(".xterm-screen")).toBeVisible({ timeout: 15_000 });
+    await expect
+      .poll(() => page.evaluate((w) => Boolean(window.__rkTerminals?.[w]), windowId), {
+        timeout: 15_000,
+      })
+      .toBe(true);
+
+    await page.getByRole("button", { name: "Compose text" }).click();
+    const input = page.getByTestId("compose-strip-input");
+    const marker = `CSSINGLE${Date.now()}`;
+    await input.fill(marker);
+
+    const sendRequest = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return request.method() === "POST" && url.pathname.endsWith(`/api/windows/${encodeURIComponent(windowId)}/send`);
+    });
+    await input.press("ControlOrMeta+Enter");
+    const request = await sendRequest;
+    expect(request.postDataJSON()).toEqual({ text: marker, mode: "submit" });
+    await expect(input).toHaveValue("");
+    await expect
+      .poll(() => tmuxCapture(TERM_SESSION), { timeout: 10_000 })
+      .toContain(marker);
+  });
+
+  /**
    * Proves: Alt+Enter — the chord-only raw insert — delivers the byte-exact
    * text WITHOUT any trailing byte (staged on the pane's input line, appearing
    * exactly once), with the same clear-on-delivery as a submit. An empty
    * Cmd/Ctrl+Enter then sends a bare `\r` ("press Enter in the pane"),
    * committing the staged line — the keyboard-complete stage-then-submit loop.
-   * The Insert button follows Enter (insert-line): `text + "\n"` commits on the
-   * `cat` pane directly. Also asserts `enterkeyhint="send"` (the truthful
-   * keyboard hint — Enter transmits the line).
+   * The Insert button follows Enter (verified insert-line): it stages text
+   * without Enter on the `cat` pane. Also asserts `enterkeyhint="send"` (the
+   * truthful keyboard hint — Enter transmits the line).
    *
    * Steps:
    * 1. Navigate to the `cat` session's window; wait for `.xterm-screen` and the
@@ -477,8 +510,8 @@ test.describe("Docked compose strip", () => {
    *    the raw insert was truly staged and the empty chord truly pressed Enter.
    * 7. Fill a second marker and click the `Insert` button
    *    (`compose-strip-insert`); assert the input clears; poll `capture-pane`
-   *    until that marker appears at least twice (the button's `text + "\n"`
-   *    committed the line on its own).
+   *    until that marker appears exactly once (the button staged it without
+   *    pressing Enter).
    */
   test("Alt+Enter stages raw text; empty Cmd/Ctrl+Enter presses Enter in the pane; Insert button inserts the line (260802-lj98)", async ({ page }) => {
     test.setTimeout(60_000);
@@ -530,8 +563,6 @@ test.describe("Docked compose strip", () => {
       )
       .toBeGreaterThanOrEqual(2);
 
-    // The Insert button follows Enter (insert line): `text + "\n"` commits on
-    // the `cat` pane, so the marker appears twice without any further chord.
     const inserted = `CSINS${Date.now()}`;
     await input.fill(inserted);
     await page.getByTestId("compose-strip-insert").click();
@@ -541,7 +572,7 @@ test.describe("Docked compose strip", () => {
         () => (tmuxCapture(TERM_SESSION).match(new RegExp(inserted, "g")) ?? []).length,
         { timeout: 10_000 },
       )
-      .toBeGreaterThanOrEqual(2); // input echo + cat's echoed output line
+      .toBe(1);
   });
 
   /**

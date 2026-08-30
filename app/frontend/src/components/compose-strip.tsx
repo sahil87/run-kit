@@ -12,7 +12,8 @@ import { useFocusedTerminal, type FocusedTerminal } from "@/contexts/focused-ter
 import { useChromeDispatch } from "@/contexts/chrome-context";
 import { useFileUpload } from "@/hooks/use-file-upload";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
-import { pasteToWindow } from "@/api/client";
+import { ApiError, sendToWindow, type WindowSendMode } from "@/api/client";
+import { useToast } from "@/components/toast";
 import {
   classifyComposeEnter,
   composeSubmitKeycap,
@@ -56,34 +57,29 @@ import {
  * rewrite of a path or a flag is a bug, not a convenience.
  *
  * Target model has two explicit modes. Normal terminal composition sends to the
- * CURRENTLY-focused pane's `wsRef` from `FocusedTerminalContext`, read live at
- * send time — never a target snapshotted at open. Selection broadcast instead
+ * CURRENTLY-focused pane from `FocusedTerminalContext`, read live at send time
+ * and addressed through the window send API — never a target snapshotted at
+ * open. Selection broadcast instead
  * receives a FROZEN composite-key set from the palette, labels it `→ N selected`,
  * and submits the text through its callback. The target is always visible, so a
  * user can tell which mode owns the draft before sending. Broadcast is
- * SUBMIT-ONLY (no shared websocket for insert/raw, no shared worktree for
- * upload), so it takes the chat surface's Enter policy — plain Enter is a local
+ * SUBMIT-ONLY (a cross-server recipient set has no single pane to address for
+ * insert/raw and no shared worktree for upload), so it takes the chat surface's
+ * Enter policy — plain Enter is a local
  * newline, Cmd/Ctrl+Enter is the sole submit, and `enterkeyhint` says so — and
  * a submit that reached NO recipient (0 of N) keeps the composed draft.
  *
  * Interaction (the shared `classifyComposeEnter` classifier with
  * `surface: "strip"` — 260802-lj98, the terminal-faithful Enter matrix): plain
- * Enter = INSERT LINE — `ws.send(text + "\n")` over the relay stream and clear
- * that target's draft, so consecutive Enters stage sentence-per-line in the
- * agent's composer (Claude Code treats a SINGLE trailing raw `"\n"` as
- * newline-insert — that premise does NOT extend to newlines embedded in a
- * multi-line burst, which Ink parses as one key event and collapses; hence
- * MULTI-LINE submit/insert-line POST `/api/windows/{id}/paste` — tmux
- * bracketed paste through the shared inject engine — while single-line text,
- * the bare `\r`, and Alt+Enter raw insert stay on the relay stream),
- * visibly, exactly like typing into the pane itself. The chat send form
+ * Enter = INSERT LINE intent and clear that target's draft, so consecutive
+ * Enters stage sentence-per-line in the agent's composer, visibly, exactly
+ * like typing into the pane itself. The chat send form
  * deliberately diverges (keeps Enter=newline): it cannot show the pane's input
  * box, so Enter-as-insert there would make typed text vanish — the one
  * classifier declares both policies, per surface. Shift+Enter is the ONLY
- * local multi-line compose. Cmd/Ctrl+Enter is the ONLY submit chord, sending
- * `text + "\r"` (same raw-bytes path as BottomBar keystrokes) — and on an
- * EMPTY textarea a bare `"\r"` ("press Enter in the pane"), completing the
- * stage-then-submit loop from the keyboard. Alt+Enter is the chord-only
+ * local multi-line compose. Cmd/Ctrl+Enter is the ONLY submit chord, and on an
+ * EMPTY textarea carries bare-Enter intent, completing the stage-then-submit
+ * loop from the keyboard. Alt+Enter is the chord-only
  * byte-exact raw insert (text WITHOUT any trailing byte — completing a partial
  * line); the Insert button follows Enter (insert line). `enterkeyhint` is
  * `"send"` (Enter transmits — the truthful hint). Enter is guarded against IME
@@ -222,6 +218,7 @@ export function ComposeStrip({
   // affordance with zero per-route work. Closing is lossless — the draft lives
   // in the module store — so no confirmation is needed.
   const { toggleComposeStrip } = useChromeDispatch();
+  const { addToast } = useToast();
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isSelectionTarget = selectionTarget !== null && selectionTarget.keys.length > 0;
@@ -457,15 +454,15 @@ export function ComposeStrip({
     return url;
   }
 
-  const [selectionSending, setSelectionSending] = useState(false);
+  const [sending, setSending] = useState(false);
 
   const send = useCallback(
     (mode: Exclude<ComposeEnterAction, "default">) => {
-      if (draftKey === null) return; // no target — nothing to send or clear
+      if (draftKey === null || sending) return; // no target — nothing to send or clear
       const empty = text.trim() === ""; // whitespace-only counts as empty
-      // Delivered (either transport): clear THIS target's draft + attachments;
-      // the strip stays open and does NOT grab or return focus. (An empty
-      // submit's bare `\r` has nothing meaningful to clear — a whitespace-only
+      // Delivered: clear THIS target's draft + attachments; the strip stays
+      // open and does NOT grab or return focus. (An empty submit carries no
+      // text, so there is nothing meaningful to clear — a whitespace-only
       // draft is simply discarded here.) The module store is the source of
       // truth for the draft; revoke only the cleared draft's preview URLs
       // (other targets' previews recreate lazily when their draft is shown).
@@ -479,22 +476,23 @@ export function ComposeStrip({
         }
         // Record the transmitted text BEFORE clearing so ↑ can recover it —
         // the clear stays unconditional (recovery over verification). Every
-        // mode pushes the pre-trailing-byte text; the store's own whitespace
-        // guard makes an empty submit's bare `\r` push nothing. A guard-blocked
-        // or failed send never reaches here, so nothing is cleared or recorded.
+        // mode pushes the composed text; the store's own whitespace guard makes
+        // an empty submit push nothing. A guard-blocked or failed send never
+        // reaches here, so nothing is cleared or recorded.
         pushComposeSentHistory(draftKey, text);
         clearComposeDraft(draftKey);
         // A send is a walk-ending event: the next ↑ starts fresh from the
         // newest entry (which is the text just sent).
         endRecall();
       };
-      // Selection broadcast is deliberately TEXT-SUBMIT only. There is no
-      // shared terminal websocket for raw/insert modes and no shared worktree
-      // for upload; Cmd/Ctrl+Enter and the Send button both reach this submit
-      // branch. Shift+Enter remains the normal local-newline path.
+      // Selection broadcast is deliberately TEXT-SUBMIT only. A frozen
+      // recipient set spans servers, so raw/insert modes have no single target
+      // to address and upload has no shared worktree; Cmd/Ctrl+Enter and the
+      // Send button both reach this submit branch. Shift+Enter remains the
+      // normal local-newline path.
       if (isSelectionTarget) {
-        if (mode !== "submit" || empty || selectionSending) return;
-        setSelectionSending(true);
+        if (mode !== "submit" || empty) return;
+        setSending(true);
         void selectionTarget
           .onSend(text)
           .then((delivered) => {
@@ -510,72 +508,60 @@ export function ComposeStrip({
           // reports them via one aggregate toast. Preserve the draft if an
           // unexpected outer failure escapes that boundary.
           .catch(() => undefined)
-          .finally(() => setSelectionSending(false));
+          .finally(() => setSending(false));
         return;
       }
-      // Empty policy is per mode: an empty SUBMIT sends a bare `\r` — "press
-      // Enter in the pane", completing the stage-then-submit loop (whitespace
-      // is discarded, never transmitted); empty insert/insert-line never send.
+      // Empty policy is per mode: an empty SUBMIT becomes the `enter` mode —
+      // "press Enter in the pane", completing the stage-then-submit loop
+      // (whitespace is discarded, never transmitted); empty insert/insert-line
+      // never send.
       if (empty && mode !== "submit") return;
-      // MULTI-LINE submit / insert-line ride tmux bracketed paste (POST
-      // /paste) instead of raw relay bytes: a block written to the PTY as one
-      // non-bracketed chunk is parsed by Claude Code as a single key event
-      // whose embedded `\n` collapse. `paste-buffer -p` brackets only when the
-      // pane app requested bracketed paste, so a plain shell still gets raw
-      // bytes. Keyed on a LITERAL newline (never the visual wrap probe).
-      // insert-line pastes without Enter — an N-line paste already stages N
-      // lines, so the trailing `\n` the WS path appends would add an empty
-      // line. Alt+Enter raw insert stays byte-exact on the WS path. A failed
-      // POST keeps the draft (nothing recorded, nothing cleared — the same
-      // contract as the guard-blocked WS send below); success clears exactly
-      // like a delivered WS send.
-      // A whitespace-only draft is EMPTY here too (`!empty`): a newline-only
-      // submit is still the bare `\r` "press Enter in the pane" on the WS path.
-      if (!empty && focused && text.includes("\n") && (mode === "submit" || mode === "insert-line")) {
-        const sentKey = draftKey;
-        const sentFiles = files;
-        void pasteToWindow(focused.server, focused.windowId, text, mode === "submit")
-          .then(() => {
-            // The POST resolves asynchronously (network + tmux round trip);
-            // text typed or attachments added/removed meanwhile are NOT ours
-            // to clear — only a draft unchanged in BOTH takes the full clear.
-            // Either way the sent text is recorded so ↑ can recover it.
-            const live = getComposeDraft(sentKey);
-            const filesUnchanged =
-              live.attachments.length === sentFiles.length &&
-              live.attachments.every((a, i) => a === sentFiles[i]);
-            if (live.text === text && filesUnchanged) {
-              finishDeliveredSend();
-              return;
-            }
-            pushComposeSentHistory(sentKey, text);
-            endRecall();
-          })
-          .catch((err: unknown) => {
-            console.warn("compose paste failed; draft kept", err);
-          });
-        return;
-      }
-      const ws = focused?.wsRef.current;
-      // Guard-blocked send: the focused stream is not open. Early-return WITHOUT
-      // clearing — the draft is preserved so nothing is silently lost against a
-      // closed pane. Clearing happens only after a delivered send below.
-      if (ws?.readyState !== WebSocket.OPEN) return;
-      // Payload per mode: submit appends `\r` — the `\r` IS the Enter press
-      // (same raw-bytes relay path as BottomBar keystrokes); insert-line
-      // appends `\n` — Claude Code treats it as newline-insert, staging the
-      // line in the agent's composer; insert sends the text byte-exact (no
-      // trailing byte — completing a partial line without any Enter).
-      // Caveat (documented, not guarded — terminal-conventional Enter): the
-      // transmitted `\n` is raw bytes, so a plain shell pane EXECUTES the line
-      // (exactly what Enter does in a terminal), and an embedded `\n` in an
-      // insert send executes per line there too; insert-line staging is only
-      // visible-as-staged on agent composers (Claude Code), and raw insert is
-      // only truly Enter-free for single-line text on non-TUI panes.
-      if (mode === "submit") ws.send(empty ? "\r" : text + "\r");
-      else if (mode === "insert-line") ws.send(text + "\n");
-      else ws.send(text);
-      finishDeliveredSend();
+      if (!focused) return;
+
+      const sendMode: WindowSendMode =
+        mode === "submit" ? (empty ? "enter" : "submit") : mode === "insert" ? "raw" : mode;
+      const sentKey = draftKey;
+      const sentFiles = files;
+      setSending(true);
+      void sendToWindow(focused.server, focused.windowId, empty ? "" : text, sendMode)
+        .then(() => {
+          const live = getComposeDraft(sentKey);
+          const filesUnchanged =
+            live.attachments.length === sentFiles.length &&
+            live.attachments.every((attachment, index) => attachment === sentFiles[index]);
+          if (live.text === text && filesUnchanged) {
+            finishDeliveredSend();
+            return;
+          }
+          pushComposeSentHistory(sentKey, text);
+          endRecall();
+        })
+        .catch((err: unknown) => {
+          if (err instanceof ApiError && err.code === "probe_failure") {
+            addToast(
+              "Text is staged in the pane but unsent. Pressing Send again would duplicate it.",
+              "error",
+              {
+                label: "Press Enter in pane",
+                onSelect: () => {
+                  void sendToWindow(focused.server, focused.windowId, "", "enter").catch(() => {
+                    addToast("Enter could not be sent; nothing was delivered.", "error");
+                  });
+                },
+              },
+            );
+            return;
+          }
+          if (err instanceof ApiError && err.code === "submit_unverified") {
+            addToast(
+              "Enter was sent, but the message may or may not have landed. Check the pane before resending.",
+              "error",
+            );
+            return;
+          }
+          addToast("Send failed; nothing was delivered. Retrying is safe.", "error");
+        })
+        .finally(() => setSending(false));
     },
     [
       draftKey,
@@ -584,8 +570,9 @@ export function ComposeStrip({
       focused,
       endRecall,
       isSelectionTarget,
-      selectionSending,
+      sending,
       selectionTarget,
+      addToast,
     ],
   );
 
@@ -889,10 +876,10 @@ export function ComposeStrip({
   // Selection-broadcast targets keep their own rule (text required, Insert
   // always disabled there).
   const composerEmpty = text.trim() === "";
-  const canInsert = !isSelectionTarget && hasTarget && !composerEmpty;
+  const canInsert = !isSelectionTarget && hasTarget && !composerEmpty && !sending;
   const canSubmit = isSelectionTarget
-    ? !composerEmpty && !selectionSending
-    : hasTarget;
+    ? !composerEmpty && !sending
+    : hasTarget && !sending;
 
   // Shared element descriptors for the single card/compact structure below —
   // each control's props live in exactly one place. Every control is a KEYED
@@ -1074,7 +1061,7 @@ export function ComposeStrip({
       <span aria-hidden="true">{"⏎"}</span>
     </button>
   );
-  // Insert follows Enter (insert line — text + "\n", clears the draft); the
+  // Insert follows Enter (verified insert-line, clears the draft); the
   // byte-exact raw insert is chord-only now, kept discoverable in the tip
   // label (Alt+Enter). Fine pointers only, card form only — hidden in the
   // compact row, where it would be disabled anyway while empty.
@@ -1115,7 +1102,7 @@ export function ComposeStrip({
             : "border-accent bg-accent/20 text-accent hover:bg-accent/30"
         }`}
       >
-        {selectionSending ? "Sending…" : "Send"}
+        {sending ? "Sending…" : "Send"}
       </button>
     </Tip>
   );

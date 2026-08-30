@@ -1,0 +1,14 @@
+{"cmd":"fab-fff","event":"command","ts":"2026-08-30T18:28:23Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-30T18:29:34Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-30T18:39:55Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-30T19:02:09Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-30T19:04:07Z"}
+{"event":"review","result":"failed","ts":"2026-08-30T19:14:57Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-30T19:14:57Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-30T19:16:34Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-30T19:21:56Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-30T19:23:34Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-30T19:33:43Z"}
+{"event":"review","result":"passed","ts":"2026-08-30T19:33:43Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-30T19:35:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-30T19:43:33Z"}

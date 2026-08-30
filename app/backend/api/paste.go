@@ -78,6 +78,11 @@ func (s *Server) handleWindowPaste(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, probeErr.Error())
 			return
 		}
+		var submitErr inject.SubmitUnverified
+		if errors.As(err, &submitErr) {
+			writeError(w, http.StatusConflict, submitErr.Error())
+			return
+		}
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

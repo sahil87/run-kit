@@ -23,15 +23,16 @@ type muxFake struct {
 	paneExists  map[string]bool
 	windowPanes map[string]string // window target → resolved pane
 
-	engineCalls  []muxEngineCall
-	engineErr    error
-	keysSent     [][]string
-	awaitRuns    []awaitParams
-	awaitReports []string // consumed one per awaitObserveFn call
-	awaitErrs    []error  // per-call errors parallel to awaitReports (nil = awaitErr rides the last)
-	awaitErr     error
-	stdin        string
-	bufferName   string
+	engineCalls     []muxEngineCall
+	engineErr       error
+	engineRecovered bool
+	keysSent        [][]string
+	awaitRuns       []awaitParams
+	awaitReports    []string // consumed one per awaitObserveFn call
+	awaitErrs       []error  // per-call errors parallel to awaitReports (nil = awaitErr rides the last)
+	awaitErr        error
+	stdin           string
+	bufferName      string
 
 	captureContent map[string]string // pane → captured text (default: generic content)
 	captureErr     error
@@ -41,7 +42,7 @@ type muxFake struct {
 	killCalls      []string
 	killErr        error
 	guardedServers map[string]bool // server → protected (nil = none)
-	panePIDs       map[string]int // pane → shell pid (default: 1234)
+	panePIDs       map[string]int  // pane → shell pid (default: 1234)
 	panePIDErr     error
 	discoverTree   []processNode
 	discoverErr    error
@@ -121,8 +122,13 @@ func installMuxFakes(t *testing.T, f *muxFake) {
 		}
 		return "", errors.New("can't find window")
 	}
-	muxSendEngineSendFn = func(_ context.Context, engine *inject.Engine, _ inject.Tmux, server, paneID, text string, submit bool) error {
+	muxSendEngineSendFn = func(_ context.Context, engine *inject.Engine, adapter inject.Tmux, server, paneID, text string, submit bool) error {
 		f.engineCalls = append(f.engineCalls, muxEngineCall{server, paneID, text, submit, engine.Buffer()})
+		if f.engineRecovered && f.engineErr == nil {
+			if cliAdapter, ok := adapter.(cliInjectTmux); ok && cliAdapter.recoveryAttempted != nil {
+				*cliAdapter.recoveryAttempted = true
+			}
+		}
 		return f.engineErr
 	}
 	muxSendKeysFn = func(_ context.Context, paneID, _ string, keys ...string) error {
@@ -509,6 +515,56 @@ func TestMuxSendProbeFailure(t *testing.T) {
 	if !strings.Contains(stderr, "Enter withheld") || !strings.Contains(stderr, "before retrying") {
 		t.Errorf("stderr = %q, want the staged-text warning", stderr)
 	}
+}
+
+func TestMuxSendSubmitUnverifiedReportsAndSkipsAwait(t *testing.T) {
+	f := &muxFake{engineErr: inject.SubmitUnverified{}}
+	installMuxFakes(t, f)
+
+	stdout, stderr, err := runMuxCmd(t, "send", "%5", "hi", "--await")
+	if err == nil || exitCode(err) != 1 {
+		t.Fatalf("err = %v, want exit 1", err)
+	}
+	if stdout != "unverified %5\n" {
+		t.Fatalf("stdout = %q, want unverified report", stdout)
+	}
+	if !strings.Contains(stderr, "may or may not have been submitted") {
+		t.Fatalf("stderr = %q, want the ambiguous-delivery guidance", stderr)
+	}
+	if len(f.awaitRuns) != 0 {
+		t.Fatalf("await ran after an unverified submit: %v", f.awaitRuns)
+	}
+}
+
+func TestMuxSendRetryStaysDelivered(t *testing.T) {
+	t.Run("diagnostic", func(t *testing.T) {
+		f := &muxFake{engineRecovered: true}
+		installMuxFakes(t, f)
+
+		stdout, stderr, err := runMuxCmd(t, "send", "%5", "hi")
+		if err != nil {
+			t.Fatalf("err = %v", err)
+		}
+		if stdout != "delivered %5\n" {
+			t.Fatalf("stdout = %q, want delivered report", stdout)
+		}
+		if !strings.Contains(stderr, "delivery retried") {
+			t.Fatalf("stderr = %q, want recovery diagnostic", stderr)
+		}
+	})
+
+	t.Run("quiet", func(t *testing.T) {
+		f := &muxFake{engineRecovered: true}
+		installMuxFakes(t, f)
+
+		stdout, stderr, err := runMuxCmd(t, "send", "%5", "hi", "--quiet")
+		if err != nil {
+			t.Fatalf("err = %v", err)
+		}
+		if stdout != "delivered %5\n" || stderr != "" {
+			t.Fatalf("stdout = %q stderr = %q, want delivered with quiet chatter", stdout, stderr)
+		}
+	})
 }
 
 // TestMuxSendKeyArm: --key sends raw tmux key names post-gate — no paste, no

@@ -125,10 +125,9 @@ func (s *Server) writeChatReadError(w http.ResponseWriter, err error) {
 // request.
 //
 // chatSendTotalBudget: the route threads ONE shared context deadline through
-// the entire injection sequence (all 6 subprocesses plus the settle/retry
-// sleeps share this one deadline), so the route stays bounded well under the 5s
-// route-blocking rule (code-review.md) even on a slow tmux. Comfortably covers
-// the 240ms of probe sleeps with headroom for the tmux exec latencies.
+// the entire injection sequence (all subprocesses plus probe and submit
+// backoffs share this one deadline), so the route stays bounded under the 5s
+// route-blocking rule even when verified recovery takes its full bounded path.
 const chatSendTotalBudgetDefault = 4 * time.Second
 
 // chatSendTotalBudget is the shared injection deadline (see
@@ -153,6 +152,9 @@ func (a chatSendTmux) PasteBuffer(ctx context.Context, _, paneID, server string)
 }
 func (a chatSendTmux) SendEnter(ctx context.Context, paneID, server string) error {
 	return a.ops.SendEnterToPane(ctx, paneID, server)
+}
+func (a chatSendTmux) SendKeys(ctx context.Context, paneID, server string, keys ...string) error {
+	return a.ops.SendKeysToPane(ctx, paneID, server, keys...)
 }
 
 // chatSendEngine is the daemon's engine instance: bound to the shared
@@ -244,6 +246,11 @@ func (s *Server) handleChatSend(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, probeErr.Error())
 			return
 		}
+		var submitErr inject.SubmitUnverified
+		if errors.As(err, &submitErr) {
+			writeError(w, http.StatusConflict, submitErr.Error())
+			return
+		}
 		// A tmux subprocess failure (set-buffer / paste-buffer / capture / Enter).
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -255,10 +262,10 @@ func (s *Server) handleChatSend(w http.ResponseWriter, r *http.Request) {
 // injectIntoPane is the daemon's ONE adapter onto the shared injection
 // engine (internal/inject), serving /chat/send, /paste, and the operator
 // request path — the engine runs baseline capture → set-buffer →
-// paste-buffer (-d -p, bracketed) → NOVELTY echo probe → send-keys Enter (only
-// on probe success AND submit), serialized per (server, paneID) with the
-// set→paste critical section additionally serialized across panes. See
-// inject.Engine.Send for the full sequence contract.
+// paste-buffer (-d -p, bracketed) → NOVELTY echo probe → send-keys Enter →
+// whole-frame submit verification and evidence-gated recovery, serialized per
+// (server, paneID) with the set→paste critical section additionally serialized
+// across panes. See inject.Engine.Send for the full sequence contract.
 //
 // A tmux failure is returned verbatim (→ 500); a probe failure is returned as
 // inject.ProbeFailure (→ 409, Enter withheld).

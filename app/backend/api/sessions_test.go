@@ -265,9 +265,11 @@ type mockTmuxOps struct {
 	pasteChatPaneIDs     []string // every paste target pane, in order (cross-pane concurrency assertions)
 	sendEnterPaneID      string
 	sendEnterCalled      bool
+	sendPaneKeys         [][]string
 	setChatBufferErr     error
 	pasteChatBufferErr   error
 	sendEnterErr         error
+	sendPaneKeysErr      error
 	// capturePaneResults is consumed one entry per CapturePane call (baseline +
 	// probe retries), falling back to capturePaneResult once exhausted.
 	// capturePaneErr forces a capture failure.
@@ -370,6 +372,13 @@ func (m *mockTmuxOps) SendKeys(windowID, keys, server string) error {
 	m.sendKeysWindowID = windowID
 	m.sendKeysKeys = keys
 	return m.err
+}
+func (m *mockTmuxOps) SendKeysToPane(ctx context.Context, paneID, server string, keys ...string) error {
+	m.chatMu.Lock()
+	defer m.chatMu.Unlock()
+	m.chatCalls = append(m.chatCalls, "send-keys "+strings.Join(keys, " "))
+	m.sendPaneKeys = append(m.sendPaneKeys, append([]string{paneID}, keys...))
+	return m.sendPaneKeysErr
 }
 func (m *mockTmuxOps) ListWindows(ctx context.Context, session, server string) ([]tmux.WindowInfo, error) {
 	if m.listWindowsBySession != nil {

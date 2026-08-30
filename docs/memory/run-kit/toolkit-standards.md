@@ -335,8 +335,11 @@ surface measured against the same checks
   help-dump test asserts the subtree dynamically (exactly `send` + `await`,
   nothing hidden, nothing platform-gated).
 - **Principle 9: the report line is the only stdout line — data.** `send`
-  prints exactly one of `delivered`/`staged`/`sent %N` (or the await report
-  word under `--await`); `await` prints the one-word report (a reached
+  prints exactly one of `delivered`/`unverified`/`staged`/`sent %N` (or the
+  await report word under `--await`); `delivered` means no non-submission was
+  detected and makes no submit-confirmation claim, while `unverified` means the
+  engine detected non-submission and bounded recovery did not fix it. `await`
+  prints the one-word report (a reached
   `--until` state / `file` / `running` / `gone`). Both route through the shared
   `outputSink`: the report is `Dataf` (survives `--quiet`), the gate's
   unknown-state warning and other diagnostics are chatter on stderr.
@@ -344,8 +347,9 @@ surface measured against the same checks
   `rk notify` contract), not a Principle 9 violation.
 - **Exit-code convention (P4)** — 0 success (including `running` on timeout —
   the bound belongs to the observer, never the pane), 1 operational (gate
-  refusal, probe failure, missing target, tmux failure, `gone`), 2 usage (bad
-  target form, payload XOR violations, `--await --no-enter`, and cobra
+  refusal, probe failure, submit-unverified outcome, missing target, tmux
+  failure, `gone`), 2 usage (bad target form, payload XOR violations,
+  `--await --no-enter`, and cobra
   flag-group violations such as `--answer --force` — classified via
   `exit_code.go`'s `flagGroupPrefix`, since cobra's ValidateFlagGroups errors
   bypass root's `FlagErrorFunc`).

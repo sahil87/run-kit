@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The chat subsystem backend — rk-owned neutral event schema (Event/Pending/turn), Adapter registry + TranscriptLocator path export, Claude JSONL adapter (UUID-glob, tolerant parse, TailFrom offset-tail). Read: GET .../chat backfill + a kind:chat sub on /ws/state. Send: POST .../chat/send — sanitize, named-buffer paste, novelty echo probe, probe-gated Enter. Read derives from disk; send types in. The ?view=chat lens frontend lives in ui/chat-view.md."
+description: "The chat subsystem backend — neutral event schema, adapter registry, transcript backfill/tail, and pane-typed send. Send uses sanitized named-buffer paste, novelty echo probing, probe-gated Enter, asymmetric post-Enter observation, and evidence-gated recovery; probe and submit-unverified failures are distinct 409s. The chat lens frontend lives in ui/chat-view.md."
 ---
 # Chat Subsystem
 
@@ -385,21 +385,22 @@ The mutating half of the subsystem: a single `POST` endpoint that injects a type
 message into the window's resolved agent pane. It reuses the read side's
 window-keyed / server-resolved contract (the client supplies only a windowID + the
 text; the pane is re-resolved server-side per request) and the same
-`writeError`/status-mapping vocabulary. Everything lives in `api/chat.go`
-(handler + probe/lock orchestration) over new pane-targeted `internal/tmux`
-primitives; the read endpoints, stream, and schema are untouched. The
+`writeError`/status-mapping vocabulary. The handler lives in `api/chat.go` over
+pane-targeted `internal/tmux` primitives. The
 `injectIntoPane` engine seam (`api/chat.go` — the daemon's ONE adapter over
-`chatSendEngine` + `chatSendTmux`) has three in-process consumers. The
-operator-request handler (`api/operator.go`) delivers its rendered template
-prompt through the SAME engine (`submit:true`) into the OPERATOR window's
-resolved pane — same per-(server,paneID) lock, shared deadline, sanitize, and
-novelty probe — after its own single-`FetchSessions` resolution and busy gate
+`chatSendEngine` + `chatSendTmux`) serves four daemon routes: chat send, the two
+operator-request routes, and compose-strip paste. The operator-request handlers
+(`api/operator.go`) deliver rendered prompts through the SAME engine
+(`submit:true`) into the OPERATOR window's resolved pane — same
+per-(server,paneID) lock, shared deadline, sanitize, novelty probe, observation,
+and recovery — after their own session resolution and busy gate
 ([operator-actuation](/run-kit/operator-actuation.md); that endpoint's busy
 policy is REJECT, unlike this path's Allow + probe below) (260822-fih1). The
 compose strip's `POST /api/windows/{windowId}/paste` (`api/paste.go`) pastes a
 multi-line draft into the window's **active** pane — no chat session required,
 active-pane (not chat-pane) resolution, otherwise the identical
-sanitize → paste → probe → gated-Enter contract and 409 mapping
+sanitize → paste → probe → gated-Enter → observation/recovery contract and 409
+mapping
 ([api-and-sockets](/run-kit/api-and-sockets.md);
 [ui/compose-and-bottom-bar](/run-kit/ui/compose-and-bottom-bar.md)) (260829-iyix).
 
@@ -412,10 +413,11 @@ Multi-Select): one `sendChatMessage(server, windowId, text)` per selected window
 `?server=` (a selection may span tmux servers) and the default `submit:true`. It
 is a client-side fan-out only — there is **no batch endpoint and no batch body**,
 and every per-request semantic is untouched: the whole-sequence lock, the shared
-injection deadline, the sanitize pass, and the novelty probe all run per window.
-A probe failure surfaces as that window's structured `409` (text pasted, Enter
-withheld, recoverable — § 409 on probe failure), which the batch records as one
-recipient's failure and steps past rather than aborting the remaining sends. The
+injection deadline, sanitize pass, novelty probe, post-Enter observation, and
+evidence-gated recovery all run per window. A probe failure or submit-unverified
+outcome surfaces as that window's structured `409` (§ Injection 409 outcomes),
+which the batch records as one recipient's failure and steps past rather than
+aborting the remaining sends. The
 broadcast's own `200` count is what the frontend calls **delivered**, and it
 drives whether the composed prompt is cleared or retained for a retry.
 (260808-ebgs)
@@ -517,15 +519,24 @@ every subprocess an argv slice (Constitution I) targeting the `paneID`:
 4. **Probe** (§ Novelty echo probe) — only on success:
 5. `send-keys -t <paneID> Enter` — the literal `Enter` key, sent ONLY after a
    successful probe **AND** when `submit` is true.
+6. **Post-Enter observation** — sleep then capture over `SubmitBackoff`
+   (`40/80/160/320/640ms`), exiting on the first normalized frame change. A
+   changed frame makes no claim about submission and returns success. Only a
+   frame unchanged through every step with the established paste echo still
+   present is evidence of non-submission.
+7. **Evidence-gated recovery** — only on that non-submission verdict, send
+   pane-scoped `C-u` up to `ClearAttempts = 4` until the normalized frame equals
+   the pre-paste baseline, then re-paste, re-probe, send Enter, and observe over
+   the first `SubmitRetryBackoffSteps = 3` ladder steps. `SubmitRetries = 1`.
 
 `injectChatMessage(ctx, server, paneID, text, submit bool)` is the thin adapter
 that forwards the resolved boolean to `inject.Engine.Send`. **`submit:false`
-(insert-without-submit) skips ONLY step 5** — the baseline
+(insert-without-submit) skips steps 5–7** — the baseline
 capture, handler-boundary sanitize, named-buffer set/paste, novelty echo probe (a
 probe failure still returns the structured `409`, Enter irrelevant but the text left
 recoverable in the composer), the engine's per-`(server,paneID)` whole-sequence lock
-and set→paste critical-section mutex, and the handler's single `chatSendTotalBudget`
-deadline are all unchanged.
+and set→paste critical-section mutex, and the handler's single
+`chatSendTotalBudget` deadline still apply.
 The insert-only path still requires a passing probe (the paste must have echoed); it
 just leaves the text staged in the pane's input box without pressing Enter, so a
 human — or a later submit — completes it.
@@ -536,13 +547,15 @@ handler-sanitized string (§ Send-text sanitization) — control bytes stripped,
 CR/CRLF normalized to `\n`; from that point delivery to tmux is verbatim. Newlines,
 tmux key names (`Enter`, `C-c`), and leading dashes in the sanitized text are all
 delivered literally — never interpreted as keys/flags nor submitted per-line.
+There SHALL be NO pre-Enter quiescence gate on either the initial or recovery
+path.
 
 #### Scenario: Key-name / leading-dash text is delivered literally
 - **GIVEN** a resolved pane and text `"--force is broken\necho Enter"`
 - **WHEN** injection runs
 - **THEN** the order is baseline → set-buffer (`--`-terminated) → paste-buffer →
-  probe → send-keys, the text is one literal argv element (never parsed as
-  flags/keys), and Enter is a separate step gated on the probe.
+  probe → send-keys → observation, the text is one literal argv element (never
+  parsed as flags/keys), and Enter is a separate step gated on the probe.
 - **AND GIVEN** `submit:false` with a passing probe, **THEN** set-buffer/paste/probe
   all run against the resolved pane and `SendEnterToPane` is NEVER called (response
   still `200 {"ok":true}`); **AND GIVEN** `submit:false` with a failing probe,
@@ -583,7 +596,32 @@ dialog. A `CapturePane` subprocess error is distinct (→ `500`, not a clean mis
   either form) newly appears within the retry budget, **THEN** Enter is sent and the
   response is `200 {"ok":true}`.
 
-### Requirement: 409 on probe failure — Enter withheld, text left recoverable
+### Requirement: Post-Enter observation detects non-submission only
+After each Enter the engine SHALL compare `stripForProbe`-normalized whole-pane
+captures with the echo probe's winning capture. The first changed frame SHALL
+return success immediately without claiming that submission occurred. Only a
+frame unchanged through every `SubmitBackoff` step with the paste echo still
+present under `CountOccurrences(capture, needle, collapsible)` SHALL authorize
+recovery. Any unchanged frame without that echo SHALL return
+`inject.SubmitUnverified` without recovery. Context cancellation and capture
+errors SHALL propagate as their own errors.
+
+Recovery SHALL re-paste only after a post-`C-u` capture is normalized-equal to
+the pre-paste baseline. It SHALL make at most `SubmitRetries = 1` retry, use the
+first three observation steps after that retry, and return
+`inject.SubmitUnverified` when the clear cannot be established or the retry
+still has no changed frame. A frame change caused by a spinner, streaming output,
+a status line, or a submit follows the same no-claim success branch.
+
+#### Scenario: Changed frames never authorize recovery
+- **GIVEN** a pane whose frame changes at any observation step
+- **WHEN** the engine observes it after Enter
+- **THEN** the request succeeds with no `C-u` or re-paste and with no assertion
+  that submission was confirmed.
+- **AND GIVEN** a frame byte-identical through every step with the paste echo
+  still present, **THEN** recovery runs only after a baseline-equal clear.
+
+### Requirement: Injection 409 outcomes remain distinguishable
 On probe failure the handler SHALL send no Enter and return `409` with a structured
 message that names the recoverable state and steers away from a duplicating retry:
 `"agent input not ready — message pasted but not echoed; Enter withheld. The text
@@ -594,17 +632,28 @@ surfaced, never silent. The retry hint matters because the paste (not the Enter)
 already landed, so an identical resend would paste a SECOND copy and submit doubled
 text.
 
+On `inject.SubmitUnverified` the handler SHALL return `409` with the sentinel's
+distinct submit-unconfirmed message. Enter has been sent in this case, so the
+message SHALL state that the payload may or may not have landed and direct the
+caller to capture the pane before resending. `ProbeFailure` and
+`SubmitUnverified` SHALL remain distinct error types because they give opposite
+resend guidance.
+
 #### Scenario: Probe failure leaves the paste visible and withholds Enter
 - **GIVEN** a paste whose echo cannot be verified across all retries
 - **WHEN** the probe exhausts
 - **THEN** no Enter is sent, the response is `409` with the retry-hinted message,
   and the pasted text stays in the agent's composer.
+- **AND GIVEN** post-Enter non-submission whose bounded recovery does not produce
+  a changed frame, **THEN** the response is `409` with the submit-unconfirmed
+  message.
 
 ### Requirement: Per-(server,paneID) whole-sequence lock + shared-buffer mutex
 Concurrent sends SHALL be serialized so no two cross texts or double-submit. The
 `internal/inject` engine holds a **per-(server,paneID) mutex** (a guarded, never-evicted
 `map[string]*sync.Mutex`, keyed `server\x00paneID`) across the WHOLE sequence
-(baseline → set → paste → probe → Enter/409) so a second send to the SAME pane only
+(baseline → set → paste → probe → Enter → observation/recovery → return) so a
+second send to the SAME pane only
 begins after the first fully finishes — closing the same-pane double-paste window
 (two sends racing one composer both pasting before either probes → merged
 submission). DISTINCT panes stay fully concurrent (each takes its own lock). Because
@@ -624,14 +673,14 @@ A-set / B-set / A-paste (pane A would receive B's text; B's own `-d` paste would
   window serializes across panes).
 
 ### Requirement: One shared injection deadline (route stays under 5s)
-The whole injection sequence — up to 6 tmux subprocesses plus the settle/retry
-sleeps — SHALL run under ONE shared context deadline (`chatSendTotalBudget`,
+The whole injection sequence — every tmux subprocess plus the probe and submit
+backoffs — SHALL run under ONE shared context deadline (`chatSendTotalBudget`,
 default `4s`, a package var only so tests can shrink it), derived from the request
 context (a client disconnect also cancels the subprocesses). The individual tmux
 primitives are the caller's-context `*Ctx` variants that do NOT each impose their
-own 10s timeout — so the route can never block for the old worst case of 6 × 10s,
-staying comfortably under the code-review 5s route-blocking rule (probe sleeps
-alone are ≤ 240ms).
+own timeout, keeping the route under the code-review 5s route-blocking rule. The
+full observation ladder exits early on a changed frame; recovery uses only its
+first three steps. `muxCmdTimeout` remains 5s on the CLI path.
 
 #### Scenario: A stalled tmux cannot block the route past the budget
 - **GIVEN** a tmux subprocess that stalls
@@ -645,16 +694,16 @@ alone are ≤ 240ms).
 `ChatSendBuffer` name constant — see [tmux-sessions](/run-kit/tmux-sessions.md)),
 and `api/router.go`'s `TmuxOps` interface (with `prodTmuxOps` + the test
 `mockTmuxOps`) SHALL surface them as `SetChatSendBuffer` / `PasteChatSendBuffer` /
-`SendEnterToPane` / `CapturePane` so the handler is fully testable against the fake
-— the needle-derivation + settle/retry orchestration lives in `api/chat.go`, the
-individual tmux calls are recordable interface methods. `SendKeys` (the
-window-targeted `/keys` helper) is untouched.
+`SendEnterToPane` / `SendKeysToPane` / `CapturePane` so the handler is fully
+testable against the fake. `SendKeysToPane` is context-bound and sends recovery's
+`C-u` to the resolved pane. `SendKeys` remains the separate window-targeted
+`/keys` helper.
 
 #### Scenario: The status matrix is exercisable against a fake tmux
 - **GIVEN** the handler driven by `mockTmuxOps`
 - **WHEN** the test injects capture results / errors per primitive
 - **THEN** the full 400/404/409/500/200 matrix, injection order, and
-  no-Enter-on-probe-failure are exercisable with no live claude pane.
+  no-Enter-on-probe-failure are exercisable with no live agent pane.
 
 ## Design Decisions
 
@@ -837,6 +886,57 @@ reject-while-busy (superseded — Claude Code queues typed input natively, and t
 probe already guards the unsafe cases).
 *Introduced by*: `260714-jdyg-chat-send`
 
+### Changed frames make no submission claim
+**Decision**: Post-Enter observation is asymmetric. A normalized frame change at
+any backoff step returns success without interpreting the cause; only a frame
+unchanged through the full ladder can support a non-submission verdict. Neither
+the initial Enter nor a recovery Enter has a pre-Enter quiescence gate.
+**Why**: A repaint can be a submit, spinner, streaming transcript, or ticking
+status line. The daemon routes deliberately accept mid-turn panes with no
+`agentState` gate, so treating change as confirmation or failure would make the
+shared engine unsound for routine traffic. The unchanged full-ladder case is the
+only observation that identifies the printed-prompt trap when the established
+paste echo also remains present.
+**Rejected**: A sampled quiescence gate (a slow spinner can outlive the sample,
+while a ladder-length gate adds about 1.2s to every send); treating any change as
+confirmed submission; treating a churning pane as `SubmitUnverified`.
+*Introduced by*: 260830-nyvm-mux-send-submit-verification
+
+### Composer clear requires equality with the pre-paste baseline
+**Decision**: Recovery permits a re-paste only when `stripForProbe` makes the
+post-`C-u` capture equal to the pre-paste baseline capture.
+**Why**: Equality identifies the complete pane state and covers every staged line.
+It also fails closed when a submitted message appears in the transcript: that
+frame cannot equal the baseline, so recovery cannot re-send it.
+**Rejected**: Needle occurrence thresholds (a reflow can remove a stale occurrence
+while the live echo remains); count-drain logic (the needle is only the last
+non-empty line, so earlier lines can remain staged after its count bottoms out).
+*Introduced by*: 260830-nyvm-mux-send-submit-verification
+
+### Recovery requires positive non-submission evidence
+**Decision**: Recovery runs only when every observation frame is unchanged and
+the paste echo remains present. An unchanged frame without the echo returns
+`SubmitUnverified` without modifying the pane; a changed frame returns success
+with no claim and no recovery.
+**Why**: `C-u` can remove staged input but cannot undo a submitted message.
+Positive evidence plus a baseline-equal clear makes a duplicate re-paste
+structurally unavailable.
+**Rejected**: An unconditional bounded retry for any unverified Enter (a false
+negative posts the message twice even with a retry limit).
+*Introduced by*: 260830-nyvm-mux-send-submit-verification
+
+### Non-submission evidence reuses the echo probe predicate
+**Decision**: The unchanged-frame evidence arm checks the echo with
+`CountOccurrences(capture, needle, collapsible)`, including the paste-collapse
+chip term; the changed-frame no-claim arm remains pure whole-frame comparison.
+**Why**: The evidence question must use the same predicate that established the
+echo. A chip-rendering TUI replaces a collapsed paste's raw text with a chip, while
+the chip term matches nothing on TUIs that do not render one.
+**Rejected**: Raw-needle-only evidence (classifies collapsed long or multi-line
+pastes as echo-absent and withholds recovery); using chip recognition in the
+changed-frame comparison (adds provider shape where none is needed).
+*Introduced by*: 260830-nyvm-mux-send-submit-verification
+
 ### Collapse-chip gate at 200 runes, a conservative lower bound
 **Decision**: Count the paste-collapse chip whenever the paste is *collapsible* —
 multiline OR a single line of at least `inject.CollapseMinRunes = 200` runes — and
@@ -863,12 +963,13 @@ short interactive sends that never collapse).
 
 ### Allow + probe busy policy — no server-side gate, no queue
 **Decision**: There is NO `agentState` gate on send and NO server-side queue. A busy
-(`active`) agent receives the paste into its TUI input box; the probe is the sole
-guard. The UI shows a non-blocking "will be queued" hint while `active` but keeps
-the input enabled.
-**Why**: User-decided at intake (over the original plan's reject-while-busy
-recommendation) — Claude Code's TUI natively queues messages typed while the agent
-works (steering), and probe-before-Enter already blocks the genuinely unsafe cases.
+(`active`) agent receives the paste into its TUI input box; the novelty probe is
+the sole pre-Enter guard, and post-Enter observation makes no claim when the busy
+pane repaints. The UI shows a non-blocking "will be queued" hint while `active`
+but keeps the input enabled.
+**Why**: Claude Code's TUI natively queues messages typed while the agent works
+(steering). Probe-before-Enter blocks unsafe blind submission, while the
+asymmetric observation contract lets routine mid-turn repainting return success.
 A server-side queue is forbidden by Constitution II (no persistent state store).
 **Rejected**: reject-while-busy (unnecessary given native steering); a server-side
 send queue (Constitution II).
@@ -879,8 +980,9 @@ send queue (Constitution II).
 never-evicted mutex map, and nest a small package-level mutex around just the
 set → paste critical section (which uses the one server-wide named buffer).
 **Why**: Two sends to the SAME pane racing one composer could each paste before
-either probes+Enters, merging into one doubled submission — the per-pane
-whole-sequence lock closes that window while keeping DISTINCT panes concurrent. The
+either completes probing, Enter, observation, and recovery, merging into one
+doubled submission — the per-pane whole-sequence lock closes that window while
+keeping DISTINCT panes concurrent. The
 named buffer `rk-chat-send` is a single server-wide resource with rk as sole writer,
 so without the nested set→paste mutex two cross-pane sends could interleave as
 A-set / B-set / A-paste (wrong text into pane A; B's `-d` paste 500s on the deleted
@@ -896,29 +998,23 @@ entries (reintroduces a drop-last-reference race between two same-pane sends).
 ### One shared injection deadline threads all subprocesses
 **Decision**: The handler derives ONE `context.WithTimeout(r.Context(),
 chatSendTotalBudget)` (default 4s) and threads it through every step via the `*Ctx`
-tmux variants, rather than granting each of the up-to-6 subprocesses its own 10s
-timeout.
-**Why**: The old per-subprocess-10s design could block the route for a 6 × 10s worst
-case; the code-review 5s route-blocking rule requires one bounded deadline. Deriving
-from the request context also cancels the tmux subprocesses on client disconnect.
+tmux variants, including observation captures, `C-u`, and re-paste operations.
+**Why**: The code-review 5s route-blocking rule requires one bounded deadline for
+the entire operation. Deriving from the request context also cancels the tmux
+subprocesses and backoff sleeps on client disconnect.
 **Rejected**: independent per-primitive timeouts (unbounded route block).
 *Introduced by*: `260714-jdyg-chat-send`
 
-### Additive `submit` flag gates only the final Enter; serialized only when false
+### Additive `submit` flag gates the submission phase; serialized only when false
 **Decision**: Insert-without-submit is an additive optional `submit *bool` on the
 chat-send POST body (default true), and `sendChatMessage` serializes `submit:false`
 into the body ONLY when false — the default body stays exactly `{ text }`.
-`submit:false` skips ONLY the final `SendEnterToPane`; baseline/set/paste/probe/lock/
-budget are unchanged, and a failing probe still 409s.
-**Why**: Keeps the default wire shape byte-identical so older clients and every
-existing test/mocked body are untouched (a missing field and `true` are the same
-server-side via `*bool` nil-or-true, so serializing `true` adds noise without
-meaning). Gating only step 5 reuses the whole hardened injection path — the paste
-must still echo before the text is left staged in the composer, so an insert is a
-verified paste minus the keypress, not a weaker second path. It restores the
-capability the docked-compose-strip cutover (260718-dhdj) removed when it flipped
-to always-submit: staging text in the agent's input box (pre-load a prompt, append
-to a queued steer, leave a draft for a human) without firing it.
+`submit:false` skips Enter, post-Enter observation, and recovery;
+baseline/set/paste/probe/lock/budget still apply, and a failing probe still 409s.
+**Why**: A missing field and `true` have the same server-side meaning via `*bool`
+nil-or-true, so serializing `true` adds no information. Reusing the hardened paste
+path ensures staged text demonstrably echoed before it is left for a human or a
+later submit, without running any submission-only work.
 **Rejected**: always serializing the field (churns every existing mocked body for
 zero information); a separate insert endpoint (a new POST route for a one-step
 delta — Constitution IV/IX prefer the additive body); a parallel insert-mode state

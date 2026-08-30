@@ -19,6 +19,22 @@ func fastProbe(t *testing.T) {
 	t.Cleanup(func() { ProbeSettle, ProbeGap = ps, pg })
 }
 
+func fastSubmit(t *testing.T) {
+	t.Helper()
+	backoff := append([]time.Duration(nil), SubmitBackoff...)
+	retries, retrySteps, clears := SubmitRetries, SubmitRetryBackoffSteps, ClearAttempts
+	SubmitBackoff = []time.Duration{time.Millisecond, time.Millisecond, time.Millisecond, time.Millisecond, time.Millisecond}
+	SubmitRetries = 1
+	SubmitRetryBackoffSteps = 3
+	ClearAttempts = 4
+	t.Cleanup(func() {
+		SubmitBackoff = backoff
+		SubmitRetries = retries
+		SubmitRetryBackoffSteps = retrySteps
+		ClearAttempts = clears
+	})
+}
+
 // fakeTmux is a scriptable inject.Tmux: captures are consumed from
 // captureResults in order (falling back to captureResult), and every call is
 // recorded in calls for order assertions.
@@ -28,14 +44,18 @@ type fakeTmux struct {
 	captureResult  string
 	captureResults []string
 	captureErr     error
+	captureErrs    []error
 	setBufferErr   error
 	pasteErr       error
 	enterErr       error
+	keyErr         error
 	bufferName     string
 	bufferText     string
 	pastedPane     string
 	enteredPane    string
 	enterCalled    bool
+	enterHook      func()
+	keysSent       [][]string
 }
 
 func (f *fakeTmux) record(s string) {
@@ -54,7 +74,13 @@ func (f *fakeTmux) CapturePane(_ context.Context, _ string, _ int, _ string) (st
 	f.record("capture-pane")
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.captureErr != nil {
+	if len(f.captureErrs) > 0 {
+		err := f.captureErrs[0]
+		f.captureErrs = f.captureErrs[1:]
+		if err != nil {
+			return "", err
+		}
+	} else if f.captureErr != nil {
 		return "", f.captureErr
 	}
 	if len(f.captureResults) > 0 {
@@ -85,10 +111,33 @@ func (f *fakeTmux) PasteBuffer(_ context.Context, _, paneID, _ string) error {
 func (f *fakeTmux) SendEnter(_ context.Context, paneID, _ string) error {
 	f.record("send-keys")
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.enterCalled = true
 	f.enteredPane = paneID
-	return f.enterErr
+	hook := f.enterHook
+	err := f.enterErr
+	f.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
+	return err
+}
+
+func countCalls(calls []string, want string) int {
+	count := 0
+	for _, call := range calls {
+		if call == want {
+			count++
+		}
+	}
+	return count
+}
+
+func (f *fakeTmux) SendKeys(_ context.Context, paneID, _ string, keys ...string) error {
+	f.record("send-keys " + strings.Join(keys, " "))
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.keysSent = append(f.keysSent, append([]string{paneID}, keys...))
+	return f.keyErr
 }
 
 // TestSendOrderAndEnter: a paste whose text newly echoes runs the exact order
@@ -96,13 +145,14 @@ func (f *fakeTmux) SendEnter(_ context.Context, paneID, _ string) error {
 // targeting the pane, through the engine's named buffer.
 func TestSendOrderAndEnter(t *testing.T) {
 	fastProbe(t)
-	ft := &fakeTmux{captureResults: []string{"❯ ", "❯ hello world"}}
+	fastSubmit(t)
+	ft := &fakeTmux{captureResults: []string{"❯ ", "❯ hello world", "hello world\nworking"}}
 	e := NewEngine("rk-send-123")
 
 	if err := e.Send(context.Background(), ft, "default", "%5", "hello world", true); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	want := []string{"capture-pane", "set-buffer", "paste-buffer", "capture-pane", "send-keys"}
+	want := []string{"capture-pane", "set-buffer", "paste-buffer", "capture-pane", "send-keys", "capture-pane"}
 	if got := strings.Join(ft.callStream(), ","); got != strings.Join(want, ",") {
 		t.Errorf("call order = %v, want %v", got, want)
 	}
@@ -144,6 +194,7 @@ func TestSendProbeFailsClosed(t *testing.T) {
 // probe, then skips ONLY the Enter (text stays staged).
 func TestSendInsertSkipsEnter(t *testing.T) {
 	fastProbe(t)
+	fastSubmit(t)
 	ft := &fakeTmux{captureResults: []string{"❯ ", "❯ stage me"}}
 	e := NewEngine("rk-send-9")
 
@@ -156,6 +207,9 @@ func TestSendInsertSkipsEnter(t *testing.T) {
 	}
 	if ft.enterCalled {
 		t.Error("Enter sent despite submit=false")
+	}
+	if len(ft.keysSent) != 0 {
+		t.Errorf("keys sent despite submit=false: %v", ft.keysSent)
 	}
 }
 
@@ -270,8 +324,9 @@ func TestSendCrossPaneSetPasteAtomic(t *testing.T) {
 // engine does not stall the other.
 func TestSendDistinctEnginesShareNothing(t *testing.T) {
 	fastProbe(t)
-	slow := &fakeTmux{captureResults: []string{"❯ ", "❯ hi"}}
-	fast := &fakeTmux{captureResults: []string{"❯ ", "❯ hi"}}
+	fastSubmit(t)
+	slow := &fakeTmux{captureResults: []string{"❯ ", "❯ hi", "hi\nworking"}}
+	fast := &fakeTmux{captureResults: []string{"❯ ", "❯ hi", "hi\nworking"}}
 	e1 := NewEngine("rk-chat-send")
 	e2 := NewEngine("rk-send-42")
 
@@ -282,6 +337,302 @@ func TestSendDistinctEnginesShareNothing(t *testing.T) {
 	}
 	if err := <-done; err != nil {
 		t.Fatalf("e2.Send: %v", err)
+	}
+}
+
+func TestSendChangedFrameReturnsNilWithoutRecovery(t *testing.T) {
+	fastProbe(t)
+	fastSubmit(t)
+	ft := &fakeTmux{captureResults: []string{"❯ ", "pane\n❯ hello", "hello\nworking"}}
+
+	if err := NewEngine("rk-send-fast").Send(context.Background(), ft, "default", "%5", "hello", true); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if captures := countCalls(ft.callStream(), "capture-pane"); captures != 3 {
+		t.Fatalf("captures = %d, want baseline + echo + one observation", captures)
+	}
+	if len(ft.keysSent) != 0 {
+		t.Fatalf("recovery keys sent after a changed frame: %v", ft.keysSent)
+	}
+}
+
+func TestSendStatusChurnReturnsNilWithoutRecovery(t *testing.T) {
+	fastProbe(t)
+	fastSubmit(t)
+	ft := &fakeTmux{captureResults: []string{
+		"pane\n❯ ",
+		"pane\n❯ hello\nstatus: ready",
+		"pane\n❯ hello\nstatus: working",
+	}}
+
+	if err := NewEngine("rk-send-busy").Send(context.Background(), ft, "default", "%5", "hello", true); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if !ft.enterCalled {
+		t.Fatal("Enter was not sent after the echo probe passed")
+	}
+	if captures := countCalls(ft.callStream(), "capture-pane"); captures != 3 {
+		t.Fatalf("captures = %d, want baseline + echo + one observation", captures)
+	}
+	if len(ft.keysSent) != 0 {
+		t.Fatalf("recovery keys sent after status churn: %v", ft.keysSent)
+	}
+}
+
+func TestSendObservationWaitsForFourthChangedFrame(t *testing.T) {
+	fastProbe(t)
+	fastSubmit(t)
+	pre := "pane\n❯ hello"
+	ft := &fakeTmux{captureResults: []string{"pane\n❯ ", pre, pre, pre, pre, "pane\nhello\nworking"}}
+
+	if err := NewEngine("rk-send-patient").Send(context.Background(), ft, "default", "%5", "hello", true); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if captures := countCalls(ft.callStream(), "capture-pane"); captures != 6 {
+		t.Fatalf("captures = %d, want baseline + echo + four observations", captures)
+	}
+}
+
+func TestSendTrapRetriesAfterBaselineMatchedClear(t *testing.T) {
+	fastProbe(t)
+	fastSubmit(t)
+	pre := "pane\n❯ hello"
+	ft := &fakeTmux{captureResults: []string{
+		"pane\n❯ ", pre,
+		pre, pre, pre, pre, pre,
+		"pane\n❯ ",
+		pre,
+		"pane\nhello\nworking",
+	}}
+
+	if err := NewEngine("rk-send-retry").Send(context.Background(), ft, "default", "%5", "hello", true); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	calls := ft.callStream()
+	if countCalls(calls, "paste-buffer") != 2 || countCalls(calls, "send-keys") != 2 {
+		t.Fatalf("calls = %v, want two pastes and two Enters", calls)
+	}
+	if countCalls(calls, "send-keys C-u") != 1 {
+		t.Fatalf("calls = %v, want one baseline-matching clear", calls)
+	}
+}
+
+func TestSendRetryExhaustionIsUnverified(t *testing.T) {
+	fastProbe(t)
+	fastSubmit(t)
+	pre := "pane\n❯ hello"
+	ft := &fakeTmux{
+		captureResult: pre,
+		captureResults: []string{
+			"pane\n❯ ", pre,
+			pre, pre, pre, pre, pre,
+			"pane\n❯ ", pre,
+			pre, pre, pre,
+		},
+	}
+
+	err := NewEngine("rk-send-retry").Send(context.Background(), ft, "default", "%5", "hello", true)
+	var unverified SubmitUnverified
+	if !errors.As(err, &unverified) {
+		t.Fatalf("err = %v, want SubmitUnverified", err)
+	}
+	var probeFailure ProbeFailure
+	if errors.As(err, &probeFailure) {
+		t.Fatalf("err = %v, must remain distinct from ProbeFailure", err)
+	}
+	if captures := countCalls(ft.callStream(), "capture-pane"); captures != 12 {
+		t.Fatalf("captures = %d, want baseline + two echo probes + five initial observations + one clear + three retry observations", captures)
+	}
+}
+
+func TestSendInconclusiveDoesNotRetry(t *testing.T) {
+	fastProbe(t)
+	fastSubmit(t)
+	SubmitBackoff = nil
+	ft := &fakeTmux{captureResults: []string{"pane\n❯ ", "pane\n❯ hello"}}
+
+	err := NewEngine("rk-send-inconclusive").Send(context.Background(), ft, "default", "%5", "hello", true)
+	var unverified SubmitUnverified
+	if !errors.As(err, &unverified) {
+		t.Fatalf("err = %v, want SubmitUnverified", err)
+	}
+	calls := ft.callStream()
+	if countCalls(calls, "paste-buffer") != 1 || countCalls(calls, "send-keys C-u") != 0 {
+		t.Fatalf("calls = %v, inconclusive submit must not clear or re-paste", calls)
+	}
+}
+
+func TestSendMultilineClearRequiresBaselineEquality(t *testing.T) {
+	fastProbe(t)
+	fastSubmit(t)
+	baseline := "pane\n❯ "
+	pre := "pane\n❯ first\nsecond\nthird"
+	ft := &fakeTmux{captureResults: []string{
+		baseline, pre,
+		pre, pre, pre, pre, pre,
+		"pane\n❯ first\nsecond", "pane\n❯ first", baseline,
+		pre, "pane\nhello\nworking",
+	}}
+
+	if err := NewEngine("rk-send-clear").Send(context.Background(), ft, "default", "%5", "first\nsecond\nthird", true); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	calls := ft.callStream()
+	if got := countCalls(calls, "send-keys C-u"); got != 3 {
+		t.Fatalf("clear attempts = %d, want one per staged line", got)
+	}
+	thirdClear, secondPaste, clears, pastes := -1, -1, 0, 0
+	for i, call := range calls {
+		switch call {
+		case "send-keys C-u":
+			clears++
+			if clears == 3 {
+				thirdClear = i
+			}
+		case "paste-buffer":
+			pastes++
+			if pastes == 2 {
+				secondPaste = i
+			}
+		}
+	}
+	if thirdClear < 0 || secondPaste <= thirdClear {
+		t.Fatalf("calls = %v, second paste occurred before baseline equality", calls)
+	}
+}
+
+func TestSendClearExhaustionNeverRepastes(t *testing.T) {
+	fastProbe(t)
+	fastSubmit(t)
+	baseline := "pane\n❯ "
+	pre := "pane\n❯ first\nsecond\nthird"
+	ft := &fakeTmux{captureResults: []string{
+		baseline, pre,
+		pre, pre, pre, pre, pre,
+		"pane\n❯ first\nsecond", "pane\n❯ first", "pane\n❯ first", "pane\n❯ first",
+	}}
+
+	err := NewEngine("rk-send-clear").Send(context.Background(), ft, "default", "%5", "first\nsecond\nthird", true)
+	var unverified SubmitUnverified
+	if !errors.As(err, &unverified) {
+		t.Fatalf("err = %v, want SubmitUnverified", err)
+	}
+	calls := ft.callStream()
+	if countCalls(calls, "paste-buffer") != 1 || countCalls(calls, "set-buffer") != 1 {
+		t.Fatalf("calls = %v, a composer that never cleared was re-pasted", calls)
+	}
+	if countCalls(calls, "send-keys C-u") != ClearAttempts {
+		t.Fatalf("calls = %v, want the full clear budget", calls)
+	}
+}
+
+func TestSendSubmittedTranscriptNeverRepastes(t *testing.T) {
+	fastProbe(t)
+	fastSubmit(t)
+	baseline := "pane\n❯ "
+	pre := "pane\n❯ hello"
+	transcript := "pane\nhello\n❯ "
+	ft := &fakeTmux{captureResults: []string{
+		baseline, pre,
+		pre, pre, pre, pre, pre,
+		transcript, transcript, transcript, transcript,
+	}}
+
+	err := NewEngine("rk-send-transcript").Send(context.Background(), ft, "default", "%5", "hello", true)
+	var unverified SubmitUnverified
+	if !errors.As(err, &unverified) {
+		t.Fatalf("err = %v, want SubmitUnverified", err)
+	}
+	calls := ft.callStream()
+	if countCalls(calls, "paste-buffer") != 1 || countCalls(calls, "set-buffer") != 1 {
+		t.Fatalf("calls = %v, submitted transcript triggered a second paste", calls)
+	}
+}
+
+func TestSendCancellationDuringVerification(t *testing.T) {
+	fastProbe(t)
+	fastSubmit(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	ft := &fakeTmux{
+		captureResults: []string{"pane\n❯ ", "pane\n❯ hello"},
+		enterHook:      cancel,
+	}
+
+	err := NewEngine("rk-send-cancel").Send(ctx, ft, "default", "%5", "hello", true)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context cancellation", err)
+	}
+	var unverified SubmitUnverified
+	if errors.As(err, &unverified) {
+		t.Fatalf("err = %v, cancellation must not become SubmitUnverified", err)
+	}
+}
+
+func TestSendVerificationCaptureErrorPropagates(t *testing.T) {
+	fastProbe(t)
+	fastSubmit(t)
+	wantErr := errors.New("capture failed")
+	ft := &fakeTmux{
+		captureResults: []string{"pane\n❯ ", "pane\n❯ hello"},
+		captureErrs:    []error{nil, nil, wantErr},
+	}
+
+	err := NewEngine("rk-send-error").Send(context.Background(), ft, "default", "%5", "hello", true)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("err = %v, want observation capture error", err)
+	}
+}
+
+// A repaint is provider-neutral evidence only that the observation phase must
+// make no claim and preserve the pre-existing success behavior.
+func TestVerifySubmitClassifiesChangesAsNoClaim(t *testing.T) {
+	fastSubmit(t)
+	tests := []struct {
+		name string
+		pre  string
+		post string
+	}{
+		{"bare composer", "log\n❯ hello", "log\nhello\nworking"},
+		{"boxed composer", "┌ input ┐\n│ hello │\n└───────┘", "┌ input ┐\n│       │\n└───────┘"},
+		{"collapsed paste", "❯ [Pasted text #2 +4 lines]", "submitted\n◐ working"},
+		{"status line only", "hello\nstatus: ready", "hello\nstatus: working"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ft := &fakeTmux{captureResults: []string{tt.post}}
+			verdict, err := verifySubmit(context.Background(), ft, "default", "%5", tt.pre, Needle("hello"), false, 0, []time.Duration{time.Millisecond})
+			if err != nil {
+				t.Fatalf("verifySubmit: %v", err)
+			}
+			if verdict != observationNoClaim {
+				t.Fatalf("verdict = %v, want no claim", verdict)
+			}
+		})
+	}
+}
+
+func TestVerifySubmitEvidenceUsesProbePredicate(t *testing.T) {
+	needle := Needle("please review the implementation")
+	tests := []struct {
+		name  string
+		frame string
+		want  observationVerdict
+	}{
+		{"collapsed paste chip", "pane\n❯ [Pasted text #3 +4 lines]", observationNonSubmission},
+		{"raw echo without chip", "pane\n❯ please review the implementation", observationNonSubmission},
+		{"no chip or raw echo", "pane\n❯ ", observationInconclusive},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ft := &fakeTmux{captureResults: []string{tt.frame}}
+			verdict, err := verifySubmit(context.Background(), ft, "default", "%5", tt.frame, needle, true, 0, []time.Duration{time.Millisecond})
+			if err != nil {
+				t.Fatalf("verifySubmit: %v", err)
+			}
+			if verdict != tt.want {
+				t.Fatalf("verdict = %v, want %v", verdict, tt.want)
+			}
+		})
 	}
 }
 

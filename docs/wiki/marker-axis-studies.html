@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Marker Axis — Two-Axis Studies</title>
+<style>
+  :root { --bg:#0f1117; --card:#171b24; --inset:#0a0c12; --tp:#e8eaf0; --ts:#7a8394; --border:#454d66;
+    --accent:#5b8af0; --green:#22c55e; --yellow:#facc15; --purple:#c084fc; --blue:#60a5fa; --red:#f87171; --fam:#f59e0b; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--tp); font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; padding:28px 32px 90px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  h2 { font-size:15px; margin:40px 0 10px; border-bottom:1px solid var(--border); padding-bottom:6px; }
+  h3 { font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--ts); margin:22px 0 8px; font-weight:600; }
+  p, li { color:#b6bcc9; font-size:13px; max-width:82ch; }
+  .sub { color:var(--ts); margin:0 0 14px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:18px; align-items:start; }
+  .study { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:12px 12px 10px; }
+  .cap { font-size:11px; color:var(--ts); margin-top:8px; line-height:1.45; }
+  .cap b, .study > b { color:var(--tp); font-weight:600; }
+  .tag { display:inline-block; font-size:10px; letter-spacing:.05em; text-transform:uppercase; padding:1px 6px; border-radius:3px; border:1px solid var(--border); color:var(--ts); margin-right:6px; vertical-align:middle; }
+  .tag.now{border-color:#6b7280;color:#cbd5e1} .tag.rec{border-color:var(--green);color:var(--green)} .tag.alt{border-color:var(--blue);color:var(--blue)} .tag.bad{border-color:var(--red);color:var(--red)}
+  code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11.5px; background:var(--inset); padding:0 4px; border-radius:3px; color:#cbd5e1; }
+  table { border-collapse:collapse; font-size:12px; margin-top:8px; }
+  td,th { border:1px solid var(--border); padding:4px 8px; text-align:left; color:#b6bcc9; vertical-align:top; }
+  th { color:var(--tp); font-weight:600; }
+  .q { border-left:3px solid var(--accent); padding:6px 10px; margin:12px 0; background:color-mix(in srgb,var(--accent) 8%,transparent); border-radius:0 4px 4px 0; }
+  .q p { margin:0; }
+
+  /* sidebar + rows */
+  .side { background:var(--bg); border:1px solid var(--border); border-radius:6px; overflow:visible; font-size:12px; position:relative; }
+  .side.desk { max-width:300px; }
+  .side.mob  { max-width:300px; }
+  .sess { display:flex; align-items:center; gap:6px; height:26px; padding:0 8px; color:var(--ts); font-weight:500; }
+  .sess .chev{font-size:10px;opacity:.8}
+  .row { position:relative; display:flex; align-items:center; gap:6px; min-height:24px; padding:1px 44px 1px 30px; color:var(--ts); font-size:12px; }
+  .row.sel { color:var(--tp); font-weight:500; background:color-mix(in srgb,var(--fam) 40%,transparent); }
+  .row.hov { color:var(--tp); background:color-mix(in srgb,var(--card) 50%,transparent); }
+  .row .name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .dot { flex:none; width:7px; height:7px; border-radius:50%; background:var(--green); }
+  .dot.idle{background:#6b7280} .dot.ring{background:transparent;border:1.8px solid var(--green)}
+  .dot.halo{box-shadow:0 0 0 3px color-mix(in srgb,var(--yellow) 35%,transparent);background:var(--yellow)}
+  .stripe { position:absolute; left:4px; top:0; bottom:0; width:22px; pointer-events:none; }
+  .lines { position:absolute; left:4px; top:0; bottom:0; display:flex; gap:2px; pointer-events:none; }
+  .lines i { display:block; width:2px; height:100%; }
+  .stops { position:absolute; left:4px; top:0; bottom:0; display:flex; gap:2px; align-items:center; pointer-events:none; }
+  .stops i { display:block; width:3px; height:14px; background:color-mix(in srgb,var(--fam) 22%,transparent); }
+  .mob .row { min-height:36px; padding:1px 56px 1px 16px; }
+  .rail { position:absolute; right:0; top:0; bottom:0; width:56px; display:flex; align-items:center; justify-content:flex-end; gap:2px; padding-right:4px; border-left:1px solid var(--border); background:var(--inset); }
+  .rail .c { width:12px; text-align:center; color:var(--ts); opacity:.55; font-size:13px; }
+
+  /* vocabulary grids */
+  .vg { display:grid; gap:4px 6px; align-items:center; font-size:10px; color:var(--ts); }
+  .vg .h { text-align:center; letter-spacing:.04em; }
+  .vg .pl { text-align:right; padding-right:4px; }
+  .cell { position:relative; height:24px; background:var(--bg); border:1px solid color-mix(in srgb,var(--border) 60%,transparent); border-radius:3px; overflow:hidden; }
+  .cell.tall { height:48px; }
+  .cell .stripe, .cell .lines, .cell .stops { left:3px; }
+  .cell .cdot { position:absolute; left:29px; top:50%; width:7px; height:7px; margin-top:-3.5px; border-radius:50%; background:#6b7280; }
+  .cell .cname { position:absolute; left:42px; top:50%; transform:translateY(-50%); width:24px; height:5px; border-radius:2px; background:color-mix(in srgb,var(--ts) 45%,transparent); }
+
+  /* strip hit + pad */
+  .strip-hit { position:absolute; left:0; top:0; bottom:0; width:26px; cursor:ew-resize; z-index:3; }
+  .strip-hit.menu { cursor:pointer; }
+  .row.hov .strip-hit { background:color-mix(in srgb,var(--fam) 10%,transparent); }
+  .ticks { position:absolute; left:4px; top:0; bottom:0; width:22px; pointer-events:none; display:none; }
+  .ticks i { position:absolute; top:0; bottom:0; width:1px; background:color-mix(in srgb,var(--tp) 22%,transparent); }
+  .row.hov .ticks { display:block; }
+  .pad { position:absolute; z-index:50; background:var(--card); border:1px solid var(--border); border-radius:6px; box-shadow:0 10px 28px rgba(0,0,0,.6); padding:6px 6px 6px 6px; user-select:none; touch-action:none; font-size:10px; color:var(--ts); }
+  .pad .hd { display:flex; justify-content:space-between; gap:8px; padding:0 2px 5px; color:var(--tp); font-size:10.5px; min-height:16px; white-space:nowrap; }
+  .pad .hd b { color:var(--fam); font-weight:600; }
+  .pad .g { display:grid; grid-template-columns:34px repeat(6,24px); grid-auto-rows:22px; gap:2px; align-items:stretch; }
+  .pad .pl { display:flex; align-items:center; justify-content:flex-end; padding-right:5px; font-size:9.5px; letter-spacing:.03em; }
+  .pad .pc { position:relative; background:var(--bg); border:1px solid color-mix(in srgb,var(--border) 55%,transparent); border-radius:3px; overflow:hidden; }
+  .pad .pc .stripe { left:2px; width:20px; }
+  .pad .pc.on { border-color:var(--fam); box-shadow:inset 0 0 0 1px var(--fam); }
+  .pad .pc.hot { border-color:var(--tp); }
+  .pad .clear { grid-column:2; grid-row:2 / span 5; display:grid; place-items:center; color:var(--ts); font-size:13px; }
+  .pad .clear.on { color:var(--fam); }
+  .pad .colh { text-align:center; font-size:9px; display:grid; place-items:center; }
+  .tip { position:absolute; left:30px; top:-22px; font-size:10px; background:var(--card); border:1px solid var(--border); padding:1px 6px; border-radius:3px; color:var(--tp); white-space:nowrap; box-shadow:0 4px 12px rgba(0,0,0,.5); z-index:40; pointer-events:none; }
+  .tip b { color:var(--fam); }
+  .hint { font-size:11px; color:var(--blue); margin:6px 0 0; }
+
+  /* mobile card sketch */
+  .cardm { background:var(--card); border:1px solid var(--border); border-radius:8px; max-width:244px; padding:8px 0 4px; font-size:12px; box-shadow:0 10px 28px rgba(0,0,0,.6); }
+  .cardm .t { padding:0 10px 6px; color:var(--tp); font-weight:600; border-bottom:1px solid var(--border); margin-bottom:4px; }
+  .cardm .t small { color:var(--ts); font-weight:400; margin-left:6px; }
+  .cardm .r { padding:7px 10px; color:#b6bcc9; display:flex; justify-content:space-between; }
+  .cardm .r.on { color:var(--tp); background:color-mix(in srgb,var(--fam) 12%,transparent); }
+  .cardm .padwrap { padding:4px 8px 6px; }
+  .cardm .pad { position:static; box-shadow:none; border:none; background:transparent; padding:0; }
+  .cardm .pad .g { grid-template-columns:34px repeat(6,28px); grid-auto-rows:28px; }
+  .cardm .pad .pc .stripe { width:24px; }
+</style>
+</head>
+<body>
+
+<h1>Marker Axis — Two-Axis Studies</h1>
+<p class="sub">Follow-up to the window-row studies. Premise: the <b>Label picker splits</b> — color + flair stay together (card / palette), and the <b>marker becomes two axes</b>: <i>how far</i> (an ordinal stage, drawn as amount of ink) × <i>what kind</i> (a categorical pattern). Every stripe below is drawn with the shipped tile math from <code>themes.ts markerStripeStyle</code>, just parameterised by width.</p>
+
+<h2>1 · The current 8 markers already factor into two axes</h2>
+<div class="grid">
+  <div class="study">
+    <table>
+      <tr><th>Shipped marker</th><th>Pattern</th><th>Ink</th><th>Suggested meaning today</th></tr>
+      <tr><td>pipe</td><td>solid</td><td>1px</td><td>parked / can-delete</td></tr>
+      <tr><td>solid</td><td>solid</td><td>3px</td><td>free</td></tr>
+      <tr><td>thick</td><td>solid</td><td>6px</td><td><b>completed</b></td></tr>
+      <tr><td>double</td><td>solid ×2 lines</td><td>6px</td><td>review / needs-me</td></tr>
+      <tr><td>dotted</td><td>dotted</td><td>3px</td><td>draft / discussion pending</td></tr>
+      <tr><td>dashed</td><td>dashed</td><td>3px</td><td>free</td></tr>
+      <tr><td>hatch</td><td>hatch</td><td>6px</td><td><b>in-progress</b> (+ hazard wedge)</td></tr>
+      <tr><td>block</td><td>block</td><td>6px</td><td>archived / frozen</td></tr>
+    </table>
+    <div class="cap">The shipped conventions already <i>imply</i> a ladder — parked → in-progress → review → completed → archived — but the ink runs 1 → 6 → 6 → 6 → 6, so the ladder is not readable from the stripe. The two-axis model makes it readable and keeps the pattern classes as the categorical channel. It <b>revisits a recorded decision</b> ("new states are pattern classes, never a new weight between existing ones", sidebar.md § Marker vocabulary) — deliberately: width becomes a <i>separate</i> axis rather than more markers, which is what that rule was protecting against.</div>
+  </div>
+  <div class="study">
+    <b>Proposed split of meaning</b>
+    <table>
+      <tr><th>Axis</th><th>Values</th><th>Reads as</th><th>Stored</th></tr>
+      <tr><td>Stage (ordinal)</td><td>0 · 1 · 2 · 3 · 4 · 5</td><td>how far along — ink grows left→right; 5 = full 22px</td><td><code>@rk_win_stage</code> (or the second half of one <code>pattern:stage</code> value)</td></tr>
+      <tr><td>Pattern (categorical)</td><td>solid · dotted · dashed · hatch · block</td><td>what kind: normal · draft/tentative · waiting on someone · hazard/careful · frozen</td><td><code>@rk_win_marker</code> (existing option, values narrow to 5 pattern names)</td></tr>
+    </table>
+    <div class="cap">Compat: old values map losslessly — <code>pipe</code>→solid:1, <code>solid</code>→solid:2, <code>thick</code>→solid:5, <code>double</code>→solid:3, <code>dotted</code>→dotted:2, <code>dashed</code>→dashed:2, <code>hatch</code>→hatch:3, <code>block</code>→block:5. Pattern alone (stage unset) renders at stage 2 so an existing categorical-only marker keeps looking like today. Hatch keeps its hazard-wedge pairing at any stage.</div>
+  </div>
+</div>
+
+<h2>2 · Three encodings of stage × pattern</h2>
+<p>Each grid cell is a real 24px row fragment (stripe · dot · name). Columns = stage 1→5, rows = pattern. Judge two things: does <i>stage</i> read at a glance down a column, and does <i>pattern</i> survive at low stage?</p>
+
+<div class="grid">
+  <div class="study"><span class="tag rec">A · width</span> one stripe, ink width = stage
+    <div class="vg" id="gridA" style="grid-template-columns:44px repeat(5,1fr)"></div>
+    <div class="cap">Widths 2 · 6 · 11 · 16 · 22. <b>Stage reads instantly</b> (a bar chart down the column). Pattern survives from stage 2 up; at stage 1 dotted/dashed collapse to a broken hairline and hatch is unreadable — acceptable if stage 1 means "parked" (pattern barely matters). Full-width hatch (stage 5) is loud; in practice hatch = hazard rarely reaches 5.</div></div>
+
+  <div class="study"><span class="tag alt">B · line count</span> N × 2px lines, pattern per line
+    <div class="vg" id="gridB" style="grid-template-columns:44px repeat(5,1fr)"></div>
+    <div class="cap">Lines 2px, gap 2px → max 18px. <b>Countable</b> (3 lines = stage 3) and it subsumes the shipped <code>double</code>. Dotted/dashed lines stay legible at every stage because line width never shrinks. Hatch does not decompose into lines — shown as a 45° tile per line, which just reads as noise; hatch would need to become a fill (see C) or stay a full-strip texture.</div></div>
+
+  <div class="study"><span class="tag alt">C · filled stops</span> 5 fixed stops, filled count = stage, pattern = stop ink
+    <div class="vg" id="gridC" style="grid-template-columns:44px repeat(5,1fr)"></div>
+    <div class="cap">Stops 3×14px on a 22% track. The empty track shows the <i>total</i> (…of 5), which A and B don't. Pattern reads only as texture of the filled stops — dotted vs solid is visible, hatch/block barely. Stacked rows don't weld (stops are 14px tall, rows 24px), so the sidebar stays airy — but it also stops looking like the stripe people know.</div></div>
+</div>
+
+<h3>Same tree, three encodings</h3>
+<div class="grid" id="trees"></div>
+<p class="cap" style="margin-top:6px">Tree data (pattern:stage): rosy-otter solid:1 · buffed-pika solid:3 · swift-mink dotted:2 · iron-heron hatch:3 · calm-lynx dashed:4 · old-crane block:5 · pale-wren solid:5 (selected). Same marker on the amber family throughout; a second family color would separate rows further but was kept constant to isolate the marker channel.</p>
+
+<h2>3 · Interaction: one-step, two-step, or both</h2>
+<p>All three demos are live. The row's left 26px is the target on desktop. The pad is the <i>same component</i> in every case — the only question is what opens it and whether a drag can skip it.</p>
+
+<div class="grid">
+  <div class="study"><span class="tag alt">I1 · one-step</span> drag = stage, click = next pattern, wheel = ±stage
+    <div class="side desk" id="i1">
+      <div class="sess"><span class="chev">▾</span> fab-kit</div>
+      <div class="row hov" data-p="dotted" data-s="2"><div class="stripe"></div><div class="ticks"><i style="left:0"></i><i style="left:4px"></i><i style="left:9px"></i><i style="left:13px"></i><i style="left:17px"></i><i style="left:21px"></i></div><div class="strip-hit" title="drag →/← for stage · click for pattern · wheel"></div><div class="dot ring"></div><span class="name">swift-mink</span><div class="tip">stage <b>2</b> · dotted</div></div>
+      <div class="row" data-p="solid" data-s="3"><div class="stripe"></div><div class="dot"></div><span class="name">buffed-pika</span></div>
+    </div>
+    <p class="hint">try: drag horizontally in the strip (travel is 18px per step, pointer-captured, so the drag can leave the 22px strip); click without moving to cycle the pattern.</p>
+    <div class="cap"><b>Pros</b>: fastest for the common edit (bump the stage). No surface appears. <b>Cons</b>: the second axis rides an undiscoverable click-cycles gesture, so users will learn one axis and forget the other; a click that jitters 3px becomes a stage change; there is no mobile analogue (a 10px strip is below any touch floor) — coarse pointers need a different control anyway, so I1 forces two UIs.</div></div>
+
+  <div class="study"><span class="tag alt">I2 · two-step</span> click opens the pad; pick a cell
+    <div class="side desk" id="i2">
+      <div class="sess"><span class="chev">▾</span> fab-kit</div>
+      <div class="row hov" data-p="dotted" data-s="2"><div class="stripe"></div><div class="strip-hit menu" title="click to open marker pad"></div><div class="dot ring"></div><span class="name">swift-mink</span></div>
+      <div class="row" data-p="solid" data-s="3"><div class="stripe"></div><div class="dot"></div><span class="name">buffed-pika</span></div>
+    </div>
+    <p class="hint">try: click the strip; hover cells to preview on the row; click a cell to commit (Esc / outside closes).</p>
+    <div class="cap"><b>Pros</b>: both axes visible at once — the pad <i>is</i> the vocabulary, so it teaches itself; same pad on mobile (from the card). <b>Cons</b>: two clicks for a one-step bump; the pad anchors at the row bottom-left like today's picker and can cover the rows below (or flips above near the bottom).</div></div>
+
+  <div class="study"><span class="tag rec">I3 · spring-loaded</span> press opens the pad <i>under the pointer</i>; drag 2D; release commits — a plain click leaves it open
+    <div class="side desk" id="i3">
+      <div class="sess"><span class="chev">▾</span> fab-kit</div>
+      <div class="row hov" data-p="dotted" data-s="2"><div class="stripe"></div><div class="ticks"><i style="left:0"></i><i style="left:4px"></i><i style="left:9px"></i><i style="left:13px"></i><i style="left:17px"></i><i style="left:21px"></i></div><div class="strip-hit" title="press + drag, or click"></div><div class="dot ring"></div><span class="name">swift-mink</span></div>
+      <div class="row" data-p="solid" data-s="3"><div class="stripe"></div><div class="dot"></div><span class="name">buffed-pika</span></div>
+    </div>
+    <p class="hint">try: press in the strip and drag right (stage) or down (pattern) without releasing — the pad opens with the <i>current</i> cell under your pointer, so "press, drag right two cells, release" is the one-step bump; release without moving and it stays open as a click menu.</p>
+    <div class="cap"><b>Why this one</b>: it's I1's speed for the power user (press-drag-release, ~same motion) with I2's discoverability (the vocabulary appears every time), and no click-cycles hidden gesture. The pad wants the current cell under the pointer; when there's no room (the pointer is in the left 26px and the sidebar is flush with the screen edge) it clamps inside the sidebar and the drag becomes <i>relative</i> — the highlighted cell follows your displacement, so a straight horizontal drag still changes only the stage and a no-move release changes nothing. Same pad, click mode, on mobile from the card. Precedent: macOS spring-loaded menus / Sketch's colour scrubbers. <b>Cost</b>: a pad flashes for every edit, even a bump (mitigation: fade-in after ~80ms so a quick press-drag-release barely paints it).</div></div>
+</div>
+
+<h3>Mobile: same pad, from the card</h3>
+<div class="grid">
+  <div class="study">
+    <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+      <div class="side mob" style="max-width:250px">
+        <div class="sess"><span class="chev">▾</span> fab-kit</div>
+        <div class="row" data-p="solid" data-s="3"><div class="stripe" style="width:10px"></div><div class="dot"></div><span class="name">buffed-pika</span><div class="rail"><div class="c">›</div></div></div>
+        <div class="row sel" data-p="dotted" data-s="2"><div class="stripe" style="width:10px"></div><div class="dot halo"></div><span class="name">swift-mink</span><div class="rail" style="border-left-color:var(--ts)"><div class="c">›</div></div></div>
+        <div class="row" data-p="hatch" data-s="3"><div class="stripe" style="width:10px"></div><div class="dot idle"></div><span class="name">iron-heron</span><div class="rail"><div class="c">›</div></div></div>
+      </div>
+      <div class="cardm" id="mcard">
+        <div class="t">swift-mink <small>@31 · fab-kit</small></div>
+        <div class="r"><span>Change color…</span><span style="color:var(--fam)">●</span></div>
+        <div class="r on"><span>Marker</span><span>dotted · 2</span></div>
+        <div class="padwrap" id="mpadwrap"></div>
+        <div class="r"><span>Flair</span><span style="color:var(--ts)">none</span></div>
+        <div class="r"><span>Set note…</span></div>
+      </div>
+    </div>
+    <div class="cap">The card's former <i>Change color…</i> band splits into <b>Change color…</b> (color + flair — the existing SwatchPopover minus its marker band) and an inline <b>Marker</b> pad, 28px cells (touch floor is met by the cell pitch, not the stripe). The mobile stripe compresses to 0→8px in the 16px inset, display-only. Live: tap cells here to preview on the selected row.</div>
+  </div>
+</div>
+
+<h2>4 · Comparison</h2>
+<table>
+  <tr><th></th><th>I1 one-step</th><th>I2 two-step</th><th>I3 spring-loaded</th></tr>
+  <tr><td>Bump stage by one</td><td>drag 18px</td><td>click · click</td><td>press · drag 24px · release</td></tr>
+  <tr><td>Change pattern</td><td>click-cycle (hidden)</td><td>click · click</td><td>press · drag down · release</td></tr>
+  <tr><td>Sees the vocabulary</td><td>never</td><td>every time</td><td>every time</td></tr>
+  <tr><td>Mis-fire risk</td><td>jitter-click = stage change</td><td>low</td><td>low (no-move release = no change)</td></tr>
+  <tr><td>Mobile parity</td><td>none — second UI needed</td><td>same pad from card</td><td>same pad from card</td></tr>
+  <tr><td>Keyboard</td><td>wheel / ± on focused row</td><td>Enter opens pad, arrows, Enter</td><td>same as I2 + wheel on strip</td></tr>
+  <tr><td>Weight</td><td>gesture code only</td><td>pad component</td><td>pad component + press/drag mode</td></tr>
+</table>
+
+<div class="q"><p><b>Recommendation:</b> I3 with encoding A. Encoding B is the honest alternative if "countable" matters more than "glanceable" — it falls down only on hatch, and hatch could stay a special full-strip texture since it's the one iconic (hazard) pairing anyway. C is worth keeping in the pocket for a future "of N" need but changes the sidebar's texture the most.</p></div>
+
+<script>
+const FAM = '#f59e0b';
+const PATTERNS = ['solid','dotted','dashed','hatch','block'];
+const PLABEL = { solid:'solid', dotted:'dotted', dashed:'dashed', hatch:'hatch', block:'block' };
+const PMEAN = { solid:'normal', dotted:'draft', dashed:'waiting', hatch:'hazard', block:'frozen' };
+const W = [0, 2, 6, 11, 16, 22];
+function stripeCSS(p, w, color = FAM) {
+  if (!w) return '';
+  switch (p) {
+    case 'solid':  return `border-left:${w}px solid ${color};`;
+    case 'dotted': return `background:linear-gradient(to bottom,${color} 0 3px,transparent 3px 6px) 0 0/${w}px 6px repeat-y;`;
+    case 'dashed': return `background:linear-gradient(to bottom,${color} 0 8px,transparent 8px 12px) 0 0/${w}px 12px repeat-y;`;
+    case 'block':  return `background:linear-gradient(to bottom,${color} 0 9px,transparent 9px 12px) 0 0/${w}px 12px repeat-y;`;
+    case 'hatch':  return `width:${w}px;background:linear-gradient(45deg,${color} 0 25%,transparent 25% 50%,${color} 50% 75%,transparent 75%) 0 0/12px 12px repeat;`;
+  }
+  return '';
+}
+// encoding A: single stripe
+function encA(p, s) { const d = document.createElement('div'); d.className = 'stripe'; d.style.cssText = stripeCSS(p, W[s]); return d; }
+// encoding B: N lines
+function encB(p, s) { const d = document.createElement('div'); d.className = 'lines';
+  for (let i = 0; i < s; i++) { const l = document.createElement('i'); l.style.cssText = stripeCSS(p, 2); d.appendChild(l); } return d; }
+// encoding C: stops
+function encC(p, s) { const d = document.createElement('div'); d.className = 'stops';
+  for (let i = 0; i < 5; i++) { const l = document.createElement('i'); if (i < s) l.style.cssText = stripeCSS(p, 3) + 'background-color:transparent;'; d.appendChild(l); } return d; }
+const ENC = { A: encA, B: encB, C: encC };
+
+function buildGrid(id, enc) {
+  const g = document.getElementById(id);
+  g.appendChild(Object.assign(document.createElement('div'), { className: 'h', textContent: '' }));
+  for (let s = 1; s <= 5; s++) g.appendChild(Object.assign(document.createElement('div'), { className: 'h', textContent: 'stage ' + s }));
+  for (const p of PATTERNS) {
+    g.appendChild(Object.assign(document.createElement('div'), { className: 'pl', textContent: PLABEL[p] }));
+    for (let s = 1; s <= 5; s++) {
+      const c = document.createElement('div'); c.className = 'cell';
+      c.appendChild(enc(p, s));
+      c.appendChild(Object.assign(document.createElement('i'), { className: 'cdot' }));
+      c.appendChild(Object.assign(document.createElement('i'), { className: 'cname' }));
+      g.appendChild(c);
+    }
+  }
+}
+buildGrid('gridA', encA); buildGrid('gridB', encB); buildGrid('gridC', encC);
+
+// trees
+const TREE = [['rosy-otter','solid',1,'idle'],['buffed-pika','solid',3,''],['swift-mink','dotted',2,'ring'],['iron-heron','hatch',3,'idle'],['calm-lynx','dashed',4,''],['old-crane','block',5,'idle'],['pale-wren','solid',5,'halo sel']];
+for (const k of ['A','B','C']) {
+  const st = document.createElement('div'); st.className = 'study';
+  st.innerHTML = `<span class="tag ${k==='A'?'rec':'alt'}">${k}</span> ${k==='A'?'width':k==='B'?'line count':'filled stops'}`;
+  const side = document.createElement('div'); side.className = 'side desk';
+  side.innerHTML = '<div class="sess"><span class="chev">▾</span> fab-kit</div>';
+  for (const [n, p, s, d] of TREE) {
+    const r = document.createElement('div'); r.className = 'row' + (d.includes('sel') ? ' sel' : '');
+    r.appendChild(ENC[k](p, s));
+    const dot = document.createElement('div'); dot.className = 'dot ' + d.replace('sel','').trim(); r.appendChild(dot);
+    r.appendChild(Object.assign(document.createElement('span'), { className: 'name', textContent: n }));
+    side.appendChild(r);
+  }
+  st.appendChild(side); document.getElementById('trees').appendChild(st);
+}
+
+// ---- live rows + pad ----
+function paintRow(row) {
+  const p = row.dataset.p, s = +row.dataset.s;
+  const st = row.querySelector('.stripe'); st.style.cssText = stripeCSS(p, W[s]);
+  if (row.closest('.mob')) { st.style.cssText = stripeCSS(p, Math.round(W[s] * 8 / 22)); }
+  const tip = row.querySelector('.tip'); if (tip) tip.innerHTML = `stage <b>${s}</b> · ${p}${s? ' — ' + PMEAN[p] : ''}`;
+}
+document.querySelectorAll('.row[data-p]').forEach(paintRow);
+
+function makePad(row, mode /* 'menu' | 'spring' | 'inline' */, onCommit) {
+  const pad = document.createElement('div'); pad.className = 'pad';
+  const hd = document.createElement('div'); hd.className = 'hd'; pad.appendChild(hd);
+  const g = document.createElement('div'); g.className = 'g'; pad.appendChild(g);
+  g.appendChild(Object.assign(document.createElement('div'), { className: 'colh', textContent: '' }));
+  for (let s = 0; s <= 5; s++) g.appendChild(Object.assign(document.createElement('div'), { className: 'colh', textContent: s === 0 ? '∅' : s }));
+  const cells = {};
+  PATTERNS.forEach((p, ri) => {
+    g.appendChild(Object.assign(document.createElement('div'), { className: 'pl', textContent: PLABEL[p] }));
+    if (ri === 0) { const cl = document.createElement('div'); cl.className = 'pc clear'; cl.textContent = '∅'; cl.dataset.p = 'solid'; cl.dataset.s = '0'; g.appendChild(cl); cells['0'] = cl; }
+    for (let s = 1; s <= 5; s++) {
+      const c = document.createElement('div'); c.className = 'pc'; c.dataset.p = p; c.dataset.s = s;
+      const st = document.createElement('div'); st.className = 'stripe'; st.style.cssText = stripeCSS(p, W[s]); c.appendChild(st);
+      g.appendChild(c); cells[p + s] = c;
+    }
+  });
+  const cur = { p: row.dataset.p, s: +row.dataset.s };
+  function mark(p, s, hot) {
+    Object.values(cells).forEach(c => { c.classList.toggle('on', +c.dataset.s === cur.s && (cur.s === 0 || c.dataset.p === cur.p)); c.classList.remove('hot'); });
+    const c = s === 0 ? cells['0'] : cells[p + s]; if (c && hot) c.classList.add('hot');
+    hd.innerHTML = s === 0 ? `<span>clear marker</span><span></span>` : `<span><b>${PLABEL[p]}</b> · stage ${s}</span><span>${PMEAN[p]}</span>`;
+  }
+  mark(cur.p, cur.s, false);
+  function preview(p, s) { row.dataset.p = p; row.dataset.s = s; paintRow(row); mark(p, s, true); }
+  function cellAt(x, y) {
+    const el = document.elementFromPoint(x, y); const c = el && el.closest('.pc'); return c ? { p: c.dataset.p, s: +c.dataset.s } : null;
+  }
+  g.addEventListener('pointermove', e => { const c = cellAt(e.clientX, e.clientY); if (c) preview(c.p, c.s); });
+  g.addEventListener('pointerleave', () => { row.dataset.p = cur.p; row.dataset.s = cur.s; paintRow(row); mark(cur.p, cur.s, false); });
+  g.addEventListener('click', e => { const c = cellAt(e.clientX, e.clientY); if (c) { cur.p = c.p; cur.s = c.s; preview(c.p, c.s); onCommit && onCommit(cur); } });
+  pad.cellAt = cellAt; pad.preview = preview; pad.cur = cur;
+  // spring-drag hit test: pointer + the clamp offset, clamped into the cell area so an over-drag sticks to the edge cell
+  pad.off = { dx: 0, dy: 0 };
+  pad.cellAtDrag = (x, y) => {
+    const vx = x + pad.off.dx, vy = y + pad.off.dy;
+    const rects = Object.values(cells).map(c => [c, c.getBoundingClientRect()]);
+    const L = Math.min(...rects.map(([, r]) => r.left)), R = Math.max(...rects.map(([, r]) => r.right)) - 1;
+    const T = Math.min(...rects.map(([, r]) => r.top)), B = Math.max(...rects.map(([, r]) => r.bottom)) - 1;
+    const cx = Math.max(L, Math.min(R, vx)), cy = Math.max(T, Math.min(B, vy));
+    let best = null, bd = 1e9;
+    for (const [c, r] of rects) { if (cx >= r.left && cx < r.right && cy >= r.top && cy < r.bottom) return { p: c.dataset.p, s: +c.dataset.s }; const d = Math.hypot(cx - (r.left + r.width / 2), cy - (r.top + r.height / 2)); if (d < bd) { bd = d; best = c; } }
+    return best ? { p: best.dataset.p, s: +best.dataset.s } : null;
+  };
+  pad.commit = (c) => { cur.p = c.p; cur.s = c.s; row.dataset.p = c.p; row.dataset.s = c.s; paintRow(row); mark(c.p, c.s, false); onCommit && onCommit(cur); };
+  pad.revert = () => { row.dataset.p = cur.p; row.dataset.s = cur.s; paintRow(row); };
+  // geometry helpers for spring mode: place so that (p,s) cell center lands at client (x,y)
+  pad.placeUnder = (x, y, p, s) => {
+    const host = row.closest('.side'); const hr = host.getBoundingClientRect();
+    host.appendChild(pad); pad.style.left = '0px'; pad.style.top = '0px';
+    const c = s === 0 ? cells['0'] : cells[p + s]; const cr = c.getBoundingClientRect(); const pr = pad.getBoundingClientRect();
+    const dx = (cr.left + cr.width / 2) - pr.left, dy = (cr.top + cr.height / 2) - pr.top;
+    const wantL = x - hr.left - dx, wantT = y - hr.top - dy;
+    // clamp inside the sidebar box (the real sidebar is flush with the screen's left edge); remember how far we moved
+    const L = Math.max(0, Math.min(Math.max(0, hr.width - pr.width), wantL)), T = Math.max(0, wantT);
+    pad.style.left = L + 'px'; pad.style.top = T + 'px';
+    pad.off = { dx: L - wantL, dy: T - wantT };
+  };
+  pad.placeBelow = () => { const host = row.closest('.side'); host.appendChild(pad); const hr = host.getBoundingClientRect(), rr = row.getBoundingClientRect(); pad.style.left = (rr.left - hr.left) + 'px'; pad.style.top = (rr.bottom - hr.top + 2) + 'px'; };
+  return pad;
+}
+
+// I1: one-step
+(function () {
+  const row = document.querySelector('#i1 .row.hov'); const hit = row.querySelector('.strip-hit');
+  let x0 = 0, s0 = 0, moved = false;
+  hit.addEventListener('pointerdown', e => { hit.setPointerCapture(e.pointerId); x0 = e.clientX; s0 = +row.dataset.s; moved = false; });
+  hit.addEventListener('pointermove', e => { if (!hit.hasPointerCapture(e.pointerId)) return; const d = Math.round((e.clientX - x0) / 18); if (d !== 0) moved = true; row.dataset.s = Math.max(0, Math.min(5, s0 + d)); paintRow(row); });
+  hit.addEventListener('pointerup', () => { if (!moved) { const i = PATTERNS.indexOf(row.dataset.p); row.dataset.p = PATTERNS[(i + 1) % PATTERNS.length]; if (+row.dataset.s === 0) row.dataset.s = 2; paintRow(row); } });
+  hit.addEventListener('wheel', e => { e.preventDefault(); row.dataset.s = Math.max(0, Math.min(5, +row.dataset.s + (e.deltaY > 0 ? -1 : 1))); paintRow(row); }, { passive: false });
+})();
+
+// I2: two-step
+(function () {
+  const row = document.querySelector('#i2 .row.hov'); const hit = row.querySelector('.strip-hit'); let pad = null;
+  function close() { if (pad) { pad.revert(); pad.remove(); pad = null; } }
+  hit.addEventListener('click', e => { e.stopPropagation(); if (pad) return close(); pad = makePad(row, 'menu', () => setTimeout(close, 120)); pad.placeBelow(); });
+  document.addEventListener('pointerdown', e => { if (pad && !pad.contains(e.target) && e.target !== hit) close(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+})();
+
+// I3: spring-loaded
+(function () {
+  const row = document.querySelector('#i3 .row.hov'); const hit = row.querySelector('.strip-hit'); let pad = null, press = null;
+  function close() { if (pad) { pad.remove(); pad = null; } }
+  hit.addEventListener('pointerdown', e => {
+    e.stopPropagation(); if (pad) { pad.revert(); close(); }
+    hit.setPointerCapture(e.pointerId);
+    pad = makePad(row, 'spring', () => setTimeout(close, 120));
+    pad.placeUnder(e.clientX, e.clientY, row.dataset.p, +row.dataset.s);
+    pad.preview(row.dataset.p, +row.dataset.s);
+    press = { x: e.clientX, y: e.clientY, moved: false };
+  });
+  hit.addEventListener('pointermove', e => {
+    if (!press || !pad) return;
+    if (Math.hypot(e.clientX - press.x, e.clientY - press.y) > 4) press.moved = true;
+    const c = pad.cellAtDrag(e.clientX, e.clientY); if (c) pad.preview(c.p, c.s);
+  });
+  hit.addEventListener('pointerup', e => {
+    if (!press || !pad) return;
+    if (press.moved) { const c = pad.cellAtDrag(e.clientX, e.clientY) || { p: row.dataset.p, s: +row.dataset.s }; pad.commit(c); setTimeout(close, 120); }
+    // no move: stays open in click mode (pad's own click handler commits)
+    press = null;
+  });
+  hit.addEventListener('wheel', e => { e.preventDefault(); row.dataset.s = Math.max(0, Math.min(5, +row.dataset.s + (e.deltaY > 0 ? -1 : 1))); paintRow(row); }, { passive: false });
+  document.addEventListener('pointerdown', e => { if (pad && !press && !pad.contains(e.target) && e.target !== hit) { pad.revert(); close(); } });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && pad) { pad.revert(); close(); } });
+})();
+
+// mobile inline pad
+(function () {
+  const row = document.querySelector('#mcard').parentElement.querySelector('.row.sel');
+  const pad = makePad(row, 'inline', (cur) => { document.querySelector('#mcard .r.on span:last-child').textContent = cur.s ? `${cur.p} · ${cur.s}` : 'none'; });
+  document.getElementById('mpadwrap').appendChild(pad);
+})();
+</script>
+</body>
+</html>

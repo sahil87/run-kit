@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Marker 3×3 — Modes, Stages, Ink</title>
+<style>
+  :root { --bg:#0f1117; --card:#171b24; --inset:#0a0c12; --tp:#e8eaf0; --ts:#7a8394; --border:#454d66;
+    --accent:#5b8af0; --green:#22c55e; --yellow:#facc15; --purple:#c084fc; --blue:#60a5fa; --red:#f87171; --ink:#f59e0b; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--tp); font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; padding:28px 32px 90px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  h2 { font-size:15px; margin:40px 0 10px; border-bottom:1px solid var(--border); padding-bottom:6px; }
+  h3 { font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--ts); margin:22px 0 8px; font-weight:600; }
+  p, li { color:#b6bcc9; font-size:13px; max-width:84ch; }
+  .sub { color:var(--ts); margin:0 0 14px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:18px; align-items:start; }
+  .grid.two { grid-template-columns:repeat(auto-fit,minmax(420px,1fr)); }
+  .study { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:12px 12px 10px; }
+  .cap { font-size:11px; color:var(--ts); margin-top:8px; line-height:1.45; }
+  .cap b, .study > b { color:var(--tp); font-weight:600; }
+  .tag { display:inline-block; font-size:10px; letter-spacing:.05em; text-transform:uppercase; padding:1px 6px; border-radius:3px; border:1px solid var(--border); color:var(--ts); margin-right:6px; vertical-align:middle; }
+  .tag.rec{border-color:var(--green);color:var(--green)} .tag.alt{border-color:var(--blue);color:var(--blue)} .tag.bad{border-color:var(--red);color:var(--red)} .tag.now{border-color:#6b7280;color:#cbd5e1}
+  code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11.5px; background:var(--inset); padding:0 4px; border-radius:3px; color:#cbd5e1; }
+  table { border-collapse:collapse; font-size:12px; margin-top:8px; width:100%; }
+  td,th { border:1px solid var(--border); padding:4px 8px; text-align:left; color:#b6bcc9; vertical-align:top; }
+  th { color:var(--tp); font-weight:600; }
+  .q { border-left:3px solid var(--accent); padding:6px 10px; margin:12px 0; background:color-mix(in srgb,var(--accent) 8%,transparent); border-radius:0 4px 4px 0; }
+  .q p { margin:0; }
+
+  /* theme frames */
+  .frame { --fbg:#0f1117; --fcard:#171b24; --finset:#0a0c12; --ftp:#e8eaf0; --fts:#7a8394; --fborder:#454d66; --fgray:#6b7280; }
+  .frame.light { --fbg:#f8f9fb; --fcard:#ffffff; --finset:#e8eaef; --ftp:#1a1d24; --fts:#6b7280; --fborder:#d1d5db; --fgray:#9ca3af; }
+  .side { background:var(--fbg); border:1px solid var(--fborder); border-radius:6px; overflow:visible; font-size:12px; position:relative; max-width:300px; }
+  .sess { display:flex; align-items:center; gap:6px; height:26px; padding:0 8px; color:var(--fts); font-weight:500; }
+  .sess .chev{font-size:10px;opacity:.8}
+  .row { position:relative; display:flex; align-items:center; gap:6px; min-height:24px; padding:1px 8px 1px 30px; color:var(--fts); font-size:12px; }
+  .row.sel { color:var(--ftp); font-weight:500; }
+  .row.hov { color:var(--ftp); }
+  .row .name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .row .gloss { margin-left:auto; font-size:10px; color:var(--fts); opacity:.8; display:flex; gap:6px; align-items:center; }
+  .row .gloss svg { width:12px; height:12px; }
+  .dot { flex:none; width:7px; height:7px; border-radius:50%; background:#22c55e; }
+  .dot.idle{background:var(--fgray)} .dot.ring{background:transparent;border:1.8px solid #22c55e}
+  .dot.halo{box-shadow:0 0 0 3px color-mix(in srgb,#facc15 35%,transparent);background:#facc15}
+  .stripe { position:absolute; left:4px; top:0; bottom:0; width:22px; pointer-events:none; }
+
+  .cat { display:grid; grid-template-columns:96px repeat(3,66px) 1fr; gap:4px 8px; align-items:center; font-size:11px; color:var(--ts); }
+  .cat .h { font-size:10px; text-align:center; letter-spacing:.04em; }
+  .cat .nm { color:var(--tp); font-weight:600; font-size:11.5px; } .cat .nm small { display:block; color:var(--ts); font-weight:400; font-size:10px; }
+  .cell { position:relative; height:72px; background:var(--bg); border:1px solid color-mix(in srgb,var(--border) 60%,transparent); border-radius:3px; overflow:hidden; }
+  .cell .stripe { left:3px; }
+  .cell .cdot { position:absolute; left:29px; width:7px; height:7px; margin-top:-3.5px; border-radius:50%; background:#6b7280; }
+  .cat .rd { font-size:10.5px; line-height:1.35; }
+
+  .strip-hit { position:absolute; left:0; top:0; bottom:0; width:26px; cursor:ew-resize; z-index:3; }
+  .row.hov .strip-hit { background:color-mix(in srgb,var(--ink) 10%,transparent); }
+  .pad { position:absolute; z-index:50; background:var(--card); border:1px solid var(--border); border-radius:6px; box-shadow:0 10px 28px rgba(0,0,0,.6); padding:6px; user-select:none; touch-action:none; font-size:10px; color:var(--ts); }
+  .pad.static { position:static; box-shadow:none; display:inline-block; }
+  .pad .hd { display:flex; justify-content:space-between; gap:8px; padding:0 2px 5px; color:var(--tp); font-size:10.5px; min-height:16px; white-space:nowrap; }
+  .pad .hd b { color:var(--ink); font-weight:600; }
+  .pad .g { display:grid; grid-template-columns:54px repeat(4,26px); grid-auto-rows:24px; gap:2px; }
+  .pad .pl { display:flex; align-items:center; justify-content:flex-end; padding-right:6px; font-size:10px; letter-spacing:.03em; white-space:nowrap; color:var(--tp); font-weight:600; }
+  .pad .pc { position:relative; background:var(--bg); border:1px solid color-mix(in srgb,var(--border) 55%,transparent); border-radius:3px; overflow:hidden; }
+  .pad .pc .stripe { left:1px; width:22px; }
+  .pad .pc.on { border-color:var(--ink); box-shadow:inset 0 0 0 1px var(--ink); }
+  .pad .pc.hot { border-color:var(--tp); }
+  .pad .clear { grid-column:2; grid-row:2 / span 3; display:grid; place-items:center; color:var(--ts); font-size:13px; }
+  .pad .clear.on { color:var(--ink); }
+  .pad .colh { text-align:center; font-size:9px; display:grid; place-items:center; }
+  .hint { font-size:11px; color:var(--blue); margin:6px 0 0; }
+  .sw { display:inline-flex; align-items:center; gap:6px; margin-right:14px; font-size:11px; color:var(--ts); }
+  .sw i { display:inline-block; width:22px; height:14px; border-radius:2px; }
+</style>
+</head>
+<body>
+
+<h1>Marker 3×3 — Modes, Stages, Ink</h1>
+<p class="sub">Fourth study. The matrix collapses to <b>3 modes × 3 stages</b> (manual · auto · blocked × 1 · 2 · 3), auto keeps the <code>»</code> row, the stripe still uses the full 22px. Then the open question: what color is the marker drawn in?</p>
+
+<h2>1 · The 3×3</h2>
+<div class="grid">
+  <div class="study"><span class="tag rec">shapes</span> 3 stages over 22px
+    <div class="cat" id="cat"></div>
+    <div class="cap">Manual: solid at <b>7 / 15 / 22px</b> — thirds of the 22px well, so the fill reads 1/3 → 2/3 → full (see § 3 for the well itself). Auto: <b>1 / 2 / 3 chevrons</b>, each 4.2px wide × 10px tall at 7.2px pitch, so three fill the strip. Blocked: hatch at the same three widths (crosshatch shown as the alternative). Stage glosses: <i>early · mid · done</i>.</div></div>
+  <div class="study"><span class="tag rec">pad</span> static, for reading
+    <div id="padstatic"></div>
+    <div class="cap">54px label column + ∅ + three 26px cells = 166px wide, 4 rows = 110px tall. Small enough that on mobile it fits inline in the card without shrinking (28px cells → 174px).</div>
+    <div style="margin-top:10px"><span class="tag rec">live</span> spring-loaded, clamped, relative drag
+    <div class="side frame" id="live" style="margin-top:6px">
+      <div class="sess"><span class="chev">▾</span> fab-kit</div>
+      <div class="row hov" data-p="auto" data-s="1"><div class="stripe"></div><div class="strip-hit"></div><div class="dot"></div><span class="name">buffed-pika</span></div>
+      <div class="row" data-p="manual" data-s="2"><div class="stripe"></div><div class="dot idle"></div><span class="name">rosy-otter</span></div>
+      <div class="row" data-p="blocked" data-s="2"><div class="stripe"></div><div class="dot idle"></div><span class="name">iron-heron</span></div>
+    </div>
+    <p class="hint">press on buffed-pika's strip; one cell right = next stage, one down = next mode.</p></div></div>
+</div>
+
+<h2>2 · Marker ink — four options, dark and light</h2>
+<p>Same tree everywhere: rows carry a <i>label</i> color (amber · green · blue · purple; two rows uncolored) with today's rest/selected family tints, a waiting halo on <code>iron-heron</code>, and a closed-PR glyph on <code>old-crane</code> — the two places the status pyramid already spends hue.</p>
+<div class="study" style="display:flex;gap:24px;align-items:center;flex-wrap:wrap;padding:10px 12px">
+  <b>Ink pickers</b>
+  <label class="sw" style="color:var(--tp)">dark&nbsp;<input type="color" id="pickDark" style="width:34px;height:22px;border:1px solid var(--border);background:transparent;border-radius:4px;padding:0">&nbsp;<code id="hexDark"></code>&nbsp;<span id="crDark" style="color:var(--ts)"></span></label>
+  <label class="sw" style="color:var(--tp)">light&nbsp;<input type="color" id="pickLight" style="width:34px;height:22px;border:1px solid var(--border);background:transparent;border-radius:4px;padding:0">&nbsp;<code id="hexLight"></code>&nbsp;<span id="crLight" style="color:var(--ts)"></span></label>
+  <span class="cap" style="margin:0;flex:1 1 260px">re-renders every dark/light frame in §2–§4 live. Light is pinned at <b>#d97706</b> (your pick); dark at #f59e0b.</span>
+</div>
+<div class="grid two" id="inks"></div>
+
+<div class="study" style="margin-top:18px">
+  <b>Light ink — keep the hue, drop the lightness</b>
+  <div style="margin-top:8px;background:#f8f9fb;border:1px solid #d1d5db;border-radius:6px;padding:10px 12px;display:flex;gap:18px;flex-wrap:wrap" id="inkstrip"></div>
+  <div class="cap">The dark ink #f59e0b is hue 38°. The earlier light pick #b45309 is hue 26° — that's the red cast. Holding hue at ~35° and darkening until a graphic clears 3:1 on #f8f9fb gives #c97400 (3.3:1) or #c46800 (3.7:1); the chosen light ink is <b>#d97706</b> (3.0:1) — a shade lighter, judged by eye against the frames above. #f59e0b itself measures 2.0:1 on light by the WCAG formula — but a saturated orange on a white page reads louder than the number suggests, so the frames above now use it as the starting point and the picker decides. Token: <code>--color-marker-ink</code> = #f59e0b dark / #d97706 light, paired the way <code>--color-signal-yellow</code> already is (#facc15 / #b07d02).</div>
+</div>
+
+<h2>3 · The marker well — giving the empty part a shape</h2>
+<p>A 7px stripe under a 22px slab reads as a gap, not as "one third". The fix is to draw the <b>well</b> the fill lives in, so 0 → ⅓ → ⅔ → full is legible on every row. Three ways to draw it, C1 ink, dark and light.</p>
+<div class="grid" id="wells"></div>
+
+<h2>4 · T4 — the gap between the well and the status dot</h2>
+<p>Today the well's right edge is at x=26 and the dot's leading edge at x=30 (<code>pl-[30px]</code>): a 4px gap, and the waiting halo (3px spread) closes it to 1px, so the well and the dot fuse into one cluster. Three spacings, T4 ink, dark and light; the name column shrinks by the same amount the gap grows.</p>
+<div class="grid" id="gaps"></div>
+<div class="q"><p><b>Gap recommendation: drop the well's 4px inset — well at x=0–22, dot stays at 30.</b> The desktop shell already puts the sidebar card on a 6px inset ground behind a 1px card border, so the row's x=0 is 7px from the app edge; the stripe's <code>STRIPE_EDGE_INSET = 4</code> dates from the pre-card full-bleed sidebar and now just duplicates that breathing room. Removing it yields the 8px gap without moving the dot, the name, or any constant but one. The well then anchors to the card edge exactly the way the row tint, hover and selection fills already do. Mobile drawer caveat: there the sidebar is flush to the viewport, so the well would touch the screen edge — acceptable (the row tints already do), but worth one look on a phone.</p></div>
+
+<div class="q"><p><b>Recommendation: C1 — one fixed, theme-paired ink; no marker color picker.</b> The marker is now an instrument (mode × stage), and an instrument should look the same on every row so the eye learns "amber shape = my marker" and reads the <i>shape</i>, never the hue. Label color stays exactly what it is — the row's grouping tint, picked from the card — and the two never compete: the label lives in the row's tint and the group header, the marker in a 22px strip. C0 (today's inherit-the-label-hue) has one real defect: uncolored rows get a gray stripe that is nearly invisible. C2 (semantic hue per mode) double-encodes nicely but spends red and blue, which the dot and PR glyph already own — red would mean "blocked" on the strip and "closed PR" 200px to the right on the same row. C3 (a small user palette for the marker) is a third free axis on a 3×3 — 36 states — and inherits both problems.</p></div>
+
+<script>
+const W3 = [0, 7, 15, 22]; // thirds of the 22px well
+const MODES = ['manual', 'auto', 'blocked'];
+const GLOSS = { manual: 'mine', auto: 'agent’s', blocked: 'stuck' };
+const SGLOSS = ['', 'early', 'mid', 'done'];
+const svgURI = s => `url("data:image/svg+xml;utf8,${encodeURIComponent(s)}")`;
+function shape(mode, s, ink, blockedVariant = 'hatch') {
+  if (!s) return '';
+  const w = W3[s];
+  if (mode === 'manual') return `border-left:${w}px solid ${ink};`;
+  if (mode === 'auto') {
+    const P = 7.2, wd = s * P + 1; let d = '';
+    for (let i = 0; i < s; i++) { const x = i * P + 0.9; d += `M${x} 1 L${(x + 4.2).toFixed(1)} 6 L${x} 11 `; }
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='${wd}' height='12' viewBox='0 0 ${wd} 12'><path d='${d}' fill='none' stroke='${ink}' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/></svg>`;
+    return `width:22px;background:${svgURI(svg)} 0 50%/${wd}px 12px no-repeat;`;
+  }
+  if (blockedVariant === 'cross') return `width:${w}px;background:linear-gradient(45deg,${ink} 0 20%,transparent 20% 50%,${ink} 50% 70%,transparent 70%) 0 0/12px 12px repeat, linear-gradient(-45deg,${ink} 0 20%,transparent 20% 50%,${ink} 50% 70%,transparent 70%) 0 0/12px 12px repeat;`;
+  return `width:${w}px;background:linear-gradient(45deg,${ink} 0 25%,transparent 25% 50%,${ink} 50% 75%,transparent 75%) 0 0/12px 12px repeat;`;
+}
+const INK = '#f59e0b';
+
+// catalog
+(function () {
+  const g = document.getElementById('cat');
+  ['', 'stage 1 · early', 'stage 2 · mid', 'stage 3 · done', ''].forEach(t => g.appendChild(Object.assign(document.createElement('div'), { className: 'h', textContent: t })));
+  const ROWS = [['manual', 'solid, width', 'manual', 'hatch'], ['auto', '» count', 'auto', 'hatch'], ['blocked', 'hatch, width', 'blocked', 'hatch'], ['blocked (alt)', 'crosshatch, width', 'blocked', 'cross']];
+  for (const [label, gloss, mode, bv] of ROWS) {
+    const nm = document.createElement('div'); nm.className = 'nm'; nm.innerHTML = `${label}<small>${gloss}</small>`; g.appendChild(nm);
+    for (let s = 1; s <= 3; s++) {
+      const c = document.createElement('div'); c.className = 'cell';
+      for (let i = 0; i < 3; i++) { const st = document.createElement('div'); st.className = 'stripe'; st.style.cssText = shape(mode, s, INK, bv) + `top:${i*24}px;bottom:auto;height:24px;`; c.appendChild(st); const d = document.createElement('i'); d.className = 'cdot'; d.style.top = (i*24+12) + 'px'; c.appendChild(d); }
+      g.appendChild(c);
+    }
+    g.appendChild(Object.assign(document.createElement('div'), { className: 'rd', textContent: '' }));
+  }
+})();
+
+// pad
+function makePad(row, onCommit) {
+  const pad = document.createElement('div'); pad.className = 'pad';
+  const hd = document.createElement('div'); hd.className = 'hd'; pad.appendChild(hd);
+  const g = document.createElement('div'); g.className = 'g'; pad.appendChild(g);
+  g.appendChild(Object.assign(document.createElement('div'), { className: 'colh' }));
+  ['∅', '1', '2', '3'].forEach(t => g.appendChild(Object.assign(document.createElement('div'), { className: 'colh', textContent: t })));
+  const cells = {};
+  MODES.forEach((p, ri) => {
+    g.appendChild(Object.assign(document.createElement('div'), { className: 'pl', textContent: p }));
+    if (ri === 0) { const cl = document.createElement('div'); cl.className = 'pc clear'; cl.textContent = '∅'; cl.dataset.p = 'manual'; cl.dataset.s = '0'; g.appendChild(cl); cells['0'] = cl; }
+    for (let s = 1; s <= 3; s++) { const c = document.createElement('div'); c.className = 'pc'; c.dataset.p = p; c.dataset.s = s; const st = document.createElement('div'); st.className = 'stripe'; st.style.cssText = shape(p, s, INK); c.appendChild(st); g.appendChild(c); cells[p + s] = c; }
+  });
+  const cur = { p: row ? row.dataset.p : 'auto', s: row ? +row.dataset.s : 2 };
+  function mark(p, s, hot) {
+    Object.values(cells).forEach(c => { c.classList.toggle('on', +c.dataset.s === cur.s && (cur.s === 0 || c.dataset.p === cur.p)); c.classList.remove('hot'); });
+    const c = s === 0 ? cells['0'] : cells[p + s]; if (c && hot) c.classList.add('hot');
+    hd.innerHTML = s === 0 ? `<span>clear marker</span><span></span>` : `<span><b>${p}</b> · ${SGLOSS[s]}</span><span>${GLOSS[p]}</span>`;
+  }
+  mark(cur.p, cur.s, false);
+  if (!row) return pad;
+  const paint = () => { row.querySelector('.stripe').style.cssText = shape(row.dataset.p, +row.dataset.s, INK); };
+  const preview = (p, s) => { row.dataset.p = p; row.dataset.s = s; paint(); mark(p, s, true); };
+  const cellAt = (x, y) => { const el = document.elementFromPoint(x, y); const c = el && el.closest('.pc'); return c ? { p: c.dataset.p, s: +c.dataset.s } : null; };
+  pad.off = { dx: 0, dy: 0 };
+  pad.cellAtDrag = (x, y) => {
+    const vx = x + pad.off.dx, vy = y + pad.off.dy;
+    const rects = Object.values(cells).map(c => [c, c.getBoundingClientRect()]);
+    const L = Math.min(...rects.map(([, r]) => r.left)), R = Math.max(...rects.map(([, r]) => r.right)) - 1;
+    const T = Math.min(...rects.map(([, r]) => r.top)), B = Math.max(...rects.map(([, r]) => r.bottom)) - 1;
+    const cx = Math.max(L, Math.min(R, vx)), cy = Math.max(T, Math.min(B, vy));
+    let best = null, bd = 1e9;
+    for (const [c, r] of rects) { if (cx >= r.left && cx < r.right && cy >= r.top && cy < r.bottom) return { p: c.dataset.p, s: +c.dataset.s }; const d = Math.hypot(cx - (r.left + r.width / 2), cy - (r.top + r.height / 2)); if (d < bd) { bd = d; best = c; } }
+    return best ? { p: best.dataset.p, s: +best.dataset.s } : null;
+  };
+  g.addEventListener('pointermove', e => { const c = cellAt(e.clientX, e.clientY); if (c) preview(c.p, c.s); });
+  g.addEventListener('pointerleave', () => { row.dataset.p = cur.p; row.dataset.s = cur.s; paint(); mark(cur.p, cur.s, false); });
+  g.addEventListener('click', e => { const c = cellAt(e.clientX, e.clientY); if (c) { cur.p = c.p; cur.s = c.s; preview(c.p, c.s); onCommit && onCommit(); } });
+  pad.preview = preview;
+  pad.commit = c => { cur.p = c.p; cur.s = c.s; row.dataset.p = c.p; row.dataset.s = c.s; paint(); mark(c.p, c.s, false); onCommit && onCommit(); };
+  pad.revert = () => { row.dataset.p = cur.p; row.dataset.s = cur.s; paint(); };
+  pad.placeUnder = (x, y, p, s) => {
+    const host = row.closest('.side'); const hr = host.getBoundingClientRect(); host.appendChild(pad); pad.style.left = '0px'; pad.style.top = '0px';
+    const c = s === 0 ? cells['0'] : cells[p + s]; const cr = c.getBoundingClientRect(), pr = pad.getBoundingClientRect();
+    const wantL = x - hr.left - ((cr.left + cr.width / 2) - pr.left), wantT = y - hr.top - ((cr.top + cr.height / 2) - pr.top);
+    const L = Math.max(0, Math.min(Math.max(0, hr.width - pr.width), wantL)), T = Math.max(0, wantT);
+    pad.style.left = L + 'px'; pad.style.top = T + 'px'; pad.off = { dx: L - wantL, dy: T - wantT };
+  };
+  return pad;
+}
+document.querySelectorAll('#live .row[data-p]').forEach(r => { r.querySelector('.stripe').style.cssText = shape(r.dataset.p, +r.dataset.s, INK); });
+(function () {
+  const row = document.querySelector('#live .row.hov'); const hit = row.querySelector('.strip-hit'); let pad = null, press = null;
+  const close = () => { if (pad) { pad.remove(); pad = null; } };
+  hit.addEventListener('pointerdown', e => { e.stopPropagation(); if (pad) { pad.revert(); close(); } hit.setPointerCapture(e.pointerId); pad = makePad(row, () => setTimeout(close, 120)); pad.placeUnder(e.clientX, e.clientY, row.dataset.p, +row.dataset.s); pad.preview(row.dataset.p, +row.dataset.s); press = { x: e.clientX, y: e.clientY, moved: false }; });
+  hit.addEventListener('pointermove', e => { if (!press || !pad) return; if (Math.hypot(e.clientX - press.x, e.clientY - press.y) > 4) press.moved = true; const c = pad.cellAtDrag(e.clientX, e.clientY); if (c) pad.preview(c.p, c.s); });
+  hit.addEventListener('pointerup', e => { if (!press || !pad) return; if (press.moved) { const c = pad.cellAtDrag(e.clientX, e.clientY) || { p: row.dataset.p, s: +row.dataset.s }; pad.commit(c); setTimeout(close, 120); } press = null; });
+  document.addEventListener('pointerdown', e => { if (pad && !press && !pad.contains(e.target) && e.target !== hit) { pad.revert(); close(); } });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && pad) { pad.revert(); close(); } });
+  const sp = makePad(null); sp.classList.add('static'); document.getElementById('padstatic').appendChild(sp);
+})();
+
+// ---- ink options ----
+const FAM = {
+  dark:  { amber: '#f59e0b', green: '#22c55e', blue: '#60a5fa', purple: '#c084fc', red: '#f87171', gray: '#6b7280', ink: '#f59e0b', ts: '#7a8394', bg: '#0f1117' },
+  light: { amber: '#b45309', green: '#15803d', blue: '#1d4ed8', purple: '#7e22ce', red: '#b91c1c', gray: '#9ca3af', ink: '#d97706', ts: '#6b7280', bg: '#f8f9fb' },
+};
+// name, mode, stage, family|null, dot, flags
+const TREE = [
+  ['rosy-otter',  'manual',  1, 'amber',  'idle', ''],
+  ['buffed-pika', 'auto',    2, 'green',  '',     ''],
+  ['swift-mink',  'auto',    3, null,     'ring', ''],
+  ['iron-heron',  'blocked', 2, 'blue',   'halo', ''],
+  ['calm-lynx',   'manual',  3, 'purple', '',     ''],
+  ['old-crane',   'blocked', 1, null,     'idle', 'pr'],
+  ['pale-wren',   'manual',  2, 'amber',  'halo', 'sel'],
+];
+const PRSVG = c => `<svg viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="6" y1="9" x2="6" y2="15"/><path d="M17 8l4 4-4 4M21 12h-4"/></svg>`;
+const OPTS = [
+  ['C0', 'now', 'inherit the label hue (today)', (t, fam, mode) => fam ? FAM[t][fam] : FAM[t].gray],
+  ['C1', 'rec', 'one fixed marker ink, theme-paired', (t) => FAM[t].ink],
+  ['C2', 'alt', 'hue by mode: manual neutral · auto blue · blocked red', (t, fam, mode) => mode === 'auto' ? FAM[t].blue : mode === 'blocked' ? FAM[t].red : FAM[t].ts],
+  ['C3', 'bad', 'user picks a marker color (Y · R · B · G) — a third axis', (t, fam, mode, i) => [FAM[t].ink, FAM[t].red, FAM[t].blue, FAM[t].green][i % 4]],
+];
+const CAPS = {
+  C0: 'Coherent on colored rows (a monochrome row), but the two uncolored rows — swift-mink at auto·3, old-crane blocked·1 — get a gray stripe that disappears, and the marker’s legibility depends on which family the user happened to pick.',
+  C1: 'Every marker is the same ink, so the shape is what you read. Two-tone rows (amber » on a blue-tinted row) are fine because the tint is 12–40% and the stripe is full-saturation. Uncolored rows finally have a visible marker. One new theme-paired token.',
+  C2: 'Double-encodes mode (texture + hue), which helps at a glance — but red now means "blocked" at x=4 and "closed PR" at x=280 on old-crane, and blue-on-blue on iron-heron’s blue family flattens the stripe into the tint. The status pyramid already owns these hues.',
+  C3: 'Free choice looks harmless in a tree of four rows and becomes noise at forty: 3 modes × 3 stages × 4 inks = 36 states, and any red marker collides with the PR glyph exactly as in C2. Nothing here that the label color doesn’t already give you.',
+};
+function buildInks() {
+  const host = document.getElementById('inks'); host.innerHTML = '';
+  for (const [k, tag, title, inkFor] of OPTS) {
+    const st = document.createElement('div'); st.className = 'study'; st.innerHTML = `<span class="tag ${tag}">${k}</span> ${title}`;
+    const wrap = document.createElement('div'); wrap.style.cssText = 'display:flex;gap:12px;flex-wrap:wrap;margin-top:8px';
+    for (const t of ['dark', 'light']) {
+      const side = document.createElement('div'); side.className = 'side frame ' + t; side.style.flex = '1 1 260px'; side.innerHTML = `<div class="sess"><span class="chev">▾</span> fab-kit <span style="margin-left:auto;font-size:9px;letter-spacing:.06em;text-transform:uppercase;opacity:.7">${t}</span></div>`;
+      TREE.forEach(([n, mode, s, fam, dot, flags], i) => {
+        const r = document.createElement('div'); r.className = 'row' + (flags.includes('sel') ? ' sel' : '');
+        if (fam) r.style.background = `color-mix(in srgb, ${FAM[t][fam]} ${flags.includes('sel') ? 40 : 12}%, transparent)`;
+        else if (flags.includes('sel')) r.style.background = `color-mix(in srgb, ${FAM[t].gray} 40%, transparent)`;
+        const ink = inkFor(t, fam, mode, i);
+        const stp = document.createElement('div'); stp.className = 'stripe'; stp.style.cssText = shape(mode, s, ink); r.appendChild(stp);
+        const d = document.createElement('div'); d.className = 'dot ' + dot; r.appendChild(d);
+        r.appendChild(Object.assign(document.createElement('span'), { className: 'name', textContent: n }));
+        const gl = document.createElement('span'); gl.className = 'gloss'; gl.innerHTML = `${mode} · ${s}` + (flags.includes('pr') ? PRSVG(FAM[t].red) : ''); r.appendChild(gl);
+        side.appendChild(r);
+      });
+      wrap.appendChild(side);
+    }
+    st.appendChild(wrap);
+    const cap = document.createElement('div'); cap.className = 'cap'; cap.textContent = CAPS[k]; st.appendChild(cap);
+    host.appendChild(st);
+  }
+}
+buildInks();
+
+// ---- light ink strip ----
+(function () {
+  const host = document.getElementById('inkstrip');
+  for (const [h, hue, cr, note] of [['#f59e0b', 38, '2.0', 'dark ink as-is'], ['#d97706', 32, '3.0', 'pick ✓ (chosen)'], ['#c97400', 35, '3.3', 'candidate'], ['#c46800', 32, '3.7', 'more margin'], ['#b45309', 26, '4.8', 'previous — red cast']]) {
+    const d = document.createElement('div'); d.style.cssText = 'display:flex;flex-direction:column;gap:4px;align-items:flex-start;font-size:10.5px;color:#6b7280';
+    const s = document.createElement('div'); s.style.cssText = 'position:relative;width:64px;height:24px;background:#ffffff;border:1px solid #e5e7eb;border-radius:3px;overflow:hidden';
+    const a = document.createElement('div'); a.className = 'stripe'; a.style.cssText = shape('manual', 2, h) + 'left:2px;'; s.appendChild(a);
+    const b = document.createElement('div'); b.className = 'stripe'; b.style.cssText = shape('auto', 3, h) + 'left:30px;'; s.appendChild(b);
+    d.appendChild(s);
+    d.innerHTML += `<span><b style="color:#1a1d24">${h}</b> · hue ${hue}° · ${cr}:1<br>${note}</span>`;
+    host.appendChild(d);
+  }
+})();
+
+// ---- marker well variants ----
+function buildWells() {
+  const host = document.getElementById('wells'); host.innerHTML = '';
+  const V = [
+    ['T1', 'rec', 'faint track on marked rows', 'A 10% ink wash across the 22px well, only on rows that carry a marker. The empty two-thirds now read as "unfilled", not as a gap; unmarked rows stay clean.'],
+    ['T2', 'alt', 'column hairline + track', 'T1 plus a 1px hairline at x=26 down the whole tree, so the marker column exists even on unmarked rows. Learnable, but it adds a permanent line to every sidebar — including the ones that never use markers.'],
+    ['T3', 'alt', 'outlined cell per row', 'A 1px 35%-ink outline, inset 3px top/bottom, rounded 2px. The strongest "this is a gauge" read — and the busiest: stacked marked rows become a ladder of boxes, and the outline eats 2px of the 22px fill.'],
+    ['T4', 'rec', 'track + right edge, marked rows only', 'T1\'s wash plus a 1px 30%-ink edge at x=26 on marked rows only. The edge closes the square so ⅓ and ⅔ read against a visible end; unmarked rows still carry nothing; stacked marked rows share one continuous edge instead of a ladder. Wash 12% so it survives light mode.'],
+  ];
+  for (const [k, tag, title, cap] of V) {
+    const st = document.createElement('div'); st.className = 'study'; st.innerHTML = `<span class="tag ${tag}">${k}</span> ${title}`;
+    const wrap = document.createElement('div'); wrap.style.cssText = 'display:flex;gap:12px;flex-wrap:wrap;margin-top:8px';
+    for (const t of ['dark', 'light']) {
+      const ink = FAM[t].ink;
+      const side = document.createElement('div'); side.className = 'side frame ' + t; side.style.flex = '1 1 240px'; side.innerHTML = `<div class="sess"><span class="chev">▾</span> fab-kit <span style="margin-left:auto;font-size:9px;letter-spacing:.06em;text-transform:uppercase;opacity:.7">${t}</span></div>`;
+      TREE.forEach(([n, mode, s, fam, dot, flags]) => {
+        const r = document.createElement('div'); r.className = 'row' + (flags.includes('sel') ? ' sel' : '');
+        if (fam) r.style.background = `color-mix(in srgb, ${FAM[t][fam]} ${flags.includes('sel') ? 40 : 12}%, transparent)`;
+        else if (flags.includes('sel')) r.style.background = `color-mix(in srgb, ${FAM[t].gray} 40%, transparent)`;
+        const marked = s > 0;
+        if (k === 'T2') { const gl = document.createElement('div'); gl.style.cssText = `position:absolute;left:26px;top:0;bottom:0;width:1px;background:color-mix(in srgb, var(--fborder) 70%, transparent);pointer-events:none`; r.appendChild(gl); }
+        if (marked && (k === 'T1' || k === 'T2')) { const w = document.createElement('div'); w.style.cssText = `position:absolute;left:4px;top:0;bottom:0;width:22px;background:color-mix(in srgb, ${ink} 10%, transparent);pointer-events:none`; r.appendChild(w); }
+        if (marked && k === 'T4') { const w = document.createElement('div'); w.style.cssText = `position:absolute;left:4px;top:0;bottom:0;width:22px;background:color-mix(in srgb, ${ink} 12%, transparent);border-right:1px solid color-mix(in srgb, ${ink} 30%, transparent);pointer-events:none`; r.appendChild(w); }
+        if (marked && k === 'T3') { const w = document.createElement('div'); w.style.cssText = `position:absolute;left:3px;top:3px;bottom:3px;width:24px;border:1px solid color-mix(in srgb, ${ink} 35%, transparent);border-radius:2px;pointer-events:none`; r.appendChild(w); }
+        const stp = document.createElement('div'); stp.className = 'stripe'; stp.style.cssText = shape(mode, s, ink); r.appendChild(stp);
+        const d = document.createElement('div'); d.className = 'dot ' + dot; r.appendChild(d);
+        r.appendChild(Object.assign(document.createElement('span'), { className: 'name', textContent: n }));
+        const gl = document.createElement('span'); gl.className = 'gloss'; gl.innerHTML = `${mode} · ${s}` + (flags.includes('pr') ? PRSVG(FAM[t].red) : ''); r.appendChild(gl);
+        side.appendChild(r);
+      });
+      // an unmarked row, to see what the well does when nothing is set
+      const u = document.createElement('div'); u.className = 'row'; if (k === 'T2') { const gl = document.createElement('div'); gl.style.cssText = `position:absolute;left:26px;top:0;bottom:0;width:1px;background:color-mix(in srgb, var(--fborder) 70%, transparent)`; u.appendChild(gl); }
+      const ud = document.createElement('div'); ud.className = 'dot idle'; u.appendChild(ud); u.appendChild(Object.assign(document.createElement('span'), { className: 'name', textContent: 'dim-owl' })); u.appendChild(Object.assign(document.createElement('span'), { className: 'gloss', textContent: 'no marker' }));
+      side.appendChild(u);
+      wrap.appendChild(side);
+    }
+    st.appendChild(wrap);
+    const c = document.createElement('div'); c.className = 'cap'; c.textContent = cap; st.appendChild(c);
+    host.appendChild(st);
+  }
+}
+buildWells();
+
+// ---- T4 gap study ----
+function buildGaps() {
+  const host = document.getElementById('gaps'); host.innerHTML = '';
+  // [content start px, gap px, tag, title, well left px]
+  const G = [[30, 4, 'now', 'today · well at 4 · dot at 30', 4], [30, 8, 'rec', 'flush well at 0 · dot stays at 30', 0], [34, 8, 'alt', 'well at 4 · dot moves to 34', 4], [38, 12, 'alt', 'well at 4 · dot at 38', 4]];
+  for (const [pl, gap, tag, title, wl] of G) {
+    const st = document.createElement('div'); st.className = 'study'; st.innerHTML = `<span class="tag ${tag}">${gap}px</span> ${title}`;
+    const wrap = document.createElement('div'); wrap.style.cssText = 'display:flex;gap:12px;flex-wrap:wrap;margin-top:8px';
+    for (const t of ['dark', 'light']) {
+      const ink = FAM[t].ink;
+      // the real context: the sidebar is a rounded card on the shell's inset ground (bg-bg-inset p-[6px])
+      const stage = document.createElement('div'); stage.className = 'frame ' + t; stage.style.cssText = 'flex:1 1 240px;background:var(--finset);padding:6px;border-radius:8px';
+      const side = document.createElement('div'); side.className = 'side frame ' + t; side.style.cssText = 'max-width:none;border-radius:6px;overflow:hidden'; side.innerHTML = `<div class="sess"><span class="chev">▾</span> fab-kit <span style="margin-left:auto;font-size:9px;letter-spacing:.06em;text-transform:uppercase;opacity:.7">${t}</span></div>`;
+      TREE.forEach(([n, mode, s, fam, dot, flags]) => {
+        const r = document.createElement('div'); r.className = 'row' + (flags.includes('sel') ? ' sel' : ''); r.style.paddingLeft = pl + 'px';
+        if (fam) r.style.background = `color-mix(in srgb, ${FAM[t][fam]} ${flags.includes('sel') ? 40 : 12}%, transparent)`;
+        else if (flags.includes('sel')) r.style.background = `color-mix(in srgb, ${FAM[t].gray} 40%, transparent)`;
+        if (s > 0) { const w = document.createElement('div'); w.style.cssText = `position:absolute;left:${wl}px;top:0;bottom:0;width:22px;background:color-mix(in srgb, ${ink} 12%, transparent);border-right:1px solid color-mix(in srgb, ${ink} 30%, transparent);pointer-events:none`; r.appendChild(w); }
+        const stp = document.createElement('div'); stp.className = 'stripe'; stp.style.cssText = shape(mode, s, ink) + `left:${wl}px;`; r.appendChild(stp);
+        const d = document.createElement('div'); d.className = 'dot ' + dot; r.appendChild(d);
+        r.appendChild(Object.assign(document.createElement('span'), { className: 'name', textContent: n === 'swift-mink' ? 'swift-mink-review-pr-companion-windows' : n }));
+        const gl = document.createElement('span'); gl.className = 'gloss'; gl.innerHTML = `${mode} · ${s}` + (flags.includes('pr') ? PRSVG(FAM[t].red) : ''); r.appendChild(gl);
+        side.appendChild(r);
+      });
+      const u = document.createElement('div'); u.className = 'row'; u.style.paddingLeft = pl + 'px';
+      const ud = document.createElement('div'); ud.className = 'dot idle'; u.appendChild(ud); u.appendChild(Object.assign(document.createElement('span'), { className: 'name', textContent: 'dim-owl' })); u.appendChild(Object.assign(document.createElement('span'), { className: 'gloss', textContent: 'no marker' }));
+      side.appendChild(u);
+      stage.appendChild(side); wrap.appendChild(stage);
+    }
+    st.appendChild(wrap);
+    const c = document.createElement('div'); c.className = 'cap'; c.textContent = gap === 4 ? 'Well at 4–26, dot at 30. The halo on iron-heron and pale-wren touches the edge; on manual·3 rows the slab, edge and dot read as one wide object. The 4px inset duplicates the 6px ground + 1px card border that already separate the row from the app edge.'
+      : wl === 0 ? 'Well at 0–22, dot unchanged at 30. Same 8px gap, zero cost: nothing else moves, the name keeps its width. The well is now anchored to the card edge exactly like the row tint, hover and selection already are (the full-bleed rule); the card border draws the outer line, the well edge the inner one.'
+      : gap === 8 ? 'Well at 4–26, dot at 34. Same visual gap as the flush variant, but paid for with 4px of name width and a changed content-start constant.'
+      : 'Dot at 38. Clearly separate, but the offset now resembles the tree\'s hierarchy indent (12px). Name column −8px.'; st.appendChild(c);
+    host.appendChild(st);
+  }
+}
+buildGaps();
+
+// ---- ink pickers ----
+(function () {
+  const L = h => { const c = [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255).map(v => v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
+  const cr = (a, b) => { const x = L(a), y = L(b); return ((Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)).toFixed(2); };
+  function wire(id, hexId, theme, crId, bg) {
+    const inp = document.getElementById(id), hex = document.getElementById(hexId), out = document.getElementById(crId);
+    const apply = () => { FAM[theme].ink = inp.value; hex.textContent = inp.value; out.textContent = cr(inp.value, bg) + ':1 on ' + bg; buildInks(); buildWells(); buildGaps(); };
+    inp.addEventListener('input', apply); inp.value = FAM[theme].ink; hex.textContent = inp.value; out.textContent = cr(inp.value, bg) + ':1 on ' + bg;
+  }
+  wire('pickDark', 'hexDark', 'dark', 'crDark', '#0f1117');
+  wire('pickLight', 'hexLight', 'light', 'crLight', '#f8f9fb');
+})();
+</script>
+</body>
+</html>

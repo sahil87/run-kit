@@ -329,11 +329,13 @@ func (e *Engine) setAndPaste(ctx context.Context, t Tmux, server, paneID, text s
 // probeEcho verifies the pasted text NEWLY echoed into the pane's live input
 // buffer before Enter is committed. It waits a short settle, then captures the
 // pane tail up to ProbeAttempts times (bounded retry with a small gap),
-// returning nil on the first capture whose needle/placeholder occurrence count
+// returning the first capture whose needle/placeholder occurrence count
 // strictly exceeds baseCount (the pre-paste floor) — proof THIS paste added an
-// occurrence, not that a stale one was already present. A tmux capture failure
-// is returned verbatim (distinct from a clean probe miss); an exhausted retry
-// returns ProbeFailure. All captures and sleeps share the caller's ctx
+// occurrence, not that a stale one was already present. That winning capture is
+// the frame the post-Enter observation compares against, so it must come from
+// here rather than a second capture that could have drifted. A tmux capture
+// failure is returned wrapped (distinct from a clean probe miss); an exhausted
+// retry returns ProbeFailure. All captures and sleeps share the caller's ctx
 // deadline.
 func (e *Engine) probeEcho(ctx context.Context, t Tmux, server, paneID, needle string, collapsible bool, baseCount int) (string, error) {
 	for attempt := 0; attempt < ProbeAttempts; attempt++ {

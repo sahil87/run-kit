@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Window Row — Iteration Studies</title>
+<style>
+  :root {
+    --bg: #0f1117; --card: #171b24; --inset: #0a0c12;
+    --tp: #e8eaf0; --ts: #7a8394; --border: #454d66;
+    --accent: #5b8af0; --green: #22c55e; --yellow: #facc15; --purple: #c084fc; --blue: #60a5fa; --red: #f87171;
+    --fam: #f59e0b; /* an assigned family color (amber) */
+    --fam2: #22c55e;
+    --fam3: #c084fc;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--tp); font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; padding: 28px 32px 80px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 15px; margin: 40px 0 10px; color: var(--tp); border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  h3 { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--ts); margin: 22px 0 8px; font-weight: 600; }
+  p, li { color: #b6bcc9; font-size: 13px; max-width: 78ch; }
+  .sub { color: var(--ts); margin: 0 0 18px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; align-items: start; }
+  .study { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px 12px 10px; }
+  .study .cap { font-size: 11px; color: var(--ts); margin-top: 8px; line-height: 1.45; }
+  .study .cap b { color: var(--tp); font-weight: 600; }
+  .tag { display: inline-block; font-size: 10px; letter-spacing: .05em; text-transform: uppercase; padding: 1px 6px; border-radius: 3px; border: 1px solid var(--border); color: var(--ts); margin-right: 6px; vertical-align: middle; }
+  .tag.now { border-color: #6b7280; color: #cbd5e1; }
+  .tag.rec { border-color: var(--green); color: var(--green); }
+  .tag.alt { border-color: var(--blue); color: var(--blue); }
+  .tag.bad { border-color: var(--red); color: var(--red); }
+
+  /* ---------- sidebar frame ---------- */
+  .side { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; width: 100%; overflow: hidden; font-size: 12px; }
+  .side.desk { max-width: 300px; }
+  .side.mob { max-width: 300px; }
+  .sess { display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px 0 8px; color: var(--ts); font-size: 12px; font-weight: 500; }
+  .sess .chev { font-size: 10px; opacity: .8; }
+  .mob .sess { height: 36px; }
+
+  /* window row (desktop 24px / mobile 36px) */
+  .row { position: relative; display: flex; align-items: center; gap: 6px; min-height: 24px; padding: 1px 44px 1px 30px; color: var(--ts); font-size: 12px; }
+  .row.pinned-wired { padding-right: 68px; }
+  .row.sel { color: var(--tp); font-weight: 500; background: color-mix(in srgb, var(--fam) 40%, transparent); }
+  .row.sel.gray { background: color-mix(in srgb, #6b7280 40%, transparent); }
+  .row.hov { color: var(--tp); background: color-mix(in srgb, var(--card) 50%, transparent); }
+  .row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+  .dot.ring { background: transparent; border: 1.8px solid var(--green); }
+  .dot.idle { background: #6b7280; }
+  .dot.halo { box-shadow: 0 0 0 3px color-mix(in srgb, var(--yellow) 35%, transparent); background: var(--yellow); }
+  /* left stripe (display-only, x 4..26) */
+  .stripe { position: absolute; left: 4px; top: 0; bottom: 0; width: 22px; pointer-events: none; }
+  .stripe.pipe { border-left: 1px solid var(--fam); }
+  .stripe.solid { border-left: 3px solid var(--fam); }
+  .stripe.double { border-left: 6px double var(--fam); }
+  .stripe.thick { border-left: 6px solid var(--fam); }
+  .stripe.dotted { background: linear-gradient(to bottom, var(--fam) 0 3px, transparent 3px 6px) 0 0/3px 6px repeat-y; }
+  .stripe.dashed { background: linear-gradient(to bottom, var(--fam) 0 8px, transparent 8px 12px) 0 0/3px 12px repeat-y; }
+  .stripe.block  { background: linear-gradient(to bottom, var(--fam) 0 9px, transparent 9px 12px) 0 0/6px 12px repeat-y; }
+  .stripe.hatch  { width: 6px; background: linear-gradient(45deg, var(--fam) 0 25%, transparent 25% 50%, var(--fam) 50% 75%, transparent 75%) 0 0/12px 12px; }
+  /* label zone (desktop, x 0..26) */
+  .lz { position: absolute; left: 0; top: 0; bottom: 0; width: 26px; display: flex; align-items: center; justify-content: flex-end; padding-right: 2px; }
+  .lz.glow { background: color-mix(in srgb, var(--fam) 12%, transparent); }
+  .lz.glow2 { background: color-mix(in srgb, var(--fam) 24%, transparent); }
+  .lz svg { width: 11px; height: 11px; opacity: .65; }
+  .lz.glow2 svg { opacity: 1; }
+  /* trailing cluster (desktop) */
+  .clu { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); display: flex; gap: 4px; align-items: center; }
+  .clu .ib { width: 24px; height: 24px; display: grid; place-items: center; color: var(--ts); }
+  .clu .ib svg { width: 13px; height: 13px; }
+  .clu .ib.red { color: var(--red); }
+  .clu .ib.acc { color: var(--accent); }
+  .clu .ib.pr { color: var(--green); }
+  .clu.rest .ib { opacity: 0; } .clu.rest .ib.acc, .clu.rest .ib.pr { opacity: 1; }
+  /* mobile */
+  .mob .row { min-height: 36px; padding: 1px 56px 1px 16px; gap: 6px; }
+  .mob .dotz { flex: none; width: 32px; min-height: 36px; display: grid; place-items: center; }
+  .rail { position: absolute; right: 0; top: 0; bottom: 0; width: 56px; display: flex; align-items: center; justify-content: flex-end; gap: 2px; padding-right: 4px; border-left: 1px solid var(--border); background: var(--inset); }
+  .rail .g { width: 16px; height: 16px; display: grid; place-items: center; color: var(--green); }
+  .rail .g svg { width: 13px; height: 13px; }
+  .rail .c { width: 12px; text-align: center; color: var(--ts); opacity: .55; font-size: 13px; }
+  .row.sel .rail { background: color-mix(in srgb, var(--inset) 55%, color-mix(in srgb, var(--fam) 40%, transparent)); }
+  .rail.held { background: color-mix(in srgb, var(--inset) 40%, color-mix(in srgb, var(--fam) 40%, transparent)); border-left-color: var(--ts); }
+  /* hit-area overlays */
+  .hit { position: absolute; inset: 0; pointer-events: none; background: repeating-linear-gradient(135deg, rgba(248,113,113,.28) 0 3px, rgba(248,113,113,.10) 3px 6px); outline: 1px dashed var(--red); outline-offset: -1px; }
+  .hit.ok { background: repeating-linear-gradient(135deg, rgba(34,197,94,.28) 0 3px, rgba(34,197,94,.10) 3px 6px); outline-color: var(--green); }
+  .hit.faint { background: repeating-linear-gradient(135deg, rgba(96,165,250,.22) 0 3px, rgba(96,165,250,.08) 3px 6px); outline-color: var(--blue); }
+  .lbl { position: absolute; font-size: 9px; letter-spacing: .04em; text-transform: uppercase; color: var(--tp); background: rgba(0,0,0,.6); padding: 0 4px; border-radius: 2px; pointer-events: none; }
+
+  /* stage ladder (proposal) */
+  .ladder { position: absolute; left: 4px; top: 0; bottom: 0; width: 22px; pointer-events: none; }
+  .ladder .fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--fam); }
+  .ladder .ticks { position: absolute; inset: 0; display: none; }
+  .ladder .ticks i { position: absolute; top: 0; bottom: 0; width: 1px; background: color-mix(in srgb, var(--tp) 25%, transparent); }
+  .row.scrub .ladder .ticks { display: block; }
+  .row.scrub .ladder { background: color-mix(in srgb, var(--fam) 10%, transparent); }
+  .lz.stage { cursor: ew-resize; }
+  .tip { position: absolute; left: 30px; top: -22px; font-size: 10px; background: var(--card); border: 1px solid var(--border); padding: 1px 6px; border-radius: 3px; color: var(--tp); white-space: nowrap; box-shadow: 0 4px 12px rgba(0,0,0,.5); }
+  .tip b { color: var(--fam); }
+  .demo { cursor: ew-resize; user-select: none; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--ts); margin: 6px 0 0; }
+  .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 5px; vertical-align: -1px; border: 1px dashed; }
+  .legend .r::before { border-color: var(--red); background: rgba(248,113,113,.25); }
+  .legend .g::before { border-color: var(--green); background: rgba(34,197,94,.25); }
+  .legend .b::before { border-color: var(--blue); background: rgba(96,165,250,.22); }
+  .vs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 8px; }
+  .vs .k { font-size: 11px; color: var(--ts); }
+  table { border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+  td, th { border: 1px solid var(--border); padding: 4px 8px; text-align: left; color: #b6bcc9; vertical-align: top; }
+  th { color: var(--tp); font-weight: 600; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; background: var(--inset); padding: 0 4px; border-radius: 3px; color: #cbd5e1; }
+  .q { border-left: 3px solid var(--accent); padding: 6px 10px; margin: 10px 0; background: color-mix(in srgb, var(--accent) 8%, transparent); border-radius: 0 4px 4px 0; }
+  .q p { margin: 0; }
+  .toggle { font-size: 12px; color: var(--ts); display: inline-flex; gap: 6px; align-items: center; cursor: pointer; margin-left: 12px; }
+</style>
+</head>
+<body>
+
+<h1>Window Row — Iteration Studies</h1>
+<p class="sub">Desktop (fine pointer, 24px rows) and mobile (coarse pointer, 36px rows). Geometry, tokens and stripe vocabulary are lifted from <code>window-row.tsx</code> / <code>themes.ts</code>; the amber family is a stand-in for any assigned color.
+<label class="toggle"><input type="checkbox" id="hits" checked> show flyout hit-areas</label></p>
+<div class="legend"><span class="r">opens the hover-register flyout (current)</span><span class="g">proposed sole trigger</span><span class="b">proposed new gesture (not a flyout trigger)</span></div>
+
+<!-- ================= DESKTOP ================= -->
+<h2>Desktop</h2>
+
+<h3>Current</h3>
+<div class="grid">
+  <div class="study">
+    <span class="tag now">now</span> rest · hover · label-zone hover
+    <div class="side desk">
+      <div class="sess"><span class="chev">▾</span> fab-kit</div>
+      <div class="row pinned-wired"><div class="stripe solid"></div><div class="dot"></div><span class="name">buffed-pika</span>
+        <div class="clu rest"><div class="ib acc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px"><path d="M12 17v5"/><path d="M9 3h6l-1 7 3 3H7l3-3z"/></svg></div><div class="ib pr"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg></div></div></div>
+      <div class="row pinned-wired hov"><div class="stripe solid"></div><div class="lz glow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="13.5" cy="6.5" r="1"/><circle cx="17.5" cy="10.5" r="1"/><circle cx="8.5" cy="7.5" r="1"/><circle cx="6.5" cy="12" r="1"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.9 0 1.5-.7 1.5-1.5 0-.4-.2-.8-.4-1-.3-.3-.4-.6-.4-1 0-.8.7-1.5 1.5-1.5H16c3.3 0 6-2.7 6-6 0-5-4.5-9-10-9z"/></svg></div><div class="dot ring"></div><span class="name">swift-mink · review</span>
+        <div class="clu"><div class="ib acc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px"><path d="M12 17v5"/><path d="M9 3h6l-1 7 3 3H7l3-3z"/></svg></div><div class="ib red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></div></div>
+        <div class="hit"></div></div>
+      <div class="row pinned-wired hov"><div class="stripe solid"></div><div class="lz glow2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="13.5" cy="6.5" r="1"/><circle cx="17.5" cy="10.5" r="1"/><circle cx="8.5" cy="7.5" r="1"/><circle cx="6.5" cy="12" r="1"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.9 0 1.5-.7 1.5-1.5 0-.4-.2-.8-.4-1-.3-.3-.4-.6-.4-1 0-.8.7-1.5 1.5-1.5H16c3.3 0 6-2.7 6-6 0-5-4.5-9-10-9z"/></svg></div><div class="dot idle"></div><span class="name">rosy-otter</span>
+        <div class="clu"><div class="ib"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px"><path d="M12 17v5"/><path d="M9 3h6l-1 7 3 3H7l3-3z"/></svg></div><div class="ib red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></div></div></div>
+      <div class="row pinned-wired sel"><div class="stripe dotted"></div><div class="dot halo"></div><span class="name">iron-heron</span>
+        <div class="clu rest"><div class="ib pr"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg></div></div></div>
+    </div>
+    <div class="cap"><b>Left 26px</b> is a <code>z-20</code> click overlay: glows 12% on row hover, 24% + palette icon on zone hover, click opens the 3-band Label picker at row bottom-left. <b>Flyout</b> opens from the <i>whole row root</i> (<code>useHover</code>, 500ms cold / 0 warm) — so on every hover two affordances light up: the flyout card at the right edge and the palette glow at the left.</div>
+  </div>
+
+  <div class="study">
+    <span class="tag now">now</span> what the left zone costs
+    <table>
+      <tr><th>Item</th><th>Today</th></tr>
+      <tr><td>Name start</td><td>x = 30px (12 indent + 18 pad) → 26px zone + dot</td></tr>
+      <tr><td>Click target</td><td>zone intercepts clicks over the stripe area (z-20 above the row button)</td></tr>
+      <tr><td>Redundancy</td><td>same picker is reachable from the flyout card's <i>Change color…</i> row and the palette's <code>label-popover:open</code></td></tr>
+      <tr><td>Discoverability</td><td>icon only appears on hover — it was never a rest-state affordance</td></tr>
+    </table>
+    <div class="cap">Removing the zone loses nothing the card doesn't already offer; it frees ~14px of name width <i>or</i> a 22px strip for a new channel.</div>
+  </div>
+</div>
+
+<h3>Proposals</h3>
+<div class="grid">
+  <div class="study">
+    <span class="tag alt">B0 · baseline</span> drop the zone, reclaim width
+    <div class="side desk">
+      <div class="sess"><span class="chev">▾</span> fab-kit</div>
+      <div class="row pinned-wired" style="padding-left:18px"><div class="stripe solid" style="width:10px"></div><div class="dot"></div><span class="name">buffed-pika</span><div class="clu rest"><div class="ib acc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px"><path d="M12 17v5"/><path d="M9 3h6l-1 7 3 3H7l3-3z"/></svg></div><div class="ib pr"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg></div></div></div>
+      <div class="row pinned-wired hov" style="padding-left:18px"><div class="stripe solid" style="width:10px"></div><div class="dot ring"></div><span class="name">swift-mink · review-pr-companion-windows</span><div class="clu"><div class="ib acc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px"><path d="M12 17v5"/><path d="M9 3h6l-1 7 3 3H7l3-3z"/></svg></div><div class="ib red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></div></div><div class="hit"></div></div>
+      <div class="row pinned-wired sel" style="padding-left:18px"><div class="stripe dotted" style="width:10px"></div><div class="dot halo"></div><span class="name">iron-heron</span><div class="clu rest"><div class="ib pr"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg></div></div></div>
+    </div>
+    <div class="cap">Stripe stays display-only at x 4–10; name starts at 18px (+12px). Color/marker/flair set only from the card. <b>Cheapest</b>; the row becomes a pure read surface + one hover target. This is the control to beat.</div>
+  </div>
+
+  <div class="study">
+    <span class="tag rec">B1 · recommended</span> stage ladder in the left strip
+    <div class="side desk">
+      <div class="sess"><span class="chev">▾</span> fab-kit</div>
+
+      <div class="row pinned-wired hov scrub demo" id="demo"><div class="ladder"><div class="fill" id="demofill" style="width:13px"></div><div class="ticks"><i style="left:0"></i><i style="left:4px"></i><i style="left:9px"></i><i style="left:13px"></i><i style="left:17px"></i><i style="left:21px"></i></div></div>
+      <div class="row pinned-wired"><div class="ladder"><div class="fill" style="width:1px"></div></div><div class="dot idle"></div><span class="name">rosy-otter</span><div class="clu rest"></div></div>
+      <div class="row pinned-wired"><div class="ladder"><div class="fill" style="width:6px"></div></div><div class="dot"></div><span class="name">buffed-pika</span><div class="clu rest"><div class="ib acc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px"><path d="M12 17v5"/><path d="M9 3h6l-1 7 3 3H7l3-3z"/></svg></div><div class="ib pr"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg></div></div></div>        <div class="lz stage"></div><div class="dot ring"></div><span class="name">swift-mink</span><div class="clu"><div class="ib acc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px"><path d="M12 17v5"/><path d="M9 3h6l-1 7 3 3H7l3-3z"/></svg></div><div class="ib red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></div></div>
+        <div class="hit faint" style="width:26px"></div><div class="tip">stage <b id="demon">3</b>/5 · <span id="demow">review</span> — drag me</div></div>
+      <div class="row pinned-wired sel"><div class="ladder"><div class="fill" style="width:22px"></div></div><div class="dot halo"></div><span class="name">iron-heron</span><div class="clu rest"><div class="ib pr"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg></div></div></div>
+    </div>
+    <div class="cap"><b>One ordinal channel</b>: an <i>N-step stage</i> (here 5) rendered as stripe <i>width</i> 0→22px, in the family color. Hover reveals faint tick stops; <b>drag horizontally</b> in the strip (ew-resize cursor) to set it; wheel/±keys step it; a tooltip names the step. Categorical markers (pipe/dotted/hatch/…) <i>stay categorical</i> and keep living in the card's picker — the ladder is a separate option (<code>@rk_win_stage</code>), so it composes with color and flair like marker does today. Full-width = done reads at a glance down the tree.</div>
+  </div>
+
+  <div class="study">
+    <span class="tag bad">B2 · your literal ask</span> marker slider — why it fights the vocabulary
+    <div class="side desk">
+      <div class="sess"><span class="chev">▾</span> fab-kit</div>
+      <div class="row"><div class="stripe pipe"></div><div class="dot idle"></div><span class="name">pipe · 1px</span></div>
+      <div class="row"><div class="stripe dotted"></div><div class="dot idle"></div><span class="name">dotted · 3px</span></div>
+      <div class="row"><div class="stripe dashed"></div><div class="dot idle"></div><span class="name">dashed · 3px</span></div>
+      <div class="row"><div class="stripe solid"></div><div class="dot idle"></div><span class="name">solid · 3px</span></div>
+      <div class="row"><div class="stripe double"></div><div class="dot idle"></div><span class="name">double · 6px</span></div>
+      <div class="row"><div class="stripe thick"></div><div class="dot idle"></div><span class="name">thick · 6px</span></div>
+      <div class="row"><div class="stripe hatch"></div><div class="dot idle"></div><span class="name">hatch · 6px</span></div>
+      <div class="row"><div class="stripe block"></div><div class="dot idle"></div><span class="name">block · 6px</span></div>
+    </div>
+    <div class="cap">Widths are 1/3/3/3/6/6/6/6 — <b>not monotonic</b>, and dotted/dashed/hatch/block are pattern <i>classes</i>, not weights (the picker study rejected "five weights of one device" as mushy). Making the 8 markers a progress scale re-introduces exactly that ordinal reading, and a user who set <i>hatch</i> = "hazard" would read as "75% done". Keep markers categorical; give progress its own axis (B1).</div>
+  </div>
+
+  <div class="study">
+    <span class="tag alt">B3 · variant</span> ladder as filled stops, not a bar
+    <div class="side desk">
+      <div class="sess"><span class="chev">▾</span> fab-kit</div>
+      <div class="row"><div class="ladder" style="display:flex;gap:2px;align-items:center;padding-left:1px"><i style="width:3px;height:14px;background:var(--fam)"></i><i style="width:3px;height:14px;background:var(--fam)"></i><i style="width:3px;height:14px;background:color-mix(in srgb,var(--fam) 22%,transparent)"></i><i style="width:3px;height:14px;background:color-mix(in srgb,var(--fam) 22%,transparent)"></i><i style="width:3px;height:14px;background:color-mix(in srgb,var(--fam) 22%,transparent)"></i></div><div class="dot"></div><span class="name">buffed-pika · 2/5</span></div>
+      <div class="row"><div class="ladder" style="display:flex;gap:2px;align-items:center;padding-left:1px"><i style="width:3px;height:14px;background:var(--fam)"></i><i style="width:3px;height:14px;background:var(--fam)"></i><i style="width:3px;height:14px;background:var(--fam)"></i><i style="width:3px;height:14px;background:var(--fam)"></i><i style="width:3px;height:14px;background:color-mix(in srgb,var(--fam) 22%,transparent)"></i></div><div class="dot ring"></div><span class="name">swift-mink · 4/5</span></div>
+      <div class="row sel"><div class="ladder" style="display:flex;gap:2px;align-items:center;padding-left:1px"><i style="width:3px;height:14px;background:var(--fam)"></i><i style="width:3px;height:14px;background:var(--fam)"></i><i style="width:3px;height:14px;background:var(--fam)"></i><i style="width:3px;height:14px;background:var(--fam)"></i><i style="width:3px;height:14px;background:var(--fam)"></i></div><div class="dot halo"></div><span class="name">iron-heron · 5/5</span></div>
+    </div>
+    <div class="cap">Discrete stops make the step count legible (2/5 vs 4/5) and stacked rows don't weld into one wall of color the way full-height bars do. Cost: it no longer reads as a "stripe", so it visually collides less with the categorical stripe when both are set — arguably a plus. Same gesture as B1.</div>
+  </div>
+</div>
+
+<div class="q"><p><b>Open question for B1/B3:</b> is the stage <i>manual</i> (you scrub it — a personal "how far along am I" note, like <code>@rk_win_note</code>) or <i>derived</i> (fab's <code>.status.yaml</code> progress map, which already knows intake→apply→review→hydrate→ship→review-pr)? The rendering is identical; the write path isn't. My lean: ship manual first (no new backend derive), leave the option name generic so a derived writer can stamp the same channel later — the status-pyramid pattern.</p></div>
+
+<!-- ================= MOBILE ================= -->
+<h2>Mobile</h2>
+
+<div class="grid">
+  <div class="study">
+    <span class="tag now">now</span> two flyout triggers
+    <div class="side mob">
+      <div class="sess"><span class="chev">▾</span> fab-kit</div>
+      <div class="row"><div class="stripe solid"></div><div class="dotz"><div class="dot"></div></div><span class="name">buffed-pika</span><div class="rail"><div class="g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg></div><div class="c">›</div></div>
+        <div class="hit" style="left:16px;width:32px"></div><div class="hit" style="left:auto;right:0;width:56px"></div></div>
+      <div class="row sel"><div class="stripe dotted"></div><div class="dotz"><div class="dot halo"></div></div><span class="name">iron-heron</span><div class="rail held"><div class="g"></div><div class="c">›</div></div>
+        <div class="hit" style="left:16px;width:32px"></div><div class="hit" style="left:auto;right:0;width:56px"></div></div>
+      <div class="row"><div class="stripe solid"></div><div class="dotz"><div class="dot idle"></div></div><span class="name">rosy-otter-long-window-name</span><div class="rail"><div class="g"></div><div class="c">›</div></div>
+        <div class="hit" style="left:16px;width:32px"></div><div class="hit" style="left:auto;right:0;width:56px"></div></div>
+    </div>
+    <div class="cap"><code>window-row.tsx:644-649</code> spreads the same <code>scrub.handlers</code> onto the dot's 32×36 zone as the rail gets at <code>:804-810</code>. So a thumb landing near the name's left edge opens the card instead of selecting the row — the "stray hover area". The rail is the designed gesture home (three-tier continuous strip, chevron hint); the dot zone predates it.</div>
+  </div>
+
+  <div class="study">
+    <span class="tag rec">M1 · recommended</span> rail is the only trigger; dot demoted to a glyph
+    <div class="side mob">
+      <div class="sess"><span class="chev">▾</span> fab-kit</div>
+      <div class="row" style="padding-left:16px"><div class="stripe solid"></div><div class="dot" style="margin-left:6px"></div><span class="name">buffed-pika</span><div class="rail"><div class="g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg></div><div class="c">›</div></div>
+        <div class="hit ok" style="left:auto;right:0;width:56px"></div></div>
+      <div class="row sel" style="padding-left:16px"><div class="stripe dotted"></div><div class="dot halo" style="margin-left:6px"></div><span class="name">iron-heron</span><div class="rail held"><div class="g"></div><div class="c">›</div></div>
+        <div class="hit ok" style="left:auto;right:0;width:56px"></div></div>
+      <div class="row" style="padding-left:16px"><div class="stripe solid"></div><div class="dot idle" style="margin-left:6px"></div><span class="name">rosy-otter-long-window-name</span><div class="rail"><div class="g"></div><div class="c">›</div></div>
+        <div class="hit ok" style="left:auto;right:0;width:56px"></div></div>
+    </div>
+    <div class="cap">Remove the handler spread + <code>stopPropagation</code> on the dot zone and drop its <code>coarse:min-w-[32px]</code> box: the dot returns to a 7px glyph with normal <code>gap-1.5</code>, and the name gains ~18px on a 300px drawer. Everything left of the rail is one tap = select (matches the session/server tiers, whose dots were never triggers). The e2e spec that taps the dot to open the card (if any) moves to the rail.</div>
+  </div>
+
+  <div class="study">
+    <span class="tag alt">M2 · variant</span> long-press on the row body as a secondary trigger
+    <div class="side mob">
+      <div class="sess"><span class="chev">▾</span> fab-kit</div>
+      <div class="row" style="padding-left:16px"><div class="stripe solid"></div><div class="dot" style="margin-left:6px"></div><span class="name">buffed-pika</span><div class="rail"><div class="g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg></div><div class="c">›</div></div>
+        <div class="hit ok" style="left:auto;right:0;width:56px"></div><div class="hit faint" style="right:56px"></div></div>
+      <div class="row" style="padding-left:16px"><div class="stripe solid"></div><div class="dot idle" style="margin-left:6px"></div><span class="name">rosy-otter</span><div class="rail"><div class="g"></div><div class="c">›</div></div></div>
+    </div>
+    <div class="cap">Only if M1 feels too narrow for one-handed reach on wide phones. Costs: competes with the drag-to-reorder long-press, iOS text-selection callout, and scroll-cancel heuristics. <b>I'd skip it</b> — the rail is already the full row height and the three-tier strip is learnable precisely because it's the <i>one</i> place.</div>
+  </div>
+
+  <div class="study">
+    <span class="tag alt">M3 · carry-over</span> the stage ladder on mobile (display-only, set from the card)
+    <div class="side mob">
+      <div class="sess"><span class="chev">▾</span> fab-kit</div>
+      <div class="row" style="padding-left:16px"><div class="ladder" style="left:4px;width:8px"><div class="fill" style="width:2px"></div></div><div class="dot idle" style="margin-left:6px"></div><span class="name">rosy-otter</span><div class="rail"><div class="g"></div><div class="c">›</div></div></div>
+      <div class="row" style="padding-left:16px"><div class="ladder" style="left:4px;width:8px"><div class="fill" style="width:5px"></div></div><div class="dot" style="margin-left:6px"></div><span class="name">buffed-pika</span><div class="rail"><div class="g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg></div><div class="c">›</div></div></div>
+      <div class="row sel" style="padding-left:16px"><div class="ladder" style="left:4px;width:8px"><div class="fill" style="width:8px"></div></div><div class="dot halo" style="margin-left:6px"></div><span class="name">iron-heron</span><div class="rail held"><div class="g"></div><div class="c">›</div></div></div>
+    </div>
+    <div class="cap">At 16px left padding there's only an 8–10px strip, so the ladder compresses (0→8px) but keeps the same read. No scrub gesture on coarse — a 10px-wide drag target is below any touch floor; the card grows a <b>Stage</b> row (a 5-stop segmented control) next to <i>Change color…</i>. Same asymmetry the label zone already has today (fine-only interactive, coarse display-only).</div>
+  </div>
+</div>
+
+<h2>Suggested other improvements (small)</h2>
+<ul>
+  <li><b>Desktop hover has two competing lights.</b> Even with the zone gone, on hover the row background shifts <i>and</i> the trailing cluster fades in <i>and</i> the flyout arms. Consider not shading the row background on hover when the card is about to open — let the card + cluster be the hover signal, and keep the shade only for the <i>held</i> state (card open), which the code already distinguishes (<code>:404-410</code>).</li>
+  <li><b>Held-row cue on mobile.</b> The rail steps up a shade when held, but the row body doesn't; on a 36px row the eye lands on the name, not the rail. Mirror the desktop held-row text brightening onto the coarse row so the "which row is this card about" question is answered on the row itself.</li>
+  <li><b>PR glyph slot on mobile is always reserved (16px) even for rows without PRs</b> — that's by design for column alignment, but with the dot zone gone it's the only fixed dead width left. Keep it; just noting it's now the whole cost.</li>
+  <li><b>Stripe left inset.</b> The stripe sits at x=4 on both pointers. If B0/B1 pull the desktop name to 18px, move the stripe to x=2 so the 6px-class markers don't crowd the dot.</li>
+</ul>
+
+<script>
+  document.getElementById('hits').addEventListener('change', e => {
+    document.querySelectorAll('.hit').forEach(h => h.style.display = e.target.checked ? '' : 'none');
+    document.querySelectorAll('.lbl').forEach(h => h.style.display = e.target.checked ? '' : 'none');
+  });
+  // B1 scrub demo: drag horizontally in the row's left 26px (or anywhere on the row for the demo)
+  const demo = document.getElementById('demo'), fill = document.getElementById('demofill'),
+        n = document.getElementById('demon'), w = document.getElementById('demow');
+  const words = ['—','intake','apply','review','hydrate','shipped'];
+  const stops = [0,1,4.4,8.8,13.2,17.6,22];
+  let down = false;
+  function setStage(k){ k = Math.max(0, Math.min(5, k)); fill.style.width = (k===0?0:[1,6,11,16,22][k-1]) + 'px'; n.textContent = k; w.textContent = words[k]; }
+  function fromX(clientX){ const r = demo.getBoundingClientRect(); const x = clientX - r.left - 4; return Math.round((x/22)*5); }
+  demo.addEventListener('pointerdown', e => { down = true; demo.setPointerCapture(e.pointerId); setStage(fromX(e.clientX)); });
+  demo.addEventListener('pointermove', e => { if (down) setStage(fromX(e.clientX)); });
+  demo.addEventListener('pointerup', () => down = false);
+  demo.addEventListener('wheel', e => { e.preventDefault(); setStage(parseInt(n.textContent,10) + (e.deltaY > 0 ? -1 : 1)); }, {passive:false});
+</script>
+</body>
+</html>

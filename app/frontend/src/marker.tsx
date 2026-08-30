@@ -27,12 +27,22 @@ function isMarkerStage(value: number): value is MarkerStage {
 }
 
 /** Parse the stored `@rk_win_marker` value (`<mode>[:<stage>]`). A bare mode
- *  means stage 1; anything outside the closed set — empty or malformed —
- *  parses to null. Deliberately more permissive than the backend validator,
- *  which is whitespace-intolerant: this is a read of whatever tmux holds, so it
- *  never throws and never rejects a value the row could still draw. The value
- *  crosses an untyped JSON boundary before it gets here, so the string check is
- *  a runtime guard, not a redundant restatement of the parameter type. */
+ *  means stage 1; empty, malformed, or outside the mode × stage vocabulary
+ *  parses to null.
+ *
+ *  This reads ONLY the mode × stage vocabulary. A flat token such as `solid` —
+ *  which the backend still accepts and still hands through on the read path —
+ *  parses to null here by design: `tmux.NormalizeMarker` owns the forward map,
+ *  and flat values are expected to be normalized before they reach this parser.
+ *  Until that happens they are drawn by the older stripe renderer, not by this
+ *  module, so a null here is "not mine to draw", not "unrecognized".
+ *
+ *  Within its own vocabulary it is deliberately more permissive than the
+ *  backend validator, which is whitespace-intolerant: this is a read of
+ *  whatever tmux holds, so it tolerates surrounding space and a zero-padded
+ *  stage, and it never throws. The value crosses an untyped JSON boundary
+ *  before it gets here, so the string check is a runtime guard, not a redundant
+ *  restatement of the parameter type. */
 export function parseMarker(value: string | null | undefined): Marker | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();

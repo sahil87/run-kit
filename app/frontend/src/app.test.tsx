@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { CommandPalette, type PaletteAction } from "@/components/command-palette";
-import { resolveServerView } from "@/app";
+import { buildTabPickerActions, resolveServerView } from "@/app";
 import { availableViews, hasCode } from "@/lib/window-view";
 import type { ServerInfo } from "@/api/client";
 
@@ -25,6 +25,36 @@ vi.mock("@xterm/addon-unicode-graphemes", () => ({
 function openPalette() {
   fireEvent.keyDown(document, { key: "k", code: "KeyK", metaKey: true });
 }
+
+describe("tab picker palette actions", () => {
+  it("registers the label and marker entries through the production builder", () => {
+    const actions = buildTabPickerActions("srv", "@7");
+    expect(actions.map((action) => action.id)).toEqual([
+      "window-label",
+      "window-marker",
+    ]);
+    expect(actions.map((action) => action.label)).toEqual([
+      "Tab: Label",
+      "Tab: Marker",
+    ]);
+  });
+
+  it("dispatches the matching marker-pad opener detail", () => {
+    const listener = vi.fn();
+    document.addEventListener("marker-pad:open", listener);
+    const markerAction = buildTabPickerActions("srv", "@7").find(
+      (action) => action.id === "window-marker",
+    );
+    expect(markerAction).toBeDefined();
+    markerAction?.onSelect();
+    expect(listener).toHaveBeenCalledOnce();
+    expect((listener.mock.calls[0][0] as CustomEvent).detail).toEqual({
+      server: "srv",
+      windowId: "@7",
+    });
+    document.removeEventListener("marker-pad:open", listener);
+  });
+});
 
 /** Build windowActions matching the pattern in app.tsx. */
 function buildWindowActions(opts: {

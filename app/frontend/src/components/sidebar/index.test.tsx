@@ -135,6 +135,12 @@ type RenderOpts = {
   /** Override the Sidebar's onCreateSession prop — the header + and the
    *  server card's New session row route through it. */
   onCreateSession?: (server: string) => void;
+  onWindowMarkerChange?: (
+    server: string,
+    session: string,
+    windowId: string,
+    marker: string | null,
+  ) => void;
 };
 
 /** Mounts BoardPage's registration seam inside the provider (260720-zx4i). */
@@ -184,6 +190,7 @@ function sidebarTree(opts: RenderOpts = {}) {
                         onSelectWindow={vi.fn()}
                         onCreateWindow={vi.fn()}
                         onCreateSession={opts.onCreateSession ?? vi.fn()}
+                        onWindowMarkerChange={opts.onWindowMarkerChange}
                         onCreateServer={vi.fn()}
                         onKillServer={opts.onKillServer ?? vi.fn()}
                       />
@@ -233,6 +240,31 @@ function getScopeChip(): HTMLElement {
 }
 
 describe("Sidebar — sessions-pane scope (runkit-panel-sessions-scope)", () => {
+  it("marks the tree as the row-discoverable sidebar scroll container", () => {
+    renderSidebar();
+    expect(screen.getByRole("tree")).toHaveAttribute("data-sidebar-scroll", "");
+  });
+
+  it("threads the optional marker seam to rows", () => {
+    renderSidebar({ onWindowMarkerChange: vi.fn() });
+    expect(screen.getByTestId("marker-strip")).toBeInTheDocument();
+  });
+
+  it("renders no marker strip for a board-shaped sidebar without the seam", () => {
+    renderSidebar({
+      currentServer: null,
+      currentSession: null,
+      currentWindowId: null,
+      sessionsByServer: new Map([
+        ["primary", PRIMARY_SESSIONS],
+        ["alpha", []],
+        ["beta", []],
+      ]),
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Expand primary sessions/ }));
+    expect(screen.queryByTestId("marker-strip")).toBeNull();
+  });
+
   it("renders all ServerGroups by default (scope `all`, no stored value)", () => {
     renderSidebar();
 

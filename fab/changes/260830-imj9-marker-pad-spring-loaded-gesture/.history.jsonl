@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-30T14:17:55Z"}
+{"args":"Marker rework phase 3 -- the spring-loaded pad (fab/plans/sahil/26-08-30-marker-rework-split.md, Phase 3)","cmd":"fab-new","event":"command","ts":"2026-08-30T14:17:55Z"}
+{"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-08-30T14:22:17Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-30T14:25:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-30T14:25:40Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-30T14:54:50Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-30T15:08:03Z"}
+{"event":"review","result":"passed","ts":"2026-08-30T15:08:03Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-30T15:09:58Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-30T15:20:48Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-08-30T16:33:08Z"}
+{"event":"review","result":"passed","ts":"2026-08-30T16:47:15Z"}

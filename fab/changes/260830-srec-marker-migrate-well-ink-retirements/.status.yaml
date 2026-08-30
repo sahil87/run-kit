@@ -1,0 +1,55 @@
+id: srec
+name: 260830-srec-marker-migrate-well-ink-retirements
+created: 2026-08-30T11:43:39Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 28
+    acceptance_count: 33
+    acceptance_completed: 33
+confidence:
+    certain: 9
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 4.5
+    fuzzy: true
+    dimensions:
+        signal: 77.1
+        reversibility: 82.9
+        competence: 85.0
+        disambiguation: 81.4
+stage_metrics:
+    intake: {started_at: "2026-08-30T11:43:39Z", driver: fab-new, iterations: 1, completed_at: "2026-08-30T11:52:54Z"}
+    apply: {started_at: "2026-08-30T12:50:20Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-30T12:53:00Z"}
+    review: {started_at: "2026-08-30T12:53:00Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-30T13:01:02Z"}
+    hydrate: {started_at: "2026-08-30T13:01:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-30T13:20:46Z"}
+    ship: {started_at: "2026-08-30T13:20:46Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-30T13:20:46Z"
+    computed_at_stage: hydrate
+summary: normalizes marker values at live and snapshot boundaries and documents the fixed-ink display well and color-plus-flair picker
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-30T13:20:46Z

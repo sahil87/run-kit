@@ -10,7 +10,7 @@ import { mockStateSocket } from "./_state-socket-mock";
 // state-socket mock — the same idiom as the retired status-dot-tip.spec.ts.
 //
 // The flyout opens on WHOLE-ROW hover (500ms delay, warm-window retarget),
-// keyboard row focus, and coarse-pointer rail/dot-tap; placement is
+// keyboard row focus, and the coarse-pointer rail; placement is
 // pointer-conditional — "right" (the sidebar's right edge) on fine pointers,
 // "bottom-start" below the row on coarse, with the card width capped short of
 // the row's 56px status rail. Card actions (change color / fork / pin / kill)
@@ -18,9 +18,8 @@ import { mockStateSocket } from "./_state-socket-mock";
 // the title bar carries only the ⓘ docs link. The rail + card also extend to
 // the session rows and server-group headers (coarse-only surfaces — tap/scrub
 // is their one trigger), `Change color…` is the first action row of every
-// tier's card, the coarse left label zone is removed (the display-only
-// marker stripe stays; the row content start reclaims the zone's width at
-// ≈16px), and the scrub retargets cards ACROSS tiers via the shared
+// tier's card, no `Set tab label` affordance exists, the marker well is
+// identical on both pointer classes, and the scrub retargets cards ACROSS tiers via the shared
 // `data-rail-row` handle.
 //
 // Shared setup: **/api/servers → a single server `default`;
@@ -32,8 +31,8 @@ import { mockStateSocket } from "./_state-socket-mock";
 // active so the identity title bar renders its full `Tab @1 · pane %425 · 2
 // panes` form) and @2 "scratch-shell" (plain window — gray idle dot, no
 // glyph, a body-less card, no panes → degraded `Tab @2` title — carrying
-// color orange + marker solid so the coarse left-zone-reclaim test can prove
-// the display-only stripe survives the interactive zone's removal). Rows are
+// color orange + marker manual:2 so the pointer-parity test can prove the
+// display-only well survives on coarse). Rows are
 // located by [role='treeitem'][data-window-id]; the card by
 // data-testid="row-flyout-card"; registers/links by
 // row-flyout-fab|fab-slug|pr|pr-link|docs-link; the sectioned action rows by
@@ -55,9 +54,8 @@ const SERVER = "default";
 // identity title bar renders its full `Tab @N · pane %N · N panes` form.
 // @2: plain scratch window (gray "idle" dot, no glyph, a body-less card — the
 // title bar + action rows only, no fork link, no panes → degraded `Tab @N`
-// title) carrying an orange
-// color + solid marker so the coarse left-zone reclaim can prove the
-// display-only stripe survives the interactive zone's removal.
+// title) carrying an orange color + manual:2 marker so the pointer-parity
+// test can prove the display-only well survives on coarse.
 const sessionsPayload = JSON.stringify([
   {
     name: "dev",
@@ -99,7 +97,7 @@ const sessionsPayload = JSON.stringify([
         isActiveWindow: false,
         activityTimestamp: 0,
         color: "orange",
-        marker: "solid",
+        marker: "manual:2",
       },
     ],
   },
@@ -405,7 +403,7 @@ test.describe("Row flyout card (fine pointer)", () => {
    * 3. Assert the URL becomes /default/9 — @9 with the route's `@` stripped.
    */
   test("a successful fork navigates to the returned window", async ({ page }) => {
-    // The navigation half of the fork contract (R11): a NON-empty returned
+    // The navigation half of the fork contract: a NON-empty returned
     // windowId routes to that window (the empty-id skip is the case above).
     await page.route("**/api/windows/*/fork*", (route) =>
       route.fulfill({
@@ -526,6 +524,29 @@ test.describe("Row flyout card (fine pointer)", () => {
     await scratchRow(page).hover();
     await expect(glyph).toBeVisible();
   });
+
+  /**
+   * Proves: on a fine pointer no `Set tab label` affordance exists, while @2
+   * (`manual:2`) carries a flush 22px marker well and the status content
+   * begins approximately 30px from the row's left edge.
+   *
+   * Steps:
+   * 1. Use the fine-pointer setup from this describe block and locate @2.
+   * 2. Assert no `Set tab label` element exists.
+   * 3. Measure the row, marker well, and status content; assert the well is
+   *    flush, 22px wide, and the content starts at 30px (within 1px).
+   */
+  test("fine left zone: no interactive zone, the 22px marker well stays, content starts ≈30px", async ({
+    page,
+  }) => {
+    await expect(page.locator('[aria-label="Set tab label"]')).toHaveCount(0);
+    const rowBox = (await scratchRow(page).boundingBox())!;
+    const wellBox = (await scratchRow(page).getByTestId("marker-well").boundingBox())!;
+    const contentBox = (await scratchRow(page).getByTestId("status-dot-tap").boundingBox())!;
+    expect(Math.abs(wellBox.x - rowBox.x)).toBeLessThanOrEqual(0.5);
+    expect(wellBox.width).toBe(22);
+    expect(Math.abs(contentBox.x - rowBox.x - 30)).toBeLessThanOrEqual(1);
+  });
 });
 
 test.describe("Row flyout card (coarse pointer)", () => {
@@ -547,9 +568,9 @@ test.describe("Row flyout card (coarse pointer)", () => {
    * right-edge rail, the rest-state PR glyph lives in the rail's fixed 16px
    * slot, and the chevron hint renders on every row (glyph or not); the
    * pin/✕ cluster is render-gated off (the buttons are absent from the DOM,
-   * not merely hidden); the dot's leading tap zone remains a real ≥32×36px
-   * touch target as the SECONDARY opener; tapping the RAIL (the primary
-   * target) opens the card — anchored BELOW the row, fully on-screen, its
+   * not merely hidden); the status dot is a plain glyph whose tap selects the
+   * row; tapping the RAIL (the sole flyout target) opens the card — anchored
+   * BELOW the row, fully on-screen, its
    * right edge stopping before the rail column, notch pointing up — WITHOUT
    * selecting the row; tapping the row body still selects (navigates) and
    * never hover-opens a card. Also asserts the widened mobile drawer (92% of
@@ -564,21 +585,17 @@ test.describe("Row flyout card (coarse pointer)", () => {
    * 3. Assert both rows render a visible status-rail exactly 56px wide; @1's
    *    rail contains the row-pr-glyph and @2's does not; both rails show the
    *    › chevron hint; @1 contains NO pin/kill buttons.
-   * 4. Measure @1's dot tap zone: width ≥ 32px, height ≥ 36px.
-   * 5. Tap @1's rail: assert the card opens with the pr register (`#386`),
+   * 4. Tap @1's rail: assert the card opens with the pr register (`#386`),
    *    carries the change-color/fork/pin/kill action rows (color first, by
    *    bounding-box y), and the URL is still the bare server route (the tap
    *    did not select the row).
-   * 6. Assert coarse placement + containment via bounding boxes: the card's
+   * 5. Assert coarse placement + containment via bounding boxes: the card's
    *    top is at/below the row's bottom edge (bottom-start), the whole card
    *    is inside the viewport, the card's right edge is ≤ the rail's left
    *    edge, and the arrow notch rides the card's top edge (pointing up at
    *    the rail).
-   * 7. Escape-dismiss, then tap the dot zone (secondary target): the card
-   *    reopens and the URL stays on the server route.
-   * 8. Escape-dismiss again, tap @2's row body: assert the URL left the bare
-   *    server route (tap = select) and, after waiting past the 500ms open
-   *    delay, no card appeared.
+   * 6. Escape-dismiss, tap @2's status dot, and assert the URL leaves the bare
+   *    server route (dot tap = row select) while no card appears.
    */
   test("rail renders on every row with aligned slots; rail-tap opens a contained bottom-start card without selecting the row", async ({
     page,
@@ -610,15 +627,7 @@ test.describe("Row flyout card (coarse pointer)", () => {
     await expect(prRow(page).getByLabel("Pin feature-work to a board")).toHaveCount(0);
     await expect(prRow(page).getByLabel("Kill tab feature-work")).toHaveCount(0);
 
-    // The widened leading tap zone (the SECONDARY touch target) still meets
-    // the ≥32×36 touch-target convention.
-    const zone = prRow(page).getByTestId("status-dot-tap");
-    const zoneBox = await zone.boundingBox();
-    expect(zoneBox).not.toBeNull();
-    expect(zoneBox!.width).toBeGreaterThanOrEqual(32);
-    expect(zoneBox!.height).toBeGreaterThanOrEqual(36);
-
-    // Tapping the RAIL (the primary target) opens the card and does NOT
+    // Tapping the RAIL (the sole flyout target) opens the card and does NOT
     // select the row (stopPropagation) — the URL stays on the server route
     // (@1's select would navigate to /default/1).
     await prRail.tap();
@@ -653,24 +662,12 @@ test.describe("Row flyout card (coarse pointer)", () => {
     const arrowBox = (await page.getByTestId("row-flyout-arrow").boundingBox())!;
     expect(arrowBox.y + arrowBox.height).toBeLessThanOrEqual(cardBox.y + 2);
 
-    // The dot-tap zone still works as the SECONDARY target: dismiss, then tap
-    // the dot zone to reopen.
+    // The status dot is a plain glyph. Dismiss the card, tap @2's dot,
+    // and prove normal bubbling selects the row instead of opening a card.
     await page.keyboard.press("Escape");
     await expect(card(page)).toHaveCount(0);
-    await zone.tap();
-    await expect(card(page)).toBeVisible();
-    await expect(page).toHaveURL(new RegExp(`/${SERVER}/?$`));
-
-    // A touch interaction with the row BODY does not hover-open a card: it
-    // selects the row (tap-to-select is unchanged) — dismiss the open card
-    // first, then tap the row body.
-    await page.keyboard.press("Escape");
-    await expect(card(page)).toHaveCount(0);
-    await scratchRow(page).getByText("scratch-shell").tap();
-    // Row select navigated (tap = select, not hover-open) — off the bare
-    // server route onto a window route…
+    await scratchRow(page).getByTestId("status-dot-tap").tap();
     await expect(page).not.toHaveURL(new RegExp(`/${SERVER}/?$`));
-    // …and no flyout card appeared from the touch interaction.
     await page.waitForTimeout(800); // past the 500ms open delay
     await expect(card(page)).toHaveCount(0);
   });
@@ -682,7 +679,7 @@ test.describe("Row flyout card (coarse pointer)", () => {
    *
    * Steps:
    * 1. Route the window-kill API glob to a 200 that records each request.
-   * 2. Open the drawer, tap @1's dot tap zone to open the card.
+   * 2. Open the drawer, tap @1's status rail to open the card.
    * 3. Tap the card's Kill action row: assert the "Kill tab?" dialog is
    *    visible, ZERO kill requests have fired, and the URL is still /default.
    * 4. Tap Cancel: assert the dialog closes and still no kill request fired.
@@ -697,7 +694,7 @@ test.describe("Row flyout card (coarse pointer)", () => {
     });
     await gotoCoarseDrawer(page);
 
-    await prRow(page).getByTestId("status-dot-tap").tap();
+    await prRow(page).getByTestId("status-rail").tap();
     await expect(card(page)).toBeVisible();
     await card(page).getByTestId("row-flyout-kill-action").tap();
 
@@ -719,7 +716,7 @@ test.describe("Row flyout card (coarse pointer)", () => {
    * selecting the row.
    *
    * Steps:
-   * 1. Open the drawer, tap @1's dot tap zone to open the card.
+   * 1. Open the drawer, tap @1's status rail to open the card.
    * 2. Tap the card's Pin action row.
    * 3. Assert the card is gone, the "Pin tab to board" dialog is visible, and
    *    the URL is still /default.
@@ -727,7 +724,7 @@ test.describe("Row flyout card (coarse pointer)", () => {
   test("card pin row closes the card and opens the existing pin popover", async ({ page }) => {
     await gotoCoarseDrawer(page);
 
-    await prRow(page).getByTestId("status-dot-tap").tap();
+    await prRow(page).getByTestId("status-rail").tap();
     await expect(card(page)).toBeVisible();
     await card(page).getByTestId("row-flyout-pin-action").tap();
 
@@ -802,41 +799,28 @@ test.describe("Row flyout card (coarse pointer)", () => {
   });
 
   /**
-   * Proves: the left-zone reclaim — on coarse pointers the interactive label
-   * zone and its palette-icon reveal are REMOVED from the DOM (the touch
-   * color path is the card's `Change color…` row), while the display-only
-   * marker stripe keeps rendering, and the reclaimed width shifts the row
-   * content start from 30px to ≈16px (4px stripe inset + 10px max stripe +
-   * 2px clearance).
+   * Proves: on a coarse pointer no `Set tab label` affordance exists, while @2
+   * (`manual:2`) carries a flush 22px marker well and the status content
+   * begins approximately 30px from the row's left edge.
    *
    * Steps:
-   * 1. Open the drawer with the coarse mock + hasTouch.
-   * 2. Assert NO element carries the zone's aria-label="Set tab label".
-   * 3. Assert @2 (color orange, marker solid) still renders its left-edge
-   *    stripe (a div[style*="border-left"]).
-   * 4. Measure: @2's dot tap zone starts ≈16px (±1px) from the row's left
-   *    edge.
+   * 1. Open the coarse drawer and locate @2.
+   * 2. Assert no `Set tab label` element exists.
+   * 3. Measure the row, marker well, and status content; assert the well is
+   *    flush, 22px wide, and the content starts at 30px (within 1px).
    */
-  test("coarse left-zone reclaim: no interactive zone, the display-only marker stripe stays, content starts ≈16px", async ({
+  test("coarse left zone: no interactive zone, the 22px marker well stays, content starts ≈30px", async ({
     page,
   }) => {
     await gotoCoarseDrawer(page);
 
-    // The interactive label zone (and its palette-icon reveal) is REMOVED on
-    // coarse — no element carries its aria-label anywhere in the tree.
     await expect(page.locator('[aria-label="Set tab label"]')).toHaveCount(0);
-
-    // The display-only marker stripe REMAINS on coarse (information, not an
-    // affordance): @2 carries a solid marker, rendered as a left-edge stripe.
-    const stripe = scratchRow(page).locator('div[style*="border-left"]');
-    await expect(stripe).toBeVisible();
-
-    // The reclaimed geometry: the row content (the dot tap zone) starts ≈16px
-    // from the row's left edge (4px stripe inset + 10px max stripe + 2px
-    // clearance) instead of the fine-pointer 30px.
     const rowBox = (await scratchRow(page).boundingBox())!;
+    const wellBox = (await scratchRow(page).getByTestId("marker-well").boundingBox())!;
     const zoneBox = (await scratchRow(page).getByTestId("status-dot-tap").boundingBox())!;
-    expect(Math.abs(zoneBox.x - rowBox.x - 16)).toBeLessThanOrEqual(1);
+    expect(Math.abs(wellBox.x - rowBox.x)).toBeLessThanOrEqual(0.5);
+    expect(wellBox.width).toBe(22);
+    expect(Math.abs(zoneBox.x - rowBox.x - 30)).toBeLessThanOrEqual(1);
   });
 
   /**
@@ -862,7 +846,7 @@ test.describe("Row flyout card (coarse pointer)", () => {
    * 4. Tap `Kill session`: assert the "Kill session?" dialog (with "and all 2
    *    tabs") is visible and ZERO kill requests fired; Cancel it.
    * 5. Re-open the card, tap `Change color…`: assert the card is gone and the
-   *    "Color picker" listbox is visible; tap the rail again and assert NO
+   *    "Label picker" listbox is visible; tap the rail again and assert NO
    *    card opens (suppression precedence).
    */
   test("session rail tap opens the session card; its actions route (kill confirms first)", async ({
@@ -921,7 +905,7 @@ test.describe("Row flyout card (coarse pointer)", () => {
     await expect(card(page)).toBeVisible();
     await card(page).getByTestId("row-flyout-color-action").tap();
     await expect(card(page)).toHaveCount(0);
-    await expect(page.getByRole("listbox", { name: "Color picker" })).toBeVisible();
+    await expect(page.getByRole("listbox", { name: "Label picker" })).toBeVisible();
     await rail.tap();
     await expect(card(page)).toHaveCount(0);
   });

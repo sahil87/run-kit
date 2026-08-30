@@ -361,7 +361,7 @@ func WindowOptionOps(win Window) []tmux.WindowOptionOp {
 		add(tmux.WebActiveOption, strconv.Itoa(win.WebActive))
 	}
 	add(tmux.CodeRootOption, win.CodeRoot)
-	add(tmux.MarkerOption, win.Marker)
+	add(tmux.MarkerOption, tmux.NormalizeMarker(win.Marker))
 	add(tmux.FlairOption, win.Flair)
 	add(tmux.RoleOption, win.Role)
 	add(tmux.NoteOption, win.Note)

@@ -161,10 +161,8 @@ var ErrWebTabsFull = errors.New("web tabs full")
 var ErrWebTabRange = errors.New("web tab index out of range")
 
 // MarkerOption is the tmux window user option carrying the left-gutter marker:
-// a closed-set token (validate.MarkerValues), "" when unset. The current schema
-// is `<mode>[:<stage>]` — mode ∈ manual/auto/blocked, stage ∈ 1/2/3, bare mode
-// = stage 1 — alongside the flat tokens still accepted while stored values
-// carry them.
+// a closed-set `<mode>[:<stage>]` token (validate.MarkerValues), "" when unset.
+// Modes are manual/auto/blocked, stages are 1/2/3, and a bare mode is stage 1.
 const MarkerOption = "@rk_win_marker"
 
 // legacyMarkerValues is the forward map from the flat pre-mode:stage marker
@@ -183,13 +181,8 @@ var legacyMarkerValues = map[string]string{
 // check and never survives as itself — an invariant that holds whether
 // MarkerValues spans both vocabularies or only the current one.
 //
-// Nothing calls this yet: it is the first half of a value-vocabulary migration,
-// and the read seams (parseWindows, the snapshot layout reader) still hand
-// through whatever the closed set accepts. Wiring it in is what narrows the
-// stored vocabulary, which cannot happen before the UI can draw the new model.
-// It belongs here at the parse seam rather than in the legacy_options.go sweep
-// table because that table maps option NAMES and this is a same-name VALUE
-// remap.
+// It belongs at the read and restore seams rather than in legacy_options.go
+// because that table maps option names and this is a same-name value remap.
 func NormalizeMarker(raw string) string {
 	if v, ok := legacyMarkerValues[raw]; ok {
 		return v
@@ -796,9 +789,9 @@ type WindowInfo struct {
 	// state follows the code, so it is keyed by git ROOT, never window id.
 	GitRoot string `json:"gitRoot,omitempty"`
 	// Marker is the window's left-gutter marker state, sourced from the
-	// @rk_win_marker window user option: "" (unset)/"dotted"/"dashed"/"solid"/
-	// "double"/"thick". An independent label axis from Color — see
-	// docs/specs/themes.md. Unknown tokens are dropped to "" by parseWindows.
+	// @rk_win_marker window user option as a `<mode>[:<stage>]` token. It is an
+	// independent label axis from Color. Legacy flat tokens normalize forward
+	// and unknown tokens are dropped to "" by parseWindows.
 	Marker string `json:"marker,omitempty"`
 	// Role is the window's orchestration role, sourced from the @rk_win_role window
 	// user option: "" (unset)/"operator". "operator" is a server-scoped radio —
@@ -1253,14 +1246,11 @@ func parseWindows(lines []string, nowUnix int64) []WindowInfo {
 			codeRoot = strings.TrimSpace(parts[18])
 		}
 
-		// Marker is a closed-set token ("dotted"/"dashed"/"solid"/"double"/
-		// "thick"); drop any value outside the set (including "") to the
-		// empty unset state.
+		// Marker is a closed-set `<mode>[:<stage>]` token. Legacy flat tokens
+		// normalize forward on read; anything unknown drops to the unset state.
 		var marker string
 		if len(parts) >= 20 {
-			if m := strings.TrimSpace(parts[19]); validate.MarkerValues[m] {
-				marker = m
-			}
+			marker = NormalizeMarker(strings.TrimSpace(parts[19]))
 		}
 
 		// Role is a closed-set token ("operator"); drop any value outside the

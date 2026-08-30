@@ -19,7 +19,7 @@ func reopenFixture() ClosedWindow {
 		Server:   "kit",
 		Session:  "alpha",
 		Window: Window{
-			Index: 3, ID: "@10", Name: "serve", Layout: "l1", Color: "2", Marker: "solid",
+			Index: 3, ID: "@10", Name: "serve", Layout: "l1", Color: "2", Marker: "manual:1",
 			Panes: []Pane{
 				{ID: "%0", Index: 0, Cwd: "/proj", Command: "zsh"},
 				{ID: "%1", Index: 1, Cwd: "/proj/sub", Command: "claude", Active: true},
@@ -53,7 +53,7 @@ func TestReopenIndexHit(t *testing.T) {
 		`split-window @1 -c "/proj/sub"`,
 		`select-layout @1 l1`,
 		`select-pane %9`, // stored active pane %1 (position 1) → split-created %9
-		`window-opts @1 @rk_win_color=2,@rk_win_marker=solid`,
+		`window-opts @1 @rk_win_color=2,@rk_win_marker=manual:1`,
 		`select-window alpha:@1`,
 	}
 	if got := f.trace(); got != strings.Join(wantCalls, "\n") {

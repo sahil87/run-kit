@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, useReducer, memo } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "@tanstack/react-router";
-import { killSession as killSessionApi, killWindow as killWindowApi, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowFlair as setWindowFlairApi, setSessionFlair as setSessionFlairApi, getAllServerColors, setServerColor as setServerColorApi, getAllServerFlairs, setServerFlair as setServerFlairApi, setSessionOrder, setServerProtected, isExternalServer, DAEMON_SERVER, type ServerInfo } from "@/api/client";
+import { killSession as killSessionApi, killWindow as killWindowApi, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, setWindowFlair as setWindowFlairApi, setSessionFlair as setSessionFlairApi, getAllServerColors, setServerColor as setServerColorApi, getAllServerFlairs, setServerFlair as setServerFlairApi, setSessionOrder, setServerProtected, isExternalServer, DAEMON_SERVER, type ServerInfo } from "@/api/client";
 import { useSessionContext, useUpdateNotification } from "@/contexts/session-context";
 import { useFocusedPane } from "@/contexts/focused-pane-context";
 import { resolveFocusedWindow, thinWindowFromFocusedPane } from "@/lib/focused-pane-window";
@@ -1597,18 +1597,8 @@ export function Sidebar({
     );
   }, [addToast]);
 
-  // Persist a window's marker state. The combined Label picker (opened from the
-  // left-edge zone or the `Tab: Label` palette action) passes the EXACT state
-  // the user picked — this only writes it. Mirrors handleWindowColorChange.
-  const handleWindowMarkerChange = useCallback((server: string, _session: string, windowId: string, marker: string | null) => {
-    setWindowMarkerApi(server, windowId, marker).catch((err) =>
-      addToast(err.message || "Failed to set tab marker"),
-    );
-  }, [addToast]);
-
   // Persist a window's flair state. The Label picker's flair section passes
-  // the EXACT picked state ("" → null clears) — this only writes it. Mirrors
-  // handleWindowMarkerChange.
+  // the exact picked state ("" → null clears) — this only writes it.
   const handleWindowFlairChange = useCallback((server: string, _session: string, windowId: string, flair: string | null) => {
     setWindowFlairApi(server, windowId, flair).catch((err) =>
       addToast(err.message || "Failed to set tab flair"),
@@ -1831,7 +1821,6 @@ export function Sidebar({
                 onServerFlairChange={handleServerFlairChange}
                 onKillServer={onKillServer}
                 onWindowColorChange={handleWindowColorChange}
-                onWindowMarkerChange={handleWindowMarkerChange}
                 onSessionFlairChange={handleSessionFlairChange}
                 onWindowFlairChange={handleWindowFlairChange}
                 onForkWindow={onForkWindow}
@@ -2232,10 +2221,8 @@ type ServerGroupProps = {
    *  (`killServerTarget` in app.tsx / board-page.tsx); never kills directly. */
   onKillServer: (name: string) => void;
   onWindowColorChange: (server: string, session: string, windowId: string, color: string | null) => void;
-  onWindowMarkerChange: (server: string, session: string, windowId: string, marker: string | null) => void;
   /** Flair write seams — the picker's flair section funnels through these.
-   *  The session one mirrors its color counterpart; the window one mirrors
-   *  `onWindowMarkerChange`. Stable identity-arg callbacks. */
+   *  Both are stable identity-argument callbacks. */
   onSessionFlairChange: (server: string, name: string, flair: string | null) => void;
   onWindowFlairChange: (server: string, session: string, windowId: string, flair: string | null) => void;
   /** Forwarded to each `WindowRow` → its row flyout's fork affordance. Optional
@@ -2321,7 +2308,6 @@ function ServerGroupInner(props: ServerGroupProps) {
     onServerFlairChange,
     onKillServer,
     onWindowColorChange,
-    onWindowMarkerChange,
     onSessionFlairChange,
     onWindowFlairChange,
     onForkWindow,
@@ -2979,7 +2965,6 @@ function ServerGroupInner(props: ServerGroupProps) {
               onKillClick={onWindowRowKill}
               draggable={false}
               onColorChange={onWindowColorChange}
-              onMarkerChange={onWindowMarkerChange}
               onFlairChange={onWindowFlairChange}
               onForkWindow={onForkWindow}
               onFixTabName={onFixTabName}
@@ -3157,7 +3142,6 @@ function ServerGroupInner(props: ServerGroupProps) {
                             onDrop={ghost ? undefined : onWindowDrop}
                             onDragEnd={ghost ? undefined : onWindowDragEnd}
                             onColorChange={ghost ? undefined : onWindowColorChange}
-                            onMarkerChange={ghost ? undefined : onWindowMarkerChange}
                             onFlairChange={ghost ? undefined : onWindowFlairChange}
                             onForkWindow={ghost ? undefined : onForkWindow}
                             onFixTabName={ghost ? undefined : onFixTabName}
@@ -3214,4 +3198,3 @@ function ServerGroupInner(props: ServerGroupProps) {
  *  primitive that flips true→false once when the board list finishes loading —
  *  a legitimate one-time re-render of every group, not per-tick churn.) */
 const ServerGroup = memo(ServerGroupInner);
-

@@ -554,9 +554,8 @@ func validateWindowOption(key string, value *string, fam tmux.WebTabFamily, appe
 		}
 	case optKeyMarker:
 		// Left-gutter marker: a `<mode>[:<stage>]` token (manual/auto/blocked ×
-		// 1/2/3, bare mode = stage 1), or one of the still-accepted flat tokens.
-		// An empty string is valid and treated as unset below (mirroring
-		// @rk_win_lens).
+		// 1/2/3, bare mode = stage 1). An empty string is valid and treated as
+		// unset below (mirroring @rk_win_lens).
 		if errMsg := validate.ValidateMarkerValue(*value); errMsg != "" {
 			return errMsg
 		}
@@ -654,7 +653,7 @@ func buildWindowOptionOps(options map[string]*string, armActive bool) (ops []tmu
 
 // handleWindowOptions applies a partial-merge of window options to {windowId}.
 // POST /api/windows/{windowId}/options ← {"options": {"@rk_win_color": "5",
-// "@rk_win_web_2": "/proxy/3000/", "@rk_win_layout": null, "@rk_win_marker": "solid"}}
+// "@rk_win_web_2": "/proxy/3000/", "@rk_win_layout": null, "@rk_win_marker": "manual:1"}}
 // → 200 {"ok": true}.
 //
 // Semantics: only keys present in `options` are touched; a present key with a

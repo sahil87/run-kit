@@ -51,7 +51,7 @@ func TestCaptureServerAssemblesSnapshot(t *testing.T) {
 			{Session: "alpha", WindowID: "@2", Index: 2, Name: "shell", Layout: "l2"},
 			{Session: "alpha", WindowID: "@1", Index: 1, Name: "serve", Active: true, Layout: "l1",
 				Color: "1", RkLayout: "split-h:tty,web", WebTabs: []string{"/proxy/1/", "/present/@1/2/a.html?server=s&v=1", "https://x/"},
-				WebRoots: []string{"/r1", "", "/r3"}, WebActive: 2, CodeRoot: "/w", Marker: "solid", Flair: "nyan", Role: "operator",
+				WebRoots: []string{"/r1", "", "/r3"}, WebActive: 2, CodeRoot: "/w", Marker: "manual:1", Flair: "nyan", Role: "operator",
 				Note: "1756036800:blocked on flaky e2e"},
 			{Session: "beta", WindowID: "@3", Index: 0, Name: "b", Layout: "l3"},
 		}, nil,
@@ -94,7 +94,7 @@ func TestCaptureServerAssemblesSnapshot(t *testing.T) {
 		len(w1.WebTabs) != 3 || w1.WebTabs[0] != "/proxy/1/" || w1.WebTabs[2] != "https://x/" ||
 		len(w1.WebRoots) != 3 || w1.WebRoots[0] != "/r1" || w1.WebRoots[1] != "" || w1.WebRoots[2] != "/r3" ||
 		w1.WebActive != 2 || w1.CodeRoot != "/w" ||
-		w1.Marker != "solid" || w1.Flair != "nyan" || w1.Role != "operator" || w1.Note != "1756036800:blocked on flaky e2e" {
+		w1.Marker != "manual:1" || w1.Flair != "nyan" || w1.Role != "operator" || w1.Note != "1756036800:blocked on flaky e2e" {
 		t.Errorf("window @1 = %+v", w1)
 	}
 	// Panes sorted by index.
@@ -152,7 +152,7 @@ func TestCaptureWindowAssemblesRecord(t *testing.T) {
 	stubWindowReads(t,
 		tmux.LayoutWindow{Session: "alpha", WindowID: "@7", Index: 2, Name: "agent", Active: true,
 			Layout: "l7", Color: "2", RkLayout: "single:web", WebTabs: []string{"/proxy/1/"},
-			WebRoots: []string{"/r1"}, WebActive: 1, CodeRoot: "/w", Marker: "solid",
+			WebRoots: []string{"/r1"}, WebActive: 1, CodeRoot: "/w", Marker: "manual:1",
 			Note: "1756036800:blocked"},
 		true, nil,
 		[]tmux.LayoutPane{
@@ -171,7 +171,7 @@ func TestCaptureWindowAssemblesRecord(t *testing.T) {
 	if win.ID != "@7" || win.Index != 2 || win.Name != "agent" || !win.Active ||
 		win.Layout != "l7" || win.Color != "2" || win.RkLayout != "single:web" ||
 		len(win.WebTabs) != 1 || win.WebTabs[0] != "/proxy/1/" || win.WebRoots[0] != "/r1" ||
-		win.WebActive != 1 || win.CodeRoot != "/w" || win.Marker != "solid" ||
+		win.WebActive != 1 || win.CodeRoot != "/w" || win.Marker != "manual:1" ||
 		win.Note != "1756036800:blocked" {
 		t.Errorf("window = %+v", win)
 	}

@@ -3,7 +3,6 @@ import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { SwatchPopover } from "./swatch-popover";
 import {
   PICKER_COLOR_VALUES,
-  MARKER_STATES,
   FLAIR_STATES,
   HUE_FAMILIES,
   DEFAULT_DARK_THEME,
@@ -28,8 +27,6 @@ const rgb = (hex: string): string => {
   return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`;
 };
 
-/** The 8 named marker states (band order; − clear cell lives in the band header). */
-const MARKER_NAMED = MARKER_STATES.slice(1);
 /** The 14 named flair states (band order; − clear cell lives in the band header). */
 const FLAIR_NAMED = FLAIR_STATES.slice(1);
 
@@ -68,7 +65,7 @@ describe("SwatchPopover", () => {
     vi.unstubAllGlobals();
   });
 
-  it("color-only variant: 30 swatches + the color header − + panel − + ✕ (no marker/flair bands)", () => {
+  it("color-only variant: 30 swatches + the color header − + panel − + ✕ (no flair band)", () => {
     const onSelect = vi.fn();
     const onClose = vi.fn();
     renderWithTheme(<SwatchPopover onSelect={onSelect} onClose={onClose} />);
@@ -78,7 +75,6 @@ describe("SwatchPopover", () => {
     // here) + the ✕ close cell (options-as-commands, ARIA-valid children).
     expect(screen.getAllByRole("option")).toHaveLength(33);
     expect(screen.getByRole("option", { name: "Clear all" })).toBeTruthy();
-    expect(screen.queryByRole("option", { name: /^Marker / })).toBeNull();
     expect(screen.queryByRole("option", { name: /^Flair / })).toBeNull();
     expect(screen.getByRole("listbox").getAttribute("aria-label")).toBe("Color picker");
   });
@@ -225,26 +221,22 @@ describe("SwatchPopover", () => {
 
   // ── Dismissal model: selection never closes; ✕ / outside / Escape do. ──
   describe("dismissal model", () => {
-    it("selection NEVER closes: swatch, header-−, marker, and flair picks leave onClose uncalled", () => {
+    it("selection NEVER closes: swatch, header-−, and flair picks leave onClose uncalled", () => {
       const onSelect = vi.fn();
-      const onSelectMarker = vi.fn();
       const onSelectFlair = vi.fn();
       const onClose = vi.fn();
       renderWithTheme(
         <SwatchPopover
           onSelect={onSelect}
-          onSelectMarker={onSelectMarker}
           onSelectFlair={onSelectFlair}
           onClose={onClose}
         />,
       );
       fireEvent.click(screen.getByRole("option", { name: "Color blue" }));
       fireEvent.click(screen.getByRole("option", { name: "Color blue-dark" }));
-      fireEvent.click(screen.getByRole("option", { name: "Marker thick" }));
       fireEvent.click(screen.getByRole("option", { name: "Flair rain" }));
       fireEvent.click(screen.getByRole("option", { name: "Clear color" }));
       expect(onSelect).toHaveBeenCalledTimes(3);
-      expect(onSelectMarker).toHaveBeenCalledTimes(1);
       expect(onSelectFlair).toHaveBeenCalledTimes(1);
       expect(onClose).not.toHaveBeenCalled();
     });
@@ -264,14 +256,12 @@ describe("SwatchPopover", () => {
     const tints = computeRowTints(DEFAULT_DARK_THEME.palette);
     const borders = computeRowBorders(DEFAULT_DARK_THEME.palette, DEFAULT_DARK_THEME.category);
 
-    it("renders the row's resting look: tint, stripe, row name, and the combo caption", () => {
+    it("renders the row's resting look: tint, row name, and the combo caption (no marker stripe)", () => {
       renderWithTheme(
         <SwatchPopover
           selectedColor="green"
-          selectedMarker="solid"
           selectedFlair="nyan"
           onSelect={vi.fn()}
-          onSelectMarker={vi.fn()}
           onSelectFlair={vi.fn()}
           onClose={vi.fn()}
           rowName="blustery-raven"
@@ -279,26 +269,25 @@ describe("SwatchPopover", () => {
       );
       const preview = previewRow("blustery-raven");
       expect(preview.style.backgroundColor).toBe(rgb(tints.get("green")!.base));
-      // The marker stripe rides the guarded family color.
-      const stripe = preview.querySelector("[style*='border-left']") as HTMLElement;
-      expect(stripe.style.borderLeft).toContain(rgb(borders.get("green")!));
+      // The preview renders color and flair without marker visuals.
+      expect(preview.querySelector("[style*='border-left']")).toBeNull();
+      expect(preview.querySelector(".rk-hazard")).toBeNull();
       // The live flair overlay rides along.
       expect(preview.querySelector(".rk-flair-nyan")).not.toBeNull();
-      // The caption names the combo — family name, marker, flair.
-      screen.getByText("green · solid · nyan");
+      // The caption names the combo — family name · flair.
+      screen.getByText("green · nyan");
     });
 
     it("unset axes read ∅ in the caption; color-only callers get the color leg only", () => {
       renderWithTheme(
         <SwatchPopover
           onSelect={vi.fn()}
-          onSelectMarker={vi.fn()}
           onSelectFlair={vi.fn()}
           onClose={vi.fn()}
           rowName="w"
         />,
       );
-      screen.getByText("∅ · ∅ · ∅");
+      screen.getByText("∅ · ∅");
       cleanup();
       renderWithTheme(<SwatchPopover selectedColor="teal" onSelect={vi.fn()} onClose={vi.fn()} rowName="s" />);
       screen.getByText("teal");
@@ -310,13 +299,11 @@ describe("SwatchPopover", () => {
     });
 
     it("picks on ANY axis repaint the preview immediately (override, no prop echo)", () => {
-      const onSelectMarker = vi.fn();
       const onSelectFlair = vi.fn();
       renderWithTheme(
         <SwatchPopover
           selectedColor="green"
           onSelect={vi.fn()}
-          onSelectMarker={onSelectMarker}
           onSelectFlair={onSelectFlair}
           onClose={vi.fn()}
           rowName="w"
@@ -327,101 +314,61 @@ describe("SwatchPopover", () => {
       // A swatch pick repaints the tint without any parent re-render.
       fireEvent.click(screen.getByRole("option", { name: "Color blue-dark" }));
       expect(preview.style.backgroundColor).toBe(rgb(tints.get("blue-dark")!.base));
-      // A marker pick swaps the stripe/texture…
-      expect(preview.querySelector(".rk-hazard")).toBeNull();
-      fireEvent.click(screen.getByRole("option", { name: "Marker hatch" }));
-      expect(onSelectMarker).toHaveBeenCalledWith("hatch");
-      expect(preview.querySelector(".rk-hazard")).not.toBeNull();
       // …and a flair pick mounts its overlay (reused FlairOverlay — cube
       // carries its child-markup contract even in the preview).
       fireEvent.click(screen.getByRole("option", { name: "Flair cube" }));
       expect(onSelectFlair).toHaveBeenCalledWith("cube");
       expect(preview.querySelectorAll(".rk-flair-cube .rk-cube-face")).toHaveLength(6);
       // The caption follows the overrides.
-      screen.getByText("blue · hatch · cube");
+      screen.getByText("blue · cube");
     });
 
-    it("hatch carries the hazard wedge in the preview; thick stays quiet", () => {
+    it("uncolored previews fall back to the gray sentinel tint", () => {
       renderWithTheme(
-        <SwatchPopover
-          selectedColor="green"
-          selectedMarker="thick"
-          onSelect={vi.fn()}
-          onSelectMarker={vi.fn()}
-          onClose={vi.fn()}
-          rowName="w"
-        />,
-      );
-      expect(previewRow("w").querySelector(".rk-hazard")).toBeNull();
-      cleanup();
-      renderWithTheme(
-        <SwatchPopover
-          selectedColor="green"
-          selectedMarker="hatch"
-          onSelect={vi.fn()}
-          onSelectMarker={vi.fn()}
-          onClose={vi.fn()}
-          rowName="w"
-        />,
-      );
-      expect(previewRow("w").querySelector(".rk-hazard")).not.toBeNull();
-    });
-
-    it("uncolored previews fall back to the gray sentinel tint/border", () => {
-      renderWithTheme(
-        <SwatchPopover onSelect={vi.fn()} onSelectMarker={vi.fn()} onClose={vi.fn()} rowName="w" />,
+        <SwatchPopover onSelect={vi.fn()} onSelectFlair={vi.fn()} onClose={vi.fn()} rowName="w" />,
       );
       const preview = previewRow("w");
       expect(preview.style.backgroundColor).toBe(rgb(tints.get(UNCOLORED_SELECTED_KEY)!.base));
-      expect(preview.style.getPropertyValue("--rk-marker-color")).toBe(
-        borders.get(UNCOLORED_SELECTED_KEY),
-      );
     });
   });
 
-  // ── Banded structure: [ color ] scroll strip + [ marker ] static row +
-  //    [ flair ] 2-row strip, each header carrying its − clear cell. ──
+  // Banded structure: a color scroll strip and a two-row flair strip, each
+  // with a header clear cell.
   describe("banded Label picker", () => {
     const tints = computeRowTints(DEFAULT_DARK_THEME.palette);
     const borders = computeRowBorders(DEFAULT_DARK_THEME.palette, DEFAULT_DARK_THEME.category);
 
     function renderLabelPicker(extra: Partial<React.ComponentProps<typeof SwatchPopover>> = {}) {
       const onSelect = vi.fn();
-      const onSelectMarker = vi.fn();
       const onSelectFlair = vi.fn();
       const onClose = vi.fn();
       const utils = renderWithTheme(
         <SwatchPopover
           onSelect={onSelect}
-          onSelectMarker={onSelectMarker}
           onSelectFlair={onSelectFlair}
           onClose={onClose}
           rowName="w"
           {...extra}
         />,
       );
-      return { onSelect, onSelectMarker, onSelectFlair, onClose, ...utils };
+      return { onSelect, onSelectFlair, onClose, ...utils };
     }
 
-    it("full variant: 30 colors + 8 markers + 15 flairs + 3 header − + panel − + ✕ = 58 options, labelled Label picker", () => {
+    it("full variant: 30 colors + 15 flairs + 2 header − + panel − + ✕ = 49 options, labelled Label picker", () => {
       renderLabelPicker();
-      expect(screen.getAllByRole("option")).toHaveLength(58);
+      expect(screen.getAllByRole("option")).toHaveLength(49);
       expect(screen.getByRole("listbox").getAttribute("aria-label")).toBe("Label picker");
-      for (const state of MARKER_NAMED) {
-        expect(screen.getByRole("option", { name: `Marker ${state}` })).toBeTruthy();
-      }
       for (const state of FLAIR_NAMED) {
         expect(screen.getByRole("option", { name: `Flair ${state}` })).toBeTruthy();
       }
       // The header − cells keep the incumbent accessible names.
       expect(screen.getByRole("option", { name: "Clear color" })).toBeTruthy();
-      expect(screen.getByRole("option", { name: "Marker none" })).toBeTruthy();
       expect(screen.getByRole("option", { name: "Flair none" })).toBeTruthy();
     });
 
     it("band headers name the axes in the green-bracket idiom", () => {
       renderLabelPicker();
-      for (const axis of ["color", "marker", "flair"]) {
+      for (const axis of ["color", "flair"]) {
         expect(screen.getByText(axis, { exact: true })).toBeTruthy();
       }
     });
@@ -443,17 +390,6 @@ describe("SwatchPopover", () => {
       expect(values.slice(0, 6)).toEqual(["red-light", "red", "red-dark", "orange-light", "orange", "orange-dark"]);
     });
 
-    it("the marker band is a single unscrolled row of the 8 states in display order", () => {
-      renderLabelPicker();
-      const cells = Array.from(
-        screen.getByRole("listbox").querySelectorAll("[data-marker-value]"),
-      );
-      expect(cells.map((c) => c.getAttribute("data-marker-value"))).toEqual([...MARKER_NAMED]);
-      const band = (cells[0] as HTMLElement).parentElement as HTMLElement;
-      expect(band.className).toContain("flex");
-      expect(band.className).not.toContain("rk-band-scroll");
-    });
-
     it("the flair band lists the 14 states in display order, rain/scan leading, ironman last", () => {
       renderLabelPicker();
       const cells = Array.from(
@@ -463,88 +399,20 @@ describe("SwatchPopover", () => {
     });
 
     it("a ring on the header − indicates the axis is UNSET", () => {
-      renderLabelPicker({ selectedMarker: "solid", selectedFlair: "rain" });
+      renderLabelPicker({ selectedFlair: "rain" });
       // Color unset → its header − is ringed/aria-selected…
       const clearColor = screen.getByRole("option", { name: "Clear color" });
       expect(clearColor.getAttribute("aria-selected")).toBe("true");
       expect(clearColor.className).toContain("ring-text-primary");
-      // …while the set axes' header − cells are not.
-      expect(screen.getByRole("option", { name: "Marker none" }).getAttribute("aria-selected")).toBe("false");
+      // …while the set axis's header − is not.
       expect(screen.getByRole("option", { name: "Flair none" }).getAttribute("aria-selected")).toBe("false");
     });
 
     it("header − clears ONLY its own axis", () => {
-      const { onSelect, onSelectMarker, onSelectFlair } = renderLabelPicker();
-      fireEvent.click(screen.getByRole("option", { name: "Marker none" }));
-      expect(onSelectMarker).toHaveBeenCalledWith("");
-      expect(onSelect).not.toHaveBeenCalled();
-      expect(onSelectFlair).not.toHaveBeenCalled();
+      const { onSelect, onSelectFlair } = renderLabelPicker();
       fireEvent.click(screen.getByRole("option", { name: "Flair none" }));
       expect(onSelectFlair).toHaveBeenCalledWith("");
       expect(onSelect).not.toHaveBeenCalled();
-    });
-
-    it("clicking a marker cell calls onSelectMarker with that state (no cycling)", () => {
-      const { onSelectMarker } = renderLabelPicker({ selectedMarker: "dotted" });
-      fireEvent.click(screen.getByRole("option", { name: "Marker hatch" }));
-      expect(onSelectMarker).toHaveBeenCalledWith("hatch");
-      // The current marker ("dotted") is highlighted.
-      expect(screen.getByRole("option", { name: "Marker dotted" }).getAttribute("aria-selected")).toBe("true");
-    });
-
-    it("marker cells are STATIC mini rows of the selected color — hatch the ONLY textured cell", () => {
-      renderLabelPicker({ selectedColor: "green", selectedMarker: "double" });
-      const listbox = screen.getByRole("listbox");
-      const guarded = borders.get("green")!;
-      for (const state of MARKER_NAMED) {
-        const cell = screen.getByRole("option", { name: `Marker ${state}` });
-        expect(cell.style.backgroundColor).toBe(rgb(tints.get("green")!.base));
-        // The hazard reads the guarded color via the custom prop.
-        expect(cell.style.getPropertyValue("--rk-marker-color")).toBe(guarded);
-      }
-      // The motion split: NO cell carries rain/scanlines — that motion is
-      // flair-axis now — and the crawl's class is gone entirely.
-      expect(listbox.querySelector(".rk-dash-rain")).toBeNull();
-      expect(listbox.querySelector("[class*='rk-scanlines']")).toBeNull();
-      // Exactly one texture pairing: hatch ↔ hazard (preview modifier — the
-      // wedge mask would fade the weave to invisibility at 18px).
-      const hatch = screen.getByRole("option", { name: "Marker hatch" });
-      const hazard = hatch.querySelector(".rk-hazard") as HTMLElement;
-      expect(hazard).not.toBeNull();
-      expect(hazard.classList.contains("rk-hazard-preview")).toBe(true);
-      for (const state of MARKER_NAMED.filter((s) => s !== "hatch")) {
-        expect(
-          screen.getByRole("option", { name: `Marker ${state}` }).querySelector(".rk-hazard"),
-        ).toBeNull();
-      }
-      // Stripes draw in the guarded family color with a 2px left inset (the
-      // marker must not kiss the cell edge — the cell reads as a mini row).
-      const solidStripe = screen
-        .getByRole("option", { name: "Marker solid" })
-        .querySelector("span")! as HTMLElement;
-      expect(solidStripe.style.borderLeft).toContain(rgb(guarded));
-      expect(solidStripe.style.left).toBe("2px");
-    });
-
-    it("a DARK selected color previews marker cells with its own tint/border (not the normal sibling's)", () => {
-      renderLabelPicker({ selectedColor: "green-dark" });
-      const cell = screen.getByRole("option", { name: "Marker dotted" });
-      expect(cell.style.backgroundColor).toBe(rgb(tints.get("green-dark")!.base));
-      expect(cell.style.getPropertyValue("--rk-marker-color")).toBe(borders.get("green-dark"));
-    });
-
-    it("picking a swatch repaints the marker + flair cells immediately", () => {
-      const { onSelect } = renderLabelPicker({ selectedColor: "green" });
-      const dotted = screen.getByRole("option", { name: "Marker dotted" });
-      expect(dotted.style.backgroundColor).toBe(rgb(tints.get("green")!.base));
-      fireEvent.click(screen.getByRole("option", { name: "Color blue-dark" }));
-      expect(onSelect).toHaveBeenCalledWith("blue-dark");
-      // The band cells repaint from the pick, without any parent re-render
-      // (the popover stays open — live toggling is the point).
-      expect(dotted.style.backgroundColor).toBe(rgb(tints.get("blue-dark")!.base));
-      // Clear reverts the previews to the gray sentinel.
-      fireEvent.click(screen.getByRole("option", { name: "Clear color" }));
-      expect(dotted.style.backgroundColor).toBe(rgb(tints.get(UNCOLORED_SELECTED_KEY)!.base));
     });
 
     it("flair cells are live previews carrying their always-on rk-flair-* overlay (rain/scan included)", () => {
@@ -588,23 +456,19 @@ describe("SwatchPopover", () => {
     }
 
     it("emits every offered clear on the full variant, drops the caption to unset, and stays open", () => {
-      const onSelectMarker = vi.fn();
       const onSelectFlair = vi.fn();
       const { onSelect, onClose } = renderVariant({
         selectedColor: "teal",
-        selectedMarker: "hatch",
         selectedFlair: "scan",
-        onSelectMarker,
         onSelectFlair,
         rowName: "blustery-raven",
       });
       fireEvent.click(screen.getByRole("option", { name: "Clear all" }));
       expect(onSelect).toHaveBeenCalledWith(null);
-      expect(onSelectMarker).toHaveBeenCalledWith("");
       expect(onSelectFlair).toHaveBeenCalledWith("");
       // Never dismisses; the preview override repaints the caption immediately.
       expect(onClose).not.toHaveBeenCalled();
-      expect(screen.getByText("∅ · ∅ · ∅")).toBeTruthy();
+      expect(screen.getByText("∅ · ∅")).toBeTruthy();
     });
 
     it("emits ONLY the offered clears: color-only fires onSelect alone", () => {
@@ -614,7 +478,7 @@ describe("SwatchPopover", () => {
       expect(onSelect).toHaveBeenCalledWith(null);
     });
 
-    it("emits ONLY the offered clears: color+flair (session/server variant) fires onSelect + onSelectFlair, no marker clear", () => {
+    it("emits ONLY the offered clears: color+flair (session/server variant) fires onSelect + onSelectFlair", () => {
       const onSelectFlair = vi.fn();
       const { onSelect } = renderVariant({
         selectedColor: "green",
@@ -624,29 +488,25 @@ describe("SwatchPopover", () => {
       fireEvent.click(screen.getByRole("option", { name: "Clear all" }));
       expect(onSelect).toHaveBeenCalledWith(null);
       expect(onSelectFlair).toHaveBeenCalledWith("");
-      // No marker band offered → no marker clear, and no marker header −.
-      expect(screen.queryByRole("option", { name: "Marker none" })).toBeNull();
     });
 
     it("rings iff EVERY offered axis is unset (props-computed)", () => {
-      const onSelectMarker = vi.fn();
       const onSelectFlair = vi.fn();
-      renderVariant({ onSelectMarker, onSelectFlair });
+      renderVariant({ onSelectFlair });
       const clearAll = screen.getByRole("option", { name: "Clear all" });
       expect(clearAll.getAttribute("aria-selected")).toBe("true");
       expect(clearAll.className).toContain("ring-text-primary");
       cleanup();
       // One set axis breaks the ring — the panel scope is "the whole label".
-      renderVariant({ onSelectMarker, onSelectFlair, selectedMarker: "solid" });
+      renderVariant({ onSelectFlair, selectedFlair: "scan" });
       const clearAll2 = screen.getByRole("option", { name: "Clear all" });
       expect(clearAll2.getAttribute("aria-selected")).toBe("false");
       expect(clearAll2.className).not.toContain("ring-text-primary");
     });
 
     it("keyboard: the top row is [− ✕] — ArrowUp reaches it, Left/Right walk it, Enter activates", () => {
-      const onSelectMarker = vi.fn();
       const onSelectFlair = vi.fn();
-      const { onSelect, onClose } = renderVariant({ onSelectMarker, onSelectFlair });
+      const { onSelect, onClose } = renderVariant({ onSelectFlair });
       const listbox = screen.getByRole("listbox");
       const arrow = (key: string) => fireEvent.keyDown(listbox, { key });
       const enter = () => fireEvent.keyDown(listbox, { key: "Enter" });
@@ -655,7 +515,6 @@ describe("SwatchPopover", () => {
       arrow("ArrowUp");
       enter();
       expect(onSelect).toHaveBeenLastCalledWith(null);
-      expect(onSelectMarker).toHaveBeenLastCalledWith("");
       expect(onSelectFlair).toHaveBeenLastCalledWith("");
       expect(onClose).not.toHaveBeenCalled();
       // ArrowRight walks − → ✕; Enter closes.
@@ -668,13 +527,11 @@ describe("SwatchPopover", () => {
   describe("keyboard navigation (plain-grid bands)", () => {
     function renderFull(extra: Partial<React.ComponentProps<typeof SwatchPopover>> = {}) {
       const onSelect = vi.fn();
-      const onSelectMarker = vi.fn();
       const onSelectFlair = vi.fn();
       const onClose = vi.fn();
       renderWithTheme(
         <SwatchPopover
           onSelect={onSelect}
-          onSelectMarker={onSelectMarker}
           onSelectFlair={onSelectFlair}
           onClose={onClose}
           {...extra}
@@ -685,7 +542,7 @@ describe("SwatchPopover", () => {
       const arrow = (key: string, n = 1) => {
         for (let i = 0; i < n; i++) fireEvent.keyDown(listbox, { key });
       };
-      return { onSelect, onSelectMarker, onSelectFlair, onClose, listbox, enter, arrow };
+      return { onSelect, onSelectFlair, onClose, listbox, enter, arrow };
     }
 
     it("initial focus FOLLOWS SELECTION: the color header − when uncolored — Enter clears, never emits a phantom color", () => {
@@ -739,22 +596,16 @@ describe("SwatchPopover", () => {
     });
 
     it("ArrowUp from a strip's first row lands on its band's header − (row 0)", () => {
-      const { onSelect, onSelectMarker, onSelectFlair, enter, arrow } = renderFull();
+      const { onSelect, onSelectFlair, enter, arrow } = renderFull();
       // Color: light row → header −.
       arrow("ArrowDown");
       arrow("ArrowUp");
       enter();
       expect(onSelect).toHaveBeenLastCalledWith(null);
-      // Marker band: descend past the three color rows onto the marker header −,
-      // then the marker row, and ArrowUp lands back on the marker header −.
-      arrow("ArrowDown", 5); // header−(c) → light → normal → dark → marker header − → marker row
-      enter();
-      expect(onSelectMarker).toHaveBeenLastCalledWith("pipe");
-      arrow("ArrowUp");
-      enter();
-      expect(onSelectMarker).toHaveBeenLastCalledWith("");
-      // Flair band: marker row → flair header − → flair row 1 → back up.
-      arrow("ArrowDown", 3); // marker header − → marker row → flair header − → flair row 1
+      // Flair band: descend past the three color rows onto the flair header −,
+      // then flair row 1, and ArrowUp lands back on the flair header −.
+      arrow("ArrowDown", 4); // header−(c) → light → normal → dark → flair header −
+      arrow("ArrowDown"); // flair row 1
       enter();
       expect(onSelectFlair).toHaveBeenLastCalledWith("rain");
       arrow("ArrowUp");
@@ -763,16 +614,16 @@ describe("SwatchPopover", () => {
     });
 
     it("vertical moves preserve the column as a goal column, clamped to the target row's extent", () => {
-      const { onSelect, onSelectMarker, enter, arrow } = renderFull();
+      const { onSelect, onSelectFlair, enter, arrow } = renderFull();
       arrow("ArrowDown"); // light row, col 0
       arrow("ArrowRight", 9); // col 9 (slate-light)
-      // Down into the marker band: the raw column rides THROUGH the
-      // single-cell header − row (goal column) and clamps to 7 (block) on the
-      // 8-cell marker row.
+      // Down into the flair band: the raw column rides THROUGH the
+      // single-cell header − row at the goal column and clamps to 7, noon, on the
+      // 8-cell flair row 1.
       arrow("ArrowDown", 4);
       enter();
-      expect(onSelectMarker).toHaveBeenLastCalledWith("block");
-      // Back up: marker row → header − → dark shade row, the raw column
+      expect(onSelectFlair).toHaveBeenLastCalledWith("noon");
+      // Back up: flair row 1 → header − → dark shade row, the raw column
       // restored (col 9 = slate-dark).
       arrow("ArrowUp", 2);
       enter();
@@ -788,46 +639,38 @@ describe("SwatchPopover", () => {
       expect(onSelect).not.toHaveBeenCalled();
     });
 
-    it("the marker row walks all 8 states; flair row 1 walks 8 columns and row 2 walks 7 (rain/nyan/… over scan/naruto/…)", () => {
-      const { onSelectMarker, onSelectFlair, enter, arrow } = renderFull();
-      // Uncolored → color header −. Down 5 → the marker band's row, col 0.
+    it("flair row 1 walks 8 columns and row 2 walks 7 (rain/nyan/… over scan/naruto/…)", () => {
+      const { onSelectFlair, enter, arrow } = renderFull();
+      // Uncolored → color header −. Down 5 → flair row 1, col 0, rain.
       arrow("ArrowDown", 5);
-      for (const state of [...MARKER_NAMED, "block"]) {
-        enter();
-        expect(onSelectMarker).toHaveBeenLastCalledWith(state);
-        arrow("ArrowRight");
-      }
-      // Down into the flair band: header −, then flair row 1. FLAIR_STATES is
-      // 15 named, so the even/odd split is asymmetric — row 1 is 8 wide, row 2
-      // is 7 — and the raw column (7) now lands on row 1's last cell (noon)
-      // without clamping.
-      arrow("ArrowDown", 2);
       enter();
-      expect(onSelectFlair).toHaveBeenLastCalledWith("noon");
-      // Walk row 1 left: spidey, cube, roadrunner, matrix, onepiece, nyan, rain — clamped.
-      for (const state of ["spidey", "cube", "roadrunner", "matrix", "onepiece", "nyan", "rain", "rain"]) {
-        arrow("ArrowLeft");
+      expect(onSelectFlair).toHaveBeenLastCalledWith("rain");
+      // Walk row 1 right: nyan, onepiece, matrix, roadrunner, cube, spidey,
+      // noon — clamped at the 8th cell.
+      for (const state of ["nyan", "onepiece", "matrix", "roadrunner", "cube", "spidey", "noon", "noon"]) {
+        arrow("ArrowRight");
         enter();
         expect(onSelectFlair).toHaveBeenLastCalledWith(state);
       }
-      // Down to row 2 in the same column: rain → scan.
+      // Down to row 2 in the same column: noon (row 1 col 7) → ironman (row 2
+      // col 6, clamped — row 2 is one cell shorter).
       arrow("ArrowDown");
       enter();
-      expect(onSelectFlair).toHaveBeenLastCalledWith("scan");
-      // Row 2 walks right: naruto, pacman, aquarium, invaders, warp, ironman — clamped.
-      for (const state of ["naruto", "pacman", "aquarium", "invaders", "warp", "ironman", "ironman"]) {
-        arrow("ArrowRight");
+      expect(onSelectFlair).toHaveBeenLastCalledWith("ironman");
+      // Row 2 walks left: warp, invaders, aquarium, pacman, naruto, scan — clamped.
+      for (const state of ["warp", "invaders", "aquarium", "pacman", "naruto", "scan", "scan"]) {
+        arrow("ArrowLeft");
         enter();
         expect(onSelectFlair).toHaveBeenLastCalledWith(state);
       }
       // Row 2 is the bottom: ArrowDown is a no-op.
       arrow("ArrowDown");
       enter();
-      expect(onSelectFlair).toHaveBeenLastCalledWith("ironman");
-      // Up in the same column returns to spidey.
+      expect(onSelectFlair).toHaveBeenLastCalledWith("scan");
+      // Up in the same column returns to rain.
       arrow("ArrowUp");
       enter();
-      expect(onSelectFlair).toHaveBeenLastCalledWith("spidey");
+      expect(onSelectFlair).toHaveBeenLastCalledWith("rain");
     });
 
     it("ArrowLeft at the left edge is a no-op", () => {

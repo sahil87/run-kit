@@ -1927,15 +1927,15 @@ describe("Sidebar — server-group header action cluster (x4sf)", () => {
     expect(primaryWrapper.style.color).toBe("");
   });
 
-  it("palette toggle opens a color-only SwatchPopover portalled to document.body", async () => {
+  it("palette toggle opens the color + flair SwatchPopover portalled to document.body", async () => {
     await renderWithColors({ alpha: "4" });
 
     const container = headerContainer("alpha");
     fireEvent.click(within(container).getByRole("button", { name: "Set color for server alpha" }));
 
-    // Color-only picker (no marker column) — distinguished from the SERVER
+    // Label picker (color + flair) — distinguished from the SERVER
     // panel's role=listbox tile grid by its accessible name.
-    const popover = screen.getByRole("listbox", { name: "Color picker" });
+    const popover = screen.getByRole("listbox", { name: "Label picker" });
     // Portalled: escapes the header (and the sessions list's overflow clip).
     expect(container.contains(popover)).toBe(false);
     expect(document.body.contains(popover)).toBe(true);
@@ -1948,7 +1948,7 @@ describe("Sidebar — server-group header action cluster (x4sf)", () => {
     expect(container.style.backgroundColor).toBe(rgb(tints.get(UNCOLORED_SELECTED_KEY)!.base));
 
     fireEvent.click(within(container).getByRole("button", { name: "Set color for server alpha" }));
-    const popover = screen.getByRole("listbox", { name: "Color picker" });
+    const popover = screen.getByRole("listbox", { name: "Label picker" });
     fireEvent.click(within(popover).getByRole("option", { name: "Color blue" }));
 
     // The single write seam maps the family to its legacy descriptor ("4")
@@ -1958,9 +1958,9 @@ describe("Sidebar — server-group header action cluster (x4sf)", () => {
     expect(container.style.backgroundColor).toBe(rgb(tints.get("4")!.base));
     // Selection does NOT dismiss (the picker's dismissal contract) — the ✕
     // cell is the explicit close, so tint combos can be compared live.
-    expect(screen.getByRole("listbox", { name: "Color picker" })).toBeInTheDocument();
+    expect(screen.getByRole("listbox", { name: "Label picker" })).toBeInTheDocument();
     fireEvent.click(within(popover).getByLabelText("Close picker"));
-    expect(screen.queryByRole("listbox", { name: "Color picker" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("listbox", { name: "Label picker" })).not.toBeInTheDocument();
   });
 
   it("Clear clears the optimistic entry back to the gray sentinel and POSTs null", async () => {
@@ -1971,7 +1971,7 @@ describe("Sidebar — server-group header action cluster (x4sf)", () => {
 
     fireEvent.click(within(container).getByRole("button", { name: "Set color for server alpha" }));
     fireEvent.click(
-      within(screen.getByRole("listbox", { name: "Color picker" })).getByRole("option", {
+      within(screen.getByRole("listbox", { name: "Label picker" })).getByRole("option", {
         name: "Clear color",
       }),
     );
@@ -2072,7 +2072,7 @@ describe("Sidebar — server flair (group header + picker band)", () => {
     fireEvent.click(
       within(headerContainer("alpha")).getByRole("button", { name: "Set color for server alpha" }),
     );
-    const popover = screen.getByRole("listbox", { name: "Color picker" });
+    const popover = screen.getByRole("listbox", { name: "Label picker" });
 
     // The flair band is present — the 15 named states as data-flair-value cells.
     const cells = popover.querySelectorAll("[data-flair-value]");
@@ -2085,7 +2085,7 @@ describe("Sidebar — server flair (group header + picker band)", () => {
     // (the dismissal contract).
     expect(headerContainer("alpha").querySelector(".rk-flair-cube")).not.toBeNull();
     expect(vi.mocked(setServerFlair)).toHaveBeenCalledExactlyOnceWith("alpha", "cube");
-    expect(screen.getByRole("listbox", { name: "Color picker" })).toBeInTheDocument();
+    expect(screen.getByRole("listbox", { name: "Label picker" })).toBeInTheDocument();
   });
 
   it("the flair band's − header cell clears: POSTs null and unmounts the overlay", async () => {
@@ -2095,7 +2095,7 @@ describe("Sidebar — server flair (group header + picker band)", () => {
     fireEvent.click(
       within(headerContainer("alpha")).getByRole("button", { name: "Set color for server alpha" }),
     );
-    const popover = screen.getByRole("listbox", { name: "Color picker" });
+    const popover = screen.getByRole("listbox", { name: "Label picker" });
     fireEvent.click(within(popover).getByRole("option", { name: "Flair none" }));
 
     expect(vi.mocked(setServerFlair)).toHaveBeenCalledExactlyOnceWith("alpha", null);
@@ -2110,7 +2110,7 @@ describe("Sidebar — server flair (group header + picker band)", () => {
       within(headerContainer("alpha")).getByRole("button", { name: "Set color for server alpha" }),
     );
     fireEvent.click(
-      within(screen.getByRole("listbox", { name: "Color picker" })).getByRole("option", { name: "Flair rain" }),
+      within(screen.getByRole("listbox", { name: "Label picker" })).getByRole("option", { name: "Flair rain" }),
     );
 
     expect(headerContainer("alpha").querySelector(".rk-flair-rain")).not.toBeNull();
@@ -2246,7 +2246,7 @@ describe("Sidebar — server-group rail + server card (260817-ve5m)", () => {
     expect(screen.queryByTestId("row-flyout-card")).toBeNull();
     // The popover still opens on coarse even though its palette-button anchor
     // is gated off with the cluster — it falls back to the header anchor.
-    expect(screen.getByRole("listbox", { name: "Color picker" })).toBeInTheDocument();
+    expect(screen.getByRole("listbox", { name: "Label picker" })).toBeInTheDocument();
     // Popover-over-card precedence: the suppressed gate holds while the
     // popover is open.
     tapRail("alpha");

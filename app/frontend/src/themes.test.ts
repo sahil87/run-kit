@@ -11,9 +11,7 @@ import {
   computeRowBorders,
   HUE_FAMILIES,
   PICKER_COLOR_VALUES,
-  MARKER_STATES,
   FLAIR_STATES,
-  markerStripeStyle,
   UNCOLORED_SELECTED_KEY,
   parseColorValue,
   formatColorValue,
@@ -477,57 +475,7 @@ describe("shade axis (light + normal + dark)", () => {
   });
 });
 
-describe("markerStripeStyle", () => {
-  const color = "#123456";
-
-  it("covers all eight states with the documented widths", () => {
-    expect(markerStripeStyle("", color)).toBeUndefined();
-    expect(markerStripeStyle("pipe", color)).toEqual({ borderLeft: `1px solid ${color}` });
-    expect(markerStripeStyle("solid", color)).toEqual({ borderLeft: `3px solid ${color}` });
-    expect(markerStripeStyle("double", color)).toEqual({ borderLeft: `6px double ${color}` });
-    expect(markerStripeStyle("thick", color)).toEqual({ borderLeft: `6px solid ${color}` });
-    expect(markerStripeStyle("unknown", color)).toBeUndefined();
-  });
-
-  it("dotted is a one-period fixed tile (3px 6px, repeat-y) — element-height independent", () => {
-    const s = markerStripeStyle("dotted", color)!;
-    // A plain linear-gradient of ONE period repeated with repeat-y: the tile
-    // height is fixed (6px), so the rhythm holds at ANY element height (the
-    // 18px picker preview cells included) — not just the 24/36px rows the old
-    // `3px 100%` + no-repeat form happened to weld on.
-    expect(s.backgroundImage).toBe(`linear-gradient(to bottom, ${color} 0 3px, transparent 3px 6px)`);
-    expect(s.backgroundSize).toBe("3px 6px");
-    expect(s.backgroundRepeat).toBe("repeat-y");
-  });
-
-  it("dashed is a one-period fixed tile (8px dash / 4px gap, 12px period)", () => {
-    const s = markerStripeStyle("dashed", color)!;
-    expect(s.backgroundImage).toBe(`linear-gradient(to bottom, ${color} 0 8px, transparent 8px 12px)`);
-    expect(s.backgroundSize).toBe("3px 12px");
-    expect(s.backgroundRepeat).toBe("repeat-y");
-  });
-
-  it("hatch is a 45° diagonal weave on a 12px×12px tile (welds on the 12px module)", () => {
-    const s = markerStripeStyle("hatch", color)!;
-    // The NON-repeating 45° linear-gradient with 25/50/75% stops phase-aligns
-    // across every 12px tile boundary (the same math as the .rk-hazard wedge) —
-    // a repeating-linear-gradient would not (12/√2 is no multiple of its period).
-    expect(s.backgroundImage).toBe(`linear-gradient(45deg, ${color} 0 25%, transparent 25% 50%, ${color} 50% 75%, transparent 75%)`);
-    expect(s.backgroundSize).toBe("12px 12px");
-    expect(s.backgroundRepeat).toBe("repeat");
-  });
-
-  it("block is a one-period fixed tile (9px block / 3px gap on a 12px period, 6px wide)", () => {
-    const s = markerStripeStyle("block", color)!;
-    expect(s.backgroundImage).toBe(`linear-gradient(to bottom, ${color} 0 9px, transparent 9px 12px)`);
-    expect(s.backgroundSize).toBe("6px 12px");
-    expect(s.backgroundRepeat).toBe("repeat-y");
-  });
-
-  it("MARKER_STATES is the closed set in display order (empty first)", () => {
-    expect(MARKER_STATES).toEqual(["", "pipe", "dotted", "dashed", "solid", "double", "thick", "hatch", "block"]);
-  });
-
+describe("flair states", () => {
   it("FLAIR_STATES is the closed set in display order (empty first, rain/scan leading)", () => {
     expect(FLAIR_STATES).toEqual(["", "rain", "scan", "nyan", "naruto", "onepiece", "pacman", "matrix", "aquarium", "roadrunner", "invaders", "cube", "warp", "spidey", "ironman", "noon"]);
   });

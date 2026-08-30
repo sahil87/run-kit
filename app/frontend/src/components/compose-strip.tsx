@@ -543,10 +543,16 @@ export function ComposeStrip({
               "error",
               {
                 label: "Press Enter in pane",
+                // The recovery Enter is a delivery like any other, so it holds
+                // the same in-flight lock: Send and Insert stay unavailable
+                // until it settles and cannot stack a second Enter onto it.
                 onSelect: () => {
-                  void sendToWindow(focused.server, focused.windowId, "", "enter").catch(() => {
-                    addToast("Enter could not be sent; nothing was delivered.", "error");
-                  });
+                  setSending(true);
+                  void sendToWindow(focused.server, focused.windowId, "", "enter")
+                    .catch(() => {
+                      addToast("Enter could not be sent; nothing was delivered.", "error");
+                    })
+                    .finally(() => setSending(false));
                 },
               },
             );

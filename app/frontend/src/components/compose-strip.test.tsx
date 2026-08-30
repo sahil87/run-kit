@@ -2376,6 +2376,31 @@ describe("ComposeStrip window send path", () => {
     expect(sendToWindowMock).toHaveBeenLastCalledWith("srv", "@1", "", "enter");
   });
 
+  it("locks both send controls while the recovery Enter is in flight", async () => {
+    sendToWindowMock.mockRejectedValue(
+      new ApiError("probe failed", 409, "probe_failure"),
+    );
+    mountFocused();
+    act(() => fireEvent.change(input(), { target: { value: "hello" } }));
+    await act(async () => {
+      fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true });
+    });
+    const action = addToastMock.mock.calls[0]?.[2];
+    expect(screen.getByTestId("compose-strip-send")).not.toBeDisabled();
+
+    let resolveEnter: (value: { ok: boolean }) => void = () => undefined;
+    sendToWindowMock.mockImplementation(
+      () => new Promise<{ ok: boolean }>((resolve) => { resolveEnter = resolve; }),
+    );
+    act(() => action?.onSelect());
+    expect(screen.getByTestId("compose-strip-send")).toHaveTextContent("Sending…");
+    expect(screen.getByTestId("compose-strip-send")).toBeDisabled();
+    act(() => fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true }));
+    expect(sendToWindowMock).toHaveBeenCalledTimes(2);
+    await act(async () => resolveEnter({ ok: true }));
+    expect(screen.getByTestId("compose-strip-send")).toHaveTextContent("Send");
+  });
+
   it("submit-unverified failure warns that Enter was sent and offers no action", async () => {
     sendToWindowMock.mockRejectedValue(
       new ApiError("submit unknown", 409, "submit_unverified"),

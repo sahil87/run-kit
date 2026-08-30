@@ -297,7 +297,7 @@ export function ComposeStrip({
 
   // A flyout never follows focus to a different target: its entries and anchor
   // belong to the draft key that opened it.
-  useEffect(() => {
+  useLayoutEffect(() => {
     setHistoryOpen(false);
   }, [draftKey]);
 
@@ -654,10 +654,12 @@ export function ComposeStrip({
   }
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
-    // Escape blurs the textarea back to the terminal (never closes the strip).
+    // Escape dismisses transient recall, then blurs back to the terminal
+    // (never closes the strip).
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
+      setHistoryOpen(false);
       textareaRef.current?.blur();
       return;
     }

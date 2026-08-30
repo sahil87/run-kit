@@ -1374,7 +1374,7 @@ describe("ComposeStrip", () => {
 
     act(() => fireEvent.click(screen.getByTestId("compose-strip-history")));
     expect(screen.getByTestId("compose-history-flyout")).toBeInTheDocument();
-    act(() => fireEvent.keyDown(document, { key: "Escape" }));
+    act(() => fireEvent.keyDown(input(), { key: "Escape" }));
     expect(screen.queryByTestId("compose-history-flyout")).toBeNull();
     expect(input()).toHaveValue("A draft");
 

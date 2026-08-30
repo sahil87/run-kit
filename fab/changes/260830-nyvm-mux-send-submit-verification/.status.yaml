@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 29
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-08-30T17:16:22Z", driver: fab-fff, iterations: 6, completed_at: "2026-08-30T17:23:33Z"}
     review: {started_at: "2026-08-30T17:23:33Z", driver: fab-fff, iterations: 6, completed_at: "2026-08-30T17:31:10Z"}
     hydrate: {started_at: "2026-08-30T17:31:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-30T17:40:28Z"}
-    ship: {started_at: "2026-08-30T17:40:28Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-08-30T17:40:28Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-30T17:42:42Z"}
+    review-pr: {started_at: "2026-08-30T17:42:42Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/773
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 2039
+    deleted: 171
+    net: 1868
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 771
+        deleted: 74
+        net: 697
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-08-30T17:40:28Z"
-    computed_at_stage: hydrate
+        added: 535
+        deleted: 34
+        net: 501
+    computed_at: "2026-08-30T17:42:42Z"
+    computed_at_stage: ship
 summary: adds asymmetric post-Enter non-submission detection and evidence-gated recovery to shared pane injection
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-08-30T17:40:28Z
+last_updated: 2026-08-30T17:42:42Z

@@ -269,6 +269,10 @@ function WindowRowInner({
     originX: number;
     originY: number;
     start: Marker | null;
+    // Whether this row's pad was already open when the press landed. A no-move
+    // release closes it in that case, which is what makes a second click on the
+    // strip a toggle rather than a no-op.
+    wasOpen: boolean;
   } | null>(null);
   const [padPosition, setPadPosition] = useState({ left: MARKER_WELL_WIDTH_FINE, top: 0 });
   const [padLayout, setPadLayout] = useState(() =>
@@ -438,6 +442,16 @@ function WindowRowInner({
 
   const onStripDown = (event: React.PointerEvent<HTMLDivElement>) => {
     event.stopPropagation();
+    // Click-to-toggle. The document dismissal listener deliberately ignores
+    // presses on this row's own strip, so without this the strip could only
+    // ever open. Coarse resolves the toggle here because its tap has no
+    // release path (the drag gesture is fine-only); fine defers to the release
+    // so a drag starting from an already-open pad still commits a cell.
+    if (coarse && showMarkerPad) {
+      padClose();
+      return;
+    }
+    const wasOpen = showMarkerPad;
     const sidebarCandidate = event.currentTarget.closest("[data-sidebar-scroll]");
     if (sidebarCandidate instanceof HTMLElement) {
       const nextLayout = markerPadPopoverLayout(
@@ -452,6 +466,7 @@ function WindowRowInner({
       originX: event.clientX,
       originY: event.clientY,
       start: displayMarker,
+      wasOpen,
     };
     event.currentTarget.setPointerCapture?.(event.pointerId);
   };
@@ -481,8 +496,12 @@ function WindowRowInner({
       event.clientY - press.originY,
       padPitchRef.current,
     );
-    if (sameCell(cell, press.start)) setMarkerPreview(undefined);
-    else padCommit(cell);
+    // A no-move release on a pad this press already found open closes it; on a
+    // pad this press opened it leaves the click menu up.
+    if (sameCell(cell, press.start)) {
+      if (press.wasOpen) padClose();
+      else setMarkerPreview(undefined);
+    } else padCommit(cell);
     if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }

@@ -1090,6 +1090,33 @@ describe("WindowRow", () => {
       expect(screen.getByTestId("marker-pad")).toBeInTheDocument();
     });
 
+    it("closes the pad on a second no-move strip click", () => {
+      const onMarkerChange = vi.fn();
+      renderAxis(makeWindow({ marker: "manual:1" }), { onMarkerChange });
+      const strip = screen.getByTestId("marker-strip");
+      fireEvent.pointerDown(strip, { pointerId: 1, clientX: 4, clientY: 10 });
+      fireEvent.pointerUp(strip, { pointerId: 1, clientX: 4, clientY: 10 });
+      expect(screen.getByTestId("marker-pad")).toBeInTheDocument();
+      fireEvent.pointerDown(strip, { pointerId: 2, clientX: 4, clientY: 10 });
+      fireEvent.pointerUp(strip, { pointerId: 2, clientX: 4, clientY: 10 });
+      expect(screen.queryByTestId("marker-pad")).toBeNull();
+      expect(onMarkerChange).not.toHaveBeenCalled();
+    });
+
+    it("still commits a drag that starts from an already-open pad", () => {
+      const onMarkerChange = vi.fn();
+      renderAxis(makeWindow({ marker: "manual:1" }), { onMarkerChange });
+      const strip = screen.getByTestId("marker-strip");
+      fireEvent.pointerDown(strip, { pointerId: 1, clientX: 4, clientY: 10 });
+      fireEvent.pointerUp(strip, { pointerId: 1, clientX: 4, clientY: 10 });
+      expect(screen.getByTestId("marker-pad")).toBeInTheDocument();
+      fireEvent.pointerDown(strip, { pointerId: 2, clientX: 4, clientY: 10 });
+      fireEvent.pointerMove(strip, { pointerId: 2, clientX: 30, clientY: 10 });
+      fireEvent.pointerUp(strip, { pointerId: 2, clientX: 30, clientY: 10 });
+      expect(onMarkerChange).toHaveBeenCalledWith("srv", "alpha", "@0", "manual:2");
+      expect(screen.queryByTestId("marker-pad")).toBeNull();
+    });
+
     it("keeps strip presses out of row selection and HTML drag", () => {
       const onSelectWindow = vi.fn();
       const onDragStart = vi.fn();
@@ -1704,6 +1731,27 @@ describe("coarse pointer: rest glyph, rail target, and plain status dot", () => 
       const svg = fill.querySelector("svg")!;
       expect(Number(svg.getAttribute("width"))).toBeGreaterThan(22);
       expect(fill.querySelectorAll("path")).toHaveLength(3);
+    });
+
+    it("closes the pad on a second coarse tap", () => {
+      const onMarkerChange = vi.fn();
+      renderCoarseAxis(makeWindow({ marker: "manual:1" }), { onMarkerChange });
+      const strip = screen.getByTestId("marker-strip");
+      fireEvent.pointerDown(strip, {
+        pointerId: 1,
+        pointerType: "touch",
+        clientX: 4,
+        clientY: 10,
+      });
+      expect(screen.getByTestId("marker-pad")).toBeInTheDocument();
+      fireEvent.pointerDown(strip, {
+        pointerId: 2,
+        pointerType: "touch",
+        clientX: 4,
+        clientY: 10,
+      });
+      expect(screen.queryByTestId("marker-pad")).toBeNull();
+      expect(onMarkerChange).not.toHaveBeenCalled();
     });
 
     it("opens click-menu mode on coarse without capture or drag preview", () => {

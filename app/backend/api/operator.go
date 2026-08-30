@@ -447,7 +447,7 @@ Actuate through your own shell:
   tmux set-option -t @N '@rk_win_color' '<value>'
 value: one of red orange amber olive green teal blue purple magenta slate, optionally suffixed -dark or -light (risk/priority may ride the shade axis).
 Optional secondary accents — sparingly; color is the primary channel:
-  tmux set-option -t @N '@rk_win_marker' '<value>'   (pipe dotted dashed solid double thick hatch block)
+  tmux set-option -t @N '@rk_win_marker' '<value>'   (manual manual:1 manual:2 manual:3 auto auto:1 auto:2 auto:3 blocked blocked:1 blocked:2 blocked:3 pipe dotted dashed solid double thick hatch block)
   tmux set-option -t @N '@rk_win_flair' '<value>'    (rain scan nyan naruto onepiece pacman matrix aquarium roadrunner invaders cube warp spidey ironman noon)
 Unset a label when a tab genuinely fits no category:
   tmux set-option -t @N -u '@rk_win_color'

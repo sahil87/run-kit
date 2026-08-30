@@ -160,9 +160,45 @@ var ErrWebTabsFull = errors.New("web tabs full")
 // 1..len(tabs); api maps it to 400.
 var ErrWebTabRange = errors.New("web tab index out of range")
 
-// MarkerOption is the tmux window user option carrying the left-gutter marker
-// state: a closed-set token (validate.MarkerValues), "" when unset.
+// MarkerOption is the tmux window user option carrying the left-gutter marker:
+// a closed-set token (validate.MarkerValues), "" when unset. The current schema
+// is `<mode>[:<stage>]` — mode ∈ manual/auto/blocked, stage ∈ 1/2/3, bare mode
+// = stage 1 — alongside the flat tokens still accepted while stored values
+// carry them.
 const MarkerOption = "@rk_win_marker"
+
+// legacyMarkerValues is the forward map from the flat pre-mode:stage marker
+// tokens onto the mode × stage model. Stripe tokens carry manual stages; the
+// two texture tokens carry blocked stages.
+var legacyMarkerValues = map[string]string{
+	"pipe": "manual:1", "dotted": "manual:1", "dashed": "manual:1", "solid": "manual:1",
+	"double": "manual:2", "thick": "manual:3",
+	"hatch": "blocked:2", "block": "blocked:3",
+}
+
+// NormalizeMarker maps a raw @rk_win_marker value onto the mode × stage model:
+// flat tokens map forward per legacyMarkerValues, `<mode>[:<stage>]` tokens
+// (and "") pass through, anything else normalizes to the empty unset state.
+// The table lookup runs FIRST, so a flat token can never reach the membership
+// check and never survives as itself — an invariant that holds whether
+// MarkerValues spans both vocabularies or only the current one.
+//
+// Nothing calls this yet: it is the first half of a value-vocabulary migration,
+// and the read seams (parseWindows, the snapshot layout reader) still hand
+// through whatever the closed set accepts. Wiring it in is what narrows the
+// stored vocabulary, which cannot happen before the UI can draw the new model.
+// It belongs here at the parse seam rather than in the legacy_options.go sweep
+// table because that table maps option NAMES and this is a same-name VALUE
+// remap.
+func NormalizeMarker(raw string) string {
+	if v, ok := legacyMarkerValues[raw]; ok {
+		return v
+	}
+	if validate.MarkerValues[raw] {
+		return raw
+	}
+	return ""
+}
 
 // FlairOption is the tmux window user option carrying the per-row flair
 // decoration: a closed-set token (validate.FlairValues), "" when unset.

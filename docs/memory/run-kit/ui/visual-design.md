@@ -239,6 +239,14 @@ A per-instance accent color makes multiple run-kit instances (laptop, Mac mini, 
 - **Cache-bust contract**: the dynamic manifest appends `?c=<descriptor>` to each icon `src` (`+` encoded `%2B`) when an accent is owned; the icon PNG routes tint only on that owned `?c=`, serving stock bytes otherwise. The favicon route carries no `?c=` (its href is static) and resolves the tint from settings per request with `Cache-Control: no-cache`, so open browser tabs re-tint on their next load.
 - **Chrome icon-refresh limitation** (accepted, documented — not engineered around): Chrome snapshots PWA icons at install and re-checks the manifest only on app launch with ~daily throttling, so an accent picked **before** install is immediate while a change **after** install updates the Dock icon eventually (reinstall forces it). The top-bar stripe/wash and PWA titlebar theme-color stay live regardless.
 
+### Marker Vocabulary — `mode × stage` (`app/frontend/src/marker.tsx`)
+
+`marker.tsx` is the frontend home for the two-axis marker model the `@rk_win_marker` option stores: `MARKER_MODES` (`manual`/`auto`/`blocked` — the categorical SHAPE axis), `MARKER_STAGES` (`1`/`2`/`3` — the ordinal axis), `MARKER_STAGE_GLOSS` (`early`/`mid`/`done`), the `Marker` type, and the `parseMarker` / `formatMarker` pair. `formatMarker` always emits the explicit `<mode>:<stage>` form, so `parseMarker ∘ formatMarker` is the identity over all nine pairs.
+
+`parseMarker` is deliberately **more permissive than the backend closed set** and **never throws**: it guards `typeof value !== "string"` (the value crosses an untyped JSON boundary on the window payload, so a non-string is reachable at runtime), trims, reads a bare mode as stage 1, and tolerates a zero-padded stage — so `" manual "` and `"auto:01"` both parse here while `validate.ValidateMarkerValue` rejects both. A write must be canonical; a read must survive whatever tmux holds. Anything else — empty, unknown mode, out-of-range or multi-colon stage, or a flat pre-`mode:stage` token such as `solid` — reads as `null`.
+
+Nothing renders from this module yet: `themes.ts`'s `MARKER_STATES` + `markerStripeStyle` remain the shipping renderer for the row's left-edge stripe (§ Banded Label picker's marker band), and the two vocabularies coexist until the fill/chevron renderers land here with their first consumer.
+
 ### Hazard-Wedge Row Texture — paired with `hatch` (`globals.css` `.rk-hazard`)
 
 A window row whose marker is `hatch` gets a static "hazard wedge" background — the in-progress / "work zone" cue. It is the marker axis's **one and only texture pairing**: `thick` (completed) is deliberately quiet, `double` is a plain twin stripe, and every other state is texture-free. The wedge is **NEVER animated in any state** (rest, hover, selected) — the motion split keeps the marker axis fully static (§ Design Decisions → The motion split).

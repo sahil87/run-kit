@@ -553,8 +553,10 @@ func validateWindowOption(key string, value *string, fam tmux.WebTabFamily, appe
 			}
 		}
 	case optKeyMarker:
-		// Left-gutter marker state: one of dotted/solid/double. An empty string
-		// is valid and treated as unset below (mirroring @rk_win_lens).
+		// Left-gutter marker: a `<mode>[:<stage>]` token (manual/auto/blocked ×
+		// 1/2/3, bare mode = stage 1), or one of the still-accepted flat tokens.
+		// An empty string is valid and treated as unset below (mirroring
+		// @rk_win_lens).
 		if errMsg := validate.ValidateMarkerValue(*value); errMsg != "" {
 			return errMsg
 		}

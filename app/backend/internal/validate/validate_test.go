@@ -485,18 +485,28 @@ func TestValidateColorValue(t *testing.T) {
 
 func TestValidateMarkerValue(t *testing.T) {
 	// The empty string is valid — it means "unset" (no marker). The closed set
-	// is the 8 named states (display order pipe/dotted/dashed/solid/double/
-	// thick/hatch/block).
-	valid := []string{"", "pipe", "dotted", "dashed", "solid", "double", "thick", "hatch", "block"}
+	// is the twelve `<mode>[:<stage>]` tokens (display order manual/auto/blocked
+	// × bare/1/2/3) plus the eight flat tokens still accepted while stored
+	// values carry them.
+	valid := []string{
+		"",
+		"manual", "manual:1", "manual:2", "manual:3",
+		"auto", "auto:1", "auto:2", "auto:3",
+		"blocked", "blocked:1", "blocked:2", "blocked:3",
+		"pipe", "dotted", "dashed", "solid", "double", "thick", "hatch", "block",
+	}
 	for _, v := range valid {
 		if msg := ValidateMarkerValue(v); msg != "" {
 			t.Errorf("ValidateMarkerValue(%q) = %q, want valid", v, msg)
 		}
 	}
 	// Anything outside the closed set is rejected (case-sensitive, no whitespace
-	// tolerance — the frontend only ever writes the canonical tokens). Flair
-	// tokens are NOT markers — the axes are independent closed sets.
-	invalid := []string{"Dotted", "Dashed", "DASHED", "THICK", "Hatch", "dot", "dash", " solid ", " thick ", "4", "1+3", "none", "true", "rain", "scan", "nyan"}
+	// tolerance — the frontend only ever writes the canonical tokens). The
+	// mode:stage near-misses pin that the set stayed a CLOSED SET and did not
+	// become a pattern match: an out-of-range or zero-padded stage, a bare
+	// separator and a doubled one all reject. Flair tokens are NOT markers —
+	// the axes are independent closed sets.
+	invalid := []string{"Dotted", "Dashed", "DASHED", "THICK", "Hatch", "dot", "dash", " solid ", " thick ", "4", "1+3", "none", "true", "rain", "scan", "nyan", "manual:0", "manual:4", "manual:", "manual:1:2", "MANUAL", " manual ", "auto:01", "mode:stage"}
 	for _, v := range invalid {
 		if msg := ValidateMarkerValue(v); msg == "" {
 			t.Errorf("ValidateMarkerValue(%q) = valid, want error", v)

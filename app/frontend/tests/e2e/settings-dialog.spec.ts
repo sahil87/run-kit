@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { readFileSync, writeFileSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { gotoServerReady } from "./_ready";
+import { gotoServerReady, openPalette } from "./_ready";
 import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
 /**
@@ -32,9 +32,9 @@ import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
  * pattern. `beforeAll` also creates an `e2e-settings-<timestamp>` tmux
  * session on `rk-test-e2e` with one named window (`win-a`); `afterAll` kills
  * it. A unique board name and instance name are generated per run so reruns
- * don't collide. `openPaletteSettings` RETRIES the `Meta+K` hotkey (toPass,
- * 15s budget): a keypress fired before the global keydown listener attaches
- * (cold dev-server first navigation) is dropped forever, so a single long
+ * don't collide. `openPaletteSettings` opens the palette through the shared
+ * `openPalette` helper, which gates on the palette and retries — a chord
+ * reaching a focused xterm is consumed, not merely delayed, so a single long
  * wait on the palette input could never recover. Control-level behavior
  * (input commit/cancel semantics, inline errors, theme selects, font stepper,
  * accent popover, roving-tabindex arrow nav) is exercised by unit tests
@@ -53,14 +53,7 @@ const BOARD_NAME = `set${Date.now().toString().slice(-6)}`;
 const TEST_INSTANCE_NAME = `e2e-name-${Date.now().toString().slice(-6)}`;
 
 async function openPaletteSettings(page: Page) {
-  const paletteInput = page.getByPlaceholder("Type a command");
-  // Retry the hotkey: a Meta+K pressed before the global keydown listener
-  // attaches (cold dev-server first navigation) is dropped forever — a single
-  // long wait on the input can never recover from that.
-  await expect(async () => {
-    await page.keyboard.press("Meta+k");
-    await expect(paletteInput).toBeVisible({ timeout: 2_000 });
-  }).toPass({ timeout: 15_000 });
+  const paletteInput = await openPalette(page);
   await paletteInput.fill("Settings: Open");
   await page.keyboard.press("Enter");
 }
@@ -133,7 +126,7 @@ test.describe("Settings dialog", () => {
    *
    * Steps:
    * 1. Navigate to `/rk-test-e2e` and wait for the Connected indicator.
-   * 2. `Meta+K` → type `Settings: Open` → Enter.
+   * 2. `openPalette` → type `Settings: Open` → Enter.
    * 3. Assert the `Settings` dialog is visible with the General tab
    *    `aria-selected`.
    * 4. Assert "This host" and "This device" section labels render, plus the
@@ -356,7 +349,7 @@ test.describe("Settings dialog", () => {
    *    `POST /api/boards/<name>/pin` so the board exists.
    * 2. Navigate to `/board/<name>` (`domcontentloaded`); wait for the `win-a`
    *    pane header.
-   * 3. `Meta+K` → type `Settings: Open` → Enter.
+   * 3. `openPalette` → type `Settings: Open` → Enter.
    * 4. Assert the `Settings` dialog is visible with both scope sections.
    * 5. Press Shift+Ctrl+/ → the dialog stays open on the Shortcuts tab
    *    (`settings-shortcuts-panel` visible); assert the add-flow button is
@@ -514,7 +507,7 @@ test.describe("Settings dialog", () => {
    *
    * Steps:
    * 1. Navigate to `/rk-test-e2e` and wait for the Connected indicator.
-   * 2. `Meta+K` → type `Settings: All` → Enter; assert the dialog opens with
+   * 2. `openPalette` → type `Settings: All` → Enter; assert the dialog opens with
    *    the All settings tab `aria-selected` and `settings-all-panel` visible.
    * 3. Fill the search field with `log`; assert `setting-row-log_level` stays
    *    visible, `setting-row-auto_name` is gone, and the emptied `Behavior`
@@ -533,11 +526,7 @@ test.describe("Settings dialog", () => {
 
     // The All-settings tab is the registry-driven table: open it via the
     // "Settings: All" palette deep-link (openSettings("all")).
-    const paletteInput = page.getByPlaceholder("Type a command");
-    await expect(async () => {
-      await page.keyboard.press("Meta+k");
-      await expect(paletteInput).toBeVisible({ timeout: 2_000 });
-    }).toPass({ timeout: 15_000 });
+    const paletteInput = await openPalette(page);
     await paletteInput.fill("Settings: All");
     await page.keyboard.press("Enter");
     await expectDialogOpen(page);

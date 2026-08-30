@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { READY_TIMEOUT, resolveWindow } from "./_ready";
+import { READY_TIMEOUT, openPalette, resolveWindow } from "./_ready";
 import { TMUX_SERVER, createSession, killSession } from "./_tmux";
 
 // Terminal export e2e — the tty tile header's ⇩ export affordance: the
@@ -27,22 +27,6 @@ const DESKTOP_VIEWPORT = { width: 1440, height: 800 };
 
 const exportButton = (page: Page) =>
   page.getByRole("button", { name: "Export terminal output" });
-
-/** Open the command palette, retrying the chord — right after first paint the
- *  keybinding registry may still be loading, so a lone Meta+k can be missed. */
-async function openPalette(page: Page) {
-  const input = page.getByPlaceholder("Type a command");
-  for (let attempt = 0; attempt < 3; attempt++) {
-    await page.keyboard.press("Meta+k");
-    const visible = await input
-      .waitFor({ state: "visible", timeout: 3_000 })
-      .then(() => true)
-      .catch(() => false);
-    if (visible) return input;
-  }
-  await expect(input).toBeVisible({ timeout: READY_TIMEOUT });
-  return input;
-}
 
 test.beforeAll(() => {
   // An idle pane with one printed line, so the client buffer is non-empty.
@@ -130,8 +114,9 @@ test("⇩ button opens the two-section menu; Download snapshot downloads a conve
  * Steps:
  * 1. Resolve the `export` window and navigate to its terminal route; wait
  *    for the `surface-tile-tty` tile.
- * 2. Open the palette with `Meta+k` (retried up to 3× — right after first
- *    paint the keybinding registry may still be loading); fill `Terminal:`.
+ * 2. Open the palette via `openPalette` (a chord reaching a focused xterm is
+ *    swallowed, so the helper gates on the palette and retries); fill
+ *    `Terminal:`.
  * 3. Assert each of the four `Terminal: …` options is listed.
  */
 test("the palette carries the four Terminal: export entries on the terminal route", async ({

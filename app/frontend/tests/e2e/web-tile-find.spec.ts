@@ -27,7 +27,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import http from "node:http";
-import { READY_TIMEOUT, resolveWindow as resolveWindowRaw } from "./_ready";
+import { openPalette, READY_TIMEOUT, resolveWindow as resolveWindowRaw } from "./_ready";
 import { TMUX_SERVER, createSession, killSession, newWindow, stampWebTab } from "./_tmux";
 
 // Own session so this file never collides with other specs (fullyParallel off).
@@ -153,6 +153,8 @@ test.describe("Web tile — keyboard reclaim + find-in-page (260819-ie2i)", () =
     // Focus INSIDE the frame: without reclaim the framed document would
     // swallow ⌘K and the palette would never open.
     await focusFrame(page);
+    // Deliberately NOT `openPalette` — in-frame focus is the subject here, and
+    // that helper blurs on retry, so a broken reclaim seam would still pass.
     await page.keyboard.press("Meta+k");
     await expect(page.getByPlaceholder("Type a command")).toBeVisible({ timeout: 5_000 });
     await page.keyboard.press("Escape");
@@ -249,7 +251,7 @@ test.describe("Web tile — keyboard reclaim + find-in-page (260819-ie2i)", () =
    *
    * Steps:
    * 1. Create a window on the same-origin stub URL; open `?view=web`.
-   * 2. Press `Meta+k`; fill `Web: Find`; assert the `Web: Find in page`
+   * 2. Open the palette (`openPalette`); fill `Web: Find`; assert the `Web: Find in page`
    *    option is visible; click it.
    * 3. Assert the find bar is visible.
    */
@@ -258,9 +260,7 @@ test.describe("Web tile — keyboard reclaim + find-in-page (260819-ie2i)", () =
   }) => {
     const id = await makeWindow(page, `wf-palette-${Date.now()}`, `http://localhost:${stub.port}/`);
     await gotoWebWindow(page, id);
-    await page.keyboard.press("Meta+k");
-    const paletteInput = page.getByPlaceholder("Type a command");
-    await expect(paletteInput).toBeVisible({ timeout: 5_000 });
+    const paletteInput = await openPalette(page);
     await paletteInput.fill("Web: Find");
     const option = page.getByRole("option", { name: /Web: Find in page/ });
     await expect(option).toBeVisible({ timeout: 10_000 });

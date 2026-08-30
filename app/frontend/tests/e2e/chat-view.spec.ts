@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { openPalette } from "./_ready";
 import { mockStateSocket } from "./_state-socket-mock";
 
 // Fully mocked (no tmux/gh) — inject the `sessions` payload over the state-socket
@@ -37,10 +38,8 @@ const SERVER = "default";
 const MOBILE = { width: 375, height: 812 };
 
 /** Open the command palette, fill the query, and return the input. */
-async function openPalette(page: Page, query: string) {
-  await page.keyboard.press("Meta+k");
-  const paletteInput = page.getByPlaceholder("Type a command");
-  await expect(paletteInput).toBeVisible({ timeout: 5_000 });
+async function openPaletteWith(page: Page, query: string) {
+  const paletteInput = await openPalette(page);
   await paletteInput.fill(query);
   return paletteInput;
 }
@@ -48,7 +47,7 @@ async function openPalette(page: Page, query: string) {
 /** Switch the lens via the palette's `View: {label}` action — the only
  *  lens-switch surface since the ViewSwitcher's retirement (260812-0c6o). */
 async function switchLens(page: Page, label: "Terminal" | "Chat"): Promise<void> {
-  await openPalette(page, `View: ${label}`);
+  await openPaletteWith(page, `View: ${label}`);
   const option = page.getByRole("option", { name: `View: ${label}` });
   await expect(option).toBeVisible({ timeout: 10_000 });
   await option.click();
@@ -279,7 +278,7 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     const bar = page.getByRole("banner");
     await expect(bar.getByRole("button", { name: "Terminal tile" })).toBeVisible();
     await expect(bar.getByRole("button", { name: "Chat tile" })).toHaveCount(0);
-    await openPalette(page, "View: Chat");
+    await openPaletteWith(page, "View: Chat");
     await expect(page.getByRole("option", { name: "View: Chat" })).toBeVisible();
     await page.keyboard.press("Escape");
     await page.getByRole("button", { name: "More controls" }).click();
@@ -304,7 +303,7 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     // @2 has no chatProvider → the palette offers no `View: Chat` action.
     await page.goto(`/${SERVER}/2`);
     await expect(page.getByText("plain-win").first()).toBeVisible({ timeout: 10_000 });
-    await openPalette(page, "View: Chat");
+    await openPaletteWith(page, "View: Chat");
     await expect(page.getByRole("option", { name: "View: Chat" })).toHaveCount(0);
     await page.keyboard.press("Escape");
 
@@ -329,7 +328,7 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
    *
    * Steps:
    * 1. Mock the backend; navigate to `/default/1`; gate on the `Tab:` prefix.
-   * 2. `switchLens("Chat")` — open the palette (`Meta+k`), fill `View: Chat`,
+   * 2. `switchLens("Chat")` — open the palette via `openPalette`, fill `View: Chat`,
    *    click the option, and wait for the palette to close.
    * 3. Assert the `chat-view` renderer is visible, the heading still shows
    *    the `Tab:` prefix, and the `Rename tab agent-win` heading button is
@@ -517,7 +516,7 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
 
     // The palette offers the way back — `Tile: Switch to Terminal` (chat is
     // current), and NO `View: Terminal` (superseded on mobile).
-    const paletteInput = await openPalette(page, "View: Terminal");
+    const paletteInput = await openPaletteWith(page, "View: Terminal");
     await expect(
       page.getByRole("option", { name: "View: Terminal", exact: true }),
     ).toHaveCount(0);

@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { gotoServerReady } from "./_ready";
+import { gotoServerReady, openPalette } from "./_ready";
 import { TMUX_SERVER, createSession, killSession } from "./_tmux";
 
 /**
@@ -37,9 +37,7 @@ function tmuxHasSession(name: string): boolean {
  *  anchored regex tolerates the descriptor while staying unambiguous (a
  *  sibling like `Session: Create at Folder` continues with ` at`, not ` —`). */
 async function openPrompt(page: Page) {
-  await page.keyboard.press("Meta+k");
-  const paletteInput = page.getByPlaceholder("Type a command");
-  await expect(paletteInput).toBeVisible({ timeout: 5_000 });
+  const paletteInput = await openPalette(page);
   await paletteInput.fill("Session: Create");
   const option = page.getByRole("option", { name: /^Session: Create( —|$)/ });
   await expect(option).toBeVisible({ timeout: 10_000 });

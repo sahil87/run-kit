@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { openPalette } from "./_ready";
 import { mockStateSocket } from "./_state-socket-mock";
 
 // Keyboard shortcut registry: the `Shift+CmdOrCtrl+<key>` run-kit action tier
@@ -291,7 +292,7 @@ test.describe("shortcuts overlay", () => {
    * `shortcuts-overlay` action.
    *
    * Steps:
-   * 1. Open the palette (`Meta+k`), fill "Help: Keyboard Shortcuts", press
+   * 1. Open the palette (`openPalette`), fill "Help: Keyboard Shortcuts", press
    *    Enter.
    * 2. Assert the settings dialog is visible on the Shortcuts tab
    *    (`settings-shortcuts-panel`).
@@ -300,9 +301,7 @@ test.describe("shortcuts overlay", () => {
     await mockBackend(page);
     await gotoWindowOne(page);
 
-    await page.keyboard.press("Meta+k");
-    const paletteInput = page.getByPlaceholder("Type a command");
-    await expect(paletteInput).toBeVisible();
+    const paletteInput = await openPalette(page);
     await paletteInput.fill("Help: Keyboard Shortcuts");
     await page.keyboard.press("Enter");
     await expect(shortcutsPanel(page)).toBeVisible();
@@ -361,7 +360,7 @@ test.describe("shortcuts overlay", () => {
    * shortcuts entry.
    *
    * Steps:
-   * 1. Open the palette (`Meta+k`); fill "tmux Keybindings" → no
+   * 1. Open the palette (`openPalette`); fill "tmux Keybindings" → no
    *    `Help: tmux Keybindings` entry renders.
    * 2. Fill "Keyboard Shortcuts" → the `Help: Keyboard Shortcuts` entry is
    *    visible.
@@ -370,9 +369,7 @@ test.describe("shortcuts overlay", () => {
     await mockBackend(page);
     await gotoWindowOne(page);
 
-    await page.keyboard.press("Meta+k");
-    const paletteInput = page.getByPlaceholder("Type a command");
-    await expect(paletteInput).toBeVisible();
+    const paletteInput = await openPalette(page);
     await paletteInput.fill("tmux Keybindings");
     await expect(page.getByText("Help: tmux Keybindings")).toHaveCount(0);
     // The shortcuts entry is the single shortcuts surface.
@@ -513,7 +510,7 @@ test.describe("tabbed settings dialog deep-links (260818-bncw)", () => {
    * dialog directly on the Appearance tab.
    *
    * Steps:
-   * 1. Open the palette (`Meta+k`); fill "Settings: Appearance" → the entry
+   * 1. Open the palette (`openPalette`); fill "Settings: Appearance" → the entry
    *    is visible; press Enter.
    * 2. Assert the dialog is open with the Appearance tab selected.
    */
@@ -521,9 +518,7 @@ test.describe("tabbed settings dialog deep-links (260818-bncw)", () => {
     await mockBackend(page);
     await gotoWindowOne(page);
 
-    await page.keyboard.press("Meta+k");
-    const paletteInput = page.getByPlaceholder("Type a command");
-    await expect(paletteInput).toBeVisible();
+    const paletteInput = await openPalette(page);
     await paletteInput.fill("Settings: Appearance");
     await expect(page.getByText("Settings: Appearance")).toBeVisible();
     await page.keyboard.press("Enter");
@@ -546,9 +541,7 @@ test.describe("palette hints", () => {
     await mockBackend(page);
     await gotoWindowOne(page);
 
-    await page.keyboard.press("Meta+k");
-    const paletteInput = page.getByPlaceholder("Type a command");
-    await expect(paletteInput).toBeVisible();
+    const paletteInput = await openPalette(page);
     await paletteInput.fill("Agent: Next waiting");
     // Playwright runs a non-mac browser host → "Shift+Ctrl+A".
     await expect(page.getByText("Shift+Ctrl+A")).toBeVisible();
@@ -829,7 +822,7 @@ test.describe("split chords (260807-rbx5)", () => {
    * `macCode` refinement never applies here).
    *
    * Steps:
-   * 1. Mock the backend; open `/default/1`; open the palette (`Meta+k`).
+   * 1. Mock the backend; open `/default/1`; open the palette (`openPalette`).
    * 2. Fill the filter with "Tab: Split" → both split entries render.
    * 3. Assert the texts `Shift+Ctrl+\` and `Shift+Ctrl+-` each appear exactly
    *    once.
@@ -838,9 +831,7 @@ test.describe("split chords (260807-rbx5)", () => {
     await mockBackend(page);
     await gotoWindowOne(page);
 
-    await page.keyboard.press("Meta+k");
-    const paletteInput = page.getByPlaceholder("Type a command");
-    await expect(paletteInput).toBeVisible();
+    const paletteInput = await openPalette(page);
     await paletteInput.fill("Tab: Split");
     await expect(page.getByText("Tab: Split Horizontal")).toBeVisible();
     await expect(page.getByText("Tab: Split Vertical")).toBeVisible();

@@ -1,0 +1,13 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-30T20:25:57Z"}
+{"args":"Harden the e2e command-palette opener — shared openPalette helper across ~20 specs","cmd":"fab-new","event":"command","ts":"2026-08-30T20:25:57Z"}
+{"delta":"+4.3","event":"confidence","score":4.3,"trigger":"calc-score","ts":"2026-08-30T20:28:11Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-30T20:36:07Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-30T20:48:23Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-30T20:50:01Z"}
+{"event":"review","result":"failed","ts":"2026-08-30T20:55:28Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-30T20:55:28Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-30T20:58:27Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-30T20:59:40Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-30T21:03:54Z"}
+{"event":"review","result":"passed","ts":"2026-08-30T21:03:54Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-30T21:04:59Z"}

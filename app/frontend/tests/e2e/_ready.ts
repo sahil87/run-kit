@@ -8,7 +8,7 @@
  * and tmux all contend) it can take seconds, so readiness timeouts are widened
  * under CI rather than masking the slowness with blanket retries.
  */
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 
 /** Generous readiness timeout for "wait for SSE data to render" gates. Wider on
  *  CI to absorb shared-runner latency; tight locally to keep feedback fast. */
@@ -42,6 +42,53 @@ export async function gotoServerReady(
     ).toBeVisible({ timeout: READY_TIMEOUT });
   }
   return sidebar;
+}
+
+/** Attempts before `openPalette` gives up, and how long each one waits. */
+const PALETTE_ATTEMPTS = 3;
+const PALETTE_ATTEMPT_TIMEOUT = 3_000;
+
+/**
+ * Open the command palette and return its input, ready to `.fill()`.
+ *
+ * Use this instead of a bare `page.keyboard.press("Meta+k")`. A bare press can
+ * be swallowed: when the xterm terminal owns focus on the Linux rig, xterm
+ * HANDLES the chord rather than refusing it — `shouldRefuseTerminalChord`'s
+ * cmd-tier rule is gated to macOS — and a key xterm handles is
+ * `preventDefault`ed, which the window dispatcher drops on its opening
+ * `if (e.defaultPrevented) return`. The palette never opens, and the caller
+ * then hangs on whatever option it looked for next until the whole test
+ * times out, blaming the wrong element.
+ *
+ * The first attempt leaves focus alone, so a press that would have worked
+ * behaves exactly as the bare press it replaces — specs that assert
+ * focus-dependent behavior are unaffected. Only a failed attempt blurs the
+ * active element, which is the actual remedy, before pressing again.
+ */
+export async function openPalette(page: Page): Promise<Locator> {
+  const input = page.getByPlaceholder("Type a command");
+  for (let attempt = 0; attempt < PALETTE_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    }
+    await page.keyboard.press("Meta+k");
+    // The last attempt asserts rather than probes, so exhaustion costs the same
+    // three waits as success and the failure still names the palette — never a
+    // fourth timeout, and never a downstream locator taking the blame.
+    if (attempt === PALETTE_ATTEMPTS - 1) {
+      await expect(
+        input,
+        `command palette did not open after ${PALETTE_ATTEMPTS} Meta+k presses`,
+      ).toBeVisible({ timeout: PALETTE_ATTEMPT_TIMEOUT });
+      return input;
+    }
+    const opened = await input
+      .waitFor({ state: "visible", timeout: PALETTE_ATTEMPT_TIMEOUT })
+      .then(() => true)
+      .catch(() => false);
+    if (opened) return input;
+  }
+  return input;
 }
 
 /** A window as it appears in the `GET /api/sessions` snapshot. */

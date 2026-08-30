@@ -12,15 +12,15 @@
  * test asserts a KNOWN persisted preference survives untouched. The chord
  * resolves on the Linux browser host as `Shift+Control+Enter` (the mac ⇧⌘⏎
  * form is unit-tested in `keybindings.test.ts`). The ⇧⌘⏎ chord fires from the
- * xterm pane (its `ignoreInputs` carve-out); the ⌃K palette chord does NOT
- * (the pane's key handling swallows Ctrl+K on Linux — a pre-existing
- * terminal-routing property, unrelated to zen), so the palette-open helper
- * defocuses to the status bar before pressing it. A second tile is opened via
+ * xterm pane (its `ignoreInputs` carve-out); the palette chord does NOT
+ * (the pane's key handling swallows it on Linux — a pre-existing
+ * terminal-routing property, unrelated to zen), so `zenPalette` defocuses to
+ * the status bar before delegating the press to the shared `openPalette`. A second tile is opened via
  * the top-bar surface-toggle rail's `Code tile` button (the e2e rig's windows
  * offer the code surface from their repo cwd).
  */
 import { test, expect, type Page } from "@playwright/test";
-import { READY_TIMEOUT, resolveWindow } from "./_ready";
+import { openPalette, READY_TIMEOUT, resolveWindow } from "./_ready";
 import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 
 // Own session so this file never collides with other specs (fullyParallel off).
@@ -59,13 +59,13 @@ async function sidebarPref(page: Page): Promise<string | null> {
   return page.evaluate((key) => localStorage.getItem(key), SIDEBAR_PREF_KEY);
 }
 
-/** Open the command palette. The ⌃K chord only fires when focus is OUTSIDE
- *  the xterm pane (the pane's key handling swallows Ctrl+K on Linux — a
- *  pre-existing terminal-routing property, not zen's), so defocus to chrome
- *  first via the status bar. */
-async function openPalette(page: Page) {
+/** Open the command palette and return the DIALOG — these tests scope their
+ *  option queries to it, unlike `openPalette`, which returns the input.
+ *  Focus starts in the xterm pane here, which swallows the chord, so defocus
+ *  to chrome up front rather than paying the shared helper's retry. */
+async function zenPalette(page: Page) {
   await page.getByTestId("status-bar").click({ position: { x: 400, y: 12 } });
-  await page.keyboard.press("Control+k");
+  await openPalette(page);
   const palette = page.getByRole("dialog", { name: "Command palette" });
   await expect(palette).toBeVisible({ timeout: READY_TIMEOUT });
   return palette;
@@ -202,7 +202,7 @@ test("exit via the chord restores chrome; at arity > 1 entering zen zooms the fo
  *
  * Steps:
  * 1. Create window C; navigate; wait for the tty tile (arity 1).
- * 2. Open the palette (⌃K), filter to "zen"; assert `View: Enter Zen Mode`
+ * 2. Open the palette (`openPalette`), filter to "zen"; assert `View: Enter Zen Mode`
  *    is offered and `View: Exit Zen Mode` is absent; select the enter entry.
  * 3. Assert the top bar and sidebar hide (zen entered via the palette).
  * 4. Reopen the palette, filter to "zen"; assert only `View: Exit Zen Mode`
@@ -217,7 +217,7 @@ test("the palette offers `View: Enter Zen Mode` findable by 'zen' at arity 1, fl
   await gotoWindow(page, id);
   await expect(ttyTile(page)).toBeVisible({ timeout: READY_TIMEOUT });
   // Enter through the palette (arity 1 — the entry is offered at any arity).
-  let palette = await openPalette(page);
+  let palette = await zenPalette(page);
   await palette.getByRole("combobox").fill("zen");
   await expect(palette.getByRole("option", { name: /View: Enter Zen Mode/ })).toBeVisible();
   await expect(palette.getByRole("option", { name: /View: Exit Zen Mode/ })).toHaveCount(0);
@@ -226,7 +226,7 @@ test("the palette offers `View: Enter Zen Mode` findable by 'zen' at arity 1, fl
   await expect(sidebarAside(page)).toBeHidden();
 
   // One-form flip: while zen is active, only the exit form is offered.
-  palette = await openPalette(page);
+  palette = await zenPalette(page);
   await palette.getByRole("combobox").fill("zen");
   await expect(palette.getByRole("option", { name: /View: Exit Zen Mode/ })).toBeVisible();
   await expect(palette.getByRole("option", { name: /View: Enter Zen Mode/ })).toHaveCount(0);

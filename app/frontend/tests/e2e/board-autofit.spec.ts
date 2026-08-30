@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { openPalette } from "./_ready";
 import { pinWindow, trackPin, unpinAll, unpinWindow } from "./_boards";
 import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
@@ -257,7 +258,7 @@ test.describe("Boards: desktop autofit toggle (738w)", () => {
    * Steps:
    * 1. Pin 2 panes to board A and 2 panes to board B.
    * 2. goto /board/A; assert 2 panes and aria-pressed="false".
-   * 3. Open the palette (Control+k), filter "Toggle Autofit", click the
+   * 3. Open the palette (`openPalette`), filter "Toggle Autofit", click the
    *    `Board: Toggle Autofit` option; assert the button now reads
    *    aria-pressed="true".
    * 4. Reload the page; assert board A's button is still aria-pressed="true"
@@ -281,8 +282,7 @@ test.describe("Boards: desktop autofit toggle (738w)", () => {
     await expect(panes(page)).toHaveCount(2, { timeout: 10_000 });
     await expect(autofitButton(page)).toHaveAttribute("aria-pressed", "false");
 
-    await page.keyboard.press("Control+k");
-    await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
+    await openPalette(page);
     // The palette input is a combobox (role="combobox") labelled "Search commands".
     await page.getByRole("combobox", { name: "Search commands" }).fill("Toggle Autofit");
     await page.getByRole("option", { name: /Board: Toggle Autofit/ }).first().click();

@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { READY_TIMEOUT, resolveWindow as resolveWindowRaw } from "./_ready";
+import { openPalette, READY_TIMEOUT, resolveWindow as resolveWindowRaw } from "./_ready";
 import { TMUX_SERVER, createSession, killSession } from "./_tmux";
 
 // Terminal tile find-in-buffer e2e — the chord, the ⌕ header button, and the
@@ -212,7 +212,7 @@ test.describe("Terminal tile — find in buffer (260819-zqf9)", () => {
    *
    * Steps:
    * 1. Open the terminal route; wait for the pane payload.
-   * 2. Press `Meta+k`; fill `Terminal: Find`; assert the `Terminal: Find`
+   * 2. Open the palette (`openPalette`); fill `Terminal: Find`; assert the `Terminal: Find`
    *    option is visible; click it.
    * 3. Assert the find bar is visible.
    */
@@ -223,9 +223,7 @@ test.describe("Terminal tile — find in buffer (260819-zqf9)", () => {
     await gotoTtyWindow(page, windowId);
     await awaitPaneOutput(page, windowId);
 
-    await page.keyboard.press("Meta+k");
-    const paletteInput = page.getByPlaceholder("Type a command");
-    await expect(paletteInput).toBeVisible({ timeout: 5_000 });
+    const paletteInput = await openPalette(page);
     await paletteInput.fill("Terminal: Find");
     const option = page.getByRole("option", { name: /Terminal: Find/ });
     await expect(option).toBeVisible({ timeout: 10_000 });

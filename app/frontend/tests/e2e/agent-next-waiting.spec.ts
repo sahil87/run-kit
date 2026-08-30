@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { openPalette } from "./_ready";
 import { mockStateSocket } from "./_state-socket-mock";
 
 // Fully mocked — no tmux, no gh, no real backend. page.route stubs:
@@ -14,7 +15,7 @@ import { mockStateSocket } from "./_state-socket-mock";
 // the keyboard-first attention nav (Constitution V): cycles to the next
 // window whose rolled-up agentState is `waiting`; no-ops with a
 // "No agents waiting" toast when none. runNextWaiting() opens the palette
-// (Meta+k), fills "Agent: Next waiting", and presses Enter.
+// via `openPalette`, fills "Agent: Next waiting", and presses Enter.
 
 const SERVER = "default";
 
@@ -65,9 +66,7 @@ async function mockBackend(page: Page, withWaiting: boolean) {
 }
 
 async function runNextWaiting(page: Page) {
-  await page.keyboard.press("Meta+k");
-  const paletteInput = page.getByPlaceholder("Type a command");
-  await expect(paletteInput).toBeVisible({ timeout: 5_000 });
+  const paletteInput = await openPalette(page);
   await paletteInput.fill("Agent: Next waiting");
   await page.keyboard.press("Enter");
 }

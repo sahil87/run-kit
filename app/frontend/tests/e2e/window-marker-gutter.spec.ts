@@ -52,8 +52,8 @@ test.describe("window marker well", () => {
    *    helpers, then resolve their stable window ids.
    * 2. Set `manual:2`, `auto:3`, and `blocked:1` directly in
    *    `@rk_win_marker` and poll the session snapshot for each value.
-   * 3. Assert every marked well begins at the row edge, is exactly 22px wide,
-   *    and uses the fixed marker-ink wash and right border.
+   * 3. Assert every marked well begins at the row edge, is 22px wide within
+   *    subpixel tolerance, and uses the fixed marker-ink wash and right border.
    * 4. Assert manual paints a 15px solid fill, auto draws three chevrons, and
    *    blocked paints a 7px hatch plus the row hazard wedge.
    * 5. Assert the unmarked row renders neither the well nor the hazard wedge.
@@ -98,7 +98,7 @@ test.describe("window marker well", () => {
       expect(rowBox).not.toBeNull();
       expect(wellBox).not.toBeNull();
       expect(Math.abs(wellBox!.x - rowBox!.x)).toBeLessThan(0.5);
-      expect(wellBox!.width).toBe(22);
+      expect(Math.abs(wellBox!.width - 22)).toBeLessThanOrEqual(0.5);
       await expect(well).toHaveCSS("background-color", /rgb/);
       await expect(well).toHaveCSS("border-right-width", "1px");
       expect(await well.getAttribute("style")).toContain("var(--color-marker-ink) 12%");

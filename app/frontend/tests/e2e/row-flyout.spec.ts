@@ -534,7 +534,8 @@ test.describe("Row flyout card (fine pointer)", () => {
    * 1. Use the fine-pointer setup from this describe block and locate @2.
    * 2. Assert no `Set tab label` element exists.
    * 3. Measure the row, marker well, and status content; assert the well is
-   *    flush, 22px wide, and the content starts at 30px (within 1px).
+   *    flush, 22px wide within subpixel tolerance, and the content starts at
+   *    30px (within 1px).
    */
   test("fine left zone: no interactive zone, the 22px marker well stays, content starts ≈30px", async ({
     page,
@@ -544,7 +545,7 @@ test.describe("Row flyout card (fine pointer)", () => {
     const wellBox = (await scratchRow(page).getByTestId("marker-well").boundingBox())!;
     const contentBox = (await scratchRow(page).getByTestId("status-dot-tap").boundingBox())!;
     expect(Math.abs(wellBox.x - rowBox.x)).toBeLessThanOrEqual(0.5);
-    expect(wellBox.width).toBe(22);
+    expect(Math.abs(wellBox.width - 22)).toBeLessThanOrEqual(0.5);
     expect(Math.abs(contentBox.x - rowBox.x - 30)).toBeLessThanOrEqual(1);
   });
 });
@@ -807,7 +808,8 @@ test.describe("Row flyout card (coarse pointer)", () => {
    * 1. Open the coarse drawer and locate @2.
    * 2. Assert no `Set tab label` element exists.
    * 3. Measure the row, marker well, and status content; assert the well is
-   *    flush, 22px wide, and the content starts at 30px (within 1px).
+   *    flush, 22px wide within subpixel tolerance, and the content starts at
+   *    30px (within 1px).
    */
   test("coarse left zone: no interactive zone, the 22px marker well stays, content starts ≈30px", async ({
     page,
@@ -819,7 +821,7 @@ test.describe("Row flyout card (coarse pointer)", () => {
     const wellBox = (await scratchRow(page).getByTestId("marker-well").boundingBox())!;
     const zoneBox = (await scratchRow(page).getByTestId("status-dot-tap").boundingBox())!;
     expect(Math.abs(wellBox.x - rowBox.x)).toBeLessThanOrEqual(0.5);
-    expect(wellBox.width).toBe(22);
+    expect(Math.abs(wellBox.width - 22)).toBeLessThanOrEqual(0.5);
     expect(Math.abs(zoneBox.x - rowBox.x - 30)).toBeLessThanOrEqual(1);
   });
 

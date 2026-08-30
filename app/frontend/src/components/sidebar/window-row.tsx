@@ -348,6 +348,10 @@ function WindowRowInner({
 
   const parsedMarker = useMemo(() => parseMarker(marker), [marker]);
   const displayMarker = parsedMarker;
+  const displayMarkerStyle = useMemo(
+    () => (displayMarker ? markerFillStyle(displayMarker) : undefined),
+    [displayMarker],
+  );
 
   // The flair overlay uses the row's guarded family color; marker shapes and
   // the hazard wedge use the fixed marker ink.
@@ -539,8 +543,8 @@ function WindowRowInner({
             borderRight: MARKER_WELL_EDGE,
           }}
         >
-          {markerFillStyle(displayMarker) && (
-            <span aria-hidden className="absolute inset-y-0 left-0" style={markerFillStyle(displayMarker)} />
+          {displayMarkerStyle && (
+            <span aria-hidden className="absolute inset-y-0 left-0" style={displayMarkerStyle} />
           )}
           {displayMarker.mode === "auto" && (
             <span

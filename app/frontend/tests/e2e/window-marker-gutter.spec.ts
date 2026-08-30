@@ -7,8 +7,8 @@
  * and `expectMarker` polls until the resolved marker equals the seeded value.
  * The spec uses Playwright's default viewport and installs no `page.route`
  * stubs. Every row paints a flush 22px track in fixed marker ink, parsed
- * markers add their fill, blocked mode alone adds the static hazard wedge, and
- * terminal rows expose the same strip for the spring-loaded pad.
+ * markers add their fill or chevrons, blocked mode alone adds the static hazard
+ * wedge, and terminal rows expose the same strip for the spring-loaded pad.
  */
 import { test, expect, type Page } from "@playwright/test";
 import { gotoServerReady, resolveWindow as resolveWindowRaw } from "./_ready";

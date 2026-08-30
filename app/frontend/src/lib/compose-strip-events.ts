@@ -80,6 +80,27 @@ export function focusComposeStrip(): boolean {
 }
 
 /**
+ * Module-level opener for the mounted strip's live sent-history surface. The
+ * palette cannot own a target snapshot because pane focus and persisted
+ * history may change while it is open; the strip decides whether it can open.
+ */
+let composeRecallOpener: (() => boolean) | null = null;
+
+/** Register the strip's recall opener without letting stale cleanup clear a
+ * newer mount's registration. */
+export function registerComposeRecallOpener(open: () => boolean): () => void {
+  composeRecallOpener = open;
+  return () => {
+    if (composeRecallOpener === open) composeRecallOpener = null;
+  };
+}
+
+/** Open sent-history recall for the mounted strip, or decline silently. */
+export function openComposeRecall(): boolean {
+  return composeRecallOpener?.() ?? false;
+}
+
+/**
  * Module-level focus-on-open flag (260801-sm6g).
  *
  * The strip focuses its textarea on the enable (off→on) transition — a

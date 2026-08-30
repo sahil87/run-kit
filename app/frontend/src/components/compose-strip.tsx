@@ -21,10 +21,12 @@ import {
 import { handleReadlineKey, insertTextAtCaret } from "@/lib/readline-keys";
 import { useWindowStore, entryKey } from "@/store/window-store";
 import { Tip, TipGroup } from "@/components/tip";
+import { ComposeHistoryFlyout } from "@/components/compose-history-flyout";
 import {
   COMPOSE_STRIP_ATTACH_EVENT,
   consumeComposeStripFocusOnOpen,
   drainComposeStripAttachments,
+  registerComposeRecallOpener,
   registerComposeStripFocuser,
   setComposeStripFocused,
 } from "@/lib/compose-strip-events";
@@ -147,7 +149,9 @@ import {
  * attachment removal), on any send, and — eagerly, via a `draftKey` effect
  * rather than at the next keydown — on a target switch. Recall restores TEXT
  * ONLY: the `File` objects were revoked at send and are unpersistable, but
- * their path lines ride the recalled text.
+ * their path lines ride the recalled text. The card also exposes that same
+ * newest-first history as a portalled list: choosing a row loads the draft and
+ * focuses the textarea, but never transmits it.
  *
  * Pane-aligned geometry (260812-fryz) is retired (260813-j3jb): the strip no
  * longer measures the focused pane to narrow its visible box. It renders at
@@ -254,6 +258,14 @@ export function ComposeStrip({
   );
   const blobUrlsRef = useRef<Map<File, string>>(new Map());
 
+  // Sent history has no independent subscriber by design. A delivered send
+  // clears the draft through the subscribed store seam, and a target switch
+  // re-renders with its own key, so this render-time read stays current without
+  // widening the persistence store's notification contract.
+  const sentHistory = getComposeSentHistory(draftKey);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyAnchor, setHistoryAnchor] = useState<HTMLElement | null>(null);
+
   // ── sent-history recall walk (260806-kadm) ────────────────────────────────
   // Control state only — no render reads these, so refs (not state) avoid a
   // re-render per arrow press while the visible text stays store-owned.
@@ -282,6 +294,12 @@ export function ComposeStrip({
   useEffect(() => {
     endRecall();
   }, [draftKey, endRecall]);
+
+  // A flyout never follows focus to a different target: its entries and anchor
+  // belong to the draft key that opened it.
+  useLayoutEffect(() => {
+    setHistoryOpen(false);
+  }, [draftKey]);
 
   // Normal send target is read live at send time (reverses DD-6). Selection
   // broadcast is the deliberate frozen-target exception. The upload hook stays
@@ -368,6 +386,7 @@ export function ComposeStrip({
   const isCard =
     isSelectionTarget ||
     !hasTarget ||
+    historyOpen ||
     (coarsePointer
       ? textFocused || multiline || files.length > 0
       : text !== "" || files.length > 0 || (draftKey !== null && latchedKey === draftKey));
@@ -635,10 +654,12 @@ export function ComposeStrip({
   }
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
-    // Escape blurs the textarea back to the terminal (never closes the strip).
+    // Escape dismisses transient recall, then blurs back to the terminal
+    // (never closes the strip).
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
+      setHistoryOpen(false);
       textareaRef.current?.blur();
       return;
     }
@@ -763,6 +784,16 @@ export function ComposeStrip({
     });
   }, []);
 
+  const openHistory = useCallback(() => {
+    if (draftKey === null || sentHistory.length === 0) return false;
+    // Palette invocation can arrive while the strip is compact. Opening first
+    // expands the shared card so the same chip can become the floating anchor.
+    setHistoryOpen(true);
+    return true;
+  }, [draftKey, sentHistory.length]);
+
+  useEffect(() => registerComposeRecallOpener(openHistory), [openHistory]);
+
   // Focus-on-open (260801-sm6g): consume the flag set by `toggleComposeStrip`'s
   // off→on transition and focus the textarea — the same disabled-state respect
   // as the registered focuser (the "no target" state declines, but the consume
@@ -835,6 +866,17 @@ export function ComposeStrip({
     if (!el || el.disabled) return;
     insertTextAtCaret(el, "\n");
   };
+
+  const closeHistory = useCallback(() => setHistoryOpen(false), []);
+  const selectHistoryEntry = useCallback(
+    (entry: string) => {
+      endRecall();
+      setText(entry);
+      setHistoryOpen(false);
+      textareaRef.current?.focus();
+    },
+    [endRecall, setText],
+  );
 
   // Per-button enablement (260802-lj98, revised 260813-kvk7, re-revised
   // 260814): Insert follows Enter's empty no-op — disabled with no text. Send
@@ -974,6 +1016,22 @@ export function ComposeStrip({
           Uploading…
         </span>
       )}
+    </button>
+  );
+  const historyChip = (
+    <button
+      key="history"
+      ref={setHistoryAnchor}
+      type="button"
+      aria-label="Recall sent text"
+      aria-expanded={historyOpen}
+      aria-controls={historyOpen ? "compose-history-list" : undefined}
+      onMouseDown={preventFocusSteal}
+      onClick={() => setHistoryOpen((open) => !open)}
+      data-testid="compose-strip-history"
+      className={`rk-glint shrink-0 rounded px-2 py-1.5 text-xs text-text-secondary transition-colors coarse:min-h-[36px] coarse:min-w-[36px] ${chipTone}`}
+    >
+      <span aria-hidden="true">↑</span>
     </button>
   );
   // The `a|` close affordance — fine pointers only (dropped on coarse, where
@@ -1165,12 +1223,21 @@ export function ComposeStrip({
         {textareaEl}
         {attachChip}
         {!coarsePointer && closeChip}
+        {isCard && sentHistory.length > 0 && historyChip}
         {coarsePointer && isCard && !isSelectionTarget && !composerEmpty && newlineChip}
         {!coarsePointer && isCard && insertChip}
         {sendChip}
       </div>
       </TipGroup>
       </div>
+      {historyOpen && historyAnchor !== null && sentHistory.length > 0 && (
+        <ComposeHistoryFlyout
+          anchor={historyAnchor}
+          entries={sentHistory}
+          onSelect={selectHistoryEntry}
+          onClose={closeHistory}
+        />
+      )}
     </div>
   );
 }

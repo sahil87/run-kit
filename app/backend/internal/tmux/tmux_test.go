@@ -699,6 +699,58 @@ func TestParseWindowsMarker(t *testing.T) {
 	}
 }
 
+func TestNormalizeMarker(t *testing.T) {
+	// Flat tokens map forward onto the mode × stage model; current tokens and
+	// the unset empty string pass through; anything else drops to unset.
+	tests := map[string]string{
+		"pipe":   "manual:1",
+		"dotted": "manual:1",
+		"dashed": "manual:1",
+		"solid":  "manual:1",
+		"double": "manual:2",
+		"thick":  "manual:3",
+		"hatch":  "blocked:2",
+		"block":  "blocked:3",
+
+		"":          "",
+		"manual":    "manual",
+		"manual:1":  "manual:1",
+		"manual:2":  "manual:2",
+		"manual:3":  "manual:3",
+		"auto":      "auto",
+		"auto:1":    "auto:1",
+		"auto:2":    "auto:2",
+		"auto:3":    "auto:3",
+		"blocked":   "blocked",
+		"blocked:1": "blocked:1",
+		"blocked:2": "blocked:2",
+		"blocked:3": "blocked:3",
+
+		"wavy":       "",
+		"Manual":     "",
+		" manual:1 ": "",
+		"manual:4":   "",
+		"manual:0":   "",
+		"manual:1:2": "",
+	}
+
+	for raw, want := range tests {
+		if got := NormalizeMarker(raw); got != want {
+			t.Errorf("NormalizeMarker(%q) = %q, want %q", raw, got, want)
+		}
+	}
+
+	// The forward table is consulted BEFORE the membership check, so no input
+	// can ever survive as a flat token — the property the read path will rely
+	// on, and one an input/output table alone would not catch if the two arms
+	// were ever swapped.
+	for raw := range tests {
+		if _, isLegacy := legacyMarkerValues[NormalizeMarker(raw)]; isLegacy {
+			t.Errorf("NormalizeMarker(%q) = %q, want a current-vocabulary token", raw, NormalizeMarker(raw))
+		}
+	}
+}
+
 // windowLineRole builds a 21-field tab-delimited tmux line including the
 // trailing @rk_win_role field (@rk_win_color/@rk_win_layout, the web slots,
 // @rk_win_web_active/@rk_win_code_root and @rk_win_marker left empty).

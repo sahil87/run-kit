@@ -466,7 +466,13 @@ same-category tabs share a hue; (3) ACTUATE through its own shell —
 `tmux set-option -t @N '@rk_win_color' '<value>'` with the closed vocabularies
 enumerated verbatim (the 10 color family names, optional `-dark`/`-light`
 shade suffix; optional sparing `@rk_win_marker` / `@rk_win_flair` accents, color the
-primary channel) and the unset form `tmux set-option -t @N -u '@rk_win_color'`;
+primary channel) and the unset form `tmux set-option -t @N -u '@rk_win_color'`.
+The marker and flair token runs are **literals in the prompt template**, kept
+honest by a set-equality invariant in `api/operator_test.go`
+(`promptVocab("@rk_win_marker") == closedSetTokens(validate.MarkerValues)`, and
+the same for flair): the prompt cannot enumerate a vocabulary the server would
+reject, so any change to `validate.markerTokens` / `flairTokens` fails
+`go test ./api` until the literal follows;
 (4) JUDGMENT — do nothing to a tab whose current labels already fit the scheme;
 existing manual colors may be reassigned (reversible via the label picker);
 (5) the repaint note — the sidebar repaints within ~15 seconds of the last

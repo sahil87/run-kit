@@ -887,7 +887,7 @@ func TestRenderColorTabs(t *testing.T) {
 		"red orange amber olive green teal blue purple magenta slate",
 		"-dark or -light",
 		"tmux set-option -t @N '@rk_win_marker' '<value>'",
-		"pipe dotted dashed solid double thick hatch block",
+		"manual manual:1 manual:2 manual:3 auto auto:1 auto:2 auto:3 blocked blocked:1 blocked:2 blocked:3 pipe dotted dashed solid double thick hatch block",
 		"tmux set-option -t @N '@rk_win_flair' '<value>'",
 		"rain scan nyan naruto onepiece pacman matrix aquarium roadrunner invaders cube warp spidey ironman",
 		"tmux set-option -t @N -u '@rk_win_color'",

@@ -203,9 +203,14 @@ func ValidateInstanceName(value string) string {
 // its error message are both derived from this single slice, so adding a token
 // cannot drift the map and the message out of sync.
 var (
-	markerTokens = []string{"pipe", "dotted", "dashed", "solid", "double", "thick", "hatch", "block"}
-	roleTokens   = []string{"operator"}
-	flairTokens  = []string{"rain", "scan", "nyan", "naruto", "onepiece", "pacman", "matrix", "aquarium", "roadrunner", "invaders", "cube", "warp", "spidey", "ironman", "noon"}
+	markerTokens = []string{
+		"manual", "manual:1", "manual:2", "manual:3",
+		"auto", "auto:1", "auto:2", "auto:3",
+		"blocked", "blocked:1", "blocked:2", "blocked:3",
+		"pipe", "dotted", "dashed", "solid", "double", "thick", "hatch", "block",
+	}
+	roleTokens  = []string{"operator"}
+	flairTokens = []string{"rain", "scan", "nyan", "naruto", "onepiece", "pacman", "matrix", "aquarium", "roadrunner", "invaders", "cube", "warp", "spidey", "ironman", "noon"}
 )
 
 // closedSet builds the membership map for an ordered token slice, including
@@ -235,15 +240,19 @@ func validateClosedSet(value, label string, set map[string]bool, tokens []string
 }
 
 // MarkerValues is the closed set of accepted @rk_win_marker window-option values,
-// derived from markerTokens. The empty string means "unset" (no marker); the
-// eight named states drive the left-gutter marker's stripe style in the UI
-// (pipe 1px; dotted/dashed/solid 3px; double/thick/block 6px; hatch 45°
-// diagonals — all fully static, all periods dividing the 12px weld module).
+// derived from markerTokens. The empty string means "unset" (no marker). The
+// current value schema is `<mode>[:<stage>]` — mode ∈ manual/auto/blocked (the
+// categorical SHAPE axis) × stage ∈ 1/2/3 (the ordinal axis; a bare mode means
+// stage 1) — all fully static. The eight flat tokens that precede it (pipe,
+// dotted, dashed, solid, double, thick, hatch, block) stay accepted while
+// stored values still carry them; tmux.NormalizeMarker holds their forward
+// mapping.
 var MarkerValues = closedSet(markerTokens)
 
-// ValidateMarkerValue validates an @rk_win_marker value: one of ""/pipe/dotted/
-// dashed/solid/double/thick/hatch/block. Returns an empty string if valid, an
-// error message otherwise. The single shared marker-value rule reused by the
+// ValidateMarkerValue validates an @rk_win_marker value: "", one of the twelve
+// `<mode>[:<stage>]` tokens (manual/manual:1…blocked:3), or one of the eight
+// still-accepted flat tokens. Returns an empty string if valid, an error
+// message otherwise. The single shared marker-value rule reused by the
 // window-option handler.
 func ValidateMarkerValue(value string) string {
 	return validateClosedSet(value, "Marker", MarkerValues, markerTokens)

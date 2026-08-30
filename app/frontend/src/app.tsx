@@ -132,7 +132,7 @@ import { SurfaceLayout } from "@/components/surface-layout";
 import { BottomBar } from "@/components/bottom-bar";
 import { StatusBar } from "@/components/status-bar";
 import { ComposeStrip } from "@/components/compose-strip";
-import { focusComposeStrip, runComposeToggleChord } from "@/lib/compose-strip-events";
+import { focusComposeStrip, openComposeRecall, runComposeToggleChord } from "@/lib/compose-strip-events";
 import { tileChordHandler } from "@/lib/tile-chord";
 import { cycleWindowTarget, sessionJumpTarget } from "@/lib/window-cycle";
 import { registerWindowFocusRestorer } from "@/lib/sidebar-events";
@@ -3197,6 +3197,21 @@ function AppShell() {
                 focusComposeStrip();
               },
             },
+            // Recall operates on the mounted strip's live target and history,
+            // so it is absent while the strip is disabled. Compose: Focus owns
+            // the separate show-the-strip verb; a live opener decline is an
+            // expected silent no-op when the target or history disappears.
+            ...(composeStripEnabled
+              ? [
+                  {
+                    id: "compose-recall",
+                    label: "Compose: Recall sent…",
+                    onSelect: () => {
+                      openComposeRecall();
+                    },
+                  },
+                ]
+              : []),
           ]
         : []),
       // Window-view lens actions (spec R4, Constitution V palette parity — the

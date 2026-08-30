@@ -23,6 +23,7 @@ import {
   consumeComposeStripFocusOnOpen,
   focusComposeStrip,
   isComposeStripFocused,
+  openComposeRecall,
   setComposeStripFocused,
 } from "@/lib/compose-strip-events";
 import { BottomBar } from "./bottom-bar";
@@ -1320,6 +1321,110 @@ describe("ComposeStrip", () => {
     });
     return notPrevented;
   }
+
+  it.each([
+    ["fine", false],
+    ["coarse", true],
+  ])("shows the history chip after a send on a %s pointer and keeps it enabled with a draft", (_label, coarse) => {
+    stubPointer(coarse);
+    const { sent } = renderFocused();
+    expect(screen.queryByTestId("compose-strip-history")).toBeNull();
+
+    act(() => input().focus());
+    type("recoverable text");
+    expect(screen.queryByTestId("compose-strip-history")).toBeNull();
+    act(() => fireEvent.keyDown(input(), { key: "Enter" }));
+
+    expect(sent).toEqual(["recoverable text\n"]);
+    expect(screen.getByTestId("compose-strip-history")).toBeEnabled();
+    type("draft typed after the send");
+    expect(screen.getByTestId("compose-strip-history")).toBeEnabled();
+  });
+
+  it("lists sent entries newest-first and loads a row without transmitting or changing history", () => {
+    pushComposeSentHistory(KEY, "older\nentry");
+    pushComposeSentHistory(KEY, "newest entry");
+    const { sent } = renderFocused();
+    pasteToWindowMock.mockClear();
+    type("draft already in progress");
+    act(() => input().focus());
+    const before = [...getComposeSentHistory(KEY)];
+
+    act(() => fireEvent.click(screen.getByTestId("compose-strip-history")));
+    const rows = screen.getAllByTestId("compose-history-entry");
+    expect(rows.map((row) => row.textContent)).toEqual(["newest entry", "older\nentry"]);
+    expect(rows[1]).toHaveClass("font-mono", "whitespace-pre-wrap", "line-clamp-2");
+    expect(fireEvent.mouseDown(rows[1])).toBe(false);
+    act(() => fireEvent.click(rows[1]));
+
+    expect(input()).toHaveValue("older\nentry");
+    expect(document.activeElement).toBe(input());
+    expect(screen.queryByTestId("compose-history-flyout")).toBeNull();
+    expect(sent).toEqual([]);
+    expect(pasteToWindowMock).not.toHaveBeenCalled();
+    expect(getComposeSentHistory(KEY)).toEqual(before);
+  });
+
+  it("dismisses the flyout on Escape, outside press, and target switch without changing a draft", () => {
+    const keyA = entryKey("srv", "@a");
+    pushComposeSentHistory(keyA, "A sent");
+    renderTwoTargets();
+    act(() => fireEvent.click(screen.getByTestId("focus-a")));
+    type("A draft");
+
+    act(() => fireEvent.click(screen.getByTestId("compose-strip-history")));
+    expect(screen.getByTestId("compose-history-flyout")).toBeInTheDocument();
+    act(() => fireEvent.keyDown(document, { key: "Escape" }));
+    expect(screen.queryByTestId("compose-history-flyout")).toBeNull();
+    expect(input()).toHaveValue("A draft");
+
+    act(() => fireEvent.click(screen.getByTestId("compose-strip-history")));
+    act(() => fireEvent.pointerDown(document.body));
+    expect(screen.queryByTestId("compose-history-flyout")).toBeNull();
+    expect(input()).toHaveValue("A draft");
+
+    act(() => fireEvent.click(screen.getByTestId("compose-strip-history")));
+    act(() => fireEvent.click(screen.getByTestId("focus-b")));
+    expect(screen.queryByTestId("compose-history-flyout")).toBeNull();
+    expect(input()).toHaveValue("");
+  });
+
+  it("loading from the flyout tears down an active arrow-key walk", () => {
+    pushComposeSentHistory(KEY, "older");
+    pushComposeSentHistory(KEY, "newest");
+    renderFocused();
+    arrow("ArrowUp");
+    arrow("ArrowUp");
+    expect(input()).toHaveValue("older");
+
+    act(() => fireEvent.click(screen.getByTestId("compose-strip-history")));
+    act(() => fireEvent.click(screen.getAllByTestId("compose-history-entry")[1]));
+    expect(input()).toHaveValue("older");
+    expect(arrow("ArrowUp")).toBe(true);
+
+    type("");
+    expect(arrow("ArrowUp")).toBe(false);
+    expect(input()).toHaveValue("newest");
+  });
+
+  it("openComposeRecall opens through the mounted strip and declines without history or a target", () => {
+    const empty = renderFocused();
+    expect(openComposeRecall()).toBe(false);
+    empty.view.unmount();
+
+    pushComposeSentHistory(KEY, "from palette");
+    const withHistory = renderFocused();
+    let opened = false;
+    act(() => {
+      opened = openComposeRecall();
+    });
+    expect(opened).toBe(true);
+    expect(screen.getByTestId("compose-history-flyout")).toBeInTheDocument();
+    withHistory.view.unmount();
+
+    render(<Harness focus={null} />);
+    expect(openComposeRecall()).toBe(false);
+  });
 
   it.each([
     ["insert-line (plain Enter)", { key: "Enter" }, "sent text\n"],

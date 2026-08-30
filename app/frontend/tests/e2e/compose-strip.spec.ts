@@ -33,9 +33,12 @@ import { TMUX_SERVER, createSession, killSession, listWindows, stampWebTab } fro
  * latch released only by blur-while-empty). The `a|` closer is dropped on
  * coarse, the ⏎ chip hides while the composer is empty, and the fine header
  * folds at the in-tile dock (the tile frame names the target; the footer dock
- * and broadcast keep it). The chat send form deliberately does NOT follow the
- * strip's Enter policy (it keeps Enter=newline — the chat lens cannot show the
- * pane's input box); its coverage lives in `chat-view.spec.ts`.
+ * and broadcast keep it). Once a send records history, the card adds an ↑ chip
+ * that opens a fixed-position, portalled newest-first list on touch and fine
+ * pointers alike; choosing a row loads the text back into the textarea and
+ * never sends it. The chat send form deliberately does NOT follow the strip's
+ * Enter policy (it keeps Enter=newline — the chat lens cannot show the pane's
+ * input box); its coverage lives in `chat-view.spec.ts`.
  *
  * Shared setup: `beforeAll` creates two tmux sessions on the `rk-test-e2e`
  * server — `e2e-compose-<ts>`, a single window running `cat` so STDIN typed
@@ -1021,6 +1024,68 @@ test.describe("Docked compose strip", () => {
       expect(rowGeo.ta?.height).toBe(36);
       expect(rowGeo.send?.top).toBe(rowGeo.ta?.top);
       expect(rowGeo.send?.bottom).toBe(rowGeo.ta?.bottom);
+    });
+
+    /**
+     * Proves: a touch user can open the newest-first sent-history list, inspect
+     * it without widening a 375px page, and load a prior send into the composer
+     * without transmitting it again.
+     *
+     * Steps:
+     * 1. Navigate to the live `cat` window at the 375×812 touch viewport and
+     *    wait for the terminal relay target.
+     * 2. Enable the compose strip, send one unique line, and wait until that
+     *    line appears in the pane and the ↑ history chip is visible.
+     * 3. Tap ↑; assert the flyout and its newest row show the sent line.
+     * 4. Assert `document.body.scrollWidth` remains within the 375px viewport.
+     * 5. Record the pane's marker count, tap the row, and assert the flyout
+     *    closes while the textarea contains the exact line and has focus.
+     * 6. Re-capture the pane after the interaction settles and assert the marker
+     *    count did not change.
+     */
+    test("touch sent-history flyout loads a prior send without resending or overflowing", async ({ page }) => {
+      test.setTimeout(60_000);
+      const windowId = await resolveWindowId(page, TERM_SESSION);
+      await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(windowId)}`, {
+        waitUntil: "domcontentloaded",
+      });
+      await expect(page.locator(".xterm").first()).toBeVisible({ timeout: 15_000 });
+      await expect
+        .poll(() => page.evaluate((w) => Boolean(window.__rkTerminals?.[w]), windowId), {
+          timeout: 15_000,
+        })
+        .toBe(true);
+
+      await page.getByRole("button", { name: "Compose text" }).click();
+      const input = page.getByTestId("compose-strip-input");
+      const marker = `CSHISTORY${Date.now()}`;
+      await input.fill(marker);
+      await input.press("Enter");
+      await expect(input).toHaveValue("");
+      await expect
+        .poll(() => tmuxCapture(TERM_SESSION), { timeout: 10_000 })
+        .toContain(marker);
+
+      const history = page.getByTestId("compose-strip-history");
+      await expect(history).toBeVisible();
+      await history.click();
+      const flyout = page.getByTestId("compose-history-flyout");
+      const row = page.getByTestId("compose-history-entry").first();
+      await expect(flyout).toBeVisible();
+      await expect(row).toHaveText(marker);
+      await expect
+        .poll(() => page.evaluate(() => document.body.scrollWidth))
+        .toBeLessThanOrEqual(375);
+
+      const occurrencesBeforeLoad = (tmuxCapture(TERM_SESSION).match(new RegExp(marker, "g")) ?? []).length;
+      await row.click();
+      await expect(flyout).toHaveCount(0);
+      await expect(input).toHaveValue(marker);
+      await expect(input).toBeFocused();
+
+      await page.waitForTimeout(250);
+      const occurrencesAfterLoad = (tmuxCapture(TERM_SESSION).match(new RegExp(marker, "g")) ?? []).length;
+      expect(occurrencesAfterLoad).toBe(occurrencesBeforeLoad);
     });
   });
 });

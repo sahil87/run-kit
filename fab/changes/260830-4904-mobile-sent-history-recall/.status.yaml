@@ -1,0 +1,54 @@
+id: 4904
+name: 260830-4904-mobile-sent-history-recall
+created: 2026-08-30T17:15:34Z
+created_by: sahil-noon
+change_type: refactor
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 6
+    acceptance_count: 21
+    acceptance_completed: 21
+confidence:
+    certain: 8
+    confident: 1
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 86.7
+        reversibility: 89.4
+        competence: 86.7
+        disambiguation: 85.6
+stage_metrics:
+    intake: {started_at: "2026-08-30T17:15:34Z", driver: fab-new, iterations: 1, completed_at: "2026-08-30T17:52:51Z"}
+    apply: {started_at: "2026-08-30T17:52:51Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-30T18:08:21Z"}
+    review: {started_at: "2026-08-30T18:08:21Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-30T18:13:59Z"}
+    hydrate: {started_at: "2026-08-30T18:13:59Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-30T18:19:39Z"}
+    ship: {started_at: "2026-08-30T18:19:39Z", driver: fab-fff, iterations: 1}
+prs: []
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-30T18:19:39Z"
+    computed_at_stage: hydrate
+summary: Added compose sent-history chip, fixed portalled recall list, and palette opener documentation
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-30T18:19:39Z

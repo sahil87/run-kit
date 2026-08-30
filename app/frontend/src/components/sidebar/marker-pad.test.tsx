@@ -206,6 +206,27 @@ describe("MarkerPad", () => {
     expect(onCancel).toHaveBeenCalledOnce();
   });
 
+  it("keeps arrow navigation from reaching the enclosing tree", () => {
+    const onTreeKeyDown = vi.fn();
+    render(
+      <div role="tree" onKeyDown={onTreeKeyDown}>
+        <MarkerPad
+          value={marker("manual", 1)}
+          onPreview={vi.fn()}
+          onCommit={vi.fn()}
+          onCancel={vi.fn()}
+          cellPx={26}
+        />
+      </div>,
+    );
+
+    const pad = screen.getByTestId("marker-pad");
+    fireEvent.keyDown(pad, { key: "ArrowRight" });
+    fireEvent.keyDown(pad, { key: "ArrowDown" });
+
+    expect(onTreeKeyDown).not.toHaveBeenCalled();
+  });
+
   it("commits with Space", () => {
     const { onCommit } = renderPad({ value: marker("manual", 1) });
     fireEvent.keyDown(screen.getByTestId("marker-pad"), { key: " " });

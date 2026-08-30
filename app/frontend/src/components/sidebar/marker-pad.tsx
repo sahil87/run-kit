@@ -250,16 +250,19 @@ export function MarkerPad({
     const stage = cell ? cell.stage : 1;
     if (event.key === "ArrowRight") {
       event.preventDefault();
+      event.stopPropagation();
       if (cell === null) moveCell({ mode: MARKER_MODES[modeIndex], stage: 1 });
       else if (stage < 3) moveCell(stepStage(cell, 1));
     } else if (event.key === "ArrowLeft") {
       event.preventDefault();
+      event.stopPropagation();
       if (cell !== null) {
         if (stage <= 1) moveCell(null);
         else moveCell(stepStage(cell, -1));
       }
     } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
+      event.stopPropagation();
       const delta = event.key === "ArrowDown" ? 1 : -1;
       const next = Math.min(
         Math.max(modeIndex + delta, 0),

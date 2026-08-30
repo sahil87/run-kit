@@ -309,7 +309,10 @@ function SessionRowInner({
       // STATUS_RAIL_WIDTH_PX — Tailwind scans literal classes only). On fine
       // pointers the hover cluster owns the right edge and no reserve exists;
       // ghost rows have no rail and no reserve.
-      className={`flex items-center justify-between group pl-1.5 sm:pl-2${ghost ? "" : " coarse:pr-[56px]"} relative${tint ? "" : " hover:bg-bg-card/50"} transition-colors${isDragSource ? " opacity-50" : ""}`}
+      // The row carries NO left padding: the collapse chevron is the gutter,
+      // occupying the same left column as the window row's marker well (see
+      // the chevron below).
+      className={`flex items-center justify-between group${ghost ? "" : " coarse:pr-[56px]"} relative${tint ? "" : " hover:bg-bg-card/50"} transition-colors${isDragSource ? " opacity-50" : ""}`}
       draggable={draggable}
       onDragStart={
         onDragStart
@@ -357,10 +360,20 @@ function SessionRowInner({
           overlays) and while this row is the drag source (cube/warp animate
           transforms on child spans — the drag ghost rule). */}
       <FlairOverlay flair={session.flair} hidden={isDragSource} color={flairColor} />
-      <div className="flex items-center gap-1.5 min-w-0 flex-1">
+      {/* `gap-2` is the 8px well→content gap the window row holds between its
+          marker well and its label; matching it here lands the session name on
+          the same content-start column as its own window rows. */}
+      <div className="flex items-center gap-2 min-w-0 flex-1">
+        {/* The chevron IS the left gutter. Its width literals track
+            MARKER_WELL_WIDTH (window-row.tsx) at both pointer classes —
+            22px fine, 36px coarse — so the chevron square and the marker
+            squares below it share one column, and the name columns align.
+            Tailwind scans literal classes only, hence no shared constant.
+            Width is load-bearing for touch: without a floor the button is
+            only as wide as the ▼ glyph (~7px). */}
         <button
           onClick={() => onToggleCollapse(server, name)}
-          className="text-xs text-text-secondary hover:text-text-primary transition-colors shrink-0 min-h-[24px] coarse:min-h-[36px] flex items-center justify-center"
+          className="text-xs text-text-secondary hover:text-text-primary transition-colors shrink-0 min-w-[22px] min-h-[24px] coarse:min-w-[36px] coarse:min-h-[36px] flex items-center justify-center"
           aria-expanded={!isCollapsed}
           aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${session.name}`}
         >

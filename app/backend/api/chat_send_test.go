@@ -21,9 +21,26 @@ import (
 func fastChatSendProbe(t *testing.T) {
 	t.Helper()
 	ps, pg := inject.ProbeSettle, inject.ProbeGap
+	submitBackoff := append([]time.Duration(nil), inject.SubmitBackoff...)
 	inject.ProbeSettle = time.Millisecond
 	inject.ProbeGap = time.Millisecond
-	t.Cleanup(func() { inject.ProbeSettle, inject.ProbeGap = ps, pg })
+	inject.SubmitBackoff = []time.Duration{time.Millisecond, time.Millisecond, time.Millisecond, time.Millisecond, time.Millisecond}
+	t.Cleanup(func() {
+		inject.ProbeSettle, inject.ProbeGap = ps, pg
+		inject.SubmitBackoff = submitBackoff
+	})
+}
+
+func unverifiedSubmitOps(t *testing.T, baseline, preFrame string) *mockTmuxOps {
+	t.Helper()
+	retries := inject.SubmitRetries
+	inject.SubmitRetries = 0
+	t.Cleanup(func() { inject.SubmitRetries = retries })
+	captures := []string{baseline, preFrame}
+	for range inject.SubmitBackoff {
+		captures = append(captures, preFrame)
+	}
+	return &mockTmuxOps{capturePaneResults: captures}
 }
 
 // sendReq builds a POST /chat/send request for window @1 with the given body.
@@ -62,7 +79,7 @@ func TestChatSendSuccess(t *testing.T) {
 	sf := &mockSessionFetcher{result: chatSessions("@1", "claude", testChatRef)}
 	// [0] baseline (no echo yet) → [1] post-paste (echo present) — a strict count
 	// increase, so the probe passes.
-	ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "❯ hello world"}}
+	ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "❯ hello world", "hello world\nworking"}}
 	router := NewTestRouter(slog.Default(), sf, ops, "host")
 
 	rec := httptest.NewRecorder()
@@ -71,7 +88,7 @@ func TestChatSendSuccess(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
-	want := []string{"capture-pane", "set-buffer", "paste-buffer", "capture-pane", "send-keys"}
+	want := []string{"capture-pane", "set-buffer", "paste-buffer", "capture-pane", "send-keys", "capture-pane"}
 	if strings.Join(ops.chatCalls, ",") != strings.Join(want, ",") {
 		t.Errorf("injection order = %v, want %v", ops.chatCalls, want)
 	}
@@ -122,7 +139,7 @@ func TestChatSendLeadingDashText(t *testing.T) {
 	fastChatSendProbe(t)
 	const text = "--force is broken"
 	sf := &mockSessionFetcher{result: chatSessions("@1", "claude", testChatRef)}
-	ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "❯ --force is broken"}}
+	ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "❯ --force is broken", "--force is broken\nworking"}}
 	router := NewTestRouter(slog.Default(), sf, ops, "host")
 
 	rec := httptest.NewRecorder()
@@ -134,7 +151,7 @@ func TestChatSendLeadingDashText(t *testing.T) {
 	if ops.setChatBufferText != text {
 		t.Errorf("buffer text = %q, want verbatim %q (leading dash must not be mangled)", ops.setChatBufferText, text)
 	}
-	want := []string{"capture-pane", "set-buffer", "paste-buffer", "capture-pane", "send-keys"}
+	want := []string{"capture-pane", "set-buffer", "paste-buffer", "capture-pane", "send-keys", "capture-pane"}
 	if strings.Join(ops.chatCalls, ",") != strings.Join(want, ",") {
 		t.Errorf("injection order = %v, want %v", ops.chatCalls, want)
 	}
@@ -171,6 +188,22 @@ func TestChatSendProbeFailureWithholdsEnter(t *testing.T) {
 	}
 }
 
+func TestChatSendSubmitUnverifiedConflict(t *testing.T) {
+	fastChatSendProbe(t)
+	sf := &mockSessionFetcher{result: chatSessions("@1", "claude", testChatRef)}
+	ops := unverifiedSubmitOps(t, "❯ ", "❯ hello world")
+	router := NewTestRouter(slog.Default(), sf, ops, "host")
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, sendReq(`{"text":"hello world"}`))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "may or may not have been submitted") {
+		t.Fatalf("body = %s, want submit-unconfirmed guidance", rec.Body.String())
+	}
+}
+
 // TestChatSendProbeRetryThenSuccess: the echo lands on a LATER retry (not the
 // first probe capture) — Enter is still sent and the result is 200.
 func TestChatSendProbeRetryThenSuccess(t *testing.T) {
@@ -178,7 +211,9 @@ func TestChatSendProbeRetryThenSuccess(t *testing.T) {
 	sf := &mockSessionFetcher{result: chatSessions("@1", "claude", testChatRef)}
 	// [0] baseline (no echo) → [1] first probe (still redrawing, no echo) → [2]
 	// second probe (the text has landed).
-	ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "(redrawing…)", "❯ hello world"}}
+	ops := &mockTmuxOps{capturePaneResults: []string{
+		"❯ ", "(redrawing…)", "❯ hello world", "hello world\nworking",
+	}}
 	router := NewTestRouter(slog.Default(), sf, ops, "host")
 
 	rec := httptest.NewRecorder()
@@ -187,9 +222,8 @@ func TestChatSendProbeRetryThenSuccess(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
-	// 1 baseline + 2 probe captures (matched on the second probe).
-	if ops.capturePaneCalls != 3 {
-		t.Errorf("capture attempts = %d, want 3 (baseline + matched on the second probe)", ops.capturePaneCalls)
+	if ops.capturePaneCalls != 4 {
+		t.Errorf("capture attempts = %d, want 4", ops.capturePaneCalls)
 	}
 	if !ops.sendEnterCalled {
 		t.Error("Enter not sent after a successful later-retry probe")

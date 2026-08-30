@@ -395,7 +395,7 @@ func TestAutoName_DeliverIdleOperatorInjects(t *testing.T) {
 	fastChatSendProbe(t)
 	stageFixtureTranscript(t, testChatRef)
 	sf := &mockSessionFetcher{result: operatorSessions("idle")}
-	ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "❯ [Pasted text #1 +9 lines]"}}
+	ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "❯ [Pasted text #1 +9 lines]", "working"}}
 	s := &Server{logger: slog.Default(), sessions: sf, tmux: ops, hostname: "host"}
 
 	tr, _ := newTestAutoNameTracker()
@@ -421,7 +421,7 @@ func TestAutoName_DeliverIdleOperatorInjects(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatalf("deliver seam was never called")
 	}
-	want := []string{"capture-pane", "set-buffer", "paste-buffer", "capture-pane", "send-keys"}
+	want := []string{"capture-pane", "set-buffer", "paste-buffer", "capture-pane", "send-keys", "capture-pane"}
 	if len(ops.chatCalls) != len(want) {
 		t.Fatalf("injection order = %v, want %v", ops.chatCalls, want)
 	}

@@ -16,11 +16,11 @@ import (
 )
 
 // rk mux send <target> — deliver a message into an agent's tmux pane, gated on
-// the pane's @rk_agent_state, with probe-verified delivery (the chat-send
+// the pane's @rk_agent_state, with novelty-probed delivery (the chat-send
 // injection engine in internal/inject — named-buffer bracketed paste, novelty
-// echo probe, probe-gated Enter — never fab pane send's blind send-keys +
-// trailing Enter). No daemon dependency: tmux is addressed directly from the
-// caller's context (the rk present pattern).
+// echo probe, probe-gated Enter, post-Enter observation, bounded
+// recovery — never fab pane send's blind send-keys + trailing Enter). No daemon
+// dependency: tmux is addressed directly from the caller's context.
 //
 // The gate matrix (fab-kit's idleGate verbatim) reads the reconciled
 // @rk_agent_state:
@@ -34,9 +34,10 @@ import (
 //
 // --force skips the gate (target existence is still validated); --answer and
 // --force are mutually exclusive. Refusals name the state, print to stderr,
-// exit 1. stdout carries exactly ONE report line: `delivered %N` (probe-
-// confirmed submit), `staged %N` (--no-enter), `sent %N` (--key sends), or the
-// await report word when --await is used. Exit codes follow the toolkit
+// exit 1. stdout carries exactly ONE report line: `delivered %N` (no
+// non-submission detected), `unverified %N` (Enter sent, pane unchanged), `staged %N`
+// (--no-enter), `sent %N` (--key sends), or the await report word when --await
+// is used. Exit codes follow the toolkit
 // convention: 0 success, 1 operational failure, 2 usage.
 
 // muxCmdTimeout caps each tmux subprocess the verbs spawn (Constitution §I:
@@ -61,8 +62,8 @@ const sendFlagAuto = "\x00auto"
 var muxSendCmd = &cobra.Command{
 	Use:   "send <target> [<message> | -] [--key <key>]... [--answer | --force] [--no-enter] [--await[=<states>]] [--timeout <secs>]",
 	Short: "Deliver a message into an agent's pane, gated on its agent state",
-	Long: "Deliver a message into an agent's tmux pane with probe-verified delivery " +
-		"(bracketed paste + echo probe + probe-gated Enter), gated on the pane's " +
+	Long: "Deliver a message into an agent's tmux pane with non-submission detection " +
+		"(bracketed paste + echo probe + probe-gated Enter + post-Enter frame observation), gated on the pane's " +
 		tmux.AgentStateOption + ": idle sends; waiting refuses unless --answer (this send IS " +
 		"the answer it waits for); active always refuses; unknown warns and sends. " +
 		"--force skips the gate.\n\n" +
@@ -72,8 +73,14 @@ var muxSendCmd = &cobra.Command{
 		"submitting. --await[=<states>] (default idle,waiting) then blocks until the " +
 		"peer reaches one of those states, printing the await report word; " +
 		"--timeout bounds that wait (observer only).\n\n" +
+		"Reports: delivered means no non-submission was detected; unverified means " +
+		"Enter was sent but the pane stayed unchanged; staged is --no-enter; sent " +
+		"is --key. An unverified send exits 1 and must be inspected before resending.\n\n" +
 		"Targets: %N (pane), @N (window — resolves to its agent pane), " +
 		"=session:window (exact). Bare session:window names are rejected.",
+	Example: "  rk mux send %5 \"keep going\"\n" +
+		"  rk mux send @3 - < prompt.txt\n" +
+		"  rk mux send =work:agent --key Enter",
 	Args: usageArgs(cobra.RangeArgs(1, 2)),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runMuxSend(cmd, args)
@@ -131,7 +138,9 @@ var (
 // cliInjectTmux is the CLI's inject.Tmux substrate: name-parameterized buffer
 // primitives straight from internal/tmux (the daemon's adapter ignores the
 // name because its buffer is fixed; the CLI's per-invocation name rides it).
-type cliInjectTmux struct{}
+type cliInjectTmux struct {
+	recoveryAttempted *bool
+}
 
 func (cliInjectTmux) CapturePane(ctx context.Context, paneID string, lines int, server string) (string, error) {
 	return tmux.CapturePaneCtx(ctx, paneID, lines, server)
@@ -144,6 +153,14 @@ func (cliInjectTmux) PasteBuffer(ctx context.Context, name, paneID, server strin
 }
 func (cliInjectTmux) SendEnter(ctx context.Context, paneID, server string) error {
 	return tmux.SendEnterToPaneCtx(ctx, paneID, server)
+}
+func (a cliInjectTmux) SendKeys(ctx context.Context, paneID, server string, keys ...string) error {
+	// The shared engine uses this primitive only for recovery clears. Recording
+	// the attempt lets the CLI surface that the successful path included a retry.
+	if a.recoveryAttempted != nil {
+		*a.recoveryAttempted = true
+	}
+	return tmux.SendKeysToPane(ctx, paneID, server, keys...)
 }
 
 // resolvePaneTarget resolves a parsed mux target to its pane ID: pane IDs pass
@@ -263,7 +280,8 @@ func runMuxSend(cmd *cobra.Command, args []string) error {
 		report = "sent"
 	default:
 		engine := inject.NewEngine(muxBufferNameFn())
-		err := muxSendEngineSendFn(ctx, engine, cliInjectTmux{}, server, paneID, message, !muxSendNoEnterFlag)
+		recoveryAttempted := false
+		err := muxSendEngineSendFn(ctx, engine, cliInjectTmux{recoveryAttempted: &recoveryAttempted}, server, paneID, message, !muxSendNoEnterFlag)
 		if err != nil {
 			var probeErr inject.ProbeFailure
 			if errors.As(err, &probeErr) {
@@ -271,7 +289,15 @@ func runMuxSend(cmd *cobra.Command, args []string) error {
 				// blind Enter, and the failure is visible to scripts (exit 1).
 				return errors.New(probeErr.Error())
 			}
+			var submitErr inject.SubmitUnverified
+			if errors.As(err, &submitErr) {
+				sink.Dataf("unverified %s\n", paneID)
+				return errors.New(submitErr.Error())
+			}
 			return err
+		}
+		if recoveryAttempted {
+			sink.Notef("delivery retried after a baseline-matched composer clear\n")
 		}
 		report = "delivered"
 		if muxSendNoEnterFlag {

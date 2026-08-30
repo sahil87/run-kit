@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Operator actuation seam — templated work items for the server's operator window over two POST routes: window-scoped /api/windows/{windowId}/operator-request (fix-tab-name — also auto-fired on busy→idle; annotate-tab) and server-scoped /api/operator-request?server= (spawn-task/find-discussion — acceptsText; brief-me/whats-stuck; color-tabs; update-annotations — acceptsSession). Closed registry; busy-gate 409, no queue; chat-send delivery; derive-tick results."
+description: "Operator actuation seam — templated work items for the server's operator window over window- and server-scoped POST routes. Covers the closed template registry, fact derivation, busy/probe/submit-unverified 409s, shared injection-engine delivery, auto-name dispatch, no-queue posture, and derive-tick results."
 ---
 # Operator Actuation
 
@@ -19,9 +19,11 @@ the backend composes a prompt from facts it derives itself (Constitution X),
 delivers it through the existing chat-send injection machinery
 ([chat](/run-kit/chat.md) § Send Path), and the operator acts through its own
 shell (e.g. `tmux rename-window`, `rk riff`); the outcome surfaces on the normal derive
-tick. There is NO queue, NO persisted mailbox, NO retry semantics (Constitution
-II), and NO response channel or reply parsing — the operator is not an RPC
-service. The seam has THREE callers over ONE shared prompt-level delivery core
+tick. There is NO queue, NO persisted mailbox, NO operator-request retry
+semantics (Constitution II), and NO response channel or reply parsing — the
+operator is not an RPC service. This is a route-level contract: the shared
+injection engine may perform its own evidence-gated recovery before returning.
+The seam has THREE callers over ONE shared prompt-level delivery core
 (`deliverOperatorPrompt` — the busy gate, operator pane resolution, injection
 under the shared deadline): the two user-initiated HTTP handlers (window- and
 server-scoped), and the system-initiated **auto-name tracker**
@@ -150,9 +152,10 @@ the busy gate (`active`/`waiting` ⇒ 409 naming the state; `idle` or unknown
 proceeds), `sessions.ResolveChatPane` over the operator's panes (404
 `"operator window has no chat session"` when none), and in-process
 `s.injectChatMessage` under ONE shared `chatSendTotalBudget` deadline, a probe
-failure surfacing as the same structured 409 chat-send returns. The route
-shares the seam's whole posture: NO queue, NO retry, NO response channel, NO
-SSE hub wake; success is `200 {"ok":true}`. A `FetchSessions` error maps to
+failure and `SubmitUnverified` surfacing as the two distinct structured 409s
+chat-send returns. The route shares the seam's whole posture: NO queue, NO
+route-level retry, NO response channel, NO SSE hub wake; success is
+`200 {"ok":true}`. A `FetchSessions` error maps to
 `500`.
 
 #### Scenario: Server-scoped resolution from one fetch
@@ -221,16 +224,18 @@ The delivery core SHALL read the operator window's rolled-up `AgentState`
 `waiting` ⇒
 `409` with a structured message naming the state (`"operator is busy (<state>)
 — request not delivered; try again when it is idle"`). `idle` or empty/unknown
-⇒ proceed — the novelty echo probe remains the final fail-closed guard, exactly
-as for chat-send. This is deliberately UNLIKE chat-send's allow+probe busy
+⇒ proceed — the novelty echo probe is the final fail-closed pre-Enter guard,
+exactly as for chat-send. This is deliberately UNLIKE chat-send's allow+probe busy
 policy ([chat](/run-kit/chat.md) § Design Decisions → Allow + probe busy
 policy): a request is work handed over, not a steer a human typed. There SHALL
-be NO queue, NO retry, and NO state written anywhere (Constitution II).
+be NO queue, NO route-level retry, and NO state written anywhere (Constitution
+II).
 Failures the HTTP handler maps to a status+body (this 409 included) surface
 from the core as a typed `operatorReject{status,msg}` sentinel the handler maps
 back byte-identically; transcript-resolution and injection errors return RAW so
 the handler's `errors.Is`/`errors.As` mappings (`writeChatReadError`
-vocabulary, `inject.ProbeFailure` → 409) hold unchanged. The auto-name caller
+vocabulary, `inject.ProbeFailure` → 409, `inject.SubmitUnverified` → 409) apply.
+The auto-name caller
 logs whatever comes back at debug and drops it.
 
 #### Scenario: Busy operator rejects without touching tmux
@@ -250,13 +255,15 @@ in-process via
 OPERATOR window's panes (active-pane-first rollup; injection targets the pane,
 never the window, never the subject's pane). An operator window with no
 reconciled chat pane ⇒ `404` (`"operator window has no chat session"` — an
-operator that isn't a live agent can't receive requests). The engine's existing
-semantics apply unchanged: handler-boundary sanitize, per-(server,paneID)
+operator that isn't a live agent can't receive requests). The engine semantics
+are handler-boundary sanitize, per-(server,paneID)
 whole-sequence lock, ONE shared deadline (`chatSendTotalBudget`, applied
 INSIDE the core so both callers get identical injection bounding) threading all
-subprocesses, and the novelty echo probe; a probe failure surfaces as the same
-structured `409` chat-send returns (`inject.ProbeFailure` — text pasted, Enter
-withheld, recoverable). Success is `200 {"ok":true}`. The handler MUST NOT wake
+subprocesses, novelty echo probe, post-Enter observation, and evidence-gated
+recovery. `inject.ProbeFailure` returns the staged-text `409` with Enter withheld;
+`inject.SubmitUnverified` returns the submit-unconfirmed `409` after Enter and
+directs the caller to capture the pane before resending. Success is
+`200 {"ok":true}`. The handler MUST NOT wake
 the SSE hub: rk mutated no tmux state, and the operator's later actuation (e.g.
 `rename-window`) surfaces via the normal derive tick.
 
@@ -264,9 +271,13 @@ the SSE hub: rk mutated no tmux state, and the operator's later actuation (e.g.
 - **GIVEN** an idle operator whose resolved chat pane is `%7`
 - **WHEN** delivery runs
 - **THEN** every injection subprocess targets `%7`, the sequence is baseline →
-  set-buffer → paste → probe → Enter, and the response is `200 {"ok":true}`.
+  set-buffer → paste → probe → Enter → observation/recovery, and the response is
+  `200 {"ok":true}` when the engine returns success.
 - **AND GIVEN** the probe fails, **THEN** no Enter is sent and the response is
   the structured `409`.
+- **AND GIVEN** non-submission is detected and bounded recovery cannot establish
+  a safe successful outcome, **THEN** the response is the distinct
+  submit-unconfirmed `409`.
 
 ### Requirement: The `fix-tab-name` template
 The registry's `fix-tab-name` entry SHALL declare `requiresChatRef: true` and
@@ -742,7 +753,9 @@ ambiguous with Enter-submits).
 **Decision**: the actuation loop composes a templated prompt with pre-derived
 facts and delivers it via the chat-send injection machinery; results come back
 through the ordinary derive loop. There is no response channel, no protocol, no
-reply parsing, no queue, no persisted mailbox, no retry.
+reply parsing, no queue, no persisted mailbox, and no operator-request retry.
+The shared injection engine's evidence-gated recovery is part of a single delivery
+attempt.
 **Why**: a request queue or operator mailbox is persistent state with retry
 semantics (Constitution II rejects it); a response channel would turn the
 operator into an RPC service and require reply parsing. The operator acts

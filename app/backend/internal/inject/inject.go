@@ -2,12 +2,14 @@
 // chat-send HTTP handler (api/chat.go) so BOTH the daemon route and the CLI
 // verb (`rk mux send`) drive one implementation: sanitize (at the caller's
 // boundary) → named-buffer set-buffer → bracketed paste-buffer (-d -p) →
-// NOVELTY echo probe → probe-gated Enter. All tmux access goes through the
-// small Tmux interface so both consumers stay testable without a live tmux.
+// NOVELTY echo probe → probe-gated Enter → post-Enter observation and bounded
+// recovery. All tmux access goes through the small Tmux interface so both
+// consumers stay testable without a live tmux.
 package inject
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -17,7 +19,7 @@ import (
 	"unicode/utf8"
 )
 
-// Tmux is the tmux substrate the engine needs — four context-bound primitives.
+// Tmux is the tmux substrate the engine needs — context-bound primitives.
 // The daemon adapts its TmuxOps seam onto this (buffer name fixed to
 // ChatSendBuffer); the CLI adapts internal/tmux's name-parameterized buffer
 // functions (per-invocation buffer names).
@@ -26,6 +28,7 @@ type Tmux interface {
 	SetBuffer(ctx context.Context, name, text, server string) error
 	PasteBuffer(ctx context.Context, name, paneID, server string) error
 	SendEnter(ctx context.Context, paneID, server string) error
+	SendKeys(ctx context.Context, paneID, server string, keys ...string) error
 }
 
 // Probe timing. A short settle lets the TUI redraw after the paste before the
@@ -37,6 +40,24 @@ type Tmux interface {
 var (
 	ProbeSettle = 80 * time.Millisecond
 	ProbeGap    = 80 * time.Millisecond
+	// SubmitBackoff gives responsive panes a cheap first check while retaining
+	// a patient tail for slower post-Enter repaints.
+	SubmitBackoff = []time.Duration{
+		40 * time.Millisecond,
+		80 * time.Millisecond,
+		160 * time.Millisecond,
+		320 * time.Millisecond,
+		640 * time.Millisecond,
+	}
+	// SubmitRetries bounds recovery because every additional paste requires the
+	// pane to match its pre-paste frame first.
+	SubmitRetries = 1
+	// SubmitRetryBackoffSteps keeps recovery within the callers' existing
+	// deadlines after the first pass has already spent the patient tail.
+	SubmitRetryBackoffSteps = 3
+	// ClearAttempts bounds attempts to restore the complete pre-paste frame;
+	// exhaustion must leave the engine unable to re-paste.
+	ClearAttempts = 4
 )
 
 const (
@@ -76,6 +97,25 @@ func (ProbeFailure) Error() string {
 	return "agent input not ready — message pasted but not echoed; Enter withheld. " +
 		"The text remains in the agent's input — check the terminal view before retrying, as a resend would duplicate it."
 }
+
+// SubmitUnverified reports that the pane remained unchanged after Enter and
+// the engine could not safely recover without risking a duplicate.
+type SubmitUnverified struct{}
+
+func (SubmitUnverified) Error() string {
+	return "submit not confirmed — Enter was sent but the pane did not advance. " +
+		"The message may or may not have been submitted; capture the pane before resending."
+}
+
+type observationVerdict uint8
+
+const (
+	observationInconclusive observationVerdict = iota
+	observationNoClaim
+	observationNonSubmission
+)
+
+var errComposerNotCleared = errors.New("composer did not clear")
 
 // Engine runs the injection sequence for ONE named-buffer owner, carrying the
 // serialization state that owner needs:
@@ -134,7 +174,8 @@ func (e *Engine) lockFor(server, paneID string) *sync.Mutex {
 // Send runs the pane-targeted injection sequence (Constitution I — all argv
 // slices, no shell strings, text as a discrete argv element via the named
 // buffer): baseline capture → set-buffer → paste-buffer (-d -p, bracketed) →
-// NOVELTY echo probe → send-keys Enter (only on probe success AND submit).
+// NOVELTY echo probe → send-keys Enter (only on probe success AND submit) →
+// whole-frame observation with evidence-gated recovery.
 // Every step targets paneID, never the window, and shares the caller's ctx
 // deadline. submit=false (insert-without-submit) skips ONLY the final
 // SendEnter — baseline, set/paste, probe (a probe failure still returns
@@ -157,7 +198,8 @@ func (e *Engine) lockFor(server, paneID string) *sync.Mutex {
 // prevent.
 //
 // A tmux failure is returned verbatim; a probe failure is returned as
-// ProbeFailure (Enter withheld).
+// ProbeFailure (Enter withheld). A changed post-Enter frame returns nil without
+// interpreting why it changed; an unchanged frame may drive bounded recovery.
 func (e *Engine) Send(ctx context.Context, t Tmux, server, paneID, text string, submit bool) error {
 	needle := Needle(text)
 	if needle == "" {
@@ -201,7 +243,8 @@ func (e *Engine) Send(ctx context.Context, t Tmux, server, paneID, text string, 
 		return err
 	}
 
-	if err := e.probeEcho(ctx, t, server, paneID, needle, collapsible, baseCount); err != nil {
+	preFrame, err := e.probeEcho(ctx, t, server, paneID, needle, collapsible, baseCount)
+	if err != nil {
 		return err
 	}
 	if !submit {
@@ -212,7 +255,59 @@ func (e *Engine) Send(ctx context.Context, t Tmux, server, paneID, text string, 
 	if err := t.SendEnter(ctx, paneID, server); err != nil {
 		return fmt.Errorf("send-keys: %w", err)
 	}
-	return nil
+
+	verdict, err := verifySubmit(ctx, t, server, paneID, preFrame, needle, collapsible, baseCount, SubmitBackoff)
+	if err != nil {
+		return err
+	}
+	switch verdict {
+	case observationNoClaim:
+		return nil
+	case observationInconclusive:
+		return SubmitUnverified{}
+	default:
+		return e.retrySubmit(ctx, t, server, paneID, text, needle, collapsible, baseline)
+	}
+}
+
+func (e *Engine) retrySubmit(ctx context.Context, t Tmux, server, paneID, text, needle string, collapsible bool, baseline string) error {
+	for range SubmitRetries {
+		clearedFrame, err := clearComposer(ctx, t, server, paneID, baseline)
+		if errors.Is(err, errComposerNotCleared) {
+			return SubmitUnverified{}
+		}
+		if err != nil {
+			return err
+		}
+
+		retryBaseCount := CountOccurrences(clearedFrame, needle, collapsible)
+		if err := e.setAndPaste(ctx, t, server, paneID, text); err != nil {
+			return err
+		}
+		preFrame, err := e.probeEcho(ctx, t, server, paneID, needle, collapsible, retryBaseCount)
+		if err != nil {
+			return err
+		}
+		if err := t.SendEnter(ctx, paneID, server); err != nil {
+			return fmt.Errorf("send-keys: %w", err)
+		}
+
+		steps := SubmitBackoff
+		if SubmitRetryBackoffSteps < len(steps) {
+			steps = steps[:max(SubmitRetryBackoffSteps, 0)]
+		}
+		verdict, err := verifySubmit(ctx, t, server, paneID, preFrame, needle, collapsible, retryBaseCount, steps)
+		if err != nil {
+			return err
+		}
+		if verdict == observationNoClaim {
+			return nil
+		}
+		if verdict == observationInconclusive {
+			return SubmitUnverified{}
+		}
+	}
+	return SubmitUnverified{}
 }
 
 // setAndPaste runs the set-buffer → paste-buffer critical section under
@@ -240,7 +335,7 @@ func (e *Engine) setAndPaste(ctx context.Context, t Tmux, server, paneID, text s
 // is returned verbatim (distinct from a clean probe miss); an exhausted retry
 // returns ProbeFailure. All captures and sleeps share the caller's ctx
 // deadline.
-func (e *Engine) probeEcho(ctx context.Context, t Tmux, server, paneID, needle string, collapsible bool, baseCount int) error {
+func (e *Engine) probeEcho(ctx context.Context, t Tmux, server, paneID, needle string, collapsible bool, baseCount int) (string, error) {
 	for attempt := 0; attempt < ProbeAttempts; attempt++ {
 		d := ProbeGap
 		if attempt == 0 {
@@ -250,17 +345,66 @@ func (e *Engine) probeEcho(ctx context.Context, t Tmux, server, paneID, needle s
 		// firing, abort the probe promptly rather than sleeping out the full
 		// interval before the next capture would notice the cancelled ctx.
 		if err := sleepCtx(ctx, d); err != nil {
-			return err
+			return "", err
 		}
 		capture, err := t.CapturePane(ctx, paneID, ProbeCaptureLines, server)
 		if err != nil {
-			return fmt.Errorf("capture-pane: %w", err)
+			return "", fmt.Errorf("capture-pane: %w", err)
 		}
 		if CountOccurrences(capture, needle, collapsible) > baseCount {
-			return nil
+			return capture, nil
 		}
 	}
-	return ProbeFailure{}
+	return "", ProbeFailure{}
+}
+
+// verifySubmit compares complete normalized frames without interpreting a
+// repaint; only a frame unchanged through every step can establish that Enter
+// had no visible effect.
+func verifySubmit(ctx context.Context, t Tmux, server, paneID, preFrame, needle string, collapsible bool, baseCount int, steps []time.Duration) (observationVerdict, error) {
+	preFrame = stripForProbe(preFrame)
+	var capture string
+	for _, delay := range steps {
+		if err := sleepCtx(ctx, delay); err != nil {
+			return observationInconclusive, err
+		}
+		var err error
+		capture, err = t.CapturePane(ctx, paneID, ProbeCaptureLines, server)
+		if err != nil {
+			return observationInconclusive, err
+		}
+		if stripForProbe(capture) != preFrame {
+			return observationNoClaim, nil
+		}
+	}
+	// Evidence must use the same predicate that established the echo: the chip
+	// term keeps collapsed pastes recovery-eligible where chips are rendered and
+	// matches nothing elsewhere, so it adds no portability constraint.
+	if CountOccurrences(capture, needle, collapsible) > baseCount {
+		return observationNonSubmission, nil
+	}
+	return observationInconclusive, nil
+}
+
+// clearComposer permits another paste only after the complete normalized pane
+// returns to its pre-paste frame, proving no staged prefix was left behind.
+func clearComposer(ctx context.Context, t Tmux, server, paneID, baseline string) (string, error) {
+	baseline = stripForProbe(baseline)
+	var capture string
+	for range ClearAttempts {
+		if err := t.SendKeys(ctx, paneID, server, "C-u"); err != nil {
+			return "", fmt.Errorf("send-keys: %w", err)
+		}
+		var err error
+		capture, err = t.CapturePane(ctx, paneID, ProbeCaptureLines, server)
+		if err != nil {
+			return "", err
+		}
+		if stripForProbe(capture) == baseline {
+			return capture, nil
+		}
+	}
+	return capture, errComposerNotCleared
 }
 
 // sleepCtx sleeps for d but returns early with ctx.Err() if ctx is cancelled or

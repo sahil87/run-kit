@@ -60,6 +60,7 @@ type TmuxOps interface {
 	MoveWindowToSession(windowID, dstSession, server string) error
 	RenameWindow(windowID, name, server string) error
 	SendKeys(windowID, keys, server string) error
+	SendKeysToPane(ctx context.Context, paneID, server string, keys ...string) error
 	SelectWindowInSession(session, windowID, server string) error
 	ListWindows(ctx context.Context, session, server string) ([]tmux.WindowInfo, error)
 	ResolveWindowSession(ctx context.Context, server, windowID string) (string, error)
@@ -125,10 +126,9 @@ type TmuxOps interface {
 	ReorderBoard(ctx context.Context, server, windowID, board, before, after string) (string, error)
 	// Chat-send injection primitives (260714-jdyg-chat-send). Pane-targeted, in
 	// contrast to the window-targeted SendKeys used by POST /keys. CapturePane is
-	// surfaced here for the echo probe. Each takes the caller's context so the
-	// handler threads ONE shared deadline across the whole set → paste → probe →
-	// Enter sequence (kept well under the 5s route-blocking budget) rather than
-	// granting each subprocess an independent 10s timeout.
+	// surfaced here for capture-based probes. Each takes the caller's context so
+	// the handler threads one shared deadline across paste, submit verification,
+	// and recovery rather than granting each subprocess its own timeout.
 	SetChatSendBuffer(ctx context.Context, text, server string) error
 	PasteChatSendBuffer(ctx context.Context, paneID, server string) error
 	SendEnterToPane(ctx context.Context, paneID, server string) error
@@ -350,6 +350,9 @@ func (p *prodTmuxOps) RenameWindow(windowID, name, server string) error {
 }
 func (p *prodTmuxOps) SendKeys(windowID, keys, server string) error {
 	return tmux.SendKeys(windowID, keys, server)
+}
+func (p *prodTmuxOps) SendKeysToPane(ctx context.Context, paneID, server string, keys ...string) error {
+	return tmux.SendKeysToPane(ctx, paneID, server, keys...)
 }
 func (p *prodTmuxOps) SelectWindowInSession(session, windowID, server string) error {
 	return tmux.SelectWindowInSession(session, windowID, server)

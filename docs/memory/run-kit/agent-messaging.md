@@ -130,15 +130,27 @@ silent force-wins precedence.
 Text payloads SHALL be delivered through `internal/inject` — the engine the
 chat-send HTTP handler also consumes ([chat](/run-kit/chat.md) § Send Path):
 baseline capture → named-buffer `set-buffer -b <name> -- <text>` → bracketed
-`paste-buffer -d -p` → NOVELTY echo probe → probe-gated Enter. The CLI drives it
-through the four-method `inject.Tmux` interface over `internal/tmux`'s
+`paste-buffer -d -p` → NOVELTY echo probe → probe-gated Enter → post-Enter
+observation. The CLI drives it through the five-method `inject.Tmux` interface
+over `internal/tmux`'s
 name-parameterized buffer primitives (`SetBufferCtx`/`PasteBufferCtx`/
-`CapturePaneCtx`/`SendEnterToPaneCtx`), with a **per-invocation buffer name**
+`CapturePaneCtx`/`SendEnterToPaneCtx`/`SendKeysToPane`), with a **per-invocation buffer name**
 `rk-send-<pid>` so a CLI send can never clobber a concurrent daemon send's
 `rk-chat-send` buffer. `--no-enter` skips only the Enter — the probed text stays
 staged in the composer. A probe failure (`inject.ProbeFailure`) sends no Enter,
 prints the recoverable-state message (the text remains staged; a resend would
 duplicate it) to stderr, and exits 1 — the chat-send 409's CLI analog.
+
+After Enter, `SubmitBackoff` observes the pane at `40/80/160/320/640ms` with
+early exit. A changed normalized frame makes no claim about submission and the
+send succeeds. Only a frame unchanged through every step with the paste echo
+still present is evidence of non-submission. That evidence permits one bounded
+recovery cycle: send `C-u` up to four times until the normalized pane equals the
+pre-paste baseline, re-paste, re-probe, send Enter, and observe over the first
+three backoff steps. Recovery that cannot establish a baseline-equal clear or
+cannot produce a changed frame returns `inject.SubmitUnverified`; the CLI prints
+`unverified %N`, directs the caller to capture the pane before resending, and
+exits 1. A successful recovery prints the ordinary `delivered %N` report.
 
 #### Scenario: Permission-dialog pane fails closed
 - **GIVEN** a pane showing a permission dialog (the paste never echoes)
@@ -146,16 +158,28 @@ duplicate it) to stderr, and exits 1 — the chat-send 409's CLI analog.
 - **THEN** no Enter is sent, stderr carries the staged-text warning, and the
   exit is 1.
 
+#### Scenario: A trapped Enter is recovered only from positive evidence
+- **GIVEN** a pane whose frame remains unchanged through every observation step
+  with the paste echo still present
+- **WHEN** the first Enter has no visible effect
+- **THEN** recovery re-pastes only after `C-u` restores the pre-paste frame;
+  **AND GIVEN** any observed frame change, **THEN** no recovery runs and the
+  command reports `delivered` without claiming that submission was confirmed.
+
 ### Requirement: One-line stdout report contract; toolkit exit codes
 `rk mux send` SHALL print exactly one report line to stdout: `delivered %N`
-(probe-confirmed submit), `staged %N` (`--no-enter`), `sent %N` (`--key`
-sends), or the await report word as the final line when `--await` is used.
-Diagnostics and warnings go to stderr (chatter honors `--quiet` via the
+(no non-submission detected, including a changed-frame no-claim outcome or a
+successful recovery), `unverified %N` (non-submission detected and bounded
+recovery did not establish a safe successful outcome), `staged %N`
+(`--no-enter`), `sent %N` (`--key` sends), or the await report word as the final
+line when `--await` is used. `unverified` exits 1 and does not enter the await
+phase. Diagnostics and warnings go to stderr (chatter honors `--quiet` via the
 `outputSink` convention; the report line is data). Exit codes follow the toolkit
 convention: **0** success, **1** operational failure (gate refusal, probe
-failure, missing target, tmux failure), **2** usage — never fab's pane-family
-2/3 scheme. The same code convention binds the substrate twins: a missing pane
-is operational (1), a bad target or flag combination is usage (2).
+failure, unverified submit, missing target, tmux failure), **2** usage — never
+fab's pane-family 2/3 scheme. The same code convention binds the substrate
+twins: a missing pane is operational (1), a bad target or flag combination is
+usage (2).
 
 ### Requirement: `rk mux await` observer
 `rk mux await [--any] <target>... [--until <state>[,<state>]] [--file <path>]
@@ -517,14 +541,28 @@ permanent: they are human-typed verbs, so they are removable in a future release
 
 ### Engine package named `internal/inject`
 **Decision**: The shared pane-injection engine lives in `internal/inject` behind a
-four-method `Tmux` interface (capture / set-buffer / paste-buffer / send-Enter,
-context-bound), with the buffer name as an engine parameter — the daemon passes
-`rk-chat-send`, the CLI its per-invocation `rk-send-<pid>`.
+five-method `Tmux` interface (capture / set-buffer / paste-buffer / send-Enter /
+pane-scoped send-keys, context-bound), with the buffer name as an engine
+parameter — the daemon passes `rk-chat-send`, the CLI its per-invocation
+`rk-send-<pid>`.
 **Why**: mechanics-named like `internal/present`; "chat" does not describe an
 engine the CLI consumes alongside the daemon route, and the interface keeps both
 consumers testable without a live tmux.
 **Rejected**: `internal/agentsend` (couples the name to one consumer).
 *Introduced by*: `260815-a5vf-rk-send-await-agent-messaging`
+
+### Submit observation and recovery stay in the shared engine
+**Decision**: Post-Enter observation, `SubmitUnverified`, and bounded recovery
+belong to `internal/inject.Engine.Send`, behind the pane-scoped context-bound
+`Tmux` interface, so `rk mux send` and all daemon injection routes inherit the
+same behavior.
+**Why**: Delivery safety is an engine property. Keeping the choreography at the
+shared seam gives every consumer the same evidence threshold, retry bound,
+deadline propagation, and duplicate-prevention rule.
+**Rejected**: Implementing verification only in `cmd/rk/mux_send.go` (leaves the
+four daemon routes vulnerable and duplicates the choreography); implementing it
+independently in each HTTP handler (five contracts that can drift).
+*Introduced by*: 260830-nyvm-mux-send-submit-verification
 
 ### CLI probe failure = staged text + stderr + exit 1
 **Decision**: A failed echo probe on the CLI path sends no Enter, leaves the

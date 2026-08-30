@@ -34,7 +34,7 @@ func twoPaneWindow(windowID string) []sessions.ProjectSession {
 func TestWindowPasteSuccessTargetsActivePane(t *testing.T) {
 	fastChatSendProbe(t)
 	sf := &mockSessionFetcher{result: twoPaneWindow("@1")}
-	ops := &mockTmuxOps{capturePaneResults: []string{"$ ", "$ one\ntwo"}}
+	ops := &mockTmuxOps{capturePaneResults: []string{"$ ", "$ one\ntwo", "one\ntwo\nworking"}}
 	router := NewTestRouter(slog.Default(), sf, ops, "host")
 
 	rec := httptest.NewRecorder()
@@ -43,7 +43,7 @@ func TestWindowPasteSuccessTargetsActivePane(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
-	want := []string{"capture-pane", "set-buffer", "paste-buffer", "capture-pane", "send-keys"}
+	want := []string{"capture-pane", "set-buffer", "paste-buffer", "capture-pane", "send-keys", "capture-pane"}
 	if strings.Join(ops.chatCalls, ",") != strings.Join(want, ",") {
 		t.Errorf("injection order = %v, want %v", ops.chatCalls, want)
 	}
@@ -97,6 +97,22 @@ func TestWindowPasteProbeFailure409(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "Enter withheld") {
 		t.Errorf("body = %s, want the probe-failure message", rec.Body.String())
+	}
+}
+
+func TestWindowPasteSubmitUnverified409(t *testing.T) {
+	fastChatSendProbe(t)
+	sf := &mockSessionFetcher{result: twoPaneWindow("@1")}
+	ops := unverifiedSubmitOps(t, "$ ", "$ one\ntwo")
+	router := NewTestRouter(slog.Default(), sf, ops, "host")
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, pasteReq("@1", `{"text":"one\ntwo"}`))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "may or may not have been submitted") {
+		t.Fatalf("body = %s, want submit-unconfirmed guidance", rec.Body.String())
 	}
 }
 

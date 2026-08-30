@@ -801,6 +801,11 @@ func (s *Server) handleOperatorRequest(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, probeErr.Error())
 			return
 		}
+		var submitErr inject.SubmitUnverified
+		if errors.As(err, &submitErr) {
+			writeError(w, http.StatusConflict, submitErr.Error())
+			return
+		}
 		if errors.Is(err, chat.ErrInvalidRef) || errors.Is(err, chat.ErrTranscriptNotFound) {
 			// ErrInvalidRef / ErrTranscriptNotFound map to the same 404-class
 			// vocabulary as the chat read endpoints.
@@ -917,6 +922,11 @@ func (s *Server) handleServerOperatorRequest(w http.ResponseWriter, r *http.Requ
 		if errors.As(err, &probeErr) {
 			// Text pasted, Enter withheld — recoverable state (same as chat-send).
 			writeError(w, http.StatusConflict, probeErr.Error())
+			return
+		}
+		var submitErr inject.SubmitUnverified
+		if errors.As(err, &submitErr) {
+			writeError(w, http.StatusConflict, submitErr.Error())
 			return
 		}
 		var rej *operatorReject

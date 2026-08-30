@@ -265,6 +265,23 @@ func TestOperatorRequestProbeFailureWithholdsEnter(t *testing.T) {
 	}
 }
 
+func TestOperatorRequestSubmitUnverifiedConflict(t *testing.T) {
+	fastChatSendProbe(t)
+	stageFixtureTranscript(t, testChatRef)
+	sf := &mockSessionFetcher{result: operatorSessions("idle")}
+	ops := unverifiedSubmitOps(t, "❯ ", "❯ [Pasted text #1 +9 lines]")
+	router := NewTestRouter(slog.Default(), sf, ops, "host")
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, operatorReq(`{"template":"fix-tab-name"}`))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "may or may not have been submitted") {
+		t.Fatalf("body = %s, want submit-unconfirmed guidance", rec.Body.String())
+	}
+}
+
 // --- 500 + 200 ---------------------------------------------------------------
 
 // TestOperatorRequestFetchError: a FetchSessions failure is a 500
@@ -294,7 +311,7 @@ func TestOperatorRequestSuccess(t *testing.T) {
 			sf := &mockSessionFetcher{result: operatorSessions(state)}
 			// The multiline prompt collapses into a fresh paste chip post-paste
 			// (absent from the baseline) — a legitimate probe pass.
-			ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "❯ [Pasted text #1 +9 lines]"}}
+			ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "❯ [Pasted text #1 +9 lines]", "working"}}
 			router := NewTestRouter(slog.Default(), sf, ops, "host")
 
 			rec := httptest.NewRecorder()
@@ -306,7 +323,7 @@ func TestOperatorRequestSuccess(t *testing.T) {
 			if !strings.Contains(rec.Body.String(), `"ok":true`) {
 				t.Errorf("200 body = %s, want {\"ok\":true}", rec.Body.String())
 			}
-			want := []string{"capture-pane", "set-buffer", "paste-buffer", "capture-pane", "send-keys"}
+			want := []string{"capture-pane", "set-buffer", "paste-buffer", "capture-pane", "send-keys", "capture-pane"}
 			if strings.Join(ops.chatCalls, ",") != strings.Join(want, ",") {
 				t.Errorf("injection order = %v, want %v", ops.chatCalls, want)
 			}
@@ -363,7 +380,6 @@ func TestRenderFixTabName(t *testing.T) {
 		t.Errorf("non-empty FabChange did not render the fab clause:\n%s", prompt)
 	}
 }
-
 
 // --- the acceptsText lane ----------------------------------------------------
 
@@ -671,6 +687,25 @@ func TestServerOperatorRequestWhatsStuckNothingWaiting(t *testing.T) {
 	}
 	if len(ops.chatCalls) != 0 {
 		t.Errorf("injection ran (%v) with nothing waiting", ops.chatCalls)
+	}
+}
+
+func TestServerOperatorRequestSubmitUnverifiedConflict(t *testing.T) {
+	fastChatSendProbe(t)
+	stageFixtureTranscript(t, testChatRef)
+	sess := operatorSessions("idle")
+	sess[0].Windows[0].AgentState = "waiting"
+	sf := &mockSessionFetcher{result: sess}
+	ops := unverifiedSubmitOps(t, "❯ ", "❯ [Pasted text #1 +9 lines]")
+	router := NewTestRouter(slog.Default(), sf, ops, "host")
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, serverOperatorReq(`{"template":"whats-stuck"}`))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "may or may not have been submitted") {
+		t.Fatalf("body = %s, want submit-unconfirmed guidance", rec.Body.String())
 	}
 }
 

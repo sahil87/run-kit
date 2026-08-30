@@ -1,0 +1,55 @@
+id: nyvm
+name: 260830-nyvm-mux-send-submit-verification
+created: 2026-08-30T15:19:55Z
+created_by: Sahil Ahuja
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 29
+    acceptance_count: 33
+    acceptance_completed: 33
+confidence:
+    certain: 9
+    confident: 9
+    tentative: 0
+    unresolved: 0
+    score: 3.5
+    fuzzy: true
+    dimensions:
+        signal: 73.6
+        reversibility: 80.3
+        competence: 78.6
+        disambiguation: 74.4
+stage_metrics:
+    intake: {started_at: "2026-08-30T15:19:55Z", driver: fab-new, iterations: 1, completed_at: "2026-08-30T15:32:20Z"}
+    apply: {started_at: "2026-08-30T17:16:22Z", driver: fab-fff, iterations: 6, completed_at: "2026-08-30T17:23:33Z"}
+    review: {started_at: "2026-08-30T17:23:33Z", driver: fab-fff, iterations: 6, completed_at: "2026-08-30T17:31:10Z"}
+    hydrate: {started_at: "2026-08-30T17:31:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-30T17:40:28Z"}
+    ship: {started_at: "2026-08-30T17:40:28Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-08-30T17:40:28Z"
+    computed_at_stage: hydrate
+summary: adds asymmetric post-Enter non-submission detection and evidence-gated recovery to shared pane injection
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-30T17:40:28Z

@@ -2602,10 +2602,26 @@ func PasteBufferCtx(ctx context.Context, name, paneID string, server string) err
 	return err
 }
 
+// PasteBufferRawCtx pastes a named buffer without bracketed-paste markers.
+// The -r flag preserves LF bytes instead of translating them to CR, while the
+// absence of -p keeps the resulting stream byte-exact.
+func PasteBufferRawCtx(ctx context.Context, name, paneID string, server string) error {
+	_, err := tmuxExecServer(ctx, server, "paste-buffer", "-d", "-r", "-b", name, "-t", paneID)
+	return err
+}
+
 // PasteChatSendBufferCtx is the chat-send handler's fixed-buffer form of
 // PasteBufferCtx.
 func PasteChatSendBufferCtx(ctx context.Context, paneID string, server string) error {
 	return PasteBufferCtx(ctx, ChatSendBuffer, paneID, server)
+}
+
+// PasteChatSendBufferRawCtx exposes the daemon's process-wide buffer to raw-mode
+// injection. Callers must hold the engine's set-to-paste critical section so a
+// send to another pane cannot replace the buffer before this unbracketed,
+// LF-preserving paste consumes it.
+func PasteChatSendBufferRawCtx(ctx context.Context, paneID string, server string) error {
+	return PasteBufferRawCtx(ctx, ChatSendBuffer, paneID, server)
 }
 
 // SendEnterToPaneCtx sends a single literal Enter key to the target PANE on the

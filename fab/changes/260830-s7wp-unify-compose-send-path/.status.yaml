@@ -1,0 +1,57 @@
+id: s7wp
+name: 260830-s7wp-unify-compose-send-path
+created: 2026-08-30T17:15:39Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 19
+    acceptance_count: 34
+    acceptance_completed: 34
+confidence:
+    certain: 13
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.7
+    fuzzy: true
+    dimensions:
+        signal: 87.1
+        reversibility: 85.0
+        competence: 86.2
+        disambiguation: 84.1
+stage_metrics:
+    intake: {started_at: "2026-08-30T17:15:39Z", driver: fab-new, iterations: 1, completed_at: "2026-08-30T18:29:34Z"}
+    apply: {started_at: "2026-08-30T19:14:57Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-30T19:21:56Z"}
+    review: {started_at: "2026-08-30T19:21:56Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-30T19:33:43Z"}
+    hydrate: {started_at: "2026-08-30T19:33:43Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-30T19:43:33Z"}
+    ship: {started_at: "2026-08-30T19:43:33Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-30T19:49:04Z"}
+    review-pr: {started_at: "2026-08-30T19:49:04Z", driver: git-pr, iterations: 1, completed_at: "2026-08-30T20:01:10Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/778
+change_type_source: explicit
+true_impact:
+    added: 1752
+    deleted: 718
+    net: 1034
+    excluding:
+        added: 960
+        deleted: 663
+        net: 297
+    tests:
+        added: 461
+        deleted: 300
+        net: 161
+    computed_at: "2026-08-30T19:49:04Z"
+    computed_at_stage: ship
+summary: unifies compose delivery behind mode-carrying /send, adds serialized raw and Enter strategies, surfaces coded 409 recovery, and widens echo probing to 640ms
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-30T20:01:10Z

@@ -151,6 +151,9 @@ func (cliInjectTmux) SetBuffer(ctx context.Context, name, text, server string) e
 func (cliInjectTmux) PasteBuffer(ctx context.Context, name, paneID, server string) error {
 	return tmux.PasteBufferCtx(ctx, name, paneID, server)
 }
+func (cliInjectTmux) PasteBufferRaw(ctx context.Context, name, paneID, server string) error {
+	return tmux.PasteBufferRawCtx(ctx, name, paneID, server)
+}
 func (cliInjectTmux) SendEnter(ctx context.Context, paneID, server string) error {
 	return tmux.SendEnterToPaneCtx(ctx, paneID, server)
 }

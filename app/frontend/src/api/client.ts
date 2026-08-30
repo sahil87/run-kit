@@ -25,10 +25,27 @@ export async function deduplicatedFetch(url: string, init?: RequestInit): Promis
   return promise.then(r => r.clone());
 }
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly code?: string,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 /** Throw an error from a JSON error response, falling back to status text. */
 export async function throwOnError(res: Response): Promise<never> {
-  const data = await res.json().catch(() => ({}));
-  throw new Error((data as { error?: string }).error ?? `Request failed: ${res.status}`);
+  const data: unknown = await res.json().catch(() => null);
+  let message = `Request failed: ${res.status}`;
+  let code: string | undefined;
+  if (typeof data === "object" && data !== null) {
+    if ("error" in data && typeof data.error === "string") message = data.error;
+    if ("code" in data && typeof data.code === "string") code = data.code;
+  }
+  throw new ApiError(message, res.status, code);
 }
 
 export interface HealthResponse {
@@ -445,30 +462,27 @@ export async function sendChatMessage(
   return res.json();
 }
 
+export type WindowSendMode = "submit" | "insert-line" | "raw" | "enter";
+
 /**
- * Paste text into a window's ACTIVE pane through tmux bracketed paste —
- * `POST /api/windows/:windowId/paste`. The compose strip's delivery path for
- * MULTI-LINE text: raw relay bytes carrying embedded newlines collapse in
- * Claude Code's input, a bracketed paste lands as one literal block. Unlike
- * `sendChatMessage` the route needs no chat session on the window. Same wire
- * contract otherwise: body `{ text }`, `submit: false` serialized only when
- * false (paste without the gated Enter), non-ok surfaced via `throwOnError`
- * (the 409 probe-failure message becomes the Error's message).
+ * Carries compose intent only: `mode` selects the server-side injection
+ * strategy, and the server re-resolves the window's active pane per request.
+ * Non-OK responses become `ApiError`s whose `code` separates staged-but-unsent
+ * text from an unconfirmed submit because those outcomes require opposite
+ * resend advice.
  */
-export async function pasteToWindow(
+export async function sendToWindow(
   server: string,
   windowId: string,
   text: string,
-  submit = true,
+  mode: WindowSendMode,
 ): Promise<{ ok: boolean }> {
-  const body: { text: string; submit?: boolean } = { text };
-  if (!submit) body.submit = false;
   const res = await fetch(
-    withServer(`/api/windows/${encodeURIComponent(windowId)}/paste`, server),
+    withServer(`/api/windows/${encodeURIComponent(windowId)}/send`, server),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ text, mode }),
     },
   );
   if (!res.ok) await throwOnError(res);

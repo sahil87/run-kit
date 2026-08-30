@@ -47,11 +47,13 @@ type fakeTmux struct {
 	captureErrs    []error
 	setBufferErr   error
 	pasteErr       error
+	pasteRawErr    error
 	enterErr       error
 	keyErr         error
 	bufferName     string
 	bufferText     string
 	pastedPane     string
+	pastedRawPane  string
 	enteredPane    string
 	enterCalled    bool
 	enterHook      func()
@@ -108,6 +110,14 @@ func (f *fakeTmux) PasteBuffer(_ context.Context, _, paneID, _ string) error {
 	return f.pasteErr
 }
 
+func (f *fakeTmux) PasteBufferRaw(_ context.Context, _, paneID, _ string) error {
+	f.record("paste-buffer-raw")
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.pastedRawPane = paneID
+	return f.pasteRawErr
+}
+
 func (f *fakeTmux) SendEnter(_ context.Context, paneID, _ string) error {
 	f.record("send-keys")
 	f.mu.Lock()
@@ -138,6 +148,93 @@ func (f *fakeTmux) SendKeys(_ context.Context, paneID, _ string, keys ...string)
 	defer f.mu.Unlock()
 	f.keysSent = append(f.keysSent, append([]string{paneID}, keys...))
 	return f.keyErr
+}
+
+func TestSendRawOrder(t *testing.T) {
+	ft := &fakeTmux{}
+	err := NewEngine("rk-send-raw").SendRaw(context.Background(), ft, "default", "%5", "a\tb\nc")
+	if err != nil {
+		t.Fatalf("SendRaw: %v", err)
+	}
+	if got, want := strings.Join(ft.callStream(), ","), "set-buffer,paste-buffer-raw"; got != want {
+		t.Fatalf("calls = %s, want %s", got, want)
+	}
+	if ft.bufferText != "a\tb\nc" || ft.pastedRawPane != "%5" {
+		t.Fatalf("delivery = text %q pane %q", ft.bufferText, ft.pastedRawPane)
+	}
+	if ft.enterCalled {
+		t.Fatal("Enter sent during raw delivery")
+	}
+}
+
+func TestPressEnterOrder(t *testing.T) {
+	ft := &fakeTmux{}
+	if err := NewEngine("rk-send-enter").PressEnter(context.Background(), ft, "default", "%5"); err != nil {
+		t.Fatalf("PressEnter: %v", err)
+	}
+	if got, want := strings.Join(ft.callStream(), ","), "send-keys"; got != want {
+		t.Fatalf("calls = %s, want %s", got, want)
+	}
+	if ft.enteredPane != "%5" {
+		t.Fatalf("pane = %q, want %%5", ft.enteredPane)
+	}
+}
+
+func TestSendRawSamePaneSerializesWithSend(t *testing.T) {
+	fastProbe(t)
+	ft := &fakeTmux{captureResult: "unrelated pane output"}
+	engine := NewEngine("rk-send-shared")
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		_ = engine.Send(context.Background(), ft, "default", "%5", "message", true)
+	}()
+	go func() {
+		defer wg.Done()
+		_ = engine.SendRaw(context.Background(), ft, "default", "%5", "raw")
+	}()
+	wg.Wait()
+
+	sendBlock := []string{"capture-pane", "set-buffer", "paste-buffer"}
+	for range ProbeAttempts {
+		sendBlock = append(sendBlock, "capture-pane")
+	}
+	rawBlock := []string{"set-buffer", "paste-buffer-raw"}
+	first := append(append([]string(nil), sendBlock...), rawBlock...)
+	second := append(append([]string(nil), rawBlock...), sendBlock...)
+	got := strings.Join(ft.callStream(), ",")
+	if got != strings.Join(first, ",") && got != strings.Join(second, ",") {
+		t.Fatalf("same-pane operations interleaved: %v", ft.callStream())
+	}
+}
+
+func TestSendShortNeedleOccurrenceCounts(t *testing.T) {
+	fastProbe(t)
+	fastSubmit(t)
+
+	t.Run("flat count fails closed", func(t *testing.T) {
+		ft := &fakeTmux{captureResults: []string{"old ok\n❯ ", "❯ ok"}, captureResult: "❯ ok"}
+		err := NewEngine("rk-short-flat").Send(context.Background(), ft, "default", "%5", "ok", true)
+		var probeErr ProbeFailure
+		if !errors.As(err, &probeErr) {
+			t.Fatalf("err = %v, want ProbeFailure", err)
+		}
+		if ft.enterCalled {
+			t.Fatal("Enter sent after a flat occurrence count")
+		}
+	})
+
+	t.Run("fresh occurrence passes", func(t *testing.T) {
+		ft := &fakeTmux{captureResults: []string{"old ok\n❯ ", "old ok\n❯ ok", "working"}}
+		if err := NewEngine("rk-short-fresh").Send(context.Background(), ft, "default", "%5", "ok", true); err != nil {
+			t.Fatalf("Send: %v", err)
+		}
+		if !ft.enterCalled {
+			t.Fatal("Enter was not sent after a fresh occurrence")
+		}
+	})
 }
 
 // TestSendOrderAndEnter: a paste whose text newly echoes runs the exact order

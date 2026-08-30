@@ -27,16 +27,17 @@ type Tmux interface {
 	CapturePane(ctx context.Context, paneID string, lines int, server string) (string, error)
 	SetBuffer(ctx context.Context, name, text, server string) error
 	PasteBuffer(ctx context.Context, name, paneID, server string) error
+	PasteBufferRaw(ctx context.Context, name, paneID, server string) error
 	SendEnter(ctx context.Context, paneID, server string) error
 	SendKeys(ctx context.Context, paneID, server string, keys ...string) error
 }
 
 // Probe timing. A short settle lets the TUI redraw after the paste before the
 // first echo capture; a bounded retry tolerates a slow redraw. The probe's own
-// wall-clock worst case is settle + (attempts-1)*gap = 80 + 2*80 = 240ms; the
-// caller threads ONE shared context deadline through the whole sequence, so the
-// total cost stays bounded regardless. Package vars (not consts) SOLELY so
-// tests can shrink them — production always uses these values.
+// wall-clock worst case is settle + (attempts-1)*gap = 80 + 7*80 = 640ms.
+// That ceiling, the post-Enter SubmitBackoff tail, and bounded recovery all
+// share the caller's one 4s injection deadline. Package vars (not consts)
+// exist solely so tests can shrink them; production always uses these values.
 var (
 	ProbeSettle = 80 * time.Millisecond
 	ProbeGap    = 80 * time.Millisecond
@@ -62,7 +63,7 @@ var (
 
 const (
 	// ProbeAttempts bounds the echo-probe retry loop.
-	ProbeAttempts = 3
+	ProbeAttempts = 8
 	// ProbeCaptureLines is the tail depth captured for the echo probe — enough
 	// to catch the pasted message even when the TUI input box wraps it across
 	// several rows, without capturing the whole scrollback.
@@ -169,6 +170,37 @@ func (e *Engine) lockFor(server, paneID string) *sync.Mutex {
 		e.paneLocks[key] = mu
 	}
 	return mu
+}
+
+// SendRaw writes text through the shared named buffer without probing or
+// appending Enter. It uses the same pane and buffer locks as Send so raw bytes
+// cannot interleave with another injection sequence.
+func (e *Engine) SendRaw(ctx context.Context, t Tmux, server, paneID, text string) error {
+	paneLock := e.lockFor(server, paneID)
+	paneLock.Lock()
+	defer paneLock.Unlock()
+
+	e.setPasteMu.Lock()
+	defer e.setPasteMu.Unlock()
+	if err := t.SetBuffer(ctx, e.buffer, text, server); err != nil {
+		return fmt.Errorf("set-buffer: %w", err)
+	}
+	if err := t.PasteBufferRaw(ctx, e.buffer, paneID, server); err != nil {
+		return fmt.Errorf("paste-buffer: %w", err)
+	}
+	return nil
+}
+
+// PressEnter joins the engine's per-pane serialization domain so a recovery
+// Enter cannot land inside another send's paste-and-probe sequence.
+func (e *Engine) PressEnter(ctx context.Context, t Tmux, server, paneID string) error {
+	paneLock := e.lockFor(server, paneID)
+	paneLock.Lock()
+	defer paneLock.Unlock()
+	if err := t.SendEnter(ctx, paneID, server); err != nil {
+		return fmt.Errorf("send-keys: %w", err)
+	}
+	return nil
 }
 
 // Send runs the pane-targeted injection sequence (Constitution I — all argv

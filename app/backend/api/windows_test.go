@@ -278,7 +278,7 @@ func TestWindowOptionsLegacyKeysRejected(t *testing.T) {
 // Set @rk_win_marker only — one SetWindowOptions call with just @rk_win_marker.
 func TestWindowOptionsSetMarkerOnly(t *testing.T) {
 	ops := &mockTmuxOps{}
-	rec := postOptions(t, ops, "@2", `{"options":{"@rk_win_marker":"solid"}}`)
+	rec := postOptions(t, ops, "@2", `{"options":{"@rk_win_marker":"blocked:2"}}`)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
@@ -287,8 +287,8 @@ func TestWindowOptionsSetMarkerOnly(t *testing.T) {
 		t.Fatalf("ops = %v, want exactly 1 (@rk_win_marker)", ops.setWindowOptionsOps)
 	}
 	op, ok := findOp(ops.setWindowOptionsOps, "@rk_win_marker")
-	if !ok || op.Value == nil || *op.Value != "solid" {
-		t.Errorf("@rk_win_marker op = %+v, want value \"solid\"", op)
+	if !ok || op.Value == nil || *op.Value != "blocked:2" {
+		t.Errorf("@rk_win_marker op = %+v, want value \"blocked:2\"", op)
 	}
 }
 
@@ -310,7 +310,7 @@ func TestWindowOptionsMarkerEmptyUnsets(t *testing.T) {
 	}
 }
 
-// Invalid @rk_win_marker (outside the 5-state closed set) → 400 and zero tmux
+// Invalid @rk_win_marker values return 400 and make zero tmux
 // calls (validate-all-then-execute).
 func TestWindowOptionsMarkerInvalid(t *testing.T) {
 	ops := &mockTmuxOps{}
@@ -324,9 +324,8 @@ func TestWindowOptionsMarkerInvalid(t *testing.T) {
 	}
 }
 
-// The two 260723-wwoi marker states round-trip through the widened closed set.
-func TestWindowOptionsMarkerDashedThick(t *testing.T) {
-	for _, v := range []string{"dashed", "thick"} {
+func TestWindowOptionsMarkerVocabulary(t *testing.T) {
+	for _, v := range []string{"manual", "manual:1", "manual:2", "manual:3", "auto", "auto:1", "auto:2", "auto:3", "blocked", "blocked:1", "blocked:2", "blocked:3"} {
 		ops := &mockTmuxOps{}
 		rec := postOptions(t, ops, "@2", `{"options":{"@rk_win_marker":"`+v+`"}}`)
 
@@ -336,6 +335,18 @@ func TestWindowOptionsMarkerDashedThick(t *testing.T) {
 		op, ok := findOp(ops.setWindowOptionsOps, "@rk_win_marker")
 		if !ok || op.Value == nil || *op.Value != v {
 			t.Errorf("@rk_win_marker op = %+v, want value %q", op, v)
+		}
+	}
+
+	for _, v := range []string{"pipe", "dotted", "dashed", "solid", "double", "thick", "hatch", "block"} {
+		ops := &mockTmuxOps{}
+		rec := postOptions(t, ops, "@2", `{"options":{"@rk_win_marker":"`+v+`"}}`)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("status(%q) = %d, want %d; body=%s", v, rec.Code, http.StatusBadRequest, rec.Body.String())
+		}
+		if ops.setWindowOptionsCalled {
+			t.Errorf("SetWindowOptions called for retired marker %q", v)
 		}
 	}
 }
@@ -1572,7 +1583,7 @@ func TestWindowOptions_POST_wakesHub(t *testing.T) {
 		server, tracker := newWakeSeamServer(t, &mockTmuxOps{})
 		before := tracker.count.Load()
 		router := server.buildRouter()
-		req := httptest.NewRequest(http.MethodPost, "/api/windows/@2/options?server=default", strings.NewReader(`{"options":{"@rk_win_marker":"double"}}`))
+		req := httptest.NewRequest(http.MethodPost, "/api/windows/@2/options?server=default", strings.NewReader(`{"options":{"@rk_win_marker":"manual:2"}}`))
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)

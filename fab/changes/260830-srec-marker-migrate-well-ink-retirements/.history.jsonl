@@ -1,0 +1,17 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-30T11:43:39Z"}
+{"args":"Marker rework phase 2 -- migrate + contract: the well, the ink, the retirements (fab/plans/sahil/26-08-30-marker-rework-split.md, Phase 2 section)","cmd":"fab-new","event":"command","ts":"2026-08-30T11:43:39Z"}
+{"delta":"+0.0","event":"confidence","score":4.5,"trigger":"calc-score","ts":"2026-08-30T11:47:57Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-30T11:49:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-30T11:52:54Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-30T12:34:48Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-30T12:36:38Z"}
+{"event":"review","result":"failed","ts":"2026-08-30T12:50:20Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-30T12:50:20Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-30T12:53:00Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-30T13:01:02Z"}
+{"event":"review","result":"passed","ts":"2026-08-30T13:01:02Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-30T13:03:24Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-30T13:20:46Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-08-30T13:23:06Z"}
+{"cmd":"git-pr-review","event":"command","ts":"2026-08-30T13:25:20Z"}
+{"event":"review","result":"passed","ts":"2026-08-30T13:36:51Z"}

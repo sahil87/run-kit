@@ -1,0 +1,57 @@
+id: srec
+name: 260830-srec-marker-migrate-well-ink-retirements
+created: 2026-08-30T11:43:39Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 28
+    acceptance_count: 33
+    acceptance_completed: 33
+confidence:
+    certain: 9
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 4.5
+    fuzzy: true
+    dimensions:
+        signal: 77.1
+        reversibility: 82.9
+        competence: 85.0
+        disambiguation: 81.4
+stage_metrics:
+    intake: {started_at: "2026-08-30T11:43:39Z", driver: fab-new, iterations: 1, completed_at: "2026-08-30T11:52:54Z"}
+    apply: {started_at: "2026-08-30T12:50:20Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-30T12:53:00Z"}
+    review: {started_at: "2026-08-30T12:53:00Z", driver: fab-fff, iterations: 2, completed_at: "2026-08-30T13:01:02Z"}
+    hydrate: {started_at: "2026-08-30T13:01:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-30T13:20:46Z"}
+    ship: {started_at: "2026-08-30T13:20:46Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-30T13:23:06Z"}
+    review-pr: {started_at: "2026-08-30T13:23:06Z", driver: git-pr, iterations: 1, completed_at: "2026-08-30T13:36:51Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/770
+change_type_source: explicit
+true_impact:
+    added: 1634
+    deleted: 1833
+    net: -199
+    excluding:
+        added: 598
+        deleted: 1747
+        net: -1149
+    tests:
+        added: 255
+        deleted: 677
+        net: -422
+    computed_at: "2026-08-30T13:23:06Z"
+    computed_at_stage: ship
+summary: normalizes marker values at live and snapshot boundaries and documents the fixed-ink display well and color-plus-flair picker
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-30T13:36:51Z

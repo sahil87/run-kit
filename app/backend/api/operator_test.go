@@ -867,7 +867,7 @@ func TestRenderWhatsStuck(t *testing.T) {
 func TestRenderColorTabs(t *testing.T) {
 	facts := serverOperatorFacts{Windows: []operatorWindowFact{
 		{Session: "s", WindowID: "@1", Name: "feature-work", WorktreePath: "/wt/project",
-			AgentState: "active", Color: "blue", Marker: "solid",
+			AgentState: "active", Color: "blue", Marker: "manual:1",
 			TranscriptPath: "/t/feature.jsonl",
 			FabChange:      "260824-4940-operator-semantic-tab-coloring", FabStage: "apply"},
 		{Session: "s2", WindowID: "@2", Name: "scratch", WorktreePath: "/wt/scratch", AgentState: "idle"},
@@ -876,7 +876,7 @@ func TestRenderColorTabs(t *testing.T) {
 	for _, want := range []string{
 		"s @1", `"feature-work"`, "worktree=/wt/project", "state=active",
 		"fab=260824-4940-operator-semantic-tab-coloring at stage apply",
-		"labels: color=blue marker=solid flair=-",
+		"labels: color=blue marker=manual:1 flair=-",
 		"/t/feature.jsonl",
 		"s2 @2", `"scratch"`, "labels: color=- marker=- flair=-",
 		"transcript unavailable",
@@ -887,7 +887,8 @@ func TestRenderColorTabs(t *testing.T) {
 		"red orange amber olive green teal blue purple magenta slate",
 		"-dark or -light",
 		"tmux set-option -t @N '@rk_win_marker' '<value>'",
-		"manual manual:1 manual:2 manual:3 auto auto:1 auto:2 auto:3 blocked blocked:1 blocked:2 blocked:3 pipe dotted dashed solid double thick hatch block",
+		"manual manual:1 manual:2 manual:3 auto auto:1 auto:2 auto:3 blocked blocked:1 blocked:2 blocked:3",
+		"Marker mode describes how the label was assigned",
 		"tmux set-option -t @N '@rk_win_flair' '<value>'",
 		"rain scan nyan naruto onepiece pacman matrix aquarium roadrunner invaders cube warp spidey ironman",
 		"tmux set-option -t @N -u '@rk_win_color'",
@@ -952,7 +953,7 @@ func TestRenderDigestTemplatesIgnoreLabelFields(t *testing.T) {
 	base := operatorWindowFact{Session: "s", WindowID: "@1", Name: "zsh", WorktreePath: "/wt/project",
 		AgentState: "waiting", AgentIdleDuration: "3m", TranscriptPath: "/t/a.jsonl"}
 	labeled := base
-	labeled.Color, labeled.Marker, labeled.Flair = "blue", "solid", "nyan"
+	labeled.Color, labeled.Marker, labeled.Flair = "blue", "manual:1", "nyan"
 
 	for name, render := range map[string]func(serverOperatorFacts) string{
 		"brief-me":   renderBriefMe,
@@ -976,19 +977,19 @@ func TestBuildServerOperatorFactsLabelFields(t *testing.T) {
 	blue := "blue"
 	sess := []sessions.ProjectSession{
 		{Name: "s", Windows: []tmux.WindowInfo{
-			{WindowID: "@1", Name: "labeled", Color: &blue, Marker: "solid"},
+			{WindowID: "@1", Name: "labeled", Color: &blue, Marker: "manual:1"},
 			{WindowID: "@2", Name: "unlabeled"},
 		}},
 		{Name: "_rk-operator", Windows: []tmux.WindowInfo{
-			{WindowID: "@9", Name: "operator", Role: "operator", Color: &blue, Marker: "block", Flair: "nyan"},
+			{WindowID: "@9", Name: "operator", Role: "operator", Color: &blue, Marker: "blocked:3", Flair: "nyan"},
 		}},
 	}
 	facts := buildServerOperatorFacts(sess, "")
 	if len(facts.Windows) != 2 {
 		t.Fatalf("Windows rows = %d, want 2 (operator excluded)", len(facts.Windows))
 	}
-	if row := facts.Windows[0]; row.Color != "blue" || row.Marker != "solid" || row.Flair != "" {
-		t.Errorf("row @1 labels = %+v, want color=blue marker=solid flair=\"\"", row)
+	if row := facts.Windows[0]; row.Color != "blue" || row.Marker != "manual:1" || row.Flair != "" {
+		t.Errorf("row @1 labels = %+v, want color=blue marker=manual:1 flair=\"\"", row)
 	}
 	if row := facts.Windows[1]; row.Color != "" || row.Marker != "" || row.Flair != "" {
 		t.Errorf("row @2 labels = %+v, want all empty (nil Color derefs to \"\")", row)
@@ -1005,7 +1006,7 @@ func TestServerOperatorRequestColorTabsSuccess(t *testing.T) {
 	sess := operatorSessions("idle")
 	blue := "blue"
 	sess[0].Windows[0].Color = &blue
-	sess[0].Windows[0].Marker = "solid"
+	sess[0].Windows[0].Marker = "manual:1"
 	sf := &mockSessionFetcher{result: sess}
 	ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "❯ [Pasted text #1 +9 lines]"}}
 	router := NewTestRouter(slog.Default(), sf, ops, "host")
@@ -1027,7 +1028,7 @@ func TestServerOperatorRequestColorTabsSuccess(t *testing.T) {
 	}
 	prompt := ops.setChatBufferText
 	for _, want := range []string{
-		"s @1", `"zsh"`, "labels: color=blue marker=solid flair=-",
+		"s @1", `"zsh"`, "labels: color=blue marker=manual:1 flair=-",
 		"projects/someproj/" + testChatRef + ".jsonl",
 		"tmux set-option -t @N '@rk_win_color' '<value>'",
 		"Do not reply",

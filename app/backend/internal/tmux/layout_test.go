@@ -117,7 +117,7 @@ func TestParseLayoutWindows(t *testing.T) {
 				{Session: "kit", WindowID: "@1", Index: 1, Name: "serve", Active: true,
 					Layout: "d5d2,204x48,0,0,1", Color: "4", RkLayout: "split-h:tty,web",
 					WebTabs: []string{"http://x"}, WebRoots: []string{""}, WebActive: 1,
-					Marker: "solid", Role: "operator"},
+					Marker: "manual:1", Role: "operator"},
 				{Session: "kit", WindowID: "@2", Index: 2, Name: "shell", Active: false,
 					Layout: "abcd,204x48,0,0,2"},
 			},
@@ -155,7 +155,7 @@ func TestParseLayoutWindows(t *testing.T) {
 			},
 			want: []LayoutWindow{
 				{Session: "kit", WindowID: "@1", Index: 1, Name: "serve", Active: true,
-					Layout: "d5d2,204x48,0,0,1", Color: "4", Marker: "solid"},
+					Layout: "d5d2,204x48,0,0,1", Color: "4", Marker: "manual:1"},
 			},
 		},
 		{

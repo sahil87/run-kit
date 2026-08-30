@@ -676,11 +676,9 @@ func TestParseWindowsMarker(t *testing.T) {
 		line       string
 		wantMarker string
 	}{
-		{"dotted marker", windowLineMarker("@0", 0, "a", "/p", fakeNow, 1, "zsh", "dotted"), "dotted"},
-		{"dashed marker", windowLineMarker("@0", 0, "a", "/p", fakeNow, 1, "zsh", "dashed"), "dashed"},
-		{"solid marker", windowLineMarker("@0", 0, "a", "/p", fakeNow, 1, "zsh", "solid"), "solid"},
-		{"double marker", windowLineMarker("@0", 0, "a", "/p", fakeNow, 1, "zsh", "double"), "double"},
-		{"thick marker", windowLineMarker("@0", 0, "a", "/p", fakeNow, 1, "zsh", "thick"), "thick"},
+		{"current marker", windowLineMarker("@0", 0, "a", "/p", fakeNow, 1, "zsh", "manual:3"), "manual:3"},
+		{"legacy marker", windowLineMarker("@0", 0, "a", "/p", fakeNow, 1, "zsh", "hatch"), "blocked:2"},
+		{"trimmed legacy marker", windowLineMarker("@0", 0, "a", "/p", fakeNow, 1, "zsh", " hatch "), "blocked:2"},
 		{"empty marker", windowLineMarker("@0", 0, "a", "/p", fakeNow, 1, "zsh", ""), ""},
 		{"unknown marker dropped to empty", windowLineMarker("@0", 0, "a", "/p", fakeNow, 1, "zsh", "wavy"), ""},
 		{"10-field line (no marker field) has empty marker", windowLineLayout("@0", 0, "a", "/p", fakeNow, 1, "zsh", "", ""), ""},

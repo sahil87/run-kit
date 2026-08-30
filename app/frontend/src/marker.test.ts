@@ -1,10 +1,18 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import {
+  MARKER_CHEVRON_PITCH,
+  MARKER_CHEVRON_WIDTH,
+  MARKER_INK,
   MARKER_MODES,
+  MARKER_STAGE_WIDTHS,
   MARKER_STAGES,
   MARKER_STAGE_GLOSS,
+  MarkerChevrons,
   formatMarker,
+  markerFillStyle,
   parseMarker,
   type Marker,
 } from "./marker";
@@ -91,6 +99,38 @@ describe("parseMarker", () => {
       const read = () => parseMarker(value as unknown as string);
       expect(read).not.toThrow();
       expect(read()).toBeNull();
+    }
+  });
+});
+
+describe("marker rendering", () => {
+  it("renders every mode x stage pair with the specified extent", () => {
+    for (const marker of ALL_PAIRS) {
+      const style = markerFillStyle(marker);
+      if (marker.mode === "auto") {
+        expect(style).toBeUndefined();
+        continue;
+      }
+
+      expect(style?.width).toBe(MARKER_STAGE_WIDTHS[marker.stage]);
+      if (marker.mode === "manual") {
+        expect(style?.background).toBe(MARKER_INK);
+      } else {
+        expect(style?.backgroundImage).toContain("linear-gradient(45deg");
+        expect(style?.backgroundImage).not.toContain("repeating-linear-gradient");
+        expect(style?.backgroundSize).toBe("12px 12px");
+        expect(style?.backgroundRepeat).toBe("repeat");
+      }
+    }
+  });
+
+  it("draws one chevron per stage at the shared pitch", () => {
+    for (const count of MARKER_STAGES) {
+      const html = renderToStaticMarkup(createElement(MarkerChevrons, { count }));
+      const width = (count - 1) * MARKER_CHEVRON_PITCH + MARKER_CHEVRON_WIDTH;
+      expect(html.match(/<path/g)).toHaveLength(count);
+      expect(html).toContain(`width="${width}"`);
+      expect(html).toContain(`stroke="${MARKER_INK}"`);
     }
   });
 });

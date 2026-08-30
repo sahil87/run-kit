@@ -69,9 +69,10 @@ test.describe("Legacy option sweep (session-scoped @color)", () => {
    * 5. Poll until `@color` reads unset at session scope; assert the session
    *    gained no `@rk_ses_color` (wrong-scope values are purged, never copied)
    *    and the window's `color` field is still empty.
-   * 6. Open the row's `Label picker` from the `Set tab label` zone; click
-   *    `Clear color`; poll the snapshot until the window's `color` field is
-   *    empty and assert the row button still carries no inline tint.
+   * 6. Hover the row, open its `Label picker` from the flyout's `Change
+   *    color…` action, and click `Clear color`; poll the snapshot until the
+   *    window's `color` field is empty and assert the row button still
+   *    carries no inline tint.
    * 7. Close the picker via the `Close picker` (✕) cell.
    */
   test("a session-scoped legacy @color tints nothing, the sweep purges it, and the picker clear stays a no-op", async ({
@@ -112,7 +113,10 @@ test.describe("Legacy option sweep (session-scoped @color)", () => {
     // The picker's clear against the (now gone) legacy key leaves the row
     // uncolored — the no-op clear that used to silently fail against the
     // inherited tint.
-    await row.getByLabel("Set tab label").click();
+    await row.hover();
+    const card = page.getByTestId("row-flyout-card");
+    await expect(card).toBeVisible({ timeout: 5_000 });
+    await card.getByTestId("row-flyout-color-action").click();
     const picker = page.getByRole("listbox", { name: "Label picker" });
     await expect(picker).toBeVisible({ timeout: 5_000 });
     await picker.getByRole("option", { name: "Clear color" }).click();

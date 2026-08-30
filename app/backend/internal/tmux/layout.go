@@ -289,7 +289,7 @@ func parseLayoutWindows(lines []string) []LayoutWindow {
 		}
 		// Field 27 (@rk_win_marker) is optional — absent on older captures.
 		if len(parts) >= 27 {
-			win.Marker = strings.TrimSpace(parts[26])
+			win.Marker = NormalizeMarker(strings.TrimSpace(parts[26]))
 		}
 		// Field 28 (@rk_win_role) is optional — absent on older captures.
 		if len(parts) >= 28 {

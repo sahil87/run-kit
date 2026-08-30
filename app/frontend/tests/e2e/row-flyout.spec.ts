@@ -18,8 +18,9 @@ import { mockStateSocket } from "./_state-socket-mock";
 // the title bar carries only the ⓘ docs link. The rail + card also extend to
 // the session rows and server-group headers (coarse-only surfaces — tap/scrub
 // is their one trigger), `Change color…` is the first action row of every
-// tier's card, no `Set tab label` affordance exists, the marker well is
-// identical on both pointer classes, and the scrub retargets cards ACROSS tiers via the shared
+// tier's card, no `Set tab label` affordance exists, the marker strip is
+// interactive on both pointer classes without changing the shared well
+// geometry, and the scrub retargets cards ACROSS tiers via the shared
 // `data-rail-row` handle.
 //
 // Shared setup: **/api/servers → a single server `default`;
@@ -32,7 +33,7 @@ import { mockStateSocket } from "./_state-socket-mock";
 // panes` form) and @2 "scratch-shell" (plain window — gray idle dot, no
 // glyph, a body-less card, no panes → degraded `Tab @2` title — carrying
 // color orange + marker manual:2 so the pointer-parity test can prove the
-// display-only well survives on coarse). Rows are
+// interactive strip preserves the well on coarse). Rows are
 // located by [role='treeitem'][data-window-id]; the card by
 // data-testid="row-flyout-card"; registers/links by
 // row-flyout-fab|fab-slug|pr|pr-link|docs-link; the sectioned action rows by
@@ -55,7 +56,7 @@ const SERVER = "default";
 // @2: plain scratch window (gray "idle" dot, no glyph, a body-less card — the
 // title bar + action rows only, no fork link, no panes → degraded `Tab @N`
 // title) carrying an orange color + manual:2 marker so the pointer-parity
-// test can prove the display-only well survives on coarse.
+// test can prove the interactive strip preserves the well on coarse.
 const sessionsPayload = JSON.stringify([
   {
     name: "dev",
@@ -526,24 +527,34 @@ test.describe("Row flyout card (fine pointer)", () => {
   });
 
   /**
-   * Proves: on a fine pointer no `Set tab label` affordance exists, while @2
-   * (`manual:2`) carries a flush 22px marker well and the status content
-   * begins approximately 30px from the row's left edge.
+   * Proves: the fine-pointer 22px marker strip opens the pad without selecting
+   * the row while preserving the flush well and approximately 30px content
+   * offset.
    *
    * Steps:
-   * 1. Use the fine-pointer setup from this describe block and locate @2.
-   * 2. Assert no `Set tab label` element exists.
-   * 3. Measure the row, marker well, and status content; assert the well is
-   *    flush, 22px wide within subpixel tolerance, and the content starts at
-   *    30px (within 1px).
+   * 1. Locate the marked row and assert no `Set tab label` element exists.
+   * 2. Press and release the marker strip without moving, then assert the pad
+   *    opens and the terminal route remains unchanged.
+   * 3. Measure the strip, row, well, and status content; assert the strip and
+   *    well are flush and 22px wide and content begins near 30px.
    */
-  test("fine left zone: no interactive zone, the 22px marker well stays, content starts ≈30px", async ({
+  test("fine left zone: the interactive 22px marker strip preserves well and content geometry", async ({
     page,
   }) => {
     await expect(page.locator('[aria-label="Set tab label"]')).toHaveCount(0);
+    const strip = scratchRow(page).getByTestId("marker-strip");
+    const stripBox = (await strip.boundingBox())!;
+    await page.mouse.move(stripBox.x + stripBox.width / 2, stripBox.y + stripBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.up();
+    await expect(page.getByTestId("marker-pad")).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/?$`));
+
     const rowBox = (await scratchRow(page).boundingBox())!;
     const wellBox = (await scratchRow(page).getByTestId("marker-well").boundingBox())!;
     const contentBox = (await scratchRow(page).getByTestId("status-dot-tap").boundingBox())!;
+    expect(Math.abs(stripBox.x - rowBox.x)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(stripBox.width - 22)).toBeLessThanOrEqual(0.5);
     expect(Math.abs(wellBox.x - rowBox.x)).toBeLessThanOrEqual(0.5);
     expect(Math.abs(wellBox.width - 22)).toBeLessThanOrEqual(0.5);
     expect(Math.abs(contentBox.x - rowBox.x - 30)).toBeLessThanOrEqual(1);
@@ -800,26 +811,36 @@ test.describe("Row flyout card (coarse pointer)", () => {
   });
 
   /**
-   * Proves: on a coarse pointer no `Set tab label` affordance exists, while @2
-   * (`manual:2`) carries a flush 22px marker well and the status content
-   * begins approximately 30px from the row's left edge.
+   * Proves: the coarse-pointer 22px marker strip opens the pad without
+   * selecting the row while preserving the flush well and approximately 30px
+   * content offset.
    *
    * Steps:
-   * 1. Open the coarse drawer and locate @2.
-   * 2. Assert no `Set tab label` element exists.
-   * 3. Measure the row, marker well, and status content; assert the well is
-   *    flush, 22px wide within subpixel tolerance, and the content starts at
-   *    30px (within 1px).
+   * 1. Open the coarse drawer, locate the marked row, and assert no `Set tab
+   *    label` element exists.
+   * 2. Tap the marker strip, then assert the pad opens, the drawer remains
+   *    visible, and the terminal route remains unchanged.
+   * 3. Measure the strip, row, well, and status content; assert the strip and
+   *    well are flush and 22px wide and content begins near 30px.
    */
-  test("coarse left zone: no interactive zone, the 22px marker well stays, content starts ≈30px", async ({
+  test("coarse left zone: the tappable 22px marker strip preserves well and content geometry", async ({
     page,
   }) => {
     await gotoCoarseDrawer(page);
 
     await expect(page.locator('[aria-label="Set tab label"]')).toHaveCount(0);
+    const strip = scratchRow(page).getByTestId("marker-strip");
+    await strip.tap();
+    await expect(page.getByTestId("marker-pad")).toBeVisible();
+    await expect(scratchRow(page)).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/${SERVER}/?$`));
+
     const rowBox = (await scratchRow(page).boundingBox())!;
+    const stripBox = (await strip.boundingBox())!;
     const wellBox = (await scratchRow(page).getByTestId("marker-well").boundingBox())!;
     const zoneBox = (await scratchRow(page).getByTestId("status-dot-tap").boundingBox())!;
+    expect(Math.abs(stripBox.x - rowBox.x)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(stripBox.width - 22)).toBeLessThanOrEqual(0.5);
     expect(Math.abs(wellBox.x - rowBox.x)).toBeLessThanOrEqual(0.5);
     expect(Math.abs(wellBox.width - 22)).toBeLessThanOrEqual(0.5);
     expect(Math.abs(zoneBox.x - rowBox.x - 30)).toBeLessThanOrEqual(1);

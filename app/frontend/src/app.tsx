@@ -150,7 +150,7 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo, SelectWindowResult } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerProtected, sendChatMessage, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, selectWebTab, removeWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, HttpError, type SortWindowsBy } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerProtected, sendChatMessage, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, selectWebTab, removeWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, HttpError, type SortWindowsBy } from "@/api/client";
 import { buildWebTabActions } from "@/lib/palette/web-tabs";
 import { buildSessionSortActions } from "@/lib/palette/sort";
 import { useBoards } from "@/hooks/use-boards";
@@ -572,6 +572,33 @@ export function resolveServerView(
   if (server === pendingServer) return "waiting";
   if (serversLoaded) return "not-found";
   return "view";
+}
+
+/** Build the current tab's independent label and marker picker entries. */
+export function buildTabPickerActions(
+  server: string,
+  windowId: string,
+): PaletteAction[] {
+  return [
+    {
+      id: "window-label",
+      label: "Tab: Label",
+      onSelect: () => {
+        document.dispatchEvent(
+          new CustomEvent("label-popover:open", { detail: { server, windowId } }),
+        );
+      },
+    },
+    {
+      id: "window-marker",
+      label: "Tab: Marker",
+      onSelect: () => {
+        document.dispatchEvent(
+          new CustomEvent("marker-pad:open", { detail: { server, windowId } }),
+        );
+      },
+    },
+  ];
 }
 
 /**
@@ -2310,6 +2337,15 @@ function AppShell() {
     [navigateToSpawnedWindow, addToast],
   );
 
+  const handleWindowMarkerChange = useCallback(
+    (srv: string, _session: string, windowId: string, marker: string | null) => {
+      setWindowMarkerApi(srv, windowId, marker).catch((err: Error) =>
+        addToast(err.message || "Failed to set tab marker", "error"),
+      );
+    },
+    [addToast],
+  );
+
   // Ask the server's operator window to fix a subject window's tab name
   // (260822-fih1-operator-request-fix-tab-name): fire-and-forget — success
   // toasts the hand-off and the rename itself arrives via the normal SSE
@@ -2599,26 +2635,7 @@ function AppShell() {
               label: "Tab: Set Color",
               onSelect: () => setShowColorPicker("window"),
             },
-            {
-              // Keyboard/touch parity for the left-edge label zone (Constitution
-              // V): open the combined Label picker (colors + marker) for the
-              // current window's sidebar row via the imperative
-              // `label-popover:open` event — mirroring the `pin-popover:open`
-              // pattern the "Board: Pin Current Tab" action uses. One
-              // interaction model everywhere (hwtr, replacing "Tab: Cycle
-              // Marker"); the picker's keyboard nav makes this a complete
-              // keyboard path.
-              id: "window-label",
-              label: "Tab: Label",
-              onSelect: () => {
-                if (!currentWindow) return;
-                document.dispatchEvent(
-                  new CustomEvent("label-popover:open", {
-                    detail: { server, windowId: currentWindow.windowId },
-                  }),
-                );
-              },
-            },
+            ...buildTabPickerActions(server, currentWindow.windowId),
             // Operator mark/unmark pair (260813-ifya) — the manual fallback for
             // the `@rk_win_role=operator` window option: Mark is listed when the
             // current window is NOT the operator, Unmark when it IS. Both POST
@@ -4347,6 +4364,7 @@ function AppShell() {
       onCreateSession={handleSidebarCreateSession}
       onSpawnAgent={handleOpenSpawnAgent}
       onUpdateAnnotations={hasOperatorWindow ? handleUpdateAnnotations : undefined}
+      onWindowMarkerChange={handleWindowMarkerChange}
       onForkWindow={handleForkWindow}
       onFixTabName={handleFixTabName}
       onOperatorCompose={hasOperatorWindow ? handleOperatorCompose : undefined}

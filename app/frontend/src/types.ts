@@ -96,10 +96,9 @@ export type WindowInfo = {
    *  legacy descriptor at the write seam (familyToLegacy). Drives the row's hue
    *  (label axis). */
   color?: string;
-  /** Left-gutter marker state, from the `@rk_win_marker` window option:
-   *  ""/absent (no marker) | "pipe" | "dotted" | "dashed" | "solid" |
-   *  "double" | "thick" | "hatch" | "block". An INDEPENDENT
-   *  label axis from `color` — see docs/specs/themes.md. */
+  /** Left-gutter marker state from `@rk_win_marker`: `<mode>[:<stage>]`, with
+   *  manual, auto, or blocked mode and stage 1–3; empty means no marker. An
+   *  independent label axis from `color` — see docs/specs/themes.md. */
   marker?: string;
   /** Row flair state, from the `@rk_win_flair` window option: ""/absent (no
    *  flair) | "rain" | "scan" | "nyan" | "naruto" | "onepiece" | "pacman" |

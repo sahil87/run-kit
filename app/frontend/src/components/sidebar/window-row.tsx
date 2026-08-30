@@ -1,4 +1,12 @@
-import { useEffect, useState, useRef, useMemo, memo } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useState,
+  useRef,
+  useMemo,
+  memo,
+} from "react";
 import { isGhostWindow } from "@/contexts/optimistic-context";
 import type { ProjectSession } from "@/types";
 import type { MergedSession } from "@/contexts/optimistic-context";
@@ -10,14 +18,28 @@ import {
   MARKER_WELL_BACKGROUND,
   MARKER_WELL_EDGE,
   MarkerChevrons,
+  formatMarker,
   markerFillStyle,
   parseMarker,
+  type Marker,
 } from "@/marker";
 import { SwatchPopover } from "@/components/swatch-popover";
 import { FlairOverlay } from "@/components/flair-overlay";
 import { StatusDot } from "@/components/status-dot";
 import { prOwnsGlyph, prGlyphColor } from "@/components/pr-status-model";
 import { PinPopover } from "./pin-popover";
+import {
+  MarkerPad,
+  MARKER_PAD_POPOVER_INSET_PX,
+  MARKER_PAD_POPOVER_PREFERRED_WIDTH_PX,
+  closeMarkerPad,
+  markerPadPopoverLayout,
+  openMarkerPad,
+  placeMarkerPad,
+  sameCell,
+  selectCell,
+  stepStage,
+} from "./marker-pad";
 import { CloseIcon, prGlyphIcon, ComposeIcon } from "./icons";
 import { PinIcon } from "@/components/pin-icon";
 import {
@@ -43,8 +65,8 @@ type WindowRowProps = {
   /** Color value: an owned family name ("orange") or a legacy numeric/blend
    *  descriptor ("4" / "1+3") — the row's hue (label axis). */
   color?: string;
-  /** Left-gutter marker state ("" | "dotted" | "dashed" | "solid" | "double"
-   *  | "thick") — an independent label axis from `color`. */
+  /** Left-gutter marker state (`<mode>[:<stage>]`, where mode is manual, auto,
+   *  or blocked and stage is 1–3; empty clears) — independent from `color`. */
   marker?: string;
   rowTints?: Map<string, RowTint>;
   /** Contrast-adjusted full-saturation guarded color per color value. Used for
@@ -99,6 +121,8 @@ type WindowRowProps = {
   onDrop?: (e: React.DragEvent, server: string, session: string, index: number) => void;
   onDragEnd?: () => void;
   onColorChange?: (server: string, session: string, windowId: string, color: string | null) => void;
+  /** Persist a marker for this window as `<mode>[:<stage>]`, or clear it with null. */
+  onMarkerChange?: (server: string, session: string, windowId: string, marker: string | null) => void;
   /** Persist a flair state for this window. The Label picker's flair section
    *  passes the EXACT picked state here ("" mapped to null clears). Omitted on
    *  ghost rows (the label zone is disabled). */
@@ -204,6 +228,7 @@ function WindowRowInner({
   onDrop,
   onDragEnd,
   onColorChange,
+  onMarkerChange,
   onFlairChange,
   onForkWindow,
   onFixTabName,
@@ -231,6 +256,40 @@ function WindowRowInner({
   // The color + flair picker opens from the row card or the label palette action.
   const [showLabelPicker, setShowLabelPicker] = useState(false);
   const [showPinPopover, setShowPinPopover] = useState(false);
+  const markerWired = !ghost && !!onMarkerChange && !!server;
+  const [showMarkerPad, setShowMarkerPad] = useState(false);
+  const [markerPreview, setMarkerPreview] = useState<Marker | null | undefined>(undefined);
+  const stripRef = useRef<HTMLDivElement>(null);
+  const padAnchorRef = useRef<HTMLDivElement>(null);
+  const pressRef = useRef<{
+    originX: number;
+    originY: number;
+    start: Marker | null;
+  } | null>(null);
+  const [padPosition, setPadPosition] = useState({ left: MARKER_WELL_WIDTH, top: 0 });
+  const [padLayout, setPadLayout] = useState(() =>
+    markerPadPopoverLayout(
+      MARKER_PAD_POPOVER_PREFERRED_WIDTH_PX + MARKER_PAD_POPOVER_INSET_PX,
+    ),
+  );
+  const padPitchRef = useRef(padLayout.cellPx);
+  const padCloseRef = useRef<() => void>(() => {});
+  const markerPadHandleRef = useRef({ close: () => padCloseRef.current() });
+  const padClose = useCallback(() => {
+    setMarkerPreview(undefined);
+    setShowMarkerPad(false);
+    pressRef.current = null;
+    closeMarkerPad(markerPadHandleRef.current);
+  }, []);
+  padCloseRef.current = padClose;
+  const padOpen = useCallback(() => {
+    openMarkerPad(markerPadHandleRef.current);
+    setShowMarkerPad(true);
+  }, []);
+  useEffect(
+    () => () => closeMarkerPad(markerPadHandleRef.current),
+    [],
+  );
   const pinBtnRef = useRef<HTMLButtonElement>(null);
   // When the pin affordance is wired up, reserve a few extra px on the right so
   // labels don't run under the icon group. Also gates the flyout card's Pin
@@ -258,7 +317,7 @@ function WindowRowInner({
     return () => onFixTabName(srv, win.windowId);
   }, [onFixTabName, ghost, srv, win.windowId]);
   const flyout = useRowFlyout({
-    suppressed: ghost || showPinPopover || showLabelPicker,
+    suppressed: ghost || showPinPopover || showLabelPicker || showMarkerPad,
     content: ({ close }) => (
       <WindowFlyoutContent
         win={win}
@@ -327,13 +386,18 @@ function WindowRowInner({
     function labelHandler(e: Event) {
       if (isMatch(e)) setShowLabelPicker(true);
     }
+    function padHandler(e: Event) {
+      if (isMatch(e) && markerWired) padOpen();
+    }
     document.addEventListener("pin-popover:open", pinHandler);
     document.addEventListener("label-popover:open", labelHandler);
+    document.addEventListener("marker-pad:open", padHandler);
     return () => {
       document.removeEventListener("pin-popover:open", pinHandler);
       document.removeEventListener("label-popover:open", labelHandler);
+      document.removeEventListener("marker-pad:open", padHandler);
     };
-  }, [server, win.windowId]);
+  }, [server, win.windowId, markerWired, padOpen]);
 
   const tint = useMemo(() => {
     if (color == null || !rowTints) return null;
@@ -347,11 +411,152 @@ function WindowRowInner({
   }, [color, rowTints, isSelected]);
 
   const parsedMarker = useMemo(() => parseMarker(marker), [marker]);
-  const displayMarker = parsedMarker;
+  const displayMarker = markerPreview !== undefined ? markerPreview : parsedMarker;
   const displayMarkerStyle = useMemo(
     () => (displayMarker ? markerFillStyle(displayMarker) : undefined),
     [displayMarker],
   );
+
+  const padCommit = useCallback(
+    (cell: Marker | null) => {
+      padClose();
+      onMarkerChange?.(
+        srv,
+        session,
+        win.windowId,
+        cell ? formatMarker(cell) : null,
+      );
+    },
+    [onMarkerChange, padClose, session, srv, win.windowId],
+  );
+
+  const onStripDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.stopPropagation();
+    const sidebarCandidate = event.currentTarget.closest("[data-sidebar-scroll]");
+    if (sidebarCandidate instanceof HTMLElement) {
+      const nextLayout = markerPadPopoverLayout(
+        sidebarCandidate.getBoundingClientRect().width,
+      );
+      padPitchRef.current = nextLayout.cellPx;
+      setPadLayout(nextLayout);
+    }
+    padOpen();
+    if (coarse) return;
+    pressRef.current = {
+      originX: event.clientX,
+      originY: event.clientY,
+      start: displayMarker,
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+
+  const onStripMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (coarse) return;
+    const press = pressRef.current;
+    if (!press) return;
+    setMarkerPreview(
+      selectCell(
+        press.start,
+        event.clientX - press.originX,
+        event.clientY - press.originY,
+        padPitchRef.current,
+      ),
+    );
+  };
+
+  const onStripUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (coarse) return;
+    const press = pressRef.current;
+    if (!press) return;
+    pressRef.current = null;
+    const cell = selectCell(
+      press.start,
+      event.clientX - press.originX,
+      event.clientY - press.originY,
+      padPitchRef.current,
+    );
+    if (sameCell(cell, press.start)) setMarkerPreview(undefined);
+    else padCommit(cell);
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  const onStripWheel = useCallback(
+    (event: WheelEvent) => {
+      if (!parsedMarker || event.deltaY === 0) return;
+      event.preventDefault();
+      const next = stepStage(parsedMarker, event.deltaY > 0 ? 1 : -1);
+      if (!sameCell(next, parsedMarker)) {
+        onMarkerChange?.(srv, session, win.windowId, formatMarker(next));
+      }
+    },
+    [onMarkerChange, parsedMarker, session, srv, win.windowId],
+  );
+
+  useEffect(() => {
+    const strip = stripRef.current;
+    if (!strip) return;
+    strip.addEventListener("wheel", onStripWheel, { passive: false });
+    return () => strip.removeEventListener("wheel", onStripWheel);
+  }, [onStripWheel]);
+
+  useLayoutEffect(() => {
+    if (!showMarkerPad) return;
+    const anchor = padAnchorRef.current;
+    const row = anchor?.parentElement;
+    if (!anchor || !row) return;
+    const sidebarCandidate = row.closest("[data-sidebar-scroll]");
+    const sidebar =
+      sidebarCandidate instanceof HTMLElement
+        ? sidebarCandidate
+        : document.documentElement;
+    const bounds = sidebar.getBoundingClientRect();
+    const rowRect = row.getBoundingClientRect();
+    const nextLayout = markerPadPopoverLayout(bounds.width);
+    padPitchRef.current = nextLayout.cellPx;
+    if (
+      nextLayout.width !== padLayout.width ||
+      nextLayout.cellPx !== padLayout.cellPx ||
+      nextLayout.labelPx !== padLayout.labelPx
+    ) {
+      setPadLayout(nextLayout);
+    }
+    setPadPosition(
+      placeMarkerPad(
+        {
+          left: bounds.left,
+          top: bounds.top,
+          width: bounds.width,
+          height: bounds.height,
+        },
+        {
+          left: rowRect.left,
+          top: rowRect.top,
+          width: rowRect.width,
+          height: rowRect.height,
+        },
+        { width: nextLayout.width, height: anchor.offsetHeight },
+        MARKER_WELL_WIDTH,
+      ),
+    );
+  }, [showMarkerPad, padLayout.width, padLayout.cellPx, padLayout.labelPx]);
+
+  useEffect(() => {
+    if (!showMarkerPad) return;
+    const onDocumentDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        (padAnchorRef.current?.contains(target) || stripRef.current?.contains(target))
+      ) {
+        return;
+      }
+      padClose();
+    };
+    document.addEventListener("pointerdown", onDocumentDown, true);
+    return () => document.removeEventListener("pointerdown", onDocumentDown, true);
+  }, [padClose, showMarkerPad]);
 
   // The flair overlay uses the row's guarded family color; marker shapes and
   // the hazard wedge use the fixed marker ink.
@@ -476,7 +681,7 @@ function WindowRowInner({
         dragEnabled && onDragStart
           ? (e) => {
               // An active touch scrub must not escalate into an HTML5 row drag.
-              if (scrub.scrubActiveRef.current) {
+              if (scrub.scrubActiveRef.current || pressRef.current || showMarkerPad) {
                 e.preventDefault();
                 return;
               }
@@ -555,6 +760,36 @@ function WindowRowInner({
               <MarkerChevrons count={displayMarker.stage} />
             </span>
           )}
+        </div>
+      )}
+      {markerWired && (
+        <div
+          ref={stripRef}
+          data-testid="marker-strip"
+          aria-hidden="true"
+          onPointerDown={onStripDown}
+          onPointerMove={onStripMove}
+          onPointerUp={onStripUp}
+          className="absolute inset-y-0 left-0 w-[22px] cursor-pointer z-20"
+        />
+      )}
+      {showMarkerPad && markerWired && (
+        <div
+          ref={padAnchorRef}
+          className="absolute z-50"
+          style={padPosition}
+          data-testid="marker-pad-anchor"
+        >
+          <MarkerPad
+            cellPx={padLayout.cellPx}
+            popoverWidth={padLayout.width}
+            labelPx={padLayout.labelPx}
+            value={parsedMarker}
+            highlight={markerPreview}
+            onPreview={setMarkerPreview}
+            onCommit={padCommit}
+            onCancel={padClose}
+          />
         </div>
       )}
       <button

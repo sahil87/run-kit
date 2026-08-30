@@ -954,8 +954,8 @@ export async function setWindowColor(
 }
 
 /** Set (or clear) the window's left-gutter marker via the unified /options
- *  contract. `marker` is one of "dotted"/"solid"/"double"; null OR "" clears it
- *  (the server treats an empty @rk_win_marker as unset). Mirrors setWindowColor. */
+ *  contract. `marker` uses `<mode>[:<stage>]`, with manual, auto, or blocked
+ *  mode and stage 1–3; null or "" clears it. Mirrors setWindowColor. */
 export async function setWindowMarker(
   server: string,
   windowId: string,

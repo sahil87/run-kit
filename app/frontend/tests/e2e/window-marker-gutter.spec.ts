@@ -7,7 +7,8 @@
  * and `expectMarker` polls until the resolved marker equals the seeded value.
  * The spec uses Playwright's default viewport and installs no `page.route`
  * stubs. Marked rows paint a flush 22px well in fixed marker ink, blocked mode
- * alone adds the static hazard wedge, and unmarked rows reserve no well.
+ * alone adds the static hazard wedge, and terminal rows expose the same strip
+ * for the spring-loaded pad while preserving that committed-marker geometry.
  */
 import { test, expect, type Page } from "@playwright/test";
 import { gotoServerReady, resolveWindow as resolveWindowRaw } from "./_ready";
@@ -31,6 +32,18 @@ async function expectMarker(page: Page, windowName: string, expected: string): P
       { timeout: 6_000 },
     )
     .toBe(expected);
+}
+
+async function setWindowOptions(
+  page: Page,
+  windowId: string,
+  options: Record<string, string | null>,
+): Promise<void> {
+  const response = await page.request.post(
+    `/api/windows/${encodeURIComponent(windowId)}/options?server=${encodeURIComponent(TMUX_SERVER)}`,
+    { data: { options } },
+  );
+  expect(response.ok(), `setting options on ${windowId}`).toBeTruthy();
 }
 
 test.describe("window marker well", () => {
@@ -120,5 +133,86 @@ test.describe("window marker well", () => {
 
     await expect(rows.empty.getByTestId("marker-well")).toHaveCount(0);
     await expect(rows.empty.locator(":scope > .rk-hazard")).toHaveCount(0);
+  });
+
+  /**
+   * Proves: a fine-pointer press dragged one grid pitch to the right commits
+   * `manual:2`, closes the marker pad, and never selects the source row.
+   *
+   * Steps:
+   * 1. Create a marked target window followed by a newer active window, then
+   *    seed the target with `manual:1` through the tmux option helper.
+   * 2. Press the target's marker strip, drag 26px right, and release.
+   * 3. Poll the session snapshot for `manual:2`, and assert the pad
+   *    closed while the target row remains unselected.
+   */
+  test("press-drag-release persists manual:2 without selecting the row", async ({ page }) => {
+    const targetName = `marker-drag-${Date.now()}`;
+    const activeName = `marker-active-${Date.now()}`;
+    newWindow(TEST_SESSION, targetName);
+    newWindow(TEST_SESSION, activeName);
+
+    await gotoServerReady(page, TMUX_SERVER);
+
+    const target = await resolveWindow(page, targetName);
+    await setWindowOptions(page, target.windowId, { "@rk_win_marker": "manual:1" });
+    await expectMarker(page, targetName, "manual:1");
+
+    const row = page.locator(`[data-window-id="${target.windowId}"]`);
+    const rowButton = row.locator(":scope > button");
+    await expect(row.getByTestId("marker-well").locator(":scope > span")).toHaveCSS("width", "7px");
+    const strip = row.getByTestId("marker-strip");
+    const stripBox = await strip.boundingBox();
+    expect(stripBox).not.toBeNull();
+
+    await page.mouse.move(stripBox!.x + stripBox!.width / 2, stripBox!.y + stripBox!.height / 2);
+    await page.mouse.down();
+    await expect(page.getByTestId("marker-pad")).toBeVisible();
+    await page.mouse.move(stripBox!.x + stripBox!.width / 2 + 26, stripBox!.y + stripBox!.height / 2);
+    await page.mouse.up();
+
+    await expectMarker(page, targetName, "manual:2");
+    await expect(page.getByTestId("marker-pad")).toHaveCount(0);
+    await expect(rowButton).not.toHaveAttribute("aria-current", "page");
+  });
+
+  /**
+   * Proves: releasing a fine-pointer press without displacement leaves the
+   * click menu open, and a nonzero wheel gesture steps a committed marker.
+   *
+   * Steps:
+   * 1. Create an unmarked window and press then release its strip at the same
+   *    coordinates, asserting the marker pad remains visible.
+   * 2. Choose `blocked:3` from the pad and poll until that value persists and
+   *    the click menu closes.
+   * 3. Hover the strip, wheel upward, and poll until the stage steps once to
+   *    `blocked:2`.
+   */
+  test("no-move release opens the click menu and wheel steps a marked stage", async ({ page }) => {
+    const windowName = `marker-click-wheel-${Date.now()}`;
+    newWindow(TEST_SESSION, windowName);
+
+    await gotoServerReady(page, TMUX_SERVER);
+
+    const target = await resolveWindow(page, windowName);
+    const row = page.locator(`[data-window-id="${target.windowId}"]`);
+    const strip = row.getByTestId("marker-strip");
+    const stripBox = await strip.boundingBox();
+    expect(stripBox).not.toBeNull();
+
+    const x = stripBox!.x + stripBox!.width / 2;
+    const y = stripBox!.y + stripBox!.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.up();
+    await expect(page.getByTestId("marker-pad")).toBeVisible();
+
+    await page.getByRole("option", { name: "Marker blocked:3" }).click();
+    await expectMarker(page, windowName, "blocked:3");
+    await expect(page.getByTestId("marker-pad")).toHaveCount(0);
+
+    await strip.hover();
+    await page.mouse.wheel(0, -120);
+    await expectMarker(page, windowName, "blocked:2");
   });
 });

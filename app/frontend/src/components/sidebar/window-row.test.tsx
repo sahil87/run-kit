@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { useState } from "react";
 import { render, screen, cleanup, act, fireEvent } from "@testing-library/react";
 import { WindowRow } from "./window-row";
+import { resetMarkerPadRegistry } from "./marker-pad";
 import { FLYOUT_OPEN_DELAY_MS, resetFlyoutWarmState } from "./row-flyout-card";
 import { ToastProvider } from "@/components/toast";
 import { ThemeProvider } from "@/contexts/theme-context";
@@ -13,6 +14,7 @@ import { makeWindow } from "@/test-utils/fixtures";
 
 afterEach(() => {
   cleanup();
+  resetMarkerPadRegistry();
 });
 
 /** The Label picker (SwatchPopover) uses `useTheme()`, which throws without a
@@ -968,6 +970,7 @@ describe("WindowRow", () => {
             onRenameBlur={noop}
             onKillClick={noop}
             onColorChange={noop}
+            onMarkerChange={noop}
             onFlairChange={noop}
             rowTints={rowTints}
             rowBorders={rowBorders}
@@ -1048,6 +1051,165 @@ describe("WindowRow", () => {
 
       renderAxis(makeWindow({ windowId: "@1", index: 1 }));
       expect(screen.queryByTestId("marker-well")).toBeNull();
+    });
+
+    it("commits horizontal, vertical, and clamped fine-pointer drags", () => {
+      const cases = [
+        { x: 30, y: 10, expected: "manual:2" },
+        { x: 4, y: 36, expected: "auto:1" },
+        { x: 404, y: 10, expected: "manual:3" },
+      ];
+      for (const { x, y, expected } of cases) {
+        const onMarkerChange = vi.fn();
+        const { unmount } = renderAxis(makeWindow({ marker: "manual:1" }), {
+          onMarkerChange,
+        });
+        const strip = screen.getByTestId("marker-strip");
+        fireEvent.pointerDown(strip, { pointerId: 1, clientX: 4, clientY: 10 });
+        fireEvent.pointerMove(strip, { pointerId: 1, clientX: x, clientY: y });
+        fireEvent.pointerUp(strip, { pointerId: 1, clientX: x, clientY: y });
+        expect(onMarkerChange).toHaveBeenCalledWith("srv", "alpha", "@0", expected);
+        expect(screen.queryByTestId("marker-pad")).toBeNull();
+        unmount();
+        resetMarkerPadRegistry();
+      }
+    });
+
+    it("leaves the pad open and writes nothing after a no-move release", () => {
+      const onMarkerChange = vi.fn();
+      renderAxis(makeWindow({ marker: "manual:1" }), { onMarkerChange });
+      const strip = screen.getByTestId("marker-strip");
+      fireEvent.pointerDown(strip, { pointerId: 1, clientX: 4, clientY: 10 });
+      fireEvent.pointerUp(strip, { pointerId: 1, clientX: 4, clientY: 10 });
+      expect(onMarkerChange).not.toHaveBeenCalled();
+      expect(screen.getByTestId("marker-pad")).toBeInTheDocument();
+    });
+
+    it("keeps strip presses out of row selection and HTML drag", () => {
+      const onSelectWindow = vi.fn();
+      const onDragStart = vi.fn();
+      renderAxis(makeWindow({ marker: "manual:1" }), {
+        draggable: true,
+        onSelectWindow,
+        onDragStart,
+      });
+      const strip = screen.getByTestId("marker-strip");
+      fireEvent.pointerDown(strip, { pointerId: 1, clientX: 4, clientY: 10 });
+      fireEvent.click(strip);
+      const drag = new Event("dragstart", { bubbles: true, cancelable: true });
+      screen.getByRole("treeitem").dispatchEvent(drag);
+      expect(onSelectWindow).not.toHaveBeenCalled();
+      expect(onDragStart).not.toHaveBeenCalled();
+      expect(drag.defaultPrevented).toBe(true);
+    });
+
+    it("keeps exactly one pad open when a second row strip is pressed", () => {
+      render(
+        <ThemeProvider>
+          <div>
+            {[
+              makeWindow({ windowId: "@0", index: 0, marker: "manual:1" }),
+              makeWindow({ windowId: "@1", index: 1, marker: "auto:2" }),
+            ].map((win) => (
+              <WindowRow
+                key={win.windowId}
+                win={win}
+                session="alpha"
+                isSelected={false}
+                isDragOver={false}
+                marker={win.marker}
+                editingWindow={null}
+                editingName=""
+                inputRef={{ current: null }}
+                onSelectWindow={noop}
+                onStartEditing={noop}
+                onWindowNameChange={noop}
+                onRenameKeyDown={noop as React.KeyboardEventHandler<HTMLInputElement>}
+                onRenameBlur={noop}
+                onKillClick={noop}
+                onMarkerChange={noop}
+                server="srv"
+              />
+            ))}
+          </div>
+        </ThemeProvider>,
+      );
+      const strips = screen.getAllByTestId("marker-strip");
+      fireEvent.pointerDown(strips[0], { pointerId: 1, clientX: 4, clientY: 10 });
+      expect(screen.getAllByTestId("marker-pad")).toHaveLength(1);
+      fireEvent.pointerDown(strips[1], { pointerId: 2, clientX: 4, clientY: 46 });
+      const pads = screen.getAllByTestId("marker-pad");
+      expect(pads).toHaveLength(1);
+      expect(pads[0].closest('[data-window-id="@1"]')).not.toBeNull();
+    });
+
+    it("steps marked rows with a non-passive wheel listener only for non-zero deltaY", () => {
+      const onMarkerChange = vi.fn();
+      renderAxis(makeWindow({ marker: "auto:2" }), { onMarkerChange });
+      const strip = screen.getByTestId("marker-strip");
+      const step = new WheelEvent("wheel", {
+        deltaY: 1,
+        bubbles: true,
+        cancelable: true,
+      });
+      strip.dispatchEvent(step);
+      expect(step.defaultPrevented).toBe(true);
+      expect(onMarkerChange).toHaveBeenCalledWith("srv", "alpha", "@0", "auto:3");
+
+      onMarkerChange.mockClear();
+      const zero = new WheelEvent("wheel", {
+        deltaY: 0,
+        bubbles: true,
+        cancelable: true,
+      });
+      strip.dispatchEvent(zero);
+      expect(zero.defaultPrevented).toBe(false);
+      expect(onMarkerChange).not.toHaveBeenCalled();
+
+      cleanup();
+      resetMarkerPadRegistry();
+      const onUnmarkedChange = vi.fn();
+      renderAxis(makeWindow({ marker: "" }), { onMarkerChange: onUnmarkedChange });
+      for (const deltaY of [1, 0]) {
+        const event = new WheelEvent("wheel", {
+          deltaY,
+          bubbles: true,
+          cancelable: true,
+        });
+        screen.getByTestId("marker-strip").dispatchEvent(event);
+        expect(event.defaultPrevented).toBe(false);
+      }
+      expect(onUnmarkedChange).not.toHaveBeenCalled();
+    });
+
+    it("opens only the matching row from marker-pad:open", () => {
+      renderAxis(makeWindow({ windowId: "@0", marker: "auto:1" }));
+      act(() => {
+        document.dispatchEvent(
+          new CustomEvent("marker-pad:open", {
+            detail: { server: "srv", windowId: "@1" },
+          }),
+        );
+      });
+      expect(screen.queryByTestId("marker-pad")).toBeNull();
+      act(() => {
+        document.dispatchEvent(
+          new CustomEvent("marker-pad:open", {
+            detail: { server: "srv", windowId: "@0" },
+          }),
+        );
+      });
+      expect(screen.getByTestId("marker-pad-cell-auto-1")).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+    });
+
+    it("renders no strip without a marker write seam", () => {
+      renderAxis(makeWindow({ marker: "manual:1" }), {
+        onMarkerChange: undefined,
+      });
+      expect(screen.queryByTestId("marker-strip")).toBeNull();
     });
 
     it("flair animation remains independent from the marker axis", () => {
@@ -1502,6 +1664,7 @@ describe("coarse pointer: rest glyph, rail target, and plain status dot", () => 
             onRenameBlur={noop}
             onKillClick={noop}
             onColorChange={noop}
+            onMarkerChange={noop}
             onFlairChange={noop}
             rowTints={computeRowTints(DEFAULT_DARK_THEME.palette)}
             rowBorders={computeRowBorders(DEFAULT_DARK_THEME.palette, DEFAULT_DARK_THEME.category)}
@@ -1525,6 +1688,30 @@ describe("coarse pointer: rest glyph, rail target, and plain status dot", () => 
       expect(button.className).toContain("pl-[30px]");
       expect(button.className).not.toContain("coarse:pl-4");
       expect(screen.getByTestId("status-dot-tap").className).toBe("flex items-center shrink-0");
+    });
+
+    it("opens click-menu mode on coarse without capture or drag preview", () => {
+      const onMarkerChange = vi.fn();
+      renderCoarseAxis(makeWindow({ marker: "manual:1" }), { onMarkerChange });
+      const strip = screen.getByTestId("marker-strip");
+      const setPointerCapture = vi.fn();
+      strip.setPointerCapture = setPointerCapture;
+      fireEvent.pointerDown(strip, {
+        pointerId: 1,
+        pointerType: "touch",
+        clientX: 4,
+        clientY: 10,
+      });
+      expect(screen.getByTestId("marker-pad-header")).toHaveTextContent("manual · early");
+      fireEvent.pointerMove(strip, {
+        pointerId: 1,
+        pointerType: "touch",
+        clientX: 100,
+        clientY: 100,
+      });
+      expect(screen.getByTestId("marker-pad-header")).toHaveTextContent("manual · early");
+      expect(setPointerCapture).not.toHaveBeenCalled();
+      expect(onMarkerChange).not.toHaveBeenCalled();
     });
 
     it("the window card's FIRST action row is Change color…, closing the card and opening the label picker (never selecting the row)", () => {

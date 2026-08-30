@@ -1,5 +1,5 @@
 ---
-description: "Visual design system: color tokens, border widths, theme system + switching, no-flicker init, PWA meta, popup elevation shadow (.rk-popup-elev), hover-animation vocabulary, logo ring + brand sweep, section/page headings, color tinting + instance accent, row textures + character flair overlays, sparkline/gauge renderers, mobile breakpoints/touch targets/safe-area."
+description: "Visual design system: color tokens, borders, themes, no-flicker init, PWA meta, popup elevation, hover-animation vocabulary, logo and heading treatments, color tinting, marker vocabulary and pad wells, row textures and flair overlays, sparkline/gauge renderers, mobile breakpoints, touch targets, and safe areas."
 type: memory
 ---
 # run-kit UI — Visual Design
@@ -171,7 +171,7 @@ Coverage: `host-overview-page.test.tsx` asserts the "Host Overview" heading rend
 
 ### Color Tinting — Owned Palette + Axis Split
 
-Session rows, window rows, and server tiles support an optional color assignment that applies a full-width background tint. The palette is an **owned set of 10 fixed OKLCH hue families adapted to the active theme**: each family has a stable hue angle, and hue identity survives theme switches (a window labeled "orange" reads orange on every theme). The row's visual channels are split so labeling and selection never collide: **hue = label**, **tint depth = selection**, and the window marker well is a display-only fixed-ink axis (§ Marker Well). The window Label picker edits color and flair; session rows and server tiles keep a right-side color affordance and have no marker.
+Session rows, window rows, and server tiles support an optional color assignment that applies a full-width background tint. The palette is an **owned set of 10 fixed OKLCH hue families adapted to the active theme**: each family has a stable hue angle, and hue identity survives theme switches (a window labeled "orange" reads orange on every theme). The row's visual channels are split so labeling and selection never collide: **hue = label**, **tint depth = selection**, and the window marker well is a fixed-ink mode × stage axis with its own marker-pad editor (§ Marker Well). The window Label picker edits color and flair; session rows and server tiles keep a right-side color affordance and have no marker.
 
 **Owned hue families** (`themes.ts` `HUE_FAMILIES`): 10 families in stable display order, each `{ name, hue, legacy, neutral? }`. Hue angles are placed non-uniformly — tight through the discriminable red→amber region, the large gap parked in teal→blue where human hue discrimination is weakest: red 25°, orange 55°, amber 90°, olive 120°, green 150°, teal 185°, blue 250°, purple 290°, magenta 330°, slate 250° (`neutral`). `FAMILY_BY_NAME` / `FAMILY_BY_LEGACY` are the two lookup maps.
 
@@ -246,6 +246,8 @@ A per-instance accent color makes multiple run-kit instances (laptop, Mac mini, 
 `parseMarker` is deliberately **more permissive than the backend closed set** and **never throws**: it guards `typeof value !== "string"` (the value crosses an untyped JSON boundary on the window payload, so a non-string is reachable at runtime), trims, reads a bare mode as stage 1, and tolerates a zero-padded stage — so `" manual "` and `"auto:01"` both parse here while `validate.ValidateMarkerValue` rejects both. A write must be canonical; a read must survive whatever tmux holds. Anything else — empty, unknown mode, out-of-range or multi-colon stage, or a flat pre-`mode:stage` token such as `solid` — reads as `null`.
 
 `markerFillStyle` renders all nine pairs in the 22px marker well using `var(--color-marker-ink)`: manual is a solid fill, blocked is a non-repeating 45° gradient, and auto is one, two, or three chevrons. Stage widths are 7/15/22px. `MARKER_WELL_BACKGROUND` and `MARKER_WELL_EDGE` define the shared 12% wash and 30% right edge for every marker surface.
+
+The marker pad renders every stage cell as a mini well by reusing `MARKER_WELL_BACKGROUND`, `MARKER_WELL_EDGE`, `markerFillStyle`, and `MarkerChevrons`; live preview and committed row state therefore share one visual definition. The highlighted cell carries `ring-1 ring-text-primary`. Its header reads `<mode> · <gloss>` using `MARKER_STAGE_GLOSS`, or `∅` for the clear cell.
 
 ### Hazard-Wedge Row Texture — blocked mode (`globals.css` `.rk-hazard`)
 

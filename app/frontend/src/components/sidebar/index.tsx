@@ -168,6 +168,13 @@ export type SidebarProps = {
    *  annotations row is hidden. The consumer additionally gates on the server
    *  having an operator window. */
   onUpdateAnnotations?: (server: string, session: string) => void;
+  /** Persist a window marker when this route owns a marker write seam. */
+  onWindowMarkerChange?: (
+    server: string,
+    session: string,
+    windowId: string,
+    marker: string | null,
+  ) => void;
   /** Fork a window's agent conversation into a new window in the same session
    *  and directory (260806-s4av). Optional (mirrors `onSpawnAgent`): when
    *  omitted — e.g. the board-route sidebar — the row flyout's fork affordance is
@@ -205,6 +212,7 @@ export function Sidebar({
   onCreateSession,
   onSpawnAgent,
   onUpdateAnnotations,
+  onWindowMarkerChange,
   onForkWindow,
   onFixTabName,
   onOperatorCompose,
@@ -1722,6 +1730,7 @@ export function Sidebar({
         <div
           ref={treeRef}
           role="tree"
+          data-sidebar-scroll=""
           aria-label="Session tree"
           // W3C-APG multiselect tree (260807-nf9f): window rows can be selected
           // as a set (cmd/ctrl-click, shift-click range, `x`) for the palette's
@@ -1823,6 +1832,7 @@ export function Sidebar({
                 onWindowColorChange={handleWindowColorChange}
                 onSessionFlairChange={handleSessionFlairChange}
                 onWindowFlairChange={handleWindowFlairChange}
+                onWindowMarkerChange={onWindowMarkerChange}
                 onForkWindow={onForkWindow}
                 onFixTabName={onFixTabName}
                 onOperatorCompose={onOperatorCompose}
@@ -2221,6 +2231,12 @@ type ServerGroupProps = {
    *  (`killServerTarget` in app.tsx / board-page.tsx); never kills directly. */
   onKillServer: (name: string) => void;
   onWindowColorChange: (server: string, session: string, windowId: string, color: string | null) => void;
+  onWindowMarkerChange?: (
+    server: string,
+    session: string,
+    windowId: string,
+    marker: string | null,
+  ) => void;
   /** Flair write seams — the picker's flair section funnels through these.
    *  Both are stable identity-argument callbacks. */
   onSessionFlairChange: (server: string, name: string, flair: string | null) => void;
@@ -2308,6 +2324,7 @@ function ServerGroupInner(props: ServerGroupProps) {
     onServerFlairChange,
     onKillServer,
     onWindowColorChange,
+    onWindowMarkerChange,
     onSessionFlairChange,
     onWindowFlairChange,
     onForkWindow,
@@ -2965,6 +2982,7 @@ function ServerGroupInner(props: ServerGroupProps) {
               onKillClick={onWindowRowKill}
               draggable={false}
               onColorChange={onWindowColorChange}
+              onMarkerChange={onWindowMarkerChange}
               onFlairChange={onWindowFlairChange}
               onForkWindow={onForkWindow}
               onFixTabName={onFixTabName}
@@ -3142,6 +3160,7 @@ function ServerGroupInner(props: ServerGroupProps) {
                             onDrop={ghost ? undefined : onWindowDrop}
                             onDragEnd={ghost ? undefined : onWindowDragEnd}
                             onColorChange={ghost ? undefined : onWindowColorChange}
+                            onMarkerChange={ghost ? undefined : onWindowMarkerChange}
                             onFlairChange={ghost ? undefined : onWindowFlairChange}
                             onForkWindow={ghost ? undefined : onForkWindow}
                             onFixTabName={ghost ? undefined : onFixTabName}

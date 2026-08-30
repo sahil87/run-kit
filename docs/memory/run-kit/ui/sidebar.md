@@ -1,5 +1,5 @@
 ---
-description: "Sidebar: row anatomy, identity tips, display-only marker well, coarse status rail, flair overlays, render performance, keyboard/tree ARIA, multi-select and broadcast, collapsible panels, section rail, host-page health/boards/services, server-class glyphs, kill controls, scroll fade, operator pinned row, and footer."
+description: "Sidebar: row anatomy, interactive marker strip and pad entry, identity tips, coarse status rail, flair overlays, render performance, keyboard/tree ARIA, multi-select and broadcast, collapsible panels, section rail, host-page health/boards/services, server-class glyphs, kill controls, scroll fade, operator pinned row, and footer."
 type: memory
 ---
 # run-kit UI — Sidebar
@@ -438,7 +438,7 @@ The publication channel that lets the sidebar PANE panel follow the board's focu
 
 ### Row Anatomy — Selection & Board-Pin Cues (`window-row.tsx`)
 
-The window row's visual channels are orthogonal: **hue = label** (family tint), **tint depth = selection**, and **marker well = display-only mode × stage** (§ Marker Well). The color + flair Label picker opens through the flyout or command palette. Selection and the board-pin cue are borderless. The row is single-line and fixed-height; the `@rk_win_note` one-line status note lives in the window flyout card ([ui/status-signals](/run-kit/ui/status-signals.md) § Row-hover register flyout card).
+The window row's visual channels are orthogonal: **hue = label** (family tint), **tint depth = selection**, and **marker well + strip = mode × stage display and editing** (§ Marker Well). The color + flair Label picker opens through the flyout or command palette; marker editing opens its own pad. Selection and the board-pin cue are borderless. The row is single-line and fixed-height; the `@rk_win_note` one-line status note lives in the window flyout card ([ui/status-signals](/run-kit/ui/status-signals.md) § Row-hover register flyout card).
 
 **Full-bleed row box**: the row button spans the sidebar edge-to-edge. Family tint, 40% selection tint, drag shadow, and hazard/flair overlays reach the physical left edge. The 22px marker well occupies `left-0`; content uses `pl-[30px]` on both pointer classes, leaving an 8px gap before the status dot. Plain hover changes text only. A held-open flyout applies `tint.hover` (or `bg-bg-card/50` when uncolored), and selection continues to use `tint.selected`.
 
@@ -446,9 +446,11 @@ The window row's visual channels are orthogonal: **hue = label** (family tint), 
 
 **Board-pin active-board cue on the pin glyph** (not a border): the persistent filled pin glyph — already `opacity-100` + filled whenever the window is pinned to any board (`isPinnedToAny`) — renders **accent-colored** when the row is pinned to the currently-viewed board (`isPinnedToActiveBoard`), and monochrome `text-text-secondary` otherwise. `isPinnedToActiveBoard` implies `isPinnedToAny`, so the accent branch is always the persistent (never hover-gated) glyph. This is load-bearing because link-based pinning keeps pinned rows visible in SESSIONS: the cue distinguishes "pinned to the board you're viewing" from "pinned to some board" with zero new elements, leaving the marker well for display. See § Active-Board Highlight in Sessions Tree, § Sidebar Pin Icon on Window Rows. (260718-co9z)
 
-### Marker Well (`window-row.tsx`)
+### Marker Well and Interactive Strip (`window-row.tsx`)
 
-The window row reserves a 22px full-height, display-only well at the physical left edge. It is `aria-hidden` and `pointer-events-none`; row selection, flyout gestures, and editing enter through the row, status rail, flyout actions, or command palette.
+The window row reserves a 22px full-height marker well at the physical left edge. Rows with a marker write seam overlay it with an invisible `data-testid="marker-strip"` press target on both pointer classes. The target is `aria-hidden`; its pointer handlers stop propagation, so a strip press never selects or navigates the row, and an armed press or open pad prevents the row's HTML5 drag path. The 56px right-edge status rail remains the sole coarse-pointer trigger for the row flyout card.
+
+**Pointer policies**: on fine pointers, press opens the marker pad, a two-dimensional drag live-previews the relative grid cell in the row well, and release recomputes and commits the released cell. A no-move release commits nothing and leaves the pad open as a click menu. A native non-passive wheel listener steps the committed marker's stage on marked rows; unmarked rows and `deltaY === 0` pass through without suppressing sidebar scroll. On coarse pointers, a tap opens the same pad in click-menu mode; the path does not capture the pointer and does not map `pointermove` to cells, so a swipe beginning in the strip can still scroll the drawer.
 
 **Geometry and layers**: the well spans `left-0` at `z-10`, paints `MARKER_WELL_BACKGROUND` (12% marker-ink wash) over its full box, and adds `MARKER_WELL_EDGE` (30% marker-ink right edge). The row content uses `pl-[30px]` on both fine and coarse pointers, leaving 8px between the well and the status dot. The row is full-bleed, so family tint, selection tint, drag shadow, hazard, and flair reach the sidebar seam.
 
@@ -456,7 +458,7 @@ The window row reserves a 22px full-height, display-only well at the physical le
 
 **Blocked hazard**: blocked mode mounts the static `.rk-hazard` wedge using the fixed marker ink. It carries no activity semantics and has no wiring to `@rk_agent_state` or the status pyramid; marker values are user-owned labels.
 
-**Read and write seams**: `WindowInfo.marker?: string` carries the normalized `@rk_win_marker` token. `setWindowMarker` is the API wrapper for explicit writers, while the in-tree Label picker edits color and flair only. That picker opens from the flyout's `Change color…` action or the `Window: Label` palette action; the marker well itself is inert.
+**Read, write, and placement seams**: `WindowInfo.marker?: string` carries the normalized `@rk_win_marker` token. `Sidebar` accepts the optional `onWindowMarkerChange(server, session, windowId, marker)` seam and threads it to real window rows as `onMarkerChange`, following the `onForkWindow` idiom. The terminal route supplies it; the board route and ghost rows omit it and therefore render no strip. `setWindowMarker` is the production API writer. The `role="tree"` scroll container carries `data-sidebar-scroll=""`, which rows resolve with `closest()` to measure the pad's fit and clamped placement. The Label picker continues to edit color and flair only.
 
 ### Row Flair — Character Animations (all three row types)
 
@@ -729,6 +731,18 @@ The create-server and kill-server confirm dialogs render **exactly once**, mount
 **Why**: With the well occupying the left 22px on every row, a hover shade plus a wash plus a family tint stacks three background layers and makes the well's 12% wash unreadable. The held state is the only background change that carries information.
 **Rejected**: A lighter hover shade; moving the wash above the hover fill, which inverts the z-order used by hazard and flair overlays.
 *Introduced by*: 260830-srec-marker-migrate-well-ink-retirements
+
+### The coarse marker tap does not capture the pointer
+**Decision**: On coarse pointers, `pointerdown` opens the marker pad and returns without `setPointerCapture` or `pointermove` cell selection.
+**Why**: Capturing the pointer in the left 22px of every row would swallow a vertical swipe beginning there and stop the sidebar drawer from scrolling. Click-menu mode needs no drag path.
+**Rejected**: Sharing the fine-pointer gesture on touch; gating the marker strip off on coarse pointers.
+*Introduced by*: 260830-imj9-marker-pad-spring-loaded-gesture
+
+### The gesture lives in the row; the grid math lives in the pad
+**Decision**: `marker-pad.tsx` exports pure grid, stage, header, fit, and placement helpers plus the renderer and keyboard model; `window-row.tsx` owns the pointer gesture, preview state, and wheel listener.
+**Why**: The row owns the well that receives live preview, while pure pad helpers make clamping, the clear-cell row rule, and minimum-width fitting directly unit-testable.
+**Rejected**: Putting the gesture inside the pad, which does not exist until the press begins; a shared hook with only one consumer.
+*Introduced by*: 260830-imj9-marker-pad-spring-loaded-gesture
 
 ### Flair is an independent per-row channel, orthogonal to color and marker
 **Decision**: Row character animations live on a dedicated flair channel (the `@rk_win_flair` window option, the scope-split `@rk_ses_flair` session option, and the settings-backed `server_flairs` map for the server tier) with at most one value per row — never as new marker states.

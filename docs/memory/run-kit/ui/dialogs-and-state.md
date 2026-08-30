@@ -1,5 +1,5 @@
 ---
-description: "Component conventions, dialogs (session name prompt, window-at-folder, spawn-agent, server kill confirm with the protected fork, server adopt confirm, tabbed settings with the registry-driven All-settings table, shell host add/edit form, width variants), clipboard utility, e2e host-global filesystem state, the Zustand window store (incl. the per-window web-tab override), optimistic UI + mutation feedback, and the recently-closed mirror (useRecentlyClosed + the toast onTimeout/onDismiss seam)."
+description: "Component conventions; modal dialogs and popup surfaces including the spring-loaded marker pad; clipboard and e2e host-state rules; the Zustand window store, optimistic mutation feedback, and recently-closed mirror."
 type: memory
 ---
 # run-kit UI — Dialogs & Client State
@@ -167,6 +167,14 @@ A tabbed settings **dialog** (not a routed page — constitution §IV keeps "no 
 - **Add mode** owns its submit: local URL validation first (the shared check + copy), then ONE `addShellHostDirect(name.trim(), origin)` invoke ([desktop-shell](/run-kit/desktop-shell.md) § `window.runkitShell` Bridge) — the main process pings before persisting, so a returned `{ ok: false, error }` renders inline in the same error slot and keeps the dialog open for correction. While the invoke is in flight the form is `busy` (fields + submit disabled — the ping can take up to 5s; the spawn-agent in-flight convention). A blank Name auto-derives from the ping's returned hostname main-side. Success fires `onSuccess` — the shell has already switched the window to the new host, so the caller just closes the dialog.
 
 The strip is the only consumer (the edit pencil / F2 path in edit mode, the `+ Add Host…` footer fork in add mode), rendering both modes inside the switcher container (backdrop clicks never trip the menu's outside-click close) and counting them in its `dialogOpen` key-suspension union. Covered by the colocated `host-form-dialog.test.tsx` (both modes — edit save-diff / disabled-URL / inline-error paths; add validation, busy, inline main-side failure, and success) plus the strip suite's footer-fork tests. (260820-d99v-spa-host-form-dialog)
+
+## Marker Pad Popup
+
+`app/frontend/src/components/sidebar/marker-pad.tsx` is the window row's single marker-editing popup. It has one chrome and does not render inside the row flyout card. Its listbox is a three-mode-row grid with one clear cell (`∅`) spanning the rows and three stage cells per mode. The header names the highlighted cell as `<mode> · <gloss>` or `∅`.
+
+The popup fits the measured sidebar width through `markerPadPopoverLayout`: at the 160px sidebar minimum it uses `{width: 152, cellPx: 22, labelPx: 42}`; with room it caps at `{width: 180, cellPx: 26, labelPx: 54}`. `placeMarkerPad` returns row-relative coordinates, vertically centers when unconstrained, and clamps the popup inside every sidebar edge.
+
+Open state is row-local, with a module-scoped `activeMarkerPad` registry enforcing exactly one open pad across all rows, following the `activeFlyout` idiom. A capture-phase document `pointerdown` listener dismisses outside presses while ignoring the pad and its own strip. Pointer and keyboard movement live-preview cells on the row; Escape previews the committed value before cancelling, so dismissal cannot leave a walked highlight painted.
 
 ## Zustand Window Store
 
@@ -384,6 +392,24 @@ Any value that scopes an HTTP request to a particular backend resource (server, 
 The regression test in `app/frontend/src/hooks/use-dialog-state.test.tsx` flips `SessionProvider`'s `server` prop between `openRenameSessionDialog("foo")` and `handleRenameSession()` and asserts the API call uses the post-flip server (`server-B`), proving the capture point is the handler invocation, not the dialog open.
 
 ## Design Decisions
+
+### Single-open registry over event-plumbing dismissal
+**Decision**: `marker-pad.tsx` owns a module-scoped `activeMarkerPad` handle; opening any pad closes the currently registered one. A capture-phase document `pointerdown` listener remains alongside it.
+**Why**: A strip press stops propagation, so a registry makes the single-open invariant independent of every event handler on the path. The codebase uses the same shape for row flyouts.
+**Rejected**: Capture-phase outside dismissal alone, which leaves the invariant coupled to event plumbing; hoisting open state into React context, which would re-render unrelated rows.
+*Introduced by*: 260830-imj9-marker-pad-spring-loaded-gesture
+
+### One marker-pad chrome; the coarse entry is the strip
+**Decision**: The marker pad has one popup chrome. A coarse-pointer tap on the 22 × 36px marker strip opens that same pad in click-menu mode.
+**Why**: One chrome keeps one keyboard model, placement path, and test surface, while the 56px right-edge rail remains the sole coarse flyout trigger.
+**Rejected**: A Marker row inside the row flyout card; leaving coarse pointers with only the command-palette path.
+*Introduced by*: 260830-imj9-marker-pad-spring-loaded-gesture
+
+### Marker-pad width derives from the measured sidebar
+**Decision**: `markerPadPopoverLayout(sidebarWidth)` computes popup width, cell pitch, and label-track width; the label track shrinks before a cell drops below 22px.
+**Why**: The sidebar supports a 160px minimum, so a fixed 180px popup cannot remain inside its placement bounds.
+**Rejected**: A fixed popup with horizontal scrolling; a portal outside the sidebar, which would separate the relative gesture from its row anchor.
+*Introduced by*: 260830-imj9-marker-pad-spring-loaded-gesture
 
 ### The server record is the authority; the mirror exists only to gate the palette entry
 **Decision**: `useRecentlyClosed(server)` keeps a per-server module-level `Map<string, ClosedWindow[]>` mirror (exported push/pop helpers) seeded from `GET /api/windows/closed` on mount, pushed from kill responses, and popped on reopen/dismiss/409 — a `useSyncExternalStore` React seam — but the server-side `{server}.closed/` ring stays authoritative.

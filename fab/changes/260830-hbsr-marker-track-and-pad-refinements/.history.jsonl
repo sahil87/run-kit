@@ -1,0 +1,14 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-30T17:48:40Z"}
+{"args":"Marker follow-ups: always-on track, coarse square geometry, pad header/labels","cmd":"fab-new","event":"command","ts":"2026-08-30T17:48:40Z"}
+{"delta":"+4.6","event":"confidence","score":4.6,"trigger":"calc-score","ts":"2026-08-30T17:51:01Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-08-30T17:52:00Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-30T17:52:00Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-30T17:56:38Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-30T18:08:13Z"}
+{"event":"review","result":"failed","ts":"2026-08-30T18:16:41Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-30T18:16:41Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-30T18:22:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-30T18:29:16Z"}
+{"event":"review","result":"passed","ts":"2026-08-30T18:29:16Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-08-30T18:31:00Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-30T18:34:24Z"}

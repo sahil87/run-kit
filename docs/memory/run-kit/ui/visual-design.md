@@ -245,9 +245,9 @@ A per-instance accent color makes multiple run-kit instances (laptop, Mac mini, 
 
 `parseMarker` is deliberately **more permissive than the backend closed set** and **never throws**: it guards `typeof value !== "string"` (the value crosses an untyped JSON boundary on the window payload, so a non-string is reachable at runtime), trims, reads a bare mode as stage 1, and tolerates a zero-padded stage — so `" manual "` and `"auto:01"` both parse here while `validate.ValidateMarkerValue` rejects both. A write must be canonical; a read must survive whatever tmux holds. Anything else — empty, unknown mode, out-of-range or multi-colon stage, or a flat pre-`mode:stage` token such as `solid` — reads as `null`.
 
-`markerFillStyle` renders all nine pairs in the 22px marker well using `var(--color-marker-ink)`: manual is a solid fill, blocked is a non-repeating 45° gradient, and auto is one, two, or three chevrons. Stage widths are 7/15/22px. `MARKER_WELL_BACKGROUND` and `MARKER_WELL_EDGE` define the shared 12% wash and 30% right edge for every marker surface.
+`markerFillStyle` renders all nine pairs using `var(--color-marker-ink)`: manual is a solid fill, blocked is a non-repeating 45° gradient, and auto is one, two, or three chevrons. Row stage widths are 7/15/22px in the 22px fine-pointer track and 12/24/36px in the 36px coarse-pointer track; chevron geometry scales by the same 36/22 ratio. `MARKER_WELL_BACKGROUND` and `MARKER_WELL_EDGE` define the 12% wash and 30% right edge that form the track chrome on every row. Only the fill or chevrons are gated on a parsed marker.
 
-The marker pad renders every stage cell as a mini well by reusing `MARKER_WELL_BACKGROUND`, `MARKER_WELL_EDGE`, `markerFillStyle`, and `MarkerChevrons`; live preview and committed row state therefore share one visual definition. The highlighted cell carries `ring-1 ring-text-primary`. Its header reads `<mode> · <gloss>` using `MARKER_STAGE_GLOSS`, or `∅` for the clear cell.
+The marker pad renders every stage cell as a fine-table mini well by reusing `MARKER_WELL_BACKGROUND`, `MARKER_WELL_EDGE`, `markerFillStyle`, and `MarkerChevrons`; live preview and committed row state therefore share one visual definition. Its top-left reads `Marker`, the columns are headed `∅`/`1`/`2`/`3`, and `MARKER_STAGE_GLOSS` supplies the stage headings' accessible `early`/`mid`/`done` labels. The highlighted cell retains `ring-1 ring-text-primary` while its mode-row label and stage-column heading take the marker ink; the clear cell highlights only the `∅` heading.
 
 ### Hazard-Wedge Row Texture — blocked mode (`globals.css` `.rk-hazard`)
 
@@ -408,6 +408,18 @@ The viewport meta tag in `app/frontend/index.html` includes `maximum-scale=1.0` 
 **Why**: The row well and every pad cell must paint the identical wash and edge or previews drift visually from committed markers; `marker.tsx` is the single home for the marker vocabulary.
 **Rejected**: Keeping them in `marker-pad.tsx`, which makes a specific editor surface own shared display tokens.
 *Introduced by*: 260830-srec-marker-migrate-well-ink-retirements
+
+### Marker geometry is pointer-class dependent
+
+**Decision**: the track is 22px on fine and 36px on coarse, with stage fills of 7/15/22 and 12/24/36
+respectively and chevrons scaled by the same ratio; content starts at 30px and 44px.
+**Why**: a coarse row is 36px tall, so a 22px track renders the marker as a tall rectangle when the
+design intent — and every study mock — is a square swatch. Scaling the fills with the track keeps
+stage 3 flush to the edge, which is what makes the ordinal axis readable at a glance.
+**Rejected**: a 36px track with the fills left at 7/15/22, which leaves a 14px dead gap at stage 3 and
+breaks the "stage 3 fills the well" reading; and shrinking the coarse row to ~26px so the existing
+22px track reads square, which shrinks every mobile touch target to fix a marker.
+**Introduced by**: 260830-hbsr-marker-track-and-pad-refinements
 
 ### The marker paints in one fixed ink, never the row's family hue
 **Decision**: Every marker surface reads `--color-marker-ink` (#f59e0b dark / #d97706 light); `markerColor` serves only as the `FlairOverlay` color.

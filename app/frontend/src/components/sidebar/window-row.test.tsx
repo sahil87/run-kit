@@ -1018,7 +1018,7 @@ describe("WindowRow", () => {
       expect(pin.className).toContain("text-text-secondary");
     });
 
-    it("renders all marker modes and stages in the fixed display-only well", () => {
+    it("renders the marker track on every row and gates fills on parsed markers", () => {
       const cases = [
         { marker: "manual:1", width: "7px", fill: "solid", paths: 0 },
         { marker: "manual:2", width: "15px", fill: "solid", paths: 0 },
@@ -1038,7 +1038,7 @@ describe("WindowRow", () => {
         expect(well.style.width).toBe("22px");
         expect(well.style.background).toContain("var(--color-marker-ink) 12%");
         expect(well.style.borderRight).toContain("var(--color-marker-ink) 30%");
-        const renderedFill = well.querySelector(":scope > span") as HTMLElement | null;
+        const renderedFill = screen.getByTestId("marker-fill");
         if (fill === "chevrons") {
           expect(well.querySelectorAll("path")).toHaveLength(paths);
         } else {
@@ -1050,7 +1050,12 @@ describe("WindowRow", () => {
       }
 
       renderAxis(makeWindow({ windowId: "@1", index: 1 }));
-      expect(screen.queryByTestId("marker-well")).toBeNull();
+      const emptyWell = screen.getByTestId("marker-well");
+      expect(emptyWell.style.width).toBe("22px");
+      expect(emptyWell.style.background).toContain("var(--color-marker-ink) 12%");
+      expect(emptyWell.style.borderRight).toContain("var(--color-marker-ink) 30%");
+      expect(screen.queryByTestId("marker-fill")).toBeNull();
+      expect(screen.getByRole("treeitem").querySelector(".rk-hazard")).toBeNull();
     });
 
     it("commits horizontal, vertical, and clamped fine-pointer drags", () => {
@@ -1236,7 +1241,7 @@ describe("WindowRow", () => {
       expect(row.style.getPropertyValue("--rk-marker-color")).toBe("var(--color-marker-ink)");
 
       cleanup();
-      for (const marker of ["manual:2", "auto:2"]) {
+      for (const marker of [undefined, "manual:2", "auto:2"]) {
         const { container: next, unmount } = renderAxis(makeWindow({ windowId: "@1", index: 1, marker }));
         expect(next.querySelector(".rk-hazard")).toBeNull();
         expect((next.querySelector('[data-window-id="@1"]') as HTMLElement).style.getPropertyValue("--rk-marker-color")).toBe("");
@@ -1622,8 +1627,8 @@ describe("coarse pointer: rest glyph, rail target, and plain status dot", () => 
     });
   });
 
-  // The display-only marker well and content geometry match across pointer
-  // classes; the rail remains the only coarse card target.
+  // The display-only marker track scales on coarse pointers; the rail remains
+  // the only coarse card target.
   describe("coarse marker well and card handoff", () => {
     /** Coarse + dark-scheme stub — the Label picker (SwatchPopover → useTheme)
      *  needs the color-scheme query answered too. */
@@ -1675,19 +1680,30 @@ describe("coarse pointer: rest glyph, rail target, and plain status dot", () => 
       );
     }
 
-    it("keeps the same marker well and row geometry on coarse pointers", () => {
+    it("scales marker track, fill, strip, and content geometry on coarse pointers", () => {
       const win = makeWindow({ windowId: "@0", index: 0, name: "my-shell", marker: "blocked:2", color: "orange" });
       renderCoarseAxis(win);
       expect(screen.queryByLabelText("Set tab label")).toBeNull();
       const row = screen.getByRole("treeitem");
       const well = screen.getByTestId("marker-well");
       expect(well.className).toContain("left-0");
-      expect(well.style.width).toBe("22px");
+      expect(well.style.width).toBe("36px");
+      expect(screen.getByTestId("marker-fill").style.width).toBe("24px");
+      expect(screen.getByTestId("marker-strip").style.width).toBe("36px");
       expect(row.querySelector(".rk-hazard")).toBeTruthy();
       const button = row.querySelector("button")!;
       expect(button.className).toContain("pl-[30px]");
-      expect(button.className).not.toContain("coarse:pl-4");
+      expect(button.className).toContain("coarse:pl-[44px]");
       expect(screen.getByTestId("status-dot-tap").className).toBe("flex items-center shrink-0");
+    });
+
+    it("scales stage-three chevrons with the coarse track", () => {
+      renderCoarseAxis(makeWindow({ marker: "auto:3" }));
+      const fill = screen.getByTestId("marker-fill");
+      expect(fill.style.width).toBe("36px");
+      const svg = fill.querySelector("svg")!;
+      expect(Number(svg.getAttribute("width"))).toBeGreaterThan(22);
+      expect(fill.querySelectorAll("path")).toHaveLength(3);
     });
 
     it("opens click-menu mode on coarse without capture or drag preview", () => {
@@ -1702,14 +1718,22 @@ describe("coarse pointer: rest glyph, rail target, and plain status dot", () => 
         clientX: 4,
         clientY: 10,
       });
-      expect(screen.getByTestId("marker-pad-header")).toHaveTextContent("manual · early");
+      expect(screen.getByTestId("marker-pad-mode-label-manual").style.color).toBe(
+        "var(--color-marker-ink)",
+      );
+      expect(screen.getByTestId("marker-pad-stage-heading-1").style.color).toBe(
+        "var(--color-marker-ink)",
+      );
       fireEvent.pointerMove(strip, {
         pointerId: 1,
         pointerType: "touch",
         clientX: 100,
         clientY: 100,
       });
-      expect(screen.getByTestId("marker-pad-header")).toHaveTextContent("manual · early");
+      expect(screen.getByTestId("marker-pad-cell-manual-1")).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
       expect(setPointerCapture).not.toHaveBeenCalled();
       expect(onMarkerChange).not.toHaveBeenCalled();
     });

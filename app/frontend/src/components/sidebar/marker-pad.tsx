@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  MARKER_INK,
   MARKER_MODES,
   MARKER_STAGES,
   MARKER_STAGE_GLOSS,
@@ -47,13 +48,6 @@ export function stepStage(marker: Marker, direction: 1 | -1): Marker {
 export function sameCell(a: Marker | null, b: Marker | null): boolean {
   if (a === null || b === null) return a === b;
   return a.mode === b.mode && a.stage === b.stage;
-}
-
-/** Format the pad's highlighted cell for its compact header. */
-export function padHeader(marker: Marker | null): string {
-  return marker === null
-    ? "∅"
-    : `${marker.mode} · ${MARKER_STAGE_GLOSS[marker.stage]}`;
 }
 
 const GAP_PX = 3;
@@ -292,12 +286,36 @@ export function MarkerPad({
       className="rk-popup-elev bg-bg-card border border-border z-50 p-1"
       style={popoverWidth === undefined ? undefined : { width: popoverWidth }}
     >
-      <div
-        aria-hidden
-        data-testid="marker-pad-header"
-        className="text-[9px] tracking-[0.08em] text-text-secondary select-none pb-1"
-      >
-        {padHeader(cell)}
+      <div className="flex pb-1 text-[9px] text-text-secondary select-none" style={{ gap: GAP_PX }}>
+        <span
+          className="min-w-0 shrink-0 overflow-hidden text-ellipsis whitespace-nowrap"
+          style={{ width: labelPx }}
+        >
+          Marker
+        </span>
+        <span
+          aria-label="Clear marker"
+          data-testid="marker-pad-stage-heading-clear"
+          className="shrink-0 text-center"
+          style={{ width: cellPx, color: cell === null ? MARKER_INK : undefined }}
+        >
+          ∅
+        </span>
+        {MARKER_STAGES.map((stage) => (
+          <span
+            key={stage}
+            aria-label={`Stage ${stage}: ${MARKER_STAGE_GLOSS[stage]}`}
+            title={MARKER_STAGE_GLOSS[stage]}
+            data-testid={`marker-pad-stage-heading-${stage}`}
+            className="shrink-0 text-center"
+            style={{
+              width: cellPx,
+              color: cell?.stage === stage ? MARKER_INK : undefined,
+            }}
+          >
+            {stage}
+          </span>
+        ))}
       </div>
       <div className="flex" style={{ gap: GAP_PX }}>
         <span
@@ -308,8 +326,13 @@ export function MarkerPad({
           {MARKER_MODES.map((mode) => (
             <span
               key={mode}
+              data-testid={`marker-pad-mode-label-${mode}`}
               className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
-              style={{ height: cellPx, lineHeight: `${cellPx}px` }}
+              style={{
+                height: cellPx,
+                lineHeight: `${cellPx}px`,
+                color: cell?.mode === mode ? MARKER_INK : undefined,
+              }}
             >
               {mode}
             </span>

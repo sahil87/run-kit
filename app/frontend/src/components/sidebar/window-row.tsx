@@ -13,8 +13,12 @@ import type { MergedSession } from "@/contexts/optimistic-context";
 import type { BoardSummary } from "@/api/boards";
 import { UNCOLORED_SELECTED_KEY, type RowTint } from "@/themes";
 import {
+  MARKER_COARSE_SCALE,
   MARKER_STAGE_WIDTHS,
+  MARKER_STAGE_WIDTHS_COARSE,
   MARKER_INK,
+  MARKER_WELL_WIDTH_COARSE,
+  MARKER_WELL_WIDTH_FINE,
   MARKER_WELL_BACKGROUND,
   MARKER_WELL_EDGE,
   MarkerChevrons,
@@ -266,7 +270,7 @@ function WindowRowInner({
     originY: number;
     start: Marker | null;
   } | null>(null);
-  const [padPosition, setPadPosition] = useState({ left: MARKER_WELL_WIDTH, top: 0 });
+  const [padPosition, setPadPosition] = useState({ left: MARKER_WELL_WIDTH_FINE, top: 0 });
   const [padLayout, setPadLayout] = useState(() =>
     markerPadPopoverLayout(
       MARKER_PAD_POPOVER_PREFERRED_WIDTH_PX + MARKER_PAD_POPOVER_INSET_PX,
@@ -412,9 +416,11 @@ function WindowRowInner({
 
   const parsedMarker = useMemo(() => parseMarker(marker), [marker]);
   const displayMarker = markerPreview !== undefined ? markerPreview : parsedMarker;
+  const markerWellWidth = coarse ? MARKER_WELL_WIDTH_COARSE : MARKER_WELL_WIDTH_FINE;
+  const markerStageWidths = coarse ? MARKER_STAGE_WIDTHS_COARSE : MARKER_STAGE_WIDTHS;
   const displayMarkerStyle = useMemo(
-    () => (displayMarker ? markerFillStyle(displayMarker) : undefined),
-    [displayMarker],
+    () => (displayMarker ? markerFillStyle(displayMarker, markerStageWidths) : undefined),
+    [displayMarker, markerStageWidths],
   );
 
   const padCommit = useCallback(
@@ -537,10 +543,10 @@ function WindowRowInner({
           height: rowRect.height,
         },
         { width: nextLayout.width, height: anchor.offsetHeight },
-        MARKER_WELL_WIDTH,
+        markerWellWidth,
       ),
     );
-  }, [showMarkerPad, padLayout.width, padLayout.cellPx, padLayout.labelPx]);
+  }, [showMarkerPad, padLayout.width, padLayout.cellPx, padLayout.labelPx, markerWellWidth]);
 
   useEffect(() => {
     if (!showMarkerPad) return;
@@ -580,8 +586,8 @@ function WindowRowInner({
     return Object.keys(style).length > 0 ? style : undefined;
   }, [tint, uncoloredSelectedTint, isSelected, flyout.open]);
 
-  // The row box starts at the physical sidebar edge. Both pointer classes use
-  // a 30px content start, leaving 8px between the 22px well and the status dot.
+  // The row box starts at the physical sidebar edge. Each pointer class keeps
+  // an 8px gap between its marker well and the status dot.
   const buttonClass = useMemo(() => {
     const rightPad = showPinIcon ? "pr-[68px]" : "pr-11";
     // Coarse reserve (non-ghost rows): the name must truncate before the
@@ -591,7 +597,10 @@ function WindowRowInner({
     const coarsePad = ghost ? "" : " coarse:pr-[56px]";
     // Dense rows on fine pointers (24px); touch keeps the 36px target via the
     // `coarse:` variant (context.md § Mobile Responsive Design).
-    const base = `w-full text-left flex items-center justify-between gap-2 py-px pl-[30px] ${rightPad}${coarsePad} text-xs transition-colors min-h-[24px] coarse:min-h-[36px]`;
+    // Content-start literals track MARKER_WELL_WIDTH_FINE + 8 and
+    // MARKER_WELL_WIDTH_COARSE + 8; Tailwind scans literal classes only. The
+    // 8px gap holds the status dot's waiting halo clear of the marker track.
+    const base = `w-full text-left flex items-center justify-between gap-2 py-px pl-[30px] coarse:pl-[44px] ${rightPad}${coarsePad} text-xs transition-colors min-h-[24px] coarse:min-h-[36px]`;
     if (isSelected) {
       // Selection = deeper tint (tint.selected / gray sentinel via buttonStyle)
       // + bold + brightened text. No border (removed in the axis split).
@@ -736,32 +745,39 @@ function WindowRowInner({
           and while this row is the drag source (cube/warp animate transforms
           on child spans — the drag ghost rule). */}
       <FlairOverlay flair={win.flair} hidden={isDragSource} color={flairColor} />
-      {/* Display-only marker well, rendered only for a parseable marker. */}
-      {displayMarker && (
-        <div
-          aria-hidden="true"
-          data-testid="marker-well"
-          className="absolute inset-y-0 left-0 z-10 pointer-events-none"
-          style={{
-            width: MARKER_WELL_WIDTH,
-            background: MARKER_WELL_BACKGROUND,
-            borderRight: MARKER_WELL_EDGE,
-          }}
-        >
-          {displayMarkerStyle && (
-            <span aria-hidden className="absolute inset-y-0 left-0" style={displayMarkerStyle} />
-          )}
-          {displayMarker.mode === "auto" && (
-            <span
-              aria-hidden
-              className="absolute inset-y-0 left-0 flex items-center"
-              style={{ width: MARKER_STAGE_WIDTHS[3] }}
-            >
-              <MarkerChevrons count={displayMarker.stage} />
-            </span>
-          )}
-        </div>
-      )}
+      {/* Display-only marker track. Its chrome is row-level; parsed markers add the fill. */}
+      <div
+        aria-hidden="true"
+        data-testid="marker-well"
+        className="absolute inset-y-0 left-0 z-10 pointer-events-none"
+        style={{
+          width: markerWellWidth,
+          background: MARKER_WELL_BACKGROUND,
+          borderRight: MARKER_WELL_EDGE,
+        }}
+      >
+        {displayMarkerStyle && (
+          <span
+            aria-hidden
+            data-testid="marker-fill"
+            className="absolute inset-y-0 left-0"
+            style={displayMarkerStyle}
+          />
+        )}
+        {displayMarker?.mode === "auto" && (
+          <span
+            aria-hidden
+            data-testid="marker-fill"
+            className="absolute inset-y-0 left-0 flex items-center"
+            style={{ width: markerStageWidths[3] }}
+          >
+            <MarkerChevrons
+              count={displayMarker.stage}
+              scale={coarse ? MARKER_COARSE_SCALE : 1}
+            />
+          </span>
+        )}
+      </div>
       {markerWired && (
         <div
           ref={stripRef}
@@ -770,7 +786,8 @@ function WindowRowInner({
           onPointerDown={onStripDown}
           onPointerMove={onStripMove}
           onPointerUp={onStripUp}
-          className="absolute inset-y-0 left-0 w-[22px] cursor-pointer z-20"
+          className="absolute inset-y-0 left-0 cursor-pointer z-20"
+          style={{ width: markerWellWidth }}
         />
       )}
       {showMarkerPad && markerWired && (
@@ -1063,8 +1080,6 @@ function WindowRowInner({
     </div>
   );
 }
-
-const MARKER_WELL_WIDTH = 22;
 
 /** Memoized window row. Re-renders only when its own props change identity —
  *  an SSE tick on an unrelated server, or the per-second clock tick (now scoped

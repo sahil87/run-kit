@@ -6,9 +6,9 @@
  * The local `resolveWindow` binds those reads to the test server and session,
  * and `expectMarker` polls until the resolved marker equals the seeded value.
  * The spec uses Playwright's default viewport and installs no `page.route`
- * stubs. Marked rows paint a flush 22px well in fixed marker ink, blocked mode
- * alone adds the static hazard wedge, and terminal rows expose the same strip
- * for the spring-loaded pad while preserving that committed-marker geometry.
+ * stubs. Every row paints a flush 22px track in fixed marker ink, parsed
+ * markers add their fill, blocked mode alone adds the static hazard wedge, and
+ * terminal rows expose the same strip for the spring-loaded pad.
  */
 import { test, expect, type Page } from "@playwright/test";
 import { gotoServerReady, resolveWindow as resolveWindowRaw } from "./_ready";
@@ -56,22 +56,23 @@ test.describe("window marker well", () => {
   });
 
   /**
-   * Proves: manual, auto, and blocked markers share a flush 22px fixed-ink
-   * well; their stage renderers remain distinct; only blocked adds the static
-   * hazard wedge; an unmarked row has neither well nor hazard.
+   * Proves: every row shares a flush 22px fixed-ink track; manual, auto, and
+   * blocked stage renderers remain distinct; only blocked adds the static
+   * hazard wedge; an unmarked row has no fill or hazard.
    *
    * Steps:
    * 1. Create manual, auto, blocked, and unmarked windows with the shared tmux
    *    helpers, then resolve their stable window ids.
    * 2. Set `manual:2`, `auto:3`, and `blocked:1` directly in
    *    `@rk_win_marker` and poll the session snapshot for each value.
-   * 3. Assert every marked well begins at the row edge, is 22px wide within
+   * 3. Assert every track begins at the row edge, is 22px wide within
    *    subpixel tolerance, and uses the fixed marker-ink wash and right border.
    * 4. Assert manual paints a 15px solid fill, auto draws three chevrons, and
    *    blocked paints a 7px hatch plus the row hazard wedge.
-   * 5. Assert the unmarked row renders neither the well nor the hazard wedge.
+   * 5. Assert the unmarked row retains the same track but renders neither a
+   *    fill nor the hazard wedge.
    */
-  test("marked rows render the fixed well and blocked alone renders hazard", async ({ page }) => {
+  test("every row renders the fixed track and blocked alone renders hazard", async ({ page }) => {
     const names = {
       manual: `marker-manual-${Date.now()}`,
       auto: `marker-auto-${Date.now()}`,
@@ -102,7 +103,7 @@ test.describe("window marker well", () => {
       empty: page.locator(`[data-window-id="${windows.empty.windowId}"]`),
     };
 
-    for (const mode of ["manual", "auto", "blocked"] as const) {
+    for (const mode of ["manual", "auto", "blocked", "empty"] as const) {
       const row = rows[mode];
       const well = row.getByTestId("marker-well");
       await expect(well).toBeVisible({ timeout: 5_000 });
@@ -118,20 +119,21 @@ test.describe("window marker well", () => {
       expect(await well.getAttribute("style")).toContain("var(--color-marker-ink) 30%");
     }
 
-    const manualFill = rows.manual.getByTestId("marker-well").locator(":scope > span");
+    const manualFill = rows.manual.getByTestId("marker-fill");
     await expect(manualFill).toHaveCSS("width", "15px");
     await expect(manualFill).toHaveCSS("background-color", /rgb/);
 
     await expect(rows.auto.getByTestId("marker-well").locator("path")).toHaveCount(3);
 
-    const blockedFill = rows.blocked.getByTestId("marker-well").locator(":scope > span");
+    const blockedFill = rows.blocked.getByTestId("marker-fill");
     await expect(blockedFill).toHaveCSS("width", "7px");
     await expect(blockedFill).toHaveCSS("background-image", /linear-gradient/);
     await expect(rows.blocked.locator(":scope > .rk-hazard")).toHaveCount(1);
     await expect(rows.manual.locator(":scope > .rk-hazard")).toHaveCount(0);
     await expect(rows.auto.locator(":scope > .rk-hazard")).toHaveCount(0);
 
-    await expect(rows.empty.getByTestId("marker-well")).toHaveCount(0);
+    await expect(rows.empty.getByTestId("marker-well")).toBeVisible();
+    await expect(rows.empty.getByTestId("marker-fill")).toHaveCount(0);
     await expect(rows.empty.locator(":scope > .rk-hazard")).toHaveCount(0);
   });
 

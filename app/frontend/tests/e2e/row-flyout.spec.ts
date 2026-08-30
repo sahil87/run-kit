@@ -18,9 +18,9 @@ import { mockStateSocket } from "./_state-socket-mock";
 // the title bar carries only the ⓘ docs link. The rail + card also extend to
 // the session rows and server-group headers (coarse-only surfaces — tap/scrub
 // is their one trigger), `Change color…` is the first action row of every
-// tier's card, no `Set tab label` affordance exists, the marker strip is
-// interactive on both pointer classes without changing the shared well
-// geometry, and the scrub retargets cards ACROSS tiers via the shared
+// tier's card, no `Set tab label` affordance exists, and the marker strip is
+// interactive at 22px on fine pointers and 36px on coarse pointers while the
+// scrub retargets cards ACROSS tiers via the shared
 // `data-rail-row` handle.
 //
 // Shared setup: **/api/servers → a single server `default`;
@@ -528,15 +528,16 @@ test.describe("Row flyout card (fine pointer)", () => {
 
   /**
    * Proves: the fine-pointer 22px marker strip opens the pad without selecting
-   * the row while preserving the flush well and approximately 30px content
-   * offset.
+   * the row while preserving the flush well, the 15px stage-two fill, and
+   * approximately 30px content offset.
    *
    * Steps:
    * 1. Locate the marked row and assert no `Set tab label` element exists.
    * 2. Press and release the marker strip without moving, then assert the pad
    *    opens and the terminal route remains unchanged.
    * 3. Measure the strip, row, well, and status content; assert the strip and
-   *    well are flush and 22px wide and content begins near 30px.
+   *    well are flush and 22px wide, the stage-two fill is 15px, and content
+   *    begins near 30px.
    */
   test("fine left zone: the interactive 22px marker strip preserves well and content geometry", async ({
     page,
@@ -553,6 +554,7 @@ test.describe("Row flyout card (fine pointer)", () => {
     const rowBox = (await scratchRow(page).boundingBox())!;
     const wellBox = (await scratchRow(page).getByTestId("marker-well").boundingBox())!;
     const contentBox = (await scratchRow(page).getByTestId("status-dot-tap").boundingBox())!;
+    await expect(scratchRow(page).getByTestId("marker-fill")).toHaveCSS("width", "15px");
     expect(Math.abs(stripBox.x - rowBox.x)).toBeLessThanOrEqual(0.5);
     expect(Math.abs(stripBox.width - 22)).toBeLessThanOrEqual(0.5);
     expect(Math.abs(wellBox.x - rowBox.x)).toBeLessThanOrEqual(0.5);
@@ -811,19 +813,20 @@ test.describe("Row flyout card (coarse pointer)", () => {
   });
 
   /**
-   * Proves: the coarse-pointer 22px marker strip opens the pad without
-   * selecting the row while preserving the flush well and approximately 30px
-   * content offset.
+   * Proves: the coarse-pointer 36px marker strip opens the pad without
+   * selecting the row, anchors the pad at the track edge, and preserves the
+   * flush square track with approximately 44px content offset.
    *
    * Steps:
    * 1. Open the coarse drawer, locate the marked row, and assert no `Set tab
    *    label` element exists.
    * 2. Tap the marker strip, then assert the pad opens, the drawer remains
    *    visible, and the terminal route remains unchanged.
-   * 3. Measure the strip, row, well, and status content; assert the strip and
-   *    well are flush and 22px wide and content begins near 30px.
+   * 3. Measure the strip, row, well, pad, and status content; assert the strip
+   *    and well are flush and 36px wide, the pad begins at the track edge, the
+   *    stage-two fill is 24px, and content begins near 44px.
    */
-  test("coarse left zone: the tappable 22px marker strip preserves well and content geometry", async ({
+  test("coarse left zone: the tappable 36px marker strip preserves track and content geometry", async ({
     page,
   }) => {
     await gotoCoarseDrawer(page);
@@ -838,12 +841,15 @@ test.describe("Row flyout card (coarse pointer)", () => {
     const rowBox = (await scratchRow(page).boundingBox())!;
     const stripBox = (await strip.boundingBox())!;
     const wellBox = (await scratchRow(page).getByTestId("marker-well").boundingBox())!;
+    const padBox = (await page.getByTestId("marker-pad").boundingBox())!;
     const zoneBox = (await scratchRow(page).getByTestId("status-dot-tap").boundingBox())!;
     expect(Math.abs(stripBox.x - rowBox.x)).toBeLessThanOrEqual(0.5);
-    expect(Math.abs(stripBox.width - 22)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(stripBox.width - 36)).toBeLessThanOrEqual(0.5);
     expect(Math.abs(wellBox.x - rowBox.x)).toBeLessThanOrEqual(0.5);
-    expect(Math.abs(wellBox.width - 22)).toBeLessThanOrEqual(0.5);
-    expect(Math.abs(zoneBox.x - rowBox.x - 30)).toBeLessThanOrEqual(1);
+    expect(Math.abs(wellBox.width - 36)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(padBox.x - rowBox.x - 36)).toBeLessThanOrEqual(1);
+    await expect(scratchRow(page).getByTestId("marker-fill")).toHaveCSS("width", "24px");
+    expect(Math.abs(zoneBox.x - rowBox.x - 44)).toBeLessThanOrEqual(1);
   });
 
   /**

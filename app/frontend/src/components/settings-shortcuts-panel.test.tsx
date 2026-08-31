@@ -543,3 +543,48 @@ describe("SettingsShortcutsPanel CUSTOM section (260730-hbyh)", () => {
     ).toBeNull();
   });
 });
+
+describe("SettingsShortcutsPanel — aliased actions", () => {
+  it("renders the palette's alias as a continuation row directly beneath it, not a second labelled row", () => {
+    renderPanel();
+    // jsdom detects as non-mac, so the Win/Linux alias is bound.
+    const primary = document.querySelector('[data-actionid="command-palette"]');
+    const alias = document.querySelector('[data-actionid="command-palette-alt"]');
+    expect(primary).toBeInTheDocument();
+    expect(alias).toBeInTheDocument();
+    // Adjacency is the grouping: the alias is the primary's next sibling.
+    expect(primary?.nextElementSibling).toBe(alias);
+    // The alias carries the continuation marker, and does NOT repeat the label.
+    expect(within(alias as HTMLElement).getByText("↳ also")).toBeInTheDocument();
+    expect(within(alias as HTMLElement).queryByText("Command palette")).toBeNull();
+  });
+
+  it("the alias row is independently rebindable — its capture targets the alias, not the primary", () => {
+    renderPanel();
+    const alias = document.querySelector('[data-actionid="command-palette-alt"]') as HTMLElement;
+    // Its own rebind affordance, named for the alias.
+    const rebind = within(alias).getByRole("button", {
+      name: "Change binding for Command palette (alternate)",
+    });
+    fireEvent.click(rebind);
+    expect(within(alias).getByText("press keys…")).toBeInTheDocument();
+    // The primary is untouched — it is not the row in capture.
+    const primary = document.querySelector('[data-actionid="command-palette"]') as HTMLElement;
+    expect(within(primary).queryByText("press keys…")).toBeNull();
+  });
+
+  // The panel's platform control is a DISPLAY toggle — the effective map still
+  // resolves for the detected host — so mac's "no alias row" guarantee cannot
+  // be asserted through it here. What makes mac safe is the rule below: an
+  // alias that resolves UNBOUND contributes no row, and `macCode: ""` is
+  // exactly what leaves it unbound on mac (asserted in keybindings.test.ts).
+  it("an unbound alias contributes no continuation row — the rule that keeps mac unchanged", () => {
+    localStorage.setItem(
+      KEYBINDINGS_STORAGE_KEY,
+      JSON.stringify({ "command-palette-alt": null }),
+    );
+    renderPanel();
+    expect(document.querySelector('[data-actionid="command-palette"]')).toBeInTheDocument();
+    expect(document.querySelector('[data-actionid="command-palette-alt"]')).toBeNull();
+  });
+});

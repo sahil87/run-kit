@@ -31,7 +31,7 @@ import { selectLivePanes } from "./select-live-panes";
 import { useBoardPaneReorder } from "@/hooks/use-board-pane-reorder";
 import { computeMoveNeighbors, focusedIndexForKey, shouldFocusPane } from "@/lib/board-reorder";
 import { isWaiting } from "@/lib/waiting";
-import { withShortcutHints, formatCombo } from "@/lib/keybindings";
+import { withShortcutHints, chordHintFor } from "@/lib/keybindings";
 import { runComposeToggleChord } from "@/lib/compose-strip-events";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
@@ -317,7 +317,7 @@ function BoardPageContent({ name }: { name: string }) {
   // AppShell mounts its own; the two never co-mount. A missing handler (no
   // panes) falls through untouched, matching the old `entries.length === 0`
   // early-return.
-  const { byAction: bindingByAction, host: bindingHost } = useKeybindings();
+  const { bindings: keybindings, byAction: bindingByAction, host: bindingHost } = useKeybindings();
   // Settings dialog trigger (o7q8) — the dialog mounts once in AppLayout; the
   // board twin registers both the chord handler (below) and the palette
   // opener. Lifted above the handler memo for the dep (260801-mqim).
@@ -437,11 +437,9 @@ function BoardPageContent({ name }: { name: string }) {
   // would lie) or when the pointer is coarse (the app's chord-hints-off-touch
   // rule — touch users get the pin-icon path only).
   const coarsePointer = useCoarsePointer();
-  const paletteBinding = bindingByAction.get("command-palette");
-  const paletteChord =
-    !coarsePointer && paletteBinding?.enabled
-      ? formatCombo({ code: paletteBinding.code, tier: paletteBinding.tier }, bindingHost.platform)
-      : undefined;
+  const paletteChord = coarsePointer
+    ? undefined
+    : chordHintFor("command-palette", keybindings, bindingHost.platform);
 
   // The update/check/maintenance/version palette groups moved to the
   // layout-level global list (260811-239r, `use-global-palette-actions.ts`) —

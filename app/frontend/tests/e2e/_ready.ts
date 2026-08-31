@@ -51,19 +51,16 @@ const PALETTE_ATTEMPT_TIMEOUT = 3_000;
 /**
  * Open the command palette and return its input, ready to `.fill()`.
  *
- * Use this instead of a bare `page.keyboard.press("Meta+k")`. A bare press can
- * be swallowed: when the xterm terminal owns focus on the Linux rig, xterm
- * HANDLES the chord rather than refusing it — `shouldRefuseTerminalChord`'s
- * cmd-tier rule is gated to macOS — and a key xterm handles is
- * `preventDefault`ed, which the window dispatcher drops on its opening
- * `if (e.defaultPrevented) return`. The palette never opens, and the caller
- * then hangs on whatever option it looked for next until the whole test
- * times out, blaming the wrong element.
+ * Presses the SHIFTED palette chord, which reaches the palette from every
+ * focus context on this Linux rig: the terminal seam refuses shifted-tier
+ * matches on every platform, so the event bubbles to the window dispatcher
+ * even while xterm owns focus. The unshifted form does not — there the cmd
+ * tier resolves to plain Ctrl+K, which xterm handles and `preventDefault`s,
+ * and the dispatcher drops on its opening `if (e.defaultPrevented) return`.
  *
- * The first attempt leaves focus alone, so a press that would have worked
- * behaves exactly as the bare press it replaces — specs that assert
- * focus-dependent behavior are unaffected. Only a failed attempt blurs the
- * active element, which is the actual remedy, before pressing again.
+ * The blur-and-retry below is a fallback for a chord lost some other way, not
+ * the mechanism. The first attempt leaves focus alone so specs that assert
+ * focus-dependent behavior are unaffected.
  */
 export async function openPalette(page: Page): Promise<Locator> {
   const input = page.getByPlaceholder("Type a command");
@@ -71,14 +68,14 @@ export async function openPalette(page: Page): Promise<Locator> {
     if (attempt > 0) {
       await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     }
-    await page.keyboard.press("Meta+k");
+    await page.keyboard.press("Shift+Control+k");
     // The last attempt asserts rather than probes, so exhaustion costs the same
     // three waits as success and the failure still names the palette — never a
     // fourth timeout, and never a downstream locator taking the blame.
     if (attempt === PALETTE_ATTEMPTS - 1) {
       await expect(
         input,
-        `command palette did not open after ${PALETTE_ATTEMPTS} Meta+k presses`,
+        `command palette did not open after ${PALETTE_ATTEMPTS} chord presses`,
       ).toBeVisible({ timeout: PALETTE_ATTEMPT_TIMEOUT });
       return input;
     }

@@ -1,0 +1,55 @@
+id: m1v0
+name: 260831-m1v0-palette-shifted-chord-alias
+created: 2026-08-31T04:04:55Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 16
+    acceptance_completed: 16
+confidence:
+    certain: 4
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.1
+    fuzzy: true
+    dimensions:
+        signal: 78.1
+        reversibility: 75.6
+        competence: 80.0
+        disambiguation: 73.8
+stage_metrics:
+    intake: {started_at: "2026-08-31T04:04:55Z", driver: fab-new, iterations: 1, completed_at: "2026-08-31T04:10:21Z"}
+    apply: {started_at: "2026-08-31T04:10:21Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-31T04:18:40Z"}
+    review: {started_at: "2026-08-31T04:18:40Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-31T04:35:18Z"}
+    hydrate: {started_at: "2026-08-31T04:35:18Z", driver: fab-fff, iterations: 1, completed_at: "2026-08-31T04:36:34Z"}
+    ship: {started_at: "2026-08-31T04:36:34Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 558
+    deleted: 199
+    net: 359
+    excluding:
+        added: 172
+        deleted: 198
+        net: -26
+    tests:
+        added: 124
+        deleted: 197
+        net: -73
+    computed_at: "2026-08-31T04:36:34Z"
+    computed_at_stage: hydrate
+summary: The command palette gains a second Win/Linux chord (Shift+Ctrl+K) via a new aliasOf binding field, so it is keyboard-reachable under terminal focus where plain Ctrl+K belongs to the pane; macOS unchanged.
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-08-31T04:36:34Z

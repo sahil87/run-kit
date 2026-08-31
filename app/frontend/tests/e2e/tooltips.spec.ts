@@ -240,18 +240,20 @@ test.describe("Status-bar label and hint tips (260723-fm08, retargeted 260814-ld
    * bottom-bar pair) carry tier-1 tips; the ⌘K hint pairs its "Command
    * palette" label with the REGISTRY-resolved shortcut rendered as a real
    * `<kbd>` keycap chip (platform-aware via `useKeybindings` +
-   * `formatCombo`; the pinned `devices["Desktop Chrome"]` UA is Windows, so
-   * `detectPlatform()` resolves `other` and the tip reads `Ctrl+K` on any
-   * host OS, while the chip's button face keeps the ⌘K brand glyph), and
-   * the migration contract holds (no native `title` on the chip).
+   * `chordHintFor`; the pinned `devices["Desktop Chrome"]` UA is Windows, so
+   * `detectPlatform()` resolves `other` and the tip lists BOTH Win/Linux
+   * palette chords — the primary Ctrl+K and its shifted alias — on any host
+   * OS, while the chip's button face keeps the ⌘K brand glyph), and the
+   * migration contract holds (no native `title` on the chip).
    *
    * Steps:
    * 1. Navigate to `/default/1` (mocked backend) and wait for the status
    *    bar's `Open command palette` chip to be visible.
    * 2. Assert the chip has NO `title` attribute.
    * 3. Hover the chip; assert the `role="tooltip"` element becomes visible,
-   *    contains "Command palette", and its `<kbd>` reads "Ctrl+K" (the
-   *    platform-effective chord under the pinned Windows device UA).
+   *    contains "Command palette", and its `<kbd>` reads
+   *    "Ctrl+K / Shift+Ctrl+K" — primary first, then the alias, the chords
+   *    effective under the pinned Windows device UA.
    */
   test("hovering the status bar's ⌘K hint shows its tip with the keycap slot", async ({ page }) => {
     await page.goto(`/${MOCK_SERVER}/1`);
@@ -267,10 +269,11 @@ test.describe("Status-bar label and hint tips (260723-fm08, retargeted 260814-ld
     const tooltip = page.getByRole("tooltip");
     await expect(tooltip).toBeVisible();
     await expect(tooltip).toContainText("Command palette");
-    // The REGISTRY-resolved palette chord renders as a real <kbd> keycap chip
-    // (260801-mqim) — "Ctrl+K" because devices["Desktop Chrome"] pins a
-    // Windows UA, so detectPlatform() resolves "other" on any host OS; no
-    // longer a static ⌘K (the chip's button face keeps the ⌘K brand glyph).
-    await expect(tooltip.locator("kbd")).toHaveText("Ctrl+K");
+    // The REGISTRY-resolved palette chords render as a real <kbd> keycap chip:
+    // Win/Linux carries two — plain Ctrl+K plus the shifted alias, the form
+    // that survives terminal focus — listed primary-first. devices["Desktop
+    // Chrome"] pins a Windows UA, so detectPlatform() resolves "other" on any
+    // host OS (the chip's button face keeps the ⌘K brand glyph).
+    await expect(tooltip.locator("kbd")).toHaveText("Ctrl+K / Shift+Ctrl+K");
   });
 });

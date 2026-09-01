@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-01T13:55:25Z"}
+{"args":"SSE derive debounce + branch-PR negative caching: coalesce notification-driven derive storms in the SSE hub (~300ms window) and add a ~10min negative-result TTL cache to the branch-PR refresher's gh fallback","cmd":"fab-new","event":"command","ts":"2026-09-01T13:55:25Z"}
+{"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-09-01T13:57:48Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-09-01T13:59:01Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-01T14:00:29Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-01T14:00:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-01T14:14:04Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-01T14:28:51Z"}
+{"event":"review","result":"passed","ts":"2026-09-01T14:28:51Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-01T14:31:36Z"}

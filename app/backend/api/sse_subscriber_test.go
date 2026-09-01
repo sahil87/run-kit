@@ -18,9 +18,9 @@ import (
 // per-server generation via Bump(), which closes the wait channel of any
 // outstanding Wait callers.
 type stubSubscriber struct {
-	mu       sync.Mutex
-	gen      map[string]int64
-	waiters  map[string][]chan struct{}
+	mu      sync.Mutex
+	gen     map[string]int64
+	waiters map[string][]chan struct{}
 }
 
 func newStubSubscriber() *stubSubscriber {
@@ -638,3 +638,116 @@ func TestSSE_WakeInvalidatesFetchCache(t *testing.T) {
 
 // Silence unused-import warning if the kit changes shape.
 var _ = fmt.Sprintf
+
+// TestSSE_DebounceCoalescesBumpBurst: a burst of subscriber generation bumps
+// inside one sseEventDebounce window costs ONE derive (FetchSessions call),
+// not one per bump — the event-driven derive rate is floored at the window.
+// A bump arriving after the window closes derives again (nothing lost).
+func TestSSE_DebounceCoalescesBumpBurst(t *testing.T) {
+	sub := newStubSubscriber()
+	tracker := &fetchTracker{
+		result: map[string][]sessions.ProjectSession{
+			"kits": {{Name: "s1"}},
+		},
+	}
+	hub := newSSEHub(tracker, nil, nil, nil)
+	hub.subscriber = sub
+	hub.safetyInterval = 30 * time.Second // timer never wins in this test
+
+	client := &sseClient{ch: make(chan hubEvent, 64), server: "kits"}
+	hub.addClient(client)
+	t.Cleanup(func() { hub.removeClient(client) })
+
+	// Drain bootstrap and let the loop park in waitForNext.
+	select {
+	case <-client.ch:
+	case <-time.After(2 * time.Second):
+		t.Fatal("no bootstrap snapshot delivered")
+	}
+	time.Sleep(150 * time.Millisecond)
+	for len(client.ch) > 0 {
+		<-client.ch
+	}
+
+	start := tracker.count.Load()
+
+	// Five bumps well inside one 300ms window.
+	for i := 0; i < 5; i++ {
+		sub.Bump("kits")
+		time.Sleep(30 * time.Millisecond)
+	}
+	// Wait out the window plus the pass itself.
+	time.Sleep(800 * time.Millisecond)
+
+	if got := tracker.count.Load() - start; got != 1 {
+		t.Errorf("burst of 5 bumps drove %d derives, want 1 (coalesced)", got)
+	}
+
+	// A bump after the window derives again.
+	sub.Bump("kits")
+	time.Sleep(800 * time.Millisecond)
+	if got := tracker.count.Load() - start; got != 2 {
+		t.Errorf("post-window bump: total derives = %d, want 2", got)
+	}
+}
+
+// TestSSE_WakeBypassesPendingDebounce: an explicit wake() landing while a
+// subscriber-bump debounce window is pending ends the wait immediately — the
+// wake seam's sub-second post-mutation repaint must not be delayed by the
+// coalescing. The window is set LONG (2s) so a pass arriving promptly after
+// the wake can only mean the bypass worked.
+func TestSSE_WakeBypassesPendingDebounce(t *testing.T) {
+	sub := newStubSubscriber()
+	tracker := &fetchTracker{
+		result: map[string][]sessions.ProjectSession{
+			"kits": {{Name: "s1", Windows: []tmux.WindowInfo{{Index: 0, Name: "w0", IsActiveWindow: true}}}},
+		},
+	}
+	hub := newSSEHub(tracker, nil, nil, nil)
+	hub.subscriber = sub
+	hub.safetyInterval = 30 * time.Second
+	hub.eventDebounce = 2 * time.Second
+
+	client := &sseClient{ch: make(chan hubEvent, 64), server: "kits"}
+	hub.addClient(client)
+	t.Cleanup(func() { hub.removeClient(client) })
+
+	select {
+	case <-client.ch:
+	case <-time.After(2 * time.Second):
+		t.Fatal("no bootstrap snapshot delivered")
+	}
+	time.Sleep(150 * time.Millisecond)
+	for len(client.ch) > 0 {
+		<-client.ch
+	}
+
+	// New content so the post-wake snapshot is recognizable.
+	tracker.mu.Lock()
+	tracker.result["kits"] = []sessions.ProjectSession{{
+		Name:    "s1",
+		Windows: []tmux.WindowInfo{{Index: 1, Name: "w1", IsActiveWindow: true}},
+	}}
+	tracker.mu.Unlock()
+
+	// Open the debounce window with a bump, then wake mid-window.
+	sub.Bump("kits")
+	time.Sleep(100 * time.Millisecond)
+	wakeTime := time.Now()
+	hub.wake("kits")
+
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case b := <-client.ch:
+			if strings.Contains(b.String(), "\"w1\"") {
+				if elapsed := time.Since(wakeTime); elapsed > time.Second {
+					t.Errorf("wake during pending debounce took %v (want well under the 2s window)", elapsed)
+				}
+				return
+			}
+		case <-deadline:
+			t.Fatal("never observed the wake-driven snapshot containing w1")
+		}
+	}
+}

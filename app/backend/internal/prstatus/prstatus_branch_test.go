@@ -222,8 +222,11 @@ func TestBranchRefresher_GhUnavailableNoExecCachedNegative(t *testing.T) {
 func TestBranchRefresher_AvailabilityReprobedAfterTTL(t *testing.T) {
 	availCalls := 0
 	r := NewBranchRefresher(branchPRRefreshInterval)
+	// A POSITIVE result: a confirmed negative would suppress the pair's gh
+	// fallback (branchPRNegativeTTL) and the second pass would never reach the
+	// availability probe this test is about.
 	r.exec = func(context.Context, string, string) ([]byte, error) {
-		return branchListJSON(), nil
+		return branchListJSON(branchNode(4, "https://x/pull/4", "2026-07-01T00:00:00Z")), nil
 	}
 	r.available = func(context.Context) bool {
 		availCalls++
@@ -1443,10 +1446,12 @@ func TestBranchRefresher_StoreViewerIndexSignalsWake(t *testing.T) {
 // first registrations.
 //
 // The ticker is set an hour out so ONLY a wake can drive a pass. The burst is
-// registered before Start, making the pre-seed pass count deterministic (the
-// immediate pass plus one coalesced wake pass, each resolving all three pairs via
-// gh while the index is empty). The seed then drives EXACTLY ONE further pass,
-// which resolves every pair from the index with ZERO additional gh calls.
+// registered before Start, making the pre-seed gh count deterministic: the
+// immediate pass resolves all three pairs via gh (3 calls, each a confirmed
+// negative); the coalesced wake pass re-runs but every pair now holds a fresh
+// gh-confirmed negative (branchPRNegativeTTL), so it issues no further gh
+// calls. The seed then drives EXACTLY ONE further pass, which resolves every
+// pair from the index with ZERO additional gh calls.
 func TestBranchRefresher_SeedAfterRegistrationDrivesIndexServedPass(t *testing.T) {
 	var mu sync.Mutex
 	ghCalls, clockReads := 0, 0
@@ -1454,7 +1459,7 @@ func TestBranchRefresher_SeedAfterRegistrationDrivesIndexServedPass(t *testing.T
 	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
 		mu.Lock()
 		ghCalls++
-		if ghCalls == 6 {
+		if ghCalls == 3 {
 			close(preSeedDone)
 		}
 		mu.Unlock()
@@ -1491,14 +1496,14 @@ func TestBranchRefresher_SeedAfterRegistrationDrivesIndexServedPass(t *testing.T
 		mu.Lock()
 		got := ghCalls
 		mu.Unlock()
-		t.Fatalf("pre-seed passes did not complete: gh calls = %d, want 6", got)
+		t.Fatalf("pre-seed passes did not complete: gh calls = %d, want 3", got)
 	}
 	time.Sleep(20 * r.wakeDebounce) // let the loop go quiet before sampling
 	mu.Lock()
 	ghBefore, readsBefore := ghCalls, clockReads
 	mu.Unlock()
-	if ghBefore != 6 {
-		t.Fatalf("pre-seed gh calls = %d, want 6 (initial pass + one coalesced wake pass)", ghBefore)
+	if ghBefore != 3 {
+		t.Fatalf("pre-seed gh calls = %d, want 3 (initial pass only — the coalesced wake pass is suppressed by fresh negatives)", ghBefore)
 	}
 	for _, b := range branches {
 		if pr, ok := r.Snapshot("/repo", b); ok || pr != nil {
@@ -2206,5 +2211,151 @@ func TestMapBranchState(t *testing.T) {
 		if got := MapBranchState(in); got != want {
 			t.Errorf("MapBranchState(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// TestBranchRefresher_NegativeSuppressesGhWithinTTL: a gh-CONFIRMED negative
+// (successfully parsed empty result) suppresses the pair's gh fallback on
+// subsequent passes while fresh — the fix for PR-less branches re-running
+// `gh pr list` every 30s pass forever.
+func TestBranchRefresher_NegativeSuppressesGhWithinTTL(t *testing.T) {
+	calls := 0
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		calls++
+		return branchListJSON(), nil // parsed empty = confirmed no PR
+	})
+	r.Register("/repo", "feat")
+	r.refresh(context.Background())
+	if calls != 1 {
+		t.Fatalf("first pass execs = %d, want 1", calls)
+	}
+	r.refresh(context.Background())
+	r.refresh(context.Background())
+	if calls != 1 {
+		t.Errorf("passes within branchPRNegativeTTL execs = %d, want 1 (fresh negative suppresses the fallback)", calls)
+	}
+	if pr, ok := r.Snapshot("/repo", "feat"); ok || pr != nil {
+		t.Errorf("snapshot must stay negative, got ok=%v pr=%v", ok, pr)
+	}
+}
+
+// TestBranchRefresher_NegativeExpiryReExecs: the suppression is TTL-bounded —
+// once the negative ages past branchPRNegativeTTL the fallback runs again.
+// Pairs are re-Registered as the clock advances, mirroring production (every
+// SSE enrichment pass re-observes live pairs), so branchPRObservedTTL never
+// parks the pair before the negative TTL is exercised.
+func TestBranchRefresher_NegativeExpiryReExecs(t *testing.T) {
+	calls := 0
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		calls++
+		return branchListJSON(), nil
+	})
+	now := time.Unix(1_000_000, 0)
+	r.now = func() time.Time { return now }
+
+	r.Register("/repo", "feat")
+	r.refresh(context.Background()) // confirms the negative
+	if calls != 1 {
+		t.Fatalf("first pass execs = %d, want 1", calls)
+	}
+
+	// Mid-TTL: still suppressed.
+	now = now.Add(4 * time.Minute)
+	r.Register("/repo", "feat") // re-observe (bumps observedAt)
+	r.refresh(context.Background())
+	if calls != 1 {
+		t.Errorf("mid-TTL pass execs = %d, want 1", calls)
+	}
+
+	// Past the TTL: re-query.
+	now = now.Add(branchPRNegativeTTL)
+	r.Register("/repo", "feat")
+	r.refresh(context.Background())
+	if calls != 2 {
+		t.Errorf("post-TTL pass execs = %d, want 2 (negative expired)", calls)
+	}
+}
+
+// TestBranchRefresher_IndexHitOverridesFreshNegative: the viewer head-index
+// join runs BEFORE the fallback every pass, so a PR newly visible to the
+// 90s collector overrides a fresh negative immediately — no gh call, and the
+// negative clock is cleared by the positive write.
+func TestBranchRefresher_IndexHitOverridesFreshNegative(t *testing.T) {
+	ghCalls := 0
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		ghCalls++
+		return branchListJSON(), nil
+	})
+	withOrigin(r, "git@github.com:sahil87/run-kit.git")
+
+	r.Register("/repo", "feat")
+	r.refresh(context.Background()) // index empty → gh path → confirmed negative
+	if ghCalls != 1 {
+		t.Fatalf("first pass execs = %d, want 1", ghCalls)
+	}
+
+	seedIndex(r, viewerPR(77, ghPRURL("sahil87/run-kit", 77), "OPEN", "sahil87/run-kit", "feat", ts(t, "2026-08-01T00:00:00Z")))
+	r.refresh(context.Background())
+
+	pr, ok := r.Snapshot("/repo", "feat")
+	if !ok || pr == nil || pr.Number != 77 {
+		t.Fatalf("index hit must override the fresh negative, got ok=%v pr=%v", ok, pr)
+	}
+	if ghCalls != 1 {
+		t.Errorf("override pass execs = %d, want 1 (index join, no gh)", ghCalls)
+	}
+	r.mu.RLock()
+	e := r.entries[branchPRCacheKey("/repo", "feat")]
+	r.mu.RUnlock()
+	if !e.negativeAt.IsZero() {
+		t.Errorf("positive write must clear negativeAt, got %v", e.negativeAt)
+	}
+}
+
+// TestBranchRefresher_TransientErrorWritesNoNegative: a transient exec error
+// keeps last-good and stamps NO negative clock — only a successfully parsed
+// empty result is authoritative, so the next pass re-queries.
+func TestBranchRefresher_TransientErrorWritesNoNegative(t *testing.T) {
+	calls := 0
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		calls++
+		return nil, errors.New("gh boom")
+	})
+	r.Register("/repo", "feat")
+	r.refresh(context.Background())
+
+	r.mu.RLock()
+	e := r.entries[branchPRCacheKey("/repo", "feat")]
+	r.mu.RUnlock()
+	if !e.negativeAt.IsZero() {
+		t.Errorf("transient error must not stamp negativeAt, got %v", e.negativeAt)
+	}
+
+	r.refresh(context.Background())
+	if calls != 2 {
+		t.Errorf("execs = %d, want 2 (no suppression after a transient error)", calls)
+	}
+}
+
+// TestBranchRefresher_SeededNegativeStillQueries: only a negative derived by
+// THIS process's gh path starts the TTL clock. An entry holding pr == nil
+// without a negativeAt stamp (the seeded / not-yet-resolved shape) must still
+// reach the gh fallback. SeedEntries rejects PR-less seeds, so the shape is
+// planted directly — the test pins the structural rule, not a seed pathway.
+func TestBranchRefresher_SeededNegativeStillQueries(t *testing.T) {
+	calls := 0
+	r := newTestRefresher(true, func(context.Context, string, string) ([]byte, error) {
+		calls++
+		return branchListJSON(), nil
+	})
+	r.mu.Lock()
+	r.entries[branchPRCacheKey("/repo", "feat")] = branchEntry{
+		pr: nil, observedAt: r.now(), seeded: true,
+	}
+	r.mu.Unlock()
+
+	r.refresh(context.Background())
+	if calls != 1 {
+		t.Errorf("seeded pr==nil entry execs = %d, want 1 (no TTL clock without a gh confirmation)", calls)
 	}
 }

@@ -119,6 +119,17 @@ const (
 	// window regardless of pair count.
 	branchOriginTTL = 5 * time.Minute
 
+	// branchPRNegativeTTL bounds how long a gh-CONFIRMED negative ("no PR for
+	// this (repo, branch)") suppresses the per-pair gh fallback. Without it, a
+	// PR-less branch — the common case across many worktrees, since a viewer-
+	// index miss is never authoritative — re-runs `gh pr list` on EVERY pass
+	// forever. The TTL is the worst-case delay for a PR created by other means
+	// (another author, another machine) to appear; viewer-authored PRs land
+	// faster via the head-index join, which runs before the fallback and
+	// overrides a fresh negative immediately. Only a negative derived by THIS
+	// process's gh path starts the clock — seeded entries never do.
+	branchPRNegativeTTL = 10 * time.Minute
+
 	// branchPRWakeDebounce is the settle window a registration wake waits out
 	// before running its refresh pass, draining any further wakes. One SSE
 	// enrichment pass registers every observed pair back-to-back, so a burst of
@@ -368,6 +379,14 @@ func parseDefaultBranch(out []byte) (string, bool) {
 type branchEntry struct {
 	pr         *BranchPR // last-known PR
 	observedAt time.Time // last Register time — drives age-out
+	// negativeAt is the wall-clock time THIS process's gh path last confirmed
+	// "no PR" for the pair (a successfully parsed empty `gh pr list` result).
+	// Zero for not-yet-resolved, seeded, and positive entries — it is stamped
+	// only at the gh-path true-negative write and zeroed by every other write
+	// (gh positive, index hit, default-branch exclusion). While fresh (within
+	// branchPRNegativeTTL) the pass skips the pair's gh fallback; the exclusion
+	// and index join still run first and override immediately.
+	negativeAt time.Time
 	// seeded marks an entry whose pr came from the DISK SEED rather than from this
 	// process's own derivation — either seeded directly (SeedEntries) or resolved
 	// from a seed-originated head-index. It is cleared the moment a pass writes a
@@ -899,6 +918,10 @@ func (r *BranchRefresher) refresh(ctx context.Context) {
 	type pending struct {
 		key             string
 		repoDir, branch string
+		// freshNegative carries the entry's gh-confirmed-negative freshness,
+		// captured under the same lock that built the todo list, so the gh
+		// fallback below can skip the pair without re-taking r.mu per pair.
+		freshNegative bool
 	}
 	var todo []pending
 	liveRepos := make(map[string]struct{})
@@ -917,7 +940,10 @@ func (r *BranchRefresher) refresh(ctx context.Context) {
 		}
 		repoDir, branch := splitBranchPRKey(key)
 		liveRepos[repoDir] = struct{}{}
-		todo = append(todo, pending{key: key, repoDir: repoDir, branch: branch})
+		todo = append(todo, pending{
+			key: key, repoDir: repoDir, branch: branch,
+			freshNegative: !e.negativeAt.IsZero() && now.Sub(e.negativeAt) < branchPRNegativeTTL,
+		})
 	}
 	// Prune per-repo default-branch verdicts for repos no live pair observes
 	// anymore. Best-effort, timestamp-guarded: a repo whose newest verdict is
@@ -991,6 +1017,9 @@ func (r *BranchRefresher) refresh(ctx context.Context) {
 			if e, present := r.entries[p.key]; present { // may have aged out concurrently
 				e.pr = nil
 				e.seeded = false // freshly derived (an authoritative negative), no longer a seed
+				// A different negative kind: re-derived from the local cache each
+				// pass, never via gh — it carries no gh-confirmation clock.
+				e.negativeAt = time.Time{}
 				r.entries[p.key] = e
 			}
 			r.mu.Unlock()
@@ -1020,6 +1049,9 @@ func (r *BranchRefresher) refresh(ctx context.Context) {
 				// here, so a concurrent index replacement can never leave account A's
 				// data written unmarked.
 				e.seeded = seeded
+				// An index hit is a positive resolution — it overrides (and
+				// clears) any standing gh-confirmed negative immediately.
+				e.negativeAt = time.Time{}
 				r.entries[p.key] = e
 			}
 			r.mu.Unlock()
@@ -1027,6 +1059,14 @@ func (r *BranchRefresher) refresh(ctx context.Context) {
 		}
 
 		// gh path: only reachable for a non-default branch the index did not cover.
+		// A fresh gh-confirmed negative suppresses the fallback entirely — checked
+		// BEFORE the availability probe so a pass whose every pair is fresh-negative
+		// issues no gh subprocess at all (the same laziness rule the probe itself
+		// follows). The exclusion and index join above already ran, so a PR newly
+		// visible to either has already overridden the negative.
+		if p.freshNegative {
+			continue
+		}
 		// This is also the FIRST point at which gh availability matters, so it is
 		// where the probe is resolved (once per pass, memoized). Skip the pair when
 		// gh is unavailable (keeping last-good, stale-while-revalidate) — the
@@ -1056,6 +1096,14 @@ func (r *BranchRefresher) refresh(ctx context.Context) {
 			// a merged PR resolving positive, so the done-square is stateless.
 			e.pr = pr
 			e.seeded = false // derived by THIS process, no longer a seed
+			if pr == nil {
+				// gh confirmed "no PR" — start (or restart) the negative TTL
+				// clock so subsequent passes skip this pair's fallback until
+				// branchPRNegativeTTL elapses.
+				e.negativeAt = now
+			} else {
+				e.negativeAt = time.Time{}
+			}
 			r.entries[p.key] = e
 		}
 		r.mu.Unlock()

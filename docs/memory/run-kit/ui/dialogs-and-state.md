@@ -296,7 +296,7 @@ Window kill state is tracked in the Zustand window store by `windowId` (the immu
 
 When the next SSE update arrives without the `windowId`, `setWindowsForSession` removes the entry from the store entirely — regardless of whether `killed` is set. No explicit `confirmKill` action is needed.
 
-**Three `useOptimisticAction` instances** use this pattern, and every window-kill `action` awaits the response and pushes its `closed` record via `pushRecentlyClosed(srv, res.closed)` when present (the `srv` is the per-call captured server — Shape B; a `closed`-less response pushes nothing):
+**Four `useOptimisticAction` instances** use this pattern, and every window-kill `action` awaits the response and pushes its `closed` record via `pushRecentlyClosed(srv, res.closed)` when present (the `srv` is the per-call captured server — Shape B; a `closed`-less response pushes nothing):
 
 | Instance | File | Kill path |
 |----------|------|-----------|

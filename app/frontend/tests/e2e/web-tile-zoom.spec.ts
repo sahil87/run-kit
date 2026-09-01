@@ -16,7 +16,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import http from "node:http";
-import { READY_TIMEOUT, resolveWindow as resolveWindowRaw } from "./_ready";
+import { openPalette, READY_TIMEOUT, resolveWindow as resolveWindowRaw } from "./_ready";
 import { TMUX_SERVER, createSession, killSession, newWindow, stampWebTab } from "./_tmux";
 
 // Own session so this file never collides with other specs (fullyParallel off).
@@ -163,16 +163,14 @@ test.describe("Web tile — content zoom (260823-cwvv R2–R5)", () => {
    *
    * Steps:
    * 1. Open a proxied web tile.
-   * 2. Open the command palette (⌘K) and type `Web: Zoom`.
+   * 2. Open the command palette (`openPalette`) and type `Web: Zoom`.
    * 3. Click the `Web: Zoom in` option.
    * 4. Assert the readout steps to `110%`.
    */
   test("(c) the `Web: Zoom in` palette entry steps the tile", async ({ page }) => {
     const id = await makeWindow(page, `wz-palette-${Date.now()}`, `http://localhost:${stub.port}/`);
     await gotoWebWindow(page, id);
-    await page.keyboard.press("Meta+k");
-    const paletteInput = page.getByPlaceholder("Type a command");
-    await expect(paletteInput).toBeVisible({ timeout: 5_000 });
+    const paletteInput = await openPalette(page);
     await paletteInput.fill("Web: Zoom");
     const option = page.getByRole("option", { name: /Web: Zoom in/ });
     await expect(option).toBeVisible({ timeout: 10_000 });
@@ -199,9 +197,7 @@ test.describe("Web tile — content zoom (260823-cwvv R2–R5)", () => {
     await expect(page.getByTestId("web-tile-onboarding")).toBeVisible({ timeout: READY_TIMEOUT });
     await expect(zoomControl(page)).toHaveCount(0);
 
-    await page.keyboard.press("Meta+k");
-    const paletteInput = page.getByPlaceholder("Type a command");
-    await expect(paletteInput).toBeVisible({ timeout: 5_000 });
+    const paletteInput = await openPalette(page);
     await paletteInput.fill("Web: Zoom");
     await expect(page.getByRole("option", { name: /Web: Zoom/ })).toHaveCount(0);
     await page.keyboard.press("Escape");

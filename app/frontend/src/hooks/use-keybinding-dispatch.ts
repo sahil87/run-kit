@@ -16,6 +16,9 @@ export type KeybindingHandlers = Record<string, (() => void) | undefined>;
  * Rules, in order:
  *  1. Events something else already claimed (`defaultPrevented` — e.g. the
  *     overlay's capture-phase rebind listener) are ignored.
+ *  1b. A matched binding's handler is looked up under `aliasOf` when it names
+ *     one — an alias fires the action it aliases, so one action can answer to
+ *     a second chord without a duplicate handler entry.
  *  2. Only enabled effective bindings match; `findMatches` orders them
  *     scoped-beats-global (260730-n789), and the FIRST match with a handler
  *     at this mount fires — so on macOS, where the board pane-cycle pair and
@@ -46,7 +49,7 @@ export function useKeybindingDispatch(handlers: KeybindingHandlers): void {
     function onKeyDown(e: KeyboardEvent) {
       if (e.defaultPrevented) return;
       for (const binding of findMatches(e, bindingsRef.current)) {
-        const handler = handlersRef.current[binding.actionId];
+        const handler = handlersRef.current[binding.aliasOf ?? binding.actionId];
         if (!handler) continue;
         if (!binding.ignoreInputs && shouldSuppressChord(e.target)) continue;
         e.preventDefault();

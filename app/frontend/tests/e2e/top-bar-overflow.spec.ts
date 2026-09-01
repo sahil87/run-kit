@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { resolveWindow as resolveWindowRaw, gotoWindow as gotoWindowRaw } from "./_ready";
+import { gotoWindow as gotoWindowRaw, openPalette, resolveWindow as resolveWindowRaw } from "./_ready";
 import { TMUX_SERVER, createSession, killSession, newWindow, stampWebTab, windowOption } from "./_tmux";
 import { stubProxyPorts } from "./_web-tile";
 
@@ -936,7 +936,7 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
    * Steps:
    * 1. Navigate to the web-capable window; set 1440×800; gate on the
    *    renamable heading.
-   * 2. Press `Meta+k`; fill `View: Web`; click the `View: Web` option.
+   * 2. Open the palette (`openPalette`); fill `View: Web`; click the `View: Web` option.
    * 3. Assert the window's `@rk_win_layout` option reads `single:web` and
    *    the proxied iframe (`title="Proxied content"`) renders.
    */
@@ -953,9 +953,7 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
     // The command palette's `View: Web` action switches the lens: the selection
     // becomes a `single:web` layout POSTed to the shared option (the URL never
     // carries it).
-    await page.keyboard.press("Meta+k");
-    const paletteInput = page.getByPlaceholder("Type a command");
-    await expect(paletteInput).toBeVisible({ timeout: 5_000 });
+    const paletteInput = await openPalette(page);
     await paletteInput.fill("View: Web");
     const webOption = page.getByRole("option", { name: "View: Web" });
     await expect(webOption).toBeVisible();

@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { pinWindow } from "./_boards";
-import { resolveWindow, gotoWindow } from "./_ready";
+import { gotoWindow, openPalette, resolveWindow } from "./_ready";
 import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
 // The end-to-end pin lifecycle: pinning a real tmux window via the HTTP API
@@ -141,7 +141,7 @@ test.describe("Boards: Pin flow", () => {
    * 2. Resolve win-b's id and navigate to its terminal route so the palette's
    *    current window is win-b (not yet pinned to <board>, so the direct-pin
    *    entry is offered).
-   * 3. Open the palette (Meta+k), fill `Pin: Current Tab to <board>`, wait for
+   * 3. Open the palette (`openPalette`), fill `Pin: Current Tab to <board>`, wait for
    *    the filtered option to render (the entry exists only once the boards
    *    fetch and window context resolve — pressing Enter earlier is a silent
    *    no-op), then press Enter.
@@ -168,9 +168,7 @@ test.describe("Boards: Pin flow", () => {
     await gotoWindow(page, TMUX_SERVER, winB);
 
     // Open the command palette and run the direct-pin action.
-    await page.keyboard.press("Meta+k");
-    const paletteInput = page.getByPlaceholder("Type a command");
-    await expect(paletteInput).toBeVisible({ timeout: 5_000 });
+    const paletteInput = await openPalette(page);
     await paletteInput.fill(`Pin: Current Tab to ${board}`);
     // The direct-pin entry only exists once useBoards' fetch and the
     // session/window context have resolved — on a slow runner Enter can fire

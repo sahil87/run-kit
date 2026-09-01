@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { openPalette } from "./_ready";
 import { mockStateSocket } from "./_state-socket-mock";
 
 // Open-in-App split-button. Fully mocked — no tmux server, no wt on the
@@ -201,7 +202,7 @@ test.describe("Open-in-App split-button (260722-6d0f)", () => {
    * 1. Install the mocked backend with the two-app registry; navigate and
    *    wait for the ▦ Layout anchor, then for the Open primary segment (the
    *    registry fetch landed).
-   * 2. Open the palette (`Meta+k`), type `Open:`.
+   * 2. Open the palette (`openPalette`), type `Open:`.
    * 3. Assert both `Open: VS Code` and `Open: iTerm` options are listed.
    */
   test("every target is palette-reachable as an Open: entry (Constitution V)", async ({
@@ -214,9 +215,7 @@ test.describe("Open-in-App split-button (260722-6d0f)", () => {
     // palette entries derive from the same async fetch).
     await expect(openPrimary(page)).toBeVisible({ timeout: 10_000 });
 
-    await page.keyboard.press("Meta+k");
-    const paletteInput = page.getByPlaceholder("Type a command");
-    await expect(paletteInput).toBeVisible({ timeout: 5_000 });
+    const paletteInput = await openPalette(page);
     await paletteInput.fill("Open:");
     await expect(page.getByRole("option", { name: "Open: VS Code" })).toBeVisible();
     await expect(page.getByRole("option", { name: "Open: iTerm" })).toBeVisible();
@@ -260,9 +259,7 @@ test.describe("Open-in-App split-button (260722-6d0f)", () => {
     await page.keyboard.press("Escape");
 
     // No Open: palette entries.
-    await page.keyboard.press("Meta+k");
-    const paletteInput = page.getByPlaceholder("Type a command");
-    await expect(paletteInput).toBeVisible({ timeout: 5_000 });
+    const paletteInput = await openPalette(page);
     await paletteInput.fill("Open:");
     await expect(page.getByRole("option", { name: /^Open:/ })).toHaveCount(0);
   });

@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { gotoServerReady, resolveWindow } from "./_ready";
+import { gotoServerReady, openPalette, resolveWindow } from "./_ready";
 import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
 /**
@@ -347,8 +347,7 @@ test.describe("Sidebar window-row multi-select", () => {
 
     const actionLabel = "Selection: Close 2 tabs";
     const confirmLabel = "Close 2 tabs — Enter to confirm";
-    await page.keyboard.press("Meta+k");
-    let paletteInput = page.getByPlaceholder("Type a command");
+    let paletteInput = await openPalette(page);
     await paletteInput.fill(actionLabel);
     await page.keyboard.press("Enter");
     await expect(page.getByRole("option", { name: confirmLabel })).toBeVisible();
@@ -365,8 +364,7 @@ test.describe("Sidebar window-row multi-select", () => {
       "2 selected",
     );
 
-    await page.keyboard.press("Meta+k");
-    paletteInput = page.getByPlaceholder("Type a command");
+    paletteInput = await openPalette(page);
     await paletteInput.fill(actionLabel);
     await page.keyboard.press("Enter");
     await expect(page.getByRole("option", { name: confirmLabel })).toBeVisible();
@@ -456,8 +454,7 @@ test.describe("Sidebar window-row multi-select", () => {
         .click({ modifiers: ["ControlOrMeta"] });
     }
     const actionLabel = "Selection: Send prompt to 2 agents";
-    await page.keyboard.press("Meta+k");
-    const paletteInput = page.getByPlaceholder("Type a command");
+    const paletteInput = await openPalette(page);
     await paletteInput.fill(actionLabel);
     await page.keyboard.press("Enter");
 
@@ -511,7 +508,7 @@ test.describe("Sidebar window-row multi-select", () => {
    * Steps:
    * 1. openTree; resolve `alpha` and `beta`.
    * 2. Modifier-click both rows; assert the indicator reads `2 selected`.
-   * 3. Press Meta+k, fill the palette with
+   * 3. Open the palette (`openPalette`), fill it with
    *    `Selection: Move 2 tabs to <dst-session>`, wait for the option to
    *    render, and press Enter.
    * 4. Assert the toast `Moved 2 tabs to <dst-session>` appears.
@@ -542,9 +539,7 @@ test.describe("Sidebar window-row multi-select", () => {
 
     // Run the per-target-session palette entry.
     const label = `Selection: Move 2 tabs to ${DST_SESSION}`;
-    await page.keyboard.press("Meta+k");
-    const paletteInput = page.getByPlaceholder("Type a command");
-    await expect(paletteInput).toBeVisible({ timeout: 5_000 });
+    const paletteInput = await openPalette(page);
     await paletteInput.fill(label);
     await expect(page.getByRole("option", { name: label })).toBeVisible({
       timeout: 10_000,

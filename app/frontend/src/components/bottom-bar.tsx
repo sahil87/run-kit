@@ -10,7 +10,7 @@ import {
   isComposeStripFocused,
   subscribeComposeStripFocus,
 } from "@/lib/compose-strip-events";
-import { formatCombo } from "@/lib/keybindings";
+import { chordHintFor } from "@/lib/keybindings";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 
@@ -94,13 +94,9 @@ export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
   // HOST-effective chords for the chip tips' kbd slots (the settings-gear
   // chord pattern, 260801-mqim): reflect overrides, omitted when
   // unbound/disabled (a tip advertising a dead chord would lie).
-  const { byAction: keybindingsByAction, host: keybindingHost } = useKeybindings();
-  const chordFor = (actionId: string) => {
-    const binding = keybindingsByAction.get(actionId);
-    return binding?.enabled
-      ? formatCombo({ code: binding.code, tier: binding.tier }, keybindingHost.platform)
-      : undefined;
-  };
+  const { bindings: keybindings, host: keybindingHost } = useKeybindings();
+  const chordFor = (actionId: string) =>
+    chordHintFor(actionId, keybindings, keybindingHost.platform);
   const composeChord = chordFor("compose-toggle");
   const paletteChord = chordFor("command-palette");
   // Pointer gate for the compose hint (260811-0f3d): chords are noise on

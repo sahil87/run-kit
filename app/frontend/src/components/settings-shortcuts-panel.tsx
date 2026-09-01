@@ -396,9 +396,21 @@ export function SettingsShortcutsPanel({
     );
   };
 
-  /** Registry rows for one scope group (macros render in CUSTOM, not here). */
+  /** Registry rows for one scope group (macros render in CUSTOM, not here).
+   *  Aliases are excluded — they render as an indented continuation of the
+   *  action they alias, not as a second row wearing the same label. */
   const rowsForScope = (scope: BindingScope) =>
-    bindings.filter((b) => b.kind !== "macro" && b.scope === scope && matchesQuery(b));
+    bindings.filter(
+      (b) =>
+        b.kind !== "macro" && b.scope === scope && b.aliasOf == null && matchesQuery(b),
+    );
+
+  /** The ENABLED alias rows belonging to one action, in registry order. An
+   *  alias that resolves unbound on this host (the Win/Linux palette alias is
+   *  keyless on mac) contributes no row — a host that ships no second chord
+   *  shows no second chord. */
+  const aliasesOf = (actionId: string) =>
+    bindings.filter((b) => b.aliasOf === actionId && b.enabled);
 
   // Shell-owned locked rows (accelerators live in the desktop shell's menu —
   // the registry only documents them). Rendered as a subgroup at the END of
@@ -581,6 +593,10 @@ export function SettingsShortcutsPanel({
   const bindingRow = (b: EffectiveBinding) => {
     const modified = hasOverride(b.actionId);
     const combo = { code: b.code, tier: b.tier };
+    // An alias continues the row above it: same action, second chord. It keeps
+    // its own capture/reset affordances (it is independently rebindable) but
+    // drops the repeated label so the pair reads as one action.
+    const isAlias = b.aliasOf != null;
     return (
       <div key={b.actionId} data-actionid={b.actionId}>
         <div className="group flex items-center gap-2.5 px-2 py-1.5 rounded hover:bg-bg-inset/70">
@@ -588,13 +604,19 @@ export function SettingsShortcutsPanel({
             className={`w-1.5 h-1.5 rounded-full flex-none ${modified ? "bg-accent" : "bg-transparent"}`}
             title={modified ? "modified from default" : undefined}
           />
-          <span className="flex-1 min-w-0 truncate">
-            {b.label}
-            {b.description && (
-              <span className="text-[11px] text-text-secondary"> — {b.description}</span>
+          <span className={`flex-1 min-w-0 truncate ${isAlias ? "pl-4 text-text-secondary" : ""}`}>
+            {isAlias ? (
+              <span className="text-[11px]">↳ also</span>
+            ) : (
+              <>
+                {b.label}
+                {b.description && (
+                  <span className="text-[11px] text-text-secondary"> — {b.description}</span>
+                )}
+              </>
             )}
           </span>
-          <ScopeBadge scope={b.scope} />
+          {!isAlias && <ScopeBadge scope={b.scope} />}
           {b.disabledReason === "user" ? (
             <button
               type="button"
@@ -806,7 +828,10 @@ export function SettingsShortcutsPanel({
               className="mt-4 scroll-mt-12"
             >
               <SectionHead name={group.name} />
-              {rows.map(bindingRow)}
+              {rows.flatMap((row) => [
+                bindingRow(row),
+                ...aliasesOf(row.actionId).map(bindingRow),
+              ])}
               {/* Shell-owned locked rows — accelerators live in the shell
                   menu; a GLOBAL subgroup, not a top-level section. */}
               {isGlobal && shellRows.length > 0 && (

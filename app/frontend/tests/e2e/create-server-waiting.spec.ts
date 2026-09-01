@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { gotoServerReady } from "./_ready";
+import { gotoServerReady, openPalette } from "./_ready";
 import { TMUX_SERVER, TMUX_FAMILY, killServer } from "./_tmux";
 
 /**
@@ -46,7 +46,7 @@ test.describe("Create server → waiting → view (no 'Server not found' flash)"
    * 1. Navigate to the existing e2e server (`/${TMUX_SERVER_A}`) and wait for
    *    the `Connected` indicator in the status bar (the desktop sidebar footer
    *    is gone, so the status-bar dot is the gate).
-   * 2. Open the command palette (`Meta+k`), type `Server: Create`, press Enter.
+   * 2. Open the command palette (`openPalette`), type `Server: Create`, press Enter.
    * 3. In the "Create tmux server" dialog, fill the `Server name` field with
    *    the freshly-generated server name and click the `Create` button.
    * 4. Assert the URL navigates to `/${CREATED_SERVER}`.
@@ -72,9 +72,7 @@ test.describe("Create server → waiting → view (no 'Server not found' flash)"
     await gotoServerReady(page, TMUX_SERVER_A);
 
     // Open the command palette and trigger "Server: Create".
-    await page.keyboard.press("Meta+k");
-    const paletteInput = page.getByPlaceholder("Type a command");
-    await expect(paletteInput).toBeVisible({ timeout: 5_000 });
+    const paletteInput = await openPalette(page);
     await paletteInput.fill("Server: Create");
     await page.keyboard.press("Enter");
 

@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { gotoServerReady } from "./_ready";
+import { gotoServerReady, openPalette } from "./_ready";
 import { TMUX_SERVER, TMUX_FAMILY, killServer } from "./_tmux";
 
 // Protected-server kill confirm dialog (the typed-name force-kill unlock).
@@ -75,9 +75,7 @@ test.describe("Protected server kill: typed-name confirm flow", () => {
     await gotoServerReady(page, TMUX_SERVER);
 
     // Open the guarded dialog via the palette's Server: Kill entry.
-    await page.keyboard.press("Meta+k");
-    const paletteInput = page.getByPlaceholder("Type a command");
-    await expect(paletteInput).toBeVisible({ timeout: 5_000 });
+    const paletteInput = await openPalette(page);
     await paletteInput.fill(`Server: Kill ${PROTECTED_SERVER}`);
     await page.keyboard.press("Enter");
 
@@ -104,8 +102,7 @@ test.describe("Protected server kill: typed-name confirm flow", () => {
     tmuxOn(PROTECTED_SERVER, ["has-session"]);
 
     // Reopen and force-kill for real: the server stops answering.
-    await page.keyboard.press("Meta+k");
-    await expect(paletteInput).toBeVisible({ timeout: 5_000 });
+    await openPalette(page);
     await paletteInput.fill(`Server: Kill ${PROTECTED_SERVER}`);
     await page.keyboard.press("Enter");
     await expect(confirmInput).toBeVisible({ timeout: 5_000 });

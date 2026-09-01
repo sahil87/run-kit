@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import http from "node:http";
-import { READY_TIMEOUT, resolveWindow as resolveWindowRaw } from "./_ready";
+import { openPalette, READY_TIMEOUT, resolveWindow as resolveWindowRaw } from "./_ready";
 import {
   TMUX_SERVER,
   createSession,
@@ -266,9 +266,7 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     await expect(codeToggle(page)).toBeVisible({ timeout: READY_TIMEOUT });
     // The ViewSwitcher is retired (260812-0c6o): the palette is the lens-switch
     // surface, and the chevron menu carries no `View:` rows.
-    await page.keyboard.press("Meta+k");
-    const paletteInput = page.getByPlaceholder("Type a command");
-    await expect(paletteInput).toBeVisible({ timeout: 5_000 });
+    const paletteInput = await openPalette(page);
     await paletteInput.fill("View: Code");
     await expect(page.getByRole("option", { name: "View: Code" })).toBeVisible();
     await page.keyboard.press("Escape");
@@ -287,9 +285,7 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     await gotoWindow(page, offRepo);
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
     await expect(codeToggle(page)).toHaveCount(0);
-    await page.keyboard.press("Meta+k");
-    const paletteInput2 = page.getByPlaceholder("Type a command");
-    await expect(paletteInput2).toBeVisible({ timeout: 5_000 });
+    const paletteInput2 = await openPalette(page);
     await paletteInput2.fill("View: Code");
     await expect(page.getByRole("option", { name: "View: Code" })).toHaveCount(0);
     await page.keyboard.press("Escape");

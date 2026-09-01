@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { openPalette } from "./_ready";
 import { mockStateSocket } from "./_state-socket-mock";
 
 // Web-UI agent spawn flow — surfacing `rk riff` as a one-action spawn
@@ -28,7 +29,7 @@ import { mockStateSocket } from "./_state-socket-mock";
 // presets mock returns these as `tiers` unless a test overrides them.
 // gotoTerminal(page) navigates to `/default/1` and waits for the "main"
 // window to render (the state-socket payload landed). openViaPalette opens
-// the palette (Meta+k), fills "Agent: Spawn", presses Enter.
+// the palette via `openPalette`, fills "Agent: Spawn", presses Enter.
 // openViaDropdown clicks the `Switch tab` trigger then the `+ New Agent`
 // menu item. openViaSidebarBot hovers the session row — the icon cluster is
 // pointer-events-none at rest — then clicks the `Spawn agent in {session}`
@@ -120,9 +121,7 @@ async function gotoTerminal(page: Page) {
 }
 
 async function openViaPalette(page: Page) {
-  await page.keyboard.press("Meta+k");
-  const paletteInput = page.getByPlaceholder("Type a command");
-  await expect(paletteInput).toBeVisible({ timeout: 5_000 });
+  const paletteInput = await openPalette(page);
   await paletteInput.fill("Agent: Spawn");
   await page.keyboard.press("Enter");
 }

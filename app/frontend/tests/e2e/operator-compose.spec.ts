@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { openPalette } from "./_ready";
 import { mockStateSocket } from "./_state-socket-mock";
 
 // Operator compose — spawn routing & semantic search: the two palette verbs,
@@ -95,9 +96,7 @@ async function gotoWindow(page: Page) {
 }
 
 async function openPaletteWith(page: Page, query: string) {
-  await page.keyboard.press("Meta+k");
-  const paletteInput = page.getByPlaceholder("Type a command");
-  await expect(paletteInput).toBeVisible({ timeout: 5_000 });
+  const paletteInput = await openPalette(page);
   await paletteInput.fill(query);
 }
 

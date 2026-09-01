@@ -29,13 +29,14 @@
  * for the status bar's `Connected` dot. `expectWindowLayout` is a retrying
  * read of the window's `@rk_win_layout` option (a verb's POST and the option
  * tick land asynchronously); `expectBareUrl` asserts the route carries no
- * search params. Palette helpers: `openPalette(query)` presses `Meta+k` and
- * fills the search input; `switchLens(label)` runs the palette's
+ * search params. Palette helpers: `openPaletteWith(query)` opens the palette
+ * via the shared `openPalette` and fills the search input; `switchLens(label)`
+ * runs the palette's
  * `View: {label}` option and waits for the palette to close.
  */
 import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { READY_TIMEOUT, resolveWindow as resolveWindowRaw } from "./_ready";
+import { openPalette, READY_TIMEOUT, resolveWindow as resolveWindowRaw } from "./_ready";
 import {
   TMUX_SERVER,
   createSession,
@@ -135,17 +136,15 @@ const inBarSwitcher = (page: Page) =>
   page.getByRole("group", { name: "Window view" });
 
 /** Open the command palette, fill the query, and return the input. */
-async function openPalette(page: Page, query: string) {
-  await page.keyboard.press("Meta+k");
-  const paletteInput = page.getByPlaceholder("Type a command");
-  await expect(paletteInput).toBeVisible({ timeout: 5_000 });
+async function openPaletteWith(page: Page, query: string) {
+  const paletteInput = await openPalette(page);
   await paletteInput.fill(query);
   return paletteInput;
 }
 
 /** Switch the lens via the palette's `View: {label}` action. */
 async function switchLens(page: Page, label: "Terminal" | "Web"): Promise<void> {
-  await openPalette(page, `View: ${label}`);
+  await openPaletteWith(page, `View: ${label}`);
   const option = page.getByRole("option", { name: `View: ${label}` });
   await expect(option).toBeVisible({ timeout: 10_000 });
   await option.click();
@@ -206,7 +205,7 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     const plain = await makeWindow(page, `wv-plain-${Date.now()}`, { cwd: "/tmp" });
     await gotoWindow(page, plain);
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
-    await openPalette(page, "View: Web");
+    await openPaletteWith(page, "View: Web");
     await expect(page.getByRole("option", { name: "View: Web" })).toBeVisible();
     await page.keyboard.press("Escape");
 
@@ -219,7 +218,7 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
     await expect(inBarSwitcher(page)).toHaveCount(0);
     await expect(page.getByTestId("view-toggle")).toHaveCount(0);
-    await openPalette(page, "View: Web");
+    await openPaletteWith(page, "View: Web");
     await expect(page.getByRole("option", { name: "View: Web" })).toBeVisible();
     await page.keyboard.press("Escape");
     await page.getByRole("button", { name: "More controls" }).click();
@@ -353,7 +352,7 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     await expect(terminal(page)).toBeHidden();
     await expectWindowLayout(id, "single:web");
     // The palette still offers the way back (web is current).
-    await openPalette(page, "View: Terminal");
+    await openPaletteWith(page, "View: Terminal");
     await expect(page.getByRole("option", { name: "View: Terminal" })).toBeVisible();
     await page.keyboard.press("Escape");
   });
@@ -514,7 +513,7 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     expectBareUrl(page);
     expect(windowOption(id, "@rk_win_layout")).toBe("");
     // The palette is the way back: `View: Terminal` is offered (web is current).
-    await openPalette(page, "View: Terminal");
+    await openPaletteWith(page, "View: Terminal");
     await expect(page.getByRole("option", { name: "View: Terminal" })).toBeVisible();
     await page.keyboard.press("Escape");
   });
@@ -649,7 +648,7 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
       timeout: READY_TIMEOUT,
     });
     await expect(ttyToggle).toHaveAttribute("aria-pressed", "false");
-    const paletteInput = await openPalette(page, "View: Web");
+    const paletteInput = await openPaletteWith(page, "View: Web");
     await expect(page.getByRole("option", { name: "View: Web", exact: true })).toHaveCount(0);
     await paletteInput.fill("Switch");
     const switchToTty = page.getByRole("option", { name: "Tile: Switch to Terminal" });
@@ -692,7 +691,7 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     await expect(page.getByText("Tab:", { exact: true })).toBeVisible({ timeout: 10_000 });
     await expect(inBarSwitcher(page)).toHaveCount(0);
     await expect(page.getByTestId("view-toggle")).toHaveCount(0);
-    const desktopPaletteInput = await openPalette(page, "View: Terminal");
+    const desktopPaletteInput = await openPaletteWith(page, "View: Terminal");
     await expect(
       page.getByRole("option", { name: "View: Terminal" }),
     ).toBeVisible({ timeout: 10_000 });

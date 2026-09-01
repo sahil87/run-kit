@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { execFileSync, execSync } from "node:child_process";
 import { pinWindow } from "./_boards";
-import { READY_TIMEOUT, resolveWindow } from "./_ready";
+import { openPalette, READY_TIMEOUT, resolveWindow } from "./_ready";
 import { TMUX_SERVER, createSession, killSession, listWindows, stampWebTab } from "./_tmux";
 
 /**
@@ -145,7 +145,7 @@ test.describe("Docked compose strip", () => {
    * 5. Reload the page; assert the chip is still pressed and the strip still
    *    visible (the `runkit-compose-strip` preference was persisted and
    *    rehydrated).
-   * 6. Open the palette (`Meta+k`), click `View: Text Input`; assert the chip
+   * 6. Open the palette (`openPalette`), click `View: Text Input`; assert the chip
    *    returns to `aria-pressed="false"` and the strip is gone.
    */
   test("toggle via a▏ chip and via the command palette; persists across reload", async ({ page }) => {
@@ -178,7 +178,7 @@ test.describe("Docked compose strip", () => {
     await expect(page.getByTestId("compose-strip")).toBeVisible();
 
     // Command-palette parity: `View: Text Input` toggles it back OFF.
-    await page.keyboard.press("Meta+k");
+    await openPalette(page);
     await page.getByRole("option", { name: "View: Text Input" }).click();
     await expect(page.getByRole("button", { name: "Compose text" })).toHaveAttribute(
       "aria-pressed",
@@ -751,7 +751,7 @@ test.describe("Docked compose strip", () => {
    * 2. Enable the strip via the `a▏` chip; assert it renders INSIDE
    *    `surface-tile-tty`; press Escape to blur the textarea (focus-on-open).
    * 3. Cmd/Ctrl-click both window rows in the sidebar tree to select them.
-   * 4. Open the palette (`Meta+k`), run `Selection: Send prompt to 2 agents`;
+   * 4. Open the palette (`openPalette`), run `Selection: Send prompt to 2 agents`;
    *    assert the strip's target label reads `2 selected`.
    * 5. Assert the strip is gone from the tty tile and visible inside
    *    `<footer>`; measure the outer row and poll until the inner wrapper spans
@@ -784,8 +784,8 @@ test.describe("Docked compose strip", () => {
       await expect(row).toBeVisible({ timeout: 10_000 });
       await row.click({ modifiers: ["ControlOrMeta"] });
     }
-    await page.keyboard.press("Meta+k");
-    await page.getByPlaceholder("Type a command").fill("Selection: Send prompt to 2 agents");
+    const paletteInput = await openPalette(page);
+    await paletteInput.fill("Selection: Send prompt to 2 agents");
     await page.keyboard.press("Enter");
     await expect(page.getByTestId("compose-strip-target")).toHaveText("2 selected");
 
@@ -814,7 +814,7 @@ test.describe("Docked compose strip", () => {
    * 1. Set a 375×812 viewport; navigate to the `cat` session's window; wait for
    *    the terminal (no `Connected` dot on mobile — the sidebar is an unmounted
    *    drawer).
-   * 2. Enable the strip via the palette (`⌘K` → `View: Text Input`) — at 375px
+   * 2. Enable the strip via the palette (`openPalette` → `View: Text Input`) — at 375px
    *    with a fine pointer neither bar renders (the bottom bar is
    *    pointer-gated to coarse, the status bar width-gated to desktop), so the
    *    keyboard-first path is the opener; assert the inner wrapper is visible
@@ -842,7 +842,7 @@ test.describe("Docked compose strip", () => {
     // neither bar renders — the bottom bar is pointer-gated to coarse and the
     // status bar is width-gated to desktop — so the keyboard-first palette
     // path (Constitution V) is the opener here.
-    await page.keyboard.press("Meta+k");
+    await openPalette(page);
     await page.getByRole("option", { name: "View: Text Input" }).click();
     const inner = page.getByTestId("compose-strip-inner");
     await expect(inner).toBeVisible();

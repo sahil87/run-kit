@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { gotoWindow, resolveWindow } from "./_ready";
+import { gotoWindow, openPalette, resolveWindow } from "./_ready";
 import { TMUX_SERVER, createSession, killSession } from "./_tmux";
 
 /**
@@ -21,7 +21,7 @@ import { TMUX_SERVER, createSession, killSession } from "./_tmux";
  * pass as created order. No route mocks — the app talks to the real dev
  * server and the real isolated tmux server; assertions poll tmux-side truth
  * (list-windows) AND the sidebar row order. openSortPicker(page) opens the
- * palette (Meta+k), selects `Session: Sort windows…`, and waits for the
+ * palette via `openPalette`, selects `Session: Sort windows…`, and waits for the
  * picker sub-step (`Pick sort keys — Space toggle · Enter apply`
  * placeholder). pickSortKeys(page, labels) clicks each named option row
  * (toggles it on in click order = priority order), then presses Enter to
@@ -115,9 +115,7 @@ function sidebarWindowOrder(page: Page): Promise<string[]> {
 /** Open the palette and select `Session: Sort windows…` — leaves the picker
  *  sub-step active. */
 async function openSortPicker(page: Page): Promise<void> {
-  await page.keyboard.press("Meta+k");
-  const paletteInput = page.getByPlaceholder("Type a command");
-  await expect(paletteInput).toBeVisible({ timeout: 5_000 });
+  const paletteInput = await openPalette(page);
   await paletteInput.fill("Session: Sort windows");
   await page.keyboard.press("Enter");
   await expect(

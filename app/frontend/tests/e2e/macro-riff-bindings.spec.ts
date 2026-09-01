@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { openPalette } from "./_ready";
 import { mockStateSocket } from "./_state-socket-mock";
 
 // Fully mocked (no tmux/wt/gh) — inject the state-socket `sessions` payload,
@@ -201,7 +202,7 @@ test.describe("palette exposure", () => {
    * Steps:
    * 1. Seed the `discuss` macro bound to ⇧Ctrl+D; mock the backend; open
    *    `/default/1`.
-   * 2. Open the palette (Meta+K) and filter for "Macro".
+   * 2. Open the palette (`openPalette`) and filter for "Macro".
    * 3. Assert `Macro: riff: discuss` is listed with the hint `Shift+Ctrl+D`
    *    (non-mac host formatting).
    * 4. Press Enter to select it; assert the spawn toast and the single POST
@@ -212,9 +213,7 @@ test.describe("palette exposure", () => {
     const spawnBodies = await mockBackend(page);
     await gotoWindowOne(page);
 
-    await page.keyboard.press("Meta+k");
-    const paletteInput = page.getByPlaceholder("Type a command");
-    await expect(paletteInput).toBeVisible();
+    const paletteInput = await openPalette(page);
     await paletteInput.fill("Macro");
     await expect(page.getByText("Macro: riff: discuss")).toBeVisible();
     // The effective combo decorates the entry (non-mac host → Shift+Ctrl+D).

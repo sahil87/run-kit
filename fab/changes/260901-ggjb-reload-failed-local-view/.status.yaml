@@ -5,17 +5,17 @@ created_by: Sahil Ahuja
 change_type: fix
 issues: []
 progress:
-    intake: ready
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
-    generated: false
-    task_count: 0
-    acceptance_count: 0
-    acceptance_completed: 0
+    generated: true
+    task_count: 4
+    acceptance_count: 14
+    acceptance_completed: 14
 confidence:
     certain: 2
     confident: 2
@@ -29,8 +29,27 @@ confidence:
         competence: 85.0
         disambiguation: 82.5
 stage_metrics:
-    intake: {started_at: "2026-09-01T14:26:50Z", driver: fab-new, iterations: 1}
+    intake: {started_at: "2026-09-01T14:26:50Z", driver: fab-new, iterations: 1, completed_at: "2026-09-01T14:38:46Z"}
+    apply: {started_at: "2026-09-01T14:38:46Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-01T14:39:43Z"}
+    review: {started_at: "2026-09-01T14:39:43Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-01T14:45:07Z"}
+    hydrate: {started_at: "2026-09-01T14:45:07Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-01T14:46:32Z"}
+    ship: {started_at: "2026-09-01T14:46:32Z", driver: fab-fff, iterations: 1}
 prs: []
 change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-01T14:46:32Z"
+    computed_at_stage: hydrate
+summary: Local connect tail heals a view stranded on Chromium's error page; the reload gate is now one shared reloadFailedView in main.ts serving both connect heals.
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-01T14:31:08Z
+last_updated: 2026-09-01T14:46:32Z

@@ -1,3 +1,10 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-01T14:26:50Z"}
 {"args":"fix: desktop shell local connect never reloads a failed local host view - port the remote heal's viewLoadFailed-gated reload to the local connect path","cmd":"fab-new","event":"command","ts":"2026-09-01T14:26:50Z"}
 {"delta":"+4.9","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-09-01T14:30:53Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-01T14:35:42Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-01T14:38:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-01T14:39:43Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-09-01T14:42:07Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-01T14:45:07Z"}
+{"event":"review","result":"passed","ts":"2026-09-01T14:45:07Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-01T14:46:32Z"}

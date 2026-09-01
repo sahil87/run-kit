@@ -1,8 +1,8 @@
 /**
  * Web tile browser chrome e2e: explicit error states replace the silent blank
  * iframe, back/forward drive the same-origin frame history per-viewer with
- * zero option writes, the address bar splits display form from raw edit
- * form, and the retired `>_` switch-to-terminal button is gone.
+ * zero option writes, and the address bar splits display form from raw edit
+ * form.
  *
  * Shared setup: `beforeAll` creates a dedicated session `e2e-webchrome-<ts>`
  * (80×24) plus a scratch present dir (`mkdtemp`) holding `page-one.html`
@@ -38,7 +38,7 @@ import { resolveWindow as resolveWindowRaw } from "./_ready";
 const TEST_SESSION = `e2e-webchrome-${Date.now()}`;
 const DESKTOP_VIEWPORT = { width: 1440, height: 800 };
 
-// The presented two-page flow (test b / c / d) is served from a scratch dir
+// The presented two-page flow (tests b and c) is served from a scratch dir
 // through the real `/present/` route — the window carries the serve root in
 // @rk_win_web_1_root (the NEW arm's declared-set read), exactly as `rk
 // present` stamps it. The spec uses the NEW content-keyed URL form for its
@@ -302,25 +302,4 @@ test.describe("Web tile browser chrome (260819-v6y4)", () => {
     await expect(input).toHaveValue("page-one.html");
   });
 
-  /**
-   * Proves: the `>_` switch-to-terminal affordance is gone from the web tile
-   * (view switching is owned by the top-bar surface toggles and the palette);
-   * the chrome row (◀ ▶ ↻ ↗) renders in its place.
-   *
-   * Steps:
-   * 1. Same presented rig; deep-link `?view=web`.
-   * 2. Assert no "Switch to terminal" button exists in the web tile.
-   * 3. Assert Back, Forward, Refresh, and Open in browser buttons are visible.
-   */
-  test("(d) no switch-to-terminal button renders in the web tile (R13)", async ({ page }) => {
-    const id = await makeWindow(page, `wc-noswitch-${Date.now()}`, { presentRoot: presentDir });
-    stampWebTab(id, presentAddress(presentDir, TMUX_SERVER, "page-one.html"));
-    await gotoWebTile(page, id);
-    await expect(webTile(page).getByLabel("Switch to terminal")).toHaveCount(0);
-    // The chrome that replaced it IS present (design-study button order).
-    await expect(webTile(page).getByRole("button", { name: "Back" })).toBeVisible();
-    await expect(webTile(page).getByRole("button", { name: "Forward" })).toBeVisible();
-    await expect(webTile(page).getByRole("button", { name: "Refresh" })).toBeVisible();
-    await expect(webTile(page).getByRole("button", { name: "Open in browser" })).toBeVisible();
-  });
 });

@@ -137,31 +137,19 @@ func TestWindowOptionsMultiKeyOneCall(t *testing.T) {
 	}
 }
 
-// Out-of-range @rk_win_color → 400 and zero tmux calls (validate-all-then-execute).
-func TestWindowOptionsColorOutOfRange(t *testing.T) {
-	ops := &mockTmuxOps{}
-	rec := postOptions(t, ops, "@0", `{"options":{"@rk_win_color":"99"}}`)
+// Invalid @rk_win_color values are rejected before any tmux call. Family
+// names themselves ("red", "red-dark") are valid.
+func TestWindowOptionsColorInvalid(t *testing.T) {
+	for _, value := range []string{"99", "bluish"} {
+		ops := &mockTmuxOps{}
+		rec := postOptions(t, ops, "@0", `{"options":{"@rk_win_color":"`+value+`"}}`)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
-	}
-	if ops.setWindowOptionsCalled {
-		t.Error("SetWindowOptions must NOT be called for invalid color")
-	}
-}
-
-// Out-of-vocabulary @rk_win_color (neither a family name nor numeric) → 400 and zero
-// tmux calls. Family names themselves ("red", "red-dark") are VALID — see
-// TestWindowOptionsColorFamilyName.
-func TestWindowOptionsColorNonNumeric(t *testing.T) {
-	ops := &mockTmuxOps{}
-	rec := postOptions(t, ops, "@0", `{"options":{"@rk_win_color":"bluish"}}`)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
-	}
-	if ops.setWindowOptionsCalled {
-		t.Error("SetWindowOptions must NOT be called for an out-of-vocabulary color")
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("value %q: status = %d, want %d", value, rec.Code, http.StatusBadRequest)
+		}
+		if ops.setWindowOptionsCalled {
+			t.Errorf("value %q: SetWindowOptions must NOT be called", value)
+		}
 	}
 }
 

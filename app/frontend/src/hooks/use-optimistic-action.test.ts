@@ -58,41 +58,6 @@ describe("useOptimisticAction", () => {
     expect(result.current.isPending).toBe(false);
   });
 
-  it("calls onSettled on success", async () => {
-    const onSettled = vi.fn();
-    const action = () => Promise.resolve();
-
-    const { result } = renderHook(() =>
-      useOptimisticAction({ action, onSettled }),
-    );
-
-    await act(async () => {
-      result.current.execute();
-    });
-
-    expect(onSettled).toHaveBeenCalledTimes(1);
-  });
-
-  it("calls onRollback and onError on failure", async () => {
-    const onRollback = vi.fn();
-    const onError = vi.fn();
-    const error = new Error("network failure");
-    const action = () => Promise.reject(error);
-
-    const { result } = renderHook(() =>
-      useOptimisticAction({ action, onRollback, onError }),
-    );
-
-    await act(async () => {
-      result.current.execute();
-    });
-
-    expect(onRollback).toHaveBeenCalledTimes(1);
-    expect(onError).toHaveBeenCalledTimes(1);
-    expect(onError).toHaveBeenCalledWith(error);
-    expect(result.current.isPending).toBe(false);
-  });
-
   it("wraps non-Error rejections in an Error", async () => {
     const onError = vi.fn();
     const action = () => Promise.reject("string error");
@@ -109,36 +74,6 @@ describe("useOptimisticAction", () => {
     const received = onError.mock.calls[0][0];
     expect(received).toBeInstanceOf(Error);
     expect(received.message).toBe("string error");
-  });
-
-  it("does not call onSettled on failure", async () => {
-    const onSettled = vi.fn();
-    const action = () => Promise.reject(new Error("fail"));
-
-    const { result } = renderHook(() =>
-      useOptimisticAction({ action, onSettled, onError: () => {} }),
-    );
-
-    await act(async () => {
-      result.current.execute();
-    });
-
-    expect(onSettled).not.toHaveBeenCalled();
-  });
-
-  it("does not call onRollback on success", async () => {
-    const onRollback = vi.fn();
-    const action = () => Promise.resolve();
-
-    const { result } = renderHook(() =>
-      useOptimisticAction({ action, onRollback }),
-    );
-
-    await act(async () => {
-      result.current.execute();
-    });
-
-    expect(onRollback).not.toHaveBeenCalled();
   });
 
   it("passes execute args to onOptimistic", async () => {

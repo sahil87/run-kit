@@ -11,9 +11,9 @@ import { mockStateSocket } from "./_state-socket-mock";
 // (1280px) unless a test resizes.
 //
 // Subjects: the full-width attached status strip at the shell bottom
-// (desktop-only), the fine-pointer bottom-bar DELETION, the window-cluster /
-// host-cluster route split, and the no-scroll degradation ladder with the `…`
-// overflow chevron.
+// (desktop-only), the width-or-coarse mobile predicate that suppresses it, the
+// fine-pointer bottom-bar DELETION, the window-cluster / host-cluster route
+// split, and the no-scroll degradation ladder with the `…` overflow chevron.
 
 const SERVER = "default";
 
@@ -259,60 +259,44 @@ test.describe("Status bar (260814-ldbs)", () => {
   });
 
   /**
-   * Proves: below the desktop breakpoint the status bar does not exist —
-   * mobile keeps its own chrome and the PANE/HOST panels live in the drawer
-   * (covered by sidebar-panels.spec.ts).
+   * Proves: either a narrow viewport or a coarse pointer selects the mobile
+   * experience and removes the desktop status bar; only the coarse-pointer
+   * case retains the terminal key toolbar.
    *
    * Steps:
-   * 1. Set a 375×812 viewport; navigate to `/default/1`; gate on the
-   *    `Toggle navigation` button (the sidebar-footed `Connected` dot is
-   *    unmounted with the closed drawer).
-   * 2. Assert zero `status-bar` elements in the DOM.
+   * 1. Open isolated narrow/fine and wide/coarse browser contexts.
+   * 2. Navigate each context to `/default/1` and gate on mobile navigation.
+   * 3. Assert the status bar is absent in both contexts.
+   * 4. Assert the key toolbar is absent for fine input and visible for coarse
+   *    input.
    */
-  test("mobile viewport: no status bar at all (the drawer keeps the panels)", async ({ page }) => {
-    await page.setViewportSize({ width: 375, height: 812 });
-    await page.goto(`/${SERVER}/1`);
-    // Gate on the terminal chrome, not the sidebar-footed Connected dot (the
-    // mobile drawer leaves it unmounted).
-    await expect(page.getByRole("button", { name: "Toggle navigation" })).toBeVisible({
-      timeout: 10_000,
-    });
-    await expect(statusBar(page)).toHaveCount(0);
-  });
+  test("width or coarse pointer selects the mobile status-bar treatment", async ({ browser }, testInfo) => {
+    const baseURL = testInfo.project.use.baseURL;
+    if (!baseURL) throw new Error("Playwright baseURL is required");
 
-  // The revised device rule (rework cycle 1, R3/A-013): `useIsMobile()` is
-  // width-OR-coarse, so a coarse desktop-width device (iPad) renders the
-  // MOBILE experience app-wide — chip bar, drawer panels, NO status bar. The
-  // status bar exists exactly where the desktop grids exist (`!isMobile`).
-  // `hasTouch` flips Chromium's `(pointer: coarse)` at a DESKTOP width (the
-  // bottom-bar-chip-size seam).
-  test.describe("coarse pointer at desktop width (the iPad seam)", () => {
-    test.use({ hasTouch: true, viewport: { width: 1440, height: 800 } });
+    const cases = [
+      { label: "narrow fine pointer", hasTouch: false, viewport: { width: 375, height: 812 } },
+      { label: "wide coarse pointer", hasTouch: true, viewport: { width: 1440, height: 800 } },
+    ];
 
-    /**
-     * Proves: `useIsMobile()` is width-OR-coarse, so a coarse pointer at a
-     * DESKTOP width (an iPad in landscape) renders the mobile experience
-     * app-wide: the key-chip bar survives and the status bar does NOT exist
-     * (the status bar lives exactly where the desktop grids live —
-     * `!isMobile` — on every route).
-     *
-     * Steps:
-     * 1. `test.use({ hasTouch: true, viewport: 1440×800 })` — `hasTouch`
-     *    flips Chromium's `(pointer: coarse)` at a desktop width (the
-     *    bottom-bar-chip-size seam).
-     * 2. Navigate to `/default/1`; gate on the `Toggle navigation` button.
-     * 3. Assert the `Terminal keys` toolbar (the chip bar) IS visible.
-     * 4. Assert zero `status-bar` elements in the DOM.
-     */
-    test("coarse + wide = mobile experience: chip bar present, NO status bar", async ({ page }) => {
-      await page.goto(`/${SERVER}/1`);
-      // Mobile chrome at desktop width: the hamburger and (coarse) chip bar…
-      await expect(page.getByRole("button", { name: "Toggle navigation" })).toBeVisible({
-        timeout: 10_000,
-      });
-      await expect(keyToolbar(page)).toBeVisible();
-      // …and NO status bar (the gate is `!isMobile` on every route).
-      await expect(statusBar(page)).toHaveCount(0);
-    });
+    for (const device of cases) {
+      const context = await browser.newContext({ baseURL, hasTouch: device.hasTouch, viewport: device.viewport });
+      try {
+        const page = await context.newPage();
+        await mockBackend(page);
+        await page.goto(`/${SERVER}/1`);
+        await expect(page.getByRole("button", { name: "Toggle navigation" }), device.label).toBeVisible({
+          timeout: 10_000,
+        });
+        await expect(statusBar(page), device.label).toHaveCount(0);
+        if (device.hasTouch) {
+          await expect(keyToolbar(page), device.label).toBeVisible();
+        } else {
+          await expect(keyToolbar(page), device.label).toHaveCount(0);
+        }
+      } finally {
+        await context.close();
+      }
+    }
   });
 });

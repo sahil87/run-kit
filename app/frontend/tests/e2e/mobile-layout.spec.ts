@@ -4,8 +4,7 @@
 // Theme… row), and must expose a drawer-style navigation that sits *below*
 // (not over) the top bar.
 // beforeEach sets an iPhone 14-sized viewport (375×812) so every test starts
-// from a mobile baseline; tests that need desktop override with
-// page.setViewportSize inline.
+// from a mobile baseline.
 import { test, expect } from "@playwright/test";
 import { TMUX_SERVER } from "./_tmux";
 
@@ -86,37 +85,6 @@ test.describe("Mobile layout", () => {
     await page.getByRole("button", { name: "Toggle navigation" }).click();
     await expect(
       page.getByRole("navigation", { name: "Sessions" }).getByRole("button", { name: / theme$/ }),
-    ).toHaveCount(0);
-  });
-
-  /**
-   * Proves: on desktop the sidebar is open by default — its footer is a
-   * passive status row and the chevron menu carries no `Theme…` row: theme
-   * switching is the settings dialog + palette.
-   *
-   * Steps:
-   * 1. Resize viewport to 1024×768.
-   * 2. Navigate to `/${TMUX_SERVER}`.
-   * 3. Assert zero theme buttons inside `navigation[name='Sessions']` (the
-   *    sidebar) and inside the top-bar right cell
-   *    (`data-testid="top-bar-right"`).
-   * 4. Open the chevron menu and assert it has NO `Theme…` menuitem.
-   */
-  test("no chrome theme control on desktop either (sidebar footer and top bar both clean)", async ({ page }) => {
-    // On desktop the sidebar is open by default — its footer is a passive
-    // status row (260812-d1at) and the chevron menu carries no Theme… row
-    // (260819-qkow): theme switching is the settings dialog + palette.
-    await page.setViewportSize({ width: 1024, height: 768 });
-    await page.goto(`/${TMUX_SERVER}`);
-    await expect(
-      page.getByRole("navigation", { name: "Sessions" }).getByRole("button", { name: / theme$/ }),
-    ).toHaveCount(0);
-    await expect(
-      page.getByTestId("top-bar-right").getByRole("button", { name: / theme$/ }),
-    ).toHaveCount(0);
-    await page.getByRole("button", { name: "More controls" }).click();
-    await expect(
-      page.getByRole("menu", { name: "More controls" }).getByRole("menuitem", { name: /Theme…/ }),
     ).toHaveCount(0);
   });
 

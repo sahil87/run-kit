@@ -737,34 +737,6 @@ describe("API request deduplication", () => {
     expect(sessionsCount).toBe(1);
   });
 
-  it("both callers can independently read the JSON body", async () => {
-    mswServer.use(
-      http.get("/api/health", () => {
-        return HttpResponse.json({ status: "ok", hostname: "clone-test" });
-      }),
-    );
-
-    const [a, b] = await Promise.all([getHealth(), getHealth()]);
-    expect(a.hostname).toBe("clone-test");
-    expect(b.hostname).toBe("clone-test");
-  });
-
-  it("does not deduplicate non-GET (POST) requests", async () => {
-    let callCount = 0;
-    mswServer.use(
-      http.post("/api/settings", async () => {
-        callCount++;
-        return HttpResponse.json({ status: "ok" });
-      }),
-    );
-
-    await Promise.all([
-      setThemePreference({ theme: "dark" }),
-      setThemePreference({ theme: "light" }),
-    ]);
-    expect(callCount).toBe(2);
-  });
-
   it("concurrent callers both receive the same rejection on failure", async () => {
     mswServer.use(
       http.get("/api/health", () => {

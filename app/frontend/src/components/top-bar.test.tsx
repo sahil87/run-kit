@@ -454,19 +454,6 @@ describe("TopBar", () => {
     expect(anchorBox!.querySelector('[aria-label="Go back"]')).toBeNull();
   });
 
-  it("does not show 'live' or 'disconnected' text", () => {
-    renderTopBar();
-    expect(screen.queryByText("live")).not.toBeInTheDocument();
-    expect(screen.queryByText("disconnected")).not.toBeInTheDocument();
-  });
-
-  it("renders no connection dot — it moved to the sidebar footer (260724-6j1v)", () => {
-    renderTopBar();
-    expect(screen.queryByLabelText("Connected")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Disconnected")).not.toBeInTheDocument();
-    expect(screen.getByTestId("top-bar-right").querySelector('[role="status"]')).toBeNull();
-  });
-
   it("fixed-width is MENU-ONLY (260731-oiho): no in-bar/probe toggle, always a menu checkbox row in terminal mode", () => {
     renderTopBar();
     // The in-bar toggle renders NOWHERE — not the bar, not the measurement

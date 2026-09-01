@@ -1,0 +1,55 @@
+id: aeml
+name: 260901-aeml-trim-redundant-tests
+created: 2026-09-01T14:52:51Z
+created_by: sahil-noon
+change_type: test
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 10
+    acceptance_count: 18
+    acceptance_completed: 18
+confidence:
+    certain: 3
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.5
+    fuzzy: true
+    dimensions:
+        signal: 72.5
+        reversibility: 85.0
+        competence: 80.0
+        disambiguation: 70.8
+stage_metrics:
+    intake: {started_at: "2026-09-01T14:52:51Z", driver: fab-new, iterations: 1, completed_at: "2026-09-01T14:57:01Z"}
+    apply: {started_at: "2026-09-01T16:54:36Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-01T17:01:27Z"}
+    review: {started_at: "2026-09-01T17:01:27Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-01T17:12:19Z"}
+    hydrate: {started_at: "2026-09-01T17:12:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-01T17:15:54Z"}
+    ship: {started_at: "2026-09-01T17:15:54Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 1488
+    deleted: 4474
+    net: -2986
+    excluding:
+        added: 1484
+        deleted: 4474
+        net: -2990
+    tests:
+        added: 1277
+        deleted: 3800
+        net: -2523
+    computed_at: "2026-09-01T17:15:54Z"
+    computed_at_stage: hydrate
+summary: Documented the on-demand @perf e2e tier and retire-with marker convention.
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-01T17:15:54Z

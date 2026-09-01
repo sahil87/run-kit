@@ -112,6 +112,7 @@ func TestWindowOptionsNullUnsets(t *testing.T) {
 // The retired @rk_win_url/@rk_win_lens keys ride the compat translation onto
 // the web-tab family (@rk_win_web_1 + @rk_win_layout), with the compat
 // _active=1 armed because the family is empty.
+// retire-with: legacy-option-key-translation
 func TestWindowOptionsMultiKeyOneCall(t *testing.T) {
 	stubWebTabFamily(t, tmux.WebTabFamily{})
 	ops := &mockTmuxOps{}
@@ -171,6 +172,7 @@ func TestWindowOptionsColorFamilyName(t *testing.T) {
 }
 
 // Empty @rk_win_url → 400 and zero tmux calls.
+// retire-with: legacy-option-key-translation
 func TestWindowOptionsEmptyUrl(t *testing.T) {
 	stubWebTabFamily(t, tmux.WebTabFamily{})
 	ops := &mockTmuxOps{}
@@ -190,6 +192,7 @@ func TestWindowOptionsEmptyUrl(t *testing.T) {
 // whitespace-only values are rejected with 400 and zero tmux calls. The
 // retired key rides the compat translation onto @rk_win_web_1, so validation
 // is the shared ValidateWebTabURL rule.
+// retire-with: legacy-option-key-translation
 func TestWindowOptionsRkURLSchemeAllowlist(t *testing.T) {
 	stubWebTabFamily(t, tmux.WebTabFamily{})
 	accepted := []string{
@@ -509,6 +512,7 @@ func TestWindowOptionsRoleInvalid(t *testing.T) {
 // other value, null, and the already-laid-out case are no-ops (nothing
 // reaches tmux). The empty string is not "iframe", so it no-ops too — there
 // is no longer a lens option to unset.
+// retire-with: legacy-option-key-translation
 func TestWindowOptionsRkTypeEmptyUnsets(t *testing.T) {
 	stubWebTabFamily(t, tmux.WebTabFamily{})
 	ops := &mockTmuxOps{}
@@ -522,6 +526,7 @@ func TestWindowOptionsRkTypeEmptyUnsets(t *testing.T) {
 	}
 }
 
+// retire-with: legacy-option-key-translation
 func TestWindowOptionsRkTypeNullUnsets(t *testing.T) {
 	stubWebTabFamily(t, tmux.WebTabFamily{})
 	ops := &mockTmuxOps{}
@@ -535,6 +540,7 @@ func TestWindowOptionsRkTypeNullUnsets(t *testing.T) {
 	}
 }
 
+// retire-with: legacy-option-key-translation
 func TestWindowOptionsRkTypeSetVerbatim(t *testing.T) {
 	stubWebTabFamily(t, tmux.WebTabFamily{})
 	ops := &mockTmuxOps{}
@@ -554,6 +560,7 @@ func TestWindowOptionsRkTypeSetVerbatim(t *testing.T) {
 
 // The lens→layout translation never clobbers an existing @rk_win_layout
 // (compat reads the family first).
+// retire-with: legacy-option-key-translation
 func TestWindowOptionsRkLensKeepsExistingLayout(t *testing.T) {
 	stubWebTabFamily(t, tmux.WebTabFamily{Layout: "row:tty,code,web"})
 	ops := &mockTmuxOps{}
@@ -1746,6 +1753,7 @@ func TestWindowOptionsWebSlotNullRemoves(t *testing.T) {
 
 // The retired @rk_win_url compat key replaces the ACTIVE slot's URL; null
 // removes the active slot via WebRemove.
+// retire-with: legacy-option-key-translation
 func TestWindowOptionsLegacyURLTargetsActiveSlot(t *testing.T) {
 	stubWebTabFamily(t, tmux.WebTabFamily{Tabs: []string{"/proxy/1/", "/proxy/2/"}, Active: 2})
 	ops := &mockTmuxOps{}

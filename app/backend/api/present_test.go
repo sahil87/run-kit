@@ -142,6 +142,7 @@ func TestPresentServes(t *testing.T) {
 	}
 }
 
+// retire-with: present-nless-compat
 func TestPresentBareWindowRedirects(t *testing.T) {
 	root, _ := presentFixture(t)
 	stubWindowOption(t, root)
@@ -261,6 +262,7 @@ func TestPresentIndexedSlot(t *testing.T) {
 // TestPresentLegacyRootFallback: slot 1 with an empty @rk_win_web_1_root falls
 // back to the retired @rk_win_present_root (live-stamped by external writers);
 // an indexed slot other than 1 never does.
+// retire-with: present-nless-compat
 func TestPresentLegacyRootFallback(t *testing.T) {
 	root, _ := presentFixture(t)
 	var reads []string
@@ -316,8 +318,6 @@ func rootHash(root string) string {
 	sum := sha256.Sum256([]byte(root))
 	return hex.EncodeToString(sum[:])[:12]
 }
-
-
 
 // stubDeclaredRoots installs the new arm's tmux read seam, returning the
 // given roots for every call, and reports the servers it observed plus a
@@ -381,7 +381,7 @@ func TestPresentContentKeyed(t *testing.T) {
 		{"short hash is 400", "/present/dev/3f9a2c/mock.html", []string{root}, 400, "", ""},
 		{"non-hex hash is 400", "/present/dev/zz9a2c8e1b77/mock.html", []string{root}, 400, "", ""},
 		{"overlong hash is 400", "/present/dev/" + hash12 + "fffffffffffffffffffffffffffffffffffffffffffffffffffffffff/mock.html", []string{root}, 400, "", ""},
-				// Ambiguity: the same root enumerated twice still fails closed
+		// Ambiguity: the same root enumerated twice still fails closed
 		// (two matches for one prefix → 404 — the handler counts matches,
 		// production dedupes before enumerating).
 		{"ambiguous prefix is 404", "/present/dev/" + hash8 + "/mock.html",

@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 9
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-09-01T11:13:07Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-01T11:24:14Z"}
     hydrate: {started_at: "2026-09-01T11:24:14Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-01T11:31:04Z"}
     ship: {started_at: "2026-09-01T11:31:04Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-01T11:34:00Z"}
-    review-pr: {started_at: "2026-09-01T11:34:00Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-09-01T11:34:00Z", driver: git-pr, iterations: 1, completed_at: "2026-09-01T11:51:44Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/782
 true_impact:
@@ -53,4 +53,4 @@ true_impact:
     computed_at_stage: ship
 summary: Re-keyed presented-file URLs to server/root-hash identity with live tmux root derivation and legacy slot compatibility.
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-01T11:34:00Z
+last_updated: 2026-09-01T11:51:44Z

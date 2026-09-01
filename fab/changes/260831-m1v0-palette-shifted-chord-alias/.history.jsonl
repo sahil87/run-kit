@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-08-31T04:04:55Z"}
+{"args":"Add a second palette chord (Shift+Ctrl+K) for Win/Linux terminal focus","cmd":"fab-new","event":"command","ts":"2026-08-31T04:04:55Z"}
+{"delta":"+4.1","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-08-31T04:06:11Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-08-31T04:10:21Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-08-31T04:18:40Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-08-31T04:35:18Z"}
+{"event":"review","result":"passed","ts":"2026-08-31T04:35:18Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-08-31T04:36:34Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-08-31T04:40:34Z"}

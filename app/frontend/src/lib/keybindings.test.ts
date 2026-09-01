@@ -4,6 +4,7 @@ import {
   KEYBINDINGS_STORAGE_KEY,
   applyCapture,
   captureFromEvent,
+  chordHintFor,
   claimedKeys,
   comboParts,
   defaultComboFor,
@@ -59,6 +60,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
       DEFAULT_BINDINGS.filter((b) => b.tier === "shifted").map((b) => [b.actionId, b.code]),
     );
     expect(shifted).toEqual({
+      "command-palette-alt": "KeyK",
       "create-session": "KeyN",
       "create-window": "KeyT",
       "kill-window": "KeyW",
@@ -759,8 +761,10 @@ describe("palette parity invariant", () => {
   // palette at all, with the reason.
   const PALETTE_EXEMPT: Record<string, string> = {
     // The palette's own opener — no entry can open the list it lives in; the
-    // palette mount reads the binding itself for its local ⌘K listener.
+    // palette mount reads the bindings itself for its local listener.
     "command-palette": "the palette cannot list its own opener",
+    "command-palette-alt":
+      "an alias fires the action it aliases — command-palette's own exemption covers it",
   };
 
   it("every DEFAULT_BINDINGS actionId resolves to a palette entry or a documented equivalence", () => {
@@ -2325,5 +2329,107 @@ describe("webOnly — the web-find data flag (260819-ie2i)", () => {
       expect(byId(bindings, "web-find").webOnly).toBe(true);
       expect(byId(bindings, "command-palette").webOnly).toBeUndefined();
     }
+  });
+});
+
+describe("aliasOf — a second chord for one action", () => {
+  it("command-palette-alt aliases command-palette and is the only alias shipped", () => {
+    const aliases = DEFAULT_BINDINGS.filter((b) => b.aliasOf);
+    expect(aliases.map((b) => [b.actionId, b.aliasOf])).toEqual([
+      ["command-palette-alt", "command-palette"],
+    ]);
+  });
+
+  it("resolves as ⇧Ctrl+K on Win/Linux, leaving the unshifted chord in place", () => {
+    for (const host of [SHELL_OTHER, BROWSER_OTHER]) {
+      expect(byId(resolved(host), "command-palette-alt")).toMatchObject({
+        code: "KeyK",
+        tier: "shifted",
+        enabled: true,
+      });
+      expect(byId(resolved(host), "command-palette")).toMatchObject({
+        code: "KeyK",
+        tier: "cmd",
+        enabled: true,
+      });
+    }
+    expect(formatCombo(byId(resolved(SHELL_OTHER), "command-palette-alt"), "other")).toBe(
+      "Shift+Ctrl+K",
+    );
+  });
+
+  it("is UNBOUND on mac, so ⌘K stays the only mac palette chord", () => {
+    for (const host of [SHELL_MAC, BROWSER_MAC]) {
+      const alt = byId(resolved(host), "command-palette-alt");
+      expect(alt.enabled).toBe(false);
+      expect(alt.disabledReason).toBe("user");
+      expect(byId(resolved(host), "command-palette")).toMatchObject({
+        code: "KeyK",
+        tier: "cmd",
+        enabled: true,
+      });
+    }
+  });
+
+  it("both chords match on Win/Linux; neither shifted form matches on mac", () => {
+    const other = resolved(SHELL_OTHER);
+    const shifted = { code: "KeyK", metaKey: false, ctrlKey: true, shiftKey: true, altKey: false };
+    const plain = { code: "KeyK", metaKey: false, ctrlKey: true, shiftKey: false, altKey: false };
+    expect(findMatches(shifted, other).map((b) => b.actionId)).toEqual(["command-palette-alt"]);
+    expect(findMatches(plain, other).map((b) => b.actionId)).toEqual(["command-palette"]);
+    expect(findMatches(shifted, resolved(SHELL_MAC))).toEqual([]);
+  });
+
+  it("the alias is refused by the terminal seam on every platform, so it bubbles under terminal focus", () => {
+    const shifted = { code: "KeyK", metaKey: false, ctrlKey: true, shiftKey: true, altKey: false };
+    expect(shouldRefuseTerminalChord(shifted, resolved(SHELL_OTHER), "other")).toBe(true);
+    // The unshifted Win/Linux form stays with the pane — it is readline kill-line.
+    const plain = { code: "KeyK", metaKey: false, ctrlKey: true, shiftKey: false, altKey: false };
+    expect(shouldRefuseTerminalChord(plain, resolved(SHELL_OTHER), "other")).toBe(false);
+  });
+
+  it("never conflicts with the action it aliases", () => {
+    for (const host of ALL_HOSTS) {
+      const pair = findConflicts(resolved(host)).filter(
+        (c) =>
+          [c.a, c.b].includes("command-palette") &&
+          [c.a, c.b].includes("command-palette-alt"),
+      );
+      expect(pair).toEqual([]);
+    }
+  });
+
+  it("carries its own override slot — rebinding the alias leaves the primary alone", () => {
+    const overrides = { "command-palette-alt": { code: "KeyJ", tier: "shifted" as const } };
+    const map = resolved(SHELL_OTHER, overrides);
+    expect(byId(map, "command-palette-alt")).toMatchObject({ code: "KeyJ", tier: "shifted" });
+    expect(byId(map, "command-palette")).toMatchObject({ code: "KeyK", tier: "cmd", enabled: true });
+  });
+
+  it("unbinding the alias leaves the primary enabled", () => {
+    const map = resolved(SHELL_OTHER, { "command-palette-alt": null });
+    expect(byId(map, "command-palette-alt").enabled).toBe(false);
+    expect(byId(map, "command-palette").enabled).toBe(true);
+  });
+});
+
+describe("chordHintFor — hint strings for aliased actions", () => {
+  it("lists the primary first, then the alias, on Win/Linux", () => {
+    expect(chordHintFor("command-palette", resolved(SHELL_OTHER), "other")).toBe(
+      "Ctrl+K / Shift+Ctrl+K",
+    );
+  });
+
+  it("shows only ⌘K on mac, where the alias is unbound", () => {
+    expect(chordHintFor("command-palette", resolved(SHELL_MAC), "mac")).toBe("⌘K");
+  });
+
+  it("is undefined when the action has no enabled binding", () => {
+    const map = resolved(SHELL_OTHER, { "command-palette": null, "command-palette-alt": null });
+    expect(chordHintFor("command-palette", map, "other")).toBeUndefined();
+  });
+
+  it("returns a single combo for an action with no alias", () => {
+    expect(chordHintFor("web-find", resolved(SHELL_OTHER), "other")).toBe("Ctrl+F");
   });
 });

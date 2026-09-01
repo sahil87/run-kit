@@ -113,6 +113,14 @@ export type KeyBinding = {
    *  arrived inside a WEB lens iframe — inside the code iframe ⌘F stays with
    *  code-server's own find. */
   webOnly?: boolean;
+  /** This binding fires ANOTHER action's handler — the named `actionId` — so
+   *  one action can answer to a second chord. The dispatcher resolves the
+   *  handler through this; nothing is registered under the alias's own id.
+   *  Needed because `actionId` doubles as the palette action id, so a
+   *  free-standing second id would be a phantom action. An alias keeps its
+   *  own override slot (independently rebindable) and never conflicts with
+   *  the action it aliases. */
+  aliasOf?: string;
 };
 
 /** A resolved binding after the override layer + host reservations applied. */
@@ -315,6 +323,15 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   { actionId: "focus-hop", code: "Backquote", tier: "shifted", macTier: "ctrl", scope: "terminal", kind: "builtin", label: "Focus terminal ↔ code", description: "hop focus between the tty and code tiles" },
   // — legacy chords, migrated with combos unchanged —
   { actionId: "command-palette", code: "KeyK", tier: "cmd", scope: "global", kind: "builtin", label: "Command palette", ignoreInputs: true },
+  // Win/Linux second palette chord. The cmd tier resolves to plain Ctrl+K
+  // there, which is the pane's own kill-line (0x0B) — the terminal seam
+  // deliberately never refuses unmatched plain-Ctrl chords, so ⌘K's Win/Linux
+  // form cannot reach the palette while the terminal owns focus. The shifted
+  // tier can: rule 1 refuses every shifted-tier match on every platform, and
+  // Ctrl+Shift+letter encodes to the same control byte, so the pane loses
+  // nothing. Keyless on mac (`macCode: ""`, the create-session idiom) — ⌘K
+  // already bubbles there via the seam's mac cmd-tier rule.
+  { actionId: "command-palette-alt", aliasOf: "command-palette", code: "KeyK", macCode: "", tier: "shifted", scope: "global", kind: "builtin", label: "Command palette (alternate)", ignoreInputs: true },
   // ⌘; layout-shape cycle (260812-ab5v-surface-layout-core R9/R11): the ▦
   // chip's chord — the NEXT same-arity preset, order kept (tmux `next-layout`
   // muscle memory). It joins the legacy `⌘<punctuation>` family beside ⌘K
@@ -769,7 +786,19 @@ export function findConflicts(bindings: readonly EffectiveBinding[]): BindingCon
       // the mac ⌘F that terminal-find and web-find both claim — is
       // coexistence, not a conflict.
       const gatesDisjoint = (a.ttyOnly && b.webOnly) || (a.webOnly && b.ttyOnly);
-      if (a.code === b.code && tiersCollide(a.tier, b.tier) && a.scope === b.scope && !gatesDisjoint) {
+      // An alias and the action it aliases fire the SAME handler, so a shared
+      // combo between them is redundancy, not a conflict — there is no
+      // ambiguity for the dispatcher to resolve. Stated as an invariant
+      // rather than left to the shipped pair's tiers happening not to collide.
+      const sameAction =
+        (a.aliasOf ?? a.actionId) === (b.aliasOf ?? b.actionId);
+      if (
+        a.code === b.code &&
+        tiersCollide(a.tier, b.tier) &&
+        a.scope === b.scope &&
+        !gatesDisjoint &&
+        !sameAction
+      ) {
         conflicts.push({ a: a.actionId, b: b.actionId, code: a.code, tier: a.tier });
       }
     }
@@ -944,6 +973,26 @@ export function shouldSuppressChord(target: EventTarget | null): boolean {
   // `isContentEditable` is the browser truth; fall back to the attribute value
   // (`"true"` / `""`) since jsdom does not implement the getter.
   return target.isContentEditable || target.contentEditable === "true";
+}
+
+/**
+ * The hint string for an action's chord(s) — the primary first, then any
+ * enabled aliases, joined with `/`. `undefined` when nothing is bound, so a
+ * tip never advertises a dead chord.
+ *
+ * The primary always leads: an alias alone would point a user at a chord that
+ * may be browser-reserved on their host, having replaced one that works.
+ */
+export function chordHintFor(
+  actionId: string,
+  bindings: readonly EffectiveBinding[],
+  platform: BindingPlatform,
+): string | undefined {
+  const combos = bindings
+    .filter((b) => b.enabled && (b.actionId === actionId || b.aliasOf === actionId))
+    .sort((a, b) => Number(a.aliasOf != null) - Number(b.aliasOf != null))
+    .map((b) => formatCombo({ code: b.code, tier: b.tier }, platform));
+  return combos.length > 0 ? combos.join(" / ") : undefined;
 }
 
 // ── palette hints ───────────────────────────────────────────────────────────

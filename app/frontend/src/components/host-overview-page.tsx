@@ -18,7 +18,7 @@ import { useServerReorder } from "@/hooks/use-server-reorder";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
-import { formatCombo } from "@/lib/keybindings";
+import { chordHintFor } from "@/lib/keybindings";
 import { SectionHeading } from "@/components/section-heading";
 import { StatusBar } from "@/components/status-bar";
 import { RecoverySection, useRecoveryOffers } from "@/components/recovery-section";
@@ -112,12 +112,10 @@ export function HostOverviewPage() {
   // Shell applies — width-OR-coarse, so a coarse desktop-width device gets the
   // mobile experience everywhere (no status bar).
   const isMobile = useIsMobile();
-  const { byAction: keybindingsByAction, host: keybindingHost } = useKeybindings();
-  const paletteBinding = keybindingsByAction.get("command-palette");
-  const paletteChord =
-    !coarsePointer && paletteBinding?.enabled
-      ? formatCombo({ code: paletteBinding.code, tier: paletteBinding.tier }, keybindingHost.platform)
-      : undefined;
+  const { bindings: keybindings, host: keybindingHost } = useKeybindings();
+  const paletteChord = coarsePointer
+    ? undefined
+    : chordHintFor("command-palette", keybindings, keybindingHost.platform);
   // Instance display name (o7q8): the HOST HEALTH hostname line prefers the
   // settings override; null falls back to the metrics hostname below.
   const { instanceName } = useInstanceName();

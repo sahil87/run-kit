@@ -20,7 +20,7 @@ import {
 import { useInstanceName } from "@/contexts/instance-name-context";
 import { useChromeState } from "@/contexts/chrome-context";
 import { useKeybindings } from "@/hooks/use-keybindings";
-import { formatCombo } from "@/lib/keybindings";
+import { chordHintFor } from "@/lib/keybindings";
 import { Tip } from "@/components/tip";
 import { StatusDot } from "@/components/status-dot";
 import { HostMetrics, normalizeLoadPercent } from "@/components/host-metrics";
@@ -504,13 +504,9 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
   const { instanceName } = useInstanceName();
   // Registry-resolved chords for the hint tips (the bottom-bar chip pattern,
   // 260801-mqim): reflect rebinds, omitted when unbound/disabled.
-  const { byAction: keybindingsByAction, host: keybindingHost } = useKeybindings();
-  const chordFor = (actionId: string) => {
-    const binding = keybindingsByAction.get(actionId);
-    return binding?.enabled
-      ? formatCombo({ code: binding.code, tier: binding.tier }, keybindingHost.platform)
-      : undefined;
-  };
+  const { bindings: keybindings, host: keybindingHost } = useKeybindings();
+  const chordFor = (actionId: string) =>
+    chordHintFor(actionId, keybindings, keybindingHost.platform);
 
   const version = daemonVersion ? displayVersion(daemonVersion) : null;
   const hostName = instanceName ?? metrics?.hostname ?? null;

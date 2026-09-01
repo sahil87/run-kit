@@ -64,13 +64,20 @@ import { copyToClipboard } from "@/lib/clipboard";
 import {
   addWebTab,
   fetchWindowHistory,
+  moveWebTab,
   removeWebTab,
   selectWebTab,
   setWindowOptions,
 } from "@/api/client";
 import { useToast } from "@/components/toast";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
-import { entryKey, useWindowStore, webFamilyAfterRemove } from "@/store/window-store";
+import {
+  entryKey,
+  useWindowStore,
+  webFamilyAfterRemove,
+  webFamilyAfterMove,
+  type WebTabOverride,
+} from "@/store/window-store";
 import {
   EXPORT_EVENT,
   buildExportFilename,
@@ -1229,8 +1236,8 @@ export function SurfaceLayout({
     };
   }, [draggingIntersection]);
 
-  // ── Web-tab strip verbs (optimistic select/remove) ─────────────────────
-  // Select/remove ride the window store's per-entry `webOverride` (the
+  // ── Web-tab strip verbs (optimistic select/remove/move) ────────────────
+  // Select/remove/move ride the window store's per-entry `webOverride` (the
   // pendingName/killed precedent): the optimistic write repaints the strip
   // immediately while the POST is in flight; the SSE tick is authoritative
   // and the reconcile effect drops the override once the payload matches. A
@@ -1241,11 +1248,26 @@ export function SurfaceLayout({
   );
   const setWebOverride = useWindowStore((s) => s.setWebOverride);
   const clearWebOverride = useWindowStore((s) => s.clearWebOverride);
+  // Ref writes are synchronous, so two gestures in the same render compound
+  // against the first optimistic family instead of both reading the same SSE
+  // payload. The POST queue preserves that ordering at the tmux writer and
+  // invalidates dependent moves when an earlier request fails.
+  const webOverrideRef = useRef(webOverride);
+  webOverrideRef.current = webOverride;
+  const webMoveQueueRef = useRef<Promise<boolean>>(Promise.resolve(true));
+  const applyWebOverride = (override: WebTabOverride) => {
+    webOverrideRef.current = { ...webOverrideRef.current, ...override };
+    setWebOverride(server, sessionName, windowId, override);
+  };
+  const revertWebOverride = () => {
+    webOverrideRef.current = undefined;
+    clearWebOverride(server, sessionName, windowId);
+  };
 
   const { execute: selectWebTabOptimistic } = useOptimisticAction<[number]>({
     action: (n) => selectWebTab(server, windowId, n),
-    onOptimistic: (n) => setWebOverride(server, sessionName, windowId, { webActive: n }),
-    onAlwaysRollback: () => clearWebOverride(server, sessionName, windowId),
+    onOptimistic: (n) => applyWebOverride({ webActive: n }),
+    onAlwaysRollback: revertWebOverride,
     onError: (err) => addToast(err.message || "Failed to select web tab", "error"),
   });
 
@@ -1254,12 +1276,41 @@ export function SurfaceLayout({
     onOptimistic: (n) => {
       // Compound on any in-flight override so back-to-back strip clicks
       // shift the family the user is looking at, not the stale payload.
-      const tabs = webOverride?.webTabs ?? win?.webTabs ?? [];
-      const active = webOverride?.webActive ?? win?.webActive ?? 0;
-      setWebOverride(server, sessionName, windowId, webFamilyAfterRemove(tabs, active, n));
+      const tabs = webOverrideRef.current?.webTabs ?? win?.webTabs ?? [];
+      const active = webOverrideRef.current?.webActive ?? win?.webActive ?? 0;
+      applyWebOverride(webFamilyAfterRemove(tabs, active, n));
     },
-    onAlwaysRollback: () => clearWebOverride(server, sessionName, windowId),
+    onAlwaysRollback: revertWebOverride,
     onError: (err) => addToast(err.message || "Failed to close web tab", "error"),
+  });
+
+  const { execute: moveWebTabOptimistic } = useOptimisticAction<[number, number]>({
+    action: (n, to) => {
+      const predecessor = webMoveQueueRef.current;
+      const queued = predecessor.then(async (chainAlive) => {
+        if (!chainAlive) return false;
+        try {
+          await moveWebTab(server, windowId, n, to);
+          return true;
+        } catch (err) {
+          // Already-enqueued moves retain their failed predecessor and cancel
+          // silently. A later gesture starts a fresh chain after rollback.
+          webMoveQueueRef.current = Promise.resolve(true);
+          throw err;
+        }
+      });
+      webMoveQueueRef.current = queued.catch(() => false);
+      return queued.then(() => undefined);
+    },
+    onOptimistic: (n, to) => {
+      // Compound on any in-flight override so back-to-back reorder drop the
+      // family the user sees, not the stale payload (the remove precedent).
+      const tabs = webOverrideRef.current?.webTabs ?? win?.webTabs ?? [];
+      const active = webOverrideRef.current?.webActive ?? win?.webActive ?? 0;
+      applyWebOverride(webFamilyAfterMove(tabs, active, n, to));
+    },
+    onAlwaysRollback: revertWebOverride,
+    onError: (err) => addToast(err.message || "Failed to move web tab", "error"),
   });
 
   // Reconcile: the options write wakes the SSE hub, so the confirming tick
@@ -1356,6 +1407,10 @@ export function SurfaceLayout({
               return Promise.resolve();
             }}
             onAddTab={(target) => addWebTab(server, windowId, toWebAddTarget(target))}
+            onMoveTab={(n, to) => {
+              moveWebTabOptimistic(n, to);
+              return Promise.resolve();
+            }}
             onInteract={slot >= 0 ? () => focusSlot(slot) : undefined}
             // Page-title seam (260819-v6y4 R10): the header render is this
             // component's, but only the mounted iframe can read the

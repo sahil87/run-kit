@@ -192,6 +192,20 @@ summary {
   animation: rk-web-progress-sweep 1.15s ease-in-out infinite;
 }
 
+/* Web-tab icon slot chrome: the compact spinner that rides while a frame's
+   document loads (degrades to the favicon/kind-dot once loaded), and the
+   favicon that covers empty title fallbacks (an onerror degrade hides it).
+   Static under reduced motion. */
+@keyframes rk-web-spinner-rotate {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+.rk-web-spinner {
+  border: 1px solid var(--color-accent-green);
+  border-top-color: transparent;
+  animation: rk-web-spinner-rotate 0.9s linear infinite;
+}
+
 /* Tty-tile task progress (260819-1vxq): passthrough-wrapped OSC 9;4 rendered
    as a 2px strip overlaying the tty content's top edge. The wrapper is
    zero-height (absolute bar, no in-flow footprint) so progress appearing or
@@ -1494,6 +1508,9 @@ html[data-theme="light"] {
   /* Web-tile progress line: sweep zeroed to a static dim line — load feedback
      is never motion-only. */
   .rk-web-progress::after { animation: none; width: 100%; opacity: 0.35; }
+  /* Web-tab spinner: the rotation zeroes to a static ring — the icon slot
+     still signals the load. */
+  .rk-web-spinner { animation: none; opacity: 0.6; }
   /* Tty-tile progress line: the indeterminate sweep is zeroed the same way. */
   .rk-tty-progress-indeterminate::after { animation: none; width: 100%; opacity: 0.35; }
   .rk-brand-glitch:hover { animation: none; }

@@ -764,6 +764,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/windows/{windowId}/web", s.handleWindowWebAdd)
 	r.Post("/api/windows/{windowId}/web/{n}/remove", s.handleWindowWebRemove)
 	r.Post("/api/windows/{windowId}/web/{n}/select", s.handleWindowWebSelect)
+	r.Post("/api/windows/{windowId}/web/{n}/move", s.handleWindowWebMove)
 	r.Post("/api/windows/{windowId}/keys", s.handleWindowKeys)
 	r.Post("/api/windows/{windowId}/send", s.handleWindowSend)
 	r.Post("/api/windows/{windowId}/select", s.handleWindowSelect)

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { useWindowStore, entryKey, GHOST_WINDOW_TTL_MS, webFamilyAfterRemove } from "./window-store";
+import { useWindowStore, entryKey, GHOST_WINDOW_TTL_MS, webFamilyAfterRemove, webFamilyAfterMove } from "./window-store";
 import { makeWindow } from "@/test-utils/fixtures";
 
 const SRV = "test";
@@ -617,6 +617,22 @@ describe("window-store", () => {
       { name: "active before removed unchanged", tabs: ["/a", "/b", "/c"], active: 1, n: 2, webTabs: ["/a", "/c"], webActive: 1 },
     ])("$name", ({ tabs, active, n, webTabs, webActive }) => {
       expect(webFamilyAfterRemove(tabs, active, n)).toEqual({ webTabs, webActive });
+    });
+  });
+
+  describe("webFamilyAfterMove", () => {
+    // Mirrors the backend's repointMoveActive table (webtabs_test.go): the
+    // moved slot lands at `to`, in-between slots shift, the pointer follows
+    // the moved/affected slots' identity.
+    it.each([
+      { name: "moved tab lands at to", tabs: ["/a", "/b", "/c"], active: 1, n: 1, to: 3, webTabs: ["/b", "/c", "/a"], webActive: 3 },
+      { name: "shifted down by a forward move", tabs: ["/a", "/b", "/c"], active: 3, n: 1, to: 3, webTabs: ["/b", "/c", "/a"], webActive: 2 },
+      { name: "shifted up by a backward move", tabs: ["/a", "/b", "/c"], active: 1, n: 3, to: 1, webTabs: ["/c", "/a", "/b"], webActive: 2 },
+      { name: "active outside the moved span stays", tabs: ["/a", "/b", "/c", "/d"], active: 4, n: 1, to: 3, webTabs: ["/b", "/c", "/a", "/d"], webActive: 4 },
+      { name: "to boundary of the span shifts", tabs: ["/a", "/b", "/c"], active: 2, n: 3, to: 2, webTabs: ["/a", "/c", "/b"], webActive: 3 },
+      { name: "self-move no-op", tabs: ["/a", "/b"], active: 1, n: 2, to: 2, webTabs: ["/a", "/b"], webActive: 1 },
+    ])("$name", ({ tabs, active, n, to, webTabs, webActive }) => {
+      expect(webFamilyAfterMove(tabs, active, n, to)).toEqual({ webTabs, webActive });
     });
   });
 });

@@ -13,6 +13,7 @@ import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import {
   WEB_ADDRESS_FOCUS_EVENT,
   WEB_OPEN_EXTERNAL_EVENT,
+  WEB_TAB_DRAFT_EVENT,
   classifyAddress,
   displayForm,
   isAllowedUrl,
@@ -60,9 +61,14 @@ interface IframeWindowProps {
    *  next `tabs`/`active` props and never renumbers locally. */
   onSelectTab?: (n: number) => Promise<unknown>;
   onCloseTab?: (n: number) => Promise<unknown>;
-  /** `+` — declared add of the address-bar draft. Resolves to the server's
-   *  {index, existed}; the component then calls onSelectTab(index) because
-   *  the add verb selects only an empty family. */
+  /** Move (drag, strip ⌥⇧←/→, or dblclick-free drop) — the optimistic
+   *  reorder seam; absent ⇒ drag and the move keys are inert. */
+  onMoveTab?: (n: number, to: number) => Promise<unknown>;
+  /** Declared add of the address-bar draft (the `+` button used to live
+   *  here; now the draft-materialize path and the palette's draft seam call
+   *  it). Resolves to the server's {index, existed}; the component then
+   *  calls onSelectTab(index) because the add verb selects only an empty
+   *  family. */
   onAddTab?: (target: string) => Promise<{ index: number; existed: boolean }>;
   /** Tile-focus seam: fired when a pointerdown/keydown arrives inside the
    *  same-origin contentDocument, or — the cross-origin fallback — when the
@@ -94,9 +100,19 @@ const ZOOM_PERSIST_DEBOUNCE_MS = 250;
 
 /** Backend family cap (`@rk_win_web_1..8`) — bounds the mounted frames. */
 const WEB_TAB_FAMILY_CAP = 8;
-/** The tab strip renders only when the family has at least this many tabs;
- *  below it the tile's DOM is the single-tab chrome. */
-const WEB_TAB_STRIP_MIN = 2;
+
+/** Sub-pixels of movement that keep a pointer-drag a click (the select
+ *  gesture) instead of a reorder commit. */
+const DRAG_THRESHOLD_PX = 6;
+
+/**
+ * One viewer-local draft tab. Drafts are ephemeral per-tile state — they
+ * render after all real tabs and never POST; Enter in the address bar
+ * materializes the selected one through the add verb.
+ */
+interface Draft {
+  id: number;
+}
 
 /** The tile's error surface (260819-v6y4 R8) — rendered IN PLACE of the
  *  iframe's visible area; copy per the approved design study (states 05/06).
@@ -108,11 +124,14 @@ type TileError =
   | { kind: "dead-port"; port: number };
 
 /** The chrome-relevant slice of one frame's state, reported up by each
- *  WebFrame; the parent's chrome binds to the ACTIVE frame's entry. */
+ *  WebFrame: every frame reports title/favicon (loaded same-origin frames),
+ *  and the chrome binds to the ACTIVE frame's entry. */
 interface FrameChromeState {
   loading: boolean;
   crossOrigin: boolean;
   trackedLocation: string | null;
+  title: string | null;
+  favicon: string | null;
   tileError: TileError | null;
 }
 
@@ -130,10 +149,9 @@ interface WebFrameProps {
   zoom: number;
   wireGestureListeners: (target: Document | HTMLElement) => () => void;
   onChromeState: (url: string, state: FrameChromeState) => void;
-  /** Fired on the frame's `load` events with the same-origin document title
-   *  (null cross-origin/empty) — the parent consumes it for the ACTIVE frame
-   *  only (page-meta seam + find reset). */
-  onFrameLoad: (url: string, title: string | null) => void;
+  /** Fired on frame `load`; the parent consumes active-frame loads to reset
+   *  find state. Page metadata flows through the chrome-state map. */
+  onFrameLoad: (url: string) => void;
   registerFrame: (url: string, handle: FrameHandle) => void;
   unregisterFrame: (url: string) => void;
   interactRef: { current: (() => void) | undefined };
@@ -165,6 +183,11 @@ function WebFrame({
   // read on its `load` events and kept in root-relative form (the viewer
   // origin stripped). Display-only — NEVER POSTed (spec window-views R7).
   const [trackedLocation, setTrackedLocation] = useState<string | null>(null);
+  // Per-frame title + favicon (the tab chrome reads EVERY same-origin frame's
+  // entry, so the inactive tabs can show their document title/icon before
+  // selection; display-only — never POSTed). Cleared on each fresh load attach.
+  const [title, setTitle] = useState<string | null>(null);
+  const [favicon, setFavicon] = useState<string | null>(null);
   const [tileError, setTileError] = useState<TileError | null>(null);
   // Bumped by the dead-port Retry button to re-run detection + reload.
   const [probeNonce, setProbeNonce] = useState(0);
@@ -172,8 +195,8 @@ function WebFrame({
   onFrameLoadRef.current = onFrameLoad;
 
   useEffect(() => {
-    onChromeState(url, { loading, crossOrigin, trackedLocation, tileError });
-  }, [url, loading, crossOrigin, trackedLocation, tileError, onChromeState]);
+    onChromeState(url, { loading, crossOrigin, trackedLocation, title, favicon, tileError });
+  }, [url, loading, crossOrigin, trackedLocation, title, favicon, tileError, onChromeState]);
 
   // Interaction + reclaim seam: attach capture-phase pointerdown/keydown
   // listeners to the same-origin contentDocument after every load — each
@@ -196,8 +219,8 @@ function WebFrame({
   //
   // The same load pass (260819-v6y4) clears the progress line, tracks the
   // frame's current location for the address bar's display form, and reports
-  // the page title up through onFrameLoad — all same-origin-gated reads with
-  // the attach seam's try/catch posture.
+  // the page title into the frame's chrome state — all same-origin-gated
+  // reads with the attach seam's try/catch posture.
   useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
@@ -242,23 +265,34 @@ function WebFrame({
       // fire before the real src has loaded.
       if (fromLoad) {
         setLoading(false);
-        // Current-path tracking + title reporting: same-origin only. The
-        // tracked location is stored root-relative (viewer origin stripped)
-        // so the display-form derivation sees the same shape as a stored
-        // relative web address. about:blank (the cross-origin reload bounce's
-        // midpoint) reports nothing.
+        // Current-path tracking + title/favicon reporting: same-origin only.
+        // The tracked location is stored root-relative (viewer origin
+        // stripped) so the display-form derivation sees the same shape as a
+        // stored relative web address. about:blank (the cross-origin reload
+        // bounce's midpoint) reports nothing.
         if (doc) {
           try {
             const loc = iframe.contentWindow?.location;
             if (loc && loc.origin === window.location.origin && loc.href !== "about:blank") {
               setTrackedLocation(loc.pathname + loc.search + loc.hash);
+              setTitle(doc.title !== "" ? doc.title : null);
+              setFavicon(frameFavicon(doc));
+            } else {
+              setTitle(null);
+              setFavicon("/favicon.ico");
             }
           } catch {
             /* noop */
           }
-          onFrameLoadRef.current(url, doc.title !== "" ? doc.title : null);
+          onFrameLoadRef.current(url);
         } else {
-          onFrameLoadRef.current(url, null);
+          // An unreadable navigation invalidates every value derived from the
+          // previous same-origin document. The stored tab URL then drives the
+          // label/icon fallbacks until a readable document loads again.
+          setTrackedLocation(null);
+          setTitle(null);
+          setFavicon(null);
+          onFrameLoadRef.current(url);
         }
       }
       // R8 highlight reset — no stale highlight survives a navigation. The
@@ -432,6 +466,36 @@ function WebFrame({
   );
 }
 
+/** Match the icon-bearing rel tokens browsers commonly use for tab chrome. */
+const ICON_REL_PATTERN = /(?:^|\s)(?:icon|apple-touch-icon|apple-touch-icon-precomposed)(?:\s|$)/i;
+
+/** Resolve a same-origin frame's first declared icon, falling back to the
+ *  frame origin's conventional `/favicon.ico`. */
+function frameFavicon(doc: Document): string {
+  const links = doc.querySelectorAll("link");
+  for (let i = 0; i < links.length; i++) {
+    const rel = links[i].getAttribute("rel");
+    if (rel && ICON_REL_PATTERN.test(rel)) {
+      const href = links[i].getAttribute("href");
+      if (!href) continue;
+      try {
+        return new URL(href, doc.location.href).href;
+      } catch {
+        continue;
+      }
+    }
+  }
+  return new URL("/favicon.ico", doc.location.origin).href;
+}
+
+function externalFavicon(url: string): string | null {
+  try {
+    return `https://${new URL(url).host}/favicon.ico`;
+  } catch {
+    return null;
+  }
+}
+
 /** Renders a web-tab family with ONE browser-chrome set and one mounted
  *  iframe per tab (P3): back/forward + reload, a display/edit address bar,
  *  find, open-in-browser, a load progress line, explicit error states, and
@@ -446,6 +510,7 @@ export function IframeWindow({
   onSelectTab,
   onCloseTab,
   onAddTab,
+  onMoveTab,
   onInteract,
   shouldReclaimChord,
   onPageMeta,
@@ -458,15 +523,26 @@ export function IframeWindow({
   const url = activeIndex >= 1 ? (tabs[activeIndex - 1] ?? "") : "";
   const urlRef = useRef(url);
   urlRef.current = url;
+
+  // ── draft tabs (viewer-local, per-tile) ─────────────────────────────────
+  // Drafts are ephemeral — they live exactly as long as this tile is mounted
+  // (a window switch remounts SurfaceLayout's renderContent, which drops
+  // them). Enter materializes the selected draft through the add verb;
+  // Esc/× discards it; multiple drafts stack. They render after all real
+  // tabs and are never POSTed or synced to tmux.
+  const [drafts, setDrafts] = useState<Draft[]>([]);
+  const [selectedDraft, setSelectedDraft] = useState<number | null>(null);
+  const nextDraftIdRef = useRef(1);
+  const openDraftRef = useRef<() => void>(() => {});
+  const moveTabRef = useRef(onMoveTab);
+  moveTabRef.current = onMoveTab;
+
   const [inputUrl, setInputUrl] = useState(url);
   // Edit mode (R7): at rest the address bar shows the kind-specific DISPLAY
   // form; focus reveals the raw editable value (select-all). Enter is the ONE
   // write (through `onWriteUrl`); Escape reverts.
   const [editing, setEditing] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  // One-shot new-tab arm (the `+` empty/same-draft path): the next Enter
-  // routes through onAddTab instead of onWriteUrl; Escape/blur clears it.
-  const [newTabArmed, setNewTabArmed] = useState(false);
   const addressInputRef = useRef<HTMLInputElement>(null);
   const interactRef = useRef(onInteract);
   interactRef.current = onInteract;
@@ -482,6 +558,7 @@ export function IframeWindow({
   const [chromeStates, setChromeStates] = useState<ReadonlyMap<string, FrameChromeState>>(
     new Map(),
   );
+  const [failedFavicons, setFailedFavicons] = useState<ReadonlySet<string>>(new Set());
   const handleChromeState = useCallback((frameUrl: string, state: FrameChromeState) => {
     setChromeStates((prev) => {
       const cur = prev.get(frameUrl);
@@ -490,6 +567,8 @@ export function IframeWindow({
         cur.loading === state.loading &&
         cur.crossOrigin === state.crossOrigin &&
         cur.trackedLocation === state.trackedLocation &&
+        cur.title === state.title &&
+        cur.favicon === state.favicon &&
         cur.tileError === state.tileError
       ) {
         return prev;
@@ -513,16 +592,19 @@ export function IframeWindow({
   const trackedLocation = activeChrome?.trackedLocation ?? null;
   const tileError = activeChrome?.tileError ?? null;
 
-  // The tile header and the find bar track the ACTIVE tab only: a load on the
-  // active frame reports its title up and resets the find state (R8) — the
-  // query, matches, and count die with the document they were collected from.
-  const handleFrameLoad = useCallback((frameUrl: string, title: string | null) => {
+  // Find state belongs to the active document and dies with its load.
+  const handleFrameLoad = useCallback((frameUrl: string) => {
     if (frameUrl !== urlRef.current) return;
-    pageMetaRef.current?.({ title });
     setFindQuery("");
     setFindMatches([]);
     setFindActive(0);
   }, []);
+
+  // Header metadata follows active-frame state, not load timing: inactive
+  // frames mount eagerly and may already be loaded when selected.
+  useEffect(() => {
+    pageMetaRef.current?.({ title: activeChrome?.title ?? null });
+  }, [url, activeChrome?.title]);
 
   // ── content zoom (260823-cwvv R2/R3; continuous gestures 260824-iafo) ────
   // Per-viewer, per-bucket zoom level: seeded from localStorage, re-seeded
@@ -689,23 +771,26 @@ export function IframeWindow({
     return () => document.removeEventListener(WEB_FIND_OPEN_EVENT, open);
   }, []);
 
-  // The `web-address:focus` seam (260819-v6y4 R12): ⌘L and the palette action
-  // dispatch one document CustomEvent; the mounted web tile focuses its
-  // address input (the focus handler enters edit mode + select-all). A
-  // `detail.newTab` dispatch additionally arms the one-shot new-tab mode (the
-  // palette's `Web: New tab from address` path).
+  // ⌘L and `Web: Focus address bar` share one focus-only event seam.
   useEffect(() => {
-    const focusAddress = (e: Event) => {
+    const focusAddress = () => {
       const input = addressInputRef.current;
       if (!input) return;
       input.focus();
       input.select();
-      if ((e as CustomEvent<{ newTab?: unknown }>).detail?.newTab === true) {
-        setNewTabArmed(true);
-      }
     };
     document.addEventListener(WEB_ADDRESS_FOCUS_EVENT, focusAddress);
     return () => document.removeEventListener(WEB_ADDRESS_FOCUS_EVENT, focusAddress);
+  }, []);
+
+  // The `web-tab:open-draft` seam: the palette's `Web: New tab` entry
+  // dispatches one document CustomEvent; the mounted web tile opens a draft
+  // and focuses its address bar (the `web-find:open` single-receiver
+  // precedent). The palette gates the dispatch on a non-empty family.
+  useEffect(() => {
+    const open = () => openDraftRef.current();
+    document.addEventListener(WEB_TAB_DRAFT_EVENT, open);
+    return () => document.removeEventListener(WEB_TAB_DRAFT_EVENT, open);
   }, []);
 
   // The `web-open-external` seam (R9): the palette action dispatches one
@@ -827,38 +912,31 @@ export function IframeWindow({
     window.open(rawAddress, "_blank", "noopener");
   }, [rawAddress]);
 
-  // Declared add (`+` / armed Enter): the server assigns the slot; the
-  // client selects it afterwards because the add verb selects only an empty
-  // family ("add is not show").
-  const submitNewTab = useCallback(
-    (target: string) => {
+  // Materialize a draft: the server assigns the slot; the client selects it
+  // afterwards because the add verb selects only an empty family ("add is not
+  // show"). Keep the draft available until the add resolves so a rejection
+  // does not discard the user's retry point.
+  const materializeDraft = useCallback(
+    (draftId: number, target: string) => {
       if (!onAddTab) return;
       onAddTab(target)
-        .then(({ index }) => onSelectTab?.(index))
+        .then(({ index }) => {
+          setDrafts((d) => d.filter((x) => x.id !== draftId));
+          setSelectedDraft((s) => (s === draftId ? null : s));
+          setEditing(false);
+          addressInputRef.current?.blur();
+          return onSelectTab?.(index);
+        })
         .catch((err: unknown) => {
+          addressInputRef.current?.focus();
+          setSelectedDraft(draftId);
+          setInputUrl(target);
+          setEditing(true);
           setSubmitError(err instanceof Error ? err.message : String(err));
         });
     },
     [onAddTab, onSelectTab],
   );
-
-  const handleAddTabClick = useCallback(() => {
-    if (!onAddTab) return;
-    setSubmitError(null);
-    const draft = normalizeAddressInput(inputUrl);
-    if (draft === "" || draft === url) {
-      // Nothing new to add — focus the bar and arm the one-shot new-tab mode
-      // so the next Enter adds instead of replacing.
-      setNewTabArmed(true);
-      const input = addressInputRef.current;
-      if (input) {
-        input.focus();
-        input.select();
-      }
-      return;
-    }
-    submitNewTab(draft);
-  }, [inputUrl, url, onAddTab, submitNewTab]);
 
   const handleSubmit = useCallback(() => {
     const normalized = normalizeAddressInput(inputUrl);
@@ -870,13 +948,12 @@ export function IframeWindow({
       return;
     }
     setSubmitError(null);
-    setEditing(false);
-    addressInputRef.current?.blur();
-    if (newTabArmed) {
-      setNewTabArmed(false);
-      submitNewTab(normalized);
+    if (selectedDraft !== null) {
+      materializeDraft(selectedDraft, normalized);
       return;
     }
+    setEditing(false);
+    addressInputRef.current?.blur();
     // Same-URL submit is a no-op — re-submitting the stored address never
     // POSTs.
     if (normalized === url) return;
@@ -884,7 +961,7 @@ export function IframeWindow({
       // Revert input on failure
       setInputUrl(url);
     });
-  }, [inputUrl, newTabArmed, onWriteUrl, submitNewTab, url]);
+  }, [inputUrl, selectedDraft, materializeDraft, onWriteUrl, url]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -892,18 +969,45 @@ export function IframeWindow({
         e.preventDefault();
         handleSubmit();
       } else if (e.key === "Escape") {
-        // Revert to the rest display form without a POST; the new-tab arm
+        // Revert to the rest display form without a POST; a selected draft
         // dies with the edit.
         e.preventDefault();
-        setNewTabArmed(false);
+        if (selectedDraft !== null) {
+          setDrafts((d) => d.filter((x) => x.id !== selectedDraft));
+          setSelectedDraft(null);
+        }
         setInputUrl(rawAddress);
         setSubmitError(null);
         setEditing(false);
         addressInputRef.current?.blur();
       }
     },
-    [handleSubmit, rawAddress],
+    [handleSubmit, rawAddress, selectedDraft],
   );
+
+  // openDraft / discardDraft sit below the refs/state they touch; the seam
+  // listener binds the ref once. The plus button and the double-click gesture
+  // share this one entry.
+  function openDraft() {
+    const id = nextDraftIdRef.current++;
+    setDrafts((d) => [...d, { id }]);
+    setSelectedDraft(id);
+    setInputUrl("");
+    setSubmitError(null);
+    setEditing(false);
+    setTimeout(() => {
+      const input = addressInputRef.current;
+      if (input) {
+        input.focus();
+        input.select();
+      }
+    }, 0);
+  }
+  function discardDraft(id: number) {
+    setDrafts((d) => d.filter((x) => x.id !== id));
+    setSelectedDraft((s) => (s === id ? null : s));
+  }
+  openDraftRef.current = openDraft;
 
   // Select-all once edit mode's raw value has rendered (the focus event fires
   // with the DISPLAY value still in the input — the selection must wait a
@@ -912,10 +1016,12 @@ export function IframeWindow({
     if (editing) addressInputRef.current?.select();
   }, [editing]);
 
-  // ── tab strip (renders only at ≥2 tabs; below, the DOM is the single-tab
-  // chrome) — a roving-focus tablist: only the ACTIVE tab is in the tab
-  // order, ←/→/Home/End move focus without writing, Enter/Space select,
-  // Delete/Backspace close. Focused-but-not-active is a viewer posture. ────
+  // ── tab strip: renders at ≥1 tab OR any draft (onboarding keeps the
+  // stripless chrome). Roving-focus tablist: only the ACTIVE tab is in the
+  // tab order, ←/→/Home/End move focus without writing, Enter/Space select,
+  // Delete/Backspace close, ⌥⇧←/⌥⇧→ reorder the active tab. Drafts are
+  // shown dashed after the real tabs and are never drag targets/sources.
+  // Focused-but-not-active is a viewer posture. ────────────────────────────
   const coarsePointer = useCoarsePointer();
   const tabRefs = useRef(new Map<number, HTMLElement>());
   const [focusedTab, setFocusedTab] = useState(0); // 0 = none
@@ -923,10 +1029,138 @@ export function IframeWindow({
     if (focusedTab < 1 || focusedTab > tabs.length) return;
     tabRefs.current.get(focusedTab)?.focus();
   }, [focusedTab, tabs.length]);
+  const stripFull = tabs.length >= WEB_TAB_FAMILY_CAP;
+
+  // Pointer-based drag-to-reorder: a sub-threshold pointer movement stays a
+  // click (select); past the threshold the drag's drop side reads the hovered
+  // half, and pointerup commits exactly one move via onMoveTab. Drafts are
+  // never drag targets/sources, and the pointerup click is suppressed after
+  // a real drag so `onSelectTab` doesn't fire twice.
+  const dragRef = useRef<{
+    from: number;
+    startX: number;
+    pointerId: number;
+    source: Element;
+    active: boolean;
+    target: { index: number; side: "left" | "right" } | null;
+  } | null>(null);
+  const clickSuppressRef = useRef(false);
+  const [dropTarget, setDropTarget] = useState<{ index: number; side: "left" | "right" } | null>(null);
+  const tabAtPointerPoint = (clientX: number, clientY: number, fallback: number | null) => {
+    // Pointer capture retargets move/up events to the source tab. Hit-test the
+    // actual pointer position so the indicator still follows sibling tabs and
+    // release over strip space/outside cancels. jsdom has no elementFromPoint,
+    // so component tests use the event receiver as the fallback.
+    if (typeof document.elementFromPoint !== "function") return fallback;
+    const hit = document.elementFromPoint(clientX, clientY);
+    const tab = hit?.closest<HTMLElement>('[data-testid="web-tab"]');
+    if (!tab) return null;
+    const index = Number(tab.dataset.index);
+    return Number.isInteger(index) && tabRefs.current.get(index) === tab ? index : null;
+  };
+  const handleTabPointerDown = (n: number, e: React.PointerEvent) => {
+    // The close button owns its full pointer sequence. Capturing its down on
+    // the parent tab would retarget the eventual click and select instead of
+    // close in real browsers.
+    if (
+      !onMoveTab ||
+      e.button !== 0 ||
+      (e.target instanceof Element && e.target.closest("button") !== null)
+    ) {
+      return;
+    }
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    dragRef.current = {
+      from: n,
+      startX: e.clientX,
+      pointerId: e.pointerId,
+      source: e.currentTarget,
+      active: false,
+      target: null,
+    };
+  };
+  const handleTabPointerMove = (n: number, e: React.PointerEvent) => {
+    const drag = dragRef.current;
+    if (!drag || !onMoveTab) return;
+    if (!drag.active) {
+      if (Math.abs(e.clientX - drag.startX) <= DRAG_THRESHOLD_PX) return;
+      drag.active = true;
+    }
+    e.preventDefault();
+    const hovered = tabAtPointerPoint(e.clientX, e.clientY, n);
+    if (hovered === null) {
+      drag.target = null;
+      setDropTarget(null);
+      return;
+    }
+    // The drop side follows the hovered half of the nearest target.
+    const rect = tabRefs.current.get(hovered)?.getBoundingClientRect();
+    let side: "left" | "right" = "left";
+    if (rect && e.clientX - rect.left >= rect.width / 2) side = "right";
+    drag.target = { index: hovered, side };
+    setDropTarget(drag.target);
+  };
+  const handleTabPointerLeave = (n: number) => {
+    const drag = dragRef.current;
+    if (!drag?.active || drag.target?.index !== n) return;
+    drag.target = null;
+    setDropTarget(null);
+  };
+  const finishTabDrag = useCallback((e: PointerEvent, cancelled: boolean) => {
+    const drag = dragRef.current;
+    if (!drag || (e.pointerId !== undefined && e.pointerId !== drag.pointerId)) return;
+    dragRef.current = null;
+    setDropTarget(null);
+    if (drag.source.hasPointerCapture?.(drag.pointerId)) {
+      drag.source.releasePointerCapture(drag.pointerId);
+    }
+    if (cancelled || !drag.active) return;
+    e.preventDefault();
+    if (tabAtPointerPoint(e.clientX, e.clientY, drag.target?.index ?? null) === null) return;
+    clickSuppressRef.current = true;
+    setTimeout(() => {
+      clickSuppressRef.current = false;
+    }, 0);
+    // Convert the target edge into the moved tab's final 1-based position.
+    const target = drag.target;
+    if (!target) return;
+    const insertion = target.side === "right" ? target.index + 1 : target.index;
+    const to = drag.from < insertion ? insertion - 1 : insertion;
+    if (to === drag.from) return;
+    moveTabRef.current?.(drag.from, to);
+  }, []);
+
+  // Pointer capture keeps the drag lifecycle alive when the pointer leaves
+  // its source tab; window listeners guarantee both release and cancellation
+  // clear the ref/indicator even over strip space or outside the tile.
+  useEffect(() => {
+    const up = (e: PointerEvent) => finishTabDrag(e, false);
+    const cancel = (e: PointerEvent) => finishTabDrag(e, true);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+    return () => {
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
+      dragRef.current = null;
+    };
+  }, [finishTabDrag]);
+
   const handleTabKeyDown = (e: React.KeyboardEvent) => {
     const count = tabs.length;
     if (count === 0) return;
     const current = focusedTab >= 1 && focusedTab <= count ? focusedTab : activeIndex;
+    // Component-local reorder keys (the registry rejects Alt chords — "no
+    // tier"; the strip's roving handler owns this territory): ⌥⇧←/⌥⇧→ move
+    // the active tab one slot left/right; a boundary press is a silent no-op.
+    if (e.altKey && e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+      e.preventDefault();
+      const to = e.key === "ArrowLeft" ? activeIndex - 1 : activeIndex + 1;
+      if (to >= 1 && to <= count) {
+        setFocusedTab(to);
+        onMoveTab?.(activeIndex, to);
+      }
+      return;
+    }
     let next = 0;
     switch (e.key) {
       case "ArrowLeft":
@@ -958,22 +1192,41 @@ export function IframeWindow({
     setFocusedTab(next);
   };
 
-  const stripFull = tabs.length >= WEB_TAB_FAMILY_CAP;
-
   return (
     <div ref={wrapperRef} className="flex flex-col flex-1 min-h-0">
-      {tabs.length >= WEB_TAB_STRIP_MIN && (
+      {(tabs.length >= 1 || drafts.length > 0) && (
         <TipGroup>
           <div
             role="tablist"
             data-testid="web-tab-strip"
+            onDoubleClick={(e) => {
+              // Double-click on empty strip space opens a draft (Chrome
+              // muscle memory) — the same path as the `+` button.
+              if (e.target === e.currentTarget) openDraftRef.current();
+            }}
             className="shrink-0 flex items-stretch gap-px px-1 border-b border-border bg-bg-card overflow-x-auto font-mono text-[11px] select-none"
           >
             {tabs.map((tabUrl, i) => {
               const n = i + 1;
               const isActive = n === activeIndex;
               const kind = classifyAddress(tabUrl);
-              const label = webTabTitle(tabUrl) || `#${n}`;
+              const chrome = chromeStates.get(tabUrl);
+              const label = chrome?.title ?? (webTabTitle(tabUrl) || `#${n}`);
+              // Favicon: kind-dot fallback classes for absent/failed URLs; on
+              // load failure the spinner stays hidden and the kind-dot renders.
+              const faviconUrl =
+                chrome?.favicon ??
+                (kind === "external" ? externalFavicon(tabUrl) : null);
+              const faviconFailureKey = faviconUrl ? `${tabUrl}\u0000${faviconUrl}` : null;
+              const showFavicon =
+                faviconUrl !== null &&
+                faviconFailureKey !== null &&
+                !failedFavicons.has(faviconFailureKey);
+              const showSpinner = chrome?.loading === true;
+              const indicatorHere =
+                dropTarget?.index === n
+                  ? dropTarget.side
+                  : null;
               return (
                 <div
                   key={tabUrl}
@@ -982,26 +1235,76 @@ export function IframeWindow({
                     else tabRefs.current.delete(n);
                   }}
                   role="tab"
-                  aria-selected={isActive}
+                  aria-selected={isActive && selectedDraft === null}
                   data-testid="web-tab"
                   data-index={n}
-                  tabIndex={isActive ? 0 : -1}
+                  tabIndex={isActive && selectedDraft === null ? 0 : -1}
                   title={displayForm(tabUrl)}
-                  onClick={() => onSelectTab?.(n)}
+                  onClick={() => {
+                    if (clickSuppressRef.current) {
+                      clickSuppressRef.current = false;
+                      return;
+                    }
+                    onSelectTab?.(n);
+                  }}
                   onFocus={() => setFocusedTab(n)}
                   onKeyDown={handleTabKeyDown}
-                  className={`group flex items-center gap-1.5 px-2 py-1 cursor-pointer outline-none ${
+                  onPointerDown={(e) => handleTabPointerDown(n, e)}
+                  onPointerMove={(e) => handleTabPointerMove(n, e)}
+                  onPointerLeave={() => handleTabPointerLeave(n)}
+                  onAuxClick={(e) => {
+                    if (e.button === 1) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onCloseTab?.(n);
+                    }
+                  }}
+                  className={`group relative flex items-center gap-1.5 px-2 py-1 cursor-pointer outline-none ${
                     isActive
                       ? "bg-bg-primary text-text-primary"
                       : "text-text-secondary hover:text-text-primary"
                   }`}
                 >
-                  {kind !== "relative" && (
+                  {indicatorHere === "right" && (
+                    <span
+                      data-testid="web-tab-drop-indicator"
+                      className="absolute right-0 top-0 bottom-0 w-0.5 bg-accent-green"
+                    />
+                  )}
+                  {indicatorHere === "left" && (
+                    <span
+                      data-testid="web-tab-drop-indicator"
+                      className="absolute left-0 top-0 bottom-0 w-0.5 bg-accent-green"
+                    />
+                  )}
+                  {showSpinner ? (
+                    <span
+                      aria-hidden="true"
+                      data-testid="web-tab-spinner"
+                      className="rk-web-spinner shrink-0 inline-block h-3 w-3 rounded-full border border-accent-green/70 border-t-transparent"
+                    />
+                  ) : showFavicon ? (
+                    <img
+                      src={faviconUrl}
+                      alt=""
+                      aria-hidden="true"
+                      className="rk-web-icon shrink-0 h-3.5 w-3.5 rounded-sm"
+                      onError={() => {
+                        if (!faviconFailureKey) return;
+                        setFailedFavicons((prev) => {
+                          if (prev.has(faviconFailureKey)) return prev;
+                          const next = new Set(prev);
+                          next.add(faviconFailureKey);
+                          return next;
+                        });
+                      }}
+                    />
+                  ) : kind !== "relative" ? (
                     <span
                       aria-hidden="true"
                       className={`shrink-0 inline-block w-1.5 h-1.5 rounded-full ${KIND_DOT_CLASS[kind]}`}
                     />
-                  )}
+                  ) : null}
                   <span className="whitespace-nowrap">{label}</span>
                   {onCloseTab && (
                     <button
@@ -1025,6 +1328,59 @@ export function IframeWindow({
                 </div>
               );
             })}
+            {drafts.map((draft, idx) => {
+              const isSelected = draft.id === selectedDraft;
+              return (
+                <div
+                  key={draft.id}
+                  role="tab"
+                  aria-selected={isSelected}
+                  data-testid="web-tab-draft"
+                  data-draft-id={draft.id}
+                  tabIndex={isSelected ? 0 : -1}
+                  title="New tab — Enter materializes it, Esc discards"
+                  onClick={() => {
+                    setSelectedDraft(draft.id);
+                    setInputUrl("");
+                    setSubmitError(null);
+                    setTimeout(() => addressInputRef.current?.focus(), 0);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setSelectedDraft(draft.id);
+                      setInputUrl("");
+                      setSubmitError(null);
+                      setTimeout(() => addressInputRef.current?.focus(), 0);
+                    }
+                  }}
+                  className={`group flex items-center gap-1.5 px-2 py-1 cursor-pointer outline-none border-b-2 border-dashed ${
+                    isSelected
+                      ? "border-text-secondary text-text-primary"
+                      : "border-border/60 text-text-secondary hover:text-text-primary"
+                  }`}
+                >
+                  <span
+                    aria-hidden="true"
+                    className="shrink-0 inline-block w-1.5 h-1.5 rounded-full bg-text-secondary/60"
+                  />
+                  <span className="whitespace-nowrap">{`new tab ${idx + 1}`}</span>
+                  <button
+                    type="button"
+                    aria-label={`Discard new tab ${idx + 1}`}
+                    data-testid="web-tab-draft-close"
+                    tabIndex={-1}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      discardDraft(draft.id);
+                    }}
+                    className="shrink-0 rounded px-0.5 hover:text-text-primary"
+                  >
+                    ×
+                  </button>
+                </div>
+              );
+            })}
             {onAddTab && (
               <Tip label={stripFull ? `web tabs full (${WEB_TAB_FAMILY_CAP})` : undefined}>
                 <button
@@ -1035,7 +1391,7 @@ export function IframeWindow({
                   // Keep the address bar's focus (and its draft) through the
                   // click — a blur would revert the input to the rest value.
                   onMouseDown={(e) => e.preventDefault()}
-                  onClick={handleAddTabClick}
+                  onClick={openDraft}
                   className="self-center shrink-0 w-6 h-6 mx-1 flex items-center justify-center rounded text-text-secondary enabled:hover:bg-bg-inset enabled:hover:text-text-primary disabled:opacity-50"
                 >
                   +
@@ -1086,21 +1442,27 @@ export function IframeWindow({
         <input
           ref={addressInputRef}
           type="text"
-          value={editing ? inputUrl : displayForm(rawAddress)}
-          placeholder={onboarding ? "localhost:3000 · /present/… · https://…" : undefined}
+          value={selectedDraft !== null ? inputUrl : editing ? inputUrl : displayForm(rawAddress)}
+          placeholder={
+            selectedDraft !== null
+              ? "type an address — Enter opens the tab, Esc discards"
+              : onboarding
+                ? "localhost:3000 · /present/… · https://…"
+                : undefined
+          }
           onChange={(e) => {
             setInputUrl(e.target.value);
             setSubmitError(null);
           }}
           onFocus={() => {
-            setInputUrl(rawAddress);
+            setInputUrl(selectedDraft === null ? rawAddress : "");
             setEditing(true);
           }}
           onBlur={() => {
             setEditing(false);
             setSubmitError(null);
+            setSelectedDraft(null);
             setInputUrl(rawAddress);
-            setNewTabArmed(false);
           }}
           onKeyDown={handleKeyDown}
           className="flex-1 min-w-0 bg-bg-card text-text-primary text-sm px-2 py-1 rounded border border-border outline-none focus:border-text-secondary"

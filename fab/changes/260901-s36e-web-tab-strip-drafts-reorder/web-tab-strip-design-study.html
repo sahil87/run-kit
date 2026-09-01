@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Web Tab Strip — Rework Mock</title>
+<style>
+  :root {
+    --bg: #0b0e13; --card: #11151c; --inset: #0d1117; --border: #262c36;
+    --txt: #e6edf3; --dim: #8b949e; --faint: #566070;
+    --green: #3fb950; --amber: #d29922; --blue: #58a6ff; --red: #f85149;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--txt);
+    font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    padding: 32px 20px 80px;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  h1 .dim { color: var(--dim); font-weight: 400; }
+  h2 { font-size: 13px; margin: 40px 0 10px; color: var(--green); text-transform: uppercase; letter-spacing: .08em; }
+  h2::before { content: "§ "; color: var(--faint); }
+  p.lede { color: var(--dim); margin: 0 0 8px; }
+  code { background: var(--inset); border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; font-size: 12px; }
+  .note { color: var(--dim); font-size: 12px; margin-top: 8px; }
+  .note b { color: var(--txt); font-weight: 600; }
+
+  /* ---------- the tile mock ---------- */
+  .tile { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--inset); }
+  .tile-head { display:flex; align-items:center; gap:8px; padding: 5px 10px; background: var(--card); border-bottom: 1px solid var(--border); color: var(--dim); font-size: 11px; }
+  .tile-head .lens { color: var(--faint); }
+
+  .strip { display:flex; align-items:stretch; background: var(--card); border-bottom:1px solid var(--border); font-size: 11px; overflow-x:auto; user-select:none; min-height: 30px; }
+  .tab {
+    display:flex; align-items:center; gap:6px; padding: 0 8px 0 10px; max-width: 200px;
+    color: var(--dim); cursor: pointer; border-right: 1px solid var(--border);
+    white-space: nowrap; position: relative; touch-action: none;
+  }
+  .tab:hover { color: var(--txt); }
+  .tab.active { background: var(--inset); color: var(--txt); box-shadow: inset 0 2px 0 var(--green); }
+  .tab.dragging { opacity: .35; }
+  .tab.dropside-l::before, .tab.dropside-r::after {
+    content:""; position:absolute; top:4px; bottom:4px; width:2px; background: var(--green);
+  }
+  .tab.dropside-l::before { left:-1px; } .tab.dropside-r::after { right:-1px; }
+  .tab .fav { width: 12px; height: 12px; flex: none; display:grid; place-items:center; }
+  .tab .fav svg { display:block; }
+  .dot { width:6px; height:6px; border-radius:50%; flex:none; }
+  .dot.present{ background: var(--green);} .dot.proxy{ background: var(--amber);} .dot.external{ background: var(--blue);}
+  .tab .label { overflow: hidden; text-overflow: ellipsis; }
+  .tab .x { color: var(--faint); padding: 2px 3px; border-radius: 3px; visibility: hidden; }
+  .tab.active .x, .tab:hover .x { visibility: visible; }
+  .tab .x:hover { color: var(--red); background: var(--bg); }
+  .tab.draft { border-right-style: dashed; color: var(--faint); font-style: italic; }
+  .tab.draft.active { box-shadow: inset 0 2px 0 var(--faint); color: var(--dim); }
+  .spin { width:10px; height:10px; border:1.5px solid var(--faint); border-top-color: var(--green); border-radius:50%; animation: r .7s linear infinite; }
+  @keyframes r { to { transform: rotate(360deg); } }
+  .plus { display:flex; align-items:center; padding: 0 10px; color: var(--dim); cursor:pointer; }
+  .plus:hover { color: var(--green); }
+  .strip-space { flex:1; min-width: 40px; cursor: default; }
+
+  .urlbar { display:flex; align-items:center; gap:6px; padding: 5px 8px; background: var(--card); border-bottom:1px solid var(--border); }
+  .ub-btn { width:26px; height:26px; display:grid; place-items:center; color: var(--dim); border-radius:4px; cursor:pointer; flex:none; }
+  .ub-btn:hover { background: var(--inset); color: var(--txt); }
+  .addr {
+    flex:1; background: var(--inset); border: 1px solid var(--border); border-radius: 4px;
+    color: var(--txt); font: inherit; font-size: 12px; padding: 4px 8px; outline: none; min-width: 60px;
+  }
+  .addr:focus { border-color: var(--green); }
+  .addr.draft-armed { border-style: dashed; }
+  .content { height: 150px; display:grid; place-items:center; color: var(--faint); font-size: 12px; text-align:center; padding: 10px; }
+  .content .big { font-size: 26px; color: var(--border); display:block; margin-bottom: 6px; }
+  .content .t { color: var(--dim); }
+
+  /* ---------- inspector ---------- */
+  .inspector { margin-top: 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--inset); padding: 10px 12px; font-size: 12px; }
+  .inspector .hd { color: var(--faint); font-size: 11px; margin-bottom: 6px; letter-spacing: .05em; }
+  .kv { display:flex; gap: 10px; }
+  .kv .k { color: var(--blue); min-width: 190px; }
+  .kv .v { color: var(--txt); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .kv.gone { color: var(--faint); }
+  .kv.flash .v { color: var(--green); }
+  .inspector .drafts { margin-top: 6px; color: var(--faint); font-style: italic; }
+
+  /* ---------- try list / tables ---------- */
+  .try { border-left: 2px solid var(--green); padding: 2px 0 2px 14px; margin: 14px 0; }
+  .try li { margin: 5px 0; color: var(--dim); }
+  .try li b { color: var(--txt); font-weight: 600; }
+  .try li kbd { background: var(--card); border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 3px; padding: 0 5px; font: inherit; font-size: 11px; color: var(--txt); }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; margin-top: 8px; }
+  th, td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--card); color: var(--dim); font-weight: 600; }
+  td .new { color: var(--green); }
+  .before { opacity: .8; }
+  .cap { color: var(--faint); font-size: 11px; margin-top: 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>web tab strip — rework mock <span class="dim">· draft tabs · reorder · titles+favicons</span></h1>
+  <p class="lede">Interactive study for the three fixes: Chrome-style empty tabs, left/right reorder, richer chrome. The mock below is live — the inspector under it shows exactly what would land in tmux options vs. stay viewer-local.</p>
+
+  <h2>The proposed strip — live mock</h2>
+
+  <div class="tile" id="mock">
+    <div class="tile-head"><span class="lens">://</span> Web <span style="flex:1"></span><span id="headMeta"></span></div>
+    <div class="strip" id="strip" tabindex="0" aria-label="web tabs"></div>
+    <div class="urlbar">
+      <div class="ub-btn" title="Back">‹</div>
+      <div class="ub-btn" title="Forward">›</div>
+      <div class="ub-btn" title="Refresh">↻</div>
+      <input class="addr" id="addr" spellcheck="false" placeholder="localhost:3000 · /present/… · https://…">
+      <div class="ub-btn" title="Find">⌕</div>
+      <div class="ub-btn" title="Open in browser">↗</div>
+    </div>
+    <div class="content" id="content"></div>
+  </div>
+
+  <div class="inspector">
+    <div class="hd">TMUX WINDOW OPTIONS (shared state — what every viewer & agent sees)</div>
+    <div id="opts"></div>
+    <div class="drafts" id="draftNote" hidden>drafts are viewer-local — nothing in tmux until Enter</div>
+  </div>
+
+  <ul class="try">
+    <li><b>Empty tab:</b> click the strip's <kbd>+</kbd> (or double-click empty strip space) — a dashed <i>draft</i> tab appears and the address bar arms. Type <code>localhost:5173</code> and hit <kbd>Enter</kbd> to materialize it. Open several drafts; note the inspector — drafts never touch tmux.</li>
+    <li><b>Discard a draft:</b> <kbd>Esc</kbd> in the address bar, or its ×.</li>
+    <li><b>Reorder:</b> drag a tab left/right; or focus the strip and press <kbd>⌥⇧←</kbd> / <kbd>⌥⇧→</kbd> to move the active tab. Watch the slot values permute in the inspector (<code>web/&lt;n&gt;/move</code> verb).</li>
+    <li><b>Close:</b> × or <b>middle-click</b> a tab — dense renumber, active repoints, exactly the shipped rule.</li>
+    <li><b>Titles:</b> a materialized tab shows a spinner, then its page <b>title + favicon</b> (falling back to today's kind-dot + URL-derived label).</li>
+  </ul>
+
+  <h2>What changes vs. today</h2>
+  <table>
+    <tr><th></th><th class="before">today</th><th>proposed</th></tr>
+    <tr><td>strip visibility</td><td class="before">hidden until 2 tabs — <code>+</code> unreachable from 0–1 tabs</td><td><span class="new">always visible</span> when the web tile shows (single-tab window pays 30px, buys discoverability)</td></tr>
+    <tr><td>new tab</td><td class="before">palette entry or one-shot “arm” mode on the address bar</td><td><span class="new">draft tabs</span> — viewer-local, materialize on Enter, discard on Esc; arm-mode dies</td></tr>
+    <tr><td>reorder</td><td class="before">none — slot index is position, no verb</td><td><span class="new">POST /web/{n}/move {to}</span> + <code>rk tab web mv n m</code>; drag + <kbd>⌥⇧←→</kbd> + palette twins</td></tr>
+    <tr><td>label</td><td class="before"><code>webTabTitle(url)</code> — host / localhost:port / basename</td><td><span class="new">page title + favicon</span> per frame (same-origin read; external favicon.ico), kind-dot label as fallback</td></tr>
+    <tr><td>gestures</td><td class="before">click select, × close</td><td>+ <span class="new">middle-click close</span>, <span class="new">dbl-click space = draft</span>, per-tab <span class="new">load spinner</span></td></tr>
+  </table>
+  <p class="note"><b>Held invariants:</b> identity stays the URL (drafts have none — that's why they're local) · slots stay dense & 1-based · cap 8 · one iframe per tab, hidden never unmounted · add stays idempotent · agents keep <code>rk tab web add</code> unchanged.</p>
+
+  <h2>Why drafts are viewer-local, not a sentinel URL</h2>
+  <p class="note">A stored blank tab fights three spec decisions at once: <b>identity is the URL</b> (two blanks collide), <b>empty = unset</b> (an empty option value can't exist), and <b>declared only</b>. A draft is a place to type an address — compose-draft class state per the One Rule. The moment it has content worth sharing (an address), it becomes a real slot.</p>
+
+</div>
+
+<script>
+(() => {
+  const FAVS = {
+    "localhost:5173": { title: "Vite + React", ico: iconVite() },
+    "localhost:3000": { title: "run-kit — fabKit1", ico: iconRk() },
+    "localhost:8080": { title: "Docs — preview", ico: null },
+    "github.com":     { title: "sahil87/run-kit", ico: iconGh() },
+  };
+  function iconVite(){ return `<svg width="11" height="11" viewBox="0 0 24 24"><path fill="#a855f7" d="M12 2 2 6l10 16L22 6z"/><path fill="#fbbf24" d="M14 3 9 13h3l-1 8 6-12h-3z"/></svg>`; }
+  function iconGh(){ return `<svg width="11" height="11" viewBox="0 0 16 16"><path fill="#e6edf3" d="M8 0a8 8 0 0 0-2.5 15.6c.4 0 .5-.2.5-.4v-1.4c-2.2.5-2.7-1-2.7-1-.4-.9-.9-1.2-.9-1.2-.7-.5.1-.5.1-.5.8 0 1.2.9 1.2.9.7 1.2 1.9.9 2.4.7 0-.5.3-.9.5-1.1-1.8-.2-3.6-.9-3.6-4a3 3 0 0 1 .8-2.1c0-.2-.3-1 .1-2.1 0 0 .7-.2 2.2.8a7.6 7.6 0 0 1 4 0c1.5-1 2.2-.8 2.2-.8.4 1.1.1 1.9.1 2.1a3 3 0 0 1 .8 2.1c0 3.1-1.9 3.8-3.6 4 .3.3.5.7.5 1.4v2.2c0 .2.2.5.6.4A8 8 0 0 0 8 0z"/></svg>`; }
+  function iconRk(){ return `<svg width="11" height="11" viewBox="0 0 12 12"><rect x="1" y="1" width="10" height="10" rx="2" fill="none" stroke="#3fb950" stroke-width="1.4"/><path d="M3.5 7.5 6 4l2.5 3.5" stroke="#3fb950" stroke-width="1.4" fill="none"/></svg>`; }
+
+  let tabs = [
+    { url: "/proxy/3000/", kind: "proxy",    host: "localhost:3000", loaded: true },
+    { url: "https://github.com/sahil87/run-kit", kind: "external", host: "github.com", loaded: true },
+  ];
+  let active = 0;            // index into tabs
+  let drafts = [];           // [{id}]
+  let selDraft = null;       // draft id or null
+  let dseq = 0;
+  let flash = -1;
+
+  const strip = document.getElementById("strip");
+  const addr = document.getElementById("addr");
+  const content = document.getElementById("content");
+  const opts = document.getElementById("opts");
+  const draftNote = document.getElementById("draftNote");
+  const headMeta = document.getElementById("headMeta");
+
+  function classify(v){
+    v = v.trim();
+    if (!v) return null;
+    if (/^(localhost|127\.0\.0\.1):\d+/.test(v)) { const p = v.match(/:(\d+)/)[1]; return { url:`/proxy/${p}/`, kind:"proxy", host:`localhost:${p}` }; }
+    if (/^\/present\//.test(v)) return { url: v, kind: "present", host: v.split("/").pop() || v };
+    if (/^https?:\/\//.test(v)) { try { return { url: v, kind: "external", host: new URL(v).host }; } catch { return null; } }
+    if (/^[a-z0-9.-]+\.[a-z]{2,}/i.test(v)) return { url: "https://"+v, kind: "external", host: v.split("/")[0] };
+    if (/^\//.test(v)) return { url: v, kind: "relative", host: v };
+    return null;
+  }
+  const label = t => {
+    const meta = FAVS[t.host];
+    if (t.loaded && meta) return meta.title;
+    return t.kind === "external" ? t.host : t.host || t.url;
+  };
+  const fav = t => {
+    if (!t.loaded) return `<span class="spin"></span>`;
+    const meta = FAVS[t.host];
+    if (meta && meta.ico) return meta.ico;
+    return `<span class="dot ${t.kind}"></span>`;
+  };
+
+  function render(){
+    strip.innerHTML = "";
+    tabs.forEach((t, i) => {
+      const el = document.createElement("div");
+      el.className = "tab" + (selDraft === null && i === active ? " active" : "");
+      el.draggable = false;
+      el.dataset.i = i;
+      el.title = t.url;
+      el.innerHTML = `<span class="fav">${fav(t)}</span><span class="label">${label(t)}</span><span class="x" title="close">×</span>`;
+      el.addEventListener("pointerdown", e => { if (e.button === 0 && !e.target.classList.contains("x")) dragStart(e, i); });
+      el.addEventListener("click", e => {
+        if (e.target.classList.contains("x")) { e.stopPropagation(); closeTab(i); }
+        else if (!dragMoved) { selDraft = null; active = i; render(); }
+      });
+      el.addEventListener("auxclick", e => { if (e.button === 1) { e.preventDefault(); closeTab(i); } });
+      strip.appendChild(el);
+    });
+    drafts.forEach(d => {
+      const el = document.createElement("div");
+      el.className = "tab draft" + (selDraft === d.id ? " active" : "");
+      el.innerHTML = `<span class="label">new tab</span><span class="x" title="discard">×</span>`;
+      el.addEventListener("click", e => {
+        if (e.target.classList.contains("x")) { e.stopPropagation(); drafts = drafts.filter(x => x.id !== d.id); if (selDraft === d.id) selDraft = null; render(); }
+        else { selDraft = d.id; render(); addr.focus(); }
+      });
+      strip.appendChild(el);
+    });
+    const plus = document.createElement("div");
+    plus.className = "plus"; plus.textContent = "+"; plus.title = "New tab (draft)";
+    plus.addEventListener("click", newDraft);
+    strip.appendChild(plus);
+    const space = document.createElement("div");
+    space.className = "strip-space";
+    space.addEventListener("dblclick", newDraft);
+    strip.appendChild(space);
+
+    // urlbar + content
+    if (selDraft !== null) {
+      addr.value = ""; addr.classList.add("draft-armed");
+      addr.placeholder = "type an address — Enter opens the tab, Esc discards";
+      content.innerHTML = `<div><span class="big">+</span>draft tab — nothing shared yet<br><span class="t">Enter in the address bar materializes it as @rk_win_web_${tabs.length + 1}</span></div>`;
+      headMeta.textContent = "";
+    } else if (tabs.length) {
+      const t = tabs[active];
+      addr.classList.remove("draft-armed");
+      addr.value = t.kind === "proxy" ? t.host + "/" : t.kind === "external" ? t.url.replace(/^https?:\/\//, "") : t.url;
+      content.innerHTML = `<div><span class="big">▣</span><span class="t">${label(t)}</span><br>iframe · ${t.url}<br><span class="t" style="color:var(--faint)">(${tabs.length} frames mounted, ${tabs.length - 1} hidden — switching reloads nothing)</span></div>`;
+      headMeta.textContent = label(t);
+    } else {
+      addr.value = ""; content.innerHTML = `<div><span class="big">://</span>Nothing to show yet</div>`; headMeta.textContent = "";
+    }
+    renderOpts();
+  }
+
+  function renderOpts(){
+    let h = "";
+    tabs.forEach((t, i) => {
+      h += `<div class="kv${i === flash ? " flash" : ""}"><span class="k">@rk_win_web_${i+1}</span><span class="v">${t.url}</span></div>`;
+    });
+    h += `<div class="kv"><span class="k">@rk_win_web_active</span><span class="v">${tabs.length ? active + 1 : "(unset)"}</span></div>`;
+    opts.innerHTML = h;
+    draftNote.hidden = drafts.length === 0;
+    flash = -1;
+  }
+
+  function newDraft(){
+    const d = { id: ++dseq };
+    drafts.push(d); selDraft = d.id;
+    render(); addr.focus();
+  }
+
+  function closeTab(i){
+    tabs.splice(i, 1);                          // dense renumber
+    if (tabs.length === 0) active = 0;
+    else if (active >= i) active = Math.max(0, active - (active > i ? 1 : active === i ? (i >= tabs.length ? 1 : 0) : 0));
+    render();
+  }
+
+  function moveActive(dir){
+    if (selDraft !== null || tabs.length < 2) return;
+    const j = active + dir;
+    if (j < 0 || j >= tabs.length) return;
+    [tabs[active], tabs[j]] = [tabs[j], tabs[active]];
+    active = j; flash = j;
+    render();
+  }
+
+  addr.addEventListener("keydown", e => {
+    if (e.key === "Enter") {
+      const c = classify(addr.value);
+      if (!c) return;
+      if (selDraft !== null) {
+        if (tabs.length >= 8) return;
+        drafts = drafts.filter(x => x.id !== selDraft); selDraft = null;
+        const t = { ...c, loaded: false };
+        tabs.push(t); active = tabs.length - 1; flash = active;
+        render();
+        setTimeout(() => { t.loaded = true; render(); }, 1100);   // spinner → title+favicon
+      } else if (tabs.length) {
+        const t = tabs[active];
+        Object.assign(t, c, { loaded: false }); flash = active;
+        render();
+        setTimeout(() => { t.loaded = true; render(); }, 1100);
+      }
+      addr.blur();
+    }
+    if (e.key === "Escape" && selDraft !== null) {
+      drafts = drafts.filter(x => x.id !== selDraft); selDraft = null;
+      render(); addr.blur();
+    }
+  });
+
+  strip.addEventListener("keydown", e => {
+    if (e.altKey && e.shiftKey && e.key === "ArrowLeft")  { e.preventDefault(); moveActive(-1); }
+    if (e.altKey && e.shiftKey && e.key === "ArrowRight") { e.preventDefault(); moveActive(1); }
+  });
+
+  // pointer-based drag reorder
+  let dragMoved = false;
+  function dragStart(e, i){
+    dragMoved = false;
+    const startX = e.clientX;
+    const el = e.currentTarget;
+    let target = null, side = 0;
+    const onMove = ev => {
+      if (Math.abs(ev.clientX - startX) > 5) { dragMoved = true; el.classList.add("dragging"); }
+      if (!dragMoved) return;
+      document.querySelectorAll(".tab").forEach(t => t.classList.remove("dropside-l","dropside-r"));
+      target = null;
+      document.querySelectorAll("#strip .tab:not(.draft)").forEach(t => {
+        const r = t.getBoundingClientRect();
+        if (ev.clientX >= r.left && ev.clientX <= r.right && t !== el) {
+          target = +t.dataset.i;
+          side = ev.clientX < r.left + r.width/2 ? -1 : 1;
+          t.classList.add(side < 0 ? "dropside-l" : "dropside-r");
+        }
+      });
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      el.classList.remove("dragging");
+      if (dragMoved && target !== null) {
+        const t = tabs.splice(i, 1)[0];
+        let to = target + (side > 0 ? 1 : 0);
+        if (i < to) to--;
+        tabs.splice(to, 0, t);
+        active = to; flash = to;
+        render();
+      }
+      setTimeout(() => { dragMoved = false; }, 0);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }
+
+  render();
+})();
+</script>
+</body>
+</html>

@@ -327,6 +327,58 @@ func TestWebSelect(t *testing.T) {
 	webMustHeld(t, server, id, WebActiveOption, "2") // failed selects wrote nothing
 }
 
+// Active follows the moved slot's identity: [A,B,C] with active on C, moving
+// slot 1 (A) to position 3 yields [B,C,A] and the pointer lands on C's new
+// slot 2. Roots move alongside their URLs.
+func TestWebMoveActiveFollowsIdentity(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	id := windowID(t, server, "boot:0")
+	seedWebFamily(t, server, id,
+		[]string{"/proxy/1/", "/proxy/2/", "/proxy/3/"},
+		[]string{"/r1", "", "/r3"}, 3)
+
+	if err := WebMove(context.Background(), id, server, 1, 3); err != nil {
+		t.Fatalf("WebMove: %v", err)
+	}
+	webMustHeld(t, server, id, WebTabOption(1), "/proxy/2/")
+	webMustUnset(t, server, id, WebTabRootOption(1))
+	webMustHeld(t, server, id, WebTabOption(2), "/proxy/3/")
+	webMustHeld(t, server, id, WebTabRootOption(2), "/r3")
+	webMustHeld(t, server, id, WebTabOption(3), "/proxy/1/")
+	webMustHeld(t, server, id, WebTabRootOption(3), "/r1")
+	webMustHeld(t, server, id, WebActiveOption, "2") // C, still the third URL
+}
+
+func TestWebMoveBackward(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	id := windowID(t, server, "boot:0")
+	seedWebFamily(t, server, id,
+		[]string{"/proxy/1/", "/proxy/2/", "/proxy/3/"}, nil, 1)
+
+	if err := WebMove(context.Background(), id, server, 3, 1); err != nil {
+		t.Fatalf("WebMove: %v", err)
+	}
+	webMustHeld(t, server, id, WebTabOption(1), "/proxy/3/")
+	webMustHeld(t, server, id, WebTabOption(2), "/proxy/1/")
+	webMustHeld(t, server, id, WebTabOption(3), "/proxy/2/")
+	webMustHeld(t, server, id, WebActiveOption, "2") // A followed to slot 2
+}
+
+func TestWebMoveRange(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	id := windowID(t, server, "boot:0")
+	seedWebFamily(t, server, id, []string{"/proxy/1/", "/proxy/2/"}, nil, 1)
+
+	for _, mv := range [][2]int{{0, 1}, {3, 1}, {1, 0}, {1, 3}, {-1, 1}, {1, -1}} {
+		if err := WebMove(context.Background(), id, server, mv[0], mv[1]); !errors.Is(err, ErrWebTabRange) {
+			t.Errorf("WebMove(%d, %d): err = %v, want ErrWebTabRange", mv[0], mv[1], err)
+		}
+	}
+	// The failed moves wrote nothing.
+	webMustHeld(t, server, id, WebTabOption(2), "/proxy/2/")
+	webMustHeld(t, server, id, WebActiveOption, "1")
+}
+
 func TestShiftWebTabs(t *testing.T) {
 	tests := []struct {
 		name              string
@@ -388,6 +440,81 @@ func TestRepointActive(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := repointActive(tt.active, tt.n, tt.newLen); got != tt.want {
 				t.Errorf("repointActive(%d, %d, %d) = %d, want %d", tt.active, tt.n, tt.newLen, got, tt.want)
+			}
+		})
+	}
+}
+
+// A self-move succeeds without touching the family (no write at all).
+func TestWebMoveNoOp(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	id := windowID(t, server, "boot:0")
+	seedWebFamily(t, server, id, []string{"/proxy/1/", "/proxy/2/"}, nil, 1)
+
+	if err := WebMove(context.Background(), id, server, 2, 2); err != nil {
+		t.Fatalf("WebMove(2, 2): %v", err)
+	}
+	webMustHeld(t, server, id, WebTabOption(1), "/proxy/1/")
+	webMustHeld(t, server, id, WebActiveOption, "1")
+}
+
+func TestMoveWebTabs(t *testing.T) {
+	tests := []struct {
+		name              string
+		tabs, roots       []string
+		n, to             int
+		wantTabs, wantRts []string
+	}{
+		{
+			name: "forward past both", tabs: []string{"a", "b", "c"}, roots: []string{"r1", "", "r3"}, n: 1, to: 3,
+			wantTabs: []string{"b", "c", "a"}, wantRts: []string{"", "r3", "r1"},
+		},
+		{
+			name: "one step forward", tabs: []string{"a", "b", "c"}, n: 1, to: 2,
+			wantTabs: []string{"b", "a", "c"}, wantRts: []string{"", "", ""},
+		},
+		{
+			name: "backward to first", tabs: []string{"a", "b", "c"}, n: 3, to: 1,
+			wantTabs: []string{"c", "a", "b"}, wantRts: []string{"", "", ""},
+		},
+		{
+			name: "root rides with its URL", tabs: []string{"a", "b", "c"}, roots: []string{"", "r2", ""}, n: 2, to: 3,
+			wantTabs: []string{"a", "c", "b"}, wantRts: []string{"", "", "r2"},
+		},
+		{
+			name: "short roots tolerated", tabs: []string{"a", "b", "c"}, roots: []string{"r1"}, n: 1, to: 3,
+			wantTabs: []string{"b", "c", "a"}, wantRts: []string{"", "", "r1"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotTabs, gotRoots := moveWebTabs(tt.tabs, tt.roots, tt.n, tt.to)
+			if strings.Join(gotTabs, ",") != strings.Join(tt.wantTabs, ",") {
+				t.Errorf("tabs = %v, want %v", gotTabs, tt.wantTabs)
+			}
+			if strings.Join(gotRoots, ",") != strings.Join(tt.wantRts, ",") {
+				t.Errorf("roots = %v, want %v", gotRoots, tt.wantRts)
+			}
+		})
+	}
+}
+
+func TestRepointMoveActive(t *testing.T) {
+	tests := []struct {
+		name           string
+		active, n, to  int
+		want           int
+	}{
+		{"moved tab lands at to", 1, 1, 3, 3},
+		{"shifted down by a forward move", 3, 1, 3, 2},
+		{"shifted up by a backward move", 1, 3, 1, 2},
+		{"active outside the moved span stays", 4, 1, 3, 4},
+		{"to boundary of the span shifts", 2, 3, 2, 3},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := repointMoveActive(tt.active, tt.n, tt.to); got != tt.want {
+				t.Errorf("repointMoveActive(%d, %d, %d) = %d, want %d", tt.active, tt.n, tt.to, got, tt.want)
 			}
 		})
 	}

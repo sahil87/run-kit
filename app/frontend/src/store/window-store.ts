@@ -136,6 +136,34 @@ export function webFamilyAfterRemove(
 }
 
 /**
+ * The web-tab family after slot n (1-based) moves to position to (1-based) — a
+ * display-only mirror of the backend's WebMove rule (internal/tmux/webtabs.go
+ * `repointMoveActive`): the moved tab lands at to, slots between shift one
+ * step the other way, and the active pointer follows the moved/affected slots'
+ * identity. n == to returns the family unchanged. The server write is
+ * authoritative; the next SSE tick reconciles.
+ */
+export function webFamilyAfterMove(
+  tabs: string[],
+  active: number,
+  n: number,
+  to: number,
+): { webTabs: string[]; webActive: number } {
+  const webTabs = [...tabs];
+  const [moved] = webTabs.splice(n - 1, 1);
+  webTabs.splice(to - 1, 0, moved);
+  const webActive =
+    active === n
+      ? to
+      : n < to && active > n && active <= to
+        ? active - 1
+        : n > to && active >= to && active < n
+          ? active + 1
+          : active;
+  return { webTabs, webActive };
+}
+
+/**
  * How long an unclaimed ghost window survives before being dropped.
  *
  * A ghost is claimed only when a NEW windowId arrives for its (server,

@@ -762,25 +762,20 @@ describe("IframeWindow", () => {
   describe("web tab strip", () => {
     const TABS = ["/proxy/3001/", "/proxy/3002/", "https://docs.example.com/a/b"];
 
-    it("no strip at 0 or 1 tabs; the URL-bar row DOM at 1 tab is identical to the row inside a 2-tab tile", () => {
+    it("no strip at onboarding (0 tabs, no drafts); the URL-bar row DOM stays as-is", () => {
       renderIframe({ tabs: [] });
       expect(screen.queryByTestId("web-tab-strip")).toBeNull();
       cleanup();
 
       const one = renderIframe({ tabs: ["/proxy/3001/"] });
-      expect(screen.queryByTestId("web-tab-strip")).toBeNull();
-      // The strip would be the outer wrapper's FIRST child — at 1 tab the
-      // URL-bar row holds that spot.
-      const row1 = (screen.getByLabelText("URL") as HTMLInputElement).parentElement!;
-      expect(screen.getByTestId("web-zoom-frame-wrapper").parentElement!.firstElementChild).toBe(row1);
+      const strip = screen.queryByTestId("web-tab-strip");
+      expect(strip).toBeTruthy();
+      // The strip is the outer wrapper's FIRST child at 1 tab now.
+      expect(screen.getByTestId("web-zoom-frame-wrapper").parentElement!.firstElementChild).toBe(strip);
       one.unmount();
-
-      renderIframe({ tabs: ["/proxy/3001/", "/proxy/3002/"], active: 1 });
-      const row2 = (screen.getByLabelText("URL") as HTMLInputElement).parentElement!;
-      expect(row2.outerHTML).toBe(row1.outerHTML);
     });
 
-    it("renders the strip at 2+ tabs: tablist semantics, webTabTitle labels, displayForm titles, kind dots", () => {
+    it("renders tablist semantics, fallback labels, display titles, and load spinners", () => {
       renderIframe({ tabs: TABS, active: 2 });
       const strip = screen.getByTestId("web-tab-strip");
       expect(strip.getAttribute("role")).toBe("tablist");
@@ -795,9 +790,150 @@ describe("IframeWindow", () => {
       expect(tabs[2].textContent).toContain("docs.example.com");
       expect(tabs[0].getAttribute("title")).toBe("localhost:3001/");
       expect(tabs[2].getAttribute("title")).toBe("docs.example.com/a/b");
-      // The classifyAddress dot hues: proxy → yellow, external → blue.
-      expect(tabs[0].querySelector("[aria-hidden]")!.className).toContain("bg-signal-yellow");
-      expect(tabs[2].querySelector("[aria-hidden]")!.className).toContain("bg-signal-blue");
+      // The classifyAddress kind dot occupies the icon slot once a frame's
+      // document settles (spinner during load); proxy → yellow, external →
+      // blue. Both tabs here show a spinner because the initial mount's
+      // loading state is true until a `load` event clears it.
+      expect(tabs[0].querySelector("[data-testid='web-tab-spinner']")).not.toBeNull();
+      expect(tabs[2].querySelector("[data-testid='web-tab-spinner']")).not.toBeNull();
+    });
+
+    it("uses a same-origin page title and favicon, then falls back to the kind dot on icon failure", () => {
+      renderIframe({ tabs: ["/proxy/3001/docs"], active: 1 });
+      const iframe = screen.getByTitle("Proxied content");
+      if (!(iframe instanceof HTMLIFrameElement)) throw new Error("expected iframe");
+      const doc = iframe.contentDocument;
+      if (!doc) throw new Error("expected frame document");
+      const html = doc.documentElement ?? doc.appendChild(doc.createElement("html"));
+      const head = doc.head ?? doc.createElement("head");
+      if (!doc.head) html.prepend(head);
+      doc.title = "Project docs";
+      const icon = doc.createElement("link");
+      icon.rel = "icon";
+      icon.href = `${window.location.origin}/assets/project-icon.svg`;
+      head.append(icon);
+      const location = {
+        href: `${window.location.origin}/proxy/3001/docs`,
+        origin: window.location.origin,
+        pathname: "/proxy/3001/docs",
+        search: "",
+        hash: "",
+      };
+      Object.defineProperty(iframe, "contentWindow", {
+        value: { location },
+        configurable: true,
+      });
+
+      fireEvent.load(iframe);
+      const tab = screen.getByTestId("web-tab");
+      expect(tab.textContent).toContain("Project docs");
+      const favicon = tab.querySelector("img");
+      expect(favicon?.getAttribute("src")).toBe(
+        `${window.location.origin}/assets/project-icon.svg`,
+      );
+
+      if (!favicon) throw new Error("expected favicon");
+      fireEvent.error(favicon);
+      expect(tab.querySelector("img")).toBeNull();
+      expect(tab.querySelector("[aria-hidden='true']")?.className).toContain(
+        "bg-signal-yellow",
+      );
+    });
+
+    it("clears a prior same-origin title and favicon after a cross-origin navigation", () => {
+      renderIframe({ tabs: ["/proxy/3001/docs"], active: 1 });
+      const iframe = screen.getByTitle("Proxied content");
+      if (!(iframe instanceof HTMLIFrameElement)) throw new Error("expected iframe");
+      const doc = iframe.contentDocument;
+      if (!doc) throw new Error("expected frame document");
+      const html = doc.documentElement ?? doc.appendChild(doc.createElement("html"));
+      const head = doc.head ?? doc.createElement("head");
+      if (!doc.head) html.prepend(head);
+      doc.title = "Private project";
+      const icon = doc.createElement("link");
+      icon.rel = "icon";
+      icon.href = `${window.location.origin}/assets/private.svg`;
+      head.append(icon);
+      Object.defineProperty(iframe, "contentWindow", {
+        value: {
+          location: {
+            href: `${window.location.origin}/proxy/3001/docs`,
+            origin: window.location.origin,
+            pathname: "/proxy/3001/docs",
+            search: "",
+            hash: "",
+          },
+        },
+        configurable: true,
+      });
+
+      fireEvent.load(iframe);
+      const tab = screen.getByTestId("web-tab");
+      expect(tab.textContent).toContain("Private project");
+      expect(tab.querySelector("img")?.getAttribute("src")).toBe(
+        `${window.location.origin}/assets/private.svg`,
+      );
+
+      Object.defineProperty(iframe, "contentDocument", {
+        get() {
+          throw new Error("cross-origin");
+        },
+        configurable: true,
+      });
+      Object.defineProperty(iframe, "contentWindow", {
+        get() {
+          throw new Error("cross-origin");
+        },
+        configurable: true,
+      });
+      fireEvent.load(iframe);
+
+      expect(tab.textContent).toContain("localhost:3001/docs");
+      expect(tab.textContent).not.toContain("Private project");
+      expect(tab.querySelector("img")).toBeNull();
+      expect(tab.querySelector("[aria-hidden='true']")?.className).toContain(
+        "bg-signal-yellow",
+      );
+    });
+
+    it("reports an already-loaded inactive tab's title when it becomes active", () => {
+      const urls = ["/proxy/3001/", "/proxy/3002/"];
+      const onPageMeta = vi.fn();
+      const { rerender } = renderIframe({ tabs: urls, active: 1, onPageMeta });
+      const frames = screen.getAllByTitle("Proxied content");
+
+      frames.forEach((frame, index) => {
+        if (!(frame instanceof HTMLIFrameElement)) throw new Error("expected iframe");
+        const doc = frame.contentDocument;
+        if (!doc) throw new Error("expected frame document");
+        const html = doc.documentElement ?? doc.appendChild(doc.createElement("html"));
+        const head = doc.head ?? doc.createElement("head");
+        if (!doc.head) html.prepend(head);
+        doc.title = index === 0 ? "First project" : "Second project";
+        const icon = doc.createElement("link");
+        icon.rel = "icon";
+        icon.href = `${window.location.origin}/assets/project-${index + 1}.svg`;
+        head.append(icon);
+        Object.defineProperty(frame, "contentWindow", {
+          value: {
+            location: {
+              href: `${window.location.origin}${urls[index]}`,
+              origin: window.location.origin,
+              pathname: urls[index],
+              search: "",
+              hash: "",
+            },
+          },
+          configurable: true,
+        });
+        fireEvent.load(frame);
+      });
+      expect(onPageMeta).toHaveBeenLastCalledWith({ title: "First project" });
+
+      onPageMeta.mockClear();
+      rerender(iframeElement({ tabs: urls, active: 2, onPageMeta }));
+      expect(onPageMeta).toHaveBeenCalledTimes(1);
+      expect(onPageMeta).toHaveBeenLastCalledWith({ title: "Second project" });
     });
 
     it("the address bar and visible frame follow the active slot; an out-of-range active clamps, never onboarding", () => {
@@ -830,24 +966,36 @@ describe("IframeWindow", () => {
     it("clicking a tab selects it; × closes without selecting", () => {
       const onSelectTab = vi.fn().mockResolvedValue({ ok: true });
       const onCloseTab = vi.fn().mockResolvedValue({ ok: true });
-      renderIframe({ tabs: TABS, active: 1, onSelectTab, onCloseTab });
+      const onMoveTab = vi.fn().mockResolvedValue({ ok: true });
+      renderIframe({ tabs: TABS, active: 1, onSelectTab, onCloseTab, onMoveTab });
       fireEvent.click(screen.getAllByTestId("web-tab")[2]);
       expect(onSelectTab).toHaveBeenCalledWith(3);
       onSelectTab.mockClear();
 
-      fireEvent.click(screen.getAllByTestId("web-tab-close")[1]);
+      const close = screen.getAllByTestId("web-tab-close")[1];
+      const capture = vi.fn();
+      Object.defineProperty(screen.getAllByTestId("web-tab")[1], "setPointerCapture", {
+        value: capture,
+        configurable: true,
+      });
+      fireEvent.pointerDown(close, { button: 0, pointerId: 4 });
+      expect(capture).not.toHaveBeenCalled();
+      fireEvent.click(close);
       expect(onCloseTab).toHaveBeenCalledWith(2);
       expect(onSelectTab).not.toHaveBeenCalled();
+      expect(onMoveTab).not.toHaveBeenCalled();
     });
 
-    it("+ with a differing draft awaits onAddTab then selects the returned index", async () => {
+    it("draft tabs render after all real tabs, dashed; a draft Enter materializes the add and selects the resolved index", async () => {
       const onAddTab = vi.fn().mockResolvedValue({ index: 3, existed: false });
       const onSelectTab = vi.fn().mockResolvedValue({ ok: true });
       renderIframe({ tabs: ["/proxy/3001/", "/proxy/3002/"], active: 1, onAddTab, onSelectTab });
       const input = screen.getByLabelText("URL") as HTMLInputElement;
-      fireEvent.focus(input);
-      fireEvent.change(input, { target: { value: "localhost:3003" } });
+
+      // At rest no draft: open the `+` path, then type and Enter.
       fireEvent.click(screen.getByTestId("web-tab-add"));
+      fireEvent.change(input, { target: { value: "localhost:3003" } });
+      fireEvent.keyDown(input, { key: "Enter" });
       await waitFor(() => expect(onSelectTab).toHaveBeenCalledWith(3));
       expect(onAddTab).toHaveBeenCalledWith("/proxy/3003/");
       expect(onAddTab.mock.invocationCallOrder[0]).toBeLessThan(
@@ -856,31 +1004,137 @@ describe("IframeWindow", () => {
       expect(onWriteUrl).not.toHaveBeenCalled();
     });
 
-    it("+ with an empty/same draft focuses the bar and arms one-shot new-tab mode: the next Enter adds", async () => {
-      const onAddTab = vi.fn().mockResolvedValue({ index: 3, existed: false });
-      const onSelectTab = vi.fn().mockResolvedValue({ ok: true });
-      renderIframe({ tabs: ["/proxy/3001/", "/proxy/3002/"], active: 1, onAddTab, onSelectTab });
-      // At rest the draft IS the active URL — no verb fires, the bar takes
-      // focus with its text selected, and new-tab mode arms.
+    it("the `+` selects only the draft and focuses a blank address bar with draft guidance", async () => {
+      renderIframe({ tabs: ["/proxy/3001/", "/proxy/3002/"], active: 1, onAddTab: vi.fn() });
       fireEvent.click(screen.getByTestId("web-tab-add"));
-      expect(onAddTab).not.toHaveBeenCalled();
-      const input = screen.getByLabelText("URL") as HTMLInputElement;
-      expect(input).toHaveFocus();
-      expect(input.selectionEnd).toBe(input.value.length);
 
-      fireEvent.change(input, { target: { value: "localhost:3003" } });
-      fireEvent.keyDown(input, { key: "Enter" });
-      await waitFor(() => expect(onSelectTab).toHaveBeenCalledWith(3));
-      expect(onAddTab).toHaveBeenCalledWith("/proxy/3003/");
-      expect(onWriteUrl).not.toHaveBeenCalled();
+      const input = screen.getByLabelText("URL") as HTMLInputElement;
+      await waitFor(() => expect(document.activeElement).toBe(input));
+      expect(input.value).toBe("");
+      expect(input.placeholder).toBe("type an address — Enter opens the tab, Esc discards");
+      const selected = screen
+        .getAllByRole("tab")
+        .filter((tab) => tab.getAttribute("aria-selected") === "true");
+      expect(selected).toEqual([screen.getByTestId("web-tab-draft")]);
     });
 
-    it("Escape clears the arm — the next Enter replaces the active slot again", () => {
+    it("a draft's own × discards it", () => {
+      renderIframe({ tabs: ["/proxy/3001/", "/proxy/3002/"], active: 1, onAddTab: vi.fn() });
+      fireEvent.click(screen.getByTestId("web-tab-add"));
+      fireEvent.click(screen.getByTestId("web-tab-draft-close"));
+      expect(screen.queryByTestId("web-tab-draft")).toBeNull();
+    });
+
+    it("dragging a tab past a sibling commits one exact move", () => {
+      const onMoveTab = vi.fn().mockResolvedValue({ ok: true });
+      const onSelectTab = vi.fn().mockResolvedValue({ ok: true });
+      renderIframe({ tabs: ["/proxy/3001/", "/proxy/3002/", "/proxy/3003/"], active: 1, onMoveTab, onSelectTab });
+      const tabs = screen.getAllByTestId("web-tab");
+
+      fireEvent.pointerDown(tabs[0], { button: 0, clientX: 0 });
+      fireEvent.pointerMove(tabs[1], { clientX: 20 });
+      fireEvent.pointerUp(tabs[1], { clientX: 20 });
+      expect(onMoveTab).toHaveBeenCalledTimes(1);
+      expect(onSelectTab).not.toHaveBeenCalled();
+      expect(onMoveTab).toHaveBeenCalledWith(1, 2);
+    });
+
+    it("pointercancel and release outside clear drag state without a stale move", () => {
+      const onMoveTab = vi.fn().mockResolvedValue({ ok: true });
+      renderIframe({ tabs: ["/proxy/3001/", "/proxy/3002/"], active: 1, onMoveTab });
+      const tabs = screen.getAllByTestId("web-tab");
+
+      fireEvent.pointerDown(tabs[0], { button: 0, clientX: 0, pointerId: 7 });
+      fireEvent.pointerMove(tabs[1], { clientX: 20, pointerId: 7 });
+      expect(screen.getByTestId("web-tab-drop-indicator")).toBeTruthy();
+      fireEvent.pointerCancel(window, { pointerId: 7 });
+      expect(screen.queryByTestId("web-tab-drop-indicator")).toBeNull();
+      expect(onMoveTab).not.toHaveBeenCalled();
+
+      fireEvent.pointerDown(tabs[0], { button: 0, clientX: 0, pointerId: 8 });
+      fireEvent.pointerMove(tabs[1], { clientX: 20, pointerId: 8 });
+      fireEvent.pointerLeave(tabs[1], { pointerId: 8 });
+      fireEvent.pointerUp(window, { pointerId: 8 });
+      fireEvent.pointerUp(tabs[1], { pointerId: 8 });
+      expect(screen.queryByTestId("web-tab-drop-indicator")).toBeNull();
+      expect(onMoveTab).not.toHaveBeenCalled();
+    });
+
+    it("a sub-threshold drag stays a click (select)", () => {
+      const onMoveTab = vi.fn().mockResolvedValue({ ok: true });
+      const onSelectTab = vi.fn().mockResolvedValue({ ok: true });
+      renderIframe({ tabs: ["/proxy/3001/", "/proxy/3002/"], active: 1, onMoveTab, onSelectTab });
+      const tabs = screen.getAllByTestId("web-tab");
+
+      fireEvent.pointerDown(tabs[0], { button: 0, clientX: 100 });
+      fireEvent.pointerUp(tabs[0], { clientX: 102 }); // within the 6px threshold
+      expect(onMoveTab).not.toHaveBeenCalled();
+    });
+
+    it("⌥⇧←/⌥⇧→ reorder the active tab; a boundary press is a silent no-op", () => {
+      const onMoveTab = vi.fn().mockResolvedValue({ ok: true });
+      renderIframe({ tabs: ["/proxy/3001/", "/proxy/3002/", "/proxy/3003/"], active: 1, onMoveTab });
+      const tabs = screen.getAllByTestId("web-tab");
+
+      fireEvent.focus(tabs[0]);
+      fireEvent.keyDown(tabs[0], { key: "ArrowRight", altKey: true, shiftKey: true });
+      expect(onMoveTab).toHaveBeenCalledWith(1, 2);
+      onMoveTab.mockClear();
+
+      // A boundary press (active at slot 1, pressing left) is a no-op.
+      fireEvent.keyDown(tabs[0], { key: "ArrowLeft", altKey: true, shiftKey: true });
+      expect(onMoveTab).not.toHaveBeenCalled();
+    });
+
+    it("middle-click on a tab closes it through onCloseTab", () => {
+      const onCloseTab = vi.fn().mockResolvedValue({ ok: true });
+      const onSelectTab = vi.fn().mockResolvedValue({ ok: true });
+      renderIframe({ tabs: ["/proxy/3001/", "/proxy/3002/", "/proxy/3003/"], active: 1, onCloseTab, onSelectTab });
+      const tabs = screen.getAllByTestId("web-tab");
+      fireEvent(tabs[1], new MouseEvent("auxclick", { bubbles: true, button: 1 }));
+      expect(onCloseTab).toHaveBeenCalledWith(2);
+      expect(onSelectTab).not.toHaveBeenCalled();
+    });
+
+    it("double-click on empty strip space opens a draft (same path as `+`)", () => {
+      renderIframe({ tabs: ["/proxy/3001/"], active: 1, onAddTab: vi.fn() });
+      const strip = screen.getByTestId("web-tab-strip");
+      fireEvent.doubleClick(strip);
+      const drafts = screen.getAllByTestId("web-tab-draft");
+      expect(drafts).toHaveLength(1);
+      expect(drafts[0].textContent).toContain("new tab");
+    });
+
+    it("a draft renders dashed after the real tabs", () => {
+      renderIframe({ tabs: ["/proxy/3001/", "/proxy/3002/"], active: 1, onAddTab: vi.fn() });
+      fireEvent.click(screen.getByTestId("web-tab-add"));
+      const drafts = screen.getAllByTestId("web-tab-draft");
+      expect(drafts).toHaveLength(1);
+      expect(drafts[0].textContent).toContain("new tab");
+      // The draft renders after the real tabs in the strip.
+      const strip = screen.getByTestId("web-tab-strip");
+      const allTabs = strip.querySelectorAll('[data-testid="web-tab"], [data-testid="web-tab-draft"]');
+      expect(allTabs[2].textContent).toContain("new tab");
+      expect(drafts[0].className).toContain("border-dashed");
+    });
+
+    it("multiple concurrent drafts are allowed; each own × discards only itself", () => {
+      renderIframe({ tabs: ["/proxy/3001/", "/proxy/3002/"], active: 1, onAddTab: vi.fn() });
+      fireEvent.click(screen.getByTestId("web-tab-add"));
+      fireEvent.click(screen.getByTestId("web-tab-add"));
+      const drafts = screen.getAllByTestId("web-tab-draft");
+      expect(drafts).toHaveLength(2);
+      fireEvent.click(screen.getAllByTestId("web-tab-draft-close")[0]);
+      expect(screen.getAllByTestId("web-tab-draft")).toHaveLength(1);
+    });
+
+    it("Escape discards a draft before POST and restores replace behavior", () => {
       const onAddTab = vi.fn();
       renderIframe({ tabs: ["/proxy/3001/", "/proxy/3002/"], active: 1, onAddTab });
       fireEvent.click(screen.getByTestId("web-tab-add"));
       const input = screen.getByLabelText("URL") as HTMLInputElement;
       fireEvent.keyDown(input, { key: "Escape" });
+      expect(screen.queryByTestId("web-tab-draft")).toBeNull();
       fireEvent.focus(input);
       fireEvent.change(input, { target: { value: "localhost:9009" } });
       fireEvent.keyDown(input, { key: "Enter" });
@@ -942,11 +1196,12 @@ describe("IframeWindow", () => {
       const onAddTab = vi.fn().mockRejectedValue(new Error("web tabs full (8)"));
       renderIframe({ tabs: ["/proxy/3001/", "/proxy/3002/"], active: 1, onAddTab });
       const input = screen.getByLabelText("URL") as HTMLInputElement;
-      fireEvent.focus(input);
-      fireEvent.change(input, { target: { value: "localhost:3003" } });
       fireEvent.click(screen.getByTestId("web-tab-add"));
+      fireEvent.change(input, { target: { value: "localhost:3003" } });
+      fireEvent.keyDown(input, { key: "Enter" });
       const alert = await screen.findByRole("alert");
       expect(alert.textContent).toBe("web tabs full (8)");
+      expect(screen.getByTestId("web-tab-draft")).toBeTruthy();
     });
 
     it("registers exactly one web-find:open listener for the whole tile, opening the bar against the active frame", () => {

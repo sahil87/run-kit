@@ -200,3 +200,101 @@ func TestWindowWebAddFamilyReadError(t *testing.T) {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
 	}
 }
+
+// The move verb mirrors remove/select on every gate: {to} decodes from the
+// body, ErrWebTabRange maps to 400, and a successful move resolves as
+// {"ok":true}.
+func TestWindowWebMove(t *testing.T) {
+	t.Run("slot 9 gated before any tmux call", func(t *testing.T) {
+		called := false
+		prev := webMoveFn
+		webMoveFn = func(context.Context, string, string, int, int) error { called = true; return nil }
+		t.Cleanup(func() { webMoveFn = prev })
+		router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+		rec := postWebVerb(t, router, "/api/windows/@5/web/9/move", `{"to":1}`)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+		}
+		if called {
+			t.Error("move seam called for a gated slot — gate must fire first")
+		}
+	})
+	t.Run("range error is 400", func(t *testing.T) {
+		prev := webMoveFn
+		webMoveFn = func(context.Context, string, string, int, int) error { return tmux.ErrWebTabRange }
+		t.Cleanup(func() { webMoveFn = prev })
+		router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+		rec := postWebVerb(t, router, "/api/windows/@5/web/5/move", `{"to":1}`)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("status = %d, want %d; body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+		}
+	})
+	t.Run("bad body is 400 before any tmux call", func(t *testing.T) {
+		called := false
+		prev := webMoveFn
+		webMoveFn = func(context.Context, string, string, int, int) error { called = true; return nil }
+		t.Cleanup(func() { webMoveFn = prev })
+		router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+		rec := postWebVerb(t, router, "/api/windows/@5/web/2/move", `not json`)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+		}
+		if called {
+			t.Error("move seam called for an undecodable body — decode must gate first")
+		}
+	})
+	t.Run("destination outside 1..8 is gated before any tmux call", func(t *testing.T) {
+		called := false
+		prev := webMoveFn
+		webMoveFn = func(context.Context, string, string, int, int) error { called = true; return nil }
+		t.Cleanup(func() { webMoveFn = prev })
+		router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+		for _, body := range []string{`{"to":0}`, `{"to":9}`} {
+			rec := postWebVerb(t, router, "/api/windows/@5/web/2/move", body)
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("body=%s: status = %d, want %d", body, rec.Code, http.StatusBadRequest)
+			}
+		}
+		if called {
+			t.Error("move seam called for a destination outside 1..8")
+		}
+	})
+	t.Run("success carries n and to", func(t *testing.T) {
+		type call struct{ n, to int }
+		calls := []call{}
+		prev := webMoveFn
+		webMoveFn = func(_ context.Context, _, _ string, n, to int) error {
+			calls = append(calls, call{n, to})
+			return nil
+		}
+		t.Cleanup(func() { webMoveFn = prev })
+		router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+		rec := postWebVerb(t, router, "/api/windows/@5/web/2/move", `{"to":3}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		if len(calls) != 1 || calls[0].n != 2 || calls[0].to != 3 {
+			t.Errorf("move calls = %v, want exactly (n=2, to=3)", calls)
+		}
+		var body map[string]bool
+		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil || !body["ok"] {
+			t.Errorf("body = %s, want {\"ok\":true}", rec.Body.String())
+		}
+	})
+}
+
+// A successful move wakes the SSE hub like its sibling verbs.
+func TestWindowWebMoveWakesHub(t *testing.T) {
+	prev := webMoveFn
+	webMoveFn = func(context.Context, string, string, int, int) error { return nil }
+	t.Cleanup(func() { webMoveFn = prev })
+
+	server, tracker := newWakeSeamServer(t, &mockTmuxOps{})
+	before := tracker.count.Load()
+	router := server.buildRouter()
+	rec := postWebVerb(t, router, "/api/windows/@5/web/1/move?server=default", `{"to":2}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	expectWake(t, tracker, before, "web move")
+}

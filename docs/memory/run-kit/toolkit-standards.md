@@ -292,23 +292,26 @@ the sixth surface measured against the same checks
   the bundle ships inside the binary, so an rk that has `present` is the same
   rk whose pages teach it.
 
-The `rk tab` family (`new`/`layout`/`web add|rm|select|ls`/`code set`/`show` —
+The `rk tab` family (`new`/`layout`/`web add|rm|mv|select|ls`/`code set`/`show` —
 see [architecture](/run-kit/architecture.md) § CLI Subcommands, `tab` row) is
 the seventeenth surface measured against the same checks
-(260829-c143-rk-tab-cli-present-sugar):
+(260829-c143-rk-tab-cli-present-sugar, 260901-s36e-web-tab-strip-drafts-reorder):
 
 - **help-dump: the family tree is platform-stable.** `tabCmd`, its five direct
   members, and the nested `web`/`code` members all register unconditionally on
   `rootCmd` with `Short` + `Long` blocks, so the cobra tree walk picks up the
-  whole `tab` subtree with no help-dump code change; the help-dump test's
-  real-tree walk covers the family automatically.
+  whole `tab` subtree with no help-dump code change; `web mv` carries its own
+  `Use`/`Short`/`Long` contract, and the parent `tab` summary names move among
+  the web verbs. The help-dump test's real-tree walk covers the family
+  automatically.
 - **Principle 9: one datum per verb on stdout — data.** Every verb routes
   through `newSink(cmd)`: `tab new` prints `@N`, `tab web add` prints
-  `@N/web/<n>` (the resolved URL echoes to stderr), `tab layout` prints the
-  resulting layout value, `tab web ls` prints `index`/`marker`/`url` rows and
-  `tab show` prints `key`/`value` rows (both `--json`-able), and `rm`/`select`
-  print nothing on success — all `Dataf` on stdout, surviving `--quiet`;
-  diagnostics are `Notef`/stderr.
+  `@N/web/<n>` (the resolved URL echoes to stderr), `tab web mv` prints the
+  resulting `@N/web/<m>` address, `tab layout` prints the resulting layout
+  value, `tab web ls` prints `index`/`marker`/`url` rows and `tab show` prints
+  `key`/`value` rows (both `--json`-able), and `rm`/`select` print nothing on
+  success — all `Dataf` on stdout, surviving `--quiet`; diagnostics are
+  `Notef`/stderr.
 - **Exit-code convention (P4)** — 0 success, 1 operational (family full, index
   out of range, missing dir, not in tmux), 2 usage (malformed address or
   layout, unknown surface, flag conflicts, arg counts): every nested member

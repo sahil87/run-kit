@@ -84,7 +84,7 @@ the others. `rk tab …` never means "the tty".
 |---|---|---|---|
 | **Tab state** — what the tab shows | tmux window options `@rk_win_*` | **yes** | layout shape+order, web tab set + active, code folder, note, color, marker |
 | **Substrate facts** — derived from processes | pane/window options written by hooks or derived by the daemon | by hooks | agent state, chat identity, git root, ports |
-| **Viewer preferences** — how this device renders | browser storage | no | theme, terminal font size, sidebar width/open, keybindings, macros, compose drafts, web zoom, **tile zoom / mobile single-tile choice**, divider ratios |
+| **Viewer preferences** — how this device renders | browser storage or component-local state | no | theme, terminal font size, sidebar width/open, keybindings, macros, compose drafts, web-tab drafts, web zoom, **tile zoom / mobile single-tile choice**, divider ratios |
 | **Navigation** — which tab this viewer is on | the URL route | *by intent only* (§ Viewer Behaviour) | `/$server/@N` |
 
 Today's leak is class 1 living in class 3: `rk-layout:*`, `runkit-window-view:*`,
@@ -250,10 +250,12 @@ roots at request time — one `list-windows -a` call over the eight
 `_<n>_root` slots, sha256-prefix-matched — and the LEGACY
 `/present/{windowId}/{n}/*` arm still reads `_<n>_root` directly with the
 slot-1 `@rk_win_present_root` dual-read, one release). `web add` on a full
-strip exits 1. The set is **dense and 1-based**; removing
-tab 2 of 3 renumbers 3→2 and the daemon fixes up `_active`. Renumbering is
-acceptable because addresses are for commands, not for durable references —
-the same trade tmux makes with window indices.
+strip exits 1. The set is **dense and 1-based**. Removing tab 2 of 3
+renumbers 3→2 and fixes up `_active`. Moving `n → m` permutes the URL and
+`_root` companion as one pair; the intervening slots shift, and `_active`
+follows the same tab identity to its new index. Renumbering is acceptable
+because addresses are for commands, not for durable references — the same
+trade tmux makes with window indices.
 
 **Present URLs are content-keyed (decided 2026-09-01).** `rk present`
 composes the `(server, roothash, path)` form — the tmux server name, a
@@ -271,12 +273,21 @@ modulo origin and `?v=`). The legacy slot form
 legacy URL is upgraded in place on re-present (WebAdd rewrites the slot to
 the incoming new-form URL instead of `BumpVersion`-ing the legacy value).
 
-Rendering: the web tile grows a tab strip when `n ≥ 2` (hidden at `n = 1`,
-today's chrome unchanged). Each web tab keeps its own iframe mounted (P3 —
-hide, never unmount) so switching does not reload a dev server page.
+Rendering: the web tile shows its tab strip whenever at least one declared tab
+or viewer-local draft exists. Only onboarding (no declared tabs and no drafts)
+is stripless. Each declared web tab keeps its own iframe mounted (P3 — hide,
+never unmount) so switching and reordering do not reload a dev server page.
 Address-bar edits write `@rk_win_web_<active>`. Same-origin in-page
 navigation updates the *display* only (as today) — the stored URL is the
 tab's home, not its current location.
+
+**Draft tabs are viewer-local.** The strip's new-tab affordances append an
+ephemeral address-entry tab after the declared family. A draft has no URL and
+therefore no `@N/web/<n>` address or tmux option; multiple viewers can hold
+different drafts without changing shared state. Enter materializes the selected
+draft through `web add` and selects the returned slot (including an existing
+slot returned by idempotent add); Escape or the draft's close control discards
+it. Drafts disappear when their window view unmounts.
 
 **Identity is the URL, not the index (decided 2026-08-28).** `web add` is
 idempotent on an identical resolved URL: it returns the existing index
@@ -371,6 +382,7 @@ rk tab layout [@N] --add <surface> | --rm <surface> | --promote <surface> | --cy
 rk tab web add    [@N] <target> [--show]                           → prints @N/web/<n>
 rk tab web rm     [@N/web/<n>]
 rk tab web select [@N/web/<n>]
+rk tab web mv     [@N/web/<n>] <m>                                  → prints @N/web/<m>
 rk tab web ls     [@N]
 rk tab code set   [@N] <folder>
 rk tab show       [@N]                                             # dump every @rk_win_* of the tab
@@ -380,6 +392,10 @@ rk tab show       [@N]                                             # dump every 
 verbs perform (surface-layout § Verbs), so agent and human go through one
 growth/collapse table. Address arguments accept the full grammar; omitted
 `@N` means the caller's tab.
+
+For `web mv`, the source accepts a bare index (`2`), a surface-relative
+address (`web/2`), or the full tab address (`@N/web/2`). The destination is
+always a bare 1-based index within the same window.
 
 Placement (cli-layering.md): `rk tab` is substrate — it manipulates tmux
 options and windows and knows nothing about pipelines. fab's `fab pane`

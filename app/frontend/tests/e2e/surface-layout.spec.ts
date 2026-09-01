@@ -355,8 +355,10 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     await expectWindowLayout(id, "main-left:code,web,tty");
 
     // ✕ Close on the web tile: the layout collapses 3→2 (split-h), order kept.
+    // exact — the strip's per-tab "Close web tab N" button substring-matches
+    // "Close Web" now that the strip renders from one tab.
     await tile(page, "web").hover();
-    await tile(page, "web").getByRole("button", { name: "Close Web" }).click();
+    await tile(page, "web").getByRole("button", { name: "Close Web", exact: true }).click();
     await expectWindowLayout(id, "split-h:code,tty");
     await expect(tile(page, "web")).toBeHidden();
     await expect(tile(page, "code")).toBeVisible();

@@ -102,6 +102,12 @@ func runTabCmd(t *testing.T, args ...string) (string, string, error) {
 	return stdout.String(), stderr.String(), err
 }
 
+func TestTabHelpNamesWebMove(t *testing.T) {
+	if !strings.Contains(tabCmd.Long, "Add, remove, move, select, or list web tabs") {
+		t.Errorf("tab Long text omits the web move verb; got:\n%s", tabCmd.Long)
+	}
+}
+
 // resetTabFlagState clears every tab-family flag value and Changed marker so
 // one Execute() run never bleeds into the next (the present_test.go idiom).
 func resetTabFlagState(t *testing.T) {
@@ -448,7 +454,87 @@ func TestTabWebSelectAndBounds(t *testing.T) {
 	}
 }
 
-// ── rk tab web ls ───────────────────────────────────────────────────────────
+// ── rk tab web mv ───────────────────────────────────────────────────────────
+
+// mv permutes URL+root pairs, repoints the active pointer to follow the moved
+// or affected slots, and prints the resulting address.
+func TestTabWebMvPermutesAndRepoints(t *testing.T) {
+	env := withTabTestServer(t)
+	id := env.bootID
+	for i, u := range []string{"/proxy/1/", "/proxy/2/", "/proxy/3/"} {
+		tabTmuxDo(t, env.server, "set-option", "-w", "-t", id, tmux.WebTabOption(i+1), u)
+	}
+	tabTmuxDo(t, env.server, "set-option", "-w", "-t", id, tmux.WebTabRootOption(3), "/r3")
+	tabTmuxDo(t, env.server, "set-option", "-w", "-t", id, tmux.WebActiveOption, "3")
+
+	stdout, _, err := runTabCmd(t, "web", "mv", id+"/web/1", "3")
+	if err != nil {
+		t.Fatalf("web mv: %v", err)
+	}
+	if stdout != id+"/web/3\n" {
+		t.Errorf("stdout = %q, want the resulting address %s/web/3", stdout, id)
+	}
+	if got := tabWindowOption(t, env.server, id, tmux.WebTabOption(2)); got != "/proxy/3/" {
+		t.Errorf("web_2 = %q, want /proxy/3/", got)
+	}
+	if got := tabWindowOption(t, env.server, id, tmux.WebTabRootOption(2)); got != "/r3" {
+		t.Errorf("web_2_root = %q, want /r3 (moved with its URL)", got)
+	}
+	if got := tabWindowOption(t, env.server, id, tmux.WebTabOption(3)); got != "/proxy/1/" {
+		t.Errorf("web_3 = %q, want /proxy/1/", got)
+	}
+	if got := tabWindowOption(t, env.server, id, tmux.WebActiveOption); got != "2" {
+		t.Errorf("active = %q, want 2 (follows the shifted slot)", got)
+	}
+}
+
+func TestTabWebMvBareIndexGrammar(t *testing.T) {
+	env := withTabTestServer(t)
+	id := env.bootID
+	tabTmuxDo(t, env.server, "set-option", "-w", "-t", id, tmux.WebTabOption(1), "/proxy/1/")
+	tabTmuxDo(t, env.server, "set-option", "-w", "-t", id, tmux.WebTabOption(2), "/proxy/2/")
+
+	stdout, _, err := runTabCmd(t, "web", "mv", "web/2", "1")
+	if err != nil {
+		t.Fatalf("web mv web/2 1: %v", err)
+	}
+	if stdout != id+"/web/1\n" {
+		t.Errorf("stdout = %q, want %s/web/1", stdout, id)
+	}
+	if got := tabWindowOption(t, env.server, id, tmux.WebTabOption(1)); got != "/proxy/2/" {
+		t.Errorf("web_1 = %q, want /proxy/2/", got)
+	}
+}
+
+func TestTabWebMvBounds(t *testing.T) {
+	env := withTabTestServer(t)
+	id := env.bootID
+	tabTmuxDo(t, env.server, "set-option", "-w", "-t", id, tmux.WebTabOption(1), "/proxy/1/")
+
+	// Out-of-range <to> names the destination, not the source.
+	if _, _, err := runTabCmd(t, "web", "mv", "1", "5"); err == nil || exitCode(err) != 1 {
+		t.Errorf("mv 1 5: err = %v (code %d), want exit 1", err, exitCode(err))
+	} else if !strings.Contains(err.Error(), "no web tab 5") {
+		t.Errorf("err = %v, want the destination named", err)
+	}
+	// A missing <m> is usage-class.
+	if _, _, err := runTabCmd(t, "web", "mv", "1"); err == nil || exitCode(err) != exitUsage {
+		t.Errorf("mv with no <m>: err = %v (code %d), want exit 2", err, exitCode(err))
+	}
+	// A non-numeric <m> is usage-class.
+	if _, _, err := runTabCmd(t, "web", "mv", "1", "x"); err == nil || exitCode(err) != exitUsage {
+		t.Errorf("mv 1 x: err = %v (code %d), want exit 2", err, exitCode(err))
+	}
+	// n == to succeeds and leaves the family untouched.
+	if stdout, _, err := runTabCmd(t, "web", "mv", "1", "1"); err != nil {
+		t.Fatalf("mv 1 1: %v", err)
+	} else if stdout != id+"/web/1\n" {
+		t.Errorf("stdout = %q, want unchanged address", stdout)
+	}
+	if got := tabWindowOption(t, env.server, id, tmux.WebTabOption(1)); got != "/proxy/1/" {
+		t.Errorf("web_1 = %q, want untouched", got)
+	}
+}
 
 func TestTabWebLsHumanAndJSON(t *testing.T) {
 	env := withTabTestServer(t)

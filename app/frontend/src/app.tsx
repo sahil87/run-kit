@@ -150,7 +150,7 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo, SelectWindowResult } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerProtected, sendChatMessage, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, selectWebTab, removeWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, HttpError, type SortWindowsBy } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerProtected, sendChatMessage, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, HttpError, type SortWindowsBy } from "@/api/client";
 import { buildWebTabActions } from "@/lib/palette/web-tabs";
 import { buildSessionSortActions } from "@/lib/palette/sort";
 import { useBoards } from "@/hooks/use-boards";
@@ -3350,17 +3350,9 @@ function AppShell() {
                     onSelect: () =>
                       document.dispatchEvent(new CustomEvent(WEB_ZOOM_EVENT, { detail: { direction } })),
                   })),
-                  // `Web: Next/Previous/Close tab` + `Web: New tab from
-                  // address` (260828-9kip R11) — palette parity (Constitution
-                  // V) for the web tile's tab strip; same content gate as
-                  // web-find (the verbs need a live family). The tab-count
-                  // gating (≥2 for next/prev/close) and the wrap math live in
-                  // the pure `buildWebTabActions` (lib/palette/web-tabs.ts),
-                  // the `buildViewActions` precedent; select/close POST the
-                  // client wrappers (the next SSE tick reconciles, a toast
-                  // shows a rejection), and new-tab dispatches the
-                  // `web-address:focus` seam with `detail.newTab` so the tile
-                  // arms its one-shot new-tab mode. No chords.
+                  // Web-tab palette actions use availability for tab-count and
+                  // move-boundary gating; mutations reconcile on the next SSE
+                  // tick, while new-tab opens a viewer-local draft.
                   ...buildWebTabActions(effectiveWindow?.webTabs ?? [], effectiveWindow?.webActive, {
                     onSelectTab: (n) =>
                       void selectWebTab(server, windowParam, n).catch((err: Error) =>
@@ -3369,6 +3361,10 @@ function AppShell() {
                     onCloseTab: (n) =>
                       void removeWebTab(server, windowParam, n).catch((err: Error) =>
                         addToast(err.message || "Failed to close web tab", "error"),
+                      ),
+                    onMoveTab: (n, to) =>
+                      void moveWebTab(server, windowParam, n, to).catch((err: Error) =>
+                        addToast(err.message || "Failed to move web tab", "error"),
                       ),
                   }),
                 ]

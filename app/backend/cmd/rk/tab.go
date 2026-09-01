@@ -33,7 +33,7 @@ var tabCmd = &cobra.Command{
 		"Subcommands:\n" +
 		"  new      Create a window, optionally born with a layout\n" +
 		"  layout   Set or mutate @rk_win_layout (add/rm/promote/cycle)\n" +
-		"  web      Add, remove, select, or list web tabs\n" +
+		"  web      Add, remove, move, select, or list web tabs\n" +
 		"  code     Set the code surface's folder\n" +
 		"  show     Dump every @rk_win_* option of a tab\n\n" +
 		"See 'rk tab <subcommand> --help' for details.",

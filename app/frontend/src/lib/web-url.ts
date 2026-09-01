@@ -27,10 +27,16 @@
 export type AddressKind = "present" | "proxy" | "external" | "relative";
 
 /** The document CustomEvent that focuses the web tile's address bar (R12):
- *  dispatched by the ⌘L chord handler and the palette action; `IframeWindow`
- *  listens while mounted (the `web-find:open` precedent — at most one web
- *  tile per layout). */
+ *  dispatched by the ⌘L chord handler and the `Web: Focus address bar`
+ *  palette action; `IframeWindow` listens while mounted (the
+ * 'web-find:open' precedent — at most one web tile per layout). */
 export const WEB_ADDRESS_FOCUS_EVENT = "web-address:focus";
+
+/** The document CustomEvent that opens a viewer-local draft tab (the `Web:
+ *  New tab` palette entry): the mounted web tile appends a dashed draft
+ *  entry and focuses its address bar. `IframeWindow` is the single receiver
+ *  (one web tile per layout). */
+export const WEB_TAB_DRAFT_EVENT = "web-tab:open-draft";
 
 /** The document CustomEvent behind the `Web: Open in browser` palette action
  *  (R9): the mounted web tile pops its CURRENT address — the tracked frame

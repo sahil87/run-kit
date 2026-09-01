@@ -1,8 +1,8 @@
 package api
 
-// The web-tab verb routes (POST only, Constitution §IX): add/remove/select on
+// The web-tab verb routes (POST only, Constitution §IX): add/remove/move/select on
 // the window's indexed @rk_win_web_<n> family, backed one-for-one by the
-// internal/tmux Web* verbs. All three gate {windowId} (parseWindowID) and the
+// internal/tmux Web* verbs. Each gates {windowId} (parseWindowID) and the
 // slot {n} (^[1-8]$) before any tmux call, scope by ?server=
 // (serverFromRequest), and wake the SSE hub on success — set-option is
 // invisible to the tmuxctl control-mode parser (the /options precedent).
@@ -31,6 +31,7 @@ var (
 	webAddFn       = tmux.WebAdd
 	webRemoveFn    = tmux.WebRemove
 	webSelectFn    = tmux.WebSelect
+	webMoveFn      = tmux.WebMove
 	webNowFn       = func() int64 { return time.Now().Unix() }
 )
 
@@ -159,6 +160,51 @@ func (s *Server) handleWindowWebRemove(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	if err := webRemoveFn(ctx, windowID, server, n); err != nil {
+		if errors.Is(err, tmux.ErrWebTabRange) {
+			writeError(w, http.StatusBadRequest, "web tab index out of range")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	s.initSSEHub()
+	s.sseHub.wake(server)
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleWindowWebMove serves POST /api/windows/{windowId}/web/{n}/move —
+// body {"to": m}: permutes the family's URL+root pairs and repoints the active
+// pointer to follow tab identity. 200 {"ok":true}; 400 when n or to is out of
+// the family's range; n == to is a no-op success.
+func (s *Server) handleWindowWebMove(w http.ResponseWriter, r *http.Request) {
+	windowID, ok := parseWindowID(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "Invalid window ID")
+		return
+	}
+	n, ok := webSlotParam(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "web tab index must be 1..8")
+		return
+	}
+	var body struct {
+		To int `json:"to"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body")
+		return
+	}
+	if body.To < 1 || body.To > tmux.MaxWebTabs {
+		writeError(w, http.StatusBadRequest, "web tab destination must be 1..8")
+		return
+	}
+
+	server := serverFromRequest(r)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := webMoveFn(ctx, windowID, server, n, body.To); err != nil {
 		if errors.Is(err, tmux.ErrWebTabRange) {
 			writeError(w, http.StatusBadRequest, "web tab index out of range")
 			return

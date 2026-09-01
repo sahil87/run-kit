@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { render, screen, cleanup, fireEvent, act, within } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, act, within, waitFor } from "@testing-library/react";
 import { SurfaceLayout } from "./surface-layout";
 import { ToastProvider } from "@/components/toast";
 import { ratiosStorageKey, type Layout, type SurfaceKind } from "@/lib/surface-layout";
@@ -46,6 +46,7 @@ vi.mock("@/components/chat-view", () => ({
 // tests assert the call shape and control the resolution timing.
 const apiSpy = vi.hoisted(() => ({
   addWebTab: vi.fn(),
+  moveWebTab: vi.fn(),
   removeWebTab: vi.fn(),
   selectWebTab: vi.fn(),
   setWindowOptions: vi.fn(),
@@ -1414,6 +1415,7 @@ describe("SurfaceLayout web-tab strip wiring", () => {
     onWriteUrl?: (url: string) => Promise<unknown>;
     onSelectTab?: (n: number) => Promise<unknown>;
     onCloseTab?: (n: number) => Promise<unknown>;
+    onMoveTab?: (n: number, to: number) => Promise<unknown>;
     onAddTab?: (target: string) => Promise<{ index: number; existed: boolean }>;
   };
   const lastIframeProps = () => iframeSpy.mock.lastCall?.[0] as IframeProps;
@@ -1510,6 +1512,112 @@ describe("SurfaceLayout web-tab strip wiring", () => {
     // slides into slot 2 and stays active.
     expect(lastIframeProps().tabs).toEqual(["/a", "/c"]);
     expect(lastIframeProps().active).toBe(2);
+  });
+
+  it("rapid moves compound optimistically and serialize their POSTs", async () => {
+    seedWindowEntry();
+    let resolveFirst!: (value: { ok: boolean }) => void;
+    let resolveSecond!: (value: { ok: boolean }) => void;
+    apiSpy.moveWebTab
+      .mockReturnValueOnce(new Promise((resolve) => {
+        resolveFirst = resolve;
+      }))
+      .mockReturnValueOnce(new Promise((resolve) => {
+        resolveSecond = resolve;
+      }));
+    renderLayout({
+      layout: { shape: "split-h", order: ["tty", "web"] },
+      window: { webTabs: ["/a", "/b", "/c"], webActive: 1 },
+    });
+
+    act(() => {
+      void lastIframeProps().onMoveTab?.(1, 2);
+      void lastIframeProps().onMoveTab?.(2, 3);
+    });
+    expect(lastIframeProps().tabs).toEqual(["/b", "/c", "/a"]);
+    expect(lastIframeProps().active).toBe(3);
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(apiSpy.moveWebTab).toHaveBeenCalledTimes(1);
+    expect(apiSpy.moveWebTab).toHaveBeenNthCalledWith(1, "srv", "@1", 1, 2);
+
+    await act(async () => {
+      resolveFirst({ ok: true });
+      await Promise.resolve();
+    });
+    expect(apiSpy.moveWebTab).toHaveBeenCalledTimes(2);
+    expect(apiSpy.moveWebTab).toHaveBeenNthCalledWith(2, "srv", "@1", 2, 3);
+
+    await act(async () => {
+      resolveSecond({ ok: true });
+    });
+  });
+
+  it("a rejected move restores the family and toasts the error", async () => {
+    seedWindowEntry();
+    apiSpy.moveWebTab.mockRejectedValue(new Error("move failed"));
+    renderLayout({
+      layout: { shape: "split-h", order: ["tty", "web"] },
+      window: { webTabs: ["/a", "/b", "/c"], webActive: 1 },
+    });
+
+    act(() => {
+      void lastIframeProps().onMoveTab?.(1, 2);
+    });
+    expect(lastIframeProps().tabs).toEqual(["/b", "/a", "/c"]);
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("move failed"));
+    expect(lastIframeProps().tabs).toEqual(["/a", "/b", "/c"]);
+    expect(lastIframeProps().active).toBe(1);
+    expect(storedOverride()).toBeUndefined();
+  });
+
+  it("a rejected move cancels queued dependents and toasts only once", async () => {
+    seedWindowEntry();
+    let rejectFirst!: (reason: Error) => void;
+    apiSpy.moveWebTab
+      .mockReturnValueOnce(new Promise((_, reject) => {
+        rejectFirst = reject;
+      }))
+      .mockResolvedValue({ ok: true });
+    renderLayout({
+      layout: { shape: "split-h", order: ["tty", "web"] },
+      window: { webTabs: ["/a", "/b", "/c"], webActive: 1 },
+    });
+
+    act(() => {
+      void lastIframeProps().onMoveTab?.(1, 2);
+      void lastIframeProps().onMoveTab?.(2, 3);
+    });
+    expect(lastIframeProps().tabs).toEqual(["/b", "/c", "/a"]);
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(apiSpy.moveWebTab).toHaveBeenCalledTimes(1);
+    expect(apiSpy.moveWebTab).toHaveBeenCalledWith("srv", "@1", 1, 2);
+
+    await act(async () => {
+      rejectFirst(new Error("first move failed"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(apiSpy.moveWebTab).toHaveBeenCalledTimes(1);
+    expect(lastIframeProps().tabs).toEqual(["/a", "/b", "/c"]);
+    expect(lastIframeProps().active).toBe(1);
+    expect(storedOverride()).toBeUndefined();
+    const alerts = screen.getAllByRole("alert");
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].textContent).toContain("first move failed");
+
+    act(() => {
+      void lastIframeProps().onMoveTab?.(1, 3);
+    });
+    await waitFor(() => expect(apiSpy.moveWebTab).toHaveBeenCalledTimes(2));
+    expect(apiSpy.moveWebTab).toHaveBeenNthCalledWith(2, "srv", "@1", 1, 3);
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
   });
 
   it("a rejected select reverts the override and toasts the error", async () => {

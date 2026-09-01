@@ -675,6 +675,29 @@ export async function selectWebTab(
   return res.json();
 }
 
+/**
+ * Move web tab `n` (the 1-based tmux slot) to position `to` via
+ * POST /api/windows/{windowId}/web/{n}/move (body {"to": m}). A non-2xx
+ * rejects with the server's `error` text verbatim.
+ */
+export async function moveWebTab(
+  server: string,
+  windowId: string,
+  n: number,
+  to: number,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(
+    withServer(`/api/windows/${encodeURIComponent(windowId)}/web/${n}/move`, server),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ to }),
+    },
+  );
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
 /** The GET /api/frame-check response — the backend probe's derived verdict
  *  on whether an absolute external URL can be framed (260819-v6y4 R2). */
 export interface FrameCheckResult {

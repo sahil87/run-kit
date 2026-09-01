@@ -1,8 +1,8 @@
 package main
 
-// rk tab web — the shell twins of the three web verb routes: add appends a
-// target to a tab's web-tab family (optionally showing it), rm/select move
-// the dense family, ls enumerates it. Address forms come from
+// rk tab web — the shell twins of the web verb routes: add appends a target
+// to a tab's web-tab family (optionally showing it), rm/mv/select mutate the
+// dense family, and ls enumerates it. Address forms come from
 // internal/tabaddr; the family invariants (dense append, idempotent hit,
 // _active arming) are internal/tmux's Web* ops.
 
@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -35,11 +36,11 @@ var (
 
 var tabWebCmd = &cobra.Command{
 	Use:   "web",
-	Short: "Add, remove, select, or list a tab's web tabs",
+	Short: "Add, remove, move, select, or list a tab's web tabs",
 	Long: "Manage a tab's web-tab family (@rk_win_web_<n>): 'add' attaches a file,\n" +
 		"directory, port, or URL target (the rk present resolution) to the next\n" +
-		"slot; 'rm' and 'select' address slots as @N/web/<n>, web/<n>, or a bare\n" +
-		"<n> on the caller's own tab; 'ls' lists the slots.\n\n" +
+		"slot; 'rm', 'select', and 'mv' address slots as @N/web/<n>, web/<n>, or\n" +
+		"a bare <n> on the caller's own tab; 'ls' lists the slots.\n\n" +
 		"See 'rk tab web <subcommand> --help' for details.",
 }
 
@@ -87,6 +88,21 @@ var tabWebSelectCmd = &cobra.Command{
 	RunE:         runTabWebSelect,
 }
 
+var tabWebMvCmd = &cobra.Command{
+	Use:   "mv [@N/]web/<n> <m>",
+	Short: "Move a web tab to a new slot position",
+	Long: "Move web tab <n> to slot position <m> in the addressed tab's family: the\n" +
+		"tab leaves slot <n> and inserts at <m>, URL and serve root moving as a\n" +
+		"pair, and the active pointer repoints to follow tab identity. The address\n" +
+		"is @N/web/<n>, web/<n>, or a bare <n> on the caller's own tab; <m> is a\n" +
+		"bare 1-based slot. Prints the resulting address on stdout; an\n" +
+		"out-of-range <n> or <m> is an operational failure naming the family's\n" +
+		"length.",
+	Args:         cobra.ExactArgs(2),
+	SilenceUsage: true,
+	RunE:         runTabWebMv,
+}
+
 var tabWebLsCmd = &cobra.Command{
 	Use:   "ls [@N] [--json]",
 	Short: "List a tab's web tabs",
@@ -107,6 +123,7 @@ func init() {
 	tabWebCmd.AddCommand(tabWebAddCmd)
 	tabWebCmd.AddCommand(tabWebRmCmd)
 	tabWebCmd.AddCommand(tabWebSelectCmd)
+	tabWebCmd.AddCommand(tabWebMvCmd)
 	tabWebCmd.AddCommand(tabWebLsCmd)
 	// Arg-count violations are usage-class (exit 2) — wrapped at the add site
 	// (tab.go's init runs before this file's).
@@ -313,6 +330,44 @@ func runTabWebSelect(cmd *cobra.Command, args []string) error {
 		return webRangeError(ctx, windowID, server, n, err)
 	}
 	return nil
+}
+
+func runTabWebMv(cmd *cobra.Command, args []string) error {
+	ctx := tabContext(cmd)
+	windowID, server, n, err := resolveWebSlot(ctx, args[0])
+	if err != nil {
+		return err
+	}
+	to, err := strconv.Atoi(args[1])
+	if err != nil {
+		return usageError(fmt.Errorf("mv destination %q must be a slot index (1..%d)", args[1], tmux.MaxWebTabs))
+	}
+	ctx, cancel := context.WithTimeout(ctx, tabCmdTimeout)
+	defer cancel()
+	if err := tmux.WebMove(ctx, windowID, server, n, to); err != nil {
+		return webMoveRangeError(ctx, windowID, server, n, to, err)
+	}
+	sink := newSink(cmd)
+	sink.Dataf("%s/web/%d\n", windowID, to)
+	return nil
+}
+
+// webMoveRangeError renders ErrWebTabRange for mv, naming whichever of (n, to)
+// actually falls outside the family (n stays if valid) — the same shape
+// webRangeError produces for rm/select.
+func webMoveRangeError(ctx context.Context, windowID, server string, n, to int, err error) error {
+	if !errors.Is(err, tmux.ErrWebTabRange) {
+		return err
+	}
+	fam, rerr := presentReadFamilyFn(ctx, windowID, server)
+	if rerr != nil {
+		return err
+	}
+	bad := to
+	if n < 1 || n > len(fam.Tabs) {
+		bad = n
+	}
+	return fmt.Errorf("no web tab %d on %s (family has %d)", bad, windowID, len(fam.Tabs))
 }
 
 // tabWebLsJSONEntry is one slot in the --json family dump; root is omitted

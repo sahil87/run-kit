@@ -294,6 +294,46 @@ func ListDeclaredWebRoots(ctx context.Context, server string) ([]string, error) 
 	return roots, nil
 }
 
+// WebMove moves slot n (1-based) to position to (1-based): the tab leaves n
+// and inserts at to, URL and root moving as a pair (the shiftWebTabs paired
+// precedent). The active pointer repoints to follow tab identity — the moved
+// tab lands at to, the slots between n and to shift by one step (the
+// repointMoveActive rule). n or to outside 1..len is ErrWebTabRange and writes
+// nothing; n == to is a no-op success. Every write rides one chained
+// SetWindowOptions call.
+func WebMove(ctx context.Context, windowID, server string, n, to int) error {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	f, err := ReadWebTabFamily(ctx, windowID, server)
+	if err != nil {
+		return err
+	}
+	if n < 1 || n > len(f.Tabs) || to < 1 || to > len(f.Tabs) {
+		return ErrWebTabRange
+	}
+	if n == to {
+		return nil
+	}
+	tabs, roots := moveWebTabs(f.Tabs, f.Roots, n, to)
+	ops := make([]WindowOptionOp, 0, 2*len(tabs)+1)
+	for i, tab := range tabs {
+		v := tab
+		ops = append(ops, WindowOptionOp{Key: WebTabOption(i + 1), Value: &v})
+		if roots[i] != "" {
+			r := roots[i]
+			ops = append(ops, WindowOptionOp{Key: WebTabRootOption(i + 1), Value: &r})
+		} else {
+			ops = append(ops, WindowOptionOp{Key: WebTabRootOption(i + 1), Value: nil})
+		}
+	}
+	if newActive := repointMoveActive(f.Active, n, to); newActive != f.Active {
+		v := strconv.Itoa(newActive)
+		ops = append(ops, WindowOptionOp{Key: WebActiveOption, Value: &v})
+	}
+	return SetWindowOptions(ctx, windowID, server, ops)
+}
+
 // shiftWebTabs removes slot n (1-based) from the dense family, shifting the
 // slots above it down by one — URL and root move together. roots is parallel
 // to tabs ("" where a slot has no root) and may be shorter than tabs.
@@ -312,6 +352,49 @@ func shiftWebTabs(tabs, roots []string, n int) ([]string, []string) {
 		newRoots = append(newRoots, root)
 	}
 	return newTabs, newRoots
+}
+
+// moveWebTabs removes slot n (1-based) and reinserts it at position to
+// (1-based) — the moved tab's final position. Slots shift around it; URL and
+// root move together. roots is parallel to tabs ("" where a slot has no root)
+// and may be shorter than tabs.
+func moveWebTabs(tabs, roots []string, n, to int) ([]string, []string) {
+	src := n - 1
+	dst := to - 1
+	idx := make([]int, len(tabs))
+	for i := range idx {
+		idx[i] = i
+	}
+	moved := idx[src]
+	idx = append(idx[:src], idx[src+1:]...)
+	idx = append(idx[:dst], append([]int{moved}, idx[dst:]...)...)
+	newTabs := make([]string, len(tabs))
+	newRoots := make([]string, len(tabs))
+	for pos, orig := range idx {
+		newTabs[pos] = tabs[orig]
+		newRoots[pos] = ""
+		if orig < len(roots) {
+			newRoots[pos] = roots[orig]
+		}
+	}
+	return newTabs, newRoots
+}
+
+// repointMoveActive computes the active pointer after slot n moves to position
+// to: the moved tab lands at to, and the slots strictly between n and to shift
+// one step the other way — so the pointer follows the moved/affected slots'
+// identity.
+func repointMoveActive(active, n, to int) int {
+	if active == n {
+		return to
+	}
+	if n < to && active > n && active <= to {
+		return active - 1
+	}
+	if n > to && active >= to && active < n {
+		return active + 1
+	}
+	return active
 }
 
 // repointActive computes the active pointer after slot n leaves a family that

@@ -21,24 +21,14 @@ describe("CollapsiblePanel", () => {
     expect(screen.getByText("Test")).toBeInTheDocument();
   });
 
-  it("shows content when defaultOpen is true", () => {
+  it.each([true, false])("uses defaultOpen=%s when storage is empty", (defaultOpen) => {
     render(
-      <CollapsiblePanel title="Test" storageKey="test-panel" defaultOpen={true}>
-        <span>Visible Content</span>
+      <CollapsiblePanel title="Test" storageKey="test-panel" defaultOpen={defaultOpen}>
+        <span>Content</span>
       </CollapsiblePanel>,
     );
-    expect(screen.getByText("Visible Content")).toBeInTheDocument();
-  });
-
-  it("hides content when defaultOpen is false", () => {
-    render(
-      <CollapsiblePanel title="Test" storageKey="test-panel" defaultOpen={false}>
-        <span>Hidden Content</span>
-      </CollapsiblePanel>,
-    );
-    // Content element exists in DOM but panel is collapsed (max-height: 0px)
-    const button = screen.getByRole("button");
-    expect(button.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getByText("Content")).toBeInTheDocument();
+    expect(screen.getByRole("button")).toHaveAttribute("aria-expanded", String(defaultOpen));
   });
 
   it("toggles content on header click", () => {
@@ -79,17 +69,6 @@ describe("CollapsiblePanel", () => {
 
     render(
       <CollapsiblePanel title="Test" storageKey="test-restore" defaultOpen={true}>
-        <span>Content</span>
-      </CollapsiblePanel>,
-    );
-
-    const button = screen.getByRole("button");
-    expect(button.getAttribute("aria-expanded")).toBe("false");
-  });
-
-  it("falls back to defaultOpen when localStorage is empty", () => {
-    render(
-      <CollapsiblePanel title="Test" storageKey="nonexistent" defaultOpen={false}>
         <span>Content</span>
       </CollapsiblePanel>,
     );

@@ -23,11 +23,18 @@ describe("CommandPalette", () => {
     expect(container.innerHTML).toBe("");
   });
 
-  it("opens on Cmd+K", () => {
+  it.each([
+    { label: "Cmd", modifier: "metaKey" },
+    { label: "Ctrl", modifier: "ctrlKey" },
+  ] as const)("opens and toggles closed with $label+K", ({ modifier }) => {
     const actions = makeActions(["New Session"]);
     render(<CommandPalette actions={actions} />);
-    openPalette();
+    const chord = { key: "k", code: "KeyK", [modifier]: true };
+
+    fireEvent.keyDown(document, chord);
     expect(screen.getByPlaceholderText(/^Type a command/)).toBeInTheDocument();
+    fireEvent.keyDown(document, chord);
+    expect(screen.queryByPlaceholderText(/^Type a command/)).not.toBeInTheDocument();
   });
 
   it("focuses the search input when opened", () => {
@@ -37,12 +44,6 @@ describe("CommandPalette", () => {
     expect(screen.getByPlaceholderText(/^Type a command/)).toHaveFocus();
   });
 
-  it("opens on Ctrl+K", () => {
-    const actions = makeActions(["New Session"]);
-    render(<CommandPalette actions={actions} />);
-    fireEvent.keyDown(document, { key: "k", code: "KeyK", ctrlKey: true });
-    expect(screen.getByPlaceholderText(/^Type a command/)).toBeInTheDocument();
-  });
 
   it("filters actions by search query (case-insensitive)", () => {
     const actions = makeActions(["New Session", "Kill Window", "New Window"]);
@@ -252,15 +253,6 @@ describe("CommandPalette", () => {
     expect(screen.getByText("N")).toBeInTheDocument();
   });
 
-  it("toggles closed with second Cmd+K", () => {
-    const actions = makeActions(["New Session"]);
-    render(<CommandPalette actions={actions} />);
-    openPalette();
-    expect(screen.getByPlaceholderText(/^Type a command/)).toBeInTheDocument();
-
-    fireEvent.keyDown(document, { key: "k", code: "KeyK", metaKey: true });
-    expect(screen.queryByPlaceholderText(/^Type a command/)).not.toBeInTheDocument();
-  });
 
   it("shows theme actions with (current) suffix on active preference", () => {
     const actions: PaletteAction[] = [

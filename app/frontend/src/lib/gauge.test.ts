@@ -2,19 +2,14 @@ import { describe, it, expect } from "vitest";
 import { gaugeBar, gaugeColor, formatBytes, formatMemory } from "./gauge";
 
 describe("gaugeBar", () => {
-  it("returns all empty for 0 ratio", () => {
-    const result = gaugeBar(0);
-    expect(result).toBe("\u2591".repeat(10));
-  });
-
-  it("returns all filled for 1.0 ratio", () => {
-    const result = gaugeBar(1);
-    expect(result).toBe("\u2588".repeat(10));
-  });
-
-  it("returns half filled for 0.5 ratio", () => {
-    const result = gaugeBar(0.5);
-    expect(result).toBe("\u2588".repeat(5) + "\u2591".repeat(5));
+  it.each([
+    [0, "\u2591".repeat(10)],
+    [1, "\u2588".repeat(10)],
+    [0.5, "\u2588".repeat(5) + "\u2591".repeat(5)],
+    [-0.5, "\u2591".repeat(10)],
+    [1.5, "\u2588".repeat(10)],
+  ] as const)("renders ratio %s", (ratio, expected) => {
+    expect(gaugeBar(ratio)).toBe(expected);
   });
 
   it("always returns 10 characters", () => {
@@ -23,13 +18,6 @@ describe("gaugeBar", () => {
     }
   });
 
-  it("clamps negative to 0", () => {
-    expect(gaugeBar(-0.5)).toBe("\u2591".repeat(10));
-  });
-
-  it("clamps above 1 to full", () => {
-    expect(gaugeBar(1.5)).toBe("\u2588".repeat(10));
-  });
 });
 
 describe("gaugeColor", () => {
@@ -52,33 +40,15 @@ describe("gaugeColor", () => {
 });
 
 describe("formatBytes", () => {
-  it("formats 0 as '0'", () => {
-    expect(formatBytes(0)).toBe("0");
-  });
-
-  it("formats GB values >= 10 as rounded integers", () => {
-    const bytes = 16 * 1024 * 1024 * 1024;
-    expect(formatBytes(bytes)).toBe("16G");
-  });
-
-  it("formats GB values < 10 with one decimal", () => {
-    const bytes = 3.1 * 1024 * 1024 * 1024;
-    expect(formatBytes(bytes)).toBe("3.1G");
-  });
-
-  it("formats MB values >= 10 as rounded integers", () => {
-    const bytes = 512 * 1024 * 1024;
-    expect(formatBytes(bytes)).toBe("512M");
-  });
-
-  it("formats MB values < 10 with one decimal", () => {
-    const bytes = 5.5 * 1024 * 1024;
-    expect(formatBytes(bytes)).toBe("5.5M");
-  });
-
-  it("formats KB values", () => {
-    const bytes = 100 * 1024;
-    expect(formatBytes(bytes)).toBe("100K");
+  it.each([
+    [0, "0"],
+    [16 * 1024 ** 3, "16G"],
+    [3.1 * 1024 ** 3, "3.1G"],
+    [512 * 1024 ** 2, "512M"],
+    [5.5 * 1024 ** 2, "5.5M"],
+    [100 * 1024, "100K"],
+  ] as const)("formats %s bytes as %s", (bytes, expected) => {
+    expect(formatBytes(bytes)).toBe(expected);
   });
 });
 

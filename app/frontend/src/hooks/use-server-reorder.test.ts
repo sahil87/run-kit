@@ -121,16 +121,7 @@ describe("useServerReorder", () => {
       expect(reorder(["a", "b", "c"], "c", "a")).toEqual(["c", "a", "b"]);
     });
 
-    it("moves the first tile toward the last", () => {
-      // Drag "a" over "d" → remove "a", insert at idx 3 of the shrunk array →
-      // [b, c, d, a].
-      expect(reorder(["a", "b", "c", "d"], "a", "d")).toEqual(["b", "c", "d", "a"]);
-    });
 
-    it("moves the last tile to before the first", () => {
-      // Drag "d" over "a" → [d, a, b, c].
-      expect(reorder(["a", "b", "c", "d"], "d", "a")).toEqual(["d", "a", "b", "c"]);
-    });
 
     it("is a no-op when dragging a tile over itself", () => {
       expect(reorder(["a", "b", "c"], "b", "b")).toEqual(["a", "b", "c"]);

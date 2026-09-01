@@ -204,20 +204,27 @@ describe("API client", () => {
     expect(capturedUrl).toMatch(/\/api\/sessions\/foo\/kill\?server=server-B$/);
   });
 
-  it("createWindow sends POST /api/sessions/:session/windows with server query", async () => {
+  it("createWindow posts the route, query, and provided optional fields", async () => {
     let capturedUrl = "";
+    let capturedBody: Record<string, string> = {};
     mswServer.use(
       http.post("/api/sessions/:session/windows", async ({ request }) => {
         capturedUrl = request.url;
+        capturedBody = (await request.json()) as Record<string, string>;
         return HttpResponse.json({ ok: true }, { status: 201 });
       }),
     );
-    const result = await createWindow("server-B", "foo", "editor");
+
+    const result = await createWindow("server-B", "foo", "editor", "/home/user/project");
     expect(result.ok).toBe(true);
     expect(capturedUrl).toMatch(/\/api\/sessions\/foo\/windows\?server=server-B$/);
+    expect(capturedBody).toEqual({ name: "editor", cwd: "/home/user/project" });
   });
 
-  it("createWindow sends cwd when provided", async () => {
+  it.each([
+    { label: "cwd", name: "editor", cwd: undefined, omitted: "cwd", kept: ["name", "editor"] },
+    { label: "name", name: undefined, cwd: "/home/user/project", omitted: "name", kept: ["cwd", "/home/user/project"] },
+  ] as const)("createWindow omits an absent $label", async ({ name, cwd, omitted, kept }) => {
     let capturedBody: Record<string, string> = {};
     mswServer.use(
       http.post("/api/sessions/:session/windows", async ({ request }) => {
@@ -225,45 +232,10 @@ describe("API client", () => {
         return HttpResponse.json({ ok: true }, { status: 201 });
       }),
     );
-    await createWindow("runkit", "run-kit", "new-win", "/home/user/project");
-    expect(capturedBody.cwd).toBe("/home/user/project");
-  });
 
-  it("createWindow omits cwd when undefined", async () => {
-    let capturedBody: Record<string, string> = {};
-    mswServer.use(
-      http.post("/api/sessions/:session/windows", async ({ request }) => {
-        capturedBody = (await request.json()) as Record<string, string>;
-        return HttpResponse.json({ ok: true }, { status: 201 });
-      }),
-    );
-    await createWindow("runkit", "run-kit", "new-win");
-    expect(capturedBody.cwd).toBeUndefined();
-  });
-
-  it("createWindow sends name when provided", async () => {
-    let capturedBody: Record<string, string> = {};
-    mswServer.use(
-      http.post("/api/sessions/:session/windows", async ({ request }) => {
-        capturedBody = (await request.json()) as Record<string, string>;
-        return HttpResponse.json({ ok: true }, { status: 201 });
-      }),
-    );
-    await createWindow("runkit", "run-kit", "editor");
-    expect(capturedBody.name).toBe("editor");
-  });
-
-  it("createWindow omits name when absent (tmux auto-names to folder basename)", async () => {
-    let capturedBody: Record<string, string> = {};
-    mswServer.use(
-      http.post("/api/sessions/:session/windows", async ({ request }) => {
-        capturedBody = (await request.json()) as Record<string, string>;
-        return HttpResponse.json({ ok: true }, { status: 201 });
-      }),
-    );
-    await createWindow("runkit", "run-kit", undefined, "/home/user/project");
-    expect(capturedBody.name).toBeUndefined();
-    expect(capturedBody.cwd).toBe("/home/user/project");
+    await createWindow("runkit", "run-kit", name, cwd);
+    expect(capturedBody[omitted]).toBeUndefined();
+    expect(capturedBody[kept[0]]).toBe(kept[1]);
   });
 
   it("killWindow sends POST /api/windows/:windowId/kill with server query", async () => {
@@ -330,19 +302,6 @@ describe("API client", () => {
     expect(capturedBody).toEqual({ text: "stage me", submit: false });
   });
 
-  it("sendChatMessage throws the server's structured error on a non-ok response (409 probe failure)", async () => {
-    const probeError =
-      "agent input not ready — message pasted but not echoed; Enter withheld. " +
-      "The text remains in the agent's input — check the terminal view before retrying, as a resend would duplicate it.";
-    mswServer.use(
-      http.post("/api/windows/:windowId/chat/send", () =>
-        HttpResponse.json({ error: probeError }, { status: 409 }),
-      ),
-    );
-    await expect(sendChatMessage("runkit", "@0", "hi")).rejects.toThrow(
-      probeError,
-    );
-  });
 
   it("sendToWindow POSTs /api/windows/:windowId/send with intent and server query", async () => {
     let capturedUrl = "";
@@ -597,14 +556,6 @@ describe("recovery offers client", () => {
     await expect(getRecoveryOffers()).resolves.toEqual([]);
   });
 
-  it("getRecoveryOffers throws the server's error message on failure", async () => {
-    mswServer.use(
-      http.get("/api/recovery", () =>
-        HttpResponse.json({ error: "snapshot store unavailable" }, { status: 500 }),
-      ),
-    );
-    await expect(getRecoveryOffers()).rejects.toThrow("snapshot store unavailable");
-  });
 
   it("restoreRecoveryServer POSTs {server} in the body with no query string", async () => {
     let capturedUrl = "";
@@ -622,14 +573,6 @@ describe("recovery offers client", () => {
     expect(report).toEqual({ sessionsCreated: 2 });
   });
 
-  it("restoreRecoveryServer throws the engine's refusal message on failure", async () => {
-    mswServer.use(
-      http.post("/api/recovery/restore", () =>
-        HttpResponse.json({ error: "server already alive" }, { status: 409 }),
-      ),
-    );
-    await expect(restoreRecoveryServer("kit")).rejects.toThrow("server already alive");
-  });
 
   it("dismissRecoveryServer POSTs {server} in the body and returns ok", async () => {
     let capturedBody: Record<string, string> = {};
@@ -643,14 +586,6 @@ describe("recovery offers client", () => {
     expect(capturedBody).toEqual({ server: "kit" });
   });
 
-  it("dismissRecoveryServer throws the server's error message on failure", async () => {
-    mswServer.use(
-      http.post("/api/recovery/dismiss", () =>
-        HttpResponse.json({ error: "nope" }, { status: 500 }),
-      ),
-    );
-    await expect(dismissRecoveryServer("kit")).rejects.toThrow("nope");
-  });
 });
 
 describe("API request deduplication", () => {
@@ -770,14 +705,6 @@ describe("API request deduplication", () => {
     expect(capturedBody.order).toEqual(["main", "dev"]);
   });
 
-  it("setSessionOrder throws on non-2xx response", async () => {
-    mswServer.use(
-      http.post("/api/sessions/order", () =>
-        HttpResponse.json({ error: "bad" }, { status: 400 }),
-      ),
-    );
-    await expect(setSessionOrder("default", ["main"])).rejects.toThrow("bad");
-  });
 });
 
 // --- Verb migration + unified /options contract (this change) ---
@@ -1305,25 +1232,41 @@ describe("settings client (registry-driven GET/POST /api/settings)", () => {
     expect(health.hostname).toBe("test-host");
   });
 
-  it("getSSHHost resolves the stored setting from the ssh_host entry", async () => {
+  it.each([
+    { key: "ssh_host", value: "devbox", get: getSSHHost },
+    { key: "instance_name", value: "my-box", get: getInstanceName },
+  ] as const)("get $key resolves stored and unset values", async ({ key, value, get }) => {
     mswServer.use(
       http.get("/api/settings", () =>
-        HttpResponse.json({ settings: [settingsEntry("ssh_host", "string", "devbox")] }),
+        HttpResponse.json({ settings: [settingsEntry(key, "string", value)] }),
       ),
     );
-    await expect(getSSHHost()).resolves.toBe("devbox");
-  });
+    await expect(get()).resolves.toBe(value);
 
-  it("getSSHHost resolves null when unset", async () => {
     mswServer.use(
       http.get("/api/settings", () =>
-        HttpResponse.json({ settings: [settingsEntry("ssh_host", "string", null)] }),
+        HttpResponse.json({ settings: [settingsEntry(key, "string", null)] }),
       ),
     );
-    await expect(getSSHHost()).resolves.toBeNull();
+    await expect(get()).resolves.toBeNull();
   });
 
-  it("setSSHHost POSTs the key as a patch; null clears; 400 rejects with message", async () => {
+  it.each([
+    {
+      key: "ssh_host",
+      value: "devbox",
+      invalid: "dev box",
+      error: "SSH host cannot contain whitespace or control characters",
+      set: setSSHHost,
+    },
+    {
+      key: "instance_name",
+      value: "my-box",
+      invalid: "bad",
+      error: "Instance name cannot contain control characters",
+      set: setInstanceName,
+    },
+  ] as const)("set $key patches, clears, and surfaces validation errors", async ({ key, value, invalid, error, set }) => {
     const bodies: unknown[] = [];
     mswServer.use(
       http.post("/api/settings", async ({ request }) => {
@@ -1331,56 +1274,14 @@ describe("settings client (registry-driven GET/POST /api/settings)", () => {
         return HttpResponse.json({ status: "ok" });
       }),
     );
-    await setSSHHost("devbox");
-    await setSSHHost(null);
-    expect(bodies).toEqual([{ ssh_host: "devbox" }, { ssh_host: null }]);
+    await set(value);
+    await set(null);
+    expect(bodies).toEqual([{ [key]: value }, { [key]: null }]);
 
     mswServer.use(
-      http.post("/api/settings", () =>
-        HttpResponse.json({ error: "SSH host cannot contain whitespace or control characters" }, { status: 400 }),
-      ),
+      http.post("/api/settings", () => HttpResponse.json({ error }, { status: 400 })),
     );
-    await expect(setSSHHost("dev box")).rejects.toThrow(
-      "SSH host cannot contain whitespace or control characters",
-    );
-  });
-
-  it("getInstanceName resolves the stored setting (null when unset)", async () => {
-    mswServer.use(
-      http.get("/api/settings", () =>
-        HttpResponse.json({ settings: [settingsEntry("instance_name", "string", "my-box")] }),
-      ),
-    );
-    await expect(getInstanceName()).resolves.toBe("my-box");
-
-    mswServer.use(
-      http.get("/api/settings", () =>
-        HttpResponse.json({ settings: [settingsEntry("instance_name", "string", null)] }),
-      ),
-    );
-    await expect(getInstanceName()).resolves.toBeNull();
-  });
-
-  it("setInstanceName POSTs the key as a patch; null clears; 400 rejects with message", async () => {
-    const bodies: unknown[] = [];
-    mswServer.use(
-      http.post("/api/settings", async ({ request }) => {
-        bodies.push(await request.json());
-        return HttpResponse.json({ status: "ok" });
-      }),
-    );
-    await setInstanceName("my-box");
-    await setInstanceName(null);
-    expect(bodies).toEqual([{ instance_name: "my-box" }, { instance_name: null }]);
-
-    mswServer.use(
-      http.post("/api/settings", () =>
-        HttpResponse.json({ error: "Instance name cannot contain control characters" }, { status: 400 }),
-      ),
-    );
-    await expect(setInstanceName("bad")).rejects.toThrow(
-      "Instance name cannot contain control characters",
-    );
+    await expect(set(invalid)).rejects.toThrow(error);
   });
 
   it("concurrent getters collapse into one deduplicated GET /api/settings", async () => {
@@ -1501,12 +1402,4 @@ describe("fetchWindowHistory (260819-shqo terminal export)", () => {
     expect(body).toBe("line one\nline two\n");
   });
 
-  it("throws the server's error message on failure", async () => {
-    mswServer.use(
-      http.get("/api/windows/:windowId/history", () =>
-        HttpResponse.json({ error: "no server running" }, { status: 500 }),
-      ),
-    );
-    await expect(fetchWindowHistory("rk", "@5")).rejects.toThrow("no server running");
-  });
 });

@@ -567,15 +567,49 @@ func TestWindowOptionsRkLensKeepsExistingLayout(t *testing.T) {
 	}
 }
 
-func TestWindowOptionsInvalidWindowID(t *testing.T) {
-	ops := &mockTmuxOps{}
-	rec := postOptions(t, ops, "abc", `{"options":{"@rk_win_color":"5"}}`)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+func TestWindowRouteGuards(t *testing.T) {
+	cases := []struct {
+		name      string
+		path      string
+		body      string
+		wantError string
+		touched   func(*mockTmuxOps) bool
+	}{
+		{name: "options invalid window ID", path: "/api/windows/abc/options", body: `{"options":{"@rk_win_color":"5"}}`, touched: func(ops *mockTmuxOps) bool { return ops.setWindowOptionsCalled }},
+		{name: "select invalid window ID", path: "/api/windows/abc/select", touched: func(ops *mockTmuxOps) bool { return ops.selectWindowInSessionCalled }},
+		{name: "kill invalid window ID", path: "/api/windows/abc/kill", wantError: "Invalid window ID", touched: func(ops *mockTmuxOps) bool { return ops.killWindowCalled }},
+		{name: "split invalid window ID", path: "/api/windows/bad;name/split", body: `{"horizontal":false}`, touched: func(ops *mockTmuxOps) bool { return ops.splitWindowCalled }},
+		{name: "move invalid window ID", path: "/api/windows/abc/move", body: `{"targetIndex":2}`, wantError: "Invalid window ID", touched: func(ops *mockTmuxOps) bool { return ops.swapWindowCalled }},
+		{name: "split invalid JSON", path: "/api/windows/@0/split", body: "not json", touched: func(ops *mockTmuxOps) bool { return ops.splitWindowCalled }},
+		{name: "move-to-session invalid window ID", path: "/api/windows/bad;session/move-to-session", body: `{"targetSession":"bravo"}`, touched: func(ops *mockTmuxOps) bool { return ops.moveWindowToSessionCalled }},
+		{name: "move-to-session invalid JSON", path: "/api/windows/@0/move-to-session", body: "not json", wantError: "Invalid JSON body", touched: func(ops *mockTmuxOps) bool { return ops.moveWindowToSessionCalled }},
 	}
-	if ops.setWindowOptionsCalled {
-		t.Error("SetWindowOptions must NOT be called for invalid window ID")
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ops := &mockTmuxOps{}
+			router := newTestRouter(&mockSessionFetcher{}, ops)
+			req := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+			}
+			if tc.touched(ops) {
+				t.Error("tmux operation must not run for an invalid request")
+			}
+			if tc.wantError != "" {
+				var result map[string]string
+				if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+					t.Fatalf("decode error: %v", err)
+				}
+				if result["error"] != tc.wantError {
+					t.Errorf("error = %q, want %q", result["error"], tc.wantError)
+				}
+			}
+		})
 	}
 }
 
@@ -684,22 +718,6 @@ func TestWindowSelectResolveFailure(t *testing.T) {
 	}
 	if ops.selectWindowInSessionCalled {
 		t.Error("SelectWindowInSession must NOT be called on resolve failure")
-	}
-}
-
-func TestWindowSelectInvalidWindowID(t *testing.T) {
-	ops := &mockTmuxOps{}
-	router := newTestRouter(&mockSessionFetcher{}, ops)
-
-	req := httptest.NewRequest(http.MethodPost, "/api/windows/abc/select", nil)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
-	}
-	if ops.selectWindowInSessionCalled {
-		t.Error("no select must be issued for an invalid window ID")
 	}
 }
 
@@ -929,26 +947,6 @@ func TestWindowKillPercentEncodedAt(t *testing.T) {
 	}
 }
 
-func TestWindowKillInvalidWindowID(t *testing.T) {
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-	req := httptest.NewRequest(http.MethodPost, "/api/windows/abc/kill", nil)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
-	}
-
-	var result map[string]string
-	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
-		t.Fatalf("decode error: %v", err)
-	}
-	if result["error"] != "Invalid window ID" {
-		t.Errorf("error = %q, want %q", result["error"], "Invalid window ID")
-	}
-}
-
 func TestWindowKillBareNumberRejected(t *testing.T) {
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
 
@@ -1153,20 +1151,6 @@ func TestWindowSplitError(t *testing.T) {
 	}
 }
 
-func TestWindowSplitInvalidWindowID(t *testing.T) {
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-	body := `{"horizontal":false}`
-	req := httptest.NewRequest(http.MethodPost, "/api/windows/bad;name/split", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
-	}
-}
-
 func TestWindowMoveSuccess(t *testing.T) {
 	ops := &mockTmuxOps{}
 	router := newTestRouter(&mockSessionFetcher{}, ops)
@@ -1243,28 +1227,6 @@ func TestWindowMoveNegativeTargetIndex(t *testing.T) {
 	}
 }
 
-func TestWindowMoveInvalidWindowID(t *testing.T) {
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-	body := `{"targetIndex":2}`
-	req := httptest.NewRequest(http.MethodPost, "/api/windows/abc/move", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
-	}
-
-	var result map[string]string
-	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
-		t.Fatalf("decode error: %v", err)
-	}
-	if result["error"] != "Invalid window ID" {
-		t.Errorf("error = %q, want %q", result["error"], "Invalid window ID")
-	}
-}
-
 func TestWindowMoveTmuxError(t *testing.T) {
 	ops := &mockTmuxOps{swapWindowErr: fmt.Errorf("can't find window 5")}
 	router := newTestRouter(&mockSessionFetcher{}, ops)
@@ -1285,19 +1247,6 @@ func TestWindowMoveMissingTargetIndex(t *testing.T) {
 
 	body := `{}`
 	req := httptest.NewRequest(http.MethodPost, "/api/windows/@0/move", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
-	}
-}
-
-func TestWindowSplitInvalidJSON(t *testing.T) {
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-	req := httptest.NewRequest(http.MethodPost, "/api/windows/@0/split", strings.NewReader("not json"))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -1383,41 +1332,6 @@ func TestWindowMoveToSessionInvalidTargetName(t *testing.T) {
 	}
 	if !strings.Contains(result["error"], "forbidden characters") {
 		t.Errorf("error = %q, want containing %q", result["error"], "forbidden characters")
-	}
-}
-
-func TestWindowMoveToSessionInvalidWindowID(t *testing.T) {
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-	body := `{"targetSession":"bravo"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/windows/bad;session/move-to-session", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
-	}
-}
-
-func TestWindowMoveToSessionInvalidJSON(t *testing.T) {
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-	req := httptest.NewRequest(http.MethodPost, "/api/windows/@0/move-to-session", strings.NewReader("not json"))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
-	}
-
-	var result map[string]string
-	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
-		t.Fatalf("decode error: %v", err)
-	}
-	if result["error"] != "Invalid JSON body" {
-		t.Errorf("error = %q, want %q", result["error"], "Invalid JSON body")
 	}
 }
 

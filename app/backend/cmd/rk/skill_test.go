@@ -14,49 +14,76 @@ import (
 // contract, not a suggestion.
 const skillLineBudget = 150
 
-// TestSkillCmdPrintsBundleByteIdentical drives `rk skill` through its cobra
-// command and asserts stdout equals the embedded bundle byte-for-byte, with
-// empty stderr and a nil error (exit 0). No rendering, no added framing.
-func TestSkillCmdPrintsBundleByteIdentical(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	skillCmd.SetOut(&stdout)
-	skillCmd.SetErr(&stderr)
-	t.Cleanup(func() {
-		skillCmd.SetOut(nil)
-		skillCmd.SetErr(nil)
-	})
+// Core and topic invocations print their embedded content byte-for-byte.
+func TestSkillTopicsPrintByteIdentical(t *testing.T) {
+	cases := []struct {
+		name  string
+		topic string
+		want  []byte
+	}{
+		{name: "core", want: skillBundle},
+		{name: "display", topic: "display", want: skillDisplayTopic},
+		{name: "code", topic: "code", want: skillCodeTopic},
+		{name: "mux", topic: "mux", want: skillMuxTopic},
+	}
 
-	if err := skillCmd.RunE(skillCmd, nil); err != nil {
-		t.Fatalf("skill RunE err = %v, want nil (exit 0)", err)
-	}
-	if !bytes.Equal(stdout.Bytes(), skillBundle) {
-		t.Errorf("stdout is not byte-identical to the embedded bundle (got %d bytes, want %d)",
-			stdout.Len(), len(skillBundle))
-	}
-	if stderr.Len() != 0 {
-		t.Errorf("skill wrote to stderr: %q", stderr.String())
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var stdout, stderr string
+			var err error
+			if tc.topic == "" {
+				var outBuffer, errBuffer bytes.Buffer
+				skillCmd.SetOut(&outBuffer)
+				skillCmd.SetErr(&errBuffer)
+				t.Cleanup(func() {
+					skillCmd.SetOut(nil)
+					skillCmd.SetErr(nil)
+				})
+				err = skillCmd.RunE(skillCmd, nil)
+				stdout, stderr = outBuffer.String(), errBuffer.String()
+			} else {
+				stdout, stderr, err = runSkill(t, tc.topic)
+			}
+			if err != nil {
+				t.Fatalf("skill %s RunE err = %v, want nil", tc.topic, err)
+			}
+			if !bytes.Equal([]byte(stdout), tc.want) {
+				t.Errorf("stdout is not byte-identical (got %d bytes, want %d)", len(stdout), len(tc.want))
+			}
+			if stderr != "" {
+				t.Errorf("skill %s wrote to stderr: %q", tc.topic, stderr)
+			}
+		})
 	}
 }
 
-// TestSkillEmbedMatchesCanonical is the drift guard: the embedded bundle bytes
-// MUST equal the canonical docs/site/skill.md. The test file lives at
-// app/backend/cmd/rk/, so the canonical source is four levels up. When the
-// canonical doc drifts from the committed copy (someone edits docs/site/skill.md
-// without re-running scripts/sync-skill.sh), this fails, naming the fix.
-func TestSkillEmbedMatchesCanonical(t *testing.T) {
-	canonicalPath := filepath.Join("..", "..", "..", "..", "docs", "site", "skill.md")
-	canonical, err := os.ReadFile(canonicalPath)
-	if err != nil {
-		t.Fatalf("read canonical %s: %v", canonicalPath, err)
+func TestSkillTopicsMatchCanonical(t *testing.T) {
+	cases := []struct {
+		name      string
+		embedded  []byte
+		canonical string
+	}{
+		{name: "core", embedded: skillBundle, canonical: filepath.Join("..", "..", "..", "..", "docs", "site", "skill.md")},
+		{name: "display", embedded: skillDisplayTopic, canonical: filepath.Join("..", "..", "..", "..", "docs", "site", "skill", "display.md")},
+		{name: "code", embedded: skillCodeTopic, canonical: filepath.Join("..", "..", "..", "..", "docs", "site", "skill", "code.md")},
+		{name: "mux", embedded: skillMuxTopic, canonical: filepath.Join("..", "..", "..", "..", "docs", "site", "skill", "mux.md")},
 	}
-	if !bytes.Equal(skillBundle, canonical) {
-		t.Errorf("embedded skill bundle has drifted from canonical %s — run scripts/sync-skill.sh and commit the refreshed copy", canonicalPath)
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			canonical, err := os.ReadFile(tc.canonical)
+			if err != nil {
+				t.Fatalf("read canonical %s: %v", tc.canonical, err)
+			}
+			if !bytes.Equal(tc.embedded, canonical) {
+				t.Errorf("embedded skill content has drifted from canonical %s", tc.canonical)
+			}
+		})
 	}
 }
 
-// countLines counts content lines the way the ≤150 budget is defined: newline
-// characters plus one for a final line with no trailing newline (an undercount
-// would make the budget check falsely permissive; see TestSkillBundleWithinLineBudget).
+// countLines applies the line-budget definition to content with or without a
+// trailing newline.
 func countLines(b []byte) int {
 	lines := bytes.Count(b, []byte("\n"))
 	if len(b) > 0 && !bytes.HasSuffix(b, []byte("\n")) {
@@ -65,12 +92,22 @@ func countLines(b []byte) int {
 	return lines
 }
 
-// TestSkillBundleWithinLineBudget pins the ≤150-line budget from the standard.
-// A bundle over budget is trying to be a README and taxes every conversation
-// that loads it.
-func TestSkillBundleWithinLineBudget(t *testing.T) {
-	if lines := countLines(skillBundle); lines > skillLineBudget {
-		t.Errorf("skill bundle is %d lines, over the %d-line budget", lines, skillLineBudget)
+// Every embedded skill page has its own line budget.
+func TestSkillTopicsWithinLineBudget(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		content []byte
+	}{
+		{name: "core", content: skillBundle},
+		{name: "display", content: skillDisplayTopic},
+		{name: "code", content: skillCodeTopic},
+		{name: "mux", content: skillMuxTopic},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if lines := countLines(tc.content); lines > skillLineBudget {
+				t.Errorf("%s skill content is %d lines, over the %d-line budget", tc.name, lines, skillLineBudget)
+			}
+		})
 	}
 }
 
@@ -109,22 +146,6 @@ func TestSkillBareStillPrintsCoreBundle(t *testing.T) {
 	}
 	if stderr != "" {
 		t.Errorf("skill wrote to stderr: %q", stderr)
-	}
-}
-
-// TestSkillDisplayPrintsTopicByteIdentical drives `rk skill display` and asserts
-// stdout equals the embedded topic bundle byte-for-byte, empty stderr, nil error.
-func TestSkillDisplayPrintsTopicByteIdentical(t *testing.T) {
-	stdout, stderr, err := runSkill(t, "display")
-	if err != nil {
-		t.Fatalf("skill display RunE err = %v, want nil (exit 0)", err)
-	}
-	if !bytes.Equal([]byte(stdout), skillDisplayTopic) {
-		t.Errorf("stdout is not byte-identical to the embedded display topic (got %d bytes, want %d)",
-			len(stdout), len(skillDisplayTopic))
-	}
-	if stderr != "" {
-		t.Errorf("skill display wrote to stderr: %q", stderr)
 	}
 }
 
@@ -170,100 +191,5 @@ func TestSkillTooManyArgsFailsFast(t *testing.T) {
 	}
 	if stderr == "" {
 		t.Error("skill display extra wrote nothing to stderr, want the arg-count diagnostic")
-	}
-}
-
-// TestSkillDisplayEmbedMatchesCanonical is the topic drift guard: the embedded
-// display topic bytes MUST equal the canonical docs/site/skill/display.md.
-func TestSkillDisplayEmbedMatchesCanonical(t *testing.T) {
-	canonicalPath := filepath.Join("..", "..", "..", "..", "docs", "site", "skill", "display.md")
-	canonical, err := os.ReadFile(canonicalPath)
-	if err != nil {
-		t.Fatalf("read canonical %s: %v", canonicalPath, err)
-	}
-	if !bytes.Equal(skillDisplayTopic, canonical) {
-		t.Errorf("embedded display topic has drifted from canonical %s — run scripts/sync-skill.sh and commit the refreshed copy", canonicalPath)
-	}
-}
-
-// TestSkillCodePrintsTopicByteIdentical drives `rk skill code` and asserts
-// stdout equals the embedded topic bundle byte-for-byte, empty stderr, nil error.
-func TestSkillCodePrintsTopicByteIdentical(t *testing.T) {
-	stdout, stderr, err := runSkill(t, "code")
-	if err != nil {
-		t.Fatalf("skill code RunE err = %v, want nil (exit 0)", err)
-	}
-	if !bytes.Equal([]byte(stdout), skillCodeTopic) {
-		t.Errorf("stdout is not byte-identical to the embedded code topic (got %d bytes, want %d)",
-			len(stdout), len(skillCodeTopic))
-	}
-	if stderr != "" {
-		t.Errorf("skill code wrote to stderr: %q", stderr)
-	}
-}
-
-// TestSkillCodeEmbedMatchesCanonical is the code topic drift guard: the
-// embedded bytes MUST equal the canonical docs/site/skill/code.md.
-func TestSkillCodeEmbedMatchesCanonical(t *testing.T) {
-	canonicalPath := filepath.Join("..", "..", "..", "..", "docs", "site", "skill", "code.md")
-	canonical, err := os.ReadFile(canonicalPath)
-	if err != nil {
-		t.Fatalf("read canonical %s: %v", canonicalPath, err)
-	}
-	if !bytes.Equal(skillCodeTopic, canonical) {
-		t.Errorf("embedded code topic has drifted from canonical %s — run scripts/sync-skill.sh and commit the refreshed copy", canonicalPath)
-	}
-}
-
-// TestSkillCodeWithinLineBudget pins the code topic page's independent ≤150-line
-// budget.
-func TestSkillCodeWithinLineBudget(t *testing.T) {
-	if lines := countLines(skillCodeTopic); lines > skillLineBudget {
-		t.Errorf("code topic is %d lines, over the %d-line budget", lines, skillLineBudget)
-	}
-}
-
-// TestSkillDisplayWithinLineBudget pins the topic page's independent ≤150-line
-// budget (the standard bounds each topic page separately, not the aggregate).
-func TestSkillDisplayWithinLineBudget(t *testing.T) {
-	if lines := countLines(skillDisplayTopic); lines > skillLineBudget {
-		t.Errorf("display topic is %d lines, over the %d-line budget", lines, skillLineBudget)
-	}
-}
-
-// TestSkillMuxPrintsTopicByteIdentical drives `rk skill mux` and asserts stdout
-// equals the embedded topic bundle byte-for-byte, empty stderr, nil error.
-func TestSkillMuxPrintsTopicByteIdentical(t *testing.T) {
-	stdout, stderr, err := runSkill(t, "mux")
-	if err != nil {
-		t.Fatalf("skill mux RunE err = %v, want nil (exit 0)", err)
-	}
-	if !bytes.Equal([]byte(stdout), skillMuxTopic) {
-		t.Errorf("stdout is not byte-identical to the embedded mux topic (got %d bytes, want %d)",
-			len(stdout), len(skillMuxTopic))
-	}
-	if stderr != "" {
-		t.Errorf("skill mux wrote to stderr: %q", stderr)
-	}
-}
-
-// TestSkillMuxEmbedMatchesCanonical is the mux topic drift guard: the embedded
-// bytes MUST equal the canonical docs/site/skill/mux.md.
-func TestSkillMuxEmbedMatchesCanonical(t *testing.T) {
-	canonicalPath := filepath.Join("..", "..", "..", "..", "docs", "site", "skill", "mux.md")
-	canonical, err := os.ReadFile(canonicalPath)
-	if err != nil {
-		t.Fatalf("read canonical %s: %v", canonicalPath, err)
-	}
-	if !bytes.Equal(skillMuxTopic, canonical) {
-		t.Errorf("embedded mux topic has drifted from canonical %s — run scripts/sync-skill.sh and commit the refreshed copy", canonicalPath)
-	}
-}
-
-// TestSkillMuxWithinLineBudget pins the mux topic page's independent ≤150-line
-// budget.
-func TestSkillMuxWithinLineBudget(t *testing.T) {
-	if lines := countLines(skillMuxTopic); lines > skillLineBudget {
-		t.Errorf("mux topic is %d lines, over the %d-line budget", lines, skillLineBudget)
 	}
 }

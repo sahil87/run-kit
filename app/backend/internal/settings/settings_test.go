@@ -186,526 +186,352 @@ func TestSerialize(t *testing.T) {
 	}
 }
 
-func TestParseServerColors(t *testing.T) {
-	// Tolerant read: legacy bare integers, quoted strings, and blends all parse.
-	s := parse("theme: system\nserver_colors:\n  default: 4\n  dev: \"10\"\n  blend: \"1+3\"\n  bad: \"99\"\n")
-	if len(s.ServerColors) != 3 {
-		t.Fatalf("expected 3 valid server colors (malformed dropped), got %d: %v", len(s.ServerColors), s.ServerColors)
+func TestParseOptionalSettings(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		check func(*testing.T, Settings)
+	}{
+		{
+			name:  "server colors",
+			input: "theme: system\nserver_colors:\n  default: 4\n  dev: \"10\"\n  blend: \"1+3\"\n  bad: \"99\"\n",
+			check: func(t *testing.T, s Settings) {
+				if len(s.ServerColors) != 3 {
+					t.Fatalf("expected 3 valid server colors, got %d: %v", len(s.ServerColors), s.ServerColors)
+				}
+				for key, want := range map[string]string{"default": "4", "dev": "10", "blend": "1+3"} {
+					if got := s.ServerColors[key]; got != want {
+						t.Errorf("ServerColors[%s] = %q, want %q", key, got, want)
+					}
+				}
+				if _, ok := s.ServerColors["bad"]; ok {
+					t.Errorf("malformed value 99 should have been dropped, got %q", s.ServerColors["bad"])
+				}
+			},
+		},
+		{
+			name:  "legacy integer server colors",
+			input: "server_colors:\n  default: 4\n  dev: 10\n",
+			check: func(t *testing.T, s Settings) {
+				if s.ServerColors["default"] != "4" || s.ServerColors["dev"] != "10" {
+					t.Errorf("legacy integer server colors did not load: %v", s.ServerColors)
+				}
+			},
+		},
+		{
+			name:  "server flairs",
+			input: "theme: system\nserver_flairs:\n  default: \"nyan\"\n  dev: cube\n  bad: \"bogus\"\n  empty: \"\"\n",
+			check: func(t *testing.T, s Settings) {
+				if len(s.ServerFlairs) != 2 {
+					t.Fatalf("expected 2 valid server flairs, got %d: %v", len(s.ServerFlairs), s.ServerFlairs)
+				}
+				if s.ServerFlairs["default"] != "nyan" || s.ServerFlairs["dev"] != "cube" {
+					t.Errorf("ServerFlairs = %v, want default=nyan and dev=cube", s.ServerFlairs)
+				}
+				if _, ok := s.ServerFlairs["bad"]; ok {
+					t.Errorf("unknown token bogus should have been dropped, got %q", s.ServerFlairs["bad"])
+				}
+			},
+		},
+		{
+			name:  "board order",
+			input: "theme: system\nboard_order:\n  - \"reviews\"\n  - \"deploys\"\n  - scratch\n",
+			check: func(t *testing.T, s Settings) {
+				want := []string{"reviews", "deploys", "scratch"}
+				if !reflect.DeepEqual(s.BoardOrder, want) {
+					t.Errorf("BoardOrder = %v, want %v", s.BoardOrder, want)
+				}
+			},
+		},
+		{
+			name:  "missing board order",
+			input: "theme: dracula\nserver_colors:\n  default: 4\n",
+			check: func(t *testing.T, s Settings) {
+				if s.BoardOrder != nil {
+					t.Errorf("BoardOrder = %v, want nil", s.BoardOrder)
+				}
+			},
+		},
 	}
-	if s.ServerColors["default"] != "4" {
-		t.Errorf("ServerColors[default] = %q, want \"4\"", s.ServerColors["default"])
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.check(t, parse(tc.input))
+		})
 	}
-	if s.ServerColors["dev"] != "10" {
-		t.Errorf("ServerColors[dev] = %q, want \"10\"", s.ServerColors["dev"])
+
+	t.Run("instance color vocabulary", func(t *testing.T) {
+		for _, tc := range []struct {
+			input string
+			want  string
+		}{
+			{"instance_color: \"4\"\n", "4"},
+			{"instance_color: \"1+3\"\n", "1+3"},
+			{"instance_color: 4\n", "4"},
+			{"instance_color: \"01\"\n", "1"},
+			{"instance_color: \"99\"\n", ""},
+			{"instance_color: \"1+2+3\"\n", ""},
+			{"theme: system\n", ""},
+		} {
+			if got := parse(tc.input).InstanceColor; got != tc.want {
+				t.Errorf("parse(%q).InstanceColor = %q, want %q", tc.input, got, tc.want)
+			}
+		}
+	})
+
+	t.Run("ssh host and instance name", func(t *testing.T) {
+		for _, tc := range []struct {
+			input        string
+			wantSSH      string
+			wantInstance string
+		}{
+			{"ssh_host: \"devbox\"\n", "devbox", ""},
+			{"ssh_host: devbox\n", "devbox", ""},
+			{"ssh_host: \"user@host\"\n", "user@host", ""},
+			{"instance_name: \"my-box\"\n", "", "my-box"},
+			{"instance_name: \"dev mini\"\n", "", "dev mini"},
+			{"ssh_host: \"devbox\"\ninstance_name: \"my-box\"\n", "devbox", "my-box"},
+			{"theme: system\n", "", ""},
+		} {
+			s := parse(tc.input)
+			if s.SSHHost != tc.wantSSH {
+				t.Errorf("parse(%q).SSHHost = %q, want %q", tc.input, s.SSHHost, tc.wantSSH)
+			}
+			if s.InstanceName != tc.wantInstance {
+				t.Errorf("parse(%q).InstanceName = %q, want %q", tc.input, s.InstanceName, tc.wantInstance)
+			}
+		}
+	})
+
+	t.Run("tmux config and log level", func(t *testing.T) {
+		for _, tc := range []struct {
+			input        string
+			wantTmuxConf string
+			wantLogLevel string
+		}{
+			{"tmux_conf: \"/my/tmux.conf\"\n", "/my/tmux.conf", "info"},
+			{"tmux_conf: /my/tmux.conf\n", "/my/tmux.conf", "info"},
+			{"log_level: debug\n", "", "debug"},
+			{"log_level: \"debug\"\n", "", "debug"},
+			{"log_level: info\n", "", "info"},
+			{"log_level: trace\n", "", "info"},
+			{"log_level: \"\"\n", "", "info"},
+			{"theme: system\n", "", "info"},
+		} {
+			s := parse(tc.input)
+			if s.TmuxConf != tc.wantTmuxConf {
+				t.Errorf("parse(%q).TmuxConf = %q, want %q", tc.input, s.TmuxConf, tc.wantTmuxConf)
+			}
+			if s.LogLevel != tc.wantLogLevel {
+				t.Errorf("parse(%q).LogLevel = %q, want %q", tc.input, s.LogLevel, tc.wantLogLevel)
+			}
+		}
+	})
+}
+
+func TestSerializeOptionalSettings(t *testing.T) {
+	base := Settings{Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light"}
+	cases := []struct {
+		name   string
+		mutate func(*Settings)
+		want   string
+	}{
+		{
+			name: "server colors",
+			mutate: func(s *Settings) {
+				s.ServerColors = map[string]string{"default": "4", "dev": "1+3"}
+			},
+			want: "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\nserver_colors:\n  default: \"4\"\n  dev: \"1+3\"\n",
+		},
+		{
+			name: "server flairs",
+			mutate: func(s *Settings) {
+				s.ServerFlairs = map[string]string{"default": "nyan", "dev": "cube"}
+			},
+			want: "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\nserver_flairs:\n  default: \"nyan\"\n  dev: \"cube\"\n",
+		},
+		{
+			name:   "board order",
+			mutate: func(s *Settings) { s.BoardOrder = []string{"reviews", "deploys"} },
+			want:   "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\nboard_order:\n  - \"reviews\"\n  - \"deploys\"\n",
+		},
+		{
+			name:   "instance color",
+			mutate: func(s *Settings) { s.InstanceColor = "1+3" },
+			want:   "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\ninstance_color: \"1+3\"\n",
+		},
+		{
+			name: "ssh host and instance name",
+			mutate: func(s *Settings) {
+				s.InstanceColor = "4"
+				s.SSHHost = "devbox"
+				s.InstanceName = "my-box"
+			},
+			want: "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\ninstance_color: \"4\"\nssh_host: \"devbox\"\ninstance_name: \"my-box\"\n",
+		},
+		{
+			name: "tmux config and log level",
+			mutate: func(s *Settings) {
+				s.AutoName = true
+				s.TmuxConf = "/my/tmux.conf"
+				s.LogLevel = "debug"
+				s.ServerColors = map[string]string{"default": "4"}
+			},
+			want: "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\nauto_name: true\ntmux_conf: \"/my/tmux.conf\"\nlog_level: debug\nserver_colors:\n  default: \"4\"\n",
+		},
 	}
-	if s.ServerColors["blend"] != "1+3" {
-		t.Errorf("ServerColors[blend] = %q, want \"1+3\"", s.ServerColors["blend"])
-	}
-	if _, ok := s.ServerColors["bad"]; ok {
-		t.Errorf("malformed value 99 should have been dropped, got %q", s.ServerColors["bad"])
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := base
+			tc.mutate(&s)
+			if got := serialize(s); got != tc.want {
+				t.Errorf("serialize = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 
-func TestSerializeServerColors(t *testing.T) {
-	s := Settings{
-		Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light",
-		ServerColors: map[string]string{"default": "4", "dev": "1+3"},
-	}
-	got := serialize(s)
-	// Values are always written quoted so a blend ("1+3") round-trips.
-	want := "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\nserver_colors:\n  default: \"4\"\n  dev: \"1+3\"\n"
-	if got != want {
-		t.Errorf("serialize = %q, want %q", got, want)
-	}
-}
-
-// TestParseServerColors_legacyIntBackCompat verifies a pre-change settings file
-// holding bare integer server colors (the old format) still loads after the
-// int→string type change, with no migration code path.
-func TestParseServerColors_legacyIntBackCompat(t *testing.T) {
-	s := parse("server_colors:\n  default: 4\n  dev: 10\n")
-	if s.ServerColors["default"] != "4" || s.ServerColors["dev"] != "10" {
-		t.Errorf("legacy integer server colors did not load: %v", s.ServerColors)
-	}
-}
-
-func TestParseServerFlairs(t *testing.T) {
-	// Tolerant read: quoted and bare universal tokens parse; unknown and empty
-	// tokens are dropped.
-	s := parse("theme: system\nserver_flairs:\n  default: \"nyan\"\n  dev: cube\n  bad: \"bogus\"\n  empty: \"\"\n")
-	if len(s.ServerFlairs) != 2 {
-		t.Fatalf("expected 2 valid server flairs (malformed dropped), got %d: %v", len(s.ServerFlairs), s.ServerFlairs)
-	}
-	if s.ServerFlairs["default"] != "nyan" {
-		t.Errorf("ServerFlairs[default] = %q, want \"nyan\"", s.ServerFlairs["default"])
-	}
-	if s.ServerFlairs["dev"] != "cube" {
-		t.Errorf("ServerFlairs[dev] = %q, want \"cube\"", s.ServerFlairs["dev"])
-	}
-	if _, ok := s.ServerFlairs["bad"]; ok {
-		t.Errorf("unknown token bogus should have been dropped, got %q", s.ServerFlairs["bad"])
-	}
-}
-
-func TestSerializeServerFlairs(t *testing.T) {
-	s := Settings{
-		Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light",
-		ServerFlairs: map[string]string{"default": "nyan", "dev": "cube"},
-	}
-	got := serialize(s)
-	// Values are always written quoted so they round-trip unambiguously; keys
-	// sort for deterministic output.
-	want := "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\nserver_flairs:\n  default: \"nyan\"\n  dev: \"cube\"\n"
-	if got != want {
-		t.Errorf("serialize = %q, want %q", got, want)
-	}
-}
-
-func TestSerializeEmptyServerFlairsIsByteIdentical(t *testing.T) {
-	// A settings file without flairs must serialize exactly like one that never
-	// had them (no server_flairs: heading).
-	got := serialize(Settings{Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light"})
+func TestSerializeEmptyOptionalSettingsIsByteIdentical(t *testing.T) {
+	got := serialize(Settings{Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light", LogLevel: "info"})
 	want := "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\n"
 	if got != want {
-		t.Errorf("serialize (empty ServerFlairs) = %q, want %q", got, want)
+		t.Errorf("serialize with optional defaults = %q, want %q", got, want)
 	}
 }
 
-func TestServerFlairRoundTrip(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
+func TestOptionalSettingRoundTrips(t *testing.T) {
+	t.Run("scalar registry", func(t *testing.T) {
+		cases := []struct {
+			name        string
+			firstValue  string
+			secondValue string
+			set         func(*string) error
+			get         func() *string
+		}{
+			{name: "server color", firstValue: "6", secondValue: "1+3", set: func(v *string) error { return SetServerColor("default", v) }, get: func() *string { return GetServerColor("default") }},
+			{name: "server flair", firstValue: "cube", secondValue: "warp", set: func(v *string) error { return SetServerFlair("default", v) }, get: func() *string { return GetServerFlair("default") }},
+			{name: "instance color", firstValue: "5", secondValue: "1+3", set: SetInstanceColor, get: GetInstanceColor},
+			{name: "ssh host", firstValue: "devbox", secondValue: "user@host", set: SetSSHHost, get: GetSSHHost},
+			{name: "instance name", firstValue: "my-box", secondValue: "dev mini", set: SetInstanceName, get: GetInstanceName},
+		}
 
-	// Unset → nil.
-	if got := GetServerFlair("default"); got != nil {
-		t.Errorf("GetServerFlair (unset) = %v, want nil", *got)
-	}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Setenv("HOME", t.TempDir())
+				if got := tc.get(); got != nil {
+					t.Errorf("get unset = %v, want nil", *got)
+				}
+				value := tc.firstValue
+				if err := tc.set(&value); err != nil {
+					t.Fatalf("set: %v", err)
+				}
+				if got := tc.get(); got == nil || *got != value {
+					t.Errorf("get = %v, want %q", got, value)
+				}
+				value = tc.secondValue
+				if err := tc.set(&value); err != nil {
+					t.Fatalf("overwrite: %v", err)
+				}
+				if got := tc.get(); got == nil || *got != value {
+					t.Errorf("get after overwrite = %v, want %q", got, value)
+				}
+				if err := tc.set(nil); err != nil {
+					t.Fatalf("clear: %v", err)
+				}
+				if got := tc.get(); got != nil {
+					t.Errorf("get after clear = %v, want nil", *got)
+				}
+			})
+		}
+	})
 
-	flair := "cube"
-	if err := SetServerFlair("default", &flair); err != nil {
-		t.Fatalf("SetServerFlair: %v", err)
-	}
-	got := GetServerFlair("default")
-	if got == nil || *got != "cube" {
-		t.Errorf("GetServerFlair = %v, want \"cube\"", got)
-	}
+	t.Run("missing server color key", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		if got := GetServerColor("nonexistent"); got != nil {
+			t.Errorf("GetServerColor(nonexistent) = %v, want nil", got)
+		}
+	})
 
-	// Overwrite, then clear.
-	flair = "warp"
-	if err := SetServerFlair("default", &flair); err != nil {
-		t.Fatalf("SetServerFlair overwrite: %v", err)
-	}
-	if err := SetServerFlair("default", nil); err != nil {
-		t.Fatalf("SetServerFlair clear: %v", err)
-	}
-	if got := GetServerFlair("default"); got != nil {
-		t.Errorf("GetServerFlair after clear = %v, want nil", *got)
-	}
+	t.Run("server flair clear removes section", func(t *testing.T) {
+		tmp := t.TempDir()
+		t.Setenv("HOME", tmp)
+		flair := "cube"
+		if err := SetServerFlair("default", &flair); err != nil {
+			t.Fatalf("SetServerFlair: %v", err)
+		}
+		if err := SetServerFlair("default", nil); err != nil {
+			t.Fatalf("SetServerFlair clear: %v", err)
+		}
+		data, err := os.ReadFile(filepath.Join(tmp, ".config", "run-kit", "config.yaml"))
+		if err != nil {
+			t.Fatalf("ReadFile: %v", err)
+		}
+		if strings.Contains(string(data), "server_flairs") {
+			t.Errorf("cleared map left a server_flairs heading in the file:\n%s", data)
+		}
+	})
 
-	// Clearing the last entry drops the section from the file entirely.
-	data, err := os.ReadFile(filepath.Join(tmp, ".config", "run-kit", "config.yaml"))
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if strings.Contains(string(data), "server_flairs") {
-		t.Errorf("cleared map left a server_flairs heading in the file:\n%s", data)
-	}
+	t.Run("board order", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		if got := GetBoardOrder(); got != nil {
+			t.Errorf("GetBoardOrder unset = %v, want nil", got)
+		}
+		if err := SetBoardOrder([]string{"b", "a", "c"}); err != nil {
+			t.Fatalf("SetBoardOrder: %v", err)
+		}
+		if got := GetBoardOrder(); !reflect.DeepEqual(got, []string{"b", "a", "c"}) {
+			t.Errorf("GetBoardOrder = %v, want [b a c]", got)
+		}
+		if err := SetBoardOrder([]string{"a"}); err != nil {
+			t.Fatalf("SetBoardOrder rewrite: %v", err)
+		}
+		if got := GetBoardOrder(); !reflect.DeepEqual(got, []string{"a"}) {
+			t.Errorf("GetBoardOrder after rewrite = %v, want [a]", got)
+		}
+		if err := SetBoardOrder(nil); err != nil {
+			t.Fatalf("SetBoardOrder nil: %v", err)
+		}
+		if got := GetBoardOrder(); got != nil {
+			t.Errorf("GetBoardOrder after clear = %v, want nil", got)
+		}
+	})
 }
 
-func TestParseBoardOrder(t *testing.T) {
-	s := parse("theme: system\nboard_order:\n  - \"reviews\"\n  - \"deploys\"\n  - scratch\n")
-	want := []string{"reviews", "deploys", "scratch"}
-	if len(s.BoardOrder) != len(want) {
-		t.Fatalf("BoardOrder = %v, want %v", s.BoardOrder, want)
-	}
-	for i, name := range want {
-		if s.BoardOrder[i] != name {
-			t.Errorf("BoardOrder[%d] = %q, want %q", i, s.BoardOrder[i], name)
+func TestOptionalSettingsCoexist(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	serverColor := "4"
+	instanceColor := "2"
+	host := "devbox"
+	name := "my-box"
+	for label, set := range map[string]func() error{
+		"server color":   func() error { return SetServerColor("default", &serverColor) },
+		"instance color": func() error { return SetInstanceColor(&instanceColor) },
+		"ssh host":       func() error { return SetSSHHost(&host) },
+		"instance name":  func() error { return SetInstanceName(&name) },
+		"board order":    func() error { return SetBoardOrder([]string{"x", "y"}) },
+	} {
+		if err := set(); err != nil {
+			t.Fatalf("%s: %v", label, err)
 		}
 	}
-}
 
-// TestParseNoBoardOrder verifies a legacy settings file predating the
-// board_order: block loads with a nil BoardOrder and no error.
-func TestParseNoBoardOrder(t *testing.T) {
-	s := parse("theme: dracula\nserver_colors:\n  default: 4\n")
-	if s.BoardOrder != nil {
-		t.Errorf("BoardOrder = %v, want nil for a file with no board_order block", s.BoardOrder)
-	}
-}
-
-func TestSerializeEmptyBoardOrderIsByteIdentical(t *testing.T) {
-	// A theme-only Settings with no board order must serialize exactly as before
-	// (no board_order: line), guarding the existing exact-string assertions.
-	got := serialize(Settings{Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light"})
-	want := "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\n"
-	if got != want {
-		t.Errorf("serialize (empty BoardOrder) = %q, want %q", got, want)
-	}
-}
-
-func TestSerializeBoardOrder(t *testing.T) {
-	s := Settings{
-		Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light",
-		BoardOrder: []string{"reviews", "deploys"},
-	}
-	got := serialize(s)
-	want := "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\nboard_order:\n  - \"reviews\"\n  - \"deploys\"\n"
-	if got != want {
-		t.Errorf("serialize = %q, want %q", got, want)
-	}
-}
-
-func TestBoardOrderRoundTrip(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
-
-	// Unset → nil.
-	if got := GetBoardOrder(); got != nil {
-		t.Errorf("GetBoardOrder (unset) = %v, want nil", got)
-	}
-
-	order := []string{"b", "a", "c"}
-	if err := SetBoardOrder(order); err != nil {
-		t.Fatalf("SetBoardOrder: %v", err)
-	}
-	got := GetBoardOrder()
-	if len(got) != 3 || got[0] != "b" || got[1] != "a" || got[2] != "c" {
-		t.Errorf("GetBoardOrder = %v, want [b a c]", got)
-	}
-
-	// A full-list rewrite replaces (self-heals stale names).
-	if err := SetBoardOrder([]string{"a"}); err != nil {
-		t.Fatalf("SetBoardOrder rewrite: %v", err)
-	}
-	got = GetBoardOrder()
-	if len(got) != 1 || got[0] != "a" {
-		t.Errorf("GetBoardOrder after rewrite = %v, want [a]", got)
-	}
-
-	// Empty clears.
-	if err := SetBoardOrder(nil); err != nil {
-		t.Fatalf("SetBoardOrder nil: %v", err)
-	}
-	if got := GetBoardOrder(); got != nil {
-		t.Errorf("GetBoardOrder after clear = %v, want nil", got)
-	}
-}
-
-// TestBoardOrderCoexistsWithServerColors verifies board_order and server_colors
-// both persist and load together (distinct nested shapes: sequence vs map).
-func TestBoardOrderCoexistsWithServerColors(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
-
-	color := "4"
-	if err := SetServerColor("default", &color); err != nil {
-		t.Fatalf("SetServerColor: %v", err)
-	}
-	if err := SetBoardOrder([]string{"x", "y"}); err != nil {
-		t.Fatalf("SetBoardOrder: %v", err)
-	}
 	loaded := Load()
 	if loaded.ServerColors["default"] != "4" {
 		t.Errorf("ServerColors[default] = %q, want 4", loaded.ServerColors["default"])
 	}
-	if len(loaded.BoardOrder) != 2 || loaded.BoardOrder[0] != "x" || loaded.BoardOrder[1] != "y" {
-		t.Errorf("BoardOrder = %v, want [x y]", loaded.BoardOrder)
-	}
-}
-
-func TestParseInstanceColor(t *testing.T) {
-	// Tolerant read: quoted string descriptors, blends, and a legacy bare
-	// integer all parse; malformed values are dropped (empty field).
-	cases := []struct {
-		in   string
-		want string
-	}{
-		{"instance_color: \"4\"\n", "4"},
-		{"instance_color: \"1+3\"\n", "1+3"},
-		{"instance_color: 4\n", "4"},        // legacy bare int
-		{"instance_color: \"01\"\n", "1"},   // normalized
-		{"instance_color: \"99\"\n", ""},    // out of range → dropped
-		{"instance_color: \"1+2+3\"\n", ""}, // malformed → dropped
-		{"theme: system\n", ""},             // absent → empty
-	}
-	for _, c := range cases {
-		s := parse(c.in)
-		if s.InstanceColor != c.want {
-			t.Errorf("parse(%q).InstanceColor = %q, want %q", c.in, s.InstanceColor, c.want)
-		}
-	}
-}
-
-func TestSerializeInstanceColor(t *testing.T) {
-	s := Settings{
-		Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light",
-		InstanceColor: "1+3",
-	}
-	got := serialize(s)
-	want := "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\ninstance_color: \"1+3\"\n"
-	if got != want {
-		t.Errorf("serialize = %q, want %q", got, want)
-	}
-}
-
-func TestSerializeEmptyInstanceColorIsByteIdentical(t *testing.T) {
-	// A Settings with no instance color must serialize exactly as before (no
-	// instance_color: line), guarding the existing exact-string assertions.
-	got := serialize(Settings{Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light"})
-	want := "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\n"
-	if got != want {
-		t.Errorf("serialize (empty InstanceColor) = %q, want %q", got, want)
-	}
-}
-
-func TestInstanceColorRoundTrip(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
-
-	// Unset → nil.
-	if got := GetInstanceColor(); got != nil {
-		t.Errorf("GetInstanceColor (unset) = %v, want nil", got)
-	}
-
-	color := "5"
-	if err := SetInstanceColor(&color); err != nil {
-		t.Fatalf("SetInstanceColor: %v", err)
-	}
-	got := GetInstanceColor()
-	if got == nil || *got != "5" {
-		t.Errorf("GetInstanceColor = %v, want \"5\"", got)
-	}
-
-	// Blend round-trips through write→read as a string.
-	blend := "1+3"
-	if err := SetInstanceColor(&blend); err != nil {
-		t.Fatalf("SetInstanceColor blend: %v", err)
-	}
-	got = GetInstanceColor()
-	if got == nil || *got != "1+3" {
-		t.Errorf("GetInstanceColor = %v, want \"1+3\"", got)
-	}
-
-	// Clear.
-	if err := SetInstanceColor(nil); err != nil {
-		t.Fatalf("SetInstanceColor nil: %v", err)
-	}
-	if got := GetInstanceColor(); got != nil {
-		t.Errorf("GetInstanceColor after clear = %v, want nil", got)
-	}
-}
-
-// TestInstanceColorCoexists verifies the scalar instance color persists and
-// loads alongside the nested server_colors map and board_order sequence.
-func TestInstanceColorCoexists(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
-
-	serverColor := "4"
-	if err := SetServerColor("default", &serverColor); err != nil {
-		t.Fatalf("SetServerColor: %v", err)
-	}
-	instColor := "2"
-	if err := SetInstanceColor(&instColor); err != nil {
-		t.Fatalf("SetInstanceColor: %v", err)
-	}
-	if err := SetBoardOrder([]string{"x"}); err != nil {
-		t.Fatalf("SetBoardOrder: %v", err)
-	}
-	loaded := Load()
 	if loaded.InstanceColor != "2" {
-		t.Errorf("InstanceColor = %q, want \"2\"", loaded.InstanceColor)
+		t.Errorf("InstanceColor = %q, want 2", loaded.InstanceColor)
 	}
-	if loaded.ServerColors["default"] != "4" {
-		t.Errorf("ServerColors[default] = %q, want \"4\"", loaded.ServerColors["default"])
-	}
-	if len(loaded.BoardOrder) != 1 || loaded.BoardOrder[0] != "x" {
-		t.Errorf("BoardOrder = %v, want [x]", loaded.BoardOrder)
-	}
-}
-
-func TestServerColorRoundTrip(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
-
-	color := "6"
-	if err := SetServerColor("default", &color); err != nil {
-		t.Fatalf("SetServerColor: %v", err)
-	}
-
-	got := GetServerColor("default")
-	if got == nil || *got != "6" {
-		t.Errorf("GetServerColor(default) = %v, want \"6\"", got)
-	}
-
-	// Blend round-trips through write→read as a string.
-	blend := "1+3"
-	if err := SetServerColor("default", &blend); err != nil {
-		t.Fatalf("SetServerColor blend: %v", err)
-	}
-	got = GetServerColor("default")
-	if got == nil || *got != "1+3" {
-		t.Errorf("GetServerColor(default) = %v, want \"1+3\"", got)
-	}
-
-	// Unset server should return nil
-	got = GetServerColor("nonexistent")
-	if got != nil {
-		t.Errorf("GetServerColor(nonexistent) = %v, want nil", got)
-	}
-
-	// Clear
-	if err := SetServerColor("default", nil); err != nil {
-		t.Fatalf("SetServerColor nil: %v", err)
-	}
-	got = GetServerColor("default")
-	if got != nil {
-		t.Errorf("GetServerColor after clear = %v, want nil", got)
-	}
-}
-
-// --- ssh_host + instance_name (260723-o7q8) ---
-
-func TestParseSSHHostAndInstanceName(t *testing.T) {
-	// Tolerant read: quoted and unquoted values parse; surrounding whitespace
-	// is trimmed; absent keys stay empty.
-	cases := []struct {
-		in           string
-		wantSSH      string
-		wantInstName string
-	}{
-		{"ssh_host: \"devbox\"\n", "devbox", ""},
-		{"ssh_host: devbox\n", "devbox", ""}, // unquoted tolerated
-		{"ssh_host: \"user@host\"\n", "user@host", ""},
-		{"instance_name: \"my-box\"\n", "", "my-box"},
-		{"instance_name: \"dev mini\"\n", "", "dev mini"}, // inner spaces kept
-		{"ssh_host: \"devbox\"\ninstance_name: \"my-box\"\n", "devbox", "my-box"},
-		{"theme: system\n", "", ""}, // absent → empty
-	}
-	for _, c := range cases {
-		s := parse(c.in)
-		if s.SSHHost != c.wantSSH {
-			t.Errorf("parse(%q).SSHHost = %q, want %q", c.in, s.SSHHost, c.wantSSH)
-		}
-		if s.InstanceName != c.wantInstName {
-			t.Errorf("parse(%q).InstanceName = %q, want %q", c.in, s.InstanceName, c.wantInstName)
-		}
-	}
-}
-
-func TestSerializeSSHHostAndInstanceName(t *testing.T) {
-	s := Settings{
-		Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light",
-		InstanceColor: "4", SSHHost: "devbox", InstanceName: "my-box",
-	}
-	got := serialize(s)
-	want := "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\n" +
-		"instance_color: \"4\"\nssh_host: \"devbox\"\ninstance_name: \"my-box\"\n"
-	if got != want {
-		t.Errorf("serialize = %q, want %q", got, want)
-	}
-}
-
-func TestSerializeEmptySSHHostAndInstanceNameIsByteIdentical(t *testing.T) {
-	// A Settings without the new keys must serialize exactly as before (no
-	// ssh_host:/instance_name: lines), guarding the exact-string assertions.
-	got := serialize(Settings{Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light"})
-	want := "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\n"
-	if got != want {
-		t.Errorf("serialize (empty ssh_host/instance_name) = %q, want %q", got, want)
-	}
-}
-
-func TestSSHHostRoundTrip(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
-
-	if got := GetSSHHost(); got != nil {
-		t.Errorf("GetSSHHost (unset) = %v, want nil", got)
-	}
-
-	host := "devbox"
-	if err := SetSSHHost(&host); err != nil {
-		t.Fatalf("SetSSHHost: %v", err)
-	}
-	got := GetSSHHost()
-	if got == nil || *got != "devbox" {
-		t.Errorf("GetSSHHost = %v, want \"devbox\"", got)
-	}
-
-	if err := SetSSHHost(nil); err != nil {
-		t.Fatalf("SetSSHHost nil: %v", err)
-	}
-	if got := GetSSHHost(); got != nil {
-		t.Errorf("GetSSHHost after clear = %v, want nil", got)
-	}
-}
-
-func TestInstanceNameRoundTrip(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
-
-	if got := GetInstanceName(); got != nil {
-		t.Errorf("GetInstanceName (unset) = %v, want nil", got)
-	}
-
-	name := "my-box"
-	if err := SetInstanceName(&name); err != nil {
-		t.Fatalf("SetInstanceName: %v", err)
-	}
-	got := GetInstanceName()
-	if got == nil || *got != "my-box" {
-		t.Errorf("GetInstanceName = %v, want \"my-box\"", got)
-	}
-
-	if err := SetInstanceName(nil); err != nil {
-		t.Fatalf("SetInstanceName nil: %v", err)
-	}
-	if got := GetInstanceName(); got != nil {
-		t.Errorf("GetInstanceName after clear = %v, want nil", got)
-	}
-}
-
-// TestSSHHostInstanceNameCoexist verifies the new scalar keys persist and load
-// alongside the instance color, server_colors map, and board_order sequence.
-func TestSSHHostInstanceNameCoexist(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
-
-	serverColor := "4"
-	if err := SetServerColor("default", &serverColor); err != nil {
-		t.Fatalf("SetServerColor: %v", err)
-	}
-	instColor := "2"
-	if err := SetInstanceColor(&instColor); err != nil {
-		t.Fatalf("SetInstanceColor: %v", err)
-	}
-	host := "devbox"
-	if err := SetSSHHost(&host); err != nil {
-		t.Fatalf("SetSSHHost: %v", err)
-	}
-	name := "my-box"
-	if err := SetInstanceName(&name); err != nil {
-		t.Fatalf("SetInstanceName: %v", err)
-	}
-	if err := SetBoardOrder([]string{"x"}); err != nil {
-		t.Fatalf("SetBoardOrder: %v", err)
-	}
-	loaded := Load()
 	if loaded.SSHHost != "devbox" {
-		t.Errorf("SSHHost = %q, want \"devbox\"", loaded.SSHHost)
+		t.Errorf("SSHHost = %q, want devbox", loaded.SSHHost)
 	}
 	if loaded.InstanceName != "my-box" {
-		t.Errorf("InstanceName = %q, want \"my-box\"", loaded.InstanceName)
+		t.Errorf("InstanceName = %q, want my-box", loaded.InstanceName)
 	}
-	if loaded.InstanceColor != "2" {
-		t.Errorf("InstanceColor = %q, want \"2\"", loaded.InstanceColor)
-	}
-	if loaded.ServerColors["default"] != "4" {
-		t.Errorf("ServerColors[default] = %q, want \"4\"", loaded.ServerColors["default"])
-	}
-	if len(loaded.BoardOrder) != 1 || loaded.BoardOrder[0] != "x" {
-		t.Errorf("BoardOrder = %v, want [x]", loaded.BoardOrder)
+	if !reflect.DeepEqual(loaded.BoardOrder, []string{"x", "y"}) {
+		t.Errorf("BoardOrder = %v, want [x y]", loaded.BoardOrder)
 	}
 }
 
@@ -783,62 +609,6 @@ func TestRoundTripByteIdentical(t *testing.T) {
 		"board_order:\n  - \"reviews\"\n  - \"deploys\"\n"
 	if got := serialize(parse(content)); got != content {
 		t.Errorf("round-trip not byte-identical:\n got: %q\nwant: %q", got, content)
-	}
-}
-
-// --- tmux_conf + log_level keys ---
-
-func TestParseTmuxConfAndLogLevel(t *testing.T) {
-	// Tolerant read: tmux_conf is quote-stripped/trimmed like ssh_host;
-	// log_level accepts only info/debug — anything else keeps the default.
-	cases := []struct {
-		in           string
-		wantTmuxConf string
-		wantLogLevel string
-	}{
-		{"tmux_conf: \"/my/tmux.conf\"\n", "/my/tmux.conf", "info"},
-		{"tmux_conf: /my/tmux.conf\n", "/my/tmux.conf", "info"}, // unquoted tolerated
-		{"log_level: debug\n", "", "debug"},
-		{"log_level: \"debug\"\n", "", "debug"},
-		{"log_level: info\n", "", "info"},
-		{"log_level: trace\n", "", "info"}, // invalid → default kept
-		{"log_level: \"\"\n", "", "info"},  // empty → default kept
-		{"theme: system\n", "", "info"},    // absent → defaults
-	}
-	for _, c := range cases {
-		s := parse(c.in)
-		if s.TmuxConf != c.wantTmuxConf {
-			t.Errorf("parse(%q).TmuxConf = %q, want %q", c.in, s.TmuxConf, c.wantTmuxConf)
-		}
-		if s.LogLevel != c.wantLogLevel {
-			t.Errorf("parse(%q).LogLevel = %q, want %q", c.in, s.LogLevel, c.wantLogLevel)
-		}
-	}
-}
-
-func TestSerializeTmuxConfAndLogLevel(t *testing.T) {
-	// Non-default values serialize after auto_name, before the nested sections.
-	s := Settings{
-		Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light",
-		AutoName: true, TmuxConf: "/my/tmux.conf", LogLevel: "debug",
-		ServerColors: map[string]string{"default": "4"},
-	}
-	got := serialize(s)
-	want := "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\n" +
-		"auto_name: true\ntmux_conf: \"/my/tmux.conf\"\nlog_level: debug\n" +
-		"server_colors:\n  default: \"4\"\n"
-	if got != want {
-		t.Errorf("serialize = %q, want %q", got, want)
-	}
-}
-
-func TestSerializeDefaultTmuxConfAndLogLevelIsByteIdentical(t *testing.T) {
-	// Defaults (tmux_conf "", log_level info) are omitted: a settings file
-	// without the new keys serializes exactly as before.
-	got := serialize(Settings{Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light", LogLevel: "info"})
-	want := "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\n"
-	if got != want {
-		t.Errorf("serialize (default tmux_conf/log_level) = %q, want %q", got, want)
 	}
 }
 

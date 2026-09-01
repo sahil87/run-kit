@@ -100,6 +100,13 @@ const (
 	// "I want it now" case.
 	prStatusPollInterval = 90 * time.Second
 	sseCacheTTL          = 500 * time.Millisecond
+	// sseEventDebounce bounds the event-driven derive rate: after a control-mode
+	// subscriber generation bump, waitForNext absorbs further bumps for this
+	// window so a burst (rename churn from agent panes) coalesces into ONE
+	// derive pass. Explicit wake() signals bypass it (a wake ends a pending
+	// window immediately), and the safety timers and sseCacheTTL are independent
+	// of it — it sits only between "bump observed" and "cache invalidated".
+	sseEventDebounce = 300 * time.Millisecond
 	// The SSE-only sseHeartbeatPeriod / maxLifetime constants were retired in
 	// 260717-vhvz-chat-on-state-socket along with their sole remaining consumer,
 	// the chat SSE stream (GET /api/windows/{id}/chat/stream), which moved onto
@@ -330,6 +337,12 @@ type sseHub struct {
 	// existing time-based assertions remain valid; production callers
 	// leave it zero.
 	safetyInterval time.Duration
+
+	// eventDebounce overrides sseEventDebounce per-hub. Zero falls back to
+	// the package constant (the safetyInterval override idiom). Tests set it
+	// long to prove wake bypass deterministically, or short to keep timing
+	// assertions fast; production callers leave it zero.
+	eventDebounce time.Duration
 
 	// captureFn captures a window's pane-text preview. Defaults to the real
 	// capturePreviewForWindow (tmux exec); tests override it to exercise the
@@ -1848,25 +1861,64 @@ func (h *sseHub) waitForNext(servers []string, perServerGen map[string]int64, ev
 	// that has fired (the winner plus any that fired concurrently), routing each
 	// by isWake. This is correct even when a server has BOTH a subscriber case
 	// and a wake case that fired: each is handled independently in one pass.
-	selectFirst(cases, timer)
-	for _, c := range cases {
-		select {
-		case <-c.ch:
-			if c.isWake {
-				// Only mark event-driven when this call actually retires a
-				// pending (closed) wake — consumeWake reports false once the
-				// wake has already been retired (e.g. two servers sharing a
-				// name cannot happen, but a repeated peek must be idempotent).
-				if h.consumeWake(c.server) {
+	// Re-peeking a closed subscriber channel is idempotent: Generation() re-read
+	// folds any newer bumps into perServerGen, and consumeWake reports false for
+	// an already-retired wake.
+	peek := func() (bumped, woke bool) {
+		for _, c := range cases {
+			select {
+			case <-c.ch:
+				if c.isWake {
+					// Only mark event-driven when this call actually retires a
+					// pending (closed) wake — consumeWake reports false once the
+					// wake has already been retired (e.g. two servers sharing a
+					// name cannot happen, but a repeated peek must be idempotent).
+					if h.consumeWake(c.server) {
+						eventDrivenServers[c.server] = true
+						woke = true
+					}
+				} else {
+					perServerGen[c.server] = h.subscriber.Generation(c.server)
 					eventDrivenServers[c.server] = true
+					bumped = true
 				}
-			} else {
-				perServerGen[c.server] = h.subscriber.Generation(c.server)
-				eventDrivenServers[c.server] = true
+			default:
 			}
-		default:
+		}
+		return bumped, woke
+	}
+
+	selectFirst(cases, timer)
+	bumped, woke := peek()
+
+	// Coalesce subscriber-bump-driven passes: a control-mode event burst (e.g.
+	// %window-renamed from cd churn under automatic-rename-format
+	// '#{b:pane_current_path}') must cost ONE derive, not one per event, so the
+	// event-driven derive rate is floored at sseEventDebounce. The window is
+	// entered only for a pure bump win: a wake consumed in the same peek — or
+	// firing mid-window, ending the selectFirst below early — keeps its
+	// sub-second post-mutation repaint (the wake seam's whole purpose), and a
+	// timer win (bumped == false) adds no delay. The final peek folds every
+	// bump/wake that landed during the window into this same pass; a bump
+	// landing after it closes the NEXT Wait channel (anchored at the updated
+	// perServerGen), so nothing is lost.
+	if !bumped || woke {
+		return
+	}
+	window := h.eventDebounce
+	if window <= 0 {
+		window = sseEventDebounce
+	}
+	debounce := time.NewTimer(window)
+	defer debounce.Stop()
+	wakeCases := make([]waitCase, 0, len(servers))
+	for _, c := range cases {
+		if c.isWake {
+			wakeCases = append(wakeCases, c)
 		}
 	}
+	selectFirst(wakeCases, debounce)
+	peek()
 }
 
 // waitCase is a small (server, channel) pair used by selectFirst to

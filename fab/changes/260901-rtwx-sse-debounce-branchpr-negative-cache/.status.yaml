@@ -1,0 +1,57 @@
+id: rtwx
+name: 260901-rtwx-sse-debounce-branchpr-negative-cache
+created: 2026-09-01T13:55:25Z
+created_by: Sahil Ahuja
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 11
+    acceptance_completed: 11
+confidence:
+    certain: 5
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 78.5
+        reversibility: 84.0
+        competence: 87.0
+        disambiguation: 79.5
+stage_metrics:
+    intake: {started_at: "2026-09-01T13:55:25Z", driver: fab-new, iterations: 1, completed_at: "2026-09-01T14:00:45Z"}
+    apply: {started_at: "2026-09-01T14:00:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-01T14:14:04Z"}
+    review: {started_at: "2026-09-01T14:14:04Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-01T14:28:51Z"}
+    hydrate: {started_at: "2026-09-01T14:28:51Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-01T14:31:36Z"}
+    ship: {started_at: "2026-09-01T14:31:36Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-01T14:33:38Z"}
+    review-pr: {started_at: "2026-09-01T14:33:38Z", driver: git-pr, iterations: 1, completed_at: "2026-09-01T14:39:37Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/784
+change_type_source: explicit
+true_impact:
+    added: 699
+    deleted: 31
+    net: 668
+    excluding:
+        added: 391
+        deleted: 27
+        net: 364
+    tests:
+        added: 276
+        deleted: 12
+        net: 264
+    computed_at: "2026-09-01T14:33:38Z"
+    computed_at_stage: ship
+summary: SSE hub coalesces control-mode bump bursts behind a 300ms debounce (wake bypasses); branch-PR refresher caches gh-confirmed negatives for 10min, ending the per-pass gh re-query of PR-less branches
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-01T14:39:37Z

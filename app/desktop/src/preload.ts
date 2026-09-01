@@ -27,10 +27,13 @@
  *     every `welcome:*` handler in main.ts verifies `event.senderFrame.url`
  *     against the welcome file:// URL, so host-loaded pages calling these
  *     get a rejection, never a privileged action.
- *   - `__daemon`: local-daemon invokers (status/start/stop) for the welcome
- *     page's "This Mac" section — gated exactly like `__welcome` (main-side
- *     sender-frame check on every `daemon:*` handler). Every daemon action
- *     is explicit and user-initiated; the shell never auto-starts anything.
+ *   - `__daemon`: local-daemon invokers (status/start/restart/stop) for the
+ *     welcome and dead-host pages — exposed everywhere but privileged only
+ *     for those shell-owned pages by main-side sender-frame checks. Every
+ *     daemon action is explicit; the shell never auto-starts anything.
+ *   - `__interstitial`: the dead-host page's argument-less Retry invoker.
+ *     Main resolves its host and kind from the sender view, never renderer
+ *     query parameters.
  *   - `__remote`: the welcome page's "or over SSH" rung — `connect` invokes
  *     the main-side `rk remote add` + `rk remote connect` flow (gated
  *     exactly like `__welcome`), `onProgress` subscribes to the streamed
@@ -97,7 +100,11 @@ contextBridge.exposeInMainWorld("runkitShell", {
   __daemon: {
     status: (): Promise<unknown> => ipcRenderer.invoke("daemon:status"),
     start: (): Promise<unknown> => ipcRenderer.invoke("daemon:start"),
+    restart: (): Promise<unknown> => ipcRenderer.invoke("daemon:restart"),
     stop: (): Promise<unknown> => ipcRenderer.invoke("daemon:stop"),
+  },
+  __interstitial: {
+    retry: (): Promise<unknown> => ipcRenderer.invoke("interstitial:retry"),
   },
   __remote: {
     connect: (target: string): Promise<unknown> =>

@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -401,50 +402,127 @@ func TestSerializeEmptyOptionalSettingsIsByteIdentical(t *testing.T) {
 }
 
 func TestOptionalSettingRoundTrips(t *testing.T) {
-	t.Run("scalar registry", func(t *testing.T) {
-		cases := []struct {
-			name        string
-			firstValue  string
-			secondValue string
-			set         func(*string) error
-			get         func() *string
-		}{
-			{name: "server color", firstValue: "6", secondValue: "1+3", set: func(v *string) error { return SetServerColor("default", v) }, get: func() *string { return GetServerColor("default") }},
-			{name: "server flair", firstValue: "cube", secondValue: "warp", set: func(v *string) error { return SetServerFlair("default", v) }, get: func() *string { return GetServerFlair("default") }},
-			{name: "instance color", firstValue: "5", secondValue: "1+3", set: SetInstanceColor, get: GetInstanceColor},
-			{name: "ssh host", firstValue: "devbox", secondValue: "user@host", set: SetSSHHost, get: GetSSHHost},
-			{name: "instance name", firstValue: "my-box", secondValue: "dev mini", set: SetInstanceName, get: GetInstanceName},
-		}
+	type roundTripFixture func(*testing.T, *registryEntry)
 
-		for _, tc := range cases {
-			t.Run(tc.name, func(t *testing.T) {
-				t.Setenv("HOME", t.TempDir())
-				if got := tc.get(); got != nil {
-					t.Errorf("get unset = %v, want nil", *got)
+	registryValueFixture := func(firstPatch string, firstWant any, secondPatch string, secondWant, clearedWant any) roundTripFixture {
+		return func(t *testing.T, entry *registryEntry) {
+			s := Default()
+			if got := entry.read(&s); !reflect.DeepEqual(got, clearedWant) {
+				t.Errorf("read unset = %#v, want %#v", got, clearedWant)
+			}
+
+			assertRoundTrip := func(label string, want any) {
+				t.Helper()
+				s = parse(serialize(s))
+				if got := entry.read(&s); !reflect.DeepEqual(got, want) {
+					t.Errorf("read %s = %#v, want %#v", label, got, want)
 				}
-				value := tc.firstValue
-				if err := tc.set(&value); err != nil {
-					t.Fatalf("set: %v", err)
-				}
-				if got := tc.get(); got == nil || *got != value {
-					t.Errorf("get = %v, want %q", got, value)
-				}
-				value = tc.secondValue
-				if err := tc.set(&value); err != nil {
-					t.Fatalf("overwrite: %v", err)
-				}
-				if got := tc.get(); got == nil || *got != value {
-					t.Errorf("get after overwrite = %v, want %q", got, value)
-				}
-				if err := tc.set(nil); err != nil {
-					t.Fatalf("clear: %v", err)
-				}
-				if got := tc.get(); got != nil {
-					t.Errorf("get after clear = %v, want nil", *got)
-				}
-			})
+			}
+
+			if err := entry.apply(&s, json.RawMessage(firstPatch)); err != nil {
+				t.Fatalf("apply first value: %v", err)
+			}
+			assertRoundTrip("after first value", firstWant)
+
+			if err := entry.apply(&s, json.RawMessage(secondPatch)); err != nil {
+				t.Fatalf("apply second value: %v", err)
+			}
+			assertRoundTrip("after second value", secondWant)
+
+			if err := entry.apply(&s, json.RawMessage(`null`)); err != nil {
+				t.Fatalf("clear: %v", err)
+			}
+			assertRoundTrip("after clear", clearedWant)
 		}
-	})
+	}
+
+	stringValueFixture := func(firstValue, secondValue string, set func(*string) error, get func() *string) roundTripFixture {
+		return func(t *testing.T, _ *registryEntry) {
+			t.Setenv("HOME", t.TempDir())
+			if got := get(); got != nil {
+				t.Errorf("get unset = %v, want nil", *got)
+			}
+			value := firstValue
+			if err := set(&value); err != nil {
+				t.Fatalf("set: %v", err)
+			}
+			if got := get(); got == nil || *got != value {
+				t.Errorf("get = %v, want %q", got, value)
+			}
+			value = secondValue
+			if err := set(&value); err != nil {
+				t.Fatalf("overwrite: %v", err)
+			}
+			if got := get(); got == nil || *got != value {
+				t.Errorf("get after overwrite = %v, want %q", got, value)
+			}
+			if err := set(nil); err != nil {
+				t.Fatalf("clear: %v", err)
+			}
+			if got := get(); got != nil {
+				t.Errorf("get after clear = %v, want nil", *got)
+			}
+		}
+	}
+
+	fixtures := map[string]roundTripFixture{
+		"theme":          registryValueFixture(`"dark"`, ptr("dark"), `"light"`, ptr("light"), ptr("system")),
+		"theme_dark":     registryValueFixture(`"dracula"`, ptr("dracula"), `"nord"`, ptr("nord"), ptr("default-dark")),
+		"theme_light":    registryValueFixture(`"solarized-light"`, ptr("solarized-light"), `"paper"`, ptr("paper"), ptr("default-light")),
+		"instance_color": stringValueFixture("5", "1+3", SetInstanceColor, GetInstanceColor),
+		"ssh_host":       stringValueFixture("devbox", "user@host", SetSSHHost, GetSSHHost),
+		"instance_name":  stringValueFixture("my-box", "dev mini", SetInstanceName, GetInstanceName),
+		"auto_name":      registryValueFixture(`true`, true, `false`, false, false),
+		"tmux_conf":      registryValueFixture(`"/my/tmux.conf"`, ptr("/my/tmux.conf"), `"/other/tmux.conf"`, ptr("/other/tmux.conf"), (*string)(nil)),
+		"log_level":      registryValueFixture(`"debug"`, ptr("debug"), `"info"`, ptr("info"), ptr("info")),
+		"server_colors": stringValueFixture("6", "1+3", func(v *string) error {
+			return SetServerColor("default", v)
+		}, func() *string { return GetServerColor("default") }),
+		"server_flairs": stringValueFixture("cube", "warp", func(v *string) error {
+			return SetServerFlair("default", v)
+		}, func() *string { return GetServerFlair("default") }),
+		"board_order": func(t *testing.T, _ *registryEntry) {
+			t.Setenv("HOME", t.TempDir())
+			if got := GetBoardOrder(); got != nil {
+				t.Errorf("GetBoardOrder unset = %v, want nil", got)
+			}
+			if err := SetBoardOrder([]string{"b", "a", "c"}); err != nil {
+				t.Fatalf("SetBoardOrder: %v", err)
+			}
+			if got := GetBoardOrder(); !reflect.DeepEqual(got, []string{"b", "a", "c"}) {
+				t.Errorf("GetBoardOrder = %v, want [b a c]", got)
+			}
+			if err := SetBoardOrder([]string{"a"}); err != nil {
+				t.Fatalf("SetBoardOrder rewrite: %v", err)
+			}
+			if got := GetBoardOrder(); !reflect.DeepEqual(got, []string{"a"}) {
+				t.Errorf("GetBoardOrder after rewrite = %v, want [a]", got)
+			}
+			if err := SetBoardOrder(nil); err != nil {
+				t.Fatalf("SetBoardOrder nil: %v", err)
+			}
+			if got := GetBoardOrder(); got != nil {
+				t.Errorf("GetBoardOrder after clear = %v, want nil", got)
+			}
+		},
+	}
+
+	for i := range registry {
+		entry := &registry[i]
+		fixture, ok := fixtures[entry.key]
+		if !ok {
+			t.Errorf("registry key %q has no round-trip fixture", entry.key)
+			continue
+		}
+		t.Run(entry.key, func(t *testing.T) {
+			fixture(t, entry)
+		})
+	}
+	for key := range fixtures {
+		if findEntry(key) == nil {
+			t.Errorf("round-trip fixture %q has no registry entry", key)
+		}
+	}
 
 	t.Run("missing server color key", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
@@ -472,30 +550,6 @@ func TestOptionalSettingRoundTrips(t *testing.T) {
 		}
 	})
 
-	t.Run("board order", func(t *testing.T) {
-		t.Setenv("HOME", t.TempDir())
-		if got := GetBoardOrder(); got != nil {
-			t.Errorf("GetBoardOrder unset = %v, want nil", got)
-		}
-		if err := SetBoardOrder([]string{"b", "a", "c"}); err != nil {
-			t.Fatalf("SetBoardOrder: %v", err)
-		}
-		if got := GetBoardOrder(); !reflect.DeepEqual(got, []string{"b", "a", "c"}) {
-			t.Errorf("GetBoardOrder = %v, want [b a c]", got)
-		}
-		if err := SetBoardOrder([]string{"a"}); err != nil {
-			t.Fatalf("SetBoardOrder rewrite: %v", err)
-		}
-		if got := GetBoardOrder(); !reflect.DeepEqual(got, []string{"a"}) {
-			t.Errorf("GetBoardOrder after rewrite = %v, want [a]", got)
-		}
-		if err := SetBoardOrder(nil); err != nil {
-			t.Fatalf("SetBoardOrder nil: %v", err)
-		}
-		if got := GetBoardOrder(); got != nil {
-			t.Errorf("GetBoardOrder after clear = %v, want nil", got)
-		}
-	})
 }
 
 func TestOptionalSettingsCoexist(t *testing.T) {

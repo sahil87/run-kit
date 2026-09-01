@@ -204,9 +204,31 @@ function viewKey(windowId: number, hostId: string): string {
 }
 
 /** Per-(window, host) "last main-frame load failed" flags (view-scoped): the
- *  remote-tunnel heal reloads ONLY a failed view — a warm view keeps its
- *  live renderer state. Entries die with their view. */
+ *  connect heals reload ONLY a failed view — a warm view keeps its live
+ *  renderer state. Entries die with their view. */
 const viewLoadFailed = new Map<string, boolean>();
+
+/**
+ * Reload a view stranded on a failed main-frame load, clearing its flag — the
+ * shared tail of both connect heals (local daemon connect, SSH tunnel heal).
+ * A view whose last load SUCCEEDED is never touched: keeping live renderer
+ * state (WS relays, /ws/state, xterm scrollback) across a switch is the whole
+ * point of the per-host view model, so the flag is the only thing that may
+ * license a navigation here. The target is the host record's captured
+ * `lastPath`, not the view's current route — a failed view sits on Chromium's
+ * error page, where the captured path is the right destination.
+ */
+function reloadFailedView(
+  windowId: number,
+  host: { id: string; url: string; lastPath?: string },
+): void {
+  const key = viewKey(windowId, host.id);
+  if (viewLoadFailed.get(key) !== true) return;
+  const entry = getView(views, windowId, host.id);
+  if (!entry || entry.handle.webContents.isDestroyed()) return;
+  viewLoadFailed.set(key, false);
+  void entry.handle.webContents.loadURL(host.url + (host.lastPath ?? ""));
+}
 
 /** Per-(window, host) "this SPA speaks accent:set" flags (view-scoped — the
  *  viewLoadFailed pattern): once a view has reported its raw accent, the
@@ -966,10 +988,20 @@ async function waitForHealth(origin: string): Promise<PingResult> {
  * `addHost` does not dedupe); otherwise the existing add-host path runs
  * with the name auto-derived from the ping hostname (origin fallback in the
  * store). Acts on the invoking window.
+ *
+ * The activate branch also runs the reload gate: a view created while the
+ * daemon was down committed Chromium's error page, and a warm switch never
+ * navigates — so without the gate a fully successful connect leaves the
+ * window black. The add branch needs no gate: a fresh host id has no view,
+ * so `attachHostView` creates one and loads it.
  */
 function connectLocalHost(win: BrowserWindow, origin: string, hostname: string): IpcResult {
   const existing = findHostByOrigin(loadHosts(userDataDir()), origin);
-  if (existing) return switchToHost(win, existing.id);
+  if (existing) {
+    const switched = switchToHost(win, existing.id);
+    if (switched.ok) reloadFailedView(win.id, existing);
+    return switched;
+  }
   const added = addHost(userDataDir(), hostname, origin);
   if (!added.ok) return added;
   return switchToHost(win, added.host.id); // attaches the fresh view + rebuilds the menu
@@ -1186,7 +1218,6 @@ function ensureRemoteConnected(
   if (lastOk !== undefined && Date.now() - lastOk < REMOTE_RECONNECT_SUPPRESS_MS) return;
 
   const windowId = win.id;
-  const key = viewKey(windowId, host.id);
   remoteConnectsInFlight.add(name);
   void (async () => {
     try {
@@ -1200,13 +1231,7 @@ function ensureRemoteConnected(
         return;
       }
       markRemoteConnected(name);
-      if (viewLoadFailed.get(key) === true) {
-        const entry = getView(views, windowId, host.id);
-        if (entry && !entry.handle.webContents.isDestroyed()) {
-          viewLoadFailed.set(key, false);
-          void entry.handle.webContents.loadURL(host.url + (host.lastPath ?? ""));
-        }
-      }
+      reloadFailedView(windowId, host);
     } finally {
       remoteConnectsInFlight.delete(name);
     }

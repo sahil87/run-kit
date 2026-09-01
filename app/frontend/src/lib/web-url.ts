@@ -61,10 +61,16 @@ function proxyPathPort(path: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
+/** The label for a NEW-form directory present (empty path tail): the
+ *  trailing-slash directory form serves the root's index.html, so that
+ *  basename is the display — the raw hash segment must never surface as a
+ *  name or address. */
+const DIRECTORY_PRESENT_LABEL = "index.html";
+
 /** The path segments carrying content for a /present/ address, or null when
- *  only plumbing remains (directory form / degraded form — callers then fall
- *  back to the raw string, never display raw plumbing). The LEGACY form's
- *  segments are [windowId, slot?, name...]; the NEW content-keyed form's are
+ *  only plumbing remains (degraded form — callers then fall back to the raw
+ *  string, never display raw plumbing). The LEGACY form's segments are
+ *  [windowId, slot?, name...]; the NEW content-keyed form's are
  *  [server, hash, name...] — so the first TWO segments are always plumbing.
  *  The legacy `@`-prefixed windowId segment is never a file name (the route
  *  gates it ^@[0-9]+$); the new-form hash segment is gated ^[0-9a-f]{8,64}$
@@ -84,8 +90,9 @@ function presentDisplayBase(segments: string[]): string | null {
   }
   // New content-keyed form has exactly two plumbing segments (server + hash).
   // A remainder of just those two is a directory present — the raw hash is
-  // plumbing, not a name; more than two means a real file tail exists.
-  if (path.length === 2) return null;
+  // plumbing, not a name, and MUST NOT display, so the label is what the
+  // directory form serves; more than two means a real file tail exists.
+  if (path.length === 2) return DIRECTORY_PRESENT_LABEL;
   return path[path.length - 1];
 }
 
@@ -139,9 +146,9 @@ export function displayForm(url: string): string {
     if (kind === "present") {
       // Hide only the plumbing params (`server`, `v`) and — for the NEW
       // content-keyed form — the server + hash path segments; a presented
-      // page's own query params stay visible after the basename. A
-      // directory present (empty path tail) falls back to the raw string —
-      // the raw hash segment is never mistaken for a displayable name.
+      // page's own query params stay visible after the basename. A NEW-form
+      // directory present (empty path tail) shows the index.html it serves —
+      // the raw hash segment never displays.
       const u = new URL(url, "http://x");
       const segments = u.pathname.split("/").filter(Boolean);
       const base = presentDisplayBase(segments);

@@ -153,12 +153,14 @@ func WebAdd(ctx context.Context, windowID, server, url, root string) (int, bool,
 			// incoming new-form URL with its fresh ?v= — WebAdd's upgrade-
 			// on-re-present path dissolves the legacy form with ordinary
 			// use, not a sweep.
-			sid, _ := presentTargetIdentity(tab)
-			iid, _ := presentTargetIdentity(url)
+			sid, sok := presentTargetIdentity(tab)
+			iid, iok := presentTargetIdentity(url)
 			rewritten := url // cross-form default: adopt the incoming URL
-			if sid[:1] == iid[:1] || len(sid) == 0 || len(iid) == 0 {
-				// Same form (or a degenerate parse): only refresh the buster
-				// in place, preserving the form's own shape.
+			if !sok || !iok || sid[:1] == iid[:1] {
+				// Same form (or a degenerate parse — an ok=false identity is
+				// empty, so the ok guards must run BEFORE the [:1] slices):
+				// only refresh the buster in place, preserving the form's own
+				// shape.
 				rewritten = present.BumpVersion(tab, webNowFn)
 			}
 			if rewritten != tab {
@@ -397,16 +399,16 @@ func presentTargetIdentity(raw string) (identity string, ok bool) {
 		return "l\n" + first + "\n" + q.Encode() + "\n" + strings.Join(segments, "/"), true
 	}
 	// NEW content-keyed form — (server, hash, path tail). The "n" form prefix
-	// pairs with "l"; a segmentless remainder fails closed (no usable hash).
-	// The path tail is the FINAL field so identityTail reads it from both
-	// forms on the cross-form seam.
-	var hash, tail string
-	if len(segments) > 0 {
-		hash = segments[0]
-		tail = strings.Join(segments[1:], "/")
-	} else {
+	// pairs with "l"; an empty hash segment fails closed (strings.Split never
+	// yields an empty slice — "/present/{server}/" arrives as [""], so the
+	// emptiness check is on the segment, not the slice). The path tail is the
+	// FINAL field so identityTail reads it from both forms on the cross-form
+	// seam.
+	hash := segments[0]
+	if hash == "" {
 		return "", false
 	}
+	tail := strings.Join(segments[1:], "/")
 	return "n\n" + first + "\n" + hash + "\n" + q.Encode() + "\n" + tail, true
 }
 

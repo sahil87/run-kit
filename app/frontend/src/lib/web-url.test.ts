@@ -42,9 +42,9 @@ describe("displayForm (260819-v6y4 R3)", () => {
     // NEW content-keyed form: server + hash segments are plumbing too.
     expect(displayForm("/present/runKit/3f9a2c8e1b77/report.html?v=1")).toBe("report.html");
     expect(displayForm("/present/runKit/3f9a2c8e1b77/dir/index.html?v=1")).toBe("index.html");
-    // A directory present (empty path tail) falls back to the raw string —
-    // the raw hash segment is never mistaken for a displayable name.
-    expect(displayForm("/present/runKit/3f9a2c8e1b77/?v=1")).toBe("/present/runKit/3f9a2c8e1b77/?v=1");
+    // A NEW-form directory present (empty path tail) shows the index.html it
+    // serves — the raw hash segment never displays.
+    expect(displayForm("/present/runKit/3f9a2c8e1b77/?v=1")).toBe("index.html");
     // Legacy directory present behaves the same (windowId-only remainder).
     expect(displayForm("/present/@5/?server=a")).toBe("/present/@5/?server=a");
   });
@@ -99,8 +99,9 @@ describe("webTabTitle", () => {
   it("derives the NEW-form label with server+hash plumbing hidden", () => {
     expect(webTabTitle("/present/runKit/3f9a2c8e1b77/report.html?v=1")).toBe("report.html");
     expect(webTabTitle("/present/s/a1b2c3d4e5/dir/index.html?v=2")).toBe("index.html");
-    // Directory present (empty path tail): the hash stays out of the label.
-    expect(webTabTitle("/present/runKit/3f9a2c8e1b77/?v=1")).toBe("/present/runKit/3f9a2c8e1b77/?v=1");
+    // Directory present (empty path tail): the hash stays out of the label —
+    // the served index.html is the name.
+    expect(webTabTitle("/present/runKit/3f9a2c8e1b77/?v=1")).toBe("index.html");
   });
 });
 

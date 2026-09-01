@@ -158,6 +158,47 @@ func TestWebAddIdempotentPresentBumpsVersion(t *testing.T) {
 	webMustHeld(t, server, id, WebActiveOption, "1") // the bump never moves the pointer
 }
 
+func TestPresentTargetIdentityFailsClosed(t *testing.T) {
+	for _, raw := range []string{
+		"/present/runKit",             // no second segment at all
+		"/present/runKit/",            // segmentless remainder — no usable hash
+		"/present/runKit/?v=1",        // same, with plumbing query
+		"/present/runKit//index.html", // empty hash segment
+		"/board/runKit",               // not a /present/ URL
+		"http://[::1]:namedport/x",    // unparseable
+	} {
+		if id, ok := presentTargetIdentity(raw); ok {
+			t.Errorf("presentTargetIdentity(%q) = (%q, true), want ok=false", raw, id)
+		}
+	}
+	if _, ok := presentTargetIdentity("/present/runKit/a1b2c3d4e5f6/report.html?v=1"); !ok {
+		t.Error("presentTargetIdentity(valid new form) ok = false, want true")
+	}
+}
+
+func TestWebAddIdempotentDegeneratePresentNoPanic(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	id := windowID(t, server, "boot:0")
+
+	// A stored /present/ URL whose identity fails to parse (segmentless
+	// remainder) re-added verbatim matches via the stored==incoming fast path;
+	// the hit must bump in place, not panic on the empty identities.
+	pinWebNow(t, 100)
+	stored := "/present/runKit/?v=100"
+	if _, _, err := WebAdd(context.Background(), id, server, stored, ""); err != nil {
+		t.Fatalf("WebAdd: %v", err)
+	}
+	pinWebNow(t, 200)
+	n, existed, err := WebAdd(context.Background(), id, server, stored, "")
+	if err != nil {
+		t.Fatalf("WebAdd re-add: %v", err)
+	}
+	if n != 1 || !existed {
+		t.Errorf("WebAdd re-add = (%d, %v), want (1, true)", n, existed)
+	}
+	webMustHeld(t, server, id, WebTabOption(1), "/present/runKit/?v=200")
+}
+
 func TestWebAddRootWritten(t *testing.T) {
 	server := withSessionOrderTmux(t)
 	id := windowID(t, server, "boot:0")

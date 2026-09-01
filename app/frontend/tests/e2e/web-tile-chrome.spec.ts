@@ -47,7 +47,7 @@ const DESKTOP_VIEWPORT = { width: 1440, height: 800 };
 let presentDir: string;
 
 /** The composed hash segment for a present address's serve root — the same
- *  sha256(path).slice(12) the backend's `rk present` composes. */
+ *  sha256(path).slice(0, 12) the backend's `rk present` composes. */
 function presentHash(abs: string): string {
   return createHash("sha256").update(abs).digest("hex").slice(0, 12);
 }

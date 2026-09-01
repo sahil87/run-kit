@@ -6,24 +6,27 @@
  *
  * Shared setup: `beforeAll` creates a dedicated session `e2e-webchrome-<ts>`
  * (80×24) plus a scratch present dir (`mkdtemp`) holding `page-one.html`
- * (which links to `page-two.html?server=<e2e-server>` — the `/present/` route
- * reads the tmux server from the query, so the in-frame link must carry the
- * plumbing param or it would 404 against the `default` server) and
- * `page-two.html`; `afterAll` kills the session and removes the scratch dir.
- * `beforeEach` sets a 1440×800 desktop viewport. `makeWindow(name, {url?,
- * presentRoot?})` runs `tmux new-window` plus a slot-1 web tab stamp
- * (`stampWebTab`) and a direct `set-option -w` stamp of
- * `@rk_win_present_root`; `url` is omittable so `/present/…`
- * addresses can embed the resolved `@N` id before navigation. `gotoWebTile`
- * deep-links `/<server>/<@N>?view=web` and waits for the `Proxied content`
- * iframe. `trackOptionPosts` records every `POST /api/windows/…/options` for
- * the zero-mutation (substrate/view split) assertions; `stubWindowOpen`
- * replaces `window.open` with a recorder on `window.__openedUrls` (no real
- * tabs). Chrome-side locators are scoped to `surface-tile-web`; frame content
- * is reached via `frameLocator('iframe[title="Proxied content"]')`.
+ * (which links to `page-two.html` — the NEW `/present/{server}/{hash}`
+ * content-keyed route derives the server from the path, so the in-frame
+ * link needs no query plumbing) and `page-two.html`; `afterAll` kills the
+ * session and removes the scratch dir. `beforeEach` sets a 1440×800
+ * desktop viewport. `makeWindow(name, {url?, presentRoot?})` runs `tmux
+ * new-window` plus a slot-1 web tab stamp (`stampWebTab`) and a direct
+ * `set-option -w` stamp of `@rk_win_present_root`; `url` is omittable so
+ * `/present/…` addresses can embed the resolved `@N` id before navigation.
+ * `presentAddress(abs, server)` composes the NEW content-keyed form (server
+ * + sha256(root) leading 12 hex) when the spec stamps a new-form stored
+ * value. `gotoWebTile` deep-links `/<server>/<@N>?view=web` and waits for
+ * the `Proxied content` iframe. `trackOptionPosts` records every
+ * `POST /api/windows/…/options` for the zero-mutation assertions.
+ * `stubWindowOpen` replaces `window.open` with a recorder on
+ * `window.__openedUrls` (no real tabs). Chrome-side locators are scoped to
+ * `surface-tile-web`; frame content is reached via
+ * `frameLocator('iframe[title="Proxied content"]')`.
  */
 import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -35,10 +38,24 @@ import { resolveWindow as resolveWindowRaw } from "./_ready";
 const TEST_SESSION = `e2e-webchrome-${Date.now()}`;
 const DESKTOP_VIEWPORT = { width: 1440, height: 800 };
 
-// The presented two-page flow (test b) is served from a scratch dir through
-// the real `/present/{windowId}/*` route — the window carries the serve root
-// in @rk_win_present_root, exactly as `rk present` stamps it.
+// The presented two-page flow (test b / c / d) is served from a scratch dir
+// through the real `/present/` route — the window carries the serve root in
+// @rk_win_web_1_root (the NEW arm's declared-set read), exactly as `rk
+// present` stamps it. The spec uses the NEW content-keyed URL form for its
+// stored values; the new arm's resolution matches against the server's
+// declared roots.
 let presentDir: string;
+
+/** The composed hash segment for a present address's serve root — the same
+ *  sha256(path).slice(0, 12) the backend's `rk present` composes. */
+function presentHash(abs: string): string {
+  return createHash("sha256").update(abs).digest("hex").slice(0, 12);
+}
+
+/** Compose the NEW content-kind /present/{server}/{hash}/{name} form. */
+function presentAddress(abs: string, server: string, name: string): string {
+  return `/present/${server}/${presentHash(abs)}/${name}`;
+}
 
 /** Resolve a window's stable tmux id (`@N`) from the backend snapshot by name. */
 async function resolveWindow(page: Page, windowName: string): Promise<string> {
@@ -53,10 +70,11 @@ function setWindowOpt(windowId: string, key: string, value: string): void {
   });
 }
 
-/** Create a window and stamp its slot-1 web tab (plus @rk_win_present_root
- *  when the address is a /present/ one). Returns the @N id. `url` may be
- *  omitted when the address needs the resolved id (the /present/ path embeds
- *  it) — stamp it via setWindowOpt before navigating. */
+/** Create a window and stamp its slot-1 web tab (plus @rk_win_web_1_root
+ *  when the address is a /present/ one — the new arm's declared-set read).
+ *  Returns the @N id. `url` may be omitted when the address needs the
+ *  resolved id (the /present/ path embeds it) — stamp it via setWindowOpt
+ *  before navigating. */
 async function makeWindow(
   page: Page,
   name: string,
@@ -65,7 +83,7 @@ async function makeWindow(
   newWindow(TEST_SESSION, name, { cwd: "/tmp" });
   const id = await resolveWindow(page, name);
   if (opts.url !== undefined) stampWebTab(id, opts.url);
-  if (opts.presentRoot) setWindowOpt(id, "@rk_win_present_root", opts.presentRoot);
+  if (opts.presentRoot) setWindowOpt(id, "@rk_win_web_1_root", opts.presentRoot);
   return id;
 }
 
@@ -104,16 +122,16 @@ const addressInput = (page: Page) => webTile(page).getByLabel("URL");
 test.beforeAll(() => {
   createSession(TEST_SESSION);
   presentDir = mkdtempSync(join(tmpdir(), "rk-e2e-present-"));
-  // The link carries the `?server=` plumbing param explicitly — the /present/
-  // route reads the tmux server from the query (defaulting to "default"), so
-  // a bare relative link would 404 on this spec's isolated e2e server.
+  // The in-frame link carries no query plumbing: the NEW /present/{server}/
+  // {hash} content-keyed route reads the server from the path, so a bare
+  // relative link resolves against the same declaration set.
   writeFileSync(
     join(presentDir, "page-one.html"),
-    `<!doctype html><html><head><title>Page One</title></head><body><a href="page-two.html?server=${TMUX_SERVER}" id="go">two</a></body></html>`,
+    '<!doctype html><html><head><title>Page One</title></head><body><a href="page-two.html" id="go">two</a></body></html>',
   );
   writeFileSync(
     join(presentDir, "page-two.html"),
-    `<!doctype html><html><head><title>Page Two</title></head><body><p>second</p></body></html>`,
+    '<!doctype html><html><head><title>Page Two</title></head><body><p>second</p></body></html>',
   );
 });
 
@@ -213,7 +231,7 @@ test.describe("Web tile browser chrome (260819-v6y4)", () => {
     page,
   }) => {
     const id = await makeWindow(page, `wc-nav-${Date.now()}`, { presentRoot: presentDir });
-    stampWebTab(id, `/present/${id}/page-one.html?server=${TMUX_SERVER}`);
+    stampWebTab(id, presentAddress(presentDir, TMUX_SERVER, "page-one.html"));
     await gotoWebTile(page, id);
     // Count option POSTs only once the tile is up (the arrival's translation
     // write is the deep link's, not the chrome's).
@@ -261,7 +279,7 @@ test.describe("Web tile browser chrome (260819-v6y4)", () => {
     page,
   }) => {
     const id = await makeWindow(page, `wc-display-${Date.now()}`, { presentRoot: presentDir });
-    stampWebTab(id, `/present/${id}/page-one.html?server=${TMUX_SERVER}`);
+    stampWebTab(id, presentAddress(presentDir, TMUX_SERVER, "page-one.html"));
     await gotoWebTile(page, id);
     const frame = page.frameLocator('iframe[title="Proxied content"]');
     await expect(frame.locator("#go")).toBeVisible({ timeout: 10_000 });
@@ -272,12 +290,12 @@ test.describe("Web tile browser chrome (260819-v6y4)", () => {
     // Focus reveals the raw editable value (the tracked frame location),
     // fully selected.
     await input.click();
-    await expect(input).toHaveValue(`/present/${id}/page-one.html?server=${TMUX_SERVER}`);
+    await expect(input).toHaveValue(presentAddress(presentDir, TMUX_SERVER, "page-one.html"));
     const selection = await input.evaluate((el: HTMLInputElement) => [
       el.selectionStart,
       el.selectionEnd,
     ]);
-    expect(selection).toEqual([0, `/present/${id}/page-one.html?server=${TMUX_SERVER}`.length]);
+    expect(selection).toEqual([0, presentAddress(presentDir, TMUX_SERVER, "page-one.html").length]);
 
     // Escape reverts to the display form with no POST.
     await input.press("Escape");
@@ -296,7 +314,7 @@ test.describe("Web tile browser chrome (260819-v6y4)", () => {
    */
   test("(d) no switch-to-terminal button renders in the web tile (R13)", async ({ page }) => {
     const id = await makeWindow(page, `wc-noswitch-${Date.now()}`, { presentRoot: presentDir });
-    stampWebTab(id, `/present/${id}/page-one.html?server=${TMUX_SERVER}`);
+    stampWebTab(id, presentAddress(presentDir, TMUX_SERVER, "page-one.html"));
     await gotoWebTile(page, id);
     await expect(webTile(page).getByLabel("Switch to terminal")).toHaveCount(0);
     // The chrome that replaced it IS present (design-study button order).

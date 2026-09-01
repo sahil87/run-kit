@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -304,5 +306,210 @@ func TestPresentIndexedBareRedirects(t *testing.T) {
 	}
 	if loc := rec.Header().Get("Location"); loc != "/present/@7/2/?server=dev" {
 		t.Errorf("Location = %q, want /present/@7/2/?server=dev (query preserved)", loc)
+	}
+}
+
+// rootHash derives the test's composed hash segment for a root — the same
+// full-digest-then-prefix-matched sha256 the handler's new arm uses, pinned
+// at the composed 12-hex length.
+func rootHash(root string) string {
+	sum := sha256.Sum256([]byte(root))
+	return hex.EncodeToString(sum[:])[:12]
+}
+
+
+
+// stubDeclaredRoots installs the new arm's tmux read seam, returning the
+// given roots for every call, and reports the servers it observed plus a
+// call count (malformed-segment cases must never reach tmux).
+func stubDeclaredRoots(t *testing.T, roots []string) (calls *int, servers *[]string) {
+	t.Helper()
+	n := 0
+	seen := []string{}
+	listDeclaredWebRootsFn = func(_ context.Context, server string) ([]string, error) {
+		n++
+		seen = append(seen, server)
+		return roots, nil
+	}
+	t.Cleanup(func() { listDeclaredWebRootsFn = defaultListDeclaredWebRoots })
+	return &n, &seen
+}
+
+// defaultListDeclaredWebRoots mirrors the handler's default seam value so
+// tests can restore it (the tmux import is already named in present.go).
+var defaultListDeclaredWebRoots = listDeclaredWebRootsFn
+
+// TestPresentContentKeyed covers the new arm's resolution matrix: serving
+// through a declared root, prefix-length variants, ambiguity fail-closed,
+// undeclared roots, malformed segments (400 before any tmux call), the dir
+// redirect + index.html, containment regression, and the legacy-arm
+// regression (R4) that proves the legacy form still serves verbatim.
+func TestPresentContentKeyed(t *testing.T) {
+	root, _ := presentFixture(t)
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	// hash12 is the composed 12-hex segment for root; the 8-hex prefix is a
+	// valid route-level prefix of the same digest.
+	hash12 := rootHash(root)
+	hash8 := hash12[:8]
+
+	tests := []struct {
+		name       string
+		path       string
+		roots      []string // what the stubbed declared-root enumeration returns
+		wantStatus int
+		wantBody   string
+		wantMIME   string
+	}{
+		{"serves via a declared root", "/present/dev/" + hash12 + "/mock.html", []string{root}, 200, "<html>mock</html>", "text/html"},
+		{"8-hex prefix resolves", "/present/dev/" + hash8 + "/mock.html", []string{root}, 200, "<html>mock</html>", "text/html"},
+		{"64-hex full digest resolves", "/present/dev/" + func() string {
+			sum := sha256.Sum256([]byte(root))
+			return hex.EncodeToString(sum[:])
+		}() + "/mock.html", []string{root}, 200, "<html>mock</html>", "text/html"},
+		{"root dir serves index.html", "/present/dev/" + hash12 + "/", []string{root}, 200, "<html>root index</html>", "text/html"},
+		{"subdir serves its index.html", "/present/dev/" + hash12 + "/sub/", []string{root}, 200, "<html>sub index</html>", "text/html"},
+		{"missing file is 404", "/present/dev/" + hash12 + "/nope.html", []string{root}, 404, "", ""},
+		{"dir without index is 404 not a listing", "/present/dev/" + hash12 + "/noidx/", []string{root}, 404, "", ""},
+		{"intra-tree symlink serves", "/present/dev/" + hash12 + "/link.html", []string{root}, 200, "<html>real</html>", "text/html"},
+		{"dotdot traversal is 404", "/present/dev/" + hash12 + "/../outside/secret.txt", []string{root}, 404, "", ""},
+		{"encoded dotdot traversal is 404", "/present/dev/" + hash12 + "/%2e%2e/outside/secret.txt", []string{root}, 404, "", ""},
+		{"escaping symlink is 404", "/present/dev/" + hash12 + "/evil/secret.txt", []string{root}, 404, "", ""},
+		{"undeclared root is 404", "/present/dev/" + hash12 + "/mock.html", []string{}, 404, "", ""},
+		{"different declared root is 404", "/present/dev/" + hash12 + "/mock.html", []string{filepath.Join(root, "other")}, 404, "", ""},
+		{"bad server segment is 400", "/present/bad%20name/" + hash12 + "/mock.html", []string{root}, 400, "", ""},
+		{"short hash is 400", "/present/dev/3f9a2c/mock.html", []string{root}, 400, "", ""},
+		{"non-hex hash is 400", "/present/dev/zz9a2c8e1b77/mock.html", []string{root}, 400, "", ""},
+		{"overlong hash is 400", "/present/dev/" + hash12 + "fffffffffffffffffffffffffffffffffffffffffffffffffffffffff/mock.html", []string{root}, 400, "", ""},
+				// Ambiguity: the same root enumerated twice still fails closed
+		// (two matches for one prefix → 404 — the handler counts matches,
+		// production dedupes before enumerating).
+		{"ambiguous prefix is 404", "/present/dev/" + hash8 + "/mock.html",
+			[]string{root, root}, 404, "", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			stubDeclaredRoots(t, tc.roots)
+			rec := getPresent(t, router, tc.path)
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d (body: %q)", rec.Code, tc.wantStatus, rec.Body.String())
+			}
+			if tc.wantBody != "" {
+				if body := strings.TrimSpace(rec.Body.String()); body != tc.wantBody {
+					t.Errorf("body = %q, want %q", body, tc.wantBody)
+				}
+				if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, tc.wantMIME) {
+					t.Errorf("Content-Type = %q, want prefix %q", ct, tc.wantMIME)
+				}
+			}
+			if strings.Contains(rec.Body.String(), "TOP-SECRET") {
+				t.Error("response leaked a file outside the serve root")
+			}
+		})
+	}
+}
+
+// TestPresentContentKeyedBareRedirects: the slash-less directory form
+// (/present/{server}/{hash}) 308-redirects to the trailing-slash form with
+// the query preserved — the same rule as the legacy arm.
+func TestPresentContentKeyedBareRedirects(t *testing.T) {
+	root, _ := presentFixture(t)
+	stubDeclaredRoots(t, []string{root})
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	rec := getPresent(t, router, "/present/dev/"+rootHash(root)+"?v=1")
+	if rec.Code != http.StatusPermanentRedirect {
+		t.Fatalf("status = %d, want 308", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/present/dev/"+rootHash(root)+"/?v=1" {
+		t.Errorf("Location = %q, want /present/dev/%s/?v=1 (query preserved)", loc, rootHash(root))
+	}
+}
+
+// TestPresentContentKeyedBadSegmentsNeverTouchTmux: malformed server or hash
+// segments are rejected 400 BEFORE any tmux call (Constitution I — the gate
+// runs before the subprocess).
+func TestPresentContentKeyedBadSegmentsNeverTouchTmux(t *testing.T) {
+	root, _ := presentFixture(t)
+	calls, _ := stubDeclaredRoots(t, []string{root})
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	for _, path := range []string{
+		"/present/bad%20name/" + rootHash(root) + "/mock.html",
+		"/present/dev/short/mock.html",
+		"/present/dev/not-hex-12/mock.html",
+	} {
+		rec := getPresent(t, router, path)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("GET %s = %d, want 400", path, rec.Code)
+		}
+	}
+	if *calls != 0 {
+		t.Errorf("tmux read seam called %d times for malformed segments, want 0 (gate before subprocess)", *calls)
+	}
+}
+
+// TestPresentContentKeyedServerParam: the path-derived server name reaches
+// the root enumeration (the ?server= query param is ignored on the new form).
+func TestPresentContentKeyedServerParam(t *testing.T) {
+	root, _ := presentFixture(t)
+	_, servers := stubDeclaredRoots(t, []string{root})
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	getPresent(t, router, "/present/dev/"+rootHash(root)+"/mock.html")
+	getPresent(t, router, "/present/other/"+rootHash(root)+"/mock.html?server=ignored")
+
+	got := *servers
+	want := []string{"dev", "other"}
+	if len(got) != len(want) {
+		t.Fatalf("servers seen = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("call %d server = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+// TestPresentLegacyArmVerbatim proves R4: a stored pre-change
+// /present/@N/{n}/{path}?server= URL serves unchanged through the legacy arm
+// after the change ships (same root read, same containment, same 404
+// posture). One row covering the n-less and indexed forms, the slot-1
+// @rk_win_present_root dual-read, and the bad-windowId 400.
+func TestPresentLegacyArmVerbatim(t *testing.T) {
+	root, _ := presentFixture(t)
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	// n-less and indexed forms resolve against the same slot-1 dual-read.
+	var reads []string
+	getWindowOptionFn = func(_ context.Context, _ /* windowID */, _ string, opt string) (string, error) {
+		reads = append(reads, opt)
+		if opt == tmux.LegacyWinPresentRootOption {
+			return root, nil
+		}
+		return "", nil
+	}
+	t.Cleanup(func() { getWindowOptionFn = defaultGetWindowOption })
+
+	rec := getPresent(t, router, "/present/@7/mock.html?server=dev")
+	if rec.Code != 200 {
+		t.Fatalf("n-less legacy form status = %d, want 200 (body: %q)", rec.Code, rec.Body.String())
+	}
+	if body := strings.TrimSpace(rec.Body.String()); body != "<html>mock</html>" {
+		t.Errorf("body = %q, want <html>mock</html>", body)
+	}
+	want := []string{tmux.WebTabRootOption(1), tmux.LegacyWinPresentRootOption}
+	if strings.Join(reads, ",") != strings.Join(want, ",") {
+		t.Errorf("reads = %v, want %v", reads, want)
+	}
+
+	// Bad windowId on the legacy arm is still a 400 before any tmux call.
+	reads = nil
+	rec = getPresent(t, router, "/present/@x/mock.html")
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("bad windowId status = %d, want 400", rec.Code)
+	}
+	if len(reads) != 0 {
+		t.Errorf("tmux reads on bad windowId = %v, want none", reads)
 	}
 }

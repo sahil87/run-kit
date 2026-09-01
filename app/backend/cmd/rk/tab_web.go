@@ -177,14 +177,14 @@ func webAddShow(ctx context.Context, windowID, server string, target present.Tar
 	if target.NeedsRoot() {
 		root = target.Root
 	}
-	index, _, err = presentWebAddFn(ctx, windowID, server, target.URL(windowID, len(fam.Tabs)+1, server, presentNowFn), root)
+	index, _, err = presentWebAddFn(ctx, windowID, server, target.URL(server, root, presentNowFn), root)
 	if err != nil {
 		if errors.Is(err, tmux.ErrWebTabsFull) {
 			return 0, "", fmt.Errorf("web tabs full (%d) on %s — rm one first", tmux.MaxWebTabs, windowID)
 		}
 		return 0, "", fmt.Errorf("attach to window %s: %w", windowID, err)
 	}
-	url = target.URL(windowID, index, server, presentNowFn)
+	url = target.URL(server, root, presentNowFn)
 
 	if !show {
 		return index, url, nil

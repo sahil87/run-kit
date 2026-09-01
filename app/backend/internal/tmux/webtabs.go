@@ -47,6 +47,18 @@ var webFamilyFormat = func() string {
 	), listDelim)
 }()
 
+// webRootsFormat is the list-windows format behind ListDeclaredWebRoots: the 8
+// root slots spelled out (the same fixed-format trick as webFamilyFormat — a
+// format string cannot enumerate a family, so the slots are literal),
+// tab-delimited per window row.
+var webRootsFormat = func() string {
+	fields := make([]string, 0, MaxWebTabs)
+	for n := 1; n <= MaxWebTabs; n++ {
+		fields = append(fields, "#{"+WebTabRootOption(n)+"}")
+	}
+	return strings.Join(fields, listDelim)
+}()
+
 // ReadWebTabFamily reads the window's web-tab family in one tmux call: the
 // dense URL slots (walked to the first empty — a hand-written gap degrades to
 // the prefix), their parallel roots, and the clamped active pointer. When slot
@@ -134,11 +146,25 @@ func WebAdd(ctx context.Context, windowID, server, url, root string) (int, bool,
 				continue
 			}
 			var ops []WindowOptionOp
-			// The bump rewrites the STORED url — it carries the slot's own
-			// index; the incoming url may have been computed for a fresh slot.
-			bumped := present.BumpVersion(tab, webNowFn)
-			if bumped != tab {
-				ops = append(ops, WindowOptionOp{Key: WebTabOption(n), Value: &bumped})
+			// Same-form hit: the bump rewrites the STORED url — its identity
+			// pattern is the same form in both, so BumpVersion keeps the
+			// form's own shape and only refreshes ?v=. Cross-form hit
+			// (stored-legacy → incoming-new): rewrite the stored slot to the
+			// incoming new-form URL with its fresh ?v= — WebAdd's upgrade-
+			// on-re-present path dissolves the legacy form with ordinary
+			// use, not a sweep.
+			sid, sok := presentTargetIdentity(tab)
+			iid, iok := presentTargetIdentity(url)
+			rewritten := url // cross-form default: adopt the incoming URL
+			if !sok || !iok || sid[:1] == iid[:1] {
+				// Same form (or a degenerate parse — an ok=false identity is
+				// empty, so the ok guards must run BEFORE the [:1] slices):
+				// only refresh the buster in place, preserving the form's own
+				// shape.
+				rewritten = present.BumpVersion(tab, webNowFn)
+			}
+			if rewritten != tab {
+				ops = append(ops, WindowOptionOp{Key: WebTabOption(n), Value: &rewritten})
 			}
 			if stored == "" && root != "" {
 				ops = append(ops, WindowOptionOp{Key: WebTabRootOption(n), Value: &root})
@@ -237,6 +263,37 @@ func WebSelect(ctx context.Context, windowID, server string, n int) error {
 	return SetWindowOptions(ctx, windowID, server, []WindowOptionOp{{Key: WebActiveOption, Value: &v}})
 }
 
+// ListDeclaredWebRoots enumerates, in one `list-windows -a -F` call, every
+// serve root any window on the server currently declares (the
+// @rk_win_web_<n>_root options) — deduplicated and in first-seen order. Empty
+// slots are skipped; the retired @rk_win_present_root stays out of scope (its
+// dual-read rides the legacy /present/@N route arm). The /present/ content
+// route re-derives this set on EVERY request (Constitution II/X): a root
+// resolves only while at least one live window declares it. Empty input is a
+// null error with a nil slice (tmuxExec returns no lines).
+func ListDeclaredWebRoots(ctx context.Context, server string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	lines, err := tmuxExecServer(ctx, server, "list-windows", "-a", "-F", webRootsFormat)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	var roots []string
+	for _, line := range lines {
+		for _, field := range strings.Split(line, listDelim) {
+			root := strings.TrimSpace(field)
+			if root == "" || seen[root] {
+				continue
+			}
+			seen[root] = true
+			roots = append(roots, root)
+		}
+	}
+	return roots, nil
+}
+
 // shiftWebTabs removes slot n (1-based) from the dense family, shifting the
 // slots above it down by one — URL and root move together. roots is parallel
 // to tabs ("" where a slot has no root) and may be shorter than tabs.
@@ -276,45 +333,83 @@ func repointActive(active, n, newLen int) int {
 }
 
 // webTabURLIdentical reports slot identity between a stored and an incoming
-// URL: /present/ URLs compare by TARGET identity — window id, file name and
-// server — because the slot index and the ?v= cache-buster embedded in the
+// URL: /present/ URLs compare by TARGET identity — same-form hits use the
+// form's own identity (legacy: windowId+path tail+query-minus-v; new:
+// server+hash+path tail); a LEGACY↔NEW pair matches on the path tail alone
+// (the upgrade-on-re-present seam — WebAdd's root comparison is the decisive
+// tie-breaker there). The slot index and the ?v= cache-buster embedded in the
 // path/query legitimately differ between two computes of one target (a
-// re-present must find its existing slot, not append a duplicate). The serve
-// root completes /present/ identity and is compared by WebAdd, which holds
-// both roots. Every other URL kind compares verbatim.
+// re-present must find its existing slot, not append a duplicate). Every
+// other URL kind compares verbatim.
 func webTabURLIdentical(stored, incoming string) bool {
 	if stored == incoming {
 		return true
 	}
-	sid, ok := presentTargetIdentity(stored)
-	if !ok {
+	sid, sok := presentTargetIdentity(stored)
+	iid, iok := presentTargetIdentity(incoming)
+	if !sok || !iok {
 		return false
 	}
-	iid, ok := presentTargetIdentity(incoming)
-	return ok && sid == iid
+	// Same form → exact identity equality. Cross form → path-tail equality
+	// (the re-present upgrade seam: path tail is the LAST "\n"-delimited field
+	// of an identity in both forms).
+	if sid[:1] == iid[:1] {
+		return sid == iid
+	}
+	return identityTail(sid) == identityTail(iid)
 }
 
-// presentTargetIdentity extracts the target identity of a /present/ URL:
-// window id + name + query-minus-v. The slot segment (1..8) and the ?v=
-// cache-buster are incidental to identity. ok=false for non-/present/ or
-// unparseable URLs.
+// identityTail extracts the final "\n"-delimited field of a present identity
+// (the path tail in both forms) for the cross-form comparison.
+func identityTail(identity string) string {
+	idx := strings.LastIndex(identity, "\n")
+	if idx >= 0 {
+		return identity[idx+1:]
+	}
+	return identity
+}
+
+// presentTargetIdentity extracts the target identity of a /present/ URL.
+// The legacy slot form (/present/@N/{n}/{path}?server=) resolves to
+// (windowId, path tail, query-minus-v); the new content-keyed form
+// (/present/{server}/{hash}/{path}) resolves to (server, hash, path tail).
+// ?v= is dropped in both forms — the cache-buster is slot plumbing, not
+// target identity. ok=false for non-/present/ or unparseable URLs.
 func presentTargetIdentity(raw string) (identity string, ok bool) {
 	u, err := neturl.Parse(raw)
 	if err != nil || !strings.HasPrefix(u.Path, "/present/") {
 		return "", false
 	}
 	rest := strings.TrimPrefix(u.Path, "/present/")
-	windowID, rest, found := strings.Cut(rest, "/")
+	first, remainder, found := strings.Cut(rest, "/")
 	if !found {
 		return "", false
 	}
-	segments := strings.Split(rest, "/")
-	if len(segments) > 1 && webSlotSegment(segments[0]) {
-		segments = segments[1:]
-	}
+	segments := strings.Split(remainder, "/")
 	q := u.Query()
 	q.Del("v")
-	return windowID + "\n" + strings.Join(segments, "/") + "\n" + q.Encode(), true
+	if strings.HasPrefix(first, "@") {
+		// LEGACY slot form — windowId + optional slot + query-minus-v. The "l"
+		// form prefix keeps a legacy and a new URL that share every part from
+		// collapsing to one identity. The path tail is the FINAL field so
+		// identityTail reads it from both forms on the cross-form seam.
+		if len(segments) > 1 && webSlotSegment(segments[0]) {
+			segments = segments[1:]
+		}
+		return "l\n" + first + "\n" + q.Encode() + "\n" + strings.Join(segments, "/"), true
+	}
+	// NEW content-keyed form — (server, hash, path tail). The "n" form prefix
+	// pairs with "l"; an empty hash segment fails closed (strings.Split never
+	// yields an empty slice — "/present/{server}/" arrives as [""], so the
+	// emptiness check is on the segment, not the slice). The path tail is the
+	// FINAL field so identityTail reads it from both forms on the cross-form
+	// seam.
+	hash := segments[0]
+	if hash == "" {
+		return "", false
+	}
+	tail := strings.Join(segments[1:], "/")
+	return "n\n" + first + "\n" + hash + "\n" + q.Encode() + "\n" + tail, true
 }
 
 // webSlotSegment reports whether a path segment is a web-tab slot index

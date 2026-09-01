@@ -167,9 +167,10 @@ func presentAttach(ctx context.Context, target present.Target) (string, error) {
 // single:web [--name]` (session resolution via the shared resolveTabNewSession)
 // followed by the same add on the new window's empty family — WebAdd arms
 // _active=1 and stores the slot's root; no --show needed, single:web already
-// shows the tile. The /present/ URL of a file/dir target embeds the NEW
-// window's id, so the add always runs on the id creation returns (never a
-// session:name re-resolution — window names are not unique).
+// shows the tile. The content-keyed /present/ URL carries no window id (the
+// (server, roothash) form), so the add composes it once from the target and
+// the add lands on the new window id creation returns (never a session:name
+// re-resolution — window names are not unique).
 func presentViaNewWindow(ctx context.Context, cmd *cobra.Command, target present.Target) (string, error) {
 	name := presentWindowFlag
 	if name == presentFlagAuto {
@@ -193,11 +194,11 @@ func presentViaNewWindow(ctx context.Context, cmd *cobra.Command, target present
 	if target.NeedsRoot() {
 		root = target.Root
 	}
-	index, _, err := presentWebAddFn(ctx, id, server, target.URL(id, 1, server, presentNowFn), root)
+	_, _, err = presentWebAddFn(ctx, id, server, target.URL(server, root, presentNowFn), root)
 	if err != nil {
 		return "", fmt.Errorf("attach window %s: %w", id, err)
 	}
-	return target.URL(id, index, server, presentNowFn), nil
+	return target.URL(server, root, presentNowFn), nil
 }
 
 // presentWindowName derives the default standalone-window name from the

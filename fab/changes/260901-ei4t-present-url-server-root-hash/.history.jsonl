@@ -1,0 +1,13 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-01T10:13:27Z"}
+{"args":"Re-key /present URLs on (tmux server, root hash) — from slot-keyed /present/{windowId}/{n}/{path}?server= to content-keyed /present/{server}/{roothash}/{path}; derivation-only resolution over declared @rk_win_web_\u003cn\u003e_root slots; legacy slot form kept one release; stored @rk_win_web_\u003cn\u003e value adopts the hash form (from /fab-discuss design session 2026-09-01)","cmd":"fab-new","event":"command","ts":"2026-09-01T10:13:27Z"}
+{"delta":"+3.8","event":"confidence","score":3.8,"trigger":"calc-score","ts":"2026-09-01T10:15:12Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-09-01T10:16:32Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-01T10:18:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-01T10:20:32Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-01T11:13:07Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-01T11:24:14Z"}
+{"event":"review","result":"passed","ts":"2026-09-01T11:24:14Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-09-01T11:25:43Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-01T11:31:04Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-01T11:34:00Z"}
+{"event":"review","result":"passed","ts":"2026-09-01T11:51:44Z"}

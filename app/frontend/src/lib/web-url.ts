@@ -41,7 +41,8 @@ export const WEB_OPEN_EXTERNAL_EVENT = "web-open-external";
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 
 /** Plumbing query params hidden from the present-kind display form — the
- *  `server` identity param and `rk present`'s `v` cache-buster. */
+ *  legacy form's `server` identity param (the NEW form promotes it into the
+ *  path, so it lives there now) and `rk present`'s `v` cache-buster. */
 const PRESENT_PLUMBING_PARAMS = new Set(["server", "v"]);
 
 /** Parse an absolute http(s) URL, or null for anything else. Never throws. */
@@ -58,6 +59,34 @@ function parseHttpUrl(raw: string): URL | null {
 function proxyPathPort(path: string): number | null {
   const m = path.match(/^\/proxy\/(\d+)(\/|$)/);
   return m ? Number(m[1]) : null;
+}
+
+/** The path segments carrying content for a /present/ address, or null when
+ *  only plumbing remains (directory form / degraded form — callers then fall
+ *  back to the raw string, never display raw plumbing). The LEGACY form's
+ *  segments are [windowId, slot?, name...]; the NEW content-keyed form's are
+ *  [server, hash, name...] — so the first TWO segments are always plumbing.
+ *  The legacy `@`-prefixed windowId segment is never a file name (the route
+ *  gates it ^@[0-9]+$); the new-form hash segment is gated ^[0-9a-f]{8,64}$
+ *  by the route, so presenting itself as a name is impossible there. */
+function presentDisplayBase(segments: string[]): string | null {
+  // segments[0] is the literal "present"; skip it so the shapes line up.
+  const path = segments[0] === "present" ? segments.slice(1) : segments;
+  if (path.length < 2) return null;
+  if (path[0].startsWith("@")) {
+    // Legacy form: drop windowId, then a slot-shaped next segment; what
+    // remains is the name path. A slot-only remainder is not a name.
+    const rest = path.slice(1);
+    const names = rest.length > 1 && /^[1-8]$/.test(rest[0]) ? rest.slice(1) : rest;
+    if (names.length === 0) return null;
+    if (names.length === 1 && /^[1-8]$/.test(names[0])) return null;
+    return names[names.length - 1];
+  }
+  // New content-keyed form has exactly two plumbing segments (server + hash).
+  // A remainder of just those two is a directory present — the raw hash is
+  // plumbing, not a name; more than two means a real file tail exists.
+  if (path.length === 2) return null;
+  return path[path.length - 1];
 }
 
 /** Whether an absolute URL is a loopback address WITH an explicit port — the
@@ -108,12 +137,15 @@ export function displayForm(url: string): string {
   try {
     const kind = classifyAddress(url);
     if (kind === "present") {
-      // Hide only the plumbing params (`server`, `v`) — a presented page's
-      // own query params stay visible after the basename.
+      // Hide only the plumbing params (`server`, `v`) and — for the NEW
+      // content-keyed form — the server + hash path segments; a presented
+      // page's own query params stay visible after the basename. A
+      // directory present (empty path tail) falls back to the raw string —
+      // the raw hash segment is never mistaken for a displayable name.
       const u = new URL(url, "http://x");
       const segments = u.pathname.split("/").filter(Boolean);
-      const base = segments.length > 0 ? segments[segments.length - 1] : "";
-      if (base === "" || base === "present") return url;
+      const base = presentDisplayBase(segments);
+      if (base === null) return url;
       const params = new URLSearchParams(u.search);
       for (const plumbing of PRESENT_PLUMBING_PARAMS) params.delete(plumbing);
       const rest = params.toString();
@@ -160,8 +192,8 @@ export function webTabTitle(url: string): string {
     if (kind === "present") {
       const u = new URL(value, "http://x");
       const segments = u.pathname.split("/").filter(Boolean);
-      const base = segments.length > 0 ? segments[segments.length - 1] : "";
-      return base === "" || base === "present" ? value : base;
+      const base = presentDisplayBase(segments);
+      return base === null ? value : base;
     }
     if (kind === "proxy") {
       const abs = parseHttpUrl(value);

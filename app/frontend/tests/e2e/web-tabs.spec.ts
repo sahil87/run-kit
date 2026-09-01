@@ -24,9 +24,15 @@
  * serially (workers: 1), so at most one three-frame tile is mounted at a
  * time — the HTTP/1.1 6-slot pool budget; no test ever mounts a second tile.
  * Test 4's second browser context re-stubs the proxy routes (page.route is
- * per-page) and closes in a `finally`.
+ * per-page) and closes in a `finally`. The closing test stamps the LEGACY
+ * slot form for the R4 compat row (new-form rows live in
+ * web-tile-chrome.spec.ts), reading its `@rk_win_present_root` from the
+ * mkdtemp-managed presentDir scrubbed in afterAll.
  */
 import { test, expect, type Page } from "@playwright/test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { READY_TIMEOUT, resolveWindow as resolveWindowRaw } from "./_ready";
 import {
   TMUX_SERVER,
@@ -48,6 +54,11 @@ const DESKTOP_VIEWPORT = { width: 1440, height: 800 };
 const TAB_URLS = ["/proxy/3001/", "/proxy/3002/", "/proxy/3003/"];
 const TAB_LABELS = ["localhost:3001/", "localhost:3002/", "localhost:3003/"];
 const SEED_ACTIVE = 2;
+
+// The legacy-form compat row's present root (created in beforeAll; removed in
+// afterAll) — the `@rk_win_present_root` slot-1 dual-read the legacy arm
+// needs to register the root in the server's declared set.
+let presentDir: string;
 
 // Post-write tmux assertion budget — mirrors present-auto-expand's constant
 // (the verb POST writes tmux synchronously, but the request + option
@@ -102,10 +113,13 @@ async function expectWindowOption(
 
 test.beforeAll(() => {
   createSession(TEST_SESSION);
+  presentDir = mkdtempSync(join(tmpdir(), "rk-e2e-webtabs-present-"));
+  writeFileSync(join(presentDir, "legacy-doc.html"), "<!doctype html><html><body><p>legacy</p></body></html>");
 });
 
 test.afterAll(() => {
   killSession(TEST_SESSION);
+  rmSync(presentDir, { recursive: true, force: true });
 });
 
 test.describe("Web tab strip", () => {
@@ -321,5 +335,33 @@ test.describe("Web tab strip", () => {
     expect(windowOption(id, "@rk_win_web_2")).toBe(TAB_URLS[1]);
     expect(windowOption(id, "@rk_win_web_3")).toBe(TAB_URLS[2]);
     await expectWindowOption(id, "@rk_win_web_active", "4");
+  });
+
+  /**
+   * Proves: a stored LEGACY slot-form present URL
+   * (`/present/@N/{n}/{path}?server=`) keeps serving unchanged through the
+   * legacy arm for one release (the compat row; the new arm lives in
+   * web-tile-chrome.spec.ts).
+   *
+   * Steps:
+   * 1. Create a window; stamp slot 1 with the LEGACY slot-form present URL
+   *    embedding the resolved `@N` id, plus a slot-1
+   *    `@rk_win_present_root` declaration (the legacy arm's dual-read).
+   * 2. Deep-link `?view=web`; assert the tile keeps the legacy address and
+   *    the strip label derives the file basename.
+   */
+  test("a stored LEGACY slot-form present URL serves through the legacy arm (R4)", async ({
+    page,
+  }) => {
+    const id = await makeWindow(page, `wt-legacy-${Date.now()}`);
+    // Recompose with the LEGACY slot form; the @N id embeds differently than
+    // the content-keyed hash. The slot-1 root declaration uses the retired
+    // @rk_win_present_root (the legacy arm's dual-read).
+    stampWebTabs(id, [`/present/${id}/1/legacy-doc.html?server=${TMUX_SERVER}`], 1);
+    setWindowOption(id, "@rk_win_present_root", presentDir);
+    await gotoWindow(page, id);
+    const tile = page.getByTestId("surface-tile-web");
+    await expect(tile.getByLabel("URL")).toHaveValue("legacy-doc.html");
+    await expect(page.getByTestId("web-tab").nth(0)).toHaveAttribute("aria-selected", "true");
   });
 });

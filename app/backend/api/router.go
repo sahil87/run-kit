@@ -843,10 +843,15 @@ func (s *Server) buildRouter() chi.Router {
 	r.HandleFunc("/proxy/{port}/*", s.handleProxy)
 	r.HandleFunc("/proxy/{port}", s.handleProxy)
 
-	// Content route for `rk present` file/dir targets — the serve root is the
-	// window's @rk_win_web_<n>_root option, read from tmux at request time. The
-	// one handler sniffs the optional slot segment (^[1-8]$) itself: the n-less
-	// form maps to slot 1 for one release (see api/present.go).
+	// Content route for `rk present` file/dir targets — the serve root is
+	// derived from tmux at request time (Constitution II/X). One handler
+	// serves BOTH arms, sniffed on the first path segment's shape (chi cannot
+	// distinguish /present/{seg}/* forms, so the sniff is the disambiguator):
+	// ^@[0-9]+$ → the legacy slot form /present/@N/{n}/{path}?server= (one
+	// release — n-less maps to slot 1, slot-1 dual-reads the retired
+	// @rk_win_present_root); otherwise → the new content-keyed form
+	// /present/{server}/{roothash}/{path} resolving against the server's
+	// declared roots (see api/present.go).
 	r.HandleFunc("/present/{windowId}/*", s.handlePresent)
 	r.HandleFunc("/present/{windowId}", s.handlePresent)
 

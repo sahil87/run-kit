@@ -6,20 +6,24 @@
 //
 // The five target kinds (spec: fab change 260813-becu-rk-present-attach-verb):
 //
-//	file          existing regular file   → /present/<windowId>/<n>/<base>?server=<s>&v=<bust>
-//	dir           existing directory      → /present/<windowId>/<n>/?server=<s>&v=<bust>
+//	file          existing regular file   → /present/<server>/<roothash>/<base>?v=<bust>
+//	dir           existing directory      → /present/<server>/<roothash>/?v=<bust>
 //	port          ":NNNN"                 → /proxy/<port>/
 //	local URL     http://localhost…       → /proxy/<port>/<path+query>
 //	external URL  any other http(s) URL   → attached verbatim
 //
 // File/dir targets also carry a serve Root (the file's parent dir / the dir
 // itself) stored as the @rk_win_web_<n>_root window option; the
-// /present/{windowId}/{n}/ route reads it back from tmux at request time. <n>
-// is the web-tab slot the target lands in.
+// /present/{server}/{roothash}/* route hashes the ABSOLUTE root directory
+// into the content-keyed (server, roothash, path) form. The slot index
+// falls out of the URL — it is the family position, not part of the
+// content identity.
 package present
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"net/url"
@@ -164,19 +168,39 @@ func parsePort(s string) (int, error) {
 	return port, nil
 }
 
-// PresentURL composes the @rk_win_web_<n> slot value for a file/dir target
-// carried by windowID on the named tmux server. n is the 1-based web-tab slot
-// the URL will live in. The `?v=` cache-buster (unix seconds at invocation,
-// supplied by now) makes re-presenting the same target a refresh: the new slot
-// value differs and an open web tile re-navigates. name is the file basename,
-// or empty for a directory target (serves the root's index.html). The form is
-// always relative — never an absolute origin.
-func PresentURL(windowID string, n int, name, server string, now func() int64) string {
-	path := fmt.Sprintf("/present/%s/%d/", windowID, n)
+// RootHashLen bounds the composed root hash: PresentURL writes this many
+// lowercase hex chars of the sha256 of the ABSOLUTE root directory path. The
+// /present/ route accepts any 8–64 hex prefix (the sha256 is 64) matching
+// exactly one declared root — an identifier, never a secret.
+const RootHashLen = 12
+
+// RootHash derives the content-keyed present address's root segment: the
+// lowercase-hex sha256 of the absolute root directory path, prefix-composed
+// at RootHashLen. PresentURL and the /present/ route both use it, so the
+// stored value and the request-time match agree (the route matches its own
+// full digest against incoming prefixes via strings.HasPrefix).
+func RootHash(root string) string {
+	sum := sha256.Sum256([]byte(root))
+	return hex.EncodeToString(sum[:])[:RootHashLen]
+}
+
+// PresentURL composes the @rk_win_web_<n> slot value for a file/dir target —
+// the content-keyed (server, roothash, path) form the /present/ route demands
+// (Intake § 1). root is the absolute serve root (the file's parent dir or the
+// dir itself) — hashed by RootHash into the segment. server is the tmux
+// server name promoted from the removed ?server= param into the path (the
+// ?v= cache-buster remains the only query param; any left on the request is
+// inert slot plumbing the route ignores). The `?v=` buster (unix seconds,
+// supplied by now) makes re-presenting the same target a refresh: the new
+// slot value differs and an open web tile re-navigates. name is the file
+// basename, or empty for a directory target (serves the root's index.html).
+// The form is always relative — never an absolute origin.
+func PresentURL(name, root, server string, now func() int64) string {
+	path := fmt.Sprintf("/present/%s/%s/", server, RootHash(root))
 	if name != "" {
 		path += url.PathEscape(name)
 	}
-	return fmt.Sprintf("%s?server=%s&v=%d", path, url.QueryEscape(server), now())
+	return fmt.Sprintf("%s?v=%d", path, now())
 }
 
 // BumpVersion returns the /present/ URL with its `?v=` cache-buster replaced by
@@ -193,17 +217,17 @@ func BumpVersion(raw string, now func() int64) string {
 	return u.String()
 }
 
-// URL derives the @rk_win_web_<n> slot value for this target carried by
-// windowID on the named server. n is the web-tab slot the target lands in —
-// only file/dir kinds embed it (their /present/ URL is slot-addressed); other
+// URL derives the @rk_win_web_<n> slot value for this target. server names
+// the tmux server the /present/ route scopes to — file/dir kinds embed it in
+// the content-keyed form (with root hashed into the roothash segment); other
 // kinds ignore it. now supplies the unix-seconds cache-buster for /present/
 // URLs only; port/URL targets re-set verbatim with no buster.
-func (t Target) URL(windowID string, n int, server string, now func() int64) string {
+func (t Target) URL(server, root string, now func() int64) string {
 	switch t.Kind {
 	case KindFile:
-		return PresentURL(windowID, n, t.Name, server, now)
+		return PresentURL(t.Name, root, server, now)
 	case KindDir:
-		return PresentURL(windowID, n, "", server, now)
+		return PresentURL("", root, server, now)
 	case KindPort:
 		return fmt.Sprintf("/proxy/%d/", t.Port)
 	case KindLocalURL:

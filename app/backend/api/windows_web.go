@@ -101,19 +101,14 @@ func (s *Server) handleWindowWebAdd(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	fam, err := webTabFamilyFn(ctx, windowID, server)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	// The URL embeds the slot a fresh add lands in (len+1); an idempotent hit
-	// finds its existing slot by target identity inside WebAdd, which also
-	// owns the ?v= bump for /present/ kinds.
-	url := target.URL(windowID, len(fam.Tabs)+1, server, webNowFn)
+	// Compose the content-keyed URL once (file/dir targets hash the root at
+	// add time — no slot/windowId in the form). WebAdd matches an idempotent
+	// hit by target identity and owns the ?v= bump for /present/ kinds.
 	root := ""
 	if target.NeedsRoot() {
 		root = target.Root
 	}
+	url := target.URL(server, root, webNowFn)
 	index, existed, err := webAddFn(ctx, windowID, server, url, root)
 	if errors.Is(err, tmux.ErrWebTabsFull) {
 		writeError(w, http.StatusConflict, fmt.Sprintf("web tabs full (%d)", tmux.MaxWebTabs))
@@ -130,7 +125,7 @@ func (s *Server) handleWindowWebAdd(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"index":   index,
 		"existed": existed,
-		"url":     target.URL(windowID, index, server, webNowFn),
+		"url":     url,
 	})
 }
 

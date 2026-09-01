@@ -13,6 +13,7 @@ import {
 describe("classifyAddress (260819-v6y4 R3)", () => {
   it("classifies the intake's examples", () => {
     expect(classifyAddress("/present/@320/tmux-version-floor.html?server=runKit&v=1")).toBe("present");
+    expect(classifyAddress("/present/runKit/3f9a2c8e1b77/report.html?v=1")).toBe("present");
     expect(classifyAddress("/proxy/3000/board/runKit")).toBe("proxy");
     expect(classifyAddress("http://localhost:8080/docs")).toBe("proxy");
     expect(classifyAddress("http://127.0.0.1:5173")).toBe("proxy");
@@ -33,11 +34,19 @@ describe("classifyAddress (260819-v6y4 R3)", () => {
 });
 
 describe("displayForm (260819-v6y4 R3)", () => {
-  it("present: the file basename with plumbing params hidden", () => {
+  it("present: the file basename with plumbing params hidden (both forms)", () => {
     expect(displayForm("/present/@320/tmux-version-floor.html?server=runKit&v=1755600000")).toBe(
       "tmux-version-floor.html",
     );
     expect(displayForm("/present/@320/dir/index.html?server=a")).toBe("index.html");
+    // NEW content-keyed form: server + hash segments are plumbing too.
+    expect(displayForm("/present/runKit/3f9a2c8e1b77/report.html?v=1")).toBe("report.html");
+    expect(displayForm("/present/runKit/3f9a2c8e1b77/dir/index.html?v=1")).toBe("index.html");
+    // A directory present (empty path tail) falls back to the raw string —
+    // the raw hash segment is never mistaken for a displayable name.
+    expect(displayForm("/present/runKit/3f9a2c8e1b77/?v=1")).toBe("/present/runKit/3f9a2c8e1b77/?v=1");
+    // Legacy directory present behaves the same (windowId-only remainder).
+    expect(displayForm("/present/@5/?server=a")).toBe("/present/@5/?server=a");
   });
 
   it("present: a page's own query params survive plumbing removal", () => {
@@ -85,6 +94,13 @@ describe("webTabTitle", () => {
   it("treats whitespace-only input as empty and never throws", () => {
     expect(webTabTitle("   ")).toBe("");
     expect(webTabTitle("not a url")).toBe("not a url");
+  });
+
+  it("derives the NEW-form label with server+hash plumbing hidden", () => {
+    expect(webTabTitle("/present/runKit/3f9a2c8e1b77/report.html?v=1")).toBe("report.html");
+    expect(webTabTitle("/present/s/a1b2c3d4e5/dir/index.html?v=2")).toBe("index.html");
+    // Directory present (empty path tail): the hash stays out of the label.
+    expect(webTabTitle("/present/runKit/3f9a2c8e1b77/?v=1")).toBe("/present/runKit/3f9a2c8e1b77/?v=1");
   });
 });
 
@@ -174,10 +190,13 @@ describe("toWebAddTarget", () => {
     expect(toWebAddTarget("/proxy/3003")).toBe("http://localhost:3003/");
   });
 
-  it("passes every non-proxy-path address through unchanged", () => {
+  it("passes every non-proxy-path address through unchanged (both present forms)", () => {
     expect(toWebAddTarget("http://localhost:3003/docs")).toBe("http://localhost:3003/docs");
     expect(toWebAddTarget("https://shll.ai/")).toBe("https://shll.ai/");
     expect(toWebAddTarget("/present/@3/1/report.html?v=1")).toBe("/present/@3/1/report.html?v=1");
+    expect(toWebAddTarget("/present/runKit/3f9a2c8e1b77/report.html?v=1")).toBe(
+      "/present/runKit/3f9a2c8e1b77/report.html?v=1",
+    );
     expect(toWebAddTarget("/foo")).toBe("/foo");
   });
 });

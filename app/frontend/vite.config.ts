@@ -56,8 +56,9 @@ export default defineConfig({
         target: `http://127.0.0.1:${(parseInt(process.env.RK_PORT ?? "3000") + 1)}`,
         ws: true,
       },
-      // The `rk present` content route (/present/{windowId}/*) — forwarded to
-      // the Go backend, which serves files from the window's @rk_win_present_root.
+      // The `rk present` content route (/present/{server}/{roothash}/*, plus
+      // the one-release legacy /present/{windowId}/* form) — forwarded to the
+      // Go backend, which serves files from a declared @rk_win_web_<n>_root.
       // Plain GETs; without this the dev server answers the SPA fallback and
       // presented tiles render run-kit inside themselves.
       "/present": {

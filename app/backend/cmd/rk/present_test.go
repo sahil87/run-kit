@@ -267,8 +267,8 @@ func TestPresentAttachComposition(t *testing.T) {
 		wantRoot  string // "" = root cleared (non-file/dir kind)
 		wantProbe bool
 	}{
-		{"file", file, "/present/@7/1/mock.html?server=dev&v=1700000000", dir, false},
-		{"dir", dir, "/present/@7/1/?server=dev&v=1700000000", dir, false},
+		{"file", file, "/present/dev/" + present.RootHash(dir) + "/mock.html?v=1700000000", dir, false},
+		{"dir", dir, "/present/dev/" + present.RootHash(dir) + "/?v=1700000000", dir, false},
 		{"port", ":5173", "/proxy/5173/", "", true},
 		{"local URL", "http://localhost:8080/docs?x=1", "/proxy/8080/docs?x=1", "", true},
 		{"external URL", "https://staging.example.com/app", "https://staging.example.com/app", "", false},
@@ -446,7 +446,7 @@ func TestPresentWindowFileTwoStep(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runPresent --window file: %v", err)
 	}
-	wantURL := "/present/@42/1/mock.report.html?server=dev&v=1700000000"
+	wantURL := "/present/dev/" + present.RootHash(dir) + "/mock.report.html?v=1700000000"
 	if stdout != wantURL+"\n" {
 		t.Errorf("stdout = %q, want %q (new window's id in the URL)", stdout, wantURL)
 	}

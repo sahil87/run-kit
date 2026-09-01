@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"rk/internal/present"
 )
 
 // webHeld reads a web-family option on the test server's window (thin wrapper
@@ -480,6 +482,100 @@ func TestWebAddPresentEmptyStoredRootAdopts(t *testing.T) {
 	}
 	webMustHeld(t, server, id, WebTabOption(1), "/present/@5/1/a.html?server=s&v=200")
 	webMustHeld(t, server, id, WebTabRootOption(1), "/tmp/root")
+}
+
+// TestWebAddPresentUpgradeOnRePresent pins the upgrade-on-re-present path
+// (R6): a slot stored in the LEGACY form identity-matches an incoming
+// NEW-form URL by target identity, the hit is idempotent (same slot, no
+// append), and the stored value is REWRITTEN to the incoming new-form URL
+// with its fresh ?v= — no BumpVersion of the legacy shape.
+func TestWebAddPresentUpgradeOnRePresent(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	id := windowID(t, server, "boot:0")
+	seedWebFamily(t, server, id,
+		[]string{"/proxy/1/", "/present/@5/2/report.html?server=s&v=100"},
+		[]string{"", "/tmp/root"}, 2)
+
+	// Re-present the same file under the same root — now composing the new
+	// (server, roothash) form with a fresh buster.
+	newURL := "/present/s/" + present.RootHash("/tmp/root") + "/report.html?v=300"
+	n, existed, err := WebAdd(context.Background(), id, server, newURL, "/tmp/root")
+	if err != nil {
+		t.Fatalf("WebAdd: %v", err)
+	}
+	if n != 2 || !existed {
+		t.Errorf("WebAdd = (%d, %v), want (2, true) — cross-form identity must hit the existing slot", n, existed)
+	}
+	webMustHeld(t, server, id, WebTabOption(2), newURL)
+	webMustUnset(t, server, id, WebTabOption(3)) // no duplicate append
+	webMustHeld(t, server, id, WebTabRootOption(2), "/tmp/root")
+	webMustHeld(t, server, id, WebActiveOption, "2")
+}
+
+// TestWebAddPresentSameFormNewBumps: a same-form (new → new) re-present keeps
+// the BumpVersion path — the stored new-form URL's v= refreshes in place.
+func TestWebAddPresentSameFormNewBumps(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	id := windowID(t, server, "boot:0")
+	stored := "/present/s/" + present.RootHash("/tmp/root") + "/report.html?v=100"
+	seedWebFamily(t, server, id, []string{stored}, []string{"/tmp/root"}, 1)
+
+	pinWebNow(t, 200)
+	n, existed, err := WebAdd(context.Background(), id, server, stored, "/tmp/root")
+	if err != nil {
+		t.Fatalf("WebAdd: %v", err)
+	}
+	if n != 1 || !existed {
+		t.Errorf("WebAdd = (%d, %v), want (1, true)", n, existed)
+	}
+	webMustHeld(t, server, id, WebTabOption(1), "/present/s/"+present.RootHash("/tmp/root")+"/report.html?v=200")
+	webMustUnset(t, server, id, WebTabOption(2))
+}
+
+// TestListDeclaredWebRoots pins the server-wide declared-root enumeration: a
+// root declared by any window shows up once regardless of slot, duplicates
+// across windows collapse, and empty slots never appear.
+func TestListDeclaredWebRoots(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	idA := windowID(t, server, "boot:0")
+	legacyTmuxDo(t, server, "new-window", "-d", "-t", "=boot:")
+	legacyTmuxDo(t, server, "new-window", "-d", "-t", "=boot:")
+	idB := windowID(t, server, "boot:1")
+	idC := windowID(t, server, "boot:2")
+
+	// idA declares /r1 in slots 1 and 2; idB re-declares /r1 and adds /r2;
+	// idC declares nothing. Killing idB leaves idA's /r1 still live.
+	legacyTmuxDo(t, server, "set-option", "-w", "-t", idA, WebTabRootOption(1), "/r1")
+	legacyTmuxDo(t, server, "set-option", "-w", "-t", idA, WebTabRootOption(2), "/r1")
+	legacyTmuxDo(t, server, "set-option", "-w", "-t", idB, WebTabRootOption(1), "/r1")
+	legacyTmuxDo(t, server, "set-option", "-w", "-t", idB, WebTabRootOption(2), "/r2")
+
+	roots, err := ListDeclaredWebRoots(context.Background(), server)
+	if err != nil {
+		t.Fatalf("ListDeclaredWebRoots: %v", err)
+	}
+	if got, want := strings.Join(roots, ","), "/r1,/r2"; got != want {
+		t.Errorf("roots = %v, want %v", roots, want)
+	}
+	_ = idC
+
+	legacyTmuxDo(t, server, "kill-window", "-t", idB)
+	roots, err = ListDeclaredWebRoots(context.Background(), server)
+	if err != nil {
+		t.Fatalf("ListDeclaredWebRoots after kill-window: %v", err)
+	}
+	if got, want := strings.Join(roots, ","), "/r1"; got != want {
+		t.Errorf("roots = %v, want %v (the surviving window still declares /r1)", roots, want)
+	}
+
+	legacyTmuxDo(t, server, "kill-window", "-t", idA)
+	roots, err = ListDeclaredWebRoots(context.Background(), server)
+	if err != nil {
+		t.Fatalf("ListDeclaredWebRoots after clearing all: %v", err)
+	}
+	if len(roots) != 0 {
+		t.Errorf("roots = %v, want empty once no window declares anything", roots)
+	}
 }
 
 func TestShowWindowOptions(t *testing.T) {

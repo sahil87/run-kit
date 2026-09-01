@@ -154,7 +154,7 @@ Starting point: the scope-naming plan's target map (22 options → 21 after
 | `@rk_win_note` | `<epoch>:<text>` | agents, operator | plan |
 | `@rk_win_role` | `operator` … | `rk role` | plan |
 | **`@rk_win_layout`** | `<shape>:<surface>[,<surface>…]` e.g. `main-left:tty,code,web` | UI verbs, `rk tab layout`, agents | **new** — replaces `rk-layout:*` localStorage, `?layout=`, `?view=`, `?panel=` |
-| **`@rk_win_web_<n>`** | URL (relative `/proxy/…`, `/present/…`, or absolute) | `rk tab web add`, UI address bar, `rk present` (sugar) | **new** — indexed set, `n ≥ 1`, dense (rm renumbers) |
+| **`@rk_win_web_<n>`** | URL (relative `/proxy/…`, `/present/{server}/{roothash}/…`, or absolute) | `rk tab web add`, UI address bar, `rk present` (sugar) | **new** — indexed set, `n ≥ 1`, dense (rm renumbers); present URLs are content-keyed (server + 12-hex sha256 of the root), the legacy `/present/{windowId}/{n}/…` slot form rides one release |
 | **`@rk_win_web_<n>_root`** | absolute dir | `rk tab web add <file|dir>` | **new** — replaces `@rk_win_present_root`, now per web tab |
 | **`@rk_win_web_active`** | `n` | UI tab strip, `rk tab web select` | **new** |
 | **`@rk_win_code_root`** | absolute folder | first code-surface open (seed), code-server folder navigation, `rk tab code set` | **new** — replaces the `runkit-code-folder:*` localStorage latch |
@@ -245,12 +245,31 @@ kinds only), `@rk_win_web_active`. **`n ≤ 8`** — the daemon reads window
 options through `ListWindows`' fixed tmux format string (one call per server
 per tick) and a format string cannot enumerate a family, so the URL slots are
 spelled out `#{@rk_win_web_1}`…`#{@rk_win_web_8}`; roots stay out of the tick
-(the `/present/{windowId}/{n}/*` handler reads `_<n>_root` at request time,
-as it reads `@rk_win_present_root` today). `web add` on a full strip exits 1.
-The set is **dense and 1-based**; removing
+(the `/present/{server}/{roothash}/*` handler reads the server's declared
+roots at request time — one `list-windows -a` call over the eight
+`_<n>_root` slots, sha256-prefix-matched — and the LEGACY
+`/present/{windowId}/{n}/*` arm still reads `_<n>_root` directly with the
+slot-1 `@rk_win_present_root` dual-read, one release). `web add` on a full
+strip exits 1. The set is **dense and 1-based**; removing
 tab 2 of 3 renumbers 3→2 and the daemon fixes up `_active`. Renumbering is
 acceptable because addresses are for commands, not for durable references —
 the same trade tmux makes with window indices.
+
+**Present URLs are content-keyed (decided 2026-09-01).** `rk present`
+composes the `(server, roothash, path)` form — the tmux server name, a
+12-hex sha256 prefix of the ABSOLUTE root directory, and the file's basename
+(directory targets carry an empty path and serve the root's `index.html`):
+`/present/{server}/{roothash}/{path}`. Resolution is derivation-only per
+request (one `list-windows -a` over the 8 declared roots, unique
+prefix-match against the URL's 8–64 hex segment, zero or more than one →
+404); the declaration check is the anti-scanning property — an undeclared
+root 404s with no file touched. The stored `@rk_win_web_<n>` value adopts
+the same form (stored, iframe src, and copyable forms become one string
+modulo origin and `?v=`). The legacy slot form
+`/present/{windowId}/{n}/{path}?server=` serves unchanged for one release
+(one handler, sniffed on the first segment's `^@[0-9]+$` shape); a stored
+legacy URL is upgraded in place on re-present (WebAdd rewrites the slot to
+the incoming new-form URL instead of `BumpVersion`-ing the legacy value).
 
 Rendering: the web tile grows a tab strip when `n ≥ 2` (hidden at `n = 1`,
 today's chrome unchanged). Each web tab keeps its own iframe mounted (P3 —

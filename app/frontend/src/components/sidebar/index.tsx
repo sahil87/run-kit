@@ -8,6 +8,7 @@ import { resolveFocusedWindow, thinWindowFromFocusedPane } from "@/lib/focused-p
 import { finalizeSafeName } from "@/lib/names";
 import { pinDragImage } from "@/lib/drag-image";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
+import { pushRecentlyClosed } from "@/hooks/use-recently-closed";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useToast } from "@/components/toast";
 import { TypedLabel } from "@/components/typed-label";
@@ -527,7 +528,11 @@ export function Sidebar({
   // Ctrl+click kill window (optimistic) — captures (server, session, windowId).
   const lastKillWindowRef = useRef<{ server: string; session: string; windowId: string } | null>(null);
   const { execute: executeKillWindow } = useOptimisticAction<[string, string, string]>({
-    action: (srv, _session, windowId) => killWindowApi(srv, windowId),
+    action: async (srv, _session, windowId) => {
+      const res = await killWindowApi(srv, windowId);
+      if (res.closed) pushRecentlyClosed(srv, res.closed);
+      return res;
+    },
     onOptimistic: (srv, session, windowId) => {
       lastKillWindowRef.current = { server: srv, session, windowId };
       killWindowStore(srv, session, windowId);
@@ -552,9 +557,11 @@ export function Sidebar({
   const killDialogServerRef = useRef<string>("");
 
   const { execute: executeKillFromDialog } = useOptimisticAction<[string, { type: "session" | "window"; session: string; windowId?: string }]>({
-    action: (srv, target) => {
+    action: async (srv, target) => {
       if (target.type === "window" && target.windowId) {
-        return killWindowApi(srv, target.windowId);
+        const res = await killWindowApi(srv, target.windowId);
+        if (res.closed) pushRecentlyClosed(srv, res.closed);
+        return res;
       }
       return killSessionApi(srv, target.session);
     },

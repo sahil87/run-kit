@@ -280,7 +280,14 @@ test.describe("Status bar (260814-ldbs)", () => {
     ];
 
     for (const device of cases) {
-      const context = await browser.newContext({ baseURL, hasTouch: device.hasTouch, viewport: device.viewport });
+      // Spread the project's contextOptions (notably `reducedMotion: "reduce"`)
+      // so these hand-rolled contexts keep the config-level animation guard.
+      const context = await browser.newContext({
+        ...testInfo.project.use.contextOptions,
+        baseURL,
+        hasTouch: device.hasTouch,
+        viewport: device.viewport,
+      });
       try {
         const page = await context.newPage();
         await mockBackend(page);

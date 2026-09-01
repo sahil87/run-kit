@@ -7,6 +7,9 @@
  * Threshold: 500ms. Anything above suggests the action is waiting for SSE
  * rather than using an optimistic update.
  *
+ * This `@perf` suite is excluded from default e2e runs. Run it on demand with
+ * `just pw test sync-latency --list` (omit `--list` to execute the audit).
+ *
  * Shared setup: `beforeAll` creates sessions `e2e-lat-a-<ts>` and
  * `e2e-lat-b-<ts>` so the tests have distinct targets for rename, drag, and
  * cross-session move; the per-test timeout is bumped (20s, 45s on CI) since
@@ -75,7 +78,7 @@ async function setup(page: import("@playwright/test").Page) {
   return sidebar;
 }
 
-test.describe("Sync Latency Audit", () => {
+test.describe("@perf Sync Latency Audit", () => {
   // Each test pays a readiness gate (up to READY_TIMEOUT) before its measured
   // action; give CI headroom so the gate can't exhaust the per-test budget.
   test.setTimeout(process.env.CI ? 45_000 : 20_000);

@@ -151,6 +151,8 @@ const HEALTH_TIMEOUT_MS = 5000;
 const INTERSTITIAL_HEALTH_POLL_MS = 3000;
 /** Read-only rk queries (`rk url`, `rk --version`) — quick, config-derived. */
 const RK_QUERY_TIMEOUT_MS = 5000;
+/** Avoid re-running `rk url` for every 3s interstitial status IPC gate. */
+const LOCAL_DAEMON_ORIGIN_CACHE_TTL_MS = 15_000;
 /** `rk desktop status` — read-only, but round-trips the GitHub releases API. */
 const RK_STATUS_TIMEOUT_MS = 10_000;
 /** Daemon start/stop commands — bounded tmux work. */
@@ -542,12 +544,31 @@ function isInterstitialUrl(url: string): boolean {
   return url.startsWith(INTERSTITIAL_URL);
 }
 
+let localDaemonOriginCache: { value: string | null; expiresAt: number } | undefined;
+let localDaemonOriginQuery: Promise<string | null> | null = null;
+
 async function localDaemonOrigin(): Promise<string | null> {
   if (process.platform === "win32") return null;
-  const run = await runRk(["url"], RK_QUERY_TIMEOUT_MS);
-  if (!run.ok) return null;
-  const normalized = normalizeOrigin(run.stdout.trim());
-  return normalized.ok ? normalized.origin : null;
+  if (localDaemonOriginCache && Date.now() < localDaemonOriginCache.expiresAt) {
+    return localDaemonOriginCache.value;
+  }
+  if (localDaemonOriginQuery) return localDaemonOriginQuery;
+  localDaemonOriginQuery = (async () => {
+    const run = await runRk(["url"], RK_QUERY_TIMEOUT_MS);
+    if (!run.ok) return null;
+    const normalized = normalizeOrigin(run.stdout.trim());
+    return normalized.ok ? normalized.origin : null;
+  })();
+  try {
+    const value = await localDaemonOriginQuery;
+    localDaemonOriginCache = {
+      value,
+      expiresAt: Date.now() + LOCAL_DAEMON_ORIGIN_CACHE_TTL_MS,
+    };
+    return value;
+  } finally {
+    localDaemonOriginQuery = null;
+  }
 }
 
 function isLoopbackOrigin(origin: string): boolean {
@@ -601,12 +622,15 @@ function startInterstitialHealthPoll(
       return;
     }
     poll.inFlight = true;
-    const ping = await pingServer(host.url);
-    if (interstitialHealthPolls.get(key) !== poll || contents.isDestroyed()) return;
-    poll.inFlight = false;
-    if (!isInterstitialUrl(contents.getURL()) || !ping.ok) return;
-    stopInterstitialHealthPoll(windowId, host.id);
-    void contents.loadURL(host.url + (host.lastPath ?? ""));
+    try {
+      const ping = await pingServer(host.url);
+      if (interstitialHealthPolls.get(key) !== poll || contents.isDestroyed()) return;
+      if (!isInterstitialUrl(contents.getURL()) || !ping.ok) return;
+      stopInterstitialHealthPoll(windowId, host.id);
+      void contents.loadURL(host.url + (host.lastPath ?? ""));
+    } finally {
+      if (interstitialHealthPolls.get(key) === poll) poll.inFlight = false;
+    }
   };
   const timer = setInterval(() => { void tick(); }, INTERSTITIAL_HEALTH_POLL_MS);
   interstitialHealthPolls.set(key, { timer, inFlight: false });

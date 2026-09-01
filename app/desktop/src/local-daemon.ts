@@ -216,10 +216,20 @@ function userFacingRkCommand(args: string[]): string {
   return visibleArgs.length === 0 ? "rk" : `rk ${visibleArgs.join(" ")}`;
 }
 
+function reportsUnsupportedFullFlag(message: string): boolean {
+  if (!message.includes("--full")) return false;
+  return (
+    /\b(?:unknown|unrecognized|unsupported|invalid|unexpected)\s+(?:flag|option|argument)\b[^\n]*--full\b/i.test(message) ||
+    /\bflag provided but not defined\b[^\n]*--full\b/i.test(message) ||
+    /\b(?:flag|option|argument)\b[^\n]*--full\b[^\n]*\bnot (?:defined|recognized|supported)\b/i.test(message)
+  );
+}
+
 function sanitizeRkFailureText(message: string, binary: string): string {
   let safe = message.trim();
   if (binary !== "rk") safe = safe.split(binary).join("rk");
-  safe = safe.replaceAll("--full", "");
+  safe = safe.replace(/(^|[^A-Za-z0-9_-])--full(?=$|[^A-Za-z0-9_-])/g, "$1");
+  if (safe.includes("--full")) return "";
   return safe
     .split("\n")
     .map((line) => line.replace(/[ \t]{2,}/g, " ").replace(/[ \t]+`/g, "`").trimEnd())
@@ -252,6 +262,9 @@ export function rkInvocationErrorMessage(
     stderr = err.stderr.trim();
   }
   if (stderr !== "") {
+    if (args.includes("--full") && reportsUnsupportedFullFlag(stderr)) {
+      return `\`${userFacingRkCommand(args)}\` requires a newer rk version; update rk and try again`;
+    }
     const sanitized = sanitizeRkFailureText(stderr, binary);
     if (sanitized !== "") return sanitized;
   }

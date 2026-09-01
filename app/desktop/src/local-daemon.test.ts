@@ -309,3 +309,28 @@ test("rk stderr stays useful while private flags and the binary path are redacte
   );
   assert.equal(message, "Error: rk daemon restart failed");
 });
+
+test("an unsupported private restart flag becomes actionable version-skew guidance", () => {
+  const message = rkInvocationErrorMessage(
+    { signal: null, code: 1, stderr: "Error: unknown flag: --full" },
+    ["daemon", "restart", "--full"],
+    60_000,
+    "/opt/homebrew/bin/rk",
+  );
+  assert.equal(
+    message,
+    "`rk daemon restart` requires a newer rk version; update rk and try again",
+  );
+  assert.equal(message.includes("--full"), false);
+});
+
+test("private flag text embedded in another token falls back without leaking it", () => {
+  const message = rkInvocationErrorMessage(
+    { signal: null, code: 1, stderr: "restart mode --full-preview failed" },
+    ["daemon", "restart", "--full"],
+    60_000,
+    "rk",
+  );
+  assert.equal(message, "`rk daemon restart` failed");
+  assert.equal(message.includes("--full"), false);
+});

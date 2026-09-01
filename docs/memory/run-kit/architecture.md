@@ -881,6 +881,8 @@ Pane boards are named collections of pinned tmux windows rendered as a horizonta
 
 ## Testing
 
+Tests whose lifetime is tied to a compatibility shim carry `// retire-with: {shim-name}` immediately above the test, or in the file header when the whole spec is shim-bound. Shim-removal sweeps use `grep -r "retire-with"` to locate the full cross-language set.
+
 ### Go Unit Tests
 
 Go `testing` package with table-driven tests. Test files co-located with source using `_test.go` suffix. Test scripts: `go test ./...` from `app/backend/`.
@@ -915,6 +917,8 @@ Test coverage includes: sidebar (expand/collapse, window selection, kill session
 ### Playwright E2E Tests (app/frontend/tests/e2e/)
 
 Config at `app/frontend/playwright.config.ts`. Port/socket identity flows from the harness env: `scripts/test-e2e.sh` and `scripts/pw.sh` set `RK_PORT` to the worktree's derived e2e port (from `scripts/e2e-env.sh` — a deterministic `cksum`-hashed triple in 3400–3699; `RK_E2E_PORT` overrides) and `E2E_TMUX_SERVER`/`E2E_TMUX_FAMILY` to the derived socket family; a direct unset-env `playwright test` fails closed on port 3333 (`process.env.RK_PORT ?? "3333"` in the config), connecting to nothing rather than a live instance. Specs seed real tmux and board state through shared underscore-prefixed helper modules rather than per-file copies.
+
+Describe titles tagged `@perf` form the on-demand performance-audit tier. The config-path `grepInvert` excludes this tier from `just test-e2e` and CI; `scripts/pw.sh` sets `RK_E2E_PERF=1`, so `just pw test <name>` includes it.
 
 Every `test()` in this directory carries a `/** Proves: … Steps: … */` JSDoc block immediately above it — the user-visible behavior under test in one or two sentences plus a numbered step list mirroring the body, so a reviewer can reason about intent without reading Playwright APIs — and each spec file opens with a file-header comment covering shared setup (`beforeAll`/`beforeEach`, fixtures, viewport, `page.route` stubs, saved/restored host-global state). Intent comments state what the test proves and why the setup is shaped as it is; they narrate no history and cite no change IDs or PR numbers. A PR that adds or modifies a `test()` updates its intent comment in the same commit. Unit tests (`*.test.ts`/`*.test.tsx`, `*_test.go`) are exempt — the test name plus code is self-documenting at that scope (constitution § Test Intent Comments).
 

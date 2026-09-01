@@ -12,6 +12,8 @@ import { SettingsDialogProvider } from "@/contexts/settings-dialog-context";
 import { ToastProvider } from "@/components/toast";
 import { useWindowStore, entryKey } from "@/store/window-store";
 import { stubMatchMedia } from "@/test-utils/match-media";
+import { pushRecentlyClosed } from "@/hooks/use-recently-closed";
+import type { ClosedWindow } from "@/api/client";
 import type { ProjectSession } from "@/types";
 
 // HostPanel (inside Sidebar) consumes the instance-accent context; inject a
@@ -56,6 +58,14 @@ vi.mock("@/api/client", async (importOriginal) => {
     setWindowColor: vi.fn().mockResolvedValue({ ok: true }),
     setSessionOrder: vi.fn().mockResolvedValue(undefined),
   };
+});
+
+// The kill executors push the response's `closed` record onto the
+// recently-closed mirror; spy the standalone export so the tests assert the
+// executor contract without reaching into the mirror's module state.
+vi.mock("@/hooks/use-recently-closed", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/hooks/use-recently-closed")>();
+  return { ...actual, pushRecentlyClosed: vi.fn() };
 });
 
 // Mock matchMedia for ThemeProvider
@@ -1124,6 +1134,64 @@ describe("Sidebar", () => {
       expect(killWindowMock).toHaveBeenCalledWith("runkit", "@1");
       // After the API call resolves, the killed entry must be removed (unmarkKilled called)
       expect(killedCount).toBe(0);
+    });
+  });
+
+  describe("window kills push the recently-closed record", () => {
+    const CLOSED_RECORD: ClosedWindow = {
+      id: "1756700000000000000",
+      closedAt: "2026-09-01T10:00:00Z",
+      server: "runkit",
+      session: "run-kit",
+      window: { index: 1, id: "@1", name: "scratch", panes: [] },
+    };
+
+    beforeEach(() => {
+      // Both kill entry points are fine-pointer row controls.
+      stubPointer(false);
+      vi.mocked(pushRecentlyClosed).mockClear();
+      // The window store is module-global; a dialog-confirmed kill leaves its
+      // optimistic killed flag set (SSE clears it in the real app), which
+      // would hide the row from the next test.
+      useWindowStore.setState({ entries: new Map(), ghosts: [] });
+    });
+
+    it("Ctrl+click kill pushes the response's closed record with the row's server", async () => {
+      const { killWindow: killWindowMock } = await import("@/api/client");
+      vi.mocked(killWindowMock).mockResolvedValue({ ok: true, closed: CLOSED_RECORD });
+      renderSidebar();
+      await act(async () => {
+        fireEvent.click(screen.getByLabelText("Kill tab scratch"), { ctrlKey: true });
+      });
+      expect(pushRecentlyClosed).toHaveBeenCalledWith("runkit", CLOSED_RECORD);
+    });
+
+    it("dialog-confirmed kill pushes the response's closed record", async () => {
+      const { killWindow: killWindowMock } = await import("@/api/client");
+      vi.mocked(killWindowMock).mockResolvedValue({ ok: true, closed: CLOSED_RECORD });
+      renderSidebar();
+      fireEvent.click(screen.getByLabelText("Kill tab scratch"));
+      expect(screen.getByText("Kill tab?")).toBeInTheDocument();
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Kill" }));
+      });
+      expect(killWindowMock).toHaveBeenCalledWith("runkit", "@1");
+      expect(pushRecentlyClosed).toHaveBeenCalledWith("runkit", CLOSED_RECORD);
+    });
+
+    it("a response without a closed record pushes nothing (both paths)", async () => {
+      const { killWindow: killWindowMock } = await import("@/api/client");
+      vi.mocked(killWindowMock).mockClear().mockResolvedValue({ ok: true });
+      renderSidebar();
+      await act(async () => {
+        fireEvent.click(screen.getByLabelText("Kill tab scratch"), { ctrlKey: true });
+      });
+      fireEvent.click(screen.getByLabelText("Kill tab logs"));
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Kill" }));
+      });
+      expect(killWindowMock).toHaveBeenCalledTimes(2);
+      expect(pushRecentlyClosed).not.toHaveBeenCalled();
     });
   });
 

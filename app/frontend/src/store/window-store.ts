@@ -140,8 +140,9 @@ export function webFamilyAfterRemove(
  * display-only mirror of the backend's WebMove rule (internal/tmux/webtabs.go
  * `repointMoveActive`): the moved tab lands at to, slots between shift one
  * step the other way, and the active pointer follows the moved/affected slots'
- * identity. n == to returns the family unchanged. The server write is
- * authoritative; the next SSE tick reconciles.
+ * identity. n == to — or either index out of the family's 1..len range —
+ * returns the family unchanged. The server write is authoritative; the next
+ * SSE tick reconciles.
  */
 export function webFamilyAfterMove(
   tabs: string[],
@@ -149,6 +150,9 @@ export function webFamilyAfterMove(
   n: number,
   to: number,
 ): { webTabs: string[]; webActive: number } {
+  if (n === to || n < 1 || n > tabs.length || to < 1 || to > tabs.length) {
+    return { webTabs: tabs, webActive: active };
+  }
   const webTabs = [...tabs];
   const [moved] = webTabs.splice(n - 1, 1);
   webTabs.splice(to - 1, 0, moved);

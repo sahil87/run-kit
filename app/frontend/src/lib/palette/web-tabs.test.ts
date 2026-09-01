@@ -6,10 +6,10 @@ import { WEB_TAB_DRAFT_EVENT } from "../web-url";
  * `buildWebTabActions` — the palette's `Web: … tab` strip actions.
  * Enablement is the availability idiom (absent, not disabled): next/prev/
  * close/move need ≥2 tabs, boundary move entries are omitted (the `Tab:
- * Move up/down` precedent), and `Web: New tab` is offered at ≥1 (the only
- * UI path to a second tab from a 1-tab window). The caller gates the set on
- * the layout including a `web` tile. Pure-builder tests in the
- * `palette/zen.test.ts` pattern.
+ * Move up/down` precedent), and `Web: New tab` is offered at ≥1 (the
+ * keyboard peer of the strip's `+`, which is visible from the same
+ * threshold). The caller gates the set on the layout including a `web`
+ * tile. Pure-builder tests in the `palette/zen.test.ts` pattern.
  */
 
 const TABS2 = ["/proxy/3001/", "/proxy/3002/"];

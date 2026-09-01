@@ -631,6 +631,8 @@ describe("window-store", () => {
       { name: "active outside the moved span stays", tabs: ["/a", "/b", "/c", "/d"], active: 4, n: 1, to: 3, webTabs: ["/b", "/c", "/a", "/d"], webActive: 4 },
       { name: "to boundary of the span shifts", tabs: ["/a", "/b", "/c"], active: 2, n: 3, to: 2, webTabs: ["/a", "/c", "/b"], webActive: 3 },
       { name: "self-move no-op", tabs: ["/a", "/b"], active: 1, n: 2, to: 2, webTabs: ["/a", "/b"], webActive: 1 },
+      { name: "out-of-range n no-op", tabs: ["/a", "/b"], active: 1, n: 3, to: 1, webTabs: ["/a", "/b"], webActive: 1 },
+      { name: "out-of-range to no-op", tabs: ["/a", "/b"], active: 2, n: 1, to: 0, webTabs: ["/a", "/b"], webActive: 2 },
     ])("$name", ({ tabs, active, n, to, webTabs, webActive }) => {
       expect(webFamilyAfterMove(tabs, active, n, to)).toEqual({ webTabs, webActive });
     });

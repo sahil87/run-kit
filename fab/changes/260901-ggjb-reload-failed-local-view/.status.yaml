@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 4
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-09-01T14:38:46Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-01T14:39:43Z"}
     review: {started_at: "2026-09-01T14:39:43Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-01T14:45:07Z"}
     hydrate: {started_at: "2026-09-01T14:45:07Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-01T14:46:32Z"}
-    ship: {started_at: "2026-09-01T14:46:32Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-01T14:46:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-01T14:48:33Z"}
+    review-pr: {started_at: "2026-09-01T14:48:33Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/785
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 202
+    deleted: 25
+    net: 177
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 36
+        deleted: 11
+        net: 25
     tests:
         added: 0
         deleted: 0
         net: 0
-    computed_at: "2026-09-01T14:46:32Z"
-    computed_at_stage: hydrate
+    computed_at: "2026-09-01T14:48:33Z"
+    computed_at_stage: ship
 summary: Local connect tail heals a view stranded on Chromium's error page; the reload gate is now one shared reloadFailedView in main.ts serving both connect heals.
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-01T14:46:32Z
+last_updated: 2026-09-01T14:48:33Z

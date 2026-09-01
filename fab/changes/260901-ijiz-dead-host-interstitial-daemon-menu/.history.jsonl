@@ -1,0 +1,3 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-01T14:27:00Z"}
+{"args":"desktop shell daemon UX rework: shell-owned dead-host interstitial with start/recovery actions and health polling, Local Daemon menu redesign to Start/Restart/Stop with wedged-state detection, restart uses rk daemon restart --full, in-flight feedback on daemon actions","cmd":"fab-new","event":"command","ts":"2026-09-01T14:27:00Z"}
+{"delta":"+4.4","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-09-01T14:30:53Z"}

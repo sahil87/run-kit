@@ -273,9 +273,11 @@ modulo origin and `?v=`). The legacy slot form
 legacy URL is upgraded in place on re-present (WebAdd rewrites the slot to
 the incoming new-form URL instead of `BumpVersion`-ing the legacy value).
 
-Rendering: the web tile shows its tab strip whenever at least one declared tab
-or viewer-local draft exists. Only onboarding (no declared tabs and no drafts)
-is stripless. Each declared web tab keeps its own iframe mounted (P3 — hide,
+Rendering: the tab strip always renders with the web tile — at an empty
+family it is just the `+` (plus any viewer-local drafts), so the draft entry
+points stay reachable from the empty state. Onboarding (no declared tabs) is
+the empty-family CONTENT below the strip, not a stripless chrome variant.
+Each declared web tab keeps its own iframe mounted (P3 — hide,
 never unmount) so switching and reordering do not reload a dev server page.
 Address-bar edits write `@rk_win_web_<active>`. Same-origin in-page
 navigation updates the *display* only (as today) — the stored URL is the

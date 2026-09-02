@@ -3350,25 +3350,28 @@ function AppShell() {
                     onSelect: () =>
                       document.dispatchEvent(new CustomEvent(WEB_ZOOM_EVENT, { detail: { direction } })),
                   })),
-                  // Web-tab palette actions use availability for tab-count and
-                  // move-boundary gating; mutations reconcile on the next SSE
-                  // tick, while new-tab opens a viewer-local draft.
-                  ...buildWebTabActions(effectiveWindow?.webTabs ?? [], effectiveWindow?.webActive, {
-                    onSelectTab: (n) =>
-                      void selectWebTab(server, windowParam, n).catch((err: Error) =>
-                        addToast(err.message || "Failed to select web tab", "error"),
-                      ),
-                    onCloseTab: (n) =>
-                      void removeWebTab(server, windowParam, n).catch((err: Error) =>
-                        addToast(err.message || "Failed to close web tab", "error"),
-                      ),
-                    onMoveTab: (n, to) =>
-                      void moveWebTab(server, windowParam, n, to).catch((err: Error) =>
-                        addToast(err.message || "Failed to move web tab", "error"),
-                      ),
-                  }),
                 ]
               : []),
+            // Web-tab palette actions sit OUTSIDE the content gate: the
+            // builder self-gates the verb entries by tab count, and
+            // `Web: New tab` must stay reachable on an empty family — it is
+            // the palette's draft entry point for the onboarding tile.
+            // Mutations reconcile on the next SSE tick; new-tab opens a
+            // viewer-local draft.
+            ...buildWebTabActions(effectiveWindow?.webTabs ?? [], effectiveWindow?.webActive, {
+              onSelectTab: (n) =>
+                void selectWebTab(server, windowParam, n).catch((err: Error) =>
+                  addToast(err.message || "Failed to select web tab", "error"),
+                ),
+              onCloseTab: (n) =>
+                void removeWebTab(server, windowParam, n).catch((err: Error) =>
+                  addToast(err.message || "Failed to close web tab", "error"),
+                ),
+              onMoveTab: (n, to) =>
+                void moveWebTab(server, windowParam, n, to).catch((err: Error) =>
+                  addToast(err.message || "Failed to move web tab", "error"),
+                ),
+            }),
             // `Web: Focus address bar` + `Web: Open in browser` (260819-v6y4
             // R9/R12) — same gating and one-CustomEvent seam shape as
             // web-find; the mounted web tile is each event's single receiver

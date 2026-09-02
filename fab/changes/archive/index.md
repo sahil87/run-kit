@@ -1,5 +1,6 @@
 # Archived Changes
 
+- **260901-s36e-web-tab-strip-drafts-reorder** — Web-Tab Strip Rework — Draft Tabs, Reorder, Richer Chrome
 - **260824-xf6p-all-settings-tab-last** — Make the All settings tab the last settings tab
 - **260824-xaw2-protected-server-class** — Protected Server Class
 - **260824-j2k6-daemon-system-presentation** — Daemon SYSTEM Presentation

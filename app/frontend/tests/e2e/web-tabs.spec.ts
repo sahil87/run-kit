@@ -98,15 +98,17 @@ test.describe("Web tab strip — drafts, reorder, gestures", () => {
   });
 
   /**
-   * Proves: the strip renders from ≥1 tab (the `+` affordance is reachable
-   * without a second tab); onboarding (empty family) stays stripless.
+   * Proves: the strip always renders with the web tile — at ≥1 tab with its
+   * tab row, and at 0 tabs as just the `+` with the onboarding panel as the
+   * content below it (onboarding is a content state, not stripless chrome).
    * Steps:
    * 1. Create a window with one seed tab and `single:web`; navigate.
    * 2. Assert the strip is visible with the one tab and the `+` button.
    * 3. Create a window with no tabs; navigate.
-   * 4. Assert the strip is absent but onboarding renders.
+   * 4. Assert the strip and `+` render with zero tabs while the onboarding
+   *    panel is visible below.
    */
-  test("always-visible strip at ≥1 tab; onboarding stays stripless", async ({ page }) => {
+  test("strip always renders: tab row at ≥1 tab, bare `+` over onboarding at 0", async ({ page }) => {
     test.setTimeout(30_000);
     await makeWindow(page, `wt-one-${Date.now()}`, [TAB_URLS[0]], 1);
     await expect(page.getByTestId("web-tab-strip")).toBeVisible({ timeout: READY_TIMEOUT });
@@ -115,7 +117,46 @@ test.describe("Web tab strip — drafts, reorder, gestures", () => {
 
     await makeWindow(page, `wt-empty-${Date.now()}`, [], 0);
     await expect(page.getByTestId("web-tile-onboarding")).toBeVisible({ timeout: READY_TIMEOUT });
-    await expect(page.getByTestId("web-tab-strip")).toHaveCount(0);
+    await expect(page.getByTestId("web-tab-strip")).toBeVisible();
+    await expect(page.getByTestId("web-tab-add")).toBeVisible();
+    await expect(page.getByTestId("web-tab")).toHaveCount(0);
+  });
+
+  /**
+   * Proves: multiple empty (draft) tabs can be opened from a 0-tab window —
+   * via the strip's `+` and the palette's `Web: New tab` — and each Enter
+   * materializes one draft into the next dense tmux slot; drafts themselves
+   * never touch tmux.
+   * Steps:
+   * 1. Create a window with no tabs; navigate; assert onboarding + the `+`.
+   * 2. Click `+` twice and open a third draft via the palette; assert three
+   *    dashed drafts render while `@rk_win_web_1` stays empty in tmux.
+   * 3. Type an address into the armed bar and press Enter three times (one
+   *    address per draft); assert slots 1..3 land densely in tmux and the
+   *    drafts are gone.
+   */
+  test("drafts open from a 0-tab window and materialize into dense slots", async ({ page }) => {
+    test.setTimeout(45_000);
+    const id = await makeWindow(page, `wt-drafts0-${Date.now()}`, [], 0);
+    await expect(page.getByTestId("web-tile-onboarding")).toBeVisible({ timeout: READY_TIMEOUT });
+
+    await page.getByTestId("web-tab-add").click();
+    await page.getByTestId("web-tab-add").click();
+    await openPalette(page);
+    await page.getByRole("option", { name: "Web: New tab" }).click();
+    await expect(draftTabs(page)).toHaveCount(3);
+    expect(await windowOption(id, "@rk_win_web_1")).toBe("");
+
+    for (const [i, port] of [3001, 3002, 3003].entries()) {
+      // Select the oldest remaining draft; the bar arms for it.
+      await draftTabs(page).first().click();
+      await URL_BAR(page).fill(`localhost:${port}`);
+      await URL_BAR(page).press("Enter");
+      await expectWindowOption(id, `@rk_win_web_${i + 1}`, `/proxy/${port}/`);
+    }
+    await expect(draftTabs(page)).toHaveCount(0);
+    await expect(page.getByTestId("web-tab")).toHaveCount(3);
+    await expectWindowOption(id, "@rk_win_web_active", "3");
   });
 
   /**
@@ -471,6 +512,9 @@ test.describe("Web tab strip — drafts, reorder, gestures", () => {
   test("a stored LEGACY slot-form present URL serves through the legacy arm (R4)", async ({
     page,
   }) => {
+    // Two navigations (makeWindow goto + the restamp reload) need headroom
+    // beyond the default under suite load.
+    test.setTimeout(60_000);
     const id = await makeWindow(page, `wt-legacy-${Date.now()}`);
     // Recompose with the LEGACY slot form; the @N id embeds differently than
     // the content-keyed hash. The slot-1 root declaration uses the retired

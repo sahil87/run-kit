@@ -762,9 +762,17 @@ describe("IframeWindow", () => {
   describe("web tab strip", () => {
     const TABS = ["/proxy/3001/", "/proxy/3002/", "https://docs.example.com/a/b"];
 
-    it("no strip at onboarding (0 tabs, no drafts); the URL-bar row DOM stays as-is", () => {
-      renderIframe({ tabs: [] });
-      expect(screen.queryByTestId("web-tab-strip")).toBeNull();
+    it("strip renders at onboarding (0 tabs, no drafts): only `+`, no tabs, panel below", () => {
+      renderIframe({ tabs: [], onAddTab: vi.fn() });
+      const empty = screen.getByTestId("web-tab-strip");
+      // The empty family keeps its draft entry point: `+` renders, no tab
+      // (declared or draft) does, and the onboarding panel stays the content.
+      expect(screen.getByTestId("web-tab-add")).toBeTruthy();
+      expect(screen.queryAllByTestId("web-tab")).toHaveLength(0);
+      expect(screen.queryAllByTestId("web-tab-draft")).toHaveLength(0);
+      expect(screen.getByText("Nothing to show yet")).toBeTruthy();
+      // The strip is the outer wrapper's FIRST child even at 0 tabs.
+      expect(empty.parentElement!.firstElementChild).toBe(empty);
       cleanup();
 
       const one = renderIframe({ tabs: ["/proxy/3001/"] });

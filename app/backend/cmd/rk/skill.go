@@ -68,8 +68,16 @@ var skillTopics = map[string][]byte{
 	tutorialTopicName: skillTutorialTopic,
 }
 
+// reservedTopicsName is the toolkit-standard reserved topic: `rk skill topics`
+// enumerates the content-topic names machine-readably (one per line, stdout,
+// exit 0). It is a machine affordance, not a topic page — it has no canonical
+// docs/site file, must never become a skillTopics key, and stays out of the
+// Topics: help line and the core bundle's topic index.
+const reservedTopicsName = "topics"
+
 // skillTopicNames returns the sorted list of valid topic names, for the
-// unknown-topic error message (deterministic ordering).
+// unknown-topic error message, the Topics: help line, and the reserved
+// `topics` enumeration (deterministic ordering).
 func skillTopicNames() []string {
 	names := make([]string, 0, len(skillTopics))
 	for name := range skillTopics {
@@ -95,15 +103,21 @@ var skillCmd = &cobra.Command{
 		"for an agent operating run-kit (when to reach for it, its capabilities, how " +
 		"it composes, and the gotchas). The bytes are identical on every invocation " +
 		"and byte-identical to the repo's canonical docs/site/skill.md. Pass a topic " +
-		"(e.g. `run-kit skill display`) to print that topic page instead. The bundle " +
-		"is static-only — derive your location directly (get the server URL from " +
-		"`run-kit url`).",
+		"(e.g. `run-kit skill display`) to print that topic page instead, or `run-kit " +
+		"skill topics` to list the topic names one per line. The bundle is static-only " +
+		"— derive your location directly (get the server URL from `run-kit url`).\n\n" +
+		"Topics: " + strings.Join(skillTopicNames(), ", "),
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		bundle := skillBundle
 		if len(args) == 1 {
 			topic := args[0]
+			if topic == reservedTopicsName {
+				_, err := fmt.Fprint(cmd.OutOrStdout(),
+					strings.Join(skillTopicNames(), "\n")+"\n")
+				return err
+			}
 			b, ok := skillTopics[topic]
 			if !ok {
 				return usageError(fmt.Errorf("unknown topic %q (valid: %s)",

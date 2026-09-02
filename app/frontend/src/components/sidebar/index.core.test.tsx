@@ -465,241 +465,154 @@ describe("Sidebar", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  // Inline rename tests (dcl9)
+  const renameCases = [
+    {
+      kind: "window",
+      label: "Rename tab",
+      original: "scratch",
+      changed: "new-name",
+      blurInput: "blur-name",
+      blurExpected: "blur-name",
+      start: () => fireEvent.doubleClick(screen.getByText("scratch")),
+      startPrimary: () => fireEvent.doubleClick(screen.getAllByText("main")[0]),
+      startSibling: () => fireEvent.doubleClick(screen.getByText("scratch")),
+      sibling: "scratch",
+      navigate: () => fireEvent.click(screen.getByText("scratch")),
+      navigateArgs: ["runkit", "run-kit", "@1"],
+      commitArgs: (name: string) => ["runkit", "@1", name],
+    },
+    {
+      kind: "session",
+      label: "Rename session",
+      original: "run-kit",
+      changed: "staging",
+      blurInput: "blur-session",
+      blurExpected: "blur_session",
+      start: () => fireEvent.doubleClick(getSessionRowNameSpan("run-kit")),
+      startPrimary: () => fireEvent.doubleClick(getSessionRowNameSpan("run-kit")),
+      startSibling: () => fireEvent.doubleClick(screen.getByText("ao-server")),
+      sibling: "ao-server",
+      navigate: () => fireEvent.click(screen.getByLabelText("Navigate to run-kit")),
+      navigateArgs: ["runkit", "run-kit", "@0"],
+      commitArgs: (name: string) => ["runkit", "run-kit", name],
+    },
+  ] as const;
+
   describe("inline rename", () => {
-    it("double-click on window name activates inline input", () => {
+    it.each(renameCases)("double-click activates the $kind input", (renameCase) => {
       renderSidebar();
-      const nameSpan = screen.getAllByText("main")[0];
-      fireEvent.doubleClick(nameSpan);
-      const input = screen.getByLabelText("Rename tab");
-      expect(input).toBeInTheDocument();
-      expect(input).toHaveValue("main");
+      renameCase.start();
+      expect(screen.getByLabelText(renameCase.label)).toHaveValue(renameCase.original);
     });
 
-    it("Enter commits rename and calls renameWindow", async () => {
-      const { renameWindow: renameWindowMock } = await import("@/api/client");
-      vi.mocked(renameWindowMock).mockResolvedValue({ ok: true });
+    it.each(renameCases)("Enter commits the $kind rename", async (renameCase) => {
+      const api = await import("@/api/client");
+      const renameMock = renameCase.kind === "window" ? vi.mocked(api.renameWindow) : vi.mocked(api.renameSession);
+      renameMock.mockResolvedValue({ ok: true });
 
       renderSidebar();
-      fireEvent.doubleClick(screen.getByText("scratch"));
-      const input = screen.getByLabelText("Rename tab");
-      fireEvent.change(input, { target: { value: "new-name" } });
+      renameCase.start();
+      const input = screen.getByLabelText(renameCase.label);
+      fireEvent.change(input, { target: { value: renameCase.changed } });
       await act(async () => {
         fireEvent.keyDown(input, { key: "Enter" });
       });
 
-      expect(screen.queryByLabelText("Rename tab")).not.toBeInTheDocument();
-      expect(renameWindowMock).toHaveBeenCalledWith("runkit", "@1", "new-name");
+      expect(screen.queryByLabelText(renameCase.label)).not.toBeInTheDocument();
+      expect(renameMock).toHaveBeenCalledWith(...renameCase.commitArgs(renameCase.changed));
     });
 
-    it("Escape cancels without calling renameWindow", async () => {
-      const { renameWindow: renameWindowMock } = await import("@/api/client");
-      vi.mocked(renameWindowMock).mockClear();
+    it.each(renameCases)("Escape cancels the $kind rename", async (renameCase) => {
+      const api = await import("@/api/client");
+      const renameMock = renameCase.kind === "window" ? vi.mocked(api.renameWindow) : vi.mocked(api.renameSession);
+      renameMock.mockClear();
 
       renderSidebar();
-      fireEvent.doubleClick(screen.getByText("scratch"));
-      const input = screen.getByLabelText("Rename tab");
-      fireEvent.change(input, { target: { value: "new-name" } });
+      renameCase.start();
+      const input = screen.getByLabelText(renameCase.label);
+      fireEvent.change(input, { target: { value: renameCase.changed } });
       fireEvent.keyDown(input, { key: "Escape" });
 
-      expect(screen.queryByLabelText("Rename tab")).not.toBeInTheDocument();
-      expect(renameWindowMock).not.toHaveBeenCalled();
+      expect(screen.queryByLabelText(renameCase.label)).not.toBeInTheDocument();
+      expect(renameMock).not.toHaveBeenCalled();
     });
 
-    it("blur commits rename", async () => {
-      const { renameWindow: renameWindowMock } = await import("@/api/client");
-      vi.mocked(renameWindowMock).mockResolvedValue({ ok: true });
+    it.each(renameCases)("blur commits the $kind rename", async (renameCase) => {
+      const api = await import("@/api/client");
+      const renameMock = renameCase.kind === "window" ? vi.mocked(api.renameWindow) : vi.mocked(api.renameSession);
+      renameMock.mockResolvedValue({ ok: true });
 
       renderSidebar();
-      fireEvent.doubleClick(screen.getByText("scratch"));
-      const input = screen.getByLabelText("Rename tab");
-      fireEvent.change(input, { target: { value: "blur-name" } });
+      renameCase.start();
+      const input = screen.getByLabelText(renameCase.label);
+      fireEvent.change(input, { target: { value: renameCase.blurInput } });
       await act(async () => {
         fireEvent.blur(input);
       });
 
-      expect(screen.queryByLabelText("Rename tab")).not.toBeInTheDocument();
-      expect(renameWindowMock).toHaveBeenCalledWith("runkit", "@1", "blur-name");
+      expect(screen.queryByLabelText(renameCase.label)).not.toBeInTheDocument();
+      expect(renameMock).toHaveBeenCalledWith(...renameCase.commitArgs(renameCase.blurExpected));
     });
 
-    it("empty input cancels without API call", async () => {
-      const { renameWindow: renameWindowMock } = await import("@/api/client");
-      vi.mocked(renameWindowMock).mockClear();
+    it.each(renameCases)("empty $kind input cancels without an API call", async (renameCase) => {
+      const api = await import("@/api/client");
+      const renameMock = renameCase.kind === "window" ? vi.mocked(api.renameWindow) : vi.mocked(api.renameSession);
+      renameMock.mockClear();
 
       renderSidebar();
-      fireEvent.doubleClick(screen.getByText("scratch"));
-      const input = screen.getByLabelText("Rename tab");
+      renameCase.start();
+      const input = screen.getByLabelText(renameCase.label);
       fireEvent.change(input, { target: { value: "   " } });
       fireEvent.keyDown(input, { key: "Enter" });
 
-      expect(screen.queryByLabelText("Rename tab")).not.toBeInTheDocument();
-      expect(renameWindowMock).not.toHaveBeenCalled();
+      expect(screen.queryByLabelText(renameCase.label)).not.toBeInTheDocument();
+      expect(renameMock).not.toHaveBeenCalled();
     });
 
-    it("unchanged name skips API call", async () => {
-      const { renameWindow: renameWindowMock } = await import("@/api/client");
-      vi.mocked(renameWindowMock).mockClear();
+    it.each(renameCases)("unchanged $kind input skips the API call", async (renameCase) => {
+      const api = await import("@/api/client");
+      const renameMock = renameCase.kind === "window" ? vi.mocked(api.renameWindow) : vi.mocked(api.renameSession);
+      renameMock.mockClear();
 
       renderSidebar();
-      fireEvent.doubleClick(screen.getByText("scratch"));
-      const input = screen.getByLabelText("Rename tab");
-      // Don't change the value — just press Enter
-      fireEvent.keyDown(input, { key: "Enter" });
-
-      expect(renameWindowMock).not.toHaveBeenCalled();
+      renameCase.start();
+      fireEvent.keyDown(screen.getByLabelText(renameCase.label), { key: "Enter" });
+      expect(renameMock).not.toHaveBeenCalled();
     });
 
-    it("double-click on window B cancels active edit on window A without committing", async () => {
-      const { renameWindow: renameWindowMock } = await import("@/api/client");
-      vi.mocked(renameWindowMock).mockClear();
+    it.each(renameCases)("starting a sibling $kind rename cancels the first", async (renameCase) => {
+      const api = await import("@/api/client");
+      const renameMock = renameCase.kind === "window" ? vi.mocked(api.renameWindow) : vi.mocked(api.renameSession);
+      renameMock.mockClear();
 
       renderSidebar();
-      // Start editing "main" (first occurrence is in tree)
-      fireEvent.doubleClick(screen.getAllByText("main")[0]);
-      const inputA = screen.getByLabelText("Rename tab");
-      fireEvent.change(inputA, { target: { value: "renamed-main" } });
+      renameCase.startPrimary();
+      const firstInput = screen.getByLabelText(renameCase.label);
+      fireEvent.change(firstInput, { target: { value: "renamed-first" } });
+      renameCase.startSibling();
 
-      // Now double-click "scratch" — should cancel A's edit without committing
-      fireEvent.doubleClick(screen.getByText("scratch"));
-      const inputB = screen.getByLabelText("Rename tab");
-      expect(inputB).toHaveValue("scratch");
-
-      // A's changed value should NOT have been committed
-      expect(renameWindowMock).not.toHaveBeenCalled();
+      expect(screen.getByLabelText(renameCase.label)).toHaveValue(renameCase.sibling);
+      expect(renameMock).not.toHaveBeenCalled();
     });
 
-    it("single-click navigates without triggering edit", () => {
+    it.each(renameCases)("single-click navigates without editing a $kind", (renameCase) => {
       const onSelectWindow = vi.fn();
       renderSidebar({ onSelectWindow });
-      fireEvent.click(screen.getByText("scratch"));
+      renameCase.navigate();
 
-      expect(onSelectWindow).toHaveBeenCalledWith("runkit", "run-kit", "@1");
-      expect(screen.queryByLabelText("Rename tab")).not.toBeInTheDocument();
-    });
-  });
-
-  describe("inline rename session", () => {
-    it("double-click on session name activates inline input", () => {
-      renderSidebar();
-      const nameSpan = getSessionRowNameSpan("run-kit");
-      fireEvent.doubleClick(nameSpan);
-      const input = screen.getByLabelText("Rename session");
-      expect(input).toBeInTheDocument();
-      expect(input).toHaveValue("run-kit");
+      expect(onSelectWindow).toHaveBeenCalledWith(...renameCase.navigateArgs);
+      expect(screen.queryByLabelText(renameCase.label)).not.toBeInTheDocument();
     });
 
-    it("Enter commits rename and calls renameSession", async () => {
-      const { renameSession: renameSessionMock } = await import("@/api/client");
-      vi.mocked(renameSessionMock).mockResolvedValue({ ok: true });
-
-      renderSidebar();
-      fireEvent.doubleClick(getSessionRowNameSpan("run-kit"));
-      const input = screen.getByLabelText("Rename session");
-      fireEvent.change(input, { target: { value: "staging" } });
-      await act(async () => {
-        fireEvent.keyDown(input, { key: "Enter" });
-      });
-
-      expect(screen.queryByLabelText("Rename session")).not.toBeInTheDocument();
-      expect(renameSessionMock).toHaveBeenCalledWith("runkit", "run-kit", "staging");
-    });
-
-    it("Escape cancels without calling renameSession", async () => {
-      const { renameSession: renameSessionMock } = await import("@/api/client");
-      vi.mocked(renameSessionMock).mockClear();
-
-      renderSidebar();
-      fireEvent.doubleClick(getSessionRowNameSpan("run-kit"));
-      const input = screen.getByLabelText("Rename session");
-      fireEvent.change(input, { target: { value: "staging" } });
-      fireEvent.keyDown(input, { key: "Escape" });
-
-      expect(screen.queryByLabelText("Rename session")).not.toBeInTheDocument();
-      expect(renameSessionMock).not.toHaveBeenCalled();
-    });
-
-    it("blur commits rename", async () => {
-      const { renameSession: renameSessionMock } = await import("@/api/client");
-      vi.mocked(renameSessionMock).mockResolvedValue({ ok: true });
-
-      renderSidebar();
-      fireEvent.doubleClick(getSessionRowNameSpan("run-kit"));
-      const input = screen.getByLabelText("Rename session");
-      // The typed hyphen live-converts to "_" (session-kind safe-name rule,
-      // 260722-ln4n) — the committed name is the converted one.
-      fireEvent.change(input, { target: { value: "blur-session" } });
-      await act(async () => {
-        fireEvent.blur(input);
-      });
-
-      expect(screen.queryByLabelText("Rename session")).not.toBeInTheDocument();
-      expect(renameSessionMock).toHaveBeenCalledWith("runkit", "run-kit", "blur_session");
-    });
-
-    it("live-converts unsafe chars as the user types (space → underscore)", () => {
+    it("live-converts unsafe session-name characters", () => {
       renderSidebar();
       fireEvent.doubleClick(getSessionRowNameSpan("run-kit"));
       const input = screen.getByLabelText("Rename session");
       fireEvent.change(input, { target: { value: "My problem" } });
-      // WYSIWYG: the input itself shows the safe form (260722-ln4n).
       expect(input).toHaveValue("My_problem");
     });
-
-    it("empty input cancels without API call", async () => {
-      const { renameSession: renameSessionMock } = await import("@/api/client");
-      vi.mocked(renameSessionMock).mockClear();
-
-      renderSidebar();
-      fireEvent.doubleClick(getSessionRowNameSpan("run-kit"));
-      const input = screen.getByLabelText("Rename session");
-      fireEvent.change(input, { target: { value: "   " } });
-      fireEvent.keyDown(input, { key: "Enter" });
-
-      expect(screen.queryByLabelText("Rename session")).not.toBeInTheDocument();
-      expect(renameSessionMock).not.toHaveBeenCalled();
-    });
-
-    it("unchanged name skips API call", async () => {
-      const { renameSession: renameSessionMock } = await import("@/api/client");
-      vi.mocked(renameSessionMock).mockClear();
-
-      renderSidebar();
-      fireEvent.doubleClick(getSessionRowNameSpan("run-kit"));
-      const input = screen.getByLabelText("Rename session");
-      // Don't change the value — just press Enter
-      fireEvent.keyDown(input, { key: "Enter" });
-
-      expect(renameSessionMock).not.toHaveBeenCalled();
-    });
-
-    it("double-click session B cancels session A edit without committing", async () => {
-      const { renameSession: renameSessionMock } = await import("@/api/client");
-      vi.mocked(renameSessionMock).mockClear();
-
-      renderSidebar();
-      // Start editing "run-kit"
-      fireEvent.doubleClick(getSessionRowNameSpan("run-kit"));
-      const inputA = screen.getByLabelText("Rename session");
-      fireEvent.change(inputA, { target: { value: "renamed-run-kit" } });
-
-      // Now double-click "ao-server" — should cancel A's edit without committing
-      fireEvent.doubleClick(screen.getByText("ao-server"));
-      const inputB = screen.getByLabelText("Rename session");
-      expect(inputB).toHaveValue("ao-server");
-
-      // A's changed value should NOT have been committed
-      expect(renameSessionMock).not.toHaveBeenCalled();
-    });
-
-    it("single-click navigates without triggering edit", () => {
-      const onSelectWindow = vi.fn();
-      renderSidebar({ onSelectWindow });
-      fireEvent.click(screen.getByLabelText("Navigate to run-kit"));
-
-      expect(onSelectWindow).toHaveBeenCalledWith("runkit", "run-kit", "@0");
-      expect(screen.queryByLabelText("Rename session")).not.toBeInTheDocument();
-    });
   });
+
 
   describe("cross-cancellation session↔window", () => {
     it("starting session edit cancels active window edit without committing", async () => {

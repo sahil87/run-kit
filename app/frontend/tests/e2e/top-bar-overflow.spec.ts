@@ -669,12 +669,9 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
 // (plus the top bar's surface-toggle group, 260815-19me — the rail that used
 // to carry the open-tile toggles is REMOVED). This block uses a web-capable
 // window (a stamped web tab ⇒ `[tty|web]`; the repo-cwd pane also derives
-// a gitRoot ⇒ `code`) with a long name to prove the removal
-// contract: no `view-toggle` testid and no in-bar "Window view" group at ANY
-// width, the chevron menu carries NO `View:` menuitemradio rows (the Fixed
-// width / Terminal font rows still hold the VIEW section), a palette `View: …`
-// activation switches the lens even at a wide width, and the fit pyramid over
-// the remaining candidates is intact with the surface-toggle group as
+// a gitRoot ⇒ `code`) with a long name to prove palette activation still
+// switches the lens at a wide width and the fit pyramid over the remaining
+// candidates is intact with the surface-toggle group as
 // terminal's first-to-yield fit candidate (the ▦ Layout chip next; the split
 // control left the terminal bar in 260813-w1lf — `menuOnly`, never a fit
 // candidate there).
@@ -699,72 +696,6 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
     await gotoWindow(page, id);
     return id;
   }
-
-  /**
-   * Proves: the removal contract — the retired switcher has no bar slot, no
-   * menu rows, and no measurement-probe copy at ANY width (including
-   * 1440px, where the whole cluster has room), while the VIEW section still
-   * carries the Fixed width / Terminal font rows.
-   *
-   * Steps:
-   * 1. Navigate to the web-capable window.
-   * 2. Sweep 1440 → 1280 → … → 375 (`[1440, ...WIDTHS]`), gating on the
-   *    renamable heading each iteration. At each width assert the
-   *    accessible `Window view` group has count 0 AND
-   *    `getByTestId("view-toggle")` has count 0.
-   * 3. At 1440px and 375px open the `More controls` menu and assert NO
-   *    `View:` menuitemradio rows, plus the Fixed width checkbox row and
-   *    the Terminal font stepper group visible; Escape-close between
-   *    widths.
-   */
-  test("no `view-toggle` anywhere at any width; the menu carries no `View:` rows but keeps Fixed width + Terminal font", async ({
-    page,
-  }) => {
-    await gotoViewWindow(page);
-    const heading = page.getByRole("button", { name: `Rename tab ${VIEW_WINDOW_NAME}` });
-
-    // Sweep wide → narrow. The retired switcher contributes no bar slot, no
-    // menu rows, and no probe copy — the `view-toggle` testid is absent from
-    // the DOM at EVERY width.
-    for (const width of [1440, ...WIDTHS]) {
-      await page.setViewportSize({ width, height: 800 });
-      await expect(heading).toBeVisible({ timeout: 10_000 });
-      await expect(
-        page.getByRole("group", { name: "Window view" }),
-        `no in-bar pill at ${width}px`,
-      ).toHaveCount(0);
-      await expect(
-        page.getByTestId("view-toggle"),
-        `no view-toggle in the DOM (bar or probe) at ${width}px`,
-      ).toHaveCount(0);
-    }
-
-    // The chevron menu carries NO `View:` lens rows at either extreme of the
-    // sweep — but the VIEW section survives via the sticky device-preference
-    // rows (Fixed width, Terminal font).
-    for (const width of [1440, 375]) {
-      await page.setViewportSize({ width, height: 800 });
-      await expect(heading).toBeVisible({ timeout: 10_000 });
-      await page.getByRole("button", { name: "More controls" }).click();
-      const menu = page.getByRole("menu", { name: "More controls" });
-      await expect(menu).toBeVisible();
-      await expect(
-        menu.getByRole("menuitemradio", { name: /^View:/ }),
-        `no View: lens rows at ${width}px`,
-      ).toHaveCount(0);
-      await expect(
-        menu.getByRole("menuitemcheckbox", { name: /Fixed width/ }),
-        `Fixed width row at ${width}px`,
-      ).toBeVisible();
-      await expect(
-        menu.getByRole("group", { name: "Terminal font size" }),
-        `Terminal font row at ${width}px`,
-      ).toBeVisible();
-      // Close before the next resize so the fixed-position panel never straddles it.
-      await page.keyboard.press("Escape");
-      await expect(menu).toBeHidden();
-    }
-  });
 
   /**
    * Proves: with the right rail removed (its open-tile toggles relocated

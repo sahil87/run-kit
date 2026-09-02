@@ -88,16 +88,10 @@ describe("ChromeProvider terminal font size", () => {
     expect(size()).toBe(18);
   });
 
-  it("clamps an out-of-range stored value on read (above max)", () => {
-    localStorage.setItem(FONT_KEY, "999");
+  it.each([["999", 24], ["3", 8]] as const)("clamps stored %s to %s", (stored, expected) => {
+    localStorage.setItem(FONT_KEY, stored);
     renderConsumer();
-    expect(size()).toBe(24);
-  });
-
-  it("clamps an out-of-range stored value on read (below min)", () => {
-    localStorage.setItem(FONT_KEY, "3");
-    renderConsumer();
-    expect(size()).toBe(8);
+    expect(size()).toBe(expected);
   });
 
   it("first increase from the unset state steps off the device default and persists (desktop 13 -> 14)", () => {
@@ -116,24 +110,17 @@ describe("ChromeProvider terminal font size", () => {
     expect(localStorage.getItem(FONT_KEY)).toBe("12");
   });
 
-  it("increase clamps at the max (24)", () => {
-    localStorage.setItem(FONT_KEY, "23");
+  it.each([
+    { stored: "23", action: "inc", expected: 24 },
+    { stored: "9", action: "dec", expected: 8 },
+  ])("$action clamps at $expected", ({ stored, action, expected }) => {
+    localStorage.setItem(FONT_KEY, stored);
     renderConsumer();
-    click("inc");
-    expect(size()).toBe(24);
-    click("inc");
-    expect(size()).toBe(24);
-    expect(localStorage.getItem(FONT_KEY)).toBe("24");
-  });
-
-  it("decrease clamps at the min (8)", () => {
-    localStorage.setItem(FONT_KEY, "9");
-    renderConsumer();
-    click("dec");
-    expect(size()).toBe(8);
-    click("dec");
-    expect(size()).toBe(8);
-    expect(localStorage.getItem(FONT_KEY)).toBe("8");
+    click(action);
+    expect(size()).toBe(expected);
+    click(action);
+    expect(size()).toBe(expected);
+    expect(localStorage.getItem(FONT_KEY)).toBe(String(expected));
   });
 
   it("reset forgets the preference (removes the key) and reverts to the device default", () => {
@@ -165,30 +152,39 @@ describe("ChromeProvider terminal font size", () => {
   });
 });
 
-const COMPOSE_KEY = "runkit-compose-strip";
+const booleanPreferences = [
+  { name: "compose strip", key: "runkit-compose-strip" },
+  { name: "scroll lock", key: "runkit-scroll-lock" },
+] as const;
 
-function ComposeStripConsumer() {
-  const { composeStripEnabled } = useChromeState();
-  const { toggleComposeStrip } = useChromeDispatch();
+type BooleanPreferenceName = (typeof booleanPreferences)[number]["name"];
+
+function BooleanPreferenceConsumer({ name }: { name: BooleanPreferenceName }) {
+  const { composeStripEnabled, scrollLocked } = useChromeState();
+  const { toggleComposeStrip, setScrollLocked } = useChromeDispatch();
+  const value = name === "compose strip" ? composeStripEnabled : scrollLocked;
+  const toggle = name === "compose strip"
+    ? toggleComposeStrip
+    : () => setScrollLocked(!scrollLocked);
   return (
     <div>
-      <span data-testid="enabled">{String(composeStripEnabled)}</span>
-      <button onClick={toggleComposeStrip}>toggle</button>
+      <span data-testid="boolean-value">{String(value)}</span>
+      <button onClick={toggle}>toggle</button>
     </div>
   );
 }
 
-function renderComposeConsumer() {
+function renderBooleanPreference(name: BooleanPreferenceName) {
   return render(
     <ChromeProvider>
-      <ComposeStripConsumer />
+      <BooleanPreferenceConsumer name={name} />
     </ChromeProvider>,
   );
 }
 
-const enabled = () => screen.getByTestId("enabled").textContent;
+const booleanValue = () => screen.getByTestId("boolean-value").textContent;
 
-describe("ChromeProvider compose-strip preference", () => {
+describe("ChromeProvider boolean preferences", () => {
   beforeEach(() => {
     localStorage.clear();
     mockViewport(false);
@@ -200,122 +196,46 @@ describe("ChromeProvider compose-strip preference", () => {
     localStorage.clear();
   });
 
-  it("defaults to off (false) when unset", () => {
-    renderComposeConsumer();
-    expect(enabled()).toBe("false");
-    expect(localStorage.getItem(COMPOSE_KEY)).toBeNull();
+  it.each(booleanPreferences)("$name defaults to false when unset", ({ name, key }) => {
+    renderBooleanPreference(name);
+    expect(booleanValue()).toBe("false");
+    expect(localStorage.getItem(key)).toBeNull();
   });
 
-  it("rehydrates an enabled preference from localStorage on init", () => {
-    localStorage.setItem(COMPOSE_KEY, "true");
-    renderComposeConsumer();
-    expect(enabled()).toBe("true");
+  it.each(booleanPreferences)("$name rehydrates an enabled preference", ({ name, key }) => {
+    localStorage.setItem(key, "true");
+    renderBooleanPreference(name);
+    expect(booleanValue()).toBe("true");
   });
 
-  it("toggles on and persists 'true'", () => {
-    renderComposeConsumer();
+  it.each(booleanPreferences)("$name toggles on and persists", ({ name, key }) => {
+    renderBooleanPreference(name);
     click("toggle");
-    expect(enabled()).toBe("true");
-    expect(localStorage.getItem(COMPOSE_KEY)).toBe("true");
+    expect(booleanValue()).toBe("true");
+    expect(localStorage.getItem(key)).toBe("true");
   });
 
-  it("toggles back off and persists 'false'", () => {
-    localStorage.setItem(COMPOSE_KEY, "true");
-    renderComposeConsumer();
-    expect(enabled()).toBe("true");
+  it.each(booleanPreferences)("$name toggles off and persists", ({ name, key }) => {
+    localStorage.setItem(key, "true");
+    renderBooleanPreference(name);
     click("toggle");
-    expect(enabled()).toBe("false");
-    expect(localStorage.getItem(COMPOSE_KEY)).toBe("false");
+    expect(booleanValue()).toBe("false");
+    expect(localStorage.getItem(key)).toBe("false");
   });
 
-  it("survives a localStorage write throw without breaking (try/catch noop)", () => {
-    renderComposeConsumer();
+  it.each(booleanPreferences)("$name survives a storage write failure", ({ name }) => {
+    renderBooleanPreference(name);
     const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("quota exceeded");
     });
     expect(() => click("toggle")).not.toThrow();
-    expect(enabled()).toBe("true");
+    expect(booleanValue()).toBe("true");
     setItem.mockRestore();
   });
-});
 
-const SCROLL_LOCK_KEY = "runkit-scroll-lock";
-
-function ScrollLockConsumer() {
-  const { scrollLocked } = useChromeState();
-  const { setScrollLocked } = useChromeDispatch();
-  return (
-    <div>
-      <span data-testid="locked">{String(scrollLocked)}</span>
-      <button onClick={() => setScrollLocked(true)}>lock</button>
-      <button onClick={() => setScrollLocked(false)}>unlock</button>
-    </div>
-  );
-}
-
-function renderScrollLockConsumer() {
-  return render(
-    <ChromeProvider>
-      <ScrollLockConsumer />
-    </ChromeProvider>,
-  );
-}
-
-const locked = () => screen.getByTestId("locked").textContent;
-
-describe("ChromeProvider scroll-lock preference", () => {
-  beforeEach(() => {
-    localStorage.clear();
-    mockViewport(false);
-  });
-  afterEach(() => {
-    cleanup();
-    vi.restoreAllMocks();
-    vi.unstubAllGlobals();
-    localStorage.clear();
-  });
-
-  it("defaults to unlocked (false) when unset", () => {
-    renderScrollLockConsumer();
-    expect(locked()).toBe("false");
-    expect(localStorage.getItem(SCROLL_LOCK_KEY)).toBeNull();
-  });
-
-  it("rehydrates a locked preference from localStorage on init", () => {
-    localStorage.setItem(SCROLL_LOCK_KEY, "true");
-    renderScrollLockConsumer();
-    expect(locked()).toBe("true");
-  });
-
-  it("locks and persists 'true'", () => {
-    renderScrollLockConsumer();
-    click("lock");
-    expect(locked()).toBe("true");
-    expect(localStorage.getItem(SCROLL_LOCK_KEY)).toBe("true");
-  });
-
-  it("unlocks and persists 'false'", () => {
-    localStorage.setItem(SCROLL_LOCK_KEY, "true");
-    renderScrollLockConsumer();
-    expect(locked()).toBe("true");
-    click("unlock");
-    expect(locked()).toBe("false");
-    expect(localStorage.getItem(SCROLL_LOCK_KEY)).toBe("false");
-  });
-
-  it("degrades to unlocked on a corrupt stored value", () => {
-    localStorage.setItem(SCROLL_LOCK_KEY, "banana");
-    renderScrollLockConsumer();
-    expect(locked()).toBe("false");
-  });
-
-  it("survives a localStorage write throw without breaking (try/catch noop)", () => {
-    renderScrollLockConsumer();
-    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-      throw new Error("quota exceeded");
-    });
-    expect(() => click("lock")).not.toThrow();
-    expect(locked()).toBe("true");
-    setItem.mockRestore();
+  it("scroll lock degrades to false for a corrupt stored value", () => {
+    localStorage.setItem("runkit-scroll-lock", "banana");
+    renderBooleanPreference("scroll lock");
+    expect(booleanValue()).toBe("false");
   });
 });

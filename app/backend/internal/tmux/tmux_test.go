@@ -2543,665 +2543,379 @@ func withSessionOrderTmux(t *testing.T) string {
 	return server
 }
 
-func TestGetSessionOrder_unsetReturnsEmpty(t *testing.T) {
-	server := withSessionOrderTmux(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	got, err := GetSessionOrder(ctx, server)
-	if err != nil {
-		t.Fatalf("GetSessionOrder unset: %v", err)
-	}
-	if len(got) != 0 {
-		t.Errorf("got %v, want empty", got)
+func setRawServerOption(t *testing.T, ctx context.Context, server, option, value string) {
+	t.Helper()
+	args := append(serverArgs(server), "set-option", "-s", option, value)
+	if out, err := exec.CommandContext(ctx, "tmux", args...).CombinedOutput(); err != nil {
+		t.Fatalf("set %s: %v\n%s", option, err, string(out))
 	}
 }
 
-func TestSetSessionOrder_roundTrip(t *testing.T) {
+func unsetRawServerOption(t *testing.T, ctx context.Context, server, option string) {
+	t.Helper()
+	args := append(serverArgs(server), "set-option", "-s", "-u", option)
+	if out, err := exec.CommandContext(ctx, "tmux", args...).CombinedOutput(); err != nil {
+		t.Fatalf("unset %s: %v\n%s", option, err, string(out))
+	}
+}
+
+func TestSessionOrder(t *testing.T) {
 	server := withSessionOrderTmux(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	want := []string{"main", "dev", "scratch"}
-	if err := SetSessionOrder(ctx, server, want); err != nil {
-		t.Fatalf("SetSessionOrder: %v", err)
-	}
-	got, err := GetSessionOrder(ctx, server)
-	if err != nil {
-		t.Fatalf("GetSessionOrder: %v", err)
-	}
-	if len(got) != len(want) {
-		t.Fatalf("len got=%d want=%d (got=%v want=%v)", len(got), len(want), got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("idx %d: got %q want %q", i, got[i], want[i])
+	t.Run("unset returns empty", func(t *testing.T) {
+		got, err := GetSessionOrder(ctx, server)
+		if err != nil {
+			t.Fatalf("GetSessionOrder unset: %v", err)
 		}
-	}
-}
-
-func TestSetSessionOrder_specialCharacters(t *testing.T) {
-	server := withSessionOrderTmux(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// JSON-significant characters and non-ASCII. tmux session names cannot
-	// contain colons or periods (per validate.ValidateName) and the forbidden
-	// shell metacharacter set, so we exercise commas, quotes, backslashes
-	// (encoded as \\ in JSON), and unicode — all of which JSON escapes safely.
-	want := []string{`foo,bar`, `x"y`, `back\slash`, "café", "α-β"}
-	if err := SetSessionOrder(ctx, server, want); err != nil {
-		t.Fatalf("SetSessionOrder: %v", err)
-	}
-	got, err := GetSessionOrder(ctx, server)
-	if err != nil {
-		t.Fatalf("GetSessionOrder: %v", err)
-	}
-	if len(got) != len(want) {
-		t.Fatalf("len got=%d want=%d", len(got), len(want))
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("idx %d: got %q want %q", i, got[i], want[i])
+		if len(got) != 0 {
+			t.Errorf("got %v, want empty", got)
 		}
+	})
+
+	cases := []struct {
+		name string
+		want []string
+	}{
+		{name: "round trip", want: []string{"main", "dev", "scratch"}},
+		{name: "special characters", want: []string{`foo,bar`, `x"y`, `back\slash`, "café", "α-β"}},
+		{name: "empty slice", want: []string{}},
+		{name: "nil treated as empty", want: nil},
 	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := SetSessionOrder(ctx, server, tc.want); err != nil {
+				t.Fatalf("SetSessionOrder: %v", err)
+			}
+			got, err := GetSessionOrder(ctx, server)
+			if err != nil {
+				t.Fatalf("GetSessionOrder: %v", err)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("len got=%d want=%d (got=%v want=%v)", len(got), len(tc.want), got, tc.want)
+			}
+			for i := range tc.want {
+				if got[i] != tc.want[i] {
+					t.Errorf("idx %d: got %q want %q", i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+
+	t.Run("invalid JSON returns syntax error", func(t *testing.T) {
+		setRawServerOption(t, ctx, server, SessionOrderOption, "not-json")
+		_, err := GetSessionOrder(ctx, server)
+		if err == nil {
+			t.Fatal("expected JSON decode error, got nil")
+		}
+		var syntaxErr *json.SyntaxError
+		if !errors.As(err, &syntaxErr) {
+			t.Errorf("expected wrapped *json.SyntaxError, got %v", err)
+		}
+	})
 }
 
-func TestSetSessionOrder_emptySliceRoundTrip(t *testing.T) {
+func TestServerRank(t *testing.T) {
 	server := withSessionOrderTmux(t)
+	deadServer := testSocketName("unit-dead")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := SetSessionOrder(ctx, server, []string{}); err != nil {
-		t.Fatalf("SetSessionOrder empty: %v", err)
-	}
-	got, err := GetSessionOrder(ctx, server)
-	if err != nil {
-		t.Fatalf("GetSessionOrder: %v", err)
-	}
-	if len(got) != 0 {
-		t.Errorf("got %v, want empty", got)
-	}
+	t.Run("unset returns nil", func(t *testing.T) {
+		got, err := GetServerRank(ctx, server)
+		if err != nil {
+			t.Fatalf("GetServerRank unset: %v", err)
+		}
+		if got != nil {
+			t.Errorf("got %v, want nil (unset)", *got)
+		}
+	})
+
+	t.Run("no server returns nil", func(t *testing.T) {
+		got, err := GetServerRank(ctx, deadServer)
+		if err != nil {
+			t.Fatalf("GetServerRank on dead server: %v", err)
+		}
+		if got != nil {
+			t.Errorf("got %v, want nil (no server)", *got)
+		}
+	})
+
+	t.Run("set and overwrite round trip", func(t *testing.T) {
+		for _, want := range []int{3, 0} {
+			if err := SetServerRank(ctx, server, want); err != nil {
+				t.Fatalf("SetServerRank(%d): %v", want, err)
+			}
+			got, err := GetServerRank(ctx, server)
+			if err != nil {
+				t.Fatalf("GetServerRank after %d: %v", want, err)
+			}
+			if got == nil || *got != want {
+				t.Fatalf("got %v, want %d", got, want)
+			}
+		}
+	})
+
+	t.Run("malformed value returns error", func(t *testing.T) {
+		setRawServerOption(t, ctx, server, ServerRankOption, "not-an-int")
+		if _, err := GetServerRank(ctx, server); err == nil {
+			t.Fatal("expected decode error for malformed rank, got nil")
+		}
+	})
 }
 
-func TestSetSessionOrder_nilTreatedAsEmpty(t *testing.T) {
+func TestServerOrigin(t *testing.T) {
 	server := withSessionOrderTmux(t)
+	deadServer := testSocketName("unit-dead")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := SetSessionOrder(ctx, server, nil); err != nil {
-		t.Fatalf("SetSessionOrder nil: %v", err)
+	for _, tc := range []struct {
+		name   string
+		server string
+	}{
+		{name: "unset returns empty", server: server},
+		{name: "no server returns empty", server: deadServer},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := GetServerOrigin(ctx, tc.server)
+			if err != nil {
+				t.Fatalf("GetServerOrigin: %v", err)
+			}
+			if got != "" {
+				t.Errorf("got %q, want empty", got)
+			}
+		})
 	}
-	got, err := GetSessionOrder(ctx, server)
-	if err != nil {
-		t.Fatalf("GetSessionOrder: %v", err)
-	}
-	if len(got) != 0 {
-		t.Errorf("got %v, want empty", got)
-	}
+
+	t.Run("set and overwrite round trip", func(t *testing.T) {
+		const origin = "http://127.0.0.1:3001"
+		if err := SetServerOrigin(ctx, server, origin); err != nil {
+			t.Fatalf("SetServerOrigin: %v", err)
+		}
+
+		args := append(serverArgs(server), "show-option", "-sv", OriginOption)
+		out, err := exec.CommandContext(ctx, "tmux", args...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("raw show-option: %v\n%s", err, string(out))
+		}
+		if got := strings.TrimSpace(string(out)); got != origin {
+			t.Errorf("raw show-option = %q, want %q", got, origin)
+		}
+
+		for _, want := range []string{origin, "http://127.0.0.1:3005"} {
+			if want != origin {
+				if err := SetServerOrigin(ctx, server, want); err != nil {
+					t.Fatalf("SetServerOrigin overwrite: %v", err)
+				}
+			}
+			got, err := GetServerOrigin(ctx, server)
+			if err != nil {
+				t.Fatalf("GetServerOrigin: %v", err)
+			}
+			if got != want {
+				t.Fatalf("got %q, want %q", got, want)
+			}
+		}
+	})
 }
 
-func TestGetSessionOrder_invalidJSONReturnsSyntaxError(t *testing.T) {
+func TestEphemeralServerFlag(t *testing.T) {
 	server := withSessionOrderTmux(t)
+	deadServer := testSocketName("unit-dead")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Plant invalid JSON via raw set-option (bypasses our SetSessionOrder
-	// encoder).
-	args := append(serverArgs(server), "set-option", "-s", SessionOrderOption, "not-json")
-	cmd := exec.CommandContext(ctx, "tmux", args...)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("plant invalid JSON: %v\n%s", err, string(out))
+	cases := []struct {
+		name    string
+		server  string
+		prepare func(*testing.T)
+		want    bool
+	}{
+		{name: "current option set", server: server, prepare: func(t *testing.T) {
+			setRawServerOption(t, ctx, server, EphemeralOption, "1")
+		}, want: true},
+		{name: "unset after set", server: server, prepare: func(t *testing.T) {
+			setRawServerOption(t, ctx, server, EphemeralOption, "1")
+			unsetRawServerOption(t, ctx, server, EphemeralOption)
+		}},
+		{name: "never set", server: server},
+		{name: "no server", server: deadServer},
+		{name: "mark reads back", server: server, prepare: func(t *testing.T) {
+			if err := MarkServerEphemeral(ctx, server); err != nil {
+				t.Fatalf("MarkServerEphemeral: %v", err)
+			}
+		}, want: true},
+		{name: "legacy option set", server: server, prepare: func(t *testing.T) {
+			setRawServerOption(t, ctx, server, LegacyEphemeralOption, "1")
+		}, want: true},
 	}
 
-	_, err := GetSessionOrder(ctx, server)
-	if err == nil {
-		t.Fatal("expected JSON decode error, got nil")
-	}
-	var syntaxErr *json.SyntaxError
-	if !errors.As(err, &syntaxErr) {
-		t.Errorf("expected wrapped *json.SyntaxError, got %v", err)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.server == server {
+				unsetRawServerOption(t, ctx, server, EphemeralOption)
+				unsetRawServerOption(t, ctx, server, LegacyEphemeralOption)
+			}
+			if tc.prepare != nil {
+				tc.prepare(t)
+			}
+			got, err := IsEphemeralServer(ctx, tc.server)
+			if err != nil {
+				t.Fatalf("IsEphemeralServer: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 
-func TestGetServerRank_unsetReturnsNil(t *testing.T) {
+func TestProtectedServerFlag(t *testing.T) {
 	server := withSessionOrderTmux(t)
+	deadServer := testSocketName("unit-dead")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	got, err := GetServerRank(ctx, server)
-	if err != nil {
-		t.Fatalf("GetServerRank unset: %v", err)
+	cases := []struct {
+		name    string
+		server  string
+		prepare func(*testing.T)
+		want    bool
+	}{
+		{name: "current option set", server: server, prepare: func(t *testing.T) {
+			setRawServerOption(t, ctx, server, ProtectedOption, "1")
+		}, want: true},
+		{name: "unset after set", server: server, prepare: func(t *testing.T) {
+			if err := MarkServerProtected(ctx, server); err != nil {
+				t.Fatalf("MarkServerProtected: %v", err)
+			}
+			if err := UnmarkServerProtected(ctx, server); err != nil {
+				t.Fatalf("UnmarkServerProtected: %v", err)
+			}
+		}},
+		{name: "never set", server: server},
+		{name: "no server", server: deadServer},
+		{name: "legacy option set", server: server, prepare: func(t *testing.T) {
+			setRawServerOption(t, ctx, server, LegacyProtectedOption, "1")
+		}, want: true},
+		{name: "unmark clears legacy option", server: server, prepare: func(t *testing.T) {
+			setRawServerOption(t, ctx, server, LegacyProtectedOption, "1")
+			if err := UnmarkServerProtected(ctx, server); err != nil {
+				t.Fatalf("UnmarkServerProtected: %v", err)
+			}
+		}},
 	}
-	if got != nil {
-		t.Errorf("got %v, want nil (unset)", *got)
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.server == server {
+				unsetRawServerOption(t, ctx, server, ProtectedOption)
+				unsetRawServerOption(t, ctx, server, LegacyProtectedOption)
+			}
+			if tc.prepare != nil {
+				tc.prepare(t)
+			}
+			got, err := IsProtectedServer(ctx, tc.server)
+			if err != nil {
+				t.Fatalf("IsProtectedServer: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 
-func TestGetServerRank_noServerReturnsNil(t *testing.T) {
-	if _, err := exec.LookPath("tmux"); err != nil {
-		t.Skip("tmux not available — skipping integration test")
-	}
-	// A socket name with no running server: the read must degrade to nil, not
-	// bubble a "no server running" / "failed to connect" error.
-	server := testSocketName("unit")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	got, err := GetServerRank(ctx, server)
-	if err != nil {
-		t.Fatalf("GetServerRank on dead server: %v", err)
-	}
-	if got != nil {
-		t.Errorf("got %v, want nil (no server)", *got)
-	}
-}
-
-func TestSetServerRank_roundTrip(t *testing.T) {
+func TestGuardedServerFlag(t *testing.T) {
 	server := withSessionOrderTmux(t)
+	deadServer := testSocketName("unit-dead")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := SetServerRank(ctx, server, 3); err != nil {
-		t.Fatalf("SetServerRank: %v", err)
-	}
-	got, err := GetServerRank(ctx, server)
-	if err != nil {
-		t.Fatalf("GetServerRank: %v", err)
-	}
-	if got == nil || *got != 3 {
-		t.Fatalf("got %v, want 3", got)
+	cases := []struct {
+		name    string
+		server  string
+		prepare func(*testing.T)
+		want    bool
+	}{
+		{name: "daemon name", server: productionDaemonServer, want: true},
+		{name: "marked server", server: server, prepare: func(t *testing.T) {
+			if err := MarkServerProtected(ctx, server); err != nil {
+				t.Fatalf("MarkServerProtected: %v", err)
+			}
+		}, want: true},
+		{name: "unmarked server", server: server},
+		{name: "dead server", server: deadServer},
 	}
 
-	// Overwrite replaces (0 is a valid rank — the first server).
-	if err := SetServerRank(ctx, server, 0); err != nil {
-		t.Fatalf("SetServerRank overwrite: %v", err)
-	}
-	got, err = GetServerRank(ctx, server)
-	if err != nil {
-		t.Fatalf("GetServerRank after overwrite: %v", err)
-	}
-	if got == nil || *got != 0 {
-		t.Fatalf("got %v, want 0 after overwrite", got)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.server == server {
+				unsetRawServerOption(t, ctx, server, ProtectedOption)
+				unsetRawServerOption(t, ctx, server, LegacyProtectedOption)
+			}
+			if tc.prepare != nil {
+				tc.prepare(t)
+			}
+			got, err := IsGuardedServer(ctx, tc.server)
+			if err != nil {
+				t.Fatalf("IsGuardedServer: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 
-func TestGetServerRank_malformedValueReturnsError(t *testing.T) {
+func TestManagedServerFlag(t *testing.T) {
 	server := withSessionOrderTmux(t)
+	deadServer := testSocketName("unit-dead")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Plant a non-integer value via raw set-option (bypasses SetServerRank).
-	args := append(serverArgs(server), "set-option", "-s", ServerRankOption, "not-an-int")
-	if out, err := exec.CommandContext(ctx, "tmux", args...).CombinedOutput(); err != nil {
-		t.Fatalf("plant malformed rank: %v\n%s", err, string(out))
+	cases := []struct {
+		name    string
+		server  string
+		prepare func(*testing.T)
+		want    bool
+	}{
+		{name: "marked server", server: server, prepare: func(t *testing.T) {
+			if err := MarkServerManaged(ctx, server); err != nil {
+				t.Fatalf("MarkServerManaged: %v", err)
+			}
+		}, want: true},
+		{name: "unset after set", server: server, prepare: func(t *testing.T) {
+			if err := MarkServerManaged(ctx, server); err != nil {
+				t.Fatalf("MarkServerManaged: %v", err)
+			}
+			if err := UnmarkServerManaged(ctx, server); err != nil {
+				t.Fatalf("UnmarkServerManaged: %v", err)
+			}
+		}},
+		{name: "unmarked server", server: server},
+		{name: "dead server", server: deadServer},
+		{name: "daemon name", server: productionDaemonServer, want: true},
 	}
 
-	_, err := GetServerRank(ctx, server)
-	if err == nil {
-		t.Fatal("expected decode error for malformed rank, got nil")
-	}
-}
-
-func TestGetServerOrigin_unsetReturnsEmpty(t *testing.T) {
-	server := withSessionOrderTmux(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	got, err := GetServerOrigin(ctx, server)
-	if err != nil {
-		t.Fatalf("GetServerOrigin unset: %v", err)
-	}
-	if got != "" {
-		t.Errorf("got %q, want \"\" (unset)", got)
-	}
-}
-
-func TestGetServerOrigin_noServerReturnsEmpty(t *testing.T) {
-	if _, err := exec.LookPath("tmux"); err != nil {
-		t.Skip("tmux not available — skipping integration test")
-	}
-	// A socket name with no running server: the read must degrade to "", not
-	// bubble a "no server running" / "failed to connect" error.
-	server := testSocketName("unit")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	got, err := GetServerOrigin(ctx, server)
-	if err != nil {
-		t.Fatalf("GetServerOrigin on dead server: %v", err)
-	}
-	if got != "" {
-		t.Errorf("got %q, want \"\" (no server)", got)
-	}
-}
-
-func TestSetServerOrigin_roundTrip(t *testing.T) {
-	server := withSessionOrderTmux(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	const origin = "http://127.0.0.1:3001"
-	if err := SetServerOrigin(ctx, server, origin); err != nil {
-		t.Fatalf("SetServerOrigin: %v", err)
-	}
-
-	// Round-trip through the raw tmux CLI, byte-equal — this is what a pane-side
-	// `show-option -sv @rk_srv_origin` (the resolver's read) sees.
-	args := append(serverArgs(server), "show-option", "-sv", OriginOption)
-	out, err := exec.CommandContext(ctx, "tmux", args...).CombinedOutput()
-	if err != nil {
-		t.Fatalf("raw show-option: %v\n%s", err, string(out))
-	}
-	if got := strings.TrimSpace(string(out)); got != origin {
-		t.Errorf("raw show-option = %q, want %q", got, origin)
-	}
-
-	got, err := GetServerOrigin(ctx, server)
-	if err != nil {
-		t.Fatalf("GetServerOrigin: %v", err)
-	}
-	if got != origin {
-		t.Fatalf("got %q, want %q", got, origin)
-	}
-
-	// Overwrite replaces (a daemon restarted on a new port re-stamps).
-	const restarted = "http://127.0.0.1:3005"
-	if err := SetServerOrigin(ctx, server, restarted); err != nil {
-		t.Fatalf("SetServerOrigin overwrite: %v", err)
-	}
-	got, err = GetServerOrigin(ctx, server)
-	if err != nil {
-		t.Fatalf("GetServerOrigin after overwrite: %v", err)
-	}
-	if got != restarted {
-		t.Fatalf("got %q, want %q after overwrite", got, restarted)
-	}
-}
-
-func TestIsEphemeralServer_setReturnsTrue(t *testing.T) {
-	server := withSessionOrderTmux(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	args := append(serverArgs(server), "set-option", "-s", EphemeralOption, "1")
-	if out, err := exec.CommandContext(ctx, "tmux", args...).CombinedOutput(); err != nil {
-		t.Fatalf("set %s: %v\n%s", EphemeralOption, err, string(out))
-	}
-
-	got, err := IsEphemeralServer(ctx, server)
-	if err != nil {
-		t.Fatalf("IsEphemeralServer marked: %v", err)
-	}
-	if !got {
-		t.Error("got false, want true (option set to 1)")
-	}
-}
-
-func TestIsEphemeralServer_unsetAfterSetReturnsFalse(t *testing.T) {
-	server := withSessionOrderTmux(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	setArgs := append(serverArgs(server), "set-option", "-s", EphemeralOption, "1")
-	if out, err := exec.CommandContext(ctx, "tmux", setArgs...).CombinedOutput(); err != nil {
-		t.Fatalf("set %s: %v\n%s", EphemeralOption, err, string(out))
-	}
-	// Un-setting promotes the server back to durable.
-	unsetArgs := append(serverArgs(server), "set-option", "-s", "-u", EphemeralOption)
-	if out, err := exec.CommandContext(ctx, "tmux", unsetArgs...).CombinedOutput(); err != nil {
-		t.Fatalf("unset %s: %v\n%s", EphemeralOption, err, string(out))
-	}
-
-	got, err := IsEphemeralServer(ctx, server)
-	if err != nil {
-		t.Fatalf("IsEphemeralServer after unset: %v", err)
-	}
-	if got {
-		t.Error("got true, want false (option unset)")
-	}
-}
-
-func TestIsEphemeralServer_neverSetReturnsFalse(t *testing.T) {
-	server := withSessionOrderTmux(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	got, err := IsEphemeralServer(ctx, server)
-	if err != nil {
-		t.Fatalf("IsEphemeralServer unset: %v", err)
-	}
-	if got {
-		t.Error("got true, want false (option never set)")
-	}
-}
-
-func TestIsEphemeralServer_noServerReturnsFalse(t *testing.T) {
-	if _, err := exec.LookPath("tmux"); err != nil {
-		t.Skip("tmux not available — skipping integration test")
-	}
-	// A socket name with no running server: the read must degrade to false,
-	// not bubble a "no server running" / "failed to connect" error — liveness
-	// is the caller's concern.
-	server := testSocketName("unit")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	got, err := IsEphemeralServer(ctx, server)
-	if err != nil {
-		t.Fatalf("IsEphemeralServer on dead server: %v", err)
-	}
-	if got {
-		t.Error("got true, want false (no server)")
-	}
-}
-
-func TestMarkServerEphemeral_readsBackTrue(t *testing.T) {
-	server := withSessionOrderTmux(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := MarkServerEphemeral(ctx, server); err != nil {
-		t.Fatalf("MarkServerEphemeral: %v", err)
-	}
-
-	got, err := IsEphemeralServer(ctx, server)
-	if err != nil {
-		t.Fatalf("IsEphemeralServer after mark: %v", err)
-	}
-	if !got {
-		t.Error("got false, want true (MarkServerEphemeral wrote the mark)")
-	}
-}
-
-func TestIsProtectedServer_setReturnsTrue(t *testing.T) {
-	server := withSessionOrderTmux(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	args := append(serverArgs(server), "set-option", "-s", ProtectedOption, "1")
-	if out, err := exec.CommandContext(ctx, "tmux", args...).CombinedOutput(); err != nil {
-		t.Fatalf("set %s: %v\n%s", ProtectedOption, err, string(out))
-	}
-
-	got, err := IsProtectedServer(ctx, server)
-	if err != nil {
-		t.Fatalf("IsProtectedServer marked: %v", err)
-	}
-	if !got {
-		t.Error("got false, want true (option set to 1)")
-	}
-}
-
-func TestIsProtectedServer_unsetAfterSetReturnsFalse(t *testing.T) {
-	server := withSessionOrderTmux(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := MarkServerProtected(ctx, server); err != nil {
-		t.Fatalf("MarkServerProtected: %v", err)
-	}
-	// Un-setting demotes the server back to normal.
-	if err := UnmarkServerProtected(ctx, server); err != nil {
-		t.Fatalf("UnmarkServerProtected: %v", err)
-	}
-
-	got, err := IsProtectedServer(ctx, server)
-	if err != nil {
-		t.Fatalf("IsProtectedServer after unset: %v", err)
-	}
-	if got {
-		t.Error("got true, want false (option unset)")
-	}
-}
-
-func TestIsProtectedServer_neverSetReturnsFalse(t *testing.T) {
-	server := withSessionOrderTmux(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	got, err := IsProtectedServer(ctx, server)
-	if err != nil {
-		t.Fatalf("IsProtectedServer unset: %v", err)
-	}
-	if got {
-		t.Error("got true, want false (option never set)")
-	}
-}
-
-func TestIsProtectedServer_noServerReturnsFalse(t *testing.T) {
-	if _, err := exec.LookPath("tmux"); err != nil {
-		t.Skip("tmux not available — skipping integration test")
-	}
-	// A socket name with no running server: the read must degrade to false,
-	// not bubble a "no server running" / "failed to connect" error — liveness
-	// is the caller's concern.
-	server := testSocketName("unit")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	got, err := IsProtectedServer(ctx, server)
-	if err != nil {
-		t.Fatalf("IsProtectedServer on dead server: %v", err)
-	}
-	if got {
-		t.Error("got true, want false (no server)")
-	}
-}
-
-func TestIsEphemeralServer_legacyOnlyReturnsTrue(t *testing.T) {
-	server := withSessionOrderTmux(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	args := append(serverArgs(server), "set-option", "-s", LegacyEphemeralOption, "1")
-	if out, err := exec.CommandContext(ctx, "tmux", args...).CombinedOutput(); err != nil {
-		t.Fatalf("set %s: %v\n%s", LegacyEphemeralOption, err, string(out))
-	}
-
-	got, err := IsEphemeralServer(ctx, server)
-	if err != nil {
-		t.Fatalf("IsEphemeralServer legacy-marked: %v", err)
-	}
-	if !got {
-		t.Error("got false, want true (legacy mark dual-read)")
-	}
-}
-
-func TestIsProtectedServer_legacyOnlyReturnsTrue(t *testing.T) {
-	server := withSessionOrderTmux(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	args := append(serverArgs(server), "set-option", "-s", LegacyProtectedOption, "1")
-	if out, err := exec.CommandContext(ctx, "tmux", args...).CombinedOutput(); err != nil {
-		t.Fatalf("set %s: %v\n%s", LegacyProtectedOption, err, string(out))
-	}
-
-	got, err := IsProtectedServer(ctx, server)
-	if err != nil {
-		t.Fatalf("IsProtectedServer legacy-marked: %v", err)
-	}
-	if !got {
-		t.Error("got false, want true (legacy mark dual-read)")
-	}
-}
-
-func TestUnmarkServerProtected_clearsBothNames(t *testing.T) {
-	server := withSessionOrderTmux(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// A demote must disarm the guard whichever name armed it.
-	args := append(serverArgs(server), "set-option", "-s", LegacyProtectedOption, "1")
-	if out, err := exec.CommandContext(ctx, "tmux", args...).CombinedOutput(); err != nil {
-		t.Fatalf("set %s: %v\n%s", LegacyProtectedOption, err, string(out))
-	}
-
-	if err := UnmarkServerProtected(ctx, server); err != nil {
-		t.Fatalf("UnmarkServerProtected: %v", err)
-	}
-	got, err := IsProtectedServer(ctx, server)
-	if err != nil {
-		t.Fatalf("IsProtectedServer after unmark: %v", err)
-	}
-	if got {
-		t.Error("got true, want false (legacy mark must be disarmed by unmark)")
-	}
-}
-
-func TestIsGuardedServer_daemonNameReturnsTrue(t *testing.T) {
-	// Derived protection needs no live server and never touches tmux — the
-	// short-circuit must hold even with no tmux binary/socket involved.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	got, err := IsGuardedServer(ctx, productionDaemonServer)
-	if err != nil {
-		t.Fatalf("IsGuardedServer daemon: %v", err)
-	}
-	if !got {
-		t.Error("got false, want true (daemon protected by derivation)")
-	}
-}
-
-func TestIsGuardedServer_markedServerReturnsTrue(t *testing.T) {
-	server := withSessionOrderTmux(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := MarkServerProtected(ctx, server); err != nil {
-		t.Fatalf("MarkServerProtected: %v", err)
-	}
-
-	got, err := IsGuardedServer(ctx, server)
-	if err != nil {
-		t.Fatalf("IsGuardedServer marked: %v", err)
-	}
-	if !got {
-		t.Error("got false, want true (option-marked server)")
-	}
-}
-
-func TestIsGuardedServer_unmarkedServerReturnsFalse(t *testing.T) {
-	server := withSessionOrderTmux(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	got, err := IsGuardedServer(ctx, server)
-	if err != nil {
-		t.Fatalf("IsGuardedServer unmarked: %v", err)
-	}
-	if got {
-		t.Error("got true, want false (unmarked server)")
-	}
-}
-
-func TestIsGuardedServer_deadServerReturnsFalse(t *testing.T) {
-	if _, err := exec.LookPath("tmux"); err != nil {
-		t.Skip("tmux not available — skipping integration test")
-	}
-	server := testSocketName("unit")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	got, err := IsGuardedServer(ctx, server)
-	if err != nil {
-		t.Fatalf("IsGuardedServer on dead server: %v", err)
-	}
-	if got {
-		t.Error("got true, want false (no server)")
-	}
-}
-
-func TestIsManagedServer_markedServerReturnsTrue(t *testing.T) {
-	server := withSessionOrderTmux(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := MarkServerManaged(ctx, server); err != nil {
-		t.Fatalf("MarkServerManaged: %v", err)
-	}
-
-	got, err := IsManagedServer(ctx, server)
-	if err != nil {
-		t.Fatalf("IsManagedServer marked: %v", err)
-	}
-	if !got {
-		t.Error("got false, want true (option-marked server)")
-	}
-}
-
-func TestIsManagedServer_unsetAfterSetReturnsFalse(t *testing.T) {
-	server := withSessionOrderTmux(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := MarkServerManaged(ctx, server); err != nil {
-		t.Fatalf("MarkServerManaged: %v", err)
-	}
-	// Un-setting is the adopt-failure rollback — the server reads external again.
-	if err := UnmarkServerManaged(ctx, server); err != nil {
-		t.Fatalf("UnmarkServerManaged: %v", err)
-	}
-
-	got, err := IsManagedServer(ctx, server)
-	if err != nil {
-		t.Fatalf("IsManagedServer after unset: %v", err)
-	}
-	if got {
-		t.Error("got true, want false (option unset)")
-	}
-}
-
-func TestIsManagedServer_unmarkedServerReturnsFalse(t *testing.T) {
-	server := withSessionOrderTmux(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	got, err := IsManagedServer(ctx, server)
-	if err != nil {
-		t.Fatalf("IsManagedServer unmarked: %v", err)
-	}
-	if got {
-		t.Error("got true, want false (unmarked server)")
-	}
-}
-
-func TestIsManagedServer_deadServerReturnsFalse(t *testing.T) {
-	if _, err := exec.LookPath("tmux"); err != nil {
-		t.Skip("tmux not available — skipping integration test")
-	}
-	// A socket name with no running server: the read must degrade to false,
-	// not bubble a "no server running" / "failed to connect" error — liveness
-	// is the caller's concern.
-	server := testSocketName("unit")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	got, err := IsManagedServer(ctx, server)
-	if err != nil {
-		t.Fatalf("IsManagedServer on dead server: %v", err)
-	}
-	if got {
-		t.Error("got true, want false (no server)")
-	}
-}
-
-func TestIsManagedServer_daemonNameReturnsTrue(t *testing.T) {
-	// Derived provenance needs no live server and never touches tmux — the
-	// short-circuit must hold even with no tmux binary/socket involved (this
-	// test spawns no subprocess: rk-daemon has no socket here and no tmux
-	// availability is required).
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	got, err := IsManagedServer(ctx, productionDaemonServer)
-	if err != nil {
-		t.Fatalf("IsManagedServer daemon: %v", err)
-	}
-	if !got {
-		t.Error("got false, want true (daemon managed by derivation)")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.server == server {
+				unsetRawServerOption(t, ctx, server, ManagedOption)
+			}
+			if tc.prepare != nil {
+				tc.prepare(t)
+			}
+			got, err := IsManagedServer(ctx, tc.server)
+			if err != nil {
+				t.Fatalf("IsManagedServer: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 

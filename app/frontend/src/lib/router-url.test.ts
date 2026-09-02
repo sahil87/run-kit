@@ -14,22 +14,14 @@ import {
 // idempotency contract that keeps old %40N bookmarks resolving to @N (not @@N).
 describe("window id ↔ URL segment mapping", () => {
   describe("windowIdToUrlSegment (stringify)", () => {
-    it("strips the leading @", () => {
-      expect(windowIdToUrlSegment("@0")).toBe("0");
-    });
-
-    it("handles multi-digit ids", () => {
-      expect(windowIdToUrlSegment("@12")).toBe("12");
+    it.each([["@0", "0"], ["@12", "12"]])("maps %s to %s", (windowId, segment) => {
+      expect(windowIdToUrlSegment(windowId)).toBe(segment);
     });
   });
 
   describe("urlSegmentToWindowId (parse)", () => {
-    it("prepends @ to a numeric segment", () => {
-      expect(urlSegmentToWindowId("0")).toBe("@0");
-    });
-
-    it("handles multi-digit segments", () => {
-      expect(urlSegmentToWindowId("12")).toBe("@12");
+    it.each([["0", "@0"], ["12", "@12"]])("maps %s to %s", (segment, windowId) => {
+      expect(urlSegmentToWindowId(segment)).toBe(windowId);
     });
 
     it("is idempotent — an already-prefixed segment (old %40N bookmark) is unchanged, never @@N", () => {
@@ -49,16 +41,8 @@ describe("window id ↔ URL segment mapping", () => {
 // and `chat` are valid; any other/unknown value is DROPPED (treated as absent),
 // never errored, so a stale/garbage deep link degrades to the default view.
 describe("validateTerminalSearch (?view= drop)", () => {
-  it("accepts view=web", () => {
-    expect(validateTerminalSearch({ view: "web" })).toEqual({ view: "web" });
-  });
-
-  it("accepts view=chat", () => {
-    expect(validateTerminalSearch({ view: "chat" })).toEqual({ view: "chat" });
-  });
-
-  it("accepts view=code (260811-k3vp)", () => {
-    expect(validateTerminalSearch({ view: "code" })).toEqual({ view: "code" });
+  it.each(["web", "chat", "code"] as const)("accepts view=%s", (view) => {
+    expect(validateTerminalSearch({ view })).toEqual({ view });
   });
 
   it("drops an unknown value without throwing (?view=bogus → view undefined)", () => {
@@ -81,12 +65,8 @@ describe("validateTerminalSearch (?view= drop)", () => {
 // — handled exactly like `?view=`: `web` and `code` are the valid values;
 // anything else is DROPPED.
 describe("validateTerminalSearch (?panel= drop)", () => {
-  it("accepts panel=web", () => {
-    expect(validateTerminalSearch({ panel: "web" })).toEqual({ panel: "web" });
-  });
-
-  it("accepts panel=code (260811-k3vp)", () => {
-    expect(validateTerminalSearch({ panel: "code" })).toEqual({ panel: "code" });
+  it.each(["web", "code"] as const)("accepts panel=%s", (panel) => {
+    expect(validateTerminalSearch({ panel })).toEqual({ panel });
   });
 
   it("drops an unknown value without throwing (?panel=bogus → panel undefined)", () => {

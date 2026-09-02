@@ -14,13 +14,11 @@ import { mockStateSocket } from "./_state-socket-mock";
 // reachable via the `?view=chat` deep link (translated inbound to the shared
 // `@rk_win_layout` option as `single:chat`, the params dropped)
 // or the command palette's `View: Chat` action on the existing terminal route.
-// The ViewSwitcher is RETIRED: the palette is the ONLY lens-switch surface,
-// the top-bar `surface-toggles` group (the right rail is REMOVED —
+// The palette is the primary lens-switch surface; the top-bar
+// `surface-toggles` group (the right rail is removed —
 // composed-frame unification) shows NO chat toggle (SURFACE_RAIL_HIDDEN —
-// chat is palette-only), and the
-// `` Ctrl+` `` chat-toggle chord is gone (fully unbound — the chord belongs to
-// code-server). Palette selections set `single:<view>` through the shared
-// layout mutation path.
+// chat is palette-only). Palette selections set `single:<view>` through the
+// shared layout mutation path.
 //
 // Fixtures: `backfillWithPending()` is an offset-bearing Conversation with a
 // user message, an assistant markdown message, a tool_use/tool_result pair,
@@ -353,36 +351,6 @@ test.describe("Chat read frontend — view toggle, heading, rendering", () => {
     await expect(page.getByTestId("chat-view")).toBeVisible();
     await expect(page.getByText("Tab:", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: `Rename tab agent-win` })).toBeVisible();
-  });
-
-  /**
-   * Proves: the `Ctrl+\`` chord no longer reaches the chat lens — the chord is
-   * fully unbound (the interim layout-zoom rebind was removed; `Ctrl+\``
-   * belongs to code-server), so it falls through untouched: no `single:chat`
-   * layout, no chat view, no heading change.
-   *
-   * Steps:
-   * 1. Mock the backend; navigate to `/default/1`; gate on the `Tab:` prefix
-   *    (the always-present readiness surface).
-   * 2. Press `Control+\``; wait a beat for any erroneous handler to fire.
-   * 3. Assert the URL stays bare, the `chat-view` testid has count 0, and
-   *    the `Tab:` prefix is still shown.
-   */
-  test("Ctrl+` no longer flips to the chat lens (the chord is fully unbound, 260813-j3jb)", async ({ page }) => {
-    await mockBackend(page, backfillCleared());
-    await page.goto(`/${SERVER}/1`);
-    // Gate on the heading — the always-present readiness surface.
-    await expect(page.getByText("Tab:", { exact: true })).toBeVisible({ timeout: 10_000 });
-
-    // Ctrl+` is fully unbound (the layout-zoom rebind was removed in
-    // 260813-j3jb — the chord belongs to code-server), so it must NOT reach
-    // the chat lens: no single:chat, no chat view.
-    await page.keyboard.press("Control+`");
-    // Give any erroneous handler a beat to fire, then assert nothing changed.
-    await page.waitForTimeout(500);
-    await expectBareUrl(page);
-    await expect(page.getByTestId("chat-view")).toHaveCount(0);
-    await expect(page.getByText("Tab:", { exact: true })).toBeVisible();
   });
 
   /**

@@ -127,8 +127,8 @@ describe("ThemeProvider", () => {
     expect(screen.getByTestId("theme-name").textContent).toBe("Dracula");
   });
 
-  it("treats invalid localStorage value as system", () => {
-    localStorage.setItem("runkit-theme", "invalid");
+  it.each(["invalid", "dark", "light"])("treats stored %s as system", (stored) => {
+    localStorage.setItem("runkit-theme", stored);
     render(
       <ThemeProvider>
         <TestConsumer />
@@ -137,25 +137,7 @@ describe("ThemeProvider", () => {
     expect(screen.getByTestId("preference").textContent).toBe("system");
   });
 
-  it("treats old 'dark' localStorage value as system", () => {
-    localStorage.setItem("runkit-theme", "dark");
-    render(
-      <ThemeProvider>
-        <TestConsumer />
-      </ThemeProvider>,
-    );
-    expect(screen.getByTestId("preference").textContent).toBe("system");
-  });
 
-  it("treats old 'light' localStorage value as system", () => {
-    localStorage.setItem("runkit-theme", "light");
-    render(
-      <ThemeProvider>
-        <TestConsumer />
-      </ThemeProvider>,
-    );
-    expect(screen.getByTestId("preference").textContent).toBe("system");
-  });
 
   it("setTheme persists theme ID as preference", () => {
     render(
@@ -345,41 +327,23 @@ describe("ThemeProvider", () => {
   });
 
   describe("theme-color meta tag synchronization", () => {
-    it("sets theme-color to palette.background when dark theme is applied", () => {
+    it.each([
+      { button: "Set Dark", expected: DEFAULT_DARK_THEME.palette.background },
+      { button: "Set Light", expected: DEFAULT_LIGHT_THEME.palette.background },
+      { button: "Set Dracula", expected: "#282a36" },
+    ])("syncs theme-color after $button", ({ button, expected }) => {
       render(
         <ThemeProvider>
           <TestConsumer />
         </ThemeProvider>,
       );
       act(() => {
-        screen.getByText("Set Dark").click();
+        screen.getByText(button).click();
       });
-      expect(themeColorMeta.getAttribute("content")).toBe(DEFAULT_DARK_THEME.palette.background);
+      expect(themeColorMeta.getAttribute("content")).toBe(expected);
     });
 
-    it("sets theme-color to palette.background when light theme is applied", () => {
-      render(
-        <ThemeProvider>
-          <TestConsumer />
-        </ThemeProvider>,
-      );
-      act(() => {
-        screen.getByText("Set Light").click();
-      });
-      expect(themeColorMeta.getAttribute("content")).toBe(DEFAULT_LIGHT_THEME.palette.background);
-    });
 
-    it("sets theme-color to dracula's palette.background", () => {
-      render(
-        <ThemeProvider>
-          <TestConsumer />
-        </ThemeProvider>,
-      );
-      act(() => {
-        screen.getByText("Set Dracula").click();
-      });
-      expect(themeColorMeta.getAttribute("content")).toBe("#282a36");
-    });
 
     it("updates theme-color when OS preference changes in system mode", () => {
       const { simulateChange } = mockMatchMedia(true);

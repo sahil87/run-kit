@@ -7,22 +7,14 @@ describe("computeVisibleCount", () => {
     expect(computeVisibleCount(500, [20, 20, 20], 0, 4)).toBe(3);
   });
 
-  it("returns 0 when available width is zero", () => {
-    expect(computeVisibleCount(0, [20, 20], 0, 4)).toBe(0);
-  });
-
-  it("returns 0 when available width is negative", () => {
-    expect(computeVisibleCount(-50, [20], 0, 4)).toBe(0);
-  });
-
-  it("returns 0 when the reserved width consumes the whole budget", () => {
-    // reserved (exempt items + chevron + dot) leaves nothing for items.
-    expect(computeVisibleCount(30, [20, 20], 30, 4)).toBe(0);
-  });
-
-  it("returns 0 when the budget cannot fit even the first item", () => {
-    // budget = 100 - 90 = 10, first item is 20 → nothing fits.
-    expect(computeVisibleCount(100, [20, 20], 90, 4)).toBe(0);
+  it.each([
+    [0, [20, 20], 0],
+    [-50, [20], 0],
+    [30, [20, 20], 30],
+    [100, [20, 20], 90],
+    [500, [], 0],
+  ] as const)("returns 0 for exhausted budget %#", (available, widths, reserved) => {
+    expect(computeVisibleCount(available, [...widths], reserved, 4)).toBe(0);
   });
 
   it("fits only the first K leading items under pressure", () => {
@@ -60,7 +52,4 @@ describe("computeVisibleCount", () => {
     expect(computeVisibleCount(120, [50, 30, 24, 24], 0, 4)).toBe(3);
   });
 
-  it("returns 0 for an empty item list regardless of budget", () => {
-    expect(computeVisibleCount(500, [], 0, 4)).toBe(0);
-  });
 });

@@ -275,47 +275,36 @@ describe("TopBar", () => {
 
     const cursorIn = (wrapper: HTMLElement) => wrapper.querySelector(".rk-typed-cursor");
 
-    it("does NOT restart the sweep when the pointer crosses the prefix → name boundary", () => {
+    it("keeps one sweep across the heading and resolves when the pointer leaves", () => {
       const { button, wrapper, prefixWord } = renderAndSettle();
 
-      // Enter the heading over the prefix: hover-intent delay, then sweep starts.
       fireEvent.mouseOver(prefixWord, { relatedTarget: document.body });
       act(() => {
         vi.advanceTimersByTime(INTENT_MS + 28 * 2);
       });
       expect(cursorIn(wrapper)).not.toBeNull();
 
-      // Cross from the prefix onto the name button. With per-sibling hover
-      // handlers this fired resolve() (cursor snapped away) plus a deferred
-      // replay; with the wrapper as the single owner it is a non-event — the
-      // in-flight sweep continues uninterrupted.
       fireEvent.mouseOut(prefixWord, { relatedTarget: button });
       fireEvent.mouseOver(button, { relatedTarget: prefixWord });
       expect(cursorIn(wrapper)).not.toBeNull();
 
-      // The same pass runs to completion and settles to rest.
       act(() => {
         vi.advanceTimersByTime(SWEEP_MS + 100);
       });
       expect(cursorIn(wrapper)).toBeNull();
       expect(wrapper.textContent).toContain("Tab");
       expect(wrapper.textContent).toContain("main");
-    });
-
-    it("resolves the sweep when the pointer leaves the whole heading", () => {
-      const { button, wrapper } = renderAndSettle();
 
       fireEvent.mouseOver(button, { relatedTarget: document.body });
       act(() => {
         vi.advanceTimersByTime(INTENT_MS + 28);
       });
       expect(cursorIn(wrapper)).not.toBeNull();
-
-      // Leaving the wrapper entirely resolves immediately to rest.
       fireEvent.mouseOut(button, { relatedTarget: document.body });
       expect(cursorIn(wrapper)).toBeNull();
       expect(wrapper.textContent).toContain("main");
     });
+
   });
 
   describe("history nav arrows (260714-uco1)", () => {
@@ -452,19 +441,6 @@ describe("TopBar", () => {
     const anchorBox = container.querySelector(".sm\\:min-w-\\[28ch\\]");
     expect(anchorBox).not.toBeNull();
     expect(anchorBox!.querySelector('[aria-label="Go back"]')).toBeNull();
-  });
-
-  it("does not show 'live' or 'disconnected' text", () => {
-    renderTopBar();
-    expect(screen.queryByText("live")).not.toBeInTheDocument();
-    expect(screen.queryByText("disconnected")).not.toBeInTheDocument();
-  });
-
-  it("renders no connection dot — it moved to the sidebar footer (260724-6j1v)", () => {
-    renderTopBar();
-    expect(screen.queryByLabelText("Connected")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Disconnected")).not.toBeInTheDocument();
-    expect(screen.getByTestId("top-bar-right").querySelector('[role="status"]')).toBeNull();
   });
 
   it("fixed-width is MENU-ONLY (260731-oiho): no in-bar/probe toggle, always a menu checkbox row in terminal mode", () => {

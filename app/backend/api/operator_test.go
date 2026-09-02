@@ -41,37 +41,31 @@ func operatorSessions(agentState string) []sessions.ProjectSession {
 
 // --- 400s: validation happens before any fetch or tmux call -----------------
 
-// TestOperatorRequestInvalidWindowID: a malformed window id is a 400 with no
-// injection.
-func TestOperatorRequestInvalidWindowID(t *testing.T) {
-	sf := &mockSessionFetcher{result: operatorSessions("idle")}
-	ops := &mockTmuxOps{}
-	router := NewTestRouter(slog.Default(), sf, ops, "host")
-
-	req := httptest.NewRequest(http.MethodPost, "/api/windows/not-a-window/operator-request", strings.NewReader(`{"template":"fix-tab-name"}`))
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+// Invalid window IDs and bodies are rejected before injection.
+func TestOperatorRequestGuards(t *testing.T) {
+	cases := []struct {
+		name string
+		req  func() *http.Request
+	}{
+		{name: "invalid window ID", req: func() *http.Request {
+			return httptest.NewRequest(http.MethodPost, "/api/windows/not-a-window/operator-request", strings.NewReader(`{"template":"fix-tab-name"}`))
+		}},
+		{name: "invalid JSON", req: func() *http.Request { return operatorReq(`{not json`) }},
 	}
-	if len(ops.chatCalls) != 0 {
-		t.Errorf("injection ran (%v) on a bad window id", ops.chatCalls)
-	}
-}
-
-// TestOperatorRequestInvalidJSON: an undecodable body is a 400 with no injection.
-func TestOperatorRequestInvalidJSON(t *testing.T) {
-	sf := &mockSessionFetcher{result: operatorSessions("idle")}
-	ops := &mockTmuxOps{}
-	router := NewTestRouter(slog.Default(), sf, ops, "host")
-
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, operatorReq(`{not json`))
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
-	}
-	if len(ops.chatCalls) != 0 {
-		t.Errorf("injection ran (%v) on a bad body", ops.chatCalls)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sf := &mockSessionFetcher{result: operatorSessions("idle")}
+			ops := &mockTmuxOps{}
+			router := NewTestRouter(slog.Default(), sf, ops, "host")
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, tc.req())
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+			}
+			if len(ops.chatCalls) != 0 {
+				t.Errorf("injection ran for invalid request: %v", ops.chatCalls)
+			}
+		})
 	}
 }
 

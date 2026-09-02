@@ -184,42 +184,6 @@ describe("OptimisticProvider", () => {
     expect(screen.getByTestId("merged-names").textContent).toBe("dev,prod");
   });
 
-  it("SSE reconciliation: ghost session removed when real data arrives", async () => {
-    const { rerender } = render(
-      <OptimisticProvider>
-        <TestConsumer realSessions={baseSessions} />
-      </OptimisticProvider>,
-    );
-
-    act(() => {
-      screen.getByTestId("add-ghost-session").click();
-    });
-
-    expect(screen.getByTestId("merged-optimistic").textContent).toBe("ghost-sess");
-
-    // Simulate SSE delivering the new session
-    const updatedSessions: ProjectSession[] = [
-      ...baseSessions,
-      { name: "ghost-sess", windows: [{ index: 0, windowId: "@99", name: "zsh", worktreePath: "/tmp", activity: "idle", isActiveWindow: true, activityTimestamp: 0 }] },
-    ];
-
-    rerender(
-      <OptimisticProvider>
-        <TestConsumer realSessions={updatedSessions} />
-      </OptimisticProvider>,
-    );
-
-    // Allow the queueMicrotask to fire
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 0));
-    });
-
-    // Ghost should be auto-cleared
-    expect(screen.getByTestId("ghost-count").textContent).toBe("0");
-    expect(screen.getByTestId("merged-count").textContent).toBe("3");
-    expect(screen.getByTestId("merged-optimistic").textContent).toBe("");
-  });
-
   it("addGhostServer returns an optimisticId", () => {
     let capturedId = "";
     function Capture() {

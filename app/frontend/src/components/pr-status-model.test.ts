@@ -152,32 +152,15 @@ describe("prGlyphColor — rest-glyph color mapping", () => {
   // noise; closed-with-passing-checks must not fall through to green). Closed
   // and fail-ish share red; the ✕ icon separates them, and closed's red vs
   // draft's gray separates those two.
-  it("closed → red (GitHub's closed coloring; agrees with PR_STATE_COLORS.closed)", () => {
-    expect(prGlyphColor(makeWindow({ prNumber: 7, prState: "closed" }))).toBe("text-signal-red");
-    expect(prGlyphColor(makeWindow({ prNumber: 7, prState: "closed" }))).toBe(PR_STATE_COLORS.closed);
-  });
-
-  it("closed + passing checks → red (closed wins over the open-green fall-through)", () => {
-    expect(prGlyphColor(makeWindow({ prNumber: 7, prState: "closed", prChecks: "pass" }))).toBe(
-      "text-signal-red",
-    );
-  });
-
-  it("closed + failing checks → red via the closed branch (closed sits above isFailish)", () => {
-    expect(prGlyphColor(makeWindow({ prNumber: 7, prState: "closed", prChecks: "fail" }))).toBe(
-      "text-signal-red",
-    );
-  });
-
-  it("closed + changes requested → red (closed branch, not the isFailish one, owns it)", () => {
-    expect(
-      prGlyphColor(makeWindow({ prNumber: 7, prState: "closed", prReview: "changes_requested" })),
-    ).toBe("text-signal-red");
-  });
-
-  it("closed + draft → red (closed wins over the open-gated draft branch)", () => {
-    expect(prGlyphColor(makeWindow({ prNumber: 7, prState: "closed", prIsDraft: true }))).toBe(
-      "text-signal-red",
-    );
+  it.each([
+    { label: "plain", fields: {} },
+    { label: "passing checks", fields: { prChecks: "pass" } },
+    { label: "failing checks", fields: { prChecks: "fail" } },
+    { label: "changes requested", fields: { prReview: "changes_requested" } },
+    { label: "draft", fields: { prIsDraft: true } },
+  ] as const)("closed + $label stays red", ({ fields }) => {
+    const color = prGlyphColor(makeWindow({ prNumber: 7, prState: "closed", ...fields }));
+    expect(color).toBe("text-signal-red");
+    expect(color).toBe(PR_STATE_COLORS.closed);
   });
 });

@@ -993,16 +993,41 @@ func TestSessionRenameSpaceyOldNameAccepted(t *testing.T) {
 	}
 }
 
-func TestSessionCreateInvalidJSON(t *testing.T) {
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions", strings.NewReader("{invalid"))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+func TestSessionRouteGuards(t *testing.T) {
+	cases := []struct {
+		name      string
+		path      string
+		body      string
+		wantError string
+		touched   func(*mockTmuxOps) bool
+	}{
+		{name: "create invalid JSON", path: "/api/sessions", body: "{invalid", touched: func(ops *mockTmuxOps) bool { return ops.createSessionCalled }},
+		{name: "close pane invalid window ID", path: "/api/windows/abc/close-pane", wantError: "Invalid window ID", touched: func(ops *mockTmuxOps) bool { return ops.killActivePaneCalled }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ops := &mockTmuxOps{}
+			router := newTestRouter(&mockSessionFetcher{}, ops)
+			req := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+			}
+			if tc.touched(ops) {
+				t.Error("tmux operation must not run for an invalid request")
+			}
+			if tc.wantError != "" {
+				var result map[string]string
+				if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
+					t.Fatalf("decode error: %v", err)
+				}
+				if !strings.Contains(result["error"], tc.wantError) {
+					t.Errorf("error = %q, want containing %q", result["error"], tc.wantError)
+				}
+			}
+		})
 	}
 }
 
@@ -1052,26 +1077,6 @@ func TestClosePaneSuccess(t *testing.T) {
 	}
 	if !result["ok"] {
 		t.Error("expected ok: true")
-	}
-}
-
-func TestClosePaneInvalidWindowID(t *testing.T) {
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-	req := httptest.NewRequest(http.MethodPost, "/api/windows/abc/close-pane", nil)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
-	}
-
-	var result map[string]string
-	if err := json.NewDecoder(rec.Body).Decode(&result); err != nil {
-		t.Fatalf("decode error: %v", err)
-	}
-	if !strings.Contains(result["error"], "Invalid window ID") {
-		t.Errorf("error = %q, want containing %q", result["error"], "Invalid window ID")
 	}
 }
 
@@ -1154,20 +1159,6 @@ func TestSessionColorClear(t *testing.T) {
 	}
 	if ops.unsetSessionColorSession != "myproject" {
 		t.Errorf("session = %q, want %q", ops.unsetSessionColorSession, "myproject")
-	}
-}
-
-func TestSessionColorInvalidValue(t *testing.T) {
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
-
-	body := `{"color":"20"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/sessions/myproject/color", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
 	}
 }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor, within, act } from "@testing-library/react";
 import { StatusBar } from "./status-bar";
 import { ChromeProvider } from "@/contexts/chrome-context";
 import {
@@ -20,6 +20,11 @@ vi.mock("@/contexts/session-context", () => ({
   useHostMetrics: () => mockHostMetrics,
   useUpdateNotification: () => ({ daemonVersion: mockDaemonVersion }),
 }));
+
+// Copy seam: the segments copy through the shared clipboard lib (via
+// useCopyFeedback) — mocked so tests assert the RAW value handed over.
+const { mockCopyToClipboard } = vi.hoisted(() => ({ mockCopyToClipboard: vi.fn() }));
+vi.mock("@/lib/clipboard", () => ({ copyToClipboard: mockCopyToClipboard }));
 
 function makeMetrics(overrides: Partial<MetricsSnapshot> = {}): MetricsSnapshot {
   return {
@@ -54,6 +59,7 @@ beforeEach(() => {
   mockMetrics = null;
   mockHostMetrics = null;
   mockDaemonVersion = null;
+  mockCopyToClipboard.mockClear();
 });
 
 afterEach(() => {
@@ -312,6 +318,100 @@ describe("StatusBar (260814-ldbs)", () => {
       // Wraps backwards from the first row to the last.
       fireEvent.keyDown(document, { key: "ArrowUp" });
       expect(document.activeElement).toBe(rows[rows.length - 1]);
+    });
+  });
+
+  describe("copy affordances (the Pane panel's CopyableRow contract)", () => {
+    it("left-cluster segments copy RAW values (branch, change id, pane id, full path) with the copied ✓ label swap and 1s revert", () => {
+      vi.useFakeTimers();
+      const win = makeWindowWithPanes({ fabChange: "260814-ldbs-shell-stage-status-bar", fabStage: "apply" });
+      renderBar({ window: win });
+
+      // git — copies the branch name, label (⑂) swaps to copied ✓, then reverts.
+      fireEvent.click(screen.getByRole("button", { name: "Copy git branch" }));
+      expect(mockCopyToClipboard).toHaveBeenCalledWith("main");
+      const cluster = screen.getByTestId("status-bar-window");
+      expect(within(cluster).getByText("copied ✓")).toBeInTheDocument();
+      act(() => vi.advanceTimersByTime(1000));
+      expect(within(cluster).queryByText("copied ✓")).not.toBeInTheDocument();
+
+      // fab — copies the 4-char change id, never the display line.
+      fireEvent.click(screen.getByRole("button", { name: "Copy fab change id" }));
+      expect(mockCopyToClipboard).toHaveBeenCalledWith("ldbs");
+      // tmx — copies the pane id, not the pane N/M text.
+      fireEvent.click(screen.getByRole("button", { name: "Copy tmux pane id" }));
+      expect(mockCopyToClipboard).toHaveBeenCalledWith("%5");
+      // cwd — copies the FULL path (the strip shows the basename).
+      fireEvent.click(screen.getByRole("button", { name: "Copy working directory path" }));
+      expect(mockCopyToClipboard).toHaveBeenCalledWith("/home/user/code/run-kit");
+      vi.useRealTimers();
+    });
+
+    it("an in-progress text selection short-circuits the copy (the select gesture wins)", () => {
+      renderBar({ window: makeWindowWithPanes() });
+      vi.spyOn(window, "getSelection").mockReturnValue({ toString: () => "picked text" } as Selection);
+      fireEvent.click(screen.getByRole("button", { name: "Copy git branch" }));
+      expect(mockCopyToClipboard).not.toHaveBeenCalled();
+      expect(screen.queryByText("copied ✓")).not.toBeInTheDocument();
+    });
+
+    it("right-cluster identity fragments copy their displayed strings; the fragment text swaps to copied ✓", () => {
+      mockHostMetrics = makeMetrics();
+      mockDaemonVersion = "0.9.3";
+      renderBar({ server: "alpha" });
+      fireEvent.click(screen.getByRole("button", { name: "Copy server name" }));
+      expect(mockCopyToClipboard).toHaveBeenCalledWith("alpha");
+      fireEvent.click(screen.getByRole("button", { name: "Copy host name" }));
+      expect(mockCopyToClipboard).toHaveBeenCalledWith("mba");
+      fireEvent.click(screen.getByRole("button", { name: "Copy version" }));
+      expect(mockCopyToClipboard).toHaveBeenCalledWith("v0.9.3");
+      // Unlabeled fragment: its own text is the feedback slot.
+      expect(screen.getByRole("button", { name: "Copy version" })).toHaveTextContent("copied ✓");
+    });
+
+    it("segments without a stable raw value stay passive — agt, metrics, the connection dot, and a paneId-less tmx", () => {
+      mockHostMetrics = makeMetrics();
+      const win = makeWindowWithPanes({ agentState: "waiting", agentIdleDuration: "3m" });
+      renderBar({ window: win });
+      expect(screen.getByText("waiting 3m").closest("button")).toBeNull();
+      expect(screen.getByText("cpu").closest("button")).toBeNull();
+      expect(screen.getByLabelText("Connected").closest("button")).toBeNull();
+      cleanup();
+      // No panes ⇒ no pane id ⇒ the tmx segment renders but is not a button.
+      renderBar({ window: makeWindow() });
+      expect(screen.getByText("pane 1/0").closest("button")).toBeNull();
+    });
+
+    it("overflow rows mirroring copyable segments are copy-action buttons — full raw value, menu stays open, keyboard-reachable", async () => {
+      mockHostMetrics = makeMetrics();
+      mockDaemonVersion = "0.9.3";
+      renderBar({ window: makeWindowWithPanes(), server: "alpha" });
+      fireEvent.click(screen.getByTestId("status-bar-overflow"));
+      const menu = screen.getByRole("menu", { name: "Overflow status segments" });
+
+      // Roving focus lands on the first row — the git COPY row, a real button
+      // (natively Enter/Space activatable — Constitution V).
+      const gitRow = within(menu).getByRole("menuitem", { name: "Copy git branch" });
+      await waitFor(() => expect(document.activeElement).toBe(gitRow));
+      expect(gitRow.tagName).toBe("BUTTON");
+
+      // The cwd row displays the basename but copies the FULL path; the row's
+      // register key swaps to copied ✓ and the menu does NOT close.
+      const cwdRow = within(menu).getByRole("menuitem", { name: "Copy working directory path" });
+      fireEvent.click(cwdRow);
+      expect(mockCopyToClipboard).toHaveBeenCalledWith("/home/user/code/run-kit");
+      expect(cwdRow).toHaveTextContent("copied ✓ run-kit");
+      expect(screen.getByRole("menu", { name: "Overflow status segments" })).toBeInTheDocument();
+
+      // Version row copies the displayed v… string.
+      fireEvent.click(within(menu).getByRole("menuitem", { name: "Copy version" }));
+      expect(mockCopyToClipboard).toHaveBeenCalledWith("v0.9.3");
+
+      // Metrics rows mirror the strip's passive segments: informational spans.
+      const ldRow = Array.from(menu.querySelectorAll<HTMLElement>("[role='menuitem']")).find((el) =>
+        el.textContent?.startsWith("ld "),
+      );
+      expect(ldRow?.tagName).toBe("SPAN");
     });
   });
 });

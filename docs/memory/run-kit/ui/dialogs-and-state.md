@@ -16,7 +16,7 @@ type: memory
 
 ### Clipboard Utility
 
-`app/frontend/src/lib/clipboard.ts` — shared `copyToClipboard(text: string): Promise<boolean>` function. Primary path uses `navigator.clipboard.writeText()`; fallback uses `document.execCommand('copy')` for non-secure contexts (HTTP). All callers (terminal copy, Pane panel row copy) import from this module (§ Steady-state version surfaces for the boolean success signal).
+`app/frontend/src/lib/clipboard.ts` — shared `copyToClipboard(text: string): Promise<boolean>` function. Primary path uses `navigator.clipboard.writeText()`; fallback uses `document.execCommand('copy')` for non-secure contexts (HTTP). All callers (terminal copy, Pane panel row copy, status-bar copy segments, the `Copy:` palette entries) import from this module (§ Steady-state version surfaces for the boolean success signal). The keyed click-to-copy interaction on register surfaces — selection guard, clipboard call, one 1s `copied ✓` feedback slot per surface — lives once in `hooks/use-copy-feedback.ts` (`useCopyFeedback`), consumed by the Pane panel rows and the status-bar segments/menu rows ([status-signals](/run-kit/ui/status-signals.md) § Status Bar). (3m72)
 
 CWD display (line 1) uses `shortenPath()` to shorten the active pane's `cwd` (falls back to `worktreePath`):
 - Home substitution: `/home/<user>/…` → `~/…`, `/Users/<user>/…` → `~/…`, `/root/…` → `~/…` (exact home dir → `~`). Handles Linux and macOS conventions.

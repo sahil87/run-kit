@@ -786,7 +786,8 @@ export function IframeWindow({
   // The `web-tab:open-draft` seam: the palette's `Web: New tab` entry
   // dispatches one document CustomEvent; the mounted web tile opens a draft
   // and focuses its address bar (the `web-find:open` single-receiver
-  // precedent). The palette gates the dispatch on a non-empty family.
+  // precedent). Offered whenever the web tile is open — an empty family is
+  // exactly where the palette entry must still reach a draft.
   useEffect(() => {
     const open = () => openDraftRef.current();
     document.addEventListener(WEB_TAB_DRAFT_EVENT, open);
@@ -1016,8 +1017,10 @@ export function IframeWindow({
     if (editing) addressInputRef.current?.select();
   }, [editing]);
 
-  // ── tab strip: renders at ≥1 tab OR any draft (onboarding keeps the
-  // stripless chrome). Roving-focus tablist: only the ACTIVE tab is in the
+  // ── tab strip: always rendered with the tile — at 0 tabs/0 drafts it is
+  // just the `+`, so the empty family keeps a draft entry point (onboarding
+  // is the empty-family CONTENT below, not a stripless chrome variant).
+  // Roving-focus tablist: only the ACTIVE tab is in the
   // tab order, ←/→/Home/End move focus without writing, Enter/Space select,
   // Delete/Backspace close, ⌥⇧←/⌥⇧→ reorder the active tab. Drafts are
   // shown dashed after the real tabs and are never drag targets/sources.
@@ -1194,213 +1197,211 @@ export function IframeWindow({
 
   return (
     <div ref={wrapperRef} className="flex flex-col flex-1 min-h-0">
-      {(tabs.length >= 1 || drafts.length > 0) && (
-        <TipGroup>
-          <div
-            role="tablist"
-            data-testid="web-tab-strip"
-            onDoubleClick={(e) => {
-              // Double-click on empty strip space opens a draft (Chrome
-              // muscle memory) — the same path as the `+` button.
-              if (e.target === e.currentTarget) openDraftRef.current();
-            }}
-            className="shrink-0 flex items-stretch gap-px px-1 border-b border-border bg-bg-card overflow-x-auto font-mono text-[11px] select-none"
-          >
-            {tabs.map((tabUrl, i) => {
-              const n = i + 1;
-              const isActive = n === activeIndex;
-              const kind = classifyAddress(tabUrl);
-              const chrome = chromeStates.get(tabUrl);
-              const label = chrome?.title ?? (webTabTitle(tabUrl) || `#${n}`);
-              // Favicon: kind-dot fallback classes for absent/failed URLs; on
-              // load failure the spinner stays hidden and the kind-dot renders.
-              const faviconUrl =
-                chrome?.favicon ??
-                (kind === "external" ? externalFavicon(tabUrl) : null);
-              const faviconFailureKey = faviconUrl ? `${tabUrl}\u0000${faviconUrl}` : null;
-              const showFavicon =
-                faviconUrl !== null &&
-                faviconFailureKey !== null &&
-                !failedFavicons.has(faviconFailureKey);
-              const showSpinner = chrome?.loading === true;
-              const indicatorHere =
-                dropTarget?.index === n
-                  ? dropTarget.side
-                  : null;
-              return (
-                <div
-                  key={tabUrl}
-                  ref={(el) => {
-                    if (el) tabRefs.current.set(n, el);
-                    else tabRefs.current.delete(n);
-                  }}
-                  role="tab"
-                  aria-selected={isActive && selectedDraft === null}
-                  data-testid="web-tab"
-                  data-index={n}
-                  tabIndex={isActive && selectedDraft === null ? 0 : -1}
-                  title={displayForm(tabUrl)}
-                  onClick={() => {
-                    if (clickSuppressRef.current) {
-                      clickSuppressRef.current = false;
-                      return;
-                    }
-                    onSelectTab?.(n);
-                  }}
-                  onFocus={() => setFocusedTab(n)}
-                  onKeyDown={handleTabKeyDown}
-                  onPointerDown={(e) => handleTabPointerDown(n, e)}
-                  onPointerMove={(e) => handleTabPointerMove(n, e)}
-                  onPointerLeave={() => handleTabPointerLeave(n)}
-                  onAuxClick={(e) => {
-                    if (e.button === 1) {
-                      e.preventDefault();
+      <TipGroup>
+        <div
+          role="tablist"
+          data-testid="web-tab-strip"
+          onDoubleClick={(e) => {
+            // Double-click on empty strip space opens a draft (Chrome
+            // muscle memory) — the same path as the `+` button.
+            if (e.target === e.currentTarget) openDraftRef.current();
+          }}
+          className="shrink-0 flex items-stretch gap-px px-1 border-b border-border bg-bg-card overflow-x-auto font-mono text-[11px] select-none"
+        >
+          {tabs.map((tabUrl, i) => {
+            const n = i + 1;
+            const isActive = n === activeIndex;
+            const kind = classifyAddress(tabUrl);
+            const chrome = chromeStates.get(tabUrl);
+            const label = chrome?.title ?? (webTabTitle(tabUrl) || `#${n}`);
+            // Favicon: kind-dot fallback classes for absent/failed URLs; on
+            // load failure the spinner stays hidden and the kind-dot renders.
+            const faviconUrl =
+              chrome?.favicon ??
+              (kind === "external" ? externalFavicon(tabUrl) : null);
+            const faviconFailureKey = faviconUrl ? `${tabUrl}\u0000${faviconUrl}` : null;
+            const showFavicon =
+              faviconUrl !== null &&
+              faviconFailureKey !== null &&
+              !failedFavicons.has(faviconFailureKey);
+            const showSpinner = chrome?.loading === true;
+            const indicatorHere =
+              dropTarget?.index === n
+                ? dropTarget.side
+                : null;
+            return (
+              <div
+                key={tabUrl}
+                ref={(el) => {
+                  if (el) tabRefs.current.set(n, el);
+                  else tabRefs.current.delete(n);
+                }}
+                role="tab"
+                aria-selected={isActive && selectedDraft === null}
+                data-testid="web-tab"
+                data-index={n}
+                tabIndex={isActive && selectedDraft === null ? 0 : -1}
+                title={displayForm(tabUrl)}
+                onClick={() => {
+                  if (clickSuppressRef.current) {
+                    clickSuppressRef.current = false;
+                    return;
+                  }
+                  onSelectTab?.(n);
+                }}
+                onFocus={() => setFocusedTab(n)}
+                onKeyDown={handleTabKeyDown}
+                onPointerDown={(e) => handleTabPointerDown(n, e)}
+                onPointerMove={(e) => handleTabPointerMove(n, e)}
+                onPointerLeave={() => handleTabPointerLeave(n)}
+                onAuxClick={(e) => {
+                  if (e.button === 1) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onCloseTab?.(n);
+                  }
+                }}
+                className={`group relative flex items-center gap-1.5 px-2 py-1 cursor-pointer outline-none ${
+                  isActive
+                    ? "bg-bg-primary text-text-primary"
+                    : "text-text-secondary hover:text-text-primary"
+                }`}
+              >
+                {indicatorHere === "right" && (
+                  <span
+                    data-testid="web-tab-drop-indicator"
+                    className="absolute right-0 top-0 bottom-0 w-0.5 bg-accent-green"
+                  />
+                )}
+                {indicatorHere === "left" && (
+                  <span
+                    data-testid="web-tab-drop-indicator"
+                    className="absolute left-0 top-0 bottom-0 w-0.5 bg-accent-green"
+                  />
+                )}
+                {showSpinner ? (
+                  <span
+                    aria-hidden="true"
+                    data-testid="web-tab-spinner"
+                    className="rk-web-spinner shrink-0 inline-block h-3 w-3 rounded-full border border-accent-green/70 border-t-transparent"
+                  />
+                ) : showFavicon ? (
+                  <img
+                    src={faviconUrl}
+                    alt=""
+                    aria-hidden="true"
+                    className="rk-web-icon shrink-0 h-3.5 w-3.5 rounded-sm"
+                    onError={() => {
+                      if (!faviconFailureKey) return;
+                      setFailedFavicons((prev) => {
+                        if (prev.has(faviconFailureKey)) return prev;
+                        const next = new Set(prev);
+                        next.add(faviconFailureKey);
+                        return next;
+                      });
+                    }}
+                  />
+                ) : kind !== "relative" ? (
+                  <span
+                    aria-hidden="true"
+                    className={`shrink-0 inline-block w-1.5 h-1.5 rounded-full ${KIND_DOT_CLASS[kind]}`}
+                  />
+                ) : null}
+                <span className="whitespace-nowrap">{label}</span>
+                {onCloseTab && (
+                  <button
+                    type="button"
+                    aria-label={`Close web tab ${n}`}
+                    data-testid="web-tab-close"
+                    tabIndex={-1}
+                    onClick={(e) => {
                       e.stopPropagation();
-                      onCloseTab?.(n);
-                    }
-                  }}
-                  className={`group relative flex items-center gap-1.5 px-2 py-1 cursor-pointer outline-none ${
-                    isActive
-                      ? "bg-bg-primary text-text-primary"
-                      : "text-text-secondary hover:text-text-primary"
-                  }`}
-                >
-                  {indicatorHere === "right" && (
-                    <span
-                      data-testid="web-tab-drop-indicator"
-                      className="absolute right-0 top-0 bottom-0 w-0.5 bg-accent-green"
-                    />
-                  )}
-                  {indicatorHere === "left" && (
-                    <span
-                      data-testid="web-tab-drop-indicator"
-                      className="absolute left-0 top-0 bottom-0 w-0.5 bg-accent-green"
-                    />
-                  )}
-                  {showSpinner ? (
-                    <span
-                      aria-hidden="true"
-                      data-testid="web-tab-spinner"
-                      className="rk-web-spinner shrink-0 inline-block h-3 w-3 rounded-full border border-accent-green/70 border-t-transparent"
-                    />
-                  ) : showFavicon ? (
-                    <img
-                      src={faviconUrl}
-                      alt=""
-                      aria-hidden="true"
-                      className="rk-web-icon shrink-0 h-3.5 w-3.5 rounded-sm"
-                      onError={() => {
-                        if (!faviconFailureKey) return;
-                        setFailedFavicons((prev) => {
-                          if (prev.has(faviconFailureKey)) return prev;
-                          const next = new Set(prev);
-                          next.add(faviconFailureKey);
-                          return next;
-                        });
-                      }}
-                    />
-                  ) : kind !== "relative" ? (
-                    <span
-                      aria-hidden="true"
-                      className={`shrink-0 inline-block w-1.5 h-1.5 rounded-full ${KIND_DOT_CLASS[kind]}`}
-                    />
-                  ) : null}
-                  <span className="whitespace-nowrap">{label}</span>
-                  {onCloseTab && (
-                    <button
-                      type="button"
-                      aria-label={`Close web tab ${n}`}
-                      data-testid="web-tab-close"
-                      tabIndex={-1}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onCloseTab(n);
-                      }}
-                      className={`shrink-0 rounded px-0.5 hover:text-text-primary ${
-                        isActive || coarsePointer
-                          ? ""
-                          : "invisible group-hover:visible group-focus-within:visible"
-                      }`}
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-            {drafts.map((draft, idx) => {
-              const isSelected = draft.id === selectedDraft;
-              return (
-                <div
-                  key={draft.id}
-                  role="tab"
-                  aria-selected={isSelected}
-                  data-testid="web-tab-draft"
-                  data-draft-id={draft.id}
-                  tabIndex={isSelected ? 0 : -1}
-                  title="New tab — Enter materializes it, Esc discards"
-                  onClick={() => {
+                      onCloseTab(n);
+                    }}
+                    className={`shrink-0 rounded px-0.5 hover:text-text-primary ${
+                      isActive || coarsePointer
+                        ? ""
+                        : "invisible group-hover:visible group-focus-within:visible"
+                    }`}
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+            );
+          })}
+          {drafts.map((draft, idx) => {
+            const isSelected = draft.id === selectedDraft;
+            return (
+              <div
+                key={draft.id}
+                role="tab"
+                aria-selected={isSelected}
+                data-testid="web-tab-draft"
+                data-draft-id={draft.id}
+                tabIndex={isSelected ? 0 : -1}
+                title="New tab — Enter materializes it, Esc discards"
+                onClick={() => {
+                  setSelectedDraft(draft.id);
+                  setInputUrl("");
+                  setSubmitError(null);
+                  setTimeout(() => addressInputRef.current?.focus(), 0);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
                     setSelectedDraft(draft.id);
                     setInputUrl("");
                     setSubmitError(null);
                     setTimeout(() => addressInputRef.current?.focus(), 0);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      setSelectedDraft(draft.id);
-                      setInputUrl("");
-                      setSubmitError(null);
-                      setTimeout(() => addressInputRef.current?.focus(), 0);
-                    }
-                  }}
-                  className={`group flex items-center gap-1.5 px-2 py-1 cursor-pointer outline-none border-b-2 border-dashed ${
-                    isSelected
-                      ? "border-text-secondary text-text-primary"
-                      : "border-border/60 text-text-secondary hover:text-text-primary"
-                  }`}
-                >
-                  <span
-                    aria-hidden="true"
-                    className="shrink-0 inline-block w-1.5 h-1.5 rounded-full bg-text-secondary/60"
-                  />
-                  <span className="whitespace-nowrap">{`new tab ${idx + 1}`}</span>
-                  <button
-                    type="button"
-                    aria-label={`Discard new tab ${idx + 1}`}
-                    data-testid="web-tab-draft-close"
-                    tabIndex={-1}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      discardDraft(draft.id);
-                    }}
-                    className="shrink-0 rounded px-0.5 hover:text-text-primary"
-                  >
-                    ×
-                  </button>
-                </div>
-              );
-            })}
-            {onAddTab && (
-              <Tip label={stripFull ? `web tabs full (${WEB_TAB_FAMILY_CAP})` : undefined}>
+                  }
+                }}
+                className={`group flex items-center gap-1.5 px-2 py-1 cursor-pointer outline-none border-b-2 border-dashed ${
+                  isSelected
+                    ? "border-text-secondary text-text-primary"
+                    : "border-border/60 text-text-secondary hover:text-text-primary"
+                }`}
+              >
+                <span
+                  aria-hidden="true"
+                  className="shrink-0 inline-block w-1.5 h-1.5 rounded-full bg-text-secondary/60"
+                />
+                <span className="whitespace-nowrap">{`new tab ${idx + 1}`}</span>
                 <button
                   type="button"
-                  aria-label="Add web tab from address"
-                  data-testid="web-tab-add"
-                  disabled={stripFull}
-                  // Keep the address bar's focus (and its draft) through the
-                  // click — a blur would revert the input to the rest value.
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={openDraft}
-                  className="self-center shrink-0 w-6 h-6 mx-1 flex items-center justify-center rounded text-text-secondary enabled:hover:bg-bg-inset enabled:hover:text-text-primary disabled:opacity-50"
+                  aria-label={`Discard new tab ${idx + 1}`}
+                  data-testid="web-tab-draft-close"
+                  tabIndex={-1}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    discardDraft(draft.id);
+                  }}
+                  className="shrink-0 rounded px-0.5 hover:text-text-primary"
                 >
-                  +
+                  ×
                 </button>
-              </Tip>
-            )}
-          </div>
-        </TipGroup>
-      )}
+              </div>
+            );
+          })}
+          {onAddTab && (
+            <Tip label={stripFull ? `web tabs full (${WEB_TAB_FAMILY_CAP})` : undefined}>
+              <button
+                type="button"
+                aria-label="Add web tab from address"
+                data-testid="web-tab-add"
+                disabled={stripFull}
+                // Keep the address bar's focus (and its draft) through the
+                // click — a blur would revert the input to the rest value.
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={openDraft}
+                className="self-center shrink-0 w-6 h-6 mx-1 flex items-center justify-center rounded text-text-secondary enabled:hover:bg-bg-inset enabled:hover:text-text-primary disabled:opacity-50"
+              >
+                +
+              </button>
+            </Tip>
+          )}
+        </div>
+      </TipGroup>
 
       {/* URL Bar — one warm-tip cluster (260722-73al). Button order per the
           approved design study: ◀ ▶ ↻ [address] ⌕ ↗ (the `>_` switch-to-

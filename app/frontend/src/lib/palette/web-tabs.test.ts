@@ -6,10 +6,11 @@ import { WEB_TAB_DRAFT_EVENT } from "../web-url";
  * `buildWebTabActions` — the palette's `Web: … tab` strip actions.
  * Enablement is the availability idiom (absent, not disabled): next/prev/
  * close/move need ≥2 tabs, boundary move entries are omitted (the `Tab:
- * Move up/down` precedent), and `Web: New tab` is offered at ≥1 (the
- * keyboard peer of the strip's `+`, which is visible from the same
- * threshold). The caller gates the set on the layout including a `web`
- * tile. Pure-builder tests in the `palette/zen.test.ts` pattern.
+ * Move up/down` precedent), and `Web: New tab` is offered unconditionally —
+ * the keyboard peer of the strip's always-rendered `+`, so the draft entry
+ * point stays reachable on an empty family (the onboarding tile). The
+ * caller gates the set on the layout including a `web` tile.
+ * Pure-builder tests in the `palette/zen.test.ts` pattern.
  */
 
 const TABS2 = ["/proxy/3001/", "/proxy/3002/"];
@@ -30,8 +31,9 @@ function byId(actions: ReturnType<typeof buildWebTabActions>, id: string) {
 }
 
 describe("buildWebTabActions — enablement", () => {
-  it("offers nothing for an empty family (the onboarding tile)", () => {
-    expect(buildWebTabActions([], undefined, handlers())).toEqual([]);
+  it("offers only `Web: New tab` for an empty family (the onboarding tile)", () => {
+    const actions = buildWebTabActions([], undefined, handlers());
+    expect(actions.map((a) => a.id)).toEqual(["web-tab-new"]);
   });
 
   it("offers only `Web: New tab` at 1 tab", () => {

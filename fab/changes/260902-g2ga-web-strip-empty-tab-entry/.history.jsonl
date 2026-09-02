@@ -1,0 +1,13 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-02T01:13:56Z"}
+{"args":"Fix: web tile 0-tab state offers no way to open empty (draft) tabs — always render the strip, ungate palette Web: New tab, extend s36e draft entry points to the empty family","cmd":"fab-new","event":"command","ts":"2026-09-02T01:13:56Z"}
+{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-09-02T01:16:14Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-09-02T01:17:44Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-02T01:18:41Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-02T01:19:34Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-02T01:26:05Z"}
+{"event":"review","result":"failed","ts":"2026-09-02T01:34:23Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-02T01:34:23Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-02T01:42:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-02T01:49:50Z"}
+{"event":"review","result":"passed","ts":"2026-09-02T01:49:50Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-02T01:50:28Z"}

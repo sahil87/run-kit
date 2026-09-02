@@ -1757,7 +1757,10 @@ function WindowHeading({
   }, [name, sweep]);
 
   const operatorIcon = operator ? (
-    <span className="mx-1 shrink-0 text-text-secondary transition-colors hover:text-text-primary group-hover/operator-heading:text-text-primary">
+    // mr-1 only (no left margin): HeadingPrefix's -mr-1 deliberately tightens
+    // the sweep's `sp` cell against whatever follows — a left margin here would
+    // cancel that pull-back and widen the prefix gap.
+    <span className="mr-1 shrink-0 text-text-secondary transition-colors hover:text-text-primary group-hover/operator-heading:text-text-primary">
       <HeadsetIcon size={14} />
     </span>
   ) : null;

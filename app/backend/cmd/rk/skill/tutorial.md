@@ -1,6 +1,8 @@
 # run-kit skill: tutorial
 
-An agent-run, live first-use tour of run-kit: eight short chapters and a finale in about ten minutes. This is a static topic page (`rk skill tutorial`); the [core bundle](../skill.md) is the general usage briefing.
+An agent-run, live first-use tour of run-kit: five acts in about ten minutes. This is a static topic page (`rk skill tutorial`); the [core bundle](../skill.md) is the general usage briefing.
+
+**Who it serves**: a first-time run-kit user — assume a product manager, not a terminal native. They care about outcomes: delegating work to agents, knowing when one needs them, seeing results, running several at once. Teach through **their** actions, never through command narration. Do not explain internals (tmux, options, state models) unless asked — and if asked, answer briefly and return to the tour.
 
 Gate first:
 
@@ -12,133 +14,75 @@ If either check fails, STOP: tell the user to open the run-kit dashboard, create
 
 ## Pacing and failure posture
 
-- Deliver exactly one chapter per reply. End with: *Say **next** when you're ready, or ask me anything about what you just saw.* Answer questions, then re-offer the next chapter.
-- `skip` advances one chapter. `stop` or `done` jumps to Cleanup.
-- Use 2–4 sentences, perform the action, then give one sentence saying where to look. Never skip ahead or stack chapters.
-- CLI option writes repaint on the server safety poll: allow up to ~12s and run one visible mutation per beat. Say "give it a few seconds" the first time. UI-originated writes repaint instantly.
-- Degrade, never error. If code-server, push, or a companion page is unavailable, explain in one line, show what the step would do, and continue.
+- Deliver exactly one act per reply. End with: *Say **next** when you're ready, or ask me anything.* Answer questions, then re-offer.
+- `skip` advances one act. `stop` or `done` jumps to Cleanup.
+- 2–4 sentences per beat, then the user acts, then one sentence on where to look. **The user does something in every act** — if a beat has no user action, cut it.
+- Degrade, never error: no operator, no push permission, code-server down — one line on what the step would show, continue.
+- Shell-side changes repaint on the server poll: allow ~10s, say "give it a few seconds" the first time.
 
 ## Preflight — run silently, then end the turn
 
-1. Read and skim `rk skill`; read `rk skill display` before Chapter 3 and `rk skill code` before Chapter 5.
-2. If `/tmp/rk-tutorial/original-state.json` exists, a prior run is stale: perform Cleanup against those captures before continuing.
-3. Capture the current tab before changing it:
+1. Read and skim `rk skill`; read `rk skill display` before Act 2 and `rk skill mux` before Act 3.
+2. If `/tmp/rk-tutorial/original-state.json` exists, a prior run is stale: perform Cleanup against those captures first.
+3. Capture, then detect the operator:
 
    ```sh
    mkdir -p /tmp/rk-tutorial
    rk tab show --json > /tmp/rk-tutorial/original-state.json
    rk tab web ls --json > /tmp/rk-tutorial/original-webtabs.json 2>/dev/null || true
    RK="$(rk url)"
+   tmux list-windows -a -F '#{window_id} #{@rk_win_role}' | grep -w operator || true
    ```
 
-At each chapter's start, present its named companion with `rk present "$RK/tutorial/ch<N>-<slug>.html"`. Greet the user: run-kit is a web dashboard over tmux where people and agents share a workspace; this reversible tour opens an illustrated tab per chapter. Ask them to view this window in the dashboard, explain the pacing rule, and end the turn.
+**Greeting** (this is the whole first turn — no mechanics): run-kit is **mission control for AI agents working on your projects** — start them, watch them, unblock them, from any browser including your phone. Promise the outcome: *in ~10 minutes you'll have delegated work to an agent, been interrupted by one that needed you, run two at once, and been pinged when work finished.* Rules: talk in plain language; **next / skip / stop**; nothing here can break anything. Then one setup ask: **enable notifications now** (the bell in the dashboard's top bar) — "that's how agents will reach you in Act 4." End the turn.
 
-## Chapter 1 — Where am I (`ch1-orientation`)
-
-```sh
-rk present "$RK/tutorial/ch1-orientation.html"
-tmux display-message -t "$TMUX_PANE" -p 'pane #{pane_id} · session #S · window #W'
-rk url
-```
-
-Connect the live values to the companion's conceptual host → tmux server → session → window/tab → pane stack. Point to this session/window in the real sidebar and terminal tile; on desktop, the status bar mirrors current-window registers and active-pane identity on the left, with tmux server and host details on the right (`rk url` is command output, not a bar segment). Close the loop: tmux is the store, the dashboard derives and renders it; there is no database.
-
-## Chapter 2 — Sidebar signals (`ch2-signals`)
+## Act 1 — You have an agent (`ch1-your-agent`)
 
 ```sh
-rk present "$RK/tutorial/ch2-signals.html"
+rk present "$RK/tutorial/ch1-your-agent.html"
 ```
 
-UI first, one action at a time: press the marker well at this window row's left edge; on a fine pointer drag across the 3×3 `manual/auto/blocked` × stage pad and release, while touch uses tap then pick. Ask for `auto:2`. Hover the row to see its flyout: `Change color…` plus the note line when set. Show ⌘K (⇧Ctrl+K on Win/Linux) searches for `marker`, `color`, and `note` (`Tab: Marker`, `Tab: Set Color`, `Window: Set note…`).
+The companion shows the roster idea: every sidebar row is an agent (or a plain terminal) working for you; the dot on the row is its state. Then make it real — **have the user ask you something** ("ask me anything — try: what's in this project?"). Answer briefly, and tell them to watch this window's row while you work: busy while I think, idle when I'm done, and a **waiting badge** when an agent needs a human — that badge is the whole supervision game, and Act 4 triggers it for real. One-line orientation: sessions group agents by project; this row is me.
 
-Close from the shell, one beat at a time, noting the poll delay and that `blocked` means "I'm stuck":
+## Act 2 — Make it show you things (`ch2-present-it`)
 
 ```sh
-tmux set-option -w @rk_win_flair nyan
-tmux set-option -w @rk_win_note "$(date +%s):tutorial in progress — chapter 2"
+rk present "$RK/tutorial/ch2-present-it.html"
 ```
 
-## Chapter 3 — Show, don't tell (`ch3-present`)
+Teach the phrase on the companion: telling any agent **"…and present it to me"** makes results appear as live pages beside its terminal — reports, mocks, dashboards, not walls of terminal text. Then hands-on: offer three scoped picks — *(a) a one-page brief of this project, (b) a cheat sheet of this tour so far, (c) a small mock KPI dashboard* — and have them ask in their own words, ending with "present it to me". Build it fast (small, dark, monospace, self-contained), `rk present /tmp/rk-tutorial/<name>.html`, point at the new tab in the strip above the page. Then invite one tweak ("make the heading green", "add a row") — edit and re-run the same present command: **asking again is the refresh**. Mention once: the same works for a running dev server (`:port`) or any URL. If the page tile ever gets hidden, `rk tab layout split-h:tty,web` restores the side-by-side.
+
+## Act 3 — Hire a second agent (`ch3-second-agent`)
 
 ```sh
-rk present "$RK/tutorial/ch3-present.html"
+rk present "$RK/tutorial/ch3-second-agent.html"
 ```
 
-Explain agent → generated page → `rk present` → web tile; these companions use that path. Create a small dark monospace `/tmp/rk-tutorial/welcome.html` with a heading and timestamp, run `rk present /tmp/rk-tutorial/welcome.html`, edit its heading, and run the same command again: **re-present is the refresh verb**.
+The point of run-kit is agents in **parallel** — and the user should feel it, not hear it. The worker's brief (both paths below): *build a one-page visual brief of this project; before writing anything, ask the user ONE question — "who's the audience: exec or engineer?" — and wait for the answer; then present the page and send a notification when done.*
 
-Teach the phrase **"present it to me"**, then role-flip: invite a small visual request, fulfill it next turn, present it, and point out the same recipe. Mention targets may also be a directory, `:port`, or external URL.
+- **Operator path (preferred)**: if Preflight found an operator row, point at it (pinned at the top of its server group) and have the **user** click into it and ask, in plain language: *"Start an agent in a new window that builds a one-page brief of this project — have it ask me one question first, then present the result and notify me."* The operator is how you'll start real work every day; today it hires our worker.
+- **Fallback**: no operator — say so ("normally you'd ask the operator; I'll hire directly this time"), then: `rk tab new --name tour-worker`, start the same agent CLI you yourself run in that pane, and give it the brief.
 
-## Chapter 4 — Arranging the view (`ch4-layouts`)
+While it boots, keep talking with the user: **two rows are now busy at once** — have them find both in the sidebar. That's the product.
+
+## Act 4 — It needs you (`ch4-attention`)
 
 ```sh
-rk present "$RK/tutorial/ch4-layouts.html"
+rk present "$RK/tutorial/ch4-attention.html"
 ```
 
-The arrangement is shared `@rk_win_layout` state; toolbar and CLI write the same model. Run each line as a separate beat/reply: read the current value aloud, mutate, point to the top-bar surface toggles, then END with *tell me when you see it (can take ~10s) — then say next*.
+Wait for the worker's question to land (watch its pane with `rk mux await` or peek with `rk mux capture`; don't narrate the mechanics). When it does: the worker's row shows the **waiting badge**, and — if they enabled notifications — a **push lands on their device**. Walk the loop on the companion, then for real: *click the worker's row, read its question, type your answer right there, come back to me.* When the worker finishes it presents its page and notifies — the full supervision loop, end to end: **delegate → get interrupted only when needed → unblock → receive the result**. Degradations: no push → the badge and row signals carry it; worker never asks → nudge it from its pane; worker died → say so, show its last output, move on.
+
+## Act 5 — Everywhere, and what's next (`ch5-everywhere`)
 
 ```sh
-rk tab layout
-rk tab layout split-v:web,tty
-rk tab layout --promote tty
-rk tab layout split-h:tty,web
+rk present "$RK/tutorial/ch5-everywhere.html"
 ```
 
-Mention `single:tty` collapses to terminal, but never run it mid-tour because it hides the companions.
+Three closers, all user-driven. **Phone**: the same dashboard address works on any device that can reach it — offer to send it: `rk notify "open me on your phone" --title run-kit` (fail-silent if unsubscribed). **⌘K** (⇧Ctrl+K on Win/Linux): the command palette holds every action in the product — have them open it and type `color`, then `settings`; "when you don't know how, ⌘K and type" is the lasting habit. **The challenge**: have them start one real agent on something they actually want — via the operator if present ("Start a claude session on <repo>") — and remind them of the phrase that gets results as pages. For their engineers: `rk skill` (and its `display`, `mux`, `code` topics) is the always-available agent briefing.
 
-## Chapter 5 — The code lens (`ch5-code`)
+## Cleanup and recap
 
-```sh
-rk present "$RK/tutorial/ch5-code.html"
-rk tab layout --add code
-rk tab code set "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-```
+Ask first: keep or remove the worker window and its brief (it's their first artifact — default keep). Then restore this tab: compare `rk tab web ls --json` with the web-tab capture and remove every tab absent from it, highest index first; restore every `@rk_win_*` key from the original-state capture with `tmux set-option -w <key> <value>`; unset (`tmux set-option -wu <key>`) any current `@rk_win_*` key absent from it; verify with `rk tab show --json`; then `rm -rf /tmp/rk-tutorial`.
 
-After the poll beat, point to the code tile. If code-server is down, name the graceful empty state and continue. If `rk code hosts` prints a host, open README without a mouse:
-
-```sh
-rk code exec vscode.open "{\"\$uri\":\"file://$(git rev-parse --show-toplevel 2>/dev/null || pwd)/README.md\"}"
-rk tab layout --rm code
-```
-
-## Chapter 6 — The web-tab strip (`ch6-webtabs`)
-
-```sh
-rk present "$RK/tutorial/ch6-webtabs.html"
-rk tab web ls
-```
-
-Read the indexed tabs together (`*` is active, cap 8). Run `rk tab web select 1`; clicking a strip tab writes the same shared selection. Point to **↗ Open in browser** at the URL bar's right end and in frame-blocked errors; have the user try it. Tidy Ch1–Ch5 companions and `welcome.html` with `rk tab web rm <n>`, checking `rk tab web ls` after each because slots renumber densely; leave this chapter open.
-
-## Chapter 7 — The command palette (`ch7-keyboard`)
-
-```sh
-rk present "$RK/tutorial/ch7-keyboard.html"
-```
-
-Every user-facing action is registered in the palette: ⌘K (⇧Ctrl+K on Win/Linux), then search `marker`, `layout`, and `web`; let the user run one. Settings is ⌘, in the desktop app, palette → `settings` in mac browsers (which reserve ⌘,), and ⇧Ctrl+, on Win/Linux. The Shortcuts tab toggles with ⌘/ on macOS or ⇧Ctrl+/ on Win/Linux and lists every binding; app bindings are remappable, while tmux bindings are locked. Takeaway: ⌘K is how to find what this tour omits.
-
-## Chapter 8 — The operator (`ch8-operator`)
-
-```sh
-rk present "$RK/tutorial/ch8-operator.html"
-```
-
-An operator is the coordinating agent pinned at the top of its server group, below the server header and above its session rows. You ask it in plain language: *Start a claude session on <repo>*; *Start a kimi session*; *Start a claude session, but with codex workers*. If its row exists, invite one small ask; otherwise say it starts from the server page and leave that as day two.
-
-## Finale — Attention, Cleanup, recap
-
-An agent never moves the user's navigation; it uses sidebar signals and fail-silent push:
-
-```sh
-rk notify "tutorial complete 🎉 — you now know more than most" --title run-kit
-```
-
-### Cleanup
-
-Read `/tmp/rk-tutorial/original-state.json` and `original-webtabs.json`. First compare `rk tab web ls --json` with the web-tab capture and remove every tab absent from it, highest index first so original tabs survive dense renumbering. Then, for every `@rk_win_*` key in the original-state capture, restore its value with `tmux set-option -w <key> <value>`. Inspect the current `rk tab show --json` and use `tmux set-option -wu <key>` for every current `@rk_win_*` key absent from the capture. Run `rk tab show --json` again and compare it with the original-state capture to verify the window state is restored, then:
-
-```sh
-rm -rf /tmp/rk-tutorial
-```
-
-Recap: **⌘K** finds actions; **"present it to me"** requests visuals; `rk present`, `rk tab layout`, `rk tab web`, `rk tab code set`, `rk code exec`, and `rk notify` are the agent verbs; marker/flyout signals and the operator carry human attention and delegation. Point to `rk skill` plus its `display`, `mux`, `code`, and `tutorial` topics, then invite one solo experiment.
+Recap in their words: **rows are agents; the badge means "needs you"; "present it to me" gets results as pages; the operator hires; ⌘K finds everything; your phone works too.** Invite the solo experiment and end.

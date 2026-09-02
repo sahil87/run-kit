@@ -1,0 +1,42 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Act 1 — You have an agent</title>
+<style>
+  body{background:#0d1117;color:#c9d1d9;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;margin:0;padding:24px;font-size:14px;line-height:1.55}
+  h1{color:#3fb950;font-size:18px;margin:0 0 4px} .sub{color:#8b949e;margin:0 0 20px}
+  .mock{border:1px solid #30363d;border-radius:6px;background:#161b22;padding:14px;margin:14px 0}
+  .lbl{color:#8b949e;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
+  .hl{color:#3fb950} .dim{color:#8b949e}
+  .side{max-width:320px;background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:8px;font-size:13px}
+  .sh{color:#8b949e;font-size:10px;text-transform:uppercase;letter-spacing:1px;padding:4px 8px}
+  .r{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:3px;color:#c9d1d9}
+  .r.me{outline:1px solid #3fb950}
+  .d{width:9px;height:9px;border-radius:50%;flex:none}
+  .busy{background:#d29922;box-shadow:0 0 6px #d29922} .idle{background:#3fb950} .wait{background:#f85149;box-shadow:0 0 6px #f85149}
+  .bdg{margin-left:auto;border:1px solid #f85149;color:#f85149;border-radius:8px;font-size:10px;padding:0 6px}
+  .legend{padding:0} .legend li{list-style:none;margin:7px 0}
+</style></head><body>
+<h1>Act 1 · You have an agent</h1>
+<p class="sub">The sidebar is your <b>roster</b>. Every row is an agent (or a plain terminal) working for you.</p>
+
+<div class="mock">
+  <div class="lbl">the roster — what you're looking at</div>
+  <div class="side">
+    <div class="sh">my-project</div>
+    <div class="r me"><span class="d busy"></span> tour-guide <span class="dim">← this is me, working</span></div>
+    <div class="r"><span class="d idle"></span> feature-x <span class="dim">done, waiting for work</span></div>
+    <div class="r"><span class="d wait"></span> release-notes <span class="bdg">needs you</span></div>
+  </div>
+</div>
+
+<div class="mock">
+  <div class="lbl">how to read a row</div>
+  <ul class="legend">
+    <li><span class="d busy" style="display:inline-block"></span> &nbsp;<b>busy</b> — the agent is working; you don't need to watch it</li>
+    <li><span class="d idle" style="display:inline-block"></span> &nbsp;<b>idle</b> — finished; results are in its window, ready for the next ask</li>
+    <li><span class="d wait" style="display:inline-block"></span> &nbsp;<b>needs you</b> — it asked a question and is waiting. <span class="hl">This badge is the whole game</span> — you'll trigger one for real in Act 4.</li>
+  </ul>
+</div>
+
+<p><span class="hl">Try it now:</span> ask me anything about this project — then watch <b>my row</b> flip busy while I answer, idle when I'm done.</p>
+</body></html>

@@ -43,6 +43,29 @@ export function PaletteIcon({ size = 13 }: { size?: number }) {
   );
 }
 
+/** Operator identity glyph shared by window-name surfaces. */
+export function HeadsetIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      data-testid="operator-headset-icon"
+    >
+      <path d="M4 14v-2a8 8 0 0 1 16 0v2" />
+      <rect x="3" y="13" width="4.5" height="6" rx="1.8" />
+      <rect x="16.5" y="13" width="4.5" height="6" rx="1.8" />
+      <path d="M21 19v.5a3 3 0 0 1-3 3h-4" />
+    </svg>
+  );
+}
+
 /** Small gear icon for the settings trigger (the top-bar right-cluster chip
  *  since 260812-d1at, the sidebar footer before) — a lucide
  *  `settings` silhouette (cog outline + hub dot). Line-art matching the

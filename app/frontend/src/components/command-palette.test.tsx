@@ -97,6 +97,33 @@ describe("CommandPalette", () => {
     expect(screen.queryByText("Tab: Create")).not.toBeInTheDocument();
   });
 
+  it("renders an optional action icon and finds the action through its description", () => {
+    const actions: PaletteAction[] = [
+      {
+        id: "coordinator",
+        label: "Tab: Switch to system › coordinator",
+        description: "operator",
+        icon: (
+          <span data-testid="palette-action-icon" aria-hidden="true">
+            icon
+          </span>
+        ),
+        onSelect: vi.fn(),
+      },
+      { id: "worker", label: "Tab: Switch to work › worker", onSelect: vi.fn() },
+    ];
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+
+    const input = screen.getByPlaceholderText(/^Type a command/);
+    fireEvent.change(input, { target: { value: "operator" } });
+
+    expect(screen.getByTestId("palette-action-icon")).toBeInTheDocument();
+    expect(screen.getByText("Tab: Switch to system › coordinator")).toBeInTheDocument();
+    expect(screen.getByText("— operator")).toBeInTheDocument();
+    expect(screen.queryByText("Tab: Switch to work › worker")).not.toBeInTheDocument();
+  });
+
   it("selects action with Enter and closes palette", () => {
     const actions = makeActions(["New Session", "Kill Window"]);
     render(<CommandPalette actions={actions} />);

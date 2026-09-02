@@ -1,5 +1,5 @@
 ---
-description: "Keyboard shortcuts: tiers, the e.code rule, defaults, surface restrictions and reclaiming, macros, overrides, claimed keys, and the Settings Shortcuts tab; the single palette mount and action registry, including recovery, server lifecycle, operator requests, session sorting, web zoom/tabs, Tab: Marker, and stack-gated Tab: Reopen closed."
+description: "Keyboard shortcuts: tiers, the e.code rule, defaults, surface restrictions and reclaiming, macros, overrides, claimed keys, and the Settings Shortcuts tab; the single palette mount and action registry, including recovery, server lifecycle, operator requests and operator window identity, session sorting, web zoom/tabs, Tab: Marker, and stack-gated Tab: Reopen closed."
 type: memory
 ---
 # run-kit UI — Keyboard & Palette
@@ -293,6 +293,8 @@ Command palette actions include: create/rename/kill session, create/rename/kill 
 
 **Palette action descriptions** (`PaletteAction.description?: string`, `components/command-palette.tsx`): an optional secondary-text field rendered on the palette row in the panel's `label — description` idiom and folded into the filter haystack, so a query matching only the descriptor (e.g. "group") finds the action; actions without a description render exactly as before. It ships on the session concept-formation entries — `Session: Create` ("a new group of tabs") and `Session: Create at Folder` ("a new group of tabs, rooted at a folder") — carrying the sessions-are-grouping-utilities mental model; `create-session`'s registry `description` in `keybindings.ts` carries the same copy for the shortcuts panel's `label — description` rows. (260823-c5yq)
 
+**Palette action icons and operator navigation rows**: `PaletteAction.icon?: ReactNode` is a generic optional leading slot rendered before the label; actions without an icon retain the text-only row shape. `buildWindowSwitchActions` sets the shared `HeadsetIcon` and the plain `operator` description only when `fw.window.role === "operator"`. The description joins the same filter haystack as every other descriptor, so typing `operator` finds the window's `Tab: Switch to …` entry, and it supplies the text channel for role identity while the headset remains `aria-hidden`. This decoration is limited to window-navigation entries; operator actuation actions such as compose, annotate, and fix-name remain text-only.
+
 **Window rename action**: the `rename-window` action ("Tab: Rename") dispatches a `window-heading:rename` `CustomEvent` (guarded on `currentWindow`), which the centered top-bar `WindowHeading` listens for and enters inline edit (mirrors `theme-selector:open`), rather than opening a modal dialog. The action stays registered (Constitution V keyboard path); there is no window rename `<Dialog>` (the SESSION rename dialog is separate). See § Window Heading. (260703-5ilm)
 
 **Window move actions**: "Tab: Move up" (id `window-move-up`) and "Tab: Move down" (id `window-move-down`) in the `windowActions` group — the sole window-move pair, matching the up/down vocabulary of the Session / Server / Board move actions (windows render as vertical sidebar rows). Only shown when `currentWindow` exists. "Move up" excluded when the current window is at the minimum index in the session; "Move down" excluded when at the maximum index (boundary exclusion, not disabled state). On select, calls `moveWindow(server, currentWindow.windowId, targetIndex)` (source by stable window ID, destination by position) then navigates to the **same** `currentWindow.windowId` with `search: (prev) => prev` — the window keeps its ID across the reorder (only its index changes) and the current view is preserved (260714-r7rq), so the user stays on their window and view after the swap. The target index is computed via the shared pure helper `computeWindowMoveTarget(index, delta, minIndex, maxIndex)` (returns `null` at a boundary — no wraparound). (`260705-bpnr`, `260719-p8pv-window-move-palette-consolidation`)
@@ -378,6 +380,12 @@ A binding MAY carry `aliasOf: <actionId>`, making it a SECOND chord for that act
 
 
 ## Design Decisions
+
+### Palette role identity uses a generic icon seam plus searchable text
+**Decision**: `PaletteAction` exposes `icon?: ReactNode`, rendered generically before the label, while operator window-switch actions supply `HeadsetIcon` plus the plain `operator` description at the `buildWindowSwitchActions` data boundary.
+**Why**: The renderer stays reusable, role-gating is testable where window data becomes actions, and the description provides both filtering and readable text for a decorative glyph.
+**Rejected**: Operator checks inside `CommandPalette`, matching label text, an icon-only role cue, or decorating operator-actuation actions outside the window-navigation family.
+*Introduced by*: 260902-znfg-operator-visual-distinction
 
 ### Move-tab keys are component-local, not registry chords
 **Decision**: ⌥⇧←/⌥⇧→ live in the strip's roving-tablist keydown handler; palette entries carry the discoverable parity.

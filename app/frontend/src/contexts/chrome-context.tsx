@@ -1,4 +1,12 @@
-import { createContext, useContext, useState, useCallback, useMemo, useRef } from "react";
+import {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useMemo,
+  useRef,
+  type ReactNode,
+} from "react";
 import type { ProjectSession, WindowInfo } from "@/types";
 import { evaluateIsMobile } from "@/hooks/use-is-mobile";
 import { markComposeStripFocusOnOpen } from "@/lib/compose-strip-events";
@@ -7,6 +15,7 @@ export type BreadcrumbDropdownItem = {
   label: string;
   href: string;
   current?: boolean;
+  icon?: ReactNode;
 };
 
 const FIXED_WIDTH_STORAGE_KEY = "runkit-fixed-width";

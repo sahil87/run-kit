@@ -128,6 +128,7 @@ import { TopBar, type TopBarMode } from "@/components/top-bar";
 import { useVisualViewport } from "@/hooks/use-visual-viewport";
 import { Shell } from "@/components/shell/shell";
 import { Sidebar } from "@/components/sidebar";
+import { HeadsetIcon } from "@/components/sidebar/icons";
 import { SurfaceLayout } from "@/components/surface-layout";
 import { BottomBar } from "@/components/bottom-bar";
 import { StatusBar } from "@/components/status-bar";
@@ -599,6 +600,36 @@ export function buildTabPickerActions(
       },
     },
   ];
+}
+
+type WindowSwitchActionTarget = {
+  session: string;
+  window: {
+    windowId: string;
+    name: string;
+    role?: string;
+  };
+};
+
+export function buildWindowSwitchActions({
+  flatWindows,
+  windowParam,
+  onSelectWindow,
+}: {
+  flatWindows: WindowSwitchActionTarget[];
+  windowParam: string | undefined;
+  onSelectWindow?: (windowId: string) => void;
+}): PaletteAction[] {
+  return flatWindows.map((fw) => ({
+    id: `window-switch-${fw.session}-${fw.window.windowId}`,
+    label: `Tab: Switch to ${fw.session} › ${fw.window.name}${
+      fw.window.windowId === windowParam ? " (current)" : ""
+    }`,
+    ...(fw.window.role === "operator"
+      ? { icon: <HeadsetIcon />, description: "operator" }
+      : {}),
+    onSelect: () => onSelectWindow?.(fw.window.windowId),
+  }));
 }
 
 /**
@@ -3690,13 +3721,12 @@ function AppShell() {
   // suppression); the `(current)` suffix marks the URL-active window, mirroring
   // `Server: Switch to <name> (current)`.
   const windowSwitchActions: PaletteAction[] = useMemo(
-    () => flatWindows.map((fw) => ({
-      id: `window-switch-${fw.session}-${fw.window.windowId}`,
-      label: `Tab: Switch to ${fw.session} › ${fw.window.name}${
-        fw.window.windowId === windowParam ? " (current)" : ""
-      }`,
-      onSelect: () => navigateToWindow(fw.window.windowId),
-    })),
+    () =>
+      buildWindowSwitchActions({
+        flatWindows,
+        windowParam,
+        onSelectWindow: navigateToWindow,
+      }),
     [flatWindows, navigateToWindow, windowParam],
   );
 

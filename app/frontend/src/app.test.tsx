@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { CommandPalette, type PaletteAction } from "@/components/command-palette";
-import { buildTabPickerActions, resolveServerView } from "@/app";
+import {
+  buildTabPickerActions,
+  buildWindowSwitchActions,
+  resolveServerView,
+} from "@/app";
 import { availableViews, hasCode } from "@/lib/window-view";
 import type { ServerInfo } from "@/api/client";
 
@@ -420,38 +424,14 @@ describe("CmdK Window At-Folder Action", () => {
   });
 });
 
-/**
- * Tests for the per-window switch palette entries (260613-o20f-palette-window-switch).
- *
- * Mirrors the `windowSwitchActions` useMemo in app.tsx (renamed from the old
- * `terminalActions` "Terminal:" block). Each window across every session yields
- * one `Window: Switch to <session> › <name>` entry; the entry whose windowId
- * matches the URL-active window (`windowParam`) gets the `(current)` suffix.
- * The action-construction logic is kept in sync with app.tsx so the test
- * catches drift if either side changes the label/grouping rules.
- */
+/** Tests for the production per-window switch palette builder. */
 
 const NBSP_ANGLE = "›"; // U+203A — the label separator used in app.tsx
-
-/** Build windowSwitchActions matching the pattern in app.tsx. */
-function buildWindowSwitchActions(opts: {
-  flatWindows: { session: string; window: { windowId: string; name: string } }[];
-  windowParam: string | undefined;
-  onSelectWindow?: (windowId: string) => void;
-}): PaletteAction[] {
-  return opts.flatWindows.map((fw) => ({
-    id: `window-switch-${fw.session}-${fw.window.windowId}`,
-    label: `Window: Switch to ${fw.session} ${NBSP_ANGLE} ${fw.window.name}${
-      fw.window.windowId === opts.windowParam ? " (current)" : ""
-    }`,
-    onSelect: () => opts.onSelectWindow?.(fw.window.windowId),
-  }));
-}
 
 describe("CmdK Window Switch Actions", () => {
   afterEach(cleanup);
 
-  it("renders one Window: Switch to entry per window with the › separator and (current) on the active window", () => {
+  it("renders one Tab: Switch to entry per window with the › separator and (current) on the active window", () => {
     const actions = buildWindowSwitchActions({
       flatWindows: [
         { session: "alpha", window: { windowId: "@1", name: "edit" } },
@@ -465,10 +445,10 @@ describe("CmdK Window Switch Actions", () => {
     openPalette();
 
     // Non-active windows: plain `<session> › <name>` label, no suffix.
-    expect(screen.getByText(`Window: Switch to alpha ${NBSP_ANGLE} edit`)).toBeInTheDocument();
-    expect(screen.getByText(`Window: Switch to bravo ${NBSP_ANGLE} logs`)).toBeInTheDocument();
+    expect(screen.getByText(`Tab: Switch to alpha ${NBSP_ANGLE} edit`)).toBeInTheDocument();
+    expect(screen.getByText(`Tab: Switch to bravo ${NBSP_ANGLE} logs`)).toBeInTheDocument();
     // Active window (windowId === windowParam): carries the (current) suffix.
-    expect(screen.getByText(`Window: Switch to alpha ${NBSP_ANGLE} serve (current)`)).toBeInTheDocument();
+    expect(screen.getByText(`Tab: Switch to alpha ${NBSP_ANGLE} serve (current)`)).toBeInTheDocument();
     // Only one entry is marked current.
     expect(screen.getAllByText(/\(current\)/)).toHaveLength(1);
   });
@@ -485,8 +465,8 @@ describe("CmdK Window Switch Actions", () => {
     render(<CommandPalette actions={actions} />);
     openPalette();
 
-    expect(screen.getByText(`Window: Switch to alpha ${NBSP_ANGLE} edit`)).toBeInTheDocument();
-    expect(screen.getByText(`Window: Switch to alpha ${NBSP_ANGLE} serve`)).toBeInTheDocument();
+    expect(screen.getByText(`Tab: Switch to alpha ${NBSP_ANGLE} edit`)).toBeInTheDocument();
+    expect(screen.getByText(`Tab: Switch to alpha ${NBSP_ANGLE} serve`)).toBeInTheDocument();
     expect(screen.queryByText(/\(current\)/)).not.toBeInTheDocument();
   });
 
@@ -509,6 +489,40 @@ describe("CmdK Window Switch Actions", () => {
     fireEvent.keyDown(input, { key: "Enter" });
 
     expect(onSelectWindow).toHaveBeenCalledWith("@3");
+  });
+
+  it("decorates only operator windows with the headset and operator description", () => {
+    const actions = buildWindowSwitchActions({
+      flatWindows: [
+        {
+          session: "system",
+          window: {
+            windowId: "@1",
+            name: "coordinator",
+            role: "operator",
+          },
+        },
+        {
+          session: "work",
+          window: { windowId: "@2", name: "worker" },
+        },
+      ],
+      windowParam: "@1",
+    });
+
+    expect(actions[0].description).toBe("operator");
+    expect(actions[0].icon).toBeTruthy();
+    expect(actions[1].description).toBeUndefined();
+    expect(actions[1].icon).toBeUndefined();
+
+    render(<CommandPalette actions={actions} />);
+    openPalette();
+    fireEvent.change(screen.getByPlaceholderText(/^Type a command/), {
+      target: { value: "operator" },
+    });
+    expect(screen.getByTestId("operator-headset-icon")).toBeInTheDocument();
+    expect(screen.getByText("Tab: Switch to system › coordinator (current)")).toBeInTheDocument();
+    expect(screen.queryByText("Tab: Switch to work › worker")).not.toBeInTheDocument();
   });
 });
 

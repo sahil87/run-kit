@@ -130,7 +130,7 @@ describe("FindBar — key hint", () => {
     expect(screen.getByText("Enter next · ⇧Enter prev · Esc close")).toBeTruthy();
     unmount();
 
-    stubMatchMedia((query) => query === "(pointer: coarse)");
+    stubMatchMedia((query) => ["(pointer: coarse)", "(any-pointer: coarse)"].includes(query));
     render(
       <FindBar
         query=""
@@ -146,7 +146,7 @@ describe("FindBar — key hint", () => {
   });
 
   it("keeps the scope note visible on coarse pointers (it is not a key hint)", () => {
-    stubMatchMedia((query) => query === "(pointer: coarse)");
+    stubMatchMedia((query) => ["(pointer: coarse)", "(any-pointer: coarse)"].includes(query));
     renderBar({ scopeNote: "client buffer only (since attach)" });
     expect(screen.getByLabelText("Search scope")).toBeTruthy();
     expect(screen.queryByText("Enter next · ⇧Enter prev · Esc close")).toBeNull();

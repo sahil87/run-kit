@@ -43,7 +43,7 @@ function mockCoarsePointer() {
   vi.stubGlobal(
     "matchMedia",
     vi.fn().mockImplementation((q: string) => ({
-      matches: q === "(pointer: coarse)",
+      matches: ["(pointer: coarse)", "(any-pointer: coarse)"].includes(q),
       media: q,
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
@@ -1568,7 +1568,7 @@ describe("coarse pointer: rest glyph, rail target, and plain status dot", () => 
       vi.stubGlobal(
         "matchMedia",
         vi.fn().mockImplementation((q: string) => ({
-          matches: q === "(pointer: coarse)" || q === "(prefers-color-scheme: dark)",
+          matches: ["(pointer: coarse)", "(any-pointer: coarse)"].includes(q) || q === "(prefers-color-scheme: dark)",
           media: q,
           addEventListener: vi.fn(),
           removeEventListener: vi.fn(),

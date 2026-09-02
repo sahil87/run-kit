@@ -21,7 +21,7 @@ afterEach(() => {
 
 /** Install a matchMedia stub whose `(pointer: coarse)` answer is true. */
 function stubCoarsePointer() {
-  stubMatchMedia((query) => query === "(pointer: coarse)");
+  stubMatchMedia((query) => ["(pointer: coarse)", "(any-pointer: coarse)"].includes(query));
 }
 
 describe("Tip — content and ARIA", () => {

@@ -362,7 +362,7 @@ describe("SessionRow", () => {
     });
 
     it("never opens on a coarse pointer", () => {
-      stubMatchMedia((query) => query === "(pointer: coarse)");
+      stubMatchMedia((query) => ["(pointer: coarse)", "(any-pointer: coarse)"].includes(query));
       render(<SessionRow {...rowProps(makeSession({ name: "api" }))} />);
       const row = screen.getByRole("treeitem");
       act(() => {
@@ -410,7 +410,7 @@ describe("SessionRow", () => {
       resetFlyoutWarmState();
       // Coarse pointer + dark scheme (ThemeProvider/SwatchPopover need the
       // color-scheme query answered too).
-      stubMatchMedia((q) => q === "(pointer: coarse)" || q === "(prefers-color-scheme: dark)");
+      stubMatchMedia((q) => ["(pointer: coarse)", "(any-pointer: coarse)"].includes(q) || q === "(prefers-color-scheme: dark)");
     });
     afterEach(() => {
       vi.unstubAllGlobals();

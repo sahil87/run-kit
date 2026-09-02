@@ -46,6 +46,7 @@ import {
 } from "@/components/top-bar-icons";
 import { LayoutChip, LayoutMenuRows } from "@/components/layout-chip";
 import { computeVisibleCount } from "@/lib/top-bar-overflow";
+import { deriveCrumbsCollapsed } from "@/lib/crumb-collapse";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { formatCombo } from "@/lib/keybindings";
 import type { Layout, SurfaceKind } from "@/lib/surface-layout";
@@ -572,6 +573,79 @@ export function TopBar({
   // brand + hamburger. The Host page and board have no left server crumb.
   const showServerCrumb = mode === "terminal" && !!server;
   const serverHref = `/${encodeURIComponent(server)}`;
+  const navigate = useNavigate();
+
+  // Crumb collapse rung — the degradation-ladder step BETWEEN truncation and
+  // the breakpoint hides: when the server+session crumbs would truncate below
+  // their minimum useful width (6ch of content, lib/crumb-collapse.ts), both
+  // collapse into a single `… ▾` crumb (one BreadcrumbDropdown carrying both
+  // levels). The measurement mirrors the right cell's fit machinery: a
+  // ResizeObserver + a hidden probe row rendering the crumbs' min-useful form
+  // (real text at `max-w-[6ch]`), so the threshold is measured from the real
+  // names, never hardcoded. The crumbs' section wrapper is `flex-1 min-w-0`
+  // (below) so its clientWidth IS the available space in BOTH states — a
+  // content-sized wrapper would shrink to the tiny collapsed trigger and lose
+  // the expand-back signal. deriveCrumbsCollapsed owns the decision, incl. the
+  // expand-edge hysteresis that stops boundary flapping.
+  const crumbSectionRef = useRef<HTMLDivElement>(null);
+  const crumbProbeRef = useRef<HTMLDivElement>(null);
+  const [crumbsCollapsed, setCrumbsCollapsed] = useState(false);
+  const hasCollapsibleCrumbs = mode !== "board" && (showServerCrumb || !!sessionName);
+
+  useLayoutEffect(() => {
+    const section = crumbSectionRef.current;
+    const probe = crumbProbeRef.current;
+    if (!section || !probe) return;
+    const measure = () => {
+      setCrumbsCollapsed((prev) =>
+        deriveCrumbsCollapsed(section.clientWidth, probe.scrollWidth, prev),
+      );
+    };
+    measure();
+    // Observe BOTH: the section tracks the available space (grid-driven), the
+    // probe tracks the threshold (name-length-driven) — a rename can change
+    // the required width without resizing the section.
+    const ro = new ResizeObserver(measure);
+    ro.observe(section);
+    ro.observe(probe);
+    return () => ro.disconnect();
+  }, [hasCollapsibleCrumbs, mode, server, sessionName]);
+
+  // The collapsed crumb's two levels: the server (link crumb, → its tmux
+  // Server route) and the session (a static chip when expanded — it has no
+  // route of its own — so in the menu it points at the current window's
+  // route, marked current). No `+ New Session` action: session creation
+  // lives in the palette (`Session: Create`) and the sidebar server-header
+  // `+`, not the top bar.
+  const collapsedCrumbItems: BreadcrumbDropdownItem[] = [];
+  if (hasCollapsibleCrumbs) {
+    if (showServerCrumb) {
+      collapsedCrumbItems.push({ label: server, href: serverHref });
+    }
+    if (sessionName) {
+      collapsedCrumbItems.push({
+        label: sessionName,
+        href: currentWindow
+          ? `/${encodeURIComponent(server)}/${encodeURIComponent(currentWindow.windowId)}`
+          : serverHref,
+        current: true,
+      });
+    }
+  }
+
+  // Collapsed-menu navigation: 2-segment hrefs are window routes and ride the
+  // existing same-session seam; the 1-segment server href navigates SPA-side.
+  const handleCollapsedNavigate = useCallback(
+    (href: string) => {
+      const parts = href.replace(/^\//, "").split("/");
+      if (parts.length >= 2 && parts[1]) {
+        handleDropdownNavigate(href);
+        return;
+      }
+      navigate({ to: "/$server", params: { server: decodeURIComponent(parts[0]) } });
+    },
+    [handleDropdownNavigate, navigate],
+  );
 
   // Open-in-App data (260722-6d0f): sshHost/sshUser + host-app registry,
   // fetched once per page load via the module-cached hook (enabled only where
@@ -1023,13 +1097,18 @@ export function TopBar({
               brand icon below `sm` (the hamburger sibling carries its own
               `shrink-0` + min sizes outside the nav — 260720-ap63 subtracted
               its 30px from the old 76/180 floor), plus a usable session crumb
-              sliver at `sm+`. The two crumb wrapper spans carry `min-w-0`
-              (below) so their inner `truncate max-w-[16ch]` engages under
-              pressure — degradation ladder: crumbs truncate → server crumb
+              sliver at `sm+`. `flex-1` makes the nav claim the left cell's
+              leftover width regardless of content size, so the crumb section's
+              clientWidth stays the available-space signal even while collapsed
+              (a content-sized nav would shrink to the `… ▾` trigger and the
+              collapse measurement would go blind). Degradation ladder: crumbs
+              truncate (floored at 6ch of content + chrome, so the ellipsis
+              reserve can never be squeezed away) → BOTH crumbs collapse into a
+              single `… ▾` crumb (measurement-driven, below) → server crumb
               hides below `md` → nav clips at its floor. */}
           <nav
             aria-label="Breadcrumb"
-            className="flex items-center gap-1.5 text-sm overflow-hidden min-w-[46px] sm:min-w-[150px]"
+            className="flex items-center gap-1.5 text-sm overflow-hidden min-w-[46px] sm:min-w-[150px] flex-1"
           >
             {/* Brand root crumb — logo + wordmark, links to `/`. The nav's
                 first child (the breadcrumb's root — the `›` separator starts
@@ -1066,8 +1145,41 @@ export function TopBar({
                 serverCount={serverCount ?? 0}
                 waitingPaneCount={waitingPaneCount ?? 0}
               />
-            ) : (
-              <>
+            ) : hasCollapsibleCrumbs ? (
+              // The collapsible crumb section: `flex-1 min-w-0` so its
+              // clientWidth IS the space the crumbs may occupy (see the
+              // collapse-rung comment above); `overflow-hidden` clips the
+              // floored crumbs for the single frame before the collapse
+              // re-render lands (the layout-effect measurement runs pre-paint,
+              // so this is a backstop, not a rendered state).
+              <div ref={crumbSectionRef} className="flex items-center gap-1.5 flex-1 min-w-0 overflow-hidden">
+                {crumbsCollapsed ? (
+                  // `hidden sm:contents`: the collapse rung never renders
+                  // below `sm`. Every crumb is breakpoint-hidden there, so the
+                  // probe measures 0 and the derivation holds its PREVIOUS
+                  // state — a collapse engaged at sm+ would otherwise persist
+                  // into mobile widths on resize, rendering a crumb a cold
+                  // mobile load never renders. The CSS gate keeps the
+                  // breakpoint hides as the unconditional outer rungs.
+                  <span className="hidden sm:contents">
+                    <BreadcrumbSeparator />
+                    {/* The collapse rung's rendering: ONE crumb-styled trigger
+                        whose menu carries both levels (server → its route;
+                        session → the current window's route, current) so each
+                        destination stays one tap away. */}
+                    <BreadcrumbDropdown
+                      items={collapsedCrumbItems}
+                      label="location"
+                      title="Navigation"
+                      onNavigate={handleCollapsedNavigate}
+                      triggerContent={
+                        <span className="min-w-0 truncate px-0.5">{"… ▾"}</span>
+                      }
+                      triggerClassName={LINK_CRUMB_CLASS}
+                    />
+                  </span>
+                ) : (
+                  <>
                 {/* Server LINK crumb — terminal route only (parent = the tmux
                     Server). On the server route the server name is the leaf and lives
                     in the center heading, so no left server crumb there. Hidden
@@ -1078,14 +1190,18 @@ export function TopBar({
                     below `md` the ancestor paths are the palette's
                     `Go: tmux Server` / `Go: Host` + browser back; the ladder
                     itself is unchanged.) `min-w-0` unblocks the inner
-                    `truncate max-w-[16ch]`. */}
+                    `truncate max-w-[16ch]`, while the box's
+                    `min-w-[calc(6ch+0.875rem)]` floor (6ch of content + the
+                    box's horizontal padding/border chrome) guarantees the
+                    ellipsis reserve — a crumb can never render as a sub-6ch
+                    fragment or hard-clip without its `…`. */}
                 {showServerCrumb && (
                   <span className="hidden md:flex items-center gap-1.5 min-w-0">
                     <BreadcrumbSeparator />
                     <Tip label="tmux Server">
                       <a
                         href={serverHref}
-                        className={`rk-glint ${LINK_CRUMB_CLASS}`}
+                        className={`rk-glint ${LINK_CRUMB_CLASS} min-w-[calc(6ch+0.875rem)]`}
                       >
                         <span className="truncate max-w-[16ch] [text-decoration:inherit]">
                           {server}
@@ -1106,15 +1222,52 @@ export function TopBar({
                   // crumb is now a NON-interactive
                   // static chip: a session has no route of its own, so it carries
                   // the siblings' box styling with no hover affordance or caret.
+                  // Same 6ch ellipsis-reserve floor as the server crumb.
                   <span className="hidden sm:flex items-center gap-1.5 min-w-0">
                     <BreadcrumbSeparator />
-                    <span className={CRUMB_BOX_CLASS}>
+                    <span className={`${CRUMB_BOX_CLASS} min-w-[calc(6ch+0.875rem)]`}>
                       <span className="truncate max-w-[16ch]">{sessionName}</span>
                     </span>
                   </span>
                 )}
-              </>
-            )}
+                  </>
+                )}
+
+                {/* Collapse-threshold probe (hidden, inert, off-screen — the
+                    right cell's probe pattern): the crumbs rendered at their
+                    min-useful form — real text, `max-w-[6ch]` truncation — so
+                    `scrollWidth` is exactly the smallest width at which every
+                    crumb still shows ≥6ch of content. The breakpoint-hide
+                    classes mirror the real crumbs so a hidden crumb drops out
+                    of the threshold. The `6ch` literal couples to
+                    CRUMB_MIN_USEFUL_CH (lib/crumb-collapse.ts) — Tailwind
+                    arbitrary values must stay literal for the compiler. */}
+                <div
+                  ref={crumbProbeRef}
+                  aria-hidden="true"
+                  inert
+                  data-testid="crumb-collapse-probe"
+                  className="absolute -left-[9999px] top-0 flex items-center gap-1.5 text-sm pointer-events-none w-max"
+                >
+                  {showServerCrumb && (
+                    <span className="hidden md:flex items-center gap-1.5">
+                      <BreadcrumbSeparator />
+                      <span className={CRUMB_BOX_CLASS}>
+                        <span className="truncate max-w-[6ch]">{server}</span>
+                      </span>
+                    </span>
+                  )}
+                  {sessionName && (
+                    <span className="hidden sm:flex items-center gap-1.5">
+                      <BreadcrumbSeparator />
+                      <span className={CRUMB_BOX_CLASS}>
+                        <span className="truncate max-w-[6ch]">{sessionName}</span>
+                      </span>
+                    </span>
+                  )}
+                </div>
+              </div>
+            ) : null}
           </nav>
         </div>
         </TipGroup>

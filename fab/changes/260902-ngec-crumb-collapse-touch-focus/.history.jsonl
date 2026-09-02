@@ -1,0 +1,19 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-02T18:50:06Z"}
+{"args":"Top-bar breadcrumb collapse + keyboard focus ownership on touch: min-useful-width crumb collapse into ... dropdown; coarse-pointer gate on xterm helper-textarea focus side effects","cmd":"fab-new","event":"command","ts":"2026-09-02T18:50:06Z"}
+{"delta":"+4.3","event":"confidence","score":4.3,"trigger":"calc-score","ts":"2026-09-02T18:51:15Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-09-02T18:51:55Z"}
+{"action":"enter","driver":"fab-continue","event":"stage-transition","stage":"apply","ts":"2026-09-02T18:52:01Z"}
+{"action":"enter","driver":"fab-continue","event":"stage-transition","stage":"review","ts":"2026-09-02T19:20:36Z"}
+{"event":"review","result":"failed","ts":"2026-09-02T19:27:23Z"}
+{"action":"re-entry","driver":"fab-continue","event":"stage-transition","stage":"apply","ts":"2026-09-02T19:27:23Z"}
+{"action":"re-entry","driver":"fab-continue","event":"stage-transition","stage":"review","ts":"2026-09-02T19:30:50Z"}
+{"event":"review","result":"failed","ts":"2026-09-02T19:39:21Z"}
+{"action":"re-entry","driver":"fab-continue","event":"stage-transition","stage":"apply","ts":"2026-09-02T19:39:21Z"}
+{"action":"re-entry","driver":"fab-continue","event":"stage-transition","stage":"review","ts":"2026-09-02T19:43:32Z"}
+{"event":"review","result":"failed","ts":"2026-09-02T19:54:36Z"}
+{"action":"re-entry","driver":"fab-continue","event":"stage-transition","stage":"apply","ts":"2026-09-02T19:54:36Z"}
+{"action":"re-entry","driver":"fab-continue","event":"stage-transition","stage":"review","ts":"2026-09-02T19:57:43Z"}
+{"action":"enter","driver":"fab-continue","event":"stage-transition","stage":"hydrate","ts":"2026-09-02T20:01:51Z"}
+{"event":"review","result":"passed","ts":"2026-09-02T20:01:51Z"}
+{"action":"enter","driver":"fab-continue","event":"stage-transition","stage":"ship","ts":"2026-09-02T20:07:31Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-02T20:09:16Z"}

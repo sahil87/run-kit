@@ -123,7 +123,7 @@ const insertBtn = () => screen.getByTestId("compose-strip-insert") as HTMLButton
  * Enter is insert-line in the strip on every pointer type). Must run BEFORE
  * render (the hook reads the initial value at mount). */
 function stubPointer(coarse: boolean) {
-  stubMatchMedia((query) => coarse && query === "(pointer: coarse)");
+  stubMatchMedia((query) => coarse && ["(pointer: coarse)", "(any-pointer: coarse)"].includes(query));
 }
 
 /** A frozen cross-server recipient set, and the draft key it derives (sorted

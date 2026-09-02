@@ -1014,7 +1014,7 @@ describe("coarse placement + width cap", () => {
     vi.stubGlobal(
       "matchMedia",
       vi.fn().mockImplementation((q: string) => ({
-        matches: q === "(pointer: coarse)",
+        matches: ["(pointer: coarse)", "(any-pointer: coarse)"].includes(q),
         media: q,
         addEventListener: vi.fn(),
         removeEventListener: vi.fn(),

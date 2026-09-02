@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, type ReactNode } from "react";
 import { Tip } from "@/components/tip";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
 
@@ -19,6 +19,10 @@ type Props = {
    *  keeps its single-action behavior unchanged. */
   secondaryAction?: DropdownAction;
   triggerClassName?: string;
+  /** Custom trigger content, replacing the default bare `▾` caret span (the
+   *  collapsed breadcrumb's `… ▾` crumb is the one consumer). Unset → the
+   *  default caret. */
+  triggerContent?: ReactNode;
   /** Trigger tooltip — names the crumb's level (e.g. "Session"). Rendered as a
    *  tier-1 `Tip` around the trigger (260722-73al), not a native `title=`
    *  attribute; the prop keeps its name (it is a component prop, like
@@ -27,7 +31,7 @@ type Props = {
   title?: string;
 };
 
-export function BreadcrumbDropdown({ items, label, onNavigate, action, secondaryAction, triggerClassName, title }: Props) {
+export function BreadcrumbDropdown({ items, label, onNavigate, action, secondaryAction, triggerClassName, triggerContent, title }: Props) {
   const [open, setOpen] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState(-1);
   // Viewport-relative position for the fixed-positioned menu. `position: fixed`
@@ -169,7 +173,7 @@ export function BreadcrumbDropdown({ items, label, onNavigate, action, secondary
           // `overflow-hidden` clip — no ancestor overflow can clip or displace it.
           className={`min-w-[24px] min-h-[24px] flex items-center transition-colors ${triggerClassName ?? "text-text-secondary hover:text-text-primary"}`}
         >
-          <span className="min-w-0 truncate">{"\u25BE"}</span>
+          {triggerContent ?? <span className="min-w-0 truncate">{"\u25BE"}</span>}
         </button>
       </Tip>
       {open && menuPos && (

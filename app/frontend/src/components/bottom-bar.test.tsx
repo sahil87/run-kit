@@ -44,7 +44,7 @@ function renderBottomBar(
   // Pointer gate (260814-ldbs): the bar renders ONLY on coarse pointers now —
   // the default stub installs `(pointer: coarse)` so the existing suites
   // exercise the bar at all; pass `pointer: "fine"` for the gate tests.
-  stubMatchMedia((q) => pointer === "coarse" && q === "(pointer: coarse)");
+  stubMatchMedia((q) => pointer === "coarse" && ["(pointer: coarse)", "(any-pointer: coarse)"].includes(q));
   return render(
     <ChromeProvider>
       <FocusedTerminalProvider>
@@ -437,7 +437,7 @@ describe("BottomBar compose-focus hide (260814-ink6)", () => {
   });
 
   it("hides while the compose textarea is focused on a coarse pointer, and returns on blur", () => {
-    stubMatchMedia((query) => query === "(pointer: coarse)");
+    stubMatchMedia((query) => ["(pointer: coarse)", "(any-pointer: coarse)"].includes(query));
     renderBottomBar({ onOpenCompose: vi.fn() });
     expect(screen.getByRole("toolbar")).toBeInTheDocument();
 
@@ -464,7 +464,7 @@ describe("BottomBar compose-focus hide (260814-ink6)", () => {
     // listener) mounted, so the effect self-gates on coarse && composeFocused.
     // A modifier armed BEFORE focus moves to the compose textarea must not
     // intercept compose keystrokes; it re-arms the interception on blur.
-    stubMatchMedia((query) => query === "(pointer: coarse)");
+    stubMatchMedia((query) => ["(pointer: coarse)", "(any-pointer: coarse)"].includes(query));
     const send = vi.fn();
     const ws = { readyState: WebSocket.OPEN, send } as unknown as WebSocket;
     renderBottomBar({ onOpenCompose: vi.fn() }, { ...COMPOSE_TARGET, wsRef: { current: ws } });

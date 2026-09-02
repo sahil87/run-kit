@@ -11,6 +11,7 @@ import { SearchAddon } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { ProgressAddon } from "@xterm/addon-progress";
 import { TerminalClient, SCROLLBACK_DESKTOP, SCROLLBACK_MOBILE } from "./terminal-client";
+import { COARSE_POINTER_QUERY } from "@/hooks/use-coarse-pointer";
 import type { OpenStreamOpts, RelayStream } from "@/lib/relay-mux";
 
 // ---------------------------------------------------------------------------
@@ -205,11 +206,12 @@ function renderTerminalClient(scrollLocked = false) {
 
 describe("TerminalClient scroll-lock focus prevention", () => {
   beforeEach(() => {
-    // Coarse pointer must MATCH: the scroll-lock suppression effect gates on
-    // `(pointer: coarse)` (a persisted lock rehydrated on a fine-pointer
-    // profile must not suppress — see the fine-pointer test below).
+    // Coarse pointer must MATCH: the suppression effects gate on the shared
+    // COARSE_POINTER_QUERY (a persisted lock rehydrated on a fine-pointer
+    // profile must not suppress — see the fine-pointer test below). Keyed off
+    // the imported constant so a query change cannot silently defeat the mock.
     vi.stubGlobal("matchMedia", vi.fn().mockImplementation((query: string) => ({
-      matches: query === "(pointer: coarse)",
+      matches: query === COARSE_POINTER_QUERY,
       media: query,
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
@@ -290,26 +292,52 @@ describe("TerminalClient scroll-lock focus prevention", () => {
     },
   );
 
-  it.each(["contextmenu", "mousedown"] as const)(
-    "lets %s through to child listeners when unlocked",
-    async (type) => {
-      const { container } = renderTerminalClient(false);
-      await act(async () => {});
+  // The deliberate tap's focus path: mousedown stays lock-gated, so unlocked
+  // it must reach xterm's handlers unsuppressed (xterm's mousedown →
+  // terminal.focus() → keyboard opens). Gating it always-on would kill
+  // tap-to-focus on touch.
+  it("lets mousedown through to child listeners when unlocked", async () => {
+    const { container } = renderTerminalClient(false);
+    await act(async () => {});
 
-      const terminalDiv = container.querySelector("[role='application']");
-      const child = document.createElement("div");
-      terminalDiv!.appendChild(child);
-      const childListener = vi.fn();
-      child.addEventListener(type, childListener);
+    const terminalDiv = container.querySelector("[role='application']");
+    const child = document.createElement("div");
+    terminalDiv!.appendChild(child);
+    const childListener = vi.fn();
+    child.addEventListener("mousedown", childListener);
 
-      const event = new MouseEvent(type, { bubbles: true, cancelable: true });
-      act(() => {
-        child.dispatchEvent(event);
-      });
+    const event = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    act(() => {
+      child.dispatchEvent(event);
+    });
 
-      expect(childListener).toHaveBeenCalled();
-    },
-  );
+    expect(childListener).toHaveBeenCalled();
+  });
+
+  // Long-press → contextmenu is never a deliberate focus request on touch
+  // (right-click has no touch meaning), so its capture-phase suppression is
+  // ALWAYS on for coarse pointers — the scroll-lock state is irrelevant. This
+  // is the unlocked-terminal phantom-keyboard gate: WebKit's long-press
+  // recognizer can fire contextmenu during a slow scroll-drag.
+  it("suppresses contextmenu in the capture phase even when unlocked", async () => {
+    const { container } = renderTerminalClient(false);
+    await act(async () => {});
+
+    const terminalDiv = container.querySelector("[role='application']");
+    expect(terminalDiv).toBeTruthy();
+    const child = document.createElement("div");
+    terminalDiv!.appendChild(child);
+    const childListener = vi.fn();
+    child.addEventListener("contextmenu", childListener);
+
+    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    act(() => {
+      child.dispatchEvent(event);
+    });
+
+    expect(childListener).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(true);
+  });
 
   it("blurs a focus landing inside .xterm while locked (backstop)", async () => {
     const { container } = renderTerminalClient(true);
@@ -376,6 +404,41 @@ describe("TerminalClient scroll-lock focus prevention", () => {
 
     expect(childListener).toHaveBeenCalled();
     expect(event.defaultPrevented).toBe(false);
+  });
+
+  it("lets contextmenu through on a fine pointer (the always-on gate is coarse-only)", async () => {
+    // The unconditional contextmenu suppression evaluates the coarse query PER
+    // EVENT — a fine-pointer profile (desktop mouse right-click) must keep its
+    // native context-menu path in every lock state.
+    vi.stubGlobal("matchMedia", vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })));
+    const { container } = renderTerminalClient(false);
+    await act(async () => {});
+
+    const terminalDiv = container.querySelector("[role='application']");
+    const child = document.createElement("div");
+    terminalDiv!.appendChild(child);
+    const childListener = vi.fn();
+    child.addEventListener("contextmenu", childListener);
+
+    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    act(() => {
+      child.dispatchEvent(event);
+    });
+
+    expect(childListener).toHaveBeenCalled();
+    // No defaultPrevented assertion: the container's React onContextMenu
+    // preventDefaults at bubble phase in every state (it suppresses the
+    // browser's native menu over the terminal) — the capture-phase gate is
+    // proven by the child listener firing at all.
   });
 
   it("does not blur focus outside .xterm while locked", async () => {

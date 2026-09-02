@@ -38,7 +38,7 @@ function mockTouchDevice(page: import("@playwright/test").Page) {
   return page.addInitScript(() => {
     const orig = window.matchMedia;
     window.matchMedia = function (q: string) {
-      if (q === "(pointer: coarse)") {
+      if (q === "(pointer: coarse)" || q === "(any-pointer: coarse)") {
         return {
           matches: true,
           media: q,

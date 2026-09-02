@@ -78,13 +78,17 @@ test.afterAll(() => {
 });
 
 test.describe("Top-bar overlap fixes (260715-q8ey)", () => {
+  // The navigation + resize-sweep tests ride the rig's 10s default budget on
+  // a loaded box; the sibling sweep/navigate specs set explicit budgets.
+  test.setTimeout(30_000);
   /**
    * Proves: the core regression is fixed — at 700px on a terminal route
    * with a long window name and a long session name, the left breadcrumb
    * nav's bounding box and the centered heading's bounding box do not
-   * intersect, and the long session crumb is truncated (ellipsis) and
-   * clipped inside the nav box rather than overflowing across the heading.
-   * No horizontal page overflow is introduced at this width.
+   * intersect, and the long session crumb either is truncated (ellipsis)
+   * and clipped inside the nav box or has collapsed into the `… ▾` rung —
+   * never overflowing across the heading. No horizontal page overflow is
+   * introduced at this width.
    *
    * Steps:
    * 1. Resolve the long-named window's id; set a 700×800 viewport; navigate
@@ -93,12 +97,16 @@ test.describe("Top-bar overlap fixes (260715-q8ey)", () => {
    *    visible.
    * 3. Compute both bounding boxes and assert they do NOT intersect (the
    *    overlap regression assertion).
-   * 4. Locate the session crumb — a NON-interactive static chip (a plain
-   *    span carrying `truncate max-w-[16ch]` and the session name; the
-   *    `Switch session` dropdown is gone) — and assert
-   *    `scrollWidth > clientWidth` on that chip (the name is truncated to
-   *    an ellipsis) while its text content is still the full session name
-   *    (the ellipsis is visual only).
+   * 4. If the min-useful-width collapse rung engaged (the `… ▾`
+   *    `Switch location` trigger visible), that IS the no-fragment outcome —
+   *    skip to step 5. Otherwise locate the session crumb — a
+   *    NON-interactive static chip (a plain span carrying `truncate
+   *    max-w-[16ch]` and the session name; the `Switch session` dropdown is
+   *    gone), scoped to the `max-w-[16ch]` span so the off-screen collapse
+   *    probe's `max-w-[6ch]` text twin can never answer the query — and
+   *    assert `scrollWidth > clientWidth` on that chip (the name is
+   *    truncated to an ellipsis) while its text content is still the full
+   *    session name (the ellipsis is visual only).
    * 5. Assert the nav's computed `overflow-x` is `hidden` — the clip
    *    backstop is active, so content past the nav floor is clipped at the
    *    nav edge rather than painted over the heading (a clipped child
@@ -142,18 +150,30 @@ test.describe("Top-bar overlap fixes (260715-q8ey)", () => {
     // dropdown is gone) — the chip span itself carries `truncate max-w-[16ch]`
     // and the session name as its text, so measure `scrollWidth > clientWidth`
     // directly on the chip (it sizes exactly to its capped content, so clipping
-    // shows up as scroll overflow there).
-    const sessionChip = nav.getByText(TEST_SESSION, { exact: true });
-    await expect(sessionChip).toBeVisible();
-    const truncated = await sessionChip.evaluate(
-      (el) => el.scrollWidth > el.clientWidth,
-    );
-    expect(
-      truncated,
-      "the long session crumb name is truncated (ellipsis), not shown at full width",
-    ).toBe(true);
-    // The full session name is still the text content (ellipsis is visual only).
-    await expect(sessionChip).toHaveText(TEST_SESSION);
+    // shows up as scroll overflow there). The query is scoped to the visible
+    // `max-w-[16ch]` span: the collapse probe's off-screen `max-w-[6ch]` twin
+    // (data-testid="crumb-collapse-probe", aria-hidden + inert) duplicates the
+    // crumb text for measurement and must never satisfy — or trip — it.
+    // If the min-useful-width collapse rung engaged at 700px instead (long
+    // names can push 700px past the measured threshold), the collapsed `… ▾`
+    // trigger replaces the chip — itself the no-fragment outcome.
+    const sessionChip = nav.locator("span.max-w-\\[16ch\\]", { hasText: TEST_SESSION });
+    const collapseTrigger = nav.getByRole("button", { name: "Switch location" });
+    if (await collapseTrigger.isVisible()) {
+      // Collapse rung engaged: no crumb fragment renders at all — the two
+      // levels live in the trigger's menu (proven in crumb-collapse.spec.ts).
+    } else {
+      await expect(sessionChip).toBeVisible();
+      const truncated = await sessionChip.evaluate(
+        (el) => el.scrollWidth > el.clientWidth,
+      );
+      expect(
+        truncated,
+        "the long session crumb name is truncated (ellipsis), not shown at full width",
+      ).toBe(true);
+      // The full session name is still the text content (ellipsis is visual only).
+      await expect(sessionChip).toHaveText(TEST_SESSION);
+    }
 
     // The clip backstop is active: the nav carries `overflow: hidden`, so any
     // content whose LAYOUT box extends past the nav's floor is visually
@@ -226,19 +246,26 @@ test.describe("Top-bar overlap fixes (260715-q8ey)", () => {
   /**
    * Proves: the server-link crumb was demoted from `sm:` to `md:` — it is
    * hidden in the 640–768px band (where it is the redundant first-to-give
-   * element) and visible again at `md+`.
+   * element) — and at `md+` the server level stays reachable: either as the
+   * visible crumb link, or, when the min-useful-width collapse rung has
+   * engaged under crumb-name pressure, inside the collapsed `… ▾` crumb (the
+   * rung between truncation and the breakpoint hide).
    *
    * Steps:
    * 1. Resolve the long-named window's id. Locate the server crumb by its
    *    `href="/${server}"` scoped to the breadcrumb nav (its accessible
    *    name is the server text, so href disambiguates it from the brand
-   *    link `/`).
+   *    link `/`); the collapsed crumb's trigger is the `Switch location`
+   *    button.
    * 2. Set a 700px viewport; navigate; assert the nav is visible and the
-   *    server crumb is hidden (in the DOM but CSS-hidden via
-   *    `hidden md:flex`).
-   * 3. Set a 1024px viewport; assert the server crumb becomes visible.
+   *    server crumb link is hidden (CSS-hidden via `hidden md:flex` when
+   *    expanded, or replaced by the collapsed crumb — `toBeHidden` covers
+   *    both).
+   * 3. Set a 1024px viewport; assert the server crumb link OR the collapse
+   *    trigger is visible (this rig's long server + session names can
+   *    legitimately engage the collapse rung at 1024px).
    */
-  test("the server crumb is hidden below `md` and visible at `md+`", async ({
+  test("the server crumb is hidden below `md` and the server level stays reachable at `md+`", async ({
     page,
   }) => {
     const id = await resolveWindow(page, LONG_WINDOW);
@@ -249,17 +276,24 @@ test.describe("Top-bar overlap fixes (260715-q8ey)", () => {
     const nav = page.getByRole("navigation", { name: "Breadcrumb" });
     const serverHref = `/${encodeURIComponent(TMUX_SERVER)}`;
     const serverCrumb = nav.locator(`a[href="${serverHref}"]`);
+    const collapseTrigger = nav.getByRole("button", { name: "Switch location" });
 
-    // Below `md` (700px, in the `sm`..`md` band): the crumb element is in the
-    // DOM but CSS-hidden (`hidden md:flex`), so it is not visible.
+    // Below `md` (700px, in the `sm`..`md` band): the crumb element is
+    // CSS-hidden (`hidden md:flex`) when expanded, or absent when the
+    // collapse rung replaced it — either way, not visible.
     await page.setViewportSize(MID_VIEWPORT);
     await gotoWindow(page, id);
     await expect(nav).toBeVisible();
     await expect(serverCrumb).toBeHidden();
 
-    // At `md+` (1024px): the server crumb becomes visible again.
+    // At `md+` (1024px): the server level is reachable again — the crumb link
+    // renders expanded, or the collapsed `… ▾` crumb carries it (this rig's
+    // long names put 1024px right at the measured threshold).
     await page.setViewportSize(DESKTOP_VIEWPORT);
-    await expect(serverCrumb).toBeVisible();
+    await expect(
+      serverCrumb.or(collapseTrigger),
+      "neither the server crumb link nor the collapsed … ▾ crumb rendered at md+",
+    ).toBeVisible();
   });
 
   /**
@@ -274,9 +308,10 @@ test.describe("Top-bar overlap fixes (260715-q8ey)", () => {
    *    (gating readiness on the heading, since the connection dot is
    *    `hidden sm:inline`).
    * 2. Assert the heading is visible.
-   * 3. Assert the server crumb (`a[href="/${server}"]` in the nav) and the
-   *    session crumb (the static chip span carrying the session name) are
-   *    both hidden.
+   * 3. Assert the server crumb (`a[href="/${server}"]` in the nav), the
+   *    session crumb (the static chip's VISIBLE `max-w-[16ch]` span — the
+   *    collapse probe's off-screen text twin is excluded), and the
+   *    collapsed `… ▾` trigger (`hidden sm:contents`-gated) are all hidden.
    * 4. Assert `document.body.scrollWidth ≤ 375` (no horizontal overflow).
    * 5. Assert the header's rendered height is under 56px (a wrap would
    *    roughly double the ~39px single-line chrome).
@@ -297,11 +332,20 @@ test.describe("Top-bar overlap fixes (260715-q8ey)", () => {
     // mobile leaf is just brand + centered heading — the layout the mobile
     // budget already relied on, unchanged by this change. (260813-kvk7: the
     // session crumb is now a static chip — a plain span, no `Switch session`
-    // button — but it rides the same `hidden sm:flex` wrapper.)
+    // button — but it rides the same `hidden sm:flex` wrapper.) The session
+    // query is scoped to the visible `max-w-[16ch]` chip span: the collapse
+    // probe's off-screen `max-w-[6ch]` twin duplicates the crumb text and
+    // would otherwise trip strict mode. The collapsed `… ▾` trigger is
+    // `hidden sm:contents`-gated, so it never renders here either.
     const nav = page.getByRole("navigation", { name: "Breadcrumb" });
     const serverHref = `/${encodeURIComponent(TMUX_SERVER)}`;
     await expect(nav.locator(`a[href="${serverHref}"]`)).toBeHidden();
-    await expect(nav.getByText(TEST_SESSION, { exact: true })).toBeHidden();
+    await expect(
+      nav.locator("span.max-w-\\[16ch\\]", { hasText: TEST_SESSION }),
+    ).toBeHidden();
+    await expect(
+      nav.getByRole("button", { name: "Switch location" }),
+    ).toBeHidden();
 
     // No horizontal page overflow, and the header stays a single line (a wrap
     // would roughly double the ~39px chrome height).

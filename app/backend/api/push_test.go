@@ -2,6 +2,8 @@ package api
 
 import (
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -96,7 +98,17 @@ func TestNotify_emptyBodyRejected(t *testing.T) {
 
 func TestNotify_noSubscriptionsReturnsSummary(t *testing.T) {
 	isolatePush(t)
-	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+	s := &Server{
+		logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+		sessions: &mockSessionFetcher{},
+		tmux:     &mockTmuxOps{},
+		hostname: "test-host",
+	}
+	s.initSSEHub()
+	conn := newTestStateConn(s.sseHub, "notify-client", 16)
+	s.sseHub.replayGlobalSlots(conn)
+	t.Cleanup(func() { s.sseHub.dropStateConn(conn) })
+	router := s.buildRouter()
 
 	// No subscriptions stored → fan-out is a no-op, returns {sent:0, pruned:0}.
 	req := httptest.NewRequest(http.MethodPost, "/api/notify", strings.NewReader(`{"body":"hi"}`))
@@ -116,5 +128,24 @@ func TestNotify_noSubscriptionsReturnsSummary(t *testing.T) {
 	}
 	if result.Sent != 0 || result.Pruned != 0 {
 		t.Errorf("summary = %+v, want {0,0}", result)
+	}
+
+	frames := decodeEnvelopes(drainFrames(conn.ch))
+	var payload notifyPayload
+	found := false
+	for _, frame := range frames {
+		if rawStr(frame, "type") != "notify" {
+			continue
+		}
+		found = true
+		if err := json.Unmarshal(frame["data"], &payload); err != nil {
+			t.Fatalf("decode notify event: %v", err)
+		}
+	}
+	if !found {
+		t.Fatal("connected state client received no notify event")
+	}
+	if payload.Title != "RunKit" || payload.Body != "hi" || payload.URL != "" {
+		t.Errorf("notify payload = %+v", payload)
 	}
 }

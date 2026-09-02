@@ -70,7 +70,11 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 		title = "RunKit"
 	}
 	// The generic /api/notify path carries no deep-link URL (empty ⇒ the SW
-	// falls back to the app root on click).
+	// falls back to the app root on click). Shell broadcast goes first: the
+	// hub write is immediate, while the Web Push fan-out below iterates
+	// subscriptions sequentially under a 10s timeout.
+	s.initSSEHub()
+	s.sseHub.broadcastNotify(title, body.Body, "")
 	result, err := push.Notify(r.Context(), title, body.Body, "")
 	if err != nil {
 		// Pruning may have failed; the send summary is still meaningful.

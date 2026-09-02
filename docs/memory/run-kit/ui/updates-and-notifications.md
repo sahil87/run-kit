@@ -1,23 +1,34 @@
 ---
-description: "Web Push notification opt-in and the update-notification system: ambient + manual check feeds, reload guard, top-bar UpdateChip, palette actions, maintenance entries, steady-state version surfaces."
+description: "Browser Web Push and desktop-shell OS notification opt-in, delivery, dedupe, and deep links; plus update-notification feeds, reload guard, UpdateChip, palette actions, maintenance entries, and version surfaces."
 type: memory
 ---
 # run-kit UI — Updates & Notifications
 
-## Notifications (Web Push opt-in)
+## Notifications
 
-Browser Web Push lets `rk notify` (and any process on the box) deliver an OS notification that reaches the user **even when the RunKit PWA tab is closed**. The end-to-end backend/delivery model lives in `architecture.md` § Web Push Notifications; this section covers the frontend opt-in surface. (260615-xd9r)
+Notification delivery is partitioned by runtime. Browser/PWA clients use Web Push and can receive an OS notification while the RunKit tab is closed. Desktop-shell clients ignore `PushManager` and consume host-global `notify` events from their persistent `/ws/state` connection. The backend fan-out and transport contracts live in [pwa-and-push](/run-kit/pwa-and-push.md) § Notification Delivery and [api-and-sockets](/run-kit/api-and-sockets.md) § Host-global `notify` event.
 
-**Two surfaces, one hook, no bell.** The opt-in is a Cmd+K palette entry (the keyboard-first path, Constitution §V) plus the settings dialog's **Notifications** preference row (§ Settings Dialog); both read `state` and call the same `enable`/`sendTest` from one `usePushSubscription()`, so they cannot drift. There is **no bell chip in the top bar** — notifications are an app-global preference and live in the settings dialog (§ Chrome (Top Bar) → Right cluster; § Design Decisions → App-global actions live in the top bar). The palette label reflects subscription state and is **terminal-themed text**, never a bell icon:
+**Two surfaces, one hook, no bell.** The opt-in is a Cmd+K palette entry plus the settings dialog's **Notifications** preference row; both read `state` and call the same `enable`/`sendTest` from `usePushSubscription()`. The hook forks on `isShell()` while reusing the existing `PushState` vocabulary, so both surfaces treat an enabled shell preference as `"subscribed"` and a disabled preference as `"default"`. There is no notification chip in the top bar.
 
-| Palette label | When | Action |
-|---------------|------|--------|
-| `Notifications: Enable push` | Not yet subscribed | Runs the enable flow: `Notification.requestPermission()` → on `granted`, `getVapidPublicKey()` (`GET /api/push/vapid-public-key`) → `registration.pushManager.subscribe({userVisibleOnly: true, applicationServerKey})` → `subscribePush(sub)` (`POST /api/push/subscribe`) |
-| `Notifications: Enabled ✓` | Already subscribed | Reflects state; the `✓` is a Unicode checkmark (terminal-themed glyph, not a bell) |
+| Runtime/state | Palette label | Enable behavior |
+|---------------|---------------|-----------------|
+| Browser, not subscribed | `Notifications: Enable push` | Requests permission, fetches the VAPID public key, creates a `PushManager` subscription, and POSTs it to `/api/push/subscribe` |
+| Shell, disabled | `Notifications: Enable notifications` | Writes localStorage `runkit-shell-notifications="on"`, sets state to `"subscribed"`, and toasts `Notifications enabled`; it makes no service-worker or PushManager call |
+| Either runtime, enabled | `Notifications: Enabled ✓` | Reflects state and exposes the test-notification action |
 
-**Wiring**: `usePushSubscription()` (`app/frontend/src/hooks/use-push-subscription.ts`) returns `{ state, enable, sendTest, actions }` — the first three feed the settings-dialog row directly, and `actions` is the `pushActions: PaletteAction[]` block built from the same handlers; it is threaded into `app.tsx`'s `paletteActions` useMemo (spread just before `windowSwitchActions` — see § Boards Command Palette for the composition). The flow logic is the self-contained `app/frontend/src/lib/push.ts` module (`registerServiceWorker()`, `enablePushSubscription()`, `getPushState()`) plus the `getVapidPublicKey()`/`subscribePush()` client functions in `api/client.ts` — a separate module rather than inlining into the 1600-line, SSE-coupled `app.tsx`. The service worker (`public/sw.js`) is registered on app load from `main.tsx`.
+The settings row uses runtime-specific truth. Browser copy is `Web Push to this browser`, `Subscribed on this device` / `Not subscribed`, with browser permission guidance and the setup link. Shell copy is `OS notifications from this app`, `Enabled on this device` / `Not enabled`; browser-only denied guidance and the setup link are absent.
 
-**Fail-silent / secure-context**: every path is throw-free. `registerServiceWorker()` is guarded by `'serviceWorker' in navigator` and no-ops on unsupported / insecure-context environments. The enable flow aborts silently (a toast is acceptable) when permission is denied or push is unsupported / the context is insecure, sending no subscription. Web Push (service worker + `PushManager`) requires a **secure context — HTTPS or `localhost`**; the user typically hits run-kit on `localhost:3000` or behind a TLS proxy (both secure), but raw-IP plaintext access simply cannot subscribe (silently).
+**Test notification path.** In browsers, `sendTestNotification()` uses the registered service worker. In the shell, the hook requires the local preference and constructs `new Notification("RunKit", {body: "Test notification — if you can see this, delivery works."})` directly, then uses the same success toast. A disabled preference or construction failure yields `Enable notifications first`.
+
+**Shell event consumer.** `SessionContext` exposes the Set-backed `subscribeNotify(handler)` seam and forwards raw host-global `notify` payloads from its state-socket switch. `useShellNotifications()` registers one layout-level consumer from `AppLayoutContent`, where TanStack Router navigation is available, and passes each payload to `showShellNotification()` in `lib/shell-notifications.ts`. The library is throw-free and applies these gates and transformations:
+
+- `isShell()` and localStorage `runkit-shell-notifications="on"` are both required; browsers are inert.
+- A non-empty event `id` is claimed through `runkit-notify-claim-<id>` before display. Shared-origin shell views therefore converge on one display; claim storage failures fail open. Claims expire after 24 hours, and each claim pass prunes the retained fresh set to at most 32 entries.
+- Missing or malformed fields are tolerated. The title defaults to `RunKit`, the body to empty, and a missing/invalid id displays without a claim.
+- `new Notification(title, {body, icon: "/generated-icons/icon-192.png"})` is the display primitive. Its click handler calls `window.focus()` and deep-links only when `sameOriginPath(url)` accepts the target: a string beginning `/` but not `//`, with `new URL(value, origin).origin === origin`.
+- The consumer hands the validated path to `navigate({href: path})`, preserving a query-bearing link such as `/utils2/5?view=chat` as pathname `/utils2/5` plus `search.view === "chat"`.
+
+**Browser fail-silent / secure-context contract.** `registerServiceWorker()` is guarded by `'serviceWorker' in navigator`; permission denial, unsupported push, and insecure contexts produce no subscription. Web Push requires HTTPS or `localhost`, so raw-IP plaintext access cannot subscribe. The service worker is registered on app load from `main.tsx`. (260615-xd9r)
 
 ## Update Notification
 
@@ -155,6 +166,12 @@ The row has TWO forms, chosen by the **verdict-derived** `asUpdateSurface` compu
 **`copyToClipboard` success signal.** `lib/clipboard.ts` `copyToClipboard` returns `Promise<boolean>` — `true` on a successful copy (Clipboard API OR the `execCommand` non-secure-context fallback), `false` when both fail. Callers that `void`-ignore the return (`terminal-client.tsx`, `status-panel.tsx`) are unaffected; the palette-version `onSelect` consumes the boolean to toast confirmation vs. error (fail soft with an error toast in a non-secure context). The return-value cases (Clipboard-API success, `execCommand`-fallback success, total failure) are unit-tested in `terminal-client.test.ts` (the home of the `copyToClipboard` describe block).
 
 ## Design Decisions
+
+### Shell opt-in is a localStorage preference expressed as PushState
+**Decision**: the per-viewer `runkit-shell-notifications` key is absent when disabled and `"on"` when enabled; `usePushSubscription()` maps it to `"default"`/`"subscribed"` and reuses the settings and palette surfaces.
+**Why**: notification opt-in belongs to the viewer, and the shared state vocabulary keeps all notification controls on one hook and one rendering contract.
+**Rejected**: a settings-registry key; automatic shell enablement; a parallel shell-only state enum and duplicated controls.
+*Introduced by*: 260902-ziki-shell-os-notifications
 
 ### Single static `Update Now` — no dynamic version label
 **Decision**: the palette has ONE update action, the static `run-kit: Update Now` (a full-roster force update in `buildMaintenanceActions`); the former qualifying-gated `run-kit: Update to v{X}` entry and its `updateActionLabel` label composition (the single-run-kit / single-sibling / N-tools label shapes) are deleted.

@@ -1105,6 +1105,27 @@ describe("SessionProvider — tab-local manual-check feed (260807-s6zs)", () => 
   });
 });
 
+describe("SessionProvider — notify event seam", () => {
+  it("forwards global notify payloads to registered consumers and unregisters cleanly", async () => {
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await settle();
+    const received: unknown[] = [];
+    const unsubscribe = result.current.subscribeNotify((payload) => received.push(payload));
+
+    const payload = { id: "event-1", title: "RunKit", body: "waiting" };
+    await act(async () => {
+      WS.global()?.emit("notify", payload);
+    });
+    expect(received).toEqual([payload]);
+
+    unsubscribe();
+    await act(async () => {
+      WS.global()?.emit("notify", { id: "event-2" });
+    });
+    expect(received).toEqual([payload]);
+  });
+});
+
 describe("deriveUpdateFeed — ambient-first two-feed merge (260807-s6zs)", () => {
   const ambient = [{ tool: "run-kit", current: "3.8.0", latest: "3.9.0" }];
   const manual = [{ tool: "tu", current: "0.9.1", latest: "0.9.2" }];

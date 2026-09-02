@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -13,6 +15,7 @@ import (
 	"rk/internal/metrics"
 	"rk/internal/ports"
 	"rk/internal/prstatus"
+	"rk/internal/push"
 	"rk/internal/sessions"
 	"rk/internal/tmux"
 	"rk/internal/updatecheck"
@@ -442,11 +445,17 @@ func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector, svc *ports.Collect
 		metrics:                mc,
 		services:               svc,
 		prStatus:               pc,
-		waitingPush:            newWaitingPushTracker(),
 		operatorQueue:          newOperatorQueueTracker(),
 		autoName:               newAutoNameTracker(),
 		captureFn:              capturePreviewForWindow,
 	}
+	h.waitingPush = newWaitingPushTracker(func(ctx context.Context, title, body, url string) error {
+		// Shell broadcast first: the hub write is immediate, while the Web
+		// Push fan-out iterates subscriptions sequentially under a 10s timeout.
+		h.broadcastNotify(title, body, url)
+		_, err := push.Notify(ctx, title, body, url)
+		return err
+	})
 	// Default chat resolver: fetch the server's sessions and roll up the window's
 	// reconciled @rk_chat via the shared active-pane-first rule (identical to
 	// resolveWindowChat, minus the paneID the chat read path does not need).
@@ -1066,6 +1075,47 @@ func (h *sseHub) broadcastUpdateAvailable(verdict updatecheck.Result) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.cachedUpdateAvailableJSON = jsonStr
+	h.broadcastGlobalLocked(ev)
+}
+
+type notifyPayload struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	Body  string `json:"body"`
+	URL   string `json:"url,omitempty"`
+}
+
+func newNotifyID() (string, error) {
+	var bytes [8]byte
+	if _, err := rand.Read(bytes[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes[:]), nil
+}
+
+// broadcastNotify emits a moment-in-time notification to connected clients.
+// It intentionally has no cached slot because reconnect replay would surface
+// a stale OS notification.
+func (h *sseHub) broadcastNotify(title, body, url string) {
+	id, err := newNotifyID()
+	if err != nil {
+		slog.Warn("notify id generation failed", "err", err)
+		return
+	}
+	jsonBytes, err := json.Marshal(notifyPayload{
+		ID:    id,
+		Title: title,
+		Body:  body,
+		URL:   url,
+	})
+	if err != nil {
+		slog.Warn("notify broadcast marshal failed", "err", err)
+		return
+	}
+	ev := preRendered(hubEvent{kind: kindGlobal, typ: "notify", data: string(jsonBytes)})
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.broadcastGlobalLocked(ev)
 }
 

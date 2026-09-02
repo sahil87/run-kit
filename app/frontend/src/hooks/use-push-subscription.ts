@@ -7,6 +7,13 @@ import {
   sendTestNotification,
   type PushState,
 } from "@/lib/push";
+import { isShell } from "@/lib/shell";
+import {
+  isShellNotificationsEnabled,
+  setShellNotificationsEnabled,
+} from "@/lib/shell-notifications";
+
+const TEST_NOTIFICATION_BODY = "Test notification — if you can see this, delivery works.";
 
 /**
  * Push opt-in + test, surfaced both as command-palette actions (Cmd+K, per
@@ -23,10 +30,15 @@ export function usePushSubscription(): {
 } {
   const [state, setState] = useState<PushState>("default");
   const { addToast } = useToast();
+  const shell = isShell();
 
   // Resolve the initial state once on mount (without prompting the user). The
   // underlying getPushState() is timeout-guarded, so this never hangs.
   useEffect(() => {
+    if (shell) {
+      setState(isShellNotificationsEnabled() ? "subscribed" : "default");
+      return;
+    }
     let cancelled = false;
     getPushState().then((s) => {
       if (!cancelled) setState(s);
@@ -34,9 +46,21 @@ export function usePushSubscription(): {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [shell]);
 
   const enable = useCallback(async () => {
+    if (shell) {
+      setShellNotificationsEnabled(true);
+      // The pref write swallows storage errors; read it back so a blocked
+      // localStorage never leaves the UI claiming notifications are on.
+      if (!isShellNotificationsEnabled()) {
+        addToast("Could not save the notification preference — storage is blocked", "error");
+        return;
+      }
+      setState("subscribed");
+      addToast("Notifications enabled", "info");
+      return;
+    }
     const next = await enablePushSubscription();
     setState(next);
     switch (next) {
@@ -53,9 +77,22 @@ export function usePushSubscription(): {
         // "default": user dismissed the prompt or the flow aborted — stay quiet.
         break;
     }
-  }, [addToast]);
+  }, [addToast, shell]);
 
   const sendTest = useCallback(async () => {
+    if (shell) {
+      if (!isShellNotificationsEnabled()) {
+        addToast("Enable notifications first", "error");
+        return;
+      }
+      try {
+        new Notification("RunKit", { body: TEST_NOTIFICATION_BODY });
+        addToast("Test notification sent — check your desktop", "info");
+      } catch {
+        addToast("Enable notifications first", "error");
+      }
+      return;
+    }
     const shown = await sendTestNotification();
     if (shown) {
       addToast("Test notification sent — check your desktop", "info");
@@ -64,7 +101,7 @@ export function usePushSubscription(): {
     } else {
       addToast("Enable notifications first", "error");
     }
-  }, [addToast]);
+  }, [addToast, shell]);
 
   const actions = useMemo<PaletteAction[]>(() => {
     const list: PaletteAction[] = [];
@@ -85,14 +122,14 @@ export function usePushSubscription(): {
     } else {
       list.push({
         id: "push-enable",
-        label: "Notifications: Enable push",
+        label: shell ? "Notifications: Enable notifications" : "Notifications: Enable push",
         onSelect: () => {
           void enable();
         },
       });
     }
     return list;
-  }, [state, enable, sendTest]);
+  }, [state, enable, sendTest, shell]);
 
   return { state, enable, sendTest, actions };
 }

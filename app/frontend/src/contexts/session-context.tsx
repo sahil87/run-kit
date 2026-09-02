@@ -178,6 +178,9 @@ export type SessionContextType = {
    *  no cached payload). The PANE-header refresh button subscribes to clear its
    *  spinner on completion. */
   subscribeStatusRefresh: (handler: () => void) => () => void;
+  /** Subscribe to host-global notification payloads. The shell-level consumer
+   *  performs environment, preference, and cross-view claim gating. */
+  subscribeNotify: (handler: (payload: unknown) => void) => () => void;
   /** Open a chat subscription for a window on the singleton state socket
    *  (260717-vhvz). `from` is the transcript byte offset the client's GET
    *  backfill read up to, so the server tails gap-free. The owner hook
@@ -657,6 +660,23 @@ export function SessionProvider({ children }: SessionProviderProps) {
     }
   }, []);
 
+  const notifySubscribersRef = useRef<Set<(payload: unknown) => void>>(new Set());
+  const subscribeNotify = useCallback((handler: (payload: unknown) => void) => {
+    notifySubscribersRef.current.add(handler);
+    return () => {
+      notifySubscribersRef.current.delete(handler);
+    };
+  }, []);
+  const fireNotify = useCallback((payload: unknown) => {
+    for (const handler of notifySubscribersRef.current) {
+      try {
+        handler(payload);
+      } catch {
+        // ignore individual subscriber errors
+      }
+    }
+  }, []);
+
   // Chat subscription seam (260717-vhvz). The owner hook registers a window's
   // handlers, then drives subscribe/unsubscribe through these helpers — never a
   // direct socket handle (the singleton-socket ownership pattern). Chat frames
@@ -902,6 +922,9 @@ export function SessionProvider({ children }: SessionProviderProps) {
         case "status-refresh":
           fireStatusRefresh();
           break;
+        case "notify":
+          fireNotify(data);
+          break;
         case "version": {
           const d = data as { version?: string; boot?: string; brew?: boolean; started?: number; port?: number };
           if (typeof d.version === "string") {
@@ -961,7 +984,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
           break;
       }
     },
-    [applyHostMetrics, applyHostServices, applyCodeServer, applyServerOrder, fireBoardOrder, fireStatusRefresh, applyVersion, applyUpdateAvailable, updateSlice],
+    [applyHostMetrics, applyHostServices, applyCodeServer, applyServerOrder, fireBoardOrder, fireStatusRefresh, fireNotify, applyVersion, applyUpdateAvailable, updateSlice],
   );
 
   // Latest handlers, kept in a ref so the one-time socket-construction effect
@@ -1203,6 +1226,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
       subscribeBoardChange,
       subscribeBoardOrder,
       subscribeStatusRefresh,
+      subscribeNotify,
       subscribeChat,
       unsubscribeChat,
       registerChatHandlers,
@@ -1238,6 +1262,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
       subscribeBoardChange,
       subscribeBoardOrder,
       subscribeStatusRefresh,
+      subscribeNotify,
       subscribeChat,
       unsubscribeChat,
       registerChatHandlers,
@@ -1549,6 +1574,7 @@ export function StandaloneSessionContextProvider({
     subscribeBoardChange: value.subscribeBoardChange ?? (() => () => {}),
     subscribeBoardOrder: value.subscribeBoardOrder ?? (() => () => {}),
     subscribeStatusRefresh: value.subscribeStatusRefresh ?? (() => () => {}),
+    subscribeNotify: value.subscribeNotify ?? (() => () => {}),
     subscribeChat: value.subscribeChat ?? (() => {}),
     unsubscribeChat: value.unsubscribeChat ?? (() => {}),
     registerChatHandlers: value.registerChatHandlers ?? (() => () => {}),

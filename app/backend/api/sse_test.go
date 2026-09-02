@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net"
 	"strings"
@@ -801,6 +803,50 @@ func TestBroadcastUpdateAvailableFansOutAndReplays(t *testing.T) {
 	}
 	if !strings.Contains(replay[0], wantPayload) || !strings.Contains(replay[0], wantKey) {
 		t.Errorf("late client cached update-available snapshot = %q", replay[0])
+	}
+}
+
+func TestBroadcastNotifyFansOutWithoutReplay(t *testing.T) {
+	hub := newSSEHub(&slowSessionFetcher{}, nil, nil, nil)
+	first := hub.addTestClient(make(chan hubEvent, 16), "first")
+	second := hub.addTestClient(make(chan hubEvent, 16), metricsOnlyServer)
+	defer hub.removeClient(first)
+	defer hub.removeClient(second)
+
+	hub.broadcastNotify("RunKit", "agent waiting", "/utils2/5?view=chat")
+
+	for name, client := range map[string]*sseClient{"first": first, "second": second} {
+		frames := decodeEnvelopes(drainFrames(client.ch))
+		var got []notifyPayload
+		for _, frame := range frames {
+			if rawStr(frame, "type") != "notify" || rawStr(frame, "kind") != kindGlobal {
+				continue
+			}
+			var payload notifyPayload
+			if err := json.Unmarshal(frame["data"], &payload); err != nil {
+				t.Fatalf("%s client decode notify payload: %v", name, err)
+			}
+			got = append(got, payload)
+		}
+		if len(got) != 1 {
+			t.Fatalf("%s client received %d notify events, want 1", name, len(got))
+		}
+		if got[0].Title != "RunKit" || got[0].Body != "agent waiting" || got[0].URL != "/utils2/5?view=chat" {
+			t.Errorf("%s client payload = %+v", name, got[0])
+		}
+		if len(got[0].ID) != 16 {
+			t.Errorf("%s client id length = %d, want 16", name, len(got[0].ID))
+		} else if _, err := hex.DecodeString(got[0].ID); err != nil {
+			t.Errorf("%s client id = %q, want hex: %v", name, got[0].ID, err)
+		}
+	}
+
+	late := hub.addTestClient(make(chan hubEvent, 16), "late")
+	defer hub.removeClient(late)
+	for _, frame := range decodeEnvelopes(drainFrames(late.ch)) {
+		if rawStr(frame, "type") == "notify" {
+			t.Fatal("late client received a replayed notify event")
+		}
 	}
 }
 

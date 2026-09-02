@@ -1,0 +1,57 @@
+id: ziki
+name: 260902-ziki-shell-os-notifications
+created: 2026-09-02T15:31:02Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 8
+    acceptance_count: 18
+    acceptance_completed: 18
+confidence:
+    certain: 5
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.3
+    fuzzy: true
+    dimensions:
+        signal: 71.7
+        reversibility: 82.2
+        competence: 81.7
+        disambiguation: 73.9
+stage_metrics:
+    intake: {started_at: "2026-09-02T15:31:02Z", driver: fab-new, iterations: 1, completed_at: "2026-09-02T15:43:09Z"}
+    apply: {started_at: "2026-09-02T17:11:05Z", driver: fab-fff, iterations: 4, completed_at: "2026-09-02T17:14:19Z"}
+    review: {started_at: "2026-09-02T17:14:19Z", driver: fab-fff, iterations: 4, completed_at: "2026-09-02T17:21:23Z"}
+    hydrate: {started_at: "2026-09-02T17:21:23Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-02T17:28:25Z"}
+    ship: {started_at: "2026-09-02T17:28:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-02T17:30:49Z"}
+    review-pr: {started_at: "2026-09-02T17:30:49Z", driver: git-pr, iterations: 1, completed_at: "2026-09-02T17:40:34Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/792
+change_type_source: explicit
+true_impact:
+    added: 1327
+    deleted: 45
+    net: 1282
+    excluding:
+        added: 894
+        deleted: 28
+        net: 866
+    tests:
+        added: 330
+        deleted: 1
+        net: 329
+    computed_at: "2026-09-02T17:30:49Z"
+    computed_at_stage: ship
+summary: adds broadcast-only state-socket OS notifications for opted-in desktop-shell renderers while preserving browser Web Push delivery
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-02T17:40:34Z

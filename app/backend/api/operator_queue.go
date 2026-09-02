@@ -103,7 +103,9 @@ func (t *operatorQueueTracker) enqueue(server string, request queuedOperatorRequ
 
 // advance evaluates the level-triggered drain condition from one already-
 // fetched server snapshot. It removes expired entries regardless of operator
-// state, then reserves at most one FIFO entry for detached delivery.
+// state, then reserves at most one FIFO entry for detached delivery. A nil
+// deliver (tracking without fan-out, the test-hub shape) never reserves —
+// draining would consume entries with no injection, so the queue is preserved.
 func (t *operatorQueueTracker) advance(server string, snapshot []sessions.ProjectSession) {
 	now := t.now()
 	operator := findOperatorWindow(snapshot)
@@ -111,7 +113,7 @@ func (t *operatorQueueTracker) advance(server string, snapshot []sessions.Projec
 	t.mu.Lock()
 	expired := t.expireLocked(server, now)
 	var request *queuedOperatorRequest
-	if t.inFlight[server] == nil && operator != nil && operator.AgentState == tmux.AgentStateIdle && len(t.queues[server]) > 0 {
+	if t.deliver != nil && t.inFlight[server] == nil && operator != nil && operator.AgentState == tmux.AgentStateIdle && len(t.queues[server]) > 0 {
 		last, sent := t.lastSent[server]
 		if !sent || now.Sub(last) >= operatorQueueMinGap {
 			entry := t.queues[server][0]
@@ -130,14 +132,10 @@ func (t *operatorQueueTracker) advance(server string, snapshot []sessions.Projec
 		slog.Debug("operator queue request expired", "server", server, "template", entry.template, "window", entry.windowID, "session", entry.session)
 	}
 	if request != nil {
-		if t.deliver == nil {
-			t.finishDelivery(server, request, nil)
-		} else {
-			go func(entry *queuedOperatorRequest) {
-				err := t.deliver(context.Background(), server, *entry)
-				t.finishDelivery(server, entry, err)
-			}(request)
-		}
+		go func(entry *queuedOperatorRequest) {
+			err := t.deliver(context.Background(), server, *entry)
+			t.finishDelivery(server, entry, err)
+		}(request)
 	}
 }
 

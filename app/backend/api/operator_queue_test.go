@@ -153,6 +153,18 @@ func TestOperatorQueueAdvanceIsFIFOLevelTriggeredAndPaced(t *testing.T) {
 	}
 }
 
+func TestOperatorQueueAdvancePreservesQueueWithoutDeliver(t *testing.T) {
+	tracker, _ := newTestOperatorQueueTracker()
+	if err := tracker.enqueue("srv", queuedOperatorRequest{template: "fix-tab-name", windowID: "@1"}); err != nil {
+		t.Fatal(err)
+	}
+	tracker.advance("srv", operatorQueueSnapshot(tmux.AgentStateIdle))
+	queue, inFlight := operatorQueueState(tracker, "srv")
+	if len(queue) != 1 || inFlight {
+		t.Fatalf("nil deliver drained: queue=%d inFlight=%v", len(queue), inFlight)
+	}
+}
+
 func TestOperatorQueueExpiresWhileOperatorWaits(t *testing.T) {
 	tracker, clock := newTestOperatorQueueTracker()
 	called := false

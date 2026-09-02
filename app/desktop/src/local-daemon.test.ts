@@ -7,12 +7,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   augmentPath,
+  daemonMenuModel,
   isDaemonAlreadyRunning,
   isExecTimeout,
+  parseDaemonStatusRunning,
   parseRkVersion,
   parseSessionCount,
   resolveRkBinary,
   rkCandidatePaths,
+  rkInvocationErrorMessage,
   rkTimeoutMessage,
 } from "./local-daemon";
 
@@ -135,6 +138,93 @@ test("parseSessionCount returns null for non-array bodies", () => {
   assert.equal(parseSessionCount(null), null);
 });
 
+// ─── daemon status + menu decisions ────────────────────────────────────────
+
+test("parseDaemonStatusRunning reads full rk daemon status reports", () => {
+  const running = `{
+  "daemon": {
+    "running": true,
+    "socket": "rk-daemon",
+    "session": "rk-daemon",
+    "window": "serve",
+    "target": "=rk-daemon:=serve",
+    "pid": 4242
+  },
+  "port": {
+    "host": "127.0.0.1",
+    "port": 3000,
+    "state": "held-by-daemon",
+    "holder_pid": 4242,
+    "holder_command": "rk"
+  }
+}
+`;
+  const stopped = `{
+  "daemon": {
+    "running": false
+  },
+  "port": {
+    "host": "127.0.0.1",
+    "port": 3000,
+    "state": "free"
+  }
+}
+`;
+  assert.equal(parseDaemonStatusRunning(running), true);
+  assert.equal(parseDaemonStatusRunning(stopped), false);
+});
+
+test("parseDaemonStatusRunning tolerates missing or malformed output", () => {
+  assert.equal(parseDaemonStatusRunning('{"daemon":{}}'), null);
+  assert.equal(parseDaemonStatusRunning('{"other":{"running":true}}'), null);
+  assert.equal(parseDaemonStatusRunning("not json"), null);
+  assert.equal(parseDaemonStatusRunning(""), null);
+});
+
+test("daemonMenuModel covers stopped, running, and wedged enablement", () => {
+  assert.deepEqual(
+    daemonMenuModel({ state: "stopped", version: "3.18.17", action: null }),
+    {
+      statusLabel: "○ stopped · v3.18.17",
+      start: { label: "Start", enabled: true },
+      restart: { label: "Restart", enabled: true },
+      stop: { label: "Stop", enabled: false },
+    },
+  );
+  assert.deepEqual(
+    daemonMenuModel({ state: "running", version: null, action: null }),
+    {
+      statusLabel: "● running",
+      start: { label: "Start", enabled: false },
+      restart: { label: "Restart", enabled: true },
+      stop: { label: "Stop", enabled: true },
+    },
+  );
+  assert.deepEqual(
+    daemonMenuModel({ state: "wedged", version: "3.18.17", action: null }),
+    {
+      statusLabel: "◐ not responding · v3.18.17",
+      start: { label: "Start", enabled: false },
+      restart: { label: "Restart", enabled: true },
+      stop: { label: "Stop", enabled: true },
+    },
+  );
+});
+
+test("daemonMenuModel overlays each in-flight action and disables every item", () => {
+  for (const [action, activeLabel] of [
+    ["start", "Starting…"],
+    ["restart", "Restarting…"],
+    ["stop", "Stopping…"],
+  ] as const) {
+    const model = daemonMenuModel({ state: "running", version: null, action });
+    assert.equal(model[action].label, activeLabel);
+    assert.equal(model.start.enabled, false);
+    assert.equal(model.restart.enabled, false);
+    assert.equal(model.stop.enabled, false);
+  }
+});
+
 // ─── isDaemonAlreadyRunning ─────────────────────────────────────────────────
 
 test("the daemon already running error is already-started success", () => {
@@ -174,4 +264,73 @@ test("rkTimeoutMessage names the rk args and the timeout, never the binary path"
   const message = rkTimeoutMessage(["remote", "connect", "buildbox"], 300_000);
   assert.equal(message, "`rk remote connect buildbox` timed out after 300s");
   assert.ok(!message.includes("/"));
+});
+
+test("rk timeout and fallback errors hide restart implementation details", () => {
+  const args = ["daemon", "restart", "--full"];
+  const timeout = rkInvocationErrorMessage(
+    {
+      message: "Command failed: /opt/homebrew/bin/rk daemon restart --full",
+      signal: "SIGTERM",
+      code: null,
+    },
+    args,
+    60_000,
+    "/opt/homebrew/bin/rk",
+  );
+  const fallback = rkInvocationErrorMessage(
+    {
+      message: "Command failed: /opt/homebrew/bin/rk daemon restart --full",
+      signal: null,
+      code: 1,
+    },
+    args,
+    60_000,
+    "/opt/homebrew/bin/rk",
+  );
+  assert.equal(timeout, "`rk daemon restart` timed out after 60s");
+  assert.equal(fallback, "`rk daemon restart` failed");
+  for (const message of [timeout, fallback]) {
+    assert.equal(message.includes("--full"), false);
+    assert.equal(message.includes("/opt/homebrew"), false);
+  }
+});
+
+test("rk stderr stays useful while private flags and the binary path are redacted", () => {
+  const message = rkInvocationErrorMessage(
+    {
+      signal: null,
+      code: 1,
+      stderr: "Error: /opt/homebrew/bin/rk daemon restart --full failed",
+    },
+    ["daemon", "restart", "--full"],
+    60_000,
+    "/opt/homebrew/bin/rk",
+  );
+  assert.equal(message, "Error: rk daemon restart failed");
+});
+
+test("an unsupported private restart flag becomes actionable version-skew guidance", () => {
+  const message = rkInvocationErrorMessage(
+    { signal: null, code: 1, stderr: "Error: unknown flag: --full" },
+    ["daemon", "restart", "--full"],
+    60_000,
+    "/opt/homebrew/bin/rk",
+  );
+  assert.equal(
+    message,
+    "`rk daemon restart` requires a newer rk version; update rk and try again",
+  );
+  assert.equal(message.includes("--full"), false);
+});
+
+test("private flag text embedded in another token falls back without leaking it", () => {
+  const message = rkInvocationErrorMessage(
+    { signal: null, code: 1, stderr: "restart mode --full-preview failed" },
+    ["daemon", "restart", "--full"],
+    60_000,
+    "rk",
+  );
+  assert.equal(message, "`rk daemon restart` failed");
+  assert.equal(message.includes("--full"), false);
 });

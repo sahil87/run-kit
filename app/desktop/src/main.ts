@@ -56,14 +56,15 @@ import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import {
   augmentPath,
+  DaemonAction,
   DaemonStatus,
   isDaemonAlreadyRunning,
-  isExecTimeout,
+  parseDaemonStatusRunning,
   parseRkVersion,
   parseSessionCount,
   resolveRkBinary,
   rkCandidatePaths,
-  rkTimeoutMessage,
+  rkInvocationErrorMessage,
 } from "./local-daemon";
 import { badgePng, overlayDescription } from "./badge";
 import {
@@ -114,6 +115,7 @@ import {
   aggregateBadge,
   deactivateViews,
   emptyViews,
+  ERR_ABORTED,
   findViewByWebContentsId,
   getView,
   LoadFlagEvent,
@@ -143,13 +145,20 @@ import {
 
 const WELCOME_PATH = join(__dirname, "welcome", "welcome.html");
 const WELCOME_URL = pathToFileURL(WELCOME_PATH).toString();
+const INTERSTITIAL_PATH = join(__dirname, "interstitial", "interstitial.html");
+const INTERSTITIAL_URL = pathToFileURL(INTERSTITIAL_PATH).toString();
 const HEALTH_TIMEOUT_MS = 5000;
+const INTERSTITIAL_HEALTH_POLL_MS = 3000;
 /** Read-only rk queries (`rk url`, `rk --version`) — quick, config-derived. */
 const RK_QUERY_TIMEOUT_MS = 5000;
+/** Avoid re-running `rk url` for every 3s interstitial status IPC gate. */
+const LOCAL_DAEMON_ORIGIN_CACHE_TTL_MS = 15_000;
 /** `rk desktop status` — read-only, but round-trips the GitHub releases API. */
 const RK_STATUS_TIMEOUT_MS = 10_000;
-/** Daemon lifecycle commands (`rk daemon start/stop/restart`) — tmux work. */
+/** Daemon start/stop commands — bounded tmux work. */
 const RK_DAEMON_TIMEOUT_MS = 30_000;
+/** A full restart includes stop grace, port release, start, and tunnel reconnect. */
+const RK_DAEMON_RESTART_TIMEOUT_MS = 60_000;
 /** `rk remote add` — pure local registration, no ssh roundtrip. */
 const RK_REMOTE_ADD_TIMEOUT_MS = 10_000;
 /** `rk remote connect` — may bootstrap rk on the remote over ssh. */
@@ -207,6 +216,14 @@ function viewKey(windowId: number, hostId: string): string {
  *  connect heals reload ONLY a failed view — a warm view keeps its live
  *  renderer state. Entries die with their view. */
 const viewLoadFailed = new Map<string, boolean>();
+
+interface InterstitialHealthPoll {
+  timer: ReturnType<typeof setInterval>;
+  inFlight: boolean;
+}
+
+/** Per-view read-only health polls; entries exist only while a recovery page is visible. */
+const interstitialHealthPolls = new Map<string, InterstitialHealthPoll>();
 
 /**
  * Reload a view stranded on a failed main-frame load, clearing its flag — the
@@ -270,6 +287,11 @@ type PingResult =
   | { ok: false; error: string };
 
 type IpcResult = { ok: true } | { ok: false; error: string };
+
+type DaemonActionResult =
+  | { ok: true }
+  | { ok: true; outcome: "declined" }
+  | { ok: false; error: string };
 
 /** `servers:list` envelope — the channel name AND the `servers` key are the SPA contract. */
 type ServersListResult =
@@ -386,6 +408,11 @@ function routeForView(win: BrowserWindow, hostId: string): string {
   if (!current) return "";
   try {
     const url = new URL(current);
+    const expectedOrigin =
+      hostId === DEV_HOST_ID
+        ? devUrl ? originOf(devUrl) : null
+        : loadHosts(userDataDir()).hosts.find((host) => host.id === hostId)?.url ?? null;
+    if (expectedOrigin === null || url.origin !== expectedOrigin) return "";
     return url.pathname + url.search;
   } catch {
     return "";
@@ -496,6 +523,136 @@ function syncActiveViewBounds(win: BrowserWindow): void {
   if (entry) syncViewBounds(win, entry.handle);
 }
 
+type InterstitialKind = "local" | "remote" | "url";
+
+interface ViewHost {
+  id: string;
+  name: string;
+  url: string;
+  lastPath?: string;
+  remote?: string;
+}
+
+function hostForView(hostId: string): ViewHost | null {
+  if (hostId === DEV_HOST_ID && devUrl) {
+    return { id: DEV_HOST_ID, name: originOf(devUrl) ?? PRODUCT_NAME, url: originOf(devUrl) ?? devUrl };
+  }
+  return loadHosts(userDataDir()).hosts.find((host) => host.id === hostId) ?? null;
+}
+
+function isInterstitialUrl(url: string): boolean {
+  return url.startsWith(INTERSTITIAL_URL);
+}
+
+let localDaemonOriginCache: { value: string | null; expiresAt: number } | undefined;
+let localDaemonOriginQuery: Promise<string | null> | null = null;
+
+async function localDaemonOrigin(): Promise<string | null> {
+  if (process.platform === "win32") return null;
+  if (localDaemonOriginCache && Date.now() < localDaemonOriginCache.expiresAt) {
+    return localDaemonOriginCache.value;
+  }
+  if (localDaemonOriginQuery) return localDaemonOriginQuery;
+  localDaemonOriginQuery = (async () => {
+    const run = await runRk(["url"], RK_QUERY_TIMEOUT_MS);
+    if (!run.ok) return null;
+    const normalized = normalizeOrigin(run.stdout.trim());
+    return normalized.ok ? normalized.origin : null;
+  })();
+  try {
+    const value = await localDaemonOriginQuery;
+    localDaemonOriginCache = {
+      value,
+      expiresAt: Date.now() + LOCAL_DAEMON_ORIGIN_CACHE_TTL_MS,
+    };
+    return value;
+  } finally {
+    localDaemonOriginQuery = null;
+  }
+}
+
+function isLoopbackOrigin(origin: string): boolean {
+  try {
+    const hostname = new URL(origin).hostname;
+    return hostname === "localhost" || hostname.startsWith("127.") || hostname === "[::1]";
+  } catch {
+    return false;
+  }
+}
+
+async function interstitialKindFor(host: ViewHost): Promise<InterstitialKind> {
+  if (host.remote !== undefined && host.remote !== "") return "remote";
+  const localOrigin = await localDaemonOrigin();
+  if (localOrigin !== null && host.url === localOrigin) return "local";
+  if (localOrigin === null && process.platform !== "win32" && isLoopbackOrigin(host.url)) {
+    return "local";
+  }
+  return "url";
+}
+
+function interstitialPageUrl(host: ViewHost, kind: InterstitialKind): string {
+  const url = new URL(INTERSTITIAL_URL);
+  url.searchParams.set("host", host.id);
+  url.searchParams.set("kind", kind);
+  url.searchParams.set("name", host.name);
+  url.searchParams.set("origin", host.url);
+  return url.toString();
+}
+
+function stopInterstitialHealthPoll(windowId: number, hostId: string): void {
+  const key = viewKey(windowId, hostId);
+  const poll = interstitialHealthPolls.get(key);
+  if (!poll) return;
+  clearInterval(poll.timer);
+  interstitialHealthPolls.delete(key);
+}
+
+function startInterstitialHealthPoll(
+  windowId: number,
+  host: ViewHost,
+  contents: WebContents,
+): void {
+  stopInterstitialHealthPoll(windowId, host.id);
+  const key = viewKey(windowId, host.id);
+  const tick = async (): Promise<void> => {
+    const poll = interstitialHealthPolls.get(key);
+    if (!poll || poll.inFlight || contents.isDestroyed()) return;
+    if (!isInterstitialUrl(contents.getURL())) {
+      stopInterstitialHealthPoll(windowId, host.id);
+      return;
+    }
+    poll.inFlight = true;
+    try {
+      const ping = await pingServer(host.url);
+      if (interstitialHealthPolls.get(key) !== poll || contents.isDestroyed()) return;
+      if (!isInterstitialUrl(contents.getURL()) || !ping.ok) return;
+      stopInterstitialHealthPoll(windowId, host.id);
+      void contents.loadURL(host.url + (host.lastPath ?? ""));
+    } finally {
+      if (interstitialHealthPolls.get(key) === poll) poll.inFlight = false;
+    }
+  };
+  const timer = setInterval(() => { void tick(); }, INTERSTITIAL_HEALTH_POLL_MS);
+  interstitialHealthPolls.set(key, { timer, inFlight: false });
+}
+
+async function showDeadHostInterstitial(
+  windowId: number,
+  hostId: string,
+  contents: WebContents,
+): Promise<void> {
+  const host = hostForView(hostId);
+  if (!host || contents.isDestroyed()) return;
+  const kind = await interstitialKindFor(host);
+  if (contents.isDestroyed() || viewLoadFailed.get(viewKey(windowId, hostId)) !== true) return;
+  try {
+    await contents.loadURL(interstitialPageUrl(host, kind));
+    if (kind !== "remote") startInterstitialHealthPoll(windowId, host, contents);
+  } catch {
+    // A concurrent heal may have navigated the view before this page loaded.
+  }
+}
+
 /**
  * Create + wire a host view for one window. Security wiring beyond
  * webPreferences needs no per-view work: the app-level `web-contents-created`
@@ -524,6 +681,9 @@ function createHostView(win: BrowserWindow, hostId: string): WebContentsView {
   };
   contents.on("did-fail-load", (_event, errorCode, _desc, _url, isMainFrame) => {
     applyLoadFlag({ kind: "did-fail-load", isMainFrame, errorCode });
+    if (isMainFrame && errorCode !== ERR_ABORTED) {
+      void showDeadHostInterstitial(windowId, hostId, contents);
+    }
   });
 
   // Key of the fallback strip CSS injected into this view's CURRENT page load
@@ -548,9 +708,11 @@ function createHostView(win: BrowserWindow, hostId: string): WebContentsView {
   // Inserted CSS does not survive a main-frame navigation; drop the dead key.
   // A did-navigate commit is also the ONE success signal that clears the
   // load-failure flag (it never fires for Chromium's error page).
-  contents.on("did-navigate", () => {
+  contents.on("did-navigate", (_event, url) => {
     fallbackCssKey = null;
-    applyLoadFlag({ kind: "did-navigate" });
+    const isInterstitial = isInterstitialUrl(url);
+    applyLoadFlag({ kind: "did-navigate", isInterstitial });
+    if (!isInterstitial) stopInterstitialHealthPoll(windowId, hostId);
     if (!win.isDestroyed()) setWindowTitle(win); // full navigations change the route leaf
   });
   // The SPA is a history-API router — in-page navigations change the route
@@ -629,7 +791,7 @@ function attachHostView(
   const windowId = win.id;
   // SSH-only hosts heal their tunnel on activation (never blocking the
   // attach — a warm flip stays instant; a dead view reloads once healed).
-  ensureRemoteConnected(win, host);
+  void ensureRemoteConnected(win, host);
   const current = activeView(views, windowId);
   let entry = getView(views, windowId, host.id);
   let created = false;
@@ -671,6 +833,7 @@ function destroyHostViews(hostId: string): void {
   for (const entry of removed) {
     const win = windows.get(entry.windowId);
     if (win && !win.isDestroyed()) win.contentView.removeChildView(entry.handle);
+    stopInterstitialHealthPoll(entry.windowId, entry.hostId);
     viewLoadFailed.delete(viewKey(entry.windowId, entry.hostId));
     rawAccentReported.delete(viewKey(entry.windowId, entry.hostId));
     if (!entry.handle.webContents.isDestroyed()) entry.handle.webContents.close();
@@ -699,6 +862,7 @@ function destroyWindowViews(windowId: number): void {
   const { state, removed } = removeWindowViews(views, windowId);
   views = state;
   for (const entry of removed) {
+    stopInterstitialHealthPoll(entry.windowId, entry.hostId);
     viewLoadFailed.delete(viewKey(entry.windowId, entry.hostId));
     rawAccentReported.delete(viewKey(entry.windowId, entry.hostId));
     if (!entry.handle.webContents.isDestroyed()) entry.handle.webContents.close();
@@ -771,7 +935,7 @@ function rebuildMenu(): void {
     onFocusWindow: (windowId) => {
       windows.get(windowId)?.focus();
     },
-    onDaemonConnect: () => {
+    onDaemonStart: () => {
       void (async () => {
         const win = focusedWindow();
         if (!win) return;
@@ -780,10 +944,18 @@ function rebuildMenu(): void {
       })();
     },
     onDaemonRestart: () => {
-      void restartLocalDaemon();
+      void (async () => {
+        const win = focusedWindow();
+        if (!win) return;
+        const result = await restartAndConnectLocal(win);
+        if (!result.ok) dialog.showErrorBox("Local Daemon", result.error);
+      })();
     },
     onDaemonStop: () => {
-      void confirmAndStopDaemon();
+      void (async () => {
+        const result = await confirmAndStopDaemon();
+        if (!result.ok) dialog.showErrorBox("Local Daemon", result.error);
+      })();
     },
     onRestartToUpdate: () => {
       restartToUpdate();
@@ -885,34 +1057,28 @@ function rkBinary(): string {
   return resolveRkBinary(rkCandidatePaths(process.platform), existsSync);
 }
 
-/** Extract a useful message from an execFile rejection (stderr wins). */
-function execErrorMessage(err: unknown): string {
-  if (typeof err === "object" && err !== null) {
-    if ("stderr" in err && typeof err.stderr === "string" && err.stderr.trim() !== "") {
-      return err.stderr.trim();
-    }
-    if ("message" in err && typeof err.message === "string") return err.message;
-  }
-  return "rk invocation failed";
-}
-
 function isEnoent(err: unknown): boolean {
   return typeof err === "object" && err !== null && "code" in err && err.code === "ENOENT";
 }
 
 async function runRk(args: string[], timeout: number): Promise<RkRunResult> {
+  const binary = rkBinary();
   try {
     // The other half of the GUI PATH trap: resolving the rk BINARY via fixed
     // candidates is not enough — the spawned rk (and the tmux server tree
     // `rk daemon start` creates, which inherits this env wholesale) must also
     // find `tmux` on PATH, so the brew bin dirs are appended when missing.
-    const { stdout } = await execFileAsync(rkBinary(), args, {
+    const { stdout } = await execFileAsync(binary, args, {
       timeout,
       env: { ...process.env, PATH: augmentPath(process.platform, process.env.PATH) },
     });
     return { ok: true, stdout };
   } catch (err) {
-    return { ok: false, error: execErrorMessage(err), notInstalled: isEnoent(err) };
+    return {
+      ok: false,
+      error: rkInvocationErrorMessage(err, args, timeout, binary),
+      notInstalled: isEnoent(err),
+    };
   }
 }
 
@@ -957,12 +1123,17 @@ async function probeDaemonStatusUncached(): Promise<DaemonStatusResult> {
   const origin = normalized.origin;
   const ping = await pingServer(origin);
   if (!ping.ok) {
-    return { ok: true, status: { installed: true, running: false, version, origin } };
+    const daemonRun = await runRk(["daemon", "status", "--json"], RK_QUERY_TIMEOUT_MS);
+    const state =
+      daemonRun.ok && parseDaemonStatusRunning(daemonRun.stdout) === true
+        ? "wedged"
+        : "stopped";
+    return { ok: true, status: { installed: true, state, version, origin } };
   }
   const sessions = await fetchSessionCount(origin);
   return {
     ok: true,
-    status: { installed: true, running: true, version, origin, hostname: ping.hostname, sessions },
+    status: { installed: true, state: "running", version, origin, hostname: ping.hostname, sessions },
   };
 }
 
@@ -1008,34 +1179,95 @@ function connectLocalHost(win: BrowserWindow, origin: string, hostname: string):
 }
 
 /**
- * The ONE get-in flow (`daemon:start` + the menu's Connect): start the daemon
+ * The ONE get-in flow (`daemon:start` + the menu's Start): start the daemon
  * when stopped (a `daemon already running` error is already-started success),
  * wait for health, then connect in the invoking window. Never runs without an
  * explicit user action.
  */
-async function startAndConnectLocal(win: BrowserWindow): Promise<IpcResult> {
-  const probe = await probeDaemonStatus();
-  if (!probe.ok) return probe;
-  const status = probe.status;
-  if (!status.installed) return { ok: false, error: "run-kit is not installed" };
-  let hostname: string;
-  if (status.running) {
-    hostname = status.hostname;
-  } else {
-    const started = await runRk(["daemon", "start"], RK_DAEMON_TIMEOUT_MS);
-    if (!started.ok && !isDaemonAlreadyRunning(started.error)) {
-      return { ok: false, error: started.error };
-    }
-    const ping = await waitForHealth(status.origin);
-    if (!ping.ok) {
-      void refreshDaemonMenu();
-      return ping;
-    }
-    hostname = ping.hostname;
+async function showWedgedDaemonDialog(
+  win: BrowserWindow,
+  origin: string,
+): Promise<DaemonActionResult> {
+  const { response } = await dialog.showMessageBox(win, {
+    type: "warning",
+    buttons: ["Restart Daemon", "Cancel"],
+    defaultId: 1,
+    cancelId: 1,
+    message: `run-kit reports running but isn't answering on ${origin}`,
+    detail: "Restarting briefly interrupts local SSH tunnels; they reconnect automatically.",
+  });
+  if (response !== 0) return { ok: true, outcome: "declined" };
+  return restartAndConnectLocal(win, true);
+}
+
+let daemonActionInFlight: DaemonAction | null = null;
+
+function setDaemonActionInFlight(action: DaemonAction | null): void {
+  daemonActionInFlight = action;
+  if (daemonMenuInfo !== null) daemonMenuInfo = { ...daemonMenuInfo, action };
+  rebuildMenu();
+}
+
+async function runDaemonAction(
+  action: DaemonAction,
+  operation: () => Promise<DaemonActionResult>,
+  replace: boolean = false,
+): Promise<DaemonActionResult> {
+  if (daemonActionInFlight !== null && !replace) {
+    return { ok: false, error: "Another daemon action is already in progress" };
   }
-  const connected = connectLocalHost(win, status.origin, hostname);
-  void refreshDaemonMenu();
-  return connected;
+  setDaemonActionInFlight(action);
+  try {
+    return await operation();
+  } finally {
+    if (daemonActionInFlight === action) setDaemonActionInFlight(null);
+    void refreshDaemonMenu();
+  }
+}
+
+async function startAndConnectLocal(win: BrowserWindow): Promise<DaemonActionResult> {
+  return runDaemonAction("start", async () => {
+    const probe = await probeDaemonStatus();
+    if (!probe.ok) return probe;
+    const status = probe.status;
+    if (!status.installed) return { ok: false, error: "run-kit is not installed" };
+    if (status.state === "wedged") return showWedgedDaemonDialog(win, status.origin);
+    let hostname: string;
+    if (status.state === "running") {
+      hostname = status.hostname;
+    } else {
+      const started = await runRk(["daemon", "start"], RK_DAEMON_TIMEOUT_MS);
+      const alreadyRunning = !started.ok && isDaemonAlreadyRunning(started.error);
+      if (!started.ok && !alreadyRunning) return { ok: false, error: started.error };
+      const ping = await waitForHealth(status.origin);
+      if (!ping.ok) {
+        if (alreadyRunning) return showWedgedDaemonDialog(win, status.origin);
+        return ping;
+      }
+      hostname = ping.hostname;
+    }
+    return connectLocalHost(win, status.origin, hostname);
+  });
+}
+
+/** Full restart followed by the same health/connect tail as Start. */
+async function restartAndConnectLocal(
+  win: BrowserWindow,
+  replaceAction: boolean = false,
+): Promise<DaemonActionResult> {
+  return runDaemonAction("restart", async () => {
+    const probe = await probeDaemonStatus();
+    if (!probe.ok) return probe;
+    if (!probe.status.installed) return { ok: false, error: "run-kit is not installed" };
+    const restarted = await runRk(
+      ["daemon", "restart", "--full"],
+      RK_DAEMON_RESTART_TIMEOUT_MS,
+    );
+    if (!restarted.ok) return { ok: false, error: restarted.error };
+    const ping = await waitForHealth(probe.status.origin);
+    if (!ping.ok) return ping;
+    return connectLocalHost(win, probe.status.origin, ping.hostname);
+  }, replaceAction);
 }
 
 /**
@@ -1044,9 +1276,11 @@ async function startAndConnectLocal(win: BrowserWindow): Promise<IpcResult> {
  * precedent); the copy states that tmux sessions survive (Constitution VI —
  * the tmux layer is independent of the server, so stop is low-stakes).
  */
-async function confirmAndStopDaemon(): Promise<IpcResult> {
-  const win = focusedWindow() ?? [...windows.values()][0];
-  if (!win) return { ok: false, error: "No window" };
+async function confirmAndStopDaemon(
+  actingWindow?: BrowserWindow,
+): Promise<DaemonActionResult> {
+  const win = actingWindow ?? focusedWindow() ?? [...windows.values()][0];
+  if (!win || win.isDestroyed()) return { ok: false, error: "No window" };
   const { response } = await dialog.showMessageBox(win, {
     type: "question",
     buttons: ["Stop Daemon", "Cancel"],
@@ -1056,18 +1290,11 @@ async function confirmAndStopDaemon(): Promise<IpcResult> {
     detail:
       "Only the web server stops — tmux sessions and running agents survive and reattach when the daemon starts again.",
   });
-  if (response !== 0) return { ok: true };
-  const stopped = await runRk(["daemon", "stop"], RK_DAEMON_TIMEOUT_MS);
-  await refreshDaemonMenu();
-  if (!stopped.ok) return { ok: false, error: stopped.error };
-  return { ok: true };
-}
-
-/** Menu Restart → `rk daemon restart` (the existing command; no stop+start composition). */
-async function restartLocalDaemon(): Promise<void> {
-  const restarted = await runRk(["daemon", "restart"], RK_DAEMON_TIMEOUT_MS);
-  await refreshDaemonMenu();
-  if (!restarted.ok) dialog.showErrorBox("Local Daemon", restarted.error);
+  if (response !== 0) return { ok: true, outcome: "declined" };
+  return runDaemonAction("stop", async () => {
+    const stopped = await runRk(["daemon", "stop"], RK_DAEMON_TIMEOUT_MS);
+    return stopped.ok ? { ok: true } : { ok: false, error: stopped.error };
+  });
 }
 
 // ─── SSH remote hosts (rk remote — explicit user-initiated actions only) ────
@@ -1091,8 +1318,9 @@ function runRkStreaming(
 ): Promise<RkRunResult> {
   return new Promise((resolve) => {
     const splitter = createLineSplitter();
+    const binary = rkBinary();
     const child = execFile(
-      rkBinary(),
+      binary,
       args,
       {
         timeout,
@@ -1101,16 +1329,8 @@ function runRkStreaming(
       (err, stdout, stderr) => {
         for (const line of splitter.flush()) onLine(line);
         if (err) {
-          // Raw-callback execFile attaches no `stderr` to its error (unlike
-          // the promisified runRk), so both branches below avoid node's
-          // "Command failed: /abs/path/rk …" fallback, which leaks the
-          // binary path: a timeout is named explicitly, and any other
-          // failure prefers the callback's own stderr (where cobra's final
-          // "Error:" block lives).
           const failure = stderr.trim();
-          const error = isExecTimeout(err)
-            ? rkTimeoutMessage(args, timeout)
-            : failure || execErrorMessage(err);
+          const error = rkInvocationErrorMessage(err, args, timeout, binary, failure);
           resolve({ ok: false, error, notInstalled: isEnoent(err) });
           return;
         }
@@ -1202,7 +1422,7 @@ function markRemoteConnected(name: string): void {
  * state; its sockets reconnect on their own once the tunnel is back). Each
  * (window, host) view heals independently.
  */
-function ensureRemoteConnected(
+async function ensureRemoteConnected(
   win: BrowserWindow,
   host: {
     id: string;
@@ -1210,32 +1430,43 @@ function ensureRemoteConnected(
     lastPath?: string;
     remote?: string;
   },
-): void {
+  options: { showError?: boolean; bypassSuppression?: boolean } = {},
+): Promise<IpcResult> {
+  const showError = options.showError ?? true;
+  const bypassSuppression = options.bypassSuppression ?? false;
   const name = host.remote;
-  if (name === undefined || name === "") return;
-  if (remoteConnectsInFlight.has(name)) return;
+  if (name === undefined || name === "") return { ok: true };
+  if (remoteConnectsInFlight.has(name)) {
+    return { ok: false, error: `Already reconnecting to ${name}` };
+  }
   const lastOk = remoteConnectedAt.get(name);
-  if (lastOk !== undefined && Date.now() - lastOk < REMOTE_RECONNECT_SUPPRESS_MS) return;
+  if (
+    !bypassSuppression &&
+    lastOk !== undefined &&
+    Date.now() - lastOk < REMOTE_RECONNECT_SUPPRESS_MS
+  ) {
+    return { ok: false, error: `Reconnect to ${name} was attempted recently` };
+  }
 
   const windowId = win.id;
   remoteConnectsInFlight.add(name);
-  void (async () => {
-    try {
-      const run = await runRkStreaming(
-        ["remote", "connect", name],
-        RK_REMOTE_CONNECT_TIMEOUT_MS,
-        () => {},
-      );
-      if (!run.ok) {
-        dialog.showErrorBox(`Remote Host: ${name}`, remoteErrorMessage(run.error));
-        return;
-      }
-      markRemoteConnected(name);
-      reloadFailedView(windowId, host);
-    } finally {
-      remoteConnectsInFlight.delete(name);
+  try {
+    const run = await runRkStreaming(
+      ["remote", "connect", name],
+      RK_REMOTE_CONNECT_TIMEOUT_MS,
+      () => {},
+    );
+    if (!run.ok) {
+      const error = remoteErrorMessage(run.error);
+      if (showError) dialog.showErrorBox(`Remote Host: ${name}`, error);
+      return { ok: false, error };
     }
-  })();
+    markRemoteConnected(name);
+    reloadFailedView(windowId, host);
+    return { ok: true };
+  } finally {
+    remoteConnectsInFlight.delete(name);
+  }
 }
 
 // Cached menu-relevant daemon info. Application menus have no reliable
@@ -1246,12 +1477,12 @@ let daemonMenuInfo: DaemonMenuInfo | null = null;
 
 function toDaemonMenuInfo(status: DaemonStatus): DaemonMenuInfo | null {
   if (!status.installed) return null;
-  return { running: status.running, version: status.version };
+  return { state: status.state, version: status.version, action: daemonActionInFlight };
 }
 
 function sameDaemonMenuInfo(a: DaemonMenuInfo | null, b: DaemonMenuInfo | null): boolean {
   if (a === null || b === null) return a === b;
-  return a.running === b.running && a.version === b.version;
+  return a.state === b.state && a.version === b.version && a.action === b.action;
 }
 
 function updateDaemonMenu(status: DaemonStatus): void {
@@ -1351,6 +1582,21 @@ function isWelcomeSender(event: IpcMainInvokeEvent): boolean {
   return event.senderFrame?.url.startsWith(WELCOME_URL) ?? false;
 }
 
+function isInterstitialSender(event: IpcMainInvokeEvent): boolean {
+  return event.senderFrame?.url.startsWith(INTERSTITIAL_URL) ?? false;
+}
+
+/** Welcome is window-owned; an interstitial must resolve to its local host view. */
+async function isDaemonSender(event: IpcMainInvokeEvent): Promise<boolean> {
+  if (isWelcomeSender(event)) return true;
+  if (!isInterstitialSender(event)) return false;
+  const entry = findViewByWebContentsId(views, event.sender.id);
+  if (!entry) return false;
+  const host = hostForView(entry.hostId);
+  if (!host) return false;
+  return await interstitialKindFor(host) === "local";
+}
+
 /**
  * Privilege gate for `servers:*` (the SPA-facing channel family, named for
  * that contract) — a wider allowlist than `welcome:*`: registered host
@@ -1440,23 +1686,48 @@ function registerIpcHandlers(): void {
     return { ok: true };
   });
 
-  // daemon:* — welcome-page-only surface (the menu calls the same functions
+  // daemon:* — shell-page-only surface (the menu calls the same functions
   // main-side). Every action is user-initiated; there is no auto-start.
   ipcMain.handle("daemon:status", async (event): Promise<DaemonStatusResult> => {
-    if (!isWelcomeSender(event)) return { ok: false, error: "Not allowed" };
+    if (!await isDaemonSender(event)) return { ok: false, error: "Not allowed" };
     return probeDaemonStatus();
   });
 
-  ipcMain.handle("daemon:start", async (event): Promise<IpcResult> => {
-    if (!isWelcomeSender(event)) return { ok: false, error: "Not allowed" };
+  ipcMain.handle("daemon:start", async (event): Promise<DaemonActionResult> => {
+    if (!await isDaemonSender(event)) return { ok: false, error: "Not allowed" };
     const win = senderWindow(event);
     if (!win) return { ok: false, error: "No window" };
     return startAndConnectLocal(win);
   });
 
-  ipcMain.handle("daemon:stop", async (event): Promise<IpcResult> => {
-    if (!isWelcomeSender(event)) return { ok: false, error: "Not allowed" };
-    return confirmAndStopDaemon();
+  ipcMain.handle("daemon:restart", async (event): Promise<DaemonActionResult> => {
+    if (!await isDaemonSender(event)) return { ok: false, error: "Not allowed" };
+    const win = senderWindow(event);
+    if (!win) return { ok: false, error: "No window" };
+    return restartAndConnectLocal(win);
+  });
+
+  ipcMain.handle("daemon:stop", async (event): Promise<DaemonActionResult> => {
+    if (!await isDaemonSender(event)) return { ok: false, error: "Not allowed" };
+    const win = senderWindow(event);
+    if (!win) return { ok: false, error: "No window" };
+    return confirmAndStopDaemon(win);
+  });
+
+  ipcMain.handle("interstitial:retry", async (event): Promise<IpcResult> => {
+    if (!isInterstitialSender(event)) return { ok: false, error: "Not allowed" };
+    const entry = findViewByWebContentsId(views, event.sender.id);
+    if (!entry) return { ok: false, error: "Not allowed" };
+    const win = windows.get(entry.windowId);
+    const host = hostForView(entry.hostId);
+    if (!win || win.isDestroyed() || !host) return { ok: false, error: "Unknown host" };
+    const kind = await interstitialKindFor(host);
+    if (kind === "remote") {
+      return ensureRemoteConnected(win, host, { showError: false, bypassSuppression: true });
+    }
+    if (kind !== "url") return { ok: false, error: "Use the daemon action shown above" };
+    void entry.handle.webContents.loadURL(host.url + (host.lastPath ?? ""));
+    return { ok: true };
   });
 
   // remote:* — welcome-page-only surface (the SSH rung). Main runs the CLI

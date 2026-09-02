@@ -324,13 +324,20 @@ test("the error page's did-finish-load does NOT clear a set failure flag", () =>
   assert.equal(failed, true); // the heal's reload gate still fires
 });
 
-test("only a did-navigate commit clears the flag; finish then keeps it clear", () => {
+test("only a host did-navigate commit clears the flag; finish then keeps it clear", () => {
   // The successful-load sequence: did-navigate (real response committed —
   // never fired for an error page) then did-finish-load.
-  let failed = nextLoadFailed(true, { kind: "did-navigate" });
+  let failed = nextLoadFailed(true, { kind: "did-navigate", isInterstitial: false });
   assert.equal(failed, false);
   failed = nextLoadFailed(failed, { kind: "did-finish-load" });
   assert.equal(failed, false);
+});
+
+test("an interstitial did-navigate commit preserves a set failure flag", () => {
+  assert.equal(
+    nextLoadFailed(true, { kind: "did-navigate", isInterstitial: true }),
+    true,
+  );
 });
 
 test("ERR_ABORTED and subframe failures neither set nor clear the flag", () => {
@@ -352,6 +359,6 @@ test("a heal-retry that fails again keeps the flag through the full event cycle"
     failed = nextLoadFailed(failed, event);
     assert.equal(failed, true);
   }
-  failed = nextLoadFailed(failed, { kind: "did-navigate" });
+  failed = nextLoadFailed(failed, { kind: "did-navigate", isInterstitial: false });
   assert.equal(failed, false);
 });

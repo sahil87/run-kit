@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Run Kit — Host unavailable</title>
+    <style>
+      /* Copied shell-page tokens: CSP keeps this recovery page self-contained. */
+      :root {
+        color-scheme: light dark;
+        --bg-primary: #0f1117;
+        --bg-card: #171b24;
+        --bg-inset: #0a0c12;
+        --text-primary: #e8eaf0;
+        --text-secondary: #7a8394;
+        --border: #454d66;
+        --accent: #5b8af0;
+        --accent-green: #22c55e;
+        --signal-yellow: #facc15;
+        --signal-red: #f87171;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg-primary: #f8f9fb;
+          --bg-card: #ffffff;
+          --bg-inset: #e8eaef;
+          --text-primary: #1a1d24;
+          --text-secondary: #6b7280;
+          --border: #d1d5db;
+          --accent: #4a7ae8;
+          --accent-green: #16a34a;
+          --signal-yellow: #b07d02;
+          --signal-red: #dc2626;
+        }
+      }
+      * { box-sizing: border-box; }
+      [hidden] { display: none !important; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 28px 24px 0;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 14px;
+      }
+      .titlebar-strip {
+        position: fixed;
+        inset: 0 0 auto;
+        height: 28px;
+        background: var(--bg-primary);
+        -webkit-app-region: drag;
+      }
+      main {
+        width: min(520px, calc(100vw - 48px));
+        padding: 32px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--bg-card);
+      }
+      .status-row { display: flex; align-items: center; gap: 10px; }
+      .dot {
+        width: 8px;
+        height: 8px;
+        flex: none;
+        border-radius: 50%;
+        background: var(--text-secondary);
+      }
+      .dot.busy, .dot.wedged { background: var(--signal-yellow); }
+      h1 { margin: 0; font-size: 18px; font-weight: 600; }
+      p { margin: 10px 0 0; color: var(--text-secondary); line-height: 1.5; }
+      p.error { color: var(--signal-red); }
+      button {
+        width: 100%;
+        margin-top: 22px;
+        padding: 10px 12px;
+        border: 1px solid var(--accent);
+        border-radius: 6px;
+        background: transparent;
+        color: var(--accent);
+        font: inherit;
+        cursor: pointer;
+      }
+      button:hover:not(:disabled) { background: var(--accent); color: var(--bg-primary); }
+      button:disabled { opacity: 0.5; cursor: default; }
+      code {
+        color: var(--text-primary);
+        background: var(--bg-inset);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 1px 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="titlebar-strip" aria-hidden="true"></div>
+    <main>
+      <section id="local-state" hidden>
+        <div class="status-row">
+          <span data-role="dot" class="dot"></span>
+          <h1 data-role="headline">run-kit unavailable</h1>
+        </div>
+        <p data-role="detail"></p>
+        <p data-role="hint" hidden></p>
+        <button data-role="action" type="button" hidden>Start run-kit</button>
+        <p data-role="error" class="error" hidden></p>
+      </section>
+      <section id="remote-state" hidden>
+        <div class="status-row">
+          <span data-role="dot" class="dot busy"></span>
+          <h1 data-role="headline">Remote host unavailable</h1>
+        </div>
+        <p data-role="detail"></p>
+        <p data-role="hint" hidden></p>
+        <button data-role="action" type="button">Retry</button>
+        <p data-role="error" class="error" hidden></p>
+      </section>
+      <section id="url-state" hidden>
+        <div class="status-row">
+          <span data-role="dot" class="dot"></span>
+          <h1 data-role="headline">Host unavailable</h1>
+        </div>
+        <p data-role="detail"></p>
+        <p data-role="hint"></p>
+        <button data-role="action" type="button">Retry</button>
+        <p data-role="error" class="error" hidden></p>
+      </section>
+    </main>
+    <script src="./interstitial.js"></script>
+  </body>
+</html>

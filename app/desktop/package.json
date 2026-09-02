@@ -10,7 +10,7 @@
   },
   "packageManager": "pnpm@10.33.0",
   "scripts": {
-    "compile": "tsc && node -e \"fs.mkdirSync('dist/welcome',{recursive:true});fs.copyFileSync('src/welcome/welcome.html','dist/welcome/welcome.html')\"",
+    "compile": "tsc && node -e \"for(const page of ['welcome','interstitial']){fs.mkdirSync('dist/'+page,{recursive:true});fs.copyFileSync('src/'+page+'/'+page+'.html','dist/'+page+'/'+page+'.html')}\"",
     "test": "node --test \"dist/**/*.test.js\"",
     "dev": "pnpm run compile && electron ."
   },

@@ -268,7 +268,7 @@ export const ERR_ABORTED = -3;
 /** The main-frame load lifecycle events that drive the failure flag. */
 export type LoadFlagEvent =
   | { kind: "did-fail-load"; isMainFrame: boolean; errorCode: number }
-  | { kind: "did-navigate" }
+  | { kind: "did-navigate"; isInterstitial: boolean }
   | { kind: "did-finish-load" };
 
 /**
@@ -277,20 +277,19 @@ export type LoadFlagEvent =
  * reload (a warm view keeps its live renderer state, never reloaded).
  *
  * Set by a real main-frame `did-fail-load` (ERR_ABORTED excluded — a
- * superseded navigation is not a failure). Cleared ONLY by `did-navigate`,
- * the commit of a real server response, which never fires for Chromium's
- * own error page. `did-finish-load` NEVER clears: Chromium fires it for the
- * error page immediately after `did-fail-load` (verified against a live
- * WebContentsView), so clearing there would wipe the flag before the
- * background `rk remote connect` heal completes — the reload gate would
- * never fire and a dead-tunnel view would stay stuck on its error page.
+ * superseded navigation is not a failure). Cleared ONLY by a `did-navigate`
+ * commit to the real host; a commit to the shell-owned interstitial preserves
+ * the failed state so the next successful heal still reloads the host.
+ * `did-finish-load` NEVER clears: Chromium fires it for its own error page
+ * immediately after `did-fail-load`, so clearing there would wipe the flag
+ * before a background heal completes.
  */
 export function nextLoadFailed(prev: boolean, event: LoadFlagEvent): boolean {
   switch (event.kind) {
     case "did-fail-load":
       return event.isMainFrame && event.errorCode !== ERR_ABORTED ? true : prev;
     case "did-navigate":
-      return false;
+      return event.isInterstitial ? prev : false;
     case "did-finish-load":
       return prev;
   }

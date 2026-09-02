@@ -92,6 +92,9 @@ import {
   WebContents,
 } from "electron";
 import { HostEntry } from "./hosts";
+import { daemonMenuModel, type DaemonMenuInfo } from "./local-daemon";
+
+export type { DaemonMenuInfo } from "./local-daemon";
 
 export interface MenuCallbacks {
   onSwitchHost: (id: string) => void;
@@ -102,22 +105,11 @@ export interface MenuCallbacks {
   /** mac Window menu's manual per-window list — focus the clicked window. */
   onFocusWindow: (windowId: number) => void;
   /** Local Daemon submenu — starts the daemon when stopped, then connects. */
-  onDaemonConnect: () => void;
+  onDaemonStart: () => void;
   onDaemonRestart: () => void;
   onDaemonStop: () => void;
   /** App-menu "Restart to Update" — spawns `rk desktop update` detached. */
   onRestartToUpdate: () => void;
-}
-
-/**
- * Menu-relevant local-daemon state (cached in main, refreshed by detection).
- * `null` hides the submenu entirely — rk not installed, win32, or not yet
- * probed.
- */
-export interface DaemonMenuInfo {
-  running: boolean;
-  /** Bare version from `rk --version` (no leading "v"); null when unparseable. */
-  version: string | null;
 }
 
 /**
@@ -321,24 +313,35 @@ function viewMenu(): MenuItemConstructorOptions {
  * "Local Daemon" submenu — the persistent post-connect control surface for
  * the machine's own daemon (the welcome page's "This Mac" section covers
  * pre-connect). Every item is accelerator-less by design (like Remove) —
- * the keyboard-tier seam is untouched. Connect shares the same
- * main-side start-and-connect flow as the welcome card; Restart/Stop are
- * disabled while the daemon is stopped.
+ * the keyboard-tier seam is untouched. Start keeps the existing
+ * start-and-connect tail; labels and enablement come from the pure decision
+ * in local-daemon.ts so the three-state matrix is node:test covered.
  */
 function localDaemonSubmenu(
   daemon: DaemonMenuInfo,
   callbacks: MenuCallbacks,
 ): MenuItemConstructorOptions {
-  const versionSuffix = daemon.version !== null ? ` · v${daemon.version}` : "";
-  const statusLabel = daemon.running ? `● running${versionSuffix}` : `○ stopped${versionSuffix}`;
+  const model = daemonMenuModel(daemon);
   return {
     label: "Local Daemon",
     submenu: [
-      { label: statusLabel, enabled: false },
+      { label: model.statusLabel, enabled: false },
       separator,
-      { label: "Connect", click: () => callbacks.onDaemonConnect() },
-      { label: "Restart", enabled: daemon.running, click: () => callbacks.onDaemonRestart() },
-      { label: "Stop", enabled: daemon.running, click: () => callbacks.onDaemonStop() },
+      {
+        label: model.start.label,
+        enabled: model.start.enabled,
+        click: () => callbacks.onDaemonStart(),
+      },
+      {
+        label: model.restart.label,
+        enabled: model.restart.enabled,
+        click: () => callbacks.onDaemonRestart(),
+      },
+      {
+        label: model.stop.label,
+        enabled: model.stop.enabled,
+        click: () => callbacks.onDaemonStop(),
+      },
     ],
   };
 }

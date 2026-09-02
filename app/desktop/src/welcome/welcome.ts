@@ -20,11 +20,10 @@
  *
  * Local flow ("This Mac" section, darwin/linux only — suppressed on win32):
  * polls `daemon:status` every 3s while the page is visible and renders the
- * four states — running (green dot, Connect + Stop), stopped (grey dot,
- * single "Start & connect"), starting… (amber, buttons disabled), and
- * not-installed (collapses to a brew-install hint). "Start & connect" and
- * Connect share ONE main-side flow (`daemon:start`: start if stopped → wait
- * for health → activate-or-add, never duplicating an entry); Stop invokes
+ * five states — running (green dot, Connect + Stop), stopped (grey dot,
+ * single "Start & connect"), wedged (amber, Restart), starting/restarting…
+ * (amber, buttons disabled), and not-installed (brew-install hint). Start,
+ * Connect, and Restart each keep the main-side connect tail; Stop invokes
  * `daemon:stop` (main shows the tmux-sessions-survive confirm).
  *
  * The preload bridge is read via structural narrowing (no Window global
@@ -43,6 +42,7 @@ interface WelcomeBridge {
 interface DaemonBridge {
   status(): Promise<unknown>;
   start(): Promise<unknown>;
+  restart(): Promise<unknown>;
   stop(): Promise<unknown>;
 }
 
@@ -107,10 +107,10 @@ interface HostListHandle {
 /** Mirror of the main process's DaemonStatus (structurally re-narrowed here). */
 type LocalDaemonStatus =
   | { installed: false }
-  | { installed: true; running: false; version: string | null; origin: string }
+  | { installed: true; state: "stopped" | "wedged"; version: string | null; origin: string }
   | {
       installed: true;
-      running: true;
+      state: "running";
       version: string | null;
       origin: string;
       hostname: string;
@@ -150,14 +150,15 @@ function getDaemonBridge(): DaemonBridge | null {
   if (typeof shell !== "object" || shell === null || !("__daemon" in shell)) return null;
   const candidate = shell.__daemon;
   if (typeof candidate !== "object" || candidate === null) return null;
-  if (!("status" in candidate) || !("start" in candidate) || !("stop" in candidate)) return null;
-  const { status, start, stop } = candidate;
-  if (typeof status !== "function" || typeof start !== "function" || typeof stop !== "function") {
+  if (!("status" in candidate) || !("start" in candidate) || !("restart" in candidate) || !("stop" in candidate)) return null;
+  const { status, start, restart, stop } = candidate;
+  if (typeof status !== "function" || typeof start !== "function" || typeof restart !== "function" || typeof stop !== "function") {
     return null;
   }
   return {
     status: (): Promise<unknown> => Promise.resolve(status()),
     start: (): Promise<unknown> => Promise.resolve(start()),
+    restart: (): Promise<unknown> => Promise.resolve(restart()),
     stop: (): Promise<unknown> => Promise.resolve(stop()),
   };
 }
@@ -294,6 +295,16 @@ function isAckOk(value: unknown): value is { ok: true } {
   return typeof value === "object" && value !== null && "ok" in value && value.ok === true;
 }
 
+type DaemonActionOutcome = "acted" | "declined" | "failed";
+
+function daemonActionOutcome(value: unknown): DaemonActionOutcome {
+  if (typeof value !== "object" || value === null || !("ok" in value) || value.ok !== true) {
+    return "failed";
+  }
+  if (!("outcome" in value)) return "acted";
+  return value.outcome === "declined" ? "declined" : "failed";
+}
+
 /** Extract the error string from a failed IPC result, with a generic fallback. */
 function errorOf(value: unknown): string {
   if (typeof value === "object" && value !== null && "error" in value) {
@@ -307,18 +318,19 @@ function narrowDaemonStatus(value: unknown): LocalDaemonStatus | null {
   if (typeof value !== "object" || value === null) return null;
   if (!("installed" in value) || typeof value.installed !== "boolean") return null;
   if (!value.installed) return { installed: false };
-  if (!("running" in value) || typeof value.running !== "boolean") return null;
+  if (!("state" in value) || typeof value.state !== "string") return null;
   if (!("origin" in value) || typeof value.origin !== "string") return null;
   const version =
     "version" in value && typeof value.version === "string" ? value.version : null;
-  if (!value.running) {
-    return { installed: true, running: false, version, origin: value.origin };
+  if (value.state === "stopped" || value.state === "wedged") {
+    return { installed: true, state: value.state, version, origin: value.origin };
   }
+  if (value.state !== "running") return null;
   const hostname =
     "hostname" in value && typeof value.hostname === "string" ? value.hostname : "";
   const sessions =
     "sessions" in value && typeof value.sessions === "number" ? value.sessions : null;
-  return { installed: true, running: true, version, origin: value.origin, hostname, sessions };
+  return { installed: true, state: "running", version, origin: value.origin, hostname, sessions };
 }
 
 /** Narrow a `daemon:status` result envelope to a status, else null. */
@@ -572,7 +584,7 @@ function wireLocalSection(els: WelcomeElements, daemon: DaemonBridge, heading: s
     els.localConnect.hidden = false;
     els.localConnect.disabled = false;
     const versionSuffix = status.version !== null ? ` · v${status.version}` : "";
-    if (status.running) {
+    if (status.state === "running") {
       els.localDot.className = "dot running";
       els.localStatus.textContent = `running${versionSuffix}`;
       const sessionsSuffix =
@@ -583,6 +595,12 @@ function wireLocalSection(els: WelcomeElements, daemon: DaemonBridge, heading: s
       els.localConnect.textContent = "Connect";
       els.localStop.hidden = false;
       els.localStop.disabled = false;
+    } else if (status.state === "wedged") {
+      els.localDot.className = "dot wedged";
+      els.localStatus.textContent = `not responding${versionSuffix}`;
+      els.localDetail.textContent = `run-kit is running but isn't answering on ${status.origin}`;
+      els.localConnect.textContent = "Restart run-kit";
+      els.localStop.hidden = true;
     } else {
       els.localDot.className = "dot";
       els.localStatus.textContent = "stopped";
@@ -593,9 +611,9 @@ function wireLocalSection(els: WelcomeElements, daemon: DaemonBridge, heading: s
     }
   };
 
-  const renderStarting = (origin: string | null): void => {
+  const renderStarting = (origin: string | null, restarting: boolean): void => {
     els.localDot.className = "dot starting";
-    els.localStatus.textContent = "starting…";
+    els.localStatus.textContent = restarting ? "restarting…" : "starting…";
     els.localDetail.textContent =
       origin !== null
         ? `waiting for ${hostPortOf(origin)} to answer`
@@ -631,24 +649,26 @@ function wireLocalSection(els: WelcomeElements, daemon: DaemonBridge, heading: s
     if (busy) return;
     busy = true;
     els.localError.hidden = true;
-    const wasRunning = lastStatus !== null && lastStatus.installed && lastStatus.running;
+    const wasRunning = lastStatus !== null && lastStatus.installed && lastStatus.state === "running";
+    const restarting = lastStatus !== null && lastStatus.installed && lastStatus.state === "wedged";
     if (wasRunning) {
       els.localConnect.disabled = true;
       els.localConnect.textContent = "Connecting…";
       els.localStop.disabled = true;
     } else {
-      renderStarting(lastStatus !== null && lastStatus.installed ? lastStatus.origin : null);
+      renderStarting(lastStatus !== null && lastStatus.installed ? lastStatus.origin : null, restarting);
     }
     let result: unknown = null;
     try {
-      result = await daemon.start();
+      result = restarting ? await daemon.restart() : await daemon.start();
     } catch {
       // A rejected invoke surfaces the generic error below — never stay stuck busy.
     }
-    if (isAckOk(result)) return; // success: main is navigating away — stay busy
-    showLocalError(errorOf(result));
+    const outcome = daemonActionOutcome(result);
+    if (outcome === "acted") return;
     busy = false;
     if (lastStatus !== null) render(lastStatus);
+    if (outcome === "failed") showLocalError(errorOf(result));
     void refresh();
   };
 
@@ -663,9 +683,10 @@ function wireLocalSection(els: WelcomeElements, daemon: DaemonBridge, heading: s
     } catch {
       // A rejected invoke surfaces the generic error below — never stay stuck busy.
     }
+    const outcome = daemonActionOutcome(result);
     busy = false;
-    if (!isAckOk(result)) showLocalError(errorOf(result));
     if (lastStatus !== null) render(lastStatus);
+    if (outcome === "failed") showLocalError(errorOf(result));
     void refresh();
   };
 

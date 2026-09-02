@@ -1,5 +1,5 @@
 ---
-description: "Visual design system: color tokens, borders, themes, no-flicker init, PWA meta, popup elevation, hover-animation vocabulary, logo and heading treatments, color tinting, marker vocabulary and pad wells, row textures and flair overlays, sparkline/gauge renderers, mobile breakpoints, touch targets, and safe areas."
+description: "Visual design system: color tokens, borders, themes, no-flicker init, PWA meta, popup elevation, hover-animation vocabulary, logo and heading treatments, operator role identity, color tinting, marker vocabulary and pad wells, row textures and flair overlays, sparkline/gauge renderers, mobile breakpoints, touch targets, and safe areas."
 type: memory
 ---
 # run-kit UI — Visual Design
@@ -168,6 +168,10 @@ Coverage: `host-overview-page.test.tsx` asserts the "Host Overview" heading rend
 **Fixed width** — the `fixed-width` registry entry is **`menuOnly`** (gated `modes: ["terminal"]`, `hidden: !currentWindow` per the pyramid table above, which is authoritative), so its reachable form is the chevron menu's `FixedWidthMenuRow`: a "Fixed width" `role="menuitemcheckbox"` with `aria-checked={fixedWidth}`, **leading with the static `<FixedWidthGlyph />` identity variant** (the inward/contract arrows, which do not flip with state) and a trailing `✓` when on as the sole state marker (§ Right cluster → leading-glyph parity), calling `toggleFixedWidth` — reachable at every width, plus the palette's `View: Fixed Width (900px)` / `View: Full Width`. Fixed-width is a viewport preference, not a per-window setting, which is why it does not earn a permanent bar slot. The menu row is the control's ONLY rendering — there is no in-bar toggle form, and `FixedWidthGlyph` ships only the static inward-arrows identity variant (260814-6b0j). (`260509-17m3`, `260704-9o7k`, `260715-h1ck`, `260731-oiho`)
 
 **Terminal font (Aa)** — the `terminal-font` registry entry is **`menuOnly`** (gated `modes: ["terminal", "board"]`), so its reachable chrome form is the chevron menu's **`TerminalFontMenuRow`**: an inline `role="group" aria-label="Terminal font size"` row — the leading `<TerminalFontGlyph />` "Aa" (mirroring the in-bar trigger, § Right cluster → leading-glyph parity), a `Terminal font` label, `−`, the `{size}px` value (`tabular-nums`), `+` — operating on the same `ChromeContext.terminalFontSize` within `TERMINAL_FONT_BOUNDS` (`−` disabled at `min` 8, `+` at `max` 24), with the stepper buttons on the shared `TOP_BAR_BUTTON_BASE`/`_REST` token. Its `−`/`+` are **plain buttons inside a `role="group"`** (not `menuitem`s), so repeated stepping does not close the menu (§ Menu a11y). aria-labels `Decrease terminal font` / `Increase terminal font`. **The menu row has no Reset, and reset has NO chrome home at all** — a deliberate drop (§ top-bar.md Design Decisions → Demoted in-bar components are deleted once a demotion sticks): reset stays reachable via the palette's `Reset terminal font` and the settings dialog's own `TerminalFontControl` (§ Settings Dialog), and the menu row is the control's only chrome rendering. (`260613-oo89`, `260731-oiho`, `260814-6b0j`)
+
+### Signal Channel Budget
+
+Window signals keep separate visual channels: semantic status hue and shape live in the status dot; user label hue and tint depth carry label and selection; the marker well carries mode × stage; the trailing rest glyph carries PR state; flair owns decorative row motion; and window role is identity carried by a static glyph immediately before the name. The operator role uses the shared `HeadsetIcon` in sidebar rows, the terminal heading, the tab switcher, and palette tab-navigation rows. Its own secondary-at-rest / primary-on-hover-or-current tone leaves neighboring selection accents intact.
 
 ### Color Tinting — Owned Palette + Axis Split
 
@@ -341,6 +345,12 @@ The viewport meta tag in `app/frontend/index.html` includes `maximum-scale=1.0` 
 **Interaction rule: edge-docked safe-area padding and shell-reserved chrome must not stack.** Where the desktop shell already reserves an edge with its own chrome (today: the titlebar strip at the top edge), the safe-area pad for that edge is gated off with `isShell()` rather than layered on top — the OS-reported inset covers the same band the shell chrome occupies, and applying both reserves it twice. (260805-9hn1)
 
 ## Design Decisions
+
+### Window role uses the name-adjacent identity channel
+**Decision**: Operator role is represented by the shared static `HeadsetIcon` immediately before the window name across the sidebar, top-bar heading, tab switcher, and command-palette tab-navigation row.
+**Why**: Role is stable identity for the window's lifetime, while the existing status, label, selection, PR, marker, and motion channels each carry independent changing information.
+**Rejected**: A reserved status hue, accent-green window name, row-wide wash, status-dot or marker-well encoding, persistent flair or motion, an `Operator:` page-type prefix, and `[ OPERATOR ]` labels or micro-headers.
+*Introduced by*: 260902-znfg-operator-visual-distinction
 
 ### Shade carried on PickerColor, not a parallel vocabulary
 **Decision**: Extend `PickerColor` to `{ family, shade }` with `formatColorValue` emitting the suffixed family-name forms (`"{family}-dark"` / `"{family}-light"`), rather than minting new pseudo-families per shade.

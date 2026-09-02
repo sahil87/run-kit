@@ -44,7 +44,7 @@ import {
   selectCell,
   stepStage,
 } from "./marker-pad";
-import { CloseIcon, prGlyphIcon, ComposeIcon } from "./icons";
+import { CloseIcon, prGlyphIcon, ComposeIcon, HeadsetIcon } from "./icons";
 import { PinIcon } from "@/components/pin-icon";
 import {
   useRowFlyout,
@@ -876,6 +876,17 @@ function WindowRowInner({
           >
             <StatusDot win={win} />
           </span>
+          {win.role === "operator" && (
+            <span
+              className={`shrink-0 transition-colors ${
+                isSelected
+                  ? "text-text-primary"
+                  : "text-text-secondary group-hover:text-text-primary"
+              }`}
+            >
+              <HeadsetIcon />
+            </span>
+          )}
           {isEditing ? (
             <input
               ref={inputRef}

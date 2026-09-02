@@ -1,4 +1,11 @@
-import { useState, useEffect, useRef, useCallback, useId } from "react";
+import {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useId,
+  type ReactNode,
+} from "react";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { matchesCombo, type EffectiveBinding } from "@/lib/keybindings";
@@ -14,6 +21,7 @@ export type PaletteOptionPicker = {
 export type PaletteAction = {
   id: string;
   label: string;
+  icon?: ReactNode;
   /** Optional secondary text after the label (the shortcuts panel's
    *  `label — description` idiom); joins the filter haystack. */
   description?: string;
@@ -295,12 +303,24 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
                         }`
                   }`}
                 >
-                  <span>
-                    {action.label}
-                    {action.description && (
-                      <span className="text-text-secondary"> — {action.description}</span>
-                    )}
-                  </span>
+                  {action.icon ? (
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span className="shrink-0">{action.icon}</span>
+                      <span className="min-w-0 truncate">
+                        {action.label}
+                        {action.description && (
+                          <span className="text-text-secondary"> — {action.description}</span>
+                        )}
+                      </span>
+                    </span>
+                  ) : (
+                    <span>
+                      {action.label}
+                      {action.description && (
+                        <span className="text-text-secondary"> — {action.description}</span>
+                      )}
+                    </span>
+                  )}
                   {badge !== undefined && (
                     <kbd className="text-xs text-text-secondary bg-bg-card px-1.5 py-0.5 rounded border border-border">
                       {badge}

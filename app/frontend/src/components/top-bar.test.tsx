@@ -1895,6 +1895,47 @@ describe("WindowHeading (centered, editable, terminal mode)", () => {
     const heading = screen.getByRole("button", { name: "Rename tab main" });
     expect(heading).toHaveTextContent("main");
     expect(heading).toHaveClass("font-semibold", "text-text-primary");
+    expect(screen.queryByTestId("operator-headset-icon")).not.toBeInTheDocument();
+  });
+
+  it("renders the operator headset between the Tab prefix and rename button", () => {
+    const operatorWindow = { ...fabWindow, role: "operator" };
+    renderTopBar({
+      currentWindow: operatorWindow,
+      currentSession: { ...sessions[0], windows: [operatorWindow] },
+    });
+
+    const prefix = screen.getByText("Tab:", { exact: true });
+    const icon = screen.getByTestId("operator-headset-icon");
+    const heading = screen.getByRole("button", { name: "Rename tab main" });
+    expect(icon).toHaveAttribute("width", "14");
+    expect(icon).toHaveAttribute("aria-hidden", "true");
+    expect(heading).not.toContainElement(icon);
+    expect(
+      prefix.compareDocumentPosition(icon) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      icon.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(prefix).toHaveTextContent("Tab:");
+  });
+
+  it("renders the operator headset only on the operator item in the tab switcher", () => {
+    const operatorWindow = { ...fabWindow, role: "operator" };
+    const workerWindow = { ...nonFabIdleWindow, windowId: "@2", name: "worker" };
+    renderTopBar({
+      currentWindow: operatorWindow,
+      currentSession: { ...sessions[0], windows: [operatorWindow, workerWindow] },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch tab" }));
+    const menu = screen.getByRole("menu", { name: "Switch tab" });
+    const icon = within(menu).getByTestId("operator-headset-icon");
+    expect(icon).toBeInTheDocument();
+    expect(icon.parentElement).toHaveClass("text-text-primary");
+    expect(within(menu).getByRole("menuitem", { name: "worker" })).not.toContainElement(
+      icon,
+    );
   });
 
   it("renders no editable (click-to-rename) heading outside terminal mode — the center carries a display-only heading instead", () => {

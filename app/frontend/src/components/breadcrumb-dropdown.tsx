@@ -218,12 +218,29 @@ export function BreadcrumbDropdown({ items, label, onNavigate, action, secondary
                 }
               }}
               className={`w-full text-left block px-3 py-2 text-sm truncate transition-colors ${
+                item.icon ? "group/dropdown-item " : ""
+              }${
                 item.current
                   ? "text-accent"
                   : "text-text-secondary hover:text-text-primary hover:bg-bg-card"
               }`}
             >
-              {item.label}
+              {item.icon ? (
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span
+                    className={`shrink-0 transition-colors ${
+                      item.current
+                        ? "text-text-primary"
+                        : "text-text-secondary group-hover/dropdown-item:text-text-primary"
+                    }`}
+                  >
+                    {item.icon}
+                  </span>
+                  <span className="min-w-0 truncate">{item.label}</span>
+                </span>
+              ) : (
+                item.label
+              )}
             </button>
           ))}
         </div>

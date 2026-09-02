@@ -81,6 +81,59 @@ describe("BreadcrumbDropdown", () => {
     expect(otherItem.className).toContain("text-text-secondary");
   });
 
+  it("renders an optional item icon before its label", () => {
+    render(
+      <BreadcrumbDropdown
+        items={[
+          {
+            label: "coordinator",
+            href: "/coordinator/0",
+            icon: (
+              <span data-testid="item-icon" aria-hidden="true">
+                icon
+              </span>
+            ),
+          },
+          { label: "worker", href: "/worker/0" },
+        ]}
+      />,
+    );
+    clickChevron();
+
+    const icon = screen.getByTestId("item-icon");
+    const label = screen.getByText("coordinator");
+    expect(icon.parentElement).toHaveClass(
+      "text-text-secondary",
+      "group-hover/dropdown-item:text-text-primary",
+    );
+    expect(
+      icon.compareDocumentPosition(label) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.getByText("worker").childElementCount).toBe(0);
+  });
+
+  it("keeps a current item's label accent while its icon uses primary text color", () => {
+    render(
+      <BreadcrumbDropdown
+        items={[
+          {
+            label: "coordinator",
+            href: "/coordinator/0",
+            current: true,
+            icon: <span data-testid="current-item-icon" aria-hidden="true" />,
+          },
+        ]}
+      />,
+    );
+    clickChevron();
+
+    const item = screen.getByRole("menuitem", { name: "coordinator" });
+    const iconSlot = screen.getByTestId("current-item-icon").parentElement;
+    expect(item).toHaveClass("text-accent");
+    expect(iconSlot).toHaveClass("text-text-primary");
+    expect(iconSlot).not.toHaveClass("text-accent");
+  });
+
   it("calls onNavigate with correct href when item is clicked", () => {
     const onNavigate = vi.fn();
     render(<BreadcrumbDropdown items={items} onNavigate={onNavigate} />);

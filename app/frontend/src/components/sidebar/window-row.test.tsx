@@ -156,6 +156,36 @@ describe("WindowRow", () => {
     expect(screen.getByText("my-shell")).toBeInTheDocument();
   });
 
+  it("renders an operator headset between the status dot and window name", () => {
+    const win = makeWindow({
+      windowId: "@0",
+      index: 0,
+      name: "coordinator",
+      role: "operator",
+    });
+    renderRow(win);
+
+    const icon = screen.getByTestId("operator-headset-icon");
+    const iconSlot = icon.parentElement;
+    expect(icon).toHaveAttribute("aria-hidden", "true");
+    expect(iconSlot).toHaveClass(
+      "text-text-secondary",
+      "group-hover:text-text-primary",
+    );
+    expect(iconSlot?.previousElementSibling).toBe(
+      screen.getByTestId("status-dot-tap"),
+    );
+    expect(iconSlot?.nextElementSibling).toBe(screen.getByText("coordinator"));
+  });
+
+  it.each([undefined, "worker"])(
+    "renders no operator headset when role is %s",
+    (role) => {
+      renderRow(makeWindow({ windowId: "@0", index: 0, role }));
+      expect(screen.queryByTestId("operator-headset-icon")).not.toBeInTheDocument();
+    },
+  );
+
   // One icon system (260724-2bmy): the kill ✕ is a stroke SVG (CloseIcon), not
   // a text glyph, so it reads at the same ink weight as the sibling pin icon.
   it("renders the kill button as a stroke SVG icon, not a text glyph", () => {

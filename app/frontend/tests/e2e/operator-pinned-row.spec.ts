@@ -8,13 +8,12 @@ import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 // Operator pinned row: when a window on the server carries
 // @rk_win_role=operator, its sidebar row is MOVED (not copied) out of its
 // session group and pinned at the top of the server's session area — directly
-// below the SESSIONS header, above all session groups. Placement is the only
-// UI treatment (no badge, frame, label, or divider), the pinned row does not
-// participate in window drag-reorder (draggable="false"), and unmarking
-// demotes the window out of the hidden _rk-operator session into the session
-// named after its pane cwd's basename (physical promotion) — its row
-// reappears there as an ordinary in-group row, with no placeholder left
-// behind.
+// below the SESSIONS header, above all session groups. A headset before the
+// name identifies the role on both the row and the active tab heading. The
+// pinned row does not participate in window drag-reorder (draggable="false"),
+// and unmarking demotes the window out of the hidden _rk-operator session into
+// the session named after its pane cwd's basename (physical promotion) — its
+// row reappears there as an ordinary in-group row, with no placeholder left.
 //
 // Shared setup: beforeAll creates `e2e-operator-<timestamp>` so the file has
 // its own isolated session (tests run sequentially — fullyParallel: false);
@@ -34,8 +33,8 @@ const TEST_SESSION = `e2e-operator-${Date.now()}`;
 
 // The operator window gets a unique temp-dir cwd so its demote destination —
 // role-clear moves the window out of `_rk-operator` into the session named
-// after its active pane's cwd BASENAME (260822-skcr physical promotion), NOT
-// back to its original session — is a deterministic, collision-free session.
+// after its active pane's cwd BASENAME, not back to its original session — is
+// a deterministic, collision-free session.
 const OP_CWD = mkdtempSync(join(tmpdir(), "rk-e2e-demote-"));
 const DEST_SESSION = basename(OP_CWD);
 
@@ -66,30 +65,32 @@ test.describe("Operator pinned row (@rk_win_role)", () => {
   /**
    * Proves: marking a window as the operator via the options POST moves its
    * row out of its session group to a pinned slot above all session groups
-   * (rendered exactly once, above the group box, not draggable), and clearing
-   * the role demotes the window to its cwd-basename session — the row
-   * reappears there as an ordinary in-group row (not in its original
-   * session), with no placeholder or pinned wrapper left in the DOM.
+   * with a headset identity glyph, and navigating to it renders the same glyph
+   * in the active tab heading. Clearing the role demotes the window to its
+   * cwd-basename session, where the ordinary row has no operator glyph.
    *
    * Steps:
    * 1. Create `worker-<ts>` and `operator-<ts>` windows in the test session —
    *    the operator window with the unique temp-dir cwd.
    * 2. Navigate to the server route and wait for `Connected`.
    * 3. resolveWindow the operator window; assert its row renders exactly once
-   *    and is inside its data-session-group wrapper (the unmarked baseline).
+   *    inside its data-session-group wrapper without an operator glyph.
    * 4. POST @rk_win_role: "operator" to the window's /options route; assert 200.
    * 5. Assert the row is gone from the session group, still renders exactly
    *    once in the sidebar, its bounding box sits ABOVE the session group's
-   *    box, and the row is draggable="false".
-   * 6. POST @rk_win_role: null (the partial-merge unset); assert 200.
-   * 7. Assert the row reappears inside the DESTINATION session group (the
+   *    box, is draggable="false", and carries the headset glyph.
+   * 6. Select the pinned row and assert the active tab heading carries the
+   *    headset glyph beside the unchanged rename target.
+   * 7. POST @rk_win_role: null (the partial-merge unset); assert 200.
+   * 8. Assert the row reappears inside the DESTINATION session group (the
    *    temp dir's basename), is absent from the original test session's
-   *    group, still renders exactly once, and now sits BELOW the destination
-   *    group header (the pinned slot is gone).
+   *    group, still renders exactly once below the destination group header,
+   *    and no longer carries the headset glyph.
    */
   test("marking a window operator pins its row above the session groups and removes it from its own group; unmarking restores", async ({
     page,
   }) => {
+    test.setTimeout(20_000);
     const ts = Date.now();
     const opName = `operator-${ts}`;
     newWindow(TEST_SESSION, `worker-${ts}`);
@@ -107,6 +108,7 @@ test.describe("Operator pinned row (@rk_win_role)", () => {
     // Fresh window: an ordinary row inside its session group, no pinned row.
     await expect(row).toHaveCount(1, { timeout: 5_000 });
     await expect(groupRow).toHaveCount(1);
+    await expect(row.getByTestId("operator-headset-icon")).toHaveCount(0);
 
     // Mark via the same options POST route the palette commands use.
     const setRes = await setRole(page, target.windowId, "operator");
@@ -121,15 +123,20 @@ test.describe("Operator pinned row (@rk_win_role)", () => {
     expect(rowBox, "pinned row box").toBeTruthy();
     expect(groupBox, "session group box").toBeTruthy();
     expect(rowBox!.y).toBeLessThan(groupBox!.y);
+    await expect(row.getByTestId("operator-headset-icon")).toHaveCount(1);
 
     // The pinned row does not participate in window drag-reorder.
     await expect(row).toHaveAttribute("draggable", "false");
 
+    await row.click();
+    await expect(page.getByRole("button", { name: `Rename tab ${opName}` })).toBeVisible();
+    await expect(page.locator("header").getByTestId("operator-headset-icon")).toHaveCount(1);
+
     // Unmark (null per the partial-merge contract): demotion moves the window
     // out of `_rk-operator` into the session named after its pane cwd's
     // BASENAME (created on demand) — NOT back to its original session
-    // (260822-skcr physical promotion). The pinned slot disappears entirely
-    // and the row reappears as an ordinary in-group row of the destination.
+    // (physical promotion). The pinned slot disappears entirely and the row
+    // reappears as an ordinary in-group row of the destination.
     const clearRes = await setRole(page, target.windowId, null);
     expect(clearRes.ok(), "clearing @rk_win_role via the options API").toBeTruthy();
     const destRow = page.locator(
@@ -143,5 +150,6 @@ test.describe("Operator pinned row (@rk_win_role)", () => {
       .locator(`[data-session-group="${DEST_SESSION}"]`)
       .boundingBox();
     expect(restoredRowBox!.y).toBeGreaterThan(restoredGroupBox!.y);
+    await expect(row.getByTestId("operator-headset-icon")).toHaveCount(0);
   });
 });

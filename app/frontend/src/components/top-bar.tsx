@@ -33,7 +33,7 @@ import {
   TOP_BAR_BUTTON_H,
   TOP_BAR_SEGMENT_H,
 } from "@/components/top-bar-overflow-menu";
-import { GearIcon } from "@/components/sidebar/icons";
+import { GearIcon, HeadsetIcon } from "@/components/sidebar/icons";
 import { useSettingsDialog } from "@/contexts/settings-dialog-context";
 import {
   SplitVerticalGlyph,
@@ -537,6 +537,7 @@ export function TopBar({
       label: w.name,
       href: `/${encodeURIComponent(server)}/${encodeURIComponent(w.windowId)}`,
       current: currentWindow ? w.windowId === currentWindow.windowId : false,
+      ...(w.role === "operator" ? { icon: <HeadsetIcon /> } : {}),
     }),
   );
 
@@ -1173,6 +1174,7 @@ export function TopBar({
                   sessionName={sessionName}
                   name={windowName}
                   prefix={WINDOW_PREFIX}
+                  operator={currentWindow.role === "operator"}
                 />
                 <BreadcrumbDropdown
                   items={windowItems}
@@ -1619,6 +1621,7 @@ function WindowHeading({
   sessionName,
   name,
   prefix,
+  operator,
 }: {
   server: string;
   windowId: string;
@@ -1628,6 +1631,7 @@ function WindowHeading({
    *  lens; the lens-following `Terminal:`/`Web:`/`Chat:` prefix was retired by
    *  260714-uco1. The boot sweep renders over `prefix + " " + name`. */
   prefix: string;
+  operator: boolean;
 }) {
   // Shared with the sidebar inline rename (change 5ilm) so both surfaces rename
   // identically (optimistic store rename, rollback + toast, clear on settle).
@@ -1752,10 +1756,20 @@ function WindowHeading({
     setDraft(name);
   }, [name, sweep]);
 
+  const operatorIcon = operator ? (
+    // mr-1 only (no left margin): HeadingPrefix's -mr-1 deliberately tightens
+    // the sweep's `sp` cell against whatever follows — a left margin here would
+    // cancel that pull-back and widen the prefix gap.
+    <span className="mr-1 shrink-0 text-text-secondary transition-colors hover:text-text-primary group-hover/operator-heading:text-text-primary">
+      <HeadsetIcon size={14} />
+    </span>
+  ) : null;
+
   if (editing) {
     return (
       <>
         <HeadingPrefix cells={prefixCells} scrambling={false} />
+        {operatorIcon}
         <input
           ref={inputRef}
           type="text"
@@ -1806,7 +1820,7 @@ function WindowHeading({
     // mid-flight. Enter/leave don't refire while the pointer moves between
     // children, so the sweep plays once per whole-heading hover.
     <span
-      className="inline-flex items-center min-w-0"
+      className={`${operator ? "group/operator-heading " : ""}inline-flex items-center min-w-0`}
       onMouseEnter={sweep.playDeferred}
       onMouseLeave={sweep.resolve}
     >
@@ -1815,6 +1829,7 @@ function WindowHeading({
           name). Its content rides the same sweep so the one cursor crosses it,
           but it is NOT a click target — only the button below enters edit. */}
       <HeadingPrefix cells={prefixCells} scrambling={sweep.scrambling} />
+      {operatorIcon}
       <Tip label="Click to rename">
       <button
         type="button"

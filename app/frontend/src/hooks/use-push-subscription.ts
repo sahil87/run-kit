@@ -51,6 +51,12 @@ export function usePushSubscription(): {
   const enable = useCallback(async () => {
     if (shell) {
       setShellNotificationsEnabled(true);
+      // The pref write swallows storage errors; read it back so a blocked
+      // localStorage never leaves the UI claiming notifications are on.
+      if (!isShellNotificationsEnabled()) {
+        addToast("Could not save the notification preference — storage is blocked", "error");
+        return;
+      }
       setState("subscribed");
       addToast("Notifications enabled", "info");
       return;

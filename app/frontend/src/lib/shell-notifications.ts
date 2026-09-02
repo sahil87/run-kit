@@ -118,7 +118,7 @@ export function showShellNotification(
   const rawID = stringField(source, "id");
   const id = rawID?.trim() ? rawID.trim() : null;
   const rawTitle = stringField(source, "title");
-  const title = rawTitle?.trim() ? rawTitle : "RunKit";
+  const title = rawTitle?.trim() || "RunKit";
   const body = stringField(source, "body") ?? "";
   const url = stringField(source, "url");
 

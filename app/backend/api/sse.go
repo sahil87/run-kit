@@ -450,8 +450,10 @@ func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector, svc *ports.Collect
 		captureFn:              capturePreviewForWindow,
 	}
 	h.waitingPush = newWaitingPushTracker(func(ctx context.Context, title, body, url string) error {
-		_, err := push.Notify(ctx, title, body, url)
+		// Shell broadcast first: the hub write is immediate, while the Web
+		// Push fan-out iterates subscriptions sequentially under a 10s timeout.
 		h.broadcastNotify(title, body, url)
+		_, err := push.Notify(ctx, title, body, url)
 		return err
 	})
 	// Default chat resolver: fetch the server's sessions and roll up the window's

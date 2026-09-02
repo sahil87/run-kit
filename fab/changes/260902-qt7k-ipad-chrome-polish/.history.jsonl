@@ -1,0 +1,3 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-02T18:44:16Z"}
+{"args":"iPad polish bundle: humanize pane-border pane-ID segment, coarse-pointer touch-target audit, window-name redundancy trim (status-left clipping)","cmd":"fab-new","event":"command","ts":"2026-09-02T18:44:16Z"}
+{"delta":"+4.3","event":"confidence","score":4.3,"trigger":"calc-score","ts":"2026-09-02T18:46:44Z"}

@@ -745,6 +745,24 @@ via the `usageError` helper with all four valid topics named on stderr and
 inlines** a topic page. Topic pages are a clause of the already-passing `skill`
 standard, not a separate standard. (6uu0)
 
+**Topic discovery.** The standard's two topic-discovery mandates both hold
+(`app/backend/cmd/rk/skill.go`): the `skill` subcommand's long help carries a
+`Topics:` line naming the shipped content topics, composed from `skillTopicNames()`
+(static by construction — topic embeds are fixed at build time; a new
+`skillTopics` row updates the help line, the unknown-topic error, and the
+enumeration in one place), and the **reserved positional topic** `rk skill
+topics` prints the content-topic names one per line, sorted, raw to stdout with
+empty stderr and exit 0 — the scriptable enumeration the shll composer reaches
+as `shll skill rk topics`. The name `topics` is reserved outside the topic
+namespace: it is intercepted in `RunE` before the `skillTopics` map lookup,
+never becomes a map key (`TestSkillReservedTopicsNameStaysReserved`), has no
+canonical `docs/site/skill/topics.md`, and appears in neither the `Topics:`
+help line nor the core bundle's `## Topics` index. A `--list` flag is ruled out
+by the standard itself: the shll composer forwards positional args verbatim,
+so a flag would be intercepted by the composer's own flag parsing.
+`TestSkillReservedTopicsEnumerates` pins the output shape and
+`TestSkillHelpEnumeratesTopics` pins the help-line mandate. (mzpw)
+
 The `display` topic documents the same-origin target form
 `rk present "$(rk url)/path"`: the stored target is `/path`, so the viewer loads
 it from its own run-kit origin. This form is covered by the parser and caller

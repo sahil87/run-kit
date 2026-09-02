@@ -247,6 +247,56 @@ func TestSkillUnknownTopicFailsFast(t *testing.T) {
 	}
 }
 
+// TestSkillReservedTopicsEnumerates pins the toolkit-standard reserved topic:
+// `rk skill topics` prints the content-topic names one per line (sorted, a
+// trailing newline, nothing else) to stdout with empty stderr and exit 0 — the
+// scriptable enumeration the shll composer reaches as `shll skill rk topics`.
+func TestSkillReservedTopicsEnumerates(t *testing.T) {
+	stdout, stderr, err := runSkill(t, "topics")
+	if err != nil {
+		t.Fatalf("skill topics err = %v, want nil (exit 0)", err)
+	}
+	want := strings.Join(skillTopicNames(), "\n") + "\n"
+	if stdout != want {
+		t.Errorf("skill topics stdout = %q, want %q", stdout, want)
+	}
+	if stderr != "" {
+		t.Errorf("skill topics wrote to stderr: %q", stderr)
+	}
+}
+
+// TestSkillReservedTopicsNameStaysReserved guards the reserved-name rule:
+// `topics` must never become a content topic (no skillTopics key, no canonical
+// page) — a key would leak it into skillTopicNames(), the Topics: help line,
+// and the unknown-topic error message.
+func TestSkillReservedTopicsNameStaysReserved(t *testing.T) {
+	if _, ok := skillTopics[reservedTopicsName]; ok {
+		t.Fatalf("skillTopics contains reserved name %q — the standard reserves it in every tool's topic namespace", reservedTopicsName)
+	}
+}
+
+// TestSkillHelpEnumeratesTopics pins the help-text mandate: the long help
+// carries a Topics: line naming every shipped content topic, so a caller
+// consulting --help before paying the core bundle's context cost can see what
+// exists. The line enumerates content topics only — never the reserved name.
+func TestSkillHelpEnumeratesTopics(t *testing.T) {
+	var topicsLine string
+	for _, line := range strings.Split(skillCmd.Long, "\n") {
+		if strings.HasPrefix(line, "Topics: ") {
+			topicsLine = line
+			break
+		}
+	}
+	if want := "Topics: " + strings.Join(skillTopicNames(), ", "); topicsLine != want {
+		t.Errorf("skillCmd.Long Topics: line = %q, want exactly %q", topicsLine, want)
+	}
+	for _, name := range skillTopicNames() {
+		if name == reservedTopicsName {
+			t.Errorf("skillTopicNames() includes reserved name %q", reservedTopicsName)
+		}
+	}
+}
+
 // TestSkillTooManyArgsFailsFast pins the MaximumNArgs(1)+usageArgs contract: a
 // second positional arg is a usage error (exit 2) with empty stdout and the
 // diagnostic on stderr — the validator rejects it before RunE runs, so no bundle

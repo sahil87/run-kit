@@ -717,10 +717,13 @@ func TestValidateRemoteTarget(t *testing.T) {
 
 func TestValidateWebTabURL(t *testing.T) {
 	accepted := []string{
+		"/",
 		"/proxy/3000/",
 		"/proxy/80/app",
 		"/present/@320/2/file.html?server=runKit&v=1",
 		"/present/@7/mock.html?server=dev&v=1",
+		"/tutorial/ch1-orientation.html",
+		"/app/index.html?q=1#section",
 		"https://example.com",
 		"https://example.com/path?q=1",
 		"http://localhost:3000/x",
@@ -741,11 +744,10 @@ func TestValidateWebTabURL(t *testing.T) {
 		"example.com",
 		"localhost:3000",
 		"https://",
-		"/",                  // root-relative outside the two prefixes
-		"/app/index.html",    // same
-		"/proxy",             // the prefix without its slash
-		"/proxyevil/x",       // prefix lookalike
-		" /proxy/3000/",      // leading whitespace
+		`/\evil.com/x`,     // browser-normalized host escape
+		`/\\evil.com/x`,    // scheme-relative after normalization
+		" /proxy/3000/",    // leading whitespace
+		"/tutorial/\npage", // control character
 	}
 	for _, v := range rejected {
 		if got := ValidateWebTabURL(v); got == "" {

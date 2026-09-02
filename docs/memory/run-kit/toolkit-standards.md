@@ -731,14 +731,24 @@ the embed mechanism and drift guard.
 **Topic pages.** The shll skill standard has **topic pages** (`<tool> skill
 <topic>`, each canonical at `docs/site/skill/<topic>.md`, ≤150 lines, static-only,
 byte-identical, drift-guarded, rendered at `/<tool>/skill/<topic>` on shll.ai —
-shll PR #47). `rk skill display` serves `docs/site/skill/display.md` (81 lines)
-via the **per-topic** embed + drift-guard extension of the existing mechanism (a
-`map[string][]byte` topic table, one `//go:embed`/`bytes.Equal`/line-budget test
-per topic file). The standard's fail-fast rule holds: an **unknown topic** exits
-usage-class (2) via the `usageError` helper with the valid topics named on stderr
-and **empty stdout** — never a silent empty document; bare `rk skill` **never
-inlines** a topic page. Topic pages are a clause of the already-passing `skill` standard, not a new
-standard — the four @ `shll v0.0.23` are unchanged.
+shll PR #47). run-kit ships four topic pages: `code`, `display`, `mux`, and
+`tutorial`. Each uses the per-topic embed mechanism and the shared
+`TestSkillTopicsMatchCanonical` / `TestSkillTopicsWithinLineBudget` guards; the
+command cases in `TestSkillTopicsPrintByteIdentical` pin the stdout contract.
+The tutorial uses a bidirectional page↔companion guard:
+`TestTutorialPagesMatchTopic` requires every `tutorial/ch*.html` reference to
+exist under `app/frontend/public/tutorial/` and rejects orphan companion pages;
+`TestTutorialLayoutValuesParse` checks the tour's layout and surface literals.
+The standard's fail-fast rule holds: an **unknown topic** exits usage-class (2)
+via the `usageError` helper with all four valid topics named on stderr and
+**empty stdout** — never a silent empty document; bare `rk skill` **never
+inlines** a topic page. Topic pages are a clause of the already-passing `skill`
+standard, not a separate standard. (6uu0)
+
+The `display` topic documents the same-origin target form
+`rk present "$(rk url)/path"`: the stored target is `/path`, so the viewer loads
+it from its own run-kit origin. This form is covered by the parser and caller
+tests and preserves the page's static, version-locked contract. (6uu0)
 See § Design Decisions → "Static derivation recipes replace `rk context`
 (a recipe is static content)". (260718-icxz-skill-display-topic-url-retire-context)
 

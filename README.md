@@ -296,7 +296,7 @@ Supports `zsh`, `bash`, `fish`, and `powershell`. Completion-only — run-kit ha
 | `run-kit serve` | Start the HTTP server (foreground or daemon). |
 | `run-kit status` | Show a tmux session summary. |
 | `run-kit url` | Print the run-kit server URL (config-derived from `RK_HOST`/`RK_PORT`, default `http://127.0.0.1:3000`) — a heuristic for AI agents, not a liveness probe. |
-| `run-kit skill` | Print the agent skill bundle — a static usage briefing for agents operating run-kit (canonical source `docs/site/skill.md`); `run-kit skill display` prints the visual-display topic page. |
+| `run-kit skill` | Print the agent skill bundle — a static usage briefing for agents operating run-kit (canonical source `docs/site/skill.md`); topic pages are `code`, `display`, `mux`, and `tutorial`. |
 | `run-kit notify` | Send a Web Push notification to your subscribed devices (see [Push notifications](#push-notifications)). Fail-silent. |
 | `run-kit present` | Show a file, directory, `:port`, localhost URL, or external URL to the user as a web tile attached to the current window (`--window` spawns a standalone iframe window, `--notify` pushes). Prints the resolved URL. |
 | `run-kit doctor` | Check runtime dependencies. Run this first when something breaks. |

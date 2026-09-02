@@ -187,9 +187,9 @@ func TestWindowOptionsEmptyUrl(t *testing.T) {
 }
 
 // @rk_win_url scheme allowlist (R1): absolute http:/https: URLs and
-// root-relative /proxy/ or /present/ paths pass; javascript:/data:/file:,
-// scheme-relative //…, bare hosts, other root-relative paths, and
-// whitespace-only values are rejected with 400 and zero tmux calls. The
+// single-slash root-relative paths pass; javascript:/data:/file:,
+// scheme-relative //…, bare hosts, backslash host escapes, and whitespace-only
+// values are rejected with 400 and zero tmux calls. The
 // retired key rides the compat translation onto @rk_win_web_1, so validation
 // is the shared ValidateWebTabURL rule.
 // retire-with: legacy-option-key-translation
@@ -201,6 +201,7 @@ func TestWindowOptionsRkURLSchemeAllowlist(t *testing.T) {
 		"http://localhost:3000/x",
 		"/proxy/3000/",
 		"/present/@320/file.html?server=runKit&v=1",
+		"/tutorial/ch1-orientation.html",
 	}
 	for _, url := range accepted {
 		ops := &mockTmuxOps{}
@@ -220,7 +221,7 @@ func TestWindowOptionsRkURLSchemeAllowlist(t *testing.T) {
 		"localhost:3000",
 		"   ",
 		"https://",
-		"/",
+		`/\evil.com/x`,
 	}
 	for _, url := range rejected {
 		ops := &mockTmuxOps{}
@@ -1633,6 +1634,22 @@ func TestWindowOptionsWebSlotOutOfRangeRejected(t *testing.T) {
 		if ops.setWindowOptionsCalled {
 			t.Errorf("key %s: SetWindowOptions must NOT be called", key)
 		}
+	}
+}
+
+// A site-relative address produced by the web-add path can be written back to
+// the indexed slot verbatim (the address-bar resubmission path).
+func TestWindowOptionsWebSlotAcceptsSiteRelativeURL(t *testing.T) {
+	stubWebTabFamily(t, tmux.WebTabFamily{Tabs: []string{"/tutorial/ch1-orientation.html"}, Active: 1})
+	ops := &mockTmuxOps{}
+	rec := postOptions(t, ops, "@0", `{"options":{"@rk_win_web_1":"/tutorial/ch1-orientation.html"}}`)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	op, ok := findOp(ops.setWindowOptionsOps, "@rk_win_web_1")
+	if !ok || op.Value == nil || *op.Value != "/tutorial/ch1-orientation.html" {
+		t.Errorf("@rk_win_web_1 op = %+v, want site-relative value", op)
 	}
 }
 

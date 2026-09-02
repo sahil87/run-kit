@@ -1,0 +1,57 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ch 2 — Sidebar signals</title>
+<style>
+  body{background:#0d1117;color:#c9d1d9;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;margin:0;padding:24px;font-size:14px;line-height:1.5}
+  h1{color:#3fb950;font-size:18px;margin:0 0 4px} .sub{color:#8b949e;margin:0 0 20px}
+  .mock{border:1px solid #30363d;border-radius:6px;background:#161b22;padding:14px;margin:14px 0}
+  .lbl{color:#8b949e;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
+  .badge{display:inline-block;min-width:18px;height:18px;line-height:18px;text-align:center;border-radius:50%;background:#3fb950;color:#0d1117;font-weight:700;font-size:12px;margin-right:6px}
+  .legend li{margin:6px 0;list-style:none} .legend{padding:0}
+  .hl{color:#3fb950} .dim{color:#8b949e}
+  code{background:#0d1117;border:1px solid #30363d;border-radius:3px;padding:1px 5px}
+  .row{display:flex;align-items:center;gap:10px;background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:8px 10px;max-width:420px}
+  .well{width:14px;height:26px;border-radius:2px;background:linear-gradient(180deg,#3fb950 55%,#1a7f37 55%);flex:none}
+  .dot{width:8px;height:8px;border-radius:50%;background:#3fb950;flex:none}
+  .pad{display:grid;grid-template-columns:repeat(3,54px);gap:6px;margin-top:10px}
+  .cell{border:1px solid #30363d;border-radius:4px;height:34px;display:flex;align-items:center;justify-content:center;color:#8b949e;font-size:11px;background:#0d1117}
+  .cell.on{border-color:#3fb950;color:#3fb950;font-weight:700}
+  .card{background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:10px 12px;max-width:420px;margin-top:10px}
+  .card div{padding:3px 0}
+</style></head><body>
+<h1>Chapter 2 · Sidebar signals</h1>
+<p class="sub">Color, marker, note — how a row tells you an agent's state at a glance. You set them in the UI; agents set the same state from the shell.</p>
+
+<div class="mock">
+  <div class="lbl">a window row in the sidebar</div>
+  <div class="row"><span class="well"></span><span class="dot"></span><span>rk-tutorial</span></div>
+  <ul class="legend">
+    <li><span class="badge">1</span><b>the marker well</b> — the thin strip at the row's left edge. <span class="hl">Press it</span> to open the marker pad (below); on touch, tap it.</li>
+    <li><span class="badge">3</span>the <b>status dot</b> — derived health/activity; you don't set this one, it's earned.</li>
+  </ul>
+</div>
+
+<div class="mock">
+  <div class="lbl">the marker pad — 3 modes × 3 stages (press → drag → release commits)</div>
+  <div class="pad">
+    <div class="cell">manual 1</div><div class="cell">manual 2</div><div class="cell">manual 3</div>
+    <div class="cell">auto 1</div><div class="cell on">auto 2 ←</div><div class="cell">auto 3</div>
+    <div class="cell">blocked 1</div><div class="cell">blocked 2</div><div class="cell">blocked 3</div>
+  </div>
+  <p><span class="hl">blocked</span> is the convention for <b>"I'm stuck — look at me"</b>. Stages 1→3 grow the marker's weight.</p>
+</div>
+
+<div class="mock">
+  <div class="lbl">the flyout card — hover the row</div>
+  <div class="card">
+    <div><span class="dim">Tab </span><b>@88</b><span class="dim"> · pane </span><b>%185</b><span class="dim"> · 1 pane</span></div>
+    <div>Change color…</div>
+    <div><span class="dim">note </span>tutorial in progress — chapter 2</div>
+  </div>
+  <ul class="legend">
+    <li><span class="badge">2</span>color and the note live here — and <b>everything</b> is also in the palette: <code>⌘K</code> → type <code>marker</code>, <code>color</code>, or <code>note</code>.</li>
+  </ul>
+</div>
+
+<p><span class="hl">The shared-state rule:</span> your click and the agent's <code>tmux set-option -w @rk_win_marker auto:2</code> write the <b>same option</b>. UI writes repaint instantly; shell writes take a few seconds (the poll).</p>
+</body></html>

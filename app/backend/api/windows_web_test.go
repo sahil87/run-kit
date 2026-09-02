@@ -82,6 +82,30 @@ func TestWindowWebAddCreated(t *testing.T) {
 	}
 }
 
+func TestWindowWebAddUsesRequestOrigin(t *testing.T) {
+	stubWebTabFamily(t, tmux.WebTabFamily{})
+	calls := stubWebAdd(t, 1, false, nil)
+	ops := &mockTmuxOps{resolveWindowSessionResult: "dev"}
+	router := newTestRouter(&mockSessionFetcher{}, ops)
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"http://dashboard.test/api/windows/@5/web",
+		strings.NewReader(`{"target":"https://dashboard.test/tutorial/ch1-orientation.html?chapter=1"}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Forwarded-Proto", "https")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	const wantURL = "/tutorial/ch1-orientation.html?chapter=1"
+	if len(*calls) != 1 || (*calls)[0].url != wantURL {
+		t.Errorf("WebAdd calls = %+v, want one call with %q", *calls, wantURL)
+	}
+}
+
 // A full family surfaces ErrWebTabsFull as 409 with the cap in the message.
 func TestWindowWebAddFull(t *testing.T) {
 	fam := tmux.WebTabFamily{Active: 1}

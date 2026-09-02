@@ -1,0 +1,44 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ch 8 — The operator</title>
+<style>
+  body{background:#0d1117;color:#c9d1d9;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;margin:0;padding:24px;font-size:14px;line-height:1.5}
+  h1{color:#3fb950;font-size:18px;margin:0 0 4px} .sub{color:#8b949e;margin:0 0 20px}
+  .mock{border:1px solid #30363d;border-radius:6px;background:#161b22;padding:14px;margin:14px 0}
+  .lbl{color:#8b949e;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
+  .badge{display:inline-block;min-width:18px;height:18px;line-height:18px;text-align:center;border-radius:50%;background:#3fb950;color:#0d1117;font-weight:700;font-size:12px;margin-right:6px}
+  .hl{color:#3fb950} .dim{color:#8b949e}
+  code{background:#0d1117;border:1px solid #30363d;border-radius:3px;padding:1px 5px}
+  .side{max-width:300px;background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:8px;font-size:13px}
+  .srow{padding:5px 8px;color:#8b949e}
+  .srow.window{display:flex;align-items:center;gap:7px;background:#161b22;color:#c9d1d9}
+  .dot{width:7px;height:7px;border-radius:50%;background:#3fb950;flex:none}
+  .sh{color:#8b949e;font-size:10px;text-transform:uppercase;letter-spacing:1px;padding:4px 8px}
+  .ask{border:1px solid #30363d;border-left:3px solid #3fb950;border-radius:4px;background:#0d1117;padding:8px 12px;margin:8px 0;max-width:520px}
+</style></head><body>
+<h1>Chapter 8 · The operator</h1>
+<p class="sub">One agent per server whose job is running the <i>other</i> agents. You don't command it — you ask it, in plain language.</p>
+
+<div class="mock">
+  <div class="lbl">where it lives</div>
+  <div class="side">
+    <div class="sh">sessions</div>
+    <div class="sh">tmux server · default</div>
+    <div class="srow window"><span class="dot"></span><span>operator</span></div>
+    <div class="srow">▸ run-kit</div>
+    <div class="srow">▸ my-app</div>
+  </div>
+  <p><span class="badge">1</span>the operator is an <b>ordinary window row</b> pinned at the top of its server group, above that server's session rows. Placement is the only difference; click into it like any window.</p>
+</div>
+
+<div class="mock">
+  <div class="lbl">things you say to it</div>
+  <div class="ask">❯ Start a claude session on my-app</div>
+  <div class="ask">❯ Start a kimi session</div>
+  <div class="ask">❯ Start a claude session, but with codex workers</div>
+  <div class="ask">❯ What's stuck? Anything waiting on me?</div>
+  <p class="dim">It spawns the sessions, wires the worktrees and workers, watches the <span class="hl">blocked</span> markers from Chapter 2, and answers agents' pending questions when it safely can.</p>
+</div>
+
+<p><span class="hl">The arc of this tour:</span> chapters 1–7 taught you to read and drive one workspace. The operator is how it scales — you stop managing windows and start <b>delegating</b>.</p>
+</body></html>

@@ -49,14 +49,23 @@ var skillCodeTopic []byte
 //go:embed skill/mux.md
 var skillMuxTopic []byte
 
+// skillTutorialTopic holds the guided first-run tour, canonical at
+// docs/site/skill/tutorial.md and synced beside the other topic pages.
+//
+//go:embed skill/tutorial.md
+var skillTutorialTopic []byte
+
+const tutorialTopicName = "tutorial"
+
 // skillTopics maps a topic name to its embedded bundle. Bare `rk skill` prints
 // the core bundle (skillBundle); `rk skill <topic>` prints the matching entry
 // here; an unknown topic fails fast (usage error naming the valid topics). Add a
 // row per topic page shipped.
 var skillTopics = map[string][]byte{
-	"code":    skillCodeTopic,
-	"display": skillDisplayTopic,
-	"mux":     skillMuxTopic,
+	"code":            skillCodeTopic,
+	"display":         skillDisplayTopic,
+	"mux":             skillMuxTopic,
+	tutorialTopicName: skillTutorialTopic,
 }
 
 // skillTopicNames returns the sorted list of valid topic names, for the

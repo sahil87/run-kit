@@ -80,13 +80,16 @@ vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
   onchange: null,
 }));
 
-/** The blanket stub above answers `true` for EVERY query — `(pointer: coarse)`
- *  included — so the file's default pointer is COARSE. Chord-hint copy is
- *  fine-pointer-only (the app's chord-hints-off-touch rule, 260811-ke2s), so a
- *  pointer-sensitive test re-stubs per query; the `afterEach` below restores
- *  the blanket default so the stub never leaks into a later test. */
+/** The blanket stub above answers `true` for EVERY query — the coarse-pointer
+ *  queries included — so the file's default pointer is COARSE. Chord-hint copy
+ *  is fine-pointer-only (the app's chord-hints-off-touch rule, 260811-ke2s), so
+ *  a pointer-sensitive test re-stubs per query; the `afterEach` below restores
+ *  the blanket default so the stub never leaks into a later test. The re-stub
+ *  flips BOTH `(pointer: coarse)` and `(any-pointer: coarse)` together —
+ *  `useCoarsePointer` reads the first, `useIsMobile` the second, and a real
+ *  device never disagrees with itself on the primary-pointer case. */
 function stubPointer(coarse: boolean) {
-  stubMatchMedia((query) => (query === "(pointer: coarse)" ? coarse : true));
+  stubMatchMedia((query) => (query.includes("pointer: coarse") ? coarse : true));
 }
 
 const sessions: ProjectSession[] = [

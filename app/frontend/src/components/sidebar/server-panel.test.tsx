@@ -257,9 +257,11 @@ describe("ServerPanel", () => {
       });
       expect(screen.queryByTestId("server-tip")).toBeNull();
 
-      // Coarse pointer: the whole surface is suppressed (the Tip idiom).
+      // Coarse pointer: the whole surface is suppressed (the Tip idiom). Both
+      // coarse-pointer queries match — a touch-primary device answers true to
+      // `(pointer: coarse)` and `(any-pointer: coarse)` alike.
       cleanup();
-      stubMatchMedia((query) => query === "(pointer: coarse)");
+      stubMatchMedia((query) => query.includes("pointer: coarse"));
       renderPanel({
         servers: [{ name: "work", sessionCount: 2, windowCount: 5 }],
         server: "work",

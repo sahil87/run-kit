@@ -103,7 +103,8 @@ test.describe("PANE panel four-register view", () => {
   // drawer-only fork became a `runkit-sidebar-section-pane` default): seed the
   // section on via addInitScript (the sidebar-panels.spec.ts idiom), run at the
   // mobile viewport, and open the drawer before asserting. `hasTouch` flips
-  // `(pointer: coarse)` so `useIsMobile()` reports mobile.
+  // both `(pointer: coarse)` and `(any-pointer: coarse)`, so `useIsMobile()`
+  // reports mobile.
   test.use({ hasTouch: true, viewport: { width: 375, height: 812 } });
 
   test.beforeEach(async ({ page }) => {

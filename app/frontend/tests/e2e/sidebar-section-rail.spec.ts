@@ -19,7 +19,7 @@ const MOBILE_VIEWPORT = { width: 375, height: 812 };
  * gotoServerReady(page, TMUX_SERVER) (status-bar Connected gate —
  * desktop-only chrome) and scope queries to the nav[aria-label='Sessions']
  * sidebar. The mobile describe runs test.use({ hasTouch: true, viewport:
- * 375×812 }) — hasTouch flips Chromium's (pointer: coarse) media query so
+ * 375×812 }) — hasTouch flips Chromium's (any-pointer: coarse) media query so
  * useIsMobile() reports mobile; navigation is a direct page.goto (no
  * gotoWindow), then the drawer is opened via the `Toggle navigation` button.
  * railToggle(page, section) locates a rail button by its state-stable

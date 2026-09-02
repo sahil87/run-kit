@@ -134,10 +134,12 @@ beforeEach(() => {
   mockBoards = [];
   mockSessionsByServer = new Map();
   mockHostMetrics = null;
-  // ThemeProvider reads matchMedia on mount. Query-sensitive on ONE query:
-  // everything matches EXCEPT `(pointer: coarse)` (false), or every Tip would
-  // self-suppress (fine-pointer is the test default; tip.test.tsx covers coarse).
-  stubMatchMedia((query) => query !== "(pointer: coarse)");
+  // ThemeProvider reads matchMedia on mount. Query-sensitive on the coarse
+  // pointer: everything matches EXCEPT the coarse-pointer queries (both
+  // `(pointer: coarse)` and `(any-pointer: coarse)` are false), or every Tip
+  // would self-suppress (fine-pointer is the test default; tip.test.tsx covers
+  // coarse).
+  stubMatchMedia((query) => !query.includes("pointer: coarse"));
 });
 
 afterEach(() => {
@@ -594,7 +596,8 @@ describe("HostOverviewPage — TMUX SERVERS scratch badge (@rk_srv_ephemeral)", 
 
 describe("status bar gate (260814-ldbs; rework cycle 1)", () => {
   // The page's own beforeEach stubs matchMedia as "everything matches except
-  // (pointer: coarse)" — i.e. NARROW (mobile). These tests re-stub per case.
+  // the coarse-pointer queries" — i.e. NARROW (mobile). These tests re-stub
+  // per case.
 
   it("renders the status bar on a desktop (fine pointer, wide) host page", () => {
     stubMatchMedia(() => false);
@@ -606,8 +609,10 @@ describe("status bar gate (260814-ldbs; rework cycle 1)", () => {
     // The revised device rule: useIsMobile() is width-OR-coarse, so a coarse
     // desktop-width device (iPad) gets the mobile grid, the chip bar, and the
     // drawer panels — and NO status bar. The gate is `!isMobile`, identical
-    // to Shell's, so every route agrees.
-    stubMatchMedia((query) => query === "(pointer: coarse)");
+    // to Shell's, so every route agrees. The stub answers both coarse-pointer
+    // queries: a touch-primary device matches `(pointer: coarse)` and
+    // `(any-pointer: coarse)` alike, and the tree reads both hooks.
+    stubMatchMedia((query) => query.includes("pointer: coarse"));
     renderPage();
     expect(screen.queryByTestId("status-bar")).not.toBeInTheDocument();
   });

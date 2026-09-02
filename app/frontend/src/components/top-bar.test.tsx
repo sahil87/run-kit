@@ -113,11 +113,12 @@ function renderTopBar(overrides: Partial<React.ComponentProps<typeof TopBar>> = 
 
 describe("TopBar", () => {
   beforeEach(() => {
-    // ThemeProvider needs matchMedia. Query-sensitive on ONE query: everything
-    // matches (dark scheme, reduced motion — keeps sweeps skipped) EXCEPT
-    // `(pointer: coarse)`, which must be false or every Tip suppresses itself
+    // ThemeProvider needs matchMedia. Query-sensitive on the coarse pointer:
+    // everything matches (dark scheme, reduced motion — keeps sweeps skipped)
+    // EXCEPT the coarse-pointer queries (both `(pointer: coarse)` and
+    // `(any-pointer: coarse)` false), or every Tip suppresses itself
     // (fine-pointer is the test default; tip.test.tsx covers coarse).
-    stubMatchMedia((query) => query !== "(pointer: coarse)");
+    stubMatchMedia((query) => !query.includes("pointer: coarse"));
   });
 
   afterEach(() => {
@@ -1881,9 +1882,9 @@ describe("WindowHeading (centered, editable, terminal mode)", () => {
     // Clear call history between tests (the renameWindow module mock persists
     // its calls across tests otherwise).
     vi.clearAllMocks();
-    // Same query-sensitive stub as the suite root: all-match EXCEPT
-    // `(pointer: coarse)` (false), or Tips would self-suppress.
-    stubMatchMedia((query) => query !== "(pointer: coarse)");
+    // Same query-sensitive stub as the suite root: all-match EXCEPT the
+    // coarse-pointer queries (false), or Tips would self-suppress.
+    stubMatchMedia((query) => !query.includes("pointer: coarse"));
   });
   afterEach(() => {
     cleanup();
@@ -2044,7 +2045,7 @@ describe("WindowHeading (centered, editable, terminal mode)", () => {
  */
 describe("TopBar layout chip (260812-ab5v R9)", () => {
   beforeEach(() => {
-    stubMatchMedia((query) => query !== "(pointer: coarse)");
+    stubMatchMedia((query) => !query.includes("pointer: coarse"));
   });
 
   afterEach(() => {

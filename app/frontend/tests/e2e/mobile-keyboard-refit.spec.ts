@@ -1,7 +1,7 @@
 // Mobile keyboard open/collapse refit — simulates the iOS on-screen keyboard
 // via a width-constant viewport height drop/restore (the exact signal
 // useVisualViewport keys on: height delta > KEYBOARD_DELTA_PX at constant
-// width), with hasTouch for pointer:coarse. Guards two regressions at once:
+// width), with hasTouch for coarse-pointer emulation. Guards two regressions at once:
 // the surface-layout mobile tile must SIZE the terminal (a content-sized tile
 // pins xterm at its 80×24 default — the canvas measures the tile, which
 // measures the canvas — and the terminal goes deaf to every viewport change),
@@ -47,7 +47,7 @@ test.afterAll(() => {
  * Steps:
  * 1. Create a `probe` window, resolve its windowId, goto the terminal route.
  * 2. Poll `window.__rkTerminals[windowId].rows > 10` (terminal ready).
- * 3. Baseline: assert `pointer: coarse` matches, `kb-open` absent, rows > 30
+ * 3. Baseline: assert `any-pointer: coarse` matches, `kb-open` absent, rows > 30
  *    (24 is the content-sized-tile fixed point — the regression tripwire),
  *    and the toolbar's computed `padding-bottom` is `16px` (raised floor).
  * 4. Shrink the viewport to 375×512 (−300px, width constant — "keyboard
@@ -82,13 +82,13 @@ test("keyboard open/collapse: xterm+tmux refit and the bottom-bar floor toggles"
         rows: term?.rows ?? -1,
         appHeight: document.documentElement.style.getPropertyValue("--app-height"),
         kbOpen: document.documentElement.classList.contains("kb-open"),
-        coarse: window.matchMedia("(pointer: coarse)").matches,
+        coarse: window.matchMedia("(any-pointer: coarse)").matches,
         toolbarPb: toolbar ? getComputedStyle(toolbar).paddingBottom : "NO-TOOLBAR",
       };
     }, windowId);
 
   const base = await snapshot();
-  expect(base.coarse, "pointer:coarse must match for the floor to apply").toBe(true);
+  expect(base.coarse, "any-pointer:coarse must match for the floor to apply").toBe(true);
   expect(base.kbOpen).toBe(false);
   // The content-sized-tile fixed point is exactly 24 rows (xterm's default);
   // a properly sized tile at 812px yields far more (~50 at the 11px mobile

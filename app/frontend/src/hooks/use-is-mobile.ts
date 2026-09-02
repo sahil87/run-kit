@@ -4,11 +4,13 @@ import { evaluateMediaQuery, useMediaQuery } from "./use-media-query";
 export const MOBILE_BREAKPOINT_PX = 640;
 
 const NARROW_QUERY = `(max-width: ${MOBILE_BREAKPOINT_PX - 1}px)`;
-const COARSE_QUERY = "(pointer: coarse)";
+const COARSE_QUERY = "(any-pointer: coarse)";
 
 /**
- * Returns true when the viewport is below the mobile breakpoint OR the device
- * has a coarse pointer (e.g., touch). Updates live via matchMedia listeners.
+ * Returns true when the viewport is below the mobile breakpoint OR any
+ * available pointer is coarse (e.g., a touchscreen, even when the primary
+ * pointer is fine — a tablet with a paired trackpad). Updates live via
+ * matchMedia listeners.
  */
 export function useIsMobile(): boolean {
   // Two separate subscriptions (width, pointer) ORed — deliberately not one

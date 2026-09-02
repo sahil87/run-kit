@@ -2376,6 +2376,23 @@ describe("ComposeStrip window send path", () => {
     expect(sendToWindowMock).toHaveBeenLastCalledWith("srv", "@1", "", "enter");
   });
 
+  it("staged send failure shows staged-text recovery and keeps the draft", async () => {
+    sendToWindowMock.mockRejectedValue(
+      new ApiError("send failed after paste", 409, "staged_send_failure"),
+    );
+    mountFocused();
+    act(() => fireEvent.change(input(), { target: { value: "hello" } }));
+    await act(async () => {
+      fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true });
+    });
+
+    expect(addToastMock).toHaveBeenCalledTimes(1);
+    expect(addToastMock.mock.calls[0]?.[0]).toContain("staged in the pane");
+    expect(addToastMock.mock.calls[0]?.[2]?.label).toBe("Press Enter in pane");
+    expect(input().value).toBe("hello");
+    expect(getComposeSentHistory(entryKey("srv", "@1"))).toEqual([]);
+  });
+
   it("locks both send controls while the recovery Enter is in flight", async () => {
     sendToWindowMock.mockRejectedValue(
       new ApiError("probe failed", 409, "probe_failure"),

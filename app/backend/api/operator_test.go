@@ -374,6 +374,21 @@ func TestOperatorRequestSubmitUnverifiedConflict(t *testing.T) {
 	}
 }
 
+func TestOperatorRequestStagedFailureCode(t *testing.T) {
+	fastChatSendProbe(t)
+	stageFixtureTranscript(t, testChatRef)
+	sf := &mockSessionFetcher{result: operatorSessions("idle")}
+	ops := &mockTmuxOps{
+		capturePaneResults: []string{"❯ ", "❯ [Pasted text #1 +9 lines]"},
+		sendEnterErr:       errors.New("client is read-only"),
+	}
+	router := NewTestRouter(slog.Default(), sf, ops, "host")
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, operatorReq(`{"template":"fix-tab-name"}`))
+	assertConflictCode(t, rec, "staged_send_failure")
+}
+
 // --- 500 + 200 ---------------------------------------------------------------
 
 // TestOperatorRequestFetchError: a FetchSessions failure is a 500
@@ -803,6 +818,23 @@ func TestServerOperatorRequestSubmitUnverifiedConflict(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "may or may not have been submitted") {
 		t.Fatalf("body = %s, want submit-unconfirmed guidance", rec.Body.String())
 	}
+}
+
+func TestServerOperatorRequestStagedFailureCode(t *testing.T) {
+	fastChatSendProbe(t)
+	stageFixtureTranscript(t, testChatRef)
+	sess := operatorSessions("idle")
+	sess[0].Windows[0].AgentState = "waiting"
+	sf := &mockSessionFetcher{result: sess}
+	ops := &mockTmuxOps{
+		capturePaneResults: []string{"❯ ", "❯ [Pasted text #1 +9 lines]"},
+		sendEnterErr:       errors.New("client is read-only"),
+	}
+	router := NewTestRouter(slog.Default(), sf, ops, "host")
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, serverOperatorReq(`{"template":"whats-stuck"}`))
+	assertConflictCode(t, rec, "staged_send_failure")
 }
 
 // TestServerOperatorRequestWhatsStuckSuccess: with a waiting window present the

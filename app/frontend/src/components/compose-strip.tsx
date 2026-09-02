@@ -537,7 +537,10 @@ export function ComposeStrip({
           endRecall();
         })
         .catch((err: unknown) => {
-          if (err instanceof ApiError && err.code === "probe_failure") {
+          if (
+            err instanceof ApiError &&
+            (err.code === "probe_failure" || err.code === "staged_send_failure")
+          ) {
             addToast(
               "Text is staged in the pane but unsent. Pressing Send again would duplicate it.",
               "error",

@@ -72,9 +72,26 @@ func (s *Server) handleWindowSend(w http.ResponseWriter, r *http.Request) {
 		err = chatSendEngine.PressEnter(ctx, tmuxAdapter, server, paneID)
 	}
 	if err != nil {
+		logArgs := []any{
+			"server", server,
+			"windowID", windowID,
+			"paneID", paneID,
+			"mode", body.Mode,
+			"err", err,
+		}
+		if isRecoverableSendFailure(err) {
+			s.logger.Warn("window send failed", logArgs...)
+		} else {
+			s.logger.Error("window send failed", logArgs...)
+		}
 		var probeErr inject.ProbeFailure
 		if errors.As(err, &probeErr) {
 			writeErrorCode(w, http.StatusConflict, "probe_failure", probeErr.Error())
+			return
+		}
+		var stagedErr inject.StagedSendFailure
+		if errors.As(err, &stagedErr) {
+			writeErrorCode(w, http.StatusConflict, "staged_send_failure", stagedErr.Error())
 			return
 		}
 		var submitErr inject.SubmitUnverified
@@ -87,6 +104,19 @@ func (s *Server) handleWindowSend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func isRecoverableSendFailure(err error) bool {
+	var probeErr inject.ProbeFailure
+	if errors.As(err, &probeErr) {
+		return true
+	}
+	var stagedErr inject.StagedSendFailure
+	if errors.As(err, &stagedErr) {
+		return true
+	}
+	var submitErr inject.SubmitUnverified
+	return errors.As(err, &submitErr)
 }
 
 func validWindowSendMode(mode string) bool {

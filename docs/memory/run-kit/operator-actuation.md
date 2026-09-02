@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Operator actuation seam — templated work items for the server's operator window over window- and server-scoped POST routes. Covers the closed template registry, fact derivation, busy-enqueue 202s and queue-full/probe/submit-unverified 409s, the in-memory per-server request queue drained on idle, shared injection-engine delivery, auto-name dispatch, and derive-tick results."
+description: "Operator actuation seam — templated work items for the server's operator window over window- and server-scoped POST routes. Covers the closed template registry, fact derivation, busy-enqueue 202s and queue-full/probe/staged-send/submit-unverified 409s, the in-memory per-server request queue drained on idle, shared injection-engine delivery, auto-name dispatch, and derive-tick results."
 ---
 # Operator Actuation
 
@@ -163,8 +163,9 @@ the busy gate (`active`/`waiting` ⇒ 409 naming the state; `idle` or unknown
 proceeds), `sessions.ResolveChatPane` over the operator's panes (404
 `"operator window has no chat session"` when none), and in-process
 `s.injectChatMessage` under ONE shared `chatSendTotalBudget` deadline, a probe
-failure and `SubmitUnverified` surfacing as the two distinct structured 409s
-chat-send returns. The route shares the seam's whole posture: NO queue, NO
+failure, a post-paste `StagedSendFailure` (`staged_send_failure`), and
+`SubmitUnverified` surfacing as the three distinct structured 409s chat-send
+returns. The route shares the seam's whole posture: NO queue, NO
 route-level retry, NO response channel, NO SSE hub wake; success is
 `200 {"ok":true}`. A `FetchSessions` error maps to
 `500`.
@@ -253,7 +254,8 @@ other validation outcome stays fail-fast at request time (400s, 404s, the
 `requiresWaiting` zero-waiting 409) and enqueues nothing. Transcript-resolution
 and injection errors return RAW so
 the handler's `errors.Is`/`errors.As` mappings (`writeChatReadError`
-vocabulary, `inject.ProbeFailure` → 409, `inject.SubmitUnverified` → 409) apply.
+vocabulary, `inject.ProbeFailure` → 409, `inject.StagedSendFailure` → 409
+`staged_send_failure`, `inject.SubmitUnverified` → 409) apply.
 The auto-name caller
 logs whatever comes back at debug and drops it (busy-skip included — auto-name
 stays outside the queue).
@@ -284,8 +286,10 @@ whole-sequence lock, ONE shared deadline (`chatSendTotalBudget`, applied
 INSIDE the core so both callers get identical injection bounding) threading all
 subprocesses, novelty echo probe, post-Enter observation, and evidence-gated
 recovery. `inject.ProbeFailure` returns the staged-text `409` with Enter withheld;
-`inject.SubmitUnverified` returns the submit-unconfirmed `409` after Enter and
-directs the caller to capture the pane before resending. Success is
+`inject.StagedSendFailure` (a post-paste, pre-Enter infrastructure failure)
+returns the `staged_send_failure` `409` — the text is staged and a resend would
+duplicate it; `inject.SubmitUnverified` returns the submit-unconfirmed `409`
+after Enter and directs the caller to capture the pane before resending. Success is
 `200 {"ok":true}`. The handler MUST NOT wake
 the SSE hub: rk mutated no tmux state, and the operator's later actuation (e.g.
 `rename-window`) surfaces via the normal derive tick.
@@ -298,6 +302,9 @@ the SSE hub: rk mutated no tmux state, and the operator's later actuation (e.g.
   `200 {"ok":true}` when the engine returns success.
 - **AND GIVEN** the probe fails, **THEN** no Enter is sent and the response is
   the structured `409`.
+- **AND GIVEN** a post-paste, pre-Enter infrastructure failure (e.g. the Enter
+  `send-keys` is refused), **THEN** the response is the `staged_send_failure`
+  `409`.
 - **AND GIVEN** non-submission is detected and bounded recovery cannot establish
   a safe successful outcome, **THEN** the response is the distinct
   submit-unconfirmed `409`.

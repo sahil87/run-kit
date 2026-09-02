@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The chat subsystem backend — neutral event schema, adapter registry, transcript backfill/tail, and pane-typed send. Send uses sanitized named-buffer paste, novelty echo probing, probe-gated Enter, asymmetric post-Enter observation, and evidence-gated recovery; probe and submit-unverified failures are distinct 409s. The chat lens frontend lives in ui/chat-view.md."
+description: "The chat subsystem backend — neutral event schema, adapter registry, transcript backfill/tail, and pane-typed send. Send uses sanitized named-buffer paste, novelty echo probing, probe-gated Enter, asymmetric post-Enter observation, and evidence-gated recovery; probe, staged-send, and submit-unverified failures are distinct 409s. The chat lens frontend lives in ui/chat-view.md."
 ---
 # Chat Subsystem
 
@@ -503,7 +503,9 @@ On a resolved pane the handler SHALL inject the message through the shared
 (`injectChatMessage`, `api/chat.go`, delegating to the package-level
 `chatSendEngine = inject.NewEngine(tmux.ChatSendBuffer)`) — running this exact
 ordered sequence,
-every subprocess an argv slice (Constitution I) targeting the `paneID`:
+every subprocess an argv slice (Constitution I) targeting the `paneID`, each
+spawned through the shared runner core with `TMUX`/`TMUX_PANE` stripped from the
+child env ([architecture](/run-kit/architecture.md) § tmux Runner Core):
 1. **Baseline capture** — `CapturePane` the pane tail BEFORE mutating anything (the
    probe floor, § Novelty echo probe).
 2. `set-buffer -b rk-chat-send -- <text>` — text as one discrete argv element (no
@@ -587,7 +589,11 @@ deadline; the first successful capture still returns after one settle. The probe
 **fails closed**: an empty needle, a pane that scrolls
 between baseline and probe, or a count that never rises → `inject.ProbeFailure` → no
 Enter, `409`. This is the guard against a blind Enter into e.g. a permission
-dialog. A `CapturePane` subprocess error is distinct (→ `500`, not a clean miss).
+dialog. A probe `CapturePane` subprocess error or context failure is NOT a clean
+miss — the paste already landed, so it surfaces as `inject.StagedSendFailure` →
+`409` (§ Injection 409 outcomes), the staged-text recoverable state. (Pre-paste
+failures — baseline capture, set-buffer, paste-buffer — keep the plain
+wrapped-error → `500` path: nothing was delivered.)
 (260830-s7wp)
 
 #### Scenario: A stale chip / common needle already in-frame does not false-pass
@@ -609,13 +615,16 @@ frame unchanged through every `SubmitBackoff` step with the paste echo still
 present under `CountOccurrences(capture, needle, collapsible)` SHALL authorize
 recovery. Any unchanged frame without that echo SHALL return
 `inject.SubmitUnverified` without recovery. Context cancellation and capture
-errors SHALL propagate as their own errors.
+errors during observation SHALL surface as `inject.SubmitUnverified` wrapping the
+cause — Enter was already sent, so submit-unconfirmed is the honest state.
 
 Recovery SHALL re-paste only after a post-`C-u` capture is normalized-equal to
 the pre-paste baseline. It SHALL make at most `SubmitRetries = 1` retry, use the
 first three observation steps after that retry, and return
 `inject.SubmitUnverified` when the clear cannot be established or the retry
-still has no changed frame. A frame change caused by a spinner, streaming output,
+still has no changed frame. Within a retry, a failure after the re-paste but
+before the retry's Enter classifies staged (`inject.StagedSendFailure`); a
+failure after the retry's Enter is submit-unverified. A frame change caused by a spinner, streaming output,
 a status line, or a submit follows the same no-claim success branch.
 
 #### Scenario: Changed frames never authorize recovery
@@ -637,18 +646,29 @@ surfaced, never silent. The retry hint matters because the paste (not the Enter)
 already landed, so an identical resend would paste a SECOND copy and submit doubled
 text.
 
+On `inject.StagedSendFailure` — an infrastructure failure AFTER the paste landed
+but BEFORE Enter was sent (a probe capture error, a context failure mid-probe,
+or a refused `send-keys Enter`) — the handler SHALL return `409` with code
+`staged_send_failure` and the sentinel's staged-text message: the text IS staged
+in the pane, a resend would duplicate it, and the recovery is pressing Enter in
+the pane.
+
 On `inject.SubmitUnverified` the handler SHALL return `409` with the sentinel's
-distinct submit-unconfirmed message. Enter has been sent in this case, so the
-message SHALL state that the payload may or may not have landed and direct the
-caller to capture the pane before resending. `ProbeFailure` and
-`SubmitUnverified` SHALL remain distinct error types because they give opposite
-resend guidance.
+distinct submit-unconfirmed message, wrapping the underlying cause when one
+exists (post-Enter capture/deadline faults surface here). Enter has been sent in
+this case, so the message SHALL state that the payload may or may not have
+landed and direct the caller to capture the pane before resending.
+`ProbeFailure`, `StagedSendFailure`, and `SubmitUnverified` SHALL remain
+distinct error types because they give different resend guidance.
 
 #### Scenario: Probe failure leaves the paste visible and withholds Enter
 - **GIVEN** a paste whose echo cannot be verified across all retries
 - **WHEN** the probe exhausts
 - **THEN** no Enter is sent, the response is `409` with the retry-hinted message,
   and the pasted text stays in the agent's composer.
+- **AND GIVEN** a post-paste, pre-Enter infrastructure failure (e.g. a refused
+  `send-keys Enter`), **THEN** the response is `409` with code
+  `staged_send_failure` and the staged text stays in the agent's composer.
 - **AND GIVEN** post-Enter non-submission whose bounded recovery does not produce
   a changed frame, **THEN** the response is `409` with the submit-unconfirmed
   message.
@@ -1036,3 +1056,23 @@ delta — Constitution IV/IX prefer the additive body); a parallel insert-mode s
 machine on the form (a second lock/clear/error path is the cross-surface divergence
 the intake forbids).
 *Introduced by*: 260719-mxvw-pointer-aware-enter-insert-mode
+
+### Failure taxonomy splits on the Enter boundary
+**Decision**: Post-paste failures classify by whether Enter was sent. Before
+Enter (a probe capture error, a context failure mid-probe, or a refused
+`send-keys Enter`) → `StagedSendFailure` (`staged_send_failure` 409 — staged
+text, a resend duplicates, recovery is a human Enter). After Enter (observation
+capture/context faults, recovery failures) → `SubmitUnverified` wrapping the
+cause (`submit_unverified` 409). Pre-paste failures keep the plain wrapped-error
+→ 500 path, where "nothing was delivered; retrying is safe" is true. A clean
+echo miss remains `ProbeFailure`.
+**Why**: The two post-paste states demand opposite resend advice — staged text
+wants a recovery Enter and warns that a resend duplicates; a sent Enter may
+already have submitted, so a recovery Enter could double-submit. One sentinel
+per failure class keeps the handler mapping mechanical and the client toasts
+honest about what was delivered.
+**Rejected**: One catch-all staged code for everything post-paste (gives "press
+Enter in pane" advice after Enter already ran); reusing `probe_failure` for
+infrastructure errors (conflates a clean echo miss with a tmux fault — the
+memory contract keeps them distinct 409s).
+*Introduced by*: 260902-8jco-tmux-pane-env-scrub-send-failures

@@ -869,6 +869,11 @@ func (s *Server) handleOperatorRequest(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, probeErr.Error())
 			return
 		}
+		var stagedErr inject.StagedSendFailure
+		if errors.As(err, &stagedErr) {
+			writeErrorCode(w, http.StatusConflict, "staged_send_failure", stagedErr.Error())
+			return
+		}
 		var submitErr inject.SubmitUnverified
 		if errors.As(err, &submitErr) {
 			writeError(w, http.StatusConflict, submitErr.Error())
@@ -971,6 +976,11 @@ func (s *Server) handleServerOperatorRequest(w http.ResponseWriter, r *http.Requ
 		if errors.As(err, &probeErr) {
 			// Text pasted, Enter withheld — recoverable state (same as chat-send).
 			writeError(w, http.StatusConflict, probeErr.Error())
+			return
+		}
+		var stagedErr inject.StagedSendFailure
+		if errors.As(err, &stagedErr) {
+			writeErrorCode(w, http.StatusConflict, "staged_send_failure", stagedErr.Error())
 			return
 		}
 		var submitErr inject.SubmitUnverified

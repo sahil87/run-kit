@@ -99,14 +99,37 @@ func (ProbeFailure) Error() string {
 		"The text remains in the agent's input — check the terminal view before retrying, as a resend would duplicate it."
 }
 
+// StagedSendFailure reports that text reached the pane but Enter was not sent.
+type StagedSendFailure struct {
+	Err error
+}
+
+func (e StagedSendFailure) Error() string {
+	message := "send not completed — text is staged in the pane and a resend would duplicate it; press Enter in the pane to submit"
+	if e.Err != nil {
+		return message + ": " + e.Err.Error()
+	}
+	return message
+}
+
+func (e StagedSendFailure) Unwrap() error { return e.Err }
+
 // SubmitUnverified reports that the pane remained unchanged after Enter and
 // the engine could not safely recover without risking a duplicate.
-type SubmitUnverified struct{}
-
-func (SubmitUnverified) Error() string {
-	return "submit not confirmed — Enter was sent but the pane did not advance. " +
-		"The message may or may not have been submitted; capture the pane before resending."
+type SubmitUnverified struct {
+	Err error
 }
+
+func (e SubmitUnverified) Error() string {
+	message := "submit not confirmed — Enter was sent but the pane did not advance. " +
+		"The message may or may not have been submitted; capture the pane before resending."
+	if e.Err != nil {
+		return message + ": " + e.Err.Error()
+	}
+	return message
+}
+
+func (e SubmitUnverified) Unwrap() error { return e.Err }
 
 type observationVerdict uint8
 
@@ -229,9 +252,11 @@ func (e *Engine) PressEnter(ctx context.Context, t Tmux, server, paneID string) 
 // exact hazard (blind Enter into e.g. a permission dialog) the probe exists to
 // prevent.
 //
-// A tmux failure is returned verbatim; a probe failure is returned as
-// ProbeFailure (Enter withheld). A changed post-Enter frame returns nil without
-// interpreting why it changed; an unchanged frame may drive bounded recovery.
+// Pre-paste failures remain plain wrapped errors. After a successful paste,
+// infrastructure failures distinguish staged text from an unverified submit at
+// the Enter boundary. A clean echo miss remains ProbeFailure (Enter withheld).
+// A changed post-Enter frame returns nil without interpreting why it changed;
+// an unchanged frame may drive bounded recovery.
 func (e *Engine) Send(ctx context.Context, t Tmux, server, paneID, text string, submit bool) error {
 	needle := Needle(text)
 	if needle == "" {
@@ -277,7 +302,11 @@ func (e *Engine) Send(ctx context.Context, t Tmux, server, paneID, text string, 
 
 	preFrame, err := e.probeEcho(ctx, t, server, paneID, needle, collapsible, baseCount)
 	if err != nil {
-		return err
+		var probeErr ProbeFailure
+		if errors.As(err, &probeErr) {
+			return err
+		}
+		return StagedSendFailure{Err: err}
 	}
 	if !submit {
 		// Insert-without-submit: the probe verified the paste landed; leave it
@@ -285,12 +314,12 @@ func (e *Engine) Send(ctx context.Context, t Tmux, server, paneID, text string, 
 		return nil
 	}
 	if err := t.SendEnter(ctx, paneID, server); err != nil {
-		return fmt.Errorf("send-keys: %w", err)
+		return StagedSendFailure{Err: fmt.Errorf("send-keys: %w", err)}
 	}
 
 	verdict, err := verifySubmit(ctx, t, server, paneID, preFrame, needle, collapsible, baseCount, SubmitBackoff)
 	if err != nil {
-		return err
+		return SubmitUnverified{Err: err}
 	}
 	switch verdict {
 	case observationNoClaim:
@@ -309,7 +338,7 @@ func (e *Engine) retrySubmit(ctx context.Context, t Tmux, server, paneID, text, 
 			return SubmitUnverified{}
 		}
 		if err != nil {
-			return err
+			return SubmitUnverified{Err: err}
 		}
 
 		retryBaseCount := CountOccurrences(clearedFrame, needle, collapsible)
@@ -318,10 +347,14 @@ func (e *Engine) retrySubmit(ctx context.Context, t Tmux, server, paneID, text, 
 		}
 		preFrame, err := e.probeEcho(ctx, t, server, paneID, needle, collapsible, retryBaseCount)
 		if err != nil {
-			return err
+			var probeErr ProbeFailure
+			if errors.As(err, &probeErr) {
+				return err
+			}
+			return StagedSendFailure{Err: err}
 		}
 		if err := t.SendEnter(ctx, paneID, server); err != nil {
-			return fmt.Errorf("send-keys: %w", err)
+			return StagedSendFailure{Err: fmt.Errorf("send-keys: %w", err)}
 		}
 
 		steps := SubmitBackoff
@@ -330,7 +363,7 @@ func (e *Engine) retrySubmit(ctx context.Context, t Tmux, server, paneID, text, 
 		}
 		verdict, err := verifySubmit(ctx, t, server, paneID, preFrame, needle, collapsible, retryBaseCount, steps)
 		if err != nil {
-			return err
+			return SubmitUnverified{Err: err}
 		}
 		if verdict == observationNoClaim {
 			return nil

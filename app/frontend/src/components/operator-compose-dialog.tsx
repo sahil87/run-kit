@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { sendServerOperatorRequest } from "@/api/client";
 import { Dialog } from "@/components/dialog";
 import { useToast } from "@/components/toast";
+import { operatorRequestToast } from "@/lib/operator-request";
 
 export type OperatorComposeMode = "spawn" | "find";
 
@@ -45,11 +46,14 @@ export function OperatorComposeDialog({ server, initialMode, onClose }: Operator
     const submitted = mode;
     setInFlight(true);
     sendServerOperatorRequest(server, submitted === "spawn" ? "spawn-task" : "find-discussion", trimmed)
-      .then(() =>
+      .then((result) =>
         addToast(
-          submitted === "spawn"
-            ? "Sent to operator — it will spawn the agent"
-            : "Sent to operator — the answer appears in the operator tab",
+          operatorRequestToast(
+            result,
+            submitted === "spawn"
+              ? "Sent to operator — it will spawn the agent"
+              : "Sent to operator — the answer appears in the operator tab",
+          ),
           "info",
         ),
       )

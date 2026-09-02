@@ -494,17 +494,17 @@ export async function sendToWindow(
  * window (`windowId`) — the operator actuation seam's one consumer-facing call
  * (260822-fih1-operator-request-fix-tab-name). The body carries ONLY the
  * closed-set template id; the backend derives every prompt fact server-side,
- * gates on the operator's agent state (busy ⇒ 409), and delivers via the
- * chat-send machinery. `throwOnError` surfaces the server's structured error
- * as the thrown Error's message — the busy 409 ("operator is busy …") and the
- * 404 races ("no operator on this server", "no chat session …"). Fire-and-
- * forget: the result (e.g. a rename) arrives via the normal SSE derive tick.
+ * gates on the operator's agent state, and delivers via the chat-send
+ * machinery. Busy requests resolve as a queued outcome; `throwOnError` keeps
+ * structured validation, queue-full, and delivery errors on the throwing
+ * path. The eventual result (e.g. a rename) arrives via the normal SSE derive
+ * tick.
  */
 export async function sendOperatorRequest(
   server: string,
   windowId: string,
   template: string,
-): Promise<void> {
+): Promise<OperatorRequestResult> {
   const res = await fetch(
     withServer(`/api/windows/${encodeURIComponent(windowId)}/operator-request`, server),
     {
@@ -514,6 +514,30 @@ export async function sendOperatorRequest(
     },
   );
   if (!res.ok) await throwOnError(res);
+  return parseOperatorRequestResult(res);
+}
+
+export type OperatorRequestResult =
+  | { outcome: "delivered" }
+  | { outcome: "queued" };
+
+function isQueuedOperatorResponse(value: unknown): value is { queued: true } {
+  return typeof value === "object" && value !== null && "queued" in value && value.queued === true;
+}
+
+function isDeliveredOperatorResponse(value: unknown): value is { ok: true } {
+  return typeof value === "object" && value !== null && "ok" in value && value.ok === true;
+}
+
+async function parseOperatorRequestResult(res: Response): Promise<OperatorRequestResult> {
+  const body: unknown = await res.json();
+  if (res.status === 202 && isQueuedOperatorResponse(body)) {
+    return { outcome: "queued" };
+  }
+  if (res.status === 200 && isDeliveredOperatorResponse(body)) {
+    return { outcome: "delivered" };
+  }
+  throw new Error("Invalid operator-request response");
 }
 
 /**
@@ -521,24 +545,24 @@ export async function sendOperatorRequest(
  * subject window (spawn-task, find-discussion), so the body additionally
  * carries the user's typed `text` (admitted only on templates the backend
  * declares acceptsText, capped and delimited there). Same shape as
- * sendOperatorRequest: `withServer` + `throwOnError`, so the structured
- * 409/404 messages surface as the thrown Error's message. The optional
- * `session` scopes the template's facts to one session (admitted only on
- * templates the backend declares acceptsSession; included in the body only
- * when non-empty).
+ * sendOperatorRequest: `withServer` + `throwOnError`, with a delivered/queued
+ * result for successful responses. The optional `session` scopes the
+ * template's facts to one session (admitted only on templates the backend
+ * declares acceptsSession; included in the body only when non-empty).
  */
 export async function sendServerOperatorRequest(
   server: string,
   template: string,
   text: string,
   session?: string,
-): Promise<void> {
+): Promise<OperatorRequestResult> {
   const res = await fetch(withServer("/api/operator-request", server), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(session ? { template, text, session } : { template, text }),
   });
   if (!res.ok) await throwOnError(res);
+  return parseOperatorRequestResult(res);
 }
 
 /**

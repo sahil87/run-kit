@@ -4,7 +4,7 @@ import { OperatorComposeDialog } from "./operator-compose-dialog";
 import { ToastProvider } from "./toast";
 
 vi.mock("@/api/client", () => ({
-  sendServerOperatorRequest: vi.fn(() => Promise.resolve()),
+  sendServerOperatorRequest: vi.fn(() => Promise.resolve({ outcome: "delivered" as const })),
 }));
 
 import { sendServerOperatorRequest } from "@/api/client";
@@ -26,7 +26,7 @@ function renderDialog(opts: { initialMode?: "spawn" | "find"; onClose?: () => vo
 afterEach(() => {
   cleanup();
   mockSend.mockReset();
-  mockSend.mockResolvedValue(undefined);
+  mockSend.mockResolvedValue({ outcome: "delivered" });
 });
 
 describe("OperatorComposeDialog", () => {
@@ -74,7 +74,11 @@ describe("OperatorComposeDialog", () => {
 
   it("re-submits during flight fire exactly one POST", async () => {
     let release!: () => void;
-    mockSend.mockReturnValue(new Promise((res) => { release = () => res(undefined); }));
+    mockSend.mockReturnValue(
+      new Promise((res) => {
+        release = () => res({ outcome: "delivered" });
+      }),
+    );
     renderDialog();
     const input = screen.getByRole("textbox", { name: "Spawn task" });
     fireEvent.change(input, { target: { value: "do the thing" } });
@@ -97,6 +101,17 @@ describe("OperatorComposeDialog", () => {
     fireEvent.change(input, { target: { value: "do the thing" } });
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
+  it("toasts the queued outcome with the shared idle-delivery copy", async () => {
+    mockSend.mockResolvedValue({ outcome: "queued" });
+    renderDialog();
+    const input = screen.getByRole("textbox", { name: "Spawn task" });
+    fireEvent.change(input, { target: { value: "do the thing" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(
+      await screen.findByText("Queued for operator — will be delivered when it is idle"),
+    ).toBeInTheDocument();
   });
 
   it("failure toasts the server's structured message", async () => {

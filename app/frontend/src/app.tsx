@@ -155,6 +155,7 @@ import type { ServerInfo, SelectWindowResult } from "@/api/client";
 
 import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerProtected, sendChatMessage, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, HttpError, type SortWindowsBy } from "@/api/client";
 import { buildWebTabActions } from "@/lib/palette/web-tabs";
+import { operatorRequestToast } from "@/lib/operator-request";
 import { buildSessionSortActions } from "@/lib/palette/sort";
 import { useBoards } from "@/hooks/use-boards";
 import { useWindowPins } from "@/hooks/use-window-pins";
@@ -2382,14 +2383,17 @@ function AppShell() {
   // Ask the server's operator window to fix a subject window's tab name
   // (260822-fih1-operator-request-fix-tab-name): fire-and-forget — success
   // toasts the hand-off and the rename itself arrives via the normal SSE
-  // derive tick; failure (busy 409, probe 409, race 404) toasts the server's
-  // structured message. RETURNS the settle promise (already error-handled, so
+  // derive tick; a queued hand-off gets its own toast, while delivery and
+  // validation failures toast the server's structured message. RETURNS the
+  // settle promise (already error-handled, so
   // it never rejects): the flyout's row awaits it to hold its in-flight guard,
   // so repeated clicks cannot fire multiple POSTs.
   const handleFixTabName = useCallback(
     (srv: string, windowId: string): Promise<void> =>
       sendOperatorRequest(srv, windowId, "fix-tab-name")
-        .then(() => addToast("Sent to operator — tab will rename shortly", "info"))
+        .then((result) =>
+          addToast(operatorRequestToast(result, "Sent to operator — tab will rename shortly"), "info"),
+        )
         .catch((err: Error) => addToast(err.message || "Failed to reach the operator", "error")),
     [addToast],
   );
@@ -2403,7 +2407,7 @@ function AppShell() {
   const handleServerOperatorAction = useCallback(
     (srv: string, template: string, successToast: string): Promise<void> =>
       sendServerOperatorRequest(srv, template, "")
-        .then(() => addToast(successToast, "info"))
+        .then((result) => addToast(operatorRequestToast(result, successToast), "info"))
         .catch((err: Error) => addToast(err.message || "Failed to reach the operator", "error")),
     [addToast],
   );
@@ -2415,7 +2419,12 @@ function AppShell() {
   const handleUpdateAnnotations = useCallback(
     (srv: string, session: string): void => {
       void sendServerOperatorRequest(srv, "update-annotations", "", session)
-        .then(() => addToast("Sent to operator — notes will be updated shortly", "info"))
+        .then((result) =>
+          addToast(
+            operatorRequestToast(result, "Sent to operator — notes will be updated shortly"),
+            "info",
+          ),
+        )
         .catch((err: Error) => addToast(err.message || "Failed to reach the operator", "error"));
     },
     [addToast],
@@ -2429,7 +2438,12 @@ function AppShell() {
   const handleAnnotateTab = useCallback(
     (srv: string, windowId: string): Promise<void> =>
       sendOperatorRequest(srv, windowId, "annotate-tab")
-        .then(() => addToast("Sent to operator — tab will be annotated shortly", "info"))
+        .then((result) =>
+          addToast(
+            operatorRequestToast(result, "Sent to operator — tab will be annotated shortly"),
+            "info",
+          ),
+        )
         .catch((err: Error) => addToast(err.message || "Failed to reach the operator", "error")),
     [addToast],
   );

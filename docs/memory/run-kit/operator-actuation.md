@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Operator actuation seam — templated work items for the server's operator window over window- and server-scoped POST routes. Covers the closed template registry, fact derivation, busy/probe/submit-unverified 409s, shared injection-engine delivery, auto-name dispatch, no-queue posture, and derive-tick results."
+description: "Operator actuation seam — templated work items for the server's operator window over window- and server-scoped POST routes. Covers the closed template registry, fact derivation, busy-enqueue 202s and queue-full/probe/submit-unverified 409s, the in-memory per-server request queue drained on idle, shared injection-engine delivery, auto-name dispatch, and derive-tick results."
 ---
 # Operator Actuation
 
@@ -19,21 +19,32 @@ the backend composes a prompt from facts it derives itself (Constitution X),
 delivers it through the existing chat-send injection machinery
 ([chat](/run-kit/chat.md) § Send Path), and the operator acts through its own
 shell (e.g. `tmux rename-window`, `rk riff`); the outcome surfaces on the normal derive
-tick. There is NO queue, NO persisted mailbox, NO operator-request retry
-semantics (Constitution II), and NO response channel or reply parsing — the
-operator is not an RPC service. This is a route-level contract: the shared
+tick. There is NO persisted mailbox, NO response channel or reply parsing —
+the operator is not an RPC service. A valid request against a busy operator
+is not lost: the two HTTP handlers convert the delivery core's busy-class
+rejection into an enqueue on an in-memory per-server queue
+(`operatorQueueTracker`, `api/operator_queue.go`) and answer
+`202 {"queued": true}`; a level-triggered drain on the SSE per-server tick
+delivers one queued entry at a time once the operator reads idle. Queue state
+is process memory only (Constitution II) — a daemon restart forgets queued
+intents, degrading to plain busy rejection. This is a route-level contract:
+the shared
 injection engine may perform its own evidence-gated recovery before returning.
-The seam has THREE callers over ONE shared prompt-level delivery core
+The seam has FOUR callers over ONE shared prompt-level delivery core
 (`deliverOperatorPrompt` — the busy gate, operator pane resolution, injection
 under the shared deadline): the two user-initiated HTTP handlers (window- and
-server-scoped), and the system-initiated **auto-name tracker**
+server-scoped), the system-initiated **auto-name tracker**
 (`api/auto_name.go`), which rides the SSE per-server tick beside the
 waiting-push tracker and fires the `fix-tab-name` request when a subject window
 transitions busy→idle — run-kit owns the derivable trigger, the operator owns
-the rename judgment. The window-scoped subject-fact derivation layers above the
+the rename judgment — and the **queue-tracker drain**, which enters the same
+core through its deliver closure after fetching sessions fresh inside the
+detached delivery goroutine, revalidating the queued request, and re-rendering
+from current facts. The window-scoped subject-fact derivation layers above the
 core as `deliverOperatorRequest` (shared by its handler and the tracker).
 Everything lives in `app/backend/api/operator.go` (handlers + registry +
-delivery cores) and `app/backend/api/auto_name.go` (tracker), the routes
+delivery cores), `app/backend/api/auto_name.go` (auto-name tracker), and
+`app/backend/api/operator_queue.go` (queue tracker), the routes
 registered in `api/router.go` beside the chat routes. Nothing in any existing
 UI request path routes through the operator — operator features degrade to
 **absent** when no operator runs, never to blocking (the inside/outside razor).
@@ -218,32 +229,44 @@ the same 404-class vocabulary as the chat read endpoints; `ErrNoAdapter` is a
 - **AND GIVEN** a resolvable ref, **THEN** the rendered prompt contains the
   windowId, name, absolute JSONL path, and worktree path.
 
-### Requirement: Busy gate on the operator's agent state — reject, never queue
+### Requirement: Busy gate on the operator's agent state — reject at the core, enqueue at the routes
 The delivery core SHALL read the operator window's rolled-up `AgentState`
 (already on the same `FetchSessions` result) BEFORE delivering. `active` or
-`waiting` ⇒
-`409` with a structured message naming the state (`"operator is busy (<state>)
-— request not delivered; try again when it is idle"`). `idle` or empty/unknown
-⇒ proceed — the novelty echo probe is the final fail-closed pre-Enter guard,
-exactly as for chat-send. This is deliberately UNLIKE chat-send's allow+probe busy
-policy ([chat](/run-kit/chat.md) § Design Decisions → Allow + probe busy
-policy): a request is work handed over, not a steer a human typed. There SHALL
-be NO queue, NO route-level retry, and NO state written anywhere (Constitution
-II).
-Failures the HTTP handler maps to a status+body (this 409 included) surface
+`waiting` ⇒ reject with a structured message naming the state (`"operator is
+busy (<state>) — request not delivered; try again when it is idle"`). `idle`
+or empty/unknown ⇒ proceed — the novelty echo probe is the final fail-closed
+pre-Enter guard, exactly as for chat-send. This is deliberately UNLIKE
+chat-send's allow+probe busy policy ([chat](/run-kit/chat.md) § Design
+Decisions → Allow + probe busy policy): a request is work handed over, not a
+steer a human typed. The gate is the fail-closed floor inside
+`deliverOperatorPrompt` for EVERY delivery through the core — the HTTP
+handlers, the auto-name caller, and the queue drain alike (at drain it reads
+the goroutine's FRESH fetch, so it doubles as a real re-busy check).
+Failures the HTTP handler maps to a status+body surface
 from the core as a typed `operatorReject{status,msg}` sentinel the handler maps
-back byte-identically; transcript-resolution and injection errors return RAW so
+back byte-identically — with ONE branch at the routes: both handlers convert
+the busy-class sentinel (409 + the `"operator is busy ("` message, matched by
+`isBusyOperatorReject`) into an enqueue on the server's `operatorQueueTracker`
+and respond `202 {"queued": true}`, so a busy 409 can never escape the HTTP
+routes; a queue-full refusal maps to `409 "operator queue is full"`. Every
+other validation outcome stays fail-fast at request time (400s, 404s, the
+`requiresWaiting` zero-waiting 409) and enqueues nothing. Transcript-resolution
+and injection errors return RAW so
 the handler's `errors.Is`/`errors.As` mappings (`writeChatReadError`
 vocabulary, `inject.ProbeFailure` → 409, `inject.SubmitUnverified` → 409) apply.
 The auto-name caller
-logs whatever comes back at debug and drops it.
+logs whatever comes back at debug and drops it (busy-skip included — auto-name
+stays outside the queue).
 
-#### Scenario: Busy operator rejects without touching tmux
+#### Scenario: Busy operator enqueues at the routes, never injects
 - **GIVEN** an operator window whose rollup state is `active` (or `waiting`)
-- **WHEN** a request arrives
-- **THEN** the response is `409` naming the state and no injection subprocess
-  runs.
-- **AND GIVEN** state `idle` or empty, **THEN** delivery proceeds.
+- **WHEN** a valid request arrives on either HTTP route
+- **THEN** the response is `202 {"queued": true}`, no injection subprocess
+  runs, and the request sits in the tracker's per-server queue.
+- **AND GIVEN** state `idle` or empty, **THEN** delivery proceeds and success
+  is `200 {"ok":true}`.
+- **AND GIVEN** a full queue (8 pending entries), **THEN** the response is
+  `409 "operator queue is full"` and nothing is enqueued.
 
 ### Requirement: Delivery through the shared injection engine, in-process
 Every caller SHALL deliver the rendered prompt through the shared prompt-level
@@ -364,6 +387,86 @@ on the server — no operator ⇒ nothing fires, nothing logs at error level
   exactly one is emitted and the other is dropped unstamped.
 - **AND GIVEN** an operator busy at delivery time, **THEN** the core skips (no
   injection, no queue, no retry) and the window's cooldown stays stamped.
+
+### Requirement: Operator-request queue — drain on idle (the user-initiated busy path)
+The backend SHALL run an in-memory per-server `operatorQueueTracker`
+(`api/operator_queue.go`), a structural sibling of `autoNameTracker` (own
+mutex, `now func() time.Time` clock seam, injected `deliver` closure seam —
+nil in test hubs, tracking still advancing, fan-out skipped), advanced
+synchronously on the SSE per-server tick right after the auto-name block and
+reaped on the post-loop retain seam (scoped to successfully-polled-or-dead
+servers exactly like its siblings, keyed off the polled-server set). Queueing
+is always-on — NO settings key (it preserves an explicit user action, unlike
+the opt-in system-initiated auto-name trigger) — so the tracker is constructed
+unconditionally at hub construction and its deliver closure wired at
+`initSSEHub` (the `autoNameDeliver` builder shape, a `Server` method closing
+over the drain revalidate + re-render + `deliverOperatorPrompt` sequence);
+handlers reach it through the hub (the `getAutoName` accessor pattern). State
+is process-memory only: a daemon restart forgets queued intents, degrading to
+plain busy rejection (Constitution II).
+
+Entries queue the REQUEST, never the rendered prompt: `{template, windowID,
+text, session, enqueuedAt}`. Enqueue dedups on the key `(template,
+windowID/session, hash(text))` — a repeated tap coalesces idempotently onto the
+existing entry (the caller sees the same queued outcome) and KEEPS the original
+`enqueuedAt` (no TTL extension by re-tapping). Depth is capped at 8 per server
+(`operatorQueueCap`); overflow refuses with a queue-full signal the handler
+maps to `409 "operator queue is full"`. Order is FIFO (oldest first), and the
+one entry reserved for detached delivery still counts toward the cap and the
+dedup set until its delivery settles (a busy race can never briefly admit a
+ninth pending intent).
+
+On each tick the tracker evaluates the LEVEL condition — operator window
+present AND its rolled-up `AgentState` reads exactly `idle` AND the queue is
+non-empty AND the per-server drain min-gap (`operatorQueueMinGap`, 60s — the
+`autoNameMinGap` value and rationale: the operator's rolled-up state lags an
+injection by a hook round-trip) has elapsed — and when it holds, pops exactly
+ONE entry (FIFO), stamps the min-gap at decision time on the tracker's OWN
+per-server stamp (independent of `autoNameTracker.lastSent`), and delivers in a
+detached `context.Background()` goroutine (the tick never blocks on injection).
+Entries older than 30 minutes (`operatorQueueTTL`, measured from `enqueuedAt`)
+are dropped quietly at tick time (debug log only), independent of operator
+state — an operator parked in `waiting` for hours must not deliver stale
+intents.
+
+The detached delivery goroutine performs its OWN fresh `FetchSessions` and
+re-derives everything from that result — it retains NO reference to the tick's
+shared sessions slice (later cache-hit ticks mutate it, an unsynchronized
+read/write race). From the fresh result it re-runs the same gates the live
+path runs (subject window alive and not the operator; chat ref resolvable via
+`chat.TranscriptPath` for `requiresChatRef` templates; `requiresWaiting` still
+satisfied; `session` scope still names a live session; operator window present
+with a resolvable chat pane), re-renders via the entry's registry render func
+over freshly built facts (the same consumer-side session filtering as the
+handler), and delivers through `deliverOperatorPrompt` — whose busy gate,
+reading FRESH state, is a real re-busy check. Failure policy: a busy-class
+`operatorReject` (the operator went busy between the tick's idle observation
+and the injection — nothing was typed) or a `FetchSessions` error REQUEUES the
+entry at the head of its queue for a later idle observation; every other
+failure (gate failures, `inject.ProbeFailure`/`SubmitUnverified`, any other
+injection error) DROPS the entry quietly — a debug log line, never a retry
+(nobody is watching at drain; a retry could double-paste into the composer).
+
+#### Scenario: Drain on idle, one entry per observation
+- **GIVEN** two queued entries and an operator observed `idle` with the min-gap
+  elapsed
+- **WHEN** the tick advances the tracker
+- **THEN** exactly one entry is popped and handed to the fresh-fetch deliver
+  closure; the second entry waits for a later idle observation.
+- **AND GIVEN** the operator turned `active` before the goroutine's fresh
+  fetch, **THEN** the busy gate rejects on fresh state and the entry is back at
+  the head of the queue, draining on a later idle observation.
+- **AND GIVEN** a popped entry whose subject window no longer exists, **THEN**
+  it is dropped with a debug log and no injection runs.
+- **AND GIVEN** an entry enqueued 31 minutes ago behind a `waiting` operator,
+  **THEN** the next tick drops it (debug log only) without delivering.
+
+#### Scenario: Coalesce and cap
+- **GIVEN** a queued `{fix-tab-name, @5}` entry
+- **WHEN** the same request is enqueued again
+- **THEN** the queue still holds one entry with the original `enqueuedAt`.
+- **AND GIVEN** a queue already holding 8 entries, **WHEN** a distinct request
+  arrives, **THEN** enqueue is refused queue-full.
 
 ### Requirement: The `spawn-task` template (server-scoped)
 The registry's `spawn-task` entry (`serverScoped: true`, `acceptsText: true`)
@@ -619,6 +722,17 @@ structured message; the notes arrive via the normal SSE derive tick (user-option
 writes ride the ~12s safety poll), so there is no spinner beyond the in-flight
 guard.
 
+Both client helpers surface the busy outcome as a discriminated
+`OperatorRequestResult` (`{outcome: "delivered"}` on `200 {"ok":true}` vs
+`{outcome: "queued"}` on `202 {"queued":true}`), keeping the `withServer` +
+`throwOnError` shape so structured 400/404/409 messages still surface as thrown
+Error messages. Every operator-request call site resolves its success toast
+through the shared `operatorRequestToast(result, deliveredCopy)` helper
+(`lib/operator-request.ts`): the queued outcome toasts
+`"Queued for operator — will be delivered when it is idle"` and the delivered
+outcome keeps its existing copy. No new UI surface — no queue badge, no
+inspect/cancel affordance (Constitution IV) — and no SSE payload change.
+
 #### Scenario: Gating and single-flight
 - **GIVEN** a window row on a server with an operator and a chat-carrying
   subject
@@ -630,6 +744,10 @@ guard.
   entry are absent (not disabled).
 - **AND GIVEN** no operator on the server, **THEN** neither
   update-annotations fire surface renders (omitted, not disabled).
+- **AND GIVEN** a busy operator and a tap on "Fix tab name", **WHEN** the
+  request resolves queued, **THEN** the toast reads
+  `"Queued for operator — will be delivered when it is idle"`; with an idle
+  operator the delivered copy is unchanged.
 
 ## Design Decisions
 
@@ -749,20 +867,25 @@ submit-per-verb dual buttons (two primary actions in one dialog reads
 ambiguous with Enter-submits).
 *Introduced by*: 260822-wyn3-operator-compose-spawn-search
 
-### Delivery + derive only — no queue, no response channel
+### Delivery + derive only — no persisted mailbox, no response channel
 **Decision**: the actuation loop composes a templated prompt with pre-derived
 facts and delivers it via the chat-send injection machinery; results come back
 through the ordinary derive loop. There is no response channel, no protocol, no
-reply parsing, no queue, no persisted mailbox, and no operator-request retry.
-The shared injection engine's evidence-gated recovery is part of a single delivery
-attempt.
-**Why**: a request queue or operator mailbox is persistent state with retry
-semantics (Constitution II rejects it); a response channel would turn the
+reply parsing, no persisted mailbox, and no cross-restart retry. The one
+pending-intent store is the in-memory per-server `operatorQueueTracker`
+(`api/operator_queue.go`) — bounded (cap 8, TTL 30 min), process-memory only
+(Constitution II), drained one entry per idle observation, forgotten on
+restart. The shared injection engine's evidence-gated recovery is part of a
+single delivery attempt.
+**Why**: a persisted request queue or operator mailbox is durable state with
+retry semantics (Constitution II rejects it); a response channel would turn the
 operator into an RPC service and require reply parsing. The operator acts
 through its shell and the result arrives through the derive loop rk already
 runs — run-kit owns the derivable and deterministic; the operator owns judgment
-over content (Constitution II/X).
-**Rejected**: a request queue/mailbox (Constitution II); a response channel or
+over content (Constitution II/X). The in-memory queue preserves an explicit
+user action across a busy window without crossing either line.
+**Rejected**: a persisted request queue/mailbox (Constitution II); a response
+channel or
 reply protocol (RPC-ifies the operator); naive `send-keys` Enter injection
 (known-flaky into agent TUIs — the chat-send machinery already solved
 delivery).
@@ -826,3 +949,34 @@ identical to the waiting-push `notify` seam.
 **Rejected**: calling `s.injectChatMessage` directly from the tracker (couples
 tracker tests to the injection engine).
 *Introduced by*: 260822-q675-operator-auto-name-idle
+
+### Level-triggered drain condition
+**Decision**: the operator-request queue drains when (operator idle ∧ queue
+non-empty ∧ per-server min-gap elapsed), evaluated fresh each tick — not on the
+busy→idle edge.
+**Why**: edge-triggering strands entries whenever the edge is missed (a first
+observation is not a transition; the operator can flip idle between ticks); the
+level condition self-heals every missed edge at zero extra cost.
+**Rejected**: reusing `autoNameTracker`'s transition detection for the drain
+trigger.
+*Introduced by*: 260902-4km4-operator-request-queue-drain-on-idle
+
+### Busy race does not consume the entry
+**Decision**: the busy-class `operatorReject` at drain requeues the entry (head
+position, min-gap already stamped); a drain-time `FetchSessions` error
+requeues the same way; every other delivery failure drops it.
+**Why**: on a busy rejection nothing was typed, so redelivery is provably safe;
+dropping on a mere snapshot race would contradict the level-trigger's
+self-healing purpose. Real injection failures are ambiguous (text may sit in
+the composer) — retrying risks double-paste.
+**Rejected**: uniform drop on any failure; uniform retry with a counter.
+*Introduced by*: 260902-4km4-operator-request-queue-drain-on-idle
+
+### Queue the request, render at drain
+**Decision**: queue entries carry `{template, windowID, text, session,
+enqueuedAt}`; facts re-derive and the prompt re-renders at drain from a fresh
+sessions fetch inside the detached worker.
+**Why**: fact tables (agent states, PR rollups, transcript paths) go stale in
+minutes; a queued prompt would deliver stale facts as instructions.
+**Rejected**: queueing the rendered prompt string.
+*Introduced by*: 260902-4km4-operator-request-queue-drain-on-idle

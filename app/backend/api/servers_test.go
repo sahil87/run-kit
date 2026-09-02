@@ -743,6 +743,41 @@ func TestHandleServerWake(t *testing.T) {
 		expectNoWake(t, tracker, before, "malformed body")
 	})
 
+	// A previously polled server keeps accepting wakes while momentarily
+	// client-less (its h.wakes entry exists — wakeChannel created it): the
+	// wake must stay PENDING so it fires on resubscribe rather than being
+	// lost to a brief socket reconnect.
+	t.Run("ever-polled server pends the wake while client-less", func(t *testing.T) {
+		server, _ := newWakeSeamServer(t, &mockTmuxOps{})
+		// Simulate "polled before, no clients now": seed the entry the poll
+		// loop's wakeChannel would have created, with no client subscribed.
+		server.sseHub.wakeMu.Lock()
+		server.sseHub.wakes["idle-server"] = make(chan struct{})
+		server.sseHub.wakeMu.Unlock()
+
+		router := server.buildRouter()
+		req := httptest.NewRequest("POST", "/api/servers/wake", strings.NewReader(`{"name":"idle-server"}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != 200 {
+			t.Fatalf("status = %d, want 200. body=%s", rec.Code, rec.Body.String())
+		}
+
+		server.sseHub.wakeMu.Lock()
+		ch, ok := server.sseHub.wakes["idle-server"]
+		server.sseHub.wakeMu.Unlock()
+		if !ok {
+			t.Fatal("the ever-polled server's wake entry disappeared")
+		}
+		select {
+		case <-ch:
+			// closed — the wake is pending for the next poll pass
+		default:
+			t.Error("wake channel not closed — the wake was dropped instead of pended")
+		}
+	})
+
 	// The endpoint accepts any syntactically valid name from out-of-process
 	// callers, so a name with no subscribers must be dropped BEFORE it
 	// allocates a h.wakes entry — nothing ever reaps entries for servers

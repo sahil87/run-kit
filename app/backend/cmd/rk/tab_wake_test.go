@@ -259,6 +259,7 @@ func TestTabReadsAndFailures_NoWake(t *testing.T) {
 // sharing webAddShow) fires the wake too — both the attach arm and --window.
 func TestPresent_WakesHub(t *testing.T) {
 	f := installPresentFakes(t)
+	t.Setenv("TMUX_PANE", "%3") // the attach arm resolves the caller's own tab
 
 	if _, _, err := runPresentCmd(t, t.TempDir()); err != nil {
 		t.Fatalf("present: %v", err)

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -201,6 +202,37 @@ func TestChatSendSubmitUnverifiedConflict(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "may or may not have been submitted") {
 		t.Fatalf("body = %s, want submit-unconfirmed guidance", rec.Body.String())
+	}
+}
+
+func TestChatSendStagedFailureCodeAndLog(t *testing.T) {
+	fastChatSendProbe(t)
+	sf := &mockSessionFetcher{result: chatSessions("@1", "claude", testChatRef)}
+	ops := &mockTmuxOps{
+		capturePaneResults: []string{"❯ ", "❯ hello world"},
+		sendEnterErr:       errors.New("client is read-only"),
+	}
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	router := NewTestRouter(logger, sf, ops, "host")
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, sendReq(`{"text":"hello world"}`))
+	assertConflictCode(t, rec, "staged_send_failure")
+
+	record := decodeLogRecord(t, &logs)
+	for key, want := range map[string]string{
+		"level": "WARN", "server": "default", "windowID": "@1", "paneID": "%1",
+	} {
+		if got := record[key]; got != want {
+			t.Errorf("log %s = %v, want %q; record=%v", key, got, want, record)
+		}
+	}
+	if _, ok := record["mode"]; ok {
+		t.Errorf("chat send log unexpectedly contains mode: %v", record)
+	}
+	if errText, ok := record["err"].(string); !ok || !strings.Contains(errText, "client is read-only") {
+		t.Errorf("log err = %v, want wrapped tmux cause; record=%v", record["err"], record)
 	}
 }
 

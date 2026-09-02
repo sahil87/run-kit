@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -30,6 +31,29 @@ func TestWrapStderr(t *testing.T) {
 	}
 	if want := "exit status 1: no server running"; wrapped.Error() != want {
 		t.Errorf("wrapped error = %q, want %q", wrapped.Error(), want)
+	}
+}
+
+func TestNewRunCmdEnvironment(t *testing.T) {
+	t.Setenv("TMUX", "/tmp/tmux-1001/rk-daemon,5131,14")
+	t.Setenv("TMUX_PANE", "%14")
+	t.Setenv("RK_RUNCORE_KEEP", "keep-me")
+
+	cmd := newRunCmd(context.Background(), []string{"-V"}, RunOpts{})
+	for _, entry := range cmd.Env {
+		name, _, _ := strings.Cut(entry, "=")
+		if name == "TMUX" || name == "TMUX_PANE" {
+			t.Fatalf("inherited cmd env contains %q", entry)
+		}
+	}
+	if !slices.Contains(cmd.Env, "RK_RUNCORE_KEEP=keep-me") {
+		t.Fatalf("inherited cmd env omitted unrelated variable: %v", cmd.Env)
+	}
+
+	explicit := []string{"TMUX=caller-owned", "TMUX_PANE=%99", "ONLY=this"}
+	cmd = newRunCmd(context.Background(), []string{"-V"}, RunOpts{Env: explicit})
+	if !slices.Equal(cmd.Env, explicit) {
+		t.Fatalf("explicit cmd env = %v, want verbatim %v", cmd.Env, explicit)
 	}
 }
 

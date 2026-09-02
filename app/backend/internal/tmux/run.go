@@ -14,13 +14,14 @@ package tmux
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
 
 // RunOpts carries optional per-invocation overrides for the tmux runner core.
 type RunOpts struct {
-	Env []string // nil inherits the process environment
+	Env []string // nil inherits the process environment without tmux client context
 	Dir string   // "" inherits the process CWD
 }
 
@@ -53,11 +54,19 @@ func RunOutput(ctx context.Context, args []string, opts RunOpts) ([]byte, error)
 }
 
 // newRunCmd builds the exec.Cmd shared by Run/RunOutput, applying the
-// RunOpts inheritance semantics (nil Env / empty Dir inherit the process's).
+// RunOpts inheritance semantics.
 func newRunCmd(ctx context.Context, args []string, opts RunOpts) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "tmux", args...)
-	if opts.Env != nil {
-		cmd.Env = opts.Env
+	cmd.Env = opts.Env
+	if cmd.Env == nil {
+		parentEnv := os.Environ()
+		cmd.Env = make([]string, 0, len(parentEnv))
+		for _, entry := range parentEnv {
+			name, _, _ := strings.Cut(entry, "=")
+			if name != "TMUX" && name != "TMUX_PANE" {
+				cmd.Env = append(cmd.Env, entry)
+			}
+		}
 	}
 	cmd.Dir = opts.Dir
 	return cmd

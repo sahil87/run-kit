@@ -49,6 +49,7 @@ type fakeTmux struct {
 	pasteErr       error
 	pasteRawErr    error
 	enterErr       error
+	enterErrs      []error
 	keyErr         error
 	bufferName     string
 	bufferText     string
@@ -57,6 +58,7 @@ type fakeTmux struct {
 	enteredPane    string
 	enterCalled    bool
 	enterHook      func()
+	pasteHook      func()
 	keysSent       [][]string
 }
 
@@ -105,9 +107,14 @@ func (f *fakeTmux) SetBuffer(_ context.Context, name, text, _ string) error {
 func (f *fakeTmux) PasteBuffer(_ context.Context, _, paneID, _ string) error {
 	f.record("paste-buffer")
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.pastedPane = paneID
-	return f.pasteErr
+	hook := f.pasteHook
+	err := f.pasteErr
+	f.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
+	return err
 }
 
 func (f *fakeTmux) PasteBufferRaw(_ context.Context, _, paneID, _ string) error {
@@ -125,6 +132,10 @@ func (f *fakeTmux) SendEnter(_ context.Context, paneID, _ string) error {
 	f.enteredPane = paneID
 	hook := f.enterHook
 	err := f.enterErr
+	if len(f.enterErrs) > 0 {
+		err = f.enterErrs[0]
+		f.enterErrs = f.enterErrs[1:]
+	}
 	f.mu.Unlock()
 	if hook != nil {
 		hook()
@@ -322,11 +333,99 @@ func TestSendTmuxFailureVerbatim(t *testing.T) {
 	if errors.As(err, &pf) {
 		t.Fatalf("err = %v, must not be a ProbeFailure (tmux fault is distinct)", err)
 	}
+	var staged StagedSendFailure
+	if errors.As(err, &staged) {
+		t.Fatalf("err = %v, must not be a StagedSendFailure before paste succeeds", err)
+	}
+	var unverified SubmitUnverified
+	if errors.As(err, &unverified) {
+		t.Fatalf("err = %v, must not be SubmitUnverified before Enter", err)
+	}
 	if err == nil || !strings.Contains(err.Error(), "tmux exploded") {
 		t.Fatalf("err = %v, want the wrapped tmux failure", err)
 	}
 	if ft.enterCalled {
 		t.Error("Enter sent despite a paste failure")
+	}
+}
+
+func TestSendPostPasteFailuresAreStaged(t *testing.T) {
+	fastProbe(t)
+	wantErr := errors.New("tmux failed")
+	tests := []struct {
+		name string
+		ops  *fakeTmux
+		ctx  func() context.Context
+	}{
+		{
+			name: "probe capture",
+			ops: &fakeTmux{
+				captureResults: []string{"pane\n❯ "},
+				captureErrs:    []error{nil, wantErr},
+			},
+			ctx: context.Background,
+		},
+		{
+			name: "probe context",
+			ops:  &fakeTmux{captureResults: []string{"pane\n❯ "}},
+			ctx: func() context.Context {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				return ctx
+			},
+		},
+		{
+			name: "send Enter",
+			ops: &fakeTmux{
+				captureResults: []string{"pane\n❯ ", "pane\n❯ hello"},
+				enterErr:       wantErr,
+			},
+			ctx: context.Background,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := NewEngine("rk-send-staged").Send(tt.ctx(), tt.ops, "default", "%5", "hello", true)
+			var staged StagedSendFailure
+			if !errors.As(err, &staged) {
+				t.Fatalf("err = %v, want StagedSendFailure", err)
+			}
+			var unverified SubmitUnverified
+			if errors.As(err, &unverified) {
+				t.Fatalf("err = %v, must not be SubmitUnverified", err)
+			}
+			if tt.name != "probe context" && !errors.Is(err, wantErr) {
+				t.Fatalf("err = %v, want wrapped cause %v", err, wantErr)
+			}
+			if tt.name == "probe context" && !errors.Is(err, context.Canceled) {
+				t.Fatalf("err = %v, want wrapped context cancellation", err)
+			}
+		})
+	}
+}
+
+func TestSendPrePasteFailuresRemainPlain(t *testing.T) {
+	wantErr := errors.New("tmux failed")
+	for _, tt := range []struct {
+		name string
+		ops  *fakeTmux
+	}{
+		{"set buffer", &fakeTmux{captureResult: "pane\n❯ ", setBufferErr: wantErr}},
+		{"paste buffer", &fakeTmux{captureResult: "pane\n❯ ", pasteErr: wantErr}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			err := NewEngine("rk-send-plain").Send(context.Background(), tt.ops, "default", "%5", "hello", true)
+			if !errors.Is(err, wantErr) {
+				t.Fatalf("err = %v, want wrapped cause %v", err, wantErr)
+			}
+			var staged StagedSendFailure
+			var unverified SubmitUnverified
+			var probe ProbeFailure
+			if errors.As(err, &staged) || errors.As(err, &unverified) || errors.As(err, &probe) {
+				t.Fatalf("err = %v, want plain wrapped error", err)
+			}
+		})
 	}
 }
 
@@ -657,11 +756,11 @@ func TestSendCancellationDuringVerification(t *testing.T) {
 
 	err := NewEngine("rk-send-cancel").Send(ctx, ft, "default", "%5", "hello", true)
 	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("err = %v, want context cancellation", err)
+		t.Fatalf("err = %v, want wrapped context cancellation", err)
 	}
 	var unverified SubmitUnverified
-	if errors.As(err, &unverified) {
-		t.Fatalf("err = %v, cancellation must not become SubmitUnverified", err)
+	if !errors.As(err, &unverified) {
+		t.Fatalf("err = %v, want SubmitUnverified", err)
 	}
 }
 
@@ -678,6 +777,69 @@ func TestSendVerificationCaptureErrorPropagates(t *testing.T) {
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("err = %v, want observation capture error", err)
 	}
+	var unverified SubmitUnverified
+	if !errors.As(err, &unverified) {
+		t.Fatalf("err = %v, want SubmitUnverified", err)
+	}
+}
+
+func TestSendRetryFailureClassification(t *testing.T) {
+	fastProbe(t)
+	fastSubmit(t)
+	wantErr := errors.New("retry failed")
+	baseline := "pane\n❯ "
+	preFrame := "pane\n❯ hello"
+	retryCaptures := func() []string {
+		captures := []string{baseline, preFrame}
+		for range SubmitBackoff {
+			captures = append(captures, preFrame)
+		}
+		return append(captures, baseline, preFrame)
+	}
+
+	t.Run("probe capture after repaste is staged", func(t *testing.T) {
+		captures := retryCaptures()
+		errs := make([]error, len(captures))
+		errs[len(errs)-1] = wantErr
+		ops := &fakeTmux{captureResults: captures, captureErrs: errs}
+		err := NewEngine("rk-send-retry-probe").Send(context.Background(), ops, "default", "%5", "hello", true)
+		var staged StagedSendFailure
+		if !errors.As(err, &staged) || !errors.Is(err, wantErr) {
+			t.Fatalf("err = %v, want StagedSendFailure wrapping %v", err, wantErr)
+		}
+	})
+
+	t.Run("retry Enter failure is staged", func(t *testing.T) {
+		ops := &fakeTmux{captureResults: retryCaptures(), enterErrs: []error{nil, wantErr}}
+		err := NewEngine("rk-send-retry-enter").Send(context.Background(), ops, "default", "%5", "hello", true)
+		var staged StagedSendFailure
+		if !errors.As(err, &staged) || !errors.Is(err, wantErr) {
+			t.Fatalf("err = %v, want StagedSendFailure wrapping %v", err, wantErr)
+		}
+	})
+
+	t.Run("verification failure after retry Enter is unverified", func(t *testing.T) {
+		captures := retryCaptures()
+		captures = append(captures, preFrame)
+		errs := make([]error, len(captures))
+		errs[len(errs)-1] = wantErr
+		ops := &fakeTmux{captureResults: captures, captureErrs: errs}
+		err := NewEngine("rk-send-retry-verify").Send(context.Background(), ops, "default", "%5", "hello", true)
+		var unverified SubmitUnverified
+		if !errors.As(err, &unverified) || !errors.Is(err, wantErr) {
+			t.Fatalf("err = %v, want SubmitUnverified wrapping %v", err, wantErr)
+		}
+	})
+
+	t.Run("clear failure after initial Enter is unverified", func(t *testing.T) {
+		captures := retryCaptures()
+		ops := &fakeTmux{captureResults: captures[:len(captures)-2], keyErr: wantErr}
+		err := NewEngine("rk-send-retry-clear").Send(context.Background(), ops, "default", "%5", "hello", true)
+		var unverified SubmitUnverified
+		if !errors.As(err, &unverified) || !errors.Is(err, wantErr) {
+			t.Fatalf("err = %v, want SubmitUnverified wrapping %v", err, wantErr)
+		}
+	})
 }
 
 // A repaint is provider-neutral evidence only that the observation phase must

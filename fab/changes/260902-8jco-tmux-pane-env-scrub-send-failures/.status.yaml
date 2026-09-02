@@ -1,0 +1,57 @@
+id: 8jco
+name: 260902-8jco-tmux-pane-env-scrub-send-failures
+created: 2026-09-02T17:29:18Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 10
+    acceptance_count: 20
+    acceptance_completed: 20
+confidence:
+    certain: 5
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 4.4
+    fuzzy: true
+    dimensions:
+        signal: 77.0
+        reversibility: 82.0
+        competence: 82.5
+        disambiguation: 77.0
+stage_metrics:
+    intake: {started_at: "2026-09-02T17:29:18Z", driver: fab-new, iterations: 1, completed_at: "2026-09-02T17:34:14Z"}
+    apply: {started_at: "2026-09-02T17:34:14Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-02T17:53:51Z"}
+    review: {started_at: "2026-09-02T17:53:51Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-02T18:02:54Z"}
+    hydrate: {started_at: "2026-09-02T18:02:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-02T18:08:08Z"}
+    ship: {started_at: "2026-09-02T18:08:08Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-02T18:10:40Z"}
+    review-pr: {started_at: "2026-09-02T18:10:40Z", driver: git-pr, iterations: 1, completed_at: "2026-09-02T18:16:58Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/796
+change_type_source: explicit
+true_impact:
+    added: 900
+    deleted: 55
+    net: 845
+    excluding:
+        added: 472
+        deleted: 31
+        net: 441
+    tests:
+        added: 331
+        deleted: 8
+        net: 323
+    computed_at: "2026-09-02T18:10:40Z"
+    computed_at_stage: ship
+summary: scrub TMUX/TMUX_PANE from tmux child env; staged_send_failure 409 for post-paste pre-Enter failures; post-Enter faults wrap as submit_unverified; send-failure slog logging
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-02T18:16:58Z

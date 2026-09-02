@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -152,7 +153,7 @@ func TestWindowSendProbeFailureCode(t *testing.T) {
 	router := NewTestRouter(slog.Default(), &mockSessionFetcher{result: activePaneWindow("@1")}, ops, "host")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, windowSendReq("@1", `{"text":"hello","mode":"submit"}`))
-	assertWindowSendConflict(t, rec, "probe_failure")
+	assertConflictCode(t, rec, "probe_failure")
 	if ops.sendEnterCalled {
 		t.Fatal("Enter sent despite probe failure")
 	}
@@ -164,10 +165,82 @@ func TestWindowSendSubmitUnverifiedCode(t *testing.T) {
 	router := NewTestRouter(slog.Default(), &mockSessionFetcher{result: activePaneWindow("@1")}, ops, "host")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, windowSendReq("@1", `{"text":"hello","mode":"submit"}`))
-	assertWindowSendConflict(t, rec, "submit_unverified")
+	assertConflictCode(t, rec, "submit_unverified")
 }
 
-func assertWindowSendConflict(t *testing.T, rec *httptest.ResponseRecorder, wantCode string) {
+func TestWindowSendStagedFailureCode(t *testing.T) {
+	fastChatSendProbe(t)
+	ops := &mockTmuxOps{
+		capturePaneResults: []string{"$ ", "$ hello"},
+		sendEnterErr:       errors.New("client is read-only"),
+	}
+	router := NewTestRouter(slog.Default(), &mockSessionFetcher{result: activePaneWindow("@1")}, ops, "host")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, windowSendReq("@1", `{"text":"hello","mode":"submit"}`))
+	assertConflictCode(t, rec, "staged_send_failure")
+}
+
+func TestWindowSendFailureLogging(t *testing.T) {
+	tests := []struct {
+		name      string
+		body      string
+		ops       *mockTmuxOps
+		wantLevel string
+		wantMode  string
+	}{
+		{
+			name: "recoverable",
+			body: `{"text":"hello","mode":"submit"}`,
+			ops: &mockTmuxOps{
+				capturePaneResults: []string{"$ ", "$ hello"},
+				sendEnterErr:       errors.New("client is read-only"),
+			},
+			wantLevel: "WARN",
+			wantMode:  "submit",
+		},
+		{
+			name:      "fatal",
+			body:      `{"text":"hello","mode":"raw"}`,
+			ops:       &mockTmuxOps{pasteChatRawBufferErr: errors.New("paste failed")},
+			wantLevel: "ERROR",
+			wantMode:  "raw",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fastChatSendProbe(t)
+			var logs bytes.Buffer
+			logger := slog.New(slog.NewJSONHandler(&logs, nil))
+			router := NewTestRouter(logger, &mockSessionFetcher{result: activePaneWindow("@1")}, tt.ops, "host")
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, windowSendReq("@1", tt.body))
+
+			record := decodeLogRecord(t, &logs)
+			for key, want := range map[string]string{
+				"level": tt.wantLevel, "server": "test", "windowID": "@1",
+				"paneID": "%2", "mode": tt.wantMode,
+			} {
+				if got := record[key]; got != want {
+					t.Errorf("log %s = %v, want %q; record=%v", key, got, want, record)
+				}
+			}
+			if errText, ok := record["err"].(string); !ok || errText == "" {
+				t.Errorf("log err = %v, want non-empty string; record=%v", record["err"], record)
+			}
+		})
+	}
+}
+
+func decodeLogRecord(t *testing.T, logs *bytes.Buffer) map[string]any {
+	t.Helper()
+	var record map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(logs.Bytes()), &record); err != nil {
+		t.Fatalf("decode log %q: %v", logs.String(), err)
+	}
+	return record
+}
+
+func assertConflictCode(t *testing.T, rec *httptest.ResponseRecorder, wantCode string) {
 	t.Helper()
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status = %d, want 409; body=%s", rec.Code, rec.Body.String())

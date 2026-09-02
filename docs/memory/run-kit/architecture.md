@@ -156,7 +156,7 @@ Packages in `app/backend/internal/`:
 
 ```go
 type RunOpts struct {
-    Env []string // nil inherits the process environment
+    Env []string // nil inherits the process environment without tmux client context (TMUX/TMUX_PANE scrubbed)
     Dir string   // "" inherits the process CWD
 }
 func Run(ctx context.Context, args []string, opts RunOpts) error
@@ -164,6 +164,8 @@ func RunOutput(ctx context.Context, args []string, opts RunOpts) ([]byte, error)
 ```
 
 The fixed contract: `exec.CommandContext(ctx, "tmux", args...)` with an explicit argv slice, never a shell string (Constitution §I). `Run` uses `cmd.Run()`; `RunOutput` uses `cmd.Output()` (stdout returned, excluded from the error text). Both capture stderr separately and, on non-zero exit, wrap it as `fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr))` — the stderr-in-error convention callers pattern-match on — falling back to the **bare** error when trimmed stderr is empty (so no dangling `": "`). The `%w` wrap keeps `errors.As` working with a `*exec.ExitError` target (`var exitErr *exec.ExitError; errors.As(err, &exitErr)`).
+
+**Child-env scrub (inherit path)**: when `RunOpts.Env` is nil, the child environment is `os.Environ()` minus `TMUX` and `TMUX_PANE` — tmux client-context variables that, inherited, attribute daemon commands to the wrong pane on the target server (§ Design Decisions → The runner core scrubs tmux client context from the child env). An explicit `RunOpts.Env` passes through verbatim — the caller owns it (`CreateSession`'s `CleanEnvForServer()` is unaffected).
 
 Two things are **deliberately not** in the core:
 
@@ -490,6 +492,12 @@ paths; a `--relative` flag that adds surface for one caller.
 **Why**: a hand-copied runner drifts — copies diverge on capture strategy (`CombinedOutput` vs stderr-only) and buffer type, and every fix to the idiom must then be applied N times or silently miss a copy. One implementation is what makes the code-quality rule "all tmux interaction goes through `internal/tmux/`" enforceable. `internal/tmux` holds the superset implementation (env + dir options), so exporting it is the minimal consolidation: no new package, no behavior change.
 **Rejected**: unifying socket targeting along with the runner — the four flavors (`-L` const daemon socket / `-L spec.Server` / bare + restored `$TMUX` / `-S` from `tmux.OriginalTMUX`) are deliberate per-site semantics, so each caller keeps its own argv-prefix builder; centralizing timeouts in the core — Constitution §I keeps them caller-owned and the sites run deliberately different budgets; a "quiet" core variant for best-effort callers — error-discard stays at the call site (`riff.resolveWindowIDFromPane`, both `agent_hook` never-fail sites), keeping the core's contract single-shaped.
 *Introduced by*: 260731-zeiy-consolidate-tmux-runner-core
+
+### The runner core scrubs tmux client context from the child env
+**Decision**: `newRunCmd` builds the child env as `os.Environ()` minus `TMUX`/`TMUX_PANE` on the inherit path (`RunOpts.Env == nil`); an explicit `Env` passes through verbatim. There is no process-global `os.Unsetenv("TMUX_PANE")` (the existing global `os.Unsetenv("TMUX")` stays as belt-and-braces).
+**Why**: tmux attributes a CLI command to the pane named by `TMUX_PANE` resolved against the TARGET server, and pane ids are unique only per server — a daemon running inside a tmux pane leaks its own server's pane id into commands aimed at other servers, and when the colliding pane's session has only the dashboard's read-only `-CC` relay client attached, tmux refuses the mutating commands (`send-keys`) while permitting the read-only-listed ones (`set-buffer`/`paste-buffer`): the paste lands, Enter fails. The runner is the single shared seam, so the daemon's HTTP sends and the `rk mux send` CLI verb are both covered. rk CLI verbs legitimately read `$TMUX_PANE` to self-identify (`rk role`, `rk tab`, `rk owntab`, the guard shim), so only spawned tmux children may lose it.
+**Rejected**: Global unset (breaks `rk role`/`rk tab`/`rk owntab` self-identification); per-call-site scrubbing (34+ call sites, one missed site reintroduces the bug).
+*Introduced by*: 260902-8jco-tmux-pane-env-scrub-send-failures
 
 ### Derived chrome (not slot injection)
 **Decision**: top bar and bottom bar derive content from the current session:window selection. No `setLine2Left`/`setLine2Right`/`setBottomBar` setters. Split React Context preserved for performance (state vs dispatch).

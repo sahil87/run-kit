@@ -242,11 +242,27 @@ func (s *Server) handleChatSend(w http.ResponseWriter, r *http.Request) {
 	// protocol-based codex send can later branch on provider without reshaping
 	// this handler. v1 makes NO provider branch.
 	if err := s.injectIntoPane(ctx, server, paneID, body.Text, submit); err != nil {
+		logArgs := []any{
+			"server", server,
+			"windowID", windowID,
+			"paneID", paneID,
+			"err", err,
+		}
+		if isRecoverableSendFailure(err) {
+			s.logger.Warn("chat send failed", logArgs...)
+		} else {
+			s.logger.Error("chat send failed", logArgs...)
+		}
 		var probeErr inject.ProbeFailure
 		if errors.As(err, &probeErr) {
 			// Probe failed — no Enter was sent; the pasted text is left visible in
 			// the TUI input box (recoverable state), and the failure is surfaced.
 			writeError(w, http.StatusConflict, probeErr.Error())
+			return
+		}
+		var stagedErr inject.StagedSendFailure
+		if errors.As(err, &stagedErr) {
+			writeErrorCode(w, http.StatusConflict, "staged_send_failure", stagedErr.Error())
 			return
 		}
 		var submitErr inject.SubmitUnverified
@@ -270,8 +286,8 @@ func (s *Server) handleChatSend(w http.ResponseWriter, r *http.Request) {
 // (server, paneID) with the set→paste critical section additionally serialized
 // across panes. See inject.Engine.Send for the full sequence contract.
 //
-// A tmux failure is returned verbatim (→ 500); a probe failure is returned as
-// inject.ProbeFailure (→ 409, Enter withheld).
+// Failure types preserve whether the text is untouched, staged before Enter,
+// or unverified after Enter so each caller can give safe recovery guidance.
 func (s *Server) injectIntoPane(ctx context.Context, server, paneID, text string, submit bool) error {
 	return chatSendEngine.Send(ctx, chatSendTmux{s.tmux}, server, paneID, text, submit)
 }

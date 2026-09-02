@@ -320,6 +320,34 @@ func (s *Server) handleServerProtect(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+// handleServerWake wakes the SSE hub's derive tick for one server — the
+// mutation-signal endpoint for out-of-process writers (the rk tab CLI) whose
+// direct tmux option writes emit no control-mode event and would otherwise
+// wait for the safety poll.
+// POST /api/servers/wake ← {"name": "srv"} → 200 {"ok": true}
+//
+// Never touches tmux: a wake for a server with no connected clients is a
+// harmless no-op inside the hub, so no existence check is needed.
+func (s *Server) handleServerWake(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body")
+		return
+	}
+
+	if errMsg := validate.ValidateServerName(body.Name); errMsg != "" {
+		writeError(w, http.StatusBadRequest, errMsg)
+		return
+	}
+
+	s.initSSEHub()
+	s.sseHub.wake(body.Name)
+
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 // adoptMigrateLegacy is the adopt handler's legacy-option sweep seam — tests
 // substitute it to prove the sweep runs on a successful adopt without a live
 // tmux server.

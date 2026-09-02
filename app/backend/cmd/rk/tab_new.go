@@ -160,5 +160,6 @@ func runTabNew(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("create window: %w", err)
 	}
 	newSink(cmd).Dataf("%s\n", id)
+	tabWakeFn(ctx, server)
 	return nil
 }

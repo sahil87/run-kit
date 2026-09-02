@@ -272,6 +272,7 @@ func runTabWebAdd(cmd *cobra.Command, args []string) error {
 	sink := newSink(cmd)
 	sink.Notef("url: %s\n", url)
 	sink.Dataf("%s/web/%d\n", windowID, index)
+	tabWakeFn(ctx, server)
 	return nil
 }
 
@@ -315,6 +316,7 @@ func runTabWebRm(cmd *cobra.Command, args []string) error {
 	if err := tmux.WebRemove(ctx, windowID, server, n); err != nil {
 		return webRangeError(ctx, windowID, server, n, err)
 	}
+	tabWakeFn(ctx, server)
 	return nil
 }
 
@@ -329,6 +331,7 @@ func runTabWebSelect(cmd *cobra.Command, args []string) error {
 	if err := tmux.WebSelect(ctx, windowID, server, n); err != nil {
 		return webRangeError(ctx, windowID, server, n, err)
 	}
+	tabWakeFn(ctx, server)
 	return nil
 }
 
@@ -349,6 +352,7 @@ func runTabWebMv(cmd *cobra.Command, args []string) error {
 	}
 	sink := newSink(cmd)
 	sink.Dataf("%s/web/%d\n", windowID, to)
+	tabWakeFn(ctx, server)
 	return nil
 }
 

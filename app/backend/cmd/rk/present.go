@@ -124,11 +124,11 @@ func runPresent(cmd *cobra.Command, arg string) error {
 		}
 	}
 
-	var url string
+	var url, server string
 	if cmd.Flags().Changed("window") {
-		url, err = presentViaNewWindow(ctx, cmd, target)
+		url, server, err = presentViaNewWindow(ctx, cmd, target)
 	} else {
-		url, err = presentAttach(ctx, target)
+		url, server, err = presentAttach(ctx, target)
 	}
 	if err != nil {
 		return err
@@ -136,6 +136,7 @@ func runPresent(cmd *cobra.Command, arg string) error {
 
 	sink := newSink(cmd)
 	sink.Dataf("%s\n", url)
+	tabWakeFn(ctx, server)
 
 	// --notify is fail-silent by contract (rk notify): after a successful
 	// attach, send and swallow any failure.
@@ -155,13 +156,13 @@ func runPresent(cmd *cobra.Command, arg string) error {
 // show arm ensures web is in the window's layout (a full 3-tile layout
 // without web yields its last slot) and selects the slot. The window resolves
 // through the shared own-tab resolver (owntab.go).
-func presentAttach(ctx context.Context, target present.Target) (string, error) {
+func presentAttach(ctx context.Context, target present.Target) (url, server string, err error) {
 	windowID, server, err := ownWindowID(ctx)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	_, url, err := webAddShow(ctx, windowID, server, target, true)
-	return url, err
+	_, url, err = webAddShow(ctx, windowID, server, target, true)
+	return url, server, err
 }
 
 // presentViaNewWindow implements the --window arm: `rk tab new --layout
@@ -172,24 +173,24 @@ func presentAttach(ctx context.Context, target present.Target) (string, error) {
 // (server, roothash) form), so the add composes it once from the target and
 // the add lands on the new window id creation returns (never a session:name
 // re-resolution — window names are not unique).
-func presentViaNewWindow(ctx context.Context, cmd *cobra.Command, target present.Target) (string, error) {
+func presentViaNewWindow(ctx context.Context, cmd *cobra.Command, target present.Target) (url, server string, err error) {
 	name := presentWindowFlag
 	if name == presentFlagAuto {
 		name = presentWindowName(target)
 	} else if errMsg := validate.ValidateNewName(name, "Window name"); errMsg != "" {
-		return "", fmt.Errorf("--window name: %s", errMsg)
+		return "", "", fmt.Errorf("--window name: %s", errMsg)
 	}
 
 	session, server, err := resolveTabNewSession(ctx, "")
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	layout := "single:web"
 	id, err := tabCreateWindowIDFn(session, name, "", server,
 		[]tmux.WindowOptionOp{{Key: tmux.LayoutOption, Value: &layout}})
 	if err != nil {
-		return "", fmt.Errorf("create window: %w", err)
+		return "", "", fmt.Errorf("create window: %w", err)
 	}
 	root := ""
 	if target.NeedsRoot() {
@@ -197,9 +198,9 @@ func presentViaNewWindow(ctx context.Context, cmd *cobra.Command, target present
 	}
 	_, _, err = presentWebAddFn(ctx, id, server, target.URL(server, root, presentNowFn), root)
 	if err != nil {
-		return "", fmt.Errorf("attach window %s: %w", id, err)
+		return "", "", fmt.Errorf("attach window %s: %w", id, err)
 	}
-	return target.URL(server, root, presentNowFn), nil
+	return target.URL(server, root, presentNowFn), server, nil
 }
 
 // presentWindowName derives the default standalone-window name from the

@@ -23,6 +23,7 @@ type tabTestEnv struct {
 	socket string
 	bootID string // the boot window's @N
 	paneID string // the boot window's initial pane (%N)
+	wakes  []string
 }
 
 func withTabTestServer(t *testing.T) *tabTestEnv {
@@ -53,7 +54,15 @@ func withTabTestServer(t *testing.T) *tabTestEnv {
 	origTMUX := ownTabOriginalTMUXFn
 	ownTabOriginalTMUXFn = func() string { return socket + ",1,0" }
 	t.Setenv("TMUX_PANE", env.paneID)
-	t.Cleanup(func() { ownTabOriginalTMUXFn = origTMUX })
+	// Record wakes instead of POSTing them: keeps the integration tests
+	// network-free and lets them assert the wake wiring per verb.
+	tabWakeFn = func(_ context.Context, server string) {
+		env.wakes = append(env.wakes, server)
+	}
+	t.Cleanup(func() {
+		ownTabOriginalTMUXFn = origTMUX
+		tabWakeFn = wakeTabHub
+	})
 	return env
 }
 

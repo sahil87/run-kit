@@ -26,6 +26,7 @@ type presentFake struct {
 	selects      []presentWebSelect
 	notified     []string
 	probed       []int
+	wakes        []string
 }
 
 type presentWebAdd struct {
@@ -104,6 +105,9 @@ func installPresentFakes(t *testing.T) *presentFake {
 	presentNotifyFn = func(_ context.Context, title, body string) {
 		f.notified = append(f.notified, body)
 	}
+	tabWakeFn = func(_ context.Context, server string) {
+		f.wakes = append(f.wakes, server)
+	}
 	presentNowFn = func() int64 { return 1700000000 }
 
 	t.Cleanup(func() {
@@ -129,6 +133,7 @@ func installPresentFakes(t *testing.T) *presentFake {
 		}
 		presentProbeFn = func(ctx context.Context, port int) error { return present.ProbePort(ctx, port) }
 		presentNotifyFn = sendNotify
+		tabWakeFn = wakeTabHub
 		presentNowFn = func() int64 { return time.Now().Unix() }
 	})
 	return f

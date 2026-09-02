@@ -1751,7 +1751,9 @@ func (h *sseHub) poll() {
 			// h.wakes is guarded by its own wakeMu (not h.mu). Drop each dead
 			// server's wake channel so a reaped server leaves no residual entry.
 			// Lock order is h.mu → wakeMu; no path takes them the other way
-			// (the wake helpers touch only wakeMu), so this cannot deadlock.
+			// (wake() nests h.mu.RLock → wakeMu in this same order; the
+			// other wake helpers touch only wakeMu), so this cannot
+			// deadlock.
 			h.wakeMu.Lock()
 			for _, server := range deadServers {
 				delete(h.wakes, server)
@@ -1827,17 +1829,35 @@ func (h *sseHub) poll() {
 // tmux write (set-option @rk_win_color/@rk_ses_color/@rk_win_web_<n>/@rk_win_layout is invisible to
 // the tmuxctl control-mode parser, so no subscriber notification fires — the
 // wake is the freshness driver for these mutations). Per-server, keyed by the
-// same server name the poll set uses; a wake for a server with no connected
-// clients (not in the poll set) is a harmless no-op (the closed channel is
-// simply retired the next time that server is polled, and the entry is deleted
-// from h.wakes when the server is reaped from the poll set). Coalescing,
-// at-least-once: N wakes before consumption trigger
+// same server name the poll set uses. A wake for a name with NO existing
+// h.wakes entry and no connected clients is dropped without allocating (see
+// the gate below); a server with an existing entry keeps accepting wakes even
+// while momentarily client-less — the pending signal fires on resubscribe.
+// Coalescing, at-least-once: N wakes before consumption trigger
 // 1..N passes; redundant passes are suppressed by the previousJSON dedup.
 func (h *sseHub) wake(server string) {
+	// Allocation gate: /api/servers/wake accepts any syntactically valid
+	// name from out-of-process callers, and nothing reaps h.wakes entries
+	// for servers outside the poll set — so a NEW entry is created only for
+	// a server with a live subscription, keeping arbitrary names from
+	// growing the map unboundedly. An EXISTING entry (any server the poll
+	// loop has ever waited on — wakeChannel creates them) still accepts the
+	// wake even with zero clients at this instant: the closed channel stays
+	// pending and fires the moment a client resubscribes, so a wake racing
+	// a brief socket reconnect is deferred, never lost. The RLock is held
+	// across the wakeMu section so the client-set check and the allocation
+	// agree (a concurrent last-client removal needs the write lock); the
+	// nesting follows the reap loop's h.mu → wakeMu lock order, never the
+	// reverse.
+	h.mu.RLock()
+	defer h.mu.RUnlock()
 	h.wakeMu.Lock()
 	defer h.wakeMu.Unlock()
 	ch, ok := h.wakes[server]
 	if !ok {
+		if len(h.clients[server]) == 0 {
+			return
+		}
 		ch = make(chan struct{})
 		h.wakes[server] = ch
 	}

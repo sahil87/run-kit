@@ -696,6 +696,78 @@ func TestHandleServerProtect_SetAndUnset(t *testing.T) {
 	}
 }
 
+// TestHandleServerWake verifies the CLI-facing wake endpoint: a valid name
+// wakes the SSE hub's derive tick for that server (a fresh poll pass runs
+// promptly), while an invalid name or malformed body is a 400 that never
+// touches the hub. The endpoint issues no tmux calls in any branch.
+func TestHandleServerWake(t *testing.T) {
+	t.Run("valid name wakes the hub", func(t *testing.T) {
+		server, tracker := newWakeSeamServer(t, &mockTmuxOps{})
+		before := tracker.count.Load()
+		router := server.buildRouter()
+		req := httptest.NewRequest("POST", "/api/servers/wake", strings.NewReader(`{"name":"default"}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != 200 {
+			t.Fatalf("status = %d, want 200. body=%s", rec.Code, rec.Body.String())
+		}
+		expectWake(t, tracker, before, "server wake")
+	})
+
+	t.Run("invalid name rejected without wake", func(t *testing.T) {
+		server, tracker := newWakeSeamServer(t, &mockTmuxOps{})
+		before := tracker.count.Load()
+		router := server.buildRouter()
+		req := httptest.NewRequest("POST", "/api/servers/wake", strings.NewReader(`{"name":"bad/name"}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != 400 {
+			t.Fatalf("status = %d, want 400 for invalid name. body=%s", rec.Code, rec.Body.String())
+		}
+		expectNoWake(t, tracker, before, "invalid name")
+	})
+
+	t.Run("malformed body rejected without wake", func(t *testing.T) {
+		server, tracker := newWakeSeamServer(t, &mockTmuxOps{})
+		before := tracker.count.Load()
+		router := server.buildRouter()
+		req := httptest.NewRequest("POST", "/api/servers/wake", strings.NewReader(`{`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != 400 {
+			t.Fatalf("status = %d, want 400 for malformed body. body=%s", rec.Code, rec.Body.String())
+		}
+		expectNoWake(t, tracker, before, "malformed body")
+	})
+
+	// The endpoint accepts any syntactically valid name from out-of-process
+	// callers, so a name with no subscribers must be dropped BEFORE it
+	// allocates a h.wakes entry — nothing ever reaps entries for servers
+	// outside the poll set, and retained unknown names would grow unbounded.
+	t.Run("unsubscribed name allocates no wake entry", func(t *testing.T) {
+		server, tracker := newWakeSeamServer(t, &mockTmuxOps{})
+		before := tracker.count.Load()
+		router := server.buildRouter()
+		req := httptest.NewRequest("POST", "/api/servers/wake", strings.NewReader(`{"name":"ghost-server"}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != 200 {
+			t.Fatalf("status = %d, want 200 (the drop is silent). body=%s", rec.Code, rec.Body.String())
+		}
+		server.sseHub.wakeMu.Lock()
+		_, retained := server.sseHub.wakes["ghost-server"]
+		server.sseHub.wakeMu.Unlock()
+		if retained {
+			t.Error("h.wakes retained an entry for an unsubscribed server name")
+		}
+		expectNoWake(t, tracker, before, "unsubscribed name")
+	})
+}
+
 func TestHandleServerProtect_DaemonRejected(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	mock := &serversTmuxMock{}

@@ -1,0 +1,54 @@
+id: 0ccm
+name: 260902-0ccm-tab-cli-sse-wake
+created: 2026-09-02T16:29:46Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 8
+    acceptance_completed: 8
+confidence:
+    certain: 2
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.7
+    fuzzy: true
+    dimensions:
+        signal: 72.5
+        reversibility: 85.8
+        competence: 82.5
+        disambiguation: 75.8
+stage_metrics:
+    intake: {started_at: "2026-09-02T16:29:46Z", driver: fab-new, iterations: 1, completed_at: "2026-09-02T16:36:18Z"}
+    apply: {started_at: "2026-09-02T17:44:30Z", driver: fab-fff, iterations: 3, completed_at: "2026-09-02T17:47:49Z"}
+    review: {started_at: "2026-09-02T17:47:49Z", driver: fab-fff, iterations: 3, completed_at: "2026-09-02T17:52:58Z"}
+    hydrate: {started_at: "2026-09-02T17:52:58Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-02T17:54:47Z"}
+    ship: {started_at: "2026-09-02T17:54:47Z", driver: fab-fff, iterations: 1}
+prs: []
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-02T17:54:47Z"
+    computed_at_stage: hydrate
+summary: rk tab/present mutations now wake the daemon's SSE derive tick via new POST /api/servers/wake (fail-silent, subscription-gated)
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-02T17:54:47Z

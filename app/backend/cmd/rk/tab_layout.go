@@ -109,6 +109,7 @@ func runTabLayout(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		sink.Dataf("%s\n", v)
+		tabWakeFn(ctx, server)
 		return nil
 	}
 
@@ -157,5 +158,6 @@ func runTabLayout(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	sink.Dataf("%s\n", v)
+	tabWakeFn(ctx, server)
 	return nil
 }

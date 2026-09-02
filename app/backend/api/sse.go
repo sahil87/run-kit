@@ -1685,7 +1685,9 @@ func (h *sseHub) poll() {
 			// h.wakes is guarded by its own wakeMu (not h.mu). Drop each dead
 			// server's wake channel so a reaped server leaves no residual entry.
 			// Lock order is h.mu → wakeMu; no path takes them the other way
-			// (the wake helpers touch only wakeMu), so this cannot deadlock.
+			// (wake() takes h.mu.RLock then wakeMu sequentially, never
+			// nested; the other wake helpers touch only wakeMu), so this
+			// cannot deadlock.
 			h.wakeMu.Lock()
 			for _, server := range deadServers {
 				delete(h.wakes, server)
@@ -1762,12 +1764,25 @@ func (h *sseHub) poll() {
 // the tmuxctl control-mode parser, so no subscriber notification fires — the
 // wake is the freshness driver for these mutations). Per-server, keyed by the
 // same server name the poll set uses; a wake for a server with no connected
-// clients (not in the poll set) is a harmless no-op (the closed channel is
-// simply retired the next time that server is polled, and the entry is deleted
-// from h.wakes when the server is reaped from the poll set). Coalescing,
+// clients (not in the poll set) is dropped before it touches h.wakes — a
+// genuine no-op that allocates nothing (see the gate below). Coalescing,
 // at-least-once: N wakes before consumption trigger
 // 1..N passes; redundant passes are suppressed by the previousJSON dedup.
 func (h *sseHub) wake(server string) {
+	// Gate on a live subscription BEFORE touching h.wakes: only servers in
+	// the poll set (derived from h.clients) ever have their wake channel
+	// consumed and reaped, so an entry for an unsubscribed name would live
+	// forever — and /api/servers/wake accepts any syntactically valid name
+	// from out-of-process callers, which would make h.wakes unbounded.
+	// Dropping the wake loses nothing: a later subscribe runs its own
+	// bootstrap fetch, so the subscriber still sees fresh state.
+	h.mu.RLock()
+	subscribed := len(h.clients[server]) > 0
+	h.mu.RUnlock()
+	if !subscribed {
+		return
+	}
+
 	h.wakeMu.Lock()
 	defer h.wakeMu.Unlock()
 	ch, ok := h.wakes[server]

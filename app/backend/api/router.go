@@ -814,6 +814,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/servers/kill", s.handleServerKill)
 	r.Post("/api/servers/protect", s.handleServerProtect)
 	r.Post("/api/servers/adopt", s.handleServerAdopt)
+	r.Post("/api/servers/wake", s.handleServerWake)
 
 	// Recovery — reboot-orphaned server offers (read-only GET) plus the
 	// user-initiated restore/dismiss mutations (POST per §IX). See

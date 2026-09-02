@@ -76,5 +76,6 @@ func runTabCodeSet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	newSink(cmd).Dataf("%s\n", abs)
+	tabWakeFn(ctx, server)
 	return nil
 }

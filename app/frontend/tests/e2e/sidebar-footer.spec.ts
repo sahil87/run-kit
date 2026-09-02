@@ -18,7 +18,7 @@ import { TMUX_SERVER } from "./_tmux";
  * dot — `_ready.ts`'s `gotoServerReady` gates there too (the desktop sidebar
  * footer is gone). The mobile cases run under
  * `test.use({ hasTouch: true, viewport: 375x812 })` — `hasTouch` flips
- * Chromium's `(pointer: coarse)` media query so `useIsMobile()` reports
+ * Chromium's `(any-pointer: coarse)` media query so `useIsMobile()` reports
  * mobile — and open the drawer via the always-mounted `Toggle navigation`
  * hamburger (a closed drawer leaves the footer unmounted); footer locators
  * are scoped to the drawer's `navigation[name='Sessions']`.
@@ -87,7 +87,7 @@ test.describe("Sidebar footer — mobile-only (260815-19me)", () => {
   });
 
   test.describe("mobile drawer", () => {
-    // `hasTouch: true` flips Chromium's `(pointer: coarse)` media query —
+    // `hasTouch: true` flips Chromium's `(any-pointer: coarse)` media query —
     // combined with the 375px width, `useIsMobile()` reports mobile (the same
     // seam sidebar-panels.spec.ts / bottom-bar-chip-size.spec.ts use).
     test.use({ hasTouch: true, viewport: MOBILE_VIEWPORT });

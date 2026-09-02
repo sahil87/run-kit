@@ -25,9 +25,9 @@ const MOBILE_VIEWPORT = { width: 375, height: 812 };
  * Shared setup: beforeAll creates `e2e-panels-<timestamp>` so the Pane panel
  * has a real window to display once selected; afterAll kills it. The
  * `mobile drawer` describe runs test.use({ hasTouch: true, viewport:
- * 375×812 }) — `hasTouch` flips Chromium's `(pointer: coarse)` media query,
- * so combined with the 375px width `useIsMobile()` reports mobile and the
- * sidebar renders as the drawer — and its beforeEach seeds
+ * 375×812 }) — `hasTouch` flips Chromium's `(any-pointer: coarse)` media
+ * query, so combined with the 375px width `useIsMobile()` reports mobile and
+ * the sidebar renders as the drawer — and its beforeEach seeds
  * `runkit-sidebar-section-pane=true` and `runkit-sidebar-section-host=true`
  * via `addInitScript` (both sections default OFF; the seed re-runs on every
  * navigation, so in-test reloads keep the panels mounted). gotoDrawer

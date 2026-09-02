@@ -24,7 +24,7 @@
   font-display: block;
 }
 
-@custom-variant coarse (@media (pointer: coarse));
+@custom-variant coarse (@media (any-pointer: coarse));
 
 @theme {
   --color-bg-primary: #0f1117;
@@ -1634,7 +1634,7 @@ html.fullbleed .app-shell {
   --bottom-bar-floor: 0.375rem;
   --bottom-bar-pad: max(var(--bottom-bar-floor, 0.375rem), env(safe-area-inset-bottom));
 }
-@media (pointer: coarse) {
+@media (any-pointer: coarse) {
   html:not(.kb-open) {
     --bottom-bar-floor: 1rem;
   }

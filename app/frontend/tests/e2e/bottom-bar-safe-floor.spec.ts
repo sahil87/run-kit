@@ -17,7 +17,7 @@ import { TMUX_SERVER } from "./_tmux";
  * Shared setup:
  * - Viewport is iPhone 14-sized (375×812) in both describes via `test.use`;
  *   the touch describe adds `hasTouch: true`, flipping Chromium's
- *   `(pointer: coarse)` media query — activating the raised-floor rule in
+ *   `(any-pointer: coarse)` media query — activating the raised-floor rule in
  *   `globals.css`.
  * - Padding is read as the computed `padding-bottom` of the
  *   `toolbar[name='Terminal keys']` element; the rendered gap is read as
@@ -71,8 +71,8 @@ async function chipGapToViewportBottom(page: Page): Promise<number> {
 }
 
 test.describe("Bottom bar safe floor — touch device", () => {
-  // hasTouch flips Chromium's `(pointer: coarse)` media query, activating the
-  // raised-floor rule in globals.css.
+  // hasTouch flips Chromium's `(any-pointer: coarse)` media query, activating
+  // the raised-floor rule in globals.css.
   test.use({ hasTouch: true, viewport: MOBILE_VIEWPORT });
 
   /**

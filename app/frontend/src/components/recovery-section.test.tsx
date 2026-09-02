@@ -82,7 +82,7 @@ beforeEach(() => {
   vi.mocked(getRecoveryOffers).mockResolvedValue([]);
   vi.mocked(restoreRecoveryServer).mockResolvedValue({});
   vi.mocked(dismissRecoveryServer).mockResolvedValue({ ok: true });
-  stubMatchMedia((query) => query !== "(pointer: coarse)");
+  stubMatchMedia((query) => !query.includes("pointer: coarse"));
 });
 
 afterEach(() => {

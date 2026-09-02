@@ -1,3 +1,9 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-02T18:44:16Z"}
 {"args":"iPad polish bundle: humanize pane-border pane-ID segment, coarse-pointer touch-target audit, window-name redundancy trim (status-left clipping)","cmd":"fab-new","event":"command","ts":"2026-09-02T18:44:16Z"}
 {"delta":"+4.3","event":"confidence","score":4.3,"trigger":"calc-score","ts":"2026-09-02T18:46:44Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-02T18:50:14Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-02T18:51:01Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-02T19:19:16Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-02T19:31:25Z"}
+{"event":"review","result":"passed","ts":"2026-09-02T19:31:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-02T19:35:17Z"}

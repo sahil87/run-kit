@@ -30,6 +30,8 @@ When the resolved config path is not `DefaultConfigPath` (the `tmux_conf` key or
 
 Every scaffold path — `EnsureConfig`, `ForceWriteConfig`, `rk mux init-conf` (both cobra instances), `POST /api/tmux/init-conf` — also ensures `tmux.d/` exists and scaffolds `tmux.d/user.conf` as a commented starter (purpose, one commented `set -g` example, the `10-*.conf` numeric-ordering pointer) when absent; an existing `user.conf` is never overwritten, including under `--force`. (0tu6)
 
+The embedded conf's `pane-border-format` renders, in both the active and inactive arms, a conditional pane-index prefix `#{?#{e|>:#{window_panes},1},#P · ,}` immediately before the path segment (the last two segments of `pane_current_path`), followed by the worktree badge, git branch, and `pane_current_command` segments with per-state color arms: a single-pane window shows the bare path, a multi-pane window shows `N · <path>`. The raw `%N` pane id appears nowhere in the border — it stays reachable via the web status bar's `Copy tmux pane id` affordance and `tmux display-message -p '#{pane_id}'`. (qt7k)
+
 ## Settings Registry
 
 `internal/settings` defines one registry — a `[]registryEntry` table — that is the single source of truth for every settings key and drives both `parse()` and `serialize()`. Each entry carries **key, kind (type), default, description, category, `ui` flag, `live` flag**; enum kinds additionally carry **`options`** — the entry's legal values in display order (`theme`: `system`/`dark`/`light`; `log_level`: `info`/`debug`), display metadata for generated controls (the apply hook keeps owning enforcement), nil on non-enum kinds. Scalar entries carry parse/serialize hooks, nested entries (maps, lists) carry a section built by `mapSection`/`listSection`. Slice order IS serialization order: scalar keys first, then nested sections. Adding a key is one registry entry — no new scanner branches.
@@ -217,5 +219,11 @@ Every scaffold path (`EnsureConfig`, `ForceWriteConfig`, `rk mux init-conf`, `PO
 **Why**: a generated enum control needs options as data and the registry is the single source of truth.
 **Rejected**: legal values living only inside the parse/apply closures (invisible to generated controls, as `log_level`'s once were); hardcoding options in the frontend (drifts from the registry, defeats generation).
 *Introduced by*: 260823-5r41-settings-pane-live-apply
+
+### Conditional pane-index prefix on the pane border
+**Decision**: the managed conf's `pane-border-format` shows `#P · ` only when `window_panes > 1`, via `#{?#{e|>:#{window_panes},1},#P · ,}`; the raw `%N` pane id appears nowhere in the border.
+**Why**: the single-pane window is the dominant case — a constant `1 · ` prefix is noise that duplicates nothing useful, and a raw tmux internal id means nothing to a user reading primary chrome. The id stays reachable where it belongs: the web status bar's `Copy tmux pane id` affordance and `tmux display-message -p '#{pane_id}'`.
+**Rejected**: keeping `#P` unconditionally (noise in the common case); keeping `#D` anywhere in the border (the internal-id leak).
+*Introduced by*: 260902-qt7k-ipad-chrome-polish
 
 See [architecture](/run-kit/architecture.md) § `internal/settings` for the package-level contract and [layout-snapshots](/run-kit/layout-snapshots.md) for the snapshot store under the state root.

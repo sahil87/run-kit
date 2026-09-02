@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "PWA layer (manifest, service worker, install), PWA identity assets (icons, maskable/apple-touch, favicon generation), and Web Push notifications (VAPID keys, subscription store, push on agent waiting)."
+description: "PWA layer (manifest, service worker, install), identity assets, and environment-partitioned OS notifications: browser Web Push plus live state-socket delivery in the desktop shell."
 ---
 # PWA & Web Push
 
@@ -37,6 +37,19 @@ The PWA manifest, Dock/Cmd-Tab icons, and tab favicon are served **dynamically**
 **Dev parity**: `app/frontend/vite.config.ts` proxies `/manifest.json` and `/generated-icons` to the backend port (`RK_PORT + 1`, same target shape as `/api`). Vite's `server.proxy` middleware runs before public-dir static serving, so these entries shadow the static copies in `public/` — no static fallback needed. E2E coverage is `app/frontend/tests/e2e/pwa-assets.spec.ts` (tint-agnostic: it pins the serving pipeline via the `application/manifest+json` content-type that distinguishes the Go handler from Vite's static `application/json`, PNG magic bytes, and the favicon's `no-cache` header).
 
 
+## Notification Delivery
+
+OS notifications use two delivery legs partitioned by runtime:
+
+| Runtime | Transport | Consumer | Availability |
+|---------|-----------|----------|--------------|
+| Browser/PWA | Web Push through the stored subscription fan-out | `sw.js` push handler | Reaches the user with the RunKit tab closed |
+| Desktop shell | Host-global `notify` event on `/ws/state` | The persistent SPA renderer calls `new Notification()` | Requires an open shell renderer with a live state socket |
+
+Both existing producers feed both legs. `POST /api/notify` sends the requested title/body with an empty deep-link URL; the sustained-waiting tracker sends its title/body and `/{server}/{N}?view=chat` URL for chat-capable windows. The HTTP `{"sent": N, "pruned": M}` summary counts only the Web Push fan-out. The shell event is broadcast-only and has no delivery count, persistence, or replay contract; its payload and state-socket semantics live in [api-and-sockets](/run-kit/api-and-sockets.md) § Host-global `notify` event.
+
+Browser clients ignore the state-socket notification event, and shell clients do not attempt `PushManager` subscription. The browser Web Push contract below — VAPID signing, subscription persistence and pruning, service-worker display, and same-origin click routing — is the browser delivery contract.
+
 ## Web Push Notifications
 
 `260615-xd9r-web-push-notifications` lets any process on the box — primarily the fab-kit operator agent via `rk notify` — deliver a real OS-level notification that reaches the user **even when the RunKit PWA tab is closed**. This is the only browser-native mechanism that delivers to a closed tab: the *browser's* push service wakes the registered service worker, which shows the notification. It is the intended eventual replacement for fab-kit's `ntfy.sh` default (one feed across all operators on the box, content stays on infra the user runs).
@@ -53,3 +66,10 @@ The PWA manifest, Dock/Cmd-Tab icons, and tab favicon are served **dynamically**
 
 **Fail-silent discipline** (end-to-end, constitution-aligned): every layer fails silently on its own prerequisite being absent. `rk notify` exits 0 with no output on any failure (server unreachable / non-2xx / timeout) so a notify failure never stalls the operator loop; the send fan-out tolerates individual subscription failures and prunes dead endpoints; the frontend subscribe flow aborts silently when permission is denied or the context is insecure / unsupported. The opt-in is a Cmd+K palette action with a terminal-themed label (NOT a bell) — see `ui/updates-and-notifications.md` § Notifications (Web Push opt-in).
 
+## Design Decisions
+
+### The shell consumes the state socket; browsers consume Web Push
+**Decision**: shell renderers display host-global `notify` events from `/ws/state`; browser clients ignore those events and receive notifications exclusively through Web Push.
+**Why**: an open browser tab already has the service-worker delivery leg and would double-notify if it also displayed socket events. Persistent shell renderers have a live state socket but no browser push-service backend.
+**Rejected**: visibility-based browser suppression; disabling Web Push while a browser tab is open; adding a third-party push-service dependency to the shell.
+*Introduced by*: 260902-ziki-shell-os-notifications

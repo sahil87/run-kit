@@ -267,6 +267,7 @@ function renderDialogLiveName(tab?: "general" | "appearance" | "all" | "shortcut
 }
 
 beforeEach(() => {
+  delete window.runkitShell;
   localStorage.clear();
   // Belt-and-braces: the theme context's storage keys must never leak between
   // tests (a stored named-theme preference changes what the real provider
@@ -301,6 +302,7 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   localStorage.clear();
+  delete window.runkitShell;
 });
 
 describe("SettingsDialog", () => {
@@ -639,6 +641,34 @@ describe("SettingsDialog", () => {
       expect(guide).toHaveAttribute("href", expect.stringContaining("docs/site/notifications.md"));
       expect(guide).toHaveAttribute("target", "_blank");
       expect(guide).toHaveAttribute("rel", "noopener noreferrer");
+    });
+
+    it("renders shell-specific copy and suppresses browser guidance", async () => {
+      Object.defineProperty(window, "runkitShell", {
+        value: { version: "test", platform: "linux" },
+        configurable: true,
+        writable: true,
+      });
+      renderDialog();
+
+      expect(await screen.findByText("Not enabled")).toBeInTheDocument();
+      expect(screen.getByText("OS notifications from this app")).toBeInTheDocument();
+      expect(screen.queryByText(/Re-allow notifications for this site/)).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("link", { name: /Setup & troubleshooting guide/ }),
+      ).not.toBeInTheDocument();
+      expect(getPushState).not.toHaveBeenCalled();
+    });
+
+    it("reports an enabled shell preference on this device", async () => {
+      Object.defineProperty(window, "runkitShell", {
+        value: { version: "test", platform: "linux" },
+        configurable: true,
+        writable: true,
+      });
+      localStorage.setItem("runkit-shell-notifications", "on");
+      renderDialog();
+      expect(await screen.findByText("Enabled on this device")).toBeInTheDocument();
     });
   });
 

@@ -19,6 +19,7 @@ import { NOTIFICATIONS_HELP_URL } from "@/components/global-chrome";
 import { ThemePickerList } from "@/components/theme-picker-list";
 import { getRiffPresets } from "@/api/client";
 import { isMacroActionId } from "@/lib/macros";
+import { isShell } from "@/lib/shell";
 import { useSettingsRegistry, type SettingsRegistry } from "@/components/settings-registry-seam";
 import { SettingsAllPanel, BoolToggle } from "@/components/settings-all-panel";
 import {
@@ -288,6 +289,7 @@ function TerminalFontControl() {
  */
 function NotificationsControl() {
   const { state, enable, sendTest } = usePushSubscription();
+  const shell = isShell();
   const subscribed = state === "subscribed";
   const denied = state === "denied";
 
@@ -295,8 +297,11 @@ function NotificationsControl() {
     "px-2 py-1 border border-border rounded text-xs text-text-secondary hover:border-text-secondary hover:text-text-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-border disabled:hover:text-text-secondary";
 
   return (
-    <PreferenceRow label="Notifications" sublabel="Web Push to this browser">
-      {state === "unsupported" ? (
+    <PreferenceRow
+      label="Notifications"
+      sublabel={shell ? "OS notifications from this app" : "Web Push to this browser"}
+    >
+      {state === "unsupported" && !shell ? (
         // Push needs a secure context + service-worker support. The bell chip
         // hid itself here; a settings pane explains the absence instead.
         <p className="text-xs text-text-secondary pt-1">Not supported in this browser</p>
@@ -310,10 +315,14 @@ function NotificationsControl() {
               }`}
             />
             {subscribed
-              ? "Subscribed on this device"
-              : denied
+              ? shell
+                ? "Enabled on this device"
+                : "Subscribed on this device"
+              : denied && !shell
                 ? "Blocked in browser settings"
-                : "Not subscribed"}
+                : shell
+                  ? "Not enabled"
+                  : "Not subscribed"}
           </span>
           <div className="flex items-center gap-1.5 flex-wrap">
             {!subscribed && (
@@ -332,19 +341,21 @@ function NotificationsControl() {
               </button>
             </Tip>
           </div>
-          {denied && (
+          {denied && !shell && (
             <p className="text-[10px] text-text-secondary">
               Re-allow notifications for this site in your browser/OS settings.
             </p>
           )}
-          <a
-            href={NOTIFICATIONS_HELP_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-[10px] text-accent hover:underline w-fit"
-          >
-            Setup &amp; troubleshooting guide ↗
-          </a>
+          {!shell && (
+            <a
+              href={NOTIFICATIONS_HELP_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[10px] text-accent hover:underline w-fit"
+            >
+              Setup &amp; troubleshooting guide ↗
+            </a>
+          )}
         </div>
       )}
     </PreferenceRow>

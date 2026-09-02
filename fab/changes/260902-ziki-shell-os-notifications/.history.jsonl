@@ -1,0 +1,19 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-02T15:31:02Z"}
+{"args":"Desktop shell OS notifications via state-socket notify events — Web Push can't work in Electron (no push service); isShell()-gated notification path driven by the server notify fan-out over /ws/state, replacing the silent Enable dead-end in the shell","cmd":"fab-new","event":"command","ts":"2026-09-02T15:31:02Z"}
+{"delta":"+4.3","event":"confidence","score":4.3,"trigger":"calc-score","ts":"2026-09-02T15:32:21Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-02T15:43:01Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-02T15:43:09Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-02T16:14:20Z"}
+{"event":"review","result":"failed","ts":"2026-09-02T16:29:12Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-02T16:29:12Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-02T16:35:23Z"}
+{"event":"review","result":"failed","ts":"2026-09-02T16:51:49Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-02T16:51:49Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-02T16:55:35Z"}
+{"event":"review","result":"failed","ts":"2026-09-02T17:11:05Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-02T17:11:05Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-02T17:14:19Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-02T17:21:23Z"}
+{"event":"review","result":"passed","ts":"2026-09-02T17:21:23Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-09-02T17:23:24Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-02T17:28:25Z"}

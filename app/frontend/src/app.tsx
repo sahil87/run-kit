@@ -172,6 +172,7 @@ import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
 import { useBrowserTitle } from "@/hooks/use-browser-title";
 import { usePushSubscription } from "@/hooks/use-push-subscription";
+import { useShellNotifications } from "@/hooks/use-shell-notifications";
 import { useWindowStore } from "@/store/window-store";
 
 const CommandPalette = lazy(() => import("@/components/command-palette").then(m => ({ default: m.CommandPalette })));
@@ -315,6 +316,8 @@ export function AppLayout() {
  *  (which consume the settings-dialog context) can be built above the
  *  `PaletteActionsProvider` they feed. */
 function AppLayoutContent() {
+  useShellNotifications();
+
   // Instance accent (1etw): a 2px stripe across the top of the persistent top
   // bar plus a subtle wash behind it — the "which run-kit instance is this"
   // color channel (server colors own the sidebar). Both hexes are theme-derived

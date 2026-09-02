@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"rk/internal/push"
 	"rk/internal/sessions"
 	"rk/internal/tmux"
 )
@@ -77,15 +76,14 @@ type waitingPushTracker struct {
 	notify   func(ctx context.Context, title, body, url string) error // push seam for tests
 }
 
-func newWaitingPushTracker() *waitingPushTracker {
+func newWaitingPushTracker(
+	notify func(ctx context.Context, title, body, url string) error,
+) *waitingPushTracker {
 	return &waitingPushTracker{
 		episodes: make(map[string]waitingEpisode),
 		sustain:  waitingPushSustain,
 		now:      time.Now,
-		notify: func(ctx context.Context, title, body, url string) error {
-			_, err := push.Notify(ctx, title, body, url)
-			return err
-		},
+		notify:   notify,
 	}
 }
 

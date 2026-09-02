@@ -76,5 +76,7 @@ func (s *Server) handleNotify(w http.ResponseWriter, r *http.Request) {
 		// Pruning may have failed; the send summary is still meaningful.
 		s.logger.Warn("notify completed with error", "error", err, "sent", result.Sent, "pruned", result.Pruned)
 	}
+	s.initSSEHub()
+	s.sseHub.broadcastNotify(title, body.Body, "")
 	writeJSON(w, http.StatusOK, result)
 }

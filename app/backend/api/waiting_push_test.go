@@ -1,8 +1,12 @@
 package api
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
+
+	"rk/internal/sessions"
+	"rk/internal/tmux"
 )
 
 // newTestWaitingTracker builds a tracker with a controllable clock and a short
@@ -234,5 +238,49 @@ func TestWaitingPush_CarriesChatDeepLink(t *testing.T) {
 	}
 	if byTitle["plain"].url != "/s/2" {
 		t.Errorf("plain window url = %q, want /s/2", byTitle["plain"].url)
+	}
+}
+
+func TestWaitingPushBroadcastsNotifyEvent(t *testing.T) {
+	isolatePush(t)
+	hub := newSSEHub(&slowSessionFetcher{}, nil, nil, nil)
+	conn := newTestStateConn(hub, "waiting-client", 16)
+	hub.replayGlobalSlots(conn)
+	t.Cleanup(func() { hub.dropStateConn(conn) })
+
+	clock := time.Unix(1_000_000, 0)
+	hub.waitingPush.sustain = 15 * time.Second
+	hub.waitingPush.now = func() time.Time { return clock }
+	snapshot := []sessions.ProjectSession{{
+		Windows: []tmux.WindowInfo{{
+			WindowID:     "@5",
+			Name:         "agent-win",
+			AgentState:   tmux.AgentStateWaiting,
+			ChatProvider: "codex",
+		}},
+	}}
+	hub.waitingPush.notifyWaiting("utils2", snapshot)
+	clock = clock.Add(16 * time.Second)
+	hub.waitingPush.notifyWaiting("utils2", snapshot)
+
+	select {
+	case event := <-conn.ch:
+		frame := event.renderEnvelope()
+		var envelope eventFrame
+		if err := json.Unmarshal(frame, &envelope); err != nil {
+			t.Fatalf("decode event envelope: %v", err)
+		}
+		if envelope.Kind != kindGlobal || envelope.Type != "notify" {
+			t.Fatalf("event = kind %q type %q, want global notify", envelope.Kind, envelope.Type)
+		}
+		var payload notifyPayload
+		if err := json.Unmarshal(envelope.Data, &payload); err != nil {
+			t.Fatalf("decode notify payload: %v", err)
+		}
+		if payload.Title != "agent-win" || payload.Body != "waiting for input" || payload.URL != "/utils2/5?view=chat" {
+			t.Errorf("notify payload = %+v", payload)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("waiting push did not broadcast a notify event")
 	}
 }

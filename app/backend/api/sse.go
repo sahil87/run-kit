@@ -1685,9 +1685,9 @@ func (h *sseHub) poll() {
 			// h.wakes is guarded by its own wakeMu (not h.mu). Drop each dead
 			// server's wake channel so a reaped server leaves no residual entry.
 			// Lock order is h.mu → wakeMu; no path takes them the other way
-			// (wake() takes h.mu.RLock then wakeMu sequentially, never
-			// nested; the other wake helpers touch only wakeMu), so this
-			// cannot deadlock.
+			// (wake() nests h.mu.RLock → wakeMu in this same order; the
+			// other wake helpers touch only wakeMu), so this cannot
+			// deadlock.
 			h.wakeMu.Lock()
 			for _, server := range deadServers {
 				delete(h.wakes, server)
@@ -1775,11 +1775,14 @@ func (h *sseHub) wake(server string) {
 	// forever — and /api/servers/wake accepts any syntactically valid name
 	// from out-of-process callers, which would make h.wakes unbounded.
 	// Dropping the wake loses nothing: a later subscribe runs its own
-	// bootstrap fetch, so the subscriber still sees fresh state.
+	// bootstrap fetch, so the subscriber still sees fresh state. The RLock is
+	// held across the wakeMu section so the check and the allocation see a
+	// stable client set (a concurrent last-client removal needs the write
+	// lock); the nesting follows the reap loop's h.mu → wakeMu lock order,
+	// never the reverse.
 	h.mu.RLock()
-	subscribed := len(h.clients[server]) > 0
-	h.mu.RUnlock()
-	if !subscribed {
+	defer h.mu.RUnlock()
+	if len(h.clients[server]) == 0 {
 		return
 	}
 

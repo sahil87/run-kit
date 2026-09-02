@@ -54,7 +54,7 @@ app/
       history.go      # GET /api/windows/{windowId}/history — full-scrollback capture (text/plain), the terminal export menu's server arm
       directories.go  # GET /api/directories
       upload.go       # POST /api/sessions/:session/upload
-      sse.go          # state hub singleton — per-connection subscription set + producers (poll/metrics/prstatus/broadcasts)
+      sse.go          # state hub singleton — per-connection subscription set + producers (poll/metrics/prstatus/broadcasts) + the per-tick trackers (waiting-push, auto-name, operator-request queue) advanced on the per-server assembly seam and swept by the post-loop retain (keyed off the polled-server set)
       state_ws.go     # WS /ws/state — the state-socket handler + envelope protocol (260716-qf3j-state-socket)
       relay.go        # WS /relay/{windowId} (resolves owning session via display-message)
       proxy.go        # /proxy/{port}/* — reverse proxy for iframe windows, and the stable /code/* code-server route (shared prefix-parameterized proxy constructor: SetXForwarded, trailing-slash redirect)

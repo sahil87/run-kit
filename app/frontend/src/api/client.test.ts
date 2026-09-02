@@ -16,6 +16,8 @@ import {
   renameWindow,
   sendChatMessage,
   sendToWindow,
+  sendOperatorRequest,
+  sendServerOperatorRequest,
   ApiError,
   fetchWindowHistory,
   getDirectories,
@@ -455,6 +457,61 @@ describe("API client", () => {
     );
     await renameSession("server with spaces", "foo", "bar");
     expect(capturedUrl).toContain("?server=server%20with%20spaces");
+  });
+});
+
+describe("operator request outcomes", () => {
+  it("distinguishes immediate window delivery from a queued response", async () => {
+    let queued = false;
+    mswServer.use(
+      http.post("/api/windows/:windowId/operator-request", () =>
+        queued
+          ? HttpResponse.json({ queued: true }, { status: 202 })
+          : HttpResponse.json({ ok: true }),
+      ),
+    );
+    await expect(sendOperatorRequest("default", "@1", "fix-tab-name")).resolves.toEqual({
+      outcome: "delivered",
+    });
+    queued = true;
+    await expect(sendOperatorRequest("default", "@1", "fix-tab-name")).resolves.toEqual({
+      outcome: "queued",
+    });
+  });
+
+  it("distinguishes server delivery from queueing and preserves the optional session body", async () => {
+    const bodies: unknown[] = [];
+    let queued = false;
+    mswServer.use(
+      http.post("/api/operator-request", async ({ request }) => {
+        bodies.push(await request.json());
+        return queued
+          ? HttpResponse.json({ queued: true }, { status: 202 })
+          : HttpResponse.json({ ok: true });
+      }),
+    );
+    await expect(sendServerOperatorRequest("default", "brief-me", "")).resolves.toEqual({
+      outcome: "delivered",
+    });
+    queued = true;
+    await expect(
+      sendServerOperatorRequest("default", "update-annotations", "", "work"),
+    ).resolves.toEqual({ outcome: "queued" });
+    expect(bodies).toEqual([
+      { template: "brief-me", text: "" },
+      { template: "update-annotations", text: "", session: "work" },
+    ]);
+  });
+
+  it("keeps structured operator errors on the throwing path", async () => {
+    mswServer.use(
+      http.post("/api/operator-request", () =>
+        HttpResponse.json({ error: "operator queue is full" }, { status: 409 }),
+      ),
+    );
+    await expect(sendServerOperatorRequest("default", "brief-me", "")).rejects.toThrow(
+      "operator queue is full",
+    );
   });
 });
 

@@ -46,9 +46,9 @@ type operatorWindowFact struct {
 	AgentIdleDuration string
 	// PR rollup, populated only when the window's PrURL is non-nil (a window
 	// with no PR renders no PR clause).
-	PrState  string
-	PrChecks string
-	PrReview string
+	PrState   string
+	PrChecks  string
+	PrReview  string
 	FabChange string // rendered only when non-empty
 	FabStage  string
 	// Color/Marker/Flair are the window's current label state (@rk_win_color,
@@ -588,6 +588,17 @@ func findOperatorWindow(sess []sessions.ProjectSession) *tmux.WindowInfo {
 	return nil
 }
 
+func findOperatorSubject(sess []sessions.ProjectSession, windowID string) *tmux.WindowInfo {
+	for si := range sess {
+		for wi := range sess[si].Windows {
+			if sess[si].Windows[wi].WindowID == windowID {
+				return &sess[si].Windows[wi]
+			}
+		}
+	}
+	return nil
+}
+
 // deliverOperatorPrompt is the prompt-level delivery core shared by every
 // operator-request path — the window-scoped route (via deliverOperatorRequest),
 // the auto-name fan-out (same seam), and the server-scoped route — so the
@@ -684,6 +695,73 @@ type operatorReject struct {
 
 func (e *operatorReject) Error() string { return e.msg }
 
+func isBusyOperatorReject(err error) bool {
+	var reject *operatorReject
+	return errors.As(err, &reject) && reject.status == http.StatusConflict && strings.HasPrefix(reject.msg, "operator is busy (")
+}
+
+func filterServerOperatorFacts(sess []sessions.ProjectSession, facts serverOperatorFacts, session string) (serverOperatorFacts, bool) {
+	known := false
+	for si := range sess {
+		if sess[si].Name == session {
+			known = true
+			break
+		}
+	}
+	if !known {
+		return serverOperatorFacts{}, false
+	}
+	windows := make([]operatorWindowFact, 0, len(facts.Windows))
+	for _, row := range facts.Windows {
+		if row.Session == session {
+			windows = append(windows, row)
+		}
+	}
+	corpus := make([]operatorCorpusRow, 0, len(facts.Corpus))
+	for _, row := range facts.Corpus {
+		if row.Session == session {
+			corpus = append(corpus, row)
+		}
+	}
+	facts.Windows = windows
+	facts.Corpus = corpus
+	return facts, true
+}
+
+func hasWaitingOperatorFacts(facts serverOperatorFacts) bool {
+	for _, row := range facts.Windows {
+		if row.AgentState == tmux.AgentStateWaiting {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) enqueueOperatorRequest(server string, request queuedOperatorRequest) error {
+	s.initSSEHub()
+	return s.sseHub.getOperatorQueue().enqueue(server, request)
+}
+
+// writeOperatorQueueResponse maps a busy delivery rejection to the shared
+// enqueue response contract. It returns false when the delivery error is not
+// queueable so the caller can preserve its route-specific error mapping.
+func (s *Server) writeOperatorQueueResponse(w http.ResponseWriter, server string, request queuedOperatorRequest, deliveryErr error) bool {
+	if !isBusyOperatorReject(deliveryErr) {
+		return false
+	}
+	queueErr := s.enqueueOperatorRequest(server, request)
+	if errors.Is(queueErr, errOperatorQueueFull) {
+		writeError(w, http.StatusConflict, errOperatorQueueFull.Error())
+		return true
+	}
+	if queueErr != nil {
+		writeError(w, http.StatusInternalServerError, queueErr.Error())
+		return true
+	}
+	writeJSON(w, http.StatusAccepted, map[string]bool{"queued": true})
+	return true
+}
+
 // deliverOperatorRequest is the post-parse core of handleOperatorRequest,
 // shared with the auto-name-on-idle tracker (260822-q675): fact derivation,
 // the busy gate, operator pane resolution, and injection through the chat-send
@@ -731,14 +809,11 @@ func (s *Server) deliverOperatorRequest(ctx context.Context, server string, subj
 // window ({windowId}), delivered via the existing chat-send injection
 // machinery. Mutation ⇒ POST (Constitution IX). Everything is resolved
 // server-side from ONE FetchSessions pass: subject + operator lookup, fact
-// derivation, and the busy gate all read the same result. There is no queue,
-// no response channel, and no state written anywhere (Constitution II) — the
-// operator acts through its shell (e.g. `tmux rename-window`) and the outcome
-// surfaces on the normal derive tick, so the handler never wakes the SSE hub.
-//
-// Busy policy is REJECT (unlike chat-send's allow+probe): an active or waiting
-// operator is a 409 naming the state; idle or unknown proceeds (the novelty
-// echo probe remains the final fail-closed guard).
+// derivation, and the busy gate all read the same result. A busy rejection from
+// the shared core is queued in process memory and returns 202; all other
+// validation and delivery failures remain fail-fast. There is no response
+// channel or persisted mailbox — the operator acts through its shell and the
+// outcome surfaces on the normal derive tick.
 func (s *Server) handleOperatorRequest(w http.ResponseWriter, r *http.Request) {
 	windowID, ok := parseWindowID(r)
 	if !ok {
@@ -774,14 +849,7 @@ func (s *Server) handleOperatorRequest(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	var subject *tmux.WindowInfo
-	for si := range sess {
-		for wi := range sess[si].Windows {
-			if sess[si].Windows[wi].WindowID == windowID {
-				subject = &sess[si].Windows[wi]
-			}
-		}
-	}
+	subject := findOperatorSubject(sess, windowID)
 	if subject == nil {
 		writeError(w, http.StatusNotFound, "window not found")
 		return
@@ -814,6 +882,13 @@ func (s *Server) handleOperatorRequest(w http.ResponseWriter, r *http.Request) {
 		}
 		var rej *operatorReject
 		if errors.As(err, &rej) {
+			if s.writeOperatorQueueResponse(w, server, queuedOperatorRequest{
+				template: body.Template,
+				windowID: windowID,
+				text:     body.Text,
+			}, rej) {
+				return
+			}
 			writeError(w, rej.status, rej.msg)
 			return
 		}
@@ -829,8 +904,9 @@ func (s *Server) handleOperatorRequest(w http.ResponseWriter, r *http.Request) {
 // body validation (registry + scope + the acceptsText rules) runs first, then
 // ONE FetchSessions pass resolves the operator window and pre-derives the
 // server fact tables, and delivery goes through the shared prompt-level core.
-// Same posture as the window-scoped route: no queue, no response channel, no
-// SSE wake.
+// Same posture as the window-scoped route: busy requests queue in memory while
+// all other failures remain fail-fast; there is no response channel or SSE
+// wake.
 func (s *Server) handleServerOperatorRequest(w http.ResponseWriter, r *http.Request) {
 	var body operatorRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -876,46 +952,19 @@ func (s *Server) handleServerOperatorRequest(w http.ResponseWriter, r *http.Requ
 		// this handler's ONE FetchSessions pass (Constitution I/X), then the
 		// shared builder's output is filtered to that session's rows —
 		// consumer-side, so buildServerOperatorFacts keeps its one shape.
-		known := false
-		for si := range sess {
-			if sess[si].Name == body.Session {
-				known = true
-				break
-			}
-		}
+		var known bool
+		facts, known = filterServerOperatorFacts(sess, facts, body.Session)
 		if !known {
 			writeError(w, http.StatusNotFound, fmt.Sprintf("no session %s on this server", body.Session))
 			return
 		}
-		windows := facts.Windows[:0]
-		for _, row := range facts.Windows {
-			if row.Session == body.Session {
-				windows = append(windows, row)
-			}
-		}
-		facts.Windows = windows
-		corpus := facts.Corpus[:0]
-		for _, row := range facts.Corpus {
-			if row.Session == body.Session {
-				corpus = append(corpus, row)
-			}
-		}
-		facts.Corpus = corpus
 	}
-	if tmpl.requiresWaiting {
+	if tmpl.requiresWaiting && !hasWaitingOperatorFacts(facts) {
 		// The template's subject matter is the waiting tabs — with none waiting
 		// there is nothing to deliver (the same 409 valid-request-wrong-state
 		// class as the busy gate).
-		waiting := 0
-		for _, row := range facts.Windows {
-			if row.AgentState == tmux.AgentStateWaiting {
-				waiting++
-			}
-		}
-		if waiting == 0 {
-			writeError(w, http.StatusConflict, "nothing is waiting on this server")
-			return
-		}
+		writeError(w, http.StatusConflict, "nothing is waiting on this server")
+		return
 	}
 	if err := s.deliverOperatorPrompt(r.Context(), server, operator, tmpl.renderServer(facts)); err != nil {
 		var probeErr inject.ProbeFailure
@@ -931,6 +980,13 @@ func (s *Server) handleServerOperatorRequest(w http.ResponseWriter, r *http.Requ
 		}
 		var rej *operatorReject
 		if errors.As(err, &rej) {
+			if s.writeOperatorQueueResponse(w, server, queuedOperatorRequest{
+				template: body.Template,
+				text:     body.Text,
+				session:  body.Session,
+			}, rej) {
+				return
+			}
 			writeError(w, rej.status, rej.msg)
 			return
 		}

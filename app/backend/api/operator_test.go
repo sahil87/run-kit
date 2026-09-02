@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -211,26 +212,123 @@ func TestOperatorRequestOperatorNoChatPane(t *testing.T) {
 
 // --- 409s: busy gate + probe failure ----------------------------------------
 
-// TestOperatorRequestBusyGate: an active OR waiting operator is a 409 naming
-// the state, with ZERO injection subprocesses (reject, never queue).
+// A busy operator queues the validated window request without running any
+// injection subprocesses.
 func TestOperatorRequestBusyGate(t *testing.T) {
 	for _, state := range []string{"active", "waiting"} {
 		t.Run(state, func(t *testing.T) {
 			stageFixtureTranscript(t, testChatRef)
 			sf := &mockSessionFetcher{result: operatorSessions(state)}
 			ops := &mockTmuxOps{}
-			router := NewTestRouter(slog.Default(), sf, ops, "host")
+			server := &Server{logger: slog.Default(), sessions: sf, tmux: ops, hostname: "host"}
+			router := server.buildRouter()
 
 			rec := httptest.NewRecorder()
 			router.ServeHTTP(rec, operatorReq(`{"template":"fix-tab-name"}`))
-			if rec.Code != http.StatusConflict {
-				t.Fatalf("status = %d, want 409; body=%s", rec.Code, rec.Body.String())
+			if rec.Code != http.StatusAccepted {
+				t.Fatalf("status = %d, want 202; body=%s", rec.Code, rec.Body.String())
 			}
-			if !strings.Contains(rec.Body.String(), "busy ("+state+")") {
-				t.Errorf("409 body = %s, want the state named", rec.Body.String())
+			if !strings.Contains(rec.Body.String(), `"queued":true`) {
+				t.Errorf("202 body = %s, want queued outcome", rec.Body.String())
 			}
 			if len(ops.chatCalls) != 0 {
 				t.Errorf("injection ran (%v) for a busy operator", ops.chatCalls)
+			}
+			queue, _ := operatorQueueState(server.sseHub.getOperatorQueue(), "default")
+			if len(queue) != 1 || queue[0].template != "fix-tab-name" || queue[0].windowID != "@1" {
+				t.Fatalf("queued requests = %+v, want fix-tab-name for @1", queue)
+			}
+		})
+	}
+}
+
+func TestOperatorRequestBusyCoalescesDuplicate(t *testing.T) {
+	stageFixtureTranscript(t, testChatRef)
+	server := &Server{
+		logger:   slog.Default(),
+		sessions: &mockSessionFetcher{result: operatorSessions(tmux.AgentStateActive)},
+		tmux:     &mockTmuxOps{},
+		hostname: "host",
+	}
+	router := server.buildRouter()
+	for i := 0; i < 2; i++ {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, operatorReq(`{"template":"fix-tab-name"}`))
+		if rec.Code != http.StatusAccepted {
+			t.Fatalf("request %d status = %d, want 202; body=%s", i+1, rec.Code, rec.Body.String())
+		}
+	}
+	queue, _ := operatorQueueState(server.sseHub.getOperatorQueue(), "default")
+	if len(queue) != 1 {
+		t.Fatalf("duplicate busy requests produced %d entries, want 1", len(queue))
+	}
+}
+
+func TestOperatorRequestQueueFull(t *testing.T) {
+	stageFixtureTranscript(t, testChatRef)
+	server := &Server{
+		logger:   slog.Default(),
+		sessions: &mockSessionFetcher{result: operatorSessions(tmux.AgentStateActive)},
+		tmux:     &mockTmuxOps{},
+		hostname: "host",
+	}
+	server.initSSEHub()
+	queue := server.sseHub.getOperatorQueue()
+	for i := 0; i < operatorQueueCap; i++ {
+		if err := queue.enqueue("default", queuedOperatorRequest{
+			template: "fix-tab-name",
+			windowID: fmt.Sprintf("@%d", i+10),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rec := httptest.NewRecorder()
+	server.buildRouter().ServeHTTP(rec, operatorReq(`{"template":"fix-tab-name"}`))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "operator queue is full") {
+		t.Fatalf("body = %s, want queue-full message", rec.Body.String())
+	}
+}
+
+func TestOperatorRequestValidationFailuresDoNotQueue(t *testing.T) {
+	cases := []struct {
+		name   string
+		result []sessions.ProjectSession
+		body   string
+		server bool
+		want   int
+	}{
+		{name: "unknown template", result: operatorSessions(tmux.AgentStateActive), body: `{"template":"unknown"}`, want: http.StatusBadRequest},
+		{name: "missing subject", result: operatorSessions(tmux.AgentStateActive)[1:], body: `{"template":"fix-tab-name"}`, want: http.StatusNotFound},
+		{name: "missing chat ref", result: []sessions.ProjectSession{
+			{Name: "work", Windows: []tmux.WindowInfo{{WindowID: "@1"}}},
+			{Name: "operator", Windows: []tmux.WindowInfo{{WindowID: "@9", Role: "operator", AgentState: tmux.AgentStateActive}}},
+		}, body: `{"template":"fix-tab-name"}`, want: http.StatusNotFound},
+		{name: "nothing waiting", result: operatorSessions(tmux.AgentStateActive), body: `{"template":"whats-stuck"}`, server: true, want: http.StatusConflict},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			server := &Server{
+				logger:   slog.Default(),
+				sessions: &mockSessionFetcher{result: test.result},
+				tmux:     &mockTmuxOps{},
+				hostname: "host",
+			}
+			server.initSSEHub()
+			req := operatorReq(test.body)
+			if test.server {
+				req = serverOperatorReq(test.body)
+			}
+			rec := httptest.NewRecorder()
+			server.buildRouter().ServeHTTP(rec, req)
+			if rec.Code != test.want {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, test.want, rec.Body.String())
+			}
+			queue, inFlight := operatorQueueState(server.sseHub.getOperatorQueue(), "default")
+			if len(queue) != 0 || inFlight {
+				t.Fatalf("validation failure queued work: queue=%+v inFlight=%v", queue, inFlight)
 			}
 		})
 	}
@@ -469,25 +567,29 @@ func TestServerOperatorRequestNoOperator(t *testing.T) {
 	}
 }
 
-// TestServerOperatorRequestBusyGate: an active or waiting operator is a 409
-// naming the state, with ZERO injection subprocesses (reject, never queue).
+// The server-scoped route maps the same busy rejection to a queued outcome.
 func TestServerOperatorRequestBusyGate(t *testing.T) {
 	for _, state := range []string{"active", "waiting"} {
 		t.Run(state, func(t *testing.T) {
 			sf := &mockSessionFetcher{result: operatorSessions(state)}
 			ops := &mockTmuxOps{}
-			router := NewTestRouter(slog.Default(), sf, ops, "host")
+			server := &Server{logger: slog.Default(), sessions: sf, tmux: ops, hostname: "host"}
+			router := server.buildRouter()
 
 			rec := httptest.NewRecorder()
 			router.ServeHTTP(rec, serverOperatorReq(`{"template":"spawn-task","text":"fix the flaky test"}`))
-			if rec.Code != http.StatusConflict {
-				t.Fatalf("status = %d, want 409; body=%s", rec.Code, rec.Body.String())
+			if rec.Code != http.StatusAccepted {
+				t.Fatalf("status = %d, want 202; body=%s", rec.Code, rec.Body.String())
 			}
-			if !strings.Contains(rec.Body.String(), "busy ("+state+")") {
-				t.Errorf("409 body = %s, want the state named", rec.Body.String())
+			if !strings.Contains(rec.Body.String(), `"queued":true`) {
+				t.Errorf("202 body = %s, want queued outcome", rec.Body.String())
 			}
 			if len(ops.chatCalls) != 0 {
 				t.Errorf("injection ran (%v) for a busy operator", ops.chatCalls)
+			}
+			queue, _ := operatorQueueState(server.sseHub.getOperatorQueue(), "default")
+			if len(queue) != 1 || queue[0].template != "spawn-task" || queue[0].text != "fix the flaky test" {
+				t.Fatalf("queued requests = %+v, want spawn-task with its text", queue)
 			}
 		})
 	}

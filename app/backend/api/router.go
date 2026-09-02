@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -279,8 +281,60 @@ func (s *Server) initSSEHub() {
 		}
 		s.sseHub = newSSEHub(s.sessions, s.metrics, s.services, pc)
 		s.sseHub.codeServerPort = s.codeServerPort
+		s.sseHub.getOperatorQueue().deliver = s.operatorQueueDeliver()
 		s.sseHub.setAutoName(s.autoNameEnabled, s.autoNameDeliver())
 	})
+}
+
+// operatorQueueDeliver fetches fresh sessions inside the detached delivery
+// worker, revalidates the queued request, renders current facts, and enters the
+// shared prompt-level delivery core.
+func (s *Server) operatorQueueDeliver() operatorQueueDeliver {
+	return func(ctx context.Context, server string, request queuedOperatorRequest) error {
+		snapshot, err := s.sessions.FetchSessions(ctx, server)
+		if err != nil {
+			return fmt.Errorf("%w: %v", errOperatorQueueFetch, err)
+		}
+		tmpl, ok := operatorTemplates[request.template]
+		if !ok {
+			return fmt.Errorf("operator template %q is no longer registered", request.template)
+		}
+		operator := findOperatorWindow(snapshot)
+		if operator == nil {
+			return &operatorReject{http.StatusNotFound, "no operator on this server"}
+		}
+		if request.windowID != "" {
+			if tmpl.serverScoped {
+				return fmt.Errorf("operator template %q is not window-scoped", request.template)
+			}
+			subject := findOperatorSubject(snapshot, request.windowID)
+			if subject == nil {
+				return &operatorReject{http.StatusNotFound, "window not found"}
+			}
+			if subject.Role == "operator" || subject == operator {
+				return errors.New("operator window cannot be its own request subject")
+			}
+			return s.deliverOperatorRequest(ctx, server, subject, operator, tmpl)
+		}
+		if !tmpl.serverScoped {
+			return fmt.Errorf("operator template %q is not server-scoped", request.template)
+		}
+		facts := buildServerOperatorFacts(snapshot, request.text)
+		if request.session != "" {
+			if !tmpl.acceptsSession {
+				return fmt.Errorf("operator template %q does not accept a session scope", request.template)
+			}
+			var known bool
+			facts, known = filterServerOperatorFacts(snapshot, facts, request.session)
+			if !known {
+				return fmt.Errorf("no session %s on this server", request.session)
+			}
+		}
+		if tmpl.requiresWaiting && !hasWaitingOperatorFacts(facts) {
+			return errors.New("nothing is waiting on this server")
+		}
+		return s.deliverOperatorPrompt(ctx, server, operator, tmpl.renderServer(facts))
+	}
 }
 
 // autoNameDeliver builds the auto-name delivery closure: the shared

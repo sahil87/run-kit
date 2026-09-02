@@ -295,6 +295,10 @@ type sseHub struct {
 	// sustained-waiting episode from the poll seam (260706-y1ar). In-memory only.
 	waitingPush *waitingPushTracker
 
+	// operatorQueue holds bounded user-initiated requests until a tick observes
+	// the server's operator idle. It is always present and process-memory only.
+	operatorQueue *operatorQueueTracker
+
 	// autoName tracks per-window busy→idle transitions and hands the server's
 	// operator window an automatic fix-tab-name request (rate-limited, skipped
 	// when the operator is busy) from the same poll seam (260822-q675).
@@ -439,6 +443,7 @@ func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector, svc *ports.Collect
 		services:               svc,
 		prStatus:               pc,
 		waitingPush:            newWaitingPushTracker(),
+		operatorQueue:          newOperatorQueueTracker(),
 		autoName:               newAutoNameTracker(),
 		captureFn:              capturePreviewForWindow,
 	}
@@ -465,6 +470,10 @@ func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector, svc *ports.Collect
 		return "", "", false, nil
 	}
 	return h
+}
+
+func (h *sseHub) getOperatorQueue() *operatorQueueTracker {
+	return h.operatorQueue
 }
 
 // getAutoName returns the hub's current auto-name tracker snapshot (nil =
@@ -1493,6 +1502,10 @@ func (h *sseHub) poll() {
 				}
 			}
 
+			if operatorQueue := h.getOperatorQueue(); operatorQueue != nil {
+				operatorQueue.advance(server, result)
+			}
+
 			jsonBytes, err := json.Marshal(result)
 			if err != nil {
 				continue
@@ -1646,6 +1659,9 @@ func (h *sseHub) poll() {
 		// drop their previous-state and cooldown stamps so the maps stay bounded.
 		if autoName := h.getAutoName(); autoName != nil {
 			autoName.retain(liveAutoNameKeys, reapableServers)
+		}
+		if operatorQueue := h.getOperatorQueue(); operatorQueue != nil {
+			operatorQueue.retain(polledServers, reapableServers)
 		}
 
 		// Reap dead servers collected during the loop. A dead socket has no

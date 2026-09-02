@@ -4,6 +4,7 @@ import { CommandPalette, type PaletteAction } from "@/components/command-palette
 import { buildTabPickerActions, resolveServerView } from "@/app";
 import { availableViews, hasCode } from "@/lib/window-view";
 import type { ServerInfo } from "@/api/client";
+import { operatorRequestToast, QUEUED_OPERATOR_TOAST } from "@/lib/operator-request";
 
 // `@/app` transitively imports terminal-client → @xterm/addon-unicode-graphemes,
 // whose import-time trie init is a documented CI flake ("Data error" — see
@@ -25,6 +26,20 @@ vi.mock("@xterm/addon-unicode-graphemes", () => ({
 function openPalette() {
   fireEvent.keyDown(document, { key: "k", code: "KeyK", metaKey: true });
 }
+
+describe("operator request toast outcomes", () => {
+  it("keeps the action-specific copy for immediate delivery", () => {
+    expect(operatorRequestToast({ outcome: "delivered" }, "Sent to operator — done shortly")).toBe(
+      "Sent to operator — done shortly",
+    );
+  });
+
+  it("uses the shared queued copy for every queued action", () => {
+    expect(operatorRequestToast({ outcome: "queued" }, "Sent to operator — done shortly")).toBe(
+      QUEUED_OPERATOR_TOAST,
+    );
+  });
+});
 
 describe("tab picker palette actions", () => {
   it("registers the label and marker entries through the production builder", () => {

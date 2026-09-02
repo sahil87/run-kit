@@ -7,7 +7,7 @@ import { ClockSpinner } from "@/components/clock-spinner";
 import { StarTwinkle } from "@/components/star-twinkle";
 import { CollapsiblePanel } from "./collapsible-panel";
 import { ICON_CLASS } from "./icons";
-import { useCopyFeedback } from "@/hooks/use-copy-feedback";
+import { COPY_FEEDBACK_MS, useCopyFeedback } from "@/hooks/use-copy-feedback";
 import { abbreviateHomePath, parseFabChange } from "@/lib/format";
 import { getOutputLine, getAgentLine, getFabLine, getPrSegments } from "./registers";
 import { StatusDot } from "@/components/status-dot";
@@ -17,8 +17,9 @@ import type { WindowInfo } from "@/types";
 type CopyableRowKey = "tmx" | "cwd" | "git" | "fab" | "pr";
 
 // How long the post-completion / throttled "checkmark" shows before reverting to
-// the idle refresh icon (mirrors COPY_FEEDBACK_MS's feedback cadence).
-const REFRESH_CHECK_MS = 1000;
+// the idle refresh icon — the copy rows' feedback cadence, shared so the two
+// can't diverge.
+const REFRESH_CHECK_MS = COPY_FEEDBACK_MS;
 
 // UI fallback that clears a stuck spinner if no `status-refresh` completion event
 // arrives (network drop / a client that missed the broadcast). The backend pass

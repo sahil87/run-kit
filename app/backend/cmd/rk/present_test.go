@@ -185,6 +185,14 @@ func opValue(ops []tmux.WindowOptionOp, key string) (string, bool) {
 	return "", false
 }
 
+func TestPresentHelpDocumentsSameOriginTarget(t *testing.T) {
+	for _, want := range []string{"$(rk url)/path", "same-origin /path targets"} {
+		if !strings.Contains(presentCmd.Long, want) {
+			t.Errorf("present help missing %q", want)
+		}
+	}
+}
+
 func TestPresentUsageErrorsExitTwo(t *testing.T) {
 	installPresentFakes(t)
 	t.Setenv("TMUX_PANE", "%3")
@@ -335,6 +343,48 @@ func TestPresentAttachNonEmptyFamily(t *testing.T) {
 	if len(f.webAdds) != 1 || f.webAdds[0].index != 3 || f.webAdds[0].existed {
 		t.Errorf("WebAdd = %+v, want one call landing slot 3 (dense append, tab 1 untouched)", f.webAdds)
 	}
+}
+
+func TestPresentAndTabWebAddUseRunKitOrigin(t *testing.T) {
+	const target = "http://0.0.0.0:3000/tutorial/ch1-orientation.html?chapter=1"
+	const wantURL = "/tutorial/ch1-orientation.html?chapter=1"
+	t.Setenv("RK_HOST", "0.0.0.0")
+	t.Setenv("RK_PORT", "3000")
+	t.Setenv("TMUX_PANE", "%3")
+
+	t.Run("present", func(t *testing.T) {
+		f := installPresentFakes(t)
+		stdout, _, err := runPresentCmd(t, target)
+		if err != nil {
+			t.Fatalf("present: %v", err)
+		}
+		if stdout != wantURL+"\n" {
+			t.Errorf("stdout = %q, want %q", stdout, wantURL+"\n")
+		}
+		if len(f.webAdds) != 1 || f.webAdds[0].url != wantURL {
+			t.Errorf("WebAdd calls = %+v, want one call with %q", f.webAdds, wantURL)
+		}
+		if len(f.probed) != 0 {
+			t.Errorf("same-origin target probes = %v, want none", f.probed)
+		}
+	})
+
+	t.Run("tab web add", func(t *testing.T) {
+		f := installPresentFakes(t)
+		stdout, stderr, err := runTabCmd(t, "web", "add", target)
+		if err != nil {
+			t.Fatalf("tab web add: %v", err)
+		}
+		if stdout != "@7/web/1\n" {
+			t.Errorf("stdout = %q, want @7/web/1", stdout)
+		}
+		if !strings.Contains(stderr, "url: "+wantURL) {
+			t.Errorf("stderr = %q, want URL note for %q", stderr, wantURL)
+		}
+		if len(f.webAdds) != 1 || f.webAdds[0].url != wantURL {
+			t.Errorf("WebAdd calls = %+v, want one call with %q", f.webAdds, wantURL)
+		}
+	})
 }
 
 func TestPresentURLStillPrintsUnderQuiet(t *testing.T) {

@@ -21,8 +21,8 @@ import (
 // the same add on the new window. Both arms ride webAddShow — one code path,
 // no duplicated attach logic (docs/specs/ui-state.md § Web Tabs).
 //
-// Stdout carries exactly the resolved URL (relative for /present and /proxy
-// targets, absolute for external URLs) — present's documented data contract;
+// Stdout carries exactly the resolved URL (relative for /present, /proxy, and
+// same-origin paths; absolute for external URLs) — present's data contract;
 // `rk tab web add` prints the address instead. Exit codes follow the toolkit
 // convention (Principle 4): 0 success, 1 operational failure (not in tmux,
 // missing file, unreachable port, tmux failure), 2 usage error (no target,
@@ -51,9 +51,10 @@ var presentCmd = &cobra.Command{
 		"  ./dist/              a directory — served live (index.html default)\n" +
 		"  :5173                a local port already serving — attached via /proxy/5173/\n" +
 		"  http://localhost:N/… same, rewritten to the relative /proxy/N/… form\n" +
+		"  $(rk url)/path        a URL on the run-kit server's own origin — attached as /path\n" +
 		"  https://…            an external URL — attached verbatim\n\n" +
-		"Stdout carries exactly the resolved URL (relative for /present and\n" +
-		"/proxy targets, absolute for external URLs). --window spawns a\n" +
+		"Stdout carries exactly the resolved URL (relative for /present, /proxy,\n" +
+		"and same-origin /path targets; absolute for external URLs). --window spawns a\n" +
 		"standalone iframe window instead; --notify sends a Web Push after\n" +
 		"attaching (fail-silent).",
 	Args: cobra.ExactArgs(1),
@@ -104,10 +105,6 @@ func runPresent(cmd *cobra.Command, arg string) error {
 	if err != nil {
 		return fmt.Errorf("resolve working directory: %w", err)
 	}
-	target, err := present.ParseTarget(arg, cwd)
-	if err != nil {
-		return err
-	}
 
 	parent := cmd.Context()
 	if parent == nil {
@@ -115,6 +112,10 @@ func runPresent(cmd *cobra.Command, arg string) error {
 	}
 	ctx, cancel := context.WithTimeout(parent, presentCmdTimeout)
 	defer cancel()
+	target, err := present.ParseTargetWithOrigins(arg, cwd, []string{resolveOrigin(ctx)})
+	if err != nil {
+		return err
+	}
 
 	// Best-effort reachability probe for port/local-URL targets only.
 	if target.NeedsProbe() {

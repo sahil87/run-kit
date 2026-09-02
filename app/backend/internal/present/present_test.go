@@ -138,6 +138,93 @@ func TestParseTarget_localURLs(t *testing.T) {
 	}
 }
 
+func TestParseTargetWithOrigins_siteRelative(t *testing.T) {
+	tests := []struct {
+		name      string
+		arg       string
+		origins   []string
+		wantKind  Kind
+		wantName  string
+		wantURL   string
+		wantProbe bool
+		wantRoot  bool
+	}{
+		{
+			name:     "non-localhost server origin",
+			arg:      "http://0.0.0.0:3000/tutorial/ch1-orientation.html",
+			origins:  []string{"http://0.0.0.0:3000"},
+			wantKind: KindSiteRelative,
+			wantName: "tutorial",
+			wantURL:  "/tutorial/ch1-orientation.html",
+		},
+		{
+			name:     "localhost match precedes proxy rewrite",
+			arg:      "http://127.0.0.1:3000/app?x=1&y=2",
+			origins:  []string{"http://127.0.0.1:3000"},
+			wantKind: KindSiteRelative,
+			wantName: "app",
+			wantURL:  "/app?x=1&y=2",
+		},
+		{
+			name:     "localhost host and root path",
+			arg:      "http://localhost:3000?x=1",
+			origins:  []string{"http://localhost:3000"},
+			wantKind: KindSiteRelative,
+			wantName: "site",
+			wantURL:  "/?x=1",
+		},
+		{
+			name:      "mismatched localhost port still proxies",
+			arg:       "http://127.0.0.1:5173/app?x=1",
+			origins:   []string{"http://127.0.0.1:3000"},
+			wantKind:  KindLocalURL,
+			wantName:  "port-5173",
+			wantURL:   "/proxy/5173/app?x=1",
+			wantProbe: true,
+		},
+		{
+			name:     "matching https origin is site-relative",
+			arg:      "https://example.test/docs/start#section",
+			origins:  []string{"https://example.test"},
+			wantKind: KindSiteRelative,
+			wantName: "docs",
+			wantURL:  "/docs/start",
+		},
+		{
+			name:     "non-matching https stays verbatim",
+			arg:      "https://example.test/docs/start",
+			origins:  []string{"https://other.test"},
+			wantKind: KindExternalURL,
+			wantName: "example.test",
+			wantURL:  "https://example.test/docs/start",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ParseTargetWithOrigins(tc.arg, "/", tc.origins)
+			if err != nil {
+				t.Fatalf("ParseTargetWithOrigins(%q): %v", tc.arg, err)
+			}
+			if got.Kind != tc.wantKind {
+				t.Errorf("kind = %v, want %v", got.Kind, tc.wantKind)
+			}
+			if got.Name != tc.wantName {
+				t.Errorf("name = %q, want %q", got.Name, tc.wantName)
+			}
+			if gotURL := got.URL("dev", "", fixedNow); gotURL != tc.wantURL {
+				t.Errorf("url = %q, want %q", gotURL, tc.wantURL)
+			}
+			if got.NeedsProbe() != tc.wantProbe {
+				t.Errorf("NeedsProbe = %v, want %v", got.NeedsProbe(), tc.wantProbe)
+			}
+			if got.NeedsRoot() != tc.wantRoot {
+				t.Errorf("NeedsRoot = %v, want %v", got.NeedsRoot(), tc.wantRoot)
+			}
+		})
+	}
+}
+
 func TestParseTarget_externalURLsVerbatim(t *testing.T) {
 	for _, arg := range []string{
 		"https://staging.example.com/app",
@@ -242,11 +329,12 @@ func TestProbePort(t *testing.T) {
 
 func TestNeedsProbe(t *testing.T) {
 	cases := map[Kind]bool{
-		KindFile:        false,
-		KindDir:         false,
-		KindPort:        true,
-		KindLocalURL:    true,
-		KindExternalURL: false,
+		KindFile:         false,
+		KindDir:          false,
+		KindPort:         true,
+		KindSiteRelative: false,
+		KindLocalURL:     true,
+		KindExternalURL:  false,
 	}
 	for k, want := range cases {
 		if got := (Target{Kind: k}).NeedsProbe(); got != want {

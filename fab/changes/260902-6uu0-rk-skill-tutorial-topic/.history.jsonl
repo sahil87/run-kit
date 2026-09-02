@@ -1,0 +1,22 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-02T11:32:14Z"}
+{"args":"rk skill tutorial: interactive onboarding tour as a shipped skill topic page — prototype validated in rk-tutorial worktree (.claude/skills/rk-tutorial); permanent home = docs/site/skill/tutorial.md served by rk skill tutorial, so any agent in a run-kit pane can run the guided tour","cmd":"fab-new","event":"command","ts":"2026-09-02T11:32:14Z"}
+{"delta":"+4.5","event":"confidence","score":4.5,"trigger":"calc-score","ts":"2026-09-02T11:34:05Z"}
+{"delta":"+0.0","event":"confidence","score":4.5,"trigger":"calc-score","ts":"2026-09-02T11:34:30Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-02T11:49:21Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-02T11:49:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-02T12:32:47Z"}
+{"event":"review","result":"failed","ts":"2026-09-02T12:53:01Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-02T12:53:01Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-02T13:04:08Z"}
+{"event":"review","result":"failed","ts":"2026-09-02T13:20:04Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-02T13:20:04Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-02T13:27:18Z"}
+{"event":"review","result":"failed","ts":"2026-09-02T13:52:35Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-02T13:52:35Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-09-02T13:55:29Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-02T14:04:51Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-09-02T14:07:49Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-02T14:27:36Z"}
+{"event":"review","result":"passed","ts":"2026-09-02T14:27:36Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-09-02T14:30:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-02T14:41:16Z"}

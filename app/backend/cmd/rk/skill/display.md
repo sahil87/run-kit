@@ -17,6 +17,7 @@ rk present ./mock.html              # a file — served live, attached
 rk present ./dist/                  # a directory (index.html default)
 rk present :5173                    # a port already serving → /proxy/5173/
 rk present http://localhost:8080/x  # same, rewritten to /proxy/8080/x
+rk present "$(rk url)/path"          # same run-kit origin → /path
 rk present https://example.com/app  # external URL — attached verbatim
 ```
 

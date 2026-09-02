@@ -1,0 +1,40 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ch 7 — The command palette</title>
+<style>
+  body{background:#0d1117;color:#c9d1d9;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;margin:0;padding:24px;font-size:14px;line-height:1.5}
+  h1{color:#3fb950;font-size:18px;margin:0 0 4px} .sub{color:#8b949e;margin:0 0 20px}
+  .mock{border:1px solid #30363d;border-radius:6px;background:#161b22;padding:14px;margin:14px 0}
+  .lbl{color:#8b949e;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
+  .hl{color:#3fb950} .dim{color:#8b949e}
+  code{background:#0d1117;border:1px solid #30363d;border-radius:3px;padding:1px 5px}
+  kbd{background:#21262d;border:1px solid #484f58;border-bottom-width:2px;border-radius:4px;padding:2px 7px;font-size:13px}
+  .pal{max-width:480px;margin:0 auto;border:1px solid #3fb950;border-radius:8px;background:#0d1117;overflow:hidden}
+  .pin{padding:10px 12px;border-bottom:1px solid #30363d;color:#c9d1d9}.pin .c{border-left:1px solid #3fb950;animation:none;margin-left:1px}
+  .pr{padding:7px 12px;display:flex;justify-content:space-between;color:#8b949e}
+  .pr.on{background:#161b22;color:#3fb950}
+  table{border-collapse:collapse;width:100%} td{border-top:1px solid #30363d;padding:6px 8px} td:first-child{white-space:nowrap}
+</style></head><body>
+<h1>Chapter 7 · The command palette</h1>
+<p class="sub">The rule run-kit is built on: <b>every action is registered in the palette</b>. It's the discovery mechanism — when you don't know how, <kbd>⌘K</kbd> (<kbd>⇧Ctrl+K</kbd> on Win/Linux) and type.</p>
+
+<div class="mock">
+  <div class="lbl">⌘K — then just type</div>
+  <div class="pal">
+    <div class="pin">marker<span class="c">&nbsp;</span></div>
+    <div class="pr on"><span>Tab: Marker</span><span>↵</span></div>
+  </div>
+  <p class="dim" style="text-align:center">everything from this tour is in here: <code>marker</code> · <code>color</code> · <code>note</code> · <code>layout</code> · <code>web</code> · <code>settings</code> · sessions, boards, servers…</p>
+</div>
+
+<div class="mock">
+  <div class="lbl">the chords worth memorizing</div>
+  <table>
+    <tr><td><kbd>⌘K</kbd> <span class="dim">/ ⇧Ctrl+K</span></td><td><b>the palette</b> — the only chord you truly need</td></tr>
+    <tr><td><kbd>⌘,</kbd></td><td><b>Settings</b> — in the desktop app. Mac <i>browsers</i> reserve ⌘, for their own preferences: there, ⌘K → <code>settings</code>. Win/Linux: <kbd>⇧Ctrl+,</kbd></td></tr>
+    <tr><td><kbd>⌘/</kbd> <span class="dim">/ ⇧Ctrl+/</span></td><td><b>Shortcuts tab</b> — every binding; app bindings are remappable, tmux bindings are locked</td></tr>
+  </table>
+</div>
+
+<p><span class="hl">Takeaway:</span> this tour showed you a fraction of the surface. <kbd>⌘K</kbd> is how you find the rest.</p>
+</body></html>

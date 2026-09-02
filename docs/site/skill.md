@@ -9,6 +9,7 @@ Depth for a specific job lives in topic pages — pull one at use-time:
 - **panes, iframes & visual display** → `rk skill display`
 - **agent-to-agent messaging** (send a message into another agent's pane, wait for its state) → `rk skill mux`
 - **act inside the `code` lens editor** (run VS Code palette commands in the open code-server window from the shell) → `rk skill code`
+- **guided first-run tour** (when the user asks for a tutorial, tour, or onboarding) → `rk skill tutorial`
 - **drive the tab UI** (layouts, web-tab strip, code folder — `rk tab --help`); works with `rk serve` down
 
 ## When to use
@@ -39,6 +40,11 @@ One line each, keyed to the subcommand or tmux option that does it:
 - `rk tab layout [@N] [L|--add S|--rm S|--promote S|--cycle]` — read or mutate the tab's surface layout (`split-h:tty,web`, …); unset reads as `single:tty`.
 - `rk tab web add|rm|select|ls` — manage the tab's web-tab strip (add takes a `present` target; rm/select address `@N/web/<n>` or bare `<n>`; `ls [--json]` lists).
 - `rk tab code set [@N] <folder>` — point the tab's code surface at a folder; `rk tab show [@N] [--json]` dumps every `@rk_win_*` option.
+- **Sidebar signals** — annotate your window's sidebar row so a human scanning many agents sees your state at a glance. Plain window options (`tmux set-option -w @rk_win_<name> <value>`; `-u` unsets):
+  - `@rk_win_color` — row color: an ANSI index `0`–`15`, a palette family name, or a blend `a+b`.
+  - `@rk_win_marker` — stage marker: `manual|auto|blocked` × `:1|:2|:3` (bare mode = stage 1); `blocked` is the "I'm stuck" flag.
+  - `@rk_win_note` — `<epoch>:<text>` — a short status line on the row's flyout card (stale-dims after 24h), e.g. `"$(date +%s):tests green, drafting PR"`.
+  - `@rk_win_flair` — animated row flair from a closed set (`rain`, `scan`, `matrix`, `nyan`, …); unknown values render nothing.
 - `rk mux send <target> [<msg>|-]` — deliver a message into another agent's pane, gated on its `@rk_pane_agent_state`, with a pre-Enter paste probe and post-Enter non-submission detection; a changed pane frame makes no submit claim. Depth: `rk skill mux`.
 - `rk mux await <target>` — block until a pane's agent state (or a `--file` signal) fires; prints a one-word report. Depth: `rk skill mux`.
 - `rk mux new <name> [--ephemeral]` — create a detached tmux server on socket `<name>`; scratch servers are created with `--ephemeral` and bulk-cleaned with `rk mux reap --ephemeral` (never bare `tmux kill-server`). Depth: `rk skill mux`.

@@ -251,7 +251,7 @@ func runTabWebAdd(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("resolve working directory: %w", err)
 	}
-	target, err := present.ParseTarget(targetArg, cwd)
+	target, err := present.ParseTargetWithOrigins(targetArg, cwd, []string{resolveOrigin(ctx)})
 	if err != nil {
 		return err
 	}

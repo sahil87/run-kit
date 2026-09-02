@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
+
+	"rk/internal/layoutspec"
 )
 
 // skillLineBudget is the hard line-count ceiling for the skill bundle, per the
@@ -13,6 +16,8 @@ import (
 // it will later be aggregated across every installed tool, so the budget is a
 // contract, not a suggestion.
 const skillLineBudget = 150
+
+const tutorialPublicPath = "tutorial/"
 
 // Core and topic invocations print their embedded content byte-for-byte.
 func TestSkillTopicsPrintByteIdentical(t *testing.T) {
@@ -25,6 +30,7 @@ func TestSkillTopicsPrintByteIdentical(t *testing.T) {
 		{name: "display", topic: "display", want: skillDisplayTopic},
 		{name: "code", topic: "code", want: skillCodeTopic},
 		{name: "mux", topic: "mux", want: skillMuxTopic},
+		{name: tutorialTopicName, topic: tutorialTopicName, want: skillTutorialTopic},
 	}
 
 	for _, tc := range cases {
@@ -67,6 +73,7 @@ func TestSkillTopicsMatchCanonical(t *testing.T) {
 		{name: "display", embedded: skillDisplayTopic, canonical: filepath.Join("..", "..", "..", "..", "docs", "site", "skill", "display.md")},
 		{name: "code", embedded: skillCodeTopic, canonical: filepath.Join("..", "..", "..", "..", "docs", "site", "skill", "code.md")},
 		{name: "mux", embedded: skillMuxTopic, canonical: filepath.Join("..", "..", "..", "..", "docs", "site", "skill", "mux.md")},
+		{name: tutorialTopicName, embedded: skillTutorialTopic, canonical: filepath.Join("..", "..", "..", "..", "docs", "site", "skill", tutorialTopicName+".md")},
 	}
 
 	for _, tc := range cases {
@@ -102,12 +109,78 @@ func TestSkillTopicsWithinLineBudget(t *testing.T) {
 		{name: "display", content: skillDisplayTopic},
 		{name: "code", content: skillCodeTopic},
 		{name: "mux", content: skillMuxTopic},
+		{name: tutorialTopicName, content: skillTutorialTopic},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if lines := countLines(tc.content); lines > skillLineBudget {
 				t.Errorf("%s skill content is %d lines, over the %d-line budget", tc.name, lines, skillLineBudget)
 			}
 		})
+	}
+}
+
+func TestTutorialPagesMatchTopic(t *testing.T) {
+	canonicalPath := filepath.Join("..", "..", "..", "..", "docs", "site", "skill", tutorialTopicName+".md")
+	canonical, err := os.ReadFile(canonicalPath)
+	if err != nil {
+		t.Fatalf("read canonical %s: %v", canonicalPath, err)
+	}
+
+	pagePattern := regexp.MustCompile(regexp.QuoteMeta(tutorialPublicPath) + `(ch\d-[a-z-]+\.html)`)
+	referenced := make(map[string]bool)
+	for _, match := range pagePattern.FindAllSubmatch(canonical, -1) {
+		referenced[string(match[1])] = true
+	}
+
+	publicDir := filepath.Join("..", "..", "..", "..", "app", "frontend", "public", strings.TrimSuffix(tutorialPublicPath, "/"))
+	entries, err := os.ReadDir(publicDir)
+	if err != nil {
+		t.Fatalf("read tutorial pages %s: %v", publicDir, err)
+	}
+	shipped := make(map[string]bool)
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".html") {
+			shipped[entry.Name()] = true
+		}
+	}
+
+	for name := range referenced {
+		if !shipped[name] {
+			t.Errorf("topic references missing tutorial page %s", name)
+		}
+	}
+	for name := range shipped {
+		if !referenced[name] {
+			t.Errorf("tutorial page %s is not referenced by the topic", name)
+		}
+	}
+}
+
+func TestTutorialLayoutValuesParse(t *testing.T) {
+	canonicalPath := filepath.Join("..", "..", "..", "..", "docs", "site", "skill", tutorialTopicName+".md")
+	canonical, err := os.ReadFile(canonicalPath)
+	if err != nil {
+		t.Fatalf("read canonical %s: %v", canonicalPath, err)
+	}
+
+	layoutPattern := regexp.MustCompile(`rk tab layout ([a-z-]+:[a-z,]+)`)
+	layouts := layoutPattern.FindAllSubmatch(canonical, -1)
+	if len(layouts) == 0 {
+		t.Fatal("tutorial contains no explicit layout values")
+	}
+	for _, match := range layouts {
+		literal := string(match[1])
+		if _, err := layoutspec.Parse(literal); err != nil {
+			t.Errorf("layout literal %q does not parse: %v", literal, err)
+		}
+	}
+
+	surfacePattern := regexp.MustCompile(`--(?:promote|add|rm) ([a-z]+)`)
+	for _, match := range surfacePattern.FindAllSubmatch(canonical, -1) {
+		literal := string(match[1])
+		if !layoutspec.IsSurface(literal) {
+			t.Errorf("surface literal %q is not registered", literal)
+		}
 	}
 }
 
@@ -164,7 +237,7 @@ func TestSkillUnknownTopicFailsFast(t *testing.T) {
 	if exitCode(err) != exitUsage {
 		t.Errorf("skill bogus exit code = %d, want %d (usage)", exitCode(err), exitUsage)
 	}
-	for _, want := range []string{"unknown topic", "code, display, mux"} {
+	for _, want := range []string{"unknown topic", "code, display, mux, " + tutorialTopicName} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("skill bogus error %q missing %q", err.Error(), want)
 		}

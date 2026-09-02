@@ -59,7 +59,8 @@ func (s *Server) windowCwd(ctx context.Context, windowID, server string) (string
 
 // handleWindowWebAdd serves POST /api/windows/{windowId}/web — body
 // {"target": "<string>"} resolved exactly like `rk present` (file, dir,
-// :port/port, local URL, external URL — present.ParseTarget), appended to the
+// :port/port, same-origin site-relative URL, local URL, external URL —
+// present.ParseTargetWithOrigins with this request's origin), appended to the
 // window's web-tab family. 201 {"index","existed","url"}; 409 on a full
 // family; 400 on parse/validation failure.
 func (s *Server) handleWindowWebAdd(w http.ResponseWriter, r *http.Request) {
@@ -89,7 +90,7 @@ func (s *Server) handleWindowWebAdd(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	target, err := present.ParseTarget(body.Target, cwd)
+	target, err := present.ParseTargetWithOrigins(body.Target, cwd, []string{requestOrigin(r)})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

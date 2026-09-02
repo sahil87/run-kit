@@ -4,11 +4,12 @@
 // and a TCP dial for the reachability probe, so every rule is unit-testable
 // without a live server.
 //
-// The five target kinds (spec: fab change 260813-becu-rk-present-attach-verb):
+// The target kinds:
 //
 //	file          existing regular file   → /present/<server>/<roothash>/<base>?v=<bust>
 //	dir           existing directory      → /present/<server>/<roothash>/?v=<bust>
 //	port          ":NNNN"                 → /proxy/<port>/
+//	site-relative matching server URL      → /<path+query>
 //	local URL     http://localhost…       → /proxy/<port>/<path+query>
 //	external URL  any other http(s) URL   → attached verbatim
 //
@@ -39,11 +40,12 @@ import (
 type Kind int
 
 const (
-	KindFile        Kind = iota // existing regular file
-	KindDir                     // existing directory
-	KindPort                    // ":NNNN"
-	KindLocalURL                // absolute http:// URL on a localhost host
-	KindExternalURL             // any other absolute http(s):// URL
+	KindFile         Kind = iota // existing regular file
+	KindDir                      // existing directory
+	KindPort                     // ":NNNN"
+	KindSiteRelative             // absolute URL on the run-kit server's origin
+	KindLocalURL                 // absolute http:// URL on a localhost host
+	KindExternalURL              // any other absolute http(s):// URL
 )
 
 // String names the kind, for diagnostics.
@@ -55,6 +57,8 @@ func (k Kind) String() string {
 		return "dir"
 	case KindPort:
 		return "port"
+	case KindSiteRelative:
+		return "site-relative"
 	case KindLocalURL:
 		return "local URL"
 	case KindExternalURL:
@@ -88,8 +92,8 @@ type Target struct {
 	Name string
 	// Port is the TCP port for KindPort/KindLocalURL (default 80).
 	Port int
-	// PathQuery is the original path+query (leading "/", empty when the URL
-	// had neither) for KindLocalURL — preserved verbatim into the proxy form.
+	// PathQuery is the original path+query (leading "/") for
+	// KindSiteRelative/KindLocalURL.
 	PathQuery string
 	// Verbatim is the original URL, attached unchanged, for KindExternalURL.
 	Verbatim string
@@ -99,6 +103,12 @@ type Target struct {
 // relative paths. A path that does not exist (and parses as neither a port
 // nor an absolute URL) is an error.
 func ParseTarget(arg, cwd string) (Target, error) {
+	return ParseTargetWithOrigins(arg, cwd, nil)
+}
+
+// ParseTargetWithOrigins resolves one CLI argument and treats URLs matching
+// any supplied server origin as site-relative frontend paths.
+func ParseTargetWithOrigins(arg, cwd string, origins []string) (Target, error) {
 	if m := portPattern.FindStringSubmatch(arg); m != nil {
 		port, err := parsePort(m[1])
 		if err != nil {
@@ -111,6 +121,17 @@ func ParseTarget(arg, cwd string) (Target, error) {
 		u, err := url.Parse(arg)
 		if err != nil || u.Host == "" {
 			return Target{}, fmt.Errorf("invalid URL %q", arg)
+		}
+		if matchesOrigin(u, origins) {
+			pathQuery := u.RequestURI()
+			if pathQuery == "" || pathQuery[0] != '/' {
+				pathQuery = "/" + pathQuery
+			}
+			name := "site"
+			if first := strings.Split(strings.TrimPrefix(u.Path, "/"), "/")[0]; first != "" {
+				name = first
+			}
+			return Target{Kind: KindSiteRelative, PathQuery: pathQuery, Name: name}, nil
 		}
 		// Only plaintext http on a localhost host rewrites to the relative
 		// proxy form; https (even to localhost) and any remote host attach
@@ -157,6 +178,18 @@ func ParseTarget(arg, cwd string) (Target, error) {
 		return Target{}, fmt.Errorf("target %q is not a regular file or directory", arg)
 	}
 	return Target{Kind: KindFile, Root: filepath.Dir(abs), Name: filepath.Base(abs)}, nil
+}
+
+func matchesOrigin(target *url.URL, origins []string) bool {
+	for _, raw := range origins {
+		origin, err := url.Parse(raw)
+		if err == nil && origin.Host != "" &&
+			strings.EqualFold(target.Scheme, origin.Scheme) &&
+			strings.EqualFold(target.Host, origin.Host) {
+			return true
+		}
+	}
+	return false
 }
 
 // parsePort validates a decimal port string.
@@ -230,6 +263,12 @@ func (t Target) URL(server, root string, now func() int64) string {
 		return PresentURL("", root, server, now)
 	case KindPort:
 		return fmt.Sprintf("/proxy/%d/", t.Port)
+	case KindSiteRelative:
+		pq := t.PathQuery
+		if pq == "" || pq[0] != '/' {
+			pq = "/" + pq
+		}
+		return pq
 	case KindLocalURL:
 		pq := t.PathQuery
 		if pq == "" || pq[0] != '/' {

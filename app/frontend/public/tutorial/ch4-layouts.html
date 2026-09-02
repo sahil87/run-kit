@@ -1,0 +1,53 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ch 4 — Layouts</title>
+<style>
+  body{background:#0d1117;color:#c9d1d9;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;margin:0;padding:24px;font-size:14px;line-height:1.5}
+  h1{color:#3fb950;font-size:18px;margin:0 0 4px} .sub{color:#8b949e;margin:0 0 20px}
+  .mock{border:1px solid #30363d;border-radius:6px;background:#161b22;padding:14px;margin:14px 0}
+  .lbl{color:#8b949e;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
+  .hl{color:#3fb950} .dim{color:#8b949e}
+  code{background:#0d1117;border:1px solid #30363d;border-radius:3px;padding:1px 5px}
+  .gal{display:flex;gap:16px;flex-wrap:wrap}
+  .shape{text-align:center} .shape .name{margin-top:6px;font-size:12px;color:#8b949e}
+  .g{width:120px;height:76px;display:grid;gap:3px;background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:3px}
+  .t{background:#21262d;border-radius:2px;display:flex;align-items:center;justify-content:center;font-size:10px;color:#8b949e}
+  .t.a{outline:1px solid #3fb950;color:#3fb950}
+  .verbs td{border-top:1px solid #30363d;padding:6px 8px} .verbs{border-collapse:collapse;width:100%}
+  .verbs td:first-child{white-space:nowrap}
+</style></head><body>
+<h1>Chapter 4 · Arranging the view</h1>
+<p class="sub">The tile arrangement is <b>shared state</b> — one tmux option, <code>@rk_win_layout</code>, that you, the toolbar, and agents all write.</p>
+
+<div class="mock">
+  <div class="lbl">the value grammar</div>
+  <p style="font-size:16px"><code>&lt;shape&gt;:&lt;surface,surface,…&gt;</code> &nbsp; e.g. &nbsp;<code class="hl">split-v:web,tty</code> <span class="dim">— each shape takes exactly the tile count labelled below; first surface fills slot A</span></p>
+</div>
+
+<div class="mock">
+  <div class="lbl">the shape presets</div>
+  <div class="gal">
+    <div class="shape"><div class="g" style="grid-template:1fr/1fr"><div class="t a">tty</div></div><div class="name">single · 1 tile</div></div>
+    <div class="shape"><div class="g" style="grid-template:1fr/1fr 1fr"><div class="t a">A</div><div class="t">B</div></div><div class="name">split-h · 2 tiles</div></div>
+    <div class="shape"><div class="g" style="grid-template:1fr 1fr/1fr"><div class="t a">A</div><div class="t">B</div></div><div class="name">split-v · 2 tiles</div></div>
+    <div class="shape"><div class="g" style="grid-template:1fr 1fr/2fr 1fr"><div class="t a" style="grid-row:1/3">A main</div><div class="t">B</div><div class="t">C</div></div><div class="name">main-left · 3 tiles</div></div>
+    <div class="shape"><div class="g" style="grid-template:1fr 1fr/1fr 2fr"><div class="t a" style="grid-column:2;grid-row:1/3">A main</div><div class="t" style="grid-column:1;grid-row:1">B</div><div class="t" style="grid-column:1;grid-row:2">C</div></div><div class="name">main-right · 3 tiles</div></div>
+    <div class="shape"><div class="g" style="grid-template:2fr 1fr/1fr 1fr"><div class="t a" style="grid-column:1/3">A main</div><div class="t">B</div><div class="t">C</div></div><div class="name">main-top · 3 tiles</div></div>
+    <div class="shape"><div class="g" style="grid-template:1fr/1fr 1fr 1fr"><div class="t a">A</div><div class="t">B</div><div class="t">C</div></div><div class="name">row · 3 tiles</div></div>
+    <div class="shape"><div class="g" style="grid-template:1fr 1fr 1fr/1fr"><div class="t a">A</div><div class="t">B</div><div class="t">C</div></div><div class="name">col · 3 tiles</div></div>
+  </div>
+  <p class="dim">Surfaces: <code>tty</code> (this terminal — always present) · <code>web</code> (this page's tile) · <code>code</code> (the editor, next chapter) · <code>chat</code>.</p>
+</div>
+
+<div class="mock">
+  <div class="lbl">one verb table — buttons and CLI are the same writes</div>
+  <table class="verbs">
+    <tr><td><code>rk tab layout split-v:web,tty</code></td><td>stack two surfaces, web on top</td></tr>
+    <tr><td><code>rk tab layout --promote tty</code></td><td>move tty into slot A</td></tr>
+    <tr><td><code>rk tab layout split-h:tty,web</code></td><td>place the same two surfaces side by side</td></tr>
+    <tr><td><code>rk tab layout --add code</code> / <code>--rm code</code></td><td>grow / collapse a tile</td></tr>
+    <tr><td><code>rk tab layout --cycle</code></td><td>step through shapes</td></tr>
+  </table>
+  <p><span class="hl">Watch the top bar:</span> the surface toggles light up to mirror every change — human clicks and agent commands drive one table. <span class="dim">(Shell writes render on the next poll — give them a few seconds. Divider ratios and zoom stay yours per-device.)</span></p>
+</div>
+</body></html>

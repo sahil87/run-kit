@@ -76,8 +76,10 @@ test.describe("Create server → waiting → view (no 'Server not found' flash)"
     await paletteInput.fill("Server: Create");
     await page.keyboard.press("Enter");
 
-    // Fill the create dialog and submit.
-    const nameInput = page.getByLabel("Server name");
+    // Fill the create dialog and submit. Role-scoped: the status bar's
+    // `Copy server name` button shares the "Server name" substring, so a bare
+    // getByLabel is ambiguous under strict mode.
+    const nameInput = page.getByRole("textbox", { name: "Server name" });
     await expect(nameInput).toBeVisible({ timeout: 5_000 });
     await nameInput.fill(CREATED_SERVER);
     await page.getByRole("button", { name: "Create", exact: true }).click();

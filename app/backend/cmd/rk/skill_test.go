@@ -280,8 +280,15 @@ func TestSkillReservedTopicsNameStaysReserved(t *testing.T) {
 // consulting --help before paying the core bundle's context cost can see what
 // exists. The line enumerates content topics only — never the reserved name.
 func TestSkillHelpEnumeratesTopics(t *testing.T) {
-	if !strings.Contains(skillCmd.Long, "Topics: "+strings.Join(skillTopicNames(), ", ")) {
-		t.Errorf("skillCmd.Long missing the Topics: line naming %v", skillTopicNames())
+	var topicsLine string
+	for _, line := range strings.Split(skillCmd.Long, "\n") {
+		if strings.HasPrefix(line, "Topics: ") {
+			topicsLine = line
+			break
+		}
+	}
+	if want := "Topics: " + strings.Join(skillTopicNames(), ", "); topicsLine != want {
+		t.Errorf("skillCmd.Long Topics: line = %q, want exactly %q", topicsLine, want)
 	}
 	for _, name := range skillTopicNames() {
 		if name == reservedTopicsName {

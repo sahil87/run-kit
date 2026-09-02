@@ -747,7 +747,7 @@ standard, not a separate standard. (6uu0)
 
 **Topic discovery.** The standard's two topic-discovery mandates both hold
 (`app/backend/cmd/rk/skill.go`): the `skill` subcommand's long help carries a
-`Topics: code, display, mux, tutorial` line composed from `skillTopicNames()`
+`Topics:` line naming the shipped content topics, composed from `skillTopicNames()`
 (static by construction — topic embeds are fixed at build time; a new
 `skillTopics` row updates the help line, the unknown-topic error, and the
 enumeration in one place), and the **reserved positional topic** `rk skill

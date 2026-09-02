@@ -1,47 +1,86 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Act 5 — Everywhere</title>
 <style>
-  body{background:#0d1117;color:#c9d1d9;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;margin:0;padding:24px;font-size:14px;line-height:1.55}
-  h1{color:#3fb950;font-size:18px;margin:0 0 4px} .sub{color:#8b949e;margin:0 0 20px}
-  .mock{border:1px solid #30363d;border-radius:6px;background:#161b22;padding:14px;margin:14px 0}
-  .lbl{color:#8b949e;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
-  .hl{color:#3fb950} .dim{color:#8b949e}
-  kbd{background:#21262d;border:1px solid #484f58;border-bottom-width:2px;border-radius:4px;padding:2px 7px;font-size:13px}
-  .cols{display:flex;gap:14px;flex-wrap:wrap}
-  .phone{width:120px;border:2px solid #30363d;border-radius:14px;padding:10px 8px;background:#0d1117;text-align:center;flex:none}
-  .phone .scr{border:1px solid #30363d;border-radius:6px;height:150px;display:flex;flex-direction:column;gap:4px;padding:6px;font-size:9px;color:#8b949e}
-  .phone .scr div{border:1px solid #30363d;border-radius:2px;padding:2px 4px;text-align:left}
-  .phone .scr .on{border-color:#3fb950;color:#3fb950}
-  .pal{flex:1;min-width:240px;border:1px solid #3fb950;border-radius:8px;background:#0d1117;overflow:hidden;align-self:flex-start}
-  .pin{padding:9px 12px;border-bottom:1px solid #30363d}
-  .pr{padding:6px 12px;color:#8b949e} .pr.on{background:#161b22;color:#3fb950}
-  ul{padding-left:18px} li{margin:6px 0}
+  :root{--bg-primary:#0f1117;--bg-card:#171b24;--bg-inset:#0a0c12;--text-primary:#e8eaf0;--text-secondary:#7a8394;--border:#454d66;--accent:#5b8af0;--accent-green:#22c55e;--signal-yellow:#facc15;--marker-ink:#f59e0b}
+  *{box-sizing:border-box}
+  body{margin:0;padding:22px;background:#07080c;color:var(--text-primary);font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:13px}
+  h1{font-size:17px;margin:0 0 4px}
+  .sub{color:var(--text-secondary);font-size:12px;margin-bottom:16px}
+  .callout{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:var(--accent);color:#0f1117;font-size:10px;font-weight:bold;position:absolute;z-index:40;box-shadow:0 0 0 2px #07080c}
+  .legend{margin:14px 0 0;max-width:940px;padding:0}
+  .legend li{list-style:none;margin:6px 0;color:var(--text-secondary);line-height:1.5}
+  .legend b{color:var(--text-primary)}
+  .legend .n{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;background:var(--accent);color:#0f1117;font-size:10px;font-weight:bold;margin-right:6px}
+  .try{margin-top:16px;border:1px solid var(--accent);border-radius:6px;background:var(--bg-primary);padding:10px 14px;max-width:940px}
+  .try b{color:var(--accent)}
+  .scene{position:relative;display:flex;gap:26px;align-items:flex-start;flex-wrap:wrap;max-width:940px}
+  .phone{position:relative;width:210px;flex:none;border:2px solid var(--border);border-radius:22px;background:var(--bg-primary);padding:14px 10px 18px}
+  .phone .notch{width:70px;height:5px;border-radius:3px;background:var(--border);margin:0 auto 10px}
+  .pscr{border:1px solid var(--border);border-radius:8px;overflow:hidden;font-size:10.5px}
+  .p-top{display:flex;align-items:center;gap:5px;background:var(--bg-card);border-bottom:1px solid var(--border);padding:5px 8px}
+  .p-top .logo{width:10px;height:10px;border-radius:2px;background:linear-gradient(135deg,var(--accent-green),var(--accent))}
+  .p-row{display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid color-mix(in srgb,var(--border) 40%,transparent)}
+  .sdot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+  .sdot.green{background:var(--accent-green)}
+  .sdot.yellow{background:var(--signal-yellow);box-shadow:0 0 0 2px color-mix(in srgb,var(--signal-yellow) 55%,transparent)}
+  .sdot.gray{background:var(--text-secondary)}
+  .wait-pill{background:var(--signal-yellow);color:#0f1117;border-radius:6px;font-size:8px;padding:0 4px;font-weight:600;margin-left:auto}
+  .p-toast{margin:8px 6px 2px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);padding:6px 8px;font-size:9.5px}
+  .p-toast .d{color:var(--text-secondary)}
+  .phone .cap{text-align:center;color:var(--text-secondary);font-size:10px;margin-top:10px}
+  .desk{position:relative;flex:1;min-width:420px}
+  .mini-app{position:relative;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);overflow:hidden;height:300px;filter:brightness(.55)}
+  .mini-top{display:flex;gap:6px;padding:6px 10px;border-bottom:3px solid var(--border)}
+  .mchip{height:22px;min-width:22px;border:1px solid var(--border);border-radius:4px;display:inline-flex;align-items:center;justify-content:center;color:var(--text-secondary);font-size:10px;padding:0 5px}
+  .mini-body{padding:10px;color:var(--text-secondary);font-size:11px;line-height:1.7}
+  .pal{position:absolute;top:36px;left:50%;transform:translateX(-50%);width:340px;border:1px solid var(--accent);border-radius:8px;background:var(--bg-primary);overflow:hidden;box-shadow:0 14px 40px rgba(0,0,0,.65);z-index:20}
+  .pin{padding:9px 12px;border-bottom:1px solid var(--border);font-size:12px}
+  .pin .c{border-left:1px solid var(--accent)}
+  .pr{padding:6px 12px;color:var(--text-secondary);font-size:11.5px;display:flex;justify-content:space-between}
+  .pr.on{background:var(--bg-card);color:var(--text-primary)}
+  .pr kbd{color:var(--text-secondary);font-size:10px}
+  .desk .cap{color:var(--text-secondary);font-size:10px;margin-top:8px;text-align:center}
 </style></head><body>
-<h1>Act 5 · Everywhere — and what's next</h1>
-<p class="sub">Mission control isn't tied to this desk.</p>
 
-<div class="mock">
-  <div class="lbl">two things worth 30 seconds each</div>
-  <div class="cols">
-    <div class="phone"><div class="scr"><div>my-project</div><div class="on">tour-worker ●</div><div>feature-x</div><div style="margin-top:auto">🔔 needs you</div></div><div class="dim" style="font-size:10px;margin-top:6px">the same address,<br>on your phone</div></div>
-    <div class="pal">
-      <div class="pin">settings<span style="border-left:1px solid #3fb950">&nbsp;</span></div>
-      <div class="pr on">Settings: Open</div>
-      <div class="pr">Session: Sort…</div>
-      <div class="pr dim" style="border-top:1px solid #30363d">⌘K — every action lives here. When you don't know how: <b>⌘K and type.</b></div>
+<h1>Act 5 · Everywhere — and what's next</h1>
+<div class="sub">Mission control isn't tied to this desk.</div>
+
+<div class="scene">
+  <span class="callout" style="top:6px;left:6px">1</span>
+  <div class="phone">
+    <div class="notch"></div>
+    <div class="pscr">
+      <div class="p-top"><span class="logo"></span> RunKit</div>
+      <div class="p-row"><span class="sdot green"></span> tour-guide</div>
+      <div class="p-row"><span class="sdot yellow"></span> tour-worker <span class="wait-pill">needs you</span></div>
+      <div class="p-row"><span class="sdot gray"></span> feature-x</div>
+      <div class="p-toast">🔔 <b>run-kit</b><br><span class="d">tour-worker finished — brief presented</span></div>
     </div>
+    <div class="cap">the same address, on your phone —<br>badges, pages, and answers included</div>
+  </div>
+
+  <div class="desk">
+    <span class="callout" style="top:6px;left:6px">2</span>
+    <div class="mini-app">
+      <div class="mini-top"><span class="mchip">☰</span><span class="mchip">RunKit</span><span class="mchip" style="margin-left:auto">⟳</span></div>
+      <div class="mini-body">the whole app dims behind the palette…</div>
+    </div>
+    <div class="pal">
+      <div class="pin">settings<span class="c">&nbsp;</span></div>
+      <div class="pr on"><span>Settings: Open</span><span>↵</span></div>
+      <div class="pr"><span>Session: Sort…</span></div>
+      <div class="pr"><span>Window: Rename</span></div>
+      <div class="pr" style="border-top:1px solid var(--border)"><span>every action lives here</span><kbd>⌘K / Ctrl+K</kbd></div>
+    </div>
+    <div class="cap">⌘K — when you don't know how, open this and type</div>
   </div>
 </div>
 
-<div class="mock">
-  <div class="lbl">your challenge — do one real thing</div>
-  <ul>
-    <li>Ask the <b>operator</b> to start an agent on something you actually want done this week.</li>
-    <li>End your ask with <span class="hl">"…and present it to me."</span></li>
-    <li>Then close the laptop. The badge — or your phone — will tell you when you're needed.</li>
-  </ul>
-</div>
+<ul class="legend">
+  <li><span class="n">1</span><b>Your phone works</b> — open the same dashboard address on any device that can reach it; I can send it to you as a notification.</li>
+  <li><span class="n">2</span><b>⌘K finds everything</b> — every action in run-kit is in the palette. Try it now: type <b>color</b>, then <b>settings</b>.</li>
+</ul>
 
-<p class="dim">For your engineers: every agent on this machine can read <b>rk skill</b> — the briefing that teaches them presenting, messaging, and the editor bridge. They'll know what to do.</p>
+<div class="try"><b>Your challenge — do one real thing:</b> ask the operator to start an agent on something you actually want done this week, end with <b>"…and present it to me"</b>, then close the laptop. The badge — or your phone — will tell you when you're needed.</div>
 </body></html>

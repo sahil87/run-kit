@@ -1,45 +1,120 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Act 2 — Present it to me</title>
 <style>
-  body{background:#0d1117;color:#c9d1d9;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;margin:0;padding:24px;font-size:14px;line-height:1.55}
-  h1{color:#3fb950;font-size:18px;margin:0 0 4px} .sub{color:#8b949e;margin:0 0 20px}
-  .mock{border:1px solid #30363d;border-radius:6px;background:#161b22;padding:14px;margin:14px 0}
-  .lbl{color:#8b949e;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
-  .hl{color:#3fb950} .dim{color:#8b949e}
-  .phrase{border:1px solid #3fb950;border-radius:8px;background:#0d1117;padding:18px 22px;text-align:center;font-size:21px;color:#3fb950;margin:18px 0}
-  .flow{display:flex;align-items:stretch;gap:0;flex-wrap:wrap}
-  .node{border:1px solid #30363d;border-radius:6px;background:#0d1117;padding:10px 14px;text-align:center;min-width:120px}
-  .arrow{align-self:center;color:#3fb950;font-size:22px;padding:0 12px}
-  ul{padding-left:18px} li{margin:5px 0}
+  :root{--bg-primary:#0f1117;--bg-card:#171b24;--bg-inset:#0a0c12;--text-primary:#e8eaf0;--text-secondary:#7a8394;--border:#454d66;--accent:#5b8af0;--accent-green:#22c55e;--signal-yellow:#facc15;--signal-blue:#60a5fa;--marker-ink:#f59e0b}
+  *{box-sizing:border-box}
+  body{margin:0;padding:22px;background:#07080c;color:var(--text-primary);font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:13px}
+  h1{font-size:17px;margin:0 0 4px}
+  .sub{color:var(--text-secondary);font-size:12px;margin-bottom:14px}
+  .phrase{display:inline-block;border:1px solid var(--accent);border-radius:6px;background:var(--bg-primary);padding:8px 16px;font-size:16px;color:var(--accent);margin:0 0 16px}
+  .frame-wrap{overflow-x:auto}
+  .callout{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:var(--accent);color:#0f1117;font-size:10px;font-weight:bold;position:absolute;z-index:40;box-shadow:0 0 0 2px #07080c}
+  .legend{margin:14px 0 0;max-width:940px;padding:0}
+  .legend li{list-style:none;margin:6px 0;color:var(--text-secondary);line-height:1.5}
+  .legend b{color:var(--text-primary)}
+  .legend .n{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;background:var(--accent);color:#0f1117;font-size:10px;font-weight:bold;margin-right:6px}
+  .try{margin-top:16px;border:1px solid var(--accent);border-radius:6px;background:var(--bg-primary);padding:10px 14px;max-width:940px}
+  .try b{color:var(--accent)}
+  .app{position:relative;width:940px;height:520px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;display:flex;flex-direction:column;overflow:hidden}
+  .topbar{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;padding:6px 12px;border-bottom:3px solid var(--border);flex-shrink:0}
+  .tb-left,.tb-right{display:flex;align-items:center;gap:6px;min-width:0}.tb-right{justify-self:end}
+  .chip{display:inline-flex;align-items:center;justify-content:center;height:26px;min-width:26px;padding:0 6px;border:1px solid var(--border);border-radius:4px;color:var(--text-secondary);font-size:11px;white-space:nowrap}
+  .chip.icon{width:26px;padding:0}.chip.primary{color:var(--text-primary)}
+  .brand .logo{display:inline-block;width:12px;height:12px;border-radius:3px;background:linear-gradient(135deg,var(--accent-green),var(--accent));margin-right:5px;vertical-align:-2px}
+  .heading{white-space:nowrap;font-size:12px}.heading .prefix{color:var(--text-secondary)}.heading .name{font-weight:500}
+  .toggle-group{display:inline-flex;border:1px solid var(--border);border-radius:4px;overflow:hidden}
+  .toggle-group .seg{width:28px;height:24px;display:inline-flex;align-items:center;justify-content:center;color:var(--text-secondary);font-size:10px;border-right:1px solid var(--border)}
+  .toggle-group .seg:last-child{border-right:none}
+  .toggle-group .seg.on{background:color-mix(in srgb,var(--accent-green) 10%,transparent);color:var(--accent-green);box-shadow:inset 0 0 0 1px var(--accent-green)}
+  .body-row{display:flex;flex:1;min-height:0}
+  .center{flex:1;display:flex;min-width:0}
+  .tile{flex:1;display:flex;flex-direction:column;min-width:0}
+  .tile+.tile{border-left:1px solid var(--border)}
+  .tile-h{height:30px;flex-shrink:0;display:flex;align-items:center;gap:7px;background:var(--bg-card);border-bottom:1px solid var(--border);padding:0 8px;font-size:11px;color:var(--text-secondary)}
+  .tile-h .meta{background:var(--bg-inset);border-radius:3px;padding:1px 6px;font-size:10px}
+  .tile-h .badge{border-radius:3px;padding:1px 6px;font-size:10px;font-weight:600;background:color-mix(in srgb,var(--accent-green) 18%,transparent);color:var(--accent-green)}
+  .sdot{width:7px;height:7px;border-radius:50%;flex-shrink:0;background:var(--accent-green)}
+  .tty{flex:1;background:var(--bg-primary);padding:10px 12px;font-size:12px;line-height:1.6;overflow:hidden}
+  .tty .p{color:var(--accent-green)}.tty .d{color:var(--text-secondary)}.tty .y{color:var(--signal-yellow)}
+  .webtabs{display:flex;align-items:center;flex-shrink:0;background:var(--bg-card);border-bottom:1px solid var(--border);font-size:11px;padding:0 4px;height:28px}
+  .wtab{display:inline-flex;align-items:center;gap:6px;padding:0 8px;height:27px;color:var(--text-secondary);border-right:1px solid var(--border);white-space:nowrap}
+  .wtab.on{color:var(--text-primary);background:var(--bg-primary);border-bottom:1px solid var(--bg-primary);margin-bottom:-1px}
+  .wtab .kdot{width:6px;height:6px;border-radius:50%;background:var(--accent-green)}
+  .wtab .x{color:var(--text-secondary);font-size:10px}
+  .wtab-add{padding:0 10px;color:var(--text-secondary)}
+  .urlbar{display:flex;align-items:center;gap:4px;flex-shrink:0;background:var(--bg-primary);border-bottom:1px solid var(--border);padding:4px 6px}
+  .ub-btn{width:26px;height:26px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;color:var(--text-secondary);font-size:12px;flex-shrink:0}
+  .ub-input{flex:1;background:var(--bg-card);border:1px solid var(--border);border-radius:4px;padding:3px 8px;font-size:11px;color:var(--text-primary);white-space:nowrap;overflow:hidden}
+  .webbody{flex:1;min-height:0;background:#fff;color:#1a1d24;overflow:hidden;font-family:system-ui,-apple-system,sans-serif;font-size:12px;display:flex;flex-direction:column}
+  .webbody .site-h{background:#f1f3f7;border-bottom:1px solid #d1d5db;padding:9px 14px;font-weight:700;font-size:13px}
+  .webbody .site-b{padding:12px 14px;line-height:1.6}
+  .webbody .bar-row{display:flex;gap:8px;align-items:flex-end;height:56px;margin-top:8px}
+  .webbody .bar{width:30px;background:#4a7ae8;border-radius:2px 2px 0 0}
+  .webbody .cap{color:#6b7280;font-size:10px;margin-top:6px}
 </style></head><body>
+
 <h1>Act 2 · Make it show you things</h1>
-<p class="sub">Stop reading agent output in a terminal. Ask for it as a <b>page</b>.</p>
-
+<div class="sub">Stop reading agent output in a terminal. End any request with the phrase — results arrive as live pages.</div>
 <div class="phrase">“…and <b>present it to me</b>”</div>
-<p class="dim" style="text-align:center">End any request with that phrase — every agent in run-kit knows what it means. This very page arrived that way.</p>
 
-<div class="mock">
-  <div class="lbl">what happens</div>
-  <div class="flow">
-    <div class="node">you ask<br><span class="dim">"make me a brief…<br>present it to me"</span></div>
-    <div class="arrow">→</div>
-    <div class="node">agent builds it<br><span class="dim">a real page</span></div>
-    <div class="arrow">→</div>
-    <div class="node"><b>it appears here</b><br><span class="dim">beside the agent, on every device</span></div>
+<div class="frame-wrap">
+<div class="app">
+  <span class="callout" style="top:98px;left:210px">1</span>
+  <span class="callout" style="top:238px;right:410px">2</span>
+  <span class="callout" style="top:58px;right:270px">3</span>
+  <span class="callout" style="top:170px;left:105px">4</span>
+
+  <div class="topbar">
+    <div class="tb-left"><span class="chip icon">☰</span><span class="chip primary brand"><span class="logo"></span>RunKit</span></div>
+    <div class="heading"><span class="prefix">Tab:</span> <span class="name">tour-guide</span></div>
+    <div class="tb-right"><span class="toggle-group"><span class="seg on">&gt;_</span><span class="seg on">://</span><span class="seg">{}</span></span><span class="chip icon">⟳</span></div>
   </div>
+
+  <div class="body-row"><div class="center">
+    <div class="tile" style="max-width:37%">
+      <div class="tile-h"><span class="sdot"></span> &gt;_ Terminal <span class="meta">tour-guide</span></div>
+      <div class="tty">
+        <div><span class="p">❯</span> you: make me a one-page brief</div>
+        <div>&nbsp; of this project — and</div>
+        <div>&nbsp; <b>present it to me</b></div>
+        <div>&nbsp;</div>
+        <div><span class="y">●</span> Building it…</div>
+        <div class="d">   writing project-brief.html</div>
+        <div class="d">   presenting → appears on the right</div>
+        <div>&nbsp;</div>
+        <div><span class="p">❯</span> you: make the heading bigger</div>
+        <div class="d">   updated — same page refreshes ⟳</div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <div class="tile-h">:// <span class="badge">presented</span> <span style="color:var(--text-primary)">project-brief.html</span></div>
+      <div class="webtabs">
+        <span class="wtab on"><span class="kdot"></span>project-brief<span class="x">×</span></span>
+        <span class="wtab"><span class="kdot"></span>tour pages…</span>
+        <span class="wtab-add">+</span>
+      </div>
+      <div class="urlbar"><span class="ub-btn">←</span><span class="ub-btn">→</span><span class="ub-btn">⟳</span><span class="ub-input">project-brief.html</span><span class="ub-btn">↗</span></div>
+      <div class="webbody">
+        <div class="site-h">My Project — one-page brief</div>
+        <div class="site-b">
+          A web app for … · shipped weekly · 3 active workstreams
+          <div class="bar-row"><div class="bar" style="height:40%"></div><div class="bar" style="height:65%"></div><div class="bar" style="height:90%"></div><div class="bar" style="height:55%"></div></div>
+          <div class="cap">releases per month — generated by your agent, live beside it</div>
+        </div>
+      </div>
+    </div>
+  </div></div>
+</div>
 </div>
 
-<div class="mock">
-  <div class="lbl">what to ask for</div>
-  <ul>
-    <li>reports & briefs <span class="dim">— "summarize this sprint's changes and present it to me"</span></li>
-    <li>mocks & prototypes <span class="dim">— "mock the new settings screen and present it to me"</span></li>
-    <li>dashboards <span class="dim">— "chart the test failures by day and present it to me"</span></li>
-    <li>a running dev server or any URL <span class="dim">— "present localhost:3000 to me"</span></li>
-  </ul>
-  <p><span class="hl">And iteration is just asking again</span> — "make the heading bigger" refreshes the same page in place.</p>
-</div>
+<ul class="legend">
+  <li><span class="n">1</span><b>You ask in plain words</b> — reports, mocks, dashboards, "chart the test failures", anything visual.</li>
+  <li><span class="n">2</span><b>The page appears beside the agent</b> — a real page, on every device viewing this window.</li>
+  <li><span class="n">3</span><b>Asking again is the refresh</b> — "make the heading bigger" updates the same page in place.</li>
+  <li><span class="n">4</span>Also works for a <b>running dev server</b> ("present localhost:3000 to me") or any URL.</li>
+</ul>
 
-<p><span class="hl">Your turn:</span> pick one — a one-page brief of this project, a cheat sheet of the tour so far, or a mock KPI dashboard — and ask me for it in your own words. Don't forget the phrase.</p>
+<div class="try"><b>Your turn:</b> pick one — a one-page brief of this project · a cheat sheet of this tour · a mock KPI dashboard — and ask me in your own words. Don't forget the phrase.</div>
 </body></html>

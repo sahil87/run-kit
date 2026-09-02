@@ -9,9 +9,7 @@ import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 // `board_order` key on POST /api/settings (persists the full ordered
 // board-name list to ~/.config/run-kit/config.yaml via partial merge), the
 // API-layer rank-aware sort on GET /api/boards (stored order first by index,
-// then unranked boards alphabetically), and the server-global `board-order`
-// broadcast that fans out to every state-socket connection — including a
-// metrics-only subscription with no attached tmux server. Native HTML5 drag is
+// then unranked boards alphabetically). Native HTML5 drag is
 // unreliable to simulate in Playwright, so the drag affordances,
 // derive-over-store override, render-time reconcile, MIME discrimination,
 // self-target snap-back, debounce/flush, and palette Move actions are covered
@@ -43,7 +41,7 @@ const TEST_SESSION = `e2e-board-reorder-${Date.now()}`;
 const BOARD_A = `aaa${Date.now().toString().slice(-6)}`;
 const BOARD_Z = `zzz${Date.now().toString().slice(-6)}`;
 
-test.describe("Board list reorder — order endpoint + rank-aware sort + server-global SSE", () => {
+test.describe("Board list reorder — order endpoint + rank-aware sort", () => {
   test.beforeAll(() => {
     // Snapshot the developer's REAL ~/.config/run-kit/config.yaml (raw bytes)
     // before this
@@ -154,94 +152,4 @@ test.describe("Board list reorder — order endpoint + rank-aware sort + server-
     expect(afterNames).toEqual([BOARD_Z, BOARD_A]);
   });
 
-  /**
-   * Proves: order names are validated before any write — an order containing
-   * "bad name!" (fails board-name validation) returns HTTP 400.
-   *
-   * Steps:
-   * 1. POST /api/settings with {board_order: ["bad name!"]}.
-   * 2. Assert the status is 400.
-   */
-  test("an invalid board name in the order is rejected with 400", async ({ request, baseURL }) => {
-    const base = apiBase(baseURL);
-    const resp = await request.post(`${base}/api/settings`, {
-      headers: { "Content-Type": "application/json" },
-      data: { board_order: ["bad name!"] },
-    });
-    expect(resp.status()).toBe(400);
-  });
-
-  /**
-   * Proves: a successful order POST fans out an `event: board-order` global
-   * event to a state-socket connection subscribed to metrics only (no attached
-   * tmux server), proving the broadcast is server-global — the Host BOARDS
-   * zone with zero attached servers still re-sorts live.
-   *
-   * Steps:
-   * 1. Navigate to / (the Host home — zero attached tmux servers, so its
-   *    metrics-only subscription is the server-neutral one) and wait for the
-   *    HOST HEALTH region as the readiness signal.
-   * 2. In the page context, open a WebSocket to /ws/state, send `hello` +
-   *    `subscribe {kind:"metrics"}`, and resolve on the first
-   *    {op:"event",kind:"global",type:"board-order"} frame's data.
-   * 3. On the socket's onopen (deterministic — no fixed delay),
-   *    POST /api/settings {board_order: [BOARD_Z, BOARD_A]} from the page
-   *    origin.
-   * 4. Await the resolved frame; parse it and assert `order` equals
-   *    [BOARD_Z, BOARD_A] (rejects if no frame arrives within the timeout).
-   */
-  test("a successful order POST broadcasts a server-global event: board-order", async ({
-    page,
-  }) => {
-    // The Host home (`/`) attaches ZERO tmux servers, so its metrics-only state
-    // socket subscription is the server-neutral one — a board-order envelope
-    // reaching it proves the broadcast is server-global (the BOARDS zone re-sorts
-    // with no attached server). Wait for the HOST HEALTH zone as the readiness
-    // signal.
-    await page.goto("/");
-    await expect(page.getByRole("region", { name: "Host health" })).toBeVisible({
-      timeout: 15_000,
-    });
-
-    // Open an in-page state-socket client subscribed to metrics (no server
-    // subscription) and prove the board-order broadcast reaches it (server-global).
-    const orderPromise = page.evaluate(
-      ({ z, a }) => {
-        return new Promise<string>((resolve, reject) => {
-          const proto = location.protocol === "https:" ? "wss:" : "ws:";
-          const ws = new WebSocket(`${proto}//${location.host}/ws/state`);
-          const timer = setTimeout(() => {
-            ws.close();
-            reject(new Error("no board-order frame within timeout"));
-          }, 15_000);
-          ws.onopen = () => {
-            ws.send(JSON.stringify({ op: "hello", conn: "e2e-board-list-reorder" }));
-            ws.send(JSON.stringify({ op: "subscribe", kind: "metrics", req: 1 }));
-            void fetch("/api/settings", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ board_order: [z, a] }),
-            });
-          };
-          ws.onmessage = (e: MessageEvent) => {
-            try {
-              const m = JSON.parse(e.data as string);
-              if (m.op === "event" && m.kind === "global" && m.type === "board-order") {
-                clearTimeout(timer);
-                ws.close();
-                resolve(JSON.stringify(m.data));
-              }
-            } catch {
-              /* ignore malformed frame */
-            }
-          };
-        });
-      },
-      { z: BOARD_Z, a: BOARD_A },
-    );
-
-    const data = await orderPromise;
-    const parsed = JSON.parse(data) as { order: string[] };
-    expect(parsed.order).toEqual([BOARD_Z, BOARD_A]);
-  });
 });

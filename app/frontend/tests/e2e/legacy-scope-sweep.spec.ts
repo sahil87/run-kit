@@ -1,3 +1,4 @@
+// retire-with: legacy-scope-sweep
 import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { gotoServerReady } from "./_ready";

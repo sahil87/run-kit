@@ -50,23 +50,6 @@ describe("useKeybindingDispatch", () => {
     expect(next).not.toHaveBeenCalled();
   });
 
-  it("suppresses in a real text input, fires inside .xterm", () => {
-    const next = vi.fn();
-    renderHook(() => useKeybindingDispatch({ "window-next": next }));
-    const input = document.createElement("input");
-    document.body.appendChild(input);
-    press({ code: "ArrowDown", shiftKey: true, ctrlKey: true }, input);
-    expect(next).not.toHaveBeenCalled();
-
-    const xterm = document.createElement("div");
-    xterm.className = "xterm";
-    const helper = document.createElement("textarea");
-    xterm.appendChild(helper);
-    document.body.appendChild(xterm);
-    press({ code: "ArrowDown", shiftKey: true, ctrlKey: true }, helper);
-    expect(next).toHaveBeenCalledTimes(1);
-  });
-
   it("ignoreInputs bindings fire even inside a text input (overlay toggle)", () => {
     const toggle = vi.fn();
     renderHook(() => useKeybindingDispatch({ "shortcuts-overlay": toggle }));

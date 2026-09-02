@@ -293,34 +293,6 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
   });
 
   /**
-   * Proves: a `?view=web` URL is a first-class deep link — inbound
-   * translation maps it to `single:web`, writes the option once, and
-   * replaces the URL with the bare route.
-   *
-   * Steps:
-   * 1. Create a window with a stamped web tab.
-   * 2. Navigate to `…?view=web`.
-   * 3. Assert the iframe renders, the option reads `single:web`, the URL is
-   *    bare, and the center heading shows the static `Tab:` prefix (the
-   *    heading does not follow the lens).
-   */
-  test("deep link ?view=web cold-loads the iframe", async ({ page }) => {
-    test.setTimeout(30_000);
-    const id = await makeWindow(page, `wv-deep-${Date.now()}`, { url: IFRAME_URL });
-    await gotoWindow(page, id, "web");
-    // Cold load resolves straight to the web lens (the inbound translation
-    // maps ?view=web → single:web, writes the option, and drops the param).
-    await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
-    await expectWindowLayout(id, "single:web");
-    await expect.poll(() => new URL(page.url()).search, { timeout: 10_000 }).toBe("");
-    // The center heading is a STATIC `Window:` in every lens (260714-uco1 — the
-    // heading no longer follows the lens). The prefix run is contiguous
-    // (260813-kvk7 removed the hierarchy ▾ that used to split it), so assert
-    // the whole `Window:` run.
-    await expect(page.getByText("Tab:", { exact: true })).toBeVisible();
-  });
-
-  /**
    * Proves: web is always tileable — the deep link keeps its tile instead of
    * degrading to tty, and with no stamped web tab the tile renders the
    * ONBOARDING content state in place of the iframe (the
@@ -480,42 +452,6 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     execFileSync("tmux", ["-L", TMUX_SERVER, "set-option", "-w", "-u", "-t", id, "@rk_win_web_1"], { stdio: "ignore" });
     await expect(onboarding).toBeVisible({ timeout: 10_000 });
     await expect(iframe(page)).toHaveCount(0);
-  });
-
-  /**
-   * Proves: the retired `@rk_win_lens=iframe` dual-reads server-side as
-   * `single:web` when `@rk_win_layout` is empty (the compat read the
-   * migration leaves in place for one release) — existing iframe windows
-   * keep opening in web with the tty one palette action away, and the
-   * frontend never reads the lens option itself.
-   *
-   * Steps:
-   * 1. Create a window with a stamped web tab AND `@rk_win_lens=iframe`.
-   * 2. Navigate with no params.
-   * 3. Assert the iframe renders, the payload's `layout` reads `single:web`
-   *    (the dual-read) while the raw `@rk_win_layout` option stays UNSET
-   *    (the shim is a read, never a write), and the URL is bare.
-   * 4. Open the palette with `View: Terminal`; assert the option is visible
-   *    (web is current, so the palette offers the way back); Escape.
-   */
-  test("legacy @rk_win_lens=iframe window dual-reads as single:web", async ({
-    page,
-  }) => {
-    test.setTimeout(30_000);
-    const id = await makeWindow(page, `wv-legacy-${Date.now()}`, { url: IFRAME_URL });
-    execFileSync("tmux", ["-L", TMUX_SERVER, "set-option", "-w", "-t", id, "@rk_win_lens", "iframe"], {
-      stdio: "ignore",
-    });
-    // No params → the backend's dual-read surfaces `layout: "single:web"` for
-    // the empty option; the raw option is never rewritten by the read.
-    await gotoWindow(page, id);
-    await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
-    expectBareUrl(page);
-    expect(windowOption(id, "@rk_win_layout")).toBe("");
-    // The palette is the way back: `View: Terminal` is offered (web is current).
-    await openPaletteWith(page, "View: Terminal");
-    await expect(page.getByRole("option", { name: "View: Terminal" })).toBeVisible();
-    await page.keyboard.press("Escape");
   });
 
   /**

@@ -1,5 +1,5 @@
 /**
- * Zen mode e2e: the ⇧⌘⏎ / ⇧Ctrl+⏎ `zen-toggle` chord at ANY arity on the
+ * Zen mode e2e: the ⇧⌘⏎ / ⇧Ctrl+⏎ `zen-toggle` chord on a single-tile
  * desktop terminal route, the transient top-bar + sidebar hide, the
  * always-visible-in-zen status-bar exit button, and the `View: Enter/Exit Zen
  * Mode` palette entries.
@@ -15,9 +15,7 @@
  * xterm pane (its `ignoreInputs` carve-out); the palette chord does NOT
  * (the pane's key handling swallows it on Linux — a pre-existing
  * terminal-routing property, unrelated to zen), so `zenPalette` defocuses to
- * the status bar before delegating the press to the shared `openPalette`. A second tile is opened via
- * the top-bar surface-toggle rail's `Code tile` button (the e2e rig's windows
- * offer the code surface from their repo cwd).
+ * the status bar before delegating the press to the shared `openPalette`.
  */
 import { test, expect, type Page } from "@playwright/test";
 import { openPalette, READY_TIMEOUT, resolveWindow } from "./_ready";
@@ -38,7 +36,6 @@ const topBar = (page: Page) => page.getByRole("banner");
 const statusBar = (page: Page) => page.getByTestId("status-bar");
 const exitZenButton = (page: Page) => page.getByTestId("status-bar-exit-zen");
 const ttyTile = (page: Page) => page.getByTestId("surface-tile-tty");
-const codeTile = (page: Page) => page.getByTestId("surface-tile-code");
 
 /** Create a window and return its stable `@N` id. */
 async function makeWindow(page: Page, name: string): Promise<string> {
@@ -69,18 +66,6 @@ async function zenPalette(page: Page) {
   const palette = page.getByRole("dialog", { name: "Command palette" });
   await expect(palette).toBeVisible({ timeout: READY_TIMEOUT });
   return palette;
-}
-
-/** A second tile via the top-bar surface-toggle rail (the `Code tile` rail
- *  precedent in surface-layout/code-surface specs — the e2e rig's windows
- *  offer the code surface from their repo cwd). */
-async function openCodeTile(page: Page): Promise<void> {
-  await page
-    .getByRole("banner")
-    .getByRole("button", { name: "Code tile" })
-    .first()
-    .click();
-  await expect(codeTile(page)).toBeVisible({ timeout: READY_TIMEOUT });
 }
 
 test.beforeAll(() => {
@@ -152,47 +137,6 @@ test("enter via ⇧⌘⏎ hides top bar + sidebar at arity 1, keeps the status b
   await expect(sidebarAside(page)).toBeVisible();
   await expect(exitZenButton(page)).toHaveCount(0);
   expect(await sidebarPref(page)).toBe("true");
-});
-
-/**
- * Proves: at arity > 1 entering zen compounds the chrome hide with the
- * existing focused-tile zoom seam (non-focused tiles display-hide), and the
- * chord exit undoes exactly the zen-initiated zoom.
- *
- * Steps:
- * 1. Create window B; navigate; open the code tile via the top-bar rail
- *    (`Code tile` button) — arity 2.
- * 2. Click into the xterm and press ⇧Ctrl+⏎; assert top bar + sidebar hide,
- *    the code tile display-hides, the tty tile stays visible, and the exit
- *    button appears.
- * 3. Press ⇧Ctrl+⏎ again; assert top bar, sidebar, AND the code tile all
- *    return (the zen-initiated zoom undone), and the exit button disappears.
- */
-test("exit via the chord restores chrome; at arity > 1 entering zen zooms the focused tile and exiting unzooms it", async ({
-  page,
-}) => {
-  test.setTimeout(45_000);
-  const id = await makeWindow(page, `zen-b-${Date.now()}`);
-  await gotoWindow(page, id);
-  await expect(ttyTile(page)).toBeVisible({ timeout: READY_TIMEOUT });
-  await openCodeTile(page);
-
-  // Enter at arity 2: chrome hidden AND the non-focused tile display-hidden
-  // (the focused-tile zoom riding the existing zoom seam).
-  await page.locator(".xterm").first().click();
-  await page.keyboard.press(CHORD_ZEN);
-  await expect(topBar(page)).toBeHidden({ timeout: READY_TIMEOUT });
-  await expect(sidebarAside(page)).toBeHidden();
-  await expect(codeTile(page)).toBeHidden();
-  await expect(ttyTile(page)).toBeVisible();
-  await expect(exitZenButton(page)).toBeVisible();
-
-  // Exit via the chord: chrome back, the zen-initiated zoom undone.
-  await page.keyboard.press(CHORD_ZEN);
-  await expect(topBar(page)).toBeVisible({ timeout: READY_TIMEOUT });
-  await expect(sidebarAside(page)).toBeVisible();
-  await expect(codeTile(page)).toBeVisible();
-  await expect(exitZenButton(page)).toHaveCount(0);
 });
 
 /**

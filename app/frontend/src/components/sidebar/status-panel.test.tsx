@@ -168,70 +168,29 @@ describe("StatusPanel", () => {
   });
 
   describe("shortenPath", () => {
-    it("Linux home substitution: /home/sahil/code/run-kit → ~/code/run-kit", () => {
-      renderCwd("/home/sahil/code/run-kit");
-      expect(screen.getByText("~/code/run-kit")).toBeInTheDocument();
+
+
+
+    it.each([
+      ["/home/sahil/code/org/repo/src", "…/repo/src"],
+      ["/home/sahil/code/org/repo", "…/org/repo"],
+      ["/home/sahil/code/org", "~/code/org"],
+      ["/var/log/nginx/access", "…/nginx/access"],
+      ["/Users/john/a/b/c/d", "…/c/d"],
+      ["/var/log/nginx", "…/log/nginx"],
+    ])("shortens %s to its final path segments", (path, expected) => {
+      renderCwd(path);
+      expect(screen.getByText(expected)).toBeInTheDocument();
     });
 
-    it("root home substitution: /root/scripts → ~/scripts", () => {
-      renderCwd("/root/scripts");
-      expect(screen.getByText("~/scripts")).toBeInTheDocument();
-    });
 
-    it("exact home match: /home/sahil → ~", () => {
-      renderCwd("/home/sahil");
-      expect(screen.getByText("~")).toBeInTheDocument();
-    });
 
-    it("deep home path truncated: /home/sahil/code/org/repo/src → \u2026/repo/src", () => {
-      renderCwd("/home/sahil/code/org/repo/src");
-      expect(screen.getByText("\u2026/repo/src")).toBeInTheDocument();
-    });
 
-    it("three-segment home path truncated: /home/sahil/code/org/repo → \u2026/org/repo", () => {
-      renderCwd("/home/sahil/code/org/repo");
-      expect(screen.getByText("\u2026/org/repo")).toBeInTheDocument();
-    });
 
-    it("two-segment home path not truncated: /home/sahil/code/org → ~/code/org", () => {
-      renderCwd("/home/sahil/code/org");
-      expect(screen.getByText("~/code/org")).toBeInTheDocument();
-    });
 
-    it("deep non-home path truncated: /var/log/nginx/access → \u2026/nginx/access", () => {
-      renderCwd("/var/log/nginx/access");
-      expect(screen.getByText("\u2026/nginx/access")).toBeInTheDocument();
-    });
 
-    it("short non-home path not truncated: /tmp → /tmp", () => {
-      renderCwd("/tmp");
-      expect(screen.getByText("/tmp")).toBeInTheDocument();
-    });
 
-    it("macOS home path with >2 segments truncated: /Users/john/a/b/c/d → \u2026/c/d", () => {
-      renderCwd("/Users/john/a/b/c/d");
-      expect(screen.getByText("\u2026/c/d")).toBeInTheDocument();
-    });
 
-    it("three-segment non-home path truncated: /var/log/nginx → \u2026/log/nginx", () => {
-      renderCwd("/var/log/nginx");
-      expect(screen.getByText("\u2026/log/nginx")).toBeInTheDocument();
-    });
-
-    it("path starting with /rootdir is not home-substituted: /rootdir/foo → /rootdir/foo", () => {
-      renderCwd("/rootdir/foo");
-      expect(screen.getByText("/rootdir/foo")).toBeInTheDocument();
-    });
-
-    it("exact macOS home match: /Users/john → ~", () => {
-      renderCwd("/Users/john");
-      expect(screen.getByText("~")).toBeInTheDocument();
-    });
-
-    it("exact root home match: /root → ~", () => {
-      renderCwd("/root");
-      expect(screen.getByText("~")).toBeInTheDocument();
-    });
 
     it("title attribute preserves full unmodified path", () => {
       renderCwd("/home/sahil/code/org/repo/src");

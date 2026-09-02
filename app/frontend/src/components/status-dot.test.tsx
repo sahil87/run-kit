@@ -103,32 +103,22 @@ describe("statusDotState — two-family ladder (compositional vocabulary)", () =
 });
 
 describe("fabPhase — the two-stop split (stage-based, never PR-based)", () => {
-  it("maps intake/apply/review → building", () => {
-    for (const s of ["intake", "apply", "review"]) {
-      expect(fabPhase(s)).toBe("building");
-    }
-  });
-  it("maps ship/review-pr/done → prReady", () => {
-    for (const s of ["ship", "review-pr", "done"]) {
-      expect(fabPhase(s)).toBe("prReady");
-    }
-  });
-  it("maps unknown/absent → prReady (a live fab window still reads green, not gray)", () => {
-    expect(fabPhase("hydrate")).toBe("prReady");
-    expect(fabPhase("paused")).toBe("prReady");
-    expect(fabPhase(undefined)).toBe("prReady");
+  it.each([
+    { stages: ["intake", "apply", "review"], want: "building" },
+    { stages: ["ship", "review-pr", "done"], want: "prReady" },
+    { stages: ["hydrate", "paused", undefined], want: "prReady" },
+  ] as const)("maps $stages to $want", ({ stages, want }) => {
+    for (const stage of stages) expect(fabPhase(stage)).toBe(want);
   });
 });
 
 describe("fabShape — display-state → shape vocabulary (three shapes)", () => {
-  it("maps pending → ring", () => expect(fabShape("pending")).toBe("ring"));
-  it("maps active → solid", () => expect(fabShape("active")).toBe("solid"));
-  it("maps ready → solid", () => expect(fabShape("ready")).toBe("solid"));
-  it("maps failed → failed", () => expect(fabShape("failed")).toBe("failed"));
-  it("maps done → ring (parked = resting)", () => expect(fabShape("done")).toBe("ring"));
-  it("defaults unknown/absent → solid", () => {
-    expect(fabShape("paused")).toBe("solid");
-    expect(fabShape(undefined)).toBe("solid");
+  it.each([
+    { states: ["pending", "done"], want: "ring" },
+    { states: ["active", "ready", "paused", undefined], want: "solid" },
+    { states: ["failed"], want: "failed" },
+  ] as const)("maps $states to $want", ({ states, want }) => {
+    for (const state of states) expect(fabShape(state)).toBe(want);
   });
 });
 

@@ -15,9 +15,8 @@ import { stubProxyPorts } from "./_web-tile";
 /**
  * The code surface end to end (`docs/specs/right-panel.md` § The code lens +
  * § Surface Registry; `docs/specs/surface-layout.md`): the `code` lens joins
- * the view registry (`?view=code` → `single:code` via the inbound one-shot
- * translation + the palette's `View: Code` action — the switcher menu rows
- * are retired) AND the tileable code surface (`Code tile` top-bar toggle —
+ * the view registry through the palette's `View: Code` action and the
+ * tileable code surface (`Code tile` top-bar toggle —
  * the right rail is REMOVED, its toggles moved into the top bar's
  * `surface-toggles` group; `?panel=code` → `split-h:tty,code` via the same
  * translation), with availability =
@@ -26,9 +25,7 @@ import { stubProxyPorts } from "./_web-tile";
  * reachability governing only the surface CONTENT (live iframe vs the
  * not-running empty state). The iframe src is the STABLE
  * `/code/?folder=<git root>` route — the port never appears in a URL. Also
- * covers the `/code` → `/code/` redirect and the keyboard-capture spike: a
- * run-kit registry chord pressed inside the same-origin iframe is reclaimed by
- * the parent.
+ * covers the `/code` → `/code/` redirect.
  *
  * Shared setup:
  * - `beforeEach`: `stubProxyPorts(page, 8080)` (`_web-tile.ts`) route-stubs
@@ -359,65 +356,6 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
   });
 
   /**
-   * Proves: `code` is a full view-registry lens — the inbound translation
-   * maps `?view=code` to `single:code` (one option write, params dropped),
-   * the code tile fills the center, and the top-bar toggle group stays put
-   * (tiles are additive).
-   *
-   * Steps:
-   * 1. Create a repo-cwd window; navigate with `?view=code`.
-   * 2. Assert the `Code editor` iframe is visible, the option reads
-   *    `single:code`, the URL is bare, and the group still renders (the
-   *    `Terminal tile` toggle is visible in the banner).
-   */
-  test("?view=code renders the code lens as the single slot-A tile", async ({
-    page,
-  }) => {
-    const id = await makeWindow(page, `cs-view-${Date.now()}`);
-    await gotoWindow(page, id, "?view=code");
-    await expect(codeIframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
-    // The inbound translation maps ?view=code → single:code (one write) and
-    // drops the param.
-    await expectWindowLayout(id, "single:code");
-    await expect.poll(() => new URL(page.url()).search, { timeout: 10_000 }).toBe("");
-    // The top-bar toggle group is still there (tiles are additive — it never
-    // leaves): the Terminal toggle renders (unlit) beside the lit Code toggle.
-    await expect(
-      page.getByRole("banner").getByRole("button", { name: "Terminal tile" }),
-    ).toBeVisible();
-  });
-
-  /**
-   * Proves: the resolve/degrade fall-throughs — `?view=code&panel=code` shims
-   * to `split-h:code,code`, which the grammar rejects (a repeated non-tty
-   * kind), and `code` is unavailable on a `/tmp` window anyway (no gitRoot);
-   * both paths land on `single:tty`, never a broken iframe.
-   *
-   * Steps:
-   * 1. Create a `/tmp`-cwd window; navigate with `?view=code&panel=code`.
-   * 2. Assert the terminal is visible, neither the code iframe nor the code
-   *    tile exists in the DOM, the option stays UNSET (the grammar-rejected
-   *    carried value is never written), and the URL is bare.
-   */
-  test("unavailable params fall through: ?view=code&panel=code resolves to plain tty on a /tmp window", async ({
-    page,
-  }) => {
-    const id = await makeWindow(page, `cs-fallthrough-${Date.now()}`, {
-      cwd: "/tmp",
-    });
-    // The inbound shim maps this to split-h:code,code — a repeated non-tty
-    // kind, which the grammar rejects — and code is unavailable here anyway
-    // (no gitRoot); the invalid carried value is never written, the fallback
-    // single:tty renders, never a broken iframe.
-    await gotoWindow(page, id, "?view=code&panel=code");
-    await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
-    await expect(codeIframe(page)).toHaveCount(0);
-    await expect(codeTile(page)).toHaveCount(0);
-    await expect.poll(() => new URL(page.url()).search, { timeout: 10_000 }).toBe("");
-    expect(windowOption(id, "@rk_win_layout")).toBe("");
-  });
-
-  /**
    * Proves: hide-never-unmount generalized to tiles — with two surfaces
    * available, opening web then code renders BOTH iframes simultaneously (tiles
    * are additive), and closing the web tile keeps its iframe subtree mounted
@@ -468,40 +406,6 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     ).toBe(true);
   });
 
-  /**
-   * Proves: a capture-phase `keydown` listener on the same-origin iframe's
-   * `contentDocument` intercepts a run-kit registry chord (⌘K/Ctrl+K) before
-   * the embedded app sees it and re-dispatches it to the parent, so the command
-   * palette opens despite iframe focus.
-   *
-   * Steps:
-   * 1. Create a repo-cwd window; navigate with `?panel=code`; assert the code
-   *    iframe is visible (stub up).
-   * 2. Click the stub page's `#inner` button INSIDE the frame (focus is now in
-   *    the iframe).
-   * 3. Press `Control+K`; assert the `Command palette` dialog opens.
-   */
-  test("keyboard spike: a registry chord pressed INSIDE the iframe reaches the parent (chord reclaim)", async ({
-    page,
-  }) => {
-    const id = await makeWindow(page, `cs-chord-${Date.now()}`);
-    await gotoWindow(page, id, "?panel=code");
-    const iframe = codeIframe(page);
-    await expect(iframe).toBeVisible({ timeout: READY_TIMEOUT });
-
-    // Focus INSIDE the same-origin stub frame, then press the palette chord —
-    // without the capture-phase reclaim listener, the iframe would swallow it.
-    await page
-      .frameLocator('iframe[title="Code editor"]')
-      .locator("#inner")
-      .click();
-    await page.keyboard.press("Control+K");
-    await expect(
-      page.getByRole("dialog", { name: "Command palette" }),
-    ).toBeVisible({
-      timeout: 5_000,
-    });
-  });
 });
 
 test.describe("Code lens & CODE surface (phase 2) — stub down", () => {

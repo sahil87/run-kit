@@ -21,8 +21,9 @@
  *
  * This is an AUDIT, like sync-latency.spec.ts — it records a p50/p95/p99
  * distribution and prints a summary in afterAll; it does NOT assert a latency
- * budget (localhost timing is too noisy for a stable perf gate). Run on demand:
- *   just pw test echo-latency
+ * budget (localhost timing is too noisy for a stable perf gate). The `@perf`
+ * suite is excluded from default e2e runs and remains available on demand:
+ *   just pw test echo-latency --list
  *
  * Shared setup: the per-file timeout is raised to 90s (120s on CI) — the file
  * runs FULL_PATH_TRIALS + BASELINE_TRIALS + UNDER_LOAD_TRIALS (40 + 40 + 30)
@@ -468,7 +469,7 @@ async function measureEchoUnderLoad(
   );
 }
 
-test.describe("Echo latency benchmark", () => {
+test.describe("@perf Echo latency benchmark", () => {
   // The file runs FULL_PATH_TRIALS + BASELINE_TRIALS echo round-trips back to
   // back; give it ample headroom over the default per-test budget.
   test.setTimeout(process.env.CI ? 120_000 : 90_000);

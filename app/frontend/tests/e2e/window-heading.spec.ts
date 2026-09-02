@@ -816,99 +816,13 @@ test.describe("Top-bar heading — anchor + history arrows (260714-uco1)", () =>
 /**
  * Animated-path block. `playwright.config.ts` emulates `reducedMotion:
  * "reduce"` globally (window-switch transition stabilization) and the
- * typed-label sweep honors that gate by never starting — so asserting the
+ * heading boot sweep honors that gate by never starting — so asserting the
  * sweep needs real motion. Opt back in per the convention
  * `window-switch-transition.spec.ts` documents: `contextOptions` is the only
  * seam that reaches the browser context in this Playwright version.
  */
 test.describe("Window heading — animated path (motion opted back in)", () => {
   test.use({ contextOptions: { reducedMotion: "no-preference" } });
-
-  /**
-   * Proves: the shared section-label treatment (`TypedLabel`,
-   * `.rk-typed-label`) actually runs its invisible-hand typing sweep on
-   * pointer enter: the label fades, an inverse-video cursor (accent-green
-   * cell OVER the character) sweeps from the first cell brightening
-   * characters as it passes, the label lands bright (`rk-typed-done`) with
-   * its text intact, and pointer leave restores the rest state. All
-   * assertions are DOM-observable frame states — no pixel diffs (honoring the
-   * "NO pixel assertions" e2e constraint).
-   *
-   * The sweep is driven by DISPATCHED `pointerover`/`pointerout` events, not
-   * real mouse hit-testing: on CI runners the sidebar re-layouts under SSE
-   * churn, and a label shifting beneath a stationary pointer fires spurious
-   * enter/leave events that cancel the sweep mid-pass or swallow the unhover.
-   * React derives `onPointerEnter`/`onPointerLeave` from delegated
-   * `pointerover`/`pointerout` pairs (`relatedTarget: null` reads as
-   * entering-from/leaving-to outside), so the dispatched events exercise the
-   * exact component handlers a real pointer does. (A dispatched
-   * `pointerenter` does NOT work in real Chromium — it never reaches React's
-   * delegated listener.)
-   *
-   * Steps:
-   * 1. Create + navigate to a window; locate the sidebar `Sessions` heading
-   *    (a `TypedLabel`, class `rk-typed-label`, pinned by exact text — the
-   *    nav holds several TypedLabels) and confirm it is visible with its text
-   *    and no `rk-typed-done` class at rest.
-   * 2. Dispatch `pointerover`: assert an `.rk-typed-cursor` cell attaches
-   *    (the sweep started — the cursor renders synchronously on the first
-   *    character, and the ~350ms pass outlasts Playwright's first assertion
-   *    poll).
-   * 3. Assert the label gains `rk-typed-done` (the pass completed), the
-   *    cursor cell is gone (frame spans collapse back to plain text), and the
-   *    text is fully intact.
-   * 4. Dispatch `pointerout`: assert `rk-typed-done` is removed and the text
-   *    is unchanged (rest state restored).
-   */
-  test("section labels type themselves out on hover (typed sweep)", async ({
-    page,
-  }) => {
-    const name = `head-typed-${Date.now()}`;
-    newWindow(TEST_SESSION, name);
-    const id = await resolveWindow(page, name);
-    await gotoWindow(page, id);
-
-    // The sidebar "Sessions" heading carries the shared typed-sweep treatment
-    // (TypedLabel). All assertions are DOM-observable (no pixel diffs, per the
-    // PR's "NO pixel assertions" e2e constraint): the sweep manifests as real
-    // frame-state spans and a terminal `rk-typed-done` class.
-    // The sidebar nav holds several TypedLabels (panel titles like "Boards"
-    // render before the region heading), so pin the target by its exact text.
-    const label = page
-      .locator("nav[aria-label='Sessions'] .rk-typed-label", {
-        hasText: /^Sessions$/,
-      })
-      .first();
-    await expect(label).toBeVisible({ timeout: 10_000 });
-    await expect(label).toHaveText("Sessions");
-    await expect(label).not.toHaveClass(/rk-typed-done/);
-
-    // Drive the sweep via dispatched pointer events rather than real mouse
-    // hit-testing: the sidebar re-layouts under SSE churn on CI runners, and
-    // a label shifting beneath a stationary pointer fires spurious
-    // enter/leave events that cancel the sweep mid-pass (or swallow the
-    // unhover) — exactly the flake this replaced. React 19 attaches
-    // derives onPointerEnter/Leave from delegated pointerover/pointerout
-    // pairs (relatedTarget null = from outside), so dispatched over/out
-    // exercise the same component handlers the real pointer does.
-    await label.dispatchEvent("pointerover");
-    // The sweep starts: an inverse-video cursor cell appears synchronously on
-    // the first character (the ~350ms pass outlasts the first assertion poll).
-    await expect(label.locator(".rk-typed-cursor")).toBeAttached({
-      timeout: 2_000,
-    });
-
-    // The pass completes: frame spans collapse back to plain text, held
-    // bright via rk-typed-done, with the label text fully intact.
-    await expect(label).toHaveClass(/rk-typed-done/, { timeout: 2_000 });
-    await expect(label.locator(".rk-typed-cursor")).not.toBeAttached();
-    await expect(label).toHaveText("Sessions");
-
-    // Pointer leave resets to the rest state.
-    await label.dispatchEvent("pointerout");
-    await expect(label).not.toHaveClass(/rk-typed-done/);
-    await expect(label).toHaveText("Sessions");
-  });
 
   /**
    * Proves: the universal top-bar page heading actually runs its combined

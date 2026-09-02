@@ -4,6 +4,7 @@ const port = Number(process.env.RK_PORT ?? "3333");
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  grepInvert: process.env.RK_E2E_PERF === "1" ? undefined : /@perf/,
   // Per-test timeout. Wider on CI: the SSE-driven UI updates that most specs
   // assert on are noticeably slower on a 2-vCPU shared runner where air, Vite,
   // Chromium and tmux all contend for the box. Specs gate on real readiness

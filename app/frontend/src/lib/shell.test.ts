@@ -135,415 +135,217 @@ describe("listShellServers", () => {
   });
 });
 
-describe("switchShellServer", () => {
-  it("resolves true on an { ok: true } result and passes the id through", async () => {
-    let seen: string | null = null;
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: (id: string) => {
-        seen = id;
-        return Promise.resolve({ ok: true });
-      },
+type BridgeCase = {
+  name: string;
+  available?: () => boolean;
+  invoke: () => Promise<unknown>;
+  install: (member: unknown) => void;
+  installOlder: () => void;
+  args: unknown[];
+  structured?: boolean;
+};
+
+const baseServersBridge = {
+  list: () => Promise.resolve({ ok: true, servers: [] }),
+  switch: () => Promise.resolve({ ok: true }),
+};
+
+const bridgeCases: BridgeCase[] = [
+  {
+    name: "switch",
+    invoke: () => switchShellServer("b"),
+    install: (member) => bridgeWith({ ...baseServersBridge, switch: member }),
+    installOlder: () => { window.runkitShell = { version: "1.2.3", platform: "darwin" }; },
+    args: ["b"],
+  },
+  {
+    name: "add",
+    available: canAddShellHost,
+    invoke: () => addShellHost(),
+    install: (member) => bridgeWith({ ...baseServersBridge, add: member }),
+    installOlder: () => bridgeWith(baseServersBridge),
+    args: [],
+  },
+  {
+    name: "addDirect",
+    available: canAddShellHostDirect,
+    invoke: () => addShellHostDirect("lab", "http://b:3000"),
+    install: (member) => bridgeWith({ ...baseServersBridge, addDirect: member }),
+    installOlder: () => bridgeWith(baseServersBridge),
+    args: ["lab", "http://b:3000"],
+    structured: true,
+  },
+  {
+    name: "badge",
+    invoke: () => setShellBadge(3),
+    install: (member) => {
+      window.runkitShell = { version: "1.2.3", platform: "darwin", badge: { set: member } };
+    },
+    installOlder: () => { window.runkitShell = { version: "1.2.3", platform: "darwin" }; },
+    args: [3],
+  },
+  {
+    name: "accent",
+    invoke: () => setShellAccent("#8b7ff0"),
+    install: (member) => {
+      window.runkitShell = { version: "1.2.3", platform: "darwin", accent: { set: member } };
+    },
+    installOlder: () => { window.runkitShell = { version: "1.2.3", platform: "darwin" }; },
+    args: ["#8b7ff0"],
+  },
+  {
+    name: "newWindow",
+    available: canNewShellWindow,
+    invoke: () => newShellWindow(),
+    install: (member) => {
+      window.runkitShell = { version: "1.2.3", platform: "darwin", windows: { newWindow: member } };
+    },
+    installOlder: () => { window.runkitShell = { version: "1.2.3", platform: "darwin" }; },
+    args: [],
+  },
+  {
+    name: "closeWindow",
+    available: canCloseShellWindow,
+    invoke: () => closeShellWindow(),
+    install: (member) => {
+      window.runkitShell = {
+        version: "1.2.3",
+        platform: "darwin",
+        windows: { newWindow: () => Promise.resolve({ ok: true }), close: member },
+      };
+    },
+    installOlder: () => {
+      window.runkitShell = {
+        version: "1.2.3",
+        platform: "darwin",
+        windows: { newWindow: () => Promise.resolve({ ok: true }) },
+      };
+    },
+    args: [],
+  },
+  {
+    name: "reorder",
+    available: canReorderShellHosts,
+    invoke: () => reorderShellHosts("b", 0),
+    install: (member) => bridgeWith({ ...baseServersBridge, reorder: member }),
+    installOlder: () => bridgeWith(baseServersBridge),
+    args: ["b", 0],
+  },
+  {
+    name: "remove",
+    available: canRemoveShellHost,
+    invoke: () => removeShellHost("b"),
+    install: (member) => bridgeWith({ ...baseServersBridge, remove: member }),
+    installOlder: () => bridgeWith(baseServersBridge),
+    args: ["b"],
+  },
+  {
+    name: "removeConfirmed",
+    available: canConfirmedRemoveShellHost,
+    invoke: () => confirmedRemoveShellHost("b"),
+    install: (member) => bridgeWith({ ...baseServersBridge, removeConfirmed: member }),
+    installOlder: () => bridgeWith(baseServersBridge),
+    args: ["b"],
+  },
+  {
+    name: "setHostUrl",
+    available: canSetShellHostUrl,
+    invoke: () => setShellHostUrl("b", "http://x:4100"),
+    install: (member) => bridgeWith({ ...baseServersBridge, setUrl: member }),
+    installOlder: () => bridgeWith(baseServersBridge),
+    args: ["b", "http://x:4100"],
+  },
+  {
+    name: "rename",
+    available: canRenameShellHost,
+    invoke: () => renameShellHost("b", "lab-2"),
+    install: (member) => bridgeWith({ ...baseServersBridge, rename: member }),
+    installOlder: () => bridgeWith(baseServersBridge),
+    args: ["b", "lab-2"],
+  },
+];
+
+function expectBridgeResult(result: unknown, structured = false, success = false): void {
+  if (structured) {
+    expect(result).toMatchObject({ ok: success });
+  } else {
+    expect(result).toBe(success);
+  }
+}
+
+describe("optional shell bridge invokers", () => {
+  it.each(bridgeCases)("$name accepts a valid acknowledgement and forwards arguments", async (bridge) => {
+    let seen: unknown[] | null = null;
+    bridge.install((...args: unknown[]) => {
+      seen = args;
+      return Promise.resolve({ ok: true });
     });
-    expect(await switchShellServer("b")).toBe(true);
-    expect(seen).toBe("b");
+    expect(bridge.available?.() ?? true).toBe(true);
+    expectBridgeResult(await bridge.invoke(), bridge.structured, true);
+    expect(seen).toEqual(bridge.args);
   });
 
-  it("resolves false on a denied result, outside the shell, and on a rejected invoke", async () => {
-    expect(await switchShellServer("a")).toBe(false);
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.resolve({ ok: false, error: "Unknown server" }),
-    });
-    expect(await switchShellServer("a")).toBe(false);
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.reject(new Error("ipc gone")),
-    });
-    expect(await switchShellServer("a")).toBe(false);
-  });
-});
-
-// The add invoker is ADDITIVE to the servers group (older shells expose only
-// list/switch): canAddShellHost gates the UI affordance on its presence, and
-// addShellHost degrades exactly like its siblings — false for plain browser,
-// pre-add shells, a non-function member, denial, and rejected invokes.
-
-describe("canAddShellHost / addShellHost", () => {
-  it("resolves true on an { ok: true } ack when the group carries add", async () => {
-    let called = false;
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.resolve({ ok: true }),
-      add: () => {
-        called = true;
-        return Promise.resolve({ ok: true });
-      },
-    });
-    expect(canAddShellHost()).toBe(true);
-    expect(await addShellHost()).toBe(true);
-    expect(called).toBe(true);
+  it.each(bridgeCases)("$name is unavailable in a browser and an older shell", async (bridge) => {
+    expect(bridge.available?.() ?? false).toBe(false);
+    expectBridgeResult(await bridge.invoke(), bridge.structured);
+    bridge.installOlder();
+    expect(bridge.available?.() ?? false).toBe(false);
+    expectBridgeResult(await bridge.invoke(), bridge.structured);
   });
 
-  it("reads as unavailable in a plain browser and on a shell without add (older shell)", async () => {
-    expect(canAddShellHost()).toBe(false);
-    expect(await addShellHost()).toBe(false);
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [serverA, serverB] }),
-      switch: () => Promise.resolve({ ok: true }),
-    });
-    expect(canAddShellHost()).toBe(false);
-    expect(await addShellHost()).toBe(false);
+  it.each(bridgeCases)("$name rejects a non-function bridge member", async (bridge) => {
+    bridge.install("not-a-function");
+    expect(bridge.available?.() ?? false).toBe(false);
+    expectBridgeResult(await bridge.invoke(), bridge.structured);
   });
 
-  it("reads as unavailable when add is not a function", async () => {
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.resolve({ ok: true }),
-      add: "welcome?mode=add",
-    });
-    expect(canAddShellHost()).toBe(false);
-    expect(await addShellHost()).toBe(false);
+  it.each(bridgeCases)("$name resolves failure for denied and rejected invocations", async (bridge) => {
+    bridge.install(() => Promise.resolve({ ok: false, error: "Not allowed" }));
+    expectBridgeResult(await bridge.invoke(), bridge.structured);
+    bridge.install(() => Promise.reject(new Error("ipc gone")));
+    expectBridgeResult(await bridge.invoke(), bridge.structured);
   });
 
-  it("resolves false on a denied result and on a rejected invoke", async () => {
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.resolve({ ok: true }),
-      add: () => Promise.resolve({ ok: false, error: "Not allowed" }),
-    });
-    expect(await addShellHost()).toBe(false);
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.resolve({ ok: true }),
-      add: () => Promise.reject(new Error("ipc gone")),
-    });
-    expect(await addShellHost()).toBe(false);
-  });
-});
-
-// The addDirect invoker is ADDITIVE to the servers group (shells older than
-// the in-place Add Host dialog expose list/switch/add at most): unlike the
-// boolean siblings, addShellHostDirect resolves a STRUCTURED { ok } / { ok:
-// false, error } so the dialog renders the main-side ping error inline — and
-// degrades to a generic { ok: false, error } for a plain browser, a
-// pre-addDirect shell, a non-function member, a malformed response, and
-// rejected invokes. It never throws.
-
-describe("canAddShellHostDirect / addShellHostDirect", () => {
-  it("resolves { ok: true } on a well-formed ack and passes name + url through", async () => {
-    let seen: { name: string; url: string } | null = null;
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.resolve({ ok: true }),
-      addDirect: (name: string, url: string) => {
-        seen = { name, url };
-        return Promise.resolve({ ok: true });
-      },
-    });
-    expect(canAddShellHostDirect()).toBe(true);
-    expect(await addShellHostDirect("lab", "http://b:3000")).toEqual({ ok: true });
-    expect(seen).toEqual({ name: "lab", url: "http://b:3000" });
+  it("removeConfirmed remains independent from remove", async () => {
+    bridgeWith({ ...baseServersBridge, remove: () => Promise.resolve({ ok: true }) });
+    expect(canConfirmedRemoveShellHost()).toBe(false);
+    expect(await confirmedRemoveShellHost("a")).toBe(false);
   });
 
-  it("carries the main-side error on a denied/failed result", async () => {
+  it("addDirect carries a main-side error and supplies a generic fallback", async () => {
     bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.resolve({ ok: true }),
-      addDirect: () =>
-        Promise.resolve({ ok: false, error: "No response from http://b:3000 within 5s" }),
+      ...baseServersBridge,
+      addDirect: () => Promise.resolve({ ok: false, error: "No response from host" }),
     });
     expect(await addShellHostDirect("", "http://b:3000")).toEqual({
       ok: false,
-      error: "No response from http://b:3000 within 5s",
+      error: "No response from host",
     });
-  });
 
-  it("reads as unavailable in a plain browser and on a shell without addDirect (older shell)", async () => {
-    expect(canAddShellHostDirect()).toBe(false);
-    expect((await addShellHostDirect("", "http://b:3000")).ok).toBe(false);
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [serverA, serverB] }),
-      switch: () => Promise.resolve({ ok: true }),
-      add: () => Promise.resolve({ ok: true }),
-    });
-    expect(canAddShellHostDirect()).toBe(false);
-    expect((await addShellHostDirect("", "http://b:3000")).ok).toBe(false);
-  });
-
-  it("reads as unavailable when addDirect is not a function", async () => {
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.resolve({ ok: true }),
-      addDirect: "servers:add-direct",
-    });
-    expect(canAddShellHostDirect()).toBe(false);
-    expect((await addShellHostDirect("", "http://b:3000")).ok).toBe(false);
-  });
-
-  it("resolves a generic { ok: false } on a malformed response and on a rejected invoke", async () => {
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.resolve({ ok: true }),
-      addDirect: () => Promise.resolve("added"),
-    });
-    const malformed = await addShellHostDirect("", "http://b:3000");
-    expect(malformed.ok).toBe(false);
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.resolve({ ok: true }),
-      addDirect: () => Promise.reject(new Error("ipc gone")),
-    });
-    const rejected = await addShellHostDirect("", "http://b:3000");
-    expect(rejected.ok).toBe(false);
-  });
-
-  it("resolves a generic error when a failed result carries no usable error string", async () => {
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.resolve({ ok: true }),
-      addDirect: () => Promise.resolve({ ok: false }),
-    });
+    bridgeWith({ ...baseServersBridge, addDirect: () => Promise.resolve({ ok: false }) });
     const result = await addShellHostDirect("", "http://b:3000");
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).not.toBe("");
   });
-});
 
-// The badge group is the third bridge surface: `setShellBadge` must resolve
-// true only for a well-formed { ok: true } ack, and false for everything else
-// — plain browser, a pre-badge shell, denial, and rejected invokes.
-
-describe("setShellBadge", () => {
-  it("resolves true on an { ok: true } ack and passes the count through", async () => {
-    let seen: number | null = null;
-    window.runkitShell = {
-      version: "1.2.3",
-      platform: "darwin",
-      badge: {
-        set: (count: number) => {
-          seen = count;
-          return Promise.resolve({ ok: true });
-        },
-      },
-    };
-    expect(await setShellBadge(3)).toBe(true);
-    expect(seen).toBe(3);
-  });
-
-  it("resolves false in a plain browser (bridge absent)", async () => {
-    expect(await setShellBadge(1)).toBe(false);
-  });
-
-  it("resolves false on a shell without the badge group (older shell)", async () => {
-    window.runkitShell = { version: "1.2.3", platform: "darwin" };
-    expect(await setShellBadge(1)).toBe(false);
-  });
-
-  it("resolves false when the group member is not a function", async () => {
-    window.runkitShell = { version: "1.2.3", platform: "darwin", badge: { set: "nope" } };
-    expect(await setShellBadge(1)).toBe(false);
-  });
-
-  it("resolves false on a denied result and on a rejected invoke", async () => {
-    window.runkitShell = {
-      version: "1.2.3",
-      platform: "darwin",
-      badge: { set: () => Promise.resolve({ ok: false, error: "Not allowed" }) },
-    };
-    expect(await setShellBadge(1)).toBe(false);
-    window.runkitShell = {
-      version: "1.2.3",
-      platform: "darwin",
-      badge: { set: () => Promise.reject(new Error("ipc gone")) },
-    };
-    expect(await setShellBadge(1)).toBe(false);
+  it("addDirect rejects malformed acknowledgements without throwing", async () => {
+    bridgeWith({ ...baseServersBridge, addDirect: () => Promise.resolve("added") });
+    expect((await addShellHostDirect("", "http://b:3000")).ok).toBe(false);
   });
 });
-
-// The windows group is the multi-window bridge surface: `newWindow`
-// (shell:new-window) ships ahead of `close` (shell:close-window), so the
-// gates narrow each invoker separately and every call degrades to false for
-// a plain browser, a pre-windows shell, a malformed group, a denied ack, or
-// a rejected invoke.
-
-describe("windows bridge group (newWindow / close)", () => {
-  it("canNewShellWindow / canCloseShellWindow track the invokers' presence", () => {
-    expect(canNewShellWindow()).toBe(false);
-    expect(canCloseShellWindow()).toBe(false);
-    window.runkitShell = { version: "1.2.3", platform: "darwin" };
-    expect(canNewShellWindow()).toBe(false);
-    expect(canCloseShellWindow()).toBe(false);
-    window.runkitShell = {
-      version: "1.2.3",
-      platform: "darwin",
-      windows: { newWindow: () => Promise.resolve({ ok: true }) },
-    };
-    // newWindow alone (the pre-close shell) gates new only.
-    expect(canNewShellWindow()).toBe(true);
-    expect(canCloseShellWindow()).toBe(false);
-    window.runkitShell = {
-      version: "1.2.3",
-      platform: "darwin",
-      windows: {
-        newWindow: () => Promise.resolve({ ok: true }),
-        close: () => Promise.resolve({ ok: true }),
-      },
-    };
-    expect(canNewShellWindow()).toBe(true);
-    expect(canCloseShellWindow()).toBe(true);
-  });
-
-  it("rejects a malformed windows group (non-function members)", () => {
-    window.runkitShell = { version: "1.2.3", platform: "darwin", windows: { newWindow: "nope" } };
-    expect(canNewShellWindow()).toBe(false);
-    window.runkitShell = {
-      version: "1.2.3",
-      platform: "darwin",
-      windows: { newWindow: () => Promise.resolve({ ok: true }), close: "nope" },
-    };
-    expect(canCloseShellWindow()).toBe(false);
-  });
-
-  it("newShellWindow resolves true on an { ok: true } ack, false everywhere else", async () => {
-    let called = false;
-    window.runkitShell = {
-      version: "1.2.3",
-      platform: "darwin",
-      windows: {
-        newWindow: () => {
-          called = true;
-          return Promise.resolve({ ok: true });
-        },
-      },
-    };
-    expect(await newShellWindow()).toBe(true);
-    expect(called).toBe(true);
-    delete window.runkitShell;
-    expect(await newShellWindow()).toBe(false);
-    window.runkitShell = {
-      version: "1.2.3",
-      platform: "darwin",
-      windows: { newWindow: () => Promise.resolve({ ok: false, error: "Not allowed" }) },
-    };
-    expect(await newShellWindow()).toBe(false);
-    window.runkitShell = {
-      version: "1.2.3",
-      platform: "darwin",
-      windows: { newWindow: () => Promise.reject(new Error("ipc gone")) },
-    };
-    expect(await newShellWindow()).toBe(false);
-  });
-
-  it("closeShellWindow resolves true on an { ok: true } ack, false everywhere else", async () => {
-    let called = false;
-    window.runkitShell = {
-      version: "1.2.3",
-      platform: "darwin",
-      windows: {
-        newWindow: () => Promise.resolve({ ok: true }),
-        close: () => {
-          called = true;
-          return Promise.resolve({ ok: true });
-        },
-      },
-    };
-    expect(await closeShellWindow()).toBe(true);
-    expect(called).toBe(true);
-    // A pre-close shell (newWindow only) resolves false without calling.
-    window.runkitShell = {
-      version: "1.2.3",
-      platform: "darwin",
-      windows: { newWindow: () => Promise.resolve({ ok: true }) },
-    };
-    expect(await closeShellWindow()).toBe(false);
-    delete window.runkitShell;
-    expect(await closeShellWindow()).toBe(false);
-    window.runkitShell = {
-      version: "1.2.3",
-      platform: "darwin",
-      windows: {
-        newWindow: () => Promise.resolve({ ok: true }),
-        close: () => Promise.resolve({ ok: false, error: "Not allowed" }),
-      },
-    };
-    expect(await closeShellWindow()).toBe(false);
-    window.runkitShell = {
-      version: "1.2.3",
-      platform: "darwin",
-      windows: {
-        newWindow: () => Promise.resolve({ ok: true }),
-        close: () => Promise.reject(new Error("ipc gone")),
-      },
-    };
-    expect(await closeShellWindow()).toBe(false);
-  });
-});
-
-// The accent group rides the same runtime-injected bridge as badge (its
-// structural twin): setShellAccent must pass the hex through on a well-formed
-// ack and degrade to false everywhere else.
-
-describe("setShellAccent", () => {
-  it("resolves true on an { ok: true } ack and passes the hex through", async () => {
-    let seen: string | null = null;
-    window.runkitShell = {
-      version: "1.2.3",
-      platform: "darwin",
-      accent: {
-        set: (hex: string) => {
-          seen = hex;
-          return Promise.resolve({ ok: true });
-        },
-      },
-    };
-    expect(await setShellAccent("#8b7ff0")).toBe(true);
-    expect(seen).toBe("#8b7ff0");
-  });
-
-  it("resolves false in a plain browser and on a shell without the accent group", async () => {
-    expect(await setShellAccent("#8b7ff0")).toBe(false);
-    window.runkitShell = { version: "1.2.3", platform: "darwin" };
-    expect(await setShellAccent("#8b7ff0")).toBe(false);
-  });
-
-  it("resolves false when the group member is not a function", async () => {
-    window.runkitShell = { version: "1.2.3", platform: "darwin", accent: { set: "nope" } };
-    expect(await setShellAccent("#8b7ff0")).toBe(false);
-  });
-
-  it("resolves false on a denied result and on a rejected invoke", async () => {
-    window.runkitShell = {
-      version: "1.2.3",
-      platform: "darwin",
-      accent: { set: () => Promise.resolve({ ok: false, error: "Not allowed" }) },
-    };
-    expect(await setShellAccent("#8b7ff0")).toBe(false);
-    window.runkitShell = {
-      version: "1.2.3",
-      platform: "darwin",
-      accent: { set: () => Promise.reject(new Error("ipc gone")) },
-    };
-    expect(await setShellAccent("#8b7ff0")).toBe(false);
-  });
-});
-
-// accentColor / waiting are ADDITIVE optionals on the servers:list entries
-// (cross-version shells omit them): absence always parses; a wrong-typed
-// present field rejects the list.
 
 describe("listShellServers optional fields", () => {
-  it("parses a newer shell's accentColor/waiting and an older shell's 4-field entries", async () => {
+  it("parses newer optional fields and older entries", async () => {
     bridgeWith({
+      ...baseServersBridge,
       list: () =>
         Promise.resolve({
           ok: true,
           servers: [
             { ...serverA, accentColor: "#8b7ff0", waiting: 3 },
-            serverB, // older-shell shape: both optionals absent
+            serverB,
           ],
         }),
-      switch: () => Promise.resolve({ ok: true }),
     });
     expect(await listShellServers()).toEqual([
       { ...serverA, accentColor: "#8b7ff0", waiting: 3 },
@@ -551,295 +353,16 @@ describe("listShellServers optional fields", () => {
     ]);
   });
 
-  it("resolves null when a present optional is wrong-typed", async () => {
-    bridgeWith({
-      list: () =>
-        Promise.resolve({ ok: true, servers: [{ ...serverA, accentColor: 42 }] }),
-      switch: () => Promise.resolve({ ok: true }),
-    });
-    expect(await listShellServers()).toBeNull();
-    bridgeWith({
-      list: () =>
-        Promise.resolve({ ok: true, servers: [{ ...serverA, waiting: "3" }] }),
-      switch: () => Promise.resolve({ ok: true }),
-    });
-    expect(await listShellServers()).toBeNull();
-  });
-});
-
-// The reorder invoker is ADDITIVE to the servers group (older shells expose
-// only list/switch/add): canReorderShellHosts gates the strip's reorder
-// affordances on its presence, and reorderShellHosts degrades exactly like
-// its siblings — false for plain browser, pre-reorder shells, a non-function
-// member, denial, and rejected invokes.
-
-describe("canReorderShellHosts / reorderShellHosts", () => {
-  it("resolves true on an { ok: true } ack when the group carries reorder", async () => {
-    let seen: { id: string; toIndex: number } | null = null;
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.resolve({ ok: true }),
-      reorder: (id: string, toIndex: number) => {
-        seen = { id, toIndex };
-        return Promise.resolve({ ok: true });
-      },
-    });
-    expect(canReorderShellHosts()).toBe(true);
-    expect(await reorderShellHosts("b", 0)).toBe(true);
-    expect(seen).toEqual({ id: "b", toIndex: 0 });
-  });
-
-  it("reads as unavailable in a plain browser and on a shell without reorder (older shell)", async () => {
-    expect(canReorderShellHosts()).toBe(false);
-    expect(await reorderShellHosts("a", 0)).toBe(false);
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [serverA, serverB] }),
-      switch: () => Promise.resolve({ ok: true }),
-    });
-    expect(canReorderShellHosts()).toBe(false);
-    expect(await reorderShellHosts("a", 0)).toBe(false);
-  });
-
-  it("reads as unavailable when reorder is not a function", async () => {
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.resolve({ ok: true }),
-      reorder: "servers:reorder",
-    });
-    expect(canReorderShellHosts()).toBe(false);
-    expect(await reorderShellHosts("a", 0)).toBe(false);
-  });
-
-  it("resolves false on a denied result and on a rejected invoke", async () => {
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.resolve({ ok: true }),
-      reorder: () => Promise.resolve({ ok: false, error: "Not allowed" }),
-    });
-    expect(await reorderShellHosts("a", 0)).toBe(false);
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.resolve({ ok: true }),
-      reorder: () => Promise.reject(new Error("ipc gone")),
-    });
-    expect(await reorderShellHosts("a", 0)).toBe(false);
-  });
-});
-
-// The remove/rename invokers are ADDITIVE to the servers group (older shells
-// expose only list/switch/add/reorder): the can* predicates gate the strip's
-// Disconnect/rename affordances on their presence, and the invokers degrade
-// exactly like their siblings — false for plain browser, pre-remove/pre-rename
-// shells, a non-function member, denial, and rejected invokes.
-
-describe("canRemoveShellHost / removeShellHost", () => {
-  it("resolves true on an { ok: true } ack when the group carries remove", async () => {
-    let seen: string | null = null;
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.resolve({ ok: true }),
-      remove: (id: string) => {
-        seen = id;
-        return Promise.resolve({ ok: true });
-      },
-    });
-    expect(canRemoveShellHost()).toBe(true);
-    expect(await removeShellHost("b")).toBe(true);
-    expect(seen).toBe("b");
-  });
-
-  it("reads as unavailable in a plain browser and on a shell without remove (older shell)", async () => {
-    expect(canRemoveShellHost()).toBe(false);
-    expect(await removeShellHost("a")).toBe(false);
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [serverA, serverB] }),
-      switch: () => Promise.resolve({ ok: true }),
-    });
-    expect(canRemoveShellHost()).toBe(false);
-    expect(await removeShellHost("a")).toBe(false);
-  });
-
-  it("reads as unavailable when remove is not a function", async () => {
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.resolve({ ok: true }),
-      remove: "servers:remove",
-    });
-    expect(canRemoveShellHost()).toBe(false);
-    expect(await removeShellHost("a")).toBe(false);
-  });
-
-  it("resolves false on a denied result and on a rejected invoke", async () => {
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.resolve({ ok: true }),
-      remove: () => Promise.resolve({ ok: false, error: "Not allowed" }),
-    });
-    expect(await removeShellHost("a")).toBe(false);
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.resolve({ ok: true }),
-      remove: () => Promise.reject(new Error("ipc gone")),
-    });
-    expect(await removeShellHost("a")).toBe(false);
-  });
-});
-
-describe("canConfirmedRemoveShellHost / confirmedRemoveShellHost", () => {
-  it("resolves true on an { ok: true } ack when the group carries removeConfirmed", async () => {
-    let seen: string | null = null;
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.resolve({ ok: true }),
-      removeConfirmed: (id: string) => {
-        seen = id;
-        return Promise.resolve({ ok: true });
-      },
-    });
-    expect(canConfirmedRemoveShellHost()).toBe(true);
-    expect(await confirmedRemoveShellHost("b")).toBe(true);
-    expect(seen).toBe("b");
-  });
-
-  it("is independent of remove: a shell carrying only remove reads as unavailable", async () => {
-    // servers:remove shipped with shell-side confirmation, so its presence
-    // must NOT enable the SPA-dialog path — that is the skew guard.
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.resolve({ ok: true }),
-      remove: () => Promise.resolve({ ok: true }),
-    });
-    expect(canConfirmedRemoveShellHost()).toBe(false);
-    expect(await confirmedRemoveShellHost("a")).toBe(false);
-  });
-
-  it("reads as unavailable in a plain browser and when removeConfirmed is not a function", async () => {
-    expect(canConfirmedRemoveShellHost()).toBe(false);
-    expect(await confirmedRemoveShellHost("a")).toBe(false);
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.resolve({ ok: true }),
-      removeConfirmed: "servers:remove-confirmed",
-    });
-    expect(canConfirmedRemoveShellHost()).toBe(false);
-    expect(await confirmedRemoveShellHost("a")).toBe(false);
-  });
-
-  it("resolves false on a denied result and on a rejected invoke", async () => {
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.resolve({ ok: true }),
-      removeConfirmed: () => Promise.resolve({ ok: false, error: "Not allowed" }),
-    });
-    expect(await confirmedRemoveShellHost("a")).toBe(false);
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.resolve({ ok: true }),
-      removeConfirmed: () => Promise.reject(new Error("ipc gone")),
-    });
-    expect(await confirmedRemoveShellHost("a")).toBe(false);
-  });
-});
-
-describe("canSetShellHostUrl / setShellHostUrl", () => {
-  it("resolves true on an { ok: true } ack and passes id + url through", async () => {
-    let seen: { id: string; url: string } | null = null;
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.resolve({ ok: true }),
-      setUrl: (id: string, url: string) => {
-        seen = { id, url };
-        return Promise.resolve({ ok: true });
-      },
-    });
-    expect(canSetShellHostUrl()).toBe(true);
-    expect(await setShellHostUrl("b", "http://x:4100")).toBe(true);
-    expect(seen).toEqual({ id: "b", url: "http://x:4100" });
-  });
-
-  it("reads as unavailable in a plain browser, without the invoker, and when it is not a function", async () => {
-    expect(canSetShellHostUrl()).toBe(false);
-    expect(await setShellHostUrl("a", "http://x")).toBe(false);
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.resolve({ ok: true }),
-      rename: () => Promise.resolve({ ok: true }),
-    });
-    expect(canSetShellHostUrl()).toBe(false);
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.resolve({ ok: true }),
-      setUrl: "servers:set-url",
-    });
-    expect(canSetShellHostUrl()).toBe(false);
-    expect(await setShellHostUrl("a", "http://x")).toBe(false);
-  });
-
-  it("resolves false on a denied result and on a rejected invoke", async () => {
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.resolve({ ok: true }),
-      setUrl: () => Promise.resolve({ ok: false, error: "Invalid request" }),
-    });
-    expect(await setShellHostUrl("a", "http://x")).toBe(false);
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.resolve({ ok: true }),
-      setUrl: () => Promise.reject(new Error("ipc gone")),
-    });
-    expect(await setShellHostUrl("a", "http://x")).toBe(false);
-  });
-});
-
-describe("canRenameShellHost / renameShellHost", () => {
-  it("resolves true on an { ok: true } ack when the group carries rename", async () => {
-    let seen: { id: string; name: string } | null = null;
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.resolve({ ok: true }),
-      rename: (id: string, name: string) => {
-        seen = { id, name };
-        return Promise.resolve({ ok: true });
-      },
-    });
-    expect(canRenameShellHost()).toBe(true);
-    expect(await renameShellHost("b", "lab-2")).toBe(true);
-    expect(seen).toEqual({ id: "b", name: "lab-2" });
-  });
-
-  it("reads as unavailable in a plain browser and on a shell without rename (older shell)", async () => {
-    expect(canRenameShellHost()).toBe(false);
-    expect(await renameShellHost("a", "x")).toBe(false);
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [serverA, serverB] }),
-      switch: () => Promise.resolve({ ok: true }),
-    });
-    expect(canRenameShellHost()).toBe(false);
-    expect(await renameShellHost("a", "x")).toBe(false);
-  });
-
-  it("reads as unavailable when rename is not a function", async () => {
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.resolve({ ok: true }),
-      rename: "servers:rename",
-    });
-    expect(canRenameShellHost()).toBe(false);
-    expect(await renameShellHost("a", "x")).toBe(false);
-  });
-
-  it("resolves false on a denied result and on a rejected invoke", async () => {
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.resolve({ ok: true }),
-      rename: () => Promise.resolve({ ok: false, error: "Not allowed" }),
-    });
-    expect(await renameShellHost("a", "x")).toBe(false);
-    bridgeWith({
-      list: () => Promise.resolve({ ok: true, servers: [] }),
-      switch: () => Promise.resolve({ ok: true }),
-      rename: () => Promise.reject(new Error("ipc gone")),
-    });
-    expect(await renameShellHost("a", "x")).toBe(false);
+  it("rejects wrong-typed optional fields", async () => {
+    for (const entry of [
+      { ...serverA, accentColor: 42 },
+      { ...serverA, waiting: "3" },
+    ]) {
+      bridgeWith({
+        ...baseServersBridge,
+        list: () => Promise.resolve({ ok: true, servers: [entry] }),
+      });
+      expect(await listShellServers()).toBeNull();
+    }
   });
 });

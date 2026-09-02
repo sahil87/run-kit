@@ -329,6 +329,7 @@ func TestApplyAgentConfigNonTTYNoFlagRefuses(t *testing.T) {
 // consent paths: --yes authorizes the os.RemoveAll of a marker-owned legacy
 // rk-display directory (no prompt), and --dry-run leaves it in place (needs no
 // consent, mutates nothing).
+// retire-with: removeLegacySkill
 func TestRemoveLegacySkillConsentVariants(t *testing.T) {
 	t.Run("--yes removes the marker-owned directory without prompting", func(t *testing.T) {
 		dir := t.TempDir()
@@ -678,6 +679,7 @@ func TestResolveRkPathIsAbsoluteAndNotSymlinkResolved(t *testing.T) {
 const legacyMarkerSkill = "---\nname: rk-display\ndescription: legacy\nmetadata:\n  " +
 	skillManagedByMarker + "\n---\n# rk-display\n\nlegacy body\n"
 
+// retire-with: removeLegacySkill
 func TestSkillHasMarker(t *testing.T) {
 	// A marker-owned legacy file is recognized as rk-owned.
 	if !skillHasMarker(legacyMarkerSkill) {
@@ -708,6 +710,7 @@ func seedLegacySkill(t *testing.T, skillsDir, content string) (skillDir, skillPa
 	return skillDir, skillPath
 }
 
+// retire-with: removeLegacySkill
 func TestRemoveLegacySkill(t *testing.T) {
 	t.Run("marker-owned file → directory removed on confirm", func(t *testing.T) {
 		dir := t.TempDir()
@@ -784,6 +787,7 @@ func TestRemoveLegacySkill(t *testing.T) {
 // TestApplyAgentConfigCleansLegacySkillOnInstall proves the legacy cleanup runs
 // on the INSTALL pass (not only --uninstall): re-running plain `rk agent-setup`
 // is the documented upgrade action, so the cleanup must fire there.
+// retire-with: removeLegacySkill
 func TestApplyAgentConfigCleansLegacySkillOnInstall(t *testing.T) {
 	dir := t.TempDir()
 	settingsPath := filepath.Join(dir, "settings.json")

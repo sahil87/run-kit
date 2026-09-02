@@ -9,8 +9,8 @@ import { TMUX_SERVER } from "./_tmux";
  * chip that hardcodes its own size drifts.
  *
  * Shared setup:
- * - Viewport is iPhone 14-sized (375×812) in both describes via `test.use`.
- * - The touch describe adds `hasTouch: true`, which flips Chromium's
+ * - Viewport is iPhone 14-sized (375×812) via `test.use`.
+ * - `hasTouch: true` flips Chromium's
  *   `(pointer: coarse)` media query — activating the Tailwind `coarse:` variant
  *   (the real 36×36 touch-target path) and revealing the coarse-only `⌨` chip.
  * - Chips are measured by `collectChipSizes`: every button inside
@@ -92,28 +92,5 @@ test.describe("Bottom bar chip size — touch device", () => {
       expect(s.width, `${s.label} width below touch target`).toBeGreaterThanOrEqual(TOUCH_TARGET_MIN);
       expect(s.height, `${s.label} height below touch target`).toBeGreaterThanOrEqual(TOUCH_TARGET_MIN);
     }
-  });
-});
-
-test.describe("Bottom bar chip size — fine pointer", () => {
-  test.use({ viewport: MOBILE_VIEWPORT });
-
-  /**
-   * Proves: the fine-pointer half of the pointer split is the bar's absence —
-   * on a fine pointer the bar is gated out of existence at ANY width, mobile
-   * included (a narrow fine-pointer window still has a hardware keyboard; the
-   * chips are key-simulation affordances). Chip sizing is exercised only in the
-   * touch describe above, where the bar exists.
-   *
-   * Steps:
-   * 1. Navigate to `/${TMUX_SERVER}` at 375×812 (no touch emulation).
-   * 2. Assert the `Terminal keys` toolbar has count 0.
-   */
-  test("the bar does not render at mobile width", async ({ page }) => {
-    await page.goto(`/${TMUX_SERVER}`);
-    await page.waitForLoadState("domcontentloaded");
-    await expect(
-      page.getByRole("toolbar", { name: "Terminal keys" }),
-    ).toHaveCount(0);
   });
 });

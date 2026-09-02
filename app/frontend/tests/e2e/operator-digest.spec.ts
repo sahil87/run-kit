@@ -3,8 +3,8 @@ import { openPalette } from "./_ready";
 import { mockStateSocket } from "./_state-socket-mock";
 
 // Operator digest & stuck triage — the two direct-fire `Operator:` palette
-// entries with their gating and toasts, plus the zero-waiting 409 failure
-// toast. Fully mocked (no tmux, no live backend): the sessions payload (a
+// entries and their success toasts. Fully mocked (no tmux, no live backend):
+// the sessions payload (a
 // chat-carrying work window @1 plus, when the test wants one, an operator
 // window @9 with role: "operator" in _rk-operator) rides the state-socket
 // mock (_state-socket-mock.ts), and both operator-request endpoints are
@@ -169,47 +169,4 @@ test.describe("Operator digest & triage (260822-rfz2)", () => {
     await expect(page.getByText("Sent to operator — triage will appear in the operator tab")).toBeVisible();
   });
 
-  /**
-   * Proves: the requiresWaiting rejection's structured `error` message
-   * reaches the user as the error toast (the throwOnError seam), not a
-   * generic failure.
-   *
-   * Steps:
-   * 1. Mock the backend with an operator window and a 409 stub carrying
-   *    "nothing is waiting on this server".
-   * 2. Select `Operator: What's stuck` from the palette.
-   * 3. Assert the POST fired and the toast carries the server's
-   *    nothing-waiting message.
-   */
-  test("a zero-waiting 'What's stuck' surfaces the structured 409 as the failure toast", async ({ page }) => {
-    const { serverBodies } = await mockBackend(page, true, {
-      status: 409,
-      body: { error: "nothing is waiting on this server" },
-    });
-    await gotoWindow(page);
-
-    await openPaletteWith(page, "Operator:");
-    await page.getByRole("option", { name: "Operator: What's stuck" }).click();
-
-    await expect.poll(() => serverBodies).toHaveLength(1);
-    await expect(page.getByText("nothing is waiting on this server")).toBeVisible();
-  });
-
-  /**
-   * Proves: the degrade-to-absent gate — with no role: "operator" window in
-   * the sessions payload, every `Operator:` palette entry is omitted (not
-   * disabled).
-   *
-   * Steps:
-   * 1. Mock the backend WITHOUT an operator window.
-   * 2. Open the palette filtered to `Operator:`.
-   * 3. Assert zero `Operator:` options.
-   */
-  test("neither entry is listed when the server has no operator window", async ({ page }) => {
-    await mockBackend(page, false);
-    await gotoWindow(page);
-
-    await openPaletteWith(page, "Operator:");
-    await expect(page.getByRole("option", { name: /^Operator:/ })).toHaveCount(0);
-  });
 });

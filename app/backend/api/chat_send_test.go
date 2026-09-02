@@ -319,33 +319,31 @@ func TestChatSendEmptyText(t *testing.T) {
 	}
 }
 
-// TestChatSendInvalidJSON: an undecodable body is a 400 with no injection.
-func TestChatSendInvalidJSON(t *testing.T) {
-	sf := &mockSessionFetcher{result: chatSessions("@1", "claude", testChatRef)}
-	ops := &mockTmuxOps{}
-	router := NewTestRouter(slog.Default(), sf, ops, "host")
-
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, sendReq(`{not json`))
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+// Invalid window IDs and bodies are rejected before injection.
+func TestChatSendRequestGuards(t *testing.T) {
+	cases := []struct {
+		name string
+		req  func() *http.Request
+	}{
+		{name: "invalid JSON", req: func() *http.Request { return sendReq(`{not json`) }},
+		{name: "invalid window ID", req: func() *http.Request {
+			return httptest.NewRequest(http.MethodPost, "/api/windows/not-a-window/chat/send", strings.NewReader(`{"text":"hi"}`))
+		}},
 	}
-	if len(ops.chatCalls) != 0 {
-		t.Errorf("injection ran (%v) on a bad body", ops.chatCalls)
-	}
-}
-
-// TestChatSendInvalidWindowID: a malformed window id is a 400.
-func TestChatSendInvalidWindowID(t *testing.T) {
-	sf := &mockSessionFetcher{result: chatSessions("@1", "claude", testChatRef)}
-	ops := &mockTmuxOps{}
-	router := NewTestRouter(slog.Default(), sf, ops, "host")
-
-	req := httptest.NewRequest(http.MethodPost, "/api/windows/not-a-window/chat/send", strings.NewReader(`{"text":"hi"}`))
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sf := &mockSessionFetcher{result: chatSessions("@1", "claude", testChatRef)}
+			ops := &mockTmuxOps{}
+			router := NewTestRouter(slog.Default(), sf, ops, "host")
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, tc.req())
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+			}
+			if len(ops.chatCalls) != 0 {
+				t.Errorf("injection ran for invalid request: %v", ops.chatCalls)
+			}
+		})
 	}
 }
 

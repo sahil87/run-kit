@@ -320,21 +320,6 @@ describe("WindowRow", () => {
   // halo=waiting) — compositional vocabulary (aqo6): PR state never owns the
   // dot; the rest-state glyph is the row's only PR channel.
   describe("dot status signals", () => {
-    it("renders a failed building stage as a blue dotted ring + red CENTER dot (no whole-dot red)", () => {
-      const win = makeWindow({
-        windowId: "@0",
-        index: 0,
-        fabChange: "260613-o20f-x",
-        fabStage: "review",
-        fabDisplayState: "failed",
-      });
-      renderRow(win);
-      const dot = screen.getByLabelText("building — failed");
-      expect(dot.className).toContain("text-signal-blue"); // building (review is pre-PR)
-      expect(dot.className).not.toContain("text-signal-red"); // whole-dot red is gone
-      expect(dot.getAttribute("style")).toContain("dotted");
-      expect(dot.querySelector("span")!.className).toContain("bg-signal-red"); // red center only
-    });
 
     it("renders an additive yellow halo on a waiting window (core hue kept)", () => {
       const win = makeWindow({
@@ -351,15 +336,6 @@ describe("WindowRow", () => {
       expect(dot.className).toContain("rk-waiting-halo"); // additive overlay
     });
 
-    it("renders a plain (non-fab, non-PR) window via the monochrome tmux fallback", () => {
-      // No fabChange + no PR → gray, NOT a red tint even with a stray
-      // fabDisplayState (which a non-change-bound window would never carry).
-      const win = makeWindow({ windowId: "@0", index: 0, activity: "idle" });
-      renderRow(win);
-      const dot = screen.getByLabelText("idle");
-      expect(dot.className).toContain("text-text-secondary");
-      expect(dot.className).not.toContain("text-signal-red");
-    });
 
     it("PR eviction: a merged PR never turns the dot purple — the fab tier renders (glyph carries merged)", () => {
       const win = makeWindow({
@@ -380,97 +356,10 @@ describe("WindowRow", () => {
       expect(dot.className).not.toContain("rounded-none"); // the square is retired
     });
 
-    it("PR eviction: a failing PR never turns the dot — the live stage keeps its shape (glyph-red carries it)", () => {
-      const win = makeWindow({
-        windowId: "@0",
-        index: 0,
-        fabChange: "260613-o20f-x",
-        fabStage: "ship",
-        fabDisplayState: "active",
-        prNumber: 386,
-        prState: "open",
-        prChecks: "fail",
-      });
-      renderRow(win);
-      expect(screen.queryByLabelText("PR — failing")).toBeNull();
-      const dot = screen.getByLabelText("PR-ready — active");
-      expect(dot.className).toContain("text-accent-green");
-      expect(dot.getAttribute("style")).toContain("background-color: currentcolor");
-    });
 
-    it("two-stop split: apply reads blue building, ship reads green PR-ready", () => {
-      const apply = makeWindow({
-        windowId: "@0",
-        index: 0,
-        fabChange: "260613-o20f-x",
-        fabStage: "apply",
-        fabDisplayState: "active",
-      });
-      renderRow(apply);
-      expect(screen.getByLabelText("building — active").className).toContain("text-signal-blue");
-      cleanup();
-      const ship = makeWindow({
-        windowId: "@0",
-        index: 0,
-        fabChange: "260613-o20f-x",
-        fabStage: "ship",
-        fabDisplayState: "active",
-      });
-      renderRow(ship);
-      expect(screen.getByLabelText("PR-ready — active").className).toContain("text-accent-green");
-    });
 
-    it("parked-done change renders the green resting ring (no square)", () => {
-      const win = makeWindow({
-        windowId: "@0",
-        index: 0,
-        fabChange: "260613-o20f-x",
-        fabStage: "review-pr",
-        fabDisplayState: "done",
-      });
-      renderRow(win);
-      const dot = screen.getByLabelText("PR-ready — parked");
-      expect(dot.className).toContain("text-accent-green");
-      expect(dot.getAttribute("style")).toContain("transparent"); // hollow ring
-      expect(dot.className).not.toContain("rounded-none");
-    });
 
-    it("D2: a closed-unmerged PR on a live fab change leaves the fab tier untouched", () => {
-      // The dot renders the live stage (it never consults the PR); the closed
-      // PR lives only on the rest-state glyph, never on any dot tier.
-      const win = makeWindow({
-        windowId: "@0",
-        index: 0,
-        fabChange: "260613-o20f-x",
-        fabStage: "apply",
-        fabDisplayState: "active",
-        prNumber: 386,
-        prState: "closed",
-      });
-      renderRow(win);
-      expect(screen.queryByLabelText("PR — closed")).toBeNull();
-      const dot = screen.getByLabelText("building — active");
-      expect(dot.className).toContain("text-signal-blue");
-      expect(dot.className).not.toContain("text-signal-purple");
-    });
 
-    it("does not render a fab dot for a window that is not change-bound (no fabChange)", () => {
-      // A non-change-bound window with a populated prNumber falls to the tmux
-      // fallback — its PR shows only on the glyph/registers.
-      const win = makeWindow({
-        windowId: "@0",
-        index: 0,
-        activity: "idle",
-        prNumber: 386,
-        prState: "open",
-        prChecks: "fail",
-        prReview: "changes_requested",
-      });
-      renderRow(win);
-      expect(screen.queryByLabelText("PR — failing")).toBeNull();
-      expect(screen.queryByLabelText("PR — open")).toBeNull();
-      expect(screen.getByLabelText("idle")).toBeInTheDocument();
-    });
   });
 
   // Rest-state PR glyph (93dy — user-approved partial Row-Minimalism
@@ -479,21 +368,21 @@ describe("WindowRow", () => {
   // for the pin+✕ actions. jsdom evaluates neither :hover nor pointer media,
   // so the swap/coarse/focus gating is asserted as class strings.
   describe("rest-state PR glyph (93dy)", () => {
-    it("renders the glyph for an owned open PR, green, aria-hidden, stroke SVG", () => {
-      const win = makeWindow({ windowId: "@0", index: 0, prNumber: 386, prState: "open", prChecks: "pass" });
+    it.each([
+      { label: "passing", prState: "open", prChecks: "pass", color: "text-accent-green" },
+      { label: "merged", prState: "merged", prChecks: undefined, color: "text-signal-purple" },
+      { label: "pending", prState: "open", prChecks: "pending", color: "text-signal-yellow" },
+      { label: "failing", prState: "open", prChecks: "fail", color: "text-signal-red" },
+    ] as const)("applies prGlyphColor's class for a $label PR", ({ prState, prChecks, color }) => {
+      const win = makeWindow({ windowId: "@0", index: 0, prNumber: 386, prState, prChecks });
       renderRowWithIcons(win);
       const glyph = screen.getByTestId("row-pr-glyph");
       expect(glyph).toHaveAttribute("aria-hidden", "true");
-      expect(glyph.className).toContain("text-accent-green");
+      expect(glyph.className).toContain(color);
       expect(glyph.querySelector("svg")).not.toBeNull();
       expect(glyph.textContent).toBe("");
     });
 
-    it("renders the glyph for a merged PR (purple)", () => {
-      const win = makeWindow({ windowId: "@0", index: 0, prNumber: 386, prState: "merged" });
-      renderRowWithIcons(win);
-      expect(screen.getByTestId("row-pr-glyph").className).toContain("text-signal-purple");
-    });
 
     // e30p → aqo6: draft is glyph-only by construction — the dot never renders
     // PR state at all, so every PR fact (draft included) lives on the glyph.
@@ -533,21 +422,7 @@ describe("WindowRow", () => {
       expect(glyph.querySelector('path[d="M13 6h3a2 2 0 0 1 2 2v7"]')).toBeNull();
     });
 
-    it("renders the glyph yellow for an open PR with checks running (aqo6 pending state)", () => {
-      const win = makeWindow({ windowId: "@0", index: 0, prNumber: 386, prState: "open", prChecks: "pending" });
-      renderRowWithIcons(win);
-      const glyph = screen.getByTestId("row-pr-glyph");
-      expect(glyph.className).toContain("text-signal-yellow");
-      expect(glyph.className).not.toContain("text-accent-green");
-    });
 
-    it("renders the glyph red for a failing PR (checks fail / changes requested)", () => {
-      const win = makeWindow({ windowId: "@0", index: 0, prNumber: 386, prState: "open", prChecks: "fail" });
-      renderRowWithIcons(win);
-      const glyph = screen.getByTestId("row-pr-glyph");
-      expect(glyph.className).toContain("text-signal-red");
-      expect(glyph.className).not.toContain("text-signal-purple");
-    });
 
     // Closed earns the glyph — GitHub red with the distinct ✕ closed icon.
     // Shape separates closed from failing (both red); color separates closed

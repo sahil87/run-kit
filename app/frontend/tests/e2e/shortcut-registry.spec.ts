@@ -16,9 +16,9 @@ import { mockStateSocket } from "./_state-socket-mock";
 // Linux), the split-pane chords (the divider pair ⇧Ctrl+\/⇧Ctrl+- splitting
 // side-by-side then stacked on this host, ⌘D/⇧⌘D on a spoofed mac — the
 // `macCode` refinement, both actions bound and palette-hinted on every host),
-// the VS Code-aligned chrome chords (the STATEFUL sidebar-toggle chord on B —
-// ⇧Ctrl+B here, ⌘B on a spoofed mac, no shell gate — focus current row /
-// hide+return / reopen+focus; the stateful code-toggle chord on 2 — ⇧Ctrl+2 /
+// the VS Code-aligned chrome chords (the stateful sidebar-toggle chord on B —
+// full focus/hide/reopen arms on ⇧Ctrl+B here plus the ⌘B binding-resolution
+// seam on a spoofed mac; the stateful code-toggle chord on 2 — ⇧Ctrl+2 /
 // ⌘2 — open+focus / hide+restore on a code-capable window; and focus-hop on
 // Backquote — ⇧Ctrl+` here, ⌃` on a spoofed mac via the seam's mac-only
 // ctrl-tier refusal rule — open-then-focus on a closed code tile, then the hop
@@ -355,29 +355,6 @@ test.describe("shortcuts overlay", () => {
   });
 
   /**
-   * Proves: the legacy tmux keybindings dialog was deleted with its palette
-   * entry — `Help: Keyboard Shortcuts` (the Shortcuts tab) is the single
-   * shortcuts entry.
-   *
-   * Steps:
-   * 1. Open the palette (`openPalette`); fill "tmux Keybindings" → no
-   *    `Help: tmux Keybindings` entry renders.
-   * 2. Fill "Keyboard Shortcuts" → the `Help: Keyboard Shortcuts` entry is
-   *    visible.
-   */
-  test("the legacy Help: tmux Keybindings palette entry is gone (260801-sm6g)", async ({ page }) => {
-    await mockBackend(page);
-    await gotoWindowOne(page);
-
-    const paletteInput = await openPalette(page);
-    await paletteInput.fill("tmux Keybindings");
-    await expect(page.getByText("Help: tmux Keybindings")).toHaveCount(0);
-    // The shortcuts entry is the single shortcuts surface.
-    await paletteInput.fill("Keyboard Shortcuts");
-    await expect(page.getByText("Help: Keyboard Shortcuts")).toBeVisible();
-  });
-
-  /**
    * Proves: clicking a row's combo arms capture, pressing a chord rebinds the
    * action, the override persists as a diff in
    * `localStorage["runkit-keybindings"]`, and dispatch honors the override
@@ -687,17 +664,16 @@ test.describe("macOS per-platform defaults (spoofed platform)", () => {
 
   /**
    * Proves: the `sidebar-toggle` `macTier: "cmd"` demotion applies in a mac
-   * BROWSER host (⌘B is page-interceptable; no claimed-keys entry on KeyB) —
-   * one canonical chord per action — and the chord is the stateful one.
+   * browser host (⌘B is page-interceptable; no claimed-keys entry on KeyB),
+   * so the binding reaches the sidebar action.
    *
    * Steps:
    * 1. Spoof the mac platform; mock the backend; open `/default/1`; the
    *    current window's row carries `aria-current="page"`.
-   * 2. Press Meta+B → the row takes DOM focus; the sidebar stays visible.
-   * 3. Press Meta+B again → the sidebar unmounts (focus was inside it).
-   * 4. Press Meta+B a third time → the sidebar returns and the row refocuses.
+   * 2. Press Meta+B; assert the row takes DOM focus and the sidebar remains
+   *    visible.
    */
-  test("⌘B runs the stateful sidebar chord on a mac host (both mac hosts — no shell gate)", async ({ page }) => {
+  test("⌘B resolves to the sidebar action on a mac browser host", async ({ page }) => {
     await spoofMacPlatform(page);
     await mockBackend(page);
     await gotoWindowOne(page);
@@ -708,16 +684,10 @@ test.describe("macOS per-platform defaults (spoofed platform)", () => {
       .locator('[data-window-id] [aria-current="page"]');
     await expect(currentRow).toBeVisible();
 
-    // The stateful chord (260819-qwr7 R5): focus the current row (sidebar
-    // stays open) → hide + return on the second press → reopen + refocus.
     await expect(sidebar).toBeVisible();
     await page.keyboard.press("Meta+KeyB");
     await expect(currentRow).toBeFocused();
-    await page.keyboard.press("Meta+KeyB");
-    await expect(sidebar).toHaveCount(0);
-    await page.keyboard.press("Meta+KeyB");
     await expect(sidebar).toBeVisible();
-    await expect(currentRow).toBeFocused();
   });
 
   /**

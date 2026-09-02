@@ -21,6 +21,7 @@ import { shouldRefuseTerminalChord } from "@/lib/keybindings";
 import { createGestureArm, createWheelAccumulator } from "@/lib/zoom-gesture";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { evaluateMediaQuery } from "@/hooks/use-media-query";
+import { COARSE_POINTER_QUERY } from "@/hooks/use-coarse-pointer";
 import { evaluateIsMobile } from "@/hooks/use-is-mobile";
 
 /**
@@ -571,6 +572,40 @@ export function TerminalClient({
     return () => unregisterTestTerminal(windowId);
   }, [terminalReady, windowId]);
 
+  // Always-on coarse-pointer contextmenu gate (NOT scroll-lock-gated): xterm
+  // has two element-level focus paths, and this one bypasses the synthetic-
+  // click chain entirely — "contextmenu" → rightClickHandler →
+  // moveTextAreaUnderMouseCursor, which WebKit's long-press recognizer can
+  // fire during a slow scroll drag. A long-press is never a deliberate focus
+  // request on touch (right-click has no touch meaning), so the suppression
+  // applies in BOTH locked and unlocked states. The React onContextMenu
+  // preventDefault on this container is root-delegated (bubble phase), so it
+  // runs AFTER xterm's own listener has already moved and focused the
+  // textarea; a capture-phase listener on the container runs BEFORE xterm's
+  // element listeners, so stopping the event here is what actually prevents
+  // the focus. mousedown stays out of this effect deliberately — it is the
+  // deliberate tap's focus path and is gated on scroll-lock below.
+  useEffect(() => {
+    const container = terminalRef.current;
+    if (!container) return;
+
+    // Coarse-pointer only, evaluated PER EVENT (not at effect setup): the
+    // preference persists and the primary pointer can change mid-session, so
+    // a setup-time snapshot could strand the suppression on or off.
+    const coarse = () => evaluateMediaQuery(COARSE_POINTER_QUERY);
+
+    function suppressContextMenu(e: Event) {
+      if (!coarse()) return;
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
+    container.addEventListener("contextmenu", suppressContextMenu, { capture: true });
+    return () => {
+      container.removeEventListener("contextmenu", suppressContextMenu, { capture: true });
+    };
+  }, []);
+
   // Scroll-lock: prevent xterm textarea from gaining focus when locked.
   // Instead of reactively blurring on focusin (which disrupts active touch
   // sequences and can corrupt xterm.js internal state), we preventDefault()
@@ -578,16 +613,12 @@ export function TerminalClient({
   // touchstart/touchmove still fire normally so SGR scroll keeps working.
   //
   // touchend suppression alone is not enough: xterm has two element-level
-  // focus paths, and one bypasses the synthetic-click chain entirely —
-  // "contextmenu" → rightClickHandler → moveTextAreaUnderMouseCursor, which
-  // WebKit's long-press recognizer can fire during a slow scroll drag. The
-  // React onContextMenu preventDefault on this container is root-delegated
-  // (bubble phase), so it runs AFTER xterm's own listener has already moved
-  // and focused the textarea. Capture-phase listeners on the container run
-  // BEFORE xterm's element listeners, so stopping the event here is what
-  // actually prevents the focus. mousedown capture closes the second path
+  // focus paths. The contextmenu path (long-press → rightClickHandler →
+  // moveTextAreaUnderMouseCursor) is covered by the always-on coarse gate
+  // above, in every lock state. mousedown capture closes the second path
   // (xterm's mousedown handler calls focus()) against any synthetic-mouse
-  // delivery the touchend preventDefault didn't cover.
+  // delivery the touchend preventDefault didn't cover — and stays
+  // lock-gated because mousedown IS the deliberate tap's focus path.
   useEffect(() => {
     if (!scrollLocked) return;
     const container = terminalRef.current;
@@ -597,7 +628,7 @@ export function TerminalClient({
     // preference persists and the primary pointer can change mid-session, so
     // a setup-time snapshot could strand the suppression on (fine pointer,
     // no unlock chip rendered) or off (device turned coarse after lock).
-    const coarse = () => evaluateMediaQuery("(pointer: coarse)");
+    const coarse = () => evaluateMediaQuery(COARSE_POINTER_QUERY);
 
     function onTouchEnd(e: TouchEvent) {
       if (!coarse()) return;
@@ -623,12 +654,10 @@ export function TerminalClient({
     }
 
     container.addEventListener("touchend", onTouchEnd, { capture: true });
-    container.addEventListener("contextmenu", suppress, { capture: true });
     container.addEventListener("mousedown", suppress, { capture: true });
     container.addEventListener("focusin", onFocusIn, { capture: true });
     return () => {
       container.removeEventListener("touchend", onTouchEnd, { capture: true });
-      container.removeEventListener("contextmenu", suppress, { capture: true });
       container.removeEventListener("mousedown", suppress, { capture: true });
       container.removeEventListener("focusin", onFocusIn, { capture: true });
     };
@@ -689,7 +718,7 @@ export function TerminalClient({
     if (!container) return;
 
     // Only on touch devices — desktop uses native mouse wheel via xterm.js
-    const isTouch = evaluateMediaQuery("(pointer: coarse)");
+    const isTouch = evaluateMediaQuery(COARSE_POINTER_QUERY);
     if (!isTouch) return;
 
     let startY = 0;

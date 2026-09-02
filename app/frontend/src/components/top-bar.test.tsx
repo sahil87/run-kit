@@ -111,6 +111,18 @@ function renderTopBar(overrides: Partial<React.ComponentProps<typeof TopBar>> = 
   );
 }
 
+// The crumb collapse-threshold probe (data-testid="crumb-collapse-probe")
+// duplicates the server/session crumb text off-screen (aria-hidden + inert,
+// the right-cell probe pattern) — text queries for the VISIBLE crumbs must
+// filter it out.
+function getVisibleCrumbText(text: string): HTMLElement {
+  const matches = screen
+    .getAllByText(text)
+    .filter((el) => !el.closest('[data-testid="crumb-collapse-probe"]'));
+  expect(matches).toHaveLength(1);
+  return matches[0];
+}
+
 describe("TopBar", () => {
   beforeEach(() => {
     // ThemeProvider needs matchMedia. Query-sensitive on the coarse pointer:
@@ -149,10 +161,10 @@ describe("TopBar", () => {
   it("shows the server crumb as a link to /$server plus the session crumb on a terminal route (breadcrumb ends at session)", () => {
     renderTopBar();
     // Server crumb is a link back to the tmux Server.
-    const serverLink = screen.getByText("runkit").closest("a")!;
+    const serverLink = getVisibleCrumbText("runkit").closest("a")!;
     expect(serverLink).toHaveAttribute("href", "/runkit");
     // Session crumb present; no "Dashboard".
-    expect(screen.getByText("run-kit")).toBeInTheDocument();
+    expect(getVisibleCrumbText("run-kit")).toBeInTheDocument();
     expect(screen.queryByText("Dashboard")).not.toBeInTheDocument();
     // The breadcrumb ends at the session — the window name is NOT a trailing
     // breadcrumb crumb anymore (260703-5ilm moved it to the centered heading).
@@ -163,7 +175,7 @@ describe("TopBar", () => {
 
   it("renders the window name once, in the centered editable heading (not duplicated in the breadcrumb)", () => {
     renderTopBar();
-    expect(screen.getByText("run-kit")).toBeInTheDocument();
+    expect(getVisibleCrumbText("run-kit")).toBeInTheDocument();
     // The window name renders as the centered heading — a click-to-rename button.
     const heading = screen.getByRole("button", { name: "Rename tab main" });
     expect(heading).toHaveTextContent("main");
@@ -358,12 +370,12 @@ describe("TopBar", () => {
   it("names each crumb's level via a styled Tip — no native title attributes (260722-73al)", () => {
     renderTopBar();
     const brand = screen.getByLabelText("RunKit home");
-    const serverCrumb = screen.getByText("runkit").closest("a");
+    const serverCrumb = getVisibleCrumbText("runkit").closest("a");
     const windowSwitch = screen.getByLabelText("Switch tab");
     // The session crumb is now a NON-interactive static chip (260813-kvk7) — a
     // session has no navigation of its own, so it carries no Tip and no native
     // title either.
-    const sessionChip = screen.getByText("run-kit");
+    const sessionChip = getVisibleCrumbText("run-kit");
     // Native `title=` is removed wherever Tip lands (never both, or the OS
     // bubble doubles the styled tip). Tooltip behavior itself is pinned once
     // in tip.test.tsx; here we assert the migration contract per crumb.
@@ -701,7 +713,7 @@ describe("TopBar", () => {
     // session switching lives in the sidebar rows and the palette, creation in
     // the palette / sidebar server-header `+`. The crumb is a static chip.
     // The chip is the box around the truncating name span (CRUMB_BOX_CLASS).
-    const chip = screen.getByText("run-kit").parentElement!;
+    const chip = getVisibleCrumbText("run-kit").parentElement!;
     // Boxed chip styling (CRUMB_BOX_CLASS), matching the sibling crumbs' box —
     // including the shared control min-height that keeps every crumb on the
     // buttons' horizontal axis.

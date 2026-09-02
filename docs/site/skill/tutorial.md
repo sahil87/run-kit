@@ -96,7 +96,7 @@ rk tab code set "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 After the poll beat, point to the code tile. If code-server is down, name the graceful empty state and continue. If `rk code hosts` prints a host, open README without a mouse:
 
 ```sh
-rk code exec vscode.open "{\"\$uri\":\"file://$(git rev-parse --show-toplevel)/README.md\"}"
+rk code exec vscode.open "{\"\$uri\":\"file://$(git rev-parse --show-toplevel 2>/dev/null || pwd)/README.md\"}"
 rk tab layout --rm code
 ```
 

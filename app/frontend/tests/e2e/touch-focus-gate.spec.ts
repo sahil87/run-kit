@@ -9,7 +9,7 @@
 // Shared setup: file-level `beforeAll` creates a dedicated tmux session on
 // the isolated test server; `afterAll` kills it. Each test sets an
 // iPad-portrait viewport (820×1180, the reported device class) and shims
-// `window.matchMedia("(pointer: coarse)")` via `mockTouchDevice` (desktop
+// `window.matchMedia` for the coarse-pointer queries (`pointer` + `any-pointer`) via `mockTouchDevice` (desktop
 // Chromium reports a fine pointer) BEFORE navigation. The terminal route is
 // keyed by the tmux window id (`@N`), resolved via `_ready.ts`'s
 // `resolveWindow`. Touch input goes through raw CDP
@@ -32,7 +32,7 @@ function mockTouchDevice(page: import("@playwright/test").Page) {
   return page.addInitScript(() => {
     const orig = window.matchMedia;
     window.matchMedia = function (q: string) {
-      if (q === "(pointer: coarse)") {
+      if (q === "(pointer: coarse)" || q === "(any-pointer: coarse)") {
         return {
           matches: true,
           media: q,
@@ -75,7 +75,7 @@ test.describe("Coarse-pointer focus gate", () => {
    * element-level rightClickHandler can run.
    *
    * Steps:
-   * 1. Shim `(pointer: coarse)`, set an iPad-portrait viewport, navigate to
+   * 1. Shim the coarse-pointer queries, set an iPad-portrait viewport, navigate to
    *    the session's first window; wait for `.xterm-screen` and a settle.
    * 2. Blur whatever holds focus so the assertion starts from no-owner.
    * 3. Dispatch a bubbling/cancelable `contextmenu` on `.xterm-screen`
@@ -137,7 +137,7 @@ test.describe("Coarse-pointer focus gate", () => {
    * keyboard opens with a visible owner.
    *
    * Steps:
-   * 1. Shim `(pointer: coarse)`, set an iPad-portrait viewport, navigate to
+   * 1. Shim the coarse-pointer queries, set an iPad-portrait viewport, navigate to
    *    the session's first window; wait for `.xterm-screen` and a settle.
    * 2. Blur whatever holds focus so the assertion starts from no-owner.
    * 3. Send a clean tap (touchStart + touchEnd, no moves) via CDP at the

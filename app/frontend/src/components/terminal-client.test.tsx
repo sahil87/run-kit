@@ -11,6 +11,7 @@ import { SearchAddon } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { ProgressAddon } from "@xterm/addon-progress";
 import { TerminalClient, SCROLLBACK_DESKTOP, SCROLLBACK_MOBILE } from "./terminal-client";
+import { COARSE_POINTER_QUERY } from "@/hooks/use-coarse-pointer";
 import type { OpenStreamOpts, RelayStream } from "@/lib/relay-mux";
 
 // ---------------------------------------------------------------------------
@@ -205,11 +206,12 @@ function renderTerminalClient(scrollLocked = false) {
 
 describe("TerminalClient scroll-lock focus prevention", () => {
   beforeEach(() => {
-    // Coarse pointer must MATCH: the scroll-lock suppression effect gates on
-    // `(pointer: coarse)` (a persisted lock rehydrated on a fine-pointer
-    // profile must not suppress — see the fine-pointer test below).
+    // Coarse pointer must MATCH: the suppression effects gate on the shared
+    // COARSE_POINTER_QUERY (a persisted lock rehydrated on a fine-pointer
+    // profile must not suppress — see the fine-pointer test below). Keyed off
+    // the imported constant so a query change cannot silently defeat the mock.
     vi.stubGlobal("matchMedia", vi.fn().mockImplementation((query: string) => ({
-      matches: query === "(pointer: coarse)",
+      matches: query === COARSE_POINTER_QUERY,
       media: query,
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),

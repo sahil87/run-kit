@@ -7,7 +7,7 @@ import { ClockSpinner } from "@/components/clock-spinner";
 import { StarTwinkle } from "@/components/star-twinkle";
 import { CollapsiblePanel } from "./collapsible-panel";
 import { ICON_CLASS } from "./icons";
-import { copyToClipboard } from "@/lib/clipboard";
+import { useCopyFeedback } from "@/hooks/use-copy-feedback";
 import { abbreviateHomePath, parseFabChange } from "@/lib/format";
 import { getOutputLine, getAgentLine, getFabLine, getPrSegments } from "./registers";
 import { StatusDot } from "@/components/status-dot";
@@ -15,8 +15,6 @@ import { Tip } from "@/components/tip";
 import type { WindowInfo } from "@/types";
 
 type CopyableRowKey = "tmx" | "cwd" | "git" | "fab" | "pr";
-
-const COPY_FEEDBACK_MS = 1000;
 
 // How long the post-completion / throttled "checkmark" shows before reverting to
 // the idle refresh icon (mirrors COPY_FEEDBACK_MS's feedback cadence).
@@ -372,28 +370,9 @@ function WindowContent({ win }: { win: WindowInfo }) {
   // — the bottom panel is a single instance, so its per-second re-render is
   // negligible and does not touch the memoized ServerGroup/SessionRow/WindowRow.
   const nowSeconds = useNow();
-  const [copiedRow, setCopiedRow] = useState<CopyableRowKey | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Clean up timer on unmount
-  useEffect(() => {
-    return () => {
-      if (timerRef.current !== null) {
-        clearTimeout(timerRef.current);
-      }
-    };
-  }, []);
-
-  function handleCopy(key: CopyableRowKey, value: string) {
-    if (window.getSelection()?.toString()) return;
-    void copyToClipboard(value);
-    setCopiedRow(key);
-    if (timerRef.current !== null) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      setCopiedRow(null);
-      timerRef.current = null;
-    }, COPY_FEEDBACK_MS);
-  }
+  // Copy interaction (selection guard, clipboard call, 1s `copied ✓` slot) is
+  // the shared hook — one contract with the status bar's segments.
+  const { copiedKey: copiedRow, copy: handleCopy } = useCopyFeedback<CopyableRowKey>();
 
   const activePane = win.panes?.find((p) => p.isActive);
   const activePaneCwd = activePane?.cwd ?? win.worktreePath;

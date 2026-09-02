@@ -1,0 +1,17 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-02T10:56:33Z"}
+{"args":"Make items on the status bar clickable an copyable where possible (just like the Pane Details section on the left panel)","cmd":"fab-new","event":"command","ts":"2026-09-02T10:56:33Z"}
+{"delta":"+4.0","event":"confidence","score":4,"trigger":"calc-score","ts":"2026-09-02T10:59:59Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-09-02T11:00:56Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-02T11:02:10Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-02T11:02:37Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-02T11:12:45Z"}
+{"event":"review","result":"failed","ts":"2026-09-02T11:22:53Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-02T11:22:53Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-02T11:29:26Z"}
+{"event":"review","result":"failed","ts":"2026-09-02T11:40:15Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-02T11:40:15Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-02T11:41:54Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-09-02T11:44:01Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-02T11:50:32Z"}
+{"event":"review","result":"passed","ts":"2026-09-02T11:50:32Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-02T11:52:24Z"}

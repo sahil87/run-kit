@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { mockStateSocket } from "./_state-socket-mock";
+import { openPalette } from "./_ready";
 
 // Status bar e2e. Fully mocked (no tmux/gh) — the pane-register-panel.spec.ts /
 // tooltips.spec.ts idiom: the state socket (mockStateSocket from
@@ -256,6 +257,95 @@ test.describe("Status bar (260814-ldbs)", () => {
     await compose.click();
     await expect(page.getByTestId("compose-strip")).toBeVisible();
     await expect(compose).toHaveAttribute("aria-pressed", "true");
+  });
+
+  /**
+   * Proves: status-bar segments are click-to-copy of their RAW values (the
+   * Pane panel's CopyableRow contract) — the cwd segment copies the FULL
+   * absolute path (the strip shows only the basename), shows the transient
+   * `copied ✓` label swap, and the host cluster's version fragment copies its
+   * displayed `v…` form — with a real clipboard write, not a mocked seam.
+   *
+   * Steps:
+   * 1. Grant clipboard permissions; navigate to `/default/1`.
+   * 2. Click the `Copy working directory path` segment button.
+   * 3. Assert the clipboard holds `/tmp/wt` (full path, not the `wt` basename)
+   *    and the window cluster shows the `copied ✓` swap.
+   * 4. Click the host cluster's `Copy version` button; assert the clipboard
+   *    holds `v0.9.3`.
+   */
+  test("segments copy raw values to the real clipboard with the copied ✓ swap", async ({ page, context }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.goto(`/${SERVER}/1`);
+    await expect(statusBar(page)).toBeVisible({ timeout: 10_000 });
+
+    await windowCluster(page).getByRole("button", { name: "Copy working directory path" }).click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("/tmp/wt");
+    await expect(windowCluster(page).getByText("copied ✓")).toBeVisible();
+
+    await hostCluster(page).getByRole("button", { name: "Copy version" }).click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("v0.9.3");
+  });
+
+  /**
+   * Proves: an overflow-menu copy row is keyboard-activatable end to end —
+   * opening the `…` menu moves roving focus onto the first visible row (the
+   * tmx copy row at this width), a real Enter keypress copies the RAW pane id
+   * (`%1`, not the displayed `pane 1/1 %1` text), and the menu stays open
+   * (the user may want to read the row).
+   *
+   * Steps:
+   * 1. Grant clipboard permissions; resize to 1000px (below lg, so the tmx
+   *    segment drops to the menu and the `…` chevron renders).
+   * 2. Navigate to `/default/1`; click the chevron; wait for focus to land on
+   *    the `Copy tmux pane id` row (the menu's focus-on-open contract).
+   * 3. Press Enter; assert the clipboard holds `%1` and the row shows the
+   *    `copied ✓` swap.
+   * 4. Assert the menu is still open.
+   */
+  test("overflow copy rows activate via keyboard: Enter copies the raw value and keeps the menu open", async ({ page, context }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.setViewportSize({ width: 1000, height: 720 });
+    await page.goto(`/${SERVER}/1`);
+    await expect(statusBar(page)).toBeVisible({ timeout: 10_000 });
+
+    await page.getByTestId("status-bar-overflow").click();
+    const menu = page.getByRole("menu", { name: "Overflow status segments" });
+    const tmxRow = menu.getByRole("menuitem", { name: "Copy tmux pane id" });
+    await expect(tmxRow).toBeFocused();
+
+    await page.keyboard.press("Enter");
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("%1");
+    await expect(tmxRow).toContainText("copied ✓");
+    await expect(menu).toBeVisible();
+  });
+
+  /**
+   * Proves: the copy segments have command-palette parity (Constitution V —
+   * the palette is the complete action registry): `Copy: Git Branch` copies
+   * the raw branch name and confirms with a toast; the server/host copy
+   * entries are listed too.
+   *
+   * Steps:
+   * 1. Grant clipboard permissions; navigate to `/default/1`.
+   * 2. Open the palette (openPalette); filter to `Copy:` and assert the
+   *    Server Name / Host Name entries exist.
+   * 3. Select `Copy: Git Branch`; assert the clipboard holds `main` and the
+   *    `Git branch copied` toast shows.
+   */
+  test("copy actions have command-palette parity — Copy: Git Branch copies the raw value with a toast", async ({ page, context }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.goto(`/${SERVER}/1`);
+    await expect(statusBar(page)).toBeVisible({ timeout: 10_000 });
+
+    const input = await openPalette(page);
+    await input.fill("Copy:");
+    await expect(page.getByRole("option", { name: "Copy: Server Name" })).toBeVisible();
+    await expect(page.getByRole("option", { name: "Copy: Host Name" })).toBeVisible();
+    await page.getByRole("option", { name: "Copy: Git Branch" }).click();
+
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("main");
+    await expect(page.getByText("Git branch copied")).toBeVisible();
   });
 
   /**

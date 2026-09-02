@@ -82,6 +82,8 @@ import { useShellServers } from "@/hooks/use-shell-servers";
 import { readLastPinnedBoard } from "@/lib/last-pinned-board";
 import { buildOpenActions, buildOpenLastUsedAction, buildOpenPrAction } from "@/lib/palette/open";
 import { activePaneCwd, buildOpenTargets, readLastUsedOpenTarget, resolveLastUsedTarget } from "@/lib/open-in-app";
+import { copyToClipboard } from "@/lib/clipboard";
+import { parseFabChange } from "@/lib/format";
 import { useOpenTargets } from "@/hooks/use-open-targets";
 import { useRunOpenTarget } from "@/components/open-button";
 import { nextWaitingTarget, chatSearchForTarget, type WaitingTarget } from "@/lib/palette/agent-nav";
@@ -2632,6 +2634,23 @@ function AppShell() {
     return { minWindowIndex: Math.min(...indices), maxWindowIndex: Math.max(...indices) };
   }, [currentSession]);
 
+  // Palette copy entry builder — palette parity for the status bar's copy
+  // segments (Constitution V: the palette is the complete action registry).
+  // Same RAW values as the strip/Pane panel; toast feedback because the
+  // palette closes on select, so inline `copied ✓` feedback cannot show.
+  const copyPaletteEntry = useCallback(
+    (id: string, label: string, what: string, value: string): PaletteAction => ({
+      id,
+      label,
+      onSelect: () => {
+        void copyToClipboard(value).then((ok) => {
+          addToast(ok ? `${what} copied` : "Copy failed", ok ? "info" : "error");
+        });
+      },
+    }),
+    [addToast],
+  );
+
   const windowActions: PaletteAction[] = useMemo(
     () => [
       ...(sessionName
@@ -2856,10 +2875,33 @@ function AppShell() {
               label: "Copy: tmux Commands",
               onSelect: () => setShowTmuxCommands(true),
             },
+            // The window-register copy segments' palette arms, each gated on
+            // its raw value's presence (omit-not-disable). cwd matches the
+            // status bar's ACTIVE-pane rule (`activePane.cwd ?? worktreePath`),
+            // not activePaneCwd's first-pane fallback.
+            ...(() => {
+              const pane = currentWindow.panes?.find((p) => p.isActive);
+              const fabId = parseFabChange(currentWindow.fabChange ?? "")?.id;
+              const cwdValue = pane?.cwd ?? currentWindow.worktreePath;
+              return [
+                ...(pane?.gitBranch
+                  ? [copyPaletteEntry("copy-git-branch", "Copy: Git Branch", "Git branch", pane.gitBranch)]
+                  : []),
+                ...(cwdValue
+                  ? [copyPaletteEntry("copy-cwd-path", "Copy: Working Directory", "Working directory", cwdValue)]
+                  : []),
+                ...(pane?.paneId
+                  ? [copyPaletteEntry("copy-pane-id", "Copy: tmux Pane Id", "Pane id", pane.paneId)]
+                  : []),
+                ...(fabId
+                  ? [copyPaletteEntry("copy-fab-change-id", "Copy: Fab Change Id", "Fab change id", fabId)]
+                  : []),
+              ];
+            })(),
           ]
         : []),
     ],
-    [sessionName, currentWindow, sessions, hasOperatorWindow, handleCreateWindow, handleFixTabName, handleAnnotateTab, dialogs, executeSplit, executeClosePane, minWindowIndex, maxWindowIndex, navigate, server, addToast, setShowCreateWindowAtFolderDialog],
+    [sessionName, currentWindow, sessions, hasOperatorWindow, handleCreateWindow, handleFixTabName, handleAnnotateTab, dialogs, executeSplit, executeClosePane, minWindowIndex, maxWindowIndex, navigate, server, addToast, setShowCreateWindowAtFolderDialog, copyPaletteEntry],
   );
 
   // Boards palette block (server-route variant). AppShell only mounts under
@@ -3603,6 +3645,14 @@ function AppShell() {
         label: "Server: Create",
         onSelect: openCreateServer,
       },
+      // Host name copies the InstanceName displayName (the settings override,
+      // else the health hostname) — the status bar's
+      // `instanceName ?? metrics.hostname` equivalent WITHOUT subscribing
+      // AppShell to the ~2.5s metrics stream (the leaf-subscription rule).
+      ...(server ? [copyPaletteEntry("copy-server-name", "Copy: Server Name", "Server name", server)] : []),
+      ...(instanceDisplayName
+        ? [copyPaletteEntry("copy-host-name", "Copy: Host Name", "Host name", instanceDisplayName)]
+        : []),
       // Per-server kill entries (bylc): with the hover ✕ removed from the
       // SERVER-panel tiles, this listing is the keyboard escape hatch that
       // keeps every server killable — including non-current servers, which
@@ -3658,7 +3708,7 @@ function AppShell() {
         onSelect: () => handleSwitchServer(name),
       })),
     ],
-    [servers, server, handleSwitchServer, currentRegularIdx, regularOrder, moveCurrentServer, openCreateServer, requestKillServer, requestAdoptServer],
+    [servers, server, handleSwitchServer, currentRegularIdx, regularOrder, moveCurrentServer, openCreateServer, requestKillServer, requestAdoptServer, copyPaletteEntry, instanceDisplayName],
   );
 
   // Desktop-shell server switching (Constitution V): `Server: Switch to

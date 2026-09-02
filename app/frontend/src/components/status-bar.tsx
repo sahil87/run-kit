@@ -28,6 +28,8 @@ import { displayVersion } from "@/lib/palette/version";
 import { formatMemory, gaugeColor } from "@/lib/gauge";
 import { getAgentLine, getFabLine, getPrSegments } from "./sidebar/registers";
 import { MENU_ROW_CLASS } from "@/components/top-bar-overflow-menu";
+import { useCopyFeedback } from "@/hooks/use-copy-feedback";
+import { parseFabChange } from "@/lib/format";
 import type { MetricsSnapshot, WindowInfo } from "@/types";
 
 /**
@@ -72,6 +74,16 @@ import type { MetricsSnapshot, WindowInfo } from "@/types";
  *      its strip segment, so a row appears exactly when its segment is hidden.
  * Only the ~700–1100px band needs to survive: below 640px the mobile branch
  * renders no bar.
+ *
+ * COPY AFFORDANCES: segments with a stable raw value are click-to-copy via
+ * the shared `useCopyFeedback` hook (the Pane panel's CopyableRow contract:
+ * raw value — never the truncated display text — selection guard, 1s
+ * `copied ✓` label swap, hover accent). Left cluster: git → branch, fab →
+ * change id, tmx → pane id, cwd → full path (agt has no raw value and stays
+ * passive; pr stays the open-first anchor). Right cluster: server / host /
+ * version copy their displayed strings (live metrics and the connection dot
+ * stay passive). Overflow rows mirroring copyable segments are copy-action
+ * menuitems; the menu stays open on copy.
  */
 
 /** The bar's fixed height — VS Code-class status strip. */
@@ -103,6 +115,47 @@ function Segment({
         <span className={`${LABEL_CLASS} shrink-0`}>{label}</span>
         <span className={`min-w-0 truncate ${valueClassName}`}>{children}</span>
       </span>
+    </Tip>
+  );
+}
+
+/** Click-to-copy variant of Segment (the Pane panel's CopyableRow contract):
+ *  a real button (Constitution V — focusable, Enter/Space activatable) whose
+ *  click copies the segment's RAW value; while copied, the label swaps to
+ *  `copied ✓` (the transient width shift is benign in a truncating strip).
+ *  The value span's `group-hover:text-accent` is the clickability reveal.
+ *  Breakpoint classes ride `className` exactly as on Segment, so the
+ *  degradation ladder is unchanged. */
+function CopySegment({
+  label,
+  tip,
+  ariaLabel,
+  copied,
+  onCopy,
+  className = "",
+  valueClassName = VALUE_CLASS,
+  children,
+}: {
+  label: string;
+  tip: string;
+  ariaLabel: string;
+  copied: boolean;
+  onCopy: () => void;
+  className?: string;
+  valueClassName?: string;
+  children: ReactNode;
+}) {
+  return (
+    <Tip label={tip} placement="top">
+      <button
+        type="button"
+        aria-label={ariaLabel}
+        onClick={onCopy}
+        className={`group flex items-center gap-1 min-w-0 whitespace-nowrap cursor-pointer bg-transparent border-0 p-0 text-left focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent ${className}`}
+      >
+        <span className={`${LABEL_CLASS} shrink-0`}>{copied ? "copied ✓" : label}</span>
+        <span className={`min-w-0 truncate group-hover:text-accent ${valueClassName}`}>{children}</span>
+      </button>
     </Tip>
   );
 }
@@ -186,7 +239,11 @@ function WindowCluster({ win }: { win: WindowInfo }) {
   const gitBranch = activePane?.gitBranch ?? "";
   const agtLine = getAgentLine(win);
   const fabLine = getFabLine(win);
+  // Parsed here for the copy value only (the fab segment copies the 4-char
+  // change id, the Pane panel's rule); the display STRING stays getFabLine.
+  const fabChange = parseFabChange(win.fabChange ?? "");
   const prSegments = getPrSegments(win);
+  const { copiedKey, copy } = useCopyFeedback<"git" | "fab" | "tmx" | "cwd">();
 
   return (
     <div className="flex items-center gap-3 min-w-0" data-testid="status-bar-window">
@@ -196,9 +253,16 @@ function WindowCluster({ win }: { win: WindowInfo }) {
           (≥lg) → git (≥md); agt/fab/PR never drop from the strip (they
           truncate or ride the bar to 640px). */}
       {gitBranch && (
-        <Segment label="⑂" tip="Git branch" className="hidden md:flex">
+        <CopySegment
+          label="⑂"
+          tip="Git branch"
+          ariaLabel="Copy git branch"
+          copied={copiedKey === "git"}
+          onCopy={() => copy("git", gitBranch)}
+          className="hidden md:flex"
+        >
           {gitBranch}
-        </Segment>
+        </CopySegment>
       )}
       {prSegments &&
         (win.prUrl ? (
@@ -238,11 +302,22 @@ function WindowCluster({ win }: { win: WindowInfo }) {
             </span>
           </span>
         ))}
-      {fabLine && (
-        <Segment label="fab" tip="Fab change">
-          {fabLine}
-        </Segment>
-      )}
+      {fabLine &&
+        (fabChange ? (
+          <CopySegment
+            label="fab"
+            tip="Fab change"
+            ariaLabel="Copy fab change id"
+            copied={copiedKey === "fab"}
+            onCopy={() => copy("fab", fabChange.id)}
+          >
+            {fabLine}
+          </CopySegment>
+        ) : (
+          <Segment label="fab" tip="Fab change">
+            {fabLine}
+          </Segment>
+        ))}
       {agtLine && (
         <span className="flex items-center gap-1.5 min-w-0 whitespace-nowrap">
           <StatusDot win={win} />
@@ -254,15 +329,36 @@ function WindowCluster({ win }: { win: WindowInfo }) {
           </Tip>
         </span>
       )}
-      <Segment label="tmx" tip="tmux pane" className="hidden lg:flex">
-        {tmxValue}
-      </Segment>
-      <Segment label="cwd" tip={cwdMissing ? `${cwdFull} (no longer exists)` : cwdFull} className="hidden xl:flex">
+      {paneId ? (
+        <CopySegment
+          label="tmx"
+          tip="tmux pane"
+          ariaLabel="Copy tmux pane id"
+          copied={copiedKey === "tmx"}
+          onCopy={() => copy("tmx", paneId)}
+          className="hidden lg:flex"
+        >
+          {tmxValue}
+        </CopySegment>
+      ) : (
+        // No pane id ⇒ nothing to copy — the Pane panel's same passive fork.
+        <Segment label="tmx" tip="tmux pane" className="hidden lg:flex">
+          {tmxValue}
+        </Segment>
+      )}
+      <CopySegment
+        label="cwd"
+        tip={cwdMissing ? `${cwdFull} (no longer exists)` : cwdFull}
+        ariaLabel="Copy working directory path"
+        copied={copiedKey === "cwd"}
+        onCopy={() => copy("cwd", cwdFull)}
+        className="hidden xl:flex"
+      >
         <span className={cwdMissing ? "text-signal-red" : undefined}>
           {cwdBase}
           {cwdMissing ? " (deleted)" : ""}
         </span>
-      </Segment>
+      </CopySegment>
     </div>
   );
 }
@@ -294,6 +390,7 @@ function OverflowMenu({
   const [menuPos, setMenuPos] = useState<{ bottom: number; right: number } | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const { copiedKey, copy } = useCopyFeedback<"git" | "tmx" | "cwd" | "version">();
 
   // The menu's rows in DOM (= visual) order, dropping the ones a breakpoint
   // class currently hides — a `display: none` row cannot take focus, so
@@ -381,20 +478,47 @@ function OverflowMenu({
     </span>
   );
 
+  // Copy-action twin of textRow for rows mirroring COPYABLE strip segments:
+  // below the breakpoint this row is the register's only surface, so keyboard
+  // parity (Constitution V) requires the copy action to live here too. The
+  // leading register key swaps to `copied ✓`; the menu stays open (the user
+  // may want to read the row). Enter/Space activate via the native button.
+  const copyRow = (
+    key: "git" | "tmx" | "cwd" | "version",
+    prefix: string,
+    rest: string,
+    value: string,
+    showClass: string,
+    ariaLabel: string,
+  ) => (
+    <button
+      key={key}
+      type="button"
+      role="menuitem"
+      tabIndex={-1}
+      aria-label={ariaLabel}
+      className={`${MENU_ROW_CLASS} focus-visible:outline-2 focus-visible:outline-accent ${showClass}`}
+      onClick={() => copy(key, value)}
+    >
+      {copiedKey === key ? `copied ✓${rest ? " " : ""}` : prefix}
+      {rest}
+    </button>
+  );
+
   const rows: ReactNode[] = [];
   if (win) {
     // Inverse of the strip: a row appears exactly while its segment is
     // hidden, in strip order (git → tmx → cwd) so the menu reads as the
     // strip's continuation.
-    if (gitBranch) rows.push(textRow("git", `⑂ ${gitBranch}`, "md:hidden"));
+    if (gitBranch) rows.push(copyRow("git", "⑂ ", gitBranch, gitBranch, "md:hidden", "Copy git branch"));
+    const tmxRest = `pane ${(activePane?.paneIndex ?? 0) + 1}/${win.panes?.length ?? 0}${activePane?.paneId ? ` ${activePane.paneId}` : ""}`;
     rows.push(
-      textRow(
-        "tmx",
-        `tmx pane ${(activePane?.paneIndex ?? 0) + 1}/${win.panes?.length ?? 0}${activePane?.paneId ? ` ${activePane.paneId}` : ""}`,
-        "lg:hidden",
-      ),
+      activePane?.paneId
+        ? copyRow("tmx", "tmx ", tmxRest, activePane.paneId, "lg:hidden", "Copy tmux pane id")
+        : textRow("tmx", `tmx ${tmxRest}`, "lg:hidden"),
     );
-    rows.push(textRow("cwd", `cwd ${cwdBase}`, "xl:hidden"));
+    // The row shows the basename; the copy is the FULL path (raw-value rule).
+    rows.push(copyRow("cwd", "cwd ", cwdBase, cwdFull, "xl:hidden", "Copy working directory path"));
     // agt/fab/PR never drop from the strip, so they never need a menu row.
   }
   if (metrics) {
@@ -405,7 +529,7 @@ function OverflowMenu({
   }
   if (version) {
     // The version fragment drops below 700px — its row mirrors that gate.
-    rows.push(textRow("version", version, "min-[700px]:hidden"));
+    rows.push(copyRow("version", version, "", version, "min-[700px]:hidden", "Copy version"));
   }
   // The ⌘K / compose hints drop below xl — their menu rows keep the ACTIONS
   // (the top-bar menuOnly rule: the full set stays one click away at any
@@ -510,6 +634,11 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
 
   const version = daemonVersion ? displayVersion(daemonVersion) : null;
   const hostName = instanceName ?? metrics?.hostname ?? null;
+  // Right-cluster identity fragments are click-to-copy of their displayed
+  // strings. They carry no 3-char label, so the fragment's own text swaps to
+  // `copied ✓` during the feedback window (live metrics and the connection
+  // dot stay passive — no stable value worth copying).
+  const { copiedKey, copy } = useCopyFeedback<"server" | "host" | "version">();
 
   return (
     <div
@@ -556,16 +685,37 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
           </MetricsFlyout>
         )}
         {server && (
-          <span className="min-w-0 truncate whitespace-nowrap text-text-secondary">{server}</span>
+          <button
+            type="button"
+            aria-label="Copy server name"
+            onClick={() => copy("server", server)}
+            className="min-w-0 truncate whitespace-nowrap text-text-secondary cursor-pointer bg-transparent border-0 p-0 hover:text-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
+          >
+            {copiedKey === "server" ? "copied ✓" : server}
+          </button>
         )}
         {(hostName || version) && (
           <span className="min-w-0 truncate whitespace-nowrap">
-            {hostName && <span className="text-text-secondary">{hostName}</span>}
+            {hostName && (
+              <button
+                type="button"
+                aria-label="Copy host name"
+                onClick={() => copy("host", hostName)}
+                className="text-text-secondary cursor-pointer bg-transparent border-0 p-0 hover:text-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
+              >
+                {copiedKey === "host" ? "copied ✓" : hostName}
+              </button>
+            )}
             {version && (
-              <span className={`${VALUE_CLASS} hidden min-[700px]:inline`}>
+              <button
+                type="button"
+                aria-label="Copy version"
+                onClick={() => copy("version", version)}
+                className={`${VALUE_CLASS} hidden min-[700px]:inline cursor-pointer bg-transparent border-0 p-0 hover:text-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent`}
+              >
                 {hostName ? " " : ""}
-                {version}
-              </span>
+                {copiedKey === "version" ? "copied ✓" : version}
+              </button>
             )}
           </span>
         )}

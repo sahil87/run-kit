@@ -148,6 +148,28 @@ func TestBuildSkillShellString(t *testing.T) {
 	}
 }
 
+// TestSkillPaneCommand pins the exported seam as a byte-identical delegate of
+// buildSkillShellString — cmd/rk (rk tutorial) composes its pane command
+// through it, so a drift here silently splits the task-injection composition.
+func TestSkillPaneCommand(t *testing.T) {
+	cases := []struct {
+		launcher string
+		prompt   string
+	}{
+		{"claude --dangerously-skip-permissions", "Run rk skill tutorial and follow it exactly"},
+		{"claude", "it's quoted"},
+		{"claude", ""},
+		{"", "/x"},
+	}
+	for _, tc := range cases {
+		got := SkillPaneCommand(tc.launcher, tc.prompt)
+		want := buildSkillShellString(tc.launcher, tc.prompt)
+		if got != want {
+			t.Errorf("SkillPaneCommand(%q, %q) =\n  %q\nwant byte-identical to buildSkillShellString\n  %q", tc.launcher, tc.prompt, got, want)
+		}
+	}
+}
+
 func TestShellWrap(t *testing.T) {
 	cases := []struct {
 		name string

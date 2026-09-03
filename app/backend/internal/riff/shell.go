@@ -30,6 +30,14 @@ func buildSkillShellString(launcher, cmdArg string) string {
 	return shellWrap(interactive)
 }
 
+// SkillPaneCommand exposes the skill-pane shell composition to cmd/rk (rk
+// tutorial launches its kickoff prompt through the same task-injection seam).
+// Pure delegate of buildSkillShellString — byte-identical output, so the
+// composition has exactly one implementation.
+func SkillPaneCommand(launcher, prompt string) string {
+	return buildSkillShellString(launcher, prompt)
+}
+
 // sessionUUIDRe matches the strict Claude session-UUID shape — the SAME rule as
 // internal/chat's uuidRe. Duplicated here (rather than imported) deliberately:
 // this is a defense-in-depth gate at the seam where the ref enters the

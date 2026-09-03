@@ -71,6 +71,7 @@ func init() {
 	// tmuxGuardAliasCmd in tmux_guard.go).
 	rootCmd.AddCommand(tmuxGuardAliasCmd)
 	rootCmd.AddCommand(riffCmd)
+	rootCmd.AddCommand(tutorialCmd)
 	rootCmd.AddCommand(remoteCmd)
 	rootCmd.AddCommand(roleCmd)
 	rootCmd.AddCommand(codeServerCmd)

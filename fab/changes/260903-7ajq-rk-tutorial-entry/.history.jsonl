@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-03T04:59:41Z"}
+{"args":"rk tutorial — one-command tour entry on a fast tier (backlog 7ajq)","cmd":"fab-new","event":"command","ts":"2026-09-03T04:59:41Z"}
+{"delta":"+4.3","event":"confidence","score":4.3,"trigger":"calc-score","ts":"2026-09-03T05:01:24Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-03T05:05:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-03T05:05:14Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-03T05:34:32Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-03T05:45:53Z"}
+{"event":"review","result":"passed","ts":"2026-09-03T05:45:53Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-03T05:56:19Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-09-03T05:57:14Z"}

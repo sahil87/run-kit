@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 11
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-09-03T08:19:37Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T08:26:15Z"}
     hydrate: {started_at: "2026-09-03T08:26:15Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T08:36:30Z"}
     ship: {started_at: "2026-09-03T08:36:30Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T08:39:36Z"}
-    review-pr: {started_at: "2026-09-03T08:39:36Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-09-03T08:39:36Z", driver: git-pr, iterations: 1, completed_at: "2026-09-03T08:50:53Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/809
 true_impact:
@@ -53,4 +53,4 @@ true_impact:
     computed_at_stage: ship
 summary: SessionStart boot stamp (idle alongside chat stamp), inject.AwaitReady/DeliverWhenReady boot-ready primitive, rk mux await --ready, tutorial + riff task delivery migrated to the composite
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-03T08:39:36Z
+last_updated: 2026-09-03T08:50:53Z

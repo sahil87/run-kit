@@ -361,7 +361,7 @@ describe("WindowRow", () => {
         agentState: "waiting",
       });
       renderRow(win);
-      const dot = screen.getByLabelText("building — active — agent waiting");
+      const dot = screen.getByLabelText("building — at rest — agent waiting");
       expect(dot.className).toContain("text-signal-blue"); // core hue kept
       expect(dot.className).toContain("rk-waiting-halo"); // additive overlay
     });
@@ -380,7 +380,7 @@ describe("WindowRow", () => {
       });
       renderRow(win);
       expect(screen.queryByLabelText("PR — merged")).toBeNull();
-      const dot = screen.getByLabelText("PR-ready — parked");
+      const dot = screen.getByLabelText("PR-ready — at rest");
       expect(dot.className).toContain("text-accent-green");
       expect(dot.className).not.toContain("text-signal-purple");
       expect(dot.className).not.toContain("rounded-none"); // the square is retired

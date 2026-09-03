@@ -90,8 +90,9 @@ test.describe("Row Minimalism", () => {
    *    exact "review" text (count 0) and no exact "2m" text (count 0).
    * 4. Assert the leading StatusDot is present as the status signal: the fab
    *    review window shows the blue `role="img"` dot with aria-label
-   *    `building — active` (compositional vocabulary — the label composes hue
-   *    word + status word, not the stage word).
+   *    `building — at rest` (compositional vocabulary — the label composes hue
+   *    word + liveness word, not the stage word; with no live agent the dot
+   *    rests).
    */
   test("window rows show no stage word and no duration text (only the dot + name)", async ({ page }) => {
     await page.goto(`/${SERVER}/1`);
@@ -112,9 +113,10 @@ test.describe("Row Minimalism", () => {
 
     // The leading StatusDot IS present as the row's status signal (role=img with
     // a composed aria-label). The fab review window reads the blue
-    // "building — active" dot (compositional vocabulary — review is a pre-PR
-    // building stage; rendered in both the tree row and the panel header, so
+    // "building — at rest" dot (compositional vocabulary — review is a pre-PR
+    // building stage, and with no live agent on the window the liveness shape
+    // is the ring; rendered in both the tree row and the panel header, so
     // match the tree-scoped one).
-    await expect(tree.getByRole("img", { name: "building — active" })).toBeVisible();
+    await expect(tree.getByRole("img", { name: "building — at rest" })).toBeVisible();
   });
 });

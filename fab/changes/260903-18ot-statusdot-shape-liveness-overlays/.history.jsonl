@@ -1,0 +1,16 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-03T05:31:41Z"}
+{"args":"StatusDot: shape = liveness (2 shapes, per-family source), failed decomposed into additive red-center overlay (bullseye over solid), waiting = ring + halo; supersedes parts of 260810-aqo6; design authority docs/img/status-dot-reference.svg v2","cmd":"fab-new","event":"command","ts":"2026-09-03T05:31:41Z"}
+{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-09-03T05:35:25Z"}
+{"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-09-03T05:35:43Z"}
+{"cmd":"fab-draft","event":"command","ts":"2026-09-03T05:36:07Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-09-03T05:37:03Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-03T05:38:19Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-03T05:38:41Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-03T06:07:07Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-03T06:12:50Z"}
+{"event":"review","result":"passed","ts":"2026-09-03T06:12:50Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-03T06:18:27Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-09-03T06:19:34Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-03T06:21:21Z"}
+{"cmd":"git-pr-review","event":"command","ts":"2026-09-03T06:22:38Z"}
+{"event":"review","result":"passed","ts":"2026-09-03T06:27:02Z"}

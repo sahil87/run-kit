@@ -477,13 +477,14 @@ reading the old sink.
 The `agentState` three-state value is a first-class UI input across every surface
 (design authority `docs/specs/status-pyramid.md`, palette v3). (260706-y1ar) What consumes it:
 
-- **`StatusDot` (palette-v3 two-family ladder)**: a fresh `agentState` on a
-  non-fab window drives the **warm ad-hoc-agent family** — yellow working / orange
-  PR (vs the cool fab family blue/green/purple, vs the gray floor). A `waiting`
-  window of ANY tier gets an **additive signal-yellow pulsing halo** (core hue +
-  shape untouched — never a hue-flip). `agentState === "idle"` is a ring;
-  `active`/`waiting` are solid (mid-turn). See
-  [ui/status-signals](/run-kit/ui/status-signals.md) § Status Dot.
+- **`StatusDot` (two-family ladder)**: a fresh `agentState` on a
+  non-fab window drives the **warm ad-hoc-agent family** — yellow
+  (vs the cool fab family blue/green, vs the gray floor). Shape is liveness:
+  `agentState === "active"` is solid (mid-turn); `idle` and `waiting` are
+  rings (at rest). A `waiting` window of ANY tier gets an **additive
+  signal-yellow pulsing halo** over that ring base (core hue +
+  shape untouched — never a hue-flip). See
+  [ui/status-signals](/run-kit/ui/status-signals.md) § Status Dot. (18ot)
 - **Row Minimalism**: the sidebar window row carries no trailing stage-word +
   duration cluster — its status signals are the `StatusDot` plus an owned-PR
   rest glyph (§ Window rows).

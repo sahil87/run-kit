@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 11
@@ -33,22 +33,24 @@ stage_metrics:
     apply: {started_at: "2026-09-03T06:22:52Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T06:57:06Z"}
     review: {started_at: "2026-09-03T06:57:06Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T07:04:15Z"}
     hydrate: {started_at: "2026-09-03T07:04:15Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T07:10:04Z"}
-    ship: {started_at: "2026-09-03T07:10:04Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-03T07:10:04Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T07:12:00Z"}
+    review-pr: {started_at: "2026-09-03T07:12:00Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/804
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 933
+    deleted: 38
+    net: 895
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 694
+        deleted: 17
+        net: 677
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-09-03T07:10:04Z"
-    computed_at_stage: hydrate
+        added: 655
+        deleted: 7
+        net: 648
+    computed_at: "2026-09-03T07:12:00Z"
+    computed_at_stage: ship
 summary: Go dead-PID test-socket post-sweep scoped away from the rk-test-e2e- family and extended to all seven tmux-spawning packages; internal/tmux gains the injectable sweepDeadTestSocketsIn seam with a private TMUX_TMPDIR fixture dir; global-teardown.ts and test-e2e.sh cleanup() refuse a bare rk-test-e2e/rk-test-e2e- family anchor, reaping only the exact primary.
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-03T07:10:04Z
+last_updated: 2026-09-03T07:12:00Z

@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 5
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-09-03T02:58:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T03:03:20Z"}
     review: {started_at: "2026-09-03T03:03:20Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T03:07:38Z"}
     hydrate: {started_at: "2026-09-03T03:07:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T03:09:41Z"}
-    ship: {started_at: "2026-09-03T03:09:41Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-03T03:09:41Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T03:10:38Z"}
+    review-pr: {started_at: "2026-09-03T03:10:38Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/800
 change_type_source: explicit
 true_impact:
-    added: 136
-    deleted: 0
-    net: 136
+    added: 535
+    deleted: 21
+    net: 514
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 111
+        deleted: 14
+        net: 97
     tests:
-        added: 0
+        added: 78
         deleted: 0
-        net: 0
-    computed_at: "2026-09-03T03:09:41Z"
-    computed_at_stage: hydrate
+        net: 78
+    computed_at: "2026-09-03T03:10:38Z"
+    computed_at_stage: ship
 summary: GET /api/open-apps now filters the wt registry to locus==gui at the parseApps seam (absent locus kept for old-wt compat); default marker passed through and orders the host section default-first
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-03T03:09:41Z
+last_updated: 2026-09-03T03:10:38Z

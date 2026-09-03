@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -150,7 +149,7 @@ func runTutorial(cmd *cobra.Command) error {
 	ctx, cancel := context.WithTimeout(parent, tutorialCmdTimeout)
 	defer cancel()
 
-	env := tutorialChildEnv()
+	env := cliChildEnv(tutorialOriginalTMUXFn())
 
 	// Singleton probe: list-windows with $TMUX restored enumerates only the
 	// current session's windows. The @N id is the select target — window-id
@@ -192,29 +191,12 @@ func runTutorial(cmd *cobra.Command) error {
 	// to paste — never a non-zero exit.
 	deliverErr := errors.New("tmux new-window printed no pane id")
 	if paneID := strings.TrimSpace(string(paneOut)); paneID != "" {
-		deliverErr = deliverTutorialKickoff(parent, paneID)
+		deliverErr = deliverAgentKickoff(parent, tutorialDeliverFn, tutorialOriginalTMUXFn(), paneID, tutorialKickoffPrompt, tutorialDeliverDeadline, tutorialCmdTimeout)
 	}
 	if deliverErr != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "run-kit tutorial: could not deliver the kickoff prompt (%v) — paste this into the tour agent yourself:\n  %s\n", deliverErr, tutorialKickoffPrompt)
 	}
 	return nil
-}
-
-// deliverTutorialKickoff hands the kickoff to the shared inject composite:
-// inject.DeliverWhenReady waits for boot readiness (agent state present, else
-// a settled screen) and then runs the engine's verified send (named-buffer
-// bracketed paste, echo probe, probe-gated Enter). The CLI's per-invocation
-// buffer (rk-send-<pid>, the `rk mux send` pattern) keeps a tutorial delivery
-// from ever clobbering a concurrent daemon/mux-send buffer. The returned error
-// is informational — the caller degrades, it never fails the command.
-func deliverTutorialKickoff(parent context.Context, paneID string) error {
-	// The context outlives the readiness wait by one command timeout so the
-	// engine's own bounded subprocesses still fit after a slow boot.
-	ctx, cancel := context.WithTimeout(parent, tutorialDeliverDeadline+tutorialCmdTimeout)
-	defer cancel()
-	engine := inject.NewEngine(muxBufferNameFn())
-	_, err := tutorialDeliverFn(ctx, engine, awaitReadyTmux{}, tutorialServer(), paneID, tutorialKickoffPrompt)
-	return err
 }
 
 // tutorialDeliverFn is the delivery seam (the tutorialRunFn pattern):
@@ -225,20 +207,6 @@ var tutorialDeliverFn = func(ctx context.Context, engine *inject.Engine, t injec
 		State:    boundedPaneAgentState,
 		Deadline: tutorialDeliverDeadline,
 	})
-}
-
-// tutorialServer derives the tmux server label the delivery calls target from
-// the caller's captured $TMUX (the muxServer derivation): the socket basename
-// is the -L label, and an empty/default socket means the default server.
-func tutorialServer() string {
-	socket := tutorialOriginalTMUXFn()
-	if i := strings.IndexByte(socket, ','); i >= 0 {
-		socket = socket[:i]
-	}
-	if socket == "" {
-		return "default"
-	}
-	return filepath.Base(socket)
 }
 
 // findTutorialWindowID scans `tmux list-windows -F '#{window_id}\t#{window_name}'`
@@ -254,16 +222,4 @@ func findTutorialWindowID(listOutput string) string {
 		}
 	}
 	return ""
-}
-
-// tutorialChildEnv returns the subprocess env with the caller's $TMUX restored
-// (captured pre-init by internal/tmux, which strips it from the process) so
-// bare tmux calls reach the caller's current server — the riff CLI-path
-// pattern (childEnv with an empty server label).
-func tutorialChildEnv() []string {
-	env := os.Environ()
-	if t := tutorialOriginalTMUXFn(); t != "" {
-		env = append(env, "TMUX="+t)
-	}
-	return env
 }

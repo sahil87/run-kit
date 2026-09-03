@@ -49,6 +49,13 @@ registered in `api/router.go` beside the chat routes. Nothing in any existing
 UI request path routes through the operator — operator features degrade to
 **absent** when no operator runs, never to blocking (the inside/outside razor).
 
+The operator window's creation is rk's: `rk operator`
+([architecture](/run-kit/architecture.md) § CLI Subcommands, `operator` row)
+creates the window and stamps `@rk_win_role=operator` atomically — the role
+mark rides the create path's full `rk role` write-path sequence, so no operator
+window exists unmarked. fab-kit's `fab operator` remains the legacy launcher
+entry pending the `[rkop]` delegation. (260903-a8e4-rk-operator-launcher)
+
 ## Requirements
 
 ### Requirement: Endpoint contract + closed template registry

@@ -72,6 +72,7 @@ func init() {
 	rootCmd.AddCommand(tmuxGuardAliasCmd)
 	rootCmd.AddCommand(riffCmd)
 	rootCmd.AddCommand(tutorialCmd)
+	rootCmd.AddCommand(operatorCmd)
 	rootCmd.AddCommand(remoteCmd)
 	rootCmd.AddCommand(roleCmd)
 	rootCmd.AddCommand(codeServerCmd)

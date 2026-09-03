@@ -324,6 +324,89 @@ describe("SessionRow", () => {
     });
   });
 
+  // Attached-viewer signal: the neutral count chip and the card's per-viewer
+  // grids are gated at ≥2 sized viewers — the 1-viewer norm adds zero chrome.
+  describe("viewer count chip", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      resetFlyoutWarmState();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+      resetFlyoutWarmState();
+    });
+
+    function hoverRow() {
+      const row = screen.getByRole("treeitem");
+      act(() => {
+        fireEvent.pointerEnter(row, { pointerType: "mouse" });
+        fireEvent.mouseEnter(row);
+        vi.advanceTimersByTime(FLYOUT_OPEN_DELAY_MS + 50);
+      });
+      return row;
+    }
+
+    it("renders no chip at zero or one viewer", () => {
+      const none = makeSession({ name: "solo", viewers: undefined });
+      const { rerender } = render(<SessionRow {...rowProps(none)} />);
+      expect(screen.queryByTestId("viewer-badge")).toBeNull();
+
+      rerender(<SessionRow {...rowProps(makeSession({ name: "solo", viewers: [] }))} />);
+      expect(screen.queryByTestId("viewer-badge")).toBeNull();
+
+      rerender(
+        <SessionRow
+          {...rowProps(makeSession({ name: "solo", viewers: [{ width: 144, height: 91 }] }))}
+        />,
+      );
+      expect(screen.queryByTestId("viewer-badge")).toBeNull();
+    });
+
+    it("renders the count chip with an accessible label at ≥2 viewers", () => {
+      const session = makeSession({
+        name: "shared",
+        viewers: [
+          { width: 144, height: 91 },
+          { width: 116, height: 37 },
+        ],
+      });
+      render(<SessionRow {...rowProps(session)} />);
+      const chip = screen.getByTestId("viewer-badge");
+      expect(chip).toHaveTextContent("2");
+      expect(chip).toHaveAttribute("aria-label", "2 viewers attached");
+      // Neutral informational channel — never the signal-yellow attention
+      // treatment.
+      expect(chip.className).toContain("text-text-secondary");
+      expect(chip.className).not.toContain("signal-yellow");
+    });
+
+    it("lists each viewer's grid in the row card when the chip shows", () => {
+      const session = makeSession({
+        name: "shared",
+        viewers: [
+          { width: 144, height: 91 },
+          { width: 116, height: 37 },
+        ],
+      });
+      render(<SessionRow {...rowProps(session)} />);
+      hoverRow();
+      expect(screen.getByTestId("row-flyout-viewers")).toHaveTextContent(
+        "2 viewers · 144×91 · 116×37",
+      );
+    });
+
+    it("omits the card's viewer line below 2 viewers", () => {
+      const session = makeSession({
+        name: "solo",
+        viewers: [{ width: 144, height: 91 }],
+      });
+      render(<SessionRow {...rowProps(session)} />);
+      hoverRow();
+      expect(screen.getByTestId("row-flyout-card")).toBeInTheDocument();
+      expect(screen.queryByTestId("row-flyout-viewers")).toBeNull();
+    });
+  });
+
   // Coarse rail + session card (260817-ve5m): the rail extends the one
   // continuous strip to session rows and its tap/scrub triggers the same
   // card fine-pointer hover/focus opens. jsdom evaluates no media queries, so

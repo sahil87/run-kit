@@ -158,6 +158,18 @@ function SessionRowInner({
     .filter(Boolean)
     .join(" · ");
 
+  // Attached-viewer signal: the count chip and the card's per-viewer grids
+  // render only at ≥2 sized viewers — the 1-viewer case is the norm and adds
+  // zero chrome. Informational channel, not an attention overlay: the neutral
+  // count-chip idiom (no signal-yellow), non-interactive, no new props — the
+  // input is `session.viewers`, already on the row's session prop. The grid
+  // list is the diagnostic payload: it identifies the clamping client.
+  const viewers = session.viewers ?? [];
+  const showViewers = viewers.length >= 2;
+  const viewersLine = showViewers
+    ? `${viewers.length} viewers · ${viewers.map((v) => `${v.width}×${v.height}`).join(" · ")}`
+    : "";
+
   // The session card: the SAME shared card shell as the window flyout (one
   // placement/containment/held implementation), on BOTH pointer classes —
   // fine-pointer hover/focus at the sidebar's right edge, and the coarse
@@ -171,6 +183,11 @@ function SessionRowInner({
           {name}
         </PopupTitleBar>
         {factsLine && <span className="text-text-secondary break-words">{factsLine}</span>}
+        {viewersLine && (
+          <span data-testid="row-flyout-viewers" className="text-text-secondary break-words">
+            {viewersLine}
+          </span>
+        )}
         <CardActionList>
           {onColorChange && (
             <CardActionRow
@@ -390,6 +407,19 @@ function SessionRowInner({
             </span>
           )}
         </button>
+        {/* Attached-viewer count chip (informational, neutral — the muted
+            sibling of WaitingBadge's geometry WITHOUT the signal-yellow
+            attention treatment): shown only at ≥2 sized viewers. Display-only
+            decoration; the row's card is the detail surface. */}
+        {showViewers && (
+          <span
+            data-testid="viewer-badge"
+            className="shrink-0 text-xs leading-none px-1.5 py-0.5 rounded text-text-secondary font-medium tabular-nums"
+            aria-label={`${viewers.length} viewers attached`}
+          >
+            {viewers.length}
+          </span>
+        )}
         {/* Attention rollup (260706-y1ar): count of this session's waiting
             windows. Hidden at 0 (WaitingBadge renders null). */}
         <WaitingBadge

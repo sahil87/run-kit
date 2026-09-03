@@ -1041,6 +1041,138 @@ func ListSessions(ctx context.Context, server string) ([]SessionInfo, error) {
 	return sessions, nil
 }
 
+// ClientInfo describes one size-arbitrating tmux client attached to a session
+// on a server — the per-viewer fact behind the sidebar's viewer count. The
+// parse layer (parseClients) has already excluded the attach classes that never
+// arbitrate window size, so every entry is a real viewer.
+type ClientInfo struct {
+	TTY    string
+	Width  int
+	Height int
+	// SessionName is #{session_name} — the session the client is attached to
+	// (a group copy's own name when attached via one, e.g. devshell-82).
+	SessionName string
+	// SessionGroup is #{session_group}: the group leader's name on current
+	// tmux, an opaque NUMERIC group id on tmux 3.6a, "" when ungrouped.
+	SessionGroup string
+	// SessionGroupList is #{session_group_list} — the comma-separated MEMBER
+	// NAMES, the reliable cross-version cross-reference to the UI session
+	// (see baseGroupName).
+	SessionGroupList string
+	// Flags is #{client_flags} split on commas (attached, focused, UTF-8, …).
+	Flags []string
+}
+
+// SessionKey returns the UI session key this client's attach counts against:
+// the group leader's name for a grouped attach (a client attached via a
+// derived group copy sizes the same shared windows, so it must land on the
+// leader row parseSessions keeps), else the session's own name. A digits-only
+// SessionGroup is tmux 3.6a's numeric group id, not a name — it falls back to
+// baseGroupName over the member-name list (whose first non-anchor member is
+// the same representative parseSessions keeps for a leaderless group).
+func (c ClientInfo) SessionKey() string {
+	if c.SessionGroup != "" && !isNumericGroupID(c.SessionGroup) {
+		return c.SessionGroup
+	}
+	return baseGroupName(c.SessionName, c.SessionGroupList)
+}
+
+// isNumericGroupID reports whether s is tmux 3.6a's opaque numeric
+// #{session_group} id (all digits) rather than a session name. Session names
+// are validated free of leading `=`/`.`/`:` but may be all digits in
+// principle; the digits-only heuristic only misfires on an all-digit GROUP
+// name, which tmux itself never produces (it names groups after the leader).
+func isNumericGroupID(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return len(s) > 0
+}
+
+// clientFormat is the list-clients format string: client_tty, client_width,
+// client_height, session_name, session_group, session_group_list,
+// client_flags (7 fields). session_group_list rides along because
+// #{session_group} is an opaque numeric id on tmux 3.6a (see baseGroupName) —
+// the member-name list is the cross-version join key.
+var clientFormat = strings.Join([]string{
+	"#{client_tty}",
+	"#{client_width}",
+	"#{client_height}",
+	"#{session_name}",
+	"#{session_group}",
+	"#{session_group_list}",
+	"#{client_flags}",
+}, listDelim)
+
+// nonSizingClientFlags are the client_flags tokens whose attach class never
+// participates in window-size arbitration — control-mode is how the rk
+// daemon's tmuxctl subscription attaches to every server. Matched on the
+// comma-split tokens, never as a substring of the whole flags string.
+var nonSizingClientFlags = map[string]bool{
+	"control-mode": true,
+	"ignore-size":  true,
+}
+
+// parseClients parses tmux list-clients output lines into ClientInfo structs.
+// Lines are 7-field tab-delimited per clientFormat. A line is dropped when its
+// flags contain a nonSizingClientFlags token or when its width/height parses
+// non-positive (an unsized client cannot arbitrate window size either).
+// Exported for testing.
+func parseClients(lines []string) []ClientInfo {
+	var clients []ClientInfo
+	for _, line := range lines {
+		parts := strings.Split(line, listDelim)
+		if len(parts) < 7 {
+			continue
+		}
+		width, _ := strconv.Atoi(strings.TrimSpace(parts[1]))
+		height, _ := strconv.Atoi(strings.TrimSpace(parts[2]))
+		if width <= 0 || height <= 0 {
+			continue
+		}
+		flags := strings.Split(parts[6], ",")
+		excluded := false
+		for _, f := range flags {
+			if nonSizingClientFlags[strings.TrimSpace(f)] {
+				excluded = true
+				break
+			}
+		}
+		if excluded {
+			continue
+		}
+		clients = append(clients, ClientInfo{
+			TTY:              strings.TrimSpace(parts[0]),
+			Width:            width,
+			Height:           height,
+			SessionName:      parts[3],
+			SessionGroup:     parts[4],
+			SessionGroupList: parts[5],
+			Flags:            flags,
+		})
+	}
+	return clients
+}
+
+// ListClients returns the size-arbitrating clients attached to sessions on the
+// specified server — one tmux round-trip, same cost class as ListSessions.
+// Returns nil, nil when the server is not running (the ListSessions idiom).
+func ListClients(ctx context.Context, server string) ([]ClientInfo, error) {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	lines, err := tmuxExecServer(ctx, server, "list-clients", "-F", clientFormat)
+	if err != nil {
+		if containsServerGoneText(err.Error()) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return parseClients(lines), nil
+}
+
 // parsePanes parses tmux list-panes output lines into a window-id→[]PaneInfo map.
 // Lines are 11-field tab-delimited: window_id, pane_id, pane_index, cwd,
 // command, is_active, @rk_agent_state, @rk_chat, alternate_on,

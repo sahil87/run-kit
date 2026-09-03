@@ -5,17 +5,17 @@ created_by: sahil87
 change_type: docs
 issues: []
 progress:
-    intake: ready
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
-    generated: false
-    task_count: 0
-    acceptance_count: 0
-    acceptance_completed: 0
+    generated: true
+    task_count: 9
+    acceptance_count: 14
+    acceptance_completed: 14
 confidence:
     certain: 5
     confident: 1
@@ -29,7 +29,26 @@ confidence:
         competence: 85.8
         disambiguation: 80.8
 stage_metrics:
-    intake: {started_at: "2026-09-03T11:16:57Z", driver: fab-new, iterations: 1}
+    intake: {started_at: "2026-09-03T11:16:57Z", driver: fab-new, iterations: 1, completed_at: "2026-09-03T11:22:46Z"}
+    apply: {started_at: "2026-09-03T11:22:46Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T11:36:16Z"}
+    review: {started_at: "2026-09-03T11:36:16Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T11:40:06Z"}
+    hydrate: {started_at: "2026-09-03T11:40:06Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T11:44:50Z"}
+    ship: {started_at: "2026-09-03T11:44:50Z", driver: fab-fff, iterations: 1}
 prs: []
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-03T11:44:50Z"
+    computed_at_stage: hydrate
+summary: Derived per-session attached-viewer grids from list-clients (control-mode/ignore-size excluded, group-key join) into an additive omitempty viewers field, surfaced as a ≥2-gated neutral count chip on the sidebar session row plus per-viewer grids in its flyout card.
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-03T11:19:37Z
+last_updated: 2026-09-03T11:44:50Z

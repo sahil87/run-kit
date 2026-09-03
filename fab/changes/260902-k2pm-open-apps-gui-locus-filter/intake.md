@@ -54,7 +54,7 @@ Zero `locus:"gui"` rows on this headless Linux box — after filtering, the regi
 ### Tests
 
 - `app/backend/internal/wt/wt_test.go` (`parseApps` cases): new-shape rows filtered to gui only; empty/missing locus kept (old-shape back-compat); the probed real payload above yields `[]`; `default` field decoded and passed through on a gui row; non-gui `default:true` row dropped.
-- `app/backend/api/open_test.go`: POST `/api/open` with a non-gui id 400s when the stub registry carries the new shape (validation sees the filtered view) — via the existing `WtOps` stub seam.
+- No API-layer test: `mockWtOps` stubs `ListApps` itself (above `parseApps`), so an `open_test.go` case cannot exercise the filter — wrapper unit tests are the sole meaningful seam; `handleOpen` gets the filtered view in production because the real `ListApps` parses through it (see plan.md Assumption 1).
 - `app/frontend/src/lib/open-in-app.test.ts` (or the existing suite covering `buildOpenTargets`): default-marked host app ordered first; order stable when no row is marked.
 - E2e `open-in-app.spec.ts` stubs `**/api/open-apps*` via `page.route` and so bypasses the backend filter — no e2e change required for the filter itself; the stub registry may gain a `default:true` row to cover ordering end-to-end if cheap.
 

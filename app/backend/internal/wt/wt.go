@@ -66,11 +66,11 @@ func ListApps(parent context.Context) ([]App, error) {
 
 // parseApps decodes the registry JSON tolerantly: the payload must be a JSON
 // array of objects; each entry requires non-empty `id` and `label` fields and
-// a `locus` of "gui" or absent (entries failing either are skipped, not
+// a `locus` of "gui" or absent/empty (entries failing either are skipped, not
 // fatal); unknown fields are ignored (forward-compat with whatever wt adds
 // later). The locus filter drops the non-GUI action rows a locus-aware wt
-// emits (open_here, tmux_window, copy_*, …); an absent locus is kept because
-// pre-locus registries carried only GUI apps. Pure — testable without a wt
+// emits (open_here, tmux_window, copy_*, …); an absent or empty locus is kept
+// because pre-locus registries carried only GUI apps. Pure — testable without a wt
 // invocation.
 func parseApps(data []byte) ([]App, error) {
 	var raw []App

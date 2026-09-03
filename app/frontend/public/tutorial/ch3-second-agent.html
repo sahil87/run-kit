@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Act 3 — Hire a second agent</title>
+<style>
+  :root{--bg-primary:#0f1117;--bg-card:#171b24;--bg-inset:#0a0c12;--text-primary:#e8eaf0;--text-secondary:#7a8394;--border:#454d66;--accent:#5b8af0;--accent-green:#22c55e;--signal-yellow:#facc15;--marker-ink:#f59e0b}
+  *{box-sizing:border-box}
+  body{margin:0;padding:22px;background:#07080c;color:var(--text-primary);font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:13px}
+  h1{font-size:17px;margin:0 0 4px}
+  .sub{color:var(--text-secondary);font-size:12px;margin-bottom:16px}
+  .frame-wrap{overflow-x:auto}
+  .callout{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:var(--accent);color:#0f1117;font-size:10px;font-weight:bold;position:absolute;z-index:40;box-shadow:0 0 0 2px #07080c}
+  .legend{margin:14px 0 0;max-width:940px;padding:0}
+  .legend li{list-style:none;margin:6px 0;color:var(--text-secondary);line-height:1.5}
+  .legend b{color:var(--text-primary)}
+  .legend .n{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;background:var(--accent);color:#0f1117;font-size:10px;font-weight:bold;margin-right:6px}
+  .try{margin-top:16px;border:1px solid var(--accent);border-radius:6px;background:var(--bg-primary);padding:10px 14px;max-width:940px}
+  .try b{color:var(--accent)}
+  .app{position:relative;width:940px;height:520px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;display:flex;flex-direction:column;overflow:hidden}
+  .topbar{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;padding:6px 12px;border-bottom:3px solid var(--border);flex-shrink:0}
+  .tb-left,.tb-right{display:flex;align-items:center;gap:6px;min-width:0}.tb-right{justify-self:end}
+  .chip{display:inline-flex;align-items:center;justify-content:center;height:26px;min-width:26px;padding:0 6px;border:1px solid var(--border);border-radius:4px;color:var(--text-secondary);font-size:11px;white-space:nowrap}
+  .chip.icon{width:26px;padding:0}.chip.primary{color:var(--text-primary)}
+  .brand .logo{display:inline-block;width:12px;height:12px;border-radius:3px;background:linear-gradient(135deg,var(--accent-green),var(--accent));margin-right:5px;vertical-align:-2px}
+  .heading{white-space:nowrap;font-size:12px}.heading .prefix{color:var(--text-secondary)}.heading .name{font-weight:500}
+  .body-row{display:flex;flex:1;min-height:0}
+  .sidebar{width:240px;flex-shrink:0;border-right:1px solid var(--border);display:flex;flex-direction:column;font-size:12px}
+  .panel-h{padding:6px 10px 3px;color:var(--text-secondary);font-size:10px;text-transform:uppercase;letter-spacing:.08em}
+  .srv-h{display:flex;align-items:center;gap:6px;padding:4px 10px;font-size:11px;background:color-mix(in srgb,var(--accent) 8%,transparent)}
+  .op-row{display:flex;align-items:center;gap:7px;height:26px;padding:0 10px;margin:2px 6px;border:1px solid var(--accent);border-radius:4px;color:var(--text-primary)}
+  .sess-row{display:flex;align-items:center;gap:6px;padding:4px 10px}.sess-row .chev{color:var(--text-secondary);font-size:9px}
+  .win-row{position:relative;display:flex;align-items:center;gap:7px;height:26px;padding-left:30px;padding-right:10px}
+  .win-row .well{position:absolute;left:0;top:0;bottom:0;width:22px}
+  .win-row.new{background:color-mix(in srgb,var(--accent) 10%,transparent)}
+  .sdot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+  .sdot.green{background:var(--accent-green)}
+  .sdot.gray{background:var(--text-secondary)}
+  .wname{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+  .tag{font-size:9px;color:var(--accent);border:1px solid var(--accent);border-radius:7px;padding:0 5px}
+  .sb-footer{display:flex;align-items:center;gap:8px;border-top:1px solid var(--border);padding:6px 12px;color:var(--text-secondary);font-size:10px;margin-top:auto}
+  .conn-dot{width:7px;height:7px;border-radius:50%;background:var(--accent-green)}
+  .center{flex:1;display:flex;min-width:0}
+  .tile{flex:1;display:flex;flex-direction:column;min-width:0}
+  .tile-h{height:30px;flex-shrink:0;display:flex;align-items:center;gap:7px;background:var(--bg-card);border-bottom:1px solid var(--border);padding:0 8px;font-size:11px;color:var(--text-secondary)}
+  .tile-h .meta{background:var(--bg-inset);border-radius:3px;padding:1px 6px;font-size:10px}
+  .tty{flex:1;background:var(--bg-primary);padding:10px 12px;font-size:12px;line-height:1.65;overflow:hidden}
+  .tty .p{color:var(--accent-green)}.tty .d{color:var(--text-secondary)}.tty .y{color:var(--signal-yellow)}
+  .tty .cursor{display:inline-block;width:7px;height:13px;background:var(--text-primary);vertical-align:-2px}
+</style></head><body>
+
+<h1>Act 3 · Hire a second agent</h1>
+<div class="sub">One agent is a tool. run-kit is for running a <b>team</b> — and the operator is your hiring manager.</div>
+
+<div class="frame-wrap">
+<div class="app">
+  <span class="callout" style="top:92px;left:6px">1</span>
+  <span class="callout" style="top:120px;right:390px">2</span>
+  <span class="callout" style="top:196px;left:6px">3</span>
+  <span class="callout" style="top:170px;left:6px">4</span>
+
+  <div class="topbar">
+    <div class="tb-left"><span class="chip icon">☰</span><span class="chip primary brand"><span class="logo"></span>RunKit</span></div>
+    <div class="heading"><span class="prefix">Tab:</span> <span class="name">operator</span></div>
+    <div class="tb-right"><span class="chip">Open ▾</span><span class="chip icon">⟳</span></div>
+  </div>
+
+  <div class="body-row">
+    <div class="sidebar">
+      <div class="panel-h">Sessions</div>
+      <div class="srv-h">my-machine</div>
+      <div class="op-row">⚙ <span class="wname">operator</span><span class="tag">pinned</span></div>
+      <div class="sess-row"><span class="chev">▾</span> my-project</div>
+      <div class="win-row">
+        <div class="well"></div><span class="sdot green"></span><span class="wname">tour-guide</span>
+      </div>
+      <div class="win-row new">
+        <div class="well"></div><span class="sdot green"></span><span class="wname">tour-worker</span><span class="tag">new</span>
+      </div>
+      <div class="win-row">
+        <div class="well"></div><span class="sdot gray"></span><span class="wname">feature-x</span>
+      </div>
+      <div class="sb-footer"><span class="conn-dot"></span> connected</div>
+    </div>
+
+    <div class="center">
+      <div class="tile">
+        <div class="tile-h"><span class="sdot green"></span> &gt;_ Terminal <span class="meta">operator</span></div>
+        <div class="tty">
+          <div><span class="p">❯</span> you: Start an agent in a new window that builds a</div>
+          <div>&nbsp; one-page brief of this project — have it ask me one</div>
+          <div>&nbsp; question first, then present the result and notify me</div>
+          <div>&nbsp;</div>
+          <div><span class="y">●</span> Hiring…</div>
+          <div class="d">   opened window tour-worker · started the agent · briefed it</div>
+          <div>&nbsp;</div>
+          <div>Done — tour-worker is on it. It'll ping you with its question.</div>
+          <div>&nbsp;</div>
+          <div class="d">   (other asks that work: "Start a claude session on my-app" ·</div>
+          <div class="d">    "Start a kimi session" · "What's stuck, anything waiting on me?")</div>
+          <div>&nbsp;</div>
+          <div><span class="p">❯</span> <span class="cursor"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<ul class="legend">
+  <li><span class="n">1</span><b>The operator</b> — pinned at the top of its server. You never set up agents by hand; you click into this row and ask.</li>
+  <li><span class="n">2</span><b>Plain language is the interface</b> — it opens the window, starts the agent, and passes on your brief.</li>
+  <li><span class="n">3</span><b>A new row appears and goes busy</b> — your second agent, hired in one sentence.</li>
+  <li><span class="n">4</span><b>Two green dots at once</b> — the tour guide and the worker, in parallel. That's the product.</li>
+</ul>
+
+<div class="try"><b>Do it now:</b> click into the operator's row and give it the ask above (or I'll hire directly if there's no operator here). Then scan your real sidebar for the two busy rows.</div>
+</body></html>

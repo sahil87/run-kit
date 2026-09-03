@@ -274,6 +274,7 @@ func resetMuxFlags() {
 	awaitTimeoutFlag = awaitDefaultTimeoutSec
 	awaitNotifyFlag = ""
 	awaitAnyFlag = false
+	awaitReadyFlag = false
 	muxCaptureLinesFlag = 50
 	muxCaptureJSONFlag, muxCaptureRawFlag = false, false
 	muxKillForceFlag = false
@@ -281,7 +282,7 @@ func resetMuxFlags() {
 	muxPanesJSONFlag = false
 	muxNewEphemeralFlag = false
 	resetFlagChanged(muxSendCmd, "key", "answer", "force", "no-enter", "await", "timeout")
-	resetFlagChanged(muxAwaitCmd, "until", "file", "after-active", "timeout", "notify")
+	resetFlagChanged(muxAwaitCmd, "until", "file", "after-active", "timeout", "notify", "ready")
 	resetFlagChanged(muxCaptureCmd, "lines", "json", "raw")
 	resetFlagChanged(muxKillCmd, "force")
 	resetFlagChanged(muxProcessCmd, "json")

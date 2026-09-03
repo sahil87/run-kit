@@ -53,13 +53,14 @@ rk mux send %5 --key Enter                            # raw tmux key names (no p
 rk mux await %5                          # block until the pane's agent is idle
 rk mux await %5 --until idle,waiting     # wake on finish OR a question back
 rk mux await %5 --file /tmp/result.json  # OR-compose a file-appearance signal
+rk mux await %5 --ready                  # wait for BOOT: `ready %5 (state)` or `ready %5 (settled)`
 rk mux await %5 --timeout 120            # give up waiting after 120s
 rk mux await %5 --notify                 # Web Push yourself/the human on wake
 ```
 
 **stdout is one report word**: the reached `--until` state (default `idle`), `file`, `running` (timeout expired — exit 0; the timeout bounds YOU, never the pane), or `gone` (the pane died — exit 1). The first check runs before any sleep, so an already-fired signal returns immediately. An uninstrumented pane (no `@rk_pane_agent_state`) with no `--file` errors immediately — there is nothing to wait on.
 
-`--after-active` requires observing `active` before an `--until` state counts — use it when awaiting a pane you just sent to OUTSIDE `rk mux send --await`, so the peer's pre-send `idle` doesn't end your wait instantly.
+`--after-active` requires observing `active` before an `--until` state counts — use it when awaiting a pane you just sent to OUTSIDE `rk mux send --await`, so the peer's pre-send `idle` doesn't end your wait instantly. `--ready` instead waits for a freshly spawned agent to finish BOOTING: the pane's agent state is present (its hooks fired — the TUI is up) or, for hook-less agents, its screen has stopped changing. It reports which signal fired, keeps the `running`/exit-0 timeout contract, and is mutually exclusive with `--until`/`--file`/`--after-active`/`--any` (exit 2). Spawn-then-deliver for hook-less agents: `rk mux await --ready %5 && rk mux send --force %5 '<prompt>'` — plain `send` stays gated on agent state, which a hook-less pane never has, so `--force` is the documented pairing after a `--ready` wait.
 
 ### Any-of fleet wait (`--any`)
 
@@ -140,8 +141,7 @@ The whole-server enumeration query — no target argument; it is the one mux mem
 
 - All five pane-scoped verbs share the same target grammar — `%N`, `@N`, `=session:window` (bare `session:window` rejected) — and the same `-L <server>` flag (default: your own server, from `$TMUX`).
 - Scratch-server convention: create with `rk mux new <name> --ephemeral`, bulk-clean with `rk mux reap --ephemeral`; never bare `tmux kill-server` — a bare `tmux kill-server` (no `-L`/`-S`) is refused machine-wide by the rk tmux guard shim — use `tmux -L <name> kill-server` for scratch servers (`rk mux guard` is the verb the shim execs). Protected servers (`rk-daemon` always; any server marked `@rk_srv_protected 1`) are skipped by `rk mux reap` unconditionally — even under `--ephemeral` or a prefix match (protected beats ephemeral) — and refuse `rk mux kill` without `--force`.
-- `--answer` and `--force` are mutually exclusive on `send` (usage error, exit 2) — say what you mean.
-- `--await` cannot combine with `--no-enter` (nothing was submitted to wait on).
+- `--answer` and `--force` are mutually exclusive on `send`, and `--await` cannot combine with `--no-enter` (nothing was submitted to wait on) — usage error, exit 2; say what you mean.
 - `--key` sends key names raw (no paste, no probe — keys have no echo to verify).
 - `send --await` on an UNINSTRUMENTED pane (no `@rk_pane_agent_state`): the message still delivers and `delivered %N` prints; the wait then applies its own rule — if the pane still has no state, the command errors "nothing observable to wait on" (exit 1). The delivery is never rolled back or hidden by a failed wait.
 - `await --notify` fires on EVERY report — including `running` (timeout) and `gone` (pane died), not just a reached state. That is deliberate: you asked to be woken when the wait ends, however it ends.

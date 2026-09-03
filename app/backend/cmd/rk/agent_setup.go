@@ -198,7 +198,9 @@ type agentHook struct {
 	// state is the positional token the installed wrapper passes to `rk
 	// agent hook`: one of agentStateActive|Waiting|Idle (writes @rk_agent_state,
 	// and also stamps @rk_chat when the hook stdin carries a session id) or
-	// agentHookStampToken (writes @rk_chat ONLY — the SessionStart row).
+	// agentHookStampToken (the SessionStart row: stamps @rk_chat AND writes
+	// @rk_agent_state idle — the boot-ready signal — unless the payload's source
+	// is compact, which fires mid-turn).
 	state string
 }
 
@@ -248,12 +250,12 @@ func agentRegistry(home string) []agentConfig {
 				{event: "Notification", matcher: "permission_prompt|elicitation_dialog|agent_needs_input", state: agentStateWaiting},
 				{event: "Notification", matcher: "idle_prompt", state: agentStateIdle},
 				{event: "Stop", state: agentStateIdle},
-				// SessionStart stamps @rk_pane_chat only (token "stamp" — see
-				// agentHookStampToken): the pane→session mapping appears within
-				// seconds of session start, before any prompt, and re-stamps on
-				// every session-id rotation (SessionStart fires on startup/resume/
-				// clear/compact). It writes NO agent-state because source=compact
-				// fires mid-turn, where an idle write would clobber a live active.
+				// SessionStart (token "stamp" — see agentHookStampToken) stamps
+				// @rk_pane_chat within seconds of session start, before any prompt,
+				// re-stamps on every session-id rotation, and writes
+				// @rk_pane_agent_state idle as the boot-ready signal — withheld only
+				// for source=compact, which fires mid-turn (SessionStart fires on
+				// startup/resume/clear/compact).
 				{event: "SessionStart", state: agentHookStampToken},
 			},
 		},
@@ -638,7 +640,7 @@ func renderHooksSummary(out io.Writer, header string, hooks []agentHook, existin
 	for _, h := range hooks {
 		label := h.state
 		if h.state == agentHookStampToken {
-			label = "chat stamp"
+			label = "chat stamp + idle (boot-ready)"
 		}
 		if h.matcher != "" {
 			fmt.Fprintf(out, "  + %s (%s) → %s\n", h.event, h.matcher, label)

@@ -152,6 +152,8 @@ type Result struct {
 	// WindowID is the tmux window id (@N) of the created window, resolved
 	// after new-window from the captured pane's window.
 	WindowID string
+	// PaneID is the captured pane-0 id (%N) — the typed task-delivery target.
+	PaneID string
 }
 
 // Options are the HTTP handler's inputs for a single (count=1) spawn.
@@ -297,15 +299,19 @@ func Spawn(ctx context.Context, opts Options) (Result, error) {
 			return Result{}, err
 		}
 	}
-	name, windowID, err := spawnRiffReturningName(ctx, windowRoot, spec)
+	name, windowID, paneID, err := spawnRiffReturningName(ctx, windowRoot, spec)
 	if err != nil {
 		return Result{}, err
 	}
+	// Typed-mode task delivery is fire-and-forget on the daemon path: the HTTP
+	// response must not block on agent boot (deliver.go).
+	deliverDaemonTask(spec, name, paneID)
 	return Result{
 		Server:     opts.Server,
 		Session:    opts.Session,
 		WindowName: name,
 		WindowID:   windowID,
+		PaneID:     paneID,
 	}, nil
 }
 
@@ -320,8 +326,14 @@ func Run(ctx context.Context, spec EffectiveSpec) error {
 		if err != nil {
 			return err
 		}
-		_, _, err = spawnRiffReturningName(ctx, worktreePath, spec)
-		return err
+		name, _, paneID, err := spawnRiffReturningName(ctx, worktreePath, spec)
+		if err != nil {
+			return err
+		}
+		// Typed-mode task delivery is synchronous on the CLI path; a failure
+		// warns without failing the spawn (deliver.go).
+		deliverCliTask(ctx, spec, name, paneID)
+		return nil
 	}
 	return runCount(ctx, spec)
 }
@@ -445,8 +457,8 @@ func parseWorktreePath(output string) string {
 }
 
 // spawnRiffReturningName performs the tmux spawn sequence for one riff window on
-// spec.Server and returns the resolved window name + window id. It probes
-// existing window names for collision resolution, then runs three phases:
+// spec.Server and returns the resolved window name, window id, and pane-0 id.
+// It probes existing window names for collision resolution, then runs three phases:
 //  1. `tmux new-window -P -F '#{pane_id}' …` to capture the first pane id,
 //  2. the remaining argv rows from buildSpawnArgvs (split-window × N + optional
 //     select-layout),
@@ -456,21 +468,21 @@ func parseWorktreePath(output string) string {
 // (`display-message -t <pane-id> -p '#{window_id}'`) so the HTTP caller can
 // navigate to /$server/$window; a resolve failure is non-fatal (empty id
 // returned — the CLI ignores it, the handler falls back to a name-only response
-// if ever needed).
-func spawnRiffReturningName(ctx context.Context, worktreePath string, spec EffectiveSpec) (string, string, error) {
+// if ever needed). The pane-0 id is the typed task-delivery target.
+func spawnRiffReturningName(ctx context.Context, worktreePath string, spec EffectiveSpec) (string, string, string, error) {
 	existing, err := listWindowNames(ctx, spec)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	resolvedName := resolveWindowName(existing, windowNameBase(worktreePath, spec))
 
 	if len(spec.Panes) == 0 {
-		return resolvedName, "", &ExitCodeError{Code: ExitValidation, Msg: "run-kit riff: spawnRiff invariant violated: spec.Panes is empty"}
+		return resolvedName, "", "", &ExitCodeError{Code: ExitValidation, Msg: "run-kit riff: spawnRiff invariant violated: spec.Panes is empty"}
 	}
 
 	paneID, err := runTmuxNewWindowCapturePaneID(ctx, spec, buildNewWindowCaptureArgs(worktreePath, resolvedName, spec))
 	if err != nil {
-		return resolvedName, "", err
+		return resolvedName, "", "", err
 	}
 
 	rest := buildSpawnArgvs(worktreePath, resolvedName, spec)
@@ -479,19 +491,19 @@ func spawnRiffReturningName(ctx context.Context, worktreePath string, spec Effec
 	}
 	for _, argv := range rest {
 		if err := runTmuxArgv(ctx, spec, argv); err != nil {
-			return resolvedName, "", err
+			return resolvedName, "", "", err
 		}
 	}
 
 	if err := runTmuxArgv(ctx, spec, []string{"select-pane", "-t", paneID}); err != nil {
-		return resolvedName, "", err
+		return resolvedName, "", "", err
 	}
 
 	// Best-effort window-id resolution from the captured pane id, for the HTTP
 	// caller's navigation. A failure here does not fail the spawn — the window
 	// already exists and will surface via SSE regardless.
 	windowID := resolveWindowIDFromPane(ctx, spec, paneID)
-	return resolvedName, windowID, nil
+	return resolvedName, windowID, paneID, nil
 }
 
 // resolveWindowIDFromPane resolves the @N window id owning paneID via
@@ -691,7 +703,7 @@ func runCount(ctx context.Context, spec EffectiveSpec) error {
 			}
 			res.WorktreePath = worktreePath
 
-			windowName, _, err := spawnRiffReturningName(ctx, worktreePath, spec)
+			windowName, _, paneID, err := spawnRiffReturningName(ctx, worktreePath, spec)
 			res.WindowName = windowName
 			if err != nil {
 				res.Err = err
@@ -699,6 +711,10 @@ func runCount(ctx context.Context, spec EffectiveSpec) error {
 				cancel()
 				return
 			}
+			// Typed-mode task delivery is synchronous per window (inside this
+			// goroutine); a failure warns without failing the spawn or
+			// triggering rollback (deliver.go).
+			deliverCliTask(ctx, spec, windowName, paneID)
 		}(i)
 	}
 	wg.Wait()

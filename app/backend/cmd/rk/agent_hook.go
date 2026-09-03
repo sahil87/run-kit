@@ -53,14 +53,23 @@ const agentHookCmdTimeout = 5 * time.Second
 // so a few extra bounded hops are cheap and cover the deeper chain.
 const agentHookAncestorHops = 5
 
-// agentHookStampToken is the distinguished positional token that writes ONLY the
-// @rk_chat pane option (the pane→session mapping) and NOT @rk_agent_state. It is
-// used by the SessionStart registry row: SessionStart fires on startup/resume/
-// clear/compact, and source=compact fires MID-TURN — an idle agent-state write
-// there would clobber a live `active` state, so SessionStart stamps chat only.
-// The three canonical agent states plus this token are the only tokens that
-// write anything; any other is a silent no-op.
+// agentHookStampToken is the distinguished positional token of the SessionStart
+// registry row. It stamps @rk_chat (the pane→session mapping) on every fire
+// that yields a session id, and — when the stdin payload parses and its source
+// is NOT "compact" — additionally writes @rk_agent_state idle:<epoch>[:<pid>]:
+// SessionStart fires on startup/resume/clear/compact, and source=compact fires
+// MID-TURN, where an idle write would clobber a live `active` state, so that
+// one source is excluded. The startup/resume/clear idle write is the boot-ready
+// signal (state present ⇒ hooks fired ⇒ the TUI is up) and also clears a stale
+// waiting/active left in the pane by a previous agent. An unparseable payload
+// skips the idle write (fail-safe against the mid-turn clobber) but never the
+// chat stamp. The three canonical agent states plus this token are the only
+// tokens that write anything; any other is a silent no-op.
 const agentHookStampToken = "stamp"
+
+// hookSourceCompact is the SessionStart source that fires mid-turn (context
+// compaction): the stamp token's idle write is withheld for it.
+const hookSourceCompact = "compact"
 
 // hookStdinReadLimit bounds the stdin JSON read (~1 MiB). The hook payload is a
 // small JSON object; the bound guards against a pathological/hung producer
@@ -154,9 +163,11 @@ var (
 //     hook stdin carries a session id (every-fire refresh: session ids rotate on
 //     /clear + /compact, and this also stamps already-running agents on
 //     `brew upgrade rk` with zero settings churn).
-//   - stamp → stamp @rk_chat ONLY (no agent-state write). Used by the SessionStart
-//     registry row, whose source=compact fires mid-turn where an idle write would
-//     clobber a live active state.
+//   - stamp → stamp @rk_chat (session id permitting), AND write
+//     @rk_agent_state idle when the parsed payload's source is not "compact"
+//     (the mid-turn source — see agentHookStampToken). Used by the SessionStart
+//     registry row; the idle write is the boot-ready signal and clears stale
+//     state from the pane's previous agent.
 //   - anything else → silent no-op.
 func runAgentHook(parent context.Context, agent, token string) {
 	if parent == nil {
@@ -190,28 +201,45 @@ func runAgentHook(parent context.Context, agent, token string) {
 	ctx, cancel := context.WithTimeout(parent, agentHookCmdTimeout)
 	defer cancel()
 
-	if writeState {
+	// Read the hook stdin ONCE: the payload feeds the chat stamp (session id)
+	// and the stamp token's boot-write gate (source). Every failure mode is
+	// silent — ok=false skips the boot write and the chat stamp, while a state
+	// fire's agent-state write below still proceeds.
+	in, ok := readHookInput(hookStdin())
+
+	// The stamp token's boot write fires on every SessionStart source EXCEPT
+	// compact (the mid-turn source). An unparseable payload withholds it —
+	// fail-safe against clobbering a live active state.
+	bootStamp := token == agentHookStampToken && ok && in.Source != hookSourceCompact
+	if writeState || bootStamp {
 		// Resolve the agent pid via the bounded, comm-validated ancestor walk. 0
 		// means "could not validate an ancestor" → the pid segment is omitted (a
 		// two-segment value that degrades to the reader's legacy shell-name
 		// fallback), never a wrong pid.
+		state := token
+		if bootStamp {
+			state = agentStateIdle
+		}
 		pid := resolveAgentPID(ctx, os.Getppid(), comm)
-		writeAgentState(ctx, pane, token, pid)
+		writeAgentState(ctx, pane, state, pid)
 	}
 
 	// Stamp @rk_chat from the hook stdin session id, on EVERY fire that yields
 	// one (states and the stamp token alike). Absent/malformed/oversized stdin →
 	// no stamp; the agent-state write above still proceeded.
-	if sessionID := readHookSessionID(hookStdin()); sessionID != "" {
-		writeChat(ctx, pane, comm, sessionID)
+	if ok && isValidSessionID(in.SessionID) {
+		writeChat(ctx, pane, comm, in.SessionID)
 	}
 }
 
 // hookInput is the subset of the agent-harness hook stdin JSON the writer reads.
-// All hook events carry session_id (docs re-verified 2026-07-13); every other
-// field is ignored. Unknown JSON keys are tolerated by encoding/json.
+// All hook events carry session_id (docs re-verified 2026-07-13); SessionStart
+// additionally carries source (startup/resume/clear/compact), which gates the
+// stamp token's boot write. Every other field is ignored. Unknown JSON keys are
+// tolerated by encoding/json.
 type hookInput struct {
 	SessionID string `json:"session_id"`
+	Source    string `json:"source"`
 }
 
 // hookStdinFn is a package-level seam so runAgentHook can be tested with an
@@ -220,8 +248,7 @@ var hookStdinFn = func() io.Reader { return os.Stdin }
 
 func hookStdin() io.Reader { return hookStdinFn() }
 
-// readHookSessionID reads the hook payload from r and returns a validated
-// session id, or "" on any failure. It is deliberately conservative:
+// readHookInput reads the hook payload from r. It is deliberately conservative:
 //
 //   - TTY guard: if r is os.Stdin attached to a terminal (os.ModeCharDevice), it
 //     is NOT read — a manual `rk agent hook` invocation in a terminal must never
@@ -230,35 +257,29 @@ func hookStdin() io.Reader { return hookStdinFn() }
 //     producer can't stall the agent's turn.
 //   - Single object: json.Decoder.Decode returns after ONE complete JSON object,
 //     so it does not depend on stdin EOF (which the harness docs don't guarantee).
-//   - Validated: the session id is checked with the SAME rule the reader applies
-//     to a chat ref (non-empty, no whitespace/control), so a value the reader
-//     would reject is never stamped.
 //
-// Every failure path returns "" (no stamp) — never an error, preserving the
+// Every failure path returns ok=false — never an error, preserving the
 // never-fail contract.
-func readHookSessionID(r io.Reader) string {
+func readHookInput(r io.Reader) (hookInput, bool) {
 	if r == nil {
-		return ""
+		return hookInput{}, false
 	}
 	// TTY guard: skip a terminal stdin outright (manual invocation).
 	if f, ok := r.(*os.File); ok {
 		info, err := f.Stat()
 		if err != nil {
-			return ""
+			return hookInput{}, false
 		}
 		if info.Mode()&os.ModeCharDevice != 0 {
-			return ""
+			return hookInput{}, false
 		}
 	}
 	dec := json.NewDecoder(io.LimitReader(r, hookStdinReadLimit))
 	var in hookInput
 	if err := dec.Decode(&in); err != nil {
-		return ""
+		return hookInput{}, false
 	}
-	if !isValidSessionID(in.SessionID) {
-		return ""
-	}
-	return in.SessionID
+	return in, true
 }
 
 // isValidSessionID mirrors internal/tmux's chat-ref validation (non-empty, no

@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"rk/internal/config"
+	"rk/internal/inject"
 	"rk/internal/riff"
 	"rk/internal/tmux"
 
@@ -28,14 +30,16 @@ import (
 // `tutorial-2` suffixing.
 //
 // The command composes its own tmux calls (list-windows probe +
-// new-window/select-window + the capture/send delivery loop) directly —
-// riff.Run's worktree/collision/layout machinery is the wrong shape for
-// select-or-create in the current session. Every tmux call is an argv-slice
-// exec with a bounded context via the internal/tmux Run core (constitution
-// §I); launcher resolution is riff.ResolveLauncher's own bounded exec of
-// `fab`; the launcher string stays riff's one documented shell-expansion
-// exception. The typed kickoff never passes through a shell at all — it rides
-// `send-keys -l` as a literal argv element.
+// new-window/select-window) directly — riff.Run's worktree/collision/layout
+// machinery is the wrong shape for select-or-create in the current session.
+// Every tmux call is an argv-slice exec with a bounded context via the
+// internal/tmux Run core (constitution §I); launcher resolution is
+// riff.ResolveLauncher's own bounded exec of `fab`; the launcher string stays
+// riff's one documented shell-expansion exception. The kickoff delivery goes
+// through the shared inject composite (inject.DeliverWhenReady — boot-readiness
+// wait, then the engine's named-buffer bracketed paste + echo probe +
+// probe-gated Enter) with the CLI's per-invocation buffer; the typed text never
+// passes through a shell.
 
 const (
 	// tutorialKickoffPrompt is the exact kickoff typed into the tour agent
@@ -46,28 +50,16 @@ const (
 	tutorialWindowName = "tutorial"
 	// tutorialCmdTimeout bounds every individual subprocess the command spawns
 	// (constitution §I: 5-10s for short-lived tmux helpers) — each tmux call,
-	// and launcher resolution as the parent of riff.FabTimeout. The typed
-	// delivery loop is a sequence of such bounded calls under its own
-	// wall-clock deadline (tutorialDeliverDeadline), not one long context.
+	// and launcher resolution as the parent of riff.FabTimeout.
 	tutorialCmdTimeout = 10 * time.Second
 )
 
-// Typed-delivery pacing. Vars (not consts) so tests can shrink them; the
-// defaults tolerate a slow agent boot while keeping the worst case bounded.
-var (
-	// tutorialDeliverDeadline is the wall-clock budget for the whole
-	// boot-settle + echo-verify delivery; past it the command degrades to a
-	// paste-it-yourself note (never a non-zero exit — the window and agent
-	// exist either way).
-	tutorialDeliverDeadline = 25 * time.Second
-	// tutorialPollInterval paces the boot-settle and echo-verify captures.
-	tutorialPollInterval = 600 * time.Millisecond
-	// tutorialSubmitSettle is how long a submitted prompt gets to visibly
-	// change the pane before Enter is judged swallowed and retried once.
-	tutorialSubmitSettle = 1200 * time.Millisecond
-	tutorialSleepFn      = time.Sleep
-	tutorialNowFn        = time.Now
-)
+// tutorialDeliverDeadline is the wall-clock budget for the boot-readiness wait
+// inside the kickoff delivery (inject.AwaitReady's deadline); past it the
+// command degrades to a paste-it-yourself note (never a non-zero exit — the
+// window and agent exist either way). A var (not a const) so tests can shrink
+// it; the default tolerates a slow agent boot.
+var tutorialDeliverDeadline = 25 * time.Second
 
 var tutorialTierFlag string
 
@@ -200,7 +192,7 @@ func runTutorial(cmd *cobra.Command) error {
 	// to paste — never a non-zero exit.
 	deliverErr := errors.New("tmux new-window printed no pane id")
 	if paneID := strings.TrimSpace(string(paneOut)); paneID != "" {
-		deliverErr = deliverTutorialKickoff(parent, paneID, env)
+		deliverErr = deliverTutorialKickoff(parent, paneID)
 	}
 	if deliverErr != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "run-kit tutorial: could not deliver the kickoff prompt (%v) — paste this into the tour agent yourself:\n  %s\n", deliverErr, tutorialKickoffPrompt)
@@ -208,114 +200,45 @@ func runTutorial(cmd *cobra.Command) error {
 	return nil
 }
 
-// deliverTutorialKickoff types the kickoff prompt into the freshly spawned
-// agent pane and verifies each step from the pane's own text: wait for the TUI
-// to finish booting (typing earlier risks the input being discarded mid-boot),
-// type the prompt literally and wait for its echo, then submit — retrying
-// Enter once when the screen did not change (the swallowed-Enter trap, where a
-// TUI leaves typed text parked at the input line). Every tmux call is
-// individually bounded by tutorialCmdTimeout; the polls share the
-// tutorialDeliverDeadline wall-clock budget. The returned error is
-// informational — the caller degrades, it never fails the command.
-func deliverTutorialKickoff(parent context.Context, paneID string, env []string) error {
-	deadline := tutorialNowFn().Add(tutorialDeliverDeadline)
-
-	capture := func() (string, error) {
-		ctx, cancel := context.WithTimeout(parent, tutorialCmdTimeout)
-		defer cancel()
-		out, err := tutorialRunOutputFn(ctx, []string{"capture-pane", "-p", "-t", paneID}, env)
-		if err != nil {
-			return "", fmt.Errorf("tmux capture-pane failed: %w", err)
-		}
-		return string(out), nil
-	}
-	send := func(args ...string) error {
-		ctx, cancel := context.WithTimeout(parent, tutorialCmdTimeout)
-		defer cancel()
-		if err := tutorialRunFn(ctx, append([]string{"send-keys", "-t", paneID}, args...), env); err != nil {
-			return fmt.Errorf("tmux send-keys failed: %w", err)
-		}
-		return nil
-	}
-
-	// Boot settle: ready = a non-blank pane whose text is unchanged across two
-	// consecutive polls (boot screens animate; an idle input prompt does not).
-	prev := ""
-	settled := false
-	for tutorialNowFn().Before(deadline) {
-		cur, err := capture()
-		if err != nil {
-			return err
-		}
-		if strings.TrimSpace(cur) != "" && cur == prev {
-			settled = true
-			break
-		}
-		prev = cur
-		tutorialSleepFn(tutorialPollInterval)
-	}
-	if !settled {
-		return errors.New("the agent did not finish booting within the delivery window")
-	}
-
-	// Type literally (-l: no key-name interpretation; the prompt is a single
-	// argv element, no shell) and wait for the echo. The check compares
-	// alphanumerics only — the TUI wraps typed text inside a bordered input
-	// box, so spacing, line breaks, and box-drawing glyphs are noise.
-	if err := send("-l", tutorialKickoffPrompt); err != nil {
-		return err
-	}
-	echoed := ""
-	for {
-		cur, err := capture()
-		if err != nil {
-			return err
-		}
-		if paneEchoesKickoff(cur) {
-			echoed = cur
-			break
-		}
-		if !tutorialNowFn().Before(deadline) {
-			return errors.New("the typed kickoff never echoed in the pane (a first-run dialog may be up)")
-		}
-		tutorialSleepFn(tutorialPollInterval)
-	}
-
-	// Submit. A swallowed Enter leaves the pane byte-identical (typed text
-	// parked at the input line); a real submit visibly changes it (transcript
-	// echo, busy spinner). One retry, then report.
-	for attempt := 0; attempt < 2; attempt++ {
-		if err := send("Enter"); err != nil {
-			return err
-		}
-		tutorialSleepFn(tutorialSubmitSettle)
-		cur, err := capture()
-		if err != nil {
-			return err
-		}
-		if cur != echoed {
-			return nil
-		}
-	}
-	return errors.New("Enter did not submit the kickoff (pane unchanged after retry)")
+// deliverTutorialKickoff hands the kickoff to the shared inject composite:
+// inject.DeliverWhenReady waits for boot readiness (agent state present, else
+// a settled screen) and then runs the engine's verified send (named-buffer
+// bracketed paste, echo probe, probe-gated Enter). The CLI's per-invocation
+// buffer (rk-send-<pid>, the `rk mux send` pattern) keeps a tutorial delivery
+// from ever clobbering a concurrent daemon/mux-send buffer. The returned error
+// is informational — the caller degrades, it never fails the command.
+func deliverTutorialKickoff(parent context.Context, paneID string) error {
+	// The context outlives the readiness wait by one command timeout so the
+	// engine's own bounded subprocesses still fit after a slow boot.
+	ctx, cancel := context.WithTimeout(parent, tutorialDeliverDeadline+tutorialCmdTimeout)
+	defer cancel()
+	engine := inject.NewEngine(muxBufferNameFn())
+	_, err := tutorialDeliverFn(ctx, engine, awaitReadyTmux{}, tutorialServer(), paneID, tutorialKickoffPrompt)
+	return err
 }
 
-// paneEchoesKickoff reports whether the captured pane text contains the
-// kickoff prompt, comparing alphanumerics only: the agent TUI renders typed
-// text wrapped inside a bordered input box, so whitespace and box-drawing
-// glyphs between the prompt's characters are presentation, not content. Pure.
-func paneEchoesKickoff(captured string) bool {
-	return strings.Contains(stripToAlnum(captured), stripToAlnum(tutorialKickoffPrompt))
+// tutorialDeliverFn is the delivery seam (the tutorialRunFn pattern):
+// production drives inject.DeliverWhenReady with the reconciled state reader;
+// tests substitute a recorder so the command path runs tmux-free.
+var tutorialDeliverFn = func(ctx context.Context, engine *inject.Engine, t inject.Tmux, server, paneID, text string) (inject.Readiness, error) {
+	return inject.DeliverWhenReady(ctx, t, server, paneID, inject.Sanitize(text), true, engine, inject.ReadyOpts{
+		State:    boundedPaneAgentState,
+		Deadline: tutorialDeliverDeadline,
+	})
 }
 
-// stripToAlnum drops every rune outside [a-zA-Z0-9]. Pure.
-func stripToAlnum(s string) string {
-	return strings.Map(func(r rune) rune {
-		if ('a' <= r && r <= 'z') || ('A' <= r && r <= 'Z') || ('0' <= r && r <= '9') {
-			return r
-		}
-		return -1
-	}, s)
+// tutorialServer derives the tmux server label the delivery calls target from
+// the caller's captured $TMUX (the muxServer derivation): the socket basename
+// is the -L label, and an empty/default socket means the default server.
+func tutorialServer() string {
+	socket := tutorialOriginalTMUXFn()
+	if i := strings.IndexByte(socket, ','); i >= 0 {
+		socket = socket[:i]
+	}
+	if socket == "" {
+		return "default"
+	}
+	return filepath.Base(socket)
 }
 
 // findTutorialWindowID scans `tmux list-windows -F '#{window_id}\t#{window_name}'`

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"syscall"
 	"time"
 
 	"rk/internal/config"
@@ -441,10 +442,13 @@ func resolveDaemonLogPath() (string, bool) {
 	return filepath.Join(cache, daemonLogDirName, daemonLogFilename), true
 }
 
-// Stop sends C-c to the daemon pane and waits up to stopGracePeriod for it to
-// exit. The grace period covers the inner `rk serve`'s worst-case graceful
-// shutdown (supervisor stop + server.Shutdown, sequential ~10s) so a healthy
-// shutdown is never mis-classified as hung.
+// Stop delivers a graceful interrupt to the inner `rk serve` process and waits
+// up to stopGracePeriod for it to exit. Delivery is signal-first — SIGINT
+// straight to the pane's process (what a C-c keystroke would raise via the
+// tty) — with tmux key delivery as the fallback, then the grace-timeout
+// kill-session fallback. The grace period covers the inner `rk serve`'s
+// worst-case graceful shutdown (supervisor stop + server.Shutdown, sequential
+// ~10s) so a healthy shutdown is never mis-classified as hung.
 //
 // The grace deadline is an independent timer, NOT a context bounding the whole
 // operation: every tmux command (initial lookup, C-c send, each liveness poll,
@@ -457,7 +461,7 @@ func resolveDaemonLogPath() (string, bool) {
 // from per-command contexts fixes both.
 //
 // Returns nil if the daemon is not running, if it exits on its own within the
-// grace period (C-c worked), or if the session has already vanished by kill-time
+// grace period (graceful delivery worked), or if the session has already vanished by kill-time
 // — a daemon that exited on its own is the success outcome, not a failure. Only
 // a session that is still alive AND fails to die under kill-session surfaces an
 // error. Targets a legacy-named daemon (SessionName == LegacySessionName)
@@ -473,39 +477,50 @@ func Stop() error {
 		return nil
 	}
 
-	// Pre-cancel any pane mode (e.g. copy-mode) before sending C-c. A pane in a
-	// mode does NOT receive C-c as a literal key: tmux looks the key up in the
-	// mode's key table (copy-mode binds C-c → `send-keys -X cancel`, a
-	// non-read-only command) and dispatches that binding through a resolved
-	// target client. The only client attached to the rk-daemon session is
-	// run-kit's own read-only `-CC` control bridge (attached with `-r`), so the
-	// dispatch is rejected with "client is read-only" and the interrupt never
-	// reaches the serve process. `copy-mode -q` returns the pane to normal mode
-	// so the subsequent send-keys injects C-c literally. It is idempotent (exit
-	// 0 when the pane is not in a mode — verified on tmux 3.6a), so it is safe to
-	// run unconditionally. Runs under its own fresh cmdTimeout context, matching
-	// this function's per-command-context pattern, and targets targetFor(session)
-	// so the legacy-session path stays correct. Best-effort: a failure is logged
-	// and never aborts Stop() — the send-keys attempt and the grace/kill fallback
-	// still follow.
-	modeCtx, modeCancel := context.WithTimeout(context.Background(), cmdTimeout)
-	defer modeCancel()
-	if err := runTmux(modeCtx, "copy-mode", "-q", "-t", targetFor(session)); err != nil {
-		slog.Debug("daemon stop: copy-mode pre-cancel failed", "err", err)
+	// Graceful delivery is signal-first: SIGINT straight to the inner serve
+	// process. The pane runs the serve binary directly (startSession passes it
+	// as the new-session command, no shell wrapper), so pane_pid IS the serve
+	// process, and SIGINT is exactly what a delivered C-c would raise via the
+	// tty. Key-based delivery cannot be the primary path: with the session's
+	// only attached client being run-kit's own read-only `-CC` control bridge
+	// (attached with `-r` — see internal/tmuxctl productionDial), tmux resolves
+	// that bridge as the target client and rejects the dispatch with "client is
+	// read-only". On tmux 3.7 that rejection hits send-keys outright, in or out
+	// of a pane mode — a copy-mode pre-cancel alone does not make key delivery
+	// viable (on 3.6 only mode-table dispatch was affected). Both delivery
+	// mechanisms are best-effort and MUST NOT early-return: any failure falls
+	// through to the grace-timer/kill-session fallback below, keeping the
+	// "graceful interrupt → wait grace → kill" contract reachable regardless of
+	// why delivery fails (an early return here wedges restart, rk update, and
+	// POST /api/restart).
+	delivered := false
+	if pid, err := innerServePIDForFn(session); err != nil {
+		slog.Warn("daemon stop: inner serve PID unresolved; falling back to tmux C-c delivery", "err", err)
+	} else if err := signalPID(pid, syscall.SIGINT); err != nil {
+		slog.Warn("daemon stop: SIGINT delivery failed; falling back to tmux C-c delivery", "pid", pid, "err", err)
+	} else {
+		delivered = true
 	}
 
-	// Send C-c to trigger graceful shutdown, under its own fresh context. On
-	// failure, do NOT return early: log and fall through to the grace-timer/
-	// kill-session fallback below. An earlier version returned the send error
-	// here, which wedged Stop() (and everything layered on it — restart, rk
-	// update, POST /api/restart) whenever the graceful C-c could not be
-	// delivered, even though the force-kill fallback would have stopped the
-	// daemon. Degrading to the fallback keeps the documented "C-c → wait grace →
-	// kill" contract reachable regardless of why the C-c send fails.
-	sendCtx, sendCancel := context.WithTimeout(context.Background(), cmdTimeout)
-	defer sendCancel()
-	if err := runTmux(sendCtx, "send-keys", "-t", targetFor(session), "C-c"); err != nil {
-		slog.Warn("daemon stop: C-c send failed; relying on grace-timeout kill fallback", "err", err)
+	if !delivered {
+		// Fallback: tmux key delivery. Pre-cancel any pane mode first — a pane
+		// in a mode does not receive C-c as a literal key (the mode key table
+		// intercepts it; copy-mode binds C-c → cancel). `copy-mode -q` is
+		// idempotent (exit 0 when the pane is not in a mode) so it runs
+		// unconditionally. Each command gets its own fresh cmdTimeout context,
+		// matching this function's per-command-context pattern, and targets
+		// targetFor(session) so the legacy-session path stays correct.
+		modeCtx, modeCancel := context.WithTimeout(context.Background(), cmdTimeout)
+		defer modeCancel()
+		if err := runTmux(modeCtx, "copy-mode", "-q", "-t", targetFor(session)); err != nil {
+			slog.Debug("daemon stop: copy-mode pre-cancel failed", "err", err)
+		}
+
+		sendCtx, sendCancel := context.WithTimeout(context.Background(), cmdTimeout)
+		defer sendCancel()
+		if err := runTmux(sendCtx, "send-keys", "-t", targetFor(session), "C-c"); err != nil {
+			slog.Warn("daemon stop: C-c send failed; relying on grace-timeout kill fallback", "err", err)
+		}
 	}
 
 	// The grace deadline is an independent timer, NOT a context bounding the
@@ -518,7 +533,7 @@ func Stop() error {
 		select {
 		case <-graceTimer.C:
 			// Grace period elapsed. Re-probe under a fresh context: if the daemon
-			// already exited on its own (C-c worked), that's success — never kill
+			// already exited on its own (graceful delivery worked), that's success — never kill
 			// an absent session nor surface a `can't find session` error.
 			if !sessionExists(session) {
 				return nil
@@ -554,16 +569,23 @@ func Stop() error {
 //
 // Returns (0, error) when the daemon session is absent or the tmux query fails.
 func InnerServePID() (int, error) {
+	return innerServePIDFor(SessionName)
+}
+
+// innerServePIDFor is the session-parameterized form of InnerServePID: Stop()
+// resolves the running session first (current or legacy name) and needs the
+// pane PID of that specific session for signal-first graceful delivery.
+func innerServePIDFor(session string) (int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
 	defer cancel()
 
-	out, err := runTmuxOutput(ctx, "list-panes", "-t", target(), "-F", "#{pane_pid}")
+	out, err := runTmuxOutput(ctx, "list-panes", "-t", targetFor(session), "-F", "#{pane_pid}")
 	if err != nil {
 		return 0, fmt.Errorf("querying daemon pane pid: %w", err)
 	}
 	s := string(bytes.TrimSpace(out))
 	if s == "" {
-		return 0, fmt.Errorf("no pane_pid returned for daemon target %s", target())
+		return 0, fmt.Errorf("no pane_pid returned for daemon target %s", targetFor(session))
 	}
 	pid, err := strconv.Atoi(s)
 	if err != nil {
@@ -575,6 +597,16 @@ func InnerServePID() (int, error) {
 // innerServePIDFn is the package seam over InnerServePID so tests drive the
 // OwnerIsDaemon self-recognition branch without a live daemon pane.
 var innerServePIDFn = InnerServePID
+
+// innerServePIDForFn is the package seam over innerServePIDFor so tests drive
+// Stop()'s PID-unresolved fallback without a live daemon pane.
+var innerServePIDForFn = innerServePIDFor
+
+// signalPID delivers sig to pid. A seam so tests exercise Stop()'s
+// signal-failure fallback without real processes.
+var signalPID = func(pid int, sig syscall.Signal) error {
+	return syscall.Kill(pid, sig)
+}
 
 // OwnerIsDaemon reports whether the port owner is the rk daemon's inner serve
 // PID — the --force paths must never signal the daemon itself. An

@@ -81,7 +81,7 @@ export function rankActions<T extends { id: string; label: string; description?:
 | 1 WholeWord | some word of the label equals the query exactly | `Open: PR #3127` (word `PR`) |
 | 2 WordStart | some word of the label starts with the query but is longer than it | `Server: Protect noon`, `Layout: Promote Web` |
 | 3 Acronym | the query's letters equal the first letters of a **consecutive run** of words | `prs` → `PR: Refresh Status`; `pw` → `Layout: Promote Web` |
-| 4 Incidental | the query occurs in the label, but only strictly inside a word | `pr` → `Web: Reprint` (hypothetical) |
+| 4 Incidental | the label contains the query and no higher tier applied — an alphanumeric query is then necessarily strictly inside a word; a boundary-spanning query also lands here | `pr` → `Web: Reprint` (hypothetical); `kit: r` → `run-kit: Restart Daemon` |
 | 5 DescriptionOnly | the label does not contain the query; the description does | any entry matching only on its `description` |
 
 **Word tokenization**: a *word* is a maximal run of `[a-z0-9]` after lowercasing. Boundaries are therefore every non-alphanumeric character — `" "`, `":"`, `"#"`, `"("`, `"-"`, `"/"`, `"…"`, quotes. This is a generalization of the invocation text's "start of a word after a colon-prefix or a space", chosen so that labels like `Open: PR #3127`, `Server: Switch to "work"`, `Tile: Show <Surface>` and `run-kit: Restart Daemon` tokenize the way a reader would expect. `Open: PR #3127` → `["open", "pr", "3127"]`.

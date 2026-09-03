@@ -7,9 +7,11 @@
  * Pure and dependency-free, per the lib/palette builder convention
  * (shell.ts, zen.ts, server-protect.ts): no React, no DOM, structurally
  * typed over `{ id, label, description? }` so it carries no component
- * dependency. `rankActions` subsumes the old filter — membership is
- * identical to a case-insensitive `includes` over label + description — and
- * returns a NEW array, never mutating the caller's (upstream-memoized) list.
+ * dependency. `rankActions` subsumes the old filter — membership is a
+ * SUPERSET of a case-insensitive `includes` over label + description, because
+ * the Acronym tier necessarily admits matches that predicate rejects (`ns` →
+ * `New Session`) — and returns a NEW array, never mutating the caller's
+ * (upstream-memoized) list.
  */
 
 /**
@@ -26,7 +28,13 @@ export const MatchTier = {
   WordStart: 2,
   /** The query is a contiguous substring of the label's word-initials string. */
   Acronym: 3,
-  /** The query occurs in the label, but only strictly inside a word. */
+  /**
+   * The label contains the query and no higher tier applied. An
+   * alphanumeric query is then necessarily strictly inside a word (a
+   * word-initial one would have hit WholeWord or WordStart); a query
+   * spanning a boundary (`kit: r` → `run-kit: Restart Daemon`) also lands
+   * here, which is what keeps membership a superset of the old filter.
+   */
   Incidental: 4,
   /** The label does not contain the query; the description does. */
   DescriptionOnly: 5,

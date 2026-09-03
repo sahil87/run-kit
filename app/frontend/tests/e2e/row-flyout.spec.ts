@@ -8,6 +8,10 @@ import { mockStateSocket } from "./_state-socket-mock";
 // change-bound PRs and `gh` is unavailable in CI, so the SSE `sessions`
 // payload (and the server list) is injected via page.route / the
 // state-socket mock — the same idiom as the retired status-dot-tip.spec.ts.
+// `/api/boards` is mocked EMPTY too: boards are derived from `_rk-pin-*`
+// pin-sessions that earlier board specs leave on the shared e2e tmux server,
+// and a late board-list resolve grows the Boards panel and shifts the
+// Sessions section mid-hover — cancelling the hover intent under test.
 //
 // The flyout opens on WHOLE-ROW hover (500ms delay, warm-window retarget),
 // keyboard row focus, and the coarse-pointer rail; placement is
@@ -15,12 +19,17 @@ import { mockStateSocket } from "./_state-socket-mock";
 // "bottom-start" below the row on coarse, with the card width capped short of
 // the row's 56px status rail. Card actions (change color / fork / pin / kill)
 // are explicit sectioned rows at the card's bottom on BOTH pointer worlds —
-// the title bar carries only the ⓘ docs link. The rail + card also extend to
-// the session rows and server-group headers (coarse-only surfaces — tap/scrub
-// is their one trigger), `Change color…` is the first action row of every
-// tier's card, no `Set tab label` affordance exists, and the marker strip is
-// interactive at 22px on fine pointers and 36px on coarse pointers while the
-// scrub retargets cards ACROSS tiers via the shared
+// the title bar carries only the ⓘ docs link. The card is the fine-pointer
+// hover/focus surface on EVERY tier — window rows, session rows,
+// server-group headers, and the SERVER-panel tiles (the tile is
+// fine-pointer-only: no rail, no coarse trigger) — with the coarse rail's
+// tap/scrub as the coarse trigger on the three railed tiers. The old
+// fine-pointer hover icon clusters (session palette/bot/plus/kill, header
+// palette/plus/close) and the per-row identity tips are retired; the card
+// carries their content and actions. `Change color…` is the first action row
+// of every tier's card, no `Set tab label` affordance exists, and the marker
+// strip is interactive at 22px on fine pointers and 36px on coarse pointers
+// while the scrub retargets cards ACROSS tiers via the shared
 // `data-rail-row` handle.
 //
 // Shared setup: **/api/servers → a single server `default`;
@@ -41,7 +50,8 @@ import { mockStateSocket } from "./_state-socket-mock";
 // on the session/server tiers); the glyph by row-pr-glyph; the coarse status
 // rail by status-rail; the dot's tap wrapper by status-dot-tap; the session
 // row by [data-session-row='default:dev']; the server-group header by
-// [data-server='default']. The coarse-pointer describe additionally mocks
+// [data-server='default']; the server tile by role=option inside the
+// `Tmux servers` listbox. The coarse-pointer describe additionally mocks
 // `(pointer: coarse)` via matchMedia (Playwright desktop Chromium cannot flip
 // the real pointer media feature — the tooltips.spec.ts precedent) and
 // enables hasTouch so tap() dispatches real touch input.
@@ -105,7 +115,12 @@ const sessionsPayload = JSON.stringify([
   },
 ]);
 
-/** Install routes that fully mock the server list and the state socket. */
+/** Install routes that fully mock the server list, the board list, and the
+ *  state socket. The boards mock keeps the Boards panel empty — leftover
+ *  `_rk-pin-*` sessions from earlier board specs would otherwise resolve a
+ *  non-empty list late and shift the Sessions section mid-hover (the hover
+ *  intent these tests exercise is cancelled by layout shifts under the
+ *  stationary pointer). */
 async function mockBackend(page: Page) {
   await page.routeWebSocket(/\/ws\/terminals/, () => {
     /* accept and hold the socket open; send nothing */
@@ -121,6 +136,10 @@ async function mockBackend(page: Page) {
       contentType: "application/json",
       body: JSON.stringify([{ name: SERVER, sessionCount: 1 }]),
     }),
+  );
+
+  await page.route("**/api/boards", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: "[]" }),
   );
 
   await mockStateSocket(page, { sessions: sessionsPayload });
@@ -562,6 +581,177 @@ test.describe("Row flyout card (fine pointer)", () => {
     expect(Math.abs(wellBox.width - 22)).toBeLessThanOrEqual(0.5);
     expect(Math.abs(contentBox.x - rowBox.x - 30)).toBeLessThanOrEqual(1);
   });
+
+  /**
+   * Proves: the session-tier card is the fine-pointer hover surface — whole-row
+   * hover opens the shared-shell card with the `Session dev` title, the facts
+   * line (`$4 · 2 tabs · ~/code/sahil87/run-kit`), and the action rows in the
+   * fixed order (`Change color…` first, then `Spawn agent…` → `New tab` →
+   * `Kill session`), and the retired hover icon cluster (palette/bot/plus/kill)
+   * is absent from the DOM on fine pointers too. Keyboard focus also opens the
+   * card and Escape dismisses it.
+   *
+   * Steps:
+   * 1. Assert the retired cluster buttons (`Set color for dev`, `Spawn agent
+   *    in dev`, `New tab in dev`, `Kill session dev`) are absent from the DOM.
+   * 2. Hover the session row; assert the card shows the `Session dev` title
+   *    bar, the facts line, and the four action rows in vertical order.
+   * 3. Move the pointer away and assert the card closes; focus the row and
+   *    assert the card reopens; press Escape and assert the card is removed
+   *    (Escape with focus in the sidebar also rides the nav's Escape-return
+   *    rule, so no focus assertion here).
+   */
+  test("fine pointer: hovering/focusing the session row opens the session card (cluster retired)", async ({
+    page,
+  }) => {
+    // The retired hover icon cluster is gone from the DOM on fine pointers too.
+    await expect(sessionRow(page).getByLabel("Set color for dev")).toHaveCount(0);
+    await expect(sessionRow(page).getByLabel("Spawn agent in dev")).toHaveCount(0);
+    await expect(sessionRow(page).getByLabel("New tab in dev")).toHaveCount(0);
+    await expect(sessionRow(page).getByLabel("Kill session dev")).toHaveCount(0);
+
+    await sessionRow(page).hover();
+    await expect(card(page)).toBeVisible();
+    await expect(page.getByTestId("popup-title-bar")).toContainText("Session dev");
+    await expect(card(page)).toContainText("$4 · 2 tabs · ~/code/sahil87/run-kit");
+    const colorRow = card(page).getByTestId("row-flyout-color-action");
+    const spawnRow = card(page).getByTestId("row-flyout-spawn-action");
+    const createRow = card(page).getByTestId("row-flyout-create-action");
+    const killRow = card(page).getByTestId("row-flyout-kill-action");
+    await expect(colorRow).toContainText("Change color…");
+    await expect(spawnRow).toContainText("Spawn agent…");
+    await expect(createRow).toContainText("New tab");
+    await expect(killRow).toContainText("Kill session");
+    const ys = await Promise.all(
+      [colorRow, spawnRow, createRow, killRow].map(async (r) => (await r.boundingBox())!.y),
+    );
+    expect(ys[0]).toBeLessThan(ys[1]);
+    expect(ys[1]).toBeLessThan(ys[2]);
+    expect(ys[2]).toBeLessThan(ys[3]);
+
+    // Sweep away closes; keyboard focus opens the same card; Escape dismisses
+    // it (focus then rides the nav's Escape-return rule out of the sidebar —
+    // the focus-return assertion lives in the window-tier keyboard test, where
+    // Escape lands while focus is inside the portalled card).
+    await page.mouse.move(700, 500);
+    await expect(card(page)).toHaveCount(0);
+    await sessionRow(page).focus();
+    await expect(card(page)).toBeVisible();
+    await expect(page.getByTestId("popup-title-bar")).toContainText("Session dev");
+    await page.keyboard.press("Escape");
+    await expect(card(page)).toHaveCount(0);
+  });
+
+  /**
+   * Proves: the session card's `Change color…` row is the fine-pointer color
+   * entry — clicking it closes the card and opens the row's color popover,
+   * and popover-over-card precedence holds (re-hovering the row while the
+   * picker is open does not reopen the card).
+   *
+   * Steps:
+   * 1. Hover the session row; assert the card is visible.
+   * 2. Click the card's `Change color…` action row; assert the card is gone
+   *    and the "Label picker" listbox is visible.
+   * 3. Move the pointer away, hover the session row again, wait past the open
+   *    delay, and assert NO card reopens (the picker's suppression gate).
+   */
+  test("fine pointer: the session card's Change color… row opens the picker with popover-over-card precedence", async ({
+    page,
+  }) => {
+    await sessionRow(page).hover();
+    await expect(card(page)).toBeVisible();
+
+    await card(page).getByTestId("row-flyout-color-action").click();
+    await expect(card(page)).toHaveCount(0);
+    await expect(page.getByRole("listbox", { name: "Label picker" })).toBeVisible();
+
+    // Suppression: hovering the row while the picker is open flashes nothing.
+    await page.mouse.move(700, 500);
+    await sessionRow(page).hover();
+    await page.waitForTimeout(800); // past the 500ms open delay
+    await expect(card(page)).toHaveCount(0);
+    await expect(page.getByRole("listbox", { name: "Label picker" })).toBeVisible();
+  });
+
+  /**
+   * Proves: the server-tier card is the fine-pointer hover surface on the
+   * group header — hovering the header opens the card with the `Server
+   * default` title, the `tmux -L default · 1 session` facts line, and the
+   * action rows (`Change color…` → `New session` → Protect toggle →
+   * `Kill server`); the retired header cluster (palette/plus/close) is absent
+   * from the DOM; the card's `Change color…` row closes the card and opens the
+   * header-anchored picker; and none of it toggles the group's expand/collapse.
+   *
+   * Steps:
+   * 1. Assert the retired header cluster buttons (`Set color for server
+   *    default`, `New session on default`, `Kill server default`) are absent.
+   * 2. Hover the server-group header; assert the card shows the `Server
+   *    default` title bar, the facts line, and the color/create/protect/kill
+   *    rows.
+   * 3. Click `Change color…`: assert the card is gone and the "Label picker"
+   *    listbox is visible.
+   * 4. Assert the group was never toggled: the header still reads "Collapse
+   *    default sessions" and the window rows are still visible.
+   */
+  test("fine pointer: hovering the server-group header opens the server card; Change color… opens the picker without toggling the group", async ({
+    page,
+  }) => {
+    const header = serverHeader(page);
+    await expect(header.getByLabel("Set color for server default")).toHaveCount(0);
+    await expect(header.getByLabel("New session on default")).toHaveCount(0);
+    await expect(header.getByLabel("Kill server default")).toHaveCount(0);
+
+    await header.hover();
+    await expect(card(page)).toBeVisible();
+    await expect(page.getByTestId("popup-title-bar")).toContainText("Server default");
+    await expect(card(page)).toContainText("tmux -L default · 1 session");
+    await expect(card(page).getByTestId("row-flyout-color-action")).toContainText("Change color…");
+    await expect(card(page).getByTestId("row-flyout-create-action")).toContainText("New session");
+    await expect(card(page).getByTestId("row-flyout-protect-toggle")).toBeVisible();
+    await expect(card(page).getByTestId("row-flyout-kill-action")).toContainText("Kill server");
+
+    await card(page).getByTestId("row-flyout-color-action").click();
+    await expect(card(page)).toHaveCount(0);
+    await expect(page.getByRole("listbox", { name: "Label picker" })).toBeVisible();
+
+    // Opening the card and its picker never toggled the group.
+    await expect(header.getByRole("button", { name: /Collapse default sessions/ })).toBeVisible();
+    await expect(prRow(page)).toBeVisible();
+  });
+
+  /**
+   * Proves: the SERVER-panel tile hosts the same server card on fine pointers —
+   * hovering the tile opens the card (title `Server default`, facts line, the
+   * shared action rows), and its `Change color…` row closes the card and opens
+   * the tile-anchored color popover (the tile's first color entry).
+   *
+   * Steps:
+   * 1. Locate the `default` tile in the `Tmux servers` listbox and hover it.
+   * 2. Assert the card shows the `Server default` title bar, the
+   *    `tmux -L default · 1 session` facts line, and the `Change color…` /
+   *    `New session` / `Kill server` rows.
+   * 3. Click `Change color…`: assert the card is gone and the picker's listbox
+   *    is visible.
+   */
+  test("fine pointer: hovering the server tile opens the same server card; Change color… opens the tile-anchored picker", async ({
+    page,
+  }) => {
+    const tile = page
+      .getByRole("listbox", { name: /Tmux servers/ })
+      .getByRole("option", { name: /default/ });
+
+    await tile.hover();
+    await expect(card(page)).toBeVisible();
+    await expect(page.getByTestId("popup-title-bar")).toContainText("Server default");
+    await expect(card(page)).toContainText("tmux -L default · 1 session");
+    await expect(card(page).getByTestId("row-flyout-color-action")).toContainText("Change color…");
+    await expect(card(page).getByTestId("row-flyout-create-action")).toContainText("New session");
+    await expect(card(page).getByTestId("row-flyout-kill-action")).toContainText("Kill server");
+
+    await card(page).getByTestId("row-flyout-color-action").click();
+    await expect(card(page)).toHaveCount(0);
+    await expect(page.getByRole("listbox", { name: "Color picker" })).toBeVisible();
+  });
 });
 
 test.describe("Row flyout card (coarse pointer)", () => {
@@ -856,8 +1046,8 @@ test.describe("Row flyout card (coarse pointer)", () => {
   /**
    * Proves: the session-tier card — the session row renders the rail on
    * coarse, its 4-icon cluster is gone from the DOM, and a rail tap opens the
-   * shared-shell card with the `Session dev` title, the identity-tip facts
-   * line (`$4 · 2 tabs · ~/code/sahil87/run-kit`), and the relocated actions
+   * shared-shell card with the `Session dev` title, the facts line
+   * (`$4 · 2 tabs · ~/code/sahil87/run-kit`), and the relocated actions
    * in the fixed order (`Change color…` → `Spawn agent…` → `New window` →
    * `Kill session`, spawn wired on this route). Kill session routes through
    * the EXISTING kill confirmation dialog (no force-kill on touch, no kill
@@ -889,8 +1079,8 @@ test.describe("Row flyout card (coarse pointer)", () => {
     });
     await gotoCoarseDrawer(page);
 
-    // The session row carries the rail; its fine-pointer 4-icon cluster is
-    // absent from the DOM on coarse.
+    // The session row carries the rail; its retired 4-icon hover cluster is
+    // absent from the DOM (retired on every pointer class).
     const rail = sessionRow(page).getByTestId("status-rail");
     await expect(rail).toBeVisible();
     await expect(sessionRow(page).getByLabel("Kill session dev")).toHaveCount(0);
@@ -898,8 +1088,8 @@ test.describe("Row flyout card (coarse pointer)", () => {
 
     await rail.tap();
     await expect(card(page)).toBeVisible();
-    // Title + the identity-tip facts line + the relocated action rows in the
-    // fixed order (Spawn agent… is wired on this route).
+    // Title + facts line + the relocated action rows in the fixed order
+    // (Spawn agent… is wired on this route).
     await expect(page.getByTestId("popup-title-bar")).toContainText("Session dev");
     await expect(card(page)).toContainText("$4 · 2 tabs · ~/code/sahil87/run-kit");
     const colorRow = card(page).getByTestId("row-flyout-color-action");
@@ -985,7 +1175,7 @@ test.describe("Row flyout card (coarse pointer)", () => {
     await expect(card(page)).toBeVisible();
     await expect(page.getByTestId("popup-title-bar")).toContainText("Server default");
     // Server names ARE socket names; the count is the group's own data (the
-    // singular form degrades like the identity tip's `1 window`).
+    // singular form degrades to `1 session`).
     await expect(card(page)).toContainText("tmux -L default · 1 session");
     const colorRow = card(page).getByTestId("row-flyout-color-action");
     const createRow = card(page).getByTestId("row-flyout-create-action");

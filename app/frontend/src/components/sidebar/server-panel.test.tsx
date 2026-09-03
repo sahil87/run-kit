@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, screen, cleanup, fireEvent, within, act } from "@testing-library/react";
 import { ServerPanel } from "./server-panel";
-import { IDENTITY_TIP_OPEN_DELAY_MS } from "./identity-tip";
+import { FLYOUT_OPEN_DELAY_MS, resetFlyoutWarmState } from "./row-flyout-card";
 import { ThemeProvider } from "@/contexts/theme-context";
 import { ToastProvider } from "@/components/toast";
 import type { ServerInfo } from "@/api/client";
@@ -26,6 +26,10 @@ function renderPanel(overrides: {
   onSwitchServer?: (name: string) => void;
   onCreateServer?: () => void;
   onRefreshServers?: () => void;
+  onServerColorChange?: (server: string, color: string | null) => void;
+  onCreateSession?: (server: string) => void;
+  onKillServer?: (name: string) => void;
+  onToggleServerProtect?: (server: string, next: boolean) => void;
 } = {}) {
   const props = {
     server: overrides.server ?? "default",
@@ -42,6 +46,10 @@ function renderPanel(overrides: {
     onSwitchServer: overrides.onSwitchServer ?? vi.fn(),
     onCreateServer: overrides.onCreateServer ?? vi.fn(),
     onRefreshServers: overrides.onRefreshServers ?? vi.fn(),
+    onServerColorChange: overrides.onServerColorChange,
+    onCreateSession: overrides.onCreateSession,
+    onKillServer: overrides.onKillServer,
+    onToggleServerProtect: overrides.onToggleServerProtect,
   };
   return render(
     <ThemeProvider>
@@ -123,12 +131,11 @@ describe("ServerPanel", () => {
     expect(onCreateServer).toHaveBeenCalled();
   });
 
-  it("renders no hover action cluster on tiles (kill/color live in the SESSIONS-pane group headers)", () => {
+  it("renders no hover action cluster on tiles (server actions live on the tile's flyout card)", () => {
     renderPanel({ server: "default" });
 
-    // The palette + kill buttons were removed from the tile surface (bylc):
-    // those actions live in the SESSIONS-pane server-group headers and the
-    // command palette's per-server `Server: Kill <name>` entries.
+    // No in-tile icon buttons: the tile card (hover/focus) carries Change
+    // color… / New session / Protect / Kill server rows instead.
     expect(screen.queryByRole("button", { name: /Kill server/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Set color for server/ })).not.toBeInTheDocument();
   });
@@ -160,7 +167,7 @@ describe("ServerPanel", () => {
     expect(options).toHaveLength(3);
   });
 
-  it("tile carries NO native title — the identity tip card replaces it", () => {
+  it("tile carries NO native title — the flyout card is the hover surface", () => {
     renderPanel({
       servers: [{ name: "bench-really-long-name", sessionCount: 2, windowCount: 5 }],
       server: "bench-really-long-name",
@@ -169,14 +176,20 @@ describe("ServerPanel", () => {
     expect(tile).not.toHaveAttribute("title");
   });
 
-  // Tile identity tip: `Server <name>` title bar + `tmux -L <name> · N
-  // sessions` body — the socket flag shown uniformly, including `default`.
-  describe("identity tip", () => {
+  // The tile flyout card: fine-pointer hover/focus of a tile opens the SAME
+  // server card the sessions-pane group header mounts (the shared
+  // ServerCardContent) — `Server <name>` title bar, the `tmux -L <name> · N
+  // sessions` facts line (external servers carry the provenance suffix), and
+  // the Change color… / New session / Protect / Kill server rows. No rail, no
+  // coarse trigger: on coarse pointers the tile opens no card.
+  describe("tile flyout card", () => {
     beforeEach(() => {
       vi.useFakeTimers();
+      resetFlyoutWarmState();
     });
     afterEach(() => {
       vi.useRealTimers();
+      resetFlyoutWarmState();
       // Restore the fine-pointer default after a coarse-pointer test.
       stubFinePointer();
     });
@@ -190,38 +203,53 @@ describe("ServerPanel", () => {
       act(() => {
         fireEvent.pointerEnter(tile, { pointerType: "mouse" });
         fireEvent.mouseEnter(tile);
-        vi.advanceTimersByTime(IDENTITY_TIP_OPEN_DELAY_MS + 50);
+        vi.advanceTimersByTime(FLYOUT_OPEN_DELAY_MS + 50);
       });
       return tile;
     }
 
-    it("opens on tile hover with the server name in the title bar and the socket flag + session count in the body", () => {
+    it("opens the shared server card on tile hover — title bar, facts line, action rows", () => {
       renderPanel({
         servers: [{ name: "default", sessionCount: 6, windowCount: 9 }],
         server: "default",
+        onServerColorChange: vi.fn(),
+        onCreateSession: vi.fn(),
+        onKillServer: vi.fn(),
+        onToggleServerProtect: vi.fn(),
       });
-      expect(screen.queryByTestId("server-tip")).toBeNull();
+      expect(screen.queryByTestId("row-flyout-card")).toBeNull();
 
       hoverTile(/default/);
-      const card = screen.getByTestId("server-tip");
+      const card = screen.getByTestId("row-flyout-card");
       const bar = screen.getByTestId("popup-title-bar");
       expect(card).toContainElement(bar);
       expect(bar).toHaveTextContent("Server default");
       expect(card).toHaveTextContent("tmux -L default · 6 sessions");
-      // Tier-1 weight: no interactive content at all.
-      expect(card.querySelector("a, button")).toBeNull();
+      expect(screen.getByTestId("row-flyout-color-action")).toHaveTextContent("Change color…");
+      expect(screen.getByTestId("row-flyout-create-action")).toHaveTextContent("New session");
+      expect(screen.getByTestId("row-flyout-protect-toggle")).toBeInTheDocument();
+      expect(screen.getByTestId("row-flyout-kill-action")).toHaveTextContent("Kill server");
+      // The retired identity tip never mounts.
+      expect(screen.queryByTestId("server-tip")).toBeNull();
     });
 
-    it("uses the singular `1 session`", () => {
+    it("opens on keyboard tile focus and dismisses on Escape", () => {
       renderPanel({
-        servers: [{ name: "solo", sessionCount: 1, windowCount: 1 }],
-        server: "solo",
+        servers: [{ name: "work", sessionCount: 2, windowCount: 5 }],
+        server: "work",
       });
-      hoverTile(/solo/);
-      expect(screen.getByTestId("server-tip")).toHaveTextContent("tmux -L solo · 1 session");
+      act(() => {
+        fireEvent.focus(screen.getByRole("option", { name: /work/ }));
+      });
+      expect(screen.getByTestId("row-flyout-card")).toBeInTheDocument();
+      act(() => {
+        fireEvent.keyDown(document, { key: "Escape" });
+        vi.advanceTimersByTime(50);
+      });
+      expect(screen.queryByTestId("row-flyout-card")).toBeNull();
     });
 
-    it("appends the provenance line for an external server, nothing for managed/absent", () => {
+    it("appends the provenance suffix on the facts line for an external server, nothing for managed/absent", () => {
       renderPanel({
         servers: [
           { name: "ext", sessionCount: 2, windowCount: 3, managed: false },
@@ -230,52 +258,89 @@ describe("ServerPanel", () => {
         server: "ext",
       });
       hoverTile(/ext/);
-      expect(screen.getByTestId("server-tip")).toHaveTextContent(
+      expect(screen.getByTestId("row-flyout-card")).toHaveTextContent(
         "tmux -L ext · 2 sessions · external — not started by run-kit",
       );
 
       cleanup();
+      resetFlyoutWarmState();
       renderPanel({
         servers: [{ name: "own", sessionCount: 1, windowCount: 1, managed: true }],
         server: "own",
       });
       hoverTile(/own/);
-      expect(screen.getByTestId("server-tip")).toHaveTextContent("tmux -L own · 1 session");
-      expect(screen.getByTestId("server-tip")).not.toHaveTextContent("external");
+      expect(screen.getByTestId("row-flyout-card")).toHaveTextContent("tmux -L own · 1 session");
+      expect(screen.getByTestId("row-flyout-card")).not.toHaveTextContent("external");
     });
 
-    it("dismisses on Escape and never opens on a coarse pointer", () => {
+    it("card action rows route through the panel seams", () => {
+      const onCreateSession = vi.fn();
+      const onKillServer = vi.fn();
+      const onToggleServerProtect = vi.fn();
       renderPanel({
-        servers: [{ name: "work", sessionCount: 2, windowCount: 5 }],
+        servers: [{ name: "work", sessionCount: 2, windowCount: 5, protected: false }],
         server: "work",
+        onCreateSession,
+        onKillServer,
+        onToggleServerProtect,
       });
-      hoverTile(/work/);
-      expect(screen.getByTestId("server-tip")).toBeInTheDocument();
       act(() => {
-        fireEvent.keyDown(document, { key: "Escape" });
-        vi.advanceTimersByTime(50);
+        fireEvent.focus(screen.getByRole("option", { name: /work/ }));
       });
-      expect(screen.queryByTestId("server-tip")).toBeNull();
 
-      // Coarse pointer: the whole surface is suppressed (the Tip idiom). Both
-      // coarse-pointer queries match — a touch-primary device answers true to
-      // `(pointer: coarse)` and `(any-pointer: coarse)` alike.
-      cleanup();
-      stubMatchMedia((query) => query.includes("pointer: coarse"));
+      act(() => { fireEvent.click(screen.getByTestId("row-flyout-create-action")); });
+      expect(onCreateSession).toHaveBeenCalledExactlyOnceWith("work");
+      act(() => { fireEvent.click(screen.getByTestId("row-flyout-protect-toggle")); });
+      expect(onToggleServerProtect).toHaveBeenCalledExactlyOnceWith("work", true);
+      act(() => { fireEvent.click(screen.getByTestId("row-flyout-kill-action")); });
+      expect(onKillServer).toHaveBeenCalledExactlyOnceWith("work");
+      // Card interactions never switch the active server.
+      // (onSwitchServer is the tile button's own seam, covered above.)
+    });
+
+    it("Change color… closes the card and opens the tile-anchored color popover; a pick routes through onServerColorChange", () => {
+      const onServerColorChange = vi.fn();
       renderPanel({
         servers: [{ name: "work", sessionCount: 2, windowCount: 5 }],
         server: "work",
+        serverColors: { work: "4" },
+        onServerColorChange,
       });
-      // Re-query after the re-render — `tile` belongs to the cleaned-up tree,
-      // so firing at it would no-op and the assertion would pass vacuously.
-      const coarseTile = screen.getByRole("option", { name: /work/ }).parentElement!;
       act(() => {
-        fireEvent.pointerEnter(coarseTile, { pointerType: "touch" });
-        fireEvent.mouseEnter(coarseTile);
-        fireEvent.focus(coarseTile);
-        vi.advanceTimersByTime(IDENTITY_TIP_OPEN_DELAY_MS + 100);
+        fireEvent.focus(screen.getByRole("option", { name: /work/ }));
       });
-      expect(screen.queryByTestId("server-tip")).toBeNull();
+      act(() => { fireEvent.click(screen.getByTestId("row-flyout-color-action")); });
+
+      expect(screen.queryByTestId("row-flyout-card")).toBeNull();
+      const popover = screen.getByRole("listbox", { name: "Color picker" });
+      // Portalled to document.body, anchored at the tile (not nested in it).
+      expect(document.body.contains(popover)).toBe(true);
+      act(() => {
+        fireEvent.click(within(popover).getByRole("option", { name: "Color blue" }));
+      });
+      expect(onServerColorChange).toHaveBeenCalledWith("work", "4");
+      // Popover-over-card precedence: hover re-opens nothing while it is open.
+      hoverTile(/work/);
+      expect(screen.queryByTestId("row-flyout-card")).toBeNull();
+    });
+
+    it("never opens on a coarse pointer (no rail, no hover/focus surface)", () => {
+      // Both coarse-pointer queries match — a touch-primary device answers
+      // true to `(pointer: coarse)` and `(any-pointer: coarse)` alike.
+      stubMatchMedia((query) => query.includes("pointer: coarse") || query.includes("prefers-color-scheme: dark"));
+      renderPanel({
+        servers: [{ name: "work", sessionCount: 2, windowCount: 5 }],
+        server: "work",
+        onServerColorChange: vi.fn(),
+      });
+      const tile = screen.getByRole("option", { name: /work/ }).parentElement!;
+      act(() => {
+        fireEvent.pointerEnter(tile, { pointerType: "touch" });
+        fireEvent.mouseEnter(tile);
+        fireEvent.focus(screen.getByRole("option", { name: /work/ }));
+        vi.advanceTimersByTime(FLYOUT_OPEN_DELAY_MS + 100);
+      });
+      expect(screen.queryByTestId("row-flyout-card")).toBeNull();
     });
   });
 

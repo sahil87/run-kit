@@ -1,16 +1,19 @@
 import { useState, useCallback, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { CollapsiblePanel } from "./collapsible-panel";
 import { LogoSpinner } from "@/components/logo-spinner";
 import { UNCOLORED_SELECTED_KEY, type RowTint } from "@/themes";
 import { isExternalServer, isInfraServer, DAEMON_SERVER, type ServerInfo } from "@/api/client";
 import { ExternalGlyph, ShieldGlyph } from "@/components/top-bar-icons";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { useServerReorder, type ServerTileDragProps } from "@/hooks/use-server-reorder";
 import { useToast } from "@/components/toast";
 import { WaitingBadge } from "@/components/waiting-badge";
 import { FlairOverlay } from "@/components/flair-overlay";
-import { useIdentityTip, IdentityTipCard } from "./identity-tip";
-import { PopupTitleBarSecondary } from "./popup-title-bar";
+import { SwatchPopover } from "@/components/swatch-popover";
+import { useRowFlyout } from "./row-flyout-card";
+import { ServerCardContent, useAnchoredPopoverPos } from "./server-card";
 
 type ServerPanelProps = {
   server: string;
@@ -29,6 +32,17 @@ type ServerPanelProps = {
   onSwitchServer: (name: string) => void;
   onCreateServer: () => void;
   onRefreshServers: () => void;
+  /** Server color write seam for the tile card's `Change color…` popover.
+   *  Optional (the optional-handler gate): unwired ⇒ no color row. */
+  onServerColorChange?: (server: string, color: string | null) => void;
+  /** Routed by the tile card's New session row. */
+  onCreateSession?: (server: string) => void;
+  /** Routes to the parent's kill-server confirmation dialog; never kills
+   *  directly. */
+  onKillServer?: (name: string) => void;
+  /** Protect toggle for the tile card's switch row, called with the NEW
+   *  state. */
+  onToggleServerProtect?: (server: string, next: boolean) => void;
   /** Forwarded to CollapsiblePanel's corner affordance. When supplied, a corner
    *  element renders at the bottom-right of the drag handle and initiates a
    *  sidebar-width drag in addition to the panel's vertical resize. */
@@ -46,6 +60,10 @@ export function ServerPanel({
   onSwitchServer,
   onCreateServer,
   onRefreshServers,
+  onServerColorChange,
+  onCreateSession,
+  onKillServer,
+  onToggleServerProtect,
   onSidebarResizeStart,
 }: ServerPanelProps) {
   const [refreshing, setRefreshing] = useState(false);
@@ -158,6 +176,7 @@ export function ServerPanel({
                 name={name}
                 sessionCount={sessionCount}
                 windowCount={windowCount ?? 0}
+                color={color}
                 waitingCount={waitingCounts?.get(name) ?? 0}
                 tint={tint}
                 uncoloredSelectedTint={uncoloredSelectedTint}
@@ -173,6 +192,10 @@ export function ServerPanel({
                 isDragSource={isDragging && draggingName === name}
                 tileRef={isActive ? activeTileRef : undefined}
                 onClick={() => onSwitchServer(name)}
+                onServerColorChange={onServerColorChange}
+                onCreateSession={onCreateSession}
+                onKillServer={onKillServer}
+                onToggleServerProtect={onToggleServerProtect}
               />
             );
           })}
@@ -187,6 +210,8 @@ type ServerTileProps = {
   sessionCount: number;
   /** Total windows across the server's sessions — the tile's count number. */
   windowCount: number;
+  /** The server's color value descriptor — the tile popover's selectedColor. */
+  color?: string;
   /** Count of waiting windows on this server; 0 renders no badge. */
   waitingCount: number;
   tint: RowTint | null;
@@ -216,12 +241,20 @@ type ServerTileProps = {
   isDragSource: boolean;
   tileRef?: React.Ref<HTMLButtonElement>;
   onClick: () => void;
+  /** The tile card's seams (the same shared identity-arg callbacks the
+   *  sessions-pane group header binds). Optional per the card's
+   *  optional-handler gate. */
+  onServerColorChange?: (server: string, color: string | null) => void;
+  onCreateSession?: (server: string) => void;
+  onKillServer?: (name: string) => void;
+  onToggleServerProtect?: (server: string, next: boolean) => void;
 };
 
 function ServerTile({
   name,
   sessionCount,
   windowCount,
+  color,
   waitingCount,
   tint,
   uncoloredSelectedTint,
@@ -237,6 +270,10 @@ function ServerTile({
   isDragSource,
   tileRef,
   onClick,
+  onServerColorChange,
+  onCreateSession,
+  onKillServer,
+  onToggleServerProtect,
 }: ServerTileProps) {
   // Body background follows the window-row convention:
   //   - Colored: tint.selected (active) or tint.base (not active)
@@ -252,24 +289,67 @@ function ServerTile({
   // dead/disconnected.
   const nameClass = isInfraServer(name) || isExternal ? "text-text-secondary" : "text-text-primary";
 
-  // Tile-level identity tip: `Server <name>` title bar + the socket flag and
-  // session count in the body (server names ARE socket names, so the `tmux
-  // -L` handle composes frontend-side). REPLACES the tile's former native
-  // `title` (never both — the double-tooltip rule).
-  const tip = useIdentityTip();
+  // The tile hosts the SAME server card as the sessions-pane group header
+  // (the shared shell + the shared ServerCardContent), opened on fine-pointer
+  // hover/focus of the tile. No rail and no coarse trigger: the card is
+  // suppressed outright on coarse pointers, where the sessions-pane header
+  // card remains the server surface. The tile-anchored color popover is
+  // portalled to document.body (the sessions list's overflow would clip it)
+  // and opened only from the card's Change color… row; its open state
+  // suppresses the card (popover-over-card precedence).
+  const coarse = useCoarsePointer();
+  const [showColorPicker, setShowColorPicker] = useState(false);
+  const tileAnchorRef = useRef<HTMLElement | null>(null);
+  const popoverPos = useAnchoredPopoverPos(showColorPicker, tileAnchorRef);
+  const flyout = useRowFlyout({
+    suppressed: coarse || showColorPicker,
+    content: ({ close }) => (
+      <ServerCardContent
+        server={name}
+        sessionCount={sessionCount}
+        external={isExternal}
+        serverProtected={isProtected}
+        onToggleProtect={
+          onToggleServerProtect ? () => onToggleServerProtect(name, !isProtected) : undefined
+        }
+        // Close-then-open (the Pin-row idiom): the card closes BEFORE the
+        // tile's color popover opens.
+        onChangeColorAction={
+          onServerColorChange
+            ? () => {
+                close();
+                setShowColorPicker(true);
+              }
+            : undefined
+        }
+        onCreateSession={onCreateSession}
+        onKillServer={onKillServer}
+      />
+    ),
+  });
+
+  // The tile wrapper is the card's floating reference AND the popover's
+  // anchor — one stable callback sets both (the group header's idiom).
+  const setTileRefs = useCallback(
+    (node: HTMLElement | null) => {
+      flyout.setReference(node);
+      tileAnchorRef.current = node;
+    },
+    [flyout.setReference],
+  );
 
   return (
     <div
       className={`relative${isDragSource ? " opacity-50" : ""}`}
       style={{ scrollSnapAlign: isMobile ? "start" : undefined }}
-      ref={tip.setReference}
-      {...tip.getReferenceProps()}
+      ref={setTileRefs}
+      {...flyout.referenceProps}
       draggable={dragProps.draggable}
       onDragStart={
         dragProps.onDragStart
           ? (e) => {
               // A drag gesture must not leave an open hover card behind.
-              tip.close();
+              flyout.close();
               dragProps.onDragStart!(e);
             }
           : undefined
@@ -346,19 +426,31 @@ function ServerTile({
           </div>
         </div>
       </button>
-      <IdentityTipCard
-        tip={tip}
-        testid="server-tip"
-        title={
-          <>
-            <PopupTitleBarSecondary>Server </PopupTitleBarSecondary>
-            {name}
-          </>
-        }
-      >
-        {`tmux -L ${name} · ${sessionCount} session${sessionCount === 1 ? "" : "s"}`}
-        {isExternal && " · external — not started by run-kit"}
-      </IdentityTipCard>
+      {/* The tile-anchored color popover — portalled to body so it escapes
+          the panel's overflow clip, positioned by the shared flip heuristic.
+          Opened ONLY from the card's Change color… row. */}
+      {showColorPicker && onServerColorChange && popoverPos && createPortal(
+        <div
+          style={{
+            position: "fixed",
+            top: popoverPos.top,
+            right: popoverPos.right,
+            zIndex: 100,
+          }}
+        >
+          <SwatchPopover
+            selectedColor={color}
+            rowName={name}
+            // Selection does NOT close (the picker's dismissal contract).
+            onSelect={(c) => onServerColorChange(name, c)}
+            onClose={() => setShowColorPicker(false)}
+          />
+        </div>,
+        document.body,
+      )}
+      {/* The server card — portalled to document.body, mounted ONLY while
+          open (the shared shell's perf contract). */}
+      {flyout.card}
     </div>
   );
 }

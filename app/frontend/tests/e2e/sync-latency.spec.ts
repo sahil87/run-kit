@@ -78,6 +78,34 @@ async function setup(page: import("@playwright/test").Page) {
   return sidebar;
 }
 
+/**
+ * Hover a session row until ITS flyout card is the open one, then enter the
+ * card at the row's own band and return the card locator. Two pointer
+ * realities make this a loop: (1) while SSE is still settling on a freshly
+ * loaded page, a row layout-shift under the stationary pointer fires a
+ * sibling row's hover intent (a mouseover with no mousemove) and opens THAT
+ * row's card; (2) entering the card must ride the reference row's band — a
+ * diagonal sweep to a bottom action row crosses the sibling sidebar row and
+ * hover-intent retargets the card mid-transit.
+ */
+async function openSessionCard(
+  page: import("@playwright/test").Page,
+  sidebar: ReturnType<import("@playwright/test").Page["locator"]>,
+  session: string,
+) {
+  const sessionRow = sidebar.locator(`[data-session-row="${TMUX_SERVER}:${session}"]`);
+  const card = page.getByTestId("row-flyout-card");
+  await expect(async () => {
+    await page.mouse.move(700, 500);
+    await sessionRow.hover();
+    await expect(card).toContainText(`Session ${session}`, { timeout: 3_000 });
+  }).toPass({ timeout: 15_000 });
+  const rowBox = (await sessionRow.boundingBox())!;
+  const cardBox = (await card.boundingBox())!;
+  await page.mouse.move(cardBox.x + 16, rowBox.y + rowBox.height / 2);
+  return card;
+}
+
 test.describe("@perf Sync Latency Audit", () => {
   // Each test pays a readiness gate (up to READY_TIMEOUT) before its measured
   // action; give CI headroom so the gate can't exhaust the per-test budget.
@@ -211,38 +239,42 @@ test.describe("@perf Sync Latency Audit", () => {
   });
 
   /**
-   * Proves: the session row's `+` (New tab) button creates a window
+   * Proves: the session flyout card's `New tab` action row creates a window
    * optimistically — a ghost window row appears under SESSION_B in ≤500ms,
    * without waiting for the SSE poll. This is an audit: it records the real
    * appearance latency and the summary flags it `[SLOW] ← SSE-dependent`
    * (rather than hard-failing the suite) if the create path ever regresses
-   * to SSE-dependent (>500ms). Tolerant if the button isn't visible
-   * (session not expanded).
+   * to SSE-dependent (>500ms). Tolerant if the session row isn't visible
+   * (session not rendered).
    *
    * Steps:
    * 1. `setup`.
    * 2. Assert session B is visible.
-   * 3. If the `New tab in ${SESSION_B}` button is visible: scope to
-   *    SESSION_B's window rows via the wrapper's stable
-   *    `data-session-group="${SESSION_B}"` handle and count its
-   *    `[data-window-id]` rows; start the timer, click `+` (no dialog on
-   *    the current-server create path — the dialog guard is a tolerant
-   *    no-op); poll (bounded 8s) until the window-row count exceeds the
-   *    pre-click count and `record` the elapsed latency. The name is
-   *    auto-derived, so detection is by count increase (mirroring test 1),
-   *    not by name.
+   * 3. If SESSION_B's session row is visible: scope to SESSION_B's window
+   *    rows via the wrapper's stable `data-session-group="${SESSION_B}"`
+   *    handle and count its `[data-window-id]` rows; open SESSION_B's flyout
+   *    card via `openSessionCard` (re-hover until THIS session's card is the
+   *    open one — a row layout-shift under the stationary pointer can fire a
+   *    sibling's hover intent while SSE settles — then enter the card at the
+   *    row's own band, since a diagonal sweep to a bottom action row crosses
+   *    the sibling sidebar row and retargets the card mid-transit); start the
+   *    timer, click the card's `New tab` action row (no dialog on the
+   *    current-server create path — the dialog guard is a tolerant no-op);
+   *    poll (bounded 8s) until the window-row count exceeds the pre-click
+   *    count and `record` the elapsed latency. The name is auto-derived, so
+   *    detection is by count increase (mirroring test 1), not by name.
    * 4. Otherwise log SKIP.
    */
-  test("3. Create window via sidebar + button", async ({ page }) => {
+  test("3. Create window via sidebar card row", async ({ page }) => {
     const sidebar = await setup(page);
 
-    // Expand session B to see its windows and the + button
+    // Expand session B to see its windows
     await expect(sidebar.locator(`text=${SESSION_B}`).first()).toBeVisible({ timeout: 8_000 });
 
-    // The + button for new window is on the session row
-    const newWinBtn = sidebar.locator(`button[aria-label='New tab in ${SESSION_B}']`);
+    // The new-tab seam is the session flyout card's create action row.
+    const sessionRow = sidebar.locator(`[data-session-row="${TMUX_SERVER}:${SESSION_B}"]`);
 
-    if (await newWinBtn.isVisible().catch(() => false)) {
+    if (await sessionRow.isVisible().catch(() => false)) {
       // Scope to SESSION_B's window rows via the wrapper's stable
       // `data-session-group` handle (sidebar/index.tsx) — keyed by session
       // name, so it selects exactly SESSION_B's wrapper with no relational
@@ -257,14 +289,17 @@ test.describe("@perf Sync Latency Audit", () => {
       const winRows = sessionBGroup.locator("[data-window-id]");
       const beforeCount = await winRows.count();
 
-      // Start the timer immediately before the create click so the recorded
-      // value is the true time-to-first-ghost-appearance — the bounded poll
-      // timeout below only bounds the failure case, it does not inflate the
-      // measurement the way the old fixed `waitForTimeout(3_000)` did.
-      const t0 = Date.now();
-      await newWinBtn.click();
+      // Open the card BEFORE the timer starts (hover opens on a delay) so the
+      // recorded value is the true time-to-first-ghost-appearance — the
+      // bounded poll timeout below only bounds the failure case, it does not
+      // inflate the measurement the way the old fixed `waitForTimeout(3_000)`
+      // did.
+      const card = await openSessionCard(page, sidebar, SESSION_B);
 
-      // The sidebar "+" create path on the current server is instant (no
+      const t0 = Date.now();
+      await card.getByTestId("row-flyout-create-action").click();
+
+      // The sidebar create path on the current server is instant (no
       // dialog) — an optimistic ghost row lands immediately. The dialog guard
       // is a tolerant no-op for any path that does surface one.
       const dialog = page.locator("[role='dialog']");
@@ -278,9 +313,9 @@ test.describe("@perf Sync Latency Audit", () => {
       await expect
         .poll(() => winRows.count(), { timeout: 8_000 })
         .toBeGreaterThan(beforeCount);
-      record("Create window (UI, + button)", Date.now() - t0);
+      record("Create window (UI, card New tab row)", Date.now() - t0);
     } else {
-      console.log("  [SKIP] No 'New window' button found — session may need expanding");
+      console.log("  [SKIP] No session row found — session may not have rendered");
     }
   });
 
@@ -507,7 +542,9 @@ test.describe("@perf Sync Latency Audit", () => {
    * Steps:
    * 1. Create `e2e-kill-${SESSION_A}` via the tmux helper.
    * 2. `setup`; assert the session row is visible.
-   * 3. Timer, click the `Kill session <name>` button.
+   * 3. Open the session's flyout card via `openSessionCard` (re-hover until
+   *    THIS session's card is open, then enter at the row's own band — see
+   *    test 3's notes); timer, click the card's `Kill session` action row.
    * 4. Wait for `[role='dialog']` to appear.
    * 5. Click `button:has-text('Kill')` inside the dialog (with
    *    `{ force: true }` to bypass occasional overlay pointer
@@ -521,10 +558,13 @@ test.describe("@perf Sync Latency Audit", () => {
     const sidebar = await setup(page);
     await expect(sidebar.locator(`text=${killVictim}`).first()).toBeVisible({ timeout: 8_000 });
 
-    const killBtn = sidebar.locator(`button[aria-label='Kill session ${killVictim}']`);
+    // The kill seam is the session flyout card's kill action row — open the
+    // card before the timed click (see openSessionCard for the re-hover loop
+    // and band entry).
+    const card = await openSessionCard(page, sidebar, killVictim);
 
     const t0 = Date.now();
-    await killBtn.click();
+    await card.getByTestId("row-flyout-kill-action").click();
 
     // Wait for the kill dialog to appear, then click the Kill confirm button inside it
     const dialog = page.locator("[role='dialog']");

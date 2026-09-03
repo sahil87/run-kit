@@ -1817,7 +1817,7 @@ describe("Sidebar — tinted server-group header fill (t1ca)", () => {
     expect(primary.style.backgroundColor).toBe(rgb(tints.get("4")!.selected));
   });
 
-  it("keeps header semantics: aria labels, expand/collapse, and the + button on the tinted bar", async () => {
+  it("keeps header semantics: aria labels and expand/collapse on the tinted bar", async () => {
     await renderWithColors({ alpha: "4" });
 
     // Toggle still works on the tinted header.
@@ -1827,23 +1827,22 @@ describe("Sidebar — tinted server-group header fill (t1ca)", () => {
       screen.getByRole("button", { name: /Collapse alpha sessions/ }),
     ).toHaveAttribute("aria-expanded", "true");
 
-    // The + new-session button still renders inside the tinted container.
+    // New session lives on the header's flyout card now — no in-header + button.
     expect(
-      within(headerContainer("alpha")).getByRole("button", { name: "New session on alpha" }),
-    ).toBeInTheDocument();
+      within(headerContainer("alpha")).queryByRole("button", { name: "New session on alpha" }),
+    ).toBeNull();
   });
 });
 
-describe("Sidebar — server-group header action cluster (x4sf)", () => {
-  // The header hosts a three-button server action cluster — palette, plus,
-  // close, in that fixed order — reusing the SERVER-tile machinery wholesale:
-  // SwatchPopover + the shared onServerColorChange seam for color, the lifted
-  // onKillServer confirmation flow for kill. Queries are scoped WITHIN the
+describe("Sidebar — server-group header card + color picker (x4sf)", () => {
+  // The header's server actions live in the shared flyout card (fine-pointer
+  // hover/focus + coarse rail): Change color… opens the portalled
+  // SwatchPopover on the shared onServerColorChange seam, Kill server rides
+  // the lifted onKillServer confirmation flow. Queries are scoped WITHIN the
   // header container ([data-server]) because the SERVER-panel tiles carry the
   // same aria wording for the same actions.
   const palette = DEFAULT_DARK_THEME.palette;
   const tints = computeRowTints(palette);
-  const borders = computeRowBorders(palette, DEFAULT_DARK_THEME.category);
 
   /** jsdom normalizes inline style colors to `rgb(r, g, b)`. */
   function rgb(hex: string): string {
@@ -1867,108 +1866,70 @@ describe("Sidebar — server-group header action cluster (x4sf)", () => {
     await act(async () => {});
   }
 
+  /** Open the server card on a fine pointer (keyboard focus opens
+   *  immediately — no hover-delay timer to drive) and click its Change
+   *  color… row: the close-then-open handoff to the header's popover. */
+  function openColorPickerViaCard(server: string) {
+    act(() => {
+      fireEvent.focus(headerContainer(server));
+    });
+    act(() => {
+      fireEvent.click(screen.getByTestId("row-flyout-color-action"));
+    });
+  }
+
   afterEach(() => {
     // Restore the file-default mocks so this block's state never leaks.
     vi.mocked(getAllServerColors).mockResolvedValue({});
     vi.mocked(setServerColor).mockClear();
+    resetFlyoutWarmState();
   });
 
-  it("renders the cluster in palette → plus → close DOM order after the toggle", async () => {
+  it("renders no hover action cluster in the header — the collapse toggle is its only button", async () => {
     await renderWithColors({ alpha: "4" });
 
-    const buttons = within(headerContainer("alpha")).getAllByRole("button");
-    expect(buttons).toHaveLength(4);
+    const container = headerContainer("alpha");
+    const buttons = within(container).getAllByRole("button");
+    expect(buttons).toHaveLength(1);
     expect(buttons[0]).toHaveAccessibleName(/(Expand|Collapse) alpha sessions/);
-    expect(buttons[1]).toHaveAccessibleName("Set color for server alpha");
-    expect(buttons[2]).toHaveAccessibleName("New session on alpha");
-    expect(buttons[3]).toHaveAccessibleName("Kill server alpha");
+    // The palette/plus/close cluster is retired on every pointer class — its
+    // actions are card rows now.
+    expect(within(container).queryByRole("button", { name: "Set color for server alpha" })).toBeNull();
+    expect(within(container).queryByRole("button", { name: "New session on alpha" })).toBeNull();
+    expect(within(container).queryByRole("button", { name: "Kill server alpha" })).toBeNull();
   });
 
-  it("+ and ✕ render the shared SVG icons in the session-row slot metrics (260813-kvk7)", async () => {
+  it("header focus opens the server card on a fine pointer — title, facts, action rows; the group never toggles", async () => {
+    await renderWithColors({ alpha: "4" });
+
+    act(() => {
+      fireEvent.focus(headerContainer("alpha"));
+    });
+    const card = screen.getByTestId("row-flyout-card");
+    expect(screen.getByTestId("popup-title-bar")).toHaveTextContent("Server alpha");
+    // alpha has no sessions in the default map.
+    expect(card).toHaveTextContent("tmux -L alpha · 0 sessions");
+    expect(screen.getByTestId("row-flyout-color-action")).toHaveTextContent("Change color…");
+    expect(screen.getByTestId("row-flyout-create-action")).toHaveTextContent("New session");
+    expect(screen.getByTestId("row-flyout-kill-action")).toHaveTextContent("Kill server");
+    // Opening the card does not toggle the group.
+    expect(
+      within(headerContainer("alpha")).getByRole("button", { name: /Expand alpha sessions/ }),
+    ).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("the card's Change color… row opens the color + flair SwatchPopover portalled to document.body", async () => {
     await renderWithColors({ alpha: "4" });
 
     const container = headerContainer("alpha");
-    const plus = within(container).getByRole("button", { name: "New session on alpha" });
-    const close = within(container).getByRole("button", { name: "Kill server alpha" });
-    // SVG glyphs (the session-row PlusIcon/CloseIcon) — the old text "+"/"✕"
-    // glyphs are gone.
-    for (const btn of [plus, close]) {
-      expect(btn.querySelector("svg")).not.toBeNull();
-      expect(btn.textContent).toBe("");
-    }
-    // Session-row slot metrics so the +/✕ icon columns align vertically
-    // across every sidebar header tier. (The coarse fallbacks were retired in
-    // 260817-ve5m — the cluster is render-gated `!coarse` now, its actions
-    // living in the rail-triggered server card.)
-    for (const btn of [plus, close]) {
-      for (const cls of ["px-0.5", "min-w-[24px]", "min-h-[24px]"]) {
-        expect(btn.className).toContain(cls);
-      }
-    }
-    // The cluster wrapper adopts the session row's `flex items-center pr-2`.
-    const wrapper = plus.parentElement as HTMLElement;
-    expect(wrapper.className).toContain("flex items-center");
-    expect(wrapper.className).toContain("pr-2");
-  });
+    openColorPickerViaCard("alpha");
 
-  it("hover-reveals the palette; + and ✕ stay always visible (fine-pointer cluster)", async () => {
-    await renderWithColors({ alpha: "4" });
-
-    const container = headerContainer("alpha");
-    // The reveal is driven by group-hover on the header container itself.
-    expect(container.className).toContain("group");
-
-    const paletteBtn = within(container).getByRole("button", { name: "Set color for server alpha" });
-    // The coarse always-visible fallback is retired (260817-ve5m) — the
-    // cluster is render-gated `!coarse`, its actions on the server card.
-    for (const cls of ["opacity-0", "group-hover:opacity-100", "focus-visible:opacity-100"]) {
-      expect(paletteBtn.className).toContain(cls);
-    }
-    expect(paletteBtn.className).not.toContain("coarse:opacity-100");
-    const plus = within(container).getByRole("button", { name: "New session on alpha" });
-    const close = within(container).getByRole("button", { name: "Kill server alpha" });
-    for (const btn of [plus, close]) {
-      expect(btn.className).not.toContain("opacity-0");
-      expect(btn.className).not.toContain("group-hover:opacity-100");
-    }
-  });
-
-  it("cluster rest color follows the header text treatment (accent wrapper, inherited by buttons)", async () => {
-    await renderWithColors({ primary: "4", alpha: "1" });
-
-    // Non-current: the cluster wrapper carries the contrast-guarded accent as
-    // an inline color; the buttons themselves carry NO inline color so their
-    // hover: classes (text-text-primary / text-signal-red) can win on hover.
-    const alphaPalette = within(headerContainer("alpha")).getByRole("button", {
-      name: "Set color for server alpha",
-    });
-    const alphaWrapper = alphaPalette.parentElement as HTMLElement;
-    expect(alphaWrapper.style.color).toBe(rgb(borders.get("1")!));
-    const alphaClose = within(headerContainer("alpha")).getByRole("button", {
-      name: "Kill server alpha",
-    });
-    expect(alphaClose.style.color).toBe("");
-    expect(alphaClose.className).toContain("hover:text-signal-red");
-
-    // Current: brightest text via class, no inline accent.
-    const primaryPalette = within(headerContainer("primary")).getByRole("button", {
-      name: "Set color for server primary",
-    });
-    const primaryWrapper = primaryPalette.parentElement as HTMLElement;
-    expect(primaryWrapper.className).toContain("text-text-primary");
-    expect(primaryWrapper.style.color).toBe("");
-  });
-
-  it("palette toggle opens the color + flair SwatchPopover portalled to document.body", async () => {
-    await renderWithColors({ alpha: "4" });
-
-    const container = headerContainer("alpha");
-    fireEvent.click(within(container).getByRole("button", { name: "Set color for server alpha" }));
-
-    // Label picker (color + flair) — distinguished from the SERVER
-    // panel's role=listbox tile grid by its accessible name.
+    // The card closed on the handoff, and the label picker (color + flair) —
+    // distinguished from the SERVER panel's role=listbox tile grid by its
+    // accessible name — opened portalled: it escapes the header (and the
+    // sessions list's overflow clip).
+    expect(screen.queryByTestId("row-flyout-card")).toBeNull();
     const popover = screen.getByRole("listbox", { name: "Label picker" });
-    // Portalled: escapes the header (and the sessions list's overflow clip).
     expect(container.contains(popover)).toBe(false);
     expect(document.body.contains(popover)).toBe(true);
   });
@@ -1979,7 +1940,7 @@ describe("Sidebar — server-group header action cluster (x4sf)", () => {
     const container = headerContainer("alpha");
     expect(container.style.backgroundColor).toBe(rgb(tints.get(UNCOLORED_SELECTED_KEY)!.base));
 
-    fireEvent.click(within(container).getByRole("button", { name: "Set color for server alpha" }));
+    openColorPickerViaCard("alpha");
     const popover = screen.getByRole("listbox", { name: "Label picker" });
     fireEvent.click(within(popover).getByRole("option", { name: "Color blue" }));
 
@@ -2001,7 +1962,7 @@ describe("Sidebar — server-group header action cluster (x4sf)", () => {
     const container = headerContainer("alpha");
     expect(container.style.backgroundColor).toBe(rgb(tints.get("4")!.base));
 
-    fireEvent.click(within(container).getByRole("button", { name: "Set color for server alpha" }));
+    openColorPickerViaCard("alpha");
     fireEvent.click(
       within(screen.getByRole("listbox", { name: "Label picker" })).getByRole("option", {
         name: "Clear color",
@@ -2012,35 +1973,22 @@ describe("Sidebar — server-group header action cluster (x4sf)", () => {
     expect(container.style.backgroundColor).toBe(rgb(tints.get(UNCOLORED_SELECTED_KEY)!.base));
   });
 
-  it("✕ invokes the lifted onKillServer prop with the server name (confirmation is the parent's)", async () => {
+  it("the card's Kill server row invokes the lifted onKillServer prop (confirmation is the parent's)", async () => {
     const onKillServer = vi.fn();
     await renderWithColors({ alpha: "4" }, { onKillServer });
 
-    fireEvent.click(
-      within(headerContainer("alpha")).getByRole("button", { name: "Kill server alpha" }),
-    );
+    act(() => {
+      fireEvent.focus(headerContainer("alpha"));
+    });
+    act(() => {
+      fireEvent.click(screen.getByTestId("row-flyout-kill-action"));
+    });
 
     expect(onKillServer).toHaveBeenCalledExactlyOnceWith("alpha");
     // No sidebar-owned dialog: the kill confirmation lives in the layout-
     // mounted ServerDialogs (server-dialogs-context `killServerTarget`,
     // 260811-239r), so nothing renders here.
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-  });
-
-  it("cluster buttons carry tier-1 tips with short generic labels (260723-fm08)", async () => {
-    await renderWithColors({ alpha: "4" });
-
-    // Focus opens immediately (tip.test.tsx focus idiom). The tip label is
-    // the short generic name; the aria-label keeps per-server specificity.
-    const kill = within(headerContainer("alpha")).getByRole("button", { name: "Kill server alpha" });
-    fireEvent.focus(kill);
-    expect(screen.getByRole("tooltip")).toHaveTextContent("Kill server");
-    expect(kill.getAttribute("aria-describedby")).toBe(screen.getByRole("tooltip").id);
-    fireEvent.blur(kill);
-
-    const plus = within(headerContainer("alpha")).getByRole("button", { name: "New session on alpha" });
-    fireEvent.focus(plus);
-    expect(screen.getByRole("tooltip")).toHaveTextContent("New session");
   });
 
   it("keeps the toggle dominant and the existing header semantics intact", async () => {
@@ -2071,10 +2019,22 @@ describe("Sidebar — server flair (group header + picker band)", () => {
     await act(async () => {});
   }
 
+  /** Open the header's picker via the server card's Change color… row
+   *  (fine-pointer focus opens the card immediately). */
+  function openPickerViaCard(server: string) {
+    act(() => {
+      fireEvent.focus(headerContainer(server));
+    });
+    act(() => {
+      fireEvent.click(screen.getByTestId("row-flyout-color-action"));
+    });
+  }
+
   afterEach(() => {
     // Restore the file-default empty flair map so this block's state never leaks.
     vi.mocked(getAllServerFlairs).mockResolvedValue({});
     vi.mocked(setServerFlair).mockClear();
+    resetFlyoutWarmState();
   });
 
   it("mounts a FlairOverlay (rk-flair-*) on a flaired server's group header, none on an unflaired one", async () => {
@@ -2101,9 +2061,7 @@ describe("Sidebar — server flair (group header + picker band)", () => {
   it("the server picker renders the flair band (15 live cells) and a flair pick POSTs + mounts the overlay optimistically", async () => {
     await renderWithFlairs({}); // alpha starts unflaired
 
-    fireEvent.click(
-      within(headerContainer("alpha")).getByRole("button", { name: "Set color for server alpha" }),
-    );
+    openPickerViaCard("alpha");
     const popover = screen.getByRole("listbox", { name: "Label picker" });
 
     // The flair band is present — the 15 named states as data-flair-value cells.
@@ -2124,9 +2082,7 @@ describe("Sidebar — server flair (group header + picker band)", () => {
     await renderWithFlairs({ alpha: "nyan" });
     expect(headerContainer("alpha").querySelector(".rk-flair-nyan")).not.toBeNull();
 
-    fireEvent.click(
-      within(headerContainer("alpha")).getByRole("button", { name: "Set color for server alpha" }),
-    );
+    openPickerViaCard("alpha");
     const popover = screen.getByRole("listbox", { name: "Label picker" });
     fireEvent.click(within(popover).getByRole("option", { name: "Flair none" }));
 
@@ -2138,9 +2094,7 @@ describe("Sidebar — server flair (group header + picker band)", () => {
     vi.mocked(setServerFlair).mockRejectedValueOnce(new Error("nope"));
     await renderWithFlairs({});
 
-    fireEvent.click(
-      within(headerContainer("alpha")).getByRole("button", { name: "Set color for server alpha" }),
-    );
+    openPickerViaCard("alpha");
     fireEvent.click(
       within(screen.getByRole("listbox", { name: "Label picker" })).getByRole("option", { name: "Flair rain" }),
     );
@@ -2152,10 +2106,10 @@ describe("Sidebar — server flair (group header + picker band)", () => {
 });
 
 // Server-group rail + server card (260817-ve5m): the rail extends the one
-// continuous strip to the group headers, the 3-icon cluster is render-gated
-// `!coarse` (its actions live in the rail-triggered card), and the card
-// carries the title/facts/action rows bound to the existing
-// onCreateSession/onKillServer/color seams. jsdom evaluates no media queries,
+// continuous strip to the group headers and its tap/scrub triggers the same
+// card fine-pointer hover/focus opens; the card carries the title/facts/action
+// rows bound to the existing onCreateSession/onKillServer/color seams. jsdom
+// evaluates no media queries,
 // so the pointer is stubbed and geometry is asserted as classes/inline styles.
 describe("Sidebar — server-group rail + server card (260817-ve5m)", () => {
   function headerContainer(server: string): HTMLElement {
@@ -2189,7 +2143,7 @@ describe("Sidebar — server-group rail + server card (260817-ve5m)", () => {
     });
   }
 
-  it("renders the 56px tier-tinted rail on the group header and gates the 3-icon cluster out of the DOM on coarse", async () => {
+  it("renders the 56px tier-tinted rail on the group header and no cluster buttons on coarse", async () => {
     vi.mocked(getAllServerColors).mockResolvedValue({ alpha: "4" });
     renderSidebar();
     await act(async () => {});
@@ -2223,15 +2177,15 @@ describe("Sidebar — server-group rail + server card (260817-ve5m)", () => {
     }
   });
 
-  it("renders no rail and the unchanged cluster on fine pointers", async () => {
+  it("renders no rail and no cluster on fine pointers — the hover/focus card is the surface", async () => {
     stubMatchMedia((q) => q.includes("prefers-color-scheme: dark")); // fine
     renderSidebar();
     await act(async () => {});
     const container = headerContainer("alpha");
     expect(within(container).queryByTestId("status-rail")).toBeNull();
-    expect(within(container).getByRole("button", { name: "Set color for server alpha" })).toBeInTheDocument();
-    expect(within(container).getByRole("button", { name: "New session on alpha" })).toBeInTheDocument();
-    expect(within(container).getByRole("button", { name: "Kill server alpha" })).toBeInTheDocument();
+    expect(within(container).queryByRole("button", { name: "Set color for server alpha" })).toBeNull();
+    expect(within(container).queryByRole("button", { name: "New session on alpha" })).toBeNull();
+    expect(within(container).queryByRole("button", { name: "Kill server alpha" })).toBeNull();
   });
 
   it("rail tap opens the server card — title, facts, action rows in fixed order; actions route; the header never toggles", async () => {
@@ -2269,15 +2223,14 @@ describe("Sidebar — server-group rail + server card (260817-ve5m)", () => {
     ).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("Change color… closes the card and opens the color popover (header-anchored on coarse); the open popover inhibits re-opening", async () => {
+  it("Change color… closes the card and opens the header-anchored color popover; the open popover inhibits re-opening", async () => {
     renderSidebar();
     await act(async () => {});
 
     tapRail("alpha");
     act(() => { fireEvent.click(screen.getByTestId("row-flyout-color-action")); });
     expect(screen.queryByTestId("row-flyout-card")).toBeNull();
-    // The popover still opens on coarse even though its palette-button anchor
-    // is gated off with the cluster — it falls back to the header anchor.
+    // The popover anchors at the header element on every pointer class.
     expect(screen.getByRole("listbox", { name: "Label picker" })).toBeInTheDocument();
     // Popover-over-card precedence: the suppressed gate holds while the
     // popover is open.

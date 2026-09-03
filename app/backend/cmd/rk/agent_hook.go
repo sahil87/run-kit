@@ -62,9 +62,10 @@ const agentHookAncestorHops = 5
 // one source is excluded. The startup/resume/clear idle write is the boot-ready
 // signal (state present ⇒ hooks fired ⇒ the TUI is up) and also clears a stale
 // waiting/active left in the pane by a previous agent. An unparseable payload
-// skips the idle write (fail-safe against the mid-turn clobber) but never the
-// chat stamp. The three canonical agent states plus this token are the only
-// tokens that write anything; any other is a silent no-op.
+// skips both writes: the idle write (fail-safe against the mid-turn clobber)
+// and the chat stamp (no session id can be decoded). The three canonical agent
+// states plus this token are the only tokens that write anything; any other is
+// a silent no-op.
 const agentHookStampToken = "stamp"
 
 // hookSourceCompact is the SessionStart source that fires mid-turn (context

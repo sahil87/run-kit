@@ -355,8 +355,9 @@ Beyond that:
    a `session_id`, and — when the parsed payload's `source` is NOT `compact`
    (the mid-turn source) — additionally writes `@rk_pane_agent_state
    idle:<epoch>[:<pid>]` under the Writer Rules above (comm-validated pid walk,
-   pid omitted when the walk fails). An unparseable payload withholds the idle
-   write (fail-safe) but never the chat stamp. Unknown tokens are silent no-ops.
+   pid omitted when the walk fails). An unparseable payload withholds both the
+   idle write (fail-safe) and the chat stamp (no `session_id` can be decoded).
+   Unknown tokens are silent no-ops.
 4. **Validated before write** — the `session_id` is checked (non-empty, no
    whitespace/control chars) with the same rule the reader applies to a ref, so a
    value the reader would reject is never written.

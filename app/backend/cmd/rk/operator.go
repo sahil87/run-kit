@@ -14,6 +14,7 @@ import (
 	"rk/internal/inject"
 	"rk/internal/riff"
 	"rk/internal/tmux"
+	"rk/internal/validate"
 
 	"github.com/spf13/cobra"
 )
@@ -248,7 +249,14 @@ func runOperator(cmd *cobra.Command) error {
 	if err != nil {
 		return &riff.ExitCodeError{Code: riff.ExitSubprocess, Msg: fmt.Sprintf("run-kit operator: resolve new window id failed: %v", err)}
 	}
-	if err := stampOperatorRole(ctx, tmuxSocketArgs(operatorOriginalTMUXFn()), strings.TrimSpace(string(winOut))); err != nil {
+	// Validate before stamping (the role.go pattern): an empty or malformed id
+	// reaching stampOperatorRole would radio-clear @rk_win_role from every
+	// window (ClearWindowRoleExcept keeps nothing when keepWindowID is "").
+	winID := strings.TrimSpace(string(winOut))
+	if errMsg := validate.ValidateWindowID(winID, "Window ID"); errMsg != "" {
+		return &riff.ExitCodeError{Code: riff.ExitSubprocess, Msg: fmt.Sprintf("run-kit operator: resolve new window id failed: %s", errMsg)}
+	}
+	if err := stampOperatorRole(ctx, tmuxSocketArgs(operatorOriginalTMUXFn()), winID); err != nil {
 		return &riff.ExitCodeError{Code: riff.ExitSubprocess, Msg: fmt.Sprintf("run-kit operator: mark operator role: %v", err)}
 	}
 

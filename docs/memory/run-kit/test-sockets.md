@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Test-socket isolation on the tmux substrate: unified rk-test-<role>-<pid>-<ns> naming, the TestMain POST-sweep, rk mux reap (dry-run default, --force, --ephemeral), /api/servers listing every server, the RK_SERVER_ALLOWLIST enumeration bound, the e2e rk-test-e2e-<token>- family anchor + E2E_TMUX_FAMILY, the RK_CONFIG_DIR per-run config-root leg, and the port-fallback rule."
+description: "Test-socket isolation on the tmux substrate: unified rk-test-<role>-<pid>-<ns> naming, the seven-package TestMain POST-sweep (e2e family excluded), rk mux reap (dry-run default, --force, --ephemeral), /api/servers listing every server, the RK_SERVER_ALLOWLIST enumeration bound, the e2e rk-test-e2e-<token>- family anchor + E2E_TMUX_FAMILY with its bare-anchor teardown refusal, the RK_CONFIG_DIR per-run config-root leg, and the port-fallback rule."
 ---
 # Test Sockets & Test Isolation
 
@@ -22,6 +22,15 @@ rk-test-<role>-<pid>-<ns>
 
 **E2E (Playwright) naming — per-worktree derived family**: the e2e socket identity derives from the worktree, not a fixed name. `scripts/e2e-env.sh` computes a hyphen-free **token** — lowercase alphanumerics from the checkout's basename (hyphens stripped), an all-digits token gaining a `wt` prefix, plus a 2-char `cksum` hash tail of the absolute toplevel path so two same-named checkouts diverge — and sets the **family anchor** `E2E_TMUX_FAMILY=rk-test-e2e-<token>-` (trailing hyphen included; the `rk-test-` umbrella is preserved) and the **primary** `E2E_TMUX_SERVER=rk-test-e2e-<token>-0`, created once by `scripts/test-e2e.sh`, torn down by its family-anchored trap glob, and caught by the manual reaper's `rk-test` brute-force. Every family member carries a role segment after the token: secondary per-spec servers are `${TMUX_FAMILY}<role>-${process.pid}-${epoch}` (e.g. `rk-test-e2e-<token>-multi-48213-1717…`), so `parseTestSocketPID` still reads the PID from the second-to-last field, while the primary's `-0` tail keeps it un-PID-sweepable (the `wt` prefix guarantees an all-digits token never parses as one). Because tokens are hyphen-free, the anchor `rk-test-e2e-<tokenA>-` prefixes a `rk-test-e2e-<tokenB>-…` name only when the tokens are equal — cross-worktree family matching is impossible by construction under glob and `HasPrefix` semantics alike. The declaration sites are `scripts/e2e-env.sh` (derivation), `scripts/test-e2e.sh` + `scripts/pw.sh` (which pass `E2E_TMUX_SERVER`/`E2E_TMUX_FAMILY` into the Playwright env), and the spec tree's single env reads in `app/frontend/tests/e2e/_tmux.ts` (`TMUX_SERVER`/`TMUX_FAMILY`) and `global-teardown.ts` (see `architecture.md` § Playwright E2E Tests). A preset `E2E_TMUX_SERVER` with no preset family implies family = the server name AS-IS (no appended hyphen), so prefix matching admits the primary itself.
 
+### A bare family anchor refuses the teardown sweep
+
+Both family-anchored teardown sweeps **refuse to run**, printing a warning that names the refused anchor, when the resolved anchor is one of the bare defaults `rk-test-e2e` or `rk-test-e2e-`:
+
+- `app/frontend/tests/e2e/global-teardown.ts` skips its socket-dir prefix scan (`family ?? server` is the resolved anchor) and reaps only the primary.
+- `scripts/test-e2e.sh` `cleanup()` skips its `"/tmp/tmux-$(id -u)/${E2E_TMUX_FAMILY}"*` socket loop and instead kills the exact primary `$E2E_TMUX_SERVER` by name. The PGID and port cleanup still run — the refusal is scoped to the socket glob.
+
+A token-less anchor is never a valid single-worktree family: it is a strict prefix of **every** derived family (`rk-test-e2e-<token>-…`), so a prefix scan or glob under it reaches sibling worktrees' in-flight servers. The anchor collapses to a bare default when `E2E_TMUX_SERVER` is preset to one with no preset family — `scripts/e2e-env.sh` then sets `E2E_TMUX_FAMILY` to the server name as-is. Killing the primary from the refused branch carries no cross-worktree hazard: it is an **exact name, not a prefix**, mirroring `global-teardown.ts` keeping the primary in its kill set unconditionally. Derived anchors are unaffected — their scan runs in full — and `_tmux.ts`'s own fallback default carries the bare value: the guard lives at the two sweep sites, not on the constant.
+
 ### E2E creation sites mark their servers `@rk_srv_ephemeral`
 
 Both e2e creation sites set `@rk_srv_ephemeral 1` server-scoped at birth: `scripts/test-e2e.sh` marks the primary `rk-test-e2e-<token>-0` server immediately after its `new-session` creation, and the Playwright `_tmux.ts` `createSession` helper marks its target server after a successful create, inside its existing best-effort try block — one seam covering the primary and every `rk-test-e2e-<token>-<role>-<pid>-<epoch>` secondary the multi-server specs spin up (a repeated set is an idempotent no-op). The marking is belt-and-braces alongside the `rk-test-*` name umbrella: `IsTestServerName(name)` ⇒ treated-as-ephemeral already covers these names, so the option changes no behavior for them — it standardizes the creator-intent semantic for option-reading consumers (`rk mux reap --ephemeral`, the snapshotter's retire-on-mark); consumers read through `IsEphemeralServer`, which dual-reads the retired `@rk_ephemeral` name when the scope-named one is unset ([tmux-sessions](/run-kit/tmux-sessions.md) § Legacy Option Migration). Go test-scaffolding creation sites are deliberately NOT marked: creation there is ~50 heterogeneous raw `new-session` sites (only the *naming* is centralized, via `testSocketName`), and the PID-scoped `TestMain` post-sweep self-heals Go-test residue independently.
@@ -30,7 +39,7 @@ Both e2e creation sites set `@rk_srv_ephemeral 1` server-scoped at birth: `scrip
 
 ### PID parsing — second-to-last hyphen field
 
-`parseTestSocketPID(name) (int, bool)` (duplicated in `internal/tmux/main_test.go` and `api/main_test.go`) extracts the PID from the **second-to-last** hyphen-delimited field — `strings.Split(name, "-")`, take element `len-2`, `strconv.Atoi`. It returns `ok=false` when the name lacks the `rk-test-` prefix, has fewer than 5 fields (`rk`, `test`, `<role>`, `<pid>`, `<ns>`), or the candidate field is non-numeric.
+`parseTestSocketPID(name) (int, bool)` (one copy per sweeping package — the seven `main_test.go` files listed in § Automatic Test-Socket Sweep) extracts the PID from the **second-to-last** hyphen-delimited field — `strings.Split(name, "-")`, take element `len-2`, `strconv.Atoi`. It returns `ok=false` when the name lacks the `rk-test-` prefix, has fewer than 5 fields (`rk`, `test`, `<role>`, `<pid>`, `<ns>`), or the candidate field is non-numeric.
 
 Parsing from the right (fixed `len-2` index) is what makes hyphenated roles work: `rk-test-e2e-sunnygazelleac-multi-48213-1717…` yields PID `48213` because the role (`e2e-sunnygazelleac-multi`) occupies the middle fields and never shifts the PID's position. A fixed *left* index (the field immediately after the prefix) would break the moment a role contained a hyphen.
 
@@ -44,7 +53,7 @@ Parsing from the right (fixed `len-2` index) is what makes hyphenated roles work
 
 ## Automatic Test-Socket Sweep — POST-sweep in `TestMain`
 
-Both packages that have it (`internal/tmux/main_test.go`, `api/main_test.go`) run a **post-sweep** — `sweepDeadTestSockets()` runs *after* `m.Run()`, never before:
+**Every tmux-spawning Go test package post-sweeps its own residue.** Seven packages carry the `TestMain` post-sweep, each in its own `main_test.go`: `internal/tmux`, `api`, `cmd/rk` (`package main`), `internal/daemon`, `internal/tmuxctl`, `internal/snapshot`, and `internal/remote`. `sweepDeadTestSockets()` runs *after* `m.Run()`, never before:
 
 ```go
 func TestMain(m *testing.M) {
@@ -54,11 +63,26 @@ func TestMain(m *testing.M) {
 }
 ```
 
-There is no pre-sweep: the post-sweep means **each run reaps its OWN dead-PID residue** on the way out.
+There is no pre-sweep: the post-sweep means **each run reaps its OWN dead-PID residue** on the way out, so no package's sweep is load-bearing for another package's — or another worktree's — leftovers.
 
-**PID-scoped to dead owners only — never a blanket wipe.** `sweepDeadTestSockets` enumerates `/tmp/tmux-<uid>/` and `kill-server`s a socket only when its embedded PID **parses** (`parseTestSocketPID`) **AND is dead** (`testPIDAlive` reports `ESRCH`). Live-PID sockets — which belong to a **concurrent `go test ./...` package running as a separate process** — are spared, so packages running in parallel do not kill each other. Sockets without a parseable PID (no role/pid/ns shape) are left untouched. Kills use `exec.CommandContext` + a 5s timeout and an argument slice (constitution I) — never a shell string. Best-effort: enumeration or kill failures are ignored (a leaked socket is harmless residue; never blocking tests is the priority).
+**The duplicated set** per package is `sweepDeadTestSockets` + `parseTestSocketPID` + `testPIDAlive` + the two consts `testSocketPrefix` / `testSocketE2EPrefix` (~78 lines, Go `_test.go` symbols being package-private). `testSocketName` is **not** in the set — the sweep never calls it, and `internal/daemon`/`internal/tmuxctl` already define it in their own test files, where a second definition would not compile.
+
+**The `rk-test-e2e-` family is excluded** — the prefix check (`testSocketE2EPrefix`) runs **before** the PID parse in every copy. An e2e secondary (`rk-test-e2e-<token>-<role>-<pid>-<epoch>`) embeds the Playwright **worker** PID, and `playwright.config.ts` sets `retries: 1`, so a worker respawn leaves a still-in-use server owned by a dead PID that the PID rule alone would reap mid-run. The family's own teardown chain owns it: the `scripts/test-e2e.sh` EXIT trap, `global-teardown.ts`, and `rk mux reap` by hand.
+
+**PID-scoped to dead owners only — never a blanket wipe.** Past the e2e skip, `sweepDeadTestSockets` enumerates `/tmp/tmux-<uid>/` and `kill-server`s a socket only when its embedded PID **parses** (`parseTestSocketPID`) **AND is dead** (`testPIDAlive` reports `ESRCH`) — or is this process's own PID, since the sweep runs while exiting. Live-PID sockets — which belong to a **concurrent `go test ./...` package running as a separate process** — are spared, so packages running in parallel do not kill each other. Sockets without a parseable PID (no role/pid/ns shape) are left untouched. Kills use `exec.CommandContext` + a 5s timeout and an argument slice (constitution I) — never a shell string. Best-effort: enumeration or kill failures are ignored (a leaked socket is harmless residue; never blocking tests is the priority).
 
 `t.Cleanup(kill-server)` reaps each socket on the normal path; the post-sweep is the only automatic cleanup for **un-catchable SIGKILL / panic / OOM residue**. The manual `rk mux reap` is the by-hand janitor for cruft that has already accumulated on disk across runs.
+
+### Injectable socket dir — the sweep test's private namespace
+
+`internal/tmux` alone carries the seam: `sweepDeadTestSocketsIn(socketDir string)` holds the enumeration loop, and the `TestMain`-called wrapper `sweepDeadTestSockets()` supplies the hardcoded `/tmp/tmux-<uid>` default. The other six copies carry the single-function shape — the sweep test is the seam's only consumer.
+
+`socketsweep_test.go` births its fixture servers in a private per-test directory and invokes `sweepDeadTestSocketsIn` against exactly that directory, so neither fixture creation nor the mid-run sweep ever touches the shared namespace sibling worktrees and concurrent packages share. `isolatedSocketDir(t)` creates the base dir with **`os.MkdirTemp("", "rk")` — deliberately not `t.TempDir()`** — sets `TMUX_TMPDIR` to it via `t.Setenv`, and returns the derived `<base>/tmux-<uid>` path tmux places `-L` sockets under. Both halves are load-bearing:
+
+- **The short path**: a full socket path must fit `sockaddr_un`'s ~104-byte `sun_path`. `t.TempDir()` embeds the test's name in the directory, which alone overruns the limit once the `tmux-<uid>/<socket>` tail is appended — the failure surfaces as `File name too long`.
+- **The env/seam pairing**: fixture creation and `tmuxSocketLive`'s kill/probe path resolve their socket through the **ambient** `TMUX_TMPDIR`, while the sweep resolves through the **injected** dir argument. The two must name the same directory or the test asserts against servers the sweep never saw.
+
+`TestSweepDeadTestSockets_reapsOwnAndDeadSparesOtherLive` proves the three-way own/other-live/dead invariant; `TestSweepDeadTestSockets_sparesE2EFamily` proves the family exclusion — a dead-PID `rk-test-e2e-fixture-*` socket survives while a sibling `rk-test-sweepspare-*` carrying the **same** dead PID is reaped, so the exclusion is scoped to the family rather than a blanket softening of the PID rule.
 
 ## `rk mux reap` — Brute-Force-by-Prefix Operator Cleanup
 
@@ -70,7 +94,7 @@ There is no relay startup sweep. Relay ephemerals do not exist (the relay attach
 
 ### Brute-force-by-prefix — no liveness probe to match
 
-The reaper's default match is **purely by name prefix** — no PID parse, no name-shape reasoning, no e2e exclusion, no `.lock`-inherits-base-server logic; `--ephemeral` adds a second, option-based match dimension (see § `--ephemeral` below). It iterates **RAW** socket-dir candidates via `ScanSocketDir(ctx)` (NOT `ListServers`, which probes dead sockets away) and classifies each:
+The reaper's default match is **purely by name prefix** — no PID parse, no name-shape reasoning, no e2e exclusion, no `.lock`-inherits-base-server logic; `--ephemeral` adds a second, option-based match dimension (see § `--ephemeral` below). The absent e2e exclusion is the deliberate **inverse** of the automatic post-sweep's: the Go sweep skips the `rk-test-e2e-` family precisely because that family's own teardown chain owns it, and this operator janitor is the last link in that chain — the by-hand cleaner for crashed e2e residue no trap or teardown hook reached. It iterates **RAW** socket-dir candidates via `ScanSocketDir(ctx)` (NOT `ListServers`, which probes dead sockets away) and classifies each:
 
 - **Bare `rk mux reap`** ≡ `rk mux reap --prefix rk-test` — matches every `rk-test*` socket, `.lock` file, and live server.
 - **`rk mux reap --prefix <p>`** applies identical behavior to `<p>*`.
@@ -216,4 +240,22 @@ Spec side, the config-touching specs (`settings-dialog.spec.ts`, `board-list-reo
 **Why**: every secondary-server spec already routes through `createSession`; one seam future-proofs new specs with zero per-spec ceremony — the same rationale that centralized the lifecycle helpers.
 **Rejected**: a separate `createServer` helper (nothing else distinguishes server-create from session-create in the specs — `createSession` with `opts.server` IS the server-create path).
 *Introduced by*: 260821-hbmh-ephemeral-creation-adoption
+
+### E2E exclusion by family prefix, not per-worktree token matching
+**Decision**: `sweepDeadTestSockets` skips the whole `rk-test-e2e-` family by prefix, checked before the PID parse.
+**Why**: The e2e family has its own owners-and-teardown chain (`test-e2e.sh` trap glob, `global-teardown.ts` prefix scan, `rk mux reap` by hand); Go tests never need to janitor it, and prefix exclusion closes the worker-PID-respawn hole completely — a respawned Playwright worker leaves a live server whose embedded PID is dead, which no PID-based rule can distinguish from residue.
+**Rejected**: Per-worktree token matching — more moving parts for no added safety; the Go sweep would need the worktree token, which it has no reason to know.
+*Introduced by*: 260903-np2w-test-socket-sweep-scoping
+
+### Injectable-dir seam over `TMUX_TMPDIR`-only isolation
+**Decision**: The `internal/tmux` sweep is two functions — `sweepDeadTestSocketsIn(socketDir)` holding the loop, plus a wrapper supplying the real default; the sweep test sets `TMUX_TMPDIR` per-test for fixture creation AND passes the derived temp dir to the seam.
+**Why**: Keeps the `TestMain` wrapper's behavior byte-identical (hardcoded `/tmp/tmux-<uid>` default) while the test gets a fully private namespace; the seam is the direct, deterministic handle for the enumeration dir, so no test ever fires the shared-namespace sweep mid-run.
+**Rejected**: `TMUX_TMPDIR` alone with the wrapper reading it — that changes the production wrapper's enumeration behavior for all callers.
+*Introduced by*: 260903-np2w-test-socket-sweep-scoping
+
+### Guard the bare family anchor at the sweep sites, not at the constant
+**Decision**: The `rk-test-e2e` / `rk-test-e2e-` refusal lives in `global-teardown.ts` and the `test-e2e.sh` `cleanup()` trap; `_tmux.ts`'s fallback default is outside the guard, and the refused branch still kills the primary by its exact name.
+**Why**: A token-less anchor is unsafe only where it is used as a *prefix*; the two sweep sites are the only places that widen it into a match. Guarding there leaves the constant's other consumers (which use it as an exact server name) working, and keeps the primary reaped so the refusal never trades a cross-worktree hazard for a leak.
+**Rejected**: Changing or removing `_tmux.ts`'s fallback default — direct Playwright runs are fail-closed anyway, and the constant has consumers for which a bare name is correct.
+*Introduced by*: 260903-np2w-test-socket-sweep-scoping
 

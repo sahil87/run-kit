@@ -33,15 +33,30 @@ export default function globalTeardown() {
   // scanned entries.
   const primary = server ?? `${family}0`;
   const sockets = new Set<string>([primary]);
-  try {
-    const uid = process.getuid?.();
-    if (uid !== undefined) {
-      for (const name of readdirSync(`/tmp/tmux-${uid}`)) {
-        if (name.startsWith(prefix)) sockets.add(name);
+
+  // A token-less anchor is never a valid single-worktree family: it is a strict
+  // prefix of EVERY derived family (rk-test-e2e-<token>-…), so the scan below
+  // would reap sibling worktrees' in-flight servers. It reaches here when
+  // E2E_TMUX_SERVER is preset to a bare default with no family — e2e-env.sh
+  // then collapses E2E_TMUX_FAMILY to the server name as-is. The primary stays
+  // in the kill set: it is an exact name, not a prefix.
+  const bareAnchor = prefix === "rk-test-e2e" || prefix === "rk-test-e2e-";
+  if (bareAnchor) {
+    console.warn(
+      `[e2e teardown] refusing the family sweep: anchor "${prefix}" is a bare default ` +
+        `that prefixes every worktree's family. Reaping only the primary "${primary}".`,
+    );
+  } else {
+    try {
+      const uid = process.getuid?.();
+      if (uid !== undefined) {
+        for (const name of readdirSync(`/tmp/tmux-${uid}`)) {
+          if (name.startsWith(prefix)) sockets.add(name);
+        }
       }
+    } catch {
+      // Socket dir missing — fall back to reaping just the primary prefix.
     }
-  } catch {
-    // Socket dir missing — fall back to reaping just the primary prefix.
   }
 
   for (const server of sockets) {

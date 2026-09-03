@@ -50,9 +50,23 @@ cleanup() {
   # completion, set -e error, SIGINT/SIGTERM from Ctrl-C), so this reaps
   # secondaries even when a spec's afterAll never ran. Best-effort: a socket
   # may already be gone.
-  for sock in "/tmp/tmux-$(id -u)/${E2E_TMUX_FAMILY}"*; do
-    [ -S "$sock" ] && tmux -L "$(basename "$sock")" kill-server 2>/dev/null || true
-  done
+  #
+  # A token-less anchor is refused: it is a strict prefix of EVERY derived
+  # family, so the glob would reach sibling worktrees' in-flight servers. It
+  # arises when E2E_TMUX_SERVER is preset to a bare default with no family —
+  # e2e-env.sh then sets the family to the server name as-is. The primary is
+  # still reaped by its exact name (never a prefix).
+  case "$E2E_TMUX_FAMILY" in
+    rk-test-e2e | rk-test-e2e-)
+      echo "WARNING: refusing the family socket sweep — anchor '$E2E_TMUX_FAMILY' is a bare default that prefixes every worktree's family. Reaping only the primary '$E2E_TMUX_SERVER'." >&2
+      tmux -L "$E2E_TMUX_SERVER" kill-server 2>/dev/null || true
+      ;;
+    *)
+      for sock in "/tmp/tmux-$(id -u)/${E2E_TMUX_FAMILY}"*; do
+        [ -S "$sock" ] && tmux -L "$(basename "$sock")" kill-server 2>/dev/null || true
+      done
+      ;;
+  esac
   rm -rf "$E2E_STATE_HOME"
 }
 trap cleanup EXIT

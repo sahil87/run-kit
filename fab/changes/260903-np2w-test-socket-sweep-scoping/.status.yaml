@@ -5,17 +5,17 @@ created_by: sahil87
 change_type: fix
 issues: []
 progress:
-    intake: ready
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
-    review-pr: pending
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: active
 plan:
-    generated: false
-    task_count: 0
-    acceptance_count: 0
-    acceptance_completed: 0
+    generated: true
+    task_count: 11
+    acceptance_count: 13
+    acceptance_completed: 13
 confidence:
     certain: 3
     confident: 2
@@ -29,7 +29,28 @@ confidence:
         competence: 85.0
         disambiguation: 74.0
 stage_metrics:
-    intake: {started_at: "2026-09-03T06:07:17Z", driver: fab-new, iterations: 1}
-prs: []
+    intake: {started_at: "2026-09-03T06:07:17Z", driver: fab-new, iterations: 1, completed_at: "2026-09-03T06:22:52Z"}
+    apply: {started_at: "2026-09-03T06:22:52Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T06:57:06Z"}
+    review: {started_at: "2026-09-03T06:57:06Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T07:04:15Z"}
+    hydrate: {started_at: "2026-09-03T07:04:15Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T07:10:04Z"}
+    ship: {started_at: "2026-09-03T07:10:04Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T07:12:00Z"}
+    review-pr: {started_at: "2026-09-03T07:12:00Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/804
+true_impact:
+    added: 933
+    deleted: 38
+    net: 895
+    excluding:
+        added: 694
+        deleted: 17
+        net: 677
+    tests:
+        added: 655
+        deleted: 7
+        net: 648
+    computed_at: "2026-09-03T07:12:00Z"
+    computed_at_stage: ship
+summary: Go dead-PID test-socket post-sweep scoped away from the rk-test-e2e- family and extended to all seven tmux-spawning packages; internal/tmux gains the injectable sweepDeadTestSocketsIn seam with a private TMUX_TMPDIR fixture dir; global-teardown.ts and test-e2e.sh cleanup() refuse a bare rk-test-e2e/rk-test-e2e- family anchor, reaping only the exact primary.
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-03T06:11:25Z
+last_updated: 2026-09-03T07:12:00Z

@@ -9,7 +9,7 @@ import { WaitingBadge } from "@/components/waiting-badge";
 import { countWaitingWindows } from "@/lib/waiting";
 import { toSafeSessionName } from "@/lib/names";
 import { abbreviateHomePath } from "@/lib/format";
-import { PaletteIcon, BotIcon, PlusIcon, CloseIcon, NotePencilIcon } from "./icons";
+import { PaletteIcon, BotIcon, PlusIcon, CloseIcon, NotePencilIcon, PlugIcon } from "./icons";
 import { PopupTitleBar, PopupTitleBarSecondary } from "./popup-title-bar";
 import {
   useRowFlyout,
@@ -414,9 +414,14 @@ function SessionRowInner({
         {showViewers && (
           <span
             data-testid="viewer-badge"
-            className="shrink-0 text-xs leading-none px-1.5 py-0.5 rounded text-text-secondary font-medium tabular-nums"
+            // The plug glyph disambiguates the count from the bare
+            // window-count-number vocabulary the server tiles use — a bare "2"
+            // beside a session name reads as "2 windows". Plug = the literal
+            // tmux semantics: an attached client.
+            className="shrink-0 flex items-center gap-0.5 text-xs leading-none px-1.5 py-0.5 rounded text-text-secondary font-medium tabular-nums"
             aria-label={`${viewers.length} viewers attached`}
           >
+            <PlugIcon size={11} />
             {viewers.length}
           </span>
         )}

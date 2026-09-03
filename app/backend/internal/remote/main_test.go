@@ -1,9 +1,8 @@
-package api
+package remote
 
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"strconv"
@@ -15,27 +14,20 @@ import (
 
 // TestMain post-sweeps dead-PID test sockets AFTER all tests run, self-healing
 // residue this run leaked when a test was SIGKILLed / panicked / OOMed before
-// its t.Cleanup(kill-server) could fire. The pre-sweep was dropped: the manual
-// `rk mux reap` is the only by-hand cleanup for cross-run SIGKILL residue.
+// its t.Cleanup(kill-server) could fire. There is no pre-sweep: each run reaps
+// its OWN residue on the way out, so cross-run janitoring is never load-bearing.
 //
 // The sweep is PID-scoped: a socket is reaped only when its embedded PID parses
 // AND is dead, so a concurrently running `go test ./...` package (a separate
 // live process) is never killed.
 //
 // The sweep logic is duplicated from internal/tmux/main_test.go: Go _test.go
-// symbols are package-private and cannot be shared across packages, and the spec
-// directs a small duplicated helper over exporting test-only logic from
-// production code.
+// symbols are package-private and cannot be shared across packages, and a small
+// duplicated helper beats exporting test-only logic from production code.
 func TestMain(m *testing.M) {
 	code := m.Run()
 	sweepDeadTestSockets()
 	os.Exit(code)
-}
-
-// testSocketName builds a unified test socket name: rk-test-<role>-<pid>-<ns>.
-// Duplicated from internal/tmux/main_test.go (cross-package test privacy).
-func testSocketName(role string) string {
-	return fmt.Sprintf("rk-test-%s-%d-%d", role, os.Getpid(), time.Now().UnixNano())
 }
 
 // testSocketPrefix is the single umbrella prefix every test socket carries.
@@ -67,12 +59,11 @@ func parseTestSocketPID(name string) (int, bool) {
 	return pid, true
 }
 
-// testPIDAlive mirrors cmd/rk/serve_sweep.go:pidAlive — biased toward "alive" on
-// any non-ESRCH ambiguity so the post-sweep leaks rather than reaps a socket
-// whose owner may still be running. A non-positive pid is treated as dead: a
-// real socket embeds os.Getpid() (≥ 1), and syscall.Kill(0, 0) / negative pids
-// target a process group (not a single process) and would otherwise be misread
-// as a live owner.
+// testPIDAlive is biased toward "alive" on any non-ESRCH ambiguity (EPERM, etc.)
+// so the post-sweep leaks rather than reaps a socket whose owner may still be
+// running. A non-positive pid is treated as dead: a real socket embeds
+// os.Getpid() (>= 1), and syscall.Kill(0, 0) / negative pids target a process
+// group (not a single process) and would otherwise be misread as a live owner.
 func testPIDAlive(pid int) bool {
 	if pid <= 0 {
 		return false

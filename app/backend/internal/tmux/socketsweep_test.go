@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
@@ -68,6 +69,28 @@ func TestTestPIDAlive(t *testing.T) {
 	}
 }
 
+// isolatedSocketDir points this test's tmux servers at a private socket
+// namespace and returns the directory the sweep must enumerate. tmux places a
+// `-L <name>` socket at $TMUX_TMPDIR/tmux-<uid>/<name>, so the fixtures below
+// never appear in the shared /tmp/tmux-<uid>/ that sibling worktrees and
+// concurrent packages share — and the sweep invoked mid-run against the
+// returned dir can never reach their live servers.
+//
+// The base dir is a short-named os.MkdirTemp rather than t.TempDir: the full
+// socket path must fit sockaddr_un's ~104-byte sun_path, and t.TempDir embeds
+// the test's name, which alone overruns it once the tmux-<uid>/<socket> tail
+// is appended.
+func isolatedSocketDir(t *testing.T) string {
+	t.Helper()
+	tmpdir, err := os.MkdirTemp("", "rk")
+	if err != nil {
+		t.Fatalf("could not create isolated socket dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(tmpdir) })
+	t.Setenv("TMUX_TMPDIR", tmpdir)
+	return filepath.Join(tmpdir, "tmux-"+strconv.Itoa(os.Getuid()))
+}
+
 // tmuxSocketLive reports whether a tmux server is reachable on the given socket
 // name (i.e. the post-sweep did NOT reap it).
 func tmuxSocketLive(t *testing.T, name string) bool {
@@ -124,13 +147,14 @@ func startOtherLivePID(t *testing.T) int {
 //   - OTHER-live-PID socket (a concurrent test process) → SPARED.
 //   - DEAD-PID socket → REAPED.
 //
-// All three servers live in the real /tmp/tmux-<uid>/ dir sweepDeadTestSockets
-// scans.
+// All three servers live in a private socket dir (isolatedSocketDir), so the
+// mid-run sweep classifies only these fixtures.
 func TestSweepDeadTestSockets_reapsOwnAndDeadSparesOtherLive(t *testing.T) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not available — skipping integration test")
 	}
 
+	socketDir := isolatedSocketDir(t)
 	ns := strconv.FormatInt(time.Now().UnixNano(), 10)
 	otherPID := startOtherLivePID(t)
 
@@ -145,7 +169,7 @@ func TestSweepDeadTestSockets_reapsOwnAndDeadSparesOtherLive(t *testing.T) {
 	startSocketServer(t, otherLive)
 	startSocketServer(t, dead)
 
-	sweepDeadTestSockets()
+	sweepDeadTestSocketsIn(socketDir)
 
 	if tmuxSocketLive(t, own) {
 		t.Errorf("own-PID socket %q survived — the post-sweep must reap this run's own residue at exit", own)
@@ -155,5 +179,35 @@ func TestSweepDeadTestSockets_reapsOwnAndDeadSparesOtherLive(t *testing.T) {
 	}
 	if tmuxSocketLive(t, dead) {
 		t.Errorf("dead-PID socket %q survived — the post-sweep must reap it", dead)
+	}
+}
+
+// TestSweepDeadTestSockets_sparesE2EFamily proves the e2e-family exclusion: a
+// dead embedded PID is NOT sufficient grounds to reap a rk-test-e2e- socket,
+// because an e2e secondary embeds the Playwright WORKER pid and a worker
+// respawn leaves a live server owned by a dead pid. The sibling non-e2e socket
+// with the same dead pid is the control — it must still be reaped, proving the
+// exclusion is scoped to the family and not a blanket softening of the rule.
+func TestSweepDeadTestSockets_sparesE2EFamily(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available — skipping integration test")
+	}
+
+	socketDir := isolatedSocketDir(t)
+	ns := strconv.FormatInt(time.Now().UnixNano(), 10)
+
+	e2e := fmt.Sprintf("rk-test-e2e-fixture-%d-%s", deadPID, ns)
+	sibling := fmt.Sprintf("rk-test-sweepspare-%d-%s", deadPID, ns)
+
+	startSocketServer(t, e2e)
+	startSocketServer(t, sibling)
+
+	sweepDeadTestSocketsIn(socketDir)
+
+	if !tmuxSocketLive(t, e2e) {
+		t.Errorf("e2e-family socket %q was reaped — the sweep must skip %q before the PID parse", e2e, testSocketE2EPrefix)
+	}
+	if tmuxSocketLive(t, sibling) {
+		t.Errorf("dead-PID socket %q survived — the exclusion must be scoped to the e2e family", sibling)
 	}
 }

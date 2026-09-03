@@ -1,3 +1,10 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-03T06:07:17Z"}
 {"args":"Scope the Go dead-PID test-socket sweep away from sibling worktrees' e2e servers and add TestMain post-sweeps to the five uncovered packages","cmd":"fab-new","event":"command","ts":"2026-09-03T06:07:17Z"}
 {"delta":"+0.0","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-09-03T06:11:21Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-03T06:19:26Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-03T06:22:52Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-03T06:41:24Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-03T06:57:06Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-03T07:04:15Z"}
+{"event":"review","result":"passed","ts":"2026-09-03T07:04:15Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-03T07:10:04Z"}

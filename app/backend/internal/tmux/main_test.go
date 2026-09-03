@@ -39,6 +39,14 @@ func testSocketName(role string) string {
 // testSocketPrefix is the single umbrella prefix every test socket carries.
 const testSocketPrefix = "rk-test-"
 
+// testSocketE2EPrefix anchors the Playwright e2e socket family
+// (rk-test-e2e-<token>-…). The family owns its own teardown chain
+// (scripts/test-e2e.sh's EXIT trap, global-teardown.ts, `rk mux reap`), so the
+// Go post-sweep never janitors it: a secondary's embedded PID is the Playwright
+// WORKER pid, and a worker respawn (retries: 1) leaves a still-in-use server
+// owned by a dead pid that the PID rule alone would reap mid-run.
+const testSocketE2EPrefix = "rk-test-e2e-"
+
 // parseTestSocketPID extracts the embedded PID from a unified test socket name
 // of the form rk-test-<role>-<pid>-<ns>, where <role> MAY contain hyphens
 // (e2e-multi, e2e-coupling). The PID is the SECOND-TO-LAST hyphen field (the
@@ -95,7 +103,8 @@ func testPIDAlive(pid int) bool {
 //   - sockets embedding a DEAD pid — leaked by an earlier crashed run.
 //
 // A socket whose embedded pid belongs to a DIFFERENT, still-live process (a
-// concurrent `go test ./...` package running as its own process) is spared.
+// concurrent `go test ./...` package running as its own process) is spared, as
+// is the whole rk-test-e2e- family (testSocketE2EPrefix).
 // Names without a parseable pid are left untouched. Best-effort: enumeration or
 // kill failures are ignored — a leaked socket is harmless residue, and never
 // blocking tests is the priority.
@@ -105,14 +114,26 @@ func testPIDAlive(pid int) bool {
 // did not catch is reaped by the manual `rk mux reap` (the documented
 // last-resort for un-catchable residue).
 func sweepDeadTestSockets() {
+	sweepDeadTestSocketsIn("/tmp/tmux-" + strconv.Itoa(os.Getuid()))
+}
+
+// sweepDeadTestSocketsIn is sweepDeadTestSockets with the enumerated directory
+// injected, so the sweep test can drive the classify/kill logic against a
+// private per-test dir instead of the shared socket namespace every concurrent
+// run and sibling worktree shares.
+func sweepDeadTestSocketsIn(socketDir string) {
 	self := os.Getpid()
-	socketDir := "/tmp/tmux-" + strconv.Itoa(os.Getuid())
 	entries, err := os.ReadDir(socketDir)
 	if err != nil {
 		return
 	}
 	for _, e := range entries {
 		name := e.Name()
+		// Checked BEFORE the PID parse: an e2e secondary's embedded pid can be a
+		// dead respawned worker while its server is still in use.
+		if strings.HasPrefix(name, testSocketE2EPrefix) {
+			continue
+		}
 		pid, ok := parseTestSocketPID(name)
 		if !ok {
 			continue

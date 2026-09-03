@@ -121,16 +121,18 @@ var deliverTaskFn = func(ctx context.Context, server, paneID, task string) error
 var cliStderrFn = func() io.Writer { return os.Stderr }
 
 // deliverCliTask runs the CLI path's synchronous typed delivery after a
-// successful spawn. A failure warns (naming the window and carrying the task
-// text) and never propagates — no rollback, exit code still reflects the
-// spawn. Positional/none modes are no-ops.
+// successful spawn. A failure warns (naming the window and carrying the
+// sanitized task text — the user-controlled raw form could carry terminal
+// escape sequences, and the sanitized form is what delivery would have pasted)
+// and never propagates — no rollback, exit code still reflects the spawn.
+// Positional/none modes are no-ops.
 func deliverCliTask(ctx context.Context, spec EffectiveSpec, window, paneID string) {
 	task := specTask(spec)
 	if taskDeliveryMode(spec.Launcher, task) != deliveryTyped {
 		return
 	}
 	if err := deliverTaskFn(ctx, deliveryServer(spec), paneID, task); err != nil {
-		fmt.Fprintf(cliStderrFn(), "run-kit riff: could not deliver the task to window %q (%v) — paste this into the agent yourself:\n  %s\n", window, err, task)
+		fmt.Fprintf(cliStderrFn(), "run-kit riff: could not deliver the task to window %q (%v) — paste this into the agent yourself:\n  %s\n", window, err, inject.Sanitize(task))
 	}
 }
 

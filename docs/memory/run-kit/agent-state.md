@@ -667,8 +667,9 @@ process tree, and state derivation stays in the settings matchers. The stdin sea
      `compact` — write `@rk_pane_agent_state idle:<epoch>[:<pid>]` (the
      boot-ready write: SessionStart fires on `startup`/`resume`/`clear`/`compact`,
      and `compact` fires **mid-turn**, where an `idle` write would clobber a live
-     `active`). An unparseable payload withholds the idle write (fail-safe against
-     the mid-turn clobber) but never the chat stamp. This is the token the
+     `active`). An unparseable payload withholds both writes: the idle write
+     (fail-safe against the mid-turn clobber) and the chat stamp (no session id
+     can be decoded). This is the token the
      SessionStart row uses; the idle write doubles as a **stale-state clear**,
      overwriting a `waiting`/`active` left in the pane by a previous agent.
   3. anything else → no-op.

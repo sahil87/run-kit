@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 9
@@ -33,22 +33,24 @@ stage_metrics:
     apply: {started_at: "2026-09-03T11:22:46Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T11:36:16Z"}
     review: {started_at: "2026-09-03T11:36:16Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T11:40:06Z"}
     hydrate: {started_at: "2026-09-03T11:40:06Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T11:44:50Z"}
-    ship: {started_at: "2026-09-03T11:44:50Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-03T11:44:50Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T11:47:27Z"}
+    review-pr: {started_at: "2026-09-03T11:47:27Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/813
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 871
+    deleted: 22
+    net: 849
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 643
+        deleted: 3
+        net: 640
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-09-03T11:44:50Z"
-    computed_at_stage: hydrate
+        added: 343
+        deleted: 2
+        net: 341
+    computed_at: "2026-09-03T11:47:27Z"
+    computed_at_stage: ship
 summary: Derived per-session attached-viewer grids from list-clients (control-mode/ignore-size excluded, group-key join) into an additive omitempty viewers field, surfaced as a ≥2-gated neutral count chip on the sidebar session row plus per-viewer grids in its flyout card.
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-03T11:44:50Z
+last_updated: 2026-09-03T11:47:27Z

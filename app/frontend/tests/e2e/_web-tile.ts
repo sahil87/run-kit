@@ -9,8 +9,9 @@ import type { Page } from "@playwright/test";
  *  port — this route stub answers `/proxy/<port>/**` (both the iframe src and
  *  the tile's same-origin dead-port probe fetch) with a static 200 page so
  *  the tile stays in its live-iframe state, exactly the posture those specs
- *  were written against. Stub every port a spec stamps (e.g.
- *  present-auto-expand's 8080 AND 8081 — a re-present switches ports). */
+ *  were written against. Stub every port a spec stamps — the same derived
+ *  value the spec's `reserveDeadPort()` (`_ports.ts`) resolution feeds its
+ *  stamped URL. */
 export async function stubProxyPorts(page: Page, ...ports: number[]): Promise<void> {
   const pattern = new RegExp(`/proxy/(${ports.join("|")})(/|$)`);
   await page.route(pattern, (route) =>

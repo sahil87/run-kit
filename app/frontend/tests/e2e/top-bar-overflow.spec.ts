@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { gotoWindow as gotoWindowRaw, openPalette, resolveWindow as resolveWindowRaw } from "./_ready";
 import { TMUX_SERVER, createSession, killSession, newWindow, stampWebTab, windowOption } from "./_tmux";
+import { reserveDeadPort, type DeadPort } from "./_ports";
 import { stubProxyPorts } from "./_web-tile";
 
 // Regression proof for the top-bar overflow chevron menu and for the fix
@@ -31,8 +32,9 @@ import { stubProxyPorts } from "./_web-tile";
 // [toggles] · ▦Layout · Refresh · Gear · chevron, with the chevron the SOLE
 // element of the trailing exempt block.
 //
-// Shared setup: `beforeEach` route-stubs `/proxy/8080/**` with a static 200
-// page (stubProxyPorts from _web-tile.ts — the dead-port error state hides
+// Shared setup: `beforeEach` route-stubs the derived dead port's
+// `/proxy/<port>/**` with a static 200 page (stubProxyPorts from
+// _web-tile.ts, port from reserveDeadPort — the dead-port error state hides
 // the iframe when nothing listens on the stamped URL, and these tests assert
 // tile chrome, never frame content). Real isolated tmux server: `beforeAll`
 // creates a dedicated session with an extra named window (`overflow-win-<ts>`)
@@ -175,10 +177,17 @@ async function settledTierCounts(page: Page, desktop = true): Promise<[number, n
 }
 
 // The dead-port error state (260819-v6y4 R8) hides the iframe when nothing
-// listens on 8080 — these tests assert tile chrome, never frame content, so
-// the proxy path is route-stubbed live (see _web-tile.ts).
+// listens on the stamped port — these tests assert tile chrome, never frame
+// content, so the proxy path is route-stubbed live (see _web-tile.ts). The
+// port is a reserved-then-released ephemeral (dead by construction).
+let DEAD: DeadPort;
+
+test.beforeAll(async () => {
+  DEAD = await reserveDeadPort();
+});
+
 test.beforeEach(async ({ page }) => {
-  await stubProxyPorts(page, 8080);
+  await stubProxyPorts(page, DEAD.port);
 });
 
 test.beforeAll(() => {
@@ -676,7 +685,6 @@ test.describe("Top-bar overflow chevron menu (260715-h1ck)", () => {
 // control left the terminal bar in 260813-w1lf — `menuOnly`, never a fit
 // candidate there).
 const VIEW_WINDOW_NAME = `overflow-view-long-worktree-${Date.now().toString().slice(-6)}`;
-const VIEW_URL = "http://localhost:8080/";
 
 test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", () => {
   test.beforeAll(() => {
@@ -689,10 +697,11 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
 
   async function gotoViewWindow(page: Page): Promise<string> {
     const id = await resolveWindow(page, VIEW_WINDOW_NAME);
-    // Stamp the slot-1 web tab so the window offers the `web` lens
-    // (`[tty|web]` → the multi-view gate passes and the palette's `View: Web`
-    // action renders). Set before navigating so the first snapshot carries it.
-    stampWebTab(id, VIEW_URL);
+    // Stamp the slot-1 web tab (the derived dead URL) so the window offers the
+    // `web` lens (`[tty|web]` → the multi-view gate passes and the palette's
+    // `View: Web` action renders). Set before navigating so the first snapshot
+    // carries it.
+    stampWebTab(id, DEAD.url);
     await gotoWindow(page, id);
     return id;
   }

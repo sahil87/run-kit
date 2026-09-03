@@ -9,6 +9,7 @@ import {
   stampWebTab,
   windowOption,
 } from "./_tmux";
+import { reserveDeadPort, type DeadPort } from "./_ports";
 import { stubProxyPorts } from "./_web-tile";
 
 // External layout writes (ui-state.md § Layout in tmux — the layout write IS
@@ -18,8 +19,9 @@ import { stubProxyPorts } from "./_web-tile";
 // the web tile on a tab. The per-viewer toggle POSTs `single:tty` back through
 // the same option.
 //
-// Shared setup: beforeEach route-stubs /proxy/8080/** (stubProxyPorts,
-// _web-tile.ts) with a static 200 page — the dead-port error state hides the
+// Shared setup: beforeEach route-stubs the derived dead port's
+// /proxy/<port>/** (stubProxyPorts, _web-tile.ts; port from reserveDeadPort,
+// _ports.ts) with a static 200 page — the dead-port error state hides the
 // iframe when nothing listens on the stamped URL, and these tests assert tile
 // chrome, never frame content. Runs against the isolated rk-test-e2e socket
 // (E2E_TMUX_SERVER). beforeAll creates one dedicated session
@@ -44,10 +46,16 @@ import { stubProxyPorts } from "./_web-tile";
 const TEST_SESSION = `e2e-present-${Date.now()}`;
 const DESKTOP_VIEWPORT = { width: 1440, height: 800 };
 
-// A proxy-rewritten URL — the iframe `src` is deterministic regardless of
-// whether a real server listens there (assertions are on render, never on
-// iframe content).
-const URL_A = "http://localhost:8080/";
+// A proxy-rewritten URL on a reserved-then-released ephemeral port (dead by
+// construction — assertions are on render, never on iframe content). Resolved
+// once in the file-level beforeAll below.
+let DEAD: DeadPort;
+let URL_A: string;
+
+test.beforeAll(async () => {
+  DEAD = await reserveDeadPort();
+  URL_A = DEAD.url;
+});
 
 // A `tmux set-option -w` write is invisible to the control-mode parser, so on
 // a quiet server the guaranteed pickup is the 12s safety ticker — the repaint
@@ -107,10 +115,10 @@ async function awaitSnapshotReady(page: Page, windowId: string): Promise<void> {
 }
 
 // The dead-port error state (260819-v6y4 R8) hides the iframe when nothing
-// listens on 8080 — these tests assert tile chrome, never frame content, so
-// the proxy path is route-stubbed live (see _web-tile.ts).
+// listens on the stamped port — these tests assert tile chrome, never frame
+// content, so the proxy path is route-stubbed live (see _web-tile.ts).
 test.beforeEach(async ({ page }) => {
-  await stubProxyPorts(page, 8080);
+  await stubProxyPorts(page, DEAD.port);
 });
 
 test.beforeAll(() => {

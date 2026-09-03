@@ -9,6 +9,7 @@ import {
   stampWebTab,
   windowOption,
 } from "./_tmux";
+import { reserveDeadPort, type DeadPort } from "./_ports";
 import { stubProxyPorts } from "./_web-tile";
 
 // Surface-layout core e2e (spec docs/specs/surface-layout.md + ui-state.md §
@@ -38,8 +39,9 @@ import { stubProxyPorts } from "./_web-tile";
 // (`fullyParallel` off), then warms the dev server with a throwaway
 // terminal-route page load (Vite's cold transform of the app + xterm graph
 // would otherwise eat the first test's budget); `afterAll` kills the session
-// (best-effort). `beforeEach` stubs `/proxy/8080/**` with a static 200 page
-// (stubProxyPorts from _web-tile.ts — the dead-port error state hides the
+// (best-effort). `beforeEach` stubs the derived dead port's `/proxy/<port>/**`
+// with a static 200 page (stubProxyPorts from _web-tile.ts, port from
+// reserveDeadPort in _ports.ts — the dead-port error state hides the
 // iframe when nothing listens on the stamped URL, and these tests assert
 // tile chrome, never frame content) and sets a wide desktop viewport
 // (1440×800) — multi-tile is desktop-only; the mobile test overrides to
@@ -59,10 +61,17 @@ const TEST_SESSION = `e2e-surflayout-${Date.now()}`;
 const DESKTOP_VIEWPORT = { width: 1440, height: 800 };
 const MOBILE_VIEWPORT = { width: 375, height: 812 };
 
-// A URL that the proxy converts to a same-origin `/proxy/<port>/…` path — the
-// iframe `src` is deterministic regardless of whether a real server listens
-// there (we assert on chrome/layout/render, never on iframe content).
-const IFRAME_URL = "http://localhost:8080/";
+// A URL the proxy converts to a same-origin `/proxy/<port>/…` path. The port
+// is a reserved-then-released ephemeral (dead by construction — no fixed-port
+// occupancy can flip the tile's posture); we assert on chrome/layout/render,
+// never on iframe content. Resolved once in the file-level beforeAll below.
+let DEAD: DeadPort;
+let IFRAME_URL: string;
+
+test.beforeAll(async () => {
+  DEAD = await reserveDeadPort();
+  IFRAME_URL = DEAD.url;
+});
 
 /** Resolve a window's stable tmux id (`@N`) from the backend snapshot by name. */
 async function resolveWindow(page: Page, windowName: string): Promise<string> {
@@ -131,10 +140,10 @@ const terminal = (page: Page) => page.locator(".xterm").first();
 const webIframe = (page: Page) => page.getByTitle("Proxied content");
 
 // The dead-port error state (260819-v6y4 R8) hides the iframe when nothing
-// listens on 8080 — these tests assert tile chrome, never frame content, so
-// the proxy path is route-stubbed live (see _web-tile.ts).
+// listens on the stamped port — these tests assert tile chrome, never frame
+// content, so the proxy path is route-stubbed live (see _web-tile.ts).
 test.beforeEach(async ({ page }) => {
-  await stubProxyPorts(page, 8080);
+  await stubProxyPorts(page, DEAD.port);
 });
 
 test.beforeAll(async ({ browser }) => {
@@ -1038,7 +1047,7 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     const id = await makeWindow(page, `sl-shared-${Date.now()}`, { url: IFRAME_URL });
     const ctxB = await browser.newContext({ viewport: DESKTOP_VIEWPORT });
     const pageB = await ctxB.newPage();
-    await stubProxyPorts(pageB, 8080);
+    await stubProxyPorts(pageB, DEAD.port);
     try {
       await gotoWindow(page, id);
       await gotoWindow(pageB, id);
@@ -1084,7 +1093,7 @@ test.describe("Surface layout — ladder, verbs, history, ratios, mobile", () =>
     execFileSync("tmux", ["-L", TMUX_SERVER, "set-option", "-w", "-t", id, "@rk_win_layout", "split-h:tty,web"]);
     const ctxB = await browser.newContext({ viewport: DESKTOP_VIEWPORT });
     const pageB = await ctxB.newPage();
-    await stubProxyPorts(pageB, 8080);
+    await stubProxyPorts(pageB, DEAD.port);
     try {
       await gotoWindow(page, id);
       await gotoWindow(pageB, id);

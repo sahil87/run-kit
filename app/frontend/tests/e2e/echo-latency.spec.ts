@@ -56,7 +56,7 @@ const BURST_SESSION = `e2e-burst-${Date.now()}`;
 // generator alongside `cat`, so it gets its own window to keep the idle echo
 // session's measurements clean.
 const LOAD_SESSION = `e2e-echo-load-${Date.now()}`;
-const port = Number(process.env.RK_PORT ?? "3333");
+const port = Number(process.env.E2E_PORT ?? "3333");
 const BASE = `http://localhost:${port}`;
 
 // Trial counts. Kept modest so the file stays well within the per-test budget

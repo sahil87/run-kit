@@ -71,7 +71,7 @@ Always run tests through `just` recipes — never invoke `go test`, `pnpm test`,
 - `just test-e2e` — Playwright e2e tests (derived per-worktree ports + socket family)
 - `just pw` — ad-hoc Playwright commands against the worktree's derived rig (e.g., `just pw test mobile-layout`)
 
-The Playwright fallback port is 3333 (not 3000) — if `RK_PORT` is unset and Playwright runs directly, it will fail to connect rather than hitting a live `rk serve` instance. Explicit `RK_E2E_PORT` / `E2E_TMUX_SERVER` env vars override the derivation; the ambient `RK_PORT` is deliberately not consulted.
+The Playwright fallback port is 3333 (not 3000) — Playwright reads its base port from `E2E_PORT`, a variable only the harness scripts set, so a direct Playwright run fails to connect rather than hitting a live `rk serve` instance; the ambient `RK_PORT` (direnv-exported on this box) is never consulted by Playwright. Explicit `RK_E2E_PORT` / `E2E_TMUX_SERVER` env vars override the derivation.
 
 ## Playwright-Driven Development
 

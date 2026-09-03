@@ -19,7 +19,7 @@ import { resolveWindow } from "./_ready";
 import { TMUX_SERVER, createSession, killSession } from "./_tmux";
 
 const TEST_SESSION = `e2e-scroll-${Date.now()}`;
-const port = Number(process.env.RK_PORT ?? "3333");
+const port = Number(process.env.E2E_PORT ?? "3333");
 const BASE = `http://localhost:${port}`;
 
 /**

@@ -9,6 +9,7 @@ import {
   stampWebTab,
   windowOption,
 } from "./_tmux";
+import { reserveDeadPort, type DeadPort } from "./_ports";
 import { stubProxyPorts } from "./_web-tile";
 
 // The surface-toggle e2e — formerly the right RAIL spec, retargeted to the
@@ -42,7 +43,8 @@ import { stubProxyPorts } from "./_web-tile";
 // (E2E_TMUX_SERVER). beforeAll creates one dedicated session
 // `e2e-rightpanel-<ts>` (80×24) so this file never collides with other specs
 // (fullyParallel off); afterAll kills it best-effort. beforeEach route-stubs
-// /proxy/8080/** (stubProxyPorts, _web-tile.ts) with a static 200 page — the
+// the derived dead port's /proxy/<port>/** (stubProxyPorts, _web-tile.ts;
+// port from reserveDeadPort, _ports.ts) with a static 200 page — the
 // dead-port error state hides the iframe when nothing listens on the stamped
 // URL, and these tests assert tile chrome, never frame content. The
 // describe's beforeEach sets a wide desktop viewport (1440×800) — the toggle
@@ -74,10 +76,17 @@ const MOBILE_VIEWPORT = { width: 375, height: 812 };
 // so a wide viewport keeps it in-bar); the mobile test overrides to 375px.
 const DESKTOP_VIEWPORT = { width: 1440, height: 800 };
 
-// A URL that the proxy converts to a same-origin `/proxy/<port>/…` path — the
-// iframe `src` is deterministic regardless of whether a real server listens
-// there (we assert on chrome/layout/render, never on iframe content).
-const IFRAME_URL = "http://localhost:8080/";
+// A URL the proxy converts to a same-origin `/proxy/<port>/…` path. The port
+// is a reserved-then-released ephemeral (dead by construction — no fixed-port
+// occupancy can flip the tile's posture); we assert on chrome/layout/render,
+// never on iframe content. Resolved once in the file-level beforeAll below.
+let DEAD: DeadPort;
+let IFRAME_URL: string;
+
+test.beforeAll(async () => {
+  DEAD = await reserveDeadPort();
+  IFRAME_URL = DEAD.url;
+});
 
 /** Resolve a window's stable tmux id (`@N`) from the backend snapshot by name. */
 async function resolveWindow(page: Page, windowName: string): Promise<string> {
@@ -135,10 +144,10 @@ const webIframe = (page: Page) => page.getByTitle("Proxied content");
 const terminal = (page: Page) => page.locator(".xterm").first();
 
 // The dead-port error state (260819-v6y4 R8) hides the iframe when nothing
-// listens on 8080 — these tests assert tile chrome, never frame content, so
-// the proxy path is route-stubbed live (see _web-tile.ts).
+// listens on the stamped port — these tests assert tile chrome, never frame
+// content, so the proxy path is route-stubbed live (see _web-tile.ts).
 test.beforeEach(async ({ page }) => {
-  await stubProxyPorts(page, 8080);
+  await stubProxyPorts(page, DEAD.port);
 });
 
 test.beforeAll(() => {

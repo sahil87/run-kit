@@ -1,0 +1,3 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-03T11:16:52Z"}
+{"args":"visibility-based terminal stream release — hidden pages drop their tmux relay clients after a grace period, re-open on visible","cmd":"fab-new","event":"command","ts":"2026-09-03T11:16:52Z"}
+{"delta":"+4.4","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-09-03T11:19:28Z"}

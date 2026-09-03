@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 9
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-09-03T06:30:30Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T08:48:21Z"}
     review: {started_at: "2026-09-03T08:48:21Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T09:00:03Z"}
     hydrate: {started_at: "2026-09-03T09:00:03Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T09:18:37Z"}
-    ship: {started_at: "2026-09-03T09:18:37Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-03T09:18:37Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T09:21:07Z"}
+    review-pr: {started_at: "2026-09-03T09:21:07Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/810
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1606
+    deleted: 1140
+    net: 466
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 1139
+        deleted: 1067
+        net: 72
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-09-03T09:18:37Z"
-    computed_at_stage: hydrate
+        added: 401
+        deleted: 212
+        net: 189
+    computed_at: "2026-09-03T09:21:07Z"
+    computed_at_stage: ship
 summary: 'Sidebar: session/server flyout cards open on fine hover/focus (clusters + identity tips retired), server tile hosts the shared ServerCardContent, palette gains Server: Set Color'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-03T09:18:37Z
+last_updated: 2026-09-03T09:21:07Z

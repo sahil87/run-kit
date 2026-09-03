@@ -4,6 +4,7 @@ import {
   HEARTBEAT_INTERVAL_MS,
   LIVENESS_TIMEOUT_MS,
   WAKE_PROBE_TIMEOUT_MS,
+  HIDDEN_RELEASE_GRACE_MS,
 } from "./relay-mux";
 
 // MockWebSocket — the terminals-mux transport. Captures the client's frames
@@ -465,5 +466,348 @@ describe("RelayMux liveness + wake probes", () => {
     document.dispatchEvent(new Event("visibilitychange"));
     vi.advanceTimersByTime(LIVENESS_TIMEOUT_MS);
     expect(MockWebSocket.instances).toHaveLength(1); // no reconnect, no probe socket
+  });
+});
+
+// Hidden-page stream suspension (change 260903-xj0w). A hidden page's streams
+// are sized tmux attach clients participating in `window-size latest`
+// arbitration, so after HIDDEN_RELEASE_GRACE_MS hidden the mux closes every
+// live stream server-side (keeping it client-side, suspended) and re-opens it
+// only on the `visible` transition. This block stubs an EventTarget window
+// (like the liveness block) and overrides jsdom's document.visibilityState so
+// tests can drive hidden/visible transitions.
+describe("RelayMux hidden-page suspension", () => {
+  let windowTarget: EventTarget;
+
+  function setVisibility(state: DocumentVisibilityState) {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => state,
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  }
+
+  beforeEach(() => {
+    MockWebSocket.instances = [];
+    vi.useFakeTimers();
+    vi.stubGlobal("WebSocket", MockWebSocket);
+    windowTarget = new EventTarget();
+    vi.stubGlobal("window", {
+      location: { protocol: "http:", host: "localhost:3000" },
+      addEventListener: windowTarget.addEventListener.bind(windowTarget),
+      removeEventListener: windowTarget.removeEventListener.bind(windowTarget),
+    });
+  });
+  afterEach(() => {
+    // Drop the per-test visibilityState override; jsdom's prototype getter
+    // ("visible") shows through again.
+    Reflect.deleteProperty(document, "visibilityState");
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("suspends every live stream after the grace period hidden: close ops sent, streams kept, onClosed never fired, heartbeat stopped", async () => {
+    const mux = new RelayMux();
+    const s1 = mux.openStream({ server: "default", windowId: "@1", cols: 80, rows: 24 });
+    const s2 = mux.openStream({ server: "default", windowId: "@2", cols: 80, rows: 24 });
+    await vi.runAllTicks();
+    const ws = MockWebSocket.instances[0];
+    const closedCodes: number[] = [];
+    s1.onClosed((code) => closedCodes.push(code));
+    s2.onClosed((code) => closedCodes.push(code));
+
+    setVisibility("hidden");
+    // Inside the grace window nothing happens.
+    vi.advanceTimersByTime(HIDDEN_RELEASE_GRACE_MS - 1);
+    expect(controlsOfOp(ws, "close")).toHaveLength(0);
+
+    vi.advanceTimersByTime(1);
+    expect(controlsOfOp(ws, "close").map((c) => c.id).sort()).toEqual([1, 2]);
+
+    // The server echoes `closed` 1000 for each client close op — the suspended
+    // streams swallow it (no retire, no onClosed → no TerminalClient probe).
+    ws.emitControl({ op: "closed", id: 1, code: 1000, reason: "closed" });
+    ws.emitControl({ op: "closed", id: 2, code: 1000, reason: "closed" });
+    expect(closedCodes).toHaveLength(0);
+
+    // A racing 4004 (window killed as the tab hid) is swallowed too — it
+    // surfaces on resume as a fresh 4004 instead.
+    ws.emitControl({ op: "closed", id: 1, code: 4004, reason: "window not found" });
+    expect(closedCodes).toHaveLength(0);
+
+    // Zero live streams ⇒ the stream-gated heartbeat stops. (Pings from
+    // INSIDE the grace window are legitimate — the streams were still live —
+    // so assert no FURTHER pings after suspension.)
+    const pingsAtSuspend = controlsOfOp(ws, "ping").length;
+    vi.advanceTimersByTime(3 * HEARTBEAT_INTERVAL_MS);
+    expect(controlsOfOp(ws, "ping")).toHaveLength(pingsAtSuspend);
+    mux.close();
+  });
+
+  it("a quick app-switch (visible again inside the grace window) cancels the timer — nothing is closed or re-opened", async () => {
+    const mux = new RelayMux();
+    mux.openStream({ server: "default", windowId: "@1", cols: 80, rows: 24 });
+    await vi.runAllTicks();
+    const ws = MockWebSocket.instances[0];
+
+    setVisibility("hidden");
+    vi.advanceTimersByTime(HIDDEN_RELEASE_GRACE_MS / 2);
+    setVisibility("visible");
+    vi.advanceTimersByTime(2 * HIDDEN_RELEASE_GRACE_MS);
+
+    expect(controlsOfOp(ws, "close")).toHaveLength(0);
+    expect(controlsOfOp(ws, "open")).toHaveLength(1); // only the initial open
+    mux.close();
+  });
+
+  it("resumes on visible: re-issues open with CURRENT opts (ridden windowId + resized grid), onOpened fires on the server's opened", async () => {
+    const mux = new RelayMux();
+    const s = mux.openStream({ server: "default", windowId: "@1", cols: 80, rows: 24 });
+    await vi.runAllTicks();
+    const ws = MockWebSocket.instances[0];
+    let opened = 0;
+    s.onOpened(() => opened++);
+
+    setVisibility("hidden");
+    vi.advanceTimersByTime(HIDDEN_RELEASE_GRACE_MS);
+    expect(controlsOfOp(ws, "close")).toHaveLength(1);
+
+    // Opts stay current while suspended — a later reconnect target must be the
+    // window the user will come back to.
+    s.setWindowId("@9");
+    s.resize(120, 40);
+
+    setVisibility("visible");
+    const opens = controlsOfOp(ws, "open");
+    expect(opens).toHaveLength(2);
+    expect(opens[1]).toMatchObject({ op: "open", id: 1, windowId: "@9", cols: 120, rows: 40 });
+
+    ws.emitControl({ op: "opened", id: 1 });
+    expect(opened).toBe(1);
+    mux.close();
+  });
+
+  it("a socket reconnect while hidden does NOT re-open suspended streams; a drop while fully suspended stays closed until visible", async () => {
+    const mux = new RelayMux();
+    mux.openStream({ server: "default", windowId: "@1", cols: 80, rows: 24 });
+    await vi.runAllTicks();
+    const ws1 = MockWebSocket.instances[0];
+
+    setVisibility("hidden");
+    vi.advanceTimersByTime(HIDDEN_RELEASE_GRACE_MS);
+    expect(controlsOfOp(ws1, "close")).toHaveLength(1);
+
+    // Fully suspended tab: a socket drop schedules NO reconnect (zero live
+    // streams — the idle-socket rule).
+    ws1.drop();
+    vi.advanceTimersByTime(60000);
+    await vi.runAllTicks();
+    expect(MockWebSocket.instances).toHaveLength(1);
+
+    // Only the visible transition resumes: a fresh socket connects and its
+    // onopen re-issues open for the resumed stream.
+    setVisibility("visible");
+    await vi.runAllTicks();
+    expect(MockWebSocket.instances).toHaveLength(2);
+    const opens2 = controlsOfOp(MockWebSocket.instances[1], "open");
+    expect(opens2).toHaveLength(1);
+    expect(opens2[0]).toMatchObject({ id: 1, windowId: "@1" });
+    mux.close();
+  });
+
+  it("a stream opened while hidden opens normally, starts a fresh grace timer, and suspends on expiry; reconnect re-opens only live streams", async () => {
+    const mux = new RelayMux();
+    mux.openStream({ server: "default", windowId: "@1", cols: 80, rows: 24 });
+    await vi.runAllTicks();
+    const ws1 = MockWebSocket.instances[0];
+
+    // First suspension consumes the grace timer.
+    setVisibility("hidden");
+    vi.advanceTimersByTime(HIDDEN_RELEASE_GRACE_MS);
+    expect(controlsOfOp(ws1, "close")).toHaveLength(1);
+
+    // A stream opened while still hidden (background-tab route change) opens
+    // normally…
+    mux.openStream({ server: "default", windowId: "@7", cols: 80, rows: 24 });
+    expect(controlsOfOp(ws1, "open").map((o) => o.id)).toContain(2);
+
+    // …and a reconnect while hidden re-opens ONLY it (stream 1 stays
+    // suspended).
+    ws1.drop();
+    vi.advanceTimersByTime(1000);
+    await vi.runAllTicks();
+    const ws2 = MockWebSocket.instances[1];
+    expect(controlsOfOp(ws2, "open").map((o) => o.id)).toEqual([2]);
+
+    // …then the restarted grace timer suspends it like any other.
+    vi.advanceTimersByTime(HIDDEN_RELEASE_GRACE_MS);
+    expect(controlsOfOp(ws2, "close").map((c) => c.id)).toEqual([2]);
+    mux.close();
+  });
+
+  it("closing a suspended stream removes it without a close op, and resume does not re-open it", async () => {
+    const mux = new RelayMux();
+    const s = mux.openStream({ server: "default", windowId: "@1", cols: 80, rows: 24 });
+    await vi.runAllTicks();
+    const ws = MockWebSocket.instances[0];
+
+    setVisibility("hidden");
+    vi.advanceTimersByTime(HIDDEN_RELEASE_GRACE_MS);
+    expect(controlsOfOp(ws, "close")).toHaveLength(1); // the suspension's
+
+    s.close(); // component unmount while hidden — already closed server-side
+    expect(controlsOfOp(ws, "close")).toHaveLength(1); // no second close op
+
+    setVisibility("visible");
+    expect(controlsOfOp(ws, "open")).toHaveLength(1); // only the initial open
+    mux.close();
+  });
+
+  it("pagehide and freeze release immediately — no grace", async () => {
+    const mux = new RelayMux();
+    mux.openStream({ server: "default", windowId: "@1", cols: 80, rows: 24 });
+    await vi.runAllTicks();
+    const ws = MockWebSocket.instances[0];
+
+    windowTarget.dispatchEvent(new Event("pagehide"));
+    expect(controlsOfOp(ws, "close")).toHaveLength(1);
+
+    // Resume (bfcache restore fires visibilitychange→visible), then freeze.
+    setVisibility("visible");
+    expect(controlsOfOp(ws, "open")).toHaveLength(2);
+    document.dispatchEvent(new Event("freeze"));
+    expect(controlsOfOp(ws, "close")).toHaveLength(2);
+    mux.close();
+  });
+
+  it("a window killed while suspended surfaces on resume: the re-open's fresh 4004 retires the stream and fires onClosed", async () => {
+    const mux = new RelayMux();
+    const s = mux.openStream({ server: "default", windowId: "@1", cols: 80, rows: 24 });
+    await vi.runAllTicks();
+    const ws = MockWebSocket.instances[0];
+    const closedCodes: number[] = [];
+    s.onClosed((code) => closedCodes.push(code));
+
+    setVisibility("hidden");
+    vi.advanceTimersByTime(HIDDEN_RELEASE_GRACE_MS);
+    ws.emitControl({ op: "closed", id: 1, code: 1000, reason: "closed" }); // echo: swallowed
+
+    setVisibility("visible");
+    expect(controlsOfOp(ws, "open")).toHaveLength(2); // re-open attempted
+
+    // The window died while hidden — the re-open is answered 4004, which now
+    // retires the stream and fires onClosed (the existing recovery path).
+    ws.emitControl({ op: "closed", id: 1, code: 4004, reason: "window not found" });
+    expect(closedCodes).toEqual([4004]);
+    mux.close();
+  });
+
+  it("a late closed-1000 echo racing a fast resume is swallowed exactly once: the resumed stream stays live, a later genuine 1000 retires", async () => {
+    const mux = new RelayMux();
+    const s = mux.openStream({ server: "default", windowId: "@1", cols: 80, rows: 24 });
+    await vi.runAllTicks();
+    const ws = MockWebSocket.instances[0];
+    const closedCodes: number[] = [];
+    let opened = 0;
+    s.onClosed((code) => closedCodes.push(code));
+    s.onOpened(() => opened++);
+
+    setVisibility("hidden");
+    vi.advanceTimersByTime(HIDDEN_RELEASE_GRACE_MS); // suspension close sent, echo in flight
+
+    // Fast resume: visible again before the echo arrives — the re-open goes
+    // out with the echo still owed.
+    setVisibility("visible");
+    expect(controlsOfOp(ws, "open")).toHaveLength(2);
+
+    // The echo lands AFTER resume: it must be swallowed (retiring here would
+    // orphan the re-open's server-side attach client and fire TerminalClient's
+    // probe re-open).
+    ws.emitControl({ op: "closed", id: 1, code: 1000, reason: "closed" });
+    expect(closedCodes).toHaveLength(0);
+
+    // The re-open's `opened` follows (wire FIFO) and the stream is fully live:
+    // data still demuxes to it.
+    ws.emitControl({ op: "opened", id: 1 });
+    expect(opened).toBe(1);
+    const got: Uint8Array[] = [];
+    s.onData((d) => got.push(d));
+    ws.emitData(1, new TextEncoder().encode("alive"));
+    expect(got).toHaveLength(1);
+
+    // The shield is one-shot: a LATER genuine graceful close (PTY EOF 1000)
+    // retires the stream normally.
+    ws.emitControl({ op: "closed", id: 1, code: 1000, reason: "closed" });
+    expect(closedCodes).toEqual([1000]);
+    mux.close();
+  });
+
+  it("a 4004 after a fast resume retires immediately — the echo shield covers only the 1000 echo", async () => {
+    const mux = new RelayMux();
+    const s = mux.openStream({ server: "default", windowId: "@1", cols: 80, rows: 24 });
+    await vi.runAllTicks();
+    const ws = MockWebSocket.instances[0];
+    const closedCodes: number[] = [];
+    s.onClosed((code) => closedCodes.push(code));
+
+    setVisibility("hidden");
+    vi.advanceTimersByTime(HIDDEN_RELEASE_GRACE_MS);
+    setVisibility("visible"); // re-open in flight, echo still owed
+
+    // The window died while hidden: the re-open is answered 4004. It is never
+    // the suspension close's echo (that echoes 1000), so it must retire — the
+    // resume-time dead-window recovery path depends on it.
+    ws.emitControl({ op: "closed", id: 1, code: 4004, reason: "window not found" });
+    expect(closedCodes).toEqual([4004]);
+    mux.close();
+  });
+
+  it("an echo lost to a socket death cannot swallow a later genuine 1000 — `opened` retires the pending shield", async () => {
+    const mux = new RelayMux();
+    const s = mux.openStream({ server: "default", windowId: "@1", cols: 80, rows: 24 });
+    await vi.runAllTicks();
+    const ws1 = MockWebSocket.instances[0];
+    const closedCodes: number[] = [];
+    s.onClosed((code) => closedCodes.push(code));
+
+    setVisibility("hidden");
+    vi.advanceTimersByTime(HIDDEN_RELEASE_GRACE_MS); // close sent on ws1, echo owed
+
+    // The socket dies before the echo arrives (fully suspended ⇒ no reconnect).
+    ws1.drop();
+
+    // Resume: fresh socket, re-open, and its `opened` clears the stale shield.
+    setVisibility("visible");
+    await vi.runAllTicks();
+    const ws2 = MockWebSocket.instances[1];
+    expect(controlsOfOp(ws2, "open")).toHaveLength(1);
+    ws2.emitControl({ op: "opened", id: 1 });
+
+    // A genuine PTY-EOF 1000 on the new connection retires normally.
+    ws2.emitControl({ op: "closed", id: 1, code: 1000, reason: "closed" });
+    expect(closedCodes).toEqual([1000]);
+    mux.close();
+  });
+
+  it("resume runs before the wake probe: on visible, the re-open precedes the probe ping on an OPEN socket", async () => {
+    const mux = new RelayMux();
+    mux.openStream({ server: "default", windowId: "@1", cols: 80, rows: 24 });
+    await vi.runAllTicks();
+    const ws = MockWebSocket.instances[0];
+
+    setVisibility("hidden");
+    vi.advanceTimersByTime(HIDDEN_RELEASE_GRACE_MS);
+
+    setVisibility("visible");
+    const ops = parseControls(ws).map((c) => c.op);
+    const reopenIdx = ops.lastIndexOf("open");
+    expect(reopenIdx).toBeGreaterThan(-1);
+    // The wake probe's ping follows the re-open (heartbeat pings from inside
+    // the grace window precede it — the streams were live then) — resume ran
+    // first, so the probe judged the resumed live set.
+    const probePingIdx = ops.lastIndexOf("ping");
+    expect(probePingIdx).toBeGreaterThan(reopenIdx);
+    mux.close();
   });
 });

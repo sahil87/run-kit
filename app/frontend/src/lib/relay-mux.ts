@@ -55,6 +55,23 @@ export type OpenStreamOpts = {
 type StreamState = {
   id: number;
   opts: OpenStreamOpts;
+  // Hidden-page suspension (change 260903-xj0w): a suspended stream has been
+  // closed server-side (attach client + PTY torn down) but stays in the mux
+  // map with its current opts so the `visible` transition — and ONLY that
+  // transition — re-opens it. Suspended streams are not "live": they are
+  // skipped by the ws.onopen re-open loop and excluded from the heartbeat /
+  // reconnect / wake gates (liveCount).
+  suspended: boolean;
+  // True while the server's `closed` 1000 echo of a suspension `close` op is
+  // still owed. A fast resume can clear `suspended` and re-issue `open` before
+  // the echo arrives (one RTT — the high-latency link this change targets), so
+  // the suspended flag alone cannot swallow it: an unswallowed echo retires
+  // the just-resumed stream and orphans the re-open's server-side attach
+  // client. Set only when the close op actually went out on an OPEN socket;
+  // shields exactly one post-resume `closed` 1000 (wire FIFO puts the echo
+  // before the re-open's `opened`); cleared by any `opened` (an echo lost to a
+  // socket death must not swallow a later genuine PTY-EOF 1000).
+  closeEchoPending: boolean;
   onData: ((data: Uint8Array) => void) | null;
   onOpened: (() => void) | null;
   onClosed: ((code: number, reason: string) => void) | null;
@@ -77,6 +94,19 @@ const RECONNECT_CAP_MS = 30000;
 export const HEARTBEAT_INTERVAL_MS = 30000;
 export const LIVENESS_TIMEOUT_MS = 2 * HEARTBEAT_INTERVAL_MS;
 export const WAKE_PROBE_TIMEOUT_MS = 3000;
+
+// Hidden-page stream suspension (change 260903-xj0w). Every stream is a sized
+// `tmux attach-session` client server-side, and tmux's `window-size latest`
+// arbitration counts HIDDEN pages' clients too — one forgotten background
+// surface (detached desktop-shell view, backgrounded tab, minimized window)
+// snaps every visible view to its grid after connection churn. So a page the
+// user is not looking at holds no attach client at all: after this grace
+// period hidden, every live stream is closed server-side (kept client-side,
+// marked suspended) and transparently re-opened on the `visible` transition.
+// The grace absorbs quick app-switches; `pagehide`/`freeze` release
+// immediately (a frozen page's timers stop, so the grace timer would never
+// fire). Only /ws/terminals holds attach clients — /ws/state is untouched.
+export const HIDDEN_RELEASE_GRACE_MS = 60000;
 
 /** Build the `/ws/terminals` URL from the current origin (ws/wss per protocol),
  *  mirroring state-socket.ts's stateSocketURL(). */
@@ -104,22 +134,42 @@ export class RelayMux {
   // is set when a ping goes out with no prior ping outstanding and cleared by
   // ANY inbound frame; outstanding ≥ LIVENESS_TIMEOUT_MS ⇒ forceClose() into
   // the existing reconnect path. The heartbeat is stream-gated (OPEN ∧
-  // streams.size > 0) via syncHeartbeat().
+  // liveCount() > 0 — suspended streams don't count) via syncHeartbeat().
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private outstandingPingSince: number | null = null;
   private wakeProbeTimer: ReturnType<typeof setTimeout> | null = null;
   private wakeListenersRegistered = false;
+  // Hidden-page suspension grace timer (260903-xj0w) — one mux-level timer:
+  // page visibility is tab-global, so per-stream timers would add state with
+  // no behavioral difference.
+  private graceTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly onWakeEvent = () => this.handleWake();
   private readonly onVisibilityEvent = () => {
-    if (typeof document !== "undefined" && document.visibilityState === "visible") {
+    if (typeof document === "undefined") return;
+    if (document.visibilityState === "visible") {
+      this.cancelGraceTimer();
+      // Resume BEFORE the wake probe so a dead socket is judged against the
+      // resumed (live) stream set and the reconnect re-opens those streams.
+      this.resumeSuspended();
       this.handleWake();
+    } else if (document.visibilityState === "hidden") {
+      this.startGraceTimer();
     }
   };
+  private readonly onImmediateReleaseEvent = () => this.suspendLiveStreams();
 
   /** Open a new pane stream. Idempotently connects the socket on first use. */
   openStream(opts: OpenStreamOpts): RelayStream {
     const id = this.nextId++;
-    const state: StreamState = { id, opts, onData: null, onOpened: null, onClosed: null };
+    const state: StreamState = {
+      id,
+      opts,
+      suspended: false,
+      closeEchoPending: false,
+      onData: null,
+      onOpened: null,
+      onClosed: null,
+    };
     this.streams.set(id, state);
 
     this.connect();
@@ -129,6 +179,13 @@ export class RelayMux {
     // First stream on an already-open socket restarts the stream-gated
     // heartbeat (onopen handles the fresh-connect case).
     this.syncHeartbeat();
+    // A stream opened while the page is hidden (e.g. a route change in a
+    // background tab) opens normally, then falls under the same suspension
+    // rule — start the grace timer if none is running (it may have already
+    // fired for the previously-live set).
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+      this.startGraceTimer();
+    }
 
     return {
       send: (data) => this.sendData(id, data),
@@ -170,6 +227,7 @@ export class RelayMux {
     this.closed = true;
     this.removeWakeListeners();
     this.stopHeartbeat();
+    this.cancelGraceTimer();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -207,8 +265,11 @@ export class RelayMux {
       // sole open; on a reconnect the mux re-attaches each stream server-side
       // (fresh PTY), and the TerminalClient's deferred reset repaints on the
       // first incoming data frame — flicker-free, no per-stream teardown.
+      // Suspended streams are skipped: only the `visible` transition may
+      // re-open them (a reconnect while hidden must not resurrect the attach
+      // clients the suspension just released).
       for (const s of this.streams.values()) {
-        this.sendOpen(s);
+        if (!s.suspended) this.sendOpen(s);
       }
       this.syncHeartbeat();
     };
@@ -236,9 +297,10 @@ export class RelayMux {
 
   private scheduleReconnect(): void {
     if (this.closed || this.reconnectTimer) return;
-    // No live streams → let the socket stay closed; the next openStream
-    // reconnects. This keeps an idle tab from holding a terminals socket open.
-    if (this.streams.size === 0) {
+    // No live streams → let the socket stay closed; the next openStream (or a
+    // resume of suspended streams) reconnects. This keeps an idle or fully
+    // suspended tab from holding a terminals socket open.
+    if (this.liveCount() === 0) {
       this.ws = null;
       return;
     }
@@ -248,6 +310,89 @@ export class RelayMux {
       this.reconnectTimer = null;
       this.connect();
     }, delay);
+  }
+
+  // --- Hidden-page stream suspension (260903-xj0w) ---------------------------
+
+  /** Streams that are live server-side (not suspended). Every "are there
+   *  streams" gate — heartbeat, reconnect, wake probes — keys on this, so a
+   *  fully suspended tab behaves like an idle one (socket allowed to stay
+   *  closed, no pings, no probes). */
+  private liveCount(): number {
+    let n = 0;
+    for (const s of this.streams.values()) {
+      if (!s.suspended) n++;
+    }
+    return n;
+  }
+
+  /** Arm the hidden-page grace timer (idempotent). Fires only if the page is
+   *  still hidden — the `visible` transition cancels it (quick app-switches
+   *  cost nothing). */
+  private startGraceTimer(): void {
+    if (this.closed || this.graceTimer) return;
+    this.graceTimer = setTimeout(() => {
+      this.graceTimer = null;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        this.suspendLiveStreams();
+      }
+    }, HIDDEN_RELEASE_GRACE_MS);
+  }
+
+  private cancelGraceTimer(): void {
+    if (this.graceTimer) {
+      clearTimeout(this.graceTimer);
+      this.graceTimer = null;
+    }
+  }
+
+  /** Suspend every live stream: send its `close` op (the server tears down the
+   *  attach client + PTY) but KEEP it in the map, marked suspended, with its
+   *  current opts — the `visible` transition re-opens it. Also the immediate
+   *  path for `pagehide`/`freeze` (no grace: a frozen page's timers stop, and
+   *  a navigated-away page must not hold attach clients). */
+  private suspendLiveStreams(): void {
+    if (this.closed) return;
+    this.cancelGraceTimer();
+    for (const s of this.streams.values()) {
+      if (s.suspended) continue;
+      s.suspended = true;
+      // The echo shield arms only when the close op actually goes out — a
+      // close dropped on a non-OPEN socket produces no echo (the server-side
+      // stream dies with the socket), and a stale pending mark would wrongly
+      // swallow a later genuine PTY-EOF 1000.
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        s.closeEchoPending = true;
+      }
+      this.sendControl({ op: "close", id: s.id });
+    }
+    // Zero live streams ⇒ the stream-gated heartbeat stops.
+    this.syncHeartbeat();
+  }
+
+  /** Re-open every suspended stream with its current opts (kept fresh by
+   *  resize/setWindowId even while suspended, so a pre-suspension same-session
+   *  ride re-opens the ridden-to window). The server's `opened` re-arms each
+   *  TerminalClient's deferred reset and the first data frame repaints —
+   *  resume is flicker-free with no TerminalClient involvement. */
+  private resumeSuspended(): void {
+    if (this.closed) return;
+    let resumed = false;
+    for (const s of this.streams.values()) {
+      if (!s.suspended) continue;
+      s.suspended = false;
+      resumed = true;
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.sendOpen(s);
+      }
+    }
+    if (!resumed) return;
+    // A drop while fully suspended scheduled no reconnect (liveCount was 0),
+    // so the socket may be gone — reconnect it; ws.onopen re-issues `open`
+    // for every live stream, including the just-resumed ones. No-op when the
+    // socket is OPEN/CONNECTING.
+    this.connect();
+    this.syncHeartbeat();
   }
 
   // --- Liveness: heartbeat + wake probes (260723-rma2) ----------------------
@@ -268,7 +413,7 @@ export class RelayMux {
    *  `closed`, onclose, close()). Never connects a closed socket. */
   private syncHeartbeat(): void {
     const shouldRun =
-      !this.closed && this.ws !== null && this.ws.readyState === WebSocket.OPEN && this.streams.size > 0;
+      !this.closed && this.ws !== null && this.ws.readyState === WebSocket.OPEN && this.liveCount() > 0;
     if (shouldRun && !this.heartbeatTimer) {
       this.outstandingPingSince = null;
       this.heartbeatTimer = setInterval(() => this.heartbeatTick(), HEARTBEAT_INTERVAL_MS);
@@ -294,7 +439,7 @@ export class RelayMux {
    *  (hidden-tab guard — timer throttling delaying our own pings can never
    *  force-close a healthy socket) and any inbound frame clears it. */
   private heartbeatTick(): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || this.streams.size === 0) return;
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || this.liveCount() === 0) return;
     if (
       this.outstandingPingSince !== null &&
       Date.now() - this.outstandingPingSince >= LIVENESS_TIMEOUT_MS
@@ -330,7 +475,7 @@ export class RelayMux {
    *  backoff reset to base; an OPEN socket gets a probe ping with a short
    *  deadline (any inbound frame cancels; silence force-closes). */
   private handleWake(): void {
-    if (this.closed || this.streams.size === 0) return;
+    if (this.closed || this.liveCount() === 0) return;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -354,10 +499,18 @@ export class RelayMux {
     if (this.wakeListenersRegistered) return;
     if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
       document.addEventListener("visibilitychange", this.onVisibilityEvent);
+      // Page Lifecycle freeze (Chromium): the browser may freeze a hidden page
+      // before the grace timer fires — release immediately. Harmless where the
+      // event never fires.
+      document.addEventListener("freeze", this.onImmediateReleaseEvent);
     }
     if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
       window.addEventListener("online", this.onWakeEvent);
       window.addEventListener("pageshow", this.onWakeEvent);
+      // pagehide = unload or bfcache entry — release immediately. On a real
+      // unload the close ops merely speed server-side teardown; on a bfcache
+      // restore, visibilitychange→visible resumes.
+      window.addEventListener("pagehide", this.onImmediateReleaseEvent);
     }
     this.wakeListenersRegistered = true;
   }
@@ -366,10 +519,12 @@ export class RelayMux {
     if (!this.wakeListenersRegistered) return;
     if (typeof document !== "undefined" && typeof document.removeEventListener === "function") {
       document.removeEventListener("visibilitychange", this.onVisibilityEvent);
+      document.removeEventListener("freeze", this.onImmediateReleaseEvent);
     }
     if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
       window.removeEventListener("online", this.onWakeEvent);
       window.removeEventListener("pageshow", this.onWakeEvent);
+      window.removeEventListener("pagehide", this.onImmediateReleaseEvent);
     }
     this.wakeListenersRegistered = false;
   }
@@ -389,7 +544,8 @@ export class RelayMux {
     const s = this.streams.get(id);
     if (!s) return;
     this.streams.delete(id);
-    this.sendControl({ op: "close", id });
+    // A suspended stream is already closed server-side — nothing to send.
+    if (!s.suspended) this.sendControl({ op: "close", id });
     // Last stream gone ⇒ the stream-gated heartbeat stops (the idle socket is
     // deliberately left alone).
     this.syncHeartbeat();
@@ -438,9 +594,33 @@ export class RelayMux {
     if (!s) return;
     switch (msg.op) {
       case "opened":
+        // Wire FIFO: the suspension close's echo always precedes this open's
+        // `opened` on the same connection, so a still-pending mark here means
+        // the echo was lost with a dead socket — retire it so it cannot
+        // swallow a later genuine PTY-EOF 1000.
+        s.closeEchoPending = false;
         s.onOpened?.();
         break;
       case "closed": {
+        // The server echoes `closed` (1000) for a client `close` op — the one
+        // a suspension just sent — and a racing 4004 may cross it. Swallow
+        // every echo while suspended: retiring the stream would fire onClosed
+        // and TerminalClient's probe re-open, defeating the suspension. A
+        // window that died while hidden surfaces on resume instead, as a
+        // fresh 4004 on the re-open.
+        if (s.suspended) {
+          if (msg.code === 1000 || msg.code === undefined) s.closeEchoPending = false;
+          break;
+        }
+        // A fast resume beat the echo here: `suspended` is already cleared and
+        // the re-open is in flight, but this `closed` 1000 is the suspension
+        // close's echo, not the re-opened stream's fate. Swallow exactly one.
+        // A 4004 is never the echo (the suspension close echoes 1000) and must
+        // retire — the resume-time dead-window recovery depends on it.
+        if (s.closeEchoPending && (msg.code === 1000 || msg.code === undefined)) {
+          s.closeEchoPending = false;
+          break;
+        }
         // A stream-level close (window not found, attach failed, or a graceful
         // close). Fire onClosed and retire the stream — the mux does not
         // re-open it (unlike a socket-level drop, handled in ws.onopen).

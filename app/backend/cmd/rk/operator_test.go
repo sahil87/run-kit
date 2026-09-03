@@ -433,6 +433,45 @@ func TestOperatorCreatesStampsAndDelivers(t *testing.T) {
 	}
 }
 
+// An empty or malformed window id from display-message fails (exit 3) BEFORE
+// the role write-path runs — stampOperatorRole with keepWindowID "" would
+// radio-clear @rk_win_role from every window on the server.
+func TestOperatorInvalidWindowIDFailsBeforeStamp(t *testing.T) {
+	for _, winOut := range []string{"\n", "42\n"} {
+		t.Run(fmt.Sprintf("winOut=%q", winOut), func(t *testing.T) {
+			resetOperatorWorkers(t)
+			s := stubOperatorSeams(t, "@3\t\tother\n")
+			origOut := operatorRunOutputFn
+			operatorRunOutputFn = func(ctx context.Context, args, env []string) ([]byte, error) {
+				if args[0] == "display-message" {
+					return []byte(winOut), nil
+				}
+				return origOut(ctx, args, env)
+			}
+			t.Cleanup(func() { operatorRunOutputFn = origOut })
+
+			cmd, _, _ := operatorTestCmd()
+			err := runOperator(cmd)
+			if err == nil {
+				t.Fatalf("runOperator() with window id output %q = nil, want a subprocess error", winOut)
+			}
+			var ece *riff.ExitCodeError
+			if !errors.As(err, &ece) {
+				t.Fatalf("runOperator() error = %T %v, want *riff.ExitCodeError", err, err)
+			}
+			if ece.Code != riff.ExitSubprocess {
+				t.Errorf("exit code = %d, want %d (subprocess)", ece.Code, riff.ExitSubprocess)
+			}
+			if len(s.stampOps) != 0 {
+				t.Errorf("stamp ops = %v, want none — an invalid window id must never reach the role write-path", s.stampOps)
+			}
+			if len(s.deliverCalls) != 0 {
+				t.Errorf("deliveries = %v, want none after a failed window-id resolve", s.deliverCalls)
+			}
+		})
+	}
+}
+
 // A valid --workers value prefixes the AGENT COMMAND ONLY, inside the shell
 // string, before the interactive wrap.
 func TestOperatorWorkersPrefixComposition(t *testing.T) {

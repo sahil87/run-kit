@@ -65,6 +65,54 @@ func TestParseApps(t *testing.T) {
 		}
 	})
 
+	t.Run("filters to gui locus, keeping locus-less rows", func(t *testing.T) {
+		data := []byte(`[
+			{"id":"code","label":"VS Code","kind":"editor","locus":"gui"},
+			{"id":"open_here","label":"Open here","kind":"shell","locus":"caller"},
+			{"id":"tmux_window","label":"tmux window","kind":"multiplexer","locus":"session"},
+			{"id":"copy_path","label":"Copy path","kind":"clipboard","locus":"host"},
+			{"id":"legacy","label":"Legacy App","kind":"editor"}
+		]`)
+		apps, err := parseApps(data)
+		if err != nil {
+			t.Fatalf("parseApps error: %v", err)
+		}
+		if len(apps) != 2 || apps[0].ID != "code" || apps[1].ID != "legacy" {
+			t.Fatalf("apps = %+v, want gui 'code' + locus-less 'legacy'", apps)
+		}
+	})
+
+	t.Run("all-non-gui registry parses to empty slice", func(t *testing.T) {
+		// The registry observed on a headless host: action rows only, no GUI
+		// apps — the filtered result must be empty so the UI hides the section.
+		data := []byte(`[
+			{"id":"open_here","label":"Open here","kind":"shell","locus":"caller"},
+			{"id":"tmux_window","label":"tmux window","kind":"multiplexer","locus":"session","default":true},
+			{"id":"tmux_session","label":"tmux session","kind":"multiplexer","locus":"session"}
+		]`)
+		apps, err := parseApps(data)
+		if err != nil {
+			t.Fatalf("parseApps error: %v", err)
+		}
+		if len(apps) != 0 {
+			t.Fatalf("apps = %+v, want empty (default marker on a dropped row must not leak)", apps)
+		}
+	})
+
+	t.Run("default marker decoded on surviving gui rows", func(t *testing.T) {
+		data := []byte(`[
+			{"id":"code","label":"VS Code","kind":"editor","locus":"gui","default":true},
+			{"id":"cursor","label":"Cursor","kind":"editor","locus":"gui"}
+		]`)
+		apps, err := parseApps(data)
+		if err != nil {
+			t.Fatalf("parseApps error: %v", err)
+		}
+		if len(apps) != 2 || !apps[0].Default || apps[1].Default {
+			t.Fatalf("apps = %+v, want default only on 'code'", apps)
+		}
+	})
+
 	t.Run("non-JSON output errors", func(t *testing.T) {
 		if _, err := parseApps([]byte("Usage: wt open <path>")); err == nil {
 			t.Fatal("expected error for non-JSON output")

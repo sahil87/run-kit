@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-02T20:51:58Z"}
+{"args":"wt open --list --json becomes locus-aware registry; filter GET /api/open-apps to locus==gui, optional default preselect (backlog k2pm)","cmd":"fab-new","event":"command","ts":"2026-09-02T20:51:58Z"}
+{"delta":"+4.5","event":"confidence","score":4.5,"trigger":"calc-score","ts":"2026-09-02T20:53:34Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-03T02:58:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-03T02:58:54Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-03T03:03:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-03T03:07:38Z"}
+{"event":"review","result":"passed","ts":"2026-09-03T03:07:38Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-03T03:09:41Z"}

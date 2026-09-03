@@ -173,6 +173,36 @@ describe("buildOpenTargets", () => {
     ).toEqual([]);
   });
 
+  it("default-marked app leads the host section (stable partition)", () => {
+    const targets = buildOpenTargets({
+      hostname: "localhost",
+      sshHost: "",
+      sshUser: "",
+      hostApps: [
+        { id: "code", label: "VSCode", kind: "editor" },
+        { id: "cursor", label: "Cursor", kind: "editor", default: true },
+        { id: "iterm", label: "iTerm", kind: "terminal" },
+      ],
+      path: "/p",
+    });
+    expect(targets.map((t) => t.id)).toEqual([
+      "host:cursor",
+      "host:code",
+      "host:iterm",
+    ]);
+  });
+
+  it("unmarked registry keeps wt's order untouched", () => {
+    const targets = buildOpenTargets({
+      hostname: "localhost",
+      sshHost: "",
+      sshUser: "",
+      hostApps,
+      path: "/p",
+    });
+    expect(targets.map((t) => t.id)).toEqual(["host:code", "host:iterm"]);
+  });
+
   it("host targets carry the raw wt app id + kind for POST /api/open and icons", () => {
     const targets = buildOpenTargets({
       hostname: "localhost",

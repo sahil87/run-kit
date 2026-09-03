@@ -17,34 +17,56 @@ import (
 
 // rk tutorial — the human-typable entry to the guided tour (`rk skill
 // tutorial`). Opens a window named 'tutorial' in the CURRENT tmux session
-// running the --tier-resolved launcher with the kickoff prompt as its
-// positional argument (the fab operator launcher pattern: the kickoff rides
-// the launcher, never send-keys). Re-running selects the existing window
-// rather than stacking a duplicate — a tour belongs to the project session it
-// started in, so the singleton is session-scoped (not operator's server-wide
-// probe) and no `tutorial-2` suffixing.
+// running the --tier-resolved launcher BARE, then TYPES the kickoff prompt
+// into the booted agent and submits it. The kickoff is typed — never a
+// launcher positional argument — because the launcher string is
+// provider-opaque: only claude's CLI accepts a positional prompt (kimi parses
+// one as a subcommand and exits), so typed keys are the only provider-agnostic
+// delivery. Re-running selects the existing window rather than stacking a
+// duplicate — a tour belongs to the project session it started in, so the
+// singleton is session-scoped (not operator's server-wide probe) and no
+// `tutorial-2` suffixing.
 //
-// The command composes its own two tmux calls (list-windows probe +
-// new-window/select-window) directly — riff.Run's worktree/collision/layout
-// machinery is the wrong shape for select-or-create in the current session.
-// Every subprocess is an argv-slice exec with a bounded context (constitution
-// §I) — the tmux calls via the internal/tmux Run core, launcher resolution via
-// riff.ResolveLauncher's own exec of `fab`; the launcher string stays riff's
-// one documented shell-expansion exception, and the kickoff prompt is a
-// compile-time constant single-quote-escaped by riff.SkillPaneCommand.
+// The command composes its own tmux calls (list-windows probe +
+// new-window/select-window + the capture/send delivery loop) directly —
+// riff.Run's worktree/collision/layout machinery is the wrong shape for
+// select-or-create in the current session. Every tmux call is an argv-slice
+// exec with a bounded context via the internal/tmux Run core (constitution
+// §I); launcher resolution is riff.ResolveLauncher's own bounded exec of
+// `fab`; the launcher string stays riff's one documented shell-expansion
+// exception. The typed kickoff never passes through a shell at all — it rides
+// `send-keys -l` as a literal argv element.
 
 const (
-	// tutorialKickoffPrompt is the exact kickoff the tour agent is launched
-	// with — the launcher receives it single-quote-escaped as its positional
-	// argument.
+	// tutorialKickoffPrompt is the exact kickoff typed into the tour agent
+	// after it boots.
 	tutorialKickoffPrompt = "Run rk skill tutorial and follow it exactly"
 	// tutorialWindowName is the exact window name the singleton probe
 	// matches — no prefix/substring.
 	tutorialWindowName = "tutorial"
-	// tutorialCmdTimeout bounds every subprocess the command spawns
-	// (constitution §I: 5-10s for short-lived tmux helpers) — the tmux calls
-	// directly, and launcher resolution as the parent of riff.FabTimeout.
+	// tutorialCmdTimeout bounds every individual subprocess the command spawns
+	// (constitution §I: 5-10s for short-lived tmux helpers) — each tmux call,
+	// and launcher resolution as the parent of riff.FabTimeout. The typed
+	// delivery loop is a sequence of such bounded calls under its own
+	// wall-clock deadline (tutorialDeliverDeadline), not one long context.
 	tutorialCmdTimeout = 10 * time.Second
+)
+
+// Typed-delivery pacing. Vars (not consts) so tests can shrink them; the
+// defaults tolerate a slow agent boot while keeping the worst case bounded.
+var (
+	// tutorialDeliverDeadline is the wall-clock budget for the whole
+	// boot-settle + echo-verify delivery; past it the command degrades to a
+	// paste-it-yourself note (never a non-zero exit — the window and agent
+	// exist either way).
+	tutorialDeliverDeadline = 25 * time.Second
+	// tutorialPollInterval paces the boot-settle and echo-verify captures.
+	tutorialPollInterval = 600 * time.Millisecond
+	// tutorialSubmitSettle is how long a submitted prompt gets to visibly
+	// change the pane before Enter is judged swallowed and retried once.
+	tutorialSubmitSettle = 1200 * time.Millisecond
+	tutorialSleepFn      = time.Sleep
+	tutorialNowFn        = time.Now
 )
 
 var tutorialTierFlag string
@@ -58,7 +80,10 @@ tmux session, running an agent that walks you through run-kit act by act.
 The agent launcher is resolved for the --tier fab role via 'fab agent <tier>
 --print'; when fab is absent or resolution fails, the plain default launcher
 (claude --dangerously-skip-permissions) is used. The default fast tier keeps
-the tour's short narration beats snappy.
+the tour's short narration beats snappy. Once the agent has booted, the
+kickoff prompt is typed into it and submitted; if that delivery cannot be
+verified (an unusually slow boot, a first-run dialog), the command says
+exactly what to paste instead.
 
 Re-running 'rk tutorial' when a window named 'tutorial' already exists in the
 current session switches to it instead of opening a duplicate. The pane drops
@@ -73,7 +98,7 @@ Examples:
   run-kit tutorial --tier doing # run the tour on another fab role
 
 Exit codes:
-  0  success
+  0  success (including a window opened with an undeliverable kickoff)
   1  precondition failure ($TMUX unset)
   3  subprocess failure (tmux non-zero exit, timeout)`,
 	Args: cobra.NoArgs,
@@ -119,8 +144,8 @@ func runTutorialWithExitCode(cmd *cobra.Command, _ []string) error {
 }
 
 // runTutorial is the testable core: precondition ($TMUX) → session-scoped
-// singleton probe → resolve launcher → compose pane command → new-window. No
-// tmux subprocess runs before the precondition passes.
+// singleton probe → resolve launcher → open bare-launcher window → typed
+// kickoff delivery. No tmux subprocess runs before the precondition passes.
 func runTutorial(cmd *cobra.Command) error {
 	if tutorialOriginalTMUXFn() == "" {
 		return &riff.ExitCodeError{Code: riff.ExitPrecondition, Msg: "run-kit tutorial: not inside a tmux session ($TMUX unset) — open the run-kit dashboard, create a session/window for this directory, then run `rk tutorial` inside it"}
@@ -158,13 +183,139 @@ func runTutorial(cmd *cobra.Command) error {
 	// Launcher resolution never errors — any failure (fab absent, non-zero,
 	// timeout, malformed output) degrades silently to riff.DefaultLauncher.
 	launcher := tutorialResolveLauncherFn(ctx, config.FindGitRoot(cwd), tutorialTierFlag)
-	shellCmd := riff.SkillPaneCommand(launcher, tutorialKickoffPrompt)
+	// Bare launcher (empty prompt): the kickoff is typed after boot, below.
+	shellCmd := riff.SkillPaneCommand(launcher, "")
 
-	if err := tutorialRunFn(ctx, []string{"new-window", "-c", cwd, "-n", tutorialWindowName, shellCmd}, env); err != nil {
+	// -P -F captures the new pane's id — the typed delivery's send/capture
+	// target (pane-id targeting, like window-id, is exempt from name
+	// resolution).
+	paneOut, err := tutorialRunOutputFn(ctx, []string{"new-window", "-P", "-F", "#{pane_id}", "-c", cwd, "-n", tutorialWindowName, shellCmd}, env)
+	if err != nil {
 		return &riff.ExitCodeError{Code: riff.ExitSubprocess, Msg: fmt.Sprintf("run-kit tutorial: tmux new-window failed: %v", err)}
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Opened tutorial tab (window %q, tier %q).\n", tutorialWindowName, tutorialTierFlag)
+
+	// Typed-kickoff delivery is best-effort: the window and its agent exist
+	// either way, so a delivery miss degrades to telling the user exactly what
+	// to paste — never a non-zero exit.
+	deliverErr := errors.New("tmux new-window printed no pane id")
+	if paneID := strings.TrimSpace(string(paneOut)); paneID != "" {
+		deliverErr = deliverTutorialKickoff(parent, paneID, env)
+	}
+	if deliverErr != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "run-kit tutorial: could not deliver the kickoff prompt (%v) — paste this into the tour agent yourself:\n  %s\n", deliverErr, tutorialKickoffPrompt)
+	}
 	return nil
+}
+
+// deliverTutorialKickoff types the kickoff prompt into the freshly spawned
+// agent pane and verifies each step from the pane's own text: wait for the TUI
+// to finish booting (typing earlier risks the input being discarded mid-boot),
+// type the prompt literally and wait for its echo, then submit — retrying
+// Enter once when the screen did not change (the swallowed-Enter trap, where a
+// TUI leaves typed text parked at the input line). Every tmux call is
+// individually bounded by tutorialCmdTimeout; the polls share the
+// tutorialDeliverDeadline wall-clock budget. The returned error is
+// informational — the caller degrades, it never fails the command.
+func deliverTutorialKickoff(parent context.Context, paneID string, env []string) error {
+	deadline := tutorialNowFn().Add(tutorialDeliverDeadline)
+
+	capture := func() (string, error) {
+		ctx, cancel := context.WithTimeout(parent, tutorialCmdTimeout)
+		defer cancel()
+		out, err := tutorialRunOutputFn(ctx, []string{"capture-pane", "-p", "-t", paneID}, env)
+		if err != nil {
+			return "", fmt.Errorf("tmux capture-pane failed: %w", err)
+		}
+		return string(out), nil
+	}
+	send := func(args ...string) error {
+		ctx, cancel := context.WithTimeout(parent, tutorialCmdTimeout)
+		defer cancel()
+		if err := tutorialRunFn(ctx, append([]string{"send-keys", "-t", paneID}, args...), env); err != nil {
+			return fmt.Errorf("tmux send-keys failed: %w", err)
+		}
+		return nil
+	}
+
+	// Boot settle: ready = a non-blank pane whose text is unchanged across two
+	// consecutive polls (boot screens animate; an idle input prompt does not).
+	prev := ""
+	settled := false
+	for tutorialNowFn().Before(deadline) {
+		cur, err := capture()
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(cur) != "" && cur == prev {
+			settled = true
+			break
+		}
+		prev = cur
+		tutorialSleepFn(tutorialPollInterval)
+	}
+	if !settled {
+		return errors.New("the agent did not finish booting within the delivery window")
+	}
+
+	// Type literally (-l: no key-name interpretation; the prompt is a single
+	// argv element, no shell) and wait for the echo. The check compares
+	// alphanumerics only — the TUI wraps typed text inside a bordered input
+	// box, so spacing, line breaks, and box-drawing glyphs are noise.
+	if err := send("-l", tutorialKickoffPrompt); err != nil {
+		return err
+	}
+	echoed := ""
+	for {
+		cur, err := capture()
+		if err != nil {
+			return err
+		}
+		if paneEchoesKickoff(cur) {
+			echoed = cur
+			break
+		}
+		if !tutorialNowFn().Before(deadline) {
+			return errors.New("the typed kickoff never echoed in the pane (a first-run dialog may be up)")
+		}
+		tutorialSleepFn(tutorialPollInterval)
+	}
+
+	// Submit. A swallowed Enter leaves the pane byte-identical (typed text
+	// parked at the input line); a real submit visibly changes it (transcript
+	// echo, busy spinner). One retry, then report.
+	for attempt := 0; attempt < 2; attempt++ {
+		if err := send("Enter"); err != nil {
+			return err
+		}
+		tutorialSleepFn(tutorialSubmitSettle)
+		cur, err := capture()
+		if err != nil {
+			return err
+		}
+		if cur != echoed {
+			return nil
+		}
+	}
+	return errors.New("Enter did not submit the kickoff (pane unchanged after retry)")
+}
+
+// paneEchoesKickoff reports whether the captured pane text contains the
+// kickoff prompt, comparing alphanumerics only: the agent TUI renders typed
+// text wrapped inside a bordered input box, so whitespace and box-drawing
+// glyphs between the prompt's characters are presentation, not content. Pure.
+func paneEchoesKickoff(captured string) bool {
+	return strings.Contains(stripToAlnum(captured), stripToAlnum(tutorialKickoffPrompt))
+}
+
+// stripToAlnum drops every rune outside [a-zA-Z0-9]. Pure.
+func stripToAlnum(s string) string {
+	return strings.Map(func(r rune) rune {
+		if ('a' <= r && r <= 'z') || ('A' <= r && r <= 'Z') || ('0' <= r && r <= '9') {
+			return r
+		}
+		return -1
+	}, s)
 }
 
 // findTutorialWindowID scans `tmux list-windows -F '#{window_id}\t#{window_name}'`

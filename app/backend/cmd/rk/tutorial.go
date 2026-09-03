@@ -27,9 +27,10 @@ import (
 // The command composes its own two tmux calls (list-windows probe +
 // new-window/select-window) directly — riff.Run's worktree/collision/layout
 // machinery is the wrong shape for select-or-create in the current session.
-// Every subprocess is an argv-slice exec via the internal/tmux Run core with
-// a bounded context (constitution §I); the launcher string stays riff's one
-// documented shell-expansion exception, and the kickoff prompt is a
+// Every subprocess is an argv-slice exec with a bounded context (constitution
+// §I) — the tmux calls via the internal/tmux Run core, launcher resolution via
+// riff.ResolveLauncher's own exec of `fab`; the launcher string stays riff's
+// one documented shell-expansion exception, and the kickoff prompt is a
 // compile-time constant single-quote-escaped by riff.SkillPaneCommand.
 
 const (
@@ -40,8 +41,9 @@ const (
 	// tutorialWindowName is the exact window name the singleton probe
 	// matches — no prefix/substring.
 	tutorialWindowName = "tutorial"
-	// tutorialCmdTimeout bounds every tmux subprocess the command spawns
-	// (constitution §I: 5-10s for short-lived tmux helpers).
+	// tutorialCmdTimeout bounds every subprocess the command spawns
+	// (constitution §I: 5-10s for short-lived tmux helpers) — the tmux calls
+	// directly, and launcher resolution as the parent of riff.FabTimeout.
 	tutorialCmdTimeout = 10 * time.Second
 )
 

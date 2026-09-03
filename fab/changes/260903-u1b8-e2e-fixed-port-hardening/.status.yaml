@@ -5,17 +5,17 @@ created_by: sahil87
 change_type: fix
 issues: []
 progress:
-    intake: ready
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
-    review-pr: pending
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: active
 plan:
-    generated: false
-    task_count: 0
-    acceptance_count: 0
-    acceptance_completed: 0
+    generated: true
+    task_count: 5
+    acceptance_count: 14
+    acceptance_completed: 14
 confidence:
     certain: 2
     confident: 3
@@ -29,7 +29,28 @@ confidence:
         competence: 83.0
         disambiguation: 70.0
 stage_metrics:
-    intake: {started_at: "2026-09-03T06:07:19Z", driver: fab-new, iterations: 1}
-prs: []
+    intake: {started_at: "2026-09-03T06:07:19Z", driver: fab-new, iterations: 1, completed_at: "2026-09-03T06:26:58Z"}
+    apply: {started_at: "2026-09-03T06:26:58Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T07:04:24Z"}
+    review: {started_at: "2026-09-03T07:04:24Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T07:11:45Z"}
+    hydrate: {started_at: "2026-09-03T07:11:45Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T07:13:21Z"}
+    ship: {started_at: "2026-09-03T07:13:21Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T07:15:09Z"}
+    review-pr: {started_at: "2026-09-03T07:15:09Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/805
+true_impact:
+    added: 546
+    deleted: 306
+    net: 240
+    excluding:
+        added: 332
+        deleted: 292
+        net: 40
+    tests:
+        added: 185
+        deleted: 281
+        net: -96
+    computed_at: "2026-09-03T07:15:09Z"
+    computed_at_stage: ship
+summary: 'E2E fixed-port hardening: dead web-tab URLs and the code-stub bind derive via new _ports.ts (ephemeral reserve/port-0 fallback), and Playwright reads harness-only E2E_PORT so the :3333 fail-closed fallback works under ambient direnv RK_PORT'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-03T06:11:25Z
+last_updated: 2026-09-03T07:15:09Z

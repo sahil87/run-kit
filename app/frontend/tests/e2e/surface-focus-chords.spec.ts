@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import http from "node:http";
+import { focusGrabCodeStubHtml, startCodeStub, type CodeStub } from "./_ports";
 import { READY_TIMEOUT, resolveWindow as resolveWindowRaw } from "./_ready";
 import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 
@@ -12,11 +12,12 @@ import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 // pinned by unit tests (keybindings.test.ts per-host resolution).
 //
 // Shared setup: `beforeAll` creates one dedicated session `e2e-sfc-<ts>` on
-// the isolated e2e tmux socket, binds the workbench grab stub (an HTTP server
-// on RK_CODE_SERVER_PORT serving one focusable button that grabs focus once
-// per load, 300ms in, and retitles its document `grabbed` — the stub makes
-// the backend's reachability probe genuinely true, so the code tile renders
-// a real iframe), and pays Vite's cold transform with a throwaway
+// the isolated e2e tmux socket, binds the workbench grab stub (startCodeStub
+// from _ports.ts: an HTTP server on the harness-seeded RK_CODE_SERVER_PORT,
+// or an ephemeral port when unset, serving one focusable button that grabs
+// focus once per load, 300ms in, and retitles its document `grabbed` — the
+// stub makes the backend's reachability probe genuinely true, so the code
+// tile renders a real iframe), and pays Vite's cold transform with a throwaway
 // terminal-route page load outside any test's budget (90s hook budget);
 // `afterAll` closes the stub and kills the session. `beforeEach` sets a
 // desktop viewport (1440×800) — the chords' stateful arms are desktop-only.
@@ -38,52 +39,10 @@ import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 const TEST_SESSION = `e2e-sfc-${Date.now()}`;
 const DESKTOP_VIEWPORT = { width: 1440, height: 800 };
 
-/** The code-server port the e2e backend is configured with (the
- *  focus-restore spec's pattern — workers: 1 lets the files share the port).
- *  The stub bound here makes the surface REACHABLE, so the iframe renders
- *  instead of the not-running empty state — no reachability mock needed. */
-function resolveCodePort(): number {
-  const raw = process.env.RK_CODE_SERVER_PORT;
-  if (raw === undefined || raw === "") return 3939; // unset — same as the backend
-  const port = Number(raw);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error(
-      `RK_CODE_SERVER_PORT="${raw}" is not a valid port (1-65535). The backend ` +
-        `ignores it and disables the code lens, so this spec cannot pass. Run ` +
-        `via \`just test-e2e surface-focus-chords\`, which seeds a valid port.`,
-    );
-  }
-  return port;
-}
-
-const CODE_PORT = resolveCodePort();
-
 /** How long after its own load the stub waits before grabbing focus — the
- *  stand-in for the code-server workbench's one-shot editor-restore grab. */
+ *  stand-in for the code-server workbench's one-shot editor-restore grab
+ *  (fed to `focusGrabCodeStubHtml`, whose doc owns the grab mechanics). */
 const GRAB_DELAY_MS = 300;
-
-/** The stub "workbench" — byte-identical to the focus-restore spec's: a
- *  focusable button that grabs focus GRAB_DELAY_MS after load, then titles
- *  its document "grabbed" so the spec can await the grab deterministically
- *  (same-origin, so the parent can read the title). The grab is ONE-SHOT per
- *  load; focusing an element inside the frame chains focus up — the iframe
- *  ELEMENT becomes the parent document's activeElement, exactly like the
- *  real steal. */
-function startStub(): Promise<http.Server> {
-  const srv = http.createServer((_req, res) => {
-    res.setHeader("Content-Type", "text/html");
-    res.end(
-      `<!doctype html><html><body><button id="inner">stub editor</button><script>` +
-        `var didFocus=false;setTimeout(function(){if(didFocus)return;didFocus=true;` +
-        `document.getElementById("inner").focus();document.title="grabbed";},${GRAB_DELAY_MS});` +
-        `</script></body></html>`,
-    );
-  });
-  return new Promise((resolve, reject) => {
-    srv.once("error", reject);
-    srv.listen(CODE_PORT, "127.0.0.1", () => resolve(srv));
-  });
-}
 
 /** Create a window (repo cwd — windows inherit the tmux server's start cwd, so
  *  the code lens is available) and return its stable `@N` id. */
@@ -190,14 +149,14 @@ async function expectTileFocused(page: Page, kind: "tty" | "code"): Promise<void
   await expect(tile(page, other)).not.toHaveClass(/border-accent-green/);
 }
 
-let stub: http.Server;
+let stub: CodeStub;
 
 test.beforeAll(async ({ browser }, testInfo) => {
   // The hook's own budget: the warm-up below pays Vite's cold transform of
   // the app + xterm graph (the focus-restore spec's pattern).
   testInfo.setTimeout(90_000);
   createSession(TEST_SESSION);
-  stub = await startStub();
+  stub = await startCodeStub(focusGrabCodeStubHtml(GRAB_DELAY_MS));
   const page = await browser.newPage();
   const first = await resolveWindowRaw(page, TMUX_SERVER, TEST_SESSION);
   await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(first.windowId)}`);
@@ -207,7 +166,7 @@ test.beforeAll(async ({ browser }, testInfo) => {
 });
 
 test.afterAll(async () => {
-  await new Promise((resolve) => stub.close(resolve));
+  await new Promise((resolve) => stub.server.close(resolve));
   killSession(TEST_SESSION);
 });
 

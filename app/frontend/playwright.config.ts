@@ -1,6 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const port = Number(process.env.RK_PORT ?? "3333");
+// E2E_PORT is set only by the harness (scripts/test-e2e.sh, scripts/pw.sh).
+// Never read the ambient RK_PORT here: direnv exports it into every shell, so
+// consulting it would point a bare `playwright test` at a live dev server —
+// 3333 is the fail-closed connect-to-nothing fallback.
+const port = Number(process.env.E2E_PORT ?? "3333");
 
 export default defineConfig({
   testDir: "./tests/e2e",

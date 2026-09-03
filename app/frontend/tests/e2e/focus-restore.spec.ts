@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
-import http from "node:http";
 import { execFileSync } from "node:child_process";
+import { focusGrabCodeStubHtml, startCodeStub, type CodeStub } from "./_ports";
 import { READY_TIMEOUT, resolveWindow as resolveWindowRaw } from "./_ready";
 import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 
@@ -20,9 +20,11 @@ import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
  * - tmux server: the isolated `rk-test-e2e` socket (`E2E_TMUX_SERVER`); never
  *   run Playwright directly — `just test-e2e focus-restore`.
  * - Workbench grab stub: code-server is not installable in the test env, so
- *   `beforeAll` binds a stub HTTP server on `RK_CODE_SERVER_PORT` (default
- *   3939 — the code-surface spec's pattern; `workers: 1` lets the files share
- *   the port) serving a page with one focusable button. 300ms after each load
+ *   `beforeAll` binds a stub HTTP server (`startCodeStub`, `_ports.ts`) on
+ *   `RK_CODE_SERVER_PORT` (the env the test-e2e script seeds the backend
+ *   with; an ephemeral port when unset — `workers: 1` lets the code-stub
+ *   files share the seeded port) serving a page with one focusable button
+ *   (`focusGrabCodeStubHtml`). 300ms after each load
  *   the page focuses the button ONCE (a `didFocus` flag keeps the revert's
  *   focus churn from retriggering it — matching the real one-shot
  *   editor-restore grab) and retitles its document `grabbed`. Focusing an
@@ -61,53 +63,10 @@ import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 const TEST_SESSION = `e2e-focusrestore-${Date.now()}`;
 const DESKTOP_VIEWPORT = { width: 1440, height: 800 };
 
-/** The code-server port the e2e backend is configured with (the code-surface
- *  spec's pattern — workers: 1 lets the files share the port). The stub bound
- *  here makes the surface REACHABLE, so the iframe renders instead of the
- *  not-running empty state — no reachability mock needed. */
-function resolveCodePort(): number {
-  const raw = process.env.RK_CODE_SERVER_PORT;
-  if (raw === undefined || raw === "") return 3939; // unset — same as the backend
-  const port = Number(raw);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error(
-      `RK_CODE_SERVER_PORT="${raw}" is not a valid port (1-65535). The backend ` +
-        `ignores it and disables the code lens, so this spec cannot pass. Run ` +
-        `via \`just test-e2e focus-restore\`, which seeds a valid port.`,
-    );
-  }
-  return port;
-}
-
-const CODE_PORT = resolveCodePort();
-
 /** How long after its own load the stub waits before grabbing focus — the
- *  stand-in for the code-server workbench's one-shot editor-restore grab. */
+ *  stand-in for the code-server workbench's one-shot editor-restore grab
+ *  (fed to `focusGrabCodeStubHtml`, whose doc owns the grab mechanics). */
 const GRAB_DELAY_MS = 300;
-
-/** The stub "workbench": a focusable button that grabs focus GRAB_DELAY_MS
- *  after load, then titles its document "grabbed" so the spec can await the
- *  grab deterministically (same-origin, so the parent can read the title).
- *  The grab is ONE-SHOT per load (matching the real editor-restore grab): the
- *  `didFocus` flag stops the revert's focus churn from retriggering the
- *  timer's target. Focusing an element inside the frame chains focus up — the
- *  iframe ELEMENT becomes the parent document's activeElement, exactly like
- *  the real steal. */
-function startStub(): Promise<http.Server> {
-  const srv = http.createServer((_req, res) => {
-    res.setHeader("Content-Type", "text/html");
-    res.end(
-      `<!doctype html><html><body><button id="inner">stub editor</button><script>` +
-        `var didFocus=false;setTimeout(function(){if(didFocus)return;didFocus=true;` +
-        `document.getElementById("inner").focus();document.title="grabbed";},${GRAB_DELAY_MS});` +
-        `</script></body></html>`,
-    );
-  });
-  return new Promise((resolve, reject) => {
-    srv.once("error", reject);
-    srv.listen(CODE_PORT, "127.0.0.1", () => resolve(srv));
-  });
-}
 
 /** Create a window (repo cwd — windows inherit the tmux server's start cwd, so
  *  the code lens is available) and return its stable `@N` id. */
@@ -208,7 +167,7 @@ function capturePane(windowId: string): string {
   );
 }
 
-let stub: http.Server;
+let stub: CodeStub;
 
 test.beforeAll(async ({ browser }, testInfo) => {
   // The hook's own budget: the warm-up below pays Vite's cold transform of
@@ -217,7 +176,7 @@ test.beforeAll(async ({ browser }, testInfo) => {
   // gates; this just lets the hook live long enough to reach them.
   testInfo.setTimeout(90_000);
   createSession(TEST_SESSION);
-  stub = await startStub();
+  stub = await startCodeStub(focusGrabCodeStubHtml(GRAB_DELAY_MS));
   // Cold-boot warm-up (the code-surface spec's pattern): absorb Vite's cold
   // transform of the app + xterm graph outside any test's budget.
   const page = await browser.newPage();
@@ -229,7 +188,7 @@ test.beforeAll(async ({ browser }, testInfo) => {
 });
 
 test.afterAll(async () => {
-  await new Promise((resolve) => stub.close(resolve));
+  await new Promise((resolve) => stub.server.close(resolve));
   killSession(TEST_SESSION);
 });
 

@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { execFileSync, execSync } from "node:child_process";
 import { pinWindow } from "./_boards";
+import { reserveDeadPort } from "./_ports";
 import { openPalette, READY_TIMEOUT, resolveWindow } from "./_ready";
 import { TMUX_SERVER, createSession, killSession, listWindows, stampWebTab } from "./_tmux";
 
@@ -106,7 +107,7 @@ async function expectAlignedTo(
 }
 
 test.describe("Docked compose strip", () => {
-  test.beforeAll(() => {
+  test.beforeAll(async () => {
     // Terminal-route session runs `cat` so typed STDIN echoes into the pane —
     // this is how we verify Enter sends `text + \r` end-to-end.
     createSession(TERM_SESSION);
@@ -115,9 +116,12 @@ test.describe("Docked compose strip", () => {
     // the active tab
     // from the backend's window payload, which refreshes on an interval —
     // setting the option mid-test raced that propagation (a >10s cold wait).
+    // The URL's port is a reserved-then-released ephemeral (dead by
+    // construction — the split-layout test asserts dock placement, never
+    // iframe content, so no proxy stub is needed).
     const first = listWindows(TERM_SESSION)[0];
     if (first) {
-      stampWebTab(first.windowId, "http://localhost:8080/");
+      stampWebTab(first.windowId, (await reserveDeadPort()).url);
     }
     // Board-route session with two named windows for the target-label test.
     createSession(BOARD_SESSION, { windows: ["cs-alpha", "cs-bravo"] });

@@ -101,11 +101,12 @@ export async function unpinAll(request: APIRequestContext): Promise<void> {
 // ---- verbatim-dupe fold-ins with the same home ----
 
 /** Resolve the backend origin for raw `request`-fixture calls:
- *  `baseURL ?? http://localhost:${RK_PORT ?? 3333}` — the 3333 fallback is
- *  playwright.config.ts's fail-closed port (connects to nothing rather than
- *  silently targeting a live dev server). */
+ *  `baseURL ?? http://localhost:${E2E_PORT ?? 3333}` — the harness-only
+ *  E2E_PORT read and the 3333 fallback mirror playwright.config.ts's
+ *  fail-closed port (connects to nothing rather than silently targeting a
+ *  live dev server via the ambient RK_PORT). */
 export function apiBase(baseURL: string | undefined): string {
-  return baseURL ?? `http://localhost:${process.env.RK_PORT ?? 3333}`;
+  return baseURL ?? `http://localhost:${process.env.E2E_PORT ?? 3333}`;
 }
 
 /** True for the terminals mux URL (`/ws/terminals`) — one socket per tab

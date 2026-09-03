@@ -18,12 +18,14 @@ import { TMUX_SERVER } from "./_tmux";
  * deterministic. The comparator, context re-sort, drag
  * handlers, and palette Move actions are covered by Vitest unit tests.
  *
- * Shared setup: uses `E2E_TMUX_SERVER` (default `rk-test-e2e`) as the live
- * server; no extra sessions are created — the endpoint operates on the server
- * socket itself. `apiBase(baseURL)` resolves the backend origin (default
- * `http://localhost:${RK_PORT ?? 3020}`). Persisted rank is harmless leftover
- * state; no teardown reset is needed (the option has no HTTP "unset" and
- * ranks don't affect the alphabetical `/api/servers` array).
+ * Shared setup: uses `E2E_TMUX_SERVER` (the worktree's derived
+ * `rk-test-e2e-<token>-0` primary) as the live server; no extra sessions are
+ * created — the endpoint operates on the server socket itself.
+ * `apiBase(baseURL)` (`_boards.ts`) resolves the backend origin from the
+ * harness-seeded `E2E_PORT`, falling back to the fail-closed `:3333`.
+ * Persisted rank is harmless leftover state; no teardown reset is needed (the
+ * option has no HTTP "unset" and ranks don't affect the alphabetical
+ * `/api/servers` array).
  */
 test.describe("Server reorder — order endpoint", () => {
   /**

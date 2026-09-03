@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import http from "node:http";
+import { plainCodeStubHtml, startCodeStub, type CodeStub } from "./_ports";
 import { READY_TIMEOUT, resolveWindow as resolveWindowRaw } from "./_ready";
 import { TMUX_SERVER, createSession, killSession, newWindow, windowOption } from "./_tmux";
 
@@ -29,12 +29,13 @@ import { TMUX_SERVER, createSession, killSession, newWindow, windowOption } from
  * - tmux server: the isolated `rk-test-e2e` socket (`E2E_TMUX_SERVER`); never
  *   run Playwright directly — `just test-e2e code-folder-latch`.
  * - code-server stub: code-server is not installable in the test env, so
- *   `beforeAll` binds a stub HTTP server on `RK_CODE_SERVER_PORT` (default
- *   3939 — the same env the test-e2e script seeds the backend with) serving a
- *   minimal page, making the surface REACHABLE so the iframe renders instead
- *   of the not-running empty state. The port is validated against the
- *   backend's 1-65535 range first; `workers: 1` (serial) is what lets this
- *   file and `code-surface.spec.ts` share the port.
+ *   `beforeAll` binds a stub HTTP server (`startCodeStub`, `_ports.ts`) on
+ *   `RK_CODE_SERVER_PORT` (the same env the test-e2e script seeds the backend
+ *   with; an ephemeral port when unset) serving a minimal page, making the
+ *   surface REACHABLE so the iframe renders instead of the not-running empty
+ *   state. The helper validates the env against the backend's 1-65535 range
+ *   before binding; `workers: 1` (serial) is what lets this file and
+ *   `code-surface.spec.ts` share the seeded port.
  * - `beforeAll`: create one dedicated session `e2e-codelatch-<ts>` (80×24) so
  *   this file never collides with other specs, start the stub, then warm the
  *   dev server with a throwaway terminal-route page load (Vite's cold
@@ -68,26 +69,6 @@ import { TMUX_SERVER, createSession, killSession, newWindow, windowOption } from
 const TEST_SESSION = `e2e-codelatch-${Date.now()}`;
 const DESKTOP_VIEWPORT = { width: 1440, height: 800 };
 
-/** The code-server port the e2e backend is configured with — code-server itself
- *  is not installable here, so a stub HTTP server binds it to make the surface
- *  REACHABLE (the code-surface spec's pattern; workers: 1 means the two files
- *  never hold the port at the same time). */
-function resolveCodePort(): number {
-  const raw = process.env.RK_CODE_SERVER_PORT;
-  if (raw === undefined || raw === "") return 3939; // unset — same as the backend
-  const port = Number(raw);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error(
-      `RK_CODE_SERVER_PORT="${raw}" is not a valid port (1-65535). The backend ` +
-        `ignores it and disables the code lens, so this spec cannot pass. Run ` +
-        `via \`just test-e2e code-folder-latch\`, which seeds a valid port.`,
-    );
-  }
-  return port;
-}
-
-const CODE_PORT = resolveCodePort();
-
 // The git root every in-repo window derives (windows inherit the tmux server's
 // start cwd — the repo root) and the basename the code tile header shows.
 const GIT_ROOT = execFileSync("git", ["rev-parse", "--show-toplevel"], {
@@ -95,17 +76,6 @@ const GIT_ROOT = execFileSync("git", ["rev-parse", "--show-toplevel"], {
 }).trim();
 const GIT_ROOT_BASENAME = GIT_ROOT.split("/").filter(Boolean).pop()!;
 const SEEDED_SRC = `/code/?folder=${encodeURIComponent(GIT_ROOT)}`;
-
-function startStub(): Promise<http.Server> {
-  const srv = http.createServer((_req, res) => {
-    res.setHeader("Content-Type", "text/html");
-    res.end('<!doctype html><html><body><button id="inner">stub editor</button></body></html>');
-  });
-  return new Promise((resolve, reject) => {
-    srv.once("error", reject);
-    srv.listen(CODE_PORT, "127.0.0.1", () => resolve(srv));
-  });
-}
 
 /** Create a repo-cwd window and return its stable `@N` id. */
 async function makeWindow(page: Page, name: string): Promise<string> {
@@ -165,11 +135,11 @@ const codeTile = (page: Page) => page.getByTestId("surface-tile-code");
 const codeIframe = (page: Page) => page.getByTitle("Code editor");
 const terminal = (page: Page) => page.locator(".xterm").first();
 
-let stub: http.Server;
+let stub: CodeStub;
 
 test.beforeAll(async ({ browser }) => {
   createSession(TEST_SESSION);
-  stub = await startStub();
+  stub = await startCodeStub(plainCodeStubHtml());
   // Cold-boot warm-up (the code-surface spec's pattern): absorb Vite's cold
   // transform of the app + xterm graph outside any test's budget.
   const page = await browser.newPage();
@@ -181,7 +151,7 @@ test.beforeAll(async ({ browser }) => {
 });
 
 test.afterAll(async () => {
-  await new Promise((resolve) => stub.close(resolve));
+  await new Promise((resolve) => stub.server.close(resolve));
   killSession(TEST_SESSION);
 });
 

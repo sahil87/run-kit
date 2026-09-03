@@ -12,10 +12,11 @@
  * `single:web` in the option once, then the URL is replaced with the bare
  * route.
  *
- * Shared setup: `beforeEach` route-stubs `/proxy/8080/**` with a static 200
- * page (`stubProxyPorts` from `_web-tile.ts`) — the dead-port error state
- * hides the iframe when nothing listens on the stamped
- * `http://localhost:8080/` URL, and these tests assert tile chrome, never
+ * Shared setup: `beforeEach` route-stubs the derived dead port's
+ * `/proxy/<port>/**` with a static 200 page (`stubProxyPorts` from
+ * `_web-tile.ts`, port from `reserveDeadPort` in `_ports.ts`) — the dead-port
+ * error state hides the iframe when nothing listens on the stamped dead URL,
+ * and these tests assert tile chrome, never
  * frame content. `beforeAll` creates a dedicated session `e2e-webview-<ts>`
  * (80×24) so this file never collides with other specs; `afterAll` kills it.
  * `beforeEach` also sets a wide desktop viewport (1440×800); the mobile test
@@ -45,6 +46,7 @@ import {
   stampWebTab,
   windowOption,
 } from "./_tmux";
+import { reserveDeadPort, type DeadPort } from "./_ports";
 import { stubProxyPorts } from "./_web-tile";
 
 // Own session so this file never collides with other specs (fullyParallel off).
@@ -61,10 +63,17 @@ const MOBILE_VIEWPORT = { width: 375, height: 812 };
 // "everything fits" width.
 const DESKTOP_VIEWPORT = { width: 1440, height: 800 };
 
-// A URL that the proxy converts to a same-origin `/proxy/<port>/…` path — the
-// iframe `src` is deterministic regardless of whether a real server listens
-// there (we assert on chrome/heading/render, never on iframe content).
-const IFRAME_URL = "http://localhost:8080/";
+// A URL the proxy converts to a same-origin `/proxy/<port>/…` path. The port
+// is a reserved-then-released ephemeral (dead by construction — no fixed-port
+// occupancy can flip the tile's posture); we assert on chrome/heading/render,
+// never on iframe content. Resolved once in the file-level beforeAll below.
+let DEAD: DeadPort;
+let IFRAME_URL: string;
+
+test.beforeAll(async () => {
+  DEAD = await reserveDeadPort();
+  IFRAME_URL = DEAD.url;
+});
 
 /** Resolve a window's stable tmux id (`@N`) from the backend snapshot by name. */
 async function resolveWindow(page: Page, windowName: string): Promise<string> {
@@ -152,10 +161,10 @@ async function switchLens(page: Page, label: "Terminal" | "Web"): Promise<void> 
 }
 
 // The dead-port error state (260819-v6y4 R8) hides the iframe when nothing
-// listens on 8080 — these tests assert tile chrome, never frame content, so
-// the proxy path is route-stubbed live (see _web-tile.ts).
+// listens on the stamped port — these tests assert tile chrome, never frame
+// content, so the proxy path is route-stubbed live (see _web-tile.ts).
 test.beforeEach(async ({ page }) => {
-  await stubProxyPorts(page, 8080);
+  await stubProxyPorts(page, DEAD.port);
 });
 
 test.beforeAll(() => {
@@ -393,9 +402,9 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
    * Steps:
    * 1. Create a plain window (no stamped web tab, `/tmp` cwd); navigate to
    *    `…?view=web`; assert `web-tile-onboarding`.
-   * 2. Fill the `URL` input with `localhost:8080`; press Enter.
-   * 3. Assert the iframe renders (the stubbed `/proxy/8080/` page), the
-   *    onboarding panel is gone, the option holds `/proxy/8080/` in slot 1,
+   * 2. Fill the `URL` input with `localhost:<derived dead port>`; press Enter.
+   * 3. Assert the iframe renders (the stubbed `/proxy/<port>/` page), the
+   *    onboarding panel is gone, the option holds `/proxy/<port>/` in slot 1,
    *    and the layout option still reads `single:web`.
    */
   test("the onboarding address bar boots the tile for real (Enter → @rk_win_web_1 POST)", async ({
@@ -407,15 +416,15 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     const onboarding = page.getByTestId("web-tile-onboarding");
     await expect(onboarding).toBeVisible({ timeout: 10_000 });
     // Typing a bare loopback address and pressing Enter runs the existing
-    // pipeline: normalize → /proxy/8080/ → POST /options (@rk_win_web_1) —
+    // pipeline: normalize → /proxy/<port>/ → POST /options (@rk_win_web_1) —
     // SSE delivers the new value and the tile flips live with no further
     // action.
     const address = page.getByTestId("surface-tile-web").getByLabel("URL");
-    await address.fill("localhost:8080");
+    await address.fill(`localhost:${DEAD.port}`);
     await address.press("Enter");
     await expect(iframe(page)).toBeVisible({ timeout: 10_000 });
     await expect(onboarding).toHaveCount(0);
-    expect(windowOption(id, "@rk_win_web_1")).toBe("/proxy/8080/");
+    expect(windowOption(id, "@rk_win_web_1")).toBe(`/proxy/${DEAD.port}/`);
     await expectWindowLayout(id, "single:web");
   });
 
@@ -428,7 +437,7 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
    * Steps:
    * 1. Create a plain window (no stamped web tab, `/tmp` cwd); navigate to
    *    `…?view=web`; assert `web-tile-onboarding`.
-   * 2. `tmux set-option -w -t <id> @rk_win_web_1 "http://localhost:8080/"`;
+   * 2. `tmux set-option -w -t <id> @rk_win_web_1 <the derived dead URL>`;
    *    assert the iframe renders and onboarding is gone.
    * 3. `tmux set-option -w -u -t <id> @rk_win_web_1`; assert onboarding
    *    returns and the iframe is gone.

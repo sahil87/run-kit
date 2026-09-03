@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import http from "node:http";
+import { plainCodeStubHtml, reserveDeadPort, startCodeStub, type CodeStub, type DeadPort } from "./_ports";
 import { openPalette, READY_TIMEOUT, resolveWindow as resolveWindowRaw } from "./_ready";
 import {
   TMUX_SERVER,
@@ -28,25 +28,26 @@ import { stubProxyPorts } from "./_web-tile";
  * covers the `/code` → `/code/` redirect.
  *
  * Shared setup:
- * - `beforeEach`: `stubProxyPorts(page, 8080)` (`_web-tile.ts`) route-stubs
- *   `/proxy/8080/**` with a static 200 page — the dead-port error state hides
- *   the iframe when nothing listens on the stamped `http://localhost:8080/`
- *   URL, and these tests assert tile chrome, never frame content. Each
+ * - `beforeEach`: `stubProxyPorts(page, <derived>)` (`_web-tile.ts`)
+ *   route-stubs the derived dead port's `/proxy/<port>/**` with a static 200
+ *   page (port from `reserveDeadPort`, `_ports.ts`) — the dead-port error
+ *   state hides the iframe when nothing listens on the stamped dead URL, and
+ *   these tests assert tile chrome, never frame content. Each
  *   describe's `beforeEach` also sets a wide desktop viewport (1440×800) — the
  *   top-bar surface-toggle group is desktop terminal-route only.
  * - tmux server: the isolated `rk-test-e2e` socket (`E2E_TMUX_SERVER`); never
  *   run Playwright directly — `just test-e2e code-surface`.
  * - code-server stub: code-server is not installable in the test env, so the
- *   first describe binds a stub HTTP server (node `http`) on
- *   `RK_CODE_SERVER_PORT` (default 3939 — the same env the test-e2e script
- *   seeds the backend with) serving a minimal page with a focusable `#inner`
- *   button; the second describe runs with the stub DOWN. The backend's
- *   reachability probe is TTL-cached (~5s), so down-state assertions use a 30s
- *   budget. The port is validated against the backend's own 1-65535 range
- *   before the stub binds, so an out-of-range env value fails with a named
- *   error instead of surfacing as unrelated missing-affordance assertions. The
- *   backend resolves the same port server-side (the preset wins) and forwards
- *   `/code/*` to it.
+ *   first describe binds a stub HTTP server (`startCodeStub`, `_ports.ts`) on
+ *   `RK_CODE_SERVER_PORT` — the same env the test-e2e script seeds the
+ *   backend with; an ephemeral port when unset, so bare runs never collide —
+ *   serving a minimal page with a focusable `#inner` button; the second
+ *   describe runs with the stub DOWN. The backend's reachability probe is
+ *   TTL-cached (~5s), so down-state assertions use a 30s budget. The helper
+ *   validates the env against the backend's own 1-65535 range before binding,
+ *   so an out-of-range value fails with a named error instead of surfacing as
+ *   unrelated missing-affordance assertions. The backend resolves the same
+ *   port server-side (the preset wins) and forwards `/code/*` to it.
  * - `beforeAll`: create one dedicated session `e2e-codesurface-<ts>` (80×24) so
  *   this file never collides with other specs (`fullyParallel` off), then warm
  *   the dev server with a throwaway TERMINAL-route page load (Vite's cold
@@ -75,55 +76,12 @@ import { stubProxyPorts } from "./_web-tile";
 const TEST_SESSION = `e2e-codesurface-${Date.now()}`;
 const DESKTOP_VIEWPORT = { width: 1440, height: 800 };
 
-/** The code-server port the e2e backend is configured with (scripts/test-e2e.sh
- *  seeds RK_CODE_SERVER_PORT for both the backend and this playwright run; the
- *  default mirrors the script's). code-server itself is NOT installable here —
- *  the spec binds a STUB HTTP server on this port to drive the reachable /
- *  not-running states (intake k3vp §6). Since 260811-a2bo the iframe src is the
- *  STABLE /code/ route — the backend resolves this port server-side and the
- *  spec asserts the port never appears in the URL.
- *
- *  An out-of-range value is rejected here rather than at `srv.listen()`: the
- *  backend's validPort silently leaves the preset unset (convention fallback),
- *  so a bad value would surface as unrelated missing-content failures. */
-function resolveCodePort(): number {
-  const raw = process.env.RK_CODE_SERVER_PORT;
-  if (raw === undefined || raw === "") return 3939; // unset — same as the backend
-  const port = Number(raw);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error(
-      `RK_CODE_SERVER_PORT="${raw}" is not a valid port (1-65535). The backend ` +
-        `ignores it and disables the code lens, so this spec cannot pass. Run ` +
-        `via \`just test-e2e code-surface\`, which seeds a valid port.`,
-    );
-  }
-  return port;
-}
-
-const CODE_PORT = resolveCodePort();
-
 // The git root every in-repo window derives (windows inherit the tmux server's
 // start cwd — the repo root). FindGitRoot walks to the toplevel, so the
 // expected `?folder=` value is the worktree root.
 const GIT_ROOT = execFileSync("git", ["rev-parse", "--show-toplevel"], {
   encoding: "utf-8",
 }).trim();
-
-/** The stub "code-server": a minimal same-origin page with a focusable button
- *  (the keyboard-spike test clicks into it). Reached via the stable /code/
- *  route — the backend forwards it to this port. */
-function startStub(): Promise<http.Server> {
-  const srv = http.createServer((_req, res) => {
-    res.setHeader("Content-Type", "text/html");
-    res.end(
-      '<!doctype html><html><body><button id="inner">stub editor</button></body></html>',
-    );
-  });
-  return new Promise((resolve, reject) => {
-    srv.once("error", reject);
-    srv.listen(CODE_PORT, "127.0.0.1", () => resolve(srv));
-  });
-}
 
 /** Resolve a window's stable tmux id (`@N`) from the backend snapshot by name. */
 async function resolveWindow(page: Page, windowName: string): Promise<string> {
@@ -186,10 +144,17 @@ function expectBareUrl(page: Page): void {
 }
 
 // The dead-port error state (260819-v6y4 R8) hides the iframe when nothing
-// listens on 8080 — these tests assert tile chrome, never frame content, so
-// the proxy path is route-stubbed live (see _web-tile.ts).
+// listens on the stamped port — these tests assert tile chrome, never frame
+// content, so the proxy path is route-stubbed live (see _web-tile.ts). The
+// port is a reserved-then-released ephemeral (dead by construction).
+let DEAD: DeadPort;
+
+test.beforeAll(async () => {
+  DEAD = await reserveDeadPort();
+});
+
 test.beforeEach(async ({ page }) => {
-  await stubProxyPorts(page, 8080);
+  await stubProxyPorts(page, DEAD.port);
 });
 
 test.beforeAll(async ({ browser }) => {
@@ -215,14 +180,14 @@ test.afterAll(() => {
 });
 
 test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
-  let stub: http.Server;
+  let stub: CodeStub;
 
   test.beforeAll(async () => {
-    stub = await startStub();
+    stub = await startCodeStub(plainCodeStubHtml());
   });
 
   test.afterAll(async () => {
-    await new Promise((resolve) => stub.close(resolve));
+    await new Promise((resolve) => stub.server.close(resolve));
   });
 
   test.beforeEach(async ({ page }) => {
@@ -378,7 +343,7 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     const id = await makeWindow(page, `cs-p3-${Date.now()}`);
     // Stamp the slot-1 web tab so BOTH surfaces are available on this repo-cwd
     // window.
-    stampWebTab(id, "http://localhost:8080/");
+    stampWebTab(id, DEAD.url);
     await gotoWindow(page, id);
     await expect(webToggle(page)).toBeVisible({ timeout: READY_TIMEOUT });
     await expect(codeToggle(page)).toBeVisible();
@@ -409,8 +374,9 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
 });
 
 test.describe("Code lens & CODE surface (phase 2) — stub down", () => {
-  // No stub here: nothing listens on CODE_PORT (the previous describe's
-  // afterAll closed it), so the TTL-cached probe flips to unreachable.
+  // No stub here: nothing listens on the code-server port (the previous
+  // describe's afterAll closed its stub), so the TTL-cached probe flips to
+  // unreachable.
   test.beforeEach(async ({ page }) => {
     await page.setViewportSize(DESKTOP_VIEWPORT);
   });

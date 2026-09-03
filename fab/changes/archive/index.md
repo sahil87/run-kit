@@ -1,5 +1,51 @@
 # Archived Changes
 
+- **260903-7ajq-rk-tutorial-entry** — rk tutorial — one-command tour entry on a fast tier
+- **260903-18ot-statusdot-shape-liveness-overlays** — StatusDot — Shape = Liveness, Failed → Red-Center Overlay
+- **260902-znfg-operator-visual-distinction** — Operator Visual Distinction
+- **260902-ziki-shell-os-notifications** — Shell OS Notifications
+- **260902-qt7k-ipad-chrome-polish** — iPad Chrome Polish — pane-ID leak, coarse-pointer sizing, name redundancy
+- **260902-ngec-crumb-collapse-touch-focus** — Top-Bar Crumb Collapse + Touch Focus Ownership
+- **260902-mzpw-skill-topics-discovery** — rk skill Topic Discovery Conformance
+- **260902-k2pm-open-apps-gui-locus-filter** — Open-Apps GUI Locus Filter
+- **260902-g2ga-web-strip-empty-tab-entry** — Web Tile Empty-Tab Entry Points
+- **260902-8jco-tmux-pane-env-scrub-send-failures** — Compose-Send TMUX_PANE Env Scrub
+- **260902-6uu0-rk-skill-tutorial-topic** — rk skill tutorial — the guided tour as a shipped topic page
+- **260902-4km4-operator-request-queue-drain-on-idle** — Operator Request Queue — Drain on Idle
+- **260902-3m72-status-bar-copyable-segments** — Status Bar Copyable Segments
+- **260902-0ccm-tab-cli-sse-wake** — Tab CLI SSE Wake
+- **260901-thxr-sidebar-kill-recently-closed-push** — Sidebar Kill Paths Push the Recently-Closed Record
+- **260901-rtwx-sse-debounce-branchpr-negative-cache** — SSE Derive Debounce + Branch-PR Negative Caching
+- **260901-ijiz-dead-host-interstitial-daemon-menu** — Dead-Host Interstitial & Daemon Menu Rework
+- **260901-ggjb-reload-failed-local-view** — Reload Failed Local View on Connect
+- **260901-ei4t-present-url-server-root-hash** — Present URLs Re-Keyed on (Server, Root Hash)
+- **260901-aeml-trim-redundant-tests** — Test Suite Consolidation — Trim Redundant Tests
+- **260831-m1v0-palette-shifted-chord-alias** — Second Palette Chord for Win/Linux Terminal Focus
+- **260830-srec-marker-migrate-well-ink-retirements** — Marker rework phase 2 — migrate + contract: the well, the ink, the retirements
+- **260830-s7wp-unify-compose-send-path** — Unify the Compose Send Path
+- **260830-nyvm-mux-send-submit-verification** — Post-Enter submit verification for pane injection
+- **260830-nip5-marker-expand-mode-stage-vocabulary** — Marker rework phase 1 — expand: accept the `mode:stage` vocabulary
+- **260830-my49-harden-e2e-palette-opener** — Harden the E2E Command-Palette Opener
+- **260830-imj9-marker-pad-spring-loaded-gesture** — Marker rework phase 3 — the spring-loaded pad
+- **260830-hbsr-marker-track-and-pad-refinements** — Marker track and pad refinements
+- **260830-4904-mobile-sent-history-recall** — Mobile Sent-History Recall
+- **260829-lvvw-pr-glyph-draft-shape-closed-red** — PR Glyph — Draft Shape + Closed Red
+- **260829-iyix-compose-multiline-bracketed-paste** — Compose Strip Multi-line Submit via Bracketed Paste
+- **260829-c143-rk-tab-cli-present-sugar** — CLI — `rk tab` Family, `rk present` as Sugar, `rk code exec --tab`
+- **260829-11t0-reopen-closed-tab-recently-closed-stack** — Reopen closed tab — ⇧⌘T rebinding + recently-closed window stack
+- **260828-iip5-ui-state-frontend-layout-code-root** — UI State Frontend — Layout + Code Root from tmux Options, Ladder Retired
+- **260828-fykg-ui-state-backend-tmux-options** — UI State Backend — tmux Options, Payload, Snapshot, Migration
+- **260828-b71j-tmux-option-namespace-legacy-sweep** — tmux Option Namespace + Legacy Sweep
+- **260828-9kip-web-tab-strip** — UI State Frontend — Web Tab Strip
+- **260828-5jlp-tmux-option-dual-read-external-keys** — tmux Option Dual-Read for Externally-Written Keys
+- **260828-3o5d-rk-option-scope-prefix-rename** — rk Option Scope-Prefix Rename (rk-private keys)
+- **260828-0daa-retire-spec-md-companion-docs** — Retire `.spec.md` Companion Docs for In-File Test Intent Comments
+- **260827-8n6k-update-annotations-tile-note** — Update-Annotations Operator Template & Tile Notes
+- **260826-sfsv-remove-cmd-dot-view-cycle** — Remove the ⌘. view-cycle chord
+- **260826-lv87-external-server-provenance-adopt** — External Server Provenance & Adopt
+- **260826-83jz-code-bridge-extension** — Code Bridge — `rk code exec` + the `rk-code-bridge` code-server extension
+- **260825-axzg-ironman-nuke-catch-flair** — Iron Man Nuke-Catch Flair
+- **260824-164i-spidey-swing-flair** — Spidey Swing Flair
 - **260901-s36e-web-tab-strip-drafts-reorder** — Web-Tab Strip Rework — Draft Tabs, Reorder, Richer Chrome
 - **260824-xf6p-all-settings-tab-last** — Make the All settings tab the last settings tab
 - **260824-xaw2-protected-server-class** — Protected Server Class

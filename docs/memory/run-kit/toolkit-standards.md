@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard PASS status (help-dump, skill, principles, update, version, install-composition). Covers Principle 9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + Principle 9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`tab`/`mux`/`agent`/`code` + the twelve-member `mux` family incl. `new`, `reap --ephemeral`, `adopt`."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard PASS status (help-dump, skill, principles, update, version, install-composition). Covers Principle 9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + Principle 9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`tab`/`mux`/`agent`/`code`/`tutorial` + the twelve-member `mux` family incl. `new`, `reap --ephemeral`, `adopt`."
 ---
 # Toolkit Standards Conformance
 
@@ -640,6 +640,33 @@ the sixteenth surface measured against the same checks
   config-mutation verb (the `reap` attractive-nuisance posture), so the `mux`
   topic page is NOT extended; the canonical and embedded copies stay
   byte-identical under `TestSkillMuxEmbedMatchesCanonical` with no churn.
+
+The `rk tutorial` verb (`tutorial.go` — see
+[architecture](/run-kit/architecture.md) § CLI Subcommands, `tutorial` row; the
+composition seam in [rk-riff](/run-kit/rk-riff.md) § Shell-String Composition)
+is the eighteenth surface measured against the same checks
+(260903-7ajq-rk-tutorial-entry):
+
+- **help-dump: platform-stable registration.** `tutorialCmd` is registered
+  unconditionally on `rootCmd` (`root.go`'s `init()`) and carries a `Long:`
+  block (with `Examples` and an `Exit codes` list), so the cobra tree walk
+  picks it up with no help-dump code change; the `$TMUX` precondition is an
+  operational exit 1 at run time, not a registration condition.
+- **Principle 9: the outcome line is data; there is no chatter.** Success
+  prints exactly one stdout line via `cmd.OutOrStdout()` — `Switched to
+  existing tutorial tab.` or `Opened tutorial tab (window "tutorial", tier
+  "fast").` — surviving `--quiet` (silence would misreport the mutation); there
+  is no progress narration to drop. Errors ride the riff `ExitCodeError`
+  discipline to stderr.
+- **Exit-code convention (P4)** — 0 success, 1 operational precondition
+  (`$TMUX` unset), 3 subprocess (tmux non-zero, timeout); cobra flag-parse
+  errors inherit root's `FlagErrorFunc` (usage, 2).
+- **The `skill` standard is load-bearing in the other direction** — `rk
+  tutorial` is the human-typable entry to the tour the `tutorial` topic page
+  teaches; the page and its embedded copy stay byte-identical under
+  `TestSkillTopicsMatchCanonical` (the command is a launcher, not new topic
+  content), and the README names `run-kit tutorial` in Quick start and the
+  command-reference table (readme-extraction stays closed over the tree).
 
 #### Scenario: A new subcommand group keeps the help tree platform-stable
 - **GIVEN** the `rk desktop` group on a Linux host

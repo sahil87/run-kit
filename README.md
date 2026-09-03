@@ -51,6 +51,8 @@ run-kit riff                    # spawn an agent workspace (--skill /name picks 
 
 The new workspace appears in the sidebar; click into it to drive the agent — or any command — from the dashboard.
 
+Prefer a guided first run? `run-kit tutorial` (inside a tmux session) opens a `tutorial` tab whose agent walks you through the product, act by act — and re-running it switches back to that tab.
+
 The formula also installs `rk` as a fully interchangeable short alias of `run-kit`, so every command here works the same whether you type `run-kit` or `rk`.
 
 To upgrade later, run `run-kit update` — pulls the latest version via Homebrew and restarts the daemon so the new binary takes effect immediately. The desktop app updates separately: `run-kit desktop update`, or the app's **Restart to Update** menu item when it detects a new release.
@@ -293,6 +295,7 @@ Supports `zsh`, `bash`, `fish`, and `powershell`. Completion-only — run-kit ha
 | Command | What it does |
 |---------|--------------|
 | `run-kit riff` | Create a worktree + tmux window + agent/command pane(s). |
+| `run-kit tutorial` | Open the guided tour — a `tutorial` window in the current tmux session whose agent walks you through run-kit (`--tier` selects the fab role, default `fast`). Re-running switches to the existing tab. |
 | `run-kit serve` | Start the HTTP server (foreground or daemon). |
 | `run-kit status` | Show a tmux session summary. |
 | `run-kit url` | Print the run-kit server URL (config-derived from `RK_HOST`/`RK_PORT`, default `http://127.0.0.1:3000`) — a heuristic for AI agents, not a liveness probe. |

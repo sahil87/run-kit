@@ -1,0 +1,57 @@
+id: 7ajq
+name: 260903-7ajq-rk-tutorial-entry
+created: 2026-09-03T04:59:41Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 7
+    acceptance_count: 17
+    acceptance_completed: 17
+confidence:
+    certain: 4
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.3
+    fuzzy: true
+    dimensions:
+        signal: 66.3
+        reversibility: 85.6
+        competence: 81.3
+        disambiguation: 76.3
+stage_metrics:
+    intake: {started_at: "2026-09-03T04:59:41Z", driver: fab-new, iterations: 1, completed_at: "2026-09-03T05:05:14Z"}
+    apply: {started_at: "2026-09-03T05:05:14Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T05:34:32Z"}
+    review: {started_at: "2026-09-03T05:34:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T05:45:53Z"}
+    hydrate: {started_at: "2026-09-03T05:45:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T05:56:19Z"}
+    ship: {started_at: "2026-09-03T05:56:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T05:59:59Z"}
+    review-pr: {started_at: "2026-09-03T05:59:59Z", driver: git-pr, iterations: 1, completed_at: "2026-09-03T06:10:14Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/801
+true_impact:
+    added: 895
+    deleted: 9
+    net: 886
+    excluding:
+        added: 520
+        deleted: 0
+        net: 520
+    tests:
+        added: 315
+        deleted: 0
+        net: 315
+    computed_at: "2026-09-03T05:59:59Z"
+    computed_at_stage: ship
+summary: rk tutorial — guided-tour entry command (session-scoped singleton tutorial window, --tier default fast, positional kickoff via exported riff.SkillPaneCommand seam)
+change_type_source: explicit
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-03T06:10:14Z

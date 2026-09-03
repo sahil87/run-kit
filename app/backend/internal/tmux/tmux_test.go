@@ -3861,3 +3861,135 @@ func TestActiveWindowID_missingSessionErrors(t *testing.T) {
 		t.Error("ActiveWindowID on a missing session must return an error")
 	}
 }
+
+// clientLine builds a tab-delimited list-clients line in clientFormat order:
+// tty, width, height, session_name, session_group, session_group_list, flags.
+func clientLine(tty string, width, height int, session, group, groupList, flags string) string {
+	return strings.Join([]string{
+		tty, strconv.Itoa(width), strconv.Itoa(height), session, group, groupList, flags,
+	}, listDelim)
+}
+
+func TestParseClients(t *testing.T) {
+	tests := []struct {
+		name  string
+		lines []string
+		want  []ClientInfo
+	}{
+		{
+			// The live-diagnosis fixture: two sized attached clients plus the
+			// rk daemon's tmuxctl control-mode subscription — only the two
+			// sized viewers survive.
+			name: "keeps sized attached clients, excludes the control-mode subscription",
+			lines: []string{
+				clientLine("/dev/pts/5", 144, 91, "runKit", "", "", "attached,UTF-8"),
+				clientLine("/dev/pts/8", 116, 37, "runKit", "", "", "attached,focused,UTF-8"),
+				clientLine("/dev/pts/11", 80, 0, "runKit", "", "", "attached,focused,control-mode,ignore-size,read-only,UTF-8"),
+			},
+			want: []ClientInfo{
+				{TTY: "/dev/pts/5", Width: 144, Height: 91, SessionName: "runKit", Flags: []string{"attached", "UTF-8"}},
+				{TTY: "/dev/pts/8", Width: 116, Height: 37, SessionName: "runKit", Flags: []string{"attached", "focused", "UTF-8"}},
+			},
+		},
+		{
+			name: "excludes a client flagged ignore-size alone",
+			lines: []string{
+				clientLine("/dev/pts/1", 120, 40, "alpha", "", "", "attached,ignore-size,UTF-8"),
+			},
+			want: nil,
+		},
+		{
+			name: "matches flags as comma-split tokens, not substrings",
+			lines: []string{
+				clientLine("/dev/pts/1", 120, 40, "alpha", "", "", "attached,pre-control-mode-post,UTF-8"),
+			},
+			want: []ClientInfo{
+				{TTY: "/dev/pts/1", Width: 120, Height: 40, SessionName: "alpha", Flags: []string{"attached", "pre-control-mode-post", "UTF-8"}},
+			},
+		},
+		{
+			name: "drops unsized clients (non-positive width or height)",
+			lines: []string{
+				clientLine("/dev/pts/1", 0, 40, "alpha", "", "", "attached"),
+				clientLine("/dev/pts/2", 120, -1, "alpha", "", "", "attached"),
+				clientLine("/dev/pts/3", 120, 40, "alpha", "", "", "attached"),
+			},
+			want: []ClientInfo{
+				{TTY: "/dev/pts/3", Width: 120, Height: 40, SessionName: "alpha", Flags: []string{"attached"}},
+			},
+		},
+		{
+			name: "skips short lines",
+			lines: []string{
+				strings.Join([]string{"/dev/pts/1", "120", "40"}, listDelim),
+			},
+			want: nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseClients(tt.lines)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("parseClients() = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestClientInfoSessionKey(t *testing.T) {
+	tests := []struct {
+		name   string
+		client ClientInfo
+		want   string
+	}{
+		{
+			name:   "ungrouped client keys on its own session name",
+			client: ClientInfo{SessionName: "runKit"},
+			want:   "runKit",
+		},
+		{
+			// A client attached via a derived group copy sizes the leader's
+			// shared windows, so it must count against the leader row
+			// parseSessions keeps.
+			name:   "group-copy attach keys on the leader name from session_group",
+			client: ClientInfo{SessionName: "devshell-82", SessionGroup: "devshell", SessionGroupList: "devshell,devshell-82"},
+			want:   "devshell",
+		},
+		{
+			// tmux 3.6a reports #{session_group} as an opaque NUMERIC group id
+			// — the member-name list is the cross-version cross-reference.
+			name:   "numeric session_group id falls back to the member-name list",
+			client: ClientInfo{SessionName: "devshell-82", SessionGroup: "0", SessionGroupList: "devshell,devshell-82"},
+			want:   "devshell",
+		},
+		{
+			name:   "grouped attach with anchor-only list prefix skips _rk-ctl",
+			client: ClientInfo{SessionName: "devshell-82", SessionGroup: "0", SessionGroupList: "_rk-ctl,devshell"},
+			want:   "devshell",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.client.SessionKey(); got != tt.want {
+				t.Errorf("SessionKey() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// ListClients against a dead/absent server degrades to nil, nil (the
+// ListSessions idiom) — never an error the fetch path has to special-case.
+func TestListClients_goneServer(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available — skipping integration test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	clients, err := ListClients(ctx, "rk-no-such-server-list-clients")
+	if err != nil {
+		t.Fatalf("ListClients on a gone server = %v, want nil", err)
+	}
+	if clients != nil {
+		t.Errorf("ListClients on a gone server = %+v, want nil", clients)
+	}
+}

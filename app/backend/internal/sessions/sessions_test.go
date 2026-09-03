@@ -731,3 +731,111 @@ func TestWindowPRKey(t *testing.T) {
 		}
 	})
 }
+
+// TestFoldViewers pins the viewer join: per-session bucketing by group key —
+// a client attached via a derived group copy (devshell-82) counts against the
+// leader row parseSessions keeps (devshell), ungrouped clients bucket by their
+// own session name, and a client attached to a session outside the payload
+// (e.g. a pin-session) simply lands on a key no ProjectSession reads.
+func TestFoldViewers(t *testing.T) {
+	tests := []struct {
+		name    string
+		clients []tmux.ClientInfo
+		want    map[string][]Viewer
+	}{
+		{
+			name:    "no clients yields nil",
+			clients: nil,
+			want:    nil,
+		},
+		{
+			name: "ungrouped clients bucket by session name",
+			clients: []tmux.ClientInfo{
+				{Width: 144, Height: 91, SessionName: "runKit"},
+				{Width: 116, Height: 37, SessionName: "runKit"},
+			},
+			want: map[string][]Viewer{
+				"runKit": {{Width: 144, Height: 91}, {Width: 116, Height: 37}},
+			},
+		},
+		{
+			name: "group-copy attach counts against the leader",
+			clients: []tmux.ClientInfo{
+				{Width: 144, Height: 91, SessionName: "devshell", SessionGroup: "devshell", SessionGroupList: "devshell,devshell-82"},
+				{Width: 116, Height: 37, SessionName: "devshell-82", SessionGroup: "devshell", SessionGroupList: "devshell,devshell-82"},
+			},
+			want: map[string][]Viewer{
+				"devshell": {{Width: 144, Height: 91}, {Width: 116, Height: 37}},
+			},
+		},
+		{
+			// tmux 3.6a's opaque numeric #{session_group} id must still join
+			// via the member-name list.
+			name: "numeric group id joins via the member-name list",
+			clients: []tmux.ClientInfo{
+				{Width: 116, Height: 37, SessionName: "devshell-82", SessionGroup: "0", SessionGroupList: "devshell,devshell-82"},
+			},
+			want: map[string][]Viewer{
+				"devshell": {{Width: 116, Height: 37}},
+			},
+		},
+		{
+			name: "sessions stay separate",
+			clients: []tmux.ClientInfo{
+				{Width: 144, Height: 91, SessionName: "alpha"},
+				{Width: 116, Height: 37, SessionName: "beta"},
+			},
+			want: map[string][]Viewer{
+				"alpha": {{Width: 144, Height: 91}},
+				"beta":  {{Width: 116, Height: 37}},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := foldViewers(tt.clients)
+			if len(got) != len(tt.want) {
+				t.Fatalf("foldViewers() = %v, want %v", got, tt.want)
+			}
+			for key, wantViewers := range tt.want {
+				gotViewers, ok := got[key]
+				if !ok {
+					t.Fatalf("foldViewers() missing key %q: %v", key, got)
+				}
+				if len(gotViewers) != len(wantViewers) {
+					t.Fatalf("foldViewers()[%q] = %v, want %v", key, gotViewers, wantViewers)
+				}
+				for i := range wantViewers {
+					if gotViewers[i] != wantViewers[i] {
+						t.Errorf("foldViewers()[%q][%d] = %+v, want %+v", key, i, gotViewers[i], wantViewers[i])
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestProjectSessionViewersJSON pins the payload contract: viewers ride the
+// ProjectSession marshal as [{width,height}], and a zero-viewer session omits
+// the key entirely (the sidebar treats absent as "no indicator").
+func TestProjectSessionViewersJSON(t *testing.T) {
+	withViewers, err := json.Marshal(ProjectSession{
+		Name:    "devshell",
+		Windows: []tmux.WindowInfo{},
+		Viewers: []Viewer{{Width: 144, Height: 91}, {Width: 116, Height: 37}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(withViewers), `"viewers":[{"width":144,"height":91},{"width":116,"height":37}]`) {
+		t.Errorf("JSON missing viewers payload: %s", withViewers)
+	}
+
+	without, err := json.Marshal(ProjectSession{Name: "solo", Windows: []tmux.WindowInfo{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(without), `"viewers"`) {
+		t.Errorf("zero-viewer session JSON must omit viewers: %s", without)
+	}
+}

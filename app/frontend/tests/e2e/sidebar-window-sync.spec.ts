@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { execSync } from "node:child_process";
-import { gotoServerReady, resolveWindow as resolveWindowRaw } from "./_ready";
+import { gotoServerReady, resolveWindow as resolveWindowRaw, READY_TIMEOUT } from "./_ready";
 import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
 
 /**
@@ -21,7 +21,10 @@ import { TMUX_SERVER, createSession, killSession, newWindow } from "./_tmux";
  * URL — it is derived from the SSE snapshot). The URL segment is the window
  * id's numeric part (@2 → 2; parse restores @N), so URL assertions match
  * windowId.slice(1) (regex-escaped via escapeRegExp); the index is retained
- * only for diagnostics.
+ * only for diagnostics. The viewer-badge test additionally opens a SECOND
+ * browser context (its own window, so its page stays visible) on the same
+ * terminal route at a different viewport — each open relay stream is a real
+ * sized tmux attach client on the isolated server.
  */
 
 // Each test file uses its own session to avoid cross-test interference.
@@ -265,6 +268,104 @@ test.describe("Sidebar Window Sync", () => {
         `/${TMUX_SERVER}/${escapeRegExp(targetB.windowId.slice(1))}(?:$|[/?#])`,
       ),
     );
+  });
+
+  /**
+   * Proves: attached viewers are a visible fact — with one terminal page open
+   * on a window the session row carries no viewer chip, and opening the SAME
+   * window in a second browser context (a second real sized tmux attach
+   * client via the relay stream) makes the session row's viewer badge appear
+   * with the count 2 and the row's hover card list both viewer grids.
+   *
+   * Steps:
+   * 1. Create window view-win-<ts> via the shared _tmux helper; navigate to
+   *    /${TMUX_SERVER} and wait for Connected with the test session rendered.
+   * 2. resolveWindow the window to get its @id; navigate page 1 to the
+   *    terminal route (/${TMUX_SERVER}/@N encoded) and wait for `.xterm` plus
+   *    the relay attach (`window.__rkTerminals[@N]`).
+   * 3. Wait one SSE cycle, then assert the session row has NO viewer-badge
+   *    (1 attached viewer is the chrome-free norm).
+   * 4. Open a second browser context at a smaller viewport, navigate its page
+   *    to the same terminal route, and wait for its `.xterm` + relay attach.
+   * 5. Assert the session row's viewer-badge appears showing "2".
+   * 6. Hover the session row; assert the flyout card's viewer line reads
+   *    "2 viewers · <W>×<H> · <W>×<H>" (two real grids).
+   * 7. Close the second context.
+   */
+  test("a second attached viewer surfaces the count chip and card grids on the session row", async ({
+    page,
+    browser,
+  }) => {
+    test.setTimeout(60_000);
+    const winName = `view-win-${Date.now()}`;
+    newWindow(TEST_SESSION, winName);
+
+    const sidebar = await gotoServerReady(page, TMUX_SERVER, TEST_SESSION);
+    const target = await resolveWindow(page, winName);
+
+    // Page 1 opens the terminal — the relay stream is one real sized
+    // attach-session client on the isolated server.
+    await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(target.windowId)}`);
+    await expect(page.locator(".xterm").first()).toBeVisible({ timeout: 15_000 });
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            (w) =>
+              Boolean(
+                (window as unknown as { __rkTerminals?: Record<string, unknown> })
+                  .__rkTerminals?.[w],
+              ),
+            target.windowId,
+          ),
+        { timeout: 15_000 },
+      )
+      .toBe(true);
+
+    const sessionRow = sidebar.locator(
+      `[data-session-row="${TMUX_SERVER}:${TEST_SESSION}"]`,
+    );
+    // One attached viewer is the norm: no chip, even after a full SSE cycle.
+    await page.waitForTimeout(3_000);
+    await expect(sessionRow.getByTestId("viewer-badge")).toHaveCount(0);
+
+    // Page 2 in a SEPARATE context (its own window, so it stays visible)
+    // opens the same window at a different viewport — the second sized viewer.
+    const ctx2 = await browser.newContext({ viewport: { width: 900, height: 500 } });
+    const page2 = await ctx2.newPage();
+    try {
+      await page2.goto(`/${TMUX_SERVER}/${encodeURIComponent(target.windowId)}`);
+      await expect(page2.locator(".xterm").first()).toBeVisible({ timeout: 15_000 });
+      await expect
+        .poll(
+          () =>
+            page2.evaluate(
+              (w) =>
+                Boolean(
+                  (window as unknown as { __rkTerminals?: Record<string, unknown> })
+                    .__rkTerminals?.[w],
+                ),
+              target.windowId,
+            ),
+          { timeout: 15_000 },
+        )
+        .toBe(true);
+
+      // The next sessions snapshot folds both attach clients onto the session.
+      const badge = sessionRow.getByTestId("viewer-badge");
+      await expect(badge).toBeVisible({ timeout: READY_TIMEOUT });
+      await expect(badge).toHaveText("2");
+      await expect(badge).toHaveAttribute("aria-label", "2 viewers attached");
+
+      // The row's hover card lists both grids — the size is the diagnostic.
+      await sessionRow.hover();
+      await expect(page.getByTestId("row-flyout-viewers")).toHaveText(
+        /^2 viewers · \d+×\d+ · \d+×\d+$/,
+        { timeout: READY_TIMEOUT },
+      );
+    } finally {
+      await ctx2.close();
+    }
   });
 
   /**

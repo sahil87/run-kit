@@ -76,6 +76,12 @@ export type ProjectSession = {
    *  moved, not linked); user-facing session enumerations exclude hidden
    *  sessions at render. A mixed/stray population keeps it absent. */
   hidden?: boolean;
+  /** Size-arbitrating clients attached to this session, derived server-side
+   *  from `tmux list-clients` (control-mode/ignore-size attaches and unsized
+   *  clients excluded; group-copy attaches count against the leader row). The
+   *  grid is the diagnostic payload — it identifies the clamping client.
+   *  Absent on zero-viewer sessions and on payloads from an older backend. */
+  viewers?: { width: number; height: number }[];
   windows: WindowInfo[];
 };
 

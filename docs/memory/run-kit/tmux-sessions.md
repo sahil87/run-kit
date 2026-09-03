@@ -1,5 +1,5 @@
 ---
-description: "Session enumeration and group filtering; direct-attach relay (muxed /ws/terminals); link-based pin-sessions (_rk-pin-*); operator home _rk-operator; server-birth CWD pin; window @N addressing; exact-match =name: targets; MoveWindow active-window preservation; sort-windows; auto-naming; SSE dead-server reap; @rk_srv_protected/@rk_srv_managed provenance; the @rk_<scope>_<name> registry (indexed @rk_win_web_<n> web-tab family) + the migration sweep. Test sockets + rk mux reap in test-sockets.md."
+description: "Session enumeration and group filtering; list-clients viewer derivation (group-key join); direct-attach relay; link-based pin-sessions (_rk-pin-*); operator home _rk-operator; server-birth CWD pin; window @N addressing; exact-match =name: targets; MoveWindow active-window preservation; sort-windows; auto-naming; SSE dead-server reap; @rk_srv_protected/@rk_srv_managed provenance; @rk_<scope>_<name> registry (web-tab family) + migration sweep. Test sockets + rk mux reap in test-sockets.md."
 type: memory
 ---
 # tmux Session Enumeration
@@ -68,6 +68,17 @@ Grouped sessions share the same windows, so displaying both is incorrect — it 
 ## Why `session_grouped` Alone Isn't Enough
 
 `session_grouped=1` for ALL members of a group — including the primary session. You cannot simply filter out `grouped=1` sessions without also losing the primaries. The `name === group` check distinguishes primaries from copies.
+
+## Attached-Client Enumeration (`list-clients`) — the Viewer Derivation
+
+Every run-kit terminal view is a real sized `attach-session` client (§ Terminal Relay), and tmux arbitrates window size across ALL sized clients of a session — so who is attached, and at what grid, is a fact derived at request time from `tmux list-clients`, never pushed state (Constitution §II/§X). `ListClients(ctx, server)` in `internal/tmux/tmux.go` runs `list-clients -F` through `tmuxExecServer` (the `-L`/`-f` handling and `exec.CommandContext` timeout come for free; a gone server yields `nil, nil` via `containsServerGoneText`, the `ListSessions` idiom) with the seven-field `clientFormat`: `client_tty`, `client_width`, `client_height`, `session_name`, `session_group`, `session_group_list`, `client_flags`. The pure `parseClients(lines)` — exported for testing, mirroring the `parseSessions`/`parsePanes` pure-parser + thin-exec split — drops two attach classes before any `ClientInfo` survives:
+
+1. **Non-sizing flags** — a client whose `#{client_flags}` carries a `control-mode` or `ignore-size` token (`nonSizingClientFlags`, matched on the comma-SPLIT tokens, never as a substring of the whole flags string). The rk daemon's tmuxctl subscription attaches control-mode on every server and never participates in window-size arbitration, so it is structurally invisible here.
+2. **Unsized clients** — width or height parsing non-positive; an unsized client cannot arbitrate window size either.
+
+**Viewer→session join by group key** (`ClientInfo.SessionKey()`): the join key is `#{session_group}` when non-empty AND not tmux 3.6a's opaque NUMERIC group id (`isNumericGroupID`, a digits-only heuristic — tmux names groups after the leader, so an all-digit value is the 3.6a id, never a real leader name), else `baseGroupName(#{session_name}, #{session_group_list})` — the first non-`_rk-ctl` member name, the same representative `parseSessions` keeps for a leaderless group. A client attached via a derived group copy (`devshell-82`) sizes the same shared windows, so it lands on the one leader row the UI keeps. `#{session_group_list}` rides the format precisely because `#{session_group}` is not a name on tmux 3.6a — the member-name list is the cross-version cross-reference (see `baseGroupName`).
+
+`internal/sessions.FetchSessions` calls `ListClients` once per invocation (one tmux round-trip per server per snapshot — the same cost class as the existing enumeration calls) and folds the survivors onto each `ProjectSession` through the pure `foldViewers(clients)` (bucketed by `SessionKey()`; nil for no clients) as the additive `Viewers []Viewer` field (`json:"viewers,omitempty"`, `{width, height}` per viewer — the grid IS the diagnostic payload: it identifies the clamping client). A `ListClients` failure degrades to no viewers (slog Warn, log-and-continue) — the fetch itself never fails on it. No new endpoint, no cache, no client poll: the field rides the existing `/api/sessions` REST payload and the state-socket `sessions` event via the `ProjectSession` marshal (see [api-and-sockets](api-and-sockets.md)), and the frontend surfaces it only at ≥2 viewers (see [ui/sidebar](/run-kit/ui/sidebar.md)). (260903-1eua-attached-viewer-count-indicator)
 
 ## Terminal Relay — Direct Attach (no ephemeral)
 
@@ -752,3 +763,9 @@ The fab tier (`FabChange`/`FabStage`/`FabDisplayState` on `WindowInfo`) is deriv
 **Why**: every existing parser index stays valid; the follow-up drops fields 6–7 — the same shape as the `@rk_win_note` dual-read.
 **Rejected**: swap in place (touches every index and every fixture twice).
 *Introduced by*: 260828-5jlp-tmux-option-dual-read-external-keys
+
+### Viewer→session join keys on the session group, never the raw attached name
+**Decision**: `ClientInfo.SessionKey()` joins a client to its UI session by `#{session_group}` when it is a real name (falling back to `baseGroupName` over the `#{session_group_list}` member names under tmux 3.6a's numeric group ids), else the attached session's own name.
+**Why**: `parseSessions` keeps the group leader as the one UI entry; a client attached through a derived group copy (`devshell-82`) sizes the same shared windows, so it must count against the leader row.
+**Rejected**: joining by raw `#{session_name}` — silently drops viewers attached via group copies, exactly the invisible-second-viewer class the indicator exists to surface.
+*Introduced by*: 260903-1eua-attached-viewer-count-indicator

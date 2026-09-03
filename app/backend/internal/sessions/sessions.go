@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +17,14 @@ import (
 	"rk/internal/prstatus"
 	"rk/internal/tmux"
 )
+
+// Viewer is one size-arbitrating client attached to a session — the
+// per-viewer grid fact (the size IS the diagnostic payload: it identifies the
+// clamping client) behind the sidebar's viewer indicator.
+type Viewer struct {
+	Width  int `json:"width"`
+	Height int `json:"height"`
+}
 
 // ProjectSession is a tmux session with its windows and optional fab enrichment.
 type ProjectSession struct {
@@ -43,6 +52,35 @@ type ProjectSession struct {
 	// enumerations exclude hidden sessions at render. A mixed or stray
 	// population yields false, so no window can ever become invisible.
 	Hidden bool `json:"hidden,omitempty"`
+	// Viewers lists the session's size-arbitrating attached clients, derived
+	// from `tmux list-clients` at fetch time (internal/tmux ListClients —
+	// control-mode/ignore-size attaches and unsized clients already excluded)
+	// and joined by group key (ClientInfo.SessionKey), so a client attached
+	// via a derived group copy counts against the leader row. Absent when the
+	// session has no attached clients (omitempty); the frontend surfaces a
+	// viewer indicator only at ≥2.
+	Viewers []Viewer `json:"viewers,omitempty"`
+}
+
+// foldViewers buckets the size-arbitrating clients onto session names via the
+// group-key join (ClientInfo.SessionKey: the group leader's name for a grouped
+// attach, else the attached session's own name — mirroring the leader-keeps-name
+// rule so a viewer attached via a derived group copy still counts against the
+// UI session). Pure (no I/O) so the join is unit-testable without a live
+// server. Returns nil for no clients.
+func foldViewers(clients []tmux.ClientInfo) map[string][]Viewer {
+	if len(clients) == 0 {
+		return nil
+	}
+	bySession := make(map[string][]Viewer)
+	for _, c := range clients {
+		key := c.SessionKey()
+		if key == "" {
+			continue
+		}
+		bySession[key] = append(bySession[key], Viewer{Width: c.Width, Height: c.Height})
+	}
+	return bySession
 }
 
 // operatorSessionHidden is the pure content rule behind ProjectSession.Hidden:
@@ -630,6 +668,16 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 		return []ProjectSession{}, nil
 	}
 
+	// Attached-viewer tier: one list-clients round-trip per fetch (same cost
+	// class as the enumeration calls), folded onto sessions by group key. A
+	// failure degrades to no viewers (log-and-continue) — the fetch itself
+	// never fails on it.
+	clients, err := tmux.ListClients(ctx, server)
+	if err != nil {
+		slog.Warn("list-clients failed; sessions carry no viewers", "server", server, "error", err)
+	}
+	viewers := foldViewers(clients)
+
 	// Fetch windows for all sessions in parallel.
 	data := make([]sessionData, len(sessionInfos))
 	var wg sync.WaitGroup
@@ -722,7 +770,7 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 			}
 		}
 
-		result[i] = ProjectSession{Name: sd.info.Name, SessionColor: sd.info.Color, SessionID: sd.info.ID, SessionPath: sd.info.Path, Flair: sd.info.Flair, Windows: sd.windows, Hidden: operatorSessionHidden(sd.info.Name, sd.windows)}
+		result[i] = ProjectSession{Name: sd.info.Name, SessionColor: sd.info.Color, SessionID: sd.info.ID, SessionPath: sd.info.Path, Flair: sd.info.Flair, Windows: sd.windows, Hidden: operatorSessionHidden(sd.info.Name, sd.windows), Viewers: viewers[sd.info.Name]}
 	}
 
 	return result, nil

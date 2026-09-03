@@ -55,7 +55,9 @@ var roleCmd = &cobra.Command{
 // core (exec.CommandContext, argv slices — Constitution §I).
 var (
 	roleRunFn       = func(ctx context.Context, args []string) error { return tmux.Run(ctx, args, tmux.RunOpts{}) }
-	roleRunOutputFn = func(ctx context.Context, args []string) ([]byte, error) { return tmux.RunOutput(ctx, args, tmux.RunOpts{}) }
+	roleRunOutputFn = func(ctx context.Context, args []string) ([]byte, error) {
+		return tmux.RunOutput(ctx, args, tmux.RunOpts{})
+	}
 	// roleOriginalTMUXFn is the $TMUX seam: internal/tmux's init() strips $TMUX
 	// from the process, so the captured OriginalTMUX is fixed at package-init
 	// time and cannot be varied with t.Setenv.
@@ -132,27 +134,8 @@ func runRole(cmd *cobra.Command, token string) error {
 	}
 
 	if value != "" {
-		// Server-scoped radio: clear the role from every other window first.
-		displaced, err := roleClearExceptFn(ctx, prefix, windowID)
-		if err != nil {
-			return fmt.Errorf("clear prior operator: %w", err)
-		}
-		// Option write before the physical moves (option-write-first): a
-		// mid-sequence failure degrades to the cosmetic-only state (role set,
-		// window unmoved) — never a moved-but-roleless stray.
-		if err := roleRunFn(ctx, append(prefix, "set-option", "-w", "-t", windowID, tmux.RoleOption, value)); err != nil {
-			return fmt.Errorf("set %s: %w", tmux.RoleOption, err)
-		}
-		// Demote displaced carriers out of the operator session first, then
-		// move the new operator in — an emptied operator session dies with its
-		// last window, and ensure-before-move recreates it.
-		for _, id := range displaced {
-			if err := roleDemoteFn(ctx, prefix, id); err != nil {
-				return fmt.Errorf("demote prior operator: %w", err)
-			}
-		}
-		if err := roleMoveInFn(ctx, prefix, windowID); err != nil {
-			return fmt.Errorf("move into operator session: %w", err)
+		if err := stampOperatorRole(ctx, prefix, windowID); err != nil {
+			return err
 		}
 	} else {
 		if err := roleRunFn(ctx, append(prefix, "set-option", "-wu", "-t", windowID, tmux.RoleOption)); err != nil {
@@ -170,6 +153,34 @@ func runRole(cmd *cobra.Command, token string) error {
 		sink.Dataf("%s role=%s\n", windowID, value)
 	} else {
 		sink.Dataf("%s role cleared\n", windowID)
+	}
+	return nil
+}
+
+// stampOperatorRole applies the full operator write-path to windowID — the
+// sequence `rk role operator` and `rk operator`'s create path share:
+// server-scoped radio clear (the role is cleared from every other window
+// first), the option write, then the physical promotion. Option write before
+// the physical moves (option-write-first): a mid-sequence failure degrades to
+// the cosmetic-only state (role set, window unmoved) — never a
+// moved-but-roleless stray. Demote displaced carriers out of the operator
+// session before moving the new operator in — an emptied operator session dies
+// with its last window, and ensure-before-move recreates it.
+func stampOperatorRole(ctx context.Context, prefix []string, windowID string) error {
+	displaced, err := roleClearExceptFn(ctx, prefix, windowID)
+	if err != nil {
+		return fmt.Errorf("clear prior operator: %w", err)
+	}
+	if err := roleRunFn(ctx, append(prefix, "set-option", "-w", "-t", windowID, tmux.RoleOption, roleActions["operator"])); err != nil {
+		return fmt.Errorf("set %s: %w", tmux.RoleOption, err)
+	}
+	for _, id := range displaced {
+		if err := roleDemoteFn(ctx, prefix, id); err != nil {
+			return fmt.Errorf("demote prior operator: %w", err)
+		}
+	}
+	if err := roleMoveInFn(ctx, prefix, windowID); err != nil {
+		return fmt.Errorf("move into operator session: %w", err)
 	}
 	return nil
 }

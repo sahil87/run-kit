@@ -56,6 +56,12 @@ describe("matchTier", () => {
     );
   });
 
+  it("classifies Incidental when the query spans a word boundary", () => {
+    expect(matchTier("run-kit: Restart Daemon", undefined, "kit: r")).toBe(
+      MatchTier.Incidental,
+    );
+  });
+
   it("classifies DescriptionOnly when only the description matches", () => {
     expect(matchTier("Tab: Create", "a fresh tab", "fresh")).toBe(
       MatchTier.DescriptionOnly,

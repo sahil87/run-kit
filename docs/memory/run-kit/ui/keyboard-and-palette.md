@@ -354,7 +354,7 @@ Palette results are filtered AND ranked by the pure module `lib/palette/rank.ts`
 | 1 | `WholeWord` | some word of the label equals the query — `pr` → `Open: PR #3127` |
 | 2 | `WordStart` | some word of the label starts with the query and is longer than it — `pr` → `Server: Protect noon`, `Layout: Promote Web` |
 | 3 | `Acronym` | the query is a contiguous run of the label's word-initials string — `prs` → `PR: Refresh Status` (`ps` does NOT match: the initials run must be contiguous) |
-| 4 | `Incidental` | the query occurs in the label, but only strictly inside a word |
+| 4 | `Incidental` | the label contains the query and no higher tier applied — an alphanumeric query is then necessarily strictly inside a word (a word-initial one would have hit tier 1 or 2), and a boundary-spanning query lands here too (`kit: r` → `run-kit: Restart Daemon`) |
 | 5 | `DescriptionOnly` | the label does not contain the query; the description does |
 
 **Tokenization**: a word is a maximal run of `[a-z0-9]` in the lowercased label; every other character (space, `:`, `#`, `-`, `/`, quotes, `…`) is a boundary — `Open: PR #3127` → `["open", "pr", "3127"]`, `run-kit: Restart Daemon` → `["run", "kit", "restart", "daemon"]`. The category is the substring before the first `": "` in the label, absent when the label has none (tier 0 is then reachable only by a whole-label match).

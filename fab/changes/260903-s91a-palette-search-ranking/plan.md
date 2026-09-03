@@ -16,7 +16,7 @@
 | 1 | WholeWord | some word of the label equals the query |
 | 2 | WordStart | some word of the label starts with the query and is longer than it |
 | 3 | Acronym | the query is a contiguous substring of the label's word-initials string |
-| 4 | Incidental | the query occurs in the label, but only strictly inside a word |
+| 4 | Incidental | the label contains the query and no higher tier applied — an alphanumeric query is then necessarily strictly inside a word (a word-initial one would have matched tier 1 or 2); a boundary-spanning query (`kit: r`) also lands here, which is what keeps R5's membership superset intact |
 | 5 | DescriptionOnly | the label does not contain the query; the lowercased description does |
 
 The first tier whose rule holds wins.

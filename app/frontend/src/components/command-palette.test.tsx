@@ -561,7 +561,7 @@ describe("CommandPalette", () => {
       ]);
     });
 
-    it("keeps membership identical to the old label+description filter", () => {
+    it("keeps every action the old label+description filter admitted", () => {
       const actions: PaletteAction[] = [
         { id: "new-session", label: "New Session", onSelect: vi.fn() },
         { id: "kill-window", label: "Kill Window", onSelect: vi.fn() },

@@ -5,7 +5,7 @@ import { mockStateSocket } from "./_state-socket-mock";
 // Web-UI agent spawn flow — surfacing `rk riff` as a one-action spawn
 // dialog. The dialog opens from ALL THREE entry points (Cmd+K
 // `Agent: Spawn`, the window-switcher `+ New Agent`, and the sidebar
-// session-row bot button), renders the mockup-v2 field set (Where radio /
+// session flyout card's `Spawn agent…` row), renders the mockup-v2 field set (Where radio /
 // Worktree name / Agent tier) with the correct defaults and conditional
 // Worktree visibility, hides the Agent Tier field when the presets endpoint
 // returns `tiers: []` (a non-fab repo), carries `where`/`tier` in the POST
@@ -31,9 +31,9 @@ import { mockStateSocket } from "./_state-socket-mock";
 // window to render (the state-socket payload landed). openViaPalette opens
 // the palette via `openPalette`, fills "Agent: Spawn", presses Enter.
 // openViaDropdown clicks the `Switch tab` trigger then the `+ New Agent`
-// menu item. openViaSidebarBot hovers the session row — the icon cluster is
-// pointer-events-none at rest — then clicks the `Spawn agent in {session}`
-// bot button. OK_SPAWN is the success mock: POST /api/riff → 200
+// menu item. openViaSidebarCard hovers the session row to open its flyout
+// card, then clicks the card's `Spawn agent…` action row.
+// OK_SPAWN is the success mock: POST /api/riff → 200
 // {server, session:"dev", window:"riff-swift-fox", windowId:"@7"}.
 
 const SERVER = "default";
@@ -131,14 +131,27 @@ async function openViaDropdown(page: Page) {
   await page.getByRole("menuitem", { name: "+ New Agent" }).click();
 }
 
-// The sidebar bot button (gsmu) — the third entry point. Its icon cluster is
-// hover-gated (pointer-events-none at rest), so hover the session row before
-// clicking the bot icon (playwright-pointer-events-hover-gate memory).
-async function openViaSidebarBot(page: Page, session: string) {
+// The sidebar session-card spawn row — the third entry point. Hover the
+// session row until ITS flyout card is the open one (while SSE is still
+// settling, a row layout-shift under the stationary pointer can fire a
+// sibling row's hover intent — a mouseover with no mousemove — and open THAT
+// row's card), enter the card at the row's own band (a diagonal sweep from
+// the row to a lower action row crosses the sibling sidebar row and
+// hover-intent retargets the card mid-transit), then click the card's
+// `Spawn agent…` action row.
+async function openViaSidebarCard(page: Page, session: string) {
   const row = page.locator(`[data-session-row="${SERVER}:${session}"]`);
   await expect(row).toBeVisible({ timeout: 5_000 });
-  await row.hover();
-  await page.getByLabel(`Spawn agent in ${session}`).click();
+  const card = page.getByTestId("row-flyout-card");
+  await expect(async () => {
+    await page.mouse.move(700, 500);
+    await row.hover();
+    await expect(card).toContainText(`Session ${session}`, { timeout: 3_000 });
+  }).toPass({ timeout: 15_000 });
+  const rowBox = (await row.boundingBox())!;
+  const cardBox = (await card.boundingBox())!;
+  await page.mouse.move(cardBox.x + 16, rowBox.y + rowBox.height / 2);
+  await card.getByTestId("row-flyout-spawn-action").click();
 }
 
 const OK_SPAWN: RiffMock = {
@@ -353,22 +366,23 @@ test.describe("Web-UI Spawn Agent", () => {
   });
 
   /**
-   * Proves: the third entry point — the session-row bot button in the
-   * sidebar — opens the spawn dialog targeting that row's session.
+   * Proves: the third entry point — the session flyout card's `Spawn agent…`
+   * row in the sidebar — opens the spawn dialog targeting that row's session.
    *
    * Steps:
    * 1. Mock the backend (OK_SPAWN); gotoTerminal.
-   * 2. openViaSidebarBot(page, "dev") — hover the `dev` session row, then
-   *    click its `Spawn agent in dev` bot button.
+   * 2. openViaSidebarCard(page, "dev") — hover the `dev` session row until
+   *    ITS flyout card is the open one, enter the card at the row's own
+   *    band, then click the card's `Spawn agent…` action row.
    * 3. Assert the `Spawn agent in dev` dialog and its `Task` field are
    *    visible.
    */
-  test("the sidebar bot button opens the dialog titled with the row's session", async ({ page }) => {
-    // The third entry point (gsmu): the session-row bot button, hover-gated.
+  test("the sidebar session-card spawn row opens the dialog titled with the row's session", async ({ page }) => {
+    // The third entry point: the session flyout card's Spawn agent… row.
     await mockBackend(page, OK_SPAWN);
     await gotoTerminal(page);
 
-    await openViaSidebarBot(page, "dev");
+    await openViaSidebarCard(page, "dev");
 
     await expect(page.getByRole("dialog", { name: "Spawn agent in dev" })).toBeVisible({ timeout: 5_000 });
     await expect(page.getByLabel("Task")).toBeVisible();

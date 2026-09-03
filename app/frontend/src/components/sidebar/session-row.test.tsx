@@ -2,8 +2,7 @@ import { describe, it, expect, afterEach, vi, beforeEach } from "vitest";
 import { useState } from "react";
 import { render, screen, cleanup, act, fireEvent } from "@testing-library/react";
 import { SessionRow } from "./session-row";
-import { IDENTITY_TIP_OPEN_DELAY_MS } from "./identity-tip";
-import { resetFlyoutWarmState } from "./row-flyout-card";
+import { FLYOUT_OPEN_DELAY_MS, resetFlyoutWarmState } from "./row-flyout-card";
 import type { ProjectSession } from "@/types";
 import { makeSession, makeWindow } from "@/test-utils/fixtures";
 import { stubMatchMedia } from "@/test-utils/match-media";
@@ -51,11 +50,13 @@ describe("SessionRow", () => {
     expect(screen.getByText("agent-work")).toBeInTheDocument();
   });
 
-  it("exposes create-window and kill affordances", () => {
+  it("renders no hover action cluster on a fine pointer — every action is a card row now", () => {
     const session = makeSession({ name: "agent-work" });
-    render(<SessionRow {...rowProps(session)} />);
-    expect(screen.getByLabelText("New tab in agent-work")).toBeInTheDocument();
-    expect(screen.getByLabelText("Kill session agent-work")).toBeInTheDocument();
+    render(<SessionRow {...rowProps(session)} onSpawnAgent={noop} />);
+    expect(screen.queryByLabelText("Set color for agent-work")).toBeNull();
+    expect(screen.queryByLabelText("Spawn agent in agent-work")).toBeNull();
+    expect(screen.queryByLabelText("New tab in agent-work")).toBeNull();
+    expect(screen.queryByLabelText("Kill session agent-work")).toBeNull();
   });
 
   // Flair overlay (decoration-only channel): an always-on ambient CSS-only
@@ -85,47 +86,6 @@ describe("SessionRow", () => {
       // At rest the warp markup contract renders (three starfield planes).
       rerender(<SessionRow {...rowProps(session)} isDragSource={false} />);
       expect(container.querySelectorAll(".rk-flair-warp .rk-warp-plane")).toHaveLength(3);
-    });
-  });
-
-  // One icon system (260724-2bmy): + and ✕ are stroke SVGs (PlusIcon/CloseIcon)
-  // matching PaletteIcon/BotIcon, so the row's icon cluster reads at one ink
-  // weight — the former text glyphs made even center gaps look uneven.
-  it("renders the + and ✕ actions as stroke SVG icons, not text glyphs", () => {
-    const session = makeSession({ name: "agent-work" });
-    render(<SessionRow {...rowProps(session)} />);
-    const plus = screen.getByLabelText("New tab in agent-work");
-    const kill = screen.getByLabelText("Kill session agent-work");
-    for (const btn of [plus, kill]) {
-      expect(btn.querySelector("svg")).not.toBeNull();
-      expect(btn.textContent).toBe("");
-    }
-  });
-
-  // gsmu: the spawn-agent bot button is an OPTIONAL affordance (mirrors
-  // onColorChange) — present only when an onSpawnAgent handler is supplied, and
-  // positioned immediately LEFT of the "+" create-window button so +/✕ keep
-  // their edge positions.
-  describe("spawn-agent bot button", () => {
-    it("is absent when no onSpawnAgent handler is supplied", () => {
-      const session = makeSession({ name: "agent-work" });
-      render(<SessionRow {...rowProps(session)} />);
-      expect(screen.queryByLabelText("Spawn agent in agent-work")).not.toBeInTheDocument();
-    });
-
-    it("renders left of the + button and calls onSpawnAgent(server, name) on click", () => {
-      const onSpawnAgent = vi.fn();
-      const session = makeSession({ name: "agent-work" });
-      render(<SessionRow {...rowProps(session)} onSpawnAgent={onSpawnAgent} />);
-
-      const bot = screen.getByLabelText("Spawn agent in agent-work");
-      const plus = screen.getByLabelText("New tab in agent-work");
-      expect(bot).toBeInTheDocument();
-      // DOM order: bot precedes + (Node.DOCUMENT_POSITION_FOLLOWING = 4).
-      expect(bot.compareDocumentPosition(plus) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-
-      fireEvent.click(bot);
-      expect(onSpawnAgent).toHaveBeenCalledWith("srv", "agent-work");
     });
   });
 
@@ -257,52 +217,17 @@ describe("SessionRow", () => {
     });
   });
 
-  // 260723-fm08: tier-1 tips on the icon action cluster. Deep tooltip behavior
-  // is pinned in tip.test.tsx; these assert the per-site wiring — short
-  // generic tip labels while the aria-labels keep per-session specificity —
-  // and that click behavior survives the Tip wrap.
-  describe("action-cluster tips (260723-fm08)", () => {
-    it("each action button opens its generic-label tip on focus", () => {
-      const cases: Array<[string, string]> = [
-        ["Set color for agent-work", "Set session color"],
-        ["Spawn agent in agent-work", "Spawn agent"],
-        ["New tab in agent-work", "New tab"],
-        ["Kill session agent-work", "Kill session"],
-      ];
-      // Fresh render per case: blur closes the tip on a floating-ui timeout,
-      // so sequential focuses in one tree would accumulate open tooltips.
-      for (const [ariaName, tipLabel] of cases) {
-        const session = makeSession({ name: "agent-work" });
-        const view = render(<SessionRow {...rowProps(session)} onSpawnAgent={noop} />);
-        const btn = screen.getByLabelText(ariaName);
-        act(() => { fireEvent.focus(btn); });
-        expect(screen.getByRole("tooltip")).toHaveTextContent(tipLabel);
-        expect(btn.getAttribute("aria-describedby")).toBe(screen.getByRole("tooltip").id);
-        view.unmount();
-      }
-    });
-
-    it("kill click still reaches onKillClick through the Tip wrap", () => {
-      const onKillClick = vi.fn();
-      const session = makeSession({ name: "agent-work" });
-      render(<SessionRow {...rowProps(session)} onKillClick={onKillClick} />);
-
-      fireEvent.click(screen.getByLabelText("Kill session agent-work"));
-      expect(onKillClick).toHaveBeenCalledWith("srv", "agent-work", 1, false);
-    });
-  });
-
-  // Row-level identity tip: `Session <full name>` title bar + one plain-text
-  // body line ($N id · window count · ~-abbreviated root path). Hover/focus
-  // open, Escape/leave dismiss, never on touch, suppressed while the row's
-  // color popover is open, closed on drag start. NO TipGroup/warm-window
-  // coupling — the delay is always the plain cold delay.
-  describe("identity tip", () => {
+  // The session card on FINE pointers: whole-row hover (after the open delay)
+  // and keyboard row focus open the same card the coarse rail triggers — the
+  // single hover surface per row. The retired identity tip never mounts.
+  describe("fine-pointer session card", () => {
     beforeEach(() => {
       vi.useFakeTimers();
+      resetFlyoutWarmState();
     });
     afterEach(() => {
       vi.useRealTimers();
+      resetFlyoutWarmState();
       delete (window as { matchMedia?: unknown }).matchMedia;
     });
 
@@ -311,37 +236,41 @@ describe("SessionRow", () => {
       act(() => {
         fireEvent.pointerEnter(row, { pointerType: "mouse" });
         fireEvent.mouseEnter(row);
-        vi.advanceTimersByTime(IDENTITY_TIP_OPEN_DELAY_MS + 50);
+        vi.advanceTimersByTime(FLYOUT_OPEN_DELAY_MS + 50);
       });
       return row;
     }
 
-    it("opens on row hover with the full name in the title bar and the facts line in the body", () => {
+    it("opens on row hover with the title bar, facts line, and action rows — and no identity tip", () => {
       const session = makeSession({
         name: "code-surface-latch-distill",
         sessionId: "$4",
         sessionPath: "/home/sahil/code/sahil87/run-kit",
         windows: [makeWindow({}), makeWindow({ windowId: "@2" }), makeWindow({ windowId: "@3" })],
       });
-      render(<SessionRow {...rowProps(session)} />);
-      expect(screen.queryByTestId("session-tip")).toBeNull();
+      render(<SessionRow {...rowProps(session)} onSpawnAgent={noop} />);
+      expect(screen.queryByTestId("row-flyout-card")).toBeNull();
 
       hoverRow();
-      const card = screen.getByTestId("session-tip");
+      const card = screen.getByTestId("row-flyout-card");
       const bar = screen.getByTestId("popup-title-bar");
       expect(card).toContainElement(bar);
       expect(bar).toHaveTextContent("Session code-surface-latch-distill");
       expect(card).toHaveTextContent("$4 · 3 tabs · ~/code/sahil87/run-kit");
-      // Tier-1 weight: no interactive content at all.
-      expect(card.querySelector("a, button")).toBeNull();
-      expect(card.className).toContain("pointer-events-none");
+      // Change color… leads the action rows.
+      expect(screen.getByTestId("row-flyout-color-action")).toHaveTextContent("Change color…");
+      expect(screen.getByTestId("row-flyout-spawn-action")).toHaveTextContent("Spawn agent…");
+      expect(screen.getByTestId("row-flyout-create-action")).toHaveTextContent("New tab");
+      expect(screen.getByTestId("row-flyout-kill-action")).toHaveTextContent("Kill session");
+      // The card is the row's single hover surface — the tip is retired.
+      expect(screen.queryByTestId("session-tip")).toBeNull();
     });
 
-    it("omits underivable body segments (old payloads without sessionId/sessionPath)", () => {
+    it("omits underivable facts segments (old payloads without sessionId/sessionPath)", () => {
       const session = makeSession({ name: "alpha", windows: [makeWindow({}), makeWindow({ windowId: "@2" }), makeWindow({ windowId: "@3" })] });
       render(<SessionRow {...rowProps(session)} />);
       hoverRow();
-      const card = screen.getByTestId("session-tip");
+      const card = screen.getByTestId("row-flyout-card");
       expect(card).toHaveTextContent("3 tabs");
       expect(card).not.toHaveTextContent("$");
       expect(card).not.toHaveTextContent("~");
@@ -353,57 +282,51 @@ describe("SessionRow", () => {
       act(() => {
         fireEvent.focus(row);
       });
-      expect(screen.getByTestId("session-tip")).toBeInTheDocument();
+      expect(screen.getByTestId("row-flyout-card")).toBeInTheDocument();
       act(() => {
         fireEvent.keyDown(document, { key: "Escape" });
         vi.advanceTimersByTime(50);
       });
-      expect(screen.queryByTestId("session-tip")).toBeNull();
+      expect(screen.queryByTestId("row-flyout-card")).toBeNull();
     });
 
-    it("never opens on a coarse pointer", () => {
-      stubMatchMedia((query) => ["(pointer: coarse)", "(any-pointer: coarse)"].includes(query));
-      render(<SessionRow {...rowProps(makeSession({ name: "api" }))} />);
-      const row = screen.getByRole("treeitem");
-      act(() => {
-        fireEvent.pointerEnter(row, { pointerType: "touch" });
-        fireEvent.mouseEnter(row);
-        fireEvent.focus(row);
-        vi.advanceTimersByTime(IDENTITY_TIP_OPEN_DELAY_MS + 100);
-      });
-      expect(screen.queryByTestId("session-tip")).toBeNull();
-    });
-
-    it("is suppressed while the row's color popover is open", () => {
+    it("Change color… closes the card and opens the color popover; the open popover inhibits re-opening", () => {
       // ThemeProvider (SwatchPopover dep) needs a matchMedia stub; fine pointer.
-      stubMatchMedia(() => false);
+      stubMatchMedia((q) => q === "(prefers-color-scheme: dark)");
       render(
         <ThemeProvider>
           <SessionRow {...rowProps(makeSession({ name: "api" }))} />
         </ThemeProvider>,
       );
-      fireEvent.click(screen.getByLabelText("Set color for api"));
+      const row = screen.getByRole("treeitem");
+      act(() => {
+        fireEvent.focus(row);
+      });
+      act(() => { fireEvent.click(screen.getByTestId("row-flyout-color-action")); });
+      expect(screen.queryByTestId("row-flyout-card")).toBeNull();
+      expect(screen.getByRole("listbox", { name: "Color picker" })).toBeInTheDocument();
+      // Popover-over-card precedence: the suppressed gate holds while the
+      // popover is open — a hover flashes nothing.
       hoverRow();
-      expect(screen.queryByTestId("session-tip")).toBeNull();
+      expect(screen.queryByTestId("row-flyout-card")).toBeNull();
     });
 
     it("closes on drag start", () => {
       const onDragStart = vi.fn();
       render(<SessionRow {...rowProps(makeSession({ name: "api" }))} draggable onDragStart={onDragStart} />);
       const row = hoverRow();
-      expect(screen.getByTestId("session-tip")).toBeInTheDocument();
+      expect(screen.getByTestId("row-flyout-card")).toBeInTheDocument();
       act(() => {
         fireEvent.dragStart(row);
       });
-      expect(screen.queryByTestId("session-tip")).toBeNull();
+      expect(screen.queryByTestId("row-flyout-card")).toBeNull();
       expect(onDragStart).toHaveBeenCalled();
     });
   });
 
   // Coarse rail + session card (260817-ve5m): the rail extends the one
-  // continuous strip to session rows, the 4-icon cluster is render-gated
-  // `!coarse` (its actions live in the rail-triggered card), and the card
-  // carries the title/facts/action rows. jsdom evaluates no media queries, so
+  // continuous strip to session rows and its tap/scrub triggers the same
+  // card fine-pointer hover/focus opens. jsdom evaluates no media queries, so
   // the pointer is stubbed and geometry is asserted as classes/inline styles.
   describe("coarse rail + session card (260817-ve5m)", () => {
     beforeEach(() => {
@@ -423,7 +346,7 @@ describe("SessionRow", () => {
       });
     }
 
-    it("renders the 56px tier-tinted rail with an empty glyph slot + chevron, and gates the cluster out of the DOM", () => {
+    it("renders the 56px tier-tinted rail with an empty glyph slot + chevron, and no cluster buttons", () => {
       const rowTints = computeRowTints(DEFAULT_DARK_THEME.palette);
       const session = makeSession({ name: "agent-work", sessionColor: "2" });
       render(<SessionRow {...rowProps(session)} sessionColor="2" rowTints={rowTints} onSpawnAgent={noop} />);
@@ -452,14 +375,14 @@ describe("SessionRow", () => {
       expect(screen.queryByLabelText("Kill session agent-work")).toBeNull();
     });
 
-    it("renders no rail and the unchanged cluster on fine pointers", () => {
+    it("renders no rail and no cluster on fine pointers — the hover card is the surface", () => {
       stubMatchMedia((q) => q === "(prefers-color-scheme: dark)");
       const session = makeSession({ name: "agent-work" });
       render(<SessionRow {...rowProps(session)} />);
       expect(screen.queryByTestId("status-rail")).toBeNull();
-      expect(screen.getByLabelText("Set color for agent-work")).toBeInTheDocument();
-      expect(screen.getByLabelText("New tab in agent-work")).toBeInTheDocument();
-      expect(screen.getByLabelText("Kill session agent-work")).toBeInTheDocument();
+      expect(screen.queryByLabelText("Set color for agent-work")).toBeNull();
+      expect(screen.queryByLabelText("New tab in agent-work")).toBeNull();
+      expect(screen.queryByLabelText("Kill session agent-work")).toBeNull();
     });
 
     it("rail tap opens the session card — title, facts line, action rows in order, actions route", () => {
@@ -483,7 +406,7 @@ describe("SessionRow", () => {
       tapRail();
       const card = screen.getByTestId("row-flyout-card");
       expect(screen.getByTestId("popup-title-bar")).toHaveTextContent("Session agent-work");
-      // The identity tip's facts line verbatim (omission-degrading).
+      // The facts line (omission-degrading).
       expect(card).toHaveTextContent("$4 · 2 tabs · ~/code/run-kit");
       // Fixed order: Change color… → Spawn agent… → New tab → Kill session.
       const color = screen.getByTestId("row-flyout-color-action");

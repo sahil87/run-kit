@@ -393,22 +393,43 @@ describe("Sidebar", () => {
     expect(screen.queryByText(/no sessions/)).not.toBeInTheDocument();
   });
 
-  it("shows kill button for each session", () => {
-    // The session-row action cluster is render-gated off on coarse (the
-    // file's blanket matchMedia stub defaults to coarse) — pin fine.
+  it("the kill affordance lives in each session row's card (no in-row kill buttons)", () => {
+    // The session-row action cluster is retired on every pointer class — kill
+    // is a card row now. Pin a fine pointer and open each row's card via
+    // keyboard focus.
     stubPointer(false);
     renderSidebar();
-    const killButtons = screen.getAllByLabelText(/Kill session/);
-    expect(killButtons).toHaveLength(2);
+    expect(screen.queryAllByLabelText(/Kill session/)).toHaveLength(0);
+    const sessionRows = screen
+      .getAllByRole("treeitem")
+      .filter((r) => r.getAttribute("aria-level") === "1");
+    expect(sessionRows).toHaveLength(2);
+    for (const row of sessionRows) {
+      act(() => {
+        fireEvent.focus(row);
+      });
+      expect(screen.getByTestId("row-flyout-kill-action")).toHaveTextContent("Kill session");
+      act(() => {
+        fireEvent.keyDown(document, { key: "Escape" });
+      });
+    }
   });
 
-  it("shows kill confirmation dialog when kill button is clicked", () => {
+  it("shows kill confirmation dialog when the card's Kill session row is clicked", () => {
     stubPointer(false);
     renderSidebar();
-    fireEvent.click(screen.getByLabelText("Kill session run-kit"));
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-    expect(screen.getByText("Kill session?")).toBeInTheDocument();
-    expect(screen.getByText(/3 tab/)).toBeInTheDocument();
+    const row = screen
+      .getByRole("button", { name: "Navigate to run-kit" })
+      .closest('[role="treeitem"]')!;
+    act(() => {
+      fireEvent.focus(row);
+    });
+    act(() => {
+      fireEvent.click(screen.getByTestId("row-flyout-kill-action"));
+    });
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("Kill session?")).toBeInTheDocument();
+    expect(within(dialog).getByText(/3 tab/)).toBeInTheDocument();
   });
 
   it("shows empty-state hint row when no sessions", () => {

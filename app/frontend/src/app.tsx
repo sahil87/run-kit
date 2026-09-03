@@ -73,6 +73,7 @@ import { useSelectionStore } from "@/store/selection-store";
 import { buildServerKillActions } from "@/lib/palette/server-kill";
 import { buildServerProtectActions } from "@/lib/palette/server-protect";
 import { buildServerAdoptActions } from "@/lib/palette/server-adopt";
+import { buildServerSetColorAction } from "@/lib/palette/server-color";
 import { buildShellServerActions } from "@/lib/palette/shell";
 import { canCloseShellWindow, canNewShellWindow, closeShellWindow, isShell, newShellWindow, switchShellServer } from "@/lib/shell";
 import { ShellTitlebarStrip } from "@/components/desktop-shell/titlebar-strip";
@@ -153,7 +154,7 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo, SelectWindowResult } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerProtected, sendChatMessage, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, HttpError, type SortWindowsBy } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, sendChatMessage, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, HttpError, type SortWindowsBy } from "@/api/client";
 import { buildWebTabActions } from "@/lib/palette/web-tabs";
 import { operatorRequestToast } from "@/lib/operator-request";
 import { buildSessionSortActions } from "@/lib/palette/sort";
@@ -1249,7 +1250,7 @@ function AppShell() {
   // Save-as-style name prompt behind `Session: Create` (chord + palette). The
   // prefill is captured at OPEN time so it can't churn under the user's edit.
   const [sessionNamePrompt, setSessionNamePrompt] = useState<{ defaultName: string } | null>(null);
-  const [showColorPicker, setShowColorPicker] = useState<"session" | "window" | null>(null);
+  const [showColorPicker, setShowColorPicker] = useState<"session" | "window" | "server" | null>(null);
   const [showCreateIframeDialog, setShowCreateIframeDialog] = useState(false);
   // The spawn-agent dialog's target is explicit `{server, session}` state (not a
   // boolean): the sidebar bot button can target ANY listed session on ANY server
@@ -3662,6 +3663,9 @@ function AppShell() {
         label: "Server: Create",
         onSelect: openCreateServer,
       },
+      // The server tier's keyboard color path (mirrors `Session: Set Color`'s
+      // shape): opens the modal SwatchPopover's "server" arm below.
+      ...buildServerSetColorAction(server, () => setShowColorPicker("server")),
       // Host name copies the InstanceName displayName (the settings override,
       // else the health hostname) — the status bar's
       // `instanceName ?? metrics.hostname` equivalent WITHOUT subscribing
@@ -4922,9 +4926,17 @@ function AppShell() {
                 selectedColor={
                   showColorPicker === "session"
                     ? currentSession?.sessionColor
-                    : currentWindow?.color
+                    : showColorPicker === "window"
+                      ? currentWindow?.color
+                      : undefined
                 }
-                rowName={showColorPicker === "session" ? sessionName : currentWindow?.name}
+                rowName={
+                  showColorPicker === "session"
+                    ? sessionName
+                    : showColorPicker === "window"
+                      ? currentWindow?.name
+                      : server
+                }
                 // Selection does NOT close (the picker's dismissal contract) —
                 // dismissal is the ✕ cell, the backdrop click, or Escape.
                 onSelect={(c) => {
@@ -4935,6 +4947,10 @@ function AppShell() {
                   } else if (showColorPicker === "window" && sessionName && currentWindow) {
                     setWindowColorApi(server, currentWindow.windowId, c).catch((err) =>
                       addToast(err.message || "Failed to set tab color"),
+                    );
+                  } else if (showColorPicker === "server") {
+                    setServerColorApi(server, c).catch((err) =>
+                      addToast(err.message || "Failed to set server color"),
                     );
                   }
                 }}

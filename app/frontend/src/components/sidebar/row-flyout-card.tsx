@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type HTMLAttributes, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import {
   useFloating,
   offset,
@@ -26,18 +26,18 @@ import type { WindowInfo } from "@/types";
 
 /**
  * Row-hover register flyout card (93dy) — the sidebar's tier-2 hover-card and
- * the app's one status-detail hover surface. ONE shared card shell serves all
- * three rail-bearing row tiers (260817-ve5m): the WINDOW card opens on
- * fine-pointer WHOLE-ROW hover, keyboard row focus (the roving-tabindex
- * treeitem — Constitution V), and the coarse rail/dot tap; the SESSION and
- * SERVER cards are coarse-only surfaces (desktop keeps the identity tips +
- * hover clusters) whose sole trigger is the rail tap/scrub (`openNow`).
+ * the app's one status-detail hover surface. ONE shared card shell serves every
+ * row tier: the WINDOW, SESSION and SERVER cards all open on fine-pointer
+ * WHOLE-ROW hover, keyboard row focus (the roving-tabindex treeitem —
+ * Constitution V), and the coarse rail tap/scrub (`openNow`); the SERVER panel
+ * tile hosts the same server card as a fourth surface, fine-pointer hover/focus
+ * only (no rail — its consumer suppresses the card on coarse pointers).
  *
  * Placement is pointer-conditional inside the one hook: on FINE pointers the
- * window card anchors to the ROW element with `placement: "right"` +
+ * card anchors to the ROW element with `placement: "right"` +
  * `FloatingPortal`, so its x-position is FIXED at the sidebar's right edge
  * and only its y tracks the hovered row — no mouse-following jitter; on
- * COARSE pointers (and always for the coarse-only tiers) it anchors BELOW the
+ * COARSE pointers it anchors BELOW the
  * row (`bottom-start`, `top-start` fallback) with its width capped short of
  * the row's 56px status rail, so the finger's column stays visible mid-scrub.
  * The window card's body is the `fab` and `pr` registers ONLY — the row
@@ -852,14 +852,11 @@ export function WindowFlyoutContent({
 type UseRowFlyoutOptions = {
   /** Close + inhibit the flyout while true — the consuming row passes its
    *  ghost flag and its popover-open states (`PinPopover` / label / color
-   *  `SwatchPopover`), so the card never fights the row's other layers. */
+   *  `SwatchPopover`), so the card never fights the row's other layers. A
+   *  surface with no coarse trigger at all (the SERVER panel tile) also
+   *  includes its coarse-pointer flag here, so the card stays a fine-pointer
+   *  hover/focus surface there. */
   suppressed?: boolean;
-  /** Session/server tiers: the card exists ONLY on coarse pointers (its one
-   *  trigger is the rail tap/scrub — fine pointers keep the identity tips +
-   *  hover clusters), so the hover/focus triggers stay disabled on every
-   *  pointer and placement is always the coarse arm (bottom-start + the
-   *  rail-aware size() cap). */
-  coarseOnly?: boolean;
   /** The tier's card content, built ONLY while the card is open (the
    *  card-mounts-only-while-open perf contract). Receives `close` so action
    *  rows that hand off to a row popover can run the close-then-open idiom
@@ -875,6 +872,10 @@ type RowFlyout = {
   /** Reference interaction props (hover/focus/dismiss wiring) — spread onto
    *  the row root. */
   referenceProps: Record<string, unknown>;
+  /** floating-ui's merging reference-props getter — rows that own hover
+   *  handlers of their own (the tint mouse-enter/leave) call this so both
+   *  handler sets chain instead of the row's clobbering the card's. */
+  getReferenceProps: (userProps?: HTMLAttributes<HTMLElement>) => Record<string, unknown>;
   /** The portalled card, or null while closed. Render inside the row. */
   card: ReactNode;
   /** True while the card is open. The row reads this to HOLD its hover tint
@@ -894,15 +895,15 @@ type RowFlyout = {
  * All state lives inside the row (React.memo stays effective; nothing is
  * lifted to `Sidebar`).
  *
- * Triggers (window tier): `useHover` (row hover, `mouseOnly` so touch never
+ * Triggers: `useHover` (row hover, `mouseOnly` so touch never
  * hover-opens; `safePolygon` bridges row → card so links are clickable; delay
  * via the module-scoped warm window), `useFocus` (keyboard row focus — the
- * roving treeitem), `useDismiss` (Escape / outside press / blur), plus the
- * exposed `openNow` for the coarse rail/dot tap. The coarse-only tiers
- * (session/server) disable hover/focus entirely — their one trigger is
- * `openNow` from the rail.
+ * roving treeitem; floating-ui's default `visibleOnly` gate keeps
+ * pointer/tap-driven focus from opening the card, so the coarse rail
+ * tap/scrub stays the one coarse trigger), `useDismiss` (Escape / outside
+ * press / blur), plus the exposed `openNow` for the coarse rail/dot tap.
  */
-export function useRowFlyout({ suppressed = false, coarseOnly = false, content }: UseRowFlyoutOptions) {
+export function useRowFlyout({ suppressed = false, content }: UseRowFlyoutOptions) {
   const [open, setOpen] = useState(false);
   // True once keyboard focus has entered the OPEN card (Tab from the row).
   // Gates FloatingFocusManager's `returnFocus`: a close where focus was
@@ -986,9 +987,7 @@ export function useRowFlyout({ suppressed = false, coarseOnly = false, content }
   const arrowRef = useRef<SVGSVGElement | null>(null);
 
   const coarsePointer = useCoarsePointer();
-  // The coarse-only tiers (session/server) always take the coarse placement
-  // arm — their card's one trigger is the rail, which exists on coarse only.
-  const coarse = coarseOnly || coarsePointer;
+  const coarse = coarsePointer;
   const { refs, floatingStyles, context, middlewareData, placement } = useFloating({
     open,
     onOpenChange: handleOpenChange,
@@ -1047,9 +1046,7 @@ export function useRowFlyout({ suppressed = false, coarseOnly = false, content }
   });
 
   const hover = useHover(context, {
-    // Coarse-only tiers never hover/focus-open — their one trigger is the
-    // rail's `openNow` (fine pointers keep the identity tip + hover cluster).
-    enabled: !suppressed && !coarseOnly,
+    enabled: !suppressed,
     // Touch never hover-opens (intake #17): the coarse-pointer path is the
     // explicit rail/dot-tap (`openNow`) + PANE-panel-on-selection.
     mouseOnly: true,
@@ -1059,7 +1056,7 @@ export function useRowFlyout({ suppressed = false, coarseOnly = false, content }
     delay: flyoutOpenDelay,
     handleClose: safePolygon(),
   });
-  const focus = useFocus(context, { enabled: !suppressed && !coarseOnly });
+  const focus = useFocus(context, { enabled: !suppressed });
   const dismiss = useDismiss(context);
   // Deliberately NO `useRole({ role: "tooltip" })` — the card holds real links
   // (tier-2 hover-card, same rationale as the retired StatusDotTip; see
@@ -1176,6 +1173,7 @@ export function useRowFlyout({ suppressed = false, coarseOnly = false, content }
   return {
     setReference,
     referenceProps: getReferenceProps(),
+    getReferenceProps,
     card,
     open,
     openNow,

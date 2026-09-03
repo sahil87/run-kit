@@ -25,8 +25,8 @@ export function parseFabChange(fabChange: string): { id: string; slug: string } 
  *  display. Unrecognized shapes pass through unchanged — the backend
  *  cannot know the client's `$HOME`, so the standard prefixes are the honest
  *  heuristic. A bare home dir (`/home/u`, `/root`) abbreviates to `~`. The sole
- *  home-substitution owner in the frontend — display consumers (session
- *  identity tip, the PANE panel's shortenPath) delegate here. */
+ *  home-substitution owner in the frontend — display consumers (the session
+ *  card's facts line, the PANE panel's shortenPath) delegate here. */
 export function abbreviateHomePath(path: string): string {
   const m = /^\/(?:(?:home|Users)\/[^/]+|root)(?=\/|$)/.exec(path);
   return m ? `~${path.slice(m[0].length)}` : path;

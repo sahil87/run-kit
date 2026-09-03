@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, useReducer, memo } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo, useReducer, memo } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "@tanstack/react-router";
 import { killSession as killSessionApi, killWindow as killWindowApi, renameSession, moveWindow, moveWindowToSession, setSessionColor as setSessionColorApi, setWindowColor as setWindowColorApi, setWindowFlair as setWindowFlairApi, setSessionFlair as setSessionFlairApi, getAllServerColors, setServerColor as setServerColorApi, getAllServerFlairs, setServerFlair as setServerFlairApi, setSessionOrder, setServerProtected, isExternalServer, DAEMON_SERVER, type ServerInfo } from "@/api/client";
@@ -15,7 +15,6 @@ import { TypedLabel } from "@/components/typed-label";
 import { Tip, TipGroup } from "@/components/tip";
 import { SwatchPopover } from "@/components/swatch-popover";
 import { FlairOverlay } from "@/components/flair-overlay";
-import { PaletteIcon, PlusIcon, CloseIcon } from "./icons";
 import { ExternalGlyph, ShieldGlyph } from "@/components/top-bar-icons";
 import { useTheme } from "@/contexts/theme-context";
 import { displayVersion } from "@/lib/palette/version";
@@ -54,12 +53,10 @@ import { ServerPanel } from "./server-panel";
 import { SessionRow } from "./session-row";
 import { WindowPanel } from "./status-panel";
 import { WindowRow } from "./window-row";
-import { PopupTitleBar, PopupTitleBarSecondary } from "./popup-title-bar";
+import { ServerCardContent, useAnchoredPopoverPos } from "./server-card";
 import {
   useRowFlyout,
   useRailScrub,
-  CardActionList,
-  CardActionRow,
   STATUS_RAIL_WIDTH_PX,
   railRestBand,
   railHeldBand,
@@ -1658,6 +1655,18 @@ export function Sidebar({
     );
   }, [addToast]);
 
+  // Server protect write seam for the SERVER-panel tile card — POST + refresh
+  // + failure toast, mirroring handleServerColorChange. Stable identity-arg
+  // callback. (The group header's card toggle stays context-derived inside
+  // ServerGroupInner, keyed off the same payload flag.)
+  const handleServerProtectToggle = useCallback((targetServer: string, next: boolean) => {
+    void setServerProtected(targetServer, next)
+      .then(() => refreshServers())
+      .catch((err: unknown) => {
+        addToast(err instanceof Error ? err.message : "Failed to update server protection");
+      });
+  }, [refreshServers, addToast]);
+
   // `current` scope narrows to the resolved current server. When no current
   // server resolves — board route (`currentServer === null`) or a
   // stale/deleted route param not in the list — fall back to showing all
@@ -1699,6 +1708,10 @@ export function Sidebar({
         onSwitchServer={handleSwitchServer}
         onCreateServer={onCreateServer}
         onRefreshServers={refreshServers}
+        onServerColorChange={handleServerColorChange}
+        onCreateSession={onCreateSession}
+        onKillServer={onKillServer}
+        onToggleServerProtect={handleServerProtectToggle}
         onSidebarResizeStart={onSidebarResizeStart}
       />
       )}
@@ -2577,121 +2590,44 @@ function ServerGroupInner(props: ServerGroupProps) {
   // Header color picker (x4sf). Local per-group boolean — each group renders
   // exactly one header, so the ServerPanel's keyed `colorPickerFor` map isn't
   // needed (the session-row precedent). The popover is portalled to
-  // document.body with fixed coordinates anchored at the palette button,
-  // escaping the session list's overflow-y clip — the same reason (and flip
-  // heuristic) as the ServerTile portal in server-panel.tsx.
+  // document.body with fixed coordinates anchored at the header element,
+  // escaping the session list's overflow-y clip (the shared flip heuristic).
   const [showColorPicker, setShowColorPicker] = useState(false);
-  const paletteBtnRef = useRef<HTMLButtonElement>(null);
-  // The header element doubles as the popover's anchor on coarse pointers,
-  // where the palette button is render-gated off with the cluster (the card's
-  // `Change color…` row is the touch entry point) — fine-pointer anchoring at
-  // the palette button is unchanged.
   const headerRef = useRef<HTMLElement | null>(null);
-  const [popoverPos, setPopoverPos] = useState<{ top: number; right: number } | null>(null);
-  useLayoutEffect(() => {
-    const anchor = paletteBtnRef.current ?? headerRef.current;
-    if (!showColorPicker || !anchor) {
-      setPopoverPos(null);
-      return;
-    }
-    const rect = anchor.getBoundingClientRect();
-    const approxPopoverHeight = 100; // rough; fine for flip heuristic
-    const below = rect.bottom + 4;
-    const fitsBelow = below + approxPopoverHeight <= window.innerHeight;
-    const top = fitsBelow ? below : Math.max(4, rect.top - approxPopoverHeight - 4);
-    setPopoverPos({
-      top,
-      right: Math.max(4, window.innerWidth - rect.right),
-    });
-  }, [showColorPicker]);
+  const popoverPos = useAnchoredPopoverPos(showColorPicker, headerRef);
 
-  // The coarse-pointer server card (260817-ve5m): the SAME shared card shell
-  // as the window flyout (one placement/containment/held implementation),
-  // coarse-ONLY — on fine pointers the hover cluster remains the surface, so
-  // the hover/focus triggers stay disabled and the header rail's tap/scrub
-  // (`openNow`) is the one trigger. Title + one facts line + the relocated
-  // cluster actions, bound to the EXISTING stable identity-arg seams
-  // (`onServerColorChange`/`onCreateSession`/`onKillServer` — no new props, so
-  // the R6a memo contract is untouched; all card state is group-local).
+  // The server card: the SAME shared card shell as the window flyout (one
+  // placement/containment/held implementation), on BOTH pointer classes —
+  // fine-pointer hover/focus of the header, and the header rail's tap/scrub
+  // (`openNow`) on coarse. The content is the shared ServerCardContent (the
+  // SERVER-panel tile mounts the same implementation), bound to the EXISTING
+  // stable identity-arg seams (`onServerColorChange`/`onCreateSession`/
+  // `onKillServer` — no new props, so the R6a memo contract is untouched; all
+  // card state is group-local).
   const flyout = useRowFlyout({
-    coarseOnly: true,
     suppressed: showColorPicker,
     content: ({ close }) => (
-      <>
-        <PopupTitleBar>
-          <PopupTitleBarSecondary>Server </PopupTitleBarSecondary>
-          {server}
-        </PopupTitleBar>
-        {/* Server names ARE socket names (the ServerPanel tile identity-tip
-            wording); the session count derives from the group's own data —
-            no new fetch. */}
-        <span className="text-text-secondary break-words">
-          {`tmux -L ${server} · ${sessions.length} session${sessions.length === 1 ? "" : "s"}`}
-        </span>
-        <CardActionList>
-          <CardActionRow
-            icon={<PaletteIcon />}
-            label="Change color…"
-            testid="row-flyout-color-action"
-            // Close-then-open (the Pin-row idiom): the card closes BEFORE the
-            // group's color popover opens; `suppressed` includes
-            // `showColorPicker`, so popover-over-card precedence holds.
-            onClick={() => {
-              close();
-              setShowColorPicker(true);
-            }}
-          />
-          <CardActionRow
-            icon={<PlusIcon />}
-            label="New session"
-            testid="row-flyout-create-action"
-            onClick={() => onCreateSession(server)}
-          />
-          {/* Protect/Unprotect toggle — the coarse-pointer surface (the
-              palette's Server: Protect/Unprotect entries are the keyboard
-              surface). rk-daemon renders protected with the toggle disabled:
-              its protection is derived, not unmarkable. */}
-          <button
-            type="button"
-            role="switch"
-            aria-checked={serverProtected}
-            aria-label={`Protection for ${server}`}
-            disabled={server === DAEMON_SERVER}
-            data-testid="row-flyout-protect-toggle"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleProtectToggle();
-            }}
-            className="w-full flex items-center gap-2 px-2 py-1.5 text-left text-text-secondary hover:text-text-primary disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-text-secondary"
-          >
-            <span className="shrink-0">{serverProtected ? "Unprotect" : "Protect"}</span>
-            <span
-              aria-hidden="true"
-              className={`ml-auto w-7 h-4 rounded-full border ${serverProtected ? "bg-accent-green/30 border-accent-green" : "bg-bg-card border-border"} relative`}
-            >
-              <span
-                className={`absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full ${serverProtected ? "right-0.5 bg-accent-green" : "left-0.5 bg-text-secondary"}`}
-              />
-            </span>
-          </button>
-          <CardActionRow
-            icon={<CloseIcon />}
-            label="Kill server"
-            hint="confirms first"
-            danger
-            testid="row-flyout-kill-action"
-            // Routes through the existing killServerTarget dialog via
-            // onKillServer (the rk-daemon warning renders as today).
-            onClick={() => onKillServer(server)}
-          />
-        </CardActionList>
-      </>
+      <ServerCardContent
+        server={server}
+        sessionCount={sessions.length}
+        serverProtected={serverProtected}
+        onToggleProtect={handleProtectToggle}
+        // Close-then-open (the Pin-row idiom): the card closes BEFORE the
+        // group's color popover opens; `suppressed` includes
+        // `showColorPicker`, so popover-over-card precedence holds.
+        onChangeColorAction={() => {
+          close();
+          setShowColorPicker(true);
+        }}
+        onCreateSession={onCreateSession}
+        onKillServer={onKillServer}
+      />
     ),
   });
   const scrub = useRailScrub(flyout.openNow);
 
-  // The header is the server card's floating reference AND the popover's
-  // coarse-anchor fallback — one stable callback sets both.
+  // The header is the server card's floating reference AND its popover's
+  // anchor — one stable callback sets both.
   const setHeaderRefs = useCallback(
     (node: HTMLElement | null) => {
       flyout.setReference(node);
@@ -2732,8 +2668,7 @@ function ServerGroupInner(props: ServerGroupProps) {
       <div
         // `coarse:pr-[56px]` reserves the rail's column on coarse so the
         // header label truncates before it (the literal matches
-        // STATUS_RAIL_WIDTH_PX — Tailwind scans literal classes only). On
-        // fine pointers the hover cluster owns the right edge, no reserve.
+        // STATUS_RAIL_WIDTH_PX — Tailwind scans literal classes only).
         className="group relative flex items-stretch w-full transition-colors coarse:pr-[56px]"
         aria-current={isCurrent ? "true" : undefined}
         data-current-server={isCurrent ? "true" : undefined}
@@ -2743,26 +2678,22 @@ function ServerGroupInner(props: ServerGroupProps) {
         // `RAIL_ROW_SELECTOR` across all three tier DOM shapes (this header
         // is NOT a treeitem, which is why the attribute route exists).
         data-rail-row=""
-        // The header is the server card's floating REFERENCE (+ the popover's
-        // coarse-anchor fallback). Spread FIRST so the header's own hover
-        // handlers below are never overridden (the coarse-only card wires no
-        // hover/focus reference handlers anyway).
+        // The header is the server card's floating REFERENCE (+ its popover's
+        // anchor). getReferenceProps CHAINS the card's hover/focus wiring with
+        // the header's own tint mouse-enter/leave (floating-ui merges them).
         ref={setHeaderRefs}
-        {...flyout.referenceProps}
+        {...flyout.getReferenceProps({
+          onMouseEnter: headerHoverBg
+            ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = headerHoverBg; }
+            : undefined,
+          onMouseLeave: headerHoverBg && headerBg
+            ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = headerBg; }
+            : undefined,
+        })}
         style={{
           backgroundColor: headerBg,
           borderTop: headerAccent ? `1px solid ${headerAccent}` : undefined,
         }}
-        onMouseEnter={
-          headerHoverBg
-            ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = headerHoverBg; }
-            : undefined
-        }
-        onMouseLeave={
-          headerHoverBg && headerBg
-            ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = headerBg; }
-            : undefined
-        }
       >
         {/* Flair overlay (decoration-only channel): mounted whenever the
             server carries a flair value — same overlay discipline as the
@@ -2818,66 +2749,6 @@ function ServerGroupInner(props: ServerGroupProps) {
             </span>
           )}
         </button>
-        {/* Server action cluster (x4sf): palette → plus → close. The wrapper
-            carries the header's text treatment (inline contrast-guarded accent
-            for non-current headers / text-text-primary for the current one) so
-            the icons stay legible on the tinted fill; buttons INHERIT it at
-            rest, which lets their own Tailwind hover: classes win on hover
-            (an inline color on the buttons themselves would beat any class).
-            The palette is hover-revealed; + and ✕ are always visible, exactly
-            like the session row's + ✕ pair.
-            260813-kvk7: the cluster adopts the session-row slot metrics
-            (session-row.tsx) — PlusIcon/CloseIcon SVGs in
-            px-0.5 min-w-[24px] min-h-[24px] slots with the wrapper's pr-2 —
-            so the +/× icon columns align vertically across every sidebar
-            header tier.
-            FINE-POINTER-ONLY (260817-ve5m): on coarse pointers the cluster is
-            render-gated out of the DOM (the window-row relocation precedent —
-            not CSS-hidden, so no invisible focusable buttons on touch); its
-            actions live in the rail-triggered server card, and the rail owns
-            the right edge. Desktop clusters unchanged. */}
-        {!groupCoarsePointer && (
-        <div
-          className={`flex items-center pr-2 ${isCurrent ? "text-text-primary" : ""}`}
-          style={!isCurrent && headerAccent ? { color: headerAccent } : undefined}
-        >
-          {/* Tier-1 tips on the icon action cluster (260723-fm08): short
-              generic labels (the aria-labels keep the per-server specificity);
-              default bottom placement (the sidebar button convention — the
-              scope chip precedent). Joins the sidebar-root TipGroup. */}
-          <Tip label="Set server color">
-            <button
-              ref={paletteBtnRef}
-              type="button"
-              onClick={() => setShowColorPicker((v) => !v)}
-              aria-label={`Set color for server ${server}`}
-              className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity px-0.5 min-w-[24px] min-h-[24px] flex items-center justify-center"
-            >
-              <PaletteIcon />
-            </button>
-          </Tip>
-          <Tip label="New session">
-            <button
-              type="button"
-              onClick={() => onCreateSession(server)}
-              aria-label={`New session on ${server}`}
-              className="hover:text-text-primary transition-colors px-0.5 min-w-[24px] min-h-[24px] flex items-center justify-center"
-            >
-              <PlusIcon />
-            </button>
-          </Tip>
-          <Tip label="Kill server">
-            <button
-              type="button"
-              onClick={() => onKillServer(server)}
-              aria-label={`Kill server ${server}`}
-              className="hover:text-signal-red transition-colors px-0.5 min-w-[24px] min-h-[24px] flex items-center justify-center"
-            >
-              <CloseIcon />
-            </button>
-          </Tip>
-        </div>
-        )}
         {/* Right-edge status rail — COARSE pointers only (260817-ve5m): the
             SAME 56px recessed inset band the window row ships, forming ONE
             continuous strip down the tree. The band tints from the header's
@@ -2909,7 +2780,8 @@ function ServerGroupInner(props: ServerGroupProps) {
           </span>
         )}
         {/* Color picker portalled to body so it escapes the sessions list's
-            overflow-y: auto clip (the ServerTile precedent). */}
+            overflow-y: auto clip, anchored at the header element on every
+            pointer class (the shared flip heuristic). */}
         {showColorPicker && popoverPos && createPortal(
           <div
             style={{
@@ -2932,8 +2804,8 @@ function ServerGroupInner(props: ServerGroupProps) {
           </div>,
           document.body,
         )}
-        {/* The coarse-pointer server card — portalled to document.body,
-            mounted ONLY while open (the shared shell's perf contract). */}
+        {/* The server card — portalled to document.body, mounted ONLY while
+            open (the shared shell's perf contract). */}
         {flyout.card}
       </div>
 
@@ -3213,8 +3085,8 @@ function ServerGroupInner(props: ServerGroupProps) {
  *  identity-arg `useCallback` and the context Map/array props (`rowTints`,
  *  `rowBorders`, `allBoards`, `pinnedSet`, `pinnedToBoard`,
  *  `isPinnedToActiveBoardFor`) are stable refs — so a tick on server B does not
- *  re-render server A's group at all. The header action-cluster props added by
- *  x4sf ride the same contract: `onServerColorChange` is a stable identity-arg
+ *  re-render server A's group at all. The header card's seam props
+ *  ride the same contract: `onServerColorChange` is a stable identity-arg
  *  `useCallback` in `Sidebar` (shared with `ServerPanel`) and `onKillServer` is
  *  the Sidebar prop passed through unchanged — itself stabilized at BOTH
  *  parents as an identity-arg `useCallback` (`handleSidebarKillServer` in

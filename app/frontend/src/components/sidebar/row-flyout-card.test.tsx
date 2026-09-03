@@ -1096,12 +1096,38 @@ describe("three-tier rail constants + tint idioms (260817-ve5m)", () => {
   });
 });
 
-// The coarse-only tiers (260817-ve5m): session/server cards use the SAME shell
-// with hover/focus triggers disabled — the rail's tap/scrub (`openNow`) is the
-// one trigger — and register in the same scrub registry, so a scrub retargets
-// the single-open card ACROSS tiers.
-describe("coarseOnly tiers: session/server cards (260817-ve5m)", () => {
-  /** A coarse-only tier consumer (the session/server shape): generic tier
+// The session/server tiers on coarse pointers: the SAME shell with the rail's
+// tap/scrub (`openNow`) as the coarse trigger — hover is `mouseOnly` (touch
+// never hover-opens) and focus-open follows floating-ui's `:focus-visible`
+// modality gate, so a tap's focus never opens the card. All tiers register in
+// the same scrub registry, so a scrub retargets the single-open card ACROSS
+// tiers.
+describe("coarse-pointer session/server cards (260817-ve5m)", () => {
+  /** Coarse-pointer stub: only the coarse queries match (the describe-local
+   *  mirror of the "coarse placement + width cap" stub). */
+  function mockCoarsePointer() {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn().mockImplementation((q: string) => ({
+        matches: ["(pointer: coarse)", "(any-pointer: coarse)"].includes(q),
+        media: q,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        onchange: null,
+      })),
+    );
+  }
+  beforeEach(() => {
+    mockCoarsePointer();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** A rail-tier consumer (the session/server shape): generic tier
    *  content — PopupTitleBar title, one facts line, a CardActionList — on a
    *  non-treeitem root carrying the shared data-rail-row handle. */
   function TierRow({
@@ -1118,7 +1144,6 @@ describe("coarseOnly tiers: session/server cards (260817-ve5m)", () => {
     onRowClick?: () => void;
   }) {
     const flyout = useRowFlyout({
-      coarseOnly: true,
       content: () => (
         <>
           <PopupTitleBar>
@@ -1163,13 +1188,12 @@ describe("coarseOnly tiers: session/server cards (260817-ve5m)", () => {
     );
   }
 
-  it("never hover/focus-opens (the rail tap is the one trigger); openNow opens the card", () => {
+  it("never hover-opens on a touch pointer (the rail tap is the coarse trigger); openNow opens the card", () => {
     render(<TierRow testid="srv" title="alpha" facts="tmux -L alpha · 2 sessions" />);
     const row = screen.getByTestId("srv");
     act(() => {
-      fireEvent.pointerEnter(row, { pointerType: "mouse" });
+      fireEvent.pointerEnter(row, { pointerType: "touch" });
       fireEvent.mouseEnter(row);
-      fireEvent.focus(row);
       vi.advanceTimersByTime(FLYOUT_OPEN_DELAY_MS + 100);
     });
     expect(screen.queryByTestId("row-flyout-card")).toBeNull();

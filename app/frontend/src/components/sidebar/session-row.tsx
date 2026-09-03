@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo, useCallback, memo, type HTMLAttributes } from "react";
+import { useState, useMemo, memo } from "react";
 import type { ProjectSession } from "@/types";
 import type { MergedSession } from "@/contexts/optimistic-context";
 import type { RowTint } from "@/themes";
@@ -10,8 +10,6 @@ import { countWaitingWindows } from "@/lib/waiting";
 import { toSafeSessionName } from "@/lib/names";
 import { abbreviateHomePath } from "@/lib/format";
 import { PaletteIcon, BotIcon, PlusIcon, CloseIcon, NotePencilIcon } from "./icons";
-import { Tip } from "@/components/tip";
-import { useIdentityTip, IdentityTipCard } from "./identity-tip";
 import { PopupTitleBar, PopupTitleBarSecondary } from "./popup-title-bar";
 import {
   useRowFlyout,
@@ -73,8 +71,8 @@ type SessionRowProps = {
    *  has a chat). Absent ⇒ the badge stays display-only. */
   onWaitingBadgeClick?: (server: string, session: string) => void;
   /** Open the spawn-agent dialog targeting THIS row's session. Optional (mirrors
-   *  `onColorChange`): the bot button renders only when supplied — the board-route
-   *  sidebar passes no handler, so the button is hidden there. */
+   *  `onColorChange`): the card's Spawn agent… row renders only when supplied —
+   *  the board-route sidebar passes no handler, so the row is hidden there. */
   onSpawnAgent?: (server: string, session: string) => void;
   /** Fire the update-annotations operator request scoped to THIS row's session
    *  (260827-8n6k). Optional (mirrors `onSpawnAgent`): the card row renders only
@@ -140,7 +138,6 @@ function SessionRowInner({
 }: SessionRowProps) {
   const name = session.name;
   const [showColorPicker, setShowColorPicker] = useState(false);
-  const colorBtnRef = useRef<HTMLButtonElement>(null);
   const coarse = useCoarsePointer();
   // Ghost (optimistic, mid-create) sessions get no rail and a suppressed card
   // — the window row's ghost-row rule.
@@ -149,14 +146,11 @@ function SessionRowInner({
   // its aria label below).
   const waitingCount = countWaitingWindows(session.windows);
 
-  // Row-level identity tip (tier-1-weight hover-card): full session name in
-  // the title bar + the facts the row can't show (tmux `$N` id, window count,
-  // root path). Suppressed while the color popover is open; closed on drag
-  // start (the window flyout's idiom). sessionId/sessionPath are absent on
-  // old payloads — the tip omits the segments it cannot derive.
-  const tip = useIdentityTip({ suppressed: showColorPicker });
+  // The card's facts line: tmux `$N` id, window count, root path — the facts
+  // the row itself can't show. sessionId/sessionPath are absent on old
+  // payloads — the line omits the segments it cannot derive.
   const windowCount = session.windows.length;
-  const tipBody = [
+  const factsLine = [
     session.sessionId,
     `${windowCount} tab${windowCount === 1 ? "" : "s"}`,
     session.sessionPath ? abbreviateHomePath(session.sessionPath) : undefined,
@@ -164,14 +158,11 @@ function SessionRowInner({
     .filter(Boolean)
     .join(" · ");
 
-  // The coarse-pointer session card (260817-ve5m): the SAME shared card shell
-  // as the window flyout (one placement/containment/held implementation), but
-  // coarse-ONLY — on fine pointers the identity tip + hover cluster remain the
-  // surfaces, so the hover/focus triggers stay disabled and the rail's
-  // tap/scrub (`openNow`) is the one trigger. Title + one facts line (the
-  // identity tip's content verbatim) + the relocated cluster actions.
+  // The session card: the SAME shared card shell as the window flyout (one
+  // placement/containment/held implementation), on BOTH pointer classes —
+  // fine-pointer hover/focus at the sidebar's right edge, and the coarse
+  // rail's tap/scrub (`openNow`). Title + one facts line + the action rows.
   const flyout = useRowFlyout({
-    coarseOnly: true,
     suppressed: ghost || showColorPicker,
     content: ({ close }) => (
       <>
@@ -179,7 +170,7 @@ function SessionRowInner({
           <PopupTitleBarSecondary>Session </PopupTitleBarSecondary>
           {name}
         </PopupTitleBar>
-        {tipBody && <span className="text-text-secondary break-words">{tipBody}</span>}
+        {factsLine && <span className="text-text-secondary break-words">{factsLine}</span>}
         <CardActionList>
           {onColorChange && (
             <CardActionRow
@@ -233,17 +224,6 @@ function SessionRowInner({
     ),
   });
   const scrub = useRailScrub(flyout.openNow);
-
-  // The row root is the floating reference for BOTH row popups (the
-  // fine-pointer identity tip and the coarse card) — attach both setters and
-  // merge both interaction prop sets (floating-ui merges event handlers).
-  const setRowRefs = useCallback(
-    (node: HTMLElement | null) => {
-      tip.setReference(node);
-      flyout.setReference(node);
-    },
-    [tip.setReference, flyout.setReference],
-  );
 
   const tint = useMemo(() => {
     if (sessionColor == null || !rowTints) return null;
@@ -306,9 +286,8 @@ function SessionRowInner({
       data-rail-row={ghost ? undefined : ""}
       // `coarse:pr-[56px]` reserves the rail's column on coarse so the name
       // and badge truncate before it (the literal matches
-      // STATUS_RAIL_WIDTH_PX — Tailwind scans literal classes only). On fine
-      // pointers the hover cluster owns the right edge and no reserve exists;
-      // ghost rows have no rail and no reserve.
+      // STATUS_RAIL_WIDTH_PX — Tailwind scans literal classes only); ghost
+      // rows have no rail and no reserve.
       // The row carries NO left padding: the collapse chevron is the gutter,
       // occupying the same left column as the window row's marker well (see
       // the chevron below).
@@ -323,8 +302,7 @@ function SessionRowInner({
                 e.preventDefault();
                 return;
               }
-              // A drag gesture must not leave (or race) an open popup.
-              tip.close();
+              // A drag gesture must not leave (or race) an open card.
               flyout.close();
               onDragStart(e, server, name, orderedNames);
             }
@@ -338,13 +316,12 @@ function SessionRowInner({
       onDragLeave={(e) => onDragLeave(e, server, name)}
       onDrop={(e) => onDrop(e, server, name)}
       style={rowStyle}
-      // The row root is the floating REFERENCE for both row popups (the
-      // identity tip's placement "right" → the sidebar's right edge; the
-      // coarse card's bottom-start). getReferenceProps CHAINS the row's own
-      // hover handlers so the tint mouse-enter/leave survives the merge.
-      ref={setRowRefs}
-      {...tip.getReferenceProps({
-        ...(flyout.referenceProps as HTMLAttributes<HTMLElement>),
+      // The row root is the flyout card's floating REFERENCE: fine-pointer
+      // placement "right" → the sidebar's right edge; the coarse card's
+      // bottom-start. getReferenceProps CHAINS the card's hover/focus wiring
+      // with the row's own tint mouse-enter/leave (floating-ui merges them).
+      ref={flyout.setReference}
+      {...flyout.getReferenceProps({
         onMouseEnter: tint ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = tint.hover; } : undefined,
         onMouseLeave: tint ? (e) => { (e.currentTarget as HTMLElement).style.backgroundColor = tint.base; } : undefined,
       })}
@@ -425,66 +402,6 @@ function SessionRowInner({
           }
         />
       </div>
-      {/* Tier-1 tips on the icon action cluster (260723-fm08): short generic
-          labels (the aria-labels keep the per-session specificity); default
-          bottom placement (the sidebar button convention \u2014 the scope chip
-          precedent). Rows render inside the sidebar-root TipGroup.
-          FINE-POINTER-ONLY (260817-ve5m): on coarse pointers the cluster is
-          render-gated out of the DOM (the window-row relocation precedent —
-          not CSS-hidden, so no invisible focusable buttons on touch); its
-          actions live in the rail-triggered session card, and the rail owns
-          the right edge. Desktop clusters unchanged. */}
-      {!coarse && (
-      <div className="flex items-center pr-2">
-        {onColorChange && (
-          <Tip label="Set session color">
-            <button
-              ref={colorBtnRef}
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowColorPicker((v) => !v);
-              }}
-              aria-label={`Set color for ${session.name}`}
-              className="text-text-secondary hover:text-text-primary transition-opacity opacity-0 group-hover:opacity-100 px-0.5 min-w-[24px] min-h-[24px] flex items-center justify-center"
-            >
-              <PaletteIcon />
-            </button>
-          </Tip>
-        )}
-        {onSpawnAgent && (
-          <Tip label="Spawn agent">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onSpawnAgent(server, name);
-              }}
-              aria-label={`Spawn agent in ${session.name}`}
-              className="text-text-secondary hover:text-text-primary transition-opacity opacity-0 group-hover:opacity-100 px-0.5 min-w-[24px] min-h-[24px] flex items-center justify-center"
-            >
-              <BotIcon />
-            </button>
-          </Tip>
-        )}
-        <Tip label="New tab">
-          <button
-            onClick={() => onCreateWindow(server, name)}
-            aria-label={`New tab in ${session.name}`}
-            className="text-text-secondary hover:text-text-primary transition-colors px-0.5 min-w-[24px] min-h-[24px] flex items-center justify-center"
-          >
-            <PlusIcon />
-          </button>
-        </Tip>
-        <Tip label="Kill session">
-          <button
-            onClick={(e) => onKillClick(server, name, session.windows.length, e.ctrlKey || e.metaKey)}
-            aria-label={`Kill session ${session.name}`}
-            className="text-text-secondary hover:text-signal-red transition-colors px-0.5 min-w-[24px] min-h-[24px] flex items-center justify-center"
-          >
-            <CloseIcon />
-          </button>
-        </Tip>
-      </div>
-      )}
       {/* Right-edge status rail — COARSE pointers, non-ghost rows only
           (260817-ve5m): the SAME 56px recessed inset band the window row
           ships, forming ONE continuous strip down the tree. The band tints
@@ -531,20 +448,8 @@ function SessionRowInner({
           />
         </div>
       )}
-      <IdentityTipCard
-        tip={tip}
-        testid="session-tip"
-        title={
-          <>
-            <PopupTitleBarSecondary>Session </PopupTitleBarSecondary>
-            {name}
-          </>
-        }
-      >
-        {tipBody}
-      </IdentityTipCard>
-      {/* The coarse-pointer session card — portalled to document.body,
-          mounted ONLY while open (the shared shell's perf contract). */}
+      {/* The session card — portalled to document.body, mounted ONLY while
+          open (the shared shell's perf contract). */}
       {flyout.card}
     </div>
   );

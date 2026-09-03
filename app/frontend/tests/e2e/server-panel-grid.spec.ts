@@ -5,7 +5,7 @@ import { TMUX_SERVER, createSession, killSession } from "./_tmux";
 /**
  * Behavioural contract for the ServerPanel tile grid — a swatch-style grid of
  * tile buttons. Validates that tiles render per server (bare window-count
- * meta; the identity hover-card replaces the native `title` attribute),
+ * meta; the shared server flyout card replaces the native `title` attribute),
  * active-tile state, click-to-switch behaviour, and the mobile single-row
  * horizontal-swipe layout. The panel defaults open, so tests assert the grid
  * directly without an expand click.
@@ -38,10 +38,11 @@ test.describe("Server Panel Tile Grid", () => {
   /**
    * Proves: on a desktop viewport (1024×768), the Server panel is open by
    * default and renders a grid of server tiles. The e2e server's tile carries
-   * NO native `title` attribute — hovering it opens the identity hover-card
-   * (`Server <name>` title bar; `tmux -L <name> · N sessions` body — the
-   * socket flag + session count) — the tile's visible count line is a bare
-   * window-count number, and the old `N sess` meta line no longer renders.
+   * NO native `title` attribute — hovering it opens the shared server flyout
+   * card (`Server <name>` title bar; `tmux -L <name> · N sessions` facts
+   * line — the socket flag + session count) — the tile's visible count line
+   * is a bare window-count number, and the old `N sess` meta line no longer
+   * renders.
    *
    * Steps:
    * 1. Navigate to `/${TMUX_SERVER}` and wait for `Connected`.
@@ -51,8 +52,8 @@ test.describe("Server Panel Tile Grid", () => {
    * 4. Within the grid, assert at least one `option` tile whose name includes
    *    the e2e server.
    * 5. Assert that tile has no `title` attribute; hover it and assert the
-   *    `server-tip` card appears with `Server <name>` in its title bar and a
-   *    `tmux -L <name> · N sessions` body line.
+   *    `row-flyout-card` card appears with `Server <name>` in its title bar
+   *    and a `tmux -L <name> · N sessions` facts line.
    * 6. Assert the old meta line `/\d+ sess/` has zero matches in the grid.
    */
   test("Desktop: tile grid renders with session counts", async ({ page }) => {
@@ -71,15 +72,15 @@ test.describe("Server Panel Tile Grid", () => {
     const activeOption = grid.getByRole("option", { name: new RegExp(TMUX_SERVER) });
     await expect(activeOption).toBeVisible();
 
-    // The tile count is a bare window-count number; the identity hover-card
+    // The tile count is a bare window-count number; the server flyout card
     // carries the socket flag + session count. The native `title` attribute is
     // gone (replaced by the card — the double-tooltip rule).
     await expect(activeOption).not.toHaveAttribute("title");
     await activeOption.hover();
-    const tip = page.getByTestId("server-tip");
-    await expect(tip).toBeVisible();
-    await expect(tip.getByTestId("popup-title-bar")).toContainText(`Server ${TMUX_SERVER}`);
-    await expect(tip).toContainText(new RegExp(`tmux -L ${TMUX_SERVER} · \\d+ sessions?`));
+    const card = page.getByTestId("row-flyout-card");
+    await expect(card).toBeVisible();
+    await expect(card.getByTestId("popup-title-bar")).toContainText(`Server ${TMUX_SERVER}`);
+    await expect(card).toContainText(new RegExp(`tmux -L ${TMUX_SERVER} · \\d+ sessions?`));
     // The old "N sess" meta line is gone from the grid.
     await expect(grid.locator("text=/\\d+ sess/")).toHaveCount(0);
   });

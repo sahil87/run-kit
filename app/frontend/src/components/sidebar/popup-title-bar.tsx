@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
 
 /**
- * Shared inset title bar for the sidebar row popups (window flyout card +
- * session/server identity tips) — the one chrome carrier of the popup grammar
- * "title bar = identity, body = facts", so the three surfaces cannot drift.
+ * Shared inset title bar for the sidebar row popups (the row flyout cards on
+ * every tier) — the one chrome carrier of the popup grammar
+ * "title bar = identity, body = facts", so the surfaces cannot drift.
  * Presentational only: no floating-ui logic, no state.
  *
  * The bar is FULL-BLEED: its negative margins cancel the host card's

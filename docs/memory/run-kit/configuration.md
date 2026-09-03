@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's configuration story: fixed root $HOME/.config/run-kit/ (no XDG_CONFIG_HOME); the internal/settings registry and 12-key inventory behind /api/settings (partial merge, all-or-nothing validation); override order code default < config.yaml < env < CLI flag, env limited to RK_PORT/RK_HOST/RK_CODE_SERVER_PORT; value-home boundaries; the rk-owned hash-stamped managed tmux.conf and its `@rk_srv_managed`-gated reload paths; breadcrumb migrations, ~/.rk tenants, the cb/ code-bridge state tenant."
+description: "run-kit's configuration story: fixed root $HOME/.config/run-kit/ (no XDG_CONFIG_HOME; test-only RK_CONFIG_DIR override); the internal/settings registry and 12-key inventory behind /api/settings; override order code default < config.yaml < env < CLI flag, env limited to RK_PORT/RK_HOST/RK_CODE_SERVER_PORT; value-home boundaries; the rk-owned hash-stamped managed tmux.conf and its `@rk_srv_managed`-gated reload paths; breadcrumb migrations, ~/.rk tenants, the cb/ code-bridge state tenant."
 ---
 # Configuration
 
@@ -13,6 +13,8 @@ run-kit's configuration story: one fixed config root, one registry-driven settin
 ## Config Root
 
 The config root is the constant `$HOME/.config/run-kit/`, built with `filepath.Join` from `os.UserHomeDir()`, owned by `internal/settings` and exported as `settings.Dir()`. The resolution never consults `$XDG_CONFIG_HOME` and never uses `os.UserConfigDir` — only `$HOME` moves it, and a test pins that env vars cannot. The settings file is `~/.config/run-kit/config.yaml`; the root also holds the rk-managed `tmux.conf` and the `tmux.d/` drop-in dir (§ Managed tmux.conf). (li54)
+
+One test-only carve-out relocates the root: `RK_CONFIG_DIR` (const `settings.ConfigDirEnv`), read in-package via `os.Getenv` at `Dir()` — the same class of unset-means-production-identical escape as `RK_SERVER_ALLOWLIST` and `RK_TMUX_CONF`, never user-facing deployment configuration. Unset or whitespace-only ⇒ behavior byte-identical to the fixed root; set ⇒ `Dir()` returns the value verbatim, `configPath()` follows (`{value}/config.yaml`), and `Save`'s existing `MkdirAll` creates the relocated root. While the override is active the legacy `~/.rk/settings.yaml` fallback-read and breadcrumb rename are suppressed (`configRootOverridden` gates both), so an isolated run never reads or writes the real `$HOME`. Every consumer of `Dir()`/`configPath()` (`/api/settings`, board persistence, PWA accent read) inherits the override together; the managed tmux.conf path (`tmux.DefaultConfigPath`) is computed independently in `internal/tmux` and deliberately does NOT move. The e2e harness is the consumer — see [test-sockets](/run-kit/test-sockets.md) § Per-Run Config-Root Isolation. (y60c)
 
 ## Managed tmux.conf
 
@@ -66,7 +68,7 @@ The entire settings HTTP surface is one registry-driven endpoint pair in `api/se
 
 ## Override Order & Env Inventory
 
-Override order: **code default < config.yaml < env < CLI flag**. Env forms exist ONLY for deployment-bootstrap keys: `RK_PORT`, `RK_HOST`, `RK_CODE_SERVER_PORT` (`.env` committed, `.env.local` for overrides — the bootstrap vehicle). The only other env reads are two **undocumented per-process escapes** that win over their config.yaml keys but are never user-facing: `RK_TMUX_CONF` (over `tmux_conf`) and `LOG_LEVEL` (over `log_level` — the dev rig depends on it via `justfile`/`scripts/dev.sh`). Preference keys have no env form. `rk doctor` flags a set-but-ignored `RK_SSH_HOST` (no reader remains; the hint points at the `ssh_host` key). (li54)
+Override order: **code default < config.yaml < env < CLI flag**. Env forms exist ONLY for deployment-bootstrap keys: `RK_PORT`, `RK_HOST`, `RK_CODE_SERVER_PORT` (`.env` committed, `.env.local` for overrides — the bootstrap vehicle). The only other env reads are three **undocumented per-process escapes** that win over their config.yaml keys but are never user-facing: `RK_TMUX_CONF` (over `tmux_conf`), `LOG_LEVEL` (over `log_level` — the dev rig depends on it via `justfile`/`scripts/dev.sh`), and `RK_CONFIG_DIR` (relocates the whole config root — § Config Root). Preference keys have no env form. `rk doctor` flags a set-but-ignored `RK_SSH_HOST` (no reader remains; the hint points at the `ssh_host` key). (li54)
 
 ## Boundaries
 
@@ -92,12 +94,17 @@ Migrations follow one pattern: fallback-read from the old path, migrate on first
 ## Requirements
 
 ### Requirement: Fixed config root
-The config root SHALL be `$HOME/.config/run-kit/`, built with `filepath.Join` from `os.UserHomeDir()`, and MUST NOT consult `$XDG_CONFIG_HOME` or `os.UserConfigDir`.
+The config root SHALL be `$HOME/.config/run-kit/`, built with `filepath.Join` from `os.UserHomeDir()`, and MUST NOT consult `$XDG_CONFIG_HOME` or `os.UserConfigDir`. The sole exception is the test-only `RK_CONFIG_DIR` override: when set to a non-whitespace value, `Dir()` SHALL return it verbatim, `configPath()` SHALL follow, and the legacy `~/.rk/settings.yaml` fallback-read and breadcrumb rename SHALL be suppressed; unset or whitespace-only MUST be byte-identical to the fixed root.
 
 #### Scenario: Env cannot move the root
 - **GIVEN** `XDG_CONFIG_HOME=/some/tmp` and `HOME=/test/home`
 - **WHEN** the settings path is resolved
 - **THEN** it is `/test/home/.config/run-kit/config.yaml`
+
+#### Scenario: The test override relocates root and suppresses legacy touchpoints
+- **GIVEN** `RK_CONFIG_DIR=/tmp/e2e/config` and a legacy `~/.rk/settings.yaml` on disk
+- **WHEN** settings are loaded and saved
+- **THEN** reads and writes land at `/tmp/e2e/config/config.yaml`, the legacy file is neither imported nor renamed, and the fixed `$HOME` root is untouched
 
 ### Requirement: Registry as single source of truth
 Every settings key SHALL be one registry entry carrying key/type/default/description/category/ui/live; adding a key MUST NOT require new parse/serialize branches, nor new HTTP value plumbing — the registry's generic value read/apply hooks serve `GET`/`POST /api/settings` for every key.
@@ -147,6 +154,12 @@ Every scaffold path (`EnsureConfig`, `ForceWriteConfig`, `rk mux init-conf`, `PO
 **Why**: rk is a daemon + CLI + agents-in-panes — an env var differing between those contexts silently forks which config is read; determinism by construction (hop's proven pattern). Dotfiles users symlink the directory.
 **Rejected**: `os.UserConfigDir` (macOS → `~/Library/Application Support`, path differs per platform); honoring `$XDG_CONFIG_HOME` (per-process forkability is the exact failure mode).
 *Introduced by*: 260823-li54-config-root-registry-core
+
+### Test-only config-root override at the shared root
+**Decision**: `RK_CONFIG_DIR` is read inside `internal/settings` at `Dir()` — the single root every settings consumer (`configPath`, `/api/settings`, board persistence, PWA accent read) resolves through — with the legacy-path touchpoints suppressed while it is active; the managed tmux.conf path is computed independently in `internal/tmux` and deliberately does not move.
+**Why**: scope-at-the-shared-root is the same rationale as `RK_SERVER_ALLOWLIST` filtering in `ListServers` — a per-consumer override would leave sibling paths unscoped; the in-package `os.Getenv` read matches the package precedent, and only the settings file needs per-run isolation.
+**Rejected**: threading through `internal/config` (new cross-package plumbing for one test-only value); overriding `$HOME` for the dev subtree (moves `~/.rk`, node/pnpm caches — larger blast radius for the same isolation win); a cross-worktree flock around config-touching specs (serializes instead of isolating).
+*Introduced by*: 260903-y60c-e2e-config-root-isolation
 
 ### Hand-rolled registry-driven serializer
 **Decision**: keep the line-scanner parse + string-builder serialize, driven by the registry.

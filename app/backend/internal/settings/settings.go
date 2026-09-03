@@ -5,13 +5,17 @@
 // Override order: code default < config.yaml < env < CLI flag. Env forms
 // exist ONLY for deployment-bootstrap keys (RK_PORT, RK_HOST,
 // RK_CODE_SERVER_PORT); the only other env reads are the undocumented
-// per-process escapes RK_TMUX_CONF and LOG_LEVEL, which win over their
-// config.yaml keys but are never user-facing.
+// per-process escapes RK_TMUX_CONF, LOG_LEVEL, and RK_CONFIG_DIR (below),
+// which win over their config.yaml keys but are never user-facing.
 //
 // The config root is fixed at $HOME/.config/run-kit — never
 // $XDG_CONFIG_HOME, never os.UserConfigDir: rk runs as daemon + CLI +
 // agents-in-panes, and an env-dependent path would silently fork which file
-// each context reads. Only $HOME moves the root.
+// each context reads. Only $HOME moves the root, with one test-only
+// carve-out: RK_CONFIG_DIR (ConfigDirEnv) relocates the root verbatim so the
+// e2e harness can isolate per-run config state — the same class of
+// in-package, unset-means-production-identical escape as RK_SERVER_ALLOWLIST
+// and RK_TMUX_CONF, never user-facing deployment configuration.
 package settings
 
 import (
@@ -90,9 +94,19 @@ func Default() Settings {
 	}
 }
 
-// Dir returns the fixed config root $HOME/.config/run-kit/. The only
-// environment input is $HOME (see the package doc comment).
+// ConfigDirEnv is the test-isolation env var that relocates the config root.
+// Unset or whitespace-only means production behavior (the fixed $HOME root);
+// set means the value is the config root verbatim. Test harnesses only —
+// never a user-facing deployment key.
+const ConfigDirEnv = "RK_CONFIG_DIR"
+
+// Dir returns the config root: the fixed $HOME/.config/run-kit/, unless the
+// test-only RK_CONFIG_DIR override is set (see ConfigDirEnv and the package
+// doc comment). The only other environment input is $HOME.
 func Dir() (string, error) {
+	if configRootOverridden() {
+		return os.Getenv(ConfigDirEnv), nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -100,7 +114,17 @@ func Dir() (string, error) {
 	return filepath.Join(home, ".config", "run-kit"), nil
 }
 
-// configPath returns the settings file path: $HOME/.config/run-kit/config.yaml.
+// configRootOverridden reports whether the RK_CONFIG_DIR test override is
+// active (set to a non-whitespace value). While active, the legacy
+// ~/.rk/settings.yaml fallback-read and migration rename are suppressed too —
+// an isolated run must neither import the developer's real legacy settings
+// nor rename a file in the real $HOME.
+func configRootOverridden() bool {
+	return strings.TrimSpace(os.Getenv(ConfigDirEnv)) != ""
+}
+
+// configPath returns the settings file path: {config root}/config.yaml (see
+// Dir for the root resolution and the test-only carve-out).
 func configPath() (string, error) {
 	dir, err := Dir()
 	if err != nil {
@@ -120,10 +144,10 @@ func legacySettingsPath() (string, error) {
 	return filepath.Join(home, ".rk", "settings.yaml"), nil
 }
 
-// Load reads ~/.config/run-kit/config.yaml and returns the parsed Settings.
-// When that file is unreadable, it falls back to the legacy
-// ~/.rk/settings.yaml (same format); when both are absent or unreadable it
-// returns Default().
+// Load reads config.yaml from the config root (see Dir) and returns the
+// parsed Settings. When that file is unreadable, it falls back to the legacy
+// ~/.rk/settings.yaml (same format — skipped under the RK_CONFIG_DIR
+// override); when both are absent or unreadable it returns Default().
 func Load() Settings {
 	p, err := configPath()
 	if err != nil {
@@ -131,6 +155,9 @@ func Load() Settings {
 	}
 	data, err := os.ReadFile(p)
 	if err != nil {
+		if configRootOverridden() {
+			return Default()
+		}
 		legacy, lerr := legacySettingsPath()
 		if lerr != nil {
 			return Default()
@@ -143,10 +170,12 @@ func Load() Settings {
 	return parse(string(data))
 }
 
-// Save writes the settings to ~/.config/run-kit/config.yaml, creating
-// ~/.config/run-kit/ if absent. After a successful write, a still-present
+// Save writes the settings to config.yaml under the config root (see Dir),
+// creating the root if absent. After a successful write, a still-present
 // legacy ~/.rk/settings.yaml is renamed to settings.yaml.migrated —
-// best-effort; a rename failure never fails the save.
+// best-effort; a rename failure never fails the save, and the rename is
+// skipped under the RK_CONFIG_DIR override (never touch the real $HOME
+// from an isolated run).
 func Save(s Settings) error {
 	p, err := configPath()
 	if err != nil {
@@ -159,8 +188,10 @@ func Save(s Settings) error {
 	if err := os.WriteFile(p, []byte(content), 0644); err != nil {
 		return err
 	}
-	if legacy, err := legacySettingsPath(); err == nil {
-		_ = os.Rename(legacy, legacy+".migrated")
+	if !configRootOverridden() {
+		if legacy, err := legacySettingsPath(); err == nil {
+			_ = os.Rename(legacy, legacy+".migrated")
+		}
 	}
 	return nil
 }

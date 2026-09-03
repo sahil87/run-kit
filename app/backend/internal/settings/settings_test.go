@@ -627,6 +627,8 @@ func TestConfigRootIsFixedAndEnvImmune(t *testing.T) {
 	xdg := t.TempDir()
 	t.Setenv("HOME", tmp)
 	t.Setenv("XDG_CONFIG_HOME", xdg)
+	// Hermetic against an ambient test-isolation override in the caller's env.
+	t.Setenv(ConfigDirEnv, "")
 
 	dir, err := Dir()
 	if err != nil {
@@ -643,6 +645,97 @@ func TestConfigRootIsFixedAndEnvImmune(t *testing.T) {
 	want := filepath.Join(tmp, ".config", "run-kit", "config.yaml")
 	if p != want {
 		t.Errorf("configPath() = %q, want %q", p, want)
+	}
+}
+
+// TestConfigDirEnvOverride proves the RK_CONFIG_DIR test-isolation carve-out:
+// whitespace-only is unset (production-identical fixed root), a set value is
+// the config root verbatim and configPath follows it.
+func TestConfigDirEnvOverride(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	t.Run("whitespace-only is unset", func(t *testing.T) {
+		t.Setenv(ConfigDirEnv, "   ")
+		dir, err := Dir()
+		if err != nil {
+			t.Fatalf("Dir: %v", err)
+		}
+		if want := filepath.Join(tmp, ".config", "run-kit"); dir != want {
+			t.Errorf("Dir() = %q, want %q (whitespace-only override must behave as unset)", dir, want)
+		}
+	})
+
+	t.Run("set moves root and configPath together", func(t *testing.T) {
+		override := t.TempDir()
+		t.Setenv(ConfigDirEnv, override)
+		dir, err := Dir()
+		if err != nil {
+			t.Fatalf("Dir: %v", err)
+		}
+		if dir != override {
+			t.Errorf("Dir() = %q, want the override %q verbatim", dir, override)
+		}
+		p, err := configPath()
+		if err != nil {
+			t.Fatalf("configPath: %v", err)
+		}
+		if want := filepath.Join(override, "config.yaml"); p != want {
+			t.Errorf("configPath() = %q, want %q", p, want)
+		}
+	})
+}
+
+// TestConfigDirEnvOverrideSkipsLegacyPath proves the override suppresses both
+// legacy ~/.rk/settings.yaml touchpoints: Load must not import the real
+// $HOME's legacy settings into an isolated run, and Save must not
+// breadcrumb-rename a file outside the isolated root.
+func TestConfigDirEnvOverrideSkipsLegacyPath(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	legacy := filepath.Join(tmp, ".rk", "settings.yaml")
+	if err := os.MkdirAll(filepath.Dir(legacy), 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(legacy, []byte("theme: dracula\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	t.Setenv(ConfigDirEnv, t.TempDir())
+
+	if got := Load().Theme; got != "system" {
+		t.Errorf("Load().Theme = %q, want default %q (legacy fallback must be skipped under the override)", got, "system")
+	}
+	if err := Save(Default()); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if _, err := os.Stat(legacy); err != nil {
+		t.Errorf("legacy settings.yaml must survive un-renamed under the override: %v", err)
+	}
+}
+
+// TestConfigDirEnvOverrideSaveCreatesDir proves Save's existing MkdirAll path
+// inherits the override: the relocated root is created on save exactly as the
+// fixed root is, and the write lands there rather than under $HOME.
+func TestConfigDirEnvOverrideSaveCreatesDir(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	override := filepath.Join(t.TempDir(), "nested", "config")
+	t.Setenv(ConfigDirEnv, override)
+
+	s := Default()
+	s.InstanceName = "override-box"
+	if err := Save(s); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(override, "config.yaml")); err != nil {
+		t.Errorf("config.yaml not created under the override root: %v", err)
+	}
+	if got := Load().InstanceName; got != "override-box" {
+		t.Errorf("Load().InstanceName = %q, want %q (load must read the override root)", got, "override-box")
+	}
+	if _, err := os.Stat(filepath.Join(tmp, ".config", "run-kit")); !os.IsNotExist(err) {
+		t.Errorf("fixed $HOME root was touched despite the override (stat err = %v)", err)
 	}
 }
 
@@ -671,6 +764,7 @@ func TestRoundTripByteIdentical(t *testing.T) {
 func TestLoadFallsBackToLegacyPath(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	t.Setenv(ConfigDirEnv, "")
 
 	legacyDir := filepath.Join(tmp, ".rk")
 	if err := os.MkdirAll(legacyDir, 0755); err != nil {
@@ -692,6 +786,7 @@ func TestLoadFallsBackToLegacyPath(t *testing.T) {
 func TestSaveMigratesAndRenamesLegacyFile(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	t.Setenv(ConfigDirEnv, "")
 
 	legacy := filepath.Join(tmp, ".rk", "settings.yaml")
 	if err := os.MkdirAll(filepath.Dir(legacy), 0755); err != nil {
@@ -734,6 +829,7 @@ func TestSaveMigratesAndRenamesLegacyFile(t *testing.T) {
 func TestLoadNewPathWinsWhenBothExist(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	t.Setenv(ConfigDirEnv, "")
 
 	legacyDir := filepath.Join(tmp, ".rk")
 	if err := os.MkdirAll(legacyDir, 0755); err != nil {

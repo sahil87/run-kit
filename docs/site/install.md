@@ -90,10 +90,13 @@ run-kit doctor
 Run `just doctor` to check development prerequisites (Node 20+, pnpm, tmux, just, Go 1.22+, air, direnv), then:
 
 ```bash
-just setup
-just dev       # watch mode (Go backend + Vite dev server)
-just prod      # run from built binary
+just setup             # one-time: frontend deps, Playwright browsers, .env.local, tmux.conf embed staging
+just dev               # watch mode (Go backend + Vite dev server) on this worktree's derived port
+just dev --port 4000   # same, on an explicit port (Vite on 4000, backend on 4001, code-server on 4002)
+just prod              # run from built binary
 ```
+
+`just dev` defaults to the worktree's derived e2e port triple, so parallel worktrees never collide; pass `--port` only when you need a specific port. Re-run `just setup` after pulling dependency changes.
 
 ## Tailscale HTTPS
 

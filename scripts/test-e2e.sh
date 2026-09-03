@@ -12,10 +12,16 @@ RK_CODE_SERVER_PORT="$E2E_CODE_SERVER_PORT"
 
 # Hermetic per-run state: the backend's disk carve-outs (layout snapshots, the
 # PR-status seed cache) land under this temp dir instead of the developer's
-# real $XDG_STATE_HOME/run-kit, and the EXIT trap removes it. $HOME-keyed state
-# (~/.config/run-kit/config.yaml) stays shared — specs that touch it keep their snapshot/restore
-# pattern.
+# real $XDG_STATE_HOME/run-kit, and the EXIT trap removes it. The config root
+# is isolated too: RK_CONFIG_DIR (exported to the backend launch and the
+# playwright run below) points settings reads/writes at the per-run
+# $E2E_STATE_HOME/config instead of the developer's real
+# ~/.config/run-kit/config.yaml, so parallel worktree runs cannot race on it.
+# Specs that touch the file keep their snapshot/restore pattern as the
+# fallback for the interactive `just pw` lane, which sets no RK_CONFIG_DIR.
 E2E_STATE_HOME="$(mktemp -d)"
+RK_CONFIG_DIR="$E2E_STATE_HOME/config"
+mkdir -p "$RK_CONFIG_DIR"
 
 # DEV_PGID is the process-group ID of the detached dev server (set after launch).
 # Empty until then so cleanup running early is a no-op for the group kill.
@@ -134,7 +140,7 @@ tmux -L "$E2E_TMUX_SERVER" set-option -w -t "$E2E_INIT_WIN_ID" @rk_note '1:e2e-l
 # worktrees never collide on the stub. The same value is exported to the
 # playwright run below so the spec and the backend agree on the port.
 set -m
-bash -c "RK_PORT=$E2E_PORT RK_SERVER_ALLOWLIST=$E2E_TMUX_FAMILY E2E_TMUX_FAMILY=$E2E_TMUX_FAMILY RK_CODE_SERVER_PORT=$RK_CODE_SERVER_PORT XDG_STATE_HOME=$E2E_STATE_HOME exec just dev" &
+bash -c "RK_PORT=$E2E_PORT RK_SERVER_ALLOWLIST=$E2E_TMUX_FAMILY E2E_TMUX_FAMILY=$E2E_TMUX_FAMILY RK_CODE_SERVER_PORT=$RK_CODE_SERVER_PORT XDG_STATE_HOME=$E2E_STATE_HOME RK_CONFIG_DIR=$RK_CONFIG_DIR exec just dev" &
 DEV_PID=$!
 set +m
 
@@ -184,7 +190,7 @@ done
 # args ("$@") to playwright so callers can scope the run (e.g. `just test-e2e
 # mobile-layout`) against the same seeded test server.
 run_playwright() {
-  cd app/frontend && RK_PORT=$E2E_PORT E2E_TMUX_SERVER="$E2E_TMUX_SERVER" E2E_TMUX_FAMILY="$E2E_TMUX_FAMILY" RK_CODE_SERVER_PORT="$RK_CODE_SERVER_PORT" pnpm exec playwright test "$@"
+  cd app/frontend && RK_PORT=$E2E_PORT E2E_TMUX_SERVER="$E2E_TMUX_SERVER" E2E_TMUX_FAMILY="$E2E_TMUX_FAMILY" RK_CODE_SERVER_PORT="$RK_CODE_SERVER_PORT" RK_CONFIG_DIR="$RK_CONFIG_DIR" pnpm exec playwright test "$@"
 }
 
 # Concurrency throttle (load, not correctness — the derived identity already

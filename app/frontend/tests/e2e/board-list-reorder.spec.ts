@@ -1,8 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { readFileSync, writeFileSync, rmSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { apiBase, pinWindow } from "./_boards";
+import { SETTINGS_PATH } from "./_settings";
 import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
 // Behavioural contract for the board-list-reorder backend surface: the
@@ -17,18 +16,23 @@ import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 // boards.test.ts, boards-section.test.tsx, host-overview-page.test.tsx); this
 // spec exercises the deterministic backend surface end-to-end.
 //
-// scripts/test-e2e.sh isolates the tmux server/port but NOT $HOME, so this
-// suite's POST /api/settings writes hit the developer's REAL
-// ~/.config/run-kit/config.yaml. beforeAll snapshots its raw bytes (recording
-// whether the file existed at all); afterAll restores those exact bytes — or
-// deletes the file when none existed — so any curated board order round-trips
-// byte-identically and no test residue persists (best-effort, so a teardown
-// error never masks a test failure). beforeAll also creates one tmux session
-// (`e2e-board-reorder-<ts>` with windows win-a/win-b) on E2E_TMUX_SERVER
-// (default `rk-test-e2e`); afterAll kills it. apiBase() resolves the backend
-// origin; windowIds() reads win-a/win-b's stable tmux window ids so pins are
-// created deterministically via the API (not the hover popover).
-const SETTINGS_PATH = join(homedir(), ".config", "run-kit", "config.yaml");
+// SETTINGS_PATH (from ./_settings) derives from RK_CONFIG_DIR when set:
+// under `just test-e2e` the harness points backend and specs at a per-run
+// temp config root, so this suite's POST /api/settings writes never touch
+// the developer's real ~/.config/run-kit/config.yaml. The snapshot/restore
+// pattern is KEPT as the fallback for the interactive `just pw` lane (a
+// `just dev` rig with no RK_CONFIG_DIR — SETTINGS_PATH is then the real
+// file and still needs protecting; under the harness the same pattern is a
+// harmless no-op on the temp file). beforeAll snapshots its raw bytes
+// (recording whether the file existed at all); afterAll restores those
+// exact bytes — or deletes the file when none existed — so any curated
+// board order round-trips byte-identically and no test residue persists
+// (best-effort, so a teardown error never masks a test failure). beforeAll
+// also creates one tmux session (`e2e-board-reorder-<ts>` with windows
+// win-a/win-b) on E2E_TMUX_SERVER (default `rk-test-e2e`); afterAll kills
+// it. apiBase() resolves the backend origin; windowIds() reads win-a/win-b's
+// stable tmux window ids so pins are created deterministically via the API
+// (not the hover popover).
 // `undefined` = the file did not exist before the suite (restore = delete it);
 // a Buffer = its exact original bytes (restore = write them back verbatim).
 let settingsSnapshot: Buffer | undefined;
@@ -43,11 +47,12 @@ const BOARD_Z = `zzz${Date.now().toString().slice(-6)}`;
 
 test.describe("Board list reorder — order endpoint + rank-aware sort", () => {
   test.beforeAll(() => {
-    // Snapshot the developer's REAL ~/.config/run-kit/config.yaml (raw bytes)
-    // before this
-    // suite mutates it via POST /api/settings (board_order key). Restored verbatim in afterAll so
-    // any curated board order survives byte-identically — $HOME is NOT isolated
-    // by scripts/test-e2e.sh, so test residue would otherwise persist.
+    // Snapshot the settings file at SETTINGS_PATH (raw bytes) before this
+    // suite mutates it via POST /api/settings (board_order key). Restored
+    // verbatim in afterAll so any curated board order survives
+    // byte-identically. Under `just test-e2e` this is the harness's per-run
+    // temp file; under `just pw` it is the developer's REAL config, where
+    // residue would otherwise persist.
     try {
       settingsSnapshot = readFileSync(SETTINGS_PATH);
       settingsExisted = true;

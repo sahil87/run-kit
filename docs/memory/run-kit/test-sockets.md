@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Test-socket isolation on the tmux substrate: unified rk-test-<role>-<pid>-<ns> naming, the TestMain POST-sweep, rk mux reap (dry-run default, --force, --ephemeral), /api/servers listing every server, the RK_SERVER_ALLOWLIST enumeration bound, the e2e rk-test-e2e-<token>- family anchor + E2E_TMUX_FAMILY, and the port-fallback rule."
+description: "Test-socket isolation on the tmux substrate: unified rk-test-<role>-<pid>-<ns> naming, the TestMain POST-sweep, rk mux reap (dry-run default, --force, --ephemeral), /api/servers listing every server, the RK_SERVER_ALLOWLIST enumeration bound, the e2e rk-test-e2e-<token>- family anchor + E2E_TMUX_FAMILY, the RK_CONFIG_DIR per-run config-root leg, and the port-fallback rule."
 ---
 # Test Sockets & Test Isolation
 
@@ -143,6 +143,12 @@ The `tmuxctl` supervisor's **enumeration** is **unaffected**: it does NOT call `
 ### Harness wiring — backend READ path vs WRITE socket
 
 `scripts/test-e2e.sh` exports `RK_SERVER_ALLOWLIST` (set to `E2E_TMUX_FAMILY`, the `rk-test-e2e-<token>-` anchor) into the **dev backend** process — the own-process-group `bash -c "… exec just dev"` launch — so the backend's `ListServers` read path is scoped for the run. This is distinct from `E2E_TMUX_SERVER`, which scopes the **socket the tests WRITE to** (a shell/TS-only variable Go never reads). A dedicated `RK_*` name is honest about allowlist intent and matches the env-var convention rather than repurposing the socket-naming variable for Go config.
+
+## Per-Run Config-Root Isolation — `RK_CONFIG_DIR`
+
+The isolation posture's config leg: alongside the derived port triple, the per-worktree socket family, and the per-run temp `XDG_STATE_HOME`, `scripts/test-e2e.sh` isolates the settings file too. It creates `"$E2E_STATE_HOME/config"` under the existing per-run `mktemp -d` (removed by the EXIT trap) and exports `RK_CONFIG_DIR` pointing there into BOTH the dev-backend launch and the `run_playwright` env, so backend and specs agree on the same per-run `config.yaml`. The backend honors it in `settings.Dir()` — the env-gated override recorded in [configuration](/run-kit/configuration.md) § Config Root (verbatim root when set, byte-identical production when unset/whitespace-only, legacy `~/.rk` touchpoints suppressed) — so parallel `just test-e2e` runs mutating `instance_name`/`board_order` through the live API each write only their own per-run file — never the developer's real `~/.config/run-kit/config.yaml`, never a sibling worktree's run.
+
+Spec side, the config-touching specs (`settings-dialog.spec.ts`, `board-list-reorder.spec.ts`) read `SETTINGS_PATH` from the shared `app/frontend/tests/e2e/_settings.ts` helper, which mirrors `settings.Dir()` exactly — including the whitespace-only-means-unset rule, so an exported-but-blank `RK_CONFIG_DIR` can never make spec and backend disagree on the file. Their `beforeAll`/`afterAll` snapshot/restore pattern is deliberately KEPT: the interactive `just pw` lane runs against a `just dev` rig that sets no `RK_CONFIG_DIR`, so `SETTINGS_PATH` is then the developer's real config and the snapshot still protects it; under the harness the same pattern is a harmless no-op on the temp file. `pwa-assets.spec.ts` needs no path awareness (tint-agnostic by design). (y60c)
 
 
 ## Design Decisions

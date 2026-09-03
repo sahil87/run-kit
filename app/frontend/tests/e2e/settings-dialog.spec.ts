@@ -1,8 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { readFileSync, writeFileSync, rmSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { gotoServerReady, openPalette } from "./_ready";
+import { SETTINGS_PATH } from "./_settings";
 import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 
 /**
@@ -24,14 +23,19 @@ import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
  *   5. 375px: the horizontal tab strip fits, and the tall Shortcuts panel
  *      scrolls INSIDE the fixed-height xl dialog.
  *
- * Shared setup: `beforeAll` snapshots the developer's REAL
- * ~/.config/run-kit/config.yaml (raw bytes) — scripts/test-e2e.sh isolates
- * the tmux server/port but NOT $HOME, and the instance-name/auto_name tests
- * write through the live API. `afterAll` restores the snapshot verbatim (or
- * deletes the file if it did not exist) — the board-list-reorder.spec.ts
- * pattern. `beforeAll` also creates an `e2e-settings-<timestamp>` tmux
- * session on `rk-test-e2e` with one named window (`win-a`); `afterAll` kills
- * it. A unique board name and instance name are generated per run so reruns
+ * Shared setup: SETTINGS_PATH (from ./_settings) derives from RK_CONFIG_DIR
+ * when set — under `just test-e2e` the harness points backend and specs at
+ * a per-run temp config root, so the instance-name/auto_name writes through
+ * the live API never touch the developer's real file. The `beforeAll`
+ * snapshot / `afterAll` verbatim-restore (or delete-if-absent) pattern is
+ * KEPT as the fallback for the interactive `just pw` lane, which runs
+ * against a `just dev` rig with no RK_CONFIG_DIR — there SETTINGS_PATH is
+ * the REAL ~/.config/run-kit/config.yaml and the snapshot still protects
+ * it; under the harness the same snapshot/restore is a harmless no-op on
+ * the temp file — the board-list-reorder.spec.ts pattern. `beforeAll` also
+ * creates an `e2e-settings-<timestamp>` tmux session on `rk-test-e2e` with
+ * one named window (`win-a`); `afterAll` kills it. A unique board name and
+ * instance name are generated per run so reruns
  * don't collide. `openPaletteSettings` opens the palette through the shared
  * `openPalette` helper, which gates on the palette and retries — a chord
  * reaching a focused xterm is consumed, not merely delayed, so a single long
@@ -43,7 +47,6 @@ import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
  * trigger, layout, and persistence contracts that unit tests can't cover.
  */
 
-const SETTINGS_PATH = join(homedir(), ".config", "run-kit", "config.yaml");
 let settingsSnapshot: Buffer | undefined;
 let settingsExisted = false;
 
@@ -81,9 +84,10 @@ async function pollInstanceName(page: Page): Promise<string | null> {
 
 test.describe("Settings dialog", () => {
   test.beforeAll(() => {
-    // Snapshot the developer's REAL ~/.config/run-kit/config.yaml before the
-    // suite
-    // mutates it via POST /api/settings (instance_name key); restored verbatim after.
+    // Snapshot the settings file at SETTINGS_PATH before the suite mutates it
+    // via POST /api/settings (instance_name key); restored verbatim after.
+    // Under `just test-e2e` this is the harness's per-run temp file (no-op
+    // protection); under `just pw` it is the developer's REAL config.
     try {
       settingsSnapshot = readFileSync(SETTINGS_PATH);
       settingsExisted = true;

@@ -261,7 +261,9 @@ func init() {
 	home, err := os.UserHomeDir()
 	if err == nil {
 		// Fixed root under $HOME only (no XDG env) — the same construction
-		// rule as settings.Dir().
+		// rule as settings.Dir()'s default, computed independently: the
+		// RK_CONFIG_DIR test override deliberately does not move this path
+		// (only the settings file needs per-run isolation).
 		DefaultConfigPath = filepath.Join(home, ".config", "run-kit", "tmux.conf")
 	}
 

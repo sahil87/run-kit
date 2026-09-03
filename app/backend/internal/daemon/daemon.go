@@ -448,7 +448,7 @@ func resolveDaemonLogPath() (string, bool) {
 // tty) — with tmux key delivery as the fallback, then the grace-timeout
 // kill-session fallback. The grace period covers the inner `rk serve`'s
 // worst-case graceful shutdown (supervisor stop + server.Shutdown, sequential
-// ~10s) so a healthy shutdown is never mis-classified as hung.
+// ~10s) so a healthy shutdown is never misclassified as hung.
 //
 // The grace deadline is an independent timer, NOT a context bounding the whole
 // operation: every tmux command (initial lookup, C-c send, each liveness poll,

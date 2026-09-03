@@ -14,7 +14,7 @@
 ## Anti-Patterns
 
 - God functions (>50 lines without clear reason)
-- Duplicating existing utilities — check `internal/tmux/`, `internal/sessions/`, `internal/fab/` (Go) and `src/api/client.ts` (frontend) first
+- Duplicating existing utilities — check `internal/tmux/`, `internal/sessions/`, `internal/fab/`, `internal/inject/` (Go) and `src/api/client.ts` (frontend) first
 - Magic strings or numbers without named constants
 - Shell string construction for subprocess calls — always use `exec.CommandContext` with argument slices (Go)
 - Inline tmux command construction — all tmux interaction goes through `internal/tmux/` (Go)

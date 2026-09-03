@@ -14,7 +14,7 @@ import (
 
 // claudeHooks builds the registry's Claude hook set for merge tests. It reads
 // the real registry so the fixture can never drift from what agent-setup
-// installs (the SessionStart stamp-only row included).
+// installs (the SessionStart stamp-token row included).
 func claudeHooks() []agentHook {
 	return agentRegistry("")[0].hooks
 }
@@ -41,7 +41,7 @@ func TestMergeHooksAddsEntriesAndPreservesExisting(t *testing.T) {
 	if existing["model"] != "opus" {
 		t.Errorf("model config lost: %v", existing["model"])
 	}
-	// Six rk entries installed (one per hook: 5 agent-state + 1 SessionStart chat stamp).
+	// Six rk entries installed (one per hook: 5 agent-state + 1 SessionStart stamp).
 	if got := countRkEntries(existing); got != 6 {
 		t.Errorf("rk entries = %d, want 6", got)
 	}
@@ -450,8 +450,10 @@ func findRkCommands(settings map[string]any, event string) []string {
 	return out
 }
 
-func TestSessionStartRegistryRowStampsChatOnly(t *testing.T) {
-	// The registry must carry exactly one SessionStart row whose token is `stamp`.
+func TestSessionStartRegistryRowUsesStampToken(t *testing.T) {
+	// The registry must carry exactly one SessionStart row whose token is `stamp`
+	// (the binary turns it into the chat stamp plus the compact-gated idle boot
+	// write — no settings-file change is needed for that behavior to ship).
 	var sessionStart []agentHook
 	for _, h := range agentRegistry("")[0].hooks {
 		if h.event == "SessionStart" {
@@ -462,7 +464,7 @@ func TestSessionStartRegistryRowStampsChatOnly(t *testing.T) {
 		t.Fatalf("registry SessionStart rows = %d, want 1", len(sessionStart))
 	}
 	if sessionStart[0].state != agentHookStampToken {
-		t.Errorf("SessionStart token = %q, want %q (stamp-only)", sessionStart[0].state, agentHookStampToken)
+		t.Errorf("SessionStart token = %q, want %q", sessionStart[0].state, agentHookStampToken)
 	}
 	if sessionStart[0].matcher != "" {
 		t.Errorf("SessionStart matcher = %q, want empty (no matcher)", sessionStart[0].matcher)
@@ -1833,7 +1835,7 @@ func TestApplyAgentHooksSummaryFreshInstall(t *testing.T) {
 		"+ Notification (permission_prompt|elicitation_dialog|agent_needs_input) → waiting",
 		"+ Notification (idle_prompt) → idle",
 		"+ Stop → idle",
-		"+ SessionStart → chat stamp",
+		"+ SessionStart → chat stamp + idle (boot-ready)",
 		"(all other settings and non-rk hooks preserved)",
 	} {
 		if !strings.Contains(got, want) {

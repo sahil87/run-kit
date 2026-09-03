@@ -237,13 +237,13 @@ Claude Code, with codex / copilot / gemini / opencode as additive follow-ups.
 | `Notification` | `permission_prompt\|elicitation_dialog\|agent_needs_input` | `waiting:<now>` |
 | `Notification` | `idle_prompt` | `idle:<now>` (backstop — `Stop` does not fire on every turn-end path, e.g. Esc-interrupt) |
 | `Stop` | — | `idle:<now>` |
-| `SessionStart` | — | `@rk_pane_chat` **stamp only** — token `stamp`; writes **no** `@rk_pane_agent_state` (see § Chat Session Identity → Writer rules) |
+| `SessionStart` | — | `@rk_pane_chat` stamp **plus** `@rk_pane_agent_state idle:<now>[:<pid>]` — the boot-ready signal (see § Boot-ready) — via token `stamp`; the idle write is withheld for `source=compact` |
 
-> The `SessionStart` row writes no agent-state on purpose: it fires on
-> `startup`, `resume`, `clear`, and `compact`, and `source=compact` fires
-> **mid-turn** — an `idle` state write there would clobber a live `active`. It is
-> present solely to stamp `@rk_pane_chat` within seconds of session start (before any
-> prompt) and re-stamp on every session-id rotation.
+> The `SessionStart` row's idle write is gated on the hook payload's `source`
+> because SessionStart fires on `startup`, `resume`, `clear`, and `compact`, and
+> `source=compact` fires **mid-turn** — an `idle` write there would clobber a
+> live `active`. The stamp lands within seconds of session start (before any
+> prompt) and re-stamps on every session-id rotation.
 
 The hooks merge into the Claude settings shape
 `hooks → <Event> → [ { matcher?, hooks: [ { type: "command", command } ] } ]`.
@@ -257,6 +257,39 @@ second-generation ` agent-hook ` invocation substring, **or** the third-generati
 ` agent hook ` family form the installer writes today — matching
 all three is what lets a re-run on the new binary migrate old-generation entries in
 place and lets `--uninstall` remove every generation.
+
+---
+
+## Boot-ready
+
+"Safe to type into a freshly spawned agent" is a derived readiness signal, not
+a new state: a pane is **boot-ready** when its reconciled
+`@rk_pane_agent_state` is present (any of `idle`/`waiting`/`active` — presence
+means the agent's hooks fired, so its TUI finished booting) OR, for hook-less
+agents, when the pane's captured screen is non-blank and byte-identical across
+two consecutive polls (~600ms apart, bounded by a ~25s deadline — the
+capture-settle fallback).
+
+The `SessionStart` registry row is what makes state-present true at boot: it
+stamps `idle` (semantically true of a freshly started/resumed session) in
+addition to the chat stamp, which also **clears a stale `waiting`/`active`
+left in the pane by a previous agent**. The idle write ships in the `rk agent
+hook` binary, so it reaches running fleets on upgrade with no settings churn;
+it is withheld only for `source=compact` (mid-turn — see the registry table).
+
+The primitive lives in `internal/inject` (`AwaitReady` / `DeliverWhenReady` —
+the spawn-then-deliver composite), exposed on the CLI as `rk mux await --ready`
+(report: `ready %N (state)` / `ready %N (settled)`). For hook-less agents the
+documented composition is:
+
+```sh
+rk mux await --ready %5 && rk mux send --force %5 '<prompt>'
+```
+
+(`send` stays gated on agent state, which a hook-less pane never has; `--force`
+is the documented pairing.) Caveat: a settled first-run dialog can false-fire
+the settle signal — the delivery engine's echo probe catches it (ProbeFailure →
+the caller degrades), so readiness is a heuristic, not a proof.
 
 ---
 
@@ -317,9 +350,13 @@ Beyond that:
    fire (not `SessionStart`-only) is required because **session ids rotate on
    `/clear` and `/compact`**, so a one-time stamp goes stale; it also stamps
    already-running agents on `brew upgrade rk` with zero settings churn.
-3. **Stamp-only mode (token `stamp`)** — a distinguished positional token writes
-   `@rk_pane_chat` but **not** `@rk_pane_agent_state`, used by the `SessionStart` registry
-   row (whose `source=compact` fires mid-turn). Unknown tokens are silent no-ops.
+3. **Stamp mode (token `stamp`)** — a distinguished positional token used by the
+   `SessionStart` registry row: it writes `@rk_pane_chat` on every fire that yields
+   a `session_id`, and — when the parsed payload's `source` is NOT `compact`
+   (the mid-turn source) — additionally writes `@rk_pane_agent_state
+   idle:<epoch>[:<pid>]` under the Writer Rules above (comm-validated pid walk,
+   pid omitted when the walk fails). An unparseable payload withholds the idle
+   write (fail-safe) but never the chat stamp. Unknown tokens are silent no-ops.
 4. **Validated before write** — the `session_id` is checked (non-empty, no
    whitespace/control chars) with the same rule the reader applies to a ref, so a
    value the reader would reject is never written.

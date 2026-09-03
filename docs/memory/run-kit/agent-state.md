@@ -1,5 +1,5 @@
 ---
-description: "The `@rk_pane_agent_state` pane-option convention: two-tier ownership, three-state value schema, dual-read/dual-write over the retired unscoped name, writer/reader rules, shell reconciler, window rollup. Covers the `rk agent setup` installer (+ hidden aliases), the `rk agent hook` binary indirection, and the sibling `@rk_pane_chat` chat-session-identity convention sharing agent-state's per-pane liveness."
+description: "The `@rk_pane_agent_state` pane-option convention: two-tier ownership, three-state value schema, dual-read/dual-write over the retired unscoped name, writer/reader rules, shell reconciler, window rollup. Covers the `rk agent setup` installer (+ hidden aliases), the `rk agent hook` binary indirection, the SessionStart boot stamp (chat stamp + `idle` write, the boot-ready signal), and the sibling `@rk_pane_chat` chat-session-identity convention sharing agent-state's per-pane liveness."
 type: memory
 ---
 # Agent-State Tier (`@rk_pane_agent_state`)
@@ -51,7 +51,9 @@ re-declaring the convention strings (one source of truth per binary, A-021).
 
 **State semantics**: `active` = a turn is in progress; `waiting` = blocked on a
 **human** (permission prompt, elicitation/question dialog) — the highest-urgency,
-most notification-worthy state; `idle` = turn complete, at rest.
+most notification-worthy state; `idle` = turn complete, at rest. `idle` is also
+semantically true of a freshly started session, which is what the SessionStart
+boot stamp exploits (see § Boot-Ready Signal).
 
 ## Backend Native Read (`internal/tmux`)
 
@@ -372,7 +374,7 @@ at a TTY or agent passing `--yes` — sees it and acts).
   `applyAgentConfig` runs — see § Installer Structure) renders a **semantic
   per-entry summary** on the interactive and `--yes` paths (`renderHooksSummary`:
   one `+ {event} ({matcher}) → {state}` line per registry row — the SessionStart
-  row displays as `chat stamp` — plus a preservation note and a replace/remove
+  row displays as `chat stamp + idle (boot-ready)` — plus a preservation note and a replace/remove
   count computed by `countRkEntries` over the CURRENT settings, never hardcoded;
   the uninstall form is a single `- removes N rk-owned hook entries` line). The
   **full** `current` vs `proposed` sorted-indented-JSON bodies render only under
@@ -508,6 +510,33 @@ These surfaces consume the window-level rollup + `waiting > active > idle`
 precedence + the `formatAgentDuration` value (present for `waiting`/`idle`)
 documented above.
 
+## Boot-Ready Signal
+
+"Safe to type into a freshly spawned agent" is a **derived readiness signal, not
+a new state**. A pane is **boot-ready** when:
+
+- **State-present** (preferred): its reconciled `@rk_pane_agent_state` is
+  present (any of `idle`/`waiting`/`active`) — presence means the agent's hooks
+  fired, so its TUI finished booting. The SessionStart registry row's `idle`
+  stamp (see § Installer: SessionStart registry row) is what makes this true at
+  boot for registry agents, with no new state value and no schema change.
+- **Capture-settle** (fallback for hook-less agents — the registry is
+  Claude-only): the pane's captured screen is non-blank and byte-identical
+  across two consecutive polls (~600ms apart, bounded by a ~25s deadline).
+
+The primitive lives in `internal/inject` (`AwaitReady` polls both signals,
+first hit wins; `DeliverWhenReady` is the spawn-then-deliver composite —
+readiness wait, then the engine's verified send) and is exposed on the CLI as
+`rk mux await --ready` — see [agent-messaging](/run-kit/agent-messaging.md)
+§ `rk mux await` observer and [architecture](/run-kit/architecture.md)
+§ Backend Libraries → `internal/inject`. For hook-less agents the documented
+composition is `rk mux await --ready %5 && rk mux send --force %5 '<prompt>'`
+(`send` stays gated on agent state, which a hook-less pane never has; `--force`
+is the documented pairing). Caveat: a settled **first-run dialog** can
+false-fire the settle signal — the delivery engine's echo probe catches it
+(`ProbeFailure` → the caller degrades), so readiness is a heuristic, not a
+proof.
+
 ## Chat Session Identity (`@rk_pane_chat`)
 
 A **second** pane user option, written by the **same** `rk agent hook` binary on
@@ -633,8 +662,15 @@ process tree, and state derivation stays in the settings matchers. The stdin sea
      The chat stamp is
      **ordered after** the agent-state write, so the reader always has the pid it
      needs to judge chat liveness.
-  2. **stamp-only token** (`agentHookStampToken = "stamp"`) → stamp `@rk_pane_chat`
-     (`@rk_chat`) ONLY, no agent-state write. This is the token the SessionStart row uses.
+  2. **stamp token** (`agentHookStampToken = "stamp"`) → stamp `@rk_pane_chat`
+     (`@rk_chat`), **and** — when the parsed stdin payload's `source` is NOT
+     `compact` — write `@rk_pane_agent_state idle:<epoch>[:<pid>]` (the
+     boot-ready write: SessionStart fires on `startup`/`resume`/`clear`/`compact`,
+     and `compact` fires **mid-turn**, where an `idle` write would clobber a live
+     `active`). An unparseable payload withholds the idle write (fail-safe against
+     the mid-turn clobber) but never the chat stamp. This is the token the
+     SessionStart row uses; the idle write doubles as a **stale-state clear**,
+     overwriting a `waiting`/`active` left in the pane by a previous agent.
   3. anything else → no-op.
 - **Stamp on EVERY fire that yields a session id** (states and the stamp token
   alike), not SessionStart-only, because **session ids rotate on `/clear` and
@@ -652,7 +688,7 @@ The Claude `agentRegistry` carries a SessionStart entry:
 
 | Event | Matcher | Writes |
 |-------|---------|--------|
-| `SessionStart` | — | `@rk_pane_chat`/`@rk_chat` **stamp only** (token `stamp`; **no** agent-state write) |
+| `SessionStart` | — | `@rk_pane_chat`/`@rk_chat` stamp **plus** `@rk_pane_agent_state idle:<epoch>[:<pid>]` (token `stamp`; the idle write is withheld for `source=compact`) |
 
 - The installed command uses the standard `agentStateHookCommand(rkPath, state, comm)`
   wrapper — the positional-token `state` parameter carries the
@@ -661,12 +697,17 @@ The Claude `agentRegistry` carries a SessionStart entry:
   The third-generation `isRkEntry` marker
   (`" agent hook "`) matches it, so idempotent re-run replacement and
   `--uninstall` need no marker changes.
-- **SessionStart writes no agent-state** because `source=compact` fires
-  **mid-turn** — an `idle` state write there would clobber a live `active` state.
-  Stamp-only is correct for all four sources (`startup`/`resume`/`clear`/
-  `compact`). SessionStart fires within seconds of session start, so the option
-  appears **before any prompt is submitted** (the acceptance bar) and re-stamps on
-  every session-id rotation.
+- **SessionStart's idle write is the boot-ready signal** (see § Boot-Ready
+  Signal): `idle` is semantically true of a freshly started/resumed session, and
+  the stamp lands within seconds of session start — **before any prompt is
+  submitted** (the acceptance bar) — and re-stamps on every session-id rotation.
+  It also **clears a stale `waiting`/`active`** left in the pane by a previous
+  agent. The write is gated on the hook payload's `source` because
+  `source=compact` fires **mid-turn** — an `idle` write there would clobber a
+  live `active` state; the other three sources (`startup`/`resume`/`clear`) all
+  stamp it. The idle write ships inside the `rk agent hook` binary, so it reaches
+  running fleets on `brew upgrade rk` with no settings churn (the § Migration
+  binary-vs-settings split).
 - **No `SessionEnd` registration** — writer-side clearing is rejected. Reader-side
   reconciliation must exist anyway for crash/kill paths, so a `SessionEnd` clear
   would add a settings entry without removing any reader logic.
@@ -910,23 +951,30 @@ lockstep.
 potentially-skewing liveness source); a separate chat-only liveness heuristic.
 *Introduced by*: `260713-nh86-chat-session-identity`
 
-### Every-fire stamp + stamp-only `SessionStart`; no `SessionEnd`
+### Every-fire stamp; SessionStart dual-stamps chat + `idle`; no `SessionEnd`
 **Decision**: stamp `@rk_pane_chat` (`@rk_chat`) on **every** hook fire that yields a `session_id`
-(the binary reads stdin JSON), **plus** a new SessionStart registry row that is
-**stamp-only** (writes the chat option, never the agent-state option). Clearing is
+(the binary reads stdin JSON), and let the SessionStart registry row (token
+`stamp`) **additionally write `@rk_pane_agent_state idle:<epoch>[:<pid>]`** for
+every SessionStart source except `compact`. Clearing is
 **reader-side reconciliation only** — no writer-side clear, no `SessionEnd` row.
 **Why**: session ids rotate on `/clear` and `/compact` (re-verified 2026-07-13),
 so a one-time stamp goes stale mid-pane-lifetime — every-fire refresh fixes that
 AND reaches already-running agents on `brew upgrade rk` with zero settings churn
-(binary-only). SessionStart gives "within seconds of session start" before any
-prompt, and is stamp-only because `source=compact` fires mid-turn where an `idle`
-write would clobber a live `active`. Reader reconciliation is mandatory anyway for
+(binary-only). SessionStart's `idle` write is the boot-ready signal — `idle` is
+semantically true at session start, so a valid state exists within seconds of
+boot with no new state value or reader change — and it clears stale
+`waiting`/`active` from a pane's previous agent. The `compact` source is excluded
+because it fires mid-turn, where an `idle` write would clobber a live `active`
+(an unparseable payload withholds the write for the same fail-safe reason).
+Reader reconciliation is mandatory anyway for
 crash/kill paths, so a `SessionEnd` clear adds a settings entry without removing
 any reader logic (mirrors agent-state's no-GC lifecycle).
 **Rejected**: SessionStart-only stamping (goes stale on id rotation); a
-SessionStart *agent-state* write (clobbers a live `active` on compact); a
+SessionStart idle write on the `compact` source (clobbers a live `active`
+mid-turn); a new `ready`/`boot` state value or a separate `@rk_pane_boot` option
+(schema churn, every reader must learn it); a
 `SessionEnd` writer-side clear (redundant with mandatory reconciliation).
-*Introduced by*: `260713-nh86-chat-session-identity`
+*Introduced by*: `260713-nh86-chat-session-identity`; boot-stamp extension `260903-4czh-boot-ready-spawn-inject`
 
 ### Bounded, TTY-guarded, single-object stdin parse; validated before write
 **Decision**: `readHookSessionID` is TTY-guarded (`os.ModeCharDevice` — a manual

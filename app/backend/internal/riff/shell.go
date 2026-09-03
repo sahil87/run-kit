@@ -17,8 +17,8 @@ import (
 //     .zshrc/.bashrc aliases reach the launcher.
 //  3. shellWrap suffix: `; exec "${SHELL:-/bin/sh}"` so the pane stays interactive.
 //
-// This is the task-injection seam the HTTP endpoint reuses: the task text is
-// cmdArg, single-quote-escaped into the documented launcher exception.
+// Callers deciding BETWEEN positional and post-boot typed delivery go through
+// taskPaneShellString; this function is the positional composition itself.
 func buildSkillShellString(launcher, cmdArg string) string {
 	var layer1 string
 	if cmdArg == "" {
@@ -113,6 +113,18 @@ func paneShellString(launcher string, pane PaneSpec) string {
 	return buildCmdShellString(pane.Value)
 }
 
+// taskPaneShellString composes pane 0 — the task pane. A claude launcher keeps
+// the positional composition (instant, race-free; byte-identical to the plain
+// paneShellString output); any other launcher with a non-empty skill value
+// composes BARE — the value is the task, typed into the booted agent after the
+// window spawns (deliver.go), because a positional argument is claude-only.
+func taskPaneShellString(launcher string, pane PaneSpec) string {
+	if pane.Kind == PaneKindSkill && taskDeliveryMode(launcher, pane.Value) == deliveryTyped {
+		return buildSkillShellString(launcher, "")
+	}
+	return paneShellString(launcher, pane)
+}
+
 // sessionTarget returns the `new-window -t` target that creates the window IN
 // spec.Session — the exact-match session form `=<session>:` (tmux.
 // ExactSessionTarget) — or "" when Session is empty (CLI path — unscoped, so
@@ -144,7 +156,8 @@ func windowTarget(spec EffectiveSpec, name string) string {
 // buildSpawnArgvs returns the ordered tmux argvs (server prefix NOT included —
 // tmuxArgv adds it at exec time) for a (worktreePath, resolvedName, spec) triple:
 //
-//	[0]: new-window (creates the window with pane 0)
+//	[0]: new-window (creates the window with pane 0 — the task pane, so its
+//	     composition goes through taskPaneShellString)
 //	[1..N-1]: split-window (one per additional pane)
 //	[-1]: select-layout (skipped when spec.Layout == "")
 //
@@ -168,7 +181,7 @@ func buildSpawnArgvs(worktreePath, resolvedName string, spec EffectiveSpec) [][]
 	newWindow = append(newWindow,
 		"-n", resolvedName,
 		"-c", worktreePath,
-		paneShellString(spec.Launcher, spec.Panes[0]),
+		taskPaneShellString(spec.Launcher, spec.Panes[0]),
 	)
 	argvs = append(argvs, newWindow)
 	for _, pane := range spec.Panes[1:] {
@@ -205,7 +218,7 @@ func buildNewWindowCaptureArgs(worktreePath, resolvedName string, spec Effective
 	argv = append(argv,
 		"-n", resolvedName,
 		"-c", worktreePath,
-		paneShellString(spec.Launcher, spec.Panes[0]),
+		taskPaneShellString(spec.Launcher, spec.Panes[0]),
 	)
 	return argv
 }

@@ -222,7 +222,18 @@ func setHookStdin(t *testing.T, payload string) {
 	t.Cleanup(func() { hookStdinFn = orig })
 }
 
-func TestReadHookSessionID(t *testing.T) {
+// hookSessionIDFrom mirrors the production composition (readHookInput feeding
+// isValidSessionID — agent_hook.go's stamp path): the payload's validated
+// session id, or "" on any failure.
+func hookSessionIDFrom(r io.Reader) string {
+	in, ok := readHookInput(r)
+	if !ok || !isValidSessionID(in.SessionID) {
+		return ""
+	}
+	return in.SessionID
+}
+
+func TestHookSessionIDValidation(t *testing.T) {
 	const uuid = "6f0d9e2a-1c3b-4f7e-9a2d-8b5c4e1f0a37"
 	cases := []struct {
 		name    string
@@ -240,28 +251,28 @@ func TestReadHookSessionID(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := readHookSessionID(strings.NewReader(c.payload))
+			got := hookSessionIDFrom(strings.NewReader(c.payload))
 			if got != c.want {
-				t.Errorf("readHookSessionID(%q) = %q, want %q", c.payload, got, c.want)
+				t.Errorf("hookSessionIDFrom(%q) = %q, want %q", c.payload, got, c.want)
 			}
 		})
 	}
 }
 
-func TestReadHookSessionIDOversizedIsRejectedNotHung(t *testing.T) {
+func TestHookSessionIDOversizedIsRejectedNotHung(t *testing.T) {
 	// A > 1 MiB payload whose closing brace lies beyond the LimitReader bound: the
 	// decode fails (unexpected EOF) and yields "" — bounded, never blocks.
 	var b strings.Builder
 	b.WriteString(`{"session_id":"`)
 	b.WriteString(strings.Repeat("a", (1<<20)+16))
 	b.WriteString(`"}`)
-	if got := readHookSessionID(strings.NewReader(b.String())); got != "" {
+	if got := hookSessionIDFrom(strings.NewReader(b.String())); got != "" {
 		t.Errorf("oversized payload = %q, want empty (bounded read)", got)
 	}
 }
 
-func TestReadHookSessionIDNilReader(t *testing.T) {
-	if got := readHookSessionID(nil); got != "" {
+func TestHookSessionIDNilReader(t *testing.T) {
+	if got := hookSessionIDFrom(nil); got != "" {
 		t.Errorf("nil reader = %q, want empty", got)
 	}
 }
@@ -308,27 +319,72 @@ func TestRunAgentHookStateFireNoSessionIDNoChat(t *testing.T) {
 	}
 }
 
-func TestRunAgentHookStampTokenWritesChatOnly(t *testing.T) {
+func TestRunAgentHookStampTokenWritesChatAndIdle(t *testing.T) {
 	const uuid = "abc-123-def"
 	t.Setenv("TMUX_PANE", "%9")
 	rec := captureWrite(t)
 	chat := captureChat(t)
-	setHookStdin(t, `{"session_id":"`+uuid+`"}`)
-	// The walk seam must not even be consulted for a stamp-only fire (no agent-state).
+	setHookStdin(t, `{"session_id":"`+uuid+`","source":"startup"}`)
 	origComm := processCommFn
-	processCommFn = func(context.Context, int) string {
-		t.Fatal("stamp-only fire must not resolve an agent pid (no agent-state write)")
-		return ""
-	}
+	processCommFn = func(_ context.Context, _ int) string { return "claude" }
 	t.Cleanup(func() { processCommFn = origComm })
 
 	runAgentHook(context.Background(), "claude", agentHookStampToken)
 
-	if rec.called {
-		t.Error("the stamp token must NOT write @rk_agent_state")
+	// The stamp token's boot write: idle agent-state (the boot-ready signal),
+	// with the resolved pid, overwriting any stale state from a previous agent.
+	if !rec.called || rec.pane != "%9" || rec.state != agentStateIdle {
+		t.Errorf("boot write = (called=%v pane=%q state=%q), want (true, %%9, idle)", rec.called, rec.pane, rec.state)
+	}
+	if rec.pid <= 0 {
+		t.Errorf("pid = %d, want the resolved (>0) claude pid", rec.pid)
 	}
 	if !chat.called || chat.pane != "%9" || chat.provider != "claude" || chat.id != uuid {
 		t.Errorf("stamp chat = (called=%v pane=%q provider=%q id=%q), want (true, %%9, claude, %s)", chat.called, chat.pane, chat.provider, chat.id, uuid)
+	}
+}
+
+func TestRunAgentHookStampTokenBootWriteSources(t *testing.T) {
+	const uuid = "abc-123-def"
+	// The boot write fires on the session-begin sources and on a parsed payload
+	// with no source field; source=compact (mid-turn) and an unparseable payload
+	// withhold it — an idle write there could clobber a live active state.
+	cases := []struct {
+		name      string
+		payload   string
+		wantState bool
+	}{
+		{"startup", `{"session_id":"` + uuid + `","source":"startup"}`, true},
+		{"resume", `{"session_id":"` + uuid + `","source":"resume"}`, true},
+		{"clear", `{"session_id":"` + uuid + `","source":"clear"}`, true},
+		{"no source field", `{"session_id":"` + uuid + `"}`, true},
+		{"compact fires mid-turn — no idle write", `{"session_id":"` + uuid + `","source":"compact"}`, false},
+		{"unparseable payload — fail-safe", `not json`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("TMUX_PANE", "%9")
+			rec := captureWrite(t)
+			chat := captureChat(t)
+			setHookStdin(t, tc.payload)
+			origComm := processCommFn
+			processCommFn = func(_ context.Context, _ int) string { return "claude" }
+			t.Cleanup(func() { processCommFn = origComm })
+
+			runAgentHook(context.Background(), "claude", agentHookStampToken)
+
+			if rec.called != tc.wantState {
+				t.Errorf("state write = %v, want %v", rec.called, tc.wantState)
+			}
+			if rec.called && rec.state != agentStateIdle {
+				t.Errorf("state = %q, want idle", rec.state)
+			}
+			// The chat stamp keys on the session id alone — source never gates it.
+			wantChat := tc.payload != "not json"
+			if chat.called != wantChat {
+				t.Errorf("chat stamp = %v, want %v", chat.called, wantChat)
+			}
+		})
 	}
 }
 

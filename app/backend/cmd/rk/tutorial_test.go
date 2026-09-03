@@ -8,8 +8,8 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
+	"rk/internal/inject"
 	"rk/internal/riff"
 
 	"github.com/spf13/cobra"
@@ -19,22 +19,19 @@ import (
 // server. Every tmux invocation routes through the
 // tutorialRunFn/tutorialRunOutputFn seams, which the tests stub; the $TMUX
 // seam (tutorialOriginalTMUXFn) is stubbed likewise because the real
-// tmux.OriginalTMUX is fixed at package-init time. The suite must also pass
-// under `env -u TMUX -u TMUX_PANE go test ./cmd/rk/` (ambient-env false-green
-// guard) — no test may read the ambient tmux env.
+// tmux.OriginalTMUX is fixed at package-init time. The kickoff delivery routes
+// through the tutorialDeliverFn seam (the inject composite), stubbed with a
+// recorder. The suite must also pass under `env -u TMUX -u TMUX_PANE go test
+// ./cmd/rk/` (ambient-env false-green guard) — no test may read the ambient
+// tmux env.
 
 // tutorialTestSocket is the fake $TMUX the seam serves so every test runs the
 // inside-tmux path deterministically.
 const tutorialTestSocket = "/tmp/rk-test.sock,1234,0"
 
 // tutorialTestPane is the pane id the stubbed new-window prints; the delivery
-// sends/captures must target it.
+// must target it.
 const tutorialTestPane = "%42"
-
-// kickoffEchoScreen is a capture frame carrying the kickoff wrapped in a
-// bordered input box the way an agent TUI renders it — the echo check must see
-// through the wrapping.
-const kickoffEchoScreen = "╭──────────────╮\n│ > Run rk skill tutorial and   │\n│   follow it exactly           │\n╰──────────────╯\n"
 
 // tutorialCall is one recorded seam invocation: the tmux argv and the child
 // env it ran with.
@@ -43,48 +40,35 @@ type tutorialCall struct {
 	env  []string
 }
 
-// tutorialStub owns the stubbed seam state for one test: recorded calls, the
-// list-windows probe output, and the scripted capture-pane frames (consumed in
-// order; the last frame repeats once the script is exhausted).
+// tutorialStub owns the stubbed seam state for one test: recorded tmux calls,
+// the list-windows probe output, the launcher-resolution inputs, and the
+// recorded kickoff delivery.
 type tutorialStub struct {
 	calls      []tutorialCall
 	listOutput string
-	captures   []string
-	captureIdx int
 	repoRoot   string
 	tier       string
+
+	deliverErr   error
+	deliverCalls []tutorialDelivery
 }
 
-func (s *tutorialStub) nextCapture() string {
-	if len(s.captures) == 0 {
-		return ""
-	}
-	if s.captureIdx >= len(s.captures) {
-		return s.captures[len(s.captures)-1]
-	}
-	out := s.captures[s.captureIdx]
-	s.captureIdx++
-	return out
+// tutorialDelivery records one tutorialDeliverFn invocation.
+type tutorialDelivery struct {
+	server, paneID, text string
 }
 
-// stubTutorialSeams installs recording stubs for the tmux + launcher seams,
-// the inside-tmux $TMUX seam, and zeroed delivery pacing (no real sleeps; a
-// short real-clock deadline bounds the degrade paths). captures scripts the
-// capture-pane frames.
-func stubTutorialSeams(t *testing.T, listOutput string, captures []string) *tutorialStub {
+// stubTutorialSeams installs recording stubs for the tmux + launcher +
+// delivery seams and the inside-tmux $TMUX seam.
+func stubTutorialSeams(t *testing.T, listOutput string) *tutorialStub {
 	t.Helper()
-	s := &tutorialStub{listOutput: listOutput, captures: captures}
+	s := &tutorialStub{listOutput: listOutput}
 
 	origTMUX := tutorialOriginalTMUXFn
 	tutorialOriginalTMUXFn = func() string { return tutorialTestSocket }
 	origRun, origOut := tutorialRunFn, tutorialRunOutputFn
 	origResolve := tutorialResolveLauncherFn
-	origDeadline, origInterval, origSettle := tutorialDeliverDeadline, tutorialPollInterval, tutorialSubmitSettle
-	origSleep := tutorialSleepFn
-	tutorialDeliverDeadline = 2 * time.Second
-	tutorialPollInterval = 0
-	tutorialSubmitSettle = 0
-	tutorialSleepFn = func(time.Duration) {}
+	origDeliver := tutorialDeliverFn
 	tutorialRunFn = func(_ context.Context, args, env []string) error {
 		s.calls = append(s.calls, tutorialCall{args: args, env: env})
 		return nil
@@ -96,8 +80,6 @@ func stubTutorialSeams(t *testing.T, listOutput string, captures []string) *tuto
 			return []byte(s.listOutput), nil
 		case "new-window":
 			return []byte(tutorialTestPane + "\n"), nil
-		case "capture-pane":
-			return []byte(s.nextCapture()), nil
 		}
 		return nil, fmt.Errorf("unexpected RunOutput verb %q", args[0])
 	}
@@ -106,32 +88,17 @@ func stubTutorialSeams(t *testing.T, listOutput string, captures []string) *tuto
 		s.tier = tr
 		return riff.DefaultLauncher
 	}
+	tutorialDeliverFn = func(_ context.Context, _ *inject.Engine, _ inject.Tmux, server, paneID, text string) (inject.Readiness, error) {
+		s.deliverCalls = append(s.deliverCalls, tutorialDelivery{server: server, paneID: paneID, text: text})
+		return inject.ReadyBySettle, s.deliverErr
+	}
 	t.Cleanup(func() {
 		tutorialOriginalTMUXFn = origTMUX
 		tutorialRunFn, tutorialRunOutputFn = origRun, origOut
 		tutorialResolveLauncherFn = origResolve
-		tutorialDeliverDeadline, tutorialPollInterval, tutorialSubmitSettle = origDeadline, origInterval, origSettle
-		tutorialSleepFn = origSleep
+		tutorialDeliverFn = origDeliver
 	})
 	return s
-}
-
-// happyCaptures is a capture script that walks the whole delivery: one boot
-// frame, the same frame again (settle), the kickoff echo, then a changed
-// screen (submitted).
-func happyCaptures() []string {
-	return []string{"boot screen", "boot screen", kickoffEchoScreen, "transcript: working…"}
-}
-
-// sendCalls filters the recorded calls down to the send-keys argvs (joined).
-func sendCalls(s *tutorialStub) []string {
-	var out []string
-	for _, c := range s.calls {
-		if c.args[0] == "send-keys" {
-			out = append(out, strings.Join(c.args, " "))
-		}
-	}
-	return out
 }
 
 func tutorialTestCmd() (*cobra.Command, *bytes.Buffer, *bytes.Buffer) {
@@ -153,7 +120,7 @@ func resetTutorialTier(t *testing.T) {
 // Outside tmux the command fails as an operational error (exit 1) with
 // dashboard-pointing guidance and runs zero tmux subprocesses.
 func TestTutorialOutsideTmuxErrors(t *testing.T) {
-	s := stubTutorialSeams(t, "", nil)
+	s := stubTutorialSeams(t, "")
 	origTMUX := tutorialOriginalTMUXFn
 	tutorialOriginalTMUXFn = func() string { return "" }
 	t.Cleanup(func() { tutorialOriginalTMUXFn = origTMUX })
@@ -199,7 +166,7 @@ func TestTutorialTierPlumbing(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tutorialTierFlag = tc.flagValue
-			s := stubTutorialSeams(t, "@3\tother\n", happyCaptures())
+			s := stubTutorialSeams(t, "@3\tother\n")
 			cmd, _, _ := tutorialTestCmd()
 			if err := runTutorial(cmd); err != nil {
 				t.Fatalf("runTutorial() = %v", err)
@@ -215,7 +182,7 @@ func TestTutorialTierPlumbing(t *testing.T) {
 // riff CLI's own derivation; empty tolerated outside a repo).
 func TestTutorialLauncherRepoRoot(t *testing.T) {
 	resetTutorialTier(t)
-	s := stubTutorialSeams(t, "@3\tother\n", happyCaptures())
+	s := stubTutorialSeams(t, "@3\tother\n")
 	cmd, _, _ := tutorialTestCmd()
 	if err := runTutorial(cmd); err != nil {
 		t.Fatalf("runTutorial() = %v", err)
@@ -242,29 +209,6 @@ func TestTutorialBareLauncherComposition(t *testing.T) {
 	}
 	if strings.Contains(got, "tutorial") {
 		t.Errorf("bare composition %q must not embed the kickoff prompt", got)
-	}
-}
-
-// The echo check sees the kickoff through TUI wrapping (borders, line breaks)
-// and rejects screens without it.
-func TestPaneEchoesKickoff(t *testing.T) {
-	cases := []struct {
-		name string
-		in   string
-		want bool
-	}{
-		{"wrapped in input box", kickoffEchoScreen, true},
-		{"verbatim", tutorialKickoffPrompt, true},
-		{"absent", "│ > │\nwelcome to the agent\n", false},
-		{"partial only", "Run rk skill tutorial", false},
-		{"empty", "", false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := paneEchoesKickoff(tc.in); got != tc.want {
-				t.Errorf("paneEchoesKickoff(%q) = %v, want %v", tc.in, got, tc.want)
-			}
-		})
 	}
 }
 
@@ -296,10 +240,11 @@ func TestFindTutorialWindowID(t *testing.T) {
 }
 
 // An existing exact-name tutorial window in the current session is selected by
-// its @N id — no new window is created, and the switch is reported.
+// its @N id — no new window is created, no delivery runs, and the switch is
+// reported.
 func TestTutorialSelectsExistingWindow(t *testing.T) {
 	resetTutorialTier(t)
-	s := stubTutorialSeams(t, "@3\tother\n@7\ttutorial\n", nil)
+	s := stubTutorialSeams(t, "@3\tother\n@7\ttutorial\n")
 	cmd, outBuf, _ := tutorialTestCmd()
 	if err := runTutorial(cmd); err != nil {
 		t.Fatalf("runTutorial() = %v", err)
@@ -319,6 +264,9 @@ func TestTutorialSelectsExistingWindow(t *testing.T) {
 			t.Errorf("call %d env lacks restored TMUX=%s", i, tutorialTestSocket)
 		}
 	}
+	if len(s.deliverCalls) != 0 {
+		t.Errorf("deliveries = %v, want none when returning to an existing tab", s.deliverCalls)
+	}
 	if got := outBuf.String(); got != "Switched to existing tutorial tab.\n" {
 		t.Errorf("stdout = %q, want the switch report", got)
 	}
@@ -326,12 +274,12 @@ func TestTutorialSelectsExistingWindow(t *testing.T) {
 
 // With no tutorial window in the current session, a new window opens at the
 // process cwd running the BARE launcher, the pane id is captured, and the
-// typed delivery lands: literal kickoff, echo verified, Enter submitted. No
-// degrade note is printed on the happy path.
+// kickoff is delivered through the inject composite targeting that pane on the
+// caller's server. No degrade note is printed on the happy path.
 func TestTutorialOpensNewWindowAndDeliversKickoff(t *testing.T) {
 	resetTutorialTier(t)
 	tutorialTierFlag = "fast"
-	s := stubTutorialSeams(t, "@3\tother\n", happyCaptures())
+	s := stubTutorialSeams(t, "@3\tother\n")
 	cmd, outBuf, errBuf := tutorialTestCmd()
 	if err := runTutorial(cmd); err != nil {
 		t.Fatalf("runTutorial() = %v", err)
@@ -358,12 +306,15 @@ func TestTutorialOpensNewWindowAndDeliversKickoff(t *testing.T) {
 		t.Errorf("new-window argv =\n  %v\nwant\n  %v", newWindow, wantNewWindow)
 	}
 
-	wantSends := []string{
-		"send-keys -t " + tutorialTestPane + " -l " + tutorialKickoffPrompt,
-		"send-keys -t " + tutorialTestPane + " Enter",
+	if len(s.deliverCalls) != 1 {
+		t.Fatalf("deliveries = %v, want exactly one", s.deliverCalls)
 	}
-	if got := sendCalls(s); strings.Join(got, "\n") != strings.Join(wantSends, "\n") {
-		t.Errorf("send-keys calls =\n  %v\nwant\n  %v", got, wantSends)
+	d := s.deliverCalls[0]
+	if d.paneID != tutorialTestPane || d.text != tutorialKickoffPrompt {
+		t.Errorf("delivery = (pane %q, text %q), want (%s, the kickoff prompt)", d.paneID, d.text, tutorialTestPane)
+	}
+	if d.server != "rk-test.sock" {
+		t.Errorf("delivery server = %q, want the $TMUX socket basename %q", d.server, "rk-test.sock")
 	}
 
 	out := outBuf.String()
@@ -375,45 +326,13 @@ func TestTutorialOpensNewWindowAndDeliversKickoff(t *testing.T) {
 	}
 }
 
-// A swallowed Enter (pane byte-identical after the settle wait) is retried
-// exactly once; the retry's changed screen completes the delivery.
-func TestTutorialEnterRetryOnUnchangedPane(t *testing.T) {
-	resetTutorialTier(t)
-	s := stubTutorialSeams(t, "@3\tother\n", []string{
-		"boot screen", "boot screen", // settle
-		kickoffEchoScreen,      // echo verified
-		kickoffEchoScreen,      // after Enter 1: unchanged — swallowed
-		"transcript: working…", // after Enter 2: submitted
-	})
-	cmd, _, errBuf := tutorialTestCmd()
-	if err := runTutorial(cmd); err != nil {
-		t.Fatalf("runTutorial() = %v", err)
-	}
-	got := sendCalls(s)
-	wantSends := []string{
-		"send-keys -t " + tutorialTestPane + " -l " + tutorialKickoffPrompt,
-		"send-keys -t " + tutorialTestPane + " Enter",
-		"send-keys -t " + tutorialTestPane + " Enter",
-	}
-	if strings.Join(got, "\n") != strings.Join(wantSends, "\n") {
-		t.Errorf("send-keys calls =\n  %v\nwant type + Enter + one retry:\n  %v", got, wantSends)
-	}
-	if errBuf.Len() != 0 {
-		t.Errorf("stderr = %q, want empty when the retry lands", errBuf.String())
-	}
-}
-
-// When the delivery cannot be verified (here: the echo never appears), the
-// command still succeeds — the window exists — and stderr carries the
+// When the delivery fails (readiness deadline, probe failure, …), the command
+// still succeeds — the window exists — and stderr carries the
 // paste-it-yourself note with the exact kickoff text.
 func TestTutorialDeliveryDegradesToPasteNote(t *testing.T) {
 	resetTutorialTier(t)
-	origDeadline := tutorialDeliverDeadline
-	s := stubTutorialSeams(t, "@3\tother\n", []string{"boot screen", "boot screen", "still no echo"})
-	// Shrink the real-clock budget further: the echo poll busy-loops (zeroed
-	// sleeps) until the deadline passes.
-	tutorialDeliverDeadline = 50 * time.Millisecond
-	t.Cleanup(func() { tutorialDeliverDeadline = origDeadline })
+	s := stubTutorialSeams(t, "@3\tother\n")
+	s.deliverErr = inject.ErrNotReady
 
 	cmd, outBuf, errBuf := tutorialTestCmd()
 	if err := runTutorial(cmd); err != nil {
@@ -425,16 +344,11 @@ func TestTutorialDeliveryDegradesToPasteNote(t *testing.T) {
 	if !strings.Contains(errBuf.String(), tutorialKickoffPrompt) {
 		t.Errorf("stderr = %q, want the paste-it-yourself note carrying the kickoff text", errBuf.String())
 	}
-	// The type happened; Enter never did (echo was never verified).
-	got := sendCalls(s)
-	if len(got) != 1 || !strings.HasSuffix(got[0], tutorialKickoffPrompt) {
-		t.Errorf("send-keys calls = %v, want only the literal type", got)
-	}
 }
 
 // A failing list-windows probe is a subprocess-class (exit 3) error.
 func TestTutorialListWindowsFailure(t *testing.T) {
-	s := stubTutorialSeams(t, "", nil)
+	s := stubTutorialSeams(t, "")
 	origOut := tutorialRunOutputFn
 	tutorialRunOutputFn = func(_ context.Context, _, _ []string) ([]byte, error) {
 		return nil, fmt.Errorf("boom")

@@ -1,16 +1,155 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { cleanup } from "@testing-library/react";
-import { prOwnsGlyph, prGlyphColor, PR_STATE_COLORS } from "./pr-status-model";
+import { prOwnsGlyph, prGlyphColor, PR_STATE_COLORS, statusDotState, fabPhase } from "./pr-status-model";
 import { makeWindow } from "@/test-utils/fixtures";
-
-// NOTE (260715-jykd): the `PrStatusLine` component (and its render tests) were
-// retired — it had zero live mount sites. This module exercises the RETAINED
-// exports of pr-status-model.ts. (The `prDotState` five-state enum was retired
-// too — its only live read collapsed into `prGlyphColor`'s `isFailish` branch,
-// so precedence coverage lives on the `prGlyphColor` suite below.)
 
 afterEach(() => {
   cleanup();
+});
+
+// Compositional vocabulary (status-pyramid.md): two families joined at the
+// top. Hue = phase; shape = LIVENESS derived per family (journey hues read the
+// rolled-up agentState ONLY — solid iff "active"; the output-flowing L0
+// fallback is the gray floor's alone); `failed` and `waiting` are additive
+// overlay flags. The dot tells the LOCAL story only — PR state never owns the
+// dot (it lives on the row glyph).
+describe("statusDotState — two-family ladder, shape = liveness", () => {
+  it("PR eviction: a change-bound window with a merged PR renders the FAB arm, never a PR phase", () => {
+    const state = statusDotState(
+      makeWindow({ fabChange: "260615-x", fabStage: "apply", prNumber: 7, prState: "merged" }),
+    );
+    expect(state).toEqual({ phase: "building", shape: "ring", failed: false, waiting: false });
+  });
+
+  it("fab building: intake/apply/review (no PR consulted) → blue", () => {
+    for (const stage of ["intake", "apply", "review"]) {
+      const state = statusDotState(
+        makeWindow({ fabChange: "260615-x", fabStage: stage, fabDisplayState: "active" }),
+      );
+      expect(state).toEqual({ phase: "building", shape: "ring", failed: false, waiting: false });
+    }
+  });
+
+  it("fab PR-ready: ship/review-pr/done → green (the two-stop split)", () => {
+    for (const stage of ["ship", "review-pr", "done"]) {
+      const state = statusDotState(
+        makeWindow({ fabChange: "260615-x", fabStage: stage, fabDisplayState: "active" }),
+      );
+      expect(state).toEqual({ phase: "prReady", shape: "ring", failed: false, waiting: false });
+    }
+  });
+
+  it("fab hue + live agent (agentState active) → solid in the stage hue", () => {
+    const state = statusDotState(
+      makeWindow({ fabChange: "260615-x", fabStage: "apply", fabDisplayState: "active", agentState: "active" }),
+    );
+    expect(state).toEqual({ phase: "building", shape: "solid", failed: false, waiting: false });
+  });
+
+  it("the stale-active case: a stage-active fab window with an idle agent renders a RING", () => {
+    const state = statusDotState(
+      makeWindow({ fabChange: "260615-x", fabStage: "ship", fabDisplayState: "active", agentState: "idle" }),
+    );
+    expect(state).toEqual({ phase: "prReady", shape: "ring", failed: false, waiting: false });
+  });
+
+  it("flowing output never makes a journey hue solid (L0 is the floor's alone)", () => {
+    const state = statusDotState(
+      makeWindow({ fabChange: "260615-x", fabStage: "apply", fabDisplayState: "active", activity: "active" }),
+    );
+    expect(state.shape).toBe("ring");
+  });
+
+  it("parked-done change → green resting ring", () => {
+    const state = statusDotState(
+      makeWindow({ fabChange: "260615-x", fabStage: "review-pr", fabDisplayState: "done" }),
+    );
+    expect(state).toEqual({ phase: "prReady", shape: "ring", failed: false, waiting: false });
+  });
+
+  it("failed displayState → the additive failed flag, composed with EITHER shape", () => {
+    expect(
+      statusDotState(
+        makeWindow({ fabChange: "x", fabStage: "review", fabDisplayState: "failed", agentState: "active" }),
+      ),
+    ).toEqual({ phase: "building", shape: "solid", failed: true, waiting: false });
+    expect(
+      statusDotState(
+        makeWindow({ fabChange: "x", fabStage: "review", fabDisplayState: "failed", agentState: "idle" }),
+      ),
+    ).toEqual({ phase: "building", shape: "ring", failed: true, waiting: false });
+    expect(
+      statusDotState(
+        makeWindow({ fabChange: "x", fabStage: "review-pr", fabDisplayState: "failed" }),
+      ),
+    ).toEqual({ phase: "prReady", shape: "ring", failed: true, waiting: false });
+  });
+
+  it("skipped displayState: NOT a fab-owned dot — falls through to the gray floor", () => {
+    const state = statusDotState(
+      makeWindow({ fabChange: "260615-x", fabStage: "apply", fabDisplayState: "skipped", activity: "idle" }),
+    );
+    expect(state).toEqual({ phase: "none", shape: "ring", waiting: false });
+  });
+
+  it("skipped displayState with a fresh agent: the ladder continues to the agent arm", () => {
+    const state = statusDotState(
+      makeWindow({ fabChange: "260615-x", fabStage: "apply", fabDisplayState: "skipped", agentState: "active" }),
+    );
+    expect(state).toEqual({ phase: "agent", shape: "solid", waiting: false });
+  });
+
+  it("ad-hoc agent active → yellow solid (warm family)", () => {
+    const state = statusDotState(makeWindow({ agentState: "active" }));
+    expect(state).toEqual({ phase: "agent", shape: "solid", waiting: false });
+  });
+
+  it("ad-hoc agent idle → yellow ring", () => {
+    const state = statusDotState(makeWindow({ agentState: "idle" }));
+    expect(state).toEqual({ phase: "agent", shape: "ring", waiting: false });
+  });
+
+  it("ad-hoc agent with a PR → still the yellow agent arm (no agentPr phase)", () => {
+    const state = statusDotState(makeWindow({ agentState: "active", prNumber: 9, prState: "open", prChecks: "pass" }));
+    expect(state).toEqual({ phase: "agent", shape: "solid", waiting: false });
+  });
+
+  it("floor: no fab change, no fresh agent — monochrome tmux activity (solid for active)", () => {
+    const state = statusDotState(makeWindow({ activity: "active" }));
+    expect(state).toEqual({ phase: "none", shape: "solid", waiting: false });
+  });
+
+  it("floor: idle → gray ring", () => {
+    const state = statusDotState(makeWindow({ activity: "idle" }));
+    expect(state).toEqual({ phase: "none", shape: "ring", waiting: false });
+  });
+
+  it("a prNumber with NO fab change and NO fresh agent stays on the gray floor (the glyph carries the PR)", () => {
+    const state = statusDotState(makeWindow({ prNumber: 7, prState: "open", activity: "idle" }));
+    expect(state).toEqual({ phase: "none", shape: "ring", waiting: false });
+  });
+
+  it("waiting is additive AND at rest: ring base + waiting flag on every tier", () => {
+    // fab intake + waiting → blue ring, waiting flag set.
+    expect(statusDotState(makeWindow({ fabChange: "x", fabStage: "intake", fabDisplayState: "active", agentState: "waiting" })))
+      .toEqual({ phase: "building", shape: "ring", failed: false, waiting: true });
+    // fab review failed + waiting → blue ring + failed flag + halo.
+    expect(statusDotState(makeWindow({ fabChange: "x", fabStage: "review", fabDisplayState: "failed", agentState: "waiting" })))
+      .toEqual({ phase: "building", shape: "ring", failed: true, waiting: true });
+    // ad-hoc waiting → yellow ring (blocked is at rest), waiting flag set.
+    expect(statusDotState(makeWindow({ agentState: "waiting" })))
+      .toEqual({ phase: "agent", shape: "ring", waiting: true });
+  });
+});
+
+describe("fabPhase — the two-stop split (stage-based, never PR-based)", () => {
+  it.each([
+    { stages: ["intake", "apply", "review"], want: "building" },
+    { stages: ["ship", "review-pr", "done"], want: "prReady" },
+    { stages: ["hydrate", "paused", undefined], want: "prReady" },
+  ] as const)("maps $stages to $want", ({ stages, want }) => {
+    for (const stage of stages) expect(fabPhase(stage)).toBe(want);
+  });
 });
 
 // aqo6 → xuej: `prOwnsDot` renamed `prOwnsGlyph` — after PR eviction the

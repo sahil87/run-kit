@@ -1,13 +1,9 @@
 import type { WindowInfo } from "@/types";
 
-// NOTE (260715-jykd): the `PrStatusLine` dashboard component was retired here —
-// it had zero live mount sites and was the sole consumer of the old
-// POST /api/pr-status/refresh endpoint (now POST /api/status/refresh). Its
-// PR-specific helpers (stateGlyph/summarySegments) went with it. This module is
-// RETAINED as the single source of truth for the shared PR color vocabulary
+// This module is the single source of truth for the shared PR color vocabulary
 // (PR_STATE_COLORS/PR_CHECKS_COLORS/PR_REVIEW_COLORS) AND the lifecycle
-// status-dot model (statusDotState/fabPhase/fabShape/PHASE_HUE/...) —
-// both still imported by status-dot.tsx, status-dot-label.ts, the register
+// status-dot model (statusDotState/fabPhase/PHASE_HUE/...) —
+// both imported by status-dot.tsx, status-dot-label.ts, the register
 // module (sidebar/registers.ts), the sidebar row (window-row.tsx — rest PR
 // glyph gate/color), the session tiles (session-tiles.tsx — same glyph), and
 // the row flyout card (sidebar/row-flyout-card.tsx).
@@ -49,24 +45,27 @@ export const PR_REVIEW_COLORS: Record<string, string> = {
 
 /**
  * Lifecycle status-dot model (compositional vocabulary — status-pyramid.md) —
- * TWO orthogonal axes plus an additive attention overlay:
+ * TWO orthogonal axes plus two additive overlay flags:
  *   - `phase` → CORE HUE (which journey + position in it)
- *   - `shape` → STATUS (health — the SAME meaning in every hue)
+ *   - `shape` → LIVENESS (work happening NOW vs at rest — the SAME meaning in
+ *     every hue)
+ *   - `failed` → FAILURE overlay (additive red center over either shape; the
+ *     only dot-red)
  *   - `waiting` → ATTENTION overlay (additive constant-yellow halo; NEVER
- *     touches core hue/shape). See status-dot.tsx for the halo rendering.
+ *     touches core hue/shape). See status-dot.tsx for both overlays' rendering.
  *
  * The dot tells the LOCAL story only (what runs in this pane: which journey,
- * is it healthy, does it need me). The REMOTE story — the branch's PR on
- * GitHub — lives on the row's rest-state PR glyph (`prOwnsGlyph` /
- * `prGlyphColor`), never on the dot. The core hue + shape are owned by two
- * ladders joined at the top — first precondition wins:
+ * is anyone working, did the pipeline fail here, does it need me). The REMOTE
+ * story — the branch's PR on GitHub — lives on the row's rest-state PR glyph
+ * (`prOwnsGlyph` / `prGlyphColor`), never on the dot. The core hue + shape are
+ * owned by two ladders joined at the top — first precondition wins:
  *   fabChange ?  (stage ∈ {intake,apply,review} ? blue-building : green-prReady)
  *             :  (fresh agentState ? yellow agent : gray floor)
  * The glance rule: blue = still cooking, green = out the door / done,
  * yellow core = my ad-hoc agents, gray = just a terminal, yellow HALO = needs
- * me now.
+ * me now, red CENTER = the pipeline failed here.
  */
-export type DotShape = "ring" | "solid" | "failed";
+export type DotShape = "ring" | "solid";
 
 /**
  * Compositional phase model (status-pyramid.md § The Channel Model). Four hues:
@@ -81,7 +80,13 @@ export type DotPhase = "building" | "prReady" | "agent" | "none";
 
 export type StatusDotState = {
   phase: DotPhase; // → core hue
-  shape: DotShape; // → shape
+  shape: DotShape; // → liveness shape
+  /** Failure overlay: when true, an additive red center flags the dot over
+   *  either shape (inside the hollow ring at rest; as a bullseye — dark gap
+   *  ring cut between fill and center — over solid, so failure is never
+   *  color alone). Set iff the window is fab-owned and
+   *  `fabDisplayState === "failed"`. */
+  failed?: boolean;
   /** Attention overlay: when true, an additive constant-yellow halo wraps the
    *  dot (core hue + shape untouched). Set from the window's rolled-up
    *  `agentState === "waiting"`. Ladder-exempt — overlays any tier. */
@@ -102,30 +107,6 @@ export function fabPhase(stage: string | undefined): DotPhase {
 }
 
 /**
- * fabDisplayState → shape. `done` maps to `ring` — a parked-done change is
- * RESTING (journey complete), so it shares the at-rest ring; its green hue says
- * "done", the merged glyph (if any) says how it ended. An unknown/absent
- * display-state on a fab window defaults to `solid` — a live fab window with a
- * future/unrecognized state should still read as a live dot, not vanish.
- * A `skipped` display-state never reaches here — `statusDotState` treats a
- * skipped change as not fab-owned (ladder fall-through).
- */
-export function fabShape(displayState: string | undefined): DotShape {
-  switch (displayState) {
-    case "pending":
-      return "ring";
-    case "failed":
-      return "failed";
-    case "done":
-      return "ring";
-    case "active":
-    case "ready":
-    default:
-      return "solid";
-  }
-}
-
-/**
  * phase → core-hue token (compositional vocabulary, status-pyramid.md § The
  * Channel Model). Four hues: blue building → green PR-ready (cool fab), yellow
  * ad-hoc agent (warm), gray floor. `text-purple-400`/`text-orange-400` are
@@ -141,11 +122,12 @@ export const PHASE_HUE: Record<DotPhase, string> = {
 };
 
 /**
- * Is there a fresh agent on this window? #314 clears stale/shell-reconciled
- * values server-side (the reconciler treats a plain-shell pane as no-agent and
- * the rollup omits it), so a non-empty rolled-up `agentState` on the window IS
- * fresh — no client-side staleness heuristic is needed. `waiting` is a valid
- * fresh state too (it maps to a yellow SOLID core + the additive halo).
+ * Is there a fresh agent on this window? Stale/shell-reconciled values are
+ * cleared server-side (the reconciler treats a plain-shell pane as no-agent
+ * and the rollup omits it), so a non-empty rolled-up `agentState` on the
+ * window IS fresh — no client-side staleness heuristic is needed. `waiting`
+ * is a valid fresh state too (it maps to a ring under the additive halo —
+ * blocked is at rest).
  */
 function hasFreshAgent(win: WindowInfo): boolean {
   return win.agentState === "active" || win.agentState === "waiting" || win.agentState === "idle";
@@ -224,12 +206,29 @@ export function prGlyphColor(win: WindowInfo): string {
 
 /**
  * Two ladders joined at the top (status-pyramid.md § The Tier Ladder). First
- * precondition wins for the CORE hue + shape; `waiting` is an additive overlay
- * computed independently (ladder-exempt).
+ * precondition wins for the CORE hue; SHAPE is liveness, derived per family;
+ * `failed` and `waiting` are additive overlay flags computed independently
+ * (ladder-exempt).
  *
  *   fabChange ?  (stage ∈ {intake,apply,review} ? blue-building : green-prReady,
- *                 shape by fabDisplayState)
- *             :  (fresh agent ? yellow (solid mid-turn / ring idle) : gray floor)
+ *                 shape by agent liveness, failed flag by fabDisplayState)
+ *             :  (fresh agent ? yellow (solid mid-turn / ring at rest)
+ *                             : gray floor, shape by tmux activity)
+ *
+ * SHAPE = LIVENESS, per family (the L0 output fallback is the floor's ALONE —
+ * flowing output in a fab worktree must not render a journey hue solid):
+ *   - journey hues (fab blue/green, ad-hoc yellow): `solid` iff the rolled-up
+ *     `agentState === "active"` (mid-turn). `waiting`, `idle`, and absent all
+ *     yield `ring` — a waiting agent is blocked, therefore at rest.
+ *   - floor (gray): `activity === "active"` → solid, else ring (unchanged).
+ * `agentState` is PID-reconciled server-side, so a solid cannot outlive its
+ * process — but solid is not proof of progress (a wedged live agent stays
+ * solid until the reserved `stuck` overlay exists).
+ *
+ * FAILED = an additive overlay flag, not a shape: `failed` is true iff the
+ * window is fab-owned with `fabDisplayState === "failed"`. It composes with
+ * either shape — ring + red center = "failed, nobody on it — act"; solid +
+ * red center (bullseye) = "failed, rework live". This is the ONLY dot-red.
  *
  * NO PR BRANCH: the dot tells the local story only — a window's PR (open,
  * failing, merged, whatever) never owns the dot in any family. The remote
@@ -243,13 +242,20 @@ export function prGlyphColor(win: WindowInfo): string {
 export function statusDotState(win: WindowInfo): StatusDotState {
   const waiting = win.agentState === "waiting";
   if (win.fabChange && win.fabDisplayState !== "skipped") {
-    // Cool family — fab pipeline: blue building → green PR-ready.
-    return { phase: fabPhase(win.fabStage), shape: fabShape(win.fabDisplayState), waiting };
+    // Cool family — fab pipeline: blue building → green PR-ready. Shape is
+    // agent liveness; the failed flag is the one thing fabDisplayState still
+    // contributes besides the skipped gate above.
+    return {
+      phase: fabPhase(win.fabStage),
+      shape: win.agentState === "active" ? "solid" : "ring",
+      failed: win.fabDisplayState === "failed",
+      waiting,
+    };
   }
   if (hasFreshAgent(win)) {
-    // Warm family — ad-hoc agent.
-    // A waiting/active agent is mid-turn → solid; only a resting `idle` agent is a ring.
-    return { phase: "agent", shape: win.agentState === "idle" ? "ring" : "solid", waiting };
+    // Warm family — ad-hoc agent: solid mid-turn (`active`); `waiting` and
+    // `idle` are both at rest (ring).
+    return { phase: "agent", shape: win.agentState === "active" ? "solid" : "ring", waiting };
   }
   // L0 floor — no fab change, no fresh agent: monochrome tmux activity.
   return { phase: "none", shape: win.activity === "active" ? "solid" : "ring", waiting };

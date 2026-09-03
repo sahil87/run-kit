@@ -128,7 +128,7 @@ test.describe("Agent: Next waiting palette action", () => {
    * 1. Emulate reduced motion; mock the backend with @2 waiting; navigate to
    *    /default/1.
    * 2. Locate the waiting window's status dot by its composed aria-label
-   *    (`agent — active — agent waiting 3m`) and assert it carries the
+   *    (`agent — idle — agent waiting 3m`) and assert it carries the
    *    `rk-waiting-halo` class.
    * 3. Assert its computed `animation-name` is `none` (no pulse).
    * 4. Assert its computed `box-shadow` is non-empty (the static ring still
@@ -139,9 +139,9 @@ test.describe("Agent: Next waiting palette action", () => {
     await mockBackend(page, true);
     await page.goto(`/${SERVER}/1`);
 
-    // The waiting window's dot (agentState "waiting" → solid agent shape + the
-    // additive halo). Located by its composed aria-label.
-    const halo = page.getByRole("img", { name: "agent — active — agent waiting 3m" });
+    // The waiting window's dot (agentState "waiting" → the at-rest ring shape
+    // + the additive halo). Located by its composed aria-label.
+    const halo = page.getByRole("img", { name: "agent — idle — agent waiting 3m" });
     await expect(halo).toBeVisible({ timeout: 5_000 });
     await expect(halo).toHaveClass(/rk-waiting-halo/);
 

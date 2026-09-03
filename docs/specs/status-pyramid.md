@@ -9,7 +9,7 @@
 > Companions: [`agent-state.md`](agent-state.md) defines the `@rk_pane_agent_state`
 > convention this spec consumes (states, staleness, reconciler, rollup);
 > the dot's shape/hue rendering vocabulary lives in `status-dot.tsx` /
-> `pr-status-model.ts` (`statusDotState`, `PHASE_HUE`, `fabShape`,
+> `pr-status-model.ts` (`statusDotState`, `PHASE_HUE`,
 > `prOwnsGlyph`/`prGlyphColor` for the row's PR glyph channel).
 
 ---
@@ -30,8 +30,9 @@ display-precedence ladder built on them.
 Two orthogonal *axes* run across these layers:
 
 - **Journey** (where is this work): L2 stage → L3 PR. Encoded in **hue + shape**.
-- **Attention** (does this need a human *now*): L1 `waiting` (and, future, "stuck").
-  Encoded in **animation** — never in hue or shape.
+- **Attention & flags** (does this need a human *now* / did the pipeline fail
+  here): L1 `waiting` (and, future, "stuck"); L2 `failed`. Encoded as
+  **additive overlays** — never in hue or shape.
 
 ### Why L0 exists (and what it no longer does)
 
@@ -65,23 +66,35 @@ output. Not v1.
 | Channel | Carries | Vocabulary |
 |---------|---------|------------|
 | Core hue **[current — compositional vocabulary]** | which journey + position in it (the LOCAL story) | **cool = fab pipeline**: blue (building — intake·apply·review) → green (PR-ready/done — ship·review-pr·done) · **warm = ad-hoc agent**: yellow · gray = floor (no agent, no journey). Purple/orange are retired from the dot |
-| Shape | health/status of the owning tier — the SAME meaning in every hue | solid (running/live) · ring (at rest — stage pending · parked done · idle agent · quiet shell) · failed (dotted ring + red center) |
+| Shape | **liveness** — the SAME meaning in every hue | solid (**work happening NOW** — agent mid-turn; floor: output flowing) · ring (**at rest** — no live worker · idle agent · waiting agent · parked done · quiet shell). Per-family source: journey hues read the rolled-up `agentState` only (absent/stale ⇒ ring); the L0 output fallback is the floor's alone |
 | PR glyph **[current]** | the REMOTE story — the branch's PR on GitHub; never the dot | right-edge git-pull-request glyph, six states via `prGlyphColor`: red closed (✕ icon) > purple merged > red failing > gray open-draft (dotted-rail icon) > yellow checks-running > green open; gated on `prOwnsGlyph` (owned PR: open/merged/closed), un-family-gated |
-| Animation **[current]** | attention — **additive, never destructive** | constant-**yellow** pulsing halo = `waiting`, over any tier; core hue AND shape are kept. (future) slow-pulse halo = stuck. No halo = no attention needed |
+| Overlays **[current]** | attention + failure — TWO **additive** flags, never destructive, never a tier | constant-**yellow** pulsing halo = `waiting`, over any tier (blocked is at rest: the halo wraps a ring) · **red center** = `failed` (fab `fabDisplayState === "failed"` — the only dot-red), over either shape: inside the hollow ring at rest, as a **bullseye** (dark gap ring) over solid so failure changes the silhouette, never color alone; flagged dots keep the 9px footprint. (future) slow-pulse halo = stuck. No overlay = no flag |
 | Duration text | how long in the current resting state | `waiting Xm` (attention token) · `idle Xm` · tmux elapsed |
-| Hover card (row flyout) | full detail | hue-word + status-word label, the four registers, PR link, docs link |
+| Hover card (row flyout) | full detail | hue-word + liveness-word label + flags, the four registers, PR link, docs link |
 | Rollup badges **[current]** | attention counts up the hierarchy | session row → server tile → board header |
 
 **Compositional vocabulary — split by story, not by precedence.** The **dot
-tells the local story** (what runs in this pane: which journey, is it healthy,
-does it need me) and the **glyph tells the remote story** (the branch's PR on
-GitHub). Four hues × three shapes, and shape means the same thing in every hue
-— fully compositional, no per-cell captions. The fab hue is a **two-stop
-progress bar, not a stage map**: blue = building (pre-PR work), green =
-PR-ready/landed/done ("still cooking vs out the door" at a glance); the exact
-stage lives in the `fab` register. The glance rule: cool core = my pipeline,
-warm core = my ad-hoc agents, gray = just a terminal, **yellow glow = needs me
-now**.
+tells the local story** (what runs in this pane: which journey, is anyone
+working, did the pipeline fail here, does it need me) and the **glyph tells
+the remote story** (the branch's PR on GitHub). Four hues × two shapes, plus
+two additive overlay flags (waiting halo · failed red center), and shape means
+the same thing in every hue — fully compositional, no per-cell captions. The
+fab hue is a **two-stop progress bar, not a stage map**: blue = building
+(pre-PR work), green = PR-ready/landed/done ("still cooking vs out the door"
+at a glance); the exact stage lives in the `fab` register. The glance rule:
+cool core = my pipeline, warm core = my ad-hoc agents, gray = just a terminal,
+**yellow glow = needs me now**, **red center = my pipeline failed here**.
+
+> **Superseded — aqo6 shape channel (260810-aqo6, shape half only).** The
+> compositional-vocabulary change shipped shape = pipeline *health* from
+> `fabDisplayState` bookkeeping (three shapes: solid / ring / failed dotted
+> ring), so a stage marked `active` rendered a solid "work happening" dot even
+> when its agent had been idle for hours. The liveness rework ties shape to
+> the PID-reconciled `agentState` (solid cannot outlive its process) and
+> decomposes the third `failed` shape into the additive red-center overlay.
+> aqo6's other halves stand unchanged: the PR eviction to the glyph, the
+> two-family hue ladder, and the additive waiting halo. Palette v3's
+> supersession (below) is kept for the record.
 
 > **Superseded — palette v3 (260706-y1ar).** The prior palette packed 6 hues ×
 > 5 shapes: the PR owned the dot per family (purple = fab PR, orange = agent
@@ -115,14 +128,17 @@ it no longer exists once fab collapses to blue/green).
 
 ## The Tier Ladder (dot ownership)
 
-The dot's core hue + shape are owned by **two ladders joined at the top** —
-first precondition wins **[current — compositional vocabulary]**. No PR branch
-exists anywhere in the ladder:
+The dot's core hue is owned by **two ladders joined at the top** — first
+precondition wins **[current — compositional vocabulary]**; shape is
+**liveness, derived per family**; `failed` and `waiting` are additive overlay
+flags. No PR branch exists anywhere in the ladder:
 
 ```
 fabChange ?  (stage ∈ {intake, apply, review} ? blue-building : green-PR-ready,
-              shape by fabDisplayState)
-          :  (fresh agentState ? yellow (solid mid-turn / ring idle) : gray floor)
+              shape by agent liveness, failed flag by fabDisplayState)
+          :  (fresh agentState ? yellow (solid mid-turn / ring at rest)
+                              : gray floor, shape by tmux activity)
+failed    →  additive red center, over either shape (fab hues only)
 waiting   →  additive yellow halo, over anything (core hue + shape kept)
 ```
 
@@ -135,15 +151,26 @@ waiting   →  additive yellow halo, over anything (core hue + shape kept)
 - The blue↔green split is **stage-based, never `prNumber`-based** — the dot
   consults no PR field. A **`skipped`** display-state makes the window not
   fab-owned: the ladder falls through (agent tier, then floor).
+  `fabDisplayState` now contributes only the **failed overlay flag**
+  (`=== "failed"`) — never the shape.
+- **[current]** shape = **liveness** on the journey hues (fab blue/green,
+  ad-hoc yellow): **solid iff the rolled-up `agentState === "active"`**;
+  `waiting`, `idle`, and absent/stale all yield **ring** (a waiting agent is
+  blocked — at rest by definition). The output-flowing L0 fallback is the
+  gray **floor's alone** — a dev server flowing output in a fab worktree must
+  not render solid (accepted cost: an uninstrumented agent on a fab window
+  reads ring). `agentState` is PID-reconciled, so a solid cannot outlive its
+  process — but solid is **not proof of progress**: a live-but-wedged agent
+  stays solid until the reserved `stuck` overlay exists.
 - **[current]** the agent tier is **warm**: a fresh `agentState` gives a
-  yellow core (solid mid-turn even while quiet; ring when idle — an agent
-  parked here), replacing the 10-second output heuristic for those windows.
-  Freshness rules are #314's (absent option / shell reconciler → fall through
-  to the floor).
-- The **attention overlay is ladder-exempt and additive**: `waiting` wraps any
-  tier's dot in the constant-yellow pulsing halo — a fab intake agent asking a
-  question keeps its blue core; a review-failed window keeps its blue failed
-  shape; only the halo is added.
+  yellow core (solid mid-turn even while quiet; ring when idle or waiting —
+  an agent parked here), replacing the 10-second output heuristic for those
+  windows. Freshness rules are #314's (absent option / shell reconciler →
+  fall through to the floor).
+- The **overlays are ladder-exempt and additive**: `waiting` wraps any tier's
+  dot in the constant-yellow pulsing halo — a fab intake agent asking a
+  question keeps its blue core; a review-failed window keeps its blue hue and
+  its red-center flag over whichever base shape its liveness gives.
 
 ### What-wins-when facts (the crisp version)
 
@@ -160,17 +187,23 @@ waiting   →  additive yellow halo, over anything (core hue + shape kept)
    closed, dotted rail for draft) and the register surfaces. Dot and glyph
    never share a fact: dot-red = my pipeline failed here, glyph-red = the PR
    is failing on GitHub or was closed there (the ✕ tells which).
-3. **Agent state owns the warm family, but never surfaces in the dot on
-   fab windows** — a fab window's shape carries pipeline health, which is
-   rarer and more actionable than routine agent state. Agent state on fab
-   windows lives in: the hover card's `agt` register, the PANE panel's, and
-   (when waiting) the additive halo.
+3. **~~Agent state owns the warm family, but never surfaces in the dot on
+   fab windows~~ — SUPERSEDED.** Agent state now owns the SHAPE on every
+   journey hue, fab included: solid = physically live (PID-reconciled
+   `agentState === "active"`) beats solid = bookkeeping stage-active — a
+   stale-active stage must stop reading healthy (the hours-idle solid that
+   motivated the liveness rework). `fabDisplayState` keeps only the failed
+   overlay flag; the hover card's and PANE panel's `agt` register and the
+   additive halo still carry the full agent story.
 4. **`waiting` is never a tier and never destructive** — it cannot displace
    core hue or shape anywhere. It is an additive overlay: constant-yellow halo
-   pulse + the register surfaces' `waiting Xm` + rollup counts + push.
+   pulse + the register surfaces' `waiting Xm` + rollup counts + push. Under
+   shape = liveness, the waiting STATE itself implies the ring base (blocked
+   is at rest) — the halo always wraps a ring.
 5. **tmux output recency surfaces in exactly two places**: the bottom tier's
    solid/ring (no change, no PR, no agent), and the duration-mute rule (below).
-   It is never an attention signal — output ≠ needs-me.
+   It is never an attention signal — output ≠ needs-me — and it never makes a
+   journey hue solid (the L0 fallback is the floor's alone).
 6. **Merged-PR durability is derived, not remembered** **[current — D2 revised;
    feeds the GLYPH post-eviction]**.
    The first implementation resolved D2 with an `--state open` lookup plus a
@@ -205,32 +238,35 @@ waiting   →  additive yellow halo, over anything (core hue + shape kept)
 
 ## Decision Table
 
-`—` = signal absent. Compositional vocabulary; the halo column is the additive
-waiting overlay (core hue/shape unchanged by it); the glyph column is the
-row's rest-state PR glyph (the dot's column never encodes PR state).
+`—` = signal absent. Compositional vocabulary; the shape column is **liveness**
+(journey hues: solid iff the rolled-up `agentState` is `active`, else ring;
+floor: output); the overlay columns are the additive flags — the red-center
+`failed` overlay (fab hues only) and the waiting halo (core hue/shape
+unchanged by it); the glyph column is the row's rest-state PR glyph (the dot's
+column never encodes PR state).
 
-| # | journey | signals | Dot (core hue · shape [· halo]) | Glyph | Tip/panel duration |
+| # | journey | signals | Dot (core hue · shape [· center] [· halo]) | Glyph | Tip/panel duration |
 |---|---------|---------|--------------------------------|-------|--------------------|
 | 1 | floor | no agent · output flowing | gray · solid | — | *(none — muted)* |
 | 2 | floor | no agent · quiet | gray · ring | — | tmux elapsed |
 | 3 | ad-hoc | agent active | yellow · solid | — | *(none)* |
 | 4 | ad-hoc | agent idle | yellow · ring | — | `idle Xm` (from epoch) |
-| 5 | ad-hoc | agent **waiting** | yellow · solid · **halo** | — | `waiting Xm` — push after sustain |
-| 6 | ad-hoc | PR open · healthy | yellow (per agent state) | green | per agent state |
-| 7 | ad-hoc | PR checks fail | yellow (per agent state) | red | |
-| 8 | ad-hoc | PR merged | yellow (per agent state) | purple — durable via state-all derivation (D2 revised) | |
-| 9 | ad-hoc | PR open + **waiting** | yellow · solid · **halo** | green | `waiting Xm` |
+| 5 | ad-hoc | agent **waiting** | yellow · ring · **halo** | — | `waiting Xm` — push after sustain |
+| 6 | ad-hoc | PR open · healthy | yellow (per agent liveness) | green | per agent state |
+| 7 | ad-hoc | PR checks fail | yellow (per agent liveness) | red | |
+| 8 | ad-hoc | PR merged | yellow (per agent liveness) | purple — durable via state-all derivation (D2 revised) | |
+| 9 | ad-hoc | PR open + **waiting** | yellow · ring · **halo** | green | `waiting Xm` |
 | 10 | floor | PR on branch · no agent · no change | gray (floor) | per PR state | PR also in the L3 register; never the dot |
-| 11 | fab | intake · active/ready | blue · solid | — | |
-| 12 | fab | intake · pending | blue · ring | — | |
-| 13 | fab | intake + **waiting** | blue · solid · **halo** | — | the asking stage — common case |
-| 14 | fab | apply/review · active | blue · solid | — | idle→`idle Xm`, else none |
-| 15 | fab | review · failed | blue · failed | — | |
-| 16 | fab | review · failed + **waiting** | blue · failed · **halo** | — | shape and hue survive the overlay |
-| 17 | fab | ship→done · PR open · healthy | green · solid | green | |
-| 18 | fab | ship→done · PR checks running | green · solid | **yellow** (checks running) | |
-| 19 | fab | ship→done · PR checks fail / changes requested | green · solid | red | |
-| 20 | fab | ship→done · PR merged | green · solid (live) / green · ring (parked done) | purple — durable via state-all derivation (D2 revised) | |
+| 11 | fab | intake · active/ready · worker live | blue · solid | — | |
+| 12 | fab | intake · pending / no live worker | blue · ring | — | |
+| 13 | fab | intake + **waiting** | blue · ring · **halo** | — | the asking stage — common case |
+| 14 | fab | apply/review · worker live | blue · solid | — | idle→`idle Xm`, else none |
+| 15 | fab | review · failed | blue · per liveness · **red center** (ring + center when nobody is on it; bullseye while a rework agent is live) | — | |
+| 16 | fab | review · failed + **waiting** | blue · ring · **red center** · **halo** | — | hue and overlays compose; the ring base is the waiting state's at-rest shape |
+| 17 | fab | ship→done · PR open · healthy | green · per liveness | green | |
+| 18 | fab | ship→done · PR checks running | green · per liveness | **yellow** (checks running) | |
+| 19 | fab | ship→done · PR checks fail / changes requested | green · per liveness | red | |
+| 20 | fab | ship→done · PR merged | green · solid (**live agent** on the window) / green · ring (parked done) | purple — durable via state-all derivation (D2 revised) | |
 | 21 | fab | PR closed-unmerged · change live | the live stage tier (closed renders the red ✕ glyph, never a dot tier) **[current]** | — | |
 | 22 | fab | displayState skipped | falls through — agent tier, else gray floor **[current]** | per PR state | |
 
@@ -264,7 +300,7 @@ Where each removed signal goes:
 | Removed from the row | Survives as |
 |----------------------|-------------|
 | stage word (`review`) | dot hue at a glance (blue building / green PR-ready); exact stage in the row flyout card and the PANE panel |
-| failed-red stage text | already redundant — the dot's `failed` shape (dotted ring + red center) |
+| failed-red stage text | the dot's **red-center overlay** — over whichever base shape the window's liveness gives (ring + center when nobody is on it; bullseye while a rework agent is live) |
 | `done`-parking suppression | the dot's green resting ring |
 | PR states (merged / failing / pending) | the rest-state PR glyph column (purple / red / yellow) |
 | idle/elapsed duration | row flyout card + PANE panel; the *attention* half ("sitting too long") migrates to the future `stuck` overlay |
@@ -349,9 +385,11 @@ One overlay at a time: `waiting` outranks `stuck`.
 
 ## Accessibility
 
-- `aria-label` composes phase + status + attention: `"review — failed — agent
-  waiting 3m"`. Color and motion are never the sole channel (the halo has a
-  static reduced-motion form; the duration text and the hover card carry the same fact).
+- `aria-label` composes hue word + liveness word + flags: `"building — failed —
+  at rest — agent waiting 3m"`. Color and motion are never the sole channel
+  (the halo has a static reduced-motion form; the bullseye changes the
+  silhouette, not just the color; the duration text and the hover card carry
+  the same fact).
 - The pulse respects `prefers-reduced-motion` per the existing animation
   discipline (`rk-*` utilities zero out; JS treatments skip themselves).
 

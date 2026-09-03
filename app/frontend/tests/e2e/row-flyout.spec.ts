@@ -48,8 +48,9 @@ import { mockStateSocket } from "./_state-socket-mock";
 
 const SERVER = "default";
 
-// @1: change-bound window WITH an owned open PR (blue "building — active" dot
-// — the PR never owns the dot; the rest PR glyph + the card's fab/pr registers
+// @1: change-bound window WITH an owned open PR (blue "building — at rest" dot
+// — waiting agent ⇒ ring + halo under shape=liveness; the PR never owns the
+// dot; the rest PR glyph + the card's fab/pr registers
 // carry the PR story) AND a reconciled claude chat (so the conversation-fork
 // affordance renders — 260806-s4av), carrying two panes (%425 active) so the
 // identity title bar renders its full `Tab @N · pane %N · N panes` form.
@@ -191,7 +192,7 @@ test.describe("Row flyout card (fine pointer)", () => {
    * 2. Assert the title bar contains "Tab @1 · pane %425 · 2 panes", holds
    *    the docs link, and contains NO fork affordance; assert the title text
    *    precedes the `fab` register text, the card does NOT contain the dot
-   *    label ("building — active"), the row-flyout-out/row-flyout-agt
+   *    label ("building — at rest"), the row-flyout-out/row-flyout-agt
    *    testids are absent, the fab register reads `93dy · apply · active`
    *    with the slug on its continuation line, and the pr register carries
    *    `#386`.
@@ -250,7 +251,7 @@ test.describe("Row flyout card (fine pointer)", () => {
     const cardText = (await card(page).innerText()).replaceAll("\n", " ");
     expect(cardText.indexOf("Tab @1")).toBeLessThan(cardText.indexOf("93dy"));
     // No line restates the row: no status-label text, no out/agt registers.
-    await expect(card(page)).not.toContainText("building — active");
+    await expect(card(page)).not.toContainText("building — at rest");
     await expect(page.getByTestId("row-flyout-out")).toHaveCount(0);
     await expect(page.getByTestId("row-flyout-agt")).toHaveCount(0);
     // fab: the decisive tokens lead; the slug continues on an indented line.

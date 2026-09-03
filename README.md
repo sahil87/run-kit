@@ -155,10 +155,11 @@ The daemon also starts a managed **code-server** beside it (its own `rk-code-ser
 
 ## Status dots — read every window at a glance
 
-Each window in the sidebar, dashboard, and pane panel carries a single **status dot** that tells the window's **local story** — which journey runs in the pane and how healthy it is — using two orthogonal channels, plus a right-edge **PR glyph** for the remote story:
+Each window in the sidebar, dashboard, and pane panel carries a single **status dot** that tells the window's **local story** — which journey runs in the pane, whether anyone is working right now, and whether the pipeline failed here — using two orthogonal channels plus two additive overlays, and a right-edge **PR glyph** for the remote story:
 
 - **Hue = journey**: ![](https://img.shields.io/badge/building-60a5fa?label=) fab **building** (intake/apply/review) → ![](https://img.shields.io/badge/PR--ready-9ece6a?label=) fab **PR-ready / done** (ship/review-pr/done) · ![](https://img.shields.io/badge/agent-facc15?label=) an ad-hoc agent. A plain window is gray — color is reserved for a journey.
-- **Shape = status** (health), the same meaning in every hue: **solid** = running/live · **ring** = at rest (stage pending, parked done, idle agent) · **dotted ring + red center** = failed.
+- **Shape = liveness**, the same meaning in every hue: **solid** = work happening now (agent mid-turn; floor: output flowing) · **ring** = at rest (no live worker, idle or waiting agent, parked done, quiet shell).
+- **Overlays = additive flags**: a small **red center** flags a failed review/review-pr — inside the ring at rest, or as a **bullseye** (dark gap ring) over a solid while a rework agent is live; a **yellow halo** means an agent is waiting on you.
 - **PR glyph** (right edge): the branch's PR on GitHub — green open · yellow checks running · red failing · purple merged · gray draft. The dot never renders PR state.
 
 ![StatusDot compositional reference](https://raw.githubusercontent.com/sahil87/run-kit/main/docs/img/status-dot-reference.svg)

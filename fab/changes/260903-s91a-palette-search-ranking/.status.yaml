@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 8
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-09-03T10:22:08Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T10:25:23Z"}
     hydrate: {started_at: "2026-09-03T10:25:23Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T10:28:01Z"}
     ship: {started_at: "2026-09-03T10:28:01Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T10:31:16Z"}
-    review-pr: {started_at: "2026-09-03T10:31:16Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-09-03T10:31:16Z", driver: git-pr, iterations: 1, completed_at: "2026-09-03T10:40:12Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/811
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: adds § Palette search ranking (six-tier match ladder, density → MRU → declaration-order tiebreak, runkit-palette-mru recency) and three Design Decisions to docs/memory/run-kit/ui/keyboard-and-palette.md
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-03T10:31:16Z
+last_updated: 2026-09-03T10:40:12Z

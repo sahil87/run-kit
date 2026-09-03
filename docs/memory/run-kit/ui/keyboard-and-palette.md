@@ -1,5 +1,5 @@
 ---
-description: "Keyboard shortcuts: tiers, the e.code rule, defaults, surface restrictions and reclaiming, macros, overrides, claimed keys, and the Settings Shortcuts tab; the single palette mount and action registry, including recovery, server lifecycle and server color, operator requests and operator window identity, session sorting, web zoom/tabs, Tab: Marker, and stack-gated Tab: Reopen closed."
+description: "Keyboard shortcuts: tiers, the e.code rule, defaults, surface restrictions and reclaiming, macros, overrides, claimed keys, and the Settings Shortcuts tab; the single palette mount and action registry, including recovery, server lifecycle and server color, operator requests and operator window identity, session sorting, web zoom/tabs, Tab: Marker, and stack-gated Tab: Reopen closed; palette search ranking (six-tier ladder, density → MRU tiebreak, runkit-palette-mru recency)."
 type: memory
 ---
 # run-kit UI — Keyboard & Palette
@@ -342,6 +342,29 @@ The entries are folded into `paletteActions` in AppShell only. The **board route
 
 **Cross-session move actions**: Dynamically generated "Tab: Move to {sessionName}" actions (id `move-window-to-session-{sessionName}`) — one per session other than the current one. Only shown when `currentWindow` exists AND there are at least 2 sessions. On select, calls `moveWindowToSession(server, currentWindow.windowId, targetSession)` then navigates to `/$server` (server dashboard) because tmux auto-assigns the window index in the destination session and no `/$server/$session` route exists. Flat action list (not a sub-picker) — works well for typical session counts (2-5) and requires zero changes to the command palette component.
 
+### Palette search ranking
+
+Palette results are filtered AND ranked by the pure module `lib/palette/rank.ts` (dependency-free, structurally typed over `{ id, label, description? }`, colocated `rank.test.ts` — the `palette/shell.ts`/`palette/zen.ts` pure-builder convention); `command-palette.tsx` consumes `rankActions(actions, query, mru)` in a `useMemo` keyed on `[actions, query, mru]` for the plain results arm only — the `confirming` and `picking?.optionPicker` sub-step branches are caller-ordered display lists and are never filtered or re-sorted (§ Palette option-picker sub-step). `rankActions` returns a new array and never mutates its input. (260903-s91a-palette-search-ranking)
+
+**The six-tier match ladder** — every matching action classifies into exactly one tier (the first tier whose rule holds wins), tiers ordered ascending (0 best); all comparisons run on lowercased strings:
+
+| Tier | Name | Rule |
+|------|------|------|
+| 0 | `Exact` | the whole label equals the query, **or** the label's `"<Category>: "` prefix equals the query — `pr` → `PR: Refresh Status` (category `PR`) |
+| 1 | `WholeWord` | some word of the label equals the query — `pr` → `Open: PR #3127` |
+| 2 | `WordStart` | some word of the label starts with the query and is longer than it — `pr` → `Server: Protect noon`, `Layout: Promote Web` |
+| 3 | `Acronym` | the query is a contiguous run of the label's word-initials string — `prs` → `PR: Refresh Status` (`ps` does NOT match: the initials run must be contiguous) |
+| 4 | `Incidental` | the query occurs in the label, but only strictly inside a word |
+| 5 | `DescriptionOnly` | the label does not contain the query; the description does |
+
+**Tokenization**: a word is a maximal run of `[a-z0-9]` in the lowercased label; every other character (space, `:`, `#`, `-`, `/`, quotes, `…`) is a boundary — `Open: PR #3127` → `["open", "pr", "3127"]`, `run-kit: Restart Daemon` → `["run", "kit", "restart", "daemon"]`. The category is the substring before the first `": "` in the label, absent when the label has none (tier 0 is then reachable only by a whole-label match).
+
+**Within-tier ordering** — strict precedence, each a tiebreak for the previous: (a) **density** `query.length / label.length` descending, computed on the label alone (the description never enters the ratio); (b) **MRU** — an action whose id is in the MRU list outranks one that is not, and between two listed ids the more recent (lower index) wins; (c) **declaration order** — the input array index, guaranteed terminal by a stable sort. An empty or whitespace-only query skips filtering and tiering entirely: every action renders, MRU-first by recency, then declaration order.
+
+**Membership is a superset of the substring predicate** — every action matching the case-insensitive `includes` of the query against `label` or `description` is returned, and the `Acronym` tier deliberately admits matches that predicate rejects (`ns` → `New Session`); an action matching no tier is excluded.
+
+**The MRU** (`lib/palette/mru.ts` + colocated vitest) is the per-viewer recency memory (Constitution II/IV): a most-recent-first list of action ids in localStorage under `runkit-palette-mru`, capped at 20 (`PALETTE_MRU_LIMIT`, oldest evicted), read and written with the `lib/last-window-per-server.ts` `try/catch`-noop idiom — absent, malformed, or throwing storage reads as `[]` and a failing write never throws. The palette seeds MRU state once at mount and records on real invocation only, always the ORIGINATING action id — `action.id` for a plain action, `confirming.id` on a confirm, `picking.id` on an option-picker apply — never the synthetic `${id}-confirm` / `${id}-opt-*` sub-step row ids, and nothing for a disabled row or a cancelled palette.
+
 ### Tmux Commands Dialog
 
 `app/frontend/src/components/tmux-commands-dialog.tsx` — opened via command palette "Copy: tmux Commands" action (id `copy-tmux-attach`). Only available on terminal pages when `currentWindow` exists. Opens a `Dialog` with title "tmux commands" showing two copyable tmux command rows plus one non-copyable hint row:
@@ -666,3 +689,21 @@ A binding MAY carry `aliasOf: <actionId>`, making it a SECOND chord for that act
 **Why**: Mirrors its named siblings `Session: Set Color` / `Tab: Set Color` exactly (one idiom per verb family); no dependency on the sidebar being open or the group being rendered.
 **Rejected**: A `server-color-popover:open` document event into the group header (the `label-popover:open` idiom) — fails when the sidebar is collapsed or the group is scrolled out/unmounted.
 *Introduced by*: 260903-1ldw-standardize-color-entry-flyout-card
+
+### Palette tier 0 admits the colon-prefix category, not just the whole label
+**Decision**: The top match tier hits when the query equals the whole label **or** the label's `"<Category>: "` prefix, so `PR: Refresh Status` is a tier-0 hit for query `pr`.
+**Why**: The palette's colon prefixes (`Board:`, `Server:`, `Tab:`, `Web:`, `PR:` …) are an advertised command vocabulary — the input placeholder literally teaches `Board: Pin: View: Tab:`. A query that *is* a category is the strongest available statement of intent. Under whole-label-only, `PR: Refresh Status` would fall to the whole-word tier alongside `Open: PR #3127` and then lose on density (0.111 vs 0.143), inverting the intended order.
+**Rejected**: Whole-label-only exactness — correct in the abstract, but no real palette label is ever typed in full, so tier 0 would be permanently empty and the ladder would start one rung down.
+*Introduced by*: 260903-s91a-palette-search-ranking
+
+### WholeWord outranks WordStart, so `Protect`/`Promote` sink structurally
+**Decision**: The word-start bucket is split in two — WholeWord (the query *is* a word) above WordStart (the query is a strict prefix of a longer word).
+**Why**: `Pr` is literally the start of `Protect` and `Promote`; a single word-start bucket ties those rows with `Open: PR #3127` for query `pr`, which is the exact defect the ladder exists to fix. Splitting the bucket makes the required outcome a property of the ladder rather than a coincidence.
+**Rejected**: Keeping one word-start bucket and relying on density to separate them. It reproduces this one example, but only by luck — a short label such as `Tab: Promote` (density 0.167) would still outrank `Open: PR #3127` (0.143), reintroducing the defect for any future short label.
+*Introduced by*: 260903-s91a-palette-search-ranking
+
+### Density outranks MRU in the tiebreak chain
+**Decision**: Ordering within a tier is density, then MRU, then declaration order.
+**Why**: Density applies within a bucket and MRU breaks the remaining ties between entries of equal quality. Match quality is a property of the query; recency is a property of the viewer, and letting it outrank a visibly better match would make the list feel unstable.
+**Rejected**: MRU before density — a recently-clicked `Server: Protect runkit` rising above the shorter `Server: Protect noon`. The two comparators are adjacent lines if the preference ever reverses.
+*Introduced by*: 260903-s91a-palette-search-ranking

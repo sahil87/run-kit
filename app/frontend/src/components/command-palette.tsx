@@ -1,6 +1,7 @@
 import {
   useState,
   useEffect,
+  useMemo,
   useRef,
   useCallback,
   useId,
@@ -9,6 +10,8 @@ import {
 import { useFocusTrap } from "@/hooks/use-focus-trap";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { matchesCombo, type EffectiveBinding } from "@/lib/keybindings";
+import { rankActions } from "@/lib/palette/rank";
+import { readPaletteMru, recordPaletteUse } from "@/lib/palette/mru";
 
 export type PaletteOptionPicker = {
   options: { key: string; label: string }[];
@@ -51,6 +54,9 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
   const [confirming, setConfirming] = useState<PaletteAction | null>(null);
   const [picking, setPicking] = useState<PaletteAction | null>(null);
   const [pickedKeys, setPickedKeys] = useState<string[]>([]);
+  // Seeded lazily so the first keystroke is already ranked; a recorded use
+  // threads the returned list back into state without a re-read.
+  const [mru, setMru] = useState<string[]>(() => readPaletteMru());
   const paletteRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -76,6 +82,11 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
     if (confirming || picking) inputRef.current?.focus();
   }, [confirming, picking, pickedKeys]);
 
+  const rankedActions = useMemo(
+    () => rankActions(actions, query, mru),
+    [actions, query, mru],
+  );
+
   const filtered = confirming
     ? [
         {
@@ -93,13 +104,7 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
           label: o.label,
           onSelect: () => {},
         }))
-      : actions.filter((a) => {
-          const q = query.toLowerCase();
-          return (
-            a.label.toLowerCase().includes(q) ||
-            (a.description?.toLowerCase().includes(q) ?? false)
-          );
-        });
+      : rankedActions;
 
   // The toggle chords come from the keybinding registry: ⌘K on mac, and on
   // Win/Linux both Ctrl+K and the shifted alias. `ignoreInputs` semantics are
@@ -156,6 +161,14 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
     }
   }, [selectedIndex, open]);
 
+  // Records only real invocations: entering a sub-step, picking a disabled
+  // row, or cancelling records nothing. The confirm row carries a synthetic
+  // `${id}-confirm` id that matches no registered action, so the ORIGINATING
+  // action's id is recorded — never the row's.
+  const recordUse = useCallback((id: string) => {
+    setMru(recordPaletteUse(id));
+  }, []);
+
   const handleSelect = useCallback(
     (action: PaletteAction) => {
       if (action.disabled) return;
@@ -173,9 +186,10 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
         return;
       }
       closePalette();
+      recordUse(confirming ? confirming.id : action.id);
       action.onSelect();
     },
-    [closePalette],
+    [closePalette, confirming, recordUse],
   );
 
   const togglePick = useCallback((key: string) => {
@@ -203,6 +217,7 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
         if (pickedKeys.length === 0) return;
         const { onApply } = picking.optionPicker;
         const keys = pickedKeys;
+        recordUse(picking.id);
         closePalette();
         onApply(keys);
         return;

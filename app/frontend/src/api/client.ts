@@ -72,11 +72,13 @@ export async function getHealth(): Promise<HealthResponse> {
   return res.json();
 }
 
-/** One host-detected launch target from GET /api/open-apps (wt registry). */
+/** One host-detected launch target from GET /api/open-apps (wt registry).
+ *  `default` is wt's detected-default marker (absent unless true). */
 export interface OpenApp {
   id: string;
   label: string;
   kind?: string;
+  default?: boolean;
 }
 
 /**

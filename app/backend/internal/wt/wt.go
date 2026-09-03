@@ -2,11 +2,11 @@
 // (Constitution III — wrap, don't reinvent). It carries exactly the two calls
 // the Open-in-App feature needs:
 //
-//   - ListApps — `wt open --list --json`, the host-detected app registry.
-//     The flag is NEW on the wt side (wt backlog [qj66]) and MUST NOT be
-//     assumed to exist at runtime: an absent wt, an older wt (unknown flag),
-//     or malformed output all surface as an error the API layer degrades to
-//     an empty registry (fail-silent toolkit discipline).
+//   - ListApps — `wt open --list --json`, the host-detected app registry,
+//     filtered to GUI launch targets (locus "gui"; see parseApps). The flag
+//     MUST NOT be assumed to exist at runtime: an absent wt, an older wt
+//     (unknown flag), or malformed output all surface as an error the API
+//     layer degrades to an empty registry (fail-silent toolkit discipline).
 //   - Open — `wt open <path> -a <app>`, the non-interactive launch path that
 //     exists in wt today.
 //
@@ -34,11 +34,16 @@ const (
 
 // App is one host-detected launch target from `wt open --list --json`.
 // Kind is advisory (editor|terminal|file-manager today); unknown values pass
-// through untouched.
+// through untouched. Locus scopes where the target acts (gui|session|caller|
+// host) — only "gui" rows are launchable host apps; Default marks wt's
+// detected default app and is only meaningful on rows that survive the gui
+// filter.
 type App struct {
-	ID    string `json:"id"`
-	Label string `json:"label"`
-	Kind  string `json:"kind,omitempty"`
+	ID      string `json:"id"`
+	Label   string `json:"label"`
+	Kind    string `json:"kind,omitempty"`
+	Locus   string `json:"locus,omitempty"`
+	Default bool   `json:"default,omitempty"`
 }
 
 // ListApps runs `wt open --list --json` and returns the parsed registry.
@@ -60,9 +65,12 @@ func ListApps(parent context.Context) ([]App, error) {
 }
 
 // parseApps decodes the registry JSON tolerantly: the payload must be a JSON
-// array of objects; each entry requires non-empty `id` and `label` fields
-// (entries missing either are skipped, not fatal); unknown fields are ignored
-// (forward-compat with whatever wt adds later). Pure — testable without a wt
+// array of objects; each entry requires non-empty `id` and `label` fields and
+// a `locus` of "gui" or absent/empty (entries failing either are skipped, not
+// fatal); unknown fields are ignored (forward-compat with whatever wt adds
+// later). The locus filter drops the non-GUI action rows a locus-aware wt
+// emits (open_here, tmux_window, copy_*, …); an absent or empty locus is kept
+// because pre-locus registries carried only GUI apps. Pure — testable without a wt
 // invocation.
 func parseApps(data []byte) ([]App, error) {
 	var raw []App
@@ -72,6 +80,9 @@ func parseApps(data []byte) ([]App, error) {
 	apps := make([]App, 0, len(raw))
 	for _, a := range raw {
 		if a.ID == "" || a.Label == "" {
+			continue
+		}
+		if a.Locus != "" && a.Locus != "gui" {
 			continue
 		}
 		apps = append(apps, a)

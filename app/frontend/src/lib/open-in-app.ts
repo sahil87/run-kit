@@ -136,7 +136,13 @@ export function buildOpenTargets(opts: {
     }
   }
 
-  for (const app of hostApps) {
+  // Default-marked apps (wt's detected default) lead the host section; the
+  // partition is stable so wt's registry order is preserved within each group.
+  const orderedHostApps = [
+    ...hostApps.filter((app) => app.default),
+    ...hostApps.filter((app) => !app.default),
+  ];
+  for (const app of orderedHostApps) {
     targets.push({
       kind: "host",
       id: `host:${app.id}`,

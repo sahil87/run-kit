@@ -1,0 +1,57 @@
+id: k2pm
+name: 260902-k2pm-open-apps-gui-locus-filter
+created: 2026-09-02T20:51:58Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 13
+    acceptance_completed: 13
+confidence:
+    certain: 3
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.5
+    fuzzy: true
+    dimensions:
+        signal: 72.5
+        reversibility: 85.0
+        competence: 82.5
+        disambiguation: 74.2
+stage_metrics:
+    intake: {started_at: "2026-09-02T20:51:58Z", driver: fab-new, iterations: 1, completed_at: "2026-09-03T02:58:54Z"}
+    apply: {started_at: "2026-09-03T02:58:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T03:03:20Z"}
+    review: {started_at: "2026-09-03T03:03:20Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T03:07:38Z"}
+    hydrate: {started_at: "2026-09-03T03:07:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T03:09:41Z"}
+    ship: {started_at: "2026-09-03T03:09:41Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T03:10:38Z"}
+    review-pr: {started_at: "2026-09-03T03:10:38Z", driver: git-pr, iterations: 1, completed_at: "2026-09-03T03:16:35Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/800
+change_type_source: explicit
+true_impact:
+    added: 535
+    deleted: 21
+    net: 514
+    excluding:
+        added: 111
+        deleted: 14
+        net: 97
+    tests:
+        added: 78
+        deleted: 0
+        net: 78
+    computed_at: "2026-09-03T03:10:38Z"
+    computed_at_stage: ship
+summary: GET /api/open-apps now filters the wt registry to locus==gui at the parseApps seam (absent locus kept for old-wt compat); default marker passed through and orders the host section default-first
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-03T03:16:35Z

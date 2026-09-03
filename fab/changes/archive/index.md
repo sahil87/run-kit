@@ -1,5 +1,8 @@
 # Archived Changes
 
+- **260903-u1b8-e2e-fixed-port-hardening** — E2E Fixed-Port Hardening
+- **260903-np2w-test-socket-sweep-scoping** — Test-Socket Sweep Scoping
+- **260903-y60c-e2e-config-root-isolation** — E2E Config-Root Isolation
 - **260903-7ajq-rk-tutorial-entry** — rk tutorial — one-command tour entry on a fast tier
 - **260903-18ot-statusdot-shape-liveness-overlays** — StatusDot — Shape = Liveness, Failed → Red-Center Overlay
 - **260902-znfg-operator-visual-distinction** — Operator Visual Distinction

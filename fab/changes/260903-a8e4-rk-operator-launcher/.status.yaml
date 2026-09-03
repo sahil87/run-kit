@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 8
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-09-03T11:08:14Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T11:18:36Z"}
     review: {started_at: "2026-09-03T11:18:36Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T11:27:13Z"}
     hydrate: {started_at: "2026-09-03T11:27:13Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T11:33:56Z"}
-    ship: {started_at: "2026-09-03T11:33:56Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-03T11:33:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T11:37:16Z"}
+    review-pr: {started_at: "2026-09-03T11:37:16Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/812
 change_type_source: explicit
 true_impact:
-    added: 2210
-    deleted: 263
-    net: 1947
+    added: 3563
+    deleted: 309
+    net: 3254
     excluding:
-        added: 1552
-        deleted: 184
-        net: 1368
+        added: 2451
+        deleted: 219
+        net: 2232
     tests:
-        added: 935
+        added: 1451
         deleted: 97
-        net: 838
-    computed_at: "2026-09-03T11:33:56Z"
-    computed_at_stage: hydrate
+        net: 1354
+    computed_at: "2026-09-03T11:37:16Z"
+    computed_at_stage: ship
 summary: 'rk operator: server-wide singleton operator launcher — hard tmux/fab preconditions, atomic create-and-mark via the shared stampOperatorRole write path, typed /fab-operator kickoff, --workers charset-gated env prefix; shared agent_kickoff.go helpers'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-03T11:33:56Z
+last_updated: 2026-09-03T11:37:16Z

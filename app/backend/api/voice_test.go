@@ -177,6 +177,24 @@ func TestVoiceTranscribe_vocabularyDerivedFromServer(t *testing.T) {
 	}
 }
 
+func TestVoiceTranscribe_invalidServerDegradesToBaseVocabulary(t *testing.T) {
+	enableVoice(t)
+	calls := swapTranscribe(t, nil)
+	sf := &mockSessionFetcher{result: []sessions.ProjectSession{{Name: "leaked-name"}}}
+	router := newTestRouter(sf, &mockTmuxOps{})
+
+	rec := postWav(t, router, "/api/voice/transcribe?server=bad%3Bname", []byte("RIFF-fake-wav"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if sf.calls != 0 {
+		t.Errorf("FetchSessions calls = %d, want 0 (an invalid server name must not fall back to default)", sf.calls)
+	}
+	if got := strings.Join((*calls)[0].Vocabulary, ","); got != "tmux,fab,run-kit,worktree,pane" {
+		t.Errorf("Vocabulary = %q, want the base terms only", got)
+	}
+}
+
 func TestVoiceTranscribe_fetchErrorDegradesToBaseVocabulary(t *testing.T) {
 	enableVoice(t)
 	calls := swapTranscribe(t, nil)

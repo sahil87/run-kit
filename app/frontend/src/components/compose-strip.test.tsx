@@ -2540,6 +2540,24 @@ describe("ComposeStrip — voice mic chip", () => {
     expect(onVoiceHoldEnd).toHaveBeenCalledTimes(1);
   });
 
+  it("press requests pointer capture so an off-button release still ends the hold", () => {
+    voiceGate.enabled = true;
+    voiceGate.supported = true;
+    const onVoiceHoldStart = vi.fn();
+    const onVoiceHoldEnd = vi.fn();
+    renderStrip({ onVoiceHoldStart, onVoiceHoldEnd });
+    const chip = micChip();
+    if (!chip) throw new Error("mic chip missing");
+    const setPointerCapture = vi.fn();
+    (chip as HTMLElement & { setPointerCapture: (id: number) => void }).setPointerCapture =
+      setPointerCapture;
+    fireEvent.pointerDown(chip, { button: 0, pointerId: 7 });
+    expect(setPointerCapture).toHaveBeenCalledWith(7);
+    // With capture held, the release retargets to the chip even off-button.
+    fireEvent.pointerUp(chip, { pointerId: 7 });
+    expect(onVoiceHoldEnd).toHaveBeenCalledTimes(1);
+  });
+
   it("a non-primary pointer button does not start the hold", () => {
     voiceGate.enabled = true;
     voiceGate.supported = true;

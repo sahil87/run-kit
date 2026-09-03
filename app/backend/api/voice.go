@@ -9,6 +9,7 @@ import (
 
 	"rk/internal/settings"
 	"rk/internal/stt"
+	"rk/internal/validate"
 )
 
 const (
@@ -88,10 +89,14 @@ func (s *Server) handleVoiceTranscribe(w http.ResponseWriter, r *http.Request) {
 // capped at voiceVocabMaxTerms; a fetch failure yields the base terms only.
 func (s *Server) voiceVocabulary(r *http.Request) []string {
 	vocab := append([]string(nil), voiceBaseVocabulary...)
-	if r.URL.Query().Get("server") == "" {
+	// Validated here rather than via serverFromRequest: that helper falls back
+	// to "default" on an invalid name, which would prime the vocabulary from
+	// the wrong server — an invalid name degrades to base terms instead.
+	server := r.URL.Query().Get("server")
+	if server == "" || validate.ValidateServerName(server) != "" {
 		return vocab
 	}
-	sess, err := s.sessions.FetchSessions(r.Context(), serverFromRequest(r))
+	sess, err := s.sessions.FetchSessions(r.Context(), server)
 	if err != nil {
 		s.logger.Warn("voice vocabulary derivation failed", "error", err)
 		return vocab

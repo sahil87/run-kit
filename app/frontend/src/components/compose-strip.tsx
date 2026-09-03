@@ -1045,6 +1045,11 @@ export function ComposeStrip({
       onMouseDown={preventFocusSteal}
       onPointerDown={(e) => {
         if (e.button !== 0) return;
+        // Pointer capture pins the release to the chip — without it a hold
+        // released off-button never fires pointerup here (and the pointerleave
+        // guard below can race the async `voiceRecording` paint), stranding
+        // the capture. Optional call: jsdom has no setPointerCapture.
+        e.currentTarget.setPointerCapture?.(e.pointerId);
         onVoiceHoldStart();
       }}
       onPointerUp={() => onVoiceHoldEnd()}

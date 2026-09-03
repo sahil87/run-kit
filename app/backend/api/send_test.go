@@ -167,6 +167,70 @@ func TestWindowSendSubmitUnverifiedCode(t *testing.T) {
 	assertWindowSendConflict(t, rec, "submit_unverified")
 }
 
+func TestWindowSendPaneRetargeting(t *testing.T) {
+	fastChatSendProbe(t)
+	ops := &mockTmuxOps{capturePaneResults: []string{"$ ", "$ hello", "working"}}
+	router := NewTestRouter(slog.Default(), &mockSessionFetcher{result: activePaneWindow("@1")}, ops, "host")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, windowSendReq("@1", `{"text":"hello","mode":"submit","pane":"%1"}`))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if ops.pasteChatPaneID != "%1" {
+		t.Errorf("paste pane = %q, want %%1 (the requested pane, not the active %%2)", ops.pasteChatPaneID)
+	}
+	if ops.sendEnterPaneID != "%1" {
+		t.Errorf("Enter pane = %q, want %%1", ops.sendEnterPaneID)
+	}
+}
+
+func TestWindowSendPaneOutOfWindow400(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := NewTestRouter(slog.Default(), &mockSessionFetcher{result: activePaneWindow("@1")}, ops, "host")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, windowSendReq("@1", `{"text":"hello","mode":"submit","pane":"%9"}`))
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "pane %9 does not belong to window @1") {
+		t.Errorf("body = %s, want the pane-not-in-window message", rec.Body.String())
+	}
+	if len(ops.chatCalls) != 0 {
+		t.Fatalf("tmux calls = %v, want none", ops.chatCalls)
+	}
+}
+
+func TestWindowSendMalformedPane400(t *testing.T) {
+	ops := &mockTmuxOps{}
+	router := NewTestRouter(slog.Default(), &mockSessionFetcher{result: activePaneWindow("@1")}, ops, "host")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, windowSendReq("@1", `{"text":"hello","mode":"submit","pane":"bogus"}`))
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if len(ops.chatCalls) != 0 {
+		t.Fatalf("tmux calls = %v, want none", ops.chatCalls)
+	}
+}
+
+func TestWindowSendAbsentPaneTargetsActivePane(t *testing.T) {
+	fastChatSendProbe(t)
+	ops := &mockTmuxOps{capturePaneResults: []string{"$ ", "$ hello", "working"}}
+	router := NewTestRouter(slog.Default(), &mockSessionFetcher{result: activePaneWindow("@1")}, ops, "host")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, windowSendReq("@1", `{"text":"hello","mode":"submit"}`))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if ops.pasteChatPaneID != "%2" || ops.sendEnterPaneID != "%2" {
+		t.Errorf("delivery panes = paste %q / enter %q, want the active %%2 for both", ops.pasteChatPaneID, ops.sendEnterPaneID)
+	}
+}
+
 func assertWindowSendConflict(t *testing.T, rec *httptest.ResponseRecorder, wantCode string) {
 	t.Helper()
 	if rec.Code != http.StatusConflict {

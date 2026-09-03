@@ -290,7 +290,7 @@ func (s *Server) initSSEHub() {
 // and the settings POST's live re-apply on identical wiring.
 func (s *Server) autoNameDeliver() func(ctx context.Context, server string, subject, operator *tmux.WindowInfo) error {
 	return func(ctx context.Context, server string, subject, operator *tmux.WindowInfo) error {
-		return s.deliverOperatorRequest(ctx, server, subject, operator, operatorTemplates["fix-tab-name"])
+		return s.deliverOperatorRequest(ctx, server, subject, operator, operatorTemplates["fix-tab-name"], "")
 	}
 }
 
@@ -778,6 +778,9 @@ func (s *Server) buildRouter() chi.Router {
 	// Server-scoped half of the seam — templates with no subject window. See
 	// api/operator.go.
 	r.Post("/api/operator-request", s.handleServerOperatorRequest)
+	// Voice round-trip — push-to-talk transcription (gated on the voice_enabled
+	// settings key; see api/voice.go) and the spoken-reply leg (api/say.go).
+	r.Post("/api/voice/transcribe", s.handleVoiceTranscribe)
 	r.Get("/api/windows/{windowId}/history", s.handleWindowHistory)
 	// Conversation fork — a new window in the SAME session + directory, resuming
 	// the window's agent session with --fork-session. See api/fork.go.
@@ -835,6 +838,10 @@ func (s *Server) buildRouter() chi.Router {
 	r.Get("/api/push/vapid-public-key", s.handlePushVAPIDPublicKey)
 	r.Post("/api/push/subscribe", s.handlePushSubscribe)
 	r.Post("/api/notify", s.handleNotify)
+	// Spoken-reply leg of the voice round-trip — broadcasts to connected
+	// dashboards when voice is enabled, else degrades to plain notify. See
+	// api/say.go.
+	r.Post("/api/say", s.handleSay)
 
 	// Frame-refusal probe — read-only header fetch for the web tile's
 	// embedding check (absolute external URLs only). See api/framecheck.go.

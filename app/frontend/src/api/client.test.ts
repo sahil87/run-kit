@@ -16,6 +16,8 @@ import {
   renameWindow,
   sendChatMessage,
   sendToWindow,
+  sendOperatorRequest,
+  transcribeVoice,
   ApiError,
   fetchWindowHistory,
   getDirectories,
@@ -337,6 +339,92 @@ describe("API client", () => {
       { text: "one\ntwo", mode: "raw" },
       { text: "", mode: "enter" },
     ]);
+  });
+
+  it("sendToWindow adds pane to the body only when non-empty", async () => {
+    const capturedBodies: unknown[] = [];
+    mswServer.use(
+      http.post("/api/windows/:windowId/send", async ({ request }) => {
+        capturedBodies.push(await request.json());
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    await sendToWindow("runkit", "@0", "restart the api", "submit", "%12");
+    await sendToWindow("runkit", "@0", "plain", "submit");
+    await sendToWindow("runkit", "@0", "empty pane", "submit", "");
+    expect(capturedBodies).toEqual([
+      { text: "restart the api", mode: "submit", pane: "%12" },
+      { text: "plain", mode: "submit" },
+      { text: "empty pane", mode: "submit" },
+    ]);
+  });
+
+  it("sendOperatorRequest adds text to the body only when non-empty", async () => {
+    const capturedBodies: unknown[] = [];
+    mswServer.use(
+      http.post("/api/windows/:windowId/operator-request", async ({ request }) => {
+        capturedBodies.push(await request.json());
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    await sendOperatorRequest("runkit", "@0", "voice-shell-command", "restart the api");
+    await sendOperatorRequest("runkit", "@0", "fix-tab-name");
+    await sendOperatorRequest("runkit", "@0", "voice-shell-command", "");
+    expect(capturedBodies).toEqual([
+      { template: "voice-shell-command", text: "restart the api" },
+      { template: "fix-tab-name" },
+      { template: "voice-shell-command" },
+    ]);
+  });
+
+  it("transcribeVoice POSTs the raw WAV blob with the server query and parses the transcript", async () => {
+    let capturedUrl = "";
+    let capturedType = "";
+    let capturedBytes = 0;
+    mswServer.use(
+      http.post("/api/voice/transcribe", async ({ request }) => {
+        capturedUrl = request.url;
+        capturedType = request.headers.get("Content-Type") ?? "";
+        const buf = await request.arrayBuffer();
+        capturedBytes = buf.byteLength;
+        return HttpResponse.json({ text: "restart the api" });
+      }),
+    );
+    // The native Blob (not jsdom's) is what Node's fetch serializes as a body.
+    const { Blob: NativeBlob } = await import("node:buffer");
+    const wav = new NativeBlob([new Uint8Array([1, 2, 3, 4])], {
+      type: "audio/wav",
+    }) as unknown as Blob;
+    const result = await transcribeVoice("runkit", wav);
+    expect(result).toEqual({ text: "restart the api" });
+    expect(capturedUrl).toMatch(/\/api\/voice\/transcribe\?server=runkit$/);
+    expect(capturedType).toBe("audio/wav");
+    expect(capturedBytes).toBe(4);
+  });
+
+  it("transcribeVoice omits the server query on a null server and throws the structured error", async () => {
+    let capturedUrl = "";
+    mswServer.use(
+      http.post("/api/voice/transcribe", ({ request }) => {
+        capturedUrl = request.url;
+        return HttpResponse.json(
+          { error: "whisper is not installed — run rk voice install" },
+          { status: 503 },
+        );
+      }),
+    );
+    const { Blob: NativeBlob } = await import("node:buffer");
+    const wav = new NativeBlob([new Uint8Array([1])], { type: "audio/wav" }) as unknown as Blob;
+    try {
+      await transcribeVoice(null, wav);
+      expect.fail("transcribeVoice should reject");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      if (!(err instanceof ApiError)) return;
+      expect(err.message).toBe("whisper is not installed — run rk voice install");
+      expect(err.status).toBe(503);
+    }
+    expect(capturedUrl).toMatch(/\/api\/voice\/transcribe$/);
   });
 
   it("sendToWindow throws ApiError with the server message, status, and code", async () => {

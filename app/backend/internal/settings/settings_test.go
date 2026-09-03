@@ -26,6 +26,12 @@ func TestDefault(t *testing.T) {
 	if s.LogLevel != "info" {
 		t.Errorf("Default().LogLevel = %q, want %q", s.LogLevel, "info")
 	}
+	if s.VoiceEnabled {
+		t.Errorf("Default().VoiceEnabled = true, want false")
+	}
+	if s.VoiceSTTModel != "small.en" {
+		t.Errorf("Default().VoiceSTTModel = %q, want %q", s.VoiceSTTModel, "small.en")
+	}
 }
 
 func TestParseMissing(t *testing.T) {
@@ -466,15 +472,17 @@ func TestOptionalSettingRoundTrips(t *testing.T) {
 	}
 
 	fixtures := map[string]roundTripFixture{
-		"theme":          registryValueFixture(`"dark"`, ptr("dark"), `"light"`, ptr("light"), ptr("system")),
-		"theme_dark":     registryValueFixture(`"dracula"`, ptr("dracula"), `"nord"`, ptr("nord"), ptr("default-dark")),
-		"theme_light":    registryValueFixture(`"solarized-light"`, ptr("solarized-light"), `"paper"`, ptr("paper"), ptr("default-light")),
-		"instance_color": stringValueFixture("5", "1+3", SetInstanceColor, GetInstanceColor),
-		"ssh_host":       stringValueFixture("devbox", "user@host", SetSSHHost, GetSSHHost),
-		"instance_name":  stringValueFixture("my-box", "dev mini", SetInstanceName, GetInstanceName),
-		"auto_name":      registryValueFixture(`true`, true, `false`, false, false),
-		"tmux_conf":      registryValueFixture(`"/my/tmux.conf"`, ptr("/my/tmux.conf"), `"/other/tmux.conf"`, ptr("/other/tmux.conf"), (*string)(nil)),
-		"log_level":      registryValueFixture(`"debug"`, ptr("debug"), `"info"`, ptr("info"), ptr("info")),
+		"theme":           registryValueFixture(`"dark"`, ptr("dark"), `"light"`, ptr("light"), ptr("system")),
+		"theme_dark":      registryValueFixture(`"dracula"`, ptr("dracula"), `"nord"`, ptr("nord"), ptr("default-dark")),
+		"theme_light":     registryValueFixture(`"solarized-light"`, ptr("solarized-light"), `"paper"`, ptr("paper"), ptr("default-light")),
+		"instance_color":  stringValueFixture("5", "1+3", SetInstanceColor, GetInstanceColor),
+		"ssh_host":        stringValueFixture("devbox", "user@host", SetSSHHost, GetSSHHost),
+		"instance_name":   stringValueFixture("my-box", "dev mini", SetInstanceName, GetInstanceName),
+		"auto_name":       registryValueFixture(`true`, true, `false`, false, false),
+		"voice_enabled":   registryValueFixture(`true`, true, `false`, false, false),
+		"voice_stt_model": registryValueFixture(`"large-v3-turbo"`, ptr("large-v3-turbo"), `"tiny.en"`, ptr("tiny.en"), ptr("small.en")),
+		"tmux_conf":       registryValueFixture(`"/my/tmux.conf"`, ptr("/my/tmux.conf"), `"/other/tmux.conf"`, ptr("/other/tmux.conf"), (*string)(nil)),
+		"log_level":       registryValueFixture(`"debug"`, ptr("debug"), `"info"`, ptr("info"), ptr("info")),
 		"server_colors": stringValueFixture("6", "1+3", func(v *string) error {
 			return SetServerColor("default", v)
 		}, func() *string { return GetServerColor("default") }),
@@ -616,6 +624,60 @@ func TestAutoName(t *testing.T) {
 		s.AutoName = false
 		if out := serialize(s); strings.Contains(out, "auto_name") {
 			t.Errorf("auto_name emitted for the off default — legacy files must serialize byte-identically:\n%s", out)
+		}
+	})
+}
+
+func TestVoiceSettings(t *testing.T) {
+	t.Run("defaults", func(t *testing.T) {
+		if Default().VoiceEnabled {
+			t.Error("Default().VoiceEnabled = true, want false")
+		}
+		if parse("theme: dark\n").VoiceEnabled {
+			t.Error("VoiceEnabled = true for a file without the key, want false")
+		}
+		if got := parse("theme: dark\n").VoiceSTTModel; got != "small.en" {
+			t.Errorf("VoiceSTTModel = %q for a file without the key, want %q", got, "small.en")
+		}
+	})
+
+	t.Run("voice_enabled parses ParseBool values, tolerates garbage", func(t *testing.T) {
+		for value, want := range map[string]bool{"true": true, "1": true, "TRUE": true, "false": false, "0": false, "yes-please": false, "\"true\"": true} {
+			if got := parse("voice_enabled: " + value + "\n").VoiceEnabled; got != want {
+				t.Errorf("parse voice_enabled: %s → %v, want %v", value, got, want)
+			}
+		}
+	})
+
+	t.Run("voice_stt_model accepts tags, drops garbage", func(t *testing.T) {
+		for _, tc := range []struct {
+			input string
+			want  string
+		}{
+			{"voice_stt_model: large-v3-turbo\n", "large-v3-turbo"},
+			{"voice_stt_model: \"tiny.en\"\n", "tiny.en"},
+			{"voice_stt_model: small.en-q5_1\n", "small.en-q5_1"},
+			{"voice_stt_model: \"../escape\"\n", "small.en"},
+			{"voice_stt_model: \"\"\n", "small.en"},
+			{"voice_stt_model: \"has space\"\n", "small.en"},
+		} {
+			if got := parse(tc.input).VoiceSTTModel; got != tc.want {
+				t.Errorf("parse(%q).VoiceSTTModel = %q, want %q", tc.input, got, tc.want)
+			}
+		}
+	})
+
+	t.Run("round-trips and serializes only when non-default", func(t *testing.T) {
+		s := Default()
+		s.VoiceEnabled = true
+		s.VoiceSTTModel = "large-v3-turbo"
+		got := parse(serialize(s))
+		if !got.VoiceEnabled || got.VoiceSTTModel != "large-v3-turbo" {
+			t.Errorf("round-trip lost voice keys: %+v", got)
+		}
+		s = Default()
+		if out := serialize(s); strings.Contains(out, "voice_") {
+			t.Errorf("voice keys emitted at their defaults — legacy files must serialize byte-identically:\n%s", out)
 		}
 	})
 }

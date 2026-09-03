@@ -11,11 +11,11 @@ import {
 import { useMatches } from "@tanstack/react-router";
 import { useChromeDispatch } from "./chrome-context";
 import { listServers, compareServersRanked, triggerUpdate, triggerForceUpdate, triggerRestart, type ServerInfo, type UpdateTriggerResult } from "@/api/client";
-import { StateSocket, type ChatSubscribeArgs, type ChatUnsubscribeArgs } from "@/lib/state-socket";
+import { StateSocket, type ChatSubscribeArgs, type ChatUnsubscribeArgs, type SayEvent } from "@/lib/state-socket";
 import { computeUpdateKey } from "@/lib/palette/update";
 import type { MetricsSnapshot, ProjectSession, Service, ServicesSnapshot } from "@/types";
 
-export type { ChatSubscribeArgs, ChatUnsubscribeArgs };
+export type { ChatSubscribeArgs, ChatUnsubscribeArgs, SayEvent };
 
 /** Handlers a chat-lens owner hook registers for one window's chat frames
  *  (260717-vhvz). Routed from the state socket's onEvent/onAck (kind "chat").
@@ -178,6 +178,12 @@ export type SessionContextType = {
    *  no cached payload). The PANE-header refresh button subscribes to clear its
    *  spinner on completion. */
   subscribeStatusRefresh: (handler: () => void) => () => void;
+  /** Subscribe to the server-global `say` event (an operator's spoken-back
+   *  reply). Returns an unsubscribe function. Delivered once over the state
+   *  socket as a `kind:"global"` event (host-global, broadcast-only, no cached
+   *  payload — a reconnect never replays it). The voice HUD subscribes to
+   *  render the reply card and speak the text. */
+  subscribeSay: (handler: (event: SayEvent) => void) => () => void;
   /** Open a chat subscription for a window on the singleton state socket
    *  (260717-vhvz). `from` is the transcript byte offset the client's GET
    *  backfill read up to, so the server tails gap-free. The owner hook
@@ -657,6 +663,27 @@ export function SessionProvider({ children }: SessionProviderProps) {
     }
   }, []);
 
+  // Say-event subscribers (host-global). Same ref-of-handlers pattern as
+  // statusRefreshSubscribersRef, but payload-bearing: `rk say` on the daemon
+  // fans out `say` as a `kind:"global"` event over the socket, and the voice
+  // HUD subscribes to render the reply card + speak the text.
+  const saySubscribersRef = useRef<Set<(event: SayEvent) => void>>(new Set());
+  const subscribeSay = useCallback((handler: (event: SayEvent) => void) => {
+    saySubscribersRef.current.add(handler);
+    return () => {
+      saySubscribersRef.current.delete(handler);
+    };
+  }, []);
+  const fireSay = useCallback((event: SayEvent) => {
+    for (const handler of saySubscribersRef.current) {
+      try {
+        handler(event);
+      } catch {
+        // ignore individual subscriber errors
+      }
+    }
+  }, []);
+
   // Chat subscription seam (260717-vhvz). The owner hook registers a window's
   // handlers, then drives subscribe/unsubscribe through these helpers — never a
   // direct socket handle (the singleton-socket ownership pattern). Chat frames
@@ -902,6 +929,20 @@ export function SessionProvider({ children }: SessionProviderProps) {
         case "status-refresh":
           fireStatusRefresh();
           break;
+        case "say": {
+          const d = data as { text?: unknown; server?: unknown; window?: unknown; ts?: unknown };
+          // `text` and `ts` are the contract's required fields; a payload
+          // missing either is dropped (the tolerant-parse posture).
+          if (typeof d.text === "string" && typeof d.ts === "string") {
+            fireSay({
+              text: d.text,
+              ts: d.ts,
+              ...(typeof d.server === "string" ? { server: d.server } : {}),
+              ...(typeof d.window === "string" ? { window: d.window } : {}),
+            });
+          }
+          break;
+        }
         case "version": {
           const d = data as { version?: string; boot?: string; brew?: boolean; started?: number; port?: number };
           if (typeof d.version === "string") {
@@ -1203,6 +1244,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
       subscribeBoardChange,
       subscribeBoardOrder,
       subscribeStatusRefresh,
+      subscribeSay,
       subscribeChat,
       unsubscribeChat,
       registerChatHandlers,
@@ -1238,6 +1280,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
       subscribeBoardChange,
       subscribeBoardOrder,
       subscribeStatusRefresh,
+      subscribeSay,
       subscribeChat,
       unsubscribeChat,
       registerChatHandlers,
@@ -1549,6 +1592,7 @@ export function StandaloneSessionContextProvider({
     subscribeBoardChange: value.subscribeBoardChange ?? (() => () => {}),
     subscribeBoardOrder: value.subscribeBoardOrder ?? (() => () => {}),
     subscribeStatusRefresh: value.subscribeStatusRefresh ?? (() => () => {}),
+    subscribeSay: value.subscribeSay ?? (() => () => {}),
     subscribeChat: value.subscribeChat ?? (() => {}),
     unsubscribeChat: value.unsubscribeChat ?? (() => {}),
     registerChatHandlers: value.registerChatHandlers ?? (() => () => {}),

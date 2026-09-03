@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's configuration story: fixed root $HOME/.config/run-kit/ (no XDG_CONFIG_HOME); the internal/settings registry and 12-key inventory behind /api/settings (partial merge, all-or-nothing validation); override order code default < config.yaml < env < CLI flag, env limited to RK_PORT/RK_HOST/RK_CODE_SERVER_PORT; value-home boundaries; the rk-owned hash-stamped managed tmux.conf and its `@rk_srv_managed`-gated reload paths; breadcrumb migrations, ~/.rk tenants, the cb/ code-bridge state tenant."
+description: "run-kit's configuration story: fixed root $HOME/.config/run-kit/ (no XDG_CONFIG_HOME); the internal/settings registry and 14-key inventory behind /api/settings (partial merge, all-or-nothing validation); override order code default < config.yaml < env < CLI flag, env limited to RK_PORT/RK_HOST/RK_CODE_SERVER_PORT; value-home boundaries; the rk-owned hash-stamped managed tmux.conf and its `@rk_srv_managed`-gated reload paths; breadcrumb migrations, ~/.rk tenants, the cb/ code-bridge state tenant."
 ---
 # Configuration
 
@@ -36,7 +36,7 @@ Every scaffold path — `EnsureConfig`, `ForceWriteConfig`, `rk mux init-conf` (
 
 Serialization stays hand-rolled (line-scanner parse + string-builder serialize — no yaml.v3) and byte-stable: tolerant reads per key (quote-strip, `validate.NormalizeColorValue`, flair-set membership, `strconv.ParseBool`, malformed-entry skip), omit-when-default/empty, nested sections with sorted map keys and quoted values. An untouched settings file round-trips byte-identically.
 
-The 12-key inventory:
+The 14-key inventory:
 
 | key | type | default | category | ui | live | notes |
 |---|---|---|---|---|---|---|
@@ -52,6 +52,8 @@ The 12-key inventory:
 | `auto_name` | bool | `false` | behavior | yes | yes | a settings POST rewires the hub's auto-name tracker live (see [architecture](/run-kit/architecture.md) § SSE Hub) |
 | `tmux_conf` | path string | `""` | advanced | yes | no | user owns the file; rk performs no ensure/refresh/doctor on it |
 | `log_level` | enum (`info`/`debug`) | `info` | advanced | yes | no | read at serve startup |
+| `voice_enabled` | bool | `false` | behavior | yes | yes | fail-closed gate for the voice round-trip (see [voice](/run-kit/voice.md)); serialized only when `true`; read per request, so a settings POST takes effect without a restart |
+| `voice_stt_model` | string | `small.en` | behavior | yes | yes | whisper model tag — a bare ggml model name, the quantization suffix implied by the stt layer (see [voice](/run-kit/voice.md)); serialized only when non-default |
 
 `live: false` keys (`tmux_conf`, `log_level`) are restart-bound (read once at tmux/serve startup); `live: true` keys apply on next read — `auto_name`'s one read-once consumer (the hub's tracker) is re-applied live by the settings POST. The exported accessor surface (`Load`, `Save`, `Default`, `Get/SetServerColor`, `Get/SetServerFlair`, `Get/SetInstanceColor`, `Get/SetSSHHost`, `Get/SetInstanceName`, `Get/SetBoardOrder`) sits over the registry. (li54)
 

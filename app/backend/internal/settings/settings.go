@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -78,15 +79,25 @@ type Settings struct {
 	// startup (the LOG_LEVEL env escape wins when set), so a change applies on
 	// the next daemon restart.
 	LogLevel string
+	// VoiceEnabled arms the voice round-trip (push-to-talk dictation, spoken
+	// replies). Strictly opt-in (default false): the transcribe route 404s and
+	// say degrades to plain notify while off. Read per request, so a settings
+	// POST takes effect without a daemon restart.
+	VoiceEnabled bool
+	// VoiceSTTModel is the whisper model tag speech-to-text transcribes with
+	// (a bare ggml model name; the quantization suffix is appended by the stt
+	// layer). Read per request.
+	VoiceSTTModel string
 }
 
 // Default returns the default settings.
 func Default() Settings {
 	return Settings{
-		Theme:      "system",
-		ThemeDark:  "default-dark",
-		ThemeLight: "default-light",
-		LogLevel:   "info",
+		Theme:         "system",
+		ThemeDark:     "default-dark",
+		ThemeLight:    "default-light",
+		LogLevel:      "info",
+		VoiceSTTModel: defaultVoiceSTTModel,
 	}
 }
 
@@ -219,6 +230,16 @@ type registryEntry struct {
 	// validated before s is touched — an error means no mutation.
 	apply func(s *Settings, value json.RawMessage) error
 }
+
+// modelTagPattern matches a whisper model tag ("small.en", "large-v3-turbo",
+// "tiny.en-q5_1"): the tag is joined into a ggml filename, so it must be a
+// bare name with no path separators.
+var modelTagPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
+
+// defaultVoiceSTTModel is the voice_stt_model default (kept in sync with the
+// stt package's own default — settings stays import-light, so the value is a
+// local constant rather than a cross-package reference).
+const defaultVoiceSTTModel = "small.en"
 
 // registry is the single source of truth for every settings key. Slice order
 // IS serialization order: scalar keys first (theme … log_level), then the
@@ -357,6 +378,52 @@ var registry = []registryEntry{
 			}
 			return "log_level must be info or debug"
 		}, "info"),
+	},
+	{
+		key: "voice_enabled", kind: "bool", def: "false",
+		desc:     "Arms the voice round-trip: push-to-talk dictation and spoken replies.",
+		category: "behavior", ui: true, live: true,
+		// Tolerant read: any strconv.ParseBool value; anything else keeps the
+		// default (off) — the safe direction for an opt-in feature.
+		parse: func(s *Settings, value string) {
+			if b, err := strconv.ParseBool(strings.Trim(value, "\"")); err == nil {
+				s.VoiceEnabled = b
+			}
+		},
+		serialize: func(s *Settings) string {
+			if s.VoiceEnabled {
+				return "voice_enabled: true\n"
+			}
+			return ""
+		},
+		read:  func(s *Settings) any { return s.VoiceEnabled },
+		apply: boolValue(func(s *Settings) *bool { return &s.VoiceEnabled }),
+	},
+	{
+		key: "voice_stt_model", kind: "string", def: defaultVoiceSTTModel,
+		desc:     "Whisper model tag for speech-to-text (a bare ggml model name; the quantization suffix is implied).",
+		category: "behavior", ui: true, live: true,
+		// Tolerant read: only a well-formed model tag is accepted; anything else
+		// keeps the default. The tag becomes a model filename, so it must stay
+		// a bare name (no separators).
+		parse: func(s *Settings, value string) {
+			if v := strings.Trim(value, "\""); modelTagPattern.MatchString(v) {
+				s.VoiceSTTModel = v
+			}
+		},
+		serialize: func(s *Settings) string {
+			if s.VoiceSTTModel != "" && s.VoiceSTTModel != defaultVoiceSTTModel {
+				return "voice_stt_model: " + s.VoiceSTTModel + "\n"
+			}
+			return ""
+		},
+		read: func(s *Settings) any { v := s.VoiceSTTModel; return &v },
+		apply: validatedScalar(func(s *Settings) *string { return &s.VoiceSTTModel }, func(value string) string {
+			if modelTagPattern.MatchString(value) {
+				return ""
+			}
+			return "voice_stt_model must be a model tag (letters, digits, '.', '-', '_')"
+		}, defaultVoiceSTTModel),
 	},
 	{
 		key: "server_colors", kind: "map", def: "{}",
@@ -533,7 +600,7 @@ func Registry() []KeyInfo {
 			// Copied: the exported view must not alias the package-global
 			// registry slice, or a caller write mutates every later Registry()
 			// call and /api/settings response.
-			Options:     append([]string(nil), e.options...),
+			Options: append([]string(nil), e.options...),
 		}
 	}
 	return infos

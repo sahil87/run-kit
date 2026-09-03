@@ -69,6 +69,7 @@ func TestGetSettings_registryOrderAndDefaults(t *testing.T) {
 	wantKeys := []string{
 		"theme", "theme_dark", "theme_light", "instance_color", "ssh_host",
 		"instance_name", "auto_name", "tmux_conf", "log_level",
+		"voice_enabled", "voice_stt_model",
 		"server_colors", "server_flairs", "board_order",
 	}
 	if len(entries) != len(wantKeys) {
@@ -108,6 +109,12 @@ func TestGetSettings_registryOrderAndDefaults(t *testing.T) {
 	}
 	if got := byKey["log_level"].Value; got != "info" {
 		t.Errorf("log_level.value = %v, want %q", got, "info")
+	}
+	if got := byKey["voice_enabled"].Value; got != false {
+		t.Errorf("voice_enabled.value = %v, want false", got)
+	}
+	if got := byKey["voice_stt_model"].Value; got != "small.en" {
+		t.Errorf("voice_stt_model.value = %v, want %q", got, "small.en")
 	}
 }
 
@@ -182,7 +189,7 @@ func TestGetSettings_enumOptionsWireShape(t *testing.T) {
 	// Non-enum kinds omit the options key entirely (omitempty).
 	for _, key := range []string{
 		"theme_dark", "theme_light", "instance_color", "ssh_host",
-		"instance_name", "auto_name", "tmux_conf",
+		"instance_name", "auto_name", "tmux_conf", "voice_enabled", "voice_stt_model",
 		"server_colors", "server_flairs", "board_order",
 	} {
 		if _, present := byKey[key]["options"]; present {
@@ -339,6 +346,38 @@ func TestPostSettings_boardOrderReplacesWholesale(t *testing.T) {
 
 // --- POST /api/settings: validation, all-or-nothing ---
 
+func TestPostSettings_voiceKeysRoundTrip(t *testing.T) {
+	isolateSettings(t)
+	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
+
+	rec := postJSON(t, router, "/api/settings", `{"voice_enabled": true, "voice_stt_model": "large-v3-turbo"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if got := settings.Load(); !got.VoiceEnabled || got.VoiceSTTModel != "large-v3-turbo" {
+		t.Fatalf("after patch: voice_enabled=%v voice_stt_model=%q, want true/large-v3-turbo", got.VoiceEnabled, got.VoiceSTTModel)
+	}
+
+	byKey := getSettingsMap(t, router)
+	if got := byKey["voice_enabled"].Value; got != true {
+		t.Errorf("GET voice_enabled.value = %v, want true", got)
+	}
+	if got := byKey["voice_stt_model"].Value; got != "large-v3-turbo" {
+		t.Errorf("GET voice_stt_model.value = %v, want %q", got, "large-v3-turbo")
+	}
+
+	// Null unsets both back to the registry defaults.
+	rec = postJSON(t, router, "/api/settings", `{"voice_enabled": null, "voice_stt_model": null}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("null unset: status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if got := settings.Load(); got.VoiceEnabled || got.VoiceSTTModel != "small.en" {
+		t.Errorf("after null unset: voice_enabled=%v voice_stt_model=%q, want false/small.en", got.VoiceEnabled, got.VoiceSTTModel)
+	}
+}
+
+// --- POST /api/settings: validation, all-or-nothing ---
+
 func TestPostSettings_unknownKeyRejected(t *testing.T) {
 	isolateSettings(t)
 	router := newTestRouter(&mockSessionFetcher{}, &mockTmuxOps{})
@@ -367,6 +406,8 @@ func TestPostSettings_perKeyValidation400s(t *testing.T) {
 		{"invalid board name", `{"board_order": ["ok", "bad name!"]}`},
 		{"duplicate board name", `{"board_order": ["a", "b", "a"]}`},
 		{"log_level outside enum", `{"log_level": "trace"}`},
+		{"invalid voice_stt_model", `{"voice_stt_model": "../escape"}`},
+		{"non-bool voice_enabled", `{"voice_enabled": "yes"}`},
 		{"empty theme", `{"theme": "  "}`},
 		{"non-bool auto_name", `{"auto_name": "yes"}`},
 		{"wrong type for map", `{"server_colors": "4"}`},

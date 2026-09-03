@@ -1,0 +1,23 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-02T20:46:06Z"}
+{"args":"Voice round-trip phase 1 — push-to-talk dictation + spoken replies (rk say) behind voice.enabled, off by default; from fab-discuss design conversation 2026-09-02/03","cmd":"fab-new","event":"command","ts":"2026-09-02T20:46:06Z"}
+{"delta":"+2.4","event":"confidence","score":2.4,"trigger":"calc-score","ts":"2026-09-02T20:50:07Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-09-02T20:51:57Z"}
+{"cmd":"fab-clarify","event":"command","ts":"2026-09-03T03:11:38Z"}
+{"delta":"+0.9","event":"confidence","score":3.3,"trigger":"calc-score","ts":"2026-09-03T03:13:38Z"}
+{"delta":"+0.2","event":"confidence","score":3.5,"trigger":"calc-score","ts":"2026-09-03T03:21:06Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-03T03:22:22Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-09-03T03:23:56Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-03T07:15:00Z"}
+{"event":"review","result":"failed","ts":"2026-09-03T07:20:05Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-03T07:20:05Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-03T07:32:48Z"}
+{"event":"review","result":"failed","ts":"2026-09-03T07:39:03Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-03T07:39:03Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-03T07:54:51Z"}
+{"event":"review","result":"failed","ts":"2026-09-03T07:58:16Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-03T07:58:16Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-03T07:59:37Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-03T08:04:25Z"}
+{"event":"review","result":"passed","ts":"2026-09-03T08:04:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-03T08:11:42Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-09-03T08:12:57Z"}

@@ -274,7 +274,12 @@ func TestExtractRefusesEscapingSymlink(t *testing.T) {
 // self->. resolves to dest; up->self/.. cleans to "." (passes every lexical
 // check) but RESOLVES to dest's parent — a later file entry under up/ would
 // land outside dest. Only resolution-aware parent verification catches this.
-func TestExtractRefusesSymlinkTraversalChain(t *testing.T) {
+// The self->. then up->self/.. chain is neutralized by containment: the
+// write through the chain lands INSIDE dest (the chain resolves to dest
+// itself), never at dest's parent. (Pre-shared-core, the strip-first
+// ordering made this fixture an escape refusal; the invariant that matters —
+// no writes outside dest — is unchanged.)
+func TestExtractContainsSymlinkTraversalChain(t *testing.T) {
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gz)
@@ -308,11 +313,14 @@ func TestExtractRefusesSymlinkTraversalChain(t *testing.T) {
 	if err := os.Mkdir(dest, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := extractTarball(src, dest); err == nil || !strings.Contains(err.Error(), "escaping the install dir") {
-		t.Errorf("err = %v, want an escape refusal", err)
+	if err := extractTarball(src, dest); err != nil {
+		t.Fatalf("the contained chain must extract (writes land inside dest), got: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(parent, "evil")); !os.IsNotExist(err) {
 		t.Errorf("evil landed outside dest (stat err = %v)", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(dest, "evil")); err != nil || string(data) != "pwned" {
+		t.Errorf("the chained write should land INSIDE dest; read = %q, %v", data, err)
 	}
 }
 

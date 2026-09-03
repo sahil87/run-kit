@@ -23,6 +23,17 @@ export type StateEvent = {
   data: unknown;
 };
 
+/** Payload of the host-global `say` event: an operator's spoken-back reply.
+ *  One-off fan-out (the status-refresh shape) — no cached slot, no replay, so
+ *  a reconnecting dashboard never re-speaks an old reply. `server`/`window`
+ *  identify the operator's tmux origin when the CLI ran inside tmux. */
+export type SayEvent = {
+  text: string;
+  server?: string;
+  window?: string;
+  ts: string;
+};
+
 export type StateSocketHandlers = {
   /** A demuxed event (kind/type/key/data). */
   onEvent: (ev: StateEvent) => void;

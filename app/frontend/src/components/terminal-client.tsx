@@ -18,6 +18,7 @@ import { copyToClipboard } from "@/lib/clipboard";
 import { notifyFirstWrite } from "@/lib/window-transition";
 import { relayMux, type RelayStream } from "@/lib/relay-mux";
 import { shouldRefuseTerminalChord } from "@/lib/keybindings";
+import { voiceController } from "@/lib/voice-controller";
 import { createGestureArm, createWheelAccumulator } from "@/lib/zoom-gesture";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { evaluateMediaQuery } from "@/hooks/use-media-query";
@@ -477,6 +478,24 @@ export function TerminalClient({
             appKeybindingsRef.current,
             keybindingPlatformRef.current,
           )
+        ) {
+          return false;
+        }
+        // The hold-to-talk chord (⌥Space) rides no registry tier — Alt is
+        // excluded by design — so no refusal above covers it. Refuse it here
+        // while a voice controller is armed: xterm must not consume the
+        // keydown, or the window-level hold listener never sees it. The keyup
+        // is refused only mid-hold, so an un-held Space release behaves
+        // normally.
+        const vc = voiceController();
+        if (
+          vc != null &&
+          event.code === "Space" &&
+          event.altKey &&
+          !event.metaKey &&
+          !event.ctrlKey &&
+          !event.shiftKey &&
+          (event.type === "keydown" || (event.type === "keyup" && vc.isRecording()))
         ) {
           return false;
         }

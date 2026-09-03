@@ -14,6 +14,7 @@ func TestRegistry_orderAndMetadata(t *testing.T) {
 	wantKeys := []string{
 		"theme", "theme_dark", "theme_light", "instance_color", "ssh_host",
 		"instance_name", "auto_name", "tmux_conf", "log_level",
+		"voice_enabled", "voice_stt_model",
 		"server_colors", "server_flairs", "board_order",
 	}
 	if len(infos) != len(wantKeys) {
@@ -38,6 +39,8 @@ func TestRegistry_orderAndMetadata(t *testing.T) {
 		{"theme", "enum", "system", "appearance", true, true, []string{"system", "dark", "light"}},
 		{"instance_color", "color", "", "appearance", true, true, nil},
 		{"auto_name", "bool", "false", "behavior", true, true, nil},
+		{"voice_enabled", "bool", "false", "behavior", true, true, nil},
+		{"voice_stt_model", "string", "small.en", "behavior", true, true, nil},
 		{"log_level", "enum", "info", "advanced", true, false, []string{"info", "debug"}},
 		{"server_colors", "map", "{}", "appearance", true, true, nil},
 		{"server_flairs", "map", "{}", "appearance", true, true, nil},
@@ -93,6 +96,8 @@ func TestReadValue_defaultSettings(t *testing.T) {
 		{"auto_name", false},
 		{"tmux_conf", (*string)(nil)},
 		{"log_level", ptr("info")},
+		{"voice_enabled", false},
+		{"voice_stt_model", ptr("small.en")},
 		{"server_colors", map[string]string(nil)},
 		{"server_flairs", map[string]string(nil)},
 		{"board_order", []string(nil)},
@@ -243,6 +248,8 @@ func TestApplyValue_rejectsInvalidWithoutMutation(t *testing.T) {
 		{"invalid ssh host", "ssh_host", `"dev box"`, func(s *Settings) any { return s.SSHHost }},
 		{"invalid instance name", "instance_name", `"my\u0007box"`, func(s *Settings) any { return s.InstanceName }},
 		{"log_level outside enum", "log_level", `"trace"`, func(s *Settings) any { return s.LogLevel }},
+		{"invalid voice_stt_model", "voice_stt_model", `"../escape"`, func(s *Settings) any { return s.VoiceSTTModel }},
+		{"non-bool voice_enabled", "voice_enabled", `"yes"`, func(s *Settings) any { return s.VoiceEnabled }},
 		{"empty theme", "theme", `"  "`, func(s *Settings) any { return s.Theme }},
 		{"non-bool auto_name", "auto_name", `"yes"`, func(s *Settings) any { return s.AutoName }},
 		{"wrong type for map", "server_colors", `"4"`, func(s *Settings) any { return s.ServerColors }},

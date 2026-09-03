@@ -298,6 +298,33 @@ summary {
   50.01%, 100% { opacity: 0; }
 }
 
+/* Voice HUD live-state wave (.rk-voice-wave): the who-header bars signaling an
+   active capture / spoken reply. Decorative only — the phase is always also
+   text ("Listening…", "sending in N s"), so reduced motion zeroes the bars to
+   a static half-height (below). */
+@keyframes rk-voice-wave {
+  0%, 100% { transform: scaleY(0.25); }
+  50% { transform: scaleY(1); }
+}
+.rk-voice-wave {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+}
+.rk-voice-wave > i {
+  width: 3px;
+  height: 100%;
+  border-radius: 1px;
+  background: currentColor;
+  transform-origin: bottom;
+  animation: rk-voice-wave 900ms ease-in-out infinite;
+}
+.rk-voice-wave > i:nth-child(2) { animation-delay: 150ms; }
+.rk-voice-wave > i:nth-child(3) { animation-delay: 300ms; }
+.rk-voice-wave > i:nth-child(4) { animation-delay: 450ms; }
+.rk-voice-wave > i:nth-child(5) { animation-delay: 600ms; }
+
 /* Typed sweep = section labels. On hover the label fades and an inverse-video
    cursor (an accent-green cell OVER the character — a terminal block cursor
    sitting on text) sweeps from the first cell, "typing" each character back to
@@ -1524,6 +1551,9 @@ html[data-theme="light"] {
   /* Compose chip caret: static but VISIBLE — the bar is the chip's face
      (a glyph, not a flourish), so only the blink is zeroed. */
   .rk-compose-caret { animation: none; opacity: 1; }
+  /* Voice HUD wave bars: the phase is always also text, so the bars zero to
+     a static half-height. */
+  .rk-voice-wave > i { animation: none; transform: scaleY(0.5); }
   /* Waiting overlay → static yellow ring / seam (attention never motion-only). */
   .rk-waiting-halo { animation: none; box-shadow: 0 0 0 2px var(--color-signal-yellow); }
   .rk-waiting-seam { animation: none; border-color: var(--color-signal-yellow); }

@@ -4,15 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
 	"rk/internal/inject"
+	"rk/internal/tmux"
 )
 
 type windowSendRequest struct {
 	Text string `json:"text"`
 	Mode string `json:"mode"`
+	// Pane, when present, retargets the injection from the window's active
+	// pane to this pane (%N) — it must belong to the resolved window.
+	Pane string `json:"pane"`
 }
 
 // handleWindowSend serves POST /api/windows/{windowId}/send — the compose
@@ -21,8 +26,8 @@ type windowSendRequest struct {
 // verification depend on the shape of the text it happens to be sending.
 //
 // Unlike /chat/send this route needs NO chat session on the window and targets
-// the window's ACTIVE pane, never the chat/agent pane rollup — one derivation
-// of "the target pane" for every mode.
+// the window's ACTIVE pane (or the body's validated `pane` override), never the
+// chat/agent pane rollup — one derivation of "the target pane" for every mode.
 func (s *Server) handleWindowSend(w http.ResponseWriter, r *http.Request) {
 	windowID, ok := parseWindowID(r)
 	if !ok {
@@ -45,19 +50,45 @@ func (s *Server) handleWindowSend(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Text cannot be empty")
 		return
 	}
+	if body.Pane != "" && !tmux.ValidPaneID(body.Pane) {
+		writeError(w, http.StatusBadRequest, "Invalid pane ID")
+		return
+	}
 
 	server := serverFromRequest(r)
 	ctx, cancel := context.WithTimeout(r.Context(), chatSendTotalBudget)
 	defer cancel()
 
-	paneID, found, err := s.resolveWindowActivePane(ctx, server, windowID)
+	window, err := s.resolveWindow(ctx, server, windowID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if !found {
+	if window == nil {
 		writeError(w, http.StatusNotFound, "window not found")
 		return
+	}
+
+	paneID := body.Pane
+	if paneID == "" {
+		id, ok := activePaneID(*window)
+		if !ok {
+			writeError(w, http.StatusNotFound, "window not found")
+			return
+		}
+		paneID = id
+	} else {
+		member := false
+		for _, p := range window.Panes {
+			if p.PaneID == paneID {
+				member = true
+				break
+			}
+		}
+		if !member {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("pane %s does not belong to window %s", paneID, windowID))
+			return
+		}
 	}
 
 	tmuxAdapter := chatSendTmux{s.tmux}
@@ -98,22 +129,19 @@ func validWindowSendMode(mode string) bool {
 	}
 }
 
-// resolveWindowActivePane returns the active pane for a window from one
-// request-scoped session snapshot.
-func (s *Server) resolveWindowActivePane(ctx context.Context, server, windowID string) (paneID string, found bool, err error) {
+// resolveWindow returns the window record for windowID from one request-scoped
+// session snapshot (nil when no window matches).
+func (s *Server) resolveWindow(ctx context.Context, server, windowID string) (*tmux.WindowInfo, error) {
 	sess, err := s.sessions.FetchSessions(ctx, server)
 	if err != nil {
-		return "", false, err
+		return nil, err
 	}
 	for si := range sess {
 		for wi := range sess[si].Windows {
-			window := &sess[si].Windows[wi]
-			if window.WindowID != windowID {
-				continue
+			if sess[si].Windows[wi].WindowID == windowID {
+				return &sess[si].Windows[wi], nil
 			}
-			id, ok := activePaneID(*window)
-			return id, ok, nil
 		}
 	}
-	return "", false, nil
+	return nil, nil
 }

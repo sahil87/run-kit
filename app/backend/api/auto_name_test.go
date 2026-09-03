@@ -360,7 +360,7 @@ func TestAutoName_DeliverBusyOperatorSkipsInjection(t *testing.T) {
 	tr, _ := newTestAutoNameTracker()
 	results := make(chan error, 1)
 	tr.deliver = func(ctx context.Context, server string, subject, operator *tmux.WindowInfo) error {
-		err := s.deliverOperatorRequest(ctx, server, subject, operator, operatorTemplates["fix-tab-name"])
+		err := s.deliverOperatorRequest(ctx, server, subject, operator, operatorTemplates["fix-tab-name"], "")
 		results <- err
 		return err
 	}
@@ -401,7 +401,7 @@ func TestAutoName_DeliverIdleOperatorInjects(t *testing.T) {
 	tr, _ := newTestAutoNameTracker()
 	results := make(chan error, 1)
 	tr.deliver = func(ctx context.Context, server string, subject, operator *tmux.WindowInfo) error {
-		err := s.deliverOperatorRequest(ctx, server, subject, operator, operatorTemplates["fix-tab-name"])
+		err := s.deliverOperatorRequest(ctx, server, subject, operator, operatorTemplates["fix-tab-name"], "")
 		results <- err
 		return err
 	}

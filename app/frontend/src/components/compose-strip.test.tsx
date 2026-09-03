@@ -43,7 +43,7 @@ vi.mock("@/hooks/use-file-upload", async (orig) => {
 });
 
 const sendToWindowMock = vi.fn<
-  (server: string, windowId: string, text: string, mode: WindowSendMode) => Promise<{ ok: boolean }>
+  (server: string, windowId: string, text: string, mode: WindowSendMode, pane?: string) => Promise<{ ok: boolean }>
 >();
 vi.mock("@/api/client", async (orig) => {
   const actual = await orig<typeof import("@/api/client")>();
@@ -63,6 +63,16 @@ vi.mock("@/components/toast", async (orig) => {
     useToast: () => ({ addToast: addToastMock }),
   };
 });
+
+// The voice gate + mic support are module-level reads; a mutable pair lets
+// each test set the gating before render.
+const voiceGate = { enabled: false, supported: false };
+vi.mock("@/lib/voice-enabled", () => ({
+  useVoiceEnabled: () => voiceGate.enabled,
+}));
+vi.mock("@/lib/voice-capture", () => ({
+  isMicSupported: () => voiceGate.supported,
+}));
 
 /** Fake WebSocket-shaped adapter that records sends. */
 function makeWs(open = true) {
@@ -2457,5 +2467,107 @@ describe("ComposeStrip window send path", () => {
     expect(input().value).toBe("one\ntwo");
     expect(getComposeDraft(entryKey("srv", "@1")).attachments).toEqual([attachment]);
     expect(getComposeSentHistory(entryKey("srv", "@1"))).toEqual(["one\ntwo"]);
+  });
+});
+
+describe("ComposeStrip — voice mic chip", () => {
+  beforeEach(() => {
+    voiceGate.enabled = false;
+    voiceGate.supported = false;
+    stubMatchMedia();
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  function renderStrip(props: {
+    onVoiceHoldStart?: () => void;
+    onVoiceHoldEnd?: () => void;
+    voiceRecording?: boolean;
+  } = {}) {
+    return render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <ComposeStrip {...props} />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
+  }
+
+  function micChip() {
+    return screen.queryByTestId("compose-strip-mic");
+  }
+
+  it("omits the chip when voice is disabled", () => {
+    voiceGate.supported = true;
+    renderStrip({ onVoiceHoldStart: vi.fn(), onVoiceHoldEnd: vi.fn() });
+    expect(micChip()).toBeNull();
+  });
+
+  it("omits the chip when the mic is unsupported (non-secure context)", () => {
+    voiceGate.enabled = true;
+    renderStrip({ onVoiceHoldStart: vi.fn(), onVoiceHoldEnd: vi.fn() });
+    expect(micChip()).toBeNull();
+  });
+
+  it("omits the chip when the caller threads no hold callbacks", () => {
+    voiceGate.enabled = true;
+    voiceGate.supported = true;
+    renderStrip();
+    expect(micChip()).toBeNull();
+  });
+
+  it("renders the chip when enabled + supported + callbacks threaded", () => {
+    voiceGate.enabled = true;
+    voiceGate.supported = true;
+    renderStrip({ onVoiceHoldStart: vi.fn(), onVoiceHoldEnd: vi.fn() });
+    expect(micChip()).not.toBeNull();
+  });
+
+  it("press-and-hold fires the hold callbacks", () => {
+    voiceGate.enabled = true;
+    voiceGate.supported = true;
+    const onVoiceHoldStart = vi.fn();
+    const onVoiceHoldEnd = vi.fn();
+    renderStrip({ onVoiceHoldStart, onVoiceHoldEnd });
+    const chip = micChip();
+    if (!chip) throw new Error("mic chip missing");
+    fireEvent.pointerDown(chip, { button: 0 });
+    expect(onVoiceHoldStart).toHaveBeenCalledTimes(1);
+    expect(onVoiceHoldEnd).not.toHaveBeenCalled();
+    fireEvent.pointerUp(chip);
+    expect(onVoiceHoldEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it("a non-primary pointer button does not start the hold", () => {
+    voiceGate.enabled = true;
+    voiceGate.supported = true;
+    const onVoiceHoldStart = vi.fn();
+    renderStrip({ onVoiceHoldStart, onVoiceHoldEnd: vi.fn() });
+    const chip = micChip();
+    if (!chip) throw new Error("mic chip missing");
+    fireEvent.pointerDown(chip, { button: 2 });
+    expect(onVoiceHoldStart).not.toHaveBeenCalled();
+  });
+
+  it("pointer leave/cancel end an in-flight hold", () => {
+    voiceGate.enabled = true;
+    voiceGate.supported = true;
+    const onVoiceHoldEnd = vi.fn();
+    renderStrip({ onVoiceHoldStart: vi.fn(), onVoiceHoldEnd, voiceRecording: true });
+    const chip = micChip();
+    if (!chip) throw new Error("mic chip missing");
+    fireEvent.pointerLeave(chip);
+    expect(onVoiceHoldEnd).toHaveBeenCalledTimes(1);
+    fireEvent.pointerCancel(chip);
+    expect(onVoiceHoldEnd).toHaveBeenCalledTimes(2);
+  });
+
+  it("paints the recording state via aria-pressed", () => {
+    voiceGate.enabled = true;
+    voiceGate.supported = true;
+    renderStrip({ onVoiceHoldStart: vi.fn(), onVoiceHoldEnd: vi.fn(), voiceRecording: true });
+    expect(micChip()?.getAttribute("aria-pressed")).toBe("true");
   });
 });

@@ -29,7 +29,7 @@ Before considering a change complete, run these gates in order:
 
 1. **Go tests** — `cd app/backend && go test ./...`
 2. **Frontend type check** — `cd app/frontend && npx tsc --noEmit`
-3. **Smoke check** — `just test` (runs backend + frontend + e2e tests)
+3. **Scoped smoke check** — `just test-backend`, `just test-frontend`, and only the e2e specs covering the changed surface (`just test-e2e "<spec>"` per spec, plus sibling specs touching the same components). Do NOT run the full `just test` suite as a change gate — the full e2e suite takes ~45–60 minutes and is **on-demand only** (pre-release verification, or explicitly requested); PR CI runs its own suite
 4. **Production build** — `just build`
 
 ## Test Strategy

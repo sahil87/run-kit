@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Operator actuation seam — templated work items for the server's operator window over window- and server-scoped POST routes. Covers the closed template registry, fact derivation, busy/probe/submit-unverified 409s, shared injection-engine delivery, auto-name dispatch, no-queue posture, and derive-tick results."
+description: "Operator actuation seam — templated work items for the server's operator window over window- and server-scoped POST routes. Covers the closed template registry, fact derivation (incl. the requiresPaneFacts lane behind voice-shell-command, the voice round-trip's shell-pane arm), busy/probe/submit-unverified 409s, shared injection-engine delivery, auto-name dispatch, no-queue posture, and derive-tick results."
 ---
 # Operator Actuation
 
@@ -54,7 +54,8 @@ checked against the closed in-code registry `operatorTemplates`
 (`map[string]operatorTemplate` — each entry declaring a `requiresChatRef` fact
 requirement, an `acceptsText` client-text admission, a `serverScoped` scope
 discriminator, a `requiresWaiting` zero-waiting precondition, an
-`acceptsSession` session-scope admission, and a PURE render
+`acceptsSession` session-scope admission, a `requiresPaneFacts` pane-facts
+requirement, and a PURE render
 func for its scope — `render
 func(operatorFacts) string` window-scoped, `renderServer
 func(serverOperatorFacts) string` server-scoped — plain string composition, no
@@ -569,6 +570,15 @@ User Options).
   no-reply bound.
 - **AND GIVEN** `{"template": "annotate-tab"}` on the server-scoped route,
   **THEN** it 400s naming the template as window-scoped.
+
+### Requirement: The `voice-shell-command` template (window-scoped)
+The registry's `voice-shell-command` entry (window-scoped, `acceptsText: true`, `requiresPaneFacts: true` — no `requiresChatRef`) SHALL carry a voice utterance aimed at a bare shell window (the voice round-trip's shell-pane arm — see [voice](/run-kit/voice.md)). The admitted body `text` is the utterance (the acceptsText lane's rules apply verbatim). The `requiresPaneFacts` declaration SHALL gate ONE extra derivation round trip — paid only by declaring templates — filling `operatorFacts.Text`/`PaneID`/`CWD`/`GitRoot`: the subject window's pane (active-pane-first), its `pane_current_path` via `tmux.PaneFactsCtx` (behind the `paneFactsFn` seam), and its git root via `config.FindGitRoot`; a derivation failure degrades to empty `CWD`/`GitRoot`, never an error. The render (`renderVoiceShellCommand`, the self-contained `[run-kit request]` framing — no rk knowledge assumed) SHALL name the subject window `@N`, target pane `%N`, cwd, and git root (render-time "(unknown)"/"(none)" markers when a fact failed to derive), carry the utterance in a `delimitUserText` dynamic-fence treat-as-data block, and instruct the operator to: translate the utterance into exactly ONE shell command appropriate to the cwd/git-root context; stage it into the target pane via `rk mux send %N "<command>" --no-enter` (**staged — NO Enter**; the user reviews and submits); reply via `rk say "<one-line reply>"`; and — when the utterance's referents are ambiguous — stage NOTHING and end its turn asking the clarifying question (NEVER guess a command — the question reaches the user through the window's `waiting` state), all inside the standard no-other-action bounds (stage at most one command, one `rk say` reply, no keys anywhere else, never run the command itself). When the pane facts failed to derive, the actuation target falls back to the `@N` window id (`rk mux send` resolves it to the window's pane). The busy gate SHALL reject a busy operator with the structured 409 unchanged. (s4gw)
+
+#### Scenario: Rendered prompt names the staged actuation and reply verb
+- **GIVEN** a subject shell window `@5` with pane `%12`, cwd `/srv/app`, git root `/srv/app`, and body `{"template": "voice-shell-command", "text": "restart the api"}`
+- **WHEN** the template renders
+- **THEN** the prompt names `@5`, `%12`, `/srv/app` (cwd + git root), the fenced utterance, the exact `rk mux send %12 … --no-enter` staged actuation, the `rk say` reply verb, the ask-don't-guess clause, and the no-other-action bounds.
+- **AND GIVEN** a busy operator, **THEN** the structured busy 409 surfaces unchanged; **AND GIVEN** `{"template": "voice-shell-command"}` on the server-scoped route, **THEN** it 400s naming the template as window-scoped.
 
 ### Requirement: Frontend availability — degrade to ABSENT, never disabled
 The window-scoped operator affordances — the flyout's `FixTabNameActionRow`

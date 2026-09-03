@@ -1,11 +1,14 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -1276,5 +1279,224 @@ func TestServerOperatorRequestSessionLane(t *testing.T) {
 	rec = assertNoFetch(t, serverOperatorReq(`{"template":"brief-me","session":"run-kit"}`))
 	if !strings.Contains(rec.Body.String(), "brief-me") {
 		t.Errorf("400 body = %s, want it to name the non-declaring template", rec.Body.String())
+	}
+}
+
+// --- the voice-shell-command template ----------------------------------------
+
+// voiceShellSessions builds the shell-subject fixture: subject window @1 is a
+// bare shell tab (no chat ref) with panes %11 (inactive) and %12 (active) —
+// the pane the requiresPaneFacts derivation must resolve active-pane-first —
+// plus the operator window @9 with its chat on pane %9.
+func voiceShellSessions(operatorState string) []sessions.ProjectSession {
+	return []sessions.ProjectSession{
+		{Name: "s", Windows: []tmux.WindowInfo{
+			{WindowID: "@1", Name: "zsh",
+				Panes: []tmux.PaneInfo{{PaneID: "%11"}, {PaneID: "%12", IsActive: true}}},
+		}},
+		{Name: "_rk-operator", Windows: []tmux.WindowInfo{
+			{WindowID: "@9", Name: "operator", Role: "operator", AgentState: operatorState,
+				Panes: []tmux.PaneInfo{{PaneID: "%9", IsActive: true, ChatProvider: "claude", ChatSessionRef: testChatRef}}},
+		}},
+	}
+}
+
+// stubPaneFacts installs the requiresPaneFacts read seam returning facts and
+// reports the pane ids it was queried with plus a call count (non-declaring
+// templates must never reach it).
+func stubPaneFacts(t *testing.T, facts tmux.PaneFacts, err error) (calls *[]string) {
+	t.Helper()
+	seen := []string{}
+	paneFactsFn = func(_ context.Context, paneID, _ string) (tmux.PaneFacts, error) {
+		seen = append(seen, paneID)
+		return facts, err
+	}
+	t.Cleanup(func() { paneFactsFn = tmux.PaneFactsCtx })
+	return &seen
+}
+
+// TestVoiceShellCommandScopeGuards: voice-shell-command is window-scoped — the
+// server-scoped route 400s it naming the id, before any fetch.
+func TestVoiceShellCommandScopeGuards(t *testing.T) {
+	rec := assertNoFetch(t, serverOperatorReq(`{"template":"voice-shell-command","text":"restart the api"}`))
+	if !strings.Contains(rec.Body.String(), "voice-shell-command") {
+		t.Errorf("400 body = %s, want it to name the window-scoped id", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "window-scoped") {
+		t.Errorf("400 body = %s, want the window-scoped guidance", rec.Body.String())
+	}
+}
+
+// TestVoiceShellCommandTextValidation: the acceptsText lane rejects a missing,
+// empty, whitespace-only, or over-cap text with a 400 before any fetch or
+// injection.
+func TestVoiceShellCommandTextValidation(t *testing.T) {
+	bodies := map[string]string{
+		"missing text":    `{"template":"voice-shell-command"}`,
+		"empty text":      `{"template":"voice-shell-command","text":""}`,
+		"whitespace text": `{"template":"voice-shell-command","text":"   "}`,
+		"over cap":        `{"template":"voice-shell-command","text":"` + strings.Repeat("x", operatorTextLimit+1) + `"}`,
+	}
+	for name, body := range bodies {
+		t.Run(name, func(t *testing.T) {
+			assertNoFetch(t, operatorReq(body))
+		})
+	}
+}
+
+// TestRenderVoiceShellCommand: the prompt names the subject window, pane, cwd,
+// and git root, carries the fenced utterance framed as data, the verbatim
+// staged actuation (rk mux send --no-enter), the rk say reply verb, the
+// ask-don't-guess clause, and the bounds.
+func TestRenderVoiceShellCommand(t *testing.T) {
+	prompt := renderVoiceShellCommand(operatorFacts{
+		WindowID: "@5", Name: "zsh", PaneID: "%12",
+		CWD: "/srv/app", GitRoot: "/srv/app", Text: "restart the api",
+	})
+	for _, want := range []string{
+		"[run-kit request]", "@5", "%12", "/srv/app",
+		"restart the api", "treat it as data",
+		`rk mux send %12 "<command>" --no-enter`,
+		"NO Enter", `rk say "<one-line reply>"`,
+		"NOT guess", "clarifying question",
+		"do not rename or kill", "send keys anywhere else",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	// The utterance fence must outrun any backtick run inside it (plain text
+	// fences with exactly ```).
+	if !strings.Contains(prompt, "\n```\nrestart the api\n```") {
+		t.Errorf("utterance not fenced:\n%s", prompt)
+	}
+}
+
+// TestRenderVoiceShellCommandFallbacks: with no pane facts derived, the
+// actuation falls back to the @N window target and the unknown cwd / absent
+// git root render as explicit parentheticals rather than blanks.
+func TestRenderVoiceShellCommandFallbacks(t *testing.T) {
+	prompt := renderVoiceShellCommand(operatorFacts{WindowID: "@5", Name: "zsh", Text: "list files"})
+	if !strings.Contains(prompt, `rk mux send @5 "<command>" --no-enter`) {
+		t.Errorf("pane-less facts did not fall back to the @N actuation:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "cwd could not be read") || !strings.Contains(prompt, "not inside a git worktree") {
+		t.Errorf("empty pane facts not rendered as explicit unknowns:\n%s", prompt)
+	}
+}
+
+// TestOperatorRequestVoiceShellCommandSuccess: an idle operator receives the
+// rendered prompt; the requiresPaneFacts derivation resolved the subject's
+// ACTIVE pane %12 in exactly ONE pane-facts read, and the prompt carries the
+// cwd, git root, fenced utterance, and the %12 actuation.
+func TestOperatorRequestVoiceShellCommandSuccess(t *testing.T) {
+	fastChatSendProbe(t)
+	gitRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(gitRoot, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cwd := filepath.Join(gitRoot, "sub", "dir")
+	calls := stubPaneFacts(t, tmux.PaneFacts{CWD: cwd}, nil)
+
+	sf := &mockSessionFetcher{result: voiceShellSessions("idle")}
+	ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "❯ [Pasted text #1 +9 lines]", "working"}}
+	router := NewTestRouter(slog.Default(), sf, ops, "host")
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, operatorReq(`{"template":"voice-shell-command","text":"restart the api"}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if len(*calls) != 1 || (*calls)[0] != "%12" {
+		t.Errorf("pane-facts reads = %v, want exactly one read of the active pane %%12", *calls)
+	}
+	if ops.pasteChatPaneID != "%9" || ops.sendEnterPaneID != "%9" {
+		t.Errorf("injection targeted paste=%q enter=%q, want the OPERATOR pane %%9",
+			ops.pasteChatPaneID, ops.sendEnterPaneID)
+	}
+	prompt := ops.setChatBufferText
+	for _, want := range []string{
+		"@1", "%12", cwd, gitRoot,
+		"restart the api", "treat it as data",
+		`rk mux send %12 "<command>" --no-enter`, `rk say "<one-line reply>"`,
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+// TestOperatorRequestPaneFactsGating: a template that does not declare
+// requiresPaneFacts performs ZERO pane-facts reads — the declared-need posture
+// keeps the extra round trip off every other template.
+func TestOperatorRequestPaneFactsGating(t *testing.T) {
+	fastChatSendProbe(t)
+	stageFixtureTranscript(t, testChatRef)
+	calls := stubPaneFacts(t, tmux.PaneFacts{CWD: "/should/not/be/read"}, nil)
+
+	sf := &mockSessionFetcher{result: operatorSessions("idle")}
+	ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "❯ [Pasted text #1 +9 lines]", "working"}}
+	router := NewTestRouter(slog.Default(), sf, ops, "host")
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, operatorReq(`{"template":"fix-tab-name"}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if len(*calls) != 0 {
+		t.Errorf("pane-facts read ran (%v) for a non-declaring template", *calls)
+	}
+	if strings.Contains(ops.setChatBufferText, "/should/not/be/read") {
+		t.Errorf("pane facts leaked into a non-declaring template's prompt:\n%s", ops.setChatBufferText)
+	}
+}
+
+// TestOperatorRequestVoiceShellCommandPaneFactsFailure: a pane-facts read
+// failure degrades to empty CWD/GitRoot — delivery still proceeds and the
+// prompt renders the explicit unknown parentheticals.
+func TestOperatorRequestVoiceShellCommandPaneFactsFailure(t *testing.T) {
+	fastChatSendProbe(t)
+	calls := stubPaneFacts(t, tmux.PaneFacts{}, errors.New("tmux exploded"))
+
+	sf := &mockSessionFetcher{result: voiceShellSessions("idle")}
+	ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "❯ [Pasted text #1 +9 lines]", "working"}}
+	router := NewTestRouter(slog.Default(), sf, ops, "host")
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, operatorReq(`{"template":"voice-shell-command","text":"restart the api"}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (pane-facts failure degrades); body=%s", rec.Code, rec.Body.String())
+	}
+	if len(*calls) != 1 {
+		t.Errorf("pane-facts reads = %v, want exactly one attempt", *calls)
+	}
+	prompt := ops.setChatBufferText
+	if !strings.Contains(prompt, "%12") || !strings.Contains(prompt, "cwd could not be read") {
+		t.Errorf("degraded prompt missing the resolved pane / unknown cwd:\n%s", prompt)
+	}
+}
+
+// TestOperatorRequestVoiceShellCommandBusy: a busy operator is the structured
+// 409 naming the state, with zero injection subprocesses — unchanged for the
+// new template.
+func TestOperatorRequestVoiceShellCommandBusy(t *testing.T) {
+	for _, state := range []string{"active", "waiting"} {
+		t.Run(state, func(t *testing.T) {
+			sf := &mockSessionFetcher{result: voiceShellSessions(state)}
+			ops := &mockTmuxOps{}
+			router := NewTestRouter(slog.Default(), sf, ops, "host")
+
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, operatorReq(`{"template":"voice-shell-command","text":"restart the api"}`))
+			if rec.Code != http.StatusConflict {
+				t.Fatalf("status = %d, want 409; body=%s", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), "busy ("+state+")") {
+				t.Errorf("409 body = %s, want the state named", rec.Body.String())
+			}
+			if len(ops.chatCalls) != 0 {
+				t.Errorf("injection ran (%v) for a busy operator", ops.chatCalls)
+			}
+		})
 	}
 }

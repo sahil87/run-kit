@@ -32,6 +32,8 @@ import {
   setComposeStripFocused,
 } from "@/lib/compose-strip-events";
 import { focusMemoryKey, recordFocus } from "@/lib/focus-memory";
+import { useVoiceEnabled } from "@/lib/voice-enabled";
+import { isMicSupported } from "@/lib/voice-capture";
 import {
   getComposeDraft,
   getComposeSentHistory,
@@ -191,6 +193,9 @@ export function ComposeStrip({
   selectionTarget = null,
   focusMemoryWindow,
   dockedInTile = false,
+  onVoiceHoldStart,
+  onVoiceHoldEnd,
+  voiceRecording = false,
 }: {
   selectionTarget?: ComposeSelectionTarget | null;
   /** The terminal route's window identity, for the focus-memory write gate
@@ -210,6 +215,13 @@ export function ComposeStrip({
    *  mounts (selection broadcast, board route, no-tty fallback) omit it and
    *  keep the header. */
   dockedInTile?: boolean;
+  /** Voice hold-to-talk seam. The strip stays dumb: capture lifecycle belongs
+   *  to the caller, which threads these callbacks; the mic chip renders only
+   *  when voice is enabled, the mic is supported, AND both callbacks exist. */
+  onVoiceHoldStart?: () => void;
+  onVoiceHoldEnd?: () => void;
+  /** True while a capture is in flight — paints the chip's recording state. */
+  voiceRecording?: boolean;
 }) {
   const { focused } = useFocusedTerminal();
   // The header-row × fires the exact same toggle as the bottom-bar `>_` chip
@@ -305,6 +317,14 @@ export function ComposeStrip({
   const hasTarget = isSelectionTarget || focused !== null;
   const canUpload = !isSelectionTarget && focused !== null;
   const coarsePointer = useCoarsePointer();
+  // The mic chip is omitted — never disabled — unless every gate passes:
+  // the voice setting, the secure-context mic check, and the caller threading
+  // both hold callbacks.
+  const voiceMicAvailable =
+    useVoiceEnabled() &&
+    isMicSupported() &&
+    onVoiceHoldStart !== undefined &&
+    onVoiceHoldEnd !== undefined;
   const { uploadFiles, uploading } = useFileUpload(
     focused?.session ?? "",
     focused?.windowId ?? "",
@@ -1011,6 +1031,35 @@ export function ComposeStrip({
       )}
     </button>
   );
+  // The mic chip — press-and-hold voice capture. Same keyed-sibling idiom as
+  // attachChip: in the compact row it sits right after 📎 (sharing closeChip's
+  // order slot, the DOM-order tie-break keeping mic first); in the card it's a
+  // plain wrapped sibling. The strip owns no capture state — hold start/end
+  // are the caller's callbacks, and `voiceRecording` only paints the state.
+  const micChip = voiceMicAvailable ? (
+    <button
+      key="mic"
+      type="button"
+      aria-label="Hold to talk"
+      aria-pressed={voiceRecording}
+      onMouseDown={preventFocusSteal}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        onVoiceHoldStart();
+      }}
+      onPointerUp={() => onVoiceHoldEnd()}
+      onPointerLeave={() => {
+        if (voiceRecording) onVoiceHoldEnd();
+      }}
+      onPointerCancel={() => onVoiceHoldEnd()}
+      data-testid="compose-strip-mic"
+      className={`rk-glint shrink-0 touch-none rounded px-2 py-1.5 text-xs transition-colors coarse:min-h-[36px] coarse:min-w-[36px] ${chipTone} ${isCard ? "" : "order-2"} ${
+        voiceRecording ? "animate-pulse text-accent" : "text-text-secondary"
+      }`}
+    >
+      <span aria-hidden="true">🎙</span>
+    </button>
+  ) : null;
   const historyChip = (
     <button
       key="history"
@@ -1215,6 +1264,7 @@ export function ComposeStrip({
         {fileInput}
         {textareaEl}
         {attachChip}
+        {micChip}
         {!coarsePointer && closeChip}
         {isCard && sentHistory.length > 0 && historyChip}
         {coarsePointer && isCard && !isSelectionTarget && !composerEmpty && newlineChip}

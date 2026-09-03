@@ -466,8 +466,10 @@ export type WindowSendMode = "submit" | "insert-line" | "raw" | "enter";
 
 /**
  * Carries compose intent only: `mode` selects the server-side injection
- * strategy, and the server re-resolves the window's active pane per request.
- * Non-OK responses become `ApiError`s whose `code` separates staged-but-unsent
+ * strategy, and the server re-resolves the window's active pane per request
+ * UNLESS `pane` pins a specific pane (`%N`, validated server-side against the
+ * window's pane list — an unknown/malformed pane is a 400). Non-OK responses
+ * become `ApiError`s whose `code` separates staged-but-unsent
  * text from an unconfirmed submit because those outcomes require opposite
  * resend advice.
  */
@@ -476,15 +478,39 @@ export async function sendToWindow(
   windowId: string,
   text: string,
   mode: WindowSendMode,
+  pane?: string,
 ): Promise<{ ok: boolean }> {
+  const body: { text: string; mode: WindowSendMode; pane?: string } = { text, mode };
+  if (pane) body.pane = pane;
   const res = await fetch(
     withServer(`/api/windows/${encodeURIComponent(windowId)}/send`, server),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, mode }),
+      body: JSON.stringify(body),
     },
   );
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/**
+ * Upload one recorded utterance as a raw 16kHz mono WAV blob for server-side
+ * transcription. `null` server posts without the `?server=` scope (the
+ * vocabulary priming degrades to base terms there). `throwOnError` surfaces
+ * the server's structured error — the disabled 404, the not-installed 503
+ * remediation, the oversize 413, the failure 502.
+ */
+export async function transcribeVoice(
+  server: string | null,
+  wav: Blob,
+): Promise<{ text: string }> {
+  const url = server ? withServer("/api/voice/transcribe", server) : "/api/voice/transcribe";
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "audio/wav" },
+    body: wav,
+  });
   if (!res.ok) await throwOnError(res);
   return res.json();
 }
@@ -504,13 +530,16 @@ export async function sendOperatorRequest(
   server: string,
   windowId: string,
   template: string,
+  text?: string,
 ): Promise<void> {
   const res = await fetch(
     withServer(`/api/windows/${encodeURIComponent(windowId)}/operator-request`, server),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ template }),
+      // `text` rides only when non-empty, and only on templates the backend
+      // declares acceptsText (it is capped and delimited server-side).
+      body: JSON.stringify(text ? { template, text } : { template }),
     },
   );
   if (!res.ok) await throwOnError(res);

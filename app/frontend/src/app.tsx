@@ -59,6 +59,14 @@ import { buildLayoutActions, buildTileSwitchActions } from "@/lib/palette/layout
 import { buildZenActions } from "@/lib/palette/zen";
 import { resolveZenToggle } from "@/lib/zen-mode";
 import { buildStatusRefreshAction } from "@/lib/palette/status-refresh";
+import { buildVoiceActions } from "@/lib/palette/voice";
+import { useVoiceEnabled } from "@/lib/voice-enabled";
+import { isMicSupported } from "@/lib/voice-capture";
+import { registerVoiceController, useVoiceController, type VoiceController } from "@/lib/voice-controller";
+import { deliverUtterance, resolveTargetPaneId, routeIsAgentWindow } from "@/lib/voice-delivery";
+import { derivePendingBubble } from "@/lib/chat-stream";
+import { useHoldToTalk } from "@/hooks/use-hold-to-talk";
+import { VoiceHud, type VoiceHudHandle } from "@/components/voice-hud";
 import { buildPinActions } from "@/lib/palette/pin";
 import {
   buildSelectAllMergedAction,
@@ -3188,6 +3196,79 @@ function AppShell() {
     toggleComposeStrip,
   ]);
 
+  // Voice wiring: the HUD (mounted over the terminal surface below) owns the
+  // capture lifecycle; this block registers its imperative seam as the shared
+  // voice controller (so the palette entry and the ⌥Space hold chord drive the
+  // same capture), subscribes the say seam, and feeds the compose strip's mic
+  // chip. Everything keys on the voice setting — disabled mounts nothing.
+  const voiceEnabled = useVoiceEnabled();
+  const micUsable = voiceEnabled && isMicSupported();
+  // Capture triggers arm only on the terminal route (windowParam present) —
+  // off-terminal there is no HUD to hold the capture.
+  const voiceArmed = micUsable && windowParam !== undefined;
+  const voiceHudRef = useRef<VoiceHudHandle | null>(null);
+  const [voiceRecording, setVoiceRecording] = useState(false);
+
+  const handleVoiceHoldStart = useCallback(() => {
+    voiceHudRef.current?.startCapture();
+  }, []);
+  const handleVoiceHoldEnd = useCallback(() => {
+    voiceHudRef.current?.stopCapture();
+  }, []);
+
+  useHoldToTalk({
+    enabled: voiceArmed,
+    onHoldStart: handleVoiceHoldStart,
+    onHoldEnd: handleVoiceHoldEnd,
+  });
+
+  // The adapter reads the ref at call time, so the registration stays valid
+  // across HUD remounts (window switches). Registered only while the gate
+  // passes; the unregister clears the slot only if it still points here.
+  useEffect(() => {
+    if (!voiceArmed) return;
+    const adapter: VoiceController = {
+      start: () => voiceHudRef.current?.startCapture(),
+      stop: () => voiceHudRef.current?.stopCapture(),
+      toggle: () => voiceHudRef.current?.toggleCapture(),
+      isRecording: () => voiceHudRef.current?.isRecording() ?? false,
+    };
+    return registerVoiceController(adapter);
+  }, [voiceArmed]);
+
+  // The return leg: operator `say` events render the HUD's reply card + speak.
+  useEffect(() => {
+    if (!voiceEnabled) return;
+    return ctx.subscribeSay((ev) => voiceHudRef.current?.say(ev));
+  }, [voiceEnabled, ctx.subscribeSay]);
+
+  // The confirm card's delivery callback — its countdown completion or the
+  // edited Send are the only call sites. Agent windows take the window send
+  // with the pane pinned (active pane, else first); shell windows hand the
+  // utterance to the operator. The busy 409 announces on the HUD; every other
+  // failure toasts the server's message AND rethrows so the card shows its
+  // error state.
+  const handleVoiceConfirm = useCallback(
+    async (text: string) => {
+      const win = currentWindow;
+      if (!win || !windowParam) return;
+      try {
+        await deliverUtterance({
+          server,
+          windowId: windowParam,
+          paneId: resolveTargetPaneId(win),
+          text,
+          isAgentWindow: routeIsAgentWindow(win),
+          onBusy: () => voiceHudRef.current?.announceBusy(),
+        });
+      } catch (err) {
+        addToast(err instanceof Error ? err.message : "Voice delivery failed", "error");
+        throw err;
+      }
+    },
+    [currentWindow, windowParam, server, addToast],
+  );
+
   // Compose-strip dock selection (260813-j3jb): exactly ONE dock renders the
   // strip. The IN-TILE dock (the first tty tile's flex column, via
   // SurfaceLayout's `ttyDockContent` slot) hosts the desktop terminal route's
@@ -3236,6 +3317,12 @@ function AppShell() {
             }
           : null
       }
+      // The mic chip's hold callbacks drive the same HUD capture as the
+      // ⌥Space chord and palette entry; the strip self-gates the chip on the
+      // voice setting + secure-context mic check.
+      onVoiceHoldStart={handleVoiceHoldStart}
+      onVoiceHoldEnd={handleVoiceHoldEnd}
+      voiceRecording={voiceRecording}
     />
   );
 
@@ -3951,6 +4038,17 @@ function AppShell() {
 
   const { actions: pushActions } = usePushSubscription();
 
+  // `Voice: hold to talk` — toggles capture via the registered controller
+  // (fire-on-select: start when idle, stop when recording). Omitted unless the
+  // voice setting is on, the mic is usable (secure context), the terminal route
+  // is active (the HUD lives there), and a voice surface has registered its
+  // controller.
+  const voiceCtl = useVoiceController();
+  const voiceActions: PaletteAction[] = useMemo(
+    () => (voiceEnabled && isMicSupported() && windowParam !== undefined ? buildVoiceActions(voiceCtl) : []),
+    [voiceEnabled, voiceCtl, windowParam],
+  );
+
   // `Tab: Previous` / `Tab: Next` (R8) — palette parity for the
   // `window-prev`/`window-next` chords: a one-row step over the FLATTENED
   // all-sessions window list in sidebar order (wraparound at the ends, so a
@@ -4003,11 +4101,11 @@ function AppShell() {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...sessionActions, ...sessionsScopeActions, ...windowActions, ...reopenActions, ...windowCycleActions, ...sessionJumpActions, ...boardActions, ...selectionActions, ...viewActions, ...openActions, ...themeActions, ...configActions, ...statusRefreshActions, ...serverActions, ...shellServerActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions, ...operatorComposeActions, ...macroPaletteActions],
+        [...sessionActions, ...sessionsScopeActions, ...windowActions, ...reopenActions, ...windowCycleActions, ...sessionJumpActions, ...boardActions, ...selectionActions, ...viewActions, ...openActions, ...themeActions, ...configActions, ...statusRefreshActions, ...serverActions, ...shellServerActions, ...pushActions, ...voiceActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions, ...operatorComposeActions, ...macroPaletteActions],
         bindingByAction,
         bindingHost.platform,
       ),
-    [sessionActions, sessionsScopeActions, windowActions, reopenActions, windowCycleActions, sessionJumpActions, boardActions, selectionActions, viewActions, openActions, themeActions, configActions, statusRefreshActions, serverActions, shellServerActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions, operatorComposeActions, macroPaletteActions, bindingByAction, bindingHost],
+    [sessionActions, sessionsScopeActions, windowActions, reopenActions, windowCycleActions, sessionJumpActions, boardActions, selectionActions, viewActions, openActions, themeActions, configActions, statusRefreshActions, serverActions, shellServerActions, pushActions, voiceActions, windowSwitchActions, agentActions, agentSpawnActions, operatorComposeActions, macroPaletteActions, bindingByAction, bindingHost],
   );
   // Publish this route's (already shortcut-decorated) list into the
   // palette-actions slot — the single layout-mounted CommandPalette renders
@@ -4709,6 +4807,21 @@ function AppShell() {
             />
           )}
           </div>
+          {/* The voice HUD: an ephemeral card stack overlaid on the terminal
+              content surface (self-positioned absolute bottom-right). Gated
+              caller-side on the voice setting — nothing mounts while it's
+              off. The question card reads the window's waiting rollup; its
+              body reuses the chat stream's pending-question derivation. */}
+          {voiceEnabled && windowParam && (
+            <VoiceHud
+              ref={voiceHudRef}
+              server={server}
+              waiting={currentWindow?.agentState === "waiting"}
+              questionText={derivePendingBubble(chatStream.pending)?.label}
+              onConfirm={handleVoiceConfirm}
+              onRecordingChange={setVoiceRecording}
+            />
+          )}
         </div>
       </main>
 

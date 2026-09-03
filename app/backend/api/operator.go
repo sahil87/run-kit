@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"rk/internal/chat"
+	"rk/internal/config"
 	"rk/internal/inject"
 	"rk/internal/sessions"
 	"rk/internal/tmux"
@@ -31,6 +32,14 @@ type operatorFacts struct {
 	WorktreePath   string
 	FabChange      string // rendered only when non-empty
 	FabStage       string
+	// Text is the admitted body text (acceptsText templates only); PaneID is
+	// the subject's resolved pane (%N), CWD/GitRoot its pane_current_path and
+	// containing repo root — populated only for templates declaring
+	// requiresPaneFacts (a derivation failure degrades to empty CWD/GitRoot).
+	Text    string
+	PaneID  string
+	CWD     string
+	GitRoot string
 }
 
 // operatorWindowFact is one row of the server-scoped fact table: an existing
@@ -111,8 +120,12 @@ type operatorTemplate struct {
 	// closed posture is the default (mirrors acceptsText): a non-empty session
 	// on a template without this declaration is a 400.
 	acceptsSession bool
-	render         func(f operatorFacts) string
-	renderServer   func(f serverOperatorFacts) string
+	// requiresPaneFacts declares that the template needs the subject window's
+	// pane-level facts (resolved pane %N, pane_current_path, git root); the
+	// one extra display-message round trip runs only for declaring templates.
+	requiresPaneFacts bool
+	render            func(f operatorFacts) string
+	renderServer      func(f serverOperatorFacts) string
 }
 
 // operatorTemplates is the closed in-code template registry. An id outside
@@ -178,6 +191,15 @@ var operatorTemplates = map[string]operatorTemplate{
 	"annotate-tab": {
 		requiresChatRef: true,
 		render:          renderAnnotateTab,
+	},
+	// voice-shell-command: the operator translates the user's voice utterance
+	// into ONE shell command and stages it (no Enter — the user submits) into
+	// the subject shell tab's pane, then replies via rk say. The pane facts
+	// (resolved %N, cwd, git root) are the declared extra derivation.
+	"voice-shell-command": {
+		acceptsText:       true,
+		requiresPaneFacts: true,
+		render:            renderVoiceShellCommand,
 	},
 }
 
@@ -519,6 +541,54 @@ Do not reply to this message or take any other action.`,
 		f.WindowID, f.Name, f.TranscriptPath, contextLine, f.WindowID)
 }
 
+// paneFactsFn is the seam over the single display-message round trip that
+// reads a pane's substrate facts — substituted by tests so the
+// requiresPaneFacts derivation runs without a live tmux server (the
+// getWindowOptionFn idiom).
+var paneFactsFn = tmux.PaneFactsCtx
+
+// renderVoiceShellCommand composes the voice-shell-command prompt (the
+// renderFixTabName posture — self-contained, no rk knowledge assumed): the
+// subject window + target pane facts, the utterance as fence-delimited data,
+// the staged (NO Enter — the user submits) actuation via rk mux send, the
+// rk say reply verb, the ask-don't-guess clause, and the no-other-action
+// bounds. When the pane facts failed to derive, the actuation falls back to
+// the @N window target (rk mux send resolves it to the window's pane).
+func renderVoiceShellCommand(f operatorFacts) string {
+	target := f.PaneID
+	if target == "" {
+		target = f.WindowID
+	}
+	cwd := f.CWD
+	if cwd == "" {
+		cwd = "(unknown — the pane's cwd could not be read; ask if the location matters)"
+	}
+	gitRoot := f.GitRoot
+	if gitRoot == "" {
+		gitRoot = "(none — the pane's cwd is not inside a git worktree, or is unknown)"
+	}
+	return fmt.Sprintf(`[run-kit request] Translate the user's voice utterance into exactly ONE shell command and stage it into tmux window %s, pane %s.
+
+Target pane context:
+  cwd:      %s
+  git root: %s
+
+%s
+
+Then:
+1. Translate the utterance into EXACTLY ONE shell command appropriate to the cwd/git-root context above. No compound scripts, no pipelines of unrelated actions — one command.
+2. Stage the command into the target pane WITHOUT submitting it (staged mode — NO Enter; the user reviews and submits it):
+   rk mux send %s "<command>" --no-enter
+3. Reply to the user with ONE line saying what you staged:
+   rk say "<one-line reply>"
+4. If the utterance's referents are ambiguous (which file, which branch, what target), do NOT guess a command — stage nothing and end your turn asking the clarifying question; your question reaches the user through this window's waiting state.
+
+Bounds: stage at most one command into %s and send one rk say reply. Take no other action — do not rename or kill any window, do not send keys anywhere else, do not run the command yourself.`,
+		f.WindowID, target, cwd, gitRoot,
+		delimitUserText("The user's voice utterance follows", f.Text),
+		target, target)
+}
+
 // delimitUserText wraps client-supplied text in a fenced block framed as data.
 // The backtick fence is composed dynamically as max(3, longest backtick run in
 // the text + 1), so no text can close its own fence early (a fixed fence is
@@ -690,19 +760,22 @@ func (e *operatorReject) Error() string { return e.msg }
 // engine. subject/operator arrive ALREADY RESOLVED from the caller's single
 // FetchSessions pass — no second fetch happens here. The ONE shared
 // chatSendTotalBudget deadline is applied inside so both callers (HTTP handler,
-// auto-name fan-out) get identical injection bounding.
+// auto-name fan-out) get identical injection bounding. text is the admitted
+// body text ("" from the auto-name caller — its template declares no
+// acceptsText lane).
 //
 // Busy policy is REJECT, never queue: an active or waiting operator yields a
 // 409-class operatorReject; idle or unknown proceeds (the novelty echo probe
 // remains the final fail-closed guard). No state is written anywhere
 // (Constitution II) beyond the caller's own cooldown bookkeeping.
-func (s *Server) deliverOperatorRequest(ctx context.Context, server string, subject, operator *tmux.WindowInfo, tmpl operatorTemplate) error {
+func (s *Server) deliverOperatorRequest(ctx context.Context, server string, subject, operator *tmux.WindowInfo, tmpl operatorTemplate, text string) error {
 	facts := operatorFacts{
 		WindowID:     subject.WindowID,
 		Name:         subject.Name,
 		WorktreePath: subject.WorktreePath,
 		FabChange:    subject.FabChange,
 		FabStage:     subject.FabStage,
+		Text:         text,
 	}
 	if tmpl.requiresChatRef {
 		if subject.ChatSessionRef == "" {
@@ -719,11 +792,36 @@ func (s *Server) deliverOperatorRequest(ctx context.Context, server string, subj
 		}
 		facts.TranscriptPath = path
 	}
+	if tmpl.requiresPaneFacts {
+		deriveOperatorPaneFacts(ctx, subject, server, &facts)
+	}
 
 	// Delivery targets the OPERATOR window's resolved chat pane — never the
 	// subject's pane, never a window id; the busy gate, pane resolution, and
 	// deadline live in the shared prompt-level core.
 	return s.deliverOperatorPrompt(ctx, server, operator, tmpl.render(facts))
+}
+
+// deriveOperatorPaneFacts fills the requiresPaneFacts fact fields from the
+// subject's pane: the pane resolved active-pane-first (the preview rule —
+// a shell tab carries no chat ref to resolve by), then ONE PaneFactsCtx round
+// trip for its cwd and the containing git root. Every failure degrades to
+// empty CWD/GitRoot (the pane id from the snapshot is still rendered) — the
+// operator works with what it has; a pane-facts failure is never a rejection.
+func deriveOperatorPaneFacts(ctx context.Context, subject *tmux.WindowInfo, server string, facts *operatorFacts) {
+	paneID, ok := activePaneID(*subject)
+	if !ok {
+		return
+	}
+	facts.PaneID = paneID
+	pf, err := paneFactsFn(ctx, paneID, server)
+	if err != nil {
+		return
+	}
+	facts.CWD = pf.CWD
+	if pf.CWD != "" {
+		facts.GitRoot = config.FindGitRoot(pf.CWD)
+	}
 }
 
 // handleOperatorRequest serves POST /api/windows/{windowId}/operator-request —
@@ -794,7 +892,7 @@ func (s *Server) handleOperatorRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.deliverOperatorRequest(r.Context(), server, subject, operator, tmpl); err != nil {
+	if err := s.deliverOperatorRequest(r.Context(), server, subject, operator, tmpl, body.Text); err != nil {
 		var probeErr inject.ProbeFailure
 		if errors.As(err, &probeErr) {
 			// Text pasted, Enter withheld — recoverable state (same as chat-send).

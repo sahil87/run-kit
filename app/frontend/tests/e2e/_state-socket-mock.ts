@@ -73,13 +73,26 @@ export type StateSocketMockOptions = {
   };
 };
 
+/** Handle returned by {@link mockStateSocket}: ad-hoc event injection for
+ *  fire-and-forget global types the options can't schedule (e.g. `say`) —
+ *  those have no cached slot and must fire AFTER the page's subscribers have
+ *  mounted, so the spec drives them itself once its readiness gate passes. */
+export type StateSocketMockHandle = {
+  /** Send a `kind:"global"` event of the given type to the live socket.
+   *  A no-op when the page hasn't connected (or the socket dropped). */
+  emitGlobal: (type: string, data: unknown) => void;
+};
+
 /** Install a `/ws/state` mock speaking the state-socket protocol. Call before
- *  `page.goto`. Returns nothing — specs drive the UI via the delivered payloads.
+ *  `page.goto`. Returns an {@link StateSocketMockHandle} for ad-hoc global
+ *  events; specs that only need the configured payloads ignore it.
  *  (Live-event specs — server-reorder, board-reorder, board-list-reorder — run
  *  against the real backend instead of this mock.) */
-export async function mockStateSocket(page: Page, opts: StateSocketMockOptions = {}): Promise<void> {
+export async function mockStateSocket(page: Page, opts: StateSocketMockOptions = {}): Promise<StateSocketMockHandle> {
+  let live: { send: (msg: string) => void } | null = null;
   await page.routeWebSocket(/\/ws\/state/, (ws) => {
     // Do NOT connectToServer — this is a full mock (no real backend).
+    live = ws;
     const emitGlobal = (type: string, data: unknown) =>
       ws.send(JSON.stringify({ op: "event", kind: "global", type, data }));
 
@@ -145,4 +158,14 @@ export async function mockStateSocket(page: Page, opts: StateSocketMockOptions =
       }
     });
   });
+  return {
+    emitGlobal: (type, data) => {
+      try {
+        live?.send(JSON.stringify({ op: "event", kind: "global", type, data }));
+      } catch {
+        // The socket dropped between the readiness gate and the emit — the
+        // spec's assertion will fail on its own with the better locator error.
+      }
+    },
+  };
 }

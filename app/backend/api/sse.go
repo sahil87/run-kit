@@ -1091,6 +1091,32 @@ func (h *sseHub) broadcastStatusRefresh(completedAt time.Time) {
 	h.broadcastGlobalLocked(ev)
 }
 
+// broadcastSay pushes a server-global `event: say` to EVERY connected
+// state-socket connection (the broadcastStatusRefresh shape): a spoken reply
+// is ephemeral, so there is NO cached slot and NO replay-on-connect — a
+// late-connecting client missed the moment and loses nothing.
+func (h *sseHub) broadcastSay(p sayPayload) {
+	jsonBytes, err := json.Marshal(p)
+	if err != nil {
+		slog.Warn("say broadcast marshal failed", "err", err)
+		return
+	}
+	// Rendered before the lock — see broadcastSessionOrder.
+	ev := preRendered(hubEvent{kind: kindGlobal, typ: "say", data: string(jsonBytes)})
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.broadcastGlobalLocked(ev)
+}
+
+// hasStateConns reports whether any state-socket connection is live — the
+// "is a dashboard connected" probe the say degradation path branches on.
+func (h *sseHub) hasStateConns() bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return len(h.stateConns) > 0
+}
+
 // broadcastGlobalLocked fans a host-global event out to every live state-socket
 // connection exactly once (never once per subscription, which would duplicate a
 // global event on a multi-server connection). Caller MUST hold h.mu (write).

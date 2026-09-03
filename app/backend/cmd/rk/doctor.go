@@ -16,6 +16,8 @@ import (
 	"rk/internal/codebridge"
 	"rk/internal/codeserver"
 	"rk/internal/config"
+	"rk/internal/settings"
+	"rk/internal/stt"
 	"rk/internal/tmux"
 
 	"github.com/spf13/cobra"
@@ -100,6 +102,12 @@ func runDoctorChecks() doctorReport {
 	// installed by `rk code-server install`/`update`. Always OK-shaped (the
 	// code-server posture): absence is a note, never a verdict flipper.
 	report.Checks = append(report.Checks, codeBridgeCheck(codeserver.ExtensionsDir(home), codeBridgeEmbeddedVersion(), codeBridgeLiveHostCount))
+
+	// whisper — the managed speech-to-text install behind the voice feature.
+	// Always OK-shaped (the code-server posture): an absent install only dims
+	// the voice feature, so the row carries the remediation note and never
+	// flips the verdict.
+	report.Checks = append(report.Checks, whisperCheck())
 
 	// Ephemeral servers — informational hygiene count, always OK-shaped (the
 	// code-server/drift posture): scratch servers are deliberate creator
@@ -475,6 +483,31 @@ func codeBridgeCheck(extensionsDir string, embeddedVersion string, listHosts fun
 	if embeddedVersion != "" && codebridge.OlderThan(installed, embeddedVersion) {
 		check.Note += fmt.Sprintf("; bundled v%s is newer — run rk code-server update", embeddedVersion)
 	}
+	return check
+}
+
+// whisperCheck reports the managed whisper install's presence, version, and
+// model file for the configured model tag. Always OK-shaped (the
+// codeServerCheck posture): absence is the WARN case — voice is an optional
+// feature — so the row carries the `rk voice install` remediation note.
+func whisperCheck() doctorCheck {
+	check := doctorCheck{Name: "whisper", OK: true}
+	model := settings.Load().VoiceSTTModel
+	if model == "" {
+		model = stt.DefaultModelTag
+	}
+	st := stt.Probe(model)
+	if !st.Installed {
+		check.Note = "not installed — run rk voice install"
+		return check
+	}
+	if st.Version == "" {
+		// A PATH-resolved binary carries no recorded version (no managed
+		// install, so no VERSION file).
+		check.Note = fmt.Sprintf("installed via PATH (%s); model %s", st.BinPath, filepath.Base(st.ModelPath))
+		return check
+	}
+	check.Note = fmt.Sprintf("installed %s; model %s", st.Version, filepath.Base(st.ModelPath))
 	return check
 }
 

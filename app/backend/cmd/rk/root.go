@@ -58,6 +58,8 @@ func init() {
 	rootCmd.AddCommand(urlCmd)
 	rootCmd.AddCommand(skillCmd)
 	rootCmd.AddCommand(notifyCmd)
+	rootCmd.AddCommand(sayCmd)
+	rootCmd.AddCommand(voiceCmd)
 	rootCmd.AddCommand(agentCmd)
 	// Hidden root aliases for the agent family (see agent.go): agent-setup is
 	// deprecated (warns on stderr, still runs); agent-hook is PERMANENT — the

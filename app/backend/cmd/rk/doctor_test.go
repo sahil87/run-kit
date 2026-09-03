@@ -1495,3 +1495,91 @@ func TestHookRkPath(t *testing.T) {
 		t.Errorf("hookRkPath on an unquoted command = %q, want empty", got)
 	}
 }
+
+// TestWhisperCheckAbsent: with no managed install under a fresh state dir, the
+// whisper row stays OK (never a verdict flipper) and carries the
+// rk voice install remediation note.
+func TestWhisperCheckAbsent(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir()) // isolate settings from any real config
+	t.Setenv("PATH", t.TempDir()) // isolate from any host whisper-cli
+
+	c := whisperCheck()
+	if c.Name != "whisper" {
+		t.Errorf("name = %q, want whisper", c.Name)
+	}
+	if !c.OK {
+		t.Error("an absent whisper install must not fail the check (WARN case)")
+	}
+	if !strings.Contains(c.Note, "not installed") || !strings.Contains(c.Note, "rk voice install") {
+		t.Errorf("note = %q, want the not-installed remediation", c.Note)
+	}
+}
+
+// TestWhisperCheckInstalled: an install under the state dir is reported with
+// its recorded version and the configured model's ggml filename.
+func TestWhisperCheckInstalled(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	t.Setenv("HOME", t.TempDir())
+
+	bin := filepath.Join(state, "run-kit", "whisper", "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "whisper-cli"), []byte("#!fake\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "VERSION"), []byte("v9.9.9\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	models := filepath.Join(state, "run-kit", "whisper", "models")
+	if err := os.MkdirAll(models, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(models, "ggml-small.en-q5_1.bin"), []byte("model"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	c := whisperCheck()
+	if !c.OK {
+		t.Error("an installed whisper must stay OK")
+	}
+	if !strings.Contains(c.Note, "v9.9.9") {
+		t.Errorf("note = %q, want the recorded version", c.Note)
+	}
+	if !strings.Contains(c.Note, "ggml-small.en-q5_1.bin") {
+		t.Errorf("note = %q, want the model filename", c.Note)
+	}
+}
+
+// TestWhisperCheckRowInReport: runDoctorChecks carries exactly one whisper row
+// after the code-server rows, and its absence never flips the verdict.
+func TestWhisperCheckRowInReport(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+
+	report := runDoctorChecks()
+	found := -1
+	for i, c := range report.Checks {
+		if c.Name == "whisper" {
+			found = i
+		}
+	}
+	if found < 0 {
+		t.Fatalf("no whisper row in %+v", report.Checks)
+	}
+	row := report.Checks[found]
+	if !row.OK {
+		t.Errorf("whisper row failed the report on an absent install: %+v", row)
+	}
+	if !strings.Contains(row.Note, "rk voice install") {
+		t.Errorf("row note = %q, want the remediation", row.Note)
+	}
+	for i, c := range report.Checks {
+		if c.Name == "code-server" && found <= i {
+			t.Errorf("whisper row (index %d) must follow the code-server row (index %d)", found, i)
+		}
+	}
+}

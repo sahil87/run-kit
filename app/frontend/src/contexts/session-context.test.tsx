@@ -983,6 +983,71 @@ describe("SessionProvider — version-slot started/port fields", () => {
   });
 });
 
+describe("SessionProvider — say event seam", () => {
+  it("delivers a global say event to subscribers with its payload", async () => {
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await settle();
+
+    const received: unknown[] = [];
+    let unsubscribe: (() => void) | null = null;
+    act(() => {
+      unsubscribe = result.current.subscribeSay((event) => received.push(event));
+    });
+    act(() => {
+      WS.global()?.emit("say", { text: "deploy finished", server: "rk", window: "@3", ts: "2026-09-02T14:03:00Z" });
+    });
+
+    expect(received).toEqual([
+      { text: "deploy finished", server: "rk", window: "@3", ts: "2026-09-02T14:03:00Z" },
+    ]);
+    act(() => {
+      unsubscribe?.();
+    });
+  });
+
+  it("omits absent server/window and drops payloads missing the required fields", async () => {
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await settle();
+
+    const received: unknown[] = [];
+    act(() => {
+      result.current.subscribeSay((event) => received.push(event));
+    });
+    act(() => {
+      WS.global()?.emit("say", { text: "hi", ts: "t" });
+      WS.global()?.emit("say", { text: "no timestamp" });
+      WS.global()?.emit("say", { ts: "t" });
+    });
+
+    expect(received).toEqual([{ text: "hi", ts: "t" }]);
+  });
+
+  it("stops delivering after unsubscribe, and one throwing subscriber does not block the rest", async () => {
+    const { result } = renderHook(() => useSessionContext(), { wrapper: Wrapper });
+    await settle();
+
+    const received: string[] = [];
+    let unsubscribe: (() => void) | null = null;
+    act(() => {
+      result.current.subscribeSay(() => {
+        throw new Error("boom");
+      });
+      unsubscribe = result.current.subscribeSay((event) => received.push(event.text));
+    });
+    act(() => {
+      WS.global()?.emit("say", { text: "first", ts: "t" });
+    });
+    act(() => {
+      unsubscribe?.();
+    });
+    act(() => {
+      WS.global()?.emit("say", { text: "second", ts: "t" });
+    });
+
+    expect(received).toEqual(["first"]);
+  });
+});
+
 describe("SessionProvider — tab-local manual-check feed (260807-s6zs)", () => {
   const runKitRow = { tool: "run-kit", current: "3.8.7", latest: "3.9.1" };
   const tuRow = { tool: "tu", current: "0.9.1", latest: "0.9.2" };

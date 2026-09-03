@@ -1,0 +1,6 @@
+# Declares this directory as a single-package workspace. Build-script
+# approvals live in package.json `pnpm.onlyBuiltDependencies` — do not add
+# settings here that pnpm reads from package.json, and keep `packages` present
+# (it matches the existing non-workspace lockfile exactly).
+packages:
+  - '.'

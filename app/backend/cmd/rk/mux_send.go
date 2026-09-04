@@ -273,7 +273,7 @@ func runMuxSend(cmd *cobra.Command, args []string) error {
 	} else {
 		facts, err := muxSendFactsFn(ctx, paneID, server)
 		if err != nil {
-			return fmt.Errorf("read agent state: %w", err)
+			return fmt.Errorf("read pane facts: %w", err)
 		}
 		switch facts.AgentState {
 		case "":

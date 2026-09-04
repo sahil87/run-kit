@@ -36,7 +36,7 @@ rk mux send %5 --key Enter                            # raw tmux key names (no p
 
 | state | plain | `--answer` |
 |-------|-------|------------|
-| unknown (no/unparseable state) | warn + send — the warning names a non-shell foreground (… foreground process htop running; sending ungated) | warn + send (same naming) |
+| unknown (no/unparseable state) | warn + send — the warning names a non-shell foreground (… foreground process `htop` running; sending ungated) | warn + send (same naming) |
 | `idle` | send | send |
 | `waiting` | refuse | send — this send IS the answer |
 | `active` | refuse | refuse — never interrupt a working agent |

@@ -277,7 +277,12 @@ for the moment a freshly spawned agent is safe to type into, driven by
 no reconciled agent state. For hook-less agents a **settled screen is the probe
 trigger, not a verdict**: when no state appears and the capture is non-blank
 and byte-identical across two consecutive polls, a sentinel echo probe
-classifies the pane — the fixed comment-safe sentinel `#rk-ready-probe` is
+classifies the pane — the probe is a delivery path, so it first runs the
+pane-mode guard (`inject.Tmux.ClearPaneMode`; a scrolled copy-mode pane shows a
+static frame that settles, then eats the paste — reading as parked without the
+guard) and re-checks the frame against the settled baseline, re-entering
+polling on a repaint (the cancel invalidated the baseline); then the fixed
+comment-safe sentinel `#rk-ready-probe` is
 pasted through the named-buffer primitives (`SetBuffer`/`PasteBuffer`,
 bracketed paste, never submitted — no Enter anywhere on the path), an echo is
 detected by **novelty counting** (occurrence count strictly above the pre-probe

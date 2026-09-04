@@ -40,6 +40,7 @@ func TestAwaitReadyEchoClassifies(t *testing.T) {
 	// echo → C-u clear verified against the settled baseline → ReadyByEcho.
 	ft := &fakeTmux{captureResults: []string{
 		"booting…", "prompt>", "prompt>", // settle on the third poll
+		"prompt>",                 // guard recheck: frame unchanged, probe proceeds
 		"prompt> #rk-ready-probe", // probe: sentinel newly echoed
 		"prompt>",                 // clear verify: baseline restored
 	}}
@@ -73,6 +74,7 @@ func TestAwaitReadyStaleSentinelNeedsNovelty(t *testing.T) {
 	settled := "last probe: #rk-ready-probe\nprompt>"
 	ft := &fakeTmux{captureResults: []string{
 		settled, settled, // settle with the stale sentinel in-frame
+		settled,                      // guard recheck
 		settled + " #rk-ready-probe", // echo: count 2 > baseline 1
 		settled, // clear verify
 	}}
@@ -100,8 +102,8 @@ func TestAwaitReadyParkedCarriesSnippet(t *testing.T) {
 	if !errors.As(err, &parked) || !strings.Contains(parked.Snippet, "trust") {
 		t.Errorf("parked snippet = %q, want the settled screen's fragment", parked)
 	}
-	if got := countCalls(ft.callStream(), "capture-pane"); got != 2+ProbeAttempts+1 {
-		t.Errorf("captures = %d, want %d (settle + probe + cleanup — an immediate verdict)", got, 2+ProbeAttempts+1)
+	if got := countCalls(ft.callStream(), "capture-pane"); got != 3+ProbeAttempts+1 {
+		t.Errorf("captures = %d, want %d (settle + guard recheck + probe + cleanup — an immediate verdict)", got, 3+ProbeAttempts+1)
 	}
 	if ft.enterCalled {
 		t.Error("the probe must never submit (no Enter on any path)")
@@ -127,6 +129,7 @@ func TestAwaitReadyDeepScrollbackEchoClassifies(t *testing.T) {
 	settled := deepFrame(ProbeCaptureLines + 5)
 	ft := &fakeTmux{captureResults: []string{
 		settled, settled, // settle
+		settled,                      // guard recheck
 		settled + " #rk-ready-probe", // probe echo
 		settled, // clear verify
 	}}
@@ -162,8 +165,8 @@ func TestAwaitReadyProbeCaptureFailureCleansUp(t *testing.T) {
 	// staged, so the probe attempts the C-u cleanup before reporting not-yet —
 	// a leftover sentinel would pollute the next probe's baseline.
 	ft := &fakeTmux{
-		captureErrs:    []error{nil, nil}, // the settle window runs clean
-		captureResults: []string{"prompt>", "prompt>"},
+		captureErrs:    []error{nil, nil, nil}, // settle + guard recheck run clean
+		captureResults: []string{"prompt>", "prompt>", "prompt>"},
 		captureErr:     errors.New("tmux wedged"),
 	}
 	_, err := AwaitReady(context.Background(), ft, "srv", "%1", ReadyOpts{
@@ -222,6 +225,7 @@ func TestAwaitReadyBlankCapturesNeverProbe(t *testing.T) {
 	// for real content to appear and THEN repeat before spending a probe.
 	ft := &fakeTmux{captureResults: []string{
 		"", "", "  \n", "prompt>", "prompt>", // blank repeats never settle
+		"prompt>",                 // guard recheck
 		"prompt> #rk-ready-probe", // probe echo
 		"prompt>",                 // clear verify
 	}}
@@ -247,9 +251,10 @@ func TestAwaitReadyChurnUnderProbeRePolls(t *testing.T) {
 	// expiry still yields ErrNotReady. Only ONE probe runs (the churned pane
 	// never settles again; captures error out after the script).
 	ft := &fakeTmux{
-		captureErrs: make([]error, 2+ProbeAttempts+1), // nils: the script window below runs clean (settle + probe + post-C-u)
+		captureErrs: make([]error, 3+ProbeAttempts+1), // nils: the script window below runs clean (settle + guard recheck + probe + post-C-u)
 		captureResults: []string{
 			"boot", "boot", // settle
+			"boot", // guard recheck
 			"boot tick", "boot tock", "boot tick", "boot tock",
 			"boot tick", "boot tock", "boot tick", "boot tock", // 8 probe captures, no echo
 			"boot resumed", // post-C-u capture: frame changed → not yet
@@ -298,7 +303,7 @@ func TestAwaitReadyCaptureErrorsTolerated(t *testing.T) {
 	// recovers, settles, and probes once captures succeed.
 	ft := &fakeTmux{
 		captureErrs:    []error{fmt.Errorf("tmux wedged")},
-		captureResults: []string{"prompt>", "prompt>", "prompt> #rk-ready-probe", "prompt>"},
+		captureResults: []string{"prompt>", "prompt>", "prompt>", "prompt> #rk-ready-probe", "prompt>"},
 	}
 	r, err := AwaitReady(context.Background(), ft, "srv", "%1", ReadyOpts{Sleep: noSleep})
 	if err != nil || r != ReadyByEcho {
@@ -350,7 +355,7 @@ func TestAwaitReadyUnverifiedClearFailsClosed(t *testing.T) {
 	// the bounded attempts (the composer stays polluted): fail closed with an
 	// operational error — never report ready over a staged sentinel.
 	ft := &fakeTmux{
-		captureResults: []string{"up", "up", "up #rk-ready-probe"},
+		captureResults: []string{"up", "up", "up", "up #rk-ready-probe"},
 		captureResult:  "up #rk-ready-probe", // clear captures: sentinel stuck
 	}
 	_, err := AwaitReady(context.Background(), ft, "srv", "%1", ReadyOpts{Sleep: noSleep})
@@ -362,6 +367,48 @@ func TestAwaitReadyUnverifiedClearFailsClosed(t *testing.T) {
 	}
 	if got := countCalls(ft.callStream(), "send-keys C-u"); got != ClearAttempts {
 		t.Errorf("C-u attempts = %d, want %d (bounded)", got, ClearAttempts)
+	}
+}
+
+func TestAwaitReadyPaneModeGuardBeforePaste(t *testing.T) {
+	fastProbe(t)
+	// The sentinel probe is a delivery path: the pane-mode guard runs before
+	// the paste (a scrolled copy-mode pane shows a static frame that settles,
+	// then eats the paste — reading as parked without the guard). The guard
+	// cannot report whether it cancelled a mode, so a post-guard repaint means
+	// the settled baseline is stale: no paste that pass, re-enter polling, and
+	// the re-settled real screen classifies normally.
+	ft := &fakeTmux{captureResults: []string{
+		"scrolled view", "scrolled view", // settle on the copy-mode frame
+		"shell>",                  // guard recheck: repaint (a mode was cancelled) → no paste
+		"shell>",                  // next poll
+		"shell>",                  // settle on the real screen
+		"shell>",                  // guard recheck: unchanged, probe proceeds
+		"shell> #rk-ready-probe",  // probe echo
+		"shell>",                  // clear verify
+	}}
+	r, err := AwaitReady(context.Background(), ft, "srv", "%1", ReadyOpts{Sleep: noSleep})
+	if err != nil || r != ReadyByEcho {
+		t.Fatalf("AwaitReady() = (%v, %v), want (ReadyByEcho, nil)", r, err)
+	}
+	calls := ft.callStream()
+	if got := countCalls(calls, "paste-buffer"); got != 1 {
+		t.Errorf("paste-buffer calls = %d, want 1 (no paste on the repainted pass)", got)
+	}
+	if got := countCalls(calls, "clear-pane-mode"); got != 2 {
+		t.Errorf("clear-pane-mode calls = %d, want 2 (one per probe entry)", got)
+	}
+	guard, paste := -1, -1
+	for i, c := range calls {
+		if c == "clear-pane-mode" && guard == -1 {
+			guard = i
+		}
+		if c == "paste-buffer" && paste == -1 {
+			paste = i
+		}
+	}
+	if guard == -1 || (paste != -1 && guard > paste) {
+		t.Errorf("call order = %v, want the pane-mode guard before any paste", calls)
 	}
 }
 
@@ -399,6 +446,7 @@ func TestDeliverWhenReadyComposite(t *testing.T) {
 	const kickoff = "do the thing"
 	ft := &fakeTmux{captureResults: []string{
 		"boot", "boot", // readiness settle
+		"boot",                           // guard recheck
 		"boot #rk-ready-probe",           // readiness probe: sentinel echoed
 		"boot",                           // sentinel clear verify
 		"boot",                           // engine baseline (needle count 0)

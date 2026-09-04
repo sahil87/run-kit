@@ -202,7 +202,10 @@ const (
 	probeEchoed
 )
 
-// probeReadiness runs the sentinel echo probe against a settled pane: paste
+// probeReadiness runs the sentinel echo probe against a settled pane: clear
+// any active pane mode first (the delivery-path guard — a scrolled copy-mode
+// pane would eat the paste and read as parked; a repaint after the guard means
+// the settled baseline is stale, so the probe re-enters polling), then paste
 // readySentinel through the named buffer (bracketed paste — never submitted,
 // no Enter anywhere on the path), then look for its NOVELTY (occurrence count
 // strictly above the settled frame's baseline, so a stale same-text occurrence
@@ -223,6 +226,31 @@ const (
 // error matching isGone, which surfaces ErrGone.
 func probeReadiness(ctx context.Context, t Tmux, server, paneID, buffer, settled string, isGone func(error) bool) (probeVerdict, error) {
 	baseCount := CountOccurrences(settled, readySentinel, false, false)
+
+	// Pane-mode guard (the engine's first pane-touching step, here too): a
+	// copy-mode pane shows a static frame that settles like any other, then
+	// eats the paste — without the guard that misclassifies a merely-scrolled
+	// pane as parked. The guard cannot say whether it cancelled a mode, so the
+	// frame is re-checked against the settled baseline: a repaint means the
+	// baseline is stale — re-enter polling and let the pane re-settle on its
+	// real screen. Guard failures are "not yet" like any other pre-paste
+	// infrastructure failure.
+	if err := t.ClearPaneMode(ctx, paneID, server); err != nil {
+		if isGone != nil && isGone(err) {
+			return probeNotYet, fmt.Errorf("%w: %w", ErrGone, err)
+		}
+		return probeNotYet, nil
+	}
+	afterGuard, err := t.CapturePane(ctx, paneID, readyCaptureLines, server)
+	if err != nil {
+		if isGone != nil && isGone(err) {
+			return probeNotYet, fmt.Errorf("%w: %w", ErrGone, err)
+		}
+		return probeNotYet, nil
+	}
+	if stripForProbe(afterGuard) != stripForProbe(settled) {
+		return probeNotYet, nil
+	}
 
 	if err := t.SetBuffer(ctx, buffer, readySentinel, server); err != nil {
 		return probeNotYet, nil

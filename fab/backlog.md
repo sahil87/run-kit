@@ -105,3 +105,5 @@
 - [ ] [kqps] 2026-09-03: rk agent setup should install the run-kit-tutorial invoker skill: write ~/.claude/skills/run-kit-tutorial/SKILL.md (tracked source in-repo beside the other agent-setup payloads, generation-stamped like the guard shim) — a thin router: gate rk+TMUX_PANE, run 'rk skill tutorial', follow it exactly; description triggers on tutorial/tour/onboarding phrasing and forbids the ONBOARDING.md detour. Found live: latest rk on another machine has the tour content but no discovery route (2026-09-03). Complements [7ajq] rk tutorial (human-typed entry); this covers the ask-a-running-agent entry.
 - [ ] [5tuy] 2026-09-04: a clock for timer and cron within run-kit
 - [ ] [56kz] 2026-09-04: standardization of how messages ar esent to tabs, panes
+- [ ] [fhtm] 2026-09-04: frontend unit tests fail on Node 26.8.1 — global localStorage exists-but-undefined breaks vitest/jsdom setup
+- [ ] [qrl5] 2026-09-04: just setup fails fresh with pnpm ERR_PNPM_IGNORED_BUILDS in app/code-bridge until an untracked allowBuilds file is hand-filled — should be tracked config or handled by setup script

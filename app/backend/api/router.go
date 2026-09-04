@@ -104,6 +104,10 @@ type TmuxOps interface {
 	SetSessionOrder(ctx context.Context, server string, order []string) error
 	GetServerRank(ctx context.Context, server string) (*int, error)
 	SetServerRank(ctx context.Context, server string, rank int) error
+	// ReadServerMarks is the batched per-server option read backing
+	// GET /api/servers — one show-options -s dump carries rank, ephemeral,
+	// protected, and managed (see tmux.ServerMarks).
+	ReadServerMarks(ctx context.Context, server string) (tmux.ServerMarks, error)
 	IsEphemeralServer(ctx context.Context, server string) (bool, error)
 	// IsGuardedServer is the combined kill-guard predicate (rk-daemon by
 	// derivation ∨ @rk_protected); Mark/UnmarkServerProtected write the
@@ -496,6 +500,9 @@ func (p *prodTmuxOps) GetServerRank(ctx context.Context, server string) (*int, e
 }
 func (p *prodTmuxOps) SetServerRank(ctx context.Context, server string, rank int) error {
 	return tmux.SetServerRank(ctx, server, rank)
+}
+func (p *prodTmuxOps) ReadServerMarks(ctx context.Context, server string) (tmux.ServerMarks, error) {
+	return tmux.ReadServerMarks(ctx, server)
 }
 func (p *prodTmuxOps) IsEphemeralServer(ctx context.Context, server string) (bool, error) {
 	return tmux.IsEphemeralServer(ctx, server)

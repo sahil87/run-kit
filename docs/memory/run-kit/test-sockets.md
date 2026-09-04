@@ -151,7 +151,7 @@ Because the manual reaper has **no live-run protection by design** (no name allo
 
 ## `/api/servers` Lists Every Server — No Test-Socket Hide
 
-There is no `/api/servers` test-socket hide filter (260530-cf3g-unify-test-socket-reaping). `handleServersList` (`api/servers.go`) returns the output of `tmux.ListServers` directly, so the response includes **every** tmux server discovered — including leaked `rk-test-*` orphans. The reaper is the **sole** mechanism that keeps this list clean.
+There is no `/api/servers` test-socket hide filter (260530-cf3g-unify-test-socket-reaping). `handleServersList` (`api/servers.go`) returns the output of `tmux.ListServers` directly, so the response includes **every** tmux server discovered — including leaked `rk-test-*` orphans. The reaper is the **sole** mechanism that keeps this list clean. Listing costs one liveness probe per socket candidate: a probe that times out is retried once, and a second timeout KEEPS the name (live-but-busy stays listed — only fast-refusing dead sockets drop; see [tmux-sessions](/run-kit/tmux-sessions.md) § Server Discovery), so a test server under load never flickers out of the dev UI.
 
 **Accepted consequence**: after a crashed test run, the dev UI lists the orphans **and opens an SSE stream per orphan server** until the operator runs `rk mux reap`. This is intended ("surface everything") — the user sees exactly the pile the reaper will reap. The `servers_test.go` fixture asserts that ALL servers (including `rk-test-*` / `rk-test-e2e-*`) are returned (`TestHandleServersList_ReturnsAllServersIncludingTestSockets`).
 

@@ -3998,3 +3998,210 @@ func TestListClients_goneServer(t *testing.T) {
 		t.Errorf("ListClients on a gone server = %+v, want nil", clients)
 	}
 }
+
+// TestClassifyProbe covers the pure three-way probe classification: exit 0 is
+// alive, a fast failure (dead-socket refusal) is dead, and a failure under an
+// expired probe deadline is timeout — the case that must NOT read as dead.
+func TestClassifyProbe(t *testing.T) {
+	cases := []struct {
+		name   string
+		runErr error
+		ctxErr error
+		want   probeResult
+	}{
+		{"exit 0 is alive", nil, nil, probeAlive},
+		{"fast failure is dead", errors.New("exit status 1"), nil, probeDead},
+		{"fast failure under canceled parent is still dead", errors.New("exit status 1"), context.Canceled, probeDead},
+		{"deadline-exceeded kill is timeout", errors.New("signal: killed"), context.DeadlineExceeded, probeTimeout},
+		{"success under an expired deadline is still alive", nil, context.DeadlineExceeded, probeAlive},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := classifyProbe(tc.runErr, tc.ctxErr); got != tc.want {
+				t.Errorf("classifyProbe(%v, %v) = %d, want %d", tc.runErr, tc.ctxErr, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestKeepFromProbes covers ListServers' keep/drop matrix: alive keeps, dead
+// drops (no retry), and a first-probe timeout keeps the server unless the
+// retry refuses instantly (which proves the socket dead).
+func TestKeepFromProbes(t *testing.T) {
+	cases := []struct {
+		name  string
+		first probeResult
+		retry probeResult
+		want  bool
+	}{
+		{"alive keeps", probeAlive, probeAlive, true},
+		{"dead drops without retry", probeDead, probeDead, false},
+		{"timeout then retry alive keeps", probeTimeout, probeAlive, true},
+		{"timeout then retry dead drops", probeTimeout, probeDead, false},
+		{"timeout then retry timeout keeps", probeTimeout, probeTimeout, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := keepFromProbes(tc.first, tc.retry); got != tc.want {
+				t.Errorf("keepFromProbes(%d, %d) = %v, want %v", tc.first, tc.retry, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestParseServerMarks covers the pure dump parser: new-name-first reads, the
+// legacy fallback on absence-from-dump, new-wins precedence (including an
+// explicitly empty new value), quote stripping, malformed-rank errors, and
+// empty dumps.
+func TestParseServerMarks(t *testing.T) {
+	rank3 := 3
+	cases := []struct {
+		name    string
+		dump    string
+		want    ServerMarks
+		wantErr bool
+	}{
+		{
+			name: "empty dump reads zero marks",
+			dump: "",
+			want: ServerMarks{},
+		},
+		{
+			name: "new names set",
+			dump: "@rk_srv_rank 3\n@rk_srv_ephemeral 1\n@rk_srv_protected 1\n@rk_srv_managed 1\n",
+			want: ServerMarks{Rank: &rank3, Ephemeral: true, Protected: true, Managed: true},
+		},
+		{
+			name: "legacy-only ephemeral falls back",
+			dump: "@rk_ephemeral 1\n",
+			want: ServerMarks{Ephemeral: true},
+		},
+		{
+			name: "legacy-only protected falls back",
+			dump: "@rk_protected 1\n",
+			want: ServerMarks{Protected: true},
+		},
+		{
+			name: "both absent reads false",
+			dump: "buffer-limit 20\n",
+			want: ServerMarks{},
+		},
+		{
+			name: "both set: new wins",
+			dump: "@rk_srv_ephemeral 1\n@rk_ephemeral \"\"\n",
+			want: ServerMarks{Ephemeral: true},
+		},
+		{
+			name: "new present but empty: legacy NOT consulted",
+			dump: "@rk_srv_ephemeral \"\"\n@rk_ephemeral 1\n",
+			want: ServerMarks{},
+		},
+		{
+			name: "quoted rank value is stripped",
+			dump: "@rk_srv_rank \"3\"\n",
+			want: ServerMarks{Rank: &rank3},
+		},
+		{
+			name: "empty rank reads nil",
+			dump: "@rk_srv_rank \"\"\n",
+			want: ServerMarks{},
+		},
+		{
+			name:    "malformed rank errors",
+			dump:    "@rk_srv_rank not-an-int\n",
+			wantErr: true,
+		},
+		{
+			name: "managed has no legacy fallback",
+			dump: "@rk_srv_managed 1\n",
+			want: ServerMarks{Managed: true},
+		},
+		{
+			name: "unrelated options are ignored",
+			dump: "activity-action other\nassume-paste-time 1\nbuffer-limit 20\n",
+			want: ServerMarks{},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseServerMarks(tc.dump)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("parseServerMarks(%q) = nil error, want decode error", tc.dump)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseServerMarks(%q): %v", tc.dump, err)
+			}
+			if (got.Rank == nil) != (tc.want.Rank == nil) ||
+				(got.Rank != nil && tc.want.Rank != nil && *got.Rank != *tc.want.Rank) {
+				t.Errorf("Rank = %v, want %v", got.Rank, tc.want.Rank)
+			}
+			if got.Ephemeral != tc.want.Ephemeral {
+				t.Errorf("Ephemeral = %v, want %v", got.Ephemeral, tc.want.Ephemeral)
+			}
+			if got.Protected != tc.want.Protected {
+				t.Errorf("Protected = %v, want %v", got.Protected, tc.want.Protected)
+			}
+			if got.Managed != tc.want.Managed {
+				t.Errorf("Managed = %v, want %v", got.Managed, tc.want.Managed)
+			}
+		})
+	}
+}
+
+// TestReadServerMarks exercises the exported reader end-to-end: a dead server
+// reads zero marks with a nil error (gone-server taxonomy), and a live server
+// round-trips rank, new-name ephemeral, legacy-name protected, and managed
+// through the real show-options -s dump.
+func TestReadServerMarks(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	deadServer := testSocketName("unit-dead")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	t.Run("gone server reads zero marks, nil error", func(t *testing.T) {
+		got, err := ReadServerMarks(ctx, deadServer)
+		if err != nil {
+			t.Fatalf("ReadServerMarks on dead server: %v", err)
+		}
+		if got != (ServerMarks{}) {
+			t.Errorf("got %+v, want zero ServerMarks", got)
+		}
+	})
+
+	t.Run("unset marks read zero", func(t *testing.T) {
+		got, err := ReadServerMarks(ctx, server)
+		if err != nil {
+			t.Fatalf("ReadServerMarks unset: %v", err)
+		}
+		if got != (ServerMarks{}) {
+			t.Errorf("got %+v, want zero ServerMarks", got)
+		}
+	})
+
+	t.Run("marks round trip through the dump", func(t *testing.T) {
+		setRawServerOption(t, ctx, server, ServerRankOption, "3")
+		setRawServerOption(t, ctx, server, EphemeralOption, "1")
+		setRawServerOption(t, ctx, server, LegacyProtectedOption, "1")
+		setRawServerOption(t, ctx, server, ManagedOption, "1")
+
+		got, err := ReadServerMarks(ctx, server)
+		if err != nil {
+			t.Fatalf("ReadServerMarks: %v", err)
+		}
+		if got.Rank == nil || *got.Rank != 3 {
+			t.Errorf("Rank = %v, want 3", got.Rank)
+		}
+		if !got.Ephemeral {
+			t.Error("Ephemeral = false, want true (new name)")
+		}
+		if !got.Protected {
+			t.Error("Protected = false, want true (legacy fallback)")
+		}
+		if !got.Managed {
+			t.Error("Managed = false, want true")
+		}
+	})
+}

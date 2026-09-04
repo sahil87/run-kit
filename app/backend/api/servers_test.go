@@ -262,7 +262,7 @@ func TestHandleServersList_IncludesRankField(t *testing.T) {
 		},
 	}
 	// "default" is ranked 0; "work" has no rank (nil).
-	mock.getServerRankByServer = map[string]*int{"default": intPtr(0)}
+	mock.readServerMarksByServer = map[string]tmux.ServerMarks{"default": {Rank: intPtr(0)}}
 
 	router := NewTestRouter(logger, nil, mock, "test-host")
 	req := httptest.NewRequest("GET", "/api/servers", nil)
@@ -288,13 +288,15 @@ func TestHandleServersList_IncludesRankField(t *testing.T) {
 	}
 }
 
+// A marks-read failure zeroes ALL mark fields for the entry (rank: null,
+// flags false) while the request still answers 200 — the no-5xx stance.
 func TestHandleServersList_RankReadErrorYieldsNullRank(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	mock := &serversTmuxMock{
 		servers:  []string{"broken"},
 		sessions: map[string][]tmux.SessionInfo{"broken": {{Name: "s1"}}},
 	}
-	mock.getServerRankErrByServer = map[string]error{"broken": errors.New("boom")}
+	mock.readServerMarksErrByServer = map[string]error{"broken": errors.New("boom")}
 
 	router := NewTestRouter(logger, nil, mock, "test-host")
 	req := httptest.NewRequest("GET", "/api/servers", nil)
@@ -302,7 +304,7 @@ func TestHandleServersList_RankReadErrorYieldsNullRank(t *testing.T) {
 	router.ServeHTTP(rec, req)
 
 	if rec.Code != 200 {
-		t.Fatalf("status = %d, want 200 (rank read failure must not surface as 5xx)", rec.Code)
+		t.Fatalf("status = %d, want 200 (marks read failure must not surface as 5xx)", rec.Code)
 	}
 	var got []serverInfo
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
@@ -310,6 +312,12 @@ func TestHandleServersList_RankReadErrorYieldsNullRank(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].Rank != nil {
 		t.Fatalf("got %+v, want rank nil on read error", got)
+	}
+	if got[0].Ephemeral || got[0].Protected || got[0].Managed {
+		t.Errorf("got %+v, want all flags false on marks read error", got[0])
+	}
+	if got[0].SessionCount != 1 {
+		t.Errorf("sessionCount = %d, want 1 (ListSessions is a separate read)", got[0].SessionCount)
 	}
 }
 
@@ -322,7 +330,7 @@ func TestHandleServersList_IncludesEphemeralField(t *testing.T) {
 			"default": {{Name: "s1"}},
 		},
 	}
-	mock.isEphemeralByServer = map[string]bool{"work": true}
+	mock.readServerMarksByServer = map[string]tmux.ServerMarks{"work": {Ephemeral: true}}
 
 	router := NewTestRouter(logger, nil, mock, "test-host")
 	req := httptest.NewRequest("GET", "/api/servers", nil)
@@ -357,7 +365,7 @@ func TestHandleServersList_EphemeralReadErrorYieldsFalse(t *testing.T) {
 		servers:  []string{"broken"},
 		sessions: map[string][]tmux.SessionInfo{"broken": {{Name: "s1"}}},
 	}
-	mock.isEphemeralErrByServer = map[string]error{"broken": errors.New("boom")}
+	mock.readServerMarksErrByServer = map[string]error{"broken": errors.New("boom")}
 
 	router := NewTestRouter(logger, nil, mock, "test-host")
 	req := httptest.NewRequest("GET", "/api/servers", nil)
@@ -611,7 +619,7 @@ func TestHandleServersList_IncludesProtectedField(t *testing.T) {
 			"rk-daemon": {{Name: "s1"}},
 		},
 	}
-	mock.isProtectedByServer = map[string]bool{"work": true}
+	mock.readServerMarksByServer = map[string]tmux.ServerMarks{"work": {Protected: true}}
 
 	router := NewTestRouter(logger, nil, mock, "test-host")
 	req := httptest.NewRequest("GET", "/api/servers", nil)
@@ -646,7 +654,7 @@ func TestHandleServersList_ProtectedReadErrorYieldsFalse(t *testing.T) {
 		servers:  []string{"broken"},
 		sessions: map[string][]tmux.SessionInfo{"broken": {{Name: "s1"}}},
 	}
-	mock.isProtectedErrByServer = map[string]error{"broken": errors.New("boom")}
+	mock.readServerMarksErrByServer = map[string]error{"broken": errors.New("boom")}
 
 	router := NewTestRouter(logger, nil, mock, "test-host")
 	req := httptest.NewRequest("GET", "/api/servers", nil)
@@ -862,7 +870,7 @@ func TestHandleServersList_IncludesManagedField(t *testing.T) {
 			"ext":       {{Name: "s1"}},
 		},
 	}
-	mock.isManagedByServer = map[string]bool{"work": true}
+	mock.readServerMarksByServer = map[string]tmux.ServerMarks{"work": {Managed: true}}
 
 	router := NewTestRouter(logger, nil, mock, "test-host")
 	req := httptest.NewRequest("GET", "/api/servers", nil)
@@ -900,7 +908,7 @@ func TestHandleServersList_ManagedReadErrorYieldsFalse(t *testing.T) {
 		servers:  []string{"broken"},
 		sessions: map[string][]tmux.SessionInfo{"broken": {{Name: "s1"}}},
 	}
-	mock.isManagedErrByServer = map[string]error{"broken": errors.New("boom")}
+	mock.readServerMarksErrByServer = map[string]error{"broken": errors.New("boom")}
 
 	router := NewTestRouter(logger, nil, mock, "test-host")
 	req := httptest.NewRequest("GET", "/api/servers", nil)
@@ -916,6 +924,44 @@ func TestHandleServersList_ManagedReadErrorYieldsFalse(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].Managed {
 		t.Fatalf("got %+v, want managed false on read error", got)
+	}
+}
+
+// TestHandleServersList_DaemonMarksReadErrorKeepsDerivedFlags: the rk-daemon
+// production server's protected/managed flags come from derivation, not the
+// marks read, so they hold even when ReadServerMarks fails (rank and ephemeral
+// still zero out — those have no derivation).
+func TestHandleServersList_DaemonMarksReadErrorKeepsDerivedFlags(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	mock := &serversTmuxMock{
+		servers:  []string{"rk-daemon"},
+		sessions: map[string][]tmux.SessionInfo{"rk-daemon": {{Name: "s1"}}},
+	}
+	mock.readServerMarksErrByServer = map[string]error{"rk-daemon": errors.New("boom")}
+
+	router := NewTestRouter(logger, nil, mock, "test-host")
+	req := httptest.NewRequest("GET", "/api/servers", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != 200 {
+		t.Fatalf("status = %d, want 200 (marks read failure must not surface as 5xx)", rec.Code)
+	}
+	var got []serverInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %+v, want one entry", got)
+	}
+	if !got[0].Protected {
+		t.Errorf("rk-daemon protected = false, want true (derived, survives marks failure)")
+	}
+	if !got[0].Managed {
+		t.Errorf("rk-daemon managed = false, want true (derived, survives marks failure)")
+	}
+	if got[0].Rank != nil || got[0].Ephemeral {
+		t.Errorf("got %+v, want rank nil + ephemeral false on marks failure", got[0])
 	}
 }
 

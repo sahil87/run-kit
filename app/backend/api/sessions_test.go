@@ -221,6 +221,11 @@ type mockTmuxOps struct {
 	reloadConfigCalls    []string
 	reloadConfigErr      error
 
+	// Batched server marks, per server — the single read the /api/servers
+	// fan-out makes. Shares rankMu with the other per-server fan-out fields.
+	readServerMarksByServer    map[string]tmux.ServerMarks
+	readServerMarksErrByServer map[string]error
+
 	// Boards
 	listBoardsCalled         bool
 	listBoardsResult         []tmux.BoardSummary
@@ -646,6 +651,16 @@ func (m *mockTmuxOps) IsManagedServer(ctx context.Context, server string) (bool,
 		return true, nil
 	}
 	return m.isManagedByServer[server], nil
+}
+func (m *mockTmuxOps) ReadServerMarks(ctx context.Context, server string) (tmux.ServerMarks, error) {
+	m.rankMu.Lock()
+	defer m.rankMu.Unlock()
+	if m.readServerMarksErrByServer != nil {
+		if err, ok := m.readServerMarksErrByServer[server]; ok && err != nil {
+			return tmux.ServerMarks{}, err
+		}
+	}
+	return m.readServerMarksByServer[server], nil
 }
 func (m *mockTmuxOps) MarkServerManaged(ctx context.Context, server string) error {
 	m.rankMu.Lock()

@@ -1,5 +1,7 @@
 # Archived Changes
 
+- **260903-xj0w-hidden-page-stream-release** — Hidden-Page Terminal Stream Release
+- **260903-1eua-attached-viewer-count-indicator** — Attached Viewer Count Indicator
 - **260903-u1b8-e2e-fixed-port-hardening** — E2E Fixed-Port Hardening
 - **260903-np2w-test-socket-sweep-scoping** — Test-Socket Sweep Scoping
 - **260903-y60c-e2e-config-root-isolation** — E2E Config-Root Isolation

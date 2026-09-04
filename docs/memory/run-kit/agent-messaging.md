@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The `rk mux` family — 12 tmux-substrate verbs, no daemon dependency. Pane-scoped members (`send`/`await` + `capture`/`kill`/`process` twins) share the strict %N/@N/=session:window grammar and with `panes` consume inherited `-L`; `await --any` wakes on the first of N panes, `--ready` waits for boot-readiness (state present, else sentinel echo: `ready %N (echo)`; no echo: `parked %N`). Operator members `new`/`reap`/`snapshot`/`init-conf`/`guard`/`adopt` reject `-L` (`new` spawns a detached server; `adopt` = managed stamp)."
+description: "The `rk mux` family — 12 tmux-substrate verbs, no daemon dependency, help-grouped as messaging / pane mechanics / server ops (taught by `rk skill messaging` + `rk skill mux`). Pane-scoped members (`send`/`await` + `capture`/`kill`/`process` twins) share the strict %N/@N/=session:window grammar and with `panes` consume inherited `-L`; `await --any` wakes on the first of N panes, `--ready` classifies boot-readiness (`ready %N (state|echo)` / `parked %N`). Operator members `new`/`adopt`/`reap`/`snapshot`/`init-conf`/`guard` reject `-L`."
 ---
 # Agent-to-Agent Messaging (`rk mux`)
 
@@ -47,7 +47,18 @@ reuses the hardened injection engine the daemon's compose-send route also drives
 shared `internal/inject` package ([agent-send](/run-kit/agent-send.md) § Send Path) — so the
 daemon route and the CLI verb run ONE implementation.
 
-The family parent (`muxCmd`, `cmd/rk/mux.go`) carries the shared persistent
+The family parent (`muxCmd`, `cmd/rk/mux.go`) presents the twelve members in
+three cobra command groups — *Messaging* (`send`, `await`), *Pane mechanics*
+(`capture`, `kill`, `process`, `panes`), *Server ops* (`new`, `adopt`, `reap`,
+`snapshot`, `init-conf`, `guard`) — registered in its `init()` with `GroupID`
+stamped on the family instances only (see Design Decisions), so `rk mux -h`
+renders no "Additional Commands" bucket (`TestMuxHelpPresentsThreeGroups` pins
+the headings and the membership) (fvpu). Agent-facing docs split by altitude:
+the `rk skill messaging` topic page teaches the channel matrix and the
+readiness standard (concepts — which channel for write/read/wait, the
+spawn-then-deliver composite, the `parked` scope rule), while `rk skill mux`
+carries the verb-reference depth; the two pages cross-link rather than
+duplicate. The family parent also carries the shared persistent
 `-L/--server` flag (the `fab pane` pattern). Server resolution: `-L` wins, else
 the caller's own server derived from the original `$TMUX` socket basename, else
 `default`. Only the pane-scoped verbs and the `panes` enumeration consume it —
@@ -641,6 +652,30 @@ permanent: they are human-typed verbs, so they are removable in a future release
   with a deprecation pointer on stderr
 
 ## Design Decisions
+
+### Help GroupIDs stamped on family instances, never in the two-instance constructors
+**Decision**: The three `cobra.Group`s and all twelve `GroupID` assignments live
+in `mux.go`'s `init()` on the family-member instances; the shared constructors
+(`newReapCmd` and kin) are untouched.
+**Why**: The constructors also build the hidden root aliases, parented to
+`rootCmd`, which registers none of these groups — cobra panics at Execute on a
+`GroupID` not defined on the command's parent. Stamping at the family seam also
+keeps the whole presentation decision in one file.
+**Rejected**: `GroupID` inside each constructor (panics the root aliases);
+per-file stamping at each command literal (scatters one presentation decision
+across nine files).
+*Introduced by*: 260904-fvpu-mux-help-groups-messaging-topic
+
+### Messaging topic page carries concepts; mux page keeps verb depth
+**Decision**: `docs/site/skill/messaging.md` teaches the channel matrix,
+readiness standard, scope rule, and judgment split, and cross-links
+`rk skill mux` for flags, gate matrices, report words, and gotchas.
+**Why**: Both pages are bounded at ≤150 lines and the mux page sits at its cap;
+duplicated verb reference would drift, and the two altitudes serve different
+moments (choosing a channel vs. driving a verb).
+**Rejected**: folding the matrix into the mux page (over budget); restating the
+verb reference in messaging.md (two copies to keep honest).
+*Introduced by*: 260904-fvpu-mux-help-groups-messaging-topic
 
 ### Engine package named `internal/inject`
 **Decision**: The shared pane-injection engine lives in `internal/inject` behind a

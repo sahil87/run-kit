@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-04T11:15:31Z"}
+{"args":"Agent-messaging Part C: discoverability (gap 3). rk mux -h command groups (messaging / pane mechanics / server ops) + rk skill messaging topic page teaching the channel matrix and the parked readiness standard; includes standards audit + help-dump test update. depends_on Part B (r7uk, cherry-picked).","cmd":"fab-new","event":"command","ts":"2026-09-04T11:15:31Z"}
+{"delta":"+5.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-09-04T11:17:24Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-04T11:25:53Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-04T11:26:19Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-04T11:34:12Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-04T11:38:11Z"}
+{"event":"review","result":"passed","ts":"2026-09-04T11:38:11Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-04T11:40:35Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-04T11:42:14Z"}
+{"event":"review","result":"passed","ts":"2026-09-04T11:48:11Z"}

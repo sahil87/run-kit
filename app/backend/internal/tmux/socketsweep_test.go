@@ -91,6 +91,23 @@ func isolatedSocketDir(t *testing.T) string {
 	return filepath.Join(tmpdir, "tmux-"+strconv.Itoa(os.Getuid()))
 }
 
+// socketFileExists reports whether the socket FILE for name is still present in
+// socketDir. Distinct from tmuxSocketLive: tmux does not unlink a killed
+// server's socket, so the sweep must remove the files of the sockets it reaps —
+// and must leave spared sockets' files alone. Checked before any liveness
+// probe so a probe can never disturb the file state under assertion.
+func socketFileExists(t *testing.T, socketDir, name string) bool {
+	t.Helper()
+	_, err := os.Stat(filepath.Join(socketDir, name))
+	if err == nil {
+		return true
+	}
+	if !os.IsNotExist(err) {
+		t.Fatalf("stat socket file %q: %v", name, err)
+	}
+	return false
+}
+
 // tmuxSocketLive reports whether a tmux server is reachable on the given socket
 // name (i.e. the post-sweep did NOT reap it).
 func tmuxSocketLive(t *testing.T, name string) bool {
@@ -171,6 +188,18 @@ func TestSweepDeadTestSockets_reapsOwnAndDeadSparesOtherLive(t *testing.T) {
 
 	sweepDeadTestSocketsIn(socketDir)
 
+	// File assertions first (before any liveness probe touches the sockets):
+	// reaped sockets lose their FILES too, spared ones keep them.
+	if socketFileExists(t, socketDir, own) {
+		t.Errorf("own-PID socket file %q survived — the sweep must remove the files of reaped sockets", own)
+	}
+	if !socketFileExists(t, socketDir, otherLive) {
+		t.Errorf("other-live-PID socket file %q was removed — a spared socket must keep its file", otherLive)
+	}
+	if socketFileExists(t, socketDir, dead) {
+		t.Errorf("dead-PID socket file %q survived — the sweep must remove the files of reaped sockets", dead)
+	}
+
 	if tmuxSocketLive(t, own) {
 		t.Errorf("own-PID socket %q survived — the post-sweep must reap this run's own residue at exit", own)
 	}
@@ -203,6 +232,15 @@ func TestSweepDeadTestSockets_sparesE2EFamily(t *testing.T) {
 	startSocketServer(t, sibling)
 
 	sweepDeadTestSocketsIn(socketDir)
+
+	// File assertions first: the family exclusion covers the FILE as well —
+	// only reaped sockets lose theirs.
+	if !socketFileExists(t, socketDir, e2e) {
+		t.Errorf("e2e-family socket file %q was removed — the family exclusion must cover the file too", e2e)
+	}
+	if socketFileExists(t, socketDir, sibling) {
+		t.Errorf("dead-PID socket file %q survived — reaped sockets must lose their files", sibling)
+	}
 
 	if !tmuxSocketLive(t, e2e) {
 		t.Errorf("e2e-family socket %q was reaped — the sweep must skip %q before the PID parse", e2e, testSocketE2EPrefix)

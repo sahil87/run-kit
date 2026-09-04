@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Test-socket isolation on the tmux substrate: unified rk-test-<role>-<pid>-<ns> naming, the seven-package TestMain POST-sweep (e2e family excluded), rk mux reap (dry-run default, --force, --ephemeral), /api/servers listing every server, the RK_SERVER_ALLOWLIST enumeration bound, the e2e rk-test-e2e-<token>- family anchor + E2E_TMUX_FAMILY with its bare-anchor teardown refusal, the RK_CONFIG_DIR per-run config-root leg, and the port-fallback rule."
+description: "Test-socket isolation on the tmux substrate: unified rk-test-<role>-<pid>-<ns> naming, the seven-package TestMain POST-sweep (e2e family excluded), rk mux reap (dry-run default, --force, --ephemeral), kill-paired socket-file removal, /api/servers listing every server, the RK_SERVER_ALLOWLIST enumeration bound, the e2e rk-test-e2e-<token>- family anchor + E2E_TMUX_FAMILY with its bare-anchor teardown refusal, the RK_CONFIG_DIR per-run config-root leg, and the port-fallback rule."
 ---
 # Test Sockets & Test Isolation
 
@@ -29,6 +29,8 @@ Both family-anchored teardown sweeps **refuse to run**, printing a warning that 
 - `app/frontend/tests/e2e/global-teardown.ts` skips its socket-dir prefix scan (`family ?? server` is the resolved anchor) and reaps only the primary.
 - `scripts/test-e2e.sh` `cleanup()` skips its `"/tmp/tmux-$(id -u)/${E2E_TMUX_FAMILY}"*` socket loop and instead kills the exact primary `$E2E_TMUX_SERVER` by name. The PGID and port cleanup still run — the refusal is scoped to the socket glob.
 
+Both sites pair every kill with a best-effort removal of the killed server's exact socket file (see § Every Kill Site Removes the Socket File) — in the refused branch that removal is exact-name too, so the refusal never widens into a prefix hazard. `global-teardown.ts` skips the file removal when `process.getuid?.()` is unavailable (the file path cannot be derived; the shell trap's own paired rm covers it). The family-glob loop also visits family sockets whose servers are ALREADY dead (a dead socket file still passes `-S`): the kill fails best-effort and the rm then clears the residue — this is how secondaries a spec's `afterAll` killed mid-run lose their files at run end.
+
 A token-less anchor is never a valid single-worktree family: it is a strict prefix of **every** derived family (`rk-test-e2e-<token>-…`), so a prefix scan or glob under it reaches sibling worktrees' in-flight servers. The anchor collapses to a bare default when `E2E_TMUX_SERVER` is preset to one with no preset family — `scripts/e2e-env.sh` then sets `E2E_TMUX_FAMILY` to the server name as-is. Killing the primary from the refused branch carries no cross-worktree hazard: it is an **exact name, not a prefix**, mirroring `global-teardown.ts` keeping the primary in its kill set unconditionally. Derived anchors are unaffected — their scan runs in full — and `_tmux.ts`'s own fallback default carries the bare value: the guard lives at the two sweep sites, not on the constant.
 
 ### E2E creation sites mark their servers `@rk_srv_ephemeral`
@@ -51,6 +53,19 @@ Parsing from the right (fixed `len-2` index) is what makes hyphenated roles work
 
 `IsTestServerName` is **intentionally NOT applied** in `ListServers` nor in the `/api/servers` handler — internal consumers (`board.go` in particular) iterate every real tmux server, and `/api/servers` surfaces every server so the operator sees exactly what `rk mux reap` will reap. Its only consumer is the **tmuxctl supervisor's resurrection guard** (`isTmuxSocketCandidate` in `internal/tmuxctl/supervisor.go`): leaked `rk-test-*` sockets (including `rk-test-e2e-*`) are excluded from the control-mode candidate set so `resolveBootstrap`'s `new-session -s _rk-ctl` does not *resurrect* every orphan test socket on bootstrap. This is a **correctness guard, not UI noise reduction**, and stays in force regardless of `/api/servers` listing every server.
 
+## Every Kill Site Removes the Socket File
+
+tmux does not unlink the socket file of a killed (or crashed) server, so every rk-owned kill site pairs its `kill-server` with a best-effort removal of the exact file it just targeted; leaked files otherwise accumulate in `/tmp/tmux-<uid>/` and `/api/servers` probes every one of them per request (`ScanSocketDir` + a probe per socket — an observed ~350ms flat floor at ~2,700 stale files). The four sites:
+
+| Kill site | Removal |
+|-----------|---------|
+| `scripts/test-e2e.sh` `cleanup()` (both branches) | `rm -f` of each globbed `$sock` / the refused branch's exact primary path |
+| `app/frontend/tests/e2e/global-teardown.ts` | `rmSync(/tmp/tmux-<uid>/<name>, { force: true })` per killed socket; skipped when uid is unavailable |
+| the seven `TestMain` post-sweeps | `os.Remove(filepath.Join(socketDir, name))` after the kill attempt (§ Automatic Test-Socket Sweep) |
+| `rk mux reap`'s kill arm | post-kill `os.Remove`, `ENOENT`-tolerant (§ `rk mux reap`) |
+
+Removal is everywhere best-effort (a leaked file is harmless residue; hygiene never fails a run) and everywhere scoped to exactly the file whose server the site just killed — the sweeps' sparing rules (live-PID, e2e family) and the teardowns' family anchoring apply to the file removal identically. The spec-level `_tmux.ts` `killServer` helper deliberately carries no removal: its secondaries' files are inside the family glob/prefix-scan, so the run-end sweeps clear them.
+
 ## Automatic Test-Socket Sweep — POST-sweep in `TestMain`
 
 **Every tmux-spawning Go test package post-sweeps its own residue.** Seven packages carry the `TestMain` post-sweep, each in its own `main_test.go`: `internal/tmux`, `api`, `cmd/rk` (`package main`), `internal/daemon`, `internal/tmuxctl`, `internal/snapshot`, and `internal/remote`. `sweepDeadTestSockets()` runs *after* `m.Run()`, never before:
@@ -69,7 +84,7 @@ There is no pre-sweep: the post-sweep means **each run reaps its OWN dead-PID re
 
 **The `rk-test-e2e-` family is excluded** — the prefix check (`testSocketE2EPrefix`) runs **before** the PID parse in every copy. An e2e secondary (`rk-test-e2e-<token>-<role>-<pid>-<epoch>`) embeds the Playwright **worker** PID, and `playwright.config.ts` sets `retries: 1`, so a worker respawn leaves a still-in-use server owned by a dead PID that the PID rule alone would reap mid-run. The family's own teardown chain owns it: the `scripts/test-e2e.sh` EXIT trap, `global-teardown.ts`, and `rk mux reap` by hand.
 
-**PID-scoped to dead owners only — never a blanket wipe.** Past the e2e skip, `sweepDeadTestSockets` enumerates `/tmp/tmux-<uid>/` and `kill-server`s a socket only when its embedded PID **parses** (`parseTestSocketPID`) **AND is dead** (`testPIDAlive` reports `ESRCH`) — or is this process's own PID, since the sweep runs while exiting. Live-PID sockets — which belong to a **concurrent `go test ./...` package running as a separate process** — are spared, so packages running in parallel do not kill each other. Sockets without a parseable PID (no role/pid/ns shape) are left untouched. Kills use `exec.CommandContext` + a 5s timeout and an argument slice (constitution I) — never a shell string. Best-effort: enumeration or kill failures are ignored (a leaked socket is harmless residue; never blocking tests is the priority).
+**PID-scoped to dead owners only — never a blanket wipe.** Past the e2e skip, `sweepDeadTestSockets` enumerates `/tmp/tmux-<uid>/` and reaps — `kill-server`, then `os.Remove` of the socket file — a socket only when its embedded PID **parses** (`parseTestSocketPID`) **AND is dead** (`testPIDAlive` reports `ESRCH`) — or is this process's own PID, since the sweep runs while exiting. Live-PID sockets — which belong to a **concurrent `go test ./...` package running as a separate process** — are spared, kill and file alike, so packages running in parallel do not kill each other. Sockets without a parseable PID (no role/pid/ns shape) are left untouched. For a dead-PID socket the kill fails (server already gone) and the removal then clears the residue file — so each run also heals prior crashed runs' file residue, and residue surviving a parallel `go test ./...` (spared because its owner was still live at that sweep's exit) is cleared by the next run's sweep. Kills use `exec.CommandContext` + a 5s timeout and an argument slice (constitution I) — never a shell string. Best-effort: enumeration, kill, or removal failures are ignored (a leaked socket is harmless residue; never blocking tests is the priority).
 
 `t.Cleanup(kill-server)` reaps each socket on the normal path; the post-sweep is the only automatic cleanup for **un-catchable SIGKILL / panic / OOM residue**. The manual `rk mux reap` is the by-hand janitor for cruft that has already accumulated on disk across runs.
 
@@ -82,7 +97,7 @@ There is no pre-sweep: the post-sweep means **each run reaps its OWN dead-PID re
 - **The short path**: a full socket path must fit `sockaddr_un`'s ~104-byte `sun_path`. `t.TempDir()` embeds the test's name in the directory, which alone overruns the limit once the `tmux-<uid>/<socket>` tail is appended — the failure surfaces as `File name too long`.
 - **The env/seam pairing**: fixture creation and `tmuxSocketLive`'s kill/probe path resolve their socket through the **ambient** `TMUX_TMPDIR`, while the sweep resolves through the **injected** dir argument. The two must name the same directory or the test asserts against servers the sweep never saw.
 
-`TestSweepDeadTestSockets_reapsOwnAndDeadSparesOtherLive` proves the three-way own/other-live/dead invariant; `TestSweepDeadTestSockets_sparesE2EFamily` proves the family exclusion — a dead-PID `rk-test-e2e-fixture-*` socket survives while a sibling `rk-test-sweepspare-*` carrying the **same** dead PID is reaped, so the exclusion is scoped to the family rather than a blanket softening of the PID rule.
+`TestSweepDeadTestSockets_reapsOwnAndDeadSparesOtherLive` proves the three-way own/other-live/dead invariant — for the server kill AND the socket file (reaped sockets' files absent, spared ones present, asserted via `socketFileExists` before any liveness probe); `TestSweepDeadTestSockets_sparesE2EFamily` proves the family exclusion — a dead-PID `rk-test-e2e-fixture-*` socket survives (file included) while a sibling `rk-test-sweepspare-*` carrying the **same** dead PID is reaped, so the exclusion is scoped to the family rather than a blanket softening of the PID rule.
 
 ## `rk mux reap` — Brute-Force-by-Prefix Operator Cleanup
 
@@ -98,7 +113,7 @@ The reaper's default match is **purely by name prefix** — no PID parse, no nam
 
 - **Bare `rk mux reap`** ≡ `rk mux reap --prefix rk-test` — matches every `rk-test*` socket, `.lock` file, and live server.
 - **`rk mux reap --prefix <p>`** applies identical behavior to `<p>*`.
-- A matched **live server** → `KillServer` (`ReapActionKill`); a matched **socket** (dead) or **`.lock` file** → `os.Remove` (`ReapActionRemove`).
+- A matched **live server** → `KillServer` (`ReapActionKill`), and after a **successful** kill the socket file is removed too (`ENOENT`-tolerant — a tmux build that unlinks on exit is fine; the file is implied by the `Killed` entry and never double-reported in `RemovedSockets`; a failed kill leaves the file untouched since the server may still be live, and a non-`ENOENT` removal failure joins the partial-failure aggregate without unwinding the kill). A matched **socket** (dead) or **`.lock` file** → `os.Remove` (`ReapActionRemove`).
 
 The only thing requiring the outside world is the live-vs-dead distinction for a matched, non-`.lock` candidate. `classifyReap(name, prefix, ephemeral, protected, serverLive)` is a **pure function** (`internal/tmux/reaper.go`) — `serverLive` and the `ephemeral`/`protected` membership sets are supplied by the caller (`reapCandidates`, which calls `probeServerAlive` only when `probeNeeded` says the kill-vs-remove decision depends on it). `ReapAction` is the exported enum (`ReapActionSkip`/`Kill`/`Remove`); the full matrix is unit-testable via `TestClassifyReap` without spawning servers.
 
@@ -182,6 +197,12 @@ Spec side, the config-touching specs (`settings-dialog.spec.ts`, `board-list-reo
 
 
 ## Design Decisions
+
+### Whoever kills a server removes its socket file
+**Decision**: Socket-file removal rides each existing kill site (the two e2e teardowns, the seven TestMain sweeps, the reaper's kill arm) rather than a new cleanup pass, daemon sweep, or listing filter.
+**Why**: tmux does not unlink a killed server's socket; the kill site is the one place that knows exactly which file its dead server owned, so removal there is precisely scoped by construction — the sparing rules each site already enforces apply to the file identically.
+**Rejected**: resurrecting the `/api/servers` hide filter (deliberately deleted — the list must show what reap will reap); a periodic daemon sweep (new rk-side behavior for what is tmux's own artifact — Constitution II posture).
+*Introduced by*: 260904-f6h4-test-socket-file-hygiene
 
 ### Never `kill 0` from a non-detached shell script
 **Decision**: Launch the subtree you intend to tear down into its **own** process group — `set -m` job control (`bash -c "… exec <cmd>" &`, portable: macOS has no `setsid`) makes the background job a group leader, so `PGID=$!` — then **verify via `ps` that the child's real PGID is not the script's own** (abort on match — a silent job-control failure would re-arm the grenade), and kill **only** that group by negative PGID: `kill -- "-$PGID"`. Guard with `[ -n "$PGID" ]` so a trap firing before launch is a no-op.

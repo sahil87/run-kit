@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { readdirSync } from "node:fs";
+import { readdirSync, rmSync } from "node:fs";
 
 export default function globalTeardown() {
   // Family anchor when the harness provides it (per-worktree isolation —
@@ -41,6 +41,7 @@ export default function globalTeardown() {
   // then collapses E2E_TMUX_FAMILY to the server name as-is. The primary stays
   // in the kill set: it is an exact name, not a prefix.
   const bareAnchor = prefix === "rk-test-e2e" || prefix === "rk-test-e2e-";
+  const uid = process.getuid?.();
   if (bareAnchor) {
     console.warn(
       `[e2e teardown] refusing the family sweep: anchor "${prefix}" is a bare default ` +
@@ -48,7 +49,6 @@ export default function globalTeardown() {
     );
   } else {
     try {
-      const uid = process.getuid?.();
       if (uid !== undefined) {
         for (const name of readdirSync(`/tmp/tmux-${uid}`)) {
           if (name.startsWith(prefix)) sockets.add(name);
@@ -59,11 +59,23 @@ export default function globalTeardown() {
     }
   }
 
+  // tmux does not unlink a killed server's socket file, so each kill is paired
+  // with a best-effort rm of the exact file — leaked files pile up in
+  // /tmp/tmux-<uid>/ and /api/servers probes every one of them per request.
+  // When uid is unavailable the rm is skipped (kill-only): the file path can't
+  // be derived, and the shell trap's own paired rm covers it.
   for (const server of sockets) {
     try {
       execSync(`tmux -L ${server} kill-server`, { stdio: "ignore" });
     } catch {
       // Server may already be gone.
+    }
+    if (uid !== undefined) {
+      try {
+        rmSync(`/tmp/tmux-${uid}/${server}`, { force: true });
+      } catch {
+        // File already gone or unremovable — hygiene only, never fail teardown.
+      }
     }
   }
 }

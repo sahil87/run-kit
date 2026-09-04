@@ -56,14 +56,23 @@ cleanup() {
   # arises when E2E_TMUX_SERVER is preset to a bare default with no family —
   # e2e-env.sh then sets the family to the server name as-is. The primary is
   # still reaped by its exact name (never a prefix).
+  # tmux does not unlink a killed server's socket file, so each kill below is
+  # paired with an rm of the exact file just targeted — leaked files pile up in
+  # /tmp/tmux-<uid>/ and /api/servers probes every one of them per request. The
+  # glob loop also visits family sockets whose servers are ALREADY dead (a dead
+  # socket still passes -S): the kill fails best-effort and the rm then clears
+  # the residue file (e.g. secondaries a spec's afterAll killed mid-run).
   case "$E2E_TMUX_FAMILY" in
     rk-test-e2e | rk-test-e2e-)
       echo "WARNING: refusing the family socket sweep — anchor '$E2E_TMUX_FAMILY' is a bare default that prefixes every worktree's family. Reaping only the primary '$E2E_TMUX_SERVER'." >&2
       tmux -L "$E2E_TMUX_SERVER" kill-server 2>/dev/null || true
+      rm -f "/tmp/tmux-$(id -u)/$E2E_TMUX_SERVER" 2>/dev/null || true
       ;;
     *)
       for sock in "/tmp/tmux-$(id -u)/${E2E_TMUX_FAMILY}"*; do
-        [ -S "$sock" ] && tmux -L "$(basename "$sock")" kill-server 2>/dev/null || true
+        [ -S "$sock" ] || continue
+        tmux -L "$(basename "$sock")" kill-server 2>/dev/null || true
+        rm -f "$sock" 2>/dev/null || true
       done
       ;;
   esac

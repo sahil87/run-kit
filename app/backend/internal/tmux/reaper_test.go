@@ -323,6 +323,63 @@ func TestReapCandidates_allSuccessNoAggregateError(t *testing.T) {
 	}
 }
 
+// TestReapCandidates_killRemovesSocketFile proves the kill arm's file hygiene:
+// tmux does not unlink a killed server's socket, so after a successful kill the
+// reaper removes the file itself — without double-reporting it in
+// RemovedSockets — and tolerates a file that is already gone (ENOENT is
+// success: a tmux build that unlinks on exit is fine). KillServer treats a
+// nonexistent socket as already-gone (nil error), so a fake-live candidate
+// with no real server exercises the kill-SUCCESS path without spawning tmux
+// servers.
+func TestReapCandidates_killRemovesSocketFile(t *testing.T) {
+	dir := t.TempDir()
+	candidates := []string{
+		"rk-test-unit-1-live",   // file present → killed, then file removed
+		"rk-test-unit-2-orphan", // file absent from dir → killed, ENOENT tolerated
+	}
+	writeFiles(t, dir, "rk-test-unit-1-live")
+	probe := fakeProbe(map[string]bool{"rk-test-unit-1-live": true, "rk-test-unit-2-orphan": true})
+
+	result, err := reapCandidates(context.Background(), dir, "rk-test", candidates, nil, nil, probe, true)
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	sort.Strings(result.Killed)
+	want := []string{"rk-test-unit-1-live", "rk-test-unit-2-orphan"}
+	if !slices.Equal(result.Killed, want) {
+		t.Fatalf("killed = %v, want %v", result.Killed, want)
+	}
+	if len(result.RemovedSockets) != 0 {
+		t.Errorf("RemovedSockets = %v, want empty — a killed entry's file removal is implied, never double-reported", result.RemovedSockets)
+	}
+	if got := presentFiles(t, dir); len(got) != 0 {
+		t.Errorf("files left = %v, want none — the kill arm must remove the killed server's socket file", got)
+	}
+}
+
+// TestReapCandidates_killFailureKeepsSocketFile proves a FAILED kill leaves the
+// socket file in place — the server may still be live, and removing a live
+// server's socket would orphan it from every -L client. PATH is emptied so
+// KillServer's tmux exec fails with a real (non-already-gone) error.
+func TestReapCandidates_killFailureKeepsSocketFile(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PATH", "")
+	candidates := []string{"rk-test-unit-5-live"}
+	writeFiles(t, dir, candidates...)
+	probe := fakeProbe(map[string]bool{"rk-test-unit-5-live": true})
+
+	result, err := reapCandidates(context.Background(), dir, "rk-test", candidates, nil, nil, probe, true)
+	if err == nil {
+		t.Fatal("expected aggregate error from the failed kill, got nil")
+	}
+	if len(result.Killed) != 0 {
+		t.Errorf("killed = %v, want empty after a failed kill", result.Killed)
+	}
+	if got := presentFiles(t, dir); !slices.Equal(got, []string{"rk-test-unit-5-live"}) {
+		t.Errorf("files = %v, want the socket file kept after a failed kill", got)
+	}
+}
+
 // TestReapCandidates_ephemeralUnionDryRunPlan proves --ephemeral matches the
 // UNION of the prefix match and the caller-computed ephemeral set: an
 // option-marked live server with an arbitrary name classifies kill via the

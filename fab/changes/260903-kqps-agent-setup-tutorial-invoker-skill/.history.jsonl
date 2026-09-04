@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-03T11:30:10Z"}
+{"args":"rk agent setup should install the run-kit-tutorial invoker skill (backlog kqps)","cmd":"fab-new","event":"command","ts":"2026-09-03T11:30:10Z"}
+{"delta":"+4.3","event":"confidence","score":4.3,"trigger":"calc-score","ts":"2026-09-03T11:32:59Z"}
+{"cmd":"fab-new","event":"command","ts":"2026-09-03T11:33:05Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-04T16:56:34Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-04T16:56:53Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-04T17:05:37Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-04T17:10:19Z"}
+{"event":"review","result":"passed","ts":"2026-09-04T17:10:19Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-04T17:13:03Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-04T17:14:55Z"}
+{"event":"review","result":"passed","ts":"2026-09-04T17:20:15Z"}

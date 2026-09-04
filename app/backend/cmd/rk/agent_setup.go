@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,19 +32,23 @@ import (
 // entries. All file writes go through Go; the hook command is a fixed literal per
 // state with nothing user-provided interpolated (Constitution §I).
 //
-// rk agent setup manages two artifact families: the per-agent hooks merge above,
-// and the user-global tmux guard shim (shim file + PATH block — see
-// applyTmuxShim below and tmux_guard.go for the guard itself). It used to write
-// a third managed artifact — a user-global "rk-display" SKILL.md that put
-// run-kit's visual-display capability into an agent's context — but that context-injection
-// responsibility has moved to the `rk skill` bundle (served by the skill
-// subcommand, aggregated by the coming `shll agent-setup`). All rk agent setup does
-// with the legacy skill now is a one-release CLEANUP courtesy: on BOTH the
-// install and uninstall passes it offers to remove a stale, marker-owned
-// rk-display skill left by an older run-kit (see removeLegacySkill). An absent
-// file is silent in both modes — a fresh machine sees zero rk-display output.
-// The cleanup path (and agentConfig.skillsDir, which locates the legacy skill)
-// is scheduled for removal one release after this change.
+// rk agent setup manages three artifact families: the per-agent hooks merge
+// above; the user-global tmux guard shim (shim file + PATH block — see
+// applyTmuxShim below and tmux_guard.go for the guard itself); and the per-agent
+// run-kit-tutorial invoker skill (installTutorialSkill below) — a thin discovery
+// router at {skillsDir}/run-kit-tutorial/SKILL.md whose description lets an agent
+// find the guided tour from natural phrasing while the tour CONTENT stays behind
+// `rk skill tutorial` in the binary, tracking `brew upgrade rk` with no skill
+// churn. That content-vs-router split is why a managed skill is back: the
+// retired "rk-display" SKILL.md carried context-injection CONTENT, which now
+// belongs to the `rk skill` bundle (served by the skill subcommand, aggregated
+// by the coming `shll agent-setup`). All rk agent setup does with that legacy
+// skill is a one-release CLEANUP courtesy: on BOTH the install and uninstall
+// passes it offers to remove a stale, marker-owned rk-display skill left by an
+// older run-kit (see removeLegacySkill). An absent file is silent in both modes
+// — a fresh machine sees zero rk-display output. The cleanup path is scheduled
+// for removal one release after the retirement change (agentConfig.skillsDir
+// stays — the tutorial skill is its consumer now).
 
 // rkHookMarker is the LEGACY substring that identifies an rk-owned hook command:
 // the pre-indirection self-contained one-liner inlined `tmux set-option … @rk_agent_state`,
@@ -89,6 +94,35 @@ const (
 	rkDisplaySkillFile   = "SKILL.md"
 	skillManagedByMarker = "managed-by: rk agent-setup"
 )
+
+// The run-kit-tutorial invoker skill is the THIRD managed artifact: a thin
+// discovery router installed at {skillsDir}/run-kit-tutorial/SKILL.md so an
+// agent running inside a run-kit pane finds the guided tour from natural
+// tutorial/tour/onboarding phrasing. Unlike the retired rk-display skill it
+// carries no injectable content — the body gates on rk+$TMUX_PANE and routes to
+// `rk skill tutorial`, whose content ships in the binary — so the skill file is
+// stable across releases and a stale generation is simply replaced in place on
+// the next `rk agent setup` re-run (byte-compare against the embedded payload;
+// the marker identifies ownership, content equality identifies currency).
+//
+// tutorialSkillMarker is embedded as a YAML comment in the payload's
+// frontmatter. Its TEXT is frozen once shipped (it must keep matching artifacts
+// already installed on user machines — same rule as tmuxShimMarker), and it
+// deliberately extends the legacy skillManagedByMarker with a parenthesized
+// family, mirroring the shim's marker shape. The legacy cleanup cannot confuse
+// the two: removeLegacySkill is path-scoped to rk-display/.
+const (
+	tutorialSkillDir    = "run-kit-tutorial"
+	tutorialSkillFile   = "SKILL.md"
+	tutorialSkillMarker = "managed-by: rk agent-setup (run-kit-tutorial skill)"
+)
+
+// tutorialSkillPayload is the full SKILL.md the installer writes — tracked
+// in-repo beside the installer (agentskill/ is an agent-setup payload dir, NOT
+// part of the docs/site-synced `rk skill` bundle under skill/).
+//
+//go:embed agentskill/run-kit-tutorial.md
+var tutorialSkillPayload string
 
 // agentStateHookCommand builds the STABLE delegating hook command for a given
 // state: a thin wrapper that invokes `rk agent hook` (the family form — the
@@ -209,11 +243,12 @@ type agentHook struct {
 // pid-resolution walk), the ordered event→state hook mapping, and the harness's
 // user-global skills directory.
 //
-// skillsDir locates the LEGACY rk-display skill for one-release cleanup only
-// (as {skillsDir}/rk-display/SKILL.md — see removeLegacySkill). rk agent setup no
-// longer installs any skill; an EMPTY skillsDir means "no legacy skill to clean"
-// — only the hooks merge runs for that agent. v1 sets it only for Claude Code.
-// This field is scheduled for removal one release after this change.
+// skillsDir roots the per-agent skill artifacts: the run-kit-tutorial invoker
+// skill installed at {skillsDir}/run-kit-tutorial/SKILL.md (installTutorialSkill)
+// and the legacy rk-display cleanup at {skillsDir}/rk-display/SKILL.md
+// (removeLegacySkill, one release only). An EMPTY skillsDir means the agent has
+// no skills convention — only the hooks merge runs for it. v1 sets it only for
+// Claude Code.
 type agentConfig struct {
 	name         string
 	settingsPath string
@@ -352,9 +387,11 @@ func newAgentSetupCmd(use string, deprecated bool) *cobra.Command {
 			"is shown for confirmation before anything is written. Also installs the " +
 			"tmux guard shim (~/.local/share/rk/shims/tmux plus a marker-owned PATH " +
 			"block in the shell startup files) so `tmux kill-server` without an " +
-			"explicit -L/-S socket is blocked via `rk mux guard`. Use --yes to write " +
-			"without prompting (non-interactive), or --dry-run to preview the diff and " +
-			"write nothing.",
+			"explicit -L/-S socket is blocked via `rk mux guard`, and the " +
+			"run-kit-tutorial invoker skill (~/.claude/skills/run-kit-tutorial/SKILL.md) " +
+			"so an agent asked for a tour routes to `rk skill tutorial`. Use --yes to " +
+			"write without prompting (non-interactive), or --dry-run to preview the " +
+			"diff and write nothing.",
 		Args:         usageArgs(cobra.NoArgs),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -423,19 +460,27 @@ func runAgentSetup(sink outputSink, in io.Reader, uninstall bool, cons consent) 
 	return applyTmuxShim(sink, reader, home, os.Getenv("ZDOTDIR"), rkPath, uninstall, cons)
 }
 
-// applyAgentConfig applies the hooks merge for one agent and, on BOTH the install
-// and uninstall passes, cleans up any stale legacy rk-display skill. The hooks
-// merge is the only artifact rk agent setup still INSTALLS; the legacy cleanup is a
-// one-release courtesy that removes a marker-owned rk-display skill left by an
-// older run-kit. Each step is handled independently — its own tolerant read,
-// diff/prompt, and no-op report — so declining or no-op-ing one does not skip the
-// other. The legacy cleanup is skipped entirely when skillsDir is empty (e.g. a
-// future codex/copilot row with no skills convention).
+// applyAgentConfig runs one agent's per-agent steps in order: the hooks merge,
+// the run-kit-tutorial invoker skill (installed, or removed under --uninstall),
+// and — on BOTH passes — the one-release cleanup of any stale legacy rk-display
+// skill. Each step is handled independently — its own tolerant read,
+// diff/prompt, and no-op report — so declining or no-op-ing one does not skip
+// the others. Both skill steps are skipped entirely when skillsDir is empty
+// (e.g. a future codex/copilot row with no skills convention).
 func applyAgentConfig(sink outputSink, reader *bufio.Reader, ac agentConfig, rkPath string, uninstall bool, cons consent) error {
 	if err := applyAgentHooks(sink, reader, ac, rkPath, uninstall, cons); err != nil {
 		return err
 	}
 	if ac.skillsDir != "" {
+		if uninstall {
+			if err := removeTutorialSkill(sink, reader, ac, cons); err != nil {
+				return err
+			}
+		} else {
+			if err := installTutorialSkill(sink, reader, ac, cons); err != nil {
+				return err
+			}
+		}
 		if err := removeLegacySkill(sink, reader, ac, cons); err != nil {
 			return err
 		}
@@ -568,6 +613,123 @@ func removeLegacySkill(sink outputSink, reader *bufio.Reader, ac agentConfig, co
 		if !cons.dryRun {
 			// Status line — chatter.
 			sink.Notef("%s: legacy rk-display skill left in place (nothing removed).\n", ac.name)
+		}
+		return nil
+	}
+
+	if err := os.RemoveAll(skillDir); err != nil {
+		return fmt.Errorf("%s: remove %s: %w", ac.name, skillDir, err)
+	}
+	// Status line — chatter.
+	sink.Notef("%s: removed %s.\n", ac.name, skillDir)
+	return nil
+}
+
+// installTutorialSkill writes the run-kit-tutorial invoker skill at
+// {skillsDir}/run-kit-tutorial/SKILL.md from the embedded payload. It follows
+// the managed-artifact contract of installTmuxShimFile: a pre-existing
+// marker-less file — INCLUDING a zero-byte one, hence the existence-aware read —
+// is left untouched (rk only overwrites files it owns); content byte-equal to
+// the payload is a reported no-op; otherwise (fresh install or a stale
+// generation) the change is summarized (full body only under --dry-run, where
+// renderArtifactDiff shows the requested preview) and written on consent. Dir
+// 0755 / file 0644 — the skill is not sensitive user config, so settings.json's
+// 0600 does not apply.
+func installTutorialSkill(sink outputSink, reader *bufio.Reader, ac agentConfig, cons consent) error {
+	skillDir := filepath.Join(ac.skillsDir, tutorialSkillDir)
+	skillPath := filepath.Join(skillDir, tutorialSkillFile)
+
+	current, exists, err := readFileIfExists(skillPath)
+	if err != nil {
+		return fmt.Errorf("%s: read %s: %w", ac.name, skillPath, err)
+	}
+	if exists && !strings.Contains(current, tutorialSkillMarker) {
+		// Chatter — rk only overwrites files it owns.
+		sink.Notef("%s: %s exists without the %q marker — leaving it untouched (rk only overwrites files it owns).\n", ac.name, skillPath, tutorialSkillMarker)
+		return nil
+	}
+	if current == tutorialSkillPayload {
+		sink.Notef("%s: run-kit-tutorial skill already installed at %s — nothing to do.\n", ac.name, skillPath)
+		return nil
+	}
+
+	// Full body only under --dry-run; elsewhere one summary line suffices —
+	// marker-less foreign files were skipped above, so this write is only ever
+	// fresh-install or rk-owned→rk-owned (same rendering split as the shim).
+	if cons.dryRun {
+		verb := "install"
+		if exists {
+			// An existing file here is rk-owned (marker-less files were skipped
+			// above), so the preview is an update of a stale generation.
+			verb = "update"
+		}
+		header := fmt.Sprintf("%s: will %s the run-kit-tutorial skill at %s", ac.name, verb, skillPath)
+		renderArtifactDiff(cons.diffWriter(sink), header, strings.TrimSuffix(current, "\n"), strings.TrimSuffix(tutorialSkillPayload, "\n"))
+	} else if exists {
+		fmt.Fprintf(cons.diffWriter(sink), "%s: will update the rk-owned run-kit-tutorial skill at %s.\n", ac.name, skillPath)
+	} else {
+		fmt.Fprintf(cons.diffWriter(sink), "%s: will install the run-kit-tutorial skill at %s (rk-owned router to `rk skill tutorial`).\n", ac.name, skillPath)
+	}
+	dryRunNote := fmt.Sprintf("%s: dry run — no skill written.", ac.name)
+	ok, err := cons.authorizeWrite(sink.data, reader, dryRunNote, "\nWrite the run-kit-tutorial skill? [y/N] ")
+	if err != nil {
+		return err
+	}
+	if !ok {
+		if !cons.dryRun {
+			// Status line — chatter.
+			sink.Notef("%s: skipped (no skill written).\n", ac.name)
+		}
+		return nil
+	}
+
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		return fmt.Errorf("%s: create %s: %w", ac.name, skillDir, err)
+	}
+	if err := os.WriteFile(skillPath, []byte(tutorialSkillPayload), 0o644); err != nil {
+		return fmt.Errorf("%s: write %s: %w", ac.name, skillPath, err)
+	}
+	// Status line — chatter.
+	sink.Notef("%s: wrote %s.\n", ac.name, skillPath)
+	return nil
+}
+
+// removeTutorialSkill removes a marker-owned run-kit-tutorial skill on
+// --uninstall. An absent file is silent (a machine that never installed it must
+// see zero output); a marker-less file is left untouched with a skip note; a
+// marker-owned file is removed on consent — os.RemoveAll of the whole
+// run-kit-tutorial/ directory, confirmed first because it deletes the entire
+// directory including any user-added files within it (the removeLegacySkill
+// shape).
+func removeTutorialSkill(sink outputSink, reader *bufio.Reader, ac agentConfig, cons consent) error {
+	skillDir := filepath.Join(ac.skillsDir, tutorialSkillDir)
+	skillPath := filepath.Join(skillDir, tutorialSkillFile)
+
+	current, exists, err := readFileIfExists(skillPath)
+	if err != nil {
+		return fmt.Errorf("%s: read %s: %w", ac.name, skillPath, err)
+	}
+	if !exists {
+		return nil
+	}
+	// A marker-less file — including a zero-byte one (existence, not content,
+	// is what makes it the user's) — is never removed.
+	if !strings.Contains(current, tutorialSkillMarker) {
+		sink.Notef("%s: %s was rewritten without the %q marker — leaving it untouched (rk only removes files it owns).\n", ac.name, skillPath, tutorialSkillMarker)
+		return nil
+	}
+
+	sink.Notef("%s: found the run-kit-tutorial skill at %s.\n\n", ac.name, skillPath)
+	dryRunNote := fmt.Sprintf("%s: dry run — run-kit-tutorial skill left in place (nothing removed).", ac.name)
+	promptSuffix := fmt.Sprintf("Remove the %s directory? [y/N] ", skillDir)
+	ok, err := cons.authorizeWrite(sink.data, reader, dryRunNote, promptSuffix)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		if !cons.dryRun {
+			// Status line — chatter.
+			sink.Notef("%s: run-kit-tutorial skill left in place (nothing removed).\n", ac.name)
 		}
 		return nil
 	}

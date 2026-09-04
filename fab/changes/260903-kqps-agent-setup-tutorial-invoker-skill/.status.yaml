@@ -1,0 +1,57 @@
+id: kqps
+name: 260903-kqps-agent-setup-tutorial-invoker-skill
+created: 2026-09-03T11:30:10Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 10
+    acceptance_completed: 10
+confidence:
+    certain: 3
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 4.3
+    fuzzy: true
+    dimensions:
+        signal: 71.9
+        reversibility: 80.0
+        competence: 82.5
+        disambiguation: 74.4
+stage_metrics:
+    intake: {started_at: "2026-09-03T11:30:10Z", driver: fab-new, iterations: 1, completed_at: "2026-09-04T16:56:53Z"}
+    apply: {started_at: "2026-09-04T16:56:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T17:05:37Z"}
+    review: {started_at: "2026-09-04T17:05:37Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T17:10:19Z"}
+    hydrate: {started_at: "2026-09-04T17:10:19Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T17:13:03Z"}
+    ship: {started_at: "2026-09-04T17:13:03Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T17:14:55Z"}
+    review-pr: {started_at: "2026-09-04T17:14:55Z", driver: git-pr, iterations: 1, completed_at: "2026-09-04T17:20:15Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/838
+change_type_source: explicit
+true_impact:
+    added: 850
+    deleted: 49
+    net: 801
+    excluding:
+        added: 471
+        deleted: 35
+        net: 436
+    tests:
+        added: 262
+        deleted: 6
+        net: 256
+    computed_at: "2026-09-04T17:14:55Z"
+    computed_at_stage: ship
+summary: 'rk agent setup installs the run-kit-tutorial invoker skill (third managed artifact): embedded router payload, marker-owned install/uninstall at ~/.claude/skills/run-kit-tutorial/'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-04T17:20:15Z

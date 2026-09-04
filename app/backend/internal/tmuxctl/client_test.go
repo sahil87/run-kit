@@ -548,3 +548,41 @@ func TestStampServerOrigin_gate(t *testing.T) {
 		t.Fatalf("failing write: writes = %v, want the attempt recorded", writes)
 	}
 }
+
+// guardRecordingRWC records which methods the write guard delegates to.
+type guardRecordingRWC struct {
+	readCalled  bool
+	writeCalled bool
+	closeCalled bool
+}
+
+func (r *guardRecordingRWC) Read(p []byte) (int, error)  { r.readCalled = true; return 0, io.EOF }
+func (r *guardRecordingRWC) Write(p []byte) (int, error) { r.writeCalled = true; return len(p), nil }
+func (r *guardRecordingRWC) Close() error                { r.closeCalled = true; return nil }
+
+func TestWriteGuardedPTY_RevokesWriteDelegatesReadClose(t *testing.T) {
+	under := &guardRecordingRWC{}
+	g := writeGuardedPTY{rwc: under}
+
+	n, err := g.Write([]byte("kill-server"))
+	if n != 0 || !errors.Is(err, errBridgeWriteForbidden) {
+		t.Fatalf("Write = (%d, %v); want (0, errBridgeWriteForbidden)", n, err)
+	}
+	if under.writeCalled {
+		t.Fatal("guarded Write reached the underlying handle")
+	}
+
+	if _, err := g.Read(make([]byte, 1)); !errors.Is(err, io.EOF) {
+		t.Fatalf("Read = %v; want the underlying handle's io.EOF", err)
+	}
+	if !under.readCalled {
+		t.Fatal("Read did not delegate to the underlying handle")
+	}
+
+	if err := g.Close(); err != nil {
+		t.Fatalf("Close = %v; want nil from the underlying handle", err)
+	}
+	if !under.closeCalled {
+		t.Fatal("Close did not delegate to the underlying handle")
+	}
+}

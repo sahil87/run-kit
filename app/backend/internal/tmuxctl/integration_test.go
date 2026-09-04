@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -380,4 +381,102 @@ func TestIsServerDeadError_TmuxText(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestIntegration_ProductionDial_BridgeWritableSendKeys is the regression test
+// for the tmux ≥3.7 send-keys wedge: send-keys resolves a target client by
+// recency alone (falling through server-wide when the target session has no
+// attached clients) and rejects the command outright when that client is
+// read-only. With the bridge as a session's ONLY client — the shape of every
+// unwatched session on a managed server — a read-only bridge made every typed
+// delivery fail with "client is read-only". The dial must therefore attach
+// writable at the tmux layer (write access revoked in Go instead — see
+// errBridgeWriteForbidden). On tmux <3.7 the guard does not exist and this
+// test passes trivially.
+//
+// Skipped when tmux is not present on the host.
+func TestIntegration_ProductionDial_BridgeWritableSendKeys(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not available — skipping integration test")
+	}
+
+	socket := testSocketName("tmuxctl")
+
+	// Pre-cleanup in case a prior aborted run left the server alive.
+	_ = exec.Command("tmux", "-L", socket, "kill-server").Run()
+
+	out, err := exec.Command("tmux", "-L", socket, "new-session", "-d", "-s", "main").CombinedOutput()
+	if err != nil {
+		t.Skipf("could not create tmux session (likely no PTY): %v\n%s", err, string(out))
+	}
+	t.Cleanup(func() {
+		_ = exec.Command("tmux", "-L", socket, "kill-server").Run()
+	})
+
+	// Cancel-only context: exec.CommandContext kills the long-lived `-CC`
+	// bridge on expiry, and a dead bridge would let send-keys pass vacuously
+	// (no attached client resolves no target). The internal 5s poll deadlines
+	// below bound the test instead.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cmd, ptmx, err := productionDial(ctx, socket)
+	if err != nil {
+		t.Fatalf("productionDial: %v", err)
+	}
+	// Drain the control client's output so it never blocks on a full PTY
+	// buffer; the copy ends when the PTY is closed in cleanup.
+	go func() { _, _ = io.Copy(io.Discard, ptmx) }()
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = ptmx.Close()
+		_ = cmd.Wait()
+	})
+
+	// Wait for the bridge to attach to the real session, and require it to be
+	// writable (client_readonly=0): productionDial attaches with `-f
+	// ignore-size`, never `-r`.
+	deadline := time.Now().Add(5 * time.Second)
+	attached := false
+	for time.Now().Before(deadline) {
+		out, err := exec.Command("tmux", "-L", socket, "list-clients",
+			"-t", "=main", "-F", "#{client_readonly}").Output()
+		if flags := strings.TrimSpace(string(out)); err == nil && flags != "" {
+			if strings.Contains(flags, "1") {
+				t.Fatalf("bridge attached read-only; want writable (client_readonly per client = %q)", flags)
+			}
+			attached = true
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !attached {
+		t.Fatal("bridge control client did not attach within 5s")
+	}
+
+	paneOut, err := exec.Command("tmux", "-L", socket, "list-panes",
+		"-t", "=main", "-F", "#{pane_id}").Output()
+	if err != nil {
+		t.Fatalf("list-panes: %v", err)
+	}
+	pane := strings.SplitN(strings.TrimSpace(string(paneOut)), "\n", 2)[0]
+	if pane == "" {
+		t.Fatal("no pane id resolved for session main")
+	}
+
+	// The delivery under test: the bridge is the session's only client, so
+	// tmux ≥3.7 resolves it as the send's target client.
+	if out, err := exec.Command("tmux", "-L", socket, "send-keys",
+		"-t", pane, "-l", "bridge-writable-probe").CombinedOutput(); err != nil {
+		t.Fatalf("send-keys with the bridge as sole client: %v\n%s", err, string(out))
+	}
+
+	capDeadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(capDeadline) {
+		out, err := exec.Command("tmux", "-L", socket, "capture-pane", "-p", "-t", pane).Output()
+		if err == nil && strings.Contains(string(out), "bridge-writable-probe") {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("typed probe never appeared in capture-pane within 5s")
 }

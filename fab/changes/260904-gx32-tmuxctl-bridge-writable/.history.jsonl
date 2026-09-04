@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-04T04:00:18Z"}
+{"args":"Make the tmuxctl control bridge writable at the tmux layer (-r -\u003e -f ignore-size in productionDial) and enforce the never-writes invariant in Go via a write-guarded PTY wrapper, so tmux 3.7 target-client resolution can never reject send-keys server-wide","cmd":"fab-new","event":"command","ts":"2026-09-04T04:00:18Z"}
+{"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-09-04T04:01:58Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-09-04T04:03:12Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-04T04:04:51Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-04T04:05:10Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-04T04:11:38Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-04T04:15:31Z"}
+{"event":"review","result":"passed","ts":"2026-09-04T04:15:31Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-04T04:18:00Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-04T04:19:04Z"}
+{"event":"review","result":"passed","ts":"2026-09-04T04:23:22Z"}

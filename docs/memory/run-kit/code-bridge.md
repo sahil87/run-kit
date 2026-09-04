@@ -111,7 +111,7 @@ The bridge is a same-user, local-only RCE into the editor — that is the featur
 - **Remote exec over `rk remote` tunnels** — local-only; a thin daemon proxy can be added later if cross-machine exec is needed.
 - **A `rk.bridge.deny` allowlist** — see § Security stance.
 - **Marketplace publishing** — distribution is the embedded VSIX only.
-- **Any daemon, `/api/*`, frontend, or `/code/` route change** — the lens topology in [docs/specs/right-panel.md](../../specs/right-panel.md) is untouched.
+- **Any daemon, `/api/*`, frontend, or `/code/` route change** — the surface/lens topology in [docs/specs/surface-layout.md](../../specs/surface-layout.md) is untouched.
 
 ## Requirements
 

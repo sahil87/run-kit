@@ -1,36 +1,31 @@
 # Right Panel — A Second Slot Beside the Terminal
 
-> A collapsible right-side panel on the terminal route that renders a **second
-> (substrate, lens) pair** beside the tty, behind an icon rail rendered on
-> every desktop terminal route and collapsible from the top bar
-> (`260812-nm4p`).
+> **Status: SUPERSEDED as a placement (2026-09-04)** — the collapsible
+> right-side panel and its icon rail **no longer exist in the UI**.
+> [`surface-layout.md`](surface-layout.md) **[current]** generalized the panel
+> slot into the surface layout manager — the terminal route's center renders
+> 1–3 tiles (`260812-ab5v-surface-layout-core`) — and the rail itself was
+> retired by `260815-19me-composed-frame-unification`, which relocated its
+> open-tile toggles into the top bar's `surface-toggles` group. Read all
+> placement behavior from [`surface-layout.md`](surface-layout.md).
+>
+> What this spec still owns (**[current]**, consumed by the layout manager):
+> the **surface registry** — a surface = a named (substrate, lens) pair
+> (`lib/right-panel.ts` keeps `availableSurfaces` + the ratio clamps) — the
+> `code` lens with its proxy prerequisites and git-root/reachability
+> derivation (`260811-k3vp-right-panel-code-lens`), and P4 attention.
+> The **companion window** convention, the `agents` surface, and the amber
+> attention dot remain **[target]**.
+> The panel-slot mechanics below — the rail, the panel shell
+> (resize/per-viewer width/collapse), P6's one-surface rule, and the
+> `260811-2r1w` / `260812-nm4p` phases — are **[historical]**, kept for
+> design rationale.
 > This spec extends [`window-views.md`](window-views.md) — that spec defines
-> what lenses *are* and how availability derives; this one adds a second
-> *placement* for them, one new lens (`code`), and the **companion window**
-> convention that lets hidden sibling substrates render in the
-> panel. Phase 1 — the rail, the panel shell (resize + per-viewer
-> width, hide-never-unmount), and the `web` surface with its toggle chord and
-> palette entry — is **[current]** as of change
-> `260811-2r1w-right-panel-shell-web-surface`; phase 2 — the `code` lens
-> (`?view=code` + the panel's CODE surface), the proxy prerequisites
-> (`SetXForwarded`, the trailing-slash redirect, `allow-downloads`), and the
-> git-root/reachability derivation — is **[current]** as of change
-> `260811-k3vp-right-panel-code-lens`; the top-bar rail toggle and the
-> full-height column layout (rail+panel as a Shell grid column, the bottom bar
-> scoped to the terminal column) are **[current]** as of change
-> `260812-nm4p-top-bar-rail-toggle`; the companion convention and
-> the `agents` surface, the amber attention dot, and mobile remain
-> **[target]**.
+> what lenses *are* and how availability derives.
 >
 > Companions: [`agent-state.md`](agent-state.md) (the rollup the agents
 > surface feeds), [`status-pyramid.md`](status-pyramid.md) (untouched — status
 > describes substrates, and companions roll into their owner's substrate).
->
-> **Succession note (2026-08-12)**: [`surface-layout.md`](surface-layout.md)
-> **[target]** generalizes the panel slot into a full surface layout manager —
-> P6's one-surface rule and the panel-slot placement mechanics are superseded
-> there; the rail, availability derivation, the `code` lens, companions, and
-> P4 carry forward unchanged.
 
 ---
 

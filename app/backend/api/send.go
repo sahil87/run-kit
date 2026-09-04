@@ -168,6 +168,9 @@ const agentSendTotalBudget = 4 * time.Second
 // rk-agent-send buffer (the engine it is paired with is bound to that name).
 type agentSendTmux struct{ ops TmuxOps }
 
+func (a agentSendTmux) ClearPaneMode(ctx context.Context, paneID, server string) error {
+	return a.ops.ClearPaneMode(ctx, paneID, server)
+}
 func (a agentSendTmux) CapturePane(ctx context.Context, paneID string, lines int, server string) (string, error) {
 	return a.ops.CapturePane(ctx, paneID, lines, server)
 }

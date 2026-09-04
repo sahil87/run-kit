@@ -32,6 +32,12 @@ import (
 //	waiting  | refuse       | send (this send IS the answer)
 //	active   | refuse       | refuse (never interrupt a working agent)
 //
+// The unknown row's warning names the pane's foreground command when it is not
+// a plain shell (a hook-less agent may be running uninstrumented). Every
+// delivery path — engine paste and --key sends alike — first clears an active
+// pane mode via tmux.ClearPaneModeCtx (a copy-mode pane eats keys); a guard
+// failure aborts pre-delivery with exit 1.
+//
 // --force skips the gate (target existence is still validated); --answer and
 // --force are mutually exclusive. Refusals name the state, print to stderr,
 // exit 1. stdout carries exactly ONE report line: `delivered %N` (no
@@ -65,8 +71,11 @@ var muxSendCmd = &cobra.Command{
 	Long: "Deliver a message into an agent's tmux pane with non-submission detection " +
 		"(bracketed paste + echo probe + probe-gated Enter + post-Enter frame observation), gated on the pane's " +
 		tmux.AgentStateOption + ": idle sends; waiting refuses unless --answer (this send IS " +
-		"the answer it waits for); active always refuses; unknown warns and sends. " +
-		"--force skips the gate.\n\n" +
+		"the answer it waits for); active always refuses; unknown warns and sends, naming " +
+		"the foreground process when it is not a plain shell. --force skips the gate. " +
+		"Every delivery — text and --key alike — first clears an active pane mode " +
+		"(a scrolled pane's copy-mode would otherwise eat the keys); a guard failure " +
+		"aborts before anything is delivered.\n\n" +
 		"Payload (exactly one): a positional message, `-` to read it from stdin, or " +
 		"one or more --key <name> flags sending raw tmux key names (Enter, Up, C-c) " +
 		"post-gate with no paste or probe. --no-enter stages the text without " +
@@ -114,8 +123,11 @@ var (
 	muxSendKeysFn = func(ctx context.Context, paneID, server string, keys ...string) error {
 		return tmux.SendKeysToPane(ctx, paneID, server, keys...)
 	}
-	muxSendAgentStateFn = func(ctx context.Context, paneID, server string) (string, error) {
-		return tmux.PaneAgentState(ctx, paneID, server)
+	muxSendClearModeFn = func(ctx context.Context, paneID, server string) error {
+		return tmux.ClearPaneModeCtx(ctx, paneID, server)
+	}
+	muxSendFactsFn = func(ctx context.Context, paneID, server string) (tmux.PaneFacts, error) {
+		return tmux.PaneFactsCtx(ctx, paneID, server)
 	}
 	muxSendPaneExistsFn = func(ctx context.Context, paneID, server string) (bool, error) {
 		return tmux.PaneExists(ctx, paneID, server)
@@ -142,6 +154,9 @@ type cliInjectTmux struct {
 	recoveryAttempted *bool
 }
 
+func (cliInjectTmux) ClearPaneMode(ctx context.Context, paneID, server string) error {
+	return tmux.ClearPaneModeCtx(ctx, paneID, server)
+}
 func (cliInjectTmux) CapturePane(ctx context.Context, paneID string, lines int, server string) (string, error) {
 	return tmux.CapturePaneCtx(ctx, paneID, lines, server)
 }
@@ -256,13 +271,17 @@ func runMuxSend(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("pane %s does not exist", paneID)
 		}
 	} else {
-		state, err := muxSendAgentStateFn(ctx, paneID, server)
+		facts, err := muxSendFactsFn(ctx, paneID, server)
 		if err != nil {
 			return fmt.Errorf("read agent state: %w", err)
 		}
-		switch state {
+		switch facts.AgentState {
 		case "":
-			sink.Notef("warning: pane %s has no readable agent state — sending ungated\n", paneID)
+			if facts.Command != "" && !tmux.IsShellCommand(facts.Command) {
+				sink.Notef("warning: pane %s has no readable agent state — foreground process `%s` running; sending ungated\n", paneID, facts.Command)
+			} else {
+				sink.Notef("warning: pane %s has no readable agent state — sending ungated\n", paneID)
+			}
 		case tmux.AgentStateIdle:
 		case tmux.AgentStateWaiting:
 			if !muxSendAnswerFlag {
@@ -277,6 +296,11 @@ func runMuxSend(cmd *cobra.Command, args []string) error {
 	var report string
 	switch {
 	case hasKeys:
+		// The same pane-mode guard the engine runs — a copy-mode pane would
+		// bind the key names to copy-mode instead of the foreground process.
+		if err := muxSendClearModeFn(ctx, paneID, server); err != nil {
+			return fmt.Errorf("clear pane mode: %w", err)
+		}
 		if err := muxSendKeysFn(ctx, paneID, server, muxSendKeysFlag...); err != nil {
 			return fmt.Errorf("send-keys: %w", err)
 		}

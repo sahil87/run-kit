@@ -36,12 +36,12 @@ rk mux send %5 --key Enter                            # raw tmux key names (no p
 
 | state | plain | `--answer` |
 |-------|-------|------------|
-| unknown (no/unparseable state) | warn + send | warn + send |
+| unknown (no/unparseable state) | warn + send — the warning names a non-shell foreground (… foreground process htop running; sending ungated) | warn + send (same naming) |
 | `idle` | send | send |
 | `waiting` | refuse | send — this send IS the answer |
 | `active` | refuse | refuse — never interrupt a working agent |
 
-`--force` skips the gate (existence still checked). Refusals name the state on stderr, exit 1.
+`--force` skips the gate (existence still checked). Refusals name the state on stderr, exit 1. Every delivery — text paste and `--key` sends alike, including `--force` — first clears an active pane mode (probes `#{pane_in_mode}`, one `send-keys -X cancel`; a scrolled pane's copy-mode would otherwise eat the bytes — no manual `copy-mode -q` needed); a guard failure aborts before anything is delivered (exit 1).
 
 **Delivery** is paste-probed: the text is pasted via a named buffer (bracketed paste — multi-line lands as one block), then Enter is sent ONLY after the paste provably echoed into the live input buffer. If that probe fails (e.g. a permission dialog swallowed the paste), no Enter is sent, the text stays staged in the composer, and the command exits 1 — **check the terminal before retrying; a resend would duplicate the staged text**. After Enter, the engine watches for a pane change. A frame that changes at any backoff step makes no claim either way and reports `delivered` (including a busy pane repainting for its own reasons); only a byte-identical frame through every step with the paste echo still present triggers bounded clear/retype/resubmit recovery. A recovered send also reports `delivered`. `unverified %N` means the engine detected non-submission and bounded recovery did not fix it; it exits 1 — **capture the pane before resending, because the message may or may not have landed and a resend may duplicate it**. `--no-enter` stages without submitting (report: `staged %N`).
 

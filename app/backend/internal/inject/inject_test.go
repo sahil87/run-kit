@@ -45,6 +45,7 @@ type fakeTmux struct {
 	captureResults []string
 	captureErr     error
 	captureErrs    []error
+	clearModeErr   error
 	setBufferErr   error
 	pasteErr       error
 	pasteRawErr    error
@@ -72,6 +73,13 @@ func (f *fakeTmux) callStream() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string(nil), f.calls...)
+}
+
+func (f *fakeTmux) ClearPaneMode(_ context.Context, _ string, _ string) error {
+	f.record("clear-pane-mode")
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.clearModeErr
 }
 
 func (f *fakeTmux) CapturePane(_ context.Context, _ string, _ int, _ string) (string, error) {
@@ -167,7 +175,7 @@ func TestSendRawOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SendRaw: %v", err)
 	}
-	if got, want := strings.Join(ft.callStream(), ","), "set-buffer,paste-buffer-raw"; got != want {
+	if got, want := strings.Join(ft.callStream(), ","), "clear-pane-mode,set-buffer,paste-buffer-raw"; got != want {
 		t.Fatalf("calls = %s, want %s", got, want)
 	}
 	if ft.bufferText != "a\tb\nc" || ft.pastedRawPane != "%5" {
@@ -183,12 +191,68 @@ func TestPressEnterOrder(t *testing.T) {
 	if err := NewEngine("rk-send-enter").PressEnter(context.Background(), ft, "default", "%5"); err != nil {
 		t.Fatalf("PressEnter: %v", err)
 	}
-	if got, want := strings.Join(ft.callStream(), ","), "send-keys"; got != want {
+	if got, want := strings.Join(ft.callStream(), ","), "clear-pane-mode,send-keys"; got != want {
 		t.Fatalf("calls = %s, want %s", got, want)
 	}
 	if ft.enteredPane != "%5" {
 		t.Fatalf("pane = %q, want %%5", ft.enteredPane)
 	}
+}
+
+// TestSendGuardRunsBeforeBaseline: the pane-mode guard is the first
+// pane-touching step of all three engine paths — a mode cancel repaints the
+// frame, so a baseline captured first would poison the probe floor.
+func TestSendGuardRunsBeforeBaseline(t *testing.T) {
+	fastProbe(t)
+	fastSubmit(t)
+	ft := &fakeTmux{captureResults: []string{"❯ ", "❯ hi", "hi\nworking"}}
+	if err := NewEngine("rk-guard-order").Send(context.Background(), ft, "default", "%5", "hi", true); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	calls := ft.callStream()
+	if len(calls) < 2 || calls[0] != "clear-pane-mode" || calls[1] != "capture-pane" {
+		t.Fatalf("calls = %v, want clear-pane-mode before the baseline capture-pane", calls)
+	}
+}
+
+// TestGuardFailureAbortsPrePaste: a guard failure aborts every delivery path
+// before any buffer/paste/Enter — nothing was delivered, so the wrapped error
+// keeps the plain pre-paste failure class (CLI exit 1 / daemon 500).
+func TestGuardFailureAbortsPrePaste(t *testing.T) {
+	fastProbe(t)
+	fastSubmit(t)
+	guardErr := errors.New("pane gone")
+
+	t.Run("Send", func(t *testing.T) {
+		ft := &fakeTmux{clearModeErr: guardErr}
+		err := NewEngine("rk-guard-fail").Send(context.Background(), ft, "default", "%5", "hi", true)
+		if !errors.Is(err, guardErr) {
+			t.Fatalf("err = %v, want the wrapped guard error", err)
+		}
+		if got := ft.callStream(); strings.Join(got, ",") != "clear-pane-mode" {
+			t.Fatalf("calls = %v, want the guard only — no capture/paste/Enter", got)
+		}
+	})
+	t.Run("SendRaw", func(t *testing.T) {
+		ft := &fakeTmux{clearModeErr: guardErr}
+		err := NewEngine("rk-guard-fail").SendRaw(context.Background(), ft, "default", "%5", "hi")
+		if !errors.Is(err, guardErr) {
+			t.Fatalf("err = %v, want the wrapped guard error", err)
+		}
+		if got := ft.callStream(); strings.Join(got, ",") != "clear-pane-mode" {
+			t.Fatalf("calls = %v, want the guard only — no set/paste", got)
+		}
+	})
+	t.Run("PressEnter", func(t *testing.T) {
+		ft := &fakeTmux{clearModeErr: guardErr}
+		err := NewEngine("rk-guard-fail").PressEnter(context.Background(), ft, "default", "%5")
+		if !errors.Is(err, guardErr) {
+			t.Fatalf("err = %v, want the wrapped guard error", err)
+		}
+		if ft.enterCalled {
+			t.Fatal("Enter sent despite the guard failure")
+		}
+	})
 }
 
 func TestSendRawSamePaneSerializesWithSend(t *testing.T) {
@@ -208,11 +272,11 @@ func TestSendRawSamePaneSerializesWithSend(t *testing.T) {
 	}()
 	wg.Wait()
 
-	sendBlock := []string{"capture-pane", "set-buffer", "paste-buffer"}
+	sendBlock := []string{"clear-pane-mode", "capture-pane", "set-buffer", "paste-buffer"}
 	for range ProbeAttempts {
 		sendBlock = append(sendBlock, "capture-pane")
 	}
-	rawBlock := []string{"set-buffer", "paste-buffer-raw"}
+	rawBlock := []string{"clear-pane-mode", "set-buffer", "paste-buffer-raw"}
 	first := append(append([]string(nil), sendBlock...), rawBlock...)
 	second := append(append([]string(nil), rawBlock...), sendBlock...)
 	got := strings.Join(ft.callStream(), ",")
@@ -249,8 +313,8 @@ func TestSendShortNeedleOccurrenceCounts(t *testing.T) {
 }
 
 // TestSendOrderAndEnter: a paste whose text newly echoes runs the exact order
-// baseline capture → set-buffer → paste-buffer → probe capture → Enter, all
-// targeting the pane, through the engine's named buffer.
+// pane-mode guard → baseline capture → set-buffer → paste-buffer → probe
+// capture → Enter, all targeting the pane, through the engine's named buffer.
 func TestSendOrderAndEnter(t *testing.T) {
 	fastProbe(t)
 	fastSubmit(t)
@@ -260,7 +324,7 @@ func TestSendOrderAndEnter(t *testing.T) {
 	if err := e.Send(context.Background(), ft, "default", "%5", "hello world", true); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	want := []string{"capture-pane", "set-buffer", "paste-buffer", "capture-pane", "send-keys", "capture-pane"}
+	want := []string{"clear-pane-mode", "capture-pane", "set-buffer", "paste-buffer", "capture-pane", "send-keys", "capture-pane"}
 	if got := strings.Join(ft.callStream(), ","); got != strings.Join(want, ",") {
 		t.Errorf("call order = %v, want %v", got, want)
 	}
@@ -309,7 +373,7 @@ func TestSendInsertSkipsEnter(t *testing.T) {
 	if err := e.Send(context.Background(), ft, "default", "%5", "stage me", false); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	want := []string{"capture-pane", "set-buffer", "paste-buffer", "capture-pane"}
+	want := []string{"clear-pane-mode", "capture-pane", "set-buffer", "paste-buffer", "capture-pane"}
 	if got := strings.Join(ft.callStream(), ","); got != strings.Join(want, ",") {
 		t.Errorf("call order = %v, want %v (no send-keys)", got, want)
 	}
@@ -467,7 +531,7 @@ func TestSendSamePaneSerializes(t *testing.T) {
 	wg.Wait()
 
 	var oneBlock []string
-	oneBlock = append(oneBlock, "capture-pane", "set-buffer", "paste-buffer")
+	oneBlock = append(oneBlock, "clear-pane-mode", "capture-pane", "set-buffer", "paste-buffer")
 	for range ProbeAttempts {
 		oneBlock = append(oneBlock, "capture-pane")
 	}

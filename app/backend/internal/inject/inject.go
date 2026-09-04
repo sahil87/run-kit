@@ -24,6 +24,12 @@ import (
 // AgentSendBuffer); the CLI adapts internal/tmux's name-parameterized buffer
 // functions (per-invocation buffer names).
 type Tmux interface {
+	// ClearPaneMode is the pane-mode guard: the first pane-touching step of
+	// every delivery sequence. The probe-vs-cancel decision lives in the
+	// implementation's single decision site (tmux.ClearPaneModeCtx) — the
+	// engine only places the call (inside the per-pane lock, before the
+	// baseline capture, whose frame a mode cancel would repaint).
+	ClearPaneMode(ctx context.Context, paneID, server string) error
 	CapturePane(ctx context.Context, paneID string, lines int, server string) (string, error)
 	SetBuffer(ctx context.Context, name, text, server string) error
 	PasteBuffer(ctx context.Context, name, paneID, server string) error
@@ -203,6 +209,9 @@ func (e *Engine) SendRaw(ctx context.Context, t Tmux, server, paneID, text strin
 	paneLock.Lock()
 	defer paneLock.Unlock()
 
+	if err := t.ClearPaneMode(ctx, paneID, server); err != nil {
+		return fmt.Errorf("clear pane mode: %w", err)
+	}
 	e.setPasteMu.Lock()
 	defer e.setPasteMu.Unlock()
 	if err := t.SetBuffer(ctx, e.buffer, text, server); err != nil {
@@ -220,6 +229,9 @@ func (e *Engine) PressEnter(ctx context.Context, t Tmux, server, paneID string) 
 	paneLock := e.lockFor(server, paneID)
 	paneLock.Lock()
 	defer paneLock.Unlock()
+	if err := t.ClearPaneMode(ctx, paneID, server); err != nil {
+		return fmt.Errorf("clear pane mode: %w", err)
+	}
 	if err := t.SendEnter(ctx, paneID, server); err != nil {
 		return fmt.Errorf("send-keys: %w", err)
 	}
@@ -228,9 +240,9 @@ func (e *Engine) PressEnter(ctx context.Context, t Tmux, server, paneID string) 
 
 // Send runs the pane-targeted injection sequence (Constitution I — all argv
 // slices, no shell strings, text as a discrete argv element via the named
-// buffer): baseline capture → set-buffer → paste-buffer (-d -p, bracketed) →
-// NOVELTY echo probe → send-keys Enter (only on probe success AND submit) →
-// whole-frame observation with evidence-gated recovery.
+// buffer): pane-mode guard → baseline capture → set-buffer → paste-buffer
+// (-d -p, bracketed) → NOVELTY echo probe → send-keys Enter (only on probe
+// success AND submit) → whole-frame observation with evidence-gated recovery.
 // Every step targets paneID, never the window, and shares the caller's ctx
 // deadline. submit=false (insert-without-submit) skips ONLY the final
 // SendEnter — baseline, set/paste, probe (a probe failure still returns
@@ -287,6 +299,16 @@ func (e *Engine) Send(ctx context.Context, t Tmux, server, paneID, text string, 
 	paneLock := e.lockFor(server, paneID)
 	paneLock.Lock()
 	defer paneLock.Unlock()
+
+	// Pane-mode guard: a copy-mode pane would eat the paste (keys bind to
+	// copy-mode), and its cancel repaints the frame — so this runs FIRST,
+	// before the baseline capture below (a pre-cancel baseline would be the
+	// copy-mode screen, poisoning the novelty floor and recovery's
+	// baseline-equality check). A guard failure aborts pre-paste: nothing was
+	// delivered, retry is safe.
+	if err := t.ClearPaneMode(ctx, paneID, server); err != nil {
+		return fmt.Errorf("clear pane mode: %w", err)
+	}
 
 	// PRE-PASTE baseline: the occurrence count the probe must beat. Captured
 	// BEFORE mutating the buffer so any stale needle/placeholder already in-frame

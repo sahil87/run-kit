@@ -54,23 +54,23 @@ func TestWindowSendModeStrategies(t *testing.T) {
 			name:     "submit",
 			body:     `{"text":"hello","mode":"submit"}`,
 			captures: []string{"$ ", "$ hello", "working"},
-			want:     []string{"capture-pane", "set-buffer", "paste-buffer", "capture-pane", "send-keys", "capture-pane"},
+			want:     []string{"clear-pane-mode", "capture-pane", "set-buffer", "paste-buffer", "capture-pane", "send-keys", "capture-pane"},
 		},
 		{
 			name:     "insert-line",
 			body:     `{"text":"hello","mode":"insert-line"}`,
 			captures: []string{"$ ", "$ hello"},
-			want:     []string{"capture-pane", "set-buffer", "paste-buffer", "capture-pane"},
+			want:     []string{"clear-pane-mode", "capture-pane", "set-buffer", "paste-buffer", "capture-pane"},
 		},
 		{
 			name: "raw",
 			body: `{"text":"a\tb\nc","mode":"raw"}`,
-			want: []string{"set-buffer", "paste-buffer-raw"},
+			want: []string{"clear-pane-mode", "set-buffer", "paste-buffer-raw"},
 		},
 		{
 			name: "enter",
 			body: `{"text":"","mode":"enter"}`,
-			want: []string{"send-keys"},
+			want: []string{"clear-pane-mode", "send-keys"},
 		},
 	}
 
@@ -204,6 +204,22 @@ func TestWindowSendInjectionError500(t *testing.T) {
 	router.ServeHTTP(rec, windowSendReq("@1", `{"text":"hello","mode":"raw"}`))
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestWindowSendGuardFailure500: a pane-mode guard failure is a pre-paste
+// operational error — 500 via the plain-error path, with nothing delivered
+// (no capture, no paste, no Enter).
+func TestWindowSendGuardFailure500(t *testing.T) {
+	ops := &mockTmuxOps{clearPaneModeErr: errors.New("can't find pane")}
+	router := NewTestRouter(slog.Default(), &mockSessionFetcher{result: activePaneWindow("@1")}, ops, "host")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, windowSendReq("@1", `{"text":"hello","mode":"submit"}`))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500; body=%s", rec.Code, rec.Body.String())
+	}
+	if got := strings.Join(ops.agentSendCalls, ","); got != "clear-pane-mode" {
+		t.Fatalf("calls = %v, want the guard only — nothing was delivered", ops.agentSendCalls)
 	}
 }
 

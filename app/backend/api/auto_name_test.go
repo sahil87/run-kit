@@ -422,7 +422,7 @@ func TestAutoName_DeliverIdleOperatorInjects(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatalf("deliver seam was never called")
 	}
-	want := []string{"capture-pane", "set-buffer", "paste-buffer", "capture-pane", "send-keys", "capture-pane"}
+	want := []string{"clear-pane-mode", "capture-pane", "set-buffer", "paste-buffer", "capture-pane", "send-keys", "capture-pane"}
 	if len(ops.agentSendCalls) != len(want) {
 		t.Fatalf("injection order = %v, want %v", ops.agentSendCalls, want)
 	}

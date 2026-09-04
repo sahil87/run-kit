@@ -1,0 +1,55 @@
+id: 39bp
+name: 260904-39bp-remove-chat-lens
+created: 2026-09-04T03:50:10Z
+created_by: sahil87
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 14
+    acceptance_count: 15
+    acceptance_completed: 15
+confidence:
+    certain: 10
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 82.5
+        reversibility: 87.9
+        competence: 88.3
+        disambiguation: 83.3
+stage_metrics:
+    intake: {started_at: "2026-09-04T03:50:10Z", driver: fab-new, iterations: 1, completed_at: "2026-09-04T03:57:02Z"}
+    apply: {started_at: "2026-09-04T05:01:30Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-04T05:11:41Z"}
+    review: {started_at: "2026-09-04T05:11:41Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-04T05:15:26Z"}
+    hydrate: {started_at: "2026-09-04T05:15:26Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T05:38:41Z"}
+    ship: {started_at: "2026-09-04T05:38:41Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-04T05:38:41Z"
+    computed_at_stage: hydrate
+summary: Removed the chat lens end-to-end (ChatView frontend wing, /chat backfill+send endpoints, kind:"chat" state-socket subscription, all ?view=chat entrances); stored chat layouts heal to single:tty at parse time; selection broadcast now rides POST /api/windows/{id}/send with a fail-closed target:"agent" mode; internal/chat + internal/inject stay as shared infrastructure
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-04T05:38:41Z

@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   ALL_SHAPES,
   SHAPE_ARITY,
-  SURFACE_RAIL_HIDDEN,
   addSurface,
   availableTiles,
   closeSurface,
@@ -31,7 +30,6 @@ const plain: ViewWindow = {};
 const webWin: ViewWindow = { webTabs: ["http://localhost:8080"] };
 const fullWin: ViewWindow = {
   webTabs: ["http://localhost:8080"],
-  chatProvider: "claude",
   gitRoot: "/repo",
 };
 
@@ -42,10 +40,10 @@ describe("parseLayout / serializeLayout", () => {
       "split-h:tty,code",
       "split-v:tty,web",
       "row:tty,code,web",
-      "col:tty,web,chat",
+      "col:tty,web,code",
       "main-left:tty,code,web",
       "main-right:web,tty,code",
-      "main-top:chat,tty,tty",
+      "main-top:code,tty,tty",
     ];
     for (const s of samples) {
       const parsed = parseLayout(s);
@@ -64,6 +62,9 @@ describe("parseLayout / serializeLayout", () => {
   it("rejects unknown shapes and unknown surfaces", () => {
     expect(parseLayout("grid:tty,code")).toBeNull();
     expect(parseLayout("single:terminal")).toBeNull();
+    // "chat" is a removed surface kind — a stored chat layout fails parse.
+    expect(parseLayout("single:chat")).toBeNull();
+    expect(parseLayout("split-h:chat,tty")).toBeNull();
     expect(parseLayout("single:")).toBeNull();
     expect(parseLayout("tty")).toBeNull();
     expect(parseLayout("")).toBeNull();
@@ -89,22 +90,11 @@ describe("parseLayout / serializeLayout", () => {
 });
 
 describe("availableTiles", () => {
-  it("always lists tty + web, then chat/code per capability — web availability is unconditional", () => {
+  it("always lists tty + web, then code per capability — web availability is unconditional", () => {
     expect(availableTiles(plain)).toEqual(["tty", "web"]);
     expect(availableTiles(webWin)).toEqual(["tty", "web"]);
-    expect(availableTiles(fullWin)).toEqual(["tty", "code", "web", "chat"]);
+    expect(availableTiles(fullWin)).toEqual(["tty", "code", "web"]);
     expect(availableTiles(null)).toEqual(["tty", "web"]);
-  });
-
-  it("still lists chat for a chat-capable window — the rail demotion (SURFACE_RAIL_HIDDEN) filters at RENDER, not at availability", () => {
-    // 260812-0c6o: chat is palette-only. `availableTiles` deliberately keeps
-    // chat so the palette's `Tile: Show Chat` / `Tile: Hide Chat` entries
-    // keep working as chat's entry points.
-    expect(availableTiles(fullWin)).toContain("chat");
-    expect(SURFACE_RAIL_HIDDEN.has("chat")).toBe(true);
-    expect(SURFACE_RAIL_HIDDEN.has("tty")).toBe(false);
-    expect(SURFACE_RAIL_HIDDEN.has("web")).toBe(false);
-    expect(SURFACE_RAIL_HIDDEN.has("code")).toBe(false);
   });
 });
 
@@ -123,13 +113,14 @@ describe("degradeLayout", () => {
     });
   });
 
-  it("drops unavailable surfaces 3→2→1 down to single", () => {
-    const layout: Layout = { shape: "row", order: ["web", "chat", "code"] };
+  it("drops unavailable surfaces down to single", () => {
+    const layout: Layout = { shape: "split-h", order: ["web", "code"] };
+    // No gitRoot → code unavailable; web is always available.
     expect(degradeLayout(layout, webWin)).toEqual({ shape: "single", order: ["web"] });
   });
 
   it("returns null when nothing is available (fully invalid → the single:tty fallback)", () => {
-    const layout: Layout = { shape: "split-h", order: ["chat", "code"] };
+    const layout: Layout = { shape: "single", order: ["code"] };
     expect(degradeLayout(layout, plain)).toBeNull();
   });
 
@@ -175,8 +166,22 @@ describe("effectiveLayout", () => {
     expect(win.layout).toBe("main-left:tty,code,web");
   });
 
-  it("falls back to single:tty when nothing in the layout is available", () => {
+  it("heals a stored chat layout to single:tty via parse-reject", () => {
+    // "chat" is no longer a surface kind, so any stored layout containing it
+    // fails parseLayout and the whole value falls back to single:tty (the
+    // stale option is overwritten on the next layout write).
     expect(effectiveLayout({ layout: "single:chat" })).toEqual({
+      shape: "single",
+      order: ["tty"],
+    });
+    expect(effectiveLayout({ layout: "split-h:chat,tty", gitRoot: "/repo" })).toEqual({
+      shape: "single",
+      order: ["tty"],
+    });
+  });
+
+  it("falls back to single:tty when nothing in the layout is available", () => {
+    expect(effectiveLayout({ layout: "single:code" })).toEqual({
       shape: "single",
       order: ["tty"],
     });
@@ -212,7 +217,7 @@ describe("legacyTranslationDecision", () => {
       legacyTranslationDecision({
         carried: "split-h:tty,web",
         storedLayout: "single:code",
-        storedLegacy: "single:chat",
+        storedLegacy: "single:web",
         winLayout: "",
       }),
     ).toEqual({ write: "split-h:tty,web", dropParams: true });
@@ -222,12 +227,20 @@ describe("legacyTranslationDecision", () => {
     expect(
       legacyTranslationDecision({
         storedLayout: "single:code",
-        storedLegacy: "single:chat",
+        storedLegacy: "single:web",
         winLayout: "",
       }),
     ).toEqual({ write: "single:code", dropParams: false });
+    expect(legacyTranslationDecision({ storedLegacy: "single:web", winLayout: "" })).toEqual({
+      write: "single:web",
+      dropParams: false,
+    });
+  });
+
+  it("writes nothing for a stored legacy layout containing the removed chat surface", () => {
+    // "single:chat" fails parseLayout (chat is not a surface kind), so the
+    // legacy seed writes nothing and the window renders its default layout.
     expect(legacyTranslationDecision({ storedLegacy: "single:chat", winLayout: "" })).toEqual({
-      write: "single:chat",
       dropParams: false,
     });
   });
@@ -320,7 +333,7 @@ describe("mutations", () => {
       order: ["code", "tty", "web"],
     });
     expect(promote(three, "tty")).toEqual(three); // already slot A
-    expect(promote(three, "chat")).toEqual(three); // absent
+    expect(promote(two, "web")).toEqual(two); // absent
   });
 
   it("swapWithNext exchanges with the next neighbor, wrapping at the end", () => {
@@ -354,7 +367,7 @@ describe("mutations", () => {
   });
 
   it("addSurface refuses at 3 tiles and on repeated non-tty kinds", () => {
-    expect(addSurface(three, "chat")).toBeNull();
+    expect(addSurface(three, "web")).toBeNull();
     expect(addSurface(two, "code")).toBeNull();
     // duplicate tty is legal (muxed relay supports N clients)
     expect(addSurface(two, "tty")).toEqual({

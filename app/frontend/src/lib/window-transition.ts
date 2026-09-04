@@ -164,7 +164,7 @@ interface SwitchGate {
   /**
    * Whether this switch targets a gated (tty) window. Drives the pending-mask
    * signal (260715-38kg): only a gated switch's `"timeout"` settle arms the
-   * mask — a non-tty (web/chat) target never masks. Held on the gate so the
+   * mask — a non-tty (web/code) target never masks. Held on the gate so the
    * arm decision lives in `settleGate` (one signal source), not the wrapper.
    */
   gated: boolean;
@@ -198,7 +198,7 @@ interface WindowSwitchGate {
  *
  * `opts.gated` marks whether the target renders a terminal (tty) — only a gated
  * switch's `"timeout"` arms the pending mask (260715-38kg). Defaults to `true`
- * (the common terminal path); the wrapper passes `false` for web/chat targets.
+ * (the common terminal path); the wrapper passes `false` for web/code targets.
  */
 export function beginWindowSwitchGate(opts?: { gated?: boolean }): WindowSwitchGate {
   // Supersede: resolve (do not silently discard) any prior pending gate so the

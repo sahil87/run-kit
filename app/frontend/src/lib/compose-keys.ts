@@ -1,10 +1,10 @@
 import { detectPlatform, formatCombo } from "./keybindings";
 
 /**
- * Shared Enter-key policy for run-kit's two text-input surfaces — the docked
- * compose strip and the chat send form. Both keydown handlers route Enter
- * through this ONE classifier, so it stays the single authority for both
- * surfaces' Enter policy. The surfaces DELIBERATELY diverge on plain Enter
+ * Shared Enter-key policy for run-kit's compose-strip text input — both its
+ * modes (normal terminal composition and selection broadcast) route Enter
+ * through this ONE classifier, so it stays the single authority for the
+ * strip's Enter policy. The modes DELIBERATELY diverge on plain Enter
  * (260802-lj98, revising 260801-hsxm's shared Enter=newline) — the divergence
  * is declared here, per surface, never forked at a call site:
  *
@@ -14,10 +14,12 @@ import { detectPlatform, formatCombo } from "./keybindings";
  *     treats a raw `"\n"` as newline-insert), so consecutive Enters stage
  *     sentence-per-line exactly like typing into the pane itself.
  *   - `"chat"` — plain Enter = newline (the textarea default, unchanged from
- *     260801-hsxm). The chat lens cannot show the pane's input box, so
- *     Enter-as-insert there would make typed text visibly vanish.
+ *     260801-hsxm). The selection broadcast addresses a FROZEN, possibly
+ *     cross-server recipient set — there is no single visible pane the staged
+ *     text could land in, so Enter-as-insert here would make typed text
+ *     visibly vanish.
  *
- * Shared on both surfaces: Shift+Enter = local newline; Cmd/Ctrl+Enter
+ * Shared in both modes: Shift+Enter = local newline; Cmd/Ctrl+Enter
  * (shift-less — the match is exact on Shift) = submit, the ONLY submit chord;
  * Shift+Cmd/Ctrl+Enter = default — deliberately left un-consumed so it
  * bubbles to the global zen-toggle chord (keybindings.ts, ⇧⌘⏎/⇧Ctrl+⏎);
@@ -37,8 +39,9 @@ import { detectPlatform, formatCombo } from "./keybindings";
  * behavior (newline insertion) untouched. */
 export type ComposeEnterAction = "submit" | "insert" | "insert-line" | "default";
 
-/** Which input surface is asking — the strip and the chat lens deliberately
- * diverge on plain Enter (see the header comment for the rationale). */
+/** Which input mode is asking — the strip's normal and broadcast modes
+ * deliberately diverge on plain Enter (see the header comment for the
+ * rationale). The `"chat"` value names the no-visible-pane policy. */
 export type ComposeSurface = "strip" | "chat";
 
 /** The subset of a keyboard event the classifier reads — structural so both

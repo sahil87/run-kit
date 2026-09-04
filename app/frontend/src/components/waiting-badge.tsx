@@ -28,7 +28,7 @@ export function WaitingBadge({
    * Optional click affordance (260714-r7rq). When provided, the badge becomes a
    * button that navigates to the next waiting window within this surface's scope
    * (the caller supplies the navigation, reusing the `nextWaitingTarget`
-   * semantics and appending `?view=chat` when that window has a chat). Mount
+   * semantics; the target renders its own stored layout). Mount
    * sites with no navigable context (e.g. the board header) pass none and keep
    * today's display-only, non-interactive behavior.
    */

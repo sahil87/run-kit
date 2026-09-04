@@ -1,5 +1,4 @@
 import type { ProjectSession } from "@/types";
-import type { Conversation } from "@/lib/chat-stream";
 
 export type { ProjectSession };
 
@@ -397,9 +396,7 @@ export async function renameWindow(
   return res.json();
 }
 
-/** An HTTP error carrying the response status, so callers can branch on it (the
- *  chat lens treats a 404 "transcript not yet" as a wait-and-retry, not a fatal
- *  error). */
+/** An HTTP error carrying the response status, so callers can branch on it. */
 export class HttpError extends Error {
   readonly status: number;
   constructor(status: number, message: string) {
@@ -409,82 +406,30 @@ export class HttpError extends Error {
   }
 }
 
-/**
- * Fetch a window's chat backfill (260717-vhvz). GETs the full conversation as
- * rk-schema JSON, including the transcript byte `offset` the backfill read up to.
- * The chat lens then subscribes `kind:"chat"` on the state socket with
- * `from: offset`, so the GET(offset)→subscribe(from) composition is gap-free and
- * duplicate-free (the chat SSE stream this replaced is retired). On a non-ok
- * response it throws an `HttpError` carrying the status so the caller can
- * distinguish a 404 (transcript not written yet — retry) from a real fault.
- */
-export async function getWindowChat(
-  server: string,
-  windowId: string,
-): Promise<Conversation> {
-  const res = await deduplicatedFetch(
-    withServer(`/api/windows/${encodeURIComponent(windowId)}/chat`, server),
-  );
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new HttpError(res.status, (data as { error?: string }).error ?? `Request failed: ${res.status}`);
-  }
-  return res.json();
-}
-
-/**
- * Send a chat message into the window's resolved agent pane
- * (260714-jdyg-chat-send). POSTs `{ text }` to the chat-send endpoint, which
- * re-resolves the pane server-side, pastes the text, probes the echo, and only
- * then sends Enter. `submit: false` (260719-mxvw) is the insert-without-submit
- * mode — serialized into the body ONLY when false (the default body stays
- * exactly `{ text }`, the additive wire contract), telling the backend to skip
- * the final gated Enter while keeping paste/probe/lock semantics unchanged.
- * `throwOnError` surfaces the server's structured error as the thrown Error's
- * message — including the 409 probe failure ("agent input not ready — message
- * pasted but not echoed; Enter withheld").
- */
-export async function sendChatMessage(
-  server: string,
-  windowId: string,
-  text: string,
-  submit = true,
-): Promise<{ ok: boolean }> {
-  const body: { text: string; submit?: boolean } = { text };
-  if (!submit) body.submit = false;
-  const res = await fetch(
-    withServer(`/api/windows/${encodeURIComponent(windowId)}/chat/send`, server),
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    },
-  );
-  if (!res.ok) await throwOnError(res);
-  return res.json();
-}
-
 export type WindowSendMode = "submit" | "insert-line" | "raw" | "enter";
 
 /**
  * Carries compose intent only: `mode` selects the server-side injection
- * strategy, and the server re-resolves the window's active pane per request.
- * Non-OK responses become `ApiError`s whose `code` separates staged-but-unsent
- * text from an unconfirmed submit because those outcomes require opposite
- * resend advice.
+ * strategy, and the server re-resolves the window's active pane per request —
+ * or, with `target: "agent"` (the selection broadcast), the window's AGENT
+ * pane via the @rk_pane_chat rollup, failing closed (404) when no pane carries
+ * chat. Non-OK responses become `ApiError`s whose `code` separates
+ * staged-but-unsent text from an unconfirmed submit because those outcomes
+ * require opposite resend advice.
  */
 export async function sendToWindow(
   server: string,
   windowId: string,
   text: string,
   mode: WindowSendMode,
+  target?: "agent",
 ): Promise<{ ok: boolean }> {
   const res = await fetch(
     withServer(`/api/windows/${encodeURIComponent(windowId)}/send`, server),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, mode }),
+      body: JSON.stringify(target === "agent" ? { text, mode, target } : { text, mode }),
     },
   );
   if (!res.ok) await throwOnError(res);
@@ -496,8 +441,8 @@ export async function sendToWindow(
  * window (`windowId`) — the operator actuation seam's one consumer-facing call
  * (260822-fih1-operator-request-fix-tab-name). The body carries ONLY the
  * closed-set template id; the backend derives every prompt fact server-side,
- * gates on the operator's agent state, and delivers via the chat-send
- * machinery. Busy requests resolve as a queued outcome; `throwOnError` keeps
+ * gates on the operator's agent state, and delivers via the shared injection
+ * engine. Busy requests resolve as a queued outcome; `throwOnError` keeps
  * structured validation, queue-full, and delivery errors on the throwing
  * path. The eventual result (e.g. a rename) arrives via the normal SSE derive
  * tick.

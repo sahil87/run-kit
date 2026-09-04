@@ -27,8 +27,8 @@ export type KeybindingHandlers = Record<string, (() => void) | undefined>;
  *  3. When NO match has a handler the chord falls through untouched — no
  *     `preventDefault` — so browser/pane behavior is preserved where a route
  *     has no context for an action (e.g. ⇧⌘H on the board route).
- *  4. `shouldSuppressChord` gates real text inputs (with the `.xterm` and
- *     `.rk-chat-input` carve-outs) unless the binding opts out via
+ *  4. `shouldSuppressChord` gates real text inputs (with the `.xterm`
+ *     carve-out) unless the binding opts out via
  *     `ignoreInputs` (⌘K, the overlay toggle). A suppressed match YIELDS to
  *     later matches (exactly like a handler-less one), so a shared-chord
  *     `ignoreInputs` binding still fires inside inputs instead of being

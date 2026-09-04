@@ -789,8 +789,7 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
    * entry switches to the pinned in-bar switch group with NO menu rows),
    * the chevron menu gains a Tiles section as its FIRST section (its label
    * sits above View's), holding one `menuitemcheckbox` row per shown
-   * surface named `<Label> tile` with `aria-checked` = tile open (chat
-   * excluded — SURFACE_RAIL_HIDDEN).
+   * surface named `<Label> tile` with `aria-checked` = tile open.
    *
    * Steps:
    * 1. Navigate to the web-capable window (offers `[tty|web|code]`).
@@ -850,8 +849,8 @@ test.describe("Top-bar overflow: the view-switcher is retired (260812-0c6o)", ()
     const viewBox = (await viewLabel.boundingBox())!;
     expect(tilesBox.y, "Tiles section precedes View").toBeLessThan(viewBox.y);
 
-    // One `menuitemcheckbox` row per shown surface (chat excluded —
-    // SURFACE_RAIL_HIDDEN), aria-checked = tile open. This window offers
+    // One `menuitemcheckbox` row per shown surface, aria-checked = tile open.
+    // This window offers
     // [tty|web|code] (a stamped web tab ⇒ web; the repo-cwd pane derives a gitRoot ⇒
     // code) and only the tty tile is open.
     const ttyRow = menu.getByRole("menuitemcheckbox", { name: "Terminal tile" });

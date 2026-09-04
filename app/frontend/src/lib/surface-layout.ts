@@ -17,18 +17,13 @@
  * pattern: pure and DOM-free except thin try/catch-noop localStorage
  * wrappers, so the render branch in `app.tsx` AND the unit tests share one
  * drift-free source. Availability reuses `window-view.ts`'s capability
- * helpers (`hasChat` / `hasCode`) as the single source — `tty` and `web` are
+ * helpers (`hasCode`) as the single source — `tty` and `web` are
  * the always-available surfaces (the muxed relay supports N clients per pane,
  * so duplicate tty tiles of one window are legal; web's empty-URL content is
  * the onboarding state, so the lens always exists).
  */
 
-import {
-  hasChat,
-  hasCode,
-  type ViewName,
-  type ViewWindow,
-} from "./window-view";
+import { hasCode, type ViewName, type ViewWindow } from "./window-view";
 
 /**
  * A tileable surface kind. Identical to the window-view lens registry
@@ -111,7 +106,6 @@ export function shapesForArity(arity: 1 | 2 | 3): LayoutShape[] {
 export const SURFACE_LABEL: Record<SurfaceKind, string> = {
   tty: "Terminal",
   web: "Web",
-  chat: "Chat",
   code: "Code",
 };
 
@@ -130,13 +124,12 @@ export const SHAPE_LABEL: Record<LayoutShape, string> = {
 
 /**
  * Surface icon glyphs (R10 — icons replace the rail's text labels; the
- * intake's approved set): `>_` tty, `://` web, `⌸` chat, `{}` code. Pure data
+ * intake's approved set): `>_` tty, `://` web, `{}` code. Pure data
  * shared by the surface toggles and the mobile switch group.
  */
 export const SURFACE_GLYPH: Record<SurfaceKind, string> = {
   tty: ">_",
   web: "://",
-  chat: "⌸",
   code: "{}",
 };
 
@@ -149,7 +142,7 @@ const COLLAPSE_SHAPE: Record<1 | 2, LayoutShape> = { 1: "single", 2: "split-h" }
  *  `split-h`, 2→3 is `main-left` (the incumbent slot-A tile stays dominant). */
 const GROWTH_SHAPE: Record<2 | 3, LayoutShape> = { 2: "split-h", 3: "main-left" };
 
-const SURFACE_KINDS: SurfaceKind[] = ["tty", "web", "chat", "code"];
+const SURFACE_KINDS: SurfaceKind[] = ["tty", "web", "code"];
 
 function isSurfaceKind(value: string): value is SurfaceKind {
   return (SURFACE_KINDS as string[]).includes(value);
@@ -195,32 +188,19 @@ export function serializeLayout(layout: Layout): string {
  * The surfaces a window can tile (R8 — the shared registry the rail, layout,
  * and switcher all key off). The order is the positional surface digits'
  * order — ⌘1 tty, ⌘2 code, ⌘3 web (`lib/keybindings.ts`) — so the toggle
- * group, switch group, and palette lists always render in shortcut order;
- * `chat` (rail-hidden, no digit) comes last. Availability reuses the
- * window-view helpers as the single source of truth; reachability is NOT part
- * of availability (it governs a surface's content, not its presence). `web`
- * is unconditional — the lens always exists; `hasWebUrl` selects its content
- * (onboarding vs live iframe), so the degradation ladder never drops a web
- * tile.
+ * group, switch group, and palette lists always render in shortcut order.
+ * Availability reuses the window-view helpers as the single source of truth;
+ * reachability is NOT part of availability (it governs a surface's content,
+ * not its presence). `web` is unconditional — the lens always exists;
+ * `hasWebUrl` selects its content (onboarding vs live iframe), so the
+ * degradation ladder never drops a web tile.
  */
 export function availableTiles(win: ViewWindow | null | undefined): SurfaceKind[] {
   const tiles: SurfaceKind[] = ["tty"];
   if (hasCode(win)) tiles.push("code");
   tiles.push("web");
-  if (hasChat(win)) tiles.push("chat");
   return tiles;
 }
-
-/**
- * Surfaces demoted OUT of the top-bar toggle/switch group
- * (260812-0c6o): the chat lens is a half-built feature, so it is palette-only
- * (`Tile: Show Chat` / `View: Chat`) — the group filters by this flag AT
- * RENDER, never at availability: `availableTiles` deliberately stays unchanged
- * so the palette entries keep working, and an already-open chat tile still
- * renders and closes normally (the flag hides the toggle, never the tile).
- * Un-hide path when chat ships: delete the entry from the set.
- */
-export const SURFACE_RAIL_HIDDEN: ReadonlySet<SurfaceKind> = new Set(["chat"]);
 
 /**
  * Degrade a parsed layout against the window's current capabilities (R4):

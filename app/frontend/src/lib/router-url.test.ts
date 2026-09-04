@@ -38,11 +38,16 @@ describe("window id ↔ URL segment mapping", () => {
 });
 
 // The `?view=` param carries the per-viewer window-view lens (spec R2). `web`
-// and `chat` are valid; any other/unknown value is DROPPED (treated as absent),
+// and `code` are valid; any other/unknown value is DROPPED (treated as absent),
 // never errored, so a stale/garbage deep link degrades to the default view.
 describe("validateTerminalSearch (?view= drop)", () => {
-  it.each(["web", "chat", "code"] as const)("accepts view=%s", (view) => {
+  it.each(["web", "code"] as const)("accepts view=%s", (view) => {
     expect(validateTerminalSearch({ view })).toEqual({ view });
+  });
+
+  it("drops the removed chat lens (?view=chat → view undefined, bare-route cleanup)", () => {
+    expect(() => validateTerminalSearch({ view: "chat" })).not.toThrow();
+    expect(validateTerminalSearch({ view: "chat" })).toEqual({});
   });
 
   it("drops an unknown value without throwing (?view=bogus → view undefined)", () => {

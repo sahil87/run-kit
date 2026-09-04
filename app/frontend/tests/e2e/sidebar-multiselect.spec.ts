@@ -390,13 +390,13 @@ test.describe("Sidebar window-row multi-select", () => {
   /**
    * Proves: the prompt action opens and focuses the existing compose strip on
    * a frozen two-recipient target. A later live-selection change cannot
-   * retarget it; Send reuses the existing chat-send endpoint once per
-   * original key, strictly sequentially with default submit=true, then
+   * retarget it; Send reuses the window-send endpoint (submit mode) once per
+   * original key, strictly sequentially, then
    * reports aggregate success and reconciles the owned keys.
    *
    * Steps:
    * 1. openTree; resolve source `gamma` and target-session `keep`; route
-   *    chat-send requests to a recorder that tracks concurrent handlers and
+   *    window-send requests to a recorder that tracks concurrent handlers and
    *    returns {ok:true}.
    * 2. Modifier-click both rows and choose `Selection: Send prompt to 2
    *    agents`.
@@ -407,8 +407,8 @@ test.describe("Sidebar window-row multi-select", () => {
    * 5. Fill `run tests and report` and click Send.
    * 6. Assert `Sent prompt to 2 agents`, maximum request concurrency of one,
    *    and two ordered POSTs carrying each original window id, the tmux
-   *    server query, and exactly {text:"run tests and report"} (no explicit
-   *    submit field).
+   *    server query, and exactly {text:"run tests and report",mode:"submit",
+   *    target:"agent"} (agent-pane targeting).
    * 7. Assert the selection indicator is gone after settlement.
    */
   test("palette prompt broadcast targets a frozen selection sequentially", async ({
@@ -427,7 +427,7 @@ test.describe("Sidebar window-row multi-select", () => {
     }> = [];
     let inFlight = 0;
     let maxInFlight = 0;
-    await page.route(/\/api\/windows\/[^/]+\/chat\/send\?server=/, async (route) => {
+    await page.route(/\/api\/windows\/[^/]+\/send\?server=/, async (route) => {
       inFlight++;
       maxInFlight = Math.max(maxInFlight, inFlight);
       const request = route.request();
@@ -488,12 +488,12 @@ test.describe("Sidebar window-row multi-select", () => {
       {
         server: TMUX_SERVER,
         windowId: gamma,
-        body: { text: "run tests and report" },
+        body: { text: "run tests and report", mode: "submit", target: "agent" },
       },
       {
         server: TMUX_SERVER,
         windowId: keep,
-        body: { text: "run tests and report" },
+        body: { text: "run tests and report", mode: "submit", target: "agent" },
       },
     ]);
     await expect(page.getByTestId("selection-indicator")).toHaveCount(0);

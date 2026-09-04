@@ -43,39 +43,39 @@ describe("buildViewActions (View: palette parity)", () => {
   });
 
   it("carries NO shortcut hint on any entry — no chord reaches a lens switch", () => {
-    const actions = buildViewActions(["chat", "web", "code", "tty"], "tty", () => {});
-    expect(actions.map((a) => a.id)).toEqual(["view-chat", "view-web", "view-code"]);
+    const actions = buildViewActions(["web", "code", "tty"], "tty", () => {});
+    expect(actions.map((a) => a.id)).toEqual(["view-web", "view-code"]);
     for (const a of actions) expect(a.shortcut).toBe("");
   });
 
-  describe("chat lens", () => {
-    it("offers View: Chat (palette-only by design — chat has no chord and no tile toggle)", () => {
-      const actions = buildViewActions(["chat", "tty"], "tty", () => {});
-      const chat = actions.find((a) => a.id === "view-chat");
-      expect(chat).toBeTruthy();
-      expect(chat!.label).toBe("View: Chat");
-      expect(chat!.shortcut).toBe("");
+  describe("code lens", () => {
+    it("offers View: Code when the window is code-capable", () => {
+      const actions = buildViewActions(["code", "tty"], "tty", () => {});
+      const code = actions.find((a) => a.id === "view-code");
+      expect(code).toBeTruthy();
+      expect(code!.label).toBe("View: Code");
+      expect(code!.shortcut).toBe("");
     });
 
-    it("offers View: Terminal when leaving chat", () => {
-      const actions = buildViewActions(["chat", "tty"], "chat", () => {});
+    it("offers View: Terminal when leaving code", () => {
+      const actions = buildViewActions(["code", "tty"], "code", () => {});
       const tty = actions.find((a) => a.id === "view-tty");
       expect(tty).toBeTruthy();
       expect(tty!.label).toBe("View: Terminal");
     });
 
-    it("offers Chat AND Web on a stacked window (all three lenses)", () => {
-      const actions = buildViewActions(["chat", "web", "tty"], "tty", () => {});
-      expect(actions.map((a) => a.id)).toEqual(["view-chat", "view-web"]);
+    it("offers Code AND Web on a stacked window (all three lenses)", () => {
+      const actions = buildViewActions(["code", "web", "tty"], "tty", () => {});
+      expect(actions.map((a) => a.id)).toEqual(["view-code", "view-web"]);
     });
 
-    it("onSelect switches to chat", () => {
+    it("onSelect switches to code", () => {
       const onSwitch = vi.fn();
-      const chat = buildViewActions(["chat", "tty"], "tty", onSwitch).find(
-        (a) => a.id === "view-chat",
+      const code = buildViewActions(["code", "tty"], "tty", onSwitch).find(
+        (a) => a.id === "view-code",
       )!;
-      chat.onSelect();
-      expect(onSwitch).toHaveBeenCalledWith("chat");
+      code.onSelect();
+      expect(onSwitch).toHaveBeenCalledWith("code");
     });
   });
 });

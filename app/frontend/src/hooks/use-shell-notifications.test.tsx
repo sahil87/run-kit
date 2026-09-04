@@ -63,7 +63,7 @@ afterEach(() => {
 });
 
 describe("useShellNotifications", () => {
-  it("parses a chat deep link into the route pathname and search", async () => {
+  it("navigates a push deep link (incl. a stale ?view=chat) to the window route", async () => {
     const router = createRouter({
       routeTree,
       history: createMemoryHistory({ initialEntries: ["/"] }),
@@ -73,9 +73,10 @@ describe("useShellNotifications", () => {
 
     const handler = notifyHandler;
     if (!handler) throw new Error("notify handler was not registered");
+    // A stale chat deep link still lands on the window route; the route's
+    // search validation drops the removed `view` value (router-url.test.ts).
     act(() => handler("/utils2/5?view=chat"));
 
     await waitFor(() => expect(router.state.location.pathname).toBe("/utils2/5"));
-    expect(router.state.location.search).toMatchObject({ view: "chat" });
   });
 });

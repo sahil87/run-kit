@@ -110,10 +110,7 @@ const (
 	// window immediately), and the safety timers and sseCacheTTL are independent
 	// of it — it sits only between "bump observed" and "cache invalidated".
 	sseEventDebounce = 300 * time.Millisecond
-	// The SSE-only sseHeartbeatPeriod / maxLifetime constants were retired in
-	// 260717-vhvz-chat-on-state-socket along with their sole remaining consumer,
-	// the chat SSE stream (GET /api/windows/{id}/chat/stream), which moved onto
-	// the state socket as a `kind:"chat"` subscription. Both /ws/state and
+	// There are no SSE heartbeat/lifetime constants: both /ws/state and
 	// /ws/terminals handle keepalive + liveness at the WebSocket layer.
 )
 
@@ -183,14 +180,8 @@ type stateConn struct {
 	// subs maps a subscribed server key (a real server name or the
 	// metricsOnlyServer sentinel) to its routing record in h.clients. Guarded by
 	// sseHub.mu.
-	subs map[string]*sseClient
-	// chatProducers maps a chat subscription id (chatSubKey — server\x00windowID)
-	// to its live producer. A chat subscription is NOT an h.clients routing record
-	// (chat has no tmux-event source, so it must never enter the poll set — R3);
-	// it is a dedicated producer goroutine + cancel. Guarded by sseHub.mu.
-	// Lazily created on the first chat subscribe.
-	chatProducers map[string]*chatProducer
-	dropped       bool
+	subs    map[string]*sseClient
+	dropped bool
 }
 
 // maxConnIDLen bounds the client-supplied `conn` query param. A legitimate id
@@ -355,23 +346,7 @@ type sseHub struct {
 	// capturePreviewForWindow (tmux exec); tests override it to exercise the
 	// preview-broadcast path without a live tmux server.
 	captureFn captureFunc
-
-	// chatResolver resolves a window's reconciled @rk_chat rollup for a chat
-	// subscription's producer (260717-vhvz). Injected here (not a *Server
-	// back-pointer) so the hub stays decoupled from the HTTP layer — mirroring the
-	// captureFn / fetcher injection idiom — and so the producer is unit-testable
-	// with a stub. Defaults in newSSEHub to a resolver built from h.fetcher +
-	// sessions.ResolveChatPane (the same active-pane-first / else-first-pane rule
-	// resolveWindowChat uses). ok=false with a nil error means the window is absent
-	// or carries no reconciled chat (a subscribe-time error frame); a non-nil error
-	// is a FetchSessions fault (likewise surfaced as an error frame — the GET
-	// backfill remains where those show as HTTP statuses).
-	chatResolver chatResolveFunc
 }
-
-// chatResolveFunc resolves a window's reconciled chat rollup (provider, ref) for
-// a tmux server. See sseHub.chatResolver.
-type chatResolveFunc func(ctx context.Context, server, windowID string) (provider, ref string, ok bool, err error)
 
 // safetyIntervalEffective returns the safety-net interval for a poll cycle
 // covering the given servers. The long 12s interval is correct ONLY when every
@@ -456,28 +431,6 @@ func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector, svc *ports.Collect
 		_, err := push.Notify(ctx, title, body, url)
 		return err
 	})
-	// Default chat resolver: fetch the server's sessions and roll up the window's
-	// reconciled @rk_chat via the shared active-pane-first rule (identical to
-	// resolveWindowChat, minus the paneID the chat read path does not need).
-	h.chatResolver = func(ctx context.Context, server, windowID string) (string, string, bool, error) {
-		sess, err := h.fetcher.FetchSessions(ctx, server)
-		if err != nil {
-			return "", "", false, err
-		}
-		for si := range sess {
-			for wi := range sess[si].Windows {
-				w := &sess[si].Windows[wi]
-				if w.WindowID == windowID {
-					provider, ref, _ := sessions.ResolveChatPane(w.Panes)
-					if provider == "" {
-						return "", "", false, nil
-					}
-					return provider, ref, true, nil
-				}
-			}
-		}
-		return "", "", false, nil
-	}
 	return h
 }
 
@@ -692,10 +645,8 @@ func (h *sseHub) sendConnLocked(sc *stateConn, ev hubEvent) {
 }
 
 // sendConnLockedOK is sendConnLocked returning whether the event was enqueued
-// (false ⇒ the connection's channel was full and the event was DROPPED). Chat
-// uses the return so a dropped incremental frame can be recovered with a one-shot
-// `chat-reset` (a dropped `chat`/`chat-state` is a permanently missing message
-// otherwise). Caller MUST hold h.mu (write).
+// (false ⇒ the connection's channel was full and the event was DROPPED).
+// Caller MUST hold h.mu (write).
 func (h *sseHub) sendConnLockedOK(sc *stateConn, ev hubEvent) bool {
 	select {
 	case sc.ch <- ev:
@@ -730,13 +681,6 @@ func (h *sseHub) stateSubscribe(sc *stateConn, msg clientMsg) {
 		key = msg.Key
 	case kindMetrics:
 		key = metricsOnlyServer
-	case kindChat:
-		// Chat is a per-window subscription with a dedicated producer goroutine —
-		// it does NOT enter the poll set / h.clients (transcript appends generate
-		// no tmux events). Delegate to its own subscribe path (validates key +
-		// server, resolves the chat, acks with the tail offset — no snapshot).
-		h.startChatSubscribe(sc, msg)
-		return
 	default:
 		h.emitError(sc, msg.Req, "unknown subscribe kind: "+msg.Kind)
 		return
@@ -819,10 +763,6 @@ func (h *sseHub) stateUnsubscribe(sc *stateConn, msg clientMsg) {
 		key = msg.Key
 	case kindMetrics:
 		key = metricsOnlyServer
-	case kindChat:
-		// Chat unsubscribe cancels its producer goroutine (validates key + server).
-		h.stopChatSubscribe(sc, msg)
-		return
 	default:
 		h.emitError(sc, msg.Req, "unknown unsubscribe kind: "+msg.Kind)
 		return
@@ -835,22 +775,16 @@ func (h *sseHub) stateUnsubscribe(sc *stateConn, msg clientMsg) {
 }
 
 // dropStateConn tears down a whole state-socket connection: unregister every
-// per-server subscription record, cancel every chat producer, and remove the
-// connection from the global fan-out set. Chat producers are cancelled AFTER the
-// lock is released — cancel() is cheap but must not run under h.mu (a producer's
-// emit takes h.mu), and a producer that observes ctx.Done() exits on its own.
+// per-server subscription record and remove the connection from the global
+// fan-out set.
 func (h *sseHub) dropStateConn(sc *stateConn) {
 	h.mu.Lock()
 	for _, rec := range sc.subs {
 		h.removeClientLocked(rec)
 	}
 	sc.subs = map[string]*sseClient{}
-	producers := dropChatProducersLocked(sc)
 	delete(h.stateConns, sc)
 	h.mu.Unlock()
-	for _, p := range producers {
-		p.cancel()
-	}
 }
 
 // broadcastSessionOrder pushes a session-order event to every client connected

@@ -1452,13 +1452,6 @@ describe("shouldSuppressChord (shared input gating)", () => {
     expect(shouldSuppressChord(helper)).toBe(false);
   });
 
-  it("does NOT suppress in the chat-send input (.rk-chat-input carve-out)", () => {
-    const chatInput = document.createElement("textarea");
-    chatInput.className = "rk-chat-input";
-    document.body.appendChild(chatInput);
-    expect(shouldSuppressChord(chatInput)).toBe(false);
-  });
-
   it("does NOT suppress on a plain non-input element", () => {
     const div = document.createElement("div");
     document.body.appendChild(div);

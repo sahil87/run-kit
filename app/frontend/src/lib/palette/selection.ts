@@ -93,7 +93,7 @@ export function buildSelectionCloseAction(
  * Build the selection-broadcast action. Its callback receives a snapshot of
  * the selected composite keys so the compose target's count and eventual
  * recipients cannot drift while the user types. Cross-server selections are
- * valid because chat-send, like close, carries a per-request server.
+ * valid because window-send, like close, carries a per-request server.
  */
 export function buildSelectionSendPromptAction(
   selectedKeys: ReadonlySet<string>,

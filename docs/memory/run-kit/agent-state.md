@@ -541,11 +541,11 @@ proof.
 
 A **second** pane user option, written by the **same** `rk agent hook` binary on
 the same hook fires, ties a pane to the **live** agent chat session running in
-it. It is the keystone of the HTML-agent-chat-view stack (chat as a **view over
-the pane** — the pane stays the agent's parent process, Constitution VI): the
-chat-read backend has no key to read a transcript by, and a frontend toggle
-nothing to gate on, without it. The scope here is backend + hooks + spec — there
-is no frontend and no read/stream endpoint. The
+it. It keys every chat-identity consumer: the operator-request seam's
+`TranscriptPath` fact derivation, fork/resume's session-ref resolution,
+auto-name dispatch, the agent-pane rollup (`sessions.ResolveChatPane`) behind
+`/send`'s `target:"agent"` mode, and the operator feature gates. The scope here
+is backend + hooks + spec. The
 cross-repo contract is in [`docs/specs/agent-state.md`](../../specs/agent-state.md)
 § Chat Session Identity; this section records what run-kit actually implemented.
 (260713-nh86)

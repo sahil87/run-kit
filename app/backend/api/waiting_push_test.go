@@ -194,35 +194,33 @@ func TestWaitingPush_MultipleWindowsIndependent(t *testing.T) {
 }
 
 // TestWaitingPushURL: the deep-link URL strips the tmux `@` from the window id
-// (mirroring the frontend's `windowIdToUrlSegment`), appends `?view=chat` for a
-// chat-capable window, and stays a plain window URL otherwise. Server and
-// segment are path-escaped (260714-r7rq).
+// (mirroring the frontend's `windowIdToUrlSegment`) and is always the plain
+// window URL. Server and segment are path-escaped.
 func TestWaitingPushURL(t *testing.T) {
 	cases := []struct {
 		server, windowID string
-		hasChat          bool
 		want             string
 	}{
-		{"default", "@1", true, "/default/1?view=chat"},
-		{"default", "@1", false, "/default/1"},
-		{"default", "@12", true, "/default/12?view=chat"},
+		{"default", "@1", "/default/1"},
+		{"default", "@12", "/default/12"},
 		// A server name with a reserved character is path-escaped.
-		{"my server", "@3", false, "/my%20server/3"},
+		{"my server", "@3", "/my%20server/3"},
 	}
 	for _, c := range cases {
-		if got := waitingPushURL(c.server, c.windowID, c.hasChat); got != c.want {
-			t.Errorf("waitingPushURL(%q,%q,%v) = %q, want %q", c.server, c.windowID, c.hasChat, got, c.want)
+		if got := waitingPushURL(c.server, c.windowID); got != c.want {
+			t.Errorf("waitingPushURL(%q,%q) = %q, want %q", c.server, c.windowID, got, c.want)
 		}
 	}
 }
 
-// TestWaitingPush_CarriesChatDeepLink: a sustained-waiting CHAT window's push
-// carries the `?view=chat` deep link; a non-chat window carries the plain URL.
-func TestWaitingPush_CarriesChatDeepLink(t *testing.T) {
+// TestWaitingPush_PlainWindowURL: a sustained-waiting window's push carries the
+// plain window URL whether or not the window is chat-capable.
+func TestWaitingPush_PlainWindowURL(t *testing.T) {
 	tr, clock := newTestWaitingTracker(15 * time.Second)
-	chatWin := pushWindow{server: "s", windowID: "@1", name: "chatty", waiting: true, hasChat: true}
-	plainWin := pushWindow{server: "s", windowID: "@2", name: "plain", waiting: true, hasChat: false}
-	wins := []pushWindow{chatWin, plainWin}
+	wins := []pushWindow{
+		{server: "s", windowID: "@1", name: "chatty", waiting: true},
+		{server: "s", windowID: "@2", name: "plain", waiting: true},
+	}
 	tr.decide(wins)
 	*clock = clock.Add(16 * time.Second)
 	got := tr.decide(wins)
@@ -233,8 +231,8 @@ func TestWaitingPush_CarriesChatDeepLink(t *testing.T) {
 	for _, p := range got {
 		byTitle[p.title] = p
 	}
-	if byTitle["chatty"].url != "/s/1?view=chat" {
-		t.Errorf("chat window url = %q, want /s/1?view=chat", byTitle["chatty"].url)
+	if byTitle["chatty"].url != "/s/1" {
+		t.Errorf("chat window url = %q, want /s/1", byTitle["chatty"].url)
 	}
 	if byTitle["plain"].url != "/s/2" {
 		t.Errorf("plain window url = %q, want /s/2", byTitle["plain"].url)
@@ -277,7 +275,7 @@ func TestWaitingPushBroadcastsNotifyEvent(t *testing.T) {
 		if err := json.Unmarshal(envelope.Data, &payload); err != nil {
 			t.Fatalf("decode notify payload: %v", err)
 		}
-		if payload.Title != "agent-win" || payload.Body != "waiting for input" || payload.URL != "/utils2/5?view=chat" {
+		if payload.Title != "agent-win" || payload.Body != "waiting for input" || payload.URL != "/utils2/5" {
 			t.Errorf("notify payload = %+v", payload)
 		}
 	case <-time.After(2 * time.Second):

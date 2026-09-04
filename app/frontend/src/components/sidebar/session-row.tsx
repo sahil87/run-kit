@@ -67,8 +67,8 @@ type SessionRowProps = {
    *  `onColorChange`): omitted ⇒ the picker renders no flair section. */
   onFlairChange?: (server: string, name: string, flair: string | null) => void;
   /** Optional waiting-badge click (260714-r7rq): navigate to the next waiting
-   *  window in this session (chat-aware — appends `?view=chat` when that window
-   *  has a chat). Absent ⇒ the badge stays display-only. */
+   *  window in this session (the target renders its own stored layout).
+   *  Absent ⇒ the badge stays display-only. */
   onWaitingBadgeClick?: (server: string, session: string) => void;
   /** Open the spawn-agent dialog targeting THIS row's session. Optional (mirrors
    *  `onColorChange`): the card's Spawn agent… row renders only when supplied —

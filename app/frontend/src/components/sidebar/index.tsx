@@ -190,7 +190,7 @@ export type SidebarProps = {
   onCreateServer: () => void;
   onKillServer: (name: string) => void;
   /** Optional waiting-badge click (260714-r7rq): navigate to the next waiting
-   *  window in a session (chat-aware — `?view=chat` when it has a chat). Passed
+   *  window in a session (the target renders its own stored layout). Passed
    *  to each `SessionRow`; absent ⇒ badges stay display-only. */
   onWaitingBadgeClick?: (server: string, session: string) => void;
   /** Forwarded to `ServerPanel` → `CollapsiblePanel` as the corner pointerdown

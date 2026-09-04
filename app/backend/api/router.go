@@ -126,11 +126,12 @@ type TmuxOps interface {
 	PinBoard(ctx context.Context, server, windowID, board string) error
 	UnpinBoard(ctx context.Context, server, windowID, board string) error
 	ReorderBoard(ctx context.Context, server, windowID, board, before, after string) (string, error)
-	// Chat-send injection primitives (260714-jdyg-chat-send). Pane-targeted, in
-	// contrast to the window-targeted SendKeys used by POST /keys. CapturePane is
-	// surfaced here for capture-based probes. Each takes the caller's context so
-	// the handler threads one shared deadline across paste, submit verification,
-	// and recovery rather than granting each subprocess its own timeout.
+	// Pane-injection primitives backing the shared inject engine (see send.go).
+	// Pane-targeted, in contrast to the window-targeted SendKeys used by POST
+	// /keys. CapturePane is surfaced here for capture-based probes. Each takes
+	// the caller's context so the handler threads one shared deadline across
+	// paste, submit verification, and recovery rather than granting each
+	// subprocess its own timeout.
 	SetChatSendBuffer(ctx context.Context, text, server string) error
 	PasteChatSendBuffer(ctx context.Context, paneID, server string) error
 	PasteChatSendBufferRaw(ctx context.Context, paneID, server string) error
@@ -824,10 +825,9 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/windows/{windowId}/select", s.handleWindowSelect)
 	r.Post("/api/windows/{windowId}/split", s.handleWindowSplit)
 	r.Post("/api/windows/{windowId}/close-pane", s.handleClosePaneKill)
-	r.Get("/api/windows/{windowId}/chat", s.handleChatBackfill)
-	r.Post("/api/windows/{windowId}/chat/send", s.handleChatSend)
 	// Operator actuation seam — templated work items delivered to the server's
-	// operator window via the chat-send machinery. See api/operator.go.
+	// operator window via the shared injection engine (see api/send.go and
+	// api/operator.go).
 	r.Post("/api/windows/{windowId}/operator-request", s.handleOperatorRequest)
 	// Server-scoped half of the seam — templates with no subject window. See
 	// api/operator.go.

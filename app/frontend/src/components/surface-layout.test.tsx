@@ -13,7 +13,7 @@ import { entryKey, useWindowStore } from "@/store/window-store";
 stubMatchMedia(() => false);
 
 // Heavy children are mocked (the RightPanel/app-test precedent): TerminalClient
-// opens websockets and pulls in xterm's import-time addon init; the iframe/chat
+// opens websockets and pulls in xterm's import-time addon init; the iframe
 // renderers are asserted by testid instead. `terminalSpy` records each mount's
 // props so the duplicate-tty ref/focus rules are assertable; `codeSpy` does the
 // same for the code tile's focus-seam prop (`onInteract`, 260812-wfic R2).
@@ -37,9 +37,6 @@ vi.mock("@/components/iframe-window", () => ({
     iframeSpy(props);
     return <div data-testid="mock-iframe" />;
   },
-}));
-vi.mock("@/components/chat-view", () => ({
-  ChatView: () => <div data-testid="mock-chat" />,
 }));
 
 // The web-tab strip verbs POST through the client; the optimistic-override
@@ -71,7 +68,6 @@ beforeEach(() => {
 const FULL_WINDOW = {
   webTabs: ["http://localhost:8080"],
   webActive: 1,
-  chatProvider: "claude",
   gitRoot: "/repo",
 };
 
@@ -128,14 +124,6 @@ function layoutElement(overrides: LayoutOverrides = {}) {
       focusRef={{ current: null }}
       scrollLocked={false}
       onSessionNotFound={vi.fn()}
-      chat={{
-        events: [],
-        pending: null,
-        connected: true,
-        error: null,
-        onSend: vi.fn(),
-        busy: false,
-      }}
       codeReachable
       onPromote={overrides.onPromote ?? vi.fn()}
       onSwap={overrides.onSwap ?? vi.fn()}
@@ -217,11 +205,6 @@ describe("SurfaceLayout shape rendering", () => {
       expect(screen.getByTestId("surface-divider-1")).toBeTruthy();
       expect(screen.queryByTestId("surface-divider-2")).toBeNull();
     }
-  });
-
-  it("mounts a chat tile via ChatView", () => {
-    renderLayout({ layout: { shape: "split-h", order: ["tty", "chat"] } });
-    expect(screen.getByTestId("mock-chat")).toBeTruthy();
   });
 
   it("renders tile meta: git-root basename for code, web-url host for web", () => {
@@ -346,8 +329,8 @@ describe("SurfaceLayout pane segment (260813-w1lf content verbs)", () => {
     expect(screen.queryByRole("button", { name: "Close Terminal" })).toBeNull();
   });
 
-  it("renders only on tty tiles — code/web/chat headers carry no segment", () => {
-    renderLayout({ layout: { shape: "row", order: ["code", "web", "chat"] } });
+  it("renders only on tty tiles — code/web headers carry no segment", () => {
+    renderLayout({ layout: { shape: "split-h", order: ["code", "web"] } });
     expect(screen.queryByTestId("pane-segment")).toBeNull();
     cleanup();
     renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
@@ -581,7 +564,7 @@ describe("SurfaceLayout focused tile (260812-wfic R2)", () => {
     expect(screen.getByTestId("surface-tile-code").className).toContain("border-accent-green");
     expect(onFocusedKindChange).toHaveBeenLastCalledWith("code");
     // A kind that is not open is a no-op.
-    act(() => focusTileRef.current?.("chat"));
+    act(() => focusTileRef.current?.("web"));
     expect(screen.getByTestId("surface-tile-code").className).toContain("border-accent-green");
   });
 });
@@ -684,14 +667,6 @@ describe("SurfaceLayout duplicate tty tiles", () => {
         focusRef={focusRef}
         scrollLocked={false}
         onSessionNotFound={vi.fn()}
-        chat={{
-          events: [],
-          pending: null,
-          connected: true,
-          error: null,
-          onSend: vi.fn(),
-          busy: false,
-        }}
         codeReachable
         onPromote={vi.fn()}
         onSwap={vi.fn()}
@@ -786,14 +761,6 @@ describe("SurfaceLayout hide-never-unmount (P3)", () => {
         focusRef={{ current: null }}
         scrollLocked={false}
         onSessionNotFound={vi.fn()}
-        chat={{
-          events: [],
-          pending: null,
-          connected: true,
-          error: null,
-          onSend: vi.fn(),
-          busy: false,
-        }}
         codeReachable
         onPromote={vi.fn()}
         onSwap={vi.fn()}
@@ -816,14 +783,6 @@ describe("SurfaceLayout hide-never-unmount (P3)", () => {
         focusRef={{ current: null }}
         scrollLocked={false}
         onSessionNotFound={vi.fn()}
-        chat={{
-          events: [],
-          pending: null,
-          connected: true,
-          error: null,
-          onSend: vi.fn(),
-          busy: false,
-        }}
         codeReachable
         onPromote={vi.fn()}
         onSwap={vi.fn()}

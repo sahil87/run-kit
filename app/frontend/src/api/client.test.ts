@@ -14,7 +14,6 @@ import {
   createWindow,
   killWindow,
   renameWindow,
-  sendChatMessage,
   sendToWindow,
   sendOperatorRequest,
   sendServerOperatorRequest,
@@ -269,42 +268,6 @@ describe("API client", () => {
     expect(capturedBody.name).toBe("renamed");
   });
 
-  it("sendChatMessage POSTs /api/windows/:windowId/chat/send with {text} and server query", async () => {
-    let capturedUrl = "";
-    let capturedMethod = "";
-    let capturedBody: { text?: string } = {};
-    mswServer.use(
-      http.post("/api/windows/:windowId/chat/send", async ({ request }) => {
-        capturedUrl = request.url;
-        capturedMethod = request.method;
-        capturedBody = (await request.json()) as { text?: string };
-        return HttpResponse.json({ ok: true });
-      }),
-    );
-    const result = await sendChatMessage("runkit", "@0", "hello agent");
-    expect(result.ok).toBe(true);
-    expect(capturedMethod).toBe("POST");
-    expect(capturedUrl).toMatch(/\/api\/windows\/%400\/chat\/send\?server=runkit$/);
-    expect(capturedBody.text).toBe("hello agent");
-    // Default submit ⇒ the body carries NO `submit` key — the additive wire
-    // contract keeps the default shape exactly `{ text }` (260719-mxvw).
-    expect("submit" in capturedBody).toBe(false);
-  });
-
-  it("sendChatMessage serializes submit:false into the body (insert-without-submit)", async () => {
-    let capturedBody: { text?: string; submit?: boolean } = {};
-    mswServer.use(
-      http.post("/api/windows/:windowId/chat/send", async ({ request }) => {
-        capturedBody = (await request.json()) as { text?: string; submit?: boolean };
-        return HttpResponse.json({ ok: true });
-      }),
-    );
-    const result = await sendChatMessage("runkit", "@0", "stage me", false);
-    expect(result.ok).toBe(true);
-    expect(capturedBody).toEqual({ text: "stage me", submit: false });
-  });
-
-
   it("sendToWindow POSTs /api/windows/:windowId/send with intent and server query", async () => {
     let capturedUrl = "";
     let capturedMethod = "";
@@ -323,6 +286,22 @@ describe("API client", () => {
     expect(capturedMethod).toBe("POST");
     expect(capturedUrl).toMatch(/\/api\/windows\/%400\/send\?server=runkit$/);
     expect(capturedBody).toEqual({ text: "one\ntwo", mode: "submit" });
+  });
+
+  it("sendToWindow serializes target:\"agent\" only when set (the selection broadcast)", async () => {
+    const capturedBodies: unknown[] = [];
+    mswServer.use(
+      http.post("/api/windows/:windowId/send", async ({ request }) => {
+        capturedBodies.push(await request.json());
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    await sendToWindow("runkit", "@0", "hello", "submit", "agent");
+    await sendToWindow("runkit", "@0", "hello", "submit");
+    expect(capturedBodies).toEqual([
+      { text: "hello", mode: "submit", target: "agent" },
+      { text: "hello", mode: "submit" },
+    ]);
   });
 
   it("sendToWindow carries raw and enter modes without changing their text", async () => {

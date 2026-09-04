@@ -5,7 +5,6 @@ import { TerminalClient } from "@/components/terminal-client";
 import { FindBar } from "@/components/find-bar";
 import { CodeSurface } from "@/components/code-surface";
 import { IframeWindow } from "@/components/iframe-window";
-import { ChatView } from "@/components/chat-view";
 import { StatusDot } from "@/components/status-dot";
 import { DEFAULT_DARK_THEME, type ThemePalette } from "@/themes";
 import {
@@ -56,7 +55,6 @@ import {
   type TtyProgress,
 } from "@/lib/tty-progress";
 import { classifyAddress, displayForm, proxyPortOf, toWebAddTarget } from "@/lib/web-url";
-import type { ChatEvent, ChatPending } from "@/lib/chat-stream";
 import type { WindowInfo } from "@/types";
 import type { Terminal } from "@xterm/xterm";
 import type { SerializeAddon } from "@xterm/addon-serialize";
@@ -94,8 +92,7 @@ import {
  * § Shape presets, § Verbs). Replaces the legacy exclusive-lens render branch
  * AND the right-panel surface slot: the resolved `(shape, order)` layout
  * renders as 1–3 TILES, each mounting an EXISTING renderer unchanged —
- * `TerminalClient` (tty), `IframeWindow` (web), `ChatView` (chat),
- * `CodeSurface` (code).
+ * `TerminalClient` (tty), `IframeWindow` (web), `CodeSurface` (code).
  *
  * - **Tile chrome (R7, redesigned in 260812-wfic; gap-seam 260814-011r)**: the
  *   desktop grid floats tiles as cards — 6px gutters (`gap-[6px]`), each tile
@@ -140,7 +137,7 @@ import {
  *   key); the toggle renders only when arity > 1.
  * - **Hide-never-unmount (P3)**: a surface opened earlier this route visit
  *   stays mounted (`hidden` class) when closed or zoomed away, so iframe /
- *   terminal / chat state survives. The "ever opened" bookkeeping is keyed by
+ *   terminal state survives. The "ever opened" bookkeeping is keyed by
  *   surface kind and resets per window — `app.tsx` keys this component by
  *   `${server}:${windowId}` (the RightPanel precedent).
  * - **Dividers (R5; gap-seam sash 260814-011r)**: drag mutates RATIOS only
@@ -173,18 +170,6 @@ import {
  *  `lib/surface-layout.ts` (`SURFACE_LABEL` — shared with the surface
  *  toggles, palette, and mobile switch group so none drift). */
 
-/** Everything a chat tile needs — the AppShell-owned `kind:"chat"`
- *  subscription (`chatStream`) plus the send wrapper, bundled so the tile
- *  mount reads like the legacy lens branch. */
-export interface ChatTileStream {
-  events: ChatEvent[];
-  pending: ChatPending | null;
-  connected: boolean;
-  error: string | null;
-  onSend: (text: string, submit: boolean) => Promise<void>;
-  busy: boolean;
-}
-
 interface SurfaceLayoutProps {
   /** The RESOLVED layout (app.tsx ran the ladder + degradation). */
   layout: Layout;
@@ -208,7 +193,6 @@ interface SurfaceLayoutProps {
   focusRef: React.MutableRefObject<(() => void) | null>;
   scrollLocked: boolean;
   onSessionNotFound: () => void;
-  chat: ChatTileStream;
   /** Host code-server reachability — selects the code tile's CONTENT (live
    *  iframe vs not-running empty state), never availability. */
   codeReachable: boolean;
@@ -546,7 +530,6 @@ export function SurfaceLayout({
   focusRef,
   scrollLocked,
   onSessionNotFound,
-  chat,
   codeReachable,
   onCodeFolderNavigated,
   shouldReclaimChord,
@@ -1452,17 +1435,6 @@ export function SurfaceLayout({
           />
         ) : null;
       }
-      case "chat":
-        return (
-          <ChatView
-            events={chat.events}
-            pending={chat.pending}
-            connected={chat.connected}
-            error={chat.error}
-            onSend={chat.onSend}
-            busy={chat.busy}
-          />
-        );
     }
   };
 

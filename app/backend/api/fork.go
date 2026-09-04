@@ -76,16 +76,16 @@ type forkSource struct {
 // and the window's cwd.
 //
 // A non-nil error means FetchSessions itself failed (an infrastructure fault the
-// caller maps to 500, mirroring resolveWindowChat / handleSessionsList). ok=false
+// caller maps to 500, mirroring handleSessionsList). ok=false
 // with a nil error means the fetch succeeded but no window carries that id (a
 // genuine 404). The two are distinct so a transient tmux fault is never
 // misreported as "no such window".
 //
-// This deliberately does NOT compose resolveWindowChat + deriveRepoRoot: the fork
-// is window-keyed and needs the ENCLOSING SESSION NAME (which resolveWindowChat
-// discards) plus the cwd of the REQUESTED window (which deriveRepoRoot, being
-// session-keyed, would take from the session's ACTIVE window instead — the wrong
-// pane when forking a background window). One walk yields all four.
+// This deliberately does NOT compose a chat-rollup resolver + deriveRepoRoot:
+// the fork is window-keyed and needs the ENCLOSING SESSION NAME plus the cwd of
+// the REQUESTED window (deriveRepoRoot, being session-keyed, would take it from
+// the session's ACTIVE window instead — the wrong pane when forking a
+// background window). One walk yields all four.
 func (s *Server) resolveForkSource(ctx context.Context, server, windowID string) (forkSource, bool, error) {
 	sess, err := s.sessions.FetchSessions(ctx, server)
 	if err != nil {
@@ -140,7 +140,7 @@ func (s *Server) handleWindowFork(w http.ResponseWriter, r *http.Request) {
 	cancel()
 	if err != nil {
 		// FetchSessions itself failed — an infrastructure fault, not a missing
-		// chat. Mirror resolveWindowChat's callers rather than reporting "no chat".
+		// window. Mirror handleSessionsList rather than reporting "no such window".
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

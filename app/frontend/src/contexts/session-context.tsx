@@ -11,23 +11,9 @@ import {
 import { useMatches } from "@tanstack/react-router";
 import { useChromeDispatch } from "./chrome-context";
 import { listServers, compareServersRanked, triggerUpdate, triggerForceUpdate, triggerRestart, type ServerInfo, type UpdateTriggerResult } from "@/api/client";
-import { StateSocket, type ChatSubscribeArgs, type ChatUnsubscribeArgs } from "@/lib/state-socket";
+import { StateSocket } from "@/lib/state-socket";
 import { computeUpdateKey } from "@/lib/palette/update";
 import type { MetricsSnapshot, ProjectSession, Service, ServicesSnapshot } from "@/types";
-
-export type { ChatSubscribeArgs, ChatUnsubscribeArgs };
-
-/** Handlers a chat-lens owner hook registers for one window's chat frames
- *  (260717-vhvz). Routed from the state socket's onEvent/onAck (kind "chat").
- *  `data` is the parsed event payload (verbatim from the server envelope). */
-export type ChatFrameHandlers = {
-  /** A `kind:"chat"` event: type is "chat" | "chat-state" | "chat-reset" |
-   *  "chat-error"; data is its parsed payload. */
-  onEvent: (type: string, data: unknown) => void;
-  /** The chat subscribe ack: offset is the tail-start byte position (D5 — no
-   *  snapshot). */
-  onAck: (offset: number) => void;
-};
 
 const SERVER_STORAGE_KEY = "runkit-server";
 // localStorage key for composite update-notice dismissal. The value is the
@@ -181,25 +167,6 @@ export type SessionContextType = {
   /** Subscribe to host-global notification payloads. The shell-level consumer
    *  performs environment, preference, and cross-view claim gating. */
   subscribeNotify: (handler: (payload: unknown) => void) => () => void;
-  /** Open a chat subscription for a window on the singleton state socket
-   *  (260717-vhvz). `from` is the transcript byte offset the client's GET
-   *  backfill read up to, so the server tails gap-free. The owner hook
-   *  (`useChatSubscription`) drives this; consumers never touch the socket
-   *  directly (the established singleton-socket ownership pattern). */
-  subscribeChat: (args: ChatSubscribeArgs) => void;
-  /** Close a window's chat subscription (cancels its server-side producer). */
-  unsubscribeChat: (args: ChatUnsubscribeArgs) => void;
-  /** Register handlers for a window's chat frames (event/ack), scoped by window
-   *  ID. Returns an unregister function. The owner hook registers on lens enter
-   *  and unregisters on leave. Chat frames are routed here from the socket's
-   *  onEvent/onAck (kind "chat"); a `chat` event carries `ChatEvent[]`,
-   *  `chat-state` carries `{pending}`, `chat-reset` carries `{}`, `chat-error`
-   *  carries `{error}`; the ack carries the tail-start byte offset. */
-  registerChatHandlers: (windowId: string, handlers: ChatFrameHandlers) => () => void;
-  /** Whether the state socket is currently open (undebounced). The chat-lens
-   *  connection dot is (this) AND (the chat subscription acked); the owner hook
-   *  applies the 3s disconnect debounce. */
-  socketConnected: boolean;
   /** Imperative read of the per-server receipt tick (260823-ke9i): a monotonic
    *  counter bumped on every server-scoped snapshot or event received for that
    *  server, used by the pending-switch bounce verdict to tell post-click
@@ -360,17 +327,6 @@ export function SessionProvider({ children }: SessionProviderProps) {
   // Latest host-global metrics snapshot from the state socket's `metrics` global
   // event (see the StateSocket handlers below). `null` until the first tick.
   const [hostMetrics, setHostMetrics] = useState<MetricsSnapshot | null>(null);
-  // Undebounced state-socket open/closed signal (260717-vhvz). Exposed so the
-  // chat-lens owner hook can compose the chat dot = (socket connected) AND (chat
-  // acked) and apply its own 3s disconnect debounce. Distinct from
-  // `socketConnectedRef` (a ref used by the per-server dot apply path) — this is
-  // React state so the hook re-renders on a socket transition.
-  const [socketConnected, setSocketConnected] = useState(false);
-  // Chat frame handlers, keyed by window ID (260717-vhvz). Stored in a ref so the
-  // socket's onEvent/onAck chat branch can route a frame to the owning lens
-  // without re-running on every registration (same idiom as
-  // boardChangeSubscribersRef).
-  const chatHandlersRef = useRef<Map<string, ChatFrameHandlers>>(new Map());
   // Latest host-global listening services from the same host-global broadcast
   // (the `services` global event). Empty array until the first tick — never
   // null, so `/` consumers can map over it unconditionally.
@@ -675,30 +631,6 @@ export function SessionProvider({ children }: SessionProviderProps) {
         // ignore individual subscriber errors
       }
     }
-  }, []);
-
-  // Chat subscription seam (260717-vhvz). The owner hook registers a window's
-  // handlers, then drives subscribe/unsubscribe through these helpers — never a
-  // direct socket handle (the singleton-socket ownership pattern). Chat frames
-  // are routed to `chatHandlersRef` from the socket's onEvent/onAck chat branch.
-  const registerChatHandlers = useCallback(
-    (windowId: string, handlers: ChatFrameHandlers) => {
-      chatHandlersRef.current.set(windowId, handlers);
-      return () => {
-        // Only clear if still ours — a fast re-register for the same window id
-        // (StrictMode double-run) must not delete the newer registration.
-        if (chatHandlersRef.current.get(windowId) === handlers) {
-          chatHandlersRef.current.delete(windowId);
-        }
-      };
-    },
-    [],
-  );
-  const subscribeChat = useCallback((args: ChatSubscribeArgs) => {
-    socketRef.current?.subscribeChat(args);
-  }, []);
-  const unsubscribeChat = useCallback((args: ChatUnsubscribeArgs) => {
-    socketRef.current?.unsubscribeChat(args);
   }, []);
 
   // Effective attach set = currentServer ∪ attachedNonCurrent ∩ knownServers.
@@ -1010,24 +942,14 @@ export function SessionProvider({ children }: SessionProviderProps) {
           eventRef.current.handleServerEvent(ev.type, ev.key, ev.data);
         } else if (ev.kind === "global") {
           eventRef.current.handleGlobalEvent(ev.type, ev.data);
-        } else if (ev.kind === "chat" && ev.key) {
-          // Route to the owning lens's handlers (keyed by window id). A frame for
-          // a window with no live registration (a late frame after unsubscribe)
-          // is dropped.
-          chatHandlersRef.current.get(ev.key)?.onEvent(ev.type, ev.data);
         }
       },
-      onAck: (_req, kind, key, snapshot, offset) => {
+      onAck: (_req, kind, key, snapshot) => {
         if (kind === "metrics") {
           // The metrics ack snapshot is the cached metrics payload (or null).
           if (snapshot) {
             eventRef.current.handleGlobalEvent("metrics", snapshot);
           }
-          return;
-        }
-        if (kind === "chat") {
-          // A chat ack carries the tail-start byte offset, no snapshot (D5).
-          if (key) chatHandlersRef.current.get(key)?.onAck(offset ?? 0);
           return;
         }
         if (!key) return;
@@ -1061,10 +983,6 @@ export function SessionProvider({ children }: SessionProviderProps) {
         eventRef.current.fetchServers();
       },
       onConnectionChange: (connected) => {
-        // Undebounced socket-open signal for the chat-lens dot (the owner hook
-        // applies its own 3s disconnect debounce; the per-server dots keep the
-        // debounce below).
-        setSocketConnected(connected);
         if (connected) {
           socketConnectedRef.current = true;
           if (socketDisconnectTimerRef.current) {
@@ -1227,10 +1145,6 @@ export function SessionProvider({ children }: SessionProviderProps) {
       subscribeBoardOrder,
       subscribeStatusRefresh,
       subscribeNotify,
-      subscribeChat,
-      unsubscribeChat,
-      registerChatHandlers,
-      socketConnected,
       getServerReceiptTick,
       daemonVersion,
       daemonStarted,
@@ -1263,10 +1177,6 @@ export function SessionProvider({ children }: SessionProviderProps) {
       subscribeBoardOrder,
       subscribeStatusRefresh,
       subscribeNotify,
-      subscribeChat,
-      unsubscribeChat,
-      registerChatHandlers,
-      socketConnected,
       getServerReceiptTick,
       daemonVersion,
       daemonStarted,
@@ -1575,10 +1485,6 @@ export function StandaloneSessionContextProvider({
     subscribeBoardOrder: value.subscribeBoardOrder ?? (() => () => {}),
     subscribeStatusRefresh: value.subscribeStatusRefresh ?? (() => () => {}),
     subscribeNotify: value.subscribeNotify ?? (() => () => {}),
-    subscribeChat: value.subscribeChat ?? (() => {}),
-    unsubscribeChat: value.unsubscribeChat ?? (() => {}),
-    registerChatHandlers: value.registerChatHandlers ?? (() => () => {}),
-    socketConnected: value.socketConnected ?? false,
     getServerReceiptTick: value.getServerReceiptTick ?? (() => 0),
     daemonVersion: value.daemonVersion ?? null,
     daemonStarted: value.daemonStarted ?? null,

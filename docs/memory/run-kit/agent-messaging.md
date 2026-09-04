@@ -42,7 +42,8 @@ execs; full contract in [tmux-guard-shim](/run-kit/tmux-guard-shim.md)). The
 pane-scoped verbs (send/await/capture/kill/process) are first-party readers of
 the `@rk_pane_agent_state` convention ([agent-state](/run-kit/agent-state.md)) and
 share the pane-level primitives in `internal/tmux/pane_target.go`. Delivery
-reuses the hardened injection engine the chat-send HTTP route also drives — the
+reuses the hardened injection engine the daemon's compose-send route also drives
+— the
 shared `internal/inject` package ([chat](/run-kit/chat.md) § Send Path) — so the
 daemon route and the CLI verb run ONE implementation.
 
@@ -73,7 +74,7 @@ exact-match parsing). Window forms resolve server-side to the window's **agent
 pane** (`tmux.ResolveAgentPane` / the pure `SelectAgentPane`): the pane carrying
 a known post-reconcile `@rk_pane_agent_state` — preferring the active pane when
 several qualify — falling back to the window's active pane (the
-`resolveWindowChat` precedent: a window target must route to the agent pane, not
+`sessions.ResolveChatPane` precedent: a window target must route to the agent pane, not
 whatever split happens to be active).
 
 #### Scenario: Window target routes to the agent pane
@@ -90,7 +91,7 @@ precedent; bracketed paste delivers multi-line text as one block), or
 one-or-more repeatable `--key <name>` flags (tmux key names: `Enter`, `Up`,
 `C-c`, …). Zero payloads or mixed kinds is a usage error (exit 2). Text payloads
 are sanitized at the CLI boundary via `inject.Sanitize` — the same helper the
-chat-send handler runs — and an all-whitespace post-sanitize message is a usage
+daemon's compose-send handler runs — and an all-whitespace post-sanitize message is a usage
 error. `--key` sends are post-gate raw `send-keys` key names — no paste, no
 probe (key names have no echo to probe) — closing the raw-tmux carve-out that
 key input otherwise forces on callers.
@@ -129,7 +130,7 @@ silent force-wins precedence.
 
 ### Requirement: Delivery through the shared injection engine
 Text payloads SHALL be delivered through `internal/inject` — the engine the
-chat-send HTTP handler also consumes ([chat](/run-kit/chat.md) § Send Path):
+compose-send HTTP handler also consumes ([chat](/run-kit/chat.md) § Send Path):
 baseline capture → named-buffer `set-buffer -b <name> -- <text>` → bracketed
 `paste-buffer -d -p` → NOVELTY echo probe → probe-gated Enter → post-Enter
 observation. The CLI drives it through the five-method `inject.Tmux` interface
@@ -140,7 +141,7 @@ name-parameterized buffer primitives (`SetBufferCtx`/`PasteBufferCtx`/
 `rk-chat-send` buffer. `--no-enter` skips only the Enter — the probed text stays
 staged in the composer. A probe failure (`inject.ProbeFailure`) sends no Enter,
 prints the recoverable-state message (the text remains staged; a resend would
-duplicate it) to stderr, and exits 1 — the chat-send 409's CLI analog.
+duplicate it) to stderr, and exits 1 — the compose-send 409's CLI analog.
 
 After Enter, `SubmitBackoff` observes the pane at `40/80/160/320/640ms` with
 early exit. A changed normalized frame makes no claim about submission and the
@@ -594,7 +595,7 @@ independently in each HTTP handler (five contracts that can drift).
 ### CLI probe failure = staged text + stderr + exit 1
 **Decision**: A failed echo probe on the CLI path sends no Enter, leaves the
 text staged in the composer, prints the retry-hinted message (a resend would
-duplicate) to stderr, and exits 1 — the chat-send 409's CLI analog.
+duplicate) to stderr, and exits 1 — the compose-send 409's CLI analog.
 **Why**: strictly better than a blind Enter; the failure must be visible to
 scripts, and the message steers away from a duplicating resend.
 **Rejected**: exit 0 with a `staged` report (hides the failure from scripts).

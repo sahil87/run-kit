@@ -23,11 +23,11 @@ import { stubProxyPorts } from "./_web-tile";
 // verb), pinned in-bar (never overflows, no Tiles menu rows), gated on ≥2
 // shown surfaces; the bottom-bar ▦ Surfaces chip and mobile-surface-sheet it
 // replaces are gone. The button grammar is the rail's, unchanged: one
-// Tip-wrapped button per available surface not in SURFACE_RAIL_HIDDEN (chat
-// never gets a toggle), tty first, "<Label> tile" aria names, SURFACE_GLYPH
-// glyphs (`>_`/`://`/`{}`), aria-pressed = tile open (toggle mode) / tile
-// visible (switch mode), a corner availability dot on every button,
-// disabled-at-3 with the "Close a tile first" tip (toggle mode only). The
+// Tip-wrapped button per available surface, tty first, "<Label> tile" aria
+// names, SURFACE_GLYPH glyphs (`>_`/`://`/`{}`), aria-pressed = tile open
+// (toggle mode) / tile visible (switch mode), a corner availability dot on
+// every button, disabled-at-3 with the "Close a tile first" tip (toggle mode
+// only). The
 // rail-collapse chrome (the "Toggle panel" top-bar chip, the
 // `runkit-rail-open` preference, the `Panel: Toggle rail` palette action) is
 // gone — its tests are deleted with it, not migrated.
@@ -358,69 +358,54 @@ test.describe("Top-bar surface toggles — open-tile toggles over the surface la
    * UNLIT toggles render disabled instead of no-oping silently, and the
    * disabled button still tips "Close a tile first" (the Tip wraps a span so
    * the tooltip survives the disabled control's swallowed pointer events).
-   * Since chat is hidden from the group (SURFACE_RAIL_HIDDEN), the only way
-   * to hold an unlit shown toggle at 3 open tiles is an open CHAT tile — the
-   * window is made chat-capable by stamping the pane @rk_pane_chat option on
-   * a NON-shell pane (the backend reconciler zeroes chat on plain-shell
-   * panes). Closing one tile re-enables the unlit toggle.
+   * Three open tiles with an unlit shown toggle needs a fourth slot, which a
+   * DUPLICATE tty tile supplies (the muxed relay supports N clients per pane):
+   * `main-left:tty,code,tty` leaves the Web toggle unlit at 3 open tiles.
+   * Closing one tile re-enables the unlit toggle.
    *
    * Steps:
-   * 1. Create a window running `exec sleep 600` (a non-shell pane command);
-   *    stamp the slot-1 web tab (`stampWebTab`) and @rk_pane_chat
-   *    claude:e2e-disabled-at-3 (pane option, resolved via #{pane_id}).
-   * 2. Navigate with `?layout=main-left:tty,web,chat`; assert the terminal
-   *    and that the option reads the 3-tile layout unchanged (nothing
-   *    degraded).
-   * 3. Assert `Terminal tile` and `Web tile` are lit while `Code tile` is
+   * 1. Create a window; navigate with `?layout=main-left:tty,code,tty`; assert
+   *    the terminal and that the option reads the 3-tile layout unchanged
+   *    (duplicate tty tiles are legal — nothing degraded).
+   * 2. Assert `Terminal tile` and `Code tile` are lit while `Web tile` is
    *    unlit and disabled.
-   * 4. Hover the Code toggle's PARENT SPAN; assert a role="tooltip" element
+   * 3. Hover the Web toggle's PARENT SPAN; assert a role="tooltip" element
    *    reads "Close a tile first" (expect's retry absorbs the open delay);
    *    move the mouse away.
-   * 5. Click the lit `Web tile` toggle; assert the option reads
-   *    `split-h:tty,chat` and the Code toggle enabled again.
+   * 4. Click the lit `Code tile` toggle; assert the option reads
+   *    `split-h:tty,tty` and the Web toggle enabled again.
    */
   test("at 3 open tiles the unlit toggle is disabled and tips 'Close a tile first'", async ({ page }) => {
     test.setTimeout(30_000);
-    // Disabled-at-3 needs an UNLIT shown toggle while 3 tiles are open — with
-    // chat hidden from the group (SURFACE_RAIL_HIDDEN) the only way is an open
-    // CHAT tile: a chat-capable window deep-linked to main-left:tty,web,chat
-    // leaves the CODE toggle unlit at 3 open tiles. Chat capability: @rk_pane_chat
-    // is a PANE option reconciled by the pane's liveness — a plain-shell pane
-    // never surfaces chat (tmux.go's reconciler), so the window runs a
-    // non-shell command (`exec` guarantees pane_current_command = sleep).
     const name = `rp-full-${Date.now()}`;
-    newWindow(TEST_SESSION, name, { command: "exec sleep 600" });
+    newWindow(TEST_SESSION, name);
     const id = await resolveWindow(page, name);
-    stampWebTab(id, IFRAME_URL);
-    const paneId = execFileSync("tmux", ["-L", TMUX_SERVER, "display-message", "-t", id, "-p", "#{pane_id}"])
-      .toString()
-      .trim();
-    execFileSync("tmux", ["-L", TMUX_SERVER, "set-option", "-p", "-t", paneId, "@rk_pane_chat", "claude:e2e-disabled-at-3"]);
 
-    await gotoWindow(page, id, "?layout=main-left:tty,web,chat");
+    await gotoWindow(page, id, "?layout=main-left:tty,code,tty");
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
-    // All three surfaces available → the carried layout survives degradation
-    // tile-by-tile intact and lands in the shared option unchanged.
-    await expectWindowLayout(id, "main-left:tty,web,chat");
+    // Duplicate tty tiles are legal (the muxed relay supports N clients per
+    // pane), so the carried layout survives degradation intact and lands in
+    // the shared option unchanged.
+    await expectWindowLayout(id, "main-left:tty,code,tty");
 
-    const codeToggle = toggleButton(page, "Code");
-    await expect(codeToggle).toBeVisible({ timeout: READY_TIMEOUT });
+    const webToggle = toggleButton(page, "Web");
+    await expect(webToggle).toBeVisible({ timeout: READY_TIMEOUT });
     await expect(toggleButton(page, "Terminal")).toHaveAttribute("aria-pressed", "true");
-    await expect(toggleButton(page, "Web")).toHaveAttribute("aria-pressed", "true");
-    await expect(codeToggle).toHaveAttribute("aria-pressed", "false");
-    await expect(codeToggle).toBeDisabled();
+    await expect(toggleButton(page, "Code")).toHaveAttribute("aria-pressed", "true");
+    await expect(webToggle).toHaveAttribute("aria-pressed", "false");
+    await expect(webToggle).toBeDisabled();
 
     // The Tip wraps a span so the DISABLED button still tips (disabled
     // controls swallow the pointer events Tip listens for) — hover the
     // button's parent span; expect's retry absorbs the open delay.
-    await codeToggle.locator("xpath=..").hover();
+    await webToggle.locator("xpath=..").hover();
     await expect(page.getByRole("tooltip")).toContainText("Close a tile first");
     await page.mouse.move(0, 0);
 
-    // Closing a tile (the lit web toggle) re-enables the unlit one.
-    await toggleButton(page, "Web").click();
-    await expectWindowLayout(id, "split-h:tty,chat");
-    await expect(codeToggle).toBeEnabled();
+    // Closing a tile (the lit code toggle) re-enables the unlit one.
+    await toggleButton(page, "Code").click();
+    await expectWindowLayout(id, "split-h:tty,tty");
+    await expect(webToggle).toBeEnabled();
   });
 
   /**

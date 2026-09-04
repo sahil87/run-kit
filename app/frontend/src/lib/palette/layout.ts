@@ -60,7 +60,6 @@ import {
   SHAPE_ARITY,
   SHAPE_LABEL,
   SURFACE_LABEL,
-  SURFACE_RAIL_HIDDEN,
   type Layout,
   type SurfaceKind,
 } from "../surface-layout";
@@ -225,15 +224,13 @@ export function buildLayoutActions(
 /**
  * Build the mobile switch-to-tile palette actions (`Tile: Switch to
  * <Surface>`) — the keyboard twin of the top-bar switch group (Constitution
- * V). One entry per AVAILABLE surface that survives the `SURFACE_RAIL_HIDDEN`
- * render-time filter (chat is palette-reachable only via its Show/Hide
- * entries) and is not the currently visible one — the palette shows the
- * destination, never the current tile (the `buildViewActions` pattern). A
- * single-surface window yields an empty array — there is nothing to switch
- * to. On mobile these supersede the `View:` entries; the bodies invoke the
- * caller's switch-to-tile verb. A destination whose growth the layout cannot
- * host (`addSurface` → null, reported via `isDisabled`) renders DISABLED —
- * the switch group's full-layout affordance.
+ * V). One entry per AVAILABLE surface that is not the currently visible one —
+ * the palette shows the destination, never the current tile (the
+ * `buildViewActions` pattern). A single-surface window yields an empty array —
+ * there is nothing to switch to. On mobile these supersede the `View:`
+ * entries; the bodies invoke the caller's switch-to-tile verb. A destination
+ * whose growth the layout cannot host (`addSurface` → null, reported via
+ * `isDisabled`) renders DISABLED — the switch group's full-layout affordance.
  */
 export function buildTileSwitchActions(
   available: SurfaceKind[],
@@ -242,7 +239,7 @@ export function buildTileSwitchActions(
   isDisabled?: (surface: SurfaceKind) => boolean,
 ): LayoutPaletteAction[] {
   return available
-    .filter((kind) => kind !== visible && !SURFACE_RAIL_HIDDEN.has(kind))
+    .filter((kind) => kind !== visible)
     .map((kind) => ({
       id: `tile-switch-${kind}`,
       label: `Tile: Switch to ${SURFACE_LABEL[kind]}`,

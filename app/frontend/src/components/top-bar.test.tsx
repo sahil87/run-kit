@@ -1613,9 +1613,9 @@ describe("TopBar", () => {
 
   describe("surface-toggle group (the retired right rail's toggles, relocated)", () => {
     const toggles = (overrides: Partial<{
-      available: ("tty" | "web" | "chat" | "code")[];
-      open: ("tty" | "web" | "chat" | "code")[];
-      onToggle: (surface: "tty" | "web" | "chat" | "code") => void;
+      available: ("tty" | "web" | "code")[];
+      open: ("tty" | "web" | "code")[];
+      onToggle: (surface: "tty" | "web" | "code") => void;
     }> = {}) => ({
       mode: "toggle" as const,
       available: overrides.available ?? ["tty", "web", "code"],
@@ -1670,26 +1670,6 @@ describe("TopBar", () => {
       ).toBe(true);
     });
 
-    it("hides the chat toggle on a chat-capable window while web/code remain (SURFACE_RAIL_HIDDEN)", () => {
-      // The demotion is render-time only: chat stays AVAILABLE (the palette's
-      // `Tile: Show Chat` still works) but the group shows no chat toggle.
-      renderTopBar({ surfaceToggles: toggles({ available: ["tty", "web", "chat", "code"] }) });
-      act(() => fireEvent.click(screen.getByLabelText("More controls")));
-      const menu = screen.getByRole("menu", { name: "More controls" });
-      expect(within(menu).queryByRole("menuitemcheckbox", { name: "Chat tile" })).toBeNull();
-      expect(within(menu).getByRole("menuitemcheckbox", { name: "Terminal tile" })).toBeInTheDocument();
-      expect(within(menu).getByRole("menuitemcheckbox", { name: "Web tile" })).toBeInTheDocument();
-      expect(within(menu).getByRole("menuitemcheckbox", { name: "Code tile" })).toBeInTheDocument();
-    });
-
-    it("shows no chat row even when a chat tile is OPEN (the flag never strands the tile)", () => {
-      renderTopBar({ surfaceToggles: toggles({ available: ["tty", "chat"], open: ["tty", "chat"] }) });
-      act(() => fireEvent.click(screen.getByLabelText("More controls")));
-      const menu = screen.getByRole("menu", { name: "More controls" });
-      expect(within(menu).queryByRole("menuitemcheckbox", { name: "Chat tile" })).toBeNull();
-      expect(within(menu).getByRole("menuitemcheckbox", { name: "Terminal tile" })).toBeInTheDocument();
-    });
-
     it("clicking a row routes the surface through the shared toggle callback (add or close)", () => {
       const onToggle = vi.fn();
       renderTopBar({ surfaceToggles: toggles({ available: ["tty", "web"], open: ["tty"], onToggle }) });
@@ -1701,15 +1681,17 @@ describe("TopBar", () => {
 
     it("at 3 open tiles the remaining unlit rows render DISABLED; a lit row stays enabled", () => {
       const onToggle = vi.fn();
-      renderTopBar({ surfaceToggles: toggles({ available: ["tty", "web", "chat", "code"], open: ["tty", "web", "chat"], onToggle }) });
+      // Three open tiles with a fourth surface unlit needs a duplicate tty
+      // tile (legal — the muxed relay supports N clients per pane).
+      renderTopBar({ surfaceToggles: toggles({ available: ["tty", "web", "code"], open: ["tty", "tty", "code"], onToggle }) });
       act(() => fireEvent.click(screen.getByLabelText("More controls")));
       const menu = screen.getByRole("menu", { name: "More controls" });
-      const code = within(menu).getByRole("menuitemcheckbox", { name: "Code tile" });
-      expect(code).toHaveProperty("disabled", true);
+      const web = within(menu).getByRole("menuitemcheckbox", { name: "Web tile" });
+      expect(web).toHaveProperty("disabled", true);
       // A lit row stays enabled at 3 tiles (closing is always allowed).
-      expect(within(menu).getByRole("menuitemcheckbox", { name: "Web tile" })).toHaveProperty("disabled", false);
+      expect(within(menu).getByRole("menuitemcheckbox", { name: "Code tile" })).toHaveProperty("disabled", false);
       // A disabled row never fires the toggle.
-      fireEvent.click(code);
+      fireEvent.click(web);
       expect(onToggle).not.toHaveBeenCalled();
     });
 

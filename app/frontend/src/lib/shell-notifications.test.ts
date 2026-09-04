@@ -48,7 +48,7 @@ describe("shell notifications", () => {
   });
 
   it("accepts only same-origin absolute paths", () => {
-    expect(sameOriginPath("/default/1?view=chat")).toBe("/default/1?view=chat");
+    expect(sameOriginPath("/default/1?view=web")).toBe("/default/1?view=web");
     expect(sameOriginPath("//evil.example/path")).toBeNull();
     expect(sameOriginPath("https://evil.example/path")).toBeNull();
     expect(sameOriginPath(42)).toBeNull();

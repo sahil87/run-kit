@@ -28,7 +28,6 @@ import {
   swapWithNext,
   translateLegacyParams,
   writeStoredZoom,
-  SURFACE_RAIL_HIDDEN,
   type Layout,
   type SurfaceKind,
 } from "@/lib/surface-layout";
@@ -87,9 +86,8 @@ import { copyToClipboard } from "@/lib/clipboard";
 import { parseFabChange } from "@/lib/format";
 import { useOpenTargets } from "@/hooks/use-open-targets";
 import { useRunOpenTarget } from "@/components/open-button";
-import { nextWaitingTarget, chatSearchForTarget, type WaitingTarget } from "@/lib/palette/agent-nav";
+import { nextWaitingTarget, type WaitingTarget } from "@/lib/palette/agent-nav";
 import { isWaiting } from "@/lib/waiting";
-import { useChatSubscription } from "@/hooks/use-chat-subscription";
 import {
   windowSwitchDirection,
   viewTransitionSupported,
@@ -154,7 +152,7 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo, SelectWindowResult } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, sendChatMessage, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, HttpError, type SortWindowsBy } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, sendToWindow, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, HttpError, type SortWindowsBy } from "@/api/client";
 import { buildWebTabActions } from "@/lib/palette/web-tabs";
 import { operatorRequestToast } from "@/lib/operator-request";
 import { buildSessionSortActions } from "@/lib/palette/sort";
@@ -1454,9 +1452,9 @@ function AppShell() {
       navigate({
         to: "/$server/$window",
         params: { server, window: target.windowId },
-        // Cross-window redirect (the current window died): clear `?view=chat`
-        // so the fallback window resolves its OWN view pref (260714-r7rq) rather
-        // than inheriting the dead window's chat state.
+        // Cross-window redirect (the current window died): empty search so the
+        // fallback window resolves its OWN stored layout rather than inheriting
+        // the dead window's.
         search: {},
         replace: true,
       });
@@ -1870,8 +1868,8 @@ function AppShell() {
     navigate({
       to: "/$server/$window",
       params: { server, window: activeWindow.windowId },
-      // Window switch driven by tmux (SSE writeback): clear `?view=chat` so the
-      // newly-active window resolves its own view pref (260714-r7rq).
+      // Window switch driven by tmux (SSE writeback): empty search so the
+      // newly-active window resolves its own stored layout.
       search: {},
       replace: true,
     });
@@ -2081,20 +2079,6 @@ function AppShell() {
     [server, navigate, isMobile, setSidebarOpen, beginPendingSwitch],
   );
 
-  // Chat subscription (260717-vhvz — succeeds the dedicated per-view chat SSE) —
-  // a single `kind:"chat"` subscription on the shared state socket, owned here so
-  // it feeds BOTH the `ChatView` renderer (below) and the connection dot's
-  // health (R13).
-  // Opened when a chat tile is visible in ANY slot (260812-ab5v — a chat tile
-  // outside slot A still needs its stream); a chat-less window never resolves
-  // one (the ladder's degradation bakes in the `chatProvider` availability
-  // gate), so a terminal-only window never streams.
-  const chatViewActive = layout.order.includes("chat");
-  const chatStream = useChatSubscription(
-    chatViewActive ? server : "",
-    chatViewActive ? windowParam ?? "" : "",
-  );
-
   // Dialog state management. The two option callbacks are useCallback-stable:
   // inline arrows would churn the `dialogs` object every render, which cascades
   // through the palette action memos into a per-render slot re-registration
@@ -2140,10 +2124,10 @@ function AppShell() {
     order: flatWindows.map((fw) => fw.window.windowId),
     // A target is UNGATED (ungated capture, no xterm first-write receipt seam)
     // exactly when its effective MAIN SLOT (slot A of the layout,
-    // 260812-ab5v) is NOT `tty` — i.e. it renders the IframeWindow (web),
-    // ChatView (chat), or CodeSurface (code) surface in its main slot, none of
-    // which has the terminal's first-write seam (260714-t97o-web-view-lens R12;
-    // chat folded in from 260714-r7rq). The classification reads the payload's
+    // 260812-ab5v) is NOT `tty` — i.e. it renders the IframeWindow (web)
+    // or CodeSurface (code) surface in its main slot, neither of
+    // which has the terminal's first-write seam (260714-t97o-web-view-lens R12).
+    // The classification reads the payload's
     // shared `@rk_win_layout` via `effectiveLayout` — the same layout the
     // target route will render, no localStorage involved. Degradation is
     // baked in, so a window whose layout resolves tty-led (unset option,
@@ -3100,16 +3084,18 @@ function AppShell() {
   );
 
   /**
-   * Submit one prompt through the existing chat-send endpoint per recipient.
-   * Resolves with the DELIVERED count so the compose strip can retain a prompt
-   * that reached nobody (0 of N) instead of clearing text no agent ever saw.
+   * Submit one prompt through the window-send endpoint (submit mode, agent-pane
+   * target) per recipient — a window with no agent pane fails closed (404) and
+   * counts as that window's failure. Resolves with the DELIVERED count so the
+   * compose strip can retain a prompt that reached nobody (0 of N) instead of
+   * clearing text no agent ever saw.
    */
   const executeBulkSend = useCallback(
     async (keys: string[], text: string): Promise<number> => {
       const result = await executeSelectionBatch(
         keys,
         ({ server: targetServer, windowId }) =>
-          sendChatMessage(targetServer, windowId, text),
+          sendToWindow(targetServer, windowId, text, "submit", "agent"),
       );
       const { message, failed } = batchToast(
         { success: "Sent prompt to", failure: "Sent to", noun: "agent" },
@@ -3753,23 +3739,22 @@ function AppShell() {
     [shellServers, addToast],
   );
 
-  // Navigate to a waiting target while PRESERVING `?view=chat` (260714-r7rq).
-  // A chat-capable target can't reuse `navigateToWindow` (that path hardcodes
-  // `search: {}`, stripping the deep-link), so it navigates directly — but a
-  // SAME-SERVER target still needs the tmux alignment the sidebar/palette path
-  // provides: set `pendingClickRef` + fire `selectWindow` so the URL writeback
-  // (app.tsx:663) doesn't bounce back to the previously-active window (which
-  // would ALSO strip `?view=chat`, since that writeback clears search) before
-  // SSE confirms the switch. Cross-server targets navigate plainly — identity
-  // is window-id-only on the 2-segment route and the destination's mount-time
-  // alignment (app.tsx:633) handles tmux there.
+  // Navigate to a waiting target on the bare terminal route (empty search —
+  // the target window resolves its own stored layout; the compose strip is
+  // where the user answers the agent). A SAME-SERVER target needs the tmux
+  // alignment the sidebar/palette path provides: fire `selectWindow` + track
+  // the pending switch so the URL writeback (app.tsx:663) doesn't bounce back
+  // to the previously-active window before SSE confirms the switch.
+  // Cross-server targets navigate plainly — identity is window-id-only on the
+  // 2-segment route and the destination's mount-time alignment (app.tsx:633)
+  // handles tmux there.
   const navigateToWaitingTarget = useCallback(
-    (targetServer: string, targetWindowId: string, hasChat: boolean) => {
+    (targetServer: string, targetWindowId: string) => {
       if (targetServer === server) {
         // Same-server: tmux-align + track the pending switch so the failure
         // bounce-back (260715-38kg) un-sticks a limbo if the POST fails or never
-        // confirms. No grace mask — a chat/deep-link target is often non-tty or
-        // remounts. Cross-server navigates plainly (destination handles its own
+        // confirms. No grace mask — the target may remount on layout change.
+        // Cross-server navigates plainly (destination handles its own
         // mount-time alignment + tracking).
         const posted = selectWindow(server, targetWindowId);
         posted.catch(() => {});
@@ -3778,7 +3763,7 @@ function AppShell() {
       navigate({
         to: "/$server/$window",
         params: { server: targetServer, window: targetWindowId },
-        search: chatSearchForTarget(hasChat),
+        search: {},
       });
       if (isMobile) setSidebarOpen(false);
     },
@@ -3814,15 +3799,10 @@ function AppShell() {
   const agentActions: PaletteAction[] = useMemo(() => {
     const onSelect = () => {
       const ordered: WaitingTarget[] = [];
-      // `{server}|{windowId}` → whether that target has a chat, so the deep link
-      // appends `?view=chat` for chat-capable windows (260714-r7rq).
-      const chatByKey = new Map<string, boolean>();
-      const key = (srv: string, wid: string) => `${srv}|${wid}`;
       // Current server first, in sidebar order.
       for (const fw of flatWindows) {
         if (isWaiting(fw.window)) {
           ordered.push({ server, windowId: fw.window.windowId });
-          chatByKey.set(key(server, fw.window.windowId), !!fw.window.chatProvider);
         }
       }
       // Then other attached servers (skip the current one — already added).
@@ -3832,7 +3812,6 @@ function AppShell() {
           for (const w of sess.windows) {
             if (isWaiting(w)) {
               ordered.push({ server: s.name, windowId: w.windowId });
-              chatByKey.set(key(s.name, w.windowId), !!w.chatProvider);
             }
           }
         }
@@ -3842,18 +3821,16 @@ function AppShell() {
         addToast("No agents waiting", "info");
         return;
       }
-      const hasChat = chatByKey.get(key(target.server, target.windowId)) ?? false;
-      if (target.server === server && !hasChat) {
-        // Same-server, non-chat: keep the rich window-switch path (selectWindow
-        // tmux-align + slide transition + mobile-close). It clears search, which
-        // is correct — the target resolves its own terminal view.
+      if (target.server === server) {
+        // Same-server: keep the rich window-switch path (selectWindow
+        // tmux-align + slide transition + mobile-close). It clears search,
+        // which is correct — the target resolves its own terminal layout.
         navigateToWindow(target.windowId);
         return;
       }
-      // A chat-capable target deep-links into `?view=chat` (a same-server chat
-      // target still tmux-aligns via `navigateToWaitingTarget`); a cross-server
-      // target navigates plainly (its pref/URL resolves on render).
-      navigateToWaitingTarget(target.server, target.windowId, hasChat);
+      // A cross-server target navigates plainly on the bare route (its stored
+      // layout resolves on render).
+      navigateToWaitingTarget(target.server, target.windowId);
     };
     return [{ id: "agent-next-waiting", label: "Agent: Next waiting", onSelect }];
   }, [flatWindows, servers, server, windowParam, navigateToWindow, navigateToWaitingTarget, addToast]);
@@ -4254,9 +4231,7 @@ function AppShell() {
         navigateToWindow(windowId);
       } else {
         // Cross-server: identity is window-id only on the 2-segment route.
-        // Clear `?view=chat` so the target window resolves its own view pref
-        // (260714-r7rq); a cross-server switch never carries the source's chat
-        // state.
+        // Empty search so the target window resolves its own stored layout.
         navigate({
           to: "/$server/$window",
           params: { server: srv, window: windowId },
@@ -4302,8 +4277,9 @@ function AppShell() {
   // within the clicked session's scope, reusing the `nextWaitingTarget` cycle
   // semantics (R12) — so clicking the badge while already ON one of that
   // session's waiting windows advances to the next (with wraparound) instead of
-  // no-opping on the first. `?view=chat` is appended when the target window has
-  // a chat (chatSearchForTarget). Reads the freshest sessions map by ref so the
+  // no-opping on the first. Navigation lands on the bare terminal route (empty
+  // search — the target resolves its own stored layout). Reads the freshest
+  // sessions map by ref so the
   // callback stays stable across SSE ticks (mirrors the other sidebar
   // handlers). No-op if the session has no waiting window (the badge only
   // renders when count > 0, so this is a defensive guard against a stale
@@ -4329,11 +4305,10 @@ function AppShell() {
       // lands on the session's first waiting window.
       const target = nextWaitingTarget(ordered, server, windowParam);
       if (!target) return;
-      const win = waitingWindows.find((w) => w.windowId === target.windowId);
       // Same-server targets tmux-align (selectWindow + pendingClickRef) so the
-      // URL writeback can't bounce back and strip `?view=chat`; cross-server
-      // navigates plainly. See `navigateToWaitingTarget`.
-      navigateToWaitingTarget(target.server, target.windowId, !!win?.chatProvider);
+      // URL writeback can't bounce back; cross-server navigates plainly. See
+      // `navigateToWaitingTarget`.
+      navigateToWaitingTarget(target.server, target.windowId);
     },
     [server, windowParam, navigateToWaitingTarget],
   );
@@ -4351,11 +4326,10 @@ function AppShell() {
     () => setSidebarOpen(!sidebarOpen),
     [setSidebarOpen, sidebarOpen],
   );
-  // Connection dot semantics (R9): in chat view the dot reports the chat
-  // stream's health; in terminal/root view it keeps the per-server sessions-SSE
-  // slice ("per-page live-data health"). The dot renders in the SIDEBAR FOOTER
+  // Connection dot semantics: the dot reports the per-server sessions-slice
+  // health ("per-page live-data health"). The dot renders in the SIDEBAR FOOTER
   // (260724-6j1v — it left the top bar), so this feeds the Sidebar prop below.
-  const dotConnected = chatViewActive ? chatStream.connected : isConnected;
+  const dotConnected = isConnected;
   // The window-switcher `+ New Agent` (TopBar `onSpawnAgent(session)`) targets
   // the CURRENT server; bind `server` here so the slot handler keeps the
   // one-arg TopBar signature while feeding the explicit `{server, session}`
@@ -4389,9 +4363,8 @@ function AppShell() {
       // offers (shortcut order) plus the mode discriminant — desktop registers
       // TOGGLE mode (the open tiles + the shared toggle mutation); mobile
       // registers SWITCH mode (the visible tile + the switch-to-tile verb),
-      // gated on ≥2 surfaces surviving the SURFACE_RAIL_HIDDEN render filter
-      // (with fewer there is nothing to switch to — no group). Absent on
-      // board/host routes → no group.
+      // gated on ≥2 available surfaces (with fewer there is nothing to switch
+      // to — no group). Absent on board/host routes → no group.
       surfaceToggles:
         windowParam && !isMobile
           ? {
@@ -4401,8 +4374,7 @@ function AppShell() {
               onToggle: togglePanel,
               showDot: surfaceDot,
             }
-          : windowParam &&
-              panelSurfaces.filter((s) => !SURFACE_RAIL_HIDDEN.has(s)).length >= 2
+          : windowParam && panelSurfaces.length >= 2
             ? {
                 mode: "switch" as const,
                 available: panelSurfaces,
@@ -4661,20 +4633,6 @@ function AppShell() {
               focusRef={focusTerminalRef}
               scrollLocked={scrollLocked}
               onSessionNotFound={() => navigate({ to: "/$server", params: { server }, replace: true })}
-              chat={{
-                events: chatStream.events,
-                pending: chatStream.pending,
-                connected: chatStream.connected,
-                error: chatStream.error,
-                // AppShell wires the send callback (chat-send POST) + the busy
-                // signal (agentState === "active"); ChatView stays pure. The
-                // chat tile only resolves on a chat-capable window, so `@N`
-                // is a non-empty string here.
-                onSend: async (text, submit) => {
-                  await sendChatMessage(server, windowParam, text, submit);
-                },
-                busy: currentWindow?.agentState === "active",
-              }}
               codeReachable={codeServer?.reachable ?? false}
               // Follow rule: after the seed, the editor's own navigation is
               // the ONLY writer of `@rk_win_code_root`.

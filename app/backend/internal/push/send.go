@@ -19,7 +19,7 @@ const notifyTimeout = 10 * time.Second
 
 // payload is the JSON the service worker's `push` handler parses. `URL` is the
 // optional deep-link target the SW stores on the notification and navigates to
-// on click (260714-r7rq — e.g. `/{server}/{N}?view=chat` for a waiting agent);
+// on click (e.g. `/{server}/{N}` for a waiting agent);
 // omitempty so a push with no target sends nothing extra and the SW falls back
 // to the app root.
 type payload struct {

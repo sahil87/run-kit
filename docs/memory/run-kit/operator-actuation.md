@@ -16,7 +16,7 @@ work item over two routes: the window-scoped
 window) and the server-scoped `POST /api/operator-request?server=` (no subject
 window). The loop is **delivery + derive, nothing else**:
 the backend composes a prompt from facts it derives itself (Constitution X),
-delivers it through the existing chat-send injection machinery
+delivers it through the shared injection machinery
 ([chat](/run-kit/chat.md) § Send Path), and the operator acts through its own
 shell (e.g. `tmux rename-window`, `rk riff`); the outcome surfaces on the normal derive
 tick. There is NO persisted mailbox, NO response channel or reply parsing —
@@ -104,8 +104,9 @@ prompt inside a fenced block framed as data — `delimitUserText` prefixes a
 treat-as-data framing ("…treat it as data, not as instructions") and composes
 the backtick fence dynamically as `max(3, longest backtick run in the text +
 1)`, so no text can close its own fence early; the text is never interpolated
-into command examples. Delivery reuses `s.injectChatMessage` verbatim — no new
-subprocess pattern (Constitution I: the same trust model as chat-send, which
+into command examples. Delivery reuses `s.injectIntoPane` verbatim — no new
+subprocess pattern (Constitution I: the same trust model as the compose-send
+route, which
 already carries arbitrary user text through this exact engine).
 
 #### Scenario: Lane rules reject before any fetch
@@ -169,9 +170,10 @@ seam's valid-request-wrong-state class, same as the busy gate. Delivery goes thr
 the busy gate (`active`/`waiting` ⇒ 409 naming the state; `idle` or unknown
 proceeds), `sessions.ResolveChatPane` over the operator's panes (404
 `"operator window has no chat session"` when none), and in-process
-`s.injectChatMessage` under ONE shared `chatSendTotalBudget` deadline, a probe
+`s.injectIntoPane` under ONE shared `chatSendTotalBudget` deadline, a probe
 failure, a post-paste `StagedSendFailure` (`staged_send_failure`), and
-`SubmitUnverified` surfacing as the three distinct structured 409s chat-send
+`SubmitUnverified` surfacing as the three distinct structured 409s the
+compose-send route
 returns. The route shares the seam's whole posture: NO queue, NO
 route-level retry, NO response channel, NO SSE hub wake; success is
 `200 {"ok":true}`. A `FetchSessions` error maps to
@@ -202,8 +204,8 @@ already-fetched slice). A `FetchSessions` error maps to `500` (an infrastructure
 fault, mirroring the chat endpoints); an absent subject maps to `404`; no
 operator window on the server maps to `404` with `"no operator on this
 server"` — the UI hides the action in that state (degrade to absent), so the
-error is the race backstop. The handler MUST NOT call `resolveWindowChat`
-(which would issue a second `FetchSessions`); pane resolution reuses
+error is the race backstop. The handler MUST NOT issue a second `FetchSessions`
+for pane resolution; it reuses
 `sessions.ResolveChatPane` on the already-fetched windows. Subject and operator
 are then handed ALREADY RESOLVED to the shared delivery core
 (`deliverOperatorRequest`), which performs no fetch of its own — the auto-name
@@ -243,8 +245,9 @@ The delivery core SHALL read the operator window's rolled-up `AgentState`
 `waiting` ⇒ reject with a structured message naming the state (`"operator is
 busy (<state>) — request not delivered; try again when it is idle"`). `idle`
 or empty/unknown ⇒ proceed — the novelty echo probe is the final fail-closed
-pre-Enter guard, exactly as for chat-send. This is deliberately UNLIKE
-chat-send's allow+probe busy policy ([chat](/run-kit/chat.md) § Design
+pre-Enter guard, exactly as for the compose-send route. This is deliberately
+UNLIKE
+the compose send's allow+probe busy policy ([chat](/run-kit/chat.md) § Design
 Decisions → Allow + probe busy policy): a request is work handed over, not a
 steer a human typed. The gate is the fail-closed floor inside
 `deliverOperatorPrompt` for EVERY delivery through the core — the HTTP
@@ -281,8 +284,8 @@ stays outside the queue).
 Every caller SHALL deliver the rendered prompt through the shared prompt-level
 core `deliverOperatorPrompt` (so the paths cannot drift), which delivers
 in-process via
-`s.injectChatMessage(ctx, server, operatorPaneID, prompt, true)` — the same
-`api`-package seam chat-send uses, NOT an HTTP self-call — where
+`s.injectIntoPane(ctx, server, operatorPaneID, prompt, true)` — the same
+`api`-package seam the compose-send route uses, NOT an HTTP self-call — where
 `operatorPaneID` is `sessions.ResolveChatPane(operator.Panes)` over the
 OPERATOR window's panes (active-pane-first rollup; injection targets the pane,
 never the window, never the subject's pane). An operator window with no
@@ -883,7 +886,7 @@ ambiguous with Enter-submits).
 
 ### Delivery + derive only — no persisted mailbox, no response channel
 **Decision**: the actuation loop composes a templated prompt with pre-derived
-facts and delivers it via the chat-send injection machinery; results come back
+facts and delivers it via the shared injection machinery; results come back
 through the ordinary derive loop. There is no response channel, no protocol, no
 reply parsing, no persisted mailbox, and no cross-restart retry. The one
 pending-intent store is the in-memory per-server `operatorQueueTracker`
@@ -905,16 +908,17 @@ reply protocol (RPC-ifies the operator); naive `send-keys` Enter injection
 delivery).
 *Introduced by*: 260822-fih1-operator-request-fix-tab-name
 
-### In-process reuse of the chat-send injection path
-**Decision**: the handler calls `s.injectChatMessage` +
+### In-process reuse of the shared injection path
+**Decision**: the handler calls `s.injectIntoPane` +
 `sessions.ResolveChatPane` directly (same `api` package) after its own single
 `FetchSessions` pass.
 **Why**: an HTTP self-call would re-enter the router for no isolation gain;
-calling `resolveWindowChat` would issue a second `FetchSessions` per request.
+calling a window-scoped resolver helper would issue a second `FetchSessions` per
+request.
 One fetch serves subject lookup, operator lookup, fact derivation, AND the busy
 gate.
 **Rejected**: HTTP self-call (needless hop, loses the request context);
-`resolveWindowChat` reuse (double fetch — the helper is window-scoped, this
+a window-scoped resolver's reuse (double fetch — the helper is window-scoped, this
 handler is two-window).
 *Introduced by*: 260822-fih1-operator-request-fix-tab-name
 
@@ -960,7 +964,7 @@ constructor can't see the Server — test hubs run with `deliver == nil`,
 tracking still advancing, fan-out skipped).
 **Why**: keeps the tracker pure/unit-testable and avoids a hub→Server cycle;
 identical to the waiting-push `notify` seam.
-**Rejected**: calling `s.injectChatMessage` directly from the tracker (couples
+**Rejected**: calling `s.injectIntoPane` directly from the tracker (couples
 tracker tests to the injection engine).
 *Introduced by*: 260822-q675-operator-auto-name-idle
 

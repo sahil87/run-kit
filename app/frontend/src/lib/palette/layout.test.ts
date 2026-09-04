@@ -9,7 +9,7 @@ import type { Layout, SurfaceKind } from "../surface-layout";
  * entries (the top-bar switch group's palette twin).
  */
 
-const ALL: SurfaceKind[] = ["tty", "web", "chat", "code"];
+const ALL: SurfaceKind[] = ["tty", "web", "code"];
 
 function build(
   layout: Layout,
@@ -32,7 +32,6 @@ describe("buildLayoutActions — shows/hides (R10/R11)", () => {
   it("single:tty offers a Show per available non-open surface and NO hides/verbs", () => {
     const actions = ids({ shape: "single", order: ["tty"] });
     expect(actions).toContain("tile-show-web");
-    expect(actions).toContain("tile-show-chat");
     expect(actions).toContain("tile-show-code");
     expect(actions).not.toContain("tile-show-tty"); // already open
     // single: no hides (the last tile never hides), no promote/swap/zoom,
@@ -73,7 +72,6 @@ describe("buildLayoutActions — shows/hides (R10/R11)", () => {
     // the onboarding tile.
     const actions = ids({ shape: "single", order: ["tty"] }, ["tty", "web"]);
     expect(actions).toContain("tile-show-web");
-    expect(actions).not.toContain("tile-show-chat");
     expect(actions).not.toContain("tile-show-code");
   });
 
@@ -81,14 +79,6 @@ describe("buildLayoutActions — shows/hides (R10/R11)", () => {
     const actions = ids({ shape: "single", order: ["tty"] }, ["tty", "web"]);
     expect(actions).toContain("tile-show-web");
     expect(actions).not.toContain("tile-show-code");
-  });
-
-  it("still offers `Tile: Show Chat` / `Tile: Hide Chat` — chat's palette entries survive the rail demotion (260812-0c6o)", () => {
-    // SURFACE_RAIL_HIDDEN filters the rail at render; `buildLayoutActions`
-    // keys off AVAILABILITY, so chat stays palette-reachable as its sole entry
-    // point.
-    expect(ids({ shape: "single", order: ["tty"] })).toContain("tile-show-chat");
-    expect(ids({ shape: "split-h", order: ["tty", "chat"] })).toContain("tile-hide-chat");
   });
 
   it("Show/Hide labels carry the Tile: prefix; arrangement verbs keep Layout:", () => {
@@ -280,12 +270,9 @@ describe("buildLayoutActions — Tile: Focus <Surface> (260812-wfic R10)", () =>
 });
 
 describe("buildTileSwitchActions — Tile: Switch to <Surface> (mobile)", () => {
-  it("offers one entry per available, not-hidden, not-visible surface", () => {
+  it("offers one entry per available, not-visible surface", () => {
     const actions = buildTileSwitchActions(ALL, "tty", vi.fn());
     expect(actions.map((a) => a.id)).toEqual(["tile-switch-web", "tile-switch-code"]);
-    // chat is SURFACE_RAIL_HIDDEN — its Show/Hide entries stay its only
-    // palette entry points.
-    expect(actions.some((a) => a.id === "tile-switch-chat")).toBe(false);
   });
 
   it("labels read `Tile: Switch to <Surface>` and fire onSwitch with the kind", () => {

@@ -17,4 +17,5 @@ fkf_version: "0.1"
 
 | Domain | Description |
 |--------|-------------|
+| [_shared](_shared/index.md) | — |
 | [run-kit](run-kit/index.md) | Web-based agent orchestration dashboard |

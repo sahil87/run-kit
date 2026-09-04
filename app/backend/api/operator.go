@@ -624,7 +624,8 @@ func (s *Server) deliverOperatorPrompt(ctx context.Context, server string, opera
 		return &operatorReject{http.StatusNotFound, "operator window has no chat session"}
 	}
 
-	// One shared deadline for the whole injection sequence (see handleChatSend).
+	// One shared deadline for the whole injection sequence (see send.go's
+	// chatSendTotalBudget).
 	ctx, cancel := context.WithTimeout(ctx, chatSendTotalBudget)
 	defer cancel()
 
@@ -804,6 +805,22 @@ func (s *Server) deliverOperatorRequest(ctx context.Context, server string, subj
 	return s.deliverOperatorPrompt(ctx, server, operator, tmpl.render(facts))
 }
 
+// writeChatReadError maps a chat-adapter read error to an HTTP response. A
+// missing transcript for a live ref, or a malformed reconciled ref, is
+// 404-class (a property of the reconciled @rk_chat, not a server fault); any
+// other read error is a 500.
+func (s *Server) writeChatReadError(w http.ResponseWriter, err error) {
+	if errors.Is(err, chat.ErrTranscriptNotFound) {
+		writeError(w, http.StatusNotFound, "transcript not found for session")
+		return
+	}
+	if errors.Is(err, chat.ErrInvalidRef) {
+		writeError(w, http.StatusNotFound, "malformed chat session ref for this window")
+		return
+	}
+	writeError(w, http.StatusInternalServerError, err.Error())
+}
+
 // handleOperatorRequest serves POST /api/windows/{windowId}/operator-request —
 // hands the server's operator window a templated work item ABOUT the subject
 // window ({windowId}), delivered via the existing chat-send injection
@@ -845,7 +862,7 @@ func (s *Server) handleOperatorRequest(w http.ResponseWriter, r *http.Request) {
 	sess, err := s.sessions.FetchSessions(r.Context(), server)
 	if err != nil {
 		// FetchSessions itself failed — an infrastructure fault, not a missing
-		// window (mirror the chat endpoints' 500).
+		// window (mirror handleSessionsList's 500).
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -880,8 +897,8 @@ func (s *Server) handleOperatorRequest(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if errors.Is(err, chat.ErrInvalidRef) || errors.Is(err, chat.ErrTranscriptNotFound) {
-			// ErrInvalidRef / ErrTranscriptNotFound map to the same 404-class
-			// vocabulary as the chat read endpoints.
+			// ErrInvalidRef / ErrTranscriptNotFound map to the 404-class read-error
+			// vocabulary (writeChatReadError).
 			s.writeChatReadError(w, err)
 			return
 		}

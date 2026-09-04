@@ -1,5 +1,6 @@
 # Archived Changes
 
+- **260904-75c8-damp-git-fallback-storm** — Damp the Serial Git-Fallback Storm in FetchSessions
 - **260904-p2kp-servers-probe-timeout-batch-reads** — Servers Probe-Timeout Fix + Batched Per-Server Reads
 - **260904-jjda-ssehub-races-cold-subscribe-wake** — sseHub Race Fixes + Wake on Cold Subscribe
 - **260904-f6h4-test-socket-file-hygiene** — Test-Socket File Hygiene

@@ -5,14 +5,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
+
+	"github.com/creack/pty"
 
 	"rk/internal/testutil"
 	"rk/internal/tmux"
@@ -577,27 +581,20 @@ func TestStop_TimeoutStuckSessionIsKilled(t *testing.T) {
 	}
 }
 
-// TestStop_CopyModePaneStopsGracefully is the regression test for the shipped
-// copy-mode bug: a daemon pane left in tmux copy-mode consumes C-c via the mode
-// key table (copy-mode binds C-c → cancel) instead of delivering it to the serve
-// process, so `send-keys C-c` never reaches the process and graceful shutdown
-// silently fails. Stop()'s new copy-mode pre-cancel exits the mode first so the
-// interrupt is injected literally and the process gets SIGINT.
+// TestStop_CopyModePaneStopsGracefully guards the copy-mode wedge: a daemon
+// pane left in tmux copy-mode does not receive C-c as a literal key (the mode
+// key table intercepts it), which historically made graceful shutdown silently
+// fail. Signal-first delivery covers the state outright — SIGINT to the pane
+// PID is mode-independent — and the fallback keeps its copy-mode pre-cancel
+// for panes the signal path cannot reach.
 //
 // The fixture (startIntHonoringOn) HONORS SIGINT but otherwise stays alive
 // forever, so the ONLY way the session vanishes is a real SIGINT delivery. We
 // drive its pane into copy-mode, then call Stop() with a generous grace period
-// (3s) and a tight poll interval (20ms). With the fix, the pre-cancel exits the
-// mode, C-c reaches the process, and the session vanishes in the happy-path poll
-// loop within a few ms — WELL under grace. We assert both the session is gone AND
+// (3s) and a tight poll interval (20ms). We assert both the session is gone AND
 // Stop() returned far under the grace period, so the success came from graceful
-// C-c delivery, not the grace-expiry kill fallback.
-//
-// Why this FAILS against pre-fix daemon.go: without the pre-cancel the C-c is
-// consumed by copy-mode (send-keys still exits 0 in this no-attached-client test
-// env, so the early-return bug isn't even reached), the process never gets
-// SIGINT, and the session survives until the 3s grace timer fires the kill —
-// making elapsed ≈ grace and tripping the elapsed assertion.
+// delivery, not the grace-expiry kill fallback (a copy-mode-wedged stop makes
+// elapsed ≈ grace and trips the elapsed assertion).
 func TestStop_CopyModePaneStopsGracefully(t *testing.T) {
 	if !hasTmux() {
 		t.Skip("tmux not in PATH")
@@ -643,17 +640,17 @@ func TestStop_CopyModePaneStopsGracefully(t *testing.T) {
 // TestStop_SendFailureFallsThroughToKill is the regression test for the
 // compounding bug: Stop() early-returned on a send-keys failure, so its
 // grace-timer → kill-session fallback never ran and Stop() (plus restart, rk
-// update, POST /api/restart) wedged whenever the graceful C-c could not be
-// delivered.
+// update, POST /api/restart) wedged whenever graceful delivery could not
+// happen.
 //
-// Reproducing the exact "client is read-only" dispatch rejection in-test is
-// heavyweight (it needs an attached read-only `-CC` client). We instead force a
-// deterministic send-keys failure with a wrong-window-name proxy: the session is
-// started with its window named "other", so the target Stop() computes
-// (`=<session>:=serve`) does not resolve for send-keys or the copy-mode
-// pre-cancel ("can't find window: serve") — while has-session and kill-session
-// against `=<session>` still succeed. Both the pre-cancel and the C-c send fail;
-// with the fix both are non-fatal and Stop() falls through to the kill branch.
+// The wrong-window-name proxy fails EVERY graceful rung deterministically: the
+// session is started with its window named "other", so the target Stop()
+// computes (`=<session>:=serve`) resolves for none of the PID lookup, the
+// copy-mode pre-cancel, or the C-c send ("can't find window: serve") — while
+// has-session and kill-session against `=<session>` still succeed. All rungs
+// must be non-fatal so Stop() falls through to the kill branch.
+// (The read-only "client is read-only" rejection itself is reproduced by
+// TestStop_ReadOnlyControlClientStopsGracefully.)
 //
 // withStopTiming's nanosecond grace forces the kill branch immediately (like
 // TestStop_TimeoutStuckSessionIsKilled). Pre-fix code returned the wrapped
@@ -686,6 +683,274 @@ func TestStop_SendFailureFallsThroughToKill(t *testing.T) {
 	}
 	if IsRunning() {
 		t.Error("IsRunning() = true after Stop(); the kill fallback should have removed the session")
+	}
+}
+
+// withInnerServePIDFor stubs the session-parameterized PID-lookup seam Stop()
+// uses for signal-first delivery, restoring it on cleanup.
+func withInnerServePIDFor(t *testing.T, fn func(session string) (int, error)) {
+	t.Helper()
+	orig := innerServePIDForFn
+	innerServePIDForFn = fn
+	t.Cleanup(func() { innerServePIDForFn = orig })
+}
+
+// withSignalPID stubs the signal-delivery seam and restores it on cleanup.
+func withSignalPID(t *testing.T, fn func(pid int, sig syscall.Signal) error) {
+	t.Helper()
+	orig := signalPID
+	signalPID = fn
+	t.Cleanup(func() { signalPID = orig })
+}
+
+// attachReadOnlyControlClient attaches a read-only control-mode client
+// (`tmux -CC attach-session -r`) to the session through a PTY — the exact
+// client shape run-kit's own tmuxctl bridge holds against the production
+// daemon socket (internal/tmuxctl productionDial). Blocks until tmux reports
+// an attached read-only client so the wedge state is established before the
+// test proceeds. Client, PTY, and drain goroutine are torn down on cleanup.
+func attachReadOnlyControlClient(t *testing.T, socket, session string) {
+	t.Helper()
+	cmd := exec.Command("tmux", "-L", socket, "-CC", "attach-session", "-t", "="+session, "-r")
+	ptmx, err := pty.Start(cmd)
+	if err != nil {
+		t.Fatalf("pty.Start(-CC attach -r) error: %v", err)
+	}
+	// Drain the control client's output so it never blocks on a full PTY
+	// buffer; the copy ends when the PTY is closed in cleanup.
+	go func() { _, _ = io.Copy(io.Discard, ptmx) }()
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = ptmx.Close()
+		_ = cmd.Wait()
+	})
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		out, err := exec.Command("tmux", "-L", socket, "list-clients",
+			"-t", "="+session, "-F", "#{client_readonly}").Output()
+		if err == nil && strings.Contains(string(out), "1") {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("read-only -CC client did not attach within 5s")
+}
+
+// TestStop_ReadOnlyControlClientStopsGracefully is the regression test for the
+// production wedge this package's signal-first delivery exists to fix: with the
+// session's only attached client being a read-only `-CC` control client (the
+// tmuxctl bridge's shape), tmux rejects `send-keys … C-c` with "client is
+// read-only" — on tmux ≥3.7 outright, whether or not the pane is in a mode —
+// so key-based graceful delivery can never reach the serve process and every
+// stop used to burn the full grace period before the kill fallback. The pane
+// is additionally driven into copy-mode to compound the state with the
+// previously-shipped wedge.
+//
+// The fixture honors SIGINT but never self-exits, so the session vanishing
+// quickly proves a real signal delivery. Pre-fix code (C-c-first) fails the
+// elapsed assertion: the rejected send leaves the process running until the
+// grace-expiry kill, making elapsed ≈ grace.
+func TestStop_ReadOnlyControlClientStopsGracefully(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not in PATH")
+	}
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	useTestSocket(t)
+	withServerSocket(t, testSocket)
+	grace := 3 * time.Second
+	withStopTiming(t, grace, 20*time.Millisecond)
+
+	if err := startIntHonoringOn(testSocket, SessionName); err != nil {
+		t.Fatalf("startIntHonoringOn() error: %v", err)
+	}
+	attachReadOnlyControlClient(t, testSocket, SessionName)
+	if err := enterCopyModeOn(testSocket, SessionName); err != nil {
+		t.Fatalf("enterCopyModeOn() error: %v", err)
+	}
+
+	start := time.Now()
+	if err := Stop(); err != nil {
+		t.Fatalf("Stop() = %v; a read-only -CC client must not break graceful shutdown", err)
+	}
+	elapsed := time.Since(start)
+
+	if IsRunning() {
+		t.Error("IsRunning() = true after Stop(); the process should have received SIGINT and exited")
+	}
+	if elapsed >= grace/2 {
+		t.Errorf("Stop() took %v (grace=%v); expected signal-first delivery well under grace — "+
+			"a near-grace stop means graceful delivery failed and only the kill fallback stopped the session", elapsed, grace)
+	}
+}
+
+// TestStop_SignalFirstStopsQuickly proves the happy path: Stop() resolves the
+// pane PID and delivers SIGINT through the signal seam, and the session is
+// gone well before the grace deadline. The recording stub delegates to the
+// real syscall.Kill so delivery (not just the call) is verified.
+func TestStop_SignalFirstStopsQuickly(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not in PATH")
+	}
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	useTestSocket(t)
+	withServerSocket(t, testSocket)
+	grace := 3 * time.Second
+	withStopTiming(t, grace, 20*time.Millisecond)
+
+	calls := 0
+	gotPID := 0
+	var gotSig syscall.Signal
+	withSignalPID(t, func(pid int, sig syscall.Signal) error {
+		calls++
+		gotPID, gotSig = pid, sig
+		return syscall.Kill(pid, sig)
+	})
+
+	if err := startIntHonoringOn(testSocket, SessionName); err != nil {
+		t.Fatalf("startIntHonoringOn() error: %v", err)
+	}
+
+	start := time.Now()
+	if err := Stop(); err != nil {
+		t.Fatalf("Stop() = %v", err)
+	}
+	elapsed := time.Since(start)
+
+	if calls != 1 {
+		t.Errorf("signalPID called %d times, want 1", calls)
+	}
+	if gotPID <= 0 {
+		t.Errorf("signalPID pid = %d, want a real pane PID", gotPID)
+	}
+	if gotSig != syscall.SIGINT {
+		t.Errorf("signalPID sig = %v, want SIGINT", gotSig)
+	}
+	if IsRunning() {
+		t.Error("IsRunning() = true after Stop()")
+	}
+	if elapsed >= grace/2 {
+		t.Errorf("Stop() took %v (grace=%v); signal-first delivery should finish well under grace", elapsed, grace)
+	}
+}
+
+// TestStop_PIDFailureFallsBackToKeys pins the first rung of the fallback
+// ladder: when the pane PID cannot be resolved, Stop() falls back to tmux key
+// delivery, which still stops a SIGINT-honoring process quickly (no attached
+// read-only client in this environment, so send-keys works).
+func TestStop_PIDFailureFallsBackToKeys(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not in PATH")
+	}
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	useTestSocket(t)
+	withServerSocket(t, testSocket)
+	grace := 3 * time.Second
+	withStopTiming(t, grace, 20*time.Millisecond)
+
+	withInnerServePIDFor(t, func(string) (int, error) {
+		return 0, errors.New("stub: pane pid unavailable")
+	})
+
+	if err := startIntHonoringOn(testSocket, SessionName); err != nil {
+		t.Fatalf("startIntHonoringOn() error: %v", err)
+	}
+
+	start := time.Now()
+	if err := Stop(); err != nil {
+		t.Fatalf("Stop() = %v; a PID-lookup failure must degrade to key delivery, not abort", err)
+	}
+	elapsed := time.Since(start)
+
+	if IsRunning() {
+		t.Error("IsRunning() = true after Stop(); the C-c fallback should have stopped the session")
+	}
+	if elapsed >= grace/2 {
+		t.Errorf("Stop() took %v (grace=%v); the key fallback should deliver well under grace here", elapsed, grace)
+	}
+}
+
+// TestStop_SignalFailureFallsBackToKeys pins the second rung: PID resolution
+// succeeds but the kill syscall fails, and Stop() degrades to key delivery.
+func TestStop_SignalFailureFallsBackToKeys(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not in PATH")
+	}
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	useTestSocket(t)
+	withServerSocket(t, testSocket)
+	grace := 3 * time.Second
+	withStopTiming(t, grace, 20*time.Millisecond)
+
+	withSignalPID(t, func(pid int, sig syscall.Signal) error {
+		return errors.New("stub: kill refused")
+	})
+
+	if err := startIntHonoringOn(testSocket, SessionName); err != nil {
+		t.Fatalf("startIntHonoringOn() error: %v", err)
+	}
+
+	start := time.Now()
+	if err := Stop(); err != nil {
+		t.Fatalf("Stop() = %v; a signal failure must degrade to key delivery, not abort", err)
+	}
+	elapsed := time.Since(start)
+
+	if IsRunning() {
+		t.Error("IsRunning() = true after Stop(); the C-c fallback should have stopped the session")
+	}
+	if elapsed >= grace/2 {
+		t.Errorf("Stop() took %v (grace=%v); the key fallback should deliver well under grace here", elapsed, grace)
+	}
+}
+
+// TestStop_LegacySessionSignalDelivery proves the signal path targets the
+// RESOLVED session: a legacy-named (`rk`) daemon's pane PID is looked up via
+// targetFor(session), not the current-name target.
+func TestStop_LegacySessionSignalDelivery(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not in PATH")
+	}
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	useTestSocket(t)
+	withServerSocket(t, testSocket)
+	grace := 3 * time.Second
+	withStopTiming(t, grace, 20*time.Millisecond)
+
+	calls := 0
+	withSignalPID(t, func(pid int, sig syscall.Signal) error {
+		calls++
+		return syscall.Kill(pid, sig)
+	})
+
+	if err := startIntHonoringOn(testSocket, LegacySessionName); err != nil {
+		t.Fatalf("startIntHonoringOn(legacy) error: %v", err)
+	}
+
+	start := time.Now()
+	if err := Stop(); err != nil {
+		t.Fatalf("Stop() = %v", err)
+	}
+	elapsed := time.Since(start)
+
+	if calls != 1 {
+		t.Errorf("signalPID called %d times, want 1 (legacy session PID must resolve)", calls)
+	}
+	if IsRunning() {
+		t.Error("IsRunning() = true after Stop(); the legacy session should be gone")
+	}
+	if elapsed >= grace/2 {
+		t.Errorf("Stop() took %v (grace=%v); legacy-session signal delivery should finish well under grace", elapsed, grace)
 	}
 }
 

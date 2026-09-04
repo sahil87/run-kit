@@ -3,19 +3,27 @@
 > The terminal route's center becomes a **layout manager**: one to three tiles,
 > each rendering a **surface** (a (substrate, lens) pair per
 > [`right-panel.md`](right-panel.md)), arranged by a **preset shape** with a
-> **surface order** and per-viewer **ratios**. This spec is **[target]**
-> throughout — it generalizes [`window-views.md`](window-views.md)'s exclusive
+> **surface order** and per-viewer **ratios**. This spec is **[current]** —
+> shipped by `260812-ab5v-surface-layout-core` and follow-ons (toggles
+> relocated to the top bar: `260815-19me`; mobile switch group: `260816-ox16`;
+> option-driven shared layout state `@rk_win_layout`: `260828-iip5` — see
+> [`ui-state.md`](ui-state.md)). It generalizes
+> [`window-views.md`](window-views.md)'s exclusive
 > main slot and subsumes [`right-panel.md`](right-panel.md)'s panel slot. It
 > was designed in a `/fab-discuss` session on 2026-08-12; the execution plan
 > lives at [`fab/plans/sahil/26-08-12-surface-layout.md`](../../fab/plans/sahil/26-08-12-surface-layout.md).
+> Where this spec says "rail buttons"/"rail toggles", read the top bar's
+> `surface-toggles` group — the right rail was retired by `260815-19me`, which
+> relocated the open-tile toggles into the top bar.
 >
 > Companions: [`window-views.md`](window-views.md) (lenses, availability
 > derivation — R1–R3 and R5–R7 carry over (R1 and R3 amended by
 > `260821-zqlq`: web is unconditionally available and `@rk_win_url` selects its
 > content; R4's switcher is retired
-> here), [`right-panel.md`](right-panel.md) (surfaces, the rail, companions —
-> P6 and the panel-slot mechanics are superseded here; the rail, availability,
-> companions, and P4 carry forward), [`agent-state.md`](agent-state.md),
+> here), [`right-panel.md`](right-panel.md) (surfaces, companions —
+> P6 and the panel-slot mechanics are superseded here; availability,
+> companions, and P4 carry forward; the rail did NOT survive —
+> `260815-19me` moved its toggles into the top bar), [`agent-state.md`](agent-state.md),
 > [`status-pyramid.md`](status-pyramid.md) (untouched — status describes
 > substrates, never tiles).
 

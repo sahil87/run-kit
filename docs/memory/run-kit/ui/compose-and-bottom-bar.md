@@ -135,7 +135,7 @@ In fullbleed mode, `globals.css` pins the **`.app-root` root layout container** 
 
 ### Bottom bar hides by early-return (unmount), not display-level hiding
 **Decision**: `BottomBar` returns `null` when `coarse && composeStripFocused`.
-**Why**: Unmount also tears down the armed-modifier capture-phase `keydown` listener, which must not intercept keystrokes typed into the compose textarea; the bar holds no state worth preserving across a compose session (armed modifiers auto-clear by design). Divergence from the right panel's display-level hide precedent is deliberate — that panel keeps iframe state; the bar has none.
+**Why**: Unmount also tears down the armed-modifier capture-phase `keydown` listener, which must not intercept keystrokes typed into the compose textarea; the bar holds no state worth preserving across a compose session (armed modifiers auto-clear by design). Divergence from the surface tiles' display-level hide precedent (hide-never-unmount) is deliberate — those tiles keep iframe state; the bar has none.
 **Rejected**: a `hidden` class (keeps the armed-modifier capture listener alive while composing — an interception hazard, not a benefit).
 *Introduced by*: 260814-ink6-mobile-compose-collapse-newline-chip
 

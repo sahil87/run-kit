@@ -16,7 +16,7 @@ import (
 )
 
 // rk mux send <target> — deliver a message into an agent's tmux pane, gated on
-// the pane's @rk_agent_state, with novelty-probed delivery (the chat-send
+// the pane's @rk_agent_state, with novelty-probed delivery (the agent-send
 // injection engine in internal/inject — named-buffer bracketed paste, novelty
 // echo probe, probe-gated Enter, post-Enter observation, bounded
 // recovery — never fab pane send's blind send-keys + trailing Enter). No daemon
@@ -130,7 +130,7 @@ var (
 	// tests can feed a buffer).
 	muxStdinFn = func() io.Reader { return os.Stdin }
 	// muxBufferNameFn derives the CLI's per-invocation buffer name (never the
-	// daemon's rk-chat-send — a CLI send can never clobber a concurrent daemon
+	// daemon's rk-agent-send — a CLI send can never clobber a concurrent daemon
 	// send's buffer). A var so tests get a stable name.
 	muxBufferNameFn = func() string { return fmt.Sprintf("rk-send-%d", os.Getpid()) }
 )

@@ -13,8 +13,8 @@ import { detectPlatform, formatCombo } from "./keybindings";
  *     terminal: staged text visibly lands in the pane's composer (Claude Code
  *     treats a raw `"\n"` as newline-insert), so consecutive Enters stage
  *     sentence-per-line exactly like typing into the pane itself.
- *   - `"chat"` — plain Enter = newline (the textarea default, unchanged from
- *     260801-hsxm). The selection broadcast addresses a FROZEN, possibly
+ *   - `"broadcast"` — plain Enter = newline (the textarea default, unchanged
+ *     from 260801-hsxm). The selection broadcast addresses a FROZEN, possibly
  *     cross-server recipient set — there is no single visible pane the staged
  *     text could land in, so Enter-as-insert here would make typed text
  *     visibly vanish.
@@ -41,8 +41,8 @@ export type ComposeEnterAction = "submit" | "insert" | "insert-line" | "default"
 
 /** Which input mode is asking — the strip's normal and broadcast modes
  * deliberately diverge on plain Enter (see the header comment for the
- * rationale). The `"chat"` value names the no-visible-pane policy. */
-export type ComposeSurface = "strip" | "chat";
+ * rationale). The `"broadcast"` value names the no-visible-pane policy. */
+export type ComposeSurface = "strip" | "broadcast";
 
 /** The subset of a keyboard event the classifier reads — structural so both
  * React synthetic events and plain objects (tests) satisfy it. */
@@ -64,7 +64,7 @@ export interface ComposeKeyInput {
  * default, alt or not (the shift-carrying chord must bubble to the global
  * zen-toggle binding, so it is never consumed here); alt → insert; shift →
  * default (local newline); plain Enter → insert-line on the strip, default
- * (newline) in chat.
+ * (newline) in broadcast.
  */
 export function classifyComposeEnter(
   key: ComposeKeyInput,

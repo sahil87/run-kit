@@ -56,7 +56,7 @@ func operatorQueueSnapshot(state string) []sessions.ProjectSession {
 		}},
 		{Name: "operator", Windows: []tmux.WindowInfo{
 			{WindowID: "@9", Name: "operator", Role: "operator", AgentState: state,
-				Panes: []tmux.PaneInfo{{PaneID: "%9", IsActive: true, ChatProvider: "claude", ChatSessionRef: testChatRef}}},
+				Panes: []tmux.PaneInfo{{PaneID: "%9", IsActive: true, ChatProvider: "claude", ChatSessionRef: testTranscriptRef}}},
 		}},
 	}
 }
@@ -184,8 +184,8 @@ func TestOperatorQueueExpiresWhileOperatorWaits(t *testing.T) {
 }
 
 func TestOperatorQueueDeliveryFailurePolicy(t *testing.T) {
-	fastChatSendProbe(t)
-	stageFixtureTranscript(t, testChatRef)
+	fastAgentSendProbe(t)
+	stageFixtureTranscript(t, testTranscriptRef)
 
 	t.Run("busy returns entry to head", func(t *testing.T) {
 		fetcher := &operatorQueueSessionFetcher{result: operatorSessions(tmux.AgentStateActive)}
@@ -207,8 +207,8 @@ func TestOperatorQueueDeliveryFailurePolicy(t *testing.T) {
 		if got := fetcher.callCount(); got != 1 {
 			t.Fatalf("fresh fetch calls = %d, want 1", got)
 		}
-		if len(ops.chatCalls) != 0 {
-			t.Fatalf("busy delivery reached injection: %v", ops.chatCalls)
+		if len(ops.agentSendCalls) != 0 {
+			t.Fatalf("busy delivery reached injection: %v", ops.agentSendCalls)
 		}
 
 		fetcher.setResult(operatorSessions(tmux.AgentStateIdle), nil)
@@ -250,7 +250,7 @@ func TestOperatorQueueDeliveryFailurePolicy(t *testing.T) {
 		server := &Server{
 			logger:   slog.Default(),
 			sessions: fetcher,
-			tmux:     &mockTmuxOps{setChatBufferErr: errors.New("set buffer failed")},
+			tmux:     &mockTmuxOps{setAgentBufferErr: errors.New("set buffer failed")},
 			hostname: "host",
 		}
 		tracker, _ := newTestOperatorQueueTracker()
@@ -311,8 +311,8 @@ func TestOperatorQueueWiring(t *testing.T) {
 }
 
 func TestOperatorQueueDeliveryRendersFromFreshSnapshot(t *testing.T) {
-	fastChatSendProbe(t)
-	stageFixtureTranscript(t, testChatRef)
+	fastAgentSendProbe(t)
+	stageFixtureTranscript(t, testTranscriptRef)
 	fresh := operatorSessions(tmux.AgentStateIdle)
 	fresh[0].Windows[0].Name = "fresh-name"
 	fetcher := &operatorQueueSessionFetcher{result: fresh}
@@ -330,16 +330,16 @@ func TestOperatorQueueDeliveryRendersFromFreshSnapshot(t *testing.T) {
 	if got := fetcher.callCount(); got != 1 {
 		t.Fatalf("fresh fetch calls = %d, want 1", got)
 	}
-	if !strings.Contains(ops.setChatBufferText, `currently "fresh-name"`) {
-		t.Fatalf("prompt did not use fresh snapshot facts:\n%s", ops.setChatBufferText)
+	if !strings.Contains(ops.setAgentBufferText, `currently "fresh-name"`) {
+		t.Fatalf("prompt did not use fresh snapshot facts:\n%s", ops.setAgentBufferText)
 	}
-	if strings.Contains(ops.setChatBufferText, "tick-name") {
-		t.Fatalf("prompt retained tick snapshot facts:\n%s", ops.setChatBufferText)
+	if strings.Contains(ops.setAgentBufferText, "tick-name") {
+		t.Fatalf("prompt retained tick snapshot facts:\n%s", ops.setAgentBufferText)
 	}
 }
 
 func TestOperatorQueueDeliveryRevalidatesGates(t *testing.T) {
-	stageFixtureTranscript(t, testChatRef)
+	stageFixtureTranscript(t, testTranscriptRef)
 	deliver := func(snapshot []sessions.ProjectSession, request queuedOperatorRequest) error {
 		server := &Server{
 			logger:   slog.Default(),

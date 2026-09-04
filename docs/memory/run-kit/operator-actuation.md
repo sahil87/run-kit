@@ -17,7 +17,7 @@ window) and the server-scoped `POST /api/operator-request?server=` (no subject
 window). The loop is **delivery + derive, nothing else**:
 the backend composes a prompt from facts it derives itself (Constitution X),
 delivers it through the shared injection machinery
-([chat](/run-kit/chat.md) § Send Path), and the operator acts through its own
+([agent-send](/run-kit/agent-send.md) § Send Path), and the operator acts through its own
 shell (e.g. `tmux rename-window`, `rk riff`); the outcome surfaces on the normal derive
 tick. There is NO persisted mailbox, NO response channel or reply parsing —
 the operator is not an RPC service. A valid request against a busy operator
@@ -160,7 +160,7 @@ worktree, rolled-up agent state + duration, fab change/stage when non-empty,
 the PR rollup `PrState`/`PrChecks`/`PrReview` filled only when `PrURL` is
 non-nil, the current label state (`Color`/`Marker`/`Flair`, `""` when unset —
 only the `color-tabs` row writer renders them), and the per-row transcript
-JSONL path via `chat.TranscriptPath` — one
+JSONL path via `transcript.Path` — one
 resolution per window filling both the row and the corpus), every non-operator
 chat-carrying window additionally into the transcript corpus, a ref that fails
 to resolve degrading to a PATH-LESS table row and an OMITTED corpus row, never
@@ -172,7 +172,7 @@ seam's valid-request-wrong-state class, same as the busy gate. Delivery goes thr
 the busy gate (`active`/`waiting` ⇒ 409 naming the state; `idle` or unknown
 proceeds), `sessions.ResolveChatPane` over the operator's panes (404
 `"operator window has no chat session"` when none), and in-process
-`s.injectIntoPane` under ONE shared `chatSendTotalBudget` deadline, a probe
+`s.injectIntoPane` under ONE shared `agentSendTotalBudget` deadline, a probe
 failure, a post-paste `StagedSendFailure` (`staged_send_failure`), and
 `SubmitUnverified` surfacing as the three distinct structured 409s the
 compose-send route
@@ -225,11 +225,11 @@ all derivable (Constitution X): the subject's `windowId` (`@N`), current `Name`,
 `WorktreePath`, `FabChange`/`FabStage` (rendered only when `FabChange` is
 non-empty), and — for a template declaring `requiresChatRef` — the transcript
 JSONL absolute path resolved from the subject's reconciled
-`ChatProvider`/`ChatSessionRef` via `chat.TranscriptPath` (the exported
-`TranscriptLocator` seam — [chat](/run-kit/chat.md) § Adapter interface +
+`ChatProvider`/`ChatSessionRef` via `transcript.Path` (the exported
+`TranscriptLocator` seam — [agent-send](/run-kit/agent-send.md) § Adapter interface +
 provider registry). A subject with no reconciled chat session is a 404-class
 error (`"no chat session for this window"`); an unresolvable transcript
-(`ErrInvalidRef`/`ErrTranscriptNotFound`) maps through `writeChatReadError`,
+(`ErrInvalidRef`/`ErrTranscriptNotFound`) maps through `writeTranscriptError`,
 the same 404-class vocabulary as the chat read endpoints; `ErrNoAdapter` is a
 404 naming the provider.
 
@@ -249,7 +249,7 @@ busy (<state>) — request not delivered; try again when it is idle"`). `idle`
 or empty/unknown ⇒ proceed — the novelty echo probe is the final fail-closed
 pre-Enter guard, exactly as for the compose-send route. This is deliberately
 UNLIKE
-the compose send's allow+probe busy policy ([chat](/run-kit/chat.md) § Design
+the compose send's allow+probe busy policy ([agent-send](/run-kit/agent-send.md) § Design
 Decisions → Allow + probe busy policy): a request is work handed over, not a
 steer a human typed. The gate is the fail-closed floor inside
 `deliverOperatorPrompt` for EVERY delivery through the core — the HTTP
@@ -265,7 +265,7 @@ routes; a queue-full refusal maps to `409 "operator queue is full"`. Every
 other validation outcome stays fail-fast at request time (400s, 404s, the
 `requiresWaiting` zero-waiting 409) and enqueues nothing. Transcript-resolution
 and injection errors return RAW so
-the handler's `errors.Is`/`errors.As` mappings (`writeChatReadError`
+the handler's `errors.Is`/`errors.As` mappings (`writeTranscriptError`
 vocabulary, `inject.ProbeFailure` → 409, `inject.StagedSendFailure` → 409
 `staged_send_failure`, `inject.SubmitUnverified` → 409) apply.
 The auto-name caller
@@ -294,7 +294,7 @@ never the window, never the subject's pane). An operator window with no
 reconciled chat pane ⇒ `404` (`"operator window has no chat session"` — an
 operator that isn't a live agent can't receive requests). The engine semantics
 are handler-boundary sanitize, per-(server,paneID)
-whole-sequence lock, ONE shared deadline (`chatSendTotalBudget`, applied
+whole-sequence lock, ONE shared deadline (`agentSendTotalBudget`, applied
 INSIDE the core so both callers get identical injection bounding) threading all
 subprocesses, novelty echo probe, post-Enter observation, and evidence-gated
 recovery. `inject.ProbeFailure` returns the staged-text `409` with Enter withheld;
@@ -453,7 +453,7 @@ re-derives everything from that result — it retains NO reference to the tick's
 shared sessions slice (later cache-hit ticks mutate it, an unsynchronized
 read/write race). From the fresh result it re-runs the same gates the live
 path runs (subject window alive and not the operator; chat ref resolvable via
-`chat.TranscriptPath` for `requiresChatRef` templates; `requiresWaiting` still
+`transcript.Path` for `requiresChatRef` templates; `requiresWaiting` still
 satisfied; `session` scope still names a live session; operator window present
 with a resolvable chat pane), re-renders via the entry's registry render func
 over freshly built facts (the same consumer-side session filtering as the
@@ -512,7 +512,7 @@ run-kit adds no backend spawn path.
 The registry's `find-discussion` entry (`serverScoped: true`,
 `acceptsText: true`) SHALL render the transcript corpus — for every
 non-operator window with a reconciled chat session: session name, `@N`, window
-name, and the absolute transcript JSONL path via `chat.TranscriptPath`
+name, and the absolute transcript JSONL path via `transcript.Path`
 (unresolvable refs omitted, per the broken-ref rule) — then the user's query
 in the delimited data block, then the instruction to search the corpus
 semantically (read tails, grep for related terms, follow context) and answer
@@ -906,7 +906,7 @@ user action across a busy window without crossing either line.
 **Rejected**: a persisted request queue/mailbox (Constitution II); a response
 channel or
 reply protocol (RPC-ifies the operator); naive `send-keys` Enter injection
-(known-flaky into agent TUIs — the chat-send machinery already solved
+(known-flaky into agent TUIs — the agent-send machinery already solved
 delivery).
 *Introduced by*: 260822-fih1-operator-request-fix-tab-name
 
@@ -937,7 +937,7 @@ into permission dialogs).
 ### Optional `TranscriptLocator` capability, not an Adapter interface change
 **Decision**: the transcript path is exposed as an optional interface the
 claude adapter implements, reached via `Lookup` + type-assert behind the
-package-level `chat.TranscriptPath`.
+package-level `transcript.Path`.
 **Why**: the core `Adapter` interface stays provider-neutral (a future
 protocol-based provider may have no on-disk transcript); the guard-bearing
 `locateTranscript` stays the single path-resolution site.

@@ -2693,14 +2693,14 @@ func SendKeys(windowID string, keys string, server string) error {
 	return err
 }
 
-// ChatSendBuffer is the named tmux paste buffer used by the chat-send injection
+// AgentSendBuffer is the named tmux paste buffer used by the agent-send injection
 // path. A NAMED buffer (rather than the anonymous top-of-stack) means loading a
-// chat message never clobbers whatever the user has on their buffer stack, and
+// message never clobbers whatever the user has on their buffer stack, and
 // the paste (-d) deletes it afterwards so the buffer set stays clean.
-const ChatSendBuffer = "rk-chat-send"
+const AgentSendBuffer = "rk-agent-send"
 
 // SetBufferCtx loads text into a NAMED tmux buffer on the specified server,
-// bounded by the CALLER's context. The chat-send handler threads ONE shared
+// bounded by the CALLER's context. The agent-send handler threads ONE shared
 // deadline through the whole injection sequence (set → paste → probe → Enter)
 // so the route stays well under the 5s route-blocking budget (code-review.md)
 // rather than granting each subprocess an independent 10s timeout. The text is
@@ -2718,11 +2718,11 @@ func SetBufferCtx(ctx context.Context, name, text string, server string) error {
 	return err
 }
 
-// SetChatSendBufferCtx is the chat-send handler's fixed-buffer form of
+// SetAgentSendBufferCtx is the agent-send handler's fixed-buffer form of
 // SetBufferCtx (the daemon's single shared buffer — the CLI uses its own
 // per-invocation buffer names via SetBufferCtx).
-func SetChatSendBufferCtx(ctx context.Context, text string, server string) error {
-	return SetBufferCtx(ctx, ChatSendBuffer, text, server)
+func SetAgentSendBufferCtx(ctx context.Context, text string, server string) error {
+	return SetBufferCtx(ctx, AgentSendBuffer, text, server)
 }
 
 // PasteBufferCtx pastes a NAMED buffer into the target PANE (not a window) on
@@ -2744,23 +2744,23 @@ func PasteBufferRawCtx(ctx context.Context, name, paneID string, server string) 
 	return err
 }
 
-// PasteChatSendBufferCtx is the chat-send handler's fixed-buffer form of
+// PasteAgentSendBufferCtx is the agent-send handler's fixed-buffer form of
 // PasteBufferCtx.
-func PasteChatSendBufferCtx(ctx context.Context, paneID string, server string) error {
-	return PasteBufferCtx(ctx, ChatSendBuffer, paneID, server)
+func PasteAgentSendBufferCtx(ctx context.Context, paneID string, server string) error {
+	return PasteBufferCtx(ctx, AgentSendBuffer, paneID, server)
 }
 
-// PasteChatSendBufferRawCtx exposes the daemon's process-wide buffer to raw-mode
+// PasteAgentSendBufferRawCtx exposes the daemon's process-wide buffer to raw-mode
 // injection. Callers must hold the engine's set-to-paste critical section so a
 // send to another pane cannot replace the buffer before this unbracketed,
 // LF-preserving paste consumes it.
-func PasteChatSendBufferRawCtx(ctx context.Context, paneID string, server string) error {
-	return PasteBufferRawCtx(ctx, ChatSendBuffer, paneID, server)
+func PasteAgentSendBufferRawCtx(ctx context.Context, paneID string, server string) error {
+	return PasteBufferRawCtx(ctx, AgentSendBuffer, paneID, server)
 }
 
 // SendEnterToPaneCtx sends a single literal Enter key to the target PANE on the
 // specified server (`send-keys -t <paneID> Enter`), bounded by the CALLER's
-// context. Used by the chat-send path to submit a pasted message ONLY after the
+// context. Used by the agent-send path to submit a pasted message ONLY after the
 // echo probe confirms it reached the live input buffer — never blindly. Targets
 // the resolved pane, not the window.
 func SendEnterToPaneCtx(ctx context.Context, paneID string, server string) error {
@@ -2919,7 +2919,7 @@ func CapturePane(paneID string, lines int, server string) (string, error) {
 }
 
 // CapturePaneCtx captures pane content (last N lines) on the specified server,
-// bounded by the CALLER's context — used by the chat-send echo probe, which
+// bounded by the CALLER's context — used by the agent-send echo probe, which
 // threads one shared deadline across all its captures so the retry loop stays
 // under the route budget. See CapturePane for the flag semantics.
 func CapturePaneCtx(ctx context.Context, paneID string, lines int, server string) (string, error) {

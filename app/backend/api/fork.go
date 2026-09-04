@@ -33,7 +33,7 @@ import (
 // riffSpawnTimeout.
 
 // forkSessionUUIDRe matches the strict Claude session-UUID shape — the SAME rule
-// as internal/chat's uuidRe. The resolved @rk_chat ref MUST pass it BEFORE it
+// as internal/transcript's uuidRe. The resolved @rk_chat ref MUST pass it BEFORE it
 // reaches the engine, because downstream it becomes part of the launcher string,
 // the one deliberately-unescaped element of the spawn shell string (Constitution
 // I). internal/riff re-checks the shape at that composition seam; this is the

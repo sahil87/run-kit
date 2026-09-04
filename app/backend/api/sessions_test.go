@@ -251,27 +251,27 @@ type mockTmuxOps struct {
 	reorderBoardNewKey       string
 	reorderBoardErr          error
 
-	// Chat-send injection primitives (260714-jdyg-chat-send). chatCalls records
+	// Agent-send injection primitives (260714-jdyg-chat-send). agentSendCalls records
 	// the ordered sequence of primitive invocations so a test can assert the
 	// baseline capture → set-buffer → paste-buffer → capture-pane → send-keys
-	// order (and that no send-keys follows a failed probe). chatMu guards ALL
-	// chat-send mock fields: the concurrency test drives two sends on separate
+	// order (and that no send-keys follows a failed probe). agentSendMu guards ALL
+	// agent-send mock fields: the concurrency test drives two sends on separate
 	// goroutines under -race, so the recorder must not itself race.
-	chatMu                sync.Mutex
-	chatCalls             []string
-	setChatBufferText     string
-	setChatBufferTexts    []string // every text passed, in order (concurrency assertions)
-	pasteChatPaneID       string
-	pasteChatPaneIDs      []string // every paste target pane, in order (cross-pane concurrency assertions)
-	pasteChatRawPaneID    string
-	sendEnterPaneID       string
-	sendEnterCalled       bool
-	sendPaneKeys          [][]string
-	setChatBufferErr      error
-	pasteChatBufferErr    error
-	pasteChatRawBufferErr error
-	sendEnterErr          error
-	sendPaneKeysErr       error
+	agentSendMu            sync.Mutex
+	agentSendCalls         []string
+	setAgentBufferText     string
+	setAgentBufferTexts    []string // every text passed, in order (concurrency assertions)
+	pasteAgentPaneID       string
+	pasteAgentPaneIDs      []string // every paste target pane, in order (cross-pane concurrency assertions)
+	pasteAgentRawPaneID    string
+	sendEnterPaneID        string
+	sendEnterCalled        bool
+	sendPaneKeys           [][]string
+	setAgentBufferErr      error
+	pasteAgentBufferErr    error
+	pasteAgentRawBufferErr error
+	sendEnterErr           error
+	sendPaneKeysErr        error
 	// capturePaneResults is consumed one entry per CapturePane call (baseline +
 	// probe retries), falling back to capturePaneResult once exhausted.
 	// capturePaneErr forces a capture failure.
@@ -289,10 +289,10 @@ type mockTmuxOps struct {
 	captureWindowHistoryResult string
 	captureWindowHistoryErr    error
 	captureWindowHistoryTarget string
-	// setChatBufferHook, when non-nil, runs INSIDE SetChatSendBuffer while the
+	// setAgentBufferHook, when non-nil, runs INSIDE SetAgentSendBuffer while the
 	// per-request work is in flight — used by the concurrency test to force an
 	// A-set/B-set/A-paste interleave and prove the critical section serializes.
-	setChatBufferHook func(text string)
+	setAgentBufferHook func(text string)
 
 	err error
 }
@@ -376,9 +376,9 @@ func (m *mockTmuxOps) SendKeys(windowID, keys, server string) error {
 	return m.err
 }
 func (m *mockTmuxOps) SendKeysToPane(ctx context.Context, paneID, server string, keys ...string) error {
-	m.chatMu.Lock()
-	defer m.chatMu.Unlock()
-	m.chatCalls = append(m.chatCalls, "send-keys "+strings.Join(keys, " "))
+	m.agentSendMu.Lock()
+	defer m.agentSendMu.Unlock()
+	m.agentSendCalls = append(m.agentSendCalls, "send-keys "+strings.Join(keys, " "))
 	m.sendPaneKeys = append(m.sendPaneKeys, append([]string{paneID}, keys...))
 	return m.sendPaneKeysErr
 }
@@ -719,15 +719,15 @@ func (m *mockTmuxOps) ReorderBoard(ctx context.Context, server, windowID, board,
 	return m.reorderBoardNewKey, nil
 }
 
-func (m *mockTmuxOps) SetChatSendBuffer(ctx context.Context, text, server string) error {
-	m.chatMu.Lock()
-	m.chatCalls = append(m.chatCalls, "set-buffer")
-	m.setChatBufferText = text
-	m.setChatBufferTexts = append(m.setChatBufferTexts, text)
-	hook := m.setChatBufferHook
-	err := m.setChatBufferErr
-	m.chatMu.Unlock()
-	// The hook runs OUTSIDE chatMu so it cannot itself provide the serialization
+func (m *mockTmuxOps) SetAgentSendBuffer(ctx context.Context, text, server string) error {
+	m.agentSendMu.Lock()
+	m.agentSendCalls = append(m.agentSendCalls, "set-buffer")
+	m.setAgentBufferText = text
+	m.setAgentBufferTexts = append(m.setAgentBufferTexts, text)
+	hook := m.setAgentBufferHook
+	err := m.setAgentBufferErr
+	m.agentSendMu.Unlock()
+	// The hook runs OUTSIDE agentSendMu so it cannot itself provide the serialization
 	// under test — the only serialization is the handler's package mutex around
 	// the set → paste critical section.
 	if hook != nil {
@@ -735,32 +735,32 @@ func (m *mockTmuxOps) SetChatSendBuffer(ctx context.Context, text, server string
 	}
 	return err
 }
-func (m *mockTmuxOps) PasteChatSendBuffer(ctx context.Context, paneID, server string) error {
-	m.chatMu.Lock()
-	defer m.chatMu.Unlock()
-	m.chatCalls = append(m.chatCalls, "paste-buffer")
-	m.pasteChatPaneID = paneID
-	m.pasteChatPaneIDs = append(m.pasteChatPaneIDs, paneID)
-	return m.pasteChatBufferErr
+func (m *mockTmuxOps) PasteAgentSendBuffer(ctx context.Context, paneID, server string) error {
+	m.agentSendMu.Lock()
+	defer m.agentSendMu.Unlock()
+	m.agentSendCalls = append(m.agentSendCalls, "paste-buffer")
+	m.pasteAgentPaneID = paneID
+	m.pasteAgentPaneIDs = append(m.pasteAgentPaneIDs, paneID)
+	return m.pasteAgentBufferErr
 }
-func (m *mockTmuxOps) PasteChatSendBufferRaw(ctx context.Context, paneID, server string) error {
-	m.chatMu.Lock()
-	defer m.chatMu.Unlock()
-	m.chatCalls = append(m.chatCalls, "paste-buffer-raw")
-	m.pasteChatRawPaneID = paneID
-	return m.pasteChatRawBufferErr
+func (m *mockTmuxOps) PasteAgentSendBufferRaw(ctx context.Context, paneID, server string) error {
+	m.agentSendMu.Lock()
+	defer m.agentSendMu.Unlock()
+	m.agentSendCalls = append(m.agentSendCalls, "paste-buffer-raw")
+	m.pasteAgentRawPaneID = paneID
+	return m.pasteAgentRawBufferErr
 }
 func (m *mockTmuxOps) SendEnterToPane(ctx context.Context, paneID, server string) error {
-	m.chatMu.Lock()
-	defer m.chatMu.Unlock()
-	m.chatCalls = append(m.chatCalls, "send-keys")
+	m.agentSendMu.Lock()
+	defer m.agentSendMu.Unlock()
+	m.agentSendCalls = append(m.agentSendCalls, "send-keys")
 	m.sendEnterCalled = true
 	m.sendEnterPaneID = paneID
 	return m.sendEnterErr
 }
 func (m *mockTmuxOps) CapturePane(ctx context.Context, paneID string, lines int, server string) (string, error) {
-	m.chatMu.Lock()
-	m.chatCalls = append(m.chatCalls, "capture-pane")
+	m.agentSendMu.Lock()
+	m.agentSendCalls = append(m.agentSendCalls, "capture-pane")
 	idx := m.capturePaneCalls
 	m.capturePaneCalls++
 	ctxAware := m.capturePaneCtxAware
@@ -771,7 +771,7 @@ func (m *mockTmuxOps) CapturePane(ctx context.Context, paneID string, lines int,
 	} else {
 		result = m.capturePaneResult
 	}
-	m.chatMu.Unlock()
+	m.agentSendMu.Unlock()
 
 	if ctxAware {
 		<-ctx.Done()

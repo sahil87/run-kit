@@ -37,7 +37,7 @@ func splitAgentWindow(windowID string) []sessions.ProjectSession {
 		{Name: "s", Windows: []tmux.WindowInfo{
 			{WindowID: windowID, Panes: []tmux.PaneInfo{
 				{PaneID: "%1", IsActive: true},
-				{PaneID: "%2", IsActive: false, ChatProvider: "claude", ChatSessionRef: testChatRef},
+				{PaneID: "%2", IsActive: false, ChatProvider: "claude", ChatSessionRef: testTranscriptRef},
 			}},
 		}},
 	}
@@ -76,7 +76,7 @@ func TestWindowSendModeStrategies(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fastChatSendProbe(t)
+			fastAgentSendProbe(t)
 			ops := &mockTmuxOps{capturePaneResults: tt.captures}
 			router := NewTestRouter(slog.Default(), &mockSessionFetcher{result: activePaneWindow("@1")}, ops, "host")
 			rec := httptest.NewRecorder()
@@ -85,11 +85,11 @@ func TestWindowSendModeStrategies(t *testing.T) {
 			if rec.Code != http.StatusOK {
 				t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 			}
-			if got := strings.Join(ops.chatCalls, ","); got != strings.Join(tt.want, ",") {
-				t.Fatalf("calls = %v, want %v", ops.chatCalls, tt.want)
+			if got := strings.Join(ops.agentSendCalls, ","); got != strings.Join(tt.want, ",") {
+				t.Fatalf("calls = %v, want %v", ops.agentSendCalls, tt.want)
 			}
-			if tt.name == "raw" && (ops.setChatBufferText != "a\tb\nc" || ops.pasteChatRawPaneID != "%2") {
-				t.Fatalf("raw delivery = text %q pane %q", ops.setChatBufferText, ops.pasteChatRawPaneID)
+			if tt.name == "raw" && (ops.setAgentBufferText != "a\tb\nc" || ops.pasteAgentRawPaneID != "%2") {
+				t.Fatalf("raw delivery = text %q pane %q", ops.setAgentBufferText, ops.pasteAgentRawPaneID)
 			}
 			if tt.name == "enter" && ops.sendEnterPaneID != "%2" {
 				t.Fatalf("Enter pane = %q, want %%2", ops.sendEnterPaneID)
@@ -123,8 +123,8 @@ func TestWindowSendBadRequestsDoNotTouchTmux(t *testing.T) {
 			if rec.Code != http.StatusBadRequest {
 				t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
 			}
-			if len(ops.chatCalls) != 0 {
-				t.Fatalf("tmux calls = %v, want none", ops.chatCalls)
+			if len(ops.agentSendCalls) != 0 {
+				t.Fatalf("tmux calls = %v, want none", ops.agentSendCalls)
 			}
 		})
 	}
@@ -138,8 +138,8 @@ func TestWindowSendMissingWindow404(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body.String())
 	}
-	if len(ops.chatCalls) != 0 {
-		t.Fatalf("tmux calls = %v, want none", ops.chatCalls)
+	if len(ops.agentSendCalls) != 0 {
+		t.Fatalf("tmux calls = %v, want none", ops.agentSendCalls)
 	}
 }
 
@@ -153,8 +153,8 @@ func TestWindowSendAgentTargetResolvesAgentPane(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
-	if ops.pasteChatRawPaneID != "%2" {
-		t.Fatalf("raw delivery pane = %q, want %%2 (the agent pane)", ops.pasteChatRawPaneID)
+	if ops.pasteAgentRawPaneID != "%2" {
+		t.Fatalf("raw delivery pane = %q, want %%2 (the agent pane)", ops.pasteAgentRawPaneID)
 	}
 }
 
@@ -168,8 +168,8 @@ func TestWindowSendAgentTargetNoAgent404(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body.String())
 	}
-	if len(ops.chatCalls) != 0 {
-		t.Fatalf("tmux calls = %v, want none", ops.chatCalls)
+	if len(ops.agentSendCalls) != 0 {
+		t.Fatalf("tmux calls = %v, want none", ops.agentSendCalls)
 	}
 }
 
@@ -183,8 +183,8 @@ func TestWindowSendDefaultTargetsActivePane(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
-	if ops.pasteChatRawPaneID != "%1" {
-		t.Fatalf("raw delivery pane = %q, want %%1 (the active pane)", ops.pasteChatRawPaneID)
+	if ops.pasteAgentRawPaneID != "%1" {
+		t.Fatalf("raw delivery pane = %q, want %%1 (the active pane)", ops.pasteAgentRawPaneID)
 	}
 }
 
@@ -198,7 +198,7 @@ func TestWindowSendFetchError500(t *testing.T) {
 }
 
 func TestWindowSendInjectionError500(t *testing.T) {
-	ops := &mockTmuxOps{pasteChatRawBufferErr: errors.New("paste failed")}
+	ops := &mockTmuxOps{pasteAgentRawBufferErr: errors.New("paste failed")}
 	router := NewTestRouter(slog.Default(), &mockSessionFetcher{result: activePaneWindow("@1")}, ops, "host")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, windowSendReq("@1", `{"text":"hello","mode":"raw"}`))
@@ -208,7 +208,7 @@ func TestWindowSendInjectionError500(t *testing.T) {
 }
 
 func TestWindowSendProbeFailureCode(t *testing.T) {
-	fastChatSendProbe(t)
+	fastAgentSendProbe(t)
 	ops := &mockTmuxOps{capturePaneResult: "$ "}
 	router := NewTestRouter(slog.Default(), &mockSessionFetcher{result: activePaneWindow("@1")}, ops, "host")
 	rec := httptest.NewRecorder()
@@ -220,7 +220,7 @@ func TestWindowSendProbeFailureCode(t *testing.T) {
 }
 
 func TestWindowSendSubmitUnverifiedCode(t *testing.T) {
-	fastChatSendProbe(t)
+	fastAgentSendProbe(t)
 	ops := unverifiedSubmitOps(t, "$ ", "$ hello")
 	router := NewTestRouter(slog.Default(), &mockSessionFetcher{result: activePaneWindow("@1")}, ops, "host")
 	rec := httptest.NewRecorder()
@@ -229,7 +229,7 @@ func TestWindowSendSubmitUnverifiedCode(t *testing.T) {
 }
 
 func TestWindowSendStagedFailureCode(t *testing.T) {
-	fastChatSendProbe(t)
+	fastAgentSendProbe(t)
 	ops := &mockTmuxOps{
 		capturePaneResults: []string{"$ ", "$ hello"},
 		sendEnterErr:       errors.New("client is read-only"),
@@ -261,14 +261,14 @@ func TestWindowSendFailureLogging(t *testing.T) {
 		{
 			name:      "fatal",
 			body:      `{"text":"hello","mode":"raw"}`,
-			ops:       &mockTmuxOps{pasteChatRawBufferErr: errors.New("paste failed")},
+			ops:       &mockTmuxOps{pasteAgentRawBufferErr: errors.New("paste failed")},
 			wantLevel: "ERROR",
 			wantMode:  "raw",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fastChatSendProbe(t)
+			fastAgentSendProbe(t)
 			var logs bytes.Buffer
 			logger := slog.New(slog.NewJSONHandler(&logs, nil))
 			router := NewTestRouter(logger, &mockSessionFetcher{result: activePaneWindow("@1")}, tt.ops, "host")

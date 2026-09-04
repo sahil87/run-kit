@@ -18,19 +18,19 @@ function key(overrides: Partial<ComposeKeyInput> = {}): ComposeKeyInput {
   };
 }
 
-const SURFACES: ComposeSurface[] = ["strip", "chat"];
+const SURFACES: ComposeSurface[] = ["strip", "broadcast"];
 
 // 260802-lj98 policy: the classifier is surface-parameterized and the surfaces
 // DELIBERATELY diverge on plain Enter — insert-line on the strip (transmit
-// text + "\n"), the textarea default (newline) in chat. Everything else is
+// text + "\n"), the textarea default (newline) in broadcast. Everything else is
 // shared: Shift+Enter = local newline, shift-less Cmd/Ctrl+Enter = the ONLY
 // submit chord (exact on Shift — ⇧⌘⏎/⇧Ctrl+⏎ falls through for the global
 // zen-toggle chord), Alt+Enter = byte-exact insert, IME-composing Enter never
 // intercepted.
 describe("classifyComposeEnter", () => {
-  it("plain Enter diverges per surface: insert-line on the strip, default (newline) in chat", () => {
+  it("plain Enter diverges per surface: insert-line on the strip, default (newline) in broadcast", () => {
     expect(classifyComposeEnter(key(), "strip")).toBe("insert-line");
-    expect(classifyComposeEnter(key(), "chat")).toBe("default");
+    expect(classifyComposeEnter(key(), "broadcast")).toBe("default");
   });
 
   it("Cmd/Ctrl+Enter is the only submit chord on BOTH surfaces", () => {

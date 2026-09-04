@@ -56,7 +56,7 @@ The window capture format (`layoutWindowFormat`) carries the rk-owned presentati
 - `CreateWindowAtIndex(session, index, name, cwd, server)` — `new-window -d -P` at an explicit `=session:index` target.
 - `CreateWindowWithOptionsID(session, name, cwd, server, ops)` — `new-window -a` append after the session's current window; the reopen engine's fallback when the stored index is occupied (the restore engine's documented append posture, minus `MoveWindow`: a reopen never renumbers a live session's neighbours). `ops` is passed as nil at that seam — the `@rk_win_*` re-stamp runs as a follow-up `SetWindowOptions` call once the new id is known, so it degrades per-step.
 - `RenumberWindow(session, windowID, index, server)` — `move-window -s <windowID> -t =session:<index>`. Distinct from `MoveWindow`, which is a reorder-among-existing-windows primitive built on adjacent swaps and no-ops onto a free index.
-- `SelectLayout(windowID, layout, server)` — `select-layout -t <windowID> -- <layout>`; the `--` pins the layout string positionally (mirrors `set-buffer` in `SetChatSendBuffer`).
+- `SelectLayout(windowID, layout, server)` — `select-layout -t <windowID> -- <layout>`; the `--` pins the layout string positionally (mirrors `set-buffer` in `SetAgentSendBuffer`).
 - `SelectPane(paneID, server)` — `select-pane -t %N`.
 
 **Supervisor seams** (`internal/tmuxctl/supervisor.go`), all nil-safe/no-op when unwired: `Sockets() []string` (the covered-server set — `rk-test-*`/`.lock` candidates never open a Client, so the snapshotter inherits the daemon's scope filter with no new enumeration), `Generation(name) int64`, and the `OnSocketRemoved func(string)` callback invoked from `closeSocket` outside the mutex on the event-loop goroutine.

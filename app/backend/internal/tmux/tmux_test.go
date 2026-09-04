@@ -3401,14 +3401,14 @@ func TestExactSessionTarget(t *testing.T) {
 	}
 }
 
-// TestSetChatSendBuffer_LeadingDash is the live regression test for the `--`
-// option terminator in SetChatSendBufferCtx. Without `--`, a message that starts
+// TestSetAgentSendBuffer_LeadingDash is the live regression test for the `--`
+// option terminator in SetAgentSendBufferCtx. Without `--`, a message that starts
 // with a dash (e.g. "--force is broken") is parsed by tmux set-buffer as flags
 // and the command hard-fails; with `--`, the text is stored verbatim as the
-// positional buffer data. It stores such text through SetChatSendBufferCtx, then
+// positional buffer data. It stores such text through SetAgentSendBufferCtx, then
 // reads the named buffer back with `show-buffer -b` and asserts the round-trip
 // is byte-for-byte the original. Skips when tmux is unavailable.
-func TestSetChatSendBuffer_LeadingDash(t *testing.T) {
+func TestSetAgentSendBuffer_LeadingDash(t *testing.T) {
 	server := withSessionOrderTmux(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -3421,10 +3421,10 @@ func TestSetChatSendBuffer_LeadingDash(t *testing.T) {
 	}
 	for _, text := range cases {
 		t.Run(text, func(t *testing.T) {
-			if err := SetChatSendBufferCtx(ctx, text, server); err != nil {
-				t.Fatalf("SetChatSendBufferCtx(%q): %v", text, err)
+			if err := SetAgentSendBufferCtx(ctx, text, server); err != nil {
+				t.Fatalf("SetAgentSendBufferCtx(%q): %v", text, err)
 			}
-			got, err := tmuxExecRawServer(ctx, server, "show-buffer", "-b", ChatSendBuffer)
+			got, err := tmuxExecRawServer(ctx, server, "show-buffer", "-b", AgentSendBuffer)
 			if err != nil {
 				t.Fatalf("show-buffer: %v", err)
 			}

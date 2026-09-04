@@ -243,34 +243,36 @@ Send keystrokes to a window.
 { "ok": true }
 ```
 
-#### `POST /api/windows/:windowId/paste`
+#### `POST /api/windows/:windowId/send`
 
-Paste text into a window's **active pane** through tmux bracketed paste — the compose strip's transport for multi-line text (raw relay bytes carrying embedded newlines collapse in Claude Code's input; a bracketed paste lands as one literal block). Requires no chat session on the window, unlike `/chat/send`.
+Send a message into a window's resolved pane — the compose strip's single delivery door. The client names an **intent** (`mode`), never a mechanism: the handler picks the tmux strategy (bracketed paste lands multi-line text as one literal block; raw relay bytes carrying embedded newlines collapse in Claude Code's input). By default no chat session is required on the window.
 
 **Request:**
 ```json
 {
   "text": "line one\nline two",
-  "submit": true
+  "mode": "submit",
+  "target": "agent"
 }
 ```
 
 | Field | Type | Required | Validation |
 |-------|------|----------|------------|
-| `text` | `string` | yes | Control bytes stripped (`inject.Sanitize`) **before** the check; non-empty after trim |
-| `submit` | `boolean` | no | Default `true`. `false` pastes without the gated Enter (text left staged in the pane's input) |
+| `text` | `string` | yes (except `mode:"enter"`) | Control bytes stripped (`inject.Sanitize`) **before** the check; non-empty after trim |
+| `mode` | `string` | yes | `submit` (paste + probed Enter) · `insert-line` (paste, Enter withheld) · `raw` (unbracketed LF-preserving paste) · `enter` (one bare Enter, no text) |
+| `target` | `string` | no | Absent = the window's **active** pane; `"agent"` = the window's agent pane via the `@rk_pane_chat` rollup, failing closed with `404` when no pane carries chat (the selection broadcast's mode); anything else `400` |
 
 **Behavior:**
-- Resolves the window's active pane (first pane if none is flagged) from the session snapshot
-- Drives the shared `internal/inject` engine: baseline `capture-pane` → `set-buffer -b rk-chat-send -- <text>` → `paste-buffer -d -p -t <pane>` → novelty echo probe → `send-keys Enter` only on probe success **and** `submit`
+- Resolves the target pane server-side from one session snapshot (active pane by default; agent pane for `target:"agent"`)
+- Drives the shared `internal/inject` engine: baseline `capture-pane` → `set-buffer -b rk-agent-send -- <text>` → `paste-buffer -d -p -t <pane>` → novelty echo probe → `send-keys Enter` only on probe success **and** `mode:"submit"`
 - `-p` brackets only when the pane's application requested bracketed paste; a plain shell receives raw bytes
-- One shared 4s deadline bounds the whole sequence; per-`(server, pane)` serialization as for `/chat/send`
+- One shared 4s deadline bounds the whole sequence; per-`(server, pane)` serialization across all modes
 
 **Responses:**
 - `200` `{ "ok": true }`
-- `400` invalid window id · invalid JSON · empty text after sanitization
-- `404` window not found (or no panes)
-- `409` echo probe failed — Enter withheld, text remains in the pane's input (retrying would duplicate it)
+- `400` invalid window id · invalid JSON · unknown mode/target · empty text after sanitization
+- `404` window not found (or no panes) · `target:"agent"` with no chat-carrying pane
+- `409` structured injection outcomes (`probe_failure` — Enter withheld, text staged; `staged_send_failure`; `submit_unverified`) — retrying would duplicate the staged text
 - `500` session fetch or tmux subprocess failure
 
 ---

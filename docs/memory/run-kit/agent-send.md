@@ -1,18 +1,18 @@
 ---
 type: memory
-description: "Chat subsystem backend — provider registry + TranscriptLocator transcript-path resolution (ErrInvalidRef/ErrTranscriptNotFound/ErrNoAdapter sentinels, Claude UUID-guarded glob) for operator actuation, fork/resume, closed-resume, auto-name — plus the shared pane-typed injection engine (sanitized named-buffer paste, novelty echo probe, probe-gated Enter, post-Enter observation, evidence-gated recovery) behind POST /api/windows/{id}/send (incl. target:\"agent\") and the operator-request routes."
+description: "Agent-send backend — internal/transcript registry + transcript.Path resolution (ErrInvalidRef/ErrTranscriptNotFound/ErrNoAdapter, Claude UUID-guarded glob) for operator actuation, fork/resume, closed-resume, auto-name — plus the shared pane-typed injection engine (sanitized rk-agent-send buffer paste, novelty echo probe, probe-gated Enter, post-Enter observation, evidence-gated recovery) behind POST /api/windows/{id}/send (incl. target:\"agent\") and the operator-request routes."
 ---
-# Chat Subsystem
+# Agent Send
 
 **Domain**: run-kit
 
 ## Overview
 
-`internal/chat` resolves a window's reconciled `@rk_pane_chat =
+`internal/transcript` resolves a window's reconciled `@rk_pane_chat =
 <provider>:<session-ref>` (from [agent-state](/run-kit/agent-state.md) § Chat
 Session Identity) to the on-disk transcript it names. Its consumers are
 server-side derivations — the operator-request handlers (transcript fact
-pre-derivation via `TranscriptPath`,
+pre-derivation via `transcript.Path`,
 [operator-actuation](/run-kit/operator-actuation.md)), fork/resume,
 closed-resume, and auto-name dispatch. The registry routes on the provider
 prefix and the transcript read sits behind the optional `TranscriptLocator`
@@ -20,7 +20,7 @@ capability, so Codex/Gemini adapters are backend-only additions; the **Claude**
 adapter is the one registered provider. Everything derives from disk at request
 time (Constitution II).
 
-The mutating half of chat-shaped messaging is the shared `internal/inject`
+The mutating half — the agent-send path — is the shared `internal/inject`
 engine: rk *types into* the pane exactly as a human typist would — the pane
 stays the agent's parent process (Constitution VI) — via a sanitized
 named-buffer bracketed paste, a novelty echo probe, a probe-gated Enter,
@@ -47,7 +47,7 @@ The one registered provider is `claude`, from `claude.go`'s `init()`.
 Beside the core interface, `adapter.go` declares the OPTIONAL `TranscriptLocator`
 capability — `TranscriptPath(ref string) (string, error)`, resolving a session
 ref to its transcript's absolute on-disk path — plus a package-level
-`TranscriptPath(provider, ref)` convenience that routes through `Lookup` and
+`Path(provider, ref)` convenience that routes through `Lookup` and
 type-asserts to the capability, returning `ErrNoAdapter` for an unregistered
 provider or one without it. The capability stays OFF the `Adapter` interface so
 the interface remains provider-neutral (a future protocol-based provider may
@@ -89,7 +89,7 @@ operator-request seam — [operator-actuation](/run-kit/operator-actuation.md)).
 
 The mutating half of the subsystem: one shared injection engine
 (`internal/inject`) that types a message into a window's resolved pane, consumed
-by two API surfaces over the same `chatSendEngine` + `chatSendTmux` adapter pair
+by two API surfaces over the same `agentSendEngine` + `agentSendTmux` adapter pair
 (`api/send.go`). The compose strip's `POST /api/windows/{windowId}/send`
 (`handleWindowSend`) names an INTENT (`mode`) and resolves the target pane
 server-side per request — the client supplies only a windowID + text, never a
@@ -221,21 +221,21 @@ selection broadcast never lands in a non-agent shell. (260904-39bp)
 On a resolved pane the handler SHALL inject the message through the shared
 `internal/inject` engine — reached via the thin adapter seam
 (`injectIntoPane`, `api/send.go`, delegating to the package-level
-`chatSendEngine = inject.NewEngine(tmux.ChatSendBuffer)`) — running this exact
+`agentSendEngine = inject.NewEngine(tmux.AgentSendBuffer)`) — running this exact
 ordered sequence,
 every subprocess an argv slice (Constitution I) targeting the `paneID`, each
 spawned through the shared runner core with `TMUX`/`TMUX_PANE` stripped from the
 child env ([architecture](/run-kit/architecture.md) § tmux Runner Core):
 1. **Baseline capture** — `CapturePane` the pane tail BEFORE mutating anything (the
    probe floor, § Novelty echo probe).
-2. `set-buffer -b rk-chat-send -- <text>` — text as one discrete argv element (no
+2. `set-buffer -b rk-agent-send -- <text>` — text as one discrete argv element (no
    shell string, no stdin — `tmuxExecServer` has no stdin plumbing). The **`--`
    option terminator is load-bearing**: without it a message that starts with a
    dash (`--force is broken`) is parsed as `set-buffer` flags and hard-fails; with
    it, leading-dash text stores verbatim (verified tmux 3.6a). A **named** buffer
-   (`tmux.ChatSendBuffer = "rk-chat-send"`) avoids clobbering the user's anonymous
+   (`tmux.AgentSendBuffer = "rk-agent-send"`) avoids clobbering the user's anonymous
    buffer stack.
-3. `paste-buffer -d -p -b rk-chat-send -t <paneID>` — `-p` bracketed paste (the
+3. `paste-buffer -d -p -b rk-agent-send -t <paneID>` — `-p` bracketed paste (the
    Claude Code TUI enables bracketed paste, so multiline + special characters land
    as one literal block, no per-line submission); `-d` deletes the buffer after
    pasting so the buffer set stays clean.
@@ -261,7 +261,7 @@ capture, handler-boundary sanitize, named-buffer set/paste, novelty echo probe (
 probe failure still returns the structured `409`, Enter irrelevant but the text left
 recoverable in the composer), the engine's per-`(server,paneID)` whole-sequence lock
 and set→paste critical-section mutex, and the handler's single
-`chatSendTotalBudget` deadline still apply.
+`agentSendTotalBudget` deadline still apply.
 The insert-only path still requires a passing probe (the paste must have echoed); it
 just leaves the text staged in the pane's input box without pressing Enter, so a
 human — or a later submit — completes it.
@@ -419,7 +419,7 @@ submission). `Engine.SendRaw` holds that lock across set-buffer → raw paste, a
 `Engine.PressEnter` holds it across the Enter, so neither primitive can interleave
 with a probed sequence on the same pane. DISTINCT panes stay fully concurrent
 (each takes its own lock). Because
-the named tmux buffer (`rk-chat-send`) is a single server-wide resource with rk as
+the named tmux buffer (`rk-agent-send`) is a single server-wide resource with rk as
 its sole writer, the set → paste critical section is ADDITIONALLY guarded by a small
 per-engine mutex (the engine's `setPasteMu`) **nested inside** the per-pane lock — held
 only for those two fast subprocesses, including `SendRaw` — so cross-pane sends cannot interleave as
@@ -436,7 +436,7 @@ A-set / B-set / A-paste (pane A would receive B's text; B's own `-d` paste would
 
 ### Requirement: One shared injection deadline (route stays under 5s)
 The whole injection sequence — every tmux subprocess plus the probe and submit
-backoffs — SHALL run under ONE shared context deadline (`chatSendTotalBudget`,
+backoffs — SHALL run under ONE shared context deadline (`agentSendTotalBudget`,
 default `4s`, a package var only so tests can shrink it), derived from the request
 context (a client disconnect also cancels the subprocesses). The individual tmux
 primitives are the caller's-context `*Ctx` variants that do NOT each impose their
@@ -452,8 +452,8 @@ first three steps. `muxCmdTimeout` remains 5s on the CLI path.
 
 ### Requirement: Pane-targeted tmux primitives and the injection interface
 `internal/tmux` SHALL carry the pane-targeted primitives the injection needs:
-`SetChatSendBufferCtx`, bracketed `PasteChatSendBufferCtx`, raw
-`PasteChatSendBufferRawCtx`, `SendEnterToPaneCtx`, and the `ChatSendBuffer` name
+`SetAgentSendBufferCtx`, bracketed `PasteAgentSendBufferCtx`, raw
+`PasteAgentSendBufferRawCtx`, `SendEnterToPaneCtx`, and the `AgentSendBuffer` name
 constant (see [tmux-sessions](/run-kit/tmux-sessions.md)). The generic raw primitive
 is `PasteBufferRawCtx(ctx, name, paneID, server)`, issuing
 `paste-buffer -d -r -b <name> -t <pane>`: `-r` preserves LF bytes and the absence
@@ -461,8 +461,8 @@ of `-p` avoids bracketed-paste markers. `inject.Tmux` SHALL expose the matching
 `PasteBufferRaw` method beside `PasteBuffer`.
 
 `api/router.go`'s `TmuxOps` interface (with `prodTmuxOps` + the test `mockTmuxOps`)
-SHALL surface these as `SetChatSendBuffer` / `PasteChatSendBuffer` /
-`PasteChatSendBufferRaw` / `SendEnterToPane` / `SendKeysToPane` / `CapturePane` so
+SHALL surface these as `SetAgentSendBuffer` / `PasteAgentSendBuffer` /
+`PasteAgentSendBufferRaw` / `SendEnterToPane` / `SendKeysToPane` / `CapturePane` so
 the handlers are fully testable against the fake. `SendKeysToPane` is context-bound
 and sends recovery's `C-u` to the resolved pane. `SendKeys` remains the separate
 window-targeted `/keys` helper. (260830-s7wp)
@@ -476,10 +476,10 @@ window-targeted `/keys` helper. (260830-s7wp)
 ## Design Decisions
 
 ### Transcript location is the package's whole surface
-**Decision**: `internal/chat` exposes exactly the provider registry (the
+**Decision**: `internal/transcript` exposes exactly the provider registry (the
 `Provider()`-only `Adapter` interface, `Register`/`Lookup`, `ErrNoAdapter`), the
 optional `TranscriptLocator` capability with the package-level
-`TranscriptPath(provider, ref)`, the `ErrInvalidRef`/`ErrTranscriptNotFound`
+`Path(provider, ref)`, the `ErrInvalidRef`/`ErrTranscriptNotFound`
 sentinels, and the Claude adapter's UUID guard + transcript glob — no event
 schema, conversation type, backfill, or offset tail.
 **Why**: the schema/parser/backfill/tail machinery's only consumers were the
@@ -491,18 +491,48 @@ while misleading readers of the transcript-resolution path.
 *Introduced by*: 260904-0mrk-chat-lens-residual-code-trim
 
 ### Trim before rename
-**Decision**: the residual sweep shipped delete-only under the existing
-`internal/chat` package name; the renames (transcript-locator package naming, the
-agent-send cluster) are a separate follow-up change.
-**Why**: each PR stays reviewable against one question — here "is everything
-deleted consumer-free, and does every stored-layout path still heal?" — and the
-renames then operate on the already-shrunken surface.
+**Decision**: the Chat Lens residual sweep split into a delete-only trim change
+and a separate pure-rename change (the `internal/transcript` package name, the
+agent-send cluster, the `"broadcast"` compose surface).
+**Why**: each PR stays reviewable against exactly one question — "is everything
+deleted consumer-free, and does every stored-layout path still heal?" for the
+trim; "is this a pure rename — no behavior change anywhere?" for the renames —
+and the renames then operate on the already-shrunken surface.
 **Rejected**: one combined trim+rename change (same files, two review questions,
 larger diff).
 *Introduced by*: 260904-0mrk-chat-lens-residual-code-trim
 
+### Package named for what it resolves; `transcript.Path` de-stutters
+**Decision**: the transcript locator lives at `internal/transcript`; the
+package-level resolver is `transcript.Path(provider, ref)` while the
+`TranscriptLocator` interface keeps its `TranscriptPath(ref)` method.
+**Why**: post-trim the package's whole job is "resolve `provider:ref` → the
+transcript's on-disk path", and a `chat`-named package kept sending readers to a
+removed subsystem; `transcript.TranscriptPath` would stutter (Go naming idiom),
+while the interface method reads fine unqualified at its call sites.
+**Rejected**: keeping the `chat` package name (names a retired lens);
+`TranscriptPath` at package level (stutter); renaming the interface method to
+`Path` (`loc.Path(ref)` loses the "transcript path" reading, churns the adapter
+for no clarity gain).
+*Introduced by*: 260904-owue-chat-lens-residual-renames
+
+### The injection cluster is named agent-send
+**Decision**: the injection binding is agent-send end to end —
+`tmux.AgentSendBuffer = "rk-agent-send"` with the `*AgentSendBuffer*Ctx`
+primitives, the `TmuxOps` seam's `SetAgentSendBuffer`/`PasteAgentSendBuffer`/
+`PasteAgentSendBufferRaw`, and `api/send.go`'s `agentSendEngine`/
+`agentSendTmux`/`agentSendTotalBudget`.
+**Why**: the cluster serves `POST /send`'s `target:"agent"` vocabulary and the
+operator-request routes — "chat" described a removed UI, not these mechanics;
+the buffer value is transient tmux runtime state (nothing persists it; the CLI
+uses per-invocation `rk-send-<pid>` names), so renaming it is contract-free.
+**Rejected**: `compose-send` (the operator routes consume the same cluster — it
+is not compose-specific); keeping the `rk-chat-send` buffer value under renamed
+identifiers (leaves the greppable residue the sweep exists to remove).
+*Introduced by*: 260904-owue-chat-lens-residual-renames
+
 ### Window-keyed routes, server-resolved ref
-**Decision**: The chat-shaped routes key on `{windowId}` (mirroring every
+**Decision**: The agent-send routes key on `{windowId}` (mirroring every
 `/api/windows/{windowId}/*` route, `?server=` query); the backend re-resolves the
 reconciled `@rk_pane_chat` rollup server-side per request.
 **Why**: URLs carry no session UUIDs, and the backend never trusts a
@@ -513,7 +543,7 @@ applies.
 
 ### Tmux keystroke injection, not an agent SDK/API send
 **Decision**: Send types the message *into the resolved pane* — a named-buffer
-bracketed paste (`set-buffer -b rk-chat-send -- <text>` → `paste-buffer -d -p`)
+bracketed paste (`set-buffer -b rk-agent-send -- <text>` → `paste-buffer -d -p`)
 plus a probed `send-keys Enter` — rather than hosting the agent's session or
 calling a provider send API.
 **Why**: The pane stays the agent's parent process (Constitution VI); rk sends
@@ -552,7 +582,7 @@ message collapse to empty and take the existing `400` path. Stripping is strictl
 friendlier than rejecting legitimate copy-paste content that merely carries stray
 escapes, and CR-normalization (rather than bare stripping) keeps a CRLF-origin
 multiline message's line structure so it still counts as multiline.
-**Rejected**: sanitizing inside `SetChatSendBufferCtx` (wrong layer — the tmux
+**Rejected**: sanitizing inside `SetAgentSendBufferCtx` (wrong layer — the tmux
 package is a mechanism-only wrapper; future callers may legitimately need raw bytes);
 rejecting control-byte requests with a `400` (hostile to legitimate paste content).
 *Introduced by*: `260719-t9uk-chat-send-control-byte-sanitize`
@@ -701,7 +731,7 @@ bare Enter take the same per-pane lock; raw injection also takes the buffer mute
 either completes probing, Enter, observation, and recovery, merging into one
 doubled submission — the per-pane whole-sequence lock closes that window while
 keeping DISTINCT panes concurrent. The
-named buffer `rk-chat-send` is a single server-wide resource with rk as sole writer,
+named buffer `rk-agent-send` is a single server-wide resource with rk as sole writer,
 so without the nested set→paste mutex two cross-pane sends could interleave as
 A-set / B-set / A-paste (wrong text into pane A; B's `-d` paste 500s on the deleted
 buffer). Division of labour: per-pane lock = same-pane sequence ordering; global
@@ -715,7 +745,7 @@ entries (reintroduces a drop-last-reference race between two same-pane sends).
 
 ### One shared injection deadline threads all subprocesses
 **Decision**: The handler derives ONE `context.WithTimeout(r.Context(),
-chatSendTotalBudget)` (default 4s) and threads it through every step via the `*Ctx`
+agentSendTotalBudget)` (default 4s) and threads it through every step via the `*Ctx`
 tmux variants, including observation captures, `C-u`, and re-paste operations.
 **Why**: The code-review 5s route-blocking rule requires one bounded deadline for
 the entire operation. Deriving from the request context also cancels the tmux

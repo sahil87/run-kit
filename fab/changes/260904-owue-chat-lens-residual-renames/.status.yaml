@@ -1,0 +1,55 @@
+id: owue
+name: 260904-owue-chat-lens-residual-renames
+created: 2026-09-04T08:33:11Z
+created_by: sahil87
+change_type: refactor
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 4
+    acceptance_count: 11
+    acceptance_completed: 11
+confidence:
+    certain: 6
+    confident: 1
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 75.7
+        reversibility: 87.9
+        competence: 88.6
+        disambiguation: 80.7
+stage_metrics:
+    intake: {started_at: "2026-09-04T08:33:11Z", driver: fab-new, iterations: 1, completed_at: "2026-09-04T08:38:35Z"}
+    apply: {started_at: "2026-09-04T08:38:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T09:10:34Z"}
+    review: {started_at: "2026-09-04T09:10:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T09:16:38Z"}
+    hydrate: {started_at: "2026-09-04T09:16:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T09:22:40Z"}
+    ship: {started_at: "2026-09-04T09:22:40Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-04T09:22:40Z"
+    computed_at_stage: hydrate
+summary: 'Renamed the chat-lens residuals: internal/chat → internal/transcript (transcript.Path, writeTranscriptError), the chat-send cluster → agent-send (rk-agent-send buffer, tmux/seam/engine names, test doubles), ComposeSurface "chat" → "broadcast"; memory chat.md → agent-send.md with tombstone and link updates; specs/api.md /paste block replaced with the real POST /send contract'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-04T09:22:40Z

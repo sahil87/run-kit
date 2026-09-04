@@ -289,7 +289,8 @@ path.
 ### Requirement: NOVELTY echo probe (fail-closed), settle + bounded retry
 Before Enter the handler SHALL verify the pasted text ECHOED into the pane's live
 input buffer, using **novelty**, not mere presence: it counts a probe **needle**
-(and, when the paste is *collapsible*, the paste-collapse placeholder) in the
+(and, when the paste is *collapsible*, the paste-collapse placeholder; and, when
+the paste is *imageish*, the image-chip placeholder) in the
 pre-paste **baseline** capture, then requires that count to strictly INCREASE in a
 post-paste capture. The needle is derived from the LAST non-empty line of the text,
 whitespace-stripped (both needle and capture stripped of ANSI + all whitespace so
@@ -302,7 +303,18 @@ signal. `pasteCollapseRe` matches BOTH chip forms whitespace-stripped:
 `[Pasted text #N]` (long-single-line collapse), with the `+M lines` suffix optional.
 The chip counts as a successful echo ONLY when the paste is collapsible and ONLY as
 a *fresh* occurrence vs baseline; a short single-line send keeps exact-needle-only
-matching. A short settle (`inject.ProbeSettle = 80ms`)
+matching. A paste is **imageish** when the text, whitespace-trimmed, is a single
+line ending in an image extension (case-insensitive `.png`/`.jpg`/`.jpeg`/`.gif`/
+`.webp` — `isBareImagePath`): the Claude Code TUI renders exactly that paste shape
+as an `[Image #N]` chip instead of echoing the path (empirical, CC 2.1.260 — chips
+at every length for EXISTING files, beating the paste-collapse chip; `.svg`/`.bmp`,
+nonexistent paths, mixed text+path, and multiple newline-separated paths stay raw
+text). `imageCollapseRe` matches the whitespace-stripped `[Image #N]` chip, counted
+ONLY when the paste is imageish and only as a fresh occurrence vs baseline. The
+imageish arm is EITHER-signal — chip-vs-raw depends on filesystem state the engine
+cannot see, so a fresh raw-needle echo of an image path also passes; the
+attachment-only dashboard send (a bare uploaded-path line) rides this arm.
+A short settle (`inject.ProbeSettle = 80ms`)
 precedes the first capture, then up to `inject.ProbeAttempts = 8` captures with an
 `inject.ProbeGap = 80ms` gap (settle/gap are package **vars** solely so tests can
 shrink them). The wall-clock probe ceiling is about 640ms (`80 + 7*80`), shared
@@ -334,8 +346,8 @@ After each Enter the engine SHALL compare `stripForProbe`-normalized whole-pane
 captures with the echo probe's winning capture. The first changed frame SHALL
 return success immediately without claiming that submission occurred. Only a
 frame unchanged through every `SubmitBackoff` step with the paste echo still
-present under `CountOccurrences(capture, needle, collapsible)` SHALL authorize
-recovery. Any unchanged frame without that echo SHALL return
+present under `CountOccurrences(capture, needle, collapsible, imageish)` SHALL
+authorize recovery. Any unchanged frame without that echo SHALL return
 `inject.SubmitUnverified` without recovery. Context cancellation and capture
 errors during observation SHALL surface as `inject.SubmitUnverified` wrapping the
 cause — Enter was already sent, so submit-unconfirmed is the honest state.
@@ -610,11 +622,12 @@ negative posts the message twice even with a retry limit).
 
 ### Non-submission evidence reuses the echo probe predicate
 **Decision**: The unchanged-frame evidence arm checks the echo with
-`CountOccurrences(capture, needle, collapsible)`, including the paste-collapse
-chip term; the changed-frame no-claim arm remains pure whole-frame comparison.
+`CountOccurrences(capture, needle, collapsible, imageish)`, including the gated
+chip terms (paste-collapse and image); the changed-frame no-claim arm remains
+pure whole-frame comparison.
 **Why**: The evidence question must use the same predicate that established the
 echo. A chip-rendering TUI replaces a collapsed paste's raw text with a chip, while
-the chip term matches nothing on TUIs that do not render one.
+the chip terms match nothing on TUIs that do not render one.
 **Rejected**: Raw-needle-only evidence (classifies collapsed long or multi-line
 pastes as echo-absent and withholds recovery); using chip recognition in the
 changed-frame comparison (adds provider shape where none is needed).
@@ -643,6 +656,28 @@ Claude Code release can lower it silently); counting the chip unconditionally fo
 ALL sends (needlessly widens the concurrent-fresh-chip false-positive window to
 short interactive sends that never collapse).
 *Introduced by*: `260719-yxi0-chat-send-single-line-collapse-probe`
+
+### Image chip is a gated third echo signal, either-signal with the raw needle
+**Decision**: Count `[Image #N]` chips (`imageCollapseRe`, whitespace-stripped
+form) as fresh echo only when the paste is *imageish* — a bare single-line image
+path, trimmed, case-insensitive `.png`/`.jpg`/`.jpeg`/`.gif`/`.webp`
+(`isBareImagePath`) — and accept EITHER a fresh chip OR a fresh raw-needle echo
+for such pastes, under the unchanged strict-increase-over-baseline rule.
+**Why**: Claude Code chips only a paste that is exactly one existing image path
+(verified CC 2.1.260 — mixed text, multi-path, `.svg`/`.bmp`, and nonexistent
+paths all stay raw text; the image chip renders at every paste length, beating
+the paste-collapse chip, so the collapsible arm can never catch it), and
+chip-vs-raw depends on filesystem state the engine cannot see. Gating mirrors
+the collapsible-gate stance: keep the concurrent-fresh-chip false-positive
+window off ordinary sends. Without this arm, every attachment-only dashboard
+send (a bare uploaded-path line) failed the probe and 409'd despite the paste
+demonstrably landing as a chip.
+**Rejected**: counting the image chip unconditionally (widens the false-positive
+window for all sends); matching Claude Code's exact chip-eligibility rule via
+file existence/media sniffing (unknowable from text; either-signal makes it
+unnecessary); a frontend workaround wrapping the path in text (changes what the
+agent receives).
+*Introduced by*: `260904-svfv-inject-image-chip-probe`
 
 ### Allow + probe busy policy — no server-side gate, no queue
 **Decision**: There is NO `agentState` gate on send and NO server-side queue. A busy

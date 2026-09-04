@@ -241,7 +241,8 @@ func (e *Engine) PressEnter(ctx context.Context, t Tmux, server, paneID string) 
 // their own boundary so the emptiness decision sees the cleaned text.
 //
 // The probe verifies NOVELTY, not mere presence: it counts the needle (and, for
-// a COLLAPSIBLE paste, the paste-collapse placeholder) in a PRE-PASTE baseline
+// a COLLAPSIBLE paste, the paste-collapse placeholder; for an IMAGEISH paste,
+// the "[Image #N]" chip — see imageCollapseRe) in a PRE-PASTE baseline
 // capture and requires the count to strictly INCREASE after the paste. This is
 // what makes the guard sound: a stale "[Pasted text #N …]" chip already
 // in-frame (a prior probe failure leaves the pasted text in the composer) or a
@@ -272,6 +273,10 @@ func (e *Engine) Send(ctx context.Context, t Tmux, server, paneID, text string, 
 	// echo signal (see CollapseMinRunes). Short single-line pastes keep
 	// exact-needle-only matching.
 	collapsible := strings.Contains(text, "\n") || utf8.RuneCountInString(text) >= CollapseMinRunes
+	// A bare image path MAY render as an "[Image #N]" chip instead of echoing
+	// (see imageCollapseRe); the gate admits the chip as a second valid echo
+	// signal without dropping the raw-needle arm.
+	imageish := isBareImagePath(text)
 
 	// Serialize the WHOLE sequence per (server, paneID): a second send to the SAME
 	// pane only begins after this one has fully finished (baseline → set → paste →
@@ -290,7 +295,7 @@ func (e *Engine) Send(ctx context.Context, t Tmux, server, paneID, text string, 
 	if err != nil {
 		return fmt.Errorf("capture-pane (baseline): %w", err)
 	}
-	baseCount := CountOccurrences(baseline, needle, collapsible)
+	baseCount := CountOccurrences(baseline, needle, collapsible, imageish)
 
 	// The set → paste critical section is additionally serialized across ALL panes
 	// (setPasteMu) because the named buffer is shared by this engine; held only
@@ -300,7 +305,7 @@ func (e *Engine) Send(ctx context.Context, t Tmux, server, paneID, text string, 
 		return err
 	}
 
-	preFrame, err := e.probeEcho(ctx, t, server, paneID, needle, collapsible, baseCount)
+	preFrame, err := e.probeEcho(ctx, t, server, paneID, needle, collapsible, imageish, baseCount)
 	if err != nil {
 		var probeErr ProbeFailure
 		if errors.As(err, &probeErr) {
@@ -317,7 +322,7 @@ func (e *Engine) Send(ctx context.Context, t Tmux, server, paneID, text string, 
 		return StagedSendFailure{Err: fmt.Errorf("send-keys: %w", err)}
 	}
 
-	verdict, err := verifySubmit(ctx, t, server, paneID, preFrame, needle, collapsible, baseCount, SubmitBackoff)
+	verdict, err := verifySubmit(ctx, t, server, paneID, preFrame, needle, collapsible, imageish, baseCount, SubmitBackoff)
 	if err != nil {
 		return SubmitUnverified{Err: err}
 	}
@@ -327,11 +332,11 @@ func (e *Engine) Send(ctx context.Context, t Tmux, server, paneID, text string, 
 	case observationInconclusive:
 		return SubmitUnverified{}
 	default:
-		return e.retrySubmit(ctx, t, server, paneID, text, needle, collapsible, baseline)
+		return e.retrySubmit(ctx, t, server, paneID, text, needle, collapsible, imageish, baseline)
 	}
 }
 
-func (e *Engine) retrySubmit(ctx context.Context, t Tmux, server, paneID, text, needle string, collapsible bool, baseline string) error {
+func (e *Engine) retrySubmit(ctx context.Context, t Tmux, server, paneID, text, needle string, collapsible, imageish bool, baseline string) error {
 	for range SubmitRetries {
 		clearedFrame, err := clearComposer(ctx, t, server, paneID, baseline)
 		if errors.Is(err, errComposerNotCleared) {
@@ -341,11 +346,11 @@ func (e *Engine) retrySubmit(ctx context.Context, t Tmux, server, paneID, text, 
 			return SubmitUnverified{Err: err}
 		}
 
-		retryBaseCount := CountOccurrences(clearedFrame, needle, collapsible)
+		retryBaseCount := CountOccurrences(clearedFrame, needle, collapsible, imageish)
 		if err := e.setAndPaste(ctx, t, server, paneID, text); err != nil {
 			return err
 		}
-		preFrame, err := e.probeEcho(ctx, t, server, paneID, needle, collapsible, retryBaseCount)
+		preFrame, err := e.probeEcho(ctx, t, server, paneID, needle, collapsible, imageish, retryBaseCount)
 		if err != nil {
 			var probeErr ProbeFailure
 			if errors.As(err, &probeErr) {
@@ -361,7 +366,7 @@ func (e *Engine) retrySubmit(ctx context.Context, t Tmux, server, paneID, text, 
 		if SubmitRetryBackoffSteps < len(steps) {
 			steps = steps[:max(SubmitRetryBackoffSteps, 0)]
 		}
-		verdict, err := verifySubmit(ctx, t, server, paneID, preFrame, needle, collapsible, retryBaseCount, steps)
+		verdict, err := verifySubmit(ctx, t, server, paneID, preFrame, needle, collapsible, imageish, retryBaseCount, steps)
 		if err != nil {
 			return SubmitUnverified{Err: err}
 		}
@@ -402,7 +407,7 @@ func (e *Engine) setAndPaste(ctx context.Context, t Tmux, server, paneID, text s
 // failure is returned wrapped (distinct from a clean probe miss); an exhausted
 // retry returns ProbeFailure. All captures and sleeps share the caller's ctx
 // deadline.
-func (e *Engine) probeEcho(ctx context.Context, t Tmux, server, paneID, needle string, collapsible bool, baseCount int) (string, error) {
+func (e *Engine) probeEcho(ctx context.Context, t Tmux, server, paneID, needle string, collapsible, imageish bool, baseCount int) (string, error) {
 	for attempt := 0; attempt < ProbeAttempts; attempt++ {
 		d := ProbeGap
 		if attempt == 0 {
@@ -418,7 +423,7 @@ func (e *Engine) probeEcho(ctx context.Context, t Tmux, server, paneID, needle s
 		if err != nil {
 			return "", fmt.Errorf("capture-pane: %w", err)
 		}
-		if CountOccurrences(capture, needle, collapsible) > baseCount {
+		if CountOccurrences(capture, needle, collapsible, imageish) > baseCount {
 			return capture, nil
 		}
 	}
@@ -428,7 +433,7 @@ func (e *Engine) probeEcho(ctx context.Context, t Tmux, server, paneID, needle s
 // verifySubmit compares complete normalized frames without interpreting a
 // repaint; only a frame unchanged through every step can establish that Enter
 // had no visible effect.
-func verifySubmit(ctx context.Context, t Tmux, server, paneID, preFrame, needle string, collapsible bool, baseCount int, steps []time.Duration) (observationVerdict, error) {
+func verifySubmit(ctx context.Context, t Tmux, server, paneID, preFrame, needle string, collapsible, imageish bool, baseCount int, steps []time.Duration) (observationVerdict, error) {
 	preFrame = stripForProbe(preFrame)
 	var capture string
 	for _, delay := range steps {
@@ -445,9 +450,10 @@ func verifySubmit(ctx context.Context, t Tmux, server, paneID, preFrame, needle 
 		}
 	}
 	// Evidence must use the same predicate that established the echo: the chip
-	// term keeps collapsed pastes recovery-eligible where chips are rendered and
-	// matches nothing elsewhere, so it adds no portability constraint.
-	if CountOccurrences(capture, needle, collapsible) > baseCount {
+	// terms (paste-collapse and image) keep collapsed and image-chipped pastes
+	// recovery-eligible where chips are rendered and match nothing elsewhere,
+	// so they add no portability constraint.
+	if CountOccurrences(capture, needle, collapsible, imageish) > baseCount {
 		return observationNonSubmission, nil
 	}
 	return observationInconclusive, nil
@@ -517,6 +523,53 @@ var ansiEscapeRe = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1
 // is optional and tolerant of singular/plural "line"/"lines" and any digit counts.
 var pasteCollapseRe = regexp.MustCompile(`\[Pastedtext#\d+(?:\+\d+lines?)?\]`)
 
+// imageCollapseRe matches Claude Code's image-attachment placeholder — the TUI
+// replaces a bracketed paste that is exactly one existing image-file path with
+// an "[Image #N]" chip instead of echoing the path text, so the raw needle
+// would never be found and the probe would fail exactly the image-attachment
+// case (the dashboard's attachment-only send shape). Empirical, CC 2.1.260:
+//   - the chip renders for bare paths to EXISTING .png/.jpg/.gif/.webp files
+//     (.svg/.bmp and nonexistent paths stay raw text), at EVERY paste length —
+//     a 293-char image path chips as "[Image #N]", never "[Pasted text #N]",
+//     so the collapsible arm can never catch it;
+//   - a trailing newline still chips; mixed text+path and multiple
+//     newline-separated paths stay raw text;
+//   - the chip number increments per paste within a session.
+//
+// Like pasteCollapseRe, the pattern matches the WHITESPACE-STRIPPED capture,
+// i.e. "[Image#1]". The chip counts as a successful echo ONLY when the paste
+// is IMAGEISH (see isBareImagePath / CountOccurrences) and ONLY as a fresh
+// occurrence vs the pre-paste baseline.
+var imageCollapseRe = regexp.MustCompile(`\[Image#\d+\]`)
+
+// imageExtensions are the path suffixes the image-chip gate recognizes — the
+// Claude API image media types. .png/.jpg/.gif/.webp were observed to chip on
+// CC 2.1.260; .jpeg is included by inference (image/jpeg covers both suffixes)
+// without direct observation. Matched case-insensitively. A wrongly-gated
+// extension is harmless: the TUI leaves such a paste as raw text and the
+// needle arm still verifies it.
+var imageExtensions = []string{".png", ".jpg", ".jpeg", ".gif", ".webp"}
+
+// isBareImagePath reports whether text, whitespace-trimmed, is a single line
+// ending in a recognized image extension — the only paste shape Claude Code
+// renders as an "[Image #N]" chip. Whether a gated paste actually chips
+// depends on filesystem state the engine cannot see (the file must exist), so
+// the gate WIDENS the accepted echo signals (fresh chip OR fresh raw needle)
+// rather than selecting between them.
+func isBareImagePath(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" || strings.Contains(trimmed, "\n") {
+		return false
+	}
+	lower := strings.ToLower(trimmed)
+	for _, ext := range imageExtensions {
+		if strings.HasSuffix(lower, ext) {
+			return true
+		}
+	}
+	return false
+}
+
 // Sanitize strips terminal control bytes from a message before it is pasted
 // into an agent pane. Bracketed paste makes ordinary text inert, but control
 // bytes ride through verbatim — most sharply ESC (0x1B), which can embed the
@@ -564,27 +617,35 @@ func Needle(text string) string {
 
 // CountOccurrences counts how many times this paste's echo signal appears
 // in the pane capture: the raw needle occurrences PLUS, when the paste is
-// COLLAPSIBLE, the paste-collapse placeholder occurrences. Both the capture and
+// COLLAPSIBLE, the paste-collapse placeholder occurrences PLUS, when the paste
+// is IMAGEISH, the image-chip placeholder occurrences. Both the capture and
 // the needle have ALL whitespace removed (stripForProbe) so a TUI wrap that
 // inserts spaces/newlines mid-fragment (or a leading prompt glyph on the wrapped
 // row) cannot defeat the match.
 //
 // The engine compares this count against a pre-paste BASELINE and requires a
 // strict increase, so a stale needle/placeholder already in-frame is a floor to
-// beat rather than a false positive. The collapsible gate matters: `collapsible`
-// means the TUI may have collapsed THIS paste into a chip (multiline text, or a
-// single line long enough to collapse — CollapseMinRunes), so the chip is
-// a valid fresh-echo signal; a short single-line paste never collapses, so
-// counting the chip for it would only widen the concurrent-fresh-chip
-// false-positive window. A short/common single-line needle ("y", "ok") could
+// beat rather than a false positive. The gates matter: `collapsible` means the
+// TUI may have collapsed THIS paste into a chip (multiline text, or a
+// single line long enough to collapse — CollapseMinRunes), and `imageish` means
+// the TUI may have rendered THIS paste as an "[Image #N]" chip (a bare
+// single-line image path — isBareImagePath), so each chip is a valid fresh-echo
+// signal only for a paste of its shape; counting a chip for any other paste
+// would only widen the concurrent-fresh-chip false-positive window. Both chip
+// arms are additive to the needle arm — the imageish gate cannot know whether
+// the TUI chipped (that depends on the file existing), so a raw-text echo of an
+// image path still counts. A short/common single-line needle ("y", "ok") could
 // substring-match unrelated stale content, but that content is in the baseline
 // too — the caller's strict-increase requirement, not this counter, is what makes
 // short needles fail closed against stale content.
-func CountOccurrences(capture, needle string, collapsible bool) int {
+func CountOccurrences(capture, needle string, collapsible, imageish bool) int {
 	stripped := stripForProbe(capture)
 	n := strings.Count(stripped, needle)
 	if collapsible {
 		n += len(pasteCollapseRe.FindAllString(stripped, -1))
+	}
+	if imageish {
+		n += len(imageCollapseRe.FindAllString(stripped, -1))
 	}
 	return n
 }

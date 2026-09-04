@@ -1,0 +1,57 @@
+id: 71yx
+name: 260904-71yx-terminal-relay-reap-gate-reload
+created: 2026-09-04T09:57:33Z
+created_by: sahil87
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 6
+    acceptance_count: 12
+    acceptance_completed: 12
+confidence:
+    certain: 4
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 4.9
+    fuzzy: true
+    dimensions:
+        signal: 88.3
+        reversibility: 87.5
+        competence: 89.2
+        disambiguation: 80.8
+stage_metrics:
+    intake: {started_at: "2026-09-04T09:57:33Z", driver: fab-new, iterations: 1, completed_at: "2026-09-04T10:02:28Z"}
+    apply: {started_at: "2026-09-04T10:02:28Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:41:06Z"}
+    review: {started_at: "2026-09-04T10:41:06Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:50:08Z"}
+    hydrate: {started_at: "2026-09-04T10:50:08Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:53:47Z"}
+    ship: {started_at: "2026-09-04T10:53:47Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:55:34Z"}
+    review-pr: {started_at: "2026-09-04T10:55:34Z", driver: git-pr, iterations: 1, completed_at: "2026-09-04T11:35:07Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/834
+change_type_source: explicit
+true_impact:
+    added: 571
+    deleted: 77
+    net: 494
+    excluding:
+        added: 255
+        deleted: 70
+        net: 185
+    tests:
+        added: 169
+        deleted: 24
+        net: 145
+    computed_at: "2026-09-04T10:55:34Z"
+    computed_at_stage: ship
+summary: 'Terminal relay: attach children now killed AND reaped (killAndReapAttach on both fork paths — no zombies/parked watchers); pre-attach managed-conf reload moved off the critical path (once per server per daemon lifetime, async, guard released on check failure); two pre-existing -race test defects fixed (ResetLegacyMigrationForTest clear, tmux_config seam capture).'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-04T11:35:07Z

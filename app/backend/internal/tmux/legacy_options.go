@@ -440,15 +440,18 @@ func MigrateLegacyOptionsOnce(ctx context.Context, server string) (bool, error) 
 // MarkLegacyMigrationAttempt takes the once-guard for server, reporting
 // whether the caller is the first (and only) winner. The mark lands on
 // ATTEMPT, before any sweep work — a failing server is not re-swept on every
-// attach. Callers that run the sweep off their own goroutine take the guard
-// synchronously first, so concurrent attaches never double-run.
+// attach. The guard is atomic (LoadOrStore), so callers may take it from
+// their own goroutine as long as at most one such goroutine can exist per
+// server (the relay's per-server attach-reload guard provides that).
 func MarkLegacyMigrationAttempt(server string) bool {
 	_, loaded := legacyMigrated.LoadOrStore(server, struct{}{})
 	return !loaded
 }
 
 // ResetLegacyMigrationForTest clears the once-guard so tests can re-run the
-// sweep for a server within one process.
+// sweep for a server within one process. Clears keys rather than reassigning
+// the map: a test's cleanup may overlap an in-flight reload goroutine still
+// holding the same sync.Map, and a reassignment is a plain racy write.
 func ResetLegacyMigrationForTest() {
-	legacyMigrated = sync.Map{}
+	legacyMigrated.Clear()
 }

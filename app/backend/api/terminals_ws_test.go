@@ -6,11 +6,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http/httptest"
+	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
 
 	"rk/internal/testutil"
@@ -286,18 +289,20 @@ func TestTerminals_PingRepliesPong(t *testing.T) {
 	}
 }
 
-// TestReloadConfigForAttach pins the managed-only pre-attach reload gate: a
-// managed server is reloaded and swept, an external server is skipped, and a
-// managed-check read failure fails closed (skip) — none of these paths error
-// or block the attach.
+// TestReloadConfigForAttach pins the managed-only pre-attach reload gate in
+// its off-critical-path shape: the reload runs asynchronously (never a
+// subprocess on the attach goroutine) and at most once per server per Server
+// lifetime; an external server is skipped, a managed-check read failure fails
+// closed AND releases the once-guard so a later attach retries, and a reload
+// error only logs.
 func TestReloadConfigForAttach(t *testing.T) {
-	stub := func(t *testing.T, managed bool, managedErr, reloadErr error) *[]string {
+	stub := func(t *testing.T, isManaged func(context.Context, string) (bool, error), reloadErr error) chan string {
 		t.Helper()
-		reloaded := &[]string{}
+		reloaded := make(chan string, 8)
 		origManaged, origReload, origMigrate := attachIsManaged, attachReloadConfig, attachMigrateLegacy
-		attachIsManaged = func(context.Context, string) (bool, error) { return managed, managedErr }
+		attachIsManaged = isManaged
 		attachReloadConfig = func(server string) error {
-			*reloaded = append(*reloaded, server)
+			reloaded <- server
 			return reloadErr
 		}
 		attachMigrateLegacy = func(context.Context, string) (bool, error) { return false, nil }
@@ -307,38 +312,178 @@ func TestReloadConfigForAttach(t *testing.T) {
 		})
 		return reloaded
 	}
+	managedYes := func(context.Context, string) (bool, error) { return true, nil }
+	managedNo := func(context.Context, string) (bool, error) { return false, nil }
 
-	t.Run("managed server reloads", func(t *testing.T) {
-		reloaded := stub(t, true, nil, nil)
+	t.Run("managed server reloads asynchronously, off the attach path", func(t *testing.T) {
+		// UNBUFFERED observation channel: were the reload synchronous, the send
+		// would deadlock the attach goroutine and reloadConfigForAttach would
+		// never return — so returning-then-receiving is the async proof.
+		reloaded := make(chan string)
+		origManaged, origReload, origMigrate := attachIsManaged, attachReloadConfig, attachMigrateLegacy
+		attachIsManaged = managedYes
+		attachReloadConfig = func(server string) error {
+			reloaded <- server
+			return nil
+		}
+		attachMigrateLegacy = func(context.Context, string) (bool, error) { return false, nil }
+		t.Cleanup(func() {
+			attachIsManaged, attachReloadConfig, attachMigrateLegacy = origManaged, origReload, origMigrate
+			tmux.ResetLegacyMigrationForTest()
+		})
+
 		(&Server{}).reloadConfigForAttach("srv")
-		if strings.Join(*reloaded, ",") != "srv" {
-			t.Errorf("reloaded = %v, want [srv]", *reloaded)
+		select {
+		case got := <-reloaded:
+			if got != "srv" {
+				t.Errorf("reloaded = %q, want srv", got)
+			}
+		case <-time.After(2 * time.Second):
+			t.Error("reload never ran — the async reload must fire for a managed server")
 		}
 	})
 
 	t.Run("external server is skipped", func(t *testing.T) {
-		reloaded := stub(t, false, nil, nil)
+		reloaded := stub(t, managedNo, nil)
 		(&Server{}).reloadConfigForAttach("srv")
-		if len(*reloaded) != 0 {
-			t.Errorf("reloaded = %v, want none — an external server must never receive rk's conf", *reloaded)
+		select {
+		case got := <-reloaded:
+			t.Errorf("reloaded %q — an external server must never receive rk's conf", got)
+		case <-time.After(100 * time.Millisecond):
 		}
 	})
 
-	t.Run("managed-check read failure fails closed", func(t *testing.T) {
-		reloaded := stub(t, false, fmt.Errorf("tmux read wobble"), nil)
-		(&Server{}).reloadConfigForAttach("srv")
-		if len(*reloaded) != 0 {
-			t.Errorf("reloaded = %v, want none — a read failure must skip the reload", *reloaded)
+	t.Run("managed-check failure fails closed and retries on a later attach", func(t *testing.T) {
+		var calls atomic.Int32
+		reloaded := stub(t, func(context.Context, string) (bool, error) {
+			if calls.Add(1) == 1 {
+				return false, fmt.Errorf("tmux read wobble")
+			}
+			return true, nil
+		}, nil)
+		s := &Server{}
+		s.reloadConfigForAttach("srv")
+		select {
+		case got := <-reloaded:
+			t.Fatalf("reloaded %q — a read failure must skip the reload", got)
+		case <-time.After(100 * time.Millisecond):
+		}
+		// The guard release happens inside the async goroutine, so keep
+		// re-attaching until the retry lands.
+		deadline := time.After(2 * time.Second)
+		for {
+			s.reloadConfigForAttach("srv")
+			select {
+			case <-reloaded:
+				return
+			case <-deadline:
+				t.Fatal("guard never released — a transient managed-check failure must retry")
+			case <-time.After(10 * time.Millisecond):
+			}
 		}
 	})
 
 	t.Run("reload error does not propagate", func(t *testing.T) {
-		reloaded := stub(t, true, nil, fmt.Errorf("boom"))
-		(&Server{}).reloadConfigForAttach("srv") // must not panic or return
-		if strings.Join(*reloaded, ",") != "srv" {
-			t.Errorf("reloaded = %v, want [srv] — the reload was attempted, error only logged", *reloaded)
+		reloaded := stub(t, managedYes, fmt.Errorf("boom"))
+		(&Server{}).reloadConfigForAttach("srv") // must not panic
+		select {
+		case <-reloaded:
+		case <-time.After(2 * time.Second):
+			t.Error("reload never attempted — the error is logged, not gating")
 		}
 	})
+
+	t.Run("reload runs at most once per server", func(t *testing.T) {
+		reloaded := stub(t, managedYes, nil)
+		s := &Server{}
+		s.reloadConfigForAttach("srv")
+		s.reloadConfigForAttach("srv")
+		select {
+		case <-reloaded:
+		case <-time.After(2 * time.Second):
+			t.Fatal("reload never ran")
+		}
+		select {
+		case got := <-reloaded:
+			t.Errorf("reload ran twice (%q) — the per-server once-guard must hold", got)
+		case <-time.After(100 * time.Millisecond):
+		}
+	})
+
+	t.Run("distinct servers each reload", func(t *testing.T) {
+		reloaded := stub(t, managedYes, nil)
+		s := &Server{}
+		s.reloadConfigForAttach("srv-a")
+		s.reloadConfigForAttach("srv-b")
+		got := map[string]bool{}
+		for range 2 {
+			select {
+			case name := <-reloaded:
+				got[name] = true
+			case <-time.After(2 * time.Second):
+				t.Fatalf("only %v reloaded — the guard is per server, not per Server", got)
+			}
+		}
+		if !got["srv-a"] || !got["srv-b"] {
+			t.Errorf("reloaded set = %v, want srv-a and srv-b", got)
+		}
+	})
+}
+
+// TestStreamTeardownReapsAttachChild is the zombie regression test: teardown
+// must kill AND reap (Wait) the forked attach child — without the Wait every
+// closed stream leaves a <defunct> PID plus a parked os/exec watcher
+// goroutine. ProcessState is populated only by a returned Wait, so its
+// presence after teardown IS the reap proof. A pty child stands in for the
+// real `tmux attach-session` fork (same pty.StartWithSize shape).
+func TestStreamTeardownReapsAttachChild(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := exec.CommandContext(ctx, "sh", "-c", "sleep 30")
+	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: 80, Rows: 24})
+	if err != nil {
+		cancel()
+		t.Skipf("pty start unavailable: %v", err)
+	}
+	st := &stream{
+		id:     1,
+		queue:  make(chan outFrame, streamQueueDepth),
+		closed: make(chan struct{}),
+		ptmx:   ptmx,
+		cancel: cancel,
+		cmd:    cmd,
+	}
+	st.teardown()
+	if cmd.ProcessState == nil {
+		t.Fatal("child not reaped — teardown must Wait after Kill")
+	}
+	// Idempotent: closeStream and socket teardown can both reach it; the
+	// sync.Once must prevent a second (panicking) Wait.
+	st.teardown()
+}
+
+// TestKillAndReapAttach pins the shared reap helper both kill sites call —
+// stream.teardown for a published cmd and attachStream's publish-race branch
+// for a never-published one — plus its nil-safety on every placeholder shape
+// teardown can see (control pseudo-stream, failed start).
+func TestKillAndReapAttach(t *testing.T) {
+	killAndReapAttach(nil)
+	killAndReapAttach(&exec.Cmd{}) // failed start: no Process to reap
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "sh", "-c", "sleep 30")
+	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: 80, Rows: 24})
+	if err != nil {
+		t.Skipf("pty start unavailable: %v", err)
+	}
+	defer ptmx.Close()
+	killAndReapAttach(cmd)
+	if cmd.ProcessState == nil {
+		t.Fatal("child not reaped — the helper must Wait after Kill")
+	}
+	if cmd.ProcessState.Success() {
+		t.Errorf("child exited cleanly (%v) — expected a kill", cmd.ProcessState)
+	}
 }
 
 // TestReloadConfigForAttachLegacySweep pins the sweep half of the pre-attach

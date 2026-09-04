@@ -1,0 +1,57 @@
+id: 00zd
+name: 260904-00zd-tutorial-polish-chapter-merge
+created: 2026-09-04T10:17:07Z
+created_by: sahil-noon
+change_type: chore
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 14
+    acceptance_completed: 14
+confidence:
+    certain: 7
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 4.7
+    fuzzy: true
+    dimensions:
+        signal: 77.5
+        reversibility: 87.5
+        competence: 86.3
+        disambiguation: 81.7
+stage_metrics:
+    intake: {started_at: "2026-09-04T10:17:07Z", driver: fab-new, iterations: 1, completed_at: "2026-09-04T10:22:37Z"}
+    apply: {started_at: "2026-09-04T10:22:37Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:32:02Z"}
+    review: {started_at: "2026-09-04T10:32:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:36:38Z"}
+    hydrate: {started_at: "2026-09-04T10:36:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:38:24Z"}
+    ship: {started_at: "2026-09-04T10:38:24Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:40:36Z"}
+    review-pr: {started_at: "2026-09-04T10:40:36Z", driver: git-pr, iterations: 1, completed_at: "2026-09-04T10:47:15Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/832
+change_type_source: explicit
+true_impact:
+    added: 885
+    deleted: 612
+    net: 273
+    excluding:
+        added: 513
+        deleted: 583
+        net: -70
+    tests:
+        added: 15
+        deleted: 16
+        net: -1
+    computed_at: "2026-09-04T10:40:36Z"
+    computed_at_stage: ship
+summary: Merged the five tutorial companion pages into hash-routed tutorial.html (Back/Next pager), renamed mock window tour-guide→tutorial, fixed waiting-signal and palette-chord mocks, Act→Chapter everywhere, reshaped TestTutorialPagesMatchTopic
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-04T10:47:15Z

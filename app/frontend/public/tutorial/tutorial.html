@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chapter 1 · You have an agent</title>
+<style>
+  :root{--bg-primary:#0f1117;--bg-card:#171b24;--bg-inset:#0a0c12;--text-primary:#e8eaf0;--text-secondary:#7a8394;--border:#454d66;--accent:#5b8af0;--accent-green:#22c55e;--signal-yellow:#facc15;--signal-blue:#60a5fa;--marker-ink:#f59e0b}
+  *{box-sizing:border-box}
+  body{margin:0;padding:22px 22px 76px;background:#07080c;color:var(--text-primary);font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:13px}
+  h1{font-size:17px;margin:0 0 4px}
+  .sub{color:var(--text-secondary);font-size:12px;margin-bottom:16px}
+  .chapter{display:none}
+  .chapter.active{display:block}
+  .frame-wrap{overflow-x:auto}
+  .callout{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:var(--accent);color:#0f1117;font-size:10px;font-weight:bold;position:absolute;z-index:40;box-shadow:0 0 0 2px #07080c}
+  .legend{margin:14px 0 0;max-width:940px;padding:0}
+  .legend li{list-style:none;margin:6px 0;color:var(--text-secondary);line-height:1.5}
+  .legend b{color:var(--text-primary)}
+  .legend .n{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;background:var(--accent);color:#0f1117;font-size:10px;font-weight:bold;margin-right:6px}
+  .try{margin-top:16px;border:1px solid var(--accent);border-radius:6px;background:var(--bg-primary);padding:10px 14px;max-width:940px}
+  .try b{color:var(--accent)}
+  .app{position:relative;width:940px;height:520px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;display:flex;flex-direction:column;overflow:hidden}
+  #ch1 .app{width:900px}
+  #ch1 .legend,#ch1 .try{max-width:900px}
+  .topbar{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;padding:6px 12px;border-bottom:3px solid var(--border);flex-shrink:0}
+  .tb-left,.tb-right{display:flex;align-items:center;gap:6px;min-width:0}.tb-right{justify-self:end}
+  .chip{display:inline-flex;align-items:center;justify-content:center;height:26px;min-width:26px;padding:0 6px;border:1px solid var(--border);border-radius:4px;color:var(--text-secondary);font-size:11px;white-space:nowrap}
+  .chip.icon{width:26px;padding:0}.chip.primary{color:var(--text-primary)}
+  .sep{color:var(--text-secondary);opacity:.6}
+  .brand .logo{display:inline-block;width:12px;height:12px;border-radius:3px;background:linear-gradient(135deg,var(--accent-green),var(--accent));margin-right:5px;vertical-align:-2px}
+  .heading{white-space:nowrap;font-size:12px}.heading .prefix{color:var(--text-secondary)}.heading .name{font-weight:500}
+  .toggle-group{display:inline-flex;border:1px solid var(--border);border-radius:4px;overflow:hidden}
+  .toggle-group .seg{width:28px;height:24px;display:inline-flex;align-items:center;justify-content:center;color:var(--text-secondary);font-size:10px;border-right:1px solid var(--border)}
+  .toggle-group .seg:last-child{border-right:none}
+  .toggle-group .seg.on{background:color-mix(in srgb,var(--accent-green) 10%,transparent);color:var(--accent-green);box-shadow:inset 0 0 0 1px var(--accent-green)}
+  .body-row{display:flex;flex:1;min-height:0}
+  .sidebar{width:240px;flex-shrink:0;border-right:1px solid var(--border);display:flex;flex-direction:column;font-size:12px}
+  .panel-h{padding:6px 10px 3px;color:var(--text-secondary);font-size:10px;text-transform:uppercase;letter-spacing:.08em}
+  .srv-h{display:flex;align-items:center;gap:6px;padding:4px 10px;font-size:11px;background:color-mix(in srgb,var(--accent) 8%,transparent)}
+  .srv-h .socket{color:var(--text-secondary);font-size:10px}
+  .op-row{display:flex;align-items:center;gap:7px;height:26px;padding:0 10px;margin:2px 6px;border:1px solid var(--accent);border-radius:4px;color:var(--text-primary)}
+  .sess-row{display:flex;align-items:center;gap:6px;padding:4px 10px}.sess-row .chev{color:var(--text-secondary);font-size:9px}
+  .win-row{position:relative;display:flex;align-items:center;gap:7px;height:26px;padding-left:30px;padding-right:10px}
+  .win-row .well{position:absolute;left:0;top:0;bottom:0;width:22px}
+  #ch1 .win-row .well{background:color-mix(in srgb,var(--marker-ink) 12%,transparent);border-right:1px solid color-mix(in srgb,var(--marker-ink) 30%,transparent)}
+  .win-row.selected{background:color-mix(in srgb,var(--accent-green) 14%,transparent)}
+  .win-row.selected .wname{font-weight:600}
+  .win-row.new{background:color-mix(in srgb,var(--accent) 10%,transparent)}
+  .sdot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+  .sdot.green{background:var(--accent-green)}
+  .sdot.yellow{background:var(--signal-yellow);box-shadow:0 0 0 2.5px color-mix(in srgb,var(--signal-yellow) 55%,transparent)}
+  .sdot.gray{background:var(--text-secondary)}
+  .wname{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+  .tag{font-size:9px;color:var(--accent);border:1px solid var(--accent);border-radius:7px;padding:0 5px}
+  .roll-badge{margin-left:auto;flex-shrink:0;background:color-mix(in srgb,var(--signal-yellow) 15%,transparent);color:var(--signal-yellow);border-radius:4px;padding:1px 6px;font-size:10px;font-weight:500;white-space:nowrap}
+  .sb-footer{display:flex;align-items:center;gap:8px;border-top:1px solid var(--border);padding:6px 12px;color:var(--text-secondary);font-size:10px;margin-top:auto}
+  .conn-dot{width:7px;height:7px;border-radius:50%;background:var(--accent-green)}
+  .center{flex:1;display:flex;min-width:0}
+  .tile{flex:1;display:flex;flex-direction:column;min-width:0}
+  .tile+.tile{border-left:1px solid var(--border)}
+  .tile-h{height:30px;flex-shrink:0;display:flex;align-items:center;gap:7px;background:var(--bg-card);border-bottom:1px solid var(--border);padding:0 8px;font-size:11px;color:var(--text-secondary)}
+  .tile-h .meta{background:var(--bg-inset);border-radius:3px;padding:1px 6px;font-size:10px}
+  .tile-h .badge{border-radius:3px;padding:1px 6px;font-size:10px;font-weight:600;background:color-mix(in srgb,var(--accent-green) 18%,transparent);color:var(--accent-green)}
+  .tty{flex:1;background:var(--bg-primary);padding:10px 12px;font-size:12px;line-height:1.6;overflow:hidden}
+  .tty .p{color:var(--accent-green)}.tty .d{color:var(--text-secondary)}.tty .y{color:var(--signal-yellow)}
+  .tty .cursor{display:inline-block;width:7px;height:13px;background:var(--text-primary);vertical-align:-2px}
+  .phrase{display:inline-block;border:1px solid var(--accent);border-radius:6px;background:var(--bg-primary);padding:8px 16px;font-size:16px;color:var(--accent);margin:0 0 16px}
+  .webtabs{display:flex;align-items:center;flex-shrink:0;background:var(--bg-card);border-bottom:1px solid var(--border);font-size:11px;padding:0 4px;height:28px}
+  .wtab{display:inline-flex;align-items:center;gap:6px;padding:0 8px;height:27px;color:var(--text-secondary);border-right:1px solid var(--border);white-space:nowrap}
+  .wtab.on{color:var(--text-primary);background:var(--bg-primary);border-bottom:1px solid var(--bg-primary);margin-bottom:-1px}
+  .wtab .kdot{width:6px;height:6px;border-radius:50%;background:var(--accent-green)}
+  .wtab .x{color:var(--text-secondary);font-size:10px}
+  .wtab-add{padding:0 10px;color:var(--text-secondary)}
+  .urlbar{display:flex;align-items:center;gap:4px;flex-shrink:0;background:var(--bg-primary);border-bottom:1px solid var(--border);padding:4px 6px}
+  .ub-btn{width:26px;height:26px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;color:var(--text-secondary);font-size:12px;flex-shrink:0}
+  .ub-input{flex:1;background:var(--bg-card);border:1px solid var(--border);border-radius:4px;padding:3px 8px;font-size:11px;color:var(--text-primary);white-space:nowrap;overflow:hidden}
+  .webbody{flex:1;min-height:0;background:#fff;color:#1a1d24;overflow:hidden;font-family:system-ui,-apple-system,sans-serif;font-size:12px;display:flex;flex-direction:column}
+  .webbody .site-h{background:#f1f3f7;border-bottom:1px solid #d1d5db;padding:9px 14px;font-weight:700;font-size:13px}
+  .webbody .site-b{padding:12px 14px;line-height:1.6}
+  .webbody .bar-row{display:flex;gap:8px;align-items:flex-end;height:56px;margin-top:8px}
+  .webbody .bar{width:30px;background:#4a7ae8;border-radius:2px 2px 0 0}
+  .webbody .cap{color:#6b7280;font-size:10px;margin-top:6px}
+  .toast{position:absolute;top:44px;right:14px;z-index:30;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);padding:9px 13px;max-width:280px;font-size:11px;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+  .toast b{color:var(--text-primary)}.toast .d{color:var(--text-secondary)}
+  .scene{position:relative;display:flex;gap:26px;align-items:flex-start;flex-wrap:wrap;max-width:940px}
+  .phone{position:relative;width:210px;flex:none;border:2px solid var(--border);border-radius:22px;background:var(--bg-primary);padding:14px 10px 18px}
+  .phone .notch{width:70px;height:5px;border-radius:3px;background:var(--border);margin:0 auto 10px}
+  .pscr{border:1px solid var(--border);border-radius:8px;overflow:hidden;font-size:10.5px}
+  .p-top{display:flex;align-items:center;gap:5px;background:var(--bg-card);border-bottom:1px solid var(--border);padding:5px 8px}
+  .p-top .logo{width:10px;height:10px;border-radius:2px;background:linear-gradient(135deg,var(--accent-green),var(--accent))}
+  .p-sess{display:flex;align-items:center;gap:5px;padding:5px 8px;border-bottom:1px solid color-mix(in srgb,var(--border) 40%,transparent);color:var(--text-secondary)}
+  .p-row{display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid color-mix(in srgb,var(--border) 40%,transparent)}
+  .pscr .sdot{width:6px;height:6px}
+  .pscr .sdot.yellow{box-shadow:0 0 0 2px color-mix(in srgb,var(--signal-yellow) 55%,transparent)}
+  .pscr .roll-badge{font-size:8px;padding:0 4px}
+  .p-toast{margin:8px 6px 2px;border:1px solid var(--border);border-radius:8px;background:var(--bg-card);padding:6px 8px;font-size:9.5px}
+  .p-toast .d{color:var(--text-secondary)}
+  .phone .cap{text-align:center;color:var(--text-secondary);font-size:10px;margin-top:10px}
+  .desk{position:relative;flex:1;min-width:420px}
+  .mini-app{position:relative;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary);overflow:hidden;height:300px;filter:brightness(.55)}
+  .mini-top{display:flex;gap:6px;padding:6px 10px;border-bottom:3px solid var(--border)}
+  .mchip{height:22px;min-width:22px;border:1px solid var(--border);border-radius:4px;display:inline-flex;align-items:center;justify-content:center;color:var(--text-secondary);font-size:10px;padding:0 5px}
+  .mini-body{padding:10px;color:var(--text-secondary);font-size:11px;line-height:1.7}
+  .pal{position:absolute;top:36px;left:50%;transform:translateX(-50%);width:340px;border:1px solid var(--accent);border-radius:8px;background:var(--bg-primary);overflow:hidden;box-shadow:0 14px 40px rgba(0,0,0,.65);z-index:20}
+  .pin{padding:9px 12px;border-bottom:1px solid var(--border);font-size:12px}
+  .pin .c{border-left:1px solid var(--accent)}
+  .pr{padding:6px 12px;color:var(--text-secondary);font-size:11.5px;display:flex;justify-content:space-between}
+  .pr.on{background:var(--bg-card);color:var(--text-primary)}
+  .pr kbd{color:var(--text-secondary);font-size:10px}
+  .desk .cap{color:var(--text-secondary);font-size:10px;margin-top:8px;text-align:center}
+  .pager{position:fixed;left:0;right:0;bottom:0;z-index:50;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:10px 22px;background:#07080c;border-top:1px solid var(--border)}
+  .pg-btn{color:var(--accent);border:1px solid var(--accent);border-radius:6px;padding:6px 14px;text-decoration:none;font-size:12px;user-select:none}
+  .pg-btn.inert{opacity:.35;pointer-events:none;border-color:var(--border);color:var(--text-secondary)}
+  .pg-mid{display:flex;align-items:center;gap:12px;color:var(--text-secondary);font-size:12px}
+  .pg-dots{display:inline-flex;gap:6px}
+  .pg-dot{width:7px;height:7px;border-radius:50%;background:var(--border)}
+  .pg-dot.on{background:var(--accent)}
+</style></head><body>
+
+<section class="chapter" id="ch1">
+<h1>Chapter 1 · You have an agent</h1>
+<div class="sub">This is your dashboard. Every row in the sidebar is an agent (or a plain terminal) working for you — the <b>roster</b>.</div>
+
+<div class="frame-wrap">
+<div class="app">
+  <span class="callout" style="top:118px;left:6px">1</span>
+  <span class="callout" style="top:144px;left:96px">2</span>
+  <span class="callout" style="top:170px;left:96px">3</span>
+  <span class="callout" style="top:220px;right:220px">4</span>
+
+  <div class="topbar">
+    <div class="tb-left"><span class="chip icon">☰</span><span class="chip primary brand"><span class="logo"></span>RunKit</span><span class="sep">›</span><span class="chip">my-project</span></div>
+    <div class="heading"><span class="prefix">Tab:</span> <span class="name">tutorial</span> <span style="color:var(--text-secondary);font-size:10px">▾</span></div>
+    <div class="tb-right"><span class="chip">Open ▾</span><span class="chip icon">⟳</span><span class="chip icon">⌄</span></div>
+  </div>
+
+  <div class="body-row">
+    <div class="sidebar">
+      <div class="panel-h">Sessions</div>
+      <div class="srv-h">my-machine <span class="socket">local</span></div>
+      <div class="sess-row"><span class="chev">▾</span> my-project <span class="roll-badge">1 ⚠</span></div>
+      <div class="win-row selected">
+        <div class="well"></div><span class="sdot green"></span><span class="wname">tutorial</span>
+      </div>
+      <div class="win-row">
+        <div class="well"></div><span class="sdot gray"></span><span class="wname">feature-x</span>
+      </div>
+      <div class="win-row">
+        <div class="well"></div><span class="sdot yellow"></span><span class="wname">release-notes</span>
+      </div>
+      <div class="sb-footer"><span class="conn-dot"></span> connected</div>
+    </div>
+
+    <div class="center">
+      <div class="tile">
+        <div class="tile-h"><span class="sdot green"></span> &gt;_ Terminal <span class="meta">tutorial</span></div>
+        <div class="tty">
+          <div><span class="p">❯</span> you: what's in this project?</div>
+          <div>&nbsp;</div>
+          <div><span class="y">●</span> Looking around…</div>
+          <div class="d">   (my row shows busy while I work)</div>
+          <div>&nbsp;</div>
+          <div>It's a web app — Go backend, React frontend, …</div>
+          <div>&nbsp;</div>
+          <div><span class="p">❯</span> <span class="cursor"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<ul class="legend">
+  <li><span class="n">1</span><b>This row is me</b> — the agent you're talking to right now. Highlighted because you're looking at it.</li>
+  <li><span class="n">2</span><b>Idle</b> (gray) — finished, results in its window, ready for the next ask. <b>Working</b> is green.</li>
+  <li><span class="n">3</span><b>Needs you</b> — the yellow halo around the dot: it asked a question and is waiting. The session row above adds <b>1 ⚠</b> — how many windows under it need you. <b>This signal is the whole game</b> — you'll trigger one for real in Chapter 4.</li>
+  <li><span class="n">4</span><b>The conversation</b> — you type here; sessions group agents by project.</li>
+</ul>
+
+<div class="try"><b>Try it now:</b> ask me anything about this project — then glance at my row in your real sidebar: busy while I answer, idle when done.</div>
+</section>
+
+<section class="chapter" id="ch2">
+<h1>Chapter 2 · Make it show you things</h1>
+<div class="sub">Stop reading agent output in a terminal. End any request with the phrase — results arrive as live pages.</div>
+<div class="phrase">“…and <b>present it to me</b>”</div>
+
+<div class="frame-wrap">
+<div class="app">
+  <span class="callout" style="top:98px;left:210px">1</span>
+  <span class="callout" style="top:238px;right:410px">2</span>
+  <span class="callout" style="top:58px;right:270px">3</span>
+  <span class="callout" style="top:170px;left:105px">4</span>
+
+  <div class="topbar">
+    <div class="tb-left"><span class="chip icon">☰</span><span class="chip primary brand"><span class="logo"></span>RunKit</span></div>
+    <div class="heading"><span class="prefix">Tab:</span> <span class="name">tutorial</span></div>
+    <div class="tb-right"><span class="toggle-group"><span class="seg on">&gt;_</span><span class="seg on">://</span><span class="seg">{}</span></span><span class="chip icon">⟳</span></div>
+  </div>
+
+  <div class="body-row"><div class="center">
+    <div class="tile" style="max-width:37%">
+      <div class="tile-h"><span class="sdot green"></span> &gt;_ Terminal <span class="meta">tutorial</span></div>
+      <div class="tty">
+        <div><span class="p">❯</span> you: make me a one-page brief</div>
+        <div>&nbsp; of this project — and</div>
+        <div>&nbsp; <b>present it to me</b></div>
+        <div>&nbsp;</div>
+        <div><span class="y">●</span> Building it…</div>
+        <div class="d">   writing project-brief.html</div>
+        <div class="d">   presenting → appears on the right</div>
+        <div>&nbsp;</div>
+        <div><span class="p">❯</span> you: make the heading bigger</div>
+        <div class="d">   updated — same page refreshes ⟳</div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <div class="tile-h">:// <span class="badge">presented</span> <span style="color:var(--text-primary)">project-brief.html</span></div>
+      <div class="webtabs">
+        <span class="wtab on"><span class="kdot"></span>project-brief<span class="x">×</span></span>
+        <span class="wtab"><span class="kdot"></span>tutorial</span>
+        <span class="wtab-add">+</span>
+      </div>
+      <div class="urlbar"><span class="ub-btn">←</span><span class="ub-btn">→</span><span class="ub-btn">⟳</span><span class="ub-input">project-brief.html</span><span class="ub-btn">↗</span></div>
+      <div class="webbody">
+        <div class="site-h">My Project — one-page brief</div>
+        <div class="site-b">
+          A web app for … · shipped weekly · 3 active workstreams
+          <div class="bar-row"><div class="bar" style="height:40%"></div><div class="bar" style="height:65%"></div><div class="bar" style="height:90%"></div><div class="bar" style="height:55%"></div></div>
+          <div class="cap">releases per month — generated by your agent, live beside it</div>
+        </div>
+      </div>
+    </div>
+  </div></div>
+</div>
+</div>
+
+<ul class="legend">
+  <li><span class="n">1</span><b>You ask in plain words</b> — reports, mocks, dashboards, "chart the test failures", anything visual.</li>
+  <li><span class="n">2</span><b>The page appears beside the agent</b> — a real page, on every device viewing this window.</li>
+  <li><span class="n">3</span><b>Asking again is the refresh</b> — "make the heading bigger" updates the same page in place.</li>
+  <li><span class="n">4</span>Also works for a <b>running dev server</b> ("present localhost:3000 to me") or any URL.</li>
+</ul>
+
+<div class="try"><b>Your turn:</b> pick one — a one-page brief of this project · a cheat sheet of this tour · a mock KPI dashboard — and ask me in your own words. Don't forget the phrase.</div>
+</section>
+
+<section class="chapter" id="ch3">
+<h1>Chapter 3 · Hire a second agent</h1>
+<div class="sub">One agent is a tool. run-kit is for running a <b>team</b> — and the operator is your hiring manager.</div>
+
+<div class="frame-wrap">
+<div class="app">
+  <span class="callout" style="top:92px;left:6px">1</span>
+  <span class="callout" style="top:120px;right:390px">2</span>
+  <span class="callout" style="top:196px;left:6px">3</span>
+  <span class="callout" style="top:170px;left:6px">4</span>
+
+  <div class="topbar">
+    <div class="tb-left"><span class="chip icon">☰</span><span class="chip primary brand"><span class="logo"></span>RunKit</span></div>
+    <div class="heading"><span class="prefix">Tab:</span> <span class="name">operator</span></div>
+    <div class="tb-right"><span class="chip">Open ▾</span><span class="chip icon">⟳</span></div>
+  </div>
+
+  <div class="body-row">
+    <div class="sidebar">
+      <div class="panel-h">Sessions</div>
+      <div class="srv-h">my-machine</div>
+      <div class="op-row">⚙ <span class="wname">operator</span><span class="tag">pinned</span></div>
+      <div class="sess-row"><span class="chev">▾</span> my-project</div>
+      <div class="win-row">
+        <div class="well"></div><span class="sdot green"></span><span class="wname">tutorial</span>
+      </div>
+      <div class="win-row new">
+        <div class="well"></div><span class="sdot green"></span><span class="wname">tour-worker</span><span class="tag">new</span>
+      </div>
+      <div class="win-row">
+        <div class="well"></div><span class="sdot gray"></span><span class="wname">feature-x</span>
+      </div>
+      <div class="sb-footer"><span class="conn-dot"></span> connected</div>
+    </div>
+
+    <div class="center">
+      <div class="tile">
+        <div class="tile-h"><span class="sdot green"></span> &gt;_ Terminal <span class="meta">operator</span></div>
+        <div class="tty">
+          <div><span class="p">❯</span> you: Start an agent in a new window — call it</div>
+          <div>&nbsp; tour-worker — that builds a one-page brief of this</div>
+          <div>&nbsp; project; have it ask me one question first, then</div>
+          <div>&nbsp; present the result and notify me</div>
+          <div>&nbsp;</div>
+          <div><span class="y">●</span> Hiring…</div>
+          <div class="d">   opened window tour-worker · started the agent · briefed it</div>
+          <div>&nbsp;</div>
+          <div>Done — tour-worker is on it. It'll ping you with its question.</div>
+          <div>&nbsp;</div>
+          <div class="d">   (other asks that work: "Start a claude session on my-app" ·</div>
+          <div class="d">    "Start a kimi session" · "What's stuck, anything waiting on me?")</div>
+          <div>&nbsp;</div>
+          <div><span class="p">❯</span> <span class="cursor"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<ul class="legend">
+  <li><span class="n">1</span><b>The operator</b> — pinned at the top of its server. You never set up agents by hand; you click into this row and ask.</li>
+  <li><span class="n">2</span><b>Plain language is the interface</b> — it opens the window, starts the agent, and passes on your brief.</li>
+  <li><span class="n">3</span><b>A new row appears and goes busy</b> — your second agent, hired in one sentence.</li>
+  <li><span class="n">4</span><b>Two green dots at once</b> — the tutorial agent and the worker, in parallel. That's the product.</li>
+</ul>
+
+<div class="try"><b>Do it now:</b> click into the operator's row and give it the ask above (or I'll hire directly if there's no operator here). Then scan your real sidebar for the two busy rows.</div>
+</section>
+
+<section class="chapter" id="ch4">
+<h1>Chapter 4 · It needs you</h1>
+<div class="sub">The promise of delegation: you're interrupted <b>only</b> when a decision actually needs you — and never by an agent grabbing your screen.</div>
+
+<div class="frame-wrap">
+<div class="app">
+  <span class="callout" style="top:148px;left:6px">1</span>
+  <span class="callout" style="top:46px;right:298px">2</span>
+  <span class="callout" style="top:196px;right:400px">3</span>
+  <span class="callout" style="top:300px;right:400px">4</span>
+
+  <div class="toast">🔔 <b>run-kit · tour-worker</b><br><span class="d">who's the audience — exec or engineer?</span></div>
+
+  <div class="topbar">
+    <div class="tb-left"><span class="chip icon">☰</span><span class="chip primary brand"><span class="logo"></span>RunKit</span></div>
+    <div class="heading"><span class="prefix">Tab:</span> <span class="name">tour-worker</span></div>
+    <div class="tb-right"><span class="chip icon">⟳</span><span class="chip icon">⌄</span></div>
+  </div>
+
+  <div class="body-row">
+    <div class="sidebar">
+      <div class="panel-h">Sessions</div>
+      <div class="srv-h">my-machine</div>
+      <div class="sess-row"><span class="chev">▾</span> my-project <span class="roll-badge">1 ⚠</span></div>
+      <div class="win-row">
+        <div class="well"></div><span class="sdot green"></span><span class="wname">tutorial</span>
+      </div>
+      <div class="win-row">
+        <div class="well"></div><span class="sdot yellow"></span><span class="wname">tour-worker</span>
+      </div>
+      <div class="sb-footer"><span class="conn-dot"></span> connected</div>
+    </div>
+
+    <div class="center">
+      <div class="tile">
+        <div class="tile-h"><span class="sdot yellow"></span> &gt;_ Terminal <span class="meta">tour-worker</span></div>
+        <div class="tty">
+          <div><span class="y">●</span> Before I write the brief, one question:</div>
+          <div>&nbsp;</div>
+          <div>&nbsp; <b>Who's the audience — exec or engineer?</b></div>
+          <div>&nbsp;</div>
+          <div class="d">   (I'll wait — take your time)</div>
+          <div>&nbsp;</div>
+          <div><span class="p">❯</span> exec<span class="cursor"></span></div>
+          <div>&nbsp;</div>
+          <div class="d">   → after your one-line answer it finishes alone,</div>
+          <div class="d">     presents the page, and pings you when done</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<ul class="legend">
+  <li><span class="n">1</span><b>The halo lights up</b> — the worker's dot glows yellow, and its session row shows <b>1 ⚠</b>. Agents signal; they can never move your screen.</li>
+  <li><span class="n">2</span><b>The push reaches your device</b> — the bell you enabled at the start. Works when the laptop is closed, too.</li>
+  <li><span class="n">3</span><b>Click the row</b> — the question is right there in its terminal.</li>
+  <li><span class="n">4</span><b>One line unblocks it</b> — then come back to me; it finishes, presents, and notifies on its own.</li>
+</ul>
+
+<div class="try"><b>This is the skill:</b> delegate → get interrupted only when needed → unblock in one line → receive the result as a page. When the worker's halo lights up, walk the loop for real.</div>
+</section>
+
+<section class="chapter" id="ch5">
+<h1>Chapter 5 · Everywhere — and what's next</h1>
+<div class="sub">Mission control isn't tied to this desk.</div>
+
+<div class="scene">
+  <span class="callout" style="top:6px;left:6px">1</span>
+  <div class="phone">
+    <div class="notch"></div>
+    <div class="pscr">
+      <div class="p-top"><span class="logo"></span> RunKit</div>
+      <div class="p-sess">▾ my-project <span class="roll-badge">1 ⚠</span></div>
+      <div class="p-row"><span class="sdot green"></span> tutorial</div>
+      <div class="p-row"><span class="sdot yellow"></span> tour-worker</div>
+      <div class="p-row"><span class="sdot gray"></span> feature-x</div>
+      <div class="p-toast">🔔 <b>run-kit</b><br><span class="d">tour-worker finished — brief presented</span></div>
+    </div>
+    <div class="cap">the same address, on your phone —<br>badges, pages, and answers included</div>
+  </div>
+
+  <div class="desk">
+    <span class="callout" style="top:6px;left:6px">2</span>
+    <div class="mini-app">
+      <div class="mini-top"><span class="mchip">☰</span><span class="mchip">RunKit</span><span class="mchip" style="margin-left:auto">⟳</span></div>
+      <div class="mini-body">the whole app dims behind the palette…</div>
+    </div>
+    <div class="pal">
+      <div class="pin">settings<span class="c">&nbsp;</span></div>
+      <div class="pr on"><span>Settings: Open</span><span>↵</span></div>
+      <div class="pr"><span>Session: Sort…</span></div>
+      <div class="pr"><span>Window: Rename</span></div>
+      <div class="pr" style="border-top:1px solid var(--border)"><span>every action lives here</span><kbd>⌘K / Ctrl+Shift+K</kbd></div>
+    </div>
+    <div class="cap">⌘K — when you don't know how, open this and type</div>
+  </div>
+</div>
+
+<ul class="legend">
+  <li><span class="n">1</span><b>Your phone works</b> — open the same dashboard address on any device that can reach it; I can send it to you as a notification.</li>
+  <li><span class="n">2</span><b>⌘K finds everything</b> — every action in run-kit is in the palette. Try it now: type <b>color</b>, then <b>settings</b>.</li>
+</ul>
+
+<div class="try"><b>Your challenge — do one real thing:</b> ask the operator to start an agent on something you actually want done this week, end with <b>"…and present it to me"</b>, then close the laptop. The halo — or your phone — will tell you when you're needed.</div>
+</section>
+
+<div class="pager">
+  <a class="pg-btn" id="pg-back" href="#ch1">‹ Back</a>
+  <div class="pg-mid"><span id="pg-label">Chapter 1 of 5</span><span class="pg-dots" id="pg-dots"></span></div>
+  <a class="pg-btn" id="pg-next" href="#ch2">Next ›</a>
+</div>
+
+<script>
+(function () {
+  var titles = {
+    ch1: "Chapter 1 · You have an agent",
+    ch2: "Chapter 2 · Make it show you things",
+    ch3: "Chapter 3 · Hire a second agent",
+    ch4: "Chapter 4 · It needs you",
+    ch5: "Chapter 5 · Everywhere — and what's next",
+  };
+  var ids = ["ch1", "ch2", "ch3", "ch4", "ch5"];
+  var back = document.getElementById("pg-back");
+  var next = document.getElementById("pg-next");
+  var label = document.getElementById("pg-label");
+  var dots = document.getElementById("pg-dots");
+  ids.forEach(function () {
+    var d = document.createElement("span");
+    d.className = "pg-dot";
+    dots.appendChild(d);
+  });
+  function current() {
+    var i = ids.indexOf(location.hash.replace("#", ""));
+    return i < 0 ? 0 : i;
+  }
+  function show(i) {
+    ids.forEach(function (id, j) {
+      document.getElementById(id).classList.toggle("active", j === i);
+    });
+    label.textContent = "Chapter " + (i + 1) + " of " + ids.length;
+    Array.prototype.forEach.call(dots.children, function (d, j) {
+      d.classList.toggle("on", j === i);
+    });
+    back.classList.toggle("inert", i === 0);
+    next.classList.toggle("inert", i === ids.length - 1);
+    back.setAttribute("href", "#" + ids[Math.max(0, i - 1)]);
+    next.setAttribute("href", "#" + ids[Math.min(ids.length - 1, i + 1)]);
+    document.title = titles[ids[i]];
+    window.scrollTo(0, 0);
+  }
+  function sync() {
+    var i = current();
+    if (location.hash !== "#" + ids[i]) {
+      history.replaceState(null, "", "#" + ids[i]);
+    }
+    show(i);
+  }
+  // hashchange is load-bearing: the tour re-presents this same URL with a new
+  // hash, and an iframe src change that differs only by hash does not reload
+  // the document.
+  window.addEventListener("hashchange", sync);
+  sync();
+})();
+</script>
+</body></html>

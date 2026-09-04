@@ -10,10 +10,11 @@ description: "HTTP API layer (chi router and resource handlers), the /ws/state s
 
 All endpoints served by the single Go binary on one port. POST-only mutations with path-based intent (no multiplexed action field). **Uniform HTTP verb (constitution §IX)**: every mutating endpoint uses `POST`; there are zero `PUT`/`PATCH`/`DELETE` route registrations and the CORS `AllowedMethods` allowlist is exactly `[GET, POST, OPTIONS]` (260529-jad6). Endpoint semantics that would conventionally map to other verbs (e.g. partial update on `/options`) are expressed via the path and a documented body contract.
 
-The SPA catch-all's regular-file branch serves the eight shipped
-`/tutorial/ch*.html` companion pages from the production frontend bundle. They
-are ordinary static files under `app/frontend/public/tutorial/`; no API or chi
-route is registered for them. (6uu0)
+The SPA catch-all's regular-file branch serves the shipped
+`/tutorial/tutorial.html` companion page (five hash-addressed chapters,
+`#ch1`–`#ch5`) from the production frontend bundle. It is an ordinary static
+file under `app/frontend/public/tutorial/`; no API or chi route is registered
+for it. (6uu0, 00zd)
 
 **Name validation — new-name vs. existing-name split**: `internal/validate` exposes two name rules and the API layer picks by whether the value names a **to-be-created / rename-target** entity or an **existing** one (260722-ln4n-auto-safe-name-conversion). `ValidateNewName(name, label)` (permissive `ValidateName` + a "no spaces" rejection) guards exactly the four new-name call sites — session create + session rename-to (`api/sessions.go`), window create (non-empty name only) + window rename-to (`api/windows.go`) — so the safe charset is a real backend contract, not merely UI steering. Every existing-name lookup (session URL params, `TargetSession`, upload/riff session values, session-order entries) keeps the permissive `ValidateName`, so pre-existing spacey names created outside run-kit stay renamable/killable. The backend stays reject-only (no server-side name conversion — constitution §I) and keeps hyphens legal for both name kinds; the session hyphen→`_` steering is UI-only (see [tmux-sessions](tmux-sessions.md) § Name-Validation Charset Contract for the full contract and rationale, and [ui/routes-and-shell](/run-kit/ui/routes-and-shell.md) § Live Safe-Name Conversion for the frontend transforms).
 

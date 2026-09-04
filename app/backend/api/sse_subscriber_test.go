@@ -792,7 +792,7 @@ func TestSSE_ColdSubscribeNewServerUnparksLoop(t *testing.T) {
 		},
 	}
 	hub := newSSEHub(tracker, nil, nil, nil)
-	hub.subscriber = sub
+	hub.setSubscriber(sub)
 	hub.safetyInterval = 30 * time.Second // parked: the timer can never drive this test
 
 	clientKits := &sseClient{ch: make(chan hubEvent, 16), server: "kits"}
@@ -835,7 +835,7 @@ func TestSSE_ColdSubscribeInSetServerWakes(t *testing.T) {
 		result: map[string][]sessions.ProjectSession{"flaky": {{Name: "f1"}}},
 	}
 	hub := newSSEHub(fetcher, nil, nil, nil)
-	hub.subscriber = newStubSubscriber()
+	hub.setSubscriber(newStubSubscriber())
 	hub.safetyInterval = 30 * time.Second
 
 	// First subscriber: the fetch fails, so no previousJSON is ever cached and

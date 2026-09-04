@@ -176,7 +176,7 @@ export type SidebarProps = {
   /** Fork a window's agent conversation into a new window in the same session
    *  and directory (260806-s4av). Optional (mirrors `onSpawnAgent`): when
    *  omitted — e.g. the board-route sidebar — the row flyout's fork affordance is
-   *  hidden. The flyout additionally gates on `chatProvider === "claude"`. */
+   *  hidden. The flyout additionally gates on `agentProvider === "claude"`. */
   onForkWindow?: (server: string, windowId: string) => Promise<void>;
   /** Ask the server's operator window to fix a subject window's tab name
    *  (260822-fih1-operator-request-fix-tab-name). Optional (mirrors
@@ -2459,7 +2459,7 @@ function ServerGroupInner(props: ServerGroupProps) {
 
   // Derived availability input for the Fix tab name flyout row: one boolean,
   // shared by every row in the group (the rest of the rule is row-local —
-  // subject chat ref + not-the-operator's-own-row).
+  // subject agent session ref + not-the-operator's-own-row).
   const hasOperator = operatorEntry !== null;
   // Build this group's roving-row identity slice + a cheap visible-set
   // signature. The slice maps each row key → typed identity for direct

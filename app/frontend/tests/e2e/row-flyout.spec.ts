@@ -84,8 +84,8 @@ const sessionsPayload = JSON.stringify([
         activityTimestamp: 0,
         agentState: "waiting",
         agentIdleDuration: "3m",
-        chatProvider: "claude",
-        chatSessionRef: "5d80479e-8f25-46cd-a0d4-e51435508a37",
+        agentProvider: "claude",
+        agentSessionRef: "5d80479e-8f25-46cd-a0d4-e51435508a37",
         fabChange: "260805-93dy-window-row-pr-glyph-register-flyout",
         fabStage: "apply",
         fabDisplayState: "active",
@@ -363,7 +363,7 @@ test.describe("Row flyout card (fine pointer)", () => {
    * Steps:
    * 1. Hover @1 (the claude-chat window); assert the fork action row is
    *    visible and its `title` mentions "same directory".
-   * 2. Hover @2 (a plain shell window, no chatProvider); assert the card is
+   * 2. Hover @2 (a plain shell window, no agentProvider); assert the card is
    *    the scratch one ("Tab @2", no body) and carries zero fork rows.
    * 3. Route the window-fork API glob to a 200 recording each request URL,
    *    returning an EMPTY windowId so the app deliberately skips navigation
@@ -378,7 +378,7 @@ test.describe("Row flyout card (fine pointer)", () => {
     page,
   }) => {
     // Gate: @1 carries a reconciled claude chat → the fork action row renders
-    // in the card's sectioned action list; @2 (plain shell, no chatProvider)
+    // in the card's sectioned action list; @2 (plain shell, no agentProvider)
     // does not.
     await prRow(page).hover();
     const forkRow = page.getByTestId("row-flyout-fork-action");

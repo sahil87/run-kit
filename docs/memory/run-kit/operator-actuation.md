@@ -71,9 +71,10 @@ which takes NO subject window. The shared JSON body is
 `{"template": "<id>", "text": "<optional client string>", "session": "<optional
 session name>"}`. The template id is
 checked against the closed in-code registry `operatorTemplates`
-(`map[string]operatorTemplate` — each entry declaring a `requiresChatRef` fact
-requirement, an `acceptsText` client-text admission, a `serverScoped` scope
-discriminator, a `requiresWaiting` zero-waiting precondition, an
+(`map[string]operatorTemplate` — each entry declaring a
+`requiresAgentSessionRef` fact requirement, an `acceptsText` client-text
+admission, a `serverScoped` scope discriminator, a `requiresWaiting`
+zero-waiting precondition, an
 `acceptsSession` session-scope admission, and a PURE render
 func for its scope — `render
 func(operatorFacts) string` window-scoped, `renderServer
@@ -162,16 +163,16 @@ non-nil, the current label state (`Color`/`Marker`/`Flair`, `""` when unset —
 only the `color-tabs` row writer renders them), and the per-row transcript
 JSONL path via `transcript.Path` — one
 resolution per window filling both the row and the corpus), every non-operator
-chat-carrying window additionally into the transcript corpus, a ref that fails
-to resolve degrading to a PATH-LESS table row and an OMITTED corpus row, never
-an error. After fact derivation and BEFORE render/delivery, a template
+agent-session-carrying window additionally into the transcript corpus, a ref
+that fails to resolve degrading to a PATH-LESS table row and an OMITTED corpus
+row, never an error. After fact derivation and BEFORE render/delivery, a template
 declaring `requiresWaiting` with ZERO fact rows at `AgentState == waiting` is a
 structured 409 `"nothing is waiting on this server"` with no delivery — the
 seam's valid-request-wrong-state class, same as the busy gate. Delivery goes through
 `deliverOperatorPrompt`, the seam BOTH handlers share so the two cannot drift:
 the busy gate (`active`/`waiting` ⇒ 409 naming the state; `idle` or unknown
-proceeds), `sessions.ResolveChatPane` over the operator's panes (404
-`"operator window has no chat session"` when none), and in-process
+proceeds), `sessions.ResolveAgentPane` over the operator's panes (404
+`"operator window has no agent session"` when none), and in-process
 `s.injectIntoPane` under ONE shared `agentSendTotalBudget` deadline, a probe
 failure, a post-paste `StagedSendFailure` (`staged_send_failure`), and
 `SubmitUnverified` surfacing as the three distinct structured 409s the
@@ -208,7 +209,7 @@ operator window on the server maps to `404` with `"no operator on this
 server"` — the UI hides the action in that state (degrade to absent), so the
 error is the race backstop. The handler MUST NOT issue a second `FetchSessions`
 for pane resolution; it reuses
-`sessions.ResolveChatPane` on the already-fetched windows. Subject and operator
+`sessions.ResolveAgentPane` on the already-fetched windows. Subject and operator
 are then handed ALREADY RESOLVED to the shared delivery core
 (`deliverOperatorRequest`), which performs no fetch of its own — the auto-name
 caller passes windows straight from the tick's sessions snapshot.
@@ -223,19 +224,19 @@ caller passes windows straight from the tick's sessions snapshot.
 The delivery core SHALL derive the template facts (`operatorFacts`) server-side —
 all derivable (Constitution X): the subject's `windowId` (`@N`), current `Name`,
 `WorktreePath`, `FabChange`/`FabStage` (rendered only when `FabChange` is
-non-empty), and — for a template declaring `requiresChatRef` — the transcript
-JSONL absolute path resolved from the subject's reconciled
-`ChatProvider`/`ChatSessionRef` via `transcript.Path` (the exported
+non-empty), and — for a template declaring `requiresAgentSessionRef` — the
+transcript JSONL absolute path resolved from the subject's reconciled
+`AgentProvider`/`AgentSessionRef` via `transcript.Path` (the exported
 `TranscriptLocator` seam — [agent-send](/run-kit/agent-send.md) § Adapter interface +
-provider registry). A subject with no reconciled chat session is a 404-class
-error (`"no chat session for this window"`); an unresolvable transcript
+provider registry). A subject with no reconciled agent session is a 404-class
+error (`"no agent session for this window"`); an unresolvable transcript
 (`ErrInvalidRef`/`ErrTranscriptNotFound`) maps through `writeTranscriptError`,
-the same 404-class vocabulary as the chat read endpoints; `ErrNoAdapter` is a
-404 naming the provider.
+the transcript-read 404-class vocabulary; `ErrNoAdapter` is a 404 naming the
+provider. (260904-bf1l-agent-session-identity-rename)
 
 #### Scenario: Subject without a resolvable transcript
-- **GIVEN** a subject window whose reconciled chat ref is empty or whose
-  transcript cannot be located
+- **GIVEN** a subject window whose reconciled agent session ref is empty or
+  whose transcript cannot be located
 - **WHEN** facts are derived
 - **THEN** the response is a 404-class `writeError` and no injection occurs.
 - **AND GIVEN** a resolvable ref, **THEN** the rendered prompt contains the
@@ -288,10 +289,10 @@ core `deliverOperatorPrompt` (so the paths cannot drift), which delivers
 in-process via
 `s.injectIntoPane(ctx, server, operatorPaneID, prompt, true)` — the same
 `api`-package seam the compose-send route uses, NOT an HTTP self-call — where
-`operatorPaneID` is `sessions.ResolveChatPane(operator.Panes)` over the
+`operatorPaneID` is `sessions.ResolveAgentPane(operator.Panes)` over the
 OPERATOR window's panes (active-pane-first rollup; injection targets the pane,
 never the window, never the subject's pane). An operator window with no
-reconciled chat pane ⇒ `404` (`"operator window has no chat session"` — an
+reconciled agent pane ⇒ `404` (`"operator window has no agent session"` — an
 operator that isn't a live agent can't receive requests). The engine semantics
 are handler-boundary sanitize, per-(server,paneID)
 whole-sequence lock, ONE shared deadline (`agentSendTotalBudget`, applied
@@ -307,7 +308,7 @@ the SSE hub: rk mutated no tmux state, and the operator's later actuation (e.g.
 `rename-window`) surfaces via the normal derive tick.
 
 #### Scenario: Delivery targets the operator's resolved pane
-- **GIVEN** an idle operator whose resolved chat pane is `%7`
+- **GIVEN** an idle operator whose resolved agent pane is `%7`
 - **WHEN** delivery runs
 - **THEN** every injection subprocess targets `%7`, the sequence is baseline →
   set-buffer → paste → probe → Enter → observation/recovery, and the response is
@@ -322,13 +323,14 @@ the SSE hub: rk mutated no tmux state, and the operator's later actuation (e.g.
   submit-unconfirmed `409`.
 
 ### Requirement: The `fix-tab-name` template
-The registry's `fix-tab-name` entry SHALL declare `requiresChatRef: true` and
-render a self-contained prompt (the operator needs no rk-specific knowledge)
-that names the subject by `@N` (an id that survives moves and is
-collision-proof vs name targets), hands the operator the transcript path to
-read (the chat JSONL, never capture-pane — agent TUIs run alt-screen with zero
-scrollback), gives the worktree and — only when `FabChange` is non-empty — the
-fab change + stage context, names the exact actuation command
+The registry's `fix-tab-name` entry SHALL declare
+`requiresAgentSessionRef: true` and render a self-contained prompt (the
+operator needs no rk-specific knowledge) that names the subject by `@N` (an id
+that survives moves and is collision-proof vs name targets), hands the operator
+the transcript path to read (the session JSONL, never capture-pane — agent TUIs
+run alt-screen with zero scrollback), gives the worktree and — only when
+`FabChange` is non-empty — the fab change + stage context, names the exact
+actuation command
 (`tmux rename-window -t {windowId} "<new-name>"`, 2-4 words, kebab-case
 preferred), instructs the operator to DO NOTHING when the current name already
 accurately describes the work (the no-op judgment belongs to the operator, not
@@ -355,7 +357,8 @@ rolled-up `AgentState` and detects the per-window transition **busy → idle**
 a `""`→`idle` tick is not a transition). A candidate SHALL be dropped unless
 ALL hold, derived from the same tick's snapshot with NO second `FetchSessions`:
 the server HAS an operator window (`Role == "operator"`), the subject is NOT
-the operator window, and the subject carries a non-empty `ChatSessionRef`. Rate
+the operator window, and the subject carries a non-empty `AgentSessionRef`.
+Rate
 limits: a 15-minute per-window cooldown (`autoNameCooldown`), a 60-second
 per-server min-gap (`autoNameMinGap` — the operator's `AgentState` lags a
 delivery by a hook round-trip, so back-to-back transitions must not
@@ -394,9 +397,9 @@ on the server — no operator ⇒ nothing fires, nothing logs at error level
 - **WHEN** the current tick derives its rollup as `idle`
 - **THEN** the tracker emits a candidate for that window; `idle`→`idle`,
   `""`→`idle`, and first-observation ticks emit nothing.
-- **AND GIVEN** a transition on a chatless window, on the operator window
-  itself, or on an operator-less server, **THEN** no delivery is attempted and
-  the transition is consumed unstamped.
+- **AND GIVEN** a transition on a window with no agent session, on the operator
+  window itself, or on an operator-less server, **THEN** no delivery is
+  attempted and the transition is consumed unstamped.
 
 #### Scenario: Rate limits bound a flapping window
 - **GIVEN** a window that fired an auto-request 5 minutes ago
@@ -452,10 +455,11 @@ The detached delivery goroutine performs its OWN fresh `FetchSessions` and
 re-derives everything from that result — it retains NO reference to the tick's
 shared sessions slice (later cache-hit ticks mutate it, an unsynchronized
 read/write race). From the fresh result it re-runs the same gates the live
-path runs (subject window alive and not the operator; chat ref resolvable via
-`transcript.Path` for `requiresChatRef` templates; `requiresWaiting` still
-satisfied; `session` scope still names a live session; operator window present
-with a resolvable chat pane), re-renders via the entry's registry render func
+path runs (subject window alive and not the operator; agent session ref
+resolvable via `transcript.Path` for `requiresAgentSessionRef` templates;
+`requiresWaiting` still satisfied; `session` scope still names a live session;
+operator window present with a resolvable agent pane), re-renders via the
+entry's registry render func
 over freshly built facts (the same consumer-side session filtering as the
 handler), and delivers through `deliverOperatorPrompt` — whose busy gate,
 reading FRESH state, is a real re-busy check. Failure policy: a busy-class
@@ -511,7 +515,7 @@ run-kit adds no backend spawn path.
 ### Requirement: The `find-discussion` template (server-scoped)
 The registry's `find-discussion` entry (`serverScoped: true`,
 `acceptsText: true`) SHALL render the transcript corpus — for every
-non-operator window with a reconciled chat session: session name, `@N`, window
+non-operator window with a reconciled agent session: session name, `@N`, window
 name, and the absolute transcript JSONL path via `transcript.Path`
 (unresolvable refs omitted, per the broken-ref rule) — then the user's query
 in the delimited data block, then the instruction to search the corpus
@@ -522,8 +526,8 @@ other window). The answer reaches the user in the operator tab via the normal
 derive tick.
 
 #### Scenario: Only resolvable transcripts reach the prompt
-- **GIVEN** a server with two chat-carrying windows, one chatless window, and
-  one window whose ref fails to resolve
+- **GIVEN** a server with two agent-session-carrying windows, one window with
+  no agent session, and one window whose ref fails to resolve
 - **WHEN** the template renders with a query
 - **THEN** the prompt lists exactly the two resolvable transcript paths with
   their window identities, the delimited query, the answer-in-your-own-window
@@ -666,8 +670,9 @@ acceptsSession lane above).
   route, **THEN** it 400s naming the server-scoped id.
 
 ### Requirement: The `annotate-tab` template (window-scoped)
-The registry's `annotate-tab` entry (`requiresChatRef: true`, window-scoped —
-no `serverScoped`, no `acceptsText`) SHALL ride the window route unchanged and
+The registry's `annotate-tab` entry (`requiresAgentSessionRef: true`,
+window-scoped — no `serverScoped`, no `acceptsText`) SHALL ride the window
+route unchanged and
 render from `operatorFacts` (the `renderFixTabName` shape): read the subject
 tab's transcript tail (~30 JSONL lines), then write a one-line `@rk_win_note`
 status note saying WHY the tab is in its current state via the exact
@@ -700,7 +705,8 @@ tab` entries
 ([ui/keyboard-and-palette](/run-kit/ui/keyboard-and-palette.md) § Command
 Palette Actions) — SHALL render only when (a) the server has an operator window
 (`role === "operator"` present in the sessions payload), (b) the subject window
-carries a non-empty `chatSessionRef` (the template needs its JSONL transcript),
+carries a non-empty `agentSessionRef` (the template needs its JSONL
+transcript),
 and (c) the subject is not itself the operator window (the pure
 `canRequestWindowOperatorAction(win, hasOperator)` rule in
 `row-flyout-card.tsx`, ONE predicate serving both actions). All
@@ -753,14 +759,14 @@ outcome keeps its existing copy. No new UI surface — no queue badge, no
 inspect/cancel affordance (Constitution IV) — and no SSE payload change.
 
 #### Scenario: Gating and single-flight
-- **GIVEN** a window row on a server with an operator and a chat-carrying
-  subject
+- **GIVEN** a window row on a server with an operator and a subject carrying an
+  agent session
 - **WHEN** the flyout opens and "Fix tab name" is clicked
 - **THEN** exactly one `sendOperatorRequest` fires (re-clicks during flight are
   no-ops) and a success toast appears.
 - **AND GIVEN** no operator on the server, OR a subject without
-  `chatSessionRef`, OR the operator's own row, **THEN** the row and the palette
-  entry are absent (not disabled).
+  `agentSessionRef`, OR the operator's own row, **THEN** the row and the
+  palette entry are absent (not disabled).
 - **AND GIVEN** no operator on the server, **THEN** neither
   update-annotations fire surface renders (omitted, not disabled).
 - **AND GIVEN** a busy operator and a tap on "Fix tab name", **WHEN** the
@@ -845,7 +851,7 @@ radius for zero benefit).
 `"nothing is waiting on this server"`.
 **Why**: 409 is the seam's established valid-request-wrong-state class (busy
 gate, probe failure) and the client already toasts structured 409s; the
-declarative flag matches `requiresChatRef`/`acceptsText`.
+declarative flag matches `requiresAgentSessionRef`/`acceptsText`.
 **Rejected**: 404 (nothing is missing); 200 with a no-op delivery (wastes the
 operator); an error-returning render signature (widens every entry's contract
 for one template's precondition).
@@ -912,7 +918,7 @@ delivery).
 
 ### In-process reuse of the shared injection path
 **Decision**: the handler calls `s.injectIntoPane` +
-`sessions.ResolveChatPane` directly (same `api` package) after its own single
+`sessions.ResolveAgentPane` directly (same `api` package) after its own single
 `FetchSessions` pass.
 **Why**: an HTTP self-call would re-enter the router for no isolation gain;
 calling a window-scoped resolver helper would issue a second `FetchSessions` per

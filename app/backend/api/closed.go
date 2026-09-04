@@ -57,7 +57,7 @@ var (
 // recordClosedWindow captures the about-to-be-killed window onto the server's
 // recently-closed ring, returning the pushed record (nil when nothing was
 // recorded). It runs BEFORE the kill — the option set dies with the window —
-// and ANY failure (capture read, chat-identity walk, push) degrades to
+// and ANY failure (capture read, agent-identity walk, push) degrades to
 // slog.Debug + nil: recording must never block or fail the kill itself.
 func (s *Server) recordClosedWindow(server, windowID string) *snapshot.ClosedWindow {
 	ctx, cancel := context.WithTimeout(context.Background(), closedCaptureTimeout)
@@ -71,17 +71,18 @@ func (s *Server) recordClosedWindow(server, windowID string) *snapshot.ClosedWin
 	rec := snapshot.ClosedWindow{Server: server, Session: session, Window: win}
 
 	// Agent identity needs a second walk: the layout capture reads carry no
-	// @rk_pane_chat, so the reconciled identity comes from FetchSessions via the
-	// same active-pane-first rollup fork uses. A walk failure forfeits only the
-	// chat fields — the window record itself still pushes.
+	// @rk_pane_agent_session, so the reconciled identity comes from
+	// FetchSessions via the same active-pane-first rollup fork uses. A walk
+	// failure forfeits only the agent session fields — the window record
+	// itself still pushes.
 	if sess, ferr := s.sessions.FetchSessions(ctx, server); ferr != nil {
-		slog.Debug("closed-window chat identity walk failed", "server", server, "window", windowID, "err", ferr)
+		slog.Debug("closed-window agent identity walk failed", "server", server, "window", windowID, "err", ferr)
 	} else {
 		for si := range sess {
 			for wi := range sess[si].Windows {
 				w := &sess[si].Windows[wi]
 				if w.WindowID == windowID {
-					rec.ChatProvider, rec.ChatRef, _ = sessions.ResolveChatPane(w.Panes)
+					rec.AgentProvider, rec.AgentRef, _ = sessions.ResolveAgentPane(w.Panes)
 				}
 			}
 		}
@@ -169,7 +170,7 @@ func (s *Server) handleClosedReopen(w http.ResponseWriter, r *http.Request) {
 	// offer, so the record is dropped here. A delete failure leaves a stale
 	// record the ring cap eventually prunes; it must not turn a successful
 	// reopen into an error.
-	if rec.ChatProvider == "" {
+	if rec.AgentProvider == "" {
 		if derr := s.snapshotStore.DeleteClosed(server, rec.ID); derr != nil {
 			slog.Warn("closed-window record not dropped after reopen", "server", server, "id", rec.ID, "err", derr)
 		}
@@ -235,20 +236,20 @@ func (s *Server) handleClosedResume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if rec.ChatProvider == "" {
+	if rec.AgentProvider == "" {
 		writeError(w, http.StatusNotFound, "no agent session recorded for this window")
 		return
 	}
-	if rec.ChatProvider != forkProviderClaude {
+	if rec.AgentProvider != forkProviderClaude {
 		// A well-formed but non-resumable provider: the window HAS an agent
 		// session, just not one --resume applies to (fork's non-claude posture).
-		writeError(w, http.StatusNotFound, fmt.Sprintf("cannot resume a %q session — conversation resume requires provider %q", rec.ChatProvider, forkProviderClaude))
+		writeError(w, http.StatusNotFound, fmt.Sprintf("cannot resume a %q session — conversation resume requires provider %q", rec.AgentProvider, forkProviderClaude))
 		return
 	}
 	// Strict UUID gate BEFORE the ref can reach any argv/shell composition
 	// (Constitution I) — the same gate fork applies to a live pane's ref.
-	if !forkSessionUUIDRe.MatchString(rec.ChatRef) {
-		writeError(w, http.StatusNotFound, "malformed chat session ref for this window")
+	if !forkSessionUUIDRe.MatchString(rec.AgentRef) {
+		writeError(w, http.StatusNotFound, "malformed agent session ref for this window")
 		return
 	}
 
@@ -285,7 +286,7 @@ func (s *Server) handleClosedResume(w http.ResponseWriter, r *http.Request) {
 		// `--resume <uuid> --fork-session` inside the engine.
 		Where:            "checkout",
 		RepoRoot:         cwd,
-		ResumeSessionRef: rec.ChatRef,
+		ResumeSessionRef: rec.AgentRef,
 		WindowNameBase:   rec.Window.Name,
 	})
 	if err != nil {

@@ -399,10 +399,10 @@ function NoteLine({ win }: { win: WindowInfo }) {
 /**
  * Provider whose conversations can be forked. The fork mechanism is Claude
  * Code's `--resume <id> --fork-session`, so the affordance is gated on the same
- * `chatProvider` field the chat lens gates on — no new data plumbing (the field
- * already rides `/api/sessions` + SSE).
+ * `agentProvider` field the agent session identity carries — no new data
+ * plumbing (the field already rides `/api/sessions` + SSE).
  */
-const FORKABLE_CHAT_PROVIDER = "claude";
+const FORKABLE_AGENT_PROVIDER = "claude";
 
 /** Tooltip/aria copy for the fork affordance. Names the SAME-DIRECTORY semantics
  *  explicitly — that is what distinguishes a fork (branch this conversation
@@ -410,21 +410,21 @@ const FORKABLE_CHAT_PROVIDER = "claude";
 export const FORK_TOOLTIP = "Fork conversation — new tab, same directory";
 
 /** True when this window's conversation can be forked: it carries a reconciled
- *  claude chat identity. An equality guard, not a cast — a `codex` window and a
- *  plain shell pane both fall through to false. */
+ *  claude agent session identity. An equality guard, not a cast — a `codex`
+ *  window and a plain shell pane both fall through to false. */
 export function canForkWindow(win: WindowInfo): boolean {
-  return win.chatProvider === FORKABLE_CHAT_PROVIDER;
+  return win.agentProvider === FORKABLE_AGENT_PROVIDER;
 }
 
 /**
  * The derived availability rule for the window-scoped operator-request
  * affordance (Fix tab name — 260822-fih1) — degrade to
  * ABSENT, never disabled: the row renders only when (a) the server has an
- * operator window, (b) the subject window carries a reconciled chat session
+ * operator window, (b) the subject window carries a reconciled agent session
  * (the template needs its JSONL transcript), and (c) the subject is not
  * itself the operator. All three facts already ride the sessions payload. */
 export function canRequestWindowOperatorAction(win: WindowInfo, hasOperator: boolean): boolean {
-  return hasOperator && win.chatSessionRef != null && win.chatSessionRef !== "" && win.role !== "operator";
+  return hasOperator && win.agentSessionRef != null && win.agentSessionRef !== "" && win.role !== "operator";
 }
 
 /** Shared geometry for the card's sectioned action rows: full-bleed inside
@@ -705,8 +705,8 @@ export function WindowFlyoutContent({
   // narrowing, which a refactor could silently break.
   const forkHandler = canForkWindow(win) ? onFork : undefined;
   // The Fix tab name row keeps the same double gate: the derived availability
-  // rule (operator present + subject chat ref + not the operator's own row)
-  // AND a wired handler.
+  // rule (operator present + subject agent session ref + not the operator's
+  // own row) AND a wired handler.
   const fixNameHandler = canRequestWindowOperatorAction(win, hasOperator) ? onFixTabName : undefined;
 
   return (

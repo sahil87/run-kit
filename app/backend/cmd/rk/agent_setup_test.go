@@ -452,7 +452,7 @@ func findRkCommands(settings map[string]any, event string) []string {
 
 func TestSessionStartRegistryRowUsesStampToken(t *testing.T) {
 	// The registry must carry exactly one SessionStart row whose token is `stamp`
-	// (the binary turns it into the chat stamp plus the compact-gated idle boot
+	// (the binary turns it into the agent-session stamp plus the compact-gated idle boot
 	// write — no settings-file change is needed for that behavior to ship).
 	var sessionStart []agentHook
 	for _, h := range agentRegistry("")[0].hooks {
@@ -1835,7 +1835,7 @@ func TestApplyAgentHooksSummaryFreshInstall(t *testing.T) {
 		"+ Notification (permission_prompt|elicitation_dialog|agent_needs_input) → waiting",
 		"+ Notification (idle_prompt) → idle",
 		"+ Stop → idle",
-		"+ SessionStart → chat stamp + idle (boot-ready)",
+		"+ SessionStart → session stamp + idle (boot-ready)",
 		"(all other settings and non-rk hooks preserved)",
 	} {
 		if !strings.Contains(got, want) {

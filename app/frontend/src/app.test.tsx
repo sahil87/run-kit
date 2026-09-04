@@ -832,7 +832,7 @@ describe("CmdK Terminal Export Actions (altScreen gate)", () => {
  * Tests for the Fix tab name palette entry (260822-fih1 R10) — `Tab: Fix name
  * (ask operator)` is ABSENT (omit-not-disable) unless the same three-part
  * availability rule as the flyout row holds: an operator window on the server,
- * the current window carrying a chat session ref, and the current window not
+ * the current window carrying an agent session ref, and the current window not
  * being the operator itself. Mirrors the action-generation pattern in app.tsx
  * (the buildOperatorActions precedent).
  */
@@ -840,11 +840,11 @@ describe("CmdK Terminal Export Actions (altScreen gate)", () => {
 /** Build the Fix tab name palette entry matching app.tsx's gate. */
 function buildFixTabNameActions(opts: {
   hasOperator: boolean;
-  chatSessionRef?: string;
+  agentSessionRef?: string;
   currentRole?: string;
   onFix: () => void;
 }): PaletteAction[] {
-  if (!opts.hasOperator || !opts.chatSessionRef || opts.currentRole === "operator") return [];
+  if (!opts.hasOperator || !opts.agentSessionRef || opts.currentRole === "operator") return [];
   return [{ id: "window-fix-name-operator", label: "Tab: Fix name (ask operator)", onSelect: opts.onFix }];
 }
 
@@ -853,7 +853,7 @@ describe("CmdK Fix Tab Name Action (operator-request gate)", () => {
 
   it("is listed when the rule holds and selecting it fires the fix seam", () => {
     const onFix = vi.fn();
-    const actions = buildFixTabNameActions({ hasOperator: true, chatSessionRef: "ref-1", onFix });
+    const actions = buildFixTabNameActions({ hasOperator: true, agentSessionRef: "ref-1", onFix });
 
     render(<CommandPalette actions={actions} />);
     openPalette();
@@ -866,7 +866,7 @@ describe("CmdK Fix Tab Name Action (operator-request gate)", () => {
   });
 
   it("is absent without an operator on the server", () => {
-    const actions = buildFixTabNameActions({ hasOperator: false, chatSessionRef: "ref-1", onFix: vi.fn() });
+    const actions = buildFixTabNameActions({ hasOperator: false, agentSessionRef: "ref-1", onFix: vi.fn() });
 
     render(<CommandPalette actions={actions} />);
     openPalette();
@@ -874,7 +874,7 @@ describe("CmdK Fix Tab Name Action (operator-request gate)", () => {
     expect(screen.queryByText("Tab: Fix name (ask operator)")).not.toBeInTheDocument();
   });
 
-  it("is absent when the current window carries no chat session ref", () => {
+  it("is absent when the current window carries no agent session ref", () => {
     const actions = buildFixTabNameActions({ hasOperator: true, onFix: vi.fn() });
 
     render(<CommandPalette actions={actions} />);
@@ -886,7 +886,7 @@ describe("CmdK Fix Tab Name Action (operator-request gate)", () => {
   it("is absent on the operator's own window", () => {
     const actions = buildFixTabNameActions({
       hasOperator: true,
-      chatSessionRef: "ref-1",
+      agentSessionRef: "ref-1",
       currentRole: "operator",
       onFix: vi.fn(),
     });
@@ -1078,19 +1078,19 @@ describe("CmdK Set Note Action (260824-bb5n)", () => {
 /**
  * Tests for the Annotate tab palette entry (260824-bb5n R6) — `Operator:
  * Annotate tab` is gated by the SAME three-part availability rule as fix-name
- * (operator on the server, chat ref on the current window, not the operator's
- * own window) and fires the annotate-tab operator-request template. Mirrors
+ * (operator on the server, agent session ref on the current window, not the
+ * operator's own window) and fires the annotate-tab operator-request template. Mirrors
  * the buildFixTabNameActions precedent.
  */
 
 /** Build the Annotate tab palette entry matching app.tsx's gate. */
 function buildAnnotateTabActions(opts: {
   hasOperator: boolean;
-  chatSessionRef?: string;
+  agentSessionRef?: string;
   currentRole?: string;
   onAnnotate: () => void;
 }): PaletteAction[] {
-  if (!opts.hasOperator || !opts.chatSessionRef || opts.currentRole === "operator") return [];
+  if (!opts.hasOperator || !opts.agentSessionRef || opts.currentRole === "operator") return [];
   return [{ id: "window-annotate-operator", label: "Operator: Annotate tab", onSelect: opts.onAnnotate }];
 }
 
@@ -1099,7 +1099,7 @@ describe("CmdK Annotate Tab Action (operator-request gate)", () => {
 
   it("is listed when the rule holds and selecting it fires the annotate seam", () => {
     const onAnnotate = vi.fn();
-    const actions = buildAnnotateTabActions({ hasOperator: true, chatSessionRef: "ref-1", onAnnotate });
+    const actions = buildAnnotateTabActions({ hasOperator: true, agentSessionRef: "ref-1", onAnnotate });
 
     render(<CommandPalette actions={actions} />);
     openPalette();
@@ -1112,7 +1112,7 @@ describe("CmdK Annotate Tab Action (operator-request gate)", () => {
   });
 
   it("is absent without an operator on the server", () => {
-    const actions = buildAnnotateTabActions({ hasOperator: false, chatSessionRef: "ref-1", onAnnotate: vi.fn() });
+    const actions = buildAnnotateTabActions({ hasOperator: false, agentSessionRef: "ref-1", onAnnotate: vi.fn() });
 
     render(<CommandPalette actions={actions} />);
     openPalette();
@@ -1120,7 +1120,7 @@ describe("CmdK Annotate Tab Action (operator-request gate)", () => {
     expect(screen.queryByText("Operator: Annotate tab")).not.toBeInTheDocument();
   });
 
-  it("is absent when the current window carries no chat session ref", () => {
+  it("is absent when the current window carries no agent session ref", () => {
     const actions = buildAnnotateTabActions({ hasOperator: true, onAnnotate: vi.fn() });
 
     render(<CommandPalette actions={actions} />);
@@ -1132,7 +1132,7 @@ describe("CmdK Annotate Tab Action (operator-request gate)", () => {
   it("is absent on the operator's own window", () => {
     const actions = buildAnnotateTabActions({
       hasOperator: true,
-      chatSessionRef: "ref-1",
+      agentSessionRef: "ref-1",
       currentRole: "operator",
       onAnnotate: vi.fn(),
     });

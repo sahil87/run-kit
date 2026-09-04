@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 
@@ -195,22 +196,24 @@ func TestRunAgentHookWritesTwoSegmentWhenWalkFails(t *testing.T) {
 	}
 }
 
-// chatCall records a single writeChat invocation for the test seam.
-type chatCall struct {
+// agentSessionCall records a single writeAgentSession invocation for the test
+// seam.
+type agentSessionCall struct {
 	called             bool
 	pane, provider, id string
 }
 
-// captureChat swaps the writeChat seam for one that records its arguments.
-func captureChat(t *testing.T) *chatCall {
+// captureAgentSession swaps the writeAgentSession seam for one that records its
+// arguments.
+func captureAgentSession(t *testing.T) *agentSessionCall {
 	t.Helper()
-	rec := &chatCall{}
-	orig := writeChatFn
-	writeChatFn = func(_ context.Context, pane, provider, sessionID string) {
+	rec := &agentSessionCall{}
+	orig := writeAgentSessionFn
+	writeAgentSessionFn = func(_ context.Context, pane, provider, sessionID string) {
 		rec.called = true
 		rec.pane, rec.provider, rec.id = pane, provider, sessionID
 	}
-	t.Cleanup(func() { writeChatFn = orig })
+	t.Cleanup(func() { writeAgentSessionFn = orig })
 	return rec
 }
 
@@ -277,11 +280,11 @@ func TestHookSessionIDNilReader(t *testing.T) {
 	}
 }
 
-func TestRunAgentHookStampsChatOnStateFire(t *testing.T) {
+func TestRunAgentHookStampsAgentSessionOnStateFire(t *testing.T) {
 	const uuid = "6f0d9e2a-1c3b-4f7e-9a2d-8b5c4e1f0a37"
 	t.Setenv("TMUX_PANE", "%7")
 	rec := captureWrite(t)
-	chat := captureChat(t)
+	sess := captureAgentSession(t)
 	setHookStdin(t, `{"session_id":"`+uuid+`"}`)
 	origComm := processCommFn
 	processCommFn = func(_ context.Context, _ int) string { return "claude" }
@@ -292,18 +295,18 @@ func TestRunAgentHookStampsChatOnStateFire(t *testing.T) {
 	if !rec.called || rec.state != agentStateActive {
 		t.Errorf("agent-state write: called=%v state=%q, want true/active", rec.called, rec.state)
 	}
-	if !chat.called {
-		t.Fatal("a state fire with a session id must ALSO stamp @rk_chat")
+	if !sess.called {
+		t.Fatal("a state fire with a session id must ALSO stamp @rk_pane_agent_session")
 	}
-	if chat.pane != "%7" || chat.provider != "claude" || chat.id != uuid {
-		t.Errorf("chat stamp = (pane=%q provider=%q id=%q), want (%%7, claude, %s)", chat.pane, chat.provider, chat.id, uuid)
+	if sess.pane != "%7" || sess.provider != "claude" || sess.id != uuid {
+		t.Errorf("agent-session stamp = (pane=%q provider=%q id=%q), want (%%7, claude, %s)", sess.pane, sess.provider, sess.id, uuid)
 	}
 }
 
-func TestRunAgentHookStateFireNoSessionIDNoChat(t *testing.T) {
+func TestRunAgentHookStateFireNoSessionIDNoAgentSession(t *testing.T) {
 	t.Setenv("TMUX_PANE", "%7")
 	rec := captureWrite(t)
-	chat := captureChat(t)
+	sess := captureAgentSession(t)
 	setHookStdin(t, `{"hook_event_name":"Stop"}`) // no session_id
 	origComm := processCommFn
 	processCommFn = func(_ context.Context, _ int) string { return "claude" }
@@ -314,16 +317,16 @@ func TestRunAgentHookStateFireNoSessionIDNoChat(t *testing.T) {
 	if !rec.called {
 		t.Error("agent-state must still be written when there is no session id")
 	}
-	if chat.called {
-		t.Error("no session id must mean no chat stamp")
+	if sess.called {
+		t.Error("no session id must mean no agent-session stamp")
 	}
 }
 
-func TestRunAgentHookStampTokenWritesChatAndIdle(t *testing.T) {
+func TestRunAgentHookStampTokenWritesAgentSessionAndIdle(t *testing.T) {
 	const uuid = "abc-123-def"
 	t.Setenv("TMUX_PANE", "%9")
 	rec := captureWrite(t)
-	chat := captureChat(t)
+	sess := captureAgentSession(t)
 	setHookStdin(t, `{"session_id":"`+uuid+`","source":"startup"}`)
 	origComm := processCommFn
 	processCommFn = func(_ context.Context, _ int) string { return "claude" }
@@ -339,8 +342,8 @@ func TestRunAgentHookStampTokenWritesChatAndIdle(t *testing.T) {
 	if rec.pid <= 0 {
 		t.Errorf("pid = %d, want the resolved (>0) claude pid", rec.pid)
 	}
-	if !chat.called || chat.pane != "%9" || chat.provider != "claude" || chat.id != uuid {
-		t.Errorf("stamp chat = (called=%v pane=%q provider=%q id=%q), want (true, %%9, claude, %s)", chat.called, chat.pane, chat.provider, chat.id, uuid)
+	if !sess.called || sess.pane != "%9" || sess.provider != "claude" || sess.id != uuid {
+		t.Errorf("stamp agent-session = (called=%v pane=%q provider=%q id=%q), want (true, %%9, claude, %s)", sess.called, sess.pane, sess.provider, sess.id, uuid)
 	}
 }
 
@@ -365,7 +368,7 @@ func TestRunAgentHookStampTokenBootWriteSources(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("TMUX_PANE", "%9")
 			rec := captureWrite(t)
-			chat := captureChat(t)
+			sess := captureAgentSession(t)
 			setHookStdin(t, tc.payload)
 			origComm := processCommFn
 			processCommFn = func(_ context.Context, _ int) string { return "claude" }
@@ -379,10 +382,10 @@ func TestRunAgentHookStampTokenBootWriteSources(t *testing.T) {
 			if rec.called && rec.state != agentStateIdle {
 				t.Errorf("state = %q, want idle", rec.state)
 			}
-			// The chat stamp keys on the session id alone — source never gates it.
-			wantChat := tc.payload != "not json"
-			if chat.called != wantChat {
-				t.Errorf("chat stamp = %v, want %v", chat.called, wantChat)
+			// The agent-session stamp keys on the session id alone — source never gates it.
+			wantStamp := tc.payload != "not json"
+			if sess.called != wantStamp {
+				t.Errorf("agent-session stamp = %v, want %v", sess.called, wantStamp)
 			}
 		})
 	}
@@ -391,36 +394,36 @@ func TestRunAgentHookStampTokenBootWriteSources(t *testing.T) {
 func TestRunAgentHookStampTokenNoSessionIDNoWrite(t *testing.T) {
 	t.Setenv("TMUX_PANE", "%9")
 	rec := captureWrite(t)
-	chat := captureChat(t)
+	sess := captureAgentSession(t)
 	setHookStdin(t, ``) // no stdin → no session id
 	runAgentHook(context.Background(), "claude", agentHookStampToken)
-	if rec.called || chat.called {
-		t.Errorf("stamp with no session id must write nothing (state=%v chat=%v)", rec.called, chat.called)
+	if rec.called || sess.called {
+		t.Errorf("stamp with no session id must write nothing (state=%v session=%v)", rec.called, sess.called)
 	}
 }
 
 func TestRunAgentHookUnknownTokenNoWrite(t *testing.T) {
 	t.Setenv("TMUX_PANE", "%9")
 	rec := captureWrite(t)
-	chat := captureChat(t)
+	sess := captureAgentSession(t)
 	setHookStdin(t, `{"session_id":"abc-123"}`)
 	runAgentHook(context.Background(), "claude", "busy") // neither a state nor stamp
-	if rec.called || chat.called {
-		t.Errorf("an unknown token must write nothing (state=%v chat=%v)", rec.called, chat.called)
+	if rec.called || sess.called {
+		t.Errorf("an unknown token must write nothing (state=%v session=%v)", rec.called, sess.called)
 	}
 }
 
 func TestRunAgentHookMalformedSessionIDNotStamped(t *testing.T) {
 	t.Setenv("TMUX_PANE", "%7")
 	captureWrite(t)
-	chat := captureChat(t)
+	sess := captureAgentSession(t)
 	setHookStdin(t, `{"session_id":"has space"}`) // rejected by isValidSessionID
 	origComm := processCommFn
 	processCommFn = func(_ context.Context, _ int) string { return "claude" }
 	t.Cleanup(func() { processCommFn = origComm })
 
 	runAgentHook(context.Background(), "claude", "active")
-	if chat.called {
+	if sess.called {
 		t.Error("a whitespace-bearing session id must never be stamped")
 	}
 }
@@ -547,7 +550,7 @@ func TestAgentHookCmdNeverErrorsOnMalformedInvocation(t *testing.T) {
 // fire through either form writes the same @rk_agent_state value for the pane.
 func TestAgentHookCmdAliasParityOnWritePath(t *testing.T) {
 	t.Setenv("TMUX_PANE", "%7")
-	setHookStdin(t, "") // no session id → no chat stamp to compare
+	setHookStdin(t, "") // no session id → no agent-session stamp to compare
 	// The walk seam resolves every ancestor to claude so the pid is deterministic.
 	origComm := processCommFn
 	processCommFn = func(_ context.Context, _ int) string { return "claude" }
@@ -672,13 +675,18 @@ func TestWriteAgentStateImplDualWritesBothNames(t *testing.T) {
 	assertDualWriteArgv(t, args, "%3", tmux.AgentStateOption, tmux.LegacyAgentStateOption, values[0])
 }
 
-func TestWriteChatImplDualWritesBothNames(t *testing.T) {
+func TestWriteAgentSessionImplDualWritesBothNames(t *testing.T) {
 	captured := captureDualWriteArgv(t)
-	writeChatImpl(context.Background(), "%3", "claude", "6f0d9e2a-1c3b-4f7e-9a2d-8b5c4e1f0a37")
+	writeAgentSessionImpl(context.Background(), "%3", "claude", "6f0d9e2a-1c3b-4f7e-9a2d-8b5c4e1f0a37")
 	if len(*captured) != 1 {
 		t.Fatalf("tmux invocations = %d, want 1 (chained dual-write)", len(*captured))
 	}
-	assertDualWriteArgv(t, (*captured)[0], "%3", chatOption, tmux.LegacyChatOption, "claude:6f0d9e2a-1c3b-4f7e-9a2d-8b5c4e1f0a37")
+	args := (*captured)[0]
+	assertDualWriteArgv(t, args, "%3", agentSessionOption, tmux.LegacyAgentSessionOption, "claude:6f0d9e2a-1c3b-4f7e-9a2d-8b5c4e1f0a37")
+	// The retired two-generations-back name is never written.
+	if slices.Contains(args, "@rk_chat") {
+		t.Errorf("argv %v must never set @rk_chat", args)
+	}
 }
 
 func TestDualWriteNeverFailsOnTmuxError(t *testing.T) {
@@ -688,5 +696,5 @@ func TestDualWriteNeverFailsOnTmuxError(t *testing.T) {
 	agentHookTmuxRun = func(_ context.Context, _ []string) error { return fmt.Errorf("boom") }
 	t.Cleanup(func() { agentHookTmuxRun = orig })
 	writeAgentStateImpl(context.Background(), "%3", agentStateActive, 0)
-	writeChatImpl(context.Background(), "%3", "claude", "abc123")
+	writeAgentSessionImpl(context.Background(), "%3", "claude", "abc123")
 }

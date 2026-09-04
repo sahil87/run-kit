@@ -29,13 +29,13 @@ func operatorSessions(agentState string) []sessions.ProjectSession {
 	return []sessions.ProjectSession{
 		{Name: "s", Windows: []tmux.WindowInfo{
 			{WindowID: "@1", Name: "zsh", WorktreePath: "/wt/project",
-				ChatProvider: "claude", ChatSessionRef: testTranscriptRef,
+				AgentProvider: "claude", AgentSessionRef: testTranscriptRef,
 				FabChange: "260822-fih1-operator-request-fix-tab-name", FabStage: "apply",
-				Panes: []tmux.PaneInfo{{PaneID: "%1", IsActive: true, ChatProvider: "claude", ChatSessionRef: testTranscriptRef}}},
+				Panes: []tmux.PaneInfo{{PaneID: "%1", IsActive: true, AgentProvider: "claude", AgentSessionRef: testTranscriptRef}}},
 		}},
 		{Name: "_rk-operator", Windows: []tmux.WindowInfo{
 			{WindowID: "@9", Name: "operator", Role: "operator", AgentState: agentState,
-				Panes: []tmux.PaneInfo{{PaneID: "%9", IsActive: true, ChatProvider: "claude", ChatSessionRef: testTranscriptRef}}},
+				Panes: []tmux.PaneInfo{{PaneID: "%9", IsActive: true, AgentProvider: "claude", AgentSessionRef: testTranscriptRef}}},
 		}},
 	}
 }
@@ -119,7 +119,7 @@ func TestOperatorRequestSubjectNotFound(t *testing.T) {
 func TestOperatorRequestNoOperator(t *testing.T) {
 	sf := &mockSessionFetcher{result: []sessions.ProjectSession{
 		{Name: "s", Windows: []tmux.WindowInfo{
-			{WindowID: "@1", ChatProvider: "claude", ChatSessionRef: testTranscriptRef},
+			{WindowID: "@1", AgentProvider: "claude", AgentSessionRef: testTranscriptRef},
 		}},
 	}}
 	ops := &mockTmuxOps{}
@@ -138,17 +138,17 @@ func TestOperatorRequestNoOperator(t *testing.T) {
 	}
 }
 
-// TestOperatorRequestSubjectNoChatRef: the fix-tab-name template declares the
-// chat ref as a required fact — a subject without a reconciled chat session is
-// a 404 with no injection.
-func TestOperatorRequestSubjectNoChatRef(t *testing.T) {
+// TestOperatorRequestSubjectNoAgentSessionRef: the fix-tab-name template
+// declares the agent session ref as a required fact — a subject without a
+// reconciled agent session is a 404 with no injection.
+func TestOperatorRequestSubjectNoAgentSessionRef(t *testing.T) {
 	sf := &mockSessionFetcher{result: []sessions.ProjectSession{
 		{Name: "s", Windows: []tmux.WindowInfo{
 			{WindowID: "@1", Name: "zsh"},
 		}},
 		{Name: "_rk-operator", Windows: []tmux.WindowInfo{
 			{WindowID: "@9", Role: "operator", AgentState: "idle",
-				Panes: []tmux.PaneInfo{{PaneID: "%9", IsActive: true, ChatProvider: "claude", ChatSessionRef: testTranscriptRef}}},
+				Panes: []tmux.PaneInfo{{PaneID: "%9", IsActive: true, AgentProvider: "claude", AgentSessionRef: testTranscriptRef}}},
 		}},
 	}}
 	ops := &mockTmuxOps{}
@@ -183,14 +183,14 @@ func TestOperatorRequestTranscriptNotFound(t *testing.T) {
 	}
 }
 
-// TestOperatorRequestOperatorNoChatPane: an operator window with no reconciled
-// chat pane cannot receive requests — 404, no injection.
-func TestOperatorRequestOperatorNoChatPane(t *testing.T) {
+// TestOperatorRequestOperatorNoAgentPane: an operator window with no reconciled
+// agent pane cannot receive requests — 404, no injection.
+func TestOperatorRequestOperatorNoAgentPane(t *testing.T) {
 	stageFixtureTranscript(t, testTranscriptRef)
 	sf := &mockSessionFetcher{result: []sessions.ProjectSession{
 		{Name: "s", Windows: []tmux.WindowInfo{
-			{WindowID: "@1", ChatProvider: "claude", ChatSessionRef: testTranscriptRef,
-				Panes: []tmux.PaneInfo{{PaneID: "%1", IsActive: true, ChatProvider: "claude", ChatSessionRef: testTranscriptRef}}},
+			{WindowID: "@1", AgentProvider: "claude", AgentSessionRef: testTranscriptRef,
+				Panes: []tmux.PaneInfo{{PaneID: "%1", IsActive: true, AgentProvider: "claude", AgentSessionRef: testTranscriptRef}}},
 		}},
 		{Name: "_rk-operator", Windows: []tmux.WindowInfo{
 			{WindowID: "@9", Role: "operator", AgentState: "idle",
@@ -743,14 +743,14 @@ func TestBuildServerOperatorFacts(t *testing.T) {
 	sess := []sessions.ProjectSession{
 		{Name: "s", Windows: []tmux.WindowInfo{
 			{WindowID: "@1", Name: "zsh", WorktreePath: "/wt/project", AgentState: "active",
-				ChatProvider: "claude", ChatSessionRef: testTranscriptRef,
+				AgentProvider: "claude", AgentSessionRef: testTranscriptRef,
 				FabChange: "260822-fih1-operator-request-fix-tab-name", FabStage: "apply"},
 			{WindowID: "@2", Name: "plain", WorktreePath: "/wt/plain"},
-			{WindowID: "@3", Name: "broken", ChatProvider: "claude", ChatSessionRef: "not-a-uuid"},
+			{WindowID: "@3", Name: "broken", AgentProvider: "claude", AgentSessionRef: "not-a-uuid"},
 		}},
 		{Name: "_rk-operator", Windows: []tmux.WindowInfo{
 			{WindowID: "@9", Name: "operator", Role: "operator",
-				ChatProvider: "claude", ChatSessionRef: testTranscriptRef},
+				AgentProvider: "claude", AgentSessionRef: testTranscriptRef},
 		}},
 	}
 	facts := buildServerOperatorFacts(sess, "the task")
@@ -914,10 +914,10 @@ func TestBuildServerOperatorFactsDigestFields(t *testing.T) {
 	sess := []sessions.ProjectSession{
 		{Name: "s", Windows: []tmux.WindowInfo{
 			{WindowID: "@1", Name: "zsh", AgentState: "waiting", AgentIdleDuration: "3m",
-				ChatProvider: "claude", ChatSessionRef: testTranscriptRef,
+				AgentProvider: "claude", AgentSessionRef: testTranscriptRef,
 				PrURL: &prURL, PrState: "open", PrChecks: "pass", PrReview: "approved"},
 			{WindowID: "@2", Name: "plain"},
-			{WindowID: "@3", Name: "broken", ChatProvider: "claude", ChatSessionRef: "not-a-uuid"},
+			{WindowID: "@3", Name: "broken", AgentProvider: "claude", AgentSessionRef: "not-a-uuid"},
 			// PR facts with NO PrURL must not leak into the row.
 			{WindowID: "@4", Name: "orphan-pr", PrState: "open", PrChecks: "pass"},
 		}},

@@ -515,24 +515,24 @@ const (
 	AgentStateIdle    = "idle"
 )
 
-// ChatOption is the tmux PANE-scoped user option that ties a pane to the live
-// agent chat session running in it. Value schema: "<provider>:<session-ref>"
+// AgentSessionOption is the tmux PANE-scoped user option that ties a pane to
+// the live agent session running in it. Value schema: "<provider>:<session-ref>"
 // (e.g. "claude:6f0d9e2a-1c3b-4f7e-9a2d-8b5c4e1f0a37"). <provider> is the
 // rk agent setup registry agent name; <session-ref> is a provider-defined opaque
 // reference (the session UUID for claude). It is written by the same
 // `rk agent hook` binary that writes @rk_pane_agent_state, on the same fires. The
 // pane→session mapping is underivable from disk/tmux/git (multiple transcripts
 // share a cwd), which is exactly the class of fact Constitution X reserves for
-// hooks. See docs/specs/agent-state.md § Chat Session Identity.
+// hooks. See docs/specs/agent-state.md § Agent Session Identity.
 //
 // Dual-read window: `rk agent hook` dual-writes this name and the retired
-// unscoped one, so readers prefer this name and fall back to
-// LegacyChatOption until the follow-up removal change.
-const ChatOption = "@rk_pane_chat"
+// previous one, so readers prefer this name and fall back to
+// LegacyAgentSessionOption until the follow-up removal change.
+const AgentSessionOption = "@rk_pane_agent_session"
 
-// LegacyChatOption is the retired unscoped name of ChatOption, dual-read for
-// the deprecation window and removed by the follow-up change.
-const LegacyChatOption = "@rk_chat"
+// LegacyAgentSessionOption is the retired previous name of AgentSessionOption,
+// dual-read for the deprecation window and removed by the follow-up change.
+const LegacyAgentSessionOption = "@rk_pane_chat"
 
 // shellCommands is the set of plain-shell pane_current_command values that the
 // LEGACY reconciler fallback treats as "no agent" — applied only to
@@ -620,7 +620,7 @@ func parseAgentState(raw string) (string, int64, int) {
 	return state, epoch, pid
 }
 
-// parseChatRef parses a raw @rk_chat value of the form
+// parseAgentSessionRef parses a raw agent-session option value of the form
 // "<provider>:<session-ref>" into a validated (provider, ref) pair. It trims the
 // value, splits on the FIRST colon (providers never contain a colon; a ref might
 // in principle, so the tail after the first colon is the ref verbatim), and
@@ -630,7 +630,7 @@ func parseAgentState(raw string) (string, int64, int) {
 // (wholly unknown, mirroring parseAgentState's never-partially-trust tolerance).
 // An unknown-but-well-formed provider is NOT rejected: presence-gating is
 // provider-agnostic and codex/gemini adapters are additive.
-func parseChatRef(raw string) (provider, ref string) {
+func parseAgentSessionRef(raw string) (provider, ref string) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return "", ""
@@ -641,16 +641,16 @@ func parseChatRef(raw string) (provider, ref string) {
 	}
 	provider = raw[:i]
 	ref = raw[i+1:]
-	if !isChatProvider(provider) || !isChatRef(ref) {
+	if !isAgentProvider(provider) || !isAgentSessionRef(ref) {
 		return "", ""
 	}
 	return provider, ref
 }
 
-// isChatProvider reports whether p matches [a-z][a-z0-9_-]* (a lowercase token,
+// isAgentProvider reports whether p matches [a-z][a-z0-9_-]* (a lowercase token,
 // the shape of an rk agent setup registry agent name). Non-empty is implied by
 // the leading-char requirement.
-func isChatProvider(p string) bool {
+func isAgentProvider(p string) bool {
 	if p == "" {
 		return false
 	}
@@ -669,11 +669,11 @@ func isChatProvider(p string) bool {
 	return true
 }
 
-// isChatRef reports whether r is a valid session-ref: non-empty with no
+// isAgentSessionRef reports whether r is a valid session-ref: non-empty with no
 // whitespace or control characters (a well-formed opaque token; the provider
 // defines its inner structure). A ref carrying whitespace/control bytes is a
 // malformed value the reader must not trust.
-func isChatRef(r string) bool {
+func isAgentSessionRef(r string) bool {
 	if r == "" {
 		return false
 	}
@@ -706,14 +706,15 @@ type PaneInfo struct {
 	// computed rk-side.
 	AgentState      string `json:"agentState,omitempty"`
 	AgentStateEpoch int64  `json:"agentStateEpoch,omitempty"`
-	// ChatProvider / ChatSessionRef are the pre-parsed halves of the pane's
-	// @rk_chat option (provider = the agent setup registry name, ref = the
-	// provider-defined session reference; both empty = no chat), after the same
-	// reconciler that governs the agent-state fields (a dead-pid or shell pane
-	// never surfaces chat). Parsed once here via parseChatRef so no consumer
-	// re-splits the raw value. See ChatOption / docs/specs/agent-state.md.
-	ChatProvider   string `json:"chatProvider,omitempty"`
-	ChatSessionRef string `json:"chatSessionRef,omitempty"`
+	// AgentProvider / AgentSessionRef are the pre-parsed halves of the pane's
+	// agent-session option (provider = the agent setup registry name, ref = the
+	// provider-defined session reference; both empty = no agent session), after
+	// the same reconciler that governs the agent-state fields (a dead-pid or
+	// shell pane never surfaces the identity). Parsed once here via
+	// parseAgentSessionRef so no consumer re-splits the raw value. See
+	// AgentSessionOption / docs/specs/agent-state.md.
+	AgentProvider   string `json:"agentProvider,omitempty"`
+	AgentSessionRef string `json:"agentSessionRef,omitempty"`
 	// AltScreen is true when the pane's application is on tmux's alternate
 	// screen (alternate_on). Alt-screen panes have no scrollback, so
 	// capture-pane history for them is structurally empty — the export menu
@@ -734,12 +735,13 @@ type WindowInfo struct {
 	Color             *string `json:"color,omitempty"`
 	AgentState        string  `json:"agentState,omitempty"`
 	AgentIdleDuration string  `json:"agentIdleDuration,omitempty"`
-	// ChatProvider / ChatSessionRef are the window-level rollup of the panes'
-	// reconciled @rk_chat (the active pane's chat if set, else the first pane
-	// carrying one), computed rk-side in FetchSessions by rollupChat. Per-pane
-	// truth is preserved on Panes[].ChatProvider/ChatSessionRef. See ChatOption.
-	ChatProvider   string `json:"chatProvider,omitempty"`
-	ChatSessionRef string `json:"chatSessionRef,omitempty"`
+	// AgentProvider / AgentSessionRef are the window-level rollup of the panes'
+	// reconciled agent-session identity (the active pane's session if set, else
+	// the first pane carrying one), computed rk-side in FetchSessions by
+	// rollupAgentSession. Per-pane truth is preserved on
+	// Panes[].AgentProvider/AgentSessionRef. See AgentSessionOption.
+	AgentProvider   string `json:"agentProvider,omitempty"`
+	AgentSessionRef string `json:"agentSessionRef,omitempty"`
 	// AltScreen is the window-level rollup of the ACTIVE pane's AltScreen (the
 	// same active-pane rule CaptureWindowHistoryCtx targets), computed rk-side
 	// in FetchSessions. True means tmux holds no scrollback for the window's
@@ -1175,8 +1177,8 @@ func ListClients(ctx context.Context, server string) ([]ClientInfo, error) {
 
 // parsePanes parses tmux list-panes output lines into a window-id→[]PaneInfo map.
 // Lines are 11-field tab-delimited: window_id, pane_id, pane_index, cwd,
-// command, is_active, @rk_agent_state, @rk_chat, alternate_on,
-// @rk_pane_agent_state, @rk_pane_chat. Field 0 (window_id) is consumed for
+// command, is_active, @rk_agent_state, alternate_on, @rk_pane_agent_state,
+// @rk_pane_chat, @rk_pane_agent_session. Field 0 (window_id) is consumed for
 // grouping and not stored in PaneInfo. Lines with fewer than 11 fields are
 // silently skipped. Empty input returns nil.
 //
@@ -1189,7 +1191,7 @@ func ListClients(ctx context.Context, server string) ([]ClientInfo, error) {
 // only attach a pane to the window that actually owns it — at worst a window
 // gets an empty pane list, a visible degradation instead of wrong data.
 //
-// The agent-state raw value is dual-read: field 9 (@rk_pane_agent_state) wins
+// The agent-state raw value is dual-read: field 8 (@rk_pane_agent_state) wins
 // when non-empty, else field 6 (@rk_agent_state); it is parsed into
 // AgentState/AgentStateEpoch (+ an optional agent pid) via parseAgentState,
 // then reconciled: pid-carrying values are trusted iff the agent process is
@@ -1198,13 +1200,14 @@ func ListClients(ctx context.Context, server string) ([]ClientInfo, error) {
 // agent — the guppi auto-clear lesson that prevents a stranded `active` after
 // a kill).
 //
-// The chat raw value is dual-read the same way (field 10 wins, else field 7)
-// and parsed into ChatProvider/ChatSessionRef via parseChatRef, reconciled by
-// the SAME liveness signal: @rk_pane_chat carries no
-// pid, so a dead agent (or a plain-shell pane with no live pid-bearing
-// agent-state) must not leave a live-looking chat ref (plan risk #4). The chat
-// fields are zeroed on exactly the same condition that zeros the agent-state
-// fields — a dead pid, or the shell-command fallback.
+// The agent-session raw value is dual-read the same way (field 10
+// @rk_pane_agent_session wins, else field 9 @rk_pane_chat) and parsed into
+// AgentProvider/AgentSessionRef via parseAgentSessionRef, reconciled by the
+// SAME liveness signal: the agent-session option carries no pid, so a dead
+// agent (or a plain-shell pane with no live pid-bearing agent-state) must not
+// leave a live-looking session ref. The agent-session fields are zeroed on
+// exactly the same condition that zeros the agent-state fields — a dead pid,
+// or the shell-command fallback.
 //
 // Accessible to same-package tests.
 func parsePanes(lines []string) map[string][]PaneInfo {
@@ -1229,21 +1232,21 @@ func parsePanes(lines []string) map[string][]PaneInfo {
 		isActive := strings.TrimSpace(parts[5]) == "1"
 		command := strings.TrimSpace(parts[4])
 		// Dual-read: the scope-named field wins when its trimmed value is
-		// non-empty, else the retired unscoped field (both ride the same
+		// non-empty, else the retired previous-name field (both ride the same
 		// list-panes call during the deprecation window). Trimming per field
 		// matches the parse helpers' own TrimSpace, so a whitespace-only new
 		// value never blocks the legacy fallback.
-		agentStateRaw := strings.TrimSpace(parts[9])
+		agentStateRaw := strings.TrimSpace(parts[8])
 		if agentStateRaw == "" {
 			agentStateRaw = strings.TrimSpace(parts[6])
 		}
-		chatRaw := strings.TrimSpace(parts[10])
-		if chatRaw == "" {
-			chatRaw = strings.TrimSpace(parts[7])
+		agentSessionRaw := strings.TrimSpace(parts[10])
+		if agentSessionRaw == "" {
+			agentSessionRaw = strings.TrimSpace(parts[9])
 		}
 		agentState, agentEpoch, agentPID := parseAgentState(agentStateRaw)
-		chatProvider, chatRef := parseChatRef(chatRaw)
-		altScreen := strings.TrimSpace(parts[8]) == "1"
+		agentProvider, agentSessionRef := parseAgentSessionRef(agentSessionRaw)
+		altScreen := strings.TrimSpace(parts[7]) == "1"
 		// Reconciler. Primary form (pid-carrying values from current
 		// agent setup hooks): PID liveness — the state is trusted iff the agent
 		// process is still alive, regardless of the pane's command name. This
@@ -1255,13 +1258,14 @@ func parsePanes(lines []string) map[string][]PaneInfo {
 		// agent regardless of a leftover value.
 		//
 		// stale is the single dead/no-agent decision shared by both tiers:
-		// the chat option has no pid of its own, so it borrows the same pane's
-		// agent-state liveness (written by the same binary on the same fires) —
-		// a dead agent zeros BOTH the agent-state and chat fields, and a
-		// plain-shell pane never surfaces chat.
+		// the agent-session option has no pid of its own, so it borrows the
+		// same pane's agent-state liveness (written by the same binary on the
+		// same fires) — a dead agent zeros BOTH the agent-state and
+		// agent-session fields, and a plain-shell pane never surfaces an agent
+		// session.
 		if agentStateStale(agentPID, command) {
 			agentState, agentEpoch = "", 0
-			chatProvider, chatRef = "", ""
+			agentProvider, agentSessionRef = "", ""
 		}
 		p := PaneInfo{
 			PaneID:          strings.TrimSpace(parts[1]),
@@ -1271,8 +1275,8 @@ func parsePanes(lines []string) map[string][]PaneInfo {
 			IsActive:        isActive,
 			AgentState:      agentState,
 			AgentStateEpoch: agentEpoch,
-			ChatProvider:    chatProvider,
-			ChatSessionRef:  chatRef,
+			AgentProvider:   agentProvider,
+			AgentSessionRef: agentSessionRef,
 			AltScreen:       altScreen,
 		}
 		byWindow[windowID] = append(byWindow[windowID], p)
@@ -1485,14 +1489,15 @@ func parseNoteValue(raw string) (string, int64) {
 
 // paneFormat is the list-panes format string: window_id, pane_id, pane_index,
 // pane_current_path, pane_current_command, pane_active, @rk_agent_state,
-// @rk_chat, alternate_on, @rk_pane_agent_state, @rk_pane_chat (11 fields).
-// Fields 6–7 carry the retired unscoped names and fields 9–10 the scope-named
-// successors — dual-read during the deprecation window, new wins (the
-// @rk_win_note dual-read precedent); the follow-up removal change drops 6–7.
-// The agent-state/chat fields carry the generic agent-lifecycle state and the
-// pane→chat-session mapping (see AgentStateOption / ChatOption /
-// docs/specs/agent-state.md); they cost no extra subprocess since they ride
-// the existing list-panes call.
+// alternate_on, @rk_pane_agent_state, @rk_pane_chat, @rk_pane_agent_session
+// (11 fields). Each pair dual-reads a retired name under its scope-named
+// successor — agent-state: field 6 (unscoped, retired) under field 8;
+// agent-session: field 9 (@rk_pane_chat) under field 10 — new wins during the
+// deprecation window (the @rk_win_note dual-read precedent); the follow-up
+// removal change drops 6 and 9. The agent-state/agent-session fields carry the
+// generic agent-lifecycle state and the pane→agent-session mapping (see
+// AgentStateOption / AgentSessionOption / docs/specs/agent-state.md); they
+// cost no extra subprocess since they ride the existing list-panes call.
 var paneFormat = strings.Join([]string{
 	"#{window_id}",
 	"#{pane_id}",
@@ -1501,10 +1506,10 @@ var paneFormat = strings.Join([]string{
 	"#{pane_current_command}",
 	"#{pane_active}",
 	"#{" + LegacyAgentStateOption + "}",
-	"#{" + LegacyChatOption + "}",
 	"#{alternate_on}",
 	"#{" + AgentStateOption + "}",
-	"#{" + ChatOption + "}",
+	"#{" + LegacyAgentSessionOption + "}",
+	"#{" + AgentSessionOption + "}",
 }, listDelim)
 
 // ListWindows returns windows for a given session on the specified server.

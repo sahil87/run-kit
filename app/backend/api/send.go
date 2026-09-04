@@ -17,9 +17,9 @@ type windowSendRequest struct {
 	Text string `json:"text"`
 	Mode string `json:"mode"`
 	// Target selects the pane: empty (default) is the window's ACTIVE pane;
-	// "agent" is the window's agent pane (the @rk_pane_chat rollup — the
-	// selection broadcast's target, where pasting into a non-agent shell must
-	// fail closed instead of executing there).
+	// "agent" is the window's agent pane (the @rk_pane_agent_session rollup —
+	// the selection broadcast's target, where pasting into a non-agent shell
+	// must fail closed instead of executing there).
 	Target string `json:"target"`
 }
 
@@ -28,12 +28,12 @@ type windowSendRequest struct {
 // mechanism: this handler picks the tmux strategy, so a caller cannot make
 // verification depend on the shape of the text it happens to be sending.
 //
-// The default path needs NO chat session on the window and targets the
+// The default path needs NO agent session on the window and targets the
 // window's ACTIVE pane — one derivation of "the target pane" for every mode.
 // With `target:"agent"` the pane resolves via the shared agent-pane rollup
-// (`sessions.ResolveChatPane`: active-pane-first among @rk_pane_chat carriers,
-// else the first carrier) and a window with no carrier fails closed with a
-// 404 — the text is never pasted into a non-agent pane.
+// (`sessions.ResolveAgentPane`: active-pane-first among @rk_pane_agent_session
+// carriers, else the first carrier) and a window with no carrier fails closed
+// with a 404 — the text is never pasted into a non-agent pane.
 func (s *Server) handleWindowSend(w http.ResponseWriter, r *http.Request) {
 	windowID, ok := parseWindowID(r)
 	if !ok {
@@ -79,7 +79,7 @@ func (s *Server) handleWindowSend(w http.ResponseWriter, r *http.Request) {
 	}
 	if !found {
 		if body.Target == "agent" {
-			writeError(w, http.StatusNotFound, "no chat session for this window")
+			writeError(w, http.StatusNotFound, "no agent session for this window")
 		} else {
 			writeError(w, http.StatusNotFound, "window not found")
 		}
@@ -229,10 +229,10 @@ func (s *Server) resolveWindowActivePane(ctx context.Context, server, windowID s
 }
 
 // resolveWindowAgentPane returns the window's agent pane from one
-// request-scoped session snapshot, via the shared `sessions.ResolveChatPane`
-// rollup (active-pane-first among @rk_pane_chat carriers, else the first
-// carrier). found=false means the window is absent OR no pane carries chat —
-// both fail closed as a 404 for an agent-targeted send.
+// request-scoped session snapshot, via the shared `sessions.ResolveAgentPane`
+// rollup (active-pane-first among @rk_pane_agent_session carriers, else the
+// first carrier). found=false means the window is absent OR no pane carries an
+// agent session — both fail closed as a 404 for an agent-targeted send.
 func (s *Server) resolveWindowAgentPane(ctx context.Context, server, windowID string) (paneID string, found bool, err error) {
 	sess, err := s.sessions.FetchSessions(ctx, server)
 	if err != nil {
@@ -244,7 +244,7 @@ func (s *Server) resolveWindowAgentPane(ctx context.Context, server, windowID st
 			if window.WindowID != windowID {
 				continue
 			}
-			_, _, id := sessions.ResolveChatPane(window.Panes)
+			_, _, id := sessions.ResolveAgentPane(window.Panes)
 			return id, id != "", nil
 		}
 	}

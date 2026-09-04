@@ -27,8 +27,8 @@ function sessionsPayload(withOperator: boolean) {
     isActiveWindow: true,
     activityTimestamp: 0,
     agentState: "idle",
-    chatProvider: "claude",
-    chatSessionRef: "5d80479e-8f25-46cd-a0d4-e51435508a37",
+    agentProvider: "claude",
+    agentSessionRef: "5d80479e-8f25-46cd-a0d4-e51435508a37",
     panes: [
       { paneId: "%1", paneIndex: 0, cwd: "/tmp/wt", command: "claude", isActive: true },
     ],

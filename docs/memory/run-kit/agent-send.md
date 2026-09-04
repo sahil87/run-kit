@@ -8,8 +8,8 @@ description: "Agent-send backend — internal/transcript registry + transcript.P
 
 ## Overview
 
-`internal/transcript` resolves a window's reconciled `@rk_pane_chat =
-<provider>:<session-ref>` (from [agent-state](/run-kit/agent-state.md) § Chat
+`internal/transcript` resolves a window's reconciled `@rk_pane_agent_session =
+<provider>:<session-ref>` (from [agent-state](/run-kit/agent-state.md) § Agent
 Session Identity) to the on-disk transcript it names. Its consumers are
 server-side derivations — the operator-request handlers (transcript fact
 pre-derivation via `transcript.Path`,
@@ -18,7 +18,7 @@ closed-resume, and auto-name dispatch. The registry routes on the provider
 prefix and the transcript read sits behind the optional `TranscriptLocator`
 capability, so Codex/Gemini adapters are backend-only additions; the **Claude**
 adapter is the one registered provider. Everything derives from disk at request
-time (Constitution II).
+time (Constitution II). (260904-bf1l-agent-session-identity-rename)
 
 The mutating half — the agent-send path — is the shared `internal/inject`
 engine: rk *types into* the pane exactly as a human typist would — the pane
@@ -39,10 +39,10 @@ by the injection path.
 method (the routing key), with no long-lived per-ref state held between calls —
 plus a package-level `map[string]Adapter` registry guarded by a `sync.RWMutex`,
 `Register`/`Lookup`, and the `ErrNoAdapter` sentinel. Lookup is by the
-`@rk_pane_chat` provider prefix; a well-formed but unregistered provider returns
-`ErrNoAdapter` (the API layer maps it to a 404-class JSON error, so
-presence-gating stays provider-agnostic and codex/gemini adapters are additive).
-The one registered provider is `claude`, from `claude.go`'s `init()`.
+`@rk_pane_agent_session` provider prefix; a well-formed but unregistered
+provider returns `ErrNoAdapter` (the API layer maps it to a 404-class JSON
+error, so presence-gating stays provider-agnostic and codex/gemini adapters are
+additive). The one registered provider is `claude`, from `claude.go`'s `init()`.
 
 Beside the core interface, `adapter.go` declares the OPTIONAL `TranscriptLocator`
 capability — `TranscriptPath(ref string) (string, error)`, resolving a session
@@ -58,7 +58,7 @@ Its consumers are the operator-request handler's fact pre-derivation
 closed-resume, and auto-name dispatch. (260822-fih1)
 
 #### Scenario: Unregistered provider returns the sentinel
-- **GIVEN** a chat ref with an unregistered provider
+- **GIVEN** an agent session ref with an unregistered provider
 - **WHEN** the registry is asked for an adapter
 - **THEN** `Lookup` returns `ErrNoAdapter`, not a panic or a generic failure.
 
@@ -94,19 +94,21 @@ by two API surfaces over the same `agentSendEngine` + `agentSendTmux` adapter pa
 (`handleWindowSend`) names an INTENT (`mode`) and resolves the target pane
 server-side per request — the client supplies only a windowID + text, never a
 pane or session ref. By default the target is the window's **active** pane with
-no chat-session requirement; the optional `target:"agent"` body field (the
+no agent-session requirement; the optional `target:"agent"` body field (the
 selection broadcast's mode) instead resolves the window's **agent** pane via the
-shared `sessions.ResolveChatPane` rollup (active-pane-first among `@rk_pane_chat`
-carriers, else the first carrier) and fails CLOSED with a `404` ("no chat session
-for this window") when no pane carries chat — the text is never pasted into a
-non-agent shell. An unknown `target` value is a `400`. All four modes use the
+shared `sessions.ResolveAgentPane` rollup (active-pane-first among
+`@rk_pane_agent_session` carriers, else the first carrier) and fails CLOSED with
+a `404` ("no agent session for this window") when no pane carries an agent
+session — the text is never pasted into a non-agent shell. An unknown `target`
+value is a `400`. All four modes use the
 engine: `submit`/`insert-line` call `Engine.Send`, `raw` calls `Engine.SendRaw`,
 `enter` calls `Engine.PressEnter` — so every send enters the same per-pane
 serialization domain, while probed modes retain the sanitize → paste → probe →
 optional Enter → observation/recovery contract and machine-readable 409 mapping
 ([api-and-sockets](/run-kit/api-and-sockets.md);
 [ui/compose-and-bottom-bar](/run-kit/ui/compose-and-bottom-bar.md)) (260830-s7wp,
-260904-39bp). The operator-request handlers (`api/operator.go`) deliver rendered
+260904-39bp, 260904-bf1l-agent-session-identity-rename). The operator-request
+handlers (`api/operator.go`) deliver rendered
 prompts through the SAME engine (`submit:true`) via the shared `injectIntoPane`
 adapter into the OPERATOR window's resolved pane — same per-(server,paneID) lock,
 shared deadline, sanitize, novelty probe, observation, and recovery — after their
@@ -162,8 +164,8 @@ generic `POST /api/windows/{windowId}/keys` endpoint SHALL be left untouched
 - **AND GIVEN** a body carrying no `target` field, **THEN** the default path
   resolves the window's active pane and behavior is mode-for-mode unchanged by
   the field's absence; **AND GIVEN** `target:"agent"` on a window whose panes
-  carry no `@rk_pane_chat`, **THEN** the response is `404` ("no chat session for
-  this window") with zero tmux injection calls.
+  carry no `@rk_pane_agent_session`, **THEN** the response is `404` ("no agent
+  session for this window") with zero tmux injection calls.
 
 ### Requirement: Send-text sanitization at the handler boundary
 `handleWindowSend` SHALL sanitize `body.Text` via the exported pure helper
@@ -199,23 +201,25 @@ The handler SHALL derive the target **pane** server-side from one request-scoped
 `FetchSessions` snapshot, per the body's `target`: the default (absent `target`)
 resolves the window's ACTIVE pane (`resolveWindowActivePane` via `activePaneID`);
 `target:"agent"` resolves the window's AGENT pane (`resolveWindowAgentPane`) via
-the shared `sessions.ResolveChatPane(panes) (provider, ref, paneID)` rollup —
-active-pane-first among `@rk_pane_chat` carriers, else the first carrier — the
-same helper the window-level chat-identity rollup delegates to. Injection targets
-that `paneID`, NEVER the window id in the agent case: a window `-t` target routes
-to the session's *active* pane, which in a split may not be the agent pane. The
-client supplies neither a pane nor a session ref. A `FetchSessions` failure maps
-to `500`; an absent window maps to `404` ("window not found") on the default
-path, and an absent window OR a window with no chat-carrying pane maps to `404`
-("no chat session for this window") on the agent path — fail-closed, so a
-selection broadcast never lands in a non-agent shell. (260904-39bp)
+the shared `sessions.ResolveAgentPane(panes) (provider, ref, paneID)` rollup —
+active-pane-first among `@rk_pane_agent_session` carriers, else the first
+carrier — the same helper the window-level agent-session-identity rollup
+(`rollupAgentSession`) delegates to. Injection targets that `paneID`, NEVER the
+window id in the agent case: a window `-t` target routes to the session's
+*active* pane, which in a split may not be the agent pane. The client supplies
+neither a pane nor a session ref. A `FetchSessions` failure maps to `500`; an
+absent window maps to `404` ("window not found") on the default path, and an
+absent window OR a window with no agent-session-carrying pane maps to `404`
+("no agent session for this window") on the agent path — fail-closed, so a
+selection broadcast never lands in a non-agent shell. (260904-39bp,
+260904-bf1l-agent-session-identity-rename)
 
 #### Scenario: Injection targets the resolved pane, not the window
 - **GIVEN** a window `@N` whose resolved agent pane is `%2` while `%1` is active
 - **WHEN** a `target:"agent"` send resolves its target
 - **THEN** every injection subprocess targets `%2` (the resolved `PaneID`), never
   `@N`; **AND GIVEN** `FetchSessions` errors → `500`; **AND GIVEN** no
-  chat-carrying pane → `404` with no injection.
+  agent-session-carrying pane → `404` with no injection.
 
 ### Requirement: Pane-targeted injection sequence via argv slices
 On a resolved pane the handler SHALL inject the message through the shared
@@ -534,7 +538,7 @@ identifiers (leaves the greppable residue the sweep exists to remove).
 ### Window-keyed routes, server-resolved ref
 **Decision**: The agent-send routes key on `{windowId}` (mirroring every
 `/api/windows/{windowId}/*` route, `?server=` query); the backend re-resolves the
-reconciled `@rk_pane_chat` rollup server-side per request.
+reconciled `@rk_pane_agent_session` rollup server-side per request.
 **Why**: URLs carry no session UUIDs, and the backend never trusts a
 client-supplied ref over the reconciler — the same reconciliation `FetchSessions`
 applies.
@@ -772,17 +776,18 @@ cross-surface divergence the shared classifier forbids).
 ### Agent-pane targeting is an explicit `target:"agent"` mode that fails closed
 **Decision**: `POST /api/windows/{windowId}/send` carries an optional `target`
 body field: absent means the window's ACTIVE pane (the compose strip's default);
-`"agent"` (the selection broadcast's mode) resolves the agent pane via the shared
-`sessions.ResolveChatPane` rollup — active-pane-first among `@rk_pane_chat`
-carriers, else the first carrier — and returns `404` ("no chat session for this
-window") when no pane carries chat, performing zero injection. An unknown
+`"agent"` (the selection broadcast's mode) resolves the agent pane via the
+shared `sessions.ResolveAgentPane` rollup — active-pane-first among
+`@rk_pane_agent_session` carriers, else the first carrier — and returns `404`
+("no agent session for this window") when no pane carries an agent session,
+performing zero injection. An unknown
 `target` value is a `400`.
 **Why**: A broadcast aimed at a window with no agent pane must fail loudly and be
 counted as that recipient's failure — the alternative (falling back to the active
 pane) pastes the prompt into a non-agent shell and presses Enter there,
-*executing* it. Sharing `sessions.ResolveChatPane` keeps one rollup rule across
-the window-level chat identity, fork, operator actuation, and agent-targeted
-sends.
+*executing* it. Sharing `sessions.ResolveAgentPane` keeps one rollup rule
+across the window-level agent-session identity, fork, operator actuation, and
+agent-targeted sends.
 **Rejected**: silently falling back to the active pane (a shell-execution
 footgun); a separate broadcast endpoint (Constitution IV/IX — the additive body
 field on the existing intent-shaped route).

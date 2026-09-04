@@ -240,8 +240,8 @@ export interface ClosedWindowPane {
 
 /** One entry on a server's recently-closed ring: the window as captured before
  *  the kill, plus any agent identity the active pane carried. The frontend
- *  reads only `window.name`, `session`, and the chat pair — the rest round-
- *  trips to the reopen/resume routes untouched. */
+ *  reads only `window.name`, `session`, and the agent session identity pair —
+ *  the rest round-trips to the reopen/resume routes untouched. */
 export interface ClosedWindow {
   id: string;
   /** RFC3339 kill timestamp. */
@@ -266,8 +266,10 @@ export interface ClosedWindow {
     note?: string;
     panes: ClosedWindowPane[];
   };
-  chatProvider?: string;
-  chatRef?: string;
+  /** Agent session identity of the active pane at kill time. Absent when the
+   *  window carried none. */
+  agentProvider?: string;
+  agentRef?: string;
 }
 
 export async function killWindow(
@@ -412,8 +414,8 @@ export type WindowSendMode = "submit" | "insert-line" | "raw" | "enter";
  * Carries compose intent only: `mode` selects the server-side injection
  * strategy, and the server re-resolves the window's active pane per request —
  * or, with `target: "agent"` (the selection broadcast), the window's AGENT
- * pane via the @rk_pane_chat rollup, failing closed (404) when no pane carries
- * chat. Non-OK responses become `ApiError`s whose `code` separates
+ * pane via the @rk_pane_agent_session rollup, failing closed (404) when no
+ * pane carries an agent session. Non-OK responses become `ApiError`s whose `code` separates
  * staged-but-unsent text from an unconfirmed submit because those outcomes
  * require opposite resend advice.
  */
@@ -1559,7 +1561,7 @@ export async function spawnRiff(
  *  server-side from `windowId` alone — the client never supplies a session ref.
  *  Returns riff's spawn result, so the caller navigates exactly as it does after
  *  a spawn. Throws on a non-ok response: `404` when the window has no forkable
- *  claude chat, `400` when its directory is not inside a git repo. */
+ *  claude agent session, `400` when its directory is not inside a git repo. */
 export async function forkWindow(server: string, windowId: string): Promise<RiffSpawnResult> {
   const res = await fetch(
     withServer(`/api/windows/${encodeURIComponent(windowId)}/fork`, server),

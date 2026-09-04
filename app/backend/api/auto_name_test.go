@@ -23,10 +23,10 @@ func newTestAutoNameTracker() (*autoNameTracker, *time.Time) {
 	return tr, &clock
 }
 
-// autoWin builds a subject window with a chat ref (eligible) in the given
-// rollup state.
+// autoWin builds a subject window with an agent session ref (eligible) in the
+// given rollup state.
 func autoWin(id, state string) *tmux.WindowInfo {
-	return &tmux.WindowInfo{WindowID: id, Name: "w" + id, AgentState: state, ChatSessionRef: "ref"}
+	return &tmux.WindowInfo{WindowID: id, Name: "w" + id, AgentState: state, AgentSessionRef: "ref"}
 }
 
 // autoOp builds the server operator window in the given rollup state.
@@ -106,21 +106,21 @@ func TestAutoName_EligibilitySkips(t *testing.T) {
 	t.Run("subject is the operator", func(t *testing.T) {
 		tr, clock := newTestAutoNameTracker()
 		op := autoOp("active")
-		op.ChatSessionRef = "ref"
+		op.AgentSessionRef = "ref"
 		tr.decide("s", []*tmux.WindowInfo{op})
 		*clock = clock.Add(time.Second)
 		if got := tr.decide("s", []*tmux.WindowInfo{autoOp("idle")}); got != nil {
 			t.Fatalf("the operator window itself must never be a subject")
 		}
 	})
-	t.Run("subject without chat ref", func(t *testing.T) {
+	t.Run("subject without agent session ref", func(t *testing.T) {
 		tr, clock := newTestAutoNameTracker()
 		chatless := &tmux.WindowInfo{WindowID: "@1", Name: "w", AgentState: "active"}
 		tr.decide("s", []*tmux.WindowInfo{chatless, autoOp("idle")})
 		*clock = clock.Add(time.Second)
 		chatless = &tmux.WindowInfo{WindowID: "@1", Name: "w", AgentState: "idle"}
 		if got := tr.decide("s", []*tmux.WindowInfo{chatless, autoOp("idle")}); got != nil {
-			t.Fatalf("a chatless subject must be dropped (template requiresChatRef)")
+			t.Fatalf("a chatless subject must be dropped (template requiresAgentSessionRef)")
 		}
 	})
 	// Ineligible transitions are consumed WITHOUT a stamp: once eligible, the
@@ -132,7 +132,8 @@ func TestAutoName_EligibilitySkips(t *testing.T) {
 		*clock = clock.Add(time.Second)
 		chatless = &tmux.WindowInfo{WindowID: "@1", Name: "w", AgentState: "idle"}
 		tr.decide("s", []*tmux.WindowInfo{chatless, autoOp("idle")}) // consumed, unstamped
-		// The window gains a chat ref and cycles busy→idle again right away.
+		// The window gains an agent session ref and cycles busy→idle again right
+		// away.
 		*clock = clock.Add(time.Second)
 		tr.decide("s", []*tmux.WindowInfo{autoWin("@1", "active"), autoOp("idle")})
 		*clock = clock.Add(time.Second)
@@ -323,7 +324,7 @@ func TestAutoName_AdvanceFansOutDetached(t *testing.T) {
 	}
 	sess := []sessions.ProjectSession{
 		{Name: "s", Windows: []tmux.WindowInfo{
-			{WindowID: "@1", Name: "zsh", AgentState: "active", ChatSessionRef: "ref"},
+			{WindowID: "@1", Name: "zsh", AgentState: "active", AgentSessionRef: "ref"},
 		}},
 		{Name: "_rk-operator", Windows: []tmux.WindowInfo{
 			{WindowID: "@9", Name: "operator", Role: "operator", AgentState: "idle"},

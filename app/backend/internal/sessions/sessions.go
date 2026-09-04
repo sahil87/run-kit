@@ -475,38 +475,39 @@ func rollupAgentState(panes []tmux.PaneInfo, nowUnix int64) (state string, durat
 	return state, duration
 }
 
-// ResolveChatPane derives the window-level chat identity AND the resolved pane
-// id from the window's panes (post-reconciler): the ACTIVE pane's chat if it
-// carries one, else the FIRST pane (in tmux pane order) that carries one.
-// Deterministic — the common case is a single agent pane per window; the
-// multi-pane rule can be revisited without a backend contract break since
-// per-pane truth also ships on PaneInfo.ChatProvider/ChatSessionRef. Returns
-// ("", "", "") when no pane carries a chat. Pure function (no I/O).
+// ResolveAgentPane derives the window-level agent session identity AND the
+// resolved pane id from the window's panes (post-reconciler): the ACTIVE
+// pane's agent session if it carries one, else the FIRST pane (in tmux pane
+// order) that carries one. Deterministic — the common case is a single agent
+// pane per window; the multi-pane rule can be revisited without a backend
+// contract break since per-pane truth also ships on
+// PaneInfo.AgentProvider/AgentSessionRef. Returns ("", "", "") when no pane
+// carries an agent session. Pure function (no I/O).
 //
 // The paneID is what agent-send injects into — a WINDOW target routes to the
-// active pane, which in a split may not be the chat pane, so the resolved pane
-// (not the window) is the correct injection target. This is the single source of
-// the active-pane-first rollup rule; rollupChat delegates to it.
-func ResolveChatPane(panes []tmux.PaneInfo) (provider, ref, paneID string) {
+// active pane, which in a split may not be the agent pane, so the resolved pane
+// (not the window) is the correct injection target. This is the single source
+// of the active-pane-first rollup rule; rollupAgentSession delegates to it.
+func ResolveAgentPane(panes []tmux.PaneInfo) (provider, ref, paneID string) {
 	for _, p := range panes {
-		if p.IsActive && p.ChatProvider != "" {
-			return p.ChatProvider, p.ChatSessionRef, p.PaneID
+		if p.IsActive && p.AgentProvider != "" {
+			return p.AgentProvider, p.AgentSessionRef, p.PaneID
 		}
 	}
 	for _, p := range panes {
-		if p.ChatProvider != "" {
-			return p.ChatProvider, p.ChatSessionRef, p.PaneID
+		if p.AgentProvider != "" {
+			return p.AgentProvider, p.AgentSessionRef, p.PaneID
 		}
 	}
 	return "", "", ""
 }
 
-// rollupChat derives the window-level chat identity from the window's panes,
-// discarding the resolved pane id (the SSE/read path rolls up to the window and
-// re-resolves the pane server-side per request). Delegates to ResolveChatPane so
-// the active-pane-first rule lives in exactly one place.
-func rollupChat(panes []tmux.PaneInfo) (provider, ref string) {
-	provider, ref, _ = ResolveChatPane(panes)
+// rollupAgentSession derives the window-level agent session identity from the
+// window's panes, discarding the resolved pane id (the SSE/read path rolls up
+// to the window and re-resolves the pane server-side per request). Delegates
+// to ResolveAgentPane so the active-pane-first rule lives in exactly one place.
+func rollupAgentSession(panes []tmux.PaneInfo) (provider, ref string) {
+	provider, ref, _ = ResolveAgentPane(panes)
 	return provider, ref
 }
 
@@ -738,11 +739,12 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 			// the panes' @rk_agent_state (waiting > active > idle), with the
 			// idle/waiting duration computed rk-side from the epoch.
 			sd.windows[j].AgentState, sd.windows[j].AgentIdleDuration = rollupAgentState(sd.windows[j].Panes, nowUnix)
-			// Chat identity tier (260713-nh86): window-level rollup over the
-			// panes' reconciled @rk_chat (active pane first, else first set). Per-
-			// pane truth is preserved on the Panes entries; both ride the existing
-			// ProjectSession marshal to GET /api/sessions and SSE event: sessions.
-			sd.windows[j].ChatProvider, sd.windows[j].ChatSessionRef = rollupChat(sd.windows[j].Panes)
+			// Agent session identity tier (260713-nh86): window-level rollup
+			// over the panes' reconciled @rk_pane_agent_session (active pane
+			// first, else first set). Per-pane truth is preserved on the Panes
+			// entries; both ride the existing ProjectSession marshal to
+			// GET /api/sessions and SSE event: sessions.
+			sd.windows[j].AgentProvider, sd.windows[j].AgentSessionRef = rollupAgentSession(sd.windows[j].Panes)
 			// Alt-screen tier (260820-4le0): the ACTIVE pane's alternate_on,
 			// rolled up to the window so the export menu's server-capture row
 			// can be honest about panes where tmux holds no scrollback.

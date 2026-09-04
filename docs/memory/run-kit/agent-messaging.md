@@ -74,7 +74,7 @@ exact-match parsing). Window forms resolve server-side to the window's **agent
 pane** (`tmux.ResolveAgentPane` / the pure `SelectAgentPane`): the pane carrying
 a known post-reconcile `@rk_pane_agent_state` — preferring the active pane when
 several qualify — falling back to the window's active pane (the
-`sessions.ResolveChatPane` precedent: a window target must route to the agent pane, not
+`sessions.ResolveAgentPane` precedent: a window target must route to the agent pane, not
 whatever split happens to be active).
 
 #### Scenario: Window target routes to the agent pane

@@ -1834,8 +1834,8 @@ func TestWindowOptionsWebRemoveMixedRejected(t *testing.T) {
 
 // TestWindowKillRecordsClosedWindow: with a wired snapshot store, the window is
 // captured and pushed BEFORE the kill; the response carries the pushed record
-// (store-stamped id/closedAt plus the resolved chat identity) and the ring
-// holds it.
+// (store-stamped id/closedAt plus the resolved agent session identity) and the
+// ring holds it.
 func TestWindowKillRecordsClosedWindow(t *testing.T) {
 	store := snapshot.NewStore(t.TempDir())
 	stubCaptureWindow(t, snapshot.Window{
@@ -1876,8 +1876,8 @@ func TestWindowKillRecordsClosedWindow(t *testing.T) {
 	if got.Window.Name != "agent" || got.Window.Color != "4" || len(got.Window.Panes) != 1 {
 		t.Errorf("record window = %+v, want the captured window", got.Window)
 	}
-	if got.ChatProvider != "claude" || got.ChatRef != testForkRef {
-		t.Errorf("record chat = %q/%q, want claude/%s", got.ChatProvider, got.ChatRef, testForkRef)
+	if got.AgentProvider != "claude" || got.AgentRef != testForkRef {
+		t.Errorf("record agent identity = %q/%q, want claude/%s", got.AgentProvider, got.AgentRef, testForkRef)
 	}
 
 	// The same record is on the server's ring.
@@ -1885,7 +1885,7 @@ func TestWindowKillRecordsClosedWindow(t *testing.T) {
 	if err != nil || len(list) != 1 {
 		t.Fatalf("ring = %+v, %v — want exactly the pushed record", list, err)
 	}
-	if list[0].ID != got.ID || list[0].ChatRef != testForkRef {
+	if list[0].ID != got.ID || list[0].AgentRef != testForkRef {
 		t.Errorf("ring record = %+v, want the response's record", list[0])
 	}
 }

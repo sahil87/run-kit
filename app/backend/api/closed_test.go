@@ -163,8 +163,8 @@ func TestClosedReopenSuccess(t *testing.T) {
 func TestClosedReopenKeepsAgentRecord(t *testing.T) {
 	store := snapshot.NewStore(t.TempDir())
 	rec := closedRecord("work", "dev", "serve", "/tmp")
-	rec.ChatProvider = forkProviderClaude
-	rec.ChatRef = "0f0e1d2c-3b4a-4596-8778-99aabbccddee"
+	rec.AgentProvider = forkProviderClaude
+	rec.AgentRef = "0f0e1d2c-3b4a-4596-8778-99aabbccddee"
 	rec = pushClosed(t, store, rec)
 
 	stubReopenWindow(t, "@42", nil)
@@ -312,8 +312,8 @@ func postResume(router http.Handler, id, body string) *httptest.ResponseRecorder
 // success-path tests).
 func resumeRecord(server, cwd string) snapshot.ClosedWindow {
 	rec := closedRecord(server, "dev", "agent", cwd)
-	rec.ChatProvider = "claude"
-	rec.ChatRef = testForkRef
+	rec.AgentProvider = "claude"
+	rec.AgentRef = testForkRef
 	return rec
 }
 
@@ -445,7 +445,7 @@ func TestClosedResumeNonClaudeProvider(t *testing.T) {
 	repo := gitRepoDir(t)
 	store := snapshot.NewStore(t.TempDir())
 	rec := resumeRecord("work", repo)
-	rec.ChatProvider = "codex"
+	rec.AgentProvider = "codex"
 	rec = pushClosed(t, store, rec)
 
 	engine := &mockRiffEngine{}
@@ -470,7 +470,7 @@ func TestClosedResumeBadRef(t *testing.T) {
 	repo := gitRepoDir(t)
 	store := snapshot.NewStore(t.TempDir())
 	rec := resumeRecord("work", repo)
-	rec.ChatRef = "not-a-uuid; rm -rf /"
+	rec.AgentRef = "not-a-uuid; rm -rf /"
 	rec = pushClosed(t, store, rec)
 
 	engine := &mockRiffEngine{}

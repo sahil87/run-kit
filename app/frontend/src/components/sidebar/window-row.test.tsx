@@ -1698,7 +1698,7 @@ describe("coarse pointer: rest glyph, rail target, and plain status dot", () => 
         fireEvent.pointerDown(screen.getByTestId("status-rail"), { pointerId: 1, pointerType: "touch" });
       });
       const card = screen.getByTestId("row-flyout-card");
-      // Row order: Change color… → Pin → Kill (no fork — no chat provider).
+      // Row order: Change color… → Pin → Kill (no fork — no agent provider).
       const color = screen.getByTestId("row-flyout-color-action");
       expect(color).toHaveTextContent("Change color…");
       const pin = screen.getByTestId("row-flyout-pin-action");

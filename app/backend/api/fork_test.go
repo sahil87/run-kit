@@ -14,28 +14,28 @@ import (
 )
 
 // Fork endpoint coverage (260806-s4av) — POST /api/windows/{windowId}/fork.
-// The endpoint reads NO body: every input (session, chat ref, directory, window
-// name) is derived server-side from one FetchSessions walk, so the tests drive it
-// entirely through the mock SessionFetcher + the dedicated mock RiffEngine
-// (api/riff_test.go), asserting on the recorded engine Options.
+// The endpoint reads NO body: every input (session, agent session ref,
+// directory, window name) is derived server-side from one FetchSessions walk, so
+// the tests drive it entirely through the mock SessionFetcher + the dedicated
+// mock RiffEngine (api/riff_test.go), asserting on the recorded engine Options.
 
 const testForkRef = "5d80479e-8f25-46cd-a0d4-e51435508a37"
 
 // forkSessions builds a one-session/one-window fetch result whose window carries
-// the given reconciled chat identity on its ACTIVE pane (the source of truth
-// sessions.ResolveChatPane rolls up) and whose active pane cwd is `cwd`.
+// the given reconciled agent session identity on its ACTIVE pane (the source of
+// truth sessions.ResolveAgentPane rolls up) and whose active pane cwd is `cwd`.
 func forkSessions(sessionName, windowID, windowName, provider, ref, cwd string) []sessions.ProjectSession {
 	return []sessions.ProjectSession{
 		{Name: sessionName, Windows: []tmux.WindowInfo{
 			{
-				WindowID:       windowID,
-				Name:           windowName,
-				WorktreePath:   cwd,
-				IsActiveWindow: true,
-				ChatProvider:   provider,
-				ChatSessionRef: ref,
+				WindowID:        windowID,
+				Name:            windowName,
+				WorktreePath:    cwd,
+				IsActiveWindow:  true,
+				AgentProvider:   provider,
+				AgentSessionRef: ref,
 				Panes: []tmux.PaneInfo{
-					{PaneID: "%1", IsActive: true, Cwd: cwd, ChatProvider: provider, ChatSessionRef: ref},
+					{PaneID: "%1", IsActive: true, Cwd: cwd, AgentProvider: provider, AgentSessionRef: ref},
 				},
 			},
 		}},
@@ -157,9 +157,9 @@ func TestForkWindowNotFound(t *testing.T) {
 	}
 }
 
-// TestForkNoChat: a plain shell window (no reconciled @rk_chat) is a 404 — there
-// is no conversation to fork.
-func TestForkNoChat(t *testing.T) {
+// TestForkNoAgentSession: a plain shell window (no reconciled
+// @rk_pane_agent_session) is a 404 — there is no conversation to fork.
+func TestForkNoAgentSession(t *testing.T) {
 	sf := &mockSessionFetcher{result: forkSessions("dev", "@7", "w", "", "", gitRepoDir(t))}
 	engine := &mockRiffEngine{}
 
@@ -168,17 +168,17 @@ func TestForkNoChat(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "no chat session") {
-		t.Errorf("body = %q, want the no-chat message", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), "no agent session") {
+		t.Errorf("body = %q, want the no-agent-session message", rec.Body.String())
 	}
 	if engine.called {
-		t.Error("engine.Spawn was called for a window with no chat")
+		t.Error("engine.Spawn was called for a window with no agent session")
 	}
 }
 
 // TestForkNonClaudeProvider: a well-formed but non-forkable provider is a 404
-// with a message DISTINCT from the no-chat case (the window has a chat, just not
-// one --fork-session applies to).
+// with a message DISTINCT from the no-agent-session case (the window has an
+// agent session, just not one --fork-session applies to).
 func TestForkNonClaudeProvider(t *testing.T) {
 	sf := &mockSessionFetcher{result: forkSessions("dev", "@7", "w", "codex", testForkRef, gitRepoDir(t))}
 	engine := &mockRiffEngine{}
@@ -189,8 +189,8 @@ func TestForkNonClaudeProvider(t *testing.T) {
 		t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, "codex") || strings.Contains(body, "no chat session") {
-		t.Errorf("body = %q, want a provider-specific message distinct from the no-chat one", body)
+	if !strings.Contains(body, "codex") || strings.Contains(body, "no agent session") {
+		t.Errorf("body = %q, want a provider-specific message distinct from the no-agent-session one", body)
 	}
 	if engine.called {
 		t.Error("engine.Spawn was called for a non-claude provider")
@@ -245,9 +245,9 @@ func TestForkNonRepoCwd(t *testing.T) {
 	}
 }
 
-// TestForkSessionsFetchError: a FetchSessions fault is an infrastructure 500, NOT
-// a "no chat" 404 — the split that keeps a transient tmux fault from being
-// misreported (mirrors the chat endpoints).
+// TestForkSessionsFetchError: a FetchSessions fault is an infrastructure 500,
+// NOT a "no agent session" 404 — the split that keeps a transient tmux fault
+// from being misreported (mirrors the transcript-read routes).
 func TestForkSessionsFetchError(t *testing.T) {
 	sf := &mockSessionFetcher{err: errors.New("tmux: connection refused")}
 	engine := &mockRiffEngine{}

@@ -95,7 +95,11 @@ var legacyOptions = []legacyOption{
 	// fab-kit still reads the retired one, so the sweep copies forward but
 	// never unsets Old at pane scope (wrong-scope strays are still purged).
 	{Old: LegacyAgentStateOption, New: AgentStateOption, Scope: scopePane, CopyOnly: true},
-	{Old: LegacyChatOption, New: ChatOption, Scope: scopePane, CopyOnly: true},
+	// The agent-session key's retired generations chain forward in table
+	// order: a pane holding only "@rk_chat" gains @rk_pane_chat and then
+	// @rk_pane_agent_session in one sweep pass (each row re-reads the carrier).
+	{Old: "@rk_chat", New: LegacyAgentSessionOption, Scope: scopePane, CopyOnly: true},
+	{Old: LegacyAgentSessionOption, New: AgentSessionOption, Scope: scopePane, CopyOnly: true},
 }
 
 // scopeTarget is one carrier to inspect: a scope plus the -t argument naming

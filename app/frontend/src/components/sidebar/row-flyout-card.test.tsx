@@ -397,8 +397,8 @@ describe("RowFlyout card content", () => {
 });
 
 describe("Fork action row (260806-s4av)", () => {
-  // The fork action row is DOUBLE-gated: the window must carry a claude chat
-  // AND the consumer must have wired a handler. Both halves are asserted, plus
+  // The fork action row is DOUBLE-gated: the window must carry a claude agent
+  // session AND the consumer must have wired a handler. Both halves are asserted, plus
   // the stopPropagation contract (forking must never also select the row) and
   // the in-flight guard (the POST creates a tmux window, so N clicks would
   // fork N times). Fork's ONLY home is the sectioned action list — the title
@@ -408,9 +408,9 @@ describe("Fork action row (260806-s4av)", () => {
    *  resolves either way, so a resolved promise is the faithful stand-in. */
   const forkResolved = () => vi.fn<() => Promise<void>>(() => Promise.resolve());
 
-  it("renders as an action row (never in the title bar) for a claude-chat window with a handler", () => {
+  it("renders as an action row (never in the title bar) for a claude-agent window with a handler", () => {
     const onFork = forkResolved();
-    render(<Row win={makeWindow({ chatProvider: "claude" })} onFork={onFork} />);
+    render(<Row win={makeWindow({ agentProvider: "claude" })} onFork={onFork} />);
     hoverOpen();
 
     const fork = screen.getByTestId("row-flyout-fork-action");
@@ -430,7 +430,7 @@ describe("Fork action row (260806-s4av)", () => {
     expect(bar.querySelectorAll("a, button")).toHaveLength(1);
   });
 
-  it("is absent for a window with no chat provider", () => {
+  it("is absent for a window with no agent provider", () => {
     render(<Row win={makeWindow({})} onFork={forkResolved()} />);
     hoverOpen();
     expect(screen.queryByTestId("row-flyout-fork-action")).toBeNull();
@@ -439,13 +439,13 @@ describe("Fork action row (260806-s4av)", () => {
   });
 
   it("is absent for a non-claude provider (fork is a Claude Code mechanism)", () => {
-    render(<Row win={makeWindow({ chatProvider: "codex" })} onFork={forkResolved()} />);
+    render(<Row win={makeWindow({ agentProvider: "codex" })} onFork={forkResolved()} />);
     hoverOpen();
     expect(screen.queryByTestId("row-flyout-fork-action")).toBeNull();
   });
 
   it("is absent when the consumer wired no handler (board-route sidebar / bare row)", () => {
-    render(<Row win={makeWindow({ chatProvider: "claude" })} />);
+    render(<Row win={makeWindow({ agentProvider: "claude" })} />);
     hoverOpen();
     expect(screen.queryByTestId("row-flyout-fork-action")).toBeNull();
   });
@@ -453,7 +453,7 @@ describe("Fork action row (260806-s4av)", () => {
   it("clicking calls the handler and does not bubble to the row", () => {
     const onFork = forkResolved();
     const onRowClick = vi.fn();
-    render(<Row win={makeWindow({ chatProvider: "claude" })} onFork={onFork} onRowClick={onRowClick} />);
+    render(<Row win={makeWindow({ agentProvider: "claude" })} onFork={onFork} onRowClick={onRowClick} />);
     hoverOpen();
 
     act(() => {
@@ -475,7 +475,7 @@ describe("Fork action row (260806-s4av)", () => {
           settle = resolve;
         }),
     );
-    render(<Row win={makeWindow({ chatProvider: "claude" })} onFork={onFork} />);
+    render(<Row win={makeWindow({ agentProvider: "claude" })} onFork={onFork} />);
     hoverOpen();
 
     const fork = screen.getByTestId("row-flyout-fork-action");
@@ -501,15 +501,15 @@ describe("Fork action row (260806-s4av)", () => {
   });
 
   it("canForkWindow gates on the claude provider exactly", () => {
-    expect(canForkWindow(makeWindow({ chatProvider: "claude" }))).toBe(true);
-    expect(canForkWindow(makeWindow({ chatProvider: "codex" }))).toBe(false);
+    expect(canForkWindow(makeWindow({ agentProvider: "claude" }))).toBe(true);
+    expect(canForkWindow(makeWindow({ agentProvider: "codex" }))).toBe(false);
     expect(canForkWindow(makeWindow({}))).toBe(false);
   });
 });
 
 describe("Fix tab name action row (260822-fih1)", () => {
   // The Fix tab name row is DOUBLE-gated like fork: the derived availability
-  // rule (operator on the server AND the subject carries a chat session ref
+  // rule (operator on the server AND the subject carries an agent session ref
   // AND the subject is not itself the operator) AND a wired handler. Asserted
   // here: every gate half, the stopPropagation contract, and the in-flight
   // guard (the POST is mutating, so N clicks must not fire N requests).
@@ -518,11 +518,11 @@ describe("Fix tab name action row (260822-fih1)", () => {
    *  and resolves either way, so a resolved promise is the faithful stand-in. */
   const fixNameResolved = () => vi.fn<() => Promise<void>>(() => Promise.resolve());
 
-  /** A subject window meeting the availability rule: a reconciled chat ref,
-   *  no operator role. */
-  const subjectWin = () => makeWindow({ chatProvider: "claude", chatSessionRef: "ref-1" });
+  /** A subject window meeting the availability rule: a reconciled agent
+   *  session ref, no operator role. */
+  const subjectWin = () => makeWindow({ agentProvider: "claude", agentSessionRef: "ref-1" });
 
-  it("renders when the rule holds (operator present + chat ref + not the operator row)", () => {
+  it("renders when the rule holds (operator present + agent session ref + not the operator row)", () => {
     render(<Row win={subjectWin()} hasOperator onFixTabName={fixNameResolved()} />);
     hoverOpen();
 
@@ -537,7 +537,7 @@ describe("Fix tab name action row (260822-fih1)", () => {
     expect(screen.queryByTestId("row-flyout-fix-name-action")).toBeNull();
   });
 
-  it("is absent when the subject carries no chat session ref", () => {
+  it("is absent when the subject carries no agent session ref", () => {
     render(<Row win={makeWindow({})} hasOperator onFixTabName={fixNameResolved()} />);
     hoverOpen();
     expect(screen.queryByTestId("row-flyout-fix-name-action")).toBeNull();
@@ -546,7 +546,7 @@ describe("Fix tab name action row (260822-fih1)", () => {
   it("is absent on the operator's own row", () => {
     render(
       <Row
-        win={makeWindow({ chatProvider: "claude", chatSessionRef: "ref-1", role: "operator" })}
+        win={makeWindow({ agentProvider: "claude", agentSessionRef: "ref-1", role: "operator" })}
         hasOperator
         onFixTabName={fixNameResolved()}
       />,
@@ -610,12 +610,12 @@ describe("Fix tab name action row (260822-fih1)", () => {
   });
 
   it("canRequestWindowOperatorAction pins the three-part availability rule", () => {
-    const subject = makeWindow({ chatSessionRef: "ref-1" });
+    const subject = makeWindow({ agentSessionRef: "ref-1" });
     expect(canRequestWindowOperatorAction(subject, true)).toBe(true);
     expect(canRequestWindowOperatorAction(subject, false)).toBe(false); // no operator
-    expect(canRequestWindowOperatorAction(makeWindow({}), true)).toBe(false); // no chat ref
-    expect(canRequestWindowOperatorAction(makeWindow({ chatSessionRef: "" }), true)).toBe(false); // empty ref
-    expect(canRequestWindowOperatorAction(makeWindow({ chatSessionRef: "ref-1", role: "operator" }), true)).toBe(false); // operator's own row
+    expect(canRequestWindowOperatorAction(makeWindow({}), true)).toBe(false); // no agent session ref
+    expect(canRequestWindowOperatorAction(makeWindow({ agentSessionRef: "" }), true)).toBe(false); // empty ref
+    expect(canRequestWindowOperatorAction(makeWindow({ agentSessionRef: "ref-1", role: "operator" }), true)).toBe(false); // operator's own row
   });
 });
 
@@ -788,7 +788,7 @@ describe("Pin/Kill action rows (ys3q)", () => {
   it("rows render in the fixed change-color → fork → pin → kill order with the sectioned-list geometry", () => {
     render(
       <Row
-        win={makeWindow({ chatProvider: "claude" })}
+        win={makeWindow({ agentProvider: "claude" })}
         onChangeColorAction={() => {}}
         onFork={() => Promise.resolve()}
         onPinAction={() => {}}
@@ -903,7 +903,7 @@ describe("flyout card elevation + action tray", () => {
   it("action rows read primary at rest and the rail color rides the danger seam", () => {
     render(
       <Row
-        win={makeWindow({ chatProvider: "claude" })}
+        win={makeWindow({ agentProvider: "claude" })}
         onFork={() => Promise.resolve()}
         onPinAction={() => {}}
         onKillAction={() => {}}
@@ -1076,7 +1076,7 @@ describe("Change color… action row (260817-ve5m)", () => {
   it("renders on the fine-pointer (hover-opened) window card too, above Fork", () => {
     render(
       <Row
-        win={makeWindow({ chatProvider: "claude" })}
+        win={makeWindow({ agentProvider: "claude" })}
         onChangeColorAction={() => {}}
         onFork={() => Promise.resolve()}
       />,

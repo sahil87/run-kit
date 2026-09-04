@@ -135,7 +135,7 @@ type WindowRowProps = {
    *  and directory (260806-s4av). Identity-arg like its siblings. Optional
    *  (mirrors `onColorChange`): when omitted — the board-route sidebar, ghost
    *  rows, or a bare unit-test render — the flyout renders no fork affordance.
-   *  The card additionally gates on `chatProvider === "claude"`.
+   *  The card additionally gates on `agentProvider === "claude"`.
    *
    *  Returns a promise resolving when the fork POST settles (it surfaces its own
    *  errors and does not reject), which the flyout's button awaits to hold its

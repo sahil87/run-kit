@@ -28,7 +28,8 @@ import (
 // rename judgment (the actuation-loop razor). Eligibility is derived entirely
 // from the tick's already-fetched snapshot (no second FetchSessions): the
 // server must HAVE an operator window, the subject must not BE the operator,
-// and the subject must carry a ChatSessionRef (the template's requiresChatRef).
+// and the subject must carry an AgentSessionRef (the template's
+// requiresAgentSessionRef).
 // No operator ⇒ the feature degrades to absent: nothing fires, nothing logs at
 // error level.
 //
@@ -96,7 +97,7 @@ type autoNameCandidate struct {
 //   - first observation, idle→idle, ""→idle, busy→busy, →active/→waiting →
 //     record state, no candidate.
 //   - busy→idle, ineligible (no operator on the server / subject IS the
-//     operator / no ChatSessionRef) → transition consumed silently, no stamp.
+//     operator / no AgentSessionRef) → transition consumed silently, no stamp.
 //   - busy→idle, eligible, inside the per-window cooldown or per-server min-gap
 //     → suppressed, no stamp.
 //   - busy→idle, eligible, limits clear, no candidate yet this tick → stamp
@@ -129,7 +130,7 @@ func (t *autoNameTracker) decide(server string, wins []*tmux.WindowInfo) *autoNa
 			continue
 		}
 		// busy→idle transition. Eligibility, all derivable from this snapshot.
-		if operator == nil || w.Role == "operator" || w.ChatSessionRef == "" {
+		if operator == nil || w.Role == "operator" || w.AgentSessionRef == "" {
 			continue
 		}
 		if last, ok := t.attempted[key]; ok && now.Sub(last) < t.cooldown {

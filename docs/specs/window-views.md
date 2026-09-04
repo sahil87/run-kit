@@ -13,12 +13,12 @@
 > **Removal note (2026-09-04)**: the agent chat **view is removed** — PR #817
 > (`260904-39bp-remove-chat-lens`) deleted the `?view=chat` lens, the `chat`
 > surface kind, and the chat backfill/stream backend; chat-send merged into
-> `POST /api/windows/{id}/send` (`target:"agent"`). `@rk_pane_chat` survives
-> as agent-session identity ([`agent-state.md`](agent-state.md)). Chat
+> `POST /api/windows/{id}/send` (`target:"agent"`). The identity option survives
+> as `@rk_pane_agent_session` ([`agent-state.md`](agent-state.md)). Chat
 > mentions below are historical, kept where the taxonomy's history still
 > teaches.
 >
-> Companions: [`agent-state.md`](agent-state.md) defines `@rk_pane_chat`
+> Companions: [`agent-state.md`](agent-state.md) defines `@rk_pane_agent_session`
 > (agent-session identity — consumed by operator actuation, fork/resume,
 > closed-resume, auto-name); [`status-pyramid.md`](status-pyramid.md) is
 > untouched by this model — status signals describe the substrate, never the
@@ -72,7 +72,7 @@ Separate **what runs** from **what you can look at**:
 |------|---------------|----------|--------|
 | `tty` | always | xterm.js `TerminalClient` | **[current]** |
 | `web` | always (the lens exists on every window, like `tty`); `@rk_win_url` selects the renderer's CONTENT — empty/whitespace renders the onboarding state (a reduced live URL bar + fill-path instructions), non-empty renders the live iframe — mirroring the `code` row's availability-vs-content split | `IframeWindow` (proxy iframe + URL bar; onboarding content state when `@rk_win_url` is empty) | **[current]** as a lens — change `260714-t97o-web-view-lens`; always-available + onboarding `260821-zqlq-web-tile-always-tileable-onboarding` |
-| `chat` | — | — | **[removed]** — shipped per [`agent-chat-view.md`](../../fab/plans/sahil/26-07-13-agent-chat-view.md), removed by PR #817 (`260904-39bp-remove-chat-lens`); `@rk_pane_chat` survives as agent-session identity ([`agent-state.md`](agent-state.md)) |
+| `chat` | — | — | **[removed]** — shipped per [`agent-chat-view.md`](../../fab/plans/sahil/26-07-13-agent-chat-view.md), removed by PR #817 (`260904-39bp-remove-chat-lens`); the identity option survives as `@rk_pane_agent_session` ([`agent-state.md`](agent-state.md)) |
 | `code` | the window's code folder is LATCHED, or a git root is derivable from the active pane's cwd — derivation seeds the latch once, at first open, and the terminal never moves it afterwards (right-panel.md § The `code` lens); the code-server endpoint always resolves by convention, so it gates nothing, and reachability governs the renderer's CONTENT (live iframe vs not-running empty state), never availability | `CodeSurface` (lean proxy iframe, no URL bar) | **[current]** — change `260811-k3vp-right-panel-code-lens`, endpoint by convention `260811-a2bo`, folder latched `260813-if5d`; also the right panel's CODE surface (right-panel.md § Surface Registry) |
 | `desktop` | VNC-port window option present (set by the desktop launcher, reconciler-cleared) | noVNC canvas | **[target]** — [`fab/plans/sahil/26-07-14-desktop-view.md`](../../fab/plans/sahil/26-07-14-desktop-view.md) |
 

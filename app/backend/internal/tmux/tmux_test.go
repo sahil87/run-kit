@@ -1225,39 +1225,43 @@ func TestRoleCarriersToClear(t *testing.T) {
 }
 
 // paneLine builds an 11-field tab-delimited list-panes line with empty
-// agent-state and chat fields on both name generations (the common case). Use
-// paneLineAgent to carry a legacy agent state, paneLineChat to also carry a
-// legacy chat value, or paneLineFull for full per-generation control.
+// agent-state and agent-session fields on both name generations (the common
+// case). Use paneLineAgent to carry a legacy agent state, paneLineAgentSession
+// to also carry a legacy (@rk_pane_chat) agent-session value, or paneLineFull
+// for full per-generation control.
 func paneLine(windowID string, paneID string, paneIndex int, cwd, command string, active int) string {
-	return paneLineChat(windowID, paneID, paneIndex, cwd, command, active, "", "")
+	return paneLineAgentSession(windowID, paneID, paneIndex, cwd, command, active, "", "")
 }
 
 // paneLineAgent builds an 11-field tab-delimited list-panes line carrying the
-// agent state in the LEGACY field (6) only, with an empty legacy chat field.
+// agent state in the LEGACY field (6) only, with an empty legacy agent-session
+// field.
 func paneLineAgent(windowID string, paneID string, paneIndex int, cwd, command string, active int, agentState string) string {
-	return paneLineChat(windowID, paneID, paneIndex, cwd, command, active, agentState, "")
+	return paneLineAgentSession(windowID, paneID, paneIndex, cwd, command, active, agentState, "")
 }
 
-// paneLineChat builds an 11-field tab-delimited list-panes line carrying the
-// agent state and chat in the LEGACY fields (6/7) only, with alternate_on
-// (field 8) pinned to "0" (normal screen) and the scope-named fields (9/10)
-// empty.
-func paneLineChat(windowID string, paneID string, paneIndex int, cwd, command string, active int, agentState, chat string) string {
-	return paneLineAlt(windowID, paneID, paneIndex, cwd, command, active, agentState, chat, "0")
+// paneLineAgentSession builds an 11-field tab-delimited list-panes line
+// carrying the agent state in the LEGACY field (6) and the agent session in
+// the retired @rk_pane_chat field (9) only, with alternate_on (field 7) pinned
+// to "0" (normal screen) and the scope-named successor fields (8/10) empty.
+func paneLineAgentSession(windowID string, paneID string, paneIndex int, cwd, command string, active int, agentState, agentSession string) string {
+	return paneLineAlt(windowID, paneID, paneIndex, cwd, command, active, agentState, agentSession, "0")
 }
 
 // paneLineAlt builds an 11-field tab-delimited list-panes line with an
-// explicit alternate_on value (field 8) and empty scope-named fields (9/10).
-func paneLineAlt(windowID string, paneID string, paneIndex int, cwd, command string, active int, agentState, chat, alt string) string {
-	return paneLineFull(windowID, paneID, paneIndex, cwd, command, active, agentState, chat, alt, "", "")
+// explicit alternate_on value (field 7) and empty scope-named successor fields
+// (8/10).
+func paneLineAlt(windowID string, paneID string, paneIndex int, cwd, command string, active int, agentState, agentSession, alt string) string {
+	return paneLineFull(windowID, paneID, paneIndex, cwd, command, active, agentState, agentSession, alt, "", "")
 }
 
 // paneLineFull builds an 11-field tab-delimited list-panes line with full
-// control over both generations of the agent-state/chat fields: legacy at 6/7
-// (with alt at 8), scope-named at 9/10.
-func paneLineFull(windowID string, paneID string, paneIndex int, cwd, command string, active int, agentState, chat, alt, newAgentState, newChat string) string {
+// control over both generations of the agent-state/agent-session fields:
+// legacy agent-state at 6, alternate_on at 7, scope-named agent-state at 8,
+// the retired @rk_pane_chat at 9, and @rk_pane_agent_session at 10.
+func paneLineFull(windowID string, paneID string, paneIndex int, cwd, command string, active int, agentState, agentSession, alt, newAgentState, newAgentSession string) string {
 	return fmt.Sprintf("%s%s%s%s%d%s%s%s%s%s%d%s%s%s%s%s%s%s%s%s%s",
-		windowID, listDelim, paneID, listDelim, paneIndex, listDelim, cwd, listDelim, command, listDelim, active, listDelim, agentState, listDelim, chat, listDelim, alt, listDelim, newAgentState, listDelim, newChat)
+		windowID, listDelim, paneID, listDelim, paneIndex, listDelim, cwd, listDelim, command, listDelim, active, listDelim, agentState, listDelim, alt, listDelim, newAgentState, listDelim, agentSession, listDelim, newAgentSession)
 }
 
 // totalPanes sums the number of panes across all windows in the map.
@@ -1493,29 +1497,29 @@ func TestParsePanes(t *testing.T) {
 		}
 	})
 
-	t.Run("chat ref parsed from field 7", func(t *testing.T) {
+	t.Run("agent-session ref parsed from the retired @rk_pane_chat field", func(t *testing.T) {
 		const uuid = "6f0d9e2a-1c3b-4f7e-9a2d-8b5c4e1f0a37"
-		lines := []string{paneLineChat("@0", "%1", 0, "/tmp", "claude", 1, "active:1751790000", "claude:"+uuid)}
+		lines := []string{paneLineAgentSession("@0", "%1", 0, "/tmp", "claude", 1, "active:1751790000", "claude:"+uuid)}
 		p := parsePanes(lines)["@0"][0]
-		if p.ChatProvider != "claude" || p.ChatSessionRef != uuid {
-			t.Errorf("ChatProvider=%q ChatSessionRef=%q, want claude/%s", p.ChatProvider, p.ChatSessionRef, uuid)
+		if p.AgentProvider != "claude" || p.AgentSessionRef != uuid {
+			t.Errorf("AgentProvider=%q AgentSessionRef=%q, want claude/%s", p.AgentProvider, p.AgentSessionRef, uuid)
 		}
 	})
 
-	t.Run("unset chat yields empty chat fields", func(t *testing.T) {
-		lines := []string{paneLineChat("@0", "%1", 0, "/tmp", "claude", 1, "active:1751790000", "")}
+	t.Run("unset agent session yields empty agent-session fields", func(t *testing.T) {
+		lines := []string{paneLineAgentSession("@0", "%1", 0, "/tmp", "claude", 1, "active:1751790000", "")}
 		p := parsePanes(lines)["@0"][0]
-		if p.ChatProvider != "" || p.ChatSessionRef != "" {
-			t.Errorf("unset chat: ChatProvider=%q ChatSessionRef=%q, want empty", p.ChatProvider, p.ChatSessionRef)
+		if p.AgentProvider != "" || p.AgentSessionRef != "" {
+			t.Errorf("unset agent session: AgentProvider=%q AgentSessionRef=%q, want empty", p.AgentProvider, p.AgentSessionRef)
 		}
 	})
 
-	t.Run("malformed chat degrades to empty", func(t *testing.T) {
+	t.Run("malformed agent session degrades to empty", func(t *testing.T) {
 		for _, raw := range []string{"claude", "claude:", ":abc", "Claude:abc", "claude:has space"} {
-			lines := []string{paneLineChat("@0", "%1", 0, "/tmp", "claude", 1, "active:1751790000", raw)}
+			lines := []string{paneLineAgentSession("@0", "%1", 0, "/tmp", "claude", 1, "active:1751790000", raw)}
 			p := parsePanes(lines)["@0"][0]
-			if p.ChatProvider != "" || p.ChatSessionRef != "" {
-				t.Errorf("raw %q: ChatProvider=%q ChatSessionRef=%q, want empty", raw, p.ChatProvider, p.ChatSessionRef)
+			if p.AgentProvider != "" || p.AgentSessionRef != "" {
+				t.Errorf("raw %q: AgentProvider=%q AgentSessionRef=%q, want empty", raw, p.AgentProvider, p.AgentSessionRef)
 			}
 		}
 	})
@@ -1526,7 +1530,7 @@ func TestParsePanes(t *testing.T) {
 		// option to an empty field — so a short line is a parse anomaly).
 		nineField := fmt.Sprintf("0%s%%1%s0%s/tmp%sclaude%s1%sactive:1751790000%s%s0",
 			listDelim, listDelim, listDelim, listDelim, listDelim, listDelim, listDelim, listDelim)
-		valid := paneLineChat("@1", "%2", 0, "/tmp", "claude", 1, "", "")
+		valid := paneLineAgentSession("@1", "%2", 0, "/tmp", "claude", 1, "", "")
 		byWindow := parsePanes([]string{nineField, valid})
 		if totalPanes(byWindow) != 1 {
 			t.Fatalf("got %d panes, want 1 (9-field line skipped)", totalPanes(byWindow))
@@ -1564,8 +1568,8 @@ func TestParsePanes(t *testing.T) {
 		if p.AgentState != "idle" || p.AgentStateEpoch != 100 {
 			t.Errorf("new blank: AgentState=%q epoch=%d, want idle/100 (legacy fallback)", p.AgentState, p.AgentStateEpoch)
 		}
-		if p.ChatProvider != "claude" || p.ChatSessionRef != "abc" {
-			t.Errorf("new blank chat: ChatProvider=%q ChatSessionRef=%q, want claude/abc (legacy fallback)", p.ChatProvider, p.ChatSessionRef)
+		if p.AgentProvider != "claude" || p.AgentSessionRef != "abc" {
+			t.Errorf("new blank agent session: AgentProvider=%q AgentSessionRef=%q, want claude/abc (legacy fallback)", p.AgentProvider, p.AgentSessionRef)
 		}
 	})
 
@@ -1577,27 +1581,27 @@ func TestParsePanes(t *testing.T) {
 		}
 	})
 
-	t.Run("dual-read: new chat field wins over legacy", func(t *testing.T) {
+	t.Run("dual-read: new agent-session field wins over legacy", func(t *testing.T) {
 		lines := []string{paneLineFull("@0", "%1", 0, "/tmp", "claude", 1, "active:1751790000", "claude:legacy-ref", "0", "", "claude:new-ref")}
 		p := parsePanes(lines)["@0"][0]
-		if p.ChatSessionRef != "new-ref" {
-			t.Errorf("both set: ChatSessionRef=%q, want new-ref (new wins)", p.ChatSessionRef)
+		if p.AgentSessionRef != "new-ref" {
+			t.Errorf("both set: AgentSessionRef=%q, want new-ref (new wins)", p.AgentSessionRef)
 		}
 	})
 
-	t.Run("dual-read: legacy chat field used when new is empty", func(t *testing.T) {
+	t.Run("dual-read: legacy agent-session field used when new is empty", func(t *testing.T) {
 		lines := []string{paneLineFull("@0", "%1", 0, "/tmp", "claude", 1, "active:1751790000", "claude:legacy-ref", "0", "", "")}
 		p := parsePanes(lines)["@0"][0]
-		if p.ChatSessionRef != "legacy-ref" {
-			t.Errorf("new empty: ChatSessionRef=%q, want legacy-ref (legacy fallback)", p.ChatSessionRef)
+		if p.AgentSessionRef != "legacy-ref" {
+			t.Errorf("new empty: AgentSessionRef=%q, want legacy-ref (legacy fallback)", p.AgentSessionRef)
 		}
 	})
 
-	t.Run("dual-read: both chat fields empty yields empty chat", func(t *testing.T) {
+	t.Run("dual-read: both agent-session fields empty yields empty identity", func(t *testing.T) {
 		lines := []string{paneLineFull("@0", "%1", 0, "/tmp", "claude", 1, "active:1751790000", "", "0", "", "")}
 		p := parsePanes(lines)["@0"][0]
-		if p.ChatProvider != "" || p.ChatSessionRef != "" {
-			t.Errorf("both empty: ChatProvider=%q ChatSessionRef=%q, want empty", p.ChatProvider, p.ChatSessionRef)
+		if p.AgentProvider != "" || p.AgentSessionRef != "" {
+			t.Errorf("both empty: AgentProvider=%q AgentSessionRef=%q, want empty", p.AgentProvider, p.AgentSessionRef)
 		}
 	})
 
@@ -1611,12 +1615,12 @@ func TestParsePanes(t *testing.T) {
 		if p.AgentState != "active" || p.AgentStateEpoch != 200 {
 			t.Errorf("new only: AgentState=%q epoch=%d, want active/200", p.AgentState, p.AgentStateEpoch)
 		}
-		if p.ChatSessionRef != "new-ref" {
-			t.Errorf("new only: ChatSessionRef=%q, want new-ref", p.ChatSessionRef)
+		if p.AgentSessionRef != "new-ref" {
+			t.Errorf("new only: AgentSessionRef=%q, want new-ref", p.AgentSessionRef)
 		}
 	})
 
-	t.Run("alternate_on parsed from field 8", func(t *testing.T) {
+	t.Run("alternate_on parsed from field 7", func(t *testing.T) {
 		lines := []string{paneLineAlt("@0", "%1", 0, "/tmp", "claude", 1, "", "", "1")}
 		p := parsePanes(lines)["@0"][0]
 		if !p.AltScreen {
@@ -1630,46 +1634,47 @@ func TestParsePanes(t *testing.T) {
 		}
 	})
 
-	t.Run("dead pid zeros BOTH agent-state and chat", func(t *testing.T) {
+	t.Run("dead pid zeros BOTH agent-state and agent-session fields", func(t *testing.T) {
 		restore := agentProcessAlive
 		agentProcessAlive = func(int) bool { return false }
 		defer func() { agentProcessAlive = restore }()
 
-		lines := []string{paneLineChat("@0", "%1", 0, "/tmp", "claude", 1, "active:1751790000:4242", "claude:abc-123")}
+		lines := []string{paneLineAgentSession("@0", "%1", 0, "/tmp", "claude", 1, "active:1751790000:4242", "claude:abc-123")}
 		p := parsePanes(lines)["@0"][0]
-		if p.AgentState != "" || p.ChatProvider != "" || p.ChatSessionRef != "" {
-			t.Errorf("dead pid: AgentState=%q Chat=%q/%q, want all empty", p.AgentState, p.ChatProvider, p.ChatSessionRef)
+		if p.AgentState != "" || p.AgentProvider != "" || p.AgentSessionRef != "" {
+			t.Errorf("dead pid: AgentState=%q Agent=%q/%q, want all empty", p.AgentState, p.AgentProvider, p.AgentSessionRef)
 		}
 	})
 
-	t.Run("shell pane with no live pid-bearing agent-state zeros chat", func(t *testing.T) {
+	t.Run("shell pane with no live pid-bearing agent-state zeros the agent session", func(t *testing.T) {
 		// Two-segment (legacy / SessionStart-before-first-prompt) agent-state has
 		// no pid, so a plain-shell pane falls to the shell heuristic and never
-		// surfaces chat.
-		lines := []string{paneLineChat("@0", "%1", 0, "/tmp", "bash", 1, "active:1751790000", "claude:abc-123")}
+		// surfaces an agent session.
+		lines := []string{paneLineAgentSession("@0", "%1", 0, "/tmp", "bash", 1, "active:1751790000", "claude:abc-123")}
 		p := parsePanes(lines)["@0"][0]
-		if p.ChatProvider != "" || p.ChatSessionRef != "" {
-			t.Errorf("shell pane: Chat=%q/%q, want empty", p.ChatProvider, p.ChatSessionRef)
+		if p.AgentProvider != "" || p.AgentSessionRef != "" {
+			t.Errorf("shell pane: Agent=%q/%q, want empty", p.AgentProvider, p.AgentSessionRef)
 		}
 	})
 
-	t.Run("live wrapped pid keeps chat under a bash command", func(t *testing.T) {
+	t.Run("live wrapped pid keeps the agent session under a bash command", func(t *testing.T) {
 		// The wrapped-launch case: claude under a non-exec'ing bash wrapper, so
 		// pane_current_command is "bash" while the agent runs. PID liveness wins
-		// over the shell heuristic for chat exactly as it does for agent-state.
+		// over the shell heuristic for the agent session exactly as it does for
+		// agent-state.
 		restore := agentProcessAlive
 		agentProcessAlive = func(pid int) bool { return pid == 4242 }
 		defer func() { agentProcessAlive = restore }()
 
-		lines := []string{paneLineChat("@0", "%1", 0, "/tmp", "bash", 1, "waiting:1751790000:4242", "claude:abc-123")}
+		lines := []string{paneLineAgentSession("@0", "%1", 0, "/tmp", "bash", 1, "waiting:1751790000:4242", "claude:abc-123")}
 		p := parsePanes(lines)["@0"][0]
-		if p.ChatProvider != "claude" || p.ChatSessionRef != "abc-123" {
-			t.Errorf("live wrapped pid: Chat=%q/%q, want claude/abc-123", p.ChatProvider, p.ChatSessionRef)
+		if p.AgentProvider != "claude" || p.AgentSessionRef != "abc-123" {
+			t.Errorf("live wrapped pid: Agent=%q/%q, want claude/abc-123", p.AgentProvider, p.AgentSessionRef)
 		}
 	})
 }
 
-func TestParseChatRef(t *testing.T) {
+func TestParseAgentSessionRef(t *testing.T) {
 	cases := []struct {
 		raw          string
 		wantProvider string
@@ -1691,9 +1696,9 @@ func TestParseChatRef(t *testing.T) {
 		{"claude:tab\there", "", ""},                // control char in ref
 	}
 	for _, c := range cases {
-		provider, ref := parseChatRef(c.raw)
+		provider, ref := parseAgentSessionRef(c.raw)
 		if provider != c.wantProvider || ref != c.wantRef {
-			t.Errorf("parseChatRef(%q) = (%q, %q), want (%q, %q)", c.raw, provider, ref, c.wantProvider, c.wantRef)
+			t.Errorf("parseAgentSessionRef(%q) = (%q, %q), want (%q, %q)", c.raw, provider, ref, c.wantProvider, c.wantRef)
 		}
 	}
 }

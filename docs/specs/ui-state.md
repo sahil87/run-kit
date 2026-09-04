@@ -164,7 +164,7 @@ Starting point: the scope-naming plan's target map (22 options → 21 after
 
 ### Pane (`@rk_pane_*`) — unchanged
 
-`@rk_pane_agent_state` · `@rk_pane_chat`
+`@rk_pane_agent_state` · `@rk_pane_agent_session`
 
 ### Option-value conventions
 

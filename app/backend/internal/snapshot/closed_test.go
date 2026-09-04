@@ -1,6 +1,7 @@
 package snapshot
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -89,13 +90,13 @@ func TestClosedRingCapAndPruneOrder(t *testing.T) {
 }
 
 // TestListClosedRoundTripsRecord: a pushed record decodes back with the full
-// window capture and chat identity intact.
+// window capture and agent session identity intact.
 func TestListClosedRoundTripsRecord(t *testing.T) {
 	s := NewStore(t.TempDir())
 	want := closedRec("kit", "agent")
 	want.Window.Color = "4"
-	want.ChatProvider = "claude"
-	want.ChatRef = "5d80479e-8f25-46cd-a0d4-e51435508a37"
+	want.AgentProvider = "claude"
+	want.AgentRef = "5d80479e-8f25-46cd-a0d4-e51435508a37"
 	rec, err := s.PushClosed(want)
 	if err != nil {
 		t.Fatal(err)
@@ -110,11 +111,108 @@ func TestListClosedRoundTripsRecord(t *testing.T) {
 	}
 	got := list[0]
 	if got.ID != rec.ID || got.Window.Name != "agent" || got.Window.Color != "4" ||
-		got.ChatProvider != "claude" || got.ChatRef != want.ChatRef || got.Session != "s1" {
+		got.AgentProvider != "claude" || got.AgentRef != want.AgentRef || got.Session != "s1" {
 		t.Errorf("round-trip mismatch: %+v", got)
 	}
 	if len(got.Window.Panes) != 1 || got.Window.Panes[0].Cwd != "/tmp" {
 		t.Errorf("panes mismatch: %+v", got.Window.Panes)
+	}
+}
+
+// TestPushClosedWritesOnlyNewKeys: a record written post-upgrade carries only
+// the agentProvider/agentRef keys — the legacy chatProvider/chatRef keys never
+// appear on disk.
+func TestPushClosedWritesOnlyNewKeys(t *testing.T) {
+	s := NewStore(t.TempDir())
+	want := closedRec("kit", "agent")
+	want.AgentProvider = "claude"
+	want.AgentRef = "5d80479e-8f25-46cd-a0d4-e51435508a37"
+	rec, err := s.PushClosed(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(s.closedDir("kit"), rec.ID+jsonExt))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if raw["agentProvider"] != "claude" || raw["agentRef"] != want.AgentRef {
+		t.Errorf("record keys = %v, want agentProvider/agentRef set", raw)
+	}
+	if _, ok := raw["chatProvider"]; ok {
+		t.Errorf("record carries legacy chatProvider key: %v", raw)
+	}
+	if _, ok := raw["chatRef"]; ok {
+		t.Errorf("record carries legacy chatRef key: %v", raw)
+	}
+}
+
+// TestLoadClosedCoalescesLegacyKeys: a pre-upgrade record (chatProvider/chatRef
+// keys only) loads with its resume identity coalesced into the new fields.
+func TestLoadClosedCoalescesLegacyKeys(t *testing.T) {
+	s := NewStore(t.TempDir())
+	if err := os.MkdirAll(s.closedDir("kit"), dirMode); err != nil {
+		t.Fatal(err)
+	}
+	const id = "1700000000000000001"
+	legacy := `{
+		"id": "` + id + `",
+		"closedAt": "2026-09-01T12:00:00Z",
+		"server": "kit",
+		"session": "s1",
+		"window": {"index": 1, "id": "@1", "name": "agent", "panes": [{"id": "%0", "index": 0, "cwd": "/tmp", "command": "claude"}]},
+		"chatProvider": "claude",
+		"chatRef": "5d80479e-8f25-46cd-a0d4-e51435508a37"
+	}`
+	if err := os.WriteFile(filepath.Join(s.closedDir("kit"), id+jsonExt), []byte(legacy), fileMode); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.LoadClosed("kit", id)
+	if err != nil || got == nil {
+		t.Fatalf("load: %v, %v", got, err)
+	}
+	if got.AgentProvider != "claude" || got.AgentRef != "5d80479e-8f25-46cd-a0d4-e51435508a37" {
+		t.Errorf("coalesced identity = %q/%q, want claude/5d80479e-…", got.AgentProvider, got.AgentRef)
+	}
+	if got.LegacyChatProvider != "" || got.LegacyChatRef != "" {
+		t.Errorf("legacy fields not cleared: %q/%q", got.LegacyChatProvider, got.LegacyChatRef)
+	}
+}
+
+// TestLoadClosedNewKeysWinOverLegacy: a record carrying BOTH key generations
+// resolves to the new keys (mirroring the tmux dual-read rule).
+func TestLoadClosedNewKeysWinOverLegacy(t *testing.T) {
+	s := NewStore(t.TempDir())
+	if err := os.MkdirAll(s.closedDir("kit"), dirMode); err != nil {
+		t.Fatal(err)
+	}
+	const id = "1700000000000000002"
+	both := `{
+		"id": "` + id + `",
+		"closedAt": "2026-09-01T12:00:00Z",
+		"server": "kit",
+		"session": "s1",
+		"window": {"index": 1, "id": "@1", "name": "agent", "panes": []},
+		"chatProvider": "codex",
+		"chatRef": "old-ref",
+		"agentProvider": "claude",
+		"agentRef": "new-ref"
+	}`
+	if err := os.WriteFile(filepath.Join(s.closedDir("kit"), id+jsonExt), []byte(both), fileMode); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.LoadClosed("kit", id)
+	if err != nil || got == nil {
+		t.Fatalf("load: %v, %v", got, err)
+	}
+	if got.AgentProvider != "claude" || got.AgentRef != "new-ref" {
+		t.Errorf("identity = %q/%q, want the new keys claude/new-ref", got.AgentProvider, got.AgentRef)
 	}
 }
 

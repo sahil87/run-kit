@@ -29,6 +29,20 @@ func activePaneWindow(windowID string) []sessions.ProjectSession {
 	}
 }
 
+// splitAgentWindow is a split whose AGENT pane (%2, the @rk_pane_chat carrier)
+// is NOT the active pane (%1) — the case where active-pane targeting would
+// deliver to the wrong pane.
+func splitAgentWindow(windowID string) []sessions.ProjectSession {
+	return []sessions.ProjectSession{
+		{Name: "s", Windows: []tmux.WindowInfo{
+			{WindowID: windowID, Panes: []tmux.PaneInfo{
+				{PaneID: "%1", IsActive: true},
+				{PaneID: "%2", IsActive: false, ChatProvider: "claude", ChatSessionRef: testChatRef},
+			}},
+		}},
+	}
+}
+
 func TestWindowSendModeStrategies(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -97,6 +111,7 @@ func TestWindowSendBadRequestsDoNotTouchTmux(t *testing.T) {
 		{"empty submit", "@1", `{"text":" \n ","mode":"submit"}`},
 		{"empty insert-line", "@1", `{"text":"","mode":"insert-line"}`},
 		{"empty raw", "@1", `{"text":"\u0001\u001b","mode":"raw"}`},
+		{"unknown target", "@1", `{"text":"hello","mode":"submit","target":"shell"}`},
 	}
 
 	for _, tt := range tests {
@@ -125,6 +140,51 @@ func TestWindowSendMissingWindow404(t *testing.T) {
 	}
 	if len(ops.chatCalls) != 0 {
 		t.Fatalf("tmux calls = %v, want none", ops.chatCalls)
+	}
+}
+
+func TestWindowSendAgentTargetResolvesAgentPane(t *testing.T) {
+	// target:"agent" on a split whose agent pane is NOT active delivers to the
+	// agent pane (%2), never the active shell (%1).
+	ops := &mockTmuxOps{}
+	router := NewTestRouter(slog.Default(), &mockSessionFetcher{result: splitAgentWindow("@1")}, ops, "host")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, windowSendReq("@1", `{"text":"hello","mode":"raw","target":"agent"}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if ops.pasteChatRawPaneID != "%2" {
+		t.Fatalf("raw delivery pane = %q, want %%2 (the agent pane)", ops.pasteChatRawPaneID)
+	}
+}
+
+func TestWindowSendAgentTargetNoAgent404(t *testing.T) {
+	// Fail-closed: no pane carries chat → 404, and NOTHING is pasted — an
+	// agent-targeted send to a shell window never executes there.
+	ops := &mockTmuxOps{}
+	router := NewTestRouter(slog.Default(), &mockSessionFetcher{result: activePaneWindow("@1")}, ops, "host")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, windowSendReq("@1", `{"text":"hello","mode":"submit","target":"agent"}`))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body.String())
+	}
+	if len(ops.chatCalls) != 0 {
+		t.Fatalf("tmux calls = %v, want none", ops.chatCalls)
+	}
+}
+
+func TestWindowSendDefaultTargetsActivePane(t *testing.T) {
+	// No target field: byte-identical to before — the ACTIVE pane (%1 here),
+	// even when another pane carries chat.
+	ops := &mockTmuxOps{}
+	router := NewTestRouter(slog.Default(), &mockSessionFetcher{result: splitAgentWindow("@1")}, ops, "host")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, windowSendReq("@1", `{"text":"hello","mode":"raw"}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if ops.pasteChatRawPaneID != "%1" {
+		t.Fatalf("raw delivery pane = %q, want %%1 (the active pane)", ops.pasteChatRawPaneID)
 	}
 }
 

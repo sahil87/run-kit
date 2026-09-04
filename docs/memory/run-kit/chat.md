@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The chat subsystem backend — neutral event schema, adapter registry, transcript backfill/tail, and pane-typed send. Send uses sanitized named-buffer paste, novelty echo probing, probe-gated Enter, asymmetric post-Enter observation, and evidence-gated recovery; probe, staged-send, and submit-unverified failures are distinct 409s. The chat lens frontend lives in ui/chat-view.md."
+description: "The chat subsystem backend — rk-owned neutral event schema, adapter registry (Claude), tolerant JSONL parse + byte-offset tail, and TranscriptPath resolution consumed by operator actuation, fork/resume, and auto-name — plus the shared pane-typed injection engine (sanitized named-buffer paste, novelty echo probe, probe-gated Enter, post-Enter observation, evidence-gated recovery) consumed by POST /api/windows/{id}/send (incl. its target:\"agent\" mode) and the operator-request routes."
 ---
 # Chat Subsystem
 
@@ -10,41 +10,25 @@ description: "The chat subsystem backend — neutral event schema, adapter regis
 
 `internal/chat` turns a window's reconciled `@rk_pane_chat = <provider>:<session-ref>`
 (from [agent-state](/run-kit/agent-state.md) § Chat Session Identity) into the
-conversation it names. It is a **read-only** view over the agent pane plus a
-narrow **send** path: the pane stays the agent's parent process (Constitution VI);
-rk only ever *reads* the transcript and *types into* the pane exactly as a human
-typist would — never owning the agent's session. Everything derives from disk at
-request/stream time with **nothing cached beyond the connection** (Constitution
-II): all read routes are GET, the send path holds no SDK/session/queue state. The
-schema is rk-owned and provider-neutral so Codex/Gemini adapters are backend-only
-additions; the **Claude** adapter is the one registered provider (protocol-based
-send such as Codex JSON-RPC branches behind the `injectChatMessage` adapter
-seam — a thin wrapper over the shared `internal/inject` engine — later).
+transcript it names. Its consumers are server-side derivations — the
+operator-request handlers (transcript fact pre-derivation via `TranscriptPath`,
+[operator-actuation](/run-kit/operator-actuation.md)), fork/resume, and auto-name
+dispatch. The schema is rk-owned and
+provider-neutral so Codex/Gemini adapters are backend-only additions; the
+**Claude** adapter is the one registered provider. Everything derives from disk
+at request time (Constitution II).
 
-The read surface is a window-keyed `GET /api/windows/{windowId}/chat` backfill and
-a live incremental stream carried as a `kind:"chat"` subscription on `/ws/state`
-(subscribed on chat-lens enter, unsubscribed on leave), so a tab holds a fixed
-2 WebSockets + 0 SSE on every route (D6). Backfill carries an additive byte
-`offset`; the subscribe carries `from:<offset>` and its ack returns the tail-start
-offset with NO snapshot, so `GET(offset)→subscribe(from)` composes gap-free and
-duplicate-free — a full `Conversation` never rides the shared socket (§ Live
-stream; § Design Decisions → Chat live stream on the state socket). The generic
-`POST /api/windows/{windowId}/keys` endpoint is a distinct contract, untouched by
-the send path.
-
-The frontend consumer is the `chat` LENS: a read-only HTML view over the SAME
-agent pane, addressed by a `?view=chat` search param on the existing
-`/$server/$window` terminal route (Constitution IV — no new route). It renders the
-streamed transcript with nothing cached beyond React state that dies with the
-view. Its view-state plumbing (the `?view=` param, ViewSwitcher chip, value-bearing
-localStorage, palette/`Ctrl+`` parity, chat-health connection dot) is the shared
-lens machinery in [ui/lenses-and-layout](/run-kit/ui/lenses-and-layout.md) § Window Views (Lens
-Model) / § Chat View; the top-bar center heading reads a static `Window: <window>`
-in every lens (lens indication belongs to the L1 ViewSwitcher). The § Chat View
-Frontend requirements below own only the DATA-layer consumer half (schema types,
-subscription lifecycle, renderer). The push deep-link URL + service-worker
-navigation lives in [architecture](/run-kit/architecture.md) § Web Push
-Notifications.
+The mutating half of chat-shaped messaging is the shared `internal/inject`
+engine: rk *types into* the pane exactly as a human typist would — the pane
+stays the agent's parent process (Constitution VI) — via a sanitized
+named-buffer bracketed paste, a novelty echo probe, a probe-gated Enter,
+asymmetric post-Enter observation, and evidence-gated recovery. Two API
+surfaces consume the one engine: `POST /api/windows/{windowId}/send`
+(`api/send.go` — the compose strip's delivery door, plus the selection
+broadcast's `target:"agent"` mode) and the operator-request routes
+(`api/operator.go`, via `injectIntoPane`). The generic
+`POST /api/windows/{windowId}/keys` endpoint is a distinct contract, untouched
+by the injection path.
 
 ## Requirements
 
@@ -134,15 +118,14 @@ Its consumer is the operator-request handler's fact pre-derivation
 ([operator-actuation](/run-kit/operator-actuation.md)). (260822-fih1)
 
 **`Update` (the tail increment)**: exactly one shape per Update — `Events`
-(newly-appended events; `Pending` carries the current pending state AFTER them,
-emitted as `chat`+`chat-state`) OR `Reset: true`. Under `TailFrom`, a **`Reset` is
-a bounded SHRINK/rewrite signal** — its `Conv` is always nil (the producer maps
-`Reset`→`chat-reset`, no transcript payload). `TailFrom(ref, from)` primes parser
-state by parsing bytes `0..from` (discarded), then emits ONLY bytes `≥ from` as
-`Events` — its first emission is NOT a full backfill (the backfill came from the
-GET, D5). *(Deletion candidate, recorded by review: `Update.Conv` has no producer
-that populates it and no production reader — only tests assert it is nil; a
-follow-up may remove the field.)* (260717-vhvz)
+(newly-appended events; `Pending` carries the current pending state AFTER them)
+OR `Reset: true`. Under `TailFrom`, a **`Reset` is a bounded SHRINK/rewrite
+signal** — its `Conv` is always nil (no transcript payload). `TailFrom(ref, from)`
+primes parser state by parsing bytes `0..from` (discarded), then emits ONLY bytes
+`≥ from` as `Events` — its first emission is NOT a full backfill. *(Deletion
+candidate, recorded by review: `Update.Conv` has no producer that populates it
+and no production reader — only tests assert it is nil; a follow-up may remove
+the field.)* (260717-vhvz)
 
 #### Scenario: Unregistered provider returns the sentinel
 - **GIVEN** a chat ref with an unregistered provider (`codex` in v1)
@@ -208,15 +191,14 @@ walk — backfill and the tail share one `parser`), then emits ONLY bytes `≥ f
 as `Events` updates and stat-polls the file at the named `tailPollInterval = 400ms`
 cadence (**no fsnotify** — one stat per tick per open stream is negligible and
 dependency-free) for the life of the stream. Its first emission is NOT a full-`Conv`
-`Reset` (the backfill came from the GET, D5).
+`Reset`.
 On **growth** (`size > offset`) it reads from the offset and `consume` parses ONLY
 complete (newline-terminated) lines — a partial final line without a trailing
 newline is held (its bytes excluded from the consumed count) until its newline
 arrives next tick. On **shrink/rewrite** (`size < offset`), AND when the file is
 already shorter than `from` at prime time, it emits a bounded `Reset` (a
-SHRINK SIGNAL — `Conv` nil; the producer maps it to `chat-reset` so the client
-re-composes). A vanished file (transient stat error — session rotated/cleared) is
-tolerated: hold the offset and keep polling. The goroutine exits and closes the
+SHRINK SIGNAL — `Conv` nil). A vanished file (transient stat error — session
+rotated/cleared) is tolerated: hold the offset and keep polling. The goroutine exits and closes the
 channel when `ctx` is cancelled — **no goroutine outlives the stream, no state
 beyond the per-connection offset** (Constitution II). Because priming replays
 `0..from`, the emitted-tail turn numbers are continuous with the primed prefix.
@@ -229,228 +211,88 @@ beyond the per-connection offset** (Constitution II). Because priming replays
   from `0..N` is re-emitted, its turn continuous with the primed prefix) and the
   partial line is withheld until its newline arrives.
 
-### Requirement: Backfill endpoint `GET /api/windows/{windowId}/chat` (`api/chat.go`)
-`handleChatBackfill` SHALL validate the `{windowId}` (`parseWindowID`, `400` on
-malformed), resolve the window's **reconciled** `@rk_pane_chat` rollup server-side via
-`resolveWindowChat` (`FetchSessions` + a window lookup by stable `WindowID`,
-reading the rolled-up `ChatProvider`/`ChatSessionRef` by the active-pane-first /
-else-first-pane rule), route to the provider adapter, and return
-`{"provider","sessionRef","events","pending","offset"}` as JSON. The **`offset`
-field** carries the transcript byte offset the backfill parse read up to —
-`Backfill` populates it from `backfillFromPath`'s end offset. It supplies the
-state-socket subscribe's `from`, so `GET(offset)→subscribe(from)` composes
-gap-free/duplicate-free (§ Live stream). (260717-vhvz)
-It NEVER trusts a client-supplied ref (URLs carry no session UUIDs). It is a GET
-(Constitution IX) and curl-able. `resolveWindowChat` distinguishes a
-**FetchSessions failure**
-(non-nil error → `500`, mirroring `handleSessionsList`) from a **genuine no-chat**
-(`ok=false`, nil error → `404`) — a transient tmux fault is never misreported as
-"no chat session".
-
-#### Scenario: Live claude window returns rk-schema JSON
-- **GIVEN** a live `claude` window with a reconciled `@rk_pane_chat`
-- **WHEN** a client GETs the backfill route
-- **THEN** it returns `200` with the conversation as rk-schema JSON.
-
-## Live stream — `kind:"chat"` subscription on `/ws/state`
-
-The live incremental stream is a subscription kind on the state socket
-(§ Design Decisions → Chat live stream on the state socket). The backend lives in
-`app/backend/api/chat_ws.go`; the wire
-envelope + `stateSubscribe`/`stateUnsubscribe` dispatch are in
-[architecture](/run-kit/architecture.md) § State Socket. The `kind:"chat"` arm
-does NOT join the tmux poll set — transcript appends generate no tmux events (the
-recorded reason chat had a dedicated stream) — so each subscription instead owns
-a per-subscription producer goroutine.
-
-### Requirement: `kind:"chat"` subscribe/ack (offset composition, D5)
-A `kind:"chat"` subscribe SHALL carry `key:<windowId>`, `server:<tmux server>`
-(the existing `clientMsg.Server`), `from:<byteOffset>` (`clientMsg.From int64`,
-`from` JSON), and `req`. `startChatSubscribe` (`chat_ws.go`) SHALL validate
-`msg.Key` via `validate.ValidateWindowID` and `msg.Server` via
-`validate.ValidateServerName` (Constitution §I) — an invalid value → an `error`
-frame carrying `req`, no subscription/producer. Following the **terminals-mux S2
-pattern**, it registers a placeholder producer synchronously under `h.mu`, then
-does resolve+`Lookup`+ack **in the producer goroutine** (never on the socket read
-loop — a stalled `FetchSessions` must not freeze the connection's other ops). The
-ack SHALL carry the tail-start byte `offset` (`ackFrame.Offset int64`,
-`omitempty`) and **NO snapshot** (D5 — the transcript came from the GET backfill);
-the ack is enqueued before the producer's first emit (ack-before-first-emit
-ordering). A repeat subscribe for the same `(server,windowId)` cancels+replaces
-the prior producer (new `from` → fresh tail).
-
-- **GIVEN** a state-socket connection and a resolvable chat window
-- **WHEN** it sends `{op:"subscribe",kind:"chat",key:"@1",server:"default",from:0,req:3}`
-- **THEN** the server replies `{op:"ack",req:3,offset:<N>}` (no `snapshot`) and
-  begins emitting `kind:"chat"` events from byte `from` onward.
-
-### Requirement: chat events — verbatim `chat`/`chat-state` + lightweight `chat-reset`
-The producer SHALL emit `kind:"chat"` `event` frames with two data-bearing types:
-`chat` (`ChatEvent[]` — appended events) and `chat-state` (`{pending}`, always
-emitted incl. `null`). On rotation/shrink it SHALL emit a lightweight `chat-reset`
-(`data:{}`, no transcript payload — a rotation can target a large resumed session,
-so pushing a `Conversation` over the shared socket would break D5's
-bounded-event-size rationale; the client re-runs its GET-backfill→subscribe on
-reset). `chat-backfill` SHALL NOT ride the socket (backfill is the GET's job).
-A `chat-error` (`{error}`) constant exists as **client-facing protocol tolerance**
-(the hook renders it inline) but **the producer never emits it today** — every
-failure path converges via DORMANT→`chat-reset` or the subscribe-time `error`
-frame instead of a terminal chat-error (recorded honestly; `chatEventError` is a
-zero-emit deletion candidate — § Design Decisions / plan Deletion Candidates).
-
-- **GIVEN** an acked chat subscription and a new complete transcript line
-- **THEN** a `{…,type:"chat",data:[…]}` frame is emitted, followed by
-  `{…,type:"chat-state",data:{pending:…}}`.
-- **AND GIVEN** the resolved ref rotates (or the file shrinks below `from`),
-  **THEN** a `{…,type:"chat-reset",data:{}}` frame is emitted instead of a
-  transcript payload.
-
-### Requirement: per-subscription TAIL/DORMANT producer (rotation, not-yet, backpressure)
-Each chat subscription SHALL own a `chatProducer` goroutine bound to a
-`context.Context` cancelled on unsubscribe, on connection drop (`dropStateConn`),
-and on a repeat subscribe for the same key — **no goroutine outlives its
-subscription** (Constitution II). It runs a two-phase machine:
-- **TAIL**: an incremental `TailFrom(ref, from)` ships ONLY the bytes the client's
-  GET did not carry (`Events` → `chat`+`chat-state`).
-- **DORMANT**: on a **rotation** (the ~2s `chatRefResolveInterval` re-resolve —
-  session rotation via `/clear`/`/compact` re-stamps `@rk_pane_chat` within one hook
-  fire — sees a fresh ref) OR a **shrink** (`TailFrom`'s `Reset`), the producer
-  cancels the tail and — crucially — does NOT re-tail the new ref from 0 (that
-  would re-stream a whole conversation over the shared socket, violating D5).
-  It emits a single `chat-reset` **ONLY once the rotated-to transcript EXISTS**
-  (probed via `transcriptExists`, a `TailFrom(ref,0)` cancelled immediately —
-  tolerant of `ErrTranscriptNotFound`/`ErrInvalidRef`), re-emitting each tick
-  until the client's re-subscribe REPLACES this producer with a fresh tail. This
-  preserves the **lazy-transcript "not yet" tolerance** (Claude Code writes the
-  `.jsonl` only on the first prompt while `@rk_pane_chat` re-stamps at `SessionStart`)
-  on BOTH the initial subscribe and rotation — the client cannot 404-wedge because
-  no `chat-reset` fires until the file is resolvable (and the hook additionally
-  retries a GET 404 on a 500ms backoff).
-- **Backpressure recovery**: a dropped `chat`/`chat-state` `hubEvent` (send channel
-  full — `sendConnLockedOK` returns false) sets `pendingReset`, flushed as ONE
-  `chat-reset` when the channel drains (`flushPendingReset`), so a lost incremental
-  frame converges the client via re-composition rather than a permanent gap.
-
-- **GIVEN** an acked chat subscription
-- **WHEN** the client unsubscribes, disconnects, or repeat-subscribes the same key
-- **THEN** the producer goroutine's context is cancelled and it exits.
-- **AND GIVEN** the window's `@rk_pane_chat` re-stamps to a session whose transcript
-  does not exist yet, **THEN** the subscription stays live (no `chat-error`) and
-  once the file appears a single `chat-reset` fires so the client re-composes.
-
-### Requirement: subscribe-time resolve failure → `error` frame carrying `req`
-A subscribe-time resolve failure that today maps to an HTTP status (no chat for
-the window / no adapter / a `FetchSessions` fault) SHALL become a state-socket
-`error` frame carrying `req` (`failSubscribe`) — the GET backfill remains the
-surface where those show as HTTP statuses — and SHALL leave no zombie producer
-(the placeholder is dropped).
-
-- **GIVEN** a chat subscribe for a window with no reconciled chat (or an
-  unregistered provider)
-- **THEN** the hub emits an `{op:"error",req:<req>,…}` frame and starts no producer.
-
-### Requirement: Error surfaces
-The **GET backfill** SHALL return, as JSON error objects (`writeError` shape):
-`400` on invalid `{windowId}`; `404` when the window has no reconciled chat; a
-404-class "no adapter for provider" for a well-formed unknown provider; and a
-404-class response (via `writeChatReadError`) when the transcript is missing
-(`ErrTranscriptNotFound`) or the reconciled ref is malformed (`ErrInvalidRef`) for
-a live ref — because the client only ever supplies a windowID, a bad ref is a
-property of the reconciled `@rk_pane_chat`, not a server fault; any other adapter read
-error is a `500`. On the **state-socket subscription**, the equivalent
-subscribe-time failures surface as an `error` frame carrying `req` (above), and a
-transient/not-yet tail failure goes DORMANT (converging via `chat-reset`) rather
-than surfacing a terminal error — there is no terminal `chat-error` frame.
-
-> **Residual (should-fix, OPEN).** A subscribe `error`
-> frame is currently **swallowed client-side**: the R5-path transient resolve
-> fault (a fault between the GET backfill and the async producer resolve) leaves
-> the lens wedged un-acked (gray dot, no inline error, no retry) until a lens
-> toggle or socket reconnect. Fix direction: route `req`-mapped error frames
-> through the chat handler seam so the hook sets `error` or re-composes.
->
-> **Residual protocol races (record-only).** (1) Byte offsets carry no file
-> identity, so a rotation landing in the GET→subscribe window onto an EXISTING
-> LONGER transcript whose byte-`from` coincides with a line boundary tails a
-> DIFFERENT conversation with no reset (every other alignment is caught by
-> `TailFrom`'s `offset<from`→`Reset`); fix if ever needed: echo `sessionRef` on
-> the subscribe frame for a compare-only equality check. (2) Chat frames route by
-> `windowId` alone client-side (no server scoping), so a stale in-flight frame
-> from server A's `@1` can route into server B's `@1` lens in a narrow reorder
-> window — self-heals on the next backfill REPLACE.
-
 ## Send Path
 
-The mutating half of the subsystem: a single `POST` endpoint that injects a typed
-message into the window's resolved agent pane. It reuses the read side's
-window-keyed / server-resolved contract (the client supplies only a windowID + the
-text; the pane is re-resolved server-side per request) and the same
-`writeError`/status-mapping vocabulary. The handler lives in `api/chat.go` over
-pane-targeted `internal/tmux` primitives. The
-`injectIntoPane` (`api/chat.go`) is the thin adapter over `chatSendEngine` +
-`chatSendTmux` used by chat send and the two operator-request routes. The operator-request handlers
-(`api/operator.go`) deliver rendered prompts through the SAME engine
-(`submit:true`) into the OPERATOR window's resolved pane — same
-per-(server,paneID) lock, shared deadline, sanitize, novelty probe, observation,
-and recovery — after their own session resolution and busy gate
+The mutating half of the subsystem: one shared injection engine
+(`internal/inject`) that types a message into a window's resolved pane, consumed
+by two API surfaces over the same `chatSendEngine` + `chatSendTmux` adapter pair
+(`api/send.go`). The compose strip's `POST /api/windows/{windowId}/send`
+(`handleWindowSend`) names an INTENT (`mode`) and resolves the target pane
+server-side per request — the client supplies only a windowID + text, never a
+pane or session ref. By default the target is the window's **active** pane with
+no chat-session requirement; the optional `target:"agent"` body field (the
+selection broadcast's mode) instead resolves the window's **agent** pane via the
+shared `sessions.ResolveChatPane` rollup (active-pane-first among `@rk_pane_chat`
+carriers, else the first carrier) and fails CLOSED with a `404` ("no chat session
+for this window") when no pane carries chat — the text is never pasted into a
+non-agent shell. An unknown `target` value is a `400`. All four modes use the
+engine: `submit`/`insert-line` call `Engine.Send`, `raw` calls `Engine.SendRaw`,
+`enter` calls `Engine.PressEnter` — so every send enters the same per-pane
+serialization domain, while probed modes retain the sanitize → paste → probe →
+optional Enter → observation/recovery contract and machine-readable 409 mapping
+([api-and-sockets](/run-kit/api-and-sockets.md);
+[ui/compose-and-bottom-bar](/run-kit/ui/compose-and-bottom-bar.md)) (260830-s7wp,
+260904-39bp). The operator-request handlers (`api/operator.go`) deliver rendered
+prompts through the SAME engine (`submit:true`) via the shared `injectIntoPane`
+adapter into the OPERATOR window's resolved pane — same per-(server,paneID) lock,
+shared deadline, sanitize, novelty probe, observation, and recovery — after their
+own session resolution and busy gate
 ([operator-actuation](/run-kit/operator-actuation.md); that endpoint's busy
 policy is REJECT, unlike this path's Allow + probe below) (260822-fih1). The
-compose strip's `POST /api/windows/{windowId}/send` (`api/send.go`) resolves the
-window's **active** pane with no chat-session requirement. Its text-bearing modes
-all use this engine and adapter: `submit`/`insert-line` call `Engine.Send`, while
-`raw` calls `Engine.SendRaw`; `enter` calls `Engine.PressEnter`. Thus every compose
-send enters the same per-pane serialization domain, while probed modes retain the
-sanitize → paste → probe → optional Enter → observation/recovery contract and
-machine-readable 409 mapping
-([api-and-sockets](/run-kit/api-and-sockets.md);
-[ui/compose-and-bottom-bar](/run-kit/ui/compose-and-bottom-bar.md)) (260830-s7wp).
+engine's tmux primitives are the pane-targeted `internal/tmux` wrappers (§
+Pane-targeted tmux primitives and the injection interface).
 
-**Two frontend consumers, one unchanged per-window contract.** The chat lens's
-own send form (§ Send-form input box) is the single-window one. The second is the
-sidebar selection's **bulk prompt broadcast** (`Selection: Send prompt to N agents`
-→ `executeBulkSend` — [ui/sidebar](/run-kit/ui/sidebar.md) § Window-Row
-Multi-Select): one `sendChatMessage(server, windowId, text)` per selected window,
-**N-sequentially** and continue-on-error, each request carrying its own
-`?server=` (a selection may span tmux servers) and the default `submit:true`. It
-is a client-side fan-out only — there is **no batch endpoint and no batch body**,
-and every per-request semantic is untouched: the whole-sequence lock, the shared
-injection deadline, sanitize pass, novelty probe, post-Enter observation, and
-evidence-gated recovery all run per window. A probe failure or submit-unverified
-outcome surfaces as that window's structured `409` (§ Injection 409 outcomes),
-which the batch records as one recipient's failure and steps past rather than
-aborting the remaining sends. The
-broadcast's own `200` count is what the frontend calls **delivered**, and it
-drives whether the composed prompt is cleared or retained for a retry.
-(260808-ebgs)
+**Selection broadcast = a client-side fan-out over `/send`.** The sidebar
+selection's bulk prompt broadcast (`Selection: Send prompt to N agents` →
+`executeBulkSend` — [ui/sidebar](/run-kit/ui/sidebar.md) § Window-Row
+Multi-Select) sends one `sendToWindow(server, windowId, text, "submit", "agent")`
+per selected window, **N-sequentially** and continue-on-error, each request
+carrying its own `?server=` (a selection may span tmux servers). There is **no
+batch endpoint and no batch body**, and every per-request semantic is untouched:
+the whole-sequence lock, the shared injection deadline, sanitize pass, novelty
+probe, post-Enter observation, and evidence-gated recovery all run per window. A
+window with no agent pane returns the fail-closed `404`, which the batch records
+as that recipient's failure and steps past rather than aborting the remaining
+sends — never a paste+Enter into the window's active shell pane. A probe failure
+or submit-unverified outcome surfaces as that window's structured `409` (§
+Injection 409 outcomes), recorded the same way. The broadcast's own `200` count
+is what the frontend calls **delivered**, and it drives whether the composed
+prompt is cleared or retained for a retry. (260808-ebgs, 260904-39bp)
 
-### Requirement: Send endpoint `POST /api/windows/{windowId}/chat/send`
-The backend SHALL expose `POST /api/windows/{windowId}/chat/send?server={server}`
-(mutation ⇒ POST, Constitution IX), registered next to the two GET chat routes and
-implemented as `handleChatSend`. The JSON body is `{"text": "<message>", "submit"?:
-bool}` — `chatSendRequest{ Text string; Submit *bool }`. The **`submit` boolean is
-additive and optional, defaulting to `true` when absent** (`submit := body.Submit ==
-nil || *body.Submit`), so an older client's `{"text": …}` body is byte-for-byte the
-current always-submit behavior. `submit:false` is **insert-without-submit**: the text
-is pasted into the pane's input box but the final gated Enter is skipped (§ Pane-targeted
-injection sequence). The handler validates `{windowId}` (`parseWindowID`, `400`),
-rejects an empty/whitespace-only or undecodable body (`400`), then re-resolves the
-target pane server-side (§ Server-resolved pane) before injecting. Success is
-`200 {"ok":true}` for both modes. The existing generic `POST /api/windows/{windowId}/keys`
-endpoint SHALL be left untouched (different contract, possible external callers).
+### Requirement: Send endpoint `POST /api/windows/{windowId}/send`
+The backend SHALL expose `POST /api/windows/{windowId}/send?server={server}`
+(mutation ⇒ POST, Constitution IX), implemented as `handleWindowSend`
+(`api/send.go`). The JSON body is `{"text": "<message>", "mode":
+"submit"|"insert-line"|"raw"|"enter", "target"?: "agent"}`
+(`windowSendRequest`). The client names an INTENT, never a mechanism: `mode`
+selects the injection strategy (`submit` = paste + probed Enter; `insert-line` =
+insert-without-submit — the text is pasted into the pane's input box but the
+final gated Enter is skipped, § Pane-targeted injection sequence; `raw` = raw
+paste; `enter` = a bare Enter) and the handler picks the tmux mechanics, so a
+caller cannot make verification depend on the shape of the text it sends.
+Validation order: `parseWindowID` (`400`) → JSON decode (`400`) → mode allow-list
+(`400`) → target allow-list (absent or `"agent"`; anything else `400`) →
+`inject.Sanitize(text)` → emptiness check (`400`; `enter` is exempt — it carries
+no text). The target pane is then re-resolved server-side (§ Server-resolved
+pane) before injecting. Success is `200 {"ok":true}` for every mode. The existing
+generic `POST /api/windows/{windowId}/keys` endpoint SHALL be left untouched
+(different contract, possible external callers).
 
 #### Scenario: Malformed id or empty text is rejected before any injection
-- **GIVEN** a request with a malformed `{windowId}`, an undecodable body, OR a
-  `text` that is empty/whitespace-only
-- **WHEN** `handleChatSend` runs
+- **GIVEN** a request with a malformed `{windowId}`, an undecodable body, an
+  unknown `mode` or `target`, OR a `text` that is empty/whitespace-only (any
+  non-`enter` mode)
+- **WHEN** `handleWindowSend` runs
 - **THEN** it returns `400` with a `writeError` JSON body and performs no tmux
   injection.
-- **AND GIVEN** a body carrying no `submit` field (or `submit:true`), **THEN**
-  `submit` resolves to `true` and behavior is byte-identical to the always-submit
-  path; **AND GIVEN** `{"text":…,"submit":false}`, **THEN** the paste/probe run but
-  the final Enter is withheld.
+- **AND GIVEN** a body carrying no `target` field, **THEN** the default path
+  resolves the window's active pane and behavior is mode-for-mode unchanged by
+  the field's absence; **AND GIVEN** `target:"agent"` on a window whose panes
+  carry no `@rk_pane_chat`, **THEN** the response is `404` ("no chat session for
+  this window") with zero tmux injection calls.
 
 ### Requirement: Send-text sanitization at the handler boundary
-`handleChatSend` SHALL sanitize `body.Text` via the exported pure helper
+`handleWindowSend` SHALL sanitize `body.Text` via the exported pure helper
 `inject.Sanitize` (`internal/inject`) immediately after the JSON decode and BEFORE the
 whitespace-only emptiness check. `inject.Sanitize` normalizes `\r\n` and lone `\r`
 to `\n`, then drops every control rune per `unicode.IsControl` — C0 (U+0000–U+001F),
@@ -464,43 +306,47 @@ resolution and injection, every downstream consumer (`inject.Needle`, the
 collapsible-paste detection via `strings.Contains(text, "\n")`, the engine's
 set→paste critical section, the echo
 probe) operates on the already-sanitized text. The sanitize is caller-side policy
-only — the `internal/tmux` wrappers stay byte-faithful (Constitution I), and the
-read/backfill endpoints are untouched.
+only — the `internal/tmux` wrappers stay byte-faithful (Constitution I).
 
 #### Scenario: ESC and other control bytes stripped; all-control text 400s
 - **GIVEN** a send whose text embeds an ESC (`0x1B`) that would form the
   bracketed-paste-end sequence `\x1b[201~`
-- **WHEN** `handleChatSend` sanitizes it
+- **WHEN** `handleWindowSend` sanitizes it
 - **THEN** the ESC is stripped (leaving the inert literal `[201~`), so the text
   recorded at `set-buffer` cannot terminate the paste early to inject live
   keystrokes; C0/DEL/C1 controls are likewise removed while `\n`/`\t`/accents/emoji
   survive and `\r\n`/`\r` become `\n`.
 - **AND GIVEN** a send whose text is entirely control bytes, **THEN** it collapses
-  to empty and the handler returns `400` ("Message text cannot be empty") with no
+  to empty and the handler returns `400` ("Text cannot be empty") with no
   tmux injection.
 
 ### Requirement: Server-resolved pane (never trust a client ref)
-The handler SHALL derive the target **pane** server-side by extending
-`resolveWindowChat` to also return the resolved `paneID` — the pane picked by the
-SAME rollup rule as chat read (active-pane-first, else the first chat-carrying
-pane), now the single `sessions.ResolveChatPane(panes) (provider, ref, paneID)`
-helper that `rollupChat` delegates to. Injection targets that `paneID`, NEVER the
-window id: a window `-t` target routes to the session's *active* pane, which in a
-split may not be the agent pane. The client supplies neither a pane nor a session
-ref. A `FetchSessions` failure maps to `500`; a window that is absent or carries no
-reconciled chat maps to `404` — mirroring the read endpoints.
+The handler SHALL derive the target **pane** server-side from one request-scoped
+`FetchSessions` snapshot, per the body's `target`: the default (absent `target`)
+resolves the window's ACTIVE pane (`resolveWindowActivePane` via `activePaneID`);
+`target:"agent"` resolves the window's AGENT pane (`resolveWindowAgentPane`) via
+the shared `sessions.ResolveChatPane(panes) (provider, ref, paneID)` rollup —
+active-pane-first among `@rk_pane_chat` carriers, else the first carrier — the
+same helper the window-level chat-identity rollup delegates to. Injection targets
+that `paneID`, NEVER the window id in the agent case: a window `-t` target routes
+to the session's *active* pane, which in a split may not be the agent pane. The
+client supplies neither a pane nor a session ref. A `FetchSessions` failure maps
+to `500`; an absent window maps to `404` ("window not found") on the default
+path, and an absent window OR a window with no chat-carrying pane maps to `404`
+("no chat session for this window") on the agent path — fail-closed, so a
+selection broadcast never lands in a non-agent shell. (260904-39bp)
 
 #### Scenario: Injection targets the resolved pane, not the window
-- **GIVEN** a window `@N` whose reconciled chat pane is `%2`
-- **WHEN** the handler resolves the target
+- **GIVEN** a window `@N` whose resolved agent pane is `%2` while `%1` is active
+- **WHEN** a `target:"agent"` send resolves its target
 - **THEN** every injection subprocess targets `%2` (the resolved `PaneID`), never
-  `@N`; **AND GIVEN** `FetchSessions` errors → `500`; **AND GIVEN** no reconciled
-  chat → `404`.
+  `@N`; **AND GIVEN** `FetchSessions` errors → `500`; **AND GIVEN** no
+  chat-carrying pane → `404` with no injection.
 
 ### Requirement: Pane-targeted injection sequence via argv slices
 On a resolved pane the handler SHALL inject the message through the shared
-`internal/inject` engine — reached via the thin provider-agnostic adapter seam
-(`injectChatMessage`, `api/chat.go`, delegating to the package-level
+`internal/inject` engine — reached via the thin adapter seam
+(`injectIntoPane`, `api/send.go`, delegating to the package-level
 `chatSendEngine = inject.NewEngine(tmux.ChatSendBuffer)`) — running this exact
 ordered sequence,
 every subprocess an argv slice (Constitution I) targeting the `paneID`, each
@@ -532,8 +378,10 @@ child env ([architecture](/run-kit/architecture.md) § tmux Runner Core):
    the pre-paste baseline, then re-paste, re-probe, send Enter, and observe over
    the first `SubmitRetryBackoffSteps = 3` ladder steps. `SubmitRetries = 1`.
 
-`injectChatMessage(ctx, server, paneID, text, submit bool)` is the thin adapter
-that forwards the resolved boolean to `inject.Engine.Send`. **`submit:false`
+`injectIntoPane(ctx, server, paneID, text, submit bool)` is the thin adapter
+that forwards the resolved boolean to `inject.Engine.Send` (the `/send` route's
+`submit` mode passes `true`, `insert-line` passes `false`; the operator-request
+routes always pass `true`). **`submit:false`
 (insert-without-submit) skips steps 5–7** — the baseline
 capture, handler-boundary sanitize, named-buffer set/paste, novelty echo probe (a
 probe failure still returns the structured `409`, Enter irrelevant but the text left
@@ -762,92 +610,26 @@ changes.
 *Introduced by*: `260714-pmfh-chat-read-backend`
 
 ### Window-keyed routes, server-resolved ref
-**Decision**: Both endpoints key on `{windowId}` (mirroring every
+**Decision**: The chat-shaped routes key on `{windowId}` (mirroring every
 `/api/windows/{windowId}/*` route, `?server=` query); the backend re-resolves the
-reconciled `@rk_pane_chat` rollup server-side per request/tick.
+reconciled `@rk_pane_chat` rollup server-side per request.
 **Why**: URLs carry no session UUIDs, and the backend never trusts a
 client-supplied ref over the reconciler — the same reconciliation `FetchSessions`
 applies.
 **Rejected**: Ref-in-URL (stale/spoofable).
 *Introduced by*: `260714-pmfh-chat-read-backend`
 
-### Reset-on-reconnect stream contract (no cursor)
-**Decision**: The stream carries no per-event resume cursor. The owner hook
-re-runs GET-backfill→subscribe on socket reconnect (or an `rk serve` restart
-mid-conversation) and on `chat-reset` — a full re-derive from disk composed with
-`subscribe(from:offset)`.
-**Why**: Matches the plan acceptance ("loses nothing — full re-derive on
-reconnect") and avoids a backfill/tail gap race; the only retained state is the
-per-connection byte offset, which dies with the connection.
-**Rejected**: A cursor protocol (additive later).
-*Introduced by*: `260714-pmfh-chat-read-backend`
-
-### Chat live stream on the state socket, backfill demoted to the GET
-**Decision**: The chat live stream is a `kind:"chat"` subscription on `/ws/state`,
-not a dedicated SSE endpoint. Backfill demotes to the existing
-`GET /api/windows/{id}/chat` (which gains an additive byte `offset`); the subscribe
-carries `from:<offset>` and the ack returns the tail-start offset (NO snapshot),
-so `GET(offset)→subscribe(from)` composes gap-free/duplicate-free. `chat-reset`
-(`{}`, no transcript) signals rotation/shrink; the client re-runs the composition.
-**Why**: chat was the app's last `EventSource` — one HTTP/1.1 pool slot on
-plaintext origins, the exact starvation socket-unification exists to eliminate
-(the tab is now a fixed 2 WS + 0 SSE, D6). Demoting backfill to the GET (D5) keeps
-a big transcript from head-of-line-blocking session-state events on the shared
-socket, and a rotation can target a large resumed session — so a full
-`Conversation` must never ride `/ws/state`; the byte-offset-tailed JSONL adapter
-makes exact gap-free composition possible without client id-dedup of an overlap
-window.
-**Rejected**: snapshot-in-ack (unbounded event size on a rotation to a large
-session — D5); pushing the full backfill on `chat-reset` (same); merging `/ws/state`
-and `/ws/terminals` (D6, decided against plan-wide).
-*Introduced by*: `260717-vhvz-chat-on-state-socket`
-
 ### `TailFrom(from)` is the sole tail method (no self-priming `Tail`)
 **Decision**: The adapter exposes only `TailFrom(ctx, ref, from)` (primes `0..from`
 discarding those events, then emits ONLY bytes `≥ from`); the `Adapter` interface
 carries no self-priming `Tail` whose first Update is a full-`Conv` `Reset`. Under
 `TailFrom`, `Reset` is a bounded SHRINK signal with `Conv` always nil.
-**Why**: The tail's job is purely "emit bytes ≥ from" — backfill is the GET's job,
-so the tail never needs to prime a first-`Reset`-with-`Conv`. A self-priming `Tail`
-alongside `TailFrom` would be dead code (no caller once backfill is the GET's).
+**Why**: The tail's job is purely "emit bytes ≥ from" — a full-conversation read
+is the one-shot `Backfill`'s job, so the tail never needs to prime a
+first-`Reset`-with-`Conv`. A self-priming `Tail` alongside `TailFrom` would be
+dead code.
 **Rejected**: keeping both methods on the interface (the `Tail` method would have
 no caller).
-*Introduced by*: `260717-vhvz-chat-on-state-socket`
-
-### Rotation goes DORMANT, never re-tails from 0
-**Decision**: On a rotation (~2s re-resolve sees a fresh ref) or a shrink, the
-per-subscription producer CANCELS the tail and goes DORMANT — it does NOT re-tail
-the new ref from `0`. It emits a single `chat-reset` ONLY once the rotated-to
-transcript EXISTS (probed via `transcriptExists`), re-emitting each tick until the
-client's re-subscribe REPLACES the producer with a fresh `from`.
-**Why**: the first cut re-tailed the new ref from `from:0`, so the rotated-to
-transcript's whole pre-existing contents rode the socket as one giant `chat` frame
-(violating "chat-reset is emitted INSTEAD OF a transcript payload; full
-conversations never ride the socket"); on the `/clear` path an early `chat-reset`
-404'd the client's re-compose GET with no fresh reset when the file finally
-appeared, while the `from:0` tail appended the new session onto the stale view.
-Going dormant + gating the reset on transcript existence preserves the
-lazy-transcript "not yet" tolerance (initial subscribe AND rotation) and leaves the
-fresh tail to the client's re-subscribe. A dropped `chat`/`chat-state` `hubEvent`
-under channel pressure similarly maps to a one-shot `chat-reset` (`pendingReset`
-flushed on drain) so a lost frame converges by re-composition, never a permanent gap.
-**Rejected**: re-tailing the new ref from 0 (streams a whole conversation); emitting
-`chat-reset` before the transcript exists (404-wedges the client's re-compose).
-*Introduced by*: `260717-vhvz-chat-on-state-socket`
-
-### `chat-error` is protocol tolerance, currently never emitted
-**Decision**: `chat-error` (`{error}`) stays in the client-facing protocol (the hook
-renders it inline) but the producer NEVER emits it today — every failure path
-converges via subscribe-time `error` frame (carrying `req`) or DORMANT→`chat-reset`.
-The Go-side `chatEventError` const therefore has zero call sites.
-**Why**: recorded honestly rather than pretending a symmetric error path exists.
-The dormant/reset convergence is strictly better than a terminal error for the
-not-yet/transient cases, and the subscribe-time `error` frame covers the hard
-resolve failures. `chatEventError` is a zero-emit **deletion candidate** (plan
-Deletion Candidates): a follow-up either wires a genuinely-unrecoverable emit path
-or drops the const (the client handler can stay as tolerance).
-**Rejected**: forcing a terminal `chat-error` on transient faults (loses the
-self-healing re-composition).
 *Introduced by*: `260717-vhvz-chat-on-state-socket`
 
 ### Tmux keystroke injection, not an agent SDK/API send
@@ -859,8 +641,8 @@ calling a provider send API.
 keystrokes exactly as a human typist would — no SDK hosting, no session ownership,
 no queue state (Constitution II). Mechanically provider-agnostic (it types into any
 TUI), so the injection lives in the shared `internal/inject` engine behind the
-handler's small `injectChatMessage` adapter seam that a later
-protocol-based send (Codex JSON-RPC) can branch on without reshaping the handler;
+`injectIntoPane` adapter seam (`api/send.go`) that a later
+protocol-based send (Codex JSON-RPC) can branch on without reshaping the callers;
 v1 makes NO provider branch. `set-buffer` (text as a discrete argv element) beats
 `load-buffer -` because `tmuxExecServer` has no stdin plumbing; the `--` terminator
 is load-bearing for leading-dash text; a NAMED buffer avoids clobbering the user's
@@ -873,7 +655,7 @@ Enter — the stale-prompt trap); `load-buffer -` (no stdin).
 *Introduced by*: `260714-jdyg-chat-send`
 
 ### Control-byte sanitize at the handler boundary, sanitize-not-reject
-**Decision**: Strip terminal control bytes from `body.Text` in `handleChatSend` via
+**Decision**: Strip terminal control bytes from `body.Text` in `handleWindowSend` via
 the exported pure `inject.Sanitize` helper (`internal/inject` — normalize CR/CRLF to
 `\n`, then drop every
 `unicode.IsControl` rune — C0 + DEL + C1 — except `\n`/`\t`), applied right after the
@@ -999,8 +781,7 @@ short interactive sends that never collapse).
 **Decision**: There is NO `agentState` gate on send and NO server-side queue. A busy
 (`active`) agent receives the paste into its TUI input box; the novelty probe is
 the sole pre-Enter guard, and post-Enter observation makes no claim when the busy
-pane repaints. The UI shows a non-blocking "will be queued" hint while `active`
-but keeps the input enabled.
+pane repaints.
 **Why**: Claude Code's TUI natively queues messages typed while the agent works
 (steering). Probe-before-Enter blocks unsafe blind submission, while the
 asymmetric observation contract lets routine mid-turn repainting return success.
@@ -1040,22 +821,40 @@ subprocesses and backoff sleeps on client disconnect.
 **Rejected**: independent per-primitive timeouts (unbounded route block).
 *Introduced by*: `260714-jdyg-chat-send`
 
-### Additive `submit` flag gates the submission phase; serialized only when false
-**Decision**: Insert-without-submit is an additive optional `submit *bool` on the
-chat-send POST body (default true), and `sendChatMessage` serializes `submit:false`
-into the body ONLY when false — the default body stays exactly `{ text }`.
-`submit:false` skips Enter, post-Enter observation, and recovery;
-baseline/set/paste/probe/lock/budget still apply, and a failing probe still 409s.
-**Why**: A missing field and `true` have the same server-side meaning via `*bool`
-nil-or-true, so serializing `true` adds no information. Reusing the hardened paste
-path ensures staged text demonstrably echoed before it is left for a human or a
-later submit, without running any submission-only work.
-**Rejected**: always serializing the field (churns every existing mocked body for
-zero information); a separate insert endpoint (a new POST route for a one-step
-delta — Constitution IV/IX prefer the additive body); a parallel insert-mode state
-machine on the form (a second lock/clear/error path is the cross-surface divergence
-the intake forbids).
+### Insert-without-submit is a `mode`, not a parallel state machine
+**Decision**: Insert-without-submit is the `insert-line` value of `/send`'s
+closed-set `mode` field, mapping to `Engine.Send(…, submit:false)` — it skips
+Enter, post-Enter observation, and recovery; baseline/set/paste/probe/lock/budget
+still apply, and a failing probe still 409s. The default body stays exactly
+`{ text, mode }` — the optional `target` field is serialized only when set.
+**Why**: A closed-set `mode` keeps the caller naming intent while the server owns
+mechanism, and reusing the hardened paste path ensures staged text demonstrably
+echoed before it is left for a human or a later submit, without running any
+submission-only work.
+**Rejected**: a separate insert endpoint (a new POST route for a one-step
+delta — Constitution IV/IX prefer the additive body field); a parallel
+insert-mode state machine on the client (a second lock/clear/error path is the
+cross-surface divergence the shared classifier forbids).
 *Introduced by*: 260719-mxvw-pointer-aware-enter-insert-mode
+
+### Agent-pane targeting is an explicit `target:"agent"` mode that fails closed
+**Decision**: `POST /api/windows/{windowId}/send` carries an optional `target`
+body field: absent means the window's ACTIVE pane (the compose strip's default);
+`"agent"` (the selection broadcast's mode) resolves the agent pane via the shared
+`sessions.ResolveChatPane` rollup — active-pane-first among `@rk_pane_chat`
+carriers, else the first carrier — and returns `404` ("no chat session for this
+window") when no pane carries chat, performing zero injection. An unknown
+`target` value is a `400`.
+**Why**: A broadcast aimed at a window with no agent pane must fail loudly and be
+counted as that recipient's failure — the alternative (falling back to the active
+pane) pastes the prompt into a non-agent shell and presses Enter there,
+*executing* it. Sharing `sessions.ResolveChatPane` keeps one rollup rule across
+the window-level chat identity, fork, operator actuation, and agent-targeted
+sends.
+**Rejected**: silently falling back to the active pane (a shell-execution
+footgun); a separate broadcast endpoint (Constitution IV/IX — the additive body
+field on the existing intent-shaped route).
+*Introduced by*: 260904-39bp-remove-chat-lens
 
 ### Failure taxonomy splits on the Enter boundary
 **Decision**: Post-paste failures classify by whether Enter was sent. Before

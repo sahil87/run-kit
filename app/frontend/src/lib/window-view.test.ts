@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   hasWebUrl,
   activeWebUrl,
-  hasChat,
   hasCode,
   availableViews,
   windowViewStorageKey,
@@ -17,12 +16,6 @@ const twoTabsWin: ViewWindow = {
 };
 const emptyTabsWin: ViewWindow = { webTabs: [] };
 const plain: ViewWindow = {};
-const chatWin: ViewWindow = { chatProvider: "claude" };
-const chatAndWebWin: ViewWindow = {
-  chatProvider: "claude",
-  webTabs: ["http://localhost:8080"],
-};
-const chatEmptyProvider: ViewWindow = { chatProvider: "" };
 
 describe("hasWebUrl", () => {
   it("is true when the window carries at least one web tab", () => {
@@ -60,20 +53,6 @@ describe("activeWebUrl", () => {
   });
 });
 
-describe("hasChat", () => {
-  it("is true only for a non-empty chatProvider", () => {
-    expect(hasChat(chatWin)).toBe(true);
-    expect(hasChat(chatAndWebWin)).toBe(true);
-  });
-
-  it("is false for empty/missing chatProvider", () => {
-    expect(hasChat(chatEmptyProvider)).toBe(false);
-    expect(hasChat(plain)).toBe(false);
-    expect(hasChat(null)).toBe(false);
-    expect(hasChat(undefined)).toBe(false);
-  });
-});
-
 describe("hasCode", () => {
   it("is true with a shared codeRoot alone — a tab stays code-capable after its active pane leaves the repo", () => {
     expect(hasCode({ codeRoot: "/repo" })).toBe(true);
@@ -100,19 +79,6 @@ describe("availableViews", () => {
     expect(availableViews(plain)).toEqual(["web", "tty"]);
   });
 
-  it("offers chat + web + tty when chatProvider is set", () => {
-    expect(availableViews(chatWin)).toEqual(["chat", "web", "tty"]);
-  });
-
-  it("ignores an empty chatProvider", () => {
-    expect(availableViews(chatEmptyProvider)).toEqual(["web", "tty"]);
-  });
-
-  it("stacks chat + web + tty in registry order (chat > web > tty)", () => {
-    // Capabilities are orthogonal and stack (spec R5); the order is HINT_ORDER.
-    expect(availableViews(chatAndWebWin)).toEqual(["chat", "web", "tty"]);
-  });
-
   it("tolerates null/undefined windows", () => {
     expect(availableViews(null)).toEqual(["web", "tty"]);
     expect(availableViews(undefined)).toEqual(["web", "tty"]);
@@ -130,13 +96,12 @@ describe("availableViews", () => {
     expect(availableViews(null)).toEqual(["web", "tty"]);
   });
 
-  it("stacks chat + code + web + tty in registry order", () => {
+  it("stacks code + web + tty in registry order", () => {
     const all: ViewWindow = {
-      chatProvider: "claude",
       gitRoot: "/repo",
       webTabs: ["http://localhost:8080"],
     };
-    expect(availableViews(all)).toEqual(["chat", "code", "web", "tty"]);
+    expect(availableViews(all)).toEqual(["code", "web", "tty"]);
   });
 });
 

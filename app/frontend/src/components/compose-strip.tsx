@@ -64,8 +64,8 @@ import {
  * and submits the text through its callback. The target is always visible, so a
  * user can tell which mode owns the draft before sending. Broadcast is
  * SUBMIT-ONLY (a cross-server recipient set has no single pane to address for
- * insert/raw and no shared worktree for upload), so it takes the chat surface's
- * Enter policy — plain Enter is a local
+ * insert/raw and no shared worktree for upload), so it takes the classifier's
+ * `"chat"` policy — plain Enter is a local
  * newline, Cmd/Ctrl+Enter is the sole submit, and `enterkeyhint` says so — and
  * a submit that reached NO recipient (0 of N) keeps the composed draft.
  *
@@ -73,9 +73,10 @@ import {
  * `surface: "strip"` — 260802-lj98, the terminal-faithful Enter matrix): plain
  * Enter = INSERT LINE intent and clear that target's draft, so consecutive
  * Enters stage sentence-per-line in the agent's composer, visibly, exactly
- * like typing into the pane itself. The chat send form
- * deliberately diverges (keeps Enter=newline): it cannot show the pane's input
- * box, so Enter-as-insert there would make typed text vanish — the one
+ * like typing into the pane itself. Selection broadcast
+ * deliberately diverges (keeps Enter=newline): a frozen cross-server recipient
+ * set has no single visible pane for a staged line to land in, so
+ * Enter-as-insert there would make typed text vanish — the one
  * classifier declares both policies, per surface. Shift+Enter is the ONLY
  * local multi-line compose. Cmd/Ctrl+Enter is the ONLY submit chord, and on an
  * EMPTY textarea carries bare-Enter intent, completing the stage-then-submit
@@ -693,11 +694,11 @@ export function ComposeStrip({
       // movement in a non-empty draft is never hijacked.
       return;
     }
-    // Shared Enter policy (classifyComposeEnter — the SAME classifier
-    // ChatSendForm uses, declared per surface; the strip's plain Enter is
-    // insert-line while chat's stays newline — a deliberate, visibility-
-    // motivated divergence declared inside the one classifier, never forked
-    // here). "default" means: do not intercept — the textarea inserts a
+    // Shared Enter policy (classifyComposeEnter — one classifier, declared per
+    // surface; the strip's plain Enter is insert-line while the broadcast
+    // mode's stays newline — a deliberate, visibility-motivated divergence
+    // declared inside the one classifier, never forked here). "default" means:
+    // do not intercept — the textarea inserts a
     // newline (Shift+Enter, IME composition, non-Enter keys).
     //
     // Selection broadcast takes the "chat" policy for the classifier's own

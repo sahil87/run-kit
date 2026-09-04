@@ -813,7 +813,7 @@ func TestBroadcastNotifyFansOutWithoutReplay(t *testing.T) {
 	defer hub.removeClient(first)
 	defer hub.removeClient(second)
 
-	hub.broadcastNotify("RunKit", "agent waiting", "/utils2/5?view=chat")
+	hub.broadcastNotify("RunKit", "agent waiting", "/utils2/5")
 
 	for name, client := range map[string]*sseClient{"first": first, "second": second} {
 		frames := decodeEnvelopes(drainFrames(client.ch))
@@ -831,7 +831,7 @@ func TestBroadcastNotifyFansOutWithoutReplay(t *testing.T) {
 		if len(got) != 1 {
 			t.Fatalf("%s client received %d notify events, want 1", name, len(got))
 		}
-		if got[0].Title != "RunKit" || got[0].Body != "agent waiting" || got[0].URL != "/utils2/5?view=chat" {
+		if got[0].Title != "RunKit" || got[0].Body != "agent waiting" || got[0].URL != "/utils2/5" {
 			t.Errorf("%s client payload = %+v", name, got[0])
 		}
 		if len(got[0].ID) != 16 {

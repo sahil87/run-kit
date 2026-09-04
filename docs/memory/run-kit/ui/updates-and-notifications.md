@@ -26,7 +26,7 @@ The settings row uses runtime-specific truth. Browser copy is `Web Push to this 
 - A non-empty event `id` is claimed through `runkit-notify-claim-<id>` before display. Shared-origin shell views therefore converge on one display; claim storage failures fail open. Claims expire after 24 hours, and each claim pass prunes the retained fresh set to at most 32 entries.
 - Missing or malformed fields are tolerated. The title defaults to `RunKit`, the body to empty, and a missing/invalid id displays without a claim.
 - `new Notification(title, {body, icon: "/generated-icons/icon-192.png"})` is the display primitive. Its click handler calls `window.focus()` and deep-links only when `sameOriginPath(url)` accepts the target: a string beginning `/` but not `//`, with `new URL(value, origin).origin === origin`.
-- The consumer hands the validated path to `navigate({href: path})`, preserving a query-bearing link such as `/utils2/5?view=chat` as pathname `/utils2/5` plus `search.view === "chat"`.
+- The consumer hands the validated path to `navigate({href: path})`, preserving a query-bearing link such as `/utils2/5?view=web` as pathname `/utils2/5` plus `search.view === "web"`.
 
 **Browser fail-silent / secure-context contract.** `registerServiceWorker()` is guarded by `'serviceWorker' in navigator`; permission denial, unsupported push, and insecure contexts produce no subscription. Web Push requires HTTPS or `localhost`, so raw-IP plaintext access cannot subscribe. The service worker is registered on app load from `main.tsx`. (260615-xd9r)
 

@@ -635,10 +635,10 @@ test.describe("Top-bar heading — anchor + history arrows (260714-uco1)", () =>
     const id = await resolveWindow(page, name);
     await gotoWindow(page, id);
 
-    // Static `Window:` — never the retired `Terminal:`/`Web:`/`Chat:` lens
+    // Static `Tab:` — never the retired `Terminal:`/`Web:`/`Chat:` lens
     // prefix. (This plain window offers only the tty lens, so no ViewSwitcher;
-    // chat/web lens-switch coverage lives in chat-view/web-view-lens specs,
-    // which now assert `Window:` in every lens.) The hierarchy ▾ that used to
+    // web lens-switch coverage lives in the web-view-lens spec,
+    // which asserts `Tab:` in every lens.) The hierarchy ▾ that used to
     // split the prefix is GONE (260813-kvk7): the colon is contiguous to the
     // word, so assert the whole `Window:` run.
     await expect(page.getByText("Tab:", { exact: true })).toBeVisible({ timeout: 10_000 });

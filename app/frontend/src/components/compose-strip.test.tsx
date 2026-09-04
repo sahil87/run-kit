@@ -43,7 +43,7 @@ vi.mock("@/hooks/use-file-upload", async (orig) => {
 });
 
 const sendToWindowMock = vi.fn<
-  (server: string, windowId: string, text: string, mode: WindowSendMode) => Promise<{ ok: boolean }>
+  (server: string, windowId: string, text: string, mode: WindowSendMode, target?: "agent") => Promise<{ ok: boolean }>
 >();
 vi.mock("@/api/client", async (orig) => {
   const actual = await orig<typeof import("@/api/client")>();

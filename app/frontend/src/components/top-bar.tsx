@@ -50,7 +50,7 @@ import { deriveCrumbsCollapsed } from "@/lib/crumb-collapse";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { formatCombo } from "@/lib/keybindings";
 import type { Layout, SurfaceKind } from "@/lib/surface-layout";
-import { SURFACE_GLYPH, SURFACE_LABEL, SURFACE_RAIL_HIDDEN } from "@/lib/surface-layout";
+import { SURFACE_GLYPH, SURFACE_LABEL } from "@/lib/surface-layout";
 import type { ProjectSession, WindowInfo } from "@/types";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
 
@@ -366,8 +366,8 @@ type SurfaceTogglesToggle = Extract<SurfaceToggles, { mode: "toggle" }>;
  * Surface-toggle group — the retired right rail's open-tile toggles relocated
  * into the right cluster as ONE bordered sub-group (with a trailing divider),
  * terminal route only. Two modes share the button grammar — one Tip-wrapped
- * button per available surface not in `SURFACE_RAIL_HIDDEN` (chat renders no
- * toggle), in `availableTiles`' shortcut order (⌘1 tty / ⌘2 code / ⌘3 web),
+ * button per available surface, in `availableTiles`' shortcut order (⌘1 tty /
+ * ⌘2 code / ⌘3 web),
  * glyphs from `SURFACE_GLYPH`, LIT (`aria-pressed`,
  * accent-green border/text on a 10% wash), the corner dot driven by the
  * caller's per-surface `showDot` predicate (web = has-content; others
@@ -395,7 +395,7 @@ function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
   // checks the open-tile count; switch mode asks the caller's per-surface
   // predicate (a not-open target whose growth is disallowed disables).
   const full = toggles.mode === "toggle" && toggles.open.length >= 3;
-  const shown = toggles.available.filter((surface) => !SURFACE_RAIL_HIDDEN.has(surface));
+  const shown = toggles.available;
   return (
     <span data-testid="surface-toggles" className="flex items-center gap-1.5">
       <span
@@ -465,7 +465,7 @@ function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
  */
 function SurfaceToggleMenuRows({ toggles }: { toggles: SurfaceTogglesToggle }) {
   const full = toggles.open.length >= 3;
-  const shown = toggles.available.filter((surface) => !SURFACE_RAIL_HIDDEN.has(surface));
+  const shown = toggles.available;
   return (
     <>
       {shown.map((surface) => {

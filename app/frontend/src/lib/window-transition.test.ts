@@ -287,7 +287,7 @@ describe("pending-switch mask signal (260715-38kg)", () => {
     expect(getMaskState()).toBe("masked");
   });
 
-  it("does NOT arm on a NON-gated (web/chat) switch's timeout", async () => {
+  it("does NOT arm on a NON-gated (web/code) switch's timeout", async () => {
     vi.useFakeTimers();
     const gate = beginWindowSwitchGate({ gated: false });
     gate.openForNotify();

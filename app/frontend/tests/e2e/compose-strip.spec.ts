@@ -36,9 +36,7 @@ import { TMUX_SERVER, createSession, killSession, listWindows, stampWebTab } fro
  * and broadcast keep it). Once a send records history, the card adds an ↑ chip
  * that opens a fixed-position, portalled newest-first list on touch and fine
  * pointers alike; choosing a row loads the text back into the textarea and
- * never sends it. The chat send form deliberately does NOT follow the strip's
- * Enter policy (it keeps Enter=newline — the chat lens cannot show the pane's
- * input box); its coverage lives in `chat-view.spec.ts`.
+ * never sends it.
  *
  * Shared setup: `beforeAll` creates two tmux sessions on the `rk-test-e2e`
  * server — `e2e-compose-<ts>`, a single window running `cat` so STDIN typed

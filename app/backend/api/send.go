@@ -6,13 +6,21 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"rk/internal/inject"
+	"rk/internal/sessions"
+	"rk/internal/tmux"
 )
 
 type windowSendRequest struct {
 	Text string `json:"text"`
 	Mode string `json:"mode"`
+	// Target selects the pane: empty (default) is the window's ACTIVE pane;
+	// "agent" is the window's agent pane (the @rk_pane_chat rollup — the
+	// selection broadcast's target, where pasting into a non-agent shell must
+	// fail closed instead of executing there).
+	Target string `json:"target"`
 }
 
 // handleWindowSend serves POST /api/windows/{windowId}/send — the compose
@@ -20,9 +28,12 @@ type windowSendRequest struct {
 // mechanism: this handler picks the tmux strategy, so a caller cannot make
 // verification depend on the shape of the text it happens to be sending.
 //
-// Unlike /chat/send this route needs NO chat session on the window and targets
-// the window's ACTIVE pane, never the chat/agent pane rollup — one derivation
-// of "the target pane" for every mode.
+// The default path needs NO chat session on the window and targets the
+// window's ACTIVE pane — one derivation of "the target pane" for every mode.
+// With `target:"agent"` the pane resolves via the shared agent-pane rollup
+// (`sessions.ResolveChatPane`: active-pane-first among @rk_pane_chat carriers,
+// else the first carrier) and a window with no carrier fails closed with a
+// 404 — the text is never pasted into a non-agent pane.
 func (s *Server) handleWindowSend(w http.ResponseWriter, r *http.Request) {
 	windowID, ok := parseWindowID(r)
 	if !ok {
@@ -39,6 +50,10 @@ func (s *Server) handleWindowSend(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid send mode")
 		return
 	}
+	if body.Target != "" && body.Target != "agent" {
+		writeError(w, http.StatusBadRequest, "Invalid send target")
+		return
+	}
 
 	body.Text = inject.Sanitize(body.Text)
 	if body.Mode != "enter" && strings.TrimSpace(body.Text) == "" {
@@ -50,13 +65,24 @@ func (s *Server) handleWindowSend(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), chatSendTotalBudget)
 	defer cancel()
 
-	paneID, found, err := s.resolveWindowActivePane(ctx, server, windowID)
+	var paneID string
+	var found bool
+	var err error
+	if body.Target == "agent" {
+		paneID, found, err = s.resolveWindowAgentPane(ctx, server, windowID)
+	} else {
+		paneID, found, err = s.resolveWindowActivePane(ctx, server, windowID)
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if !found {
-		writeError(w, http.StatusNotFound, "window not found")
+		if body.Target == "agent" {
+			writeError(w, http.StatusNotFound, "no chat session for this window")
+		} else {
+			writeError(w, http.StatusNotFound, "window not found")
+		}
 		return
 	}
 
@@ -128,6 +154,60 @@ func validWindowSendMode(mode string) bool {
 	}
 }
 
+// chatSendTotalBudget is the shared injection deadline: a route threads ONE
+// context deadline through the entire injection sequence (baseline capture →
+// set-buffer → paste → probe captures → Enter, all subprocesses plus probe and
+// submit backoffs), so the route stays bounded under the 5s route-blocking
+// rule even when verified recovery takes its full bounded path. Both consumers
+// (this route and the operator-request delivery) derive it from the request
+// context so a client disconnect also cancels the tmux subprocesses.
+const chatSendTotalBudget = 4 * time.Second
+
+// chatSendTmux adapts the Server's TmuxOps seam onto inject.Tmux. The buffer
+// name parameter is ignored: the daemon only ever drives the single shared
+// rk-chat-send buffer (the engine it is paired with is bound to that name).
+type chatSendTmux struct{ ops TmuxOps }
+
+func (a chatSendTmux) CapturePane(ctx context.Context, paneID string, lines int, server string) (string, error) {
+	return a.ops.CapturePane(ctx, paneID, lines, server)
+}
+func (a chatSendTmux) SetBuffer(ctx context.Context, _, text, server string) error {
+	return a.ops.SetChatSendBuffer(ctx, text, server)
+}
+func (a chatSendTmux) PasteBuffer(ctx context.Context, _, paneID, server string) error {
+	return a.ops.PasteChatSendBuffer(ctx, paneID, server)
+}
+func (a chatSendTmux) PasteBufferRaw(ctx context.Context, _, paneID, server string) error {
+	return a.ops.PasteChatSendBufferRaw(ctx, paneID, server)
+}
+func (a chatSendTmux) SendEnter(ctx context.Context, paneID, server string) error {
+	return a.ops.SendEnterToPane(ctx, paneID, server)
+}
+func (a chatSendTmux) SendKeys(ctx context.Context, paneID, server string, keys ...string) error {
+	return a.ops.SendKeysToPane(ctx, paneID, server, keys...)
+}
+
+// chatSendEngine is the daemon's engine instance: bound to the shared
+// rk-chat-send buffer, it carries the per-(server,pane) lock map and the
+// set→paste cross-pane mutex (see inject.Engine). Package-level because the
+// serialization domain is the tmux server, not the Server value — two sends
+// racing the same pane must serialize even across handler instances.
+var chatSendEngine = inject.NewEngine(tmux.ChatSendBuffer)
+
+// injectIntoPane is the daemon's ONE adapter onto the shared injection
+// engine (internal/inject), serving the operator request path — the engine
+// runs baseline capture → set-buffer → paste-buffer (-d -p, bracketed) →
+// NOVELTY echo probe → send-keys Enter → whole-frame submit verification and
+// evidence-gated recovery, serialized per (server, paneID) with the set→paste
+// critical section additionally serialized across panes. See inject.Engine.Send
+// for the full sequence contract.
+//
+// Failure types preserve whether the text is untouched, staged before Enter,
+// or unverified after Enter so each caller can give safe recovery guidance.
+func (s *Server) injectIntoPane(ctx context.Context, server, paneID, text string, submit bool) error {
+	return chatSendEngine.Send(ctx, chatSendTmux{s.tmux}, server, paneID, text, submit)
+}
+
 // resolveWindowActivePane returns the active pane for a window from one
 // request-scoped session snapshot.
 func (s *Server) resolveWindowActivePane(ctx context.Context, server, windowID string) (paneID string, found bool, err error) {
@@ -143,6 +223,29 @@ func (s *Server) resolveWindowActivePane(ctx context.Context, server, windowID s
 			}
 			id, ok := activePaneID(*window)
 			return id, ok, nil
+		}
+	}
+	return "", false, nil
+}
+
+// resolveWindowAgentPane returns the window's agent pane from one
+// request-scoped session snapshot, via the shared `sessions.ResolveChatPane`
+// rollup (active-pane-first among @rk_pane_chat carriers, else the first
+// carrier). found=false means the window is absent OR no pane carries chat —
+// both fail closed as a 404 for an agent-targeted send.
+func (s *Server) resolveWindowAgentPane(ctx context.Context, server, windowID string) (paneID string, found bool, err error) {
+	sess, err := s.sessions.FetchSessions(ctx, server)
+	if err != nil {
+		return "", false, err
+	}
+	for si := range sess {
+		for wi := range sess[si].Windows {
+			window := &sess[si].Windows[wi]
+			if window.WindowID != windowID {
+				continue
+			}
+			_, _, id := sessions.ResolveChatPane(window.Panes)
+			return id, id != "", nil
 		}
 	}
 	return "", false, nil

@@ -38,7 +38,7 @@ export function urlSegmentToWindowId(segment: string): string {
 // `lib/surface-layout.ts`'s `parseLayout` (this module is a deliberately
 // dependency-free leaf, so the parse helpers can't be imported here).
 export type TerminalSearch = {
-  view?: "web" | "chat" | "code";
+  view?: "web" | "code";
   panel?: "web" | "code";
   layout?: string;
 };
@@ -48,7 +48,7 @@ export function validateTerminalSearch(
   search: Record<string, unknown>,
 ): TerminalSearch {
   const out: TerminalSearch = {};
-  if (search.view === "web" || search.view === "chat" || search.view === "code") {
+  if (search.view === "web" || search.view === "code") {
     out.view = search.view;
   }
   if (search.panel === "web" || search.panel === "code") out.panel = search.panel;

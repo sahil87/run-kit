@@ -1,0 +1,14 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-04T03:50:10Z"}
+{"args":"Remove the chat lens (ChatView) entirely — kill every entrance (availability, ?view=chat deep links, waiting-badge/push/palette navigation, legacy shim) and delete the dead wing (frontend lens + backend chat endpoints), keeping shared internal/chat + inject infrastructure","cmd":"fab-new","event":"command","ts":"2026-09-04T03:50:10Z"}
+{"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-09-04T03:53:47Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-09-04T03:54:49Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-04T03:56:49Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-04T03:57:02Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-04T04:52:31Z"}
+{"event":"review","result":"failed","ts":"2026-09-04T05:01:30Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-04T05:01:30Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-04T05:11:41Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-04T05:15:26Z"}
+{"event":"review","result":"passed","ts":"2026-09-04T05:15:26Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-04T05:38:41Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-04T05:40:33Z"}

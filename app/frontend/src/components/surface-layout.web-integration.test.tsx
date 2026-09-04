@@ -48,7 +48,6 @@ describe("integration: SurfaceLayout + real IframeWindow", () => {
         focusRef={{ current: null }}
         scrollLocked={false}
         onSessionNotFound={vi.fn()}
-        chat={{ events: [], pending: null, connected: true, error: null, onSend: vi.fn(), busy: false }}
         codeReachable
         onPromote={vi.fn()}
         onSwap={vi.fn()}

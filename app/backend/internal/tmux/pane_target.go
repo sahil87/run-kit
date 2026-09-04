@@ -193,7 +193,7 @@ func SendKeysToPane(ctx context.Context, paneID, server string, keys ...string) 
 // ResolveAgentPane resolves a WINDOW target (@N or =session:window) to the
 // window's agent pane: the pane carrying a known (post-reconcile)
 // @rk_agent_state, preferring the active pane when several qualify and falling
-// back to the window's active pane when none does (the resolveWindowChat
+// back to the window's active pane when none does (the sessions.ResolveChatPane
 // precedent — a window target must route to the agent pane, not whatever split
 // happens to be active). An unknown window target is a tmux error.
 func ResolveAgentPane(ctx context.Context, windowTarget, server string) (string, error) {

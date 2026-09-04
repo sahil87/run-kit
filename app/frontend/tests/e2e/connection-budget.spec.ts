@@ -6,11 +6,10 @@ import { TMUX_SERVER, createSession, killSession, listWindows } from "./_tmux";
 // Connection-budget guard for the socket-unification effort.
 //
 // EVERY long-lived stream rides ONE of two muxed WebSockets: session-state +
-// host-metrics + CHAT ride `/ws/state`, and ALL terminal pane relays ride
-// `/ws/terminals`. The chat lens rides the state socket as a `kind:"chat"`
-// subscription, so NO route holds an SSE anymore. This spec asserts the
+// host-metrics ride `/ws/state`, and ALL terminal pane relays ride
+// `/ws/terminals`. NO route holds an SSE anymore. This spec asserts the
 // user-facing budget invariant across every route type (Host, tmux Server,
-// Terminal, Board, and the chat lens): a tab holds AT MOST two rk WebSockets
+// Terminal, Board): a tab holds AT MOST two rk WebSockets
 // total — exactly one `/ws/state` plus (only on routes with live panes)
 // exactly one `/ws/terminals` — and ZERO `text/event-stream` responses from rk
 // endpoints (the Vite HMR WS is excluded by URL). An established WebSocket
@@ -154,49 +153,6 @@ test.describe("Connection budget — 2 muxed WS (state + terminals), zero SSE", 
     await expect.poll(() => c.stateSocketCount(), { timeout: 5_000 }).toBe(1);
     await expect.poll(() => c.terminalsSocketCount(), { timeout: 5_000 }).toBe(1);
     expect(c.eventStreamUrls(), "no text/event-stream responses").toEqual([]);
-  });
-
-  /**
-   * Proves: appending `?view=chat` to a window route introduces NO
-   * `text/event-stream` response and NO WebSocket beyond the fixed budget (one
-   * `/ws/state` + at most one `/ws/terminals`). The invariant holds regardless
-   * of whether the window is chat-capable — the test does NOT exercise the chat
-   * subscription path itself: the plain e2e test window carries no
-   * `@rk_pane_chat`, so the lens resolution falls back to tty and the terminals
-   * socket stays; had the window been chat-capable, chat would ride the
-   * already-held state socket rather than adding a stream.
-   *
-   * Steps:
-   * 1. Resolve the session's first window id via `tmux list-windows`.
-   * 2. Install the counters, `goto('/${TMUX_SERVER}/${windowId}?view=chat')`.
-   * 3. Wait for the Connected dot; poll state-socket count === 1, assert
-   *    terminals-socket count <= 1 (this window falls back to tty, so the
-   *    terminals mux stays live — hence `<= 1`, not exactly 1), and assert no
-   *    `text/event-stream` responses.
-   */
-  test("a ?view=chat route holds AT MOST 2 WS and zero SSE (no extra socket vs the base route)", async ({ page }) => {
-    // FINAL any-route form (260717-vhvz): the chat lens was the last EventSource
-    // in the app; it moved onto the state socket as a `kind:"chat"` subscription,
-    // so requesting `?view=chat` adds NO third WS and NO SSE. This test does NOT
-    // exercise the chat subscription path directly: the plain e2e test window
-    // carries no `@rk_pane_chat`, so the lens resolution falls back to tty and the terminals
-    // socket stays. What it DOES guard is the budget invariant — appending
-    // `?view=chat` introduces neither a `text/event-stream` response nor a
-    // WebSocket beyond the fixed budget — which holds whether the window is
-    // chat-capable (chat rides the already-held state socket) or falls back to tty.
-    test.setTimeout(30_000);
-    const c = installCounters(page);
-    const windowId = listWindows(TEST_SESSION)[0]?.windowId.replace(/^@/, "");
-    expect(windowId, "first window id").toBeTruthy();
-
-    await page.goto(`/${TMUX_SERVER}/${windowId}?view=chat`, { waitUntil: "domcontentloaded" });
-    await expect(page.getByTestId("status-bar").locator("[aria-label='Connected']")).toBeVisible({ timeout: READY_TIMEOUT });
-    // Exactly one state socket; at most one terminals socket (this window falls
-    // back to tty, so the terminals mux stays); ZERO SSE — `?view=chat` never
-    // contributes a text/event-stream (the whole point of this change).
-    await expect.poll(() => c.stateSocketCount(), { timeout: 5_000 }).toBe(1);
-    await expect.poll(() => c.terminalsSocketCount(), { timeout: 5_000 }).toBeLessThanOrEqual(1);
-    expect(c.eventStreamUrls(), "no text/event-stream responses on a ?view=chat route").toEqual([]);
   });
 
   /**

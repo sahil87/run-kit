@@ -40,21 +40,15 @@ const (
 // within a server).
 func waitingKey(server, windowID string) string { return server + "\x00" + windowID }
 
-// waitingPushURL builds the deep-link target for a waiting-window push
-// (260714-r7rq). The frontend terminal route is `/{server}/{N}` where the URL
-// segment is the window id's numeric part (the tmux `@N` sans `@`, per
-// `windowIdToUrlSegment` in router.tsx). A chat-capable window (non-empty
-// `chatProvider`) deep-links into the chat view (`?view=chat`); otherwise the
-// plain window URL, which resolves the window's own view pref on load. Server
-// and the numeric segment are path-escaped so a name with reserved characters
-// stays a valid same-origin relative URL.
-func waitingPushURL(server, windowID string, hasChat bool) string {
+// waitingPushURL builds the deep-link target for a waiting-window push: the
+// plain window URL `/{server}/{N}` where the URL segment is the window id's
+// numeric part (the tmux `@N` sans `@`, per `windowIdToUrlSegment` in
+// router.tsx); the window resolves its own layout on load. Server and the
+// numeric segment are path-escaped so a name with reserved characters stays a
+// valid same-origin relative URL.
+func waitingPushURL(server, windowID string) string {
 	seg := strings.TrimPrefix(windowID, "@")
-	base := "/" + url.PathEscape(server) + "/" + url.PathEscape(seg)
-	if hasChat {
-		return base + "?view=chat"
-	}
-	return base
+	return "/" + url.PathEscape(server) + "/" + url.PathEscape(seg)
 }
 
 // waitingEpisode is the per-window tracked state: when the current waiting run
@@ -88,8 +82,8 @@ func newWaitingPushTracker(
 }
 
 // waitingPush is one decided push (the pure decision output, before fan-out).
-// `url` is the deep-link target for the notification click (260714-r7rq —
-// `/{server}/{N}?view=chat` for a chat-capable window, else the plain window URL).
+// `url` is the deep-link target for the notification click (always the plain
+// window URL).
 type waitingPush struct {
 	title string
 	body  string
@@ -98,14 +92,11 @@ type waitingPush struct {
 
 // pushWindow is the minimal per-window shape the decision needs — extracted so
 // the decision is pure and unit-testable without building full ProjectSessions.
-// `hasChat` records whether the window carries a `chatProvider` rollup, which
-// decides the deep-link URL shape (260714-r7rq).
 type pushWindow struct {
 	server   string
 	windowID string
 	name     string
 	waiting  bool
-	hasChat  bool
 }
 
 // decide advances the episode tracker for one server's windows at `now` and
@@ -143,7 +134,7 @@ func (t *waitingPushTracker) decide(wins []pushWindow) []waitingPush {
 			out = append(out, waitingPush{
 				title: w.name,
 				body:  "waiting for input",
-				url:   waitingPushURL(w.server, w.windowID, w.hasChat),
+				url:   waitingPushURL(w.server, w.windowID),
 			})
 			ep.pushed = true
 			t.episodes[key] = ep
@@ -186,7 +177,6 @@ func pushWindowsForServer(server string, sess []sessions.ProjectSession) []pushW
 				windowID: w.WindowID,
 				name:     w.Name,
 				waiting:  w.AgentState == tmux.AgentStateWaiting,
-				hasChat:  w.ChatProvider != "",
 			})
 		}
 	}

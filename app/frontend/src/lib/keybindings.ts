@@ -958,16 +958,14 @@ export function formatCombo(combo: BindingCombo, platform: BindingPlatform): str
 /**
  * The single shared input-gating predicate (supersedes window-view.ts's
  * `shouldSuppressViewChord`): suppress a chord only when a "real" text input
- * has focus. Carve-outs preserved from the legacy listeners: xterm's hidden
- * helper textarea is the terminal's NORMAL focus state, and `.rk-chat-input`
- * is the chat lens's analog — chords fire
- * in both. Returns `true` when the chord SHOULD be suppressed. Bindings with
+ * has focus. Carve-out preserved from the legacy listeners: xterm's hidden
+ * helper textarea is the terminal's NORMAL focus state — chords fire
+ * there. Returns `true` when the chord SHOULD be suppressed. Bindings with
  * `ignoreInputs` (⌘K, the overlay toggle) skip this predicate entirely.
  */
 export function shouldSuppressChord(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (target.closest(".xterm") != null) return false;
-  if (target.classList.contains("rk-chat-input")) return false;
   const tag = target.tagName;
   if (tag === "INPUT" || tag === "TEXTAREA") return true;
   // `isContentEditable` is the browser truth; fall back to the attribute value

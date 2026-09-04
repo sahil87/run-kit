@@ -17,11 +17,11 @@
  */
 
 /**
- * A lens over a window's substrate. `tty`, `web`, `chat`, and `code` are
- * implemented; the registry (spec § The View Registry) is open-ended —
- * `desktop` adds a member here and a capability in `availableViews`.
+ * A lens over a window's substrate. `tty`, `web`, and `code` are implemented;
+ * the registry (spec § The View Registry) is open-ended — `desktop` adds a
+ * member here and a capability in `availableViews`.
  */
-export type ViewName = "tty" | "web" | "chat" | "code";
+export type ViewName = "tty" | "web" | "code";
 
 /**
  * The minimal window shape the view helpers need. Structural (assignable from
@@ -40,17 +40,16 @@ export type ViewWindow = {
   webTabs?: string[];
   webActive?: number;
   codeRoot?: string;
-  chatProvider?: string;
   gitRoot?: string;
 };
 
 /**
  * The capability ordering: `availableViews` filters the window's lenses
  * through this list, so the switcher segment order is stable and
- * registry-driven. `chat` and `code` sit ahead of `web` and `tty` here for
- * ORDERING only — neither availability nor on-screen state is implied.
+ * registry-driven. `code` sits ahead of `web` and `tty` here for ORDERING
+ * only — neither availability nor on-screen state is implied.
  */
-const HINT_ORDER: ViewName[] = ["chat", "code", "web", "tty"];
+const HINT_ORDER: ViewName[] = ["code", "web", "tty"];
 
 /**
  * Whether a window carries at least one web tab (the `@rk_win_web_<n>` family
@@ -75,16 +74,6 @@ export function activeWebUrl(win: ViewWindow | null | undefined): string {
 }
 
 /**
- * Whether a window offers the chat lens (spec R1) — its pane carries a
- * `chatProvider` (the SSE-derived routing key, e.g. `claude`). The gate is a
- * non-empty check, mirroring the backend's own `resolveWindowChat` gating. The
- * single source of truth for chat availability — `availableViews` keys off it.
- */
-export function hasChat(win: ViewWindow | null | undefined): boolean {
-  return (win?.chatProvider ?? "").length > 0;
-}
-
-/**
  * Whether a window offers the code lens (spec right-panel.md § Surface
  * Registry): AVAILABILITY = a shared code root (`@rk_win_code_root`) OR the
  * derived `gitRoot` is non-empty. The shared root keeps a tab code-capable
@@ -103,9 +92,8 @@ export function hasCode(win: ViewWindow | null | undefined): boolean {
  * The capability set a window offers (spec R1/R3). `tty` is ALWAYS available;
  * `web` is ALWAYS available too — like `tty`, the lens exists on every window;
  * `hasWebUrl` selects its CONTENT (onboarding vs live iframe), never its
- * availability (the code-surface availability-vs-reachability split); `chat`
- * is available exactly when the window carries a `chatProvider`; `code` is
- * available exactly when `hasCode` holds. Capabilities are
+ * availability (the code-surface availability-vs-reachability split); `code`
+ * is available exactly when `hasCode` holds. Capabilities are
  * orthogonal and stack (spec R5). Returned in the registry's fixed order
  * (HINT_ORDER).
  */
@@ -113,7 +101,6 @@ export function availableViews(
   win: ViewWindow | null | undefined,
 ): ViewName[] {
   const views: ViewName[] = [];
-  if (hasChat(win)) views.push("chat");
   if (hasCode(win)) views.push("code");
   views.push("web");
   views.push("tty");

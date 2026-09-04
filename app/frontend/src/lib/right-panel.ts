@@ -30,11 +30,11 @@ export type SurfaceName = SurfaceKind;
 
 /**
  * The surfaces a window offers, in shortcut order — `tty`/`code`/`web` (the
- * ⌘1/⌘2/⌘3 positional digits), `chat` last — per capability (260812-ab5v R8).
+ * ⌘1/⌘2/⌘3 positional digits) — per capability (260812-ab5v R8).
  * Delegates to `surface-layout.ts`'s
  * `availableTiles` — the ONE registry rail + layout + switcher share — which
- * in turn keys off `window-view.ts`'s capability helpers (`hasWebUrl` for
- * `web`, `hasChat` for `chat`, `hasCode` for `code`) as the single
+ * in turn keys off `window-view.ts`'s capability helpers (`hasCode` for
+ * `code`) as the single
  * availability source. Reachability is NOT part of availability (it governs a
  * surface's content — live iframe vs the not-running empty state).
  */

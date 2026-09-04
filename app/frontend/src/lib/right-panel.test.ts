@@ -15,9 +15,9 @@ beforeEach(() => {
 });
 
 describe("availableSurfaces", () => {
-  // Since 260812-ab5v (R8) the registry is the SHARED tileable-surface
+  // The registry is the SHARED tileable-surface
   // registry (`availableTiles`): `tty` and `web` are always available (`tty`
-  // first), then `chat`/`code` per capability.
+  // first), then `code` per capability.
   it("offers tty first, then web — unconditionally (260821-zqlq)", () => {
     expect(availableSurfaces(webWin)).toEqual(["tty", "web"]);
     expect(availableSurfaces(plain)).toEqual(["tty", "web"]);
@@ -25,18 +25,14 @@ describe("availableSurfaces", () => {
     expect(availableSurfaces(undefined)).toEqual(["tty", "web"]);
   });
 
-  it("offers chat exactly when the window carries a chatProvider", () => {
-    expect(availableSurfaces({ chatProvider: "claude" })).toEqual(["tty", "web", "chat"]);
-  });
-
   // The `code` surface (260811-k3vp, simplified by 260811-a2bo) mirrors the
   // view registry's gate: gitRoot derived (the port resolves by convention).
-  // Registry order is tty, web, chat, code (surface-layout R8).
+  // Registry order is tty, code, web (surface-layout R8).
   it("offers code exactly when gitRoot is set", () => {
     const codeWin: ViewWindow = { gitRoot: "/repo" };
     expect(availableSurfaces(codeWin)).toEqual(["tty", "code", "web"]);
-    expect(availableSurfaces({ webTabs: ["http://localhost:8080"], chatProvider: "claude", gitRoot: "/repo" }))
-      .toEqual(["tty", "code", "web", "chat"]);
+    expect(availableSurfaces({ webTabs: ["http://localhost:8080"], gitRoot: "/repo" }))
+      .toEqual(["tty", "code", "web"]);
   });
 
   it("gates code off without a gitRoot", () => {

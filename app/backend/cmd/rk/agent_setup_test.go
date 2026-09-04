@@ -798,8 +798,9 @@ func TestApplyAgentConfigCleansLegacySkillOnInstall(t *testing.T) {
 	skillDir, _ := seedLegacySkill(t, skillsDir, legacyMarkerSkill)
 
 	var out bytes.Buffer
-	// First "y" confirms the hooks write; second "y" confirms the legacy removal.
-	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\ny\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
+	// "y" × 3 confirms the per-agent steps in order: hooks write, tutorial skill
+	// write, legacy removal.
+	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\ny\ny\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
 		t.Fatalf("applyAgentConfig error: %v", err)
 	}
 	if _, err := os.Stat(skillDir); !os.IsNotExist(err) {
@@ -808,8 +809,8 @@ func TestApplyAgentConfigCleansLegacySkillOnInstall(t *testing.T) {
 }
 
 // TestApplyAgentConfigFreshMachineWritesNoSkill proves a fresh machine (no legacy
-// skill) sees ZERO rk-display output and no skill file is ever created — the
-// hooks-only reality.
+// skill) sees ZERO rk-display output and no rk-display file is ever created —
+// only the hooks merge and the run-kit-tutorial skill install run.
 func TestApplyAgentConfigFreshMachineWritesNoSkill(t *testing.T) {
 	dir := t.TempDir()
 	settingsPath := filepath.Join(dir, "settings.json")
@@ -817,8 +818,9 @@ func TestApplyAgentConfigFreshMachineWritesNoSkill(t *testing.T) {
 	ac := agentConfig{name: "Test", settingsPath: settingsPath, comm: "claude", skillsDir: skillsDir, hooks: claudeHooks()}
 
 	var out bytes.Buffer
-	// Single "y" confirms the hooks write; no skill prompt should ever be reached.
-	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
+	// "y" × 2 confirms the hooks write and the tutorial skill write; no legacy
+	// prompt should ever be reached.
+	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\ny\n")), ac, "/opt/homebrew/bin/rk", false, consent{stdinIsTTY: true}); err != nil {
 		t.Fatalf("applyAgentConfig error: %v", err)
 	}
 	if strings.Contains(out.String(), "rk-display") {
@@ -826,6 +828,10 @@ func TestApplyAgentConfigFreshMachineWritesNoSkill(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(skillsDir, rkDisplaySkillDir)); !os.IsNotExist(err) {
 		t.Errorf("no rk-display directory should be created on a fresh machine")
+	}
+	// The tutorial skill IS the fresh-machine skill artifact.
+	if _, err := os.Stat(filepath.Join(skillsDir, tutorialSkillDir, tutorialSkillFile)); err != nil {
+		t.Errorf("fresh install should write the run-kit-tutorial skill, stat err = %v", err)
 	}
 }
 
@@ -844,6 +850,9 @@ func TestApplyAgentConfigSkipsSkillWhenSkillsDirEmpty(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "rk-display") {
 		t.Errorf("empty skillsDir must skip the skill artifact entirely, got:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "run-kit-tutorial") {
+		t.Errorf("empty skillsDir must skip the tutorial skill entirely, got:\n%s", out.String())
 	}
 	// No rk-display directory was created under the temp dir.
 	if _, err := os.Stat(filepath.Join(dir, ".claude", "skills", rkDisplaySkillDir)); !os.IsNotExist(err) {
@@ -2090,5 +2099,252 @@ func TestTmuxShimDryRunFullBodies(t *testing.T) {
 	// The shim script itself is the requested preview data on this path.
 	if !strings.Contains(got, tmuxShimMarker) {
 		t.Errorf("--dry-run shim preview should include the script body, got: %q", got)
+	}
+}
+
+// --- run-kit-tutorial invoker skill (third managed artifact) ---------------------
+
+// seedTutorialSkill writes content to {skillsDir}/run-kit-tutorial/SKILL.md and
+// returns the skill dir + file paths (the tutorial analogue of seedLegacySkill).
+func seedTutorialSkill(t *testing.T, skillsDir, content string) (skillDir, skillPath string) {
+	t.Helper()
+	skillDir = filepath.Join(skillsDir, tutorialSkillDir)
+	skillPath = filepath.Join(skillDir, tutorialSkillFile)
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(skillPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return skillDir, skillPath
+}
+
+// TestTutorialSkillPayloadCarriesMarkerAndRoute guards the embedded payload
+// itself: dropping the ownership marker would orphan every installed copy
+// (re-runs would refuse to touch them as "user files"), and the router must
+// name `rk skill tutorial` — the binary-served content it exists to route to.
+func TestTutorialSkillPayloadCarriesMarkerAndRoute(t *testing.T) {
+	if !strings.Contains(tutorialSkillPayload, tutorialSkillMarker) {
+		t.Fatalf("embedded payload must carry the ownership marker %q", tutorialSkillMarker)
+	}
+	if !strings.Contains(tutorialSkillPayload, "rk skill tutorial") {
+		t.Error("payload must route to `rk skill tutorial`")
+	}
+	if !strings.Contains(tutorialSkillPayload, "name: run-kit-tutorial") {
+		t.Error("payload frontmatter must name the skill run-kit-tutorial")
+	}
+	if !strings.Contains(tutorialSkillPayload, "TMUX_PANE") {
+		t.Error("payload must gate on TMUX_PANE")
+	}
+	if !strings.Contains(tutorialSkillPayload, "ONBOARDING.md") {
+		t.Error("payload description must forbid the ONBOARDING.md detour")
+	}
+}
+
+func TestInstallTutorialSkill(t *testing.T) {
+	t.Run("fresh install writes the payload on confirm", func(t *testing.T) {
+		dir := t.TempDir()
+		ac := agentConfig{name: "Test", skillsDir: dir}
+
+		var out bytes.Buffer
+		if err := installTutorialSkill(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\n")), ac, consent{stdinIsTTY: true}); err != nil {
+			t.Fatalf("installTutorialSkill error: %v", err)
+		}
+		got, err := os.ReadFile(filepath.Join(dir, tutorialSkillDir, tutorialSkillFile))
+		if err != nil {
+			t.Fatalf("skill file should exist after confirm: %v", err)
+		}
+		if string(got) != tutorialSkillPayload {
+			t.Error("installed content must be byte-identical to the embedded payload")
+		}
+	})
+
+	t.Run("current install is a reported no-op, no prompt consumed", func(t *testing.T) {
+		dir := t.TempDir()
+		ac := agentConfig{name: "Test", skillsDir: dir}
+		seedTutorialSkill(t, dir, tutorialSkillPayload)
+
+		var out bytes.Buffer
+		// Empty reader: a no-op must never prompt.
+		if err := installTutorialSkill(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, consent{stdinIsTTY: true}); err != nil {
+			t.Fatalf("installTutorialSkill error: %v", err)
+		}
+		if !strings.Contains(out.String(), "nothing to do") {
+			t.Errorf("re-install over current content should report a no-op, got: %s", out.String())
+		}
+	})
+
+	t.Run("stale marker-owned generation is replaced in place", func(t *testing.T) {
+		dir := t.TempDir()
+		ac := agentConfig{name: "Test", skillsDir: dir}
+		stale := "---\nname: run-kit-tutorial\n# " + tutorialSkillMarker + "\n---\n# old generation\n"
+		_, skillPath := seedTutorialSkill(t, dir, stale)
+
+		var out bytes.Buffer
+		if err := installTutorialSkill(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\n")), ac, consent{stdinIsTTY: true}); err != nil {
+			t.Fatalf("installTutorialSkill error: %v", err)
+		}
+		got, _ := os.ReadFile(skillPath)
+		if string(got) != tutorialSkillPayload {
+			t.Errorf("stale generation should be replaced with the embedded payload, got: %s", got)
+		}
+		if !strings.Contains(out.String(), "update") {
+			t.Errorf("replacing a stale generation should report an update, got: %s", out.String())
+		}
+	})
+
+	t.Run("marker-less user file is never overwritten (zero-byte included)", func(t *testing.T) {
+		for _, content := range []string{"---\nname: run-kit-tutorial\n---\n# my own\n", ""} {
+			dir := t.TempDir()
+			ac := agentConfig{name: "Test", skillsDir: dir}
+			_, skillPath := seedTutorialSkill(t, dir, content)
+
+			var out bytes.Buffer
+			// Empty reader: a marker-less skip must never prompt.
+			if err := installTutorialSkill(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, consent{stdinIsTTY: true}); err != nil {
+				t.Fatalf("installTutorialSkill error: %v", err)
+			}
+			got, _ := os.ReadFile(skillPath)
+			if string(got) != content {
+				t.Errorf("marker-less user file content changed (seed %q): %s", content, got)
+			}
+			if !strings.Contains(out.String(), "leaving it untouched") {
+				t.Errorf("output should note the marker-less skip, got: %s", out.String())
+			}
+		}
+	})
+
+	t.Run("decline writes nothing", func(t *testing.T) {
+		dir := t.TempDir()
+		ac := agentConfig{name: "Test", skillsDir: dir}
+
+		var out bytes.Buffer
+		if err := installTutorialSkill(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("n\n")), ac, consent{stdinIsTTY: true}); err != nil {
+			t.Fatalf("installTutorialSkill error: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(dir, tutorialSkillDir)); !os.IsNotExist(err) {
+			t.Errorf("declining must not create the skill directory, stat err = %v", err)
+		}
+	})
+
+	t.Run("--dry-run renders the artifact diff and writes nothing, winning over --yes", func(t *testing.T) {
+		dir := t.TempDir()
+		ac := agentConfig{name: "Test", skillsDir: dir}
+
+		var out bytes.Buffer
+		if err := installTutorialSkill(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, consent{dryRun: true, yes: true}); err != nil {
+			t.Fatalf("installTutorialSkill error: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(dir, tutorialSkillDir)); !os.IsNotExist(err) {
+			t.Errorf("dry-run must not create the skill directory, stat err = %v", err)
+		}
+		if !strings.Contains(out.String(), "will install the run-kit-tutorial skill") {
+			t.Errorf("dry-run should render the diff header, got: %s", out.String())
+		}
+		if !strings.Contains(out.String(), "+++ proposed") {
+			t.Errorf("dry-run should render the full artifact diff, got: %s", out.String())
+		}
+	})
+
+	t.Run("non-TTY with neither flag refuses before any write", func(t *testing.T) {
+		dir := t.TempDir()
+		ac := agentConfig{name: "Test", skillsDir: dir}
+
+		var out bytes.Buffer
+		err := installTutorialSkill(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, consent{})
+		if err == nil {
+			t.Fatal("non-TTY no-flag run must refuse with an error, got nil")
+		}
+		if !strings.Contains(err.Error(), "--yes") {
+			t.Errorf("refusal error must name --yes, got: %v", err)
+		}
+		if _, statErr := os.Stat(filepath.Join(dir, tutorialSkillDir)); !os.IsNotExist(statErr) {
+			t.Errorf("refusal must not create the skill directory, stat err = %v", statErr)
+		}
+	})
+}
+
+func TestRemoveTutorialSkill(t *testing.T) {
+	t.Run("marker-owned directory removed on confirm", func(t *testing.T) {
+		dir := t.TempDir()
+		ac := agentConfig{name: "Test", skillsDir: dir}
+		skillDir, _ := seedTutorialSkill(t, dir, tutorialSkillPayload)
+
+		var out bytes.Buffer
+		if err := removeTutorialSkill(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\n")), ac, consent{stdinIsTTY: true}); err != nil {
+			t.Fatalf("removeTutorialSkill error: %v", err)
+		}
+		if _, err := os.Stat(skillDir); !os.IsNotExist(err) {
+			t.Errorf("marker-owned skill directory should be removed, stat err = %v", err)
+		}
+	})
+
+	t.Run("absent file is silent", func(t *testing.T) {
+		dir := t.TempDir()
+		ac := agentConfig{name: "Test", skillsDir: dir}
+		var out bytes.Buffer
+		if err := removeTutorialSkill(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, consent{}); err != nil {
+			t.Fatalf("removeTutorialSkill error: %v", err)
+		}
+		if out.Len() != 0 {
+			t.Errorf("absent tutorial skill must be silent on uninstall, got: %s", out.String())
+		}
+	})
+
+	t.Run("marker-less user file untouched with skip note", func(t *testing.T) {
+		dir := t.TempDir()
+		ac := agentConfig{name: "Test", skillsDir: dir}
+		rewritten := "---\nname: run-kit-tutorial\n---\n# my own version\n"
+		_, skillPath := seedTutorialSkill(t, dir, rewritten)
+
+		var out bytes.Buffer
+		if err := removeTutorialSkill(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, consent{}); err != nil {
+			t.Fatalf("removeTutorialSkill error: %v", err)
+		}
+		got, _ := os.ReadFile(skillPath)
+		if string(got) != rewritten {
+			t.Errorf("marker-less user file content changed: %s", got)
+		}
+		if !strings.Contains(out.String(), "leaving it untouched") {
+			t.Errorf("output should note the marker-less skip, got: %s", out.String())
+		}
+	})
+
+	t.Run("--dry-run leaves a marker-owned copy in place", func(t *testing.T) {
+		dir := t.TempDir()
+		ac := agentConfig{name: "Test", skillsDir: dir}
+		_, skillPath := seedTutorialSkill(t, dir, tutorialSkillPayload)
+
+		var out bytes.Buffer
+		if err := removeTutorialSkill(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("")), ac, consent{dryRun: true}); err != nil {
+			t.Fatalf("removeTutorialSkill error: %v", err)
+		}
+		if _, err := os.Stat(skillPath); err != nil {
+			t.Errorf("dry-run must leave the skill in place, stat err = %v", err)
+		}
+		if !strings.Contains(out.String(), "dry run") {
+			t.Errorf("dry-run should note the no-write, got: %s", out.String())
+		}
+	})
+}
+
+// TestApplyAgentConfigUninstallRemovesTutorialSkill proves the --uninstall pass
+// routes the skill step to removal: a marker-owned installed copy is removed
+// alongside the hooks unmerge.
+func TestApplyAgentConfigUninstallRemovesTutorialSkill(t *testing.T) {
+	dir := t.TempDir()
+	settingsPath := filepath.Join(dir, "settings.json")
+	skillsDir := filepath.Join(dir, "skills")
+	ac := agentConfig{name: "Test", settingsPath: settingsPath, comm: "claude", skillsDir: skillsDir, hooks: claudeHooks()}
+	skillDir, _ := seedTutorialSkill(t, skillsDir, tutorialSkillPayload)
+
+	var out bytes.Buffer
+	// No settings file exists → the hooks unmerge is a silent no-op; the single
+	// "y" confirms the tutorial skill removal.
+	if err := applyAgentConfig(newSinkWriters(&out, &out), bufio.NewReader(strings.NewReader("y\n")), ac, "", true, consent{stdinIsTTY: true}); err != nil {
+		t.Fatalf("applyAgentConfig uninstall error: %v", err)
+	}
+	if _, err := os.Stat(skillDir); !os.IsNotExist(err) {
+		t.Errorf("--uninstall should remove the marker-owned tutorial skill, stat err = %v", err)
 	}
 }

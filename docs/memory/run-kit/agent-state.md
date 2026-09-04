@@ -261,8 +261,11 @@ terminal, which would make the refusal silently not fire. A non-`*os.File` reade
 non-interactive path unless they set `stdinIsTTY` explicitly. Pinned by
 `TestIsTerminalRejectsNonTTYFiles`.
 
-**It installs TWO artifact families**: the **per-agent settings-hooks merge**
-(described here) and the **user-global tmux guard shim** — a shim script plus a
+**It installs THREE artifact families**: the **per-agent settings-hooks merge**
+(described here); the **per-agent run-kit-tutorial invoker skill** — a thin
+discovery router at `{skillsDir}/run-kit-tutorial/SKILL.md` that routes an
+agent's tutorial/tour/onboarding asks to `rk skill tutorial` (see
+§ run-kit-tutorial Invoker Skill); and the **user-global tmux guard shim** — a shim script plus a
 marker-owned `PATH` block that puts `rk mux guard` in front of every
 PATH-resolved `tmux` invocation, so `tmux kill-server` without an explicit
 `-L`/`-S` socket is refused. The shim script is in its **second generation** —
@@ -277,13 +280,15 @@ summary-on-consent / full-diff-on-`--dry-run` rendering split, and its
 (260805-blyf-tmux-guard-path-shim)
 
 The command surface is `rk agent setup` / `rk agent setup --uninstall`, and
-`--uninstall` reverses both families. The
+`--uninstall` reverses all three families. The
 visual-display context-injection role belongs to the **`rk skill` bundle** (served
 by the `skill` subcommand, aggregated by the coming `shll agent-setup`), described
-in [architecture](/run-kit/architecture.md) § CLI Subcommands; the only skill trace
-in `rk agent setup` is a **one-release legacy cleanup** that removes a stale
-`rk-display` copy left by an older run-kit (see § Legacy `rk-display` Cleanup).
-(260717-agst)
+in [architecture](/run-kit/architecture.md) § CLI Subcommands — the tutorial
+invoker skill is compatible with that split because it carries no injectable
+content, only the route (see its section's design decision); the only other
+skill trace in `rk agent setup` is a **one-release legacy cleanup** that removes
+a stale `rk-display` copy left by an older run-kit (see § Legacy `rk-display`
+Cleanup). (260717-agst)
 
 **Per-agent registry** (`agentRegistry(home) []agentConfig`): each `agentConfig`
 carries a display `name`, a `settingsPath`, the agent binary's `comm` (process
@@ -414,16 +419,59 @@ at its boundary (so everything below stays pure over injected paths), then runs:
 `applyAgentConfig` is the thin per-agent wrapper, running in order:
 
 1. **`applyAgentHooks`** — the settings-hooks merge (described above). Always runs.
-2. **`removeLegacySkill`** — the one-release cleanup of the legacy `rk-display`
-   skill (below). Runs only when the agent's `skillsDir` is non-empty.
+2. **`installTutorialSkill`** (install pass) / **`removeTutorialSkill`**
+   (`--uninstall` pass) — the run-kit-tutorial invoker skill (below). Runs only
+   when the agent's `skillsDir` is non-empty.
+3. **`removeLegacySkill`** — the one-release cleanup of the legacy `rk-display`
+   skill (below). Runs on BOTH passes, only when `skillsDir` is non-empty.
 
 Each step runs **independently** — its own tolerant read, diff/prompt, and no-op
 report — so declining or no-op-ing one does not skip the others. `agentConfig`
-carries a `skillsDir string` field; the Claude Code registry row sets it to
-`filepath.Join(home, ".claude", "skills")`, and an **empty `skillsDir` means "no
-legacy skill to clean for that agent"** — only the hooks merge runs (future
-codex/copilot/gemini/opencode rows may leave it empty). `skillsDir` exists
-**solely to locate the legacy skill for cleanup**.
+carries a `skillsDir string` field rooting the per-agent skill artifacts (the
+tutorial skill install and the legacy cleanup); the Claude Code registry row sets
+it to `filepath.Join(home, ".claude", "skills")`, and an **empty `skillsDir`
+means the agent has no skills convention** — only the hooks merge runs (future
+codex/copilot/gemini/opencode rows may leave it empty).
+
+### run-kit-tutorial Invoker Skill (`installTutorialSkill` / `removeTutorialSkill`)
+
+The third managed artifact: a user-global Claude Code skill at
+`{skillsDir}/run-kit-tutorial/SKILL.md` (`~/.claude/skills/run-kit-tutorial/SKILL.md`)
+that gives an agent already running in a run-kit pane a **discovery route to the
+guided tour** — its frontmatter `description:` triggers on tutorial / tour /
+walkthrough / onboarding phrasing about run-kit and forbids the `ONBOARDING.md`
+detour, and its body is a two-step router: gate
+`command -v rk && [ -n "$TMUX_PANE" ]` (on failure, tell the user to run the
+agent inside a run-kit window and ask again), then run `rk skill tutorial` and
+follow it exactly. It complements the human-typed entry `rk tutorial` — this
+skill covers the ask-a-running-agent entry. (260903-kqps-agent-setup-tutorial-invoker-skill)
+
+- **Payload**: tracked in-repo at `cmd/rk/agentskill/run-kit-tutorial.md` and
+  embedded via `//go:embed` (`tutorialSkillPayload`). `agentskill/` is an
+  agent-setup payload dir, deliberately outside `cmd/rk/skill/` (the
+  docs/site-synced `rk skill` bundle namespace with embed drift guards).
+- **Ownership marker**: `managed-by: rk agent-setup (run-kit-tutorial skill)`
+  (`tutorialSkillMarker`), a YAML comment inside the payload's frontmatter —
+  frozen text once shipped (must keep matching installed artifacts, the
+  `tmuxShimMarker` rule). It extends the legacy bare `skillManagedByMarker` with
+  a parenthesized family; the two cannot collide because `removeLegacySkill` is
+  path-scoped to `rk-display/`. A payload-carries-marker test guards against an
+  edit dropping the marker (which would orphan installed copies as "user files").
+- **Currency**: byte-compare against the embedded payload — the marker
+  identifies *ownership*, content equality identifies *staleness*; a stale
+  generation is replaced in place on the next `rk agent setup` re-run (the
+  documented upgrade action). No numeric generation counter, and no `rk doctor`
+  row (absence is a valid not-set-up state).
+- **Contract** (the `installTmuxShimFile` shape): marker-less existing file —
+  including zero-byte, via the existence-aware `readFileIfExists` — is left
+  untouched with a skip note; byte-current content is a reported no-op, no
+  prompt; otherwise a one-line summary on the interactive/`--yes` paths, the
+  full `renderArtifactDiff` body only under `--dry-run`, and the write gated
+  through `consent.authorizeWrite`. On consent: dir 0755, file 0644 (skill
+  content is not sensitive user config — settings.json's 0600 does not apply).
+- **Uninstall**: `removeTutorialSkill` removes a marker-owned
+  `run-kit-tutorial/` directory (`os.RemoveAll` after consent, dir-level like
+  the legacy cleanup); absent is silent, marker-less is skipped with a note.
 
 ### Legacy `rk-display` Cleanup (`removeLegacySkill`, one release only)
 
@@ -833,6 +881,22 @@ content in place, never touch anything else" is satisfiable.
 per-project install (defeats the "any session anywhere" goal — the whole point is
 user-global registration).
 *Introduced by*: `260705-dmex-generic-agent-state-tier`
+
+### Managed skill as discovery router, content behind the binary
+**Decision**: `rk agent setup` installs the run-kit-tutorial invoker skill as a
+thin router — frontmatter description for discovery, a gate, and a route to
+`rk skill tutorial` — with zero tour content in the skill file.
+**Why**: a skill description is the harness's own discovery mechanism (an agent
+asked for a tour finds the route from natural phrasing), while keeping content
+binary-served means tour updates track `brew upgrade rk` with no skill churn and
+no session restarts — the same freeze-avoidance that moved hook logic into
+`rk agent hook`. This is what makes a managed skill compatible with the split
+that retired the content-carrying rk-display skill.
+**Rejected**: a content-carrying skill (re-creates the rk-display freeze: content
+snapshots at install time and drifts from the binary); relying on the `rk skill`
+bundle alone (an agent has no reason to run `rk skill` unprompted — discovery
+needs a harness-registered description).
+*Introduced by*: `260903-kqps-agent-setup-tutorial-invoker-skill`
 
 ### Non-interactive consent: `--yes`/`--dry-run` + non-TTY refusal (not a silent decline)
 **Decision**: gate every `rk agent setup` write through a `consent` struct

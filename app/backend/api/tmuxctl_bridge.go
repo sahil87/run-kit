@@ -203,10 +203,12 @@ func (h *hubSink) refreshSidGroups() {
 // SetWindowChangeSubscriber wires a WindowChangeSubscriber into the lazy-
 // initialised SSE hub. Called from `rk serve` after the Supervisor is up.
 // Safe to call before any SSE client connects — initSSEHub is invoked here
-// to materialise the hub.
+// to materialise the hub — and safe to call WHILE clients are connected:
+// the write goes through setSubscriber (under h.mu), so it never races a
+// running poll loop's per-wait subscriber snapshot.
 func (s *Server) SetWindowChangeSubscriber(sub WindowChangeSubscriber) {
 	s.initSSEHub()
-	s.sseHub.subscriber = sub
+	s.sseHub.setSubscriber(sub)
 }
 
 // SetActiveWindowProvider injects the Tier-1 active-window provider (the

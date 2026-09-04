@@ -91,6 +91,10 @@ test:
 test-backend: _ensure-tmux-conf
     cd app/backend && go test ./...
 
+# Run Go tests for the api package under the race detector
+test-backend-race: _ensure-tmux-conf
+    cd app/backend && go test -race ./api/...
+
 # Run Vitest unit tests
 test-frontend:
     cd app/frontend && pnpm test

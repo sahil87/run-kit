@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"runtime"
 	"strings"
@@ -348,29 +349,28 @@ func (c coverageSubscriber) Covers(server string) bool        { return c.covered
 func TestSafetyIntervalEffective(t *testing.T) {
 	t.Run("no subscriber -> legacy fast", func(t *testing.T) {
 		h := newSSEHub(&fetchTracker{}, nil, nil, nil)
-		if got := h.safetyIntervalEffective([]string{"any"}); got != legacyPollInterval {
+		if got := h.safetyIntervalEffective([]string{"any"}, nil); got != legacyPollInterval {
 			t.Fatalf("got %v, want %v", got, legacyPollInterval)
 		}
 	})
 	t.Run("all covered -> long safety interval", func(t *testing.T) {
 		h := newSSEHub(&fetchTracker{}, nil, nil, nil)
-		h.subscriber = coverageSubscriber{covered: map[string]bool{"a": true, "b": true}}
-		if got := h.safetyIntervalEffective([]string{"a", "b"}); got != safetyPollInterval {
+		sub := coverageSubscriber{covered: map[string]bool{"a": true, "b": true}}
+		if got := h.safetyIntervalEffective([]string{"a", "b"}, sub); got != safetyPollInterval {
 			t.Fatalf("got %v, want %v", got, safetyPollInterval)
 		}
 	})
 	t.Run("any uncovered -> legacy fast", func(t *testing.T) {
 		h := newSSEHub(&fetchTracker{}, nil, nil, nil)
-		h.subscriber = coverageSubscriber{covered: map[string]bool{"a": true, "rk-test-e2e": false}}
-		if got := h.safetyIntervalEffective([]string{"a", "rk-test-e2e"}); got != legacyPollInterval {
+		sub := coverageSubscriber{covered: map[string]bool{"a": true, "rk-test-e2e": false}}
+		if got := h.safetyIntervalEffective([]string{"a", "rk-test-e2e"}, sub); got != legacyPollInterval {
 			t.Fatalf("got %v, want %v (an uncovered server must force the fast cadence)", got, legacyPollInterval)
 		}
 	})
 	t.Run("explicit override wins", func(t *testing.T) {
 		h := newSSEHub(&fetchTracker{}, nil, nil, nil)
-		h.subscriber = coverageSubscriber{covered: map[string]bool{}}
 		h.safetyInterval = 99 * time.Millisecond
-		if got := h.safetyIntervalEffective([]string{"uncovered"}); got != 99*time.Millisecond {
+		if got := h.safetyIntervalEffective([]string{"uncovered"}, coverageSubscriber{covered: map[string]bool{}}); got != 99*time.Millisecond {
 			t.Fatalf("got %v, want explicit override 99ms", got)
 		}
 	})
@@ -382,8 +382,8 @@ func TestSafetyIntervalEffective(t *testing.T) {
 		// fix — without the sentinel exclusion, one metrics-only client (held
 		// open by the Host home ~always) would 5x FetchSessions calls.
 		h := newSSEHub(&fetchTracker{}, nil, nil, nil)
-		h.subscriber = coverageSubscriber{covered: map[string]bool{"real": true}}
-		if got := h.safetyIntervalEffective([]string{"real", metricsOnlyServer}); got != safetyPollInterval {
+		sub := coverageSubscriber{covered: map[string]bool{"real": true}}
+		if got := h.safetyIntervalEffective([]string{"real", metricsOnlyServer}, sub); got != safetyPollInterval {
 			t.Fatalf("got %v, want %v (the metrics-only sentinel must not force the fast cadence)", got, safetyPollInterval)
 		}
 	})
@@ -395,8 +395,7 @@ func TestSafetyIntervalEffective(t *testing.T) {
 		// intended ~2.5s tick. A sentinel-only slice does no session-fetching,
 		// so the fast legacy cadence is correct and free.
 		h := newSSEHub(&fetchTracker{}, nil, nil, nil)
-		h.subscriber = coverageSubscriber{covered: map[string]bool{}}
-		if got := h.safetyIntervalEffective([]string{metricsOnlyServer}); got != legacyPollInterval {
+		if got := h.safetyIntervalEffective([]string{metricsOnlyServer}, coverageSubscriber{covered: map[string]bool{}}); got != legacyPollInterval {
 			t.Fatalf("got %v, want %v (a sentinel-only slice must tick fast so `/` host metrics stay ~2.5s fresh)", got, legacyPollInterval)
 		}
 	})
@@ -748,6 +747,237 @@ func TestSSE_WakeBypassesPendingDebounce(t *testing.T) {
 			}
 		case <-deadline:
 			t.Fatal("never observed the wake-driven snapshot containing w1")
+		}
+	}
+}
+
+// flakyFetcher fails FetchSessions for servers in its fail set with a
+// TRANSIENT (non-server-gone) error — the poll loop logs and keeps the server
+// in the poll set, so no snapshot is ever cached until the flag clears.
+type flakyFetcher struct {
+	mu     sync.Mutex
+	fail   map[string]bool
+	result map[string][]sessions.ProjectSession
+	count  atomic.Int64
+}
+
+func (f *flakyFetcher) FetchSessions(_ context.Context, server string) ([]sessions.ProjectSession, error) {
+	f.count.Add(1)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.fail[server] {
+		return nil, fmt.Errorf("transient fetch failure for %s", server)
+	}
+	return f.result[server], nil
+}
+
+func (f *flakyFetcher) clearFail(server string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.fail, server)
+}
+
+// TestSSE_ColdSubscribeNewServerUnparksLoop covers the cold-subscribe shape
+// where the server is NEW to the poll set entirely: the loop parked in
+// waitForNext built its wait cases from the previous server list, so no
+// per-server signal can reach it — only the membership wake fired by addClient
+// unparks it. With the long safety interval in effect, the new server's first
+// snapshot must still arrive promptly.
+func TestSSE_ColdSubscribeNewServerUnparksLoop(t *testing.T) {
+	sub := newStubSubscriber()
+	tracker := &fetchTracker{
+		result: map[string][]sessions.ProjectSession{
+			"kits":  {{Name: "s1"}},
+			"other": {{Name: "o1"}},
+		},
+	}
+	hub := newSSEHub(tracker, nil, nil, nil)
+	hub.subscriber = sub
+	hub.safetyInterval = 30 * time.Second // parked: the timer can never drive this test
+
+	clientKits := &sseClient{ch: make(chan hubEvent, 16), server: "kits"}
+	hub.addClient(clientKits)
+	t.Cleanup(func() { hub.removeClient(clientKits) })
+	drainBootstrap(t, clientKits.ch)
+
+	// Let the loop settle into waitForNext on ["kits"].
+	time.Sleep(100 * time.Millisecond)
+
+	// A client subscribes to a server NOT in the parked wait's case list.
+	subscribeAt := time.Now()
+	clientOther := &sseClient{ch: make(chan hubEvent, 16), server: "other"}
+	hub.addClient(clientOther)
+	t.Cleanup(func() { hub.removeClient(clientOther) })
+
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case b := <-clientOther.ch:
+			if got := b.String(); strings.Contains(got, "event: sessions") && strings.Contains(got, "o1") {
+				if elapsed := time.Since(subscribeAt); elapsed > 2*time.Second {
+					t.Errorf("new-server first snapshot took %v (want well under the 30s safety interval)", elapsed)
+				}
+				return
+			}
+		case <-deadline:
+			t.Fatal("never observed a first snapshot for the newly subscribed server — the parked loop was not woken")
+		}
+	}
+}
+
+// TestSSE_ColdSubscribeInSetServerWakes covers the second cold shape: the server
+// IS in the poll set but has no cached snapshot (its first fetch failed), so the
+// subscribe ack carries null and the ack path wakes the loop for that server —
+// the next pass fetches it promptly instead of waiting out the safety interval.
+func TestSSE_ColdSubscribeInSetServerWakes(t *testing.T) {
+	fetcher := &flakyFetcher{
+		fail:   map[string]bool{"flaky": true},
+		result: map[string][]sessions.ProjectSession{"flaky": {{Name: "f1"}}},
+	}
+	hub := newSSEHub(fetcher, nil, nil, nil)
+	hub.subscriber = newStubSubscriber()
+	hub.safetyInterval = 30 * time.Second
+
+	// First subscriber: the fetch fails, so no previousJSON is ever cached and
+	// the loop parks on the long safety interval.
+	sc1 := newTestStateConn(hub, "c1", 16)
+	hub.stateSubscribe(sc1, clientMsg{Op: opSubscribe, Kind: kindServer, Key: "flaky", Req: 1})
+	t.Cleanup(func() { hub.dropStateConn(sc1) })
+	time.Sleep(100 * time.Millisecond) // failed first pass done; loop parked
+
+	// The fetch recovers, then a second connection subscribes to the same
+	// (in-set, snapshot-less) server.
+	fetcher.clearFail("flaky")
+	subscribeAt := time.Now()
+	sc2 := newTestStateConn(hub, "c2", 16)
+	hub.stateSubscribe(sc2, clientMsg{Op: opSubscribe, Kind: kindServer, Key: "flaky", Req: 1})
+	t.Cleanup(func() { hub.dropStateConn(sc2) })
+
+	// The ack must carry a null snapshot (this IS the cold case), then the
+	// woken pass must deliver the first sessions snapshot promptly.
+	sawNullAck := false
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case ev := <-sc2.ch:
+			m := map[string]json.RawMessage{}
+			if json.Unmarshal(ev.renderEnvelope(), &m) != nil {
+				continue
+			}
+			switch rawStr(m, "op") {
+			case "ack":
+				if string(m["snapshot"]) != "null" {
+					t.Fatalf("cold subscribe ack carried a non-null snapshot: %s", m["snapshot"])
+				}
+				sawNullAck = true
+			case "event":
+				if rawStr(m, "type") == "sessions" && strings.Contains(string(m["data"]), "f1") {
+					if !sawNullAck {
+						t.Fatal("sessions snapshot arrived before the cold ack")
+					}
+					if elapsed := time.Since(subscribeAt); elapsed > 2*time.Second {
+						t.Errorf("cold in-set subscribe snapshot took %v (want well under the 30s safety interval)", elapsed)
+					}
+					return
+				}
+			}
+		case <-deadline:
+			t.Fatal("never observed the wake-driven first snapshot for the in-set cold server")
+		}
+	}
+}
+
+// TestSSE_WarmResubscribeDoesNotWake is the storm guard: a subscribe that finds
+// a cached snapshot (warm) fires NO wake, and a key already in h.clients fires
+// NO membership wake — so a warm resubscribe must not cost an extra fetch pass
+// while the loop is parked on the long safety interval.
+func TestSSE_WarmResubscribeDoesNotWake(t *testing.T) {
+	tracker := &fetchTracker{
+		result: map[string][]sessions.ProjectSession{"kits": {{Name: "s1"}}},
+	}
+	hub := newSSEHub(tracker, nil, nil, nil)
+	hub.safetyInterval = 30 * time.Second
+
+	sc1 := newTestStateConn(hub, "w1", 16)
+	hub.stateSubscribe(sc1, clientMsg{Op: opSubscribe, Kind: kindServer, Key: "kits", Req: 1})
+	t.Cleanup(func() { hub.dropStateConn(sc1) })
+	drainBootstrap(t, sc1.ch)
+
+	// Wait out the 500ms fetch-cache TTL so any wrongly-woken pass WOULD
+	// re-fetch (a fresh cache hit would mask a spurious wake).
+	time.Sleep(600 * time.Millisecond)
+	start := tracker.count.Load()
+
+	sc2 := newTestStateConn(hub, "w2", 16)
+	hub.stateSubscribe(sc2, clientMsg{Op: opSubscribe, Kind: kindServer, Key: "kits", Req: 1})
+	t.Cleanup(func() { hub.dropStateConn(sc2) })
+
+	// The warm ack carries the cached snapshot.
+	sawWarmAck := false
+	deadline := time.After(time.Second)
+	for !sawWarmAck {
+		select {
+		case ev := <-sc2.ch:
+			m := map[string]json.RawMessage{}
+			if json.Unmarshal(ev.renderEnvelope(), &m) != nil {
+				continue
+			}
+			if rawStr(m, "op") == "ack" {
+				if string(m["snapshot"]) == "null" {
+					t.Fatal("warm resubscribe ack carried a null snapshot")
+				}
+				sawWarmAck = true
+			}
+		case <-deadline:
+			t.Fatal("no ack for the warm resubscribe")
+		}
+	}
+
+	// Parked on the 30s safety interval with no wake: no fetch may happen.
+	time.Sleep(400 * time.Millisecond)
+	if got := tracker.count.Load(); got != start {
+		t.Errorf("warm resubscribe drove %d extra fetches (want 0 — no wake may fire)", got-start)
+	}
+	if hub.consumeMembershipWake() {
+		t.Error("membership wake fired for an already-registered key")
+	}
+}
+
+// TestSSE_ResubscribeReapedKeyRecoversFreshness covers the unsubscribe →
+// resubscribe path: removeClientLocked deletes the emptied key from h.clients,
+// so a later subscribe of the same server counts as NEW and re-fires the
+// membership wake — freshness recovers promptly even though the loop is parked
+// on the long safety interval.
+func TestSSE_ResubscribeReapedKeyRecoversFreshness(t *testing.T) {
+	tracker := &fetchTracker{
+		result: map[string][]sessions.ProjectSession{"kits": {{Name: "s1"}}},
+	}
+	hub := newSSEHub(tracker, nil, nil, nil)
+	hub.safetyInterval = 30 * time.Second
+
+	c1 := &sseClient{ch: make(chan hubEvent, 16), server: "kits"}
+	hub.addClient(c1)
+	drainBootstrap(t, c1.ch)
+
+	// Unsubscribe the last client: the key leaves h.clients while the loop
+	// stays parked (it only observes the empty set on its next pass).
+	hub.removeClient(c1)
+
+	// Wait out the fetch-cache TTL so the recovery pass demonstrably refetches.
+	time.Sleep(600 * time.Millisecond)
+	start := tracker.count.Load()
+
+	c2 := &sseClient{ch: make(chan hubEvent, 16), server: "kits"}
+	hub.addClient(c2)
+	t.Cleanup(func() { hub.removeClient(c2) })
+
+	deadline := time.After(2 * time.Second)
+	for tracker.count.Load() == start {
+		select {
+		case <-deadline:
+			t.Fatal("resubscribe of a reaped key did not unpark the loop — no refetch observed")
+		default:
+			time.Sleep(10 * time.Millisecond)
 		}
 	}
 }

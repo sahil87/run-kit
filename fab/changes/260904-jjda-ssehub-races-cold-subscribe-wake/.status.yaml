@@ -1,0 +1,55 @@
+id: jjda
+name: 260904-jjda-ssehub-races-cold-subscribe-wake
+created: 2026-09-04T09:59:51Z
+created_by: sahil87
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 10
+    acceptance_count: 17
+    acceptance_completed: 17
+confidence:
+    certain: 3
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.6
+    fuzzy: true
+    dimensions:
+        signal: 79.3
+        reversibility: 84.3
+        competence: 85.0
+        disambiguation: 77.1
+stage_metrics:
+    intake: {started_at: "2026-09-04T09:59:51Z", driver: fab-new, iterations: 1, completed_at: "2026-09-04T10:06:34Z"}
+    apply: {started_at: "2026-09-04T10:06:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:27:59Z"}
+    review: {started_at: "2026-09-04T10:27:59Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:31:32Z"}
+    hydrate: {started_at: "2026-09-04T10:31:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:36:34Z"}
+    ship: {started_at: "2026-09-04T10:36:34Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-04T10:36:34Z"
+    computed_at_stage: hydrate
+summary: 'sseHub race fixes + wake on cold subscribe: h.cache/attachPRStatus and the subscriber field guarded under h.mu (snapshot-per-wait via set/getSubscriber); a cold subscribe wakes the poll loop (per-server ack-path wake + hub-level membership wake from addClient); go test -race covers app/backend/api in CI'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-04T10:36:34Z

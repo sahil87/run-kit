@@ -1,0 +1,55 @@
+id: f6h4
+name: 260904-f6h4-test-socket-file-hygiene
+created: 2026-09-04T10:00:25Z
+created_by: sahil87
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 11
+    acceptance_completed: 11
+confidence:
+    certain: 3
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.9
+    fuzzy: true
+    dimensions:
+        signal: 72.5
+        reversibility: 85.0
+        competence: 86.7
+        disambiguation: 78.3
+stage_metrics:
+    intake: {started_at: "2026-09-04T10:00:25Z", driver: fab-new, iterations: 1, completed_at: "2026-09-04T10:06:32Z"}
+    apply: {started_at: "2026-09-04T10:06:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:16:03Z"}
+    review: {started_at: "2026-09-04T10:16:03Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:19:05Z"}
+    hydrate: {started_at: "2026-09-04T10:19:05Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:20:56Z"}
+    ship: {started_at: "2026-09-04T10:20:56Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-04T10:20:56Z"
+    computed_at_stage: hydrate
+summary: Every kill site now removes the killed server's socket file (e2e teardowns, seven TestMain sweeps, rk mux reap kill arm) — stops the /tmp/tmux-<uid> graveyard behind the /api/servers ~350ms floor
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-04T10:20:56Z

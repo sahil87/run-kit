@@ -2,6 +2,7 @@ package tmux
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -284,6 +285,15 @@ func reapCandidates(
 				continue
 			}
 			result.Killed = append(result.Killed, name)
+			// tmux does not unlink a killed server's socket; remove it so the
+			// file does not linger as a dead socket for a second reap pass.
+			// ENOENT is success (a tmux build that unlinks on exit is fine);
+			// the kill above stands either way, so the file is not reported in
+			// RemovedSockets — a killed entry implies its file is gone.
+			if err := os.Remove(filepath.Join(dir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+				slog.Warn("reaper: socket remove after kill failed", "socket", name, "err", err)
+				errs = append(errs, fmt.Sprintf("remove %s after kill: %v", name, err))
+			}
 		case ReapActionRemove:
 			path := filepath.Join(dir, name)
 			if err := os.Remove(path); err != nil {

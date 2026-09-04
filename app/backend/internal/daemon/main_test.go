@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -75,14 +76,14 @@ func testPIDAlive(pid int) bool {
 	return !errors.Is(err, syscall.ESRCH)
 }
 
-// sweepDeadTestSockets enumerates /tmp/tmux-<uid>/ and kill-servers every
+// sweepDeadTestSockets enumerates /tmp/tmux-<uid>/ and reaps (kill-server + file removal) every
 // rk-test-* socket this run should reap at TestMain exit: sockets embedding OUR
 // OWN pid (os.Getpid() — we are exiting, so they are residue, even though our
 // pid is still "alive" during the post-sweep) and sockets embedding a DEAD pid.
 // A socket owned by a DIFFERENT live process (a concurrent `go test ./...`
 // package) is spared, as is the whole rk-test-e2e- family
 // (testSocketE2EPrefix). PID-scoped, never a blanket rk-test-* wipe.
-// Best-effort: enumeration or kill failures ignored.
+// Best-effort: enumeration, kill, or removal failures ignored.
 func sweepDeadTestSockets() {
 	self := os.Getpid()
 	socketDir := "/tmp/tmux-" + strconv.Itoa(os.Getuid())
@@ -108,5 +109,9 @@ func sweepDeadTestSockets() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		_ = exec.CommandContext(ctx, "tmux", "-L", name, "kill-server").Run()
 		cancel()
+		// tmux does not unlink a killed (or already-dead) server's socket, so
+		// remove the file too — leaked files accumulate in /tmp/tmux-<uid>/ and
+		// /api/servers probes every one of them per request.
+		_ = os.Remove(filepath.Join(socketDir, name))
 	}
 }

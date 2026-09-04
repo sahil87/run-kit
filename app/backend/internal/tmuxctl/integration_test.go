@@ -413,7 +413,11 @@ func TestIntegration_ProductionDial_BridgeWritableSendKeys(t *testing.T) {
 		_ = exec.Command("tmux", "-L", socket, "kill-server").Run()
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Cancel-only context: exec.CommandContext kills the long-lived `-CC`
+	// bridge on expiry, and a dead bridge would let send-keys pass vacuously
+	// (no attached client resolves no target). The internal 5s poll deadlines
+	// below bound the test instead.
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	cmd, ptmx, err := productionDial(ctx, socket)
 	if err != nil {

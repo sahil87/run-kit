@@ -790,6 +790,47 @@ func TestResolveGitBranchesTwoTierNegatives(t *testing.T) {
 			t.Errorf("unparseable expiresAt remaining = %v, want on the %v cadence", remaining, gitBranchNegativeTTL)
 		}
 	})
+
+	t.Run("ambiguous stat error keeps the short cadence, never the no-repo TTL", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("running as root; permission errors cannot be provoked")
+		}
+		resetGitBranchCache(t)
+		base := t.TempDir()
+		repo := filepath.Join(base, "repo")
+		if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeGitHead(t, repo, "ref: refs/heads/main\n")
+		cwd := filepath.Join(repo, "sub")
+		if err := os.MkdirAll(cwd, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		// Revoking search permission on base makes every stat under it fail
+		// with EACCES — a REAL repo whose walk errors, the misclassification
+		// case: it must not become an authoritative 5m no-repo negative.
+		if err := os.Chmod(base, 0o000); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(base, 0o755) })
+		if got := resolveGitBranches(ctx, []string{cwd}); got[cwd] != "" {
+			t.Errorf("ambiguous resolve: got %q, want empty (fallback exec impossible here)", got[cwd])
+		}
+		e := cacheEntry(t, cwd)
+		if remaining := time.Until(e.expiresAt); remaining <= 0 || remaining > gitBranchNegativeTTL {
+			t.Errorf("ambiguous expiresAt remaining = %v, want on the %v cadence", remaining, gitBranchNegativeTTL)
+		}
+
+		// Once the error clears, the short cadence re-probe resolves the real
+		// branch directly.
+		if err := os.Chmod(base, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		ageGitBranchEntry(t, cwd, 0)
+		if got := resolveGitBranches(ctx, []string{cwd}); got[cwd] != "main" {
+			t.Errorf("healed resolve: got %q, want main", got[cwd])
+		}
+	})
 }
 
 func TestResolveGitBranchesConcurrentMisses(t *testing.T) {

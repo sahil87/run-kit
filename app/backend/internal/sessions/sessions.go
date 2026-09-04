@@ -333,26 +333,61 @@ func resolveGitBranchWithGit(ctx context.Context, cwd string) (branch string, de
 	return b, false
 }
 
+// classifyGitRoot walks cwd toward the filesystem root looking for a .git
+// entry. It deliberately does NOT reuse config.FindGitRoot: that walk treats
+// every stat error as a miss, which is fine for a best-effort join key but
+// not for the authoritative no-repo classification here — only a walk whose
+// every miss is fs.ErrNotExist proves "no repo". Any other stat error
+// (permissions, transient I/O) makes the classification ambiguous, and the
+// caller must keep the short-cadence subprocess fallback rather than caching
+// a long-TTL negative for what may be a real repo.
+func classifyGitRoot(cwd string) (root string, ambiguous bool) {
+	if cwd == "" {
+		return "", false
+	}
+	dir := cwd
+	for {
+		_, err := os.Stat(filepath.Join(dir, ".git"))
+		switch {
+		case err == nil:
+			return dir, false
+		case !errors.Is(err, fs.ErrNotExist):
+			return "", true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", false
+		}
+		dir = parent
+	}
+}
+
 // resolveGitBranch resolves one cache-missed cwd and builds its cache entry.
-// Classification runs before parsing: a config.FindGitRoot walk finding no
+// Classification runs before parsing: a classifyGitRoot walk finding no
 // .git ancestor is an authoritative no-repo negative (git would find nothing
 // either) — no subprocess, cached on the long gitBranchNoRepoTTL horizon. A
-// found root goes through the direct HEAD read; only an unparseable .git
-// shape (unreadable HEAD, malformed gitdir: file, unrecognized ref) reaches
-// the subprocess fallback, whose negatives keep the short
-// gitBranchNegativeTTL cadence since the shape can heal quickly. Every
-// negative arm carries lastGood/lastGoodAt through so a detached cwd that
-// expires and later re-attaches restarts its grace from the next real ref,
-// not from stale history.
+// found root goes through the direct HEAD read; an unparseable .git
+// shape (unreadable HEAD, malformed gitdir: file, unrecognized ref) and an
+// ambiguous walk (a non-ErrNotExist stat error) reach the subprocess
+// fallback, whose negatives keep the short gitBranchNegativeTTL cadence
+// since the shape can heal quickly. Every negative arm carries
+// lastGood/lastGoodAt through so a detached cwd that expires and later
+// re-attaches restarts its grace from the next real ref, not from stale
+// history.
 func resolveGitBranch(ctx context.Context, cwd string, now time.Time, p gitBranchCacheEntry) gitBranchCacheEntry {
-	root := config.FindGitRoot(cwd)
-	if root == "" {
+	root, ambiguous := classifyGitRoot(cwd)
+	if root == "" && !ambiguous {
 		return gitBranchCacheEntry{expiresAt: now.Add(gitBranchNoRepoTTL), lastGood: p.lastGood, lastGoodAt: p.lastGoodAt}
 	}
-	branch, detached, ok := resolveGitBranchFromHead(root)
+	var branch string
+	var detached, ok bool
+	if root != "" {
+		branch, detached, ok = resolveGitBranchFromHead(root)
+	}
 	if !ok && !detached {
 		// The HEAD shape is authoritative for detached — the subprocess
-		// fallback runs only for the shapes the direct read couldn't parse.
+		// fallback covers the shapes the direct read couldn't parse and the
+		// ambiguous-walk case where no root is known.
 		branch, detached = resolveGitBranchWithGit(ctx, cwd)
 	}
 	switch {
@@ -369,10 +404,11 @@ func resolveGitBranch(ctx context.Context, cwd string, now time.Time, p gitBranc
 }
 
 // resolveGitBranches resolves git branches for a set of cwds using a per-entry TTL cache.
-// Each miss is classified by a config.FindGitRoot walk before parsing (see
+// Each miss is classified by a classifyGitRoot walk before parsing (see
 // resolveGitBranch): no-repo cwds never spawn a subprocess and cache on the
 // long no-repo horizon; repo cwds resolve via the direct .git/HEAD read; the
-// git subprocess fallback is reserved for unparseable .git shapes. Misses fan
+// git subprocess fallback is reserved for unparseable .git shapes and
+// ambiguous (stat-error) walks. Misses fan
 // out under gitBranchResolveConcurrency and land in one batched cache write.
 // A detached HEAD within gitBranchDetachedGraceTTL of the cwd's last genuine
 // positive resolution serves that last-known branch (a rebase ends on the

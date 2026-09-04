@@ -5,53 +5,53 @@ created_by: sahil87
 change_type: refactor
 issues: []
 progress:
-    intake: done
-    apply: done
-    review: done
-    hydrate: done
-    ship: done
-    review-pr: active
+  intake: done
+  apply: done
+  review: done
+  hydrate: done
+  ship: done
+  review-pr: active
 plan:
-    generated: true
-    task_count: 4
-    acceptance_count: 11
-    acceptance_completed: 11
+  generated: true
+  task_count: 4
+  acceptance_count: 11
+  acceptance_completed: 11
 confidence:
-    certain: 6
-    confident: 1
-    tentative: 0
-    unresolved: 0
-    score: 5.0
-    fuzzy: true
-    dimensions:
-        signal: 75.7
-        reversibility: 87.9
-        competence: 88.6
-        disambiguation: 80.7
+  certain: 6
+  confident: 1
+  tentative: 0
+  unresolved: 0
+  score: 5.0
+  fuzzy: true
+  dimensions:
+    signal: 75.7
+    reversibility: 87.9
+    competence: 88.6
+    disambiguation: 80.7
 stage_metrics:
-    intake: {started_at: "2026-09-04T08:33:11Z", driver: fab-new, iterations: 1, completed_at: "2026-09-04T08:38:35Z"}
-    apply: {started_at: "2026-09-04T08:38:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T09:10:34Z"}
-    review: {started_at: "2026-09-04T09:10:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T09:16:38Z"}
-    hydrate: {started_at: "2026-09-04T09:16:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T09:22:40Z"}
-    ship: {started_at: "2026-09-04T09:22:40Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T09:23:55Z"}
-    review-pr: {started_at: "2026-09-04T09:23:55Z", driver: git-pr, iterations: 1}
+  intake: {started_at: "2026-09-04T08:33:11Z", driver: fab-new, iterations: 1, completed_at: "2026-09-04T08:38:35Z"}
+  apply: {started_at: "2026-09-04T08:38:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T09:10:34Z"}
+  review: {started_at: "2026-09-04T09:10:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T09:16:38Z"}
+  hydrate: {started_at: "2026-09-04T09:16:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T09:22:40Z"}
+  ship: {started_at: "2026-09-04T09:22:40Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T09:23:55Z"}
+  review-pr: {started_at: "2026-09-04T09:23:55Z", driver: git-pr, iterations: 1, phase: fixing, reviewer: '@copilot-pull-request-reviewer'}
 prs:
-    - https://github.com/sahil87/run-kit/pull/825
+  - https://github.com/sahil87/run-kit/pull/825
 change_type_source: explicit
 true_impact:
-    added: 951
-    deleted: 416
-    net: 535
-    excluding:
-        added: 327
-        deleted: 328
-        net: -1
-    tests:
-        added: 226
-        deleted: 227
-        net: -1
-    computed_at: "2026-09-04T09:23:55Z"
-    computed_at_stage: ship
+  added: 951
+  deleted: 416
+  net: 535
+  excluding:
+    added: 327
+    deleted: 328
+    net: -1
+  tests:
+    added: 226
+    deleted: 227
+    net: -1
+  computed_at: "2026-09-04T09:23:55Z"
+  computed_at_stage: ship
 summary: 'Renamed the chat-lens residuals: internal/chat → internal/transcript (transcript.Path, writeTranscriptError), the chat-send cluster → agent-send (rk-agent-send buffer, tmux/seam/engine names, test doubles), ComposeSurface "chat" → "broadcast"; memory chat.md → agent-send.md with tombstone and link updates; specs/api.md /paste block replaced with the real POST /send contract'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
 last_updated: 2026-09-04T09:23:55Z

@@ -484,6 +484,17 @@ func verifySubmit(ctx context.Context, t Tmux, server, paneID, preFrame, needle 
 // clearComposer permits another paste only after the complete normalized pane
 // returns to its pre-paste frame, proving no staged prefix was left behind.
 func clearComposer(ctx context.Context, t Tmux, server, paneID, baseline string) (string, error) {
+	return clearToBaseline(ctx, t, server, paneID, ProbeCaptureLines, baseline, nil)
+}
+
+// clearToBaseline is the shared C-u/capture/baseline-compare clear discipline:
+// send C-u, re-capture at the given depth, and repeat until the pane returns
+// to the baseline frame, proving no staged prefix was left behind. Baseline
+// and verification captures MUST share one depth — a baseline captured deeper
+// than the verification captures can never compare equal on a pane with
+// scrollback beyond the shallower window. isGone (nil for the engine) lets the
+// readiness probe classify a capture error as pane death.
+func clearToBaseline(ctx context.Context, t Tmux, server, paneID string, lines int, baseline string, isGone func(error) bool) (string, error) {
 	baseline = stripForProbe(baseline)
 	var capture string
 	for range ClearAttempts {
@@ -491,8 +502,11 @@ func clearComposer(ctx context.Context, t Tmux, server, paneID, baseline string)
 			return "", fmt.Errorf("send-keys: %w", err)
 		}
 		var err error
-		capture, err = t.CapturePane(ctx, paneID, ProbeCaptureLines, server)
+		capture, err = t.CapturePane(ctx, paneID, lines, server)
 		if err != nil {
+			if isGone != nil && isGone(err) {
+				return "", fmt.Errorf("%w: %w", ErrGone, err)
+			}
 			return "", err
 		}
 		if stripForProbe(capture) == baseline {

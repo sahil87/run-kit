@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The `rk mux` family — 12 tmux-substrate verbs, no daemon dependency. Pane-scoped members (`send`/`await` + `capture`/`kill`/`process` twins) share the strict %N/@N/=session:window grammar and with `panes` consume inherited `-L`; `await --any` wakes on the first of N panes, `--ready` waits for boot-readiness (state present, else settled screen). Operator members `new`/`reap`/`snapshot`/`init-conf`/`guard`/`adopt` reject `-L`: `new` spawns a detached server; `adopt` stamps `@rk_srv_managed`."
+description: "The `rk mux` family — 12 tmux-substrate verbs, no daemon dependency. Pane-scoped members (`send`/`await` + `capture`/`kill`/`process` twins) share the strict %N/@N/=session:window grammar and with `panes` consume inherited `-L`; `await --any` wakes on the first of N panes, `--ready` waits for boot-readiness (state present, else sentinel echo: `ready %N (echo)`; no echo: `parked %N`). Operator members `new`/`reap`/`snapshot`/`init-conf`/`guard`/`adopt` reject `-L` (`new` spawns a detached server; `adopt` = managed stamp)."
 ---
 # Agent-to-Agent Messaging (`rk mux`)
 
@@ -270,22 +270,45 @@ individual tmux reads, so a wait can outlive any single read by minutes.
 
 **`--ready` is the boot-readiness condition** — a single-pane wait (no `--any`)
 for the moment a freshly spawned agent is safe to type into, driven by
-`inject.AwaitReady` ([agent-state](/run-kit/agent-state.md) § Boot-Ready Signal):
-**state-present** (the reconciled `@rk_pane_agent_state` exists — hooks fired,
-so the TUI is up) or, for hook-less agents, **capture-settle** (the pane screen
-is non-blank and byte-identical across two consecutive polls), first hit wins.
-The report names the firing signal: `ready %N (state)` or `ready %N (settled)`,
-exit 0. `--ready` is **mutually exclusive with `--until`/`--file`/
+`inject.AwaitReady` ([agent-state](/run-kit/agent-state.md) § Boot-Ready Signal).
+**State-present** is checked first every poll: the reconciled
+`@rk_pane_agent_state` exists (hooks fired, so the TUI is up) → `ready %N
+(state)`, exit 0 — the sentinel is therefore only ever typed into a pane with
+no reconciled agent state. For hook-less agents a **settled screen is the probe
+trigger, not a verdict**: when no state appears and the capture is non-blank
+and byte-identical across two consecutive polls, a sentinel echo probe
+classifies the pane — the fixed comment-safe sentinel `#rk-ready-probe` is
+pasted through the named-buffer primitives (`SetBuffer`/`PasteBuffer`,
+bracketed paste, never submitted — no Enter anywhere on the path), an echo is
+detected by **novelty counting** (occurrence count strictly above the pre-probe
+baseline, so a stale same-text occurrence on screen cannot satisfy the probe),
+and the composer is cleared with `C-u` verified against the settled baseline —
+settle, probe, and clear captures all share the one `readyCaptureLines` depth
+(`clearToBaseline`). Echo → `ready %N (echo)`, exit 0. No echo on a screen
+still settled and non-blank → **`parked %N`, exit 0**, returned immediately
+(parked is wake-worthy — the caller must act, so it does not spin to the
+deadline) with the screen snippet on stderr so the caller can judge what the
+wall wants; classification is rk's, judgment stays caller-side. A pane death
+mid-wait (a capture error matching the injected gone predicate — the CLI wires
+the "can't find pane" mapping) → `gone`, exit 1. Boot churn, blank screens, and
+probe infrastructure errors never classify — they re-enter polling bounded by
+the deadline. `--ready` is **mutually exclusive with `--until`/`--file`/
 `--after-active`/`--any`** (usage error, exit 2 — mixing conditions has no
 coherent semantics). The family's timeout contract holds: `--timeout` expiry
 reports `running`, exit 0 — with one refinement, a `--timeout 0` (indefinite)
 wait **re-arms** the primitive's internal 25s deadline after each `ErrNotReady`
-pass instead of reporting. `--notify` fires on the report, fail-silent
-(default `agent %N is ready`). The readiness wait is the CLI surface of the
+pass only — `parked` and `gone` break the loop. `--notify` fires on every
+report including `parked` and `gone`, fail-silent (default `agent %N is <first
+report token>`). **Scope rule**: the sentinel is typed only into pre-delivery
+panes (no agent state yet, nothing delivered) — rk enforces the state-absence
+half mechanically (state is checked before every probe); the nothing-delivered
+half is documented caller policy, and against a live delivered worker readiness
+verbs are illegal — use `await --until` / `capture`. The readiness wait is the CLI surface of the
 spawn-then-deliver composite; for hook-less agents the documented composition is
 `rk mux await --ready %5 && rk mux send --force %5 '<prompt>'` — plain `send`
 stays gated on agent state, which a hook-less pane never has, so `--force` is
-the pairing (no new send gate mode).
+the pairing (no new send gate mode). `parked` also exits 0, so `&&`-composers
+must branch on the report word.
 
 The fleet-wake protocol monitoring agents build on (rk guarantee vs caller
 obligation): (a) the CALLER arms only against not-currently-waiting panes — rk
@@ -316,11 +339,15 @@ inter-wake spacing is the re-armer's property.
   **AND GIVEN** two targets resolving to the same pane ID, **THEN** usage
   error, exit 2.
 
-#### Scenario: Boot-ready wait reports the firing signal
+#### Scenario: Boot-ready wait reports the classification
 - **GIVEN** a freshly spawned pane whose hooks stamp agent state during boot
 - **WHEN** `rk mux await --ready %5` runs
 - **THEN** `ready %5 (state)` prints, exit 0; **AND GIVEN** a hook-less agent
-  whose screen settles, **THEN** `ready %5 (settled)` prints, exit 0; **AND
+  whose screen settles at a live input box, **THEN** the sentinel echoes and
+  `ready %5 (echo)` prints, exit 0; **AND GIVEN** a hook-less agent settled
+  behind a wall that never echoes (a trust dialog, survey, or login wall),
+  **THEN** `parked %5` prints with the screen snippet on stderr, exit 0;
+  **AND GIVEN** the pane dies mid-wait, **THEN** `gone` prints, exit 1; **AND
   GIVEN** `--ready --until idle`, **THEN** usage error, exit 2.
 
 ### Requirement: Composed ask-and-wait (`rk mux send --await`)
@@ -856,20 +883,69 @@ watched set; the caller's set model drifts from reality).
 *Introduced by*: 260823-tqkt-mux-await-any-multi-target
 
 ### Boot readiness is a derived signal; hook-less composition is `await --ready && send --force`
-**Decision**: `--ready` waits on a derived two-signal readiness verdict
-(state-present preferred, capture-settle fallback — `inject.AwaitReady`) rather
-than a new agent-state value, reports which signal fired (`ready %N (state)` /
-`ready %N (settled)`), and is mutually exclusive with every other await
-condition including `--any`. `rk mux send` gains NO new gate mode: the
-documented hook-less composition is `await --ready` followed by `send --force`.
+**Decision**: `--ready` waits on a derived readiness verdict
+(`inject.AwaitReady`) rather than a new agent-state value: state-present is the
+preferred signal (hooks fired, so the TUI is up); for hook-less panes a settled
+screen is the trigger for a sentinel echo probe whose outcome reports
+`ready %N (state)` / `ready %N (echo)` / `parked %N`. `--ready` is mutually
+exclusive with every other await condition including `--any`. `rk mux send`
+gains NO new gate mode: the documented hook-less composition is `await --ready`
+followed by `send --force`.
 **Why**: presence of a reconciled state already proves hooks fired (the TUI is
-up) — a `ready`/`boot` state would be schema churn every reader must learn;
-`--ready` is defined for the single target pane, so a multi-target boot-wait
+up) — a `ready`/`boot` state would be schema churn every reader must learn; a
+settle-only verdict cannot distinguish a live input box from a settled wall
+(a trust dialog, survey, theme picker, or login wall is non-blank and
+byte-identical across polls while eating any delivery), and the sentinel echo
+probe closes that gap with machinery the engine already trusts; `--ready` is
+defined for the single target pane, so a multi-target boot-wait
 has no coherent report shape in the family; `--force` already exists with
 exactly the skip-the-gate meaning the hook-less path needs, and Go callers use
 the `inject.DeliverWhenReady` composite directly.
 **Rejected**: a new `ready` agent-state value (schema churn, every reader must
-learn it); a `send --when-ready` gate mode (minimal CLI surface — the shell
+learn it); reporting ready on capture-settle alone (the settle predicate is
+satisfied by exactly the parked walls it must distinguish from a live input
+box); teaching rk to recognize wall types (judgment of what the wall wants is
+caller policy — the spec's layering keeps policy out of the binary); a
+`send --when-ready` gate mode (minimal CLI surface — the shell
 composition covers it); `--ready` combinable with `--until`/`--file` (mixing
 conditions has no coherent semantics).
-*Introduced by*: 260903-4czh-boot-ready-spawn-inject
+*Introduced by*: 260903-4czh-boot-ready-spawn-inject; sentinel classification 260904-r7uk-await-ready-parked-classification
+
+### Parked is a typed error, not a Readiness value
+**Decision**: `AwaitReady` surfaces parked as a typed sentinel error carrying
+the snippet (`ParkedError` wrapping `ErrParked`, alongside `ErrNotReady`),
+never as a `Readiness` value.
+**Why**: `Readiness` means "safe to type into"; every consumer
+(`DeliverWhenReady`, kickoff, riff) branches on error-vs-nil, so an error is
+the shape that fails closed everywhere with zero signature churn.
+**Rejected**: a `Parked` Readiness value (a naive consumer would deliver into
+the wall); a third return value (churns every call site).
+*Introduced by*: 260904-r7uk-await-ready-parked-classification
+
+### Sentinel is a fixed comment-safe constant pasted via the buffer primitives
+**Decision**: the sentinel is the fixed constant `#rk-ready-probe` (a `#`
+prefix), pasted through `SetBuffer`/`PasteBuffer` under a caller-supplied
+buffer name in `ReadyOpts` (the CLI passes a per-invocation `rk-ready-<pid>`
+name; `rk-ready` is the default), never submitted (no Enter anywhere on the
+path).
+**Why**: `#` makes even a worst-case accidental submit into a cooked-mode shell
+a no-op comment; novelty counting (not entropy) provides collision soundness;
+the buffer-name parameter mirrors the engine's per-invocation-name lesson so a
+probe can never clobber a concurrent daemon/CLI send buffer.
+**Rejected**: random per-probe sentinel (novelty counting already handles
+stale text; randomness only complicates test assertions); `send-keys -l`
+literal typing (a second typing path outside the paste discipline).
+*Introduced by*: 260904-r7uk-await-ready-parked-classification
+
+### Unverified sentinel clear fails closed
+**Decision**: when `C-u` cannot restore the settled baseline within bounded
+attempts after an echo, `AwaitReady` returns an operational error (not ready,
+not parked).
+**Why**: reporting ready over a composer still holding the sentinel corrupts
+the very next delivery (`#rk-ready-probe<prompt>`); at a genuine live input box
+the clear virtually always verifies, so the fail-closed branch is a
+should-never-happen guard, matching the engine's `errComposerNotCleared`
+posture.
+**Rejected**: ready-with-stderr-warning (an automated composer like
+`DeliverWhenReady` never reads the warning).
+*Introduced by*: 260904-r7uk-await-ready-parked-classification

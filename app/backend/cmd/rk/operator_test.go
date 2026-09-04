@@ -111,7 +111,7 @@ func stubOperatorSeams(t *testing.T, listOutput string) *operatorStub {
 	origDeliver := operatorDeliverFn
 	operatorDeliverFn = func(_ context.Context, _ *inject.Engine, _ inject.Tmux, server, paneID, text string) (inject.Readiness, error) {
 		s.deliverCalls = append(s.deliverCalls, operatorDelivery{server: server, paneID: paneID, text: text})
-		return inject.ReadyBySettle, s.deliverErr
+		return inject.ReadyByEcho, s.deliverErr
 	}
 
 	origClear, origRoleRun := roleClearExceptFn, roleRunFn

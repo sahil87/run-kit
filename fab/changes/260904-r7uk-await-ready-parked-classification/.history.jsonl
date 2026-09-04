@@ -1,0 +1,13 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-04T10:14:32Z"}
+{"args":"Agent-messaging Part B: parked classification (gap 2) — sentinel echo classifier in inject.AwaitReady for rk mux await --ready; parked %N report + stderr snippet; booting never returns; standards audit + help-dump test + rk skill messaging topic updates per docs/specs/agent-messaging.md (c36cfbd8)","cmd":"fab-new","event":"command","ts":"2026-09-04T10:14:32Z"}
+{"delta":"+4.2","event":"confidence","score":4.2,"trigger":"calc-score","ts":"2026-09-04T10:17:17Z"}
+{"cmd":"fab-new","event":"command","ts":"2026-09-04T10:17:24Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-04T10:21:06Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-04T10:21:35Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-04T10:40:02Z"}
+{"event":"review","result":"failed","ts":"2026-09-04T10:47:19Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-04T10:47:19Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-04T10:53:05Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-04T10:57:47Z"}
+{"event":"review","result":"passed","ts":"2026-09-04T10:57:47Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-04T11:01:49Z"}

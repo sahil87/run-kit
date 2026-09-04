@@ -262,7 +262,9 @@ child env ([architecture](/run-kit/architecture.md) § tmux Runner Core):
    present is evidence of non-submission.
 8. **Evidence-gated recovery** — only on that non-submission verdict, send
    pane-scoped `C-u` up to `ClearAttempts = 4` until the normalized frame equals
-   the pre-paste baseline, then re-paste, re-probe, send Enter, and observe over
+   the pre-paste baseline (the shared `clearToBaseline` C-u/capture/baseline-compare
+   discipline — the readiness sentinel probe in `ready.go` clears through the same
+   helper), then re-paste, re-probe, send Enter, and observe over
    the first `SubmitRetryBackoffSteps = 3` ladder steps. `SubmitRetries = 1`.
 
 `injectIntoPane(ctx, server, paneID, text, submit bool)` is the thin adapter

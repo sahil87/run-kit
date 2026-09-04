@@ -1,0 +1,55 @@
+id: r7uk
+name: 260904-r7uk-await-ready-parked-classification
+created: 2026-09-04T10:14:32Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 8
+    acceptance_count: 15
+    acceptance_completed: 15
+confidence:
+    certain: 5
+    confident: 4
+    tentative: 1
+    unresolved: 0
+    score: 4.2
+    fuzzy: true
+    dimensions:
+        signal: 75.0
+        reversibility: 77.0
+        competence: 82.0
+        disambiguation: 78.0
+stage_metrics:
+    intake: {started_at: "2026-09-04T10:14:32Z", driver: fab-new, iterations: 1, completed_at: "2026-09-04T10:21:35Z"}
+    apply: {started_at: "2026-09-04T10:47:19Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-04T10:53:05Z"}
+    review: {started_at: "2026-09-04T10:53:05Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-04T10:57:47Z"}
+    hydrate: {started_at: "2026-09-04T10:57:47Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T11:01:49Z"}
+    ship: {started_at: "2026-09-04T11:01:49Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-04T11:01:49Z"
+    computed_at_stage: hydrate
+summary: 'AwaitReady settle fallback replaced by sentinel echo classification: ready (echo), typed parked error with stderr snippet, gone predicate, shared clearToBaseline'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-04T11:01:49Z

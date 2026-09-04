@@ -659,7 +659,7 @@ func TestMuxAwaitReadyReports(t *testing.T) {
 		want      string
 	}{
 		{"state signal", inject.ReadyByState, "ready %5 (state)\n"},
-		{"settle signal", inject.ReadyBySettle, "ready %5 (settled)\n"},
+		{"echo signal", inject.ReadyByEcho, "ready %5 (echo)\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := stubAwaitReady(t, tc.readiness, nil)
@@ -674,6 +674,57 @@ func TestMuxAwaitReadyReports(t *testing.T) {
 				t.Errorf("wait call = (pane %q, timeout %s), want (%%5, 120s)", rec.pane, rec.timeout)
 			}
 		})
+	}
+}
+
+// TestMuxAwaitReadyParked: a settled pane behind a wall (the sentinel never
+// echoed) reports `parked %N` on stdout with the screen snippet on stderr,
+// exit 0 (classification succeeded — a report, not a failure), and --notify
+// fires on the report.
+func TestMuxAwaitReadyParked(t *testing.T) {
+	f := &muxFake{}
+	installMuxFakes(t, f)
+	stubAwaitReady(t, 0, &inject.ParkedError{Snippet: "Do you trust this folder?"})
+	s := &awaitScript{goneAt: -1}
+	origDeps := muxAwaitDepsFn
+	muxAwaitDepsFn = func(string) awaitDeps { return s.deps(t) }
+	t.Cleanup(func() { muxAwaitDepsFn = origDeps })
+
+	stdout, stderr, err := runMuxCmd(t, "await", "%5", "--ready", "--notify")
+	if err != nil {
+		t.Fatalf("err = %v, want nil (parked is a report, not a failure)", err)
+	}
+	if stdout != "parked %5\n" {
+		t.Errorf("stdout = %q, want the parked report", stdout)
+	}
+	if !strings.Contains(stderr, "Do you trust this folder?") {
+		t.Errorf("stderr = %q, want the screen snippet", stderr)
+	}
+	if len(s.notified) != 1 || s.notified[0] != "agent %5 is parked" {
+		t.Errorf("notify = %v, want the default-derived message", s.notified)
+	}
+}
+
+// TestMuxAwaitReadyGone: the pane dying mid-wait reports `gone` on stdout with
+// an operational error (exit 1), and --notify still fires on the report.
+func TestMuxAwaitReadyGone(t *testing.T) {
+	f := &muxFake{}
+	installMuxFakes(t, f)
+	stubAwaitReady(t, 0, fmt.Errorf("%w: can't find pane: %%5", inject.ErrGone))
+	s := &awaitScript{goneAt: -1}
+	origDeps := muxAwaitDepsFn
+	muxAwaitDepsFn = func(string) awaitDeps { return s.deps(t) }
+	t.Cleanup(func() { muxAwaitDepsFn = origDeps })
+
+	stdout, _, err := runMuxCmd(t, "await", "%5", "--ready", "--notify")
+	if err == nil || exitCode(err) != 1 {
+		t.Fatalf("err = %v, want exit 1", err)
+	}
+	if stdout != "gone\n" {
+		t.Errorf("stdout = %q, want the gone report", stdout)
+	}
+	if len(s.notified) != 1 || s.notified[0] != "agent %5 is gone" {
+		t.Errorf("notify = %v, want the default-derived message", s.notified)
 	}
 }
 

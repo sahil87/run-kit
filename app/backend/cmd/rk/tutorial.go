@@ -66,7 +66,7 @@ var tutorialCmd = &cobra.Command{
 	Use:   "tutorial [--tier <role>]",
 	Short: "Open the guided tour — an agent-run tutorial tab in this session",
 	Long: `Open the run-kit guided tour: a window named 'tutorial' in the current
-tmux session, running an agent that walks you through run-kit act by act.
+tmux session, running an agent that walks you through run-kit chapter by chapter.
 
 The agent launcher is resolved for the --tier fab role via 'fab agent <tier>
 --print'; when fab is absent or resolution fails, the plain default launcher

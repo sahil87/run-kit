@@ -790,8 +790,10 @@ shll PR #47). run-kit ships four topic pages: `code`, `display`, `mux`, and
 `TestSkillTopicsMatchCanonical` / `TestSkillTopicsWithinLineBudget` guards; the
 command cases in `TestSkillTopicsPrintByteIdentical` pin the stdout contract.
 The tutorial uses a bidirectional page↔companion guard:
-`TestTutorialPagesMatchTopic` requires every `tutorial/ch*.html` reference to
-exist under `app/frontend/public/tutorial/` and rejects orphan companion pages;
+`TestTutorialPagesMatchTopic` requires the topic to reference the single
+companion page `tutorial/tutorial.html` at each of its five chapter hashes
+(`#ch1`–`#ch5`), requires that page to exist under
+`app/frontend/public/tutorial/`, and rejects any other `.html` file there;
 `TestTutorialLayoutValuesParse` checks the tour's layout and surface literals.
 The standard's fail-fast rule holds: an **unknown topic** exits usage-class (2)
 via the `usageError` helper with all four valid topics named on stderr and

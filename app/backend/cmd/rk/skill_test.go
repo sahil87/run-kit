@@ -126,10 +126,12 @@ func TestTutorialPagesMatchTopic(t *testing.T) {
 		t.Fatalf("read canonical %s: %v", canonicalPath, err)
 	}
 
-	pagePattern := regexp.MustCompile(regexp.QuoteMeta(tutorialPublicPath) + `(ch\d-[a-z-]+\.html)`)
-	referenced := make(map[string]bool)
-	for _, match := range pagePattern.FindAllSubmatch(canonical, -1) {
-		referenced[string(match[1])] = true
+	const tutorialPageName = "tutorial.html"
+	for _, hash := range []string{"#ch1", "#ch2", "#ch3", "#ch4", "#ch5"} {
+		ref := tutorialPublicPath + tutorialPageName + hash
+		if !bytes.Contains(canonical, []byte(ref)) {
+			t.Errorf("topic does not reference tutorial chapter %s", ref)
+		}
 	}
 
 	publicDir := filepath.Join("..", "..", "..", "..", "app", "frontend", "public", strings.TrimSuffix(tutorialPublicPath, "/"))
@@ -137,22 +139,19 @@ func TestTutorialPagesMatchTopic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read tutorial pages %s: %v", publicDir, err)
 	}
-	shipped := make(map[string]bool)
+	seen := false
 	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".html") {
-			shipped[entry.Name()] = true
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".html") {
+			continue
 		}
+		if entry.Name() == tutorialPageName {
+			seen = true
+			continue
+		}
+		t.Errorf("tutorial page %s is not referenced by the topic", entry.Name())
 	}
-
-	for name := range referenced {
-		if !shipped[name] {
-			t.Errorf("topic references missing tutorial page %s", name)
-		}
-	}
-	for name := range shipped {
-		if !referenced[name] {
-			t.Errorf("tutorial page %s is not referenced by the topic", name)
-		}
+	if !seen {
+		t.Errorf("tutorial page %s missing from %s", tutorialPageName, publicDir)
 	}
 }
 

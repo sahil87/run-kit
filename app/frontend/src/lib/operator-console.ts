@@ -33,9 +33,9 @@ export type OperatorConsoleRequest = {
   /** Pin the console to this server (the sidebar pinned row passes its own
    *  server's name). Absent = resolve from the route/server list. */
   server?: string;
-  /** Text to deliver immediately on open (the palette fallback row's query).
-   *  Dropped unsent when the resolved server has no operator window — the
-   *  console's hint line is the answer there. */
+  /** Text to deliver on open, once the operator window resolves (the sessions
+   *  slice can lag the open). Never delivered when the resolved server has no
+   *  operator window — the console's hint line is the answer there. */
   send?: string;
 };
 

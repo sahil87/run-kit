@@ -154,15 +154,20 @@ export function OperatorConsole() {
   const deliverRef = useRef(deliver);
   deliverRef.current = deliver;
 
-  // The palette fallback row's pre-filled query: sent immediately once the
-  // console is open and the operator window resolves. Dropped unsent when the
-  // server has no operator — the hint line is the answer there.
+  // The palette fallback row's pre-filled query: sent once the console is open
+  // AND the operator window resolves — the sessions slice can lag the open, so
+  // the send waits for `target` instead of being dropped. A genuinely
+  // operator-less server never resolves it (the hint line is the answer
+  // there), and closing the console abandons it: the send is scoped to the
+  // open it arrived with.
   useEffect(() => {
-    if (!open || pendingSend == null) return;
+    if (!open || pendingSend == null || !target) return;
     setPendingSend(null);
-    if (!target) return;
     void deliverRef.current(pendingSend);
   }, [open, pendingSend, target]);
+  useEffect(() => {
+    if (!open) setPendingSend(null);
+  }, [open]);
 
   if (!open) return null;
 

@@ -430,9 +430,10 @@ function AppLayoutContent() {
 function LayoutCommandPalette() {
   const allActions = usePaletteActions();
   // The Ask-operator fallback row's availability gate: resolve the console's
-  // server context (route server, else sole/first listed) and check its
-  // sessions payload for an operator window. Servers with no attached
-  // sessions slice resolve operator-less — the row is omitted, not disabled.
+  // server context (route server, else sole/last-viewed/first listed) and
+  // check its sessions payload for an operator window. Servers with no
+  // attached sessions slice resolve operator-less — the row is omitted, not
+  // disabled.
   const { servers, sessionsByServer } = useSessionContext();
   const matches = useMatches();
   let routeServer: string | null = null;
@@ -443,7 +444,12 @@ function LayoutCommandPalette() {
       break;
     }
   }
-  const consoleServer = resolveConsoleServer(routeServer, servers.map((s) => s.name), null);
+  // Most-recently-viewed server — the same ephemeral rule the console itself
+  // applies (operator-console.tsx); passing null here would resolve the FIRST
+  // listed server on Host/Board while the console opens on the last-viewed.
+  const lastViewedRef = useRef<string | null>(null);
+  if (routeServer) lastViewedRef.current = routeServer;
+  const consoleServer = resolveConsoleServer(routeServer, servers.map((s) => s.name), lastViewedRef.current);
   const hasOperator =
     consoleServer !== null &&
     findOperatorWindow(sessionsByServer.get(consoleServer) ?? []) !== undefined;

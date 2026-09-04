@@ -82,7 +82,7 @@ func (f *fakeTmux) ClearPaneMode(_ context.Context, _ string, _ string) error {
 	return f.clearModeErr
 }
 
-func (f *fakeTmux) CapturePane(_ context.Context, _ string, _ int, _ string) (string, error) {
+func (f *fakeTmux) CapturePane(_ context.Context, _ string, lines int, _ string) (string, error) {
 	f.record("capture-pane")
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -98,9 +98,24 @@ func (f *fakeTmux) CapturePane(_ context.Context, _ string, _ int, _ string) (st
 	if len(f.captureResults) > 0 {
 		r := f.captureResults[0]
 		f.captureResults = f.captureResults[1:]
-		return r, nil
+		return tailLines(r, lines), nil
 	}
-	return f.captureResult, nil
+	return tailLines(f.captureResult, lines), nil
+}
+
+// tailLines simulates capture-pane's tail-depth window: the last `lines`
+// newline-separated rows of the pane content. The depth is observable so tests
+// can pin the single-capture-depth invariant the settle/probe/clear
+// comparisons depend on.
+func tailLines(s string, lines int) string {
+	if lines <= 0 {
+		return s
+	}
+	rows := strings.Split(s, "\n")
+	if len(rows) <= lines {
+		return s
+	}
+	return strings.Join(rows[len(rows)-lines:], "\n")
 }
 
 func (f *fakeTmux) SetBuffer(_ context.Context, name, text, _ string) error {

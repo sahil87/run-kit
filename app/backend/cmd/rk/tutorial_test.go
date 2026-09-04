@@ -90,7 +90,7 @@ func stubTutorialSeams(t *testing.T, listOutput string) *tutorialStub {
 	}
 	tutorialDeliverFn = func(_ context.Context, _ *inject.Engine, _ inject.Tmux, server, paneID, text string) (inject.Readiness, error) {
 		s.deliverCalls = append(s.deliverCalls, tutorialDelivery{server: server, paneID: paneID, text: text})
-		return inject.ReadyBySettle, s.deliverErr
+		return inject.ReadyByEcho, s.deliverErr
 	}
 	t.Cleanup(func() {
 		tutorialOriginalTMUXFn = origTMUX

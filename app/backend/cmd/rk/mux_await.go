@@ -41,10 +41,20 @@ import (
 //
 // --ready is the boot-readiness condition (inject.AwaitReady): wait until a
 // freshly spawned pane is safe to type into — its reconciled agent state is
-// present (hooks fired ⇒ the TUI is up) or, for hook-less agents, its screen
-// has settled. Reports "ready %N (state)" / "ready %N (settled)"; mutually
-// exclusive with --until/--file/--after-active/--any (usage error, exit 2);
-// --timeout expiry keeps the family contract ("running", exit 0).
+// present (hooks fired ⇒ the TUI is up) or, for hook-less agents, a settled
+// screen is classified by a sentinel echo probe: a harmless sentinel is pasted
+// into the pane, an echo means a live input box, and no echo on a settled
+// non-blank screen means the pane is parked behind a wall (a trust dialog,
+// survey, or login wall that would eat a delivery). Reports "ready %N
+// (state)" / "ready %N (echo)" / "parked %N" (exit 0, the screen snippet on
+// stderr — classification is rk's, judging what the wall wants is the
+// caller's); mutually exclusive with --until/--file/--after-active/--any
+// (usage error, exit 2); --timeout expiry keeps the family contract
+// ("running", exit 0), and a pane death mid-wait reports "gone" (exit 1). The
+// sentinel is typed only into PRE-DELIVERY panes (no agent state yet, nothing
+// delivered — state is re-checked before every probe); against a live
+// delivered worker readiness verbs are illegal — use --until / capture.
+// `parked` exits 0, so `&&`-composers must branch on the report word.
 
 // awaitCmdTimeout caps each tmux read the observer performs (Constitution §I:
 // 5-10s for short-lived tmux helpers).
@@ -82,10 +92,19 @@ var muxAwaitCmd = &cobra.Command{
 		"the signal fires.\n\n" +
 		"--ready instead waits for BOOT readiness — the moment a freshly spawned " +
 		"agent is safe to type into: the pane's agent state is present (its hooks " +
-		"fired) or, for hook-less agents, its screen has stopped changing. It " +
-		"reports `ready %N (state)` or `ready %N (settled)` and cannot combine " +
-		"with --until/--file/--after-active/--any. Composition for hook-less " +
-		"agents: `rk mux await --ready %5 && rk mux send --force %5 '<prompt>'`.\n\n" +
+		"fired) or, for hook-less agents, a settled screen is classified by a " +
+		"sentinel echo probe — a harmless sentinel is pasted into the pane; an " +
+		"echo means a live input box (`ready %N (echo)`), and no echo on a " +
+		"settled non-blank screen means the pane is parked behind a wall " +
+		"(`parked %N`, exit 0, the screen snippet on stderr so the caller can " +
+		"judge what the wall wants). It reports `ready %N (state)`, `ready %N " +
+		"(echo)`, or `parked %N` and cannot combine with " +
+		"--until/--file/--after-active/--any. The sentinel is typed only into " +
+		"pre-delivery panes (no agent state yet, nothing delivered) — against a " +
+		"live delivered worker, use `await --until` / `capture` instead. " +
+		"Composition for hook-less agents: `rk mux await --ready %5 && rk mux " +
+		"send --force %5 '<prompt>'` — `parked` also exits 0, so `&&`-composers " +
+		"must branch on the report word.\n\n" +
 		"With --any the target is one-or-more panes and the observer wakes on the " +
 		"FIRST to fire: state reports append the firing pane (`waiting %5`), a " +
 		"death reports `gone %N` (exit 1) when no signal fired that sweep, and " +
@@ -115,7 +134,7 @@ func init() {
 	muxAwaitCmd.Flags().BoolVar(&awaitAnyFlag, "any", false,
 		"Accept one-or-more targets and wake on the FIRST to fire (report appends the firing pane)")
 	muxAwaitCmd.Flags().BoolVar(&awaitReadyFlag, "ready", false,
-		"Wait until the pane is boot-ready for typed input (agent state present, else a settled screen)")
+		"Wait until the pane is boot-ready for typed input (agent state present, else a sentinel echo probe: echo = ready, no echo = parked)")
 }
 
 // awaitDeps are the observer's test seams (the present.go pattern): the
@@ -264,12 +283,18 @@ func runMuxAwait(cmd *cobra.Command, args []string) error {
 }
 
 // muxAwaitReadyFn is the --ready wait seam (the muxAwaitDepsFn pattern):
-// production waits via inject.AwaitReady with the reconciled state reader and
-// per-read bounds; tests substitute a fake. A --timeout of 0 (indefinite, the
-// family contract) re-arms the bounded primitive after each ErrNotReady pass;
+// production waits via inject.AwaitReady with the reconciled state reader, the
+// "can't find pane" gone predicate (the muxReadPaneState mapping), a
+// per-invocation sentinel buffer name, and per-read bounds; tests substitute a
+// fake. A --timeout of 0 (indefinite, the family contract) re-arms the bounded
+// primitive after each ErrNotReady pass; parked and gone break the loop, and
 // any other timeout becomes the wait's deadline.
 var muxAwaitReadyFn = func(ctx context.Context, server, paneID string, timeout time.Duration) (inject.Readiness, error) {
-	opts := inject.ReadyOpts{State: boundedPaneAgentState}
+	opts := inject.ReadyOpts{
+		State:      boundedPaneAgentState,
+		IsGone:     func(err error) bool { return strings.Contains(err.Error(), "can't find pane") },
+		BufferName: muxReadyBufferNameFn(),
+	}
 	if timeout > 0 {
 		opts.Deadline = timeout
 	}
@@ -284,6 +309,11 @@ var muxAwaitReadyFn = func(ctx context.Context, server, paneID string, timeout t
 	}
 }
 
+// muxReadyBufferNameFn derives the sentinel probe's per-invocation buffer name
+// (the muxBufferNameFn pattern) so a probe never clobbers a concurrent send
+// buffer. A var SOLELY so tests can pin it.
+var muxReadyBufferNameFn = func() string { return fmt.Sprintf("rk-ready-%d", os.Getpid()) }
+
 // boundedPaneAgentState is the --ready state reader: the reconciled
 // @rk_pane_agent_state, each read under its own short timeout (the await
 // observer's per-read discipline — the wait itself may run unbounded).
@@ -293,9 +323,11 @@ func boundedPaneAgentState(ctx context.Context, paneID, server string) (string, 
 	return tmux.PaneAgentState(rctx, paneID, server)
 }
 
-// awaitReadyTmux bounds each readiness capture under its own short timeout.
-// The remaining inject.Tmux primitives delegate to the CLI's shared adapter —
-// unused by AwaitReady, exercised when the same adapter feeds a delivery.
+// awaitReadyTmux bounds each readiness capture AND sentinel-probe primitive
+// (the probe pastes and C-u-clears through SetBuffer/PasteBuffer/SendKeys)
+// under its own short timeout. SendEnter and PasteBufferRaw delegate to the
+// CLI's shared adapter — unused by AwaitReady, exercised when the same adapter
+// feeds a delivery.
 type awaitReadyTmux struct{ cliInjectTmux }
 
 func (awaitReadyTmux) CapturePane(ctx context.Context, paneID string, lines int, server string) (string, error) {
@@ -304,27 +336,62 @@ func (awaitReadyTmux) CapturePane(ctx context.Context, paneID string, lines int,
 	return tmux.CapturePaneCtx(rctx, paneID, lines, server)
 }
 
+func (a awaitReadyTmux) SetBuffer(ctx context.Context, name, text, server string) error {
+	rctx, cancel := context.WithTimeout(ctx, awaitCmdTimeout)
+	defer cancel()
+	return a.cliInjectTmux.SetBuffer(rctx, name, text, server)
+}
+
+func (a awaitReadyTmux) PasteBuffer(ctx context.Context, name, paneID, server string) error {
+	rctx, cancel := context.WithTimeout(ctx, awaitCmdTimeout)
+	defer cancel()
+	return a.cliInjectTmux.PasteBuffer(rctx, name, paneID, server)
+}
+
+func (a awaitReadyTmux) SendKeys(ctx context.Context, paneID, server string, keys ...string) error {
+	rctx, cancel := context.WithTimeout(ctx, awaitCmdTimeout)
+	defer cancel()
+	return a.cliInjectTmux.SendKeys(rctx, paneID, server, keys...)
+}
+
 // runMuxAwaitReady runs the --ready condition: block until the target pane is
-// boot-ready, report which signal fired (`ready %N (state)` / `ready %N
-// (settled)`), and honor the family's timeout report (`running`, exit 0) and
-// --notify machinery.
+// boot-ready, report the outcome (`ready %N (state)` / `ready %N (echo)` /
+// `parked %N` — exit 0, with the parked screen snippet on stderr so the caller
+// can judge what the wall wants; `gone` — exit 1), and honor the family's
+// timeout report (`running`, exit 0) and --notify machinery (fired on every
+// report, fail-silent per the rk notify contract).
 func runMuxAwaitReady(cmd *cobra.Command, parent context.Context, server, paneID string, deps awaitDeps) error {
 	timeout := time.Duration(awaitTimeoutFlag) * time.Second
 	readiness, err := muxAwaitReadyFn(parent, server, paneID, timeout)
 
 	sink := newSink(cmd)
 	var line string
+	var reportErr error
 	switch {
 	case err == nil:
 		signal := "state"
-		if readiness == inject.ReadyBySettle {
-			signal = "settled"
+		if readiness == inject.ReadyByEcho {
+			signal = "echo"
 		}
 		line = fmt.Sprintf("ready %s (%s)", paneID, signal)
 	case errors.Is(err, inject.ErrNotReady):
 		// The family's timeout contract: `running` is a report, not a failure.
 		line = "running"
-		err = nil
+	case errors.Is(err, inject.ErrParked):
+		// Parked is wake-worthy and returns immediately: the caller must act.
+		// Classification succeeded, so this is a report (exit 0), not a
+		// failure; the snippet rides stderr as diagnostics. The snippet is
+		// the caller's evidence for judging the wall, so it is written
+		// ungated — --quiet drops chatter, never actionable diagnostics.
+		var parked *inject.ParkedError
+		if errors.As(err, &parked) && parked.Snippet != "" {
+			fmt.Fprintf(cmd.ErrOrStderr(), "%s\n", parked.Snippet)
+		}
+		line = fmt.Sprintf("parked %s", paneID)
+	case errors.Is(err, inject.ErrGone):
+		// The family's death contract: report `gone`, exit 1 with diagnostics.
+		line = "gone"
+		reportErr = err
 	default:
 		return err
 	}
@@ -337,7 +404,7 @@ func runMuxAwaitReady(cmd *cobra.Command, parent context.Context, server, paneID
 		}
 		deps.notify(parent, "", msg)
 	}
-	return nil
+	return reportErr
 }
 
 // awaitParams are the observer's inputs, already flag-validated.

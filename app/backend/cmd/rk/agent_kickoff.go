@@ -23,11 +23,13 @@ type kickoffDeliverFn = func(ctx context.Context, engine *inject.Engine, t injec
 
 // deliverAgentKickoff hands a kickoff prompt to the shared inject composite:
 // inject.DeliverWhenReady waits for boot readiness (agent state present, else
-// a settled screen) and then runs the engine's verified send (named-buffer
-// bracketed paste, echo probe, probe-gated Enter). The CLI's per-invocation
-// buffer (rk-send-<pid>, the `rk mux send` pattern) keeps a kickoff delivery
-// from ever clobbering a concurrent daemon/mux-send buffer. The returned error
-// is informational — callers degrade, it never fails the command.
+// a sentinel echo probe classifies the settled screen — a parked verdict is an
+// error, so a walled pane is never delivered into) and then runs the engine's
+// verified send (named-buffer bracketed paste, echo probe, probe-gated
+// Enter). The CLI's per-invocation buffer (rk-send-<pid>, the `rk mux send`
+// pattern) keeps a kickoff delivery from ever clobbering a concurrent
+// daemon/mux-send buffer. The returned error is informational — callers
+// degrade, it never fails the command.
 func deliverAgentKickoff(parent context.Context, deliver kickoffDeliverFn, originalTMUX, paneID, prompt string, deadline, cmdTimeout time.Duration) error {
 	// The context outlives the readiness wait by one command timeout so the
 	// engine's own bounded subprocesses still fit after a slow boot.

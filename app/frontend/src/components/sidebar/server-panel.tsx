@@ -303,6 +303,10 @@ function ServerTile({
   const popoverPos = useAnchoredPopoverPos(showColorPicker, tileAnchorRef);
   const flyout = useRowFlyout({
     suppressed: coarse || showColorPicker,
+    // Tiles sit in a multi-column grid, not full-bleed like rows: without the
+    // edge anchor the card opens mid-panel over sibling tiles, and the pointer
+    // path to it would hover-steal across them.
+    edgeAnchor: true,
     content: ({ close }) => (
       <ServerCardContent
         server={name}

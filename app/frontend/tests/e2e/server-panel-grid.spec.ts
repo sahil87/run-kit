@@ -106,6 +106,47 @@ test.describe("Server Panel Tile Grid", () => {
   });
 
   /**
+   * Proves: hovering a server tile opens the shared server card at the
+   * sidebar's right edge — over the terminal area, vertically aligned to the
+   * hovered tile — never on top of the tile grid. Tiles are grid cells, not
+   * full-bleed rows, so without the edge-anchored position reference the card
+   * would open mid-panel and cover sibling tiles.
+   *
+   * Steps:
+   * 1. Set viewport 1024×768; navigate to `/${TMUX_SERVER}` and wait for
+   *    `Connected`.
+   * 2. Hover the e2e server's tile; wait for the flyout card.
+   * 3. Assert the card's left edge sits at/right of BOTH the sidebar's right
+   *    edge and the grid's right edge (no tile can be covered).
+   * 4. Assert the card vertically overlaps the hovered tile's y-band and the
+   *    notch's y-center sits inside it (the "whose card is this" cue).
+   */
+  test("Desktop: tile card opens at the sidebar's right edge, never over the grid", async ({ page }) => {
+    await page.setViewportSize(DESKTOP_VIEWPORT);
+    await gotoServerReady(page, TMUX_SERVER);
+
+    const grid = page.getByRole("listbox", { name: /Tmux servers/ });
+    const tile = grid.getByRole("option", { name: new RegExp(TMUX_SERVER) });
+    await tile.hover();
+    const card = page.getByTestId("row-flyout-card");
+    await expect(card).toBeVisible();
+
+    const asideBox = (await page.locator('aside[aria-label="Sidebar"]').boundingBox())!;
+    const gridBox = (await grid.boundingBox())!;
+    const tileBox = (await tile.boundingBox())!;
+    const cardBox = (await card.boundingBox())!;
+    expect(cardBox.x).toBeGreaterThanOrEqual(asideBox.x + asideBox.width - 1);
+    expect(cardBox.x).toBeGreaterThanOrEqual(gridBox.x + gridBox.width - 1);
+    expect(cardBox.y).toBeLessThan(tileBox.y + tileBox.height + 8);
+    expect(cardBox.y + cardBox.height).toBeGreaterThan(tileBox.y - 8);
+
+    const arrowBox = (await page.getByTestId("row-flyout-arrow").boundingBox())!;
+    const arrowCenterY = arrowBox.y + arrowBox.height / 2;
+    expect(arrowCenterY).toBeGreaterThanOrEqual(tileBox.y - 1);
+    expect(arrowCenterY).toBeLessThanOrEqual(tileBox.y + tileBox.height + 1);
+  });
+
+  /**
    * Proves: on a 375×812 viewport, the tile grid does not wrap into multiple
    * rows — it lays out as a single horizontal strip with `overflow-x: auto`.
    *

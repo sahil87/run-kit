@@ -857,6 +857,21 @@ type UseRowFlyoutOptions = {
    *  includes its coarse-pointer flag here, so the card stays a fine-pointer
    *  hover/focus surface there. */
   suppressed?: boolean;
+  /** Opt-in for a reference that is NOT full-bleed to the sidebar width (the
+   *  SERVER panel tile — a multi-column grid cell). `placement: "right"`
+   *  assumes "right of the reference" is the sidebar's right edge; a mid-panel
+   *  reference would open the card on top of its grid siblings. The flag
+   *  (a) positions against a virtual reference — the reference's y-band at the
+   *  sidebar container's right x, derived at position time (never lifted
+   *  state) — so the card opens where the full-bleed rows' cards open, and
+   *  (b) switches the hover-close polygon to `blockPointerEvents`, so grid
+   *  siblings crossed en route to the card fire no hover-open (the warm
+   *  window would otherwise let a crossed cell steal the single-open card;
+   *  a pointer that STOPS on a sibling still retargets — a stalled pointer
+   *  collapses the polygon, unblocking events). Events stay bound to the real
+   *  reference node; the coarse arm is unaffected (the one consumer is
+   *  fine-pointer-only via `suppressed`). */
+  edgeAnchor?: boolean;
   /** The tier's card content, built ONLY while the card is open (the
    *  card-mounts-only-while-open perf contract). Receives `close` so action
    *  rows that hand off to a row popover can run the close-then-open idiom
@@ -903,7 +918,45 @@ type RowFlyout = {
  * tap/scrub stays the one coarse trigger), `useDismiss` (Escape / outside
  * press / blur), plus the exposed `openNow` for the coarse rail/dot tap.
  */
-export function useRowFlyout({ suppressed = false, content }: UseRowFlyoutOptions) {
+/** The sidebar root the `edgeAnchor` virtual reference measures against — the
+ *  full-sidebar-width ancestor whose right edge IS the fixed x every
+ *  full-bleed row hands `placement: "right"` (sidebar/index.tsx renders every
+ *  flyout consumer inside this `<nav>`). Resolved per positioning pass via
+ *  `closest()` from the reference node; a reference outside it falls back to
+ *  its own rect (today's geometry). */
+export const EDGE_ANCHOR_CONTAINER_SELECTOR = 'nav[aria-label="Sessions"]';
+
+/** floating-ui virtual position reference for `edgeAnchor`: the reference
+ *  node's y-band at the sidebar container's right x (degenerate width-0 rect —
+ *  the same geometry class a full-bleed row's right edge gives). Both rects
+ *  are read inside `getBoundingClientRect` so the position is derived at
+ *  measure time; `contextElement` keeps `autoUpdate` observing a real node. */
+export function edgeAnchorReference(node: HTMLElement) {
+  return {
+    contextElement: node,
+    getBoundingClientRect() {
+      const rect = node.getBoundingClientRect();
+      const container = node.closest(EDGE_ANCHOR_CONTAINER_SELECTOR);
+      // No container ancestor: today's geometry verbatim — the node's own
+      // full rect, exactly as if the opt-in were absent (a width-0 rect here
+      // would still alter rects.reference for middleware).
+      if (!container) return rect;
+      const x = container.getBoundingClientRect().right;
+      return {
+        x,
+        y: rect.y,
+        top: rect.top,
+        bottom: rect.bottom,
+        height: rect.height,
+        left: x,
+        right: x,
+        width: 0,
+      };
+    },
+  };
+}
+
+export function useRowFlyout({ suppressed = false, edgeAnchor = false, content }: UseRowFlyoutOptions) {
   const [open, setOpen] = useState(false);
   // True once keyboard focus has entered the OPEN card (Tab from the row).
   // Gates FloatingFocusManager's `returnFocus`: a close where focus was
@@ -1054,7 +1107,11 @@ export function useRowFlyout({ suppressed = false, content }: UseRowFlyoutOption
     // Function form — evaluated at event time against the module-scoped warm
     // window, so sweeping between rows retargets instantly.
     delay: flyoutOpenDelay,
-    handleClose: safePolygon(),
+    // Under `edgeAnchor` the polygon corridor (reference → card at the sidebar
+    // edge) crosses sibling grid cells; blocking pointer events inside it keeps
+    // a crossed cell's hover-open (instant while warm) from stealing the
+    // single-open card mid-travel.
+    handleClose: safePolygon(edgeAnchor ? { blockPointerEvents: true } : undefined),
   });
   const focus = useFocus(context, { enabled: !suppressed });
   const dismiss = useDismiss(context);
@@ -1078,9 +1135,14 @@ export function useRowFlyout({ suppressed = false, content }: UseRowFlyoutOption
   const setReference = useCallback(
     (node: HTMLElement | null) => {
       refs.setReference(node);
+      // Positioning splits from events only under `edgeAnchor`: events stay on
+      // the real node (hover/focus/dismiss), position tracks the sidebar-edge
+      // virtual rect. Elsewhere the events reference doubles as the position
+      // reference, as before.
+      refs.setPositionReference(edgeAnchor && node ? edgeAnchorReference(node) : node);
       setReferenceEl(node);
     },
-    [refs],
+    [refs, edgeAnchor],
   );
 
   // Scrub registry: this row's imperative open keyed by its root element.

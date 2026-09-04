@@ -21,7 +21,7 @@ import (
 
 // Tmux is the tmux substrate the engine needs — context-bound primitives.
 // The daemon adapts its TmuxOps seam onto this (buffer name fixed to
-// ChatSendBuffer); the CLI adapts internal/tmux's name-parameterized buffer
+// AgentSendBuffer); the CLI adapts internal/tmux's name-parameterized buffer
 // functions (per-invocation buffer names).
 type Tmux interface {
 	CapturePane(ctx context.Context, paneID string, lines int, server string) (string, error)
@@ -173,7 +173,7 @@ type Engine struct {
 }
 
 // NewEngine returns an engine bound to a named buffer. The daemon passes
-// tmux.ChatSendBuffer; the CLI passes its per-invocation rk-send-<pid> name.
+// tmux.AgentSendBuffer; the CLI passes its per-invocation rk-send-<pid> name.
 func NewEngine(buffer string) *Engine {
 	return &Engine{buffer: buffer, paneLocks: make(map[string]*sync.Mutex)}
 }

@@ -132,9 +132,9 @@ type TmuxOps interface {
 	// the caller's context so the handler threads one shared deadline across
 	// paste, submit verification, and recovery rather than granting each
 	// subprocess its own timeout.
-	SetChatSendBuffer(ctx context.Context, text, server string) error
-	PasteChatSendBuffer(ctx context.Context, paneID, server string) error
-	PasteChatSendBufferRaw(ctx context.Context, paneID, server string) error
+	SetAgentSendBuffer(ctx context.Context, text, server string) error
+	PasteAgentSendBuffer(ctx context.Context, paneID, server string) error
+	PasteAgentSendBufferRaw(ctx context.Context, paneID, server string) error
 	SendEnterToPane(ctx context.Context, paneID, server string) error
 	CapturePane(ctx context.Context, paneID string, lines int, server string) (string, error)
 	// CaptureWindowHistory serves GET /api/windows/{windowId}/history: the full
@@ -536,14 +536,14 @@ func (p *prodTmuxOps) PinBoard(ctx context.Context, server, windowID, board stri
 func (p *prodTmuxOps) UnpinBoard(ctx context.Context, server, windowID, board string) error {
 	return tmux.Unpin(ctx, server, windowID, board)
 }
-func (p *prodTmuxOps) SetChatSendBuffer(ctx context.Context, text, server string) error {
-	return tmux.SetChatSendBufferCtx(ctx, text, server)
+func (p *prodTmuxOps) SetAgentSendBuffer(ctx context.Context, text, server string) error {
+	return tmux.SetAgentSendBufferCtx(ctx, text, server)
 }
-func (p *prodTmuxOps) PasteChatSendBuffer(ctx context.Context, paneID, server string) error {
-	return tmux.PasteChatSendBufferCtx(ctx, paneID, server)
+func (p *prodTmuxOps) PasteAgentSendBuffer(ctx context.Context, paneID, server string) error {
+	return tmux.PasteAgentSendBufferCtx(ctx, paneID, server)
 }
-func (p *prodTmuxOps) PasteChatSendBufferRaw(ctx context.Context, paneID, server string) error {
-	return tmux.PasteChatSendBufferRawCtx(ctx, paneID, server)
+func (p *prodTmuxOps) PasteAgentSendBufferRaw(ctx context.Context, paneID, server string) error {
+	return tmux.PasteAgentSendBufferRawCtx(ctx, paneID, server)
 }
 func (p *prodTmuxOps) SendEnterToPane(ctx context.Context, paneID, server string) error {
 	return tmux.SendEnterToPaneCtx(ctx, paneID, server)

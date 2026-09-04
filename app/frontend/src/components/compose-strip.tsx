@@ -65,7 +65,7 @@ import {
  * user can tell which mode owns the draft before sending. Broadcast is
  * SUBMIT-ONLY (a cross-server recipient set has no single pane to address for
  * insert/raw and no shared worktree for upload), so it takes the classifier's
- * `"chat"` policy — plain Enter is a local
+ * `"broadcast"` policy — plain Enter is a local
  * newline, Cmd/Ctrl+Enter is the sole submit, and `enterkeyhint` says so — and
  * a submit that reached NO recipient (0 of N) keeps the composed draft.
  *
@@ -700,7 +700,7 @@ export function ComposeStrip({
     // do not intercept — the textarea inserts a
     // newline (Shift+Enter, IME composition, non-Enter keys).
     //
-    // Selection broadcast takes the "chat" policy for the classifier's own
+    // Selection broadcast takes the "broadcast" policy for the classifier's own
     // stated reason: insert-line exists because the strip overlays the VISIBLE
     // pane a staged line lands in, and a frozen cross-server recipient set has
     // no such pane. Plain Enter therefore inserts a local newline (multiline
@@ -714,7 +714,7 @@ export function ComposeStrip({
         altKey: e.altKey,
         isComposing: e.nativeEvent.isComposing,
       },
-      isSelectionTarget ? "chat" : "strip",
+      isSelectionTarget ? "broadcast" : "strip",
     );
     if (action === "default") return;
     // Broadcast mode is submit-only, so the terminal-stream modes are left
@@ -1053,7 +1053,7 @@ export function ComposeStrip({
   // The coarse-only ⏎ chip — the Shift+Enter local-newline path mobile
   // keyboards cannot produce. It renders only in the card with a non-empty
   // composer (hidden while empty; the compact row has no slot for it) and
-  // stays hidden in selection broadcast, where the chat Enter policy already
+  // stays hidden in selection broadcast, where the broadcast Enter policy already
   // makes plain Enter a local newline. No Tip — tips never render on the
   // coarse pointers this chip targets.
   const newlineChip = (

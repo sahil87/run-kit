@@ -9,10 +9,10 @@ import (
 	"sort"
 	"strings"
 
-	"rk/internal/chat"
 	"rk/internal/inject"
 	"rk/internal/sessions"
 	"rk/internal/tmux"
+	"rk/internal/transcript"
 )
 
 // operatorTextLimit caps the client-supplied text an acceptsText template will
@@ -27,7 +27,7 @@ const operatorTextLimit = 4096
 type operatorFacts struct {
 	WindowID       string // subject window, @N (survives moves, collision-proof)
 	Name           string // current window name
-	TranscriptPath string // absolute chat-JSONL path (via chat.TranscriptPath)
+	TranscriptPath string // absolute chat-JSONL path (via transcript.Path)
 	WorktreePath   string
 	FabChange      string // rendered only when non-empty
 	FabStage       string
@@ -59,7 +59,7 @@ type operatorWindowFact struct {
 	Marker string
 	Flair  string
 	// TranscriptPath is the chat-JSONL absolute path resolved by the SAME
-	// chat.TranscriptPath call that fills the Corpus row — resolved once per
+	// transcript.Path call that fills the Corpus row — resolved once per
 	// window, empty when the window has no chat ref OR the ref fails to
 	// resolve (a broken ref degrades to a path-less row, never an error).
 	TranscriptPath string
@@ -607,7 +607,7 @@ func findOperatorSubject(sess []sessions.ProjectSession, windowID string) *tmux.
 // the novelty echo probe as the final fail-closed guard), chat-pane resolution
 // over the OPERATOR window's panes (injection targets the pane, never the
 // window), and in-process delivery through injectIntoPane under ONE shared
-// chatSendTotalBudget deadline. Rejections surface as operatorReject; probe
+// agentSendTotalBudget deadline. Rejections surface as operatorReject; probe
 // and injection failures are returned RAW for the callers' errors.As mappings.
 func (s *Server) deliverOperatorPrompt(ctx context.Context, server string, operator *tmux.WindowInfo, prompt string) error {
 	// `waiting` means a human-blocking dialog is up (pasting into it is the
@@ -625,8 +625,8 @@ func (s *Server) deliverOperatorPrompt(ctx context.Context, server string, opera
 	}
 
 	// One shared deadline for the whole injection sequence (see send.go's
-	// chatSendTotalBudget).
-	ctx, cancel := context.WithTimeout(ctx, chatSendTotalBudget)
+	// agentSendTotalBudget).
+	ctx, cancel := context.WithTimeout(ctx, agentSendTotalBudget)
 	defer cancel()
 
 	return s.injectIntoPane(ctx, server, operatorPaneID, prompt, true)
@@ -667,7 +667,7 @@ func buildServerOperatorFacts(sess []sessions.ProjectSession, text string) serve
 				row.PrState, row.PrChecks, row.PrReview = win.PrState, win.PrChecks, win.PrReview
 			}
 			if win.ChatSessionRef != "" {
-				if path, err := chat.TranscriptPath(win.ChatProvider, win.ChatSessionRef); err == nil {
+				if path, err := transcript.Path(win.ChatProvider, win.ChatSessionRef); err == nil {
 					row.TranscriptPath = path
 					facts.Corpus = append(facts.Corpus, operatorCorpusRow{
 						Session:        sess[si].Name,
@@ -687,7 +687,7 @@ func buildServerOperatorFacts(sess []sessions.ProjectSession, text string) serve
 // status + body (keeping the endpoint's external behavior byte-identical across
 // the extraction); the auto-name path (auto_name.go) logs it quietly and drops.
 // Transcript-resolution and injection failures are returned RAW (not wrapped as
-// operatorReject) so the handler's errors.Is/As mappings (writeChatReadError
+// operatorReject) so the handler's errors.Is/As mappings (writeTranscriptError
 // vocabulary, inject.ProbeFailure → 409) keep working unchanged.
 type operatorReject struct {
 	status int
@@ -765,10 +765,10 @@ func (s *Server) writeOperatorQueueResponse(w http.ResponseWriter, server string
 
 // deliverOperatorRequest is the post-parse core of handleOperatorRequest,
 // shared with the auto-name-on-idle tracker (260822-q675): fact derivation,
-// the busy gate, operator pane resolution, and injection through the chat-send
+// the busy gate, operator pane resolution, and injection through the agent-send
 // engine. subject/operator arrive ALREADY RESOLVED from the caller's single
 // FetchSessions pass — no second fetch happens here. The ONE shared
-// chatSendTotalBudget deadline is applied inside so both callers (HTTP handler,
+// agentSendTotalBudget deadline is applied inside so both callers (HTTP handler,
 // auto-name fan-out) get identical injection bounding.
 //
 // Busy policy is REJECT, never queue: an active or waiting operator yields a
@@ -787,13 +787,13 @@ func (s *Server) deliverOperatorRequest(ctx context.Context, server string, subj
 		if subject.ChatSessionRef == "" {
 			return &operatorReject{http.StatusNotFound, "no chat session for this window"}
 		}
-		path, err := chat.TranscriptPath(subject.ChatProvider, subject.ChatSessionRef)
+		path, err := transcript.Path(subject.ChatProvider, subject.ChatSessionRef)
 		if err != nil {
-			if errors.Is(err, chat.ErrNoAdapter) {
+			if errors.Is(err, transcript.ErrNoAdapter) {
 				return &operatorReject{http.StatusNotFound, fmt.Sprintf("no adapter for provider %q", subject.ChatProvider)}
 			}
 			// Raw error — the handler maps ErrInvalidRef / ErrTranscriptNotFound
-			// through writeChatReadError (the chat-read 404-class vocabulary).
+			// through writeTranscriptError (the transcript-read 404-class vocabulary).
 			return err
 		}
 		facts.TranscriptPath = path
@@ -805,16 +805,16 @@ func (s *Server) deliverOperatorRequest(ctx context.Context, server string, subj
 	return s.deliverOperatorPrompt(ctx, server, operator, tmpl.render(facts))
 }
 
-// writeChatReadError maps a chat-adapter read error to an HTTP response. A
+// writeTranscriptError maps a transcript read error to an HTTP response. A
 // missing transcript for a live ref, or a malformed reconciled ref, is
 // 404-class (a property of the reconciled @rk_chat, not a server fault); any
 // other read error is a 500.
-func (s *Server) writeChatReadError(w http.ResponseWriter, err error) {
-	if errors.Is(err, chat.ErrTranscriptNotFound) {
+func (s *Server) writeTranscriptError(w http.ResponseWriter, err error) {
+	if errors.Is(err, transcript.ErrTranscriptNotFound) {
 		writeError(w, http.StatusNotFound, "transcript not found for session")
 		return
 	}
-	if errors.Is(err, chat.ErrInvalidRef) {
+	if errors.Is(err, transcript.ErrInvalidRef) {
 		writeError(w, http.StatusNotFound, "malformed chat session ref for this window")
 		return
 	}
@@ -823,7 +823,7 @@ func (s *Server) writeChatReadError(w http.ResponseWriter, err error) {
 
 // handleOperatorRequest serves POST /api/windows/{windowId}/operator-request —
 // hands the server's operator window a templated work item ABOUT the subject
-// window ({windowId}), delivered via the existing chat-send injection
+// window ({windowId}), delivered via the existing agent-send injection
 // machinery. Mutation ⇒ POST (Constitution IX). Everything is resolved
 // server-side from ONE FetchSessions pass: subject + operator lookup, fact
 // derivation, and the busy gate all read the same result. A busy rejection from
@@ -882,7 +882,7 @@ func (s *Server) handleOperatorRequest(w http.ResponseWriter, r *http.Request) {
 	if err := s.deliverOperatorRequest(r.Context(), server, subject, operator, tmpl); err != nil {
 		var probeErr inject.ProbeFailure
 		if errors.As(err, &probeErr) {
-			// Text pasted, Enter withheld — recoverable state (same as chat-send).
+			// Text pasted, Enter withheld — recoverable state (same as agent-send).
 			writeError(w, http.StatusConflict, probeErr.Error())
 			return
 		}
@@ -896,10 +896,10 @@ func (s *Server) handleOperatorRequest(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, submitErr.Error())
 			return
 		}
-		if errors.Is(err, chat.ErrInvalidRef) || errors.Is(err, chat.ErrTranscriptNotFound) {
+		if errors.Is(err, transcript.ErrInvalidRef) || errors.Is(err, transcript.ErrTranscriptNotFound) {
 			// ErrInvalidRef / ErrTranscriptNotFound map to the 404-class read-error
-			// vocabulary (writeChatReadError).
-			s.writeChatReadError(w, err)
+			// vocabulary (writeTranscriptError).
+			s.writeTranscriptError(w, err)
 			return
 		}
 		var rej *operatorReject
@@ -991,7 +991,7 @@ func (s *Server) handleServerOperatorRequest(w http.ResponseWriter, r *http.Requ
 	if err := s.deliverOperatorPrompt(r.Context(), server, operator, tmpl.renderServer(facts)); err != nil {
 		var probeErr inject.ProbeFailure
 		if errors.As(err, &probeErr) {
-			// Text pasted, Enter withheld — recoverable state (same as chat-send).
+			// Text pasted, Enter withheld — recoverable state (same as agent-send).
 			writeError(w, http.StatusConflict, probeErr.Error())
 			return
 		}

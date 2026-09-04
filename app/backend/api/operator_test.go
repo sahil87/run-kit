@@ -29,13 +29,13 @@ func operatorSessions(agentState string) []sessions.ProjectSession {
 	return []sessions.ProjectSession{
 		{Name: "s", Windows: []tmux.WindowInfo{
 			{WindowID: "@1", Name: "zsh", WorktreePath: "/wt/project",
-				ChatProvider: "claude", ChatSessionRef: testChatRef,
+				ChatProvider: "claude", ChatSessionRef: testTranscriptRef,
 				FabChange: "260822-fih1-operator-request-fix-tab-name", FabStage: "apply",
-				Panes: []tmux.PaneInfo{{PaneID: "%1", IsActive: true, ChatProvider: "claude", ChatSessionRef: testChatRef}}},
+				Panes: []tmux.PaneInfo{{PaneID: "%1", IsActive: true, ChatProvider: "claude", ChatSessionRef: testTranscriptRef}}},
 		}},
 		{Name: "_rk-operator", Windows: []tmux.WindowInfo{
 			{WindowID: "@9", Name: "operator", Role: "operator", AgentState: agentState,
-				Panes: []tmux.PaneInfo{{PaneID: "%9", IsActive: true, ChatProvider: "claude", ChatSessionRef: testChatRef}}},
+				Panes: []tmux.PaneInfo{{PaneID: "%9", IsActive: true, ChatProvider: "claude", ChatSessionRef: testTranscriptRef}}},
 		}},
 	}
 }
@@ -63,8 +63,8 @@ func TestOperatorRequestGuards(t *testing.T) {
 			if rec.Code != http.StatusBadRequest {
 				t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
 			}
-			if len(ops.chatCalls) != 0 {
-				t.Errorf("injection ran for invalid request: %v", ops.chatCalls)
+			if len(ops.agentSendCalls) != 0 {
+				t.Errorf("injection ran for invalid request: %v", ops.agentSendCalls)
 			}
 		})
 	}
@@ -85,8 +85,8 @@ func TestOperatorRequestUnknownTemplate(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "nuke-everything") {
 		t.Errorf("400 body = %s, want it to name the unknown template id", rec.Body.String())
 	}
-	if len(ops.chatCalls) != 0 {
-		t.Errorf("injection ran (%v) for an unknown template", ops.chatCalls)
+	if len(ops.agentSendCalls) != 0 {
+		t.Errorf("injection ran (%v) for an unknown template", ops.agentSendCalls)
 	}
 }
 
@@ -108,8 +108,8 @@ func TestOperatorRequestSubjectNotFound(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body.String())
 	}
-	if len(ops.chatCalls) != 0 {
-		t.Errorf("injection ran (%v) with no subject window", ops.chatCalls)
+	if len(ops.agentSendCalls) != 0 {
+		t.Errorf("injection ran (%v) with no subject window", ops.agentSendCalls)
 	}
 }
 
@@ -119,7 +119,7 @@ func TestOperatorRequestSubjectNotFound(t *testing.T) {
 func TestOperatorRequestNoOperator(t *testing.T) {
 	sf := &mockSessionFetcher{result: []sessions.ProjectSession{
 		{Name: "s", Windows: []tmux.WindowInfo{
-			{WindowID: "@1", ChatProvider: "claude", ChatSessionRef: testChatRef},
+			{WindowID: "@1", ChatProvider: "claude", ChatSessionRef: testTranscriptRef},
 		}},
 	}}
 	ops := &mockTmuxOps{}
@@ -133,8 +133,8 @@ func TestOperatorRequestNoOperator(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "no operator on this server") {
 		t.Errorf("404 body = %s, want the no-operator message", rec.Body.String())
 	}
-	if len(ops.chatCalls) != 0 {
-		t.Errorf("injection ran (%v) with no operator", ops.chatCalls)
+	if len(ops.agentSendCalls) != 0 {
+		t.Errorf("injection ran (%v) with no operator", ops.agentSendCalls)
 	}
 }
 
@@ -148,7 +148,7 @@ func TestOperatorRequestSubjectNoChatRef(t *testing.T) {
 		}},
 		{Name: "_rk-operator", Windows: []tmux.WindowInfo{
 			{WindowID: "@9", Role: "operator", AgentState: "idle",
-				Panes: []tmux.PaneInfo{{PaneID: "%9", IsActive: true, ChatProvider: "claude", ChatSessionRef: testChatRef}}},
+				Panes: []tmux.PaneInfo{{PaneID: "%9", IsActive: true, ChatProvider: "claude", ChatSessionRef: testTranscriptRef}}},
 		}},
 	}}
 	ops := &mockTmuxOps{}
@@ -159,8 +159,8 @@ func TestOperatorRequestSubjectNoChatRef(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body.String())
 	}
-	if len(ops.chatCalls) != 0 {
-		t.Errorf("injection ran (%v) for a chatless subject", ops.chatCalls)
+	if len(ops.agentSendCalls) != 0 {
+		t.Errorf("injection ran (%v) for a chatless subject", ops.agentSendCalls)
 	}
 }
 
@@ -178,19 +178,19 @@ func TestOperatorRequestTranscriptNotFound(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body.String())
 	}
-	if len(ops.chatCalls) != 0 {
-		t.Errorf("injection ran (%v) with an unresolvable transcript", ops.chatCalls)
+	if len(ops.agentSendCalls) != 0 {
+		t.Errorf("injection ran (%v) with an unresolvable transcript", ops.agentSendCalls)
 	}
 }
 
 // TestOperatorRequestOperatorNoChatPane: an operator window with no reconciled
 // chat pane cannot receive requests — 404, no injection.
 func TestOperatorRequestOperatorNoChatPane(t *testing.T) {
-	stageFixtureTranscript(t, testChatRef)
+	stageFixtureTranscript(t, testTranscriptRef)
 	sf := &mockSessionFetcher{result: []sessions.ProjectSession{
 		{Name: "s", Windows: []tmux.WindowInfo{
-			{WindowID: "@1", ChatProvider: "claude", ChatSessionRef: testChatRef,
-				Panes: []tmux.PaneInfo{{PaneID: "%1", IsActive: true, ChatProvider: "claude", ChatSessionRef: testChatRef}}},
+			{WindowID: "@1", ChatProvider: "claude", ChatSessionRef: testTranscriptRef,
+				Panes: []tmux.PaneInfo{{PaneID: "%1", IsActive: true, ChatProvider: "claude", ChatSessionRef: testTranscriptRef}}},
 		}},
 		{Name: "_rk-operator", Windows: []tmux.WindowInfo{
 			{WindowID: "@9", Role: "operator", AgentState: "idle",
@@ -205,8 +205,8 @@ func TestOperatorRequestOperatorNoChatPane(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body.String())
 	}
-	if len(ops.chatCalls) != 0 {
-		t.Errorf("injection ran (%v) for a chatless operator", ops.chatCalls)
+	if len(ops.agentSendCalls) != 0 {
+		t.Errorf("injection ran (%v) for a chatless operator", ops.agentSendCalls)
 	}
 }
 
@@ -217,7 +217,7 @@ func TestOperatorRequestOperatorNoChatPane(t *testing.T) {
 func TestOperatorRequestBusyGate(t *testing.T) {
 	for _, state := range []string{"active", "waiting"} {
 		t.Run(state, func(t *testing.T) {
-			stageFixtureTranscript(t, testChatRef)
+			stageFixtureTranscript(t, testTranscriptRef)
 			sf := &mockSessionFetcher{result: operatorSessions(state)}
 			ops := &mockTmuxOps{}
 			server := &Server{logger: slog.Default(), sessions: sf, tmux: ops, hostname: "host"}
@@ -231,8 +231,8 @@ func TestOperatorRequestBusyGate(t *testing.T) {
 			if !strings.Contains(rec.Body.String(), `"queued":true`) {
 				t.Errorf("202 body = %s, want queued outcome", rec.Body.String())
 			}
-			if len(ops.chatCalls) != 0 {
-				t.Errorf("injection ran (%v) for a busy operator", ops.chatCalls)
+			if len(ops.agentSendCalls) != 0 {
+				t.Errorf("injection ran (%v) for a busy operator", ops.agentSendCalls)
 			}
 			queue, _ := operatorQueueState(server.sseHub.getOperatorQueue(), "default")
 			if len(queue) != 1 || queue[0].template != "fix-tab-name" || queue[0].windowID != "@1" {
@@ -243,7 +243,7 @@ func TestOperatorRequestBusyGate(t *testing.T) {
 }
 
 func TestOperatorRequestBusyCoalescesDuplicate(t *testing.T) {
-	stageFixtureTranscript(t, testChatRef)
+	stageFixtureTranscript(t, testTranscriptRef)
 	server := &Server{
 		logger:   slog.Default(),
 		sessions: &mockSessionFetcher{result: operatorSessions(tmux.AgentStateActive)},
@@ -265,7 +265,7 @@ func TestOperatorRequestBusyCoalescesDuplicate(t *testing.T) {
 }
 
 func TestOperatorRequestQueueFull(t *testing.T) {
-	stageFixtureTranscript(t, testChatRef)
+	stageFixtureTranscript(t, testTranscriptRef)
 	server := &Server{
 		logger:   slog.Default(),
 		sessions: &mockSessionFetcher{result: operatorSessions(tmux.AgentStateActive)},
@@ -335,11 +335,11 @@ func TestOperatorRequestValidationFailuresDoNotQueue(t *testing.T) {
 }
 
 // TestOperatorRequestProbeFailureWithholdsEnter: the pasted prompt never echoes
-// → the structured 409 chat-send returns, and NO Enter reaches the operator
+// → the structured 409 agent-send returns, and NO Enter reaches the operator
 // pane.
 func TestOperatorRequestProbeFailureWithholdsEnter(t *testing.T) {
-	fastChatSendProbe(t)
-	stageFixtureTranscript(t, testChatRef)
+	fastAgentSendProbe(t)
+	stageFixtureTranscript(t, testTranscriptRef)
 	sf := &mockSessionFetcher{result: operatorSessions("idle")}
 	ops := &mockTmuxOps{capturePaneResult: "some unrelated pane output"}
 	router := NewTestRouter(slog.Default(), sf, ops, "host")
@@ -358,8 +358,8 @@ func TestOperatorRequestProbeFailureWithholdsEnter(t *testing.T) {
 }
 
 func TestOperatorRequestSubmitUnverifiedConflict(t *testing.T) {
-	fastChatSendProbe(t)
-	stageFixtureTranscript(t, testChatRef)
+	fastAgentSendProbe(t)
+	stageFixtureTranscript(t, testTranscriptRef)
 	sf := &mockSessionFetcher{result: operatorSessions("idle")}
 	ops := unverifiedSubmitOps(t, "❯ ", "❯ [Pasted text #1 +9 lines]")
 	router := NewTestRouter(slog.Default(), sf, ops, "host")
@@ -375,8 +375,8 @@ func TestOperatorRequestSubmitUnverifiedConflict(t *testing.T) {
 }
 
 func TestOperatorRequestStagedFailureCode(t *testing.T) {
-	fastChatSendProbe(t)
-	stageFixtureTranscript(t, testChatRef)
+	fastAgentSendProbe(t)
+	stageFixtureTranscript(t, testTranscriptRef)
 	sf := &mockSessionFetcher{result: operatorSessions("idle")}
 	ops := &mockTmuxOps{
 		capturePaneResults: []string{"❯ ", "❯ [Pasted text #1 +9 lines]"},
@@ -413,8 +413,8 @@ func TestOperatorRequestFetchError(t *testing.T) {
 func TestOperatorRequestSuccess(t *testing.T) {
 	for _, state := range []string{"idle", ""} {
 		t.Run("state="+state, func(t *testing.T) {
-			fastChatSendProbe(t)
-			stageFixtureTranscript(t, testChatRef)
+			fastAgentSendProbe(t)
+			stageFixtureTranscript(t, testTranscriptRef)
 			sf := &mockSessionFetcher{result: operatorSessions(state)}
 			// The multiline prompt collapses into a fresh paste chip post-paste
 			// (absent from the baseline) — a legitimate probe pass.
@@ -431,17 +431,17 @@ func TestOperatorRequestSuccess(t *testing.T) {
 				t.Errorf("200 body = %s, want {\"ok\":true}", rec.Body.String())
 			}
 			want := []string{"capture-pane", "set-buffer", "paste-buffer", "capture-pane", "send-keys", "capture-pane"}
-			if strings.Join(ops.chatCalls, ",") != strings.Join(want, ",") {
-				t.Errorf("injection order = %v, want %v", ops.chatCalls, want)
+			if strings.Join(ops.agentSendCalls, ",") != strings.Join(want, ",") {
+				t.Errorf("injection order = %v, want %v", ops.agentSendCalls, want)
 			}
-			if ops.pasteChatPaneID != "%9" || ops.sendEnterPaneID != "%9" {
+			if ops.pasteAgentPaneID != "%9" || ops.sendEnterPaneID != "%9" {
 				t.Errorf("injection targeted paste=%q enter=%q, want the OPERATOR pane %%9 (never the subject's %%1)",
-					ops.pasteChatPaneID, ops.sendEnterPaneID)
+					ops.pasteAgentPaneID, ops.sendEnterPaneID)
 			}
-			prompt := ops.setChatBufferText
+			prompt := ops.setAgentBufferText
 			for _, want := range []string{
 				"tmux window @1", `"zsh"`,
-				"projects/someproj/" + testChatRef + ".jsonl",
+				"projects/someproj/" + testTranscriptRef + ".jsonl",
 				"worktree /wt/project",
 				"fab change 260822-fih1-operator-request-fix-tab-name at stage apply",
 				"tmux rename-window -t @1",
@@ -511,8 +511,8 @@ func assertNoFetch(t *testing.T, req *http.Request) *httptest.ResponseRecorder {
 	if sf.calls != 0 {
 		t.Errorf("FetchSessions ran (%d times) for a rejected body", sf.calls)
 	}
-	if len(ops.chatCalls) != 0 {
-		t.Errorf("injection ran (%v) for a rejected body", ops.chatCalls)
+	if len(ops.agentSendCalls) != 0 {
+		t.Errorf("injection ran (%v) for a rejected body", ops.agentSendCalls)
 	}
 	return rec
 }
@@ -577,8 +577,8 @@ func TestServerOperatorRequestNoOperator(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "no operator on this server") {
 		t.Errorf("404 body = %s, want the no-operator message", rec.Body.String())
 	}
-	if len(ops.chatCalls) != 0 {
-		t.Errorf("injection ran (%v) with no operator", ops.chatCalls)
+	if len(ops.agentSendCalls) != 0 {
+		t.Errorf("injection ran (%v) with no operator", ops.agentSendCalls)
 	}
 }
 
@@ -599,8 +599,8 @@ func TestServerOperatorRequestBusyGate(t *testing.T) {
 			if !strings.Contains(rec.Body.String(), `"queued":true`) {
 				t.Errorf("202 body = %s, want queued outcome", rec.Body.String())
 			}
-			if len(ops.chatCalls) != 0 {
-				t.Errorf("injection ran (%v) for a busy operator", ops.chatCalls)
+			if len(ops.agentSendCalls) != 0 {
+				t.Errorf("injection ran (%v) for a busy operator", ops.agentSendCalls)
 			}
 			queue, _ := operatorQueueState(server.sseHub.getOperatorQueue(), "default")
 			if len(queue) != 1 || queue[0].template != "spawn-task" || queue[0].text != "fix the flaky test" {
@@ -629,7 +629,7 @@ func TestServerOperatorRequestFetchError(t *testing.T) {
 // pane %9, the response is 200 {"ok":true}, and exactly ONE FetchSessions
 // served the whole request.
 func TestServerOperatorRequestSuccess(t *testing.T) {
-	fastChatSendProbe(t)
+	fastAgentSendProbe(t)
 	sf := &mockSessionFetcher{result: operatorSessions("idle")}
 	// The multiline prompt collapses into a fresh paste chip post-paste — a
 	// legitimate probe pass.
@@ -647,12 +647,12 @@ func TestServerOperatorRequestSuccess(t *testing.T) {
 	if sf.calls != 1 {
 		t.Errorf("FetchSessions ran %d times, want exactly 1", sf.calls)
 	}
-	if ops.pasteChatPaneID != "%9" || ops.sendEnterPaneID != "%9" {
+	if ops.pasteAgentPaneID != "%9" || ops.sendEnterPaneID != "%9" {
 		t.Errorf("injection targeted paste=%q enter=%q, want the OPERATOR pane %%9",
-			ops.pasteChatPaneID, ops.sendEnterPaneID)
+			ops.pasteAgentPaneID, ops.sendEnterPaneID)
 	}
-	if !strings.Contains(ops.setChatBufferText, "fix the flaky test") {
-		t.Errorf("rendered prompt missing the user text:\n%s", ops.setChatBufferText)
+	if !strings.Contains(ops.setAgentBufferText, "fix the flaky test") {
+		t.Errorf("rendered prompt missing the user text:\n%s", ops.setAgentBufferText)
 	}
 }
 
@@ -739,18 +739,18 @@ func TestRenderFindDiscussion(t *testing.T) {
 // unresolvable ref to an omitted row — never an error.
 func TestBuildServerOperatorFacts(t *testing.T) {
 	projDir := stageEmptyConfigDir(t)
-	writeFixtureAt(t, projDir, testChatRef)
+	writeFixtureAt(t, projDir, testTranscriptRef)
 	sess := []sessions.ProjectSession{
 		{Name: "s", Windows: []tmux.WindowInfo{
 			{WindowID: "@1", Name: "zsh", WorktreePath: "/wt/project", AgentState: "active",
-				ChatProvider: "claude", ChatSessionRef: testChatRef,
+				ChatProvider: "claude", ChatSessionRef: testTranscriptRef,
 				FabChange: "260822-fih1-operator-request-fix-tab-name", FabStage: "apply"},
 			{WindowID: "@2", Name: "plain", WorktreePath: "/wt/plain"},
 			{WindowID: "@3", Name: "broken", ChatProvider: "claude", ChatSessionRef: "not-a-uuid"},
 		}},
 		{Name: "_rk-operator", Windows: []tmux.WindowInfo{
 			{WindowID: "@9", Name: "operator", Role: "operator",
-				ChatProvider: "claude", ChatSessionRef: testChatRef},
+				ChatProvider: "claude", ChatSessionRef: testTranscriptRef},
 		}},
 	}
 	facts := buildServerOperatorFacts(sess, "the task")
@@ -772,7 +772,7 @@ func TestBuildServerOperatorFacts(t *testing.T) {
 	if row.WindowID != "@1" || row.Session != "s" || row.Name != "zsh" {
 		t.Errorf("corpus row identity = %+v, want s @1 zsh", row)
 	}
-	if !strings.Contains(row.TranscriptPath, "projects/someproj/"+testChatRef+".jsonl") {
+	if !strings.Contains(row.TranscriptPath, "projects/someproj/"+testTranscriptRef+".jsonl") {
 		t.Errorf("corpus row path = %q, want the resolved JSONL path", row.TranscriptPath)
 	}
 }
@@ -783,7 +783,7 @@ func TestBuildServerOperatorFacts(t *testing.T) {
 // on a server with ZERO waiting fact rows is a 409 ("nothing is waiting on
 // this server") with no injection — no no-op delivery.
 func TestServerOperatorRequestWhatsStuckNothingWaiting(t *testing.T) {
-	stageFixtureTranscript(t, testChatRef)
+	stageFixtureTranscript(t, testTranscriptRef)
 	sf := &mockSessionFetcher{result: operatorSessions("idle")}
 	ops := &mockTmuxOps{}
 	router := NewTestRouter(slog.Default(), sf, ops, "host")
@@ -796,14 +796,14 @@ func TestServerOperatorRequestWhatsStuckNothingWaiting(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "nothing is waiting on this server") {
 		t.Errorf("409 body = %s, want the nothing-waiting message", rec.Body.String())
 	}
-	if len(ops.chatCalls) != 0 {
-		t.Errorf("injection ran (%v) with nothing waiting", ops.chatCalls)
+	if len(ops.agentSendCalls) != 0 {
+		t.Errorf("injection ran (%v) with nothing waiting", ops.agentSendCalls)
 	}
 }
 
 func TestServerOperatorRequestSubmitUnverifiedConflict(t *testing.T) {
-	fastChatSendProbe(t)
-	stageFixtureTranscript(t, testChatRef)
+	fastAgentSendProbe(t)
+	stageFixtureTranscript(t, testTranscriptRef)
 	sess := operatorSessions("idle")
 	sess[0].Windows[0].AgentState = "waiting"
 	sf := &mockSessionFetcher{result: sess}
@@ -821,8 +821,8 @@ func TestServerOperatorRequestSubmitUnverifiedConflict(t *testing.T) {
 }
 
 func TestServerOperatorRequestStagedFailureCode(t *testing.T) {
-	fastChatSendProbe(t)
-	stageFixtureTranscript(t, testChatRef)
+	fastAgentSendProbe(t)
+	stageFixtureTranscript(t, testTranscriptRef)
 	sess := operatorSessions("idle")
 	sess[0].Windows[0].AgentState = "waiting"
 	sf := &mockSessionFetcher{result: sess}
@@ -842,8 +842,8 @@ func TestServerOperatorRequestStagedFailureCode(t *testing.T) {
 // rk verbs (verified against `rk mux send --help` / `rk notify --help`), and
 // the never-answer list.
 func TestServerOperatorRequestWhatsStuckSuccess(t *testing.T) {
-	fastChatSendProbe(t)
-	stageFixtureTranscript(t, testChatRef)
+	fastAgentSendProbe(t)
+	stageFixtureTranscript(t, testTranscriptRef)
 	sess := operatorSessions("idle")
 	sess[0].Windows[0].AgentState = "waiting"
 	sess[0].Windows[0].AgentIdleDuration = "3m"
@@ -856,10 +856,10 @@ func TestServerOperatorRequestWhatsStuckSuccess(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
-	prompt := ops.setChatBufferText
+	prompt := ops.setAgentBufferText
 	for _, want := range []string{
 		"s @1", `"zsh"`, "state=waiting 3m",
-		"projects/someproj/" + testChatRef + ".jsonl",
+		"projects/someproj/" + testTranscriptRef + ".jsonl",
 		`rk mux send @N "<answer>" --answer`,
 		`rk notify --title "<window-name>: stuck"`,
 		"NEVER answer", "credential", "destructive", "ambiguous",
@@ -909,12 +909,12 @@ func TestServerOperatorRequestTextOnDigestTemplates(t *testing.T) {
 // path-less row (still present), and the operator stays excluded.
 func TestBuildServerOperatorFactsDigestFields(t *testing.T) {
 	projDir := stageEmptyConfigDir(t)
-	writeFixtureAt(t, projDir, testChatRef)
+	writeFixtureAt(t, projDir, testTranscriptRef)
 	prURL := "https://github.com/o/r/pull/7"
 	sess := []sessions.ProjectSession{
 		{Name: "s", Windows: []tmux.WindowInfo{
 			{WindowID: "@1", Name: "zsh", AgentState: "waiting", AgentIdleDuration: "3m",
-				ChatProvider: "claude", ChatSessionRef: testChatRef,
+				ChatProvider: "claude", ChatSessionRef: testTranscriptRef,
 				PrURL: &prURL, PrState: "open", PrChecks: "pass", PrReview: "approved"},
 			{WindowID: "@2", Name: "plain"},
 			{WindowID: "@3", Name: "broken", ChatProvider: "claude", ChatSessionRef: "not-a-uuid"},
@@ -936,7 +936,7 @@ func TestBuildServerOperatorFactsDigestFields(t *testing.T) {
 	if row.PrState != "open" || row.PrChecks != "pass" || row.PrReview != "approved" {
 		t.Errorf("row @1 PR rollup = %+v, want open/pass/approved", row)
 	}
-	if !strings.Contains(row.TranscriptPath, "projects/someproj/"+testChatRef+".jsonl") {
+	if !strings.Contains(row.TranscriptPath, "projects/someproj/"+testTranscriptRef+".jsonl") {
 		t.Errorf("row @1 TranscriptPath = %q, want the resolved JSONL path", row.TranscriptPath)
 	}
 	if row.TranscriptPath != facts.Corpus[0].TranscriptPath {
@@ -1164,8 +1164,8 @@ func TestBuildServerOperatorFactsLabelFields(t *testing.T) {
 // FetchSessions, injection targeting the operator's pane, and the rendered
 // prompt carrying the rows' labels clauses and the actuation commands.
 func TestServerOperatorRequestColorTabsSuccess(t *testing.T) {
-	fastChatSendProbe(t)
-	stageFixtureTranscript(t, testChatRef)
+	fastAgentSendProbe(t)
+	stageFixtureTranscript(t, testTranscriptRef)
 	sess := operatorSessions("idle")
 	blue := "blue"
 	sess[0].Windows[0].Color = &blue
@@ -1185,14 +1185,14 @@ func TestServerOperatorRequestColorTabsSuccess(t *testing.T) {
 	if sf.calls != 1 {
 		t.Errorf("FetchSessions ran %d times, want exactly 1", sf.calls)
 	}
-	if ops.pasteChatPaneID != "%9" || ops.sendEnterPaneID != "%9" {
+	if ops.pasteAgentPaneID != "%9" || ops.sendEnterPaneID != "%9" {
 		t.Errorf("injection targeted paste=%q enter=%q, want the OPERATOR pane %%9",
-			ops.pasteChatPaneID, ops.sendEnterPaneID)
+			ops.pasteAgentPaneID, ops.sendEnterPaneID)
 	}
-	prompt := ops.setChatBufferText
+	prompt := ops.setAgentBufferText
 	for _, want := range []string{
 		"s @1", `"zsh"`, "labels: color=blue marker=manual:1 flair=-",
-		"projects/someproj/" + testChatRef + ".jsonl",
+		"projects/someproj/" + testTranscriptRef + ".jsonl",
 		"tmux set-option -t @N '@rk_win_color' '<value>'",
 		"Do not reply",
 	} {
@@ -1326,8 +1326,8 @@ func TestUpdateAnnotationsGuards(t *testing.T) {
 // injection targeting the operator's pane, and the rendered prompt carrying
 // the row and the @rk_win_note actuation.
 func TestServerOperatorRequestUpdateAnnotationsSuccess(t *testing.T) {
-	fastChatSendProbe(t)
-	stageFixtureTranscript(t, testChatRef)
+	fastAgentSendProbe(t)
+	stageFixtureTranscript(t, testTranscriptRef)
 	sf := &mockSessionFetcher{result: operatorSessions("idle")}
 	ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "❯ [Pasted text #1 +9 lines]"}}
 	router := NewTestRouter(slog.Default(), sf, ops, "host")
@@ -1340,14 +1340,14 @@ func TestServerOperatorRequestUpdateAnnotationsSuccess(t *testing.T) {
 	if sf.calls != 1 {
 		t.Errorf("FetchSessions ran %d times, want exactly 1", sf.calls)
 	}
-	if ops.pasteChatPaneID != "%9" || ops.sendEnterPaneID != "%9" {
+	if ops.pasteAgentPaneID != "%9" || ops.sendEnterPaneID != "%9" {
 		t.Errorf("injection targeted paste=%q enter=%q, want the OPERATOR pane %%9",
-			ops.pasteChatPaneID, ops.sendEnterPaneID)
+			ops.pasteAgentPaneID, ops.sendEnterPaneID)
 	}
-	prompt := ops.setChatBufferText
+	prompt := ops.setAgentBufferText
 	for _, want := range []string{
 		"s @1", `"zsh"`,
-		"projects/someproj/" + testChatRef + ".jsonl",
+		"projects/someproj/" + testTranscriptRef + ".jsonl",
 		`tmux set-option -wt @N @rk_win_note "$(date +%s):<one-line note>"`,
 		"Do not reply",
 	} {
@@ -1366,8 +1366,8 @@ func TestServerOperatorRequestUpdateAnnotationsSuccess(t *testing.T) {
 // absent-entity 404, and a non-empty session on a non-declaring template is
 // the closed-lane 400 BEFORE any fetch.
 func TestServerOperatorRequestSessionLane(t *testing.T) {
-	fastChatSendProbe(t)
-	stageFixtureTranscript(t, testChatRef)
+	fastAgentSendProbe(t)
+	stageFixtureTranscript(t, testTranscriptRef)
 	sess := operatorSessions("idle")
 	sess[0].Name = "run-kit"
 	sess = append(sess, sessions.ProjectSession{Name: "other", Windows: []tmux.WindowInfo{
@@ -1383,7 +1383,7 @@ func TestServerOperatorRequestSessionLane(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
-	prompt := ops.setChatBufferText
+	prompt := ops.setAgentBufferText
 	if !strings.Contains(prompt, "run-kit @1") {
 		t.Errorf("scoped prompt missing the run-kit row:\n%s", prompt)
 	}
@@ -1402,8 +1402,8 @@ func TestServerOperatorRequestSessionLane(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "no session nope on this server") {
 		t.Errorf("404 body = %s, want it to name the session", rec.Body.String())
 	}
-	if len(ops.chatCalls) != 0 {
-		t.Errorf("injection ran (%v) for an unknown session", ops.chatCalls)
+	if len(ops.agentSendCalls) != 0 {
+		t.Errorf("injection ran (%v) for an unknown session", ops.agentSendCalls)
 	}
 
 	// Session on a non-declaring template — the closed-lane 400, pre-fetch.

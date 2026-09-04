@@ -483,7 +483,7 @@ func rollupAgentState(panes []tmux.PaneInfo, nowUnix int64) (state string, durat
 // per-pane truth also ships on PaneInfo.ChatProvider/ChatSessionRef. Returns
 // ("", "", "") when no pane carries a chat. Pure function (no I/O).
 //
-// The paneID is what chat-send injects into — a WINDOW target routes to the
+// The paneID is what agent-send injects into — a WINDOW target routes to the
 // active pane, which in a split may not be the chat pane, so the resolved pane
 // (not the window) is the correct injection target. This is the single source of
 // the active-pane-first rollup rule; rollupChat delegates to it.

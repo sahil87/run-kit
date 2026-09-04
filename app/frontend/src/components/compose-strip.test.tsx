@@ -230,7 +230,7 @@ describe("ComposeStrip", () => {
   });
 
   // The broadcast has no visible pane composer to stage a line into, so it
-  // takes the chat surface's Enter policy. Plain Enter must not be swallowed
+  // takes the broadcast surface's Enter policy. Plain Enter must not be swallowed
   // into a dead key (consumed by the strip's insert-line branch, then dropped
   // by the submit-only guard) — it stays a native newline.
   it("plain Enter in broadcast mode is a native newline, never a dead key or a send", async () => {

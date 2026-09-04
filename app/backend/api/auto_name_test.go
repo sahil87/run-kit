@@ -352,7 +352,7 @@ func TestAutoName_AdvanceFansOutDetached(t *testing.T) {
 // deliverOperatorRequest with the fix-tab-name template), a busy operator
 // produces ZERO injection subprocesses — reject, never queue.
 func TestAutoName_DeliverBusyOperatorSkipsInjection(t *testing.T) {
-	stageFixtureTranscript(t, testChatRef)
+	stageFixtureTranscript(t, testTranscriptRef)
 	sf := &mockSessionFetcher{result: operatorSessions("active")}
 	ops := &mockTmuxOps{}
 	s := &Server{logger: slog.Default(), sessions: sf, tmux: ops, hostname: "host"}
@@ -380,8 +380,8 @@ func TestAutoName_DeliverBusyOperatorSkipsInjection(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatalf("deliver seam was never called")
 	}
-	if len(ops.chatCalls) != 0 {
-		t.Errorf("injection ran (%v) for a busy operator — must be a silent skip", ops.chatCalls)
+	if len(ops.agentSendCalls) != 0 {
+		t.Errorf("injection ran (%v) for a busy operator — must be a silent skip", ops.agentSendCalls)
 	}
 	if _, ok := tr.attempted[waitingKey("default", "@1")]; !ok {
 		t.Errorf("the busy-skipped attempt must still stamp the per-window cooldown")
@@ -392,8 +392,8 @@ func TestAutoName_DeliverBusyOperatorSkipsInjection(t *testing.T) {
 // operator runs the full injection sequence targeting the OPERATOR's pane %9 —
 // the auto path is byte-for-byte the HTTP path post-parse.
 func TestAutoName_DeliverIdleOperatorInjects(t *testing.T) {
-	fastChatSendProbe(t)
-	stageFixtureTranscript(t, testChatRef)
+	fastAgentSendProbe(t)
+	stageFixtureTranscript(t, testTranscriptRef)
 	sf := &mockSessionFetcher{result: operatorSessions("idle")}
 	ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "❯ [Pasted text #1 +9 lines]", "working"}}
 	s := &Server{logger: slog.Default(), sessions: sf, tmux: ops, hostname: "host"}
@@ -422,19 +422,19 @@ func TestAutoName_DeliverIdleOperatorInjects(t *testing.T) {
 		t.Fatalf("deliver seam was never called")
 	}
 	want := []string{"capture-pane", "set-buffer", "paste-buffer", "capture-pane", "send-keys", "capture-pane"}
-	if len(ops.chatCalls) != len(want) {
-		t.Fatalf("injection order = %v, want %v", ops.chatCalls, want)
+	if len(ops.agentSendCalls) != len(want) {
+		t.Fatalf("injection order = %v, want %v", ops.agentSendCalls, want)
 	}
 	for i := range want {
-		if ops.chatCalls[i] != want[i] {
-			t.Fatalf("injection order = %v, want %v", ops.chatCalls, want)
+		if ops.agentSendCalls[i] != want[i] {
+			t.Fatalf("injection order = %v, want %v", ops.agentSendCalls, want)
 		}
 	}
-	if ops.pasteChatPaneID != "%9" || ops.sendEnterPaneID != "%9" {
+	if ops.pasteAgentPaneID != "%9" || ops.sendEnterPaneID != "%9" {
 		t.Errorf("injection targeted paste=%q enter=%q, want the OPERATOR pane %%9",
-			ops.pasteChatPaneID, ops.sendEnterPaneID)
+			ops.pasteAgentPaneID, ops.sendEnterPaneID)
 	}
-	if prompt := ops.setChatBufferText; !strings.Contains(prompt, "already accurately describes") {
+	if prompt := ops.setAgentBufferText; !strings.Contains(prompt, "already accurately describes") {
 		t.Errorf("auto-path prompt missing the no-op clause:\n%s", prompt)
 	}
 }

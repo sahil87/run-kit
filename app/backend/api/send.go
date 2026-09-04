@@ -62,7 +62,7 @@ func (s *Server) handleWindowSend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	server := serverFromRequest(r)
-	ctx, cancel := context.WithTimeout(r.Context(), chatSendTotalBudget)
+	ctx, cancel := context.WithTimeout(r.Context(), agentSendTotalBudget)
 	defer cancel()
 
 	var paneID string
@@ -86,16 +86,16 @@ func (s *Server) handleWindowSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tmuxAdapter := chatSendTmux{s.tmux}
+	tmuxAdapter := agentSendTmux{s.tmux}
 	switch body.Mode {
 	case "submit":
-		err = chatSendEngine.Send(ctx, tmuxAdapter, server, paneID, body.Text, true)
+		err = agentSendEngine.Send(ctx, tmuxAdapter, server, paneID, body.Text, true)
 	case "insert-line":
-		err = chatSendEngine.Send(ctx, tmuxAdapter, server, paneID, body.Text, false)
+		err = agentSendEngine.Send(ctx, tmuxAdapter, server, paneID, body.Text, false)
 	case "raw":
-		err = chatSendEngine.SendRaw(ctx, tmuxAdapter, server, paneID, body.Text)
+		err = agentSendEngine.SendRaw(ctx, tmuxAdapter, server, paneID, body.Text)
 	case "enter":
-		err = chatSendEngine.PressEnter(ctx, tmuxAdapter, server, paneID)
+		err = agentSendEngine.PressEnter(ctx, tmuxAdapter, server, paneID)
 	}
 	if err != nil {
 		logArgs := []any{
@@ -154,45 +154,45 @@ func validWindowSendMode(mode string) bool {
 	}
 }
 
-// chatSendTotalBudget is the shared injection deadline: a route threads ONE
+// agentSendTotalBudget is the shared injection deadline: a route threads ONE
 // context deadline through the entire injection sequence (baseline capture →
 // set-buffer → paste → probe captures → Enter, all subprocesses plus probe and
 // submit backoffs), so the route stays bounded under the 5s route-blocking
 // rule even when verified recovery takes its full bounded path. Both consumers
 // (this route and the operator-request delivery) derive it from the request
 // context so a client disconnect also cancels the tmux subprocesses.
-const chatSendTotalBudget = 4 * time.Second
+const agentSendTotalBudget = 4 * time.Second
 
-// chatSendTmux adapts the Server's TmuxOps seam onto inject.Tmux. The buffer
+// agentSendTmux adapts the Server's TmuxOps seam onto inject.Tmux. The buffer
 // name parameter is ignored: the daemon only ever drives the single shared
-// rk-chat-send buffer (the engine it is paired with is bound to that name).
-type chatSendTmux struct{ ops TmuxOps }
+// rk-agent-send buffer (the engine it is paired with is bound to that name).
+type agentSendTmux struct{ ops TmuxOps }
 
-func (a chatSendTmux) CapturePane(ctx context.Context, paneID string, lines int, server string) (string, error) {
+func (a agentSendTmux) CapturePane(ctx context.Context, paneID string, lines int, server string) (string, error) {
 	return a.ops.CapturePane(ctx, paneID, lines, server)
 }
-func (a chatSendTmux) SetBuffer(ctx context.Context, _, text, server string) error {
-	return a.ops.SetChatSendBuffer(ctx, text, server)
+func (a agentSendTmux) SetBuffer(ctx context.Context, _, text, server string) error {
+	return a.ops.SetAgentSendBuffer(ctx, text, server)
 }
-func (a chatSendTmux) PasteBuffer(ctx context.Context, _, paneID, server string) error {
-	return a.ops.PasteChatSendBuffer(ctx, paneID, server)
+func (a agentSendTmux) PasteBuffer(ctx context.Context, _, paneID, server string) error {
+	return a.ops.PasteAgentSendBuffer(ctx, paneID, server)
 }
-func (a chatSendTmux) PasteBufferRaw(ctx context.Context, _, paneID, server string) error {
-	return a.ops.PasteChatSendBufferRaw(ctx, paneID, server)
+func (a agentSendTmux) PasteBufferRaw(ctx context.Context, _, paneID, server string) error {
+	return a.ops.PasteAgentSendBufferRaw(ctx, paneID, server)
 }
-func (a chatSendTmux) SendEnter(ctx context.Context, paneID, server string) error {
+func (a agentSendTmux) SendEnter(ctx context.Context, paneID, server string) error {
 	return a.ops.SendEnterToPane(ctx, paneID, server)
 }
-func (a chatSendTmux) SendKeys(ctx context.Context, paneID, server string, keys ...string) error {
+func (a agentSendTmux) SendKeys(ctx context.Context, paneID, server string, keys ...string) error {
 	return a.ops.SendKeysToPane(ctx, paneID, server, keys...)
 }
 
-// chatSendEngine is the daemon's engine instance: bound to the shared
-// rk-chat-send buffer, it carries the per-(server,pane) lock map and the
+// agentSendEngine is the daemon's engine instance: bound to the shared
+// rk-agent-send buffer, it carries the per-(server,pane) lock map and the
 // set→paste cross-pane mutex (see inject.Engine). Package-level because the
 // serialization domain is the tmux server, not the Server value — two sends
 // racing the same pane must serialize even across handler instances.
-var chatSendEngine = inject.NewEngine(tmux.ChatSendBuffer)
+var agentSendEngine = inject.NewEngine(tmux.AgentSendBuffer)
 
 // injectIntoPane is the daemon's ONE adapter onto the shared injection
 // engine (internal/inject), serving the operator request path — the engine
@@ -205,7 +205,7 @@ var chatSendEngine = inject.NewEngine(tmux.ChatSendBuffer)
 // Failure types preserve whether the text is untouched, staged before Enter,
 // or unverified after Enter so each caller can give safe recovery guidance.
 func (s *Server) injectIntoPane(ctx context.Context, server, paneID, text string, submit bool) error {
-	return chatSendEngine.Send(ctx, chatSendTmux{s.tmux}, server, paneID, text, submit)
+	return agentSendEngine.Send(ctx, agentSendTmux{s.tmux}, server, paneID, text, submit)
 }
 
 // resolveWindowActivePane returns the active pane for a window from one

@@ -439,7 +439,7 @@ func TestRollupAltScreen(t *testing.T) {
 }
 
 // TestResolveChatPane covers the paneID surfaced alongside provider/ref — the
-// chat-send injection target (a window target may route to the wrong pane in a
+// agent-send injection target (a window target may route to the wrong pane in a
 // split). The active-pane-first / else-first-chat-pane rule is shared with
 // rollupChat via delegation.
 func TestResolveChatPane(t *testing.T) {

@@ -190,7 +190,7 @@ func (t *autoNameTracker) retain(live map[string]bool, polled map[string]bool) {
 // resulting delivery. The pure decision (`decide`) runs SYNCHRONOUSLY — it only
 // mutates the in-memory maps, no I/O — so the caller observes the tracker's
 // state advance in-tick. Delivery (tmux subprocesses under the delivery core's
-// own chatSendTotalBudget deadline) is fired off in a detached goroutine so it
+// own agentSendTotalBudget deadline) is fired off in a detached goroutine so it
 // can never stall the SSE poll loop. Errors — including the routine busy-skip —
 // are logged at debug and dropped: a background trigger has no surfacing
 // channel, and the next eligible transition retries naturally after the

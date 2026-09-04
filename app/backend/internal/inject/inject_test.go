@@ -277,7 +277,7 @@ func TestSendOrderAndEnter(t *testing.T) {
 func TestSendProbeFailsClosed(t *testing.T) {
 	fastProbe(t)
 	ft := &fakeTmux{captureResult: "unrelated pane output"}
-	e := NewEngine("rk-chat-send")
+	e := NewEngine("rk-agent-send")
 
 	err := e.Send(context.Background(), ft, "default", "%5", "hello world", true)
 	var pf ProbeFailure
@@ -326,7 +326,7 @@ func TestSendInsertSkipsEnter(t *testing.T) {
 func TestSendTmuxFailureVerbatim(t *testing.T) {
 	fastProbe(t)
 	ft := &fakeTmux{captureResult: "❯ ", pasteErr: errors.New("tmux exploded")}
-	e := NewEngine("rk-chat-send")
+	e := NewEngine("rk-agent-send")
 
 	err := e.Send(context.Background(), ft, "default", "%5", "hi", true)
 	var pf ProbeFailure
@@ -434,7 +434,7 @@ func TestSendPrePasteFailuresRemainPlain(t *testing.T) {
 // upstream).
 func TestSendWhitespaceOnlyNeedleFailsClosed(t *testing.T) {
 	ft := &fakeTmux{}
-	e := NewEngine("rk-chat-send")
+	e := NewEngine("rk-agent-send")
 
 	err := e.Send(context.Background(), ft, "default", "%5", "  \n\t ", true)
 	var pf ProbeFailure
@@ -454,7 +454,7 @@ func TestSendSamePaneSerializes(t *testing.T) {
 	// Every capture is stale → both sends deterministically fail the probe, so
 	// each block is a fixed shape regardless of goroutine order.
 	ft := &fakeTmux{captureResult: "❯ stale line"}
-	e := NewEngine("rk-chat-send")
+	e := NewEngine("rk-agent-send")
 
 	var wg sync.WaitGroup
 	for range 2 {
@@ -483,7 +483,7 @@ func TestSendSamePaneSerializes(t *testing.T) {
 func TestSendCrossPaneSetPasteAtomic(t *testing.T) {
 	fastProbe(t)
 	ft := &fakeTmux{captureResult: "❯ stale line"}
-	e := NewEngine("rk-chat-send")
+	e := NewEngine("rk-agent-send")
 
 	var wg sync.WaitGroup
 	for _, pane := range []string{"%1", "%2"} {
@@ -523,7 +523,7 @@ func TestSendDistinctEnginesShareNothing(t *testing.T) {
 	fastSubmit(t)
 	slow := &fakeTmux{captureResults: []string{"❯ ", "❯ hi", "hi\nworking"}}
 	fast := &fakeTmux{captureResults: []string{"❯ ", "❯ hi", "hi\nworking"}}
-	e1 := NewEngine("rk-chat-send")
+	e1 := NewEngine("rk-agent-send")
 	e2 := NewEngine("rk-send-42")
 
 	done := make(chan error, 1)

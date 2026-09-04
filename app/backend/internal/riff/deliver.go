@@ -73,7 +73,7 @@ func deliveryServer(spec EffectiveSpec) string {
 }
 
 // taskSendBuffer is the named buffer task deliveries paste through — distinct
-// from the daemon's chat-send buffer and the mux-send per-invocation names.
+// from the daemon's agent-send buffer and the mux-send per-invocation names.
 const taskSendBuffer = "rk-riff-task"
 
 // taskEngine serializes task deliveries process-wide: per-pane locks plus the

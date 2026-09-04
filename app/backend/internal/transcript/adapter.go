@@ -1,4 +1,4 @@
-// Package chat resolves a window's reconciled chat session identity
+// Package transcript resolves a window's reconciled chat session identity
 // (<provider>:<session-ref>) to the agent's on-disk transcript path. It is a
 // READ-ONLY view over the agent pane (Constitution VI — the pane stays the
 // agent's parent process) and derives everything from disk at request time
@@ -6,7 +6,7 @@
 //
 // The registry routes on the provider prefix so Codex/Gemini adapters are
 // backend-only additions; v1 ships the Claude adapter (see claude.go).
-package chat
+package transcript
 
 import (
 	"errors"
@@ -24,7 +24,7 @@ type Adapter interface {
 // ErrNoAdapter is returned by Lookup when no adapter is registered for a
 // well-formed provider. The API layer maps it to a 404-class JSON error —
 // presence-gating stays provider-agnostic and codex/gemini adapters are additive.
-var ErrNoAdapter = errors.New("chat: no adapter for provider")
+var ErrNoAdapter = errors.New("transcript: no adapter for provider")
 
 // TranscriptLocator is an OPTIONAL adapter capability: resolving a session ref
 // to its on-disk transcript path. File-based providers (claude) implement it;
@@ -39,12 +39,12 @@ type TranscriptLocator interface {
 	TranscriptPath(ref string) (string, error)
 }
 
-// TranscriptPath resolves provider+ref to the absolute transcript path via the
+// Path resolves provider+ref to the absolute transcript path via the
 // registry: Lookup routes to the provider's adapter, which is type-asserted to
 // TranscriptLocator. An unregistered provider, or one without the capability,
 // yields ErrNoAdapter (404-class at the API layer — the caller cannot do
 // anything about a provider rk cannot read from disk).
-func TranscriptPath(provider, ref string) (string, error) {
+func Path(provider, ref string) (string, error) {
 	a, err := Lookup(provider)
 	if err != nil {
 		return "", err

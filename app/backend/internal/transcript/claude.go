@@ -1,4 +1,4 @@
-package chat
+package transcript
 
 import (
 	"errors"
@@ -20,14 +20,14 @@ var uuidRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4
 // ErrTranscriptNotFound is returned when a strict-UUID ref resolves to no file
 // under any project dir. A live agent's transcript exists by construction, so
 // this surfaces the "missing transcript for a live ref" case as a read error.
-var ErrTranscriptNotFound = errors.New("chat: transcript not found for ref")
+var ErrTranscriptNotFound = errors.New("transcript: not found for ref")
 
 // ErrInvalidRef is returned when a ref fails the strict-UUID guard, before any
 // filesystem access. It is exported so the API layer can map a malformed ref
 // (which, for a window-keyed route, means the client only supplied a windowID
 // whose reconciled @rk_chat is malformed — not a server fault) to a 404-class
 // response rather than a 500.
-var ErrInvalidRef = errors.New("chat: invalid session ref (not a uuid)")
+var ErrInvalidRef = errors.New("transcript: invalid session ref (not a uuid)")
 
 // claudeAdapter locates a Claude Code session transcript
 // (`<root>/projects/*/<ref>.jsonl`).
@@ -78,7 +78,7 @@ func locateTranscript(ref string) (string, error) {
 
 // TranscriptPath resolves ref to the transcript's absolute path via the UUID-
 // guarded locateTranscript — the claude adapter's TranscriptLocator capability
-// (adapter.go), reached per-provider through chat.TranscriptPath. The guard
+// (adapter.go), reached per-provider through transcript.Path. The guard
 // stays in front: an invalid ref is ErrInvalidRef before any filesystem access.
 func (claudeAdapter) TranscriptPath(ref string) (string, error) {
 	return locateTranscript(ref)

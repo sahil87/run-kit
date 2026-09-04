@@ -1,4 +1,4 @@
-package chat
+package transcript
 
 import (
 	"os"
@@ -39,11 +39,11 @@ func TestLookupUnregistered(t *testing.T) {
 	}
 }
 
-// TestTranscriptPathSeam: the package-level TranscriptPath routes through the
-// registry to the claude adapter's TranscriptLocator, preserving the strict
-// UUID guard in front of every resolution (ErrInvalidRef before ANY filesystem
-// access); an unregistered provider yields ErrNoAdapter.
-func TestTranscriptPathSeam(t *testing.T) {
+// TestPathSeam: the package-level Path routes through the registry to the
+// claude adapter's TranscriptLocator, preserving the strict UUID guard in
+// front of every resolution (ErrInvalidRef before ANY filesystem access); an
+// unregistered provider yields ErrNoAdapter.
+func TestPathSeam(t *testing.T) {
 	bad := []string{
 		"../../etc/passwd",
 		"not-a-uuid",
@@ -52,19 +52,18 @@ func TestTranscriptPathSeam(t *testing.T) {
 		"",
 	}
 	for _, ref := range bad {
-		if _, err := TranscriptPath("claude", ref); err != ErrInvalidRef {
-			t.Errorf("TranscriptPath(claude, %q) err = %v, want ErrInvalidRef", ref, err)
+		if _, err := Path("claude", ref); err != ErrInvalidRef {
+			t.Errorf("Path(claude, %q) err = %v, want ErrInvalidRef", ref, err)
 		}
 	}
-	if _, err := TranscriptPath("codex", "5d80479e-8f25-46cd-a0d4-e51435508a37"); err != ErrNoAdapter {
-		t.Errorf("TranscriptPath(codex, valid-uuid) err = %v, want ErrNoAdapter", err)
+	if _, err := Path("codex", "5d80479e-8f25-46cd-a0d4-e51435508a37"); err != ErrNoAdapter {
+		t.Errorf("Path(codex, valid-uuid) err = %v, want ErrNoAdapter", err)
 	}
 }
 
-// TestTranscriptPathFromDisk: a valid-UUID ref resolves to the absolute path
-// of an existing transcript; a valid UUID with no file is
-// ErrTranscriptNotFound.
-func TestTranscriptPathFromDisk(t *testing.T) {
+// TestPathFromDisk: a valid-UUID ref resolves to the absolute path of an
+// existing transcript; a valid UUID with no file is ErrTranscriptNotFound.
+func TestPathFromDisk(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	ref := "5d80479e-8f25-46cd-a0d4-e51435508a37"
@@ -73,7 +72,7 @@ func TestTranscriptPathFromDisk(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := TranscriptPath("claude", ref); err != ErrTranscriptNotFound {
+	if _, err := Path("claude", ref); err != ErrTranscriptNotFound {
 		t.Errorf("missing transcript err = %v, want ErrTranscriptNotFound", err)
 	}
 
@@ -81,11 +80,11 @@ func TestTranscriptPathFromDisk(t *testing.T) {
 	if err := os.WriteFile(want, []byte("{}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, err := TranscriptPath("claude", ref)
+	got, err := Path("claude", ref)
 	if err != nil {
-		t.Fatalf("TranscriptPath: %v", err)
+		t.Fatalf("Path: %v", err)
 	}
 	if got != want {
-		t.Errorf("TranscriptPath = %q, want %q", got, want)
+		t.Errorf("Path = %q, want %q", got, want)
 	}
 }

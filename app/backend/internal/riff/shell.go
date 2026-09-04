@@ -39,10 +39,10 @@ func SkillPaneCommand(launcher, prompt string) string {
 }
 
 // sessionUUIDRe matches the strict Claude session-UUID shape — the SAME rule as
-// internal/chat's uuidRe. Duplicated here (rather than imported) deliberately:
+// internal/transcript's uuidRe. Duplicated here (rather than imported) deliberately:
 // this is a defense-in-depth gate at the seam where the ref enters the
 // deliberately-unescaped launcher string, and internal/riff must not depend on
-// internal/chat to hold the security property (constitution §I). The API layer
+// internal/transcript to hold the security property (constitution §I). The API layer
 // validates the ref before the engine is ever called; this re-check is what
 // makes the property local to the composition.
 var sessionUUIDRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)

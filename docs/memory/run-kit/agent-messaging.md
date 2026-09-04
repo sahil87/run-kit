@@ -44,7 +44,7 @@ the `@rk_pane_agent_state` convention ([agent-state](/run-kit/agent-state.md)) a
 share the pane-level primitives in `internal/tmux/pane_target.go`. Delivery
 reuses the hardened injection engine the daemon's compose-send route also drives
 — the
-shared `internal/inject` package ([chat](/run-kit/chat.md) § Send Path) — so the
+shared `internal/inject` package ([agent-send](/run-kit/agent-send.md) § Send Path) — so the
 daemon route and the CLI verb run ONE implementation.
 
 The family parent (`muxCmd`, `cmd/rk/mux.go`) carries the shared persistent
@@ -130,7 +130,7 @@ silent force-wins precedence.
 
 ### Requirement: Delivery through the shared injection engine
 Text payloads SHALL be delivered through `internal/inject` — the engine the
-compose-send HTTP handler also consumes ([chat](/run-kit/chat.md) § Send Path):
+compose-send HTTP handler also consumes ([agent-send](/run-kit/agent-send.md) § Send Path):
 baseline capture → named-buffer `set-buffer -b <name> -- <text>` → bracketed
 `paste-buffer -d -p` → NOVELTY echo probe → probe-gated Enter → post-Enter
 observation. The CLI drives it through the five-method `inject.Tmux` interface
@@ -138,7 +138,7 @@ over `internal/tmux`'s
 name-parameterized buffer primitives (`SetBufferCtx`/`PasteBufferCtx`/
 `CapturePaneCtx`/`SendEnterToPaneCtx`/`SendKeysToPane`), with a **per-invocation buffer name**
 `rk-send-<pid>` so a CLI send can never clobber a concurrent daemon send's
-`rk-chat-send` buffer. `--no-enter` skips only the Enter — the probed text stays
+`rk-agent-send` buffer. `--no-enter` skips only the Enter — the probed text stays
 staged in the composer. A probe failure (`inject.ProbeFailure`) sends no Enter,
 prints the recoverable-state message (the text remains staged; a resend would
 duplicate it) to stderr, and exits 1 — the compose-send 409's CLI analog.
@@ -571,11 +571,13 @@ permanent: they are human-typed verbs, so they are removable in a future release
 **Decision**: The shared pane-injection engine lives in `internal/inject` behind a
 five-method `Tmux` interface (capture / set-buffer / paste-buffer / send-Enter /
 pane-scoped send-keys, context-bound), with the buffer name as an engine
-parameter — the daemon passes `rk-chat-send`, the CLI its per-invocation
+parameter — the daemon passes `rk-agent-send`, the CLI its per-invocation
 `rk-send-<pid>`.
 **Why**: mechanics-named like `internal/present`; "chat" does not describe an
 engine the CLI consumes alongside the daemon route, and the interface keeps both
-consumers testable without a live tmux.
+consumers testable without a live tmux. The same reasoning names the daemon's
+consumer cluster agent-send ([agent-send](/run-kit/agent-send.md) § The
+injection cluster is named agent-send).
 **Rejected**: `internal/agentsend` (couples the name to one consumer).
 *Introduced by*: `260815-a5vf-rk-send-await-agent-messaging`
 
@@ -635,12 +637,12 @@ verb).
 
 ### Per-invocation CLI buffer name (`rk-send-<pid>`)
 **Decision**: The CLI sends through a per-invocation named buffer while the
-daemon keeps its single shared `rk-chat-send` buffer plus its in-process
+daemon keeps its single shared `rk-agent-send` buffer plus its in-process
 per-pane locks.
 **Why**: a CLI send must never clobber a concurrent daemon send's buffer —
 distinct buffer owners need no cross-process guard; the same-pane cross-process
 paste race that remains is inherent to tmux and rare.
-**Rejected**: sharing `rk-chat-send` from the CLI (the single-writer assumption
+**Rejected**: sharing `rk-agent-send` from the CLI (the single-writer assumption
 breaks across processes).
 *Introduced by*: `260815-a5vf-rk-send-await-agent-messaging`
 

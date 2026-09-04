@@ -471,7 +471,7 @@ func RenumberWindow(session, windowID string, index int, server string) error {
 // pane count matches the layout; the restore engine treats a failure here as
 // best-effort (panes keep their default split geometry). The `--` pins the
 // layout string as a positional argument, never parsed as flags (mirrors
-// set-buffer in SetChatSendBuffer) — stored layout strings are
+// set-buffer in SetAgentSendBuffer) — stored layout strings are
 // checksum-prefixed and cannot start with '-', so this is belt-and-braces.
 func SelectLayout(windowID, layout, server string) error {
 	ctx, cancel := withTimeout()

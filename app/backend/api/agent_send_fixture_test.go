@@ -13,7 +13,7 @@ import (
 // (operator actuation, auto-name, the /send route): a staged Claude transcript
 // on disk plus the fast-probe seams that keep injection tests quick.
 
-const testChatRef = "5d80479e-8f25-46cd-a0d4-e51435508a37"
+const testTranscriptRef = "5d80479e-8f25-46cd-a0d4-e51435508a37"
 
 // stageFixtureTranscript writes the sanitized chat fixture to a temp
 // CLAUDE_CONFIG_DIR under the given ref and points $CLAUDE_CONFIG_DIR at it.
@@ -47,7 +47,7 @@ func stageEmptyConfigDir(t *testing.T) (projDir string) {
 // projDir (used to make a transcript "appear" mid-test).
 func writeFixtureAt(t *testing.T, projDir, ref string) {
 	t.Helper()
-	fixture, err := os.ReadFile(filepath.Join("..", "internal", "chat", "testdata", "claude_session.jsonl"))
+	fixture, err := os.ReadFile(filepath.Join("..", "internal", "transcript", "testdata", "claude_session.jsonl"))
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
 	}
@@ -56,9 +56,9 @@ func writeFixtureAt(t *testing.T, projDir, ref string) {
 	}
 }
 
-// fastChatSendProbe shrinks the probe settle/gap so the retry loop runs quickly
+// fastAgentSendProbe shrinks the probe settle/gap so the retry loop runs quickly
 // under test, restoring the production values after.
-func fastChatSendProbe(t *testing.T) {
+func fastAgentSendProbe(t *testing.T) {
 	t.Helper()
 	ps, pg := inject.ProbeSettle, inject.ProbeGap
 	submitBackoff := append([]time.Duration(nil), inject.SubmitBackoff...)

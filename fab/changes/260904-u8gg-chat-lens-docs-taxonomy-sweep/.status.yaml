@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 5
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-09-04T07:33:08Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T07:35:28Z"}
     hydrate: {started_at: "2026-09-04T07:35:28Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T07:36:23Z"}
     ship: {started_at: "2026-09-04T07:36:23Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T07:37:24Z"}
-    review-pr: {started_at: "2026-09-04T07:37:24Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-09-04T07:37:24Z", driver: git-pr, iterations: 1, completed_at: "2026-09-04T08:14:09Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/820
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: 'Docs lens-taxonomy sweep after the Chat Lens removal (PR #817): window-views.md removal note + row fixes, agent-state justification swapped to live transcript consumers, and ten spec/memory one-liners de-chatted'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-04T07:37:24Z
+last_updated: 2026-09-04T08:14:09Z

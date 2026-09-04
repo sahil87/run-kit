@@ -1202,3 +1202,263 @@ func TestDetectDisappearedSessions(t *testing.T) {
 		})
 	}
 }
+
+// blockingSessionFetcher blocks FetchSessions for servers with an entry in
+// release until that channel is closed; servers in gone fail with a
+// tmux.IsServerGone-matching error; all others return result immediately. It
+// tracks per-server concurrent in-flight count (cur), its high-water mark
+// (max), and total call count (calls) for fan-out assertions.
+type blockingSessionFetcher struct {
+	mu      sync.Mutex
+	result  []sessions.ProjectSession
+	release map[string]chan struct{}
+	gone    map[string]bool
+	cur     map[string]int
+	max     map[string]int
+	calls   map[string]int
+}
+
+func newBlockingSessionFetcher(result []sessions.ProjectSession, blocked ...string) *blockingSessionFetcher {
+	f := &blockingSessionFetcher{
+		result:  result,
+		release: map[string]chan struct{}{},
+		gone:    map[string]bool{},
+		cur:     map[string]int{},
+		max:     map[string]int{},
+		calls:   map[string]int{},
+	}
+	for _, s := range blocked {
+		f.release[s] = make(chan struct{})
+	}
+	return f
+}
+
+func (f *blockingSessionFetcher) FetchSessions(ctx context.Context, server string) ([]sessions.ProjectSession, error) {
+	f.mu.Lock()
+	f.cur[server]++
+	f.calls[server]++
+	if f.cur[server] > f.max[server] {
+		f.max[server] = f.cur[server]
+	}
+	ch := f.release[server]
+	gone := f.gone[server]
+	f.mu.Unlock()
+	defer func() {
+		f.mu.Lock()
+		f.cur[server]--
+		f.mu.Unlock()
+	}()
+	if ch != nil {
+		<-ch
+	}
+	if gone {
+		return nil, fmt.Errorf("exit status 1: error connecting to /tmp/tmux-1001/%s (No such file or directory)", server)
+	}
+	return f.result, nil
+}
+
+// waitForCond polls cond until it holds, failing the test after timeout.
+func waitForCond(t *testing.T, what string, timeout time.Duration, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", what)
+}
+
+// waitForEvent waits for an event on ch whose rendered form starts with
+// prefix and (when substr is non-empty) contains substr, failing the test
+// after timeout. Non-matching events are discarded.
+func waitForEvent(t *testing.T, ch chan hubEvent, prefix, substr string, timeout time.Duration) string {
+	t.Helper()
+	deadline := time.After(timeout)
+	for {
+		select {
+		case ev := <-ch:
+			s := ev.String()
+			if strings.HasPrefix(s, prefix) && (substr == "" || strings.Contains(s, substr)) {
+				return s
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for %q containing %q", prefix, substr)
+			return ""
+		}
+	}
+}
+
+// TestSSEHubSlowServerDoesNotDelayOthers proves the poll loop's bounded
+// fan-out removes head-of-line blocking across servers: while one server's
+// FetchSessions is hung, another server's unit completes and its `sessions`
+// event is delivered without waiting for the hung server.
+func TestSSEHubSlowServerDoesNotDelayOthers(t *testing.T) {
+	sf := newBlockingSessionFetcher(
+		[]sessions.ProjectSession{{Name: "fast-session", Windows: []tmux.WindowInfo{}}},
+		"slow",
+	)
+	hub := newSSEHub(sf, nil, nil, nil)
+	hub.safetyInterval = 50 * time.Millisecond
+
+	slowClient := hub.addTestClient(make(chan hubEvent, 16), "slow")
+	fastClient := hub.addTestClient(make(chan hubEvent, 16), "fast")
+	defer hub.removeClient(slowClient)
+	defer hub.removeClient(fastClient)
+
+	// Wait until the slow server's unit is genuinely blocked inside
+	// FetchSessions, then require the fast server's sessions event to arrive
+	// while it is still blocked.
+	waitForCond(t, "slow server in flight", 2*time.Second, func() bool {
+		sf.mu.Lock()
+		defer sf.mu.Unlock()
+		return sf.cur["slow"] > 0
+	})
+	waitForEvent(t, fastClient.ch, "event: sessions", "fast-session", 2*time.Second)
+
+	sf.mu.Lock()
+	stillBlocked := sf.cur["slow"] > 0
+	sf.mu.Unlock()
+	if !stillBlocked {
+		t.Fatal("slow server's fetch completed before the assertion — test did not exercise the overlap")
+	}
+	close(sf.release["slow"])
+}
+
+// TestSSEHubSlowServerDoesNotDelayMetrics proves the host-global metrics
+// broadcast is independent of per-server work: it keeps being emitted every
+// tick even while one server's FetchSessions is hung.
+func TestSSEHubSlowServerDoesNotDelayMetrics(t *testing.T) {
+	sf := newBlockingSessionFetcher(
+		[]sessions.ProjectSession{{Name: "some-session", Windows: []tmux.WindowInfo{}}},
+		"slow",
+	)
+	mc := metrics.NewCollector(2500 * time.Millisecond) // pre-fills a valid zero snapshot
+	hub := newSSEHub(sf, mc, nil, nil)
+	hub.safetyInterval = 50 * time.Millisecond
+
+	client := hub.addTestClient(make(chan hubEvent, 16), "slow")
+	defer hub.removeClient(client)
+
+	// Once the slow server's unit is hung, further ticks must still broadcast
+	// metrics (the broadcast runs ahead of and independent of unit dispatch).
+	waitForCond(t, "slow server in flight", 2*time.Second, func() bool {
+		sf.mu.Lock()
+		defer sf.mu.Unlock()
+		return sf.cur["slow"] > 0
+	})
+	waitForEvent(t, client.ch, "event: metrics", "", 2*time.Second)
+
+	sf.mu.Lock()
+	stillBlocked := sf.cur["slow"] > 0
+	sf.mu.Unlock()
+	if !stillBlocked {
+		t.Fatal("slow server's fetch completed before the assertion — test did not exercise the overlap")
+	}
+	close(sf.release["slow"])
+}
+
+// TestSSEHubSingleFlightPerServerAcrossTicks proves a server never has two
+// poll units in flight at once: while one server's FetchSessions is hung,
+// repeated ticks skip re-dispatching it (its concurrent count never exceeds
+// 1) while other servers keep being polled.
+func TestSSEHubSingleFlightPerServerAcrossTicks(t *testing.T) {
+	sf := newBlockingSessionFetcher(
+		[]sessions.ProjectSession{{Name: "fast-session", Windows: []tmux.WindowInfo{}}},
+		"slow",
+	)
+	hub := newSSEHub(sf, nil, nil, nil)
+	hub.safetyInterval = 20 * time.Millisecond
+
+	slowClient := hub.addTestClient(make(chan hubEvent, 16), "slow")
+	fastClient := hub.addTestClient(make(chan hubEvent, 16), "fast")
+	defer hub.removeClient(slowClient)
+	defer hub.removeClient(fastClient)
+
+	waitForCond(t, "slow server in flight", 2*time.Second, func() bool {
+		sf.mu.Lock()
+		defer sf.mu.Unlock()
+		return sf.cur["slow"] > 0
+	})
+	// Let many ticks elapse with the slow server hung: it must never be
+	// double-dispatched, and the fast server must keep being polled (its
+	// fetch count grows past the 500ms fetch-cache TTL).
+	waitForCond(t, "fast server re-polled while slow is hung", 3*time.Second, func() bool {
+		sf.mu.Lock()
+		defer sf.mu.Unlock()
+		return sf.calls["fast"] >= 2
+	})
+	sf.mu.Lock()
+	slowMax := sf.max["slow"]
+	slowCur := sf.cur["slow"]
+	sf.mu.Unlock()
+	if slowMax > 1 {
+		t.Fatalf("slow server had %d concurrent units in flight (single-flight violated)", slowMax)
+	}
+	if slowCur != 1 {
+		t.Fatalf("slow server should still be hung (cur=%d) — test did not exercise the overlap", slowCur)
+	}
+	close(sf.release["slow"])
+
+	// After release, the slow server is re-dispatched on a later tick and
+	// still never exceeds one in-flight unit.
+	waitForCond(t, "slow server re-polled after release", 3*time.Second, func() bool {
+		sf.mu.Lock()
+		defer sf.mu.Unlock()
+		return sf.calls["slow"] >= 2 && sf.max["slow"] <= 1
+	})
+}
+
+// TestSSEHubRetainScopingUnderFanOut proves the retain sweeps keep their
+// observed-server scoping when results fold asynchronously: a server whose
+// unit is still IN FLIGHT at fold time counts as not observed (its
+// waiting-push episodes survive), while a server whose folded unit reported
+// the socket gone IS swept.
+func TestSSEHubRetainScopingUnderFanOut(t *testing.T) {
+	sf := newBlockingSessionFetcher(nil, "blocked")
+	sf.gone["dead"] = true
+	hub := newSSEHub(sf, nil, nil, nil)
+	hub.safetyInterval = 50 * time.Millisecond
+
+	blockedClient := hub.addTestClient(make(chan hubEvent, 16), "blocked")
+	deadClient := hub.addTestClient(make(chan hubEvent, 16), "dead")
+	defer hub.removeClient(blockedClient)
+	defer hub.removeClient(deadClient)
+
+	// Seed waiting-push episodes on both servers.
+	blockedKey := waitingKey("blocked", "@1")
+	deadKey := waitingKey("dead", "@2")
+	hub.waitingPush.mu.Lock()
+	hub.waitingPush.episodes[blockedKey] = waitingEpisode{since: time.Now(), pushed: true}
+	hub.waitingPush.episodes[deadKey] = waitingEpisode{since: time.Now(), pushed: true}
+	hub.waitingPush.mu.Unlock()
+
+	// Wait until the blocked server's unit is hung mid-fetch, then until the
+	// dead server's unit completes, folds, and is reaped from the poll set.
+	waitForCond(t, "blocked server in flight", 2*time.Second, func() bool {
+		sf.mu.Lock()
+		defer sf.mu.Unlock()
+		return sf.cur["blocked"] > 0
+	})
+	waitForCond(t, "dead server reaped", 2*time.Second, func() bool {
+		hub.mu.RLock()
+		defer hub.mu.RUnlock()
+		_, present := hub.clients["dead"]
+		return !present
+	})
+
+	// The dead server's episode was swept (observed-gone); the blocked
+	// server's episode survives (not observed — its unit is still in flight).
+	hub.waitingPush.mu.Lock()
+	_, blockedAlive := hub.waitingPush.episodes[blockedKey]
+	_, deadAlive := hub.waitingPush.episodes[deadKey]
+	hub.waitingPush.mu.Unlock()
+	if !blockedAlive {
+		t.Error("in-flight server's waiting-push episode was wrongly reaped")
+	}
+	if deadAlive {
+		t.Error("dead server's waiting-push episode was not reaped")
+	}
+	close(sf.release["blocked"])
+}

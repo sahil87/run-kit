@@ -382,10 +382,34 @@ func doubleBackoff(d time.Duration) time.Duration {
 	return next
 }
 
+// errBridgeWriteForbidden is returned by the write-guarded bridge PTY. The
+// bridge is a pure listener: every command rk issues against a tmux server
+// goes through one-shot subprocesses (the internal/tmux runners), never this
+// handle. The guard exists because the client attaches WRITABLE at the tmux
+// layer — tmux ≥3.7 rejects send-keys whenever target-client resolution lands
+// on a read-only client, and resolution is recency-only across the whole
+// server, so a read-only bridge would break typed delivery for every
+// same-user caller. Writability is therefore required at the tmux layer and
+// revoked here instead.
+var errBridgeWriteForbidden = errors.New("tmuxctl: bridge PTY is a pure listener — commands go through one-shot tmux subprocesses, never this handle")
+
+// writeGuardedPTY revokes Write on the bridge PTY (see errBridgeWriteForbidden
+// for the invariant); Read and Close delegate untouched so the read loop and
+// the reconnect FSM's teardown are unaffected.
+type writeGuardedPTY struct {
+	rwc io.ReadWriteCloser
+}
+
+func (g writeGuardedPTY) Read(p []byte) (int, error)  { return g.rwc.Read(p) }
+func (g writeGuardedPTY) Close() error                { return g.rwc.Close() }
+func (g writeGuardedPTY) Write(p []byte) (int, error) { return 0, errBridgeWriteForbidden }
+
 // productionDial is the dialFn used by Open in production. It resolves a
 // bootstrap session (existing first session OR creates `_rk-ctl` anchor) and
-// then runs `tmux -CC -L <socket> attach-session -t =<bootstrap> -r` via
-// creack/pty.
+// then runs `tmux -CC -L <socket> attach-session -t =<bootstrap> -f ignore-size`
+// via creack/pty. The client deliberately attaches writable (`ignore-size`
+// alone — NOT `-r`, which aliases `read-only,ignore-size`): see
+// errBridgeWriteForbidden for why read-only enforcement lives in Go.
 func productionDial(ctx context.Context, socket string) (*exec.Cmd, io.ReadWriteCloser, error) {
 	// Backstop FIRST, on every dial AND every reconnect (this dialFn is the
 	// reconnect FSM's dial too). Setting `exit-empty off` BEFORE the anchor is
@@ -417,14 +441,14 @@ func productionDial(ctx context.Context, socket string) (*exec.Cmd, io.ReadWrite
 	if socket != "default" && socket != "" {
 		args = append(args, "-L", socket)
 	}
-	args = append(args, "-CC", "attach-session", "-t", "=" + bootstrap, "-r")
+	args = append(args, "-CC", "attach-session", "-t", "=" + bootstrap, "-f", "ignore-size")
 
 	cmd := exec.CommandContext(ctx, "tmux", args...)
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
 		return nil, nil, fmt.Errorf("pty.Start: %w", err)
 	}
-	return cmd, ptmx, nil
+	return cmd, writeGuardedPTY{rwc: ptmx}, nil
 }
 
 // errServerDead is the sentinel resolveBootstrap returns when the liveness

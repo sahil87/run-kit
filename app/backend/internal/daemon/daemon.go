@@ -481,13 +481,13 @@ func Stop() error {
 	// process. The pane runs the serve binary directly (startSession passes it
 	// as the new-session command, no shell wrapper), so pane_pid IS the serve
 	// process, and SIGINT is exactly what a delivered C-c would raise via the
-	// tty. Key-based delivery cannot be the primary path: with the session's
-	// only attached client being run-kit's own read-only `-CC` control bridge
-	// (attached with `-r` — see internal/tmuxctl productionDial), tmux resolves
-	// that bridge as the target client and rejects the dispatch with "client is
-	// read-only". On tmux 3.7 that rejection hits send-keys outright, in or out
-	// of a pane mode — a copy-mode pre-cancel alone does not make key delivery
-	// viable (on 3.6 only mode-table dispatch was affected). Both delivery
+	// tty. Key-based delivery stays the fallback, not the primary path: the
+	// session's usual sole client is run-kit's own `-CC` control bridge (now
+	// writable — see internal/tmuxctl productionDial), but a user-attached
+	// read-only client can still be resolved as send-keys' target and rejected
+	// ("client is read-only", on tmux ≥3.7 outright), and a pane sitting in a
+	// mode routes C-c into the mode key table instead of the process (copy-mode
+	// binds C-c → cancel). Signaling the PID bypasses both. Both delivery
 	// mechanisms are best-effort and MUST NOT early-return: any failure falls
 	// through to the grace-timer/kill-session fallback below, keeping the
 	// "graceful interrupt → wait grace → kill" contract reachable regardless of

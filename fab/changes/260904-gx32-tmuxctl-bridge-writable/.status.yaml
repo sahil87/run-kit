@@ -1,0 +1,55 @@
+id: gx32
+name: 260904-gx32-tmuxctl-bridge-writable
+created: 2026-09-04T04:00:18Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 4
+    acceptance_count: 10
+    acceptance_completed: 10
+confidence:
+    certain: 5
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 82.5
+        reversibility: 85.0
+        competence: 85.6
+        disambiguation: 83.8
+stage_metrics:
+    intake: {started_at: "2026-09-04T04:00:18Z", driver: fab-new, iterations: 1, completed_at: "2026-09-04T04:05:10Z"}
+    apply: {started_at: "2026-09-04T04:05:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T04:11:38Z"}
+    review: {started_at: "2026-09-04T04:11:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T04:15:31Z"}
+    hydrate: {started_at: "2026-09-04T04:15:31Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T04:18:00Z"}
+    ship: {started_at: "2026-09-04T04:18:00Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-04T04:18:00Z"
+    computed_at_stage: hydrate
+summary: tmuxctl bridge attaches writable (-f ignore-size, not -r); never-mutates moves to a Go write guard (writeGuardedPTY) so tmux 3.7 read-only target-client resolution can't reject send-keys server-wide
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-04T04:18:00Z

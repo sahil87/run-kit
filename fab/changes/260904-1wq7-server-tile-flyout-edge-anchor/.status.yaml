@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 5
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-09-04T07:55:02Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T08:01:44Z"}
     hydrate: {started_at: "2026-09-04T08:01:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T08:04:06Z"}
     ship: {started_at: "2026-09-04T08:04:06Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T08:05:23Z"}
-    review-pr: {started_at: "2026-09-04T08:05:23Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-09-04T08:05:23Z", driver: git-pr, iterations: 1, completed_at: "2026-09-04T08:12:35Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/822
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: Server-tile flyout card now edge-anchors at the sidebar's right edge (virtual position reference) with a blockPointerEvents traversal guard, so it never covers or gets stolen by sibling tiles
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-04T08:05:23Z
+last_updated: 2026-09-04T08:12:35Z

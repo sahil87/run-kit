@@ -34,7 +34,8 @@ stage_metrics:
     review: {started_at: "2026-09-04T10:15:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:20:38Z"}
     hydrate: {started_at: "2026-09-04T10:20:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:28:56Z"}
     ship: {started_at: "2026-09-04T10:28:56Z", driver: fab-fff, iterations: 1}
-prs: []
+prs:
+    - https://github.com/sahil87/run-kit/pull/830
 change_type_source: explicit
 true_impact:
     added: 0
@@ -52,4 +53,4 @@ true_impact:
     computed_at_stage: hydrate
 summary: Renamed the pane agent-session identity key @rk_pane_chat → @rk_pane_agent_session (Go/TS identifiers, wire fields agentProvider/agentSessionRef, error strings) and closed out the @rk_chat generation for this key — memory updated to the new vocabulary, chained migration rows, and the closed-ring read-coalesce rule
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-04T10:28:56Z
+last_updated: 2026-09-04T10:30:28Z

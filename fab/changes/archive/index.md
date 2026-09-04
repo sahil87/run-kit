@@ -1,5 +1,7 @@
 # Archived Changes
 
+- **260904-u8gg-chat-lens-docs-taxonomy-sweep** — Chat Lens Docs Lens-Taxonomy Sweep (Change B)
+- **260904-0mrk-chat-lens-residual-code-trim** — Chat Lens Residual Code Trim (Sweep Change A1)
 - **260903-xj0w-hidden-page-stream-release** — Hidden-Page Terminal Stream Release
 - **260903-1eua-attached-viewer-count-indicator** — Attached Viewer Count Indicator
 - **260903-u1b8-e2e-fixed-port-hardening** — E2E Fixed-Port Hardening

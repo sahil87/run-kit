@@ -9,6 +9,7 @@ import {
 import { useFocusTrap } from "@/hooks/use-focus-trap";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { matchesCombo, type EffectiveBinding } from "@/lib/keybindings";
+import { shouldShowAskOperatorRow } from "@/lib/operator-console";
 
 export type PaletteOptionPicker = {
   options: { key: string; label: string }[];
@@ -42,9 +43,15 @@ export type PaletteAction = {
 
 type CommandPaletteProps = {
   actions: PaletteAction[];
+  /** The Ask-operator free-text on-ramp: when the query matches NO action and
+   *  the resolved server has an operator window, a standing last row offers
+   *  `Ask operator: "{query}"`; selecting it closes the palette and hands the
+   *  query to the operator console (open + immediate send). Omitted entirely
+   *  (never disabled) when the gate fails. */
+  askOperator?: { hasOperator: boolean; onAsk: (query: string) => void };
 };
 
-export function CommandPalette({ actions }: CommandPaletteProps) {
+export function CommandPalette({ actions, askOperator }: CommandPaletteProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -76,7 +83,7 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
     if (confirming || picking) inputRef.current?.focus();
   }, [confirming, picking, pickedKeys]);
 
-  const filtered = confirming
+  const baseFiltered = confirming
     ? [
         {
           ...confirming,
@@ -100,6 +107,25 @@ export function CommandPalette({ actions }: CommandPaletteProps) {
             (a.description?.toLowerCase().includes(q) ?? false)
           );
         });
+
+  // The Ask-operator fallback row rides the ordinary row machinery (selection,
+  // Enter, scroll-into-view) as a synthesized last row — present ONLY at zero
+  // action matches on an operator-bearing server with a floor-length query,
+  // so it never crowds a real result list.
+  const showAskRow =
+    confirming === null &&
+    picking === null &&
+    askOperator !== undefined &&
+    shouldShowAskOperatorRow(query, baseFiltered.length, askOperator.hasOperator);
+  const filtered: PaletteAction[] = showAskRow
+    ? [
+        {
+          id: "ask-operator",
+          label: `Ask operator: "${query.trim()}"`,
+          onSelect: () => askOperator.onAsk(query.trim()),
+        },
+      ]
+    : baseFiltered;
 
   // The toggle chords come from the keybinding registry: ⌘K on mac, and on
   // Win/Linux both Ctrl+K and the shifted alias. `ignoreInputs` semantics are

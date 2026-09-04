@@ -16,7 +16,8 @@ import { useUpdateClick } from "@/hooks/use-update-click";
 import { useUpdateCheck } from "@/hooks/use-update-check";
 import { Tip } from "@/components/tip";
 import { HELP_URL, HelpIcon } from "@/components/global-chrome";
-import { KeyboardIcon } from "@/components/sidebar/icons";
+import { HeadsetIcon, KeyboardIcon } from "@/components/sidebar/icons";
+import { requestOperatorConsole } from "@/lib/operator-console";
 import { useSettingsDialog } from "@/contexts/settings-dialog-context";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { formatCombo } from "@/lib/keybindings";
@@ -187,6 +188,36 @@ export function KeyboardMenuRow() {
     >
       <KeyboardIcon size={14} />
       <span className="flex-1">Keyboard shortcuts</span>
+      {chord && (
+        <kbd aria-hidden="true" className={MENU_ROW_KBD_CLASS}>
+          {chord}
+        </kbd>
+      )}
+    </button>
+  );
+}
+
+/** Operator console — the mobile entry to the pull-down operator overlay
+ *  (no keyboard exists on a phone, so the chord can't carry it). Fires the
+ *  same document-event toggle the chord and palette action dispatch; the
+ *  layout-mounted console owns the open state. The trailing keycap shows the
+ *  host-effective chord, omitted when unbound/disabled. */
+export function OperatorConsoleMenuRow() {
+  const { byAction, host } = useKeybindings();
+  const binding = byAction.get("operator-console");
+  const chord = binding?.enabled
+    ? formatCombo({ code: binding.code, tier: binding.tier }, host.platform)
+    : undefined;
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      tabIndex={-1}
+      onClick={() => requestOperatorConsole({ action: "toggle" })}
+      className={MENU_ROW_CLASS}
+    >
+      <HeadsetIcon size={14} />
+      <span className="flex-1">Operator console</span>
       {chord && (
         <kbd aria-hidden="true" className={MENU_ROW_KBD_CLASS}>
           {chord}

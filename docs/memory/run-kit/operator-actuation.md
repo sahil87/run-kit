@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Operator actuation seam — templated work items for the server's operator window over window- and server-scoped POST routes. Covers the closed template registry, fact derivation, busy-enqueue 202s and queue-full/probe/staged-send/submit-unverified 409s, the in-memory per-server request queue drained on idle, shared injection-engine delivery, auto-name dispatch, and derive-tick results."
+description: "Operator actuation seam — templated work items for the server's operator window over window- and server-scoped POST routes. Covers the closed template registry, fact derivation, busy-enqueue 202s and queue-full/probe/staged-send/submit-unverified 409s, the in-memory per-server request queue drained on idle, shared injection-engine delivery, auto-name dispatch, derive-tick results, and the conversational console lane beside the seam (chat-send allow+probe posture, no queue)."
 ---
 # Operator Actuation
 
@@ -56,6 +56,21 @@ creates the window and stamps `@rk_win_role=operator` atomically — the role
 mark rides the create path's full `rk role` write-path sequence, so no operator
 window exists unmarked. fab-kit's `fab operator` remains the legacy launcher
 entry pending the `[rkop]` delegation. (260903-a8e4-rk-operator-launcher)
+
+Beside the template seam sits a **conversational lane**: the operator chat
+console ([ui/operator-console](/run-kit/ui/operator-console.md)) delivers
+free-text steers a human types through
+`POST /api/windows/{operatorWindowId}/send` with `target:"agent"` — the send
+engine's agent-target lane ([agent-send](/run-kit/agent-send.md) § Send Path),
+NOT the `/operator-request` routes. Its busy posture is chat-send's allow +
+probe: no busy gate, no enqueue on `operatorQueueTracker`, no template-registry
+involvement — a typed console message is a human steer from a user watching the
+pane, where a template request is work handed over (busy ⇒ queue). The console
+is a HUMAN surface driving a pane through the one gated injection engine (an
+HTTP door per the agent-messaging spec's single-engine invariant); the spec's
+Conversation row (multi-turn cross-provider dialogue ⇒ MCP bridge) governs
+agent-to-agent tool-mediated dialogue, not this lane (§ Design Decisions).
+(260904-qa85-operator-chat-console)
 
 ## Requirements
 
@@ -1006,3 +1021,15 @@ sessions fetch inside the detached worker.
 minutes; a queued prompt would deliver stale facts as instructions.
 **Rejected**: queueing the rendered prompt string.
 *Introduced by*: 260902-4km4-operator-request-queue-drain-on-idle
+
+### Human surface vs the agent-messaging Conversation row
+**Decision**: the operator chat console is documented as a HUMAN surface driving
+a pane through the one gated injection engine (an HTTP door per
+`docs/specs/agent-messaging.md`), distinct from the spec's Conversation row
+(multi-turn cross-provider agent dialogue ⇒ MCP bridge).
+**Why**: the single-engine invariant is satisfied — the console adds no typing
+path of its own; the MCP row governs agent-to-agent tool-mediated dialogue,
+not humans.
+**Rejected**: treating the console as an agent-conversation consumer requiring
+MCP (wrong layer — no agent is conversing).
+*Introduced by*: 260904-qa85-operator-chat-console

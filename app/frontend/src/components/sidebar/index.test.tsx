@@ -141,6 +141,10 @@ type RenderOpts = {
     windowId: string,
     marker: string | null,
   ) => void;
+  /** Override the Sidebar's onSelectWindow prop — tests assert the invocation. */
+  onSelectWindow?: (server: string, session: string, windowId: string) => void;
+  /** Wire the pinned operator row's open-console activation. */
+  onOpenOperatorConsole?: (server: string) => void;
 };
 
 /** Mounts BoardPage's registration seam inside the provider (260720-zx4i). */
@@ -187,10 +191,11 @@ function sidebarTree(opts: RenderOpts = {}) {
                         currentSession={opts.currentSession !== undefined ? opts.currentSession : currentServer ? "main" : null}
                         currentWindowId={opts.currentWindowId !== undefined ? opts.currentWindowId : currentServer ? "@0" : null}
                         isConnected={opts.isConnected ?? false}
-                        onSelectWindow={vi.fn()}
+                        onSelectWindow={opts.onSelectWindow ?? vi.fn()}
                         onCreateWindow={vi.fn()}
                         onCreateSession={opts.onCreateSession ?? vi.fn()}
                         onWindowMarkerChange={opts.onWindowMarkerChange}
+                        onOpenOperatorConsole={opts.onOpenOperatorConsole}
                         onCreateServer={vi.fn()}
                         onKillServer={opts.onKillServer ?? vi.fn()}
                       />
@@ -3038,6 +3043,75 @@ describe("Sidebar — operator pinned row (260813-ifya)", () => {
       el.getAttribute("data-row-key"),
     );
     expect(inGroup).toEqual(["alpha:@0"]);
+  });
+
+  it("clicking the pinned row opens the operator console for the row's server instead of navigating", () => {
+    const onSelectWindow = vi.fn();
+    const onOpenOperatorConsole = vi.fn();
+    renderOperatorSidebar({ onSelectWindow, onOpenOperatorConsole });
+
+    fireEvent.click(rowByKey("primary:@1")!.querySelector("button")!);
+    expect(onOpenOperatorConsole).toHaveBeenCalledWith("primary");
+    expect(onSelectWindow).not.toHaveBeenCalled();
+  });
+
+  it("Enter/Space on the pinned row opens the operator console via the roving identity", () => {
+    const onSelectWindow = vi.fn();
+    const onOpenOperatorConsole = vi.fn();
+    renderOperatorSidebar({ onSelectWindow, onOpenOperatorConsole });
+
+    // Walk the roving cursor onto the pinned row (it leads the group's rows,
+    // one ArrowUp from the session row).
+    const tree = screen.getByRole("tree");
+    act(() => { fireEvent.keyDown(tree, { key: "ArrowUp" }); });
+    expect(rowByKey("primary:@1")).toHaveAttribute("tabindex", "0");
+
+    act(() => { fireEvent.keyDown(tree, { key: "Enter" }); });
+    expect(onOpenOperatorConsole).toHaveBeenCalledWith("primary");
+    expect(onSelectWindow).not.toHaveBeenCalled();
+
+    onOpenOperatorConsole.mockClear();
+    act(() => { fireEvent.keyDown(tree, { key: " " }); });
+    expect(onOpenOperatorConsole).toHaveBeenCalledWith("primary");
+  });
+
+  it("row activation keeps plain navigation when the console seam is unwired", () => {
+    const onSelectWindow = vi.fn();
+    renderOperatorSidebar({ onSelectWindow });
+
+    fireEvent.click(rowByKey("primary:@1")!.querySelector("button")!);
+    expect(onSelectWindow).toHaveBeenCalledWith("primary", "main", "@1");
+  });
+
+  it("renders the note pulse line under the pinned row when @rk_win_note is set", () => {
+    renderOperatorSidebar({
+      sessionsByServer: new Map([
+        [
+          "primary",
+          [
+            {
+              name: "main",
+              windows: [
+                { index: 1, windowId: "@1", name: "operator", worktreePath: "~/a", activity: "idle", isActiveWindow: false, activityTimestamp: 0, role: "operator", note: "watching deploys", noteEpoch: Math.floor(Date.now() / 1000) },
+              ],
+            },
+          ],
+        ],
+        ["alpha", []],
+        ["beta", []],
+      ]),
+    });
+
+    const pulse = screen.getByTestId("operator-note-pulse");
+    expect(pulse).toHaveTextContent("watching deploys");
+    // The pulse renders under the pinned row, not above it.
+    const row = rowByKey("primary:@1")!;
+    expect(row.compareDocumentPosition(pulse) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("renders no pulse line (and reserves no space) when no note is set", () => {
+    renderOperatorSidebar();
+    expect(screen.queryByTestId("operator-note-pulse")).toBeNull();
   });
 });
 

@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Agent-send backend — internal/transcript registry + transcript.Path resolution (ErrInvalidRef/ErrTranscriptNotFound/ErrNoAdapter, Claude UUID-guarded glob) for operator actuation, fork/resume, closed-resume, auto-name — plus the shared pane-typed injection engine (pane-mode guard, sanitized rk-agent-send buffer paste, novelty echo probe, probe-gated Enter, post-Enter observation, evidence-gated recovery) behind POST /api/windows/{id}/send (incl. target:\"agent\") and the operator-request routes."
+description: "Agent-send backend — internal/transcript registry + transcript.Path resolution (ErrInvalidRef/ErrTranscriptNotFound/ErrNoAdapter, Claude UUID-guarded glob) for operator actuation, fork/resume, auto-name — plus the shared pane-typed injection engine (pane-mode guard, sanitized rk-agent-send buffer paste, novelty echo probe, probe-gated Enter, post-Enter observation, gated recovery) behind POST /api/windows/{id}/send (target:\"agent\": broadcast, operator console) and the operator-request routes."
 ---
 # Agent Send
 
@@ -95,7 +95,8 @@ by two API surfaces over the same `agentSendEngine` + `agentSendTmux` adapter pa
 server-side per request — the client supplies only a windowID + text, never a
 pane or session ref. By default the target is the window's **active** pane with
 no agent-session requirement; the optional `target:"agent"` body field (the
-selection broadcast's mode) instead resolves the window's **agent** pane via the
+selection broadcast's and the operator chat console's mode) instead resolves
+the window's **agent** pane via the
 shared `sessions.ResolveAgentPane` rollup (active-pane-first among
 `@rk_pane_agent_session` carriers, else the first carrier) and fails CLOSED with
 a `404` ("no agent session for this window") when no pane carries an agent
@@ -135,6 +136,19 @@ or submit-unverified outcome surfaces as that window's structured `409` (§
 Injection 409 outcomes), recorded the same way. The broadcast's own `200` count
 is what the frontend calls **delivered**, and it drives whether the composed
 prompt is cleared or retained for a retry. (260808-ebgs, 260904-39bp)
+
+**The operator chat console is the other `target:"agent"` consumer**
+([ui/operator-console](/run-kit/ui/operator-console.md)). Its compose strip
+delivers via `sendToWindow(server, operatorWindowId, text, "submit", "agent")`
+— one POST per Enter, an in-flight guard against re-send, and a whitespace-trim
+floor. Busy semantics are this path's Allow + probe: no client-side busy gate
+and no operator-queue interaction (a console message is a human steer —
+[operator-actuation](/run-kit/operator-actuation.md)). The console's error
+contract differs from the broadcast's per-recipient accounting: a structured
+`409` (probe failure, `staged_send_failure`, submit-unverified — the thrown
+`ApiError` messages) surfaces INLINE in the console as an error line between
+terminal and compose, never as a toast, and the composed text is preserved in
+the input for retry or edit. (260904-qa85-operator-chat-console)
 
 ### Requirement: Send endpoint `POST /api/windows/{windowId}/send`
 The backend SHALL expose `POST /api/windows/{windowId}/send?server={server}`
@@ -800,7 +814,8 @@ cross-surface divergence the shared classifier forbids).
 ### Agent-pane targeting is an explicit `target:"agent"` mode that fails closed
 **Decision**: `POST /api/windows/{windowId}/send` carries an optional `target`
 body field: absent means the window's ACTIVE pane (the compose strip's default);
-`"agent"` (the selection broadcast's mode) resolves the agent pane via the
+`"agent"` (the selection broadcast's and the operator chat console's mode)
+resolves the agent pane via the
 shared `sessions.ResolveAgentPane` rollup — active-pane-first among
 `@rk_pane_agent_session` carriers, else the first carrier — and returns `404`
 ("no agent session for this window") when no pane carries an agent session,

@@ -32,6 +32,7 @@ import {
   type SurfaceKind,
 } from "@/lib/surface-layout";
 import { hasReclaimableMatch, shouldSuppressChord, withShortcutHints, formatCombo } from "@/lib/keybindings";
+import { requestOperatorConsole, findOperatorWindow, resolveConsoleServer } from "@/lib/operator-console";
 import { WEB_FIND_OPEN_EVENT } from "@/lib/find-in-page";
 import { TERMINAL_FIND_OPEN_EVENT } from "@/lib/terminal-find";
 import { EXPORT_EVENT, type ExportAction } from "@/lib/terminal-export";
@@ -183,6 +184,7 @@ const SpawnAgentDialog = lazy(() => import("@/components/spawn-agent-dialog").th
 const OperatorComposeDialog = lazy(() => import("@/components/operator-compose-dialog").then(m => ({ default: m.OperatorComposeDialog })));
 const SwatchPopover = lazy(() => import("@/components/swatch-popover").then(m => ({ default: m.SwatchPopover })));
 const SettingsDialog = lazy(() => import("@/components/settings-dialog").then(m => ({ default: m.SettingsDialog })));
+const OperatorConsole = lazy(() => import("@/components/operator-console").then(m => ({ default: m.OperatorConsole })));
 
 const { min: SIDEBAR_MIN_WIDTH, max: SIDEBAR_MAX_WIDTH } = SIDEBAR_WIDTH_BOUNDS;
 
@@ -339,6 +341,10 @@ function AppLayoutContent() {
   useKeybindingDispatch({
     "new-app-window": canNewShellWindow() ? () => void newShellWindow() : undefined,
     "close-app-window": canCloseShellWindow() ? () => void closeShellWindow() : undefined,
+    // The operator console toggles from everywhere the SPA runs (Host, Server,
+    // Terminal, Board) — same every-route reasoning as the app-window pair.
+    // The layout-mounted console owns the open state; this only dispatches.
+    "operator-console": () => requestOperatorConsole({ action: "toggle" }),
   });
 
   // Zen hide seam (260820-o8cr R2): the zen flag crosses the root-layout
@@ -391,9 +397,15 @@ function AppLayoutContent() {
         )}
         {!hideTopBar && <RootTopBar />}
       </div>
-      <div className="flex-1 min-h-0">
+      <div className="relative flex-1 min-h-0">
         <Suspense fallback={null}>
           <Outlet />
+        </Suspense>
+        {/* The ONE operator-console mount — a top-bar-anchored overlay living
+            inside the main area (absolute, so pages below keep their layout);
+            every entry point reaches it via the OPERATOR_CONSOLE_EVENT seam. */}
+        <Suspense fallback={null}>
+          <OperatorConsole />
         </Suspense>
       </div>
       {/* The ONE settings-dialog mount (o7q8) — never duplicated per page. */}
@@ -417,9 +429,39 @@ function AppLayoutContent() {
  *  `PaletteActionsProvider` and read back via `usePaletteActions()`. */
 function LayoutCommandPalette() {
   const allActions = usePaletteActions();
+  // The Ask-operator fallback row's availability gate: resolve the console's
+  // server context (route server, else sole/first listed) and check its
+  // sessions payload for an operator window. Servers with no attached
+  // sessions slice resolve operator-less — the row is omitted, not disabled.
+  const { servers, sessionsByServer } = useSessionContext();
+  const matches = useMatches();
+  let routeServer: string | null = null;
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const p = (matches[i]?.params ?? {}) as { server?: string };
+    if (typeof p.server === "string" && p.server.length > 0) {
+      routeServer = p.server;
+      break;
+    }
+  }
+  const consoleServer = resolveConsoleServer(routeServer, servers.map((s) => s.name), null);
+  const hasOperator =
+    consoleServer !== null &&
+    findOperatorWindow(sessionsByServer.get(consoleServer) ?? []) !== undefined;
+  const askOperator = useMemo(
+    () => ({
+      hasOperator,
+      onAsk: (query: string) =>
+        requestOperatorConsole({
+          action: "open",
+          server: consoleServer ?? undefined,
+          send: query,
+        }),
+    }),
+    [hasOperator, consoleServer],
+  );
   return (
     <Suspense fallback={null}>
-      <CommandPalette actions={allActions} />
+      <CommandPalette actions={allActions} askOperator={askOperator} />
     </Suspense>
   );
 }
@@ -4242,6 +4284,12 @@ function AppShell() {
     },
     [server, navigateToWindow, navigate, isMobile, setSidebarOpen],
   );
+  // The pinned operator row's activation opens the operator console pinned to
+  // the row's server (the event seam reaches the layout-mounted console from
+  // this route shell). Referentially stable like its siblings above.
+  const handleOpenOperatorConsole = useCallback((srv: string) => {
+    requestOperatorConsole({ action: "open", server: srv });
+  }, []);
   const handleSidebarCreateWindow = useCallback(
     (srv: string, sess: string) => {
       if (srv === server) {
@@ -4455,6 +4503,7 @@ function AppShell() {
       onForkWindow={handleForkWindow}
       onFixTabName={handleFixTabName}
       onOperatorCompose={hasOperatorWindow ? handleOperatorCompose : undefined}
+      onOpenOperatorConsole={handleOpenOperatorConsole}
       onCreateServer={openCreateServer}
       onKillServer={requestKillServer}
       onSidebarResizeStart={isMobile ? undefined : (e) => handleDragStart(e.clientX)}

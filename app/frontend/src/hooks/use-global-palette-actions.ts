@@ -16,6 +16,7 @@ import { canCloseShellWindow, canNewShellWindow, closeShellWindow, newShellWindo
 import { focusSidebarCurrentRow } from "@/lib/sidebar-events";
 import { HOST_MENU_OPEN_EVENT } from "@/lib/shell-strip";
 import { buildNavActions, type NavMode } from "@/lib/palette/nav";
+import { buildOperatorConsoleAction } from "@/lib/palette/operator-console";
 import { buildUpdateActions, buildMaintenanceActions, buildCheckActions } from "@/lib/palette/update";
 import { buildVersionAction, displayVersion } from "@/lib/palette/version";
 import { copyToClipboard } from "@/lib/clipboard";
@@ -234,6 +235,15 @@ export function useGlobalPaletteActions(): PaletteAction[] {
     [sidebarOpen, setSidebarOpen],
   );
 
+  // Operator console — the pull-down operator overlay's palette registration
+  // (Constitution V: the palette is the action registry of record and the
+  // guaranteed fallback where a browser eats the chord). Always listed: a
+  // server without an operator window is answered by the console's own hint
+  // line, not by hiding the opener. The id IS the registry actionId, so the
+  // effective ⌘J/⇧Ctrl+J hint attaches and the chord resolves this same
+  // toggle seam.
+  const operatorConsoleEntry: PaletteAction = useMemo(() => buildOperatorConsoleAction(), []);
+
   // Host switcher (260820-nv0o) — opens the desktop-shell titlebar strip's
   // hosts menu through the HOST_MENU_OPEN_EVENT document seam (the strip
   // mounts in AppLayout, out of this hook's reach). The id IS the
@@ -380,10 +390,10 @@ export function useGlobalPaletteActions(): PaletteAction[] {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, settingsAppearanceEntry, settingsAllEntry, ...panelActions, ...sidebarActions, ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions],
+        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, settingsAppearanceEntry, settingsAllEntry, ...panelActions, ...sidebarActions, operatorConsoleEntry, ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions],
         bindingByAction,
         bindingHost.platform,
       ),
-    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, settingsAppearanceEntry, settingsAllEntry, panelActions, sidebarActions, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, bindingByAction, bindingHost],
+    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, settingsAppearanceEntry, settingsAllEntry, panelActions, sidebarActions, operatorConsoleEntry, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, bindingByAction, bindingHost],
   );
 }

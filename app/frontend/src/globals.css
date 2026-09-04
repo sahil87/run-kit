@@ -434,6 +434,18 @@ summary {
   to { opacity: 1; }
 }
 
+/* Operator console drawer: a short settle-in drop on open (transform only, so
+   it composes with the centering `translate` property). Zeroed under
+   prefers-reduced-motion below. */
+.rk-console-drop {
+  animation: rk-console-drop-in 160ms ease-out both;
+}
+
+@keyframes rk-console-drop-in {
+  from { transform: translateY(-10px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
 /* Scroll-edge fade (260813-kvk7): applied conditionally by useScrollEdgeFade
    to the sidebar scroll viewports (sessions tree, SERVER panel) only while
    more content exists below. A mask — not an opaque veil — so the per-item
@@ -1530,6 +1542,8 @@ html[data-theme="light"] {
   /* Pending-switch mask still SHOWS (input safety is never motion-only) — only
      its fade-in is dropped so it appears as an instant cut. */
   .rk-window-switch-mask { animation: none; }
+  /* Operator console drawer: opens as an instant cut. */
+  .rk-console-drop { animation: none; }
   /* Hatch-marker hazard wedge (.rk-hazard): static in every state by design —
      nothing to zero here; listed so the reduced-motion audit stays complete. */
   /* Flair overlays (all fourteen named states): motion-only ambient decoration

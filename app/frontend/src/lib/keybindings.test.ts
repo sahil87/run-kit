@@ -82,6 +82,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
       "shortcuts-overlay": "Slash",
       "settings-open": "Comma",
       "sidebar-toggle": "KeyB",
+      "operator-console": "KeyJ",
       "tty-toggle": "Digit1",
       "code-toggle": "Digit2",
       "web-toggle": "Digit3",
@@ -281,7 +282,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
     });
   });
 
-  it("surface digits: tty/code/web on Digit1/2/3 — ⌘ on mac, ⇧Ctrl on Win/Linux; ⌘J retired outright", () => {
+  it("surface digits: tty/code/web on Digit1/2/3 — ⌘ on mac, ⇧Ctrl on Win/Linux; KeyJ reclaimed by operator-console", () => {
     const def = DEFAULT_BINDINGS.find((b) => b.actionId === "code-toggle");
     // Full-row equality: the recoded row keeps its shape, code aside.
     expect(def).toEqual({
@@ -296,8 +297,26 @@ describe("DEFAULT_BINDINGS integrity", () => {
       mapLabel: "code",
       ignoreInputs: true,
     });
-    // No KeyJ row or refinement remains anywhere in the registry.
-    expect(DEFAULT_BINDINGS.some((b) => b.code === "KeyJ" || b.macCode === "KeyJ")).toBe(false);
+    // KeyJ belongs to exactly one row — operator-console's default (the
+    // sidebar-toggle class: ⇧Ctrl+J base, ⌘J mac demotion, global,
+    // ignoreInputs).
+    expect(DEFAULT_BINDINGS.find((b) => b.actionId === "operator-console")).toEqual({
+      actionId: "operator-console",
+      code: "KeyJ",
+      tier: "shifted",
+      macTier: "cmd",
+      scope: "global",
+      kind: "builtin",
+      label: "Operator console",
+      description: "toggle the operator console",
+      mapLabel: "operator",
+      ignoreInputs: true,
+    });
+    expect(
+      DEFAULT_BINDINGS.filter((b) => b.code === "KeyJ" || b.macCode === "KeyJ").map(
+        (b) => b.actionId,
+      ),
+    ).toEqual(["operator-console"]);
     for (const [id, code, mapLabel] of [
       ["tty-toggle", "Digit1", "tty"],
       ["web-toggle", "Digit3", "web"],
@@ -359,11 +378,24 @@ describe("DEFAULT_BINDINGS integrity", () => {
         (b) => b.actionId,
       ),
     ).toEqual(["code-toggle"]);
-    // The retired ⌘J/⇧Ctrl+J chords match nothing on any host.
-    for (const host of ALL_HOSTS) {
-      expect(findMatches(chord({ code: "KeyJ", metaKey: true }), resolved(host))).toEqual([]);
+    // Dispatch: KeyJ resolves to operator-console on every host — ⌘J on both
+    // mac hosts (the cmd-tier demotion; no browser claim on ⌘J), ⇧Ctrl+J on
+    // win/linux, where plain Ctrl+J stays with the pane (readline). On mac the
+    // demotion moves the default off the shifted tier, so ⇧⌘J matches nothing.
+    for (const host of [SHELL_OTHER, BROWSER_OTHER]) {
       expect(
-        findMatches(chord({ code: "KeyJ", shiftKey: true, ctrlKey: true }), resolved(host)),
+        findMatches(chord({ code: "KeyJ", shiftKey: true, ctrlKey: true }), resolved(host)).map(
+          (b) => b.actionId,
+        ),
+      ).toEqual(["operator-console"]);
+      expect(findMatches(chord({ code: "KeyJ", ctrlKey: true }), resolved(host))).toEqual([]);
+    }
+    for (const host of [SHELL_MAC, BROWSER_MAC]) {
+      expect(
+        findMatches(chord({ code: "KeyJ", metaKey: true }), resolved(host)).map((b) => b.actionId),
+      ).toEqual(["operator-console"]);
+      expect(
+        findMatches(chord({ code: "KeyJ", metaKey: true, shiftKey: true }), resolved(host)),
       ).toEqual([]);
     }
   });
@@ -744,6 +776,7 @@ describe("palette parity invariant", () => {
     "shortcuts-overlay": ["shortcuts-overlay"], // Help: Keyboard Shortcuts
     "settings-open": ["settings-open"], // Settings: Open
     "sidebar-toggle": ["sidebar-toggle", "sidebar-focus"],
+    "operator-console": ["operator-console"], // Operator: Open console
     "code-toggle": ["tile-show-code", "tile-hide-code"],
     "tty-toggle": ["tile-show-tty", "tile-hide-tty", "tile-focus-tty"],
     "web-toggle": ["tile-show-web", "tile-hide-web", "tile-focus-web"],
@@ -1293,7 +1326,8 @@ describe("applyCapture (steal-with-warning)", () => {
       SHELL_OTHER,
     );
     expect(other).toEqual({ overrides: {}, stolenFrom: null });
-    // The OLD default is a genuine rebind now: ⇧Ctrl+J stores a diff.
+    // ⇧Ctrl+J is operator-console's win/linux default: rebinding code-toggle
+    // onto it stores the diff AND records the steal.
     const oldChord = applyCapture(
       resolveBindings(DEFAULT_BINDINGS, {}, SHELL_OTHER),
       {},
@@ -1301,8 +1335,13 @@ describe("applyCapture (steal-with-warning)", () => {
       { code: "KeyJ", tier: "shifted" },
       SHELL_OTHER,
     );
-    expect(oldChord.stolenFrom).toBeNull();
-    expect(oldChord.overrides).toEqual({ "code-toggle": { code: "KeyJ", tier: "shifted" } });
+    expect(oldChord.stolenFrom).toBe("operator-console");
+    // The steal unbinds the victim: the diff carries code-toggle's new chord
+    // plus operator-console's disablement (null).
+    expect(oldChord.overrides).toEqual({
+      "code-toggle": { code: "KeyJ", tier: "shifted" },
+      "operator-console": null,
+    });
     // compose-toggle's macCode refinement: ⌘I is its mac own-default; the old
     // ⇧⌘E (its win/linux default) is NOT its mac default — a real diff there.
     const composePrior = { "compose-toggle": { code: "KeyU", tier: "shifted" as const } };

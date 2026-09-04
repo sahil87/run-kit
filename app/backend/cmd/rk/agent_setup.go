@@ -657,7 +657,13 @@ func installTutorialSkill(sink outputSink, reader *bufio.Reader, ac agentConfig,
 	// marker-less foreign files were skipped above, so this write is only ever
 	// fresh-install or rk-owned→rk-owned (same rendering split as the shim).
 	if cons.dryRun {
-		header := fmt.Sprintf("%s: will install the run-kit-tutorial skill at %s", ac.name, skillPath)
+		verb := "install"
+		if exists {
+			// An existing file here is rk-owned (marker-less files were skipped
+			// above), so the preview is an update of a stale generation.
+			verb = "update"
+		}
+		header := fmt.Sprintf("%s: will %s the run-kit-tutorial skill at %s", ac.name, verb, skillPath)
 		renderArtifactDiff(cons.diffWriter(sink), header, strings.TrimSuffix(current, "\n"), strings.TrimSuffix(tutorialSkillPayload, "\n"))
 	} else if exists {
 		fmt.Fprintf(cons.diffWriter(sink), "%s: will update the rk-owned run-kit-tutorial skill at %s.\n", ac.name, skillPath)

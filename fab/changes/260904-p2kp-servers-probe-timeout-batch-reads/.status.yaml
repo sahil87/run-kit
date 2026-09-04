@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 9
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-09-04T10:06:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:15:35Z"}
     review: {started_at: "2026-09-04T10:15:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:18:38Z"}
     hydrate: {started_at: "2026-09-04T10:18:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:22:49Z"}
-    ship: {started_at: "2026-09-04T10:22:49Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-04T10:22:49Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:24:03Z"}
+    review-pr: {started_at: "2026-09-04T10:24:03Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/829
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1026
+    deleted: 61
+    net: 965
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 458
+        deleted: 46
+        net: 412
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-09-04T10:22:49Z"
-    computed_at_stage: hydrate
+        added: 277
+        deleted: 9
+        net: 268
+    computed_at: "2026-09-04T10:24:04Z"
+    computed_at_stage: ship
 summary: ListServers classifies probe timeouts distinct from dead sockets (retry once, keep on second timeout) and the /api/servers fan-out reads rank + ephemeral/protected/managed marks via one batched ReadServerMarks show-options -s dump per server (read depth 5-8 to 2 execs), rk-daemon protected/managed derived in the handler; response/order/no-5xx contract unchanged.
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-04T10:22:49Z
+last_updated: 2026-09-04T10:24:04Z

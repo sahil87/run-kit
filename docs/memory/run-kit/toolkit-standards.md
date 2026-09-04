@@ -641,6 +641,31 @@ the sixteenth surface measured against the same checks
   topic page is NOT extended; the canonical and embedded copies stay
   byte-identical under `TestSkillMuxEmbedMatchesCanonical` with no churn.
 
+The `rk mux send` delivery-hardening edit (the pane-mode guard on every
+delivery path and the unknown-state warning's non-shell foreground naming —
+full contract in [agent-messaging](/run-kit/agent-messaging.md) § The
+agent-state gate / Delivery through the shared injection engine) modifies an
+EXISTING surface, so it was re-audited in place against the same checks
+(260904-kppn-mux-send-delivery-hardening):
+
+- **help-dump: PASS, no diff needed.** The change adds no mux member (the set
+  stays twelve) and touches only `Long:` prose, which the dump does not publish
+  — `UsageString` and flags are untouched, so the mux subtree's dump is
+  byte-unchanged and the help-dump test's twelve-member assertions pass
+  unmodified. `rk help-dump` (HEAD build) exits 0 with valid JSON, empty
+  stderr, and no `captured_at`.
+- **Principles 2/4/9 — PASS.** P2 stream split: the foreground-naming warning
+  rides stderr via `sink.Notef` while the one-line stdout report contract and
+  report words stay byte-unchanged (pinned by the gate-matrix tests). P9: the
+  warning is one bounded line, suppressible by `--quiet` exactly like the
+  pre-existing unknown-state warning. P4: a guard failure exits 1 naming what
+  failed (`clear pane mode: …`).
+- **The `skill` standard's `mux` topic page documents both behaviors** — the
+  gate matrix's unknown row names the non-shell-foreground warning, and the
+  delivery contract teaches the pane-mode guard (no manual `copy-mode -q`
+  before sending); canonical `docs/site/skill/mux.md` and the embedded copy
+  stay byte-identical under `TestSkillMuxEmbedMatchesCanonical`.
+
 The `rk tutorial` verb (`tutorial.go` — see
 [architecture](/run-kit/architecture.md) § CLI Subcommands, `tutorial` row; the
 composition seam in [rk-riff](/run-kit/rk-riff.md) § Shell-String Composition)

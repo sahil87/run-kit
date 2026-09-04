@@ -430,7 +430,7 @@ func TestOperatorRequestSuccess(t *testing.T) {
 			if !strings.Contains(rec.Body.String(), `"ok":true`) {
 				t.Errorf("200 body = %s, want {\"ok\":true}", rec.Body.String())
 			}
-			want := []string{"capture-pane", "set-buffer", "paste-buffer", "capture-pane", "send-keys", "capture-pane"}
+			want := []string{"clear-pane-mode", "capture-pane", "set-buffer", "paste-buffer", "capture-pane", "send-keys", "capture-pane"}
 			if strings.Join(ops.agentSendCalls, ",") != strings.Join(want, ",") {
 				t.Errorf("injection order = %v, want %v", ops.agentSendCalls, want)
 			}

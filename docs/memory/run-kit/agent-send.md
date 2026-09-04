@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Agent-send backend — internal/transcript registry + transcript.Path resolution (ErrInvalidRef/ErrTranscriptNotFound/ErrNoAdapter, Claude UUID-guarded glob) for operator actuation, fork/resume, closed-resume, auto-name — plus the shared pane-typed injection engine (sanitized rk-agent-send buffer paste, novelty echo probe, probe-gated Enter, post-Enter observation, evidence-gated recovery) behind POST /api/windows/{id}/send (incl. target:\"agent\") and the operator-request routes."
+description: "Agent-send backend — internal/transcript registry + transcript.Path resolution (ErrInvalidRef/ErrTranscriptNotFound/ErrNoAdapter, Claude UUID-guarded glob) for operator actuation, fork/resume, closed-resume, auto-name — plus the shared pane-typed injection engine (pane-mode guard, sanitized rk-agent-send buffer paste, novelty echo probe, probe-gated Enter, post-Enter observation, evidence-gated recovery) behind POST /api/windows/{id}/send (incl. target:\"agent\") and the operator-request routes."
 ---
 # Agent Send
 
@@ -103,7 +103,8 @@ session — the text is never pasted into a non-agent shell. An unknown `target`
 value is a `400`. All four modes use the
 engine: `submit`/`insert-line` call `Engine.Send`, `raw` calls `Engine.SendRaw`,
 `enter` calls `Engine.PressEnter` — so every send enters the same per-pane
-serialization domain, while probed modes retain the sanitize → paste → probe →
+serialization domain and runs the pane-mode guard first (a copy-mode pane would
+eat the paste), while probed modes retain the sanitize → paste → probe →
 optional Enter → observation/recovery contract and machine-readable 409 mapping
 ([api-and-sockets](/run-kit/api-and-sockets.md);
 [ui/compose-and-bottom-bar](/run-kit/ui/compose-and-bottom-bar.md)) (260830-s7wp,
@@ -230,28 +231,36 @@ ordered sequence,
 every subprocess an argv slice (Constitution I) targeting the `paneID`, each
 spawned through the shared runner core with `TMUX`/`TMUX_PANE` stripped from the
 child env ([architecture](/run-kit/architecture.md) § tmux Runner Core):
-1. **Baseline capture** — `CapturePane` the pane tail BEFORE mutating anything (the
+1. **Pane-mode guard** — `ClearPaneMode` (the `inject.Tmux` method delegating to
+   the single decision site `tmux.ClearPaneModeCtx`: probe `#{pane_in_mode}`,
+   one `send-keys -X cancel` only when in a mode, no re-probe). It is the FIRST
+   pane-touching step, taken inside the per-pane lock and BEFORE the baseline
+   capture — a mode cancel repaints the frame, so a pre-cancel baseline would be
+   the copy-mode screen, poisoning the probe floor and recovery's
+   baseline-equality check. A guard failure aborts pre-paste with the plain
+   wrapped error → `500` (nothing was delivered; retrying is safe).
+2. **Baseline capture** — `CapturePane` the pane tail BEFORE mutating anything (the
    probe floor, § Novelty echo probe).
-2. `set-buffer -b rk-agent-send -- <text>` — text as one discrete argv element (no
+3. `set-buffer -b rk-agent-send -- <text>` — text as one discrete argv element (no
    shell string, no stdin — `tmuxExecServer` has no stdin plumbing). The **`--`
    option terminator is load-bearing**: without it a message that starts with a
    dash (`--force is broken`) is parsed as `set-buffer` flags and hard-fails; with
    it, leading-dash text stores verbatim (verified tmux 3.6a). A **named** buffer
    (`tmux.AgentSendBuffer = "rk-agent-send"`) avoids clobbering the user's anonymous
    buffer stack.
-3. `paste-buffer -d -p -b rk-agent-send -t <paneID>` — `-p` bracketed paste (the
+4. `paste-buffer -d -p -b rk-agent-send -t <paneID>` — `-p` bracketed paste (the
    Claude Code TUI enables bracketed paste, so multiline + special characters land
    as one literal block, no per-line submission); `-d` deletes the buffer after
    pasting so the buffer set stays clean.
-4. **Probe** (§ Novelty echo probe) — only on success:
-5. `send-keys -t <paneID> Enter` — the literal `Enter` key, sent ONLY after a
+5. **Probe** (§ Novelty echo probe) — only on success:
+6. `send-keys -t <paneID> Enter` — the literal `Enter` key, sent ONLY after a
    successful probe **AND** when `submit` is true.
-6. **Post-Enter observation** — sleep then capture over `SubmitBackoff`
+7. **Post-Enter observation** — sleep then capture over `SubmitBackoff`
    (`40/80/160/320/640ms`), exiting on the first normalized frame change. A
    changed frame makes no claim about submission and returns success. Only a
    frame unchanged through every step with the established paste echo still
    present is evidence of non-submission.
-7. **Evidence-gated recovery** — only on that non-submission verdict, send
+8. **Evidence-gated recovery** — only on that non-submission verdict, send
    pane-scoped `C-u` up to `ClearAttempts = 4` until the normalized frame equals
    the pre-paste baseline, then re-paste, re-probe, send Enter, and observe over
    the first `SubmitRetryBackoffSteps = 3` ladder steps. `SubmitRetries = 1`.
@@ -260,7 +269,7 @@ child env ([architecture](/run-kit/architecture.md) § tmux Runner Core):
 that forwards the resolved boolean to `inject.Engine.Send` (the `/send` route's
 `submit` mode passes `true`, `insert-line` passes `false`; the operator-request
 routes always pass `true`). **`submit:false`
-(insert-without-submit) skips steps 5–7** — the baseline
+(insert-without-submit) skips steps 6–8** — the pane-mode guard, baseline
 capture, handler-boundary sanitize, named-buffer set/paste, novelty echo probe (a
 probe failure still returns the structured `409`, Enter irrelevant but the text left
 recoverable in the composer), the engine's per-`(server,paneID)` whole-sequence lock
@@ -282,7 +291,8 @@ path.
 #### Scenario: Key-name / leading-dash text is delivered literally
 - **GIVEN** a resolved pane and text `"--force is broken\necho Enter"`
 - **WHEN** injection runs
-- **THEN** the order is baseline → set-buffer (`--`-terminated) → paste-buffer →
+- **THEN** the order is pane-mode guard → baseline → set-buffer (`--`-terminated)
+  → paste-buffer →
   probe → send-keys → observation, the text is one literal argv element (never
   parsed as flags/keys), and Enter is a separate step gated on the probe.
 - **AND GIVEN** `submit:false` with a passing probe, **THEN** set-buffer/paste/probe
@@ -330,7 +340,7 @@ Enter, `409`. This is the guard against a blind Enter into e.g. a permission
 dialog. A probe `CapturePane` subprocess error or context failure is NOT a clean
 miss — the paste already landed, so it surfaces as `inject.StagedSendFailure` →
 `409` (§ Injection 409 outcomes), the staged-text recoverable state. (Pre-paste
-failures — baseline capture, set-buffer, paste-buffer — keep the plain
+failures — pane-mode guard, baseline capture, set-buffer, paste-buffer — keep the plain
 wrapped-error → `500` path: nothing was delivered.)
 (260830-s7wp)
 
@@ -415,12 +425,14 @@ distinct error types because they give different resend guidance.
 Concurrent injections SHALL be serialized so no two cross texts or double-submit. The
 `internal/inject` engine holds a **per-(server,paneID) mutex** (a guarded, never-evicted
 `map[string]*sync.Mutex`, keyed `server\x00paneID`) across the WHOLE sequence
-(baseline → set → paste → probe → Enter → observation/recovery → return) so a
+(pane-mode guard → baseline → set → paste → probe → Enter → observation/recovery
+→ return) so a
 second send to the SAME pane only
 begins after the first fully finishes — closing the same-pane double-paste window
 (two sends racing one composer both pasting before either probes → merged
-submission). `Engine.SendRaw` holds that lock across set-buffer → raw paste, and
-`Engine.PressEnter` holds it across the Enter, so neither primitive can interleave
+submission). `Engine.SendRaw` holds that lock across guard → set-buffer → raw
+paste, and
+`Engine.PressEnter` holds it across guard → Enter, so neither primitive can interleave
 with a probed sequence on the same pane. DISTINCT panes stay fully concurrent
 (each takes its own lock). Because
 the named tmux buffer (`rk-agent-send`) is a single server-wide resource with rk as
@@ -458,14 +470,23 @@ first three steps. `muxCmdTimeout` remains 5s on the CLI path.
 `internal/tmux` SHALL carry the pane-targeted primitives the injection needs:
 `SetAgentSendBufferCtx`, bracketed `PasteAgentSendBufferCtx`, raw
 `PasteAgentSendBufferRawCtx`, `SendEnterToPaneCtx`, and the `AgentSendBuffer` name
-constant (see [tmux-sessions](/run-kit/tmux-sessions.md)). The generic raw primitive
+constant (see [tmux-sessions](/run-kit/tmux-sessions.md)), plus the pane-mode
+guard trio: `PaneInModeCtx` (reads `#{pane_in_mode}` via `display-message -pt`),
+`CancelPaneModeCtx` (`send-keys -t <pane> -X cancel` — `-X` is a send-keys FLAG,
+not a key name, so `SendKeysToPane(keys...)` cannot express it and the cancel is
+its own primitive), and `ClearPaneModeCtx` — the SINGLE probe-then-cancel
+decision site every rk delivery path routes through (a modeless pane issues no
+cancel subprocess; one cancel, no re-probe; probe/cancel failures return
+wrapped, never fail-open). The generic raw primitive
 is `PasteBufferRawCtx(ctx, name, paneID, server)`, issuing
 `paste-buffer -d -r -b <name> -t <pane>`: `-r` preserves LF bytes and the absence
 of `-p` avoids bracketed-paste markers. `inject.Tmux` SHALL expose the matching
-`PasteBufferRaw` method beside `PasteBuffer`.
+`PasteBufferRaw` method beside `PasteBuffer`, and exactly ONE guard method,
+`ClearPaneMode`, which `Engine.Send`, `Engine.SendRaw`, and `Engine.PressEnter`
+each invoke as their first pane-touching step.
 
 `api/router.go`'s `TmuxOps` interface (with `prodTmuxOps` + the test `mockTmuxOps`)
-SHALL surface these as `SetAgentSendBuffer` / `PasteAgentSendBuffer` /
+SHALL surface these as `ClearPaneMode` / `SetAgentSendBuffer` / `PasteAgentSendBuffer` /
 `PasteAgentSendBufferRaw` / `SendEnterToPane` / `SendKeysToPane` / `CapturePane` so
 the handlers are fully testable against the fake. `SendKeysToPane` is context-bound
 and sends recovery's `C-u` to the resolved pane. `SendKeys` remains the separate
@@ -474,7 +495,8 @@ window-targeted `/keys` helper. (260830-s7wp)
 #### Scenario: The status matrix is exercisable against a fake tmux
 - **GIVEN** the handler driven by `mockTmuxOps`
 - **WHEN** the test injects capture results / errors per primitive
-- **THEN** the full 400/404/409/500/200 matrix, injection order, and
+- **THEN** the full 400/404/409/500/200 matrix, injection order (the pane-mode
+  guard ahead of the baseline capture), and
   no-Enter-on-probe-failure are exercisable with no live agent pane.
 
 ## Design Decisions
@@ -812,3 +834,43 @@ Enter in pane" advice after Enter already ran); reusing `probe_failure` for
 infrastructure errors (conflates a clean echo miss with a tmux fault — the
 memory contract keeps them distinct 409s).
 *Introduced by*: 260902-8jco-tmux-pane-env-scrub-send-failures
+
+### One guard interface method backed by one tmux decision site
+**Decision**: `inject.Tmux` grows exactly one method for the pane-mode guard
+(`ClearPaneMode`); the probe-then-cancel decision lives once in
+`tmux.ClearPaneModeCtx`, which every implementation (the CLI adapter, the
+daemon's `TmuxOps` chain, riff's adapter, and the CLI `--key` branch's seam)
+delegates to.
+**Why**: the guard is one decision — "is the pane in a mode? then cancel" — and
+the single-engine invariant demands no divergent copies; a one-method seam
+keeps every adapter a one-liner and gives the sentinel probe's typing path the
+same consumable step.
+**Rejected**: two primitive methods (probe + cancel) on `inject.Tmux` with the
+decision in the engine — widens the interface and forces every mock/adapter to
+carry two passthroughs for no added testability; per-call-site probe+cancel
+copies — the drift hazard the invariant exists to prevent.
+*Introduced by*: 260904-kppn-mux-send-delivery-hardening
+
+### The pane-mode guard runs inside the per-pane lock, before the baseline capture
+**Decision**: the guard is the first step of each engine sequence, after taking
+the pane lock and before the baseline `CapturePane`.
+**Why**: cancelling copy-mode repaints the pane — a baseline captured first
+would be the scrolled copy-mode frame, poisoning the novelty floor and
+recovery's baseline-equality check; inside the lock, a concurrent send cannot
+interleave between cancel and paste.
+**Rejected**: guarding outside the lock in each caller (reintroduces the
+interleave window and per-caller copies); guarding after the baseline (wrong
+frame).
+*Introduced by*: 260904-kppn-mux-send-delivery-hardening
+
+### Guard failure fails the send; the cancel is unconditional-once
+**Decision**: a probe/cancel tmux failure aborts the delivery as a pre-paste
+operational error; an in-mode pane gets exactly one cancel, with no re-probe
+loop.
+**Why**: consistent with every other pre-paste failure (nothing was delivered,
+retry is safe); fail-open would silently restore the eaten-keys hazard the
+guard exists to close, and a pane re-entering a mode mid-delivery is tmux's
+inherent race, accepted like the cross-process paste race.
+**Rejected**: warn-and-proceed on probe failure (silent hazard); cancel-verify
+loops (the mode re-entry race cannot be closed from outside tmux).
+*Introduced by*: 260904-kppn-mux-send-delivery-hardening

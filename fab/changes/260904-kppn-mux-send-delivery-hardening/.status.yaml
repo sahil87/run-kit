@@ -1,0 +1,57 @@
+id: kppn
+name: 260904-kppn-mux-send-delivery-hardening
+created: 2026-09-04T10:14:20Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 9
+    acceptance_count: 17
+    acceptance_completed: 17
+confidence:
+    certain: 5
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.3
+    fuzzy: true
+    dimensions:
+        signal: 73.8
+        reversibility: 80.6
+        competence: 78.8
+        disambiguation: 74.4
+stage_metrics:
+    intake: {started_at: "2026-09-04T10:14:20Z", driver: fab-new, iterations: 1, completed_at: "2026-09-04T10:21:11Z"}
+    apply: {started_at: "2026-09-04T10:21:11Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:40:43Z"}
+    review: {started_at: "2026-09-04T10:40:43Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:44:40Z"}
+    hydrate: {started_at: "2026-09-04T10:44:40Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:48:48Z"}
+    ship: {started_at: "2026-09-04T10:48:48Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:50:13Z"}
+    review-pr: {started_at: "2026-09-04T10:50:13Z", driver: git-pr, iterations: 1, completed_at: "2026-09-04T10:58:46Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/833
+change_type_source: explicit
+true_impact:
+    added: 1097
+    deleted: 84
+    net: 1013
+    excluding:
+        added: 396
+        deleted: 50
+        net: 346
+    tests:
+        added: 261
+        deleted: 27
+        net: 234
+    computed_at: "2026-09-04T10:50:13Z"
+    computed_at_stage: ship
+summary: Pane-mode guard on every rk mux delivery path (ClearPaneModeCtx single decision site, engine-first-step inside the per-pane lock, --key via seam) and unknown-state send warnings naming a non-shell foreground
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-04T10:58:46Z

@@ -549,9 +549,11 @@ var shellCommands = map[string]bool{
 	"dash": true,
 }
 
-// isShellCommand reports whether cmd is one of the plain shells the reconciler
-// treats as having no agent.
-func isShellCommand(cmd string) bool {
+// IsShellCommand reports whether cmd is one of the plain shells the reconciler
+// treats as having no agent. The ONE predicate over shellCommands — readers
+// needing the shell/non-shell split (the reconciler's legacy fallback, the
+// mux send gate's unknown-state warning) share it; never copy the set.
+func IsShellCommand(cmd string) bool {
 	return shellCommands[cmd]
 }
 
@@ -580,7 +582,7 @@ func agentStateStale(pid int, command string) bool {
 	if pid > 0 {
 		return !agentProcessAlive(pid)
 	}
-	return isShellCommand(command)
+	return IsShellCommand(command)
 }
 
 // parseAgentState parses a raw @rk_agent_state value of the form

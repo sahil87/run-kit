@@ -87,6 +87,9 @@ var taskEngine = inject.NewEngine(taskSendBuffer)
 // adapter; cmd packages cannot be imported from here.
 type riffInjectTmux struct{}
 
+func (riffInjectTmux) ClearPaneMode(ctx context.Context, paneID, server string) error {
+	return tmux.ClearPaneModeCtx(ctx, paneID, server)
+}
 func (riffInjectTmux) CapturePane(ctx context.Context, paneID string, lines int, server string) (string, error) {
 	return tmux.CapturePaneCtx(ctx, paneID, lines, server)
 }

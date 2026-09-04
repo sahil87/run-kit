@@ -94,7 +94,9 @@ are sanitized at the CLI boundary via `inject.Sanitize` — the same helper the
 daemon's compose-send handler runs — and an all-whitespace post-sanitize message is a usage
 error. `--key` sends are post-gate raw `send-keys` key names — no paste, no
 probe (key names have no echo to probe) — closing the raw-tmux carve-out that
-key input otherwise forces on callers.
+key input otherwise forces on callers. They run the same pane-mode guard as
+text sends (below) before the key send, through the same
+`tmux.ClearPaneModeCtx` decision site — never a divergent copy.
 
 #### Scenario: Multi-line stdin arrives as one paste
 - **GIVEN** `rk mux send %5 -` with a multi-line heredoc on stdin
@@ -103,13 +105,13 @@ key input otherwise forces on callers.
   positional message and `--key`, **THEN** usage error.
 
 ### Requirement: The agent-state gate
-Before any delivery `rk mux send` SHALL read the target pane's reconciled
-agent-state value (`tmux.PaneAgentState` — requesting both names via
-`PaneFactsCtx` and preferring the scope-named `@rk_pane_agent_state`; the same
-parse + pid-liveness
-reconcile the sessions path applies; a legacy two-segment or dead-pid value
-reads as unknown, never partial trust) and apply fab-kit's `idleGate` matrix
-verbatim:
+Before any delivery `rk mux send` SHALL read the target pane's facts via the
+superset `tmux.PaneFactsCtx` — requesting both agent-state option names and
+preferring the scope-named `@rk_pane_agent_state`, with the same parse +
+pid-liveness reconcile the sessions path applies (a legacy two-segment or
+dead-pid value reads as unknown, never partial trust); the one round trip also
+carries the pane's foreground command (`PaneFacts.Command`) — and apply
+fab-kit's `idleGate` matrix verbatim:
 
 | State | plain | `--answer` |
 |-------|-------|------------|
@@ -118,8 +120,22 @@ verbatim:
 | `waiting` | refuse | send (this send IS the answer it waits for) |
 | `active` | refuse | refuse (never interrupt a working agent unattended) |
 
-Refusals SHALL name the state, print to stderr, and exit 1. `--force` skips the
-gate but still validates target existence. `--answer` and `--force` are mutually
+The unknown row's warning names the pane's foreground command when it is not a
+plain shell (`tmux.IsShellCommand` — the ONE exported predicate over the shared
+`shellCommands` set, never a duplicated list):
+
+```
+warning: pane %5 has no readable agent state — foreground process `htop` running; sending ungated
+```
+
+A shell foreground (or an empty/unparseable command) keeps the plain
+`— sending ungated` warning verbatim. The behavior stays warn-and-send — no new
+gate state: a non-shell foreground may be a hook-less agent, exactly the
+documented `await --ready && send --force` composition's case. Refusals SHALL
+name the state, print to stderr, and exit 1. `--force` skips the gate — no
+state read, no warning — but still validates target existence, and its delivery
+still runs the pane-mode guard (a delivery property, not a gate property).
+`--answer` and `--force` are mutually
 exclusive via cobra `MarkFlagsMutuallyExclusive` — a usage error (exit 2), not
 silent force-wins precedence.
 
@@ -128,12 +144,20 @@ silent force-wins precedence.
 - **WHEN** `rk mux send %5 "x" --answer` runs
 - **THEN** it refuses naming `active`, exits 1, and performs no tmux mutation.
 
+#### Scenario: Unknown state names a non-shell foreground
+- **GIVEN** an uninstrumented pane whose foreground command is `htop`
+- **WHEN** a plain `rk mux send %5 "x"` runs
+- **THEN** stderr carries the foreground-naming warning and the send proceeds;
+  **AND GIVEN** an uninstrumented `zsh` pane, **THEN** the warning is the plain
+  no-state text with no foreground clause; **AND GIVEN** `--force`, **THEN** no
+  state read and no warning at all.
+
 ### Requirement: Delivery through the shared injection engine
 Text payloads SHALL be delivered through `internal/inject` — the engine the
 compose-send HTTP handler also consumes ([agent-send](/run-kit/agent-send.md) § Send Path):
 baseline capture → named-buffer `set-buffer -b <name> -- <text>` → bracketed
 `paste-buffer -d -p` → NOVELTY echo probe → probe-gated Enter → post-Enter
-observation. The CLI drives it through the five-method `inject.Tmux` interface
+observation. The CLI drives it through the six-method `inject.Tmux` interface
 over `internal/tmux`'s
 name-parameterized buffer primitives (`SetBufferCtx`/`PasteBufferCtx`/
 `CapturePaneCtx`/`SendEnterToPaneCtx`/`SendKeysToPane`), with a **per-invocation buffer name**
@@ -142,6 +166,18 @@ name-parameterized buffer primitives (`SetBufferCtx`/`PasteBufferCtx`/
 staged in the composer. A probe failure (`inject.ProbeFailure`) sends no Enter,
 prints the recoverable-state message (the text remains staged; a resend would
 duplicate it) to stderr, and exits 1 — the compose-send 409's CLI analog.
+
+Every delivery — text paste, `--key` sends, and `--force` sends alike — first
+runs the **pane-mode guard**: probe `#{pane_in_mode}` and cancel an active mode
+with one `send-keys -X cancel` (a scrolled pane's copy-mode would otherwise eat
+the bytes or bind the keys). The probe-then-cancel decision lives in ONE site,
+`tmux.ClearPaneModeCtx`; the engine consumes it as `inject.Tmux.ClearPaneMode`
+(the first pane-touching step, inside the per-pane lock, BEFORE the baseline
+capture — a mode cancel repaints the frame, so the baseline must follow it),
+and the engine-bypassing `--key` branch calls it directly. A pane not in a mode
+issues no cancel subprocess; one cancel, no re-probe loop. A probe or cancel
+failure is a pre-delivery operational error (wrapped, exit 1 — nothing was
+delivered), never fail-open.
 
 After Enter, `SubmitBackoff` observes the pane at `40/80/160/320/640ms` with
 early exit. A changed normalized frame makes no claim about submission and the
@@ -159,6 +195,13 @@ exits 1. A successful recovery prints the ordinary `delivered %N` report.
 - **WHEN** the probe exhausts
 - **THEN** no Enter is sent, stderr carries the staged-text warning, and the
   exit is 1.
+
+#### Scenario: A copy-mode pane is cleared before delivery
+- **GIVEN** a pane scrolled into copy-mode (`pane_in_mode` = 1)
+- **WHEN** `rk mux send %5 "x"` (or `--key Enter`) runs
+- **THEN** the mode is cancelled before the baseline capture / key send and the
+  delivery reaches the live composer; **AND GIVEN** a guard tmux failure,
+  **THEN** the command exits 1 with the wrapped error and nothing is delivered.
 
 #### Scenario: A trapped Enter is recovered only from positive evidence
 - **GIVEN** a pane whose frame remains unchanged through every observation step
@@ -569,7 +612,8 @@ permanent: they are human-typed verbs, so they are removable in a future release
 
 ### Engine package named `internal/inject`
 **Decision**: The shared pane-injection engine lives in `internal/inject` behind a
-five-method `Tmux` interface (capture / set-buffer / paste-buffer / send-Enter /
+six-method `Tmux` interface (pane-mode clear / capture / set-buffer /
+paste-buffer / send-Enter /
 pane-scoped send-keys, context-bound), with the buffer name as an engine
 parameter — the daemon passes `rk-agent-send`, the CLI its per-invocation
 `rk-send-<pid>`.

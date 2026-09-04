@@ -277,6 +277,7 @@ type mockTmuxOps struct {
 	pasteAgentRawBufferErr error
 	sendEnterErr           error
 	sendPaneKeysErr        error
+	clearPaneModeErr       error
 	// capturePaneResults is consumed one entry per CapturePane call (baseline +
 	// probe retries), falling back to capturePaneResult once exhausted.
 	// capturePaneErr forces a capture failure.
@@ -734,6 +735,12 @@ func (m *mockTmuxOps) ReorderBoard(ctx context.Context, server, windowID, board,
 	return m.reorderBoardNewKey, nil
 }
 
+func (m *mockTmuxOps) ClearPaneMode(ctx context.Context, paneID, server string) error {
+	m.agentSendMu.Lock()
+	defer m.agentSendMu.Unlock()
+	m.agentSendCalls = append(m.agentSendCalls, "clear-pane-mode")
+	return m.clearPaneModeErr
+}
 func (m *mockTmuxOps) SetAgentSendBuffer(ctx context.Context, text, server string) error {
 	m.agentSendMu.Lock()
 	m.agentSendCalls = append(m.agentSendCalls, "set-buffer")

@@ -27,6 +27,8 @@ type muxFake struct {
 	engineErr       error
 	engineRecovered bool
 	keysSent        [][]string
+	clearModeCalls  []string
+	clearModeErr    error
 	awaitRuns       []awaitParams
 	awaitReports    []string // consumed one per awaitObserveFn call
 	awaitErrs       []error  // per-call errors parallel to awaitReports (nil = awaitErr rides the last)
@@ -74,7 +76,8 @@ func installMuxFakes(t *testing.T, f *muxFake) {
 
 	origTMUX, origFlag := muxOriginalTMUXFn, muxServerFlag
 	origEngine, origKeys := muxSendEngineSendFn, muxSendKeysFn
-	origState, origExists, origResolve := muxSendAgentStateFn, muxSendPaneExistsFn, muxSendResolveWindowFn
+	origClearMode, origFacts := muxSendClearModeFn, muxSendFactsFn
+	origExists, origResolve := muxSendPaneExistsFn, muxSendResolveWindowFn
 	origAwait, origAwaitDeps := muxAwaitObserveFn, muxAwaitDepsFn
 	origStdin, origBuf := muxStdinFn, muxBufferNameFn
 	origCapPane, origCapFacts, origCapNow := muxCapturePaneFn, muxCaptureFactsFn, muxCaptureNowFn
@@ -86,7 +89,8 @@ func installMuxFakes(t *testing.T, f *muxFake) {
 	t.Cleanup(func() {
 		muxOriginalTMUXFn, muxServerFlag = origTMUX, origFlag
 		muxSendEngineSendFn, muxSendKeysFn = origEngine, origKeys
-		muxSendAgentStateFn, muxSendPaneExistsFn, muxSendResolveWindowFn = origState, origExists, origResolve
+		muxSendClearModeFn, muxSendFactsFn = origClearMode, origFacts
+		muxSendPaneExistsFn, muxSendResolveWindowFn = origExists, origResolve
 		muxAwaitObserveFn, muxAwaitDepsFn = origAwait, origAwaitDeps
 		muxStdinFn, muxBufferNameFn = origStdin, origBuf
 		muxCapturePaneFn, muxCaptureFactsFn, muxCaptureNowFn = origCapPane, origCapFacts, origCapNow
@@ -107,9 +111,6 @@ func installMuxFakes(t *testing.T, f *muxFake) {
 	muxOriginalTMUXFn = func() string { return "" } // server resolves to "default"
 	muxServerFlag = f.server
 
-	muxSendAgentStateFn = func(_ context.Context, paneID, _ string) (string, error) {
-		return f.states[paneID], nil
-	}
 	muxSendPaneExistsFn = func(_ context.Context, paneID, _ string) (bool, error) {
 		if f.paneExists == nil {
 			return true, nil
@@ -134,6 +135,10 @@ func installMuxFakes(t *testing.T, f *muxFake) {
 	muxSendKeysFn = func(_ context.Context, paneID, _ string, keys ...string) error {
 		f.keysSent = append(f.keysSent, append([]string{paneID}, keys...))
 		return nil
+	}
+	muxSendClearModeFn = func(_ context.Context, paneID, _ string) error {
+		f.clearModeCalls = append(f.clearModeCalls, paneID)
+		return f.clearModeErr
 	}
 	muxAwaitObserveFn = func(_ context.Context, _ awaitDeps, _ []string, p awaitParams) (string, string, error) {
 		f.awaitRuns = append(f.awaitRuns, p)
@@ -191,6 +196,10 @@ func installMuxFakes(t *testing.T, f *muxFake) {
 		return factsFor(paneID), f.factsErr
 	}
 	muxCaptureNowFn = nowFn
+
+	muxSendFactsFn = func(_ context.Context, paneID, _ string) (tmux.PaneFacts, error) {
+		return factsFor(paneID), f.factsErr
+	}
 
 	muxKillAgentStateFn = func(_ context.Context, paneID, _ string) (string, error) {
 		return f.states[paneID], nil
@@ -584,8 +593,73 @@ func TestMuxSendKeyArm(t *testing.T) {
 	if len(f.keysSent) != 1 || strings.Join(f.keysSent[0], " ") != "%5 Enter C-c" {
 		t.Errorf("keys = %v, want one send-keys of [Enter C-c] to %%5", f.keysSent)
 	}
+	if len(f.clearModeCalls) != 1 || f.clearModeCalls[0] != "%5" {
+		t.Errorf("clear-mode calls = %v, want the pane-mode guard on %%5 before the keys", f.clearModeCalls)
+	}
 	if len(f.engineCalls) != 0 {
 		t.Errorf("engine ran for a --key send: %v", f.engineCalls)
+	}
+}
+
+// TestMuxSendKeyArmGuardFailure: a pane-mode guard failure aborts the key send
+// before any send-keys — exit 1, no key delivered, no report (plain and
+// --force alike: the guard is a delivery property, not a gate property).
+func TestMuxSendKeyArmGuardFailure(t *testing.T) {
+	for _, extra := range [][]string{nil, {"--force"}} {
+		f := &muxFake{clearModeErr: errors.New("can't find pane")}
+		installMuxFakes(t, f)
+
+		args := append([]string{"send", "%5", "--key", "Enter"}, extra...)
+		stdout, _, err := runMuxCmd(t, args...)
+		if err == nil || exitCode(err) != 1 {
+			t.Fatalf("args %v: err = %v, want exit 1", args, err)
+		}
+		if !strings.Contains(err.Error(), "clear pane mode") {
+			t.Errorf("args %v: err = %v, want the wrapped guard error", args, err)
+		}
+		if len(f.keysSent) != 0 {
+			t.Errorf("args %v: keys sent despite the guard failure: %v", args, f.keysSent)
+		}
+		if stdout != "" {
+			t.Errorf("args %v: stdout = %q, want empty on a guard failure", args, stdout)
+		}
+	}
+}
+
+// TestMuxSendUnknownStateWarning: the unknown-state warning names a non-shell
+// foreground command; a shell foreground (or an unreadable one) keeps the bare
+// warning verbatim; an instrumented pane warns never. stderr-only — the stdout
+// report contract is untouched.
+func TestMuxSendUnknownStateWarning(t *testing.T) {
+	cases := []struct {
+		name     string
+		facts    tmux.PaneFacts
+		wantWarn string
+	}{
+		{"non-shell foreground named", tmux.PaneFacts{Command: "htop"},
+			"warning: pane %5 has no readable agent state — foreground process `htop` running; sending ungated\n"},
+		{"shell foreground keeps the bare warning", tmux.PaneFacts{Command: "zsh"},
+			"warning: pane %5 has no readable agent state — sending ungated\n"},
+		{"empty command keeps the bare warning", tmux.PaneFacts{},
+			"warning: pane %5 has no readable agent state — sending ungated\n"},
+		{"instrumented pane never warns", tmux.PaneFacts{Command: "htop", AgentState: tmux.AgentStateIdle, AgentStateEpoch: 1_800_000_000}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &muxFake{facts: map[string]tmux.PaneFacts{"%5": tc.facts}}
+			installMuxFakes(t, f)
+
+			stdout, stderr, err := runMuxCmd(t, "send", "%5", "hi")
+			if err != nil {
+				t.Fatalf("err = %v, want warn-and-send", err)
+			}
+			if stdout != "delivered %5\n" {
+				t.Errorf("stdout = %q, want the single report line", stdout)
+			}
+			if stderr != tc.wantWarn {
+				t.Errorf("stderr = %q, want %q", stderr, tc.wantWarn)
+			}
+		})
 	}
 }
 

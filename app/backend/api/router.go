@@ -136,6 +136,9 @@ type TmuxOps interface {
 	// the caller's context so the handler threads one shared deadline across
 	// paste, submit verification, and recovery rather than granting each
 	// subprocess its own timeout.
+	// ClearPaneMode is the pane-mode guard the engine runs first on every
+	// delivery (a copy-mode pane would eat the paste; see tmux.ClearPaneModeCtx).
+	ClearPaneMode(ctx context.Context, paneID, server string) error
 	SetAgentSendBuffer(ctx context.Context, text, server string) error
 	PasteAgentSendBuffer(ctx context.Context, paneID, server string) error
 	PasteAgentSendBufferRaw(ctx context.Context, paneID, server string) error
@@ -547,6 +550,9 @@ func (p *prodTmuxOps) PinBoard(ctx context.Context, server, windowID, board stri
 }
 func (p *prodTmuxOps) UnpinBoard(ctx context.Context, server, windowID, board string) error {
 	return tmux.Unpin(ctx, server, windowID, board)
+}
+func (p *prodTmuxOps) ClearPaneMode(ctx context.Context, paneID, server string) error {
+	return tmux.ClearPaneModeCtx(ctx, paneID, server)
 }
 func (p *prodTmuxOps) SetAgentSendBuffer(ctx context.Context, text, server string) error {
 	return tmux.SetAgentSendBufferCtx(ctx, text, server)

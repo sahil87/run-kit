@@ -64,37 +64,37 @@ func TestParsePaneFacts(t *testing.T) {
 		{
 			"all fields",
 			"/home/u/proj\tnvim\twaiting:123\n",
-			PaneFacts{CWD: "/home/u/proj", AgentState: "waiting", AgentStateEpoch: 123},
+			PaneFacts{CWD: "/home/u/proj", Command: "nvim", AgentState: "waiting", AgentStateEpoch: 123},
 		},
 		{
 			"empty agent state keeps cwd and command",
 			"/home/u/proj\tzsh\t\n",
-			PaneFacts{CWD: "/home/u/proj"},
+			PaneFacts{CWD: "/home/u/proj", Command: "zsh"},
 		},
 		{
 			"empty cwd does not shift command into cwd",
 			"\tnvim\twaiting:123\n",
-			PaneFacts{CWD: "", AgentState: "waiting", AgentStateEpoch: 123},
+			PaneFacts{CWD: "", Command: "nvim", AgentState: "waiting", AgentStateEpoch: 123},
 		},
 		{
 			"empty cwd and agent state",
 			"\tzsh\t\n",
-			PaneFacts{},
+			PaneFacts{Command: "zsh"},
 		},
 		{
 			"shell command reconciles away two-segment state",
 			"/home/u/proj\tzsh\twaiting:123\n",
-			PaneFacts{CWD: "/home/u/proj"},
+			PaneFacts{CWD: "/home/u/proj", Command: "zsh"},
 		},
 		{
 			"scope-named field wins over legacy when set",
 			"/home/u/proj\tnvim\tidle:100\twaiting:123\n",
-			PaneFacts{CWD: "/home/u/proj", AgentState: "waiting", AgentStateEpoch: 123},
+			PaneFacts{CWD: "/home/u/proj", Command: "nvim", AgentState: "waiting", AgentStateEpoch: 123},
 		},
 		{
 			"whitespace-only scope-named field falls back to legacy",
 			"/home/u/proj\tnvim\twaiting:123\t  \n",
-			PaneFacts{CWD: "/home/u/proj", AgentState: "waiting", AgentStateEpoch: 123},
+			PaneFacts{CWD: "/home/u/proj", Command: "nvim", AgentState: "waiting", AgentStateEpoch: 123},
 		},
 	}
 	for _, tt := range tests {
@@ -223,6 +223,9 @@ func TestPaneFactsCtx(t *testing.T) {
 	if facts.CWD == "" {
 		t.Error("PaneFacts.CWD empty, want the pane's current path")
 	}
+	if facts.Command == "" {
+		t.Error("PaneFacts.Command empty, want the pane's foreground command")
+	}
 	if facts.AgentState != "" || facts.AgentStateEpoch != 0 || facts.AgentPID != 0 {
 		t.Errorf("uninstrumented pane = %+v, want unknown state", facts)
 	}
@@ -322,5 +325,75 @@ func TestPanePIDCtx(t *testing.T) {
 		// tmux 3.6a's display-message succeeds with EMPTY output on a missing
 		// pane — the pid parse failure is what surfaces the operational error.
 		t.Error("PanePIDCtx on a missing pane must error")
+	}
+}
+
+// TestIsShellCommand pins the shell/non-shell split the unknown-state warning
+// and the reconciler's legacy fallback share.
+func TestIsShellCommand(t *testing.T) {
+	for _, shell := range []string{"bash", "zsh", "fish", "sh", "dash"} {
+		if !IsShellCommand(shell) {
+			t.Errorf("IsShellCommand(%q) = false, want true", shell)
+		}
+	}
+	for _, other := range []string{"htop", "claude", "nvim", ""} {
+		if IsShellCommand(other) {
+			t.Errorf("IsShellCommand(%q) = true, want false", other)
+		}
+	}
+}
+
+// TestClearPaneModeCtx exercises the pane-mode guard against an isolated test
+// server: a fresh pane probes false and clear is a no-op (a wrongly-sent bare
+// `send-keys -X cancel` against a modeless pane is itself a tmux error, so a
+// nil return proves no cancel subprocess ran); a copy-mode pane probes true,
+// one clear cancels it, and a missing pane surfaces the tmux error.
+func TestClearPaneModeCtx(t *testing.T) {
+	server, _ := withRealSessionTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	lines, err := tmuxExecServer(ctx, server, "list-panes", "-t", "real:win0", "-F", "#{pane_id}")
+	if err != nil {
+		t.Fatalf("list panes: %v", err)
+	}
+	paneID := lines[0]
+
+	inMode, err := PaneInModeCtx(ctx, paneID, server)
+	if err != nil {
+		t.Fatalf("PaneInModeCtx: %v", err)
+	}
+	if inMode {
+		t.Fatal("fresh pane must not be in a mode")
+	}
+	if err := ClearPaneModeCtx(ctx, paneID, server); err != nil {
+		t.Fatalf("clear on a modeless pane must be a no-op: %v", err)
+	}
+
+	if _, err := tmuxExecServer(ctx, server, "copy-mode", "-t", paneID); err != nil {
+		t.Fatalf("enter copy-mode: %v", err)
+	}
+	inMode, err = PaneInModeCtx(ctx, paneID, server)
+	if err != nil {
+		t.Fatalf("PaneInModeCtx (copy-mode): %v", err)
+	}
+	if !inMode {
+		t.Fatal("copy-mode pane must probe in-mode")
+	}
+	if err := ClearPaneModeCtx(ctx, paneID, server); err != nil {
+		t.Fatalf("clear copy-mode: %v", err)
+	}
+	inMode, err = PaneInModeCtx(ctx, paneID, server)
+	if err != nil {
+		t.Fatalf("PaneInModeCtx (post-clear): %v", err)
+	}
+	if inMode {
+		t.Fatal("pane must read out-of-mode after the clear")
+	}
+
+	if err := ClearPaneModeCtx(ctx, "%999999", server); err == nil {
+		// tmux's display-message succeeds with EMPTY output on a missing pane —
+		// the pane_in_mode parse failure is what surfaces the operational error.
+		t.Error("ClearPaneModeCtx on a missing pane must error")
 	}
 }

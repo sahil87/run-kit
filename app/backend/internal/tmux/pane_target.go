@@ -94,21 +94,25 @@ func PaneAgentState(ctx context.Context, paneID, server string) (string, error) 
 // AgentPID carry the reconciled agent-state read (AgentState "" = unknown:
 // absent, unparseable, or reconciled away); AgentPID is the live agent pid a
 // 3-segment value carried (0 when the value carried none — the pid is never
-// reported for a reconciled-away state).
+// reported for a reconciled-away state). Command is the pane's foreground
+// command (#{pane_current_command}), populated regardless of the agent-state
+// outcome so unknown-state callers can name what is actually running.
 type PaneFacts struct {
 	CWD             string
+	Command         string
 	AgentState      string
 	AgentStateEpoch int64
 	AgentPID        int
 }
 
 // PaneFactsCtx reads ONE pane's substrate facts on the given server in a single
-// display-message round trip: the pane cwd (#{pane_current_path}) plus the
-// reconciled agent-state read (the same parse + pid-liveness/shell-command
-// reconcile the sessions path applies — shared with PaneAgentState, which this
-// superset read backs). Both option names are requested and the scope-named
-// one wins when non-empty (dual-read window). A tmux failure (e.g. the pane
-// does not exist) is returned as the error.
+// display-message round trip: the pane cwd (#{pane_current_path}), the
+// foreground command (#{pane_current_command}), plus the reconciled agent-state
+// read (the same parse + pid-liveness/shell-command reconcile the sessions path
+// applies — shared with PaneAgentState, which this superset read backs). Both
+// option names are requested and the scope-named one wins when non-empty
+// (dual-read window). A tmux failure (e.g. the pane does not exist) is returned
+// as the error.
 func PaneFactsCtx(ctx context.Context, paneID, server string) (PaneFacts, error) {
 	raw, err := tmuxExecRawServer(ctx, server, "display-message", "-pt", paneID,
 		"#{pane_current_path}\t#{pane_current_command}\t#{"+LegacyAgentStateOption+"}\t#{"+AgentStateOption+"}")
@@ -133,6 +137,7 @@ func parsePaneFacts(raw string) PaneFacts {
 	if len(parts) >= 2 {
 		command = parts[1]
 	}
+	facts.Command = command
 	if len(parts) == 4 {
 		stateRaw = strings.TrimSpace(parts[3])
 	}
@@ -179,6 +184,53 @@ func PaneExists(ctx context.Context, paneID, server string) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+// PaneInModeCtx reports whether the pane is in a tmux mode (copy-mode et al.)
+// by reading #{pane_in_mode}. Bounded by the caller's context. A missing pane
+// surfaces as an error: tmux's display-message succeeds with EMPTY output for
+// one, and the unparseable read is the operational failure.
+func PaneInModeCtx(ctx context.Context, paneID, server string) (bool, error) {
+	raw, err := tmuxExecRawServer(ctx, server, "display-message", "-pt", paneID, "#{pane_in_mode}")
+	if err != nil {
+		return false, err
+	}
+	inMode, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil {
+		return false, fmt.Errorf("parsing pane_in_mode %q: %w", strings.TrimSpace(raw), err)
+	}
+	return inMode != 0, nil
+}
+
+// CancelPaneModeCtx exits the pane's active tmux mode via `send-keys -X
+// cancel`. -X is a send-keys FLAG, not a key name — SendKeysToPane(keys...)
+// cannot express it, so this is its own primitive. Bounded by the caller's
+// context.
+func CancelPaneModeCtx(ctx context.Context, paneID, server string) error {
+	_, err := tmuxExecServer(ctx, server, "send-keys", "-t", paneID, "-X", "cancel")
+	return err
+}
+
+// ClearPaneModeCtx is the single pane-mode guard decision every rk delivery
+// path routes through (directly or via the inject.Tmux seam): probe, and
+// cancel only when the pane is in a mode — a pane not in a mode issues NO
+// send-keys subprocess (a bare cancel against a modeless pane is itself a tmux
+// error). One cancel, no re-probe loop: a pane re-entering a mode
+// mid-delivery is tmux's inherent race, accepted like the cross-process paste
+// race. A probe or cancel failure is returned wrapped — never fail-open into a
+// blind delivery.
+func ClearPaneModeCtx(ctx context.Context, paneID, server string) error {
+	inMode, err := PaneInModeCtx(ctx, paneID, server)
+	if err != nil {
+		return fmt.Errorf("probe pane mode: %w", err)
+	}
+	if !inMode {
+		return nil
+	}
+	if err := CancelPaneModeCtx(ctx, paneID, server); err != nil {
+		return fmt.Errorf("cancel pane mode: %w", err)
+	}
+	return nil
 }
 
 // SendKeysToPane sends raw tmux KEY NAMES (Enter, Up, C-c, …) to the target

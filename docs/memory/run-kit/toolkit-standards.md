@@ -810,8 +810,8 @@ the embed mechanism and drift guard.
 **Topic pages.** The shll skill standard has **topic pages** (`<tool> skill
 <topic>`, each canonical at `docs/site/skill/<topic>.md`, ≤150 lines, static-only,
 byte-identical, drift-guarded, rendered at `/<tool>/skill/<topic>` on shll.ai —
-shll PR #47). run-kit ships four topic pages: `code`, `display`, `mux`, and
-`tutorial`. Each uses the per-topic embed mechanism and the shared
+shll PR #47). run-kit ships five topic pages: `code`, `display`, `messaging`,
+`mux`, and `tutorial` (fvpu). Each uses the per-topic embed mechanism and the shared
 `TestSkillTopicsMatchCanonical` / `TestSkillTopicsWithinLineBudget` guards; the
 command cases in `TestSkillTopicsPrintByteIdentical` pin the stdout contract.
 The tutorial uses a bidirectional page↔companion guard:
@@ -821,7 +821,7 @@ companion page `tutorial/tutorial.html` at each of its five chapter hashes
 `app/frontend/public/tutorial/`, and rejects any other `.html` file there;
 `TestTutorialLayoutValuesParse` checks the tour's layout and surface literals.
 The standard's fail-fast rule holds: an **unknown topic** exits usage-class (2)
-via the `usageError` helper with all four valid topics named on stderr and
+via the `usageError` helper with all five valid topics named on stderr and
 **empty stdout** — never a silent empty document; bare `rk skill` **never
 inlines** a topic page. Topic pages are a clause of the already-passing `skill`
 standard, not a separate standard. (6uu0)

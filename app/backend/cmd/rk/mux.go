@@ -12,7 +12,9 @@ import (
 
 // rk mux — the tmux-substrate command family (docs/specs/cli-layering.md):
 // operations that talk to tmux directly from the caller's context, with no
-// daemon dependency. Twelve members in two tiers. The pane-scoped tier takes the
+// daemon dependency. Twelve members in two tiers, presented in three help
+// groups (messaging / pane mechanics / server ops — the discoverability
+// grouping docs/specs/agent-messaging.md settles). The pane-scoped tier takes the
 // family's strict target grammar: `send` (deliver a message into an agent
 // pane, gated on its @rk_agent_state) and `await` (block until a pane's agent
 // state or a file signal fires) are the messaging pair; `capture` (scrollback
@@ -45,6 +47,15 @@ import (
 
 var muxServerFlag string
 
+// The three rk mux help groups (docs/specs/agent-messaging.md § Surface and
+// naming): messaging (send, await), pane mechanics (capture, kill, process,
+// panes), server ops (new, adopt, reap, snapshot, init-conf, guard).
+const (
+	muxGroupMessaging = "messaging"
+	muxGroupMechanics = "mechanics"
+	muxGroupServerOps = "serverops"
+)
+
 var muxCmd = &cobra.Command{
 	Use:   "mux",
 	Short: "Tmux substrate operations (server create, messaging, pane capture/kill/process, pane enumeration, janitor, recovery, config scaffold, tmux guard)",
@@ -73,6 +84,26 @@ var muxCmd = &cobra.Command{
 func init() {
 	muxCmd.PersistentFlags().StringVarP(&muxServerFlag, "server", "L", "",
 		"tmux server name (pane-scoped verbs: send/await/capture/kill/process, and the panes enumeration; default: the caller's own server from $TMUX, else the default server)")
+	muxCmd.AddGroup(
+		&cobra.Group{ID: muxGroupMessaging, Title: "Messaging:"},
+		&cobra.Group{ID: muxGroupMechanics, Title: "Pane mechanics:"},
+		&cobra.Group{ID: muxGroupServerOps, Title: "Server ops:"},
+	)
+	// GroupID is stamped here on the FAMILY instances only — never inside the
+	// two-instance constructors (newReapCmd and kin): the hidden root aliases
+	// those constructors also build are parented to rootCmd, which registers
+	// none of these groups, and cobra panics at Execute on an undefined
+	// GroupID. Every member must be grouped, or cobra renders the leftovers
+	// under an "Additional Commands" bucket.
+	for _, c := range []*cobra.Command{muxSendCmd, muxAwaitCmd} {
+		c.GroupID = muxGroupMessaging
+	}
+	for _, c := range []*cobra.Command{muxCaptureCmd, muxKillCmd, muxProcessCmd, muxPanesCmd} {
+		c.GroupID = muxGroupMechanics
+	}
+	for _, c := range []*cobra.Command{muxNewCmd, muxAdoptCmd, reapFamilyCmd, snapshotFamilyCmd, initConfFamilyCmd, muxGuardFamilyCmd} {
+		c.GroupID = muxGroupServerOps
+	}
 	muxCmd.AddCommand(muxSendCmd)
 	muxCmd.AddCommand(muxAwaitCmd)
 	muxCmd.AddCommand(muxCaptureCmd)

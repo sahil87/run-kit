@@ -41,6 +41,16 @@ var skillDisplayTopic []byte
 //go:embed skill/code.md
 var skillCodeTopic []byte
 
+// skillMessagingTopic holds the `messaging` topic page, canonical at
+// docs/site/skill/messaging.md and synced into skill/messaging.md alongside
+// the core bundle. Same embed + drift-guard mechanism as the display topic,
+// same static-only rules, independently bounded at ≤150 lines. It is the
+// concept page for agent-to-agent messaging (the channel matrix and the
+// readiness standard); the `mux` topic keeps the verb-reference depth.
+//
+//go:embed skill/messaging.md
+var skillMessagingTopic []byte
+
 // skillMuxTopic holds the `mux` topic page, canonical at
 // docs/site/skill/mux.md and synced into skill/mux.md alongside the core
 // bundle. Same embed + drift-guard mechanism as the display topic, same
@@ -64,6 +74,7 @@ const tutorialTopicName = "tutorial"
 var skillTopics = map[string][]byte{
 	"code":            skillCodeTopic,
 	"display":         skillDisplayTopic,
+	"messaging":       skillMessagingTopic,
 	"mux":             skillMuxTopic,
 	tutorialTopicName: skillTutorialTopic,
 }

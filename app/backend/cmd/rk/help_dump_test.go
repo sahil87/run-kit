@@ -263,6 +263,45 @@ func TestCaptureNodeRealTreeSelfExcludesAndDepth(t *testing.T) {
 	}
 }
 
+// TestMuxHelpPresentsThreeGroups pins the mux family's grouped help
+// (docs/specs/agent-messaging.md § Surface and naming): the captured node text
+// — cobra's UsageString, i.e. what `rk mux -h` renders and what help-dump
+// publishes — carries the three group headings, and every member is grouped
+// (an ungrouped member would surface cobra's "Additional Commands" bucket).
+func TestMuxHelpPresentsThreeGroups(t *testing.T) {
+	n := captureNode(rootCmd)
+	mux, ok := childByName(n, "mux")
+	if !ok {
+		t.Fatal("mux should be present in the real tree")
+	}
+	for _, heading := range []string{"Messaging:", "Pane mechanics:", "Server ops:"} {
+		if !strings.Contains(mux.Text, heading) {
+			t.Errorf("mux help text is missing the %q group heading", heading)
+		}
+	}
+	if strings.Contains(mux.Text, "Additional Commands:") {
+		t.Error("mux help text contains an \"Additional Commands\" bucket — every member must carry a GroupID")
+	}
+	// Membership: each member's GroupID matches the settled grouping.
+	wantGroup := map[string]string{
+		"send": muxGroupMessaging, "await": muxGroupMessaging,
+		"capture": muxGroupMechanics, "kill": muxGroupMechanics,
+		"process": muxGroupMechanics, "panes": muxGroupMechanics,
+		"new": muxGroupServerOps, "adopt": muxGroupServerOps,
+		"reap": muxGroupServerOps, "snapshot": muxGroupServerOps,
+		"init-conf": muxGroupServerOps, "guard": muxGroupServerOps,
+	}
+	for _, child := range muxCmd.Commands() {
+		want, tracked := wantGroup[child.Name()]
+		if !tracked {
+			continue // cobra-generated (help) — not a family member
+		}
+		if child.GroupID != want {
+			t.Errorf("mux %q GroupID = %q, want %q", child.Name(), child.GroupID, want)
+		}
+	}
+}
+
 func TestNodeFieldsCapturedFromCobra(t *testing.T) {
 	n := captureNode(rootCmd)
 	if n.Path != rootCmd.CommandPath() {

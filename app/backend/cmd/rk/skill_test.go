@@ -29,6 +29,7 @@ func TestSkillTopicsPrintByteIdentical(t *testing.T) {
 		{name: "core", want: skillBundle},
 		{name: "display", topic: "display", want: skillDisplayTopic},
 		{name: "code", topic: "code", want: skillCodeTopic},
+		{name: "messaging", topic: "messaging", want: skillMessagingTopic},
 		{name: "mux", topic: "mux", want: skillMuxTopic},
 		{name: tutorialTopicName, topic: tutorialTopicName, want: skillTutorialTopic},
 	}
@@ -72,6 +73,7 @@ func TestSkillTopicsMatchCanonical(t *testing.T) {
 		{name: "core", embedded: skillBundle, canonical: filepath.Join("..", "..", "..", "..", "docs", "site", "skill.md")},
 		{name: "display", embedded: skillDisplayTopic, canonical: filepath.Join("..", "..", "..", "..", "docs", "site", "skill", "display.md")},
 		{name: "code", embedded: skillCodeTopic, canonical: filepath.Join("..", "..", "..", "..", "docs", "site", "skill", "code.md")},
+		{name: "messaging", embedded: skillMessagingTopic, canonical: filepath.Join("..", "..", "..", "..", "docs", "site", "skill", "messaging.md")},
 		{name: "mux", embedded: skillMuxTopic, canonical: filepath.Join("..", "..", "..", "..", "docs", "site", "skill", "mux.md")},
 		{name: tutorialTopicName, embedded: skillTutorialTopic, canonical: filepath.Join("..", "..", "..", "..", "docs", "site", "skill", tutorialTopicName+".md")},
 	}
@@ -108,6 +110,7 @@ func TestSkillTopicsWithinLineBudget(t *testing.T) {
 		{name: "core", content: skillBundle},
 		{name: "display", content: skillDisplayTopic},
 		{name: "code", content: skillCodeTopic},
+		{name: "messaging", content: skillMessagingTopic},
 		{name: "mux", content: skillMuxTopic},
 		{name: tutorialTopicName, content: skillTutorialTopic},
 	} {
@@ -243,7 +246,7 @@ func TestSkillUnknownTopicFailsFast(t *testing.T) {
 	if exitCode(err) != exitUsage {
 		t.Errorf("skill bogus exit code = %d, want %d (usage)", exitCode(err), exitUsage)
 	}
-	for _, want := range []string{"unknown topic", "code, display, mux, " + tutorialTopicName} {
+	for _, want := range []string{"unknown topic", "code, display, messaging, mux, " + tutorialTopicName} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("skill bogus error %q missing %q", err.Error(), want)
 		}

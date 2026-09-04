@@ -61,6 +61,7 @@ import {
   railRestBand,
   railHeldBand,
   RAIL_HELD_SEAM,
+  NoteLine,
 } from "./row-flyout-card";
 
 /** Shallow element-wise compare of two flat string arrays (same length, same
@@ -132,7 +133,7 @@ function writeCollapsedSessions(map: Record<string, boolean>): void {
  *  window, `${server}:${name}` for a session). A discriminated union so Enter/
  *  Space activation derives the right handler + args with no type assertions. */
 type RowIdentity =
-  | { kind: "window"; server: string; session: string; windowId: string; ghost: boolean }
+  | { kind: "window"; server: string; session: string; windowId: string; ghost: boolean; operator: boolean }
   | { kind: "session"; server: string; session: string; firstWindowId: string };
 
 export type SidebarProps = {
@@ -187,6 +188,10 @@ export type SidebarProps = {
    *  (260822-wyn3). Optional (mirrors `onForkWindow`): when omitted — e.g. the
    *  board-route sidebar — the pinned row renders no compose icon. */
   onOperatorCompose?: (server: string) => void;
+  /** Open the operator console from the pinned operator row's activation
+   *  (click / Enter / Space). Optional (mirrors `onOperatorCompose`): when
+   *  omitted, the pinned row keeps plain select-to-navigate activation. */
+  onOpenOperatorConsole?: (server: string) => void;
   onCreateServer: () => void;
   onKillServer: (name: string) => void;
   /** Optional waiting-badge click (260714-r7rq): navigate to the next waiting
@@ -214,6 +219,7 @@ export function Sidebar({
   onForkWindow,
   onFixTabName,
   onOperatorCompose,
+  onOpenOperatorConsole,
   onCreateServer,
   onKillServer,
   onWaitingBadgeClick,
@@ -1504,6 +1510,12 @@ export function Sidebar({
           // SF-3: ghost/optimistic rows have no real windowId — activation is a
           // no-op (mirrors the isGhostWindow/dragEnabled guard on the drag path).
           if (identity.ghost || identity.windowId === "") break;
+          // The pinned operator row's activation opens the operator console
+          // for its server instead of navigating (when the seam is wired).
+          if (identity.operator && onOpenOperatorConsole) {
+            onOpenOperatorConsole(identity.server);
+            break;
+          }
           // SF-2: call the handler DIRECTLY with the typed identity — no brittle
           // DOM `.click()` synthesis or magic-string aria-label coupling.
           onSelectWindow(identity.server, identity.session, identity.windowId);
@@ -1534,7 +1546,7 @@ export function Sidebar({
       default:
         break;
     }
-  }, [getVisibleRows, rowKeyOf, rovingKey, moveRovingTo, toggleSession, identityForKey, onSelectWindow, isSelectableWindow, toggleWindowSelection]);
+  }, [getVisibleRows, rowKeyOf, rovingKey, moveRovingTo, toggleSession, identityForKey, onSelectWindow, isSelectableWindow, toggleWindowSelection, onOpenOperatorConsole]);
 
   /**
    * Escape-to-clear (260807-nf9f) — a CAPTURE-phase handler, deliberately
@@ -1856,6 +1868,7 @@ export function Sidebar({
                 onForkWindow={onForkWindow}
                 onFixTabName={onFixTabName}
                 onOperatorCompose={onOperatorCompose}
+                onOpenOperatorConsole={onOpenOperatorConsole}
                 onWindowDragStart={handleDragStart}
                 onWindowDragOver={handleDragOver}
                 onWindowDrop={handleDrop}
@@ -2271,6 +2284,10 @@ type ServerGroupProps = {
   /** Forwarded ONLY to the pinned operator row's `WindowRow` → its trailing
    *  compose icon (260822-wyn3). Optional — see `SidebarProps.onOperatorCompose`. */
   onOperatorCompose?: (server: string) => void;
+  /** Forwarded ONLY to the pinned operator row's `WindowRow` — row activation
+   *  opens the operator console. Optional — see
+   *  `SidebarProps.onOpenOperatorConsole`. */
+  onOpenOperatorConsole?: (server: string) => void;
   onWindowDragStart: (e: React.DragEvent, server: string, session: string, index: number, windowId: string, name: string) => void;
   onWindowDragOver: (e: React.DragEvent, server: string, session: string, index: number) => void;
   onWindowDrop: (e: React.DragEvent, server: string, session: string, index: number) => void;
@@ -2350,6 +2367,7 @@ function ServerGroupInner(props: ServerGroupProps) {
     onForkWindow,
     onFixTabName,
     onOperatorCompose,
+    onOpenOperatorConsole,
     onWindowDragStart,
     onWindowDragOver,
     onWindowDrop,
@@ -2485,6 +2503,7 @@ function ServerGroupInner(props: ServerGroupProps) {
           session: operatorEntry.sessionName,
           windowId: operatorEntry.win.windowId,
           ghost: false,
+          operator: true,
         });
         sigParts.push(opRowKey);
       }
@@ -2514,6 +2533,7 @@ function ServerGroupInner(props: ServerGroupProps) {
               session: session.name,
               windowId: win.windowId,
               ghost,
+              operator: false,
             });
             sigParts.push(winRowKey);
           }
@@ -2823,6 +2843,7 @@ function ServerGroupInner(props: ServerGroupProps) {
               flush with no gaps (the container keeps only pb-1, separating
               this group from the next server's header). */}
           {operatorEntry && (
+            <>
             <WindowRow
               win={operatorEntry.win}
               session={operatorEntry.sessionName}
@@ -2866,8 +2887,21 @@ function ServerGroupInner(props: ServerGroupProps) {
               onForkWindow={onForkWindow}
               onFixTabName={onFixTabName}
               onOperatorCompose={onOperatorCompose}
+              onOpenOperatorConsole={onOpenOperatorConsole}
               hasOperator={hasOperator}
             />
+            {/* Note pulse: the operator window's @rk_win_note one-liner under
+                its pinned row (the row-flyout note-line idiom). Degrade-to-
+                absent — no note ⇒ nothing renders, no reserved space. */}
+            {operatorEntry.win.note && (
+              <div
+                data-testid="operator-note-pulse"
+                className="truncate pl-[26px] pr-2 pb-0.5 text-[11px]"
+              >
+                <NoteLine win={operatorEntry.win} />
+              </div>
+            )}
+            </>
           )}
           <div className="pb-1">
           {visibleSessions.length === 0 && sessions.length === 0 ? (

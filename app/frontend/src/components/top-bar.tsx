@@ -22,6 +22,7 @@ import {
   TopBarOverflowMenu,
   HelpMenuRow,
   KeyboardMenuRow,
+  OperatorConsoleMenuRow,
   type OverflowMenuRow,
   type MenuGroup,
   MENU_ROW_CLASS,
@@ -922,6 +923,17 @@ export function TopBar({
       menuGroup: "app",
       barRender: () => null,
       menuRender: () => <KeyboardMenuRow />,
+    },
+    // Operator console — the mobile path to the pull-down operator overlay
+    // (a phone has no keyboard for the chord; the palette carries desktop).
+    // MENU-ONLY on every mode, in the App section with Help/Keyboard.
+    {
+      id: "operator-console",
+      modes: ["terminal", "board", "server", "host"],
+      menuOnly: true,
+      menuGroup: "app",
+      barRender: () => null,
+      menuRender: () => <OperatorConsoleMenuRow />,
     },
   ];
 

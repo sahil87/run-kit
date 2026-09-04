@@ -152,6 +152,13 @@ type WindowRowProps = {
    *  when omitted — ordinary window rows, the board-route sidebar — no compose
    *  icon renders; only the pinned operator row's mount site passes it. */
   onOperatorCompose?: (server: string) => void;
+  /** Open the operator console (the pinned operator row's activation). When
+   *  set on a `role === "operator"` row, a plain row click opens the console
+   *  for the row's server INSTEAD of navigating to the operator window — the
+   *  console is the talk-to-the-operator surface; the compose icon and
+   *  selection gestures are unaffected. Only the pinned operator row's mount
+   *  site passes it. */
+  onOpenOperatorConsole?: (server: string) => void;
   /** Whether the server has an operator window — availability input for the
    *  flyout's Fix tab name row (the row itself carries the rest of the rule). */
   hasOperator?: boolean;
@@ -237,6 +244,7 @@ function WindowRowInner({
   onForkWindow,
   onFixTabName,
   onOperatorCompose,
+  onOpenOperatorConsole,
   hasOperator = false,
   server,
   isPinnedToAny = false,
@@ -843,6 +851,13 @@ function WindowRowInner({
             })
           ) {
             e.preventDefault();
+            return;
+          }
+          // The pinned operator row's plain activation opens the operator
+          // console for its server rather than navigating away to the
+          // operator window's tab.
+          if (win.role === "operator" && onOpenOperatorConsole) {
+            onOpenOperatorConsole(srv);
             return;
           }
           onSelectWindow(srv, session, win.windowId);

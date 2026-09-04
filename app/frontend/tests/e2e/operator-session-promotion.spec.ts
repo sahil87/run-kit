@@ -58,14 +58,14 @@ test.describe("Operator session physical promotion (skcr)", () => {
    * 4. Assert the work group no longer lists the operator window (count 0),
    *    no _rk-operator session group renders, and the pinned operator row
    *    renders exactly once ABOVE the work group (smaller y).
-   * 5. Click the pinned row; assert the URL navigates to the operator
-   *    window's @N route.
+   * 5. Click the pinned row; assert the operator console overlay opens (row
+   *    activation opens the console, not a navigation) and Escape closes it.
    * 6. Demote: POST @rk_win_role: null; assert it succeeds.
    * 7. Assert no _rk-operator session group renders, and the window reappears
    *    under a visible session group exactly once (no longer the pinned
    *    slot).
    */
-  test("promote hides the operator session + moves the window out of its work group; pinned row navigates; demote reappears under a visible group", async ({
+  test("promote hides the operator session + moves the window out of its work group; pinned row opens the console; demote reappears under a visible group", async ({
     page,
   }) => {
     const ts = Date.now();
@@ -106,9 +106,14 @@ test.describe("Operator session physical promotion (skcr)", () => {
     expect(workBox, "work group box").toBeTruthy();
     expect(rowBox!.y).toBeLessThan(workBox!.y);
 
-    // The pinned row navigates to the operator window on activation.
+    // Row activation opens the operator console overlay (not a navigation).
+    // Wait for the compose input's async focus before Escape — the close key
+    // is read from within the console, so a too-early press lands outside it.
     await row.click();
-    await expect(page).toHaveURL(new RegExp(`/${target.windowId.slice(1)}$`), { timeout: 5_000 });
+    await expect(page.getByTestId("operator-console")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByRole("textbox", { name: "Message the operator" })).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("operator-console")).toHaveCount(0);
 
     // Demote (null per the partial-merge contract): the window moves OUT to a
     // visible conventional session group and the pinned slot disappears.

@@ -199,7 +199,9 @@ test.describe("Web tile — content zoom (260823-cwvv R2–R5)", () => {
 
     const paletteInput = await openPalette(page);
     await paletteInput.fill("Web: Zoom");
-    await expect(page.getByRole("option", { name: /Web: Zoom/ })).toHaveCount(0);
+    // anchored: the palette's Ask-operator fallback row (`Ask operator: "Web: Zoom"`)
+    // would substring-match an unanchored pattern; the gated entries are what must be absent.
+    await expect(page.getByRole("option", { name: /^Web: Zoom/ })).toHaveCount(0);
     await page.keyboard.press("Escape");
   });
 

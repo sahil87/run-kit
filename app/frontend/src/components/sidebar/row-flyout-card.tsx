@@ -374,7 +374,10 @@ export const NOTE_STALE_SECONDS = 24 * 3600;
  *  render text-only, undimmed. Static text derived from the already-passed
  *  `win` — the card holds no clock, so the age is as of the last SSE frame
  *  (the render-performance contract, same as every other register line). */
-function NoteLine({ win }: { win: WindowInfo }) {
+/** The one-line `@rk_win_note` rendering idiom — `note <text> · <age> ago`,
+ *  stale-dimmed. Shared by this card's note register and the sidebar pinned
+ *  operator row's pulse line. */
+export function NoteLine({ win }: { win: WindowInfo }) {
   if (!win.note) return null;
   const epoch = win.noteEpoch ?? 0;
   const ageSeconds = epoch > 0 ? Math.max(0, Math.floor(Date.now() / 1000) - epoch) : null;

@@ -520,4 +520,68 @@ describe("CommandPalette", () => {
       expect(action.onSelect).not.toHaveBeenCalled();
     });
   });
+
+  describe("Ask-operator fallback row", () => {
+    const noMatch = makeActions(["New Session"]);
+
+    function typeQuery(value: string) {
+      const input = screen.getByPlaceholderText(/^Type a command/);
+      fireEvent.change(input, { target: { value } });
+      return input;
+    }
+
+    it("renders the row at zero matches on an operator-bearing server, and Enter delivers the trimmed query", () => {
+      const onAsk = vi.fn();
+      render(<CommandPalette actions={noMatch} askOperator={{ hasOperator: true, onAsk }} />);
+      openPalette();
+      const input = typeQuery("  restart the worker  ");
+
+      const row = screen.getByText('Ask operator: "restart the worker"');
+      expect(row).toBeInTheDocument();
+      expect(screen.queryByText(/^No results/)).not.toBeInTheDocument();
+
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(onAsk).toHaveBeenCalledWith("restart the worker");
+      // The palette closes behind the handoff (the console opens next).
+      expect(screen.queryByPlaceholderText(/^Type a command/)).not.toBeInTheDocument();
+    });
+
+    it("is omitted while any action matches the query", () => {
+      const onAsk = vi.fn();
+      render(<CommandPalette actions={noMatch} askOperator={{ hasOperator: true, onAsk }} />);
+      openPalette();
+      typeQuery("new");
+
+      expect(screen.queryByText(/^Ask operator:/)).not.toBeInTheDocument();
+      expect(screen.getByText("New Session")).toBeInTheDocument();
+    });
+
+    it("is omitted without an operator on the resolved server", () => {
+      render(<CommandPalette actions={noMatch} askOperator={{ hasOperator: false, onAsk: vi.fn() }} />);
+      openPalette();
+      typeQuery("restart the worker");
+
+      expect(screen.queryByText(/^Ask operator:/)).not.toBeInTheDocument();
+      expect(screen.getByText(/^No results/)).toBeInTheDocument();
+    });
+
+    it("is omitted below the query-length floor", () => {
+      render(<CommandPalette actions={noMatch} askOperator={{ hasOperator: true, onAsk: vi.fn() }} />);
+      openPalette();
+      typeQuery("hi");
+
+      expect(screen.queryByText(/^Ask operator:/)).not.toBeInTheDocument();
+      expect(screen.getByText(/^No results/)).toBeInTheDocument();
+    });
+
+    it("clicking the row fires the same handoff", () => {
+      const onAsk = vi.fn();
+      render(<CommandPalette actions={noMatch} askOperator={{ hasOperator: true, onAsk }} />);
+      openPalette();
+      typeQuery("rename the tab");
+
+      fireEvent.click(screen.getByText('Ask operator: "rename the tab"'));
+      expect(onAsk).toHaveBeenCalledWith("rename the tab");
+    });
+  });
 });

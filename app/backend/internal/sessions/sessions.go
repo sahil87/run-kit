@@ -161,6 +161,19 @@ const (
 	gitBranchResolveLimit = 16
 	gitBranchCmdTimeout   = 250 * time.Millisecond
 
+	// gitBranchNoRepoTTL is the cache horizon for the authoritative no-repo
+	// negative: a clean no-.git-ancestor walk proves git would find nothing
+	// either, so re-probing on the short negative cadence buys nothing. The
+	// 15s cadence stays for negatives that can heal quickly (unparseable .git
+	// shapes, grace expiry).
+	gitBranchNoRepoTTL = 5 * time.Minute
+
+	// gitBranchResolveConcurrency bounds the miss-resolution fan-out: stat-walk
+	// misses complete near-instantly in parallel, and the residual subprocess
+	// worst case is ceil(gitBranchResolveLimit/gitBranchResolveConcurrency) ×
+	// gitBranchCmdTimeout instead of a fully serial storm.
+	gitBranchResolveConcurrency = 4
+
 	// gitBranchDetachedGraceTTL bounds how long a detached HEAD keeps serving the
 	// cwd's last-known branch. A rebase/bisect ends on the branch it started on,
 	// so blanking the branch (and with it every PR surface) mid-rebase is pure
@@ -320,12 +333,52 @@ func resolveGitBranchWithGit(ctx context.Context, cwd string) (branch string, de
 	return b, false
 }
 
+// resolveGitBranch resolves one cache-missed cwd and builds its cache entry.
+// Classification runs before parsing: a config.FindGitRoot walk finding no
+// .git ancestor is an authoritative no-repo negative (git would find nothing
+// either) — no subprocess, cached on the long gitBranchNoRepoTTL horizon. A
+// found root goes through the direct HEAD read; only an unparseable .git
+// shape (unreadable HEAD, malformed gitdir: file, unrecognized ref) reaches
+// the subprocess fallback, whose negatives keep the short
+// gitBranchNegativeTTL cadence since the shape can heal quickly. Every
+// negative arm carries lastGood/lastGoodAt through so a detached cwd that
+// expires and later re-attaches restarts its grace from the next real ref,
+// not from stale history.
+func resolveGitBranch(ctx context.Context, cwd string, now time.Time, p gitBranchCacheEntry) gitBranchCacheEntry {
+	root := config.FindGitRoot(cwd)
+	if root == "" {
+		return gitBranchCacheEntry{expiresAt: now.Add(gitBranchNoRepoTTL), lastGood: p.lastGood, lastGoodAt: p.lastGoodAt}
+	}
+	branch, detached, ok := resolveGitBranchFromHead(root)
+	if !ok && !detached {
+		// The HEAD shape is authoritative for detached — the subprocess
+		// fallback runs only for the shapes the direct read couldn't parse.
+		branch, detached = resolveGitBranchWithGit(ctx, cwd)
+	}
+	switch {
+	case branch != "":
+		return gitBranchCacheEntry{branch: branch, expiresAt: now.Add(gitBranchPositiveTTL), lastGood: branch, lastGoodAt: now}
+	case detached && p.lastGood != "" && now.Sub(p.lastGoodAt) < gitBranchDetachedGraceTTL:
+		// Grace serve: bridge the rebase with the last-known branch. lastGoodAt
+		// is NOT re-stamped — the grace window is measured from the last real
+		// ref, so a checkout parked detached exhausts it.
+		return gitBranchCacheEntry{branch: p.lastGood, expiresAt: now.Add(gitBranchNegativeTTL), lastGood: p.lastGood, lastGoodAt: p.lastGoodAt}
+	default:
+		return gitBranchCacheEntry{expiresAt: now.Add(gitBranchNegativeTTL), lastGood: p.lastGood, lastGoodAt: p.lastGoodAt}
+	}
+}
+
 // resolveGitBranches resolves git branches for a set of cwds using a per-entry TTL cache.
-// Prefers reading .git/HEAD directly; falls back to git subprocess. A detached
-// HEAD within gitBranchDetachedGraceTTL of the cwd's last genuine positive
-// resolution serves that last-known branch (a rebase ends on the branch it
-// started on — blanking every PR surface mid-rebase is noise), cached on the
-// negative cadence so the real HEAD is re-read promptly once it re-attaches.
+// Each miss is classified by a config.FindGitRoot walk before parsing (see
+// resolveGitBranch): no-repo cwds never spawn a subprocess and cache on the
+// long no-repo horizon; repo cwds resolve via the direct .git/HEAD read; the
+// git subprocess fallback is reserved for unparseable .git shapes. Misses fan
+// out under gitBranchResolveConcurrency and land in one batched cache write.
+// A detached HEAD within gitBranchDetachedGraceTTL of the cwd's last genuine
+// positive resolution serves that last-known branch (a rebase ends on the
+// branch it started on — blanking every PR surface mid-rebase is noise),
+// cached on the negative cadence so the real HEAD is re-read promptly once it
+// re-attaches.
 func resolveGitBranches(ctx context.Context, cwds []string) map[string]string {
 	now := time.Now()
 	result := make(map[string]string)
@@ -361,39 +414,37 @@ func resolveGitBranches(ctx context.Context, cwds []string) map[string]string {
 		misses = misses[:gitBranchResolveLimit]
 	}
 
-	// Resolve misses
+	// Resolve misses with bounded concurrency: workers stop taking new work
+	// once ctx is done (in-flight subprocess caps still bound the tail), and
+	// entries collect under a local mutex so the cache mutation below stays
+	// one batched write-lock section.
 	updates := make(map[string]gitBranchCacheEntry, len(misses))
+	var updatesMu sync.Mutex
+	sem := make(chan struct{}, gitBranchResolveConcurrency)
+	var wg sync.WaitGroup
 	for _, cwd := range misses {
 		if ctx.Err() != nil {
 			break
 		}
-		branch, detached, ok := resolveGitBranchFromHead(cwd)
-		if !ok && !detached {
-			// The HEAD shape is authoritative for detached — the subprocess
-			// fallback runs only for the shapes the direct read couldn't parse.
-			branch, detached = resolveGitBranchWithGit(ctx, cwd)
-		}
-		p := prior[cwd]
-		var entry gitBranchCacheEntry
-		switch {
-		case branch != "":
-			entry = gitBranchCacheEntry{branch: branch, expiresAt: now.Add(gitBranchPositiveTTL), lastGood: branch, lastGoodAt: now}
-			result[cwd] = branch
-		case detached && p.lastGood != "" && now.Sub(p.lastGoodAt) < gitBranchDetachedGraceTTL:
-			// Grace serve: bridge the rebase with the last-known branch. lastGoodAt
-			// is NOT re-stamped — the grace window is measured from the last real
-			// ref, so a checkout parked detached exhausts it.
-			entry = gitBranchCacheEntry{branch: p.lastGood, expiresAt: now.Add(gitBranchNegativeTTL), lastGood: p.lastGood, lastGoodAt: p.lastGoodAt}
-			result[cwd] = p.lastGood
-		default:
-			// Genuine negative (no repo, unparseable, or grace exhausted). The
-			// last-good record is carried so a detached cwd that expires and later
-			// re-attaches restarts its grace from the next real ref, not from
-			// stale history.
-			entry = gitBranchCacheEntry{expiresAt: now.Add(gitBranchNegativeTTL), lastGood: p.lastGood, lastGoodAt: p.lastGoodAt}
-		}
-		updates[cwd] = entry
+		wg.Add(1)
+		go func(cwd string) {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				return
+			}
+			entry := resolveGitBranch(ctx, cwd, now, prior[cwd])
+			updatesMu.Lock()
+			updates[cwd] = entry
+			if entry.branch != "" {
+				result[cwd] = entry.branch
+			}
+			updatesMu.Unlock()
+		}(cwd)
 	}
+	wg.Wait()
 
 	gitBranchCacheMu.Lock()
 	for cwd, entry := range updates {

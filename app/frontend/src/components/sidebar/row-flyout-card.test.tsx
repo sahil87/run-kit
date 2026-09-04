@@ -1,11 +1,14 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
+import { safePolygon } from "@floating-ui/react";
 import {
   useRowFlyout,
   WindowFlyoutContent,
   flyoutOpenDelay,
   resetFlyoutWarmState,
   scrubTargetAt,
+  edgeAnchorReference,
+  EDGE_ANCHOR_CONTAINER_SELECTOR,
   FLYOUT_OPEN_DELAY_MS,
   STATUS_DOT_DOCS_URL,
   STATUS_RAIL_WIDTH_PX,
@@ -17,6 +20,14 @@ import {
   canForkWindow,
   canRequestWindowOperatorAction,
 } from "./row-flyout-card";
+
+// safePolygon is wrapped with a delegating spy (behavior unchanged) because
+// the polygon's options are otherwise unobservable in jsdom — a real pointer
+// traversal through the polygon cannot be synthesized.
+vi.mock("@floating-ui/react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@floating-ui/react")>();
+  return { ...actual, safePolygon: vi.fn(actual.safePolygon) };
+});
 import { PopupTitleBar, PopupTitleBarSecondary, notchFill, POPUP_TITLE_BAR_HEIGHT_PX } from "./popup-title-bar";
 import { CardActionList, CardActionRow } from "./row-flyout-card";
 import { dotLabel } from "@/components/status-dot-label";
@@ -1275,5 +1286,143 @@ describe("coarse-pointer session/server cards (260817-ve5m)", () => {
     } finally {
       delete (document as { elementFromPoint?: unknown }).elementFromPoint;
     }
+  });
+});
+
+// The edge-anchored mount: a grid-cell reference (not full-bleed to the
+// sidebar width) opts in to a virtual position reference at the sidebar
+// container's right edge plus a pointer-events-blocking hover-close polygon,
+// so the card opens where the full-bleed rows' cards open and grid siblings
+// crossed en route cannot hover-steal the single-open card. Events stay on
+// the real node; mounts without the opt-in are untouched.
+describe("edge-anchored mount (edgeAnchor)", () => {
+  /** DOMRect-shaped literal for getBoundingClientRect mocks. */
+  function domRect(r: { top: number; bottom: number; left: number; right: number }): DOMRect {
+    return {
+      top: r.top,
+      bottom: r.bottom,
+      left: r.left,
+      right: r.right,
+      x: r.left,
+      y: r.top,
+      width: r.right - r.left,
+      height: r.bottom - r.top,
+      toJSON: () => ({}),
+    } as DOMRect;
+  }
+
+  /** Minimal grid-cell consumer (the SERVER tile's shape): trivial content —
+   *  these tests assert geometry and polygon options, not card content. */
+  function Tile({ edgeAnchor = true }: { edgeAnchor?: boolean }) {
+    const flyout = useRowFlyout({
+      edgeAnchor,
+      content: () => <div data-testid="tile-card-body" />,
+    });
+    return (
+      <div ref={flyout.setReference} {...flyout.referenceProps} data-testid="tile">
+        tile
+        {flyout.card}
+      </div>
+    );
+  }
+
+  /** Sidebar-root fixture matching EDGE_ANCHOR_CONTAINER_SELECTOR. */
+  function makeNav(): HTMLElement {
+    const nav = document.createElement("nav");
+    nav.setAttribute("aria-label", "Sessions");
+    document.body.appendChild(nav);
+    return nav;
+  }
+
+  it("edgeAnchorReference: the reference's y-band at the sidebar container's right x, width 0", () => {
+    const nav = makeNav();
+    const tile = document.createElement("button");
+    nav.appendChild(tile);
+    vi.spyOn(nav, "getBoundingClientRect").mockReturnValue(domRect({ top: 0, bottom: 700, left: 0, right: 240 }));
+    vi.spyOn(tile, "getBoundingClientRect").mockReturnValue(domRect({ top: 100, bottom: 140, left: 20, right: 120 }));
+
+    const ref = edgeAnchorReference(tile);
+    expect(ref.contextElement).toBe(tile);
+    expect(ref.getBoundingClientRect()).toEqual({
+      x: 240,
+      y: 100,
+      top: 100,
+      bottom: 140,
+      height: 40,
+      left: 240,
+      right: 240,
+      width: 0,
+    });
+    expect(tile.closest(EDGE_ANCHOR_CONTAINER_SELECTOR)).toBe(nav);
+    nav.remove();
+  });
+
+  it("edgeAnchorReference derives at measure time — a container resize is seen on the next call, no cached rect", () => {
+    const nav = makeNav();
+    const tile = document.createElement("button");
+    nav.appendChild(tile);
+    vi.spyOn(tile, "getBoundingClientRect").mockReturnValue(domRect({ top: 100, bottom: 140, left: 20, right: 120 }));
+    const navRect = vi.spyOn(nav, "getBoundingClientRect");
+    navRect.mockReturnValue(domRect({ top: 0, bottom: 700, left: 0, right: 240 }));
+
+    const ref = edgeAnchorReference(tile);
+    expect(ref.getBoundingClientRect().right).toBe(240);
+    navRect.mockReturnValue(domRect({ top: 0, bottom: 700, left: 0, right: 320 }));
+    expect(ref.getBoundingClientRect().right).toBe(320);
+    nav.remove();
+  });
+
+  it("edgeAnchorReference falls back to the reference's own rect without a sidebar-container ancestor", () => {
+    const tile = document.createElement("button");
+    document.body.appendChild(tile);
+    vi.spyOn(tile, "getBoundingClientRect").mockReturnValue(domRect({ top: 100, bottom: 140, left: 20, right: 120 }));
+
+    const rect = edgeAnchorReference(tile).getBoundingClientRect();
+    expect(rect).toMatchObject({ left: 120, right: 120, width: 0, top: 100, bottom: 140 });
+    tile.remove();
+  });
+
+  it("the edge-anchored mount blocks pointer events in the hover-close polygon; default mounts pass no options", () => {
+    vi.mocked(safePolygon).mockClear();
+    render(<Tile edgeAnchor />);
+    expect(vi.mocked(safePolygon)).toHaveBeenLastCalledWith({ blockPointerEvents: true });
+    cleanup();
+
+    vi.mocked(safePolygon).mockClear();
+    render(<Tile edgeAnchor={false} />);
+    expect(vi.mocked(safePolygon)).toHaveBeenLastCalledWith(undefined);
+  });
+
+  // Final on-screen coordinates are e2e territory: jsdom has no layout, so
+  // floating-ui's clipping rects are zero-sized and flip()/shift() clamp the
+  // computed position into junk. What IS deterministic here is which rects
+  // the position pipeline reads — the sidebar container's only under the
+  // opt-in, proving the virtual reference is installed (or not).
+  it("opening the edge-anchored card measures the sidebar container; the default mount never does", async () => {
+    const nav = makeNav();
+    const navRect = vi.spyOn(nav, "getBoundingClientRect");
+    navRect.mockReturnValue(domRect({ top: 0, bottom: 700, left: 0, right: 240 }));
+    render(<Tile edgeAnchor />, { container: nav });
+
+    hoverOpen("tile");
+    // Flush floating-ui's async position computation.
+    await act(async () => {});
+    expect(screen.getByTestId("row-flyout-card")).toBeInTheDocument();
+    expect(navRect).toHaveBeenCalled();
+    cleanup();
+    nav.remove();
+
+    const nav2 = makeNav();
+    const nav2Rect = vi.spyOn(nav2, "getBoundingClientRect");
+    nav2Rect.mockReturnValue(domRect({ top: 0, bottom: 700, left: 0, right: 240 }));
+    render(<Tile edgeAnchor={false} />, { container: nav2 });
+
+    hoverOpen("tile");
+    await act(async () => {});
+    expect(screen.getByTestId("row-flyout-card")).toBeInTheDocument();
+    // Default path: the events reference doubles as the position reference —
+    // the container is never consulted.
+    expect(nav2Rect).not.toHaveBeenCalled();
+    nav2.remove();
   });
 });

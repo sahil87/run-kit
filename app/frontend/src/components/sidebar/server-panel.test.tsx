@@ -1,7 +1,14 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, screen, cleanup, fireEvent, within, act } from "@testing-library/react";
 import { ServerPanel } from "./server-panel";
-import { FLYOUT_OPEN_DELAY_MS, resetFlyoutWarmState } from "./row-flyout-card";
+import { FLYOUT_OPEN_DELAY_MS, resetFlyoutWarmState, useRowFlyout } from "./row-flyout-card";
+
+// useRowFlyout is wrapped with a delegating spy (behavior unchanged) so the
+// tile's hook options — the edge-anchor opt-in — are assertable.
+vi.mock("./row-flyout-card", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./row-flyout-card")>();
+  return { ...actual, useRowFlyout: vi.fn(actual.useRowFlyout) };
+});
 import { ThemeProvider } from "@/contexts/theme-context";
 import { ToastProvider } from "@/components/toast";
 import type { ServerInfo } from "@/api/client";
@@ -231,6 +238,14 @@ describe("ServerPanel", () => {
       expect(screen.getByTestId("row-flyout-kill-action")).toHaveTextContent("Kill server");
       // The retired identity tip never mounts.
       expect(screen.queryByTestId("server-tip")).toBeNull();
+    });
+
+    it("every tile opts in to the edge anchor — grid cells are not full-bleed, so the card must open at the sidebar edge", () => {
+      vi.mocked(useRowFlyout).mockClear();
+      renderPanel();
+      const optionsPerTile = vi.mocked(useRowFlyout).mock.calls.map(([opts]) => opts);
+      expect(optionsPerTile.length).toBeGreaterThan(0);
+      for (const opts of optionsPerTile) expect(opts.edgeAnchor).toBe(true);
     });
 
     it("opens on keyboard tile focus and dismisses on Escape", () => {

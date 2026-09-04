@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-04T07:37:43Z"}
+{"args":"Server tile flyout card opens mid-panel and covers sibling tiles; anchor it at the sidebar right edge via a virtual position reference and add safePolygon blockPointerEvents traversal guard (server-tile consumer only)","cmd":"fab-new","event":"command","ts":"2026-09-04T07:37:43Z"}
+{"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-09-04T07:39:19Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-09-04T07:40:27Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-04T07:42:03Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-04T07:42:49Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-04T07:55:02Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-04T08:01:44Z"}
+{"event":"review","result":"passed","ts":"2026-09-04T08:01:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-04T08:04:06Z"}

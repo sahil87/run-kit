@@ -971,6 +971,8 @@ proves; healing is covered elsewhere).
 
 Tests whose lifetime is tied to a compatibility shim carry `// retire-with: {shim-name}` immediately above the test, or in the file header when the whole spec is shim-bound. Shim-removal sweeps use `grep -r "retire-with"` to locate the full cross-language set.
 
+The aggregate `just test` recipe delegates to `scripts/test-all.sh`, which runs the three phases by invoking their own recipes (`just test-backend` → `just test-frontend` → `just test-e2e`, preserving per-recipe deps like `_ensure-tmux-conf`), frames each with timestamped append-only banners (`[N/3] <phase> — started HH:MM:SS` / `— ok in XmYYs` / `— FAILED in XmYYs (exit E)`) plus a final per-phase summary (ok / failed / not-run), fails fast with the failing phase's exit code, and tees the whole run to `/tmp/rk-test-<timestamp>.log` (path echoed as the first line, for `tail -f` / capture-pane peeks mid-run). Orchestrator output is append-only by design — no spinners, `\r` rewriting, or cursor control (rewrites garble captured logs and capture-pane peeks). The three sub-recipes and CI (which calls them directly, never `test`) are unaffected (260904-6o28-test-progress-banners).
+
 ### Go Unit Tests
 
 Go `testing` package with table-driven tests. Test files co-located with source using `_test.go` suffix. Test scripts: `go test ./...` from `app/backend/`.

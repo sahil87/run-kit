@@ -1,5 +1,7 @@
 # Archived Changes
 
+- **260904-f6h4-test-socket-file-hygiene** — Test-Socket File Hygiene
+- **260904-bf1l-agent-session-identity-rename** — Agent-Session Identity Rename
 - **260904-u8gg-chat-lens-docs-taxonomy-sweep** — Chat Lens Docs Lens-Taxonomy Sweep (Change B)
 - **260904-0mrk-chat-lens-residual-code-trim** — Chat Lens Residual Code Trim (Sweep Change A1)
 - **260903-xj0w-hidden-page-stream-release** — Hidden-Page Terminal Stream Release

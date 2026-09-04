@@ -225,8 +225,8 @@ func layoutWindowToSnapshot(w tmux.LayoutWindow, panes []tmux.LayoutPane) Window
 // whole server. A window that is already gone and any tmux read failure both
 // surface as errors; the caller (the kill handler) treats every failure alike
 // (record nothing, kill anyway), so the two are deliberately not
-// distinguished. The reads carry no @rk_pane_chat — agent identity is the
-// caller's separate FetchSessions walk.
+// distinguished. The reads carry no @rk_pane_agent_session — agent identity is
+// the caller's separate FetchSessions walk.
 func CaptureWindow(ctx context.Context, server, windowID string) (Window, string, error) {
 	lw, found, err := listLayoutWindow(ctx, server, windowID)
 	if err != nil {

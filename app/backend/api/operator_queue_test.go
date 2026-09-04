@@ -56,7 +56,7 @@ func operatorQueueSnapshot(state string) []sessions.ProjectSession {
 		}},
 		{Name: "operator", Windows: []tmux.WindowInfo{
 			{WindowID: "@9", Name: "operator", Role: "operator", AgentState: state,
-				Panes: []tmux.PaneInfo{{PaneID: "%9", IsActive: true, ChatProvider: "claude", ChatSessionRef: testTranscriptRef}}},
+				Panes: []tmux.PaneInfo{{PaneID: "%9", IsActive: true, AgentProvider: "claude", AgentSessionRef: testTranscriptRef}}},
 		}},
 	}
 }
@@ -366,11 +366,11 @@ func TestOperatorQueueDeliveryRevalidatesGates(t *testing.T) {
 		}
 	})
 
-	t.Run("chat ref broke", func(t *testing.T) {
+	t.Run("agent session ref broke", func(t *testing.T) {
 		snapshot := operatorSessions(tmux.AgentStateIdle)
-		snapshot[0].Windows[0].ChatSessionRef = ""
+		snapshot[0].Windows[0].AgentSessionRef = ""
 		if err := deliver(snapshot, queuedOperatorRequest{template: "fix-tab-name", windowID: "@1"}); err == nil {
-			t.Fatal("chatless subject was delivered")
+			t.Fatal("sessionless subject was delivered")
 		}
 	})
 
@@ -388,11 +388,11 @@ func TestOperatorQueueDeliveryRevalidatesGates(t *testing.T) {
 		}
 	})
 
-	t.Run("operator chat pane disappeared", func(t *testing.T) {
+	t.Run("operator agent pane disappeared", func(t *testing.T) {
 		snapshot := operatorSessions(tmux.AgentStateIdle)
 		snapshot[1].Windows[0].Panes = nil
 		if err := deliver(snapshot, queuedOperatorRequest{template: "brief-me"}); err == nil {
-			t.Fatal("chatless operator received a delivery")
+			t.Fatal("sessionless operator received a delivery")
 		}
 	})
 }

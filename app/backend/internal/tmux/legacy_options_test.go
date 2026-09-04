@@ -443,16 +443,16 @@ func paneIDOf(t *testing.T, server, target string) string {
 }
 
 // TestMigrateLegacyOptions_paneCopyOnlyKeepsOld covers the CopyOnly pane
-// rows: the sweep copies @rk_agent_state/@rk_chat forward to their scope-named
-// successors but NEVER unsets the retired name at pane scope (the dual state
-// is sanctioned — rk agent hook dual-writes both and fab-kit still reads the
+// rows: the sweep copies @rk_agent_state forward to its scope-named successor
+// but NEVER unsets the retired name at pane scope (the dual state is
+// sanctioned — rk agent hook dual-writes both and fab-kit still reads the
 // retired name). A second sweep is a no-op, and CountLegacyOptions excludes
 // the sanctioned right-scope holds.
 func TestMigrateLegacyOptions_paneCopyOnlyKeepsOld(t *testing.T) {
 	server := withSessionOrderTmux(t)
 	pane := paneIDOf(t, server, "boot:0")
 	legacyTmuxDo(t, server, "set-option", "-p", "-t", pane, LegacyAgentStateOption, "idle:1")
-	legacyTmuxDo(t, server, "set-option", "-p", "-t", pane, LegacyChatOption, "claude:abc123")
+	legacyTmuxDo(t, server, "set-option", "-p", "-t", pane, "@rk_chat", "claude:abc123")
 
 	if err := MigrateLegacyOptions(context.Background(), server); err != nil {
 		t.Fatalf("MigrateLegacyOptions: %v", err)
@@ -461,14 +461,14 @@ func TestMigrateLegacyOptions_paneCopyOnlyKeepsOld(t *testing.T) {
 	if v, ok := legacyHeld(t, server, "-p", "-t", pane, AgentStateOption); !ok || v != "idle:1" {
 		t.Errorf("%s = %q (held=%v), want \"idle:1\" (copied forward)", AgentStateOption, v, ok)
 	}
-	if v, ok := legacyHeld(t, server, "-p", "-t", pane, ChatOption); !ok || v != "claude:abc123" {
-		t.Errorf("%s = %q (held=%v), want \"claude:abc123\" (copied forward)", ChatOption, v, ok)
+	if v, ok := legacyHeld(t, server, "-p", "-t", pane, LegacyAgentSessionOption); !ok || v != "claude:abc123" {
+		t.Errorf("%s = %q (held=%v), want \"claude:abc123\" (copied forward)", LegacyAgentSessionOption, v, ok)
 	}
 	if v, ok := legacyHeld(t, server, "-p", "-t", pane, LegacyAgentStateOption); !ok || v != "idle:1" {
 		t.Errorf("%s = %q (held=%v), want \"idle:1\" — CopyOnly must never unset the retired name", LegacyAgentStateOption, v, ok)
 	}
-	if v, ok := legacyHeld(t, server, "-p", "-t", pane, LegacyChatOption); !ok || v != "claude:abc123" {
-		t.Errorf("%s = %q (held=%v), want \"claude:abc123\" — CopyOnly must never unset the retired name", LegacyChatOption, v, ok)
+	if v, ok := legacyHeld(t, server, "-p", "-t", pane, "@rk_chat"); !ok || v != "claude:abc123" {
+		t.Errorf("@rk_chat = %q (held=%v), want \"claude:abc123\" — CopyOnly must never unset the retired name", v, ok)
 	}
 
 	// The sanctioned dual state is not counted, and a second sweep issues
@@ -482,6 +482,41 @@ func TestMigrateLegacyOptions_paneCopyOnlyKeepsOld(t *testing.T) {
 	}
 	if changed {
 		t.Error("second sweep reported changed=true, want false (idempotent dual state)")
+	}
+}
+
+// TestMigrateLegacyOptions_agentSessionChainConvergesInOneSweep pins the
+// table-order chaining of the agent-session key's two retired generations: a
+// pane holding ONLY "@rk_chat" gains @rk_pane_chat and then
+// @rk_pane_agent_session in ONE sweep pass — all three names end held with the
+// same value (both rows are CopyOnly, so nothing is unset) — and a second
+// sweep issues zero set-option calls.
+func TestMigrateLegacyOptions_agentSessionChainConvergesInOneSweep(t *testing.T) {
+	server := withSessionOrderTmux(t)
+	pane := paneIDOf(t, server, "boot:0")
+	legacyTmuxDo(t, server, "set-option", "-p", "-t", pane, "@rk_chat", "claude:6f0d9e2a-1c3b-4f7e-9a2d-8b5c4e1f0a37")
+
+	changed, err := sweepLegacyOptions(context.Background(), server)
+	if err != nil {
+		t.Fatalf("first sweep: %v", err)
+	}
+	if !changed {
+		t.Error("first sweep reported changed=false, want true")
+	}
+
+	const want = "claude:6f0d9e2a-1c3b-4f7e-9a2d-8b5c4e1f0a37"
+	for _, opt := range []string{"@rk_chat", LegacyAgentSessionOption, AgentSessionOption} {
+		if v, ok := legacyHeld(t, server, "-p", "-t", pane, opt); !ok || v != want {
+			t.Errorf("%s = %q (held=%v), want %q — all three generations held after ONE sweep", opt, v, ok, want)
+		}
+	}
+
+	changed, err = sweepLegacyOptions(context.Background(), server)
+	if err != nil {
+		t.Fatalf("second sweep: %v", err)
+	}
+	if changed {
+		t.Error("second sweep reported changed=true, want false (zero set-option calls)")
 	}
 }
 

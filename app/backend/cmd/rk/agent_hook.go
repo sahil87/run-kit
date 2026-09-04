@@ -54,7 +54,7 @@ const agentHookCmdTimeout = 5 * time.Second
 const agentHookAncestorHops = 5
 
 // agentHookStampToken is the distinguished positional token of the SessionStart
-// registry row. It stamps @rk_chat (the pane→session mapping) on every fire
+// registry row. It stamps @rk_pane_agent_session (the pane→session mapping) on every fire
 // that yields a session id, and — when the stdin payload parses and its source
 // is NOT "compact" — additionally writes @rk_agent_state idle:<epoch>[:<pid>]:
 // SessionStart fires on startup/resume/clear/compact, and source=compact fires
@@ -63,7 +63,7 @@ const agentHookAncestorHops = 5
 // signal (state present ⇒ hooks fired ⇒ the TUI is up) and also clears a stale
 // waiting/active left in the pane by a previous agent. An unparseable payload
 // skips both writes: the idle write (fail-safe against the mid-turn clobber)
-// and the chat stamp (no session id can be decoded). The three canonical agent
+// and the agent-session stamp (no session id can be decoded). The three canonical agent
 // states plus this token are the only tokens that write anything; any other is
 // a silent no-op.
 const agentHookStampToken = "stamp"
@@ -77,10 +77,10 @@ const hookSourceCompact = "compact"
 // blocking the agent's turn while we read.
 const hookStdinReadLimit = 1 << 20
 
-// chatOption is the @rk_pane_chat pane-option name, aliased from internal/tmux so the
-// cross-repo convention has ONE source of truth per binary (A-021) — the writer
-// and the reader (internal/tmux) never drift.
-const chatOption = tmux.ChatOption
+// agentSessionOption is the @rk_pane_agent_session pane-option name, aliased from
+// internal/tmux so the cross-repo convention has ONE source of truth per binary
+// (A-021) — the writer and the reader (internal/tmux) never drift.
+const agentSessionOption = tmux.AgentSessionOption
 
 // newAgentHookCmd builds one instance of the hook command. A cobra command
 // object cannot have two parents, so the family member (`rk agent hook`) and the
@@ -155,16 +155,16 @@ var (
 
 // runAgentHook is the testable core: guard on $TMUX_PANE, validate the agent and
 // token, and — depending on the token — write @rk_agent_state (with a
-// comm-validated ancestor-walk pid) and/or stamp @rk_chat from the hook stdin
-// session id. Every failure is silent — it returns without error on every path
-// so the caller always exits 0.
+// comm-validated ancestor-walk pid) and/or stamp @rk_pane_agent_session from the
+// hook stdin session id. Every failure is silent — it returns without error on
+// every path so the caller always exits 0.
 //
 // Token dispatch:
-//   - active|waiting|idle → write @rk_agent_state, AND stamp @rk_chat if the
-//     hook stdin carries a session id (every-fire refresh: session ids rotate on
-//     /clear + /compact, and this also stamps already-running agents on
-//     `brew upgrade rk` with zero settings churn).
-//   - stamp → stamp @rk_chat (session id permitting), AND write
+//   - active|waiting|idle → write @rk_agent_state, AND stamp
+//     @rk_pane_agent_session if the hook stdin carries a session id (every-fire
+//     refresh: session ids rotate on /clear + /compact, and this also stamps
+//     already-running agents on `brew upgrade rk` with zero settings churn).
+//   - stamp → stamp @rk_pane_agent_session (session id permitting), AND write
 //     @rk_agent_state idle when the parsed payload's source is not "compact"
 //     (the mid-turn source — see agentHookStampToken). Used by the SessionStart
 //     registry row; the idle write is the boot-ready signal and clears stale
@@ -183,8 +183,8 @@ func runAgentHook(parent context.Context, agent, token string) {
 	}
 
 	// Validate the token: the three canonical agent states (aliased from
-	// internal/tmux, A-021) write agent-state; the stamp token writes chat only.
-	// Any other token writes nothing.
+	// internal/tmux, A-021) write agent-state; the stamp token writes the
+	// agent-session identity only. Any other token writes nothing.
 	writeState := isAgentState(token)
 	if !writeState && token != agentHookStampToken {
 		return
@@ -202,10 +202,10 @@ func runAgentHook(parent context.Context, agent, token string) {
 	ctx, cancel := context.WithTimeout(parent, agentHookCmdTimeout)
 	defer cancel()
 
-	// Read the hook stdin ONCE: the payload feeds the chat stamp (session id)
-	// and the stamp token's boot-write gate (source). Every failure mode is
-	// silent — ok=false skips the boot write and the chat stamp, while a state
-	// fire's agent-state write below still proceeds.
+	// Read the hook stdin ONCE: the payload feeds the agent-session stamp (session
+	// id) and the stamp token's boot-write gate (source). Every failure mode is
+	// silent — ok=false skips the boot write and the agent-session stamp, while a
+	// state fire's agent-state write below still proceeds.
 	in, ok := readHookInput(hookStdin())
 
 	// The stamp token's boot write fires on every SessionStart source EXCEPT
@@ -225,11 +225,11 @@ func runAgentHook(parent context.Context, agent, token string) {
 		writeAgentState(ctx, pane, state, pid)
 	}
 
-	// Stamp @rk_chat from the hook stdin session id, on EVERY fire that yields
-	// one (states and the stamp token alike). Absent/malformed/oversized stdin →
-	// no stamp; the agent-state write above still proceeded.
+	// Stamp @rk_pane_agent_session from the hook stdin session id, on EVERY fire
+	// that yields one (states and the stamp token alike). Absent/malformed/
+	// oversized stdin → no stamp; the agent-state write above still proceeded.
 	if ok && isValidSessionID(in.SessionID) {
-		writeChat(ctx, pane, comm, in.SessionID)
+		writeAgentSession(ctx, pane, comm, in.SessionID)
 	}
 }
 
@@ -283,10 +283,10 @@ func readHookInput(r io.Reader) (hookInput, bool) {
 	return in, true
 }
 
-// isValidSessionID mirrors internal/tmux's chat-ref validation (non-empty, no
-// whitespace or control chars) so the writer never stamps a value the reader
-// would reject. Kept in this binary (the reader's isChatRef is unexported); the
-// rule is small and stable.
+// isValidSessionID mirrors internal/tmux's agent-session-ref validation
+// (non-empty, no whitespace or control chars) so the writer never stamps a value
+// the reader would reject. Kept in this binary (the reader's isAgentSessionRef
+// is unexported); the rule is small and stable.
 func isValidSessionID(s string) bool {
 	if s == "" {
 		return false
@@ -437,7 +437,7 @@ var agentHookTmuxRun = func(ctx context.Context, args []string) error {
 }
 
 // dualWritePaneOption runs ONE tmux invocation that writes value to both the
-// scope-named pane option and its retired unscoped sibling:
+// current pane option name and its retired previous-generation sibling:
 //
 //	tmux [-S <socket>] set-option -pt <pane> <new> <value> ; set-option -pt <pane> <old> <value>
 //
@@ -479,24 +479,24 @@ func writeAgentStateImpl(ctx context.Context, pane, state string, pid int) {
 	dualWritePaneOption(ctx, pane, tmux.AgentStateOption, tmux.LegacyAgentStateOption, value)
 }
 
-// writeChatFn is a package-level seam so runAgentHook can be tested without
-// spawning tmux; the default writes via exec.CommandContext.
-var writeChatFn = writeChatImpl
+// writeAgentSessionFn is a package-level seam so runAgentHook can be tested
+// without spawning tmux; the default writes via exec.CommandContext.
+var writeAgentSessionFn = writeAgentSessionImpl
 
-// writeChat writes the @rk_pane_chat pane option with value "<provider>:<sessionID>".
-// Indirects through the test seam.
-func writeChat(ctx context.Context, pane, provider, sessionID string) {
-	writeChatFn(ctx, pane, provider, sessionID)
+// writeAgentSession writes the @rk_pane_agent_session pane option with value
+// "<provider>:<sessionID>". Indirects through the test seam.
+func writeAgentSession(ctx context.Context, pane, provider, sessionID string) {
+	writeAgentSessionFn(ctx, pane, provider, sessionID)
 }
 
-// writeChatImpl writes the chat pane option under both names (dual-write —
-// see dualWritePaneOption). Nothing user-provided is interpolated into a
-// shell: provider is a fixed registry comm literal, sessionID is a
+// writeAgentSessionImpl writes the agent-session pane option under both names
+// (dual-write — see dualWritePaneOption). Nothing user-provided is interpolated
+// into a shell: provider is a fixed registry comm literal, sessionID is a
 // pre-validated argv element (isValidSessionID rejects whitespace/control),
 // and pane/socket are discrete argv elements.
-func writeChatImpl(ctx context.Context, pane, provider, sessionID string) {
+func writeAgentSessionImpl(ctx context.Context, pane, provider, sessionID string) {
 	value := fmt.Sprintf("%s:%s", provider, sessionID)
-	dualWritePaneOption(ctx, pane, chatOption, tmux.LegacyChatOption, value)
+	dualWritePaneOption(ctx, pane, agentSessionOption, tmux.LegacyAgentSessionOption, value)
 }
 
 // formatAgentStateValue formats the cross-repo @rk_agent_state value

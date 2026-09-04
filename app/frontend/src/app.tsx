@@ -731,7 +731,7 @@ function AppShell() {
 
   // Operator presence on this server — availability input (a) of the Fix tab
   // name palette entry / flyout row (the rest of the rule is subject-local:
-  // chat ref + not-the-operator's-own-window).
+  // agent session ref + not-the-operator's-own-window).
   const hasOperatorWindow = useMemo(
     () => sessions.some((s) => s.windows.some((w) => w.role === "operator")),
     [sessions],
@@ -2303,7 +2303,7 @@ function AppShell() {
       const res = await reopenClosedWindow(server, top.id);
       popRecentlyClosed(server, top.id);
       if (res.windowId) navigateToSpawnedWindow(server, res.windowId);
-      const hasAgent = top.chatProvider !== undefined && top.chatRef !== undefined;
+      const hasAgent = top.agentProvider !== undefined && top.agentRef !== undefined;
       addToast(
         `Reopened "${top.window.name}" (fresh shell)`,
         "info",
@@ -2817,10 +2817,10 @@ function AppShell() {
             // Fix tab name (260822-fih1) — the palette arm of the operator
             // actuation seam, gated by the same derived availability rule as
             // the flyout row (omit-not-disable): an operator on the server,
-            // the subject carrying a chat session ref, and the subject not
+            // the subject carrying an agent session ref, and the subject not
             // being the operator itself.
             ...(hasOperatorWindow &&
-            currentWindow.chatSessionRef &&
+            currentWindow.agentSessionRef &&
             currentWindow.role !== "operator"
               ? [
                   {

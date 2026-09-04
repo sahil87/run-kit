@@ -7,8 +7,8 @@ import (
 	"regexp"
 )
 
-// providerClaude is the routing key for the Claude adapter (the `@rk_chat`
-// provider prefix). Declared once here.
+// providerClaude is the routing key for the Claude adapter (the
+// `@rk_pane_agent_session` provider prefix). Declared once here.
 const providerClaude = "claude"
 
 // uuidRe matches the strict Claude session-UUID shape. The ref MUST match this
@@ -25,8 +25,8 @@ var ErrTranscriptNotFound = errors.New("transcript: not found for ref")
 // ErrInvalidRef is returned when a ref fails the strict-UUID guard, before any
 // filesystem access. It is exported so the API layer can map a malformed ref
 // (which, for a window-keyed route, means the client only supplied a windowID
-// whose reconciled @rk_chat is malformed — not a server fault) to a 404-class
-// response rather than a 500.
+// whose reconciled @rk_pane_agent_session is malformed — not a server fault) to
+// a 404-class response rather than a 500.
 var ErrInvalidRef = errors.New("transcript: invalid session ref (not a uuid)")
 
 // claudeAdapter locates a Claude Code session transcript

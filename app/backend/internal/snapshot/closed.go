@@ -37,11 +37,31 @@ type ClosedWindow struct {
 	Session string `json:"session"`
 	// Window is the full @rk_win_* + panes capture.
 	Window Window `json:"window"`
-	// ChatProvider / ChatRef are the agent identity from
-	// sessions.ResolveChatPane's active-pane-first rollup ("" when the window
+	// AgentProvider / AgentRef are the agent session identity from
+	// sessions.ResolveAgentPane's active-pane-first rollup ("" when the window
 	// carried no agent pane).
-	ChatProvider string `json:"chatProvider,omitempty"`
-	ChatRef      string `json:"chatRef,omitempty"`
+	AgentProvider string `json:"agentProvider,omitempty"`
+	AgentRef      string `json:"agentRef,omitempty"`
+	// LegacyChatProvider / LegacyChatRef read the previous-generation record
+	// keys (chatProvider/chatRef) written before the agentProvider/agentRef
+	// key generation; LoadClosed coalesces them into AgentProvider/AgentRef
+	// (new keys win) and clears them, so they are never re-written.
+	LegacyChatProvider string `json:"chatProvider,omitempty"`
+	LegacyChatRef      string `json:"chatRef,omitempty"`
+}
+
+// coalesceLegacy folds a pre-rename record's chatProvider/chatRef keys into the
+// AgentProvider/AgentRef fields (a present new key wins over the legacy one)
+// and clears the legacy fields so a later marshal writes only the new keys.
+func (rec *ClosedWindow) coalesceLegacy() {
+	if rec.AgentProvider == "" {
+		rec.AgentProvider = rec.LegacyChatProvider
+	}
+	if rec.AgentRef == "" {
+		rec.AgentRef = rec.LegacyChatRef
+	}
+	rec.LegacyChatProvider = ""
+	rec.LegacyChatRef = ""
 }
 
 // closedDir is the ring's directory under the store root.
@@ -197,6 +217,7 @@ func (s *Store) LoadClosed(server, id string) (*ClosedWindow, error) {
 	if err := json.Unmarshal(data, &rec); err != nil {
 		return nil, fmt.Errorf("decode closed record %s/%s: %w", server, id, err)
 	}
+	rec.coalesceLegacy()
 	return &rec, nil
 }
 

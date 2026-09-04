@@ -29,15 +29,15 @@ func activePaneWindow(windowID string) []sessions.ProjectSession {
 	}
 }
 
-// splitAgentWindow is a split whose AGENT pane (%2, the @rk_pane_chat carrier)
-// is NOT the active pane (%1) — the case where active-pane targeting would
-// deliver to the wrong pane.
+// splitAgentWindow is a split whose AGENT pane (%2, the @rk_pane_agent_session
+// carrier) is NOT the active pane (%1) — the case where active-pane targeting
+// would deliver to the wrong pane.
 func splitAgentWindow(windowID string) []sessions.ProjectSession {
 	return []sessions.ProjectSession{
 		{Name: "s", Windows: []tmux.WindowInfo{
 			{WindowID: windowID, Panes: []tmux.PaneInfo{
 				{PaneID: "%1", IsActive: true},
-				{PaneID: "%2", IsActive: false, ChatProvider: "claude", ChatSessionRef: testTranscriptRef},
+				{PaneID: "%2", IsActive: false, AgentProvider: "claude", AgentSessionRef: testTranscriptRef},
 			}},
 		}},
 	}
@@ -159,8 +159,8 @@ func TestWindowSendAgentTargetResolvesAgentPane(t *testing.T) {
 }
 
 func TestWindowSendAgentTargetNoAgent404(t *testing.T) {
-	// Fail-closed: no pane carries chat → 404, and NOTHING is pasted — an
-	// agent-targeted send to a shell window never executes there.
+	// Fail-closed: no pane carries an agent session → 404, and NOTHING is
+	// pasted — an agent-targeted send to a shell window never executes there.
 	ops := &mockTmuxOps{}
 	router := NewTestRouter(slog.Default(), &mockSessionFetcher{result: activePaneWindow("@1")}, ops, "host")
 	rec := httptest.NewRecorder()
@@ -175,7 +175,7 @@ func TestWindowSendAgentTargetNoAgent404(t *testing.T) {
 
 func TestWindowSendDefaultTargetsActivePane(t *testing.T) {
 	// No target field: byte-identical to before — the ACTIVE pane (%1 here),
-	// even when another pane carries chat.
+	// even when another pane carries an agent session.
 	ops := &mockTmuxOps{}
 	router := NewTestRouter(slog.Default(), &mockSessionFetcher{result: splitAgentWindow("@1")}, ops, "host")
 	rec := httptest.NewRecorder()

@@ -369,41 +369,41 @@ func TestDeriveGitRoot(t *testing.T) {
 	})
 }
 
-func TestRollupChat(t *testing.T) {
+func TestRollupAgentSession(t *testing.T) {
 	t.Run("active pane wins", func(t *testing.T) {
 		panes := []tmux.PaneInfo{
-			{ChatProvider: "claude", ChatSessionRef: "inactive-ref"},
-			{IsActive: true, ChatProvider: "claude", ChatSessionRef: "active-ref"},
+			{AgentProvider: "claude", AgentSessionRef: "inactive-ref"},
+			{IsActive: true, AgentProvider: "claude", AgentSessionRef: "active-ref"},
 		}
-		provider, ref := rollupChat(panes)
+		provider, ref := rollupAgentSession(panes)
 		if provider != "claude" || ref != "active-ref" {
 			t.Errorf("got (%q, %q), want (claude, active-ref)", provider, ref)
 		}
 	})
 
-	t.Run("falls back to first pane carrying a chat when active pane has none", func(t *testing.T) {
+	t.Run("falls back to first pane carrying an agent session when active pane has none", func(t *testing.T) {
 		panes := []tmux.PaneInfo{
-			{IsActive: true}, // active pane has no chat
-			{ChatProvider: "claude", ChatSessionRef: "first-set"},
-			{ChatProvider: "codex", ChatSessionRef: "later"},
+			{IsActive: true}, // active pane has no agent session
+			{AgentProvider: "claude", AgentSessionRef: "first-set"},
+			{AgentProvider: "codex", AgentSessionRef: "later"},
 		}
-		provider, ref := rollupChat(panes)
+		provider, ref := rollupAgentSession(panes)
 		if provider != "claude" || ref != "first-set" {
 			t.Errorf("got (%q, %q), want (claude, first-set)", provider, ref)
 		}
 	})
 
-	t.Run("no chat on any pane yields empty", func(t *testing.T) {
+	t.Run("no agent session on any pane yields empty", func(t *testing.T) {
 		panes := []tmux.PaneInfo{{IsActive: true}, {Command: "zsh"}}
-		provider, ref := rollupChat(panes)
+		provider, ref := rollupAgentSession(panes)
 		if provider != "" || ref != "" {
 			t.Errorf("got (%q, %q), want empty", provider, ref)
 		}
 	})
 
 	t.Run("single agent pane (the common case)", func(t *testing.T) {
-		panes := []tmux.PaneInfo{{IsActive: true, ChatProvider: "claude", ChatSessionRef: "solo"}}
-		provider, ref := rollupChat(panes)
+		panes := []tmux.PaneInfo{{IsActive: true, AgentProvider: "claude", AgentSessionRef: "solo"}}
+		provider, ref := rollupAgentSession(panes)
 		if provider != "claude" || ref != "solo" {
 			t.Errorf("got (%q, %q), want (claude, solo)", provider, ref)
 		}
@@ -438,37 +438,37 @@ func TestRollupAltScreen(t *testing.T) {
 	})
 }
 
-// TestResolveChatPane covers the paneID surfaced alongside provider/ref — the
+// TestResolveAgentPane covers the paneID surfaced alongside provider/ref — the
 // agent-send injection target (a window target may route to the wrong pane in a
-// split). The active-pane-first / else-first-chat-pane rule is shared with
-// rollupChat via delegation.
-func TestResolveChatPane(t *testing.T) {
-	t.Run("active chat pane wins and its paneID is returned", func(t *testing.T) {
+// split). The active-pane-first / else-first-agent-pane rule is shared with
+// rollupAgentSession via delegation.
+func TestResolveAgentPane(t *testing.T) {
+	t.Run("active agent pane wins and its paneID is returned", func(t *testing.T) {
 		panes := []tmux.PaneInfo{
-			{PaneID: "%1", ChatProvider: "claude", ChatSessionRef: "inactive-ref"},
-			{PaneID: "%2", IsActive: true, ChatProvider: "claude", ChatSessionRef: "active-ref"},
+			{PaneID: "%1", AgentProvider: "claude", AgentSessionRef: "inactive-ref"},
+			{PaneID: "%2", IsActive: true, AgentProvider: "claude", AgentSessionRef: "active-ref"},
 		}
-		provider, ref, paneID := ResolveChatPane(panes)
+		provider, ref, paneID := ResolveAgentPane(panes)
 		if provider != "claude" || ref != "active-ref" || paneID != "%2" {
 			t.Errorf("got (%q, %q, %q), want (claude, active-ref, %%2)", provider, ref, paneID)
 		}
 	})
 
-	t.Run("active pane has no chat — first chat pane's id is returned", func(t *testing.T) {
+	t.Run("active pane has no agent session — first agent pane's id is returned", func(t *testing.T) {
 		panes := []tmux.PaneInfo{
-			{PaneID: "%0", IsActive: true}, // active pane has no chat
-			{PaneID: "%1", ChatProvider: "claude", ChatSessionRef: "first-set"},
-			{PaneID: "%2", ChatProvider: "codex", ChatSessionRef: "later"},
+			{PaneID: "%0", IsActive: true}, // active pane has no agent session
+			{PaneID: "%1", AgentProvider: "claude", AgentSessionRef: "first-set"},
+			{PaneID: "%2", AgentProvider: "codex", AgentSessionRef: "later"},
 		}
-		provider, ref, paneID := ResolveChatPane(panes)
+		provider, ref, paneID := ResolveAgentPane(panes)
 		if provider != "claude" || ref != "first-set" || paneID != "%1" {
 			t.Errorf("got (%q, %q, %q), want (claude, first-set, %%1)", provider, ref, paneID)
 		}
 	})
 
-	t.Run("no chat on any pane yields empty paneID", func(t *testing.T) {
+	t.Run("no agent session on any pane yields empty paneID", func(t *testing.T) {
 		panes := []tmux.PaneInfo{{PaneID: "%0", IsActive: true}, {PaneID: "%1", Command: "zsh"}}
-		provider, ref, paneID := ResolveChatPane(panes)
+		provider, ref, paneID := ResolveAgentPane(panes)
 		if provider != "" || ref != "" || paneID != "" {
 			t.Errorf("got (%q, %q, %q), want all empty", provider, ref, paneID)
 		}

@@ -254,7 +254,7 @@ func TestWaitingPushBroadcastsNotifyEvent(t *testing.T) {
 			WindowID:     "@5",
 			Name:         "agent-win",
 			AgentState:   tmux.AgentStateWaiting,
-			ChatProvider: "codex",
+			AgentProvider: "codex",
 		}},
 	}}
 	hub.waitingPush.notifyWaiting("utils2", snapshot)

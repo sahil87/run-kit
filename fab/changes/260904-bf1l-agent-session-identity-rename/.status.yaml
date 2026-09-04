@@ -5,17 +5,17 @@ created_by: sahil87
 change_type: refactor
 issues: []
 progress:
-    intake: ready
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
     review-pr: pending
 plan:
-    generated: false
-    task_count: 0
-    acceptance_count: 0
-    acceptance_completed: 0
+    generated: true
+    task_count: 13
+    acceptance_count: 17
+    acceptance_completed: 17
 confidence:
     certain: 2
     confident: 5
@@ -29,8 +29,27 @@ confidence:
         competence: 81.4
         disambiguation: 72.1
 stage_metrics:
-    intake: {started_at: "2026-09-04T09:49:23Z", driver: fab-new, iterations: 1}
+    intake: {started_at: "2026-09-04T09:49:23Z", driver: fab-new, iterations: 1, completed_at: "2026-09-04T09:55:46Z"}
+    apply: {started_at: "2026-09-04T09:55:46Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:15:53Z"}
+    review: {started_at: "2026-09-04T10:15:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:20:38Z"}
+    hydrate: {started_at: "2026-09-04T10:20:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:28:56Z"}
+    ship: {started_at: "2026-09-04T10:28:56Z", driver: fab-fff, iterations: 1}
 prs: []
 change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-04T10:28:56Z"
+    computed_at_stage: hydrate
+summary: Renamed the pane agent-session identity key @rk_pane_chat → @rk_pane_agent_session (Go/TS identifiers, wire fields agentProvider/agentSessionRef, error strings) and closed out the @rk_chat generation for this key — memory updated to the new vocabulary, chained migration rows, and the closed-ring read-coalesce rule
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-04T09:51:14Z
+last_updated: 2026-09-04T10:28:56Z

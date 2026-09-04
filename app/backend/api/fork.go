@@ -33,7 +33,8 @@ import (
 // riffSpawnTimeout.
 
 // forkSessionUUIDRe matches the strict Claude session-UUID shape — the SAME rule
-// as internal/transcript's uuidRe. The resolved @rk_chat ref MUST pass it BEFORE it
+// as internal/transcript's uuidRe. The resolved @rk_pane_agent_session ref MUST
+// pass it BEFORE it
 // reaches the engine, because downstream it becomes part of the launcher string,
 // the one deliberately-unescaped element of the spawn shell string (Constitution
 // I). internal/riff re-checks the shape at that composition seam; this is the
@@ -42,8 +43,8 @@ var forkSessionUUIDRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}
 
 // forkProviderClaude is the only provider a fork supports in v1 — the
 // `--resume <id> --fork-session` mechanism is Claude Code's. A well-formed
-// non-claude provider is a 404-class result (the window has a chat, just not a
-// forkable one), mirroring the chat endpoints' no-adapter mapping.
+// non-claude provider is a 404-class result (the window has an agent session,
+// just not a forkable one), mirroring internal/transcript's ErrNoAdapter mapping.
 const forkProviderClaude = "claude"
 
 // forkResolveTimeout bounds the FetchSessions read that resolves the fork source.
@@ -60,8 +61,8 @@ type forkSource struct {
 	Session string
 	// WindowName is the source window's name, the base for `<name>-fork`.
 	WindowName string
-	// Provider / Ref are the window's reconciled @rk_chat halves
-	// (sessions.ResolveChatPane's active-pane-first rollup).
+	// Provider / Ref are the window's reconciled @rk_pane_agent_session halves
+	// (sessions.ResolveAgentPane's active-pane-first rollup).
 	Provider string
 	Ref      string
 	// Cwd is the window's derived working directory (windowCwd) — the directory
@@ -72,8 +73,8 @@ type forkSource struct {
 }
 
 // resolveForkSource resolves a window's fork inputs from a single FetchSessions
-// walk: the owning session name, the window name, the reconciled chat identity,
-// and the window's cwd.
+// walk: the owning session name, the window name, the reconciled agent-session
+// identity, and the window's cwd.
 //
 // A non-nil error means FetchSessions itself failed (an infrastructure fault the
 // caller maps to 500, mirroring handleSessionsList). ok=false
@@ -81,7 +82,8 @@ type forkSource struct {
 // genuine 404). The two are distinct so a transient tmux fault is never
 // misreported as "no such window".
 //
-// This deliberately does NOT compose a chat-rollup resolver + deriveRepoRoot:
+// This deliberately does NOT compose an agent-session-rollup resolver +
+// deriveRepoRoot:
 // the fork is window-keyed and needs the ENCLOSING SESSION NAME plus the cwd of
 // the REQUESTED window (deriveRepoRoot, being session-keyed, would take it from
 // the session's ACTIVE window instead — the wrong pane when forking a
@@ -97,7 +99,7 @@ func (s *Server) resolveForkSource(ctx context.Context, server, windowID string)
 			if w.WindowID != windowID {
 				continue
 			}
-			provider, ref, _ := sessions.ResolveChatPane(w.Panes)
+			provider, ref, _ := sessions.ResolveAgentPane(w.Panes)
 			return forkSource{
 				Session:    sess[si].Name,
 				WindowName: w.Name,
@@ -119,9 +121,10 @@ func (s *Server) resolveForkSource(ctx context.Context, server, windowID string)
 //	400: malformed windowId; the window's cwd is not inside a git repo; the
 //	     repo's default fab tier resolves a non-claude launcher (an engine
 //	     ExitValidation — the fork flags are Claude-only)
-//	404: no such window; no reconciled chat; a non-claude provider; a
-//	     non-UUID reconciled ref (all properties of the pane's @rk_chat, not
-//	     server faults — the chat endpoints' ErrInvalidRef posture)
+//	404: no such window; no reconciled agent session; a non-claude provider; a
+//	     non-UUID reconciled ref (all properties of the pane's
+//	     @rk_pane_agent_session, not server faults — internal/transcript's
+//	     ErrInvalidRef posture)
 //	500: FetchSessions fault; unwired engine; engine subprocess failure
 //
 // Mutation ⇒ POST (Constitution IX). Nothing is created on any 4xx path — every
@@ -149,20 +152,22 @@ func (s *Server) handleWindowFork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if src.Provider == "" {
-		writeError(w, http.StatusNotFound, "no chat session for this window — nothing to fork")
+		writeError(w, http.StatusNotFound, "no agent session for this window — nothing to fork")
 		return
 	}
 	if src.Provider != forkProviderClaude {
-		// A well-formed but non-forkable provider: the window HAS a chat, so this
-		// is deliberately a distinct message from the no-chat 404 above.
+		// A well-formed but non-forkable provider: the window HAS an agent
+		// session, so this is deliberately a distinct message from the
+		// no-agent-session 404 above.
 		writeError(w, http.StatusNotFound, fmt.Sprintf("cannot fork a %q session — conversation fork requires provider %q", src.Provider, forkProviderClaude))
 		return
 	}
 	// Strict UUID gate BEFORE the ref can reach any argv/shell composition
 	// (Constitution I). A malformed ref is a property of the pane's reconciled
-	// @rk_chat, not a server fault — 404-class, matching chat's ErrInvalidRef.
+	// @rk_pane_agent_session, not a server fault — 404-class, matching
+	// transcript's ErrInvalidRef.
 	if !forkSessionUUIDRe.MatchString(src.Ref) {
-		writeError(w, http.StatusNotFound, "malformed chat session ref for this window")
+		writeError(w, http.StatusNotFound, "malformed agent session ref for this window")
 		return
 	}
 

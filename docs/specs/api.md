@@ -245,7 +245,7 @@ Send keystrokes to a window.
 
 #### `POST /api/windows/:windowId/send`
 
-Send a message into a window's resolved pane — the compose strip's single delivery door. The client names an **intent** (`mode`), never a mechanism: the handler picks the tmux strategy (bracketed paste lands multi-line text as one literal block; raw relay bytes carrying embedded newlines collapse in Claude Code's input). By default no chat session is required on the window.
+Send a message into a window's resolved pane — the compose strip's single delivery door. The client names an **intent** (`mode`), never a mechanism: the handler picks the tmux strategy (bracketed paste lands multi-line text as one literal block; raw relay bytes carrying embedded newlines collapse in Claude Code's input). By default no agent session is required on the window.
 
 **Request:**
 ```json
@@ -260,7 +260,7 @@ Send a message into a window's resolved pane — the compose strip's single deli
 |-------|------|----------|------------|
 | `text` | `string` | yes (except `mode:"enter"`) | Control bytes stripped (`inject.Sanitize`) **before** the check; non-empty after trim |
 | `mode` | `string` | yes | `submit` (paste + probed Enter) · `insert-line` (paste, Enter withheld) · `raw` (unbracketed LF-preserving paste) · `enter` (one bare Enter, no text) |
-| `target` | `string` | no | Absent = the window's **active** pane; `"agent"` = the window's agent pane via the `@rk_pane_chat` rollup, failing closed with `404` when no pane carries chat (the selection broadcast's mode); anything else `400` |
+| `target` | `string` | no | Absent = the window's **active** pane; `"agent"` = the window's agent pane via the `@rk_pane_agent_session` rollup, failing closed with `404` when no pane carries an agent session (the selection broadcast's mode); anything else `400` |
 
 **Behavior:**
 - Resolves the target pane server-side from one session snapshot (active pane by default; agent pane for `target:"agent"`)

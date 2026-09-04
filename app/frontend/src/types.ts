@@ -176,14 +176,16 @@ export type WindowInfo = {
    *  git repo. The per-window half of the code lens/surface availability gate
    *  (`hasCode`); keyed by git ROOT so editor state follows the code. */
   gitRoot?: string;
-  /** Window-level rollup of the panes' `@rk_pane_chat` pane option (active-pane-first,
-   *  else first pane). `chatProvider` is the routing key (e.g. `claude`) and the
-   *  gate for the fork action; `chatSessionRef` is the provider session id
+  /** Window-level rollup of the panes' `@rk_pane_agent_session` pane option
+   *  (active-pane-first, else first pane) — the window's agent session
+   *  identity. `agentProvider` is the routing key (e.g. `claude`) and the
+   *  gate for the fork action; `agentSessionRef` is the provider session id
    *  (the operator-action gate). Both are emitted by the backend on every
-   *  `/api/sessions` response and SSE `sessions` event (rollupChat,
-   *  internal/sessions/sessions.go). Empty/absent = no chat for this window. */
-  chatProvider?: string;
-  chatSessionRef?: string;
+   *  `/api/sessions` response and SSE `sessions` event (rollupAgentSession,
+   *  internal/sessions/sessions.go). Empty/absent = no agent session for this
+   *  window. */
+  agentProvider?: string;
+  agentSessionRef?: string;
   /** True when the ACTIVE pane's application is on tmux's alternate screen
    *  (rollup of the pane's `alternate_on`, derived server-side in
    *  FetchSessions). Alt-screen panes have no scrollback, so a server-side

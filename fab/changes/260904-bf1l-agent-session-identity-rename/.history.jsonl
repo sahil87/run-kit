@@ -1,3 +1,9 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-04T09:49:23Z"}
 {"args":"Rename @rk_pane_chat → @rk_pane_agent_session and the chat-named identity vocabulary (fields, resolvers, wire), folding in the @rk_chat close-out for the chat key and fork.go comment stragglers","cmd":"fab-new","event":"command","ts":"2026-09-04T09:49:23Z"}
 {"delta":"+4.2","event":"confidence","score":4.2,"trigger":"calc-score","ts":"2026-09-04T09:51:05Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-04T09:52:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-04T09:55:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-04T10:15:53Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-04T10:20:38Z"}
+{"event":"review","result":"passed","ts":"2026-09-04T10:20:38Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-04T10:28:56Z"}

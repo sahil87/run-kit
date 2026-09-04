@@ -89,10 +89,10 @@ type serverOperatorFacts struct {
 // species: window-scoped entries render from operatorFacts, server-scoped
 // entries from serverOperatorFacts, and each route 400s the other's ids.
 type operatorTemplate struct {
-	// requiresChatRef declares that the template needs the subject window's
-	// reconciled chat session (its transcript path); a subject without one is a
-	// 404 before any delivery.
-	requiresChatRef bool
+	// requiresAgentSessionRef declares that the template needs the subject
+	// window's reconciled agent session (its transcript path); a subject
+	// without one is a 404 before any delivery.
+	requiresAgentSessionRef bool
 	// acceptsText declares that the template carries client-supplied text (the
 	// request body's optional text field) into its rendered prompt, capped and
 	// delimited. The closed posture is the default: text on a template without
@@ -122,8 +122,8 @@ var operatorTemplates = map[string]operatorTemplate{
 	// renames the window through its own shell; the result arrives via the
 	// normal derive tick — there is no response channel.
 	"fix-tab-name": {
-		requiresChatRef: true,
-		render:          renderFixTabName,
+		requiresAgentSessionRef: true,
+		render:                renderFixTabName,
 	},
 	// spawn-task: the operator routes a user-described task — picks the
 	// worktree/preset and spawns through its own shell via the rk riff CLI.
@@ -176,8 +176,8 @@ var operatorTemplates = map[string]operatorTemplate{
 	// shell; the note surfaces via the normal derive tick (user-option
 	// mutations emit no control-mode event).
 	"annotate-tab": {
-		requiresChatRef: true,
-		render:          renderAnnotateTab,
+		requiresAgentSessionRef: true,
+		render:                renderAnnotateTab,
 	},
 }
 
@@ -618,10 +618,10 @@ func (s *Server) deliverOperatorPrompt(ctx context.Context, server string, opera
 		return &operatorReject{http.StatusConflict, fmt.Sprintf("operator is busy (%s) — request not delivered; try again when it is idle", operator.AgentState)}
 	}
 
-	_, _, operatorPaneID := sessions.ResolveChatPane(operator.Panes)
+	_, _, operatorPaneID := sessions.ResolveAgentPane(operator.Panes)
 	if operatorPaneID == "" {
 		// An operator that isn't a live agent can't receive requests.
-		return &operatorReject{http.StatusNotFound, "operator window has no chat session"}
+		return &operatorReject{http.StatusNotFound, "operator window has no agent session"}
 	}
 
 	// One shared deadline for the whole injection sequence (see send.go's
@@ -666,8 +666,8 @@ func buildServerOperatorFacts(sess []sessions.ProjectSession, text string) serve
 			if win.PrURL != nil {
 				row.PrState, row.PrChecks, row.PrReview = win.PrState, win.PrChecks, win.PrReview
 			}
-			if win.ChatSessionRef != "" {
-				if path, err := transcript.Path(win.ChatProvider, win.ChatSessionRef); err == nil {
+			if win.AgentSessionRef != "" {
+				if path, err := transcript.Path(win.AgentProvider, win.AgentSessionRef); err == nil {
 					row.TranscriptPath = path
 					facts.Corpus = append(facts.Corpus, operatorCorpusRow{
 						Session:        sess[si].Name,
@@ -783,14 +783,14 @@ func (s *Server) deliverOperatorRequest(ctx context.Context, server string, subj
 		FabChange:    subject.FabChange,
 		FabStage:     subject.FabStage,
 	}
-	if tmpl.requiresChatRef {
-		if subject.ChatSessionRef == "" {
-			return &operatorReject{http.StatusNotFound, "no chat session for this window"}
+	if tmpl.requiresAgentSessionRef {
+		if subject.AgentSessionRef == "" {
+			return &operatorReject{http.StatusNotFound, "no agent session for this window"}
 		}
-		path, err := transcript.Path(subject.ChatProvider, subject.ChatSessionRef)
+		path, err := transcript.Path(subject.AgentProvider, subject.AgentSessionRef)
 		if err != nil {
 			if errors.Is(err, transcript.ErrNoAdapter) {
-				return &operatorReject{http.StatusNotFound, fmt.Sprintf("no adapter for provider %q", subject.ChatProvider)}
+				return &operatorReject{http.StatusNotFound, fmt.Sprintf("no adapter for provider %q", subject.AgentProvider)}
 			}
 			// Raw error — the handler maps ErrInvalidRef / ErrTranscriptNotFound
 			// through writeTranscriptError (the transcript-read 404-class vocabulary).
@@ -807,15 +807,15 @@ func (s *Server) deliverOperatorRequest(ctx context.Context, server string, subj
 
 // writeTranscriptError maps a transcript read error to an HTTP response. A
 // missing transcript for a live ref, or a malformed reconciled ref, is
-// 404-class (a property of the reconciled @rk_chat, not a server fault); any
-// other read error is a 500.
+// 404-class (a property of the reconciled @rk_pane_agent_session, not a server
+// fault); any other read error is a 500.
 func (s *Server) writeTranscriptError(w http.ResponseWriter, err error) {
 	if errors.Is(err, transcript.ErrTranscriptNotFound) {
 		writeError(w, http.StatusNotFound, "transcript not found for session")
 		return
 	}
 	if errors.Is(err, transcript.ErrInvalidRef) {
-		writeError(w, http.StatusNotFound, "malformed chat session ref for this window")
+		writeError(w, http.StatusNotFound, "malformed agent session ref for this window")
 		return
 	}
 	writeError(w, http.StatusInternalServerError, err.Error())

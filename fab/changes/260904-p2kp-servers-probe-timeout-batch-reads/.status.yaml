@@ -1,0 +1,57 @@
+id: p2kp
+name: 260904-p2kp-servers-probe-timeout-batch-reads
+created: 2026-09-04T10:00:50Z
+created_by: sahil87
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 9
+    acceptance_count: 19
+    acceptance_completed: 19
+confidence:
+    certain: 4
+    confident: 4
+    tentative: 0
+    unresolved: 0
+    score: 4.6
+    fuzzy: true
+    dimensions:
+        signal: 77.5
+        reversibility: 77.5
+        competence: 86.3
+        disambiguation: 80.0
+stage_metrics:
+    intake: {started_at: "2026-09-04T10:00:50Z", driver: fab-new, iterations: 1, completed_at: "2026-09-04T10:06:32Z"}
+    apply: {started_at: "2026-09-04T10:06:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:15:35Z"}
+    review: {started_at: "2026-09-04T10:15:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:18:38Z"}
+    hydrate: {started_at: "2026-09-04T10:18:38Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:22:49Z"}
+    ship: {started_at: "2026-09-04T10:22:49Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:24:03Z"}
+    review-pr: {started_at: "2026-09-04T10:24:03Z", driver: git-pr, iterations: 1, completed_at: "2026-09-04T10:49:49Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/829
+change_type_source: explicit
+true_impact:
+    added: 1026
+    deleted: 61
+    net: 965
+    excluding:
+        added: 458
+        deleted: 46
+        net: 412
+    tests:
+        added: 277
+        deleted: 9
+        net: 268
+    computed_at: "2026-09-04T10:24:04Z"
+    computed_at_stage: ship
+summary: ListServers classifies probe timeouts distinct from dead sockets (retry once, keep on second timeout) and the /api/servers fan-out reads rank + ephemeral/protected/managed marks via one batched ReadServerMarks show-options -s dump per server (read depth 5-8 to 2 execs), rk-daemon protected/managed derived in the handler; response/order/no-5xx contract unchanged.
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-04T10:49:49Z

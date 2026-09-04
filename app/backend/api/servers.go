@@ -67,14 +67,15 @@ func (s *Server) handleServersList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fan out ListSessions + GetServerRank + IsEphemeralServer +
-	// IsGuardedServer + IsManagedServer calls concurrently. A failure for one
-	// server yields sessionCount: 0 / windowCount: 0 / rank: null /
-	// ephemeral: false / protected: false / managed: false for that entry; no
-	// 5xx to the client. The rank, ephemeral, protected, and managed reads
-	// join this existing fan-out (one extra tmux call each per server, same
-	// concurrency pattern). The window count sums #{session_windows} over the
-	// sessions ListSessions already returns — no extra subprocess.
+	// Fan out ListSessions + ReadServerMarks concurrently — exactly two tmux
+	// execs per server (the marks read is one batched show-options dump). A
+	// failure for one server yields sessionCount: 0 / windowCount: 0 /
+	// rank: null / ephemeral: false / protected: false / managed: false for
+	// that entry; no 5xx to the client. The rk-daemon production server's
+	// protected and managed flags are DERIVED from its constant socket name
+	// (IsGuardedServer/IsManagedServer's short-circuit), so they hold even
+	// when the marks read fails. The window count sums #{session_windows}
+	// over the sessions ListSessions already returns — no extra subprocess.
 	counts := make(map[string]int, len(names))
 	windowCounts := make(map[string]int, len(names))
 	ranks := make(map[string]*int, len(names))
@@ -97,33 +98,18 @@ func (s *Server) handleServersList(w http.ResponseWriter, r *http.Request) {
 			} else {
 				s.logger.Warn("servers: ListSessions failed", "server", name, "err", err)
 			}
-			rank, rerr := s.tmux.GetServerRank(r.Context(), name)
-			if rerr != nil {
-				s.logger.Warn("servers: GetServerRank failed", "server", name, "err", rerr)
-				rank = nil
-			}
-			marked, eerr := s.tmux.IsEphemeralServer(r.Context(), name)
-			if eerr != nil {
-				s.logger.Warn("servers: IsEphemeralServer failed", "server", name, "err", eerr)
-				marked = false
-			}
-			guarded, gerr := s.tmux.IsGuardedServer(r.Context(), name)
-			if gerr != nil {
-				s.logger.Warn("servers: IsGuardedServer failed", "server", name, "err", gerr)
-				guarded = false
-			}
-			mgd, merr := s.tmux.IsManagedServer(r.Context(), name)
+			marks, merr := s.tmux.ReadServerMarks(r.Context(), name)
 			if merr != nil {
-				s.logger.Warn("servers: IsManagedServer failed", "server", name, "err", merr)
-				mgd = false
+				s.logger.Warn("servers: ReadServerMarks failed", "server", name, "err", merr)
+				marks = tmux.ServerMarks{}
 			}
 			mu.Lock()
 			counts[name] = n
 			windowCounts[name] = windows
-			ranks[name] = rank
-			ephemeral[name] = marked
-			protected[name] = guarded
-			managed[name] = mgd
+			ranks[name] = marks.Rank
+			ephemeral[name] = marks.Ephemeral
+			protected[name] = marks.Protected || name == daemonServerName
+			managed[name] = marks.Managed || name == daemonServerName
 			mu.Unlock()
 		}(name)
 	}

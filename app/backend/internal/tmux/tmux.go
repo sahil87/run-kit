@@ -3032,15 +3032,82 @@ func filterSocketEntries(entries []os.DirEntry) []string {
 	return candidates
 }
 
-// probeServerAlive reports whether a tmux server is reachable on the named
-// socket by running `tmux -L <name> list-sessions` with a short timeout.
-// Used by ListServers (to keep only live servers) and the reaper (to
-// distinguish live orphan test servers from dead sockets).
-func probeServerAlive(ctx context.Context, name string) bool {
+// probeResult classifies a server-liveness probe three ways: the tmux server
+// answered (probeAlive), the probe failed fast (probeDead — a dead/absent
+// socket refuses the connection immediately), or the probe's context deadline
+// expired (probeTimeout — the server is busy or hung, NOT proven dead).
+type probeResult int
+
+const (
+	probeAlive probeResult = iota
+	probeDead
+	probeTimeout
+)
+
+// classifyProbe maps one probe attempt's outcome to its probeResult. The
+// classification keys on the probe context: a failure whose probe context ran
+// out (DeadlineExceeded) is a timeout — the child was killed mid-answer, so
+// nothing is proven about the server; any other failure is a fast dead-socket
+// refusal (a dead socket never blocks long enough to hit the deadline). Pure
+// so the taxonomy is unit-testable without spawning tmux.
+func classifyProbe(runErr, ctxErr error) probeResult {
+	if runErr == nil {
+		return probeAlive
+	}
+	if ctxErr == context.DeadlineExceeded {
+		return probeTimeout
+	}
+	return probeDead
+}
+
+// probeServer runs one liveness probe against the named socket
+// (`tmux -L <name> list-sessions`, 2s budget) and returns its three-way
+// classification (see classifyProbe).
+func probeServer(ctx context.Context, name string) probeResult {
 	probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(probeCtx, "tmux", "-L", name, "list-sessions")
-	return cmd.Run() == nil
+	return classifyProbe(cmd.Run(), probeCtx.Err())
+}
+
+// probeServerAlive reports whether a tmux server is reachable on the named
+// socket by running `tmux -L <name> list-sessions` with a short timeout.
+// Used by the reaper (to distinguish live orphan test servers from dead
+// sockets) and the birth-stamp pre-probe; only ListServers consumes the
+// three-way classification. Semantics are byte-identical to a single
+// `cmd.Run() == nil` attempt.
+func probeServerAlive(ctx context.Context, name string) bool {
+	return probeServer(ctx, name) == probeAlive
+}
+
+// keepFromProbes reduces a first probe result and (only meaningful when the
+// first timed out) the retry's result to ListServers' keep/drop decision:
+// alive keeps, dead drops, and a timeout whose retry also timed out KEEPS the
+// name — a genuinely dead socket refuses instantly and never reaches that
+// path, so a double timeout means live-but-busy, and dropping would vanish a
+// healthy server from /api/servers. Pure so the full matrix is unit-testable
+// without live servers.
+func keepFromProbes(first, retry probeResult) bool {
+	switch first {
+	case probeAlive:
+		return true
+	case probeDead:
+		return false
+	default: // probeTimeout: a retry that refuses instantly proves dead
+		return retry != probeDead
+	}
+}
+
+// keepServerForListing is ListServers' per-candidate liveness policy: probe
+// once; on timeout retry exactly ONCE with a fresh probe budget, then apply
+// keepFromProbes. Stateless per request — no last-known-state cache
+// (Constitution II).
+func keepServerForListing(ctx context.Context, name string) bool {
+	first := probeServer(ctx, name)
+	if first == probeTimeout {
+		return keepFromProbes(first, probeServer(ctx, name))
+	}
+	return keepFromProbes(first, first)
 }
 
 // ServerAlive probes whether a tmux server answers on the named socket and
@@ -3141,7 +3208,7 @@ func ListServers(ctx context.Context) ([]string, error) {
 		go func(name string) {
 			defer wg.Done()
 			defer func() { <-sem }() // release
-			if probeServerAlive(ctx, name) {
+			if keepServerForListing(ctx, name) {
 				mu.Lock()
 				servers = append(servers, name)
 				mu.Unlock()
@@ -3451,6 +3518,90 @@ func readServerMarkDual(ctx context.Context, server, option, legacy string) (boo
 		return false, fmt.Errorf("read %s: %w", option, err)
 	}
 	return strings.TrimSpace(out) != "", nil
+}
+
+// ServerMarks is the batched per-server option read for the /api/servers
+// fan-out — one dump carries what the per-option readers (GetServerRank,
+// readServerMarkDual, IsManagedServer's option leg) read individually.
+type ServerMarks struct {
+	Rank      *int // @rk_srv_rank; nil when unset
+	Ephemeral bool // @rk_srv_ephemeral, legacy @rk_ephemeral
+	Protected bool // @rk_srv_protected, legacy @rk_protected
+	Managed   bool // @rk_srv_managed (no legacy name)
+}
+
+// ReadServerMarks reads all of a server's rk marks in ONE `show-options -s`
+// dump, keeping the /api/servers fan-out at one option exec per server instead
+// of four. The parse (parseServerMarks) preserves readServerMarkDual's
+// dual-read taxonomy. A dead/absent socket (IsServerGone) reads as zero marks
+// with a nil error — liveness is the caller's concern, and a gone server is
+// never marked; other subprocess failures propagate wrapped.
+func ReadServerMarks(ctx context.Context, server string) (ServerMarks, error) {
+	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
+	defer cancel()
+
+	out, err := tmuxExecRawServer(ctx, server, "show-options", "-s")
+	if err != nil {
+		if IsServerGone(err) {
+			return ServerMarks{}, nil
+		}
+		return ServerMarks{}, fmt.Errorf("read server marks: %w", err)
+	}
+	return parseServerMarks(out)
+}
+
+// parseServerMarks parses a `show-options -s` dump (`name value` lines) into
+// ServerMarks. Pure so the full taxonomy is unit-testable without live tmux.
+// Rank mirrors GetServerRank: absent or empty ⇒ nil; a malformed (non-integer)
+// value propagates a wrapped decode error. Dump values may be tmux-quoted
+// (`@rk_srv_rank "3"`); one pair of surrounding double quotes is stripped.
+func parseServerMarks(dump string) (ServerMarks, error) {
+	values := map[string]string{}
+	for _, line := range strings.Split(dump, "\n") {
+		name, value, found := strings.Cut(strings.TrimSpace(line), " ")
+		if name == "" {
+			continue
+		}
+		if !found {
+			value = ""
+		}
+		values[name] = unquoteOptionValue(strings.TrimSpace(value))
+	}
+
+	var marks ServerMarks
+	if raw := values[ServerRankOption]; raw != "" {
+		rank, err := strconv.Atoi(raw)
+		if err != nil {
+			return ServerMarks{}, fmt.Errorf("decode %s: %w", ServerRankOption, err)
+		}
+		marks.Rank = &rank
+	}
+	marks.Ephemeral = dumpMarkDual(values, EphemeralOption, LegacyEphemeralOption)
+	marks.Protected = dumpMarkDual(values, ProtectedOption, LegacyProtectedOption)
+	marks.Managed = strings.TrimSpace(values[ManagedOption]) != ""
+	return marks, nil
+}
+
+// dumpMarkDual applies the dual-read taxonomy to a parsed dump: the new name
+// wins when PRESENT (even with an empty value, which reads false — mirroring
+// readServerMarkDual, which consults the legacy name only on the unset
+// diagnostic); the legacy name is consulted only when the new name is absent
+// from the dump (the batched equivalent of the "invalid/unknown option"
+// stderr). A non-empty trimmed value is truthy.
+func dumpMarkDual(values map[string]string, option, legacy string) bool {
+	if v, ok := values[option]; ok {
+		return strings.TrimSpace(v) != ""
+	}
+	return strings.TrimSpace(values[legacy]) != ""
+}
+
+// unquoteOptionValue strips one pair of surrounding double quotes — tmux's
+// show-options dump quotes values that contain spaces or special characters.
+func unquoteOptionValue(v string) string {
+	if len(v) >= 2 && strings.HasPrefix(v, `"`) && strings.HasSuffix(v, `"`) {
+		return v[1 : len(v)-1]
+	}
+	return v
 }
 
 // IsEphemeralServer reports whether the named server carries the

@@ -937,7 +937,11 @@ export function edgeAnchorReference(node: HTMLElement) {
     getBoundingClientRect() {
       const rect = node.getBoundingClientRect();
       const container = node.closest(EDGE_ANCHOR_CONTAINER_SELECTOR);
-      const x = container ? container.getBoundingClientRect().right : rect.right;
+      // No container ancestor: today's geometry verbatim — the node's own
+      // full rect, exactly as if the opt-in were absent (a width-0 rect here
+      // would still alter rects.reference for middleware).
+      if (!container) return rect;
+      const x = container.getBoundingClientRect().right;
       return {
         x,
         y: rect.y,

@@ -1372,13 +1372,15 @@ describe("edge-anchored mount (edgeAnchor)", () => {
     nav.remove();
   });
 
-  it("edgeAnchorReference falls back to the reference's own rect without a sidebar-container ancestor", () => {
+  it("edgeAnchorReference falls back to the reference's own FULL rect without a sidebar-container ancestor", () => {
     const tile = document.createElement("button");
     document.body.appendChild(tile);
-    vi.spyOn(tile, "getBoundingClientRect").mockReturnValue(domRect({ top: 100, bottom: 140, left: 20, right: 120 }));
+    const own = domRect({ top: 100, bottom: 140, left: 20, right: 120 });
+    vi.spyOn(tile, "getBoundingClientRect").mockReturnValue(own);
 
-    const rect = edgeAnchorReference(tile).getBoundingClientRect();
-    expect(rect).toMatchObject({ left: 120, right: 120, width: 0, top: 100, bottom: 140 });
+    // Today's geometry verbatim — not a width-0 rect at the node's right edge,
+    // which would still alter rects.reference for middleware.
+    expect(edgeAnchorReference(tile).getBoundingClientRect()).toBe(own);
     tile.remove();
   });
 

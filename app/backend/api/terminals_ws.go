@@ -411,8 +411,11 @@ func (s *Server) reloadConfigForAttach(server string) {
 	if !tmux.MarkLegacyMigrationAttempt(server) {
 		return
 	}
+	// Capture the seam synchronously: the substitutable package var (tests
+	// swap and restore it) must not be read from the detached goroutine.
+	migrate := attachMigrateLegacy
 	go func() {
-		changed, err := attachMigrateLegacy(context.Background(), server)
+		changed, err := migrate(context.Background(), server)
 		if err != nil {
 			slog.Warn("terminals: legacy option sweep failed (best-effort)", "server", server, "err", err)
 		}

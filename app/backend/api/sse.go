@@ -313,6 +313,13 @@ type sseHub struct {
 	// driven by tmux control-mode notifications. When nil, the loop runs
 	// on the safety-net ticker only — preserves correctness for tests and
 	// for the PTY-unavailable startup case.
+	//
+	// Guarded by h.mu: SetWindowChangeSubscriber writes it (via
+	// setSubscriber) from the serve goroutine while the poll loop may
+	// already be running (an early client connect materialises and starts
+	// the hub before rk serve wires the Supervisor), so every poll-path
+	// read goes through getSubscriber — one snapshot per waitForNext call,
+	// threaded through the whole wait for a single consistent view.
 	subscriber WindowChangeSubscriber
 
 	// wakeMu guards wakes. It is a dedicated mutex (not h.mu) so wake() can
@@ -330,6 +337,18 @@ type sseHub struct {
 	// hosts). See wake / wakeChannel / consumeWake.
 	wakes map[string]chan struct{}
 
+	// membershipWake is the hub-level wake channel signalled by addClient when
+	// a subscription registers a server key NOT previously in h.clients while
+	// the poll loop is already running: waitForNext builds its per-server wait
+	// cases from the server-list snapshot taken at the top of the current poll
+	// iteration, so a brand-new server's per-server wake channel is watched by
+	// nobody — only this hub-level signal unparks the parked loop, whose next
+	// pass re-derives the server list (now including the new key) and fetches
+	// it promptly instead of waiting out the safety interval. Same close-based,
+	// consume-and-replace idiom as the per-server wakes, guarded by wakeMu.
+	// See wakeMembership / membershipWakeChannel / consumeMembershipWake.
+	membershipWake chan struct{}
+
 	// safetyInterval overrides safetyPollInterval per-hub. Zero falls back
 	// to the package constant. Tests set this to a short duration so
 	// existing time-based assertions remain valid; production callers
@@ -346,6 +365,26 @@ type sseHub struct {
 	// capturePreviewForWindow (tmux exec); tests override it to exercise the
 	// preview-broadcast path without a live tmux server.
 	captureFn captureFunc
+}
+
+// getSubscriber returns the hub's current WindowChangeSubscriber under
+// h.mu.RLock. The poll path snapshots it ONCE per waitForNext call so a single
+// wait sees one consistent subscriber view even if SetWindowChangeSubscriber
+// lands mid-wait.
+func (h *sseHub) getSubscriber() WindowChangeSubscriber {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.subscriber
+}
+
+// setSubscriber wires the WindowChangeSubscriber under h.mu (write) — the
+// poll loop may already be running when rk serve calls
+// SetWindowChangeSubscriber, so a plain write would race the poll path's
+// reads.
+func (h *sseHub) setSubscriber(sub WindowChangeSubscriber) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.subscriber = sub
 }
 
 // safetyIntervalEffective returns the safety-net interval for a poll cycle
@@ -377,11 +416,14 @@ type sseHub struct {
 // fast legacy cadence costs nothing but the metrics marshal/broadcast — exactly
 // the freshness we want. So a slice containing NO real (non-sentinel) server
 // runs at legacyPollInterval.
-func (h *sseHub) safetyIntervalEffective(servers []string) time.Duration {
+//
+// The caller passes the per-wait subscriber snapshot (see getSubscriber) so a
+// single waitForNext call reasons about ONE consistent subscriber view.
+func (h *sseHub) safetyIntervalEffective(servers []string, sub WindowChangeSubscriber) time.Duration {
 	if h.safetyInterval > 0 {
 		return h.safetyInterval
 	}
-	if h.subscriber == nil {
+	if sub == nil {
 		return legacyPollInterval
 	}
 	sawRealServer := false
@@ -390,7 +432,7 @@ func (h *sseHub) safetyIntervalEffective(servers []string) time.Duration {
 			continue
 		}
 		sawRealServer = true
-		if !h.subscriber.Covers(server) {
+		if !sub.Covers(server) {
 			return legacyPollInterval
 		}
 	}
@@ -476,6 +518,7 @@ func (h *sseHub) addClient(c *sseClient) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
+	_, known := h.clients[c.server]
 	h.clients[c.server] = append(h.clients[c.server], c)
 
 	// Send cached session snapshot immediately
@@ -496,6 +539,15 @@ func (h *sseHub) addClient(c *sseClient) {
 	if !h.polling {
 		h.polling = true
 		go h.poll()
+	} else if !known {
+		// The running loop is parked on a wait-case list built from the
+		// PREVIOUS server set, so no per-server signal can reach it for this
+		// brand-new key — only the hub-level membership wake unparks it so
+		// the next pass fetches the new server promptly. An already-registered
+		// key never re-fires (no waking storms); a key deleted by
+		// removeClientLocked counts as new again on resubscribe. Lock order:
+		// h.mu is held, wakeMu nests after it (h.mu → wakeMu).
+		h.wakeMembership()
 	}
 }
 
@@ -727,6 +779,14 @@ func (h *sseHub) stateSubscribe(sc *stateConn, msg clientMsg) {
 	} else {
 		snapshot = h.cachedMetricsJSON
 	}
+	// A server subscribe that finds NO cached snapshot is a COLD subscribe
+	// (first fetch failed or hasn't completed): wake the poll loop for this
+	// server so the first snapshot arrives in one pass rather than after the
+	// safety interval. A warm resubscribe (snapshot present) never wakes —
+	// that is the storm guard. The wake is issued AFTER h.mu.Unlock() below:
+	// wake() takes h.mu.RLock internally and sync.RWMutex is not reentrant, so
+	// calling it under this held write lock would deadlock.
+	cold := msg.Kind == kindServer && snapshot == ""
 	// Ack with the snapshot (empty snapshot → null, which the client tolerates).
 	ack := ackFrame{Op: "ack", Req: msg.Req}
 	if snapshot != "" {
@@ -743,6 +803,14 @@ func (h *sseHub) stateSubscribe(sc *stateConn, msg clientMsg) {
 	// ordered with the subscription's events.
 	h.sendConnLocked(sc, hubEvent{raw: ackBytes})
 	h.mu.Unlock()
+
+	if cold {
+		// wake()'s new-entry allocation gate passes: addClient registered the
+		// subscription above, so h.clients[key] is non-empty. For a server new
+		// to the poll set entirely this per-server wake may find no parked
+		// waiter — addClient's membership wake covers that shape.
+		h.wake(key)
+	}
 }
 
 // stateUnsubscribe drops a subscription. A server left with no subscribers
@@ -1411,15 +1479,24 @@ func (h *sseHub) poll() {
 			// Check session fetch cache (500ms TTL). If the prior
 			// waitForNext call observed a control-mode notification
 			// for this server, invalidate the cache so we observe the
-			// post-mutation tmux state immediately.
+			// post-mutation tmux state immediately. All h.cache access is
+			// under h.mu — handler goroutines read the same map under h.mu
+			// (sendCachedPreviewLocked, the dead-server reap), so an
+			// unsynchronized poll-side access is a crash-class map race.
+			// The lock is held only around the map operations, NEVER across
+			// FetchSessions (a subprocess exec with up to 10s of inner execs).
+			h.mu.Lock()
 			if eventDrivenServers[server] {
 				delete(h.cache, server)
 				delete(eventDrivenServers, server)
 			}
 			var result []sessions.ProjectSession
+			var cacheHit bool
 			if cached, ok := h.cache[server]; ok && time.Since(cached.fetchedAt) < sseCacheTTL {
-				result = cached.data
-			} else {
+				result, cacheHit = cached.data, true
+			}
+			h.mu.Unlock()
+			if !cacheHit {
 				var err error
 				result, err = h.fetcher.FetchSessions(context.Background(), server)
 				if err != nil {
@@ -1435,7 +1512,9 @@ func (h *sseHub) poll() {
 					}
 					continue
 				}
+				h.mu.Lock()
 				h.cache[server] = &cachedResult{data: result, fetchedAt: time.Now()}
+				h.mu.Unlock()
 			}
 
 			// Attach live PR status to any window with a derived PR. PURE
@@ -1446,17 +1525,24 @@ func (h *sseHub) poll() {
 			// upstream in FetchSessions via register + snapshot-join, also
 			// network-free here). NOTE: `result` and `h.cache[server].data` are the SAME
 			// slice (stored by reference above), so this mutates the cached
-			// snapshot in place — that is intentional and safe because
-			// attachPRStatus is idempotent: it resets the three collector-only
-			// fields (PrChecks/PrReview/PrFetchedAt) to zero before re-attaching,
-			// so re-running it on a cache hit yields the same result and a PR that
-			// left the collector snapshot clears those cleanly. The dual-sourced
-			// PrState/PrIsDraft are deliberately NOT reset, so on a cache hit they
-			// keep whatever the previous tick left — bounded by one cache
-			// generation (500ms), after which FetchSessions re-seeds both from the
-			// branch channel. Re-deriving every tick keeps the cached sessions in sync
-			// with the latest PR snapshot without a deep copy.
+			// snapshot in place — that is intentional, and the mutation runs
+			// under h.mu because handler goroutines read the same slice under
+			// h.mu (sendCachedPreviewLocked → windowsBySession); an unlocked
+			// in-place write would be a value-level data race against them.
+			// attachPRStatus is pure in-memory (collector snapshot read, no
+			// I/O), so the hold is bounded. It is also idempotent: it resets
+			// the three collector-only fields (PrChecks/PrReview/PrFetchedAt)
+			// to zero before re-attaching, so re-running it on a cache hit
+			// yields the same result and a PR that left the collector snapshot
+			// clears those cleanly. The dual-sourced PrState/PrIsDraft are
+			// deliberately NOT reset, so on a cache hit they keep whatever the
+			// previous tick left — bounded by one cache generation (500ms),
+			// after which FetchSessions re-seeds both from the branch channel.
+			// Re-deriving every tick keeps the cached sessions in sync with the
+			// latest PR snapshot without a deep copy.
+			h.mu.Lock()
 			h.attachPRStatus(result)
+			h.mu.Unlock()
 
 			// This server's fetch succeeded — record it so the post-loop reap only
 			// sweeps episodes belonging to servers actually polled this tick.
@@ -1845,33 +1931,106 @@ func (h *sseHub) consumeWake(server string) bool {
 	}
 }
 
+// wakeMembership signals that a server key NOT previously in h.clients just
+// gained a subscription while the poll loop is running. The parked waitForNext
+// cannot see a per-server wake for a server absent from its current case list,
+// so this hub-level signal is what unparks it for a cold subscribe to a
+// new-to-the-poll-set server. Called from addClient with h.mu held — the
+// nesting follows the documented h.mu → wakeMu lock order. Non-blocking and
+// coalescing: a repeat signal before consumption is a no-op.
+func (h *sseHub) wakeMembership() {
+	h.wakeMu.Lock()
+	defer h.wakeMu.Unlock()
+	if h.membershipWake == nil {
+		h.membershipWake = make(chan struct{})
+	}
+	select {
+	case <-h.membershipWake:
+		// Already closed — a membership wake is already pending; coalesce.
+	default:
+		close(h.membershipWake)
+	}
+}
+
+// membershipWakeChannel returns the current hub-level membership-wake channel
+// (lazily created) for waitForNext to add as a wait case on every wait. A
+// channel returned here that is ALREADY closed means a membership wake landed
+// before the loop reached waitForNext — it fires immediately (at-least-once).
+// Guarded by wakeMu.
+func (h *sseHub) membershipWakeChannel() <-chan struct{} {
+	h.wakeMu.Lock()
+	defer h.wakeMu.Unlock()
+	if h.membershipWake == nil {
+		h.membershipWake = make(chan struct{})
+	}
+	return h.membershipWake
+}
+
+// consumeMembershipWake retires a pending membership wake: if the channel is
+// currently closed it is replaced with a fresh open one and true is reported.
+// The replacement happens BEFORE the next poll pass, so a membership wake
+// landing between observation and the re-derived fetch closes the fresh
+// channel and triggers one more pass — at-least-once, never lost, never a
+// busy-loop. Guarded by wakeMu.
+func (h *sseHub) consumeMembershipWake() bool {
+	h.wakeMu.Lock()
+	defer h.wakeMu.Unlock()
+	if h.membershipWake == nil {
+		return false
+	}
+	select {
+	case <-h.membershipWake:
+		h.membershipWake = make(chan struct{})
+		return true
+	default:
+		return false
+	}
+}
+
 // waitForNext blocks until either a control-mode notification fires for any of
-// the supplied servers, a wake is signalled for any of them (via wake()), OR the
+// the supplied servers, a wake is signalled for any of them (via wake()), a
+// NEW server key enters the subscription set (via the membership wake), OR the
 // safety-net timer elapses. Updates perServerGen with each server's current
 // generation so the next pass can detect change, and marks woken/notified
 // servers in eventDrivenServers so poll() invalidates their fetch cache.
 //
-// Wake cases are built independent of h.subscriber: a wake must wake the loop
-// even when subscriber == nil (unit-test hubs, PTY-unavailable hosts), where the
-// code previously short-circuited to a timer-only wait. Wake wins do NOT enter
-// subscriber bookkeeping (no perServerGen / Generation() touch) — they are
-// distinguished from subscriber cases by waitCase.isWake.
+// Wake cases are built independent of the subscriber snapshot: a wake must wake
+// the loop even when subscriber == nil (unit-test hubs, PTY-unavailable hosts),
+// where the code previously short-circuited to a timer-only wait. Wake wins do
+// NOT enter subscriber bookkeeping (no perServerGen / Generation() touch) —
+// they are distinguished from subscriber cases by waitCase.isWake.
+//
+// The subscriber is snapshot ONCE per call (getSubscriber, under h.mu.RLock)
+// and threaded through the whole wait — the interval selection, the case
+// build, and the peek closure — so a concurrent SetWindowChangeSubscriber
+// never races a plain field read and one wait always sees a single
+// consistent subscriber view.
+//
+// The membership wake is the ONLY signal that can unpark a wait for a server
+// absent from the current case list: the cases below cover just this call's
+// server-list snapshot, so a brand-new server's per-server wake channel is
+// watched by nobody. A membership win carries no per-server bookkeeping (a
+// brand-new server has no cache to invalidate and no generation entry) — the
+// next poll pass re-derives the server list, which now includes the new key.
 func (h *sseHub) waitForNext(servers []string, perServerGen map[string]int64, eventDrivenServers map[string]bool) {
-	timer := time.NewTimer(h.safetyIntervalEffective(servers))
+	sub := h.getSubscriber()
+	timer := time.NewTimer(h.safetyIntervalEffective(servers, sub))
 	defer timer.Stop()
 
 	// Build wait cases: a subscriber case per server (only when a subscriber is
-	// wired), anchored at the generation we last observed, AND a wake case per
-	// server (always — independent of the subscriber). selectFirst falls through
-	// to the timer when the combined case list is empty.
-	cases := make([]waitCase, 0, len(servers)*2)
+	// wired), anchored at the generation we last observed, a wake case per
+	// server (always — independent of the subscriber), AND the hub-level
+	// membership wake (always). selectFirst falls through to the timer when the
+	// combined case list is empty.
+	cases := make([]waitCase, 0, len(servers)*2+1)
 	for _, server := range servers {
-		if h.subscriber != nil {
+		if sub != nil {
 			after := perServerGen[server]
-			cases = append(cases, waitCase{server: server, ch: h.subscriber.Wait(server, after)})
+			cases = append(cases, waitCase{server: server, ch: sub.Wait(server, after)})
 		}
 		cases = append(cases, waitCase{server: server, ch: h.wakeChannel(server), isWake: true})
 	}
+	cases = append(cases, waitCase{ch: h.membershipWakeChannel(), isMembership: true})
 
 	// selectFirst blocks until one case's channel fires (or the timer wins). It
 	// returns only the winning server NAME, not which kind of case fired — and
@@ -1879,7 +2038,7 @@ func (h *sseHub) waitForNext(servers []string, perServerGen map[string]int64, ev
 	// by close) — so we don't special-case the winner. Instead, once selectFirst
 	// unblocks, a single non-blocking peek over ALL cases picks up every case
 	// that has fired (the winner plus any that fired concurrently), routing each
-	// by isWake. This is correct even when a server has BOTH a subscriber case
+	// by kind. This is correct even when a server has BOTH a subscriber case
 	// and a wake case that fired: each is handled independently in one pass.
 	// Re-peeking a closed subscriber channel is idempotent: Generation() re-read
 	// folds any newer bumps into perServerGen, and consumeWake reports false for
@@ -1888,7 +2047,15 @@ func (h *sseHub) waitForNext(servers []string, perServerGen map[string]int64, ev
 		for _, c := range cases {
 			select {
 			case <-c.ch:
-				if c.isWake {
+				switch {
+				case c.isMembership:
+					// A new server key entered the subscription set mid-wait.
+					// woke keeps a pending debounce window from delaying the
+					// pass that re-derives the server list and fetches it.
+					if h.consumeMembershipWake() {
+						woke = true
+					}
+				case c.isWake:
 					// Only mark event-driven when this call actually retires a
 					// pending (closed) wake — consumeWake reports false once the
 					// wake has already been retired (e.g. two servers sharing a
@@ -1897,8 +2064,8 @@ func (h *sseHub) waitForNext(servers []string, perServerGen map[string]int64, ev
 						eventDrivenServers[c.server] = true
 						woke = true
 					}
-				} else {
-					perServerGen[c.server] = h.subscriber.Generation(c.server)
+				default:
+					perServerGen[c.server] = sub.Generation(c.server)
 					eventDrivenServers[c.server] = true
 					bumped = true
 				}
@@ -1931,9 +2098,9 @@ func (h *sseHub) waitForNext(servers []string, perServerGen map[string]int64, ev
 	}
 	debounce := time.NewTimer(window)
 	defer debounce.Stop()
-	wakeCases := make([]waitCase, 0, len(servers))
+	wakeCases := make([]waitCase, 0, len(servers)+1)
 	for _, c := range cases {
-		if c.isWake {
+		if c.isWake || c.isMembership {
 			wakeCases = append(wakeCases, c)
 		}
 	}
@@ -1946,10 +2113,15 @@ func (h *sseHub) waitForNext(servers []string, perServerGen map[string]int64, ev
 // fan-in: each channel sends its server name to a unifying channel. isWake
 // distinguishes a wake-signal case (wakeChannel) from a subscriber Wait case:
 // wake wins skip subscriber bookkeeping and consume the wake instead.
+// isMembership marks the hub-level membership-wake case — a win there means
+// a new server key joined the subscription set mid-wait; it carries no
+// per-server bookkeeping (the peek consumes the signal and the next pass
+// re-derives the server list).
 type waitCase struct {
-	server string
-	ch     <-chan struct{}
-	isWake bool
+	server       string
+	ch           <-chan struct{}
+	isWake       bool
+	isMembership bool
 }
 
 // selectFirst blocks until either one of the wait channels closes OR the

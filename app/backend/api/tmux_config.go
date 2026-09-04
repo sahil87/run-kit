@@ -50,8 +50,12 @@ func (s *Server) handleTmuxReloadConfig(w http.ResponseWriter, r *http.Request) 
 	// synchronously so concurrent requests never double-run; the hub wake from
 	// inside the goroutine already decouples the repaint.
 	if tmux.MarkLegacyMigrationAttempt(server) {
+		// Capture the seam synchronously: the substitutable package var
+		// (tests swap and restore it) must not be read from the detached
+		// goroutine.
+		migrate := reloadMigrateLegacy
 		go func() {
-			if changed, err := reloadMigrateLegacy(context.Background(), server); err != nil {
+			if changed, err := migrate(context.Background(), server); err != nil {
 				slog.Warn("legacy option sweep failed (best-effort)", "err", err, "server", server)
 			} else if changed {
 				s.initSSEHub()

@@ -44,6 +44,11 @@ jobs:
       - name: Run backend tests
         run: just test-backend
 
+      # The api package owns the SSE hub's concurrency surface — gate it under
+      # the race detector.
+      - name: Run api package tests under -race
+        run: just test-backend-race
+
   frontend:
     name: Frontend (vitest + tsc)
     runs-on: ubuntu-latest

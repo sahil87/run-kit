@@ -85,7 +85,7 @@ build-desktop *args:
 
 # Run all tests (backend + frontend + e2e) with phase banners + per-run log
 test:
-    scripts/test-all.sh
+    @scripts/test-all.sh
 
 # Run Go tests
 test-backend: _ensure-tmux-conf

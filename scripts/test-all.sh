@@ -8,7 +8,7 @@ cd "$REPO_ROOT"
 # tail -f or a mid-run capture-pane peek sees the same append-only lines the
 # terminal does. A single exec redirection wraps no phase command in a
 # pipeline, so phase exit codes are never masked by the tee.
-LOG="/tmp/rk-test-$(date +%Y%m%d-%H%M%S).log"
+LOG="/tmp/rk-test-$(date +%Y%m%d-%H%M%S)-$$.log"
 exec > >(tee "$LOG") 2>&1
 echo "Log: $LOG"
 

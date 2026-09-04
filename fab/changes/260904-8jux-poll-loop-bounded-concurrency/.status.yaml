@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 11
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-09-04T11:05:33Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T11:30:53Z"}
     review: {started_at: "2026-09-04T11:30:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T11:37:24Z"}
     hydrate: {started_at: "2026-09-04T11:37:24Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T11:42:51Z"}
-    ship: {started_at: "2026-09-04T11:42:51Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-04T11:42:51Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T11:44:21Z"}
+    review-pr: {started_at: "2026-09-04T11:44:21Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/837
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1414
+    deleted: 294
+    net: 1120
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 818
+        deleted: 288
+        net: 530
     tests:
-        added: 0
+        added: 260
         deleted: 0
-        net: 0
-    computed_at: "2026-09-04T11:42:51Z"
-    computed_at_stage: hydrate
+        net: 260
+    computed_at: "2026-09-04T11:44:21Z"
+    computed_at_stage: ship
 summary: SSE poll loop fanned out to bounded per-server units (ssePollConcurrency=6) with per-unit event emission, hub-level single-flight, tick-top result folding + results wake, and global broadcasts ahead of dispatch
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-04T11:42:51Z
+last_updated: 2026-09-04T11:44:21Z

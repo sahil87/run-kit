@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"rk/internal/config"
 	"rk/internal/tmux"
 )
 
@@ -645,9 +646,12 @@ func TestResolveGitBranchesDetachedGrace(t *testing.T) {
 		}
 	})
 
-	t.Run("non-repo cwd keeps plain negative behavior", func(t *testing.T) {
+	t.Run("non-repo cwd caches an authoritative no-repo negative on the long TTL", func(t *testing.T) {
 		resetGitBranchCache(t)
 		plain := t.TempDir()
+		if config.FindGitRoot(plain) != "" {
+			t.Skip("temp dir lives inside a git repo; cannot exercise the no-repo walk")
+		}
 		if got := resolveGitBranches(ctx, []string{plain}); got[plain] != "" {
 			t.Errorf("non-repo: got %q, want empty", got[plain])
 		}
@@ -656,6 +660,9 @@ func TestResolveGitBranchesDetachedGrace(t *testing.T) {
 		gitBranchCacheMu.RUnlock()
 		if e.branch != "" || e.lastGood != "" {
 			t.Errorf("non-repo entry = %+v, want plain negative", e)
+		}
+		if remaining := time.Until(e.expiresAt); remaining <= gitBranchNegativeTTL || remaining > gitBranchNoRepoTTL {
+			t.Errorf("no-repo expiresAt remaining = %v, want on the %v horizon", remaining, gitBranchNoRepoTTL)
 		}
 	})
 }
@@ -679,6 +686,219 @@ func TestResolveGitBranchFromHeadDetachedSignal(t *testing.T) {
 	if branch != "" || detached || ok {
 		t.Errorf("non-repo: got (%q, %v, %v), want (\"\", false, false)", branch, detached, ok)
 	}
+}
+
+// withoutExec clears PATH for a test so any subprocess spawn fails — a
+// successful resolution under it proves the direct-read path ran with no exec.
+func withoutExec(t *testing.T) {
+	t.Helper()
+	t.Setenv("PATH", t.TempDir())
+}
+
+// cacheEntry returns the branch cache entry for cwd, failing on absence.
+func cacheEntry(t *testing.T, cwd string) gitBranchCacheEntry {
+	t.Helper()
+	gitBranchCacheMu.RLock()
+	defer gitBranchCacheMu.RUnlock()
+	e, ok := gitBranchCache[cwd]
+	if !ok {
+		t.Fatalf("no cache entry for %q", cwd)
+	}
+	return e
+}
+
+func TestResolveGitBranchesSubdirectoryDirectRead(t *testing.T) {
+	withoutExec(t)
+	ctx := context.Background()
+
+	t.Run("repo-subdirectory cwd resolves via direct read at the walk-found root", func(t *testing.T) {
+		resetGitBranchCache(t)
+		repo := t.TempDir()
+		writeGitHead(t, repo, "ref: refs/heads/main\n")
+		sub := filepath.Join(repo, "sub", "dir")
+		if err := os.MkdirAll(sub, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		// exec is impossible (empty PATH): a branch here came from file reads
+		// alone, never the subprocess fallback.
+		if got := resolveGitBranches(ctx, []string{sub}); got[sub] != "main" {
+			t.Errorf("subdirectory resolve: got %q, want main", got[sub])
+		}
+	})
+
+	t.Run("worktree gitdir indirection resolves from a subdirectory", func(t *testing.T) {
+		resetGitBranchCache(t)
+		gitDir := t.TempDir() // the worktree's real gitdir
+		if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/feat-wt\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		worktree := t.TempDir()
+		if err := os.WriteFile(filepath.Join(worktree, ".git"), []byte("gitdir: "+gitDir+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		sub := filepath.Join(worktree, "nested")
+		if err := os.MkdirAll(sub, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if got := resolveGitBranches(ctx, []string{sub}); got[sub] != "feat-wt" {
+			t.Errorf("worktree subdirectory resolve: got %q, want feat-wt", got[sub])
+		}
+	})
+}
+
+func TestResolveGitBranchesTwoTierNegatives(t *testing.T) {
+	withoutExec(t)
+	ctx := context.Background()
+
+	t.Run("no-repo cwd caches on the long TTL with no subprocess", func(t *testing.T) {
+		resetGitBranchCache(t)
+		plain := t.TempDir()
+		if config.FindGitRoot(plain) != "" {
+			t.Skip("temp dir lives inside a git repo; cannot exercise the no-repo walk")
+		}
+		if got := resolveGitBranches(ctx, []string{plain}); got[plain] != "" {
+			t.Errorf("no-repo resolve: got %q, want empty", got[plain])
+		}
+		e := cacheEntry(t, plain)
+		if remaining := time.Until(e.expiresAt); remaining <= gitBranchNegativeTTL || remaining > gitBranchNoRepoTTL {
+			t.Errorf("no-repo expiresAt remaining = %v, want on the %v horizon", remaining, gitBranchNoRepoTTL)
+		}
+		// Within the TTL the second call is a pure cache hit: delete the dir so
+		// any re-walk would misbehave, then confirm the result is unchanged.
+		if err := os.RemoveAll(plain); err != nil {
+			t.Fatal(err)
+		}
+		if got := resolveGitBranches(ctx, []string{plain}); got[plain] != "" {
+			t.Errorf("cached no-repo resolve: got %q, want empty", got[plain])
+		}
+	})
+
+	t.Run("unparseable .git still takes the fallback and caches on the short cadence", func(t *testing.T) {
+		resetGitBranchCache(t)
+		broken := t.TempDir()
+		// A .git FILE whose content is not a gitdir: pointer — the walk finds it
+		// (so this is never a no-repo negative) but the direct read can't parse
+		// it, so the subprocess fallback runs and fails (exec impossible here).
+		if err := os.WriteFile(filepath.Join(broken, ".git"), []byte("garbage\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := resolveGitBranches(ctx, []string{broken}); got[broken] != "" {
+			t.Errorf("unparseable resolve: got %q, want empty", got[broken])
+		}
+		e := cacheEntry(t, broken)
+		if remaining := time.Until(e.expiresAt); remaining <= 0 || remaining > gitBranchNegativeTTL {
+			t.Errorf("unparseable expiresAt remaining = %v, want on the %v cadence", remaining, gitBranchNegativeTTL)
+		}
+	})
+
+	t.Run("ambiguous stat error keeps the short cadence, never the no-repo TTL", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("running as root; permission errors cannot be provoked")
+		}
+		resetGitBranchCache(t)
+		base := t.TempDir()
+		repo := filepath.Join(base, "repo")
+		if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeGitHead(t, repo, "ref: refs/heads/main\n")
+		cwd := filepath.Join(repo, "sub")
+		if err := os.MkdirAll(cwd, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		// Revoking search permission on base makes every stat under it fail
+		// with EACCES — a REAL repo whose walk errors, the misclassification
+		// case: it must not become an authoritative 5m no-repo negative.
+		if err := os.Chmod(base, 0o000); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(base, 0o755) })
+		if got := resolveGitBranches(ctx, []string{cwd}); got[cwd] != "" {
+			t.Errorf("ambiguous resolve: got %q, want empty (fallback exec impossible here)", got[cwd])
+		}
+		e := cacheEntry(t, cwd)
+		if remaining := time.Until(e.expiresAt); remaining <= 0 || remaining > gitBranchNegativeTTL {
+			t.Errorf("ambiguous expiresAt remaining = %v, want on the %v cadence", remaining, gitBranchNegativeTTL)
+		}
+
+		// Once the error clears, the short cadence re-probe resolves the real
+		// branch directly.
+		if err := os.Chmod(base, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		ageGitBranchEntry(t, cwd, 0)
+		if got := resolveGitBranches(ctx, []string{cwd}); got[cwd] != "main" {
+			t.Errorf("healed resolve: got %q, want main", got[cwd])
+		}
+	})
+}
+
+func TestResolveGitBranchesConcurrentMisses(t *testing.T) {
+	withoutExec(t)
+	ctx := context.Background()
+
+	t.Run("a full miss batch resolves correctly", func(t *testing.T) {
+		resetGitBranchCache(t)
+		var cwds []string
+		wantBranch := make(map[string]string)
+		for _, branch := range []string{"main", "feat-a", "feat-b", "feat-c"} {
+			repo := t.TempDir()
+			writeGitHead(t, repo, "ref: refs/heads/"+branch+"\n")
+			sub := filepath.Join(repo, "sub")
+			if err := os.MkdirAll(sub, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			cwds = append(cwds, repo, sub)
+			wantBranch[repo], wantBranch[sub] = branch, branch
+		}
+		for range 8 {
+			cwds = append(cwds, t.TempDir()) // no-repo misses
+		}
+		got := resolveGitBranches(ctx, cwds)
+		for _, cwd := range cwds {
+			if got[cwd] != wantBranch[cwd] {
+				t.Errorf("resolve %q: got %q, want %q", cwd, got[cwd], wantBranch[cwd])
+			}
+		}
+		gitBranchCacheMu.RLock()
+		n := len(gitBranchCache)
+		gitBranchCacheMu.RUnlock()
+		if n != len(cwds) {
+			t.Errorf("cache entries = %d, want %d (every miss written by the batched update)", n, len(cwds))
+		}
+	})
+
+	t.Run("a canceled ctx issues no new work", func(t *testing.T) {
+		resetGitBranchCache(t)
+		repo := t.TempDir()
+		writeGitHead(t, repo, "ref: refs/heads/main\n")
+		canceled, cancel := context.WithCancel(ctx)
+		cancel()
+		if got := resolveGitBranches(canceled, []string{repo}); len(got) != 0 {
+			t.Errorf("canceled ctx: got %v, want no resolutions", got)
+		}
+		gitBranchCacheMu.RLock()
+		n := len(gitBranchCache)
+		gitBranchCacheMu.RUnlock()
+		if n != 0 {
+			t.Errorf("canceled ctx: %d cache entries written, want 0", n)
+		}
+	})
+
+	t.Run("the resolve limit truncates the miss batch", func(t *testing.T) {
+		resetGitBranchCache(t)
+		var cwds []string
+		for range gitBranchResolveLimit + 4 {
+			cwds = append(cwds, t.TempDir())
+		}
+		resolveGitBranches(ctx, cwds)
+		gitBranchCacheMu.RLock()
+		n := len(gitBranchCache)
+		gitBranchCacheMu.RUnlock()
+		if n != gitBranchResolveLimit {
+			t.Errorf("cache entries = %d, want %d (gitBranchResolveLimit)", n, gitBranchResolveLimit)
+		}
+	})
 }
 
 func TestWindowPRKey(t *testing.T) {

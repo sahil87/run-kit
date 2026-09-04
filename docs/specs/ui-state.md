@@ -66,7 +66,7 @@ host ─ server (-L) ─ session ─ window ─ pane         tab ─ surface ─
 | **session** | tmux session | `=<name>:` | exact-match form, never fuzzy |
 | **tab** | a tmux **window** | `@N` | immutable id; window *name* belongs to the user and is never parsed |
 | **pane** | tmux pane | `%N` | substrate only — lenses render over the tab, not a pane |
-| **surface** | a lens kind over the tab | `@N/<surface>` | `tty` · `web` · `code` · `chat` · `desktop` · `agents` (open registry, window-views.md) |
+| **surface** | a lens kind over the tab | `@N/<surface>` | `tty` · `web` · `code` · `desktop` · `agents` (open registry, window-views.md) |
 | **web tab** | one page inside the `web` surface | `@N/web/<n>` | 1-based index; the only surface with sub-addresses (v1) |
 
 The **tab is not the terminal**. `tty` is a lens over the window's panes and

@@ -615,8 +615,8 @@ hooks.
 - **No disk validation** — the reconciler does NOT stat
   `~/.claude/projects/**/<ref>.jsonl`. Per-pane-per-poll filesystem I/O guarding a
   pathological case; a live agent's transcript exists by construction, and the
-  later chat-read endpoint surfaces a missing transcript naturally as a read
-  error.
+  transcript-reading consumers (operator actuation, fork, closed-resume,
+  auto-name) surface a missing transcript naturally as a read error.
 
 ### Writer: `rk agent hook` stdin-JSON seam + chat stamp (`cmd/rk/agent_hook.go`)
 
@@ -1025,8 +1025,9 @@ break to revisit the multi-pane rule).
 ### No disk validation of the referenced transcript
 **Decision**: the reconciler does NOT stat `~/.claude/projects/**/<ref>.jsonl`.
 **Why**: it would add per-pane-per-poll filesystem I/O to guard a pathological
-case; a live agent's transcript exists by construction, and the later chat-read
-endpoint surfaces a missing transcript naturally as a read error. Keeps chat
+case; a live agent's transcript exists by construction, and the transcript-reading
+consumers (operator actuation, fork, closed-resume, auto-name) surface a missing
+transcript naturally as a read error. Keeps chat
 identity derived purely from tmux pane options at request time (Constitution II).
 **Rejected**: stat-on-reconcile (I/O cost with no correctness gain for the live
 case).

@@ -297,10 +297,11 @@ the caller degrades), so readiness is a heuristic, not a proof.
 
 A second pane user option, written by the **same** `rk agent hook` binary on the
 same hook fires, ties a pane to the **live** agent chat session running in it.
-This is the keystone of the HTML-agent-chat-view stack (a chat **view** over the
-pane; the pane stays the agent's parent process — Constitution VI): the chat-read
-backend has no key to read a transcript by, and the frontend toggle nothing to
-gate on, without it.
+It is the key every transcript-coupled feature resolves a pane by: operator
+actuation (transcript reads), fork and closed-session resume, auto-naming, and
+agent-targeted send (`POST /api/windows/{id}/send` with `target:"agent"`) all
+start from this option — without it none of them has a session to address (the
+pane stays the agent's parent process — Constitution VI).
 
 **Why a hook (not derivation).** Claude Code sessions are disk-owned: every
 session persists to `~/.claude/projects/<cwd-slug>/<session-id>.jsonl`, and any
@@ -387,8 +388,9 @@ Beyond that:
    suppresses chat until the first state write lands a pid — it self-heals at the
    first prompt.
 4. **No disk validation** — the reconciler does **not** stat the referenced
-   `…/<ref>.jsonl`. A live agent's transcript exists by construction; the chat-read
-   endpoint surfaces a missing transcript naturally as a read error.
+   `…/<ref>.jsonl`. A live agent's transcript exists by construction; the
+   transcript-reading consumers (operator actuation, fork, closed-resume,
+   auto-name) surface a missing transcript naturally as a read error.
 5. **Rides the existing read** — `#{@rk_pane_chat}` and `#{@rk_chat}` ride the
    `list-panes` `paneFormat` (dual-read window); they cost **zero extra subprocess**. The window
    rollup (active pane's chat if set, else the first pane carrying one) plus the

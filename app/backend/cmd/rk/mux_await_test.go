@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"rk/internal/inject"
 	"rk/internal/tmux"
 )
 
@@ -615,6 +617,115 @@ func TestMuxAwaitAnyUsageErrors(t *testing.T) {
 	for _, args := range [][]string{
 		{"await", "%1", "%2"},                 // two targets without --any
 		{"await", "--any", "%1", "bare:name"}, // bad grammar per member
+	} {
+		stdout, _, err := runMuxCmd(t, args...)
+		if err == nil || exitCode(err) != exitUsage {
+			t.Errorf("args %v: err = %v, want usage exit 2", args, err)
+		}
+		if stdout != "" {
+			t.Errorf("args %v: stdout = %q, want empty", args, stdout)
+		}
+	}
+}
+
+// readyCall records one muxAwaitReadyFn invocation for the --ready tests.
+type readyCall struct {
+	pane    string
+	timeout time.Duration
+}
+
+// stubAwaitReady points the --ready wait seam at a fake returning (readiness,
+// err), recording the pane and timeout it was called with.
+func stubAwaitReady(t *testing.T, readiness inject.Readiness, err error) *readyCall {
+	t.Helper()
+	rec := &readyCall{}
+	orig := muxAwaitReadyFn
+	muxAwaitReadyFn = func(_ context.Context, _, paneID string, timeout time.Duration) (inject.Readiness, error) {
+		rec.pane, rec.timeout = paneID, timeout
+		return readiness, err
+	}
+	t.Cleanup(func() { muxAwaitReadyFn = orig })
+	return rec
+}
+
+// TestMuxAwaitReadyReports: --ready reports which readiness signal fired, and
+// --timeout reaches the wait seam in seconds.
+func TestMuxAwaitReadyReports(t *testing.T) {
+	f := &muxFake{}
+	installMuxFakes(t, f)
+	for _, tc := range []struct {
+		name      string
+		readiness inject.Readiness
+		want      string
+	}{
+		{"state signal", inject.ReadyByState, "ready %5 (state)\n"},
+		{"settle signal", inject.ReadyBySettle, "ready %5 (settled)\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := stubAwaitReady(t, tc.readiness, nil)
+			stdout, _, err := runMuxCmd(t, "await", "%5", "--ready", "--timeout", "120")
+			if err != nil {
+				t.Fatalf("err = %v", err)
+			}
+			if stdout != tc.want {
+				t.Errorf("stdout = %q, want %q", stdout, tc.want)
+			}
+			if rec.pane != "%5" || rec.timeout != 120*time.Second {
+				t.Errorf("wait call = (pane %q, timeout %s), want (%%5, 120s)", rec.pane, rec.timeout)
+			}
+		})
+	}
+}
+
+// TestMuxAwaitReadyTimeoutReportsRunning: a readiness deadline keeps the await
+// family's timeout contract — `running` on stdout, exit 0 — and --notify fires
+// on that report.
+func TestMuxAwaitReadyTimeoutReportsRunning(t *testing.T) {
+	f := &muxFake{}
+	installMuxFakes(t, f)
+	stubAwaitReady(t, 0, inject.ErrNotReady)
+	s := &awaitScript{goneAt: -1}
+	origDeps := muxAwaitDepsFn
+	muxAwaitDepsFn = func(string) awaitDeps { return s.deps(t) }
+	t.Cleanup(func() { muxAwaitDepsFn = origDeps })
+
+	stdout, _, err := runMuxCmd(t, "await", "%5", "--ready", "--timeout", "5", "--notify")
+	if err != nil {
+		t.Fatalf("err = %v, want nil (timeout is a report, not a failure)", err)
+	}
+	if stdout != "running\n" {
+		t.Errorf("stdout = %q, want the running report", stdout)
+	}
+	if len(s.notified) != 1 || s.notified[0] != "agent %5 is running" {
+		t.Errorf("notify = %v, want the default-derived message", s.notified)
+	}
+}
+
+// TestMuxAwaitReadyOperationalError: a non-deadline wait failure (e.g. the
+// pane died) is an operational error, exit 1, with no report line.
+func TestMuxAwaitReadyOperationalError(t *testing.T) {
+	f := &muxFake{}
+	installMuxFakes(t, f)
+	stubAwaitReady(t, 0, fmt.Errorf("read pane state: boom"))
+	stdout, _, err := runMuxCmd(t, "await", "%5", "--ready")
+	if err == nil || exitCode(err) != 1 {
+		t.Fatalf("err = %v, want exit 1", err)
+	}
+	if stdout != "" {
+		t.Errorf("stdout = %q, want empty", stdout)
+	}
+}
+
+// TestMuxAwaitReadyFlagConflicts: --ready is mutually exclusive with the
+// state/file conditions and the multi-target arm (usage error, exit 2).
+func TestMuxAwaitReadyFlagConflicts(t *testing.T) {
+	f := &muxFake{}
+	installMuxFakes(t, f)
+	for _, args := range [][]string{
+		{"await", "%5", "--ready", "--until", "waiting"},
+		{"await", "%5", "--ready", "--file", "/tmp/x"},
+		{"await", "%5", "--ready", "--after-active"},
+		{"await", "--any", "%5", "%6", "--ready"},
 	} {
 		stdout, _, err := runMuxCmd(t, args...)
 		if err == nil || exitCode(err) != exitUsage {

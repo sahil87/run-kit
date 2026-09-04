@@ -8,7 +8,7 @@
 ### CLI: the `rk tutorial` command
 
 #### R1: Command surface
-run-kit SHALL provide a top-level `tutorial` command (`rk tutorial [--tier <role>]`) registered in `cmd/rk/main.go`. The `--tier` flag SHALL default to `fast` and be forwarded verbatim as the fab role selector for launcher resolution.
+run-kit SHALL provide a top-level `tutorial` command (`rk tutorial [--tier <role>]`) registered in `cmd/rk/root.go`. The `--tier` flag SHALL default to `fast` and be forwarded verbatim as the fab role selector for launcher resolution.
 
 - **GIVEN** a user with run-kit installed
 - **WHEN** they run `rk tutorial --help`
@@ -28,23 +28,31 @@ GIVEN an existing window whose name is exactly `tutorial` in the **current sessi
 - **WHEN** the user runs `rk tutorial`
 - **THEN** that window is selected by its `@N` id, no new window is created, and the command reports the switch
 
-#### R4: Launch — resolved launcher + positional kickoff
+#### R4: Launch — bare launcher + typed, verified kickoff
+*(Revised after the live fast-tier failure: `kimi --auto '<prompt>'` parses a positional prompt as a subcommand and exits — positional delivery is claude-only, so the provider-opaque launcher MUST be fed by typed keys, per the backlog's original "types in the kickoff prompt" wording.)*
+
 When no `tutorial` window exists in the current session, `rk tutorial` SHALL:
 1. Resolve the launcher via `riff.ResolveLauncher(ctx, repoRoot, tier)` where `repoRoot` is `config.FindGitRoot(cwd)` (the riff CLI's own derivation — empty tolerated) and `tier` is the `--tier` value. The seam's existing contract supplies the fab-absent fallback: any failure degrades silently to `riff.DefaultLauncher`.
-2. Compose the pane command via riff's exported skill-shell composition (R5) with the kickoff prompt as the launcher's single-quote-escaped **positional argument**:
+2. Compose the pane command via riff's exported skill-shell composition (R5) with an **empty prompt** — the launcher runs **bare** (`${SHELL:-/bin/sh} -i -c '<launcher>'` with the `; exec "${SHELL:-/bin/sh}"` fallback tail).
+3. Open the window with `tmux new-window -P -F '#{pane_id}' -c <cwd> -n tutorial <shellCmd>` on the caller's current server (child env carries the restored `$TMUX`), capturing the pane id as the delivery target, and report the launch (window name + resolved tier).
+4. **Type the kickoff** into the booted agent, each step verified from the pane's own text (`deliverTutorialKickoff`):
+   - boot settle: poll `capture-pane` until the pane is non-blank and unchanged across two consecutive polls;
+   - type `send-keys -l` with the exact constant:
 
-   ```go
-   const tutorialKickoffPrompt = "Run rk skill tutorial and follow it exactly"
-   ```
+     ```go
+     const tutorialKickoffPrompt = "Run rk skill tutorial and follow it exactly"
+     ```
 
-   yielding `<launcher> '<escaped prompt>'` wrapped `${SHELL:-/bin/sh} -i -c '…'` with the `; exec "${SHELL:-/bin/sh}"` fallback tail.
-3. Open the window with `tmux new-window -c <cwd> -n tutorial <shellCmd>` on the caller's current server (child env carries the restored `$TMUX`, the riff CLI-path pattern), and report the launch (window name + resolved tier).
+   - echo verify: alphanumerics-only compare (`paneEchoesKickoff`/`stripToAlnum`) so input-box borders and line wrapping are presentation noise;
+   - submit `send-keys Enter`, retrying ONCE when the pane is byte-identical after the settle wait (the swallowed-Enter trap).
 
-All subprocesses MUST be argv-slice `exec.CommandContext` calls with timeouts (constitution §I); the launcher string is the one documented shell-expansion exception, identical to riff's posture.
+   Pacing: each tmux call individually bounded (10s); the polls share a 25s wall-clock delivery deadline (600ms interval, 1.2s submit settle — package vars, shrunk by tests). An unverifiable delivery SHALL degrade to a stderr note carrying the exact kickoff text to paste, with exit 0 — the window and agent exist either way.
+
+All subprocesses MUST be argv-slice `exec.CommandContext` calls with timeouts (constitution §I); the launcher string is the one documented shell-expansion exception, and the typed kickoff never passes through a shell at all (a literal `send-keys -l` argv element).
 
 - **GIVEN** a tmux session with no `tutorial` window, inside a git repo with fab installed
 - **WHEN** the user runs `rk tutorial`
-- **THEN** a window named `tutorial` opens in the current session at the process cwd, running the fast-tier-resolved launcher with the kickoff prompt as its positional argument, and the pane drops to an interactive shell when the agent exits
+- **THEN** a window named `tutorial` opens in the current session at the process cwd running the fast-tier-resolved launcher bare, the kickoff prompt is typed into the booted agent and submitted (verified), and the pane drops to an interactive shell when the agent exits
 
 #### R5: Exported riff composition seam
 `internal/riff` SHALL expose the skill-pane shell composition to `cmd/rk` (e.g. `func SkillPaneCommand(launcher, prompt string) string` delegating to `buildSkillShellString`) with **zero behavior change** for riff itself — existing riff tests pass unmodified.
@@ -62,10 +70,10 @@ README SHALL name `run-kit tutorial` as the guided-tour entry: a Quick start men
 
 ### Design Decisions
 
-#### Kickoff as positional argument, not typed keys
-**Decision**: deliver the kickoff prompt as the launcher's escaped positional argument inside the window's shell command.
-**Why**: the named precedent (`fab operator`) does exactly this (`<launcher> '/fab-operator'`); it reuses riff's proven task-injection seam and cannot hit send-keys delivery races (typed-but-unsent prompt traps).
-**Rejected**: `send-keys` typing after boot — needs a readiness gate, is provider-TUI-sensitive, and has a known Enter-delivery failure mode.
+#### Kickoff typed into the booted agent, not a positional argument
+**Decision**: run the launcher bare and deliver the kickoff by typed keys — verified boot settle, literal `send-keys -l`, alphanumerics-only echo check, Enter with one unchanged-screen retry, degrade-to-paste-note on failure.
+**Why**: the launcher string is provider-opaque and a positional prompt is claude-only — the first shipped (positional) version broke immediately on the default fast tier, where `kimi --auto '<prompt>'` rejects the prompt as an unknown subcommand. The backlog's original wording ("types in the kickoff prompt") anticipated exactly this; the verification loop is what neutralizes the typed-delivery risks (readiness, swallowed Enter).
+**Rejected**: the launcher positional argument (riff's task-injection seam) — shipped first, provider-dependent, live-failed on kimi; a per-provider prompt-flag table — rk would own provider CLI schemas it deliberately delegates to fab (constitution §III).
 *Introduced by*: 260903-7ajq-rk-tutorial-entry
 
 #### Session-scoped singleton
@@ -91,11 +99,12 @@ README SHALL name `run-kit tutorial` as the guided-tour entry: a Quick start men
 - [x] T002 Create `app/backend/cmd/rk/tutorial.go`: cobra `tutorialCmd` (`Use: "tutorial"`, `--tier` string flag default `"fast"`), the `tutorialKickoffPrompt` constant, and the tmux precondition check via `tmux.OriginalTMUX` returning exit 1 with dashboard guidance (riff `ExitCodeError` discipline) <!-- R1, R2 -->
 - [x] T003 Singleton probe in `tutorial.go`: enumerate current-session windows (`list-windows -F '#{window_id}\t#{window_name}'`, restored-`$TMUX` child env, `exec.CommandContext` + timeout), exact-match `tutorial` via a pure last-field helper, `select-window -t <@id>` + `Switched to existing tutorial tab.` report <!-- R3 -->
 - [x] T004 Launch path in `tutorial.go`: `riff.ResolveLauncher(ctx, config.FindGitRoot(cwd), tier)` → `riff.SkillPaneCommand(launcher, tutorialKickoffPrompt)` → `tmux new-window -c <cwd> -n tutorial <shellCmd>` (restored-`$TMUX` child env), success report naming the window and tier <!-- R4 -->
-- [x] T005 Register `tutorialCmd` in `app/backend/cmd/rk/main.go` beside the other top-level commands <!-- R1 -->
+- [x] T005 Register `tutorialCmd` in `app/backend/cmd/rk/root.go` beside the other top-level commands <!-- R1 -->
 
 ### Phase 3: Integration & Edge Cases
 
-- [x] T006 Unit tests in `app/backend/cmd/rk/tutorial_test.go`: precondition failure message + exit class, `--tier` default and override plumbing, kickoff shell-string composition (exact prompt text, escaping), pure singleton-probe matcher (incl. non-match for other-session rows and tab-containing names); verify the suite passes under `env -u TMUX -u TMUX_PANE go test ./cmd/rk/` <!-- R1, R2, R3, R4 -->
+- [x] T006 Unit tests in `app/backend/cmd/rk/tutorial_test.go`: precondition failure message + exit class, `--tier` default and override plumbing, bare-launcher composition, pure singleton-probe matcher (incl. non-match for other-session rows and tab-containing names); verify the suite passes under `env -u TMUX -u TMUX_PANE go test ./cmd/rk/` <!-- R1, R2, R3, R4 -->
+- [x] T008 Typed-kickoff delivery (`deliverTutorialKickoff` in `tutorial.go`): pane-id capture via `new-window -P -F`, boot-settle poll, literal `send-keys -l` + alphanumerics-only echo verify (`paneEchoesKickoff`), Enter with one unchanged-screen retry, stderr paste-note degrade; scripted-capture unit tests (happy path, Enter retry, degrade note) plus a live isolated-server proof against the fast tier <!-- R4 -->
 
 ### Phase 4: Polish
 
@@ -108,13 +117,13 @@ README SHALL name `run-kit tutorial` as the guided-tour entry: a Quick start men
 - [x] A-001 R1: `rk tutorial` exists as a registered top-level command with `--tier` defaulting to `fast` and sensible Short/Long help
 - [x] A-002 R2: outside tmux the command exits 1 with dashboard-pointing guidance and runs no tmux subprocess
 - [x] A-003 R3: an existing exact-name `tutorial` window in the current session is selected by `@N` id (no duplicate window) with the switch report
-- [x] A-004 R4: with no existing window, a `tutorial` window opens in the current session at the process cwd running the composed launcher + kickoff command with the interactive-shell fallback
+- [x] A-004 R4: with no existing window, a `tutorial` window opens in the current session at the process cwd running the BARE launcher with the interactive-shell fallback, and the kickoff is typed into the booted agent and submitted (verified boot settle → echo → Enter)
 - [x] A-005 R5: the riff composition export is behavior-preserving — existing riff tests pass unmodified
 - [x] A-006 R6: README Quick start and Command reference document `run-kit tutorial`
 
 ### Behavioral Correctness
 
-- [x] A-007 R4: the kickoff prompt is exactly `Run rk skill tutorial and follow it exactly`, single-quote-escaped as the launcher's positional argument; the launcher half remains the documented unescaped exception
+- [x] A-007 R4: the kickoff prompt is exactly `Run rk skill tutorial and follow it exactly`, delivered as a literal `send-keys -l` argv element (never through a shell); the launcher half remains the documented unescaped exception; an unverifiable delivery degrades to a stderr paste note with exit 0
 - [x] A-008 R1: `--tier <x>` reaches `ResolveLauncher` as the tier selector; omitted flag resolves tier `fast`
 
 ### Scenario Coverage
@@ -136,7 +145,7 @@ README SHALL name `run-kit tutorial` as the guided-tour entry: a Quick start men
 
 ### Security
 
-- [x] A-017 R4: no user-controlled input reaches the shell string unescaped — the kickoff prompt is a compile-time constant through `escapeSingleQuotes`; `--tier` travels only as a fab argv element, never into the shell string
+- [x] A-017 R4: no user-controlled input reaches the shell string unescaped — the shell string carries only the resolved launcher (the documented exception); the kickoff constant rides `send-keys -l` as a literal argv element outside any shell; `--tier` travels only as a fab argv element
 
 ## Notes
 
@@ -160,5 +169,6 @@ README SHALL name `run-kit tutorial` as the guided-tour entry: a Quick start men
 | 5 | Confident | Singleton matcher cuts on the FIRST tab — name = remainder of the line (the format's last field), so a tab-containing name never exact-matches | "Last tab-separated field" read against `#{window_id}\t#{window_name}`: only the id precedes the name, so a first-tab cut preserves the name verbatim; a literal trailing-field match would false-positive on `foo\ttutorial` | S:65 R:85 A:90 D:75 |
 | 6 | Confident | `os.Getwd` failure is a plain operational error (exit 1 via the central execute() seam), not the tolerated-empty repoRoot path | riff tolerates an empty root for launcher RESOLUTION only; `new-window -c` needs a real cwd, so a cwd failure is fatal | S:55 R:80 A:75 D:65 |
 | 7 | Confident | Tmux/fab seams in tutorial.go are package-level function vars carrying (ctx, args, env) — the role.go test-seam shape — rather than reusing internal/riff's unexported childEnv | The two tmux calls are trivial argv slices; an exported riff seam for a two-line env append would widen the engine's surface for no behavioral gain | S:50 R:80 A:75 D:60 |
+| 8 | Certain | Kickoff delivery revised from launcher-positional to typed keys (bare launcher + verified send-keys) after the live fast-tier failure | `kimi --auto '<prompt>'` rejects a positional prompt as an unknown subcommand (user-reported, reproduced); typed keys are the only provider-agnostic delivery — validated end-to-end on an isolated tmux server against the real fast-tier launcher | S:95 R:85 A:90 D:90 |
 
-4 assumptions (1 certain, 3 confident, 0 tentative) at plan time; 3 further apply-time decisions appended (rows 5–7, all confident).
+4 assumptions (1 certain, 3 confident, 0 tentative) at plan time; 3 apply-time decisions appended (rows 5–7, all confident); 1 post-review revision (row 8, certain — the typed-kickoff rework).

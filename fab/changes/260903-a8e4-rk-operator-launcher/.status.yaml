@@ -1,0 +1,57 @@
+id: a8e4
+name: 260903-a8e4-rk-operator-launcher
+created: 2026-09-03T11:04:51Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 8
+    acceptance_count: 17
+    acceptance_completed: 17
+confidence:
+    certain: 13
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.9
+    fuzzy: true
+    dimensions:
+        signal: 83.8
+        reversibility: 83.1
+        competence: 90.9
+        disambiguation: 87.5
+stage_metrics:
+    intake: {started_at: "2026-09-03T11:04:51Z", driver: fab-new, iterations: 1, completed_at: "2026-09-03T11:08:14Z"}
+    apply: {started_at: "2026-09-03T11:08:14Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T11:18:36Z"}
+    review: {started_at: "2026-09-03T11:18:36Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T11:27:13Z"}
+    hydrate: {started_at: "2026-09-03T11:27:13Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T11:33:56Z"}
+    ship: {started_at: "2026-09-03T11:33:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-03T11:37:16Z"}
+    review-pr: {started_at: "2026-09-03T11:37:16Z", driver: git-pr, iterations: 1, completed_at: "2026-09-03T11:47:49Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/812
+change_type_source: explicit
+true_impact:
+    added: 3563
+    deleted: 309
+    net: 3254
+    excluding:
+        added: 2451
+        deleted: 219
+        net: 2232
+    tests:
+        added: 1451
+        deleted: 97
+        net: 1354
+    computed_at: "2026-09-03T11:37:16Z"
+    computed_at_stage: ship
+summary: 'rk operator: server-wide singleton operator launcher — hard tmux/fab preconditions, atomic create-and-mark via the shared stampOperatorRole write path, typed /fab-operator kickoff, --workers charset-gated env prefix; shared agent_kickoff.go helpers'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-03T11:47:49Z

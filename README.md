@@ -297,6 +297,7 @@ Supports `zsh`, `bash`, `fish`, and `powershell`. Completion-only — run-kit ha
 |---------|--------------|
 | `run-kit riff` | Create a worktree + tmux window + agent/command pane(s). |
 | `run-kit tutorial` | Open the guided tour — a `tutorial` window in the current tmux session whose agent walks you through run-kit (`--tier` selects the fab role, default `fast`). Re-running switches to the existing tab. |
+| `run-kit operator` | Open the operator — the per-tmux-server singleton `operator` window running the fab operator-tier agent, role-marked so the dashboard pins it (`--workers <provider>` sets `FAB_AGENT_WORKERS`). Requires tmux and fab-kit on `PATH`; re-running switches to the existing tab. |
 | `run-kit serve` | Start the HTTP server (foreground or daemon). |
 | `run-kit status` | Show a tmux session summary. |
 | `run-kit url` | Print the run-kit server URL (config-derived from `RK_HOST`/`RK_PORT`, default `http://127.0.0.1:3000`) — a heuristic for AI agents, not a liveness probe. |

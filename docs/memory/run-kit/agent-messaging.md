@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The `rk mux` family — 12 tmux-substrate verbs, no daemon dependency. Pane-scoped members (`send`/`await` + `capture`/`kill`/`process` twins) share the strict %N/@N/=session:window grammar and with `panes` consume inherited `-L`; `await --any` wakes on the first of N panes. Operator members `new`/`reap`/`snapshot`/`init-conf`/`guard`/`adopt` reject `-L` (`guard` excepted): `new` spawns a detached server (`--ephemeral` marks `@rk_srv_ephemeral`); `adopt` stamps `@rk_srv_managed`."
+description: "The `rk mux` family — 12 tmux-substrate verbs, no daemon dependency. Pane-scoped members (`send`/`await` + `capture`/`kill`/`process` twins) share the strict %N/@N/=session:window grammar and with `panes` consume inherited `-L`; `await --any` wakes on the first of N panes, `--ready` waits for boot-readiness (state present, else settled screen). Operator members `new`/`reap`/`snapshot`/`init-conf`/`guard`/`adopt` reject `-L`: `new` spawns a detached server; `adopt` stamps `@rk_srv_managed`."
 ---
 # Agent-to-Agent Messaging (`rk mux`)
 
@@ -15,7 +15,8 @@ The family has twelve members. The messaging pair is the conversation loop's
 halves: `rk mux send` delivers a message into another agent's pane — the
 agent→agent counterpart of `rk present`'s agent→user attach — and `rk mux await`
 blocks until a peer's state (or a file signal) fires — under `--any`, until the
-FIRST of several panes fires. The substrate twins are
+FIRST of several panes fires, and under `--ready` (a distinct, combinable-with-nothing
+condition), until a freshly spawned pane is **boot-ready** — safe to type into. The substrate twins are
 the generic pane-mechanics verbs: `rk mux capture` (scrollback capture with
 substrate-only enrichment), `rk mux kill` (pane removal gated on agent state and server protection), and
 `rk mux process` (the pane's process tree with agent classification). `rk mux
@@ -183,7 +184,7 @@ usage (2).
 
 ### Requirement: `rk mux await` observer
 `rk mux await [--any] <target>... [--until <state>[,<state>]] [--file <path>]
-[--after-active] [--timeout <secs>] [--notify[=msg]]` SHALL block until any
+[--after-active] [--ready] [--timeout <secs>] [--notify[=msg]]` SHALL block until any
 waitable signal fires, then print a one-line report and exit. Without `--any`
 exactly one target is required; with `--any` one-or-more targets are accepted —
 each uses the strict grammar and is resolved to a pane ID up front via
@@ -223,6 +224,25 @@ fires (default message `agent <target> is <report>`; under `--any`,
 caller's parent context with only per-read timeouts (`awaitCmdTimeout` 5s) on
 individual tmux reads, so a wait can outlive any single read by minutes.
 
+**`--ready` is the boot-readiness condition** — a single-pane wait (no `--any`)
+for the moment a freshly spawned agent is safe to type into, driven by
+`inject.AwaitReady` ([agent-state](/run-kit/agent-state.md) § Boot-Ready Signal):
+**state-present** (the reconciled `@rk_pane_agent_state` exists — hooks fired,
+so the TUI is up) or, for hook-less agents, **capture-settle** (the pane screen
+is non-blank and byte-identical across two consecutive polls), first hit wins.
+The report names the firing signal: `ready %N (state)` or `ready %N (settled)`,
+exit 0. `--ready` is **mutually exclusive with `--until`/`--file`/
+`--after-active`/`--any`** (usage error, exit 2 — mixing conditions has no
+coherent semantics). The family's timeout contract holds: `--timeout` expiry
+reports `running`, exit 0 — with one refinement, a `--timeout 0` (indefinite)
+wait **re-arms** the primitive's internal 25s deadline after each `ErrNotReady`
+pass instead of reporting. `--notify` fires on the report, fail-silent
+(default `agent %N is ready`). The readiness wait is the CLI surface of the
+spawn-then-deliver composite; for hook-less agents the documented composition is
+`rk mux await --ready %5 && rk mux send --force %5 '<prompt>'` — plain `send`
+stays gated on agent state, which a hook-less pane never has, so `--force` is
+the pairing (no new send gate mode).
+
 The fleet-wake protocol monitoring agents build on (rk guarantee vs caller
 obligation): (a) the CALLER arms only against not-currently-waiting panes — rk
 does not filter already-waiting targets; an already-fired `--until` state
@@ -251,6 +271,13 @@ inter-wake spacing is the re-armer's property.
   mid-wait with no signal firing that sweep, **THEN** `gone %1`, exit 1;
   **AND GIVEN** two targets resolving to the same pane ID, **THEN** usage
   error, exit 2.
+
+#### Scenario: Boot-ready wait reports the firing signal
+- **GIVEN** a freshly spawned pane whose hooks stamp agent state during boot
+- **WHEN** `rk mux await --ready %5` runs
+- **THEN** `ready %5 (state)` prints, exit 0; **AND GIVEN** a hook-less agent
+  whose screen settles, **THEN** `ready %5 (settled)` prints, exit 0; **AND
+  GIVEN** `--ready --until idle`, **THEN** usage error, exit 2.
 
 ### Requirement: Composed ask-and-wait (`rk mux send --await`)
 `--await[=<states>]` (default `idle,waiting`) SHALL, after a successful submit,
@@ -780,3 +807,22 @@ re-arms minus the dead pane per the fleet-wake protocol.
 **Rejected**: drop-and-continue with gone-only-when-empty (silently narrows the
 watched set; the caller's set model drifts from reality).
 *Introduced by*: 260823-tqkt-mux-await-any-multi-target
+
+### Boot readiness is a derived signal; hook-less composition is `await --ready && send --force`
+**Decision**: `--ready` waits on a derived two-signal readiness verdict
+(state-present preferred, capture-settle fallback — `inject.AwaitReady`) rather
+than a new agent-state value, reports which signal fired (`ready %N (state)` /
+`ready %N (settled)`), and is mutually exclusive with every other await
+condition including `--any`. `rk mux send` gains NO new gate mode: the
+documented hook-less composition is `await --ready` followed by `send --force`.
+**Why**: presence of a reconciled state already proves hooks fired (the TUI is
+up) — a `ready`/`boot` state would be schema churn every reader must learn;
+`--ready` is defined for the single target pane, so a multi-target boot-wait
+has no coherent report shape in the family; `--force` already exists with
+exactly the skip-the-gate meaning the hook-less path needs, and Go callers use
+the `inject.DeliverWhenReady` composite directly.
+**Rejected**: a new `ready` agent-state value (schema churn, every reader must
+learn it); a `send --when-ready` gate mode (minimal CLI surface — the shell
+composition covers it); `--ready` combinable with `--until`/`--file` (mixing
+conditions has no coherent semantics).
+*Introduced by*: 260903-4czh-boot-ready-spawn-inject

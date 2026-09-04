@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard PASS status (help-dump, skill, principles, update, version, install-composition). Covers Principle 9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + Principle 9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`tab`/`mux`/`agent`/`code`/`tutorial` + the twelve-member `mux` family incl. `new`, `reap --ephemeral`, `adopt`."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard PASS status (help-dump, skill, principles, update, version, install-composition). Covers Principle 9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + P9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`tab`/`agent`/`code`/`tutorial`/`operator` + the twelve-member `mux` family incl. `new`, `reap --ephemeral`, `adopt`."
 ---
 # Toolkit Standards Conformance
 
@@ -667,6 +667,33 @@ is the eighteenth surface measured against the same checks
   `TestSkillTopicsMatchCanonical` (the command is a launcher, not new topic
   content), and the README names `run-kit tutorial` in Quick start and the
   command-reference table (readme-extraction stays closed over the tree).
+
+The `rk operator` verb (`operator.go` — see
+[architecture](/run-kit/architecture.md) § CLI Subcommands, `operator` row; the
+composition seam in [rk-riff](/run-kit/rk-riff.md) § Shell-String Composition)
+is the nineteenth surface measured against the same checks
+(260903-a8e4-rk-operator-launcher):
+
+- **help-dump: platform-stable registration.** `operatorCmd` is registered
+  unconditionally on `rootCmd` (`root.go`'s `init()`) and carries a `Long:`
+  block (with `Examples`, a `Prerequisites` list, and an `Exit codes` list), so
+  the cobra tree walk picks it up with no help-dump code change; the two hard
+  preconditions (inside tmux, fab on PATH) are operational exit 1s at run time,
+  not registration conditions.
+- **Principle 9: the outcome line is data; there is no chatter.** Success
+  prints exactly one stdout line via `cmd.OutOrStdout()` — `Switched to
+  existing operator tab.` or `Opened operator tab (window "operator").` —
+  surviving `--quiet`; the kickoff-delivery degrade note is an error-class
+  stderr write (always survives). There is no progress narration to drop.
+- **Exit-code convention (P4)** — 0 success (including a degraded kickoff
+  delivery), 1 operational precondition (`$TMUX` unset, fab absent), 2 usage
+  (a `--workers` value outside `^[A-Za-z0-9_-]+$` via the CLI-local
+  `usageError` path; cobra flag-parse errors inherit root's `FlagErrorFunc`),
+  3 subprocess (tmux non-zero, timeout, empty pane id).
+- **The `skill` standard is a deliberate no-op here** — the command is a
+  launcher for the fab-kit operator agent, not new topic content; no topic
+  page changes, and the README gains a `run-kit operator` command-reference
+  row (readme-extraction stays closed over the tree).
 
 #### Scenario: A new subcommand group keeps the help tree platform-stable
 - **GIVEN** the `rk desktop` group on a Linux host

@@ -1,9 +1,8 @@
 /**
- * Readline editing chords for run-kit's two text-input surfaces — the docked
- * compose strip and the chat send form (260801-hsxm). Both textarea keydown
- * handlers route through this ONE helper (the consistency mirror of the shared
- * `classifyComposeEnter` Enter policy), intercepting ONLY the classic readline
- * chords that browsers/macOS leave unbound:
+ * Readline editing chords for the docked compose strip (260801-hsxm). Its
+ * textarea keydown handler routes through this ONE helper (the consistency
+ * mirror of the shared `classifyComposeEnter` Enter policy), intercepting
+ * ONLY the classic readline chords that browsers/macOS leave unbound:
  *
  *   - Ctrl+U   kill from cursor to line start (readline unix-line-discard)
  *   - Ctrl+W   delete word backward

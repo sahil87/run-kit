@@ -259,8 +259,8 @@ func TestTabLayoutMutationsRoundTrip(t *testing.T) {
 	if stdout, _, err = runTabCmd(t, "layout", id, "--add", "code"); err != nil || stdout != "main-left:tty,web,code\n" {
 		t.Errorf("--add code: stdout = %q, err = %v, want main-left:tty,web,code", stdout, err)
 	}
-	if _, _, err = runTabCmd(t, "layout", id, "--add", "chat"); err == nil || exitCode(err) != 1 {
-		t.Errorf("--add chat on a full layout: err = %v (code %d), want exit 1", err, exitCode(err))
+	if _, _, err = runTabCmd(t, "layout", id, "--add", "chat"); err == nil || exitCode(err) != exitUsage {
+		t.Errorf("--add chat (unknown surface): err = %v (code %d), want exit 2", err, exitCode(err))
 	}
 	if stdout, _, err = runTabCmd(t, "layout", id, "--rm", "code"); err != nil || stdout != "split-h:tty,web\n" {
 		t.Errorf("--rm code: stdout = %q, err = %v, want split-h:tty,web", stdout, err)
@@ -287,9 +287,9 @@ func TestTabLayoutMutationsRoundTrip(t *testing.T) {
 	if stdout, _, err = runTabCmd(t, "layout", id, "--cycle"); err != nil || stdout != "main-right:code,tty,web\n" {
 		t.Errorf("--cycle: stdout = %q, err = %v, want main-right:code,tty,web", stdout, err)
 	}
-	// --promote of an absent surface is operational.
-	if _, _, err = runTabCmd(t, "layout", id, "--promote", "chat"); err == nil || exitCode(err) != 1 {
-		t.Errorf("--promote chat: err = %v (code %d), want exit 1", err, exitCode(err))
+	// --promote of an unknown surface is user input — usage error.
+	if _, _, err = runTabCmd(t, "layout", id, "--promote", "chat"); err == nil || exitCode(err) != exitUsage {
+		t.Errorf("--promote chat: err = %v (code %d), want exit 2", err, exitCode(err))
 	}
 }
 
@@ -381,7 +381,7 @@ func TestTabWebAddFullExitsOne(t *testing.T) {
 func TestTabWebAddShowReplacesLastSlotOnFullLayout(t *testing.T) {
 	env := withTabTestServer(t)
 	port := tabTestListener(t)
-	tabTmuxDo(t, env.server, "set-option", "-w", "-t", env.bootID, tmux.LayoutOption, "main-left:tty,code,chat")
+	tabTmuxDo(t, env.server, "set-option", "-w", "-t", env.bootID, tmux.LayoutOption, "main-left:tty,code,web")
 
 	stdout, _, err := runTabCmd(t, "web", "add", env.bootID, fmt.Sprintf(":%d", port), "--show")
 	if err != nil {

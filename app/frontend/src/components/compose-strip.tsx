@@ -162,8 +162,7 @@ import {
  * this terminal, footer = broadcast (or a tile-less fallback).
  */
 
-/** Max input rows before the textarea scrolls internally (bounded auto-grow) —
- * mirrors ChatSendForm. */
+/** Max input rows before the textarea scrolls internally (bounded auto-grow). */
 const MAX_TEXTAREA_ROWS = 6;
 
 /** Compose the window-store lookup key from a focused target. */
@@ -660,9 +659,9 @@ export function ComposeStrip({
       textareaRef.current?.blur();
       return;
     }
-    // Shared readline editing layer (handleReadlineKey — the SAME helper
-    // ChatSendForm uses): Ctrl+U/Ctrl+W/Alt+B/F/D, consuming the chord so it
-    // never reaches global listeners. Everything else falls through.
+    // Shared readline editing layer (handleReadlineKey): Ctrl+U/Ctrl+W/Alt+B/F/D,
+    // consuming the chord so it never reaches global listeners. Everything else
+    // falls through.
     if (handleReadlineKey(e.nativeEvent, e.currentTarget)) return;
     // Sent-history recall — sits between the readline layer (which owns no
     // arrow keys, so composition is clean) and the Enter classifier.

@@ -1,5 +1,5 @@
 // Package inject is the shared pane-injection engine extracted out of the
-// chat-send HTTP handler (api/chat.go) so BOTH the daemon route and the CLI
+// send HTTP handler (api/send.go) so BOTH the daemon route and the CLI
 // verb (`rk mux send`) drive one implementation: sanitize (at the caller's
 // boundary) → named-buffer set-buffer → bracketed paste-buffer (-d -p) →
 // NOVELTY echo probe → probe-gated Enter → post-Enter observation and bounded

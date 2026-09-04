@@ -1138,7 +1138,7 @@ function AppShell() {
   }, []);
 
   // The restore effect, keyed per window and DESKTOP-ONLY — auto-focus pops
-  // the mobile keyboard (the chat-view autofocus precedent). It arms the
+  // the mobile keyboard. It arms the
   // window's steal guard and installs capture-phase parent-document
   // listeners that DISARM on the first genuine interaction (and abandon a
   // pending retry — the user has already chosen a target). CodeSurface's
@@ -1405,7 +1405,7 @@ function AppShell() {
   // `flatWindows`/`windowParam` as deps — those churn every SSE tick and would
   // recreate the callback (and defeat the sidebar-handler memoization) each
   // tick. `order` is the flattened window-id list (sidebar order); `ungatedIds`
-  // marks targets that will render a NON-tty lens (web iframe or chat) — those
+  // marks targets that will render a NON-tty lens (web iframe or code) — those
   // have no xterm first-write receipt seam, so they use the ungated capture (the
   // first-paint gate is terminal-only). Read only on a click, after render, so
   // no TDZ concern.
@@ -2012,12 +2012,12 @@ function AppShell() {
       // supersedes an in-flight terminal gate), so it must run before we branch
       // on `targetUngated`.
       //
-      // A target is ungated (web iframe or chat) exactly when its EFFECTIVE
+      // A target is ungated (web iframe or code) exactly when its EFFECTIVE
       // resolved view is not `tty` — precomputed into `ungatedIds` at render time
       // (below) from each window's stored view + default hint.
       const targetUngated = ungatedIds.has(windowId);
       // `gated` (tty target) drives the pending mask: only a gated switch's
-      // `"timeout"` settle arms the LogoSpinner mask (260715-38kg). A web/chat
+      // `"timeout"` settle arms the LogoSpinner mask (260715-38kg). A web/code
       // target is ungated and never masks.
       const gate = beginWindowSwitchGate({ gated: !targetUngated });
       // Capture a monotonic token so only the LATEST switch's cleanup may clear

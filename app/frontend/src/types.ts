@@ -178,8 +178,8 @@ export type WindowInfo = {
   gitRoot?: string;
   /** Window-level rollup of the panes' `@rk_pane_chat` pane option (active-pane-first,
    *  else first pane). `chatProvider` is the routing key (e.g. `claude`) and the
-   *  SOLE gate for every chat affordance in the UI; `chatSessionRef` is the
-   *  provider session id. Both are emitted by the backend on every
+   *  gate for the fork action; `chatSessionRef` is the provider session id
+   *  (the operator-action gate). Both are emitted by the backend on every
    *  `/api/sessions` response and SSE `sessions` event (rollupChat,
    *  internal/sessions/sessions.go). Empty/absent = no chat for this window. */
   chatProvider?: string;

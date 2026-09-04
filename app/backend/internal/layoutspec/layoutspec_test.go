@@ -12,10 +12,10 @@ func TestParseRoundTripsEveryShape(t *testing.T) {
 		"split-h:tty,code",
 		"split-v:tty,web",
 		"row:tty,code,web",
-		"col:tty,web,chat",
+		"col:tty,web,code",
 		"main-left:tty,code,web",
 		"main-right:web,tty,code",
-		"main-top:chat,tty,tty",
+		"main-top:web,tty,tty",
 	}
 	for _, s := range samples {
 		parsed, err := Parse(s)
@@ -48,6 +48,7 @@ func TestParseRejectsUnknownShapesAndSurfaces(t *testing.T) {
 		"tty",
 		"",
 		"single:desktop", // spec'd but unshipped surface
+		"single:chat",
 	} {
 		if _, err := Parse(raw); err == nil {
 			t.Errorf("Parse(%q): err = nil, want rejection", raw)
@@ -93,8 +94,8 @@ func TestHas(t *testing.T) {
 	if !l.Has("web") || !l.Has("tty") || !l.Has("code") {
 		t.Errorf("Has missed an ordered surface: %+v", l)
 	}
-	if l.Has("chat") {
-		t.Error("Has(chat) = true on a chat-less layout")
+	if l.Has("desktop") {
+		t.Error("Has(desktop) = true on a desktop-less layout")
 	}
 }
 
@@ -122,8 +123,8 @@ func TestPromote_TS_promoteMovesASurfaceToSlotAShapeUnchanged(t *testing.T) {
 	if got := Promote(tsThree, "tty"); !reflect.DeepEqual(got, tsThree) {
 		t.Errorf("Promote(three, tty) = %+v, want unchanged (already slot A)", got)
 	}
-	if got := Promote(tsThree, "chat"); !reflect.DeepEqual(got, tsThree) {
-		t.Errorf("Promote(three, chat) = %+v, want unchanged (absent)", got)
+	if got := Promote(tsThree, "desktop"); !reflect.DeepEqual(got, tsThree) {
+		t.Errorf("Promote(three, desktop) = %+v, want unchanged (absent)", got)
 	}
 }
 
@@ -172,8 +173,8 @@ func TestAdd_TS_growsOneToTwoAsSplitHAndTwoToThreeAsMainLeft(t *testing.T) {
 
 // TS: "addSurface refuses at 3 tiles and on repeated non-tty kinds"
 func TestAdd_TS_refusesAtThreeTilesAndOnRepeatedNonTtyKinds(t *testing.T) {
-	if _, err := Add(tsThree, "chat"); !errors.Is(err, ErrLayoutFull) {
-		t.Errorf("Add(three, chat): err = %v, want ErrLayoutFull", err)
+	if _, err := Add(tsThree, "tty"); !errors.Is(err, ErrLayoutFull) {
+		t.Errorf("Add(three, tty): err = %v, want ErrLayoutFull", err)
 	}
 	if _, err := Add(tsTwo, "code"); !errors.Is(err, ErrSurfaceRepeat) {
 		t.Errorf("Add(two, code): err = %v, want ErrSurfaceRepeat", err)
@@ -265,12 +266,12 @@ func TestZeroLayoutReadsAsDefault(t *testing.T) {
 }
 
 func TestIsSurface(t *testing.T) {
-	for _, kind := range []string{"tty", "web", "chat", "code"} {
+	for _, kind := range []string{"tty", "web", "code"} {
 		if !IsSurface(kind) {
 			t.Errorf("IsSurface(%q) = false", kind)
 		}
 	}
-	for _, kind := range []string{"", "desktop", "agents", "terminal"} {
+	for _, kind := range []string{"", "desktop", "agents", "terminal", "chat"} {
 		if IsSurface(kind) {
 			t.Errorf("IsSurface(%q) = true", kind)
 		}

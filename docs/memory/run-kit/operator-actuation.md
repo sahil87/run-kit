@@ -45,7 +45,8 @@ core as `deliverOperatorRequest` (shared by its handler and the tracker).
 Everything lives in `app/backend/api/operator.go` (handlers + registry +
 delivery cores), `app/backend/api/auto_name.go` (auto-name tracker), and
 `app/backend/api/operator_queue.go` (queue tracker), the routes
-registered in `api/router.go` beside the chat routes. Nothing in any existing
+registered in `api/router.go` beside the other window verbs (`/send`,
+`/fork`). Nothing in any existing
 UI request path routes through the operator — operator features degrade to
 **absent** when no operator runs, never to blocking (the inside/outside razor).
 
@@ -60,7 +61,8 @@ entry pending the `[rkop]` delegation. (260903-a8e4-rk-operator-launcher)
 
 ### Requirement: Endpoint contract + closed template registry
 The backend SHALL expose two operator-request routes (mutation ⇒ POST,
-Constitution IX), both registered in `api/router.go` beside the chat routes:
+Constitution IX), both registered in `api/router.go` beside the other window
+verbs (`/send`, `/fork`):
 the window-scoped `POST /api/windows/{windowId}/operator-request?server={server}`
 (`handleOperatorRequest`), where `{windowId}` is the **subject** window — the
 window the request is about — and the server-scoped
@@ -201,7 +203,7 @@ The handler SHALL resolve everything server-side from ONE
 and the operator window as the window with `Role == "operator"` (the
 server-scoped radio; the shared `findOperatorWindow` helper over the
 already-fetched slice). A `FetchSessions` error maps to `500` (an infrastructure
-fault, mirroring the chat endpoints); an absent subject maps to `404`; no
+fault, mirroring the send endpoint); an absent subject maps to `404`; no
 operator window on the server maps to `404` with `"no operator on this
 server"` — the UI hides the action in that state (degrade to absent), so the
 error is the race backstop. The handler MUST NOT issue a second `FetchSessions`

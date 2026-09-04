@@ -161,8 +161,8 @@ moves into the layout.
 Below `isMobileViewport()` the layout manager does not render multi-tile:
 mobile keeps a single tile (slot A) plus the top-bar **switch group** — the
 `surface-toggles` cluster entry forked to switch mode: one button per
-available surface (the rail-hidden set still filters at render — chat gets no
-button), rendered only when ≥2 surfaces are available, with radio semantics
+available surface (the rail-hidden set still filters at render), rendered
+only when ≥2 surfaces are available, with radio semantics
 (the visible tile pressed; tapping the pressed button is a no-op). The group
 is pinned in-bar at mobile — it never drops into the overflow chevron (other
 chips yield first) and registers no overflow-menu rows — and carries the same

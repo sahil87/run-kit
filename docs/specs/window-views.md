@@ -2,15 +2,25 @@
 
 > The model for every "parallel view" of a tmux window run-kit renders: what a
 > window row *is*, what a view *is*, how view availability is derived, and how
-> view choice is expressed. This spec unifies three features that grew up with
+> view choice is expressed. This spec unified three features that grew up with
 > three unrelated mechanisms — iframe windows (`@rk_win_lens=iframe`), desktop
-> streaming (PR #71), and the agent chat view
-> ([`fab/plans/sahil/26-07-13-agent-chat-view.md`](../../fab/plans/sahil/26-07-13-agent-chat-view.md)).
+> streaming (PR #71), and the agent chat view (since removed — see the removal
+> note below; historically
+> [`fab/plans/sahil/26-07-13-agent-chat-view.md`](../../fab/plans/sahil/26-07-13-agent-chat-view.md)).
 > Sections marked **[current]** describe shipped behavior; **[target]** is the
 > design intent this spec commits to.
 >
-> Companions: [`agent-state.md`](agent-state.md) defines `@rk_pane_chat` (the chat
-> view's capability signal); [`status-pyramid.md`](status-pyramid.md) is
+> **Removal note (2026-09-04)**: the agent chat **view is removed** — PR #817
+> (`260904-39bp-remove-chat-lens`) deleted the `?view=chat` lens, the `chat`
+> surface kind, and the chat backfill/stream backend; chat-send merged into
+> `POST /api/windows/{id}/send` (`target:"agent"`). `@rk_pane_chat` survives
+> as agent-session identity ([`agent-state.md`](agent-state.md)). Chat
+> mentions below are historical, kept where the taxonomy's history still
+> teaches.
+>
+> Companions: [`agent-state.md`](agent-state.md) defines `@rk_pane_chat`
+> (agent-session identity — consumed by operator actuation, fork/resume,
+> closed-resume, auto-name); [`status-pyramid.md`](status-pyramid.md) is
 > untouched by this model — status signals describe the substrate, never the
 > lens.
 >
@@ -31,7 +41,7 @@ each invented its own typing and view-state machinery:
 |---------|--------------------|-------------|-----------------|
 | iframe window | `@rk_win_lens=iframe` + `@rk_win_url` window options | server-side mutation — the `>_` button POSTs `@rk_win_lens: null` | everyone; the window's identity changes globally |
 | desktop (PR #71, unmerged) | `desktop:` window-name prefix + `@rk_vnc_port` | fixed at creation — the relay sniffs the type and branches, so the tty is unreachable | everyone, permanently |
-| chat (planned) | `@rk_pane_chat` pane option | client-side `?view=chat` + localStorage, per-viewer | just you |
+| chat (shipped, then removed — PR #817) | `@rk_pane_chat` pane option | client-side `?view=chat` + localStorage, per-viewer | just you |
 
 Three conventions for "what kind of thing is this window", three for "which
 view am I in". Left alone, every future projection (log viewer, diff viewer,
@@ -62,7 +72,7 @@ Separate **what runs** from **what you can look at**:
 |------|---------------|----------|--------|
 | `tty` | always | xterm.js `TerminalClient` | **[current]** |
 | `web` | always (the lens exists on every window, like `tty`); `@rk_win_url` selects the renderer's CONTENT — empty/whitespace renders the onboarding state (a reduced live URL bar + fill-path instructions), non-empty renders the live iframe — mirroring the `code` row's availability-vs-content split | `IframeWindow` (proxy iframe + URL bar; onboarding content state when `@rk_win_url` is empty) | **[current]** as a lens — change `260714-t97o-web-view-lens`; always-available + onboarding `260821-zqlq-web-tile-always-tileable-onboarding` |
-| `chat` | `@rk_pane_chat` pane option present | chat renderer | **[target]** — [`agent-chat-view.md`](../../fab/plans/sahil/26-07-13-agent-chat-view.md) changes 2–3 |
+| `chat` | — | — | **[removed]** — shipped per [`agent-chat-view.md`](../../fab/plans/sahil/26-07-13-agent-chat-view.md), removed by PR #817 (`260904-39bp-remove-chat-lens`); `@rk_pane_chat` survives as agent-session identity ([`agent-state.md`](agent-state.md)) |
 | `code` | the window's code folder is LATCHED, or a git root is derivable from the active pane's cwd — derivation seeds the latch once, at first open, and the terminal never moves it afterwards (right-panel.md § The `code` lens); the code-server endpoint always resolves by convention, so it gates nothing, and reachability governs the renderer's CONTENT (live iframe vs not-running empty state), never availability | `CodeSurface` (lean proxy iframe, no URL bar) | **[current]** — change `260811-k3vp-right-panel-code-lens`, endpoint by convention `260811-a2bo`, folder latched `260813-if5d`; also the right panel's CODE surface (right-panel.md § Surface Registry) |
 | `desktop` | VNC-port window option present (set by the desktop launcher, reconciler-cleared) | noVNC canvas | **[target]** — [`fab/plans/sahil/26-07-14-desktop-view.md`](../../fab/plans/sahil/26-07-14-desktop-view.md) |
 
@@ -116,7 +126,7 @@ unless the viewer chose otherwise.
 
 A segmented chip in the top-bar right cluster's **L1 tier** (terminal-route
 tier), rendered only when the capability set exceeds `{tty}`: two states
-render `[tty|chat]`-style, more render as a compact segmented group. Active
+render `[tty|web]`-style, more render as a compact segmented group. Active
 segment inverse-video. Palette parity (`View: Terminal` / `View: Web` / …)
 and a keyboard shortcut are mandatory (Constitution V). The chip
 **participates in the right-cluster overflow registry** (change
@@ -124,7 +134,7 @@ and a keyboard shortcut are mandatory (Constitution V). The chip
 registry): it is the **first candidate — so the first to yield** when the
 cluster is squeezed (before any L1 split), and when it overflows it is
 represented in the "More controls" chevron menu as **per-view rows** (`View:
-Terminal` / `View: Web` / `View: Chat`, the active row marked). This is
+Terminal` / `View: Web` / `View: Code`, the active row marked). This is
 space-driven, not a mobile breakpoint gate — the pill stays inline whenever
 there is room (on any viewport) and yields precisely when the heading needs the
 space (the common phone case). The center page
@@ -136,8 +146,8 @@ through is shown by this switcher, not the heading — so the switcher is the
 sole lens indicator (**while collapsed into the menu, the marked menu row plus
 the view content itself carry lens identity; deliberately no new inline lens
 indicator is added to the bar**), and the heading's left anchor no longer jumps
-on a lens switch. Whichever change ships first (`web-view-lens` or chat change
-3) builds the generalized switcher; the other reuses it.
+on a lens switch. The generalized switcher shipped with `web-view-lens`
+(change `260714-t97o`).
 
 ### R5 — retired
 
@@ -147,7 +157,7 @@ layout ([`ui-state.md`](ui-state.md)).
 ### R6 — The connection dot reports the current lens's health
 
 "Dot-everywhere = per-page live-data health" extends per-lens: tty → relay WS,
-web → n/a (falls back to SSE health), chat → chat stream, desktop → VNC WS.
+web → n/a (falls back to SSE health), desktop → VNC WS.
 
 ### R7 — Content address and lens choice are substrate state; postures stay local
 
@@ -161,9 +171,9 @@ zoom (`rk-layout-zoom:*`), divider ratios (`rk-layout-ratios:*`), and focus.
 
 ## Two Species (and the residual case)
 
-**Pane-coupled projections** — chat, desktop, and `web` on the row that
-actually serves the port: the pane's process genuinely has multiple outputs.
-This is the model's home turf.
+**Pane-coupled projections** — desktop, and `web` on the row that actually
+serves the port: the pane's process genuinely has multiple outputs. This is
+the model's home turf.
 
 **Row-less surfaces wearing a window costume** [current] — an iframe window
 created from the Host SERVICES zone has an inert shell pane; the tmux
@@ -182,7 +192,7 @@ board-pinnability. Two-step exit path:
    the compat shim.
 
 Boards, later: a board pin generalizes from *window* to *(window, view)* pair
-— "pin the same window twice, tty and chat side by side". Out of scope for
+— "pin the same window twice, tty and web side by side". Out of scope for
 every current change; noted so nobody designs against it.
 
 ---
@@ -193,5 +203,5 @@ every current change; noted so nobody designs against it.
 |---------|---------------|-------------|---------|
 | iframe | `@rk_win_lens` mutation flips the view for everyone; render gate `rkType === "iframe" && rkUrl` | `web` lens: `?view=web`, chip, no type mutation; `@rk_win_lens=iframe` demoted to default-view hint; `@rk_win_url` stays global substrate state | change `260714-t97o-web-view-lens` (drafted) |
 | desktop | PR #71: name-prefix typing, relay sniffing, tty unreachable, bitrotted against current main | `desktop` lens per [`desktop-view.md`](../../fab/plans/sahil/26-07-14-desktop-view.md); supersede PR #71, salvage its components | new change stack (planned) |
-| chat | planned as `?view=chat` | already conforms; adopt R2's value-bearing localStorage + R4's shared switcher | chat plan changes 1–4 (change 1 in progress) |
+| chat | shipped as `?view=chat` (chat plan changes 1–3) | **removed** — the lens, `chat` surface kind, and backfill/stream backend deleted; `?view=chat` is now a dropped legacy param (heals to the stored layout); chat-send merged into `POST /send` (`target:"agent"`) | PR #817 (`260904-39bp-remove-chat-lens`) |
 | Host "Open in window" | creates a synthetic iframe window | deep-link to owning row's `?view=web` when derivable; synthetic fallback | follow-up after `web-view-lens` |

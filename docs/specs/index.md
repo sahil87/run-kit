@@ -35,7 +35,7 @@
 | [Surface Layout](surface-layout.md) | The center as a layout of surfaces — preset shapes × ordered surfaces × ratios, the `?layout=` state ladder, tile verbs, rail toggles, and the `@rk_win_lens`/view-switcher retirement map |
 | [Themes](themes.md) | Theme system architecture: ANSI palettes, derivation, tmux integration, import script |
 | [UI State](ui-state.md) | Every addressable UI thing is a tmux option — the `@N/<surface>/<n>` addressing grammar, the `@rk_win_*` inventory (layout, indexed web tabs, code root), tab state vs viewer preferences, `rk tab` CLI, absorption of `rk present` and the `?layout=` ladder |
-| [Window Views](window-views.md) | Rows are substrates, views are lenses — the parallel-view model (tty/web/chat/desktop): derived availability vs per-viewer choice, the shared switcher contract, two-species taxonomy, migration map for iframe / desktop (PR #71) / chat |
+| [Window Views](window-views.md) | Rows are substrates, views are lenses — the parallel-view model (tty/web/code/desktop): derived availability vs per-viewer choice, the shared switcher contract, two-species taxonomy, migration map for iframe / desktop (PR #71) |
 
 ## Wiki
 

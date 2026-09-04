@@ -44,8 +44,9 @@ import (
 // Per-stream behavior preserves handleRelay (relay.go): window-ID validation via
 // the shared validate.ValidateWindowID (the same validator decodeWindowID wraps —
 // REST and mux entry points cannot drift; constitution §I), then session
-// resolution → session-scoped SelectWindowInSession → forceTERM + managed-only
-// pre-attach ReloadConfig → pty.StartWithSize at the open op's cols/rows. Session resolution
+// resolution → session-scoped SelectWindowInSession → forceTERM →
+// pty.StartWithSize at the open op's cols/rows (the managed-only conf reload is
+// once-per-server and fully async — never a subprocess on this path). Session resolution
 // PREFERS the window's `_rk-pin-*` pin-session when it exists (a pinned window is
 // linked into both its pin-session and its home session, and attaching to the
 // pin-session leaves home's active-window pointer untouched), otherwise resolves
@@ -376,45 +377,56 @@ func forceTERM(env []string) []string {
 // attachIsManaged / attachReloadConfig / attachMigrateLegacy are the
 // pre-attach reload seams — tests substitute them to pin the managed-only
 // gate without a live server. attachMigrateLegacy is the NON-re-marking
-// entry: the once-guard is taken synchronously in reloadConfigForAttach
-// before the sweep is spawned, so the seam must not mark again.
+// entry: the sweep once-guard is taken inside the reload goroutine, so the
+// seam must not mark again.
 var (
 	attachIsManaged     = tmux.IsManagedServer
 	attachReloadConfig  = tmux.ReloadConfig
 	attachMigrateLegacy = tmux.MigrateLegacyOptionsReport
 )
 
-// reloadConfigForAttach reloads the managed tmux.conf on the target server
-// before attach. Managed servers only: an external (unmarked) server never
-// receives rk's conf. A managed-check read failure fails closed (skip). Never
-// fails — a reload error only means the attach proceeds with the server's
-// current conf. The legacy-option sweep rides the same gate; when it changed
-// something the SSE hub is woken so the sidebar repaints without waiting for
-// the safety poll (set-option is invisible to the control-mode parser).
+// reloadConfigForAttach reloads the managed tmux.conf on the target server —
+// at most once per server per daemon lifetime, and entirely off the attach
+// path (the switch mask lifts on the first PTY byte, so this function must
+// never cost the attach goroutine a subprocess). Managed servers only: an
+// external (unmarked) server never receives rk's conf; a managed-check read
+// failure fails closed (skip) and releases the once-guard so a later attach
+// retries. Never fails — a reload error only means attaches proceed with the
+// server's current conf. Servers rk creates get the conf at birth via `-f`,
+// and the daemon-start RefreshSweep propagates a stale conf to live servers,
+// so repeating the reload per attach bought nothing but forks.
+//
+// The per-server guard is taken synchronously (LoadOrStore) so concurrent
+// attaches spawn at most one goroutine per server; that single-goroutine
+// guarantee is also what lets the legacy-sweep once-guard move inside the
+// goroutine, where — as before — it is consumed only after the managed gate
+// passes (a transient check failure leaves both guards retryable). The seams
+// are captured before the spawn so a test restoring them never races an
+// in-flight goroutine. When the sweep changed something the SSE hub is woken
+// so the sidebar repaints without waiting for the safety poll (set-option is
+// invisible to the control-mode parser).
 func (s *Server) reloadConfigForAttach(server string) {
-	managed, err := attachIsManaged(context.Background(), server)
-	if err != nil {
-		slog.Debug("terminals: managed check failed; skipping pre-attach reload", "server", server, "err", err)
+	if _, loaded := s.attachReloaded.LoadOrStore(server, struct{}{}); loaded {
 		return
 	}
-	if !managed {
-		slog.Debug("terminals: external server; skipping pre-attach reload", "server", server)
-		return
-	}
-	if err := attachReloadConfig(server); err != nil {
-		slog.Debug("terminals: config reload before attach (best-effort)", "server", server, "err", err)
-	}
-	// The sweep runs off the attach path: it is O(carriers) tmux round-trips
-	// and must not hold the first-attach goroutine. The once-guard is taken
-	// synchronously so concurrent attaches never double-run; the hub wake from
-	// inside the goroutine already decouples the repaint.
-	if !tmux.MarkLegacyMigrationAttempt(server) {
-		return
-	}
-	// Capture the seam synchronously: the substitutable package var (tests
-	// swap and restore it) must not be read from the detached goroutine.
-	migrate := attachMigrateLegacy
+	isManaged, reload, migrate := attachIsManaged, attachReloadConfig, attachMigrateLegacy
 	go func() {
+		managed, err := isManaged(context.Background(), server)
+		if err != nil {
+			slog.Debug("terminals: managed check failed; skipping pre-attach reload", "server", server, "err", err)
+			s.attachReloaded.Delete(server)
+			return
+		}
+		if !managed {
+			slog.Debug("terminals: external server; skipping pre-attach reload", "server", server)
+			return
+		}
+		if err := reload(server); err != nil {
+			slog.Debug("terminals: config reload before attach (best-effort)", "server", server, "err", err)
+		}
+		if !tmux.MarkLegacyMigrationAttempt(server) {
+			return
+		}
 		changed, err := migrate(context.Background(), server)
 		if err != nil {
 			slog.Warn("terminals: legacy option sweep failed (best-effort)", "server", server, "err", err)
@@ -520,7 +532,8 @@ func (tc *terminalsConn) attachStream(op openOp, st *stream) {
 	}
 	// Pre-attach reload so terminal-overrides (true color) and styles are live
 	// on this server. Managed servers only — rk never pushes its conf onto an
-	// external server. Best-effort: never blocks the attach.
+	// external server. Once per server, fully async: never a subprocess on the
+	// attach path (the switch mask sits on this goroutine's latency).
 	tc.s.reloadConfigForAttach(server)
 
 	attachArgs = append(attachArgs, "attach-session", "-t", session)
@@ -540,12 +553,12 @@ func (tc *terminalsConn) attachStream(op openOp, st *stream) {
 	// of leaving an orphan (mirrors the old socket-torn-down guard).
 	tc.mu.Lock()
 	if tc.streams[op.ID] != st {
+		// The cmd was never published into the stream (st.cmd is still nil), so
+		// teardown cannot reap it — this branch is the fork's sole owner.
 		tc.mu.Unlock()
 		cancel()
 		ptmx.Close()
-		if cmd.Process != nil {
-			cmd.Process.Kill()
-		}
+		killAndReapAttach(cmd)
 		return
 	}
 	st.ptmx = ptmx
@@ -833,10 +846,10 @@ func (tc *terminalsConn) enqueueControl(b []byte) {
 	}
 }
 
-// teardown cancels the attach context, closes the ptmx, and kills the attach
-// process (sync.Once-guarded), exactly as handleRelay's cleanup — no orphaned
-// attach processes (review rule: WS connections must have corresponding
-// cleanup). The control pseudo-stream has no ptmx/cmd, so those steps no-op.
+// teardown cancels the attach context, closes the ptmx, and kills AND reaps
+// the attach process (sync.Once-guarded) — no orphaned attach processes
+// (review rule: WS connections must have corresponding cleanup) and no
+// zombies. The control pseudo-stream has no ptmx/cmd, so those steps no-op.
 func (st *stream) teardown() {
 	st.cleanup.Do(func() {
 		close(st.closed)
@@ -846,10 +859,24 @@ func (st *stream) teardown() {
 		if st.ptmx != nil {
 			st.ptmx.Close()
 		}
-		if st.cmd != nil && st.cmd.Process != nil {
-			st.cmd.Process.Kill()
-		}
+		killAndReapAttach(st.cmd)
 	})
+}
+
+// killAndReapAttach kills a forked attach client and waits on it (the
+// internal/tmuxctl kill→Wait contract). The Wait is load-bearing: without it
+// every closed stream leaves a <defunct> zombie PID plus a permanently parked
+// os/exec watchCtx goroutine, and at the fork ceiling every exec in the daemon
+// fails at once. Kill-first means Wait returns promptly — an attach client
+// never exits on its own. Exactly one goroutine per Cmd may call this:
+// teardown's sync.Once owns a published cmd; the publish-race branch owns its
+// never-published one.
+func killAndReapAttach(cmd *exec.Cmd) {
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+	_ = cmd.Process.Kill()
+	_ = cmd.Wait()
 }
 
 // serverFromRequestValue mirrors serverFromRequest (router.go) for a raw server

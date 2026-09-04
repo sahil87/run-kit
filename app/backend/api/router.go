@@ -217,6 +217,11 @@ type Server struct {
 	updateChecker   *updatecheck.Checker
 	sseHub          *sseHub
 	sseOnce         sync.Once
+	// attachReloaded guards the pre-attach managed-conf reload: at most one
+	// attempt per tmux server (keys are server names) per daemon lifetime.
+	// The entry is released on a managed-check read failure so a transient
+	// wobble retries on a later attach. See reloadConfigForAttach.
+	attachReloaded sync.Map
 	// version is the running daemon version (ldflags-injected main.version),
 	// seeded once at startup via SetVersion. Read by handleRestart's dev guard
 	// (a "dev" build must not bounce the real daemon out from under `just dev`'s

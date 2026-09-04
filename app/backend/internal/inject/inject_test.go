@@ -859,7 +859,7 @@ func TestVerifySubmitClassifiesChangesAsNoClaim(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ft := &fakeTmux{captureResults: []string{tt.post}}
-			verdict, err := verifySubmit(context.Background(), ft, "default", "%5", tt.pre, Needle("hello"), false, 0, []time.Duration{time.Millisecond})
+			verdict, err := verifySubmit(context.Background(), ft, "default", "%5", tt.pre, Needle("hello"), false, false, 0, []time.Duration{time.Millisecond})
 			if err != nil {
 				t.Fatalf("verifySubmit: %v", err)
 			}
@@ -884,7 +884,7 @@ func TestVerifySubmitEvidenceUsesProbePredicate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ft := &fakeTmux{captureResults: []string{tt.frame}}
-			verdict, err := verifySubmit(context.Background(), ft, "default", "%5", tt.frame, needle, true, 0, []time.Duration{time.Millisecond})
+			verdict, err := verifySubmit(context.Background(), ft, "default", "%5", tt.frame, needle, true, false, 0, []time.Duration{time.Millisecond})
 			if err != nil {
 				t.Fatalf("verifySubmit: %v", err)
 			}
@@ -946,34 +946,143 @@ func TestNeedle(t *testing.T) {
 
 // TestCountOccurrences pins the counting rules the baseline-comparison probe
 // rests on: raw needle, collapsible-gated placeholder (BOTH chip forms),
-// ANSI/whitespace normalization.
+// imageish-gated image chip, ANSI/whitespace normalization.
 func TestCountOccurrences(t *testing.T) {
 	needle := Needle("please run the tests")
 	tests := []struct {
 		name        string
 		capture     string
 		collapsible bool
+		imageish    bool
 		want        int
 	}{
-		{"echo present once", "❯ please run the tests", false, 1},
-		{"echo absent", "unrelated scrollback\n❯ ", false, 0},
-		{"echo present twice", "❯ please run the tests\n❯ please run the tests", false, 2},
-		{"wrapped across rows", "❯ please run the\n  tests", false, 1},
-		{"ansi-styled echo", "\x1b[1m❯\x1b[0m please run \x1b[32mthe tests\x1b[0m", false, 1},
-		{"multiline chip counted when collapsible", "❯ [Pasted text #1 +12 lines]", true, 1},
-		{"multiline chip ignored when not collapsible", "❯ [Pasted text #1 +12 lines]", false, 0},
-		{"suffix-less chip counted when collapsible", "❯ [Pasted text #7]", true, 1},
-		{"suffix-less chip ignored when not collapsible", "❯ [Pasted text #7]", false, 0},
-		{"placeholder singular line", "❯ [Pasted text #3 +1 line]", true, 1},
-		{"ansi-styled placeholder", "\x1b[2m[Pasted text #2 +40 lines]\x1b[0m", true, 1},
-		{"two chips both forms", "[Pasted text #1 +2 lines]\n[Pasted text #2]", true, 2},
-		{"non-placeholder bracketed text", "❯ [some other note]", true, 0},
+		{"echo present once", "❯ please run the tests", false, false, 1},
+		{"echo absent", "unrelated scrollback\n❯ ", false, false, 0},
+		{"echo present twice", "❯ please run the tests\n❯ please run the tests", false, false, 2},
+		{"wrapped across rows", "❯ please run the\n  tests", false, false, 1},
+		{"ansi-styled echo", "\x1b[1m❯\x1b[0m please run \x1b[32mthe tests\x1b[0m", false, false, 1},
+		{"multiline chip counted when collapsible", "❯ [Pasted text #1 +12 lines]", true, false, 1},
+		{"multiline chip ignored when not collapsible", "❯ [Pasted text #1 +12 lines]", false, false, 0},
+		{"suffix-less chip counted when collapsible", "❯ [Pasted text #7]", true, false, 1},
+		{"suffix-less chip ignored when not collapsible", "❯ [Pasted text #7]", false, false, 0},
+		{"placeholder singular line", "❯ [Pasted text #3 +1 line]", true, false, 1},
+		{"ansi-styled placeholder", "\x1b[2m[Pasted text #2 +40 lines]\x1b[0m", true, false, 1},
+		{"two chips both forms", "[Pasted text #1 +2 lines]\n[Pasted text #2]", true, false, 2},
+		{"non-placeholder bracketed text", "❯ [some other note]", true, false, 0},
+		{"image chip counted when imageish", "❯ [Image #1]", false, true, 1},
+		{"image chip ignored when not imageish", "❯ [Image #1]", false, false, 0},
+		{"image chip ignored under collapsible alone", "❯ [Image #1]", true, false, 0},
+		{"paste chip not counted by imageish alone", "❯ [Pasted text #7]", false, true, 0},
+		{"ansi-styled image chip", "\x1b[2m[Image #4]\x1b[0m", false, true, 1},
+		{"two image chips", "[Image #1]\n❯ [Image #2]", false, true, 2},
+		{"needle and image chip add", "❯ please run the tests\n❯ [Image #3]", false, true, 2},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := CountOccurrences(tt.capture, needle, tt.collapsible); got != tt.want {
-				t.Errorf("CountOccurrences(%q, %q, collapsible=%v) = %d, want %d", tt.capture, needle, tt.collapsible, got, tt.want)
+			if got := CountOccurrences(tt.capture, needle, tt.collapsible, tt.imageish); got != tt.want {
+				t.Errorf("CountOccurrences(%q, %q, collapsible=%v, imageish=%v) = %d, want %d", tt.capture, needle, tt.collapsible, tt.imageish, got, tt.want)
 			}
 		})
 	}
+}
+
+// TestIsBareImagePath pins the image-chip gate: only a whitespace-trimmed
+// single line ending in a recognized image extension qualifies — the one paste
+// shape the TUI may render as an "[Image #N]" chip.
+func TestIsBareImagePath(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		want bool
+	}{
+		{"bare png path", "/wt/.uploads/260904-shot.png", true},
+		{"bare jpg path", "/wt/.uploads/a.jpg", true},
+		{"bare jpeg path", "/wt/.uploads/a.jpeg", true},
+		{"bare gif path", "/wt/.uploads/a.gif", true},
+		{"bare webp path", "/wt/.uploads/a.webp", true},
+		{"uppercase extension", "/wt/.uploads/SHOT.PNG", true},
+		{"trailing newline trimmed", "/wt/.uploads/a.png\n", true},
+		{"surrounding whitespace trimmed", "  /wt/.uploads/a.png\t", true},
+		{"path with spaces", "/wt/.uploads/screen shot 1.png", true},
+		{"relative path", "shot.png", true},
+		{"svg excluded", "/wt/.uploads/a.svg", false},
+		{"bmp excluded", "/wt/.uploads/a.bmp", false},
+		{"mixed text and path", "look at /wt/.uploads/a.png please", false},
+		{"two newline-separated paths", "/a/b.png\n/c/d.jpg", false},
+		{"extension not at end", "/wt/.uploads/a.png.txt", false},
+		{"empty", "", false},
+		{"whitespace only", " \n\t", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isBareImagePath(tt.text); got != tt.want {
+				t.Errorf("isBareImagePath(%q) = %v, want %v", tt.text, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestSendImageChipEcho covers the imageish echo arm end to end: a bare
+// image-path paste the TUI renders as an "[Image #N]" chip (never the raw
+// path) passes the probe via the chip, a stale chip stays a baseline floor,
+// a fresh chip beats a stale one, and a raw-text echo (the file does not
+// exist, so no chip renders) still passes via the needle arm.
+func TestSendImageChipEcho(t *testing.T) {
+	fastProbe(t)
+	fastSubmit(t)
+	const path = "/wt/.uploads/260904-121530-shot.png"
+
+	t.Run("fresh chip passes without raw echo", func(t *testing.T) {
+		ft := &fakeTmux{captureResults: []string{"❯ ", "❯ [Image #1]", "working"}}
+		if err := NewEngine("rk-img-fresh").Send(context.Background(), ft, "default", "%5", path, true); err != nil {
+			t.Fatalf("Send: %v", err)
+		}
+		if !ft.enterCalled {
+			t.Fatal("Enter was not sent after a fresh image chip")
+		}
+	})
+
+	t.Run("stale chip is a floor to beat", func(t *testing.T) {
+		ft := &fakeTmux{captureResult: "❯ [Image #1]"}
+		err := NewEngine("rk-img-stale").Send(context.Background(), ft, "default", "%5", path, true)
+		var pf ProbeFailure
+		if !errors.As(err, &pf) {
+			t.Fatalf("err = %v, want ProbeFailure", err)
+		}
+		if ft.enterCalled {
+			t.Fatal("Enter sent on a stale image chip")
+		}
+	})
+
+	t.Run("fresh chip beats a stale one", func(t *testing.T) {
+		ft := &fakeTmux{captureResults: []string{"sent [Image #1]\n❯ ", "sent [Image #1]\n❯ [Image #2]", "working"}}
+		if err := NewEngine("rk-img-incr").Send(context.Background(), ft, "default", "%5", path, true); err != nil {
+			t.Fatalf("Send: %v", err)
+		}
+		if !ft.enterCalled {
+			t.Fatal("Enter was not sent after the count rose past the stale chip")
+		}
+	})
+
+	t.Run("raw echo still passes for an imageish paste", func(t *testing.T) {
+		ft := &fakeTmux{captureResults: []string{"❯ ", "❯ " + path, "working"}}
+		if err := NewEngine("rk-img-raw").Send(context.Background(), ft, "default", "%5", path, true); err != nil {
+			t.Fatalf("Send: %v", err)
+		}
+		if !ft.enterCalled {
+			t.Fatal("Enter was not sent after a raw-needle echo of an image path")
+		}
+	})
+
+	t.Run("chip does not pass a non-imageish paste", func(t *testing.T) {
+		ft := &fakeTmux{captureResult: "❯ [Image #1]"}
+		err := NewEngine("rk-img-plain").Send(context.Background(), ft, "default", "%5", "hello world", true)
+		var pf ProbeFailure
+		if !errors.As(err, &pf) {
+			t.Fatalf("err = %v, want ProbeFailure", err)
+		}
+		if ft.enterCalled {
+			t.Fatal("Enter sent for plain text on the strength of an image chip")
+		}
+	})
 }

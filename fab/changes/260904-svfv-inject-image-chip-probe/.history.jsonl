@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-04T07:42:53Z"}
+{"args":"Echo probe recognizes the [Image #N] composer chip: sending a bare image path from the dashboard compose strip always fails the injection engine echo probe because Claude Code converts a single-image-path bracketed paste into an [Image #N] chip the probe does not recognize; add a gated imageCollapseRe signal to CountOccurrences mirroring the paste-collapse chip arm","cmd":"fab-new","event":"command","ts":"2026-09-04T07:42:53Z"}
+{"delta":"+5.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-09-04T07:44:22Z"}
+{"cmd":"fab-proceed","event":"command","ts":"2026-09-04T07:44:30Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-09-04T07:45:29Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-04T07:46:58Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-04T07:47:17Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-04T07:53:04Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-04T07:56:56Z"}
+{"event":"review","result":"passed","ts":"2026-09-04T07:56:56Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-04T07:58:15Z"}

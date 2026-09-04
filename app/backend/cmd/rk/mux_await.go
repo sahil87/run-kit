@@ -380,10 +380,12 @@ func runMuxAwaitReady(cmd *cobra.Command, parent context.Context, server, paneID
 	case errors.Is(err, inject.ErrParked):
 		// Parked is wake-worthy and returns immediately: the caller must act.
 		// Classification succeeded, so this is a report (exit 0), not a
-		// failure; the snippet rides stderr as diagnostics.
+		// failure; the snippet rides stderr as diagnostics. The snippet is
+		// the caller's evidence for judging the wall, so it is written
+		// ungated — --quiet drops chatter, never actionable diagnostics.
 		var parked *inject.ParkedError
 		if errors.As(err, &parked) && parked.Snippet != "" {
-			sink.Notef("%s\n", parked.Snippet)
+			fmt.Fprintf(cmd.ErrOrStderr(), "%s\n", parked.Snippet)
 		}
 		line = fmt.Sprintf("parked %s", paneID)
 	case errors.Is(err, inject.ErrGone):

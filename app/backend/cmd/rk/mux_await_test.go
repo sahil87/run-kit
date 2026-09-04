@@ -705,6 +705,26 @@ func TestMuxAwaitReadyParked(t *testing.T) {
 	}
 }
 
+// TestMuxAwaitReadyParkedQuiet: the parked screen snippet is the caller's
+// evidence for judging the wall — actionable diagnostics, not chatter — so it
+// survives --quiet on stderr while the `parked %N` report stays on stdout.
+func TestMuxAwaitReadyParkedQuiet(t *testing.T) {
+	f := &muxFake{}
+	installMuxFakes(t, f)
+	stubAwaitReady(t, 0, &inject.ParkedError{Snippet: "Do you trust this folder?"})
+
+	stdout, stderr, err := runMuxCmd(t, "await", "%5", "--ready", "--quiet")
+	if err != nil {
+		t.Fatalf("err = %v, want nil (parked is a report, not a failure)", err)
+	}
+	if stdout != "parked %5\n" {
+		t.Errorf("stdout = %q, want the parked report", stdout)
+	}
+	if !strings.Contains(stderr, "Do you trust this folder?") {
+		t.Errorf("stderr = %q, want the screen snippet even under --quiet", stderr)
+	}
+}
+
 // TestMuxAwaitReadyGone: the pane dying mid-wait reports `gone` on stdout with
 // an operational error (exit 1), and --notify still fires on the report.
 func TestMuxAwaitReadyGone(t *testing.T) {

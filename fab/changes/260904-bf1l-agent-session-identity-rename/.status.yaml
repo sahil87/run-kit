@@ -1,0 +1,36 @@
+id: bf1l
+name: 260904-bf1l-agent-session-identity-rename
+created: 2026-09-04T09:49:23Z
+created_by: sahil87
+change_type: refactor
+issues: []
+progress:
+    intake: ready
+    apply: pending
+    review: pending
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+plan:
+    generated: false
+    task_count: 0
+    acceptance_count: 0
+    acceptance_completed: 0
+confidence:
+    certain: 2
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 4.2
+    fuzzy: true
+    dimensions:
+        signal: 73.6
+        reversibility: 71.4
+        competence: 81.4
+        disambiguation: 72.1
+stage_metrics:
+    intake: {started_at: "2026-09-04T09:49:23Z", driver: fab-new, iterations: 1}
+prs: []
+change_type_source: explicit
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-04T09:51:14Z

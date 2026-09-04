@@ -25,7 +25,7 @@ import (
 // The endpoint is WINDOW-KEYED and derives everything else server-side — the
 // client supplies only {windowId} + server, and no request body is read
 // (Constitution X: derivation wins; never trust a client-supplied session ref).
-// Compare the chat endpoints (api/chat.go), whose contract this mirrors.
+// Compare the send endpoint (api/send.go), whose contract this mirrors.
 //
 // TIMEOUT: the engine spawn shares handleRiffSpawn's documented 5s-review-rule
 // exception (api/riff.go file header) — it is the same synchronous engine call,

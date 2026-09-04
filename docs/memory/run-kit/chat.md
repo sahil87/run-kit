@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The chat subsystem backend — rk-owned neutral event schema, adapter registry (Claude), tolerant JSONL parse + byte-offset tail, and TranscriptPath resolution consumed by operator actuation, fork/resume, and auto-name — plus the shared pane-typed injection engine (sanitized named-buffer paste, novelty echo probe, probe-gated Enter, post-Enter observation, evidence-gated recovery) consumed by POST /api/windows/{id}/send (incl. its target:\"agent\" mode) and the operator-request routes."
+description: "Chat subsystem backend — provider registry + TranscriptLocator transcript-path resolution (ErrInvalidRef/ErrTranscriptNotFound/ErrNoAdapter sentinels, Claude UUID-guarded glob) for operator actuation, fork/resume, closed-resume, auto-name — plus the shared pane-typed injection engine (sanitized named-buffer paste, novelty echo probe, probe-gated Enter, post-Enter observation, evidence-gated recovery) behind POST /api/windows/{id}/send (incl. target:\"agent\") and the operator-request routes."
 ---
 # Chat Subsystem
 
@@ -8,15 +8,17 @@ description: "The chat subsystem backend — rk-owned neutral event schema, adap
 
 ## Overview
 
-`internal/chat` turns a window's reconciled `@rk_pane_chat = <provider>:<session-ref>`
-(from [agent-state](/run-kit/agent-state.md) § Chat Session Identity) into the
-transcript it names. Its consumers are server-side derivations — the
-operator-request handlers (transcript fact pre-derivation via `TranscriptPath`,
-[operator-actuation](/run-kit/operator-actuation.md)), fork/resume, and auto-name
-dispatch. The schema is rk-owned and
-provider-neutral so Codex/Gemini adapters are backend-only additions; the
-**Claude** adapter is the one registered provider. Everything derives from disk
-at request time (Constitution II).
+`internal/chat` resolves a window's reconciled `@rk_pane_chat =
+<provider>:<session-ref>` (from [agent-state](/run-kit/agent-state.md) § Chat
+Session Identity) to the on-disk transcript it names. Its consumers are
+server-side derivations — the operator-request handlers (transcript fact
+pre-derivation via `TranscriptPath`,
+[operator-actuation](/run-kit/operator-actuation.md)), fork/resume,
+closed-resume, and auto-name dispatch. The registry routes on the provider
+prefix and the transcript read sits behind the optional `TranscriptLocator`
+capability, so Codex/Gemini adapters are backend-only additions; the **Claude**
+adapter is the one registered provider. Everything derives from disk at request
+time (Constitution II).
 
 The mutating half of chat-shaped messaging is the shared `internal/inject`
 engine: rk *types into* the pane exactly as a human typist would — the pane
@@ -32,78 +34,15 @@ by the injection path.
 
 ## Requirements
 
-### Requirement: rk-owned neutral event schema (`schema.go`)
-`internal/chat` SHALL define provider-neutral Go types every adapter normalizes
-into. `Event` is a flat discriminated struct — `Type` (`message` | `tool_use` |
-`tool_result`), `ID` (provider line uuid — the stable dedup key), `Turn`
-(monotonic counter), `Role` (`user` | `assistant` | `system`), `Text`,
-`ToolUseID`, `ToolName`, `ToolInput` (`json.RawMessage`, verbatim provider JSON),
-`ToolOutput`, `IsError`, `Timestamp` (RFC3339, JSON tag `ts`). All optional fields
-carry `omitempty` so each event marshals minimally. `Pending` is the **retractable
-"agent is waiting on the user" STATE** (not an append-only event) — `ToolUseID`,
-`ToolName`, `Text` — derived from an unpaired tool_use at the tail and resolving
-when the matching tool_result lands. String constants (`RoleUser`/`RoleAssistant`/
-`RoleSystem`, `EventMessage`/`EventToolUse`/`EventToolResult`) are the single
-source of truth. `RoleSystem` is reserved — the v1 Claude adapter filters system
-lines and never emits it.
-
-#### Scenario: Event marshals with a stable dedup key
-- **GIVEN** an adapter has parsed a provider transcript line
-- **WHEN** it emits an rk-schema `Event`
-- **THEN** the JSON carries the intake's field names + omitempty rules and an `id`
-  (the provider line uuid) usable to dedup on the client.
-
-### Requirement: Turn counter assigned by the adapter (`turn` rule)
-Each `Event.Turn` SHALL be a monotonic per-conversation counter the adapter
-assigns, incrementing at each **user-initiated** message — a user-role message
-whose content is NOT solely `tool_result` blocks. A user message carrying only
-tool_result blocks (a tool-result *carrier*) continues the current turn; a
-string-content user message (a slash command) DOES open a turn (verified: slash
-commands are genuine user prompts). Renderers group by the counter; **no synthetic
-boundary events** are emitted. The counter starts at 0 and is incremented before a
-turn's events are appended (the first real user prompt lands events at turn 1).
-
-#### Scenario: A tool-result-carrier user message does not open a turn
-- **GIVEN** a transcript with N user prompts interleaved with assistant turns and
-  tool traffic
-- **WHEN** the adapter assigns turns
-- **THEN** every event carries the turn of the user prompt that opened it, and a
-  user message that is solely tool_result blocks does NOT increment the counter.
-
-### Requirement: Pending derived from an unpaired tail tool_use
-`Pending` SHALL be derived, never hook-pushed (Constitution X — derivation wins
-when a fact is on disk). When a conversational `tool_use` has no matching
-`tool_result`, the parser tracks it as *open*; `pending()` returns the
-**most-recently-opened** still-unpaired tool_use (walking the open set from the
-tail). `Text` is populated when derivable — for `AskUserQuestion` the first
-question's `question`/`prompt`/`header` string — else left empty (the marker still
-carries `toolUseId`/`toolName`). An idle session ending in a `text` block yields
-`nil` Pending. Permission-gated tools fall under the same unpaired-tail rule with
-no special-casing; if such a tool's `tool_use` is not persisted until the
-permission is granted, Pending under-fills for that class in v1 (the intake's
-lone accepted worst case — `@rk_pane_agent_state=waiting` still drives the badge).
-
-#### Scenario: AskUserQuestion tail vs. text tail
-- **GIVEN** a transcript whose tail is an `AskUserQuestion` tool_use with no
-  following tool_result
-- **THEN** the backfill carries a non-nil `Pending` naming that tool_use with the
-  derived question text.
-- **AND GIVEN** a transcript whose tail is a `text` block, **THEN** `Pending` is nil.
-
-### Requirement: Adapter interface + provider registry (`adapter.go`)
-`adapter.go` SHALL declare one `Adapter` interface — `Provider() string` (the
-routing key), `Backfill(ctx, ref) (*Conversation, error)`, `TailFrom(ctx, ref,
-from int64) (<-chan Update, error)` — plus a `Conversation` result (`Provider`,
-`SessionRef`, `Events []Event`, `Pending *Pending`, **`Offset int64`**,
-marshalling to `{"provider","sessionRef","events","pending","offset"}`), an
-`Update` increment (see below), a package-level `map[string]Adapter` registry
-guarded by a `sync.RWMutex`, `Register`/`Lookup`, and the `ErrNoAdapter`
-sentinel. Lookup is by the `@rk_pane_chat` provider prefix; a well-formed but
-unregistered provider returns `ErrNoAdapter` (the API layer maps it to a
-404-class JSON error, so presence-gating stays provider-agnostic and
-codex/gemini adapters are additive). The one registered provider is `claude`, from
-`claude.go`'s `init()`. Tail is exposed as `TailFrom` (§ Design Decisions →
-`TailFrom` supersedes the self-priming `Tail`).
+### Requirement: Provider registry + `TranscriptLocator` (`adapter.go`)
+`adapter.go` SHALL declare one `Adapter` interface — a single `Provider() string`
+method (the routing key), with no long-lived per-ref state held between calls —
+plus a package-level `map[string]Adapter` registry guarded by a `sync.RWMutex`,
+`Register`/`Lookup`, and the `ErrNoAdapter` sentinel. Lookup is by the
+`@rk_pane_chat` provider prefix; a well-formed but unregistered provider returns
+`ErrNoAdapter` (the API layer maps it to a 404-class JSON error, so
+presence-gating stays provider-agnostic and codex/gemini adapters are additive).
+The one registered provider is `claude`, from `claude.go`'s `init()`.
 
 Beside the core interface, `adapter.go` declares the OPTIONAL `TranscriptLocator`
 capability — `TranscriptPath(ref string) (string, error)`, resolving a session
@@ -114,21 +53,12 @@ provider or one without it. The capability stays OFF the `Adapter` interface so
 the interface remains provider-neutral (a future protocol-based provider may
 have no on-disk transcript), and the implementing adapter MUST keep the
 ref-format guard in front of every path resolution (§ Claude adapter below).
-Its consumer is the operator-request handler's fact pre-derivation
-([operator-actuation](/run-kit/operator-actuation.md)). (260822-fih1)
-
-**`Update` (the tail increment)**: exactly one shape per Update — `Events`
-(newly-appended events; `Pending` carries the current pending state AFTER them)
-OR `Reset: true`. Under `TailFrom`, a **`Reset` is a bounded SHRINK/rewrite
-signal** — its `Conv` is always nil (no transcript payload). `TailFrom(ref, from)`
-primes parser state by parsing bytes `0..from` (discarded), then emits ONLY bytes
-`≥ from` as `Events` — its first emission is NOT a full backfill. *(Deletion
-candidate, recorded by review: `Update.Conv` has no producer that populates it
-and no production reader — only tests assert it is nil; a follow-up may remove
-the field.)* (260717-vhvz)
+Its consumers are the operator-request handler's fact pre-derivation
+([operator-actuation](/run-kit/operator-actuation.md)), fork/resume,
+closed-resume, and auto-name dispatch. (260822-fih1)
 
 #### Scenario: Unregistered provider returns the sentinel
-- **GIVEN** a chat ref with an unregistered provider (`codex` in v1)
+- **GIVEN** a chat ref with an unregistered provider
 - **WHEN** the registry is asked for an adapter
 - **THEN** `Lookup` returns `ErrNoAdapter`, not a panic or a generic failure.
 
@@ -144,7 +74,7 @@ ref returns `ErrInvalidRef` before touching disk; a valid UUID with no matching
 file returns the distinguishable `ErrTranscriptNotFound`. Multiple matches (a
 resumed session copied across cwds) → first match (they name the same session).
 The adapter also implements the registry's optional `TranscriptLocator`
-capability (§ Adapter interface): `TranscriptPath(ref)` delegates to
+capability (§ Provider registry + `TranscriptLocator` above): `TranscriptPath(ref)` delegates to
 `locateTranscript`, so the strict UUID guard stays in front of the one path
 resolution site reachable through the export (its caller is the
 operator-request seam — [operator-actuation](/run-kit/operator-actuation.md)).
@@ -154,62 +84,6 @@ operator-request seam — [operator-actuation](/run-kit/operator-actuation.md)).
 - **GIVEN** a ref containing `../`, an absolute path, or glob metacharacters
 - **WHEN** the adapter is asked to locate the transcript
 - **THEN** it returns `ErrInvalidRef` with no glob/stat/open performed.
-
-### Requirement: Tolerant line-by-line JSONL parse
-The parser SHALL scan line-by-line, decoding each line into a **loose envelope**
-(`type`, `uuid`, `parentUuid`, `timestamp`, `isSidechain`, `sessionId`,
-`message{role, content}`) where every field is optional. **`message.content` is
-EITHER a JSON array of blocks OR a plain string** (observed: slash-command user
-messages are string-content) — `decodeContent` branches on the first non-space
-byte (`"` → single text block, `[` → block array; anything else → no blocks). Only
-`type` `assistant` and `user` carry the conversation; every other line type
-(`permission-mode`, `mode`, `custom-title`, `agent-name`, `last-prompt`,
-`attachment`, `file-history-*`, `summary`, `system`, …) is skipped. Block mapping:
-`text` → message Event (empty text skipped), `tool_use` → tool_use Event,
-`tool_result` → tool_result Event (`content` flattened to text via
-`flattenToolResult` — a string verbatim, or the joined `text` of an array of text
-blocks, non-text inner blocks dropped for the v1 text-only scope); `thinking` is
-skipped in v1 (additive later). Unknown line types, unknown block types, and
-malformed (non-JSON) lines are skipped — malformed lines `slog.Debug`-logged and
-**counted** (`parser.malformed`, observability), never fatal. Lines with
-`isSidechain: true` (subagent traffic) are **excluded** from the v1 stream (an
-additive filter flag later; the Task tool_use card in the main conversation still
-renders).
-
-#### Scenario: Mixed transcript yields only conversational events
-- **GIVEN** a transcript with unknown line types, an unknown block type, a
-  malformed line, a string-content user message, and a sidechain line
-- **WHEN** the parser runs
-- **THEN** it yields only the conversational events, skips the rest without error,
-  and the malformed-line count is > 0.
-
-### Requirement: `TailFrom(ctx, ref, from)` — prime-then-emit offset tail
-The adapter SHALL expose `TailFrom(ctx, ref, from int64) (<-chan Update, error)`
-(the `tailFromLoop`) that **primes parser state by parsing bytes `0..from` and
-DISCARDS those events** (turn counter + pending continuity require the full-file
-walk — backfill and the tail share one `parser`), then emits ONLY bytes `≥ from`
-as `Events` updates and stat-polls the file at the named `tailPollInterval = 400ms`
-cadence (**no fsnotify** — one stat per tick per open stream is negligible and
-dependency-free) for the life of the stream. Its first emission is NOT a full-`Conv`
-`Reset`.
-On **growth** (`size > offset`) it reads from the offset and `consume` parses ONLY
-complete (newline-terminated) lines — a partial final line without a trailing
-newline is held (its bytes excluded from the consumed count) until its newline
-arrives next tick. On **shrink/rewrite** (`size < offset`), AND when the file is
-already shorter than `from` at prime time, it emits a bounded `Reset` (a
-SHRINK SIGNAL — `Conv` nil). A vanished file (transient stat error — session
-rotated/cleared) is tolerated: hold the offset and keep polling. The goroutine exits and closes the
-channel when `ctx` is cancelled — **no goroutine outlives the stream, no state
-beyond the per-connection offset** (Constitution II). Because priming replays
-`0..from`, the emitted-tail turn numbers are continuous with the primed prefix.
-
-#### Scenario: A partial final line is withheld; nothing ≤ from is re-emitted
-- **GIVEN** `TailFrom(ref, N)` on a transcript of byte length `N`, then a complete
-  line appended followed by a partial line
-- **WHEN** the next poll tick fires
-- **THEN** the ONLY events delivered are the newly-appended complete line (nothing
-  from `0..N` is re-emitted, its turn continuous with the primed prefix) and the
-  partial line is withheld until its newline arrives.
 
 ## Send Path
 
@@ -589,25 +463,31 @@ window-targeted `/keys` helper. (260830-s7wp)
 
 ## Design Decisions
 
-### Go JSONL tail, not a node SDK shim
-**Decision**: Parse the Claude transcript directly in Go — locate by UUID glob,
-tolerant line-by-line parse, byte-offset stat-poll tail.
-**Why**: No node runtime dependency, natural live tailing, rk stays one
-brew-installed binary. The Agent SDK read surface (`listSessions`/
-`getSessionMessages`) is one-shot with no tail/subscribe and churns (the
-experimental V2 session API was removed in TS SDK 0.3.142); a live tail under a
-shim would be poll-respawn.
-**Rejected**: A node shim via `exec.CommandContext` (dependency creep,
-poll-respawn); a pane-resident sidecar (most moving parts).
-**Cost + mitigation**: The JSONL line format is officially internal/unsupported
-and can drift across Claude Code versions — mitigated by a **tolerant parser**
-(skip-don't-fail on every unknown/malformed shape) plus a **pinned fixture** test
-(`testdata/claude_session.jsonl`, sanitized, recording the producing Claude Code
-version — **2.1.209** at ship) run against synthetic drift cases (unknown line
-type, unknown block, malformed line, truncated final line, string-content message,
-sidechain exclusion). Re-verify and re-pin on a version whose transcript shape
-changes.
-*Introduced by*: `260714-pmfh-chat-read-backend`
+### Transcript location is the package's whole surface
+**Decision**: `internal/chat` exposes exactly the provider registry (the
+`Provider()`-only `Adapter` interface, `Register`/`Lookup`, `ErrNoAdapter`), the
+optional `TranscriptLocator` capability with the package-level
+`TranscriptPath(provider, ref)`, the `ErrInvalidRef`/`ErrTranscriptNotFound`
+sentinels, and the Claude adapter's UUID guard + transcript glob — no event
+schema, conversation type, backfill, or offset tail.
+**Why**: the schema/parser/backfill/tail machinery's only consumers were the
+chat backfill endpoint and the state-socket chat subscription, both retired with
+the chat lens; zero production references remained, and dead code invites drift
+while misleading readers of the transcript-resolution path.
+**Rejected**: keeping the read machinery against a possible future transcript UI
+(unreferenced code misleads; git history preserves it if the need returns).
+*Introduced by*: 260904-0mrk-chat-lens-residual-code-trim
+
+### Trim before rename
+**Decision**: the residual sweep shipped delete-only under the existing
+`internal/chat` package name; the renames (transcript-locator package naming, the
+agent-send cluster) are a separate follow-up change.
+**Why**: each PR stays reviewable against one question — here "is everything
+deleted consumer-free, and does every stored-layout path still heal?" — and the
+renames then operate on the already-shrunken surface.
+**Rejected**: one combined trim+rename change (same files, two review questions,
+larger diff).
+*Introduced by*: 260904-0mrk-chat-lens-residual-code-trim
 
 ### Window-keyed routes, server-resolved ref
 **Decision**: The chat-shaped routes key on `{windowId}` (mirroring every
@@ -618,19 +498,6 @@ client-supplied ref over the reconciler — the same reconciliation `FetchSessio
 applies.
 **Rejected**: Ref-in-URL (stale/spoofable).
 *Introduced by*: `260714-pmfh-chat-read-backend`
-
-### `TailFrom(from)` is the sole tail method (no self-priming `Tail`)
-**Decision**: The adapter exposes only `TailFrom(ctx, ref, from)` (primes `0..from`
-discarding those events, then emits ONLY bytes `≥ from`); the `Adapter` interface
-carries no self-priming `Tail` whose first Update is a full-`Conv` `Reset`. Under
-`TailFrom`, `Reset` is a bounded SHRINK signal with `Conv` always nil.
-**Why**: The tail's job is purely "emit bytes ≥ from" — a full-conversation read
-is the one-shot `Backfill`'s job, so the tail never needs to prime a
-first-`Reset`-with-`Conv`. A self-priming `Tail` alongside `TailFrom` would be
-dead code.
-**Rejected**: keeping both methods on the interface (the `Tail` method would have
-no caller).
-*Introduced by*: `260717-vhvz-chat-on-state-socket`
 
 ### Tmux keystroke injection, not an agent SDK/API send
 **Decision**: Send types the message *into the resolved pane* — a named-buffer

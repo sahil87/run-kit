@@ -24,7 +24,7 @@ import { availableTiles, type SurfaceKind } from "./surface-layout";
  * SHARED tileable-surface registry — `SurfaceName` is an alias of
  * `surface-layout.ts`'s `SurfaceKind` (itself `ViewName`), so the rail, the
  * layout manager, and the view switcher can never drift: `tty` (always
- * available, listed first) and `chat` are surfaces like any other.
+ * available, listed first) is a surface like any other.
  */
 export type SurfaceName = SurfaceKind;
 

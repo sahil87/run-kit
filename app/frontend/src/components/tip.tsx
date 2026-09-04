@@ -91,7 +91,7 @@ type TipProps = {
    *  chip advertising a dead chord would lie; the settings-gear /
    *  shortcuts-row chord pattern, 260801-sm6g/mqim + 260812-d1at). A static
    *  string is correct only for chords
-   *  with no registry binding (the compose/chat Enter / Alt+Enter editing
+   *  with no registry binding (the compose Enter / Alt+Enter editing
    *  chords). */
   kbd?: string;
   /** Default `bottom` (the top-bar convention). Bottom-of-screen strips pass

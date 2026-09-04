@@ -39,7 +39,6 @@ var shapeArity = map[string]int{
 var surfaceKinds = map[string]bool{
 	"tty":  true,
 	"web":  true,
-	"chat": true,
 	"code": true,
 }
 

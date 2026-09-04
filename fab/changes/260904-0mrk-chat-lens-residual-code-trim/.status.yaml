@@ -1,0 +1,57 @@
+id: 0mrk
+name: 260904-0mrk-chat-lens-residual-code-trim
+created: 2026-09-04T07:21:29Z
+created_by: sahil87
+change_type: refactor
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: active
+plan:
+    generated: true
+    task_count: 9
+    acceptance_count: 13
+    acceptance_completed: 13
+confidence:
+    certain: 7
+    confident: 2
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 83.9
+        reversibility: 87.2
+        competence: 87.8
+        disambiguation: 83.9
+stage_metrics:
+    intake: {started_at: "2026-09-04T07:21:29Z", driver: fab-new, iterations: 1, completed_at: "2026-09-04T07:26:18Z"}
+    apply: {started_at: "2026-09-04T07:26:18Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T08:00:49Z"}
+    review: {started_at: "2026-09-04T08:00:49Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T08:06:14Z"}
+    hydrate: {started_at: "2026-09-04T08:06:14Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T08:13:13Z"}
+    ship: {started_at: "2026-09-04T08:13:13Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T08:14:39Z"}
+    review-pr: {started_at: "2026-09-04T08:14:39Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/823
+change_type_source: explicit
+true_impact:
+    added: 514
+    deleted: 2293
+    net: -1779
+    excluding:
+        added: 54
+        deleted: 2106
+        net: -2052
+    tests:
+        added: 18
+        deleted: 510
+        net: -492
+    computed_at: "2026-09-04T08:14:39Z"
+    computed_at_stage: ship
+summary: 'Trim chat-lens residuals: layoutspec drops the chat surface kind, internal/chat shrinks to the transcript-locator surface (schema/parser/backfill/tail deleted), react-markdown + remark-gfm removed, stale comments fixed'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-04T08:14:39Z

@@ -21,7 +21,7 @@ import (
 // surface segment was given; Index is 0 when no <n> segment was given.
 type Addr struct {
 	WindowID string // "@N" or ""
-	Surface  string // "web" | "tty" | "code" | "chat" | ""
+	Surface  string // "web" | "tty" | "code" | ""
 	Index    int    // 1-based; 0 = absent
 }
 

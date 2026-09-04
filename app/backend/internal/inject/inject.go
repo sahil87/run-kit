@@ -543,9 +543,11 @@ var pasteCollapseRe = regexp.MustCompile(`\[Pastedtext#\d+(?:\+\d+lines?)?\]`)
 var imageCollapseRe = regexp.MustCompile(`\[Image#\d+\]`)
 
 // imageExtensions are the path suffixes the image-chip gate recognizes — the
-// Claude API image media types, which is also the set CC 2.1.260 was observed
-// to chip. Matched case-insensitively. A wrongly-gated extension is harmless:
-// the TUI leaves such a paste as raw text and the needle arm still verifies it.
+// Claude API image media types. .png/.jpg/.gif/.webp were observed to chip on
+// CC 2.1.260; .jpeg is included by inference (image/jpeg covers both suffixes)
+// without direct observation. Matched case-insensitively. A wrongly-gated
+// extension is harmless: the TUI leaves such a paste as raw text and the
+// needle arm still verifies it.
 var imageExtensions = []string{".png", ".jpg", ".jpeg", ".gif", ".webp"}
 
 // isBareImagePath reports whether text, whitespace-trimmed, is a single line

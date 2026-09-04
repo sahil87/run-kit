@@ -249,7 +249,9 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     await expect(codeToggle(page)).toHaveCount(0);
     const paletteInput2 = await openPalette(page);
     await paletteInput2.fill("View: Code");
-    await expect(page.getByRole("option", { name: "View: Code" })).toHaveCount(0);
+    // exact: the palette's Ask-operator fallback row (`Ask operator: "View: Code"`)
+    // would substring-match this name; the gated action itself is what must be absent.
+    await expect(page.getByRole("option", { name: "View: Code", exact: true })).toHaveCount(0);
     await page.keyboard.press("Escape");
   });
 

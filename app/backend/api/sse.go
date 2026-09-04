@@ -103,6 +103,14 @@ const (
 	// "I want it now" case.
 	prStatusPollInterval = 90 * time.Second
 	sseCacheTTL          = 500 * time.Millisecond
+	// ssePollConcurrency bounds how many per-server poll units run
+	// concurrently. Parallelism is across servers, NEVER within one tmux
+	// server (its command channel serializes anyway — concurrent execs
+	// against one server only pile up forks). The bound caps daemon fork
+	// pressure during server storms (e.g. a test suite spawning tmux
+	// servers faster than the loop drains them); 6 covers realistic
+	// live-server counts while keeping worst-case concurrent tmux execs low.
+	ssePollConcurrency = 6
 	// sseEventDebounce bounds the event-driven derive rate: after a control-mode
 	// subscriber generation bump, waitForNext absorbs further bumps for this
 	// window so a burst (rename churn from agent panes) coalesces into ONE
@@ -349,6 +357,33 @@ type sseHub struct {
 	// See wakeMembership / membershipWakeChannel / consumeMembershipWake.
 	membershipWake chan struct{}
 
+	// pollInFlight is the single-flight set for per-server poll units: a
+	// server present here has exactly one unit executing (possibly a
+	// straggler from a prior tick or from a previous poll goroutine), so
+	// dispatch MUST skip it. Hub-level (not poll-local) so single-flight
+	// holds across ticks and across poll-goroutine restarts. Guarded by
+	// h.mu; written by the poll goroutine (dispatch) and by unit goroutines
+	// (clear on completion).
+	pollInFlight map[string]bool
+	// pollSem bounds concurrently executing poll units to
+	// ssePollConcurrency. Acquired at dispatch (non-blocking — a tick skips
+	// a server when no slot is free and re-tries on the next results wake),
+	// released by the unit goroutine on completion.
+	pollSem chan struct{}
+	// pollResults receives completed per-unit results for folding at the
+	// top of a tick. Buffered at ssePollConcurrency so a completing unit
+	// never blocks on delivery (in-flight units never exceed the bound by
+	// construction). Unit goroutines send; the poll goroutine is the only
+	// receiver.
+	pollResults chan pollUnitResult
+	// resultsWake is the hub-level wake signalled by every completing poll
+	// unit so a parked waitForNext unparks promptly to fold the result — a
+	// dead server's gone frame and the retain sweeps must not wait out the
+	// safety timer. Same close/consume-replace idiom as membershipWake,
+	// guarded by wakeMu. See signalResultsWake / resultsWakeChannel /
+	// consumeResultsWake.
+	resultsWake chan struct{}
+
 	// safetyInterval overrides safetyPollInterval per-hub. Zero falls back
 	// to the package constant. Tests set this to a short duration so
 	// existing time-based assertions remain valid; production callers
@@ -457,6 +492,9 @@ func newSSEHub(fetcher SessionFetcher, mc *metrics.Collector, svc *ports.Collect
 		previousPreviewJSON:    make(map[string]map[string]string),
 		cache:                  make(map[string]*cachedResult),
 		wakes:                  make(map[string]chan struct{}),
+		pollInFlight:           make(map[string]bool),
+		pollSem:                make(chan struct{}, ssePollConcurrency),
+		pollResults:            make(chan pollUnitResult, ssePollConcurrency),
 		fetcher:                fetcher,
 		orderFetcher:           prodSessionOrderFetcher{},
 		metrics:                mc,
@@ -1414,6 +1452,25 @@ func detectDisappearedSessions(prev, current map[string]bool) []string {
 	return gone
 }
 
+// pollUnitResult carries one completed per-server poll unit's outcome back to
+// the poll goroutine, which folds all completed results at the top of a tick.
+// Unit goroutines never touch the poll goroutine's fold accumulators directly
+// — each unit fills its own result and the fold merges them.
+type pollUnitResult struct {
+	server string
+	// polled reports the fetch succeeded — the server counts as observed for
+	// the retain sweeps. dead reports the fetch failed with
+	// tmux.IsServerGone — the server counts as observed AND is reaped. A
+	// transient failure sets neither (not observed: its tracker episodes
+	// survive the sweep).
+	polled bool
+	dead   bool
+	// waitingKeys/autoNameKeys are the live (server, windowID) keys the unit
+	// observed, for the waiting-push / auto-name retain sweeps.
+	waitingKeys  map[string]bool
+	autoNameKeys map[string]bool
+}
+
 func (h *sseHub) poll() {
 	// Track per-server generation observed on the prior pass. The
 	// event-driven wait fires when generation advances past this.
@@ -1423,6 +1480,10 @@ func (h *sseHub) poll() {
 	// invalidates each of those servers' fetch caches so the loop
 	// observes the post-mutation tmux state immediately.
 	eventDrivenServers := map[string]bool{}
+	// resultsOnly marks ticks whose wait ended solely on unit completions:
+	// they fold/sweep/broadcast but do NOT dispatch (dispatching there would
+	// self-perpetuate — see waitForNext's resultsOnly return).
+	resultsOnly := false
 
 	for {
 		// Read-only check: count clients and collect server keys
@@ -1454,267 +1515,33 @@ func (h *sseHub) poll() {
 		}
 		h.mu.RUnlock()
 
-		// Poll each server and broadcast to its clients. deadServers collects
-		// servers whose tmux socket is gone (tmux.IsServerGone) so they can be
-		// reaped from the poll set AFTER the loop — never mid-range over the
-		// snapshot, and never under the write lock while FetchSessions runs.
-		var deadServers []string
-		// Accumulate the live (server, windowID) keys across all polled servers
-		// so the waiting-push tracker can reap episodes for windows that vanished
-		// (retain, after the loop). polledServers records which servers were
-		// SUCCESSFULLY fetched this tick — the retain sweep is scoped to these so a
-		// server whose fetch failed transiently (contributing zero live keys) does
-		// not have its still-waiting episodes wrongly reaped/re-armed.
-		liveWaitingKeys := map[string]bool{}
-		liveAutoNameKeys := map[string]bool{}
-		polledServers := map[string]bool{}
-		for _, server := range servers {
-			// Metrics-only clients (server-neutral, `?metrics=1`) have no tmux
-			// server — skip all session-fetch / order / reap work for them. They
-			// still receive the server-independent metrics broadcast at the
-			// bottom of the loop, which fans out to every registered client.
-			if server == metricsOnlyServer {
-				continue
-			}
-			// Check session fetch cache (500ms TTL). If the prior
-			// waitForNext call observed a control-mode notification
-			// for this server, invalidate the cache so we observe the
-			// post-mutation tmux state immediately. All h.cache access is
-			// under h.mu — handler goroutines read the same map under h.mu
-			// (sendCachedPreviewLocked, the dead-server reap), so an
-			// unsynchronized poll-side access is a crash-class map race.
-			// The lock is held only around the map operations, NEVER across
-			// FetchSessions (a subprocess exec with up to 10s of inner execs).
-			h.mu.Lock()
-			if eventDrivenServers[server] {
-				delete(h.cache, server)
-				delete(eventDrivenServers, server)
-			}
-			var result []sessions.ProjectSession
-			var cacheHit bool
-			if cached, ok := h.cache[server]; ok && time.Since(cached.fetchedAt) < sseCacheTTL {
-				result, cacheHit = cached.data, true
-			}
-			h.mu.Unlock()
-			if !cacheHit {
-				var err error
-				result, err = h.fetcher.FetchSessions(context.Background(), server)
-				if err != nil {
-					if tmux.IsServerGone(err) {
-						// The tmux socket is gone — killed, never started, or
-						// unreachable. Reap it from the poll set instead of
-						// re-polling the corpse every tick (the WARN drumbeat).
-						// Collected here; reaped after the loop (see below).
-						slog.Info("SSE: tmux server gone, reaping from poll set", "server", server)
-						deadServers = append(deadServers, server)
-					} else {
-						slog.Warn("SSE poll error", "err", err, "server", server)
-					}
-					continue
-				}
-				h.mu.Lock()
-				h.cache[server] = &cachedResult{data: result, fetchedAt: time.Now()}
-				h.mu.Unlock()
-			}
-
-			// Attach live PR status to any window with a derived PR. PURE
-			// in-memory read of the collector snapshot — the hot path makes NO
-			// network/gh call. All gh cost lives on background ticks: the
-			// viewer-wide collector's 90s tick (state/checks/review) + on-demand
-			// POST, and the branch→PR refresher's tick (PrURL/PrNumber, derived
-			// upstream in FetchSessions via register + snapshot-join, also
-			// network-free here). NOTE: `result` and `h.cache[server].data` are the SAME
-			// slice (stored by reference above), so this mutates the cached
-			// snapshot in place — that is intentional, and the mutation runs
-			// under h.mu because handler goroutines read the same slice under
-			// h.mu (sendCachedPreviewLocked → windowsBySession); an unlocked
-			// in-place write would be a value-level data race against them.
-			// attachPRStatus is pure in-memory (collector snapshot read, no
-			// I/O), so the hold is bounded. It is also idempotent: it resets
-			// the three collector-only fields (PrChecks/PrReview/PrFetchedAt)
-			// to zero before re-attaching, so re-running it on a cache hit
-			// yields the same result and a PR that left the collector snapshot
-			// clears those cleanly. The dual-sourced PrState/PrIsDraft are
-			// deliberately NOT reset, so on a cache hit they keep whatever the
-			// previous tick left — bounded by one cache generation (500ms),
-			// after which FetchSessions re-seeds both from the branch channel.
-			// Re-deriving every tick keeps the cached sessions in sync with the
-			// latest PR snapshot without a deep copy.
-			h.mu.Lock()
-			h.attachPRStatus(result)
-			h.mu.Unlock()
-
-			// This server's fetch succeeded — record it so the post-loop reap only
-			// sweeps episodes belonging to servers actually polled this tick.
-			polledServers[server] = true
-
-			// Web Push on sustained waiting (260706-y1ar). Ride this per-server
-			// tick, where the rolled-up window AgentState already exists: advance
-			// the episode tracker (pure, synchronous — no I/O in the hot path) and
-			// fan the resulting pushes out in a detached goroutine inside
-			// notifyWaiting. Best-effort, in-memory only; push errors never block
-			// the tick. Accumulate the live keys for the post-loop reap.
-			if h.waitingPush != nil {
-				for k := range h.waitingPush.notifyWaiting(server, result) {
-					liveWaitingKeys[k] = true
-				}
-			}
-
-			// Auto-name on busy→idle (260822-q675). Same seam and same shape as
-			// waiting-push above: the decision is pure/synchronous (no I/O in the
-			// hot path), delivery fans out in a detached goroutine inside advance
-			// through the injected deliver closure (nil in test hubs — tracking
-			// still advances). Rate-limited and skipped when the operator is
-			// busy; best-effort, in-memory only, never blocks the tick.
-			if autoName := h.getAutoName(); autoName != nil {
-				for k := range autoName.advance(server, result) {
-					liveAutoNameKeys[k] = true
-				}
-			}
-
-			if operatorQueue := h.getOperatorQueue(); operatorQueue != nil {
-				operatorQueue.advance(server, result)
-			}
-
-			jsonBytes, err := json.Marshal(result)
-			if err != nil {
-				continue
-			}
-			jsonStr := string(jsonBytes)
-
-			// Dedup-check and cache-update under the lock, but render OUTSIDE
-			// it: the envelope marshal on this hot tick must not extend h.mu
-			// hold time (it would block subscribe/unsubscribe/preview-scope
-			// updates). Splitting the critical section is safe:
-			//   - the ack-ordering invariant holds — previousJSON is updated
-			//     BEFORE any fan-out of that tick, so a subscribe ack reading
-			//     it is always ≥ every sessions frame already enqueued
-			//     (TestStateWS_SubscribeAckNotStaleUnderPollInterleave);
-			//   - a client subscribing in the gap replays the NEW snapshot in
-			//     addClient and then also receives the identical event below —
-			//     a benign duplicate (the client applies state by replacement).
-			h.mu.Lock()
-			changed := jsonStr != h.previousJSON[server]
-			if changed {
-				h.previousJSON[server] = jsonStr
-			}
-			h.mu.Unlock()
-			if changed {
-				// Render once — every client on this server gets the same bytes.
-				ev := preRendered(hubEvent{kind: kindServer, typ: "sessions", key: server, data: jsonStr})
-				h.mu.Lock()
-				for _, c := range h.clients[server] {
-					h.sendLocked(c, ev)
-				}
-				h.mu.Unlock()
-			}
-
-			// Pane-text previews (tile grid). Bounded to the union of sessions
-			// any client on this server has expanded — capture-nothing when the
-			// union is empty (opt-in per expansion). Rides this existing poll
-			// tick: no new goroutine, no new loop. The tmux captures run OUTSIDE
-			// the hub lock (each is an exec with its own timeout), then a
-			// re-lock delivers each client a per-connection-filtered subset over
-			// a dedicated `event: preview`. The sessions payload above is
-			// unchanged — preview text never bloats the sessions dedup cache.
-			h.mu.RLock()
-			union := expandedUnionLocked(h.clients[server])
-			h.mu.RUnlock()
-			if len(union) > 0 {
-				previews := capturePreviews(result, union, server, h.captureFn)
-				byWindow := windowsBySession(result)
-				h.mu.Lock()
-				h.previousPreviewJSON[server] = previews
-				for _, c := range h.clients[server] {
-					subset := previewSubsetFor(c, previews, byWindow)
-					if subset == nil {
-						continue
-					}
-					if payload, perr := json.Marshal(subset); perr == nil {
-						h.sendLocked(c, hubEvent{kind: kindServer, typ: "preview", key: server, data: string(payload)})
-					}
-				}
-				h.mu.Unlock()
-			}
-
-			// Bootstrap: on first poll per server, seed the order cache from
-			// tmux. Closes the gap when rk-go restarts but tmux survives —
-			// connecting clients otherwise see no order until the next POST.
-			// Runs after the sessions broadcast so first-poll event order is
-			// sessions → session-order → metrics.
-			//
-			// Errors are retried up to orderBootstrapMaxAttempts before giving
-			// up — transient tmux failures (e.g., a momentary timeout) can
-			// recover, but a persistent failure won't poll-spam every tick.
-			// Bootstrap state is tracked separately from previousOrderJSON so
-			// a successful POST (which populates previousOrderJSON via
-			// broadcastSessionOrder) cleanly satisfies the "seeded" gate.
-			h.mu.RLock()
-			_, orderSeeded := h.previousOrderJSON[server]
-			attempts := h.orderBootstrapAttempts[server]
-			h.mu.RUnlock()
-			if !orderSeeded && attempts < orderBootstrapMaxAttempts {
-				bootCtx, cancelBoot := context.WithTimeout(context.Background(), 2*time.Second)
-				order, oerr := h.orderFetcher.GetSessionOrder(bootCtx, server)
-				cancelBoot()
-				if oerr != nil {
-					slog.Debug("session-order bootstrap (best-effort)", "server", server, "err", oerr, "attempt", attempts+1)
-					h.mu.Lock()
-					h.orderBootstrapAttempts[server] = attempts + 1
-					h.mu.Unlock()
-				} else {
-					h.broadcastSessionOrder(server, order)
-				}
-			}
-
-			// Board membership changes are surfaced only via the explicit
-			// pin/unpin/reorder handlers (each emits its own board-changed
-			// event). Under the link-based model a killed pinned window's pin-session simply
-			// drops out of the next ListBoardEntries read — the frontend's
-			// refetch on the session-list change picks it up — so there is no
-			// eager board-cleanup diff and no first-poll bootstrap broadcast.
-
-			// Real-session disappearance logging (observability only — no
-			// behavior change). run-kit audit-logs every session IT kills
-			// (board pin-session teardown on unpin, explicit kill-session), but
-			// a real user session can vanish OUTSIDE that path — a shell exiting,
-			// an external `tmux kill-session`, an OOM kill, or a server collapsing
-			// to zero under `exit-empty`. When that happens today the logs go
-			// silent, making post-hoc diagnosis impossible (see the `utils`
-			// incident). Emit one WARN per disappeared real session so the next
-			// occurrence is diagnosable. We exclude pin-session/anchor churn via
-			// realSessionNameSet. This does NOT prevent the loss — it records
-			// it. Constitution VI PREVENTION (always-on `_rk-ctl` anchor floor +
-			// imperative `exit-empty off` on every dialed server) is implemented
-			// in change 260602-a1wo-prevent-exit-empty-server-death
-			// (tmuxctl.resolveBootstrap / productionDial, tmux.SetExitEmptyOff).
-			// This WARN is KEPT as defense-in-depth: it still surfaces losses
-			// from paths prevention can't cover — an external `tmux kill-session`,
-			// an OOM kill, or a shell exiting a real session.
-			currentReal := realSessionNameSet(result)
-			h.mu.RLock()
-			prevReal, hadPrevReal := h.previousRealSessions[server]
-			h.mu.RUnlock()
-			if hadPrevReal {
-				for _, name := range detectDisappearedSessions(prevReal, currentReal) {
-					slog.Warn("real session disappeared between SSE polls (not killed by run-kit's audited path)",
-						"server", server, "session", name,
-						"remaining", len(currentReal))
-				}
-			}
-			h.mu.Lock()
-			h.previousRealSessions[server] = currentReal
-			h.mu.Unlock()
-		}
+		// Tick shape: fold → sweep → global broadcasts → dispatch → wait.
+		// Per-server work runs as concurrent units (bounded by
+		// ssePollConcurrency) that emit their own server's events as they
+		// complete; the poll goroutine itself never executes fetch work, so
+		// one slow server cannot delay another server's snapshot, the
+		// host-global broadcasts, or the sweeps below.
+		//
+		// Fold every unit result completed since the last tick.
+		// deadServers collects servers whose tmux socket is gone
+		// (tmux.IsServerGone) so they can be reaped from the poll set AFTER
+		// the fold — never mid-unit, and never under the write lock while
+		// FetchSessions runs. polledServers records which servers were
+		// SUCCESSFULLY fetched in a folded result — the retain sweep is
+		// scoped to these so a server whose fetch failed transiently, or
+		// whose unit is still in flight (skipped at dispatch), counts as not
+		// observed and keeps its still-waiting episodes.
+		deadServers, liveWaitingKeys, liveAutoNameKeys, polledServers := h.foldPollResults()
 
 		// Reap waiting-push episodes for windows no longer present, so a re-created
 		// window id can't inherit a stale "pushed" flag. The sweep is SCOPED to
-		// servers whose state we actually observed this tick: the ones successfully
-		// polled (polledServers) plus the ones confirmed GONE (deadServers — their
-		// windows truly vanished). A server that failed to fetch TRANSIENTLY
-		// (non-IsServerGone) is in neither set, so its still-waiting episodes are
-		// left untouched — reaping them would reset the run and fire a duplicate
-		// push the moment the server recovers.
+		// servers whose state we actually observed in a folded unit result: the
+		// ones successfully polled (polledServers) plus the ones confirmed GONE
+		// (deadServers — their windows truly vanished). A server that failed to
+		// fetch TRANSIENTLY (non-IsServerGone) or whose unit is still IN FLIGHT
+		// (skipped at dispatch, no result folded) is in neither set, so its
+		// still-waiting episodes are left untouched — reaping them would reset
+		// the run and fire a duplicate push the moment the server recovers.
 		reapableServers := make(map[string]bool, len(polledServers)+len(deadServers))
 		for s := range polledServers {
 			reapableServers[s] = true
@@ -1734,16 +1561,19 @@ func (h *sseHub) poll() {
 			operatorQueue.retain(polledServers, reapableServers)
 		}
 
-		// Reap dead servers collected during the loop. A dead socket has no
-		// reason to stay in the poll set ("no socket = no polling") — a
+		// Reap dead servers whose units reported the socket gone. A dead socket
+		// has no reason to stay in the poll set ("no socket = no polling") — a
 		// reconnecting client re-registers it naturally via addClient (which
 		// re-spawns this goroutine when !h.polling). Emit a one-time
 		// server-gone event to each dead server's registered clients so the
 		// frontend can react immediately, then delete the server from h.clients
 		// and ALL per-server maps so no stale state leaks into a future
 		// re-registration. All mutation happens here, under a single write
-		// lock, AFTER the snapshot iteration above (never mid-range, never
-		// across FetchSessions).
+		// lock, at the fold point (never mid-unit, never across FetchSessions).
+		// The reporting unit has already completed — its folded result is what
+		// landed the server here — so no in-flight unit touches these maps for
+		// it; the pollInFlight delete is a safeguard (the completing unit clears
+		// its own entry when it finishes bookkeeping).
 		if len(deadServers) > 0 {
 			h.mu.Lock()
 			for _, server := range deadServers {
@@ -1765,6 +1595,7 @@ func (h *sseHub) poll() {
 				delete(h.orderBootstrapAttempts, server)
 				delete(h.previousOrderJSON, server)
 				delete(h.previousPreviewJSON, server)
+				delete(h.pollInFlight, server)
 				delete(perServerGen, server)
 				delete(eventDrivenServers, server)
 			}
@@ -1830,6 +1661,50 @@ func (h *sseHub) poll() {
 			}
 		}
 
+		// Dispatch this tick's per-server units — skipped on results-only
+		// ticks (see above). Each unit runs on its own goroutine (bounded by
+		// ssePollConcurrency via pollSem) and delivers its result to
+		// pollResults for a later tick's fold — the loop never joins on
+		// units, so a slow server cannot stall the tick.
+		if !resultsOnly {
+			for _, server := range servers {
+				// Metrics-only clients (server-neutral, `?metrics=1`) have no tmux
+				// server — skip all session-fetch / order / reap work for them. They
+				// still receive the server-independent metrics broadcast above,
+				// which fans out to every registered client.
+				if server == metricsOnlyServer {
+					continue
+				}
+				// Single-flight: skip a server whose unit is still running (a
+				// straggler from a prior tick or from a previous poll goroutine) —
+				// one in-flight unit per server, always. Its pending
+				// cache-invalidation flag stays un-consumed for its next dispatch.
+				h.mu.RLock()
+				inFlight := h.pollInFlight[server]
+				h.mu.RUnlock()
+				if inFlight {
+					continue
+				}
+				select {
+				case h.pollSem <- struct{}{}:
+				default:
+					// Concurrency bound reached — retried on the next
+					// non-results-only tick (event wake or safety timer).
+					continue
+				}
+				h.mu.Lock()
+				h.pollInFlight[server] = true
+				h.mu.Unlock()
+				// Consume the server's pending cache-invalidation flag (set when
+				// its wait channel fired in the last waitForNext) and hand it to
+				// the unit as an immutable value — eventDrivenServers/perServerGen
+				// stay owned by the poll goroutine.
+				invalidateCache := eventDrivenServers[server]
+				delete(eventDrivenServers, server)
+				go h.runPollUnit(server, invalidateCache)
+			}
+		}
+
 		// Connection liveness on the state socket is handled at the WebSocket
 		// layer (failed write on the writer pump, read-loop error), not by an
 		// SSE-style comment heartbeat — so there is no per-tick heartbeat frame.
@@ -1837,11 +1712,309 @@ func (h *sseHub) poll() {
 		//   (a) a tmux control-mode notification for any subscribed server
 		//       (subscriber.Wait channel closes — typically sub-ms after a
 		//       tmux mutation), OR
-		//   (b) the safety-net ticker — guarantees correctness even when
+		//   (b) a signalled wake — per-server (wake()), membership (new server
+		//       key subscribed), or a completed unit's results wake (fold its
+		//       result promptly), OR
+		//   (c) the safety-net ticker — guarantees correctness even when
 		//       no subscriber is registered (PTY-unavailable case) or when
 		//       control-mode is reconnecting.
-		h.waitForNext(servers, perServerGen, eventDrivenServers)
+		resultsOnly = h.waitForNext(servers, perServerGen, eventDrivenServers)
 	}
+}
+
+// foldPollResults drains every unit result completed so far and merges them
+// into the tick's accumulators: deadServers (tmux.IsServerGone — reaped by the
+// caller), liveWaitingKeys/liveAutoNameKeys (live (server, windowID) keys for
+// the retain sweeps), polledServers (successfully fetched — the sweep scoping
+// set). A server whose unit is still in flight contributes nothing this tick:
+// it is NOT observed, and the sweeps leave its tracker episodes untouched.
+func (h *sseHub) foldPollResults() (deadServers []string, liveWaitingKeys, liveAutoNameKeys, polledServers map[string]bool) {
+	liveWaitingKeys = map[string]bool{}
+	liveAutoNameKeys = map[string]bool{}
+	polledServers = map[string]bool{}
+	for {
+		select {
+		case res := <-h.pollResults:
+			if res.polled {
+				polledServers[res.server] = true
+			}
+			if res.dead {
+				deadServers = append(deadServers, res.server)
+			}
+			for k := range res.waitingKeys {
+				liveWaitingKeys[k] = true
+			}
+			for k := range res.autoNameKeys {
+				liveAutoNameKeys[k] = true
+			}
+		default:
+			return
+		}
+	}
+}
+
+// runPollUnit executes one server's poll unit and delivers the outcome. The
+// result is queued BEFORE the in-flight flag clears, so the poll goroutine
+// cannot re-dispatch the server while its latest result is still unfolded;
+// completion always signals the results wake so a parked waitForNext folds
+// promptly instead of waiting out the safety timer. A unit that outlives its
+// poll goroutine (total == 0 exit, later re-spawn) still runs this exact
+// sequence — the buffered channel never blocks it, the fresh poll goroutine
+// sees the in-flight entry until it clears (no double dispatch), and its late
+// result folds harmlessly (a server absent from h.clients no-ops through the
+// sweeps and the reap).
+func (h *sseHub) runPollUnit(server string, invalidateCache bool) {
+	res := h.pollServerUnit(server, invalidateCache)
+	h.pollResults <- res
+	h.mu.Lock()
+	delete(h.pollInFlight, server)
+	h.mu.Unlock()
+	<-h.pollSem
+	h.signalResultsWake()
+}
+
+// pollServerUnit executes one server's per-tick poll work: cache check →
+// FetchSessions → attachPRStatus → waiting-push/auto-name/operator-queue
+// advance → sessions marshal/dedup/emit → previews → order bootstrap →
+// disappearance WARN. The unit emits its server's events itself (per-server
+// emission on completion, never batched at end of tick) and returns the
+// tick's accumulators as a pollUnitResult for the poll goroutine to fold.
+// Execution within a unit is serial — capturePreviews' one exec per expanded
+// window stays sequential.
+func (h *sseHub) pollServerUnit(server string, invalidateCache bool) pollUnitResult {
+	res := pollUnitResult{server: server, waitingKeys: map[string]bool{}, autoNameKeys: map[string]bool{}}
+	// Check session fetch cache (500ms TTL). invalidateCache records whether
+	// the prior waitForNext call observed a control-mode notification for this
+	// server (the poll goroutine consumes the flag at dispatch); when set,
+	// invalidate the cache so we observe the post-mutation tmux state
+	// immediately. All h.cache access is
+	// under h.mu — handler goroutines read the same map under h.mu
+	// (sendCachedPreviewLocked, the dead-server reap), so an
+	// unsynchronized poll-side access is a crash-class map race.
+	// The lock is held only around the map operations, NEVER across
+	// FetchSessions (a subprocess exec with up to 10s of inner execs).
+	h.mu.Lock()
+	if invalidateCache {
+		delete(h.cache, server)
+	}
+	var result []sessions.ProjectSession
+	var cacheHit bool
+	if cached, ok := h.cache[server]; ok && time.Since(cached.fetchedAt) < sseCacheTTL {
+		result, cacheHit = cached.data, true
+	}
+	h.mu.Unlock()
+	if !cacheHit {
+		var err error
+		result, err = h.fetcher.FetchSessions(context.Background(), server)
+		if err != nil {
+			if tmux.IsServerGone(err) {
+				// The tmux socket is gone — killed, never started, or
+				// unreachable. Reap it from the poll set instead of
+				// re-polling the corpse every tick (the WARN drumbeat).
+				// Reported in the unit result; the poll goroutine reaps
+				// after folding completed results (see poll()).
+				slog.Info("SSE: tmux server gone, reaping from poll set", "server", server)
+				res.dead = true
+			} else {
+				slog.Warn("SSE poll error", "err", err, "server", server)
+			}
+			return res
+		}
+		h.mu.Lock()
+		h.cache[server] = &cachedResult{data: result, fetchedAt: time.Now()}
+		h.mu.Unlock()
+	}
+
+	// Attach live PR status to any window with a derived PR. PURE
+	// in-memory read of the collector snapshot — the hot path makes NO
+	// network/gh call. All gh cost lives on background ticks: the
+	// viewer-wide collector's 90s tick (state/checks/review) + on-demand
+	// POST, and the branch→PR refresher's tick (PrURL/PrNumber, derived
+	// upstream in FetchSessions via register + snapshot-join, also
+	// network-free here). NOTE: `result` and `h.cache[server].data` are the SAME
+	// slice (stored by reference above), so this mutates the cached
+	// snapshot in place — that is intentional, and the mutation runs
+	// under h.mu because handler goroutines read the same slice under
+	// h.mu (sendCachedPreviewLocked → windowsBySession); an unlocked
+	// in-place write would be a value-level data race against them.
+	// attachPRStatus is pure in-memory (collector snapshot read, no
+	// I/O), so the hold is bounded. It is also idempotent: it resets
+	// the three collector-only fields (PrChecks/PrReview/PrFetchedAt)
+	// to zero before re-attaching, so re-running it on a cache hit
+	// yields the same result and a PR that left the collector snapshot
+	// clears those cleanly. The dual-sourced PrState/PrIsDraft are
+	// deliberately NOT reset, so on a cache hit they keep whatever the
+	// previous tick left — bounded by one cache generation (500ms),
+	// after which FetchSessions re-seeds both from the branch channel.
+	// Re-deriving every tick keeps the cached sessions in sync with the
+	// latest PR snapshot without a deep copy.
+	h.mu.Lock()
+	h.attachPRStatus(result)
+	h.mu.Unlock()
+
+	// This server's fetch succeeded — record it in the unit result so the
+	// post-fold reap only sweeps episodes belonging to servers actually polled.
+	res.polled = true
+
+	// Web Push on sustained waiting (260706-y1ar). Ride this per-server
+	// tick, where the rolled-up window AgentState already exists: advance
+	// the episode tracker (pure, synchronous — no I/O in the hot path) and
+	// fan the resulting pushes out in a detached goroutine inside
+	// notifyWaiting. Best-effort, in-memory only; push errors never block
+	// the tick. Accumulate the live keys into the unit result for the
+	// post-fold reap.
+	if h.waitingPush != nil {
+		for k := range h.waitingPush.notifyWaiting(server, result) {
+			res.waitingKeys[k] = true
+		}
+	}
+
+	// Auto-name on busy→idle (260822-q675). Same seam and same shape as
+	// waiting-push above: the decision is pure/synchronous (no I/O in the
+	// hot path), delivery fans out in a detached goroutine inside advance
+	// through the injected deliver closure (nil in test hubs — tracking
+	// still advances). Rate-limited and skipped when the operator is
+	// busy; best-effort, in-memory only, never blocks the tick.
+	if autoName := h.getAutoName(); autoName != nil {
+		for k := range autoName.advance(server, result) {
+			res.autoNameKeys[k] = true
+		}
+	}
+
+	if operatorQueue := h.getOperatorQueue(); operatorQueue != nil {
+		operatorQueue.advance(server, result)
+	}
+
+	jsonBytes, err := json.Marshal(result)
+	if err != nil {
+		return res
+	}
+	jsonStr := string(jsonBytes)
+
+	// Dedup-check and cache-update under the lock, but render OUTSIDE
+	// it: the envelope marshal on this hot tick must not extend h.mu
+	// hold time (it would block subscribe/unsubscribe/preview-scope
+	// updates). Splitting the critical section is safe:
+	//   - the ack-ordering invariant holds — previousJSON is updated
+	//     BEFORE any fan-out of that tick, so a subscribe ack reading
+	//     it is always ≥ every sessions frame already enqueued
+	//     (TestStateWS_SubscribeAckNotStaleUnderPollInterleave);
+	//   - a client subscribing in the gap replays the NEW snapshot in
+	//     addClient and then also receives the identical event below —
+	//     a benign duplicate (the client applies state by replacement).
+	h.mu.Lock()
+	changed := jsonStr != h.previousJSON[server]
+	if changed {
+		h.previousJSON[server] = jsonStr
+	}
+	h.mu.Unlock()
+	if changed {
+		// Render once — every client on this server gets the same bytes.
+		ev := preRendered(hubEvent{kind: kindServer, typ: "sessions", key: server, data: jsonStr})
+		h.mu.Lock()
+		for _, c := range h.clients[server] {
+			h.sendLocked(c, ev)
+		}
+		h.mu.Unlock()
+	}
+
+	// Pane-text previews (tile grid). Bounded to the union of sessions
+	// any client on this server has expanded — capture-nothing when the
+	// union is empty (opt-in per expansion). Rides this existing poll
+	// tick: no new goroutine, no new loop. The tmux captures run OUTSIDE
+	// the hub lock (each is an exec with its own timeout), then a
+	// re-lock delivers each client a per-connection-filtered subset over
+	// a dedicated `event: preview`. The sessions payload above is
+	// unchanged — preview text never bloats the sessions dedup cache.
+	h.mu.RLock()
+	union := expandedUnionLocked(h.clients[server])
+	h.mu.RUnlock()
+	if len(union) > 0 {
+		previews := capturePreviews(result, union, server, h.captureFn)
+		byWindow := windowsBySession(result)
+		h.mu.Lock()
+		h.previousPreviewJSON[server] = previews
+		for _, c := range h.clients[server] {
+			subset := previewSubsetFor(c, previews, byWindow)
+			if subset == nil {
+				continue
+			}
+			if payload, perr := json.Marshal(subset); perr == nil {
+				h.sendLocked(c, hubEvent{kind: kindServer, typ: "preview", key: server, data: string(payload)})
+			}
+		}
+		h.mu.Unlock()
+	}
+
+	// Bootstrap: on first poll per server, seed the order cache from
+	// tmux. Closes the gap when rk-go restarts but tmux survives —
+	// connecting clients otherwise see no order until the next POST.
+	// Runs after the sessions broadcast so first-poll event order is
+	// sessions → session-order → metrics.
+	//
+	// Errors are retried up to orderBootstrapMaxAttempts before giving
+	// up — transient tmux failures (e.g., a momentary timeout) can
+	// recover, but a persistent failure won't poll-spam every tick.
+	// Bootstrap state is tracked separately from previousOrderJSON so
+	// a successful POST (which populates previousOrderJSON via
+	// broadcastSessionOrder) cleanly satisfies the "seeded" gate.
+	h.mu.RLock()
+	_, orderSeeded := h.previousOrderJSON[server]
+	attempts := h.orderBootstrapAttempts[server]
+	h.mu.RUnlock()
+	if !orderSeeded && attempts < orderBootstrapMaxAttempts {
+		bootCtx, cancelBoot := context.WithTimeout(context.Background(), 2*time.Second)
+		order, oerr := h.orderFetcher.GetSessionOrder(bootCtx, server)
+		cancelBoot()
+		if oerr != nil {
+			slog.Debug("session-order bootstrap (best-effort)", "server", server, "err", oerr, "attempt", attempts+1)
+			h.mu.Lock()
+			h.orderBootstrapAttempts[server] = attempts + 1
+			h.mu.Unlock()
+		} else {
+			h.broadcastSessionOrder(server, order)
+		}
+	}
+
+	// Board membership changes are surfaced only via the explicit
+	// pin/unpin/reorder handlers (each emits its own board-changed
+	// event). Under the link-based model a killed pinned window's pin-session simply
+	// drops out of the next ListBoardEntries read — the frontend's
+	// refetch on the session-list change picks it up — so there is no
+	// eager board-cleanup diff and no first-poll bootstrap broadcast.
+
+	// Real-session disappearance logging (observability only — no
+	// behavior change). run-kit audit-logs every session IT kills
+	// (board pin-session teardown on unpin, explicit kill-session), but
+	// a real user session can vanish OUTSIDE that path — a shell exiting,
+	// an external `tmux kill-session`, an OOM kill, or a server collapsing
+	// to zero under `exit-empty`. When that happens today the logs go
+	// silent, making post-hoc diagnosis impossible (see the `utils`
+	// incident). Emit one WARN per disappeared real session so the next
+	// occurrence is diagnosable. We exclude pin-session/anchor churn via
+	// realSessionNameSet. This does NOT prevent the loss — it records
+	// it. Constitution VI PREVENTION (always-on `_rk-ctl` anchor floor +
+	// imperative `exit-empty off` on every dialed server) is implemented
+	// in change 260602-a1wo-prevent-exit-empty-server-death
+	// (tmuxctl.resolveBootstrap / productionDial, tmux.SetExitEmptyOff).
+	// This WARN is KEPT as defense-in-depth: it still surfaces losses
+	// from paths prevention can't cover — an external `tmux kill-session`,
+	// an OOM kill, or a shell exiting a real session.
+	currentReal := realSessionNameSet(result)
+	h.mu.RLock()
+	prevReal, hadPrevReal := h.previousRealSessions[server]
+	h.mu.RUnlock()
+	if hadPrevReal {
+		for _, name := range detectDisappearedSessions(prevReal, currentReal) {
+			slog.Warn("real session disappeared between SSE polls (not killed by run-kit's audited path)",
+				"server", server, "session", name,
+				"remaining", len(currentReal))
+		}
+	}
+	h.mu.Lock()
+	h.previousRealSessions[server] = currentReal
+	h.mu.Unlock()
+	return res
 }
 
 // wake marks the server for an immediate snapshot pass. Non-blocking and safe
@@ -1987,12 +2160,76 @@ func (h *sseHub) consumeMembershipWake() bool {
 	}
 }
 
+// signalResultsWake signals that a per-server poll unit completed and its
+// result is queued for folding. The parked waitForNext cannot see unit
+// completion otherwise, so this hub-level signal unparks it promptly — a dead
+// server's gone frame and the retain sweeps run on the next fold instead of
+// waiting out the safety timer. Called by unit goroutines with no hub lock
+// held (wakeMu nests under h.mu, never the reverse). Non-blocking and
+// coalescing: a repeat signal before consumption is a no-op; the fold drains
+// every queued result, so one wake covers any number of completions.
+func (h *sseHub) signalResultsWake() {
+	h.wakeMu.Lock()
+	defer h.wakeMu.Unlock()
+	if h.resultsWake == nil {
+		h.resultsWake = make(chan struct{})
+	}
+	select {
+	case <-h.resultsWake:
+		// Already closed — a results wake is already pending; coalesce.
+	default:
+		close(h.resultsWake)
+	}
+}
+
+// resultsWakeChannel returns the current hub-level results-wake channel
+// (lazily created) for waitForNext to add as a wait case on every wait. A
+// channel returned here that is ALREADY closed means a unit completed before
+// the loop reached waitForNext — it fires immediately (at-least-once).
+// Guarded by wakeMu.
+func (h *sseHub) resultsWakeChannel() <-chan struct{} {
+	h.wakeMu.Lock()
+	defer h.wakeMu.Unlock()
+	if h.resultsWake == nil {
+		h.resultsWake = make(chan struct{})
+	}
+	return h.resultsWake
+}
+
+// consumeResultsWake retires a pending results wake: if the channel is
+// currently closed it is replaced with a fresh open one and true is reported.
+// The replacement happens BEFORE the fold, so a unit completing between
+// observation and the fold closes the fresh channel and triggers one more
+// pass — at-least-once, never lost, never a busy-loop. Guarded by wakeMu.
+func (h *sseHub) consumeResultsWake() bool {
+	h.wakeMu.Lock()
+	defer h.wakeMu.Unlock()
+	if h.resultsWake == nil {
+		return false
+	}
+	select {
+	case <-h.resultsWake:
+		h.resultsWake = make(chan struct{})
+		return true
+	default:
+		return false
+	}
+}
+
 // waitForNext blocks until either a control-mode notification fires for any of
 // the supplied servers, a wake is signalled for any of them (via wake()), a
-// NEW server key enters the subscription set (via the membership wake), OR the
-// safety-net timer elapses. Updates perServerGen with each server's current
-// generation so the next pass can detect change, and marks woken/notified
-// servers in eventDrivenServers so poll() invalidates their fetch cache.
+// NEW server key enters the subscription set (via the membership wake), a poll
+// unit completes (via the results wake), OR the safety-net timer elapses.
+// Updates perServerGen with each server's current generation so the next pass
+// can detect change, and marks woken/notified servers in eventDrivenServers so
+// poll() invalidates their fetch cache at dispatch.
+//
+// The resultsOnly return reports that the wait ended SOLELY on unit
+// completions (no timer, no subscriber bump, no wake, no membership signal).
+// The caller runs such ticks fold-only — no dispatch — because dispatching on
+// unit completion alone would self-perpetuate (dispatch → complete → results
+// wake → dispatch …); re-poll cadence for completed servers comes from their
+// own wakes and the safety timer, exactly as it did before the fan-out.
 //
 // Wake cases are built independent of the subscriber snapshot: a wake must wake
 // the loop even when subscriber == nil (unit-test hubs, PTY-unavailable hosts),
@@ -2012,17 +2249,20 @@ func (h *sseHub) consumeMembershipWake() bool {
 // watched by nobody. A membership win carries no per-server bookkeeping (a
 // brand-new server has no cache to invalidate and no generation entry) — the
 // next poll pass re-derives the server list, which now includes the new key.
-func (h *sseHub) waitForNext(servers []string, perServerGen map[string]int64, eventDrivenServers map[string]bool) {
+// The results wake is likewise bookkeeping-free: a unit completion simply
+// unparks the loop so the next tick folds the queued result.
+func (h *sseHub) waitForNext(servers []string, perServerGen map[string]int64, eventDrivenServers map[string]bool) (resultsOnly bool) {
 	sub := h.getSubscriber()
 	timer := time.NewTimer(h.safetyIntervalEffective(servers, sub))
 	defer timer.Stop()
 
 	// Build wait cases: a subscriber case per server (only when a subscriber is
 	// wired), anchored at the generation we last observed, a wake case per
-	// server (always — independent of the subscriber), AND the hub-level
-	// membership wake (always). selectFirst falls through to the timer when the
-	// combined case list is empty.
-	cases := make([]waitCase, 0, len(servers)*2+1)
+	// server (always — independent of the subscriber), the hub-level membership
+	// wake (always), AND the hub-level results wake (always — a completing unit
+	// unparks the loop for a prompt fold). selectFirst falls through to the
+	// timer when the combined case list is empty.
+	cases := make([]waitCase, 0, len(servers)*2+2)
 	for _, server := range servers {
 		if sub != nil {
 			after := perServerGen[server]
@@ -2031,6 +2271,7 @@ func (h *sseHub) waitForNext(servers []string, perServerGen map[string]int64, ev
 		cases = append(cases, waitCase{server: server, ch: h.wakeChannel(server), isWake: true})
 	}
 	cases = append(cases, waitCase{ch: h.membershipWakeChannel(), isMembership: true})
+	cases = append(cases, waitCase{ch: h.resultsWakeChannel(), isResults: true})
 
 	// selectFirst blocks until one case's channel fires (or the timer wins). It
 	// returns only the winning server NAME, not which kind of case fired — and
@@ -2043,7 +2284,7 @@ func (h *sseHub) waitForNext(servers []string, perServerGen map[string]int64, ev
 	// Re-peeking a closed subscriber channel is idempotent: Generation() re-read
 	// folds any newer bumps into perServerGen, and consumeWake reports false for
 	// an already-retired wake.
-	peek := func() (bumped, woke bool) {
+	peek := func() (bumped, woke, results bool) {
 		for _, c := range cases {
 			select {
 			case <-c.ch:
@@ -2054,6 +2295,15 @@ func (h *sseHub) waitForNext(servers []string, perServerGen map[string]int64, ev
 					// pass that re-derives the server list and fetches it.
 					if h.consumeMembershipWake() {
 						woke = true
+					}
+				case c.isResults:
+					// A poll unit completed mid-wait. results is tracked
+					// separately from woke: a results-ONLY win re-arms the
+					// loop fold-only (see the resultsOnly return), and it
+					// still ends a pending debounce window so the fold is
+					// not delayed.
+					if h.consumeResultsWake() {
+						results = true
 					}
 				case c.isWake:
 					// Only mark event-driven when this call actually retires a
@@ -2072,25 +2322,41 @@ func (h *sseHub) waitForNext(servers []string, perServerGen map[string]int64, ev
 			default:
 			}
 		}
-		return bumped, woke
+		return bumped, woke, results
 	}
 
 	selectFirst(cases, timer)
-	bumped, woke := peek()
+	// A timer win — or a timer that fired concurrently with a channel win —
+	// makes this a full tick. Conservative by design: a fold+dispatch pass is
+	// always correct, a wrongly fold-only pass would stall dispatch until the
+	// next external signal.
+	timerFired := false
+	select {
+	case <-timer.C:
+		timerFired = true
+	default:
+	}
+	bumped, woke, results := peek()
+	// Unit completions alone must not re-arm dispatch: a results-driven tick
+	// that dispatched would self-perpetuate (dispatch → complete → wake →
+	// dispatch …). Anything else in the mix (timer, bump, wake, membership)
+	// runs a normal full tick.
+	resultsOnly = results && !bumped && !woke && !timerFired
 
 	// Coalesce subscriber-bump-driven passes: a control-mode event burst (e.g.
 	// %window-renamed from cd churn under automatic-rename-format
 	// '#{b:pane_current_path}') must cost ONE derive, not one per event, so the
 	// event-driven derive rate is floored at sseEventDebounce. The window is
-	// entered only for a pure bump win: a wake consumed in the same peek — or
-	// firing mid-window, ending the selectFirst below early — keeps its
-	// sub-second post-mutation repaint (the wake seam's whole purpose), and a
-	// timer win (bumped == false) adds no delay. The final peek folds every
-	// bump/wake that landed during the window into this same pass; a bump
-	// landing after it closes the NEXT Wait channel (anchored at the updated
-	// perServerGen), so nothing is lost.
-	if !bumped || woke {
-		return
+	// entered only for a pure bump win: a wake or unit completion consumed in
+	// the same peek — or firing mid-window, ending the selectFirst below
+	// early — keeps its sub-second post-mutation repaint (the wake seam's
+	// whole purpose) / prompt fold, and a timer win (bumped == false) adds no
+	// delay. The final peek folds every bump/wake/completion that landed
+	// during the window into this same pass; a bump landing after it closes
+	// the NEXT Wait channel (anchored at the updated perServerGen), so nothing
+	// is lost.
+	if !bumped || woke || results {
+		return resultsOnly
 	}
 	window := h.eventDebounce
 	if window <= 0 {
@@ -2098,14 +2364,15 @@ func (h *sseHub) waitForNext(servers []string, perServerGen map[string]int64, ev
 	}
 	debounce := time.NewTimer(window)
 	defer debounce.Stop()
-	wakeCases := make([]waitCase, 0, len(servers)+1)
+	wakeCases := make([]waitCase, 0, len(servers)+2)
 	for _, c := range cases {
-		if c.isWake || c.isMembership {
+		if c.isWake || c.isMembership || c.isResults {
 			wakeCases = append(wakeCases, c)
 		}
 	}
 	selectFirst(wakeCases, debounce)
 	peek()
+	return false
 }
 
 // waitCase is a small (server, channel) pair used by selectFirst to
@@ -2116,12 +2383,15 @@ func (h *sseHub) waitForNext(servers []string, perServerGen map[string]int64, ev
 // isMembership marks the hub-level membership-wake case — a win there means
 // a new server key joined the subscription set mid-wait; it carries no
 // per-server bookkeeping (the peek consumes the signal and the next pass
-// re-derives the server list).
+// re-derives the server list). isResults marks the hub-level results-wake
+// case — a win there means a poll unit completed mid-wait; it likewise
+// carries no per-server bookkeeping (the next pass folds the queued result).
 type waitCase struct {
 	server       string
 	ch           <-chan struct{}
 	isWake       bool
 	isMembership bool
+	isResults    bool
 }
 
 // selectFirst blocks until either one of the wait channels closes OR the

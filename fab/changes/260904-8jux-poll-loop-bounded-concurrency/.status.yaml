@@ -1,0 +1,57 @@
+id: 8jux
+name: 260904-8jux-poll-loop-bounded-concurrency
+created: 2026-09-04T10:59:23Z
+created_by: sahil87
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: active
+plan:
+    generated: true
+    task_count: 11
+    acceptance_count: 17
+    acceptance_completed: 17
+confidence:
+    certain: 2
+    confident: 5
+    tentative: 1
+    unresolved: 0
+    score: 3.7
+    fuzzy: true
+    dimensions:
+        signal: 74.4
+        reversibility: 72.5
+        competence: 80.6
+        disambiguation: 73.1
+stage_metrics:
+    intake: {started_at: "2026-09-04T10:59:23Z", driver: fab-new, iterations: 1, completed_at: "2026-09-04T11:05:33Z"}
+    apply: {started_at: "2026-09-04T11:05:33Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T11:30:53Z"}
+    review: {started_at: "2026-09-04T11:30:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T11:37:24Z"}
+    hydrate: {started_at: "2026-09-04T11:37:24Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T11:42:51Z"}
+    ship: {started_at: "2026-09-04T11:42:51Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T11:44:21Z"}
+    review-pr: {started_at: "2026-09-04T11:44:21Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/837
+change_type_source: explicit
+true_impact:
+    added: 1414
+    deleted: 294
+    net: 1120
+    excluding:
+        added: 818
+        deleted: 288
+        net: 530
+    tests:
+        added: 260
+        deleted: 0
+        net: 260
+    computed_at: "2026-09-04T11:44:21Z"
+    computed_at_stage: ship
+summary: SSE poll loop fanned out to bounded per-server units (ssePollConcurrency=6) with per-unit event emission, hub-level single-flight, tick-top result folding + results wake, and global broadcasts ahead of dispatch
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-04T11:44:21Z

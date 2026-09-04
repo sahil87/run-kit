@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 5
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-09-04T10:16:03Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:19:05Z"}
     hydrate: {started_at: "2026-09-04T10:19:05Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:20:56Z"}
     ship: {started_at: "2026-09-04T10:20:56Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-04T10:22:10Z"}
-    review-pr: {started_at: "2026-09-04T10:22:10Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-09-04T10:22:10Z", driver: git-pr, iterations: 1, completed_at: "2026-09-04T10:42:02Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/828
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: Every kill site now removes the killed server's socket file (e2e teardowns, seven TestMain sweeps, rk mux reap kill arm) — stops the /tmp/tmux-<uid> graveyard behind the /api/servers ~350ms floor
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-04T10:22:10Z
+last_updated: 2026-09-04T10:42:02Z

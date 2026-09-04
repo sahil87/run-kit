@@ -134,6 +134,13 @@ func TestTutorialPagesMatchTopic(t *testing.T) {
 		}
 	}
 
+	refPattern := regexp.MustCompile(regexp.QuoteMeta(tutorialPublicPath) + `([A-Za-z0-9_.-]+\.html)`)
+	for _, match := range refPattern.FindAllSubmatch(canonical, -1) {
+		if name := string(match[1]); name != tutorialPageName {
+			t.Errorf("topic references unexpected tutorial page %s", name)
+		}
+	}
+
 	publicDir := filepath.Join("..", "..", "..", "..", "app", "frontend", "public", strings.TrimSuffix(tutorialPublicPath, "/"))
 	entries, err := os.ReadDir(publicDir)
 	if err != nil {

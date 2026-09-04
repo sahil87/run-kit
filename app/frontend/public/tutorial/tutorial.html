@@ -466,13 +466,18 @@
     document.title = titles[ids[i]];
     window.scrollTo(0, 0);
   }
+  function sync() {
+    var i = current();
+    if (location.hash !== "#" + ids[i]) {
+      history.replaceState(null, "", "#" + ids[i]);
+    }
+    show(i);
+  }
   // hashchange is load-bearing: the tour re-presents this same URL with a new
   // hash, and an iframe src change that differs only by hash does not reload
   // the document.
-  window.addEventListener("hashchange", function () {
-    show(current());
-  });
-  show(current());
+  window.addEventListener("hashchange", sync);
+  sync();
 })();
 </script>
 </body></html>

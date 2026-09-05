@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Operator actuation seam — templated work items for the server's operator window over window- and server-scoped POST routes. Covers the closed template registry, fact derivation, busy-enqueue 202s and queue-full/probe/staged-send/submit-unverified 409s, the in-memory per-server request queue drained on idle, shared injection-engine delivery, auto-name dispatch, derive-tick results, and the conversational console lane beside the seam (chat-send allow+probe posture, no queue)."
+description: "Operator messaging into the server's operator window over three lanes: direct chat (compose-send allow+probe), templated chat (`chatDelivery` templates — source envelope + delimited text, busy gate and queue skipped in the shared core), and templated requests (busy ⇒ enqueue 202, drained on idle). Covers the closed template registry (`chatDelivery ⇒ acceptsText ∧ ¬requiresAgentSessionRef`), fact derivation with best-effort transcript degradation, structured 409s, and auto-name dispatch."
 ---
 # Operator Actuation
 
@@ -20,18 +20,22 @@ delivers it through the shared injection machinery
 ([agent-send](/run-kit/agent-send.md) § Send Path), and the operator acts through its own
 shell (e.g. `tmux rename-window`, `rk riff`); the outcome surfaces on the normal derive
 tick. There is NO persisted mailbox, NO response channel or reply parsing —
-the operator is not an RPC service. A valid request against a busy operator
-is not lost: the two HTTP handlers convert the delivery core's busy-class
-rejection into an enqueue on an in-memory per-server queue
+the operator is not an RPC service. A valid non-chat request against a busy
+operator is not lost: the two HTTP handlers convert the delivery core's
+busy-class rejection into an enqueue on an in-memory per-server queue
 (`operatorQueueTracker`, `api/operator_queue.go`) and answer
 `202 {"queued": true}`; a level-triggered drain on the SSE per-server tick
-delivers one queued entry at a time once the operator reads idle. Queue state
+delivers one queued entry at a time once the operator reads idle. A
+`chatDelivery` template never reaches that branch — it skips the busy gate and
+the queue entirely (a busy operator still receives the delivery attempt; no
+`202` is reachable on the chat path). Queue state
 is process memory only (Constitution II) — a daemon restart forgets queued
 intents, degrading to plain busy rejection. This is a route-level contract:
 the shared
 injection engine may perform its own evidence-gated recovery before returning.
 The seam has FOUR callers over ONE shared prompt-level delivery core
-(`deliverOperatorPrompt` — the busy gate, operator pane resolution, injection
+(`deliverOperatorPrompt` — the busy gate (conditionally skipped for
+`chatDelivery` templates), operator pane resolution, injection
 under the shared deadline): the two user-initiated HTTP handlers (window- and
 server-scoped), the system-initiated **auto-name tracker**
 (`api/auto_name.go`), which rides the SSE per-server tick beside the
@@ -57,20 +61,37 @@ mark rides the create path's full `rk role` write-path sequence, so no operator
 window exists unmarked. fab-kit's `fab operator` remains the legacy launcher
 entry pending the `[rkop]` delegation. (260903-a8e4-rk-operator-launcher)
 
-Beside the template seam sits a **conversational lane**: the operator chat
-console ([ui/operator-console](/run-kit/ui/operator-console.md)) delivers
-free-text steers a human types through
-`POST /api/windows/{operatorWindowId}/send` with `target:"agent"` — the send
-engine's agent-target lane ([agent-send](/run-kit/agent-send.md) § Send Path),
-NOT the `/operator-request` routes. Its busy posture is chat-send's allow +
-probe: no busy gate, no enqueue on `operatorQueueTracker`, no template-registry
-involvement — a typed console message is a human steer from a user watching the
-pane, where a template request is work handed over (busy ⇒ queue). The console
-is a HUMAN surface driving a pane through the one gated injection engine (an
-HTTP door per the agent-messaging spec's single-engine invariant); the spec's
-Conversation row (multi-turn cross-provider dialogue ⇒ MCP bridge) governs
-agent-to-agent tool-mediated dialogue, not this lane (§ Design Decisions).
-(260904-qa85-operator-chat-console)
+Messaging the operator is a **three-lane taxonomy** — every lane delivers
+through the one injection engine (HTTP doors onto the same engine per the
+agent-messaging spec's single-engine invariant); the lanes differ in who
+composes the prompt and what a busy operator means. The razor: **chat is a
+human steer from a user watching the pane** — it must land now (allow + probe,
+no queue); **a request is work handed over** — a busy operator queues it (202,
+drain on idle).
+
+- **Chat, direct**: the operator chat console
+  ([ui/operator-console](/run-kit/ui/operator-console.md)) delivers free-text
+  steers a human types through `POST /api/windows/{operatorWindowId}/send` with
+  `target:"agent"` — the user's raw text verbatim over the send engine's
+  agent-target lane ([agent-send](/run-kit/agent-send.md) § Send Path), no busy
+  gate, no template-registry involvement.
+- **Chat, templated**: the console's context-carrying send rides the
+  window-scoped `/operator-request` route with a chat template
+  (`user-message`) whose registry entry declares `chatDelivery: true` — a
+  server-derived **source envelope** (subject `@N`, window name, worktree,
+  fab change + stage when present, transcript path when it resolves) plus the
+  user's text delimited as data, delivered with the chat busy posture: the
+  busy gate and the queue are skipped inside the shared core (§ Requirements
+  below), so a busy operator still receives the attempt and no `202` is
+  reachable.
+- **Request**: the templated work-item seam described above — fully
+  server-rendered, busy ⇒ enqueue ⇒ `202 {"queued": true}`.
+
+The console is a HUMAN surface driving a pane through the one gated injection
+engine; the spec's Conversation row (multi-turn cross-provider dialogue ⇒ MCP
+bridge) governs agent-to-agent tool-mediated dialogue, not these lanes
+(§ Design Decisions).
+(260904-qa85-operator-chat-console, 260905-4xu7-operator-templated-chat-lane)
 
 ## Requirements
 
@@ -90,7 +111,8 @@ checked against the closed in-code registry `operatorTemplates`
 `requiresAgentSessionRef` fact requirement, an `acceptsText` client-text
 admission, a `serverScoped` scope discriminator, a `requiresWaiting`
 zero-waiting precondition, an
-`acceptsSession` session-scope admission, and a PURE render
+`acceptsSession` session-scope admission, a `chatDelivery` chat-delivery
+admission (the chat lane below), and a PURE render
 func for its scope — `render
 func(operatorFacts) string` window-scoped, `renderServer
 func(serverOperatorFacts) string` server-scoped — plain string composition, no
@@ -162,6 +184,42 @@ an empty subject set).
 - **AND GIVEN** `{"template": "brief-me", "session": "run-kit"}` (`brief-me`
   declares no `acceptsSession`), **THEN** 400 naming `brief-me`, before any
   fetch.
+
+### Requirement: The `chatDelivery` chat lane — busy gate and queue skipped in the shared core
+Templates delivering conversational messages SHALL declare `chatDelivery: true`
+(a declarative registry flag beside `acceptsText`/`requiresWaiting`/
+`acceptsSession`). For a declaring template, delivery through the shared
+prompt-level core `deliverOperatorPrompt` SHALL skip the `active`/`waiting`
+busy rejection — an `active`/`waiting` operator still receives the delivery
+attempt (allow + probe; the novelty echo probe remains the fail-closed guard,
+exactly the compose-send posture) — and the HTTP handlers SHALL never convert
+such a delivery into an `operatorQueueTracker` enqueue: no
+`202 {"queued": true}` is reachable for a `chatDelivery` template. Success is
+`200 {"ok": true}`; `inject.ProbeFailure` / `inject.StagedSendFailure` /
+`inject.SubmitUnverified` surface as the existing three structured 409s. The
+skip is a `chatDelivery`-aware branch inside the shared core (the flag threaded
+into `deliverOperatorPrompt`), preserving the single-injection-engine
+invariant: same `sessions.ResolveAgentPane`, same in-process
+`s.injectIntoPane` under the one `agentSendTotalBudget` deadline, no SSE hub
+wake, no new typing path. Composition is invariant-enforced by a
+registry-walking test in `api/operator_test.go` (the `promptVocab`
+set-equality precedent): `chatDelivery` REQUIRES `acceptsText` (a chat
+template without user text is meaningless) and is INCOMPATIBLE with
+`requiresAgentSessionRef` (the transcript line is best-effort, never a
+precondition) — `chatDelivery ⇒ acceptsText ∧ ¬requiresAgentSessionRef`, so a
+future entry cannot combine them silently. Every non-`chatDelivery` caller
+(the request templates, the auto-name tracker, the queue drain) keeps the busy
+gate unchanged.
+
+#### Scenario: Chat delivery to a busy operator, never queued
+- **GIVEN** an operator whose rolled-up `AgentState` is `active` (or
+  `waiting`)
+- **WHEN** a valid `chatDelivery` template request arrives on the
+  window-scoped route
+- **THEN** injection is attempted (no busy 409, no enqueue) and the response
+  is `200 {"ok": true}` on engine success.
+- **AND GIVEN** a non-`chatDelivery` template and the same busy operator,
+  **THEN** busy ⇒ enqueue ⇒ `202 {"queued": true}` is byte-identical.
 
 ### Requirement: Server-scoped route over the shared delivery seam
 `handleServerOperatorRequest` SHALL run body validation (registry + scope +
@@ -248,14 +306,27 @@ error (`"no agent session for this window"`); an unresolvable transcript
 (`ErrInvalidRef`/`ErrTranscriptNotFound`) maps through `writeTranscriptError`,
 the transcript-read 404-class vocabulary; `ErrNoAdapter` is a 404 naming the
 provider. (260904-bf1l-agent-session-identity-rename)
+For a window-scoped template NOT declaring `requiresAgentSessionRef`, the
+derivation attempts transcript resolution OPPORTUNISTICALLY instead: a
+non-empty `AgentSessionRef` whose `transcript.Path` resolves fills
+`operatorFacts.TranscriptPath`; an empty ref or any resolution error
+(`ErrInvalidRef`/`ErrTranscriptNotFound`/`ErrNoAdapter`, or no reconciled
+agent session) leaves it empty and delivery proceeds — the render func omits
+the transcript line, and no transcript-related 404 is reachable on this path
+(the load-bearing difference from the `requiresAgentSessionRef` templates,
+whose 404-class behavior is unchanged).
 
 #### Scenario: Subject without a resolvable transcript
 - **GIVEN** a subject window whose reconciled agent session ref is empty or
   whose transcript cannot be located
-- **WHEN** facts are derived
+- **WHEN** facts are derived for a `requiresAgentSessionRef` template
 - **THEN** the response is a 404-class `writeError` and no injection occurs.
 - **AND GIVEN** a resolvable ref, **THEN** the rendered prompt contains the
   windowId, name, absolute JSONL path, and worktree path.
+- **AND GIVEN** a non-`requiresAgentSessionRef` window-scoped template
+  (`user-message`) and the same unresolvable/absent ref, **THEN** the
+  envelope renders without the transcript line, delivery proceeds, and no
+  404 is surfaced.
 
 ### Requirement: Busy gate on the operator's agent state — reject at the core, enqueue at the routes
 The delivery core SHALL read the operator window's rolled-up `AgentState`
@@ -268,16 +339,21 @@ UNLIKE
 the compose send's allow+probe busy policy ([agent-send](/run-kit/agent-send.md) § Design
 Decisions → Allow + probe busy policy): a request is work handed over, not a
 steer a human typed. The gate is the fail-closed floor inside
-`deliverOperatorPrompt` for EVERY delivery through the core — the HTTP
-handlers, the auto-name caller, and the queue drain alike (at drain it reads
-the goroutine's FRESH fetch, so it doubles as a real re-busy check).
+`deliverOperatorPrompt` for every NON-`chatDelivery` delivery through the
+core — the HTTP handlers, the auto-name caller, and the queue drain alike (at
+drain it reads the goroutine's FRESH fetch, so it doubles as a real re-busy
+check); a `chatDelivery` template threads its flag into the core and skips the
+gate there (allow + probe — the chat lane requirement above), so a chat
+delivery to a busy operator is attempted, never rejected or enqueued.
 Failures the HTTP handler maps to a status+body surface
 from the core as a typed `operatorReject{status,msg}` sentinel the handler maps
 back byte-identically — with ONE branch at the routes: both handlers convert
 the busy-class sentinel (409 + the `"operator is busy ("` message, matched by
 `isBusyOperatorReject`) into an enqueue on the server's `operatorQueueTracker`
 and respond `202 {"queued": true}`, so a busy 409 can never escape the HTTP
-routes; a queue-full refusal maps to `409 "operator queue is full"`. Every
+routes; a queue-full refusal maps to `409 "operator queue is full"`. A
+`chatDelivery` delivery never produces the busy-class sentinel, so the enqueue
+branch is unreachable for it — `202` is impossible on the chat path. Every
 other validation outcome stays fail-fast at request time (400s, 404s, the
 `requiresWaiting` zero-waiting 409) and enqueues nothing. Transcript-resolution
 and injection errors return RAW so
@@ -290,9 +366,12 @@ stays outside the queue).
 
 #### Scenario: Busy operator enqueues at the routes, never injects
 - **GIVEN** an operator window whose rollup state is `active` (or `waiting`)
-- **WHEN** a valid request arrives on either HTTP route
+- **WHEN** a valid non-`chatDelivery` request arrives on either HTTP route
 - **THEN** the response is `202 {"queued": true}`, no injection subprocess
   runs, and the request sits in the tracker's per-server queue.
+- **AND GIVEN** a `chatDelivery` template on the same busy operator, **THEN**
+  the delivery is attempted (allow + probe) and never enqueued (the chat lane
+  requirement above).
 - **AND GIVEN** state `idle` or empty, **THEN** delivery proceeds and success
   is `200 {"ok":true}`.
 - **AND GIVEN** a full queue (8 pending entries), **THEN** the response is
@@ -712,6 +791,40 @@ User Options).
 - **AND GIVEN** `{"template": "annotate-tab"}` on the server-scoped route,
   **THEN** it 400s naming the template as window-scoped.
 
+### Requirement: The `user-message` template (window-scoped chat)
+The registry's `user-message` entry (`acceptsText: true`,
+`chatDelivery: true`; NOT `serverScoped`, NOT `requiresAgentSessionRef`, no
+`requiresWaiting`/`acceptsSession`) SHALL render, in order: a compact source
+envelope of server-derived facts — subject window `@N`, current window name,
+worktree path, fab change + stage only when `FabChange` is non-empty (the
+`renderFixTabName` conditional-clause pattern), and the transcript JSONL path
+only when it resolves (the best-effort degradation in the fact-derivation
+requirement) — followed by the user's text fenced via `delimitUserText`
+(treat-as-data framing, dynamic fence). All facts derive server-side from the
+handler's ONE `FetchSessions` pass (Constitution X — never client-composed).
+The prompt frames a CONVERSATION, not a work item: no `[run-kit request]`
+prefix, no do-not-reply/action-bounds clause — the operator may reply. It
+rides the window-scoped route with `{windowId}` = the SUBJECT window (the
+window the user was looking at, NOT the operator window); all existing
+validation applies unchanged (unknown id 400, cross-scope 400, the
+`acceptsText` lane rules — empty/whitespace 400, 4096-byte cap — absent
+subject 404, no operator 404). Being `chatDelivery`, it skips the busy gate
+and the queue (the chat lane requirement): no `202` queued outcome is
+reachable on this path. The console's lane fork, subject resolution, and
+context chip are documented in
+[ui/operator-console](/run-kit/ui/operator-console.md).
+
+#### Scenario: Envelope + conversation framing
+- **GIVEN** a subject window with a worktree, a non-empty fab change, and a
+  resolvable transcript
+- **WHEN** `user-message` renders with text "can you check the failing test?"
+- **THEN** the prompt carries `@N`, the window name, the worktree path, the
+  fab change + stage, the transcript path, and the fenced user text — and
+  contains neither `[run-kit request]` nor any do-not-reply bound.
+- **AND GIVEN** an empty `FabChange`, **THEN** no fab clause appears.
+- **AND GIVEN** an unresolvable transcript, **THEN** the envelope omits the
+  transcript line and delivery still proceeds — no 404.
+
 ### Requirement: Frontend availability — degrade to ABSENT, never disabled
 The window-scoped operator affordances — the flyout's `FixTabNameActionRow`
 ([ui/status-signals](/run-kit/ui/status-signals.md) § Row-hover register flyout
@@ -1033,3 +1146,27 @@ not humans.
 **Rejected**: treating the console as an agent-conversation consumer requiring
 MCP (wrong layer — no agent is conversing).
 *Introduced by*: 260904-qa85-operator-chat-console
+
+### Busy-gate skip lives inside the shared delivery core
+**Decision**: the template's `chatDelivery` flag is threaded into
+`deliverOperatorPrompt` and the busy gate branches there, rather than a
+parallel chat-delivery core.
+**Why**: `deliverOperatorPrompt` exists precisely so delivery mechanics cannot
+drift across callers (the shared core above); a parallel core would duplicate
+pane resolution + deadline + injection wiring for one conditional.
+**Rejected**: a second `deliverOperatorChat` core (drift risk, duplicated
+mechanics); routing console chat through `handleSendToWindow` with server-side
+envelope enrichment (muddies the generic send lane with operator-specific fact
+rendering).
+*Introduced by*: 260905-4xu7-operator-templated-chat-lane
+
+### Envelope facts reuse `operatorFacts` with opportunistic transcript fill
+**Decision**: `user-message` renders from the existing `operatorFacts` struct;
+the best-effort transcript fill happens in `deliverOperatorRequest` for
+non-`requiresAgentSessionRef` templates.
+**Why**: one fact struct per scope is the registry's established shape (the
+scope-discriminator decision above); the only delta needed is when resolution
+failure is fatal vs. degrading.
+**Rejected**: a chat-specific fact struct (duplicates derivation for identical
+fields).
+*Introduced by*: 260905-4xu7-operator-templated-chat-lane

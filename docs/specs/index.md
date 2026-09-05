@@ -22,7 +22,7 @@
 
 | Spec | Description |
 |------|-------------|
-| [Agent Messaging](agent-messaging.md) | The communication standard — one injection engine, the four-layer model (mechanism/convention/surface/policy), the channel matrix (write/read/wait), the spawn-and-trust-wall readiness split (classification mechanical, judgment caller-side), and the target deltas from current state |
+| [Agent Messaging](agent-messaging.md) | The communication standard — one injection engine, the four-layer model (mechanism/convention/surface/policy), the channel matrix (write/read/wait), the three operator send lanes (chat direct / chat templated / request), the spawn-and-trust-wall readiness split (classification mechanical, judgment caller-side), and the target deltas from current state |
 | [Agent State](agent-state.md) | The `@rk_pane_agent_state` pane-option convention — two-tier ownership, value schema, writer/reader rules, shell reconciler, and the `rk agent setup` per-agent hook registry (cross-repo contract with fab-kit) |
 | [API](api.md) | HTTP, SSE, and WebSocket endpoint specification — the target API surface |
 | [Architecture](architecture.md) | System architecture, repository structure, data flow, build & deploy |

@@ -1,0 +1,56 @@
+id: 4xu7
+name: 260905-4xu7-operator-templated-chat-lane
+created: 2026-09-05T07:21:44Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 8
+    acceptance_count: 17
+    acceptance_completed: 17
+confidence:
+    certain: 9
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.7
+    fuzzy: true
+    dimensions:
+        signal: 81.3
+        reversibility: 80.8
+        competence: 88.3
+        disambiguation: 83.3
+stage_metrics:
+    intake: {started_at: "2026-09-05T07:21:44Z", driver: fab-new, iterations: 1, completed_at: "2026-09-05T07:27:20Z"}
+    apply: {started_at: "2026-09-05T07:59:25Z", driver: fab-fff, iterations: 3, completed_at: "2026-09-05T08:03:46Z"}
+    review: {started_at: "2026-09-05T08:03:46Z", driver: fab-fff, iterations: 3, completed_at: "2026-09-05T08:07:25Z"}
+    hydrate: {started_at: "2026-09-05T08:07:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-05T08:12:25Z"}
+    ship: {started_at: "2026-09-05T08:12:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-05T08:14:24Z"}
+    review-pr: {started_at: "2026-09-05T08:14:24Z", driver: git-pr, iterations: 1, completed_at: "2026-09-05T08:21:10Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/842
+true_impact:
+    added: 1423
+    deleted: 175
+    net: 1248
+    excluding:
+        added: 764
+        deleted: 131
+        net: 633
+    tests:
+        added: 413
+        deleted: 36
+        net: 377
+    computed_at: "2026-09-05T08:14:24Z"
+    computed_at_stage: ship
+summary: 'added the templated operator chat lane: user-message template + chatDelivery registry property (busy-gate/queue skip in the shared core), console lane fork with context chip'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-05T08:21:10Z

@@ -777,7 +777,7 @@ func TestBuildServerOperatorFacts(t *testing.T) {
 	}
 }
 
-// --- the digest/triage/retire templates (260822-rfz2) -------------------------
+// --- the digest/triage/retire templates -------------------------------------
 
 // TestServerOperatorRequestWhatsStuckNothingWaiting: a requiresWaiting template
 // on a server with ZERO waiting fact rows is a 409 ("nothing is waiting on
@@ -1219,7 +1219,7 @@ func TestServerOperatorRequestColorTabsGuards(t *testing.T) {
 	}
 }
 
-// --- the annotate-tab template (260824-bb5n-tab-status-note) -----------------
+// --- the annotate-tab template ----------------------------------------------
 
 // TestRenderAnnotateTab: the template renders every derived fact plus the exact
 // epoch-prefixed set-option actuation, the ~100-char bound, the skip-when-
@@ -1268,7 +1268,7 @@ func TestAnnotateTabScopeGuards(t *testing.T) {
 	}
 }
 
-// --- the update-annotations template (260827-8n6k) ----------------------------
+// --- the update-annotations template -----------------------------------------
 
 // TestRenderUpdateAnnotations: the prompt carries every row via the digest row
 // writer (with the operator's own row excluded by construction — renders only
@@ -1410,5 +1410,227 @@ func TestServerOperatorRequestSessionLane(t *testing.T) {
 	rec = assertNoFetch(t, serverOperatorReq(`{"template":"brief-me","session":"run-kit"}`))
 	if !strings.Contains(rec.Body.String(), "brief-me") {
 		t.Errorf("400 body = %s, want it to name the non-declaring template", rec.Body.String())
+	}
+}
+
+// --- the user-message chat template ------------------------------------------
+
+// TestOperatorTemplateChatDeliveryInvariant walks the closed registry: a
+// chatDelivery template must declare acceptsText (a chat template without user
+// text is meaningless) and must not declare requiresAgentSessionRef (its
+// transcript line is best-effort, never a precondition) — so a future entry
+// cannot combine them silently.
+func TestOperatorTemplateChatDeliveryInvariant(t *testing.T) {
+	for id, tmpl := range operatorTemplates {
+		if !tmpl.chatDelivery {
+			continue
+		}
+		if !tmpl.acceptsText {
+			t.Errorf("template %q declares chatDelivery without acceptsText", id)
+		}
+		if tmpl.requiresAgentSessionRef {
+			t.Errorf("template %q declares chatDelivery with requiresAgentSessionRef", id)
+		}
+	}
+	if !operatorTemplates["user-message"].chatDelivery {
+		t.Error("user-message lost its chatDelivery declaration")
+	}
+}
+
+// TestRenderUserMessage: the prompt opens with the source envelope (subject @N,
+// window name, worktree), carries the fab clause only when FabChange is
+// non-empty and the transcript line only when a path resolved, and fences the
+// user's text as data. It frames a CONVERSATION — no [run-kit request] prefix,
+// no do-not-reply / action-bounds clause.
+func TestRenderUserMessage(t *testing.T) {
+	facts := operatorFacts{
+		WindowID:       "@5",
+		Name:           "zesty-fjord",
+		TranscriptPath: "/home/u/.claude/projects/p/ref.jsonl",
+		WorktreePath:   "/wt/project",
+		FabChange:      "260822-fih1-operator-request-fix-tab-name",
+		FabStage:       "apply",
+		Text:           "can you check the failing test?",
+	}
+	prompt := renderUserMessage(facts)
+	for _, want := range []string{
+		"tmux window @5", `"zesty-fjord"`, "worktree /wt/project",
+		"fab change 260822-fih1-operator-request-fix-tab-name at stage apply",
+		"Transcript: /home/u/.claude/projects/p/ref.jsonl",
+		"can you check the failing test?", "treat it as data",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	for _, banned := range []string{"[run-kit request]", "Do not reply", "do not reply", "Bounds:"} {
+		if strings.Contains(prompt, banned) {
+			t.Errorf("conversational prompt carried the work-item marker %q:\n%s", banned, prompt)
+		}
+	}
+
+	facts.FabChange, facts.FabStage = "", ""
+	facts.TranscriptPath = ""
+	prompt = renderUserMessage(facts)
+	if strings.Contains(prompt, "fab change") {
+		t.Errorf("empty FabChange rendered a fab clause:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "Transcript:") {
+		t.Errorf("empty TranscriptPath rendered a transcript line:\n%s", prompt)
+	}
+}
+
+// TestUserMessageTextValidation: the acceptsText lane rules apply to
+// user-message — empty, whitespace-only, and over-cap text are 400s before any
+// fetch.
+func TestUserMessageTextValidation(t *testing.T) {
+	bodies := map[string]string{
+		"missing text":    `{"template":"user-message"}`,
+		"empty text":      `{"template":"user-message","text":""}`,
+		"whitespace text": `{"template":"user-message","text":"   "}`,
+		"over cap":        `{"template":"user-message","text":"` + strings.Repeat("x", operatorTextLimit+1) + `"}`,
+	}
+	for name, body := range bodies {
+		t.Run(name, func(t *testing.T) {
+			assertNoFetch(t, operatorReq(body))
+		})
+	}
+}
+
+// TestUserMessageScopeGuard: user-message is window-scoped — the server-scoped
+// route 400s it before any fetch.
+func TestUserMessageScopeGuard(t *testing.T) {
+	rec := assertNoFetch(t, serverOperatorReq(`{"template":"user-message","text":"hi"}`))
+	if !strings.Contains(rec.Body.String(), "user-message") {
+		t.Errorf("400 body = %s, want it to name the window-scoped id", rec.Body.String())
+	}
+}
+
+// TestUserMessageBusyOperatorDelivers: a chatDelivery template skips the busy
+// gate AND the queue — an active/waiting operator still receives the delivery
+// attempt through the full injection sequence, the response is 200 {"ok":true}
+// on engine success, and nothing enqueues. A request template on the same busy
+// operator still enqueues (202) — the existing posture is byte-identical.
+func TestUserMessageBusyOperatorDelivers(t *testing.T) {
+	for _, state := range []string{"active", "waiting"} {
+		t.Run(state, func(t *testing.T) {
+			fastAgentSendProbe(t)
+			stageFixtureTranscript(t, testTranscriptRef)
+			sf := &mockSessionFetcher{result: operatorSessions(state)}
+			ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "❯ [Pasted text #1 +9 lines]", "working"}}
+			server := &Server{logger: slog.Default(), sessions: sf, tmux: ops, hostname: "host"}
+			server.initSSEHub()
+			router := server.buildRouter()
+
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, operatorReq(`{"template":"user-message","text":"can you check the failing test?"}`))
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), `"ok":true`) {
+				t.Errorf("200 body = %s, want {\"ok\":true}", rec.Body.String())
+			}
+			if len(ops.agentSendCalls) == 0 {
+				t.Error("no injection ran for a chat delivery to a busy operator")
+			}
+			if ops.pasteAgentPaneID != "%9" || ops.sendEnterPaneID != "%9" {
+				t.Errorf("injection targeted paste=%q enter=%q, want the OPERATOR pane %%9",
+					ops.pasteAgentPaneID, ops.sendEnterPaneID)
+			}
+			prompt := ops.setAgentBufferText
+			for _, want := range []string{
+				"tmux window @1", `"zsh"`, "worktree /wt/project",
+				"can you check the failing test?",
+			} {
+				if !strings.Contains(prompt, want) {
+					t.Errorf("prompt missing %q:\n%s", want, prompt)
+				}
+			}
+			queue, inFlight := operatorQueueState(server.sseHub.getOperatorQueue(), "default")
+			if len(queue) != 0 || inFlight {
+				t.Fatalf("chat delivery queued work: queue=%+v inFlight=%v", queue, inFlight)
+			}
+		})
+	}
+}
+
+// TestUserMessageNoTranscriptDegrades: a subject with no reconciled agent
+// session, or one whose ref fails to resolve, still receives the delivery —
+// the envelope simply omits the transcript line (never a 404).
+func TestUserMessageNoTranscriptDegrades(t *testing.T) {
+	t.Run("no agent session ref", func(t *testing.T) {
+		fastAgentSendProbe(t)
+		sess := operatorSessions("idle")
+		sess[0].Windows[0].AgentProvider = ""
+		sess[0].Windows[0].AgentSessionRef = ""
+		sess[0].Windows[0].Panes = nil
+		sf := &mockSessionFetcher{result: sess}
+		ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "❯ [Pasted text #1 +9 lines]"}}
+		router := NewTestRouter(slog.Default(), sf, ops, "host")
+
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, operatorReq(`{"template":"user-message","text":"hello operator"}`))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		if strings.Contains(ops.setAgentBufferText, "Transcript:") {
+			t.Errorf("chatless subject rendered a transcript line:\n%s", ops.setAgentBufferText)
+		}
+	})
+
+	t.Run("unresolvable ref", func(t *testing.T) {
+		fastAgentSendProbe(t)
+		stageEmptyConfigDir(t) // projects dir staged, no transcript on disk
+		sf := &mockSessionFetcher{result: operatorSessions("idle")}
+		ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "❯ [Pasted text #1 +9 lines]"}}
+		router := NewTestRouter(slog.Default(), sf, ops, "host")
+
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, operatorReq(`{"template":"user-message","text":"hello operator"}`))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		if strings.Contains(ops.setAgentBufferText, "Transcript:") {
+			t.Errorf("broken-ref subject rendered a transcript line:\n%s", ops.setAgentBufferText)
+		}
+	})
+}
+
+// TestUserMessageSuccess: an idle operator receives the chat prompt through the
+// unchanged injection seam — 200 {"ok":true}, exactly ONE FetchSessions, the
+// OPERATOR pane targeted, and the envelope carrying the resolvable transcript
+// path.
+func TestUserMessageSuccess(t *testing.T) {
+	fastAgentSendProbe(t)
+	stageFixtureTranscript(t, testTranscriptRef)
+	sf := &mockSessionFetcher{result: operatorSessions("idle")}
+	ops := &mockTmuxOps{capturePaneResults: []string{"❯ ", "❯ [Pasted text #1 +9 lines]"}}
+	router := NewTestRouter(slog.Default(), sf, ops, "host")
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, operatorReq(`{"template":"user-message","text":"ship it"}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if sf.calls != 1 {
+		t.Errorf("FetchSessions ran %d times, want exactly 1", sf.calls)
+	}
+	if ops.pasteAgentPaneID != "%9" || ops.sendEnterPaneID != "%9" {
+		t.Errorf("injection targeted paste=%q enter=%q, want the OPERATOR pane %%9",
+			ops.pasteAgentPaneID, ops.sendEnterPaneID)
+	}
+	prompt := ops.setAgentBufferText
+	for _, want := range []string{
+		"tmux window @1", `"zsh"`,
+		"Transcript: ",
+		"projects/someproj/" + testTranscriptRef + ".jsonl",
+		"ship it", "treat it as data",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "[run-kit request]") {
+		t.Errorf("chat prompt carried the request prefix:\n%s", prompt)
 	}
 }

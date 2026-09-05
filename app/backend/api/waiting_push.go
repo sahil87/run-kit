@@ -68,6 +68,11 @@ type waitingPushTracker struct {
 	sustain  time.Duration
 	now      func() time.Time                                         // clock seam for tests
 	notify   func(ctx context.Context, title, body, url string) error // push seam for tests
+	// sends counts in-flight detached notify goroutines. Production code never
+	// waits on it; tests drain it before returning so the fire-and-forget
+	// writer cannot outlive a t.TempDir HOME (the push store lives under ~/.rk,
+	// and a write racing the TempDir cleanup fails it "directory not empty").
+	sends sync.WaitGroup
 }
 
 func newWaitingPushTracker(
@@ -208,7 +213,9 @@ func (t *waitingPushTracker) notifyWaiting(server string, sess []sessions.Projec
 		// context.Background() rather than the tick ctx: the send outlives the
 		// tick by design, so it must not be cancelled when the poll iteration
 		// returns.
+		t.sends.Add(1)
 		go func(ps []waitingPush) {
+			defer t.sends.Done()
 			for _, p := range ps {
 				if err := t.notify(context.Background(), p.title, p.body, p.url); err != nil {
 					slog.Warn("waiting-push notify failed", "err", err, "window", p.title)

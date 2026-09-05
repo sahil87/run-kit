@@ -35,6 +35,43 @@ words.
 | **Wait** | `rk mux await` (`--until` / `--any` / `--file` / `--ready`), composed `send --await` | Event-shaped, first-sweep-before-sleep, fleet wake |
 | **Conversation** (multi-turn cross-provider) | MCP bridge (e.g. `codex mcp-server`) | Tool-mediated dialogue is not pane-driving; see `_cli-agents` § Codex MCP Bridge |
 
+## Messaging the operator — three lanes
+
+Every lane delivers through the one injection engine (HTTP doors onto the same
+engine, per the single-engine invariant); the lanes differ in **who composes
+the prompt** and **what a busy operator means**. The razor: **chat is a human
+steer from a user watching the pane** — the message must land now (allow +
+probe, no queue); **a request is work handed over** — a busy operator queues it
+(202, drain on idle). Shipped state lives in
+[`docs/memory/run-kit/operator-actuation.md`](../memory/run-kit/operator-actuation.md).
+
+| Lane | Route | Prompt composition | Busy posture |
+|------|-------|--------------------|--------------|
+| **Operator chat, direct** | `POST /api/windows/{operatorWindowId}/send` (`target:"agent"`) | The user's raw text, verbatim | Allow + probe — no busy gate, no queue |
+| **Operator chat, templated** *(target)* | window-scoped `POST /api/windows/{windowId}/operator-request`, a chat template (e.g. `user-message`) | Server-derived **source envelope** + the user's text delimited as data | Allow + probe — the registry entry declares `chatDelivery: true`, which skips the busy gate and the queue |
+| **Operator request** | the two `/operator-request` routes, closed template registry | Fully server-rendered work item (Constitution X facts; optional delimited client text) | Busy ⇒ enqueue (`202 {"queued":true}`), in-memory per-server queue drained on idle |
+
+The templated chat lane is the console's context-carrying send. When the
+operator console (⌘J) is opened on a terminal route, the message rides the chat
+template with the **route window as subject**, and the rendered prompt opens
+with an envelope of server-derived facts — subject `@N`, current window name,
+worktree path, fab change + stage when present, and the transcript path when it
+resolves. Facts are derived server-side from the handler's one FetchSessions
+pass, never client-composed (Constitution X); a subject without an agent
+session degrades to an envelope without the transcript line, never an error.
+The user's text stays fenced as data (`delimitUserText`). The envelope frames a
+**conversation, not a work item**: it does not use the `[run-kit request]`
+prefix and carries no action bounds — the operator may reply.
+
+Console behavior: the compose strip shows the attached context as a visible,
+dismissable chip (`from: @5 "name" ✕`) — the IDE-chat pattern (Cursor/Copilot
+attach the active file the same way); implicit context the user cannot see
+erodes trust in what the operator was told. Chip dismissed, or a route with no
+subject window (board/host/server routes) ⇒ the direct lane, unchanged.
+`chatDelivery` composes with the existing registry lanes: it requires
+`acceptsText` and is incompatible with `requiresAgentSessionRef` (the
+transcript line is best-effort, never a precondition).
+
 ## Spawn and trust walls — the readiness standard
 
 The spawn-then-deliver composite is **open bare → classify → answer → verified

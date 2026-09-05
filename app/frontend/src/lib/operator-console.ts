@@ -1,6 +1,6 @@
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectSession, WindowInfo } from "@/types";
-import { sendToWindow, uploadFile } from "@/api/client";
+import { sendOperatorRequest, sendToWindow, uploadFile } from "@/api/client";
 import { SessionContext, useCurrentServerFromRoute } from "@/contexts/session-context";
 
 /**
@@ -28,6 +28,13 @@ import { SessionContext, useCurrentServerFromRoute } from "@/contexts/session-co
  *  - The shared compose seam (`useOperatorCompose` + `sendOperatorMessage` +
  *    `attachOperatorFiles`) — ONE draft/send/upload implementation driving both
  *    the desktop omnibox and the mobile sheet compose.
+ *  - The chat-subject store (`setOperatorChatSubject` + `useOperatorChatChip`)
+ *    — the templated chat lane's context: on a terminal route the console
+ *    stamps the route window here, both inputs render the dismissable chip
+ *    from it, and `sendOperatorMessage` reads it AT SEND TIME to fork between
+ *    the templated lane (`sendOperatorRequest(..., "user-message", ...)` — a
+ *    server-derived source envelope wraps the text; the busy gate and queue
+ *    are skipped server-side) and the direct `sendToWindow` lane.
  *  - Per-viewer persisted preferences (geometry, opacity) — localStorage
  *    stores with the in-module pub/sub idiom (`use-local-storage-enum.ts`).
  *  - The open-state slot, the console-origin event predicate, and
@@ -365,6 +372,86 @@ export function useConsoleMachineState(): ConsoleMachineState {
 // "submit", "agent")` for messages, `uploadFile` + a `"raw"` insert per
 // returned path for files (staged into the TUI composer, never submitted).
 
+// ── Chat-subject store (the templated chat lane's context chip) ──────────────
+//
+// On a terminal route the console stamps the route's window here (only when the
+// console's resolved server IS the route's server — window ids are
+// server-scoped, so a pinned/picked cross-server retarget must never attach a
+// foreign id). Module state, like the compose seam, so the desktop omnibox and
+// the mobile sheet render one chip in lockstep — and so `sendOperatorMessage`
+// reads the CURRENT attachment at send time rather than a captured closure (a
+// pendingSend delivered in the same commit as a chip reset must see the reset).
+
+export type OperatorChatSubject = {
+  /** The server the subject window lives on — the fork applies only when the
+   *  send's resolved server matches. */
+  server: string;
+  windowId: string;
+  /** Display name for the chip; null while the sessions payload lags. */
+  name: string | null;
+};
+
+export type OperatorChatChipState = {
+  subject: OperatorChatSubject | null;
+  /** Dismissal is ephemeral per-viewer state (Constitution IV): it clears on a
+   *  subject change and on `resetOperatorChatChip` (console re-engage). */
+  dismissed: boolean;
+};
+
+let chatChipState: OperatorChatChipState = { subject: null, dismissed: false };
+const chatChipListeners = new Set<() => void>();
+
+function patchChatChip(next: OperatorChatChipState): void {
+  chatChipState = next;
+  for (const listener of chatChipListeners) listener();
+}
+
+/** Stamp the current chat subject (the route window, or null off terminal
+ *  routes). A change of subject identity resets dismissal; a same-subject
+ *  restamp (e.g. the name resolving) preserves it. */
+export function setOperatorChatSubject(subject: OperatorChatSubject | null): void {
+  const prev = chatChipState.subject;
+  const sameIdentity =
+    prev !== null &&
+    subject !== null &&
+    prev.server === subject.server &&
+    prev.windowId === subject.windowId;
+  patchChatChip({ subject, dismissed: sameIdentity ? chatChipState.dismissed : false });
+}
+
+/** Detach the context for subsequent sends (the chip's ✕). */
+export function dismissOperatorChatChip(): void {
+  patchChatChip({ ...chatChipState, dismissed: true });
+}
+
+/** Re-attach the context — fired when the console re-engages (machine leaves
+ *  rest, or the mobile sheet opens). */
+export function resetOperatorChatChip(): void {
+  patchChatChip({ ...chatChipState, dismissed: false });
+}
+
+/** The subject a send on `server` should attach, read at send time: null when
+ *  none stamped, dismissed, or stamped for a different server. */
+export function getOperatorChatTarget(server: string | null): OperatorChatSubject | null {
+  const { subject, dismissed } = chatChipState;
+  if (!server || !subject || dismissed || subject.server !== server) return null;
+  return subject;
+}
+
+/** Subscribe to the chip state (both compose surfaces render from this). */
+export function useOperatorChatChip(): OperatorChatChipState {
+  const [state, setState] = useState(chatChipState);
+  useEffect(() => {
+    const listener = () => setState(chatChipState);
+    chatChipListeners.add(listener);
+    setState(chatChipState);
+    return () => {
+      chatChipListeners.delete(listener);
+    };
+  }, []);
+  return state;
+}
+
 export type ConsoleComposeState = {
   text: string;
   sending: boolean;
@@ -387,10 +474,15 @@ export function setOperatorComposeText(text: string): void {
 }
 
 /**
- * Deliver a composed message through the agent send lane with chat-send busy
- * semantics (allow + probe — no client-side busy gate). A whitespace-only or
- * in-flight send is a guarded no-op. The draft survives a failure for
- * retry/edit. Resolves true when the send was attempted and succeeded.
+ * Deliver a composed message. With a chat subject attached for this server
+ * (read from the chat-subject store AT SEND TIME, never a captured closure),
+ * the message rides the templated chat lane — `sendOperatorRequest(server,
+ * subjectWindowId, "user-message", value)`, where the backend wraps the text
+ * in a server-derived source envelope and skips the busy gate and queue.
+ * Otherwise it rides the direct agent send lane with chat-send busy semantics
+ * (allow + probe — no client-side busy gate). A whitespace-only or in-flight
+ * send is a guarded no-op. The draft survives a failure for retry/edit.
+ * Resolves true when the send was attempted and succeeded.
  */
 export async function sendOperatorMessage(
   server: string | null,
@@ -401,7 +493,12 @@ export async function sendOperatorMessage(
   if (value.trim() === "") return false;
   patchCompose({ sending: true });
   try {
-    await sendToWindow(server, target.window.windowId, value, "submit", "agent");
+    const subject = getOperatorChatTarget(server);
+    if (subject) {
+      await sendOperatorRequest(server, subject.windowId, "user-message", value);
+    } else {
+      await sendToWindow(server, target.window.windowId, value, "submit", "agent");
+    }
     patchCompose({ text: "", error: null, sending: false });
     return true;
   } catch (err) {

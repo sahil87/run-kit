@@ -440,26 +440,29 @@ export async function sendToWindow(
 
 /**
  * Hand the server's operator window a templated work item ABOUT the subject
- * window (`windowId`) — the operator actuation seam's one consumer-facing call
- * (260822-fih1-operator-request-fix-tab-name). The body carries ONLY the
- * closed-set template id; the backend derives every prompt fact server-side,
- * gates on the operator's agent state, and delivers via the shared injection
- * engine. Busy requests resolve as a queued outcome; `throwOnError` keeps
- * structured validation, queue-full, and delivery errors on the throwing
- * path. The eventual result (e.g. a rename) arrives via the normal SSE derive
- * tick.
+ * window (`windowId`) — the operator actuation seam's one consumer-facing
+ * call. The body carries the closed-set
+ * template id plus, when non-empty, the user's `text` (admitted only on
+ * templates the backend declares acceptsText — e.g. the user-message chat
+ * template, which wraps it in a server-derived source envelope; chat templates
+ * also skip the busy gate and the queue, so they never resolve a queued
+ * outcome). Every other prompt fact is derived server-side; busy non-chat
+ * requests resolve as a queued outcome; `throwOnError` keeps structured
+ * validation, queue-full, and delivery errors on the throwing path. The
+ * eventual result (e.g. a rename) arrives via the normal SSE derive tick.
  */
 export async function sendOperatorRequest(
   server: string,
   windowId: string,
   template: string,
+  text?: string,
 ): Promise<OperatorRequestResult> {
   const res = await fetch(
     withServer(`/api/windows/${encodeURIComponent(windowId)}/operator-request`, server),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ template }),
+      body: JSON.stringify(text ? { template, text } : { template }),
     },
   );
   if (!res.ok) await throwOnError(res);
@@ -516,7 +519,7 @@ export async function sendServerOperatorRequest(
 
 /**
  * Fetch the window's full scrollback as plain text from
- * GET /api/windows/{windowId}/history (260819-shqo-terminal-tile-export) —
+ * GET /api/windows/{windowId}/history —
  * the server-capture arm of the terminal export menu (`tmux capture-pane -p
  * -S -` on the window's active pane). The body is text/plain; a non-ok
  * response throws the server's structured error.
@@ -672,7 +675,7 @@ export async function moveWebTab(
 }
 
 /** The GET /api/frame-check response — the backend probe's derived verdict
- *  on whether an absolute external URL can be framed (260819-v6y4 R2). */
+ *  on whether an absolute external URL can be framed. */
 export interface FrameCheckResult {
   reachable: boolean;
   embeddable: boolean;
@@ -776,7 +779,7 @@ export async function refreshStatus(): Promise<{ status: RefreshStatusOutcome }>
   return { status };
 }
 
-/** Where a daemon-managed job window lives (260812-z1ya): the `watch` key of
+/** Where a daemon-managed job window lives: the `watch` key of
  *  the POST /api/update and /api/restart responses. `window_id` is the tmux
  *  `@N` id — the terminal route param the client navigates to. */
 export type UpdateWatchTarget = { server: string; session: string; window: string; window_id: string };
@@ -806,7 +809,7 @@ function parseUpdateTriggerResult(body: unknown): UpdateTriggerResult {
 
 /** Trigger a one-click self-upgrade of the daemon: POST /api/update. The server
  *  runs the update in a managed job window on the rk-daemon tmux server
- *  (260812-z1ya) and answers 202 with a `watch` target (200 already-running
+ *  and answers 202 with a `watch` target (200 already-running
  *  when a job window is live). Best-effort from the caller's view — the ensuing
  *  daemon restart drops the SSE connection, and the reconnect's differing
  *  `version` event drives the tab reload. Rejects on a non-2xx (e.g. 409
@@ -915,7 +918,7 @@ export async function triggerForceUpdate(): Promise<UpdateTriggerResult> {
 }
 
 /** Restart the daemon: POST /api/restart. The server runs `rk daemon restart`
- *  in the managed `restart` job window (260812-z1ya; no brew requirement).
+ *  in the managed `restart` job window (no brew requirement).
  *  Best-effort — the restart drops the SSE connection, and the reconnect's
  *  differing `boot` id drives the reload guard even when the version is
  *  unchanged. Same result contract as `triggerUpdate()`. Rejects on a non-2xx
@@ -1481,7 +1484,7 @@ export async function subscribePush(subscription: PushSubscriptionJSON): Promise
   if (!res.ok) await throwOnError(res);
 }
 
-// --- Riff (web-UI agent spawn) — 260713-sbk1 ---
+// --- Riff (web-UI agent spawn) ---
 
 /** A riff preset summary for the spawn dialog's dropdown, mirroring the backend
  *  `GET /api/riff/presets` shape. `layout` is the empty string when unset. */
@@ -1556,7 +1559,7 @@ export async function spawnRiff(
 }
 
 /** Fork the window's agent conversation into a NEW window in the SAME session
- *  and directory (260806-s4av). Window-keyed and body-less: the backend derives
+ *  and directory. Window-keyed and body-less: the backend derives
  *  the session, the Claude session uuid, the directory, and the new window's name
  *  server-side from `windowId` alone — the client never supplies a session ref.
  *  Returns riff's spawn result, so the caller navigates exactly as it does after

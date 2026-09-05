@@ -14,19 +14,26 @@ import { mockStateSocket } from "./_state-socket-mock";
 // the glass background + settings-dialog opacity row, the top-bar ◉ standing
 // affordance with the live state dot, the mobile tongue, and console/omnibox
 // image paste (upload to the operator window's session + insert-delivery)
-// with the route terminals' strip-forward guard.
+// with the route terminals' strip-forward guard. The templated chat lane
+// rides on top: on a terminal route a dismissable context chip attaches the
+// route window, and sends then POST
+// /api/windows/{subjectId}/operator-request {template:"user-message", text}
+// instead of the direct /send lane (chip dismissed, or a subject-less route,
+// keeps the direct lane).
 //
 // Shared setup: fully mocked (no tmux). The sessions payload rides the
 // state-socket mock — a work window `@1` plus, when the test wants one, an
-// operator window `@9` with `role: "operator"` in `_rk-operator` — and the
-// window send endpoint is stubbed via page.route with a recorded body list.
-// The send AND upload route mocks carry a trailing `*` — the client appends
-// `?server=` (withServer), so a bare glob would silently miss. `/ws/terminals`
+// operator window `@9` with `role: "operator"` in `_rk-operator` — and BOTH
+// send endpoints (window send + window operator-request) are stubbed via
+// page.route with recorded call lists.
+// The route mocks carry a trailing `*` — the client appends `?server=`
+// (withServer), so a bare glob would silently miss. `/ws/terminals`
 // is a no-op socket mock: the console's embedded terminal mounts its xterm
 // frame without needing stream data. Each spec lands on the `@1` terminal
 // route (server "default") before driving the console, except the
-// mobile-sheet/tongue specs, which start from the same route at 375px, and
-// the morph-rung spec, which runs at 900px (between the mobile rule and lg).
+// mobile-sheet/tongue specs, which start from the same route at 375px, the
+// no-subject chip spec (the tmux Server route), and the morph-rung spec,
+// which runs at 900px (between the mobile rule and lg).
 // Synthetic file pastes dispatch a real ClipboardEvent carrying a
 // DataTransfer file (Chromium populates clipboardData from the init).
 
@@ -79,7 +86,7 @@ type SendBehavior = { status: number; body: Record<string, unknown> };
 
 const SEND_OK: SendBehavior = { status: 200, body: { ok: true } };
 
-/** Install the fully-mocked backend; returns the recorded send bodies. */
+/** Install the fully-mocked backend; returns the recorded send/request calls. */
 async function mockBackend(
   page: Page,
   withOperator: boolean,
@@ -87,6 +94,7 @@ async function mockBackend(
   operatorState = "idle",
 ) {
   const sendBodies: Record<string, unknown>[] = [];
+  const requestCalls: { url: string; body: Record<string, unknown> }[] = [];
   await page.routeWebSocket(/\/ws\/terminals/, () => {});
   await page.route("**/api/windows/*/select*", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' }),
@@ -108,8 +116,20 @@ async function mockBackend(
       body: JSON.stringify(behavior.body),
     });
   });
+  // The templated chat lane — same trailing-`*` rule.
+  await page.route("**/api/windows/*/operator-request*", (route) => {
+    requestCalls.push({
+      url: route.request().url(),
+      body: route.request().postDataJSON() as Record<string, unknown>,
+    });
+    return route.fulfill({
+      status: behavior.status,
+      contentType: "application/json",
+      body: JSON.stringify(behavior.body),
+    });
+  });
   await mockStateSocket(page, { sessions: sessionsPayload(withOperator, operatorState) });
-  return sendBodies;
+  return { sendBodies, requestCalls };
 }
 
 /** Stub the file-upload endpoint (multipart body — only the URL/session is
@@ -222,20 +242,22 @@ test.describe("Operator console", () => {
    * Proves: at ≥ lg the center cell carries the compact heading (the `Tab:`
    * prefix span hidden, the name click-to-rename and ▾ switcher untouched)
    * beside the STANDING omnibox, and Enter on a typed message fires exactly
-   * one agent-target send and auto-opens the drawer with focus retained.
+   * one send and auto-opens the drawer with focus retained — on this terminal
+   * route the context chip is attached, so the send rides the templated chat
+   * lane at the subject window (no direct send fires).
    *
    * Steps:
-   * 1. Mock the backend with an operator window and a 200 send stub; land on
-   *    the terminal route.
+   * 1. Mock the backend with an operator window and 200 stubs; land on the
+   *    terminal route.
    * 2. Assert the omnibox is visible, the `Tab:` prefix is hidden, and the
    *    rename button + ▾ switcher still render.
    * 3. Type a message into the omnibox and press Enter.
-   * 4. Assert one recorded send body `{text, mode: "submit", target:
-   *    "agent"}`, the drawer open, and the omnibox still focused with its
-   *    draft cleared.
+   * 4. Assert one recorded operator-request `{template: "user-message",
+   *    text}` at @1 and no direct send, the drawer open, and the omnibox
+   *    still focused with its draft cleared.
    */
   test("≥ lg: the standing omnibox sends on Enter and auto-opens the drawer", async ({ page }) => {
-    const sendBodies = await mockBackend(page, true);
+    const { sendBodies, requestCalls } = await mockBackend(page, true);
     await gotoWindow(page);
 
     await expect(omniboxInput(page)).toBeVisible();
@@ -248,8 +270,14 @@ test.describe("Operator console", () => {
     await omniboxInput(page).press("Enter");
 
     await expect
-      .poll(() => sendBodies)
-      .toEqual([{ text: "restart the worker", mode: "submit", target: "agent" }]);
+      .poll(() => requestCalls.map((c) => ({ path: new URL(c.url).pathname, body: c.body })))
+      .toEqual([
+        {
+          path: "/api/windows/%401/operator-request",
+          body: { template: "user-message", text: "restart the worker" },
+        },
+      ]);
+    expect(sendBodies).toEqual([]);
     await expect(console_(page)).toBeVisible();
     await expect(omniboxInput(page)).toBeFocused();
     await expect(omniboxInput(page)).toHaveValue("");
@@ -323,21 +351,24 @@ test.describe("Operator console", () => {
    * Proves: the palette free-text fallback — a query matching no action on an
    * operator-bearing server renders the `Ask operator: "{query}"` row, and
    * Enter on it closes the palette, opens the console, and fires exactly one
-   * `send` POST with `{text, mode: "submit", target: "agent"}` at the
-   * operator window.
+   * send through the SAME lane resolution as a typed message: on this terminal
+   * route (chip attached by default) that is one POST to the window-scoped
+   * operator-request route at the subject window @1 with
+   * `{template: "user-message", text: query}` — no direct `send` POST fires.
    *
    * Steps:
-   * 1. Mock the backend with an operator window and a 200 send stub; land on
-   *    the terminal route.
+   * 1. Mock the backend with an operator window and 200 stubs; land on the
+   *    terminal route.
    * 2. Open the palette and type a query matching no action.
    * 3. Assert the fallback row renders and the "No results" line does not.
    * 4. Press Enter; assert the palette closed, the console opened, and the
-   *    recorded send body matches the query with the agent target.
+   *    recorded operator-request call targets @1 with the user-message
+   *    template while the direct-send list stays empty.
    */
-  test("palette fallback row opens the console and immediately sends the query via target:agent", async ({
+  test("palette fallback row opens the console and sends the query on the templated chat lane", async ({
     page,
   }) => {
-    const sendBodies = await mockBackend(page, true);
+    const { sendBodies, requestCalls } = await mockBackend(page, true);
     await gotoWindow(page);
 
     const paletteInput = await openPalette(page);
@@ -351,8 +382,14 @@ test.describe("Operator console", () => {
     await expect(paletteInput).toHaveCount(0);
     await expect(console_(page)).toBeVisible();
     await expect
-      .poll(() => sendBodies)
-      .toEqual([{ text: "the fence deploy is wedged", mode: "submit", target: "agent" }]);
+      .poll(() => requestCalls.map((c) => ({ path: new URL(c.url).pathname, body: c.body })))
+      .toEqual([
+        {
+          path: "/api/windows/%401/operator-request",
+          body: { template: "user-message", text: "the fence deploy is wedged" },
+        },
+      ]);
+    expect(sendBodies).toEqual([]);
   });
 
   /**
@@ -410,22 +447,22 @@ test.describe("Operator console", () => {
 
   /**
    * Proves: a structured send failure (409 from the injection engine)
-   * surfaces INLINE — the server's message at the drawer's top edge, directly
-   * under the omnibox (the relocated inline-error contract), no toast — and
-   * the composed text survives in the omnibox for retry.
-   *
-   * Steps:
-   * 1. Mock the backend with an operator window and a 409 send stub carrying
-   *    the probe-failure message; land on the terminal route.
+   * 1. Mock the backend with an operator window and a 409 stub (both send
+   *    lanes) carrying the probe-failure message; land on the terminal route.
    * 2. Type a message into the omnibox and press Enter (the send auto-opens
    *    the drawer).
-   * 3. Assert the send fired, the drawer's top-edge error line carries the
-   *    server's message, and the omnibox still holds the text.
+   * 3. Assert the templated lane fired once (the chip is attached on this
+   *    route), the drawer's top-edge error line carries the server's message,
+   *    and the omnibox still holds the text.
+   *
+   * Steps:
+    await expect.poll(() => requestCalls).toHaveLength(1);
+    await expect(console_(page)).toBeVisible();
    */
   test("a structured 409 send failure surfaces inline with the composed text preserved", async ({
     page,
   }) => {
-    const sendBodies = await mockBackend(page, true, {
+    const { requestCalls } = await mockBackend(page, true, {
       status: 409,
       body: { error: "probe failed: no novelty echo" },
     });
@@ -436,10 +473,116 @@ test.describe("Operator console", () => {
     await input.fill("restart the worker");
     await input.press("Enter");
 
-    await expect.poll(() => sendBodies).toHaveLength(1);
+    await expect.poll(() => requestCalls).toHaveLength(1);
     await expect(console_(page)).toBeVisible();
     await expect(page.getByTestId("operator-console-error")).toHaveText("probe failed: no novelty echo");
     await expect(input).toHaveValue("restart the worker");
+  });
+
+  /**
+   * Proves: on a terminal route the compose strip shows the attached context
+   * chip naming the route window (`from: @1 "feature-work"`), and Enter fires
+   * exactly one POST to the window-scoped operator-request route at the
+   * SUBJECT window @1 with `{template: "user-message", text}` — the direct
+   * send lane (at the operator window @9) is not called.
+   *
+   * Steps:
+   * 1. Mock the backend with an operator window; land on the @1 terminal
+   *    route.
+   * 2. Click into the omnibox (machine → focused); assert the chip appears
+   *    beside the box naming @1 "feature-work".
+   * 3. Type a message and press Enter (the send auto-opens the drawer).
+   * 4. Assert exactly one operator-request call whose path is
+   *    `/api/windows/%401/operator-request` with the user-message body, and
+   *    an empty direct-send list.
+   */
+  test("terminal route: the context chip rides the send onto the templated chat lane", async ({
+    page,
+  }) => {
+    const { sendBodies, requestCalls } = await mockBackend(page, true);
+    await gotoWindow(page);
+
+    const input = omniboxInput(page);
+    await input.click();
+    await expect(page.getByTestId("operator-console-context")).toContainText('from: @1 "feature-work"');
+
+    await input.fill("can you check the failing test?");
+    await input.press("Enter");
+    await expect(console_(page)).toBeVisible();
+
+    await expect
+      .poll(() => requestCalls.map((c) => ({ path: new URL(c.url).pathname, body: c.body })))
+      .toEqual([
+        {
+          path: "/api/windows/%401/operator-request",
+          body: { template: "user-message", text: "can you check the failing test?" },
+        },
+      ]);
+    expect(sendBodies).toEqual([]);
+    await expect(input).toHaveValue("");
+  });
+
+  /**
+   * Proves: dismissing the context chip (✕) drops the envelope — the next
+   * send rides the direct lane byte-identically (POST
+   * /api/windows/{operatorId}/send with `{text, mode: "submit",
+   * target: "agent"}`), and no operator-request fires.
+   *
+   * Steps:
+   * 1. Mock the backend with an operator window; land on the @1 terminal
+   *    route.
+   * 2. Click into the omnibox; dismiss the chip via its ✕ button and assert
+   *    it disappears.
+   * 3. Type a message and press Enter.
+   * 4. Assert exactly one direct-send call at @9 with the agent-target body
+   *    and an empty operator-request list.
+   */
+  test("dismissing the chip returns sends to the direct lane", async ({ page }) => {
+    const { sendBodies, requestCalls } = await mockBackend(page, true);
+    await gotoWindow(page);
+
+    const input = omniboxInput(page);
+    await input.click();
+    await page.getByRole("button", { name: "Detach window context" }).click();
+    await expect(page.getByTestId("operator-console-context")).toHaveCount(0);
+
+    await input.fill("plain message");
+    await input.press("Enter");
+
+    await expect.poll(() => sendBodies).toEqual([
+      { text: "plain message", mode: "submit", target: "agent" },
+    ]);
+    expect(requestCalls).toEqual([]);
+  });
+
+  /**
+   * Proves: on a route with no subject window (the tmux Server route) the
+   * chip does not render and sends ride the direct lane unchanged.
+   *
+   * Steps:
+   * 1. Mock the backend with an operator window; land on the server route
+   *    (`/default`).
+   * 2. Click into the omnibox; assert no chip renders.
+   * 3. Type a message and press Enter.
+   * 4. Assert exactly one direct-send call at @9 and an empty
+   *    operator-request list.
+   */
+  test("server route: no subject window, no chip, sends ride the direct lane", async ({ page }) => {
+    const { sendBodies, requestCalls } = await mockBackend(page, true);
+    await page.goto(`/${SERVER}`);
+    await expect(page.getByText("feature-work").first()).toBeVisible({ timeout: 10_000 });
+
+    const input = omniboxInput(page);
+    await input.click();
+    await expect(page.getByTestId("operator-console-context")).toHaveCount(0);
+
+    await input.fill("hello from the server page");
+    await input.press("Enter");
+
+    await expect.poll(() => sendBodies).toEqual([
+      { text: "hello from the server page", mode: "submit", target: "agent" },
+    ]);
+    expect(requestCalls).toEqual([]);
   });
 
   /**
@@ -726,7 +869,7 @@ test.describe("Operator console", () => {
   test("image paste inside the console uploads to the operator session and insert-delivers the path", async ({
     page,
   }) => {
-    const sendBodies = await mockBackend(page, true);
+    const { sendBodies } = await mockBackend(page, true);
     const uploads = await mockUploads(page);
     await gotoWindow(page);
 

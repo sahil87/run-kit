@@ -1,5 +1,5 @@
 ---
-description: "Session enumeration and group filtering; list-clients viewer derivation (group-key join); direct-attach relay; pin-sessions (_rk-pin-*); operator home _rk-operator; server-birth CWD pin; window @N addressing; exact-match =name: targets; MoveWindow active-window preservation; sort-windows; auto-naming; SSE dead-server reap; @rk_srv_protected/@rk_srv_managed provenance; @rk_<scope>_<name> registry (web-tab family) + migration sweep. Test sockets + rk mux reap in test-sockets.md."
+description: "Session enumeration and group filtering; list-clients viewer derivation (group-key join); direct-attach relay; pin-sessions (_rk-pin-*); operator home _rk-operator; session-role taxonomy (_rk-* reserved; rk mux sessions); server-birth CWD pin; window @N addressing; exact-match =name: targets; MoveWindow active-window preservation; sort-windows; auto-naming; SSE dead-server reap; @rk_srv_protected/@rk_srv_managed provenance; @rk_<scope>_<name> registry (web-tab family) + migration sweep. Test sockets + rk mux reap in test-sockets.md."
 type: memory
 ---
 # tmux Session Enumeration
@@ -165,6 +165,20 @@ Setting `@rk_win_role=operator` on a window physically MOVES it into a per-serve
 `_rk-operator` is deliberately NOT in this skip set — the operator window is MOVED into it (single membership), so a parse-level skip would erase the window's data from the payload entirely; hiding for it is content-conditional at the `FetchSessions` join instead (§ Operator Session, pinned by `TestParseSessionsKeepsOperatorSession`).
 
 Beyond the filter, `parseSessions` carries two identity fields through: `#{session_id}` (the tmux session id, `$N` form — the canonical target handle) → `SessionInfo.ID` (`json:"id,omitempty"`) and `#{session_path}` (the session working directory, sent raw) → `SessionInfo.Path` (`json:"path,omitempty"`). `internal/sessions` threads both onto the `/api/sessions` JSON and the SSE `sessions` event as the optional `sessionId`/`sessionPath` keys (the `sessionColor` optional-field idiom — additive, absent on old-backend payloads), consumed by the sidebar session-row identity tip (see [sidebar](/run-kit/ui/sidebar.md)). Derived from tmux at request time, no storage (Constitution II); display-side `~` abbreviation of the path is a frontend concern (§ Design Decisions → Path abbreviation is a frontend display heuristic). (xb77)
+
+## Session Role Taxonomy (`_rk-*` Reserved Namespace)
+
+`_rk-*` is run-kit's **reserved session-name namespace** (`tmux.ReservedSessionPrefix`): every infrastructure session run-kit creates is named under it, and `tmux.SessionRole(name)` (`internal/tmux/session_facts.go`) classifies any session name at request time — never from a stamped option:
+
+| Role | Rule |
+|------|------|
+| `pin` | `PinSessionPrefix` (`_rk-pin-*`) |
+| `control` | `ControlAnchorSessionName` (`_rk-ctl`) |
+| `operator` | `OperatorSessionName` (`_rk-operator`) |
+| `reserved` | any other `_rk-*` name (future infrastructure) |
+| `user` | everything else (a mid-name `_rk-` is user) |
+
+`tmux.ListSessionFacts` + `buildSessionFacts` expose the taxonomy as per-session substrate facts (`name`/`role`/`attached`/`windows`/`path`/`grouped`) behind `rk mux sessions` ([agent-messaging](/run-kit/agent-messaging.md) § `rk mux sessions`), the fact surface external orchestrators consume for spawn-target candidacy instead of hard-coding the prefix (fab-kit's operator is the first consumer). User rows follow `parseSessions`' keep decision exactly — the enumeration reads raw `list-sessions` on the shared `sessionListFormat` fields and re-includes the pin/control rows the chokepoint drops; `attached` rides the `ListClients` group-key join (§ Attached-Client Enumeration). `role: operator` is **unconditional structural classification** — deliberately independent of the content-conditional `Hidden` rendering rule (§ Operator Session), whose truth table is about window population, not identity.
 
 ## `_rk-ctl` Anchor Session (tmuxctl control mode)
 
@@ -575,6 +589,24 @@ The fab tier (`FabChange`/`FabStage`/`FabDisplayState` on `WindowInfo`) is deriv
 - `scripts/test-e2e.sh` (`cleanup`/`trap cleanup EXIT`), `app/frontend/tests/e2e/global-teardown.ts` — e2e teardown globs the worktree's own family: the trap iterates `"/tmp/tmux-$(id -u)/${E2E_TMUX_FAMILY}"*` (the `rk-test-e2e-<token>-` anchor, trailing hyphen included — hyphen-free tokens make a sibling worktree's family unmatchable by construction), and `global-teardown.ts` prefix-scans on `E2E_TMUX_FAMILY ?? E2E_TMUX_SERVER` (returning early when neither is set — an unmanaged direct `playwright test` run owns no server), best-effort, so PID-named secondaries (`…-multi-*`, `…-msb-*`, `…-scope-*`, `…-csw-*`) don't leak on crash/Ctrl-C. Both sweeps refuse a **bare anchor** (`rk-test-e2e` / `rk-test-e2e-`) with a printed warning and fall back to reaping the primary by exact name — see [test-sockets](/run-kit/test-sockets.md) § A bare family anchor refuses the teardown sweep. **Process-group teardown** (260530-cf3g): the dev server is launched into its OWN process group via `set -m` job control (`bash -c "… exec just dev" &` — portable, macOS has no `setsid`), and `cleanup` kills only `kill -- "-$DEV_PGID"` — never `kill 0` — after verifying via `ps` that the child's real PGID is not the script's own (a silent job-control failure would otherwise re-arm the grenade). A non-detached `kill 0` would signal the *caller's* process group, SIGTERMing live tmux servers / `-CC` control clients sharing it when the e2e run executes inline in an interactive/agent session (root cause of `kit`/`abbb`/`runWork` dying mid-session — a 16-server death burst with zero `audit=kill-server` lines; constitution VI). **Backend READ-path scoping** (260531-tmnm): the `bash -c "… exec just dev"` backend launch exports `RK_SERVER_ALLOWLIST=$E2E_TMUX_FAMILY` (the family anchor), scoping the backend's `ListServers` to this worktree's test servers for the run — distinct from `E2E_TMUX_SERVER`, which scopes the WRITE socket (see § `RK_SERVER_ALLOWLIST`)
 
 ## Design Decisions
+
+### Session role is a derived query, not a stamped option
+**Decision**: Session roles are classified from the NAME at request time (`tmux.SessionRole` behind `rk mux sessions`); no `@rk_ses_role` option is written or read.
+**Why**: Role is fully derivable from session names (Constitution II: derive from tmux at request time; Constitution X: options carry only the underivable). A stamped option can drift from the name that actually drives run-kit's own behavior.
+**Rejected**: `@rk_ses_role` session option (drift risk, write-path complexity, migration burden); extending `rk mux panes` rows with session facts (wrong grain — empty sessions would vanish).
+*Introduced by*: 260905-csk9-mux-sessions-role-query
+
+### `reserved` catch-all formalizes `_rk-*` as run-kit's namespace
+**Decision**: Any `_rk-*` name not matching a known constant classifies `reserved`, and `_rk-*` is documented as the reserved session-name namespace.
+**Why**: Consumers filtering `role != "user"` stay correct when rk adds a fourth infrastructure kind — the drift-proofing that makes the query strictly better than the prefix-copying it replaces (fab-kit cx52 adopted the prefix as prose pending this surface).
+**Rejected**: Enumerating only the three known kinds (every new reserved name would silently classify `user` and leak into consumers' candidate sets).
+*Introduced by*: 260905-csk9-mux-sessions-role-query
+
+### Raw enumeration beside the chokepoint, not a chokepoint flag
+**Decision**: `ListSessionFacts` issues its own `list-sessions` (all sessions, pin/ctl included) and folds groups itself; `parseSessions` gains no include-infrastructure flag.
+**Why**: The chokepoint's unconditional pin/ctl drop is the single guarantee that no infrastructure session leaks into any dashboard consumer; a bypass flag would weaken that invariant for every caller to protect one. Sharing `sessionListFormat` and the `parseSessions` keep decision keeps user-row semantics identical to the dashboard's.
+**Rejected**: Parameterizing `parseSessions` (invariant erosion); post-hoc re-adding filtered rows from a second tmux call (a redundant subprocess and a race between the two enumerations).
+*Introduced by*: 260905-csk9-mux-sessions-role-query
 
 ### Upgrade legacy present values through ordinary re-presentation
 **Decision**: `WebAdd` rewrites a matching legacy `/present/{windowId}/{n}/…?server=` slot to the incoming content-keyed `/present/{server}/{roothash}/…` value; same-form matches keep the `BumpVersion` refresh path.

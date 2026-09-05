@@ -12,7 +12,7 @@ import (
 
 // rk mux — the tmux-substrate command family (docs/specs/cli-layering.md):
 // operations that talk to tmux directly from the caller's context, with no
-// daemon dependency. Twelve members in two tiers, presented in three help
+// daemon dependency. Thirteen members in two tiers, presented in three help
 // groups (messaging / pane mechanics / server ops — the discoverability
 // grouping docs/specs/agent-messaging.md settles). The pane-scoped tier takes the
 // family's strict target grammar: `send` (deliver a message into an agent
@@ -20,8 +20,9 @@ import (
 // state or a file signal fires) are the messaging pair; `capture` (scrollback
 // capture with substrate-only enrichment), `kill` (agent-state-gated pane
 // removal), and `process` (the pane's process tree with agent cross-check) are
-// the substrate twins; `panes` is the server-wide enumeration query — one row
-// per pane, no target. The operator tier: `new` creates a detached tmux
+// the substrate twins; `panes` and `sessions` are the server-wide enumeration
+// queries — one row per pane / per session (with the name-derived role), no
+// target. The operator tier: `new` creates a detached tmux
 // server on a named socket, optionally marked @rk_ephemeral for the reap
 // sweep; `adopt` converts an external server to rk-managed (stamp @rk_srv_managed,
 // source the managed conf); `reap` is the operator-invoked janitor for leaked
@@ -35,7 +36,7 @@ import (
 //
 // The family parent carries the shared persistent -L/--server flag (the
 // `fab pane` pattern): every subcommand inherits it, but only the pane-scoped
-// verbs and the `panes` enumeration consume it — the operator members reject
+// verbs and the `panes`/`sessions` enumerations consume it — the operator members reject
 // an explicitly-set -L via
 // muxRejectInheritedServerFlag rather than silently ignore it. `guard` is the
 // exception: DisableFlagParsing means nothing is parsed and -L/-S flow
@@ -49,7 +50,7 @@ var muxServerFlag string
 
 // The three rk mux help groups (docs/specs/agent-messaging.md § Surface and
 // naming): messaging (send, await), pane mechanics (capture, kill, process,
-// panes), server ops (new, adopt, reap, snapshot, init-conf, guard).
+// panes, sessions), server ops (new, adopt, reap, snapshot, init-conf, guard).
 const (
 	muxGroupMessaging = "messaging"
 	muxGroupMechanics = "mechanics"
@@ -58,7 +59,7 @@ const (
 
 var muxCmd = &cobra.Command{
 	Use:   "mux",
-	Short: "Tmux substrate operations (server create, messaging, pane capture/kill/process, pane enumeration, janitor, recovery, config scaffold, tmux guard)",
+	Short: "Tmux substrate operations (server create, messaging, pane capture/kill/process, pane/session enumeration, janitor, recovery, config scaffold, tmux guard)",
 	Long: "Tmux substrate operations that talk to tmux directly from the caller's " +
 		"context — no daemon dependency. `new` creates a detached tmux server on a " +
 		"named socket, optionally marked ephemeral for the reap sweep; `send` " +
@@ -70,7 +71,9 @@ var muxCmd = &cobra.Command{
 		"state); `kill` removes a pane, refusing a pane whose agent is active or " +
 		"waiting unless --force; `process` shows the process tree running in a " +
 		"pane; `panes` enumerates every pane on the server, one row per pane, " +
-		"with substrate facts (window, command, cwd, reconciled agent state). " +
+		"with substrate facts (window, command, cwd, reconciled agent state); " +
+		"`sessions` enumerates the server's sessions with their name-derived " +
+		"roles (user, or run-kit infrastructure: pin/control/operator/reserved). " +
 		"`adopt` converts an external tmux server to rk-managed (stamp " +
 		"@rk_srv_managed, source the managed config, roll back the stamp when the " +
 		"reload fails). " +
@@ -83,7 +86,7 @@ var muxCmd = &cobra.Command{
 
 func init() {
 	muxCmd.PersistentFlags().StringVarP(&muxServerFlag, "server", "L", "",
-		"tmux server name (pane-scoped verbs: send/await/capture/kill/process, and the panes enumeration; default: the caller's own server from $TMUX, else the default server)")
+		"tmux server name (pane-scoped verbs: send/await/capture/kill/process, and the panes/sessions enumerations; default: the caller's own server from $TMUX, else the default server)")
 	muxCmd.AddGroup(
 		&cobra.Group{ID: muxGroupMessaging, Title: "Messaging:"},
 		&cobra.Group{ID: muxGroupMechanics, Title: "Pane mechanics:"},
@@ -98,7 +101,7 @@ func init() {
 	for _, c := range []*cobra.Command{muxSendCmd, muxAwaitCmd} {
 		c.GroupID = muxGroupMessaging
 	}
-	for _, c := range []*cobra.Command{muxCaptureCmd, muxKillCmd, muxProcessCmd, muxPanesCmd} {
+	for _, c := range []*cobra.Command{muxCaptureCmd, muxKillCmd, muxProcessCmd, muxPanesCmd, muxSessionsCmd} {
 		c.GroupID = muxGroupMechanics
 	}
 	for _, c := range []*cobra.Command{muxNewCmd, muxAdoptCmd, reapFamilyCmd, snapshotFamilyCmd, initConfFamilyCmd, muxGuardFamilyCmd} {
@@ -110,6 +113,7 @@ func init() {
 	muxCmd.AddCommand(muxKillCmd)
 	muxCmd.AddCommand(muxProcessCmd)
 	muxCmd.AddCommand(muxPanesCmd)
+	muxCmd.AddCommand(muxSessionsCmd)
 	muxCmd.AddCommand(muxNewCmd)
 	muxCmd.AddCommand(muxAdoptCmd)
 	muxCmd.AddCommand(reapFamilyCmd)

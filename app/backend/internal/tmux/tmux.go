@@ -1024,13 +1024,19 @@ func ListPinSessionNames(ctx context.Context, server string) ([]string, error) {
 // ListSessions returns sessions from the specified tmux server,
 // filtering out session-group copies and run-kit's board pin-sessions
 // (PinSessionPrefix). Returns nil if no server is running.
+// sessionListFormat is the 9-field list-sessions format string consumed by
+// parseSessions AND buildSessionFacts (session_facts.go) — shared so the two
+// enumerations can never read differently-shaped lines: name, grouped, group,
+// group_size, @rk_ses_color, windows, @rk_ses_flair, session_id, session_path.
+func sessionListFormat() string {
+	return fmt.Sprintf("#{session_name}%s#{session_grouped}%s#{session_group}%s#{session_group_size}%s#{%s}%s#{session_windows}%s#{%s}%s#{session_id}%s#{session_path}", listDelim, listDelim, listDelim, listDelim, SessionColorOption, listDelim, listDelim, SessionFlairOption, listDelim, listDelim)
+}
+
 func ListSessions(ctx context.Context, server string) ([]SessionInfo, error) {
 	ctx, cancel := context.WithTimeout(ctx, TmuxTimeout)
 	defer cancel()
 
-	format := fmt.Sprintf("#{session_name}%s#{session_grouped}%s#{session_group}%s#{session_group_size}%s#{%s}%s#{session_windows}%s#{%s}%s#{session_id}%s#{session_path}", listDelim, listDelim, listDelim, listDelim, SessionColorOption, listDelim, listDelim, SessionFlairOption, listDelim, listDelim)
-
-	lines, err := tmuxExecServer(ctx, server, "list-sessions", "-F", format)
+	lines, err := tmuxExecServer(ctx, server, "list-sessions", "-F", sessionListFormat())
 	if err != nil {
 		if containsServerGoneText(err.Error()) {
 			return nil, nil

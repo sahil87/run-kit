@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-05T07:17:31Z"}
+{"args":"Expose a session-role / user-facing-session query from rk (rk mux sessions --json with role/attached/window facts) so fab's operator sources spawn-target-session structure from rk instead of hard-coding the _rk-* reserved prefix (fab-kit cx52 / PR #645 follow-up)","cmd":"fab-new","event":"command","ts":"2026-09-05T07:17:31Z"}
+{"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-09-05T07:19:17Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-05T07:21:58Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-05T07:25:12Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-05T07:36:06Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-05T07:42:34Z"}
+{"event":"review","result":"passed","ts":"2026-09-05T07:42:34Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-05T07:46:53Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-05T07:48:41Z"}
+{"event":"review","result":"passed","ts":"2026-09-05T07:56:43Z"}

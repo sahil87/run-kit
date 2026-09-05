@@ -120,6 +120,19 @@ func buildSessionFacts(lines []string, clients []ClientInfo) []SessionFacts {
 			Attached: attached[name],
 			Grouped:  parts[1] == "1",
 		}
+		// A leaderless group's kept representative (parseSessions' renamed-
+		// leader fallback) carries a name that differs from the group key
+		// clients report: SessionKey resolves those attaches to the GROUP name
+		// (non-numeric #{session_group}), never the representative. Each
+		// client lands under exactly one key, so adding the group bucket for
+		// a name≠group row cannot double-count. User rows only: an
+		// infrastructure member of a user session's group (the _rk-ctl
+		// anchor) must not absorb the base session's viewers.
+		if role == SessionRoleUser && len(parts) >= 3 {
+			if g := parts[2]; g != "" && g != name && !isNumericGroupID(g) {
+				f.Attached += attached[g]
+			}
+		}
 		if len(parts) >= 6 {
 			f.Windows, _ = strconv.Atoi(parts[5])
 		}

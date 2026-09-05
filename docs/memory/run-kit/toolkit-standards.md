@@ -648,7 +648,7 @@ agent-state gate / Delivery through the shared injection engine) modifies an
 EXISTING surface, so it was re-audited in place against the same checks
 (260904-kppn-mux-send-delivery-hardening):
 
-- **help-dump: PASS, no diff needed.**   and touches only `Long:` prose, which the dump does not publish
+- **help-dump: PASS, no diff needed.** The change adds no mux member and touches only `Long:` prose, which the dump does not publish
   — `UsageString` and flags are untouched, so the mux subtree's dump is
   byte-unchanged and the help-dump test's member-count assertions pass
   unmodified. `rk help-dump` (HEAD build) exits 0 with valid JSON, empty

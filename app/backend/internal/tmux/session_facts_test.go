@@ -68,6 +68,28 @@ func TestBuildSessionFacts(t *testing.T) {
 	}
 }
 
+// TestBuildSessionFactsLeaderlessGroupAttached: when a group's leader was
+// renamed away (parseSessions keeps the first member as representative), a
+// client's SessionKey resolves to the GROUP name, not the representative's —
+// the group-bucket add is what credits that viewer to the kept row.
+func TestBuildSessionFactsLeaderlessGroupAttached(t *testing.T) {
+	lines := []string{
+		factsLine("devshell-82", "1", "devshell", "2", "3", "$1", "/home/y"),
+		factsLine("devshell-83", "1", "devshell", "2", "3", "$2", "/home/y"),
+	}
+	clients := []ClientInfo{
+		{TTY: "/dev/ttys001", Width: 80, Height: 24, SessionName: "devshell-83", SessionGroup: "devshell"},
+	}
+
+	got := buildSessionFacts(lines, clients)
+	want := []SessionFacts{
+		{Name: "devshell-82", Role: SessionRoleUser, Attached: 1, Windows: 3, Path: "/home/y", Grouped: true},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("buildSessionFacts = %+v,\nwant %+v", got, want)
+	}
+}
+
 // TestBuildSessionFactsEmpty: no lines yields no rows (nil, not a panic), and
 // malformed short lines are skipped.
 func TestBuildSessionFactsEmpty(t *testing.T) {

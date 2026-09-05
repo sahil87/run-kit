@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, waitFor, fireEvent, within } from "@testing-library/react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, createContext } from "react";
 import { ThemeProvider } from "@/contexts/theme-context";
 import { ToastProvider } from "@/components/toast";
 import { ChromeProvider } from "@/contexts/chrome-context";
@@ -29,9 +29,14 @@ import { copyToClipboard } from "@/lib/clipboard";
 
 // The Shortcuts tab's plumbing reads the session context, the route params,
 // and the merged palette list — mock all three seams light (no current
-// server/route → no add flow, the tmux section's empty state).
+// server/route → no add flow, the tmux section's empty state). The console
+// opacity row's store (lib/operator-console.ts) imports the raw SessionContext
+// object + the route-server hook from the same module, so the mock must carry
+// them (a real context object, absent provider = the tolerant-degrade path).
 vi.mock("@/contexts/session-context", () => ({
   useSessionContext: () => ({ currentServer: null, sessionsByServer: new Map() }),
+  SessionContext: createContext(null),
+  useCurrentServerFromRoute: () => null,
 }));
 vi.mock("@tanstack/react-router", () => ({
   useMatches: () => [],
@@ -338,6 +343,22 @@ describe("SettingsDialog", () => {
     expect(document.querySelector("select")).toBeNull();
     expect(screen.getByRole("button", { name: "Set instance color" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Increase terminal font" })).toBeInTheDocument();
+  });
+
+  it("the console-opacity row is a localStorage-backed This-device resident — no settings API call", () => {
+    renderDialog();
+    selectTab("Appearance");
+
+    const slider = screen.getByRole("slider", { name: "Operator console opacity" });
+    // Default 0.90, clamped 0.75–1.0.
+    expect(slider).toHaveValue("0.9");
+    expect(slider).toHaveAttribute("min", "0.75");
+    expect(slider).toHaveAttribute("max", "1");
+
+    fireEvent.change(slider, { target: { value: "0.8" } });
+    expect(localStorage.getItem("runkit-operator-console-opacity")).toBe("0.8");
+    // Per-viewer resident: nothing rides the registry seam.
+    expect(postSettings).not.toHaveBeenCalled();
   });
 
   describe("Appearance inline theme picker (260819-qkow)", () => {

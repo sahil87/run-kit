@@ -22,6 +22,7 @@ import {
   TopBarOverflowMenu,
   HelpMenuRow,
   KeyboardMenuRow,
+  OperatorConsoleButton,
   OperatorConsoleMenuRow,
   type OverflowMenuRow,
   type MenuGroup,
@@ -46,6 +47,7 @@ import {
   TerminalFontGlyph,
 } from "@/components/top-bar-icons";
 import { LayoutChip, LayoutMenuRows } from "@/components/layout-chip";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import { computeVisibleCount } from "@/lib/top-bar-overflow";
 import { deriveCrumbsCollapsed } from "@/lib/crumb-collapse";
 import { useKeybindings } from "@/hooks/use-keybindings";
@@ -525,6 +527,10 @@ export function TopBar({
   // registry entry is overflowed into the menu, the version row becomes the
   // update surface and the chevron shows an attention badge (change areas 2–3).
   const { showChip, key: updateKey } = useUpdateNotification();
+  // The ◉ operator button is the DESKTOP standing affordance — on mobile the
+  // tongue under the top bar serves instead (they are complementary: exactly
+  // one standing affordance per form factor).
+  const isMobile = useIsMobile();
 
   // Brand-crumb logo hover: the white glow "detach, orbit, land" sweep over
   // the ring segments (JS-driven, logo-spinner.tsx). Triggered from the whole
@@ -682,7 +688,7 @@ export function TopBar({
   // fixed-width, terminal-font (Aa), and
   // close-pane/Kill (sticky per-device preferences + the destructive ✕ that
   // sat one slot from Refresh). The terminal-mode bar end state is
-  // surface toggles · Open · ▦ Layout · Refresh · Gear · chevron (+ UpdateChip when a qualifying
+  // surface toggles · Open · ▦ Layout · ◉ · Refresh · Gear · chevron (+ UpdateChip when a qualifying
   // update exists) — the split chip demoted to `menuOnly` in terminal mode in
   // 260813-w1lf (pane verbs moved to the tty tile header). Each entry gates on `modes` (the current mode must be listed) and
   // an optional `hidden` predicate (renders nowhere); `menuGroup` names its
@@ -883,6 +889,21 @@ export function TopBar({
       barRender: () => <UpdateChip />,
       menuRender: () => null,
     },
+    // ◉ operator button — the desktop STANDING affordance for the operator
+    // console (L3, immediately before Refresh): a fixed-size ◉ with the
+    // resolved-server operator's live state dot. Hidden on mobile (the tongue
+    // under the top bar serves there). Overflowed, its function merges into
+    // the menu's `Operator console` row (menuRender: null), so the two never
+    // duplicate. Renders on operator-less servers — the console's hint line
+    // is the answer (the palette open action's posture).
+    {
+      id: "operator-console-button",
+      modes: ["terminal", "board", "server", "host"],
+      menuGroup: "app",
+      hidden: isMobile,
+      barRender: () => <OperatorConsoleButton routeServer={server || null} />,
+      menuRender: () => null,
+    },
     {
       id: "refresh",
       modes: ["terminal", "board", "server", "host"],
@@ -894,7 +915,7 @@ export function TopBar({
     // right cluster on ALL modes (app-global chrome, not a terminal control).
     // The LAST fit candidate (L3 tail): it survives longest in-bar and, when
     // the cluster can't fit it, degrades to the Settings menu row — never
-    // shrinks or clips. Order in the bar: … · Refresh · Gear · chevron ▾.
+    // shrinks or clips. Order in the bar: … · ◉ · Refresh · Gear · chevron ▾.
     {
       id: "settings",
       modes: ["terminal", "board", "server", "host"],

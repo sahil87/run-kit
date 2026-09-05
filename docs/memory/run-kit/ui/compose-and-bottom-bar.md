@@ -88,11 +88,13 @@ Enter is guarded against IME composition (`e.nativeEvent.isComposing`). A `"defa
 ### File Upload
 
 Entry points, all on the terminal page:
-- **Clipboard paste** (`Cmd+V` / `Ctrl+V`) — document-level paste listener; files in `clipboardData.files` trigger upload, text-only paste passes through to xterm
-- **Drag-and-drop** — drop files onto the terminal area; `ring-2 ring-accent` border highlight during drag-over; non-file drag content ignored
+- **Clipboard paste** (`Cmd+V` / `Ctrl+V`) — document-level paste listener; files in `clipboardData.files` trigger upload, text-only paste passes through to xterm; console-origin file pastes are excluded (the routing guard below)
+- **Drag-and-drop** — drop files onto the terminal area; `ring-2 ring-accent` border highlight during drag-over; non-file drag content ignored; drops landing on the operator console's embedded terminal are excluded (the routing guard below)
 - **Compose strip upload button** (📎) — the left-most chip on the docked compose strip (§ Docked Compose Strip → Chip roster per pointer + the uploading state on 📎); opens native file picker via hidden `<input type="file">`; while an upload is in flight the chip goes busy (pulsing glyph, disabled, `aria-busy`) and carries an sr-only `role="status"` element (`data-testid="compose-strip-uploading"`)
 
 The paste/drop gestures live in `terminal-client.tsx` and hand raw files to the docked compose strip (enabling the `composeStripEnabled` preference first if off) via the `COMPOSE_STRIP_ATTACH_EVENT` document bridge; the strip uploads them to the **focused** target's worktree and inserts one path per line in its textarea (see § Docked Compose Strip). Server writes to `.uploads/{YYMMDD-HHmmss}-{sanitized-name}` in the target window's worktree. 50MB size limit. `.uploads/` auto-added to `.gitignore` on first use.
+
+**Console-origin routing guard.** The strip forward skips any paste/drop originating inside the operator console: the document-level paste listener returns early when `isOperatorConsoleTarget(e.target)` (containment against the console root's `data-operator-console` attribute — `lib/operator-console.ts`), and the terminal's drop handler likewise declines drops on the console's embedded terminal so the event bubbles to the console root's own drop handler. Without the guard a file pasted with the console open would upload to the ROUTE's focused target — the tab below the console — because the console's embedded terminal deliberately registers no focus; the console owns its own upload-to-operator path instead ([ui/operator-console](/run-kit/ui/operator-console.md) § Console file paste/drop). The containment guard covers the only reachable bubble path (the console's compose textarea): xterm's own textarea paste handler calls `stopPropagation()` unconditionally, so the document-level strip forward never sees pastes targeted at ANY xterm — the console's own file-paste handler is CAPTURE-phase (`onPasteCapture`) for the same reason. Text paste is untouched everywhere (no files on the clipboard).
 
 ### iOS Keyboard Support
 

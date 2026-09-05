@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, act, waitFor } from "@testing-library/react";
-import { OperatorConsole } from "./operator-console";
+import { OperatorConsole, OperatorConsoleTongue } from "./operator-console";
 import { StandaloneSessionContextProvider } from "@/contexts/session-context";
-import { requestOperatorConsole } from "@/lib/operator-console";
+import { requestOperatorConsole, writeConsoleOpacity } from "@/lib/operator-console";
 import { stubMatchMedia } from "@/test-utils/match-media";
 import type { ProjectSession, WindowInfo } from "@/types";
 
@@ -23,9 +23,11 @@ vi.mock("@/components/terminal-client", () => ({
 }));
 
 const mockSend = vi.hoisted(() => vi.fn());
+const mockUpload = vi.hoisted(() => vi.fn());
 vi.mock("@/api/client", async (importActual) => ({
   ...(await importActual<typeof import("@/api/client")>()),
   sendToWindow: mockSend,
+  uploadFile: mockUpload,
 }));
 
 function win(overrides: Partial<WindowInfo>): WindowInfo {
@@ -80,13 +82,44 @@ describe("OperatorConsole", () => {
     terminalMounts.length = 0;
     mockSend.mockReset();
     mockSend.mockResolvedValue({ ok: true });
+    mockUpload.mockReset();
+    mockUpload.mockResolvedValue({ ok: true, path: "/tmp/op/.uploads/shot.png" });
+    localStorage.clear();
   });
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
 
-  it("is closed by default, opens on the toggle event, and Esc closes it", () => {
+  it("is closed by default, opens on the toggle event, and Esc closes it", async () => {
     renderConsole();
     expect(screen.queryByTestId("operator-console")).toBeNull();
 
+    openConsole();
+    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    // The exit slide keeps the drawer mounted until transitionend (or the
+    // fallback timeout — jsdom fires no transition events).
+    await waitFor(() => expect(screen.queryByTestId("operator-console")).toBeNull());
+  });
+
+  it("stays mounted with the raised class through the exit slide", async () => {
+    renderConsole();
+    openConsole();
+    await screen.findByTestId("operator-console");
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    const el = screen.getByTestId("operator-console");
+    expect(el.className).toContain("rk-console-slide");
+    expect(el.className).toContain("rk-console-closed");
+
+    await waitFor(() => expect(screen.queryByTestId("operator-console")).toBeNull());
+  });
+
+  it("reduced motion closes instantly — no mounted-through-exit delay", () => {
+    stubMatchMedia((query) => query === "(prefers-reduced-motion: reduce)");
+    renderConsole();
     openConsole();
     expect(screen.getByTestId("operator-console")).toBeInTheDocument();
 
@@ -274,5 +307,153 @@ describe("OperatorConsole", () => {
     const el = screen.getByTestId("operator-console");
     expect(el.className).toContain("inset-0");
     expect(el.className).not.toContain("-translate-x-1/2");
+  });
+
+  it("applies the glass background at the stored opacity and drops the blur at α=1", async () => {
+    renderConsole();
+    openConsole();
+    const el = await screen.findByTestId("operator-console");
+
+    expect(el.style.backgroundColor).toContain("color-mix(in srgb, var(--color-bg-primary) 90%");
+    expect(el.style.backdropFilter).toBe("blur(6px)");
+
+    act(() => writeConsoleOpacity(1));
+    expect(el.style.backdropFilter).toBe("");
+    expect(el.style.backgroundColor).toContain("100%");
+  });
+
+  it("dragging the height grip resizes the drawer and persists the geometry on release", async () => {
+    renderConsole();
+    openConsole();
+    const el = await screen.findByTestId("operator-console");
+    expect(el.style.height).toBe("55vh");
+
+    const grip = screen.getByTestId("operator-console-grip-height");
+    // A full-viewport drag overshoots the clamp: the height pins at 85vh.
+    fireEvent.pointerDown(grip, { button: 0, clientX: 100, clientY: 300, pointerId: 1 });
+    fireEvent.pointerMove(grip, { clientX: 100, clientY: 300 + window.innerHeight, pointerId: 1 });
+    expect(el.style.height).toBe("85vh");
+    fireEvent.pointerUp(grip, { pointerId: 1 });
+
+    expect(JSON.parse(localStorage.getItem("runkit-operator-console-geometry")!)).toMatchObject({
+      heightVh: 85,
+    });
+  });
+
+  it("dragging a side grip resizes symmetrically and persists the width", async () => {
+    renderConsole();
+    openConsole();
+    const el = await screen.findByTestId("operator-console");
+
+    const grip = screen.getByTestId("operator-console-grip-right");
+    fireEvent.pointerDown(grip, { button: 0, clientX: 500, clientY: 100, pointerId: 1 });
+    fireEvent.pointerMove(grip, { clientX: 550, clientY: 100, pointerId: 1 });
+    // +50px on the right edge = +100px total (the drawer stays centered).
+    expect(el.style.width).toBe("860px");
+    fireEvent.pointerUp(grip, { pointerId: 1 });
+
+    expect(JSON.parse(localStorage.getItem("runkit-operator-console-geometry")!)).toMatchObject({
+      widthPx: 860,
+    });
+  });
+
+  it("file paste uploads to the operator session and insert-delivers the path without submitting", async () => {
+    renderConsole();
+    openConsole();
+    const input = await screen.findByLabelText("Message the operator");
+
+    const file = new File(["png"], "shot.png", { type: "image/png" });
+    fireEvent.paste(input, { clipboardData: { files: [file] } });
+
+    await waitFor(() => expect(mockUpload).toHaveBeenCalledTimes(1));
+    expect(mockUpload).toHaveBeenCalledWith("srv1", "_rk-operator", file, "@9");
+    await waitFor(() =>
+      expect(mockSend).toHaveBeenCalledWith("srv1", "@9", "/tmp/op/.uploads/shot.png ", "raw", "agent"),
+    );
+  });
+
+  it("file paste on an operator-less server is a no-op", async () => {
+    renderConsole({ sessionsByServer: new Map([["srv1", [{ name: "main", windows: [win({})] }]]]) });
+    openConsole();
+    const root = await screen.findByTestId("operator-console");
+
+    fireEvent.paste(root, { clipboardData: { files: [new File(["x"], "a.png", { type: "image/png" })] } });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(mockUpload).not.toHaveBeenCalled();
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it("an upload failure surfaces on the inline error line and delivers nothing", async () => {
+    mockUpload.mockRejectedValue(new Error("upload exploded"));
+    renderConsole();
+    openConsole();
+    const input = await screen.findByLabelText("Message the operator");
+
+    fireEvent.paste(input, { clipboardData: { files: [new File(["x"], "a.png", { type: "image/png" })] } });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("operator-console-error")).toHaveTextContent("upload exploded"),
+    );
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+});
+
+describe("OperatorConsoleTongue", () => {
+  beforeEach(() => {
+    mockMatches = [{ params: {} }];
+    terminalMounts.length = 0;
+    mockSend.mockReset();
+    mockSend.mockResolvedValue({ ok: true });
+    localStorage.clear();
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  function renderTongue(sessions: ProjectSession[] = operatorSessions()) {
+    return render(
+      <StandaloneSessionContextProvider
+        value={{
+          servers: [{ name: "srv1", sessionCount: 1 }],
+          serversLoaded: true,
+          sessionsByServer: new Map([["srv1", sessions]]),
+        }}
+      >
+        <OperatorConsole />
+        <OperatorConsoleTongue />
+      </StandaloneSessionContextProvider>,
+    );
+  }
+
+  it("is the standing affordance on mobile: visible while closed, tap opens the sheet, hidden while open", async () => {
+    stubMatchMedia(() => true);
+    renderTongue();
+
+    const tongue = screen.getByTestId("operator-console-tongue");
+    expect(screen.queryByTestId("operator-console")).toBeNull();
+
+    fireEvent.click(tongue);
+    await screen.findByTestId("operator-console");
+    expect(screen.queryByTestId("operator-console-tongue")).toBeNull();
+  });
+
+  it("carries the amber waiting dot when the resolved operator is waiting", () => {
+    stubMatchMedia(() => true);
+    renderTongue([
+      { name: "main", windows: [win({})] },
+      {
+        name: "_rk-operator",
+        hidden: true,
+        windows: [win({ windowId: "@9", name: "operator", role: "operator", agentState: "waiting" })],
+      },
+    ]);
+    expect(screen.getByTestId("operator-console-tongue-waiting")).toBeInTheDocument();
+  });
+
+  it("renders nothing on desktop", () => {
+    stubMatchMedia(() => false);
+    renderTongue();
+    expect(screen.queryByTestId("operator-console-tongue")).toBeNull();
   });
 });

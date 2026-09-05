@@ -14,6 +14,7 @@ import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
 import { useFocusedTerminal } from "@/contexts/focused-terminal-context";
 import { deriveXtermTheme } from "@/themes";
 import { dispatchComposeStripAttach } from "@/lib/compose-strip-events";
+import { isOperatorConsoleTarget } from "@/lib/operator-console";
 import { copyToClipboard } from "@/lib/clipboard";
 import { notifyFirstWrite } from "@/lib/window-transition";
 import { relayMux, type RelayStream } from "@/lib/relay-mux";
@@ -36,6 +37,17 @@ export const SCROLLBACK_MOBILE = 10_000;
 
 function deviceDefaultScrollback(): number {
   return evaluateIsMobile() ? SCROLLBACK_MOBILE : SCROLLBACK_DESKTOP;
+}
+
+/**
+ * The xterm theme for one instance. The `transparent` variant drops the opaque
+ * background so a translucent surface behind the terminal (the operator
+ * console's glass drawer) shows through the cells — it only takes effect with
+ * `allowTransparency` set at construction.
+ */
+function effectiveXtermTheme(palette: Parameters<typeof deriveXtermTheme>[0], transparent: boolean) {
+  const theme = deriveXtermTheme(palette);
+  return transparent ? { ...theme, background: "transparent" } : theme;
 }
 
 /**
@@ -150,6 +162,14 @@ type TerminalClientProps = {
    */
   scrollback?: number;
   /**
+   * When `true`, the terminal renders see-through: xterm `allowTransparency`
+   * plus a transparent theme background, so a translucent SURFACE behind the
+   * terminal (the operator console's glass drawer) shows through the cells.
+   * Opt-in per instance — route/board terminals keep the opaque theme
+   * background and pay no renderer cost.
+   */
+  transparent?: boolean;
+  /**
    * When `true` (default), this terminal registers itself as the focused
    * terminal on mount so the shell-level BottomBar targets it. Set to
    * `false` for board panes — BoardPane handles registration based on its
@@ -172,6 +192,7 @@ export function TerminalClient({
   onProgressChange,
   scrollLocked,
   scrollback,
+  transparent = false,
   registerFocus = true,
 }: TerminalClientProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
@@ -264,6 +285,11 @@ export function TerminalClient({
     function handlePaste(e: ClipboardEvent) {
       const files = e.clipboardData?.files;
       if (!files || files.length === 0) return;
+      // File pastes originating inside the operator console belong to the
+      // console's own upload path — forwarding them to the strip would upload
+      // to the ROUTE's focused target (the tab below the console). Text paste
+      // is untouched everywhere (no files on the clipboard).
+      if (isOperatorConsoleTarget(e.target)) return;
       e.preventDefault();
       attachToStrip(files);
     }
@@ -285,8 +311,13 @@ export function TerminalClient({
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
-      e.preventDefault();
+      // Drops landing on the console's embedded terminal belong to the
+      // console root's own drop handler (the event bubbles to it) — the strip
+      // forward would upload to the route's focused target instead. The
+      // drag-over highlight still clears: no dragleave follows a drop.
       setDragOver(false);
+      if (isOperatorConsoleTarget(e.currentTarget)) return;
+      e.preventDefault();
       const files = e.dataTransfer.files;
       if (files.length === 0) return;
       attachToStrip(files);
@@ -339,7 +370,8 @@ export function TerminalClient({
         fontSize: fontPx,
         // Mount-time device rule like fontPx — an explicit prop (boards) wins.
         scrollback: scrollback ?? deviceDefaultScrollback(),
-        theme: deriveXtermTheme(activeTheme.palette),
+        theme: effectiveXtermTheme(activeTheme.palette, transparent),
+        allowTransparency: transparent,
         allowProposedApi: true,
         // The search addon's decorations tick the overview ruler only when it
         // has a width — without the option the ruler never renders.
@@ -775,8 +807,8 @@ export function TerminalClient({
   // Update xterm theme when the app theme changes
   useEffect(() => {
     if (!xtermRef.current) return;
-    xtermRef.current.options.theme = deriveXtermTheme(activeTheme.palette);
-  }, [activeTheme]);
+    xtermRef.current.options.theme = effectiveXtermTheme(activeTheme.palette, transparent);
+  }, [activeTheme, transparent]);
 
   // Keep a ref to windowId so the stream open op always reads the latest value
   // without the connect effect needing to be torn down/rebuilt — this is what

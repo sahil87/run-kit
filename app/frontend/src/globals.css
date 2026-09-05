@@ -434,9 +434,8 @@ summary {
   to { opacity: 1; }
 }
 
-/* Operator console drawer: a short settle-in drop on open (transform only, so
-   it composes with the centering `translate` property). Zeroed under
-   prefers-reduced-motion below. */
+/* Operator console: the mobile sheet keeps a short settle-in drop on open
+   (transform only). Zeroed under prefers-reduced-motion below. */
 .rk-console-drop {
   animation: rk-console-drop-in 160ms ease-out both;
 }
@@ -444,6 +443,26 @@ summary {
 @keyframes rk-console-drop-in {
   from { transform: translateY(-10px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
+}
+
+/* Operator console desktop drawer: the true quake slide. The drawer mounts
+   with .rk-console-closed (raised fully above the top-bar seam — the
+   absolute inset-0 overflow-clip wrapper hides the raised portion) and
+   transitions to rest on open; a close re-applies the raised class and the
+   component unmounts on transitionend (timeout fallback in the component).
+   The transition composes with the centering `translate` property because the
+   motion rides `transform`. Suspended during resize drags
+   (.rk-console-dragging); zeroed under prefers-reduced-motion below. */
+.rk-console-slide {
+  transition: transform 240ms cubic-bezier(0.2, 0.9, 0.25, 1);
+}
+
+.rk-console-slide.rk-console-closed {
+  transform: translateY(-102%);
+}
+
+.rk-console-slide.rk-console-dragging {
+  transition: none;
 }
 
 /* Scroll-edge fade (260813-kvk7): applied conditionally by useScrollEdgeFade
@@ -1542,8 +1561,10 @@ html[data-theme="light"] {
   /* Pending-switch mask still SHOWS (input safety is never motion-only) — only
      its fade-in is dropped so it appears as an instant cut. */
   .rk-window-switch-mask { animation: none; }
-  /* Operator console drawer: opens as an instant cut. */
+  /* Operator console: the mobile sheet's settle-in and the desktop drawer's
+     slide are both zeroed (the component also skips the exit delay in JS). */
   .rk-console-drop { animation: none; }
+  .rk-console-slide { transition: none; }
   /* Hatch-marker hazard wedge (.rk-hazard): static in every state by design —
      nothing to zero here; listed so the reduced-motion audit stays complete. */
   /* Flair overlays (all fourteen named states): motion-only ambient decoration

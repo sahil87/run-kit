@@ -4,9 +4,11 @@ import {
   useEffect,
   useLayoutEffect,
   useCallback,
+  useContext,
+  useMemo,
   type ReactNode,
 } from "react";
-import { useUpdateNotification } from "@/contexts/session-context";
+import { useUpdateNotification, SessionContext } from "@/contexts/session-context";
 import { displayVersion } from "@/lib/palette/version";
 import { updateChipToolSummary } from "@/lib/palette/update";
 import { copyToClipboard } from "@/lib/clipboard";
@@ -17,7 +19,7 @@ import { useUpdateCheck } from "@/hooks/use-update-check";
 import { Tip } from "@/components/tip";
 import { HELP_URL, HelpIcon } from "@/components/global-chrome";
 import { HeadsetIcon, KeyboardIcon } from "@/components/sidebar/icons";
-import { requestOperatorConsole } from "@/lib/operator-console";
+import { requestOperatorConsole, resolveOperatorConsoleTarget } from "@/lib/operator-console";
 import { useSettingsDialog } from "@/contexts/settings-dialog-context";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { formatCombo } from "@/lib/keybindings";
@@ -224,6 +226,75 @@ export function OperatorConsoleMenuRow() {
         </kbd>
       )}
     </button>
+  );
+}
+
+/** The console resolved-server operator's live state → dot color. No dot at
+ *  all when no operator resolves (the console's hint line is the answer). */
+const OPERATOR_STATE_DOT: Record<string, string> = {
+  waiting: "bg-signal-yellow",
+  active: "bg-accent-green",
+};
+
+/**
+ * Operator console — the DESKTOP standing affordance: a fixed-size ◉ button in
+ * the top bar's right cluster on every route (the mobile standing affordance
+ * is the tongue under the top bar; the registry entry hides this button
+ * there). Carries the resolved-server operator's live state dot (grey idle /
+ * green active / amber waiting) and toggles the console through the same
+ * OPERATOR_CONSOLE_EVENT seam as every other entry point. Renders even on
+ * operator-less servers — the console's hint line is the answer (the palette
+ * open action's posture). When the entry overflows, its function merges into
+ * the menu's `Operator console` row (menuRender: null — the UpdateChip
+ * precedent), so the two never duplicate.
+ */
+export function OperatorConsoleButton({ routeServer }: { routeServer: string | null }) {
+  const { byAction, host } = useKeybindings();
+  // Tolerant of a missing provider (isolated component tests) — degrades to
+  // "no operator", the useUpdateNotification precedent. The route server
+  // arrives as a prop: the TopBar already carries it, and this component must
+  // not pull router hooks the bar's test harness doesn't mock.
+  const ctx = useContext(SessionContext);
+  const lastViewedRef = useRef<string | null>(null);
+  if (routeServer) lastViewedRef.current = routeServer;
+  const servers = ctx?.servers ?? [];
+  const sessionsByServer = ctx?.sessionsByServer;
+  const { target } = useMemo(
+    () =>
+      resolveOperatorConsoleTarget(
+        routeServer,
+        servers.map((s) => s.name),
+        sessionsByServer,
+        lastViewedRef.current,
+      ),
+    [routeServer, servers, sessionsByServer],
+  );
+  const binding = byAction.get("operator-console");
+  const chord = binding?.enabled
+    ? formatCombo({ code: binding.code, tier: binding.tier }, host.platform)
+    : undefined;
+  const agentState = target?.window.agentState;
+  return (
+    <Tip label="Operator console" note={chord}>
+      <button
+        type="button"
+        aria-label={chord ? `Operator console (${chord})` : "Operator console"}
+        data-testid="operator-console-button"
+        onClick={() => requestOperatorConsole({ action: "toggle" })}
+        className={`${TOP_BAR_BUTTON} relative`}
+      >
+        <span aria-hidden="true">◉</span>
+        {agentState && (
+          <span
+            data-testid="operator-console-button-state"
+            data-state={agentState}
+            className={`absolute -bottom-0.5 -right-0.5 block h-2 w-2 rounded-full border border-bg-primary ${
+              OPERATOR_STATE_DOT[agentState] ?? "bg-text-secondary"
+            }`}
+          />
+        )}
+      </button>
+    </Tip>
   );
 }
 

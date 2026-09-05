@@ -1,24 +1,40 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, vi } from "vitest";
 import {
   ASK_OPERATOR_MIN_QUERY,
   CONSOLE_GEOMETRY_DEFAULT,
   CONSOLE_GEOMETRY_KEY,
   CONSOLE_OPACITY_DEFAULT,
   CONSOLE_OPACITY_KEY,
+  attachOperatorFiles,
   clampConsoleGeometry,
   clampConsoleOpacity,
+  cycleConsoleMachine,
   findOperatorWindow,
+  getConsoleMachineState,
   isOperatorConsoleRequest,
   isOperatorConsoleTarget,
   OPERATOR_CONSOLE_ROOT_ATTR,
   readConsoleGeometry,
   readConsoleOpacity,
   resolveConsoleServer,
+  sendOperatorMessage,
+  setConsoleMachineState,
+  setOperatorComposeText,
   shouldShowAskOperatorRow,
+  useOperatorCompose,
   writeConsoleGeometry,
   writeConsoleOpacity,
 } from "./operator-console";
+import { act, renderHook } from "@testing-library/react";
 import type { ProjectSession, WindowInfo } from "@/types";
+
+const mockSend = vi.hoisted(() => vi.fn());
+const mockUpload = vi.hoisted(() => vi.fn());
+vi.mock("@/api/client", async (importActual) => ({
+  ...(await importActual<typeof import("@/api/client")>()),
+  sendToWindow: mockSend,
+  uploadFile: mockUpload,
+}));
 
 function win(overrides: Partial<WindowInfo>): WindowInfo {
   return {
@@ -104,13 +120,132 @@ describe("shouldShowAskOperatorRow", () => {
 });
 
 describe("isOperatorConsoleRequest", () => {
-  it("accepts both actions and rejects foreign details", () => {
+  it("accepts all three actions and rejects foreign details", () => {
     expect(isOperatorConsoleRequest({ action: "toggle" })).toBe(true);
     expect(isOperatorConsoleRequest({ action: "open", server: "a", send: "hi" })).toBe(true);
+    expect(isOperatorConsoleRequest({ action: "button" })).toBe(true);
     expect(isOperatorConsoleRequest({ action: "close" })).toBe(false);
     expect(isOperatorConsoleRequest(null)).toBe(false);
     expect(isOperatorConsoleRequest("open")).toBe(false);
     expect(isOperatorConsoleRequest(undefined)).toBe(false);
+  });
+});
+
+describe("console machine state", () => {
+  beforeEach(() => {
+    setConsoleMachineState("rest");
+  });
+
+  it("starts at rest and notifies subscribers on change", () => {
+    expect(getConsoleMachineState()).toBe("rest");
+    setConsoleMachineState("focused");
+    expect(getConsoleMachineState()).toBe("focused");
+  });
+
+  it("cycles rest → focused → open → rest", () => {
+    expect(cycleConsoleMachine("rest")).toBe("focused");
+    expect(cycleConsoleMachine("focused")).toBe("open");
+    expect(cycleConsoleMachine("open")).toBe("rest");
+  });
+});
+
+describe("shared compose seam", () => {
+  const target = {
+    window: win({ windowId: "@9", name: "operator", role: "operator" }),
+    sessionName: "_rk-operator",
+  };
+
+  beforeEach(() => {
+    mockSend.mockReset();
+    mockSend.mockResolvedValue({ ok: true });
+    mockUpload.mockReset();
+    mockUpload.mockResolvedValue({ ok: true, path: "/tmp/op/.uploads/shot.png" });
+    setOperatorComposeText("");
+  });
+
+  it("sendOperatorMessage delivers via the agent lane and clears the draft", async () => {
+    const { result } = renderHook(() => useOperatorCompose());
+    act(() => setOperatorComposeText("restart the worker"));
+    expect(result.current.text).toBe("restart the worker");
+
+    let ok!: boolean;
+    await act(async () => {
+      ok = await sendOperatorMessage("srv1", target, "restart the worker");
+    });
+    expect(ok).toBe(true);
+    expect(mockSend).toHaveBeenCalledWith("srv1", "@9", "restart the worker", "submit", "agent");
+    expect(result.current.text).toBe("");
+    expect(result.current.error).toBeNull();
+  });
+
+  it("guards whitespace-only and target-less sends as no-ops", async () => {
+    await act(async () => {
+      await sendOperatorMessage("srv1", target, "   ");
+      await sendOperatorMessage(null, target, "hi");
+      await sendOperatorMessage("srv1", undefined, "hi");
+    });
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it("a failed send surfaces the error and preserves the draft; an edit clears it", async () => {
+    mockSend.mockRejectedValue(new Error("probe failed"));
+    const { result } = renderHook(() => useOperatorCompose());
+    act(() => setOperatorComposeText("retry me"));
+
+    let ok!: boolean;
+    await act(async () => {
+      ok = await sendOperatorMessage("srv1", target, "retry me");
+    });
+    expect(ok).toBe(false);
+    expect(result.current.error).toBe("probe failed");
+    expect(result.current.text).toBe("retry me");
+
+    act(() => setOperatorComposeText("retry me, edited"));
+    expect(result.current.error).toBeNull();
+  });
+
+  it("the in-flight guard blocks a concurrent send", async () => {
+    let release!: () => void;
+    mockSend.mockImplementation(
+      () => new Promise<{ ok: boolean }>((resolve) => { release = () => resolve({ ok: true }); }),
+    );
+    let first!: Promise<boolean>;
+    let second!: boolean;
+    await act(async () => {
+      first = sendOperatorMessage("srv1", target, "one");
+      second = await sendOperatorMessage("srv1", target, "two");
+    });
+    expect(second).toBe(false);
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      release();
+      await first;
+    });
+  });
+
+  it("attachOperatorFiles uploads to the operator session and insert-delivers each path", async () => {
+    const files = [new File(["a"], "a.png", { type: "image/png" })];
+    await act(async () => {
+      await attachOperatorFiles("srv1", target, files);
+    });
+    expect(mockUpload).toHaveBeenCalledWith("srv1", "_rk-operator", files[0], "@9");
+    expect(mockSend).toHaveBeenCalledWith("srv1", "@9", "/tmp/op/.uploads/shot.png ", "raw", "agent");
+  });
+
+  it("attachOperatorFiles is a no-op without a target and surfaces upload failures inline", async () => {
+    const files = [new File(["a"], "a.png", { type: "image/png" })];
+    await act(async () => {
+      await attachOperatorFiles("srv1", undefined, files);
+    });
+    expect(mockUpload).not.toHaveBeenCalled();
+
+    mockUpload.mockRejectedValue(new Error("upload exploded"));
+    const { result } = renderHook(() => useOperatorCompose());
+    await act(async () => {
+      await attachOperatorFiles("srv1", target, files);
+    });
+    expect(result.current.error).toBe("upload exploded");
+    expect(mockSend).not.toHaveBeenCalled();
   });
 });
 

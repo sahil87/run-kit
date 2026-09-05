@@ -55,7 +55,7 @@ describe("OperatorConsoleButton", () => {
     vi.unstubAllGlobals();
   });
 
-  it("dispatches the console toggle event on click", () => {
+  it("dispatches the console button event (open ⇄ rest mapping) on click", () => {
     const seen: OperatorConsoleRequest[] = [];
     const listener = (e: Event) => {
       const detail = (e as CustomEvent<unknown>).detail;
@@ -65,7 +65,7 @@ describe("OperatorConsoleButton", () => {
     renderButton(operatorSessions("idle"));
 
     fireEvent.click(screen.getByTestId("operator-console-button"));
-    expect(seen).toEqual([{ action: "toggle" }]);
+    expect(seen).toEqual([{ action: "button" }]);
     document.removeEventListener(OPERATOR_CONSOLE_EVENT, listener);
   });
 

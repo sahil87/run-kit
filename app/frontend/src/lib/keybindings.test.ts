@@ -308,7 +308,7 @@ describe("DEFAULT_BINDINGS integrity", () => {
       scope: "global",
       kind: "builtin",
       label: "Operator console",
-      description: "toggle the operator console",
+      description: "step the operator console (focus → open → closed)",
       mapLabel: "operator",
       ignoreInputs: true,
     });

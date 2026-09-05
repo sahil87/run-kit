@@ -342,9 +342,10 @@ function AppLayoutContent() {
   useKeybindingDispatch({
     "new-app-window": canNewShellWindow() ? () => void newShellWindow() : undefined,
     "close-app-window": canCloseShellWindow() ? () => void closeShellWindow() : undefined,
-    // The operator console toggles from everywhere the SPA runs (Host, Server,
-    // Terminal, Board) — same every-route reasoning as the app-window pair.
-    // The layout-mounted console owns the open state; this only dispatches.
+    // The operator console chord works from everywhere the SPA runs (Host,
+    // Server, Terminal, Board) — same every-route reasoning as the app-window
+    // pair. On desktop the machine steps rest→focused→open→rest; the
+    // layout-mounted console owns that state, this only dispatches.
     "operator-console": () => requestOperatorConsole({ action: "toggle" }),
   });
 

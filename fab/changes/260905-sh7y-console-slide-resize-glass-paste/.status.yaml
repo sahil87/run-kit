@@ -9,13 +9,13 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: done
-    review-pr: done
+    ship: active
+    review-pr: pending
 plan:
     generated: true
-    task_count: 13
-    acceptance_count: 22
-    acceptance_completed: 22
+    task_count: 19
+    acceptance_count: 28
+    acceptance_completed: 28
 confidence:
     certain: 8
     confident: 3
@@ -30,28 +30,28 @@ confidence:
         disambiguation: 80.0
 stage_metrics:
     intake: {started_at: "2026-09-05T04:43:46Z", driver: fab-new, iterations: 1, completed_at: "2026-09-05T04:45:20Z"}
-    apply: {started_at: "2026-09-05T04:45:20Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-05T05:20:07Z"}
-    review: {started_at: "2026-09-05T05:20:07Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-05T05:29:20Z"}
-    hydrate: {started_at: "2026-09-05T05:29:20Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-05T05:37:54Z"}
-    ship: {started_at: "2026-09-05T05:37:54Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-05T05:39:01Z"}
-    review-pr: {started_at: "2026-09-05T05:39:01Z", driver: git-pr, iterations: 1, completed_at: "2026-09-05T05:46:05Z"}
+    apply: {started_at: "2026-09-05T06:44:12Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-05T07:34:20Z"}
+    review: {started_at: "2026-09-05T07:34:20Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-05T07:42:26Z"}
+    hydrate: {started_at: "2026-09-05T07:42:26Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-05T07:53:10Z"}
+    ship: {started_at: "2026-09-05T07:53:10Z", driver: fab-fff, iterations: 2}
+    review-pr: {iterations: 1}
 prs:
     - https://github.com/sahil87/run-kit/pull/840
 change_type_source: explicit
 true_impact:
-    added: 2097
+    added: 2115
     deleted: 105
-    net: 1992
+    net: 2010
     excluding:
-        added: 1604
+        added: 1618
         deleted: 80
-        net: 1524
+        net: 1538
     tests:
         added: 440
         deleted: 12
         net: 428
-    computed_at: "2026-09-05T05:39:01Z"
-    computed_at_stage: ship
+    computed_at: "2026-09-05T07:53:10Z"
+    computed_at_stage: hydrate
 summary: 'Quake console v2: true slide both directions (mounted-through-exit, reduced-motion zeroed), mouse resize with persisted per-viewer geometry, top-bar ◉ button + mobile tongue affordances, glass opacity setting (default 0.90, fixed 6px blur, off at α=1), console image paste/drop upload + insert-staged delivery, paste routing guard'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-05T05:46:05Z
+last_updated: 2026-09-05T07:53:10Z

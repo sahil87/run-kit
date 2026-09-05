@@ -2,18 +2,24 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSessionContext, useCurrentServerFromRoute } from "@/contexts/session-context";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { TerminalClient } from "@/components/terminal-client";
-import { sendToWindow, uploadFile } from "@/api/client";
 import { prefersReducedMotion } from "@/lib/motion";
 import {
   OPERATOR_CONSOLE_EVENT,
+  attachOperatorFiles,
   clampConsoleGeometry,
+  cycleConsoleMachine,
   findOperatorWindow,
   isOperatorConsoleRequest,
   requestOperatorConsole,
   resolveConsoleServer,
+  sendOperatorMessage,
+  setConsoleMachineState,
+  setOperatorComposeText,
   setOperatorConsoleOpen,
   useConsoleGeometry,
+  useConsoleMachineState,
   useConsoleOpacity,
+  useOperatorCompose,
   useOperatorConsoleContext,
   useOperatorConsoleOpen,
   type ConsoleGeometry,
@@ -32,18 +38,30 @@ const CONSOLE_SLIDE_MS = 240;
  * reaches it through the OPERATOR_CONSOLE_EVENT document seam
  * (lib/operator-console.ts).
  *
- * Anatomy: a title strip (OPERATOR · server, the operator window's live agent
- * state from the sessions payload, a server picker on param-less multi-server
- * routes, a close affordance), an embedded LIVE terminal view of the operator
- * window (a plain TerminalClient over the shared /ws/terminals relay mux — the
- * same mechanism a board pane uses, registerFocus off so the BottomBar keeps
- * its target, `transparent` on so the glass background shows through the
- * cells), and a compose strip delivering through the existing
- * `sendToWindow(..., "submit", "agent")` lane with chat-send busy semantics
- * (allow + probe — no client-side busy gate, no template-queue interaction).
- * Structured send failures surface as an inline error line (never toasts —
- * the user is looking at this surface) and the composed text survives a
- * failure for retry/edit.
+ * Desktop runs the ⌘J three-state machine (lib/operator-console.ts): rest →
+ * focused (omnibox focused, drawer closed) → open (drawer down — a peek,
+ * nothing sent) → rest. Enter in the omnibox sends and auto-opens; Esc steps
+ * back one level (open → focused → rest); the palette action and the pinned
+ * row land straight on open+focused; the ◉ button maps open ⇄ rest. The
+ * machine is the controlling state — the drawer's internal open flag follows
+ * it through the slide machinery. Mobile never leaves the rest/open pair: the
+ * chord, tongue, and menu row plain-toggle the sheet.
+ *
+ * Anatomy: a title strip (◉ OPERATOR · server, the operator window's live
+ * agent state from the sessions payload, a server picker on param-less
+ * multi-server routes, a close affordance), an embedded LIVE terminal view of
+ * the operator window (a plain TerminalClient over the shared /ws/terminals
+ * relay mux — the same mechanism a board pane uses, registerFocus off so the
+ * BottomBar keeps its target, `transparent` on so the glass background shows
+ * through the cells), and — MOBILE ONLY — a compose strip. The one-input
+ * rule: on desktop the compose IS the top-bar omnibox (components/
+ * operator-omnibox.tsx) and the drawer is output-only, carrying the inline
+ * status/error line at its top edge, directly under the box. Both inputs
+ * drive the ONE shared compose seam (lib/operator-console.ts) — same draft,
+ * same `sendToWindow(..., "submit", "agent")` delivery with chat-send busy
+ * semantics (allow + probe — no client-side busy gate), same upload path.
+ * Structured send failures surface inline (never toasts) and the composed
+ * text survives a failure for retry/edit.
  *
  * The desktop drawer is a true quake slide: it mounts translated fully above
  * the top-bar seam (an `overflow-clip` wrapper hides the raised portion) and
@@ -58,11 +76,12 @@ const CONSOLE_SLIDE_MS = 240;
  * (default 0.90, settings-dialog row) over a fixed 6px backdrop blur, disabled
  * entirely at α=1.
  *
- * File paste/drop inside the console uploads via the existing `uploadFile`
- * client scoped to the OPERATOR window's session and insert-delivers each
- * returned path to the operator pane (`"raw"` send mode — staged into the TUI
- * composer, never submitted; the user's own Enter submits). With no operator
- * window resolved, file paste is a no-op — the hint line is the answer.
+ * File paste/drop inside the drawer (or the omnibox) uploads via the existing
+ * `uploadFile` client scoped to the OPERATOR window's session and
+ * insert-delivers each returned path to the operator pane (`"raw"` send mode
+ * — staged into the TUI composer, never submitted; the user's own Enter
+ * submits). With no operator window resolved, file paste is a no-op — the
+ * hint line is the answer.
  *
  * Open/closed is ephemeral per-viewer component state (Constitution IV — no
  * URL, tmux, or localStorage write; geometry/opacity are the carve-out
@@ -71,6 +90,8 @@ const CONSOLE_SLIDE_MS = 240;
  */
 export function OperatorConsole() {
   const isMobile = useIsMobile();
+  const machine = useConsoleMachineState();
+  const compose = useOperatorCompose();
   const [open, setOpen] = useState(false);
   // True while the exit slide runs: the component stays mounted with the
   // raised class until transitionend (or the timeout fallback) unmounts it.
@@ -80,11 +101,7 @@ export function OperatorConsole() {
   const [entered, setEntered] = useState(false);
   const [pinnedServer, setPinnedServer] = useState<string | null>(null);
   const [pickerServer, setPickerServer] = useState<string | null>(null);
-  const [text, setText] = useState("");
-  const [sending, setSending] = useState(false);
-  const [sendError, setSendError] = useState<string | null>(null);
   const [pendingSend, setPendingSend] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const composeRef = useRef<HTMLTextAreaElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -119,6 +136,10 @@ export function OperatorConsole() {
   openRef.current = open;
   const closingRef = useRef(closing);
   closingRef.current = closing;
+  const machineRef = useRef(machine);
+  machineRef.current = machine;
+  const isMobileRef = useRef(isMobile);
+  isMobileRef.current = isMobile;
 
   const finishClose = useCallback(() => {
     if (closeTimerRef.current !== null) {
@@ -135,14 +156,14 @@ export function OperatorConsole() {
     // Reduced motion skips the mounted-through-exit delay entirely (the CSS
     // transition is zeroed too); the mobile sheet keeps its own fast
     // treatment and never rides the quake slide.
-    if (isMobile || prefersReducedMotion()) {
+    if (isMobileRef.current || prefersReducedMotion()) {
       setOpen(false);
       setEntered(false);
       return;
     }
     setClosing(true);
     closeTimerRef.current = setTimeout(finishClose, CONSOLE_SLIDE_MS + 120);
-  }, [isMobile, finishClose]);
+  }, [finishClose]);
   const requestCloseRef = useRef(requestClose);
   requestCloseRef.current = requestClose;
 
@@ -168,25 +189,41 @@ export function OperatorConsole() {
     setOpen(true);
   }, []);
 
+  // The machine is the controlling state: entering `open` runs the enter
+  // slide; leaving it runs the exit slide (or the immediate mobile/reduced
+  // close). `focused` changes nothing by itself — the drawer stays put.
+  const prevMachineRef = useRef(machine);
+  useEffect(() => {
+    const prev = prevMachineRef.current;
+    prevMachineRef.current = machine;
+    if (machine === "open" && prev !== "open") openDrawer();
+    else if (machine !== "open" && prev === "open") requestCloseRef.current();
+  }, [machine, openDrawer]);
+
   // Entry-point seam: chord dispatch, palette action, top-bar button, tongue,
   // overflow-menu row, sidebar pinned row, and the palette fallback row all
-  // dispatch here.
+  // dispatch here. Desktop `toggle` steps the three-state machine; mobile
+  // `toggle` plain-toggles the sheet; `button` (the top-bar ◉) maps
+  // open ⇄ rest; `open` always opens (desktop: with the omnibox focused).
   useEffect(() => {
     function onRequest(e: Event) {
       const detail = (e as CustomEvent<unknown>).detail;
       if (!isOperatorConsoleRequest(detail)) return;
+      const state = machineRef.current;
       if (detail.action === "toggle") {
-        if (openRef.current && !closingRef.current) requestCloseRef.current();
-        else openDrawer();
+        if (isMobileRef.current) setConsoleMachineState(state === "open" ? "rest" : "open");
+        else setConsoleMachineState(cycleConsoleMachine(state));
+      } else if (detail.action === "button") {
+        setConsoleMachineState(state === "open" ? "rest" : "open");
       } else {
-        openDrawer();
+        setConsoleMachineState("open");
       }
       if (detail.server) setPinnedServer(detail.server);
       if (detail.send !== undefined) setPendingSend(detail.send);
     }
     document.addEventListener(OPERATOR_CONSOLE_EVENT, onRequest);
     return () => document.removeEventListener(OPERATOR_CONSOLE_EVENT, onRequest);
-  }, [openDrawer]);
+  }, []);
 
   // Enter pose: mount raised (translateY(-102%), clipped by the wrapper), then
   // drop the raised class two frames later so the transition animates.
@@ -203,18 +240,25 @@ export function OperatorConsole() {
     };
   }, [open]);
 
-  // Esc closes (bubble phase, so an already-claimed Escape — a nested modal's
-  // — wins via defaultPrevented). The stream closes with the unmount; the
-  // conversation itself lives in the operator window regardless.
+  // Esc steps the machine back ONE level (bubble phase, so an already-claimed
+  // Escape — a nested modal's — wins via defaultPrevented): open → focused
+  // (the drawer closes, the omnibox keeps focus), focused → rest (the omnibox
+  // blur + focus restore is the omnibox's machine-follower effect). Owning
+  // both steps here — rather than letting the omnibox input handle its own
+  // Esc — guarantees one Esc never double-steps. Mobile steps straight to
+  // rest. The stream closes with the unmount; the conversation itself lives
+  // in the operator window regardless.
   useEffect(() => {
-    if (!open) return;
+    if (!open && machine === "rest") return;
     function onKey(e: KeyboardEvent) {
       if (e.key !== "Escape" || e.defaultPrevented) return;
-      requestCloseRef.current();
+      const state = machineRef.current;
+      if (isMobileRef.current || state === "focused") setConsoleMachineState("rest");
+      else if (state === "open") setConsoleMachineState("focused");
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open]);
+  }, [open, machine]);
 
   const rendered = open || closing;
 
@@ -226,11 +270,11 @@ export function OperatorConsole() {
     return () => setOperatorConsoleOpen(false);
   }, [rendered]);
 
-  // Focus the compose input on open (fall back to the strip's first control
-  // when the operator-absent hint is showing); restore prior focus once the
-  // close completes (after the exit slide, not at close intent).
+  // Focus the compose input on open (the mobile sheet — the desktop drawer's
+  // input is the omnibox, whose machine-follower effect owns focus there);
+  // restore prior focus once the close completes.
   useEffect(() => {
-    if (!rendered) return;
+    if (!rendered || !isMobile) return;
     restoreFocusRef.current = document.activeElement;
     const frame = requestAnimationFrame(() => {
       const root = rootRef.current;
@@ -238,66 +282,18 @@ export function OperatorConsole() {
       (composeRef.current ?? root.querySelector<HTMLElement>("button, select"))?.focus();
     });
     return () => cancelAnimationFrame(frame);
-  }, [rendered]);
+  }, [rendered, isMobile]);
   useEffect(() => {
-    if (rendered) return;
+    if (rendered || !isMobile) return;
     const el = restoreFocusRef.current;
     restoreFocusRef.current = null;
     if (el instanceof HTMLElement) el.focus();
-  }, [rendered]);
+  }, [rendered, isMobile]);
 
   const target = useMemo(
     () => (server ? findOperatorWindow(sessionsByServer.get(server) ?? []) : undefined),
     [server, sessionsByServer],
   );
-
-  const deliver = useCallback(
-    async (value: string) => {
-      if (!server || !target || sending) return;
-      if (value.trim() === "") return;
-      setSending(true);
-      try {
-        await sendToWindow(server, target.window.windowId, value, "submit", "agent");
-        setText("");
-        setSendError(null);
-      } catch (err) {
-        setSendError(err instanceof Error ? err.message : "Send failed");
-      } finally {
-        setSending(false);
-      }
-    },
-    [server, target, sending],
-  );
-  const deliverRef = useRef(deliver);
-  deliverRef.current = deliver;
-
-  // File paste/drop inside the console: upload to the operator window's
-  // session worktree (the existing upload client), then insert-deliver each
-  // returned path through the agent send lane — staged into the TUI composer
-  // (the `[Image #N]` chip surface), never submitted. Failures ride the same
-  // inline error line as send failures.
-  const deliverFiles = useCallback(
-    async (files: File[]) => {
-      if (!server || !target || files.length === 0) return;
-      setUploading(true);
-      setSendError(null);
-      try {
-        for (const file of files) {
-          const result = await uploadFile(server, target.sessionName, file, target.window.windowId);
-          if (!result.ok || !result.path) continue;
-          // The trailing space keeps consecutive inserts from concatenating.
-          await sendToWindow(server, target.window.windowId, `${result.path} `, "raw", "agent");
-        }
-      } catch (err) {
-        setSendError(err instanceof Error ? err.message : "Upload failed");
-      } finally {
-        setUploading(false);
-      }
-    },
-    [server, target],
-  );
-  const deliverFilesRef = useRef(deliverFiles);
-  deliverFilesRef.current = deliverFiles;
 
   // The palette fallback row's pre-filled query: sent once the console is open
   // AND the operator window resolves — the sessions slice can lag the open, so
@@ -308,8 +304,8 @@ export function OperatorConsole() {
   useEffect(() => {
     if (!open || pendingSend == null || !target) return;
     setPendingSend(null);
-    void deliverRef.current(pendingSend);
-  }, [open, pendingSend, target]);
+    void sendOperatorMessage(server, target, pendingSend);
+  }, [open, pendingSend, target, server]);
   useEffect(() => {
     if (!open) setPendingSend(null);
   }, [open]);
@@ -424,7 +420,7 @@ export function OperatorConsole() {
         const files = Array.from(e.clipboardData?.files ?? []);
         if (files.length === 0) return;
         e.preventDefault();
-        void deliverFilesRef.current(files);
+        void attachOperatorFiles(server, target, files);
       }}
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes("Files")) e.preventDefault();
@@ -433,7 +429,7 @@ export function OperatorConsole() {
         const files = Array.from(e.dataTransfer?.files ?? []);
         if (files.length === 0) return;
         e.preventDefault();
-        void deliverFilesRef.current(files);
+        void attachOperatorFiles(server, target, files);
       }}
       className={
         isMobile
@@ -482,12 +478,30 @@ export function OperatorConsole() {
         <button
           type="button"
           aria-label="Close operator console"
-          onClick={() => requestCloseRef.current()}
+          onClick={() => setConsoleMachineState("rest")}
           className="rk-glint ml-auto shrink-0 inline-flex items-center justify-center rounded px-1 text-text-secondary hover:text-text-primary transition-colors coarse:min-h-[36px] coarse:min-w-[36px]"
         >
           ✕
         </button>
       </div>
+      {/* Desktop status line: the inline-error contract relocated to the
+          drawer's top edge, directly under the omnibox (the desktop compose
+          lives in the top bar). Carries structured send/upload failures and
+          the minimal in-flight indicator. The mobile sheet keeps its error
+          between the terminal and the compose strip. */}
+      {!isMobile && (compose.error || compose.sending || compose.uploading) && (
+        <div className="flex items-center gap-2 border-b border-border px-3 py-1 text-xs shrink-0">
+          {compose.error ? (
+            <span role="alert" data-testid="operator-console-error" className="text-signal-red">
+              {compose.error}
+            </span>
+          ) : (
+            <span data-testid="operator-console-uploading" className="text-text-secondary">
+              {compose.sending ? "sending…" : "uploading…"}
+            </span>
+          )}
+        </div>
+      )}
       {target && server ? (
         <>
           <div className="flex-1 min-h-0 flex flex-col px-1 py-0.5">
@@ -501,51 +515,55 @@ export function OperatorConsole() {
               transparent={!isMobile}
             />
           </div>
-          {sendError && (
+          {isMobile && compose.error && (
             <div
               role="alert"
               data-testid="operator-console-error"
               className="px-3 py-1 text-xs text-signal-red border-t border-border shrink-0"
             >
-              {sendError}
+              {compose.error}
             </div>
           )}
-          <div className="flex items-end gap-2 border-t border-border px-3 py-1.5 shrink-0">
-            <textarea
-              ref={composeRef}
-              value={text}
-              rows={2}
-              onChange={(e) => {
-                setText(e.target.value);
-                setSendError(null);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  void deliverRef.current(text);
-                }
-              }}
-              placeholder="Ask the operator…  (Enter sends · Shift+Enter newline · paste an image to attach)"
-              aria-label="Message the operator"
-              className="flex-1 min-w-0 resize-none bg-transparent text-text-primary text-xs outline-none placeholder:text-text-secondary"
-            />
-            {uploading && (
-              <span
-                data-testid="operator-console-uploading"
-                className="text-xs text-text-secondary shrink-0 self-center"
+          {/* The compose strip — MOBILE ONLY. The one-input rule: on desktop
+              the omnibox in the top bar is the input and the drawer is
+              output-only; the sheet keeps its compose (no omnibox exists
+              there; the strip is the OS-dictation target). Both drive the
+              shared compose seam. */}
+          {isMobile && (
+            <div className="flex items-end gap-2 border-t border-border px-3 py-1.5 shrink-0">
+              <textarea
+                ref={composeRef}
+                value={compose.text}
+                rows={2}
+                onChange={(e) => setOperatorComposeText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    void sendOperatorMessage(server, target, compose.text);
+                  }
+                }}
+                placeholder="Ask the operator…  (Enter sends · Shift+Enter newline · paste an image to attach)"
+                aria-label="Message the operator"
+                className="flex-1 min-w-0 resize-none bg-transparent text-text-primary text-xs outline-none placeholder:text-text-secondary"
+              />
+              {compose.uploading && (
+                <span
+                  data-testid="operator-console-uploading"
+                  className="text-xs text-text-secondary shrink-0 self-center"
+                >
+                  uploading…
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => void sendOperatorMessage(server, target, compose.text)}
+                disabled={compose.sending || compose.text.trim() === ""}
+                className="rk-glint shrink-0 inline-flex items-center justify-center rounded px-2 py-1 text-xs text-text-secondary hover:text-text-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-text-secondary coarse:min-h-[36px] coarse:min-w-[36px]"
               >
-                uploading…
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={() => void deliverRef.current(text)}
-              disabled={sending || text.trim() === ""}
-              className="rk-glint shrink-0 inline-flex items-center justify-center rounded px-2 py-1 text-xs text-text-secondary hover:text-text-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-text-secondary coarse:min-h-[36px] coarse:min-w-[36px]"
-            >
-              Send
-            </button>
-          </div>
+                Send
+              </button>
+            </div>
+          )}
         </>
       ) : (
         <div

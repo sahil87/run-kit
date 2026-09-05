@@ -2,16 +2,19 @@ import { test, expect, type Page } from "@playwright/test";
 import { openPalette } from "./_ready";
 import { mockStateSocket } from "./_state-socket-mock";
 
-// Operator chat console — the pull-down overlay: chord/palette open + Esc
-// close, the embedded operator terminal, compose delivery through
-// POST /api/windows/{id}/send with target:"agent", the palette's
-// Ask-operator fallback row, operator-absent degradation, the 375px
-// full-height sheet, and inline send-error surfacing. Quake-console v2 adds:
-// the true slide (mounted-through-exit), mouse resize with per-viewer
-// geometry persistence, the glass background + settings-dialog opacity row,
-// the top-bar ◉ standing affordance with the live state dot, the mobile
-// tongue, and console-local image paste (upload to the operator window's
-// session + insert-delivery) with the route terminals' strip-forward guard.
+// Operator chat console — the pull-down overlay: the ⌘J three-state cycle
+// (rest → omnibox-focused → drawer-open → rest), the desktop omnibox in the
+// top-bar center cell (standing at ≥ lg beside the compact heading, ghost +
+// in-place morph at md–lg) as the console's relocated compose, the one-input
+// rule (the desktop drawer is output-only with the status/error line at its
+// top edge; the mobile sheet keeps its compose strip), the palette action +
+// Ask-operator fallback row, operator-absent degradation, and inline
+// send-error surfacing. Quake-console v2 carries: the true slide
+// (mounted-through-exit), mouse resize with per-viewer geometry persistence,
+// the glass background + settings-dialog opacity row, the top-bar ◉ standing
+// affordance with the live state dot, the mobile tongue, and console/omnibox
+// image paste (upload to the operator window's session + insert-delivery)
+// with the route terminals' strip-forward guard.
 //
 // Shared setup: fully mocked (no tmux). The sessions payload rides the
 // state-socket mock — a work window `@1` plus, when the test wants one, an
@@ -22,7 +25,8 @@ import { mockStateSocket } from "./_state-socket-mock";
 // is a no-op socket mock: the console's embedded terminal mounts its xterm
 // frame without needing stream data. Each spec lands on the `@1` terminal
 // route (server "default") before driving the console, except the
-// mobile-sheet/tongue specs, which start from the same route at 375px.
+// mobile-sheet/tongue specs, which start from the same route at 375px, and
+// the morph-rung spec, which runs at 900px (between the mobile rule and lg).
 // Synthetic file pastes dispatch a real ClipboardEvent carrying a
 // DataTransfer file (Chromium populates clipboardData from the init).
 
@@ -148,58 +152,171 @@ async function gotoWindow(page: Page) {
 
 const console_ = (page: Page) => page.getByTestId("operator-console");
 const composeInput = (page: Page) => page.getByRole("textbox", { name: "Message the operator" });
+const omniboxInput = (page: Page) => page.getByTestId("operator-omnibox-input");
+
+/** Open the desktop drawer from rest: the first chord press only focuses the
+ *  omnibox (the three-state cycle); the second opens the drawer. */
+async function openDrawerViaChord(page: Page) {
+  await page.keyboard.press("Shift+Control+j");
+  await expect(omniboxInput(page)).toBeFocused();
+  await page.keyboard.press("Shift+Control+j");
+  await expect(console_(page)).toBeVisible();
+}
 
 test.describe("Operator console", () => {
   /**
-   * Proves: the console chord (⇧Ctrl+J on this host) opens the pull-down
-   * console on the terminal route — title strip naming the route's server,
-   * embedded live terminal frame for the operator window, compose input
-   * focused — and Escape closes it without navigation.
+   * Proves: the console chord (⇧Ctrl+J on this host) drives the three-state
+   * cycle — rest → omnibox-focused (drawer closed) → drawer-open (a peek,
+   * nothing sent) → rest — and Escape steps back one level at a time (open →
+   * focused keeps the omnibox focused; focused → rest blurs it), all without
+   * navigation.
    *
    * Steps:
    * 1. Mock the backend with an operator window; land on the @1 terminal route.
-   * 2. Press Shift+Control+j; assert the console is visible with
-   *    `◉ OPERATOR · default` in the title strip.
-   * 3. Assert an xterm frame renders inside the console and the compose input
-   *    has focus.
-   * 4. Press Escape; assert the console is gone and the URL is unchanged.
+   * 2. Press Shift+Control+j; assert the omnibox is focused and the drawer is
+   *    absent.
+   * 3. Press it again; assert the drawer is visible with `◉ OPERATOR ·
+   *    default` in the title strip, an xterm frame inside, NO compose strip
+   *    (output-only drawer), and focus still in the omnibox.
+   * 4. Press it a third time; assert the drawer is gone and the omnibox no
+   *    longer holds focus.
+   * 5. Re-open, then press Escape twice; assert the drawer closes on the
+   *    first (omnibox keeps focus) and the second blurs the omnibox, with the
+   *    URL unchanged throughout.
    */
-  test("chord opens the console with the operator terminal and compose focused; Esc closes", async ({
+  test("the chord cycles rest → focused → open → rest and Esc steps back one level", async ({
     page,
   }) => {
     await mockBackend(page, true);
     await gotoWindow(page);
 
     await page.keyboard.press("Shift+Control+j");
+    await expect(omniboxInput(page)).toBeFocused();
+    await expect(console_(page)).toHaveCount(0);
+
+    await page.keyboard.press("Shift+Control+j");
     await expect(console_(page)).toBeVisible();
     await expect(console_(page).getByText("◉ OPERATOR")).toBeVisible();
     await expect(console_(page).getByText("· default")).toBeVisible();
     await expect(console_(page).locator(".xterm")).toBeAttached({ timeout: 10_000 });
-    await expect(composeInput(page)).toBeFocused();
+    // Output-only drawer: the compose textbox is gone (the xterm helper
+    // textarea inside the embedded terminal is not a compose input).
+    await expect(console_(page).getByRole("textbox", { name: "Message the operator" })).toHaveCount(0);
+    await expect(console_(page).getByRole("button", { name: "Send" })).toHaveCount(0);
+    await expect(omniboxInput(page)).toBeFocused();
 
+    await page.keyboard.press("Shift+Control+j");
+    await expect(console_(page)).toHaveCount(0);
+    await expect(omniboxInput(page)).not.toBeFocused();
+
+    await openDrawerViaChord(page);
     await page.keyboard.press("Escape");
     await expect(console_(page)).toHaveCount(0);
+    await expect(omniboxInput(page)).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(omniboxInput(page)).not.toBeFocused();
     expect(page.url()).toContain(WINDOW_URL);
   });
 
   /**
+   * Proves: at ≥ lg the center cell carries the compact heading (the `Tab:`
+   * prefix span hidden, the name click-to-rename and ▾ switcher untouched)
+   * beside the STANDING omnibox, and Enter on a typed message fires exactly
+   * one agent-target send and auto-opens the drawer with focus retained.
+   *
+   * Steps:
+   * 1. Mock the backend with an operator window and a 200 send stub; land on
+   *    the terminal route.
+   * 2. Assert the omnibox is visible, the `Tab:` prefix is hidden, and the
+   *    rename button + ▾ switcher still render.
+   * 3. Type a message into the omnibox and press Enter.
+   * 4. Assert one recorded send body `{text, mode: "submit", target:
+   *    "agent"}`, the drawer open, and the omnibox still focused with its
+   *    draft cleared.
+   */
+  test("≥ lg: the standing omnibox sends on Enter and auto-opens the drawer", async ({ page }) => {
+    const sendBodies = await mockBackend(page, true);
+    await gotoWindow(page);
+
+    await expect(omniboxInput(page)).toBeVisible();
+    await expect(page.getByText("Tab:", { exact: true })).toBeHidden();
+    await expect(page.getByRole("button", { name: "Rename tab feature-work" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Switch tab" })).toBeVisible();
+
+    await omniboxInput(page).click();
+    await omniboxInput(page).fill("restart the worker");
+    await omniboxInput(page).press("Enter");
+
+    await expect
+      .poll(() => sendBodies)
+      .toEqual([{ text: "restart the worker", mode: "submit", target: "agent" }]);
+    await expect(console_(page)).toBeVisible();
+    await expect(omniboxInput(page)).toBeFocused();
+    await expect(omniboxInput(page)).toHaveValue("");
+  });
+
+  /**
+   * Proves: the md–lg rung renders today's full heading (prefix included)
+   * plus the dim `· ◉ ask` ghost; clicking the ghost morphs the center into
+   * the omnibox in place (heading hidden, box focused) and Escape restores
+   * the heading.
+   *
+   * Steps:
+   * 1. Set a 900×720 viewport (between the mobile rule and lg); mock the
+   *    backend with an operator window; land on the terminal route.
+   * 2. Assert the ghost and the `Tab:` prefix are visible and the omnibox is
+   *    hidden.
+   * 3. Click the ghost; assert the omnibox is visible and focused and the
+   *    heading's rename button is hidden.
+   * 4. Press Escape; assert the heading and ghost are back and the box is
+   *    hidden.
+   */
+  test("md–lg: the ghost morphs the center into the omnibox and Esc restores the heading", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 900, height: 720 });
+    await mockBackend(page, true);
+    await gotoWindow(page);
+
+    const ghost = page.getByTestId("operator-omnibox-ghost");
+    await expect(ghost).toBeVisible();
+    await expect(page.getByText("Tab:", { exact: true })).toBeVisible();
+    await expect(omniboxInput(page)).toBeHidden();
+
+    await ghost.click();
+    await expect(omniboxInput(page)).toBeVisible();
+    await expect(omniboxInput(page)).toBeFocused();
+    await expect(page.getByRole("button", { name: "Rename tab feature-work" })).toBeHidden();
+
+    await page.keyboard.press("Escape");
+    await expect(omniboxInput(page)).toBeHidden();
+    await expect(ghost).toBeVisible();
+    await expect(page.getByRole("button", { name: "Rename tab feature-work" })).toBeVisible();
+  });
+
+  /**
    * Proves: the palette carries the `Operator: Open console` action (the
-   * action registry of record), and selecting it opens the console.
+   * action registry of record), and selecting it goes straight to
+   * open+focused — the drawer opens AND the omnibox takes focus, skipping the
+   * cycle's focused-only intermediate.
    *
    * Steps:
    * 1. Mock the backend with an operator window; land on the terminal route.
-   * 2. Open the palette, filter to `Operator: Open console`, select the row.
-   * 3. Assert the console is visible.
+   * 2. Open the palette, filter to `Open console`, select the row (anchored
+   *    name — the Ask-operator fallback row is the substring-collision class,
+   *    and the option's accessible name carries the chord keycap).
+   * 3. Assert the console is visible and the omnibox is focused.
    */
-  test("palette action 'Operator: Open console' opens the console", async ({ page }) => {
+  test("palette action 'Operator: Open console' lands open+focused", async ({ page }) => {
     await mockBackend(page, true);
     await gotoWindow(page);
 
     const paletteInput = await openPalette(page);
     await paletteInput.fill("Open console");
-    await page.getByRole("option", { name: "Operator: Open console" }).click();
+    await page.getByRole("option", { name: /^Operator: Open console/ }).click();
 
     await expect(console_(page)).toBeVisible();
+    await expect(omniboxInput(page)).toBeFocused();
   });
 
   /**
@@ -259,15 +376,15 @@ test.describe("Operator console", () => {
   /**
    * Proves: degrade-to-absent — with no `role: "operator"` window on the
    * server, the console opens to a single hint line (no terminal stream, no
-   * compose strip) and the palette renders no fallback row.
+   * compose anywhere) and the palette renders no fallback row.
    *
    * Steps:
    * 1. Mock the backend WITHOUT an operator window; land on the terminal
    *    route.
-   * 2. Open the console via the chord; assert the hint line, and no xterm or
-   *    compose input inside the console.
-   * 3. Open the palette, type a floor-length query matching no action; assert
-   *    no `Ask operator` row.
+   * 2. Open the console via the ◉ button; assert the hint line, and no xterm
+   *    or textbox inside the console.
+   * 3. Close with two Escapes (open → focused → rest), open the palette, type
+   *    a floor-length query matching no action; assert no `Ask operator` row.
    */
   test("no operator on the server renders the hint line and omits the fallback row", async ({
     page,
@@ -275,7 +392,7 @@ test.describe("Operator console", () => {
     await mockBackend(page, false);
     await gotoWindow(page);
 
-    await page.keyboard.press("Shift+Control+j");
+    await page.getByRole("button", { name: /^Operator console/ }).click();
     await expect(console_(page)).toBeVisible();
     await expect(page.getByTestId("operator-console-empty")).toHaveText(
       "no operator on this server — run `rk operator`",
@@ -284,6 +401,8 @@ test.describe("Operator console", () => {
     await expect(console_(page).getByRole("textbox")).toHaveCount(0);
 
     await page.keyboard.press("Escape");
+    await expect(console_(page)).toHaveCount(0);
+    await page.keyboard.press("Escape");
     const paletteInput = await openPalette(page);
     await paletteInput.fill("the fence deploy is wedged");
     await expect(page.getByRole("option", { name: /^Ask operator:/ })).toHaveCount(0);
@@ -291,15 +410,17 @@ test.describe("Operator console", () => {
 
   /**
    * Proves: a structured send failure (409 from the injection engine)
-   * surfaces INLINE in the console — the server's message between terminal
-   * and compose, no toast — and the composed text survives for retry.
+   * surfaces INLINE — the server's message at the drawer's top edge, directly
+   * under the omnibox (the relocated inline-error contract), no toast — and
+   * the composed text survives in the omnibox for retry.
    *
    * Steps:
    * 1. Mock the backend with an operator window and a 409 send stub carrying
    *    the probe-failure message; land on the terminal route.
-   * 2. Open the console via the chord, type a message, press Enter.
-   * 3. Assert the send fired, the inline error line carries the server's
-   *    message, and the compose input still holds the text.
+   * 2. Type a message into the omnibox and press Enter (the send auto-opens
+   *    the drawer).
+   * 3. Assert the send fired, the drawer's top-edge error line carries the
+   *    server's message, and the omnibox still holds the text.
    */
   test("a structured 409 send failure surfaces inline with the composed text preserved", async ({
     page,
@@ -310,29 +431,32 @@ test.describe("Operator console", () => {
     });
     await gotoWindow(page);
 
-    await page.keyboard.press("Shift+Control+j");
-    await expect(console_(page)).toBeVisible();
-    const input = composeInput(page);
+    const input = omniboxInput(page);
+    await input.click();
     await input.fill("restart the worker");
     await input.press("Enter");
 
     await expect.poll(() => sendBodies).toHaveLength(1);
+    await expect(console_(page)).toBeVisible();
     await expect(page.getByTestId("operator-console-error")).toHaveText("probe failed: no novelty echo");
     await expect(input).toHaveValue("restart the worker");
   });
 
   /**
    * Proves: at 375px the console is a full-height sheet UNDER the top bar —
-   * the bar stays visible and functional, the sheet covers the main area, and
-   * no horizontal page overflow is introduced. Entry rides the top-bar
-   * overflow menu's `Operator console` row (no keyboard on a phone).
+   * the bar stays visible and functional, the sheet covers the main area, the
+   * sheet KEEPS its compose strip (the one-input rule is per form factor —
+   * no omnibox exists on mobile), and no horizontal page overflow is
+   * introduced. Entry rides the top-bar overflow menu's `Operator console`
+   * row (no keyboard on a phone).
    *
    * Steps:
    * 1. Set the 375×812 viewport; mock the backend with an operator window;
    *    land on the terminal route.
    * 2. Open the `More controls` chevron menu and select `Operator console`.
-   * 3. Assert the sheet is visible, its top edge sits at/below the top bar's
-   *    bottom edge, and the top bar's chevron is still visible.
+   * 3. Assert the sheet is visible with its compose input, its top edge sits
+   *    at/below the top bar's bottom edge, and the top bar's chevron is still
+   *    visible. Assert the omnibox is absent.
    * 4. Assert `document.body.scrollWidth` ≤ 375 (no horizontal overflow).
    */
   test("mobile: the console is a full-height sheet under the top bar with no horizontal overflow", async ({
@@ -351,6 +475,8 @@ test.describe("Operator console", () => {
 
     const sheet = console_(page);
     await expect(sheet).toBeVisible();
+    await expect(composeInput(page)).toBeVisible();
+    await expect(page.getByTestId("operator-omnibox")).toHaveCount(0);
     await expect(chevron).toBeVisible();
     const sheetBox = await sheet.boundingBox();
     const chevronBox = await chevron.boundingBox();
@@ -378,8 +504,8 @@ test.describe("Operator console", () => {
      *
      * Steps:
      * 1. Mock the backend with an operator window; land on the terminal route.
-     * 2. Open via the chord; assert the slide class and wait out the raised
-     *    (entering) pose.
+     * 2. Open via the chord cycle (focus, then open); assert the slide class
+     *    and wait out the raised (entering) pose.
      * 3. Press Escape; assert the drawer is still attached WITH the raised
      *    class (mid-exit-slide), then detaches.
      */
@@ -389,7 +515,7 @@ test.describe("Operator console", () => {
       await mockBackend(page, true);
       await gotoWindow(page);
 
-      await page.keyboard.press("Shift+Control+j");
+      await openDrawerViaChord(page);
       const el = console_(page);
       await expect(el).toBeVisible();
       await expect(el).toHaveClass(/rk-console-slide/);
@@ -419,9 +545,8 @@ test.describe("Operator console", () => {
     await mockBackend(page, true);
     await gotoWindow(page);
 
-    await page.keyboard.press("Shift+Control+j");
+    await openDrawerViaChord(page);
     const el = console_(page);
-    await expect(el).toBeVisible();
     await expect(el).not.toHaveClass(/rk-console-closed/);
     const before = await el.boundingBox();
     expect(before).not.toBeNull();
@@ -446,7 +571,7 @@ test.describe("Operator console", () => {
 
     await page.reload();
     await expect(page.getByText("feature-work").first()).toBeVisible({ timeout: 10_000 });
-    await page.keyboard.press("Shift+Control+j");
+    await openDrawerViaChord(page);
     await expect(console_(page)).toHaveAttribute("style", /height: 85vh/);
   });
 
@@ -472,9 +597,8 @@ test.describe("Operator console", () => {
     await mockBackend(page, true);
     await gotoWindow(page);
 
-    await page.keyboard.press("Shift+Control+j");
+    await openDrawerViaChord(page);
     const el = console_(page);
-    await expect(el).toBeVisible();
 
     // Theme-agnostic α read: Chromium serializes the color-mix result as
     // `color(srgb … / α)` — the alpha is the setting, the RGB rides the theme.
@@ -505,7 +629,7 @@ test.describe("Operator console", () => {
 
     await page.reload();
     await expect(page.getByText("feature-work").first()).toBeVisible({ timeout: 10_000 });
-    await page.keyboard.press("Shift+Control+j");
+    await openDrawerViaChord(page);
     await expect(console_(page)).toHaveCSS("backdrop-filter", "none");
     await expect
       .poll(() =>
@@ -580,22 +704,23 @@ test.describe("Operator console", () => {
   });
 
   /**
-   * Proves: an image ⌘V inside the console uploads to the OPERATOR window's
-   * session (`_rk-operator`) and insert-delivers the returned path to the
-   * operator pane (mode "raw", target "agent", never submitted) — and the
-   * route terminals' strip-forward guard keeps the paste OFF the tab below
-   * (no upload to the route's `dev` session). Both focus targets are covered:
-   * the embedded terminal's xterm textarea (the console root's CAPTURE-phase
-   * handler — xterm stops bubble propagation) and the compose textarea (the
-   * bubble path the route terminals' document listeners guard against).
+   * Proves: an image ⌘V inside the console surface uploads to the OPERATOR
+   * window's session (`_rk-operator`) and insert-delivers the returned path
+   * to the operator pane (mode "raw", target "agent", never submitted) — and
+   * the route terminals' strip-forward guard keeps the paste OFF the tab
+   * below (no upload to the route's `dev` session). Both focus targets are
+   * covered: the embedded terminal's xterm textarea (the console root's
+   * CAPTURE-phase handler — xterm stops bubble propagation) and the omnibox
+   * input (the relocated desktop compose; its console-root attribute excludes
+   * it from the route terminals' document-level forward).
    *
    * Steps:
    * 1. Mock the backend with an operator window plus the upload endpoint;
    *    land on the terminal route and open the console.
    * 2. Dispatch a file-carrying paste at the console's embedded xterm helper
    *    textarea; assert one upload to `_rk-operator` and one raw/agent send.
-   * 3. Dispatch a second paste at the console's compose textarea; assert a
-   *    second upload/send pair.
+   * 3. Dispatch a second paste at the omnibox input; assert a second
+   *    upload/send pair.
    * 4. Assert no upload ever hit the route session.
    */
   test("image paste inside the console uploads to the operator session and insert-delivers the path", async ({
@@ -605,8 +730,7 @@ test.describe("Operator console", () => {
     const uploads = await mockUploads(page);
     await gotoWindow(page);
 
-    await page.keyboard.press("Shift+Control+j");
-    await expect(console_(page)).toBeVisible();
+    await openDrawerViaChord(page);
     await expect(
       console_(page).locator(".xterm-helper-textarea"),
     ).toBeAttached({ timeout: 10_000 });
@@ -617,7 +741,7 @@ test.describe("Operator console", () => {
       .poll(() => sendBodies)
       .toEqual([{ text: "/tmp/op/.uploads/shot.png ", mode: "raw", target: "agent" }]);
 
-    await pasteImage(page, '[aria-label="Message the operator"]');
+    await pasteImage(page, '[data-testid="operator-omnibox-input"]');
     await expect
       .poll(() => uploads.map((u) => u.session))
       .toEqual(["_rk-operator", "_rk-operator"]);

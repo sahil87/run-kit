@@ -2,7 +2,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, act, waitFor } from "@testing-library/react";
 import { OperatorConsole, OperatorConsoleTongue } from "./operator-console";
 import { StandaloneSessionContextProvider } from "@/contexts/session-context";
-import { requestOperatorConsole, writeConsoleOpacity } from "@/lib/operator-console";
+import {
+  getConsoleMachineState,
+  requestOperatorConsole,
+  setConsoleMachineState,
+  setOperatorComposeText,
+  writeConsoleOpacity,
+} from "@/lib/operator-console";
 import { stubMatchMedia } from "@/test-utils/match-media";
 import type { ProjectSession, WindowInfo } from "@/types";
 
@@ -70,7 +76,15 @@ function renderConsole(opts: {
   );
 }
 
-function openConsole() {
+/** The chord's first desktop step is focused-only (no drawer); tests that
+ *  need the drawer open dispatch the palette action's `open` instead. */
+function openDrawer() {
+  act(() => {
+    requestOperatorConsole({ action: "open" });
+  });
+}
+
+function stepMachine() {
   act(() => {
     requestOperatorConsole({ action: "toggle" });
   });
@@ -78,6 +92,9 @@ function openConsole() {
 
 describe("OperatorConsole", () => {
   beforeEach(() => {
+    stubMatchMedia(() => false);
+    setConsoleMachineState("rest");
+    setOperatorComposeText("");
     mockMatches = [{ params: {} }];
     terminalMounts.length = 0;
     mockSend.mockReset();
@@ -91,22 +108,45 @@ describe("OperatorConsole", () => {
     vi.unstubAllGlobals();
   });
 
-  it("is closed by default, opens on the toggle event, and Esc closes it", async () => {
+  it("the chord steps the desktop machine rest → focused → open → rest", async () => {
     renderConsole();
     expect(screen.queryByTestId("operator-console")).toBeNull();
 
-    openConsole();
+    // Step 1: focused — the omnibox engages, the drawer stays closed.
+    stepMachine();
+    expect(getConsoleMachineState()).toBe("focused");
+    expect(screen.queryByTestId("operator-console")).toBeNull();
+
+    // Step 2: open — the peek, nothing sent.
+    stepMachine();
+    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
+    expect(mockSend).not.toHaveBeenCalled();
+
+    // Step 3: rest — the exit slide holds the mount until transitionend (or
+    // the fallback timeout — jsdom fires no transition events).
+    stepMachine();
+    await waitFor(() => expect(screen.queryByTestId("operator-console")).toBeNull());
+    expect(getConsoleMachineState()).toBe("rest");
+  });
+
+  it("Esc steps back one level: open → focused → rest", async () => {
+    renderConsole();
+    openDrawer();
     expect(screen.getByTestId("operator-console")).toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: "Escape" });
-    // The exit slide keeps the drawer mounted until transitionend (or the
-    // fallback timeout — jsdom fires no transition events).
+    // The drawer closes (mounted through the exit slide) but the machine only
+    // stepped back to focused — the omnibox keeps focus.
+    expect(getConsoleMachineState()).toBe("focused");
     await waitFor(() => expect(screen.queryByTestId("operator-console")).toBeNull());
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(getConsoleMachineState()).toBe("rest");
   });
 
   it("stays mounted with the raised class through the exit slide", async () => {
     renderConsole();
-    openConsole();
+    openDrawer();
     await screen.findByTestId("operator-console");
 
     fireEvent.keyDown(document, { key: "Escape" });
@@ -120,17 +160,38 @@ describe("OperatorConsole", () => {
   it("reduced motion closes instantly — no mounted-through-exit delay", () => {
     stubMatchMedia((query) => query === "(prefers-reduced-motion: reduce)");
     renderConsole();
-    openConsole();
+    openDrawer();
     expect(screen.getByTestId("operator-console")).toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByTestId("operator-console")).toBeNull();
   });
 
+  it("the ◉ button action maps open ⇄ rest", async () => {
+    renderConsole();
+    act(() => requestOperatorConsole({ action: "button" }));
+    expect(getConsoleMachineState()).toBe("open");
+    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
+
+    act(() => requestOperatorConsole({ action: "button" }));
+    expect(getConsoleMachineState()).toBe("rest");
+    await waitFor(() => expect(screen.queryByTestId("operator-console")).toBeNull());
+  });
+
+  it("the desktop drawer is output-only — no compose strip, status line at its top edge", async () => {
+    renderConsole();
+    openDrawer();
+    const el = await screen.findByTestId("operator-console");
+
+    expect(screen.queryByLabelText("Message the operator")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
+    expect(el.querySelector("textarea")).toBeNull();
+  });
+
   it("targets the route's server on a terminal route (no picker)", () => {
     mockMatches = [{ params: { server: "srv1", window: "@1" } }];
     renderConsole();
-    openConsole();
+    openDrawer();
 
     expect(screen.queryByRole("combobox", { name: "Operator server" })).toBeNull();
     expect(terminalMounts[0]).toMatchObject({ server: "srv1", windowId: "@9", sessionName: "_rk-operator" });
@@ -138,7 +199,7 @@ describe("OperatorConsole", () => {
 
   it("preselects the sole server on the Host route without a picker", () => {
     renderConsole();
-    openConsole();
+    openDrawer();
 
     expect(screen.queryByRole("combobox", { name: "Operator server" })).toBeNull();
     expect(terminalMounts[0]?.server).toBe("srv1");
@@ -153,7 +214,7 @@ describe("OperatorConsole", () => {
         ["c", []],
       ]),
     });
-    openConsole();
+    openDrawer();
 
     const picker = screen.getByRole("combobox", { name: "Operator server" });
     expect(picker).toHaveValue("a");
@@ -165,7 +226,7 @@ describe("OperatorConsole", () => {
 
   it("renders the hint line (no stream, no compose) when the resolved server has no operator", () => {
     renderConsole({ sessionsByServer: new Map([["srv1", [{ name: "main", windows: [win({})] }]]]) });
-    openConsole();
+    openDrawer();
 
     expect(screen.getByTestId("operator-console-empty")).toHaveTextContent(
       "no operator on this server — run `rk operator`",
@@ -176,7 +237,7 @@ describe("OperatorConsole", () => {
 
   it("opens without crashing on an empty (still-loading) server list", () => {
     renderConsole({ servers: [], sessionsByServer: new Map() });
-    openConsole();
+    openDrawer();
 
     expect(screen.getByTestId("operator-console-empty")).toBeInTheDocument();
     expect(terminalMounts).toHaveLength(0);
@@ -198,69 +259,9 @@ describe("OperatorConsole", () => {
         ],
       ]),
     });
-    openConsole();
+    openDrawer();
 
     expect(screen.getByTestId("operator-console-state")).toHaveTextContent("waiting 2m");
-  });
-
-  it("Enter delivers via sendToWindow with the agent target and clears the input", async () => {
-    renderConsole();
-    openConsole();
-
-    const input = screen.getByLabelText("Message the operator");
-    fireEvent.change(input, { target: { value: "restart the worker" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-
-    await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(1));
-    expect(mockSend).toHaveBeenCalledWith("srv1", "@9", "restart the worker", "submit", "agent");
-    await waitFor(() => expect(input).toHaveValue(""));
-  });
-
-  it("Shift+Enter inserts a newline instead of sending", () => {
-    renderConsole();
-    openConsole();
-
-    const input = screen.getByLabelText("Message the operator");
-    fireEvent.change(input, { target: { value: "line one" } });
-    fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
-
-    expect(mockSend).not.toHaveBeenCalled();
-    expect(input).toHaveValue("line one");
-  });
-
-  it("a failed send surfaces the message inline and preserves the composed text", async () => {
-    mockSend.mockRejectedValue(new Error("probe failed: no novelty echo"));
-    renderConsole();
-    openConsole();
-
-    const input = screen.getByLabelText("Message the operator");
-    fireEvent.change(input, { target: { value: "retry me" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-
-    await waitFor(() =>
-      expect(screen.getByTestId("operator-console-error")).toHaveTextContent("probe failed: no novelty echo"),
-    );
-    expect(input).toHaveValue("retry me");
-
-    // The next edit dismisses the error line.
-    fireEvent.change(input, { target: { value: "retry me, edited" } });
-    expect(screen.queryByTestId("operator-console-error")).toBeNull();
-  });
-
-  it("the in-flight guard blocks a second send until the first resolves", async () => {
-    let release!: () => void;
-    mockSend.mockImplementation(() => new Promise<{ ok: boolean }>((resolve) => { release = () => resolve({ ok: true }); }));
-    renderConsole();
-    openConsole();
-
-    const input = screen.getByLabelText("Message the operator");
-    fireEvent.change(input, { target: { value: "one" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-    fireEvent.keyDown(input, { key: "Enter" });
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
-
-    expect(mockSend).toHaveBeenCalledTimes(1);
-    await act(async () => release());
   });
 
   it("the palette fallback request opens the console and sends the query immediately", async () => {
@@ -285,24 +286,22 @@ describe("OperatorConsole", () => {
     expect(mockSend).not.toHaveBeenCalled();
   });
 
-  it("focuses the compose input on open and restores focus on close", async () => {
+  it("a failed fallback send renders the error at the drawer's top edge", async () => {
+    mockSend.mockRejectedValue(new Error("probe failed: no novelty echo"));
     renderConsole();
-    const prior = document.createElement("button");
-    document.body.appendChild(prior);
-    prior.focus();
-    openConsole();
+    act(() => {
+      requestOperatorConsole({ action: "open", send: "retry me" });
+    });
 
-    await waitFor(() => expect(screen.getByLabelText("Message the operator")).toHaveFocus());
-
-    fireEvent.keyDown(document, { key: "Escape" });
-    await waitFor(() => expect(prior).toHaveFocus());
-    prior.remove();
+    await waitFor(() =>
+      expect(screen.getByTestId("operator-console-error")).toHaveTextContent("probe failed: no novelty echo"),
+    );
   });
 
   it("renders as a full-height sheet under the top bar on mobile", () => {
     stubMatchMedia(() => true);
     renderConsole();
-    openConsole();
+    openDrawer();
 
     const el = screen.getByTestId("operator-console");
     expect(el.className).toContain("inset-0");
@@ -311,7 +310,7 @@ describe("OperatorConsole", () => {
 
   it("applies the glass background at the stored opacity and drops the blur at α=1", async () => {
     renderConsole();
-    openConsole();
+    openDrawer();
     const el = await screen.findByTestId("operator-console");
 
     expect(el.style.backgroundColor).toContain("color-mix(in srgb, var(--color-bg-primary) 90%");
@@ -324,7 +323,7 @@ describe("OperatorConsole", () => {
 
   it("dragging the height grip resizes the drawer and persists the geometry on release", async () => {
     renderConsole();
-    openConsole();
+    openDrawer();
     const el = await screen.findByTestId("operator-console");
     expect(el.style.height).toBe("55vh");
 
@@ -342,7 +341,7 @@ describe("OperatorConsole", () => {
 
   it("dragging a side grip resizes symmetrically and persists the width", async () => {
     renderConsole();
-    openConsole();
+    openDrawer();
     const el = await screen.findByTestId("operator-console");
 
     const grip = screen.getByTestId("operator-console-grip-right");
@@ -357,13 +356,13 @@ describe("OperatorConsole", () => {
     });
   });
 
-  it("file paste uploads to the operator session and insert-delivers the path without submitting", async () => {
+  it("file paste inside the drawer uploads to the operator session and insert-delivers the path", async () => {
     renderConsole();
-    openConsole();
-    const input = await screen.findByLabelText("Message the operator");
+    openDrawer();
+    const root = await screen.findByTestId("operator-console");
 
     const file = new File(["png"], "shot.png", { type: "image/png" });
-    fireEvent.paste(input, { clipboardData: { files: [file] } });
+    fireEvent.paste(root, { clipboardData: { files: [file] } });
 
     await waitFor(() => expect(mockUpload).toHaveBeenCalledTimes(1));
     expect(mockUpload).toHaveBeenCalledWith("srv1", "_rk-operator", file, "@9");
@@ -374,7 +373,7 @@ describe("OperatorConsole", () => {
 
   it("file paste on an operator-less server is a no-op", async () => {
     renderConsole({ sessionsByServer: new Map([["srv1", [{ name: "main", windows: [win({})] }]]]) });
-    openConsole();
+    openDrawer();
     const root = await screen.findByTestId("operator-console");
 
     fireEvent.paste(root, { clipboardData: { files: [new File(["x"], "a.png", { type: "image/png" })] } });
@@ -386,10 +385,10 @@ describe("OperatorConsole", () => {
   it("an upload failure surfaces on the inline error line and delivers nothing", async () => {
     mockUpload.mockRejectedValue(new Error("upload exploded"));
     renderConsole();
-    openConsole();
-    const input = await screen.findByLabelText("Message the operator");
+    openDrawer();
+    const root = await screen.findByTestId("operator-console");
 
-    fireEvent.paste(input, { clipboardData: { files: [new File(["x"], "a.png", { type: "image/png" })] } });
+    fireEvent.paste(root, { clipboardData: { files: [new File(["x"], "a.png", { type: "image/png" })] } });
 
     await waitFor(() =>
       expect(screen.getByTestId("operator-console-error")).toHaveTextContent("upload exploded"),
@@ -398,8 +397,112 @@ describe("OperatorConsole", () => {
   });
 });
 
+describe("OperatorConsole (mobile sheet compose)", () => {
+  beforeEach(() => {
+    stubMatchMedia(() => true);
+    setConsoleMachineState("rest");
+    setOperatorComposeText("");
+    mockMatches = [{ params: {} }];
+    terminalMounts.length = 0;
+    mockSend.mockReset();
+    mockSend.mockResolvedValue({ ok: true });
+    mockUpload.mockReset();
+    mockUpload.mockResolvedValue({ ok: true, path: "/tmp/op/.uploads/shot.png" });
+    localStorage.clear();
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps the compose strip in the sheet (the one-input rule is per form factor)", () => {
+    renderConsole();
+    openDrawer();
+
+    const el = screen.getByTestId("operator-console");
+    expect(el.querySelector("textarea")).toBe(screen.getByLabelText("Message the operator"));
+    expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
+  });
+
+  it("Enter delivers via sendToWindow with the agent target and clears the input", async () => {
+    renderConsole();
+    openDrawer();
+
+    const input = screen.getByLabelText("Message the operator");
+    fireEvent.change(input, { target: { value: "restart the worker" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(1));
+    expect(mockSend).toHaveBeenCalledWith("srv1", "@9", "restart the worker", "submit", "agent");
+    await waitFor(() => expect(input).toHaveValue(""));
+  });
+
+  it("Shift+Enter inserts a newline instead of sending", () => {
+    renderConsole();
+    openDrawer();
+
+    const input = screen.getByLabelText("Message the operator");
+    fireEvent.change(input, { target: { value: "line one" } });
+    fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
+
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(input).toHaveValue("line one");
+  });
+
+  it("a failed send surfaces the message inline and preserves the composed text", async () => {
+    mockSend.mockRejectedValue(new Error("probe failed: no novelty echo"));
+    renderConsole();
+    openDrawer();
+
+    const input = screen.getByLabelText("Message the operator");
+    fireEvent.change(input, { target: { value: "retry me" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("operator-console-error")).toHaveTextContent("probe failed: no novelty echo"),
+    );
+    expect(input).toHaveValue("retry me");
+
+    // The next edit dismisses the error line.
+    fireEvent.change(input, { target: { value: "retry me, edited" } });
+    expect(screen.queryByTestId("operator-console-error")).toBeNull();
+  });
+
+  it("the in-flight guard blocks a second send until the first resolves", async () => {
+    let release!: () => void;
+    mockSend.mockImplementation(() => new Promise<{ ok: boolean }>((resolve) => { release = () => resolve({ ok: true }); }));
+    renderConsole();
+    openDrawer();
+
+    const input = screen.getByLabelText("Message the operator");
+    fireEvent.change(input, { target: { value: "one" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    await act(async () => release());
+  });
+
+  it("focuses the compose input on open and restores focus on close", async () => {
+    renderConsole();
+    const prior = document.createElement("button");
+    document.body.appendChild(prior);
+    prior.focus();
+    openDrawer();
+
+    await waitFor(() => expect(screen.getByLabelText("Message the operator")).toHaveFocus());
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(prior).toHaveFocus());
+    prior.remove();
+  });
+});
+
 describe("OperatorConsoleTongue", () => {
   beforeEach(() => {
+    setConsoleMachineState("rest");
+    setOperatorComposeText("");
     mockMatches = [{ params: {} }];
     terminalMounts.length = 0;
     mockSend.mockReset();

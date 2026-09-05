@@ -108,3 +108,29 @@ Current bug: every mounted `TerminalClient` adds a document-level `paste` listen
 | 11 | Confident | Console `TerminalClient` gets an opt-in transparency prop; route/board terminals untouched | Scopes the renderer cost; type-safe seam over a global option | S:60 R:85 A:80 D:75 |
 
 11 assumptions (4 certain, 7 confident, 0 tentative, 0 unresolved).
+
+## Amendment (2026-09-05): Operator omnibox — the top-bar center as the ask box
+
+Second interactive design round on the same PR (#840), from the omnibox study
+(`operator-omnibox-studies.html`, four variants + live ⌘J state machine + the one-input
+before/after). User chose **V3 (split center) degrading to V2 (morph)**, confirmed the ⌘J cycle,
+and approved the one-input consequence after seeing it drawn. Decisions:
+
+1. **≥ lg (wide desktop)**: the center cell renders a compact heading (`{name} ▾` — the PageType
+   prefix span hides at this rung, extending its existing below-`sm` hiding; name click still
+   renames, ▾ still switches) beside a **standing omnibox** (`◉` + "Ask the operator…" + chord
+   keycap). The omnibox is the console's compose RELOCATED — same `sendToWindow target:"agent"`
+   lane, same image-paste upload path, same inline error (rendered at the drawer's top edge).
+2. **md–lg (narrow desktop)**: today's heading plus a dim `· ◉ ask` ghost; the ghost or ⌘J
+   MORPHS the center into the omnibox in place; Esc restores. One design at two widths.
+3. **Mobile: untouched.** No omnibox; heading stays the leaf; tongue → sheet; **the sheet keeps
+   its compose strip** (the one-input rule is per form factor).
+4. **One-input rule (desktop)**: the drawer's compose strip is REMOVED on desktop — the drawer
+   becomes output-only (embedded operator terminal + the inline error line under the omnibox).
+5. **⌘J state machine**: rest →(⌘J) omnibox focused (select any draft) →(⌘J) drawer open (peek,
+   nothing sent) →(⌘J) closed + blurred (full return). **Enter** (non-empty) sends and
+   AUTO-OPENS the drawer, focus stays in the omnibox for follow-ups. **Esc** steps back one
+   level (open → focused → blurred). The palette `Operator: Open console` action goes straight
+   to open+focused; the Ask-operator fallback row still opens+sends.
+6. The ◉ cluster-head button stays at all desktop rungs (state dot + toggle; it's also the
+   overflow survivor). The omnibox is additive.

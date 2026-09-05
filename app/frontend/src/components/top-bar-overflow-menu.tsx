@@ -201,8 +201,9 @@ export function KeyboardMenuRow() {
 
 /** Operator console — the mobile entry to the pull-down operator overlay
  *  (no keyboard exists on a phone, so the chord can't carry it). Fires the
- *  same document-event toggle the chord and palette action dispatch; the
- *  layout-mounted console owns the open state. The trailing keycap shows the
+ *  same document-event open the palette action dispatches (desktop:
+ *  open+focused on the ⌘J machine; mobile: sheet open); the layout-mounted
+ *  console owns the machine state. The trailing keycap shows the
  *  host-effective chord, omitted when unbound/disabled. */
 export function OperatorConsoleMenuRow() {
   const { byAction, host } = useKeybindings();
@@ -215,7 +216,7 @@ export function OperatorConsoleMenuRow() {
       type="button"
       role="menuitem"
       tabIndex={-1}
-      onClick={() => requestOperatorConsole({ action: "toggle" })}
+      onClick={() => requestOperatorConsole({ action: "open" })}
       className={MENU_ROW_CLASS}
     >
       <HeadsetIcon size={14} />
@@ -241,8 +242,9 @@ const OPERATOR_STATE_DOT: Record<string, string> = {
  * the top bar's right cluster on every route (the mobile standing affordance
  * is the tongue under the top bar; the registry entry hides this button
  * there). Carries the resolved-server operator's live state dot (grey idle /
- * green active / amber waiting) and toggles the console through the same
- * OPERATOR_CONSOLE_EVENT seam as every other entry point. Renders even on
+ * green active / amber waiting). Its click maps onto the ⌘J machine as
+ * open ⇄ rest (`action: "button"` — rest/focused → open+focused, open →
+ * rest), distinct from the chord's stepped cycle. Renders even on
  * operator-less servers — the console's hint line is the answer (the palette
  * open action's posture). When the entry overflows, its function merges into
  * the menu's `Operator console` row (menuRender: null — the UpdateChip
@@ -280,7 +282,7 @@ export function OperatorConsoleButton({ routeServer }: { routeServer: string | n
         type="button"
         aria-label={chord ? `Operator console (${chord})` : "Operator console"}
         data-testid="operator-console-button"
-        onClick={() => requestOperatorConsole({ action: "toggle" })}
+        onClick={() => requestOperatorConsole({ action: "button" })}
         className={`${TOP_BAR_BUTTON} relative`}
       >
         <span aria-hidden="true">◉</span>

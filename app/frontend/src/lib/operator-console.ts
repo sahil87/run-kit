@@ -1,5 +1,6 @@
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectSession, WindowInfo } from "@/types";
+import { sendToWindow, uploadFile } from "@/api/client";
 import { SessionContext, useCurrentServerFromRoute } from "@/contexts/session-context";
 
 /**
@@ -18,9 +19,15 @@ import { SessionContext, useCurrentServerFromRoute } from "@/contexts/session-co
  *    or above the length floor (short typo fragments never fire a send).
  *  - `requestOperatorConsole` — the document-event seam every entry point
  *    (chord dispatch, palette action, overflow-menu row, sidebar pinned row,
- *    palette fallback row) funnels through to the single layout-mounted
- *    console. An event, not a callback chain: the entry points live in route
- *    shells the layout does not compose directly.
+ *    palette fallback row, top-bar ◉ button) funnels through to the single
+ *    layout-mounted console. An event, not a callback chain: the entry points
+ *    live in route shells the layout does not compose directly.
+ *  - The ⌘J three-state machine (`rest | focused | open`) — the desktop
+ *    console's controlling state, shared between the top-bar omnibox and the
+ *    drawer (module slot, the open-state idiom).
+ *  - The shared compose seam (`useOperatorCompose` + `sendOperatorMessage` +
+ *    `attachOperatorFiles`) — ONE draft/send/upload implementation driving both
+ *    the desktop omnibox and the mobile sheet compose.
  *  - Per-viewer persisted preferences (geometry, opacity) — localStorage
  *    stores with the in-module pub/sub idiom (`use-local-storage-enum.ts`).
  *  - The open-state slot, the console-origin event predicate, and
@@ -35,8 +42,10 @@ export const ASK_OPERATOR_MIN_QUERY = 3;
 export const OPERATOR_CONSOLE_EVENT = "rk:operator-console";
 
 export type OperatorConsoleRequest = {
-  /** `toggle` flips open/closed; `open` always opens. */
-  action: "toggle" | "open";
+  /** `toggle` steps the desktop ⌘J machine (rest → focused → open → rest) and
+   *  plain-toggles the mobile sheet; `open` always opens (desktop: drawer plus
+   *  omnibox focus); `button` is the top-bar ◉ click mapping (open ⇄ rest). */
+  action: "toggle" | "open" | "button";
   /** Pin the console to this server (the sidebar pinned row passes its own
    *  server's name). Absent = resolve from the route/server list. */
   server?: string;
@@ -55,7 +64,7 @@ export function requestOperatorConsole(req: OperatorConsoleRequest): void {
 export function isOperatorConsoleRequest(detail: unknown): detail is OperatorConsoleRequest {
   if (typeof detail !== "object" || detail === null) return false;
   const d = detail as Record<string, unknown>;
-  return d.action === "toggle" || d.action === "open";
+  return d.action === "toggle" || d.action === "open" || d.action === "button";
 }
 
 /**
@@ -299,6 +308,147 @@ export function useOperatorConsoleOpen(): boolean {
     };
   }, []);
   return open;
+}
+
+// ── ⌘J three-state machine ───────────────────────────────────────────────────
+//
+// The desktop console is a three-state cycle, not a plain toggle: `rest`
+// (omnibox blurred, drawer closed) → `focused` (omnibox focused, drawer still
+// closed) → `open` (drawer down — a peek; focus stays in the omnibox) → `rest`.
+// The state lives in a module slot (the open-state slot idiom) because the two
+// halves of the surface — the top-bar omnibox and the layout-mounted drawer —
+// are mounted in different trees and must not own each other's state. The
+// drawer component is the controller (it interprets the document-event seam);
+// the omnibox is a follower that also originates transitions (click-to-focus,
+// Enter, blur). Mobile never leaves the rest/open pair (no omnibox exists).
+
+export type ConsoleMachineState = "rest" | "focused" | "open";
+
+let machineState: ConsoleMachineState = "rest";
+const machineListeners = new Set<(state: ConsoleMachineState) => void>();
+
+export function getConsoleMachineState(): ConsoleMachineState {
+  return machineState;
+}
+
+export function setConsoleMachineState(next: ConsoleMachineState): void {
+  if (machineState === next) return;
+  machineState = next;
+  for (const listener of machineListeners) listener(next);
+}
+
+/** The chord step: rest → focused → open → rest. */
+export function cycleConsoleMachine(state: ConsoleMachineState): ConsoleMachineState {
+  return state === "rest" ? "focused" : state === "focused" ? "open" : "rest";
+}
+
+export function useConsoleMachineState(): ConsoleMachineState {
+  const [state, setState] = useState(getConsoleMachineState);
+  useEffect(() => {
+    const listener = (next: ConsoleMachineState) => setState(next);
+    machineListeners.add(listener);
+    setState(getConsoleMachineState());
+    return () => {
+      machineListeners.delete(listener);
+    };
+  }, []);
+  return state;
+}
+
+// ── Shared compose seam ──────────────────────────────────────────────────────
+//
+// ONE compose implementation drives every operator input surface: the desktop
+// omnibox (top-bar center cell) and the mobile sheet's compose strip. Draft,
+// in-flight flags, and the inline error are module state so the two mounts
+// (top bar vs. console overlay) stay in lockstep, and the send/upload logic
+// exists exactly once. Delivery rides the existing lanes: `sendToWindow(...,
+// "submit", "agent")` for messages, `uploadFile` + a `"raw"` insert per
+// returned path for files (staged into the TUI composer, never submitted).
+
+export type ConsoleComposeState = {
+  text: string;
+  sending: boolean;
+  uploading: boolean;
+  error: string | null;
+};
+
+const COMPOSE_INITIAL: ConsoleComposeState = { text: "", sending: false, uploading: false, error: null };
+let composeState: ConsoleComposeState = COMPOSE_INITIAL;
+const composeListeners = new Set<() => void>();
+
+function patchCompose(patch: Partial<ConsoleComposeState>): void {
+  composeState = { ...composeState, ...patch };
+  for (const listener of composeListeners) listener();
+}
+
+/** Edit the shared draft; any edit clears the inline error line. */
+export function setOperatorComposeText(text: string): void {
+  patchCompose({ text, error: null });
+}
+
+/**
+ * Deliver a composed message through the agent send lane with chat-send busy
+ * semantics (allow + probe — no client-side busy gate). A whitespace-only or
+ * in-flight send is a guarded no-op. The draft survives a failure for
+ * retry/edit. Resolves true when the send was attempted and succeeded.
+ */
+export async function sendOperatorMessage(
+  server: string | null,
+  target: OperatorWindowTarget | undefined,
+  value: string,
+): Promise<boolean> {
+  if (!server || !target || composeState.sending) return false;
+  if (value.trim() === "") return false;
+  patchCompose({ sending: true });
+  try {
+    await sendToWindow(server, target.window.windowId, value, "submit", "agent");
+    patchCompose({ text: "", error: null, sending: false });
+    return true;
+  } catch (err) {
+    patchCompose({ error: err instanceof Error ? err.message : "Send failed", sending: false });
+    return false;
+  }
+}
+
+/**
+ * Upload clipboard/dropped files to the operator window's session worktree,
+ * then insert-deliver each returned path to the operator pane (the trailing
+ * space keeps consecutive inserts from concatenating) — staged into the TUI
+ * composer where the `[Image #N]` chip renders, never submitted. Failures ride
+ * the inline error line and deliver nothing further.
+ */
+export async function attachOperatorFiles(
+  server: string | null,
+  target: OperatorWindowTarget | undefined,
+  files: File[],
+): Promise<void> {
+  if (!server || !target || files.length === 0) return;
+  patchCompose({ uploading: true, error: null });
+  try {
+    for (const file of files) {
+      const result = await uploadFile(server, target.sessionName, file, target.window.windowId);
+      if (!result.ok || !result.path) continue;
+      await sendToWindow(server, target.window.windowId, `${result.path} `, "raw", "agent");
+    }
+  } catch (err) {
+    patchCompose({ error: err instanceof Error ? err.message : "Upload failed" });
+  } finally {
+    patchCompose({ uploading: false });
+  }
+}
+
+/** Subscribe to the shared compose state (draft, in-flight flags, error). */
+export function useOperatorCompose(): ConsoleComposeState {
+  const [state, setState] = useState(composeState);
+  useEffect(() => {
+    const listener = () => setState(composeState);
+    composeListeners.add(listener);
+    setState(composeState);
+    return () => {
+      composeListeners.delete(listener);
+    };
+  }, []);
+  return state;
 }
 
 // ── Console-origin event predicate ───────────────────────────────────────────

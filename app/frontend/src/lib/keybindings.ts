@@ -301,10 +301,12 @@ export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
   // ⌘J is page-interceptable in a mac browser (the ⌘L/⌘D class, per the
   // claims data below) and absent from the shell's menu accelerator map; on
   // Win/Linux the shifted tier keeps plain Ctrl+J (readline accept-line) with
-  // the pane. The chord TOGGLES the console (open ⇄ closed), so ignoreInputs
-  // lets it close while the console's own compose textarea has focus. The
-  // palette action is the guaranteed fallback where a browser eats the chord.
-  { actionId: "operator-console", code: "KeyJ", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Operator console", description: "toggle the operator console", mapLabel: "operator", ignoreInputs: true },
+  // the pane. On desktop the chord STEPS the three-state machine (rest →
+  // omnibox-focused → drawer-open → rest), so ignoreInputs lets it keep
+  // cycling while the omnibox input has focus; on mobile it plain-toggles the
+  // sheet. The palette action is the guaranteed fallback where a browser eats
+  // the chord.
+  { actionId: "operator-console", code: "KeyJ", tier: "shifted", macTier: "cmd", scope: "global", kind: "builtin", label: "Operator console", description: "step the operator console (focus → open → closed)", mapLabel: "operator", ignoreInputs: true },
   // Positional surface digits — ⌘1/2/3 on mac, ⇧Ctrl+1/2/3 on win/linux —
   // toggle the tty/code/web tiles in tile order. Same demotion class as ⌘B
   // (page-interceptable). In a mac BROWSER the cmd-tier

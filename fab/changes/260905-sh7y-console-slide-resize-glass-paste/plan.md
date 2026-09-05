@@ -100,6 +100,39 @@ The console SHALL bind its own `paste` and `drop` handlers on its root: clipboar
 - **THEN** exactly one implementation exists (the exported hook) with three consumers
 - **AND** the console buttons carry `coarse:` sizing + `rk-glint`
 
+### Omnibox (amendment 2026-09-05)
+
+#### R11: Standing omnibox in the center cell at ≥ lg
+At the wide-desktop rung (≥ `lg`), the top bar's center cell SHALL render a compact heading (`{name} ▾` — the PageType prefix span hidden at this rung, extending its existing below-`sm` hiding; name click still renames on terminal routes, ▾ still opens the switcher) beside a **standing omnibox**: a bordered input (`◉` glyph, placeholder "Ask the operator…", a chord keycap) that IS the console's compose relocated — Enter (non-empty) sends through the same `sendToWindow(server, operatorWindowId, text, "submit", "agent")` lane and AUTO-OPENS the drawer; focus stays in the omnibox for follow-ups. The omnibox renders on every route's center cell (Terminal/Board/Server/Host), resolving its server exactly as the console does. Image files pasted while the omnibox is focused ride the console's existing upload→insert path. Send-in-flight and structured errors render at the drawer's top edge directly under the box (the inline-error contract, relocated).
+
+- **GIVEN** a ≥ lg viewport on the terminal route
+- **WHEN** the bar renders
+- **THEN** the center shows `{name} ▾` (no `Tab:` prefix) beside the omnibox, and Enter on typed text fires one agent-target send and slides the drawer open
+- **AND** the name click still enters inline rename and ▾ still opens the switcher
+
+#### R12: md–lg morph rung
+At the md–lg rung, the center SHALL render today's full heading plus a dim `· ◉ ask` ghost (below md the ghost stays hidden for the 640px no-overlap budget — the chord and palette still morph the box there); activating the ghost (click) or the chord MORPHS the center into the omnibox in place, and Esc (or blur with empty draft) restores the heading. The morphed omnibox behaves identically to R11's. One design at two widths — the standing box and the morph share the component and state.
+
+- **GIVEN** a viewport between the mobile rule and lg
+- **WHEN** the ghost is clicked
+- **THEN** the center becomes the omnibox with focus; Esc restores the heading in place
+
+#### R13: One-input rule — the desktop drawer becomes output-only
+With the omnibox standing (or morphable) on desktop, the drawer SHALL NOT render its own compose strip on desktop: the drawer is output-only — the embedded operator terminal plus the inline error line. The MOBILE sheet keeps its compose strip unchanged (no omnibox exists there; the sheet compose is the input and the OS-dictation target). The Ask-operator palette fallback row keeps its open+send behavior, delivering through the omnibox's lane.
+
+- **GIVEN** an open desktop drawer
+- **WHEN** it renders
+- **THEN** it contains no textarea/compose strip (terminal + error line only)
+- **AND GIVEN** the mobile sheet, **THEN** its compose strip renders exactly as before
+
+#### R14: The ⌘J state machine
+The `operator-console` chord SHALL drive a three-state cycle instead of a plain toggle: **rest** →(⌘J) **focused** (omnibox focused, any draft selected; drawer stays closed) →(⌘J) **open** (drawer slides down — a peek, nothing sent; focus stays in the omnibox) →(⌘J) **rest** (drawer closes AND the omnibox blurs, focus restored). **Enter** (non-empty) from `focused` sends and enters `open`. **Esc** steps back one level: `open` → `focused` (drawer closes, focus kept), `focused` → `rest`. The palette `Operator: Open console` action goes straight to `open`+focused. The ✕, tongue-toggle, and pinned-row/button toggles map onto the same machine (button click: rest→open+focused, open→rest). On mobile the machine is untouched — tongue/sheet keep today's open/close semantics.
+
+- **GIVEN** rest on desktop
+- **WHEN** ⌘J is pressed three times
+- **THEN** the states visit focused → open → rest in order (second press opens without sending)
+- **AND WHEN** Esc fires at `open`, **THEN** the drawer closes but the omnibox keeps focus; a second Esc blurs
+
 ### Non-Goals
 
 - No bottom-bar chip; no blur setting; no registry/settings-API key; no backend diff
@@ -153,6 +186,15 @@ The console SHALL bind its own `paste` and `drop` handlers on its root: clipboar
 
 - [x] T013 Gates: `cd app/frontend && npx tsc --noEmit`; targeted Vitest for touched suites; changed-surface e2e via `just test-e2e "operator-console"` plus sibling sweeps (`top-bar-overflow`, `top-bar-overlap`, `settings`, `compose-strip`-touching specs, `mobile-layout`); `cd app/backend && go test ./...` expected untouched <!-- R1 -->
 
+### Phase 5: Omnibox (amendment 2026-09-05)
+
+- [x] T014 Extract the console compose into a shared seam (draft state, send, image-paste upload, in-flight/error) in `app/frontend/src/lib/operator-console.ts` / a small hook, so the omnibox and the mobile sheet compose drive ONE implementation; add the three-state machine (`rest | focused | open`) as the console's controlling state <!-- R14 -->
+- [x] T015 Omnibox component (`app/frontend/src/components/operator-omnibox.tsx` or colocated): ◉ glyph + input + chord keycap, standing in the center cell at ≥ lg beside the compact heading (prefix span hidden at this rung); md–lg ghost `· ◉ ask` + in-place morph with Esc restore; renders on all four modes with the console's server resolution <!-- R11 -->
+- [x] T016 Wire the ⌘J cycle: the `operator-console` binding steps the state machine (rest→focused→open→rest); Enter sends + auto-opens; Esc steps back; palette action → open+focused; ✕/tongue/◉-button/pinned-row map per R14; mobile untouched <!-- R14 -->
+- [x] T017 One-input rule: remove the drawer's compose strip on DESKTOP (drawer = terminal + inline error at its top edge, under the omnibox); keep the sheet compose on mobile via the shared seam from T014; image paste while omnibox focused rides the console upload path <!-- R13 -->
+- [x] T018 Update unit + e2e specs to the new truths (`operator-console.spec.ts` compose/focus/Esc assertions, heading-prefix rung, palette fallback flow through the omnibox; sweep for the fallback-row substring class in anything touched) and add: the 3-press ⌘J cycle, the md–lg morph, ≥ lg standing box + send-auto-open, drawer-has-no-compose (desktop) vs sheet-has-compose (mobile) <!-- R11 -->
+- [x] T019 Re-run gates (tsc, targeted Vitest, `just test-e2e "operator-console"` + top-bar/overflow/mobile sibling sweeps) <!-- R11 -->
+
 ## Execution Order
 
 - T001, T002 first (T002 blocks T004/T005/T008)
@@ -201,6 +243,15 @@ The console SHALL bind its own `paste` and `drop` handlers on its root: clipboar
 
 - [x] A-022 R9: Uploads go only through the existing `POST /api/sessions/{session}/upload` client; no new endpoints, no path construction from user text
 
+### Omnibox (amendment)
+
+- [x] A-023 R11: ≥ lg center = compact heading (prefix hidden, rename + ▾ intact) + standing omnibox; Enter fires one agent-target send and auto-opens the drawer with focus retained
+- [x] A-024 R12: md–lg renders the ghost; ghost/chord morphs in place; Esc restores the heading
+- [x] A-025 R13: desktop drawer contains no compose strip; mobile sheet compose unchanged; both drive the ONE shared compose seam (no duplicated send/upload logic)
+- [x] A-026 R14: the ⌘J cycle visits rest→focused→open→rest (press 2 opens WITHOUT sending); Esc steps back one level; palette action lands open+focused
+- [x] A-027 R11: omnibox image paste uploads to the operator session and insert-stages the path (same path as the drawer had)
+- [x] A-028 R11: e2e covers the cycle, the morph rung, the standing rung, and the no-compose drawer, with intent comments and exact/anchored palette assertions
+
 ## Notes
 
 - Check items as you review: `- [x]`
@@ -209,7 +260,7 @@ The console SHALL bind its own `paste` and `drop` handlers on its root: clipboar
 
 ## Deletion Candidates
 
-- None — this change adds new functionality without making existing code redundant (the two inlined route-server param walks were planned removals executed under T001, not discovered candidates; `rk-console-drop` remains in use by the mobile sheet)
+- None — this change adds new functionality without making existing code redundant (the two inlined route-server param walks were planned removals executed under T001, not discovered candidates; `rk-console-drop` remains in use by the mobile sheet; the amendment's desktop drawer compose strip removal and the console-local `deliver`/`deliverFiles` functions it replaced were planned removals under R13/T014/T017, with the shared compose seam in `lib/operator-console.ts` as the single surviving implementation)
 
 ## Assumptions
 

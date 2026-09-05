@@ -242,6 +242,9 @@ func TestWaitingPush_PlainWindowURL(t *testing.T) {
 func TestWaitingPushBroadcastsNotifyEvent(t *testing.T) {
 	isolatePush(t)
 	hub := newSSEHub(&slowSessionFetcher{}, nil, nil, nil)
+	// Drain the detached notify goroutine before the TempDir HOME is removed —
+	// the real push seam writes ~/.rk, and a write racing cleanup fails it.
+	t.Cleanup(func() { hub.waitingPush.sends.Wait() })
 	conn := newTestStateConn(hub, "waiting-client", 16)
 	hub.replayGlobalSlots(conn)
 	t.Cleanup(func() { hub.dropStateConn(conn) })

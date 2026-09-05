@@ -32,3 +32,4 @@
 - [ ] [56kz] 2026-09-04: standardization of how messages ar esent to tabs, panes
 - [x] [fhtm] 2026-09-04: frontend unit tests fail on Node 26.8.1 — global localStorage exists-but-undefined breaks vitest/jsdom setup (DONE 2026-09-04: fixed in PR #817 — test-setup.ts installs an in-memory Web Storage whenever the Node ≥25 global accessor is missing/unusable; verified on Node 26.8.1: 180 files / 3649 tests pass)
 - [ ] [qrl5] 2026-09-04: just setup fails fresh with pnpm ERR_PNPM_IGNORED_BUILDS in app/code-bridge until an untracked allowBuilds file is hand-filled — should be tracked config or handled by setup script
+- [ ] [csk9] 2026-09-05: [fab-kit follow-up] Expose a session-role / user-facing-session query from rk (e.g. @rk_ses_role, or 'rk mux sessions --json' with user-facing/attached/window facts) so fab's operator can source spawn-target-session structure from rk instead of hard-coding the _rk-* reserved prefix (adopted in fab-kit cx52 / PR #645)

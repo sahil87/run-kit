@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 19
@@ -33,25 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-09-05T06:44:12Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-05T07:34:20Z"}
     review: {started_at: "2026-09-05T07:34:20Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-05T07:42:26Z"}
     hydrate: {started_at: "2026-09-05T07:42:26Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-05T07:53:10Z"}
-    ship: {started_at: "2026-09-05T07:53:10Z", driver: fab-fff, iterations: 2}
-    review-pr: {iterations: 1}
+    ship: {started_at: "2026-09-05T07:53:10Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-05T07:55:38Z"}
+    review-pr: {started_at: "2026-09-05T07:55:38Z", driver: git-pr, iterations: 2}
 prs:
     - https://github.com/sahil87/run-kit/pull/840
 change_type_source: explicit
 true_impact:
-    added: 2115
-    deleted: 105
-    net: 2010
+    added: 3430
+    deleted: 304
+    net: 3126
     excluding:
-        added: 1618
-        deleted: 80
-        net: 1538
+        added: 2798
+        deleted: 263
+        net: 2535
     tests:
-        added: 440
-        deleted: 12
-        net: 428
-    computed_at: "2026-09-05T07:53:10Z"
-    computed_at_stage: hydrate
+        added: 751
+        deleted: 64
+        net: 687
+    computed_at: "2026-09-05T07:55:38Z"
+    computed_at_stage: ship
 summary: 'Quake console v2: true slide both directions (mounted-through-exit, reduced-motion zeroed), mouse resize with persisted per-viewer geometry, top-bar ◉ button + mobile tongue affordances, glass opacity setting (default 0.90, fixed 6px blur, off at α=1), console image paste/drop upload + insert-staged delivery, paste routing guard'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-05T07:55:30Z
+last_updated: 2026-09-05T07:55:38Z

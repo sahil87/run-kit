@@ -551,8 +551,10 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
    *    the option still reads `split-h:web,tty` (web is open in the grown
    *    layout — a zoom-key-only switch back).
    * 7. Assert no horizontal page overflow (`body.scrollWidth <= 375`).
-   * 8. Resize to the desktop viewport (1440×800); assert there is STILL no
-   *    in-bar pill and no `view-toggle` testid; open the palette with `View:
+   * 8. Resize to the desktop viewport (1440×800); assert the ≥ lg compact
+   *    heading renders beside the standing omnibox (the `Tab:` prefix span
+   *    hidden at this rung), there is STILL no in-bar pill and no
+   *    `view-toggle` testid; open the palette with `View:
    *    Terminal`, assert the option renders; refill with `Switch` and assert
    *    NO `Tile: Switch to …` options (desktop keeps `View:`).
    */
@@ -630,10 +632,13 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
     const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
     expect(bodyWidth).toBeLessThanOrEqual(MOBILE_VIEWPORT.width);
 
-    // Still no switcher chrome at desktop width either — and the desktop
-    // palette keeps its `View:` entries with NO `Tile: Switch` ones.
+    // Still no switcher chrome at desktop width either — at ≥ lg the center
+    // is the compact heading (the `Tab:` prefix span hides) beside the
+    // standing omnibox — and the desktop palette keeps its `View:` entries
+    // with NO `Tile: Switch` ones.
     await page.setViewportSize(DESKTOP_VIEWPORT);
-    await expect(page.getByText("Tab:", { exact: true })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("operator-omnibox-input")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("Tab:", { exact: true })).toBeHidden();
     await expect(inBarSwitcher(page)).toHaveCount(0);
     await expect(page.getByTestId("view-toggle")).toHaveCount(0);
     const desktopPaletteInput = await openPaletteWith(page, "View: Terminal");

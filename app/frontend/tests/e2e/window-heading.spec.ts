@@ -57,19 +57,21 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
   /**
    * Proves: on a Terminal route the window name renders once, as the centered
    * click-to-rename heading — NOT as a trailing breadcrumb crumb (the
-   * breadcrumb ends at the session).
+   * breadcrumb ends at the session) — at BOTH desktop rungs: md–lg carries
+   * the full heading with the static `Tab:` prefix visible as a sibling span;
+   * ≥ lg carries the compact heading (prefix hidden) beside the standing
+   * omnibox, with rename intact.
    *
    * Steps:
-   * 1. Create a window with a known name; resolve its `@N` id; navigate to
-   *    it.
-   * 2. Assert the `Rename tab <name>` button is visible and its text equals
-   *    the window name.
-   * 3. Assert the `Breadcrumb` nav does NOT contain the window name (no
-   *    duplication).
-   * 4. Assert the static `Tab:` page-type prefix is visible as a contiguous
-   *    run and is NOT contained inside the rename button — it is a sibling
-   *    span, so clicking it never starts an edit (the edit input binds only
-   *    to the name).
+   * 1. Create a window with a known name; resolve its `@N` id.
+   * 2. At an md–lg viewport (900px), navigate to it; assert the `Rename tab
+   *    <name>` button is visible and its text equals the window name, the
+   *    `Breadcrumb` nav does NOT contain the name, and the static `Tab:`
+   *    prefix is visible as a contiguous run NOT contained inside the rename
+   *    button — it is a sibling span, so clicking it never starts an edit.
+   * 3. Click the heading; assert the inline editor opens; cancel with Escape.
+   * 4. Resize to ≥ lg (1280px); assert the prefix is hidden, the standing
+   *    omnibox renders, and the rename click + Escape still work.
    */
   test("renders the current window name as the centered click-to-rename heading", async ({
     page,
@@ -77,6 +79,15 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     const name = `head-render-${Date.now()}`;
     newWindow(TEST_SESSION, name);
     const id = await resolveWindow(page, name);
+
+    // md–lg rung (explicit viewport below lg): the full heading — the static
+    // `Tab:` page-type prefix (260714-uco1 — replaced the retired
+    // lens-following `Terminal:`/`Web:`/`Chat:` prefix) renders as a static
+    // sibling OUTSIDE the rename button (clicking it must not edit). The
+    // hierarchy ▾ that used to split the prefix is GONE (260813-kvk7) — the
+    // colon is contiguous to the word (`Tab:`), so the whole prefix run is
+    // the stable locator.
+    await page.setViewportSize({ width: 900, height: 800 });
     await gotoWindow(page, id);
 
     const heading = page.getByRole("button", { name: `Rename tab ${name}` });
@@ -85,12 +96,6 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
     // The window name is NOT duplicated as a breadcrumb crumb.
     const nav = page.getByRole("navigation", { name: "Breadcrumb" });
     await expect(nav).not.toContainText(name);
-    // The static `Window:` page-type prefix (260714-uco1 — replaced the retired
-    // lens-following `Terminal:`/`Web:`/`Chat:` prefix) renders as a static
-    // sibling OUTSIDE the rename button (clicking it must not edit). The
-    // hierarchy ▾ that used to split the prefix is GONE (260813-kvk7) — the
-    // colon is contiguous to the word (`Window:`), so the whole prefix run is
-    // the stable locator.
     const prefix = page.getByText("Tab:", { exact: true });
     await expect(prefix).toBeVisible();
     const prefixInButton = await heading.evaluate(
@@ -98,6 +103,23 @@ test.describe("Window heading (centered, editable) + hover vocabulary", () => {
       await prefix.elementHandle(),
     );
     expect(prefixInButton).toBe(false);
+    // Rename entry is alive at this rung: click → inline editor; Escape cancels.
+    await heading.click();
+    await expect(page.getByRole("textbox", { name: "Tab name" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(heading).toBeVisible();
+
+    // ≥ lg rung: the compact heading — the prefix span hides and the standing
+    // omnibox renders beside `{name} ▾`; the rename click is untouched.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(prefix).toBeHidden();
+    await expect(page.getByTestId("operator-omnibox-input")).toBeVisible();
+    await expect(heading).toBeVisible();
+    await expect(heading).toHaveText(name);
+    await heading.click();
+    await expect(page.getByRole("textbox", { name: "Tab name" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(heading).toBeVisible();
   });
 
   /**
@@ -562,13 +584,15 @@ test.describe("Top-bar heading — anchor + history arrows (260714-uco1)", () =>
    * name grows/shrinks (it no longer recenters with name length). Names
    * longer than the band grow rightward and the centered box drifts — an
    * accepted tradeoff — so the test deliberately exercises the band, not
-   * arbitrarily long names.
+   * arbitrarily long names. Measured at the md–lg rung: at ≥ lg the prefix
+   * span hides (the compact heading + standing omnibox take over), so the
+   * prefix-left-edge probe only exists below lg.
    *
    * Steps:
    * 1. Create two windows in the same session with different (band-fitting)
    *    name lengths.
-   * 2. Set a desktop viewport (1200px) so the `sm:` min-width anchor is
-   *    active.
+   * 2. Set an md–lg viewport (900px) so the `sm:` min-width anchor is active
+   *    AND the prefix span still renders (it hides at ≥ lg).
    * 3. Navigate to the shorter-named window; record the `Tab:` prefix run's
    *    left x (the leftmost prefix text — the anchor under test).
    * 4. Navigate to the longer-named window; record the prefix run's left x.
@@ -591,8 +615,10 @@ test.describe("Top-bar heading — anchor + history arrows (260714-uco1)", () =>
     const shortId = await resolveWindow(page, shortName);
     const midId = await resolveWindow(page, midName);
 
-    // Desktop viewport so the sm:min-width anchor is active.
-    await page.setViewportSize({ width: 1200, height: 800 });
+    // md–lg viewport: the sm:min-width anchor is active AND the prefix span
+    // still renders (at ≥ lg the compact heading hides it, so the probe is
+    // re-anchored to this rung's geometry).
+    await page.setViewportSize({ width: 900, height: 800 });
 
     // The prefix run ("Window:" — contiguous since the hierarchy ▾ was removed
     // in 260813-kvk7) is the heading's leftmost text; its left edge is the
@@ -615,17 +641,22 @@ test.describe("Top-bar heading — anchor + history arrows (260714-uco1)", () =>
   /**
    * Proves: the terminal-route heading prefix is a static, contiguous `Tab:`
    * run — never the retired lens-following `Terminal:`/`Web:`/`Chat:` prefix —
-   * and the hierarchy dropdown that used to split the prefix is gone, leaving
-   * the window switcher as the heading's single ▾.
+   * visible at the md–lg rung and hidden at ≥ lg (the compact heading +
+   * standing omnibox render there) — and the hierarchy dropdown that used to
+   * split the prefix is gone, leaving the window switcher as the heading's
+   * single ▾ at BOTH rungs.
    *
    * Steps:
-   * 1. Create a plain window; navigate to it.
+   * 1. Create a plain window; navigate to it at an md–lg viewport (900px).
    * 2. Assert the contiguous `Tab:` prefix run is visible (the hierarchy ▾ no
    *    longer splits it) and that no `Terminal:`/`Web:`/`Chat:` text is
    *    present.
    * 3. Assert no `Switch hierarchy` trigger exists; click the `Switch tab` ▾
    *    and assert its menu lists the current window (the session's windows,
    *    not the ancestor chain); close with Escape.
+   * 4. Resize to ≥ lg (1280px); assert the prefix is hidden and the standing
+   *    omnibox renders; open the `Switch tab` ▾ again and assert the menu
+   *    still lists the current window.
    */
   test("the heading prefix is a static `Window:` on the terminal route (all lenses), with a single ▾ window switcher", async ({
     page,
@@ -633,14 +664,16 @@ test.describe("Top-bar heading — anchor + history arrows (260714-uco1)", () =>
     const name = `hx-prefix-${Date.now()}`;
     newWindow(TEST_SESSION, name);
     const id = await resolveWindow(page, name);
-    await gotoWindow(page, id);
 
-    // Static `Tab:` — never the retired `Terminal:`/`Web:`/`Chat:` lens
-    // prefix. (This plain window offers only the tty lens, so no ViewSwitcher;
-    // web lens-switch coverage lives in the web-view-lens spec,
-    // which asserts `Tab:` in every lens.) The hierarchy ▾ that used to
-    // split the prefix is GONE (260813-kvk7): the colon is contiguous to the
-    // word, so assert the whole `Window:` run.
+    // md–lg rung (explicit viewport below lg): the full heading with the
+    // static prefix. Static `Tab:` — never the retired
+    // `Terminal:`/`Web:`/`Chat:` lens prefix. (This plain window offers only
+    // the tty lens, so no ViewSwitcher; web lens-switch coverage lives in the
+    // web-view-lens spec, which asserts `Tab:` in every lens.) The hierarchy
+    // ▾ that used to split the prefix is GONE (260813-kvk7): the colon is
+    // contiguous to the word, so assert the whole `Window:` run.
+    await page.setViewportSize({ width: 900, height: 800 });
+    await gotoWindow(page, id);
     await expect(page.getByText("Tab:", { exact: true })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText(/Terminal:|Web:|Chat:/)).toHaveCount(0);
 
@@ -649,6 +682,15 @@ test.describe("Top-bar heading — anchor + history arrows (260714-uco1)", () =>
     // switcher (accessible name "Switch tab"); opening it lists the
     // session's windows (NOT the ancestor chain).
     await expect(page.getByLabel("Switch hierarchy")).toHaveCount(0);
+    await page.getByLabel("Switch tab").click();
+    await expect(page.getByRole("menuitem", { name })).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    // ≥ lg rung: the compact heading hides the prefix and the standing
+    // omnibox renders beside `{name} ▾` — the ▾ switcher is untouched.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByText("Tab:", { exact: true })).toBeHidden();
+    await expect(page.getByTestId("operator-omnibox-input")).toBeVisible();
     await page.getByLabel("Switch tab").click();
     await expect(page.getByRole("menuitem", { name })).toBeVisible();
     await page.keyboard.press("Escape");

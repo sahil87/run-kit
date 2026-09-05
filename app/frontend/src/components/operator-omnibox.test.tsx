@@ -75,6 +75,11 @@ function stubWideDesktop() {
   stubMatchMedia((query) => query === "(min-width: 1024px)");
 }
 
+/** The extra-wide rung: the `lg` and `2xl` min-width queries both match. */
+function stubExtraWideDesktop() {
+  stubMatchMedia((query) => query === "(min-width: 1024px)" || query === "(min-width: 1536px)");
+}
+
 describe("OperatorOmnibox", () => {
   beforeEach(() => {
     setConsoleMachineState("rest");
@@ -115,6 +120,17 @@ describe("OperatorOmnibox", () => {
     expect(screen.getByTestId("operator-omnibox-ghost").className).toContain("lg:hidden");
     const box = screen.getByTestId("operator-omnibox");
     expect(box.className).toContain("hidden lg:flex");
+    // Slim at rest below 2xl — the standing box never eats the crumbs'
+    // min-useful-width at lg/xl.
+    expect(box.className).toContain("w-[12ch]");
+    expect(screen.getByTestId("operator-omnibox-input")).toHaveAttribute("placeholder", "Ask ◉…");
+  });
+
+  it("≥ 2xl rung: the box takes its full rest width and long placeholder", () => {
+    stubExtraWideDesktop();
+    renderPair();
+
+    expect(screen.getByTestId("operator-omnibox").className).toContain("2xl:w-[20ch]");
     expect(screen.getByTestId("operator-omnibox-input")).toHaveAttribute("placeholder", "Ask the operator…");
   });
 

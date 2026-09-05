@@ -1,6 +1,6 @@
 import { useContext, useEffect, useMemo, useRef } from "react";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import { evaluateMediaQuery } from "@/hooks/use-media-query";
+import { evaluateMediaQuery, useMediaQuery } from "@/hooks/use-media-query";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { formatCombo } from "@/lib/keybindings";
 import { SessionContext } from "@/contexts/session-context";
@@ -19,13 +19,21 @@ import {
  *  no live subscription is needed. */
 const WIDE_RUNG_QUERY = "(min-width: 1024px)";
 
+/** The extra-wide rung (tailwind `2xl`) — the only width where the standing
+ *  box takes its full rest width and long placeholder. */
+const EXTRA_WIDE_RUNG_QUERY = "(min-width: 1536px)";
+
 /**
  * The operator omnibox — the console's compose relocated into the top bar's
  * center cell (desktop only; mobile keeps the sheet compose and renders
  * nothing here). One component at two widths:
  *
- *  - ≥ lg: a STANDING bordered input (`◉` glyph, "Ask the operator…"
- *    placeholder, the chord keycap) beside the compact heading.
+ *  - ≥ lg: a STANDING bordered input (`◉` glyph, a chord keycap) beside the
+ *    compact heading. Slim at rest — `12ch` with the short "Ask ◉…"
+ *    placeholder, widening to `20ch` + the full "Ask the operator…"
+ *    placeholder only at ≥ 2xl, so the standing box never eats the crumbs'
+ *    min-useful-width at `lg`/`xl` (the box grows meaning on focus, not at
+ *    rest).
  *  - md–lg: a dim `· ◉ ask` ghost that (on click, or when the chord focuses
  *    the machine) morphs the center into the same box in place; Esc or an
  *    empty-draft blur restores the heading.
@@ -47,6 +55,7 @@ const WIDE_RUNG_QUERY = "(min-width: 1024px)";
  */
 export function OperatorOmnibox({ routeServer }: { routeServer: string | null }) {
   const isMobile = useIsMobile();
+  const extraWide = useMediaQuery(EXTRA_WIDE_RUNG_QUERY);
   const machine = useConsoleMachineState();
   const compose = useOperatorCompose();
   // The route server arrives as a prop: the TopBar already carries it, and
@@ -132,7 +141,7 @@ export function OperatorOmnibox({ routeServer }: { routeServer: string | null })
         data-testid="operator-omnibox"
         className={`${
           active ? "flex" : "hidden lg:flex"
-        } ml-2 w-[20ch] xl:w-[26ch] max-w-[40vw] items-center gap-1.5 rounded border px-2 py-0.5 ${
+        } ml-2 w-[12ch] 2xl:w-[20ch] max-w-[40vw] items-center gap-1.5 rounded border px-2 py-0.5 ${
           active ? "border-accent-green/60" : "border-border"
         }`}
       >
@@ -144,7 +153,7 @@ export function OperatorOmnibox({ routeServer }: { routeServer: string | null })
           type="text"
           value={compose.text}
           data-testid="operator-omnibox-input"
-          placeholder="Ask the operator…"
+          placeholder={extraWide ? "Ask the operator…" : "Ask ◉…"}
           aria-label="Ask the operator"
           onChange={(e) => setOperatorComposeText(e.target.value)}
           onFocus={() => {

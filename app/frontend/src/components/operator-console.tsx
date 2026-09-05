@@ -146,6 +146,17 @@ export function OperatorConsole() {
   const requestCloseRef = useRef(requestClose);
   requestCloseRef.current = requestClose;
 
+  // The component can unmount mid-exit (layout teardown); a pending slide
+  // timeout must not fire setState afterwards.
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current !== null) {
+        clearTimeout(closeTimerRef.current);
+        closeTimerRef.current = null;
+      }
+    };
+  }, []);
+
   const openDrawer = useCallback(() => {
     // A re-open mid-exit cancels the close: the drawer transitions back down
     // from wherever the slide had reached.

@@ -315,9 +315,12 @@ export function TerminalClient({
       // console root's own drop handler (the event bubbles to it) — the strip
       // forward would upload to the route's focused target instead. The
       // drag-over highlight still clears: no dragleave follows a drop.
+      // preventDefault precedes the console early-return: blocking the
+      // browser's default drop action (URL/text navigation) must not depend
+      // on the drop bubbling to the console root.
       setDragOver(false);
-      if (isOperatorConsoleTarget(e.currentTarget)) return;
       e.preventDefault();
+      if (isOperatorConsoleTarget(e.currentTarget)) return;
       const files = e.dataTransfer.files;
       if (files.length === 0) return;
       attachToStrip(files);

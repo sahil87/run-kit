@@ -423,12 +423,15 @@ export function OperatorConsole() {
         void attachOperatorFiles(server, target, files);
       }}
       onDragOver={(e) => {
-        if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+        // Cancel every dragover — not just file drags — so the drop handler
+        // below always fires and can swallow non-file drops; a URL/text drop
+        // left to the browser's default navigates away from the page.
+        e.preventDefault();
       }}
       onDrop={(e) => {
+        e.preventDefault();
         const files = Array.from(e.dataTransfer?.files ?? []);
         if (files.length === 0) return;
-        e.preventDefault();
         void attachOperatorFiles(server, target, files);
       }}
       className={

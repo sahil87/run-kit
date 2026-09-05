@@ -395,6 +395,31 @@ describe("OperatorConsole", () => {
     );
     expect(mockSend).not.toHaveBeenCalled();
   });
+
+  it("a file drop inside the drawer uploads to the operator session", async () => {
+    renderConsole();
+    openDrawer();
+    const root = await screen.findByTestId("operator-console");
+
+    const file = new File(["png"], "shot.png", { type: "image/png" });
+    const proceeded = fireEvent.drop(root, { dataTransfer: { files: [file], types: ["Files"] } });
+
+    expect(proceeded).toBe(false);
+    await waitFor(() => expect(mockUpload).toHaveBeenCalledTimes(1));
+    expect(mockUpload).toHaveBeenCalledWith("srv1", "_rk-operator", file, "@9");
+  });
+
+  it("a non-file drop inside the drawer is canceled (no browser navigation) and uploads nothing", async () => {
+    renderConsole();
+    openDrawer();
+    const root = await screen.findByTestId("operator-console");
+
+    const proceeded = fireEvent.drop(root, { dataTransfer: { files: [], types: ["text/uri-list"] } });
+
+    expect(proceeded).toBe(false);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(mockUpload).not.toHaveBeenCalled();
+  });
 });
 
 describe("OperatorConsole (mobile sheet compose)", () => {

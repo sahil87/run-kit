@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 4
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-09-05T07:25:12Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-05T07:36:06Z"}
     review: {started_at: "2026-09-05T07:36:06Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-05T07:42:34Z"}
     hydrate: {started_at: "2026-09-05T07:42:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-05T07:46:53Z"}
-    ship: {started_at: "2026-09-05T07:46:53Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-05T07:46:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-05T07:48:41Z"}
+    review-pr: {started_at: "2026-09-05T07:48:41Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/841
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1014
+    deleted: 62
+    net: 952
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 540
+        deleted: 26
+        net: 514
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-09-05T07:46:53Z"
-    computed_at_stage: hydrate
+        added: 252
+        deleted: 8
+        net: 244
+    computed_at: "2026-09-05T07:48:41Z"
+    computed_at_stage: ship
 summary: 'rk mux sessions — 13th mux verb: session enumeration with name-derived roles (user/pin/control/operator/reserved) over the _rk-* reserved namespace, default user-facing filter + --all, ListClients-joined attached counts'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-05T07:46:53Z
+last_updated: 2026-09-05T07:48:41Z

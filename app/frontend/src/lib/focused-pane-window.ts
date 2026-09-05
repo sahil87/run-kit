@@ -2,11 +2,12 @@ import type { ProjectSession, WindowInfo } from "@/types";
 import type { FocusedPane } from "@/contexts/focused-pane-context";
 
 /**
- * Pure helpers backing the sidebar PANE panel's board-route fallback
- * (260720-zx4i): resolve the board's focused tile to a live, fully-enriched
- * `WindowInfo` from the streamed sessions — or synthesize a thin one from the
- * board entry's own pane data when the window is absent from the stream
- * (pin-only: the home session died while the window stayed pinned).
+ * Pure helpers resolving a live `WindowInfo` from the streamed sessions by
+ * stable tmux window ID. `resolveFocusedWindow` backs both the sidebar PANE
+ * panel's board-route fallback and the operator console's
+ * context-chip subject lookup; `thinWindowFromFocusedPane` synthesizes a thin
+ * one from the board entry's own pane data when the window is absent from the
+ * stream (pin-only: the home session died while the window stayed pinned).
  */
 
 /**

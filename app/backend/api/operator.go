@@ -20,10 +20,10 @@ import (
 // limit; the value is a tunable constant.
 const operatorTextLimit = 4096
 
-// operatorFacts are the server-derived inputs every window-scoped template
-// renders from. ALL of them are derivable (Constitution X — hooks carry only
-// the underivable): the request body's closed-set template id admits no client
-// text on this lane.
+// operatorFacts are the inputs every window-scoped template renders from. All
+// but Text are server-derived (Constitution X — hooks carry only the
+// underivable); Text is the validated client text an acceptsText template
+// carries, rendered as delimited data by the render func.
 type operatorFacts struct {
 	WindowID       string // subject window, @N (survives moves, collision-proof)
 	Name           string // current window name
@@ -31,6 +31,7 @@ type operatorFacts struct {
 	WorktreePath   string
 	FabChange      string // rendered only when non-empty
 	FabStage       string
+	Text           string // client text (acceptsText templates only)
 }
 
 // operatorWindowFact is one row of the server-scoped fact table: an existing
@@ -111,8 +112,14 @@ type operatorTemplate struct {
 	// closed posture is the default (mirrors acceptsText): a non-empty session
 	// on a template without this declaration is a 400.
 	acceptsSession bool
-	render         func(f operatorFacts) string
-	renderServer   func(f serverOperatorFacts) string
+	// chatDelivery declares a CHAT template: delivery skips the busy gate and
+	// the queue (allow + probe — a human steer must land now, never a 202).
+	// Requires acceptsText; incompatible with requiresAgentSessionRef (its
+	// transcript line is best-effort, degrading to an omitted line rather
+	// than a 404). The invariant is test-enforced over the whole registry.
+	chatDelivery bool
+	render       func(f operatorFacts) string
+	renderServer func(f serverOperatorFacts) string
 }
 
 // operatorTemplates is the closed in-code template registry. An id outside
@@ -123,7 +130,7 @@ var operatorTemplates = map[string]operatorTemplate{
 	// normal derive tick — there is no response channel.
 	"fix-tab-name": {
 		requiresAgentSessionRef: true,
-		render:                renderFixTabName,
+		render:                  renderFixTabName,
 	},
 	// spawn-task: the operator routes a user-described task — picks the
 	// worktree/preset and spawns through its own shell via the rk riff CLI.
@@ -177,7 +184,17 @@ var operatorTemplates = map[string]operatorTemplate{
 	// mutations emit no control-mode event).
 	"annotate-tab": {
 		requiresAgentSessionRef: true,
-		render:                renderAnnotateTab,
+		render:                  renderAnnotateTab,
+	},
+	// user-message: the templated chat lane — the user's text rides a
+	// server-derived source envelope (subject @N, name, worktree, fab clause,
+	// best-effort transcript) as a CONVERSATION the operator may reply to.
+	// chatDelivery skips the busy gate and the queue: a live steer from a user
+	// watching the pane must land now (allow + probe), never park on a 202.
+	"user-message": {
+		acceptsText:  true,
+		chatDelivery: true,
+		render:       renderUserMessage,
 	},
 }
 
@@ -519,6 +536,27 @@ Do not reply to this message or take any other action.`,
 		f.WindowID, f.Name, f.TranscriptPath, contextLine, f.WindowID)
 }
 
+// renderUserMessage composes the user-message chat prompt: a compact source
+// envelope of server-derived facts (subject @N, current window name, worktree,
+// the fab clause only when FabChange is non-empty, the transcript line only
+// when it resolved) followed by the user's text as delimited data. Unlike the
+// request templates it frames a CONVERSATION, not a work item — no
+// [run-kit request] prefix, no action bounds; the operator may reply.
+func renderUserMessage(f operatorFacts) string {
+	contextLine := fmt.Sprintf("Context: worktree %s", f.WorktreePath)
+	if f.FabChange != "" {
+		contextLine += fmt.Sprintf("; fab change %s at stage %s", f.FabChange, f.FabStage)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "A message from the user, sent from tmux window %s (currently %q) on this server.\n\n%s.\n", f.WindowID, f.Name, contextLine)
+	if f.TranscriptPath != "" {
+		fmt.Fprintf(&b, "Transcript: %s\n", f.TranscriptPath)
+	}
+	b.WriteString("\n")
+	b.WriteString(delimitUserText("The user's message follows", f.Text))
+	return b.String()
+}
+
 // delimitUserText wraps client-supplied text in a fenced block framed as data.
 // The backtick fence is composed dynamically as max(3, longest backtick run in
 // the text + 1), so no text can close its own fence early (a fixed fence is
@@ -607,15 +645,21 @@ func findOperatorSubject(sess []sessions.ProjectSession, windowID string) *tmux.
 // the novelty echo probe as the final fail-closed guard), chat-pane resolution
 // over the OPERATOR window's panes (injection targets the pane, never the
 // window), and in-process delivery through injectIntoPane under ONE shared
-// agentSendTotalBudget deadline. Rejections surface as operatorReject; probe
-// and injection failures are returned RAW for the callers' errors.As mappings.
-func (s *Server) deliverOperatorPrompt(ctx context.Context, server string, operator *tmux.WindowInfo, prompt string) error {
+// agentSendTotalBudget deadline. A chatDelivery template skips the busy gate —
+// a chat steer must land now (allow + probe; the probe stays the fail-closed
+// guard), so a busy rejection — and with it any caller's busy⇒enqueue
+// conversion — is unreachable on that lane. Rejections surface as
+// operatorReject; probe and injection failures are returned RAW for the
+// callers' errors.As mappings.
+func (s *Server) deliverOperatorPrompt(ctx context.Context, server string, operator *tmux.WindowInfo, prompt string, chatDelivery bool) error {
 	// `waiting` means a human-blocking dialog is up (pasting into it is the
 	// blind-typing hazard the probe exists for); idle or empty state proceeds
 	// (unknown must pass or a hookless operator could never receive requests).
-	switch operator.AgentState {
-	case tmux.AgentStateActive, tmux.AgentStateWaiting:
-		return &operatorReject{http.StatusConflict, fmt.Sprintf("operator is busy (%s) — request not delivered; try again when it is idle", operator.AgentState)}
+	if !chatDelivery {
+		switch operator.AgentState {
+		case tmux.AgentStateActive, tmux.AgentStateWaiting:
+			return &operatorReject{http.StatusConflict, fmt.Sprintf("operator is busy (%s) — request not delivered; try again when it is idle", operator.AgentState)}
+		}
 	}
 
 	_, _, operatorPaneID := sessions.ResolveAgentPane(operator.Panes)
@@ -764,24 +808,28 @@ func (s *Server) writeOperatorQueueResponse(w http.ResponseWriter, server string
 }
 
 // deliverOperatorRequest is the post-parse core of handleOperatorRequest,
-// shared with the auto-name-on-idle tracker (260822-q675): fact derivation,
+// shared with the auto-name-on-idle tracker: fact derivation,
 // the busy gate, operator pane resolution, and injection through the agent-send
 // engine. subject/operator arrive ALREADY RESOLVED from the caller's single
 // FetchSessions pass — no second fetch happens here. The ONE shared
 // agentSendTotalBudget deadline is applied inside so both callers (HTTP handler,
 // auto-name fan-out) get identical injection bounding.
 //
-// Busy policy is REJECT, never queue: an active or waiting operator yields a
-// 409-class operatorReject; idle or unknown proceeds (the novelty echo probe
-// remains the final fail-closed guard). No state is written anywhere
+// Busy policy is REJECT, never queue — except on a chatDelivery template, which
+// skips the gate inside the shared core (allow + probe). The subject's
+// transcript resolves best-effort for templates NOT declaring
+// requiresAgentSessionRef: an empty ref or a resolution failure
+// (ErrInvalidRef/ErrTranscriptNotFound/ErrNoAdapter) leaves TranscriptPath
+// empty and delivery proceeds — never a 404. No state is written anywhere
 // (Constitution II) beyond the caller's own cooldown bookkeeping.
-func (s *Server) deliverOperatorRequest(ctx context.Context, server string, subject, operator *tmux.WindowInfo, tmpl operatorTemplate) error {
+func (s *Server) deliverOperatorRequest(ctx context.Context, server string, subject, operator *tmux.WindowInfo, tmpl operatorTemplate, text string) error {
 	facts := operatorFacts{
 		WindowID:     subject.WindowID,
 		Name:         subject.Name,
 		WorktreePath: subject.WorktreePath,
 		FabChange:    subject.FabChange,
 		FabStage:     subject.FabStage,
+		Text:         text,
 	}
 	if tmpl.requiresAgentSessionRef {
 		if subject.AgentSessionRef == "" {
@@ -797,12 +845,18 @@ func (s *Server) deliverOperatorRequest(ctx context.Context, server string, subj
 			return err
 		}
 		facts.TranscriptPath = path
+	} else if subject.AgentSessionRef != "" {
+		// Opportunistic fill: the transcript line is a nice-to-have fact here,
+		// so an unresolvable ref degrades to a path-less envelope.
+		if path, err := transcript.Path(subject.AgentProvider, subject.AgentSessionRef); err == nil {
+			facts.TranscriptPath = path
+		}
 	}
 
 	// Delivery targets the OPERATOR window's resolved chat pane — never the
 	// subject's pane, never a window id; the busy gate, pane resolution, and
 	// deadline live in the shared prompt-level core.
-	return s.deliverOperatorPrompt(ctx, server, operator, tmpl.render(facts))
+	return s.deliverOperatorPrompt(ctx, server, operator, tmpl.render(facts), tmpl.chatDelivery)
 }
 
 // writeTranscriptError maps a transcript read error to an HTTP response. A
@@ -827,10 +881,11 @@ func (s *Server) writeTranscriptError(w http.ResponseWriter, err error) {
 // machinery. Mutation ⇒ POST (Constitution IX). Everything is resolved
 // server-side from ONE FetchSessions pass: subject + operator lookup, fact
 // derivation, and the busy gate all read the same result. A busy rejection from
-// the shared core is queued in process memory and returns 202; all other
-// validation and delivery failures remain fail-fast. There is no response
-// channel or persisted mailbox — the operator acts through its shell and the
-// outcome surfaces on the normal derive tick.
+// the shared core is queued in process memory and returns 202 — except on a
+// chatDelivery template, where the busy gate is skipped and no 202 is
+// reachable; all other validation and delivery failures remain fail-fast.
+// There is no response channel or persisted mailbox — the operator acts through
+// its shell and the outcome surfaces on the normal derive tick.
 func (s *Server) handleOperatorRequest(w http.ResponseWriter, r *http.Request) {
 	windowID, ok := parseWindowID(r)
 	if !ok {
@@ -879,7 +934,7 @@ func (s *Server) handleOperatorRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.deliverOperatorRequest(r.Context(), server, subject, operator, tmpl); err != nil {
+	if err := s.deliverOperatorRequest(r.Context(), server, subject, operator, tmpl, body.Text); err != nil {
 		var probeErr inject.ProbeFailure
 		if errors.As(err, &probeErr) {
 			// Text pasted, Enter withheld — recoverable state (same as agent-send).
@@ -988,7 +1043,7 @@ func (s *Server) handleServerOperatorRequest(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusConflict, "nothing is waiting on this server")
 		return
 	}
-	if err := s.deliverOperatorPrompt(r.Context(), server, operator, tmpl.renderServer(facts)); err != nil {
+	if err := s.deliverOperatorPrompt(r.Context(), server, operator, tmpl.renderServer(facts), tmpl.chatDelivery); err != nil {
 		var probeErr inject.ProbeFailure
 		if errors.As(err, &probeErr) {
 			// Text pasted, Enter withheld — recoverable state (same as agent-send).

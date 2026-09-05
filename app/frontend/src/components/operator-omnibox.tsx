@@ -4,6 +4,7 @@ import { evaluateMediaQuery, useMediaQuery } from "@/hooks/use-media-query";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { formatCombo } from "@/lib/keybindings";
 import { SessionContext } from "@/contexts/session-context";
+import { OperatorContextChip } from "@/components/operator-context-chip";
 import {
   attachOperatorFiles,
   resolveOperatorConsoleTarget,
@@ -140,8 +141,10 @@ export function OperatorOmnibox({ routeServer }: { routeServer: string | null })
         data-operator-console=""
         data-testid="operator-omnibox"
         className={`${
-          active ? "flex" : "hidden lg:flex"
-        } ml-2 w-[12ch] 2xl:w-[20ch] max-w-[40vw] items-center gap-1.5 rounded border px-2 py-0.5 ${
+          // Engaged, the box widens to hold the draft plus the capped chip;
+          // at rest it stays the slim standing width.
+          active ? "flex w-[34ch]" : "hidden lg:flex w-[12ch] 2xl:w-[20ch]"
+        } ml-2 max-w-[40vw] items-center gap-1.5 rounded border px-2 py-0.5 ${
           active ? "border-accent-green/60" : "border-border"
         }`}
       >
@@ -160,11 +163,20 @@ export function OperatorOmnibox({ routeServer }: { routeServer: string | null })
             // Clicking into the standing box engages the machine.
             if (machineRef.current === "rest") setConsoleMachineState("focused");
           }}
-          onBlur={() => {
+          onBlur={(e) => {
             // Only the focused rung (drawer closed) ends on blur: the standing
             // box always releases; the md–lg morph holds while a draft exists
             // so a click away never silently discards the in-place box.
             if (machineRef.current !== "focused") return;
+            // Focus moving WITHIN the box (the context chip's ✕, the keycap)
+            // is not a release — releasing here would unmount the chip before
+            // its click lands, making dismissal impossible by mouse.
+            if (
+              e.relatedTarget instanceof Node &&
+              e.currentTarget.parentElement?.contains(e.relatedTarget)
+            ) {
+              return;
+            }
             if (evaluateMediaQuery(WIDE_RUNG_QUERY) || textRef.current.trim() === "") {
               setConsoleMachineState("rest");
             }
@@ -185,6 +197,10 @@ export function OperatorOmnibox({ routeServer }: { routeServer: string | null })
           }}
           className="min-w-0 flex-1 bg-transparent text-xs text-text-primary outline-none placeholder:text-text-secondary"
         />
+        {/* The chat-lane context chip — shown only while the machine is
+            engaged (composing), so the resting box stays slim; the user sees
+            what a send will attach before pressing Enter. */}
+        {active && <OperatorContextChip server={server} compact />}
         {chord && (
           <kbd
             aria-hidden="true"

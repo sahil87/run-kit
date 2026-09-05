@@ -1,0 +1,17 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-05T07:21:44Z"}
+{"args":"Operator chat, templated — a context-carrying send lane for the operator console (chatDelivery): new user-message chat template with server-derived source envelope, chatDelivery registry property skipping busy gate + queue, console context chip on terminal routes","cmd":"fab-new","event":"command","ts":"2026-09-05T07:21:44Z"}
+{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-09-05T07:23:49Z"}
+{"cmd":"fab-draft","event":"command","ts":"2026-09-05T07:23:54Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-09-05T07:24:56Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-05T07:26:15Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-05T07:27:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-05T07:46:24Z"}
+{"event":"review","result":"failed","ts":"2026-09-05T07:52:17Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-05T07:52:17Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-05T07:54:53Z"}
+{"event":"review","result":"failed","ts":"2026-09-05T07:59:25Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-05T07:59:25Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-05T08:03:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-05T08:07:25Z"}
+{"event":"review","result":"passed","ts":"2026-09-05T08:07:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-05T08:12:25Z"}

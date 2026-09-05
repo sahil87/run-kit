@@ -458,6 +458,26 @@ describe("operator request outcomes", () => {
     });
   });
 
+  it("carries the optional text only when non-empty", async () => {
+    const bodies: unknown[] = [];
+    mswServer.use(
+      http.post("/api/windows/:windowId/operator-request", async ({ request }) => {
+        bodies.push(await request.json());
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    await expect(sendOperatorRequest("default", "@1", "user-message", "hello operator")).resolves.toEqual({
+      outcome: "delivered",
+    });
+    await expect(sendOperatorRequest("default", "@1", "fix-tab-name")).resolves.toEqual({
+      outcome: "delivered",
+    });
+    expect(bodies).toEqual([
+      { template: "user-message", text: "hello operator" },
+      { template: "fix-tab-name" },
+    ]);
+  });
+
   it("distinguishes server delivery from queueing and preserves the optional session body", async () => {
     const bodies: unknown[] = [];
     let queued = false;
@@ -959,7 +979,7 @@ describe("maintenance actions (force update + restart)", () => {
   });
 });
 
-describe("update trigger watch-target parse (260812-z1ya)", () => {
+describe("update trigger watch-target parse", () => {
   const WATCH = { server: "rk-daemon", session: "rk-jobs", window: "update", window_id: "@5" };
 
   it("triggerUpdate resolves the status + watch target from a 202", async () => {
@@ -1024,7 +1044,7 @@ describe("update trigger watch-target parse (260812-z1ya)", () => {
   });
 });
 
-describe("checkForUpdates source wiring (260720-wb3n)", () => {
+describe("checkForUpdates source wiring", () => {
   function withCheckResponse(body: Record<string, unknown>) {
     let capturedBody: Record<string, unknown> = {};
     mswServer.use(
@@ -1066,7 +1086,7 @@ describe("checkForUpdates source wiring (260720-wb3n)", () => {
   });
 });
 
-describe("refreshStatus tri-state body (260715-nwla)", () => {
+describe("refreshStatus tri-state body", () => {
   function withStatusBody(body: { status: string }) {
     mswServer.use(
       http.post("/api/status/refresh", () => HttpResponse.json(body, { status: 202 })),
@@ -1421,7 +1441,7 @@ describe("settings client (registry-driven GET/POST /api/settings)", () => {
   });
 });
 
-describe("fetchWindowHistory (260819-shqo terminal export)", () => {
+describe("fetchWindowHistory (terminal export)", () => {
   it("GETs /api/windows/{id}/history with the server query and returns the text body", async () => {
     let capturedUrl = "";
     mswServer.use(

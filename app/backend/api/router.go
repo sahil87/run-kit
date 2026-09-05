@@ -327,7 +327,7 @@ func (s *Server) operatorQueueDeliver() operatorQueueDeliver {
 			if subject.Role == "operator" || subject == operator {
 				return errors.New("operator window cannot be its own request subject")
 			}
-			return s.deliverOperatorRequest(ctx, server, subject, operator, tmpl)
+			return s.deliverOperatorRequest(ctx, server, subject, operator, tmpl, request.text)
 		}
 		if !tmpl.serverScoped {
 			return fmt.Errorf("operator template %q is not server-scoped", request.template)
@@ -346,7 +346,7 @@ func (s *Server) operatorQueueDeliver() operatorQueueDeliver {
 		if tmpl.requiresWaiting && !hasWaitingOperatorFacts(facts) {
 			return errors.New("nothing is waiting on this server")
 		}
-		return s.deliverOperatorPrompt(ctx, server, operator, tmpl.renderServer(facts))
+		return s.deliverOperatorPrompt(ctx, server, operator, tmpl.renderServer(facts), tmpl.chatDelivery)
 	}
 }
 
@@ -357,7 +357,7 @@ func (s *Server) operatorQueueDeliver() operatorQueueDeliver {
 // and the settings POST's live re-apply on identical wiring.
 func (s *Server) autoNameDeliver() func(ctx context.Context, server string, subject, operator *tmux.WindowInfo) error {
 	return func(ctx context.Context, server string, subject, operator *tmux.WindowInfo) error {
-		return s.deliverOperatorRequest(ctx, server, subject, operator, operatorTemplates["fix-tab-name"])
+		return s.deliverOperatorRequest(ctx, server, subject, operator, operatorTemplates["fix-tab-name"], "")
 	}
 }
 
@@ -689,7 +689,7 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger) (chi.Router, *
 
 	pc := prstatus.NewCollector(prStatusPollInterval)
 	// Seed the branch refresher's viewer head-index from the collector's ONE
-	// batched GraphQL call (260807-2ept): the batch already carries every recent
+	// batched GraphQL call: the batch already carries every recent
 	// viewer-authored PR's head repo + ref, so the refresher can JOIN most
 	// observed pairs instead of spawning a `gh pr list` per pair. Wired BEFORE
 	// pc.Start so the collector's immediate first refresh has somewhere to land.
@@ -703,7 +703,7 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger) (chi.Router, *
 	// back to gh.
 	pc.SetViewerPRSink(prstatus.DefaultBranchRefresher.StoreViewerIndex)
 
-	// Disk seed (260809-r4vk): pre-fill both pollers' last-good state from
+	// Disk seed: pre-fill both pollers' last-good state from
 	// $XDG_STATE_HOME/run-kit/prstatus.json and attach the write hooks, BEFORE either
 	// Start — the cold-start machinery above is network-gated, so a restart while
 	// gh is slow/offline/rate-limited would otherwise start blank. The seed is
@@ -715,7 +715,7 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger) (chi.Router, *
 
 	pc.Start(ctx)
 
-	// Branch→PR refresher (260705-dmex): resolves observed (repo, branch) pairs
+	// Branch→PR refresher: resolves observed (repo, branch) pairs
 	// to their open PR on a background tick so the SSE hot path (which only
 	// registers pairs + joins the snapshot) never spawns gh. Started next to the
 	// viewer-wide collector; both exit on ctx cancellation.
@@ -929,7 +929,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.HandleFunc("/present/{windowId}/*", s.handlePresent)
 	r.HandleFunc("/present/{windowId}", s.handlePresent)
 
-	// The stable code-server route (260811-a2bo) — same proxy machinery as
+	// The stable code-server route — same proxy machinery as
 	// /proxy/{port} with a FIXED pathname (workspace-state identity); the port
 	// is resolved server-side and never appears in a URL.
 	r.HandleFunc("/code/*", s.handleCode)

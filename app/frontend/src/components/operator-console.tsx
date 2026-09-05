@@ -2,7 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSessionContext, useCurrentServerFromRoute } from "@/contexts/session-context";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { TerminalClient } from "@/components/terminal-client";
+import { useMatches } from "@tanstack/react-router";
 import { prefersReducedMotion } from "@/lib/motion";
+import { resolveFocusedWindow } from "@/lib/focused-pane-window";
+import { OperatorContextChip } from "@/components/operator-context-chip";
 import {
   OPERATOR_CONSOLE_EVENT,
   attachOperatorFiles,
@@ -13,7 +16,9 @@ import {
   requestOperatorConsole,
   resolveConsoleServer,
   sendOperatorMessage,
+  resetOperatorChatChip,
   setConsoleMachineState,
+  setOperatorChatSubject,
   setOperatorComposeText,
   setOperatorConsoleOpen,
   useConsoleGeometry,
@@ -62,6 +67,16 @@ const CONSOLE_SLIDE_MS = 240;
  * semantics (allow + probe — no client-side busy gate), same upload path.
  * Structured send failures surface inline (never toasts) and the composed
  * text survives a failure for retry/edit.
+ *
+ * On a terminal route the compose carries a dismissable context chip (default
+ * attached) naming the route's window; with it attached, sends ride the
+ * templated chat lane (`sendOperatorRequest(server, routeWindowId,
+ * "user-message", text)` — a server-derived source envelope wraps the text,
+ * the busy gate and queue are skipped server-side), otherwise the direct
+ * lane. The console stamps the subject into the lib's chat-subject store; the
+ * fork itself lives in `sendOperatorMessage`, which reads the store at send
+ * time, so both inputs (omnibox, sheet strip) and the pendingSend path share
+ * one resolution.
  *
  * The desktop drawer is a true quake slide: it mounts translated fully above
  * the top-bar seam (an `overflow-clip` wrapper hides the raised portion) and
@@ -112,6 +127,17 @@ export function OperatorConsole() {
   // Route server — the shared deepest-first route-param walk (param names are
   // unique across the route tree).
   const routeServer = useCurrentServerFromRoute();
+  // Route window — the same deepest-first walk over the window param: a
+  // terminal route yields the console's chat subject, every other route none.
+  const matches = useMatches();
+  let routeWindow: string | null = null;
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const p = (matches[i]?.params ?? {}) as { window?: string };
+    if (typeof p.window === "string" && p.window.length > 0) {
+      routeWindow = p.window;
+      break;
+    }
+  }
 
   // Most-recently-viewed server, remembered ephemerally for the picker
   // default on param-less routes (no persistence — Constitution IV).
@@ -295,6 +321,35 @@ export function OperatorConsole() {
     [server, sessionsByServer],
   );
 
+  // The chat subject: the route's window, but only when the console's resolved
+  // server IS the route's server (a pinned/picked cross-server retarget must
+  // not attach a foreign window id — window ids are server-scoped). Stamped
+  // into the lib's chat-subject store — both compose surfaces render the chip
+  // from it, and sendOperatorMessage reads it AT SEND TIME, so a pendingSend
+  // delivered in the same commit as a reset sees the reset, never a stale
+  // closure.
+  const subjectWindowId =
+    routeServer !== null && routeWindow !== null && server === routeServer ? routeWindow : null;
+  const subjectName = useMemo(() => {
+    if (!subjectWindowId || !server) return null;
+    return resolveFocusedWindow(sessionsByServer.get(server) ?? [], subjectWindowId)?.name ?? null;
+  }, [subjectWindowId, server, sessionsByServer]);
+  useEffect(() => {
+    setOperatorChatSubject(
+      subjectWindowId && server ? { server, windowId: subjectWindowId, name: subjectName } : null,
+    );
+  }, [server, subjectWindowId, subjectName]);
+
+  // Chip dismissal is scoped to one engagement: re-engaging the console — the
+  // machine leaving rest (desktop) or the sheet opening (mobile) — re-attaches
+  // the context (Constitution IV ephemeral state; subject changes reset inside
+  // the store itself).
+  const engaged = open || machine !== "rest";
+  const prevEngagedRef = useRef(engaged);
+  useEffect(() => {
+    if (engaged && !prevEngagedRef.current) resetOperatorChatChip();
+    prevEngagedRef.current = engaged;
+  }, [engaged]);
   // The palette fallback row's pre-filled query: sent once the console is open
   // AND the operator window resolves — the sessions slice can lag the open, so
   // the send waits for `target` instead of being dropped. A genuinely
@@ -533,7 +588,11 @@ export function OperatorConsole() {
               there; the strip is the OS-dictation target). Both drive the
               shared compose seam. */}
           {isMobile && (
-            <div className="flex items-end gap-2 border-t border-border px-3 py-1.5 shrink-0">
+            <div className="flex flex-col border-t border-border shrink-0">
+              <div className="flex items-center px-3 pt-1.5 empty:hidden">
+                <OperatorContextChip server={server} />
+              </div>
+              <div className="flex items-end gap-2 px-3 py-1.5">
               <textarea
                 ref={composeRef}
                 value={compose.text}
@@ -565,6 +624,7 @@ export function OperatorConsole() {
               >
                 Send
               </button>
+              </div>
             </div>
           )}
         </>

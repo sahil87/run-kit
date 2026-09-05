@@ -1,0 +1,54 @@
+id: 4xu7
+name: 260905-4xu7-operator-templated-chat-lane
+created: 2026-09-05T07:21:44Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 8
+    acceptance_count: 17
+    acceptance_completed: 17
+confidence:
+    certain: 9
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.7
+    fuzzy: true
+    dimensions:
+        signal: 81.3
+        reversibility: 80.8
+        competence: 88.3
+        disambiguation: 83.3
+stage_metrics:
+    intake: {started_at: "2026-09-05T07:21:44Z", driver: fab-new, iterations: 1, completed_at: "2026-09-05T07:27:20Z"}
+    apply: {started_at: "2026-09-05T07:59:25Z", driver: fab-fff, iterations: 3, completed_at: "2026-09-05T08:03:46Z"}
+    review: {started_at: "2026-09-05T08:03:46Z", driver: fab-fff, iterations: 3, completed_at: "2026-09-05T08:07:25Z"}
+    hydrate: {started_at: "2026-09-05T08:07:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-05T08:12:25Z"}
+    ship: {started_at: "2026-09-05T08:12:25Z", driver: fab-fff, iterations: 1}
+prs: []
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-05T08:12:25Z"
+    computed_at_stage: hydrate
+summary: 'added the templated operator chat lane: user-message template + chatDelivery registry property (busy-gate/queue skip in the shared core), console lane fork with context chip'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-05T08:12:25Z

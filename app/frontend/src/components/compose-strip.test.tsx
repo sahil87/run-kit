@@ -28,6 +28,7 @@ import {
 } from "@/lib/compose-strip-events";
 import { BottomBar } from "./bottom-bar";
 import { ApiError, type WindowSendMode } from "@/api/client";
+import { dismissOperatorChatChip, setOperatorChatSubject } from "@/lib/operator-console";
 
 // Mock useFileUpload so tests never hit the network. The mock records calls,
 // returns deterministic paths so attachment path lines can be asserted, and
@@ -45,11 +46,16 @@ vi.mock("@/hooks/use-file-upload", async (orig) => {
 const sendToWindowMock = vi.fn<
   (server: string, windowId: string, text: string, mode: WindowSendMode, target?: "agent") => Promise<{ ok: boolean }>
 >();
+const operatorRequestMock = vi.fn<
+  (server: string, windowId: string, template: string, text?: string) => Promise<{ outcome: string }>
+>();
 vi.mock("@/api/client", async (orig) => {
   const actual = await orig<typeof import("@/api/client")>();
   return {
     ...actual,
     sendToWindow: (...args: Parameters<typeof actual.sendToWindow>) => sendToWindowMock(...args),
+    sendOperatorRequest: (...args: Parameters<typeof actual.sendOperatorRequest>) =>
+      operatorRequestMock(...args),
   };
 });
 
@@ -153,6 +159,9 @@ describe("ComposeStrip", () => {
     // Same for the sibling sent-history store — a leftover history would make
     // an ↑ recall in a fresh test see a prior test's sends.
     hydrateComposeSentHistory();
+    // And for the operator chat-subject store (module state) — a leftover
+    // subject would reroute the strip's plain submits onto the templated lane.
+    setOperatorChatSubject(null);
     // Drain the module-level focus-on-open flag so a prior test's toggle can
     // never leak focus behavior into the next one.
     consumeComposeStripFocusOnOpen();
@@ -2269,6 +2278,7 @@ describe("ComposeStrip window send path", () => {
     sendToWindowMock.mockReset();
     sendToWindowMock.mockResolvedValue({ ok: true });
     addToastMock.mockReset();
+    setOperatorChatSubject(null);
   });
   afterEach(() => {
     cleanup();
@@ -2474,5 +2484,112 @@ describe("ComposeStrip window send path", () => {
     expect(input().value).toBe("one\ntwo");
     expect(getComposeDraft(entryKey("srv", "@1")).attachments).toEqual([attachment]);
     expect(getComposeSentHistory(entryKey("srv", "@1"))).toEqual(["one\ntwo"]);
+  });
+});
+
+describe("ComposeStrip operator chat lane", () => {
+  beforeEach(() => {
+    useWindowStore.setState({ entries: new Map(), ghosts: [] });
+    localStorage.clear();
+    hydrateComposeDrafts();
+    hydrateComposeSentHistory();
+    stubPointer(false);
+    setOperatorChatSubject(null);
+    sendToWindowMock.mockReset();
+    sendToWindowMock.mockResolvedValue({ ok: true });
+    operatorRequestMock.mockReset();
+    operatorRequestMock.mockResolvedValue({ outcome: "delivered" });
+    addToastMock.mockReset();
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  /** The strip focused on the operator window (@9) — the operator route's
+   *  mount — with the `?from=` origin subject stamped by the console. */
+  function mountOperatorRoute() {
+    const ws = makeWs();
+    render(<Harness focus={{ wsRef: ws.ref, containerRef: { current: null }, server: "srv", session: "_rk-operator", windowId: "@9" }} />);
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    act(() => setOperatorChatSubject({ server: "srv", windowId: "@5", name: "origin" }));
+    return ws;
+  }
+
+  it("a plain submit rides the templated chat lane at the subject window and clears the draft", async () => {
+    mountOperatorRoute();
+
+    expect(screen.getByTestId("operator-console-context")).toHaveTextContent('from: @5 "origin"');
+    act(() => fireEvent.change(input(), { target: { value: "check the deploy" } }));
+    await act(async () => {
+      fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true });
+    });
+
+    expect(operatorRequestMock).toHaveBeenCalledTimes(1);
+    expect(operatorRequestMock).toHaveBeenCalledWith("srv", "@5", "user-message", "check the deploy");
+    expect(sendToWindowMock).not.toHaveBeenCalled();
+    expect(input().value).toBe("");
+  });
+
+  it("a dismissed chip returns the plain submit to the direct lane at the operator window", async () => {
+    mountOperatorRoute();
+    act(() => dismissOperatorChatChip());
+    expect(screen.queryByTestId("operator-console-context")).toBeNull();
+
+    act(() => fireEvent.change(input(), { target: { value: "plain message" } }));
+    await act(async () => {
+      fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true });
+    });
+
+    expect(sendToWindowMock).toHaveBeenCalledWith("srv", "@9", "plain message", "submit");
+    expect(operatorRequestMock).not.toHaveBeenCalled();
+  });
+
+  it("a subject that IS the focused window does not fork (the ordinary terminal route)", async () => {
+    const ws = makeWs();
+    render(<Harness focus={{ wsRef: ws.ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />);
+    act(() => fireEvent.click(screen.getByTestId("set-focus")));
+    act(() => setOperatorChatSubject({ server: "srv", windowId: "@1", name: "win" }));
+
+    expect(screen.queryByTestId("operator-console-context")).toBeNull();
+    act(() => fireEvent.change(input(), { target: { value: "one" } }));
+    await act(async () => {
+      fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true });
+    });
+
+    expect(sendToWindowMock).toHaveBeenCalledWith("srv", "@1", "one", "submit");
+    expect(operatorRequestMock).not.toHaveBeenCalled();
+  });
+
+  it("insert-line and raw sends stay direct even with a subject attached", async () => {
+    mountOperatorRoute();
+
+    act(() => fireEvent.change(input(), { target: { value: "staged line" } }));
+    await act(async () => {
+      fireEvent.keyDown(input(), { key: "Enter" });
+    });
+    expect(sendToWindowMock).toHaveBeenLastCalledWith("srv", "@9", "staged line", "insert-line");
+
+    act(() => fireEvent.change(input(), { target: { value: "raw bytes" } }));
+    await act(async () => {
+      fireEvent.keyDown(input(), { key: "Enter", altKey: true });
+    });
+    expect(sendToWindowMock).toHaveBeenLastCalledWith("srv", "@9", "raw bytes", "raw");
+    expect(operatorRequestMock).not.toHaveBeenCalled();
+  });
+
+  it("a failed templated send rides the strip's error surface and keeps the draft", async () => {
+    operatorRequestMock.mockRejectedValue(new Error("operator unavailable"));
+    mountOperatorRoute();
+
+    act(() => fireEvent.change(input(), { target: { value: "retry me" } }));
+    await act(async () => {
+      fireEvent.keyDown(input(), { key: "Enter", ctrlKey: true });
+    });
+
+    expect(addToastMock).toHaveBeenCalledTimes(1);
+    expect(input().value).toBe("retry me");
+    expect(sendToWindowMock).not.toHaveBeenCalled();
   });
 });

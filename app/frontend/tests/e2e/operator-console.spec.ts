@@ -7,16 +7,20 @@ import { mockStateSocket } from "./_state-socket-mock";
 // top-bar center cell (standing at ≥ lg beside the compact heading, ghost +
 // in-place morph at md–lg) as the console's relocated compose, the one-input
 // rule (the desktop drawer is output-only with the status/error line at its
-// top edge; the mobile sheet keeps its compose strip), the palette action +
-// Ask-operator fallback row, operator-absent degradation, and inline
-// send-error surfacing. Quake-console v2 carries: the true slide
-// (mounted-through-exit), mouse resize with per-viewer geometry persistence,
-// the glass background + settings-dialog opacity row, the top-bar ◉ standing
-// affordance with the live state dot, the mobile tongue, and console/omnibox
+// top edge), the palette action + Ask-operator fallback row, operator-absent
+// degradation, and inline send-error surfacing. Quake-console v2 carries: the
+// true slide (mounted-through-exit), mouse resize with per-viewer geometry
+// persistence, the glass background + settings-dialog opacity row, the
+// top-bar ◉ standing affordance with the live state dot, and console/omnibox
 // image paste (upload to the operator window's session + insert-delivery)
-// with the route terminals' strip-forward guard. The templated chat lane
-// rides on top: on a terminal route a dismissable context chip attaches the
-// route window, and sends then POST
+// with the route terminals' strip-forward guard. On MOBILE there is no
+// sheet: every console entry point navigates to the operator window's
+// ordinary terminal route (the tongue is the standing affordance, an
+// operator-less server toasts the hint instead), the palette fallback's
+// query lands as the route's compose-strip draft unsent, and the origin
+// window rides `?from=` so the operator route's compose strip keeps the
+// templated chat lane behind its dismissable context chip — with a subject
+// attached, sends POST
 // /api/windows/{subjectId}/operator-request {template:"user-message", text}
 // instead of the direct /send lane (chip dismissed, or a subject-less route,
 // keeps the direct lane).
@@ -30,8 +34,9 @@ import { mockStateSocket } from "./_state-socket-mock";
 // (withServer), so a bare glob would silently miss. `/ws/terminals`
 // is a no-op socket mock: the console's embedded terminal mounts its xterm
 // frame without needing stream data. Each spec lands on the `@1` terminal
-// route (server "default") before driving the console, except the
-// mobile-sheet/tongue specs, which start from the same route at 375px, the
+// route (server "default") before driving the console, except the mobile
+// specs, which run at 375px and gate arrivals on the terminal's
+// `__rkTerminals` registration (not the desktop visible-text gate), the
 // no-subject chip spec (the tmux Server route), and the morph-rung spec,
 // which runs at 900px (between the mobile rule and lg).
 // Synthetic file pastes dispatch a real ClipboardEvent carrying a
@@ -171,8 +176,42 @@ async function gotoWindow(page: Page) {
 }
 
 const console_ = (page: Page) => page.getByTestId("operator-console");
-const composeInput = (page: Page) => page.getByRole("textbox", { name: "Message the operator" });
 const omniboxInput = (page: Page) => page.getByTestId("operator-omnibox-input");
+
+/** The operator window's route (what every mobile console entry point
+ *  navigates to) — `/default/9` with the origin window carried in `?from=`. */
+const OPERATOR_PATH = `/${SERVER}/9`;
+
+function operatorUrl(from?: string) {
+  const url = new URL(`http://localhost${OPERATOR_PATH}`);
+  if (from) url.searchParams.set("from", from);
+  return `${url.pathname}${url.search}`;
+}
+
+/** Assert the current URL is the operator route (optionally with `?from=`). */
+async function expectOperatorRoute(page: Page, from?: string) {
+  await expect(page).toHaveURL(operatorUrl(from), { timeout: 10_000 });
+}
+
+/** Mobile-pattern arrival: direct `goto` + a poll on the terminal's
+ *  `__rkTerminals` registration (the mobile specs' gate — the desktop specs'
+ *  visible-text gate is not the mobile idiom). */
+async function gotoWindowMobile(page: Page, windowId = "@1") {
+  await page.goto(`/${SERVER}/${encodeURIComponent(windowId)}`);
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          (wid) =>
+            Boolean(
+              (window as unknown as { __rkTerminals?: Record<string, unknown> }).__rkTerminals?.[wid],
+            ),
+          windowId,
+        ),
+      { timeout: 10_000 },
+    )
+    .toBe(true);
+}
 
 /** Open the desktop drawer from rest: the first chord press only focuses the
  *  omnibox (the three-state cycle); the second opens the drawer. */
@@ -585,55 +624,6 @@ test.describe("Operator console", () => {
     expect(requestCalls).toEqual([]);
   });
 
-  /**
-   * Proves: at 375px the console is a full-height sheet UNDER the top bar —
-   * the bar stays visible and functional, the sheet covers the main area, the
-   * sheet KEEPS its compose strip (the one-input rule is per form factor —
-   * no omnibox exists on mobile), and no horizontal page overflow is
-   * introduced. Entry rides the top-bar overflow menu's `Operator console`
-   * row (no keyboard on a phone).
-   *
-   * Steps:
-   * 1. Set the 375×812 viewport; mock the backend with an operator window;
-   *    land on the terminal route.
-   * 2. Open the `More controls` chevron menu and select `Operator console`.
-   * 3. Assert the sheet is visible with its compose input, its top edge sits
-   *    at/below the top bar's bottom edge, and the top bar's chevron is still
-   *    visible. Assert the omnibox is absent.
-   * 4. Assert `document.body.scrollWidth` ≤ 375 (no horizontal overflow).
-   */
-  test("mobile: the console is a full-height sheet under the top bar with no horizontal overflow", async ({
-    page,
-  }) => {
-    await page.setViewportSize(MOBILE_VIEWPORT);
-    await mockBackend(page, true);
-    await gotoWindow(page);
-
-    const chevron = page.getByRole("button", { name: "More controls" });
-    await expect(chevron).toBeVisible({ timeout: 10_000 });
-    await chevron.click();
-    await page.getByRole("menu", { name: "More controls" })
-      .getByRole("menuitem", { name: /Operator console/ })
-      .click();
-
-    const sheet = console_(page);
-    await expect(sheet).toBeVisible();
-    await expect(composeInput(page)).toBeVisible();
-    await expect(page.getByTestId("operator-omnibox")).toHaveCount(0);
-    await expect(chevron).toBeVisible();
-    const sheetBox = await sheet.boundingBox();
-    const chevronBox = await chevron.boundingBox();
-    expect(sheetBox).not.toBeNull();
-    expect(chevronBox).not.toBeNull();
-    expect(sheetBox!.y).toBeGreaterThanOrEqual(chevronBox!.y + chevronBox!.height - 1);
-    // The sheet spans the full main-area width at the viewport edges.
-    expect(sheetBox!.x).toBeLessThanOrEqual(1);
-    expect(sheetBox!.width).toBeGreaterThanOrEqual(MOBILE_VIEWPORT.width - 1);
-
-    const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
-    expect(bodyWidth).toBeLessThanOrEqual(MOBILE_VIEWPORT.width);
-  });
-
   test.describe("slide animation", () => {
     // The rig emulates reducedMotion:"reduce" globally — the slide semantics
     // need real motion (the window-switch-transition.spec.ts opt-out).
@@ -812,26 +802,72 @@ test.describe("Operator console", () => {
     await expect(console_(page)).toHaveCount(0);
   });
 
+  test.describe("mobile navigation", () => {
+    // hasTouch flips Chromium's coarse-pointer media queries, so the bottom
+    // bar (a touch-only surface) renders as it does on a real phone.
+    test.use({ hasTouch: true });
+
+  /**
+   * Proves: at 375px there is no sheet — opening the console NAVIGATES to the
+   * operator window's ordinary terminal route, carrying the origin window as
+   * `?from=`, and the route's own chrome (top bar, bottom-bar key chips)
+   * stays visible with no horizontal page overflow. Entry rides the top-bar
+   * overflow menu's `Operator console` row (no keyboard on a phone).
+   *
+   * Steps:
+   * 1. Set the 375×812 viewport; mock the backend with an operator window;
+   *    land on the @1 terminal route (direct goto + `__rkTerminals` poll).
+   * 2. Open the `More controls` chevron menu and select `Operator console`.
+   * 3. Assert the URL becomes the operator route with `?from=@1`, no
+   *    `operator-console` element exists, and the chevron + bottom-bar
+   *    toolbar are still visible.
+   * 4. Assert `document.body.scrollWidth` ≤ 375 (no horizontal overflow).
+   */
+  test("mobile: opening the console navigates to the operator terminal route (no sheet, no overflow)", async ({
+    page,
+  }) => {
+    await page.setViewportSize(MOBILE_VIEWPORT);
+    await mockBackend(page, true);
+    await gotoWindowMobile(page);
+
+    const chevron = page.getByRole("button", { name: "More controls" });
+    await expect(chevron).toBeVisible({ timeout: 10_000 });
+    await chevron.click();
+    await page.getByRole("menu", { name: "More controls" })
+      .getByRole("menuitem", { name: /Operator console/ })
+      .click();
+
+    await expectOperatorRoute(page, "@1");
+    await expect(console_(page)).toHaveCount(0);
+    await expect(chevron).toBeVisible();
+    await expect(page.getByRole("toolbar", { name: "Terminal keys" })).toBeVisible();
+
+    const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
+    expect(bodyWidth).toBeLessThanOrEqual(MOBILE_VIEWPORT.width);
+  });
+
   /**
    * Proves: on mobile the tongue under the top bar is the STANDING affordance
-   * — always visible while the console is closed (with the amber waiting
-   * dot), a tap opens the sheet, it hides while the sheet is open, the
-   * desktop ◉ button is absent, and no horizontal overflow is introduced.
+   * — visible with the amber waiting dot while off the operator route (the
+   * desktop ◉ button absent), a tap navigates to the operator window's
+   * terminal route, and once there the tongue hides (a standing affordance
+   * pointing at the current page is noise) — with no horizontal overflow.
    *
    * Steps:
    * 1. Set the 375×812 viewport; mock the backend with a waiting operator;
-   *    land on the terminal route.
+   *    land on the @1 terminal route (direct goto + `__rkTerminals` poll).
    * 2. Assert the tongue is visible with the waiting dot and the ◉ button is
    *    absent.
-   * 3. Tap the tongue; assert the sheet opens and the tongue hides.
+   * 3. Tap the tongue; assert the URL becomes the operator route with
+   *    `?from=@1` and the tongue disappears.
    * 4. Assert `document.body.scrollWidth` ≤ 375.
    */
-  test("mobile: the tongue is the standing affordance (waiting dot, tap opens, no overflow)", async ({
+  test("mobile: the tongue is the standing affordance (waiting dot, tap navigates, no overflow)", async ({
     page,
   }) => {
     await page.setViewportSize(MOBILE_VIEWPORT);
     await mockBackend(page, true, SEND_OK, "waiting");
-    await gotoWindow(page);
+    await gotoWindowMobile(page);
 
     const tongue = page.getByTestId("operator-console-tongue");
     await expect(tongue).toBeVisible();
@@ -839,11 +875,228 @@ test.describe("Operator console", () => {
     await expect(page.getByTestId("operator-console-button")).toHaveCount(0);
 
     await tongue.click();
-    await expect(console_(page)).toBeVisible();
+    await expectOperatorRoute(page, "@1");
     await expect(tongue).toHaveCount(0);
 
     const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
     expect(bodyWidth).toBeLessThanOrEqual(MOBILE_VIEWPORT.width);
+  });
+
+  /**
+   * Proves: on the operator window's route the compose strip renders the
+   * dismissable context chip naming the `?from=` origin window, and a plain
+   * text submit rides the templated chat lane — exactly one POST to
+   * `/api/windows/@1/operator-request` with `{template: "user-message",
+   * text}` — while the direct send lane stays silent.
+   *
+   * Steps:
+   * 1. Set the 375×812 viewport; pre-enable the compose strip
+   *    (`runkit-compose-strip`); mock the backend with an operator window;
+   *    land on the @1 terminal route.
+   * 2. Tap the tongue; assert the operator route with `?from=@1` and the
+   *    chip naming @1 "feature-work".
+   * 3. Type into the compose strip and click its Send.
+   * 4. Assert one recorded operator-request at @1 with the user-message body,
+   *    an empty direct-send list, and the cleared draft.
+   */
+  test("mobile: the operator route's compose strip submits ride the templated chat lane behind the ?from= chip", async ({
+    page,
+  }) => {
+    await page.setViewportSize(MOBILE_VIEWPORT);
+    await page.addInitScript(() => localStorage.setItem("runkit-compose-strip", "true"));
+    const { sendBodies, requestCalls } = await mockBackend(page, true);
+    await gotoWindowMobile(page);
+
+    await page.getByTestId("operator-console-tongue").click();
+    await expectOperatorRoute(page, "@1");
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() =>
+            Boolean((window as unknown as { __rkTerminals?: Record<string, unknown> }).__rkTerminals?.["@9"]),
+          ),
+        { timeout: 10_000 },
+      )
+      .toBe(true);
+    await expect(page.getByTestId("operator-console-context")).toContainText('from: @1 "feature-work"');
+
+    const stripInput = page.getByTestId("compose-strip-input");
+    await stripInput.fill("can you check the failing test?");
+    await page.getByTestId("compose-strip-send").click();
+
+    await expect
+      .poll(() => requestCalls.map((c) => ({ path: new URL(c.url).pathname, body: c.body })))
+      .toEqual([
+        {
+          path: "/api/windows/%401/operator-request",
+          body: { template: "user-message", text: "can you check the failing test?" },
+        },
+      ]);
+    expect(sendBodies).toEqual([]);
+    await expect(stripInput).toHaveValue("");
+  });
+
+  /**
+   * Proves: dismissing the `?from=` chip drops the envelope — the compose
+   * strip's next plain submit goes through its ordinary direct send at the
+   * operator window (no operator-request POST) — and a bottom-bar key chip
+   * always drives the pane directly regardless of the chip (no REST call at
+   * all).
+   *
+   * Steps:
+   * 1. Set the 375×812 viewport; pre-enable the compose strip; mock the
+   *    backend with an operator window; land directly on the operator route
+   *    with `?from=@1`.
+   * 2. Dismiss the chip via its ✕; assert it disappears.
+   * 3. Type and Send; assert one direct `{text, mode: "submit"}` send and an
+   *    empty operator-request list.
+   * 4. Click the terminal (the bottom bar hides while the strip's textarea
+   *    owns focus), then click the bottom bar's Tab key chip; assert no
+   *    further REST send or operator-request fired.
+   */
+  test("mobile: dismissing the chip returns strip submits to the direct lane; bottom-bar keys stay direct", async ({
+    page,
+  }) => {
+    await page.setViewportSize(MOBILE_VIEWPORT);
+    await page.addInitScript(() => localStorage.setItem("runkit-compose-strip", "true"));
+    const { sendBodies, requestCalls } = await mockBackend(page, true);
+    await page.goto(operatorUrl("@1"));
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() =>
+            Boolean((window as unknown as { __rkTerminals?: Record<string, unknown> }).__rkTerminals?.["@9"]),
+          ),
+        { timeout: 10_000 },
+      )
+      .toBe(true);
+
+    await page.getByRole("button", { name: "Detach window context" }).click();
+    await expect(page.getByTestId("operator-console-context")).toHaveCount(0);
+
+    const stripInput = page.getByTestId("compose-strip-input");
+    await stripInput.fill("plain message");
+    await page.getByTestId("compose-strip-send").click();
+    await expect.poll(() => sendBodies).toEqual([{ text: "plain message", mode: "submit" }]);
+    expect(requestCalls).toEqual([]);
+
+    // The bottom bar hides while the strip's textarea owns focus — move focus
+    // to the terminal first so the key chips render again.
+    await page.locator(".xterm").first().click();
+    const tabChip = page.getByRole("button", { name: "Tab", exact: true });
+    await expect(tabChip).toBeVisible();
+    await tabChip.click();
+    await page.waitForTimeout(300);
+    expect(sendBodies).toHaveLength(1);
+    expect(requestCalls).toEqual([]);
+  });
+
+  /**
+   * Proves: an invalid `?from=` (a window id the server does not carry)
+   * attaches nothing — no chip renders, and a compose-strip submit is the
+   * ordinary direct send at the operator window, without error.
+   *
+   * Steps:
+   * 1. Set the 375×812 viewport; pre-enable the compose strip; mock the
+   *    backend with an operator window; land on the operator route with
+   *    `?from=@42` (unknown).
+   * 2. Assert no chip renders.
+   * 3. Type and Send; assert one direct send and no operator-request POST.
+   */
+  test("mobile: an unknown ?from= window renders no chip and sends direct", async ({ page }) => {
+    await page.setViewportSize(MOBILE_VIEWPORT);
+    await page.addInitScript(() => localStorage.setItem("runkit-compose-strip", "true"));
+    const { sendBodies, requestCalls } = await mockBackend(page, true);
+    await page.goto(operatorUrl("@42"));
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() =>
+            Boolean((window as unknown as { __rkTerminals?: Record<string, unknown> }).__rkTerminals?.["@9"]),
+          ),
+        { timeout: 10_000 },
+      )
+      .toBe(true);
+
+    await expect(page.getByTestId("operator-console-context")).toHaveCount(0);
+
+    await page.getByTestId("compose-strip-input").fill("still direct");
+    await page.getByTestId("compose-strip-send").click();
+    await expect.poll(() => sendBodies).toEqual([{ text: "still direct", mode: "submit" }]);
+    expect(requestCalls).toEqual([]);
+  });
+
+  /**
+   * Proves: with no operator window on the server, mobile shows no tongue and
+   * the remaining openers answer with the hint toast instead of navigating —
+   * once per activation burst (repeat activations do not stack toasts).
+   *
+   * Steps:
+   * 1. Set the 375×812 viewport; mock the backend WITHOUT an operator
+   *    window; land on the @1 terminal route.
+   * 2. Assert the tongue is absent.
+   * 3. Fire the overflow menu's `Operator console` row twice; assert the
+   *    hint toast renders once, the URL is unchanged, and no console element
+   *    exists.
+   */
+  test("mobile: an operator-less server hides the tongue and toasts the hint without navigating", async ({
+    page,
+  }) => {
+    await page.setViewportSize(MOBILE_VIEWPORT);
+    await mockBackend(page, false);
+    await gotoWindowMobile(page);
+
+    await expect(page.getByTestId("operator-console-tongue")).toHaveCount(0);
+
+    const chevron = page.getByRole("button", { name: "More controls" });
+    await expect(chevron).toBeVisible({ timeout: 10_000 });
+    for (let i = 0; i < 2; i++) {
+      await chevron.click();
+      await page.getByRole("menu", { name: "More controls" })
+        .getByRole("menuitem", { name: /Operator console/ })
+        .click();
+    }
+
+    await expect(page.getByText("no operator on this server — run `rk operator`")).toHaveCount(1);
+    expect(page.url()).toContain(WINDOW_URL);
+    await expect(console_(page)).toHaveCount(0);
+  });
+
+  /**
+   * Proves: the palette's Ask-operator fallback row on mobile navigates to
+   * the operator route and seeds the typed query as the compose strip's
+   * DRAFT — nothing is sent until the user reviews and sends it.
+   *
+   * Steps:
+   * 1. Set the 375×812 viewport; pre-enable the compose strip; mock the
+   *    backend with an operator window; land on the @1 terminal route.
+   * 2. Open the palette and type a query matching no action; assert the
+   *    fallback row renders.
+   * 3. Press Enter; assert the operator route with `?from=@1` and the strip
+   *    holding the query as its unsent draft.
+   * 4. Assert no send fired on either lane.
+   */
+  test("mobile: the palette fallback row navigates and seeds the compose draft, unsent", async ({
+    page,
+  }) => {
+    await page.setViewportSize(MOBILE_VIEWPORT);
+    await page.addInitScript(() => localStorage.setItem("runkit-compose-strip", "true"));
+    const { sendBodies, requestCalls } = await mockBackend(page, true);
+    await gotoWindowMobile(page);
+
+    const paletteInput = await openPalette(page);
+    await paletteInput.fill("the fence deploy is wedged");
+    await expect(
+      page.getByRole("option", { name: 'Ask operator: "the fence deploy is wedged"' }),
+    ).toBeVisible();
+
+    await paletteInput.press("Enter");
+    await expect(paletteInput).toHaveCount(0);
+    await expectOperatorRoute(page, "@1");
+    await expect(page.getByTestId("compose-strip-input")).toHaveValue("the fence deploy is wedged");
+    expect(requestCalls).toEqual([]);
+    expect(sendBodies).toEqual([]);
+  });
   });
 
   /**

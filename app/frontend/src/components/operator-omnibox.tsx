@@ -26,8 +26,9 @@ const EXTRA_WIDE_RUNG_QUERY = "(min-width: 1536px)";
 
 /**
  * The operator omnibox — the console's compose relocated into the top bar's
- * center cell (desktop only; mobile keeps the sheet compose and renders
- * nothing here). One component at two widths:
+ * center cell (desktop only; on mobile the console's seam arm navigates to
+ * the operator window's terminal route and nothing renders here). One
+ * component at two widths:
  *
  *  - ≥ lg: a STANDING bordered input (`◉` glyph, a chord keycap) beside the
  *    compact heading. Slim at rest — `12ch` with the short "Ask ◉…"
@@ -40,9 +41,9 @@ const EXTRA_WIDE_RUNG_QUERY = "(min-width: 1536px)";
  *    empty-draft blur restores the heading.
  *
  * The box IS the console compose — draft, send, and image-paste upload ride
- * the shared seam in lib/operator-console.ts, so nothing is duplicated with
- * the mobile sheet. Enter (non-empty) sends through the `target:"agent"` lane
- * and auto-opens the drawer with focus retained for follow-ups; the ⌘J
+ * the shared seam in lib/operator-console.ts. Enter (non-empty) sends through
+ * the `target:"agent"` lane and auto-opens the drawer with focus retained for
+ * follow-ups; the ⌘J
  * three-state machine (rest → focused → open) owns focus: entering the
  * machine from rest focuses the box and selects any draft, returning to rest
  * blurs and restores the previously focused element. Escape is NOT handled

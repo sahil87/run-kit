@@ -1,9 +1,9 @@
 import { dismissOperatorChatChip, useOperatorChatChip } from "@/lib/operator-console";
 
 /**
- * The chat-lane context chip — renders the attached chat subject (the route's
- * window) beside whichever compose surface is active: the desktop omnibox and
- * the mobile sheet strip both mount one, reading the ONE chat-subject store in
+ * The chat-lane context chip — renders the attached chat subject beside
+ * whichever compose surface is active: the desktop omnibox and the operator
+ * route's compose strip both mount one, reading the ONE chat-subject store in
  * lib/operator-console.ts so the two stay in lockstep. Implicit context the
  * user cannot see erodes trust in what the operator was told, so the chip is
  * always visible while a send would attach the envelope, and its ✕ detaches it
@@ -19,7 +19,7 @@ export function OperatorContextChip({
   compact = false,
 }: {
   server: string | null;
-  /** Cap the chip's width (the omnibox's slim box); the sheet strip has room. */
+  /** Cap the chip's width (the omnibox's slim box); the compose strip has room. */
   compact?: boolean;
 }) {
   const { subject, dismissed } = useOperatorChatChip();

@@ -344,8 +344,9 @@ function AppLayoutContent() {
     "close-app-window": canCloseShellWindow() ? () => void closeShellWindow() : undefined,
     // The operator console chord works from everywhere the SPA runs (Host,
     // Server, Terminal, Board) — same every-route reasoning as the app-window
-    // pair. On desktop the machine steps rest→focused→open→rest; the
-    // layout-mounted console owns that state, this only dispatches.
+    // pair. On desktop the machine steps rest→focused→open→rest; on mobile
+    // the seam navigates to the operator window's terminal route. The
+    // layout-mounted console owns the fork, this only dispatches.
     "operator-console": () => requestOperatorConsole({ action: "toggle" }),
   });
 
@@ -411,8 +412,9 @@ function AppLayoutContent() {
         </Suspense>
         {/* The mobile standing affordance — the tongue hanging under the top
             bar on every route (desktop's standing affordance is the top-bar
-            ◉ button). Self-gates on isMobile and hides while the sheet is
-            open; renders nothing on desktop. */}
+            ◉ button). Self-gates on isMobile, hides on operator-less servers
+            and on the operator window's own route; renders nothing on
+            desktop. */}
         <Suspense fallback={null}>
           <OperatorConsoleTongue />
         </Suspense>
@@ -4293,10 +4295,15 @@ function AppShell() {
   );
   // The pinned operator row's activation opens the operator console pinned to
   // the row's server (the event seam reaches the layout-mounted console from
-  // this route shell). Referentially stable like its siblings above.
-  const handleOpenOperatorConsole = useCallback((srv: string) => {
-    requestOperatorConsole({ action: "open", server: srv });
-  }, []);
+  // this route shell — on mobile the seam navigates, so the drawer closes as
+  // sibling navigations do). Referentially stable like its siblings above.
+  const handleOpenOperatorConsole = useCallback(
+    (srv: string) => {
+      requestOperatorConsole({ action: "open", server: srv });
+      if (isMobile) setSidebarOpen(false);
+    },
+    [isMobile, setSidebarOpen],
+  );
   const handleSidebarCreateWindow = useCallback(
     (srv: string, sess: string) => {
       if (srv === server) {

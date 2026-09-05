@@ -19,27 +19,32 @@ import { SessionContext, useCurrentServerFromRoute } from "@/contexts/session-co
  *    or above the length floor (short typo fragments never fire a send).
  *  - `requestOperatorConsole` — the document-event seam every entry point
  *    (chord dispatch, palette action, overflow-menu row, sidebar pinned row,
- *    palette fallback row, top-bar ◉ button) funnels through to the single
- *    layout-mounted console. An event, not a callback chain: the entry points
- *    live in route shells the layout does not compose directly.
+ *    palette fallback row, top-bar ◉ button, mobile tongue) funnels through
+ *    to the single layout-mounted console, which forks on form factor:
+ *    desktop drives the ⌘J machine, mobile navigates to the operator
+ *    window's terminal route. An event, not a callback chain: the entry
+ *    points live in route shells the layout does not compose directly.
  *  - The ⌘J three-state machine (`rest | focused | open`) — the desktop
  *    console's controlling state, shared between the top-bar omnibox and the
  *    drawer (module slot, the open-state idiom).
  *  - The shared compose seam (`useOperatorCompose` + `sendOperatorMessage` +
- *    `attachOperatorFiles`) — ONE draft/send/upload implementation driving both
- *    the desktop omnibox and the mobile sheet compose.
+ *    `attachOperatorFiles`) — ONE draft/send/upload implementation driving the
+ *    desktop omnibox (the console's only input; the drawer is output-only).
  *  - The chat-subject store (`setOperatorChatSubject` + `useOperatorChatChip`)
  *    — the templated chat lane's context: on a terminal route the console
- *    stamps the route window here, both inputs render the dismissable chip
- *    from it, and `sendOperatorMessage` reads it AT SEND TIME to fork between
- *    the templated lane (`sendOperatorRequest(..., "user-message", ...)` — a
- *    server-derived source envelope wraps the text; the busy gate and queue
- *    are skipped server-side) and the direct `sendToWindow` lane.
+ *    stamps the route window here (the validated `?from=` origin on the
+ *    operator window's own route), the omnibox and the operator route's
+ *    compose strip render the dismissable chip from it, and
+ *    `sendOperatorMessage` (plus the strip's plain-submit path) reads it AT
+ *    SEND TIME to fork between the templated lane (`sendOperatorRequest(...,
+ *    "user-message", ...)` — a server-derived source envelope wraps the text;
+ *    the busy gate and queue are skipped server-side) and the direct
+ *    `sendToWindow` lane.
  *  - Per-viewer persisted preferences (geometry, opacity) — localStorage
  *    stores with the in-module pub/sub idiom (`use-local-storage-enum.ts`).
- *  - The open-state slot, the console-origin event predicate, and
- *    `useOperatorConsoleContext` — the read-only server/target resolution the
- *    top-bar button and mobile tongue share with the console.
+ *  - The console-origin event predicate and `useOperatorConsoleContext` — the
+ *    read-only server/target resolution the top-bar button and mobile tongue
+ *    share with the console.
  */
 
 /** Minimum trimmed query length before the palette's Ask-operator row appears. */
@@ -49,16 +54,19 @@ export const ASK_OPERATOR_MIN_QUERY = 3;
 export const OPERATOR_CONSOLE_EVENT = "rk:operator-console";
 
 export type OperatorConsoleRequest = {
-  /** `toggle` steps the desktop ⌘J machine (rest → focused → open → rest) and
-   *  plain-toggles the mobile sheet; `open` always opens (desktop: drawer plus
-   *  omnibox focus); `button` is the top-bar ◉ click mapping (open ⇄ rest). */
+  /** `toggle` steps the desktop ⌘J machine (rest → focused → open → rest);
+   *  `open` always opens (desktop: drawer plus omnibox focus); `button` is
+   *  the top-bar ◉ click mapping (open ⇄ rest). On mobile all three collapse
+   *  to navigation to the operator window's terminal route. */
   action: "toggle" | "open" | "button";
   /** Pin the console to this server (the sidebar pinned row passes its own
    *  server's name). Absent = resolve from the route/server list. */
   server?: string;
   /** Text to deliver on open, once the operator window resolves (the sessions
    *  slice can lag the open). Never delivered when the resolved server has no
-   *  operator window — the console's hint line is the answer there. */
+   *  operator window — the console's hint line is the answer there. On mobile
+   *  the text is seeded into the operator route's compose-strip draft instead
+   *  of auto-sending. */
   send?: string;
 };
 
@@ -269,7 +277,7 @@ function usePrefSubscription(storageKey: string, reread: () => void): void {
 }
 
 /** The desktop drawer's persisted geometry — `[value, setter]` like the other
- *  localStorage hooks. Mobile never resizes (the sheet stays full-height). */
+ *  localStorage hooks. */
 export function useConsoleGeometry(): [ConsoleGeometry, (next: ConsoleGeometry) => void] {
   const [value, setValue] = useState<ConsoleGeometry>(readConsoleGeometry);
   usePrefSubscription(CONSOLE_GEOMETRY_KEY, () => setValue(readConsoleGeometry()));
@@ -284,39 +292,6 @@ export function useConsoleOpacity(): [number, (next: number) => void] {
   return [value, writeConsoleOpacity];
 }
 
-// ── Console open-state slot ──────────────────────────────────────────────────
-//
-// The console's open/closed flag is ephemeral component state, but two
-// surfaces need to read it without owning it: the mobile tongue (hidden while
-// the sheet covers it) and the file-paste guard. A module slot, published by
-// the single layout-mounted console — the compose-strip module-store idiom.
-
-let consoleOpen = false;
-const openListeners = new Set<(open: boolean) => void>();
-
-export function isOperatorConsoleOpen(): boolean {
-  return consoleOpen;
-}
-
-export function setOperatorConsoleOpen(open: boolean): void {
-  if (consoleOpen === open) return;
-  consoleOpen = open;
-  for (const listener of openListeners) listener(open);
-}
-
-export function useOperatorConsoleOpen(): boolean {
-  const [open, setOpen] = useState(isOperatorConsoleOpen);
-  useEffect(() => {
-    const listener = (next: boolean) => setOpen(next);
-    openListeners.add(listener);
-    setOpen(isOperatorConsoleOpen());
-    return () => {
-      openListeners.delete(listener);
-    };
-  }, []);
-  return open;
-}
-
 // ── ⌘J three-state machine ───────────────────────────────────────────────────
 //
 // The desktop console is a three-state cycle, not a plain toggle: `rest`
@@ -327,7 +302,8 @@ export function useOperatorConsoleOpen(): boolean {
 // are mounted in different trees and must not own each other's state. The
 // drawer component is the controller (it interprets the document-event seam);
 // the omnibox is a follower that also originates transitions (click-to-focus,
-// Enter, blur). Mobile never leaves the rest/open pair (no omnibox exists).
+// Enter, blur). Mobile never engages the machine — its seam arm navigates
+// instead.
 
 export type ConsoleMachineState = "rest" | "focused" | "open";
 
@@ -364,23 +340,24 @@ export function useConsoleMachineState(): ConsoleMachineState {
 
 // ── Shared compose seam ──────────────────────────────────────────────────────
 //
-// ONE compose implementation drives every operator input surface: the desktop
-// omnibox (top-bar center cell) and the mobile sheet's compose strip. Draft,
-// in-flight flags, and the inline error are module state so the two mounts
-// (top bar vs. console overlay) stay in lockstep, and the send/upload logic
-// exists exactly once. Delivery rides the existing lanes: `sendToWindow(...,
-// "submit", "agent")` for messages, `uploadFile` + a `"raw"` insert per
-// returned path for files (staged into the TUI composer, never submitted).
+// ONE compose implementation drives the console's input surface: the desktop
+// omnibox (top-bar center cell). Draft, in-flight flags, and the inline error
+// are module state, and the send/upload logic exists exactly once. Delivery
+// rides the existing lanes: `sendToWindow(..., "submit", "agent")` for
+// messages, `uploadFile` + a `"raw"` insert per returned path for files
+// (staged into the TUI composer, never submitted).
 
 // ── Chat-subject store (the templated chat lane's context chip) ──────────────
 //
-// On a terminal route the console stamps the route's window here (only when the
-// console's resolved server IS the route's server — window ids are
+// On a terminal route the console stamps the route's window here — or, on the
+// operator window's own route, the validated `?from=` origin window (only when
+// the console's resolved server IS the route's server — window ids are
 // server-scoped, so a pinned/picked cross-server retarget must never attach a
-// foreign id). Module state, like the compose seam, so the desktop omnibox and
-// the mobile sheet render one chip in lockstep — and so `sendOperatorMessage`
-// reads the CURRENT attachment at send time rather than a captured closure (a
-// pendingSend delivered in the same commit as a chip reset must see the reset).
+// foreign id). Module state, like the compose seam, so the omnibox and the
+// operator route's compose strip render one chip in lockstep — and so the
+// send forks read the CURRENT attachment at send time rather than a captured
+// closure (a pendingSend delivered in the same commit as a chip reset must
+// see the reset).
 
 export type OperatorChatSubject = {
   /** The server the subject window lives on — the fork applies only when the
@@ -424,8 +401,8 @@ export function dismissOperatorChatChip(): void {
   patchChatChip({ ...chatChipState, dismissed: true });
 }
 
-/** Re-attach the context — fired when the console re-engages (machine leaves
- *  rest, or the mobile sheet opens). */
+/** Re-attach the context — fired when the console re-engages (the machine
+ *  leaves rest). */
 export function resetOperatorChatChip(): void {
   patchChatChip({ ...chatChipState, dismissed: false });
 }

@@ -58,6 +58,12 @@ export function useToast(): ToastContextType {
   return ctx;
 }
 
+/** Provider-optional toast access: null outside a ToastProvider (isolated
+ *  component mounts degrade to no toast instead of throwing). */
+export function useOptionalToast(): ToastContextType | null {
+  return useContext(ToastContext);
+}
+
 function ToastContainer({ toasts, onRemove }: { toasts: ToastEntry[]; onRemove: (id: string) => void }) {
   if (toasts.length === 0) return null;
 

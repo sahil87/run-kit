@@ -7,7 +7,8 @@ import { requestOperatorConsole } from "@/lib/operator-console";
  * actionId, so `withShortcutHints` attaches the effective chord. The action
  * goes straight to open+focused on the desktop machine (the chord is the
  * stepped cycle; an explicit "Open console" pick skips the focused-only
- * intermediate); on mobile it opens the sheet.
+ * intermediate); on mobile it navigates to the operator window's terminal
+ * route.
  */
 export type OperatorConsolePaletteAction = {
   id: string;

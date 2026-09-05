@@ -4,18 +4,24 @@ import { OperatorConsole } from "./operator-console";
 import { OperatorOmnibox } from "./operator-omnibox";
 import { StandaloneSessionContextProvider } from "@/contexts/session-context";
 import {
+  dismissOperatorChatChip,
   getConsoleMachineState,
   requestOperatorConsole,
   setConsoleMachineState,
+  setOperatorChatSubject,
   setOperatorComposeText,
 } from "@/lib/operator-console";
 import { stubMatchMedia } from "@/test-utils/match-media";
 import type { ProjectSession, WindowInfo } from "@/types";
 
-// Route params the console/omnibox server-context walk reads.
+// Route params the console/omnibox server-context walk reads; the console's
+// mobile navigation arm's hooks are inert under the desktop stub but must
+// exist on the mock.
 let mockMatches: Array<{ params: Record<string, string> }> = [{ params: {} }];
 vi.mock("@tanstack/react-router", () => ({
   useMatches: () => mockMatches,
+  useSearch: () => ({}),
+  useNavigate: () => vi.fn(),
 }));
 
 vi.mock("@/components/terminal-client", () => ({
@@ -24,10 +30,12 @@ vi.mock("@/components/terminal-client", () => ({
 
 const mockSend = vi.hoisted(() => vi.fn());
 const mockUpload = vi.hoisted(() => vi.fn());
+const mockOperatorRequest = vi.hoisted(() => vi.fn());
 vi.mock("@/api/client", async (importActual) => ({
   ...(await importActual<typeof import("@/api/client")>()),
   sendToWindow: mockSend,
   uploadFile: mockUpload,
+  sendOperatorRequest: mockOperatorRequest,
 }));
 
 function win(overrides: Partial<WindowInfo>): WindowInfo {
@@ -84,11 +92,14 @@ describe("OperatorOmnibox", () => {
   beforeEach(() => {
     setConsoleMachineState("rest");
     setOperatorComposeText("");
+    setOperatorChatSubject(null);
     mockMatches = [{ params: {} }];
     mockSend.mockReset();
     mockSend.mockResolvedValue({ ok: true });
     mockUpload.mockReset();
     mockUpload.mockResolvedValue({ ok: true, path: "/tmp/op/.uploads/shot.png" });
+    mockOperatorRequest.mockReset();
+    mockOperatorRequest.mockResolvedValue({ outcome: "delivered" });
     localStorage.clear();
   });
   afterEach(() => {
@@ -258,5 +269,72 @@ describe("OperatorOmnibox", () => {
     stubWideDesktop();
     renderPair();
     expect(screen.getByTestId("operator-omnibox")).toHaveAttribute("data-operator-console");
+  });
+});
+
+describe("OperatorOmnibox (templated chat lane)", () => {
+  beforeEach(() => {
+    stubMatchMedia((query) => query === "(min-width: 1024px)");
+    setConsoleMachineState("rest");
+    setOperatorComposeText("");
+    setOperatorChatSubject(null);
+    mockMatches = [{ params: { server: "srv1", window: "@1" } }];
+    mockSend.mockReset();
+    mockSend.mockResolvedValue({ ok: true });
+    mockOperatorRequest.mockReset();
+    mockOperatorRequest.mockResolvedValue({ outcome: "delivered" });
+    localStorage.clear();
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("on a terminal route the engaged box shows the chip and Enter rides the templated lane", async () => {
+    renderPair();
+
+    const input = screen.getByTestId("operator-omnibox-input");
+    fireEvent.focus(input);
+    expect(screen.getByTestId("operator-console-context")).toHaveTextContent('from: @1 "win"');
+
+    fireEvent.change(input, { target: { value: "can you check the failing test?" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => expect(mockOperatorRequest).toHaveBeenCalledTimes(1));
+    expect(mockOperatorRequest).toHaveBeenCalledWith("srv1", "@1", "user-message", "can you check the failing test?");
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it("dismissing the chip drops the envelope — the next send rides the direct lane", async () => {
+    renderPair();
+
+    const input = screen.getByTestId("operator-omnibox-input");
+    fireEvent.focus(input);
+    fireEvent.click(screen.getByRole("button", { name: "Detach window context" }));
+    expect(screen.queryByTestId("operator-console-context")).toBeNull();
+
+    fireEvent.change(input, { target: { value: "plain message" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(1));
+    expect(mockSend).toHaveBeenCalledWith("srv1", "@9", "plain message", "submit", "agent");
+    expect(mockOperatorRequest).not.toHaveBeenCalled();
+  });
+
+  it("the chip resets to attached when the console re-engages", () => {
+    renderPair();
+
+    const input = screen.getByTestId("operator-omnibox-input");
+    fireEvent.focus(input);
+    fireEvent.click(screen.getByRole("button", { name: "Detach window context" }));
+    expect(screen.queryByTestId("operator-console-context")).toBeNull();
+
+    // Esc steps focused → rest (the console's document listener); the next
+    // chord re-engages the machine and re-attaches the chip.
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(getConsoleMachineState()).toBe("rest");
+    act(() => requestOperatorConsole({ action: "toggle" }));
+    expect(getConsoleMachineState()).toBe("focused");
+    expect(screen.getByTestId("operator-console-context")).toBeInTheDocument();
   });
 });

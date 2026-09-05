@@ -199,12 +199,12 @@ export function KeyboardMenuRow() {
   );
 }
 
-/** Operator console — the mobile entry to the pull-down operator overlay
- *  (no keyboard exists on a phone, so the chord can't carry it). Fires the
- *  same document-event open the palette action dispatches (desktop:
- *  open+focused on the ⌘J machine; mobile: sheet open); the layout-mounted
- *  console owns the machine state. The trailing keycap shows the
- *  host-effective chord, omitted when unbound/disabled. */
+/** Operator console — the mobile entry to the operator console (no keyboard
+ *  exists on a phone, so the chord can't carry it). Fires the same
+ *  document-event open the palette action dispatches (desktop: open+focused
+ *  on the ⌘J machine; mobile: navigation to the operator window's terminal
+ *  route); the layout-mounted console owns the fork. The trailing keycap
+ *  shows the host-effective chord, omitted when unbound/disabled. */
 export function OperatorConsoleMenuRow() {
   const { byAction, host } = useKeybindings();
   const binding = byAction.get("operator-console");

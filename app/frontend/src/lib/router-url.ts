@@ -37,10 +37,16 @@ export function urlSegmentToWindowId(segment: string): string {
 // error. `layout` passes through as a raw string — validation lives in
 // `lib/surface-layout.ts`'s `parseLayout` (this module is a deliberately
 // dependency-free leaf, so the parse helpers can't be imported here).
+// `from` is live state: the operator console's mobile navigation stamps the
+// origin window id here so the operator window's route can attach it as the
+// chat subject. It passes through as a raw string like `layout` — the
+// consumer validates it against the sessions payload, so an unknown or
+// foreign id degrades to absent rather than a route error.
 export type TerminalSearch = {
   view?: "web" | "code";
   panel?: "web" | "code";
   layout?: string;
+  from?: string;
 };
 
 // Exported as a pure function so the unknown-value drop is unit-testable.
@@ -54,6 +60,9 @@ export function validateTerminalSearch(
   if (search.panel === "web" || search.panel === "code") out.panel = search.panel;
   if (typeof search.layout === "string" && search.layout.length > 0) {
     out.layout = search.layout;
+  }
+  if (typeof search.from === "string" && search.from.length > 0) {
+    out.from = search.from;
   }
   return out;
 }

@@ -2,21 +2,30 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, act, waitFor } from "@testing-library/react";
 import { OperatorConsole, OperatorConsoleTongue } from "./operator-console";
 import { StandaloneSessionContextProvider } from "@/contexts/session-context";
+import { ToastProvider } from "@/components/toast";
 import {
+  dismissOperatorChatChip,
   getConsoleMachineState,
+  getOperatorChatTarget,
   requestOperatorConsole,
   setConsoleMachineState,
   setOperatorChatSubject,
   setOperatorComposeText,
   writeConsoleOpacity,
 } from "@/lib/operator-console";
+import { getComposeDraft, hydrateComposeDrafts } from "@/lib/compose-draft-store";
 import { stubMatchMedia } from "@/test-utils/match-media";
 import type { ProjectSession, WindowInfo } from "@/types";
 
-// Route params the console's server-context walk reads.
+// Route params and search the console's server-context walk and `?from=`
+// validation read; navigations the mobile arm issues are recorded.
 let mockMatches: Array<{ params: Record<string, string> }> = [{ params: {} }];
+let mockSearch: Record<string, unknown> = {};
+const mockNavigate = vi.hoisted(() => vi.fn());
 vi.mock("@tanstack/react-router", () => ({
   useMatches: () => mockMatches,
+  useSearch: () => mockSearch,
+  useNavigate: () => mockNavigate,
 }));
 
 // The embedded terminal is TerminalClient's own tested surface; here we only
@@ -64,9 +73,10 @@ function operatorSessions(extraWindows: WindowInfo[] = []): ProjectSession[] {
 function renderConsole(opts: {
   servers?: string[];
   sessionsByServer?: Map<string, ProjectSession[]>;
+  withToasts?: boolean;
 } = {}) {
   const servers = (opts.servers ?? ["srv1"]).map((name) => ({ name, sessionCount: 1 }));
-  return render(
+  const tree = (
     <StandaloneSessionContextProvider
       value={{
         servers,
@@ -75,8 +85,9 @@ function renderConsole(opts: {
       }}
     >
       <OperatorConsole />
-    </StandaloneSessionContextProvider>,
+    </StandaloneSessionContextProvider>
   );
+  return render(opts.withToasts ? <ToastProvider>{tree}</ToastProvider> : tree);
 }
 
 /** The chord's first desktop step is focused-only (no drawer); tests that
@@ -99,6 +110,8 @@ describe("OperatorConsole", () => {
     setConsoleMachineState("rest");
     setOperatorComposeText("");
     mockMatches = [{ params: {} }];
+    mockSearch = {};
+    mockNavigate.mockReset();
     terminalMounts.length = 0;
     mockSend.mockReset();
     mockSend.mockResolvedValue({ ok: true });
@@ -108,6 +121,7 @@ describe("OperatorConsole", () => {
     mockOperatorRequest.mockResolvedValue({ outcome: "delivered" });
     setOperatorChatSubject(null);
     localStorage.clear();
+    hydrateComposeDrafts();
   });
   afterEach(() => {
     cleanup();
@@ -304,14 +318,57 @@ describe("OperatorConsole", () => {
     );
   });
 
-  it("renders as a full-height sheet under the top bar on mobile", () => {
-    stubMatchMedia(() => true);
+  it("a fallback send fired in the same commit as a re-open reads the post-reset chip state", async () => {
+    // Reduced motion so the close is instant — the send below must not wait
+    // out an exit slide.
+    stubMatchMedia((query) => query === "(prefers-reduced-motion: reduce)");
+    mockMatches = [{ params: { server: "srv1", window: "@1" } }];
     renderConsole();
     openDrawer();
 
-    const el = screen.getByTestId("operator-console");
-    expect(el.className).toContain("inset-0");
-    expect(el.className).not.toContain("-translate-x-1/2");
+    // Dismiss, then close — the dismissal is still live store state here.
+    act(() => dismissOperatorChatChip());
+    act(() => setConsoleMachineState("rest"));
+    expect(screen.queryByTestId("operator-console")).toBeNull();
+
+    // Re-open via the Ask-operator fallback: the reset effect and the
+    // pendingSend delivery land in the same commit — the send must read the
+    // post-reset store, riding the templated lane.
+    act(() => {
+      requestOperatorConsole({ action: "open", send: "still broken" });
+    });
+
+    await waitFor(() => expect(mockOperatorRequest).toHaveBeenCalledTimes(1));
+    expect(mockOperatorRequest).toHaveBeenCalledWith("srv1", "@1", "user-message", "still broken");
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it("a desktop→mobile viewport flip resets the machine to rest and unmounts the drawer", async () => {
+    // A controllable MQL (the shared stub's listeners are fire-and-forget):
+    // flip `matches` and fire the change listeners to simulate the resize.
+    const listeners = new Set<() => void>();
+    const mql = {
+      matches: false,
+      media: "",
+      onchange: null,
+      addEventListener: (_: string, fn: () => void) => listeners.add(fn),
+      removeEventListener: (_: string, fn: () => void) => listeners.delete(fn),
+      addListener: (fn: () => void) => listeners.add(fn),
+      removeListener: (fn: () => void) => listeners.delete(fn),
+      dispatchEvent: vi.fn(),
+    };
+    vi.stubGlobal("matchMedia", vi.fn().mockImplementation(() => mql));
+    renderConsole();
+    openDrawer();
+    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
+
+    act(() => {
+      mql.matches = true;
+      for (const fn of [...listeners]) fn();
+    });
+
+    expect(getConsoleMachineState()).toBe("rest");
+    expect(screen.queryByTestId("operator-console")).toBeNull();
   });
 
   it("applies the glass background at the stored opacity and drops the blur at α=1", async () => {
@@ -428,105 +485,149 @@ describe("OperatorConsole", () => {
   });
 });
 
-describe("OperatorConsole (mobile sheet compose)", () => {
+describe("OperatorConsole (mobile navigation)", () => {
   beforeEach(() => {
     stubMatchMedia(() => true);
     setConsoleMachineState("rest");
     setOperatorComposeText("");
     mockMatches = [{ params: {} }];
+    mockSearch = {};
+    mockNavigate.mockReset();
     terminalMounts.length = 0;
     mockSend.mockReset();
     mockSend.mockResolvedValue({ ok: true });
-    mockUpload.mockReset();
-    mockUpload.mockResolvedValue({ ok: true, path: "/tmp/op/.uploads/shot.png" });
+    mockOperatorRequest.mockReset();
+    mockOperatorRequest.mockResolvedValue({ outcome: "delivered" });
+    setOperatorChatSubject(null);
     localStorage.clear();
+    hydrateComposeDrafts();
   });
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
   });
 
-  it("keeps the compose strip in the sheet (the one-input rule is per form factor)", () => {
+  it("a console request navigates to the operator window's terminal route — no sheet mounts", () => {
     renderConsole();
-    openDrawer();
+    act(() => {
+      requestOperatorConsole({ action: "open" });
+    });
 
-    const el = screen.getByTestId("operator-console");
-    expect(el.querySelector("textarea")).toBe(screen.getByLabelText("Message the operator"));
-    expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
+    expect(mockNavigate).toHaveBeenCalledWith({
+      to: "/$server/$window",
+      params: { server: "srv1", window: "@9" },
+      search: {},
+    });
+    expect(screen.queryByTestId("operator-console")).toBeNull();
+    expect(getConsoleMachineState()).toBe("rest");
   });
 
-  it("Enter delivers via sendToWindow with the agent target and clears the input", async () => {
+  it("all three actions collapse to the same navigation", () => {
     renderConsole();
-    openDrawer();
+    for (const action of ["toggle", "open", "button"] as const) {
+      act(() => {
+        requestOperatorConsole({ action });
+      });
+    }
 
-    const input = screen.getByLabelText("Message the operator");
-    fireEvent.change(input, { target: { value: "restart the worker" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-
-    await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(1));
-    expect(mockSend).toHaveBeenCalledWith("srv1", "@9", "restart the worker", "submit", "agent");
-    await waitFor(() => expect(input).toHaveValue(""));
+    expect(mockNavigate).toHaveBeenCalledTimes(3);
+    for (const call of mockNavigate.mock.calls) {
+      expect(call[0]).toMatchObject({ params: { server: "srv1", window: "@9" }, search: {} });
+    }
   });
 
-  it("Shift+Enter inserts a newline instead of sending", () => {
+  it("navigating from a terminal route carries the origin window as ?from=", () => {
+    mockMatches = [{ params: { server: "srv1", window: "@1" } }];
     renderConsole();
-    openDrawer();
+    act(() => {
+      requestOperatorConsole({ action: "toggle" });
+    });
 
-    const input = screen.getByLabelText("Message the operator");
-    fireEvent.change(input, { target: { value: "line one" } });
-    fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
+    expect(mockNavigate).toHaveBeenCalledWith({
+      to: "/$server/$window",
+      params: { server: "srv1", window: "@9" },
+      search: { from: "@1" },
+    });
+  });
 
+  it("already on the operator route, re-activation is a true no-op — the existing ?from= survives", () => {
+    mockMatches = [{ params: { server: "srv1", window: "@9" } }];
+    mockSearch = { from: "@1" };
+    renderConsole();
+    act(() => {
+      requestOperatorConsole({ action: "toggle" });
+    });
+
+    // No navigate: a replace would have dropped the route's `?from=` (and
+    // with it the context chip).
+    expect(mockNavigate).not.toHaveBeenCalled();
+
+    // A fallback query still seeds the draft without navigating.
+    act(() => {
+      requestOperatorConsole({ action: "open", send: "still broken" });
+    });
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(getComposeDraft("srv1:@9").text).toBe("still broken");
+  });
+
+  it("the pinned sidebar row navigates to its own server's operator route", () => {
+    renderConsole({
+      servers: ["srv1", "srv2"],
+      sessionsByServer: new Map([
+        ["srv1", operatorSessions()],
+        [
+          "srv2",
+          [
+            { name: "main", windows: [win({ windowId: "@1" })] },
+            { name: "_rk-operator", hidden: true, windows: [win({ windowId: "@7", name: "operator-b", role: "operator" })] },
+          ],
+        ],
+      ]),
+    });
+    act(() => {
+      requestOperatorConsole({ action: "open", server: "srv2" });
+    });
+
+    expect(mockNavigate).toHaveBeenCalledWith({
+      to: "/$server/$window",
+      params: { server: "srv2", window: "@7" },
+      search: {},
+    });
+  });
+
+  it("the palette fallback query seeds the operator route's compose draft instead of auto-sending", async () => {
+    mockMatches = [{ params: { server: "srv1", window: "@1" } }];
+    renderConsole();
+    act(() => {
+      requestOperatorConsole({ action: "open", send: "find the stuck deploy" });
+    });
+
+    expect(mockNavigate).toHaveBeenCalledWith({
+      to: "/$server/$window",
+      params: { server: "srv1", window: "@9" },
+      search: { from: "@1" },
+    });
+    expect(getComposeDraft("srv1:@9").text).toBe("find the stuck deploy");
+    await new Promise((r) => setTimeout(r, 20));
     expect(mockSend).not.toHaveBeenCalled();
-    expect(input).toHaveValue("line one");
+    expect(mockOperatorRequest).not.toHaveBeenCalled();
   });
 
-  it("a failed send surfaces the message inline and preserves the composed text", async () => {
-    mockSend.mockRejectedValue(new Error("probe failed: no novelty echo"));
-    renderConsole();
-    openDrawer();
+  it("an operator-less server toasts the hint once and never navigates", () => {
+    renderConsole({
+      withToasts: true,
+      sessionsByServer: new Map([["srv1", [{ name: "main", windows: [win({})] }]]]),
+    });
+    act(() => {
+      requestOperatorConsole({ action: "toggle" });
+    });
+    act(() => {
+      requestOperatorConsole({ action: "open" });
+    });
 
-    const input = screen.getByLabelText("Message the operator");
-    fireEvent.change(input, { target: { value: "retry me" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-
-    await waitFor(() =>
-      expect(screen.getByTestId("operator-console-error")).toHaveTextContent("probe failed: no novelty echo"),
-    );
-    expect(input).toHaveValue("retry me");
-
-    // The next edit dismisses the error line.
-    fireEvent.change(input, { target: { value: "retry me, edited" } });
-    expect(screen.queryByTestId("operator-console-error")).toBeNull();
-  });
-
-  it("the in-flight guard blocks a second send until the first resolves", async () => {
-    let release!: () => void;
-    mockSend.mockImplementation(() => new Promise<{ ok: boolean }>((resolve) => { release = () => resolve({ ok: true }); }));
-    renderConsole();
-    openDrawer();
-
-    const input = screen.getByLabelText("Message the operator");
-    fireEvent.change(input, { target: { value: "one" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-    fireEvent.keyDown(input, { key: "Enter" });
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
-
-    expect(mockSend).toHaveBeenCalledTimes(1);
-    await act(async () => release());
-  });
-
-  it("focuses the compose input on open and restores focus on close", async () => {
-    renderConsole();
-    const prior = document.createElement("button");
-    document.body.appendChild(prior);
-    prior.focus();
-    openDrawer();
-
-    await waitFor(() => expect(screen.getByLabelText("Message the operator")).toHaveFocus());
-
-    fireEvent.keyDown(document, { key: "Escape" });
-    await waitFor(() => expect(prior).toHaveFocus());
-    prior.remove();
+    expect(mockNavigate).not.toHaveBeenCalled();
+    // Repeated activations within one toast lifetime do not stack.
+    expect(screen.getAllByText("no operator on this server — run `rk operator`")).toHaveLength(1);
   });
 });
 
@@ -535,10 +636,14 @@ describe("OperatorConsoleTongue", () => {
     setConsoleMachineState("rest");
     setOperatorComposeText("");
     mockMatches = [{ params: {} }];
+    mockSearch = {};
+    mockNavigate.mockReset();
     terminalMounts.length = 0;
     mockSend.mockReset();
     mockSend.mockResolvedValue({ ok: true });
+    setOperatorChatSubject(null);
     localStorage.clear();
+    hydrateComposeDrafts();
   });
   afterEach(() => {
     cleanup();
@@ -560,15 +665,32 @@ describe("OperatorConsoleTongue", () => {
     );
   }
 
-  it("is the standing affordance on mobile: visible while closed, tap opens the sheet, hidden while open", async () => {
+  it("is the standing affordance on mobile: a tap navigates to the operator route", () => {
     stubMatchMedia(() => true);
     renderTongue();
 
-    const tongue = screen.getByTestId("operator-console-tongue");
-    expect(screen.queryByTestId("operator-console")).toBeNull();
+    fireEvent.click(screen.getByTestId("operator-console-tongue"));
 
-    fireEvent.click(tongue);
-    await screen.findByTestId("operator-console");
+    expect(mockNavigate).toHaveBeenCalledWith({
+      to: "/$server/$window",
+      params: { server: "srv1", window: "@9" },
+      search: {},
+    });
+    expect(screen.queryByTestId("operator-console")).toBeNull();
+  });
+
+  it("hides while the current route IS the operator window's route", () => {
+    stubMatchMedia(() => true);
+    mockMatches = [{ params: { server: "srv1", window: "@9" } }];
+    renderTongue();
+
+    expect(screen.queryByTestId("operator-console-tongue")).toBeNull();
+  });
+
+  it("hides when no operator window resolves on the server", () => {
+    stubMatchMedia(() => true);
+    renderTongue([{ name: "main", windows: [win({})] }]);
+
     expect(screen.queryByTestId("operator-console-tongue")).toBeNull();
   });
 
@@ -592,117 +714,70 @@ describe("OperatorConsoleTongue", () => {
   });
 });
 
-describe("OperatorConsole (context chip / templated chat lane)", () => {
+describe("OperatorConsole (chat subject stamping)", () => {
   beforeEach(() => {
-    stubMatchMedia(() => true);
+    stubMatchMedia(() => false);
     setConsoleMachineState("rest");
     setOperatorComposeText("");
-    setOperatorChatSubject(null);
     mockMatches = [{ params: {} }];
+    mockSearch = {};
+    mockNavigate.mockReset();
     terminalMounts.length = 0;
     mockSend.mockReset();
     mockSend.mockResolvedValue({ ok: true });
     mockOperatorRequest.mockReset();
     mockOperatorRequest.mockResolvedValue({ outcome: "delivered" });
+    setOperatorChatSubject(null);
     localStorage.clear();
+    hydrateComposeDrafts();
   });
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
   });
 
-  function closeDrawer() {
-    act(() => {
-      requestOperatorConsole({ action: "toggle" });
-    });
-  }
-
-  it("on a terminal route the context chip names the route window and sends ride the templated lane", async () => {
+  it("on a terminal route the route window is stamped as the chat subject", () => {
     mockMatches = [{ params: { server: "srv1", window: "@1" } }];
     renderConsole();
-    openDrawer();
 
-    expect(screen.getByTestId("operator-console-context")).toHaveTextContent('from: @1 "win"');
-
-    const input = screen.getByLabelText("Message the operator");
-    fireEvent.change(input, { target: { value: "can you check the failing test?" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-
-    await waitFor(() => expect(mockOperatorRequest).toHaveBeenCalledTimes(1));
-    expect(mockOperatorRequest).toHaveBeenCalledWith("srv1", "@1", "user-message", "can you check the failing test?");
-    expect(mockSend).not.toHaveBeenCalled();
-    await waitFor(() => expect(input).toHaveValue(""));
+    expect(getOperatorChatTarget("srv1")).toMatchObject({ server: "srv1", windowId: "@1", name: "win" });
   });
 
-  it("dismissing the chip drops the envelope — the next send rides the direct lane", async () => {
+  it("on the operator window's own route the validated ?from= origin is stamped instead", () => {
+    mockMatches = [{ params: { server: "srv1", window: "@9" } }];
+    mockSearch = { from: "@1" };
+    renderConsole();
+
+    expect(getOperatorChatTarget("srv1")).toMatchObject({ server: "srv1", windowId: "@1" });
+  });
+
+  it("the numeric segment form of ?from= resolves like the path parse", () => {
+    mockMatches = [{ params: { server: "srv1", window: "@9" } }];
+    mockSearch = { from: "1" };
+    renderConsole();
+
+    expect(getOperatorChatTarget("srv1")).toMatchObject({ server: "srv1", windowId: "@1" });
+  });
+
+  it("an absent, unknown, or self ?from= on the operator route stamps no subject", () => {
+    mockMatches = [{ params: { server: "srv1", window: "@9" } }];
+    for (const from of [undefined, "@42", "@9"]) {
+      setOperatorChatSubject(null);
+      mockSearch = from === undefined ? {} : { from };
+      const { unmount } = renderConsole();
+      expect(getOperatorChatTarget("srv1")).toBeNull();
+      unmount();
+    }
+  });
+
+  it("a stamped subject does not cross servers", () => {
     mockMatches = [{ params: { server: "srv1", window: "@1" } }];
     renderConsole();
-    openDrawer();
 
-    fireEvent.click(screen.getByRole("button", { name: "Detach window context" }));
-    expect(screen.queryByTestId("operator-console-context")).toBeNull();
-
-    const input = screen.getByLabelText("Message the operator");
-    fireEvent.change(input, { target: { value: "plain message" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-
-    await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(1));
-    expect(mockSend).toHaveBeenCalledWith("srv1", "@9", "plain message", "submit", "agent");
-    expect(mockOperatorRequest).not.toHaveBeenCalled();
+    expect(getOperatorChatTarget("srv2")).toBeNull();
   });
 
-  it("the chip resets to attached when the console re-opens", () => {
-    mockMatches = [{ params: { server: "srv1", window: "@1" } }];
-    renderConsole();
-    openDrawer();
-
-    fireEvent.click(screen.getByRole("button", { name: "Detach window context" }));
-    expect(screen.queryByTestId("operator-console-context")).toBeNull();
-
-    closeDrawer();
-    openDrawer();
-    expect(screen.getByTestId("operator-console-context")).toBeInTheDocument();
-  });
-
-  it("a fallback send fired in the same commit as a re-open reads the post-reset chip state", async () => {
-    mockMatches = [{ params: { server: "srv1", window: "@1" } }];
-    renderConsole();
-    openDrawer();
-
-    // Dismiss, then close — the dismissal is still live store state here.
-    fireEvent.click(screen.getByRole("button", { name: "Detach window context" }));
-    expect(screen.queryByTestId("operator-console-context")).toBeNull();
-    closeDrawer();
-    expect(screen.queryByTestId("operator-console")).toBeNull();
-
-    // Re-open via the Ask-operator fallback: the reset effect and the
-    // pendingSend delivery land in the same commit — the send must read the
-    // post-reset store, riding the templated lane.
-    act(() => {
-      requestOperatorConsole({ action: "open", send: "still broken" });
-    });
-
-    await waitFor(() => expect(mockOperatorRequest).toHaveBeenCalledTimes(1));
-    expect(mockOperatorRequest).toHaveBeenCalledWith("srv1", "@1", "user-message", "still broken");
-    expect(mockSend).not.toHaveBeenCalled();
-    expect(screen.getByTestId("operator-console-context")).toBeInTheDocument();
-  });
-
-  it("the chip resets when the route's subject window changes", () => {
-    mockMatches = [{ params: { server: "srv1", window: "@1" } }];
-    renderConsole();
-    openDrawer();
-    fireEvent.click(screen.getByRole("button", { name: "Detach window context" }));
-    expect(screen.queryByTestId("operator-console-context")).toBeNull();
-
-    closeDrawer();
-    mockMatches = [{ params: { server: "srv1", window: "@2" } }];
-    openDrawer();
-    // @2 is not in the sessions payload — the chip still attaches, unnamed.
-    expect(screen.getByTestId("operator-console-context")).toHaveTextContent("from: @2");
-  });
-
-  it("a pinned cross-server retarget does not attach the route's window", async () => {
+  it("a pinned cross-server retarget does not attach the route's window", () => {
     mockMatches = [{ params: { server: "srv1", window: "@1" } }];
     renderConsole({
       servers: ["srv1", "srv2"],
@@ -715,32 +790,47 @@ describe("OperatorConsole (context chip / templated chat lane)", () => {
       requestOperatorConsole({ action: "open", server: "srv2" });
     });
 
-    expect(screen.queryByTestId("operator-console-context")).toBeNull();
-    const input = screen.getByLabelText("Message the operator");
-    fireEvent.change(input, { target: { value: "cross-server" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-
-    await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(1));
-    expect(mockSend).toHaveBeenCalledWith("srv2", "@9", "cross-server", "submit", "agent");
-    expect(mockOperatorRequest).not.toHaveBeenCalled();
+    expect(getOperatorChatTarget("srv1")).toBeNull();
+    expect(getOperatorChatTarget("srv2")).toBeNull();
   });
 
-  it("the palette fallback send rides the same lane fork on a terminal route", async () => {
+  it("a subject change re-attaches a dismissed chip; re-engaging the console does too", () => {
+    // Reduced motion so the desktop exit is instant — `engaged` only leaves
+    // true once the drawer has actually unmounted (the exit slide otherwise
+    // holds it), and re-engagement is the edge this test exercises.
+    stubMatchMedia((query) => query === "(prefers-reduced-motion: reduce)");
     mockMatches = [{ params: { server: "srv1", window: "@1" } }];
-    renderConsole();
-    act(() => {
-      requestOperatorConsole({ action: "open", send: "find the stuck deploy" });
-    });
+    const view = renderConsole();
+    openDrawer();
+    act(() => dismissOperatorChatChip());
+    expect(getOperatorChatTarget("srv1")).toBeNull();
 
-    await waitFor(() => expect(mockOperatorRequest).toHaveBeenCalledTimes(1));
-    expect(mockOperatorRequest).toHaveBeenCalledWith("srv1", "@1", "user-message", "find the stuck deploy");
-    expect(mockSend).not.toHaveBeenCalled();
+    // Close and re-open: the machine leaving rest re-attaches.
+    act(() => setConsoleMachineState("rest"));
+    openDrawer();
+    expect(getOperatorChatTarget("srv1")?.windowId).toBe("@1");
+
+    // Dismiss again; a route-window change resets the dismissal in the store.
+    act(() => dismissOperatorChatChip());
+    expect(getOperatorChatTarget("srv1")).toBeNull();
+    mockMatches = [{ params: { server: "srv1", window: "@2" } }];
+    view.rerender(
+      <StandaloneSessionContextProvider
+        value={{
+          servers: [{ name: "srv1", sessionCount: 1 }],
+          serversLoaded: true,
+          sessionsByServer: new Map([["srv1", operatorSessions()]]),
+        }}
+      >
+        <OperatorConsole />
+      </StandaloneSessionContextProvider>,
+    );
+    expect(getOperatorChatTarget("srv1")?.windowId).toBe("@2");
   });
 
-  it("no chip renders on a route without a subject window", () => {
+  it("no subject is stamped on a route without a window", () => {
     renderConsole();
-    openDrawer();
 
-    expect(screen.queryByTestId("operator-console-context")).toBeNull();
+    expect(getOperatorChatTarget("srv1")).toBeNull();
   });
 });

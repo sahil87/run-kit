@@ -96,3 +96,18 @@ describe("validateTerminalSearch (?panel= drop)", () => {
     });
   });
 });
+
+// The `?from=` param carries the operator console's origin window id onto the
+// operator window's route. It passes through as a raw string (the `?layout=`
+// posture — the consumer validates it against the sessions payload); empty and
+// non-string values are DROPPED.
+describe("validateTerminalSearch (?from= pass-through)", () => {
+  it("accepts a window id string", () => {
+    expect(validateTerminalSearch({ from: "@5" })).toEqual({ from: "@5" });
+  });
+
+  it("drops empty and non-string values", () => {
+    expect(validateTerminalSearch({ from: "" }).from).toBeUndefined();
+    expect(validateTerminalSearch({ from: 5 }).from).toBeUndefined();
+  });
+});

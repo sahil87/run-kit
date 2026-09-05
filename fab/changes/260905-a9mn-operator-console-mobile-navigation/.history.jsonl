@@ -1,0 +1,15 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-05T15:49:16Z"}
+{"args":"Operator console mobile: retire the full-height sheet; mobile entry points navigate to the operator window's terminal route (/$server/$window) reusing route chrome (top-bar heading, compose strip, bottom bar, --bottom-bar-pad safe area). Desktop overlay untouched.","cmd":"fab-new","event":"command","ts":"2026-09-05T15:49:16Z"}
+{"delta":"+2.3","event":"confidence","score":2.3,"trigger":"calc-score","ts":"2026-09-05T15:51:16Z"}
+{"cmd":"fab-draft","event":"command","ts":"2026-09-05T15:52:00Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-09-05T15:53:21Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-05T15:54:35Z"}
+{"delta":"+1.8","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-09-05T16:44:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-05T16:46:51Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-05T17:15:09Z"}
+{"event":"review","result":"failed","ts":"2026-09-05T17:21:34Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-05T17:21:34Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-05T17:26:11Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-05T17:31:10Z"}
+{"event":"review","result":"passed","ts":"2026-09-05T17:31:10Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-05T17:38:03Z"}

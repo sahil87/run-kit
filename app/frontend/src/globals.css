@@ -434,17 +434,6 @@ summary {
   to { opacity: 1; }
 }
 
-/* Operator console: the mobile sheet keeps a short settle-in drop on open
-   (transform only). Zeroed under prefers-reduced-motion below. */
-.rk-console-drop {
-  animation: rk-console-drop-in 160ms ease-out both;
-}
-
-@keyframes rk-console-drop-in {
-  from { transform: translateY(-10px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
-}
-
 /* Operator console desktop drawer: the true quake slide. The drawer mounts
    with .rk-console-closed (raised fully above the top-bar seam — the
    absolute inset-0 overflow-clip wrapper hides the raised portion) and
@@ -1561,9 +1550,8 @@ html[data-theme="light"] {
   /* Pending-switch mask still SHOWS (input safety is never motion-only) — only
      its fade-in is dropped so it appears as an instant cut. */
   .rk-window-switch-mask { animation: none; }
-  /* Operator console: the mobile sheet's settle-in and the desktop drawer's
-     slide are both zeroed (the component also skips the exit delay in JS). */
-  .rk-console-drop { animation: none; }
+  /* Operator console: the desktop drawer's slide is zeroed (the component
+     also skips the exit delay in JS). */
   .rk-console-slide { transition: none; }
   /* Hatch-marker hazard wedge (.rk-hazard): static in every state by design —
      nothing to zero here; listed so the reduced-motion audit stays complete. */

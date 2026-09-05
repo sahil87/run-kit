@@ -12,8 +12,10 @@ import { useFocusedTerminal, type FocusedTerminal } from "@/contexts/focused-ter
 import { useChromeDispatch } from "@/contexts/chrome-context";
 import { useFileUpload } from "@/hooks/use-file-upload";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
-import { ApiError, sendToWindow, type WindowSendMode } from "@/api/client";
+import { ApiError, sendOperatorRequest, sendToWindow, type WindowSendMode } from "@/api/client";
 import { useToast } from "@/components/toast";
+import { OperatorContextChip } from "@/components/operator-context-chip";
+import { getOperatorChatTarget, useOperatorChatChip } from "@/lib/operator-console";
 import {
   classifyComposeEnter,
   composeSubmitKeycap,
@@ -212,6 +214,21 @@ export function ComposeStrip({
   dockedInTile?: boolean;
 }) {
   const { focused } = useFocusedTerminal();
+  // The chat-subject store (lib/operator-console.ts): on the operator window's
+  // own route the console stamps the validated `?from=` origin window here.
+  // The strip attaches the chip and forks its plain text submit onto the
+  // templated chat lane only when the subject is a DIFFERENT window than the
+  // strip's target — on an ordinary terminal route the stamped subject IS the
+  // route window (the desktop omnibox's chip), which must not reroute the
+  // strip's direct pane sends.
+  const chatChip = useOperatorChatChip();
+  const operatorChatServer =
+    focused !== null &&
+    chatChip.subject !== null &&
+    chatChip.subject.server === focused.server &&
+    chatChip.subject.windowId !== focused.windowId
+      ? focused.server
+      : null;
   // The header-row × fires the exact same toggle as the bottom-bar `>_` chip
   // and the `View: Text Input` palette entry. Consumed here (not threaded as a
   // prop) so both footer mounts (app.tsx / board-page.tsx) inherit the close
@@ -518,12 +535,27 @@ export function ComposeStrip({
       if (empty && mode !== "submit") return;
       if (!focused) return;
 
+      // The templated chat lane: on the operator window's route with an
+      // origin subject attached, a plain text SUBMIT rides the
+      // operator-request lane at the SUBJECT window (the server wraps the
+      // text in a source envelope) instead of the direct pane send. Only the
+      // plain-submit path forks — special-key and mode-carrying sends
+      // (bottom-bar keys, enter, raw, inserts) always go direct to the pane;
+      // driving the TUI is the point of the route. The subject is read at
+      // send time, never captured earlier.
+      const chatSubject =
+        mode === "submit" && !empty ? getOperatorChatTarget(focused.server) : null;
+
       const sendMode: WindowSendMode =
         mode === "submit" ? (empty ? "enter" : "submit") : mode === "insert" ? "raw" : mode;
       const sentKey = draftKey;
       const sentFiles = files;
       setSending(true);
-      void sendToWindow(focused.server, focused.windowId, empty ? "" : text, sendMode)
+      const delivery: Promise<unknown> =
+        chatSubject !== null && chatSubject.windowId !== focused.windowId
+          ? sendOperatorRequest(focused.server, chatSubject.windowId, "user-message", text)
+          : sendToWindow(focused.server, focused.windowId, empty ? "" : text, sendMode);
+      void delivery
         .then(() => {
           const live = getComposeDraft(sentKey);
           const filesUnchanged =
@@ -1193,6 +1225,15 @@ export function ComposeStrip({
         data-testid="compose-strip-inner"
       >
       {showHeader && headerEl}
+
+      {/* The chat-lane context chip — only on the operator window's route
+          with a `?from=` subject attached (operatorChatServer is null
+          everywhere else); dismissal and the empty state are the chip's own. */}
+      {operatorChatServer !== null && (
+        <div className="flex items-center empty:hidden">
+          <OperatorContextChip server={operatorChatServer} />
+        </div>
+      )}
 
       {/* One warm-tip cluster for the strip's buttons (260722-73al);
           placement `top` — the strip sits at the bottom of the screen. */}

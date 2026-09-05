@@ -2,10 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSessionContext, useCurrentServerFromRoute } from "@/contexts/session-context";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { TerminalClient } from "@/components/terminal-client";
-import { useMatches } from "@tanstack/react-router";
+import { useMatches, useNavigate, useSearch } from "@tanstack/react-router";
 import { prefersReducedMotion } from "@/lib/motion";
 import { resolveFocusedWindow } from "@/lib/focused-pane-window";
-import { OperatorContextChip } from "@/components/operator-context-chip";
+import { urlSegmentToWindowId } from "@/lib/router-url";
+import { useOptionalToast } from "@/components/toast";
+import { setComposeText } from "@/lib/compose-draft-store";
+import { entryKey } from "@/store/window-store";
 import {
   OPERATOR_CONSOLE_EVENT,
   attachOperatorFiles,
@@ -19,64 +22,84 @@ import {
   resetOperatorChatChip,
   setConsoleMachineState,
   setOperatorChatSubject,
-  setOperatorComposeText,
-  setOperatorConsoleOpen,
   useConsoleGeometry,
   useConsoleMachineState,
   useConsoleOpacity,
   useOperatorCompose,
   useOperatorConsoleContext,
-  useOperatorConsoleOpen,
   type ConsoleGeometry,
+  type OperatorConsoleRequest,
 } from "@/lib/operator-console";
 
 /** Slide duration — must match the `.rk-console-slide` transition in globals.css. */
 const CONSOLE_SLIDE_MS = 240;
 
+/** The operator-less hint is a toast; repeat activations within one toast
+ *  lifetime must not stack duplicates (the toast itself times out at 4s). */
+const NO_OPERATOR_HINT_THROTTLE_MS = 4000;
+
+/** The established operator-absent message — the desktop drawer renders it as
+ *  its hint line, mobile activations toast it. */
+const NO_OPERATOR_HINT = "no operator on this server — run `rk operator`";
+
 /**
- * The operator chat console — a global pull-down overlay (drawer on desktop,
- * full-height sheet under the top bar on mobile) available on every route.
- * Mounted ONCE at the persistent root layout (app.tsx, beside the single
- * CommandPalette mount); every entry point — the registry chord, the palette
- * action, the palette's Ask-operator fallback row, the sidebar pinned row, the
- * top-bar operator button, the mobile tongue, the mobile overflow-menu row —
- * reaches it through the OPERATOR_CONSOLE_EVENT document seam
- * (lib/operator-console.ts).
+ * The operator chat console — a global pull-down drawer overlay on desktop,
+ * available on every route. Mounted ONCE at the persistent root layout
+ * (app.tsx, beside the single CommandPalette mount); every entry point — the
+ * registry chord, the palette action, the palette's Ask-operator fallback row,
+ * the sidebar pinned row, the top-bar operator button, the mobile tongue, the
+ * mobile overflow-menu row — reaches it through the OPERATOR_CONSOLE_EVENT
+ * document seam (lib/operator-console.ts).
  *
- * Desktop runs the ⌘J three-state machine (lib/operator-console.ts): rest →
- * focused (omnibox focused, drawer closed) → open (drawer down — a peek,
- * nothing sent) → rest. Enter in the omnibox sends and auto-opens; Esc steps
- * back one level (open → focused → rest); the palette action and the pinned
- * row land straight on open+focused; the ◉ button maps open ⇄ rest. The
- * machine is the controlling state — the drawer's internal open flag follows
- * it through the slide machinery. Mobile never leaves the rest/open pair: the
- * chord, tongue, and menu row plain-toggle the sheet.
+ * The seam forks on form factor. Desktop runs the ⌘J three-state machine
+ * (lib/operator-console.ts): rest → focused (omnibox focused, drawer closed)
+ * → open (drawer down — a peek, nothing sent) → rest. Enter in the omnibox
+ * sends and auto-opens; Esc steps back one level (open → focused → rest); the
+ * palette action and the pinned row land straight on open+focused; the ◉
+ * button maps open ⇄ rest. The machine is the controlling state — the
+ * drawer's internal open flag follows it through the slide machinery.
  *
- * Anatomy: a title strip (◉ OPERATOR · server, the operator window's live
- * agent state from the sessions payload, a server picker on param-less
- * multi-server routes, a close affordance), an embedded LIVE terminal view of
- * the operator window (a plain TerminalClient over the shared /ws/terminals
- * relay mux — the same mechanism a board pane uses, registerFocus off so the
- * BottomBar keeps its target, `transparent` on so the glass background shows
- * through the cells), and — MOBILE ONLY — a compose strip. The one-input
- * rule: on desktop the compose IS the top-bar omnibox (components/
- * operator-omnibox.tsx) and the drawer is output-only, carrying the inline
- * status/error line at its top edge, directly under the box. Both inputs
- * drive the ONE shared compose seam (lib/operator-console.ts) — same draft,
- * same `sendToWindow(..., "submit", "agent")` delivery with chat-send busy
- * semantics (allow + probe — no client-side busy gate), same upload path.
- * Structured send failures surface inline (never toasts) and the composed
- * text survives a failure for retry/edit.
+ * On MOBILE there is no drawer at all: every request resolves the operator
+ * window and NAVIGATES to its ordinary terminal route, reusing that route's
+ * chrome wholesale (the top-bar `Terminal: <window>` heading, the compose
+ * strip, the bottom-bar key chips, the `--bottom-bar-pad` safe-area
+ * handling). The palette fallback row's query is seeded into the operator
+ * route's compose-strip draft instead of auto-sending, and a navigation from
+ * a terminal route carries the origin window as `?from=` so the operator
+ * route's compose strip keeps the templated chat lane behind its context
+ * chip. A request against an operator-less server toasts the hint and stays
+ * put. The component still mounts on mobile (the seam listener lives here)
+ * but renders nothing; a desktop→mobile viewport flip resets the machine to
+ * rest and tears down any in-flight slide state, so no effect or frame
+ * survives the gate.
+ *
+ * Anatomy (desktop): a title strip (◉ OPERATOR · server, the operator
+ * window's live agent state from the sessions payload, a server picker on
+ * param-less multi-server routes, a close affordance) and an embedded LIVE
+ * terminal view of the operator window (a plain TerminalClient over the
+ * shared /ws/terminals relay mux — the same mechanism a board pane uses,
+ * registerFocus off so the BottomBar keeps its target, `transparent` on so
+ * the glass background shows through the cells). The one-input rule: the
+ * compose IS the top-bar omnibox (components/operator-omnibox.tsx); the
+ * drawer is output-only, carrying the inline status/error line at its top
+ * edge, directly under the box. The omnibox drives the ONE shared compose
+ * seam (lib/operator-console.ts) — same draft, same `sendToWindow(...,
+ * "submit", "agent")` delivery with chat-send busy semantics (allow + probe —
+ * no client-side busy gate), same upload path. Structured send failures
+ * surface inline (never toasts) and the composed text survives a failure for
+ * retry/edit.
  *
  * On a terminal route the compose carries a dismissable context chip (default
- * attached) naming the route's window; with it attached, sends ride the
- * templated chat lane (`sendOperatorRequest(server, routeWindowId,
+ * attached) naming the subject window — the route's window, or the validated
+ * `?from=` origin on the operator window's own route; with it attached, sends
+ * ride the templated chat lane (`sendOperatorRequest(server, subjectWindowId,
  * "user-message", text)` — a server-derived source envelope wraps the text,
  * the busy gate and queue are skipped server-side), otherwise the direct
  * lane. The console stamps the subject into the lib's chat-subject store; the
- * fork itself lives in `sendOperatorMessage`, which reads the store at send
- * time, so both inputs (omnibox, sheet strip) and the pendingSend path share
- * one resolution.
+ * omnibox fork lives in `sendOperatorMessage` and the compose strip's
+ * plain-submit fork keys on the same store, both read AT SEND TIME, so a
+ * pendingSend delivered in the same commit as a chip reset sees the reset,
+ * never a stale closure.
  *
  * The desktop drawer is a true quake slide: it mounts translated fully above
  * the top-bar seam (an `overflow-clip` wrapper hides the raised portion) and
@@ -99,9 +122,10 @@ const CONSOLE_SLIDE_MS = 240;
  * hint line is the answer.
  *
  * Open/closed is ephemeral per-viewer component state (Constitution IV — no
- * URL, tmux, or localStorage write; geometry/opacity are the carve-out
- * preferences). Availability degrades to ABSENT: a server with no operator
- * window renders a single hint line and opens no stream.
+ * URL, tmux, or localStorage write beyond the ordinary route URL;
+ * geometry/opacity are the carve-out preferences). Availability degrades to
+ * ABSENT: a server with no operator window renders a single hint line and
+ * opens no stream (mobile: a toast, and no navigation).
  */
 export function OperatorConsole() {
   const isMobile = useIsMobile();
@@ -118,9 +142,10 @@ export function OperatorConsole() {
   const [pickerServer, setPickerServer] = useState<string | null>(null);
   const [pendingSend, setPendingSend] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
-  const composeRef = useRef<HTMLTextAreaElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const restoreFocusRef = useRef<Element | null>(null);
+  const navigate = useNavigate();
+  const toast = useOptionalToast();
+  const noOperatorHintAtRef = useRef(0);
 
   const { servers, sessionsByServer } = useSessionContext();
 
@@ -128,7 +153,8 @@ export function OperatorConsole() {
   // unique across the route tree).
   const routeServer = useCurrentServerFromRoute();
   // Route window — the same deepest-first walk over the window param: a
-  // terminal route yields the console's chat subject, every other route none.
+  // terminal route yields the console's chat subject (or, on the operator
+  // window's own route, the `?from=` origin does), every other route none.
   const matches = useMatches();
   let routeWindow: string | null = null;
   for (let i = matches.length - 1; i >= 0; i--) {
@@ -138,6 +164,9 @@ export function OperatorConsole() {
       break;
     }
   }
+  // The mobile navigation arm's origin-context carrier (the `?layout=` idiom:
+  // raw string, validated against the sessions payload at stamp time).
+  const search = useSearch({ strict: false });
 
   // Most-recently-viewed server, remembered ephemerally for the picker
   // default on param-less routes (no persistence — Constitution IV).
@@ -179,10 +208,10 @@ export function OperatorConsole() {
 
   const requestClose = useCallback(() => {
     if (closingRef.current) return;
-    // Reduced motion skips the mounted-through-exit delay entirely (the CSS
-    // transition is zeroed too); the mobile sheet keeps its own fast
-    // treatment and never rides the quake slide.
+    // Mobile never slides (there is no drawer) and reduced motion skips the
+    // mounted-through-exit delay entirely (the CSS transition is zeroed too).
     if (isMobileRef.current || prefersReducedMotion()) {
+      setClosing(false);
       setOpen(false);
       setEntered(false);
       return;
@@ -226,19 +255,60 @@ export function OperatorConsole() {
     else if (machine !== "open" && prev === "open") requestCloseRef.current();
   }, [machine, openDrawer]);
 
+  // Mobile arm: every console request — from any entry point, all three
+  // actions collapse into this — resolves the operator window and navigates
+  // to its ordinary terminal route (there is no sheet to open). A navigation
+  // from a terminal route on the same server carries the origin window as
+  // `?from=` (never the operator window itself); re-activating while ALREADY
+  // on the target operator route skips the navigate entirely, so the
+  // existing `?from=` (and the chip it feeds) survives. The palette fallback
+  // row's query seeds the operator route's compose-strip draft rather than
+  // auto-sending, and an operator-less server toasts the hint (throttled to
+  // one per toast lifetime) without navigating. Held in a ref so the
+  // once-registered seam listener below always reads current-render values.
+  const mobileRequestRef = useRef<(detail: OperatorConsoleRequest) => void>(() => {});
+  mobileRequestRef.current = (detail) => {
+    const srv =
+      detail.server ?? resolveConsoleServer(routeServer, serverNames, lastViewedRef.current);
+    const tgt = srv ? findOperatorWindow(sessionsByServer.get(srv) ?? []) : undefined;
+    if (!srv || !tgt) {
+      const now = Date.now();
+      if (now - noOperatorHintAtRef.current >= NO_OPERATOR_HINT_THROTTLE_MS) {
+        noOperatorHintAtRef.current = now;
+        toast?.addToast(NO_OPERATOR_HINT, "info");
+      }
+      return;
+    }
+    const onOperatorRoute = routeServer === srv && routeWindow === tgt.window.windowId;
+    if (!onOperatorRoute) {
+      const from = routeServer === srv && routeWindow !== null ? routeWindow : undefined;
+      navigate({
+        to: "/$server/$window",
+        params: { server: srv, window: tgt.window.windowId },
+        search: from ? { from } : {},
+      });
+    }
+    if (detail.send !== undefined) {
+      setComposeText(entryKey(srv, tgt.window.windowId), detail.send);
+    }
+  };
+
   // Entry-point seam: chord dispatch, palette action, top-bar button, tongue,
   // overflow-menu row, sidebar pinned row, and the palette fallback row all
-  // dispatch here. Desktop `toggle` steps the three-state machine; mobile
-  // `toggle` plain-toggles the sheet; `button` (the top-bar ◉) maps
-  // open ⇄ rest; `open` always opens (desktop: with the omnibox focused).
+  // dispatch here. Mobile navigates (the arm above); desktop `toggle` steps
+  // the three-state machine, `button` (the top-bar ◉) maps open ⇄ rest, and
+  // `open` always opens with the omnibox focused.
   useEffect(() => {
     function onRequest(e: Event) {
       const detail = (e as CustomEvent<unknown>).detail;
       if (!isOperatorConsoleRequest(detail)) return;
+      if (isMobileRef.current) {
+        mobileRequestRef.current(detail);
+        return;
+      }
       const state = machineRef.current;
       if (detail.action === "toggle") {
-        if (isMobileRef.current) setConsoleMachineState(state === "open" ? "rest" : "open");
-        else setConsoleMachineState(cycleConsoleMachine(state));
+        setConsoleMachineState(cycleConsoleMachine(state));
       } else if (detail.action === "button") {
         setConsoleMachineState(state === "open" ? "rest" : "open");
       } else {
@@ -250,6 +320,15 @@ export function OperatorConsole() {
     document.addEventListener(OPERATOR_CONSOLE_EVENT, onRequest);
     return () => document.removeEventListener(OPERATOR_CONSOLE_EVENT, onRequest);
   }, []);
+
+  // The gate owns the frames AND the effects: a desktop→mobile flip resets
+  // the machine and tears down any in-flight slide state, so the drawer, its
+  // timers, and its poses never survive onto mobile.
+  useEffect(() => {
+    if (!isMobile) return;
+    setConsoleMachineState("rest");
+    finishClose();
+  }, [isMobile, finishClose]);
 
   // Enter pose: mount raised (translateY(-102%), clipped by the wrapper), then
   // drop the raised class two frames later so the transition animates.
@@ -271,15 +350,14 @@ export function OperatorConsole() {
   // (the drawer closes, the omnibox keeps focus), focused → rest (the omnibox
   // blur + focus restore is the omnibox's machine-follower effect). Owning
   // both steps here — rather than letting the omnibox input handle its own
-  // Esc — guarantees one Esc never double-steps. Mobile steps straight to
-  // rest. The stream closes with the unmount; the conversation itself lives
-  // in the operator window regardless.
+  // Esc — guarantees one Esc never double-steps. The stream closes with the
+  // unmount; the conversation itself lives in the operator window regardless.
   useEffect(() => {
     if (!open && machine === "rest") return;
     function onKey(e: KeyboardEvent) {
       if (e.key !== "Escape" || e.defaultPrevented) return;
       const state = machineRef.current;
-      if (isMobileRef.current || state === "focused") setConsoleMachineState("rest");
+      if (state === "focused") setConsoleMachineState("rest");
       else if (state === "open") setConsoleMachineState("focused");
     }
     document.addEventListener("keydown", onKey);
@@ -288,48 +366,38 @@ export function OperatorConsole() {
 
   const rendered = open || closing;
 
-  // Publish the open flag to the module slot — the mobile tongue hides while
-  // the sheet covers it, and the paste guard can read the state without
-  // owning it.
-  useEffect(() => {
-    setOperatorConsoleOpen(rendered);
-    return () => setOperatorConsoleOpen(false);
-  }, [rendered]);
-
-  // Focus the compose input on open (the mobile sheet — the desktop drawer's
-  // input is the omnibox, whose machine-follower effect owns focus there);
-  // restore prior focus once the close completes.
-  useEffect(() => {
-    if (!rendered || !isMobile) return;
-    restoreFocusRef.current = document.activeElement;
-    const frame = requestAnimationFrame(() => {
-      const root = rootRef.current;
-      if (!root) return;
-      (composeRef.current ?? root.querySelector<HTMLElement>("button, select"))?.focus();
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [rendered, isMobile]);
-  useEffect(() => {
-    if (rendered || !isMobile) return;
-    const el = restoreFocusRef.current;
-    restoreFocusRef.current = null;
-    if (el instanceof HTMLElement) el.focus();
-  }, [rendered, isMobile]);
-
   const target = useMemo(
     () => (server ? findOperatorWindow(sessionsByServer.get(server) ?? []) : undefined),
     [server, sessionsByServer],
   );
 
-  // The chat subject: the route's window, but only when the console's resolved
-  // server IS the route's server (a pinned/picked cross-server retarget must
-  // not attach a foreign window id — window ids are server-scoped). Stamped
-  // into the lib's chat-subject store — both compose surfaces render the chip
-  // from it, and sendOperatorMessage reads it AT SEND TIME, so a pendingSend
-  // delivered in the same commit as a reset sees the reset, never a stale
-  // closure.
-  const subjectWindowId =
-    routeServer !== null && routeWindow !== null && server === routeServer ? routeWindow : null;
+  // The chat subject. On an ordinary terminal route it is the route's window;
+  // on the operator window's OWN route it is the validated `?from=` origin
+  // window (the mobile navigation's context carrier — the numeric segment
+  // form is accepted like the path parse, and an unknown, cross-server, or
+  // self id attaches nothing: a subject must never be the send's own target).
+  // Either way it attaches only when the console's resolved server IS the
+  // route's server (a pinned/picked cross-server retarget must not attach a
+  // foreign window id — window ids are server-scoped). Stamped into the lib's
+  // chat-subject store — both compose surfaces render the chip from it, and
+  // the send forks read it AT SEND TIME, so a pendingSend delivered in the
+  // same commit as a reset sees the reset, never a stale closure.
+  const onTerminalRoute = routeServer !== null && routeWindow !== null && server === routeServer;
+  const onOperatorRoute =
+    onTerminalRoute && target !== undefined && routeWindow === target.window.windowId;
+  const fromWindow = useMemo(() => {
+    if (!onOperatorRoute || !server) return null;
+    const raw = search.from;
+    if (typeof raw !== "string" || raw.length === 0) return null;
+    const id = urlSegmentToWindowId(raw);
+    if (id === routeWindow) return null;
+    return resolveFocusedWindow(sessionsByServer.get(server) ?? [], id);
+  }, [onOperatorRoute, server, search.from, routeWindow, sessionsByServer]);
+  const subjectWindowId = !onTerminalRoute
+    ? null
+    : onOperatorRoute
+      ? (fromWindow?.windowId ?? null)
+      : routeWindow;
   const subjectName = useMemo(() => {
     if (!subjectWindowId || !server) return null;
     return resolveFocusedWindow(sessionsByServer.get(server) ?? [], subjectWindowId)?.name ?? null;
@@ -341,9 +409,9 @@ export function OperatorConsole() {
   }, [server, subjectWindowId, subjectName]);
 
   // Chip dismissal is scoped to one engagement: re-engaging the console — the
-  // machine leaving rest (desktop) or the sheet opening (mobile) — re-attaches
-  // the context (Constitution IV ephemeral state; subject changes reset inside
-  // the store itself).
+  // machine leaving rest — re-attaches the context (Constitution IV ephemeral
+  // state; subject changes reset inside the store itself, which is what
+  // re-attaches the chip on mobile route arrivals).
   const engaged = open || machine !== "rest";
   const prevEngagedRef = useRef(engaged);
   useEffect(() => {
@@ -435,14 +503,15 @@ export function OperatorConsole() {
     [writeGeometry],
   );
 
-  if (!rendered) return null;
+  // Desktop-only render: the mobile arm is navigation (the seam listener
+  // above), so nothing mounts below the shared isMobile rule.
+  if (!rendered || isMobile) return null;
 
   const agentState = target?.window.agentState;
   const agentIdle = target?.window.agentIdleDuration;
 
-  // Glass: alpha-blended bg-primary over a fixed 6px backdrop blur (desktop
-  // drawer only — the mobile sheet stays opaque). α=1 disables the filter
-  // entirely: the zero-cost opaque path.
+  // Glass: alpha-blended bg-primary over a fixed 6px backdrop blur. α=1
+  // disables the filter entirely: the zero-cost opaque path.
   const glassStyle: React.CSSProperties = {
     backgroundColor: `color-mix(in srgb, var(--color-bg-primary) ${Math.round(opacity * 100)}%, transparent)`,
     ...(opacity < 1
@@ -489,25 +558,17 @@ export function OperatorConsole() {
         if (files.length === 0) return;
         void attachOperatorFiles(server, target, files);
       }}
-      className={
-        isMobile
-          ? "rk-console-drop absolute inset-0 z-40 flex flex-col bg-bg-primary"
-          : `rk-console-slide pointer-events-auto absolute top-0 left-1/2 -translate-x-1/2 flex flex-col border border-t-0 border-border rounded-b-lg shadow-2xl${
-              entered && !closing ? "" : " rk-console-closed"
-            }${dragging ? " rk-console-dragging" : ""}`
-      }
-      style={
-        isMobile
-          ? undefined
-          : {
-              // maxWidth (not a min() width) so the 96vw ceiling keeps
-              // tracking live viewport resizes.
-              width: `${effectiveGeometry.widthPx}px`,
-              maxWidth: "96vw",
-              height: `${effectiveGeometry.heightVh}vh`,
-              ...glassStyle,
-            }
-      }
+      className={`rk-console-slide pointer-events-auto absolute top-0 left-1/2 -translate-x-1/2 flex flex-col border border-t-0 border-border rounded-b-lg shadow-2xl${
+        entered && !closing ? "" : " rk-console-closed"
+      }${dragging ? " rk-console-dragging" : ""}`}
+      style={{
+        // maxWidth (not a min() width) so the 96vw ceiling keeps
+        // tracking live viewport resizes.
+        width: `${effectiveGeometry.widthPx}px`,
+        maxWidth: "96vw",
+        height: `${effectiveGeometry.heightVh}vh`,
+        ...glassStyle,
+      }}
     >
       <div className="flex items-center gap-2 border-b border-border px-3 py-1.5 text-xs shrink-0">
         <span className="text-text-primary">◉ OPERATOR</span>
@@ -542,12 +603,11 @@ export function OperatorConsole() {
           ✕
         </button>
       </div>
-      {/* Desktop status line: the inline-error contract relocated to the
+      {/* The status line: the inline-error contract relocated to the
           drawer's top edge, directly under the omnibox (the desktop compose
           lives in the top bar). Carries structured send/upload failures and
-          the minimal in-flight indicator. The mobile sheet keeps its error
-          between the terminal and the compose strip. */}
-      {!isMobile && (compose.error || compose.sending || compose.uploading) && (
+          the minimal in-flight indicator. */}
+      {(compose.error || compose.sending || compose.uploading) && (
         <div className="flex items-center gap-2 border-b border-border px-3 py-1 text-xs shrink-0">
           {compose.error ? (
             <span role="alert" data-testid="operator-console-error" className="text-signal-red">
@@ -561,119 +621,57 @@ export function OperatorConsole() {
         </div>
       )}
       {target && server ? (
-        <>
-          <div className="flex-1 min-h-0 flex flex-col px-1 py-0.5">
-            <TerminalClient
-              key={`${server}:${target.window.windowId}`}
-              sessionName={target.sessionName}
-              windowId={target.window.windowId}
-              server={server}
-              wsRef={wsRef}
-              registerFocus={false}
-              transparent={!isMobile}
-            />
-          </div>
-          {isMobile && compose.error && (
-            <div
-              role="alert"
-              data-testid="operator-console-error"
-              className="px-3 py-1 text-xs text-signal-red border-t border-border shrink-0"
-            >
-              {compose.error}
-            </div>
-          )}
-          {/* The compose strip — MOBILE ONLY. The one-input rule: on desktop
-              the omnibox in the top bar is the input and the drawer is
-              output-only; the sheet keeps its compose (no omnibox exists
-              there; the strip is the OS-dictation target). Both drive the
-              shared compose seam. */}
-          {isMobile && (
-            <div className="flex flex-col border-t border-border shrink-0">
-              <div className="flex items-center px-3 pt-1.5 empty:hidden">
-                <OperatorContextChip server={server} />
-              </div>
-              <div className="flex items-end gap-2 px-3 py-1.5">
-              <textarea
-                ref={composeRef}
-                value={compose.text}
-                rows={2}
-                onChange={(e) => setOperatorComposeText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    void sendOperatorMessage(server, target, compose.text);
-                  }
-                }}
-                placeholder="Ask the operator…  (Enter sends · Shift+Enter newline · paste an image to attach)"
-                aria-label="Message the operator"
-                className="flex-1 min-w-0 resize-none bg-transparent text-text-primary text-xs outline-none placeholder:text-text-secondary"
-              />
-              {compose.uploading && (
-                <span
-                  data-testid="operator-console-uploading"
-                  className="text-xs text-text-secondary shrink-0 self-center"
-                >
-                  uploading…
-                </span>
-              )}
-              <button
-                type="button"
-                onClick={() => void sendOperatorMessage(server, target, compose.text)}
-                disabled={compose.sending || compose.text.trim() === ""}
-                className="rk-glint shrink-0 inline-flex items-center justify-center rounded px-2 py-1 text-xs text-text-secondary hover:text-text-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-text-secondary coarse:min-h-[36px] coarse:min-w-[36px]"
-              >
-                Send
-              </button>
-              </div>
-            </div>
-          )}
-        </>
+        <div className="flex-1 min-h-0 flex flex-col px-1 py-0.5">
+          <TerminalClient
+            key={`${server}:${target.window.windowId}`}
+            sessionName={target.sessionName}
+            windowId={target.window.windowId}
+            server={server}
+            wsRef={wsRef}
+            registerFocus={false}
+            transparent
+          />
+        </div>
       ) : (
         <div
           className="flex-1 min-h-0 flex items-center justify-center px-4 text-xs text-text-secondary"
           data-testid="operator-console-empty"
         >
-          no operator on this server — run `rk operator`
+          {NO_OPERATOR_HINT}
         </div>
       )}
-      {!isMobile && (
-        <>
-          {/* Side grips — symmetric width resize about the center line. */}
-          <div
-            data-testid="operator-console-grip-left"
-            aria-hidden="true"
-            onPointerDown={onGripPointerDown("left")}
-            {...gripHandlers}
-            className="absolute left-[-4px] top-0 h-full w-2 cursor-ew-resize touch-none"
-          />
-          <div
-            data-testid="operator-console-grip-right"
-            aria-hidden="true"
-            onPointerDown={onGripPointerDown("right")}
-            {...gripHandlers}
-            className="absolute right-[-4px] top-0 h-full w-2 cursor-ew-resize touch-none"
-          />
-          {/* The tongue: a pull tab hanging from the drawer's bottom edge —
-              the desktop height drag grip (on mobile the tongue is instead the
-              standing affordance, mounted beside this console in app.tsx). */}
-          <div
-            data-testid="operator-console-grip-height"
-            aria-hidden="true"
-            onPointerDown={onGripPointerDown("height")}
-            {...gripHandlers}
-            className="absolute left-1/2 top-full h-3 w-16 -translate-x-1/2 cursor-ns-resize touch-none select-none"
-          >
-            <span
-              className="block h-full w-full rounded-b-md border border-t-0 border-border"
-              style={glassStyle}
-            />
-          </div>
-        </>
-      )}
+      {/* Side grips — symmetric width resize about the center line. */}
+      <div
+        data-testid="operator-console-grip-left"
+        aria-hidden="true"
+        onPointerDown={onGripPointerDown("left")}
+        {...gripHandlers}
+        className="absolute left-[-4px] top-0 h-full w-2 cursor-ew-resize touch-none"
+      />
+      <div
+        data-testid="operator-console-grip-right"
+        aria-hidden="true"
+        onPointerDown={onGripPointerDown("right")}
+        {...gripHandlers}
+        className="absolute right-[-4px] top-0 h-full w-2 cursor-ew-resize touch-none"
+      />
+      {/* The tongue: a pull tab hanging from the drawer's bottom edge —
+          the desktop height drag grip (on mobile the tongue is instead the
+          standing affordance, mounted beside this console in app.tsx). */}
+      <div
+        data-testid="operator-console-grip-height"
+        aria-hidden="true"
+        onPointerDown={onGripPointerDown("height")}
+        {...gripHandlers}
+        className="absolute left-1/2 top-full h-3 w-16 -translate-x-1/2 cursor-ns-resize touch-none select-none"
+      >
+        <span
+          className="block h-full w-full rounded-b-md border border-t-0 border-border"
+          style={glassStyle}
+        />
+      </div>
     </div>
   );
-
-  if (isMobile) return drawer;
 
   // The clip wrapper hides the raised portion of the drawer above the top-bar
   // seam during the slide (in-and-out); pointer events pass through except on
@@ -684,20 +682,34 @@ export function OperatorConsole() {
 }
 
 /**
- * The mobile standing affordance for the console — a centered pull tab hanging
- * under the top bar on every route (the desktop standing affordance is the
- * top-bar ◉ button; there is no bottom-bar chip). Mounted once beside the
- * console in the root layout so it renders while the console is closed; hidden
- * while the sheet is open (the sheet's own ✕ closes). Tap toggles the console
- * through the same document-event seam; an amber dot marks a waiting operator
- * on the resolved server.
+ * The mobile standing affordance for the operator — a centered pull tab
+ * hanging under the top bar on every route (the desktop standing affordance
+ * is the top-bar ◉ button; there is no bottom-bar chip). Mounted once beside
+ * the console in the root layout. A tap dispatches through the same
+ * document-event seam, which on mobile navigates to the operator window's
+ * terminal route; an amber dot marks a waiting operator on the resolved
+ * server. The tongue hides when no operator window resolves (omitted, not
+ * disabled) and while the current route already IS the operator window's
+ * route — a standing affordance pointing at the current page is noise.
  */
 export function OperatorConsoleTongue() {
   const isMobile = useIsMobile();
-  const open = useOperatorConsoleOpen();
-  const { target } = useOperatorConsoleContext();
-  if (!isMobile || open) return null;
-  const waiting = target?.window.agentState === "waiting";
+  const { server, target } = useOperatorConsoleContext();
+  const routeServer = useCurrentServerFromRoute();
+  const matches = useMatches();
+  let routeWindow: string | null = null;
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const p = (matches[i]?.params ?? {}) as { window?: string };
+    if (typeof p.window === "string" && p.window.length > 0) {
+      routeWindow = p.window;
+      break;
+    }
+  }
+  // Hidden while the current route IS the resolved operator window's route —
+  // window ids are server-scoped, so the server must match too.
+  if (!isMobile || !target) return null;
+  if (routeServer === server && routeWindow === target.window.windowId) return null;
+  const waiting = target.window.agentState === "waiting";
   return (
     <button
       type="button"

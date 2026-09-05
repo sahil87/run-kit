@@ -22,6 +22,7 @@ import {
   TopBarOverflowMenu,
   HelpMenuRow,
   KeyboardMenuRow,
+  OperatorConsoleButton,
   OperatorConsoleMenuRow,
   type OverflowMenuRow,
   type MenuGroup,
@@ -46,6 +47,9 @@ import {
   TerminalFontGlyph,
 } from "@/components/top-bar-icons";
 import { LayoutChip, LayoutMenuRows } from "@/components/layout-chip";
+import { OperatorOmnibox } from "@/components/operator-omnibox";
+import { useConsoleMachineState } from "@/lib/operator-console";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import { computeVisibleCount } from "@/lib/top-bar-overflow";
 import { deriveCrumbsCollapsed } from "@/lib/crumb-collapse";
 import { useKeybindings } from "@/hooks/use-keybindings";
@@ -525,6 +529,17 @@ export function TopBar({
   // registry entry is overflowed into the menu, the version row becomes the
   // update surface and the chevron shows an attention badge (change areas 2–3).
   const { showChip, key: updateKey } = useUpdateNotification();
+  // The ◉ operator button is the DESKTOP standing affordance — on mobile the
+  // tongue under the top bar serves instead (they are complementary: exactly
+  // one standing affordance per form factor).
+  const isMobile = useIsMobile();
+  // The ⌘J machine, read for the md–lg morph rung: while the machine is
+  // engaged (omnibox focused or drawer open) below lg, the center heading
+  // yields its cell to the morphed omnibox (hidden via CSS, never unmounted —
+  // an in-progress rename edit survives the morph). ≥ lg keeps the compact
+  // heading beside the standing box; mobile renders no omnibox at all.
+  const consoleMachine = useConsoleMachineState();
+  const omniboxMorphed = !isMobile && consoleMachine !== "rest";
 
   // Brand-crumb logo hover: the white glow "detach, orbit, land" sweep over
   // the ring segments (JS-driven, logo-spinner.tsx). Triggered from the whole
@@ -682,7 +697,7 @@ export function TopBar({
   // fixed-width, terminal-font (Aa), and
   // close-pane/Kill (sticky per-device preferences + the destructive ✕ that
   // sat one slot from Refresh). The terminal-mode bar end state is
-  // surface toggles · Open · ▦ Layout · Refresh · Gear · chevron (+ UpdateChip when a qualifying
+  // ◉ · surface toggles · Open · ▦ Layout · Refresh · Gear · chevron (+ UpdateChip when a qualifying
   // update exists) — the split chip demoted to `menuOnly` in terminal mode in
   // 260813-w1lf (pane verbs moved to the tty tile header). Each entry gates on `modes` (the current mode must be listed) and
   // an optional `hidden` predicate (renders nowhere); `menuGroup` names its
@@ -693,6 +708,24 @@ export function TopBar({
   // + the `Board: Unpin Focused Pane` palette action. The split is absent when
   // the board is empty (no `focusedPane`); the Kill row is disabled then.
   const rightItems: RegistryEntry[] = [
+    // ◉ operator button — the desktop STANDING affordance for the operator
+    // console, at the ABSOLUTE cluster head (left-most, closest to the center
+    // heading — the console drops from the bar's center, so its opener sits
+    // nearest that seam). Head position also makes it the first fit candidate
+    // to drop; overflowed, its function merges into the menu's `Operator
+    // console` row (menuRender: null), so the two never duplicate. A
+    // fixed-size ◉ with the resolved-server operator's live state dot. Hidden
+    // on mobile (the tongue under the top bar serves there). Renders on
+    // operator-less servers — the console's hint line is the answer (the
+    // palette open action's posture).
+    {
+      id: "operator-console-button",
+      modes: ["terminal", "board", "server", "host"],
+      menuGroup: "app",
+      hidden: isMobile,
+      barRender: () => <OperatorConsoleButton routeServer={server || null} />,
+      menuRender: () => null,
+    },
     // Surface-toggle group — terminal-only, at the registry's L1 HEAD (first
     // fit candidate to drop, leftmost in the bar): the retired right rail's
     // open-tile toggles relocated as ONE bordered sub-group. One entry (not
@@ -894,7 +927,7 @@ export function TopBar({
     // right cluster on ALL modes (app-global chrome, not a terminal control).
     // The LAST fit candidate (L3 tail): it survives longest in-bar and, when
     // the cluster can't fit it, degrades to the Settings menu row — never
-    // shrinks or clips. Order in the bar: … · Refresh · Gear · chevron ▾.
+    // shrinks or clips. Order in the bar: ◉ · … · Refresh · Gear · chevron ▾.
     {
       id: "settings",
       modes: ["terminal", "board", "server", "host"],
@@ -1290,7 +1323,10 @@ export function TopBar({
             (both moved here from the left breadcrumb); root = display server
             heading; host = solo `Host`. It stays centered under the
             `auto` middle grid column regardless of left/right widths, and on
-            mobile it is the visible leaf (intermediate crumbs hide below `sm`). */}
+            mobile it is the visible leaf (intermediate crumbs hide below `sm`).
+            At ≥ lg the heading compacts (the prefix span hides) and the standing
+            operator omnibox sits beside it; at md–lg the engaged ⌘J machine
+            morphs the box in place of the heading. */}
         {/* No flex `gap` here: the single separator between the page-type prefix
             and the instance name is the boot sweep's own `sp` space cell (the
             cursor visibly crosses it) — a `gap-1` on top of it double-spaced
@@ -1314,7 +1350,11 @@ export function TopBar({
               heading + window switcher sweep as one cluster (the history arrows
               ride the left cluster's group now, 260731-oiho). */}
           <TipGroup>
-          <div className="flex items-center justify-start min-w-0 sm:min-w-[28ch]">
+          <div
+            className={`${
+              omniboxMorphed ? "hidden lg:flex" : "flex"
+            } items-center justify-start min-w-0 sm:min-w-[28ch]`}
+          >
             {/* The history ◀ ▶ arrows moved to the LEFT cluster (260731-oiho) —
                 the anchored box now carries only the heading furniture
                 (prefix + name + switcher), so the old
@@ -1396,6 +1436,12 @@ export function TopBar({
             )}
           </div>
           </TipGroup>
+          {/* The operator omnibox — the console's compose relocated into the
+              center cell on desktop (standing at ≥ lg beside the compact
+              heading, ghost + in-place morph at md–lg). Renders on every mode;
+              self-gates to null on mobile. The route server arrives as a prop
+              (the OperatorConsoleButton pattern — no router hooks here). */}
+          <OperatorOmnibox routeServer={server || null} />
         </div>
 
         {/* Right cluster — registry-driven overflow (260715-h1ck). The ordered
@@ -1740,8 +1786,11 @@ function HeadingPrefix({
   // element back 4px tightens the separator to ~half a space while the cursor
   // still visibly crosses the real space cell (N4: the cell, not a flex gap,
   // owns the separation — do not swap it for a margin/gap on the name).
+  // The wide-desktop rung (≥ lg) renders the compact heading — the page-type
+  // prefix span hides there too, extending the below-`sm` hiding, so the
+  // standing omnibox fits beside `{name} ▾` (rename and ▾ untouched).
   return (
-    <span className="hidden sm:inline text-sm text-text-secondary whitespace-pre shrink-0 -mr-1">
+    <span className="hidden sm:inline lg:hidden text-sm text-text-secondary whitespace-pre shrink-0 -mr-1">
       <SweepCells cells={cells} scrambling={scrambling} />
     </span>
   );

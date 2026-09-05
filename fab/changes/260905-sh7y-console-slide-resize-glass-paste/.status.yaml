@@ -1,0 +1,57 @@
+id: sh7y
+name: 260905-sh7y-console-slide-resize-glass-paste
+created: 2026-09-05T04:43:46Z
+created_by: Sahil Ahuja
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 19
+    acceptance_count: 28
+    acceptance_completed: 28
+confidence:
+    certain: 8
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.7
+    fuzzy: true
+    dimensions:
+        signal: 74.5
+        reversibility: 85.5
+        competence: 84.5
+        disambiguation: 80.0
+stage_metrics:
+    intake: {started_at: "2026-09-05T04:43:46Z", driver: fab-new, iterations: 1, completed_at: "2026-09-05T04:45:20Z"}
+    apply: {started_at: "2026-09-05T06:44:12Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-05T07:34:20Z"}
+    review: {started_at: "2026-09-05T07:34:20Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-05T07:42:26Z"}
+    hydrate: {started_at: "2026-09-05T07:42:26Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-05T07:53:10Z"}
+    ship: {started_at: "2026-09-05T07:53:10Z", driver: fab-fff, iterations: 2, completed_at: "2026-09-05T07:55:38Z"}
+    review-pr: {started_at: "2026-09-05T07:55:38Z", driver: git-pr, iterations: 2, completed_at: "2026-09-05T08:10:07Z"}
+prs:
+    - https://github.com/sahil87/run-kit/pull/840
+change_type_source: explicit
+true_impact:
+    added: 3430
+    deleted: 304
+    net: 3126
+    excluding:
+        added: 2798
+        deleted: 263
+        net: 2535
+    tests:
+        added: 751
+        deleted: 64
+        net: 687
+    computed_at: "2026-09-05T07:55:38Z"
+    computed_at_stage: ship
+summary: 'Quake console v2: true slide both directions (mounted-through-exit, reduced-motion zeroed), mouse resize with persisted per-viewer geometry, top-bar ◉ button + mobile tongue affordances, glass opacity setting (default 0.90, fixed 6px blur, off at α=1), console image paste/drop upload + insert-staged delivery, paste routing guard'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-05T08:10:07Z

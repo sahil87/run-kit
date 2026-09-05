@@ -1,4 +1,7 @@
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectSession, WindowInfo } from "@/types";
+import { sendToWindow, uploadFile } from "@/api/client";
+import { SessionContext, useCurrentServerFromRoute } from "@/contexts/session-context";
 
 /**
  * Operator console support — pure helpers for the pull-down operator console
@@ -16,9 +19,20 @@ import type { ProjectSession, WindowInfo } from "@/types";
  *    or above the length floor (short typo fragments never fire a send).
  *  - `requestOperatorConsole` — the document-event seam every entry point
  *    (chord dispatch, palette action, overflow-menu row, sidebar pinned row,
- *    palette fallback row) funnels through to the single layout-mounted
- *    console. An event, not a callback chain: the entry points live in route
- *    shells the layout does not compose directly.
+ *    palette fallback row, top-bar ◉ button) funnels through to the single
+ *    layout-mounted console. An event, not a callback chain: the entry points
+ *    live in route shells the layout does not compose directly.
+ *  - The ⌘J three-state machine (`rest | focused | open`) — the desktop
+ *    console's controlling state, shared between the top-bar omnibox and the
+ *    drawer (module slot, the open-state idiom).
+ *  - The shared compose seam (`useOperatorCompose` + `sendOperatorMessage` +
+ *    `attachOperatorFiles`) — ONE draft/send/upload implementation driving both
+ *    the desktop omnibox and the mobile sheet compose.
+ *  - Per-viewer persisted preferences (geometry, opacity) — localStorage
+ *    stores with the in-module pub/sub idiom (`use-local-storage-enum.ts`).
+ *  - The open-state slot, the console-origin event predicate, and
+ *    `useOperatorConsoleContext` — the read-only server/target resolution the
+ *    top-bar button and mobile tongue share with the console.
  */
 
 /** Minimum trimmed query length before the palette's Ask-operator row appears. */
@@ -28,8 +42,10 @@ export const ASK_OPERATOR_MIN_QUERY = 3;
 export const OPERATOR_CONSOLE_EVENT = "rk:operator-console";
 
 export type OperatorConsoleRequest = {
-  /** `toggle` flips open/closed; `open` always opens. */
-  action: "toggle" | "open";
+  /** `toggle` steps the desktop ⌘J machine (rest → focused → open → rest) and
+   *  plain-toggles the mobile sheet; `open` always opens (desktop: drawer plus
+   *  omnibox focus); `button` is the top-bar ◉ click mapping (open ⇄ rest). */
+  action: "toggle" | "open" | "button";
   /** Pin the console to this server (the sidebar pinned row passes its own
    *  server's name). Absent = resolve from the route/server list. */
   server?: string;
@@ -48,7 +64,7 @@ export function requestOperatorConsole(req: OperatorConsoleRequest): void {
 export function isOperatorConsoleRequest(detail: unknown): detail is OperatorConsoleRequest {
   if (typeof detail !== "object" || detail === null) return false;
   const d = detail as Record<string, unknown>;
-  return d.action === "toggle" || d.action === "open";
+  return d.action === "toggle" || d.action === "open" || d.action === "button";
 }
 
 /**
@@ -93,4 +109,404 @@ export function findOperatorWindow(sessions: readonly ProjectSession[]): Operato
 /** The palette fallback-row gate: zero matches, operator present, query at floor. */
 export function shouldShowAskOperatorRow(query: string, matchCount: number, hasOperator: boolean): boolean {
   return matchCount === 0 && hasOperator && query.trim().length >= ASK_OPERATOR_MIN_QUERY;
+}
+
+// ── Per-viewer persisted preferences (Constitution IV — localStorage) ────────
+//
+// Two stores, both following the in-module pub/sub idiom of
+// `use-local-storage-enum.ts` (the native `storage` event fires only across
+// tabs, so same-tab subscribers — the console and the settings-dialog row —
+// need the dispatch). Values are continuous, so the enum hook's allowed-list
+// validation is replaced by numeric clamping; absent/corrupt/out-of-clamp
+// values resolve to the defaults without error.
+
+/** localStorage key for the desktop drawer geometry (`{heightVh, widthPx}`). */
+export const CONSOLE_GEOMETRY_KEY = "runkit-operator-console-geometry";
+/** localStorage key for the desktop drawer background opacity. */
+export const CONSOLE_OPACITY_KEY = "runkit-operator-console-opacity";
+
+export type ConsoleGeometry = { heightVh: number; widthPx: number };
+
+export const CONSOLE_GEOMETRY_DEFAULT: ConsoleGeometry = { heightVh: 55, widthPx: 760 };
+export const CONSOLE_HEIGHT_MIN_VH = 25;
+export const CONSOLE_HEIGHT_MAX_VH = 85;
+export const CONSOLE_WIDTH_MIN_PX = 420;
+/** Width ceiling as a fraction of the viewport (96vw). */
+export const CONSOLE_WIDTH_MAX_VW = 0.96;
+
+export const CONSOLE_OPACITY_DEFAULT = 0.9;
+export const CONSOLE_OPACITY_MIN = 0.75;
+export const CONSOLE_OPACITY_MAX = 1.0;
+
+function viewportWidthPx(): number | undefined {
+  return typeof window !== "undefined" && Number.isFinite(window.innerWidth)
+    ? window.innerWidth
+    : undefined;
+}
+
+/** Clamp geometry into the supported envelope (25–85vh, 420px–96vw). */
+export function clampConsoleGeometry(
+  geometry: ConsoleGeometry,
+  viewportWidth: number | undefined = viewportWidthPx(),
+): ConsoleGeometry {
+  const heightVh = Math.min(CONSOLE_HEIGHT_MAX_VH, Math.max(CONSOLE_HEIGHT_MIN_VH, geometry.heightVh));
+  const maxWidth = viewportWidth !== undefined ? viewportWidth * CONSOLE_WIDTH_MAX_VW : Infinity;
+  const widthPx = Math.min(maxWidth, Math.max(CONSOLE_WIDTH_MIN_PX, geometry.widthPx));
+  return { heightVh, widthPx: Math.round(widthPx) };
+}
+
+/** Clamp opacity into the supported envelope (0.75–1.0). */
+export function clampConsoleOpacity(opacity: number): number {
+  return Math.min(CONSOLE_OPACITY_MAX, Math.max(CONSOLE_OPACITY_MIN, opacity));
+}
+
+export function readConsoleGeometry(): ConsoleGeometry {
+  try {
+    const raw = localStorage.getItem(CONSOLE_GEOMETRY_KEY);
+    if (raw != null) {
+      const parsed: unknown = JSON.parse(raw);
+      if (typeof parsed === "object" && parsed !== null) {
+        const g = parsed as Record<string, unknown>;
+        if (
+          typeof g.heightVh === "number" && Number.isFinite(g.heightVh) &&
+          typeof g.widthPx === "number" && Number.isFinite(g.widthPx)
+        ) {
+          return clampConsoleGeometry({ heightVh: g.heightVh, widthPx: g.widthPx });
+        }
+      }
+    }
+  } catch {
+    // localStorage unavailable (privacy mode, sandboxed iframe) or corrupt JSON
+  }
+  return CONSOLE_GEOMETRY_DEFAULT;
+}
+
+export function readConsoleOpacity(): number {
+  try {
+    const raw = localStorage.getItem(CONSOLE_OPACITY_KEY);
+    if (raw != null) {
+      const parsed = Number.parseFloat(raw);
+      if (Number.isFinite(parsed)) return clampConsoleOpacity(parsed);
+    }
+  } catch {
+    // localStorage unavailable
+  }
+  return CONSOLE_OPACITY_DEFAULT;
+}
+
+const prefSubscribers = new Map<string, Set<() => void>>();
+
+function notifyPref(storageKey: string): void {
+  const listeners = prefSubscribers.get(storageKey);
+  if (!listeners) return;
+  for (const listener of listeners) listener();
+}
+
+function subscribePref(storageKey: string, listener: () => void): () => void {
+  let listeners = prefSubscribers.get(storageKey);
+  if (!listeners) {
+    listeners = new Set();
+    prefSubscribers.set(storageKey, listeners);
+  }
+  listeners.add(listener);
+  return () => {
+    const set = prefSubscribers.get(storageKey);
+    if (!set) return;
+    set.delete(listener);
+    if (set.size === 0) prefSubscribers.delete(storageKey);
+  };
+}
+
+export function writeConsoleGeometry(geometry: ConsoleGeometry): void {
+  const clamped = clampConsoleGeometry(geometry);
+  try {
+    localStorage.setItem(CONSOLE_GEOMETRY_KEY, JSON.stringify(clamped));
+  } catch {
+    // localStorage unavailable
+  }
+  notifyPref(CONSOLE_GEOMETRY_KEY);
+}
+
+export function writeConsoleOpacity(opacity: number): void {
+  const clamped = clampConsoleOpacity(opacity);
+  try {
+    localStorage.setItem(CONSOLE_OPACITY_KEY, String(clamped));
+  } catch {
+    // localStorage unavailable
+  }
+  notifyPref(CONSOLE_OPACITY_KEY);
+}
+
+/** Shared subscribe effect: re-read on same-tab notify, cross-tab `storage`,
+ *  and once on mount (in case another subscriber wrote between render and
+ *  effect — the use-local-storage-enum resync). */
+function usePrefSubscription(storageKey: string, reread: () => void): void {
+  useEffect(() => {
+    const unsubscribe = subscribePref(storageKey, reread);
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === storageKey) reread();
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("storage", onStorage);
+    }
+    reread();
+    return () => {
+      unsubscribe();
+      if (typeof window !== "undefined") {
+        window.removeEventListener("storage", onStorage);
+      }
+    };
+    // reread is a stable setState-derived callback at every call site.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storageKey]);
+}
+
+/** The desktop drawer's persisted geometry — `[value, setter]` like the other
+ *  localStorage hooks. Mobile never resizes (the sheet stays full-height). */
+export function useConsoleGeometry(): [ConsoleGeometry, (next: ConsoleGeometry) => void] {
+  const [value, setValue] = useState<ConsoleGeometry>(readConsoleGeometry);
+  usePrefSubscription(CONSOLE_GEOMETRY_KEY, () => setValue(readConsoleGeometry()));
+  return [value, writeConsoleGeometry];
+}
+
+/** The desktop drawer's persisted background opacity (0.75–1.0, default 0.90).
+ *  1.0 disables the backdrop blur entirely — the zero-cost opaque path. */
+export function useConsoleOpacity(): [number, (next: number) => void] {
+  const [value, setValue] = useState<number>(readConsoleOpacity);
+  usePrefSubscription(CONSOLE_OPACITY_KEY, () => setValue(readConsoleOpacity()));
+  return [value, writeConsoleOpacity];
+}
+
+// ── Console open-state slot ──────────────────────────────────────────────────
+//
+// The console's open/closed flag is ephemeral component state, but two
+// surfaces need to read it without owning it: the mobile tongue (hidden while
+// the sheet covers it) and the file-paste guard. A module slot, published by
+// the single layout-mounted console — the compose-strip module-store idiom.
+
+let consoleOpen = false;
+const openListeners = new Set<(open: boolean) => void>();
+
+export function isOperatorConsoleOpen(): boolean {
+  return consoleOpen;
+}
+
+export function setOperatorConsoleOpen(open: boolean): void {
+  if (consoleOpen === open) return;
+  consoleOpen = open;
+  for (const listener of openListeners) listener(open);
+}
+
+export function useOperatorConsoleOpen(): boolean {
+  const [open, setOpen] = useState(isOperatorConsoleOpen);
+  useEffect(() => {
+    const listener = (next: boolean) => setOpen(next);
+    openListeners.add(listener);
+    setOpen(isOperatorConsoleOpen());
+    return () => {
+      openListeners.delete(listener);
+    };
+  }, []);
+  return open;
+}
+
+// ── ⌘J three-state machine ───────────────────────────────────────────────────
+//
+// The desktop console is a three-state cycle, not a plain toggle: `rest`
+// (omnibox blurred, drawer closed) → `focused` (omnibox focused, drawer still
+// closed) → `open` (drawer down — a peek; focus stays in the omnibox) → `rest`.
+// The state lives in a module slot (the open-state slot idiom) because the two
+// halves of the surface — the top-bar omnibox and the layout-mounted drawer —
+// are mounted in different trees and must not own each other's state. The
+// drawer component is the controller (it interprets the document-event seam);
+// the omnibox is a follower that also originates transitions (click-to-focus,
+// Enter, blur). Mobile never leaves the rest/open pair (no omnibox exists).
+
+export type ConsoleMachineState = "rest" | "focused" | "open";
+
+let machineState: ConsoleMachineState = "rest";
+const machineListeners = new Set<(state: ConsoleMachineState) => void>();
+
+export function getConsoleMachineState(): ConsoleMachineState {
+  return machineState;
+}
+
+export function setConsoleMachineState(next: ConsoleMachineState): void {
+  if (machineState === next) return;
+  machineState = next;
+  for (const listener of machineListeners) listener(next);
+}
+
+/** The chord step: rest → focused → open → rest. */
+export function cycleConsoleMachine(state: ConsoleMachineState): ConsoleMachineState {
+  return state === "rest" ? "focused" : state === "focused" ? "open" : "rest";
+}
+
+export function useConsoleMachineState(): ConsoleMachineState {
+  const [state, setState] = useState(getConsoleMachineState);
+  useEffect(() => {
+    const listener = (next: ConsoleMachineState) => setState(next);
+    machineListeners.add(listener);
+    setState(getConsoleMachineState());
+    return () => {
+      machineListeners.delete(listener);
+    };
+  }, []);
+  return state;
+}
+
+// ── Shared compose seam ──────────────────────────────────────────────────────
+//
+// ONE compose implementation drives every operator input surface: the desktop
+// omnibox (top-bar center cell) and the mobile sheet's compose strip. Draft,
+// in-flight flags, and the inline error are module state so the two mounts
+// (top bar vs. console overlay) stay in lockstep, and the send/upload logic
+// exists exactly once. Delivery rides the existing lanes: `sendToWindow(...,
+// "submit", "agent")` for messages, `uploadFile` + a `"raw"` insert per
+// returned path for files (staged into the TUI composer, never submitted).
+
+export type ConsoleComposeState = {
+  text: string;
+  sending: boolean;
+  uploading: boolean;
+  error: string | null;
+};
+
+const COMPOSE_INITIAL: ConsoleComposeState = { text: "", sending: false, uploading: false, error: null };
+let composeState: ConsoleComposeState = COMPOSE_INITIAL;
+const composeListeners = new Set<() => void>();
+
+function patchCompose(patch: Partial<ConsoleComposeState>): void {
+  composeState = { ...composeState, ...patch };
+  for (const listener of composeListeners) listener();
+}
+
+/** Edit the shared draft; any edit clears the inline error line. */
+export function setOperatorComposeText(text: string): void {
+  patchCompose({ text, error: null });
+}
+
+/**
+ * Deliver a composed message through the agent send lane with chat-send busy
+ * semantics (allow + probe — no client-side busy gate). A whitespace-only or
+ * in-flight send is a guarded no-op. The draft survives a failure for
+ * retry/edit. Resolves true when the send was attempted and succeeded.
+ */
+export async function sendOperatorMessage(
+  server: string | null,
+  target: OperatorWindowTarget | undefined,
+  value: string,
+): Promise<boolean> {
+  if (!server || !target || composeState.sending) return false;
+  if (value.trim() === "") return false;
+  patchCompose({ sending: true });
+  try {
+    await sendToWindow(server, target.window.windowId, value, "submit", "agent");
+    patchCompose({ text: "", error: null, sending: false });
+    return true;
+  } catch (err) {
+    patchCompose({ error: err instanceof Error ? err.message : "Send failed", sending: false });
+    return false;
+  }
+}
+
+/**
+ * Upload clipboard/dropped files to the operator window's session worktree,
+ * then insert-deliver each returned path to the operator pane (the trailing
+ * space keeps consecutive inserts from concatenating) — staged into the TUI
+ * composer where the `[Image #N]` chip renders, never submitted. Failures ride
+ * the inline error line and deliver nothing further.
+ */
+export async function attachOperatorFiles(
+  server: string | null,
+  target: OperatorWindowTarget | undefined,
+  files: File[],
+): Promise<void> {
+  if (!server || !target || files.length === 0) return;
+  patchCompose({ uploading: true, error: null });
+  try {
+    for (const file of files) {
+      const result = await uploadFile(server, target.sessionName, file, target.window.windowId);
+      if (!result.ok || !result.path) continue;
+      await sendToWindow(server, target.window.windowId, `${result.path} `, "raw", "agent");
+    }
+  } catch (err) {
+    patchCompose({ error: err instanceof Error ? err.message : "Upload failed" });
+  } finally {
+    patchCompose({ uploading: false });
+  }
+}
+
+/** Subscribe to the shared compose state (draft, in-flight flags, error). */
+export function useOperatorCompose(): ConsoleComposeState {
+  const [state, setState] = useState(composeState);
+  useEffect(() => {
+    const listener = () => setState(composeState);
+    composeListeners.add(listener);
+    setState(composeState);
+    return () => {
+      composeListeners.delete(listener);
+    };
+  }, []);
+  return state;
+}
+
+// ── Console-origin event predicate ───────────────────────────────────────────
+
+/** Attribute on the console's root element, used to recognize paste/drop
+ *  events originating inside the console (the route terminals' document-level
+ *  file-paste forward must skip them — the console owns its own file path). */
+export const OPERATOR_CONSOLE_ROOT_ATTR = "data-operator-console";
+
+/** True when an event target sits inside the console dialog (its xterm helper
+ *  textarea and compose textarea both resolve here). */
+export function isOperatorConsoleTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest(`[${OPERATOR_CONSOLE_ROOT_ATTR}]`) !== null;
+}
+
+// ── Shared console-context resolution ────────────────────────────────────────
+
+/**
+ * Pure resolution shared by the console's read-only surfaces (the top-bar
+ * operator button, the mobile tongue): the console's server rule (route
+ * server wins, then sole/last-viewed/first listed) plus the operator-window
+ * lookup on the resolved server's sessions payload.
+ */
+export function resolveOperatorConsoleTarget(
+  routeServer: string | null,
+  servers: readonly string[],
+  sessionsByServer: ReadonlyMap<string, readonly ProjectSession[]> | undefined,
+  lastViewed: string | null,
+): { server: string | null; target: OperatorWindowTarget | undefined } {
+  const server = resolveConsoleServer(routeServer, servers, lastViewed);
+  const target = server ? findOperatorWindow(sessionsByServer?.get(server) ?? []) : undefined;
+  return { server, target };
+}
+
+/**
+ * The console's resolved server + operator window for surfaces that only READ
+ * the context and lack their own route server (the mobile tongue) — wraps
+ * `resolveOperatorConsoleTarget` with the shared route-server walk.
+ * `lastViewed` is tracked ephemerally per consumer (no persistence —
+ * Constitution IV), matching the console's own ref.
+ *
+ * Tolerant of a missing provider: the button/tongue are chrome that must
+ * degrade to "no operator" (never crash) when mounted outside SessionProvider
+ * — e.g. isolated component tests (the useUpdateNotification precedent).
+ */
+export function useOperatorConsoleContext(): {
+  server: string | null;
+  target: OperatorWindowTarget | undefined;
+} {
+  const ctx = useContext(SessionContext);
+  const routeServer = useCurrentServerFromRoute();
+  const lastViewedRef = useRef<string | null>(null);
+  if (routeServer) lastViewedRef.current = routeServer;
+  const servers = ctx?.servers ?? [];
+  const serverNames = useMemo(() => servers.map((s) => s.name), [servers]);
+  const sessionsByServer = ctx?.sessionsByServer;
+  return useMemo(
+    () => resolveOperatorConsoleTarget(routeServer, serverNames, sessionsByServer, lastViewedRef.current),
+    [routeServer, serverNames, sessionsByServer],
+  );
 }

@@ -141,12 +141,11 @@ test.describe("Operator pinned row (@rk_win_role)", () => {
     await expect(
       page.getByTestId("operator-console").getByText(`· ${TMUX_SERVER}`),
     ).toBeVisible();
-    // Wait for the compose focus handoff before Escape — it guarantees the
-    // console's close listener has attached (same-frame keypresses can race
-    // the effect).
-    await expect(
-      page.getByRole("textbox", { name: "Message the operator" }),
-    ).toBeFocused();
+    // Wait for the omnibox focus handoff before Escape — it guarantees the
+    // console's machine listener has attached (same-frame keypresses can race
+    // the effect). The desktop console's input is the top-bar omnibox; the
+    // drawer is output-only.
+    await expect(page.getByTestId("operator-omnibox-input")).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("operator-console")).toHaveCount(0);
 

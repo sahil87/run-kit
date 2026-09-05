@@ -13,7 +13,7 @@ describe("buildOperatorConsoleAction", () => {
     expect(action.label).toBe("Operator: Open console");
   });
 
-  it("dispatches the console toggle through the document-event seam", () => {
+  it("dispatches the console open (open+focused) through the document-event seam", () => {
     const seen: unknown[] = [];
     const listener = (e: Event) => seen.push((e as CustomEvent<unknown>).detail);
     document.addEventListener(OPERATOR_CONSOLE_EVENT, listener);
@@ -24,6 +24,6 @@ describe("buildOperatorConsoleAction", () => {
     }
     expect(seen).toHaveLength(1);
     expect(isOperatorConsoleRequest(seen[0])).toBe(true);
-    expect(seen[0]).toEqual({ action: "toggle" });
+    expect(seen[0]).toEqual({ action: "open" });
   });
 });

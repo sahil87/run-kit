@@ -107,11 +107,12 @@ test.describe("Operator session physical promotion (skcr)", () => {
     expect(rowBox!.y).toBeLessThan(workBox!.y);
 
     // Row activation opens the operator console overlay (not a navigation).
-    // Wait for the compose input's async focus before Escape — the close key
-    // is read from within the console, so a too-early press lands outside it.
+    // Wait for the omnibox's async focus before Escape — the desktop console's
+    // input is the top-bar omnibox (the drawer is output-only), and a
+    // too-early keypress can race the focus handoff.
     await row.click();
     await expect(page.getByTestId("operator-console")).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByRole("textbox", { name: "Message the operator" })).toBeFocused();
+    await expect(page.getByTestId("operator-omnibox-input")).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("operator-console")).toHaveCount(0);
 

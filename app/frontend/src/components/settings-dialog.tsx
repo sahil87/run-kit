@@ -18,6 +18,11 @@ import { usePushSubscription } from "@/hooks/use-push-subscription";
 import { NOTIFICATIONS_HELP_URL } from "@/components/global-chrome";
 import { ThemePickerList } from "@/components/theme-picker-list";
 import { getRiffPresets } from "@/api/client";
+import {
+  CONSOLE_OPACITY_MAX,
+  CONSOLE_OPACITY_MIN,
+  useConsoleOpacity,
+} from "@/lib/operator-console";
 import { isMacroActionId } from "@/lib/macros";
 import { isShell } from "@/lib/shell";
 import { useSettingsRegistry, type SettingsRegistry } from "@/components/settings-registry-seam";
@@ -226,6 +231,38 @@ function AccentColorControl() {
             />
           </div>
         )}
+      </div>
+    </PreferenceRow>
+  );
+}
+
+/** Operator console opacity: the desktop drawer's glass background. A
+ *  per-viewer localStorage resident like the terminal font — NOT a registry
+ *  key (the registry is per-instance daemon config; glass is per-eye). The
+ *  slider honors the 0.75–1.0 clamp; 100% disables the backdrop blur
+ *  entirely. The open console reflects changes live via the store's pub/sub. */
+function ConsoleOpacityControl() {
+  const [opacity, setOpacity] = useConsoleOpacity();
+  return (
+    <PreferenceRow
+      label="Operator console opacity"
+      sublabel="Desktop console drawer background; 100% turns off the blur"
+      htmlFor="settings-console-opacity"
+    >
+      <div className="flex items-center gap-2">
+        <input
+          id="settings-console-opacity"
+          type="range"
+          min={CONSOLE_OPACITY_MIN}
+          max={CONSOLE_OPACITY_MAX}
+          step={0.05}
+          value={opacity}
+          onChange={(e) => setOpacity(Number(e.target.value))}
+          className="w-40 accent-accent"
+        />
+        <span className="text-xs text-text-primary min-w-[4ch] text-center" aria-live="polite">
+          {Math.round(opacity * 100)}%
+        </span>
       </div>
     </PreferenceRow>
   );
@@ -563,6 +600,7 @@ function AppearancePanel() {
         <ScopeHeading label="This device" hint="stored in this browser only" />
         <div className="divide-y divide-border/40">
           <TerminalFontControl />
+          <ConsoleOpacityControl />
         </div>
       </section>
     </>

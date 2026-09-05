@@ -1,0 +1,18 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-05T04:43:46Z"}
+{"args":"quake console v2: slide animation, mouse resize, affordances (top-bar button + tongue), glass opacity setting, image paste fix","cmd":"fab-new","event":"command","ts":"2026-09-05T04:43:46Z"}
+{"delta":"+4.7","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-09-05T04:45:06Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-05T04:45:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-05T04:45:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-05T05:20:07Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-05T05:29:20Z"}
+{"event":"review","result":"passed","ts":"2026-09-05T05:29:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-05T05:37:54Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-05T05:39:01Z"}
+{"event":"review","result":"passed","ts":"2026-09-05T05:46:05Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-05T06:44:12Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-05T07:34:20Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-05T07:42:26Z"}
+{"event":"review","result":"passed","ts":"2026-09-05T07:42:26Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-05T07:53:10Z"}
+{"action":"re-entry","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-09-05T07:55:38Z"}
+{"event":"review","result":"passed","ts":"2026-09-05T08:10:07Z"}

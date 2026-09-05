@@ -166,7 +166,7 @@ import {
   toSafeSessionName,
   toSafeWindowName,
 } from "@/lib/names";
-import { useSessionContext, useCodeServer } from "@/contexts/session-context";
+import { useSessionContext, useCodeServer, useCurrentServerFromRoute } from "@/contexts/session-context";
 import { useOptimisticContext, useMergedSessions } from "@/contexts/optimistic-context";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
@@ -185,6 +185,7 @@ const OperatorComposeDialog = lazy(() => import("@/components/operator-compose-d
 const SwatchPopover = lazy(() => import("@/components/swatch-popover").then(m => ({ default: m.SwatchPopover })));
 const SettingsDialog = lazy(() => import("@/components/settings-dialog").then(m => ({ default: m.SettingsDialog })));
 const OperatorConsole = lazy(() => import("@/components/operator-console").then(m => ({ default: m.OperatorConsole })));
+const OperatorConsoleTongue = lazy(() => import("@/components/operator-console").then(m => ({ default: m.OperatorConsoleTongue })));
 
 const { min: SIDEBAR_MIN_WIDTH, max: SIDEBAR_MAX_WIDTH } = SIDEBAR_WIDTH_BOUNDS;
 
@@ -341,9 +342,10 @@ function AppLayoutContent() {
   useKeybindingDispatch({
     "new-app-window": canNewShellWindow() ? () => void newShellWindow() : undefined,
     "close-app-window": canCloseShellWindow() ? () => void closeShellWindow() : undefined,
-    // The operator console toggles from everywhere the SPA runs (Host, Server,
-    // Terminal, Board) — same every-route reasoning as the app-window pair.
-    // The layout-mounted console owns the open state; this only dispatches.
+    // The operator console chord works from everywhere the SPA runs (Host,
+    // Server, Terminal, Board) — same every-route reasoning as the app-window
+    // pair. On desktop the machine steps rest→focused→open→rest; the
+    // layout-mounted console owns that state, this only dispatches.
     "operator-console": () => requestOperatorConsole({ action: "toggle" }),
   });
 
@@ -407,6 +409,13 @@ function AppLayoutContent() {
         <Suspense fallback={null}>
           <OperatorConsole />
         </Suspense>
+        {/* The mobile standing affordance — the tongue hanging under the top
+            bar on every route (desktop's standing affordance is the top-bar
+            ◉ button). Self-gates on isMobile and hides while the sheet is
+            open; renders nothing on desktop. */}
+        <Suspense fallback={null}>
+          <OperatorConsoleTongue />
+        </Suspense>
       </div>
       {/* The ONE settings-dialog mount (o7q8) — never duplicated per page. */}
       <Suspense fallback={null}>
@@ -435,15 +444,7 @@ function LayoutCommandPalette() {
   // attached sessions slice resolve operator-less — the row is omitted, not
   // disabled.
   const { servers, sessionsByServer } = useSessionContext();
-  const matches = useMatches();
-  let routeServer: string | null = null;
-  for (let i = matches.length - 1; i >= 0; i--) {
-    const p = (matches[i]?.params ?? {}) as { server?: string };
-    if (typeof p.server === "string" && p.server.length > 0) {
-      routeServer = p.server;
-      break;
-    }
-  }
+  const routeServer = useCurrentServerFromRoute();
   // Most-recently-viewed server — the same ephemeral rule the console itself
   // applies (operator-console.tsx); passing null here would resolve the FIRST
   // listed server on Host/Board while the console opens on the last-viewed.

@@ -8,6 +8,7 @@ import {
   useSyncExternalStore,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { useFocusedTerminal, type FocusedTerminal } from "@/contexts/focused-terminal-context";
 import { useChromeDispatch } from "@/contexts/chrome-context";
 import { useFileUpload } from "@/hooks/use-file-upload";
@@ -222,6 +223,7 @@ export function ComposeStrip({
   // route window (the desktop omnibox's chip), which must not reroute the
   // strip's direct pane sends.
   const chatChip = useOperatorChatChip();
+  const navigate = useNavigate();
   const operatorChatServer =
     focused !== null &&
     chatChip.subject !== null &&
@@ -1059,7 +1061,9 @@ export function ComposeStrip({
       data-testid="compose-strip-history"
       className={`rk-glint shrink-0 rounded px-2 py-1.5 text-xs text-text-secondary transition-colors coarse:min-h-[36px] coarse:min-w-[36px] ${chipTone}`}
     >
-      <span aria-hidden="true">↑</span>
+      {/* text-lg matches the attach chip's emoji weight — the button box is
+          size-fixed, so only the glyph scales. */}
+      <span aria-hidden="true" className="text-lg leading-none">↺</span>
     </button>
   );
   // The `a|` close affordance — fine pointers only (dropped on coarse, where
@@ -1099,7 +1103,7 @@ export function ComposeStrip({
       data-testid="compose-strip-newline"
       className={`rk-glint shrink-0 rounded px-2 py-1.5 text-xs leading-none text-text-secondary transition-colors disabled:opacity-50 coarse:min-h-[36px] coarse:min-w-[36px] ${chipTone}`}
     >
-      <span aria-hidden="true">{"⏎"}</span>
+      <span aria-hidden="true" className="text-lg leading-none">{"⏎"}</span>
     </button>
   );
   // Insert follows Enter (verified insert-line, clears the draft); the
@@ -1228,10 +1232,23 @@ export function ComposeStrip({
 
       {/* The chat-lane context chip — only on the operator window's route
           with a `?from=` subject attached (operatorChatServer is null
-          everywhere else); dismissal and the empty state are the chip's own. */}
+          everywhere else); dismissal and the empty state are the chip's own.
+          The navigate prop makes the label the way back to the origin window
+          (this mount only — the omnibox chip stays inert). */}
       {operatorChatServer !== null && (
         <div className="flex items-center empty:hidden">
-          <OperatorContextChip server={operatorChatServer} />
+          <OperatorContextChip
+            server={operatorChatServer}
+            onNavigate={() => {
+              const subject = chatChip.subject;
+              if (!subject) return;
+              void navigate({
+                to: "/$server/$window",
+                params: { server: subject.server, window: subject.windowId },
+                search: {},
+              });
+            }}
+          />
         </div>
       )}
 
@@ -1260,8 +1277,8 @@ export function ComposeStrip({
         {textareaEl}
         {attachChip}
         {!coarsePointer && closeChip}
-        {isCard && sentHistory.length > 0 && historyChip}
         {coarsePointer && isCard && !isSelectionTarget && !composerEmpty && newlineChip}
+        {isCard && sentHistory.length > 0 && historyChip}
         {!coarsePointer && isCard && insertChip}
         {sendChip}
       </div>

@@ -1,0 +1,54 @@
+id: h7tx
+name: 260905-h7tx-operator-tongue-return-chip-glyphs
+created: 2026-09-05T18:22:23Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 12
+    acceptance_completed: 12
+confidence:
+    certain: 7
+    confident: 6
+    tentative: 0
+    unresolved: 0
+    score: 4.4
+    fuzzy: true
+    dimensions:
+        signal: 80.0
+        reversibility: 85.8
+        competence: 83.5
+        disambiguation: 78.8
+stage_metrics:
+    intake: {started_at: "2026-09-05T18:22:23Z", driver: fab-new, iterations: 1, completed_at: "2026-09-05T18:25:53Z"}
+    apply: {started_at: "2026-09-05T18:25:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-05T18:40:57Z"}
+    review: {started_at: "2026-09-05T18:40:57Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-05T18:46:00Z"}
+    hydrate: {started_at: "2026-09-05T18:46:00Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-05T18:47:40Z"}
+    ship: {started_at: "2026-09-05T18:47:40Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-05T18:47:40Z"
+    computed_at_stage: hydrate
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-05T18:47:40Z

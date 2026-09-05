@@ -13,17 +13,27 @@ import { dismissOperatorChatChip, useOperatorChatChip } from "@/lib/operator-con
  * `server` is the caller's resolved console server: a subject stamped for a
  * different server renders nothing (window ids are server-scoped, and
  * sendOperatorMessage applies the same guard at send time).
+ *
+ * With `onNavigate` provided (the operator route's compose-strip mount), the
+ * label itself is a control that returns to the subject window — the chip
+ * names exactly where the user came from, so it doubles as the way back. The
+ * ✕ stays dismiss-only either way; the omnibox mount passes nothing and keeps
+ * an inert label.
  */
 export function OperatorContextChip({
   server,
   compact = false,
+  onNavigate,
 }: {
   server: string | null;
   /** Cap the chip's width (the omnibox's slim box); the compose strip has room. */
   compact?: boolean;
+  /** When set, tapping the label navigates back to the subject window. */
+  onNavigate?: () => void;
 }) {
   const { subject, dismissed } = useOperatorChatChip();
   if (!server || !subject || dismissed || subject.server !== server) return null;
+  const labelText = `from: ${subject.windowId}${subject.name ? ` "${subject.name}"` : ""}`;
   return (
     <span
       data-testid="operator-console-context"
@@ -31,10 +41,18 @@ export function OperatorContextChip({
         compact ? "max-w-[14ch]" : ""
       }`}
     >
-      <span className="truncate">
-        from: {subject.windowId}
-        {subject.name ? ` "${subject.name}"` : ""}
-      </span>
+      {onNavigate ? (
+        <button
+          type="button"
+          aria-label={`Back to ${subject.windowId}${subject.name ? ` "${subject.name}"` : ""}`}
+          onClick={onNavigate}
+          className="min-w-0 truncate text-left transition-colors hover:text-text-primary coarse:min-h-[36px]"
+        >
+          {labelText}
+        </button>
+      ) : (
+        <span className="truncate">{labelText}</span>
+      )}
       <button
         type="button"
         aria-label="Detach window context"

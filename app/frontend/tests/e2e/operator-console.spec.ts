@@ -847,11 +847,13 @@ test.describe("Operator console", () => {
   });
 
   /**
-   * Proves: on mobile the tongue under the top bar is the STANDING affordance
-   * — visible with the amber waiting dot while off the operator route (the
+   * Proves: on mobile the tongue under the top bar is a TOGGLE — the standing
+   * affordance with the amber waiting dot while off the operator route (the
    * desktop ◉ button absent), a tap navigates to the operator window's
-   * terminal route, and once there the tongue hides (a standing affordance
-   * pointing at the current page is noise) — with no horizontal overflow.
+   * terminal route, and ON that route the tongue stays as the return
+   * affordance (`data-tongue-state="return"`, waiting dot suppressed) whose
+   * tap navigates back to the `?from=` origin window — a full round trip with
+   * no horizontal overflow.
    *
    * Steps:
    * 1. Set the 375×812 viewport; mock the backend with a waiting operator;
@@ -859,10 +861,13 @@ test.describe("Operator console", () => {
    * 2. Assert the tongue is visible with the waiting dot and the ◉ button is
    *    absent.
    * 3. Tap the tongue; assert the URL becomes the operator route with
-   *    `?from=@1` and the tongue disappears.
-   * 4. Assert `document.body.scrollWidth` ≤ 375.
+   *    `?from=@1`, the tongue REMAINS in the return state, and the waiting
+   *    dot is gone.
+   * 4. Tap the tongue again; assert the URL is back at the @1 terminal route
+   *    and the tongue is the operator-state affordance again.
+   * 5. Assert `document.body.scrollWidth` ≤ 375.
    */
-  test("mobile: the tongue is the standing affordance (waiting dot, tap navigates, no overflow)", async ({
+  test("mobile: the tongue is a toggle (navigate in, return state back, no overflow)", async ({
     page,
   }) => {
     await page.setViewportSize(MOBILE_VIEWPORT);
@@ -876,7 +881,13 @@ test.describe("Operator console", () => {
 
     await tongue.click();
     await expectOperatorRoute(page, "@1");
-    await expect(tongue).toHaveCount(0);
+    await expect(tongue).toHaveAttribute("data-tongue-state", "return");
+    await expect(page.getByTestId("operator-console-tongue-waiting")).toHaveCount(0);
+
+    await tongue.click();
+    // The router serializes window @1 as the bare segment `1` (router-url.ts).
+    await expect(page).toHaveURL(`/${SERVER}/1`, { timeout: 10_000 });
+    await expect(tongue).toHaveAttribute("data-tongue-state", "operator");
 
     const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
     expect(bodyWidth).toBeLessThanOrEqual(MOBILE_VIEWPORT.width);
@@ -934,6 +945,38 @@ test.describe("Operator console", () => {
       ]);
     expect(sendBodies).toEqual([]);
     await expect(stripInput).toHaveValue("");
+  });
+
+  /**
+   * Proves: the `?from=` chip's LABEL is the secondary return affordance — a
+   * tap on `from: @1 "feature-work"` navigates back to the origin window's
+   * terminal route (the chip's ✕ stays dismiss-only, exercised by the
+   * dismissal test below).
+   *
+   * Steps:
+   * 1. Set the 375×812 viewport; pre-enable the compose strip; mock the
+   *    backend with an operator window; land on the @1 terminal route.
+   * 2. Tap the tongue; assert the operator route with `?from=@1` and the chip.
+   * 3. Tap the chip's label button (`Back to @1 "feature-work"`).
+   * 4. Assert the URL is back at the @1 terminal route.
+   */
+  test("mobile: the ?from= chip label navigates back to the origin window", async ({ page }) => {
+    await page.setViewportSize(MOBILE_VIEWPORT);
+    await page.addInitScript(() => localStorage.setItem("runkit-compose-strip", "true"));
+    await mockBackend(page, true);
+    await gotoWindowMobile(page);
+
+    await page.getByTestId("operator-console-tongue").click();
+    await expectOperatorRoute(page, "@1");
+    await expect(page.getByTestId("operator-console-context")).toContainText('from: @1 "feature-work"');
+
+    await page
+      .getByTestId("operator-console-context")
+      .getByRole("button", { name: 'Back to @1 "feature-work"' })
+      .click();
+
+    // The router serializes window @1 as the bare segment `1` (router-url.ts).
+    await expect(page).toHaveURL(`/${SERVER}/1`, { timeout: 10_000 });
   });
 
   /**

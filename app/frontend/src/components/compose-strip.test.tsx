@@ -30,6 +30,13 @@ import { BottomBar } from "./bottom-bar";
 import { ApiError, type WindowSendMode } from "@/api/client";
 import { dismissOperatorChatChip, setOperatorChatSubject } from "@/lib/operator-console";
 
+// The strip's only router use is the context chip's back-navigation; no
+// RouterProvider is mounted in these tests.
+const navigateMock = vi.hoisted(() => vi.fn());
+vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => navigateMock,
+}));
+
 // Mock useFileUpload so tests never hit the network. The mock records calls,
 // returns deterministic paths so attachment path lines can be asserted, and
 // exposes a mutable `uploading` flag so the chip's busy state can be tested.
@@ -1932,6 +1939,20 @@ describe("ComposeStrip", () => {
     expect(screen.queryByTestId("compose-strip-a-close")).toBeNull();
   });
 
+  it("coarse card chip order is 📎 · ⏎ · ↺ and the history glyph is ↺", () => {
+    stubPointer(true);
+    renderFocused();
+    act(() => pushComposeSentHistory(entryKey("srv", "@1"), "earlier send"));
+    act(() => input().focus());
+    act(() => fireEvent.change(input(), { target: { value: "draft" } }));
+    const attach = screen.getByRole("button", { name: "Upload file" });
+    const history = screen.getByTestId("compose-strip-history");
+    expect(history).toHaveTextContent("↺");
+    // DOM order carries the visual order: 📎 before ⏎ before ↺.
+    expect(attach.compareDocumentPosition(newlineBtn()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(newlineBtn().compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("fine card row is 📎 · a| · spacer · Insert · Send with no ⏎ chip", () => {
     stubPointer(false);
     render(<Harness focus={{ wsRef: makeWs().ref, containerRef: { current: null }, server: "srv", session: "sess", windowId: "@1" }} />);
@@ -2577,6 +2598,20 @@ describe("ComposeStrip operator chat lane", () => {
     });
     expect(sendToWindowMock).toHaveBeenLastCalledWith("srv", "@9", "raw bytes", "raw");
     expect(operatorRequestMock).not.toHaveBeenCalled();
+  });
+
+  it("the chip label navigates back to the origin window without dismissing the chip", () => {
+    mountOperatorRoute();
+    navigateMock.mockReset();
+
+    fireEvent.click(screen.getByRole("button", { name: 'Back to @5 "origin"' }));
+
+    expect(navigateMock).toHaveBeenCalledWith({
+      to: "/$server/$window",
+      params: { server: "srv", window: "@5" },
+      search: {},
+    });
+    expect(screen.getByTestId("operator-console-context")).toBeInTheDocument();
   });
 
   it("a failed templated send rides the strip's error surface and keeps the draft", async () => {

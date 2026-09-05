@@ -1,11 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSessionContext, useCurrentServerFromRoute } from "@/contexts/session-context";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import {
+  SessionContext,
+  useSessionContext,
+  useCurrentServerFromRoute,
+} from "@/contexts/session-context";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { TerminalClient } from "@/components/terminal-client";
-import { useMatches, useNavigate, useSearch } from "@tanstack/react-router";
+import { useMatches, useNavigate, useRouter, useSearch } from "@tanstack/react-router";
 import { prefersReducedMotion } from "@/lib/motion";
 import { resolveFocusedWindow } from "@/lib/focused-pane-window";
-import { urlSegmentToWindowId } from "@/lib/router-url";
 import { useOptionalToast } from "@/components/toast";
 import { setComposeText } from "@/lib/compose-draft-store";
 import { entryKey } from "@/store/window-store";
@@ -18,6 +21,7 @@ import {
   isOperatorConsoleRequest,
   requestOperatorConsole,
   resolveConsoleServer,
+  resolveFromOrigin,
   sendOperatorMessage,
   resetOperatorChatChip,
   setConsoleMachineState,
@@ -387,11 +391,7 @@ export function OperatorConsole() {
     onTerminalRoute && target !== undefined && routeWindow === target.window.windowId;
   const fromWindow = useMemo(() => {
     if (!onOperatorRoute || !server) return null;
-    const raw = search.from;
-    if (typeof raw !== "string" || raw.length === 0) return null;
-    const id = urlSegmentToWindowId(raw);
-    if (id === routeWindow) return null;
-    return resolveFocusedWindow(sessionsByServer.get(server) ?? [], id);
+    return resolveFromOrigin(search.from, routeWindow, sessionsByServer.get(server) ?? []);
   }, [onOperatorRoute, server, search.from, routeWindow, sessionsByServer]);
   const subjectWindowId = !onTerminalRoute
     ? null
@@ -685,17 +685,26 @@ export function OperatorConsole() {
  * The mobile standing affordance for the operator — a centered pull tab
  * hanging under the top bar on every route (the desktop standing affordance
  * is the top-bar ◉ button; there is no bottom-bar chip). Mounted once beside
- * the console in the root layout. A tap dispatches through the same
- * document-event seam, which on mobile navigates to the operator window's
- * terminal route; an amber dot marks a waiting operator on the resolved
- * server. The tongue hides when no operator window resolves (omitted, not
- * disabled) and while the current route already IS the operator window's
- * route — a standing affordance pointing at the current page is noise.
+ * the console in the root layout. The tongue is a TOGGLE: on every other
+ * route a tap dispatches through the document-event seam, which on mobile
+ * navigates to the operator window's terminal route (amber dot when the
+ * operator is waiting); on the operator window's OWN route it renders in a
+ * return state (`data-tongue-state="return"`, a ⌃ mark in the tab, dot
+ * suppressed — the user is already looking at the operator) and a tap
+ * navigates BACK: the validated `?from=` origin window when present, else
+ * browser history when an entry plausibly exists, else the server route. An
+ * unknown, cross-server, or self `?from=` falls through rather than
+ * navigating to a dead window. Hidden when no operator window resolves
+ * (omitted, not disabled).
  */
 export function OperatorConsoleTongue() {
   const isMobile = useIsMobile();
   const { server, target } = useOperatorConsoleContext();
+  const sessionsByServer = useContext(SessionContext)?.sessionsByServer;
   const routeServer = useCurrentServerFromRoute();
+  const navigate = useNavigate();
+  const router = useRouter();
+  const search = useSearch({ strict: false });
   const matches = useMatches();
   let routeWindow: string | null = null;
   for (let i = matches.length - 1; i >= 0; i--) {
@@ -705,15 +714,55 @@ export function OperatorConsoleTongue() {
       break;
     }
   }
-  // Hidden while the current route IS the resolved operator window's route —
-  // window ids are server-scoped, so the server must match too.
   if (!isMobile || !target) return null;
-  if (routeServer === server && routeWindow === target.window.windowId) return null;
+  // Window ids are server-scoped, so the operator-route check needs the
+  // server to match too.
+  const onOperatorRoute = routeServer === server && routeWindow === target.window.windowId;
+  if (onOperatorRoute) {
+    const onReturn = () => {
+      if (server) {
+        const origin = resolveFromOrigin(search.from, routeWindow, sessionsByServer?.get(server) ?? []);
+        if (origin) {
+          void navigate({
+            to: "/$server/$window",
+            params: { server, window: origin.windowId },
+            search: {},
+          });
+          return;
+        }
+      }
+      // A cold deep-link (PWA start) has no back entry; history.length is the
+      // best available probe — back() with nothing there would be a dead tap.
+      if (window.history.length > 1) {
+        router.history.back();
+        return;
+      }
+      if (server) void navigate({ to: "/$server", params: { server } });
+    };
+    return (
+      <button
+        type="button"
+        data-testid="operator-console-tongue"
+        data-tongue-state="return"
+        aria-label="Back to previous window"
+        onClick={onReturn}
+        // The visual tab is 64×12; the button's own box is the ≥36px hit area.
+        className="absolute top-0 left-1/2 z-30 flex h-9 w-16 -translate-x-1/2 items-start justify-center"
+      >
+        <span className="relative flex h-3 w-16 items-center justify-center rounded-b-md border border-t-0 border-border bg-bg-primary">
+          <span aria-hidden="true" className="text-[10px] leading-none text-text-secondary">
+            ⌃
+          </span>
+        </span>
+      </button>
+    );
+  }
   const waiting = target.window.agentState === "waiting";
   return (
     <button
       type="button"
       data-testid="operator-console-tongue"
+      data-tongue-state="operator"
       aria-label="Operator console"
       onClick={() => requestOperatorConsole({ action: "toggle" })}
       // The visual tab is 64×12; the button's own box is the ≥36px hit area.

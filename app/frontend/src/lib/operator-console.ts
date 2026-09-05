@@ -2,6 +2,8 @@ import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectSession, WindowInfo } from "@/types";
 import { sendOperatorRequest, sendToWindow, uploadFile } from "@/api/client";
 import { SessionContext, useCurrentServerFromRoute } from "@/contexts/session-context";
+import { resolveFocusedWindow } from "@/lib/focused-pane-window";
+import { urlSegmentToWindowId } from "@/lib/router-url";
 
 /**
  * Operator console support — pure helpers for the pull-down operator console
@@ -124,6 +126,24 @@ export function findOperatorWindow(sessions: readonly ProjectSession[]): Operato
 /** The palette fallback-row gate: zero matches, operator present, query at floor. */
 export function shouldShowAskOperatorRow(query: string, matchCount: number, hasOperator: boolean): boolean {
   return matchCount === 0 && hasOperator && query.trim().length >= ASK_OPERATOR_MIN_QUERY;
+}
+
+/**
+ * Validate a `?from=` search value against one server's sessions payload: the
+ * origin window it names, or null for an absent, self, or unknown id. The ONE
+ * validation both consumers apply — the console's chat-subject stamping and
+ * the tongue's return tap — so the two paths cannot drift (cross-server ids
+ * are excluded by resolving against the route server's own sessions).
+ */
+export function resolveFromOrigin(
+  raw: unknown,
+  routeWindow: string | null,
+  sessions: ProjectSession[],
+): WindowInfo | null {
+  if (typeof raw !== "string" || raw.length === 0) return null;
+  const id = urlSegmentToWindowId(raw);
+  if (id === routeWindow) return null;
+  return resolveFocusedWindow(sessions, id);
 }
 
 // ── Per-viewer persisted preferences (Constitution IV — localStorage) ────────

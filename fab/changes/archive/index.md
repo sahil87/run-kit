@@ -1,5 +1,6 @@
 # Archived Changes
 
+- **260905-a9mn-operator-console-mobile-navigation** — Operator Console Mobile Navigation
 - **260904-8jux-poll-loop-bounded-concurrency** — Poll Loop Bounded Concurrency
 - **260904-75c8-damp-git-fallback-storm** — Damp the Serial Git-Fallback Storm in FetchSessions
 - **260904-p2kp-servers-probe-timeout-batch-reads** — Servers Probe-Timeout Fix + Batched Per-Server Reads

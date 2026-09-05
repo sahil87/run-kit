@@ -22,10 +22,12 @@ import type { ProjectSession, WindowInfo } from "@/types";
 let mockMatches: Array<{ params: Record<string, string> }> = [{ params: {} }];
 let mockSearch: Record<string, unknown> = {};
 const mockNavigate = vi.hoisted(() => vi.fn());
+const mockHistoryBack = vi.hoisted(() => vi.fn());
 vi.mock("@tanstack/react-router", () => ({
   useMatches: () => mockMatches,
   useSearch: () => mockSearch,
   useNavigate: () => mockNavigate,
+  useRouter: () => ({ history: { back: mockHistoryBack } }),
 }));
 
 // The embedded terminal is TerminalClient's own tested surface; here we only
@@ -638,6 +640,7 @@ describe("OperatorConsoleTongue", () => {
     mockMatches = [{ params: {} }];
     mockSearch = {};
     mockNavigate.mockReset();
+    mockHistoryBack.mockReset();
     terminalMounts.length = 0;
     mockSend.mockReset();
     mockSend.mockResolvedValue({ ok: true });
@@ -679,12 +682,62 @@ describe("OperatorConsoleTongue", () => {
     expect(screen.queryByTestId("operator-console")).toBeNull();
   });
 
-  it("hides while the current route IS the operator window's route", () => {
+  it("renders the return state on the operator window's route, waiting dot suppressed", () => {
     stubMatchMedia(() => true);
     mockMatches = [{ params: { server: "srv1", window: "@9" } }];
+    renderTongue([
+      { name: "main", windows: [win({})] },
+      {
+        name: "_rk-operator",
+        hidden: true,
+        windows: [win({ windowId: "@9", name: "operator", role: "operator", agentState: "waiting" })],
+      },
+    ]);
+
+    const tongue = screen.getByTestId("operator-console-tongue");
+    expect(tongue).toHaveAttribute("data-tongue-state", "return");
+    expect(screen.queryByTestId("operator-console-tongue-waiting")).toBeNull();
+  });
+
+  it("return tap navigates to the validated ?from= origin window", () => {
+    stubMatchMedia(() => true);
+    mockMatches = [{ params: { server: "srv1", window: "@9" } }];
+    mockSearch = { from: "@1" };
     renderTongue();
 
-    expect(screen.queryByTestId("operator-console-tongue")).toBeNull();
+    fireEvent.click(screen.getByTestId("operator-console-tongue"));
+
+    expect(mockNavigate).toHaveBeenCalledWith({
+      to: "/$server/$window",
+      params: { server: "srv1", window: "@1" },
+      search: {},
+    });
+    expect(mockHistoryBack).not.toHaveBeenCalled();
+  });
+
+  it("return tap with an unknown ?from= falls through to history back", () => {
+    stubMatchMedia(() => true);
+    mockMatches = [{ params: { server: "srv1", window: "@9" } }];
+    mockSearch = { from: "@404" };
+    vi.stubGlobal("history", { length: 2 });
+    renderTongue();
+
+    fireEvent.click(screen.getByTestId("operator-console-tongue"));
+
+    expect(mockHistoryBack).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it("return tap with no ?from= and no back entry lands on the server route", () => {
+    stubMatchMedia(() => true);
+    mockMatches = [{ params: { server: "srv1", window: "@9" } }];
+    vi.stubGlobal("history", { length: 1 });
+    renderTongue();
+
+    fireEvent.click(screen.getByTestId("operator-console-tongue"));
+
+    expect(mockHistoryBack).not.toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith({ to: "/$server", params: { server: "srv1" } });
   });
 
   it("hides when no operator window resolves on the server", () => {

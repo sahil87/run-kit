@@ -190,19 +190,19 @@ func TestCaptureNodeRealTreeSelfExcludesAndDepth(t *testing.T) {
 		t.Error("daemon should have its 'status' subcommand captured")
 	}
 
-	// The mux family is captured to full depth with exactly its twelve members;
+	// The mux family is captured to full depth with exactly its thirteen members;
 	// snapshot carries its three children at depth.
 	mux, ok := childByName(n, "mux")
 	if !ok {
 		t.Fatal("mux should be present in the real tree")
 	}
-	for _, name := range []string{"send", "await", "capture", "kill", "process", "panes", "new", "adopt", "reap", "snapshot", "init-conf", "guard"} {
+	for _, name := range []string{"send", "await", "capture", "kill", "process", "panes", "sessions", "new", "adopt", "reap", "snapshot", "init-conf", "guard"} {
 		if _, ok := childByName(mux, name); !ok {
 			t.Errorf("mux should have its %q subcommand captured", name)
 		}
 	}
-	if len(mux.Commands) != 12 {
-		t.Errorf("mux has %d captured subcommands, want exactly 12 (send, await, capture, kill, process, panes, new, adopt, reap, snapshot, init-conf, guard)", len(mux.Commands))
+	if len(mux.Commands) != 13 {
+		t.Errorf("mux has %d captured subcommands, want exactly 13 (send, await, capture, kill, process, panes, sessions, new, adopt, reap, snapshot, init-conf, guard)", len(mux.Commands))
 	}
 	muxSnap, ok := childByName(mux, "snapshot")
 	if !ok {
@@ -287,7 +287,8 @@ func TestMuxHelpPresentsThreeGroups(t *testing.T) {
 		"send": muxGroupMessaging, "await": muxGroupMessaging,
 		"capture": muxGroupMechanics, "kill": muxGroupMechanics,
 		"process": muxGroupMechanics, "panes": muxGroupMechanics,
-		"new": muxGroupServerOps, "adopt": muxGroupServerOps,
+		"sessions": muxGroupMechanics,
+		"new":      muxGroupServerOps, "adopt": muxGroupServerOps,
 		"reap": muxGroupServerOps, "snapshot": muxGroupServerOps,
 		"init-conf": muxGroupServerOps, "guard": muxGroupServerOps,
 	}

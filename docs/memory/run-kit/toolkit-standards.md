@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard PASS status (help-dump, skill, principles, update, version, install-composition). Covers Principle 9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + P9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`tab`/`agent`/`code`/`tutorial`/`operator` + the twelve-member `mux` family incl. `new`, `reap --ephemeral`, `adopt`."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard PASS status (help-dump, skill, principles, update, version, install-composition). Covers Principle 9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + P9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`tab`/`agent`/`code`/`tutorial`/`operator` + the thirteen-member `mux` family incl. `new`, `reap --ephemeral`, `adopt`, `sessions`."
 ---
 # Toolkit Standards Conformance
 
@@ -437,8 +437,8 @@ as a PERMANENT hidden root alias — full contract in
 [tmux-guard-shim](/run-kit/tmux-guard-shim.md)) is the tenth surface measured
 against the same checks (260815-mi5s-mux-guard-move):
 
-- **help-dump: twelve members dump; the permanent alias doesn't.** `muxCmd`
-  carries exactly twelve members (the messaging pair, the operator set, `guard`,
+- **help-dump: thirteen members dump; the permanent alias doesn't.** `muxCmd`
+  carries exactly thirteen members (the messaging pair, the operator set, `guard`,
   the substrate twins, `panes`, and `adopt` — see the surfaces below), and
   `tmux-guard` joins the excluded-hidden-root-forms assertion list — Hidden
   drops it from the dump like the other aliases. The help-dump test asserts
@@ -465,10 +465,10 @@ pane-mechanics verbs ported from `fab pane`, agent-state-aware — see
 contract in [agent-messaging](/run-kit/agent-messaging.md)) are the eleventh
 surface measured against the same checks (260815-82w7-mux-substrate-twins):
 
-- **help-dump: twelve members dump.** `muxCmd` carries exactly twelve members —
-  the messaging pair, the three twins, `panes`, `adopt`, and the operator set —
+- **help-dump: thirteen members dump.** `muxCmd` carries exactly thirteen members —
+  the messaging pair, the three twins, the `panes`/`sessions` enumerations, `adopt`, and the operator set —
   and the
-  help-dump test asserts the twelve-member subtree dynamically, with
+  help-dump test asserts the thirteen-member subtree dynamically, with
   `capture`/`kill`/`process`/`panes`/`adopt` in the captured-children check. Every node is
   registered unconditionally with a `Long:` block, so the dumped contract
   stays platform-stable.
@@ -497,10 +497,10 @@ query; full contract in
 [agent-messaging](/run-kit/agent-messaging.md)) is the twelfth surface measured
 against the same checks (260820-hol4-mux-panes-native-pane-map):
 
-- **help-dump: twelve members dump.** `muxCmd` carries exactly twelve members —
-  the messaging pair, the three twins, `panes`, `adopt`, and the operator set —
+- **help-dump: thirteen members dump.** `muxCmd` carries exactly thirteen members —
+  the messaging pair, the three twins, the `panes`/`sessions` enumerations, `adopt`, and the operator set —
   and the
-  help-dump test asserts the twelve-member subtree dynamically, with `panes` in
+  help-dump test asserts the thirteen-member subtree dynamically, with `panes` in
   the captured-children check. `panes` registers unconditionally with a
   `Long:` block, keeping the dumped contract platform-stable.
 - **Principle 9: rows are data, diagnostics are chatter.** The aligned table
@@ -555,7 +555,7 @@ full contract in [agent-messaging](/run-kit/agent-messaging.md)) is the
 fourteenth surface measured against the same checks
 (260821-hbmh-ephemeral-creation-adoption):
 
-- **help-dump: twelve members dump; `UsageString` published.** `new` is
+- **help-dump: thirteen members dump; `UsageString` published.** `new` is
   registered unconditionally on `muxCmd` with `Short`/`Long`/`Example` in the
   family's style, so the cobra tree walk publishes it as the twelfth member
   with no help-dump code change and the dumped contract stays
@@ -622,12 +622,12 @@ contract in [agent-messaging](/run-kit/agent-messaging.md) § `rk mux adopt`) is
 the sixteenth surface measured against the same checks
 (260826-lv87-external-server-provenance-adopt):
 
-- **help-dump: twelve members dump.** `muxAdoptCmd` is registered
+- **help-dump: thirteen members dump.** `muxAdoptCmd` is registered
   unconditionally on `muxCmd` with `Short`/`Long`/`Example` in the family's
   style — no backticks in flag help (the `mux new --ephemeral` defect rule) —
   so the cobra tree walk publishes it as the twelfth member with no help-dump
   code change and the dumped contract stays platform-stable; the help-dump test
-  asserts the twelve-member subtree dynamically, with `adopt` in the
+  asserts the thirteen-member subtree dynamically, with `adopt` in the
   captured-children check.
 - **Principles 1/2/4/9 — PASS.** P1 non-interactive (invocation is consent —
   the bulk-migration role requires scriptability); P2 stream split (the
@@ -648,10 +648,9 @@ agent-state gate / Delivery through the shared injection engine) modifies an
 EXISTING surface, so it was re-audited in place against the same checks
 (260904-kppn-mux-send-delivery-hardening):
 
-- **help-dump: PASS, no diff needed.** The change adds no mux member (the set
-  stays twelve) and touches only `Long:` prose, which the dump does not publish
+- **help-dump: PASS, no diff needed.**   and touches only `Long:` prose, which the dump does not publish
   — `UsageString` and flags are untouched, so the mux subtree's dump is
-  byte-unchanged and the help-dump test's twelve-member assertions pass
+  byte-unchanged and the help-dump test's member-count assertions pass
   unmodified. `rk help-dump` (HEAD build) exits 0 with valid JSON, empty
   stderr, and no `captured_at`.
 - **Principles 2/4/9 — PASS.** P2 stream split: the foreground-naming warning
@@ -719,6 +718,32 @@ is the nineteenth surface measured against the same checks
   launcher for the fab-kit operator agent, not new topic content; no topic
   page changes, and the README gains a `run-kit operator` command-reference
   row (readme-extraction stays closed over the tree).
+
+The `sessions` enumeration (`rk mux sessions` — the session-grain facts query
+with name-derived roles; full contract in
+[agent-messaging](/run-kit/agent-messaging.md) § `rk mux sessions`) is the
+twentieth surface measured against the same checks
+(260905-csk9-mux-sessions-role-query):
+
+- **help-dump: thirteen members dump.** `muxSessionsCmd` registers
+  unconditionally on `muxCmd` with `Short`/`Long`/`Example` in the family's
+  style, so the cobra tree walk publishes it with no help-dump code change;
+  the help-dump test asserts the thirteen-member subtree dynamically, with
+  `sessions` in the captured-children check and in
+  `TestMuxHelpPresentsThreeGroups`' mechanics-group membership.
+- **Principle 9: rows are data, diagnostics are chatter.** The aligned table
+  rows and the `--json` array route through the shared `outputSink` as data
+  (surviving `--quiet`); an operational failure carries tmux's diagnostic on
+  stderr.
+- **Exit-code convention (P4)** — 0 success including an empty enumeration on
+  a live server (`[]` under `--json`; the `tmux.ServerAlive` probe separates
+  "alive, nothing to list" from a dead socket), 1 operational, 2 usage (stray
+  positional argument) — the `panes` scheme exactly.
+- **The `skill` standard's `mux` topic covers `sessions`** — the enumeration
+  section of the topic page (canonical `docs/site/skill/mux.md`, embedded copy
+  byte-identical under the drift guard) teaches both server-wide queries: the
+  role taxonomy, the default user-facing filter vs `--all`, and the 6-key
+  `--json` schema, within the page's 150-line budget.
 
 #### Scenario: A new subcommand group keeps the help tree platform-stable
 - **GIVEN** the `rk desktop` group on a Linux host

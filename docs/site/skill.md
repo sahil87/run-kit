@@ -8,7 +8,7 @@ Depth for a specific job lives in topic pages — pull one at use-time:
 
 - **panes, iframes & visual display** → `rk skill display`
 - **agent-to-agent messaging concepts** (which channel for write/read/wait, spawn-then-deliver past trust walls — the `ready`/`parked` readiness standard) → `rk skill messaging`
-- **`rk mux` verb reference** (send/await/capture/kill/process/panes flags, gates, report words) → `rk skill mux`
+- **`rk mux` verb reference** (send/await/capture/kill/process/panes/sessions flags, gates, report words) → `rk skill mux`
 - **act inside the `code` lens editor** (run VS Code palette commands in the open code-server window from the shell) → `rk skill code`
 - **guided first-run tour** (when the user asks for a tutorial, tour, or onboarding) → `rk skill tutorial`
 - **drive the tab UI** (layouts, web-tab strip, code folder — `rk tab --help`); works with `rk serve` down

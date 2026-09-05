@@ -55,6 +55,11 @@ type muxFake struct {
 	paneSessionsErr error
 	paneWindows     map[string][]tmux.WindowInfo // session name → windows (nil → default)
 	paneAliveErr    error
+
+	sessionFacts    []tmux.SessionFacts // nil → the default mixed fixture
+	sessionFactsSet bool                // true → honor sessionFacts even when empty
+	sessionFactsErr error
+	sessionAliveErr error
 }
 
 type muxCaptureCall struct {
@@ -86,6 +91,7 @@ func installMuxFakes(t *testing.T, f *muxFake) {
 	origProcPID, origProcFacts, origProcDiscover := muxProcessPanePIDFn, muxProcessFactsFn, muxProcessDiscoverFn
 	origPanesSessions, origPanesWindows := muxPanesSessionsFn, muxPanesWindowsFn
 	origPanesAlive, origPanesNow := muxPanesAliveFn, muxPanesNowFn
+	origSessionsFacts, origSessionsAlive := muxSessionsFactsFn, muxSessionsAliveFn
 	t.Cleanup(func() {
 		muxOriginalTMUXFn, muxServerFlag = origTMUX, origFlag
 		muxSendEngineSendFn, muxSendKeysFn = origEngine, origKeys
@@ -99,6 +105,7 @@ func installMuxFakes(t *testing.T, f *muxFake) {
 		muxProcessPanePIDFn, muxProcessFactsFn, muxProcessDiscoverFn = origProcPID, origProcFacts, origProcDiscover
 		muxPanesSessionsFn, muxPanesWindowsFn = origPanesSessions, origPanesWindows
 		muxPanesAliveFn, muxPanesNowFn = origPanesAlive, origPanesNow
+		muxSessionsFactsFn, muxSessionsAliveFn = origSessionsFacts, origSessionsAlive
 		resetMuxFlags()
 	})
 
@@ -270,6 +277,16 @@ func installMuxFakes(t *testing.T, f *muxFake) {
 	}
 	muxPanesAliveFn = func(_ context.Context, _ string) error { return f.paneAliveErr }
 	muxPanesNowFn = nowFn
+	muxSessionsFactsFn = func(_ context.Context, _ string) ([]tmux.SessionFacts, error) {
+		if f.sessionFactsErr != nil {
+			return nil, f.sessionFactsErr
+		}
+		if f.sessionFacts != nil || f.sessionFactsSet {
+			return f.sessionFacts, nil
+		}
+		return defaultSessionFactsFixture(), nil
+	}
+	muxSessionsAliveFn = func(_ context.Context, _ string) error { return f.sessionAliveErr }
 }
 
 // resetMuxFlags returns every mux flag (and the root --quiet) to its default so
@@ -289,6 +306,7 @@ func resetMuxFlags() {
 	muxKillForceFlag = false
 	muxProcessJSONFlag = false
 	muxPanesJSONFlag = false
+	muxSessionsJSONFlag, muxSessionsAllFlag = false, false
 	muxNewEphemeralFlag = false
 	resetFlagChanged(muxSendCmd, "key", "answer", "force", "no-enter", "await", "timeout")
 	resetFlagChanged(muxAwaitCmd, "until", "file", "after-active", "timeout", "notify", "ready")
@@ -296,6 +314,7 @@ func resetMuxFlags() {
 	resetFlagChanged(muxKillCmd, "force")
 	resetFlagChanged(muxProcessCmd, "json")
 	resetFlagChanged(muxPanesCmd, "json")
+	resetFlagChanged(muxSessionsCmd, "json", "all")
 	// The parent's persistent -L is shared by every mux invocation, so an
 	// explicit `-L x` from one test would otherwise leak into the next.
 	if f := muxCmd.PersistentFlags().Lookup("server"); f != nil {

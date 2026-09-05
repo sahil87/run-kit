@@ -1,0 +1,55 @@
+id: csk9
+name: 260905-csk9-mux-sessions-role-query
+created: 2026-09-05T07:17:31Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 4
+    acceptance_count: 14
+    acceptance_completed: 14
+confidence:
+    certain: 6
+    confident: 3
+    tentative: 0
+    unresolved: 0
+    score: 4.8
+    fuzzy: true
+    dimensions:
+        signal: 76.1
+        reversibility: 82.8
+        competence: 86.1
+        disambiguation: 80.6
+stage_metrics:
+    intake: {started_at: "2026-09-05T07:17:31Z", driver: fab-new, iterations: 1, completed_at: "2026-09-05T07:25:12Z"}
+    apply: {started_at: "2026-09-05T07:25:12Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-05T07:36:06Z"}
+    review: {started_at: "2026-09-05T07:36:06Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-05T07:42:34Z"}
+    hydrate: {started_at: "2026-09-05T07:42:34Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-05T07:46:53Z"}
+    ship: {started_at: "2026-09-05T07:46:53Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-05T07:46:53Z"
+    computed_at_stage: hydrate
+summary: 'rk mux sessions — 13th mux verb: session enumeration with name-derived roles (user/pin/control/operator/reserved) over the _rk-* reserved namespace, default user-facing filter + --all, ListClients-joined attached counts'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-05T07:46:53Z

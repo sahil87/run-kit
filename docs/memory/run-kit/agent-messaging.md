@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The `rk mux` family — 12 tmux-substrate verbs, no daemon dependency, help-grouped as messaging / pane mechanics / server ops (taught by `rk skill messaging` + `rk skill mux`). Pane-scoped members (`send`/`await` + `capture`/`kill`/`process` twins) share the strict %N/@N/=session:window grammar and with `panes` consume inherited `-L`; `await --any` wakes on the first of N panes, `--ready` classifies boot-readiness (`ready %N (state|echo)` / `parked %N`). Operator members `new`/`adopt`/`reap`/`snapshot`/`init-conf`/`guard` reject `-L`."
+description: "The `rk mux` family — 13 tmux-substrate verbs, no daemon dependency, help-grouped as messaging / pane mechanics / server ops (taught by `rk skill messaging` + `rk skill mux`). Pane-scoped members (`send`/`await` + `capture`/`kill`/`process` twins) share the strict %N/@N/=session:window grammar and with `panes`/`sessions` consume inherited `-L`; `await --any` wakes on the first of N panes, `--ready` classifies boot-readiness (`ready %N (state|echo)` / `parked %N`). Operator members `new`/`adopt`/`reap`/`snapshot`/`init-conf`/`guard` reject `-L`."
 ---
 # Agent-to-Agent Messaging (`rk mux`)
 
@@ -11,7 +11,7 @@ description: "The `rk mux` family — 12 tmux-substrate verbs, no daemon depende
 `rk mux` is the tmux-substrate CLI family (per `docs/specs/cli-layering.md`):
 operations that talk to tmux directly from the caller's context with **no daemon
 dependency** (the `rk present` pattern), so they work while `rk serve` is down.
-The family has twelve members. The messaging pair is the conversation loop's
+The family has thirteen members. The messaging pair is the conversation loop's
 halves: `rk mux send` delivers a message into another agent's pane — the
 agent→agent counterpart of `rk present`'s agent→user attach — and `rk mux await`
 blocks until a peer's state (or a file signal) fires — under `--any`, until the
@@ -20,10 +20,10 @@ condition), until a freshly spawned pane is **boot-ready** — safe to type into
 the generic pane-mechanics verbs: `rk mux capture` (scrollback capture with
 substrate-only enrichment), `rk mux kill` (pane removal gated on agent state and server protection), and
 `rk mux process` (the pane's process tree with agent classification). `rk mux
-panes` is the whole-server enumeration query — one row per pane across all
-sessions, substrate facts only (no change/stage; choreography enrichment stays
-the fab layer's), the family's only server-scoped enumeration (no target
-argument). The
+panes` and `rk mux sessions` are the server-scoped enumeration queries (no
+target argument), substrate facts only (no change/stage; choreography
+enrichment stays the fab layer's): one row per pane across all sessions, and
+one row per session with its name-derived role. The
 operator tier groups the create verb, the janitor/recovery/scaffold verbs, the
 provenance verb, and
 the guard: `rk mux new` (detached server creation on a named socket — the
@@ -47,9 +47,9 @@ reuses the hardened injection engine the daemon's compose-send route also drives
 shared `internal/inject` package ([agent-send](/run-kit/agent-send.md) § Send Path) — so the
 daemon route and the CLI verb run ONE implementation.
 
-The family parent (`muxCmd`, `cmd/rk/mux.go`) presents the twelve members in
+The family parent (`muxCmd`, `cmd/rk/mux.go`) presents the thirteen members in
 three cobra command groups — *Messaging* (`send`, `await`), *Pane mechanics*
-(`capture`, `kill`, `process`, `panes`), *Server ops* (`new`, `adopt`, `reap`,
+(`capture`, `kill`, `process`, `panes`, `sessions`), *Server ops* (`new`, `adopt`, `reap`,
 `snapshot`, `init-conf`, `guard`) — registered in its `init()` with `GroupID`
 stamped on the family instances only (see Design Decisions), so `rk mux -h`
 renders no "Additional Commands" bucket (`TestMuxHelpPresentsThreeGroups` pins
@@ -61,7 +61,7 @@ carries the verb-reference depth; the two pages cross-link rather than
 duplicate. The family parent also carries the shared persistent
 `-L/--server` flag (the `fab pane` pattern). Server resolution: `-L` wins, else
 the caller's own server derived from the original `$TMUX` socket basename, else
-`default`. Only the pane-scoped verbs and the `panes` enumeration consume it —
+`default`. Only the pane-scoped verbs and the `panes`/`sessions` enumerations consume it —
 the operator members reject
 an explicitly-set `-L` (see Requirements), **except `guard`**: its
 `DisableFlagParsing` means nothing is parsed and `-L`/`-S` flow verbatim into
@@ -527,6 +527,38 @@ diagnostic on stderr; **2** usage.
   diagnostic on stderr; **AND GIVEN** a stray positional argument, **THEN**
   exit 2.
 
+### Requirement: `rk mux sessions` — session enumeration with derived roles
+`rk mux sessions [--json] [--all]` SHALL enumerate the sessions of the resolved
+server — one row per session, no positional target (an enumeration query like
+`panes`; a stray argument is usage, exit 2), consuming the family's inherited
+`-L/--server` without `muxRejectInheritedServerFlag`. Each row carries `name`,
+`role`, `attached`, `windows`, `path`, `grouped` — substrate facts only. The
+role derives from the session NAME at request time via `tmux.SessionRole`
+(never a stamped option): `user`, or the infrastructure kinds `pin`
+(`_rk-pin-*`), `control` (`_rk-ctl`), `operator` (`_rk-operator`), and
+`reserved` (any other `_rk-*` name — see
+[tmux-sessions](/run-kit/tmux-sessions.md) § Session Role Taxonomy). The
+default listing is `role: user` rows only — the spawn-candidate set an external
+orchestrator (fab's operator) consumes; `--all` includes infrastructure rows
+labeled with their roles. Enumeration (`tmux.ListSessionFacts` →
+`buildSessionFacts`) reads raw `list-sessions` on the shared
+`sessionListFormat` fields: user rows follow `parseSessions`' keep decision
+exactly (group copies fold onto the leader, `grouped: true`), pin/control rows
+are re-included from their raw lines, and `attached` counts size-arbitrating
+human clients via the `ListClients` group-key join (control-mode/ignore-size
+attaches excluded, group-copy viewers credited to the leader). Output and exit
+codes are the `panes` conventions: aligned table
+(`NAME ROLE ATTACHED WINDOWS PATH`) on stdout / diagnostics on stderr, `--json`
+a two-space-indented array; **0** success including alive-but-empty (`[]`,
+`ServerAlive`-probed), **1** operational, **2** usage.
+
+#### Scenario: Default lists the spawn-candidate set; --all labels infrastructure
+- **GIVEN** a server holding `_rk-ctl`, `_rk-operator`, and `fabKit`
+- **WHEN** `rk mux sessions --json` runs
+- **THEN** the array carries exactly the `fabKit` row (`role: user`)
+- **AND WHEN** `rk mux sessions --all --json` runs
+- **THEN** all three rows appear with roles `control`, `operator`, `user`
+
 ### Requirement: `rk mux new` — validated detached server creation
 `rk mux new <name> [--ephemeral]` SHALL create a detached tmux server on
 socket `<name>` with a single session named `<name>`, reusing
@@ -654,7 +686,7 @@ permanent: they are human-typed verbs, so they are removable in a future release
 ## Design Decisions
 
 ### Help GroupIDs stamped on family instances, never in the two-instance constructors
-**Decision**: The three `cobra.Group`s and all twelve `GroupID` assignments live
+**Decision**: The three `cobra.Group`s and all thirteen `GroupID` assignments live
 in `mux.go`'s `init()` on the family-member instances; the shared constructors
 (`newReapCmd` and kin) are untouched.
 **Why**: The constructors also build the hidden root aliases, parented to
@@ -772,7 +804,7 @@ state across instances.
 ### Reject explicitly-set `-L` on operator members
 **Decision**: new/reap/snapshot/init-conf under `mux` error (usage, exit 2) when the
 inherited `--server` flag was explicitly set; the five pane-scoped verbs
-(send/await/capture/kill/process) and the `panes` enumeration consume it. The
+(send/await/capture/kill/process) and the `panes`/`sessions` enumerations consume it. The
 `guard` member is exempt —
 `DisableFlagParsing` means `-L` is never parsed and flows verbatim into the tmux
 argv, so there is nothing to reject (see

@@ -249,7 +249,7 @@ describe("OperatorConsole", () => {
     openDrawer();
 
     expect(screen.getByTestId("operator-console-empty")).toHaveTextContent(
-      "no operator on this server — run `rk operator`",
+      "no operator on this server — run rk operator",
     );
     expect(screen.queryByTestId("embedded-terminal")).toBeNull();
     expect(screen.queryByLabelText("Message the operator")).toBeNull();
@@ -627,7 +627,7 @@ describe("OperatorConsole (mobile navigation)", () => {
 
     expect(mockNavigate).not.toHaveBeenCalled();
     // Repeated activations within one toast lifetime do not stack.
-    expect(screen.getAllByText("no operator on this server — run `rk operator`")).toHaveLength(1);
+    expect(screen.getAllByText("no operator on this server — run rk operator")).toHaveLength(1);
   });
 });
 

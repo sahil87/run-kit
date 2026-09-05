@@ -40,7 +40,7 @@ const NO_OPERATOR_HINT_THROTTLE_MS = 4000;
 
 /** The established operator-absent message — the desktop drawer renders it as
  *  its hint line, mobile activations toast it. */
-const NO_OPERATOR_HINT = "no operator on this server — run `rk operator`";
+const NO_OPERATOR_HINT = "no operator on this server — run rk operator";
 
 /**
  * The operator chat console — a global pull-down drawer overlay on desktop,

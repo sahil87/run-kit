@@ -471,7 +471,7 @@ test.describe("Operator console", () => {
     await page.getByRole("button", { name: /^Operator console/ }).click();
     await expect(console_(page)).toBeVisible();
     await expect(page.getByTestId("operator-console-empty")).toHaveText(
-      "no operator on this server — run `rk operator`",
+      "no operator on this server — run rk operator",
     );
     await expect(console_(page).locator(".xterm")).toHaveCount(0);
     await expect(console_(page).getByRole("textbox")).toHaveCount(0);
@@ -1057,7 +1057,7 @@ test.describe("Operator console", () => {
         .click();
     }
 
-    await expect(page.getByText("no operator on this server — run `rk operator`")).toHaveCount(1);
+    await expect(page.getByText("no operator on this server — run rk operator")).toHaveCount(1);
     expect(page.url()).toContain(WINDOW_URL);
     await expect(console_(page)).toHaveCount(0);
   });

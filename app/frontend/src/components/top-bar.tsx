@@ -688,7 +688,7 @@ export function TopBar({
   // fixed-width, terminal-font (Aa), and
   // close-pane/Kill (sticky per-device preferences + the destructive ✕ that
   // sat one slot from Refresh). The terminal-mode bar end state is
-  // surface toggles · Open · ▦ Layout · ◉ · Refresh · Gear · chevron (+ UpdateChip when a qualifying
+  // ◉ · surface toggles · Open · ▦ Layout · Refresh · Gear · chevron (+ UpdateChip when a qualifying
   // update exists) — the split chip demoted to `menuOnly` in terminal mode in
   // 260813-w1lf (pane verbs moved to the tty tile header). Each entry gates on `modes` (the current mode must be listed) and
   // an optional `hidden` predicate (renders nowhere); `menuGroup` names its
@@ -699,6 +699,24 @@ export function TopBar({
   // + the `Board: Unpin Focused Pane` palette action. The split is absent when
   // the board is empty (no `focusedPane`); the Kill row is disabled then.
   const rightItems: RegistryEntry[] = [
+    // ◉ operator button — the desktop STANDING affordance for the operator
+    // console, at the ABSOLUTE cluster head (left-most, closest to the center
+    // heading — the console drops from the bar's center, so its opener sits
+    // nearest that seam). Head position also makes it the first fit candidate
+    // to drop; overflowed, its function merges into the menu's `Operator
+    // console` row (menuRender: null), so the two never duplicate. A
+    // fixed-size ◉ with the resolved-server operator's live state dot. Hidden
+    // on mobile (the tongue under the top bar serves there). Renders on
+    // operator-less servers — the console's hint line is the answer (the
+    // palette open action's posture).
+    {
+      id: "operator-console-button",
+      modes: ["terminal", "board", "server", "host"],
+      menuGroup: "app",
+      hidden: isMobile,
+      barRender: () => <OperatorConsoleButton routeServer={server || null} />,
+      menuRender: () => null,
+    },
     // Surface-toggle group — terminal-only, at the registry's L1 HEAD (first
     // fit candidate to drop, leftmost in the bar): the retired right rail's
     // open-tile toggles relocated as ONE bordered sub-group. One entry (not
@@ -889,21 +907,6 @@ export function TopBar({
       barRender: () => <UpdateChip />,
       menuRender: () => null,
     },
-    // ◉ operator button — the desktop STANDING affordance for the operator
-    // console (L3, immediately before Refresh): a fixed-size ◉ with the
-    // resolved-server operator's live state dot. Hidden on mobile (the tongue
-    // under the top bar serves there). Overflowed, its function merges into
-    // the menu's `Operator console` row (menuRender: null), so the two never
-    // duplicate. Renders on operator-less servers — the console's hint line
-    // is the answer (the palette open action's posture).
-    {
-      id: "operator-console-button",
-      modes: ["terminal", "board", "server", "host"],
-      menuGroup: "app",
-      hidden: isMobile,
-      barRender: () => <OperatorConsoleButton routeServer={server || null} />,
-      menuRender: () => null,
-    },
     {
       id: "refresh",
       modes: ["terminal", "board", "server", "host"],
@@ -915,7 +918,7 @@ export function TopBar({
     // right cluster on ALL modes (app-global chrome, not a terminal control).
     // The LAST fit candidate (L3 tail): it survives longest in-bar and, when
     // the cluster can't fit it, degrades to the Settings menu row — never
-    // shrinks or clips. Order in the bar: … · ◉ · Refresh · Gear · chevron ▾.
+    // shrinks or clips. Order in the bar: ◉ · … · Refresh · Gear · chevron ▾.
     {
       id: "settings",
       modes: ["terminal", "board", "server", "host"],

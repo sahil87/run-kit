@@ -100,6 +100,8 @@ func TestCronAddScheduleFlagMatrix(t *testing.T) {
 		{"negative every", []string{"add", "x", "--every", "-1h"}, "--every must be a positive duration"},
 		{"bad deliver", []string{"add", "x", "--every", "1h", "--deliver", "sometimes"}, "invalid --deliver value"},
 		{"bad if-absent", []string{"add", "x", "--every", "1h", "--if-absent", "poke"}, "invalid --if-absent value"},
+		{"cron wrong field count", []string{"add", "x", "--cron", "0 3 *"}, "--cron must be a 5-field cron expression"},
+		{"cron empty", []string{"add", "x", "--cron", ""}, "--cron must be a 5-field cron expression"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -266,7 +268,7 @@ func TestCronAddExplicitTargetFlags(t *testing.T) {
 
 // TestCronAddOutsideTmux: without $TMUX_PANE an explicit target flag is
 // required (a typed command must not guess); with one, the add proceeds with
-// no creator captured.
+// a pane-less creator (created_by.at is still set — it anchors `every`).
 func TestCronAddOutsideTmux(t *testing.T) {
 	t.Run("no target flag is a usage error", func(t *testing.T) {
 		dir := stubCronDir(t)
@@ -284,7 +286,7 @@ func TestCronAddOutsideTmux(t *testing.T) {
 			t.Errorf("state dir gained %v, want untouched", fis)
 		}
 	})
-	t.Run("explicit target works with empty creator", func(t *testing.T) {
+	t.Run("explicit target works with a pane-less creator", func(t *testing.T) {
 		dir := stubCronDir(t)
 		stubCronAddSeams(t, "", nil)
 		t.Setenv("TMUX_PANE", "")
@@ -293,8 +295,9 @@ func TestCronAddOutsideTmux(t *testing.T) {
 			t.Fatalf("add: %v", err)
 		}
 		entries := loadCronEntries(t, dir, "work")
-		if len(entries) != 1 || entries[0].CreatedBy != (cron.CreatedBy{}) {
-			t.Fatalf("entries = %+v, want one entry with no created_by", entries)
+		want := cron.CreatedBy{At: cronAddFixedNow}
+		if len(entries) != 1 || entries[0].CreatedBy != want {
+			t.Fatalf("entries = %+v, want one entry with created_by.at set and no pane", entries)
 		}
 	})
 }

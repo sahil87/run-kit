@@ -42,16 +42,17 @@ func init() {
 	cronListCmd.Flags().BoolVar(&cronListJSONFlag, "json", false, "Output as JSON")
 }
 
-// cronListRecord is one list row / --json element.
+// cronListRecord is one list row / --json element. The JSON shape is a fixed
+// key set — unset values serialize as zero values, never as missing keys.
 type cronListRecord struct {
 	ID        string `json:"id"`
-	Name      string `json:"name,omitempty"`
+	Name      string `json:"name"`
 	Schedule  string `json:"schedule"`
 	Target    string `json:"target"`
-	Deliver   string `json:"deliver,omitempty"`
-	Pinned    bool   `json:"pinned,omitempty"`
-	Muted     bool   `json:"muted,omitempty"`
-	LastFired int64  `json:"last_fired,omitempty"`
+	Deliver   string `json:"deliver"`
+	Pinned    bool   `json:"pinned"`
+	Muted     bool   `json:"muted"`
+	LastFired int64  `json:"last_fired"`
 }
 
 func runCronList(cmd *cobra.Command) error {

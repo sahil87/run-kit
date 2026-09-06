@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -191,6 +192,9 @@ func cronAddSchedule(cmd *cobra.Command) (cron.Schedule, bool, error) {
 			Max:    cron.Duration{Duration: cronAddMax},
 		}, false, nil
 	default:
+		if len(strings.Fields(cronAddCronExpr)) != 5 {
+			return cron.Schedule{}, false, usageError(fmt.Errorf("--cron must be a 5-field cron expression, got %q", cronAddCronExpr))
+		}
 		return cron.Schedule{Kind: cron.ScheduleCron, Expr: cronAddCronExpr}, true, nil
 	}
 }
@@ -210,6 +214,8 @@ func cronAddValidateEnum(flag, value string, valid ...string) error {
 // flags win; else inside a pane the target defaults to role:operator when the
 // caller's window holds the operator role, else the caller's pane; outside
 // tmux an explicit flag is required (a typed command must not guess).
+// created_by.at is always "now" — it anchors `every` schedules pre-first-
+// delivery, so a zero value would anchor at the Unix epoch and fire at once.
 func cronAddTarget(ctx context.Context, slug string, sink outputSink) (cron.Target, cron.CreatedBy, error) {
 	if cronAddRole != "" && cronAddPane != "" {
 		return cron.Target{}, cron.CreatedBy{}, usageError(fmt.Errorf("--role and --pane are mutually exclusive"))
@@ -223,13 +229,13 @@ func cronAddTarget(ctx context.Context, slug string, sink outputSink) (cron.Targ
 		return cron.Target{}, cron.CreatedBy{}, usageError(fmt.Errorf("invalid --pane value %q: want a %%N pane id", cronAddPane))
 	}
 
-	var createdBy cron.CreatedBy
+	createdBy := cron.CreatedBy{At: cronNowFn().Unix()}
 	callerPane := cronTmuxPaneFn()
 	if callerPane != "" {
 		if !tmux.ValidPaneID(callerPane) {
 			return cron.Target{}, cron.CreatedBy{}, fmt.Errorf("malformed $TMUX_PANE %q (want a %%N pane id)", callerPane)
 		}
-		createdBy = cron.CreatedBy{Pane: callerPane, At: cronNowFn().Unix()}
+		createdBy.Pane = callerPane
 	}
 
 	switch {

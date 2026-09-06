@@ -184,7 +184,7 @@ describe("BottomBar scroll-lock", () => {
     expect(localStorage.getItem(SCROLL_LOCK_KEY)).toBeNull();
   });
 
-  it("shows lock icon and accent styling when scroll-locked", () => {
+  it("shows lock icon and green latch styling when scroll-locked", () => {
     renderBottomBar();
 
     const btn = screen.getByLabelText("Show keyboard");
@@ -196,9 +196,9 @@ describe("BottomBar scroll-lock", () => {
     // Button should now show locked state
     const lockedBtn = screen.getByLabelText(/Scroll lock on/);
     expect(lockedBtn).toBeInTheDocument();
-    expect(lockedBtn.className).toContain("bg-accent/20");
-    expect(lockedBtn.className).toContain("border-accent");
-    expect(lockedBtn.className).toContain("text-accent");
+    expect(lockedBtn.className).toContain("bg-accent-green/15");
+    expect(lockedBtn.className).toContain("border-accent-green");
+    expect(lockedBtn.className).toContain("text-accent-green");
 
     // Icon should be lock symbol
     const kbd = lockedBtn.querySelector("kbd");
@@ -210,7 +210,7 @@ describe("BottomBar scroll-lock", () => {
 
     const btn = screen.getByLabelText("Show keyboard");
     expect(btn.className).toContain("text-text-secondary");
-    expect(btn.className).not.toContain("bg-accent/20");
+    expect(btn.className).not.toContain("bg-accent-green/15");
 
     const kbd = btn.querySelector("kbd");
     expect(kbd?.textContent).toBe("\u2328");
@@ -344,10 +344,10 @@ describe("BottomBar chips on the coarse-only bar (260723-fm08; gate 260814-ldbs)
     renderBottomBar({ onOpenCompose: vi.fn() });
     const trigger = screen.getByLabelText("Function keys");
     expect(trigger).toHaveAttribute("aria-expanded", "false");
-    expect(trigger.className).not.toContain("border-accent");
+    expect(trigger.className).not.toContain("border-accent-green");
     fireEvent.click(trigger);
     expect(trigger).toHaveAttribute("aria-expanded", "true");
-    expect(trigger.className).toContain("border-accent");
+    expect(trigger.className).toContain("border-accent-green");
   });
 
   it("Option latch row toggles aria-checked and keeps the menu open; arrows send-and-stay", () => {

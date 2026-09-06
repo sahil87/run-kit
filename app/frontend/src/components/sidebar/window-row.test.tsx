@@ -907,11 +907,11 @@ describe("WindowRow", () => {
       expect(button.style.borderLeft).toBe("");
     });
 
-    it("pin glyph turns accent-colored when pinned to the active board", () => {
+    it("pin glyph turns green when pinned to the active board", () => {
       const win = makeWindow({ windowId: "@0", index: 0, name: "pinned" });
       renderAxis(win, { isPinnedToAny: true, isPinnedToActiveBoard: true });
       const pin = screen.getByLabelText("Pin pinned to a board");
-      expect(pin.className).toContain("text-accent");
+      expect(pin.className).toContain("text-accent-green");
       expect(pin.className).toContain("opacity-100");
     });
 
@@ -919,7 +919,7 @@ describe("WindowRow", () => {
       const win = makeWindow({ windowId: "@0", index: 0, name: "pinned" });
       renderAxis(win, { isPinnedToAny: true, isPinnedToActiveBoard: false });
       const pin = screen.getByLabelText("Pin pinned to a board");
-      expect(pin.className).not.toContain("text-accent");
+      expect(pin.className).not.toContain("text-accent-green");
       expect(pin.className).toContain("text-text-secondary");
     });
 

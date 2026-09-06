@@ -210,8 +210,9 @@ summary {
    on hover, one-shot. The sweep is HUE-FREE — it brightens with the theme's
    primary text color, and nothing recolors the chip itself: the call-site
    Tailwind hover utilities (hover:border-text-secondary,
-   hover:text-text-primary) are the neutral hover, and latched accent states
-   (bg-accent/20 border-accent text-accent) stay hover-stable. The button MUST
+   hover:text-text-primary) are the neutral hover, and latched states
+   (LATCHED_ARM: green ink + border) keep their hue under hover — only the
+   fill deliberately deepens (/15 → /25). The button MUST
    clip the strip (overflow:hidden) — verified safe because the font/bell
    popovers are SIBLINGS of their trigger buttons, not children, so clipping
    the button never clips the popover. */

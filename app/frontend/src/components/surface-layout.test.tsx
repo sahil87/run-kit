@@ -418,12 +418,14 @@ describe("SurfaceLayout zoom", () => {
     expect(screen.getByTestId("surface-divider-0")).toBeTruthy();
   });
 
-  it("zoomed tile shows an accent-green zoom glyph and hides its promote/swap verbs (260812-wfic R5)", () => {
+  it("zoomed tile shows the green ringed latch on its zoom verb and hides its promote/swap verbs", () => {
     renderLayout({ layout: { shape: "split-h", order: ["tty", "code"] } });
     fireEvent.click(screen.getByRole("button", { name: "Expand Code" }));
     const unzoom = screen.getByRole("button", { name: "Restore Code" });
     expect(unzoom.querySelector('[data-icon="zoom"]')).toBeTruthy();
     expect(unzoom.className).toContain("text-accent-green");
+    expect(unzoom.className).toContain("ring-accent-green");
+    expect(unzoom).toHaveAttribute("aria-pressed", "true");
     // Promote/swap are no-ops on a zoomed render — hidden; ✕ stays.
     expect(screen.queryByRole("button", { name: "Promote Code" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Swap Code" })).toBeNull();
@@ -432,6 +434,7 @@ describe("SurfaceLayout zoom", () => {
     fireEvent.click(unzoom);
     const zoom = screen.getByRole("button", { name: "Expand Code" });
     expect(zoom.className).not.toContain("text-accent-green");
+    expect(zoom).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("button", { name: "Promote Code" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Swap Code" })).toBeTruthy();
   });

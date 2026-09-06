@@ -15,6 +15,7 @@ import { useFileUpload } from "@/hooks/use-file-upload";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { ApiError, sendOperatorRequest, sendToWindow, type WindowSendMode } from "@/api/client";
 import { useToast } from "@/components/toast";
+import { LATCHED_ARM } from "@/components/controls";
 import { OperatorContextChip } from "@/components/operator-context-chip";
 import { getOperatorChatTarget, useOperatorChatChip } from "@/lib/operator-console";
 import {
@@ -1059,7 +1060,9 @@ export function ComposeStrip({
       onMouseDown={preventFocusSteal}
       onClick={() => setHistoryOpen((open) => !open)}
       data-testid="compose-strip-history"
-      className={`rk-glint shrink-0 rounded px-2 py-1.5 text-xs text-text-secondary transition-colors coarse:min-h-[36px] coarse:min-w-[36px] ${chipTone}`}
+      className={`rk-glint shrink-0 rounded px-2 py-1.5 text-xs transition-colors coarse:min-h-[36px] coarse:min-w-[36px] ${
+        historyOpen ? `border ${LATCHED_ARM}` : `text-text-secondary ${chipTone}`
+      }`}
     >
       {/* text-lg matches the attach chip's emoji weight — the button box is
           size-fixed, so only the glyph scales. */}
@@ -1144,7 +1147,7 @@ export function ComposeStrip({
         className={`rk-glint shrink-0 rounded border px-3 py-1.5 text-xs transition-colors disabled:opacity-40 disabled:cursor-not-allowed coarse:min-h-[36px] ${isCard ? (coarsePointer ? "ml-auto" : "") : "order-4"} ${
           composerEmpty && !isSelectionTarget
             ? "border-border text-text-secondary hover:border-text-secondary"
-            : "border-accent bg-accent/20 text-accent hover:bg-accent/30"
+            : LATCHED_ARM
         }`}
       >
         {sending ? "Sending…" : "Send"}

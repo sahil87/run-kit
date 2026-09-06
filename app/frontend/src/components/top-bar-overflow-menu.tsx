@@ -24,6 +24,7 @@ import { useSettingsDialog } from "@/contexts/settings-dialog-context";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { formatCombo } from "@/lib/keybindings";
 import {
+  LATCHED_ARM,
   MENU_ROW_CLASS,
   MENU_ROW_KBD_CLASS,
   TOP_BAR_BUTTON,
@@ -570,7 +571,7 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
         aria-haspopup="true"
         aria-expanded={open}
         aria-label="More controls"
-        className={`${TOP_BAR_BUTTON} relative`}
+        className={open ? `rk-glint ${TOP_BAR_BUTTON_BASE} ${LATCHED_ARM} relative` : `${TOP_BAR_BUTTON} relative`}
       >
         <svg
           width="14"

@@ -77,6 +77,21 @@ export const TOP_BAR_BUTTON = `rk-glint ${TOP_BAR_BUTTON_BASE} ${TOP_BAR_BUTTON_
 export const TOP_BAR_BUTTON_H = "h-[28px] coarse:h-[40px]"; // lockstep: --ctl-h-bar / --ctl-h-bar-coarse
 export const TOP_BAR_SEGMENT_H = "h-[26px] coarse:h-[38px]"; // lockstep: --ctl-h-bar / --ctl-h-bar-coarse minus the 2px wrapper border
 
+/**
+ * The one latched/on state arm (scheme C: green = state). Compose with a
+ * BASE that carries NO hover color utilities (REST swapped out) so nothing
+ * competes with the latch border — class stacking ties on specificity and
+ * loses on compiled source order. Lockstep: the latch color algebra is
+ * documented in docs/memory/run-kit/ui/visual-design.md.
+ */
+export const LATCHED_ARM =
+  "bg-accent-green/15 border-accent-green text-accent-green hover:bg-accent-green/25";
+/** Border-axis equivalent for borderless controls (rail toggles, find-bar and
+ *  tile-verb glyph buttons) — ring-inset paints inside, so latching never
+ *  shifts layout. */
+export const LATCHED_ARM_RINGED =
+  "bg-accent-green/15 ring-1 ring-inset ring-accent-green text-accent-green hover:bg-accent-green/25";
+
 /** Trailing menu-row keycap — the right-aligned chord chip on menu rows whose
  *  action has a registry binding. Matches the palette rows' kbd visual weight
  *  (command-palette.tsx), `ml-auto`-pinned to the row's right edge;

@@ -27,7 +27,7 @@ import { HostMetrics, normalizeLoadPercent } from "@/components/host-metrics";
 import { displayVersion } from "@/lib/palette/version";
 import { formatMemory, gaugeColor } from "@/lib/gauge";
 import { getAgentLine, getFabLine, getPrSegments } from "./sidebar/registers";
-import { MENU_ROW_CLASS } from "@/components/controls";
+import { LATCHED_ARM, MENU_ROW_CLASS } from "@/components/controls";
 import { useCopyFeedback } from "@/hooks/use-copy-feedback";
 import { parseFabChange } from "@/lib/format";
 import type { MetricsSnapshot, WindowInfo } from "@/types";
@@ -654,11 +654,12 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
           (≥xl) → ld (≥lg) → cpu/mem (≥md) → version (≥700px); the connection
           dot never drops. */}
       <div className="ml-auto flex items-center gap-3 min-w-0" data-testid="status-bar-host">
-        {/* Zen exit (260820-o8cr R8) — rendered ONLY while zen is active, the
+        {/* Zen exit — rendered ONLY while zen is active, the
             visible exit affordance beside the ⇧⌘⏎ chord (Esc is deliberately
             not a zen exit — it belongs to the terminal pane). The cluster's
-            hint-button vocabulary, accent-lit like the engaged compose chip;
-            it never drops (zen's one guaranteed visible exit). */}
+            hint-button vocabulary, accent-lit as an action affordance (a
+            latch would be green); it never drops (zen's one guaranteed
+            visible exit). */}
         {zenActive && onExitZen && (
           <Tip label="Exit zen mode" kbd={chordFor("zen-toggle")} placement="top">
             <button
@@ -742,7 +743,7 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
               data-testid="status-bar-compose"
               className={`hidden xl:flex items-center rounded border px-1 transition-colors ${
                 composeStripEnabled
-                  ? "border-accent bg-accent/20 text-accent"
+                  ? LATCHED_ARM
                   : "border-border text-text-secondary hover:border-text-secondary"
               }`}
               onClick={onOpenCompose}

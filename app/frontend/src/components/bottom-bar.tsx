@@ -3,6 +3,7 @@ import { useModifierState, type ModifierSnapshot } from "@/hooks/use-modifier-st
 import { useFocusedTerminal } from "@/contexts/focused-terminal-context";
 import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
 import { KBD_BASE, KBD_CLASS } from "@/components/kbd-chip";
+import { LATCHED_ARM } from "@/components/controls";
 import { Tip, TipGroup } from "@/components/tip";
 import {
   focusComposeStrip,
@@ -384,7 +385,7 @@ export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
         <button
           aria-label={MODIFIER_LABELS.ctrl}
           aria-pressed={mods.ctrl}
-          className={mods.ctrl ? `${KBD_BASE} bg-accent/20 border-accent text-accent hover:bg-accent/30` : `${KBD_CLASS} text-text-secondary`}
+          className={mods.ctrl ? `${KBD_BASE} ${LATCHED_ARM}` : `${KBD_CLASS} text-text-secondary`}
           onMouseDown={preventFocusSteal}
           onClick={() => mods.toggle("ctrl")}
         >
@@ -395,13 +396,13 @@ export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
       <div ref={fnRef} className="relative">
         <Tip label="Function keys" placement="top">
           {/* Open-menu latch: while the menu is up the trigger carries the
-              accent latch arm (state, not hover) \u2014 the REST half of KBD_CLASS
-              is swapped out so no hover utility competes with border-accent. */}
+              latch arm (state, not hover) \u2014 the REST half of KBD_CLASS
+              is swapped out so no hover utility competes with the latch. */}
           <button
             aria-label="Function keys"
             aria-haspopup="true"
             aria-expanded={fnOpen}
-            className={fnOpen ? `${KBD_BASE} bg-accent/20 border-accent text-accent hover:bg-accent/30` : `${KBD_CLASS} text-text-secondary`}
+            className={fnOpen ? `${KBD_BASE} ${LATCHED_ARM}` : `${KBD_CLASS} text-text-secondary`}
             onMouseDown={preventFocusSteal}
             onClick={() => setFnOpen((v) => !v)}
           >
@@ -425,7 +426,7 @@ export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
               aria-label={MODIFIER_LABELS.alt}
               className={`w-full flex items-center gap-2 px-3 min-h-[40px] text-xs rounded ${
                 mods.alt
-                  ? "bg-accent/20 text-accent"
+                  ? "bg-accent-green/15 text-accent-green"
                   : "text-text-secondary hover:text-text-primary hover:bg-bg-card"
               }`}
               onMouseDown={preventFocusSteal}
@@ -519,7 +520,7 @@ export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
             onClick={onOpenCompose}
             aria-label="Compose text"
             aria-pressed={composeStripEnabled}
-            className={composeStripEnabled ? `${KBD_BASE} bg-accent/20 border-accent text-accent hover:bg-accent/30` : `${KBD_CLASS} text-text-secondary`}
+            className={composeStripEnabled ? `${KBD_BASE} ${LATCHED_ARM}` : `${KBD_CLASS} text-text-secondary`}
           >
             a<span className={composeStripEnabled ? "rk-compose-caret" : undefined}>{"▏"}</span>
           </button>
@@ -535,7 +536,8 @@ export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
         <button
           type="button"
           aria-label={scrollLocked ? "Scroll lock on \u2014 tap to unlock" : termFocused ? "Hide keyboard" : "Show keyboard"}
-          className={scrollLocked ? `${KBD_BASE} hidden coarse:inline-flex bg-accent/20 border-accent text-accent hover:bg-accent/30` : `${KBD_CLASS} hidden coarse:inline-flex text-text-secondary`}
+          aria-pressed={scrollLocked}
+          className={scrollLocked ? `${KBD_BASE} hidden coarse:inline-flex ${LATCHED_ARM}` : `${KBD_CLASS} hidden coarse:inline-flex text-text-secondary`}
           onMouseDown={preventFocusSteal}
           onTouchStart={handleKbdTouchStart}
           onTouchMove={handleKbdTouchMove}

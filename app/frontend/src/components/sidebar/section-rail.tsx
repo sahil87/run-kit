@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
 import { Tip } from "@/components/tip";
+import { LATCHED_ARM_RINGED } from "@/components/controls";
 import {
   SIDEBAR_SECTIONS,
   useSidebarSectionVisible,
@@ -56,7 +57,7 @@ function SectionRailButton({ entry }: { entry: (typeof SIDEBAR_SECTIONS)[number]
         aria-pressed={visible}
         className={`flex items-center justify-center rounded-sm px-0.5 min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] transition-colors ${
           visible
-            ? "bg-accent-green/10 ring-1 ring-inset ring-accent-green text-accent-green"
+            ? LATCHED_ARM_RINGED
             : "text-text-secondary hover:text-text-primary"
         }`}
       >

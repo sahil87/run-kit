@@ -11,11 +11,13 @@ import {
 } from "@/lib/surface-layout";
 import { LayoutGlyph, LayoutShapeGlyph } from "@/components/top-bar-icons";
 import {
+  LATCHED_ARM,
   MENU_ROW_BASE,
   MENU_ROW_REST,
   MENU_ROW_ACTIVE,
   POPOVER_ROW_CLASS,
   TOP_BAR_BUTTON,
+  TOP_BAR_BUTTON_BASE,
 } from "@/components/controls";
 
 /**
@@ -114,7 +116,7 @@ export function LayoutChip({ layout, onApply }: LayoutChipProps) {
           aria-haspopup="menu"
           aria-expanded={open}
           aria-label="Layout"
-          className={TOP_BAR_BUTTON}
+          className={open ? `rk-glint ${TOP_BAR_BUTTON_BASE} ${LATCHED_ARM}` : TOP_BAR_BUTTON}
         >
           <LayoutGlyph />
         </button>

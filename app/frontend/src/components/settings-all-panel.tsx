@@ -84,13 +84,13 @@ export function BoolToggle({ id, label, on, commit }: { id?: string; label: stri
             .finally(() => setBusy(false));
         }}
         className={`relative w-8 h-[18px] rounded-full border transition-colors disabled:opacity-50 ${
-          on ? "bg-accent/30 border-accent" : "bg-bg-inset border-border"
+          on ? "bg-accent-green/30 border-accent-green" : "bg-bg-inset border-border"
         }`}
       >
         <span
           aria-hidden="true"
           className={`absolute top-[2px] w-3 h-3 rounded-full transition-all ${
-            on ? "left-[16px] bg-accent" : "left-[2px] bg-text-secondary"
+            on ? "left-[16px] bg-accent-green" : "left-[2px] bg-text-secondary"
           }`}
         />
       </button>

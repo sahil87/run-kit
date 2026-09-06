@@ -3,6 +3,7 @@ import { openInApp } from "@/api/client";
 import { OpenTargetIcon } from "@/components/open-app-icons";
 import { useToast } from "@/components/toast";
 import {
+  LATCHED_ARM,
   MENU_ROW_CLASS,
   POPOVER_ROW_CLASS,
   TOP_BAR_SEGMENT_H,
@@ -144,7 +145,9 @@ export function OpenButton({
           aria-haspopup="menu"
           aria-expanded={open}
           aria-label="Open in… (choose app)"
-          className={`rk-glint px-1 ${TOP_BAR_SEGMENT_H} border-l border-border flex items-center justify-center text-text-secondary hover:text-text-primary transition-colors`}
+          className={`rk-glint px-1 ${TOP_BAR_SEGMENT_H} border-l flex items-center justify-center transition-colors ${
+            open ? LATCHED_ARM : "border-border text-text-secondary hover:text-text-primary"
+          }`}
         >
           <svg
             width="10"

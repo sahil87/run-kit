@@ -1001,17 +1001,17 @@ function WindowRowInner({
             aria-pressed={isPinnedToAny}
             // The active-board cue lives on THIS glyph now (the 4px left border
             // was removed in the axis split): a row pinned to the board you're
-            // viewing gets an ACCENT-colored persistent glyph; a row pinned to
+            // viewing gets a GREEN persistent glyph; a row pinned to
             // some other board is a monochrome persistent glyph; an unpinned row
             // shows the glyph only on hover/focus. isPinnedToActiveBoard
-            // implies isPinnedToAny, so the accent branch is always persistent.
+            // implies isPinnedToAny, so the green branch is always persistent.
             onClick={(e) => {
               e.stopPropagation();
               setShowPinPopover((v) => !v);
             }}
             className={`transition-opacity cursor-pointer ${
               isPinnedToActiveBoard
-                ? "opacity-100 text-accent hover:text-accent"
+                ? "opacity-100 text-accent-green hover:text-accent-green"
                 : isPinnedToAny
                 ? "opacity-100 text-text-secondary hover:text-text-primary"
                 : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-text-secondary hover:text-text-primary"

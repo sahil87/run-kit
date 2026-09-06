@@ -28,6 +28,7 @@ import {
   type MenuGroup,
 } from "@/components/top-bar-overflow-menu";
 import {
+  LATCHED_ARM,
   MENU_ROW_CLASS,
   MENU_ROW_KBD_CLASS,
   POPOVER_ROW_CLASS,
@@ -438,7 +439,7 @@ function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
                   aria-label={`${label} tile`}
                   className={`rk-glint relative w-[26px] ${TOP_BAR_SEGMENT_H} flex items-center justify-center rounded border text-[11px] font-mono transition-colors focus-visible:outline-2 focus-visible:outline-accent-green disabled:opacity-40 disabled:cursor-not-allowed ${
                     pressed
-                      ? "border-accent-green bg-accent-green/10 text-accent-green"
+                      ? LATCHED_ARM
                       : "border-transparent text-text-secondary hover:text-text-primary"
                   }`}
                 >
@@ -2377,7 +2378,9 @@ function SplitControl({
             aria-haspopup="menu"
             aria-expanded={open}
             aria-label="Split… (choose direction)"
-            className={`rk-glint px-1 ${TOP_BAR_SEGMENT_H} border-l border-border flex items-center justify-center text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed`}
+            className={`rk-glint px-1 ${TOP_BAR_SEGMENT_H} border-l flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+              open ? LATCHED_ARM : "border-border text-text-secondary hover:text-text-primary"
+            }`}
           >
             <svg
               width="10"
@@ -2602,7 +2605,7 @@ function BoardAutofitToggle({
       aria-label="Toggle board autofit"
       aria-pressed={autofit}
       className={`rk-glint ${TOP_BAR_BUTTON_BASE} ${
-        autofit ? "border-accent text-accent bg-accent/10" : TOP_BAR_BUTTON_REST
+        autofit ? LATCHED_ARM : TOP_BAR_BUTTON_REST
       }`}
     >
       <AutofitGlyph filled={autofit} />

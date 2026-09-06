@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-06T17:39:13Z"}
+{"args":"rk cron CLI: add subcommand (schedule flags, creator auto-capture from $TMUX_PANE -\u003e role/pane target; session capture lands in C9 -- out of scope here), list [--json], rm, mute, pin, and the invoker verb rk cron tick (flock-guarded, idempotent).","cmd":"fab-new","event":"command","ts":"2026-09-06T17:39:13Z"}
+{"delta":"+3.9","event":"confidence","score":3.9,"trigger":"calc-score","ts":"2026-09-06T17:41:43Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-06T17:43:23Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-06T17:43:38Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-06T17:58:53Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-06T18:02:53Z"}
+{"event":"review","result":"passed","ts":"2026-09-06T18:02:53Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-06T18:07:10Z"}

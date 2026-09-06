@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"rk/internal/validate"
 )
@@ -279,6 +280,28 @@ func SendKeysToPane(ctx context.Context, paneID, server string, keys ...string) 
 	args := append([]string{"send-keys", "-t", paneID}, keys...)
 	_, err := tmuxExecServer(ctx, server, args...)
 	return err
+}
+
+// WindowIDForPane resolves the id of the window a pane belongs to via
+// `display-message -p -t <pane> '#{window_id}'`. The pane id is validated
+// before the subprocess runs and the returned id before it is handed back —
+// both are the closed %N/@N grammars. Bounded to the 5s short-tmux tier on top
+// of the caller's context.
+func WindowIDForPane(ctx context.Context, paneID, server string) (string, error) {
+	if !ValidPaneID(paneID) {
+		return "", fmt.Errorf("invalid pane id %q (want %%N)", paneID)
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	raw, err := tmuxExecRawServer(ctx, server, "display-message", "-p", "-t", paneID, "#{window_id}")
+	if err != nil {
+		return "", err
+	}
+	id := strings.TrimSpace(raw)
+	if !ValidWindowID(id) {
+		return "", fmt.Errorf("unexpected window id %q for pane %s", id, paneID)
+	}
+	return id, nil
 }
 
 // ResolveAgentPane resolves a WINDOW target (@N or =session:window) to the

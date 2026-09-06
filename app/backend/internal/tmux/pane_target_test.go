@@ -458,3 +458,44 @@ func TestClearPaneModeCtx(t *testing.T) {
 		t.Error("ClearPaneModeCtx on a missing pane must error")
 	}
 }
+
+// WindowIDForPane resolves a pane to its window's @N id against a live
+// server, and refuses a malformed pane id before any subprocess runs.
+func TestWindowIDForPane(t *testing.T) {
+	server, _ := withRealSessionTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	panes, err := tmuxExecServer(ctx, server, "list-panes", "-t", "real:win1", "-F", "#{pane_id}")
+	if err != nil {
+		t.Fatalf("list panes: %v", err)
+	}
+	paneID := panes[0]
+
+	wins, err := tmuxExecServer(ctx, server, "list-windows", "-t", "real", "-F", "#{window_name} #{window_id}")
+	if err != nil {
+		t.Fatalf("list windows: %v", err)
+	}
+	var want string
+	for _, line := range wins {
+		name, id, _ := strings.Cut(line, " ")
+		if name == "win1" {
+			want = id
+		}
+	}
+	if want == "" {
+		t.Fatalf("win1 not found in list-windows: %v", wins)
+	}
+
+	got, err := WindowIDForPane(ctx, paneID, server)
+	if err != nil {
+		t.Fatalf("WindowIDForPane: %v", err)
+	}
+	if got != want {
+		t.Errorf("WindowIDForPane(%s) = %q, want %q (win1's id)", paneID, got, want)
+	}
+
+	if _, err := WindowIDForPane(ctx, "bogus", server); err == nil {
+		t.Error("WindowIDForPane with a malformed pane id must error before any subprocess")
+	}
+}

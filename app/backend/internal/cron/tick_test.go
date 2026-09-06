@@ -84,6 +84,9 @@ func TestTickDeadServerUntouched(t *testing.T) {
 	if res.Fires != 1 {
 		t.Fatalf("fires = %d, want 1 (live1's overdue every entry)", res.Fires)
 	}
+	if res.Servers != 1 {
+		t.Errorf("servers = %d, want 1 (only live1 is swept; dead1 is skipped)", res.Servers)
+	}
 }
 
 func sprintfTick(T time.Time) string {
@@ -175,6 +178,9 @@ func TestTickLockContention(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("contended tick returned error: %v", err)
+	}
+	if !res.Held {
+		t.Error("contended tick: Held = false, want true so invokers can stay quiet")
 	}
 	if res.Fires != 0 || len(res.Diags) != 0 || len(del.fires) != 0 {
 		t.Errorf("contended tick: fires=%d diags=%v delivered=%d, want all zero", res.Fires, res.Diags, len(del.fires))

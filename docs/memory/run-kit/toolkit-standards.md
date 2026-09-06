@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard PASS status (help-dump, skill, principles, update, version, install-composition). Covers Principle 9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + P9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`tab`/`agent`/`code`/`tutorial`/`operator` + the thirteen-member `mux` family incl. `new`, `reap --ephemeral`, `adopt`, `sessions`."
+description: "run-kit's shll-toolkit-standards conformance posture — constitution binding, audit-against-HEAD-build rule, per-standard PASS status (help-dump, skill, principles, update, version, install-composition). Covers Principle 9 `--quiet`/reaper caps, brew-mutation grace, and the help-dump + P9 new-surface check over `rk desktop`/`remote`/`daemon run`/`role`/`code-server`/`present`/`tab`/`agent`/`code`/`tutorial`/`operator` + the `mux` (`new`/`reap --ephemeral`/`adopt`/`sessions`) and `cron` families."
 ---
 # Toolkit Standards Conformance
 
@@ -744,6 +744,39 @@ twentieth surface measured against the same checks
   byte-identical under the drift guard) teaches both server-wide queries: the
   role taxonomy, the default user-facing filter vs `--all`, and the 6-key
   `--json` schema, within the page's 150-line budget.
+
+The `rk cron` family (`cron.go` + per-verb files — six members: `add`, `list`,
+`rm`, `mute`, `pin`, `tick`; the subsystem contract in
+[cron](/run-kit/cron.md)) is the twenty-first surface measured against the same
+checks (260906-bi3v-rk-cron-cli):
+
+- **help-dump: six members dump.** `cronCmd` is registered unconditionally on
+  `rootCmd` (`root.go`'s `init()`) and every node carries a `Long:` block, so
+  the cobra tree walk picks the subtree up with no help-dump code change and
+  the dumped contract is identical on every platform — nothing about the family
+  is build- or host-conditional (the outside-tmux target requirement and the
+  `tick -L` refusal are run-time usage errors, not registration conditions).
+  The help-dump test asserts the six-member subtree dynamically in
+  `TestCaptureNodeRealTreeSelfExcludesAndDepth`'s captured-children check.
+- **Principle 9: confirmations and listings are data, notes are chatter.**
+  Every verb routes through the shared `outputSink` (`newSink(cmd)`): `add`'s
+  assigned-id summary line, the `rm`/`mute`/`pin` one-line confirmations,
+  `list`'s table and `--json` array, and `tick`'s one-line sweep summary are
+  data on stdout, surviving `--quiet`; `add`'s `--cron` not-yet-evaluated note
+  and the window-role-unreadable degrade note are chatter on stderr. A held
+  tick lock is the deliberate silent success — zero output, exit 0 (a summary
+  there would misreport a skipped sweep as work done).
+- **Exit-code convention (P4)**: usage errors exit 2 via the CLI-local
+  `usageError` path — the verbs re-wrap their `Args` validators with
+  `usageArgs` (root's central wrap loop covers only `rootCmd`'s direct
+  children), and the schedule-flag mutual exclusion, `--min`/`--max` without
+  `--backoff`, enum values outside the schema's closed sets, invalid
+  `--pane`/`--role`, an explicitly-set `-L` on `tick`, and a missing target
+  outside tmux all take the same path; operational failures (a corrupt entry
+  file refusing to mutate, `no entry <id>`, dir/lock failures) exit 1.
+- **The `skill` standard is a deliberate no-op here** — no cron topic page
+  exists yet; the bundle is a capability briefing, not a command enumeration,
+  and the help-dump walk already covers the family.
 
 #### Scenario: A new subcommand group keeps the help tree platform-stable
 - **GIVEN** the `rk desktop` group on a Linux host

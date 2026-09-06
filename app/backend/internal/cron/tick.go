@@ -52,10 +52,14 @@ type Deps struct {
 	FreshThreshold    time.Duration
 }
 
-// TickResult summarizes one tick.
+// TickResult summarizes one tick. Held reports that the flock was held by
+// another invoker (the clean, quiet no-op — callers that print a summary use
+// it to stay silent); Servers counts the live servers actually swept.
 type TickResult struct {
-	Fires int
-	Diags []Diagnostic
+	Held    bool
+	Servers int
+	Fires   int
+	Diags   []Diagnostic
 }
 
 // entrySlugs lists the server slugs with entry files in dir, in deterministic
@@ -80,8 +84,8 @@ func entrySlugs(dir string) ([]string, error) {
 }
 
 // Tick runs one evaluation sweep. A held lock is a clean, quiet exit
-// (TickResult{}, nil) — the idempotent-tick contract makes skip-on-contention
-// correct.
+// (TickResult{Held: true}, nil) — the idempotent-tick contract makes
+// skip-on-contention correct.
 func Tick(ctx context.Context, deps Deps) (TickResult, error) {
 	var res TickResult
 	dir := deps.Dir
@@ -99,6 +103,7 @@ func Tick(ctx context.Context, deps Deps) (TickResult, error) {
 	if err != nil {
 		if errors.Is(err, ErrTickHeld) {
 			slog.Debug("cron tick: lock held, skipping", "dir", dir)
+			res.Held = true
 			return res, nil
 		}
 		return res, err
@@ -145,6 +150,7 @@ func Tick(ctx context.Context, deps Deps) (TickResult, error) {
 			continue
 		}
 		fires, diags := tickServer(ctx, slug, dir, now(), seam, deps.Deliverer, opStatePath, deps.FreshThreshold)
+		res.Servers++
 		res.Fires += fires
 		res.Diags = append(res.Diags, diags...)
 	}

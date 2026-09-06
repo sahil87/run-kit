@@ -294,7 +294,7 @@ func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxS
 		if rateCount(logLines, key, byPane, now) < DefaultTargetRatePerHour {
 			return false
 		}
-		slog.Warn("cron delivery rate-capped", "server", slug, "entry", fire.Entry.ID, "target", key, "cap", DefaultTargetRatePerHour)
+		slog.Warn("cron delivery rate-capped", "server", slug, "entry", fire.Entry.ID, "target", fire.PaneID, "cap_key", key, "cap", DefaultTargetRatePerHour)
 		appendLine(fire.Entry.ID, LogLine{
 			TS:      now.Unix(),
 			Entry:   fire.Entry.ID,

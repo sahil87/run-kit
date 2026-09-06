@@ -69,7 +69,7 @@ const MODIFIER_LABELS: Record<string, string> = {
 /** Tier-1 tip copy for the modifier latch chips: plain key names in terminal
  *  vocabulary ("Ctrl"/"Alt" — what the chip SENDS), while the aria-labels
  *  above keep the mac key names matching the glyphs. The one-shot latch
- *  behavior isn't spelled out — the pressed/accent state teaches it on first
+ *  behavior isn't spelled out — the pressed/latched state teaches it on first
  *  tap, and every other chip tip likewise just names its key. */
 const MODIFIER_TIP_LABELS: Record<string, string> = {
   ctrl: "Ctrl",
@@ -86,7 +86,7 @@ const preventFocusSteal = (e: React.MouseEvent) => e.preventDefault();
  *  BASE/REST split so the ⌥ latch composes BASE + LATCHED_ARM_RINGED with no
  *  competing hover utility. */
 const FN_ITEM_BASE =
-  "px-2 py-1 min-h-[40px] min-w-[40px] flex items-center justify-center text-xs rounded focus-visible:outline-2 focus-visible:outline-accent";
+  "px-2 py-1 min-h-[40px] min-w-[40px] flex items-center justify-center text-xs rounded focus-visible:outline-2 focus-visible:outline-accent-green";
 const FN_ITEM_CLASS =
   `${FN_ITEM_BASE} text-text-secondary hover:text-text-primary hover:bg-bg-card`;
 

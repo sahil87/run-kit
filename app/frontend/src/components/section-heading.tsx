@@ -10,7 +10,7 @@ import { TypedLabel } from "@/components/typed-label";
  *
  * The bracket group holds the section label, an always-reserved blinking-caret
  * cell (`▊`, transparent at rest), and the `[`/`]` brackets that step outward +
- * turn accent on hover (`rk-bracket-*`, globals.css). The rule (a CSS border,
+ * turn green on hover (`rk-bracket-*`, globals.css). The rule (a CSS border,
  * responsive — no literal `─` glyphs to overflow at 375px) fills the middle;
  * optional right-aligned `side` text sits after it.
  *

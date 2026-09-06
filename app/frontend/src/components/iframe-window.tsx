@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import { INPUT_FOCUS } from "@/components/controls";
 import { checkFrame } from "@/api/client";
 import { Tip, TipGroup } from "@/components/tip";
 import { FindBar } from "@/components/find-bar";
@@ -1466,7 +1467,7 @@ export function IframeWindow({
             setInputUrl(rawAddress);
           }}
           onKeyDown={handleKeyDown}
-          className="flex-1 min-w-0 bg-bg-card text-text-primary text-sm px-2 py-1 rounded border border-border outline-none focus:border-text-secondary"
+          className={`flex-1 min-w-0 bg-bg-card text-text-primary text-sm px-2 py-1 rounded border border-border ${INPUT_FOCUS}`}
           aria-label="URL"
           aria-invalid={submitError !== null}
           spellCheck={false}

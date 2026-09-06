@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { SettingsEntry } from "@/api/client";
 import { SwatchPopover } from "@/components/swatch-popover";
 import {
+  INPUT_FOCUS,
   SWITCH_KNOB_OFF,
   SWITCH_KNOB_ON,
   SWITCH_TRACK_OFF,
@@ -133,7 +134,7 @@ function ValueSelect({
             setError(err instanceof Error && err.message ? err.message : "Failed to save"),
           );
         }}
-        className="w-full max-w-[320px] bg-transparent text-text-primary p-2 border border-border rounded outline-none focus:border-text-secondary"
+        className={`w-full max-w-[320px] bg-transparent text-text-primary p-2 border border-border rounded ${INPUT_FOCUS}`}
       >
         {options.map((o) => (
           <option key={o.id} value={o.id}>
@@ -401,7 +402,7 @@ export function SettingsAllPanel({ registry }: { registry: SettingsRegistry }) {
         placeholder="Search settings"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        className="w-full max-w-[320px] bg-transparent text-text-primary p-2 mb-3 border border-border rounded outline-none placeholder:text-text-secondary focus:border-text-secondary"
+        className={`w-full max-w-[320px] bg-transparent text-text-primary p-2 mb-3 border border-border rounded ${INPUT_FOCUS} placeholder:text-text-secondary`}
       />
       {groups.length === 0 ? (
         <p className="text-xs text-text-secondary py-2">

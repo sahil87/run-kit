@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { INPUT_FOCUS } from "@/components/controls";
 import { ValidBoardName } from "@/components/board/board-name";
 import type { BoardSummary } from "@/api/boards";
 import { usePinActions } from "@/hooks/use-pin-actions";
@@ -194,7 +195,7 @@ export function PinPopover({ server, windowId, boards, boardsLoading = false, is
                       </span>
                     ) : null}
                     {pinned ? (
-                      <span className="text-accent text-xs" aria-label="pinned">
+                      <span className="text-accent-green text-xs" aria-label="pinned">
                         ✓
                       </span>
                     ) : null}
@@ -224,7 +225,7 @@ export function PinPopover({ server, windowId, boards, boardsLoading = false, is
             }}
             placeholder="Pin to new board..."
             aria-label="Pin to new board"
-            className="w-full min-w-0 flex-1 bg-transparent text-xs text-text-primary border border-border rounded px-1.5 py-0.5 outline-none focus:border-text-secondary placeholder:text-text-secondary"
+            className={`w-full min-w-0 flex-1 bg-transparent text-xs text-text-primary border border-border rounded px-1.5 py-0.5 ${INPUT_FOCUS} placeholder:text-text-secondary`}
           />
           {/* Mouse submit path — mirrors Enter exactly (handleSubmitNew), so a
               non-empty input pins to that name and an empty input pins to the

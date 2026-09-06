@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
+import { INPUT_FOCUS } from "@/components/controls";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 
 export interface FindBarProps {
@@ -75,7 +76,7 @@ export function FindBar({
         onChange={(e) => onQueryChange(e.target.value)}
         onKeyDown={handleKeyDown}
         disabled={disabled}
-        className="w-60 max-w-[40%] shrink bg-bg-card text-text-primary text-sm px-2 py-1 rounded border border-border outline-none focus:border-text-secondary disabled:opacity-50"
+        className={`w-60 max-w-[40%] shrink bg-bg-card text-text-primary text-sm px-2 py-1 rounded border border-border ${INPUT_FOCUS} disabled:opacity-40`}
         aria-label="Find query"
         placeholder={placeholder}
         spellCheck={false}

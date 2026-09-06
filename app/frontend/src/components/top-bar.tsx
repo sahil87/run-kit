@@ -2041,7 +2041,7 @@ function WindowHeading({
           // left-anchored), weight-600 primary color, sized in ch and growing
           // with content.
           style={{ width: `${Math.max(draft.length + 1, 3)}ch` }}
-          className="bg-transparent text-left text-sm font-semibold text-text-primary outline-none border-b border-accent min-w-0"
+          className="bg-transparent text-left text-sm font-semibold text-text-primary outline-none border-b border-accent-green min-w-0"
         />
       </>
     );
@@ -2522,7 +2522,7 @@ function RefreshButton() {
  * (no props threaded through TopBar). In-app
  * only: NO Web Push (update notices must not buzz phones).
  *
- * Rest: `⬆ v{latest}` with accent styling + CRT-glint hover (`rk-glint`, the
+ * Rest: `⬆ v{latest}` with green styling + CRT-glint hover (`rk-glint`, the
  * button hover vocabulary). Clicking the chip body triggers POST /api/update and
  * enters a disabled `updating…` state; the daemon restart then drops SSE, and
  * the reconnect's differing `version` drives the reload guard (session-context).

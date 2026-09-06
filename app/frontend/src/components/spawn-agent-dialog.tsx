@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { spawnRiff, getRiffPresets, type RiffPreset, type RiffWhere } from "@/api/client";
 import { Dialog } from "@/components/dialog";
+import { INPUT_COARSE, INPUT_FOCUS, WIDE_BTN_BASE } from "@/components/controls";
 import { LogoSpinner } from "@/components/logo-spinner";
 import { finalizeSafeName, toSafeWorktreeName } from "@/lib/names";
 
@@ -164,7 +165,7 @@ export function SpawnAgentDialog({ server, session, onSpawned, onClose }: SpawnA
           disabled={busy}
           aria-label="Task"
           placeholder="What should the agent do? (blank = empty session)"
-          className="w-full bg-transparent text-text-primary p-2 border border-border rounded outline-none placeholder:text-text-secondary disabled:opacity-50"
+          className={`w-full bg-transparent text-text-primary p-2 border border-border rounded ${INPUT_FOCUS} ${INPUT_COARSE} placeholder:text-text-secondary disabled:opacity-40`}
         />
       </div>
 
@@ -205,7 +206,7 @@ export function SpawnAgentDialog({ server, session, onSpawned, onClose }: SpawnA
               onChange={() => setWhere("worktree")}
               onKeyDown={handleKeyDown}
               disabled={busy}
-              className="accent-accent disabled:opacity-50"
+              className="accent-accent-green disabled:opacity-50"
             />
             <span className="text-text-primary">new worktree</span>
           </label>
@@ -218,7 +219,7 @@ export function SpawnAgentDialog({ server, session, onSpawned, onClose }: SpawnA
               onChange={() => setWhere("checkout")}
               onKeyDown={handleKeyDown}
               disabled={busy}
-              className="accent-accent disabled:opacity-50"
+              className="accent-accent-green disabled:opacity-50"
             />
             <span className="text-text-primary">this checkout</span>
           </label>
@@ -242,7 +243,7 @@ export function SpawnAgentDialog({ server, session, onSpawned, onClose }: SpawnA
             disabled={busy}
             aria-label="Worktree name"
             placeholder="auto-named (e.g. swift-fox)"
-            className="w-full bg-transparent text-text-primary p-2 border border-border rounded outline-none placeholder:text-text-secondary disabled:opacity-50"
+            className={`w-full bg-transparent text-text-primary p-2 border border-border rounded ${INPUT_FOCUS} ${INPUT_COARSE} placeholder:text-text-secondary disabled:opacity-40`}
           />
         </div>
       )}
@@ -286,7 +287,7 @@ export function SpawnAgentDialog({ server, session, onSpawned, onClose }: SpawnA
       <button
         onClick={handleSubmit}
         disabled={busy}
-        className="w-full py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+        className={`w-full py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary ${WIDE_BTN_BASE} disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-border`}
       >
         {busy ? "Spawning…" : "Spawn"}
       </button>

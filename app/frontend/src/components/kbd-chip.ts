@@ -11,7 +11,7 @@
 // Decomposed like TOP_BAR_BUTTON_* (controls.ts) so latched chips compose
 // BASE + their own state arm with NO competing hover utility (a same-
 // specificity `hover:border-*` tie would be decided by compiled source
-// order — a latched chip must keep its accent border under hover):
+// order — a latched chip must keep its latch border under hover):
 //
 //  - `KBD_BASE` — geometry, border box, radius, transition, select guard,
 //    pressed fill, focus ring. No hover color utilities.
@@ -19,6 +19,6 @@
 //  - `KBD_CLASS` — the default composition (`base + rest`) used by every
 //    plain chip.
 export const KBD_BASE =
-  "rk-glint min-h-[33px] min-w-[35px] coarse:min-h-[40px] coarse:min-w-[40px] flex items-center justify-center px-1 py-0 text-xs border border-border rounded select-none transition-colors active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent";
+  "rk-glint min-h-[33px] min-w-[35px] coarse:min-h-[40px] coarse:min-w-[40px] flex items-center justify-center px-1 py-0 text-xs border border-border rounded select-none transition-colors active:bg-bg-card focus-visible:outline-2 focus-visible:outline-accent-green";
 export const KBD_REST = "hover:border-text-secondary";
 export const KBD_CLASS = `${KBD_BASE} ${KBD_REST}`;

@@ -912,7 +912,7 @@ function WindowRowInner({
               onBlur={onRenameBlur}
               onClick={(e) => e.stopPropagation()}
               onMouseDown={(e) => e.stopPropagation()}
-              className="text-xs bg-transparent border border-accent rounded px-0.5 outline-none truncate w-full"
+              className="text-xs bg-transparent border border-accent-green rounded px-0.5 outline-none truncate w-full"
               aria-label="Rename tab"
             />
           ) : (

@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
+import { INPUT_FOCUS } from "@/components/controls";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { matchesCombo, type EffectiveBinding } from "@/lib/keybindings";
 import { shouldShowAskOperatorRow } from "@/lib/operator-console";
@@ -292,7 +293,7 @@ export function CommandPalette({ actions, askOperator }: CommandPaletteProps) {
           aria-activedescendant={activeDescendant}
           role="combobox"
           aria-expanded="true"
-          className="w-full bg-transparent text-text-primary text-[11px] p-2.5 border-b border-border outline-none placeholder:text-text-secondary"
+          className={`w-full bg-transparent text-text-primary text-[11px] p-2.5 border-b border-border ${INPUT_FOCUS} placeholder:text-text-secondary`}
         />
         <div
           id={listId}

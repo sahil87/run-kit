@@ -148,6 +148,7 @@ import {
 } from "@/lib/focus-memory";
 import type { PaletteAction } from "@/components/command-palette";
 import { Dialog } from "@/components/dialog";
+import { CONFIRM_DANGER, CONFIRM_NEUTRAL, INPUT_COARSE, INPUT_FOCUS, WIDE_BTN_BASE } from "@/components/controls";
 import { SessionTiles } from "@/components/session-tiles/session-tiles";
 import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
@@ -4844,7 +4845,7 @@ function AppShell() {
             }}
             aria-label="Tab name"
             placeholder="Tab name..."
-            className="w-full bg-transparent text-text-primary p-2 border border-border rounded outline-none placeholder:text-text-secondary"
+            className={`w-full bg-transparent text-text-primary p-2 border border-border rounded ${INPUT_FOCUS} ${INPUT_COARSE} placeholder:text-text-secondary`}
           />
           <input
             type="text"
@@ -4853,12 +4854,12 @@ function AppShell() {
             onKeyDown={(e) => e.key === "Enter" && handleCreateIframeWindow()}
             aria-label="URL"
             placeholder="http://localhost:8080"
-            className="w-full bg-transparent text-text-primary p-2 mt-2 border border-border rounded outline-none placeholder:text-text-secondary"
+            className={`w-full bg-transparent text-text-primary p-2 mt-2 border border-border rounded ${INPUT_FOCUS} ${INPUT_COARSE} placeholder:text-text-secondary`}
           />
           <button
             onClick={handleCreateIframeWindow}
             disabled={!iframeWindowName.trim() || !iframeWindowUrl.trim()}
-            className="mt-2.5 w-full py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary disabled:opacity-50"
+            className={`mt-2.5 w-full py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary ${WIDE_BTN_BASE} disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-border`}
           >
             Create
           </button>
@@ -4877,11 +4878,11 @@ function AppShell() {
             onFocus={(e) => e.target.select()}
             aria-label="Session name"
             placeholder="Session name..."
-            className="w-full bg-transparent text-text-primary p-2 border border-border rounded outline-none placeholder:text-text-secondary"
+            className={`w-full bg-transparent text-text-primary p-2 border border-border rounded ${INPUT_FOCUS} ${INPUT_COARSE} placeholder:text-text-secondary`}
           />
           <button
             onClick={dialogs.handleRenameSession}
-            className="mt-2.5 w-full py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary"
+            className={`mt-2.5 w-full py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary ${WIDE_BTN_BASE}`}
           >
             Rename
           </button>
@@ -4896,13 +4897,13 @@ function AppShell() {
           <div className="flex gap-2">
             <button
               onClick={dialogs.closeKillConfirm}
-              className="flex-1 py-1.5 border border-border rounded hover:border-text-secondary"
+              className={`flex-1 ${CONFIRM_NEUTRAL}`}
             >
               Cancel
             </button>
             <button
               onClick={dialogs.handleKillWindow}
-              className="flex-1 py-1.5 bg-red-900/30 border border-red-900 rounded hover:bg-red-900/50"
+              className={`flex-1 ${CONFIRM_DANGER}`}
             >
               Kill
             </button>
@@ -4918,13 +4919,13 @@ function AppShell() {
           <div className="flex gap-2">
             <button
               onClick={dialogs.closeKillSessionConfirm}
-              className="flex-1 py-1.5 border border-border rounded hover:border-text-secondary"
+              className={`flex-1 ${CONFIRM_NEUTRAL}`}
             >
               Cancel
             </button>
             <button
               onClick={dialogs.handleKillSession}
-              className="flex-1 py-1.5 bg-red-900/30 border border-red-900 rounded hover:bg-red-900/50"
+              className={`flex-1 ${CONFIRM_DANGER}`}
             >
               Kill
             </button>

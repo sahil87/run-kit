@@ -107,7 +107,7 @@ export function SystemCard() {
               addToast(err instanceof Error ? err.message : "Failed to restart run-kit");
             })
           }
-          className="ml-auto shrink-0 border border-border rounded px-1.5 text-text-secondary hover:text-accent hover:border-accent transition-colors"
+          className="ml-auto shrink-0 border border-border rounded px-1.5 text-text-secondary hover:text-text-primary hover:border-text-secondary transition-colors"
         >
           Restart
         </button>
@@ -134,7 +134,7 @@ export function SystemCard() {
                       search: {},
                     })
                   }
-                  className="ml-auto shrink-0 border border-border rounded px-1.5 text-text-secondary hover:text-accent hover:border-accent transition-colors"
+                  className="ml-auto shrink-0 border border-border rounded px-1.5 text-text-secondary hover:text-text-primary hover:border-text-secondary transition-colors"
                 >
                   View
                 </button>

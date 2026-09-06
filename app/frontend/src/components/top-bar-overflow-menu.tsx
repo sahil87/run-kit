@@ -591,7 +591,7 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
           {/* chevron-down */}
           <polyline points="6 9 12 15 18 9" />
         </svg>
-        {/* Attention badge (R7): a small accent dot when an overflowed
+        {/* Attention badge: a small green dot when an overflowed
             attention-bearing item (the pending update chip) is in the menu.
             Deliberately NOT keyed on the dismissed-pending update surface —
             dismissal silences ambient chrome. */}

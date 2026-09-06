@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { createWindow, getDirectories } from "@/api/client";
 import { Dialog } from "@/components/dialog";
+import { INPUT_COARSE, INPUT_FOCUS, WIDE_BTN_BASE } from "@/components/controls";
 import { LogoSpinner } from "@/components/logo-spinner";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useSessionContext } from "@/contexts/session-context";
@@ -186,7 +187,7 @@ export function CreateSessionDialog({ sessions, session, onClose, defaultPath }:
             }
             aria-label="Project path"
             placeholder="~/code/..."
-            className="w-full bg-transparent text-text-primary p-2 pr-7 border border-border rounded outline-none placeholder:text-text-secondary"
+            className={`w-full bg-transparent text-text-primary p-2 pr-7 border border-border rounded ${INPUT_FOCUS} ${INPUT_COARSE} placeholder:text-text-secondary`}
           />
           {isLoadingSuggestions && (
             <span className="absolute right-2 top-1/2 -translate-y-1/2 text-text-secondary">
@@ -213,7 +214,7 @@ export function CreateSessionDialog({ sessions, session, onClose, defaultPath }:
                   selectPath(dir);
                   inputRef.current?.focus();
                 }}
-                className={`w-full text-left px-2 py-1.5 transition-colors ${
+                className={`w-full text-left px-2 py-1.5 transition-colors ${WIDE_BTN_BASE} ${
                   i === highlightIndex
                     ? "bg-bg-card text-text-primary"
                     : "text-text-secondary hover:bg-bg-card hover:text-text-primary"
@@ -233,7 +234,7 @@ export function CreateSessionDialog({ sessions, session, onClose, defaultPath }:
 
       <button
         onClick={handleCreate}
-        className="w-full py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary"
+        className={`w-full py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary ${WIDE_BTN_BASE}`}
       >
         Create
       </button>

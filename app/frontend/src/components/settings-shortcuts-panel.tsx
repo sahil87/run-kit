@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { INPUT_FOCUS } from "@/components/controls";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { useMacros } from "@/hooks/use-macros";
 import { useSessionContext } from "@/contexts/session-context";
@@ -703,7 +704,7 @@ export function SettingsShortcutsPanel({
           onChange={(e) => setQuery(e.target.value)}
           placeholder="filter all shortcuts — app, custom & tmux…"
           aria-label="Filter shortcuts"
-          className="flex-1 min-w-[120px] text-xs bg-bg-inset border border-border rounded px-2.5 py-1 outline-none text-text-primary placeholder:text-text-secondary focus:border-accent"
+          className={`flex-1 min-w-[120px] text-xs bg-bg-inset border border-border rounded px-2.5 py-1 ${INPUT_FOCUS} text-text-primary placeholder:text-text-secondary`}
         />
         {sheetChord && (
           <span className="hidden md:inline text-[11px] text-text-secondary whitespace-nowrap">
@@ -970,7 +971,7 @@ export function SettingsShortcutsPanel({
                   placeholder="search riff presets + palette actions…"
                   aria-label="Search macro targets"
                   autoFocus
-                  className="w-full text-xs bg-bg-inset border border-border rounded px-2.5 py-1 outline-none text-text-primary placeholder:text-text-secondary focus:border-accent"
+                  className={`w-full text-xs bg-bg-inset border border-border rounded px-2.5 py-1 ${INPUT_FOCUS} text-text-primary placeholder:text-text-secondary`}
                 />
                 <div className="max-h-36 overflow-y-auto flex flex-col">
                   {macroTargetOptions
@@ -1000,7 +1001,7 @@ export function SettingsShortcutsPanel({
                     onChange={(e) => setAddName(e.target.value)}
                     placeholder="macro name"
                     aria-label="Macro name"
-                    className="flex-1 min-w-0 text-xs bg-bg-inset border border-border rounded px-2.5 py-1 outline-none text-text-primary placeholder:text-text-secondary focus:border-accent"
+                    className={`flex-1 min-w-0 text-xs bg-bg-inset border border-border rounded px-2.5 py-1 ${INPUT_FOCUS} text-text-primary placeholder:text-text-secondary`}
                   />
                   <button
                     type="button"

@@ -254,8 +254,8 @@ export function ThemePickerList({
           aria-expanded={expanded}
           className={`w-full bg-transparent text-text-primary text-[11px] p-2.5 outline-none placeholder:text-text-secondary ${
             collapsible
-              ? "border border-border rounded focus:border-text-secondary"
-              : "border-b border-border"
+              ? "border border-border rounded focus:border-accent-green"
+              : "border-b border-border focus:border-accent-green"
           }`}
         />
       )}

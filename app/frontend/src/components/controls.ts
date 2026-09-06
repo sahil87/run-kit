@@ -1,9 +1,9 @@
 /**
  * Shared control className constants — the control geometry/state vocabulary
  * consumed by the top bar, its overflow menu, the layout chip, the open
- * split-button, and the status bar. Dependency-free (imports nothing from
- * components) so every control surface imports the SAME definitions without
- * an import cycle.
+ * split-button, the status bar, dialogs, and text inputs. Dependency-free
+ * (imports nothing from components) so every control surface imports the SAME
+ * definitions without an import cycle.
  *
  * Tailwind's scanner reads literal classes only, so sizes stay literal here
  * and mirror the `--ctl-*` custom properties on `:root` in globals.css for
@@ -64,7 +64,7 @@ export const POPOVER_SECTION_LABEL =
  * the old copy-pasted `min-w-[24px] min-h-[24px]` floors, which let rendered
  * sizes drift with content (the sidebar toggle rendered visibly smaller than
  * the right cluster). Decomposed like `MENU_ROW_*` so callsites with
- * state-driven colors (pressed/accent toggles) compose exactly what they need
+ * state-driven colors (pressed/latched toggles) compose exactly what they need
  * around the shared geometry:
  *
  *  - `TOP_BAR_BUTTON_BASE` — geometry only (fixed square, rounded border box,
@@ -124,3 +124,43 @@ export const SWITCH_KNOB_OFF = "bg-text-secondary";
  *  (the row's label is the name; the keycap is visual education). */
 export const MENU_ROW_KBD_CLASS =
   "ml-auto text-xs text-text-secondary bg-bg-card px-1.5 py-0.5 rounded border border-border";
+
+/**
+ * Dialog wide-button geometry — the floor every dialog button carries: 28px
+ * fine (the rendered py-1.5 box), 40px coarse (the touch floor). Geometry
+ * only; color/state arms compose around it.
+ */
+export const WIDE_BTN_BASE =
+  "min-h-[28px] coarse:min-h-[40px]"; // lockstep: --ctl-h-bar (fine) / --ctl-h-bar-coarse
+/** Dialog text-input coarse floor — 40px on coarse pointers, fine size
+ *  unchanged (no fine axis: the input's own padding sets it). */
+export const INPUT_COARSE = "coarse:min-h-[40px]"; // lockstep: --ctl-h-bar-coarse
+
+/**
+ * The ONE live-input focus treatment (scheme C: green = state — typing focus
+ * is the keyboard analogue of the green family). Every text input composes
+ * this around its own geometry/background; no other focus border color may
+ * appear on an input. Inputs stay OUT of the global `:focus-visible` ring in
+ * globals.css — the border is the input idiom, so the ring never stacks on
+ * it.
+ */
+export const INPUT_FOCUS = "outline-none focus:border-accent-green";
+
+/**
+ * The one confirm-button pair — every destructive-confirm dialog (sidebar
+ * kill, board kill trio, server kill) composes these arms so the pair exists
+ * exactly once. Call sites add ONLY layout (`flex-1`/`w-full`); color,
+ * padding, floors, and the disabled recipe come from here:
+ *
+ *  - `CONFIRM_NEUTRAL` — the safe/cancel arm (bordered neutral, hover
+ *    brightens the border).
+ *  - `CONFIRM_DANGER` — the destructive arm on the `signal-red` token (signal
+ *    hues = status — the same token the flyout danger rows use, so the
+ *    destructive hue themes correctly); the /20 rest → /35 hover alpha steps
+ *    match the retired raw-red weight in both themes.
+ *
+ * Both carry the wide-button floors and the unified disabled recipe
+ * (opacity-40 + not-allowed + hover neutralized back to the rest arm).
+ */
+export const CONFIRM_NEUTRAL = `py-1.5 border border-border rounded hover:border-text-secondary ${WIDE_BTN_BASE} disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-border`;
+export const CONFIRM_DANGER = `py-1.5 bg-signal-red/20 border border-signal-red rounded hover:bg-signal-red/35 ${WIDE_BTN_BASE} disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-signal-red/20`;

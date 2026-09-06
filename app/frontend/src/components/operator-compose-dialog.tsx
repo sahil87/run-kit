@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { sendServerOperatorRequest } from "@/api/client";
 import { Dialog } from "@/components/dialog";
+import { INPUT_COARSE, INPUT_FOCUS, WIDE_BTN_BASE } from "@/components/controls";
 import { useToast } from "@/components/toast";
 import { operatorRequestToast } from "@/lib/operator-request";
 
@@ -79,7 +80,7 @@ export function OperatorComposeDialog({ server, initialMode, onClose }: Operator
               setMode(m.id);
               inputRef.current?.focus();
             }}
-            className={`flex-1 py-1.5 transition-colors ${
+            className={`flex-1 py-1.5 transition-colors ${WIDE_BTN_BASE} ${
               mode === m.id
                 ? "bg-bg-card text-text-primary"
                 : "text-text-secondary hover:bg-bg-card hover:text-text-primary"
@@ -104,13 +105,13 @@ export function OperatorComposeDialog({ server, initialMode, onClose }: Operator
         }}
         aria-label={active.label}
         placeholder={active.placeholder}
-        className="w-full bg-transparent text-text-primary p-2 border border-border rounded outline-none placeholder:text-text-secondary mb-3"
+        className={`w-full bg-transparent text-text-primary p-2 border border-border rounded ${INPUT_FOCUS} ${INPUT_COARSE} placeholder:text-text-secondary mb-3`}
       />
 
       <button
         onClick={handleSubmit}
         disabled={inFlight || text.trim() === ""}
-        className="w-full py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+        className={`w-full py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary ${WIDE_BTN_BASE} disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-border`}
       >
         Send to operator
       </button>

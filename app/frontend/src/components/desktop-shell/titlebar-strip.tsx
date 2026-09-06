@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { useInstanceAccent } from "@/contexts/instance-accent-context";
 import { useTheme } from "@/contexts/theme-context";
 import { Dialog } from "@/components/dialog";
+import { CONFIRM_DANGER, CONFIRM_NEUTRAL } from "@/components/controls";
 import { HostFormDialog, INVALID_HOST_URL_MESSAGE, reduceOrigin } from "@/components/host-form-dialog";
 import { Tip } from "@/components/tip";
 import { useToast } from "@/components/toast";
@@ -726,7 +727,7 @@ export function ShellTitlebarStrip() {
                     draggable={canReorder}
                     className={`relative flex w-full items-baseline gap-2 py-2 pl-3 pr-12 text-left text-sm transition-colors ${
                       row.active
-                        ? "text-accent"
+                        ? "text-accent-green"
                         : "text-text-secondary hover:bg-bg-card hover:text-text-primary"
                     }`}
                   >
@@ -896,13 +897,13 @@ export function ShellTitlebarStrip() {
                 <div className="flex gap-2">
                   <button
                     onClick={cancelRemove}
-                    className="flex-1 text-sm py-1.5 border border-border rounded hover:border-text-secondary"
+                    className={`flex-1 ${CONFIRM_NEUTRAL}`}
                   >
                     Cancel
                   </button>
                   <button
                     onClick={confirmRemove}
-                    className="flex-1 text-sm py-1.5 bg-red-900/30 border border-red-900 rounded hover:bg-red-900/50"
+                    className={`flex-1 ${CONFIRM_DANGER}`}
                   >
                     Remove
                   </button>

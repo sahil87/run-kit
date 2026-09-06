@@ -398,7 +398,7 @@ function SessionRowInner({
               onBlur={onSessionRenameBlur}
               onClick={(e) => e.stopPropagation()}
               onMouseDown={(e) => e.stopPropagation()}
-              className="text-xs font-medium bg-transparent border border-accent rounded px-0.5 outline-none truncate w-full"
+              className="text-xs font-medium bg-transparent border border-accent-green rounded px-0.5 outline-none truncate w-full"
               aria-label="Rename session"
             />
           ) : (

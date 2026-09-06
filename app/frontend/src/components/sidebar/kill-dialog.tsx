@@ -1,4 +1,5 @@
 import { Dialog } from "@/components/dialog";
+import { CONFIRM_DANGER, CONFIRM_NEUTRAL } from "@/components/controls";
 
 type KillDialogProps = {
   killTarget: {
@@ -29,13 +30,13 @@ export function KillDialog({ killTarget, onConfirm, onCancel }: KillDialogProps)
       <div className="flex gap-2">
         <button
           onClick={onCancel}
-          className="flex-1 text-sm py-1.5 border border-border rounded hover:border-text-secondary"
+          className={`flex-1 ${CONFIRM_NEUTRAL}`}
         >
           Cancel
         </button>
         <button
           onClick={onConfirm}
-          className="flex-1 text-sm py-1.5 bg-red-900/30 border border-red-900 rounded hover:bg-red-900/50"
+          className={`flex-1 ${CONFIRM_DANGER}`}
         >
           Kill
         </button>

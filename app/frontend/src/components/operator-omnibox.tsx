@@ -146,7 +146,7 @@ export function OperatorOmnibox({ routeServer }: { routeServer: string | null })
           // at rest it stays the slim standing width.
           active ? "flex w-[34ch]" : "hidden lg:flex w-[12ch] 2xl:w-[20ch]"
         } ml-2 max-w-[40vw] items-center gap-1.5 rounded border px-2 py-0.5 ${
-          active ? "border-accent-green/60" : "border-border"
+          active ? "border-accent-green" : "border-border"
         }`}
       >
         <span aria-hidden="true" className="shrink-0 text-xs text-text-secondary">

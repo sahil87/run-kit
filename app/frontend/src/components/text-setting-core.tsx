@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { INPUT_FOCUS } from "@/components/controls";
 
 /**
  * The shared text-setting core: the draft/commit/Escape state machine behind
@@ -60,7 +61,7 @@ export function useTextSettingDraft(value: string, commit: (trimmed: string) => 
 }
 
 export const textSettingInputClass =
-  "w-full max-w-[320px] bg-transparent text-text-primary p-2 border border-border rounded outline-none placeholder:text-text-secondary focus:border-text-secondary";
+  `w-full max-w-[320px] bg-transparent text-text-primary p-2 border border-border rounded ${INPUT_FOCUS} placeholder:text-text-secondary`;
 
 export function TextSettingError({ error }: { error: string }) {
   if (!error) return null;

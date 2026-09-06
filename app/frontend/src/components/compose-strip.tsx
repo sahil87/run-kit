@@ -15,7 +15,7 @@ import { useFileUpload } from "@/hooks/use-file-upload";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { ApiError, sendOperatorRequest, sendToWindow, type WindowSendMode } from "@/api/client";
 import { useToast } from "@/components/toast";
-import { LATCHED_ARM } from "@/components/controls";
+import { INPUT_FOCUS, LATCHED_ARM } from "@/components/controls";
 import { OperatorContextChip } from "@/components/operator-context-chip";
 import { getOperatorChatTarget, useOperatorChatChip } from "@/lib/operator-console";
 import {
@@ -916,7 +916,8 @@ export function ComposeStrip({
   // so the button is the ONLY way to send a bare Enter there. kvk7's
   // complaint (a lit primary Send over an empty composer read as broken) is
   // answered by STYLE, not state: an empty composer renders Send in the
-  // neutral secondary face; the accent fill returns with text.
+  // neutral secondary face; the lit green fill (LATCHED_ARM) returns with
+  // text.
   // Selection-broadcast targets keep their own rule (text required, Insert
   // always disabled there).
   const composerEmpty = text.trim() === "";
@@ -1000,15 +1001,15 @@ export function ComposeStrip({
       placeholder={placeholder}
       data-testid="compose-strip-input"
       // In the card the textarea is full-width, transparent, and borderless —
-      // the card wrapper carries the chrome (including the focused accent
+      // the card wrapper carries the chrome (including the focused green
       // border via focus-within). In the compact row it wears its own border
       // and takes the flexible middle slot; the coarse sizing (py-[9px] +
       // the 16px text-xs line + 2px borders = 36px, floored by min-h-[36px])
       // keeps the one-line box flush with its flanking chips.
       className={
         isCard
-          ? "w-full min-w-0 min-h-0 resize-none border-0 bg-transparent px-1 py-1 font-mono text-xs text-text-primary placeholder:text-text-secondary outline-none disabled:opacity-50"
-          : `order-3 flex-1 min-w-0 resize-none rounded border border-border bg-bg-card px-2 font-mono text-xs text-text-primary placeholder:text-text-secondary outline-none focus:border-accent disabled:opacity-50 ${coarsePointer ? "min-h-[36px] py-[9px]" : "min-h-0 py-1.5"}`
+          ? "w-full min-w-0 min-h-0 resize-none border-0 bg-transparent px-1 py-1 font-mono text-xs text-text-primary placeholder:text-text-secondary outline-none disabled:opacity-40"
+          : `order-3 flex-1 min-w-0 resize-none rounded border border-border bg-bg-card px-2 font-mono text-xs text-text-primary placeholder:text-text-secondary ${INPUT_FOCUS} disabled:opacity-40 ${coarsePointer ? "min-h-[36px] py-[9px]" : "min-h-0 py-1.5"}`
       }
     />
   );
@@ -1271,7 +1272,7 @@ export function ComposeStrip({
         data-testid={isCard ? "compose-strip-card" : undefined}
         className={
           isCard
-            ? "flex flex-wrap items-center gap-1.5 rounded border border-border bg-bg-card px-1.5 py-1 focus-within:border-accent"
+            ? "flex flex-wrap items-center gap-1.5 rounded border border-border bg-bg-card px-1.5 py-1 focus-within:border-accent-green"
             : "flex items-center gap-1.5"
         }
       >

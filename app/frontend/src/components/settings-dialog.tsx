@@ -259,7 +259,7 @@ function ConsoleOpacityControl() {
           step={0.05}
           value={opacity}
           onChange={(e) => setOpacity(Number(e.target.value))}
-          className="w-40 accent-accent"
+          className="w-40 accent-accent-green"
         />
         <span className="text-xs text-text-primary min-w-[4ch] text-center" aria-live="polite">
           {Math.round(opacity * 100)}%
@@ -460,7 +460,7 @@ function SettingsTabList({
             onClick={() => onSelect(t.id)}
             className={`text-left whitespace-nowrap text-xs px-2.5 py-1.5 rounded transition-colors ${
               active
-                ? "bg-accent/15 text-text-primary"
+                ? "bg-accent-green/15 text-text-primary"
                 : "text-text-secondary hover:text-text-primary hover:bg-bg-inset/70"
             }`}
           >

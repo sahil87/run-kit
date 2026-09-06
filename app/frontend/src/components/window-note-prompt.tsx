@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect } from "react";
 import { Dialog } from "@/components/dialog";
+import { INPUT_COARSE, INPUT_FOCUS, WIDE_BTN_BASE } from "@/components/controls";
 
 type WindowNotePromptProps = {
   /** The window's current note text ("" when unset) — the prefill. */
@@ -18,6 +19,9 @@ type WindowNotePromptProps = {
  */
 export function WindowNotePrompt({ defaultNote, onSubmit, onClose }: WindowNotePromptProps) {
   const [note, setNote] = useState(defaultNote);
+  // Guards the in-flight submit only — an EMPTY submit is a valid clear, so
+  // emptiness never disables (unlike the SessionNamePrompt twin).
+  const [submitted, setSubmitted] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Select the prefill once on mount (the SessionNamePrompt idiom).
@@ -27,6 +31,8 @@ export function WindowNotePrompt({ defaultNote, onSubmit, onClose }: WindowNoteP
   }, []);
 
   function handleSubmit() {
+    if (submitted) return;
+    setSubmitted(true);
     onSubmit(note.trim());
   }
 
@@ -40,11 +46,12 @@ export function WindowNotePrompt({ defaultNote, onSubmit, onClose }: WindowNoteP
         onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
         aria-label="Tab note"
         placeholder="e.g. blocked on flaky e2e (empty clears)"
-        className="w-full bg-transparent text-text-primary p-2 border rounded outline-none placeholder:text-text-secondary border-border"
+        className={`w-full bg-transparent text-text-primary p-2 border rounded ${INPUT_FOCUS} ${INPUT_COARSE} placeholder:text-text-secondary border-border`}
       />
       <button
         onClick={handleSubmit}
-        className="w-full mt-3 py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary"
+        disabled={submitted}
+        className={`w-full mt-3 py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary ${WIDE_BTN_BASE} disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-border`}
       >
         {note.trim() === "" ? "Clear note" : "Set note"}
       </button>

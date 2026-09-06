@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Dialog } from "@/components/dialog";
+import { CONFIRM_NEUTRAL, INPUT_COARSE, INPUT_FOCUS } from "@/components/controls";
 import { addShellHostDirect } from "@/lib/shell";
 
 /**
@@ -110,7 +111,7 @@ export function HostFormDialog(props: HostFormDialogProps) {
             onKeyDown={(e) => {
               if (e.key === "Enter") submit();
             }}
-            className="mt-1 w-full rounded border border-border bg-transparent px-2 py-1 text-sm text-text-primary outline-none focus:border-accent disabled:opacity-50"
+            className={`mt-1 w-full rounded border border-border bg-transparent px-2 py-1 text-sm text-text-primary ${INPUT_FOCUS} ${INPUT_COARSE} disabled:opacity-40`}
           />
         </label>
         <label className="mb-1 block text-xs text-text-secondary">
@@ -123,7 +124,7 @@ export function HostFormDialog(props: HostFormDialogProps) {
             onKeyDown={(e) => {
               if (e.key === "Enter") submit();
             }}
-            className="mt-1 w-full rounded border border-border bg-transparent px-2 py-1 text-sm text-text-primary outline-none focus:border-accent disabled:opacity-50"
+            className={`mt-1 w-full rounded border border-border bg-transparent px-2 py-1 text-sm text-text-primary ${INPUT_FOCUS} ${INPUT_COARSE} disabled:opacity-40`}
           />
         </label>
         {!urlEnabled && (
@@ -135,14 +136,14 @@ export function HostFormDialog(props: HostFormDialogProps) {
         <div className="mt-2 flex gap-2">
           <button
             onClick={props.onCancel}
-            className="flex-1 text-sm py-1.5 border border-border rounded hover:border-text-secondary"
+            className={`flex-1 ${CONFIRM_NEUTRAL}`}
           >
             Cancel
           </button>
           <button
             onClick={submit}
             disabled={busy}
-            className="flex-1 text-sm py-1.5 border border-accent rounded text-accent hover:bg-bg-card disabled:opacity-50"
+            className={`flex-1 ${CONFIRM_NEUTRAL}`}
           >
             {props.submitLabel}
           </button>

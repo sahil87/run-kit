@@ -47,4 +47,15 @@ describe("WindowNotePrompt", () => {
     render(<WindowNotePrompt defaultNote="x" onSubmit={vi.fn()} onClose={vi.fn()} />);
     expect(screen.getByRole("button", { name: "Set note" })).toBeInTheDocument();
   });
+
+  it("disables the submit button once a submit is in flight", () => {
+    const onSubmit = vi.fn();
+    render(<WindowNotePrompt defaultNote="x" onSubmit={onSubmit} onClose={vi.fn()} />);
+    const button = screen.getByRole("button", { name: "Set note" });
+    fireEvent.click(button);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
 });

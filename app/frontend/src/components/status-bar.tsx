@@ -151,7 +151,7 @@ function CopySegment({
         type="button"
         aria-label={ariaLabel}
         onClick={onCopy}
-        className={`group flex items-center gap-1 min-w-0 whitespace-nowrap cursor-pointer bg-transparent border-0 p-0 text-left focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent ${className}`}
+        className={`group flex items-center gap-1 min-w-0 whitespace-nowrap cursor-pointer bg-transparent border-0 p-0 text-left focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent-green ${className}`}
       >
         <span className={`${LABEL_CLASS} shrink-0`}>{copied ? "copied ✓" : label}</span>
         <span className={`min-w-0 truncate group-hover:text-accent ${valueClassName}`}>{children}</span>
@@ -472,7 +472,7 @@ function OverflowMenu({
       key={key}
       role="menuitem"
       tabIndex={-1}
-      className={`${MENU_ROW_CLASS} focus-visible:outline-2 focus-visible:outline-accent ${showClass}`}
+      className={`${MENU_ROW_CLASS} focus-visible:outline-2 focus-visible:outline-accent-green ${showClass}`}
     >
       {text}
     </span>
@@ -497,7 +497,7 @@ function OverflowMenu({
       role="menuitem"
       tabIndex={-1}
       aria-label={ariaLabel}
-      className={`${MENU_ROW_CLASS} focus-visible:outline-2 focus-visible:outline-accent ${showClass}`}
+      className={`${MENU_ROW_CLASS} focus-visible:outline-2 focus-visible:outline-accent-green ${showClass}`}
       onClick={() => copy(key, value)}
     >
       {copiedKey === key ? `copied ✓${rest ? " " : ""}` : prefix}
@@ -657,16 +657,16 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
         {/* Zen exit — rendered ONLY while zen is active, the
             visible exit affordance beside the ⇧⌘⏎ chord (Esc is deliberately
             not a zen exit — it belongs to the terminal pane). The cluster's
-            hint-button vocabulary, accent-lit as an action affordance (a
-            latch would be green); it never drops (zen's one guaranteed
-            visible exit). */}
+            hint-button vocabulary, green-lit because zen-active IS the state
+            the chip marks (scheme C: green = state); it never drops (zen's
+            one guaranteed visible exit). */}
         {zenActive && onExitZen && (
           <Tip label="Exit zen mode" kbd={chordFor("zen-toggle")} placement="top">
             <button
               type="button"
               aria-label="Exit zen mode"
               data-testid="status-bar-exit-zen"
-              className="flex items-center rounded border border-accent bg-accent/20 px-1 text-accent transition-colors"
+              className="flex items-center rounded border border-accent-green bg-accent-green/20 px-1 text-accent-green transition-colors"
               onClick={onExitZen}
             >
               zen ✕
@@ -690,7 +690,7 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
             type="button"
             aria-label="Copy server name"
             onClick={() => copy("server", server)}
-            className="min-w-0 truncate whitespace-nowrap text-text-secondary cursor-pointer bg-transparent border-0 p-0 hover:text-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
+            className="min-w-0 truncate whitespace-nowrap text-text-secondary cursor-pointer bg-transparent border-0 p-0 hover:text-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent-green"
           >
             {copiedKey === "server" ? "copied ✓" : server}
           </button>
@@ -702,7 +702,7 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
                 type="button"
                 aria-label="Copy host name"
                 onClick={() => copy("host", hostName)}
-                className="text-text-secondary cursor-pointer bg-transparent border-0 p-0 hover:text-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
+                className="text-text-secondary cursor-pointer bg-transparent border-0 p-0 hover:text-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent-green"
               >
                 {copiedKey === "host" ? "copied ✓" : hostName}
               </button>
@@ -712,7 +712,7 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
                 type="button"
                 aria-label="Copy version"
                 onClick={() => copy("version", version)}
-                className={`${VALUE_CLASS} hidden min-[700px]:inline cursor-pointer bg-transparent border-0 p-0 hover:text-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent`}
+                className={`${VALUE_CLASS} hidden min-[700px]:inline cursor-pointer bg-transparent border-0 p-0 hover:text-accent focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent-green`}
               >
                 {hostName ? " " : ""}
                 {copiedKey === "version" ? "copied ✓" : version}

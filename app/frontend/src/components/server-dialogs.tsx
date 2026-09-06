@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { createServer, killServer as killServerApi, adoptServer as adoptServerApi, DAEMON_SERVER } from "@/api/client";
 import { Dialog } from "@/components/dialog";
+import { CONFIRM_DANGER, CONFIRM_NEUTRAL, INPUT_COARSE, INPUT_FOCUS, WIDE_BTN_BASE } from "@/components/controls";
 import { useServerDialogs } from "@/contexts/server-dialogs-context";
 import { useSessionContext } from "@/contexts/session-context";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
@@ -185,7 +186,7 @@ export function ServerDialogs() {
             onFocus={(e) => e.target.select()}
             aria-label="Server name"
             placeholder="Server name..."
-            className="w-full bg-transparent text-text-primary p-2 border border-border rounded outline-none placeholder:text-text-secondary"
+            className={`w-full bg-transparent text-text-primary p-2 border border-border rounded ${INPUT_FOCUS} ${INPUT_COARSE} placeholder:text-text-secondary`}
           />
           <p className="text-xs text-text-secondary mt-1.5">
             Alphanumeric, hyphens, and underscores only.
@@ -193,7 +194,7 @@ export function ServerDialogs() {
           <button
             onClick={handleCreateServer}
             disabled={!createServerName.trim() || !/^[a-zA-Z0-9_-]+$/.test(createServerName.trim())}
-            className="mt-2.5 w-full py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary disabled:opacity-50"
+            className={`mt-2.5 w-full py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary ${WIDE_BTN_BASE} disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-border`}
           >
             Create
           </button>
@@ -232,13 +233,13 @@ export function ServerDialogs() {
           <div className="flex gap-2">
             <button
               onClick={clearKillServerTarget}
-              className="flex-1 py-1.5 border border-border rounded hover:border-text-secondary"
+              className={`flex-1 ${CONFIRM_NEUTRAL}`}
             >
               Cancel
             </button>
             <button
               onClick={handleKillServer}
-              className="flex-1 py-1.5 bg-red-900/30 border border-red-900 rounded hover:bg-red-900/50"
+              className={`flex-1 ${CONFIRM_DANGER}`}
             >
               Kill
             </button>
@@ -255,13 +256,13 @@ export function ServerDialogs() {
           <div className="flex gap-2">
             <button
               onClick={clearAdoptServerTarget}
-              className="flex-1 py-1.5 border border-border rounded hover:border-text-secondary"
+              className={`flex-1 ${CONFIRM_NEUTRAL}`}
             >
               Cancel
             </button>
             <button
               onClick={handleAdoptServer}
-              className="flex-1 py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary"
+              className={`flex-1 py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary ${WIDE_BTN_BASE}`}
             >
               Adopt
             </button>
@@ -309,19 +310,19 @@ function ProtectedKillDialog({
         onKeyDown={(e) => e.key === "Enter" && unlocked && onForceKill()}
         aria-label="Type the server name to unlock force kill"
         placeholder={`Type ${target} to unlock force kill`}
-        className="w-full bg-transparent text-text-primary p-2 border border-border rounded outline-none placeholder:text-text-secondary"
+        className={`w-full bg-transparent text-text-primary p-2 border border-border rounded ${INPUT_FOCUS} ${INPUT_COARSE} placeholder:text-text-secondary`}
       />
       <div className="flex gap-2 mt-2.5">
         <button
           onClick={onCancel}
-          className="flex-1 py-1.5 border border-border rounded hover:border-text-secondary"
+          className={`flex-1 ${CONFIRM_NEUTRAL}`}
         >
           Cancel
         </button>
         {isDaemon && (
           <button
             onClick={onRestart}
-            className="flex-1 py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary"
+            className={`flex-1 py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary ${WIDE_BTN_BASE}`}
           >
             Restart run-kit
           </button>
@@ -329,7 +330,7 @@ function ProtectedKillDialog({
         <button
           onClick={onForceKill}
           disabled={!unlocked}
-          className="flex-1 py-1.5 bg-red-900/30 border border-red-900 rounded hover:bg-red-900/50 disabled:opacity-50"
+          className={`flex-1 ${CONFIRM_DANGER}`}
         >
           Force kill
         </button>

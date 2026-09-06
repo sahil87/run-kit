@@ -918,7 +918,7 @@ export function SurfaceLayout({
   // `ttyOnly` chord gate consumes the reported kind, and discrete-event
   // flushing guarantees the dispatcher's handler map reflects the click
   // before the next keydown — reporting only via this effect would leave a
-  // two-render gap where the accent border shows but the chord still fires.
+  // two-render gap where the focused border shows but the chord still fires.
   // The effect remains for the non-interaction transitions: the slot-A
   // default on mount and the fallback when the focused slot leaves. The ref
   // dedupes the two seams — a sync interaction report and the effect firing

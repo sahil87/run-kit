@@ -165,7 +165,7 @@ export const BoardPane = forwardRef<BoardPaneHandle, BoardPaneProps>(function Bo
       {...dropTargetProps}
       // Border precedence: a `waiting` pane always shows the 3px pulsing yellow
       // seam (attention is the highest-priority signal); focus is still shown
-      // via the accent shadow ring layered on top, so a focused-AND-waiting pane
+      // via the green shadow ring layered on top, so a focused-AND-waiting pane
       // reads both. A non-waiting pane keeps the prior focus/idle border.
       className={`relative flex flex-col h-full bg-bg-primary ${
         // Card-family rounding is DESKTOP-only (the stage ground's card
@@ -181,9 +181,9 @@ export const BoardPane = forwardRef<BoardPaneHandle, BoardPaneProps>(function Bo
         autofit ? "" : width === undefined ? "shrink-0 w-full" : "shrink-0"
       } ${dimmed ? "opacity-50" : ""} ${
         waiting
-          ? `border-[3px] rk-waiting-seam${isFocused ? " shadow-[0_0_0_1px_var(--color-accent)]" : ""}`
+          ? `border-[3px] rk-waiting-seam${isFocused ? " shadow-[0_0_0_1px_var(--color-accent-green)]" : ""}`
           : isFocused
-            ? "border border-accent shadow-[0_0_0_1px_var(--color-accent)]"
+            ? "border border-accent-green shadow-[0_0_0_1px_var(--color-accent-green)]"
             : // Suppress the unfocused `opacity-90` when this pane is the drag
               // source: Tailwind emits `.opacity-90` after `.opacity-50`, so
               // both present lets `.opacity-90` win and the drag dim disappears
@@ -230,7 +230,7 @@ export const BoardPane = forwardRef<BoardPaneHandle, BoardPaneProps>(function Bo
             e.preventDefault();
             onResizeStart(e.clientX);
           }}
-          className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-accent/30 hidden coarse:hidden md:block"
+          className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-text-secondary/30 hidden coarse:hidden md:block"
         />
       )}
     </div>

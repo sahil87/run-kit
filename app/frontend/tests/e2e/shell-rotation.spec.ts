@@ -29,7 +29,7 @@ const BOARD_NAME = `sr${Date.now().toString().slice(-6)}`;
 // the user presses Cmd+]/Cmd+[ on the board route, the focused pane changes,
 // which is the prerequisite for `FocusedTerminalContext` to route BottomBar
 // input to a different pane. The visible signal we assert against is the
-// `border-accent` class on the focused pane (and its absence on others) —
+// `border-accent-green` class on the focused pane (and its absence on others) —
 // driving Compose end-to-end and asserting per-pane STDIN routing is left to
 // follow-up e2e coverage.
 const WIN_A_MARKER = "PANE_ALPHA_RDY";
@@ -55,7 +55,7 @@ test.describe("Shell rotation: BottomBar focus tracking", () => {
    * Proves: on `/board/<name>`, a single shell-level `BottomBar` is present
    * and its input target follows the focused pane. Cycling focus via `Cmd+]`
    * / `Cmd+[` re-targets the BottomBar — verified by the pane's
-   * `border-accent` class which marks the focused pane.
+   * `border-accent-green` class which marks the focused pane.
    *
    * Steps:
    * 1. Resolve the `#{window_id}` of `win-a` and `win-b` via
@@ -66,16 +66,16 @@ test.describe("Shell rotation: BottomBar focus tracking", () => {
    *    both panes' terminals attached. (We assert the `.xterm` DOM signal
    *    rather than scraping ready-marker text: xterm renders to a WebGL
    *    canvas with no DOM text layer. The focus-cycling behavior under test
-   *    is verified via `border-accent` below, independent of terminal
+   *    is verified via `border-accent-green` below, independent of terminal
    *    content.)
    * 5. Assert the shell-level `BottomBar` is present by locating the
    *    `Open command palette` button (a stable BottomBar affordance).
    * 6. Press `Meta+]` to cycle focus from pane 0 to pane 1.
-   * 7. Assert pane 1 carries the `border-accent` class and pane 0 does not —
-   *    proving focus moved and `BoardPane.useEffect` ran with
+   * 7. Assert pane 1 carries the `border-accent-green` class and pane 0 does
+   *    not — proving focus moved and `BoardPane.useEffect` ran with
    *    `isFocused === true`, registering pane 1 as the focused terminal.
    * 8. Press `Meta+[` to cycle back to pane 0.
-   * 9. Assert pane 0 carries `border-accent` and pane 1 does not.
+   * 9. Assert pane 0 carries `border-accent-green` and pane 1 does not.
    * 10. Unpin both windows via the API to clean up (empty boards are removed
    *     per the boards spec).
    */
@@ -103,8 +103,9 @@ test.describe("Shell rotation: BottomBar focus tracking", () => {
     // assert the `.xterm` DOM signal (terminal attached) rather than scraping
     // the ready-marker text — xterm renders to a WebGL canvas with no DOM text
     // layer, so `body.innerText()` never contains terminal content. The actual
-    // behavior under test (focus cycling) is asserted below via `border-accent`,
-    // independent of terminal content; this gate only needs both panes live.
+    // behavior under test (focus cycling) is asserted below via
+    // `border-accent-green`, independent of terminal content; this gate only
+    // needs both panes live.
     await expect(page.locator(".xterm")).toHaveCount(2, { timeout: 15_000 });
 
     // BottomBar is rendered at shell level on the board route — confirm the
@@ -114,17 +115,17 @@ test.describe("Shell rotation: BottomBar focus tracking", () => {
 
     // Initial focused pane is index 0 (winA per the existing focusedIndex=0
     // initial state). Cycle to pane 1 via Cmd+] and assert the BottomBar's
-    // focused target moved (indirectly: the pane border becomes accent).
+    // focused target moved (indirectly: the pane border goes green).
     await page.keyboard.press("Meta+]");
-    // After cycling, BoardPane idx=1 carries `border-accent`; idx=0 does not.
+    // After cycling, BoardPane idx=1 carries `border-accent-green`; idx=0 does not.
     const panes = page.locator('[role="group"][aria-label^="board pane"]');
-    await expect(panes.nth(1)).toHaveClass(/border-accent/);
-    await expect(panes.nth(0)).not.toHaveClass(/border-accent/);
+    await expect(panes.nth(1)).toHaveClass(/border-accent-green/);
+    await expect(panes.nth(0)).not.toHaveClass(/border-accent-green/);
 
     // Cycle back to pane 0 via Cmd+[ and re-assert.
     await page.keyboard.press("Meta+[");
-    await expect(panes.nth(0)).toHaveClass(/border-accent/);
-    await expect(panes.nth(1)).not.toHaveClass(/border-accent/);
+    await expect(panes.nth(0)).toHaveClass(/border-accent-green/);
+    await expect(panes.nth(1)).not.toHaveClass(/border-accent-green/);
 
     // Cleanup: unpin both so the board disappears (empty boards are removed).
     for (const winId of [winA, winB]) {

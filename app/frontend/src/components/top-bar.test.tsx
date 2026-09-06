@@ -403,9 +403,13 @@ describe("TopBar", () => {
     const brand = screen.getByLabelText("RunKit home");
     expect(brand.tagName).toBe("A");
     expect(brand).toHaveAttribute("href", "/");
-    // The brand is the FIRST element inside the breadcrumb nav.
+    // The brand sits inside the nav's FIRST element child \u2014 the `hidden
+    // sm:contents` breakpoint wrapper that removes the whole crumb on phones
+    // (the sidebar brand row is the home affordance there). `contents` keeps
+    // the anchor a flex item of the nav at sm+, so root-crumb position holds.
     const nav = container.querySelector('nav[aria-label="Breadcrumb"]')!;
-    expect(nav.firstElementChild).toBe(brand);
+    expect(nav.firstElementChild).toContainElement(brand);
+    expect(nav.firstElementChild!.className).toContain("sm:contents");
     // There is exactly ONE anchor to "/" (the left brand) \u2014 the old right-side
     // RunKit anchor is gone.
     const homeAnchors = Array.from(container.querySelectorAll('a[href="/"]'));

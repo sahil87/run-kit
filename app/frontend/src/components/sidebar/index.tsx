@@ -12,6 +12,7 @@ import { pushRecentlyClosed } from "@/hooks/use-recently-closed";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
 import { useToast } from "@/components/toast";
 import { TypedLabel } from "@/components/typed-label";
+import { LogoSpinner, useBrandLogoSweep } from "@/components/logo-spinner";
 import { Tip, TipGroup } from "@/components/tip";
 import { SwatchPopover } from "@/components/swatch-popover";
 import { FlairOverlay } from "@/components/flair-overlay";
@@ -1695,8 +1696,19 @@ export function Sidebar({
     // opens sibling tips instantly.
     <TipGroup>
     <nav ref={navRef} aria-label="Sessions" className="flex flex-col h-full">
-      {/* Section-visibility rail (iha5) — always the first child; toggles the
-          optional sections below. Not self-hideable; Sessions has no toggle. */}
+      {/* Brand row — logo + wordmark linking home (`/`). On phones this is the
+          brand's ONLY surface (the top-bar brand crumb hides below `sm`) and
+          the sole pointer home affordance there; on desktop it is a second,
+          deliberate appearance beside the top-bar crumb. Carries the same
+          glitch + ring-sweep hover treatments. Accessible name comes from the
+          wordmark text ("RunKit") — deliberately NOT the top-bar crumb's
+          "RunKit home" aria-label, which e2e selects by label and must stay
+          unique on desktop. */}
+      <SidebarBrand />
+
+      {/* Section-visibility rail (iha5) — first child below the brand row;
+          toggles the optional sections below. Not self-hideable; Sessions has
+          no toggle. */}
       <SectionRail />
 
       {/* Boards — cross-server section, visibility-gated (default on; renders
@@ -2030,6 +2042,23 @@ function SelectionIndicator({
  * palette entries stay the always-available keyboard path (Constitution V).
  * Tips use `placement="top"` since the row hugs the viewport bottom.
  */
+/** Brand row at the sidebar's top — see the render-site comment for the
+ *  phone-vs-desktop role split. A plain anchor (full navigation), matching the
+ *  top-bar brand crumb's reload-boundary behavior. */
+function SidebarBrand() {
+  const sweep = useBrandLogoSweep();
+  return (
+    <a
+      href="/"
+      className="rk-brand-glitch flex items-center gap-2 px-1.5 py-1 min-h-[28px] coarse:min-h-[40px] shrink-0 border-b border-border text-text-secondary hover:text-text-primary transition-colors"
+      onMouseEnter={sweep.onMouseEnter}
+    >
+      <LogoSpinner size={18} loading={false} svgRef={sweep.svgRef} />
+      <span className="text-xs font-bold tracking-wide">RunKit</span>
+    </a>
+  );
+}
+
 function SidebarFooter({ isConnected }: { isConnected: boolean }) {
   const { daemonVersion, qualifies, singleRunKit, latest, tools } = useUpdateNotification();
   const { addToast } = useToast();

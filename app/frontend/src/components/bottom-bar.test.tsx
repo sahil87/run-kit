@@ -318,15 +318,55 @@ describe("BottomBar chips on the coarse-only bar (260723-fm08; gate 260814-ldbs)
     for (const name of [
       "Tab",
       "Control",
-      "Option",
       "Function keys",
-      "Arrow keys",
       "Compose text",
       "Open command palette",
     ]) {
       const chip = screen.getByLabelText(name);
       expect(chip).not.toHaveAttribute("title");
     }
+  });
+
+  it("Option and the arrow keys live in the F▴ menu, not on the bar", () => {
+    renderBottomBar({ onOpenCompose: vi.fn() });
+    // Not bar chips at rest (the menu is closed).
+    expect(screen.queryByLabelText("Option")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Up arrow")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("Function keys"));
+    expect(screen.getByLabelText("Option")).toBeInTheDocument();
+    for (const name of ["Up arrow", "Left arrow", "Down arrow", "Right arrow"]) {
+      expect(screen.getByLabelText(name)).toBeInTheDocument();
+    }
+  });
+
+  it("F▴ trigger latches while its menu is open", () => {
+    renderBottomBar({ onOpenCompose: vi.fn() });
+    const trigger = screen.getByLabelText("Function keys");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger.className).not.toContain("border-accent");
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(trigger.className).toContain("border-accent");
+  });
+
+  it("Option latch row toggles aria-checked and keeps the menu open; arrows send-and-stay", () => {
+    renderBottomBar({ onOpenCompose: vi.fn() });
+    fireEvent.click(screen.getByLabelText("Function keys"));
+
+    const option = screen.getByLabelText("Option");
+    expect(option).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(option);
+    // Latched, and the menu did NOT close (latch-then-arrow stays one visit).
+    expect(screen.getByLabelText("Option")).toHaveAttribute("aria-checked", "true");
+
+    // Arrow presses keep the menu open too (repeated TUI navigation).
+    fireEvent.click(screen.getByLabelText("Down arrow"));
+    expect(screen.getByLabelText("Down arrow")).toBeInTheDocument();
+
+    // A function key press closes it (one-shot keys).
+    fireEvent.click(screen.getByLabelText("F1"));
+    expect(screen.queryByLabelText("Option")).not.toBeInTheDocument();
   });
 });
 

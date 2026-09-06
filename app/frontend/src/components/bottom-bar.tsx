@@ -2,7 +2,6 @@ import { useState, useCallback, useRef, useEffect, useSyncExternalStore } from "
 import { useModifierState, type ModifierSnapshot } from "@/hooks/use-modifier-state";
 import { useFocusedTerminal } from "@/contexts/focused-terminal-context";
 import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
-import { ArrowPad } from "@/components/arrow-pad";
 import { KBD_BASE, KBD_CLASS } from "@/components/kbd-chip";
 import { Tip, TipGroup } from "@/components/tip";
 import {
@@ -78,6 +77,13 @@ const MODIFIER_TIP_LABELS: Record<string, string> = {
 
 /** Prevent mousedown from stealing focus away from the terminal. */
 const preventFocusSteal = (e: React.MouseEvent) => e.preventDefault();
+
+/** F▴ menu key buttons (F-keys, Esc, nav, arrows). Flat 40px both pointer
+ *  classes — the bar (and so this menu) renders only on coarse pointers, so a
+ *  fine/coarse split would be dead code. Lockstep: --ctl-chip-coarse in
+ *  globals.css (:root) — the pair MUST change together. */
+const FN_ITEM_CLASS =
+  "px-2 py-1 min-h-[40px] min-w-[40px] flex items-center justify-center text-xs text-text-secondary hover:text-text-primary hover:bg-bg-card rounded focus-visible:outline-2 focus-visible:outline-accent";
 
 export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
   const { focused } = useFocusedTerminal();
@@ -321,7 +327,7 @@ export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
   );
 
   // Pointer gate (260814-ldbs): on FINE pointers the bar does not exist — its
-  // key chips (Tab/Ctrl/Alt/F▴/arrows) are key-SIMULATION affordances for
+  // key chips (Tab/Ctrl/F▴) are key-SIMULATION affordances for
   // keyboardless devices, and a desktop has a hardware keyboard. The gate is
   // the shared coarse-pointer seam (`useCoarsePointer` — pointer TYPE,
   // deliberately not viewport width: an iPad at desktop width keeps its bar,
@@ -352,9 +358,9 @@ export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
     // inside BottomBar itself, it covers BOTH render sites (app shell and the
     // board twin) with a single provider. Tips go only on the symbol-glyph
     // chips (tier-1 names controls lacking visible names) — the F▴ menu's
-    // menuitem entries and the arrow-popup buttons already show text labels,
-    // and the coarse-only ⌨/🔒 chip could never render a tip (Tip
-    // self-suppresses under pointer: coarse).
+    // entries (the ⌥ latch row, arrow keypad, and key rows) show text labels
+    // or sit in a labelled group, and the coarse-only ⌨/🔒 chip could never
+    // render a tip (Tip self-suppresses under pointer: coarse).
     <div className="border-t-[3px] border-border px-1.5 min-h-[48px]">
     <TipGroup>
     {/* pb = --bottom-bar-pad, owned by globals.css: max(--bottom-bar-floor,
@@ -374,27 +380,28 @@ export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
         </button>
       </Tip>
 
-      {([["ctrl", "^"], ["alt", "\u2325"]] as const).map(([key, symbol]) => (
-        <Tip key={key} label={MODIFIER_TIP_LABELS[key]} placement="top">
-          <button
-            aria-label={MODIFIER_LABELS[key]}
-            aria-pressed={mods[key]}
-            className={mods[key] ? `${KBD_BASE} bg-accent/20 border-accent text-accent hover:bg-accent/30` : `${KBD_CLASS} text-text-secondary`}
-            onMouseDown={preventFocusSteal}
-            onClick={() => mods.toggle(key)}
-          >
-            <kbd aria-hidden="true">{symbol}</kbd>
-          </button>
-        </Tip>
-      ))}
+      <Tip label={MODIFIER_TIP_LABELS.ctrl} placement="top">
+        <button
+          aria-label={MODIFIER_LABELS.ctrl}
+          aria-pressed={mods.ctrl}
+          className={mods.ctrl ? `${KBD_BASE} bg-accent/20 border-accent text-accent hover:bg-accent/30` : `${KBD_CLASS} text-text-secondary`}
+          onMouseDown={preventFocusSteal}
+          onClick={() => mods.toggle("ctrl")}
+        >
+          <kbd aria-hidden="true">^</kbd>
+        </button>
+      </Tip>
 
       <div ref={fnRef} className="relative">
         <Tip label="Function keys" placement="top">
+          {/* Open-menu latch: while the menu is up the trigger carries the
+              accent latch arm (state, not hover) \u2014 the REST half of KBD_CLASS
+              is swapped out so no hover utility competes with border-accent. */}
           <button
             aria-label="Function keys"
             aria-haspopup="true"
             aria-expanded={fnOpen}
-            className={`${KBD_CLASS} text-text-secondary`}
+            className={fnOpen ? `${KBD_BASE} bg-accent/20 border-accent text-accent hover:bg-accent/30` : `${KBD_CLASS} text-text-secondary`}
             onMouseDown={preventFocusSteal}
             onClick={() => setFnOpen((v) => !v)}
           >
@@ -405,15 +412,54 @@ export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
           <div
             role="menu"
             aria-label="Function and navigation keys"
-            className="absolute bottom-full left-0 mb-1 bg-bg-primary border border-border rounded-lg shadow-2xl py-1 min-w-[160px] z-50"
+            className="absolute bottom-full left-0 mb-1 bg-bg-primary border border-border rounded-lg shadow-2xl py-1 min-w-[176px] z-50"
           >
+            {/* \u2325 latch row \u2014 the Option modifier lives here, not on the bar
+                (the bar keeps only the highest-frequency chips). Same one-shot
+                latch semantics and accent state vocabulary as the ^ chip; the
+                toggle keeps the menu open so a latch-then-arrow sequence stays
+                one visit. */}
+            <button
+              role="menuitemcheckbox"
+              aria-checked={mods.alt}
+              aria-label={MODIFIER_LABELS.alt}
+              className={`w-full flex items-center gap-2 px-3 min-h-[40px] text-xs rounded ${
+                mods.alt
+                  ? "bg-accent/20 text-accent"
+                  : "text-text-secondary hover:text-text-primary hover:bg-bg-card"
+              }`}
+              onMouseDown={preventFocusSteal}
+              onClick={() => mods.toggle("alt")}
+            >
+              <kbd aria-hidden="true">{"\u2325"}</kbd>
+              <span>Option</span>
+              {mods.alt && <span aria-hidden="true" className="ml-auto">latched</span>}
+            </button>
+            <div className="border-t border-border my-1" />
+            {/* Arrow keypad \u2014 arrows send-and-stay (no menu close): TUI
+                navigation is repeated presses, and closing per press would
+                make the pad useless. */}
+            <div className="flex justify-center gap-0.5 px-1" role="group" aria-label="Arrow keys">
+              {([["Up arrow", "A", "\u2191"], ["Left arrow", "D", "\u2190"], ["Down arrow", "B", "\u2193"], ["Right arrow", "C", "\u2192"]] as const).map(([label, code, glyph]) => (
+                <button
+                  key={code}
+                  aria-label={label}
+                  className={FN_ITEM_CLASS}
+                  onMouseDown={preventFocusSteal}
+                  onClick={() => sendArrow(code)}
+                >
+                  {glyph}
+                </button>
+              ))}
+            </div>
+            <div className="border-t border-border my-1" />
             <div className="grid grid-cols-4 gap-0.5">
               {FN_KEYS.map((fk) => (
                 <button
                   key={fk.label}
                   role="menuitem"
                   aria-label={fk.label}
-                  className="px-2 py-1 min-h-[36px] flex items-center justify-center text-xs text-text-secondary hover:text-text-primary hover:bg-bg-card rounded focus-visible:outline-2 focus-visible:outline-accent"
+                  className={FN_ITEM_CLASS}
                   onMouseDown={preventFocusSteal}
                   onClick={() => { sendWithMods(fk.plain, fk.mod); setFnOpen(false); }}
                 >
@@ -426,7 +472,7 @@ export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
               <button
                 role="menuitem"
                 aria-label="Escape"
-                className="px-2 py-1 min-h-[36px] flex items-center justify-center text-xs text-text-secondary hover:text-text-primary hover:bg-bg-card rounded focus-visible:outline-2 focus-visible:outline-accent"
+                className={FN_ITEM_CLASS}
                 onMouseDown={preventFocusSteal}
                 onClick={() => { sendSpecial("\x1b"); setFnOpen(false); }}
               >
@@ -437,7 +483,7 @@ export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
                   key={ek.label}
                   role="menuitem"
                   aria-label={ek.label}
-                  className="px-2 py-1 min-h-[36px] flex items-center justify-center text-xs text-text-secondary hover:text-text-primary hover:bg-bg-card rounded focus-visible:outline-2 focus-visible:outline-accent"
+                  className={FN_ITEM_CLASS}
                   onMouseDown={preventFocusSteal}
                   onClick={() => { sendWithMods(ek.plain, ek.mod); setFnOpen(false); }}
                 >
@@ -448,8 +494,6 @@ export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
           </div>
         )}
       </div>
-
-      <ArrowPad onArrow={sendArrow} />
 
       <div className="w-px h-5 bg-border mx-0.5" aria-hidden="true" />
 

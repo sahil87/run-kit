@@ -3,8 +3,10 @@ import { TMUX_SERVER } from "./_tmux";
 
 /**
  * Uniform chip sizing in the bottom bar at mobile width: every visible button
- * in the `Terminal keys` toolbar (Tab, `^`, `⌥`, `F▴`, the ArrowPad trigger,
- * `>_`, `⌘K`, and the coarse-only `⌨` toggle) must render the exact same box.
+ * in the `Terminal keys` toolbar (Tab, `^`, `F▴`, `⌘K`, the compose `a▏`, and
+ * the coarse-only `⌨` toggle — ⌥ and the arrow keypad live inside the F▴
+ * menu, whose popup contents stay closed and unmeasured here) must render the
+ * exact same box.
  * All chips share one class (`KBD_CLASS` in `src/components/kbd-chip.ts`); a
  * chip that hardcodes its own size drifts.
  *

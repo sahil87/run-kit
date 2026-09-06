@@ -1,10 +1,10 @@
-// Shared chip classes for every chip in the bottom bar — the BottomBar key
-// chips and the ArrowPad trigger. One definition so all chips render the same
-// box (uniformity is asserted by tests/e2e/bottom-bar-chip-size.spec.ts).
+// Shared chip classes for every chip in the bottom bar. One definition so all
+// chips render the same box (uniformity is asserted by
+// tests/e2e/bottom-bar-chip-size.spec.ts).
 //
 // Chip size splits by pointer: 33×35 on fine pointers (lighter bar, more air
 // between chips) while coarse pointers get the 40×40 touch floor and the
-// tighter 4px gap, so the 375px single-row budget holds (8×40 + 7×4 = 348px).
+// tighter 4px gap, so the 375px single-row budget holds (6×40 + 5×4 = 260px).
 // Lockstep: --ctl-chip-h/--ctl-chip-w (fine) and --ctl-chip-coarse in
 // globals.css (:root) — the pairs MUST change together.
 //

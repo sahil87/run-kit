@@ -3696,6 +3696,16 @@ function AppShell() {
   const serverActions: PaletteAction[] = useMemo(
     () => [
       {
+        // Keyboard home path (Constitution V): below `sm` the top-bar brand
+        // crumb is gone and the pointer home affordance is the sidebar brand
+        // row, so the palette must carry the route too. Full navigation
+        // (location.assign, not router navigate) — home is a deliberate
+        // reload boundary, matching the brand crumb/sidebar anchors.
+        id: "go-host",
+        label: "Host: Overview",
+        onSelect: () => window.location.assign("/"),
+      },
+      {
         id: "create-server",
         label: "Server: Create",
         onSelect: openCreateServer,

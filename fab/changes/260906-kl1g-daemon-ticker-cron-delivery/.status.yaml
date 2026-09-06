@@ -9,8 +9,8 @@ progress:
     apply: done
     review: done
     hydrate: done
-    ship: active
-    review-pr: pending
+    ship: done
+    review-pr: active
 plan:
     generated: true
     task_count: 12
@@ -33,23 +33,25 @@ stage_metrics:
     apply: {started_at: "2026-09-06T17:52:35Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-06T18:09:30Z"}
     review: {started_at: "2026-09-06T18:09:30Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-06T18:12:23Z"}
     hydrate: {started_at: "2026-09-06T18:12:23Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-06T18:16:40Z"}
-    ship: {started_at: "2026-09-06T18:16:40Z", driver: fab-fff, iterations: 1}
-prs: []
+    ship: {started_at: "2026-09-06T18:16:40Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-06T18:18:19Z"}
+    review-pr: {started_at: "2026-09-06T18:18:19Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/run-kit/pull/857
 change_type_source: explicit
 true_impact:
-    added: 0
-    deleted: 0
-    net: 0
+    added: 1792
+    deleted: 49
+    net: 1743
     excluding:
-        added: 0
-        deleted: 0
-        net: 0
+        added: 1336
+        deleted: 31
+        net: 1305
     tests:
-        added: 0
-        deleted: 0
-        net: 0
-    computed_at: "2026-09-06T18:16:40Z"
-    computed_at_stage: hydrate
+        added: 910
+        deleted: 8
+        net: 902
+    computed_at: "2026-09-06T18:18:19Z"
+    computed_at_stage: ship
 summary: 'cron: daemon ticker invoker (cron_ticker gate), injection-engine EngineDeliverer with when-idle held semantics, if_absent dispositions, rate/entry circuit breakers'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-06T18:16:40Z
+last_updated: 2026-09-06T18:18:19Z

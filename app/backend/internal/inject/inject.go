@@ -36,6 +36,10 @@ type Tmux interface {
 	PasteBufferRaw(ctx context.Context, name, paneID, server string) error
 	SendEnter(ctx context.Context, paneID, server string) error
 	SendKeys(ctx context.Context, paneID, server string, keys ...string) error
+	// PaneSize reports the pane's current width and height in cells. Only the
+	// readiness path calls it (the engine never does); a failure is "not yet",
+	// never fatal — see AwaitReady.
+	PaneSize(ctx context.Context, paneID, server string) (width, height int, err error)
 }
 
 // Probe timing. A short settle lets the TUI redraw after the paste before the
@@ -687,13 +691,20 @@ func CountOccurrences(capture, needle string, collapsible, imageish bool) int {
 }
 
 // stripForProbe normalizes a string for echo matching: strip ANSI escapes, then
-// remove ALL whitespace (spaces, tabs, newlines). Wrap-safe by construction.
+// remove ALL whitespace (spaces, tabs, newlines) and every box-drawing /
+// block-element rune (U+2500–U+259F — the adjacent Box Drawing and Block
+// Elements blocks). Wrap-safe by construction — including a TUI composer that
+// reflows its own border around the wrapped text, whose frame glyphs would
+// otherwise interleave the needle.
 func stripForProbe(s string) string {
 	s = ansiEscapeRe.ReplaceAllString(s, "")
 	var b strings.Builder
 	b.Grow(len(s))
 	for _, r := range s {
 		if r == ' ' || r == '\t' || r == '\n' || r == '\r' || r == '\v' || r == '\f' {
+			continue
+		}
+		if r >= 0x2500 && r <= 0x259F {
 			continue
 		}
 		b.WriteRune(r)

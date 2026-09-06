@@ -172,6 +172,9 @@ func (cliInjectTmux) PasteBufferRaw(ctx context.Context, name, paneID, server st
 func (cliInjectTmux) SendEnter(ctx context.Context, paneID, server string) error {
 	return tmux.SendEnterToPaneCtx(ctx, paneID, server)
 }
+func (cliInjectTmux) PaneSize(ctx context.Context, paneID, server string) (int, int, error) {
+	return tmux.PaneSizeCtx(ctx, paneID, server)
+}
 func (a cliInjectTmux) SendKeys(ctx context.Context, paneID, server string, keys ...string) error {
 	// The shared engine uses this primitive only for recovery clears. Recording
 	// the attempt lets the CLI surface that the successful path included a retry.

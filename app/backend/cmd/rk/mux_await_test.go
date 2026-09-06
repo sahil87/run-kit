@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -784,6 +785,77 @@ func TestMuxAwaitReadyOperationalError(t *testing.T) {
 	}
 	if stdout != "" {
 		t.Errorf("stdout = %q, want empty", stdout)
+	}
+}
+
+// TestMuxAwaitReadyNarrow: a settled pane below the readiness floor reports
+// `narrow %N (WxH)` on stdout with the geometry + remedy hint on stderr, exit
+// 0 (classification succeeded — a report, not a failure), and --notify fires
+// on the report.
+func TestMuxAwaitReadyNarrow(t *testing.T) {
+	f := &muxFake{}
+	installMuxFakes(t, f)
+	stubAwaitReady(t, 0, &inject.NarrowError{Width: 54, Height: 14})
+	s := &awaitScript{goneAt: -1}
+	origDeps := muxAwaitDepsFn
+	muxAwaitDepsFn = func(string) awaitDeps { return s.deps(t) }
+	t.Cleanup(func() { muxAwaitDepsFn = origDeps })
+
+	stdout, stderr, err := runMuxCmd(t, "await", "%5", "--ready", "--notify")
+	if err != nil {
+		t.Fatalf("err = %v, want nil (narrow is a report, not a failure)", err)
+	}
+	if stdout != "narrow %5 (54x14)\n" {
+		t.Errorf("stdout = %q, want the narrow report", stdout)
+	}
+	for _, want := range []string{"54x14", "80x20"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr = %q, want it to name %q", stderr, want)
+		}
+	}
+	if len(s.notified) != 1 || s.notified[0] != "agent %5 is narrow" {
+		t.Errorf("notify = %v, want the default-derived message", s.notified)
+	}
+}
+
+// TestMuxAwaitReadyNarrowQuiet: the geometry + remedy hint is actionable
+// diagnostics, not chatter — it survives --quiet on stderr while the
+// `narrow %N (WxH)` report stays on stdout.
+func TestMuxAwaitReadyNarrowQuiet(t *testing.T) {
+	f := &muxFake{}
+	installMuxFakes(t, f)
+	stubAwaitReady(t, 0, &inject.NarrowError{Width: 54, Height: 14})
+
+	stdout, stderr, err := runMuxCmd(t, "await", "%5", "--ready", "--quiet")
+	if err != nil {
+		t.Fatalf("err = %v, want nil (narrow is a report, not a failure)", err)
+	}
+	if stdout != "narrow %5 (54x14)\n" {
+		t.Errorf("stdout = %q, want the narrow report", stdout)
+	}
+	if !strings.Contains(stderr, "54x14") {
+		t.Errorf("stderr = %q, want the geometry hint even under --quiet", stderr)
+	}
+}
+
+// TestMuxAwaitReadyNarrowBreaksIndefiniteLoop: narrow is wake-worthy like
+// parked/gone — the --timeout 0 re-arm loop returns on it instead of re-arming
+// the bounded primitive.
+func TestMuxAwaitReadyNarrowBreaksIndefiniteLoop(t *testing.T) {
+	calls := 0
+	orig := muxAwaitReadyOnceFn
+	muxAwaitReadyOnceFn = func(context.Context, string, string, inject.ReadyOpts) (inject.Readiness, error) {
+		calls++
+		return 0, &inject.NarrowError{Width: 54, Height: 14}
+	}
+	t.Cleanup(func() { muxAwaitReadyOnceFn = orig })
+
+	_, err := muxAwaitReadyFn(context.Background(), "srv", "%5", 0)
+	if !errors.Is(err, inject.ErrNarrow) {
+		t.Fatalf("muxAwaitReadyFn() error = %v, want ErrNarrow", err)
+	}
+	if calls != 1 {
+		t.Errorf("await passes = %d, want 1 (no re-arm on a narrow verdict)", calls)
 	}
 }
 

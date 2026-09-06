@@ -304,6 +304,67 @@ func TestPaneFactsCtx_dualRead(t *testing.T) {
 	}
 }
 
+func TestParsePaneSize(t *testing.T) {
+	tests := []struct {
+		name    string
+		raw     string
+		wantW   int
+		wantH   int
+		wantErr bool
+	}{
+		{"valid pair", "54\t14\n", 54, 14, false},
+		{"no trailing newline", "190\t44", 190, 44, false},
+		{"zero width rejected", "0\t14\n", 0, 0, true},
+		{"zero height rejected", "80\t0\n", 0, 0, true},
+		{"negative rejected", "-3\t14\n", 0, 0, true},
+		{"non-numeric rejected", "x\t14\n", 0, 0, true},
+		{"empty output rejected", "", 0, 0, true},
+		{"missing field rejected", "80\n", 0, 0, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w, h, err := parsePaneSize(tt.raw)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("parsePaneSize(%q) = (%d, %d), want error", tt.raw, w, h)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parsePaneSize(%q) err = %v", tt.raw, err)
+			}
+			if w != tt.wantW || h != tt.wantH {
+				t.Errorf("parsePaneSize(%q) = (%d, %d), want (%d, %d)", tt.raw, w, h, tt.wantW, tt.wantH)
+			}
+		})
+	}
+}
+
+// TestPaneSizeCtx reads the pane's geometry against an isolated test server: a
+// live pane reports positive dimensions, and a missing pane errors (tmux's
+// display-message succeeds with EMPTY output on one — the parse failure is
+// what surfaces the operational error).
+func TestPaneSizeCtx(t *testing.T) {
+	server, _ := withRealSessionTmux(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	lines, err := tmuxExecServer(ctx, server, "list-panes", "-t", "real:win0", "-F", "#{pane_id}")
+	if err != nil {
+		t.Fatalf("list panes: %v", err)
+	}
+	w, h, err := PaneSizeCtx(ctx, lines[0], server)
+	if err != nil {
+		t.Fatalf("PaneSizeCtx: %v", err)
+	}
+	if w <= 0 || h <= 0 {
+		t.Errorf("PaneSizeCtx = (%d, %d), want positive dimensions", w, h)
+	}
+	if _, _, err := PaneSizeCtx(ctx, "%999999", server); err == nil {
+		t.Error("PaneSizeCtx on a missing pane must error")
+	}
+}
+
 // TestPanePIDCtx reads the pane's shell PID against an isolated test server.
 func TestPanePIDCtx(t *testing.T) {
 	server, _ := withRealSessionTmux(t)

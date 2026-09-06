@@ -34,10 +34,11 @@ A freshly spawned agent TUI is not necessarily safe to type into: it may still b
 | `ready %N (state)` | A reconciled agent state exists — hooks fired, the TUI is up. Nothing was typed into the pane | Deliver |
 | `ready %N (echo)` | No state (hook-less agent), but the screen settled and a harmless sentinel echoed at a live input box (typed, checked, cleared with `C-u`) | Deliver (`send --force` — see the pairing below) |
 | `parked %N` | The screen settled non-blank and the sentinel did **not** echo: the pane is behind a wall. Exit 0 — classification succeeded; the screen snippet is on stderr | Judge the wall (below) |
+| `narrow %N (WxH)` | The pane is below the 80×20 readiness floor (either dimension), so the probe cannot be trusted; nothing was typed. Exit 0 — classification succeeded; the geometry and remedy are on stderr | Resize or relocate the pane (a bigger window or column), then re-run `await --ready` |
 | `running` | `--timeout` expired — the timeout bounds YOU, never the pane | Re-arm or escalate |
 | `gone` | The pane died (exit 1) | Respawn or report |
 
-`booting` never returns: the wait blocks through boot churn and ends only on `ready`, `parked`, `gone`, or timeout.
+`booting` never returns: the wait blocks through boot churn and ends only on `ready`, `parked`, `narrow`, `gone`, or timeout.
 
 **The scope rule.** The sentinel probe is typed only into **pre-delivery** panes — no agent state yet, nothing yet delivered. Against a live delivered worker, readiness verbs are illegal: a sentinel typed into a working agent's composer corrupts its next input. Once you have delivered, switch channels — wait with `await --until` / `await --file`, look with `capture`.
 
@@ -58,7 +59,7 @@ rk mux send %5 --key Down          # move a picker selection
 rk mux await --ready %5 && rk mux send --force %5 '<prompt>'
 ```
 
-Branch on the report word, not just the exit code: `parked` also exits 0 (it is a classification, not a failure), so a bare `&&` would deliver into the wall. The safety net if you get this wrong: `send`'s echo probe fails closed on any screen that does not echo the paste — no Enter, text staged, exit 1.
+Branch on the report word, not just the exit code: `parked` and `narrow` also exit 0 (they are classifications, not failures), so a bare `&&` would deliver into the wall or a too-small pane. The safety net if you get this wrong: `send`'s echo probe fails closed on any screen that does not echo the paste — no Enter, text staged, exit 1.
 
 ## Ask-and-wait, fleets, and answers
 

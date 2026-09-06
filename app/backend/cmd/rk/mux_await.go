@@ -45,16 +45,20 @@ import (
 // screen is classified by a sentinel echo probe: a harmless sentinel is pasted
 // into the pane, an echo means a live input box, and no echo on a settled
 // non-blank screen means the pane is parked behind a wall (a trust dialog,
-// survey, or login wall that would eat a delivery). Reports "ready %N
-// (state)" / "ready %N (echo)" / "parked %N" (exit 0, the screen snippet on
-// stderr — classification is rk's, judging what the wall wants is the
-// caller's); mutually exclusive with --until/--file/--after-active/--any
-// (usage error, exit 2); --timeout expiry keeps the family contract
-// ("running", exit 0), and a pane death mid-wait reports "gone" (exit 1). The
-// sentinel is typed only into PRE-DELIVERY panes (no agent state yet, nothing
-// delivered — state is re-checked before every probe); against a live
-// delivered worker readiness verbs are illegal — use --until / capture.
-// `parked` exits 0, so `&&`-composers must branch on the report word.
+// survey, or login wall that would eat a delivery). The probe is gated on
+// geometry: below the 80x20 readiness floor a bordered composer reflows or is
+// not drawn at all, so the pane classifies narrow instead of probing. Reports
+// "ready %N (state)" / "ready %N (echo)" / "parked %N" / "narrow %N (WxH)"
+// (exit 0, the parked screen snippet or the narrow geometry + remedy on
+// stderr — classification is rk's, judging what the wall wants or where the
+// pane should live is the caller's); mutually exclusive with
+// --until/--file/--after-active/--any (usage error, exit 2); --timeout expiry
+// keeps the family contract ("running", exit 0), and a pane death mid-wait
+// reports "gone" (exit 1). The sentinel is typed only into PRE-DELIVERY panes
+// (no agent state yet, nothing delivered — state is re-checked before every
+// probe); against a live delivered worker readiness verbs are illegal — use
+// --until / capture. `parked` and `narrow` also exit 0, so `&&`-composers
+// must branch on the report word.
 
 // awaitCmdTimeout caps each tmux read the observer performs (Constitution §I:
 // 5-10s for short-lived tmux helpers).
@@ -97,14 +101,18 @@ var muxAwaitCmd = &cobra.Command{
 		"echo means a live input box (`ready %N (echo)`), and no echo on a " +
 		"settled non-blank screen means the pane is parked behind a wall " +
 		"(`parked %N`, exit 0, the screen snippet on stderr so the caller can " +
-		"judge what the wall wants). It reports `ready %N (state)`, `ready %N " +
-		"(echo)`, or `parked %N` and cannot combine with " +
+		"judge what the wall wants). The probe is gated on geometry: below the " +
+		"80x20 readiness floor (either dimension) a bordered composer reflows or " +
+		"is not drawn at all, so the pane classifies `narrow %N (WxH)` instead of " +
+		"probing — exit 0, the geometry and remedy on stderr; resize or relocate " +
+		"the pane and re-run. It reports `ready %N (state)`, `ready %N " +
+		"(echo)`, `parked %N`, or `narrow %N (WxH)` and cannot combine with " +
 		"--until/--file/--after-active/--any. The sentinel is typed only into " +
 		"pre-delivery panes (no agent state yet, nothing delivered) — against a " +
 		"live delivered worker, use `await --until` / `capture` instead. " +
 		"Composition for hook-less agents: `rk mux await --ready %5 && rk mux " +
-		"send --force %5 '<prompt>'` — `parked` also exits 0, so `&&`-composers " +
-		"must branch on the report word.\n\n" +
+		"send --force %5 '<prompt>'` — `parked` and `narrow` also exit 0, so " +
+		"`&&`-composers must branch on the report word.\n\n" +
 		"With --any the target is one-or-more panes and the observer wakes on the " +
 		"FIRST to fire: state reports append the firing pane (`waiting %5`), a " +
 		"death reports `gone %N` (exit 1) when no signal fired that sweep, and " +
@@ -134,7 +142,7 @@ func init() {
 	muxAwaitCmd.Flags().BoolVar(&awaitAnyFlag, "any", false,
 		"Accept one-or-more targets and wake on the FIRST to fire (report appends the firing pane)")
 	muxAwaitCmd.Flags().BoolVar(&awaitReadyFlag, "ready", false,
-		"Wait until the pane is boot-ready for typed input (agent state present, else a sentinel echo probe: echo = ready, no echo = parked)")
+		"Wait until the pane is boot-ready for typed input (agent state present, else a sentinel echo probe gated on the 80x20 floor: echo = ready, no echo = parked, below floor = narrow %N (WxH); all exit 0)")
 }
 
 // awaitDeps are the observer's test seams (the present.go pattern): the
@@ -287,8 +295,8 @@ func runMuxAwait(cmd *cobra.Command, args []string) error {
 // "can't find pane" gone predicate (the muxReadPaneState mapping), a
 // per-invocation sentinel buffer name, and per-read bounds; tests substitute a
 // fake. A --timeout of 0 (indefinite, the family contract) re-arms the bounded
-// primitive after each ErrNotReady pass; parked and gone break the loop, and
-// any other timeout becomes the wait's deadline.
+// primitive after each ErrNotReady pass; parked, narrow, and gone break the
+// loop, and any other timeout becomes the wait's deadline.
 var muxAwaitReadyFn = func(ctx context.Context, server, paneID string, timeout time.Duration) (inject.Readiness, error) {
 	opts := inject.ReadyOpts{
 		State:      boundedPaneAgentState,
@@ -299,7 +307,7 @@ var muxAwaitReadyFn = func(ctx context.Context, server, paneID string, timeout t
 		opts.Deadline = timeout
 	}
 	for {
-		readiness, err := inject.AwaitReady(ctx, awaitReadyTmux{}, server, paneID, opts)
+		readiness, err := muxAwaitReadyOnceFn(ctx, server, paneID, opts)
 		if err == nil || !errors.Is(err, inject.ErrNotReady) || timeout > 0 {
 			return readiness, err
 		}
@@ -307,6 +315,13 @@ var muxAwaitReadyFn = func(ctx context.Context, server, paneID string, timeout t
 			return 0, err
 		}
 	}
+}
+
+// muxAwaitReadyOnceFn is one bounded readiness pass inside muxAwaitReadyFn's
+// indefinite re-arm loop — a var SOLELY so tests can drive the loop
+// verdict-by-verdict without a live tmux.
+var muxAwaitReadyOnceFn = func(ctx context.Context, server, paneID string, opts inject.ReadyOpts) (inject.Readiness, error) {
+	return inject.AwaitReady(ctx, awaitReadyTmux{}, server, paneID, opts)
 }
 
 // muxReadyBufferNameFn derives the sentinel probe's per-invocation buffer name
@@ -354,10 +369,17 @@ func (a awaitReadyTmux) SendKeys(ctx context.Context, paneID, server string, key
 	return a.cliInjectTmux.SendKeys(rctx, paneID, server, keys...)
 }
 
+func (awaitReadyTmux) PaneSize(ctx context.Context, paneID, server string) (int, int, error) {
+	rctx, cancel := context.WithTimeout(ctx, awaitCmdTimeout)
+	defer cancel()
+	return tmux.PaneSizeCtx(rctx, paneID, server)
+}
+
 // runMuxAwaitReady runs the --ready condition: block until the target pane is
 // boot-ready, report the outcome (`ready %N (state)` / `ready %N (echo)` /
-// `parked %N` — exit 0, with the parked screen snippet on stderr so the caller
-// can judge what the wall wants; `gone` — exit 1), and honor the family's
+// `parked %N` / `narrow %N (WxH)` — exit 0, with the parked screen snippet or
+// the narrow geometry + remedy on stderr so the caller can judge the wall or
+// resize the pane; `gone` — exit 1), and honor the family's
 // timeout report (`running`, exit 0) and --notify machinery (fired on every
 // report, fail-silent per the rk notify contract).
 func runMuxAwaitReady(cmd *cobra.Command, parent context.Context, server, paneID string, deps awaitDeps) error {
@@ -388,6 +410,20 @@ func runMuxAwaitReady(cmd *cobra.Command, parent context.Context, server, paneID
 			fmt.Fprintf(cmd.ErrOrStderr(), "%s\n", parked.Snippet)
 		}
 		line = fmt.Sprintf("parked %s", paneID)
+	case errors.Is(err, inject.ErrNarrow):
+		// Narrow is wake-worthy and returns immediately: the pane is below
+		// the readiness floor, so the probe cannot be trusted. Classification
+		// succeeded, so this is a report (exit 0), not a failure; the
+		// geometry and the remedy ride stderr ungated (--quiet drops chatter,
+		// never actionable diagnostics — the parked-snippet rule).
+		var narrow *inject.NarrowError
+		size := ""
+		if errors.As(err, &narrow) {
+			size = fmt.Sprintf(" (%dx%d)", narrow.Width, narrow.Height)
+			fmt.Fprintf(cmd.ErrOrStderr(), "pane %s is %dx%d, below the %dx%d readiness floor — resize or relocate the pane and re-run\n",
+				paneID, narrow.Width, narrow.Height, inject.ReadyMinCols, inject.ReadyMinRows)
+		}
+		line = fmt.Sprintf("narrow %s%s", paneID, size)
 	case errors.Is(err, inject.ErrGone):
 		// The family's death contract: report `gone`, exit 1 with diagnostics.
 		line = "gone"

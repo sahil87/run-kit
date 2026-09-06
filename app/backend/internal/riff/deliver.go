@@ -108,6 +108,9 @@ func (riffInjectTmux) SendEnter(ctx context.Context, paneID, server string) erro
 func (riffInjectTmux) SendKeys(ctx context.Context, paneID, server string, keys ...string) error {
 	return tmux.SendKeysToPane(ctx, paneID, server, keys...)
 }
+func (riffInjectTmux) PaneSize(ctx context.Context, paneID, server string) (int, int, error) {
+	return tmux.PaneSizeCtx(ctx, paneID, server)
+}
 
 // deliverTaskFn is the delivery seam: production runs the spawn-then-deliver
 // composite (readiness wait → engine send) with the reconciled state reader;

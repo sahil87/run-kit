@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-06T03:14:49Z"}
+{"args":"rk mux await --ready narrow-pane verdict + box-drawing-tolerant sentinel match: classify panes below an 80x20 floor as narrow (new report word, ErrNarrow/NarrowError, fail-closed DeliverWhenReady) instead of parked, and extend stripForProbe to drop box-drawing/block-element runes so a sentinel wrapped inside a bordered composer still matches","cmd":"fab-new","event":"command","ts":"2026-09-06T03:14:49Z"}
+{"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-09-06T03:19:16Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-09-06T03:20:19Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-06T03:21:51Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-06T03:22:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-06T03:40:29Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-06T03:44:14Z"}
+{"event":"review","result":"passed","ts":"2026-09-06T03:44:14Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-06T03:50:03Z"}

@@ -52,6 +52,10 @@ type fakeTmux struct {
 	enterErr       error
 	enterErrs      []error
 	keyErr         error
+	sizeW          int
+	sizeH          int
+	sizeErr        error
+	sizeErrs       []error
 	bufferName     string
 	bufferText     string
 	pastedPane     string
@@ -182,6 +186,29 @@ func (f *fakeTmux) SendKeys(_ context.Context, paneID, _ string, keys ...string)
 	defer f.mu.Unlock()
 	f.keysSent = append(f.keysSent, append([]string{paneID}, keys...))
 	return f.keyErr
+}
+
+// PaneSize scripts the readiness geometry read. Errors are consumed from
+// sizeErrs in order (falling back to sizeErr); a nil consumed error falls
+// through to the size. Zero size fields read as exactly AT the readiness
+// floor, so a test that never sets a size keeps the probe path.
+func (f *fakeTmux) PaneSize(_ context.Context, _ string, _ string) (int, int, error) {
+	f.record("pane-size")
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.sizeErrs) > 0 {
+		err := f.sizeErrs[0]
+		f.sizeErrs = f.sizeErrs[1:]
+		if err != nil {
+			return 0, 0, err
+		}
+	} else if f.sizeErr != nil {
+		return 0, 0, f.sizeErr
+	}
+	if f.sizeW == 0 && f.sizeH == 0 {
+		return ReadyMinCols, ReadyMinRows, nil
+	}
+	return f.sizeW, f.sizeH, nil
 }
 
 func TestSendRawOrder(t *testing.T) {
@@ -1062,6 +1089,75 @@ func TestCountOccurrences(t *testing.T) {
 				t.Errorf("CountOccurrences(%q, %q, collapsible=%v, imageish=%v) = %d, want %d", tt.capture, needle, tt.collapsible, tt.imageish, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestStripForProbeDropsFrameGlyphs pins the frame-glyph tolerance: every rune
+// in the adjacent Box Drawing (U+2500–U+257F) and Block Elements
+// (U+2580–U+259F) blocks is removed alongside whitespace, while everything
+// outside the ranges — prompt glyphs, CJK, emoji, and the bordering
+// U+249F/U+25A0 — is retained.
+func TestStripForProbeDropsFrameGlyphs(t *testing.T) {
+	if got := stripForProbe("│ > #rk-ready-probe │\n└────┘ ░▒▓ keep > # 日本語 🚀"); got != ">#rk-ready-probekeep>#日本語🚀" {
+		t.Errorf("stripForProbe = %q, want frame glyphs and whitespace gone, content kept", got)
+	}
+	if got := stripForProbe("a├─b▀▄c"); got != "abc" {
+		t.Errorf("stripForProbe = %q, want mid-string frame glyphs dropped", got)
+	}
+	if got := stripForProbe("x\u249Fy\u25A0z"); got != "x\u249Fy\u25A0z" {
+		t.Errorf("stripForProbe = %q, want runes bordering the ranges (U+249F/U+25A0) retained", got)
+	}
+}
+
+// TestCountOccurrencesWrappedInBorder pins the wrapped-in-border fixtures: a
+// TUI composer narrow enough to reflow its border around the wrapped sentinel
+// interleaves frame glyphs mid-needle, and novelty counting still sees the
+// echo (and a stale occurrence above it).
+func TestCountOccurrencesWrappedInBorder(t *testing.T) {
+	fixture := "│ > #rk-ready-   │\n│ probe          │"
+	if got := CountOccurrences(fixture, "#rk-ready-probe", false, false); got != 1 {
+		t.Errorf("CountOccurrences(wrapped fixture) = %d, want 1", got)
+	}
+	stale := "last probe: #rk-ready-probe\n" + fixture
+	if got := CountOccurrences(stale, "#rk-ready-probe", false, false); got != 2 {
+		t.Errorf("CountOccurrences(stale + wrapped) = %d, want 2 (novelty counting intact)", got)
+	}
+}
+
+// TestCountOccurrencesChipInsideBorder: the collapse/image chip patterns carry
+// no frame-glyph runes, so a chip rendered inside a bordered composer still
+// matches under the shared normalization.
+func TestCountOccurrencesChipInsideBorder(t *testing.T) {
+	paste := "╭────────────────────────╮\n│ ❯ [Pasted text #2 +5 lines] │\n╰────────────────────────╯"
+	if got := CountOccurrences(paste, "anything", true, false); got != 1 {
+		t.Errorf("CountOccurrences(paste chip in border) = %d, want 1", got)
+	}
+	image := "│ ❯ [Image #3] │\n└──────────────┘"
+	if got := CountOccurrences(image, "anything", false, true); got != 1 {
+		t.Errorf("CountOccurrences(image chip in border) = %d, want 1", got)
+	}
+}
+
+func TestNeedleFrameOnlyLineSkipped(t *testing.T) {
+	// A last line that strips to empty (a pure frame row) is skipped in favor
+	// of the previous non-empty line — the empty-line rule, now reachable via
+	// frame glyphs.
+	if got := Needle("hello\n└────┘"); got != "hello" {
+		t.Errorf("Needle = %q, want it derived from the previous non-empty line", got)
+	}
+}
+
+func TestSendFrameOnlyMessageFailsClosed(t *testing.T) {
+	// A message consisting only of frame glyphs yields an empty needle, and the
+	// empty-needle guard fails closed before the buffer is touched.
+	ft := &fakeTmux{}
+	err := NewEngine("rk-test").Send(context.Background(), ft, "default", "%5", "└────┘", true)
+	var probeErr ProbeFailure
+	if !errors.As(err, &probeErr) {
+		t.Fatalf("Send() error = %v, want ProbeFailure", err)
+	}
+	if got := countCalls(ft.callStream(), "set-buffer"); got != 0 {
+		t.Errorf("set-buffer calls = %d, want 0 (fail closed before touching the buffer)", got)
 	}
 }
 

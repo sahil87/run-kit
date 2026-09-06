@@ -532,7 +532,10 @@ first hit wins; `DeliverWhenReady` is the spawn-then-deliver composite —
 readiness wait, then the engine's verified send) and is exposed on the CLI as
 `rk mux await --ready` — see [agent-messaging](/run-kit/agent-messaging.md)
 § `rk mux await` observer and [architecture](/run-kit/architecture.md)
-§ Backend Libraries → `internal/inject`. For hook-less agents the documented
+§ Backend Libraries → `internal/inject`. Between the state signal and the
+sentinel probe sits a geometry floor: a settled pane below 80×20
+(`inject.ReadyMinCols`×`inject.ReadyMinRows`) in either dimension classifies
+`narrow` — the probe cannot be trusted at that size — instead of being probed. For hook-less agents the documented
 composition is `rk mux await --ready %5 && rk mux send --force %5 '<prompt>'`
 (`send` stays gated on agent state, which a hook-less pane never has; `--force`
 is the documented pairing). Caveat: a settled **first-run dialog** can

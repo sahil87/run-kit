@@ -172,6 +172,45 @@ func PanePIDCtx(ctx context.Context, paneID, server string) (int, error) {
 	return pid, nil
 }
 
+// PaneSizeCtx reads the pane's current geometry (#{pane_width} x
+// #{pane_height}) on the given server, bounded by the caller's context — one
+// display-message round trip, the PanePIDCtx pattern. A tmux failure (e.g.
+// the pane does not exist) is returned as the error; an unparseable or
+// non-positive dimension is an error too (tmux always reports positive sizes
+// for a live pane, and a missing pane's display-message succeeds with EMPTY
+// output — the parse failure is what surfaces the operational error).
+func PaneSizeCtx(ctx context.Context, paneID, server string) (width, height int, err error) {
+	raw, err := tmuxExecRawServer(ctx, server, "display-message", "-pt", paneID, "#{pane_width}\t#{pane_height}")
+	if err != nil {
+		return 0, 0, err
+	}
+	return parsePaneSize(raw)
+}
+
+// parsePaneSize parses the width\theight pair read by PaneSizeCtx — only the
+// trailing newline is trimmed, never the delimiting tab (the parsePaneFacts
+// rule). A live pane always reports positive dimensions, so zero, negative,
+// or unparseable values are errors.
+func parsePaneSize(raw string) (int, int, error) {
+	trimmed := strings.TrimRight(raw, "\r\n")
+	parts := strings.SplitN(trimmed, "\t", 2)
+	if len(parts) != 2 {
+		return 0, 0, fmt.Errorf("parsing pane geometry %q: want WIDTH\\tHEIGHT", trimmed)
+	}
+	width, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, 0, fmt.Errorf("parsing pane_width %q: %w", parts[0], err)
+	}
+	height, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, 0, fmt.Errorf("parsing pane_height %q: %w", parts[1], err)
+	}
+	if width <= 0 || height <= 0 {
+		return 0, 0, fmt.Errorf("parsing pane geometry %q: dimensions must be positive", trimmed)
+	}
+	return width, height, nil
+}
+
 // PaneExists reports whether the given pane ID is live on the server. A tmux
 // "can't find pane" diagnostic is the false case; any other failure is a real
 // error (dead server, malformed target).

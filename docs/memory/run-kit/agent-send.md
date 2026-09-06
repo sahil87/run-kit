@@ -323,9 +323,15 @@ input buffer, using **novelty**, not mere presence: it counts a probe **needle**
 the paste is *imageish*, the image-chip placeholder) in the
 pre-paste **baseline** capture, then requires that count to strictly INCREASE in a
 post-paste capture. The needle is derived from the LAST non-empty line of the text,
-whitespace-stripped (both needle and capture stripped of ANSI + all whitespace so
-an ~80-col TUI wrap cannot split the fragment) and capped to the last
-`inject.NeedleMaxLen = 40` runes. A paste is **collapsible** when it is multiline
+whitespace-stripped (needle and capture share the ONE `stripForProbe`
+normalization — ANSI escapes, all whitespace, and every box-drawing /
+block-element rune in U+2500–U+259F dropped — so an ~80-col TUI wrap, or a
+bordered composer that reflows its own frame around the wrapped text, cannot
+split the fragment) and capped to the last
+`inject.NeedleMaxLen = 40` runes. `stripForProbe` is the single normalization
+site for `Needle`, `CountOccurrences`, `verifySubmit`'s frame comparison,
+`clearToBaseline`, and the readiness probe (`ready.go`), so every needle and
+every capture stay under one rule. A paste is **collapsible** when it is multiline
 OR a single line of at least `inject.CollapseMinRunes = 200` runes — the Claude
 Code TUI collapses such a paste into a chip, so the chip is a valid fresh-echo
 signal. `pasteCollapseRe` matches BOTH chip forms whitespace-stripped:
@@ -350,7 +356,10 @@ precedes the first capture, then up to `inject.ProbeAttempts = 8` captures with 
 shrink them). The wall-clock probe ceiling is about 640ms (`80 + 7*80`), shared
 with the post-Enter observation tail and bounded recovery under the caller's 4s
 deadline; the first successful capture still returns after one settle. The probe
-**fails closed**: an empty needle, a pane that scrolls
+**fails closed**: an empty needle (a last line that strips to empty — e.g. a
+pure frame row like `└────┘` — is skipped for the previous non-empty line; a
+message that is ALL frame glyphs yields an empty needle and `Engine.Send`'s
+empty-needle guard refuses before touching the buffer), a pane that scrolls
 between baseline and probe, or a count that never rises → `inject.ProbeFailure` → no
 Enter, `409`. This is the guard against a blind Enter into e.g. a permission
 dialog. A probe `CapturePane` subprocess error or context failure is NOT a clean
@@ -499,7 +508,10 @@ is `PasteBufferRawCtx(ctx, name, paneID, server)`, issuing
 of `-p` avoids bracketed-paste markers. `inject.Tmux` SHALL expose the matching
 `PasteBufferRaw` method beside `PasteBuffer`, and exactly ONE guard method,
 `ClearPaneMode`, which `Engine.Send`, `Engine.SendRaw`, and `Engine.PressEnter`
-each invoke as their first pane-touching step.
+each invoke as their first pane-touching step. The interface also carries
+`PaneSize(ctx, paneID, server)` — a readiness-only geometry read (the readiness
+path's once-per-settle floor check, backed by `tmux.PaneSizeCtx`); the engine
+never calls it.
 
 `api/router.go`'s `TmuxOps` interface (with `prodTmuxOps` + the test `mockTmuxOps`)
 SHALL surface these as `ClearPaneMode` / `SetAgentSendBuffer` / `PasteAgentSendBuffer` /
@@ -891,3 +903,24 @@ inherent race, accepted like the cross-process paste race.
 **Rejected**: warn-and-proceed on probe failure (silent hazard); cancel-verify
 loops (the mode re-entry race cannot be closed from outside tmux).
 *Introduced by*: 260904-kppn-mux-send-delivery-hardening
+
+### `PaneSize` lives on the `Tmux` interface, not an optional reader
+**Decision**: `inject.Tmux` gains `PaneSize`; every adapter implements it
+(`cliInjectTmux`, `awaitReadyTmux`, `riffInjectTmux`, `agentSendTmux`, and the
+test fake).
+**Why**: fail-closed by construction — an optional `ReadyOpts` reader that a
+consumer forgets to wire would silently fall open to probing (and
+mis-classifying) a below-floor pane.
+**Rejected**: `ReadyOpts.Size func(...)` (the `State`/`IsGone` pattern) — those
+are optional by design; the readiness floor is not.
+*Introduced by*: 260906-dm30-await-ready-narrow-pane-verdict
+
+### The daemon adapter calls `tmux.PaneSizeCtx` directly
+**Decision**: `agentSendTmux.PaneSize` calls `tmux.PaneSizeCtx` rather than a
+`TmuxOps.PaneSize` seam method.
+**Why**: the daemon never reaches `AwaitReady`; the method exists for interface
+satisfaction only. A seam method would touch `router.go`, the `TmuxOps`
+interface, and every api test fake for a path no daemon route executes.
+**Rejected**: `TmuxOps.PaneSize` — seam consistency for dead code is not worth
+the churn; if a daemon route ever awaits readiness, lift it to the seam then.
+*Introduced by*: 260906-dm30-await-ready-narrow-pane-verdict

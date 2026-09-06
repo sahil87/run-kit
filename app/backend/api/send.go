@@ -190,6 +190,13 @@ func (a agentSendTmux) SendKeys(ctx context.Context, paneID, server string, keys
 	return a.ops.SendKeysToPane(ctx, paneID, server, keys...)
 }
 
+// PaneSize satisfies inject.Tmux with a direct substrate call: the daemon
+// never awaits readiness, so the method exists for interface satisfaction
+// only (no TmuxOps seam for a path no daemon route executes).
+func (agentSendTmux) PaneSize(ctx context.Context, paneID, server string) (int, int, error) {
+	return tmux.PaneSizeCtx(ctx, paneID, server)
+}
+
 // agentSendEngine is the daemon's engine instance: bound to the shared
 // rk-agent-send buffer, it carries the per-(server,pane) lock map and the
 // set→paste cross-pane mutex (see inject.Engine). Package-level because the

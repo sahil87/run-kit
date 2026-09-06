@@ -32,6 +32,22 @@ const (
 	defaultReadyBuffer = "rk-ready"
 )
 
+// The readiness floor: the conventional minimum geometry agent TUIs assume.
+// Below either dimension, a bordered composer reflows or is not drawn at all,
+// so the sentinel echo probe cannot be trusted — the pane is classified narrow
+// instead of probed. Fixed constants, never a setting: the value has no
+// per-instance reason to vary.
+const (
+	ReadyMinCols = 80
+	ReadyMinRows = 20
+)
+
+// belowReadyFloor is the pure floor decision: either dimension below its floor
+// makes the pane narrow.
+func belowReadyFloor(width, height int) bool {
+	return width < ReadyMinCols || height < ReadyMinRows
+}
+
 // ErrNotReady is the sentinel AwaitReady returns when neither readiness signal
 // fires before the deadline. The wrapped message carries the last capture's
 // trailing snippet so the caller can show what the pane looked like.
@@ -47,6 +63,12 @@ var ErrParked = errors.New("pane parked behind a wall")
 // the injected ReadyOpts.IsGone predicate — the target pane died mid-wait.
 var ErrGone = errors.New("pane gone")
 
+// ErrNarrow is the sentinel NarrowError wraps: the pane is below the readiness
+// floor (ReadyMinCols x ReadyMinRows), so the sentinel probe cannot be trusted
+// and delivery must not proceed. An error (not a Readiness) so every consumer
+// fails closed — no delivery into a pane whose composer may not exist.
+var ErrNarrow = errors.New("pane below readiness floor")
+
 // ParkedError carries the settled screen's trailing snippet (bounded by
 // readySnippetMaxRunes) so the caller can judge what the wall wants. rk
 // classifies mechanically; judgment stays caller-side.
@@ -59,6 +81,19 @@ func (e *ParkedError) Error() string {
 }
 
 func (e *ParkedError) Unwrap() error { return ErrParked }
+
+// NarrowError carries the observed geometry so the caller can report and act
+// (resize or relocate the pane); rk classifies mechanically, never resizes.
+type NarrowError struct {
+	Width  int
+	Height int
+}
+
+func (e *NarrowError) Error() string {
+	return fmt.Sprintf("%s: %dx%d (floor %dx%d)", ErrNarrow, e.Width, e.Height, ReadyMinCols, ReadyMinRows)
+}
+
+func (e *NarrowError) Unwrap() error { return ErrNarrow }
 
 // Readiness reports which signal judged a pane boot-ready.
 type Readiness int
@@ -105,19 +140,23 @@ type ReadyOpts struct {
 // booting) is checked first every poll, so the sentinel is only ever typed
 // into a pane with no reconciled agent state. When no state appears and the
 // capture settles (non-blank, byte-identical across two consecutive polls),
-// the settle is the TRIGGER for a sentinel echo probe, not a verdict: paste
-// readySentinel through the named buffer, look for a novel echo
-// (CountOccurrences strictly above the pre-probe baseline), then clear with
-// C-u. An echo returns ReadyByEcho; no echo on a still-settled screen returns
-// ParkedError (the pane sits behind a wall that would eat a delivery).
+// the settle is the TRIGGER for a sentinel echo probe, gated on geometry:
+// the pane's size is read once per settle, and below the readiness floor
+// (ReadyMinCols x ReadyMinRows — a bordered composer reflows or is not drawn
+// at all, so an echo miss carries no information) the wait returns NarrowError
+// immediately instead of probing. At/above the floor: paste readySentinel
+// through the named buffer, look for a novel echo (CountOccurrences strictly
+// above the pre-probe baseline), then clear with C-u. An echo returns
+// ReadyByEcho; no echo on a still-settled screen returns ParkedError (the pane
+// sits behind a wall that would eat a delivery).
 //
-// Boot churn, blank screens, and probe infrastructure errors never classify —
-// they re-enter polling bounded only by the Deadline (ErrNotReady at expiry,
-// carrying the last capture's trailing snippet). A capture error matching
-// opts.IsGone returns ErrGone promptly. A sentinel whose C-u clear cannot
-// restore the settled baseline within ClearAttempts fails closed with an
-// operational error rather than reporting ready over a polluted composer.
-// ctx cancellation returns ctx.Err().
+// Boot churn, blank screens, geometry read failures, and probe infrastructure
+// errors never classify — they re-enter polling bounded only by the Deadline
+// (ErrNotReady at expiry, carrying the last capture's trailing snippet). A
+// capture or geometry error matching opts.IsGone returns ErrGone promptly. A
+// sentinel whose C-u clear cannot restore the settled baseline within
+// ClearAttempts fails closed with an operational error rather than reporting
+// ready over a polluted composer. ctx cancellation returns ctx.Err().
 func AwaitReady(ctx context.Context, t Tmux, server, paneID string, opts ReadyOpts) (Readiness, error) {
 	deadline := opts.Deadline
 	if deadline <= 0 {
@@ -152,16 +191,31 @@ func AwaitReady(ctx context.Context, t Tmux, server, paneID string, opts ReadyOp
 		if cur, err := t.CapturePane(ctx, paneID, readyCaptureLines, server); err == nil {
 			lastCapture = cur
 			if havePrev && cur == prev && strings.TrimSpace(cur) != "" {
-				probe, err := probeReadiness(ctx, t, server, paneID, buffer, cur, opts.IsGone)
-				if err != nil {
-					return 0, err
+				// The probe is only trustworthy at/above the readiness floor:
+				// read the geometry once per settle, before any pane-touching
+				// probe step. A read failure is "not yet" (re-enter polling;
+				// an IsGone match ends the wait); below the floor the pane
+				// classifies narrow instead of probing.
+				w, h, sizeErr := t.PaneSize(ctx, paneID, server)
+				switch {
+				case sizeErr != nil && opts.IsGone != nil && opts.IsGone(sizeErr):
+					return 0, fmt.Errorf("%w: %w", ErrGone, sizeErr)
+				case sizeErr != nil:
+					// Unknown geometry — skip this settle's probe.
+				case belowReadyFloor(w, h):
+					return 0, &NarrowError{Width: w, Height: h}
+				default:
+					probe, err := probeReadiness(ctx, t, server, paneID, buffer, cur, opts.IsGone)
+					if err != nil {
+						return 0, err
+					}
+					if probe == probeEchoed {
+						return ReadyByEcho, nil
+					}
+					// probeNotYet: churn or infrastructure failure — keep
+					// polling; a later settle may probe again (each probe
+					// cleans up after itself).
 				}
-				if probe == probeEchoed {
-					return ReadyByEcho, nil
-				}
-				// probeNotYet: churn or infrastructure failure — keep polling;
-				// a later settle may probe again (each probe cleans up after
-				// itself).
 			}
 			prev = cur
 			havePrev = true
@@ -177,9 +231,10 @@ func AwaitReady(ctx context.Context, t Tmux, server, paneID string, opts ReadyOp
 
 // DeliverWhenReady is the spawn-then-deliver composite: wait for boot
 // readiness, then run the engine's verified send. It returns the Readiness on
-// success and the first error otherwise (a readiness error — including a
-// parked classification, so delivery is never attempted into a wall — returns
-// the zero Readiness; a send error returns the readiness that fired).
+// success and the first error otherwise (a readiness error — including the
+// parked and narrow classifications, so delivery is never attempted into a
+// wall or a too-small pane — returns the zero Readiness; a send error returns
+// the readiness that fired).
 func DeliverWhenReady(ctx context.Context, t Tmux, server, paneID, text string, submit bool, e *Engine, opts ReadyOpts) (Readiness, error) {
 	readiness, err := AwaitReady(ctx, t, server, paneID, opts)
 	if err != nil {

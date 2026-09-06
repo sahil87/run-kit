@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The `rk mux` family — 13 tmux-substrate verbs, no daemon dependency, help-grouped as messaging / pane mechanics / server ops (taught by `rk skill messaging` + `rk skill mux`). Pane-scoped members (`send`/`await` + `capture`/`kill`/`process` twins) share the strict %N/@N/=session:window grammar and with `panes`/`sessions` consume inherited `-L`; `await --any` wakes on the first of N panes, `--ready` classifies boot-readiness (`ready %N (state|echo)` / `parked %N`). Operator members `new`/`adopt`/`reap`/`snapshot`/`init-conf`/`guard` reject `-L`."
+description: "The `rk mux` family — 13 tmux-substrate verbs, no daemon dependency, grouped as messaging (`send`/`await`) / pane mechanics (`capture`/`kill`/`process`, `panes`/`sessions`) / server ops (`new`/`adopt`/`reap`/`snapshot`/`init-conf`/`guard`). Pane-scoped members share the strict %N/@N/=session:window grammar and consume inherited `-L` (server ops reject it); `await --any` wakes on the first of N panes, `--ready` classifies boot-readiness (`ready %N (state|echo)` / `parked %N` / `narrow %N (WxH)`)."
 ---
 # Agent-to-Agent Messaging (`rk mux`)
 
@@ -287,7 +287,16 @@ for the moment a freshly spawned agent is safe to type into, driven by
 (state)`, exit 0 — the sentinel is therefore only ever typed into a pane with
 no reconciled agent state. For hook-less agents a **settled screen is the probe
 trigger, not a verdict**: when no state appears and the capture is non-blank
-and byte-identical across two consecutive polls, a sentinel echo probe
+and byte-identical across two consecutive polls, the settle first reads the
+pane geometry once (`inject.Tmux.PaneSize` → one `display-message -pt` of
+`#{pane_width}`/`#{pane_height}`) — below the readiness floor
+(`inject.ReadyMinCols`/`inject.ReadyMinRows`, 80×20, either dimension) a
+bordered composer reflows or is not drawn at all, so an echo miss would carry
+no information and the pane classifies **`narrow %N (WxH)`, exit 0** instead of
+probing, returned immediately (narrow is wake-worthy like parked) with the
+geometry and the resize/relocate remedy on stderr; a geometry read failure is
+"not yet" (no probe that settle; an `IsGone` match ends the wait as `gone`,
+exit 1). At/above the floor a sentinel echo probe
 classifies the pane — the probe is a delivery path, so it first runs the
 pane-mode guard (`inject.Tmux.ClearPaneMode`; a scrolled copy-mode pane shows a
 static frame that settles, then eats the paste — reading as parked without the
@@ -313,8 +322,8 @@ the deadline. `--ready` is **mutually exclusive with `--until`/`--file`/
 coherent semantics). The family's timeout contract holds: `--timeout` expiry
 reports `running`, exit 0 — with one refinement, a `--timeout 0` (indefinite)
 wait **re-arms** the primitive's internal 25s deadline after each `ErrNotReady`
-pass only — `parked` and `gone` break the loop. `--notify` fires on every
-report including `parked` and `gone`, fail-silent (default `agent %N is <first
+pass only — `parked`, `narrow`, and `gone` break the loop. `--notify` fires on every
+report including `parked`, `narrow`, and `gone`, fail-silent (default `agent %N is <first
 report token>`). **Scope rule**: the sentinel is typed only into pre-delivery
 panes (no agent state yet, nothing delivered) — rk enforces the state-absence
 half mechanically (state is checked before every probe); the nothing-delivered
@@ -323,7 +332,7 @@ verbs are illegal — use `await --until` / `capture`. The readiness wait is the
 spawn-then-deliver composite; for hook-less agents the documented composition is
 `rk mux await --ready %5 && rk mux send --force %5 '<prompt>'` — plain `send`
 stays gated on agent state, which a hook-less pane never has, so `--force` is
-the pairing (no new send gate mode). `parked` also exits 0, so `&&`-composers
+the pairing (no new send gate mode). `parked` and `narrow` also exit 0, so `&&`-composers
 must branch on the report word.
 
 The fleet-wake protocol monitoring agents build on (rk guarantee vs caller
@@ -363,6 +372,9 @@ inter-wake spacing is the re-armer's property.
   `ready %5 (echo)` prints, exit 0; **AND GIVEN** a hook-less agent settled
   behind a wall that never echoes (a trust dialog, survey, or login wall),
   **THEN** `parked %5` prints with the screen snippet on stderr, exit 0;
+  **AND GIVEN** a settled hook-less pane below the 80×20 readiness floor in
+  either dimension, **THEN** `narrow %5 (54x14)` prints with the geometry and
+  remedy on stderr, exit 0, and no probe runs;
   **AND GIVEN** the pane dies mid-wait, **THEN** `gone` prints, exit 1; **AND
   GIVEN** `--ready --until idle`, **THEN** usage error, exit 2.
 
@@ -959,7 +971,7 @@ watched set; the caller's set model drifts from reality).
 (`inject.AwaitReady`) rather than a new agent-state value: state-present is the
 preferred signal (hooks fired, so the TUI is up); for hook-less panes a settled
 screen is the trigger for a sentinel echo probe whose outcome reports
-`ready %N (state)` / `ready %N (echo)` / `parked %N`. `--ready` is mutually
+`ready %N (state)` / `ready %N (echo)` / `parked %N` / `narrow %N (WxH)`. `--ready` is mutually
 exclusive with every other await condition including `--any`. `rk mux send`
 gains NO new gate mode: the documented hook-less composition is `await --ready`
 followed by `send --force`.
@@ -981,7 +993,7 @@ caller policy — the spec's layering keeps policy out of the binary); a
 `send --when-ready` gate mode (minimal CLI surface — the shell
 composition covers it); `--ready` combinable with `--until`/`--file` (mixing
 conditions has no coherent semantics).
-*Introduced by*: 260903-4czh-boot-ready-spawn-inject; sentinel classification 260904-r7uk-await-ready-parked-classification
+*Introduced by*: 260903-4czh-boot-ready-spawn-inject; sentinel classification 260904-r7uk-await-ready-parked-classification; narrow classification 260906-dm30-await-ready-narrow-pane-verdict
 
 ### Parked is a typed error, not a Readiness value
 **Decision**: `AwaitReady` surfaces parked as a typed sentinel error carrying
@@ -1021,3 +1033,26 @@ posture.
 **Rejected**: ready-with-stderr-warning (an automated composer like
 `DeliverWhenReady` never reads the warning).
 *Introduced by*: 260904-r7uk-await-ready-parked-classification
+
+### Narrow is a geometry verdict, not a wall
+**Decision**: a settled below-floor pane returns `NarrowError`/`ErrNarrow` — a
+third typed verdict beside `ParkedError`/`ErrParked` — and the CLI prints a
+distinct first token `narrow %N (WxH)` (exit 0, geometry and remedy on stderr).
+**Why**: the probe cannot be trusted at that geometry (a bordered composer
+reflows or is not drawn), so "no echo" carries no information about walls. A
+caller branching on `parked` would answer a wall that does not exist; the true
+remedy (resize or relocate) is only actionable if named.
+**Rejected**: folding the geometry into the `parked` snippet — the frozen
+first-token contract is what scripts branch on, and `parked` already means
+"judge the wall".
+*Introduced by*: 260906-dm30-await-ready-narrow-pane-verdict
+
+### The readiness floor is a fixed constant gating only the probe arm
+**Decision**: `ReadyMinCols`/`ReadyMinRows` are exported Go constants (80×20),
+checked only at the settle-triggered probe entry; the state signal is
+unaffected.
+**Why**: 80×20 is the conventional minimum agent TUIs assume; hooks firing
+prove the TUI is up regardless of size; constitution IV/settings-home forbids a
+new env var and a settings key would be a knob nobody should turn.
+**Rejected**: a `ReadyOpts` field or config key — surface area with no caller.
+*Introduced by*: 260906-dm30-await-ready-narrow-pane-verdict

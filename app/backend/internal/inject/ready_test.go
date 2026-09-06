@@ -436,6 +436,147 @@ func TestReadySnippetBounds(t *testing.T) {
 	}
 }
 
+func TestBelowReadyFloor(t *testing.T) {
+	for _, tt := range []struct {
+		name          string
+		width, height int
+		want          bool
+	}{
+		{"at floor", 80, 20, false},
+		{"one column under", 79, 20, true},
+		{"one row under", 80, 19, true},
+		{"phone-viewing size", 54, 14, true},
+		{"comfortable", 190, 44, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := belowReadyFloor(tt.width, tt.height); got != tt.want {
+				t.Errorf("belowReadyFloor(%d, %d) = %v, want %v", tt.width, tt.height, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAwaitReadyNarrowSkipsProbe(t *testing.T) {
+	fastProbe(t)
+	// A settled below-floor pane classifies narrow IMMEDIATELY (wake-worthy,
+	// like parked — not a spin to the deadline) without any probe-side pane
+	// calls: the sentinel cannot be trusted where a bordered composer reflows.
+	ft := &fakeTmux{
+		captureResults: []string{"prompt>", "prompt>"},
+		sizeW:          54,
+		sizeH:          14,
+	}
+	_, err := AwaitReady(context.Background(), ft, "srv", "%1", ReadyOpts{
+		Deadline: 20 * time.Millisecond,
+		Sleep:    noSleep,
+	})
+	if !errors.Is(err, ErrNarrow) {
+		t.Fatalf("AwaitReady() error = %v, want ErrNarrow", err)
+	}
+	var narrow *NarrowError
+	if !errors.As(err, &narrow) || narrow.Width != 54 || narrow.Height != 14 {
+		t.Errorf("NarrowError = %+v, want 54x14", narrow)
+	}
+	calls := ft.callStream()
+	for _, c := range []string{"clear-pane-mode", "set-buffer", "paste-buffer", "send-keys C-u"} {
+		if got := countCalls(calls, c); got != 0 {
+			t.Errorf("%s calls = %d, want 0 (no probe on a narrow settle)", c, got)
+		}
+	}
+	if got := countCalls(calls, "pane-size"); got != 1 {
+		t.Errorf("pane-size calls = %d, want 1 (one geometry read at the settle)", got)
+	}
+}
+
+func TestAwaitReadyStateBeatsNarrow(t *testing.T) {
+	// State is checked first every poll: hooks firing prove the TUI is up
+	// regardless of geometry, so a state-present pane is ready at any size and
+	// the geometry read never runs.
+	ft := &fakeTmux{captureResult: "prompt>", sizeW: 54, sizeH: 14}
+	r, err := AwaitReady(context.Background(), ft, "srv", "%1", ReadyOpts{
+		State: stateScript(sp("idle:1751790000:4242", nil)),
+		Sleep: noSleep,
+	})
+	if err != nil || r != ReadyByState {
+		t.Fatalf("AwaitReady() = (%v, %v), want (ReadyByState, nil)", r, err)
+	}
+	if got := countCalls(ft.callStream(), "pane-size"); got != 0 {
+		t.Errorf("pane-size calls = %d, want 0 (state wins before geometry)", got)
+	}
+}
+
+func TestAwaitReadySizeErrorRePolls(t *testing.T) {
+	fastProbe(t)
+	// A geometry read failure at a settle is "not yet": no probe that settle
+	// (its trustworthiness is unknown), and the next settle re-reads and probes
+	// normally once the size reads at/above the floor.
+	settled := "prompt>"
+	ft := &fakeTmux{
+		captureResults: []string{
+			settled, settled, // settle — size read fails, no probe
+			settled,                    // next poll: settled again, size reads fine
+			settled,                    // guard recheck
+			settled + " #rk-ready-probe", // probe echo
+			settled,                    // clear verify
+		},
+		sizeErrs: []error{errors.New("display-message wedged")},
+	}
+	r, err := AwaitReady(context.Background(), ft, "srv", "%1", ReadyOpts{Sleep: noSleep})
+	if err != nil || r != ReadyByEcho {
+		t.Fatalf("AwaitReady() = (%v, %v), want (ReadyByEcho, nil)", r, err)
+	}
+	calls := ft.callStream()
+	if got := countCalls(calls, "pane-size"); got != 2 {
+		t.Errorf("pane-size calls = %d, want 2 (one per settle)", got)
+	}
+	if got := countCalls(calls, "set-buffer"); got != 1 {
+		t.Errorf("set-buffer calls = %d, want 1 (no probe on the failed-geometry settle)", got)
+	}
+}
+
+func TestAwaitReadySizeErrorGone(t *testing.T) {
+	// A geometry read failure matching the gone predicate ends the wait
+	// promptly with ErrGone, like a gone capture.
+	isGone := func(err error) bool { return strings.Contains(err.Error(), "can't find pane") }
+	ft := &fakeTmux{
+		captureResults: []string{"prompt>", "prompt>"},
+		sizeErr:        errors.New("can't find pane: %1"),
+	}
+	_, err := AwaitReady(context.Background(), ft, "srv", "%1", ReadyOpts{
+		IsGone: isGone,
+		Sleep:  noSleep,
+	})
+	if !errors.Is(err, ErrGone) {
+		t.Fatalf("AwaitReady() error = %v, want ErrGone", err)
+	}
+}
+
+func TestDeliverWhenReadyNarrowSkipsSend(t *testing.T) {
+	fastProbe(t)
+	// A narrow classification is an AwaitReady error, so delivery is never
+	// attempted into a pane whose composer may not exist — fail closed with no
+	// special-casing.
+	ft := &fakeTmux{
+		captureResults: []string{"prompt>", "prompt>"},
+		sizeW:          54,
+		sizeH:          14,
+	}
+	engine := NewEngine("rk-test")
+	r, err := DeliverWhenReady(context.Background(), ft, "srv", "%7", "hi", true, engine, ReadyOpts{Sleep: noSleep})
+	if !errors.Is(err, ErrNarrow) {
+		t.Fatalf("DeliverWhenReady() error = %v, want ErrNarrow", err)
+	}
+	if r != 0 {
+		t.Errorf("readiness = %v, want the zero value on a readiness error", r)
+	}
+	if got := countCalls(ft.callStream(), "set-buffer"); got != 0 {
+		t.Errorf("set-buffer calls = %d, want 0 (not even the sentinel probe)", got)
+	}
+	if ft.enterCalled {
+		t.Error("no Enter on a narrow pane")
+	}
+}
+
 func TestDeliverWhenReadyComposite(t *testing.T) {
 	fastProbe(t)
 	fastSubmit(t)

@@ -88,9 +88,15 @@ deliver**, with a strict split of labor:
      **`parked %N`** (exit 0), with the screen snippet on stderr. This replaces
      today's false-fire hazard (a settled trust dialog reporting
      `ready (settled)`) with an honest classification.
+   - **Geometry floor**: the probe is gated on geometry — below the 80×20
+     readiness floor (either dimension) a bordered composer reflows or is not
+     drawn at all, so the pane reports **`narrow %N (WxH)`** (exit 0) instead
+     of being probed, with the geometry and the resize/relocate remedy on
+     stderr.
    - `booting` never returns — the await blocks through boot churn and returns
-     only on `ready`, `parked`, `gone`, or timeout (`running`). A `parked`
-     verdict returns immediately: it is wake-worthy, the caller must act.
+     only on `ready`, `parked`, `narrow`, `gone`, or timeout (`running`). A
+     `parked` or `narrow` verdict returns immediately: it is wake-worthy, the
+     caller must act.
    - **Scope rule**: the sentinel is typed only into pre-delivery panes (no
      agent state, nothing yet delivered) — the same carve-out fab's dispatch
      gate uses. Against a live delivered worker, readiness verbs are illegal;
@@ -124,8 +130,8 @@ new gate mode; `--force` is the pairing for panes that will never carry state.
   be a hook-less agent, which is exactly the `--force` composition's case.
 - **Report-word contract is frozen.** One line on stdout, report word first
   (`delivered` / `staged` / `sent` / `unverified` / `ready` / `parked` /
-  `idle` / `waiting` / `file` / `running` / `gone` / `killed` / `created` /
-  `adopted`), diagnostics on stderr, toolkit exit codes (0 success /
+  `narrow` / `idle` / `waiting` / `file` / `running` / `gone` / `killed` /
+  `created` / `adopted`), diagnostics on stderr, toolkit exit codes (0 success /
   1 operational / 2 usage). Agent-friendliness lives in this contract, not in
   command names.
 

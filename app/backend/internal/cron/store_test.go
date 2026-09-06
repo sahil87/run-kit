@@ -281,6 +281,26 @@ func roleTickSpec() Entry {
 	}
 }
 
+// TestEnsureRoleEntryRejectsNonRoleSpec: a spec that does not target a
+// concrete role is an error and plants nothing — the (kind, role) pair is the
+// idempotency key, so a caller bug must surface at the call, not as a silent
+// seed the scan can never match.
+func TestEnsureRoleEntryRejectsNonRoleSpec(t *testing.T) {
+	dir := t.TempDir()
+	for _, spec := range []Entry{
+		{Target: Target{Kind: TargetSession, Session: "s1"}},
+		{Target: Target{Kind: TargetRole}},
+	} {
+		if _, _, err := EnsureRoleEntry(dir, "dev", spec); err == nil {
+			t.Errorf("EnsureRoleEntry(%+v) err = nil, want a role-target validation error", spec.Target)
+		}
+	}
+	entries, diags := LoadEntries(filepath.Join(dir, "dev.yaml"))
+	if len(entries) != 0 || len(diags) != 0 {
+		t.Errorf("entries=%v diags=%v, want nothing planted by a rejected spec", entries, diags)
+	}
+}
+
 // TestEnsureRoleEntrySeedsOnEmpty: an absent entry file gains exactly one
 // entry with the spec's fields and created=true.
 func TestEnsureRoleEntrySeedsOnEmpty(t *testing.T) {

@@ -142,6 +142,11 @@ func Add(dir, slug string, e Entry) (Entry, error) {
 // backoff bounds or muted the entry) leaves the user's edit alone: the role
 // target is the idempotency key, not any field value.
 func EnsureRoleEntry(dir, slug string, spec Entry) (entry Entry, created bool, err error) {
+	// The (kind, role) pair is the idempotency key: a mistargeted spec must
+	// fail loudly, never plant a non-role entry the scan can never match.
+	if spec.Target.Kind != TargetRole || spec.Target.Role == "" {
+		return Entry{}, false, fmt.Errorf("EnsureRoleEntry requires a role target with a non-empty role, got kind %q role %q", spec.Target.Kind, spec.Target.Role)
+	}
 	_, entries, err := loadForMutate(dir, slug)
 	if err != nil {
 		return Entry{}, false, err

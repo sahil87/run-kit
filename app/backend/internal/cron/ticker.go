@@ -19,8 +19,11 @@ import (
 const DefaultTickInterval = 30 * time.Second
 
 // tickTimeout bounds one iteration. Overlap is already impossible (Tick's
-// flock serializes invokers); the timeout only bounds a hung enumeration.
-const tickTimeout = 30 * time.Second
+// flock serializes invokers); the bound must also fit a respawn, the tick's
+// longest legitimate work: window create + the operatorDeliverDeadline-class
+// readiness wait (25s) + the send's command budget. 60s covers that with
+// headroom while still bounding a hung enumeration to one backoff rung.
+const tickTimeout = 60 * time.Second
 
 // Ticker invokes Tick on a fixed cadence. The interval, tickFn, and enabled
 // seams exist so tests run fast without tmux or a settings file.

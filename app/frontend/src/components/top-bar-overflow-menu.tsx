@@ -502,7 +502,7 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
           onBlur={() => setVersionRowFocused(false)}
           onClick={handleCopy}
           aria-label={daemonVersion ? `${versionText} (copy)` : "RunKit"}
-          className={`${MENU_ROW_BASE} ${MENU_ROW_REST} flex-1 min-w-0`}
+          className={`${MENU_ROW_BASE} ${MENU_ROW_REST} w-auto! flex-1 min-w-0`}
         >
           {versionText}
         </button>

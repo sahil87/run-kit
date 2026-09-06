@@ -14,38 +14,49 @@
  */
 
 /**
- * Shared overflow-menu row styling. Decomposed so callers compose exactly the
- * variant they need instead of re-declaring a drifted subset:
+ * The one menu-row scale — every menu/popover row (overflow chevron menu,
+ * split-button dropdowns, breadcrumb dropdowns) composes these, so no second
+ * row scale can drift in. Decomposed so callers compose exactly the variant
+ * they need instead of re-declaring a subset:
  *
  *  - `MENU_ROW_BASE` — layout only (full-width left-aligned flex row, padding,
- *    text size). No color/state tokens.
+ *    text size) plus the height floor: 28px fine (the rendered xs/py-1.5
+ *    box), 40px coarse (the touch floor). No color/state tokens.
  *  - `MENU_ROW_REST` — the resting/hover treatment (secondary text → primary
  *    on hover, card hover bg).
  *  - `MENU_ROW_DISABLED` — the disabled-state tokens (dimmed, no hover).
- *  - `MENU_ROW_ACTIVE` — the inverse-video accent-green treatment used to mark
- *    a selected row (e.g. the active shape in `LayoutMenuRows`).
+ *  - `MENU_ROW_CHECKED` — the ONE checked/selected treatment (scheme C: green
+ *    = state): primary ink + hover fill only, worn INSTEAD of `MENU_ROW_REST`
+ *    (REST-swap — never stacked, so no hover utility competes).
+ *  - `MENU_ROW_CHECK_MARK` — the trailing green ✓ that carries the checked
+ *    state (`aria-hidden` at the call site; the row's label stays the
+ *    accessible name).
  *  - `MENU_ROW_CLASS` — the default composition (`base + rest + disabled`)
  *    used by every plain menu row.
  */
 export const MENU_ROW_BASE =
-  "w-full text-left flex items-center gap-2 px-2.5 py-1.5 text-xs transition-colors";
+  "w-full text-left flex items-center gap-2 px-2.5 py-1.5 text-xs min-h-[28px] coarse:min-h-[40px] transition-colors";
 export const MENU_ROW_REST =
   "text-text-secondary hover:text-text-primary hover:bg-bg-card";
 export const MENU_ROW_DISABLED =
   "disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-text-secondary";
-export const MENU_ROW_ACTIVE = "bg-accent-green text-bg-primary";
+export const MENU_ROW_CHECKED = "text-text-primary hover:bg-bg-card";
+export const MENU_ROW_CHECK_MARK = "ml-auto text-accent-green";
 /** Default row class — the resting variant plus disabled-state tokens. */
 export const MENU_ROW_CLASS = `${MENU_ROW_BASE} ${MENU_ROW_REST} ${MENU_ROW_DISABLED}`;
 
 /**
- * Shared IN-BAR popover row styling — the dropdown rows of the split-button
- * controls themselves (`OpenTargetRow` targets, `SplitControl` directions).
- * Distinct from the chevron overflow menu's `MENU_ROW_*` scale
- * (`text-[11px] px-3` vs `text-xs px-2.5`). Carries disabled-state tokens for
- * rows that gate on a pending action (inert for rows that never disable).
+ * The one popover shell — every floating menu container (overflow menu,
+ * split/layout/open popovers, breadcrumb dropdown, F▴ menu) composes this and
+ * adds only its own positioning, width, and height/viewport caps at the call
+ * site.
  */
-export const POPOVER_ROW_CLASS =
-  "w-full text-left flex items-center gap-2 px-3 py-1.5 text-[11px] text-text-secondary hover:text-text-primary hover:bg-bg-card transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-text-secondary";
+export const POPOVER_SHELL =
+  "bg-bg-primary border border-border rounded-lg shadow-2xl py-1 z-50";
+/** The one menu section-label recipe (aria-hidden decoration — menu semantics
+ *  ride the rows). */
+export const POPOVER_SECTION_LABEL =
+  "px-2.5 pt-1.5 pb-0.5 text-[10px] uppercase tracking-wider text-text-secondary select-none";
 
 /**
  * Shared top-bar icon-button sizing. The size is a FIXED square — 28×28 on

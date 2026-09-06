@@ -67,17 +67,21 @@ describe("BreadcrumbDropdown", () => {
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 
-  it("highlights current item with accent color", () => {
+  it("marks the current item with the checked treatment (primary ink + trailing green ✓)", () => {
     render(<BreadcrumbDropdown items={items} />);
     clickChevron();
-    const currentItem = screen.getByText("project-a");
-    expect(currentItem.className).toContain("text-accent");
+    const currentItem = screen.getByRole("menuitem", { name: "project-a" });
+    expect(currentItem.className).toContain("text-text-primary");
+    expect(currentItem.className).not.toContain("text-accent");
+    const check = currentItem.querySelector("span[aria-hidden='true']");
+    expect(check?.textContent).toBe("✓");
+    expect(check?.className).toContain("text-accent-green");
   });
 
   it("non-current items have secondary color", () => {
     render(<BreadcrumbDropdown items={items} />);
     clickChevron();
-    const otherItem = screen.getByText("project-b");
+    const otherItem = screen.getByRole("menuitem", { name: "project-b" });
     expect(otherItem.className).toContain("text-text-secondary");
   });
 
@@ -102,17 +106,16 @@ describe("BreadcrumbDropdown", () => {
 
     const icon = screen.getByTestId("item-icon");
     const label = screen.getByText("coordinator");
-    expect(icon.parentElement).toHaveClass(
-      "text-text-secondary",
-      "group-hover/dropdown-item:text-text-primary",
-    );
+    // The icon slot carries no color of its own — it rides the row's ink.
+    expect(icon.parentElement).toHaveClass("shrink-0");
     expect(
       icon.compareDocumentPosition(label) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(screen.getByText("worker").childElementCount).toBe(0);
+    // Icon-less rows render the label span only.
+    expect(screen.getByRole("menuitem", { name: "worker" }).childElementCount).toBe(1);
   });
 
-  it("keeps a current item's label accent while its icon uses primary text color", () => {
+  it("a current item with an icon reads primary ink throughout, with no accent tint", () => {
     render(
       <BreadcrumbDropdown
         items={[
@@ -129,9 +132,10 @@ describe("BreadcrumbDropdown", () => {
 
     const item = screen.getByRole("menuitem", { name: "coordinator" });
     const iconSlot = screen.getByTestId("current-item-icon").parentElement;
-    expect(item).toHaveClass("text-accent");
-    expect(iconSlot).toHaveClass("text-text-primary");
+    expect(item).toHaveClass("text-text-primary");
+    expect(item).not.toHaveClass("text-accent");
     expect(iconSlot).not.toHaveClass("text-accent");
+    expect(iconSlot).not.toHaveClass("text-text-secondary");
   });
 
   it("calls onNavigate with correct href when item is clicked", () => {

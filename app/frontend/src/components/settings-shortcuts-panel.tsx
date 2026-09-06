@@ -69,6 +69,12 @@ const GROUPS: { name: string; scope: BindingScope }[] = [
   { name: "BOARD", scope: "board" },
 ];
 
+/** The one borderless selected treatment (green = state): fill+ink for
+ *  segmented-picker options and list rows that carry no border of their own
+ *  (bordered shapes use `LATCHED_ARM`). REST-swap — the selected arm replaces
+ *  the hover-carrying rest classes, never stacks on them. */
+const SELECTED_FILL = "bg-accent-green/15 text-accent-green";
+
 /** Jump-nav section ids, in document order (260801-sm6g). */
 type JumpSectionId = "map" | "global" | "terminal" | "board" | "custom" | "tmux";
 
@@ -686,7 +692,7 @@ export function SettingsShortcutsPanel({
               key={p}
               type="button"
               onClick={() => setDisplayPlatform(p)}
-              className={`text-[11px] px-2.5 py-1 ${displayPlatform === p ? "bg-accent/20 text-text-primary" : "text-text-secondary hover:text-accent-green"}`}
+              className={`text-[11px] px-2.5 py-1 ${displayPlatform === p ? SELECTED_FILL : "text-text-secondary hover:text-accent-green"}`}
             >
               {p === "mac" ? "macOS" : "Win · Linux"}
             </button>
@@ -769,7 +775,7 @@ export function SettingsShortcutsPanel({
                       type="button"
                       onClick={() => setMapTier(t)}
                       aria-pressed={mapTier === t}
-                      className={`text-[10.5px] px-2 py-0.5 ${mapTier === t ? "bg-accent/20 text-text-primary" : "text-text-secondary hover:text-accent-green"}`}
+                      className={`text-[10.5px] px-2 py-0.5 ${mapTier === t ? SELECTED_FILL : "text-text-secondary hover:text-accent-green"}`}
                     >
                       {t === "shifted" ? "⇧ ⌘" : "⌘"}
                     </button>
@@ -977,7 +983,7 @@ export function SettingsShortcutsPanel({
                           setAddTarget({ label: o.label, target: o.target });
                           setAddName(o.label);
                         }}
-                        className={`text-left text-[11px] px-2 py-1 rounded font-mono ${addTarget?.label === o.label ? "bg-accent/15 text-text-primary" : "text-text-secondary hover:text-text-primary hover:bg-bg-inset/70"}`}
+                        className={`text-left text-[11px] px-2 py-1 rounded font-mono ${addTarget?.label === o.label ? SELECTED_FILL : "text-text-secondary hover:text-text-primary hover:bg-bg-inset/70"}`}
                       >
                         {o.label}
                       </button>

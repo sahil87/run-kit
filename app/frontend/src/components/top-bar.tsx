@@ -29,9 +29,14 @@ import {
 } from "@/components/top-bar-overflow-menu";
 import {
   LATCHED_ARM,
+  MENU_ROW_BASE,
+  MENU_ROW_CHECKED,
+  MENU_ROW_CHECK_MARK,
   MENU_ROW_CLASS,
+  MENU_ROW_DISABLED,
   MENU_ROW_KBD_CLASS,
-  POPOVER_ROW_CLASS,
+  MENU_ROW_REST,
+  POPOVER_SHELL,
   TOP_BAR_BUTTON,
   TOP_BAR_BUTTON_BASE,
   TOP_BAR_BUTTON_REST,
@@ -467,7 +472,8 @@ function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
 
 /**
  * The group's overflow-menu form (Tiles section): one `menuitemcheckbox` row
- * per shown surface — checked = tile open, leading `SURFACE_GLYPH` glyph (the
+ * per shown surface — checked = tile open (the one checked treatment: primary
+ * ink + trailing green ✓ on `aria-checked`), leading `SURFACE_GLYPH` glyph (the
  * leading-glyph parity rule), disabled-at-3 like the bar buttons. Clicking a
  * row runs the same shared toggle mutation as the bar group.
  */
@@ -489,12 +495,17 @@ function SurfaceToggleMenuRows({ toggles }: { toggles: SurfaceTogglesToggle }) {
             disabled={disabled}
             aria-label={`${SURFACE_LABEL[surface]} tile`}
             onClick={() => toggles.onToggle(surface)}
-            className={MENU_ROW_CLASS}
+            className={`${MENU_ROW_BASE} ${isOpen ? MENU_ROW_CHECKED : MENU_ROW_REST} ${MENU_ROW_DISABLED}`}
           >
             <span aria-hidden="true" className="font-mono text-[11px]">
               {SURFACE_GLYPH[surface]}
             </span>
             <span className="flex-1">{`${SURFACE_LABEL[surface]} tile`}</span>
+            {isOpen && (
+              <span aria-hidden="true" className={MENU_ROW_CHECK_MARK}>
+                ✓
+              </span>
+            )}
           </button>
         );
       })}
@@ -2408,14 +2419,14 @@ function SplitControl({
           // varies per platform (⇧⌘D on mac, Shift+Ctrl+\ elsewhere), so the
           // menu now sizes to its content and the floor only guards the
           // unbound case. Rows never wrap.
-          className="absolute top-full right-0 mt-1 w-max min-w-[170px] bg-bg-primary border border-border rounded-lg shadow-2xl py-1 z-50"
+          className={`absolute top-full right-0 mt-1 w-max min-w-[170px] ${POPOVER_SHELL}`}
         >
           <button
             type="button"
             role="menuitem"
             onClick={() => run(true)}
             disabled={isPending}
-            className={POPOVER_ROW_CLASS}
+            className={MENU_ROW_CLASS}
           >
             <SplitHorizontalGlyph />
             Split horizontal
@@ -2430,7 +2441,7 @@ function SplitControl({
             role="menuitem"
             onClick={() => run(false)}
             disabled={isPending}
-            className={POPOVER_ROW_CLASS}
+            className={MENU_ROW_CLASS}
           >
             <SplitVerticalGlyph />
             Split vertical
@@ -2622,7 +2633,7 @@ function BoardAutofitToggle({
 // what clicking the icon button does — so bar↔menu behavior can never drift.
 
 // `MENU_ROW_CLASS` (and its decomposed `MENU_ROW_BASE`/`_REST`/`_DISABLED`/
-// `_ACTIVE` variants) are hosted in `controls.ts` and imported at
+// `_CHECKED` variants) are hosted in `controls.ts` and imported at
 // the top of this file so the row styling stays shared (mirrors
 // BreadcrumbDropdown's item classes).
 
@@ -2680,13 +2691,13 @@ function FixedWidthMenuRow() {
       aria-checked={fixedWidth}
       tabIndex={-1}
       onClick={toggleFixedWidth}
-      className={MENU_ROW_CLASS}
+      className={`${MENU_ROW_BASE} ${fixedWidth ? MENU_ROW_CHECKED : MENU_ROW_REST} ${MENU_ROW_DISABLED}`}
     >
       {/* Static identity variant — state is carried solely by the trailing ✓
           (leading icon = identity, trailing ✓ = state). */}
       <FixedWidthGlyph />
       <span className="flex-1">Fixed width</span>
-      {fixedWidth && <span aria-hidden="true">✓</span>}
+      {fixedWidth && <span aria-hidden="true" className={MENU_ROW_CHECK_MARK}>✓</span>}
     </button>
   );
 }
@@ -2729,12 +2740,12 @@ function AutofitMenuRow({ autofit, onToggle }: { autofit: boolean; onToggle: () 
       aria-checked={autofit}
       tabIndex={-1}
       onClick={onToggle}
-      className={MENU_ROW_CLASS}
+      className={`${MENU_ROW_BASE} ${autofit ? MENU_ROW_CHECKED : MENU_ROW_REST} ${MENU_ROW_DISABLED}`}
     >
       {/* Static identity variant (unfilled frame) — state stays on the ✓. */}
       <AutofitGlyph />
       <span className="flex-1">Autofit panes</span>
-      {autofit && <span aria-hidden="true">✓</span>}
+      {autofit && <span aria-hidden="true" className={MENU_ROW_CHECK_MARK}>✓</span>}
     </button>
   );
 }

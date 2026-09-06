@@ -27,6 +27,7 @@ import { isMacroActionId } from "@/lib/macros";
 import { isShell } from "@/lib/shell";
 import { useSettingsRegistry, type SettingsRegistry } from "@/components/settings-registry-seam";
 import { SettingsAllPanel, BoolToggle } from "@/components/settings-all-panel";
+import { LATCHED_ARM } from "@/components/controls";
 import {
   useTextSettingDraft,
   textSettingInputClass,
@@ -162,7 +163,7 @@ function ThemePairControl() {
       aria-pressed={mode === m}
       className={`px-2 py-1 border rounded text-xs transition-colors ${
         mode === m
-          ? "border-accent text-text-primary bg-bg-inset"
+          ? LATCHED_ARM
           : "border-border text-text-secondary hover:border-text-secondary"
       }`}
     >

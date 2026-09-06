@@ -1,0 +1,55 @@
+id: td2p
+name: 260906-td2p-menu-popover-unification
+created: 2026-09-06T11:06:15Z
+created_by: Sahil Ahuja
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 9
+    acceptance_count: 13
+    acceptance_completed: 13
+confidence:
+    certain: 2
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 4.9
+    fuzzy: true
+    dimensions:
+        signal: 75.1
+        reversibility: 83.1
+        competence: 84.9
+        disambiguation: 80.0
+stage_metrics:
+    intake: {started_at: "2026-09-06T11:06:15Z", driver: fab-new, iterations: 1, completed_at: "2026-09-06T11:56:41Z"}
+    apply: {started_at: "2026-09-06T11:56:41Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-06T12:07:03Z"}
+    review: {started_at: "2026-09-06T12:07:03Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-06T12:18:49Z"}
+    hydrate: {started_at: "2026-09-06T12:18:49Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-06T12:26:42Z"}
+    ship: {started_at: "2026-09-06T12:26:42Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-06T12:26:42Z"
+    computed_at_stage: hydrate
+summary: Menus/popovers unified on one MENU_ROW_* row scale (28/40 floors) + one POPOVER_SHELL container; one green checked/selected vocabulary (MENU_ROW_CHECKED + green ✓, SELECTED_FILL); breadcrumb triggers join the 40px coarse floor; settings pickers REST-swap to green
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-06T12:26:42Z

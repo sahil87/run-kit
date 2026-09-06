@@ -25,8 +25,12 @@ import { useKeybindings } from "@/hooks/use-keybindings";
 import { formatCombo } from "@/lib/keybindings";
 import {
   LATCHED_ARM,
+  MENU_ROW_BASE,
   MENU_ROW_CLASS,
   MENU_ROW_KBD_CLASS,
+  MENU_ROW_REST,
+  POPOVER_SECTION_LABEL,
+  POPOVER_SHELL,
   TOP_BAR_BUTTON,
   TOP_BAR_BUTTON_BASE,
   TOP_BAR_BUTTON_REST,
@@ -469,7 +473,7 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
       disabled={updating}
       onClick={triggerUpdate}
       aria-label={updating ? "Updating run-kit" : updateLabel}
-      className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 text-xs text-accent-green hover:bg-bg-card transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+      className={`${MENU_ROW_BASE} text-accent-green hover:bg-bg-card disabled:opacity-60 disabled:cursor-not-allowed`}
     >
       {updating ? (
         <>
@@ -498,7 +502,7 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
           onBlur={() => setVersionRowFocused(false)}
           onClick={handleCopy}
           aria-label={daemonVersion ? `${versionText} (copy)` : "RunKit"}
-          className="flex-1 min-w-0 text-left px-2.5 py-1.5 text-xs text-text-secondary hover:text-text-primary hover:bg-bg-card transition-colors"
+          className={`${MENU_ROW_BASE} ${MENU_ROW_REST} flex-1 min-w-0`}
         >
           {versionText}
         </button>
@@ -606,7 +610,7 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
           role="menu"
           aria-label="More controls"
           style={{ top: menuPos.top, right: menuPos.right }}
-          className="fixed bg-bg-primary border border-border rounded-lg shadow-2xl py-1 min-w-[200px] max-w-[280px] z-50 max-h-[70vh] overflow-y-auto"
+          className={`fixed ${POPOVER_SHELL} min-w-[200px] max-w-[280px] max-h-[70vh] overflow-y-auto`}
         >
           {sections.map((s, i) => (
             <div key={s.key}>
@@ -617,7 +621,7 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
               {showLabels && (
                 <div
                   aria-hidden="true"
-                  className="px-2.5 pt-1.5 pb-0.5 text-[10px] uppercase tracking-wider text-text-secondary select-none"
+                  className={POPOVER_SECTION_LABEL}
                 >
                   {s.label}
                 </div>

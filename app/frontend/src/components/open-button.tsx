@@ -5,7 +5,8 @@ import { useToast } from "@/components/toast";
 import {
   LATCHED_ARM,
   MENU_ROW_CLASS,
-  POPOVER_ROW_CLASS,
+  POPOVER_SECTION_LABEL,
+  POPOVER_SHELL,
   TOP_BAR_SEGMENT_H,
 } from "@/components/controls";
 import {
@@ -169,7 +170,7 @@ export function OpenButton({
         <div
           role="menu"
           aria-label="Open in app"
-          className="absolute top-full right-0 mt-1 min-w-[160px] bg-bg-primary border border-border rounded-lg shadow-2xl py-1 z-50"
+          className={`absolute top-full right-0 mt-1 min-w-[160px] ${POPOVER_SHELL}`}
         >
           {deeplinks.map((t) => (
             <OpenTargetRow key={t.id} target={t} onRun={run} />
@@ -177,7 +178,7 @@ export function OpenButton({
           {showHostHeader && (
             <div
               aria-hidden="true"
-              className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-text-secondary select-none"
+              className={POPOVER_SECTION_LABEL}
             >
               on host
             </div>
@@ -206,7 +207,7 @@ function OpenTargetRow({
       type="button"
       role="menuitem"
       onClick={() => onRun(target)}
-      className={POPOVER_ROW_CLASS}
+      className={MENU_ROW_CLASS}
     >
       <OpenTargetIcon target={target} />
       {target.label}

@@ -1,5 +1,13 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, type ReactNode } from "react";
 import { Tip } from "@/components/tip";
+import {
+  MENU_ROW_BASE,
+  MENU_ROW_CHECKED,
+  MENU_ROW_CHECK_MARK,
+  MENU_ROW_CLASS,
+  MENU_ROW_REST,
+  POPOVER_SHELL,
+} from "@/components/controls";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
 
 type DropdownAction = { label: string; onAction: () => void };
@@ -171,7 +179,7 @@ export function BreadcrumbDropdown({ items, label, onNavigate, action, secondary
           // `position: fixed` (anchored to this trigger's viewport rect, below),
           // so it lives OUTSIDE both this trigger's box and the breadcrumb nav's
           // `overflow-hidden` clip — no ancestor overflow can clip or displace it.
-          className={`min-w-[24px] min-h-[24px] flex items-center transition-colors ${triggerClassName ?? "text-text-secondary hover:text-text-primary"}`}
+          className={`min-w-[24px] min-h-[24px] coarse:min-w-[40px] coarse:min-h-[40px] flex items-center transition-colors ${triggerClassName ?? "text-text-secondary hover:text-text-primary"}`}
         >
           {triggerContent ?? <span className="min-w-0 truncate">{"\u25BE"}</span>}
         </button>
@@ -185,7 +193,7 @@ export function BreadcrumbDropdown({ items, label, onNavigate, action, secondary
           // the menu from the breadcrumb nav's `overflow-hidden` clip context
           // (260715-q8ey). `left-0` etc. are dropped since positioning is inline.
           style={{ top: menuPos.top, left: menuPos.left }}
-          className="fixed bg-bg-primary border border-border rounded-lg shadow-2xl py-1 min-w-[160px] max-w-[240px] z-50 max-h-60 overflow-y-auto"
+          className={`fixed ${POPOVER_SHELL} min-w-[160px] max-w-[240px] max-h-60 overflow-y-auto`}
         >
           {leadingActions.length > 0 && (
             <>
@@ -200,7 +208,7 @@ export function BreadcrumbDropdown({ items, label, onNavigate, action, secondary
                     setOpen(false);
                     la.onAction();
                   }}
-                  className="w-full text-left block px-3 py-2 text-sm text-text-primary hover:bg-bg-card transition-colors"
+                  className={MENU_ROW_CLASS}
                 >
                   {la.label}
                 </button>
@@ -221,29 +229,20 @@ export function BreadcrumbDropdown({ items, label, onNavigate, action, secondary
                   onNavigate(item.href);
                 }
               }}
-              className={`w-full text-left block px-3 py-2 text-sm truncate transition-colors ${
-                item.icon ? "group/dropdown-item " : ""
-              }${
-                item.current
-                  ? "text-accent"
-                  : "text-text-secondary hover:text-text-primary hover:bg-bg-card"
+              className={`${MENU_ROW_BASE} ${
+                item.current ? MENU_ROW_CHECKED : MENU_ROW_REST
               }`}
             >
-              {item.icon ? (
-                <span className="flex min-w-0 items-center gap-1.5">
-                  <span
-                    className={`shrink-0 transition-colors ${
-                      item.current
-                        ? "text-text-primary"
-                        : "text-text-secondary group-hover/dropdown-item:text-text-primary"
-                    }`}
-                  >
-                    {item.icon}
-                  </span>
-                  <span className="min-w-0 truncate">{item.label}</span>
+              {item.icon && (
+                // `currentColor` decoration — rides the row's rest→hover /
+                // checked ink instead of re-typing the row's color tokens.
+                <span className="shrink-0">{item.icon}</span>
+              )}
+              <span className="min-w-0 truncate">{item.label}</span>
+              {item.current && (
+                <span aria-hidden="true" className={MENU_ROW_CHECK_MARK}>
+                  ✓
                 </span>
-              ) : (
-                item.label
               )}
             </button>
           ))}

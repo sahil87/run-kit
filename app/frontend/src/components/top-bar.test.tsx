@@ -1931,7 +1931,14 @@ describe("WindowHeading (centered, editable, terminal mode)", () => {
     const menu = screen.getByRole("menu", { name: "Switch tab" });
     const icon = within(menu).getByTestId("operator-headset-icon");
     expect(icon).toBeInTheDocument();
-    expect(icon.parentElement).toHaveClass("text-text-primary");
+    // The operator window is the current item — the checked treatment's
+    // primary ink rides the row, and the icon slot inherits it (no competing
+    // color class of its own).
+    const currentRow = within(menu).getByRole("menuitem", { name: "main" });
+    expect(currentRow).toHaveClass("text-text-primary");
+    expect(currentRow).toContainElement(icon);
+    expect(icon.parentElement).not.toHaveClass("text-accent");
+    expect(icon.parentElement).not.toHaveClass("text-text-secondary");
     expect(within(menu).getByRole("menuitem", { name: "worker" })).not.toContainElement(
       icon,
     );

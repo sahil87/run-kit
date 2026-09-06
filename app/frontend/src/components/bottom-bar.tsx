@@ -3,7 +3,7 @@ import { useModifierState, type ModifierSnapshot } from "@/hooks/use-modifier-st
 import { useFocusedTerminal } from "@/contexts/focused-terminal-context";
 import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
 import { KBD_BASE, KBD_CLASS } from "@/components/kbd-chip";
-import { LATCHED_ARM, LATCHED_ARM_RINGED } from "@/components/controls";
+import { LATCHED_ARM, LATCHED_ARM_RINGED, POPOVER_SHELL } from "@/components/controls";
 import { Tip, TipGroup } from "@/components/tip";
 import {
   focusComposeStrip,
@@ -425,7 +425,7 @@ export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
             // overflow:hidden silently clips the menu's TOP rows (the ⌥ latch
             // was unreachable on phones); overflow-y-auto is the backstop for
             // viewports smaller than the compact grid.
-            className="absolute bottom-full left-0 mb-1 bg-bg-primary border border-border rounded-lg shadow-2xl py-1 min-w-[176px] max-h-[calc(var(--app-height,100vh)-130px)] overflow-y-auto z-50"
+            className={`absolute bottom-full left-0 mb-1 ${POPOVER_SHELL} min-w-[176px] max-h-[calc(var(--app-height,100vh)-130px)] overflow-y-auto`}
           >
             {/* \u2325 latch + arrow keypad share one row \u2014 the menu opens above a
                 bar that sits on top of the software keyboard, so vertical

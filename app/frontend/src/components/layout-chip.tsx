@@ -13,9 +13,10 @@ import { LayoutGlyph, LayoutShapeGlyph } from "@/components/top-bar-icons";
 import {
   LATCHED_ARM,
   MENU_ROW_BASE,
+  MENU_ROW_CHECKED,
+  MENU_ROW_CHECK_MARK,
   MENU_ROW_REST,
-  MENU_ROW_ACTIVE,
-  POPOVER_ROW_CLASS,
+  POPOVER_SHELL,
   TOP_BAR_BUTTON,
   TOP_BAR_BUTTON_BASE,
 } from "@/components/controls";
@@ -36,8 +37,8 @@ import {
  *   closes + refocuses the trigger, `role="menu"` + `menuitemradio` rows).
  * - **Overflow (`LayoutMenuRows`)**: the chip's chevron-menu form — one
  *   `Layout: …` `menuitemradio` row per arity-valid shape (the
- *   `ViewSwitcherMenuRows` precedent: `MENU_ROW_*` composition, active row
- *   inverse-video, `tabIndex={-1}` roving focus).
+ *   `ViewSwitcherMenuRows` precedent: `MENU_ROW_*` composition, checked row
+ *   primary-ink + trailing ✓, `tabIndex={-1}` roving focus).
  *
  * The same-arity CYCLE chord is the registry's `layout-cycle` binding (⌘;) —
  * the chip's tip advertises its effective combo (registry-derived, omitted
@@ -127,7 +128,7 @@ export function LayoutChip({ layout, onApply }: LayoutChipProps) {
           aria-label="Layout presets"
           // The SplitControl direction-menu sizing: shrink-wraps to its rows
           // (`w-max`) with the 170px floor guarding the single-shape case.
-          className="absolute top-full right-0 mt-1 w-max min-w-[170px] bg-bg-primary border border-border rounded-lg shadow-2xl py-1 z-50"
+          className={`absolute top-full right-0 mt-1 w-max min-w-[170px] ${POPOVER_SHELL}`}
         >
           {shapes.map((shape) => {
             const current = shape === layout.shape;
@@ -139,14 +140,14 @@ export function LayoutChip({ layout, onApply }: LayoutChipProps) {
                 aria-checked={current}
                 data-testid={`layout-shape-${shape}`}
                 onClick={() => jump(shape)}
-                className={POPOVER_ROW_CLASS}
+                className={`${MENU_ROW_BASE} ${current ? MENU_ROW_CHECKED : MENU_ROW_REST}`}
               >
                 <LayoutShapeGlyph shape={shape} />
                 {SHAPE_LABEL[shape]}
                 {/* Current-shape marker: trailing ✓ (the macOS menu pattern —
                     the row's glyph is identity, the ✓ is the state marker). */}
                 {current && (
-                  <span aria-hidden="true" className="ml-auto text-accent-green">
+                  <span aria-hidden="true" className={MENU_ROW_CHECK_MARK}>
                     ✓
                   </span>
                 )}
@@ -162,8 +163,9 @@ export function LayoutChip({ layout, onApply }: LayoutChipProps) {
 /**
  * The chip's chevron-menu rows (260715-h1ck overflow representation): one
  * `Layout: …` `menuitemradio` row per arity-valid shape — the
- * `ViewSwitcherMenuRows` precedent (`MENU_ROW_BASE` + rest/active composition,
- * inverse-video active row, `tabIndex={-1}` for the menu's roving focus).
+ * `ViewSwitcherMenuRows` precedent (`MENU_ROW_BASE` + rest/checked composition,
+ * checked row primary-ink + trailing ✓, `tabIndex={-1}` for the menu's roving
+ * focus).
  * Clicking jumps directly (the menu's role-keyed click handler closes the
  * panel on a `menuitemradio` activation).
  */
@@ -185,10 +187,15 @@ export function LayoutMenuRows({ layout, onApply }: LayoutChipProps) {
               const next = setShape(layout, shape);
               if (next) onApply(next);
             }}
-            className={`${MENU_ROW_BASE} ${current ? MENU_ROW_ACTIVE : MENU_ROW_REST}`}
+            className={`${MENU_ROW_BASE} ${current ? MENU_ROW_CHECKED : MENU_ROW_REST}`}
           >
             <LayoutShapeGlyph shape={shape} />
             {`Layout: ${SHAPE_LABEL[shape]}`}
+            {current && (
+              <span aria-hidden="true" className={MENU_ROW_CHECK_MARK}>
+                ✓
+              </span>
+            )}
           </button>
         );
       })}

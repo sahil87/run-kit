@@ -17,6 +17,12 @@ import { TMUX_SERVER, createSession, killSession } from "./_tmux";
  * collapsed → open transition are covered by unit tests
  * (`collapsible-panel.test.tsx`, `server-panel.test.tsx`) — e2e coverage here
  * focuses on presence + layout.
+ *
+ * The trailing `coarse pointer` describe runs under `test.use({ hasTouch:
+ * true, viewport: 375×812 })` — `hasTouch` flips Chromium's `(any-pointer:
+ * coarse)` media query, activating the `coarse:` Tailwind variant — and
+ * needs no tmux sessions of its own: it measures only the always-mounted
+ * panel header rows in the open drawer.
  */
 
 const MOBILE_VIEWPORT = { width: 375, height: 812 };
@@ -229,5 +235,50 @@ test.describe("Server Panel Tile Grid", () => {
     await expect(
       page.getByRole("separator", { name: /Resize.*Server/ }),
     ).toBeVisible();
+  });
+});
+
+test.describe("Server Panel Header — coarse pointer density", () => {
+  test.use({ hasTouch: true, viewport: MOBILE_VIEWPORT });
+
+  /**
+   * Proves: on a coarse pointer the SERVER panel header row is no taller than
+   * its sibling BOARDS header — the `+` create-server button's 40px coarse
+   * touch floor is layout-neutral (negative vertical margins let the hit box
+   * overhang the row instead of stretching it), while the button's tap target
+   * itself still meets the 40px floor.
+   *
+   * Steps:
+   * 1. Navigate to `/${TMUX_SERVER}` at 375×812 with `hasTouch: true`.
+   * 2. Open the mobile sidebar drawer via `Toggle navigation`.
+   * 3. Locate the Server and Boards header toggle buttons (`/^Server/`,
+   *    `/^Boards/`) and measure their parent header-row bounding boxes
+   *    (CollapsiblePanel renders header-div > button — one `..` reaches the
+   *    header row).
+   * 4. Assert the two header heights are equal within 1px.
+   * 5. Assert the `New tmux server` button's bounding box is ≥ 40px tall and
+   *    wide (the coarse floor survives the layout-neutral margins).
+   */
+  test("SERVER header matches BOARDS header height on coarse pointers", async ({ page }) => {
+    await page.goto(`/${TMUX_SERVER}`);
+
+    await page.getByRole("button", { name: "Toggle navigation" }).click();
+    const sidebar = page.getByRole("navigation", { name: "Sessions" });
+    await expect(sidebar).toBeVisible();
+
+    const serverHeader = sidebar.getByRole("button", { name: /^Server/ }).locator("..");
+    const boardsHeader = sidebar.getByRole("button", { name: /^Boards/ }).locator("..");
+    await expect(serverHeader).toBeVisible();
+    await expect(boardsHeader).toBeVisible();
+
+    const serverBox = (await serverHeader.boundingBox())!;
+    const boardsBox = (await boardsHeader.boundingBox())!;
+    expect(Math.abs(serverBox.height - boardsBox.height)).toBeLessThanOrEqual(1);
+
+    const plusBox = (await sidebar
+      .getByRole("button", { name: "New tmux server" })
+      .boundingBox())!;
+    expect(plusBox.height).toBeGreaterThanOrEqual(40);
+    expect(plusBox.width).toBeGreaterThanOrEqual(40);
   });
 });

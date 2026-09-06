@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-06T16:08:19Z"}
+{"args":"Mobile sidebar SERVER header too thick: coarse:min-h-[40px] on the + headerAction inflates the CollapsiblePanel header row to ~48px on touch; fix by making the coarse floor layout-neutral (negative vertical margin) in server-panel.tsx and host-panel.tsx","cmd":"fab-new","event":"command","ts":"2026-09-06T16:08:19Z"}
+{"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-09-06T16:09:40Z"}
+{"cmd":"fab-new","event":"command","ts":"2026-09-06T16:09:50Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-06T16:13:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-06T16:13:31Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-06T16:17:29Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-06T16:20:32Z"}
+{"event":"review","result":"passed","ts":"2026-09-06T16:20:32Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-06T16:21:48Z"}

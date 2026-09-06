@@ -77,7 +77,9 @@ export function HostPanel() {
   // container of its own in this slot, so the button itself gates
   // reachability — inert at rest on fine pointers (pointer-events-none),
   // restored on panel hover, keyboard focus, and always on coarse; opacity
-  // mirrors it. Floored at 24px fine / 40px coarse (the tappable minimums).
+  // mirrors it. Floored at 24px fine / 40px coarse (the tappable minimums);
+  // the negative margins keep the floor layout-neutral — the hit box overhangs
+  // the header row instead of stretching it past the text-driven height.
   const paletteAction = (
     <>
       <button
@@ -85,7 +87,7 @@ export function HostPanel() {
         type="button"
         onClick={() => setShowColorPicker((v) => !v)}
         aria-label="Set instance color"
-        className="opacity-0 group-hover/panel:opacity-100 coarse:opacity-100 focus-visible:opacity-100 pointer-events-none group-hover/panel:pointer-events-auto coarse:pointer-events-auto focus-visible:pointer-events-auto transition-opacity px-1 min-w-[24px] min-h-[24px] coarse:min-w-[40px] coarse:min-h-[40px] flex items-center justify-center hover:text-text-primary"
+        className="opacity-0 group-hover/panel:opacity-100 coarse:opacity-100 focus-visible:opacity-100 pointer-events-none group-hover/panel:pointer-events-auto coarse:pointer-events-auto focus-visible:pointer-events-auto transition-opacity px-1 min-w-[24px] min-h-[24px] coarse:min-w-[40px] coarse:min-h-[40px] -my-1 coarse:-my-3 flex items-center justify-center hover:text-text-primary"
       >
         <PaletteIcon />
       </button>

@@ -938,7 +938,10 @@ function WindowRowInner({
           kill live on the flyout card's action rows; an always-visible ✕ per row
           is a fat-finger hazard on a phone), the PR glyph's coarse home is the
           status rail, and the empty container would only risk swallowing rail
-          touches when a sticky :hover restores its pointer-events. On fine
+          touches when a sticky :hover restores its pointer-events. This is the
+          ONE carve-out to the shared hover-reveal contract (canonical spelling:
+          the status-panel PR-copy cluster) — deliberate design, not drift, so
+          the cluster carries NO coarse: escapes. On fine
           pointers the cluster is inert at rest (pointer-events-none) so stray
           clicks near the row's right edge fall through to the row-select button
           instead of hitting an invisible icon; interactivity is restored on

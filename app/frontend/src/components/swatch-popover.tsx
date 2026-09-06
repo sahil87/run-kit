@@ -48,8 +48,16 @@ type SwatchPopoverProps = {
   onSelectFlair?: (flair: string) => void;
 };
 
-/** Cell geometry: every band cell is an 18px square on a 3px gap. */
-const CELL = "w-[18px] h-[18px]";
+/** Cell geometry: every band cell is an 18px square on a 3px gap on fine
+ *  pointers — a documented dense-picker exception to the 24px fine tappable
+ *  floor (an 8+ column color grid cannot take the floor and stay a scannable
+ *  palette). Coarse pointers get 28px — not the 40px floor, which cannot fit
+ *  a 375px viewport with this column count; 28px matches the marker pad's
+ *  coarse cell ballpark and a grid mis-tap is cheap and visible. The grid
+ *  track literals at each band (grid-rows/auto-cols) mirror these sizes per
+ *  pointer class — the pairs MUST change together (Tailwind scans literals
+ *  only, so no shared constant). */
+const CELL = "w-[18px] h-[18px] coarse:w-[28px] coarse:h-[28px]";
 
 /** Neutral sample name for the composite preview when the caller has no row
  *  (settings/host accent pickers). */
@@ -474,7 +482,7 @@ export function SwatchPopover({
       />
       <div className="rk-band-fade">
         <div className="rk-band-scroll">
-          <div className="grid grid-flow-col grid-rows-[18px_18px_18px] auto-cols-[18px] gap-[3px] w-max">
+          <div className="grid grid-flow-col grid-rows-[18px_18px_18px] coarse:grid-rows-[28px_28px_28px] auto-cols-[18px] coarse:auto-cols-[28px] gap-[3px] w-max">
             {PICKER_COLOR_VALUES.map((value) => {
               const tint = rowTints.get(value);
               const fallback = colorValueToHex(value, theme.palette) ?? theme.palette.foreground;
@@ -523,7 +531,11 @@ export function SwatchPopover({
             focused={isFocused(cellId("clear-flair"))}
             cellRef={setCellRef(cellId("clear-flair"))}
           />
-          <div className="grid grid-flow-col grid-rows-[18px_18px] auto-cols-[18px] gap-[3px] w-max mt-1">
+          {/* Coarse-only scroll containment: at 28px cells the 7-column strip
+              (~214px) outgrows the popover's fixed 190px box; the wrapper is
+              layout-neutral on fine pointers. */}
+          <div className="mt-1 coarse:overflow-x-auto">
+          <div className="grid grid-flow-col grid-rows-[18px_18px] coarse:grid-rows-[28px_28px] auto-cols-[18px] coarse:auto-cols-[28px] gap-[3px] w-max">
             {FLAIR_NAMED.map((state) => {
               const isSelected = currentFlair === state;
               const id = cellId("flair", state);
@@ -546,6 +558,7 @@ export function SwatchPopover({
                 </Tip>
               );
             })}
+          </div>
           </div>
         </>
       )}

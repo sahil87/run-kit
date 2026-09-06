@@ -268,7 +268,7 @@ function CopyableRow({ prefix, copied, onCopy, children, title, tipLabel }: {
     <button
       type="button"
       onClick={onCopy}
-      className="group truncate text-left w-full cursor-pointer hover:bg-bg-inset focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent bg-transparent border-0 p-0 m-0 font-inherit text-inherit"
+      className="group truncate text-left w-full cursor-pointer hover:bg-bg-inset bg-transparent border-0 p-0 m-0 font-inherit text-inherit"
       title={title}
     >
       <Tip label={tipLabel} placement="right">
@@ -306,7 +306,7 @@ function PrLinkRow({ prUrl, prNumber, copied, onCopy, children, tipLabel }: {
         rel="noopener noreferrer"
         title={prUrl}
         aria-label={`Open PR #${prNumber} in a new tab`}
-        className="group flex items-center truncate w-full pr-6 hover:bg-bg-inset focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
+        className="group flex items-center truncate w-full pr-6 hover:bg-bg-inset"
       >
         {/* Non-collapsing spacing: the anchor is a flex container, so a
             whitespace-only {" "} text node between flex items is dropped and a
@@ -336,12 +336,22 @@ function PrLinkRow({ prUrl, prNumber, copied, onCopy, children, tipLabel }: {
           {"\u2197"}
         </span>
       </a>
-      {/* Hover-revealed copy icon (the copy role swapped off the row body). Inert
-          at rest on fine pointers (pointer-events-none) so a stray click near the
-          row's right edge falls through to the anchor; interactivity is restored
-          on hover, coarse pointers, and keyboard focus within
-          (has-[:focus-visible]). The button is a SIBLING of the anchor (not
-          enclosed by it), so the click cannot navigate on its own \u2014 the
+      {/* THE canonical hover-reveal contract (every hover-revealed icon
+          cluster in the sidebar spells it this way): the CONTAINER gates
+          reachability — pointer-events-none at rest on fine pointers so a
+          stray click near the row's right edge falls through to the row body,
+          restored on hover (group-hover), coarse pointers (always reachable —
+          no hover dependence), and keyboard focus within
+          (has-[:focus-visible]); the revealed BUTTONS carry the opacity
+          mirror (opacity-0 → group-hover/coarse/focus-visible:opacity-100).
+          A site whose button has no grouping container of its own MAY spell
+          the same contract button-level (host-panel's palette action) —
+          reachability semantics are the contract, not the markup. The ONE
+          carve-out: window-row's cluster is deliberately FINE-POINTER-ONLY
+          (not rendered on coarse at all — the status rail owns that surface),
+          so it carries no coarse: escapes.
+          This copy button is a SIBLING of the anchor (not
+          enclosed by it), so the click cannot navigate on its own — the
           preventDefault() is belt-and-suspenders. Color follows the window-row
           cluster precedent (text-text-secondary hover:text-text-primary), NOT
           ICON_CLASS: ICON_CLASS carries text-accent-bright, which would fight
@@ -356,7 +366,7 @@ function PrLinkRow({ prUrl, prNumber, copied, onCopy, children, tipLabel }: {
             e.stopPropagation();
             onCopy(prUrl);
           }}
-          className="font-bold text-[14px] leading-none text-text-secondary hover:text-text-primary transition-opacity cursor-pointer opacity-0 group-hover/pr:opacity-100 coarse:opacity-100 focus-visible:opacity-100 px-0.5 min-h-[20px] flex items-center justify-center bg-transparent border-0"
+          className="font-bold text-[14px] leading-none text-text-secondary hover:text-text-primary transition-opacity cursor-pointer opacity-0 group-hover/pr:opacity-100 coarse:opacity-100 focus-visible:opacity-100 px-0.5 min-w-[24px] min-h-[24px] coarse:min-w-[40px] coarse:min-h-[40px] flex items-center justify-center bg-transparent border-0"
         >
           {"\uf0c5"}
         </button>

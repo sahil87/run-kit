@@ -2936,7 +2936,7 @@ function ServerGroupInner(props: ServerGroupProps) {
           {visibleSessions.length === 0 && sessions.length === 0 ? (
             <button
               onClick={() => onCreateSession(server)}
-              className="block w-full pl-2 pr-2 py-1 text-left text-xs text-text-secondary hover:text-text-primary hover:bg-bg-card/30 transition-colors"
+              className="block w-full pl-2 pr-2 py-1 text-left text-xs text-text-secondary hover:text-text-primary hover:bg-bg-card/50 transition-colors"
             >
               {createSessionChord
                 ? `(no sessions — a session groups tabs; + new, or ${createSessionChord})`

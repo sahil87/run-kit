@@ -161,7 +161,7 @@ export function PinPopover({ server, windowId, boards, boardsLoading = false, is
               onNavigateToBoard(pinnedBoard);
               onClose();
             }}
-            className="w-full flex items-center justify-between gap-2 px-3 py-1.5 text-sm text-left text-accent hover:bg-bg-card transition-colors"
+            className="w-full flex items-center justify-between gap-2 px-3 py-1.5 text-sm text-left text-accent hover:bg-bg-card/50 transition-colors"
           >
             <span className="truncate">Go to {pinnedBoard}</span>
             <span aria-hidden="true">→</span>
@@ -181,7 +181,7 @@ export function PinPopover({ server, windowId, boards, boardsLoading = false, is
                 <button
                   type="button"
                   onClick={() => handleToggleExisting(b.name)}
-                  className="w-full flex items-center justify-between gap-2 px-2 py-0.5 min-h-[24px] coarse:min-h-[36px] text-xs text-left text-text-primary hover:bg-bg-card transition-colors"
+                  className="w-full flex items-center justify-between gap-2 px-2 py-0.5 min-h-[24px] coarse:min-h-[36px] text-xs text-left text-text-primary hover:bg-bg-card/50 transition-colors"
                 >
                   <span className="truncate">{b.name}</span>
                   <span className="flex items-center gap-1.5 shrink-0">
@@ -234,7 +234,7 @@ export function PinPopover({ server, windowId, boards, boardsLoading = false, is
             onClick={handleSubmitNew}
             disabled={!newName.trim() && !emptyEnterTarget}
             aria-label="Pin to board"
-            className="shrink-0 text-xs border border-border rounded px-1.5 py-0.5 min-h-[22px] coarse:min-h-[36px] text-text-secondary hover:text-text-primary hover:bg-bg-card transition-colors disabled:opacity-40"
+            className="shrink-0 text-xs border border-border rounded px-1.5 py-0.5 min-h-[24px] coarse:min-h-[40px] text-text-secondary hover:text-text-primary hover:bg-bg-card/50 transition-colors disabled:opacity-40"
           >
             Pin
           </button>

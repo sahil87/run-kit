@@ -435,8 +435,8 @@ export function canRequestWindowOperatorAction(win: WindowInfo, hasOperator: boo
  *  border + inter-row hairlines span edge to edge), one line tall — icon +
  *  label left, muted sub-hint right; ≥36px touch height on coarse, ~28px on
  *  fine pointers (the row-cluster touch-target convention). */
-const ACTION_ROW_CLASS =
-  "flex w-full items-center gap-1.5 min-w-0 px-2 text-left whitespace-nowrap min-h-[28px] coarse:min-h-[36px] text-text-primary hover:bg-[color-mix(in_srgb,var(--color-text-primary)_8%,transparent)] border-l-2 border-l-transparent pl-1.5 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent";
+export const ACTION_ROW_CLASS =
+  "flex w-full items-center gap-1.5 min-w-0 px-2 text-left whitespace-nowrap min-h-[28px] coarse:min-h-[36px] text-text-primary hover:bg-[color-mix(in_srgb,var(--color-text-primary)_8%,transparent)] border-l-2 border-l-transparent pl-1.5";
 
 /** The muted per-action sub-hint riding the row's right edge. It is the row's
  *  FLEXIBLE part (`min-w-0 truncate`): inside the `max-w-xs` fine-pointer card
@@ -725,7 +725,7 @@ export function WindowFlyoutContent({
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
-            className="text-text-secondary hover:text-text-primary coarse:p-1"
+            className="inline-flex items-center justify-center min-w-[24px] min-h-[24px] coarse:min-w-[40px] coarse:min-h-[40px] text-text-secondary hover:text-text-primary"
             aria-label="What do status dots mean? (opens docs)"
             title="What do status dots mean?"
             data-testid="row-flyout-docs-link"
@@ -786,7 +786,7 @@ export function WindowFlyoutContent({
                   title={win.prUrl}
                   aria-label={`Open PR #${win.prNumber} in a new tab`}
                   onClick={(e) => e.stopPropagation()}
-                  className="group/pr flex items-center min-w-0 -mx-2 px-2 py-0.5 hover:bg-[color-mix(in_srgb,var(--color-text-primary)_8%,transparent)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent coarse:py-1"
+                  className="group/pr flex items-center min-w-0 -mx-2 px-2 py-0.5 hover:bg-[color-mix(in_srgb,var(--color-text-primary)_8%,transparent)] coarse:py-1"
                   data-testid="row-flyout-pr-link"
                 >
                   <span className="text-text-secondary shrink-0">{"pr\u00a0\u00a0"}</span>

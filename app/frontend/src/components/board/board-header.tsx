@@ -82,7 +82,7 @@ export function BoardHeader({ entry, onUnpin, homeSession, dragHandleProps }: Bo
             onUnpin();
           }}
           aria-label={`Unpin ${entry.windowName || entry.windowId} from board`}
-          className="text-text-secondary hover:text-text-primary px-1 flex items-center justify-center"
+          className="text-text-secondary hover:text-text-primary px-1 min-w-[24px] min-h-[24px] coarse:min-w-[40px] coarse:min-h-[40px] flex items-center justify-center"
         >
           {/* Slashed thumbtack = "remove the pin" — the shared PinIcon in its
               unpin variant, matching the sidebar's pin glyph. */}

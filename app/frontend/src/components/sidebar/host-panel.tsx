@@ -72,8 +72,12 @@ export function HostPanel() {
 
   // Sibling of the header toggle button (the `titleAction` slot, right of the
   // HOST title) — a button nested inside the toggle would be invalid markup.
-  // Hover-revealed with the touch/keyboard fallbacks (the session-row
-  // convention).
+  // The button-level spelling of the one hover-reveal contract (the
+  // status-panel PR-copy cluster is the reference): there is no grouping
+  // container of its own in this slot, so the button itself gates
+  // reachability — inert at rest on fine pointers (pointer-events-none),
+  // restored on panel hover, keyboard focus, and always on coarse; opacity
+  // mirrors it. Floored at 24px fine / 40px coarse (the tappable minimums).
   const paletteAction = (
     <>
       <button
@@ -81,7 +85,7 @@ export function HostPanel() {
         type="button"
         onClick={() => setShowColorPicker((v) => !v)}
         aria-label="Set instance color"
-        className="opacity-0 group-hover/panel:opacity-100 coarse:opacity-100 focus-visible:opacity-100 transition-opacity px-1 flex items-center justify-center hover:text-text-primary"
+        className="opacity-0 group-hover/panel:opacity-100 coarse:opacity-100 focus-visible:opacity-100 pointer-events-none group-hover/panel:pointer-events-auto coarse:pointer-events-auto focus-visible:pointer-events-auto transition-opacity px-1 min-w-[24px] min-h-[24px] coarse:min-w-[40px] coarse:min-h-[40px] flex items-center justify-center hover:text-text-primary"
       >
         <PaletteIcon />
       </button>

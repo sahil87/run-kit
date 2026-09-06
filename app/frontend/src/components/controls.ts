@@ -103,6 +103,20 @@ export const LATCHED_ARM =
 export const LATCHED_ARM_RINGED =
   "bg-accent-green/15 ring-1 ring-inset ring-accent-green text-accent-green hover:bg-accent-green/25";
 
+/**
+ * The one switch-track recipe (scheme C: green = state) — every `role="switch"`
+ * control (the server-card Protect row, the settings BoolToggle) composes these
+ * around its OWN track/knob geometry, which stays per-site. The recipe carries
+ * color only: ON is the translucent green track + solid green knob, OFF the
+ * recessed-well ground (`bg-bg-inset` — the same "off/empty" surface the marker
+ * wells and status rail use) + secondary-ink knob. No second spelling of the
+ * track colors may appear at a call site.
+ */
+export const SWITCH_TRACK_ON = "bg-accent-green/30 border-accent-green";
+export const SWITCH_TRACK_OFF = "bg-bg-inset border-border";
+export const SWITCH_KNOB_ON = "bg-accent-green";
+export const SWITCH_KNOB_OFF = "bg-text-secondary";
+
 /** Trailing menu-row keycap — the right-aligned chord chip on menu rows whose
  *  action has a registry binding. Matches the palette rows' kbd visual weight
  *  (command-palette.tsx), `ml-auto`-pinned to the row's right edge;

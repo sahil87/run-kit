@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SettingsEntry } from "@/api/client";
 import { SwatchPopover } from "@/components/swatch-popover";
+import {
+  SWITCH_KNOB_OFF,
+  SWITCH_KNOB_ON,
+  SWITCH_TRACK_OFF,
+  SWITCH_TRACK_ON,
+} from "@/components/controls";
 import { Tip } from "@/components/tip";
 import { copyToClipboard } from "@/lib/clipboard";
 import { THEMES, getThemeById } from "@/themes";
@@ -84,13 +90,13 @@ export function BoolToggle({ id, label, on, commit }: { id?: string; label: stri
             .finally(() => setBusy(false));
         }}
         className={`relative w-8 h-[18px] rounded-full border transition-colors disabled:opacity-50 ${
-          on ? "bg-accent-green/30 border-accent-green" : "bg-bg-inset border-border"
+          on ? SWITCH_TRACK_ON : SWITCH_TRACK_OFF
         }`}
       >
         <span
           aria-hidden="true"
           className={`absolute top-[2px] w-3 h-3 rounded-full transition-all ${
-            on ? "left-[16px] bg-accent-green" : "left-[2px] bg-text-secondary"
+            on ? `left-[16px] ${SWITCH_KNOB_ON}` : `left-[2px] ${SWITCH_KNOB_OFF}`
           }`}
         />
       </button>

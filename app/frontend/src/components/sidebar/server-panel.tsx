@@ -129,7 +129,7 @@ export function ServerPanel({
         <button
           onClick={onCreateServer}
           aria-label="New tmux server"
-          className="text-text-secondary hover:text-text-primary transition-colors text-[13px] px-1 flex items-center justify-center"
+          className="text-text-secondary hover:text-text-primary transition-colors text-[13px] px-1 min-w-[24px] min-h-[24px] coarse:min-w-[40px] coarse:min-h-[40px] flex items-center justify-center"
         >
           +
         </button>

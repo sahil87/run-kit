@@ -57,7 +57,7 @@ export function OperatorContextChip({
         type="button"
         aria-label="Detach window context"
         onClick={dismissOperatorChatChip}
-        className="shrink-0 px-0.5 text-text-secondary transition-colors hover:text-text-primary"
+        className="shrink-0 px-0.5 min-w-[24px] min-h-[24px] coarse:min-w-[40px] coarse:min-h-[40px] inline-flex items-center justify-center text-text-secondary transition-colors hover:text-text-primary"
       >
         ✕
       </button>

@@ -2,7 +2,13 @@ import { useLayoutEffect, useState, type RefObject } from "react";
 import { DAEMON_SERVER } from "@/api/client";
 import { CloseIcon, PaletteIcon, PlusIcon } from "./icons";
 import { PopupTitleBar, PopupTitleBarSecondary } from "./popup-title-bar";
-import { CardActionList, CardActionRow } from "./row-flyout-card";
+import { ACTION_ROW_CLASS, CardActionList, CardActionRow } from "./row-flyout-card";
+import {
+  SWITCH_KNOB_OFF,
+  SWITCH_KNOB_ON,
+  SWITCH_TRACK_OFF,
+  SWITCH_TRACK_ON,
+} from "@/components/controls";
 
 /**
  * The server tier's flyout-card content — ONE implementation consumed by both
@@ -83,15 +89,15 @@ export function ServerCardContent({
               e.stopPropagation();
               onToggleProtect();
             }}
-            className="w-full flex items-center gap-2 px-2 py-1.5 text-left text-text-secondary hover:text-text-primary disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-text-secondary"
+            className={`${ACTION_ROW_CLASS} hover:text-text-primary hover:border-l-accent-green disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-text-secondary disabled:hover:border-l-transparent`}
           >
             <span className="shrink-0">{serverProtected ? "Unprotect" : "Protect"}</span>
             <span
               aria-hidden="true"
-              className={`ml-auto w-7 h-4 rounded-full border ${serverProtected ? "bg-accent-green/30 border-accent-green" : "bg-bg-card border-border"} relative`}
+              className={`ml-auto w-7 h-4 rounded-full border relative ${serverProtected ? SWITCH_TRACK_ON : SWITCH_TRACK_OFF}`}
             >
               <span
-                className={`absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full ${serverProtected ? "right-0.5 bg-accent-green" : "left-0.5 bg-text-secondary"}`}
+                className={`absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full ${serverProtected ? `right-0.5 ${SWITCH_KNOB_ON}` : `left-0.5 ${SWITCH_KNOB_OFF}`}`}
               />
             </span>
           </button>

@@ -1,0 +1,193 @@
+package cron
+
+import (
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+
+	"gopkg.in/yaml.v3"
+)
+
+// specExampleYAML is the spec's example entry file (docs/specs/cron.md § Cron
+// State), verbatim in shape.
+const specExampleYAML = `
+entries:
+  - id: a3f9
+    name: operator tick
+    schedule: { kind: backoff, anchor: operator-idle, min: 60s, max: 30m }
+    wake_on: { event: agent-state-change, scope: server, debounce: 10s }
+    suppress_while: [operator-loop-fresh, nothing-tracked]
+    target: { kind: role, role: operator }
+    payload: "operator tick"
+    deliver: immediate
+    if_absent: respawn
+    pinned: true
+    created_by: { session: 8c1e, pane: "%12", at: 1788254000 }
+  - id: k7q2
+    name: hourly PR sweep
+    schedule: { kind: every, interval: 1h }
+    target: { kind: session, session: 4fe2 }
+    payload: "check open PRs for new review comments and triage them"
+    deliver: when-idle
+    if_absent: skip
+    created_by: { session: 4fe2, pane: "%31", at: 1788255100 }
+`
+
+func loadSpecExample(t *testing.T) []Entry {
+	t.Helper()
+	var wrapper struct {
+		Entries []Entry `yaml:"entries"`
+	}
+	if err := yaml.Unmarshal([]byte(specExampleYAML), &wrapper); err != nil {
+		t.Fatal(err)
+	}
+	return wrapper.Entries
+}
+
+func TestSpecExampleRoundTrips(t *testing.T) {
+	entries := loadSpecExample(t)
+	if len(entries) != 2 {
+		t.Fatalf("entries = %d, want 2", len(entries))
+	}
+
+	op := entries[0]
+	if op.ID != "a3f9" || op.Name != "operator tick" {
+		t.Errorf("entry = %+v", op)
+	}
+	if op.Schedule.Kind != ScheduleBackoff || op.Schedule.Anchor != "operator-idle" {
+		t.Errorf("schedule = %+v", op.Schedule)
+	}
+	if op.Schedule.Min.Duration != 60*time.Second || op.Schedule.Max.Duration != 30*time.Minute {
+		t.Errorf("backoff min/max = %v/%v", op.Schedule.Min, op.Schedule.Max)
+	}
+	if op.WakeOn == nil || op.WakeOn.Event != WakeAgentStateChange ||
+		op.WakeOn.Scope != WakeScopeServer || op.WakeOn.Debounce.Duration != 10*time.Second {
+		t.Errorf("wake_on = %+v", op.WakeOn)
+	}
+	if !reflect.DeepEqual(op.SuppressWhile, []string{GuardOperatorLoopFresh, GuardNothingTracked}) {
+		t.Errorf("suppress_while = %v", op.SuppressWhile)
+	}
+	if op.Target.Kind != TargetRole || op.Target.Role != RoleOperator {
+		t.Errorf("target = %+v", op.Target)
+	}
+	if op.Deliver != DeliverImmediate || op.IfAbsent != IfAbsentRespawn || !op.Pinned || op.Muted {
+		t.Errorf("flags = %+v", op)
+	}
+	if op.CreatedBy.Session != "8c1e" || op.CreatedBy.Pane != "%12" || op.CreatedBy.At != 1788254000 {
+		t.Errorf("created_by = %+v", op.CreatedBy)
+	}
+
+	sweep := entries[1]
+	if sweep.Schedule.Kind != ScheduleEvery || sweep.Schedule.Interval.Duration != time.Hour {
+		t.Errorf("schedule = %+v", sweep.Schedule)
+	}
+	if sweep.Target.Kind != TargetSession || sweep.Target.Session != "4fe2" {
+		t.Errorf("target = %+v", sweep.Target)
+	}
+	for _, e := range entries {
+		if err := e.validate(); err != nil {
+			t.Errorf("entry %s failed validation: %v", e.ID, err)
+		}
+	}
+
+	// Marshal back and re-parse: every field survives the round trip.
+	out, err := yaml.Marshal(struct {
+		Entries []Entry `yaml:"entries"`
+	}{Entries: entries})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wrapper struct {
+		Entries []Entry `yaml:"entries"`
+	}
+	if err := yaml.Unmarshal(out, &wrapper); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(wrapper.Entries, entries) {
+		t.Errorf("round trip mismatch:\n got %+v\nwant %+v", wrapper.Entries, entries)
+	}
+}
+
+func TestRuntimeFactsAreNotSchemaFields(t *testing.T) {
+	// Runtime facts (last_fired, next_fire, rung, orphaned-since) must never
+	// appear in the marshaled intent form.
+	out, err := yaml.Marshal(struct {
+		Entries []Entry `yaml:"entries"`
+	}{Entries: loadSpecExample(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fact := range []string{"last_fired", "next_fire", "rung", "orphaned"} {
+		if strings.Contains(string(out), fact) {
+			t.Errorf("marshaled entry contains runtime fact %q:\n%s", fact, out)
+		}
+	}
+}
+
+func TestEntryValidate(t *testing.T) {
+	base := Entry{
+		ID:       "a3f9",
+		Payload:  "x",
+		Schedule: Schedule{Kind: ScheduleEvery, Interval: Duration{time.Hour}},
+		Target:   Target{Kind: TargetPane, Pane: "%12"},
+	}
+	cases := []struct {
+		name    string
+		mutate  func(*Entry)
+		wantErr bool
+	}{
+		{"valid", func(e *Entry) {}, false},
+		{"missing id", func(e *Entry) { e.ID = "" }, true},
+		{"missing schedule", func(e *Entry) { e.Schedule.Kind = "" }, true},
+		{"unknown schedule kind", func(e *Entry) { e.Schedule.Kind = "bogus" }, true},
+		{"cron kind recognized", func(e *Entry) { e.Schedule = Schedule{Kind: ScheduleCron, Expr: "*/5 * * * *"} }, false},
+		{"every needs interval", func(e *Entry) { e.Schedule.Interval = Duration{} }, true},
+		{"backoff needs min", func(e *Entry) {
+			e.Schedule = Schedule{Kind: ScheduleBackoff, Max: Duration{30 * time.Minute}}
+		}, true},
+		{"backoff max < min", func(e *Entry) {
+			e.Schedule = Schedule{Kind: ScheduleBackoff, Min: Duration{time.Hour}, Max: Duration{time.Minute}}
+		}, true},
+		{"backoff valid", func(e *Entry) {
+			e.Schedule = Schedule{Kind: ScheduleBackoff, Anchor: "operator-idle", Min: Duration{time.Minute}, Max: Duration{30 * time.Minute}}
+		}, false},
+		{"unknown target kind", func(e *Entry) { e.Target.Kind = "bogus" }, true},
+		{"role target needs role", func(e *Entry) { e.Target = Target{Kind: TargetRole} }, true},
+		{"role target valid", func(e *Entry) { e.Target = Target{Kind: TargetRole, Role: RoleOperator} }, false},
+		{"session target needs id", func(e *Entry) { e.Target = Target{Kind: TargetSession} }, true},
+		{"pane target validates %N", func(e *Entry) { e.Target = Target{Kind: TargetPane, Pane: "12"} }, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := base
+			tc.mutate(&e)
+			err := e.validate()
+			if (err != nil) != tc.wantErr {
+				t.Errorf("validate() = %v, wantErr %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestNewID(t *testing.T) {
+	taken := map[string]bool{}
+	for i := 0; i < 200; i++ {
+		id, err := newID(taken)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(id) != 4 {
+			t.Fatalf("id %q not 4 chars", id)
+		}
+		for _, c := range id {
+			if !strings.ContainsRune(idAlphabet, c) {
+				t.Fatalf("id %q has char %q outside alphabet", id, c)
+			}
+		}
+		if taken[id] {
+			t.Fatalf("duplicate id %q", id)
+		}
+		taken[id] = true
+	}
+}

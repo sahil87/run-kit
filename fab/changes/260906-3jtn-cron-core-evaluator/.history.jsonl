@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-06T16:40:18Z"}
+{"args":"internal/cron core + evaluator: entry-file schema + tolerant load; stateless evaluator (every + backoff with anchor-join, wake_on poll approximation, suppress_while guards); delivery log; live-server filter; TMUX scrub; flock; pure functions unit-tested hard","cmd":"fab-new","event":"command","ts":"2026-09-06T16:40:18Z"}
+{"delta":"+3.9","event":"confidence","score":3.9,"trigger":"calc-score","ts":"2026-09-06T16:42:53Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-06T16:46:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-06T16:46:33Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-06T17:13:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-06T17:18:11Z"}
+{"event":"review","result":"passed","ts":"2026-09-06T17:18:11Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-06T17:22:07Z"}

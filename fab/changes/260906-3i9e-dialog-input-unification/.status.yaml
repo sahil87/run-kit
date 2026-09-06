@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 10
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-09-06T13:56:18Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-06T14:01:26Z"}
     hydrate: {started_at: "2026-09-06T14:01:26Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-06T14:06:32Z"}
     ship: {started_at: "2026-09-06T14:06:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-06T14:08:22Z"}
-    review-pr: {started_at: "2026-09-06T14:08:22Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-09-06T14:08:22Z", driver: git-pr, iterations: 1, completed_at: "2026-09-06T14:17:24Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/852
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: Dialogs join the coarse contract (WIDE_BTN_BASE/INPUT_COARSE floors), one green INPUT_FOCUS idiom for all text inputs, shared CONFIRM_NEUTRAL/CONFIRM_DANGER pair on signal-red, unified disabled recipe; blue retired from the control layer
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-06T14:08:23Z
+last_updated: 2026-09-06T14:17:24Z

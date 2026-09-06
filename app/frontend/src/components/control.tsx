@@ -181,7 +181,7 @@ const KBD_REST = "hover:border-text-secondary";
  *  BASE/REST split so the ⌥ latch composes BASE + LATCHED_ARM_RINGED with no
  *  competing hover utility. */
 const FN_ITEM_BASE =
-  "px-2 py-1 min-h-[40px] min-w-[40px] flex items-center justify-center text-xs rounded focus-visible:outline-2 focus-visible:outline-accent-green";
+  "px-2 py-1 min-h-[40px] min-w-[40px] flex items-center justify-center text-xs rounded";
 
 export type ControlVariant =
   | "icon"
@@ -304,7 +304,10 @@ export function controlClass(options: ControlClassOptions): string {
     case "icon": {
       const glint = options.glint !== false ? "rk-glint " : "";
       if (options.box === "height") {
-        out = `${glint}${TOP_BAR_BUTTON_H}${options.pressed || options.open ? ` ${LATCHED_ARM}` : ""}${options.rest ? ` ${options.rest}` : ""}`;
+        out = options.pressed || options.open
+          ? `${glint}${TOP_BAR_BUTTON_H} ${LATCHED_ARM}`
+          : `${glint}${TOP_BAR_BUTTON_H}${options.rest ? ` ${options.rest}` : ""}`;
+        if (disabled !== undefined) out += ` ${DISABLED_BORDERED}`;
         break;
       }
       const arm = options.pressed || options.open;

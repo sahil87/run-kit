@@ -23,7 +23,7 @@ const CHIP_BASE =
   "rk-glint min-h-[33px] min-w-[35px] coarse:min-h-[40px] coarse:min-w-[40px] flex items-center justify-center px-1 py-0 text-xs border border-border rounded transition-colors active:bg-bg-card";
 const CHIP_REST = "hover:border-text-secondary";
 const CELL_BASE =
-  "px-2 py-1 min-h-[40px] min-w-[40px] flex items-center justify-center text-xs rounded focus-visible:outline-2 focus-visible:outline-accent-green";
+  "px-2 py-1 min-h-[40px] min-w-[40px] flex items-center justify-center text-xs rounded";
 const CELL_REST = "text-text-secondary hover:text-text-primary hover:bg-bg-card";
 const ROW_BASE =
   "w-full text-left flex items-center gap-2 px-2.5 py-1.5 text-xs min-h-[28px] coarse:min-h-[40px] transition-colors";
@@ -77,6 +77,22 @@ describe("controlClass — icon variant", () => {
         rest: "border border-accent-green text-accent-green hover:border-accent-green",
       }),
     ).toBe(`rk-glint ${BAR_AXIS_H} border border-accent-green text-accent-green hover:border-accent-green`);
+  });
+  it("box:height pressed swaps the rest override for the latched arm (no stacking)", () => {
+    expect(
+      controlClass({
+        variant: "icon",
+        box: "height",
+        glint: false,
+        pressed: true,
+        rest: "border border-accent-green hover:border-accent-green",
+      }),
+    ).toBe(`${BAR_AXIS_H} ${ARM}`);
+  });
+  it("box:height composes the disabled recipe when the prop is provided", () => {
+    expect(controlClass({ variant: "icon", box: "height", glint: false, disabled: true })).toBe(
+      `${BAR_AXIS_H} ${OFF_BORDERED}`,
+    );
   });
   it("rest override replaces the default rest arm", () => {
     expect(

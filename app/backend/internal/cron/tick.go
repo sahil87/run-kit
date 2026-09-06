@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"rk/internal/push"
 	"rk/internal/tmux"
 )
 
@@ -23,6 +24,13 @@ import (
 type Outcome struct {
 	Status string // e.g. "delivered", "failed"
 	Detail string
+	// Held marks a deferred delivery (the when-idle gate found the target
+	// busy). Held outcomes MUST NOT reach the delivery log: the log is the
+	// anchor-derivation source for `every` and the backoff anchor-join streak,
+	// so logging a held attempt would advance anchors and silently delay the
+	// fire by a full period. Skipping the append makes re-evaluation the retry
+	// mechanism — the fire recomputes as due on the next tick.
+	Held bool
 }
 
 func (o Outcome) String() string {
@@ -40,16 +48,25 @@ type Deliverer interface {
 
 // Deps are Tick's seams. Zero values select the production defaults
 // (DefaultDir, tmux.ListServers, the real tmux seam, time.Now,
-// FabOperatorStatePath). A nil Deliverer records outcome "no-deliverer" — the
-// fire/log/cursor choreography still exercises.
+// FabOperatorStatePath, push.Notify). A nil Deliverer records outcome
+// "no-deliverer" — the fire/log/cursor choreography still exercises.
 type Deps struct {
 	Dir               string
 	Now               func() time.Time
 	ListServers       func(ctx context.Context) ([]string, error)
 	Tmux              TmuxSeam
 	Deliverer         Deliverer
+	// Notifier backs the if_absent notify disposition. Fail-silent by
+	// contract: a notify failure is a diagnostic, never a tick error.
+	Notifier          func(ctx context.Context, title, body, url string) error
 	OperatorStatePath func(slug string) (string, error)
 	FreshThreshold    time.Duration
+}
+
+// notifyDefault is the production Notifier: the daemon-side push fan-out.
+func notifyDefault(ctx context.Context, title, body, url string) error {
+	_, err := push.Notify(ctx, title, body, url)
+	return err
 }
 
 // TickResult summarizes one tick. Held reports that the flock was held by
@@ -81,6 +98,53 @@ func entrySlugs(dir string) ([]string, error) {
 		}
 	}
 	return slugs, nil
+}
+
+// DefaultTargetRatePerHour is the per-target delivery cap: at or past this
+// many counted deliveries to the same target within rateWindow, a fire is
+// suppressed with a logged "rate-capped" outcome (and a Warn — the one cron
+// signal above debug, since tripping must be visible). It bounds tick storms
+// and delivery feedback loops.
+const DefaultTargetRatePerHour = 30
+
+// rateWindow is the trailing window the rate cap counts over.
+const rateWindow = time.Hour
+
+// countsTowardRate classifies a log outcome for the rate cap: delivery-attempt
+// classes count (delivered/failed/notified), suppressions and misses do not —
+// and held outcomes never reach the log at all, so they are inherently
+// excluded.
+func countsTowardRate(outcome string) bool {
+	switch {
+	case outcome == "delivered":
+		return true
+	case strings.HasPrefix(outcome, "failed"):
+		return true
+	case outcome == "notified-absent":
+		return true
+	}
+	return false
+}
+
+// rateCount counts trailing-window log lines for one cap key. Resolved fires
+// key on the target pane (matching Target, across ALL entries aimed at that
+// pane); absent fires key on the entry id (their lines carry no pane).
+func rateCount(lines []LogLine, key string, byPane bool, now time.Time) int {
+	cutoff := now.Add(-rateWindow).Unix()
+	n := 0
+	for _, l := range lines {
+		if l.TS < cutoff {
+			continue
+		}
+		match := l.Entry == key
+		if byPane {
+			match = l.Target == key
+		}
+		if match && countsTowardRate(l.Outcome) {
+			n++
+		}
+	}
+	return n
 }
 
 // Tick runs one evaluation sweep. A held lock is a clean, quiet exit
@@ -126,6 +190,10 @@ func Tick(ctx context.Context, deps Deps) (TickResult, error) {
 	if opStatePath == nil {
 		opStatePath = FabOperatorStatePath
 	}
+	notifier := deps.Notifier
+	if notifier == nil {
+		notifier = notifyDefault
+	}
 
 	// R12: the live-server filter comes first — every tmux touch below is for
 	// a server in this set.
@@ -149,7 +217,7 @@ func Tick(ctx context.Context, deps Deps) (TickResult, error) {
 				Detail: "entry file skipped: server not in the live set"})
 			continue
 		}
-		fires, diags := tickServer(ctx, slug, dir, now(), seam, deps.Deliverer, opStatePath, deps.FreshThreshold)
+		fires, diags := tickServer(ctx, slug, dir, now(), seam, deps.Deliverer, notifier, opStatePath, deps.FreshThreshold)
 		res.Servers++
 		res.Fires += fires
 		res.Diags = append(res.Diags, diags...)
@@ -162,7 +230,7 @@ func Tick(ctx context.Context, deps Deps) (TickResult, error) {
 
 // tickServer runs the per-server pipeline: load → facts → Evaluate → deliver →
 // log → cursor. A per-file failure is a diagnostic, never an aborted tick.
-func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxSeam, deliverer Deliverer, opStatePath func(string) (string, error), freshThreshold time.Duration) (fires int, diags []Diagnostic) {
+func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxSeam, deliverer Deliverer, notifier func(context.Context, string, string, string) error, opStatePath func(string) (string, error), freshThreshold time.Duration) (fires int, diags []Diagnostic) {
 	entriesPath, err := EntriesPath(dir, slug)
 	if err != nil {
 		return 0, []Diagnostic{{Server: slug, Reason: "path-invalid", Detail: err.Error()}}
@@ -193,35 +261,101 @@ func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxS
 		opState = ReadOperatorState(p)
 	}
 
+	logLines := ReadLog(logPath)
 	eval := Evaluate(EvalInput{
 		Server:         slug,
 		Now:            now,
 		Entries:        entries,
 		Facts:          facts.Targets,
 		Fingerprint:    facts.Fingerprint,
-		Log:            ReadLog(logPath),
+		Log:            logLines,
 		Cursor:         cursor,
 		Operator:       opState,
 		FreshThreshold: freshThreshold,
 	})
 	diags = append(diags, eval.Diags...)
 
+	// appendLine mirrors every on-disk append into logLines so the rate cap
+	// sees lines written earlier in this same tick.
+	appendLine := func(entryID string, line LogLine) {
+		if err := AppendLog(logPath, line); err != nil {
+			diags = append(diags, Diagnostic{Server: slug, EntryID: entryID, Reason: "log-append-failed", Detail: err.Error()})
+			return
+		}
+		logLines = append(logLines, line)
+		fires++
+	}
+
+	// rateCapped reports (and records) a suppression when the target is at or
+	// past the per-target cap. The rate-capped line IS appended: it is the
+	// derivation source for future surfaces, and advancing the anchor
+	// self-throttles the storm.
+	rateCapped := func(fire Fire, key string, byPane bool) bool {
+		if rateCount(logLines, key, byPane, now) < DefaultTargetRatePerHour {
+			return false
+		}
+		slog.Warn("cron delivery rate-capped", "server", slug, "entry", fire.Entry.ID, "target", key, "cap", DefaultTargetRatePerHour)
+		appendLine(fire.Entry.ID, LogLine{
+			TS:      now.Unix(),
+			Entry:   fire.Entry.ID,
+			Target:  fire.PaneID,
+			Reason:  string(fire.Reason),
+			Outcome: "rate-capped",
+		})
+		return true
+	}
+
 	for _, fire := range eval.Fires {
+		if rateCapped(fire, fire.PaneID, true) {
+			continue
+		}
 		outcome := Outcome{Status: "no-deliverer"}
 		if deliverer != nil {
 			outcome = deliverer.Deliver(ctx, fire)
 		}
-		if err := AppendLog(logPath, LogLine{
+		if outcome.Held {
+			// Held outcomes never reach the log (see Outcome.Held) — the hold
+			// is realized as cross-tick retry: anchors stay put, so the fire
+			// recomputes as due next tick.
+			diags = append(diags, Diagnostic{Server: slug, EntryID: fire.Entry.ID, Reason: "delivery-held", Detail: outcome.String()})
+			continue
+		}
+		appendLine(fire.Entry.ID, LogLine{
 			TS:      now.Unix(),
 			Entry:   fire.Entry.ID,
 			Target:  fire.PaneID,
 			Reason:  string(fire.Reason),
 			Outcome: outcome.String(),
-		}); err != nil {
-			diags = append(diags, Diagnostic{Server: slug, EntryID: fire.Entry.ID, Reason: "log-append-failed", Detail: err.Error()})
+		})
+	}
+
+	// Due-but-absent fires: apply the entry's if_absent policy. Every
+	// disposition appends one log line, so the anchor advances and a dead
+	// target produces one line per due period, not one per tick.
+	for _, fire := range eval.Absent {
+		if rateCapped(fire, fire.Entry.ID, false) {
 			continue
 		}
-		fires++
+		line := LogLine{TS: now.Unix(), Entry: fire.Entry.ID, Reason: string(fire.Reason)}
+		switch fire.Entry.IfAbsent {
+		case IfAbsentNotify, IfAbsentRespawn:
+			if fire.Entry.IfAbsent == IfAbsentRespawn {
+				// Respawn belongs to a later wave; degrade to notify, loudly.
+				diags = append(diags, Diagnostic{Server: slug, EntryID: fire.Entry.ID, Reason: "respawn-unimplemented",
+					Detail: "if_absent respawn is not implemented; degraded to notify"})
+			}
+			name := fire.Entry.Name
+			if name == "" {
+				name = fire.Entry.ID
+			}
+			if err := notifier(ctx, "cron: "+name, "target absent on "+slug, ""); err != nil {
+				diags = append(diags, Diagnostic{Server: slug, EntryID: fire.Entry.ID, Reason: "notify-failed", Detail: err.Error()})
+			}
+			line.Outcome = "notified-absent"
+		default:
+			line.Outcome = "skipped-absent"
+		}
+		appendLine(fire.Entry.ID, line)
 	}
 
 	if err := WriteWakeCursor(cursorPath, eval.NextCursor); err != nil {

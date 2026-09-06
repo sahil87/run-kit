@@ -19,6 +19,7 @@ import (
 
 	"rk/api"
 	"rk/internal/config"
+	"rk/internal/cron"
 	"rk/internal/daemon"
 	"rk/internal/selfpath"
 	"rk/internal/settings"
@@ -224,6 +225,17 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 			// writes to, so /api/recovery offers exactly what was persisted.
 			apiServer.SetSnapshotStore(snapStore)
 			snapshotter.Start(ctx)
+		}
+
+		// Cron ticker: the cron evaluator's daemon invoker — an isolated
+		// goroutine sharing no locks with the serving path, gated per
+		// iteration by the cron_ticker setting. Best-effort like the
+		// snapshotter: a state-dir resolution failure disables ticking with a
+		// warning — it must never block serving.
+		if cronDir, err := cron.DefaultDir(); err != nil {
+			slog.Warn("cron ticker disabled: state dir unresolvable", "err", err)
+		} else {
+			cron.NewTicker(cron.Deps{Dir: cronDir, Deliverer: cron.NewEngineDeliverer()}).Start(ctx)
 		}
 
 		if err := supervisor.Start(ctx); err != nil {

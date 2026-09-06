@@ -28,7 +28,10 @@ asymmetric post-Enter observation, and evidence-gated recovery. Two API
 surfaces consume the one engine: `POST /api/windows/{windowId}/send`
 (`api/send.go` — the compose strip's delivery door, plus the selection
 broadcast's `target:"agent"` mode) and the operator-request routes
-(`api/operator.go`, via `injectIntoPane`). The generic
+(`api/operator.go`, via `injectIntoPane`). The cron deliverer
+(`internal/cron`'s `EngineDeliverer`) is a third engine client, sending
+scheduled fires on its own per-client buffer `rk-cron-send` (see
+[cron](/run-kit/cron.md) § EngineDeliverer). The generic
 `POST /api/windows/{windowId}/keys` endpoint is a distinct contract, untouched
 by the injection path.
 

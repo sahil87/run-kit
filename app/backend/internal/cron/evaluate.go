@@ -1,6 +1,7 @@
 package cron
 
 import (
+	"fmt"
 	"time"
 )
 
@@ -70,10 +71,15 @@ type EvalInput struct {
 	FreshThreshold time.Duration
 }
 
-// EvalResult carries the due fires, the skip/suppression diagnostics, and the
-// next wake cursor (to be persisted by the tick orchestrator).
+// EvalResult carries the due fires, the due-but-target-unresolved fires, the
+// skip/suppression diagnostics, and the next wake cursor (to be persisted by
+// the tick orchestrator).
 type EvalResult struct {
-	Fires      []Fire
+	Fires []Fire
+	// Absent carries due fires whose target did not resolve (empty PaneID),
+	// emitted after guard evaluation exactly like resolved fires — the tick
+	// orchestrator applies the entry's if_absent policy to each.
+	Absent     []Fire
 	Diags      []Diagnostic
 	NextCursor WakeCursor
 }
@@ -89,7 +95,14 @@ func Evaluate(in EvalInput) EvalResult {
 		threshold = DefaultOperatorLoopFreshThreshold
 	}
 	res := EvalResult{NextCursor: in.Cursor.clone()}
-	for _, e := range in.Entries {
+	for i, e := range in.Entries {
+		// Eval-time defense of the per-server entry cap: a hand-edited file
+		// past the cap processes only its first cap-many entries.
+		if i >= MaxEntriesPerServer {
+			res.Diags = append(res.Diags, Diagnostic{Server: in.Server, EntryID: e.ID, Reason: "entry-cap-exceeded",
+				Detail: fmt.Sprintf("entry beyond the %d-per-server cap; skipped", MaxEntriesPerServer)})
+			continue
+		}
 		diag := func(reason, detail string) {
 			res.Diags = append(res.Diags, Diagnostic{Server: in.Server, EntryID: e.ID, Reason: reason, Detail: detail})
 		}
@@ -147,12 +160,14 @@ func Evaluate(in EvalInput) EvalResult {
 			continue
 		}
 
-		if !facts.Resolved() {
+		resolved := facts.Resolved()
+		if !resolved {
 			diag("target-unresolved", facts.Unresolved)
-			continue
 		}
 
-		// Guards last — before the fire is emitted, never after.
+		// Guards last — before any fire is emitted, never after; they gate
+		// absent fires exactly as resolved ones (a suppressed absent fire is a
+		// silent diagnostic: no emission, no if_absent disposition).
 		suppressed := false
 		for _, g := range e.SuppressWhile {
 			holds, known := guardHolds(g, in.Operator, in.Now, threshold)
@@ -176,14 +191,19 @@ func Evaluate(in EvalInput) EvalResult {
 			// A wake fire is not firing the ladder — it carries no rung.
 			rung = 0
 		}
-		res.Fires = append(res.Fires, Fire{
+		fire := Fire{
 			Server: in.Server,
 			Entry:  e,
 			Reason: reason,
 			PaneID: facts.PaneID,
 			Rung:   rung,
 			At:     in.Now,
-		})
+		}
+		if !resolved {
+			res.Absent = append(res.Absent, fire)
+			continue
+		}
+		res.Fires = append(res.Fires, fire)
 	}
 	return res
 }

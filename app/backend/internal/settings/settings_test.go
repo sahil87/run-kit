@@ -111,7 +111,7 @@ func TestSaveAndLoad(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 
-	s := Settings{Theme: "system", ThemeDark: "dracula", ThemeLight: "solarized-light"}
+	s := Settings{Theme: "system", ThemeDark: "dracula", ThemeLight: "solarized-light", CronTicker: true}
 	if err := Save(s); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestSaveCreatesDir(t *testing.T) {
 		t.Fatal("expected .config/run-kit/ to not exist initially")
 	}
 
-	if err := Save(Settings{Theme: "nord", ThemeDark: "default-dark", ThemeLight: "default-light"}); err != nil {
+	if err := Save(Settings{Theme: "nord", ThemeDark: "default-dark", ThemeLight: "default-light", CronTicker: true}); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
@@ -180,7 +180,7 @@ func TestLoadMissingFile(t *testing.T) {
 }
 
 func TestSerialize(t *testing.T) {
-	got := serialize(Settings{Theme: "catppuccin-mocha", ThemeDark: "catppuccin-mocha", ThemeLight: "github-light"})
+	got := serialize(Settings{Theme: "catppuccin-mocha", ThemeDark: "catppuccin-mocha", ThemeLight: "github-light", CronTicker: true})
 	want := "theme: catppuccin-mocha\ntheme_dark: catppuccin-mocha\ntheme_light: github-light\n"
 	if got != want {
 		t.Errorf("serialize = %q, want %q", got, want)
@@ -331,7 +331,7 @@ func TestParseOptionalSettings(t *testing.T) {
 }
 
 func TestSerializeOptionalSettings(t *testing.T) {
-	base := Settings{Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light"}
+	base := Settings{Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light", CronTicker: true}
 	cases := []struct {
 		name   string
 		mutate func(*Settings)
@@ -394,7 +394,7 @@ func TestSerializeOptionalSettings(t *testing.T) {
 }
 
 func TestSerializeEmptyOptionalSettingsIsByteIdentical(t *testing.T) {
-	got := serialize(Settings{Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light", LogLevel: "info"})
+	got := serialize(Settings{Theme: "system", ThemeDark: "default-dark", ThemeLight: "default-light", CronTicker: true, LogLevel: "info"})
 	want := "theme: system\ntheme_dark: default-dark\ntheme_light: default-light\n"
 	if got != want {
 		t.Errorf("serialize with optional defaults = %q, want %q", got, want)
@@ -473,6 +473,7 @@ func TestOptionalSettingRoundTrips(t *testing.T) {
 		"ssh_host":       stringValueFixture("devbox", "user@host", SetSSHHost, GetSSHHost),
 		"instance_name":  stringValueFixture("my-box", "dev mini", SetInstanceName, GetInstanceName),
 		"auto_name":      registryValueFixture(`true`, true, `false`, false, false),
+		"cron_ticker":    registryValueFixture(`false`, false, `true`, true, true),
 		"tmux_conf":      registryValueFixture(`"/my/tmux.conf"`, ptr("/my/tmux.conf"), `"/other/tmux.conf"`, ptr("/other/tmux.conf"), (*string)(nil)),
 		"log_level":      registryValueFixture(`"debug"`, ptr("debug"), `"info"`, ptr("info"), ptr("info")),
 		"server_colors": stringValueFixture("6", "1+3", func(v *string) error {
@@ -616,6 +617,42 @@ func TestAutoName(t *testing.T) {
 		s.AutoName = false
 		if out := serialize(s); strings.Contains(out, "auto_name") {
 			t.Errorf("auto_name emitted for the off default — legacy files must serialize byte-identically:\n%s", out)
+		}
+	})
+}
+
+func TestCronTicker(t *testing.T) {
+	t.Run("defaults on", func(t *testing.T) {
+		if !Default().CronTicker {
+			t.Error("Default().CronTicker = false, want true")
+		}
+		if !parse("theme: dark\n").CronTicker {
+			t.Error("CronTicker = false for a file without the key, want true")
+		}
+	})
+
+	t.Run("parses ParseBool values, tolerates garbage", func(t *testing.T) {
+		for value, want := range map[string]bool{"true": true, "1": true, "false": false, "0": false, "\"false\"": false} {
+			if got := parse("cron_ticker: " + value + "\n").CronTicker; got != want {
+				t.Errorf("parse cron_ticker: %s → %v, want %v", value, got, want)
+			}
+		}
+		// An unparseable value keeps the default (on) — the safe direction for
+		// a scheduling substrate.
+		if got := parse("cron_ticker: yes-please\n").CronTicker; !got {
+			t.Error("parse cron_ticker: garbage → false, want true (default kept)")
+		}
+	})
+
+	t.Run("round-trips and is omitted when on", func(t *testing.T) {
+		s := Default()
+		s.CronTicker = false
+		if got := parse(serialize(s)); got.CronTicker {
+			t.Error("CronTicker=false lost in serialize/parse round-trip")
+		}
+		s.CronTicker = true
+		if out := serialize(s); strings.Contains(out, "cron_ticker") {
+			t.Errorf("cron_ticker emitted for the on default — files without the key must serialize byte-identically:\n%s", out)
 		}
 	})
 }

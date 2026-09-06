@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "The cron scheduling substrate — the `rk cron` CLI family (add/list/rm/mute/pin/tick; -L > caller-socket > default server resolution, creator auto-capture) over per-server intent entry files under $XDG_STATE_HOME/run-kit/cron/ with tolerant load and atomic mutation; the stateless evaluator (every / backoff anchor-join / wake_on cursor / suppress_while guards); the JSON-lines delivery log; the Deliverer seam; the tick orchestrator's guards (live-server filter, flock)."
+description: "The cron scheduling substrate — the `rk cron` CLI family (add/list/rm/mute/pin/tick; -L > caller-socket > default server resolution, creator auto-capture) over per-server intent entry files under $XDG_STATE_HOME/run-kit/cron/; the stateless evaluator (every / backoff anchor-join / wake_on cursor / suppress_while guards); the delivery log; the daemon Ticker invoker (cron_ticker gate); injection-engine delivery with when-idle holds; if_absent dispositions; circuit breakers."
 ---
 # Cron
 
@@ -8,7 +8,7 @@ description: "The cron scheduling substrate — the `rk cron` CLI family (add/li
 
 ## Overview
 
-`internal/cron` (app/backend/internal/cron) is the server-scoped scheduling substrate core from the cron spec (`docs/specs/cron.md`): durable cron entries in one intent file per tmux server, a stateless pure evaluator, an append-only delivery log, and a tick orchestrator. The agent-facing surface is the `rk cron` CLI family below; the daemon goroutine, HTTP surface, and frontend are later waves of the cron clock plan.
+`internal/cron` (app/backend/internal/cron) is the server-scoped scheduling substrate from the cron spec (`docs/specs/cron.md`): durable cron entries in one intent file per tmux server, a stateless pure evaluator, an append-only delivery log, a tick orchestrator, an injection-engine deliverer, and the daemon ticker goroutine that invokes ticks. The agent-facing surface is the `rk cron` CLI family below; the HTTP surface and frontend are later waves of the cron clock plan.
 
 ## CLI: the `rk cron` Family
 
@@ -24,13 +24,13 @@ The `rk cron` cobra family (`app/backend/cmd/rk/cron.go` + per-verb files, the `
 
 **Server resolution** follows the `rk mux` order: an explicit `-L/--server` wins, else the caller's own server derived from the original `$TMUX` socket basename (`tmux.OriginalTMUX`), else `default`. The resolved name is the cron file slug, validated by `cron.ValidSlug` before any path is built. `tick` takes no `-L` and rejects an explicitly-set one with a usage error — the sweep is all-live-servers by design.
 
-**The add-flag ↔ schema mapping**: `--every` carries a positive Go duration into `schedule.interval`; bare `--backoff` builds `{kind: backoff, anchor: operator-idle, min: 60s, max: 30m}` with `--min`/`--max` refining it (a usage error without `--backoff`); `--cron "<expr>"` stores the expression as schema-valid intent — the evaluator skips kind `cron`, so `add` prints a one-line stderr note that expression evaluation is not implemented. `--deliver`/`--if-absent` are validated against the schema's closed sets at parse time (enforcement is the delivery wave's); `--name` defaults to the payload truncated to 40 runes; `--pinned` sets the flag. Success prints the assigned id and a one-line entry summary on stdout.
+**The add-flag ↔ schema mapping**: `--every` carries a positive Go duration into `schedule.interval`; bare `--backoff` builds `{kind: backoff, anchor: operator-idle, min: 60s, max: 30m}` with `--min`/`--max` refining it (a usage error without `--backoff`); `--cron "<expr>"` stores the expression as schema-valid intent — the evaluator skips kind `cron`, so `add` prints a one-line stderr note that expression evaluation is not implemented. `--deliver`/`--if-absent` are validated against the schema's closed sets at parse time (enforced at fire time by the deliverer and the tick orchestrator); `--name` defaults to the payload truncated to 40 runes; `--pinned` sets the flag. Success prints the assigned id and a one-line entry summary on stdout.
 
 **Creator auto-capture and the default target**: inside a tmux pane, `add` stores `created_by: {pane: $TMUX_PANE, at: now}` — `session` stays empty (agent-session capture is a later wave). The default target is `{kind: role, role: operator}` when the caller's own window carries `@rk_win_role=operator` (resolved via `tmux.WindowIDForPane` + `tmux.GetWindowOption` with `tmux.RoleOption`), else `{kind: pane, pane: $TMUX_PANE}`; a failed role read degrades to the pane target with a stderr note, never aborts. Explicit `--role operator` / `--pane %N` (mutually exclusive, validated against `cron.RoleOperator` / `tmux.ValidPaneID`) override auto-capture; outside tmux an explicit target flag is required.
 
 **`list` is disk-derived only**: entry file + delivery log, zero tmux commands — a tmux probe against a dead socket would resurrect the server, and next-fire/rung/orphan derivations need live facts that belong to the API wave. An absent or empty file is an empty listing (`[]` under `--json`) with exit 0; load diagnostics print to stderr without failing the listing.
 
-**`tick` is the invoker verb**: it wraps `cron.Tick(ctx, cron.Deps{})` — flock, live-server filter, TMUX scrub, and tolerant load all inherited — under a bounded 60s context. No `Deliverer` is wired yet (the delivery wave substitutes the injection engine behind that seam), so fires record outcome `no-deliverer` while the fire/log/cursor choreography exercises. A held lock exits 0 quietly with no output; otherwise stdout carries a one-line summary — servers swept, fires, diagnostics count. Real errors (dir resolution, lock creation) exit non-zero via RunE.
+**`tick` is the invoker verb**: it wraps `cron.Tick(ctx, cron.Deps{})` — flock, live-server filter, TMUX scrub, and tolerant load all inherited — under a bounded 60s context. Zero-value `Deps` wires no `Deliverer` (fires record outcome `no-deliverer` while the fire/log/cursor choreography exercises) — the CLI verb is the debug invoker; delivering ticks are the daemon Ticker's (§ Daemon Ticker Invoker), which passes the `EngineDeliverer`. A held lock exits 0 quietly with no output; otherwise stdout carries a one-line summary — servers swept, fires, diagnostics count. Real errors (dir resolution, lock creation) exit non-zero via RunE.
 
 ## State Files
 
@@ -53,7 +53,8 @@ Entry files are INTENT: runtime facts (`last_fired`, `next_fire`, backoff rung, 
 - `wake_on` — `{event: agent-state-change, scope: server, debounce}` edge trigger OR'd with the schedule.
 - `suppress_while` — list of guard names evaluated at fire time.
 - `target` — `kind: role | session | pane` + the discriminant field (`role`, `session`, `pane`); the only defined role is `operator` (the `@rk_win_role` radio's closed set); pane targets must pass `tmux.ValidPaneID` (the `%N` grammar).
-- `deliver` (`immediate | when-idle`) and `if_absent` (`skip | notify | respawn`) — carried in the schema, not enforced by this package (enforcement belongs to the delivery wave).
+- `deliver` (`immediate | when-idle`) — delivery gating enforced by the deliverer: `immediate` (or empty) sends at fire time; `when-idle` holds while the target pane's agent state reads busy (§ EngineDeliverer).
+- `if_absent` (`skip | notify | respawn`) — disposition of a due fire whose target doesn't resolve, applied by the tick orchestrator (§ `if_absent` Dispositions); `respawn` degrades to `notify` plus a `respawn-unimplemented` diagnostic (respawn itself belongs to later waves).
 - `pinned`, `muted` — flags; a muted entry never fires (skipped with a `muted` diagnostic).
 - `created_by` — `{session, pane, at}` provenance; `at` is the pre-delivery anchor for `every`.
 
@@ -65,7 +66,7 @@ Per-entry validation gates id presence, schedule-kind shape (positive interval, 
 
 ## The Stateless Evaluator
 
-`Evaluate(EvalInput) EvalResult` is the pure core: no package-level mutable state, no I/O — equal inputs return deep-equal results (pinned by test), so every invoker (CLI tick, daemon ticker, manual) is equivalent. `EvalInput` carries everything disk-derivable: the server's entries, per-entry resolved `TargetFacts`, the server agent-state `Fingerprint`, the parsed delivery log, the previous `WakeCursor`, the fab `OperatorState` distillation, `FreshThreshold` (zero selects the default), and `Now`. `EvalResult` carries due `Fire`s (entry, resolved reason `schedule | wake`, resolved target pane, backoff rung, fire time), `Diagnostic`s, and the `NextCursor` for the tick orchestrator to persist. Composition order per entry: muted → schedule/wake due math → target resolution → guards — guards are ALWAYS evaluated before a fire is emitted (tick idempotency contract: a duplicate fire after restart is acceptable; a missed suppression is not). A suppressed or skipped fire is a silent diagnostic, never an error, never a recorded miss. An unknown guard name never holds and yields an `unknown-guard` diagnostic.
+`Evaluate(EvalInput) EvalResult` is the pure core: no package-level mutable state, no I/O — equal inputs return deep-equal results (pinned by test), so every invoker (CLI tick, daemon ticker, manual) is equivalent. `EvalInput` carries everything disk-derivable: the server's entries, per-entry resolved `TargetFacts`, the server agent-state `Fingerprint`, the parsed delivery log, the previous `WakeCursor`, the fab `OperatorState` distillation, `FreshThreshold` (zero selects the default), and `Now`. `EvalResult` carries due `Fire`s (entry, resolved reason `schedule | wake`, resolved target pane, backoff rung, fire time), due-but-target-unresolved fires in `Absent []Fire` (emitted with an empty `PaneID` after guard evaluation, exactly as resolved fires — a suppressed absent fire is a silent diagnostic), `Diagnostic`s, and the `NextCursor` for the tick orchestrator to persist. Composition order per entry: muted → schedule/wake due math → target resolution → guards — guards are ALWAYS evaluated before a fire is emitted (tick idempotency contract: a duplicate fire after restart is acceptable; a missed suppression is not). A suppressed or skipped fire is a silent diagnostic, never an error, never a recorded miss. An unknown guard name never holds and yields an `unknown-guard` diagnostic.
 
 ### `every`
 
@@ -98,20 +99,37 @@ Truth table over the state file: fresh ⇒ `operator-loop-fresh` holds; stale �
 
 ## Delivery Log
 
-`<slug>.log` is append-only, one JSON line per attempted delivery: `{ts, entry, target, reason, outcome}`. It is the derivation source for `every`'s last-delivery and the backoff anchor-join streak — history (recovery-backup class), never a live-state source. `ParseLog` skips unparseable lines tolerantly; an absent or unreadable log parses as "no deliveries". When an append pushes the file past the cap (`logCapBytes`, 512 KiB), it is trimmed to its newest ~half, cut at a line boundary, written atomically via `fsatomic` — trimming loses only old history.
+`<slug>.log` is append-only, one JSON line per logged outcome: `{ts, entry, target, reason, outcome}`. The outcome classes are `delivered`, `failed: <detail>` (anchor advancement on failure is deliberate self-throttling — retry next due period, not next tick), `skipped-absent` / `notified-absent` (the `if_absent` dispositions), `rate-capped` (circuit-breaker trips), and `no-deliverer`. **Held outcomes are never appended** — a `when-idle` hold records a `delivery-held` diagnostic instead, because the log is the derivation source for `every`'s last-delivery and the backoff anchor-join streak: logging a held attempt would advance anchors and silently delay the fire by a full period. The hold is realized as cross-tick retry — the fire re-computes as due on the next tick. The log is history (recovery-backup class), never a live-state source. `ParseLog` skips unparseable lines tolerantly; an absent or unreadable log parses as "no deliveries". When an append pushes the file past the cap (`logCapBytes`, 512 KiB), it is trimmed to its newest ~half, cut at a line boundary, written atomically via `fsatomic` — trimming loses only old history.
 
 ## Tick Orchestration
 
-`Tick(ctx, deps)` runs one evaluation sweep — short-lived, idempotent, serialized by the flock: flock → live-server set → per-server load → facts → `Evaluate` → deliver → log → cursor. `Deps` is all seams (`Dir`, `Now`, `ListServers`, `Tmux`, `Deliverer`, `OperatorStatePath`, `FreshThreshold`); zero values select the production defaults (`DefaultDir`, `tmux.ListServers`, the real tmux seam, `time.Now`, `FabOperatorStatePath`). A nil `Deliverer` records outcome `no-deliverer` — the fire/log/cursor choreography still exercises. Every diagnostic surfaces at debug via `slog`; a per-file or per-server failure is a diagnostic, never an aborted tick.
+`Tick(ctx, deps)` runs one evaluation sweep — short-lived, idempotent, serialized by the flock: flock → live-server set → per-server load → facts → `Evaluate` → deliver → log → cursor. `Deps` is all seams (`Dir`, `Now`, `ListServers`, `Tmux`, `Deliverer`, `Notifier`, `OperatorStatePath`, `FreshThreshold`); zero values select the production defaults (`DefaultDir`, `tmux.ListServers`, the real tmux seam, `time.Now`, `push.Notify`, `FabOperatorStatePath`). A nil `Deliverer` records outcome `no-deliverer` — the fire/log/cursor choreography still exercises. Every diagnostic surfaces at debug via `slog` (the `rate-capped` circuit-breaker trip is the one escalation, at Warn); a per-file or per-server failure is a diagnostic, never an aborted tick.
 
 - **flock**: a non-blocking exclusive flock (`syscall.Flock`, `LOCK_EX|LOCK_NB`) on `cron/.lock`. A held lock returns the `ErrTickHeld` sentinel internally; `Tick` treats it as a clean, quiet exit — no fires, no writes, no error, a debug-level note (skip-on-contention is correct because ticks are idempotent). `TickResult.Held` reports the held-lock no-op and `TickResult.Servers` the count of live servers actually swept, so an invoker can stay silent on contention and summarize otherwise.
 - **Live-server filter first**: the tick derives its server set from `tmux.ListServers` (the live-socket-probed enumeration — the same filter `rk mux reap` and the managed-conf sweep rely on) and skips entry files whose server is not in that set entirely (`server-not-live` diagnostic, ZERO tmux commands) — a tmux command against a dead socket resurrects it, so the evaluator can never be a zombie-server factory.
 - **TMUX scrub**: the package constructs no `exec` calls of its own; every tmux touch routes through the `TmuxSeam` interface whose production implementation delegates to `internal/tmux` (which scrubs `TMUX`/`TMUX_PANE` from the subprocess env and targets explicit `-L <server>`).
-- **Deliverer seam**: `Deliverer` (`Deliver(ctx, Fire) Outcome`) is supplied by the caller; this package ships only test fakes. Injection-engine delivery, `deliver: when-idle` gating, `if_absent` handling, and circuit breakers live behind the interface in the delivery wave — it substitutes the implementation without touching evaluation. `Tick` appends one log line per attempted delivery with the outcome and persists the next wake cursor after evaluation.
+- **Deliverer seam**: `Deliverer` (`Deliver(ctx, Fire) Outcome`) is supplied by the caller; production wires the `EngineDeliverer` (below) and tests use fakes — the interface substitutes the implementation without touching evaluation. `Tick` appends one log line per non-held delivery outcome and persists the next wake cursor after evaluation.
+- **if_absent dispositions**: for each `EvalResult.Absent` fire, `Tick` applies the entry's `if_absent` policy: `skip` (or empty) appends `skipped-absent`; `notify` calls the `Deps.Notifier` seam (production default `internal/push.Notify`, fail-silent — a notify error is a diagnostic, never a tick error) with title `cron: <entry name>` and body naming the server, then appends `notified-absent`; `respawn` degrades to the `notify` behavior plus a `respawn-unimplemented` diagnostic. Both logged outcomes advance the schedule anchor, so a dead target produces one disposition per due period, not one per tick.
+
+## Daemon Ticker Invoker
+
+`Ticker` (`ticker.go`, `NewTicker(deps).Start(ctx)`) is the daemon invoker: a goroutine invoking `cron.Tick` every `DefaultTickInterval` (30s — the operator backoff schedule's `min` is 60s, so the poll bounds fire lateness to half the smallest rung; `wake_on` is approximated by the same poll). It is isolated from the serving path: no shared locks (the only serialization is `Tick`'s own non-blocking flock), each iteration wrapped in panic recovery (a panicking tick logs at Error and skips the iteration — it never kills the daemon) and bounded by a per-tick context timeout (`tickTimeout`). A `cron_ticker` settings key (bool, default true, live — see [configuration](/run-kit/configuration.md)) gates every iteration via a fresh `settings.Load()`: off ⇒ the iteration skips with a debug note (no tmux or disk work), on ⇒ ticking resumes with no daemon restart. `serve.go` starts the ticker after the snapshotter block, bound to the serve context, with the snapshotter's best-effort posture: a `cron.DefaultDir()` resolution failure disables ticking with a single `slog.Warn`, never blocking serving. `rk doctor` renders an always-OK informational "cron ticker" row (the ephemeral/tmux-config posture) reporting the setting state and state-dir resolvability — doctor runs in a separate process, so it reports config + disk facts, not live goroutine state.
+
+## EngineDeliverer
+
+`EngineDeliverer` (`deliver.go`, `NewEngineDeliverer()`) is the production `Deliverer`: it sends through `internal/inject` — the one injection engine, never raw `send-keys` — via a dedicated `inject.Engine` on the per-client buffer `rk-cron-send` (the CLI/daemon precedent is `rk-agent-send`; see [agent-send](/run-kit/agent-send.md)) and a package-private `inject.Tmux` adapter (`cronInjectTmux`, mirroring `riffInjectTmux` since cron cannot import cmd or riff) delegating to `internal/tmux` context-bound primitives with the fire's stamped `Server`. Delivery inherits the pane-mode guard, `inject.Sanitize`, the novelty echo probe, and submit verification.
+
+- `deliver: immediate` (or empty) sends now with submit; a send error yields outcome `failed: <detail>` (logged).
+- `deliver: when-idle` reads the target pane's agent state at delivery time (`tmux.PaneAgentState` — fresher than the eval-time facts) and holds on `active | waiting` (the operator request-lane busy predicate): outcome `held-busy` with `Outcome.Held = true` — never log-appended (§ Delivery Log), retried by next-tick re-evaluation. `idle` and unknown (`""`) states deliver. There is no in-tick waiting — ticks stay short-lived — and no long-bound policy yet (drop vs deliver-late is spec open question 2); v1 holds indefinitely via cross-tick retry. A held `wake`-reason fire's edge is consumed (`Evaluate` computes `NextCursor` before delivery); the payload lands on the entry's next schedule-due or next edge.
+
+## Circuit Breakers
+
+- **Per-target rate cap**: before delivering a resolved fire (and before absent dispositions), `Tick` counts the trailing hour's log lines for the same target — keyed on the fire's pane ID for resolved fires, on the entry ID for absent fires (their lines carry no pane); held outcomes never appear in the log so they are inherently excluded — across all entries targeting it. At or past `DefaultTargetRatePerHour` (30, named constant) the fire is suppressed with outcome `rate-capped`. The trip is visible: the `rate-capped` line IS appended (anchor advancement self-throttles the storm; the log is the future UI's derivation source) AND surfaced at `slog.Warn` — the one cron diagnostic above debug.
+- **Per-server entry cap**: `Add` refuses to add an entry past `MaxEntriesPerServer` (50, named constant) with an error naming the cap. Defensively, evaluation processes at most the first cap-many entries of a hand-edited larger file, skipping the excess with per-entry `entry-cap-exceeded` diagnostics.
 
 ## Fact Gathering & Target Resolution
 
-`GatherFacts` resolves every entry's target on one live server in one enumeration pass (sessions → windows + panes; enumeration failures degrade to diagnostics): the server-scoped agent-state fingerprint (the `wake_on` input) comes from the enumerated panes' `@rk_pane_agent_state` values, and each resolved target pane's state + idle epoch (`tmux.PaneFactsCtx` — `StateEpoch` is the `backoff` anchor input) fills its `TargetFacts`. Resolution per target kind: `role: operator` finds the window carrying `@rk_win_role = operator` (the radio semantics — see [tmux-sessions](/run-kit/tmux-sessions.md)) and resolves its agent pane via `tmux.ResolveAgentPane`, never a bare `-t _rk-operator`; `session` finds the live pane carrying the `@rk_pane_agent_session` id (see [agent-state](/run-kit/agent-state.md)); `pane` checks id validity plus liveness via `tmux.PaneExists`. A target that fails resolution marks the entry's fires unresolvable this tick (`target-unresolved` diagnostic, never an error — `if_absent` policy belongs to the delivery wave).
+`GatherFacts` resolves every entry's target on one live server in one enumeration pass (sessions → windows + panes; enumeration failures degrade to diagnostics): the server-scoped agent-state fingerprint (the `wake_on` input) comes from the enumerated panes' `@rk_pane_agent_state` values, and each resolved target pane's state + idle epoch (`tmux.PaneFactsCtx` — `StateEpoch` is the `backoff` anchor input) fills its `TargetFacts`. Resolution per target kind: `role: operator` finds the window carrying `@rk_win_role = operator` (the radio semantics — see [tmux-sessions](/run-kit/tmux-sessions.md)) and resolves its agent pane via `tmux.ResolveAgentPane`, never a bare `-t _rk-operator`; `session` finds the live pane carrying the `@rk_pane_agent_session` id (see [agent-state](/run-kit/agent-state.md)); `pane` checks id validity plus liveness via `tmux.PaneExists`. A target that fails resolution surfaces the entry's due fires in `EvalResult.Absent` for the tick's `if_absent` dispositions (`target-unresolved` diagnostic, never an error).
 
 ## External Contracts
 
@@ -156,7 +174,19 @@ The tick SHALL derive its server set from the live-socket-probed enumeration and
 A tick SHALL take the non-blocking flock on `cron/.lock` before evaluating; when the lock is held elsewhere it MUST exit cleanly and quietly — no fires, no log writes, no error. A duplicate fire after a restart is acceptable; a missed suppression is not.
 
 ### Requirement: Delivery log as derivation source
-Each attempted delivery SHALL append exactly one JSON line (`{ts, entry, target, reason, outcome}`); the parser SHALL expose per-entry last-delivery and the trailing own-delivery streak while skipping unparseable lines; an append past the 512 KiB cap SHALL atomically trim to the newest tail cut at a line boundary.
+Each non-held delivery outcome SHALL append exactly one JSON line (`{ts, entry, target, reason, outcome}`); a held outcome MUST append nothing (a `delivery-held` diagnostic is recorded instead) so anchors and the backoff streak join are unchanged by holds and the fire is due again next tick; the parser SHALL expose per-entry last-delivery and the trailing own-delivery streak while skipping unparseable lines; an append past the 512 KiB cap SHALL atomically trim to the newest tail cut at a line boundary.
+
+### Requirement: Daemon ticker invoker
+A `Ticker` SHALL invoke `Tick` at `DefaultTickInterval` (30s), bound to the serve context, with panic recovery per iteration (a panic logs and skips the iteration) and a per-tick context timeout. Each iteration SHALL consult the `cron_ticker` setting (bool, default true, live) — when off, the iteration skips without tmux or disk work; when re-enabled, ticking resumes without a restart. Startup MUST follow the snapshotter's best-effort posture: a state-dir resolution failure disables ticking with a Warn, never blocking serving.
+
+### Requirement: Injection-engine delivery with when-idle holds
+Delivery SHALL go through `internal/inject` on the dedicated buffer `rk-cron-send` — never raw `send-keys`. `deliver: when-idle` SHALL read the target pane's agent state at delivery time and hold (outcome `held-busy`, `Held: true`) on `active | waiting`; `idle` and unknown states deliver. A send failure SHALL log `failed: <detail>`.
+
+### Requirement: if_absent dispositions
+Due-but-target-unresolved fires SHALL surface in `EvalResult.Absent` (guards evaluated before emission; a suppressed absent fire is a silent diagnostic). `Tick` SHALL apply `skip` (log `skipped-absent`), `notify` (fail-silent notifier + `notified-absent`), and degrade `respawn` to notify plus a `respawn-unimplemented` diagnostic. Logged dispositions SHALL advance the anchor — one disposition per due period, not per tick.
+
+### Requirement: Circuit breakers
+Before delivery, `Tick` SHALL suppress a fire at or past `DefaultTargetRatePerHour` (30 trailing-hour log lines keyed on pane ID, or entry ID for absent fires) with a logged `rate-capped` outcome AND a `slog.Warn`. `Add` SHALL refuse past `MaxEntriesPerServer` (50) with a named-cap error, and evaluation SHALL process only the first cap-many entries of an oversized file with `entry-cap-exceeded` diagnostics.
 
 ### Requirement: CLI server resolution and slug validation
 The entry-file-scoped verbs (`add`, `list`, `rm`, `mute`, `pin`) SHALL resolve their tmux server as: explicit `-L/--server` wins, else the caller's own server from the original `$TMUX` socket basename, else `default`; the resolved name MUST pass `cron.ValidSlug` before any path is built. `tick` MUST reject an explicitly-set `-L` with a usage error — it sweeps every live server by design.
@@ -216,9 +246,9 @@ Inside a tmux pane, `add` SHALL store `created_by: {pane: $TMUX_PANE, at: now}` 
 *Introduced by*: 260906-3jtn-cron-core-evaluator
 
 ### Delivery boundary at the `Deliverer` interface
-**Decision**: `Tick` computes fires, resolves targets, and calls a caller-supplied `Deliverer`; injection, `when-idle`, `if_absent`, and circuit breakers live behind the interface (a later wave substitutes the injection-engine implementation).
+**Decision**: `Tick` computes fires, resolves targets, and calls a caller-supplied `Deliverer`; injection, `when-idle` gating, `if_absent` handling, and circuit breakers live behind the interface in the production `EngineDeliverer`, which substitutes in without touching evaluation.
 **Why**: matches the cron clock plan's core/delivery split; keeps every core function testable without tmux delivery; the log-append and cursor-write choreography still exercises end-to-end in tests via the fake.
-**Rejected**: stubbing `internal/inject` calls directly in the core (drags the delivery wave's scope in; injection gating decisions belong with the delivery change).
+**Rejected**: stubbing `internal/inject` calls directly in the core (drags delivery scope into the core; injection gating decisions belong with the deliverer).
 *Introduced by*: 260906-3jtn-cron-core-evaluator
 
 ### Bare `--backoff` with operator-idle defaults
@@ -244,5 +274,28 @@ Inside a tmux pane, `add` SHALL store `created_by: {pane: $TMUX_PANE, at: now}` 
 **Why**: the `rk role` posture — a typed command must not guess a target; auto-capture without a pane has nothing to capture.
 **Rejected**: defaulting to `role:operator` (writes intent against a server the caller may not mean).
 *Introduced by*: 260906-bi3v-rk-cron-cli
+### Held outcomes never reach the delivery log
+**Decision**: `Outcome.Held` outcomes skip the log append; the hold is cross-tick retry via unchanged anchors.
+**Why**: the log is the anchor-derivation source (`every` last-line, backoff streak join) — logging a held attempt advances anchors and silently delays the fire by a full period; not logging makes re-evaluation the retry mechanism for free.
+**Rejected**: logging held attempts with an outcome filter in the schedule math (touches the pinned derivation semantics for no gain); in-tick waiting for idle (violates the short-lived-tick contract).
+*Introduced by*: 260906-kl1g-daemon-ticker-cron-delivery
+
+### Held wake edges are consumed
+**Decision**: a `wake`-reason fire held under `when-idle` does not restore the wake cursor; the payload lands on the entry's next schedule-due or next edge.
+**Why**: `Evaluate` computes `NextCursor` before delivery outcomes exist; re-plumbing cursor persistence around outcomes buys nothing real — the only planned wake user (operator tick) is `deliver: immediate`.
+**Rejected**: outcome-aware cursor persistence (couples the pure evaluator to delivery results).
+*Introduced by*: 260906-kl1g-daemon-ticker-cron-delivery
+
+### `when-idle` busy predicate is `active | waiting`
+**Decision**: hold on `active` and `waiting`; deliver on `idle` and unknown ("").
+**Why**: matches the operator request-lane busy gate (`api/operator.go`); typing into a `waiting` pane would stack a payload behind a pending question; an unknown-state pane (plain shell, no agent) can't be gated on a signal it doesn't carry.
+**Rejected**: hold on unknown (a when-idle entry targeting a non-agent pane would never fire).
+*Introduced by*: 260906-kl1g-daemon-ticker-cron-delivery
+
+### Rate-cap key: pane ID for resolved fires, entry ID for absent fires
+**Decision**: the trailing-hour count keys on the log line's target pane for deliveries, and on the entry ID for absent dispositions (their lines carry no pane).
+**Why**: the spec's cap is per-target; absent fires have no target, but their notify path still needs the cap (the spec assigns notify throttling to it).
+**Rejected**: a separate notify-cursor sidecar (the pulse plan's design, obsoleted by the spec's "the rate cap covers notify throttling").
+*Introduced by*: 260906-kl1g-daemon-ticker-cron-delivery
 
 See [configuration](/run-kit/configuration.md) § Migrations & Breadcrumbs for the state-root inventory this tenant joins, [layout-snapshots](/run-kit/layout-snapshots.md) for the sibling state-root resolution pattern, and [test-sockets](/run-kit/test-sockets.md) for the tmux test-isolation conventions the package's tests follow.

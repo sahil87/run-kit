@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-06T17:45:36Z"}
+{"args":"Daemon ticker + delivery: ticker goroutine invoker (isolated, settings key default ON, doctor row); injection-engine delivery with deliver: immediate|when-idle gating; if_absent: skip|notify; circuit breakers (per-target rate cap -- trips visibly, per-server entry cap).","cmd":"fab-new","event":"command","ts":"2026-09-06T17:45:36Z"}
+{"delta":"+2.8","event":"confidence","score":2.8,"trigger":"calc-score","ts":"2026-09-06T17:47:56Z"}
+{"delta":"+0.3","event":"confidence","score":3.1,"trigger":"calc-score","ts":"2026-09-06T17:48:36Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-06T17:52:29Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-06T17:52:35Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-06T18:09:30Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-06T18:12:23Z"}
+{"event":"review","result":"passed","ts":"2026-09-06T18:12:23Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-06T18:16:40Z"}

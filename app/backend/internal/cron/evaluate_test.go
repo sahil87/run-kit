@@ -1,6 +1,7 @@
 package cron
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -312,5 +313,102 @@ func TestEvaluateBackoffFire(t *testing.T) {
 	res = Evaluate(EvalInput{Server: "dev", Now: T.Add(6 * time.Minute), Entries: []Entry{entry}, Facts: facts, Log: log})
 	if len(res.Fires) != 0 {
 		t.Errorf("fired early at T+6m: %+v", res.Fires)
+	}
+}
+
+// TestEvaluateAbsentFires: a due entry whose target did not resolve surfaces
+// in EvalResult.Absent (empty PaneID) instead of being dropped — the tick
+// orchestrator applies the entry's if_absent policy from there.
+func TestEvaluateAbsentFires(t *testing.T) {
+	T := backoffBase
+	entry := Entry{
+		ID:       "a3f9",
+		Schedule: Schedule{Kind: ScheduleEvery, Interval: Duration{time.Hour}},
+		Target:   Target{Kind: TargetSession, Session: "dead"},
+		Payload:  "tick",
+		IfAbsent: IfAbsentNotify,
+		CreatedBy: CreatedBy{
+			At: T.Add(-2 * time.Hour).Unix(),
+		},
+	}
+	in := EvalInput{
+		Server: "dev", Now: T, Entries: []Entry{entry},
+		Facts: map[string]TargetFacts{"a3f9": {Unresolved: "no pane carries session dead"}},
+	}
+	res := Evaluate(in)
+	if len(res.Fires) != 0 {
+		t.Errorf("fires = %+v, want none (target unresolved)", res.Fires)
+	}
+	if len(res.Absent) != 1 {
+		t.Fatalf("absent = %+v, want the one due-but-unresolved fire", res.Absent)
+	}
+	fire := res.Absent[0]
+	if fire.PaneID != "" || fire.Entry.ID != "a3f9" || fire.Reason != FireSchedule {
+		t.Errorf("absent fire = %+v, want empty PaneID on entry a3f9", fire)
+	}
+	if !hasDiag(res.Diags, "target-unresolved") {
+		t.Errorf("diags = %v, want target-unresolved", diagReasons(res.Diags))
+	}
+
+	// Determinism covers the new field: equal inputs, deep-equal results.
+	if again := Evaluate(in); !reflect.DeepEqual(res, again) {
+		t.Errorf("non-deterministic result:\n first: %+v\nsecond: %+v", res, again)
+	}
+}
+
+// TestEvaluateAbsentFireGuarded: guards are evaluated before an absent fire is
+// emitted — a suppressed absent fire is a silent diagnostic (no emission, so
+// no notify and no log line downstream).
+func TestEvaluateAbsentFireGuarded(t *testing.T) {
+	T := backoffBase
+	entry := Entry{
+		ID:            "a3f9",
+		Schedule:      Schedule{Kind: ScheduleEvery, Interval: Duration{time.Hour}},
+		SuppressWhile: []string{GuardNothingTracked},
+		Target:        Target{Kind: TargetSession, Session: "dead"},
+		Payload:       "tick",
+		IfAbsent:      IfAbsentNotify,
+		CreatedBy:     CreatedBy{At: T.Add(-2 * time.Hour).Unix()},
+	}
+	res := Evaluate(EvalInput{
+		Server: "dev", Now: T, Entries: []Entry{entry},
+		Facts: map[string]TargetFacts{"a3f9": {Unresolved: "no pane carries session dead"}},
+		// Zero OperatorState: nothing tracked ⇒ the guard holds.
+	})
+	if len(res.Absent) != 0 || len(res.Fires) != 0 {
+		t.Errorf("suppressed absent fire emitted: fires=%+v absent=%+v", res.Fires, res.Absent)
+	}
+	if !hasDiag(res.Diags, "suppressed") {
+		t.Errorf("diags = %v, want suppressed", diagReasons(res.Diags))
+	}
+}
+
+// TestEvaluateEntryCapDefense: a (hand-edited) file past MaxEntriesPerServer
+// evaluates only the first cap-many entries; the excess are skipped with
+// entry-cap-exceeded diagnostics.
+func TestEvaluateEntryCapDefense(t *testing.T) {
+	T := backoffBase
+	entries := make([]Entry, MaxEntriesPerServer+2)
+	for i := range entries {
+		entries[i] = Entry{
+			ID:        fmt.Sprintf("e%03d", i),
+			Schedule:  Schedule{Kind: ScheduleEvery, Interval: Duration{time.Minute}},
+			Target:    Target{Kind: TargetPane, Pane: "%1"},
+			Payload:   "x",
+			CreatedBy: CreatedBy{At: T.Add(-time.Hour).Unix()},
+		}
+	}
+	res := Evaluate(EvalInput{Server: "dev", Now: T, Entries: entries})
+	if len(res.Fires) != MaxEntriesPerServer {
+		t.Errorf("fires = %d, want %d (only the first cap-many entries evaluate)", len(res.Fires), MaxEntriesPerServer)
+	}
+	capDiags := 0
+	for _, d := range res.Diags {
+		if d.Reason == "entry-cap-exceeded" {
+			capDiags++
+		}
+	}
+	if capDiags != 2 {
+		t.Errorf("entry-cap-exceeded diagnostics = %d, want 2; diags = %v", capDiags, diagReasons(res.Diags))
 	}
 }

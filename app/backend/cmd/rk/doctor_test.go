@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"rk/internal/codeserver"
+	"rk/internal/settings"
 	"rk/internal/tmux"
 )
 
@@ -1493,5 +1494,58 @@ func TestHookRkPath(t *testing.T) {
 	}
 	if got := hookRkPath("no quoted token"); got != "" {
 		t.Errorf("hookRkPath on an unquoted command = %q, want empty", got)
+	}
+}
+
+// TestCronTickerCheck pins the cron ticker row: always OK-shaped, reporting
+// the cron_ticker setting state and the cron state dir's path.
+func TestCronTickerCheck(t *testing.T) {
+	t.Run("default on with the resolved state dir", func(t *testing.T) {
+		t.Setenv(settings.ConfigDirEnv, t.TempDir())
+		stateHome := t.TempDir()
+		t.Setenv("XDG_STATE_HOME", stateHome)
+		c := cronTickerCheck()
+		if !c.OK {
+			t.Errorf("row must always be OK-shaped, got %+v", c)
+		}
+		wantDir := filepath.Join(stateHome, "run-kit", "cron")
+		if !strings.Contains(c.Note, "cron_ticker on") || !strings.Contains(c.Note, wantDir) {
+			t.Errorf("note = %q, want the setting state and the state dir %s", c.Note, wantDir)
+		}
+	})
+
+	t.Run("off when the setting disables it", func(t *testing.T) {
+		cfgDir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(cfgDir, "config.yaml"), []byte("cron_ticker: false\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv(settings.ConfigDirEnv, cfgDir)
+		t.Setenv("XDG_STATE_HOME", t.TempDir())
+		c := cronTickerCheck()
+		if !c.OK {
+			t.Errorf("row must always be OK-shaped, got %+v", c)
+		}
+		if !strings.Contains(c.Note, "cron_ticker off") {
+			t.Errorf("note = %q, want the off setting state", c.Note)
+		}
+	})
+}
+
+// TestCronTickerCheckNeverFlipsVerdict: the row is registered unconditionally
+// and informational — it can never fail the report.
+func TestCronTickerCheckNeverFlipsVerdict(t *testing.T) {
+	t.Setenv(settings.ConfigDirEnv, t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	found := false
+	for _, c := range runDoctorChecks().Checks {
+		if c.Name == "cron ticker" {
+			found = true
+			if !c.OK {
+				t.Errorf("cron ticker row must always be OK-shaped, got %+v", c)
+			}
+		}
+	}
+	if !found {
+		t.Error("runDoctorChecks must append the cron ticker row unconditionally")
 	}
 }

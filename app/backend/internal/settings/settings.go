@@ -73,6 +73,10 @@ type Settings struct {
 	// operator on its own). A settings POST applies the new value to the
 	// running hub's tracker without a daemon restart.
 	AutoName bool
+	// CronTicker runs the cron tick evaluator inside the daemon. On by
+	// default; read by the ticker at every iteration, so a flip takes effect
+	// without a daemon restart.
+	CronTicker bool
 	// TmuxConf is the path to the tmux.conf rk passes to tmux. Empty means
 	// "unset": tmux resolution falls back to its built-in default. The user
 	// owns the file — rk performs no ensure/refresh on it. Read at tmux
@@ -90,6 +94,7 @@ func Default() Settings {
 		Theme:      "system",
 		ThemeDark:  "default-dark",
 		ThemeLight: "default-light",
+		CronTicker: true,
 		LogLevel:   "info",
 	}
 }
@@ -351,7 +356,27 @@ var registry = []registryEntry{
 			return ""
 		},
 		read:  func(s *Settings) any { return s.AutoName },
-		apply: boolValue(func(s *Settings) *bool { return &s.AutoName }),
+		apply: boolValue(func(s *Settings) *bool { return &s.AutoName }, false),
+	},
+	{
+		key: "cron_ticker", kind: "bool", def: "true",
+		desc:     "Runs the cron tick evaluator inside the daemon: scheduled entries fire while the daemon is up.",
+		category: "behavior", ui: true, live: true,
+		// Tolerant read: any strconv.ParseBool value; anything else keeps the
+		// default (on) — the safe direction for a scheduling substrate.
+		parse: func(s *Settings, value string) {
+			if b, err := strconv.ParseBool(strings.Trim(value, "\"")); err == nil {
+				s.CronTicker = b
+			}
+		},
+		serialize: func(s *Settings) string {
+			if !s.CronTicker {
+				return "cron_ticker: false\n"
+			}
+			return ""
+		},
+		read:  func(s *Settings) any { return s.CronTicker },
+		apply: boolValue(func(s *Settings) *bool { return &s.CronTicker }, true),
 	},
 	{
 		key: "tmux_conf", kind: "path", def: "",
@@ -679,12 +704,12 @@ func nonEmptyString(target func(*Settings) *string, def string) func(*Settings, 
 	}
 }
 
-// boolValue builds the apply hook for a bool scalar (auto_name): a JSON bool
-// sets; null unsets to false.
-func boolValue(target func(*Settings) *bool) func(*Settings, json.RawMessage) error {
+// boolValue builds the apply hook for a bool scalar (auto_name, cron_ticker):
+// a JSON bool sets; null unsets to the key's registry default.
+func boolValue(target func(*Settings) *bool, def bool) func(*Settings, json.RawMessage) error {
 	return func(s *Settings, raw json.RawMessage) error {
 		if jsonNull(raw) {
-			*target(s) = false
+			*target(s) = def
 			return nil
 		}
 		var v bool

@@ -16,6 +16,8 @@ import (
 	"rk/internal/codebridge"
 	"rk/internal/codeserver"
 	"rk/internal/config"
+	"rk/internal/cron"
+	"rk/internal/settings"
 	"rk/internal/tmux"
 
 	"github.com/spf13/cobra"
@@ -126,6 +128,12 @@ func runDoctorChecks() doctorReport {
 	// (informational only: remediation is the note's recipe, never a failure).
 	report.Checks = append(report.Checks, tmuxConfigCheck())
 
+	// Cron ticker — configuration + disk facts only (the setting state and
+	// the cron state dir's resolvability), always OK-shaped: doctor runs in a
+	// separate process from the daemon, so live goroutine state is not
+	// reportable and nothing here may fail the report.
+	report.Checks = append(report.Checks, cronTickerCheck())
+
 	// Set-but-ignored env vars: RK_SSH_HOST no longer has any reader (the
 	// ssh_host setting is the only source), so a row appears ONLY when it is
 	// set — steady-state output stays noise-free.
@@ -137,6 +145,25 @@ func runDoctorChecks() doctorReport {
 	}
 
 	return report
+}
+
+// cronTickerCheck reports the cron ticker's configuration facts: the
+// cron_ticker setting state and the cron state dir's resolvability/path.
+// Always OK-shaped (the ephemeral/tmux-config posture) — informational only,
+// never a verdict flipper.
+func cronTickerCheck() doctorCheck {
+	check := doctorCheck{Name: "cron ticker", OK: true}
+	state := "on"
+	if !settings.Load().CronTicker {
+		state = "off"
+	}
+	dir, err := cron.DefaultDir()
+	if err != nil {
+		check.Note = fmt.Sprintf("cron_ticker %s; state dir unresolvable: %v", state, err)
+		return check
+	}
+	check.Note = fmt.Sprintf("cron_ticker %s; state dir %s", state, dir)
+	return check
 }
 
 // removedEnvCheck flags a set-but-ignored RK_SSH_HOST: the env read was

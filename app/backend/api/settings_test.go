@@ -68,7 +68,7 @@ func TestGetSettings_registryOrderAndDefaults(t *testing.T) {
 	entries := getSettingsList(t, router)
 	wantKeys := []string{
 		"theme", "theme_dark", "theme_light", "instance_color", "ssh_host",
-		"instance_name", "auto_name", "tmux_conf", "log_level",
+		"instance_name", "auto_name", "cron_ticker", "tmux_conf", "log_level",
 		"server_colors", "server_flairs", "board_order",
 	}
 	if len(entries) != len(wantKeys) {
@@ -105,6 +105,9 @@ func TestGetSettings_registryOrderAndDefaults(t *testing.T) {
 	}
 	if got := byKey["auto_name"].Value; got != false {
 		t.Errorf("auto_name.value = %v, want false", got)
+	}
+	if got := byKey["cron_ticker"].Value; got != true {
+		t.Errorf("cron_ticker.value = %v, want true", got)
 	}
 	if got := byKey["log_level"].Value; got != "info" {
 		t.Errorf("log_level.value = %v, want %q", got, "info")
@@ -182,7 +185,7 @@ func TestGetSettings_enumOptionsWireShape(t *testing.T) {
 	// Non-enum kinds omit the options key entirely (omitempty).
 	for _, key := range []string{
 		"theme_dark", "theme_light", "instance_color", "ssh_host",
-		"instance_name", "auto_name", "tmux_conf",
+		"instance_name", "auto_name", "cron_ticker", "tmux_conf",
 		"server_colors", "server_flairs", "board_order",
 	} {
 		if _, present := byKey[key]["options"]; present {

@@ -97,6 +97,11 @@ func loadForMutate(dir, slug string) (path string, entries []Entry, err error) {
 	return path, entries, nil
 }
 
+// MaxEntriesPerServer caps one server's entry file — the cron-spam guard
+// against misbehaving creators. Add refuses past it; evaluation defensively
+// processes only the first cap-many entries of a (hand-edited) larger file.
+const MaxEntriesPerServer = 50
+
 // Add appends an entry, generating its 4-char id (uniqueness within the
 // server's file). The entry's ID field is ignored; the assigned entry is
 // returned.
@@ -107,6 +112,9 @@ func Add(dir, slug string, e Entry) (Entry, error) {
 	path, entries, err := loadForMutate(dir, slug)
 	if err != nil {
 		return Entry{}, err
+	}
+	if len(entries) >= MaxEntriesPerServer {
+		return Entry{}, fmt.Errorf("server %s already holds the maximum %d cron entries", slug, MaxEntriesPerServer)
 	}
 	taken := make(map[string]bool, len(entries))
 	for _, existing := range entries {

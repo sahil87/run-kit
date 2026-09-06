@@ -1,6 +1,7 @@
 package cron
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -210,5 +211,58 @@ func TestMutateRefusesCorruptFile(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("Add over corrupt file succeeded — existing intent would be dropped")
+	}
+}
+
+// TestAddEntryCap: Add refuses past MaxEntriesPerServer with a named-cap
+// error and leaves the file unchanged; at cap-1 it still adds.
+func TestAddEntryCap(t *testing.T) {
+	dir := t.TempDir()
+	newEntry := func() Entry {
+		return Entry{
+			Schedule: Schedule{Kind: ScheduleEvery, Interval: Duration{time.Minute}},
+			Target:   Target{Kind: TargetPane, Pane: "%1"},
+			Payload:  "x",
+		}
+	}
+
+	// Fill to the cap directly (Add assigns ids; building via saveEntries
+	// keeps the fixture deterministic).
+	entries := make([]Entry, MaxEntriesPerServer)
+	for i := range entries {
+		e := newEntry()
+		e.ID = fmt.Sprintf("e%03d", i)
+		entries[i] = e
+	}
+	path, err := EntriesPath(dir, "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := saveEntries(path, entries); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = Add(dir, "dev", newEntry())
+	if err == nil || !strings.Contains(err.Error(), "50") {
+		t.Fatalf("Add past the cap: err = %v, want a refusal naming the cap", err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Error("entry file changed despite the refused Add")
+	}
+
+	// Cap-1 still adds.
+	if _, err := Remove(dir, "dev", entries[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Add(dir, "dev", newEntry()); err != nil {
+		t.Errorf("Add at cap-1: %v", err)
 	}
 }

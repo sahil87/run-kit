@@ -2,9 +2,12 @@ package cron
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -91,6 +94,414 @@ func TestTickDeadServerUntouched(t *testing.T) {
 
 func sprintfTick(T time.Time) string {
 	return fmt.Sprintf(tickEntryYAML, T.Add(-2*time.Hour).Unix())
+}
+
+// heldAwareDeliverer returns a scripted outcome per call.
+type heldAwareDeliverer struct {
+	outcomes []Outcome
+	calls    int
+}
+
+func (d *heldAwareDeliverer) Deliver(ctx context.Context, fire Fire) Outcome {
+	o := d.outcomes[min(d.calls, len(d.outcomes)-1)]
+	d.calls++
+	return o
+}
+
+// livePaneRig builds the one-live-server/one-due-entry rig shared by the
+// delivery-outcome tests: entry a3f9 (every 1h, anchored 2h back) targeting
+// the resolved pane %42 on live1.
+func livePaneRig(t *testing.T, dir string, T time.Time) *fakeTmux {
+	t.Helper()
+	writeEntryFile(t, dir, "live1", sprintfTick(T))
+	fk := newFakeTmux()
+	fk.sessions["live1"] = []tmux.SessionInfo{{Name: "work"}}
+	fk.windows["live1"] = map[string][]tmux.WindowInfo{"work": {{WindowID: "@5"}}}
+	fk.alive["live1"] = map[string]bool{"%42": true}
+	fk.panes["live1"] = map[string]tmux.PaneFacts{"%42": {AgentState: tmux.AgentStateIdle, AgentStateEpoch: T.Unix()}}
+	return fk
+}
+
+func tickOnce(t *testing.T, dir string, T time.Time, fk *fakeTmux, deliverer Deliverer) TickResult {
+	t.Helper()
+	res, err := Tick(context.Background(), Deps{
+		Dir: dir,
+		Now: func() time.Time { return T },
+		ListServers: func(ctx context.Context) ([]string, error) {
+			return []string{"live1"}, nil
+		},
+		Tmux:      fk,
+		Deliverer: deliverer,
+		OperatorStatePath: func(slug string) (string, error) {
+			return filepath.Join(t.TempDir(), slug+".yaml"), nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+// TestTickHeldOutcomeSkipsLog: a held (when-idle, busy) outcome appends NO log
+// line — the `every` anchor is unchanged, so the fire is due again next tick —
+// while delivered and failed outcomes append.
+func TestTickHeldOutcomeSkipsLog(t *testing.T) {
+	dir := t.TempDir()
+	T := backoffBase
+	fk := livePaneRig(t, dir, T)
+	logPath := filepath.Join(dir, "live1.log")
+
+	// Tick 1: the deliverer holds (busy pane).
+	del := &heldAwareDeliverer{outcomes: []Outcome{
+		{Status: "held-busy", Detail: "active", Held: true},
+		{Status: "delivered"},
+		{Status: "failed", Detail: "probe"},
+	}}
+	res := tickOnce(t, dir, T, fk, del)
+	if res.Fires != 0 {
+		t.Errorf("held tick: fires = %d, want 0 (nothing delivered)", res.Fires)
+	}
+	if lines := ReadLog(logPath); len(lines) != 0 {
+		t.Fatalf("held tick appended %d log lines, want 0 — a held attempt must never advance the anchor", len(lines))
+	}
+	if !hasDiag(res.Diags, "delivery-held") {
+		t.Errorf("held tick: diags = %v, want delivery-held", diagReasons(res.Diags))
+	}
+
+	// Tick 2 (one interval later): the same entry is still due — the anchor
+	// never moved — and now delivers.
+	res = tickOnce(t, dir, T.Add(30*time.Second), fk, del)
+	if res.Fires != 1 {
+		t.Fatalf("retry tick: fires = %d, want 1 (the held fire re-fired)", res.Fires)
+	}
+	lines := ReadLog(logPath)
+	if len(lines) != 1 || lines[0].Outcome != "delivered" {
+		t.Fatalf("log after retry = %+v, want one delivered line", lines)
+	}
+
+	// Tick 3 (past the next due point): a failed delivery appends.
+	res = tickOnce(t, dir, T.Add(2*time.Hour), fk, del)
+	if res.Fires != 1 {
+		t.Fatalf("failed tick: fires = %d, want 1", res.Fires)
+	}
+	lines = ReadLog(logPath)
+	if len(lines) != 2 || lines[1].Outcome != "failed: probe" {
+		t.Fatalf("log after failure = %+v, want the failed outcome appended", lines)
+	}
+}
+
+// fakeNotifier records notify calls and can be scripted to fail.
+type fakeNotifier struct {
+	calls []notifyCall
+	err   error
+}
+
+type notifyCall struct{ title, body, url string }
+
+func (n *fakeNotifier) notify(ctx context.Context, title, body, url string) error {
+	n.calls = append(n.calls, notifyCall{title, body, url})
+	return n.err
+}
+
+// absentEntryYAML is one due every-1h entry anchored 2h back whose session
+// target never resolves (no pane carries the session id).
+const absentEntryYAML = `
+entries:
+  - id: a3f9
+    name: sweep
+    schedule: { kind: every, interval: 1h }
+    target: { kind: session, session: dead }
+    payload: "sweep"
+    if_absent: %s
+    created_by: { session: s, pane: "%%42", at: %d }
+`
+
+// absentRig builds the live1 rig for the if_absent tests: the entry's session
+// target resolves to no pane, so the due fire lands in EvalResult.Absent.
+func absentRig(t *testing.T, dir string, T time.Time, ifAbsent string) *fakeTmux {
+	t.Helper()
+	writeEntryFile(t, dir, "live1", fmt.Sprintf(absentEntryYAML, ifAbsent, T.Add(-2*time.Hour).Unix()))
+	fk := newFakeTmux()
+	fk.sessions["live1"] = []tmux.SessionInfo{{Name: "work"}}
+	fk.windows["live1"] = map[string][]tmux.WindowInfo{"work": {{WindowID: "@5"}}}
+	return fk
+}
+
+func tickOnceN(t *testing.T, dir string, T time.Time, fk *fakeTmux, deliverer Deliverer, notifier func(context.Context, string, string, string) error) TickResult {
+	t.Helper()
+	res, err := Tick(context.Background(), Deps{
+		Dir: dir,
+		Now: func() time.Time { return T },
+		ListServers: func(ctx context.Context) ([]string, error) {
+			return []string{"live1"}, nil
+		},
+		Tmux:      fk,
+		Deliverer: deliverer,
+		Notifier:  notifier,
+		OperatorStatePath: func(slug string) (string, error) {
+			return filepath.Join(t.TempDir(), slug+".yaml"), nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+// seedLog appends n lines for the given entry/target/outcome at ts.
+func seedLog(t *testing.T, path string, n int, entry, target, outcome string, ts int64) {
+	t.Helper()
+	for range n {
+		if err := AppendLog(path, LogLine{TS: ts, Entry: entry, Target: target, Reason: "schedule", Outcome: outcome}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// captureSlog routes slog through a buffer for the rate-cap visibility pin,
+// restoring the previous default on cleanup.
+func captureSlog(t *testing.T) *strings.Builder {
+	t.Helper()
+	var buf strings.Builder
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return &buf
+}
+
+// TestTickRateCapTrips: at DefaultTargetRatePerHour counted deliveries to the
+// pane within the trailing hour (across ALL entries), the due fire is
+// suppressed — nothing typed, a rate-capped line lands, and a Warn names the
+// trip. One below the cap, the fire delivers.
+func TestTickRateCapTrips(t *testing.T) {
+	t.Run("at the cap the fire is suppressed", func(t *testing.T) {
+		dir := t.TempDir()
+		T := backoffBase
+		fk := livePaneRig(t, dir, T)
+		logPath := filepath.Join(dir, "live1.log")
+		// Another entry's deliveries to the same pane fill the window; a3f9's
+		// own anchor is untouched, so it stays due.
+		seedLog(t, logPath, DefaultTargetRatePerHour, "zzzz", "%42", "delivered", T.Add(-30*time.Minute).Unix())
+
+		warns := captureSlog(t)
+		del := &fakeDeliverer{}
+		res := tickOnce(t, dir, T, fk, del)
+		if len(del.fires) != 0 {
+			t.Errorf("deliverer got %d fires, want 0 (rate-capped)", len(del.fires))
+		}
+		lines := ReadLog(logPath)
+		last := lines[len(lines)-1]
+		if last.Outcome != "rate-capped" || last.Entry != "a3f9" || last.Target != "%42" {
+			t.Errorf("last log line = %+v, want the rate-capped line for a3f9/%%42", last)
+		}
+		if !strings.Contains(warns.String(), "rate-capped") {
+			t.Errorf("no Warn-level rate-capped message; log = %q", warns.String())
+		}
+		if res.Fires != 1 {
+			t.Errorf("fires = %d, want 1 (the capped suppression is logged)", res.Fires)
+		}
+	})
+
+	t.Run("one below the cap delivers", func(t *testing.T) {
+		dir := t.TempDir()
+		T := backoffBase
+		fk := livePaneRig(t, dir, T)
+		seedLog(t, filepath.Join(dir, "live1.log"), DefaultTargetRatePerHour-1, "zzzz", "%42", "delivered", T.Add(-30*time.Minute).Unix())
+
+		del := &fakeDeliverer{}
+		tickOnce(t, dir, T, fk, del)
+		if len(del.fires) != 1 {
+			t.Errorf("deliverer got %d fires, want 1 (below the cap)", len(del.fires))
+		}
+	})
+
+	t.Run("old lines fall out of the window", func(t *testing.T) {
+		dir := t.TempDir()
+		T := backoffBase
+		fk := livePaneRig(t, dir, T)
+		seedLog(t, filepath.Join(dir, "live1.log"), DefaultTargetRatePerHour, "zzzz", "%42", "delivered", T.Add(-2*rateWindow).Unix())
+
+		del := &fakeDeliverer{}
+		tickOnce(t, dir, T, fk, del)
+		if len(del.fires) != 1 {
+			t.Errorf("deliverer got %d fires, want 1 (lines older than the window don't count)", len(del.fires))
+		}
+	})
+}
+
+// TestTickRateCapOutcomeClasses: only delivery-attempt outcomes count —
+// suppressions (rate-capped) and recorded misses (skipped-absent) do not, and
+// held outcomes never reach the log at all.
+func TestTickRateCapOutcomeClasses(t *testing.T) {
+	for _, outcome := range []string{"rate-capped", "skipped-absent"} {
+		t.Run(outcome+" does not count", func(t *testing.T) {
+			dir := t.TempDir()
+			T := backoffBase
+			fk := livePaneRig(t, dir, T)
+			seedLog(t, filepath.Join(dir, "live1.log"), DefaultTargetRatePerHour, "zzzz", "%42", outcome, T.Add(-30*time.Minute).Unix())
+
+			del := &fakeDeliverer{}
+			tickOnce(t, dir, T, fk, del)
+			if len(del.fires) != 1 {
+				t.Errorf("deliverer got %d fires, want 1 (%q lines must not trip the cap)", len(del.fires), outcome)
+			}
+		})
+	}
+}
+
+// TestTickRateCapAbsentKeysOnEntry: an absent fire's cap key is the entry id
+// (its log lines carry no pane) — past the cap, the notify disposition is
+// suppressed with a rate-capped line.
+func TestTickRateCapAbsentKeysOnEntry(t *testing.T) {
+	dir := t.TempDir()
+	T := backoffBase
+	fk := absentRig(t, dir, T, "notify")
+	logPath := filepath.Join(dir, "live1.log")
+	// The entry's own notified-absent history fills the window; the 1m
+	// interval keeps it due despite the advanced anchor.
+	writeEntryFile(t, dir, "live1", fmt.Sprintf(`
+entries:
+  - id: a3f9
+    name: sweep
+    schedule: { kind: every, interval: 1m }
+    target: { kind: session, session: dead }
+    payload: "sweep"
+    if_absent: notify
+    created_by: { session: s, pane: "%%42", at: %d }
+`, T.Add(-2*time.Hour).Unix()))
+	seedLog(t, logPath, DefaultTargetRatePerHour, "a3f9", "", "notified-absent", T.Add(-30*time.Minute).Unix())
+
+	nt := &fakeNotifier{}
+	tickOnceN(t, dir, T, fk, &fakeDeliverer{}, nt.notify)
+	if len(nt.calls) != 0 {
+		t.Errorf("notify calls = %d, want 0 (rate-capped)", len(nt.calls))
+	}
+	lines := ReadLog(logPath)
+	if last := lines[len(lines)-1]; last.Outcome != "rate-capped" || last.Entry != "a3f9" {
+		t.Errorf("last log line = %+v, want the rate-capped line for a3f9", last)
+	}
+}
+
+// TestTickRateCapAbsentOtherEntryUnaffected: another entry's notified-absent
+// lines do not count against this entry's absent cap.
+func TestTickRateCapAbsentOtherEntryUnaffected(t *testing.T) {
+	dir := t.TempDir()
+	T := backoffBase
+	fk := absentRig(t, dir, T, "notify")
+	seedLog(t, filepath.Join(dir, "live1.log"), DefaultTargetRatePerHour, "zzzz", "", "notified-absent", T.Add(-30*time.Minute).Unix())
+
+	nt := &fakeNotifier{}
+	tickOnceN(t, dir, T, fk, &fakeDeliverer{}, nt.notify)
+	if len(nt.calls) != 1 {
+		t.Errorf("notify calls = %d, want 1 (another entry's lines must not trip this entry's cap)", len(nt.calls))
+	}
+}
+
+// TestTickIfAbsentDispositions: skip (and empty) log skipped-absent; notify
+// calls the notifier and logs notified-absent; respawn degrades to notify with
+// a respawn-unimplemented diagnostic.
+func TestTickIfAbsentDispositions(t *testing.T) {
+	cases := []struct {
+		ifAbsent    string
+		wantOutcome string
+		wantNotify  bool
+		wantDiag    string
+	}{
+		{"skip", "skipped-absent", false, ""},
+		{"notify", "notified-absent", true, ""},
+		{"respawn", "notified-absent", true, "respawn-unimplemented"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.ifAbsent, func(t *testing.T) {
+			dir := t.TempDir()
+			T := backoffBase
+			fk := absentRig(t, dir, T, tc.ifAbsent)
+			nt := &fakeNotifier{}
+			res := tickOnceN(t, dir, T, fk, &fakeDeliverer{}, nt.notify)
+
+			lines := ReadLog(filepath.Join(dir, "live1.log"))
+			if len(lines) != 1 || lines[0].Outcome != tc.wantOutcome {
+				t.Fatalf("log = %+v, want one %s line", lines, tc.wantOutcome)
+			}
+			if lines[0].Entry != "a3f9" || lines[0].Target != "" {
+				t.Errorf("log line = %+v, want entry a3f9 with no target", lines[0])
+			}
+			if got := len(nt.calls); (got == 1) != tc.wantNotify {
+				t.Errorf("notify calls = %d, wantNotify=%v", got, tc.wantNotify)
+			}
+			if tc.wantNotify {
+				call := nt.calls[0]
+				if call.title != "cron: sweep" || !strings.Contains(call.body, "live1") {
+					t.Errorf("notify = %+v, want title `cron: sweep`, body naming the server", call)
+				}
+			}
+			if tc.wantDiag != "" && !hasDiag(res.Diags, tc.wantDiag) {
+				t.Errorf("diags = %v, want %s", diagReasons(res.Diags), tc.wantDiag)
+			}
+		})
+	}
+
+	t.Run("empty if_absent behaves as skip", func(t *testing.T) {
+		dir := t.TempDir()
+		T := backoffBase
+		fk := absentRig(t, dir, T, "")
+		nt := &fakeNotifier{}
+		tickOnceN(t, dir, T, fk, &fakeDeliverer{}, nt.notify)
+		lines := ReadLog(filepath.Join(dir, "live1.log"))
+		if len(lines) != 1 || lines[0].Outcome != "skipped-absent" {
+			t.Fatalf("log = %+v, want one skipped-absent line", lines)
+		}
+		if len(nt.calls) != 0 {
+			t.Errorf("notify calls = %d, want 0", len(nt.calls))
+		}
+	})
+}
+
+// TestTickIfAbsentNotifyOncePerDuePeriod: the notified-absent log line
+// advances the anchor, so a dead target notifies once per due period, not once
+// per tick.
+func TestTickIfAbsentNotifyOncePerDuePeriod(t *testing.T) {
+	dir := t.TempDir()
+	T := backoffBase
+	fk := absentRig(t, dir, T, "notify")
+	nt := &fakeNotifier{}
+
+	tickOnceN(t, dir, T, fk, &fakeDeliverer{}, nt.notify)
+	// One tick later: the entry is not due again (anchor advanced to T).
+	res := tickOnceN(t, dir, T.Add(30*time.Second), fk, &fakeDeliverer{}, nt.notify)
+	if len(nt.calls) != 1 {
+		t.Errorf("notify calls = %d, want 1 — the anchor advance must throttle notify to once per due period", len(nt.calls))
+	}
+	if lines := ReadLog(filepath.Join(dir, "live1.log")); len(lines) != 1 {
+		t.Errorf("log lines = %d, want 1", len(lines))
+	}
+	if res.Fires != 0 {
+		t.Errorf("second tick fires = %d, want 0 (not due)", res.Fires)
+	}
+
+	// Past the next due point the entry notifies again.
+	tickOnceN(t, dir, T.Add(time.Hour), fk, &fakeDeliverer{}, nt.notify)
+	if len(nt.calls) != 2 {
+		t.Errorf("notify calls = %d, want 2 after the next due period", len(nt.calls))
+	}
+}
+
+// TestTickIfAbsentNotifyFailSilent: a notify failure is a diagnostic, never a
+// tick error, and the notified-absent line still lands (the anchor advance is
+// the notify throttle).
+func TestTickIfAbsentNotifyFailSilent(t *testing.T) {
+	dir := t.TempDir()
+	T := backoffBase
+	fk := absentRig(t, dir, T, "notify")
+	nt := &fakeNotifier{err: errors.New("push service unreachable")}
+	res := tickOnceN(t, dir, T, fk, &fakeDeliverer{}, nt.notify)
+	if !hasDiag(res.Diags, "notify-failed") {
+		t.Errorf("diags = %v, want notify-failed", diagReasons(res.Diags))
+	}
+	lines := ReadLog(filepath.Join(dir, "live1.log"))
+	if len(lines) != 1 || lines[0].Outcome != "notified-absent" {
+		t.Fatalf("log = %+v, want the notified-absent line even on notify failure", lines)
+	}
 }
 
 // TestTickDeliverLogCursor: one due entry delivers through the seam exactly

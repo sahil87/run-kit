@@ -61,7 +61,7 @@ export function SessionNamePrompt({ sessions, defaultName, onSubmit, onClose }: 
         aria-label="Session name"
         aria-invalid={nameCollision}
         placeholder="Session name..."
-        className={`w-full bg-transparent text-text-primary p-2 border rounded ${INPUT_FOCUS} ${INPUT_COARSE} placeholder:text-text-secondary ${
+        className={`w-full bg-transparent text-text-primary p-2 border rounded ${nameCollision ? "outline-none focus:border-red-500" : INPUT_FOCUS} ${INPUT_COARSE} placeholder:text-text-secondary ${
           nameCollision ? "border-red-500" : "border-border"
         }`}
       />

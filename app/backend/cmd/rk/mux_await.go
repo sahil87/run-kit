@@ -142,7 +142,7 @@ func init() {
 	muxAwaitCmd.Flags().BoolVar(&awaitAnyFlag, "any", false,
 		"Accept one-or-more targets and wake on the FIRST to fire (report appends the firing pane)")
 	muxAwaitCmd.Flags().BoolVar(&awaitReadyFlag, "ready", false,
-		"Wait until the pane is boot-ready for typed input (agent state present, else a sentinel echo probe gated on the 80x20 floor: echo = ready, no echo = parked, below floor = narrow %N (WxH); all exit 0)")
+		"Wait until the pane is boot-ready for typed input (agent state present, else a sentinel echo probe gated on the 80x20 floor: echo = ready, no echo = parked, below floor = narrow %N (WxH); all exit 0, except a pane death mid-wait which reports `gone` with exit 1)")
 }
 
 // awaitDeps are the observer's test seams (the present.go pattern): the

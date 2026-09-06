@@ -102,6 +102,13 @@ func TestGuardFreshnessBoundary(t *testing.T) {
 	if holds, _ := guardHolds(GuardOperatorLoopFresh, st, guardNow, threshold); !holds {
 		t.Error("future stamp should hold")
 	}
+	// The comparison honors the full Duration — a stamp a fraction of a
+	// second past the threshold does not hold.
+	st.LastTickAt = guardNow.Add(-threshold).Unix()
+	late := guardNow.Add(400 * time.Millisecond)
+	if holds, _ := guardHolds(GuardOperatorLoopFresh, st, late, threshold); holds {
+		t.Error("400ms past the threshold should not hold")
+	}
 }
 
 // TestOperatorStateTolerantShapes: unix timestamps, list/map/scalar tracked

@@ -46,7 +46,8 @@ type Fire struct {
 	Entry  Entry
 	Reason FireReason
 	PaneID string
-	// Rung is the backoff ladder rung being fired (0 for other schedules).
+	// Rung is the backoff ladder rung being fired (0 for wake fires and
+	// other schedules).
 	Rung int
 	At   time.Time
 }
@@ -109,8 +110,8 @@ func Evaluate(in EvalInput) EvalResult {
 		case ScheduleBackoff:
 			switch {
 			case !facts.Resolved():
-				// Diagnosed below only if a fire would otherwise be due —
-				// backoff due-ness is unknown without the epoch.
+				// Diagnosed unconditionally: backoff due-ness is unknowable
+				// without the epoch, so the anchor gap is reported every tick.
 				diag("anchor-unavailable", "backoff target unresolved: "+facts.Unresolved)
 			case facts.StateEpoch <= 0:
 				diag("anchor-unavailable", "target pane carries no agent-state epoch")
@@ -172,6 +173,8 @@ func Evaluate(in EvalInput) EvalResult {
 		reason := FireSchedule
 		if !schedDue {
 			reason = FireWake
+			// A wake fire is not firing the ladder — it carries no rung.
+			rung = 0
 		}
 		res.Fires = append(res.Fires, Fire{
 			Server: in.Server,

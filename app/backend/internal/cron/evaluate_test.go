@@ -232,6 +232,34 @@ func TestEvaluateScheduleWakeBothDue(t *testing.T) {
 	}
 }
 
+// TestEvaluateWakeFireCarriesNoRung: a wake-triggered fire on a backoff entry
+// is not a ladder fire — Rung is 0 even though the ladder computed a rung.
+func TestEvaluateWakeFireCarriesNoRung(t *testing.T) {
+	T := backoffBase
+	entry := Entry{
+		ID:       "a3f9",
+		Schedule: Schedule{Kind: ScheduleBackoff, Anchor: "operator-idle", Min: Duration{60 * time.Second}, Max: Duration{30 * time.Minute}},
+		WakeOn:   &WakeOn{Event: WakeAgentStateChange, Scope: WakeScopeServer, Debounce: Duration{10 * time.Second}},
+		Target:   Target{Kind: TargetRole, Role: RoleOperator},
+		Payload:  "operator tick",
+	}
+	// Same ladder setup as TestEvaluateBackoffFire: at T+6m the schedule is
+	// NOT due (the ladder sits at rung 3), but the wake edge fires.
+	log := own(unix(T, time.Minute), unix(T, 3*time.Minute))
+	facts := map[string]TargetFacts{"a3f9": resolvedFacts("idle", unix(T, 3*time.Minute+5*time.Second))}
+	res := Evaluate(EvalInput{
+		Server: "dev", Now: T.Add(6 * time.Minute), Entries: []Entry{entry}, Facts: facts, Log: log,
+		Fingerprint: "F2",
+		Cursor:      WakeCursor{Entries: map[string]WakeObservation{"a3f9": {Fingerprint: "F1", ObservedAt: T.Add(5 * time.Minute).Unix()}}},
+	})
+	if len(res.Fires) != 1 || res.Fires[0].Reason != FireWake {
+		t.Fatalf("fires = %+v, want one wake fire", res.Fires)
+	}
+	if res.Fires[0].Rung != 0 {
+		t.Errorf("rung = %d, want 0 for a wake fire", res.Fires[0].Rung)
+	}
+}
+
 // TestEvaluateTargetUnresolved: a due fire with an unresolvable target is
 // skipped with a diagnostic, not an error (R16).
 func TestEvaluateTargetUnresolved(t *testing.T) {

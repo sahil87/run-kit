@@ -116,7 +116,7 @@ func guardHolds(name string, st OperatorState, now time.Time, freshThreshold tim
 	switch name {
 	case GuardOperatorLoopFresh:
 		return st.Present && st.LastTickAt > 0 &&
-			now.Unix()-st.LastTickAt <= int64(freshThreshold/time.Second), true
+			now.Sub(time.Unix(st.LastTickAt, 0)) <= freshThreshold, true
 	case GuardNothingTracked:
 		return st.TrackedCount == 0, true
 	default:

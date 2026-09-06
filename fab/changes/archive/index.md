@@ -1,5 +1,7 @@
 # Archived Changes
 
+- **260906-bi3v-rk-cron-cli** — rk cron CLI
+- **260906-kl1g-daemon-ticker-cron-delivery** — Daemon Ticker + Cron Delivery
 - **260906-3jtn-cron-core-evaluator** — Cron Core + Evaluator
 - **260906-3i9e-dialog-input-unification** — Dialog & Input Unification
 - **260906-xjex-sidebar-control-strays** — Sidebar Control Strays

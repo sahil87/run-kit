@@ -6,10 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"rk/internal/config"
+	"rk/internal/cron"
 	"rk/internal/inject"
 	"rk/internal/riff"
 
@@ -28,8 +31,9 @@ import (
 // may read the ambient tmux env.
 
 // operatorTestSocket is the fake $TMUX the seam serves so every test runs the
-// inside-tmux path deterministically.
-const operatorTestSocket = "/tmp/rk-test.sock,1234,0"
+// inside-tmux path deterministically. Its basename doubles as the cron server
+// slug for the seed step, so it must pass cron.ValidSlug (no dots).
+const operatorTestSocket = "/tmp/rk-test-sock,1234,0"
 
 // operatorTestPane / operatorTestWindow are the ids the stubbed
 // new-window/display-message print; the stamp and delivery must target them.
@@ -63,6 +67,11 @@ type operatorStub struct {
 
 	deliverErr   error
 	deliverCalls []operatorDelivery
+
+	// cronDir / cronDirErr drive the seed step's cronDirFn seam (a temp state
+	// dir per test; cronDirErr simulates an unresolvable state dir).
+	cronDir    string
+	cronDirErr error
 }
 
 // operatorDelivery records one operatorDeliverFn invocation.
@@ -114,6 +123,14 @@ func stubOperatorSeams(t *testing.T, listOutput string) *operatorStub {
 		return inject.ReadyByEcho, s.deliverErr
 	}
 
+	// The seed step's cron seams: a temp state dir (never the real
+	// $XDG_STATE_HOME) and a fixed caller pane (the suite must pass under
+	// `env -u TMUX -u TMUX_PANE` — no ambient-env reads).
+	origCronDir, origCronPane := cronDirFn, cronTmuxPaneFn
+	s.cronDir = t.TempDir()
+	cronDirFn = func() (string, error) { return s.cronDir, s.cronDirErr }
+	cronTmuxPaneFn = func() string { return operatorTestPane }
+
 	origClear, origRoleRun := roleClearExceptFn, roleRunFn
 	origDemote, origMoveIn := roleDemoteFn, roleMoveInFn
 	roleClearExceptFn = func(_ context.Context, _ []string, _ string) ([]string, error) {
@@ -139,6 +156,7 @@ func stubOperatorSeams(t *testing.T, listOutput string) *operatorStub {
 		operatorRunFn, operatorRunOutputFn = origRun, origOut
 		operatorResolveLauncherFn = origResolve
 		operatorDeliverFn = origDeliver
+		cronDirFn, cronTmuxPaneFn = origCronDir, origCronPane
 		roleClearExceptFn, roleRunFn = origClear, origRoleRun
 		roleDemoteFn, roleMoveInFn = origDemote, origMoveIn
 	})
@@ -402,7 +420,7 @@ func TestOperatorCreatesStampsAndDelivers(t *testing.T) {
 		t.Errorf("stamp op 0 = %q, want the radio clear first", s.stampOps[0])
 	}
 	setOp := s.stampOps[1]
-	for _, frag := range []string{"-S", "/tmp/rk-test.sock", "set-option", "-t", operatorTestWindow, "@rk_win_role", "operator"} {
+	for _, frag := range []string{"-S", "/tmp/rk-test-sock", "set-option", "-t", operatorTestWindow, "@rk_win_role", "operator"} {
 		if !strings.Contains(setOp, frag) {
 			t.Errorf("stamp op 1 = %q, want it to contain %q", setOp, frag)
 		}
@@ -421,8 +439,8 @@ func TestOperatorCreatesStampsAndDelivers(t *testing.T) {
 	if d.paneID != operatorTestPane || d.text != operatorKickoffPrompt {
 		t.Errorf("delivery = (pane %q, text %q), want (%s, %q)", d.paneID, d.text, operatorTestPane, operatorKickoffPrompt)
 	}
-	if d.server != "rk-test.sock" {
-		t.Errorf("delivery server = %q, want the $TMUX socket basename %q", d.server, "rk-test.sock")
+	if d.server != "rk-test-sock" {
+		t.Errorf("delivery server = %q, want the $TMUX socket basename %q", d.server, "rk-test-sock")
 	}
 
 	if got := outBuf.String(); got != "Opened operator tab (window \"operator\").\n" {
@@ -551,5 +569,129 @@ func TestOperatorListWindowsFailure(t *testing.T) {
 	if len(s.calls) != 0 {
 		// The failing call itself went through the replaced seam, not the recorder.
 		t.Errorf("recorded calls = %v, want none past the failed probe", s.calls)
+	}
+}
+
+// --- Operator-tick seeding (T005) ---
+//
+// The seed step runs on every runOperator invocation, before the singleton
+// probe: a fresh state dir gains the spec'd entry, a re-run leaves a user's
+// edits untouched, and a seed failure degrades to a stderr warning without
+// affecting the exit code or the window open.
+
+// TestOperatorSeedsOperatorTickEntry: a fresh state dir gains exactly one
+// entry carrying the spec's fixed operator-tick field values (backoff
+// 60s→30m on operator-idle, wake_on agent-state-change/server/10s, the two
+// suppress guards, role:operator target, "operator tick" payload, immediate
+// delivery, if_absent respawn, pinned), with created_by auto-captured from
+// the caller's pane.
+func TestOperatorSeedsOperatorTickEntry(t *testing.T) {
+	resetOperatorWorkers(t)
+	s := stubOperatorSeams(t, "@3\t\tother\n")
+	cmd, _, _ := operatorTestCmd()
+	if err := runOperator(cmd); err != nil {
+		t.Fatalf("runOperator() = %v", err)
+	}
+
+	entries, diags := cron.LoadEntries(filepath.Join(s.cronDir, "rk-test-sock.yaml"))
+	if len(diags) != 0 || len(entries) != 1 {
+		t.Fatalf("entries = %v diags = %v, want exactly one seeded entry", entries, diags)
+	}
+	e := entries[0]
+	if len(e.ID) != 4 {
+		t.Errorf("id = %q, want an Add-assigned 4-char id", e.ID)
+	}
+	wantSched := cron.Schedule{
+		Kind:   cron.ScheduleBackoff,
+		Anchor: "operator-idle",
+		Min:    cron.Duration{Duration: 60 * time.Second},
+		Max:    cron.Duration{Duration: 30 * time.Minute},
+	}
+	if e.Schedule != wantSched {
+		t.Errorf("schedule = %+v, want %+v", e.Schedule, wantSched)
+	}
+	if e.WakeOn == nil || e.WakeOn.Event != cron.WakeAgentStateChange || e.WakeOn.Scope != cron.WakeScopeServer || e.WakeOn.Debounce.Duration != 10*time.Second {
+		t.Errorf("wake_on = %+v, want agent-state-change/server/10s", e.WakeOn)
+	}
+	if strings.Join(e.SuppressWhile, ",") != cron.GuardOperatorLoopFresh+","+cron.GuardNothingTracked {
+		t.Errorf("suppress_while = %v", e.SuppressWhile)
+	}
+	if e.Target != (cron.Target{Kind: cron.TargetRole, Role: cron.RoleOperator}) {
+		t.Errorf("target = %+v, want role:operator", e.Target)
+	}
+	if e.Name != "operator tick" || e.Payload != "operator tick" {
+		t.Errorf("name/payload = %q/%q, want \"operator tick\"/\"operator tick\"", e.Name, e.Payload)
+	}
+	if e.Deliver != cron.DeliverImmediate || e.IfAbsent != cron.IfAbsentRespawn || !e.Pinned || e.Muted {
+		t.Errorf("deliver/if_absent/pinned/muted = %q/%q/%v/%v, want immediate/respawn/true/false",
+			e.Deliver, e.IfAbsent, e.Pinned, e.Muted)
+	}
+	if e.CreatedBy.Pane != operatorTestPane || e.CreatedBy.Session != "" || e.CreatedBy.At == 0 {
+		t.Errorf("created_by = %+v, want {pane: %s, at: <now>} with session empty", e.CreatedBy, operatorTestPane)
+	}
+}
+
+// TestOperatorSeedIsIdempotent: a second run leaves the seeded entry — and
+// any user edit to it — untouched (the role target is the idempotency key;
+// re-seeding is not config reconciliation).
+func TestOperatorSeedIsIdempotent(t *testing.T) {
+	resetOperatorWorkers(t)
+	s := stubOperatorSeams(t, "@3\t\tother\n")
+	cmd, _, _ := operatorTestCmd()
+	if err := runOperator(cmd); err != nil {
+		t.Fatalf("first runOperator() = %v", err)
+	}
+	path := filepath.Join(s.cronDir, "rk-test-sock.yaml")
+	entries, _ := cron.LoadEntries(path)
+	if len(entries) != 1 {
+		t.Fatalf("entries = %v, want the seeded entry", entries)
+	}
+	// A user mute between runs must survive the re-seed.
+	if ok, err := cron.SetMuted(s.cronDir, "rk-test-sock", entries[0].ID, true); err != nil || !ok {
+		t.Fatalf("SetMuted: ok=%v err=%v", ok, err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cmd2, _, _ := operatorTestCmd()
+	if err := runOperator(cmd2); err != nil {
+		t.Fatalf("second runOperator() = %v", err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Error("re-run rewrote the entry file — the user's mute must survive re-seeding")
+	}
+}
+
+// TestOperatorSeedFailureIsNonFatal: an unresolvable cron state dir degrades
+// to one stderr warning — the command still opens and marks the window and
+// exits 0.
+func TestOperatorSeedFailureIsNonFatal(t *testing.T) {
+	resetOperatorWorkers(t)
+	s := stubOperatorSeams(t, "@3\t\tother\n")
+	s.cronDirErr = errors.New("state dir unwritable")
+	cmd, outBuf, errBuf := operatorTestCmd()
+	if err := runOperator(cmd); err != nil {
+		t.Fatalf("runOperator() = %v, want success despite the seed failure", err)
+	}
+	if !strings.Contains(errBuf.String(), "could not seed the operator-tick cron entry") {
+		t.Errorf("stderr = %q, want the seed-failure warning", errBuf.String())
+	}
+	if got := outBuf.String(); got != "Opened operator tab (window \"operator\").\n" {
+		t.Errorf("stdout = %q, want the launch report (window open unaffected)", got)
+	}
+	opened := false
+	for _, c := range s.calls {
+		if c.args[0] == "new-window" {
+			opened = true
+		}
+	}
+	if !opened || len(s.stampOps) == 0 {
+		t.Errorf("window open/stamp missing: calls = %v, stamp ops = %v", s.calls, s.stampOps)
 	}
 }

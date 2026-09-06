@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"rk/internal/config"
+	"rk/internal/cron"
 	"rk/internal/inject"
 	"rk/internal/riff"
 	"rk/internal/tmux"
@@ -139,15 +140,22 @@ func init() {
 // t.Setenv. The role-stamp steps route through role.go's own seams
 // (roleClearExceptFn / roleRunFn / roleDemoteFn / roleMoveInFn) — one
 // implementation of the write path.
+// operatorRunFunc / operatorRunOutputFunc are the tmux-calling shapes the
+// create-and-mark helper is parameterized on, so the CLI ($TMUX-restored env)
+// and the cron respawner (daemon env, -L-addressed args) share one
+// implementation.
+type operatorRunFunc func(ctx context.Context, args, env []string) error
+type operatorRunOutputFunc func(ctx context.Context, args, env []string) ([]byte, error)
+
 var (
 	operatorOriginalTMUXFn = func() string { return tmux.OriginalTMUX }
 	operatorLookPathFn     = func(file string) (string, error) { return exec.LookPath(file) }
-	operatorRunFn          = func(ctx context.Context, args, env []string) error {
+	operatorRunFn          = operatorRunFunc(func(ctx context.Context, args, env []string) error {
 		return tmux.Run(ctx, args, tmux.RunOpts{Env: env})
-	}
-	operatorRunOutputFn = func(ctx context.Context, args, env []string) ([]byte, error) {
+	})
+	operatorRunOutputFn = operatorRunOutputFunc(func(ctx context.Context, args, env []string) ([]byte, error) {
 		return tmux.RunOutput(ctx, args, tmux.RunOpts{Env: env})
-	}
+	})
 	operatorResolveLauncherFn = riff.ResolveLauncher
 )
 
@@ -185,6 +193,13 @@ func runOperator(cmd *cobra.Command) error {
 	if _, err := operatorLookPathFn("fab"); err != nil {
 		return &riff.ExitCodeError{Code: riff.ExitPrecondition, Msg: "run-kit operator: fab not found on PATH — the operator requires fab-kit (the companion toolkit that provides the /fab-operator skill and agent profiles); install it first"}
 	}
+
+	// Idempotent operator-tick seeding: disk-only and independent of tmux
+	// window state, so it runs BEFORE the singleton probe (both probe branches
+	// return early) and is best-effort — a seed failure warns on stderr and
+	// never changes the exit code or skips the window open (the
+	// snapshotter/ticker posture).
+	seedOperatorTick(cmd)
 
 	parent := cmd.Context()
 	if parent == nil {
@@ -231,33 +246,9 @@ func runOperator(cmd *cobra.Command) error {
 	// Bare launcher (empty prompt): the kickoff is typed after boot, below.
 	shellCmd := operatorShellCommand(launcher, operatorWorkersFlag)
 
-	// -P -F captures the new pane's id — the typed delivery's send/capture
-	// target (pane-id targeting, like window-id, is exempt from name
-	// resolution).
-	paneOut, err := operatorRunOutputFn(ctx, []string{"new-window", "-P", "-F", "#{pane_id}", "-c", windowDir, "-n", operatorWindowName, shellCmd}, env)
+	paneID, err := createMarkedOperatorWindow(ctx, operatorRunOutputFn, env, tmuxSocketArgs(operatorOriginalTMUXFn()), windowDir, shellCmd)
 	if err != nil {
-		return &riff.ExitCodeError{Code: riff.ExitSubprocess, Msg: fmt.Sprintf("run-kit operator: tmux new-window failed: %v", err)}
-	}
-	paneID := strings.TrimSpace(string(paneOut))
-	if paneID == "" {
-		return &riff.ExitCodeError{Code: riff.ExitSubprocess, Msg: "run-kit operator: tmux new-window output parse failed: empty pane id"}
-	}
-
-	// Atomic create-and-mark: stamp the operator role on the new window via
-	// the full rk role write-path before reporting — no window exists unmarked.
-	winOut, err := operatorRunOutputFn(ctx, []string{"display-message", "-p", "-t", paneID, "#{window_id}"}, env)
-	if err != nil {
-		return &riff.ExitCodeError{Code: riff.ExitSubprocess, Msg: fmt.Sprintf("run-kit operator: resolve new window id failed: %v", err)}
-	}
-	// Validate before stamping (the role.go pattern): an empty or malformed id
-	// reaching stampOperatorRole would radio-clear @rk_win_role from every
-	// window (ClearWindowRoleExcept keeps nothing when keepWindowID is "").
-	winID := strings.TrimSpace(string(winOut))
-	if errMsg := validate.ValidateWindowID(winID, "Window ID"); errMsg != "" {
-		return &riff.ExitCodeError{Code: riff.ExitSubprocess, Msg: fmt.Sprintf("run-kit operator: resolve new window id failed: %s", errMsg)}
-	}
-	if err := stampOperatorRole(ctx, tmuxSocketArgs(operatorOriginalTMUXFn()), winID); err != nil {
-		return &riff.ExitCodeError{Code: riff.ExitSubprocess, Msg: fmt.Sprintf("run-kit operator: mark operator role: %v", err)}
+		return &riff.ExitCodeError{Code: riff.ExitSubprocess, Msg: "run-kit operator: " + err.Error()}
 	}
 
 	fmt.Fprintf(cmd.OutOrStdout(), "Opened operator tab (window %q).\n", operatorWindowName)
@@ -269,6 +260,102 @@ func runOperator(cmd *cobra.Command) error {
 		fmt.Fprintf(cmd.ErrOrStderr(), "run-kit operator: could not deliver the kickoff prompt (%v) — paste this into the operator agent yourself:\n  %s\n", deliverErr, operatorKickoffPrompt)
 	}
 	return nil
+}
+
+// seedOperatorTick idempotently seeds the server's operator-tick cron entry
+// (docs/specs/cron.md § Cron State's operator-tick example) so the cron
+// backstop exists on every server that has ever opened an operator. The
+// idempotency key is the role target — re-seeding after a user's edit (mute,
+// renamed, hand-tuned bounds) leaves the entry untouched. Best-effort: any
+// failure is one stderr warning, never a non-zero exit — opening the operator
+// tab is the command's job.
+func seedOperatorTick(cmd *cobra.Command) {
+	warn := func(err error) {
+		fmt.Fprintf(cmd.ErrOrStderr(), "run-kit operator: could not seed the operator-tick cron entry: %v\n", err)
+	}
+	slug := cliServerLabel(operatorOriginalTMUXFn())
+	if !cron.ValidSlug(slug) {
+		warn(fmt.Errorf("invalid server slug %q", slug))
+		return
+	}
+	dir, err := cronDir()
+	if err != nil {
+		warn(err)
+		return
+	}
+	if _, _, err := cron.EnsureRoleEntry(dir, slug, operatorTickEntrySpec()); err != nil {
+		warn(err)
+	}
+}
+
+// operatorTickEntrySpec builds the seeded entry with the spec's fixed
+// operator-tick field values (backoff 60s→30m on the operator-idle anchor,
+// wake on server-scoped agent-state-change debounced 10s, suppressed while
+// the loop is fresh or nothing is tracked, role:operator target, immediate
+// delivery, respawn-if-absent, pinned). created_by auto-captures the caller's
+// pane + now, the same inputs `rk cron add` uses inside a pane (session stays
+// empty — agent-session capture is a later wave).
+func operatorTickEntrySpec() cron.Entry {
+	return cron.Entry{
+		Name: "operator tick",
+		Schedule: cron.Schedule{
+			Kind:   cron.ScheduleBackoff,
+			Anchor: "operator-idle",
+			Min:    cron.Duration{Duration: 60 * time.Second},
+			Max:    cron.Duration{Duration: 30 * time.Minute},
+		},
+		WakeOn: &cron.WakeOn{
+			Event:    cron.WakeAgentStateChange,
+			Scope:    cron.WakeScopeServer,
+			Debounce: cron.Duration{Duration: 10 * time.Second},
+		},
+		SuppressWhile: []string{cron.GuardOperatorLoopFresh, cron.GuardNothingTracked},
+		Target:        cron.Target{Kind: cron.TargetRole, Role: cron.RoleOperator},
+		Payload:       "operator tick",
+		Deliver:       cron.DeliverImmediate,
+		IfAbsent:      cron.IfAbsentRespawn,
+		Pinned:        true,
+		CreatedBy:     cron.CreatedBy{Pane: cronTmuxPaneFn(), At: cronNowFn().Unix()},
+	}
+}
+
+// createMarkedOperatorWindow is the create-and-mark half of the operator
+// launch, shared by `rk operator` (CLI env: $TMUX restored, bare tmux args)
+// and the cron respawner (daemon env: TMUX/TMUX_PANE scrubbed, -L-addressed
+// args): new-window running shellCmd in windowDir → resolve the new window id
+// → atomically stamp the operator role via the full rk role write-path
+// (socketPrefix addresses the stamp's tmux calls), so no window exists
+// unmarked. Returns the new pane's id — the kickoff delivery's target.
+// Error texts are caller-prefixed ("run-kit operator: " / the respawn log
+// detail), so they carry no command name of their own.
+func createMarkedOperatorWindow(ctx context.Context, runOutput operatorRunOutputFunc, env, socketPrefix []string, windowDir, shellCmd string) (string, error) {
+	// -P -F captures the new pane's id — the typed delivery's send/capture
+	// target (pane-id targeting, like window-id, is exempt from name
+	// resolution).
+	paneOut, err := runOutput(ctx, []string{"new-window", "-P", "-F", "#{pane_id}", "-c", windowDir, "-n", operatorWindowName, shellCmd}, env)
+	if err != nil {
+		return "", fmt.Errorf("tmux new-window failed: %w", err)
+	}
+	paneID := strings.TrimSpace(string(paneOut))
+	if paneID == "" {
+		return "", errors.New("tmux new-window output parse failed: empty pane id")
+	}
+
+	winOut, err := runOutput(ctx, []string{"display-message", "-p", "-t", paneID, "#{window_id}"}, env)
+	if err != nil {
+		return "", fmt.Errorf("resolve new window id failed: %w", err)
+	}
+	// Validate before stamping (the role.go pattern): an empty or malformed id
+	// reaching stampOperatorRole would radio-clear @rk_win_role from every
+	// window (ClearWindowRoleExcept keeps nothing when keepWindowID is "").
+	winID := strings.TrimSpace(string(winOut))
+	if errMsg := validate.ValidateWindowID(winID, "Window ID"); errMsg != "" {
+		return "", fmt.Errorf("resolve new window id failed: %s", errMsg)
+	}
+	if err := stampOperatorRole(ctx, socketPrefix, winID); err != nil {
+		return "", fmt.Errorf("mark operator role: %w", err)
+	}
+	return paneID, nil
 }
 
 // operatorDeliverFn is the delivery seam (the tutorialDeliverFn pattern):

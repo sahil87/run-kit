@@ -34,7 +34,7 @@ C1 → C2 and C1 → C3; C2 ∥ C3.
 
 | # | Change | Scope | Size |
 |---|--------|-------|------|
-| C4 | Operator-tick seeding + role respawn | `rk operator` idempotently seeds the operator-tick entry (backoff 60s→30m, `wake_on` agent-state-change, `suppress_while: [operator-loop-fresh, nothing-tracked]`, pinned); `if_absent: respawn` for role targets — spawn-then-deliver composite, **kickoff prompt (`/fab-operator`) on first delivery**, bare ticks after | S |
+| C4 | Operator-tick seeding + role respawn | `rk operator` idempotently seeds the operator-tick entry (backoff 60s→30m, `wake_on` agent-state-change, `suppress_while: [operator-loop-fresh, nothing-tracked]`, pinned); `if_absent: respawn` for role targets — spawn-then-deliver composite, **kickoff prompt (`/fab-operator`) on first delivery**, bare ticks after. Also resolves spec open question 3: no reverse loop-side cron-staleness check this wave ([docs/specs/cron.md](../../docs/specs/cron.md) § Open Questions; change `260906-kbbh-operator-tick-seed-respawn`) | S |
 
 **GATE (manual, blocks Wave 3+):** on a live server with a monitored change —
 (a) kill the operator's `/loop`: a tick arrives within one backoff step;

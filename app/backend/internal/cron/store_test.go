@@ -266,3 +266,109 @@ func TestAddEntryCap(t *testing.T) {
 		t.Errorf("Add at cap-1: %v", err)
 	}
 }
+
+// roleTickSpec is the EnsureRoleEntry test fixture: a role-target entry in the
+// operator-tick shape (the production caller's spec).
+func roleTickSpec() Entry {
+	return Entry{
+		Name:     "operator tick",
+		Schedule: Schedule{Kind: ScheduleBackoff, Anchor: "operator-idle", Min: Duration{time.Minute}, Max: Duration{30 * time.Minute}},
+		Target:   Target{Kind: TargetRole, Role: RoleOperator},
+		Payload:  "operator tick",
+		Deliver:  DeliverImmediate,
+		IfAbsent: IfAbsentRespawn,
+		Pinned:   true,
+	}
+}
+
+// TestEnsureRoleEntrySeedsOnEmpty: an absent entry file gains exactly one
+// entry with the spec's fields and created=true.
+func TestEnsureRoleEntrySeedsOnEmpty(t *testing.T) {
+	dir := t.TempDir()
+	entry, created, err := EnsureRoleEntry(dir, "dev", roleTickSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !created {
+		t.Error("created = false, want true on an empty file")
+	}
+	if len(entry.ID) != 4 {
+		t.Errorf("id = %q, want an Add-assigned 4-char id", entry.ID)
+	}
+	entries, diags := LoadEntries(filepath.Join(dir, "dev.yaml"))
+	if len(diags) != 0 || len(entries) != 1 {
+		t.Fatalf("reload: entries=%v diags=%v, want exactly one entry", entries, diags)
+	}
+	if !reflect.DeepEqual(entries[0], entry) {
+		t.Errorf("round trip mismatch:\n got %+v\nwant %+v", entries[0], entry)
+	}
+}
+
+// TestEnsureRoleEntryIdempotentAndNeverMutates: a second call returns the
+// existing entry unmodified with created=false — including after the user has
+// edited it (muted, renamed, payload changed). The role target is the whole
+// idempotency key; no field value is reconciled.
+func TestEnsureRoleEntryIdempotentAndNeverMutates(t *testing.T) {
+	dir := t.TempDir()
+	first, created, err := EnsureRoleEntry(dir, "dev", roleTickSpec())
+	if err != nil || !created {
+		t.Fatalf("seed: entry=%+v created=%v err=%v", first, created, err)
+	}
+
+	// The user edits the seeded entry (mute + rename + new payload).
+	if ok, err := SetMuted(dir, "dev", first.ID, true); err != nil || !ok {
+		t.Fatalf("SetMuted: ok=%v err=%v", ok, err)
+	}
+	path := filepath.Join(dir, "dev.yaml")
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited := strings.Replace(string(before), "operator tick", "user renamed tick", 1)
+	if err := os.WriteFile(path, []byte(edited), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, _ = os.ReadFile(path)
+
+	second, created, err := EnsureRoleEntry(dir, "dev", roleTickSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created {
+		t.Error("created = true on re-seed, want false")
+	}
+	if second.ID != first.ID || !second.Muted || second.Name != "user renamed tick" {
+		t.Errorf("returned entry = %+v, want the user's edited entry as-is", second)
+	}
+	after, _ := os.ReadFile(path)
+	if string(before) != string(after) {
+		t.Error("re-seed rewrote the entry file — a user's edit must never be reconciled away")
+	}
+}
+
+// TestEnsureRoleEntryRoleScoped: the match keys on the role VALUE, not the
+// target kind — an entry targeting a different role does not count as seeded
+// (generality pin: only RoleOperator is defined today, so this uses a
+// synthetic second role to prove the key is (kind, role), never kind alone).
+func TestEnsureRoleEntryRoleScoped(t *testing.T) {
+	dir := t.TempDir()
+	other := roleTickSpec()
+	other.Target.Role = "sentinel"
+	if _, err := Add(dir, "dev", other); err != nil {
+		t.Fatal(err)
+	}
+	entry, created, err := EnsureRoleEntry(dir, "dev", roleTickSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !created {
+		t.Error("created = false with only a sentinel-role entry present, want true")
+	}
+	if entry.Target.Role != RoleOperator {
+		t.Errorf("seeded role = %q, want %q", entry.Target.Role, RoleOperator)
+	}
+	entries, _ := LoadEntries(filepath.Join(dir, "dev.yaml"))
+	if len(entries) != 2 {
+		t.Errorf("entries = %d, want both the sentinel and the seeded operator entry", len(entries))
+	}
+}

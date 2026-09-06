@@ -691,3 +691,188 @@ entries:
 		t.Errorf("log lines = %d, want 0 — a suppression is never a recorded miss", len(lines))
 	}
 }
+
+// absentRoleEntryYAML is one due every-1h entry whose role:operator target
+// never resolves (no window carries @rk_win_role=operator in the rig).
+const absentRoleEntryYAML = `
+entries:
+  - id: a3f9
+    name: operator tick
+    schedule: { kind: every, interval: 1h }
+    target: { kind: role, role: operator }
+    payload: "operator tick"
+    if_absent: respawn
+    created_by: { pane: "%%42", at: %d }
+`
+
+// absentRoleRig builds the live1 rig for the role-target respawn tests: the
+// due fire lands in EvalResult.Absent because no window carries the role.
+func absentRoleRig(t *testing.T, dir string, T time.Time) *fakeTmux {
+	t.Helper()
+	writeEntryFile(t, dir, "live1", fmt.Sprintf(absentRoleEntryYAML, T.Add(-2*time.Hour).Unix()))
+	fk := newFakeTmux()
+	fk.sessions["live1"] = []tmux.SessionInfo{{Name: "work"}}
+	fk.windows["live1"] = map[string][]tmux.WindowInfo{"work": {{WindowID: "@5"}}}
+	return fk
+}
+
+// fakeRespawner records every respawn call and returns a scripted outcome.
+type fakeRespawner struct {
+	calls   []Fire
+	outcome Outcome
+}
+
+func (r *fakeRespawner) respawn(ctx context.Context, fire Fire) Outcome {
+	r.calls = append(r.calls, fire)
+	return r.outcome
+}
+
+// tickOnceR is tickOnceN plus the Respawner seam.
+func tickOnceR(t *testing.T, dir string, T time.Time, fk *fakeTmux, notifier func(context.Context, string, string, string) error, respawner func(context.Context, Fire) Outcome) TickResult {
+	t.Helper()
+	res, err := Tick(context.Background(), Deps{
+		Dir: dir,
+		Now: func() time.Time { return T },
+		ListServers: func(ctx context.Context) ([]string, error) {
+			return []string{"live1"}, nil
+		},
+		Tmux:      fk,
+		Notifier:  notifier,
+		Respawner: respawner,
+		OperatorStatePath: func(slug string) (string, error) {
+			return filepath.Join(t.TempDir(), slug+".yaml"), nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+// TestTickIfAbsentRespawnRoleTarget: a role-target respawn entry with a wired
+// Respawner calls it (no notify, no respawn-unimplemented diagnostic) and logs
+// the returned outcome — both success and failure. The logged line advances
+// the anchor: an immediate re-tick does not re-fire.
+func TestTickIfAbsentRespawnRoleTarget(t *testing.T) {
+	cases := []struct {
+		name        string
+		outcome     Outcome
+		wantOutcome string
+	}{
+		{"success", Outcome{Status: "respawned"}, "respawned"},
+		{"failure", Outcome{Status: "respawn-failed", Detail: "readiness: parked"}, "respawn-failed: readiness: parked"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			T := backoffBase
+			fk := absentRoleRig(t, dir, T)
+			rs := &fakeRespawner{outcome: tc.outcome}
+			nt := &fakeNotifier{}
+
+			res := tickOnceR(t, dir, T, fk, nt.notify, rs.respawn)
+			if len(rs.calls) != 1 {
+				t.Fatalf("respawn calls = %d, want 1", len(rs.calls))
+			}
+			if got := rs.calls[0]; got.Entry.ID != "a3f9" || got.Server != "live1" {
+				t.Errorf("respawn fire = entry %q server %q, want a3f9/live1", got.Entry.ID, got.Server)
+			}
+			if len(nt.calls) != 0 {
+				t.Errorf("notify calls = %d, want 0 (the respawn path never degrades to notify)", len(nt.calls))
+			}
+			if hasDiag(res.Diags, "respawn-unimplemented") {
+				t.Errorf("diags = %v, want no respawn-unimplemented", diagReasons(res.Diags))
+			}
+			lines := ReadLog(filepath.Join(dir, "live1.log"))
+			if len(lines) != 1 || lines[0].Outcome != tc.wantOutcome {
+				t.Fatalf("log = %+v, want one %q line", lines, tc.wantOutcome)
+			}
+
+			// The logged disposition advanced the anchor: not due again at T.
+			rs.calls = nil
+			res = tickOnceR(t, dir, T, fk, nt.notify, rs.respawn)
+			if len(rs.calls) != 0 || res.Fires != 0 {
+				t.Errorf("immediate re-tick: respawn calls = %d fires = %d, want 0/0 (anchor advanced)", len(rs.calls), res.Fires)
+			}
+		})
+	}
+}
+
+// TestTickIfAbsentRespawnDegradeUnchanged: the notify + respawn-unimplemented
+// degrade is byte-for-byte unchanged for every combination outside the new
+// branch — a non-role target (respawner wired but never called) and a nil
+// respawner (role target included).
+func TestTickIfAbsentRespawnDegradeUnchanged(t *testing.T) {
+	cases := []struct {
+		name     string
+		roleTgt  bool
+		respawn  func(context.Context, Fire) Outcome // nil = seam unwired
+		wantCall bool
+	}{
+		{"session target, respawner wired", false, (&fakeRespawner{outcome: Outcome{Status: "respawned"}}).respawn, false},
+		{"role target, respawner nil", true, nil, false},
+		{"session target, respawner nil", false, nil, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			T := backoffBase
+			var fk *fakeTmux
+			if tc.roleTgt {
+				fk = absentRoleRig(t, dir, T)
+			} else {
+				fk = absentRig(t, dir, T, "respawn")
+			}
+			nt := &fakeNotifier{}
+			res := tickOnceR(t, dir, T, fk, nt.notify, tc.respawn)
+			if len(nt.calls) != 1 {
+				t.Errorf("notify calls = %d, want 1 (the degrade path)", len(nt.calls))
+			}
+			if !hasDiag(res.Diags, "respawn-unimplemented") {
+				t.Errorf("diags = %v, want respawn-unimplemented", diagReasons(res.Diags))
+			}
+			lines := ReadLog(filepath.Join(dir, "live1.log"))
+			if len(lines) != 1 || lines[0].Outcome != "notified-absent" {
+				t.Errorf("log = %+v, want one notified-absent line", lines)
+			}
+		})
+	}
+}
+
+// TestTickRateCapCountsRespawn: respawned/respawn-failed log lines count
+// toward the per-target rate cap (keyed on the entry id, like every absent
+// disposition) — a persistently-dead operator cannot storm respawns.
+func TestTickRateCapCountsRespawn(t *testing.T) {
+	for _, outcome := range []string{"respawned", "respawn-failed: parked"} {
+		t.Run(outcome, func(t *testing.T) {
+			dir := t.TempDir()
+			T := backoffBase
+			// The 1m interval keeps the entry due despite the seeded lines
+			// advancing its anchor (the absent-cap test's shape).
+			writeEntryFile(t, dir, "live1", fmt.Sprintf(`
+entries:
+  - id: a3f9
+    name: operator tick
+    schedule: { kind: every, interval: 1m }
+    target: { kind: role, role: operator }
+    payload: "operator tick"
+    if_absent: respawn
+    created_by: { pane: "%%42", at: %d }
+`, T.Add(-2*time.Hour).Unix()))
+			fk := newFakeTmux()
+			fk.sessions["live1"] = []tmux.SessionInfo{{Name: "work"}}
+			fk.windows["live1"] = map[string][]tmux.WindowInfo{"work": {{WindowID: "@5"}}}
+			seedLog(t, filepath.Join(dir, "live1.log"), DefaultTargetRatePerHour, "a3f9", "", outcome, T.Add(-30*time.Minute).Unix())
+
+			rs := &fakeRespawner{outcome: Outcome{Status: "respawned"}}
+			tickOnceR(t, dir, T, fk, (&fakeNotifier{}).notify, rs.respawn)
+			if len(rs.calls) != 0 {
+				t.Errorf("respawn calls = %d, want 0 (rate-capped)", len(rs.calls))
+			}
+			lines := ReadLog(filepath.Join(dir, "live1.log"))
+			if last := lines[len(lines)-1]; last.Outcome != "rate-capped" || last.Entry != "a3f9" {
+				t.Errorf("last log line = %+v, want the rate-capped line for a3f9", last)
+			}
+		})
+	}
+}

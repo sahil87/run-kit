@@ -51,14 +51,21 @@ type Deliverer interface {
 // FabOperatorStatePath, push.Notify). A nil Deliverer records outcome
 // "no-deliverer" — the fire/log/cursor choreography still exercises.
 type Deps struct {
-	Dir               string
-	Now               func() time.Time
-	ListServers       func(ctx context.Context) ([]string, error)
-	Tmux              TmuxSeam
-	Deliverer         Deliverer
+	Dir         string
+	Now         func() time.Time
+	ListServers func(ctx context.Context) ([]string, error)
+	Tmux        TmuxSeam
+	Deliverer   Deliverer
 	// Notifier backs the if_absent notify disposition. Fail-silent by
 	// contract: a notify failure is a diagnostic, never a tick error.
-	Notifier          func(ctx context.Context, title, body, url string) error
+	Notifier func(ctx context.Context, title, body, url string) error
+	// Respawner brings a dead role target back (role targets only —
+	// session-target respawn via claude --resume is a later wave). It is
+	// consulted only for an if_absent: respawn entry whose target kind is
+	// role; nil (or a non-role target) keeps the existing notify-degrade
+	// path, byte-for-byte. The returned Outcome is logged as the
+	// disposition (a non-held outcome class — respawned / respawn-failed).
+	Respawner         func(ctx context.Context, fire Fire) Outcome
 	OperatorStatePath func(slug string) (string, error)
 	FreshThreshold    time.Duration
 }
@@ -111,9 +118,9 @@ const DefaultTargetRatePerHour = 30
 const rateWindow = time.Hour
 
 // countsTowardRate classifies a log outcome for the rate cap: delivery-attempt
-// classes count (delivered/failed/notified), suppressions and misses do not —
-// and held outcomes never reach the log at all, so they are inherently
-// excluded.
+// classes count (delivered/failed/notified/respawned), suppressions and misses
+// do not — and held outcomes never reach the log at all, so they are
+// inherently excluded.
 func countsTowardRate(outcome string) bool {
 	switch {
 	case outcome == "delivered":
@@ -121,6 +128,8 @@ func countsTowardRate(outcome string) bool {
 	case strings.HasPrefix(outcome, "failed"):
 		return true
 	case outcome == "notified-absent":
+		return true
+	case outcome == "respawned", strings.HasPrefix(outcome, "respawn-failed"):
 		return true
 	}
 	return false
@@ -217,7 +226,7 @@ func Tick(ctx context.Context, deps Deps) (TickResult, error) {
 				Detail: "entry file skipped: server not in the live set"})
 			continue
 		}
-		fires, diags := tickServer(ctx, slug, dir, now(), seam, deps.Deliverer, notifier, opStatePath, deps.FreshThreshold)
+		fires, diags := tickServer(ctx, slug, dir, now(), seam, deps.Deliverer, notifier, deps.Respawner, opStatePath, deps.FreshThreshold)
 		res.Servers++
 		res.Fires += fires
 		res.Diags = append(res.Diags, diags...)
@@ -230,7 +239,7 @@ func Tick(ctx context.Context, deps Deps) (TickResult, error) {
 
 // tickServer runs the per-server pipeline: load → facts → Evaluate → deliver →
 // log → cursor. A per-file failure is a diagnostic, never an aborted tick.
-func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxSeam, deliverer Deliverer, notifier func(context.Context, string, string, string) error, opStatePath func(string) (string, error), freshThreshold time.Duration) (fires int, diags []Diagnostic) {
+func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxSeam, deliverer Deliverer, notifier func(context.Context, string, string, string) error, respawner func(context.Context, Fire) Outcome, opStatePath func(string) (string, error), freshThreshold time.Duration) (fires int, diags []Diagnostic) {
 	entriesPath, err := EntriesPath(dir, slug)
 	if err != nil {
 		return 0, []Diagnostic{{Server: slug, Reason: "path-invalid", Detail: err.Error()}}
@@ -337,10 +346,17 @@ func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxS
 			continue
 		}
 		line := LogLine{TS: now.Unix(), Entry: fire.Entry.ID, Reason: string(fire.Reason)}
-		switch fire.Entry.IfAbsent {
-		case IfAbsentNotify, IfAbsentRespawn:
+		switch {
+		case fire.Entry.IfAbsent == IfAbsentRespawn && fire.Entry.Target.Kind == TargetRole && respawner != nil:
+			// Role-target respawn is real: the seam's returned outcome
+			// (respawned / respawn-failed) is the logged disposition. Session
+			// and pane targets fall through to the notify-degrade — their
+			// respawn is a later wave.
+			line.Outcome = respawner(ctx, fire).String()
+		case fire.Entry.IfAbsent == IfAbsentNotify || fire.Entry.IfAbsent == IfAbsentRespawn:
 			if fire.Entry.IfAbsent == IfAbsentRespawn {
-				// Respawn belongs to a later wave; degrade to notify, loudly.
+				// No respawner wired (or a non-role target): degrade to
+				// notify, loudly.
 				diags = append(diags, Diagnostic{Server: slug, EntryID: fire.Entry.ID, Reason: "respawn-unimplemented",
 					Detail: "if_absent respawn is not implemented; degraded to notify"})
 			}

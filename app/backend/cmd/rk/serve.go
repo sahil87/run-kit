@@ -235,7 +235,7 @@ To run run-kit as a background daemon, see 'run-kit daemon start' (and the rest 
 		if cronDir, err := cron.DefaultDir(); err != nil {
 			slog.Warn("cron ticker disabled: state dir unresolvable", "err", err)
 		} else {
-			cron.NewTicker(cron.Deps{Dir: cronDir, Deliverer: cron.NewEngineDeliverer()}).Start(ctx)
+			cron.NewTicker(cron.Deps{Dir: cronDir, Deliverer: cron.NewEngineDeliverer(), Respawner: rkCronRespawnRole}).Start(ctx)
 		}
 
 		if err := supervisor.Start(ctx); err != nil {

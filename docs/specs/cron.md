@@ -405,9 +405,21 @@ tmux event — the safety-poll lesson).
    server would need an optional session/cwd scope on entries. Not built until
    the layout is real.
 2. `when-idle` hold window bound (drop vs. deliver-late after N hours).
-3. Mutual watching's second half: should the operator's tick also check the
-   *cron's* health (`pulse_health`-style, from the delivery log's last-run
-   stamp) and warn "backstop not running"? Cheap and symmetric; decide at
-   P1.5. The pulse plan's sidecar state (ladder rung, notify cursor) is
-   otherwise obsolete — the anchor-join makes the ladder stateless and the
-   rate cap covers notify throttling.
+3. Mutual watching's second half — **decided at P1.5 (C4,
+   `260906-kbbh-operator-tick-seed-respawn`): no reverse loop-side
+   cron-staleness check is built.** The loop does not warn when the cron's
+   delivery-log stamp goes stale. (a) The only place such a check could live
+   is inside the `/loop` itself — `fab-operator.md` — which this wave's
+   zero-skill-change constraint forbids touching. (b) The risk is asymmetric:
+   a dead cron backstop while the loop is healthy is a benign no-op — the
+   loop is already doing the monitoring job the cron exists to back up; the
+   incident class is the reverse direction (backstop alive, loop dead).
+   (c) C5 builds the generic staleness mechanism for the primary direction
+   (cron watching the loop, via `last_tick_at`); the reverse direction, if
+   ever built, would consume the cron's own delivery-log staleness through
+   the same UI surface rather than a bespoke loop-side check. (d) C10
+   collapses the two clocks into one — once `/loop` retires in favor of the
+   entry's union predicate, no second clock remains to watch, so a reverse
+   watch built now would be dead code. The pulse plan's sidecar state (ladder
+   rung, notify cursor) is otherwise obsolete — the anchor-join makes the
+   ladder stateless and the rate cap covers notify throttling.

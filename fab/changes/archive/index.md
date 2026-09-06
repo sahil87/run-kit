@@ -1,5 +1,6 @@
 # Archived Changes
 
+- **260906-qqh1-latch-green-unification** — Latch Vocabulary Unification — Green = State
 - **260905-drcc-control-tokens-focus-glint** — Control Tokens, Global Focus Ring & Hue-Free Glint
 - **260905-a9mn-operator-console-mobile-navigation** — Operator Console Mobile Navigation
 - **260904-8jux-poll-loop-bounded-concurrency** — Poll Loop Bounded Concurrency

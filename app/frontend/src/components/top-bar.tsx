@@ -26,6 +26,8 @@ import {
   OperatorConsoleMenuRow,
   type OverflowMenuRow,
   type MenuGroup,
+} from "@/components/top-bar-overflow-menu";
+import {
   MENU_ROW_CLASS,
   MENU_ROW_KBD_CLASS,
   POPOVER_ROW_CLASS,
@@ -34,7 +36,7 @@ import {
   TOP_BAR_BUTTON_REST,
   TOP_BAR_BUTTON_H,
   TOP_BAR_SEGMENT_H,
-} from "@/components/top-bar-overflow-menu";
+} from "@/components/controls";
 import { GearIcon, HeadsetIcon } from "@/components/sidebar/icons";
 import { useSettingsDialog } from "@/contexts/settings-dialog-context";
 import {
@@ -2610,7 +2612,7 @@ function BoardAutofitToggle({
 // what clicking the icon button does — so bar↔menu behavior can never drift.
 
 // `MENU_ROW_CLASS` (and its decomposed `MENU_ROW_BASE`/`_REST`/`_DISABLED`/
-// `_ACTIVE` variants) are hosted in `top-bar-overflow-menu.tsx` and imported at
+// `_ACTIVE` variants) are hosted in `controls.ts` and imported at
 // the top of this file so the row styling stays shared (mirrors
 // BreadcrumbDropdown's item classes).
 

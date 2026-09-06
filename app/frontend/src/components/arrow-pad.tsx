@@ -13,8 +13,11 @@ type ArrowPadProps = {
   className?: string;
 };
 
+// Flat 40px both pointer classes — the pad renders only in the coarse arrow
+// popup, so a fine/coarse split would be dead code. Lockstep:
+// --ctl-chip-coarse in globals.css (:root) — the pair MUST change together.
 const ARROW_BTN =
-  "min-h-[36px] min-w-[36px] flex items-center justify-center text-sm text-text-secondary border border-border rounded select-none active:bg-bg-card hover:border-text-secondary focus-visible:outline-2 focus-visible:outline-accent";
+  "min-h-[40px] min-w-[40px] flex items-center justify-center text-sm text-text-secondary border border-border rounded select-none active:bg-bg-card hover:border-text-secondary focus-visible:outline-2 focus-visible:outline-accent";
 
 /**
  * Combined arrow key control:

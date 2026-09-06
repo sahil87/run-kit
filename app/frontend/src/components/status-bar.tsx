@@ -27,7 +27,7 @@ import { HostMetrics, normalizeLoadPercent } from "@/components/host-metrics";
 import { displayVersion } from "@/lib/palette/version";
 import { formatMemory, gaugeColor } from "@/lib/gauge";
 import { getAgentLine, getFabLine, getPrSegments } from "./sidebar/registers";
-import { MENU_ROW_CLASS } from "@/components/top-bar-overflow-menu";
+import { MENU_ROW_CLASS } from "@/components/controls";
 import { useCopyFeedback } from "@/hooks/use-copy-feedback";
 import { parseFabChange } from "@/lib/format";
 import type { MetricsSnapshot, WindowInfo } from "@/types";

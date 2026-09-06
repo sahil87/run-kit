@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Control State Audit</title>
+<style>
+  :root {
+    --bg: #0b0c0e; --surface: #131417; --border: rgba(255,255,255,.09);
+    --text: #d7d9de; --muted: #8b8f98; --green: #7ee2a8; --red: #e88a8a; --amber: #e8c66f;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 48px 32px 96px; }
+  main { max-width: 1080px; margin: 0 auto; }
+  h1 { font-size: 26px; margin: 0 0 6px; letter-spacing: -.01em; }
+  h2 { font-size: 19px; margin: 56px 0 6px; }
+  h3 { font-size: 15px; margin: 26px 0 8px; }
+  .sub { color: var(--muted); max-width: 82ch; margin: 0 0 8px; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; color: var(--green); }
+  .loc { color: var(--muted); font-family: ui-monospace, Menlo, monospace; font-size: .85em; }
+  hr { border: 0; border-top: 1px solid var(--border); margin: 48px 0; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 13.5px; }
+  th, td { border: 1px solid var(--border); padding: 8px 11px; text-align: left; vertical-align: top; }
+  th { background: var(--surface); font-weight: 600; }
+  .tw { overflow-x: auto; }
+  .ok { color: var(--green); } .bad { color: var(--red); } .mid { color: var(--amber); }
+  .verdict { font-weight: 700; }
+  ul { margin: 8px 0; padding-left: 22px; } li { margin: 5px 0; }
+  li, td { color: #c6c9d0; }
+  li b, td b, p b { color: var(--text); }
+  .num { font-size: 22px; font-weight: 700; color: var(--text); }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; margin: 18px 0; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .card .h { font-size: 12px; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+  .card p { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Control State Audit</h1>
+<p class="sub">Inventory of every interactive control's interaction states across
+<code>app/frontend/src</code> — top bar, bottom bar, compose strip, operator console, sidebar, flyouts, menus,
+palette, dialogs, tile verbs — gathered 2026-09-05 by four parallel read-only sweeps. This is step 1 of the control
+vocabulary retrofit: the evidence base the state contract (step 2) is written against. Nothing here is a proposal;
+it is what the code does today, with file:line receipts.</p>
+
+<h2>0 · Verdict on the three bets</h2>
+
+<div class="cards">
+  <div class="card">
+    <div class="h">Bet 1 — no focus standard</div>
+    <span class="num bad">Confirmed</span>
+    <p><b>0</b> focus rules in globals.css. <b>3</b> competing ring idioms across 24 call sites
+    (outline-1 vs outline-2, <code>accent</code> vs <code>accent-green</code>).
+    <b>37 of 39</b> <code>outline-none</code> sites suppress focus with no replacement.</p>
+  </div>
+  <div class="card">
+    <div class="h">Bet 2 — no pressed state</div>
+    <span class="num bad">Confirmed</span>
+    <p><code>active:</code> appears <b>3×</b> in the entire frontend — two real (bottom-bar
+    <code>KBD_CLASS</code>, <code>ARROW_BTN</code>), one cursor-only. Every compose, operator, top-bar,
+    menu, sidebar and tile control is silent on tap.</p>
+  </div>
+  <div class="card">
+    <div class="h">Bet 3 — on ≈ hover confusion</div>
+    <span class="num bad">Confirmed+</span>
+    <p><b>Four</b> unrelated "on" vocabularies, and the unlayered glint hover actively
+    <b>overrides latched accent states</b> — an on-state is not stable under hover anywhere the glint runs.</p>
+  </div>
+</div>
+
+<p class="sub">Plus one finding bigger than any bet: <b>§2, the glint override</b> — the root cause of most
+hover unpredictability — and one genuinely strong asset: the <code>prefers-reduced-motion</code> block
+(<span class="loc">globals.css:1536-1614</span>), which is the structural model the state contract should copy.</p>
+
+<hr>
+
+<h2>1 · Focus: three idioms, one constitution violation</h2>
+<p class="sub">Principle V says every action is keyboard-reachable — but reachable-and-invisible is the current
+state for most of the tree. There is no global <code>:focus-visible</code> rule; each of 24 call sites re-decides.</p>
+<div class="tw"><table>
+  <tr><th>Idiom</th><th>Sites</th><th>Examples</th></tr>
+  <tr><td><code>focus-visible:outline-2 outline-accent</code></td><td>8</td>
+      <td class="loc">kbd-chip.ts:9 · arrow-pad.tsx:17 · bottom-bar.tsx:416,429,440</td></tr>
+  <tr><td><code>focus-visible:outline-1 outline-accent</code></td><td>8</td>
+      <td class="loc">status-bar.tsx:154,692+ · row-flyout-card.tsx:439,789 · status-panel.tsx:271,309</td></tr>
+  <tr><td><code>focus-visible:outline-2 outline-accent-green</code></td><td>2</td>
+      <td class="loc">top-bar.tsx:437 · status-bar.tsx:202</td></tr>
+  <tr><td><code>focus-visible:opacity-100</code> — reveal only, <b>no ring</b></td><td>6</td>
+      <td class="loc">window-row.tsx:991,1017,1031 · compose-strip.tsx:1170 · host-panel.tsx:84 · status-panel.tsx:359</td></tr>
+</table></div>
+<ul>
+  <li><b>17 text inputs</b> set <code>outline-none</code> with <i>nothing</i> — palette input, both inline renames,
+      spawn/create/server dialogs, omnibox, operator console, note prompt <span class="loc">(full list in §7 table
+      source: infra sweep item 1)</span>. 13 more substitute a <code>focus:border-*</code> — defensible, but in
+      <b>three different colors</b> (<code>accent</code>, <code>text-secondary</code>, <code>accent-green/60</code>).</li>
+  <li><b>Keyboard focus is invisible in the overflow menus</b>: rows are <code>tabIndex={-1}</code> with JS roving
+      focus and no visible treatment <span class="loc">(top-bar-overflow-menu.tsx)</span>. Palette rows aren't focusable
+      at all (<code>aria-activedescendant</code>) — fine, but their selected treatment is the weak one in §4.</li>
+  <li>Web tabs are clickable role-bearing elements with bare <code>cursor-pointer outline-none</code>
+      <span class="loc">iframe-window.tsx:1264,1359</span> — the worst class.</li>
+  <li><code>ring-*</code> is already spoken for by <i>selection</i> (<span class="loc">section-rail.tsx:58</span>),
+      so the focus token should stay on <code>outline</code> to avoid colliding.</li>
+</ul>
+
+<h2>2 · The glint override — declared hover ≠ rendered hover</h2>
+<p class="sub"><code>.rk-glint:hover:not(:disabled) { border-color/color: accent-green }</code>
+<span class="loc">(globals.css:266)</span> is <b>unlayered</b>, so it beats every Tailwind utility on the same element.
+Consequences, all shipping today:</p>
+<ul>
+  <li><b>Dead code at ~12+ call sites</b>: <code>hover:border-text-secondary</code> / <code>hover:text-text-primary</code>
+      written on glint controls (<code>TOP_BAR_BUTTON_REST</code>, sidebar toggle, all Open/Split segments, server crumb,
+      PR-refresh button) never renders — everything glint hovers to green regardless of what the class string says.</li>
+  <li><b>Latched states are not hover-stable</b>: a latched Ctrl chip (<code>text-accent</code>,
+      <span class="loc">bottom-bar.tsx:382</span>) and an on autofit toggle (<code>text-accent</code>,
+      <span class="loc">top-bar.tsx:2595</span>) both flip to <code>accent-green</code> on hover — hover destroys
+      the on-signal. And for surface toggles the on-state <i>is</i> green, so on ≈ hover there.</li>
+  <li><b>The <code>:not(:disabled)</code> guard only covers real <code>&lt;button&gt;</code>s</b> — non-button glint
+      elements and <code>aria-disabled</code> rows still glint.</li>
+  <li>Three visual twins deliberately omit the glint and so hover differently from neighbors sharing their exact
+      base classes: font steppers <span class="loc">(top-bar.tsx:2693)</span>, version-check ⟳
+      <span class="loc">(top-bar-overflow-menu.tsx:585)</span>.</li>
+</ul>
+<p class="sub"><b>Contract decision this forces:</b> either green-on-hover <i>is</i> the hover spec for bordered
+controls (then delete the dead utilities and make on-states green-safe), or the glint becomes sweep-only and
+call-site colors win (then move the rule into a cascade layer). One or the other — the current halfway is why
+hover feels unpredictable.</p>
+
+<h2>3 · Pressed: touch taps are silent</h2>
+<p class="sub">Since hover never fires on touch and the glint is hover-only, a coarse-pointer tap on almost any
+control produces <b>zero visual feedback</b>. The only controls with a pressed treatment are the two bottom-bar
+key families (<code>active:bg-bg-card</code> on <span class="loc">kbd-chip.ts:9, arrow-pad.tsx:17</span>) —
+ironically the surfaces that already had the best story. Missing everywhere else, including the touch-primary
+compose strip <span class="loc">(compose-strip.tsx:1007-1136)</span> and operator console.</p>
+
+<h2>4 · Toggle/on-state: four vocabularies, aria decoupled</h2>
+<div class="tw"><table>
+  <tr><th>"On" treatment</th><th>Where</th></tr>
+  <tr><td><code>bg-accent-green/10 + border/ring + text-accent-green</code></td>
+      <td class="loc">surface toggles top-bar.tsx:437 · section-rail.tsx:57</td></tr>
+  <tr><td><code>bg-accent/20 + border-accent + text-accent</code></td>
+      <td class="loc">Ctrl/Alt + compose chips bottom-bar.tsx:382,478 · autofit top-bar.tsx:2595 (bg /10)</td></tr>
+  <tr><td>Inverse video <code>bg-accent-green text-bg-primary</code> (<code>MENU_ROW_ACTIVE</code>)</td>
+      <td class="loc">layout menu rows top-bar-overflow-menu.tsx:67</td></tr>
+  <tr><td>Bare glyph color <code>text-accent-green</code> — no fill/border</td>
+      <td class="loc">find-bar Aa/.* surface-layout.tsx:1818 · tile Find/Zoom :1609,:1751</td></tr>
+</table></div>
+<ul>
+  <li><b>aria never drives the visual</b> — every toggle pairs an aria attribute with a separate className ternary;
+      zero <code>data-[state=…]:</code> variants exist. And the attribute itself is inconsistent: scroll-lock chip
+      <span class="loc">(bottom-bar.tsx:494)</span> and tile Zoom latch visually with <b>no</b> <code>aria-pressed</code>;
+      the pin button has <code>aria-pressed</code> with <b>no</b> pressed visual.</li>
+  <li><b>Four open-menu triggers have no open-state visual at all</b> (<code>aria-expanded</code> only): F▴, ArrowPad,
+      compose history ↑, tile Export. The overflow chevron likewise.</li>
+  <li><b>Selection has its own five vocabularies</b>: inverse video, green ✓, uncolored ✓, <code>text-accent</code> tint
+      (breadcrumb dropdown), bg+weight (palette/boards rows — where selected <code>bg-bg-card</code> vs hover
+      <code>bg-bg-card/50</code> differ only by alpha), and — in the overflow menu's surface-toggle rows —
+      <b>nothing</b>: a <code>menuitemcheckbox</code> with no checked affordance, so tile state is visible in the bar
+      and invisible in the menu.</li>
+</ul>
+
+<h2>5 · Size fragmentation: eight scales, plus sub-target strays</h2>
+<div class="tw"><table>
+  <tr><th>Family</th><th>Fine</th><th>Coarse</th><th>Focus</th><th>Pressed</th><th>Where</th></tr>
+  <tr><td><code>KBD_CLASS</code> chips</td><td>33×35</td><td>36×36</td><td class="ok">✓ ring-2</td><td class="ok">✓</td><td class="loc">kbd-chip.ts:9</td></tr>
+  <tr><td><code>ARROW_BTN</code></td><td colspan="2">flat 36×36 (no fine split — taller than its trigger)</td><td class="ok">✓ ring-2</td><td class="ok">✓</td><td class="loc">arrow-pad.tsx:17</td></tr>
+  <tr><td><code>TOP_BAR_BUTTON</code></td><td>28×28</td><td>30×30</td><td class="bad">—</td><td class="bad">—</td><td class="loc">top-bar-overflow-menu.tsx:106</td></tr>
+  <tr><td><code>TOP_BAR_SEGMENT_H</code></td><td>26h</td><td>28h</td><td class="mid">1 site</td><td class="bad">—</td><td class="loc">:112</td></tr>
+  <tr><td><code>VERB_BUTTON_CLASS</code> (tile verbs)</td><td>24×24</td><td>26×26</td><td class="bad">—</td><td class="bad">—</td><td class="loc">surface-layout.tsx:285</td></tr>
+  <tr><td>Sidebar rows (window/session/boards)</td><td>24h</td><td>36h</td><td class="bad">—</td><td class="bad">—</td><td class="loc">window-row.tsx:630</td></tr>
+  <tr><td><code>ACTION_ROW_CLASS</code> (flyout)</td><td>28h</td><td>36h</td><td class="ok">✓ ring-1</td><td class="bad">—</td><td class="loc">row-flyout-card.tsx:438</td></tr>
+  <tr><td>Server group header · pin-popover Pin</td><td>26h · 22h</td><td>28h · 36h</td><td class="bad">—</td><td class="bad">—</td><td class="loc">sidebar/index.tsx:2909 · pin-popover.tsx:237</td></tr>
+</table></div>
+<p class="sub"><b>Below any floor, both pointer classes:</b> attachment-remove × at 16px
+<span class="loc">(compose-strip.tsx:1173)</span>, swatch/marker cells at 18px <span class="loc">(swatch-popover.tsx:52)</span>,
+status-panel PR-copy at 20px, breadcrumb-dropdown triggers at 24px with no coarse bump — the legacy pattern
+<code>TOP_BAR_BUTTON</code>'s own doc-comment says it replaced <span class="loc">(breadcrumb-dropdown.tsx:174, governs 3
+top-bar triggers)</span> — find-bar buttons at 28px no coarse, palette rows / menu rows / export rows with no
+<code>min-h</code> at all, and px-only hit areas on board unpin, server +, host-panel palette, operator context-chip ✕.
+<b>Dialogs use <code>coarse:</code> zero times.</b> (68 total <code>coarse:</code> uses concentrate in the
+top bar, compose strip, and sidebar.)</p>
+
+<h2>6 · Disabled: three opacities, two disagreeing constants</h2>
+<p class="sub">88 <code>disabled:</code> sites: <code>opacity-50</code> ×30, <code>opacity-40</code> ×12,
+<code>opacity-60</code> ×5; <code>cursor-not-allowed</code> accompanies only ~21. The two shared constants that
+encode disabled — <code>MENU_ROW_DISABLED</code> (40) and <code>POPOVER_ROW_CLASS</code> (50) — disagree with each
+other in the same file <span class="loc">(top-bar-overflow-menu.tsx:65,79)</span>. Adjacent compose chips use 50 and 40.
+Missing entirely: the Open split-button, window-note-prompt submit (whose twin session-name-prompt has it).</p>
+
+<h2>7 · No primitive: 315 raw buttons, tokens in the wrong home</h2>
+<ul>
+  <li><b>No shared Button/IconButton/Control component exists.</b> 315 raw <code>&lt;button&gt;</code> elements across
+      54 files, styled by string concatenation.</li>
+  <li>The de-facto token module is <code>top-bar-overflow-menu.tsx</code> — hosted there, per its own comment,
+      <b>to avoid an import cycle</b>. Real tokens deserve a real module.</li>
+  <li><b>Twins that drifted</b>: <code>KBD_CLASS</code> vs <code>ARROW_BTN</code> (differ only in geometry, the only two
+      complete recipes); kill-dialog buttons re-typed in board-page with <code>text-sm</code> dropped and raw
+      <code>red-900</code> instead of <code>signal-red</code>; compose Send (armed accent state) vs operator Send
+      (none); version rows re-typing <code>MENU_ROW_BASE</code> by hand and dropping its flex classes; sidebar toggle
+      hand-rolling <code>TOP_BAR_BUTTON</code> minus its glyph color.</li>
+  <li><b>Four menu-row scales</b> (<code>MENU_ROW_*</code> xs/2.5, <code>POPOVER_ROW_CLASS</code> 11px/3,
+      breadcrumb rows sm/3 with no constant, hand-rolled version rows) and per-menu ad-hoc popover container sizing
+      over one shared-but-untokenized shell recipe.</li>
+  <li><b>Four row-hover alphas</b>: <code>bg-bg-card/50</code>, <code>/30</code>, full, and
+      <code>color-mix(text-primary 8%)</code> — four answers to "row hover".</li>
+  <li><b>Three spellings of hover-reveal</b> for icon clusters (container pointer-events gate ·
+      same + coarse escape · button-level opacity only) — <span class="loc">window-row.tsx:949 ·
+      status-panel.tsx:350 · host-panel.tsx:84</span>.</li>
+</ul>
+
+<h2>8 · What already exists (build on, don't replace)</h2>
+<ul>
+  <li><b><code>KBD_CLASS</code></b> <span class="loc">(kbd-chip.ts:9)</span> is the one complete recipe — size + coarse +
+      hover + focus-visible + active in a single constant, e2e size-asserted. It is the seed of the contract.</li>
+  <li><b>The reduced-motion block</b> <span class="loc">(globals.css:1536-1614)</span> — consolidated, thorough, and it
+      substitutes static equivalents for informational signals instead of deleting them. The state contract should be
+      written to this standard.</li>
+  <li><b><code>coarse:</code> variant</b> cleanly defined <span class="loc">(globals.css:27)</span> and kept in lockstep
+      with the JS query by documented convention.</li>
+  <li><b>Real constants with real consumers</b>: <code>TOP_BAR_BUTTON*</code>, <code>MENU_ROW_*</code>,
+      <code>POPOVER_ROW_CLASS</code>, <code>ACTION_ROW_CLASS</code>, <code>MARKER_WELL_*</code>,
+      <code>STATUS_RAIL_WIDTH_PX</code>.</li>
+  <li><b>Theme tokens exist for color</b> (<code>--color-*</code>, signal hues, popup shadows) — what's absent is
+      exactly the control layer: <b>no radius, duration, focus-ring, or control-height tokens</b>; heights live only in
+      TS strings, invisible to CSS.</li>
+</ul>
+
+<hr>
+
+<h2>9 · What the state contract must decide (step 2 agenda)</h2>
+<div class="tw"><table>
+  <tr><th>#</th><th>Decision</th><th>Recommended default</th></tr>
+  <tr><td>1</td><td>One focus ring</td>
+      <td>Global <code>:where(...):focus-visible</code> rule in globals.css — <code>outline-2 outline-accent-green</code>,
+      default-on for every interactive element, opt-out never silent. Kills all three idioms and covers the 37 naked
+      suppressions at once. (Outline, not ring — ring is selection's.)</td></tr>
+  <tr><td>2</td><td>One pressed treatment</td>
+      <td><code>active:</code> fill snap (bg one step up, transition-none on press) in the shared recipe — touch's only
+      feedback channel.</td></tr>
+  <tr><td>3</td><td>Glint: spec or garnish</td>
+      <td>Decide green-hover's status (§2). Either way, move <code>.rk-glint</code> color rules into a cascade layer so
+      call sites can win, and delete whichever half is dead.</td></tr>
+  <tr><td>4</td><td>One latch vocabulary</td>
+      <td>One on-treatment (tint + border + ink), hover-stable by construction; separate from selection; aria attribute
+      drives it (<code>aria-pressed</code>/<code>data-state</code> selectors, not parallel ternaries). Open-menu
+      triggers get a visible open state.</td></tr>
+  <tr><td>5</td><td>Three control sizes, one floor</td>
+      <td>bar 28/30 · chip 33-35/36 · row 24-or-28/36, tokenized as CSS custom properties; hard minimum 24px fine /
+      36px coarse for anything tappable (fixes §5's stray list; dialogs join <code>coarse:</code>).</td></tr>
+  <tr><td>6</td><td>One disabled recipe</td>
+      <td><code>opacity-40 + cursor-not-allowed + hover-neutralized</code>, one constant.</td></tr>
+  <tr><td>7</td><td>Token home</td>
+      <td>A real <code>controls.ts</code> (+ CSS custom properties for heights/ring/radius/durations) — out of
+      top-bar-overflow-menu.tsx.</td></tr>
+  <tr><td>8</td><td>One primitive</td>
+      <td><code>Control</code> family (icon button · chip · toggle · segment · menu row) consuming the tokens;
+      migrate surface-by-surface.</td></tr>
+</table></div>
+
+<h3>Migration order (each slice one fab change)</h3>
+<p class="sub">1. globals: cascade-layer the glint + the global focus-visible rule — biggest win per line, near-zero
+call-site churn · 2. token module + CSS custom properties · 3. top bar (already most token-aware) · 4. bottom bar +
+compose + operator console · 5. sidebar rows/flyouts/icon clusters · 6. menus/popovers unification · 7. dialogs +
+palette + coarse floors · 8. dev-only control-gallery route as the standing regression guard, screenshot-tested per
+pointer class.</p>
+
+</main>
+</body>
+</html>

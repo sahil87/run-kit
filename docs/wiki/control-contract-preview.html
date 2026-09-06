@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Control Contract Preview</title>
+<style>
+  /* run-kit's real dark theme tokens (globals.css @theme) */
+  :root {
+    --bg-primary: #0f1117; --bg-card: #171b24; --bg-inset: #0a0c12;
+    --text-primary: #e8eaf0; --text-secondary: #7a8394; --border: #454d66;
+    --accent: #5b8af0; --green: #22c55e; --signal-red: #f87171; --signal-yellow: #facc15;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    /* settled control tokens */
+    --ctl-radius: 4px; --ctl-duration: 150ms;
+    --ctl-ring: 2px solid var(--green); --ctl-ring-offset: 2px;
+    --ctl-h-bar: 28px; --ctl-h-bar-coarse: 40px;
+    --ctl-hov: var(--text-primary);
+    --ctl-sweep: color-mix(in srgb, var(--text-primary) 22%, transparent);
+    --ctl-latch-bg: color-mix(in srgb, var(--green) 16%, transparent);
+    --ctl-latch-bg-hover: color-mix(in srgb, var(--green) 28%, transparent);
+    --ctl-press-bg: var(--bg-card);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg-primary); color: var(--text-primary);
+    font: 13px/1.6 var(--mono); padding: 44px 24px 96px; }
+  main { max-width: 1140px; margin: 0 auto; }
+  h1 { font-size: 24px; margin: 0 0 6px; letter-spacing: -.01em; }
+  h2 { font-size: 17px; margin: 54px 0 6px; color: var(--green); }
+  h2::before { content: "> "; color: var(--text-secondary); }
+  .sub { color: var(--text-secondary); max-width: 86ch; margin: 0 0 10px; }
+  .sub b, td b, .note b { color: var(--text-primary); }
+  code { color: var(--green); font-size: .95em; }
+  hr { border: 0; border-top: 1px solid rgba(255,255,255,.08); margin: 44px 0; }
+  table { border-collapse: collapse; margin: 14px 0; font-size: 12.5px; }
+  th, td { border: 1px solid rgba(255,255,255,.09); padding: 10px 14px; text-align: left; vertical-align: middle; }
+  th { background: var(--bg-card); font-weight: 600; color: var(--text-secondary); font-size: 11px;
+       text-transform: uppercase; letter-spacing: .07em; }
+  td.lbl { color: var(--text-secondary); white-space: nowrap; }
+  .tw { overflow-x: auto; }
+  .note { color: var(--text-secondary); font-size: 12px; max-width: 82ch; margin: 8px 0 0; }
+  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  kbd.hint { color: var(--text-secondary); font-size: 11px; }
+  .decided { border: 1px solid color-mix(in srgb, var(--green) 40%, transparent); border-radius: 10px;
+             padding: 14px 18px; background: color-mix(in srgb, var(--green) 5%, transparent); max-width: 86ch; }
+  .decided b { color: var(--green); }
+
+  @keyframes sweep {
+    0% { transform: translateX(-160%) skewX(-20deg); opacity: 0; }
+    10% { opacity: 1; }
+    100% { transform: translateX(260%) skewX(-20deg); opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+
+  /* ============ THE CONTRACT (settled: scheme C — neutral + green) ============ */
+  .ctl {
+    position: relative; overflow: hidden;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    font: 12px var(--mono);
+    background: transparent; color: var(--text-secondary);
+    border: 1px solid var(--border); border-radius: var(--ctl-radius);
+    cursor: pointer;
+    /* long-press safety: no selection, no iOS callout/magnifier */
+    user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+    transition: color var(--ctl-duration), border-color var(--ctl-duration), background-color var(--ctl-duration);
+  }
+  .ctl::after { /* glint sweep — kept, but hue-free now */
+    content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 45%; pointer-events: none;
+    background: linear-gradient(90deg, transparent 0%, var(--ctl-sweep) 50%, transparent 100%);
+    transform: translateX(-160%) skewX(-20deg); opacity: 0;
+  }
+  /* HOVER — pure brightness, no hue */
+  .ctl:hover:not(:disabled)::after, .ctl.f-hover::after, .ctl.f-onhover::after { animation: sweep 450ms ease-out; }
+  .ctl:hover:not(:disabled):not([aria-pressed="true"]), .ctl.f-hover {
+    border-color: var(--ctl-hov); color: var(--ctl-hov);
+  }
+  /* FOCUS — one green ring, global */
+  .ctl:focus-visible, .ctl.f-focus { outline: var(--ctl-ring); outline-offset: var(--ctl-ring-offset); }
+  /* PRESSED — instant fill snap */
+  .ctl:active:not(:disabled), .ctl.f-press {
+    background: var(--ctl-press-bg); border-color: var(--text-secondary);
+    color: var(--text-primary); transition: none;
+  }
+  /* LATCHED — green means ON, and only ON; hover-stable */
+  .ctl[aria-pressed="true"], .ctl.f-on, .ctl.f-onhover {
+    background: var(--ctl-latch-bg); border-color: var(--green); color: var(--green);
+  }
+  .ctl[aria-pressed="true"]:hover:not(:disabled), .ctl.f-onhover { background: var(--ctl-latch-bg-hover); }
+  /* DISABLED — one recipe */
+  .ctl:disabled, .ctl.f-dis {
+    opacity: .4; cursor: not-allowed;
+    border-color: var(--border); color: var(--text-secondary); background: transparent;
+  }
+  .ctl:disabled::after { display: none; }
+
+  /* sizes — fine unchanged, coarse settled at 40 */
+  .sz-bar { width: var(--ctl-h-bar); height: var(--ctl-h-bar); }
+  .sz-bar.coarse { width: var(--ctl-h-bar-coarse); height: var(--ctl-h-bar-coarse); font-size: 13px; }
+  .sz-chip { min-width: 35px; min-height: 33px; padding: 0 6px; }
+  .sz-chip.coarse { min-width: 40px; min-height: 40px; font-size: 13px; }
+  .sz-wide { height: var(--ctl-h-bar); padding: 0 10px; }
+  @media (any-pointer: coarse) {
+    .sz-bar { width: var(--ctl-h-bar-coarse); height: var(--ctl-h-bar-coarse); }
+    .sz-chip { min-width: 40px; min-height: 40px; }
+    .mrow { min-height: 40px; }
+  }
+
+  /* segment group (combo / split button) */
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--ctl-radius);
+         overflow: hidden; height: 26px; }
+  .seg .ctl { border: 0; border-radius: 0; height: 100%; padding: 0 8px; }
+  .seg .ctl + .ctl { border-left: 1px solid var(--border); }
+  .seg .ctl:focus-visible { outline-offset: -2px; }
+
+  /* menu */
+  .menu { background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px;
+          box-shadow: 0 16px 40px rgba(0,0,0,.5); padding: 4px 0; width: 250px; font-size: 12px; }
+  .menu .sect { padding: 8px 12px 3px; font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
+                color: var(--text-secondary); user-select: none; }
+  .mrow { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+          padding: 6px 12px; min-height: 28px; background: none; border: 0; cursor: pointer;
+          color: var(--text-secondary); font: 12px var(--mono);
+          user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+          transition: color var(--ctl-duration), background-color var(--ctl-duration); }
+  .mrow:hover:not(:disabled), .mrow.f-hover { color: var(--text-primary); background: var(--bg-card); }
+  .mrow:active:not(:disabled) { background: var(--bg-inset); transition: none; }
+  .mrow:focus-visible, .mrow.f-focus { outline: var(--ctl-ring); outline-offset: -2px; color: var(--text-primary); }
+  .mrow[aria-checked="true"] { color: var(--text-primary); }
+  .mrow[aria-checked="true"]::after { content: "✓"; margin-left: auto; color: var(--green); }
+  .mrow:disabled { opacity: .4; cursor: not-allowed; }
+  .mrow.danger:hover, .mrow.danger.f-hover { color: var(--signal-red); background: color-mix(in srgb, var(--signal-red) 8%, transparent); }
+  .mrow .kbd { margin-left: auto; font-size: 10.5px; color: var(--text-secondary);
+               background: var(--bg-card); border: 1px solid var(--border); border-radius: 3px; padding: 1px 5px; }
+  .mrow[aria-checked="true"] .kbd { margin-left: 8px; }
+  .menu .keypad { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 12px 8px; }
+  .menu .keypad .ctl { min-width: 40px; min-height: 40px; }
+
+  /* in-situ bars */
+  .bar-demo { background: var(--bg-primary); border: 1px solid rgba(255,255,255,.1); border-radius: 8px;
+              padding: 8px 10px; display: flex; align-items: center; gap: 8px; }
+  .crumb { display: inline-flex; align-items: center; min-height: 28px; border: 1px solid var(--border);
+           border-radius: var(--ctl-radius); padding: 0 8px; color: var(--text-secondary); font-size: 12px; }
+  .heading { color: var(--text-primary); font-weight: 600; font-size: 13px; }
+  .spacer { flex: 1; }
+  .phone375 { width: 375px; max-width: 100%; border: 1px solid rgba(255,255,255,.14); border-radius: 14px;
+              padding: 8px 6px; background: var(--bg-primary); }
+  .chiprow { display: flex; gap: 4px; align-items: center; }
+  .divider { width: 1px; height: 24px; background: var(--border); margin: 0 4px; flex: none; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Control Contract Preview</h1>
+<div class="decided">
+  <b>Settled 2026-09-05:</b> · Hue scheme <b>C — neutral + green</b>: hover is pure brightness (white ink/border,
+  hue-free glint), <b>green appears only when something is ON</b>; blue retires from controls · Coarse floor
+  <b>40px</b> for bar buttons and chips (fine sizes unchanged) · every control carries
+  <code>user-select: none</code> + <code>-webkit-user-select: none</code> + <code>-webkit-touch-callout: none</code>
+  so a long-press never selects the glyph or pops the iOS callout · bottom bar recomposed: <b>⌥ and the arrow pad
+  move into the F▴ menu</b>.
+</div>
+<p class="sub" style="margin-top:12px">Everything below runs on <b>one recipe</b> (the <code>.ctl</code> block in
+this file's CSS) plus size classes. Hover, Tab, click-to-latch, and press-and-hold are all real — and so is the
+long-press guard: hold any chip and nothing selects.</p>
+
+<h2>The color algebra (final)</h2>
+<div class="tw"><table>
+  <tr><th>Channel</th><th>Color</th><th>States</th></tr>
+  <tr><td><b>Interaction</b> — "you are here"</td><td style="color:var(--text-primary)"><b>brightness (no hue)</b></td>
+      <td>hover: ink/border → text-primary + hue-free glint sweep · focus-visible: green ring (the one hued
+      interaction cue — a ring shape can't be mistaken for state)</td></tr>
+  <tr><td><b>State</b> — "this is on"</td><td style="color:var(--green)"><b>accent-green</b></td>
+      <td>latched/armed: green tint + border + ink, hover-stable (fill deepens, hue holds) · checked menu rows: green ✓</td></tr>
+  <tr><td><b>Feedback</b> — "tap registered"</td><td style="color:var(--text-primary)"><b>fill snap</b></td>
+      <td>pressed: bg-card fill, instant (transition: none)</td></tr>
+  <tr><td><b>Status</b> — unchanged</td><td><span style="color:var(--green)">●</span>
+      <span style="color:var(--signal-yellow)">●</span> <span style="color:var(--signal-red)">●</span></td>
+      <td>signal hues keep their meanings; a green <i>control</i> now always means "on", never "hovered"</td></tr>
+</table></div>
+
+<h2>The state matrix</h2>
+<div class="tw"><table>
+  <tr><th>Family</th><th>Rest</th><th>Hover</th><th>Focus</th><th>Pressed</th><th>Latched</th><th>Latched+hover</th><th>Disabled</th><th>Live — try me</th></tr>
+  <tr>
+    <td class="lbl">Icon button (bar · 28 fine)</td>
+    <td><button class="ctl sz-bar" tabindex="-1">⟳</button></td>
+    <td><button class="ctl sz-bar f-hover" tabindex="-1">⟳</button></td>
+    <td><button class="ctl sz-bar f-focus" tabindex="-1">⟳</button></td>
+    <td><button class="ctl sz-bar f-press" tabindex="-1">⟳</button></td>
+    <td><button class="ctl sz-bar f-on" tabindex="-1">◧</button></td>
+    <td><button class="ctl sz-bar f-onhover" tabindex="-1">◧</button></td>
+    <td><button class="ctl sz-bar f-dis" tabindex="-1">⟳</button></td>
+    <td><button class="ctl sz-bar">⟳</button></td>
+  </tr>
+  <tr>
+    <td class="lbl">Icon button (coarse · 40)</td>
+    <td><button class="ctl sz-bar coarse" tabindex="-1">☰</button></td>
+    <td><button class="ctl sz-bar coarse f-hover" tabindex="-1">☰</button></td>
+    <td><button class="ctl sz-bar coarse f-focus" tabindex="-1">☰</button></td>
+    <td><button class="ctl sz-bar coarse f-press" tabindex="-1">☰</button></td>
+    <td><button class="ctl sz-bar coarse f-on" tabindex="-1">◉</button></td>
+    <td><button class="ctl sz-bar coarse f-onhover" tabindex="-1">◉</button></td>
+    <td><button class="ctl sz-bar coarse f-dis" tabindex="-1">☰</button></td>
+    <td><button class="ctl sz-bar coarse">☰</button></td>
+  </tr>
+  <tr>
+    <td class="lbl">Key chip (33×35 fine / 40 coarse)</td>
+    <td><button class="ctl sz-chip coarse" tabindex="-1">esc</button></td>
+    <td><button class="ctl sz-chip coarse f-hover" tabindex="-1">esc</button></td>
+    <td><button class="ctl sz-chip coarse f-focus" tabindex="-1">esc</button></td>
+    <td><button class="ctl sz-chip coarse f-press" tabindex="-1">esc</button></td>
+    <td><button class="ctl sz-chip coarse f-on" tabindex="-1">^</button></td>
+    <td><button class="ctl sz-chip coarse f-onhover" tabindex="-1">^</button></td>
+    <td><button class="ctl sz-chip coarse f-dis" tabindex="-1">esc</button></td>
+    <td><button class="ctl sz-chip coarse" aria-pressed="false" onclick="t(this)">^</button></td>
+  </tr>
+  <tr>
+    <td class="lbl">Toggle chip (compose a▏)</td>
+    <td><button class="ctl sz-chip coarse" tabindex="-1">a▏</button></td>
+    <td><button class="ctl sz-chip coarse f-hover" tabindex="-1">a▏</button></td>
+    <td><button class="ctl sz-chip coarse f-focus" tabindex="-1">a▏</button></td>
+    <td><button class="ctl sz-chip coarse f-press" tabindex="-1">a▏</button></td>
+    <td><button class="ctl sz-chip coarse f-on" tabindex="-1">a▏</button></td>
+    <td><button class="ctl sz-chip coarse f-onhover" tabindex="-1">a▏</button></td>
+    <td><button class="ctl sz-chip coarse f-dis" tabindex="-1">a▏</button></td>
+    <td><button class="ctl sz-chip coarse" aria-pressed="false" onclick="t(this)">a▏</button></td>
+  </tr>
+  <tr>
+    <td class="lbl">Wide button (dialog / prompt)</td>
+    <td><button class="ctl sz-wide" tabindex="-1">Create</button></td>
+    <td><button class="ctl sz-wide f-hover" tabindex="-1">Create</button></td>
+    <td><button class="ctl sz-wide f-focus" tabindex="-1">Create</button></td>
+    <td><button class="ctl sz-wide f-press" tabindex="-1">Create</button></td>
+    <td>—</td><td>—</td>
+    <td><button class="ctl sz-wide f-dis" tabindex="-1">Create</button></td>
+    <td><button class="ctl sz-wide">Create</button></td>
+  </tr>
+</table></div>
+<p class="note">Squint test: the only green things are ON things. Hover a latched chip — the glint plays,
+the fill deepens, the green holds. <b>Long-press test:</b> hold any chip on your phone — no text selection,
+no magnifier callout (three CSS lines in the base recipe do this: <code>user-select</code>,
+<code>-webkit-user-select</code>, <code>-webkit-touch-callout</code>).</p>
+
+<h2>Combos / split buttons</h2>
+<div class="row" style="gap:18px">
+  <span class="seg"><button class="ctl">Open</button><button class="ctl" style="padding:0 6px">▾</button></span>
+  <span class="seg"><button class="ctl">Split</button><button class="ctl" style="padding:0 6px">▾</button></span>
+  <span class="seg">
+    <button class="ctl" aria-pressed="true" onclick="t(this)">›_</button><button class="ctl" onclick="t(this)" aria-pressed="false">◍</button><button class="ctl" onclick="t(this)" aria-pressed="false">&lt;/&gt;</button>
+  </span>
+  <kbd class="hint">← surface toggles: on = green tint, hover = brighter, never both confused. Click the segments.</kbd>
+</div>
+
+<h2>Top-right menu</h2>
+<div class="row" style="align-items:flex-start; gap:28px">
+  <div class="menu" role="menu">
+    <div class="sect">View</div>
+    <button class="mrow" aria-checked="true">Terminal <span class="kbd">⌘1</span></button>
+    <button class="mrow" aria-checked="false">Web</button>
+    <button class="mrow" aria-checked="false">Code</button>
+    <div class="sect">Window</div>
+    <button class="mrow">Rename… <span class="kbd">R</span></button>
+    <button class="mrow f-focus">Move to session…</button>
+    <button class="mrow" disabled>Fork agent</button>
+    <button class="mrow danger">Kill window</button>
+    <div class="sect">App</div>
+    <button class="mrow">Settings <span class="kbd">⌘,</span></button>
+  </div>
+  <p class="note" style="max-width:44ch">Checked rows: green ✓ (state = green, consistent with latches). Hover:
+  neutral brighten + bg-card. Keyboard focus: visible ring (shown on "Move to session…"). Danger rows tint red.
+  Rows floor at 28px fine / <b>40px coarse</b>.</p>
+</div>
+
+<h2>In situ — the bars under the final contract</h2>
+<p class="sub">Desktop top bar (fine sizes, unchanged geometry) and the recomposed 375px bottom bar. Chips use the
+real glyphs from the current bar: <b>⇥</b> tab · <b>^</b> ctrl · <b>F▴</b> function menu · <b>⌘K</b> palette ·
+<b>a▏</b> compose · <b>⌨</b> keyboard. <b>⌥ and the arrow pad now live inside F▴</b> (shown open below), freeing
+~80px — which is what pays for the 40px chips.</p>
+
+<div class="bar-demo">
+  <button class="ctl sz-bar">☰</button>
+  <button class="ctl sz-bar">◀</button>
+  <button class="ctl sz-bar">▶</button>
+  <span class="crumb">run-kit</span>
+  <span class="crumb">racing-saola ▸</span>
+  <span class="spacer"></span>
+  <span class="heading">Terminal: claude</span>
+  <span class="spacer"></span>
+  <span class="seg"><button class="ctl" aria-pressed="true">›_</button><button class="ctl">◍</button><button class="ctl">&lt;/&gt;</button></span>
+  <span class="seg"><button class="ctl">Open</button><button class="ctl" style="padding:0 6px">▾</button></span>
+  <button class="ctl sz-bar">⟳</button>
+  <button class="ctl sz-bar">⌄</button>
+</div>
+<br>
+
+<div class="row" style="align-items:flex-end; gap:28px">
+  <div>
+    <div class="menu" style="width:236px; margin-bottom:10px" role="menu">
+      <div class="sect">Modifiers</div>
+      <button class="mrow" aria-checked="true" onclick="c(this)">⌥ &nbsp;option (latch)</button>
+      <div class="sect">Arrows</div>
+      <div class="keypad">
+        <button class="ctl">←</button><button class="ctl">↑</button><button class="ctl">↓</button><button class="ctl">→</button>
+      </div>
+      <div class="sect">Keys</div>
+      <div class="keypad">
+        <button class="ctl">esc</button><button class="ctl">F1</button><button class="ctl">F2</button><button class="ctl">F5</button><button class="ctl" style="min-width:44px">F12</button>
+      </div>
+      <div class="sect">Nav</div>
+      <div class="keypad">
+        <button class="ctl" style="min-width:52px">PgUp</button><button class="ctl" style="min-width:52px">PgDn</button><button class="ctl" style="min-width:52px">Home</button><button class="ctl" style="min-width:48px">End</button>
+      </div>
+    </div>
+    <div class="phone375">
+      <div class="chiprow">
+        <button class="ctl sz-chip coarse">⇥</button>
+        <button class="ctl sz-chip coarse" aria-pressed="true" onclick="t(this)">^</button>
+        <button class="ctl sz-chip coarse" aria-pressed="true">F▴</button>
+        <span class="divider"></span>
+        <button class="ctl sz-chip coarse">⌘K</button>
+        <button class="ctl sz-chip coarse" aria-pressed="true" onclick="t(this)">a▏</button>
+        <span class="spacer"></span>
+        <button class="ctl sz-chip coarse">⌨</button>
+      </div>
+    </div>
+  </div>
+  <p class="note" style="max-width:40ch">The F▴ chip is latched (green) while its menu is open — the "open menu
+  trigger with no visual state" bug class, fixed by the same latch treatment. The relocated ⌥ keeps its latch
+  semantics as a checked menu row; the arrow pad becomes a keypad section, every key 40px. 6 chips × 40px + gaps =
+  268px of 375 — comfortable, with room to promote a chip back (esc?) if the F▴ trip proves too slow for something.</p>
+</div>
+
+<h2>What ships</h2>
+<p class="sub">
+<b>Tokens</b>: <code>--ctl-h-bar</code> 28 / <b>40 coarse</b> · <code>--ctl-h-chip</code> 33×35 / <b>40 coarse</b> ·
+<code>--ctl-h-row</code> 28 / 40 · <code>--ctl-radius</code> · <code>--ctl-ring</code> (2px green, offset 2) ·
+<code>--ctl-duration</code> · latch/press fills as color-mix of theme tokens.<br><br>
+<b>Base recipe additions</b>: <code>user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;</code>
+on every control (chips, buttons, menu rows, segments).<br><br>
+<b>Two global rules</b>: the <code>:where(…):focus-visible</code> green ring, and the glint moved to a hue-free
+sweep with its color-override rule deleted (scheme C makes the §2 cascade problem moot — there is no hover hue left
+to fight the latch).<br><br>
+<b>One primitive</b>: <code>Control</code> (icon · chip · toggle · segment · menu-row · wide) + the bottom-bar
+recomposition (⌥ + arrows → F▴ menu) as its first consumer.</p>
+
+<script>
+  function t(el){ el.setAttribute('aria-pressed', el.getAttribute('aria-pressed')==='true'?'false':'true'); }
+  function c(el){ el.setAttribute('aria-checked', el.getAttribute('aria-checked')==='true'?'false':'true'); }
+</script>
+
+</main>
+</body>
+</html>

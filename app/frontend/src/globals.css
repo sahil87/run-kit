@@ -86,13 +86,31 @@ html[data-theme="light"] {
   --color-marker-ink: #d97706;
 }
 
+/* Control-layer geometry tokens — theme-independent, colors stay derived from
+   the `--color-*` set. Consumed by the global control rules below and later
+   per-surface slices; each has a TS lockstep partner in
+   components/controls.ts / components/kbd-chip.ts / components/arrow-pad.tsx
+   (Tailwind's scanner reads literals only, so the TS side keeps literal
+   classes — the pairs MUST change together). */
+:root {
+  --ctl-radius: 4px; /* matches today's `rounded` */
+  --ctl-duration: 150ms; /* matches the Tailwind transition default in use */
+  --ctl-h-bar: 28px; /* fine icon button */
+  --ctl-h-bar-coarse: 40px; /* coarse touch floor */
+  --ctl-chip-h: 33px; /* fine chip min height */
+  --ctl-chip-w: 35px; /* fine chip min width */
+  --ctl-chip-coarse: 40px; /* coarse chip min (both axes) */
+}
+
 body {
   font-family: var(--font-mono);
   background-color: var(--color-bg-primary);
   color: var(--color-text-primary);
 }
 
-/* Clickable elements should feel clickable */
+/* Clickable elements should feel clickable. The select guard keeps a
+   long-press on any control from selecting the glyph or popping the iOS
+   callout/magnifier. */
 button,
 [role="button"],
 [role="option"],
@@ -100,6 +118,34 @@ button,
 a,
 summary {
   cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none; /* iOS: no magnifier/callout on long-press */
+}
+
+/* One focus ring for every control. UNLAYERED ON PURPOSE: an unlayered rule
+   outranks the layered Tailwind utilities, so it beats the ~37 bare
+   `outline-none` suppressions and the divergent per-site ring idioms without
+   touching any call site. Interactive text inputs (input/textarea/select)
+   keep their `focus:border-*` live-input idiom and are excluded — ringing
+   them too would double-signal. */
+:where(button, [role="button"], [role="option"], [role="menuitem"],
+       [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"],
+       [role="switch"], a, summary):focus-visible {
+  outline: 2px solid var(--color-accent-green);
+  outline-offset: 2px;
+}
+
+/* One pressed treatment for every control (touch's only feedback channel):
+   the background snaps to bg-card instantly — `transition: none` overrides
+   the per-control `transition-colors` so the fill has no fade lag. `a` and
+   `summary` are excluded (links navigate; a fill-snap reads wrong there).
+   Inline-styled tinted rows keep their tint — inline style wins. */
+:where(button, [role="button"], [role="option"], [role="menuitem"],
+       [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"],
+       [role="switch"]):active:not(:disabled) {
+  background-color: var(--color-bg-card);
+  transition: none;
 }
 
 /* Desktop-shell titlebar strip (260731-ofws): the Electron shell hides the
@@ -136,7 +182,7 @@ summary {
   16.6%, 33.3% { opacity: 1; }
 }
 
-/* ── Hover-animation vocabulary (change 260703-5ilm; boot sweep 260704-pr0p) ──
+/* ── Hover-animation vocabulary ──
    One motion treatment per element category, so motion carries meaning:
      glitch      = brand (rk-brand-glitch; the logo ring rides it with a
                    JS-driven white glow detach-orbit-land sweep over the
@@ -149,15 +195,22 @@ summary {
      brackets+caret = section headings (rk-bracket-group / SectionHeading)
      typed sweep    = section labels (rk-typed-* frame states; JS in typed-label.tsx)
      CRT glint      = buttons (rk-glint)
+   Hover on CONTROLS is hue-free — motion and brightness only. Accent-green is
+   reserved for STATE (a latched/armed control, live activity), never for the
+   interaction itself, so hovering a control never recolors its border or
+   glyph. (The brand glitch is the deliberate exception: identity, not a
+   control state.)
    ALL treatments are disabled under prefers-reduced-motion: reduce (below). */
 
-/* CRT glint = buttons. A skewed accent-green highlight strip sweeps across the
-   button face on hover, one-shot, while the chip's border + glyph flip to
-   accent-green for the hover duration (the "green line" — chosen over a fill
-   or inverse cell so hover never reads as the armed/pressed state, which uses
-   a solid accent fill). The button MUST clip the strip (overflow:hidden) —
-   verified safe because the font/bell popovers are SIBLINGS of their trigger
-   buttons, not children, so clipping the button never clips the popover. */
+/* CRT glint = buttons. A skewed highlight strip sweeps across the button face
+   on hover, one-shot. The sweep is HUE-FREE — it brightens with the theme's
+   primary text color, and nothing recolors the chip itself: the call-site
+   Tailwind hover utilities (hover:border-text-secondary,
+   hover:text-text-primary) are the neutral hover, and latched accent states
+   (bg-accent/20 border-accent text-accent) stay hover-stable. The button MUST
+   clip the strip (overflow:hidden) — verified safe because the font/bell
+   popovers are SIBLINGS of their trigger buttons, not children, so clipping
+   the button never clips the popover. */
 @keyframes rk-glint-sweep {
   0% { transform: translateX(-160%) skewX(-20deg); opacity: 0; }
   10% { opacity: 1; }
@@ -250,7 +303,7 @@ summary {
   background: linear-gradient(
     90deg,
     transparent 0%,
-    color-mix(in srgb, var(--color-accent-green) 45%, transparent) 50%,
+    color-mix(in srgb, var(--color-text-primary) 22%, transparent) 50%,
     transparent 100%
   );
   transform: translateX(-160%) skewX(-20deg);
@@ -258,14 +311,6 @@ summary {
 }
 .rk-glint:hover::after {
   animation: rk-glint-sweep 450ms ease-out;
-}
-/* The green line: border + glyph turn accent-green while hovered. Unlayered,
-   so it wins over the chips' Tailwind hover utilities (hover:border-text-
-   secondary et al.) without touching every call site. :not(:disabled) keeps
-   disabled chips inert. */
-.rk-glint:hover:not(:disabled) {
-  border-color: var(--color-accent-green);
-  color: var(--color-accent-green);
 }
 
 /* Glitch = brand only. One-shot RGB-split via text-shadow, steps(2). The

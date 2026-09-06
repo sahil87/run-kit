@@ -3,7 +3,7 @@ import { useModifierState, type ModifierSnapshot } from "@/hooks/use-modifier-st
 import { useFocusedTerminal } from "@/contexts/focused-terminal-context";
 import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
 import { ArrowPad } from "@/components/arrow-pad";
-import { KBD_CLASS } from "@/components/kbd-chip";
+import { KBD_BASE, KBD_CLASS } from "@/components/kbd-chip";
 import { Tip, TipGroup } from "@/components/tip";
 import {
   focusComposeStrip,
@@ -379,7 +379,7 @@ export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
           <button
             aria-label={MODIFIER_LABELS[key]}
             aria-pressed={mods[key]}
-            className={`${KBD_CLASS} ${mods[key] ? "bg-accent/20 border-accent text-accent" : "text-text-secondary"}`}
+            className={mods[key] ? `${KBD_BASE} bg-accent/20 border-accent text-accent hover:bg-accent/30` : `${KBD_CLASS} text-text-secondary`}
             onMouseDown={preventFocusSteal}
             onClick={() => mods.toggle(key)}
           >
@@ -475,7 +475,7 @@ export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
             onClick={onOpenCompose}
             aria-label="Compose text"
             aria-pressed={composeStripEnabled}
-            className={`${KBD_CLASS} ${composeStripEnabled ? "bg-accent/20 border-accent text-accent" : "text-text-secondary"}`}
+            className={composeStripEnabled ? `${KBD_BASE} bg-accent/20 border-accent text-accent hover:bg-accent/30` : `${KBD_CLASS} text-text-secondary`}
           >
             a<span className={composeStripEnabled ? "rk-compose-caret" : undefined}>{"▏"}</span>
           </button>
@@ -491,7 +491,7 @@ export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
         <button
           type="button"
           aria-label={scrollLocked ? "Scroll lock on \u2014 tap to unlock" : termFocused ? "Hide keyboard" : "Show keyboard"}
-          className={`${KBD_CLASS} hidden coarse:inline-flex ${scrollLocked ? "bg-accent/20 border-accent text-accent" : "text-text-secondary"}`}
+          className={scrollLocked ? `${KBD_BASE} hidden coarse:inline-flex bg-accent/20 border-accent text-accent hover:bg-accent/30` : `${KBD_CLASS} hidden coarse:inline-flex text-text-secondary`}
           onMouseDown={preventFocusSteal}
           onTouchStart={handleKbdTouchStart}
           onTouchMove={handleKbdTouchMove}

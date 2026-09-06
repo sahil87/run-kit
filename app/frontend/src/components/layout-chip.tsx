@@ -16,7 +16,7 @@ import {
   MENU_ROW_ACTIVE,
   POPOVER_ROW_CLASS,
   TOP_BAR_BUTTON,
-} from "@/components/top-bar-overflow-menu";
+} from "@/components/controls";
 
 /**
  * ▦ Layout chip (260812-ab5v-surface-layout-core; spec

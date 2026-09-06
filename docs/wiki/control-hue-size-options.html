@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Control Hue &amp; Size Options</title>
+<style>
+  :root {
+    --bg-primary: #0f1117; --bg-card: #171b24; --bg-inset: #0a0c12;
+    --text-primary: #e8eaf0; --text-secondary: #7a8394; --border: #454d66;
+    --blue: #5b8af0; --green: #22c55e; --signal-red: #f87171;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg-primary); color: var(--text-primary);
+    font: 13px/1.6 var(--mono); padding: 40px 20px 96px; }
+  main { max-width: 1180px; margin: 0 auto; }
+  h1 { font-size: 23px; margin: 0 0 6px; letter-spacing: -.01em; }
+  h2 { font-size: 16px; margin: 52px 0 6px; color: var(--text-primary); }
+  h2::before { content: "> "; color: var(--text-secondary); }
+  .sub { color: var(--text-secondary); max-width: 84ch; margin: 0 0 10px; }
+  .sub b, .cap b, td b { color: var(--text-primary); }
+  code { color: var(--text-primary); background: var(--bg-card); padding: 0 4px; border-radius: 3px; font-size: .92em; }
+  hr { border: 0; border-top: 1px solid rgba(255,255,255,.08); margin: 40px 0; }
+  .cap { color: var(--text-secondary); font-size: 12px; margin: 10px 0 0; max-width: 60ch; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; margin: 16px 0; }
+  .tile { background: var(--bg-inset); border: 1px solid rgba(255,255,255,.09); border-radius: 10px; padding: 16px 18px; }
+  .tile .th { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
+  .tile .th b { font-size: 14px; }
+  .tile .th span { color: var(--text-secondary); font-size: 11.5px; }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+  .rowlbl { width: 100%; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-secondary); margin-top: 8px; }
+  table { border-collapse: collapse; margin: 14px 0; font-size: 12.5px; }
+  th, td { border: 1px solid rgba(255,255,255,.09); padding: 8px 12px; text-align: left; }
+  th { background: var(--bg-card); color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+  .tw { overflow-x: auto; }
+  .rec { border: 1px solid rgba(255,255,255,.16); border-radius: 10px; padding: 16px 20px; background: var(--bg-card); max-width: 86ch; }
+
+  @keyframes sweep { 0% { transform: translateX(-160%) skewX(-20deg); opacity: 0; } 10% { opacity: 1; } 100% { transform: translateX(260%) skewX(-20deg); opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+
+  /* ===== base control; schemes set the hue variables ===== */
+  .ctl {
+    position: relative; overflow: hidden;
+    display: inline-flex; align-items: center; justify-content: center;
+    font: 12px var(--mono); background: transparent; color: var(--text-secondary);
+    border: 1px solid var(--border); border-radius: 4px; cursor: pointer; user-select: none;
+    transition: color .15s, border-color .15s, background-color .15s;
+  }
+  .ctl::after {
+    content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 45%; pointer-events: none;
+    background: linear-gradient(90deg, transparent, var(--sweep), transparent);
+    transform: translateX(-160%) skewX(-20deg); opacity: 0;
+  }
+  .ctl:hover:not(:disabled)::after { animation: sweep 450ms ease-out; }
+  .ctl:hover:not(:disabled):not([aria-pressed="true"]) { border-color: var(--hov); color: var(--hov); }
+  .ctl:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+  .ctl:active:not(:disabled) { background: var(--bg-card); border-color: var(--text-secondary); color: var(--text-primary); transition: none; }
+  .ctl[aria-pressed="true"] {
+    background: color-mix(in srgb, var(--acc) 18%, transparent);
+    border-color: var(--acc); color: var(--acc);
+  }
+  .ctl[aria-pressed="true"]:hover:not(:disabled) { background: color-mix(in srgb, var(--acc) 30%, transparent); }
+
+  /* ===== the four hue schemes ===== */
+  .hueA { --acc: var(--green); --hov: var(--green); --sweep: color-mix(in srgb, var(--green) 45%, transparent); }
+  .hueB { --acc: var(--blue);  --hov: var(--blue);  --sweep: color-mix(in srgb, var(--blue) 45%, transparent); }
+  .hueC { --acc: var(--green); --hov: var(--text-primary); --sweep: color-mix(in srgb, var(--text-primary) 22%, transparent); }
+  .hueD { --acc: var(--blue);  --hov: var(--text-primary); --sweep: color-mix(in srgb, var(--text-primary) 22%, transparent); }
+
+  /* sizes for the hue tiles (fixed, mid-scale) */
+  .b30 { width: 30px; height: 30px; }
+  .c36 { min-width: 36px; min-height: 36px; padding: 0 6px; }
+
+  /* ===== size-ladder rows (true px — open on the phone) ===== */
+  .phone { width: 375px; max-width: 100%; border: 1px solid rgba(255,255,255,.14); border-radius: 12px;
+           padding: 6px 4px; background: var(--bg-primary); margin: 8px 0 2px; }
+  .chips { display: flex; justify-content: center; }
+  .sz .ctl { flex: none; }
+  .g4 { gap: 4px; } .g3 { gap: 3px; } .g6 { gap: 6px; }
+  .s36 .ctl { min-width: 36px; min-height: 36px; font-size: 12px; }
+  .s40 .ctl { min-width: 40px; min-height: 40px; font-size: 13px; }
+  .s44 .ctl { min-width: 44px; min-height: 44px; font-size: 14px; }
+  .s48 .ctl { min-width: 48px; min-height: 48px; font-size: 14px; }
+  /* hybrid: 36 visual inside a 44 hit box */
+  .hyb { position: relative; display: inline-flex; align-items: center; justify-content: center;
+         width: 44px; height: 44px; }
+  .hyb .ctl { min-width: 36px; min-height: 36px; }
+  .hyb::before { content: ""; position: absolute; inset: 0; border: 1px dashed color-mix(in srgb, var(--signal-red) 55%, transparent);
+                 border-radius: 6px; pointer-events: none; }
+  .bars { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .bars .lbl { color: var(--text-secondary); font-size: 11px; width: 130px; }
+  .bb30 .ctl { width: 30px; height: 30px; } .bb36 .ctl { width: 36px; height: 36px; }
+  .bb40 .ctl { width: 40px; height: 40px; } .bb44 .ctl { width: 44px; height: 44px; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Control Hue &amp; Size Options</h1>
+<p class="sub">Two open contract decisions, both yours. <b>§1</b>: the interaction/state hue algebra — the
+green×blue mix in the first preview read as a leftover of the matrix-era green colliding with the blue accent, so
+here are the four coherent alternatives, live. <b>§2</b>: the coarse-pointer size ladder at <b>true pixel size</b> —
+open this page on your phone; every row is an honest tap target. All schemes keep the same state <i>grammar</i>
+(hover / focus ring / pressed fill-snap / latched tint / disabled) — only the hues and sizes move.</p>
+
+<h2>1 · Hue algebra — four coherent options</h2>
+<p class="sub">Each tile is fully live: hover the buttons, click the toggles (they latch), Tab for the focus ring,
+hold for pressed. The latched chips (<b>^</b>, <b>a▏</b>, <b>◧</b>) are pre-latched so you can judge on-state vs
+hover immediately.</p>
+
+<div class="grid">
+
+  <div class="tile hueA">
+    <div class="th"><b>A · All green</b><span>matrix heritage, single hue</span></div>
+    <div class="rowlbl">bar buttons + toggle</div>
+    <div class="row">
+      <button class="ctl b30">☰</button><button class="ctl b30">⟳</button>
+      <button class="ctl b30" aria-pressed="true" onclick="t(this)">◧</button>
+      <button class="ctl b30" onclick="t(this)">◍</button>
+    </div>
+    <div class="rowlbl">chips (one latched)</div>
+    <div class="row">
+      <button class="ctl c36">esc</button>
+      <button class="ctl c36" aria-pressed="true" onclick="t(this)">^</button>
+      <button class="ctl c36" aria-pressed="true" onclick="t(this)">a▏</button>
+      <button class="ctl c36">⌘K</button>
+    </div>
+    <p class="cap"><b>One hue carries everything</b>: hover = green ink/border, latched = green ink/border <i>+ tint
+    fill</i>, focus = green ring. Keeps the matrix identity undiluted; blue retires from controls entirely.
+    <b>Cost:</b> on-vs-hover differs only by fill, and accent-green now competes with green-as-status
+    (PR ✓, ok dots) everywhere.</p>
+  </div>
+
+  <div class="tile hueB">
+    <div class="th"><b>B · All blue</b><span>green retires to status</span></div>
+    <div class="rowlbl">bar buttons + toggle</div>
+    <div class="row">
+      <button class="ctl b30">☰</button><button class="ctl b30">⟳</button>
+      <button class="ctl b30" aria-pressed="true" onclick="t(this)">◧</button>
+      <button class="ctl b30" onclick="t(this)">◍</button>
+    </div>
+    <div class="rowlbl">chips (one latched)</div>
+    <div class="row">
+      <button class="ctl c36">esc</button>
+      <button class="ctl c36" aria-pressed="true" onclick="t(this)">^</button>
+      <button class="ctl c36" aria-pressed="true" onclick="t(this)">a▏</button>
+      <button class="ctl c36">⌘K</button>
+    </div>
+    <p class="cap"><b>Controls speak blue, status speaks green.</b> Hover/focus/latch all in accent blue (sweep goes
+    blue too); accent-green becomes a pure signal hue beside red/yellow — a status dot color, never a control color.
+    Cleanest semantic split, most "professional tool". <b>Cost:</b> the matrix-green identity leaves the chrome —
+    it survives only in status signals and terminal content.</p>
+  </div>
+
+  <div class="tile hueC">
+    <div class="th"><b>C · Neutral + green</b><span>hover is brightness, green is state</span></div>
+    <div class="rowlbl">bar buttons + toggle</div>
+    <div class="row">
+      <button class="ctl b30">☰</button><button class="ctl b30">⟳</button>
+      <button class="ctl b30" aria-pressed="true" onclick="t(this)">◧</button>
+      <button class="ctl b30" onclick="t(this)">◍</button>
+    </div>
+    <div class="rowlbl">chips (one latched)</div>
+    <div class="row">
+      <button class="ctl c36">esc</button>
+      <button class="ctl c36" aria-pressed="true" onclick="t(this)">^</button>
+      <button class="ctl c36" aria-pressed="true" onclick="t(this)">a▏</button>
+      <button class="ctl c36">⌘K</button>
+    </div>
+    <p class="cap"><b>Hover carries no hue at all</b> — ink/border brighten to white, the sweep is a faint white
+    glint (still CRT, hue-free). Green appears <i>only when something is on</i>, so a green control always means
+    state, never "your cursor is here". This is the Linear/VS Code grammar with matrix green kept as the meaning
+    color. Blue retires from controls.</p>
+  </div>
+
+  <div class="tile hueD">
+    <div class="th"><b>D · Neutral + blue</b><span>hover is brightness, blue is state</span></div>
+    <div class="rowlbl">bar buttons + toggle</div>
+    <div class="row">
+      <button class="ctl b30">☰</button><button class="ctl b30">⟳</button>
+      <button class="ctl b30" aria-pressed="true" onclick="t(this)">◧</button>
+      <button class="ctl b30" onclick="t(this)">◍</button>
+    </div>
+    <div class="rowlbl">chips (one latched)</div>
+    <div class="row">
+      <button class="ctl c36">esc</button>
+      <button class="ctl c36" aria-pressed="true" onclick="t(this)">^</button>
+      <button class="ctl c36" aria-pressed="true" onclick="t(this)">a▏</button>
+      <button class="ctl c36">⌘K</button>
+    </div>
+    <p class="cap">Same neutral hover grammar as C, but state speaks the blue accent and green retires fully to
+    status semantics (the B split) — the maximum-clarity option: white = interaction, blue = state, green/yellow/red =
+    status. <b>Cost:</b> least matrix identity of the four.</p>
+  </div>
+
+</div>
+
+<p class="sub"><b>How to judge:</b> hover a latched chip in each tile — in A the on-state and hover are siblings
+(fill is the only difference); in B they're siblings in blue; in C/D they can never be confused because hover has no
+hue. Then glance at a tile from arm's length and ask "which chips are ON?" — C/D answer instantly.</p>
+
+<hr>
+
+<h2>2 · Coarse size ladder — open this on your phone</h2>
+<p class="sub">Every row below is a 375px-wide frame at <b>true CSS pixels</b> with today's 8-chip bottom-bar set.
+The guidelines you're recalling: <b>Apple HIG 44×44pt</b>, <b>Material 48dp</b>, WCAG 2.5.5 (AAA) 44px —
+today's tokens (30px top-bar, 36px chips) sit well under all of them.</p>
+
+<div class="sz hueC">
+
+  <p class="cap"><b>36px — today's coarse token.</b> 8 chips fit with room (316px used of 375).</p>
+  <div class="phone"><div class="chips g4 s36">
+    <button class="ctl">esc</button><button class="ctl">tab</button>
+    <button class="ctl" aria-pressed="true" onclick="t(this)">^</button><button class="ctl">⌥</button>
+    <button class="ctl">↑</button><button class="ctl">F▴</button>
+    <button class="ctl" aria-pressed="true" onclick="t(this)">a▏</button><button class="ctl">⌘K</button>
+  </div></div>
+
+  <p class="cap"><b>40px — the compromise floor.</b> 8 chips still fit comfortably (348px). Noticeably easier,
+  still dense.</p>
+  <div class="phone"><div class="chips g4 s40">
+    <button class="ctl">esc</button><button class="ctl">tab</button>
+    <button class="ctl" aria-pressed="true" onclick="t(this)">^</button><button class="ctl">⌥</button>
+    <button class="ctl">↑</button><button class="ctl">F▴</button>
+    <button class="ctl" aria-pressed="true" onclick="t(this)">a▏</button><button class="ctl">⌘K</button>
+  </div></div>
+
+  <p class="cap"><b>44px flush — Apple HIG, all 8 chips kept.</b> Fits only edge-to-edge with a 3px gap
+  (373 of 375). Zero slack: any 9th chip or wider glyph breaks the row.</p>
+  <div class="phone" style="padding:6px 1px"><div class="chips g3 s44">
+    <button class="ctl">esc</button><button class="ctl">tab</button>
+    <button class="ctl" aria-pressed="true" onclick="t(this)">^</button><button class="ctl">⌥</button>
+    <button class="ctl">↑</button><button class="ctl">F▴</button>
+    <button class="ctl" aria-pressed="true" onclick="t(this)">a▏</button><button class="ctl">⌘K</button>
+  </div></div>
+
+  <p class="cap"><b>44px, 7 chips — HIG with breathing room.</b> One chip yields (⌥ folds into a long-press on ^,
+  or joins the F▴ menu). The comfortable version of 44.</p>
+  <div class="phone"><div class="chips g4 s44">
+    <button class="ctl">esc</button><button class="ctl">tab</button>
+    <button class="ctl" aria-pressed="true" onclick="t(this)">^</button>
+    <button class="ctl">↑</button><button class="ctl">F▴</button>
+    <button class="ctl" aria-pressed="true" onclick="t(this)">a▏</button><button class="ctl">⌘K</button>
+  </div></div>
+
+  <p class="cap"><b>48px, 6 chips — Material.</b> Two chips yield. Big and unmissable; the row starts feeling like
+  a keyboard accessory bar rather than a chip strip.</p>
+  <div class="phone"><div class="chips g4 s48">
+    <button class="ctl">esc</button><button class="ctl">tab</button>
+    <button class="ctl" aria-pressed="true" onclick="t(this)">^</button>
+    <button class="ctl">↑</button>
+    <button class="ctl" aria-pressed="true" onclick="t(this)">a▏</button><button class="ctl">⌘K</button>
+  </div></div>
+
+  <p class="cap"><b>Hybrid — 36px visual inside a 44px hit box</b> (dashed = the invisible hit area). Fixes
+  mis-taps without losing density — but it does <b>not</b> fix "looks too small": legibility and confidence stay at
+  36. Worth having as the technique for secondary targets even if primary chips go bigger.</p>
+  <div class="phone"><div class="chips" style="gap:0">
+    <span class="hyb"><button class="ctl c36">esc</button></span>
+    <span class="hyb"><button class="ctl c36">tab</button></span>
+    <span class="hyb"><button class="ctl c36" aria-pressed="true" onclick="t(this)">^</button></span>
+    <span class="hyb"><button class="ctl c36">↑</button></span>
+    <span class="hyb"><button class="ctl c36">F▴</button></span>
+    <span class="hyb"><button class="ctl c36" aria-pressed="true" onclick="t(this)">a▏</button></span>
+    <span class="hyb"><button class="ctl c36">⌘K</button></span>
+  </div></div>
+
+  <h2 style="margin-top:36px">2b · Top-bar buttons on coarse</h2>
+  <p class="cap" style="max-width:84ch">Today's coarse top-bar button is <b>30px</b> — the strictest size in the
+  system and likely the main "way too small" offender. The top bar has few controls, so 40–44 costs nothing
+  layout-wise:</p>
+  <div class="bars bb30"><span class="lbl">30px — today</span>
+    <button class="ctl">☰</button><button class="ctl">◀</button><button class="ctl">▶</button>
+    <button class="ctl">⟳</button><button class="ctl">⌄</button></div>
+  <div class="bars bb36" style="margin-top:8px"><span class="lbl">36px</span>
+    <button class="ctl">☰</button><button class="ctl">◀</button><button class="ctl">▶</button>
+    <button class="ctl">⟳</button><button class="ctl">⌄</button></div>
+  <div class="bars bb40" style="margin-top:8px"><span class="lbl">40px</span>
+    <button class="ctl">☰</button><button class="ctl">◀</button><button class="ctl">▶</button>
+    <button class="ctl">⟳</button><button class="ctl">⌄</button></div>
+  <div class="bars bb44" style="margin-top:8px"><span class="lbl">44px — HIG</span>
+    <button class="ctl">☰</button><button class="ctl">◀</button><button class="ctl">▶</button>
+    <button class="ctl">⟳</button><button class="ctl">⌄</button></div>
+  <p class="cap">Fine-pointer sizes (28px bar / 33×35 chips) stay exactly as they are — this ladder is the
+  <code>coarse:</code> half only.</p>
+
+</div>
+
+<hr>
+
+<h2>3 · My lean (argue with it)</h2>
+<div class="rec">
+  <p style="margin:0 0 10px"><b>Hue: C or D</b> — neutral hover, one accent for state. The mix you're reacting to
+  isn't green vs blue per se; it's that <i>hover owns a hue at all</i>, which forces every stateful color to fight
+  it. Make hover pure brightness and the fight ends — then green-vs-blue becomes a single brand question:
+  <b>C</b> keeps matrix green as the meaning color (more run-kit), <b>D</b> gives the cleanest three-way semantics
+  (white = interaction, blue = state, green/yellow/red = status). I'd take <b>D</b> for legibility and let green own
+  status outright — but this is the taste call only you can make from the tiles.</p>
+  <p style="margin:0"><b>Size: 44px coarse floor for both bars</b> — top-bar buttons and bottom-bar chips — using the
+  7-chip row (fold ⌥ into a long-press or the F▴ menu) rather than the flush 3px-gap version, and 40px as the floor
+  for secondary controls (menu rows, tile verbs) with the 44px hybrid hit-box. You pushed for small once, but the
+  audit's stray list plus your own thumb agree with Apple here. Fine-pointer sizes don't move.</p>
+</div>
+
+<script>
+  function t(el){ el.setAttribute('aria-pressed', el.getAttribute('aria-pressed')==='true'?'false':'true'); }
+</script>
+
+</main>
+</body>
+</html>

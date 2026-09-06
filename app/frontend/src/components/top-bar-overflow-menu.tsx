@@ -23,6 +23,13 @@ import { requestOperatorConsole, resolveOperatorConsoleTarget } from "@/lib/oper
 import { useSettingsDialog } from "@/contexts/settings-dialog-context";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { formatCombo } from "@/lib/keybindings";
+import {
+  MENU_ROW_CLASS,
+  MENU_ROW_KBD_CLASS,
+  TOP_BAR_BUTTON,
+  TOP_BAR_BUTTON_BASE,
+  TOP_BAR_BUTTON_REST,
+} from "./controls";
 
 /** Sentinel running version for local (non-ldflags) builds — the version row's
  *  check-again affordance is hidden for it (a dev daemon never checks; the same
@@ -43,75 +50,6 @@ const MENU_SECTIONS: { key: MenuGroup; label: string }[] = [
 ];
 
 /**
- * Shared overflow-menu row styling (260715-h1ck), hosted here — the file both
- * `top-bar.tsx` (the row components) and `layout-chip.tsx` (`LayoutMenuRows`)
- * already depend on, so there is no import cycle. Decomposed so callers compose
- * exactly the variant they need instead of re-declaring a drifted subset:
- *
- *  - `MENU_ROW_BASE` — layout only (full-width left-aligned flex row, padding,
- *    text size). No color/state tokens.
- *  - `MENU_ROW_REST` — the resting/hover treatment (secondary text → primary on
- *    hover, card hover bg).
- *  - `MENU_ROW_DISABLED` — the disabled-state tokens (dimmed, no hover).
- *  - `MENU_ROW_ACTIVE` — the inverse-video accent-green treatment used to mark a
- *    selected row (e.g. the active shape in `LayoutMenuRows`).
- *  - `MENU_ROW_CLASS` — the default composition (`base + rest + disabled`) used by
- *    every plain menu row.
- */
-export const MENU_ROW_BASE =
-  "w-full text-left flex items-center gap-2 px-2.5 py-1.5 text-xs transition-colors";
-export const MENU_ROW_REST =
-  "text-text-secondary hover:text-text-primary hover:bg-bg-card";
-export const MENU_ROW_DISABLED =
-  "disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-text-secondary";
-export const MENU_ROW_ACTIVE = "bg-accent-green text-bg-primary";
-/** Default row class — the resting variant plus disabled-state tokens. */
-export const MENU_ROW_CLASS = `${MENU_ROW_BASE} ${MENU_ROW_REST} ${MENU_ROW_DISABLED}`;
-
-/**
- * Shared IN-BAR popover row styling — the dropdown rows of the split-button
- * controls themselves (`OpenTargetRow` targets, `SplitControl` directions),
- * hosted here for the same no-cycle reason as `MENU_ROW_*`. Distinct from the
- * chevron overflow menu's `MENU_ROW_*` scale (`text-[11px] px-3` vs
- * `text-xs px-2.5`). Carries disabled-state tokens for rows that gate on a
- * pending action (inert for rows that never disable).
- */
-export const POPOVER_ROW_CLASS =
-  "w-full text-left flex items-center gap-2 px-3 py-1.5 text-[11px] text-text-secondary hover:text-text-primary hover:bg-bg-card transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-text-secondary";
-
-/**
- * Shared top-bar icon-button sizing (260731-oiho), hosted here for the same
- * no-cycle reason as `MENU_ROW_*` (every consumer — `top-bar.tsx`,
- * `open-button.tsx`, this menu — already imports this
- * file). The size is a FIXED square — 28×28 on fine pointers, 30×30 on coarse —
- * replacing the old copy-pasted `min-w-[24px] min-h-[24px]` floors, which let
- * rendered sizes drift with content (the sidebar toggle rendered visibly
- * smaller than the right cluster). Decomposed like `MENU_ROW_*` so callsites
- * with state-driven colors (pressed/accent toggles) compose exactly what they
- * need around the shared geometry:
- *
- *  - `TOP_BAR_BUTTON_BASE` — geometry only (fixed square, rounded border box,
- *    centering, `shrink-0`). No color tokens.
- *  - `TOP_BAR_BUTTON_REST` — the resting/hover color treatment.
- *  - `TOP_BAR_BUTTON` — the default composition (glint + base + rest) used by
- *    every plain icon button.
- *  - `TOP_BAR_BUTTON_H` — the shared HEIGHT axis alone, for content-width
- *    chips that carry their OWN border (UpdateChip) and must align with the
- *    square buttons without a fixed width.
- *  - `TOP_BAR_SEGMENT_H` — the height for segments INSIDE a bordered chip
- *    wrapper (the split/Open segment groups): the wrapper's
- *    border adds 2px, so segments are 2px shorter to keep the chip's TOTAL
- *    box identical to the squares (26+2 = 28 fine, 28+2 = 30 coarse).
- */
-export const TOP_BAR_BUTTON_BASE =
-  "w-[28px] h-[28px] coarse:w-[30px] coarse:h-[30px] rounded border transition-colors flex items-center justify-center shrink-0";
-export const TOP_BAR_BUTTON_REST =
-  "border-border text-text-secondary hover:border-text-secondary";
-export const TOP_BAR_BUTTON = `rk-glint ${TOP_BAR_BUTTON_BASE} ${TOP_BAR_BUTTON_REST}`;
-export const TOP_BAR_BUTTON_H = "h-[28px] coarse:h-[30px]";
-export const TOP_BAR_SEGMENT_H = "h-[26px] coarse:h-[28px]";
-
-/**
  * Menu section identity (260731-oiho): every registry entry names the section
  * its menu rows belong to; the menu renders non-empty sections in the fixed
  * Tiles → View → Window → App order under thin uppercase labels. The partition
@@ -127,16 +65,6 @@ export type MenuGroup = "tiles" | "view" | "window" | "app";
  * or a stepper row whose first control is focusable).
  */
 export type OverflowMenuRow = { id: string; group: MenuGroup; node: ReactNode };
-
-/** Trailing menu-row keycap (260811-0f3d, hosted here since d1at so both
- *  top-bar.tsx and this file's rows share one definition) — the right-aligned
- *  chord chip on menu rows whose action has a registry binding. Matches the
- *  palette rows' kbd visual weight (command-palette.tsx), `ml-auto`-pinned to
- *  the row's right edge; `aria-hidden` at the call sites keeps the chord out
- *  of the accessible name (the row's label is the name; the keycap is visual
- *  education). */
-export const MENU_ROW_KBD_CLASS =
-  "ml-auto text-xs text-text-secondary bg-bg-card px-1.5 py-0.5 rounded border border-border";
 
 /**
  * The App section's relocated global-chrome rows (260812-d1at) — Help and

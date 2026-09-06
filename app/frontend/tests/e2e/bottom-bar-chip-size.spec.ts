@@ -12,7 +12,7 @@ import { TMUX_SERVER } from "./_tmux";
  * - Viewport is iPhone 14-sized (375×812) via `test.use`.
  * - `hasTouch: true` flips both of Chromium's coarse-pointer media queries:
  *   `(any-pointer: coarse)` activates the Tailwind `coarse:` variant (the
- *   real 36×36 touch-target path) and `(pointer: coarse)` reveals the
+ *   real 40×40 touch-target path) and `(pointer: coarse)` reveals the
  *   coarse-only `⌨` chip (`useCoarsePointer`).
  * - Chips are measured by `collectChipSizes`: every button inside
  *   `toolbar[name='Terminal keys']` via `getByRole` (accessibility-tree match,
@@ -23,8 +23,8 @@ import { TMUX_SERVER } from "./_tmux";
 // iPhone 14 viewport
 const MOBILE_VIEWPORT = { width: 375, height: 812 };
 
-/** Coarse-pointer touch target minimum (px) — KBD_CLASS `coarse:min-h/w-[36px]`. */
-const TOUCH_TARGET_MIN = 36;
+/** Coarse-pointer touch target minimum (px) — KBD_CLASS `coarse:min-h/w-[40px]`. */
+const TOUCH_TARGET_MIN = 40;
 
 type ChipSize = { label: string; width: number; height: number };
 
@@ -68,17 +68,17 @@ test.describe("Bottom bar chip size — touch device", () => {
 
   /**
    * Proves: on a touch device at mobile width the chip row is visually uniform
-   * (one distinct width×height across all chips) and every chip meets the 36px
-   * minimum touch target from `coarse:min-h/w-[36px]`.
+   * (one distinct width×height across all chips) and every chip meets the 40px
+   * minimum touch target from `coarse:min-h/w-[40px]`.
    *
    * Steps:
    * 1. Navigate to `/${TMUX_SERVER}` with `hasTouch: true` at 375×812.
    * 2. Collect the size of every button in the `Terminal keys` toolbar.
    * 3. Assert the set of distinct `width×height` values has exactly one entry
    *    (the failure message lists every chip's label and size).
-   * 4. Assert each chip's width and height is ≥ 36.
+   * 4. Assert each chip's width and height is ≥ 40.
    */
-  test("all chips share one size and meet the 36px touch target", async ({
+  test("all chips share one size and meet the 40px touch target", async ({
     page,
   }) => {
     await page.goto(`/${TMUX_SERVER}`);

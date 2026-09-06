@@ -1,0 +1,15 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-05T20:05:34Z"}
+{"args":"Control vocabulary retrofit slice 1: control token module + global focus-visible ring + hue-free glint + user-select guard (scheme C, 40px coarse)","cmd":"fab-new","event":"command","ts":"2026-09-05T20:05:34Z"}
+{"delta":"+4.5","event":"confidence","score":4.5,"trigger":"calc-score","ts":"2026-09-05T20:07:53Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-06T02:29:37Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-06T02:29:50Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-06T02:41:05Z"}
+{"event":"review","result":"failed","ts":"2026-09-06T02:46:34Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-06T02:46:34Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-06T02:48:07Z"}
+{"event":"review","result":"failed","ts":"2026-09-06T02:51:06Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-06T02:51:06Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-06T02:52:57Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-06T02:56:02Z"}
+{"event":"review","result":"passed","ts":"2026-09-06T02:56:02Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-06T03:01:14Z"}

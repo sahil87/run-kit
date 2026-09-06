@@ -6,7 +6,7 @@ import {
   MENU_ROW_CLASS,
   POPOVER_ROW_CLASS,
   TOP_BAR_SEGMENT_H,
-} from "@/components/top-bar-overflow-menu";
+} from "@/components/controls";
 import {
   readLastUsedOpenTarget,
   resolveLastUsedTarget,

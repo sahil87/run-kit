@@ -12,6 +12,16 @@ const BoardPage = lazy(() =>
   import("@/components/board/board-page").then((m) => ({ default: m.BoardPage })),
 );
 
+// The control gallery is a DEV-harness route, never a product page: the lazy
+// import and the route below exist only under import.meta.env.DEV, so the prod
+// build dead-code-eliminates both and serves no gallery route (the route table
+// falls through to Not Found).
+const ControlGalleryPage = import.meta.env.DEV
+  ? lazy(() =>
+      import("@/components/control-gallery").then((m) => ({ default: m.ControlGalleryPage })),
+    )
+  : null;
+
 // The window-id ↔ URL-segment mapping and the `?view=` search validation are
 // pure functions in `@/lib/router-url` (a leaf module, so their unit tests
 // don't import this file's full route tree — and with it xterm's import-time
@@ -110,6 +120,16 @@ const boardRoute = createRoute({
   component: BoardPage,
 });
 
+// Dev-only harness route; `ControlGalleryPage` is null in prod builds, so the
+// route registers only where the page exists.
+const controlGalleryRoute = ControlGalleryPage
+  ? createRoute({
+      getParentRoute: () => appLayoutRoute,
+      path: "/__controls",
+      component: ControlGalleryPage,
+    })
+  : null;
+
 // Canonical page names (spoken/doc vocabulary — see docs/memory/run-kit/ui-patterns.md):
 //   /                  → Host         (HostOverviewPage — global home / server list)
 //   /$server           → tmux Server  (ServerShell — a single server's view)
@@ -124,6 +144,7 @@ const routeTree = rootRoute.addChildren([
   appLayoutRoute.addChildren([
     indexRoute,
     boardRoute,
+    ...(controlGalleryRoute ? [controlGalleryRoute] : []),
     serverLayoutRoute.addChildren([serverIndexRoute, terminalRoute]),
   ]),
 ]);

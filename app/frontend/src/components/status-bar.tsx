@@ -27,7 +27,7 @@ import { HostMetrics, normalizeLoadPercent } from "@/components/host-metrics";
 import { displayVersion } from "@/lib/palette/version";
 import { formatMemory, gaugeColor } from "@/lib/gauge";
 import { getAgentLine, getFabLine, getPrSegments } from "./sidebar/registers";
-import { LATCHED_ARM, MENU_ROW_CLASS } from "@/components/controls";
+import { controlClass } from "@/components/control";
 import { useCopyFeedback } from "@/hooks/use-copy-feedback";
 import { parseFabChange } from "@/lib/format";
 import type { MetricsSnapshot, WindowInfo } from "@/types";
@@ -472,7 +472,7 @@ function OverflowMenu({
       key={key}
       role="menuitem"
       tabIndex={-1}
-      className={`${MENU_ROW_CLASS} focus-visible:outline-2 focus-visible:outline-accent-green ${showClass}`}
+      className={controlClass({ variant: "menu-row", className: `focus-visible:outline-2 focus-visible:outline-accent-green ${showClass}` })}
     >
       {text}
     </span>
@@ -497,7 +497,7 @@ function OverflowMenu({
       role="menuitem"
       tabIndex={-1}
       aria-label={ariaLabel}
-      className={`${MENU_ROW_CLASS} focus-visible:outline-2 focus-visible:outline-accent-green ${showClass}`}
+      className={controlClass({ variant: "menu-row", className: `focus-visible:outline-2 focus-visible:outline-accent-green ${showClass}` })}
       onClick={() => copy(key, value)}
     >
       {copiedKey === key ? `copied ✓${rest ? " " : ""}` : prefix}
@@ -540,7 +540,7 @@ function OverflowMenu({
       type="button"
       role="menuitem"
       tabIndex={-1}
-      className={`${MENU_ROW_CLASS} xl:hidden`}
+      className={controlClass({ variant: "menu-row", className: "xl:hidden" })}
       onClick={() => {
         setOpen(false);
         onClick();
@@ -741,11 +741,11 @@ export function StatusBar({ window: win, server, isConnected, onOpenCompose, zen
               aria-label="Compose text"
               aria-pressed={composeStripEnabled}
               data-testid="status-bar-compose"
-              className={`hidden xl:flex items-center rounded border px-1 transition-colors ${
-                composeStripEnabled
-                  ? LATCHED_ARM
-                  : "border-border text-text-secondary hover:border-text-secondary"
-              }`}
+              className={controlClass({
+                variant: "toggle",
+                base: "hidden xl:flex items-center rounded border px-1 transition-colors",
+                pressed: composeStripEnabled,
+              })}
               onClick={onOpenCompose}
             >
               <span aria-hidden="true">

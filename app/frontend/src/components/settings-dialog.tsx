@@ -27,7 +27,7 @@ import { isMacroActionId } from "@/lib/macros";
 import { isShell } from "@/lib/shell";
 import { useSettingsRegistry, type SettingsRegistry } from "@/components/settings-registry-seam";
 import { SettingsAllPanel, BoolToggle } from "@/components/settings-all-panel";
-import { LATCHED_ARM } from "@/components/controls";
+import { controlClass } from "@/components/control";
 import {
   useTextSettingDraft,
   textSettingInputClass,
@@ -161,11 +161,11 @@ function ThemePairControl() {
       type="button"
       onClick={onPick}
       aria-pressed={mode === m}
-      className={`px-2 py-1 border rounded text-xs transition-colors ${
-        mode === m
-          ? LATCHED_ARM
-          : "border-border text-text-secondary hover:border-text-secondary"
-      }`}
+      className={controlClass({
+        variant: "toggle",
+        base: "px-2 py-1 border rounded text-xs transition-colors",
+        pressed: mode === m,
+      })}
     >
       {label}
     </button>

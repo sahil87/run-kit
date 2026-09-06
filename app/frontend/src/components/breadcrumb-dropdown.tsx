@@ -1,13 +1,7 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, type ReactNode } from "react";
 import { Tip } from "@/components/tip";
-import {
-  MENU_ROW_BASE,
-  MENU_ROW_CHECKED,
-  MENU_ROW_CHECK_MARK,
-  MENU_ROW_CLASS,
-  MENU_ROW_REST,
-  POPOVER_SHELL,
-} from "@/components/controls";
+import { controlClass } from "@/components/control";
+import { MENU_ROW_CHECK_MARK, POPOVER_SHELL } from "@/components/controls";
 import type { BreadcrumbDropdownItem } from "@/contexts/chrome-context";
 
 type DropdownAction = { label: string; onAction: () => void };
@@ -208,7 +202,7 @@ export function BreadcrumbDropdown({ items, label, onNavigate, action, secondary
                     setOpen(false);
                     la.onAction();
                   }}
-                  className={MENU_ROW_CLASS}
+                  className={controlClass({ variant: "menu-row" })}
                 >
                   {la.label}
                 </button>
@@ -229,9 +223,7 @@ export function BreadcrumbDropdown({ items, label, onNavigate, action, secondary
                   onNavigate(item.href);
                 }
               }}
-              className={`${MENU_ROW_BASE} ${
-                item.current ? MENU_ROW_CHECKED : MENU_ROW_REST
-              }`}
+              className={controlClass({ variant: "menu-row", pressed: item.current })}
             >
               {item.icon && (
                 // `currentColor` decoration — rides the row's rest→hover /

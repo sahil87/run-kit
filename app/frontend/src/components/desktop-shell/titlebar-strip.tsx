@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { useInstanceAccent } from "@/contexts/instance-accent-context";
 import { useTheme } from "@/contexts/theme-context";
 import { Dialog } from "@/components/dialog";
-import { CONFIRM_DANGER, CONFIRM_NEUTRAL } from "@/components/controls";
+import { controlClass } from "@/components/control";
 import { HostFormDialog, INVALID_HOST_URL_MESSAGE, reduceOrigin } from "@/components/host-form-dialog";
 import { Tip } from "@/components/tip";
 import { useToast } from "@/components/toast";
@@ -897,13 +897,13 @@ export function ShellTitlebarStrip() {
                 <div className="flex gap-2">
                   <button
                     onClick={cancelRemove}
-                    className={`flex-1 ${CONFIRM_NEUTRAL}`}
+                    className={`flex-1 ${controlClass({ variant: "confirm" })}`}
                   >
                     Cancel
                   </button>
                   <button
                     onClick={confirmRemove}
-                    className={`flex-1 ${CONFIRM_DANGER}`}
+                    className={`flex-1 ${controlClass({ variant: "confirm", danger: true })}`}
                   >
                     Remove
                   </button>

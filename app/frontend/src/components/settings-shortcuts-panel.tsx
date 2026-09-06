@@ -72,7 +72,7 @@ const GROUPS: { name: string; scope: BindingScope }[] = [
 
 /** The one borderless selected treatment (green = state): fill+ink for
  *  segmented-picker options and list rows that carry no border of their own
- *  (bordered shapes use `LATCHED_ARM`). REST-swap — the selected arm replaces
+ *  (bordered shapes use the primitive's bordered latch arm). REST-swap — the selected arm replaces
  *  the hover-carrying rest classes, never stacks on them. */
 const SELECTED_FILL = "bg-accent-green/15 text-accent-green";
 

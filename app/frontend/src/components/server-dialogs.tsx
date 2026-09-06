@@ -2,7 +2,8 @@ import { useCallback, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { createServer, killServer as killServerApi, adoptServer as adoptServerApi, DAEMON_SERVER } from "@/api/client";
 import { Dialog } from "@/components/dialog";
-import { CONFIRM_DANGER, CONFIRM_NEUTRAL, INPUT_COARSE, INPUT_FOCUS, WIDE_BTN_BASE } from "@/components/controls";
+import { controlClass } from "@/components/control";
+import { INPUT_COARSE, INPUT_FOCUS } from "@/components/controls";
 import { useServerDialogs } from "@/contexts/server-dialogs-context";
 import { useSessionContext } from "@/contexts/session-context";
 import { useOptimisticContext } from "@/contexts/optimistic-context";
@@ -194,7 +195,7 @@ export function ServerDialogs() {
           <button
             onClick={handleCreateServer}
             disabled={!createServerName.trim() || !/^[a-zA-Z0-9_-]+$/.test(createServerName.trim())}
-            className={`mt-2.5 w-full py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary ${WIDE_BTN_BASE} disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-border`}
+            className={`mt-2.5 w-full ${controlClass({ variant: "wide", disabled: !createServerName.trim() || !/^[a-zA-Z0-9_-]+$/.test(createServerName.trim()) })}`}
           >
             Create
           </button>
@@ -233,13 +234,13 @@ export function ServerDialogs() {
           <div className="flex gap-2">
             <button
               onClick={clearKillServerTarget}
-              className={`flex-1 ${CONFIRM_NEUTRAL}`}
+              className={`flex-1 ${controlClass({ variant: "confirm" })}`}
             >
               Cancel
             </button>
             <button
               onClick={handleKillServer}
-              className={`flex-1 ${CONFIRM_DANGER}`}
+              className={`flex-1 ${controlClass({ variant: "confirm", danger: true })}`}
             >
               Kill
             </button>
@@ -256,13 +257,13 @@ export function ServerDialogs() {
           <div className="flex gap-2">
             <button
               onClick={clearAdoptServerTarget}
-              className={`flex-1 ${CONFIRM_NEUTRAL}`}
+              className={`flex-1 ${controlClass({ variant: "confirm" })}`}
             >
               Cancel
             </button>
             <button
               onClick={handleAdoptServer}
-              className={`flex-1 py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary ${WIDE_BTN_BASE}`}
+              className={`flex-1 ${controlClass({ variant: "wide" })}`}
             >
               Adopt
             </button>
@@ -315,14 +316,14 @@ function ProtectedKillDialog({
       <div className="flex gap-2 mt-2.5">
         <button
           onClick={onCancel}
-          className={`flex-1 ${CONFIRM_NEUTRAL}`}
+          className={`flex-1 ${controlClass({ variant: "confirm" })}`}
         >
           Cancel
         </button>
         {isDaemon && (
           <button
             onClick={onRestart}
-            className={`flex-1 py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary ${WIDE_BTN_BASE}`}
+            className={`flex-1 ${controlClass({ variant: "wide" })}`}
           >
             Restart run-kit
           </button>
@@ -330,7 +331,7 @@ function ProtectedKillDialog({
         <button
           onClick={onForceKill}
           disabled={!unlocked}
-          className={`flex-1 ${CONFIRM_DANGER}`}
+          className={`flex-1 ${controlClass({ variant: "confirm", danger: true })}`}
         >
           Force kill
         </button>

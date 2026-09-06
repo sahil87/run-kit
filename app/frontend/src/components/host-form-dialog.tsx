@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Dialog } from "@/components/dialog";
-import { CONFIRM_NEUTRAL, INPUT_COARSE, INPUT_FOCUS } from "@/components/controls";
+import { controlClass } from "@/components/control";
+import { INPUT_COARSE, INPUT_FOCUS } from "@/components/controls";
 import { addShellHostDirect } from "@/lib/shell";
 
 /**
@@ -136,14 +137,14 @@ export function HostFormDialog(props: HostFormDialogProps) {
         <div className="mt-2 flex gap-2">
           <button
             onClick={props.onCancel}
-            className={`flex-1 ${CONFIRM_NEUTRAL}`}
+            className={`flex-1 ${controlClass({ variant: "confirm" })}`}
           >
             Cancel
           </button>
           <button
             onClick={submit}
             disabled={busy}
-            className={`flex-1 ${CONFIRM_NEUTRAL}`}
+            className={`flex-1 ${controlClass({ variant: "confirm" })}`}
           >
             {props.submitLabel}
           </button>

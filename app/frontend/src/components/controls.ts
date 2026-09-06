@@ -1,49 +1,23 @@
 /**
- * Shared control className constants — the control geometry/state vocabulary
- * consumed by the top bar, its overflow menu, the layout chip, the open
- * split-button, the status bar, dialogs, and text inputs. Dependency-free
- * (imports nothing from components) so every control surface imports the SAME
- * definitions without an import cycle.
+ * Shared control className constants — the OUT-OF-MATRIX vocabulary that is
+ * not part of the Control primitive's variant matrix (the button-shaped
+ * recipes — menu rows, top-bar squares/segments, latch arms, wide/confirm
+ * dialog buttons, kbd chips — live in `components/control.tsx` as the
+ * primitive's private implementation). What remains here: the popover shell
+ * and section label (container recipes), the menu-row content extras (the ✓
+ * mark is call-site content; the keycap is education), the switch-track
+ * family (color-only — track/knob geometry stays per-site), and the
+ * text-input idioms (the border idiom is not a button recipe).
  *
- * Tailwind's scanner reads literal classes only, so sizes stay literal here
- * and mirror the `--ctl-*` custom properties on `:root` in globals.css for
- * CSS-side consumers — each size-bearing constant names the property it
- * mirrors in a lockstep comment, and the pair MUST change together (the
- * documented-lockstep convention of `COARSE_POINTER_QUERY` and
- * `STATUS_RAIL_WIDTH_PX`).
+ * Dependency-free (imports nothing from components) so every control surface
+ * imports the SAME definitions without an import cycle.
  */
 
-/**
- * The one menu-row scale — every menu/popover row (overflow chevron menu,
- * split-button dropdowns, breadcrumb dropdowns) composes these, so no second
- * row scale can drift in. Decomposed so callers compose exactly the variant
- * they need instead of re-declaring a subset:
- *
- *  - `MENU_ROW_BASE` — layout only (full-width left-aligned flex row, padding,
- *    text size) plus the height floor: 28px fine (the rendered xs/py-1.5
- *    box), 40px coarse (the touch floor). No color/state tokens.
- *  - `MENU_ROW_REST` — the resting/hover treatment (secondary text → primary
- *    on hover, card hover bg).
- *  - `MENU_ROW_DISABLED` — the disabled-state tokens (dimmed, no hover).
- *  - `MENU_ROW_CHECKED` — the ONE checked/selected treatment (scheme C: green
- *    = state): primary ink + hover fill only, worn INSTEAD of `MENU_ROW_REST`
- *    (REST-swap — never stacked, so no hover utility competes).
- *  - `MENU_ROW_CHECK_MARK` — the trailing green ✓ that carries the checked
- *    state (`aria-hidden` at the call site; the row's label stays the
- *    accessible name).
- *  - `MENU_ROW_CLASS` — the default composition (`base + rest + disabled`)
- *    used by every plain menu row.
- */
-export const MENU_ROW_BASE =
-  "w-full text-left flex items-center gap-2 px-2.5 py-1.5 text-xs min-h-[28px] coarse:min-h-[40px] transition-colors";
-export const MENU_ROW_REST =
-  "text-text-secondary hover:text-text-primary hover:bg-bg-card";
-export const MENU_ROW_DISABLED =
-  "disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-text-secondary";
-export const MENU_ROW_CHECKED = "text-text-primary hover:bg-bg-card";
+/** The trailing green ✓ that carries a menu row's checked state
+ *  (`aria-hidden` at the call site; the row's label stays the accessible
+ *  name). The row's class composition comes from the primitive's `menu-row`
+ *  variant; this mark stays call-site content. */
 export const MENU_ROW_CHECK_MARK = "ml-auto text-accent-green";
-/** Default row class — the resting variant plus disabled-state tokens. */
-export const MENU_ROW_CLASS = `${MENU_ROW_BASE} ${MENU_ROW_REST} ${MENU_ROW_DISABLED}`;
 
 /**
  * The one popover shell — every floating menu container (overflow menu,
@@ -57,51 +31,6 @@ export const POPOVER_SHELL =
  *  ride the rows). */
 export const POPOVER_SECTION_LABEL =
   "px-2.5 pt-1.5 pb-0.5 text-[10px] uppercase tracking-wider text-text-secondary select-none";
-
-/**
- * Shared top-bar icon-button sizing. The size is a FIXED square — 28×28 on
- * fine pointers, 40×40 on coarse (the 40px coarse touch floor) — replacing
- * the old copy-pasted `min-w-[24px] min-h-[24px]` floors, which let rendered
- * sizes drift with content (the sidebar toggle rendered visibly smaller than
- * the right cluster). Decomposed like `MENU_ROW_*` so callsites with
- * state-driven colors (pressed/latched toggles) compose exactly what they need
- * around the shared geometry:
- *
- *  - `TOP_BAR_BUTTON_BASE` — geometry only (fixed square, rounded border box,
- *    centering, `shrink-0`). No color tokens.
- *  - `TOP_BAR_BUTTON_REST` — the resting/hover color treatment.
- *  - `TOP_BAR_BUTTON` — the default composition (glint + base + rest) used by
- *    every plain icon button.
- *  - `TOP_BAR_BUTTON_H` — the shared HEIGHT axis alone, for content-width
- *    chips that carry their OWN border (UpdateChip) and must align with the
- *    square buttons without a fixed width.
- *  - `TOP_BAR_SEGMENT_H` — the height for segments INSIDE a bordered chip
- *    wrapper (the split/Open segment groups): the wrapper's border adds 2px,
- *    so segments are 2px shorter to keep the chip's TOTAL box identical to
- *    the squares (26+2 = 28 fine, 38+2 = 40 coarse).
- */
-export const TOP_BAR_BUTTON_BASE =
-  "w-[28px] h-[28px] coarse:w-[40px] coarse:h-[40px] rounded border transition-colors flex items-center justify-center shrink-0"; // lockstep: --ctl-h-bar (fine) / --ctl-h-bar-coarse
-export const TOP_BAR_BUTTON_REST =
-  "border-border text-text-secondary hover:border-text-secondary";
-export const TOP_BAR_BUTTON = `rk-glint ${TOP_BAR_BUTTON_BASE} ${TOP_BAR_BUTTON_REST}`;
-export const TOP_BAR_BUTTON_H = "h-[28px] coarse:h-[40px]"; // lockstep: --ctl-h-bar / --ctl-h-bar-coarse
-export const TOP_BAR_SEGMENT_H = "h-[26px] coarse:h-[38px]"; // lockstep: --ctl-h-bar / --ctl-h-bar-coarse minus the 2px wrapper border
-
-/**
- * The one latched/on state arm (scheme C: green = state). Compose with a
- * BASE that carries NO hover color utilities (REST swapped out) so nothing
- * competes with the latch border — class stacking ties on specificity and
- * loses on compiled source order. Lockstep: the latch color algebra is
- * documented in docs/memory/run-kit/ui/visual-design.md.
- */
-export const LATCHED_ARM =
-  "bg-accent-green/15 border-accent-green text-accent-green hover:bg-accent-green/25";
-/** Border-axis equivalent for borderless controls (rail toggles, find-bar and
- *  tile-verb glyph buttons) — ring-inset paints inside, so latching never
- *  shifts layout. */
-export const LATCHED_ARM_RINGED =
-  "bg-accent-green/15 ring-1 ring-inset ring-accent-green text-accent-green hover:bg-accent-green/25";
 
 /**
  * The one switch-track recipe (scheme C: green = state) — every `role="switch"`
@@ -125,13 +54,6 @@ export const SWITCH_KNOB_OFF = "bg-text-secondary";
 export const MENU_ROW_KBD_CLASS =
   "ml-auto text-xs text-text-secondary bg-bg-card px-1.5 py-0.5 rounded border border-border";
 
-/**
- * Dialog wide-button geometry — the floor every dialog button carries: 28px
- * fine (the rendered py-1.5 box), 40px coarse (the touch floor). Geometry
- * only; color/state arms compose around it.
- */
-export const WIDE_BTN_BASE =
-  "min-h-[28px] coarse:min-h-[40px]"; // lockstep: --ctl-h-bar (fine) / --ctl-h-bar-coarse
 /** Dialog text-input coarse floor — 40px on coarse pointers, fine size
  *  unchanged (no fine axis: the input's own padding sets it). */
 export const INPUT_COARSE = "coarse:min-h-[40px]"; // lockstep: --ctl-h-bar-coarse
@@ -145,22 +67,3 @@ export const INPUT_COARSE = "coarse:min-h-[40px]"; // lockstep: --ctl-h-bar-coar
  * it.
  */
 export const INPUT_FOCUS = "outline-none focus:border-accent-green";
-
-/**
- * The one confirm-button pair — every destructive-confirm dialog (sidebar
- * kill, board kill trio, server kill) composes these arms so the pair exists
- * exactly once. Call sites add ONLY layout (`flex-1`/`w-full`); color,
- * padding, floors, and the disabled recipe come from here:
- *
- *  - `CONFIRM_NEUTRAL` — the safe/cancel arm (bordered neutral, hover
- *    brightens the border).
- *  - `CONFIRM_DANGER` — the destructive arm on the `signal-red` token (signal
- *    hues = status — the same token the flyout danger rows use, so the
- *    destructive hue themes correctly); the /20 rest → /35 hover alpha steps
- *    match the retired raw-red weight in both themes.
- *
- * Both carry the wide-button floors and the unified disabled recipe
- * (opacity-40 + not-allowed + hover neutralized back to the rest arm).
- */
-export const CONFIRM_NEUTRAL = `py-1.5 border border-border rounded hover:border-text-secondary ${WIDE_BTN_BASE} disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-border`;
-export const CONFIRM_DANGER = `py-1.5 bg-signal-red/20 border border-signal-red rounded hover:bg-signal-red/35 ${WIDE_BTN_BASE} disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-signal-red/20`;

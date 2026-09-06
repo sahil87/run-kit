@@ -23,17 +23,11 @@ import { requestOperatorConsole, resolveOperatorConsoleTarget } from "@/lib/oper
 import { useSettingsDialog } from "@/contexts/settings-dialog-context";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { formatCombo } from "@/lib/keybindings";
+import { controlClass } from "./control";
 import {
-  LATCHED_ARM,
-  MENU_ROW_BASE,
-  MENU_ROW_CLASS,
   MENU_ROW_KBD_CLASS,
-  MENU_ROW_REST,
   POPOVER_SECTION_LABEL,
   POPOVER_SHELL,
-  TOP_BAR_BUTTON,
-  TOP_BAR_BUTTON_BASE,
-  TOP_BAR_BUTTON_REST,
 } from "./controls";
 
 /** Sentinel running version for local (non-ldflags) builds — the version row's
@@ -91,7 +85,7 @@ export function HelpMenuRow() {
       href={HELP_URL}
       target="_blank"
       rel="noopener noreferrer"
-      className={MENU_ROW_CLASS}
+      className={controlClass({ variant: "menu-row" })}
     >
       <HelpIcon />
       <span className="flex-1">Help — run-kit docs</span>
@@ -119,7 +113,7 @@ export function KeyboardMenuRow() {
       role="menuitem"
       tabIndex={-1}
       onClick={() => openSettings("shortcuts")}
-      className={MENU_ROW_CLASS}
+      className={controlClass({ variant: "menu-row" })}
     >
       <KeyboardIcon size={14} />
       <span className="flex-1">Keyboard shortcuts</span>
@@ -150,7 +144,7 @@ export function OperatorConsoleMenuRow() {
       role="menuitem"
       tabIndex={-1}
       onClick={() => requestOperatorConsole({ action: "open" })}
-      className={MENU_ROW_CLASS}
+      className={controlClass({ variant: "menu-row" })}
     >
       <HeadsetIcon size={14} />
       <span className="flex-1">Operator console</span>
@@ -216,7 +210,7 @@ export function OperatorConsoleButton({ routeServer }: { routeServer: string | n
         aria-label={chord ? `Operator console (${chord})` : "Operator console"}
         data-testid="operator-console-button"
         onClick={() => requestOperatorConsole({ action: "button" })}
-        className={`${TOP_BAR_BUTTON} relative`}
+        className={controlClass({ variant: "icon", className: "relative" })}
       >
         <span aria-hidden="true">◉</span>
         {agentState && (
@@ -473,7 +467,7 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
       disabled={updating}
       onClick={triggerUpdate}
       aria-label={updating ? "Updating run-kit" : updateLabel}
-      className={`${MENU_ROW_BASE} text-accent-green hover:bg-bg-card disabled:opacity-60 disabled:cursor-not-allowed`}
+      className={`${controlClass({ variant: "menu-row", bare: true })} text-accent-green hover:bg-bg-card disabled:opacity-60 disabled:cursor-not-allowed`}
     >
       {updating ? (
         <>
@@ -502,7 +496,7 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
           onBlur={() => setVersionRowFocused(false)}
           onClick={handleCopy}
           aria-label={daemonVersion ? `${versionText} (copy)` : "RunKit"}
-          className={`${MENU_ROW_BASE} ${MENU_ROW_REST} w-auto! flex-1 min-w-0`}
+          className={controlClass({ variant: "menu-row", className: "w-auto! flex-1 min-w-0" })}
         >
           {versionText}
         </button>
@@ -515,7 +509,7 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
           disabled={checking}
           onClick={() => runUpdateCheck(true)}
           aria-label="Check for updates"
-          className={`${TOP_BAR_BUTTON_BASE} ${TOP_BAR_BUTTON_REST} hover:text-text-primary disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-border`}
+          className={controlClass({ variant: "icon", glint: false, disabled: false, className: "hover:text-text-primary" })}
         >
           {checking ? (
             <LogoSpinner size={12} />
@@ -575,7 +569,7 @@ export function TopBarOverflowMenu({ rows, updateOverflowed }: Props) {
         aria-haspopup="true"
         aria-expanded={open}
         aria-label="More controls"
-        className={open ? `rk-glint ${TOP_BAR_BUTTON_BASE} ${LATCHED_ARM} relative` : `${TOP_BAR_BUTTON} relative`}
+        className={controlClass({ variant: "icon", open, className: "relative" })}
       >
         <svg
           width="14"

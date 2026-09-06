@@ -148,7 +148,8 @@ import {
 } from "@/lib/focus-memory";
 import type { PaletteAction } from "@/components/command-palette";
 import { Dialog } from "@/components/dialog";
-import { CONFIRM_DANGER, CONFIRM_NEUTRAL, INPUT_COARSE, INPUT_FOCUS, WIDE_BTN_BASE } from "@/components/controls";
+import { controlClass } from "@/components/control";
+import { INPUT_COARSE, INPUT_FOCUS } from "@/components/controls";
 import { SessionTiles } from "@/components/session-tiles/session-tiles";
 import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
@@ -4859,7 +4860,7 @@ function AppShell() {
           <button
             onClick={handleCreateIframeWindow}
             disabled={!iframeWindowName.trim() || !iframeWindowUrl.trim()}
-            className={`mt-2.5 w-full py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary ${WIDE_BTN_BASE} disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-border`}
+            className={`mt-2.5 w-full ${controlClass({ variant: "wide", disabled: !iframeWindowName.trim() || !iframeWindowUrl.trim() })}`}
           >
             Create
           </button>
@@ -4882,7 +4883,7 @@ function AppShell() {
           />
           <button
             onClick={dialogs.handleRenameSession}
-            className={`mt-2.5 w-full py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary ${WIDE_BTN_BASE}`}
+            className={`mt-2.5 w-full ${controlClass({ variant: "wide" })}`}
           >
             Rename
           </button>
@@ -4897,13 +4898,13 @@ function AppShell() {
           <div className="flex gap-2">
             <button
               onClick={dialogs.closeKillConfirm}
-              className={`flex-1 ${CONFIRM_NEUTRAL}`}
+              className={`flex-1 ${controlClass({ variant: "confirm" })}`}
             >
               Cancel
             </button>
             <button
               onClick={dialogs.handleKillWindow}
-              className={`flex-1 ${CONFIRM_DANGER}`}
+              className={`flex-1 ${controlClass({ variant: "confirm", danger: true })}`}
             >
               Kill
             </button>
@@ -4919,13 +4920,13 @@ function AppShell() {
           <div className="flex gap-2">
             <button
               onClick={dialogs.closeKillSessionConfirm}
-              className={`flex-1 ${CONFIRM_NEUTRAL}`}
+              className={`flex-1 ${controlClass({ variant: "confirm" })}`}
             >
               Cancel
             </button>
             <button
               onClick={dialogs.handleKillSession}
-              className={`flex-1 ${CONFIRM_DANGER}`}
+              className={`flex-1 ${controlClass({ variant: "confirm", danger: true })}`}
             >
               Kill
             </button>

@@ -1,6 +1,6 @@
 import type { ComponentType } from "react";
 import { Tip } from "@/components/tip";
-import { LATCHED_ARM_RINGED } from "@/components/controls";
+import { controlClass } from "@/components/control";
 import {
   SIDEBAR_SECTIONS,
   useSidebarSectionVisible,
@@ -55,11 +55,13 @@ function SectionRailButton({ entry }: { entry: (typeof SIDEBAR_SECTIONS)[number]
         onClick={() => setVisible(!visible)}
         aria-label={`Toggle ${entry.label} section`}
         aria-pressed={visible}
-        className={`flex items-center justify-center rounded-sm px-0.5 min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] transition-colors ${
-          visible
-            ? LATCHED_ARM_RINGED
-            : "text-text-secondary hover:text-text-primary"
-        }`}
+        className={controlClass({
+          variant: "toggle",
+          base: "flex items-center justify-center rounded-sm px-0.5 min-w-[24px] min-h-[24px] coarse:min-w-[30px] coarse:min-h-[30px] transition-colors",
+          rest: "text-text-secondary hover:text-text-primary",
+          ringed: true,
+          pressed: visible,
+        })}
       >
         <Icon />
       </button>

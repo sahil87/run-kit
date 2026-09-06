@@ -15,7 +15,8 @@ import { useFileUpload } from "@/hooks/use-file-upload";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { ApiError, sendOperatorRequest, sendToWindow, type WindowSendMode } from "@/api/client";
 import { useToast } from "@/components/toast";
-import { INPUT_FOCUS, LATCHED_ARM } from "@/components/controls";
+import { controlClass } from "@/components/control";
+import { INPUT_FOCUS } from "@/components/controls";
 import { OperatorContextChip } from "@/components/operator-context-chip";
 import { getOperatorChatTarget, useOperatorChatChip } from "@/lib/operator-console";
 import {
@@ -916,8 +917,7 @@ export function ComposeStrip({
   // so the button is the ONLY way to send a bare Enter there. kvk7's
   // complaint (a lit primary Send over an empty composer read as broken) is
   // answered by STYLE, not state: an empty composer renders Send in the
-  // neutral secondary face; the lit green fill (LATCHED_ARM) returns with
-  // text.
+  // neutral secondary face; the lit green fill returns with text.
   // Selection-broadcast targets keep their own rule (text required, Insert
   // always disabled there).
   const composerEmpty = text.trim() === "";
@@ -1061,9 +1061,13 @@ export function ComposeStrip({
       onMouseDown={preventFocusSteal}
       onClick={() => setHistoryOpen((open) => !open)}
       data-testid="compose-strip-history"
-      className={`rk-glint shrink-0 rounded px-2 py-1.5 text-xs transition-colors coarse:min-h-[36px] coarse:min-w-[36px] ${
-        historyOpen ? `border ${LATCHED_ARM}` : `text-text-secondary ${chipTone}`
-      }`}
+      className={controlClass({
+        variant: "toggle",
+        base: "rk-glint shrink-0 rounded px-2 py-1.5 text-xs transition-colors coarse:min-h-[36px] coarse:min-w-[36px]",
+        rest: `text-text-secondary ${chipTone}`,
+        onBorder: true,
+        pressed: historyOpen,
+      })}
     >
       {/* text-lg matches the attach chip's emoji weight — the button box is
           size-fixed, so only the glyph scales. */}
@@ -1145,11 +1149,11 @@ export function ComposeStrip({
         onMouseDown={preventFocusSteal}
         onClick={() => send("submit")}
         data-testid="compose-strip-send"
-        className={`rk-glint shrink-0 rounded border px-3 py-1.5 text-xs transition-colors disabled:opacity-40 disabled:cursor-not-allowed coarse:min-h-[36px] ${isCard ? (coarsePointer ? "ml-auto" : "") : "order-4"} ${
-          composerEmpty && !isSelectionTarget
-            ? "border-border text-text-secondary hover:border-text-secondary"
-            : LATCHED_ARM
-        }`}
+        className={controlClass({
+          variant: "toggle",
+          base: `rk-glint shrink-0 rounded border px-3 py-1.5 text-xs transition-colors disabled:opacity-40 disabled:cursor-not-allowed coarse:min-h-[36px] ${isCard ? (coarsePointer ? "ml-auto" : "") : "order-4"}`,
+          pressed: !(composerEmpty && !isSelectionTarget),
+        })}
       >
         {sending ? "Sending…" : "Send"}
       </button>

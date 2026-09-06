@@ -2,12 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { openInApp } from "@/api/client";
 import { OpenTargetIcon } from "@/components/open-app-icons";
 import { useToast } from "@/components/toast";
+import { controlClass } from "@/components/control";
 import {
-  LATCHED_ARM,
-  MENU_ROW_CLASS,
   POPOVER_SECTION_LABEL,
   POPOVER_SHELL,
-  TOP_BAR_SEGMENT_H,
 } from "@/components/controls";
 import {
   readLastUsedOpenTarget,
@@ -128,7 +126,7 @@ export function OpenButton({
             type="button"
             onClick={handlePrimary}
             aria-label={primaryLabel}
-            className={`rk-glint px-1.5 ${TOP_BAR_SEGMENT_H} text-[11px] font-mono flex items-center justify-center gap-1 text-text-secondary hover:text-text-primary transition-colors`}
+            className={`rk-glint px-1.5 text-[11px] font-mono flex items-center justify-center gap-1 transition-colors ${controlClass({ variant: "segment", rest: "text-text-secondary hover:text-text-primary" })}`}
           >
             {/* Last-used glyph (260723-l317): `currentColor` decoration —
                 rides the segment's secondary→primary hover flip and stays
@@ -146,9 +144,7 @@ export function OpenButton({
           aria-haspopup="menu"
           aria-expanded={open}
           aria-label="Open in… (choose app)"
-          className={`rk-glint px-1 ${TOP_BAR_SEGMENT_H} border-l flex items-center justify-center transition-colors ${
-            open ? LATCHED_ARM : "border-border text-text-secondary hover:text-text-primary"
-          }`}
+          className={`rk-glint px-1 border-l flex items-center justify-center transition-colors ${controlClass({ variant: "segment", open })}`}
         >
           <svg
             width="10"
@@ -207,7 +203,7 @@ function OpenTargetRow({
       type="button"
       role="menuitem"
       onClick={() => onRun(target)}
-      className={MENU_ROW_CLASS}
+      className={controlClass({ variant: "menu-row" })}
     >
       <OpenTargetIcon target={target} />
       {target.label}
@@ -246,7 +242,7 @@ export function OpenMenuRows({
           role="menuitem"
           tabIndex={-1}
           onClick={() => runTarget(t)}
-          className={MENU_ROW_CLASS}
+          className={controlClass({ variant: "menu-row" })}
         >
           <OpenTargetIcon target={t} />
           {t.kind === "host" && hasBothKinds ? `Open: ${t.label} (on host)` : `Open: ${t.label}`}

@@ -2,7 +2,8 @@ import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { createServer, createSession, createWindow, getSessions, isExternalServer, isInfraServer, DAEMON_SERVER } from "@/api/client";
 import { Dialog } from "@/components/dialog";
-import { INPUT_COARSE, INPUT_FOCUS, WIDE_BTN_BASE } from "@/components/controls";
+import { controlClass } from "@/components/control";
+import { INPUT_COARSE, INPUT_FOCUS } from "@/components/controls";
 import { finalizeSafeName, toSafeServerName } from "@/lib/names";
 import { useOptimisticAction } from "@/hooks/use-optimistic-action";
 import { useToast } from "@/components/toast";
@@ -641,7 +642,7 @@ export function HostOverviewPage() {
               !createName.trim() ||
               !/^[a-zA-Z0-9_-]+$/.test(createName.trim())
             }
-            className={`mt-2.5 w-full py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary ${WIDE_BTN_BASE} disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-border`}
+            className={`mt-2.5 w-full ${controlClass({ variant: "wide", disabled: !createName.trim() || !/^[a-zA-Z0-9_-]+$/.test(createName.trim()) })}`}
           >
             Create
           </button>

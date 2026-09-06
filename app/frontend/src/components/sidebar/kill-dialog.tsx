@@ -1,5 +1,5 @@
 import { Dialog } from "@/components/dialog";
-import { CONFIRM_DANGER, CONFIRM_NEUTRAL } from "@/components/controls";
+import { controlClass } from "@/components/control";
 
 type KillDialogProps = {
   killTarget: {
@@ -30,13 +30,13 @@ export function KillDialog({ killTarget, onConfirm, onCancel }: KillDialogProps)
       <div className="flex gap-2">
         <button
           onClick={onCancel}
-          className={`flex-1 ${CONFIRM_NEUTRAL}`}
+          className={`flex-1 ${controlClass({ variant: "confirm" })}`}
         >
           Cancel
         </button>
         <button
           onClick={onConfirm}
-          className={`flex-1 ${CONFIRM_DANGER}`}
+          className={`flex-1 ${controlClass({ variant: "confirm", danger: true })}`}
         >
           Kill
         </button>

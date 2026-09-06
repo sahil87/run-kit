@@ -2,8 +2,8 @@ import { useState, useCallback, useRef, useEffect, useSyncExternalStore } from "
 import { useModifierState, type ModifierSnapshot } from "@/hooks/use-modifier-state";
 import { useFocusedTerminal } from "@/contexts/focused-terminal-context";
 import { useChromeState, useChromeDispatch } from "@/contexts/chrome-context";
-import { KBD_BASE, KBD_CLASS } from "@/components/kbd-chip";
-import { LATCHED_ARM, LATCHED_ARM_RINGED, POPOVER_SHELL } from "@/components/controls";
+import { controlClass } from "@/components/control";
+import { POPOVER_SHELL } from "@/components/controls";
 import { Tip, TipGroup } from "@/components/tip";
 import {
   focusComposeStrip,
@@ -78,17 +78,6 @@ const MODIFIER_TIP_LABELS: Record<string, string> = {
 
 /** Prevent mousedown from stealing focus away from the terminal. */
 const preventFocusSteal = (e: React.MouseEvent) => e.preventDefault();
-
-/** F▴ menu key buttons (F-keys, Esc, nav, arrows, the ⌥ latch cell). Flat
- *  40px both pointer classes — the bar (and so this menu) renders only on
- *  coarse pointers, so a fine/coarse split would be dead code. Lockstep:
- *  --ctl-chip-coarse in globals.css (:root) — the pair MUST change together.
- *  BASE/REST split so the ⌥ latch composes BASE + LATCHED_ARM_RINGED with no
- *  competing hover utility. */
-const FN_ITEM_BASE =
-  "px-2 py-1 min-h-[40px] min-w-[40px] flex items-center justify-center text-xs rounded focus-visible:outline-2 focus-visible:outline-accent-green";
-const FN_ITEM_CLASS =
-  `${FN_ITEM_BASE} text-text-secondary hover:text-text-primary hover:bg-bg-card`;
 
 export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
   const { focused } = useFocusedTerminal();
@@ -380,7 +369,7 @@ export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
         (260805-fi9m, 260816-4v2o) */}
     <div className="flex items-center gap-1.5 coarse:gap-1 pt-1.5 pb-[var(--bottom-bar-pad,0.375rem)] flex-wrap" role="toolbar" aria-label="Terminal keys">
       <Tip label="Tab" placement="top">
-        <button aria-label="Tab" className={`${KBD_CLASS} text-text-secondary`} onMouseDown={preventFocusSteal} onClick={() => sendSpecial("\t")}>
+        <button aria-label="Tab" className={controlClass({ variant: "chip", className: "text-text-secondary" })} onMouseDown={preventFocusSteal} onClick={() => sendSpecial("\t")}>
           <kbd aria-hidden="true">{"\u21E5"}</kbd>
         </button>
       </Tip>
@@ -389,7 +378,7 @@ export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
         <button
           aria-label={MODIFIER_LABELS.ctrl}
           aria-pressed={mods.ctrl}
-          className={mods.ctrl ? `${KBD_BASE} ${LATCHED_ARM}` : `${KBD_CLASS} text-text-secondary`}
+          className={controlClass({ variant: "chip", pressed: mods.ctrl, className: mods.ctrl ? undefined : "text-text-secondary" })}
           onMouseDown={preventFocusSteal}
           onClick={() => mods.toggle("ctrl")}
         >
@@ -400,13 +389,13 @@ export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
       <div ref={fnRef} className="relative">
         <Tip label="Function keys" placement="top">
           {/* Open-menu latch: while the menu is up the trigger carries the
-              latch arm (state, not hover) \u2014 the REST half of KBD_CLASS
-              is swapped out so no hover utility competes with the latch. */}
+              latch arm (state, not hover) \u2014 the chip's rest arm is
+              swapped out so no hover utility competes with the latch. */}
           <button
             aria-label="Function keys"
             aria-haspopup="true"
             aria-expanded={fnOpen}
-            className={fnOpen ? `${KBD_BASE} ${LATCHED_ARM}` : `${KBD_CLASS} text-text-secondary`}
+            className={controlClass({ variant: "chip", pressed: fnOpen, className: fnOpen ? undefined : "text-text-secondary" })}
             onMouseDown={preventFocusSteal}
             onClick={() => setFnOpen((v) => !v)}
           >
@@ -440,7 +429,7 @@ export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
                 role="menuitemcheckbox"
                 aria-checked={mods.alt}
                 aria-label={MODIFIER_LABELS.alt}
-                className={mods.alt ? `${FN_ITEM_BASE} ${LATCHED_ARM_RINGED}` : FN_ITEM_CLASS}
+                className={controlClass({ variant: "chip", ringed: true, pressed: mods.alt })}
                 onMouseDown={preventFocusSteal}
                 onClick={() => mods.toggle("alt")}
               >
@@ -452,7 +441,7 @@ export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
                   <button
                     key={code}
                     aria-label={label}
-                    className={FN_ITEM_CLASS}
+                    className={controlClass({ variant: "chip", ringed: true })}
                     onMouseDown={preventFocusSteal}
                     onClick={() => sendArrow(code)}
                   >
@@ -468,7 +457,7 @@ export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
                   key={fk.label}
                   role="menuitem"
                   aria-label={fk.label}
-                  className={FN_ITEM_CLASS}
+                  className={controlClass({ variant: "chip", ringed: true })}
                   onMouseDown={preventFocusSteal}
                   onClick={() => { sendWithMods(fk.plain, fk.mod); setFnOpen(false); }}
                 >
@@ -481,7 +470,7 @@ export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
               <button
                 role="menuitem"
                 aria-label="Escape"
-                className={FN_ITEM_CLASS}
+                className={controlClass({ variant: "chip", ringed: true })}
                 onMouseDown={preventFocusSteal}
                 onClick={() => { sendSpecial("\x1b"); setFnOpen(false); }}
               >
@@ -492,7 +481,7 @@ export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
                   key={ek.label}
                   role="menuitem"
                   aria-label={ek.label}
-                  className={FN_ITEM_CLASS}
+                  className={controlClass({ variant: "chip", ringed: true })}
                   onMouseDown={preventFocusSteal}
                   onClick={() => { sendWithMods(ek.plain, ek.mod); setFnOpen(false); }}
                 >
@@ -514,7 +503,7 @@ export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
       <Tip label="Command palette" kbd={paletteChord} placement="top">
         <button
           aria-label="Open command palette"
-          className={`${KBD_CLASS} text-text-secondary`}
+          className={controlClass({ variant: "chip", className: "text-text-secondary" })}
           onClick={() => document.dispatchEvent(new CustomEvent("palette:open"))}
         >
           <kbd aria-hidden="true">{"\u2318K"}</kbd>
@@ -528,7 +517,7 @@ export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
             onClick={onOpenCompose}
             aria-label="Compose text"
             aria-pressed={composeStripEnabled}
-            className={composeStripEnabled ? `${KBD_BASE} ${LATCHED_ARM}` : `${KBD_CLASS} text-text-secondary`}
+            className={controlClass({ variant: "chip", pressed: composeStripEnabled, className: composeStripEnabled ? undefined : "text-text-secondary" })}
           >
             a<span className={composeStripEnabled ? "rk-compose-caret" : undefined}>{"▏"}</span>
           </button>
@@ -545,7 +534,7 @@ export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
           type="button"
           aria-label={scrollLocked ? "Scroll lock on \u2014 tap to unlock" : termFocused ? "Hide keyboard" : "Show keyboard"}
           aria-pressed={scrollLocked || termFocused}
-          className={scrollLocked ? `${KBD_BASE} hidden coarse:inline-flex ${LATCHED_ARM}` : `${KBD_CLASS} hidden coarse:inline-flex text-text-secondary`}
+          className={controlClass({ variant: "chip", pressed: scrollLocked, className: scrollLocked ? "hidden coarse:inline-flex" : "hidden coarse:inline-flex text-text-secondary" })}
           onMouseDown={preventFocusSteal}
           onTouchStart={handleKbdTouchStart}
           onTouchMove={handleKbdTouchMove}

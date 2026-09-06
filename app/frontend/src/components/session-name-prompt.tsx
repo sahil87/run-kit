@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState, useEffect } from "react";
 import { Dialog } from "@/components/dialog";
-import { INPUT_COARSE, INPUT_FOCUS, WIDE_BTN_BASE } from "@/components/controls";
+import { controlClass } from "@/components/control";
+import { INPUT_COARSE, INPUT_FOCUS } from "@/components/controls";
 import { toSafeSessionName, finalizeSafeName } from "@/lib/names";
 import type { ProjectSession } from "@/types";
 
@@ -73,7 +74,7 @@ export function SessionNamePrompt({ sessions, defaultName, onSubmit, onClose }: 
       <button
         onClick={handleSubmit}
         disabled={submitDisabled}
-        className={`w-full mt-3 py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary ${WIDE_BTN_BASE} disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-border`}
+        className={`w-full mt-3 ${controlClass({ variant: "wide", disabled: submitDisabled })}`}
       >
         Create
       </button>

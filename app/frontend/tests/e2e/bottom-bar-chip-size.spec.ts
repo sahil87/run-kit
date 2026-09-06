@@ -7,8 +7,8 @@ import { TMUX_SERVER } from "./_tmux";
  * the coarse-only `⌨` toggle — ⌥ and the arrow keypad live inside the F▴
  * menu, whose popup contents stay closed and unmeasured here) must render the
  * exact same box.
- * All chips share one class (`KBD_CLASS` in `src/components/kbd-chip.ts`); a
- * chip that hardcodes its own size drifts.
+ * All chips share the Control primitive's `chip` variant
+ * (`src/components/control.tsx`); a chip that hardcodes its own size drifts.
  *
  * Shared setup:
  * - Viewport is iPhone 14-sized (375×812) via `test.use`.
@@ -25,7 +25,7 @@ import { TMUX_SERVER } from "./_tmux";
 // iPhone 14 viewport
 const MOBILE_VIEWPORT = { width: 375, height: 812 };
 
-/** Coarse-pointer touch target minimum (px) — KBD_CLASS `coarse:min-h/w-[40px]`. */
+/** Coarse-pointer touch target minimum (px) — the chip variant's `coarse:min-h/w-[40px]`. */
 const TOUCH_TARGET_MIN = 40;
 
 type ChipSize = { label: string; width: number; height: number };

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { sendServerOperatorRequest } from "@/api/client";
 import { Dialog } from "@/components/dialog";
-import { INPUT_COARSE, INPUT_FOCUS, WIDE_BTN_BASE } from "@/components/controls";
+import { controlClass } from "@/components/control";
+import { INPUT_COARSE, INPUT_FOCUS } from "@/components/controls";
 import { useToast } from "@/components/toast";
 import { operatorRequestToast } from "@/lib/operator-request";
 
@@ -80,7 +81,7 @@ export function OperatorComposeDialog({ server, initialMode, onClose }: Operator
               setMode(m.id);
               inputRef.current?.focus();
             }}
-            className={`flex-1 py-1.5 transition-colors ${WIDE_BTN_BASE} ${
+            className={`flex-1 py-1.5 transition-colors ${controlClass({ variant: "wide", bare: true })} ${
               mode === m.id
                 ? "bg-bg-card text-text-primary"
                 : "text-text-secondary hover:bg-bg-card hover:text-text-primary"
@@ -111,7 +112,7 @@ export function OperatorComposeDialog({ server, initialMode, onClose }: Operator
       <button
         onClick={handleSubmit}
         disabled={inFlight || text.trim() === ""}
-        className={`w-full py-1.5 bg-bg-card border border-border rounded hover:border-text-secondary ${WIDE_BTN_BASE} disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-border`}
+        className={`w-full ${controlClass({ variant: "wide", disabled: inFlight || text.trim() === "" })}`}
       >
         Send to operator
       </button>

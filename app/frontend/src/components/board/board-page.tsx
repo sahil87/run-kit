@@ -24,7 +24,7 @@ import { createSession, createWindow as createWindowApi, splitWindow, killWindow
 import { setBoardOrder } from "@/api/boards";
 import { computeMoveOrder } from "@/lib/palette/move";
 import { Dialog } from "@/components/dialog";
-import { CONFIRM_DANGER, CONFIRM_NEUTRAL } from "@/components/controls";
+import { controlClass } from "@/components/control";
 import type { PaletteAction } from "@/components/command-palette";
 import { ValidBoardName } from "./board-name";
 import { BoardPane, type BoardPaneHandle } from "./board-pane";
@@ -1123,19 +1123,19 @@ function BoardPageContent({ name }: { name: string }) {
           <div className="flex gap-2">
             <button
               onClick={killUnpinInstead}
-              className={`flex-1 ${CONFIRM_NEUTRAL}`}
+              className={`flex-1 ${controlClass({ variant: "confirm" })}`}
             >
               Unpin instead
             </button>
             <button
               onClick={confirmKill}
-              className={`flex-1 ${CONFIRM_DANGER}`}
+              className={`flex-1 ${controlClass({ variant: "confirm", danger: true })}`}
             >
               Kill
             </button>
             <button
               onClick={() => setKillTarget(null)}
-              className={`flex-1 ${CONFIRM_NEUTRAL}`}
+              className={`flex-1 ${controlClass({ variant: "confirm" })}`}
             >
               Cancel
             </button>

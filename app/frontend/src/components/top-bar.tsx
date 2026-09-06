@@ -27,21 +27,11 @@ import {
   type OverflowMenuRow,
   type MenuGroup,
 } from "@/components/top-bar-overflow-menu";
+import { controlClass } from "@/components/control";
 import {
-  LATCHED_ARM,
-  MENU_ROW_BASE,
-  MENU_ROW_CHECKED,
   MENU_ROW_CHECK_MARK,
-  MENU_ROW_CLASS,
-  MENU_ROW_DISABLED,
   MENU_ROW_KBD_CLASS,
-  MENU_ROW_REST,
   POPOVER_SHELL,
-  TOP_BAR_BUTTON,
-  TOP_BAR_BUTTON_BASE,
-  TOP_BAR_BUTTON_REST,
-  TOP_BAR_BUTTON_H,
-  TOP_BAR_SEGMENT_H,
 } from "@/components/controls";
 import { GearIcon, HeadsetIcon } from "@/components/sidebar/icons";
 import { useSettingsDialog } from "@/contexts/settings-dialog-context";
@@ -321,7 +311,8 @@ const LINK_CRUMB_CLASS =
  * harmless no-op. The same two actions are reachable from the command palette
  * (`Go: Back` / `Go: Forward`, Constitution V; see lib/palette/nav.ts).
  *
- * Styling is the shared fixed-size token (`TOP_BAR_BUTTON`, 260731-oiho). The
+ * Styling is the Control primitive's `icon` variant (the shared fixed-size
+ * token, 260731-oiho). The
  * pair sits in its own `shrink-0` group so the arrows never collapse under
  * breadcrumb pressure. Moving the pair out of the anchored center box deleted
  * the old `mr-2.5`/`-mr-1` width-compensation hack — the heading box carries no
@@ -338,7 +329,7 @@ const LINK_CRUMB_CLASS =
  */
 function HistoryNav() {
   const router = useRouter();
-  const arrowClass = TOP_BAR_BUTTON;
+  const arrowClass = controlClass({ variant: "icon" });
   return (
     <span className="hidden lg:flex items-center gap-1 shrink-0">
       <Tip label="Back">
@@ -412,7 +403,7 @@ function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
   return (
     <span data-testid="surface-toggles" className="flex items-center gap-1.5">
       <span
-        className={`flex items-center rounded border border-border ${TOP_BAR_BUTTON_H}`}
+        className={`flex items-center rounded border border-border ${controlClass({ variant: "icon", box: "height", glint: false })}`}
       >
         {shown.map((surface) => {
           const pressed =
@@ -442,11 +433,7 @@ function SurfaceToggleGroup({ toggles }: { toggles: SurfaceToggles }) {
                   disabled={disabled}
                   aria-pressed={pressed}
                   aria-label={`${label} tile`}
-                  className={`rk-glint relative w-[26px] ${TOP_BAR_SEGMENT_H} flex items-center justify-center rounded border text-[11px] font-mono transition-colors focus-visible:outline-2 focus-visible:outline-accent-green disabled:opacity-40 disabled:cursor-not-allowed ${
-                    pressed
-                      ? LATCHED_ARM
-                      : "border-transparent text-text-secondary hover:text-text-primary"
-                  }`}
+                  className={`rk-glint relative w-[26px] flex items-center justify-center rounded border text-[11px] font-mono transition-colors focus-visible:outline-2 focus-visible:outline-accent-green disabled:opacity-40 disabled:cursor-not-allowed ${controlClass({ variant: "segment", pressed, rest: "border-transparent text-text-secondary hover:text-text-primary" })}`}
                 >
                   <span aria-hidden="true">{SURFACE_GLYPH[surface]}</span>
                   {/* Availability/content dot — a collapsed tile may hide
@@ -495,7 +482,7 @@ function SurfaceToggleMenuRows({ toggles }: { toggles: SurfaceTogglesToggle }) {
             disabled={disabled}
             aria-label={`${SURFACE_LABEL[surface]} tile`}
             onClick={() => toggles.onToggle(surface)}
-            className={`${MENU_ROW_BASE} ${isOpen ? MENU_ROW_CHECKED : MENU_ROW_REST} ${MENU_ROW_DISABLED}`}
+            className={controlClass({ variant: "menu-row", pressed: isOpen })}
           >
             <span aria-hidden="true" className="font-mono text-[11px]">
               {SURFACE_GLYPH[surface]}
@@ -1136,7 +1123,7 @@ export function TopBar({
             <button
               onClick={onToggleSidebar}
               aria-label="Toggle navigation"
-              className={`rk-glint ${TOP_BAR_BUTTON_BASE} border-border hover:border-text-secondary text-text-primary`}
+              className={controlClass({ variant: "icon", rest: "border-border hover:border-text-secondary text-text-primary" })}
             >
               <HamburgerIcon isOpen={hamburgerOpen} />
             </button>
@@ -2292,8 +2279,9 @@ function BoardSwitcher({
  *    option set, split-button convention, default first). Outside `mousedown`
  *    and Escape close; Escape refocuses the ▾.
  *
- * Segments use the segment height (`TOP_BAR_SEGMENT_H` — 2px shorter than the
- * squares, compensating the bordered wrapper) so the chip's TOTAL box matches
+ * Segments use the segment height (2px shorter than the squares,
+ * compensating the bordered wrapper) via the Control primitive's `segment`
+ * variant so the chip's TOTAL box matches
  * the square token buttons exactly. Terminal and board modes pass the same
  * `{server, windowId, cwd}` the old per-direction buttons received, so board
  * parity (focusedPane) holds unchanged. The board keybindings that call
@@ -2363,7 +2351,7 @@ function SplitControl({
   const splitHorizontalChord = splitChordFor("split-horizontal");
   const splitVerticalChord = splitChordFor("split-vertical");
 
-  const segmentClass = `rk-glint px-1.5 ${TOP_BAR_SEGMENT_H} flex items-center justify-center text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed`;
+  const segmentClass = `rk-glint px-1.5 flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${controlClass({ variant: "segment", rest: "text-text-secondary hover:text-text-primary" })}`;
 
   return (
     <div ref={containerRef} className="relative inline-flex items-center">
@@ -2389,9 +2377,7 @@ function SplitControl({
             aria-haspopup="menu"
             aria-expanded={open}
             aria-label="Split… (choose direction)"
-            className={`rk-glint px-1 ${TOP_BAR_SEGMENT_H} border-l flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-              open ? LATCHED_ARM : "border-border text-text-secondary hover:text-text-primary"
-            }`}
+            className={`rk-glint px-1 border-l flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${controlClass({ variant: "segment", open })}`}
           >
             <svg
               width="10"
@@ -2426,7 +2412,7 @@ function SplitControl({
             role="menuitem"
             onClick={() => run(true)}
             disabled={isPending}
-            className={MENU_ROW_CLASS}
+            className={controlClass({ variant: "menu-row" })}
           >
             <SplitHorizontalGlyph />
             Split horizontal
@@ -2441,7 +2427,7 @@ function SplitControl({
             role="menuitem"
             onClick={() => run(false)}
             disabled={isPending}
-            className={MENU_ROW_CLASS}
+            className={controlClass({ variant: "menu-row" })}
           >
             <SplitVerticalGlyph />
             Split vertical
@@ -2508,7 +2494,7 @@ function RefreshButton() {
       type="button"
       onClick={(e) => (e.shiftKey ? forceReload() : window.location.reload())}
       aria-label="Refresh page"
-      className={TOP_BAR_BUTTON}
+      className={controlClass({ variant: "icon" })}
     >
       <RefreshGlyph />
     </button>
@@ -2562,7 +2548,7 @@ function UpdateChip() {
         onClick={triggerUpdate}
         disabled={updating}
         aria-label={updating ? "Updating run-kit" : restLabel}
-        className={`rk-glint flex items-center gap-1 ${TOP_BAR_BUTTON_H} px-1.5 rounded border border-accent-green text-accent-green hover:border-accent-green transition-colors text-xs disabled:opacity-60 disabled:cursor-not-allowed`}
+        className={`flex items-center gap-1 px-1.5 rounded transition-colors text-xs disabled:opacity-60 disabled:cursor-not-allowed ${controlClass({ variant: "icon", box: "height", rest: "border border-accent-green text-accent-green hover:border-accent-green" })}`}
       >
         {updating ? (
           <>
@@ -2580,7 +2566,7 @@ function UpdateChip() {
             type="button"
             onClick={dismissUpdate}
             aria-label="Dismiss update notice"
-            className={`ml-0.5 ${TOP_BAR_BUTTON_H} w-[16px] coarse:w-[20px] flex items-center justify-center rounded text-text-secondary hover:text-text-primary transition-colors text-xs`}
+            className={`ml-0.5 w-[16px] coarse:w-[20px] flex items-center justify-center rounded text-text-secondary hover:text-text-primary transition-colors text-xs ${controlClass({ variant: "icon", box: "height", glint: false })}`}
           >
             {"\u2715"}
           </button>
@@ -2615,9 +2601,7 @@ function BoardAutofitToggle({
       onClick={onToggle}
       aria-label="Toggle board autofit"
       aria-pressed={autofit}
-      className={`rk-glint ${TOP_BAR_BUTTON_BASE} ${
-        autofit ? LATCHED_ARM : TOP_BAR_BUTTON_REST
-      }`}
+      className={controlClass({ variant: "icon", pressed: autofit })}
     >
       <AutofitGlyph filled={autofit} />
     </button>
@@ -2632,10 +2616,9 @@ function BoardAutofitToggle({
 // underlying actions as their in-bar button forms — clicking a row does exactly
 // what clicking the icon button does — so bar↔menu behavior can never drift.
 
-// `MENU_ROW_CLASS` (and its decomposed `MENU_ROW_BASE`/`_REST`/`_DISABLED`/
-// `_CHECKED` variants) are hosted in `controls.ts` and imported at
-// the top of this file so the row styling stays shared (mirrors
-// BreadcrumbDropdown's item classes).
+// Menu rows compose via the Control primitive's `menu-row` variant (the
+// `MENU_ROW_*` compositions hosted in `control.tsx`) so the row styling stays
+// shared (mirrors BreadcrumbDropdown's item classes).
 
 /** Split vertical / horizontal menu row — same optimistic split action as the
  *  in-bar SplitControl (the merged entry's menuRender emits one row per
@@ -2666,7 +2649,7 @@ function SplitMenuRow({
     ? formatCombo({ code: binding.code, tier: binding.tier }, keybindingHost.platform)
     : undefined;
   return (
-    <button type="button" role="menuitem" tabIndex={-1} disabled={isPending} onClick={() => execute()} className={MENU_ROW_CLASS}>
+    <button type="button" role="menuitem" tabIndex={-1} disabled={isPending} onClick={() => execute()} className={controlClass({ variant: "menu-row" })}>
       {horizontal ? <SplitHorizontalGlyph /> : <SplitVerticalGlyph />}
       {label}
       {chord && (
@@ -2691,7 +2674,7 @@ function FixedWidthMenuRow() {
       aria-checked={fixedWidth}
       tabIndex={-1}
       onClick={toggleFixedWidth}
-      className={`${MENU_ROW_BASE} ${fixedWidth ? MENU_ROW_CHECKED : MENU_ROW_REST} ${MENU_ROW_DISABLED}`}
+      className={controlClass({ variant: "menu-row", pressed: fixedWidth })}
     >
       {/* Static identity variant — state is carried solely by the trailing ✓
           (leading icon = identity, trailing ✓ = state). */}
@@ -2713,7 +2696,7 @@ function TerminalFontMenuRow() {
   const { increaseTerminalFont, decreaseTerminalFont } = useChromeDispatch();
   const atMin = terminalFontSize <= TERMINAL_FONT_BOUNDS.min;
   const atMax = terminalFontSize >= TERMINAL_FONT_BOUNDS.max;
-  const stepClass = `${TOP_BAR_BUTTON_BASE} ${TOP_BAR_BUTTON_REST} disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-border`;
+  const stepClass = controlClass({ variant: "icon", glint: false, disabled: false });
   return (
     <div role="group" aria-label="Terminal font size" className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-text-secondary">
       <TerminalFontGlyph />
@@ -2740,7 +2723,7 @@ function AutofitMenuRow({ autofit, onToggle }: { autofit: boolean; onToggle: () 
       aria-checked={autofit}
       tabIndex={-1}
       onClick={onToggle}
-      className={`${MENU_ROW_BASE} ${autofit ? MENU_ROW_CHECKED : MENU_ROW_REST} ${MENU_ROW_DISABLED}`}
+      className={controlClass({ variant: "menu-row", pressed: autofit })}
     >
       {/* Static identity variant (unfilled frame) — state stays on the ✓. */}
       <AutofitGlyph />
@@ -2786,7 +2769,7 @@ function ClosePaneMenuRow({
       tabIndex={-1}
       disabled={disabled || isPending}
       onClick={() => (onRequestKill ? onRequestKill() : execute())}
-      className={MENU_ROW_CLASS}
+      className={controlClass({ variant: "menu-row" })}
     >
       <ClosePaneGlyph />
       {effectiveLabel}
@@ -2805,7 +2788,7 @@ function RefreshMenuRow() {
         role="menuitem"
         tabIndex={-1}
         onClick={(e) => (e.shiftKey ? forceReload() : window.location.reload())}
-        className={MENU_ROW_CLASS}
+        className={controlClass({ variant: "menu-row" })}
       >
         <RefreshGlyph />
         Refresh page
@@ -2841,7 +2824,7 @@ function SettingsGearButton() {
         type="button"
         onClick={() => openSettings()}
         aria-label="Open settings"
-        className={TOP_BAR_BUTTON}
+        className={controlClass({ variant: "icon" })}
       >
         <GearIcon size={14} />
       </button>
@@ -2859,7 +2842,7 @@ function SettingsMenuRow() {
       role="menuitem"
       tabIndex={-1}
       onClick={() => openSettings()}
-      className={MENU_ROW_CLASS}
+      className={controlClass({ variant: "menu-row" })}
     >
       <GearIcon size={14} />
       <span className="flex-1">Settings</span>

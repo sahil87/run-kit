@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SearchAddon } from "@xterm/addon-search";
 import { Tip } from "@/components/tip";
-import { LATCHED_ARM_RINGED } from "@/components/controls";
+import { controlClass } from "@/components/control";
 import { TerminalClient } from "@/components/terminal-client";
 import { FindBar } from "@/components/find-bar";
 import { CodeSurface } from "@/components/code-surface";
@@ -277,14 +277,16 @@ function defaultRatios(arity: 1 | 2 | 3): LayoutRatios {
 }
 
 /** Verb button chrome: fixed-size boxed buttons — 24×24 (WCAG 2.2 SC 2.5.8
- *  target minimum), 26×26 on coarse pointers (the `TOP_BAR_BUTTON*` fixed-size
+ *  target minimum), 26×26 on coarse pointers (the Control primitive's `icon`
+ *  variant fixed-size
  *  precedent: rendered size must not drift with content) — visible at rest at
  *  FULL opacity in `text-text-secondary` (contrast-passing over `bg-bg-card`
  *  in both themes; a rest-state alpha dim compounds against the ground and
  *  fails SC 1.4.11, so muted looks must be solid tokens tuned ≥3:1 per theme,
  *  never opacity). Hover gives an inset background + `text-text-primary`.
- *  Decomposed so latched verbs compose BASE + LATCHED_ARM_RINGED with NO
- *  competing hover utility (REST swapped out):
+ *  Decomposed so latched verbs compose BASE + the ring-inset arm with NO
+ *  competing hover utility (the Control primitive's `toggle` variant swaps the
+ *  REST out):
  *
  *  - `VERB_BUTTON_BASE` — geometry, radius, transition. No color tokens.
  *  - `VERB_BUTTON_CLASS` — the default composition (base + hover) used by
@@ -1614,11 +1616,13 @@ export function SurfaceLayout({
                   aria-label="Find in terminal"
                   aria-pressed={findOpen}
                   onClick={() => (findOpen ? closeFind() : setFindOpen(true))}
-                  className={
-                    findOpen
-                      ? `${VERB_BUTTON_BASE} ${LATCHED_ARM_RINGED}`
-                      : `${VERB_BUTTON_CLASS} hover:text-text-primary`
-                  }
+                  className={controlClass({
+                    variant: "toggle",
+                    base: VERB_BUTTON_BASE,
+                    rest: "hover:bg-bg-inset hover:text-text-primary",
+                    ringed: true,
+                    pressed: findOpen,
+                  })}
                 >
                   <FindGlyph />
                 </button>
@@ -1634,11 +1638,13 @@ export function SurfaceLayout({
                     aria-haspopup="menu"
                     aria-expanded={exportMenuPos !== null}
                     onClick={toggleExportMenu}
-                    className={
-                      exportMenuPos !== null
-                        ? `${VERB_BUTTON_BASE} ${LATCHED_ARM_RINGED}`
-                        : `${VERB_BUTTON_CLASS} hover:text-text-primary`
-                    }
+                    className={controlClass({
+                      variant: "toggle",
+                      base: VERB_BUTTON_BASE,
+                      rest: "hover:bg-bg-inset hover:text-text-primary",
+                      ringed: true,
+                      pressed: exportMenuPos !== null,
+                    })}
                   >
                     <ExportGlyph />
                   </button>
@@ -1763,11 +1769,13 @@ export function SurfaceLayout({
                     aria-label={isZoomed ? `Restore ${label}` : `Expand ${label}`}
                     aria-pressed={isZoomed}
                     onClick={() => flipZoom(isZoomed ? null : slot)}
-                    className={
-                      isZoomed
-                        ? `${VERB_BUTTON_BASE} ${LATCHED_ARM_RINGED}`
-                        : `${VERB_BUTTON_CLASS} hover:text-text-primary`
-                    }
+                    className={controlClass({
+                      variant: "toggle",
+                      base: VERB_BUTTON_BASE,
+                      rest: "hover:bg-bg-inset hover:text-text-primary",
+                      ringed: true,
+                      pressed: isZoomed,
+                    })}
                   >
                     <ZoomGlyph />
                   </button>
@@ -1835,9 +1843,13 @@ export function SurfaceLayout({
                 <button
                   type="button"
                   onClick={() => setFindCaseSensitive((v) => !v)}
-                  className={`shrink-0 w-7 h-7 flex items-center justify-center rounded ${
-                    findCaseSensitive ? LATCHED_ARM_RINGED : "text-text-secondary hover:bg-bg-card"
-                  }`}
+                  className={controlClass({
+                    variant: "toggle",
+                    base: "shrink-0 w-7 h-7 flex items-center justify-center rounded",
+                    rest: "text-text-secondary hover:bg-bg-card",
+                    ringed: true,
+                    pressed: findCaseSensitive,
+                  })}
                   aria-label="Match case"
                   aria-pressed={findCaseSensitive}
                 >
@@ -1846,9 +1858,13 @@ export function SurfaceLayout({
                 <button
                   type="button"
                   onClick={() => setFindRegex((v) => !v)}
-                  className={`shrink-0 w-7 h-7 flex items-center justify-center rounded ${
-                    findRegex ? LATCHED_ARM_RINGED : "text-text-secondary hover:bg-bg-card"
-                  }`}
+                  className={controlClass({
+                    variant: "toggle",
+                    base: "shrink-0 w-7 h-7 flex items-center justify-center rounded",
+                    rest: "text-text-secondary hover:bg-bg-card",
+                    ringed: true,
+                    pressed: findRegex,
+                  })}
                   aria-label="Match regex"
                   aria-pressed={findRegex}
                 >

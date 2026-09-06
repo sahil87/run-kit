@@ -10,15 +10,10 @@ import {
   type Layout,
 } from "@/lib/surface-layout";
 import { LayoutGlyph, LayoutShapeGlyph } from "@/components/top-bar-icons";
+import { controlClass } from "@/components/control";
 import {
-  LATCHED_ARM,
-  MENU_ROW_BASE,
-  MENU_ROW_CHECKED,
   MENU_ROW_CHECK_MARK,
-  MENU_ROW_REST,
   POPOVER_SHELL,
-  TOP_BAR_BUTTON,
-  TOP_BAR_BUTTON_BASE,
 } from "@/components/controls";
 
 /**
@@ -117,7 +112,7 @@ export function LayoutChip({ layout, onApply }: LayoutChipProps) {
           aria-haspopup="menu"
           aria-expanded={open}
           aria-label="Layout"
-          className={open ? `rk-glint ${TOP_BAR_BUTTON_BASE} ${LATCHED_ARM}` : TOP_BAR_BUTTON}
+          className={controlClass({ variant: "icon", open })}
         >
           <LayoutGlyph />
         </button>
@@ -140,7 +135,7 @@ export function LayoutChip({ layout, onApply }: LayoutChipProps) {
                 aria-checked={current}
                 data-testid={`layout-shape-${shape}`}
                 onClick={() => jump(shape)}
-                className={`${MENU_ROW_BASE} ${current ? MENU_ROW_CHECKED : MENU_ROW_REST}`}
+                className={controlClass({ variant: "menu-row", pressed: current })}
               >
                 <LayoutShapeGlyph shape={shape} />
                 {SHAPE_LABEL[shape]}
@@ -163,7 +158,8 @@ export function LayoutChip({ layout, onApply }: LayoutChipProps) {
 /**
  * The chip's chevron-menu rows (260715-h1ck overflow representation): one
  * `Layout: …` `menuitemradio` row per arity-valid shape — the
- * `ViewSwitcherMenuRows` precedent (`MENU_ROW_BASE` + rest/checked composition,
+ * `ViewSwitcherMenuRows` precedent (the menu-row composition — rest/checked
+ * swap via the Control primitive,
  * checked row primary-ink + trailing ✓, `tabIndex={-1}` for the menu's roving
  * focus).
  * Clicking jumps directly (the menu's role-keyed click handler closes the
@@ -187,7 +183,7 @@ export function LayoutMenuRows({ layout, onApply }: LayoutChipProps) {
               const next = setShape(layout, shape);
               if (next) onApply(next);
             }}
-            className={`${MENU_ROW_BASE} ${current ? MENU_ROW_CHECKED : MENU_ROW_REST}`}
+            className={controlClass({ variant: "menu-row", pressed: current })}
           >
             <LayoutShapeGlyph shape={shape} />
             {`Layout: ${SHAPE_LABEL[shape]}`}

@@ -536,7 +536,7 @@ export function BottomBar({ onOpenCompose, onFocusTerminal }: BottomBarProps) {
         <button
           type="button"
           aria-label={scrollLocked ? "Scroll lock on \u2014 tap to unlock" : termFocused ? "Hide keyboard" : "Show keyboard"}
-          aria-pressed={scrollLocked}
+          aria-pressed={scrollLocked || termFocused}
           className={scrollLocked ? `${KBD_BASE} hidden coarse:inline-flex ${LATCHED_ARM}` : `${KBD_CLASS} hidden coarse:inline-flex text-text-secondary`}
           onMouseDown={preventFocusSteal}
           onTouchStart={handleKbdTouchStart}

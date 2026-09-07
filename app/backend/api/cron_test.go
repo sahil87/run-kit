@@ -1,0 +1,371 @@
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"rk/internal/cron"
+)
+
+// cron_test.go — table-driven HTTP round-trips for the four /api/cron routes
+// against a directly-built Server (the newWakeSeamServer pattern). The cron
+// state root is redirected per test via XDG_STATE_HOME; the facts seam
+// (cronFactsFn) is stubbed so no live tmux server is touched. Wake assertions
+// share the sessions_test.go seam helpers: a successful mutation must drive a
+// fresh FetchSessions pass, a rejected one must not.
+
+// setupCronState redirects the cron state root into a temp dir and returns it.
+func setupCronState(t *testing.T) string {
+	t.Helper()
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	dir := filepath.Join(state, "run-kit", "cron")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// writeCronEntries writes a server entry file verbatim (fixtures may include
+// deliberately corrupt entries — LoadEntries is the tolerant reader).
+func writeCronEntries(t *testing.T, dir, slug, body string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, slug+".yaml"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// loadCronEntries reads back the persisted intent for assertions.
+func loadCronEntries(t *testing.T, dir, slug string) []cron.Entry {
+	t.Helper()
+	path, err := cron.EntriesPath(dir, slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, diags := cron.LoadEntries(path)
+	if len(diags) > 0 {
+		t.Fatalf("unexpected load diagnostics: %+v", diags)
+	}
+	return entries
+}
+
+// cronFactsStub is the resolved-target fixture seam for GET /api/cron.
+func cronFactsStub(targets map[string]cron.TargetFacts) func(context.Context, string, []cron.Entry) cron.ServerFacts {
+	return func(_ context.Context, _ string, _ []cron.Entry) cron.ServerFacts {
+		return cron.ServerFacts{Targets: targets}
+	}
+}
+
+func TestCronList(t *testing.T) {
+	const T = int64(1_700_000_000)
+
+	t.Run("absent entry file yields an empty list, never 404", func(t *testing.T) {
+		setupCronState(t)
+		server, _ := newWakeSeamServer(t, &mockTmuxOps{})
+		router := server.buildRouter()
+		req := httptest.NewRequest(http.MethodGet, "/api/cron?server=default", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		var body struct {
+			Entries []cronEntryJSON `json:"entries"`
+		}
+		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body.Entries) != 0 {
+			t.Fatalf("entries = %+v, want empty", body.Entries)
+		}
+	})
+
+	t.Run("valid entries carry derived facts; a corrupt entry is skipped", func(t *testing.T) {
+		dir := setupCronState(t)
+		writeCronEntries(t, dir, "default", `entries:
+  - id: b1cd
+    name: operator tick
+    schedule: {kind: backoff, anchor: operator-idle, min: 60s, max: 30m}
+    target: {kind: role, role: operator}
+    payload: tick
+    deliver: immediate
+    if_absent: respawn
+    pinned: true
+  - id: e2fg
+    name: hourly
+    schedule: {kind: every, interval: 1h}
+    target: {kind: session, session: s1}
+    payload: ping
+  - id: zz99
+    schedule: {kind: bogonic}
+    target: {kind: role, role: operator}
+    payload: skipped
+`)
+		// Delivery log: b1cd at T+60s and T+180s (the anchor-join worked
+		// scenario), e2fg at T.
+		log := strings.Join([]string{
+			`{"ts":` + jsonNumber(T+60) + `,"entry":"b1cd","target":"%5","reason":"schedule","outcome":"delivered"}`,
+			`{"ts":` + jsonNumber(T+180) + `,"entry":"b1cd","target":"%5","reason":"schedule","outcome":"delivered"}`,
+			`{"ts":` + jsonNumber(T) + `,"entry":"e2fg","target":"%6","reason":"schedule","outcome":"delivered"}`,
+		}, "\n") + "\n"
+		if err := os.WriteFile(filepath.Join(dir, "default.log"), []byte(log), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		server, _ := newWakeSeamServer(t, &mockTmuxOps{})
+		server.cronFactsFn = cronFactsStub(map[string]cron.TargetFacts{
+			// b1cd: raw idle epoch 5s after its newest delivery (attributed).
+			"b1cd": {PaneID: "%5", AgentState: "idle", StateEpoch: T + 185},
+			"e2fg": {PaneID: "%6", AgentState: "idle", StateEpoch: T},
+		})
+		router := server.buildRouter()
+		req := httptest.NewRequest(http.MethodGet, "/api/cron?server=default", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		var body struct {
+			Entries []cronEntryJSON `json:"entries"`
+		}
+		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body.Entries) != 2 {
+			t.Fatalf("entries = %d, want 2 (corrupt entry skipped): %+v", len(body.Entries), body.Entries)
+		}
+		byID := map[string]cronEntryJSON{}
+		for _, e := range body.Entries {
+			byID[e.ID] = e
+		}
+		b := byID["b1cd"]
+		if b.Name != "operator tick" || b.Schedule.Kind != "backoff" || b.Schedule.Min != "1m0s" || !b.Pinned || b.Muted {
+			t.Errorf("b1cd intent fields wrong: %+v", b)
+		}
+		if b.Target.Kind != "role" || b.Target.Role != "operator" || b.Deliver != "immediate" || b.IfAbsent != "respawn" {
+			t.Errorf("b1cd target/policy fields wrong: %+v", b)
+		}
+		if b.Rung != 3 || b.NextFire != T+420 || b.LastFired != T+180 || b.Orphaned {
+			t.Errorf("b1cd derived fields wrong: rung=%d nextFire=%d lastFired=%d orphaned=%v (want 3/%d/%d/false)",
+				b.Rung, b.NextFire, b.LastFired, b.Orphaned, T+420, T+180)
+		}
+		e := byID["e2fg"]
+		if e.NextFire != T+3600 || e.Rung != 0 || e.LastFired != T || e.Orphaned {
+			t.Errorf("e2fg derived fields wrong: %+v (want nextFire %d, rung 0, lastFired %d, orphaned false)", e, T+3600, T)
+		}
+	})
+
+	t.Run("an entry whose target fails resolution reports orphaned", func(t *testing.T) {
+		dir := setupCronState(t)
+		writeCronEntries(t, dir, "default", `entries:
+  - id: o3hi
+    schedule: {kind: backoff, anchor: operator-idle, min: 60s, max: 30m}
+    target: {kind: role, role: operator}
+    payload: tick
+`)
+		server, _ := newWakeSeamServer(t, &mockTmuxOps{})
+		server.cronFactsFn = cronFactsStub(map[string]cron.TargetFacts{
+			"o3hi": {Unresolved: "no window carries role operator"},
+		})
+		router := server.buildRouter()
+		req := httptest.NewRequest(http.MethodGet, "/api/cron?server=default", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d; body=%s", rec.Code, rec.Body.String())
+		}
+		var body struct {
+			Entries []cronEntryJSON `json:"entries"`
+		}
+		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body.Entries) != 1 || !body.Entries[0].Orphaned {
+			t.Fatalf("want one orphaned entry, got %+v", body.Entries)
+		}
+		if body.Entries[0].NextFire != 0 {
+			t.Errorf("orphaned backoff entry nextFire = %d, want unset (anchor unknowable)", body.Entries[0].NextFire)
+		}
+	})
+}
+
+// jsonNumber renders an int64 for inline JSON fixture construction.
+func jsonNumber(n int64) string {
+	return strings.TrimSpace(string(mustJSON(n)))
+}
+
+func mustJSON(v any) []byte {
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func TestCronCreate(t *testing.T) {
+	t.Run("valid body persists the entry, returns 201 with the assigned id, wakes the hub", func(t *testing.T) {
+		dir := setupCronState(t)
+		server, tracker := newWakeSeamServer(t, &mockTmuxOps{})
+		before := tracker.count.Load()
+		router := server.buildRouter()
+		req := httptest.NewRequest(http.MethodPost, "/api/cron/create?server=default", strings.NewReader(
+			`{"name":"operator tick","schedule":{"kind":"backoff","anchor":"operator-idle","min":"60s","max":"30m"},"target":{"kind":"role","role":"operator"},"payload":"operator tick","deliver":"immediate","ifAbsent":"respawn","pinned":true}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("status = %d, want 201; body=%s", rec.Code, rec.Body.String())
+		}
+		var created cronEntryJSON
+		if err := json.NewDecoder(rec.Body).Decode(&created); err != nil {
+			t.Fatal(err)
+		}
+		if len(created.ID) != 4 {
+			t.Errorf("created id = %q, want a 4-char id", created.ID)
+		}
+		entries := loadCronEntries(t, dir, "default")
+		if len(entries) != 1 {
+			t.Fatalf("persisted entries = %d, want 1", len(entries))
+		}
+		e := entries[0]
+		if e.ID != created.ID || e.Name != "operator tick" || e.Schedule.Kind != cron.ScheduleBackoff ||
+			e.Schedule.Min.Duration.String() != "1m0s" || e.Target.Role != cron.RoleOperator ||
+			e.Payload != "operator tick" || !e.Pinned || e.Deliver != cron.DeliverImmediate || e.IfAbsent != cron.IfAbsentRespawn {
+			t.Errorf("persisted entry wrong: %+v", e)
+		}
+		if e.CreatedBy.At == 0 {
+			t.Error("created_by.at = 0, want now (the every-schedule pre-delivery anchor)")
+		}
+		expectWake(t, tracker, before, "cron create")
+	})
+
+	t.Run("invalid schedule is a 400, persists nothing, does not wake", func(t *testing.T) {
+		dir := setupCronState(t)
+		server, tracker := newWakeSeamServer(t, &mockTmuxOps{})
+		before := tracker.count.Load()
+		router := server.buildRouter()
+		req := httptest.NewRequest(http.MethodPost, "/api/cron/create?server=default", strings.NewReader(
+			`{"schedule":{"kind":"every"},"target":{"kind":"role","role":"operator"},"payload":"nope"}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+		}
+		if entries := loadCronEntries(t, dir, "default"); len(entries) != 0 {
+			t.Errorf("persisted entries = %d after a rejected create, want 0", len(entries))
+		}
+		expectNoWake(t, tracker, before, "cron create rejected")
+	})
+
+	t.Run("unparsable duration is a 400", func(t *testing.T) {
+		setupCronState(t)
+		server, _ := newWakeSeamServer(t, &mockTmuxOps{})
+		router := server.buildRouter()
+		req := httptest.NewRequest(http.MethodPost, "/api/cron/create?server=default", strings.NewReader(
+			`{"schedule":{"kind":"every","interval":"soon"},"target":{"kind":"role","role":"operator"},"payload":"nope"}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+		}
+	})
+}
+
+// seedCronEntry persists one entry via cron.Add and returns it.
+func seedCronEntry(t *testing.T, dir, slug string) cron.Entry {
+	t.Helper()
+	e, err := cron.Add(dir, slug, cron.Entry{
+		Schedule: cron.Schedule{Kind: cron.ScheduleEvery, Interval: cron.Duration{Duration: 3600000000000}},
+		Target:   cron.Target{Kind: cron.TargetRole, Role: cron.RoleOperator},
+		Payload:  "seed",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return e
+}
+
+func TestCronDelete(t *testing.T) {
+	t.Run("existing id deletes, 200, wakes", func(t *testing.T) {
+		dir := setupCronState(t)
+		seeded := seedCronEntry(t, dir, "default")
+		server, tracker := newWakeSeamServer(t, &mockTmuxOps{})
+		before := tracker.count.Load()
+		router := server.buildRouter()
+		req := httptest.NewRequest(http.MethodPost, "/api/cron/delete?server=default", strings.NewReader(`{"id":"`+seeded.ID+`"}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		if entries := loadCronEntries(t, dir, "default"); len(entries) != 0 {
+			t.Errorf("entries after delete = %+v, want none", entries)
+		}
+		expectWake(t, tracker, before, "cron delete")
+	})
+
+	t.Run("unknown id is a 404, no mutation, no wake", func(t *testing.T) {
+		dir := setupCronState(t)
+		seeded := seedCronEntry(t, dir, "default")
+		server, tracker := newWakeSeamServer(t, &mockTmuxOps{})
+		before := tracker.count.Load()
+		router := server.buildRouter()
+		req := httptest.NewRequest(http.MethodPost, "/api/cron/delete?server=default", strings.NewReader(`{"id":"zzzz"}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body.String())
+		}
+		if entries := loadCronEntries(t, dir, "default"); len(entries) != 1 || entries[0].ID != seeded.ID {
+			t.Errorf("entries after failed delete = %+v, want the seeded entry untouched", entries)
+		}
+		expectNoWake(t, tracker, before, "cron delete unknown id")
+	})
+}
+
+func TestCronMute(t *testing.T) {
+	t.Run("existing id sets muted, 200, wakes", func(t *testing.T) {
+		dir := setupCronState(t)
+		seeded := seedCronEntry(t, dir, "default")
+		server, tracker := newWakeSeamServer(t, &mockTmuxOps{})
+		before := tracker.count.Load()
+		router := server.buildRouter()
+		req := httptest.NewRequest(http.MethodPost, "/api/cron/mute?server=default", strings.NewReader(`{"id":"`+seeded.ID+`","muted":true}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		entries := loadCronEntries(t, dir, "default")
+		if len(entries) != 1 || !entries[0].Muted {
+			t.Errorf("entries after mute = %+v, want the seeded entry muted", entries)
+		}
+		expectWake(t, tracker, before, "cron mute")
+	})
+
+	t.Run("unknown id is a 404, no wake", func(t *testing.T) {
+		setupCronState(t)
+		server, tracker := newWakeSeamServer(t, &mockTmuxOps{})
+		before := tracker.count.Load()
+		router := server.buildRouter()
+		req := httptest.NewRequest(http.MethodPost, "/api/cron/mute?server=default", strings.NewReader(`{"id":"zzzz","muted":true}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body.String())
+		}
+		expectNoWake(t, tracker, before, "cron mute unknown id")
+	})
+}

@@ -1,6 +1,6 @@
 ---
 type: memory
-description: "Cron scheduling substrate — the `rk cron` CLI family (add/list/rm/mute/pin/tick; server resolution + creator auto-capture) over per-server intent entry files under $XDG_STATE_HOME/run-kit/cron/; stateless evaluator (every / backoff anchor-join / wake_on cursor / suppress_while guards); delivery log; daemon Ticker (cron_ticker gate); injection-engine delivery, when-idle holds; if_absent dispositions, role-target respawn (Deps.Respawner), operator-tick seeding (EnsureRoleEntry); circuit breakers."
+description: "Cron scheduling substrate — the `rk cron` CLI family (add/list/rm/mute/pin/tick) over per-server intent files under $XDG_STATE_HOME/run-kit/cron/; stateless evaluator (every / backoff anchor-join / wake_on cursor / suppress_while guards); delivery log; daemon Ticker; injection-engine delivery, when-idle holds, if_absent dispositions, role-target respawn + operator-tick seeding; circuit breakers; HTTP API (GET /api/cron derivations via DeriveEntry; create/delete/mute); operator watchlist reader."
 ---
 # Cron
 
@@ -8,7 +8,7 @@ description: "Cron scheduling substrate — the `rk cron` CLI family (add/list/r
 
 ## Overview
 
-`internal/cron` (app/backend/internal/cron) is the server-scoped scheduling substrate from the cron spec (`docs/specs/cron.md`): durable cron entries in one intent file per tmux server, a stateless pure evaluator, an append-only delivery log, a tick orchestrator, an injection-engine deliverer, and the daemon ticker goroutine that invokes ticks. The agent-facing surface is the `rk cron` CLI family below; the HTTP surface and frontend are later waves of the cron clock plan.
+`internal/cron` (app/backend/internal/cron) is the server-scoped scheduling substrate from the cron spec (`docs/specs/cron.md`): durable cron entries in one intent file per tmux server, a stateless pure evaluator, an append-only delivery log, a tick orchestrator, an injection-engine deliverer, and the daemon ticker goroutine that invokes ticks. The agent-facing surfaces are the `rk cron` CLI family below and the HTTP API (§ HTTP API); the frontend is a later wave of the cron clock plan.
 
 ## CLI: the `rk cron` Family
 
@@ -28,9 +28,26 @@ The `rk cron` cobra family (`app/backend/cmd/rk/cron.go` + per-verb files, the `
 
 **Creator auto-capture and the default target**: inside a tmux pane, `add` stores `created_by: {pane: $TMUX_PANE, at: now}` — `session` stays empty (agent-session capture is a later wave). The default target is `{kind: role, role: operator}` when the caller's own window carries `@rk_win_role=operator` (resolved via `tmux.WindowIDForPane` + `tmux.GetWindowOption` with `tmux.RoleOption`), else `{kind: pane, pane: $TMUX_PANE}`; a failed role read degrades to the pane target with a stderr note, never aborts. Explicit `--role operator` / `--pane %N` (mutually exclusive, validated against `cron.RoleOperator` / `tmux.ValidPaneID`) override auto-capture; outside tmux an explicit target flag is required.
 
-**`list` is disk-derived only**: entry file + delivery log, zero tmux commands — a tmux probe against a dead socket would resurrect the server, and next-fire/rung/orphan derivations need live facts that belong to the API wave. An absent or empty file is an empty listing (`[]` under `--json`) with exit 0; load diagnostics print to stderr without failing the listing.
+**`list` is disk-derived only**: entry file + delivery log, zero tmux commands — a tmux probe against a dead socket would resurrect the server, and next-fire/rung/orphan derivations need live facts, derived behind the HTTP API instead (§ HTTP API). An absent or empty file is an empty listing (`[]` under `--json`) with exit 0; load diagnostics print to stderr without failing the listing.
 
 **`tick` is the invoker verb**: it wraps `cron.Tick(ctx, cron.Deps{})` — flock, live-server filter, TMUX scrub, and tolerant load all inherited — under a bounded 60s context. Zero-value `Deps` wires no `Deliverer` (fires record outcome `no-deliverer` while the fire/log/cursor choreography exercises) — the CLI verb is the debug invoker; delivering ticks are the daemon Ticker's (§ Daemon Ticker Invoker), which passes the `EngineDeliverer`. A held lock exits 0 quietly with no output; otherwise stdout carries a one-line summary — servers swept, fires, diagnostics count. Real errors (dir resolution, lock creation) exit non-zero via RunE.
+
+## HTTP API
+
+The cron HTTP surface (`app/backend/api/cron.go`, registered beside the other resource routes in `api/router.go`) is a thin JSON translation layer over `internal/cron` — all schedule math stays in the library (`DeriveEntry` calls `JoinAnchor`/`Ladder.NextFire`/`everyAnchor`/`LastDelivery`), the handlers never reimplement it. The wire shape is camelCase (the on-disk YAML's snake_case never crosses the HTTP edge); the server resolves via `serverFromRequest` (`?server=`).
+
+| Route | Behavior |
+|---|---|
+| `GET /api/cron` | Every entry's intent fields plus the derived facts `lastFired` (unix seconds, 0 = never), `nextFire` (omitted when unknowable), `rung`, `orphaned` — `{"entries": [...]}`. A live-server endpoint (unlike `rk cron list`): it gathers resolved-target facts via the `Server.cronFactsFn` seam (production wires `cron.GatherFactsLive`; nil on the test router), so backoff next-fire/rung and the orphaned flag are real. An absent/empty entry file yields `{"entries": []}` at 200, never 404; corrupt-entry diagnostics are logged server-side (`slog`), never surfaced |
+| `POST /api/cron/create` | Body mirrors the `rk cron add` schema fields (name, schedule kind+params, target kind+params, payload, deliver, ifAbsent, pinned); `created_by.at` is set to now unconditionally (it anchors `every` schedules pre-first-delivery). Validates + persists via `cron.Add` — any `Add` error is a 400 with the underlying text; success is 201 with the created entry (assigned 4-char id) |
+| `POST /api/cron/delete` | `{"id": "<4char>"}` → `cron.Remove`; unknown id ⇒ 404; success ⇒ 200 `{"ok": true}` |
+| `POST /api/cron/mute` | `{"id": "<4char>", "muted": <bool>}` → `cron.SetMuted`; unknown id ⇒ 404; success ⇒ 200 `{"ok": true}` |
+
+Every mutation wakes the SSE hub explicitly on success (`s.initSSEHub(); s.sseHub.wake(server)` — the same wake-after-write pattern as `handleSessionStringOption`): entry-file writes emit no tmux control-mode event, so without the wake the repaint would wait for the safety poll.
+
+**Per-entry derivation** (`internal/cron/derive.go`): `DeriveEntry(e, log, facts, now) DerivedEntry` computes `{NextFire, HasNextFire, Rung, Orphaned, LastFired}` per entry from the delivery log plus resolved `TargetFacts`. An `every` next-fire is `everyAnchor(e, log) + interval`; a `backoff` rung/next-fire come from `JoinAnchor(StateEpoch, OwnDeliveries, min, max)` — the reported rung is the ladder's + 1 (the upcoming fire's rung) — and are unknowable (`HasNextFire` false) without a resolved anchor epoch; a `cron`-kind entry reports no next-fire rather than a fabricated one. `Orphaned` is a live per-call snapshot of target resolution (`!facts.Resolved()`), never a persisted expiry state.
+
+**Watchlist reader** (`internal/cron/watchlist.go`): `ReadWatchlist(path)` tolerantly parses the fab-owned operator state file's `monitored:` map (path via `FabOperatorStatePath`) into `[]WatchlistEntry{ChangeID, Pane, Repo, Session, Stage, Agent, Branch}` (sorted by ChangeID) plus `last_tick_at` — the same tolerant-read class as `guards.go`'s `ReadOperatorState`: unknown keys ignored, absent/corrupt file ⇒ `(nil, 0, false)`, never an error, an entry missing `pane` skipped (nothing to join against). rk never writes the file. `DefaultWatchlistStaleThreshold` (15m) is the UI-facing "is the monitoring system dead" window over `last_tick_at` — distinct from `DefaultOperatorLoopFreshThreshold` (120s), which gates the short-fuse in-session-loop suppress guard. The sessions-payload join this reader feeds is documented in [tmux-sessions](/run-kit/tmux-sessions.md) § Fab-Tier Derivation.
 
 ## State Files
 
@@ -246,6 +263,15 @@ Inside a tmux pane, `add` SHALL store `created_by: {pane: $TMUX_PANE, at: now}` 
 ### Requirement: `tick` invoker posture
 `rk cron tick` SHALL wrap `cron.Tick` with zero-value `Deps` under a bounded context; a held lock MUST exit 0 quietly with no output; otherwise stdout carries a one-line summary (servers swept, fires, diagnostics count). With no `Deliverer` wired, fires record outcome `no-deliverer`.
 
+### Requirement: `GET /api/cron` derived-facts projection
+`GET /api/cron?server=<slug>` SHALL return `{"entries": [...]}` combining each entry's intent fields with the derived facts (`nextFire`/`rung`/`orphaned`/`lastFired`) computed by `cron.DeriveEntry` — the API layer MUST NOT reimplement schedule math. An absent or empty entry file SHALL yield `{"entries": []}` at 200, never 404; corrupt-entry diagnostics SHALL be logged server-side and never surfaced to the client. A `cron`-kind entry SHALL report no next-fire rather than a fabricated one.
+
+### Requirement: cron mutation routes
+`POST /api/cron/create` SHALL validate and persist via `cron.Add` (any `Add` error ⇒ 400 with its text; success ⇒ 201 with the created entry, `created_by.at` always set to now); `POST /api/cron/delete` ← `{"id"}` and `POST /api/cron/mute` ← `{"id", "muted"}` SHALL mutate via `cron.Remove`/`cron.SetMuted`, 404 on an unknown id, 200 `{"ok": true}` on success. All three SHALL wake the SSE hub explicitly on success (`initSSEHub(); sseHub.wake(server)`) — entry-file writes emit no tmux control-mode event.
+
+### Requirement: tolerant watchlist read
+`cron.ReadWatchlist` SHALL parse the fab operator state file's `monitored:` map tolerantly — an absent or corrupt file degrades to `(nil, 0, false)`, never an error; an entry missing `pane` SHALL be skipped (nothing to join against). rk SHALL never write the fab-owned file.
+
 ## Design Decisions
 
 ### Anchor-join as a log-derived streak
@@ -280,8 +306,8 @@ Inside a tmux pane, `add` SHALL store `created_by: {pane: $TMUX_PANE, at: now}` 
 
 ### `cron list` never touches tmux
 **Decision**: `list` derives from the entry file + delivery log only; no next-fire/rung/orphan columns.
-**Why**: any tmux command against a dead socket resurrects it (the zombie-server rule); next-fire/rung need live facts, which the API wave derives behind the HTTP surface.
-**Rejected**: probing live servers for next-fire in the CLI (zombie hazard + duplicates the API wave's work).
+**Why**: any tmux command against a dead socket resurrects it (the zombie-server rule); next-fire/rung need live facts, derived behind the HTTP surface instead (`GET /api/cron`, § HTTP API).
+**Rejected**: probing live servers for next-fire in the CLI (zombie hazard + duplicates the HTTP API's derivation).
 *Introduced by*: 260906-bi3v-rk-cron-cli
 
 ### Mute/pin unset via `--off`
@@ -342,5 +368,29 @@ Inside a tmux pane, `add` SHALL store `created_by: {pane: $TMUX_PANE, at: now}` 
 **Why**: the judgment-round carve-out exists for a human-attended dispatch loop; the daemon tick has no human to answer a wall, and the spec's ladder rule is that the clock never auto-answers walls — escalation to a human is the only safe posture.
 **Rejected**: cross-tick readiness retry without escalation (a silently-stuck respawn defeats the backstop's purpose); auto-answering common wall patterns (the spec's explicit prohibition).
 *Introduced by*: 260906-kbbh-operator-tick-seed-respawn
+
+### Derivation logic lives in `internal/cron`, not the `api` package
+**Decision**: `DeriveEntry` (next-fire/rung/orphaned/last-fired) is an exported function in `internal/cron`; the `GET /api/cron` handler is a thin JSON translation layer over it.
+**Why**: `internal/cron` already owns every piece of the underlying math (`JoinAnchor`, `Ladder.NextFire`, `everyAnchor`, `LastDelivery`); keeping the derivation there matches the existing package boundary and keeps the projection logic testable independent of HTTP.
+**Rejected**: inlining the derivation in `api/cron.go` — duplicates package-private schedule math or forces exporting internals purely for one caller.
+*Introduced by*: 260907-1jm6-cron-api-derivations
+
+### Watchlist staleness attaches to every `ProjectSession`
+**Decision**: `OperatorLastTickAt`/`OperatorStale` populate identically on every session returned for one server, rather than only the `Hidden` operator session.
+**Why**: simpler consumer contract — no special-casing to locate the `Hidden` session first; the repeated bytes are negligible (one int64 + one bool × a handful of sessions per server).
+**Rejected**: attaching only to the `Hidden` operator session — matches its "operator row's own data source" precedent more narrowly, but forces every consumer to filter for it first.
+*Introduced by*: 260907-1jm6-cron-api-derivations
+
+### `pin` has no HTTP endpoint
+**Decision**: only `create`/`delete`/`mute` get POST routes; `cron.SetPinned` stays CLI-only.
+**Why**: the cron clock plan's API enumeration is exact (`create|delete|mute`); no consumer calls for pin over HTTP.
+**Rejected**: adding `POST /api/cron/pin` preemptively — speculative surface with no consumer.
+*Introduced by*: 260907-1jm6-cron-api-derivations
+
+### Watchlist staleness threshold is 15 minutes
+**Decision**: the named constant `DefaultWatchlistStaleThreshold` (15m) gates `OperatorStale`.
+**Why**: the spec names `last_tick_at` as "the single staleness timestamp" but gives no number; a named constant (mirroring `DefaultOperatorLoopFreshThreshold`'s pattern) keeps the value a one-line change.
+**Rejected**: reusing `DefaultOperatorLoopFreshThreshold` (120s) directly — that threshold answers a different, much-shorter-fuse question ("is the in-session `/loop` still ticking") and would false-trip watchlist staleness constantly.
+*Introduced by*: 260907-1jm6-cron-api-derivations
 
 See [configuration](/run-kit/configuration.md) § Migrations & Breadcrumbs for the state-root inventory this tenant joins, [layout-snapshots](/run-kit/layout-snapshots.md) for the sibling state-root resolution pattern, and [test-sockets](/run-kit/test-sockets.md) for the tmux test-isolation conventions the package's tests follow.

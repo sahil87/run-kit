@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"rk/internal/config"
+	"rk/internal/cron"
 	"rk/internal/prstatus"
 	"rk/internal/tmux"
 )
@@ -60,6 +61,14 @@ type ProjectSession struct {
 	// session has no attached clients (omitempty); the frontend surfaces a
 	// viewer indicator only at ≥2.
 	Viewers []Viewer `json:"viewers,omitempty"`
+	// OperatorLastTickAt / OperatorStale are the per-server operator-watchdog
+	// staleness facts — the fab operator state file's last_tick_at against
+	// cron.DefaultWatchlistStaleThreshold — populated identically on every
+	// session of one FetchSessions call (all sessions on a server share the
+	// one operator-state file). 0/false when the file is absent (nothing to
+	// be stale about).
+	OperatorLastTickAt int64 `json:"operatorLastTickAt,omitempty"`
+	OperatorStale      bool  `json:"operatorStale,omitempty"`
 }
 
 // foldViewers buckets the size-arbitrating clients onto session names via the
@@ -97,6 +106,37 @@ func operatorSessionHidden(name string, windows []tmux.WindowInfo) bool {
 		}
 	}
 	return true
+}
+
+// joinWatchlist rolls the operator watchlist (keyed by pane ID) up onto each
+// window: a window is Monitored when any pane's PaneID matches an entry's
+// Pane; the first matching pane wins (the same window-level-rollup-over-panes
+// shape rollupAgentState/rollupAgentSession use). Pure (no I/O) so the join is
+// unit-testable without a live server.
+func joinWatchlist(windows []tmux.WindowInfo, byPane map[string]cron.WatchlistEntry) {
+	for i := range windows {
+		for _, p := range windows[i].Panes {
+			we, ok := byPane[p.PaneID]
+			if !ok {
+				continue
+			}
+			windows[i].Monitored = true
+			windows[i].MonitoredChange = we.ChangeID
+			windows[i].MonitoredStage = we.Stage
+			windows[i].MonitoredRepo = we.Repo
+			windows[i].MonitoredBranch = we.Branch
+			windows[i].MonitoredAgent = we.Agent
+			break
+		}
+	}
+}
+
+// operatorStaleness derives ProjectSession.OperatorStale: true when the
+// operator's last tick is older than DefaultWatchlistStaleThreshold. An absent
+// stamp (0) is never stale — there is nothing to be stale about. Pure (no
+// I/O), unit-testable.
+func operatorStaleness(lastTickAt, nowUnix int64) bool {
+	return lastTickAt > 0 && nowUnix-lastTickAt > int64(cron.DefaultWatchlistStaleThreshold/time.Second)
 }
 
 // ActiveWindowProvider supplies the event-tracked active window (`@wid`) for a
@@ -801,10 +841,32 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 	// The memo dedupes reads within this one call (many panes share a worktree).
 	fabMemo := newFabStateMemo()
 
+	// The operator-watchlist tier: ONE tolerant read of the fab-owned operator
+	// state file per fetch (server-scoped — no per-cwd memo needed, unlike the
+	// fab tier), joined onto windows by pane ID via joinWatchlist; its
+	// last_tick_at doubles as the per-server staleness timestamp populated
+	// identically on every ProjectSession below.
+	var watchlistByPane map[string]cron.WatchlistEntry
+	var operatorLastTickAt int64
+	if opPath, err := cron.FabOperatorStatePath(server); err == nil {
+		entries, lastTickAt, present := cron.ReadWatchlist(opPath)
+		if present {
+			operatorLastTickAt = lastTickAt
+			watchlistByPane = make(map[string]cron.WatchlistEntry, len(entries))
+			for _, we := range entries {
+				watchlistByPane[we.Pane] = we
+			}
+		}
+	}
+
 	// Build result with per-window fab enrichment and git branches.
 	nowUnix := time.Now().Unix()
+	operatorStale := operatorStaleness(operatorLastTickAt, nowUnix)
 	result := make([]ProjectSession, len(data))
 	for i, sd := range data {
+		// Watchlist tier: the monitored:-map join by pane ID, over all of the
+		// session's windows in one pass.
+		joinWatchlist(sd.windows, watchlistByPane)
 		for j := range sd.windows {
 			// Fab tier proper (change/stage/displayState) from the native
 			// per-pane derivation, rolled up to the window (change-bound pane
@@ -859,7 +921,7 @@ func FetchSessions(ctx context.Context, server string, provider ActiveWindowProv
 			}
 		}
 
-		result[i] = ProjectSession{Name: sd.info.Name, SessionColor: sd.info.Color, SessionID: sd.info.ID, SessionPath: sd.info.Path, Flair: sd.info.Flair, Windows: sd.windows, Hidden: operatorSessionHidden(sd.info.Name, sd.windows), Viewers: viewers[sd.info.Name]}
+		result[i] = ProjectSession{Name: sd.info.Name, SessionColor: sd.info.Color, SessionID: sd.info.ID, SessionPath: sd.info.Path, Flair: sd.info.Flair, Windows: sd.windows, Hidden: operatorSessionHidden(sd.info.Name, sd.windows), Viewers: viewers[sd.info.Name], OperatorLastTickAt: operatorLastTickAt, OperatorStale: operatorStale}
 	}
 
 	return result, nil

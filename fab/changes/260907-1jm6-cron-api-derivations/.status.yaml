@@ -1,0 +1,55 @@
+id: 1jm6
+name: 260907-1jm6-cron-api-derivations
+created: 2026-09-07T08:37:08Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 15
+    acceptance_count: 19
+    acceptance_completed: 19
+confidence:
+    certain: 4
+    confident: 4
+    tentative: 1
+    unresolved: 0
+    score: 3.9
+    fuzzy: true
+    dimensions:
+        signal: 71.7
+        reversibility: 77.8
+        competence: 78.9
+        disambiguation: 73.9
+stage_metrics:
+    intake: {started_at: "2026-09-07T08:37:08Z", driver: fab-new, iterations: 1, completed_at: "2026-09-07T08:46:26Z"}
+    apply: {started_at: "2026-09-07T08:46:26Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-07T09:02:04Z"}
+    review: {started_at: "2026-09-07T09:02:04Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-07T09:06:06Z"}
+    hydrate: {started_at: "2026-09-07T09:06:06Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-07T09:11:18Z"}
+    ship: {started_at: "2026-09-07T09:11:18Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-07T09:11:18Z"
+    computed_at_stage: hydrate
+summary: cron HTTP API (GET /api/cron + create/delete/mute with explicit SSE wake), internal/cron DeriveEntry + ReadWatchlist, watchlist/staleness join on the sessions payload; hydrated cron.md, tmux-sessions.md, api-and-sockets.md
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-07T09:11:18Z

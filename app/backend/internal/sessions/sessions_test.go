@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"rk/internal/config"
+	"rk/internal/cron"
 	"rk/internal/tmux"
 )
 
@@ -1057,5 +1058,80 @@ func TestProjectSessionViewersJSON(t *testing.T) {
 	}
 	if strings.Contains(string(without), `"viewers"`) {
 		t.Errorf("zero-viewer session JSON must omit viewers: %s", without)
+	}
+}
+
+// TestJoinWatchlist is the pane-ID join truth table (R7): a window whose pane
+// matches a watchlist entry's pane carries Monitored plus the entry's fields;
+// non-matching windows stay at zero values.
+func TestJoinWatchlist(t *testing.T) {
+	byPane := map[string]cron.WatchlistEntry{
+		"%23": {ChangeID: "gmcp", Pane: "%23", Repo: "/r", Session: "s1", Stage: "active", Agent: "active", Branch: "feat/gmcp"},
+	}
+	windows := []tmux.WindowInfo{
+		{Name: "hit", Panes: []tmux.PaneInfo{{PaneID: "%22"}, {PaneID: "%23"}}},
+		{Name: "miss", Panes: []tmux.PaneInfo{{PaneID: "%24"}}},
+		{Name: "no-panes"},
+	}
+	joinWatchlist(windows, byPane)
+
+	hit := windows[0]
+	if !hit.Monitored || hit.MonitoredChange != "gmcp" || hit.MonitoredStage != "active" ||
+		hit.MonitoredRepo != "/r" || hit.MonitoredBranch != "feat/gmcp" || hit.MonitoredAgent != "active" {
+		t.Errorf("hit window = %+v, want Monitored with the gmcp entry's fields", hit)
+	}
+	for _, w := range windows[1:] {
+		if w.Monitored || w.MonitoredChange != "" || w.MonitoredStage != "" {
+			t.Errorf("window %q = %+v, want zero values", w.Name, w)
+		}
+	}
+
+	// A nil watchlist (absent operator-state file) is a no-op.
+	joinWatchlist(windows, nil)
+	if windows[0].MonitoredChange != "gmcp" {
+		t.Error("nil watchlist mutated the windows")
+	}
+}
+
+// TestOperatorStaleness pins the threshold rule (R8): stale past
+// DefaultWatchlistStaleThreshold, fresh within it, never stale when absent.
+func TestOperatorStaleness(t *testing.T) {
+	now := time.Now().Unix()
+	threshold := int64(cron.DefaultWatchlistStaleThreshold / time.Second)
+	if !operatorStaleness(now-threshold-1, now) {
+		t.Error("one second past the threshold should be stale")
+	}
+	if operatorStaleness(now-threshold+1, now) {
+		t.Error("within the threshold should be fresh")
+	}
+	if operatorStaleness(now, now) {
+		t.Error("a tick at now should be fresh")
+	}
+	if operatorStaleness(0, now) {
+		t.Error("an absent stamp (0) is never stale — nothing to be stale about")
+	}
+}
+
+// TestProjectSessionOperatorStalenessJSON pins the payload contract: the
+// per-server staleness facts ride every ProjectSession marshal identically
+// (omitempty keeps them off when the operator-state file is absent).
+func TestProjectSessionOperatorStalenessJSON(t *testing.T) {
+	stale, err := json.Marshal(ProjectSession{
+		Name: "s1", Windows: []tmux.WindowInfo{},
+		OperatorLastTickAt: 1700000000, OperatorStale: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(stale), `"operatorLastTickAt":1700000000`) || !strings.Contains(string(stale), `"operatorStale":true`) {
+		t.Errorf("stale session JSON missing operator facts: %s", stale)
+	}
+
+	fresh, err := json.Marshal(ProjectSession{Name: "s2", Windows: []tmux.WindowInfo{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(fresh), "operatorLastTickAt") || strings.Contains(string(fresh), "operatorStale") {
+		t.Errorf("absent operator-state file must omit both keys: %s", fresh)
 	}
 }

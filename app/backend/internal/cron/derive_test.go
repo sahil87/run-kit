@@ -1,0 +1,131 @@
+package cron
+
+import (
+	"testing"
+	"time"
+)
+
+func backoffEntry() Entry {
+	return Entry{
+		ID:       "a3f9",
+		Schedule: Schedule{Kind: ScheduleBackoff, Anchor: "operator-idle", Min: Duration{Duration: 60 * time.Second}, Max: Duration{Duration: 30 * time.Minute}},
+		Target:   Target{Kind: TargetRole, Role: RoleOperator},
+	}
+}
+
+// TestDeriveEntryBackoffScenario is R1's worked scenario projected through
+// DeriveEntry: deliveries at T+1m and T+3m, raw idle epoch 5s after T+3m,
+// derived at T+3m+10s ⇒ rung 3, next-fire T+7m — the exact JoinAnchor/Ladder
+// result the Backoff anchor-join scenario pins (no reimplementation, no
+// divergence).
+func TestDeriveEntryBackoffScenario(t *testing.T) {
+	T := backoffBase
+	e := backoffEntry()
+	log := own(unix(T, time.Minute), unix(T, 3*time.Minute))
+	facts := TargetFacts{PaneID: "%5", AgentState: "idle", StateEpoch: unix(T, 3*time.Minute+5*time.Second)}
+
+	d := DeriveEntry(e, log, facts, T.Add(3*time.Minute+10*time.Second))
+	if !d.HasNextFire {
+		t.Fatal("HasNextFire = false, want true")
+	}
+	if want := T.Add(7 * time.Minute); !d.NextFire.Equal(want) {
+		t.Errorf("NextFire = %v, want %v", d.NextFire, want)
+	}
+	if d.Rung != 3 {
+		t.Errorf("Rung = %d, want 3 (the rung of the upcoming fire)", d.Rung)
+	}
+	if d.Orphaned {
+		t.Error("Orphaned = true, want false (target resolved)")
+	}
+	if want := unix(T, 3*time.Minute); d.LastFired != want {
+		t.Errorf("LastFired = %d, want %d", d.LastFired, want)
+	}
+}
+
+// TestDeriveEntryEvery: next-fire is anchor + interval — the newest delivery,
+// else created_by.at — and rung is always 0.
+func TestDeriveEntryEvery(t *testing.T) {
+	T := backoffBase
+	e := Entry{
+		ID:        "a3f9",
+		Schedule:  Schedule{Kind: ScheduleEvery, Interval: Duration{Duration: time.Hour}},
+		Target:    Target{Kind: TargetRole, Role: RoleOperator},
+		CreatedBy: CreatedBy{At: unix(T, -2*time.Hour)},
+	}
+	facts := TargetFacts{PaneID: "%5", AgentState: "idle", StateEpoch: unix(T, 0)}
+
+	// Newest delivery at T, derived at T+30m ⇒ next-fire T+1h.
+	log := own(unix(T, 0))
+	d := DeriveEntry(e, log, facts, T.Add(30*time.Minute))
+	if !d.HasNextFire || !d.NextFire.Equal(T.Add(time.Hour)) {
+		t.Errorf("NextFire = %v (has %v), want %v", d.NextFire, d.HasNextFire, T.Add(time.Hour))
+	}
+	if d.Rung != 0 {
+		t.Errorf("Rung = %d, want 0 for every", d.Rung)
+	}
+	if d.LastFired != unix(T, 0) {
+		t.Errorf("LastFired = %d, want %d", d.LastFired, unix(T, 0))
+	}
+
+	// No deliveries ⇒ the anchor is created_by.at.
+	d = DeriveEntry(e, nil, facts, T)
+	if want := time.Unix(e.CreatedBy.At, 0).Add(time.Hour); !d.HasNextFire || !d.NextFire.Equal(want) {
+		t.Errorf("pre-delivery NextFire = %v (has %v), want created_by.at+interval %v", d.NextFire, d.HasNextFire, want)
+	}
+	if d.LastFired != 0 {
+		t.Errorf("LastFired = %d, want 0 (never delivered)", d.LastFired)
+	}
+}
+
+// TestDeriveEntryCronKindNeverFabricates: a cron-kind (5-field expression)
+// entry reports no next-fire (unevaluated this wave), never a fabricated time.
+func TestDeriveEntryCronKindNeverFabricates(t *testing.T) {
+	e := Entry{
+		ID:       "a3f9",
+		Schedule: Schedule{Kind: ScheduleCron, Expr: "0 3 * * *"},
+		Target:   Target{Kind: TargetRole, Role: RoleOperator},
+	}
+	facts := TargetFacts{PaneID: "%5", AgentState: "idle", StateEpoch: backoffBase.Unix()}
+	d := DeriveEntry(e, own(backoffBase.Unix()), facts, backoffBase)
+	if d.HasNextFire || !d.NextFire.IsZero() {
+		t.Errorf("cron-kind NextFire = %v (has %v), want none", d.NextFire, d.HasNextFire)
+	}
+	if d.Rung != 0 {
+		t.Errorf("cron-kind Rung = %d, want 0", d.Rung)
+	}
+}
+
+// TestDeriveEntryOrphaned: an unresolved target is orphaned, and a backoff
+// entry's next-fire is unknowable without the anchor epoch.
+func TestDeriveEntryOrphaned(t *testing.T) {
+	T := backoffBase
+	e := backoffEntry()
+	log := own(unix(T, time.Minute))
+	unresolved := TargetFacts{Unresolved: "no window carries role operator"}
+
+	d := DeriveEntry(e, log, unresolved, T)
+	if !d.Orphaned {
+		t.Error("Orphaned = false, want true for an unresolved target")
+	}
+	if d.HasNextFire {
+		t.Errorf("HasNextFire = true with an unresolved target, want false (anchor unknowable)")
+	}
+	if d.Rung != 0 {
+		t.Errorf("Rung = %d, want 0 with an unresolved target", d.Rung)
+	}
+	// Last-fired still derives from the log — delivery history survives an
+	// unresolved target.
+	if want := unix(T, time.Minute); d.LastFired != want {
+		t.Errorf("LastFired = %d, want %d", d.LastFired, want)
+	}
+
+	// A resolved target carrying no agent-state epoch is not orphaned but
+	// still cannot anchor a backoff ladder.
+	d = DeriveEntry(e, log, TargetFacts{PaneID: "%5", AgentState: "unknown"}, T)
+	if d.Orphaned {
+		t.Error("Orphaned = true for a resolved target, want false")
+	}
+	if d.HasNextFire {
+		t.Error("HasNextFire = true with StateEpoch 0, want false")
+	}
+}

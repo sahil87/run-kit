@@ -46,6 +46,14 @@ func (realTmux) PaneExists(ctx context.Context, paneID, server string) (bool, er
 	return tmux.PaneExists(ctx, paneID, server)
 }
 
+// GatherFactsLive is the production GatherFacts binding — the real tmux seam
+// (internal/tmux via realTmux, which stays package-private so tests keep
+// substituting fakes). Callers outside this package (the HTTP API wave) use
+// it; anything else injects its own TmuxSeam.
+func GatherFactsLive(ctx context.Context, server string, entries []Entry) ServerFacts {
+	return GatherFacts(ctx, server, entries, realTmux{})
+}
+
 // ServerFacts is one live server's derived state: the agent-state fingerprint
 // (wake_on input), per-entry resolved target facts, and skip diagnostics.
 type ServerFacts struct {

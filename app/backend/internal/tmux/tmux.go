@@ -752,6 +752,17 @@ type WindowInfo struct {
 	FabChange       string `json:"fabChange,omitempty"`
 	FabStage        string `json:"fabStage,omitempty"`
 	FabDisplayState string `json:"fabDisplayState,omitempty"` // pipeline state of the displayed stage; empty when fab reports null/omits the field
+	// Monitored* are the operator-watchlist tier: FetchSessions joins the fab
+	// operator state file's monitored: map onto each window by pane ID (one
+	// file read per fetch, rk-side — the frontend never touches the fab-owned
+	// file). Monitored is true when any pane's PaneID matches a watchlist
+	// entry's pane; the remaining fields carry that entry's values.
+	Monitored       bool   `json:"monitored,omitempty"`
+	MonitoredChange string `json:"monitoredChange,omitempty"` // the monitored map's key
+	MonitoredStage  string `json:"monitoredStage,omitempty"`
+	MonitoredRepo   string `json:"monitoredRepo,omitempty"`
+	MonitoredBranch string `json:"monitoredBranch,omitempty"`
+	MonitoredAgent  string `json:"monitoredAgent,omitempty"`
 	// PR fields. PrURL/PrNumber are branch-derived in FetchSessions via
 	// prstatus (enrichWindowPR — Layer 1), which also seeds PrState/PrIsDraft.
 	// PrChecks/PrReview are attached by the SSE hub from the

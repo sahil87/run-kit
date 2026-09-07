@@ -17,6 +17,7 @@ import (
 	"github.com/go-chi/cors"
 
 	"rk/internal/config"
+	"rk/internal/cron"
 	"rk/internal/metrics"
 	"rk/internal/ports"
 	"rk/internal/prstatus"
@@ -263,6 +264,12 @@ type Server struct {
 	// nowFn is a clock seam (defaults to time.Now) so throttle behavior is
 	// deterministically testable without real sleeps.
 	nowFn func() time.Time
+
+	// cronFactsFn gathers per-entry resolved-target facts for GET /api/cron —
+	// a live tmux read (production wires cron.GatherFactsLive). Nil (the test
+	// router) degrades to no facts: every entry derives orphaned with no
+	// backoff next-fire.
+	cronFactsFn func(ctx context.Context, server string, entries []cron.Entry) cron.ServerFacts
 
 	// tintCacheMu guards tintCache.
 	tintCacheMu sync.Mutex
@@ -736,6 +743,7 @@ func NewRouterAndServer(ctx context.Context, logger *slog.Logger) (chi.Router, *
 		metrics:         mc,
 		services:        svc,
 		prStatus:        pc,
+		cronFactsFn:     cron.GatherFactsLive,
 	}
 	// Wire the two on-demand PR-refresh kicks for POST /api/status/refresh. The
 	// collector kick nil-guards its own pointer (a partially-wired server may
@@ -822,6 +830,13 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/boards/{name}/pin", s.handleBoardPin)
 	r.Post("/api/boards/{name}/unpin", s.handleBoardUnpin)
 	r.Post("/api/boards/{name}/reorder", s.handleBoardReorder)
+	// Cron — server-scoped schedule entries: entries + derived facts (GET) and
+	// the create/delete/mute mutations (POST per §IX), each mutation waking the
+	// SSE hub explicitly (file writes emit no tmux event). See api/cron.go.
+	r.Get("/api/cron", s.handleCronList)
+	r.Post("/api/cron/create", s.handleCronCreate)
+	r.Post("/api/cron/delete", s.handleCronDelete)
+	r.Post("/api/cron/mute", s.handleCronMute)
 	r.Post("/api/sessions/{session}/color", s.handleSessionColor)
 	r.Post("/api/sessions/{session}/flair", s.handleSessionFlair)
 	r.Post("/api/sessions/{session}/kill", s.handleSessionKill)

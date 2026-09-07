@@ -796,7 +796,11 @@ test.describe("Operator console", () => {
     await page.getByRole("tab", { name: "Appearance" }).click();
     const slider = page.getByRole("slider", { name: "Operator console opacity" });
     await expect(slider).toBeVisible();
-    await slider.click();
+    // .focus() (not .click()) — a click anywhere on the track jumps the
+    // thumb to that position, coupling this test's expected value to the
+    // slider's min/max width; focusing preserves the current 0.9 so a single
+    // ArrowDown is a deterministic one-step decrement regardless of range.
+    await slider.focus();
     await slider.press("ArrowDown");
     await expect.poll(readAlpha).toBe(0.85);
     await expect

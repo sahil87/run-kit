@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, act, waitFor } from "@testing-library/react";
 import { OperatorConsole, OperatorConsoleTongue } from "./operator-console";
@@ -206,7 +207,8 @@ describe("OperatorConsole", () => {
     expect(screen.getByTestId("operator-console")).toBeInTheDocument();
 
     fireEvent.click(document.body);
-    expect(getConsoleMachineState()).toBe("rest");
+    // The collapse is deferred past a settle timeout — not synchronous.
+    await waitFor(() => expect(getConsoleMachineState()).toBe("rest"));
     await waitFor(() => expect(screen.queryByTestId("operator-console")).toBeNull());
   });
 
@@ -216,6 +218,7 @@ describe("OperatorConsole", () => {
     const drawer = screen.getByTestId("operator-console");
 
     fireEvent.click(drawer);
+    await new Promise((r) => setTimeout(r, 10));
     expect(getConsoleMachineState()).toBe("open");
     expect(screen.getByTestId("operator-console")).toBeInTheDocument();
   });
@@ -237,9 +240,41 @@ describe("OperatorConsole", () => {
     render(<RetargetButton />);
     fireEvent.click(screen.getByRole("button", { name: "retarget" }));
 
-    // The trigger's own click handler re-asserts "open" within the same
-    // synchronous click dispatch that the outside-collapse capture listener
-    // observed — the outside collapse must not win.
+    // The trigger's own click handler re-asserts "open" (bumping machine
+    // activity even though the value is unchanged) during the SAME click's
+    // bubble phase, which the outside-collapse's capture-phase snapshot ran
+    // ahead of — the deferred settle check sees activity moved and backs off.
+    await new Promise((r) => setTimeout(r, 10));
+    expect(getConsoleMachineState()).toBe("open");
+    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
+  });
+
+  it("a click that opens an unrelated dialog does not collapse the console", async () => {
+    renderConsole();
+    openDrawer();
+
+    function DialogTrigger() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Open settings
+          </button>
+          {open && (
+            <div role="dialog" data-testid="fake-settings-dialog">
+              settings
+            </div>
+          )}
+        </>
+      );
+    }
+    render(<DialogTrigger />);
+    fireEvent.click(screen.getByRole("button", { name: "Open settings" }));
+
+    // The dialog mounts (React commits) before the settle timeout fires;
+    // the settle check finds it and skips the collapse.
+    await screen.findByTestId("fake-settings-dialog");
+    await new Promise((r) => setTimeout(r, 10));
     expect(getConsoleMachineState()).toBe("open");
     expect(screen.getByTestId("operator-console")).toBeInTheDocument();
   });

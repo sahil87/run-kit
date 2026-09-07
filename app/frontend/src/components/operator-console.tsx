@@ -18,6 +18,7 @@ import {
   clampConsoleGeometry,
   cycleConsoleMachine,
   findOperatorWindow,
+  getConsoleMachineActivity,
   isOperatorConsoleRequest,
   isOperatorConsoleTarget,
   requestOperatorConsole,
@@ -375,16 +376,49 @@ export function OperatorConsole() {
   // above), so it never closes on its own — a click landing outside the
   // console's own DOM (the drawer + the top-bar omnibox both carry
   // OPERATOR_CONSOLE_ROOT_ATTR) collapses it, same destination as the header
-  // button. Capture phase runs this BEFORE any entry-point trigger's own
-  // onClick (the top-bar button's open⇄rest toggle, a sidebar pinned row's
-  // retarget) — those still land correctly since they run within the same
-  // synchronous click dispatch and unconditionally re-set the machine
-  // themselves, so this handler's `rest` never outlives their own write.
+  // button. Two things a plain "collapse on any outside click" would get
+  // wrong, both handled below by DEFERRING the decision rather than acting
+  // inline:
+  //   (1) An entry-point trigger outside the console's DOM (the top-bar ◉
+  //       button's own open⇄rest toggle, a sidebar row's retarget) reads and
+  //       re-writes the machine itself in response to the SAME click — the
+  //       collapse must never race that write. Capturing
+  //       `getConsoleMachineActivity()` in the CAPTURE phase (before the
+  //       trigger's own bubble-phase onClick runs) and re-checking it after a
+  //       macrotask settle catches this: if the trigger's handler already
+  //       changed activity — even a same-VALUE re-open, e.g. a sidebar
+  //       retarget while already `open`, which is a no-op by value but still
+  //       increments activity — this handler backs off and leaves whatever
+  //       that handler decided standing.
+  //   (2) A click that opens an unrelated modal (the settings dialog, the
+  //       command palette) is outside the console's DOM but must NOT
+  //       collapse it — the settings dialog in particular needs the console
+  //       to stay open so its opacity control can live-apply. The trigger
+  //       button itself carries no marker (it's a plain top-bar button), so
+  //       this checks for ANY currently-open `role="dialog"` at settle time
+  //       instead of the clicked target's ancestry — a modal owns the
+  //       interaction while open, so the console holding still behind it is
+  //       the correct call regardless of where inside (or outside) the
+  //       dialog the click landed.
+  // A macrotask (not a microtask) is the settle mechanism: it runs after
+  // React has committed and painted the triggering click's own state update
+  // (mounting the settings dialog's DOM, or the top-bar button's own
+  // re-render), which a same-tick microtask cannot reliably guarantee.
   useEffect(() => {
     if (machine !== "open") return;
     function onClickCapture(e: MouseEvent) {
       if (isOperatorConsoleTarget(e.target)) return;
-      setConsoleMachineState("rest");
+      const activityAtClick = getConsoleMachineActivity();
+      setTimeout(() => {
+        if (getConsoleMachineActivity() !== activityAtClick) return;
+        // The drawer itself carries role="dialog" — only an UNRELATED open
+        // dialog (settings, palette) should hold the collapse back.
+        const dialogs = document.querySelectorAll('[role="dialog"]');
+        for (const d of dialogs) {
+          if (!isOperatorConsoleTarget(d)) return;
+        }
+        setConsoleMachineState("rest");
+      }, 0);
     }
     document.addEventListener("click", onClickCapture, true);
     return () => document.removeEventListener("click", onClickCapture, true);

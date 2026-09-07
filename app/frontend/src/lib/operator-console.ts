@@ -330,11 +330,23 @@ export type ConsoleMachineState = "rest" | "focused" | "open";
 let machineState: ConsoleMachineState = "rest";
 const machineListeners = new Set<(state: ConsoleMachineState) => void>();
 
+/** Bumped on every `setConsoleMachineState` call, including a same-value
+ *  no-op — the outside-click-collapse effect's "did anything else already
+ *  claim this click" signal (a value-equality check alone would miss a
+ *  legitimate same-value re-open, e.g. a sidebar retarget while already
+ *  `open`). */
+let machineActivity = 0;
+
 export function getConsoleMachineState(): ConsoleMachineState {
   return machineState;
 }
 
+export function getConsoleMachineActivity(): number {
+  return machineActivity;
+}
+
 export function setConsoleMachineState(next: ConsoleMachineState): void {
+  machineActivity++;
   if (machineState === next) return;
   machineState = next;
   for (const listener of machineListeners) listener(next);

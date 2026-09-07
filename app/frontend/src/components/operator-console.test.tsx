@@ -200,6 +200,50 @@ describe("OperatorConsole", () => {
     await waitFor(() => expect(screen.queryByTestId("operator-console")).toBeNull());
   });
 
+  it("a click outside the console's DOM collapses the open drawer to rest", async () => {
+    renderConsole();
+    openDrawer();
+    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
+
+    fireEvent.click(document.body);
+    expect(getConsoleMachineState()).toBe("rest");
+    await waitFor(() => expect(screen.queryByTestId("operator-console")).toBeNull());
+  });
+
+  it("a click inside the drawer does not collapse it", async () => {
+    renderConsole();
+    openDrawer();
+    const drawer = screen.getByTestId("operator-console");
+
+    fireEvent.click(drawer);
+    expect(getConsoleMachineState()).toBe("open");
+    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
+  });
+
+  it("a real DOM click on an outside trigger that re-opens/retargets the console wins over the outside-click collapse", async () => {
+    renderConsole();
+    openDrawer();
+
+    function RetargetButton() {
+      return (
+        <button
+          type="button"
+          onClick={() => requestOperatorConsole({ action: "open", server: "srv1" })}
+        >
+          retarget
+        </button>
+      );
+    }
+    render(<RetargetButton />);
+    fireEvent.click(screen.getByRole("button", { name: "retarget" }));
+
+    // The trigger's own click handler re-asserts "open" within the same
+    // synchronous click dispatch that the outside-collapse capture listener
+    // observed — the outside collapse must not win.
+    expect(getConsoleMachineState()).toBe("open");
+    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
+  });
+
   it("the desktop drawer is output-only — no compose strip, status line at its top edge", async () => {
     renderConsole();
     openDrawer();

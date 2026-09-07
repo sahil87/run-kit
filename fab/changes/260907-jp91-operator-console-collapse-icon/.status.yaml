@@ -1,0 +1,54 @@
+id: jp91
+name: 260907-jp91-operator-console-collapse-icon
+created: 2026-09-07T08:41:11Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 5
+    acceptance_count: 10
+    acceptance_completed: 10
+confidence:
+    certain: 5
+    confident: 0
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 75.0
+        reversibility: 94.0
+        competence: 97.0
+        disambiguation: 94.0
+stage_metrics:
+    intake: {started_at: "2026-09-07T08:41:11Z", driver: fab-new, iterations: 1, completed_at: "2026-09-07T08:56:10Z"}
+    apply: {started_at: "2026-09-07T08:56:10Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-07T08:57:01Z"}
+    review: {started_at: "2026-09-07T08:57:01Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-07T09:00:52Z"}
+    hydrate: {started_at: "2026-09-07T09:00:52Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-07T09:03:21Z"}
+    ship: {started_at: "2026-09-07T09:03:21Z", driver: fab-fff, iterations: 1}
+prs: []
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-07T09:03:21Z"
+    computed_at_stage: hydrate
+summary: 'Operator console: collapse icon (▼ not ✕), outside-click-to-collapse, opacity range widened to 0.5-1.0'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-07T09:03:21Z

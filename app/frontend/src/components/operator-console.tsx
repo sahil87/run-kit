@@ -19,6 +19,7 @@ import {
   cycleConsoleMachine,
   findOperatorWindow,
   isOperatorConsoleRequest,
+  isOperatorConsoleTarget,
   requestOperatorConsole,
   resolveConsoleServer,
   resolveFromOrigin,
@@ -60,8 +61,10 @@ const NO_OPERATOR_HINT = "no operator on this server — run rk operator";
  * → open (drawer down — a peek, nothing sent) → rest. Enter in the omnibox
  * sends and auto-opens; Esc steps back one level (open → focused → rest); the
  * palette action and the pinned row land straight on open+focused; the ◉
- * button maps open ⇄ rest. The machine is the controlling state — the
- * drawer's internal open flag follows it through the slide machinery.
+ * button maps open ⇄ rest; a click outside the console's own DOM (the drawer
+ * or the omnibox) collapses straight to rest, same as the header button. The
+ * machine is the controlling state — the drawer's internal open flag follows
+ * it through the slide machinery.
  *
  * On MOBILE there is no drawer at all: every request resolves the operator
  * window and NAVIGATES to its ordinary terminal route, reusing that route's
@@ -79,7 +82,7 @@ const NO_OPERATOR_HINT = "no operator on this server — run rk operator";
  *
  * Anatomy (desktop): a title strip (◉ OPERATOR · server, the operator
  * window's live agent state from the sessions payload, a server picker on
- * param-less multi-server routes, a close affordance) and an embedded LIVE
+ * param-less multi-server routes, a collapse affordance) and an embedded LIVE
  * terminal view of the operator window (a plain TerminalClient over the
  * shared /ws/terminals relay mux — the same mechanism a board pane uses,
  * registerFocus off so the BottomBar keeps its target, `transparent` on so
@@ -368,6 +371,25 @@ export function OperatorConsole() {
     return () => document.removeEventListener("keydown", onKey);
   }, [open, machine]);
 
+  // Click outside: the drawer is a peek that survives omnibox blur (see
+  // above), so it never closes on its own — a click landing outside the
+  // console's own DOM (the drawer + the top-bar omnibox both carry
+  // OPERATOR_CONSOLE_ROOT_ATTR) collapses it, same destination as the header
+  // button. Capture phase runs this BEFORE any entry-point trigger's own
+  // onClick (the top-bar button's open⇄rest toggle, a sidebar pinned row's
+  // retarget) — those still land correctly since they run within the same
+  // synchronous click dispatch and unconditionally re-set the machine
+  // themselves, so this handler's `rest` never outlives their own write.
+  useEffect(() => {
+    if (machine !== "open") return;
+    function onClickCapture(e: MouseEvent) {
+      if (isOperatorConsoleTarget(e.target)) return;
+      setConsoleMachineState("rest");
+    }
+    document.addEventListener("click", onClickCapture, true);
+    return () => document.removeEventListener("click", onClickCapture, true);
+  }, [machine]);
+
   const rendered = open || closing;
 
   const target = useMemo(
@@ -596,11 +618,11 @@ export function OperatorConsole() {
         )}
         <button
           type="button"
-          aria-label="Close operator console"
+          aria-label="Collapse operator console"
           onClick={() => setConsoleMachineState("rest")}
           className="rk-glint ml-auto shrink-0 inline-flex items-center justify-center rounded px-1 text-text-secondary hover:text-text-primary transition-colors coarse:min-h-[36px] coarse:min-w-[36px]"
         >
-          ✕
+          ▼
         </button>
       </div>
       {/* The status line: the inline-error contract relocated to the

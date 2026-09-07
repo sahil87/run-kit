@@ -133,7 +133,7 @@ export function OperatorOmnibox({ routeServer }: { routeServer: string | null })
       const el = restoreFocusRef.current;
       restoreFocusRef.current = null;
       // The box hands focus back only when it still HAS it — the release came
-      // from Esc, the chord, or the ✕. A release caused by the user focusing
+      // from Esc, the chord, or the collapse button. A release caused by the user focusing
       // something else (a terminal pane) already has its owner; acting here
       // would steal the keystrokes it is about to receive.
       if (document.activeElement !== inputRef.current) return;

@@ -240,7 +240,7 @@ function AccentColorControl() {
 /** Operator console opacity: the desktop drawer's glass background. A
  *  per-viewer localStorage resident like the terminal font — NOT a registry
  *  key (the registry is per-instance daemon config; glass is per-eye). The
- *  slider honors the 0.75–1.0 clamp; 100% disables the backdrop blur
+ *  slider honors the 0.5–1.0 clamp; 100% disables the backdrop blur
  *  entirely. The open console reflects changes live via the store's pub/sub. */
 function ConsoleOpacityControl() {
   const [opacity, setOpacity] = useConsoleOpacity();

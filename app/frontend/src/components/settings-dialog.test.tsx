@@ -350,9 +350,9 @@ describe("SettingsDialog", () => {
     selectTab("Appearance");
 
     const slider = screen.getByRole("slider", { name: "Operator console opacity" });
-    // Default 0.90, clamped 0.75–1.0.
+    // Default 0.90, clamped 0.5–1.0.
     expect(slider).toHaveValue("0.9");
-    expect(slider).toHaveAttribute("min", "0.75");
+    expect(slider).toHaveAttribute("min", "0.5");
     expect(slider).toHaveAttribute("max", "1");
 
     fireEvent.change(slider, { target: { value: "0.8" } });

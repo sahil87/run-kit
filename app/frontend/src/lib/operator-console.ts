@@ -170,7 +170,7 @@ export const CONSOLE_WIDTH_MIN_PX = 420;
 export const CONSOLE_WIDTH_MAX_VW = 0.96;
 
 export const CONSOLE_OPACITY_DEFAULT = 0.9;
-export const CONSOLE_OPACITY_MIN = 0.75;
+export const CONSOLE_OPACITY_MIN = 0.5;
 export const CONSOLE_OPACITY_MAX = 1.0;
 
 function viewportWidthPx(): number | undefined {
@@ -190,7 +190,7 @@ export function clampConsoleGeometry(
   return { heightVh, widthPx: Math.round(widthPx) };
 }
 
-/** Clamp opacity into the supported envelope (0.75–1.0). */
+/** Clamp opacity into the supported envelope (0.5–1.0). */
 export function clampConsoleOpacity(opacity: number): number {
   return Math.min(CONSOLE_OPACITY_MAX, Math.max(CONSOLE_OPACITY_MIN, opacity));
 }

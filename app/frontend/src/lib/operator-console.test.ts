@@ -308,11 +308,11 @@ describe("console opacity store", () => {
     expect(readConsoleOpacity()).toBe(CONSOLE_OPACITY_DEFAULT);
   });
 
-  it("clamps into 0.75–1.0", () => {
-    expect(clampConsoleOpacity(0.2)).toBe(0.75);
+  it("clamps into 0.5–1.0", () => {
+    expect(clampConsoleOpacity(0.2)).toBe(0.5);
     expect(clampConsoleOpacity(1.4)).toBe(1.0);
-    localStorage.setItem(CONSOLE_OPACITY_KEY, "0.5");
-    expect(readConsoleOpacity()).toBe(0.75);
+    localStorage.setItem(CONSOLE_OPACITY_KEY, "0.3");
+    expect(readConsoleOpacity()).toBe(0.5);
   });
 });
 

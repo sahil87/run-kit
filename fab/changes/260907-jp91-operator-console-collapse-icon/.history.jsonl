@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-07T08:41:11Z"}
+{"args":"Operator console header X icon is misleading — clicking it collapses/dismisses the floating drawer without destroying the underlying session, but the close-glyph implies destructive close. Swap to a collapse-appropriate icon matching the CollapsiblePanel chevron convention.","cmd":"fab-new","event":"command","ts":"2026-09-07T08:41:12Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-09-07T08:42:17Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-09-07T08:50:47Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-07T08:54:48Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-07T08:56:10Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-07T08:57:01Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-07T09:00:52Z"}
+{"event":"review","result":"passed","ts":"2026-09-07T09:00:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-07T09:03:21Z"}

@@ -22,6 +22,8 @@ type cronRespawnStub struct {
 	calls       [][]string // recorded tmux argv (post-prefix)
 	envs        [][]string
 	listOutput  string
+	spawnedLine string // extra list-windows line once new-window ran (the created window)
+	created     bool
 	runOutErr   error
 	launcherDir string
 
@@ -35,6 +37,7 @@ type cronRespawnStub struct {
 	delivered   bool
 
 	notifyCalls []string
+	notifyURLs  []string
 	notifyErr   error
 }
 
@@ -59,8 +62,13 @@ func stubCronRespawnSeams(t *testing.T, listOutput string) *cronRespawnStub {
 		}
 		switch verb {
 		case "list-windows":
-			return []byte(s.listOutput), nil
+			out := s.listOutput
+			if s.created && s.spawnedLine != "" {
+				out += s.spawnedLine
+			}
+			return []byte(out), nil
 		case "new-window":
+			s.created = true
 			return []byte(operatorTestPane + "\n"), nil
 		case "display-message":
 			return []byte(operatorTestWindow + "\n"), nil
@@ -81,8 +89,9 @@ func stubCronRespawnSeams(t *testing.T, listOutput string) *cronRespawnStub {
 		return s.readiness, s.deliverErr
 	}
 	origNotify := cronRespawnNotifyFn
-	cronRespawnNotifyFn = func(_ context.Context, title, body, _ string) error {
+	cronRespawnNotifyFn = func(_ context.Context, title, body, url string) error {
 		s.notifyCalls = append(s.notifyCalls, title+" | "+body)
+		s.notifyURLs = append(s.notifyURLs, url)
 		return s.notifyErr
 	}
 	origClear, origRoleRun := roleClearExceptFn, roleRunFn
@@ -239,7 +248,30 @@ func TestCronRespawnWallsEscalate(t *testing.T) {
 			if !strings.Contains(s.notifyCalls[0], "operator tick") || !strings.Contains(s.notifyCalls[0], "work") {
 				t.Errorf("notify = %q, want it naming the entry and server", s.notifyCalls[0])
 			}
+			if s.notifyURLs[0] != "" {
+				t.Errorf("notify url = %q, want empty (no live operator window resolves)", s.notifyURLs[0])
+			}
 		})
+	}
+}
+
+// TestCronRespawnEscalationDeepLink: a delivery wall hit AFTER the window was
+// created leaves a live operator window, so the escalation notify carries the
+// activity-tab deep link to it.
+func TestCronRespawnEscalationDeepLink(t *testing.T) {
+	s := stubCronRespawnSeams(t, "@3\t\tother\n")
+	s.spawnedLine = operatorTestWindow + "\toperator\toperator\n"
+	s.readiness, s.deliverErr = 0, inject.ErrGone
+
+	outcome := rkCronRespawnRole(context.Background(), respawnTestFire("work"))
+	if outcome.Status != "respawn-failed" {
+		t.Fatalf("outcome = %+v, want respawn-failed", outcome)
+	}
+	if len(s.notifyCalls) != 1 {
+		t.Fatalf("notify calls = %v, want exactly one escalation", s.notifyCalls)
+	}
+	if want := "/work/42?tab=activity"; s.notifyURLs[0] != want {
+		t.Errorf("notify url = %q, want %q", s.notifyURLs[0], want)
 	}
 }
 

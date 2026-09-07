@@ -1,0 +1,55 @@
+id: yxen
+name: 260907-yxen-mobile-cron-activity-feed
+created: 2026-09-07T09:42:14Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 20
+    acceptance_count: 25
+    acceptance_completed: 25
+confidence:
+    certain: 3
+    confident: 7
+    tentative: 0
+    unresolved: 0
+    score: 3.2
+    fuzzy: true
+    dimensions:
+        signal: 64.0
+        reversibility: 75.5
+        competence: 74.5
+        disambiguation: 66.5
+stage_metrics:
+    intake: {started_at: "2026-09-07T09:42:14Z", driver: fab-new, iterations: 1, completed_at: "2026-09-07T09:48:55Z"}
+    apply: {started_at: "2026-09-07T09:48:55Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-07T10:08:25Z"}
+    review: {started_at: "2026-09-07T10:08:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-07T10:12:36Z"}
+    hydrate: {started_at: "2026-09-07T10:12:36Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-07T10:18:34Z"}
+    ship: {started_at: "2026-09-07T10:18:34Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-07T10:18:34Z"
+    computed_at_stage: hydrate
+summary: 'Mobile cron Activity feed: POST /api/cron/pin, deliveries on GET /api/cron, notify deep-links (PushURL), ?tab=activity Terminal|Activity header, entry detail sheet, describeSchedule, Cron palette actions'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-07T10:18:34Z

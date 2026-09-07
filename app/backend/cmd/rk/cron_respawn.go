@@ -139,8 +139,21 @@ func cronRespawnEscalate(ctx context.Context, fire cron.Fire, detail string) cro
 	if name == "" {
 		name = fire.Entry.ID
 	}
-	if err := cronRespawnNotifyFn(ctx, "cron: "+name, fmt.Sprintf("operator respawn failed on %s: %s", fire.Server, detail), ""); err != nil {
+	url := cron.PushURL(fire.Server, cronRespawnOperatorWindow(ctx, fire.Server))
+	if err := cronRespawnNotifyFn(ctx, "cron: "+name, fmt.Sprintf("operator respawn failed on %s: %s", fire.Server, detail), url); err != nil {
 		slog.Warn("cron respawn escalation notify failed", "server", fire.Server, "entry", fire.Entry.ID, "err", err)
 	}
 	return cron.Outcome{Status: "respawn-failed", Detail: detail}
+}
+
+// cronRespawnOperatorWindow best-effort resolves the operator window for the
+// escalation's deep-link: a respawn that failed AFTER creating the window
+// (delivery wall) leaves a live operator window to link to. Any failure ⇒ ""
+// — the notify fires URL-less, never blocking the tick.
+func cronRespawnOperatorWindow(ctx context.Context, server string) string {
+	out, err := cronRespawnRunOutputFn(ctx, append(cronRespawnPrefix(server), "list-windows", "-a", "-F", operatorListFormat), nil)
+	if err != nil {
+		return ""
+	}
+	return findOperatorWindowID(string(out))
 }

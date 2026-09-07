@@ -111,3 +111,21 @@ describe("validateTerminalSearch (?from= pass-through)", () => {
     expect(validateTerminalSearch({ from: 5 }).from).toBeUndefined();
   });
 });
+
+// The `?tab=` param selects the mobile operator route's Terminal|Activity
+// segment — handled exactly like `?view=`: the two known values pass, anything
+// else is DROPPED (absent reads as "terminal"), never thrown.
+describe("validateTerminalSearch (?tab= drop)", () => {
+  it.each(["terminal", "activity"] as const)("accepts tab=%s", (tab) => {
+    expect(validateTerminalSearch({ tab })).toEqual({ tab });
+  });
+
+  it("drops an unknown value without throwing (?tab=bogus → tab undefined)", () => {
+    expect(() => validateTerminalSearch({ tab: "bogus" })).not.toThrow();
+    expect(validateTerminalSearch({ tab: "bogus" }).tab).toBeUndefined();
+  });
+
+  it("drops a non-string tab (?tab=1 → tab undefined)", () => {
+    expect(validateTerminalSearch({ tab: 1 }).tab).toBeUndefined();
+  });
+});

@@ -504,6 +504,46 @@ func TestTickIfAbsentNotifyFailSilent(t *testing.T) {
 	}
 }
 
+// TestTickIfAbsentNotifyDeepLink: the notify carries the operator window's
+// activity-tab deep link when a role:operator window resolves on the server,
+// and an empty url (tick completing normally) when none does.
+func TestTickIfAbsentNotifyDeepLink(t *testing.T) {
+	t.Run("operator window resolves", func(t *testing.T) {
+		dir := t.TempDir()
+		T := backoffBase
+		fk := absentRig(t, dir, T, "notify")
+		fk.windows["live1"]["work"] = append(fk.windows["live1"]["work"], tmux.WindowInfo{WindowID: "@7", Role: RoleOperator})
+
+		nt := &fakeNotifier{}
+		tickOnceN(t, dir, T, fk, &fakeDeliverer{}, nt.notify)
+		if len(nt.calls) != 1 {
+			t.Fatalf("notify calls = %d, want 1", len(nt.calls))
+		}
+		if want := "/live1/7?tab=activity"; nt.calls[0].url != want {
+			t.Errorf("notify url = %q, want %q", nt.calls[0].url, want)
+		}
+	})
+
+	t.Run("no operator window fires URL-less and the tick completes", func(t *testing.T) {
+		dir := t.TempDir()
+		T := backoffBase
+		fk := absentRig(t, dir, T, "notify")
+
+		nt := &fakeNotifier{}
+		res := tickOnceN(t, dir, T, fk, &fakeDeliverer{}, nt.notify)
+		if len(nt.calls) != 1 || nt.calls[0].url != "" {
+			t.Errorf("notify calls = %+v, want one URL-less call", nt.calls)
+		}
+		lines := ReadLog(filepath.Join(dir, "live1.log"))
+		if len(lines) != 1 || lines[0].Outcome != "notified-absent" {
+			t.Fatalf("log = %+v, want the notified-absent line", lines)
+		}
+		if res.Fires != 1 {
+			t.Errorf("fires = %d, want 1 (the tick completes normally)", res.Fires)
+		}
+	})
+}
+
 // TestTickDeliverLogCursor: one due entry delivers through the seam exactly
 // once, the log gains exactly one line with the outcome, and the cursor file
 // is written (R15).

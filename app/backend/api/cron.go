@@ -10,7 +10,8 @@ import (
 )
 
 // cron.go — the cron HTTP surface (docs/specs/cron.md § API & CLI): entries +
-// derived facts (GET /api/cron) and the create/delete/mute mutations. All
+// derived facts + recent deliveries (GET /api/cron) and the
+// create/delete/mute/pin mutations. All
 // schedule math lives in internal/cron (DeriveEntry reuses JoinAnchor /
 // Ladder.NextFire / everyAnchor / LastDelivery); this file is the thin JSON
 // translation layer over it. Unlike `rk cron list` (disk-only, zero tmux),
@@ -118,9 +119,48 @@ func cronLogDiagnostics(server string, diags []cron.Diagnostic) {
 	}
 }
 
+// maxCronDeliveries caps the recent-delivery projection on GET /api/cron —
+// the feed's practical scroll depth, well under the log's own trim posture.
+const maxCronDeliveries = 50
+
+// cronDeliveryJSON is the wire shape for one delivery-log line, with `name`
+// joined from the current entries (empty when the entry was since deleted).
+type cronDeliveryJSON struct {
+	TS      int64  `json:"ts"`
+	Entry   string `json:"entry"`
+	Name    string `json:"name,omitempty"`
+	Target  string `json:"target"`
+	Reason  string `json:"reason"`
+	Outcome string `json:"outcome"`
+}
+
+// cronDeliveriesToJSON projects the newest log lines (the log is
+// chronological, so the tail is newest) most-recent-first, capped at
+// maxCronDeliveries.
+func cronDeliveriesToJSON(log []cron.LogLine, entries []cron.Entry) []cronDeliveryJSON {
+	names := make(map[string]string, len(entries))
+	for _, e := range entries {
+		names[e.ID] = e.Name
+	}
+	out := make([]cronDeliveryJSON, 0, min(len(log), maxCronDeliveries))
+	for i := len(log) - 1; i >= 0 && len(out) < maxCronDeliveries; i-- {
+		l := log[i]
+		out = append(out, cronDeliveryJSON{
+			TS:      l.TS,
+			Entry:   l.Entry,
+			Name:    names[l.Entry],
+			Target:  l.Target,
+			Reason:  l.Reason,
+			Outcome: l.Outcome,
+		})
+	}
+	return out
+}
+
 // handleCronList serves GET /api/cron?server=<slug> — every entry joined with
-// its derived next-fire/rung/orphaned/last-fired. An absent or empty entry
-// file yields {"entries": []} at 200, never a 404.
+// its derived next-fire/rung/orphaned/last-fired, plus the recent delivery
+// log (most-recent-first, capped). An absent or empty entry/log file yields
+// {"entries": [], "deliveries": []} at 200, never a 404.
 func (s *Server) handleCronList(w http.ResponseWriter, r *http.Request) {
 	server := serverFromRequest(r)
 	dir, err := cron.DefaultDir()
@@ -162,7 +202,7 @@ func (s *Server) handleCronList(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, cronEntryToJSON(e, cron.DeriveEntry(e, log, f, now)))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"entries": out})
+	writeJSON(w, http.StatusOK, map[string]any{"entries": out, "deliveries": cronDeliveriesToJSON(log, entries)})
 }
 
 // cronCreateBody is the POST /api/cron/create body — the `rk cron add` schema
@@ -328,6 +368,43 @@ func (s *Server) handleCronMute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	found, err := cron.SetMuted(dir, server, body.ID, body.Muted)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !found {
+		writeError(w, http.StatusNotFound, "cron entry not found")
+		return
+	}
+
+	s.initSSEHub()
+	s.sseHub.wake(server)
+
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleCronPin serves POST /api/cron/pin ← {"id": "<4char>", "pinned":
+// <bool>}: set the flag via cron.SetPinned; unknown id ⇒ 404; success ⇒ 200
+// {"ok": true} + SSE wake.
+func (s *Server) handleCronPin(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ID     string `json:"id"`
+		Pinned bool   `json:"pinned"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body")
+		return
+	}
+	if body.ID == "" {
+		writeError(w, http.StatusBadRequest, "id is required")
+		return
+	}
+	server := serverFromRequest(r)
+	dir, ok := cronDirForMutation(w)
+	if !ok {
+		return
+	}
+	found, err := cron.SetPinned(dir, server, body.ID, body.Pinned)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

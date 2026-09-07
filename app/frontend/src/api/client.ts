@@ -1591,3 +1591,138 @@ export async function getRiffPresets(
   const data: { presets?: RiffPreset[]; tiers?: string[] } = await res.json();
   return { presets: data.presets ?? [], tiers: data.tiers ?? [] };
 }
+
+// --- Cron (the operator clock: entries + derived fire facts + delivery log) ---
+
+/** One cron schedule on the wire (the on-disk YAML's kind + params, camelCase).
+ *  Which param fields are populated depends on `kind`: every → `interval`,
+ *  backoff → `min`/`max`, cron → `expr`. */
+export interface CronSchedule {
+  kind: string;
+  interval?: string;
+  anchor?: string;
+  min?: string;
+  max?: string;
+  expr?: string;
+}
+
+/** Optional wake-on-event clause (`wake_on` in the entry file). */
+export interface CronWakeOn {
+  event: string;
+  scope?: string;
+  debounce?: string;
+}
+
+/** One cron entry as GET /api/cron serves it: the intent fields plus the
+ *  derived facts. `lastFired` is unix seconds, 0 = never; `nextFire` is
+ *  present only when the evaluator computed one (absent = "unknown"). */
+export interface CronEntry {
+  id: string;
+  name?: string;
+  schedule: CronSchedule;
+  wakeOn?: CronWakeOn;
+  target: { kind: string; role?: string; session?: string; pane?: string };
+  payload: string;
+  deliver?: string;
+  ifAbsent?: string;
+  pinned?: boolean;
+  muted?: boolean;
+  lastFired: number;
+  nextFire?: number;
+  rung?: number;
+  orphaned?: boolean;
+}
+
+/** One delivery-log line from GET /api/cron's `deliveries` array
+ *  (most-recent-first, capped server-side). `name` is joined from the entry
+ *  when it still exists — empty for a since-deleted entry. */
+export interface CronDelivery {
+  ts: number;
+  entry: string;
+  name?: string;
+  target: string;
+  reason: string;
+  outcome: string;
+}
+
+export interface CronListResponse {
+  entries: CronEntry[];
+  deliveries: CronDelivery[];
+}
+
+/** GET /api/cron?server=<slug> — the one read endpoint for everything cron on
+ *  a server (entries + derived fire facts + recent deliveries). Tolerant
+ *  parse: absent arrays read as empty. */
+export async function getCron(server: string): Promise<CronListResponse> {
+  const res = await deduplicatedFetch(withServer("/api/cron", server));
+  if (!res.ok) await throwOnError(res);
+  const data = (await res.json()) as { entries?: CronEntry[]; deliveries?: CronDelivery[] };
+  return { entries: data.entries ?? [], deliveries: data.deliveries ?? [] };
+}
+
+/** Body for POST /api/cron/create — the `rk cron add` schema fields in
+ *  camelCase. `target` defaults server-side only through validation, so the
+ *  caller always sends one (the dialog targets role "operator"). */
+export interface CronCreateBody {
+  name?: string;
+  schedule: CronSchedule;
+  target: { kind: string; role?: string; session?: string; pane?: string };
+  payload: string;
+  deliver?: string;
+  ifAbsent?: string;
+  pinned?: boolean;
+}
+
+/** POST /api/cron/create — 201 with the created entry (assigned id included);
+ *  a validation failure rejects with the server's 400 error text. */
+export async function createCron(server: string, body: CronCreateBody): Promise<CronEntry> {
+  const res = await fetch(withServer("/api/cron/create", server), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/** POST /api/cron/mute — `{id, muted}`. 404 on an unknown id. */
+export async function muteCron(
+  server: string,
+  id: string,
+  muted: boolean,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(withServer("/api/cron/mute", server), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, muted }),
+  });
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/** POST /api/cron/pin — `{id, pinned}`, mirroring mute's contract exactly.
+ *  404 on an unknown id. */
+export async function pinCron(
+  server: string,
+  id: string,
+  pinned: boolean,
+): Promise<{ ok: boolean }> {
+  const res = await fetch(withServer("/api/cron/pin", server), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, pinned }),
+  });
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}
+
+/** POST /api/cron/delete — `{id}`. 404 on an unknown id. */
+export async function deleteCron(server: string, id: string): Promise<{ ok: boolean }> {
+  const res = await fetch(withServer("/api/cron/delete", server), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id }),
+  });
+  if (!res.ok) await throwOnError(res);
+  return res.json();
+}

@@ -132,6 +132,8 @@ import { Shell } from "@/components/shell/shell";
 import { Sidebar } from "@/components/sidebar";
 import { HeadsetIcon } from "@/components/sidebar/icons";
 import { SurfaceLayout } from "@/components/surface-layout";
+import { CronActivityFeed } from "@/components/cron-activity-feed";
+import { TerminalActivityTabs } from "@/components/terminal-activity-tabs";
 import { BottomBar } from "@/components/bottom-bar";
 import { StatusBar } from "@/components/status-bar";
 import { ComposeStrip } from "@/components/compose-strip";
@@ -155,7 +157,10 @@ import { TmuxCommandsDialog } from "@/components/tmux-commands-dialog";
 import { LogoSpinner } from "@/components/logo-spinner";
 import type { ServerInfo, SelectWindowResult } from "@/api/client";
 
-import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, sendToWindow, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, HttpError, type SortWindowsBy } from "@/api/client";
+import { selectWindow, createSession, createWindow, splitWindow, closePane, killWindow, moveWindow, moveWindowToSession, reloadTmuxConfig, initTmuxConf, setWindowColor as setWindowColorApi, setWindowMarker as setWindowMarkerApi, setWindowRole, setWindowNote, setWindowOptions, setSessionColor as setSessionColorApi, setSessionOrder, setServerOrder, setServerColor as setServerColorApi, setServerProtected, sendToWindow, sendOperatorRequest, sendServerOperatorRequest, refreshStatus, isInfraServer, spawnRiff, forkWindow, sortSessionWindows, selectWebTab, removeWebTab, moveWebTab, reopenClosedWindow, dismissClosedWindow, resumeClosedWindow, muteCron, pinCron, deleteCron, HttpError, type SortWindowsBy, type CronEntry } from "@/api/client";
+import { useCronData } from "@/hooks/use-cron";
+import { buildCronActions } from "@/lib/palette/cron";
+import { CronCreateDialog } from "@/components/cron-create-dialog";
 import { buildWebTabActions } from "@/lib/palette/web-tabs";
 import { operatorRequestToast } from "@/lib/operator-request";
 import { buildSessionSortActions } from "@/lib/palette/sort";
@@ -810,6 +815,14 @@ function AppShell() {
   // lib/router-url.ts) types `.view`/`.panel`/`.layout`, so no casts are
   // needed.
   const search = useSearch({ strict: false });
+  // The mobile operator route's Terminal|Activity segment gate: the header
+  // and the content swap mount ONLY on a mobile viewport on the operator
+  // window's own terminal route. `tab` absent/"terminal" (or the gate false)
+  // renders the pre-existing tree byte-identically; the role is known only
+  // once the sessions payload resolves the window, so a cold `?tab=activity`
+  // deep link swaps in a beat after mount.
+  const operatorConsoleTabs = isMobile && windowParam != null && currentWindow?.role === "operator";
+  const activityTabActive = operatorConsoleTabs && search.tab === "activity";
   // The host-level code-server signal (260811-k3vp; portless since
   // 260811-a2bo) — `reachable` gates only the surface CONTENT (passed to
   // CodeSurface below); availability is gitRoot-derived (hasCode). `null` = no
@@ -4010,6 +4023,36 @@ function AppShell() {
     [hasOperatorWindow, handleOperatorCompose, handleServerOperatorAction, server],
   );
 
+  // Cron clock palette verbs (Constitution V) — `Cron: new entry` /
+  // `mute…` / `pin…` / `delete…`, built by the pure lib/palette/cron.ts
+  // builder over the current server's entries (useCronData rides the
+  // state-socket sessions cadence — no new polling). Mute/pin fire the
+  // mutation straight (the SSE wake repaints); delete goes through the
+  // kill-confirm dialog below; `new entry` opens the create dialog.
+  const cronData = useCronData(server);
+  const [cronCreateOpen, setCronCreateOpen] = useState(false);
+  const [cronDeleteTarget, setCronDeleteTarget] = useState<CronEntry | null>(null);
+  const cronActions: PaletteAction[] = useMemo(
+    () =>
+      server
+        ? buildCronActions(cronData.entries, {
+            onCreate: () => setCronCreateOpen(true),
+            onMute: (entry) => {
+              void muteCron(server, entry.id, entry.muted !== true).catch((err: unknown) =>
+                addToast(err instanceof Error && err.message ? err.message : "Mute failed", "error"),
+              );
+            },
+            onPin: (entry) => {
+              void pinCron(server, entry.id, entry.pinned !== true).catch((err: unknown) =>
+                addToast(err instanceof Error && err.message ? err.message : "Pin failed", "error"),
+              );
+            },
+            onDelete: (entry) => setCronDeleteTarget(entry),
+          })
+        : [],
+    [server, cronData.entries, addToast],
+  );
+
   const { actions: pushActions } = usePushSubscription();
 
   // `Tab: Previous` / `Tab: Next` (R8) — palette parity for the
@@ -4064,11 +4107,11 @@ function AppShell() {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...sessionActions, ...sessionsScopeActions, ...windowActions, ...reopenActions, ...windowCycleActions, ...sessionJumpActions, ...boardActions, ...selectionActions, ...viewActions, ...openActions, ...themeActions, ...configActions, ...statusRefreshActions, ...serverActions, ...shellServerActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions, ...operatorComposeActions, ...macroPaletteActions],
+        [...sessionActions, ...sessionsScopeActions, ...windowActions, ...reopenActions, ...windowCycleActions, ...sessionJumpActions, ...boardActions, ...selectionActions, ...viewActions, ...openActions, ...themeActions, ...configActions, ...statusRefreshActions, ...serverActions, ...shellServerActions, ...pushActions, ...windowSwitchActions, ...agentActions, ...agentSpawnActions, ...operatorComposeActions, ...cronActions, ...macroPaletteActions],
         bindingByAction,
         bindingHost.platform,
       ),
-    [sessionActions, sessionsScopeActions, windowActions, reopenActions, windowCycleActions, sessionJumpActions, boardActions, selectionActions, viewActions, openActions, themeActions, configActions, statusRefreshActions, serverActions, shellServerActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions, operatorComposeActions, macroPaletteActions, bindingByAction, bindingHost],
+    [sessionActions, sessionsScopeActions, windowActions, reopenActions, windowCycleActions, sessionJumpActions, boardActions, selectionActions, viewActions, openActions, themeActions, configActions, statusRefreshActions, serverActions, shellServerActions, pushActions, windowSwitchActions, agentActions, agentSpawnActions, operatorComposeActions, cronActions, macroPaletteActions, bindingByAction, bindingHost],
   );
   // Publish this route's (already shortcut-decorated) list into the
   // palette-actions slot — the single layout-mounted CommandPalette renders
@@ -4667,6 +4710,10 @@ function AppShell() {
               <LogoSpinner size={48} />
             </div>
           )}
+          {/* The mobile operator route's Terminal|Activity segmented header —
+              mounts only under the `operatorConsoleTabs` gate, so every other
+              route/form factor renders nothing here. */}
+          {operatorConsoleTabs && <TerminalActivityTabs />}
           {/* Surface-layout column (260812-ab5v-surface-layout-core, spec
               surface-layout.md): the tile grid (SurfaceLayout) renders the
               RESOLVED layout as 1–3 tiles mounting the existing renderers
@@ -4675,8 +4722,12 @@ function AppShell() {
               applyLayout — R12) and the right-panel surface mount (the panel
               slot is a
               tile now — R6). Open-tile toggles (R10) live in the top bar's
-              surface-toggle group. */}
-          <div className="flex-1 min-w-0 min-h-0 flex flex-col">
+              surface-toggle group. On the Activity tab this column stays
+              MOUNTED-but-hidden (the `hidden` class — the same
+              hide-never-unmount posture SurfaceLayout applies to its own
+              hidden tiles), so the terminal stream survives the tab swap and
+              switching back needs no reconnect. */}
+          <div className={activityTabActive ? "flex-1 min-w-0 min-h-0 flex-col hidden" : "flex-1 min-w-0 min-h-0 flex flex-col"}>
           {/* Render gate keys on `windowParam` (the URL's @N) ALONE, not the
               SSE-derived `sessionName`. The session name is only needed for the
               breadcrumb/title and resolves a beat after the first snapshot; the
@@ -4763,6 +4814,9 @@ function AppShell() {
             />
           )}
           </div>
+          {/* The Activity tab's content swap: the feed takes the slot the
+              SurfaceLayout column vacates (hidden, not unmounted, above). */}
+          {activityTabActive && <CronActivityFeed server={server} />}
         </div>
       </main>
 
@@ -4817,6 +4871,41 @@ function AppShell() {
             onClose={() => setOperatorComposeMode(null)}
           />
         </Suspense>
+      )}
+
+      {cronCreateOpen && server && (
+        <CronCreateDialog server={server} onClose={() => setCronCreateOpen(false)} />
+      )}
+
+      {/* Cron delete confirm — the palette `Cron: delete…` picker's landing;
+          the kill-confirm idiom (Cancel neutral / Delete danger). */}
+      {cronDeleteTarget && server && (
+        <Dialog title="Delete cron entry?" onClose={() => setCronDeleteTarget(null)}>
+          <p className="text-sm text-text-secondary mb-3">
+            Delete cron entry <strong>{cronDeleteTarget.name || cronDeleteTarget.id}</strong>?
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setCronDeleteTarget(null)}
+              className={`flex-1 ${controlClass({ variant: "confirm" })}`}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => {
+                const target = cronDeleteTarget;
+                void deleteCron(server, target.id)
+                  .then(() => setCronDeleteTarget(null))
+                  .catch((err: unknown) =>
+                    addToast(err instanceof Error && err.message ? err.message : "Delete failed", "error"),
+                  );
+              }}
+              className={`flex-1 ${controlClass({ variant: "confirm", danger: true })}`}
+            >
+              Delete
+            </button>
+          </div>
+        </Dialog>
       )}
 
       {noteTarget && (

@@ -41,12 +41,16 @@ export function urlSegmentToWindowId(segment: string): string {
 // origin window id here so the operator window's route can attach it as the
 // chat subject. It passes through as a raw string like `layout` — the
 // consumer validates it against the sessions payload, so an unknown or
-// foreign id degrades to absent rather than a route error.
+// foreign id degrades to absent rather than a route error. `tab` is the
+// mobile operator route's Terminal|Activity segment selector (the notify
+// deep-link carrier); unknown values drop to absent, which reads as
+// "terminal" — the default segment.
 export type TerminalSearch = {
   view?: "web" | "code";
   panel?: "web" | "code";
   layout?: string;
   from?: string;
+  tab?: "terminal" | "activity";
 };
 
 // Exported as a pure function so the unknown-value drop is unit-testable.
@@ -64,5 +68,6 @@ export function validateTerminalSearch(
   if (typeof search.from === "string" && search.from.length > 0) {
     out.from = search.from;
   }
+  if (search.tab === "terminal" || search.tab === "activity") out.tab = search.tab;
   return out;
 }

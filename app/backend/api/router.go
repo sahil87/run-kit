@@ -831,12 +831,13 @@ func (s *Server) buildRouter() chi.Router {
 	r.Post("/api/boards/{name}/unpin", s.handleBoardUnpin)
 	r.Post("/api/boards/{name}/reorder", s.handleBoardReorder)
 	// Cron — server-scoped schedule entries: entries + derived facts (GET) and
-	// the create/delete/mute mutations (POST per §IX), each mutation waking the
+	// the create/delete/mute/pin mutations (POST per §IX), each mutation waking the
 	// SSE hub explicitly (file writes emit no tmux event). See api/cron.go.
 	r.Get("/api/cron", s.handleCronList)
 	r.Post("/api/cron/create", s.handleCronCreate)
 	r.Post("/api/cron/delete", s.handleCronDelete)
 	r.Post("/api/cron/mute", s.handleCronMute)
+	r.Post("/api/cron/pin", s.handleCronPin)
 	r.Post("/api/sessions/{session}/color", s.handleSessionColor)
 	r.Post("/api/sessions/{session}/flair", s.handleSessionFlair)
 	r.Post("/api/sessions/{session}/kill", s.handleSessionKill)

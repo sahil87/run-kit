@@ -364,7 +364,7 @@ func tickServer(ctx context.Context, slug, dir string, now time.Time, seam TmuxS
 			if name == "" {
 				name = fire.Entry.ID
 			}
-			if err := notifier(ctx, "cron: "+name, "target absent on "+slug, ""); err != nil {
+			if err := notifier(ctx, "cron: "+name, "target absent on "+slug, operatorPushURL(ctx, slug, seam)); err != nil {
 				diags = append(diags, Diagnostic{Server: slug, EntryID: fire.Entry.ID, Reason: "notify-failed", Detail: err.Error()})
 			}
 			line.Outcome = "notified-absent"

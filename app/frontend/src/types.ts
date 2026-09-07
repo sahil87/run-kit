@@ -82,6 +82,15 @@ export type ProjectSession = {
    *  grid is the diagnostic payload — it identifies the clamping client.
    *  Absent on zero-viewer sessions and on payloads from an older backend. */
   viewers?: { width: number; height: number }[];
+  /** Per-server operator-watchdog staleness facts (the fab operator state
+   *  file's last_tick_at against the staleness threshold), populated
+   *  identically on every session of a server — read any session's pair.
+   *  Absent/false when the state file doesn't exist (nothing to be stale
+   *  about) or on payloads from an older backend. */
+  operatorStale?: boolean;
+  /** Unix-seconds timestamp of the operator loop's last tick; 0/absent when
+   *  no tick has been recorded. */
+  operatorLastTickAt?: number;
   windows: WindowInfo[];
 };
 

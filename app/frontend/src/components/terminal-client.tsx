@@ -43,7 +43,9 @@ function deviceDefaultScrollback(): number {
  * The xterm theme for one instance. The `transparent` variant drops the opaque
  * background so a translucent surface behind the terminal (the operator
  * console's glass drawer) shows through the cells — it only takes effect with
- * `allowTransparency` set at construction.
+ * `allowTransparency` set at construction, and needs the container's
+ * `rk-terminal-transparent` class alongside it (globals.css): xterm.css
+ * hardcodes an opaque black `.xterm-viewport` that the theme never overrides.
  */
 function effectiveXtermTheme(palette: Parameters<typeof deriveXtermTheme>[0], transparent: boolean) {
   const theme = deriveXtermTheme(palette);
@@ -1304,8 +1306,8 @@ export function TerminalClient({
         role="application"
         aria-label={`Terminal: ${sessionName}/${windowId}`}
         className={`flex-1 min-h-0 overflow-hidden coarse:touch-none ${
-          dragOver ? "ring-2 ring-accent ring-inset" : ""
-        }`}
+          transparent ? "rk-terminal-transparent " : ""
+        }${dragOver ? "ring-2 ring-accent ring-inset" : ""}`}
         onContextMenu={(e) => e.preventDefault()}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}

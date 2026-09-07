@@ -1721,6 +1721,15 @@ html.kb-open {
   overscroll-behavior: none;
 }
 
+/* Transparent terminal variant (operator console glass): xterm.css hardcodes
+   `.xterm-viewport { background-color: #000 }` and xterm never overrides it
+   from the theme, so with `allowTransparency` the stylesheet black shows
+   through the see-through canvas and defeats the translucent surface behind
+   it. Three-class selector outranks xterm.css's two-class rule. */
+.rk-terminal-transparent .xterm .xterm-viewport {
+  background-color: transparent;
+}
+
 /* ── Window-switch slide transition (260703-l4nf) ──────────────────────────
    A same-server window switch animates the terminal surface as a vertical
    slide via the View Transitions API. `navigateToWindow` (app.tsx) wraps its

@@ -204,6 +204,38 @@ function renderTerminalClient(scrollLocked = false) {
   );
 }
 
+describe("TerminalClient transparent variant", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  function renderWithTransparency(transparent: boolean) {
+    return render(
+      <ChromeProvider>
+        <FocusedTerminalProvider>
+          <TerminalClient
+            sessionName="test-session"
+            windowId="@0"
+            server="default"
+            wsRef={createWsRef()}
+            transparent={transparent}
+          />
+        </FocusedTerminalProvider>
+      </ChromeProvider>,
+    );
+  }
+
+  it("marks the terminal container with rk-terminal-transparent — the globals.css override that neutralizes xterm.css's opaque .xterm-viewport black", () => {
+    const { getByRole } = renderWithTransparency(true);
+    expect(getByRole("application").className).toContain("rk-terminal-transparent");
+  });
+
+  it("omits the class on the default opaque variant", () => {
+    const { getByRole } = renderWithTransparency(false);
+    expect(getByRole("application").className).not.toContain("rk-terminal-transparent");
+  });
+});
+
 describe("TerminalClient scroll-lock focus prevention", () => {
   beforeEach(() => {
     // Coarse pointer must MATCH: the suppression effects gate on the shared

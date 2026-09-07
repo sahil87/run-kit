@@ -1,6 +1,7 @@
 import type { ComponentType } from "react";
 import { Tip } from "@/components/tip";
 import { controlClass } from "@/components/control";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
   SIDEBAR_SECTIONS,
   useSidebarSectionVisible,
@@ -8,6 +9,7 @@ import {
 } from "@/hooks/use-sidebar-sections";
 import {
   BoardsSectionIcon,
+  ClockSectionIcon,
   HostSectionIcon,
   PaneSectionIcon,
   ServerSectionIcon,
@@ -18,14 +20,16 @@ const SECTION_ICONS: Record<SidebarSection, ComponentType<{ size?: number }>> = 
   server: ServerSectionIcon,
   pane: PaneSectionIcon,
   host: HostSectionIcon,
+  clock: ClockSectionIcon,
 };
 
 /**
- * Section-visibility micro-rail — a horizontal row of four icon-only toggle
- * buttons (Boards · Server · Pane · Host) rendered as the FIRST child of the
- * sidebar's `<nav>`. Toggling flips the section's persisted visibility
+ * Section-visibility micro-rail — a horizontal row of icon-only toggle
+ * buttons (Boards · Server · Pane · Host · Clock) rendered as the FIRST child
+ * of the sidebar's `<nav>`. Toggling flips the section's persisted visibility
  * boolean; the rail itself always renders (not self-hideable). Sessions has
  * no toggle — the session tree is the always-on core nav surface.
+ * `desktopOnly` entries (Clock) render no button on mobile viewports at all.
  */
 export function SectionRail() {
   return (
@@ -44,7 +48,11 @@ export function SectionRail() {
 
 function SectionRailButton({ entry }: { entry: (typeof SIDEBAR_SECTIONS)[number] }) {
   const [visible, setVisible] = useSidebarSectionVisible(entry.section);
+  const isMobile = useIsMobile();
   const Icon = SECTION_ICONS[entry.section];
+  // Desktop-only sections have no mobile surface here (the panel mount is
+  // gated in the sidebar too) — the toggle would flip an invisible section.
+  if (entry.desktopOnly && isMobile) return null;
   return (
     // Tier-1 Tip (fine pointers only — suppressed on coarse): the label names
     // what a CLICK does (state-flipping, the scope-chip pattern), so no

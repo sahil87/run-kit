@@ -49,6 +49,8 @@ import { readLastWindow, resolveServerLandingWindow } from "@/lib/last-window-pe
 import { BoardsSection, WINDOW_DRAG_MIME } from "./boards-section";
 import { SectionRail } from "./section-rail";
 import { HostPanel } from "./host-panel";
+import { ClockPanel, ClockStaleWarning } from "./clock-panel";
+import { CollapsiblePanel } from "./collapsible-panel";
 import { KillDialog } from "./kill-dialog";
 import { ServerPanel } from "./server-panel";
 import { SessionRow } from "./session-row";
@@ -988,13 +990,14 @@ export function Sidebar({
   // deferred to the next frame so it runs AFTER the trap's mount-focus
   // (committed in Shell's effect) and wins the same-tick race.
   const isMobile = useIsMobile();
-  // Section-visibility rail (iha5): four shared booleans gate the optional
-  // sections. Read locally here — nothing threads through the memoized
+  // Section-visibility rail (iha5): the shared per-section booleans gate the
+  // optional sections. Read locally here — nothing threads through the memoized
   // ServerGroup/SessionRow/WindowRow tree (R6a untouched).
   const [boardsSectionVisible] = useSidebarSectionVisible("boards");
   const [serverSectionVisible] = useSidebarSectionVisible("server");
   const [paneSectionVisible] = useSidebarSectionVisible("pane");
   const [hostSectionVisible] = useSidebarSectionVisible("host");
+  const [clockSectionVisible] = useSidebarSectionVisible("clock");
   const { sidebarOpen } = useChromeState();
   const navRef = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -1922,10 +1925,11 @@ export function Sidebar({
           Toggle-off fully unmounts the panel; its CollapsiblePanel
           collapse/height storage keys are untouched, so re-toggling restores
           the section exactly as left. */}
-      {(paneSectionVisible || hostSectionVisible) && (
+      {(paneSectionVisible || hostSectionVisible || (clockSectionVisible && !isMobile)) && (
         <BottomPanels
           showPane={paneSectionVisible}
           showHost={hostSectionVisible}
+          showClock={clockSectionVisible && !isMobile}
           currentServer={currentServer}
           currentSessionName={currentSession}
           currentWindowId={currentWindowId}
@@ -2138,6 +2142,7 @@ function SidebarFooter({ isConnected }: { isConnected: boolean }) {
 function BottomPanels({
   showPane,
   showHost,
+  showClock,
   currentServer,
   currentSessionName,
   currentWindowId,
@@ -2146,6 +2151,10 @@ function BottomPanels({
    *  under its own boolean, on every viewport. */
   showPane: boolean;
   showHost: boolean;
+  /** CLOCK section gate (wuiu) — already ANDed with `!isMobile` by the
+   *  caller: the section is desktop-only, its mobile home is the console
+   *  sheet (C7's scope). */
+  showClock: boolean;
   currentServer: string | null;
   currentSessionName: string | null;
   currentWindowId: string | null;
@@ -2176,6 +2185,16 @@ function BottomPanels({
     <>
       {showPane && <WindowPanel window={selectedWindow} />}
       {showHost && <HostPanel />}
+      {showClock && (
+        <CollapsiblePanel
+          title="Clock"
+          storageKey="runkit-panel-clock"
+          defaultOpen={false}
+          headerRight={<ClockStaleWarning sessions={sessions} />}
+        >
+          <ClockPanel server={currentServer} />
+        </CollapsiblePanel>
+      )}
     </>
   );
 }
@@ -2497,7 +2516,7 @@ function ServerGroupInner(props: ServerGroupProps) {
     for (const session of orderedSessions) {
       for (const win of session.windows) {
         if (!isGhostWindow(win) && win.role === "operator") {
-          return { sessionName: session.name, win };
+          return { sessionName: session.name, win, operatorStale: session.operatorStale };
         }
       }
     }
@@ -2876,6 +2895,7 @@ function ServerGroupInner(props: ServerGroupProps) {
             <WindowRow
               win={operatorEntry.win}
               session={operatorEntry.sessionName}
+              operatorStale={operatorEntry.operatorStale}
               isSelected={
                 currentSessionName === operatorEntry.sessionName &&
                 (currentWindowId != null
@@ -3056,6 +3076,7 @@ function ServerGroupInner(props: ServerGroupProps) {
                             key={ghost ? `ghost-${win.optimisticId}` : win.windowId}
                             win={win}
                             session={session.name}
+                            operatorStale={session.operatorStale}
                             isSelected={isSelected}
                             isDragOver={isDragOver}
                             isDragSource={

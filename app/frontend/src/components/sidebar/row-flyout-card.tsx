@@ -399,6 +399,25 @@ export function NoteLine({ win }: { win: WindowInfo }) {
   );
 }
 
+/** The window card's watched register — the operator-watchlist identity line
+ *  (`watched · repo · stage · branch`, omitting empty segments) for windows
+ *  carrying the `monitored` join. Degrade-to-absent: no `monitored` on the
+ *  payload renders nothing (mirrors NoteLine's own gate). */
+export function WatchedLine({ win }: { win: WindowInfo }) {
+  if (win.monitored !== true) return null;
+  const segments = [win.monitoredRepo, win.monitoredStage, win.monitoredBranch].filter(
+    (s): s is string => Boolean(s),
+  );
+  return (
+    <span className="min-w-0 truncate" data-testid="row-flyout-watched-line">
+      <span className="text-text-secondary">{"watched"}</span>
+      {segments.length > 0 && (
+        <span className="text-text-primary">{` · ${segments.join(" · ")}`}</span>
+      )}
+    </span>
+  );
+}
+
 /**
  * Provider whose conversations can be forked. The fork mechanism is Claude
  * Code's `--resume <id> --fork-session`, so the affordance is gated on the same
@@ -701,7 +720,7 @@ export function WindowFlyoutContent({
   ));
   // Drives both the body block and the action list's `flush` spacing — they
   // must agree, or the card grows a gap with nothing in it.
-  const hasBody = Boolean(fabParts || prSegments || win.note);
+  const hasBody = Boolean(fabParts || prSegments || win.note || win.monitored);
   // The fork row keeps the DOUBLE gate: a forkable window AND a wired handler.
   // Derived as a narrowed handler (not a boolean) so the ForkActionRow call
   // site type-checks structurally instead of leaning on aliased-condition
@@ -745,6 +764,7 @@ export function WindowFlyoutContent({
       {hasBody && (
         <>
           <NoteLine win={win} />
+          <WatchedLine win={win} />
           {fabParts && (
             <>
               <RegisterLine prefix="fab " testid="row-flyout-fab">

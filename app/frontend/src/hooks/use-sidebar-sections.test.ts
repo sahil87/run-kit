@@ -20,16 +20,20 @@ function renderSection(section: SidebarSection) {
 }
 
 describe("SIDEBAR_SECTIONS", () => {
-  it("lists exactly Boards · Server · Pane · Host in order (no Sessions)", () => {
-    expect(SIDEBAR_SECTIONS.map((e) => e.section)).toEqual(["boards", "server", "pane", "host"]);
-    expect(SIDEBAR_SECTIONS.map((e) => e.label)).toEqual(["Boards", "Server", "Pane", "Host"]);
+  it("lists exactly Boards · Server · Pane · Host · Clock in order (no Sessions)", () => {
+    expect(SIDEBAR_SECTIONS.map((e) => e.section)).toEqual(["boards", "server", "pane", "host", "clock"]);
+    expect(SIDEBAR_SECTIONS.map((e) => e.label)).toEqual(["Boards", "Server", "Pane", "Host", "Clock"]);
   });
 
-  it("uses runkit-sidebar-section-{section} keys with boards/server on, pane/host off by default", () => {
+  it("uses runkit-sidebar-section-{section} keys with boards/server on, pane/host/clock off by default", () => {
     for (const entry of SIDEBAR_SECTIONS) {
       expect(entry.key).toBe(`runkit-sidebar-section-${entry.section}`);
     }
-    expect(SIDEBAR_SECTIONS.map((e) => e.defaultValue)).toEqual([true, true, false, false]);
+    expect(SIDEBAR_SECTIONS.map((e) => e.defaultValue)).toEqual([true, true, false, false, false]);
+  });
+
+  it("marks only the clock entry desktop-only", () => {
+    expect(SIDEBAR_SECTIONS.map((e) => e.desktopOnly ?? false)).toEqual([false, false, false, false, true]);
   });
 });
 

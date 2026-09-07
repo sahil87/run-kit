@@ -669,6 +669,43 @@ describe("Note register (260824-bb5n)", () => {
   });
 });
 
+describe("Watched register (wuiu)", () => {
+  // The window card's watched line: `watched · repo · stage · branch` for
+  // windows on the operator's watchlist, directly below the note register.
+  // Degrade-to-absent: no `monitored` → no row.
+
+  it("renders the watched line with repo · stage · branch when the window is monitored", () => {
+    renderOpen(
+      makeWindow({
+        monitored: true,
+        monitoredRepo: "run-kit",
+        monitoredStage: "apply",
+        monitoredBranch: "fab/wuiu",
+      }),
+    );
+    expect(screen.getByTestId("row-flyout-watched-line")).toHaveTextContent(
+      "watched · run-kit · apply · fab/wuiu",
+    );
+  });
+
+  it("omits empty segments", () => {
+    renderOpen(makeWindow({ monitored: true, monitoredStage: "review" }));
+    expect(screen.getByTestId("row-flyout-watched-line")).toHaveTextContent("watched · review");
+  });
+
+  it("renders no watched row when the window is not monitored", () => {
+    renderOpen(makeWindow({}));
+    expect(screen.queryByTestId("row-flyout-watched-line")).toBeNull();
+  });
+
+  it("renders directly below the note register when both exist", () => {
+    renderOpen(makeWindow({ note: "hello", noteEpoch: 0, monitored: true, monitoredStage: "apply" }));
+    const note = screen.getByTestId("row-flyout-note");
+    const watched = screen.getByTestId("row-flyout-watched-line");
+    expect(note.compareDocumentPosition(watched) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
 describe("Flyout warm-window delay group (module-scoped)", () => {
   it("cold: full open delay; warm after a close: instant within the window", () => {
     vi.setSystemTime(new Date("2026-08-05T10:00:00Z"));

@@ -29,6 +29,18 @@ vi.mock("@tanstack/react-router", () => ({
   useRouter: () => ({ history: { back: () => mockBack(), forward: () => mockForward() } }),
 }));
 
+// The cron entry actions fetch the current server's entries (wuiu R14) —
+// mocked per-test; the default is an empty list (both actions disabled).
+vi.mock("@/api/client", () => ({
+  getCron: vi.fn().mockResolvedValue({ entries: [], deliveries: [] }),
+  muteCron: vi.fn().mockResolvedValue({ ok: true }),
+  deleteCron: vi.fn().mockResolvedValue({ ok: true }),
+}));
+import { getCron, muteCron, deleteCron } from "@/api/client";
+const mockGetCron = vi.mocked(getCron);
+const mockMuteCron = vi.mocked(muteCron);
+const mockDeleteCron = vi.mocked(deleteCron);
+
 let captured: PaletteAction[] = [];
 // Dialog-state probe so entry bodies can be asserted against the context.
 let dialogState: { isOpen: boolean; activeTab: string } = { isOpen: false, activeTab: "general" };
@@ -175,21 +187,25 @@ describe("useGlobalPaletteActions", () => {
     expect(screen.getByText("Settings: Appearance")).toBeInTheDocument();
   });
 
-  it("registers the four Panel: Toggle actions, each flipping its section's persisted boolean (iha5 R6)", () => {
+  it("registers the five Panel: Toggle actions, each flipping its section's persisted boolean (iha5 R6, wuiu R13)", () => {
     renderHook();
     const byId = new Map(captured.map((a) => [a.id, a]));
     expect(byId.get("panel-toggle-boards")?.label).toBe("Panel: Toggle Boards");
     expect(byId.get("panel-toggle-server")?.label).toBe("Panel: Toggle Server");
     expect(byId.get("panel-toggle-pane")?.label).toBe("Panel: Toggle Pane");
     expect(byId.get("panel-toggle-host")?.label).toBe("Panel: Toggle Host");
+    expect(byId.get("panel-toggle-clock")?.label).toBe("Panel: Toggle Clock");
 
-    // Defaults: boards/server on, pane/host off.
+    // Defaults: boards/server on, pane/host/clock off.
     act(() => byId.get("panel-toggle-pane")?.onSelect());
     expect(localStorage.getItem("runkit-sidebar-section-pane")).toBe("true");
     expect(localStorage.getItem("runkit-sidebar-section-host")).toBeNull();
 
     act(() => byId.get("panel-toggle-boards")?.onSelect());
     expect(localStorage.getItem("runkit-sidebar-section-boards")).toBe("false");
+
+    act(() => byId.get("panel-toggle-clock")?.onSelect());
+    expect(localStorage.getItem("runkit-sidebar-section-clock")).toBe("true");
   });
 
   it("Sidebar: Toggle flips the persisted visibility; Sidebar: Focus is the show+focus arm", () => {
@@ -270,5 +286,83 @@ describe("useGlobalPaletteActions — Host: Switcher (260820-nv0o)", () => {
     act(() => entry?.onSelect());
     expect(seen).toHaveBeenCalledOnce();
     document.removeEventListener(HOST_MENU_OPEN_EVENT, seen);
+  });
+});
+
+describe("useGlobalPaletteActions — Cron entry actions (wuiu R14)", () => {
+  const CRON_ENTRIES = [
+    {
+      id: "a1b2",
+      name: "watch-main",
+      schedule: { kind: "every", interval: "5m" },
+      target: { kind: "role", role: "operator" },
+      payload: "tick",
+      lastFired: 0,
+    },
+    {
+      id: "c3d4",
+      schedule: { kind: "cron", expr: "0 0 * * *" },
+      target: { kind: "session", session: "main" },
+      payload: "nightly",
+      lastFired: 0,
+    },
+  ];
+
+  beforeEach(() => {
+    mockMatches = [{ params: { server: "alpha" } }];
+    mockGetCron.mockReset().mockResolvedValue({ entries: CRON_ENTRIES, deliveries: [] });
+    mockMuteCron.mockClear();
+    mockDeleteCron.mockClear();
+  });
+
+  it("registers Cron: mute…/Cron: delete… with the server's entries as single-select options", async () => {
+    renderHook();
+    await waitFor(() => expect(mockGetCron).toHaveBeenCalledWith("alpha"));
+    const byId = new Map(captured.map((a) => [a.id, a]));
+    const mute = byId.get("cron-mute-entry");
+    const del = byId.get("cron-delete-entry");
+    expect(mute?.label).toBe("Cron: mute…");
+    expect(del?.label).toBe("Cron: delete…");
+    expect(mute?.disabled).toBe(false);
+    expect(mute?.optionPicker?.options).toEqual([
+      { key: "a1b2", label: "watch-main" },
+      { key: "c3d4", label: "c3d4" }, // nameless entry falls back to its id
+    ]);
+  });
+
+  it("Cron: mute… applies the mute POST for the first selected key", async () => {
+    renderHook();
+    await waitFor(() => expect(mockGetCron).toHaveBeenCalled());
+    const mute = captured.find((a) => a.id === "cron-mute-entry");
+    await act(async () => mute?.optionPicker?.onApply(["a1b2"]));
+    expect(mockMuteCron).toHaveBeenCalledWith("alpha", "a1b2", true);
+  });
+
+  it("Cron: delete… applies the delete POST and drops the entry from the option list", async () => {
+    renderHook();
+    await waitFor(() => expect(mockGetCron).toHaveBeenCalled());
+    const del = captured.find((a) => a.id === "cron-delete-entry");
+    await act(async () => del?.optionPicker?.onApply(["c3d4"]));
+    expect(mockDeleteCron).toHaveBeenCalledWith("alpha", "c3d4");
+    const after = captured.find((a) => a.id === "cron-delete-entry");
+    expect(after?.optionPicker?.options).toEqual([{ key: "a1b2", label: "watch-main" }]);
+  });
+
+  it("both actions render disabled (never hidden) when the server has zero entries", async () => {
+    mockGetCron.mockResolvedValue({ entries: [], deliveries: [] });
+    renderHook();
+    await waitFor(() => expect(mockGetCron).toHaveBeenCalled());
+    const byId = new Map(captured.map((a) => [a.id, a]));
+    expect(byId.get("cron-mute-entry")?.disabled).toBe(true);
+    expect(byId.get("cron-delete-entry")?.disabled).toBe(true);
+  });
+
+  it("no fetch and disabled actions on a route without a server param (host/board)", async () => {
+    mockMatches = [{ params: {} }];
+    renderHook();
+    await act(async () => {});
+    expect(mockGetCron).not.toHaveBeenCalled();
+    const byId = new Map(captured.map((a) => [a.id, a]));
+    expect(byId.get("cron-mute-entry")?.disabled).toBe(true);
   });
 });

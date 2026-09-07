@@ -1723,3 +1723,62 @@ describe("coarse pointer: rest glyph, rail target, and plain status dot", () => 
     });
   });
 });
+
+describe("WatchedIndicator (wuiu)", () => {
+  // The watched-by-operator glyph (◉) beside the StatusDot: rendered only for
+  // windows on the operator's watchlist, dimmed while the owning session's
+  // operator loop is stale (the note-stale opacity treatment, new trigger).
+  beforeEach(() => {
+    mockMatchMedia();
+  });
+
+  function renderRowWithStaleness(win: WindowInfo, operatorStale?: boolean) {
+    return render(
+      <WindowRow
+        win={win}
+        session="alpha"
+        operatorStale={operatorStale}
+        isSelected={false}
+        isDragOver={false}
+        editingWindow={null}
+        editingName=""
+        inputRef={{ current: null }}
+        onSelectWindow={noop}
+        onStartEditing={noop}
+        onWindowNameChange={noop}
+        onRenameKeyDown={noop as React.KeyboardEventHandler<HTMLInputElement>}
+        onRenameBlur={noop}
+        onKillClick={noop}
+        onDragStart={noopDrag}
+        onDragOver={noopDrag}
+        onDrop={noopDrag}
+        onDragEnd={noop}
+      />,
+    );
+  }
+
+  it("renders the ◉ glyph beside the StatusDot when win.monitored is true, with an accessible label", () => {
+    renderRowWithStaleness(makeWindow({ monitored: true, monitoredStage: "apply" }));
+    const indicator = screen.getByTestId("row-watched-indicator");
+    expect(indicator).toHaveTextContent("◉");
+    expect(indicator).toHaveAttribute("aria-label", "Watched by operator — apply");
+  });
+
+  it("renders no glyph (zero DOM footprint) when win.monitored is false or absent", () => {
+    renderRowWithStaleness(makeWindow({}));
+    expect(screen.queryByTestId("row-watched-indicator")).toBeNull();
+
+    cleanup();
+    renderRowWithStaleness(makeWindow({ monitored: false }));
+    expect(screen.queryByTestId("row-watched-indicator")).toBeNull();
+  });
+
+  it("renders dimmed when the owning session's operatorStale is true, full treatment otherwise", () => {
+    renderRowWithStaleness(makeWindow({ monitored: true }), true);
+    expect(screen.getByTestId("row-watched-indicator").className).toContain("opacity-50");
+
+    cleanup();
+    renderRowWithStaleness(makeWindow({ monitored: true }), false);
+    expect(screen.getByTestId("row-watched-indicator").className).not.toContain("opacity-50");
+  });
+});

@@ -8,7 +8,7 @@ description: "Cron scheduling substrate — the `rk cron` CLI family (add/list/r
 
 ## Overview
 
-`internal/cron` (app/backend/internal/cron) is the server-scoped scheduling substrate from the cron spec (`docs/specs/cron.md`): durable cron entries in one intent file per tmux server, a stateless pure evaluator, an append-only delivery log, a tick orchestrator, an injection-engine deliverer, and the daemon ticker goroutine that invokes ticks. The agent-facing surfaces are the `rk cron` CLI family below and the HTTP API (§ HTTP API); the mobile Activity feed consuming them is documented in [ui/cron-activity](/run-kit/ui/cron-activity.md).
+`internal/cron` (app/backend/internal/cron) is the server-scoped scheduling substrate from the cron spec (`docs/specs/cron.md`): durable cron entries in one intent file per tmux server, a stateless pure evaluator, an append-only delivery log, a tick orchestrator, an injection-engine deliverer, and the daemon ticker goroutine that invokes ticks. The agent-facing surfaces are the `rk cron` CLI family below and the HTTP API (§ HTTP API). The UI's Tier-1 glance tier is the sidebar's desktop-only CLOCK section (the watched-row ◉ indicator and the cron palette actions included) — a pure projection over `GET /api/cron` and the payload's `monitored*`/`operatorStale` fields; [ui/sidebar](/run-kit/ui/sidebar.md) owns the frontend detail. The mobile Activity feed consuming the same endpoint is documented in [ui/cron-activity](/run-kit/ui/cron-activity.md). The dashboard tier remains a later wave of the cron clock plan.
 
 ## CLI: the `rk cron` Family
 

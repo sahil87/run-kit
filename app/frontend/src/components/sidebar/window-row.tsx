@@ -56,10 +56,33 @@ import {
   RAIL_HELD_SEAM,
 } from "./row-flyout-card";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
+import { Tip } from "@/components/tip";
 import { toSafeWindowName } from "@/lib/names";
 
 type ProjectWindow = ProjectSession["windows"][number];
 type GhostWindow = MergedSession["windows"][number];
+
+/** The watched-by-operator glyph (◉) — a window on the operator's watchlist
+ *  carries it beside the StatusDot. Informational decoration: the glyph is
+ *  aria-hidden inside a `role="img"` span whose aria-label (and the
+ *  fine-pointer Tip) carries the name; the span is never interactive. Dimmed
+ *  (the note-stale `opacity-50` treatment) while the owning session's
+ *  operator loop is stale. */
+function WatchedIndicator({ stage, dimmed }: { stage?: string; dimmed: boolean }) {
+  const label = `Watched by operator${stage ? ` — ${stage}` : ""}`;
+  return (
+    <Tip label={label} placement="right">
+      <span
+        role="img"
+        aria-label={label}
+        data-testid="row-watched-indicator"
+        className={`flex items-center shrink-0 ${dimmed ? "opacity-50 text-text-secondary" : "text-accent-green"}`}
+      >
+        <span aria-hidden="true">◉</span>
+      </span>
+    </Tip>
+  );
+}
 
 type WindowRowProps = {
   win: ProjectWindow | GhostWindow;
@@ -162,6 +185,10 @@ type WindowRowProps = {
   /** Whether the server has an operator window — availability input for the
    *  flyout's Fix tab name row (the row itself carries the rest of the rule). */
   hasOperator?: boolean;
+  /** The owning session's server-derived operator-watchdog staleness flag
+   *  (`ProjectSession.operatorStale`, threaded unchanged). True dims the
+   *  watched indicator's glyph; absent/false leaves it at full treatment. */
+  operatorStale?: boolean;
   /** Tmux server name for the pin popover (server-routing contract) AND the
    *  identity bound into the handlers above. When omitted the pin icon is
    *  hidden and handlers bind an empty server — used by tests that render
@@ -246,6 +273,7 @@ function WindowRowInner({
   onOperatorCompose,
   onOpenOperatorConsole,
   hasOperator = false,
+  operatorStale = false,
   server,
   isPinnedToAny = false,
   isPinnedToActiveBoard = false,
@@ -891,6 +919,13 @@ function WindowRowInner({
           >
             <StatusDot win={win} />
           </span>
+          {/* Watched-by-operator glyph — additive beside the StatusDot (never
+              replacing it), rendered only for windows on the operator's
+              watchlist; dimmed while the owning session's operator loop is
+              stale. */}
+          {!ghost && win.monitored === true && (
+            <WatchedIndicator stage={win.monitoredStage} dimmed={operatorStale} />
+          )}
           {win.role === "operator" && (
             <span
               className={`shrink-0 transition-colors ${

@@ -1,0 +1,8 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-07T09:40:11Z"}
+{"args":"Desktop UI: CLOCK sidebar section (CollapsiblePanel, 5th section-rail toggle, desktop-only), watched-row indicator + flyout-card detail line, staleness dimming + header warning, palette actions (C6 of cron-clock-plan wave 3)","cmd":"fab-new","event":"command","ts":"2026-09-07T09:40:11Z"}
+{"delta":"+3.3","event":"confidence","score":3.3,"trigger":"calc-score","ts":"2026-09-07T09:42:50Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-07T09:49:55Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-07T10:04:58Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-07T10:07:46Z"}
+{"event":"review","result":"passed","ts":"2026-09-07T10:07:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-07T10:13:04Z"}

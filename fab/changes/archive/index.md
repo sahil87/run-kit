@@ -1,5 +1,6 @@
 # Archived Changes
 
+- **260907-1jm6-cron-api-derivations** — Cron API + Derivations (watchlist + staleness onto sessions)
 - **260906-bi3v-rk-cron-cli** — rk cron CLI
 - **260906-kl1g-daemon-ticker-cron-delivery** — Daemon Ticker + Cron Delivery
 - **260906-3jtn-cron-core-evaluator** — Cron Core + Evaluator

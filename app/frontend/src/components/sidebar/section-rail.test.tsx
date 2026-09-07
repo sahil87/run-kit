@@ -21,7 +21,32 @@ function railButtons(): HTMLElement[] {
 }
 
 describe("SectionRail", () => {
-  it("renders exactly four toggles in the fixed order Boards · Server · Pane · Host (no Sessions)", () => {
+  it("renders exactly five toggles in the fixed order Boards · Server · Pane · Host · Clock (no Sessions)", () => {
+    render(<SectionRail />);
+    expect(railButtons().map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Toggle Boards section",
+      "Toggle Server section",
+      "Toggle Pane section",
+      "Toggle Host section",
+      "Toggle Clock section",
+    ]);
+    expect(screen.queryByRole("button", { name: /Sessions section/ })).not.toBeInTheDocument();
+  });
+
+  it("aria-pressed reflects the defaults (Boards/Server on, Pane/Host/Clock off)", () => {
+    render(<SectionRail />);
+    expect(railButtons().map((b) => b.getAttribute("aria-pressed"))).toEqual([
+      "true",
+      "true",
+      "false",
+      "false",
+      "false",
+    ]);
+  });
+
+  it("the Clock toggle is desktop-only: absent on mobile, the other four unaffected", () => {
+    // Narrow viewport + coarse pointer (the useIsMobile rule).
+    stubMatchMedia((query) => query.includes("max-width") || query.includes("pointer: coarse"));
     render(<SectionRail />);
     expect(railButtons().map((b) => b.getAttribute("aria-label"))).toEqual([
       "Toggle Boards section",
@@ -29,17 +54,17 @@ describe("SectionRail", () => {
       "Toggle Pane section",
       "Toggle Host section",
     ]);
-    expect(screen.queryByRole("button", { name: /Sessions section/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Toggle Clock section" })).not.toBeInTheDocument();
+    // Restore the desktop stub for any later test in the file.
+    stubMatchMedia();
   });
 
-  it("aria-pressed reflects the defaults (Boards/Server on, Pane/Host off)", () => {
+  it("the Clock toggle flips its persisted boolean on desktop", () => {
     render(<SectionRail />);
-    expect(railButtons().map((b) => b.getAttribute("aria-pressed"))).toEqual([
-      "true",
-      "true",
-      "false",
-      "false",
-    ]);
+    const clock = screen.getByRole("button", { name: "Toggle Clock section" });
+    fireEvent.click(clock);
+    expect(clock.getAttribute("aria-pressed")).toBe("true");
+    expect(localStorage.getItem("runkit-sidebar-section-clock")).toBe("true");
   });
 
   it("click flips the persisted boolean and aria-pressed", () => {

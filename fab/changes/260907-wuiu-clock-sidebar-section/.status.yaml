@@ -1,0 +1,55 @@
+id: wuiu
+name: 260907-wuiu-clock-sidebar-section
+created: 2026-09-07T09:40:11Z
+created_by: sahil-noon
+change_type: feat
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 23
+    acceptance_count: 23
+    acceptance_completed: 23
+confidence:
+    certain: 2
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 3.3
+    fuzzy: true
+    dimensions:
+        signal: 59.3
+        reversibility: 79.3
+        competence: 68.6
+        disambiguation: 64.3
+stage_metrics:
+    intake: {started_at: "2026-09-07T09:40:11Z", driver: fab-new, iterations: 1, completed_at: "2026-09-07T09:49:55Z"}
+    apply: {started_at: "2026-09-07T09:49:55Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-07T10:04:58Z"}
+    review: {started_at: "2026-09-07T10:04:58Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-07T10:07:46Z"}
+    hydrate: {started_at: "2026-09-07T10:07:46Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-07T10:13:04Z"}
+    ship: {started_at: "2026-09-07T10:13:04Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-07T10:13:04Z"
+    computed_at_stage: hydrate
+summary: 'Desktop CLOCK sidebar section (5th section-rail toggle, first desktopOnly gate) with ClockPanel over GET /api/cron (SSE-tick re-fetch, row-flyout mute/delete), the watched-row ◉ indicator + flyout WatchedLine with operator-stale dimming, and the Panel: Toggle Clock / Cron: mute… / Cron: delete… palette actions'
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-07T10:13:04Z

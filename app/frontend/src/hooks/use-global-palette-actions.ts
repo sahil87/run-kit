@@ -1,14 +1,15 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMatches, useNavigate, useRouter } from "@tanstack/react-router";
 import { useChromeDispatch, useChromeState } from "@/contexts/chrome-context";
 import { useSettingsDialog } from "@/contexts/settings-dialog-context";
-import { useUpdateNotification } from "@/contexts/session-context";
+import { useCurrentServerFromRoute, useUpdateNotification } from "@/contexts/session-context";
 import { useUpdateCheck } from "@/hooks/use-update-check";
 import { consumeUpdateWatchTarget } from "@/hooks/use-update-click";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { useShellServers } from "@/hooks/use-shell-servers";
 import { useSidebarSectionVisible } from "@/hooks/use-sidebar-sections";
 import { useToast } from "@/components/toast";
+import { deleteCron, getCron, muteCron, type CronEntry } from "@/api/client";
 import type { PaletteAction } from "@/components/command-palette";
 import { HELP_URL } from "@/components/global-chrome";
 import { withShortcutHints } from "@/lib/keybindings";
@@ -191,14 +192,93 @@ export function useGlobalPaletteActions(): PaletteAction[] {
   const [serverVisible, setServerVisible] = useSidebarSectionVisible("server");
   const [paneVisible, setPaneVisible] = useSidebarSectionVisible("pane");
   const [hostVisible, setHostVisible] = useSidebarSectionVisible("host");
+  const [clockVisible, setClockVisible] = useSidebarSectionVisible("clock");
   const panelActions: PaletteAction[] = useMemo(
     () => [
       { id: "panel-toggle-boards", label: "Panel: Toggle Boards", onSelect: () => setBoardsVisible(!boardsVisible) },
       { id: "panel-toggle-server", label: "Panel: Toggle Server", onSelect: () => setServerVisible(!serverVisible) },
       { id: "panel-toggle-pane", label: "Panel: Toggle Pane", onSelect: () => setPaneVisible(!paneVisible) },
       { id: "panel-toggle-host", label: "Panel: Toggle Host", onSelect: () => setHostVisible(!hostVisible) },
+      { id: "panel-toggle-clock", label: "Panel: Toggle Clock", onSelect: () => setClockVisible(!clockVisible) },
     ],
-    [boardsVisible, setBoardsVisible, serverVisible, setServerVisible, paneVisible, setPaneVisible, hostVisible, setHostVisible],
+    [boardsVisible, setBoardsVisible, serverVisible, setServerVisible, paneVisible, setPaneVisible, hostVisible, setHostVisible, clockVisible, setClockVisible],
+  );
+
+  // Cron entry actions (wuiu R14) — the keyboard-first mute/delete path for
+  // the current server's cron entries (the CLOCK panel's row flyout is the
+  // pointer path). The entry list is fetched on server change and patched
+  // locally from each mutation's own outcome — the hook lives outside the
+  // per-server SSE slice plumbing, so it does not re-fetch on ticks. Both
+  // actions pick ONE entry through the optionPicker sub-step (the palette's
+  // only entity-selection primitive, used here single-select) and render
+  // disabled (never hidden) when the server has no entries.
+  const cronServer = useCurrentServerFromRoute();
+  const [cronEntries, setCronEntries] = useState<CronEntry[]>([]);
+  useEffect(() => {
+    if (!cronServer) {
+      setCronEntries([]);
+      return;
+    }
+    let cancelled = false;
+    getCron(cronServer)
+      .then(({ entries: list }) => {
+        if (!cancelled) setCronEntries(list);
+      })
+      .catch(() => {
+        if (!cancelled) setCronEntries([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cronServer]);
+  const cronOptions = useMemo(
+    () => cronEntries.map((e) => ({ key: e.id, label: e.name ?? e.id })),
+    [cronEntries],
+  );
+  const cronActions: PaletteAction[] = useMemo(
+    () => [
+      {
+        id: "cron-mute-entry",
+        label: "Cron: mute…",
+        disabled: cronEntries.length === 0,
+        optionPicker: {
+          options: cronOptions,
+          placeholder: "Pick entry to mute — Space toggle · Enter apply",
+          onApply: (keys) => {
+            const id = keys[0];
+            if (!id || !cronServer) return;
+            void muteCron(cronServer, id, true)
+              .then(() =>
+                setCronEntries((prev) => prev.map((e) => (e.id === id ? { ...e, muted: true } : e))),
+              )
+              .catch((err: unknown) =>
+                addToast(err instanceof Error ? err.message : "Mute failed", "error"),
+              );
+          },
+        },
+        onSelect: () => {},
+      },
+      {
+        id: "cron-delete-entry",
+        label: "Cron: delete…",
+        disabled: cronEntries.length === 0,
+        optionPicker: {
+          options: cronOptions,
+          placeholder: "Pick entry to delete — Space toggle · Enter apply",
+          onApply: (keys) => {
+            const id = keys[0];
+            if (!id || !cronServer) return;
+            void deleteCron(cronServer, id)
+              .then(() => setCronEntries((prev) => prev.filter((e) => e.id !== id)))
+              .catch((err: unknown) =>
+                addToast(err instanceof Error ? err.message : "Delete failed", "error"),
+              );
+          },
+        },
+        onSelect: () => {},
+      },
+    ],
+    [cronEntries.length, cronOptions, cronServer, addToast],
   );
 
   // Sidebar entries — layout-global because the sidebar exists on every
@@ -390,10 +470,10 @@ export function useGlobalPaletteActions(): PaletteAction[] {
       // formatted per platform and reflecting overrides; disabled bindings
       // (user-disabled or browser-reserved) render no hint (260730-g40a).
       withShortcutHints(
-        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, settingsAppearanceEntry, settingsAllEntry, ...panelActions, ...sidebarActions, operatorConsoleEntry, ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions],
+        [...navActions, ...terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, settingsAppearanceEntry, settingsAllEntry, ...panelActions, ...cronActions, ...sidebarActions, operatorConsoleEntry, ...hostMenuActions, ...appWindowActions, ...updateActions, ...checkActions, ...maintenanceActions, ...versionActions],
         bindingByAction,
         bindingHost.platform,
       ),
-    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, settingsAppearanceEntry, settingsAllEntry, panelActions, sidebarActions, operatorConsoleEntry, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, bindingByAction, bindingHost],
+    [navActions, terminalFontActions, refreshEntry, helpEntry, shortcutsEntry, settingsEntry, settingsAppearanceEntry, settingsAllEntry, panelActions, cronActions, sidebarActions, operatorConsoleEntry, hostMenuActions, appWindowActions, updateActions, checkActions, maintenanceActions, versionActions, bindingByAction, bindingHost],
   );
 }

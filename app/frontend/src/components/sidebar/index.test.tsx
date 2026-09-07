@@ -63,6 +63,8 @@ vi.mock("@/api/client", async (importOriginal) => {
     getAllServerFlairs: vi.fn().mockResolvedValue({}),
     setServerFlair: vi.fn().mockResolvedValue({ ok: true }),
     setServerProtected: vi.fn().mockResolvedValue({ ok: true }),
+    // The CLOCK panel (wuiu) fetches on mount when its section is visible.
+    getCron: vi.fn().mockResolvedValue({ entries: [], deliveries: [] }),
   };
 });
 
@@ -1709,6 +1711,29 @@ describe("Sidebar — section-visibility rail + gating (iha5)", () => {
 
     fireEvent.click(toggle); // section on — remounts exactly as left
     expect(paneHeader()!.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("mounts the CLOCK panel on desktop when its section is toggled on (wuiu)", async () => {
+    localStorage.setItem("runkit-sidebar-section-clock", "true");
+    renderSidebar();
+    expect(screen.getByRole("button", { name: /^Clock/ })).toBeInTheDocument();
+    // The panel body fetches the current server's entries (mocked empty here).
+    await waitFor(() => expect(screen.getByText("No cron entries")).toBeInTheDocument());
+  });
+
+  it("CLOCK stays unmounted under its default (section off) even on desktop", () => {
+    renderSidebar();
+    expect(screen.queryByRole("button", { name: /^Clock/ })).not.toBeInTheDocument();
+  });
+
+  it("CLOCK is desktop-only: the panel never mounts on mobile even when toggled on (wuiu)", () => {
+    stubMobileViewport();
+    localStorage.setItem("runkit-sidebar-section-clock", "true");
+    renderSidebar();
+    expect(screen.queryByRole("button", { name: /^Clock/ })).not.toBeInTheDocument();
+    expect(screen.queryByText("No cron entries")).not.toBeInTheDocument();
+    // …and the rail carries no Clock toggle for it either.
+    expect(screen.queryByRole("button", { name: "Toggle Clock section" })).not.toBeInTheDocument();
   });
 });
 

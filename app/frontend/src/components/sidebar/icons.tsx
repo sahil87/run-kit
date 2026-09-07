@@ -414,6 +414,71 @@ export function HostSectionIcon({ size = 13 }: { size?: number }) {
   );
 }
 
+/** Clock-section toggle glyph for the section rail — a lucide `clock`
+ *  silhouette (clock face + hour/minute hands). Same fixed idiom. */
+export function ClockSectionIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 6v6l4 2" />
+    </svg>
+  );
+}
+
+/** Small bell icon for the cron row card's Unmute action — a lucide `bell`
+ *  silhouette (dome + clapper). Same fixed idiom. */
+export function BellIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M10.268 21a2 2 0 0 0 3.464 0" />
+      <path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326" />
+    </svg>
+  );
+}
+
+/** Small struck-bell icon for the cron row card's Mute action — a lucide
+ *  `bell-off` silhouette (partial dome + slash). Same fixed idiom. */
+export function BellOffIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M10.268 21a2 2 0 0 0 3.464 0" />
+      <path d="M17 17H4a1 1 0 0 1-.74-1.673C4.59 13.956 6 12.499 6 8a6 6 0 0 1 .258-1.742" />
+      <path d="m2 2 20 20" />
+      <path d="M8.668 3.01A6 6 0 0 1 18 8c0 2.687.77 4.653 1.707 6.05" />
+    </svg>
+  );
+}
+
 /** Small close/kill icon for the session- and window-row kill triggers — a
  *  lucide `x` cross. Replaces the former U+2715 text glyph for the same
  *  one-stroke-system reason as `PlusIcon`. (260724-2bmy) */

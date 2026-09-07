@@ -82,15 +82,16 @@ export type ProjectSession = {
    *  grid is the diagnostic payload — it identifies the clamping client.
    *  Absent on zero-viewer sessions and on payloads from an older backend. */
   viewers?: { width: number; height: number }[];
-  /** Per-server operator-watchdog staleness facts (the fab operator state
-   *  file's last_tick_at against the staleness threshold), populated
-   *  identically on every session of a server — read any session's pair.
-   *  Absent/false when the state file doesn't exist (nothing to be stale
-   *  about) or on payloads from an older backend. */
-  operatorStale?: boolean;
-  /** Unix-seconds timestamp of the operator loop's last tick; 0/absent when
-   *  no tick has been recorded. */
+  /** Per-server operator-watchdog facts, stamped onto every session of the
+   *  server by the FetchSessions join (one operator loop per server, so the
+   *  value is identical across that server's sessions): `operatorLastTickAt`
+   *  is the operator's last watchlist tick (unix seconds, 0/absent = never),
+   *  `operatorStale` is the server-side derived staleness verdict (tick older
+   *  than the watchlist stale threshold). Consumers read these verbatim —
+   *  never re-derive the threshold client-side. Absent on payloads from an
+   *  older backend. */
   operatorLastTickAt?: number;
+  operatorStale?: boolean;
   windows: WindowInfo[];
 };
 
@@ -204,5 +205,16 @@ export type WindowInfo = {
    *  normal screen); optional here only for partial test fixtures — consumers
    *  treat absent as false. */
   altScreen?: boolean;
+  /** Operator-watchlist tier: FetchSessions joins the fab operator state
+   *  file's monitored map onto each window by pane ID. `monitored` is true
+   *  when any pane matches a watchlist entry; the remaining fields are that
+   *  entry's identity facets (change key, stage, repo, branch, agent). All
+   *  absent on unwatched windows and on payloads from an older backend. */
+  monitored?: boolean;
+  monitoredChange?: string;
+  monitoredStage?: string;
+  monitoredRepo?: string;
+  monitoredBranch?: string;
+  monitoredAgent?: string;
   panes?: PaneInfo[];
 };

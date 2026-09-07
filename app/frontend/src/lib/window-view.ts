@@ -31,9 +31,10 @@ export type ViewName = "tty" | "web" | "code";
  * `@rk_win_layout` ("" renders `single:tty`; read-side tolerant, consumers
  * parse), `webTabs` the dense `@rk_win_web_<n>` URL family with `webActive` its
  * 1-based active slot, `codeRoot` the code surface's folder from
- * `@rk_win_code_root`, and `gitRoot` the backend-derived git toplevel (the
- * window's active-pane cwd walked to its repo root) — the code lens's other
- * availability half that lives per-window.
+ * `@rk_win_code_root`, and `gitRoot` the backend-derived code folder (the
+ * window's active-pane cwd walked to its repo root, falling back to the raw
+ * cwd when outside any repo) — the code lens's other availability half that
+ * lives per-window.
  */
 export type ViewWindow = {
   layout?: string;

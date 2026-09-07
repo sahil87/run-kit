@@ -89,7 +89,7 @@ Both needs share one substrate: a collapsed-by-default right panel.
 | Surface | Substrate | Lens | Available when |
 |---------|-----------|------|----------------|
 | `web` | current window | `web` | always — the lens exists on every window (like `tty`); `@rk_win_url` selects the CONTENT (empty/whitespace → the tile's onboarding state, non-empty → the live iframe), never availability — the `code` row's availability-vs-content split (amended 2026-08-21, change `260821-zqlq`) |
-| `code` | current window | `code` (new lens, below) | the window's code folder is **LATCHED, or** a git root is derivable from the active pane's cwd (since `260811-a2bo` the code-server endpoint always resolves by convention: preset `RK_CODE_SERVER_PORT`, else `RK_PORT+2`). The latch is what makes availability STABLE: it lives in the `@rk_win_code_root` window option, seeded from the derived git root the first time the code surface renders and moved afterwards only by code-server's own folder navigation, so a window that has ever opened the code surface keeps offering it even after its active pane leaves the repo — the rail button, the switcher segment, and `?view=code`/`?layout=` deep links no longer strobe with the terminal's cwd (see § The `code` lens). **Availability is the STABLE capability signal only** — code-server *reachability* never gates the button/segment (it would strobe the rail); reachability selects the surface's CONTENT instead: live iframe when up, the portless "code-server not running — check rk doctor" empty state when down (amended 2026-08-11, change `260811-k3vp`; port dropped by `260811-a2bo`; latch added 2026-08-13, change `260813-if5d`) |
+| `code` | current window | `code` (new lens, below) | the window's code folder is **LATCHED, or** a folder is derivable from the active pane's cwd — the git toplevel when inside a repo, else the raw cwd itself (the same "toplevel, else cwd" fallback `rk code`'s CLI resolution uses), so a non-git window stays code-capable (since `260811-a2bo` the code-server endpoint always resolves by convention: preset `RK_CODE_SERVER_PORT`, else `RK_PORT+2`). The latch is what makes availability STABLE: it lives in the `@rk_win_code_root` window option, seeded from the derived folder the first time the code surface renders and moved afterwards only by code-server's own folder navigation, so a window that has ever opened the code surface keeps offering it even after its active pane leaves the repo — the rail button, the switcher segment, and `?view=code`/`?layout=` deep links no longer strobe with the terminal's cwd (see § The `code` lens). **Availability is the STABLE capability signal only** — code-server *reachability* never gates the button/segment (it would strobe the rail); reachability selects the surface's CONTENT instead: live iframe when up, the portless "code-server not running — check rk doctor" empty state when down (amended 2026-08-11, change `260811-k3vp`; port dropped by `260811-a2bo`; latch added 2026-08-13, change `260813-if5d`) |
 | `agents` | companion window | `tty` | a companion window owned by this window exists |
 
 ### The `code` lens (new view-registry row)
@@ -101,9 +101,13 @@ the shared switcher; the panel is merely its natural home.
 - **Renderer**: iframe of code-server at `?folder=<latched folder>`,
   same-origin via the stable relative `/code/` route (`260811-a2bo` — the port
   is a server-side implementation detail and never appears in a URL).
-- **Keyed by git root, not window id and not raw cwd** — editor state follows
-  the code; agents `cd` constantly; two windows on one worktree deliberately
-  share one editor state. **The folder is LATCHED, not tracked** (`260813-if5d`):
+- **Keyed by the resolved folder, not window id** — editor state follows the
+  code; agents `cd` constantly. The resolved folder is the git toplevel when
+  the cwd sits inside a repo — two windows on one worktree deliberately share
+  one editor state — and the raw cwd itself when it doesn't: two non-git
+  windows on different cwds get DISTINCT editor state (outside a repo there is
+  no shared toplevel to key on), while two windows on the exact same raw cwd
+  still share, same as two windows sharing a toplevel. **The folder is LATCHED, not tracked** (`260813-if5d`):
   derivation runs exactly once, the first time the code surface actually renders
   for a window, and seeds a per-window latch; from then on the ONLY thing that
   moves it is the editor's own navigation (File > Open Folder performs a full
@@ -112,8 +116,9 @@ the shared switcher; the panel is merely its natural home.
   the editor — not on a pane switch, not on a `cd`, not on tile close/reopen,
   not on reload. That is precisely because agents `cd` constantly: a live
   derivation would take the editor's open tabs, dirty buffers, and undo stack
-  with it. An empty derivation seeds nothing (a window never inside a repo
-  behaves exactly as it did before the latch), and a mounted iframe is never
+  with it. An empty derivation seeds nothing (only a window with no resolvable
+  cwd at all — zero panes, no worktree path — derives empty), and a mounted
+  iframe is never
   re-navigated by the parent — the latch fixes the `src` at MOUNT time only (P3).
   - **Storage**: per-viewer localStorage, keyed per (server, window id) — the
     `runkit-window-view` convention. Per-browser divergence is consistent with

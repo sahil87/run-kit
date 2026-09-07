@@ -55,8 +55,9 @@ import { stubProxyPorts } from "./_web-tile";
  *   10s budget). `afterAll` kills the session (best-effort); the
  *   stub-listening describe also closes the stub.
  * - `makeWindow(name, {cwd?})`: create a window via `tmux new-window`
- *   (optionally with `-c /tmp` for a NON-repo cwd — the availability-negative
- *   case). Returns the stable `@N` id.
+ *   (optionally with `-c /tmp` for a non-repo cwd — code-capable via the
+ *   cwd fallback, so the code folder is `/tmp` itself). Returns the stable
+ *   `@N` id.
  * - `GIT_ROOT`: `git rev-parse --show-toplevel` from the spec process — the
  *   toplevel every in-repo test window derives (windows inherit the tmux
  *   server's repo-root cwd).
@@ -197,11 +198,11 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
   /**
    * Proves: availability derives from the SSE `gitRoot` field alone
    * (Constitution II/X — no client-side declaration; the port is conventional
-   * and does not gate); a non-repo cwd (`/tmp`) derives no gitRoot, so neither
-   * affordance renders. The `View: Code` lens switch is palette-only — the
-   * chevron menu carries no `View:` rows. The test carries a 30s budget: two
-   * window creations plus two full page loads land marginal at the 10s default
-   * under suite load.
+   * and does not gate); a non-repo cwd (`/tmp`) is code-capable too — the
+   * backend falls back to the raw cwd, so the code folder is `/tmp` itself.
+   * The `View: Code` lens switch is palette-only — the chevron menu carries no
+   * `View:` rows. The test carries a 30s budget: two window creations plus two
+   * full page loads land marginal at the 10s default under suite load.
    *
    * Steps:
    * 1. Create a repo-cwd window; navigate; assert the terminal, then the `Code
@@ -209,10 +210,11 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
    * 2. Open the palette with `View: Code`; assert the option is visible;
    *    Escape. Open the "More controls" menu; assert it carries NO `View:`
    *    rows; Escape.
-   * 3. Create a `/tmp`-cwd window; navigate; assert NO `Code tile` button and
-   *    no `View: Code` palette option.
+   * 3. Create a `/tmp`-cwd window; navigate; assert the `Code tile` button IS
+   *    visible, the `View: Code` palette option IS offered, and the tile's
+   *    iframe src is `/code/?folder=%2Ftmp` (the raw cwd, not a git root).
    */
-  test("the Code tile top-bar toggle appears only on a git-repo window; the palette's `View: Code` action gates the same way", async ({
+  test("the Code tile top-bar toggle appears on repo and non-repo windows alike; the non-repo code folder is the raw cwd", async ({
     page,
   }) => {
     // Two window creations + two full page loads + palette interactions —
@@ -240,19 +242,28 @@ test.describe("Code lens & CODE surface (phase 2) — stub reachable", () => {
     ).toHaveCount(0);
     await page.keyboard.press("Escape");
 
-    // A NON-repo cwd (/tmp) derives no gitRoot → neither affordance renders.
+    // A non-repo cwd (/tmp) falls back to the raw cwd as its code folder —
+    // both affordances render, keyed on /tmp itself.
     const offRepo = await makeWindow(page, `cs-tmp-${Date.now()}`, {
       cwd: "/tmp",
     });
     await gotoWindow(page, offRepo);
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
-    await expect(codeToggle(page)).toHaveCount(0);
+    await expect(codeToggle(page)).toBeVisible({ timeout: READY_TIMEOUT });
     const paletteInput2 = await openPalette(page);
     await paletteInput2.fill("View: Code");
-    // exact: the palette's Ask-operator fallback row (`Ask operator: "View: Code"`)
-    // would substring-match this name; the gated action itself is what must be absent.
-    await expect(page.getByRole("option", { name: "View: Code", exact: true })).toHaveCount(0);
+    await expect(
+      page.getByRole("option", { name: "View: Code", exact: true }),
+    ).toBeVisible();
     await page.keyboard.press("Escape");
+    // Open the code tile: the iframe src proves the surfaced folder is the raw
+    // /tmp cwd, not a git root.
+    await codeToggle(page).click();
+    await expect(codeIframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
+    await expect(codeIframe(page)).toHaveAttribute(
+      "src",
+      `/code/?folder=${encodeURIComponent("/tmp")}`,
+    );
   });
 
   /**

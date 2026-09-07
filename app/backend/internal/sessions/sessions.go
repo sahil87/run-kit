@@ -652,15 +652,18 @@ func rollupAltScreen(panes []tmux.PaneInfo) bool {
 	return false
 }
 
-// deriveGitRoot resolves the window's git toplevel for the code lens/surface
+// deriveGitRoot resolves the window's code folder for the code lens/surface
 // (docs/specs/right-panel.md): the ACTIVE pane's cwd, else the first pane's
 // cwd, else the window's worktree path — the same precedence as api/riff.go's
 // windowCwd (duplicated here because api imports this package, not vice
 // versa) — walked up via config.FindGitRoot (a pure filesystem stat-walk, no
-// subprocess — Constitution I needs no timeout here). Keyed by git ROOT, not
-// window id or raw cwd: editor state follows the code, and two windows on one
-// worktree deliberately share one editor state. Returns "" when the cwd is
-// not inside a git repo.
+// subprocess — Constitution I needs no timeout here). Keyed by git ROOT when
+// one exists, not window id: editor state follows the code, and two windows
+// on one worktree deliberately share one editor state. Falls back to the raw
+// cwd when it sits outside any repo (the same "toplevel, else cwd" pattern as
+// cmd/rk/code.go's codeTargetFolder), so non-git windows stay code-capable.
+// Returns "" only when no cwd is resolvable at all (zero panes, no worktree
+// path).
 func deriveGitRoot(w *tmux.WindowInfo) string {
 	cwd := w.WorktreePath
 	if len(w.Panes) > 0 {
@@ -679,7 +682,10 @@ func deriveGitRoot(w *tmux.WindowInfo) string {
 	if cwd == "" {
 		return ""
 	}
-	return config.FindGitRoot(cwd)
+	if root := config.FindGitRoot(cwd); root != "" {
+		return root
+	}
+	return cwd
 }
 
 // windowBranchRepo returns the (repoDir, branch) to derive a window's PR from:

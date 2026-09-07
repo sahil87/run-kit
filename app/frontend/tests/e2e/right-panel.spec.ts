@@ -223,35 +223,35 @@ test.describe("Top-bar surface toggles — open-tile toggles over the surface la
   });
 
   /**
-   * Proves: the remaining per-surface capability gate — a window offering no
-   * code (cwd /tmp, no gitRoot) renders the group with the always-available
-   * tty AND web toggles (the web toggle dotless until a URL lands) and no
-   * `Code tile` button.
+   * Proves: a non-repo window (cwd /tmp — no git root, no stamped web tab) is
+   * still fully surface-capable: the toggle group renders the always-available
+   * tty toggle, the web toggle (dotless until a URL lands), AND the `Code
+   * tile` toggle — the code folder falls back to the raw cwd (`/tmp`).
    *
    * Steps:
    * 1. Create a window with cwd /tmp and no stamped web tab; navigate.
    * 2. Assert the terminal is visible (proving the SSE window payload landed,
-   *    so the count-0 assertions are settled), the `Terminal tile` toggle
-   *    renders, the `Web tile` toggle renders with NO corner dot, and no
-   *    `Code tile` exists.
+   *    so the assertions are settled), the `Terminal tile` toggle renders, the
+   *    `Web tile` toggle renders with NO corner dot, and the `Code tile`
+   *    toggle renders.
    */
-  test("a window with no git root and no web tab shows the tty + web toggles only", async ({ page }) => {
+  test("a non-repo window with no web tab shows the tty + web + code toggles", async ({ page }) => {
     test.setTimeout(30_000);
-    // cwd /tmp keeps the window git-root-less, so the code toggle stays out;
-    // web is always available (260821-zqlq) — the group renders the tty and
-    // web toggles, the latter dotless until a URL lands.
+    // cwd /tmp has no git ancestor, so the code folder falls back to the raw
+    // cwd itself; web is always available (260821-zqlq) — the group renders
+    // all three toggles, the web one dotless until a URL lands.
     const name = `rp-nocap-${Date.now()}`;
     newWindow(TEST_SESSION, name, { cwd: "/tmp" });
     const plain = await resolveWindow(page, name);
     await gotoWindow(page, plain);
     // The terminal mounting proves the SSE window payload landed, so the
-    // count-0 assertions below are settled (not a pre-payload snapshot).
+    // assertions below are settled (not a pre-payload snapshot).
     await expect(terminal(page)).toBeVisible({ timeout: 10_000 });
     await expect(toggleButton(page, "Terminal")).toBeVisible();
     const webToggle = toggleButton(page, "Web");
     await expect(webToggle).toBeVisible();
     await expect(webToggle.locator("span.rounded-full")).toHaveCount(0);
-    await expect(toggleButton(page, "Code")).toHaveCount(0);
+    await expect(toggleButton(page, "Code")).toBeVisible();
   });
 
   /**

@@ -11,8 +11,9 @@ import { useEffect, useRef } from "react";
  * inapplicable chrome. It is exactly an iframe plus the not-running empty
  * state.
  *
- * - **Availability vs reachability**: availability (gitRoot derived — the port
- *   is always resolvable by convention since a2bo) is computed upstream — this
+ * - **Availability vs reachability**: availability (gitRoot derived — the git
+ *   toplevel, falling back to the raw cwd outside any repo; the port is always
+ *   resolvable by convention since a2bo) is computed upstream — this
  *   component renders only when the lens/surface was resolved. REACHABILITY
  *   selects the content: a reachable code-server renders the iframe; an
  *   unreachable one renders the terse monospace empty state instead of a dead

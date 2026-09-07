@@ -1,0 +1,11 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-07T12:11:16Z"}
+{"args":"Show the code server even when not in a git root — hasCode() in window-view.ts hard-gates the code-server lens on a discoverable git root (gitRoot/codeRoot), so sessions outside any git repo never get the code-server surface. CLI (rk code) already falls back to cwd; UI gate should too.","cmd":"fab-new","event":"command","ts":"2026-09-07T12:11:16Z"}
+{"delta":"+4.3","event":"confidence","score":4.3,"trigger":"calc-score","ts":"2026-09-07T12:13:49Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-07T12:19:17Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-07T12:25:45Z"}
+{"event":"review","result":"failed","ts":"2026-09-07T12:30:53Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-07T12:30:53Z"}
+{"action":"re-entry","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-07T12:35:08Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-07T12:38:36Z"}
+{"event":"review","result":"passed","ts":"2026-09-07T12:38:36Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-07T12:41:39Z"}

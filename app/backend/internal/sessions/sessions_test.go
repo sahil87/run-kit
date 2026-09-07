@@ -309,7 +309,7 @@ func TestRollupAgentState(t *testing.T) {
 
 // TestDeriveGitRoot covers the code-lens availability derivation (260811-k3vp):
 // the window's git toplevel from its active pane's cwd, with the
-// first-pane-cwd → worktree-path fallbacks and the non-repo empty case.
+// first-pane-cwd → worktree-path fallbacks and the non-repo cwd fallback.
 func TestDeriveGitRoot(t *testing.T) {
 	// A temp "repo" (a dir containing .git is enough for FindGitRoot) with a
 	// nested subdir, plus a plain non-repo dir.
@@ -354,12 +354,12 @@ func TestDeriveGitRoot(t *testing.T) {
 		}
 	})
 
-	t.Run("non-repo cwd yields empty", func(t *testing.T) {
+	t.Run("non-repo cwd falls back to the cwd itself", func(t *testing.T) {
 		w := &tmux.WindowInfo{
 			Panes: []tmux.PaneInfo{{IsActive: true, Cwd: plain}},
 		}
-		if got := deriveGitRoot(w); got != "" {
-			t.Errorf("got %q, want empty (not a repo)", got)
+		if got := deriveGitRoot(w); got != plain {
+			t.Errorf("got %q, want %q (cwd fallback for a non-repo cwd)", got, plain)
 		}
 	})
 

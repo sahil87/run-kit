@@ -3,7 +3,8 @@
  *
  * The code surface's folder is SHARED tab state: it lives in the
  * `@rk_win_code_root` window option and arrives in the window payload as
- * `codeRoot`. `gitRoot` is re-derived per SSE tick from the ACTIVE pane's cwd,
+ * `codeRoot`. `gitRoot` is re-derived per SSE tick from the ACTIVE pane's cwd
+ * (the git toplevel, else the raw cwd itself when outside any repo),
  * so a pane switch or a `cd` would retarget (or unmount) the embedded editor
  * and take its in-flight state with it — open tabs, dirty buffers, undo
  * stacks. Derivation therefore only SEEDS (`codeRootSeed`): the first render
@@ -21,15 +22,17 @@ import type { Layout } from "./surface-layout";
 /**
  * The folder the code surface opens: the shared code root, falling back to
  * the derived `gitRoot` while the option is still unset (pre-seed renders and
- * availability gating). "" when neither exists — the code surface is
- * unavailable then (`hasCode` keys off the same pair).
+ * availability gating) — `gitRoot` here is the resolved code folder (git
+ * toplevel, else the raw cwd outside any repo). "" when neither exists — the
+ * code surface is unavailable then (`hasCode` keys off the same pair).
  */
 export function codeRootFor(win: ViewWindow | null | undefined): string {
   return win?.codeRoot || win?.gitRoot || "";
 }
 
 /**
- * The one-time seed for `@rk_win_code_root`: the derived `gitRoot`, but only
+ * The one-time seed for `@rk_win_code_root`: the derived `gitRoot` (toplevel,
+ * else raw cwd), but only
  * when the code tile is actually open AND the option is still empty — seeding
  * a closed tile would pin a root the user never asked for, and seeding over a
  * set root would clobber the editor's own navigation. `null` means "no write".

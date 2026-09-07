@@ -181,10 +181,12 @@ export type WindowInfo = {
   /** The absolute folder the code surface opens, from `@rk_win_code_root`.
    *  Empty/absent when unset. */
   codeRoot?: string;
-  /** The window's git toplevel, derived server-side from the active pane's cwd
-   *  (`internal/sessions` `deriveGitRoot`). Empty/absent when the cwd is not a
-   *  git repo. The per-window half of the code lens/surface availability gate
-   *  (`hasCode`); keyed by git ROOT so editor state follows the code. */
+  /** The window's code folder, derived server-side from the active pane's cwd
+   *  (`internal/sessions` `deriveGitRoot`): the git toplevel when inside a
+   *  repo, else the raw cwd itself; empty/absent only when no cwd is
+   *  resolvable at all. The per-window half of the code lens/surface
+   *  availability gate (`hasCode`); keyed by the resolved folder so editor
+   *  state follows the code. */
   gitRoot?: string;
   /** Window-level rollup of the panes' `@rk_pane_agent_session` pane option
    *  (active-pane-first, else first pane) — the window's agent session

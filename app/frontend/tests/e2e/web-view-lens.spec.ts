@@ -22,10 +22,11 @@
  * `beforeEach` also sets a wide desktop viewport (1440×800); the mobile test
  * overrides to 375px. `makeWindow(name, {url?, layout?, cwd?})` creates a
  * window via `tmux new-window` and stamps the slot-1 web tab (`stampWebTab`)
- * and/or `@rk_win_layout` directly with tmux; `cwd: "/tmp"` makes the window
- * NON-repo (no gitRoot → code unavailable), the deterministic single-view
- * case. The stamped options surface as `webTabs`/`webActive`/`layout` in the
- * SSE snapshot, so no live HTTP server behind the iframe is needed.
+ * and/or `@rk_win_layout` directly with tmux; `cwd: "/tmp"` creates a window
+ * outside any git repo (its code folder falls back to the raw cwd, so it is
+ * code-capable like any other window). The stamped options surface as
+ * `webTabs`/`webActive`/`layout` in the SSE snapshot, so no live HTTP server
+ * behind the iframe is needed.
  * `gotoWindow(id, view?)` navigates to `/<server>/<@N>[?view=…]` and waits
  * for the status bar's `Connected` dot. `expectWindowLayout` is a retrying
  * read of the window's `@rk_win_layout` option (a verb's POST and the option
@@ -82,10 +83,9 @@ async function resolveWindow(page: Page, windowName: string): Promise<string> {
 
 /** Create a window and (optionally) stamp its slot-1 web tab (`stampWebTab`)
  *  and/or its shared `@rk_win_layout` via tmux (argument arrays — no shell
- *  strings). `cwd: "/tmp"` makes the window NON-repo (no gitRoot → code
- *  unavailable) — the deterministic single-view (tty-only) case; a repo-cwd
- *  window is code-capable since k3vp, so "plain" assertions must not rely on
- *  the gitRoot probe's timing. Returns the @N id. */
+ *  strings). `cwd: "/tmp"` creates a window outside any git repo — its code
+ *  folder falls back to the raw cwd, so it is code-capable; nothing in this
+ *  file keys on the code surface either way. Returns the @N id. */
 async function makeWindow(
   page: Page,
   name: string,
@@ -189,9 +189,9 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
    * action renders even on a window with NO stamped web tab; it opens the
    * onboarding tile) — and the retired-switcher contract: there is no in-bar
    * pill, no `view-toggle` testid anywhere in the DOM (bar or probe), and no
-   * `View:` rows in the chevron menu. The plain window uses a NON-repo cwd
-   * (`/tmp`) so `code` is unavailable too — a repo-cwd window is
-   * code-capable, and relying on the gitRoot probe's timing would be a race.
+   * `View:` rows in the chevron menu. The plain window uses a non-repo cwd
+   * (`/tmp`) — code is available there via the cwd fallback, but nothing in
+   * this test asserts on the code surface; the assertions are web-only.
    *
    * Steps:
    * 1. Create a plain window (no stamped web tab, `/tmp` cwd); navigate to it;
@@ -206,8 +206,7 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
    */
   test("lens switching is palette-only — web is always offered, the menu carries no `View:` rows (260812-0c6o, 260821-zqlq)", async ({ page }) => {
     test.setTimeout(30_000);
-    // A plain window (no stamped web tab, NON-repo cwd so code is unavailable) offers
-    // tty + web: web availability is unconditional (260821-zqlq), so the
+    // A plain window (no stamped web tab) offers web unconditionally: the
     // palette's `View: Web` action renders even before the window has a URL
     // (it opens the onboarding tile — the discovery path the gating used to
     // block).
@@ -305,8 +304,8 @@ test.describe("Web view lens — iframe as a per-viewer lens", () => {
    * Proves: web is always tileable — the deep link keeps its tile instead of
    * degrading to tty, and with no stamped web tab the tile renders the
    * ONBOARDING content state in place of the iframe (the
-   * availability-vs-content split; the window uses a NON-repo cwd so `code`
-   * stays out of the layout).
+   * availability-vs-content split; availability never adds a surface to the
+   * layout — the deep link alone selects `single:web`).
    *
    * Steps:
    * 1. Create a plain window (no stamped web tab, `/tmp` cwd).

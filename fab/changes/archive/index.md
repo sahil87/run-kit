@@ -1,5 +1,7 @@
 # Archived Changes
 
+- **260907-yxen-mobile-cron-activity-feed** — Mobile Cron UI — Activity Feed, Entry Detail Sheet, Notify Deep-Links
+- **260907-wuiu-clock-sidebar-section** — Desktop UI: CLOCK Sidebar Section
 - **260907-1jm6-cron-api-derivations** — Cron API + Derivations (watchlist + staleness onto sessions)
 - **260906-bi3v-rk-cron-cli** — rk cron CLI
 - **260906-kl1g-daemon-ticker-cron-delivery** — Daemon Ticker + Cron Delivery

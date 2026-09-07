@@ -10,7 +10,8 @@
  * Everything here mirrors the `window-view.ts` pattern: pure and DOM-free
  * except a thin try/catch-noop localStorage read. Surface availability
  * derives from the same capability signals as the view registry (`hasWebUrl`
- * for `web`, `hasCode` for `code` — gitRoot-derived since 260811-a2bo;
+ * for `web`, `hasCode` for `code` — gitRoot-derived since 260811-a2bo, where
+ * `gitRoot` carries the toplevel or, outside any repo, the raw cwd;
  * Constitution II/X).
  */
 

@@ -801,9 +801,11 @@ type WindowInfo struct {
 	CodeRoot string `json:"codeRoot,omitempty"`
 	// GitRoot is the git toplevel derived from the window's active-pane cwd
 	// (config.FindGitRoot — a filesystem walk, no subprocess), computed rk-side
-	// in FetchSessions. Empty when the cwd is not inside a git repo. It keys
-	// the code lens/surface availability (docs/specs/right-panel.md) — editor
-	// state follows the code, so it is keyed by git ROOT, never window id.
+	// in FetchSessions; when the cwd sits outside any repo it falls back to
+	// that raw cwd, and it is empty only when no cwd is resolvable at all. It
+	// keys the code lens/surface availability (docs/specs/right-panel.md) —
+	// editor state follows the code, so it is keyed by git ROOT, never window
+	// id.
 	GitRoot string `json:"gitRoot,omitempty"`
 	// Marker is the window's left-gutter marker state, sourced from the
 	// @rk_win_marker window user option as a `<mode>[:<stage>]` token. It is an

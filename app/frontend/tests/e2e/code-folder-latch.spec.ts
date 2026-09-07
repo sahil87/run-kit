@@ -15,8 +15,8 @@ import { TMUX_SERVER, createSession, killSession, newWindow, windowOption } from
  * (toggle and tile strobing away) and must not re-navigate the embedded
  * editor (losing its in-flight state). The spec drives the real thing: a
  * window with a second pane at a non-repo cwd, where the live derivation
- * observably goes empty while the option, the tile, its header, and the
- * iframe element all stay exactly as they were.
+ * observably changes to the raw-cwd fallback (`/tmp`) while the option, the
+ * tile, its header, and the iframe element all stay exactly as they were.
  *
  * Scope limit: the FOLLOW half of the rule — code-server's own File > Open
  * Folder navigation writing the option — is unit-tested only
@@ -51,7 +51,8 @@ import { TMUX_SERVER, createSession, killSession, newWindow, windowOption } from
  *   asynchronously, so the read polls).
  * - `splitPaneOutsideRepo(id)`: `tmux split-window -c /tmp` on the window.
  *   tmux makes the new pane ACTIVE, so the backend's active-pane-preferring
- *   `deriveGitRoot` starts returning `""`.
+ *   `deriveGitRoot` starts returning `/tmp` (the raw-cwd fallback for a
+ *   non-repo cwd).
  * - `expectDerivedGitRoot(page, id, expected)`: retrying read of the window's
  *   `gitRoot` in `GET /api/sessions` (`omitempty` — an absent field IS the
  *   empty derivation). Every test asserts the derivation actually MOVED, so a
@@ -85,8 +86,9 @@ async function makeWindow(page: Page, name: string): Promise<string> {
 
 /** Split a SECOND pane into the window at a NON-repo cwd. tmux makes the new
  *  pane active, so the backend's active-pane-preferring `deriveGitRoot` starts
- *  returning "" for this window — the intake's screenshot scenario, minus the
- *  human switching panes. No `_tmux.ts` helper exists for splits; this is the
+ *  returning `/tmp` (the raw-cwd fallback) for this window — the intake's
+ *  screenshot scenario, minus the human switching panes. No `_tmux.ts` helper
+ *  exists for splits; this is the
  *  same direct `execFileSync` the code-surface spec uses for `set-option`. */
 function splitPaneOutsideRepo(windowId: string): void {
   execFileSync("tmux", ["-L", TMUX_SERVER, "split-window", "-t", windowId, "-c", "/tmp"]);
@@ -163,7 +165,8 @@ test.describe("Code root (@rk_win_code_root seed + stability)", () => {
   /**
    * Proves: the first code-tile render SEEDS `@rk_win_code_root` from the
    * derived gitRoot, and the seed never moves the editor again. Once the
-   * active pane leaves the repo (live `gitRoot` → `""`) the toggle, the
+   * active pane leaves the repo (live `gitRoot` → the raw-cwd fallback
+   * `/tmp`) the toggle, the
    * tile, its header basename, and the iframe `src` are all unchanged, and
    * the iframe is the SAME element — the parent never re-navigated it (a
    * re-set `src` reloads the workbench even to the URL it is already at).
@@ -177,7 +180,7 @@ test.describe("Code root (@rk_win_code_root seed + stability)", () => {
    *    basename, and the window's `@rk_win_code_root` option now holds the
    *    git root (the one seed write); capture the iframe's element handle.
    * 3. `split-window -c /tmp` on the window; poll `GET /api/sessions` until the
-   *    window's derived `gitRoot` is `""`.
+   *    window's derived `gitRoot` is `/tmp` (the raw-cwd fallback).
    * 4. Assert the `Code tile` toggle, the tile, its header basename, the
    *    iframe `src`, and the option are all still there; assert the iframe
    *    element handle is IDENTICAL to the captured one; assert the terminal
@@ -208,9 +211,10 @@ test.describe("Code root (@rk_win_code_root seed + stability)", () => {
     await expectCodeRoot(id, GIT_ROOT);
     const handleBefore = await iframe.elementHandle();
 
-    // The active pane leaves the repo — the LIVE derivation goes empty.
+    // The active pane leaves the repo — the LIVE derivation moves to the
+    // raw-cwd fallback (/tmp).
     splitPaneOutsideRepo(id);
-    await expectDerivedGitRoot(page, id, "");
+    await expectDerivedGitRoot(page, id, "/tmp");
 
     // Everything the derivation used to drive stays put: the toggle, the
     // tile, its header, the iframe's src, the option itself, and the iframe
@@ -239,16 +243,17 @@ test.describe("Code root (@rk_win_code_root seed + stability)", () => {
    * Proves: the code root is SUBSTRATE state (a tmux option), not in-memory
    * or per-browser state. After a full reload — which discards every
    * in-memory trace of the seed — a bare-route re-arrival still renders the
-   * seeded layout and boots the editor at the seeded folder; on a
-   * derivation-only availability rule the layout would degrade to
-   * `single:tty` and render a terminal.
+   * seeded layout and boots the editor at the seeded folder, even though the
+   * live derivation now points at the raw-cwd fallback (`/tmp`): the folder
+   * provably comes from the option, not the live derivation.
    *
    * Steps:
    * 1. Create a repo-cwd window; navigate with `?layout=single:code` (inbound
    *    translation writes `@rk_win_layout`); assert the iframe is visible at
    *    `src=/code/?folder=<git root>` and the option holds the git root (the
    *    seed).
-   * 2. `split-window -c /tmp`; poll until the derived `gitRoot` is `""`.
+   * 2. `split-window -c /tmp`; poll until the derived `gitRoot` is `/tmp` (the
+   *    raw-cwd fallback).
    * 3. `page.goto` the BARE route (a full reload with no carried params).
    * 4. Assert the `Code editor` iframe is visible at the same seeded `src`,
    *    the tile header still contains the repo basename, and the option is
@@ -266,12 +271,12 @@ test.describe("Code root (@rk_win_code_root seed + stability)", () => {
     await expectCodeRoot(id, GIT_ROOT);
 
     splitPaneOutsideRepo(id);
-    await expectDerivedGitRoot(page, id, "");
+    await expectDerivedGitRoot(page, id, "/tmp");
 
     // A full load of the BARE route throws away every in-memory trace of the
-    // seed; the layout AND the folder come from tmux, so the code lens still
-    // resolves (it would degrade to `single:tty` on a derivation-only
-    // availability rule).
+    // seed; the layout AND the folder come from tmux, so the editor still
+    // boots at the SEEDED git root even though the live derivation now
+    // resolves to /tmp.
     await page.goto(`/${TMUX_SERVER}/${encodeURIComponent(id)}`);
     await expect(codeIframe(page)).toBeVisible({ timeout: READY_TIMEOUT });
     await expect(codeIframe(page)).toHaveAttribute("src", SEEDED_SRC);

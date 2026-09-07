@@ -34,8 +34,9 @@ import { stubProxyPorts } from "./_web-tile";
 // shell strings); the write is invisible to the control-mode parser, so every
 // post-write assertion budgets OPTION_TICK_TIMEOUT (30s) to clear the 12s SSE
 // safety ticker on a quiet server. makeWindow(name) creates a window with
-// cwd: "/tmp" (NON-repo → code unavailable → a deterministic single:tty
-// start) and returns the @N id. awaitSnapshotReady(page, id) waits for the
+// cwd: "/tmp" (a plain non-repo cwd — the code surface is still available via
+// the cwd fallback, but nothing here asserts on it; the layout starts at a
+// deterministic single:tty regardless) and returns the @N id. awaitSnapshotReady(page, id) waits for the
 // tty tile's role="application" aria-label to carry the SSE-derived session
 // name — proof the route's window record resolved, so an option write issued
 // after it is always an OBSERVED transition, never a cold first read (the
@@ -76,9 +77,9 @@ function setLayoutOption(windowId: string, value: string): void {
   });
 }
 
-/** Create a window and return its @N id. `cwd: "/tmp"` keeps the window
- *  NON-repo so the code surface stays unavailable and the layout starts at a
- *  deterministic `single:tty`. */
+/** Create a window and return its @N id. `cwd: "/tmp"` is a plain non-repo
+ *  cwd (the code surface resolves to the raw cwd via the fallback — irrelevant
+ *  here); the layout starts at a deterministic `single:tty`. */
 async function makeWindow(page: Page, name: string): Promise<string> {
   newWindow(TEST_SESSION, name, { cwd: "/tmp" });
   return resolveWindow(page, name);

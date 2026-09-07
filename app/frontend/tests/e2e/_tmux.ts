@@ -134,7 +134,8 @@ export interface NewWindowOptions extends TmuxOptions {
   /** Shell command for the new window's pane (tmux runs it via `sh -c`). */
   command?: string;
   /** Start directory for the new window's pane (tmux `-c`) — e.g. `/tmp` for
-   *  a NON-repo cwd (the code-surface spec's availability-negative case). */
+   *  a non-repo cwd (its code folder falls back to the raw cwd, so it stays
+   *  code-capable — no longer the availability-negative case). */
   cwd?: string;
 }
 

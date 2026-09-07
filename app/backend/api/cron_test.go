@@ -193,6 +193,38 @@ func TestCronList(t *testing.T) {
 			t.Errorf("orphaned backoff entry nextFire = %d, want unset (anchor unknowable)", body.Entries[0].NextFire)
 		}
 	})
+
+	t.Run("missing facts report orphaned, never resolved", func(t *testing.T) {
+		dir := setupCronState(t)
+		writeCronEntries(t, dir, "default", `entries:
+  - id: m4no
+    schedule: {kind: backoff, anchor: operator-idle, min: 60s, max: 30m}
+    target: {kind: role, role: operator}
+    payload: tick
+`)
+		// Nil cronFactsFn (the test-router default): no live resolution
+		// happened, so the entry must not read as resolved.
+		server, _ := newWakeSeamServer(t, &mockTmuxOps{})
+		router := server.buildRouter()
+		req := httptest.NewRequest(http.MethodGet, "/api/cron?server=default", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d; body=%s", rec.Code, rec.Body.String())
+		}
+		var body struct {
+			Entries []cronEntryJSON `json:"entries"`
+		}
+		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body.Entries) != 1 || !body.Entries[0].Orphaned {
+			t.Fatalf("want one orphaned entry when facts are missing, got %+v", body.Entries)
+		}
+		if body.Entries[0].NextFire != 0 {
+			t.Errorf("no-facts backoff entry nextFire = %d, want unset (anchor unknowable)", body.Entries[0].NextFire)
+		}
+	})
 }
 
 // jsonNumber renders an int64 for inline JSON fixture construction.

@@ -152,7 +152,15 @@ func (s *Server) handleCronList(w http.ResponseWriter, r *http.Request) {
 	now := s.now()
 	out := make([]cronEntryJSON, 0, len(entries))
 	for _, e := range entries {
-		out = append(out, cronEntryToJSON(e, cron.DeriveEntry(e, log, facts[e.ID], now)))
+		// A zero TargetFacts reads as resolved (Unresolved == ""), so a
+		// missing entry must be made explicitly unresolved — otherwise a nil
+		// cronFactsFn or a gatherer skip would mask the orphan and fabricate
+		// a backoff next-fire, contradicting the cronFactsFn contract.
+		f, ok := facts[e.ID]
+		if !ok {
+			f = cron.TargetFacts{Unresolved: "no target facts gathered"}
+		}
+		out = append(out, cronEntryToJSON(e, cron.DeriveEntry(e, log, f, now)))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"entries": out})
 }

@@ -57,6 +57,7 @@ export function buildCronActions(
     key: e.id,
     label: `${e.name || e.id}${e.pinned === true ? " (pinned)" : ""}`,
   }));
+  const deleteOptions = entries.map((e) => ({ key: e.id, label: e.name || e.id }));
 
   return [
     newEntry,
@@ -75,7 +76,7 @@ export function buildCronActions(
     {
       id: "cron-delete",
       label: "Cron: delete…",
-      optionPicker: pickerFor(muteOptions, "Pick an entry to delete — Space toggle · Enter apply", handlers.onDelete),
+      optionPicker: pickerFor(deleteOptions, "Pick an entry to delete — Space toggle · Enter apply", handlers.onDelete),
       onSelect: () => {},
     },
   ];

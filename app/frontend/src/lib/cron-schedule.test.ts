@@ -14,6 +14,8 @@ describe("humanizeDuration", () => {
     ["1h30m", "1 hour 30 minutes"],
     ["90s", "1 minute 30 seconds"],
     ["24h", "24 hours"],
+    ["500ms", "less than 1 second"],
+    ["250us", "less than 1 second"],
   ])("humanizes %s as %s", (raw, expected) => {
     expect(humanizeDuration(raw)).toBe(expected);
   });

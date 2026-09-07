@@ -45,7 +45,9 @@ function parseGoDurationSeconds(raw: string): number | null {
 }
 
 /** Render seconds as plain words: "1 minute", "30 minutes",
- *  "1 hour 30 minutes", "45 seconds". Sub-second precision truncates. */
+ *  "1 hour 30 minutes", "45 seconds". Sub-second precision truncates; a
+ *  positive sub-second duration renders "less than 1 second" — flooring it
+ *  to "0 seconds" would misstate a valid interval. */
 function humanizeSeconds(totalSeconds: number): string {
   let rest = Math.floor(totalSeconds);
   const parts: string[] = [];
@@ -57,7 +59,8 @@ function humanizeSeconds(totalSeconds: number): string {
   push(Math.floor(rest / 60), "minute");
   rest %= 60;
   push(rest, "second");
-  return parts.length > 0 ? parts.join(" ") : "0 seconds";
+  if (parts.length > 0) return parts.join(" ");
+  return totalSeconds > 0 ? "less than 1 second" : "0 seconds";
 }
 
 /** Humanize a Go-style duration string ("60s" → "1 minute"); unparseable or

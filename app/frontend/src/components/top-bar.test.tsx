@@ -720,8 +720,10 @@ describe("TopBar", () => {
     const chip = getVisibleCrumbText("run-kit").parentElement!;
     // Boxed chip styling (CRUMB_BOX_CLASS), matching the sibling crumbs' box —
     // including the shared control min-height that keeps every crumb on the
-    // buttons' horizontal axis.
+    // buttons' horizontal axis (28px fine / 40px coarse, same as the sidebar
+    // toggle and history arrows sharing this row).
     expect(chip).toHaveClass("rounded", "border", "border-border", "min-h-[28px]");
+    expect(chip.className).toContain("coarse:min-h-[40px]");
     // Non-interactive: a plain span — not a button, not a link, no ▾ caret.
     expect(chip.tagName).toBe("SPAN");
     expect(chip.closest("button, a")).toBeNull();

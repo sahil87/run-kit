@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-09-07T04:05:47Z"}
+{"args":"iPad top-nav breadcrumb crumbs use coarse:min-h-[30px] instead of the canonical 40px coarse touch floor used by every sibling top-bar control","cmd":"fab-new","event":"command","ts":"2026-09-07T04:05:47Z"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-09-07T04:07:10Z"}
+{"delta":"+5.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-09-07T04:08:13Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-09-07T04:09:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-09-07T04:12:23Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-09-07T04:13:59Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-09-07T04:16:20Z"}
+{"event":"review","result":"passed","ts":"2026-09-07T04:16:20Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-09-07T04:17:52Z"}

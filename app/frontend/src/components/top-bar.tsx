@@ -278,7 +278,7 @@ function BreadcrumbSeparator() {
  * affordance, no pointer cursor, and no ▾.
  *
  * min-h normalizes every crumb to the shared control height (28px fine /
- * 30px coarse — the same box as the toggle + HistoryNav arrows) so the left
+ * 40px coarse — the same box as the toggle + HistoryNav arrows) so the left
  * cluster sits on one horizontal axis; a content-height crumb is ~1px shorter
  * and centers 1px high of the fixed-height buttons. inline-flex makes the
  * min-h bite (height is inert on inline elements) — crumbs that truncate put
@@ -286,7 +286,7 @@ function BreadcrumbSeparator() {
  * apply to a flex container's anonymous text item.
  */
 const CRUMB_BOX_CLASS =
-  "inline-flex items-center min-h-[28px] coarse:min-h-[30px] rounded border border-border px-1.5 py-0.5 text-text-secondary";
+  "inline-flex items-center min-h-[28px] coarse:min-h-[40px] rounded border border-border px-1.5 py-0.5 text-text-secondary"; // lockstep: --ctl-h-bar (fine) / --ctl-h-bar-coarse
 
 /**
  * Link-crumb affordance — the box plus the always-visible "this navigates"

@@ -5,9 +5,11 @@
  * `@rk_win_code_root` window option and arrives in the window payload as
  * `codeRoot`. `gitRoot` is re-derived per SSE tick from the ACTIVE pane's cwd
  * (the git toplevel, else the raw cwd itself when outside any repo),
- * so a pane switch or a `cd` would retarget (or unmount) the embedded editor
- * and take its in-flight state with it — open tabs, dirty buffers, undo
- * stacks. Derivation therefore only SEEDS (`codeRootSeed`): the first render
+ * so a pane switch or a `cd` would retarget the embedded editor and take its
+ * in-flight state with it — open tabs, dirty buffers, undo stacks. (Retarget,
+ * never unmount: leaving a repo falls back to the raw cwd rather than
+ * emptying `gitRoot` — unavailability now only happens when no cwd is
+ * resolvable at all.) Derivation therefore only SEEDS (`codeRootSeed`): the first render
  * of the code tile with an empty option writes the derived root once, and from
  * then on the only writer is the editor's own navigation (File > Open Folder,
  * reported by `CodeSurface`'s load-event seam). The terminal never moves the

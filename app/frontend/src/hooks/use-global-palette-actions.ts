@@ -220,6 +220,9 @@ export function useGlobalPaletteActions(): PaletteAction[] {
       return;
     }
     let cancelled = false;
+    // Clear before the fetch so a server switch never briefly offers the
+    // previous server's entries (their ids would 404 under the new server).
+    setCronEntries([]);
     getCron(cronServer)
       .then(({ entries: list }) => {
         if (!cancelled) setCronEntries(list);

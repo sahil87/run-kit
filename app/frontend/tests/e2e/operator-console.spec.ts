@@ -2,8 +2,8 @@ import { test, expect, type Page } from "@playwright/test";
 import { openPalette } from "./_ready";
 import { mockStateSocket } from "./_state-socket-mock";
 
-// Operator chat console — the pull-down overlay: the ⌘J three-state cycle
-// (rest → omnibox-focused → drawer-open → rest), the desktop omnibox in the
+// Operator chat console — the pull-down overlay: the ⌘J two-state toggle
+// (rest ⇄ open — omnibox focus and drawer linked), the desktop omnibox in the
 // top-bar center cell (standing at ≥ lg beside the compact heading, ghost +
 // in-place morph at md–lg) as the console's relocated compose, the one-input
 // rule (the desktop drawer is output-only with the status/error line at its
@@ -213,37 +213,32 @@ async function gotoWindowMobile(page: Page, windowId = "@1") {
     .toBe(true);
 }
 
-/** Open the desktop drawer from rest: the first chord press only focuses the
- *  omnibox (the three-state cycle); the second opens the drawer. */
+/** Open the desktop drawer from rest: one chord press focuses the omnibox
+ *  AND opens the drawer (the two-state toggle). */
 async function openDrawerViaChord(page: Page) {
   await page.keyboard.press("Shift+Control+j");
   await expect(omniboxInput(page)).toBeFocused();
-  await page.keyboard.press("Shift+Control+j");
   await expect(console_(page)).toBeVisible();
 }
 
 test.describe("Operator console", () => {
   /**
-   * Proves: the console chord (⇧Ctrl+J on this host) drives the three-state
-   * cycle — rest → omnibox-focused (drawer closed) → drawer-open (a peek,
-   * nothing sent) → rest — and Escape steps back one level at a time (open →
-   * focused keeps the omnibox focused; focused → rest blurs it), all without
-   * navigation.
+   * Proves: the console chord (⇧Ctrl+J on this host) is a two-state toggle
+   * with omnibox focus and the drawer linked — one press engages both (drawer
+   * open, a peek, nothing sent, omnibox focused), the next releases both —
+   * and a single Escape does the same release, all without navigation.
    *
    * Steps:
    * 1. Mock the backend with an operator window; land on the @1 terminal route.
-   * 2. Press Shift+Control+j; assert the omnibox is focused and the drawer is
-   *    absent.
-   * 3. Press it again; assert the drawer is visible with `◉ OPERATOR ·
-   *    default` in the title strip, an xterm frame inside, NO compose strip
-   *    (output-only drawer), and focus still in the omnibox.
-   * 4. Press it a third time; assert the drawer is gone and the omnibox no
-   *    longer holds focus.
-   * 5. Re-open, then press Escape twice; assert the drawer closes on the
-   *    first (omnibox keeps focus) and the second blurs the omnibox, with the
-   *    URL unchanged throughout.
+   * 2. Press Shift+Control+j; assert the omnibox is focused AND the drawer is
+   *    visible with `◉ OPERATOR · default` in the title strip, an xterm frame
+   *    inside, and NO compose strip (output-only drawer).
+   * 3. Press it again; assert the drawer is gone and the omnibox no longer
+   *    holds focus.
+   * 4. Re-open, then press Escape once; assert the drawer closes and the
+   *    omnibox blurs, with the URL unchanged throughout.
    */
-  test("the chord cycles rest → focused → open → rest and Esc steps back one level", async ({
+  test("the chord toggles rest ⇄ open+focused and one Esc releases", async ({
     page,
   }) => {
     await mockBackend(page, true);
@@ -251,9 +246,6 @@ test.describe("Operator console", () => {
 
     await page.keyboard.press("Shift+Control+j");
     await expect(omniboxInput(page)).toBeFocused();
-    await expect(console_(page)).toHaveCount(0);
-
-    await page.keyboard.press("Shift+Control+j");
     await expect(console_(page)).toBeVisible();
     await expect(console_(page).getByText("◉ OPERATOR")).toBeVisible();
     await expect(console_(page).getByText("· default")).toBeVisible();
@@ -262,7 +254,6 @@ test.describe("Operator console", () => {
     // textarea inside the embedded terminal is not a compose input).
     await expect(console_(page).getByRole("textbox", { name: "Message the operator" })).toHaveCount(0);
     await expect(console_(page).getByRole("button", { name: "Send" })).toHaveCount(0);
-    await expect(omniboxInput(page)).toBeFocused();
 
     await page.keyboard.press("Shift+Control+j");
     await expect(console_(page)).toHaveCount(0);
@@ -271,8 +262,6 @@ test.describe("Operator console", () => {
     await openDrawerViaChord(page);
     await page.keyboard.press("Escape");
     await expect(console_(page)).toHaveCount(0);
-    await expect(omniboxInput(page)).toBeFocused();
-    await page.keyboard.press("Escape");
     await expect(omniboxInput(page)).not.toBeFocused();
     expect(page.url()).toContain(WINDOW_URL);
   });
@@ -324,19 +313,23 @@ test.describe("Operator console", () => {
 
   /**
    * Proves: the omnibox YIELDS focus to a terminal pane. Clicking into the
-   * xterm after engaging the box leaves focus on the terminal's helper
-   * textarea and typed keys land there, not in the compose draft — the box
-   * neither re-acquires focus nor keeps its engaged chrome. jsdom cannot
-   * prove this (its synthetic focus events never move `document.activeElement`),
-   * which is exactly how the self-restore regression reached users.
+   * ROUTE xterm after engaging the box (which also drops the drawer — focus
+   * and drawer are linked) is an outside click: the drawer collapses, focus
+   * lands on that terminal's helper textarea, and typed keys land there, not
+   * in the compose draft — the box neither re-acquires focus nor keeps its
+   * engaged chrome. jsdom cannot prove this (its synthetic focus events never
+   * move `document.activeElement`), which is exactly how the self-restore
+   * regression reached users.
    *
    * Steps:
    * 1. Mock the backend with an operator window; land on the @1 terminal
    *    route and wait for the xterm frame.
-   * 2. Click the omnibox and type a partial draft; assert it holds focus and
-   *    the box renders engaged (accent border).
-   * 3. Click the xterm screen; assert `document.activeElement` is
-   *    `.xterm-helper-textarea` and the omnibox is not focused.
+   * 2. Click the omnibox and type a partial draft; assert it holds focus, the
+   *    drawer is open, and the box renders engaged (accent border).
+   * 3. Click the ROUTE terminal's xterm screen (outside the console's DOM —
+   *    the drawer holds its own xterm, so the route one is addressed
+   *    explicitly); assert the drawer collapses, `document.activeElement` is
+   *    `.xterm-helper-textarea`, and the omnibox is not focused.
    * 4. Type; assert the omnibox draft is unchanged (the keys went to the
    *    pane, not the box).
    * 5. Assert the box has stood down to its resting chrome (no accent border,
@@ -350,9 +343,15 @@ test.describe("Operator console", () => {
     await omniboxInput(page).click();
     await omniboxInput(page).fill("half-written");
     await expect(omniboxInput(page)).toBeFocused();
+    await expect(console_(page)).toBeVisible();
     await expect(page.getByTestId("operator-omnibox")).toHaveClass(/border-accent-green/);
 
-    await page.locator(".xterm-screen").click();
+    const routeXterm = page.locator('.xterm-screen:not([data-testid="operator-console"] *)');
+    // The centered drawer overlays the route terminal's middle — click the
+    // terminal's bottom-left corner, which the drawer never covers.
+    const box = await routeXterm.boundingBox();
+    await routeXterm.click({ position: { x: 10, y: (box?.height ?? 20) - 10 } });
+    await expect(console_(page)).toHaveCount(0);
     await expect
       .poll(() =>
         page.evaluate(() =>
@@ -372,18 +371,19 @@ test.describe("Operator console", () => {
   /**
    * Proves: the md–lg rung renders today's full heading (prefix included)
    * plus the dim `· ◉ ask` ghost; clicking the ghost morphs the center into
-   * the omnibox in place (heading hidden, box focused) and Escape restores
-   * the heading.
+   * the omnibox in place (heading hidden, box focused) and opens the drawer
+   * (focus and drawer are linked), and one Escape restores the heading and
+   * closes the drawer.
    *
    * Steps:
    * 1. Set a 900×720 viewport (between the mobile rule and lg); mock the
    *    backend with an operator window; land on the terminal route.
    * 2. Assert the ghost and the `Tab:` prefix are visible and the omnibox is
    *    hidden.
-   * 3. Click the ghost; assert the omnibox is visible and focused and the
-   *    heading's rename button is hidden.
-   * 4. Press Escape; assert the heading and ghost are back and the box is
-   *    hidden.
+   * 3. Click the ghost; assert the omnibox is visible and focused, the drawer
+   *    is open, and the heading's rename button is hidden.
+   * 4. Press Escape; assert the heading and ghost are back, the box is
+   *    hidden, and the drawer is gone.
    */
   test("md–lg: the ghost morphs the center into the omnibox and Esc restores the heading", async ({
     page,
@@ -400,19 +400,21 @@ test.describe("Operator console", () => {
     await ghost.click();
     await expect(omniboxInput(page)).toBeVisible();
     await expect(omniboxInput(page)).toBeFocused();
+    await expect(console_(page)).toBeVisible();
     await expect(page.getByRole("button", { name: "Rename tab feature-work" })).toBeHidden();
 
     await page.keyboard.press("Escape");
     await expect(omniboxInput(page)).toBeHidden();
+    await expect(console_(page)).toHaveCount(0);
     await expect(ghost).toBeVisible();
     await expect(page.getByRole("button", { name: "Rename tab feature-work" })).toBeVisible();
   });
 
   /**
    * Proves: the palette carries the `Operator: Open console` action (the
-   * action registry of record), and selecting it goes straight to
-   * open+focused — the drawer opens AND the omnibox takes focus, skipping the
-   * cycle's focused-only intermediate.
+   * action registry of record), and selecting it lands on open+focused — the
+   * drawer opens AND the omnibox takes focus (the same linked state the chord
+   * toggles into).
    *
    * Steps:
    * 1. Mock the backend with an operator window; land on the terminal route.
@@ -506,8 +508,8 @@ test.describe("Operator console", () => {
    *    route.
    * 2. Open the console via the ◉ button; assert the hint line, and no xterm
    *    or textbox inside the console.
-   * 3. Close with two Escapes (open → focused → rest), open the palette, type
-   *    a floor-length query matching no action; assert no `Ask operator` row.
+   * 3. Close with one Escape (open → rest), open the palette, type a
+   *    floor-length query matching no action; assert no `Ask operator` row.
    */
   test("no operator on the server renders the hint line and omits the fallback row", async ({
     page,
@@ -525,7 +527,6 @@ test.describe("Operator console", () => {
 
     await page.keyboard.press("Escape");
     await expect(console_(page)).toHaveCount(0);
-    await page.keyboard.press("Escape");
     const paletteInput = await openPalette(page);
     await paletteInput.fill("the fence deploy is wedged");
     await expect(page.getByRole("option", { name: /^Ask operator:/ })).toHaveCount(0);
@@ -575,7 +576,7 @@ test.describe("Operator console", () => {
    * Steps:
    * 1. Mock the backend with an operator window; land on the @1 terminal
    *    route.
-   * 2. Click into the omnibox (machine → focused); assert the chip appears
+   * 2. Click into the omnibox (machine → open); assert the chip appears
    *    beside the box naming @1 "feature-work".
    * 3. Type a message and press Enter (the send auto-opens the drawer).
    * 4. Assert exactly one operator-request call whose path is

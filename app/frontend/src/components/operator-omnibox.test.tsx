@@ -145,25 +145,26 @@ describe("OperatorOmnibox", () => {
     expect(screen.getByTestId("operator-omnibox-input")).toHaveAttribute("placeholder", "Ask the operator…");
   });
 
-  it("the ghost click morphs the box in place and focuses it", () => {
+  it("the ghost click morphs the box in place, focuses it, and opens the drawer", () => {
     stubNarrowDesktop();
     renderPair();
 
     fireEvent.click(screen.getByTestId("operator-omnibox-ghost"));
-    expect(getConsoleMachineState()).toBe("focused");
+    expect(getConsoleMachineState()).toBe("open");
     expect(screen.queryByTestId("operator-omnibox-ghost")).toBeNull();
     const box = screen.getByTestId("operator-omnibox");
     expect(box.className).not.toContain("hidden");
     expect(screen.getByTestId("operator-omnibox-input")).toHaveFocus();
   });
 
-  it("the chord focuses the box from rest and selects any draft", () => {
+  it("the chord engages from rest — box focused with any draft selected, drawer open", () => {
     stubWideDesktop();
     renderPair();
     act(() => setOperatorComposeText("half-written draft"));
 
     act(() => requestOperatorConsole({ action: "toggle" }));
-    expect(getConsoleMachineState()).toBe("focused");
+    expect(getConsoleMachineState()).toBe("open");
+    expect(screen.getByTestId("operator-console")).toBeInTheDocument();
     const input = screen.getByTestId("operator-omnibox-input") as HTMLInputElement;
     expect(input).toHaveFocus();
     expect(input).toHaveValue("half-written draft");
@@ -197,7 +198,7 @@ describe("OperatorOmnibox", () => {
     expect(getConsoleMachineState()).toBe("rest");
   });
 
-  it("Esc at focused returns to rest: the box blurs and prior focus is restored", () => {
+  it("Esc releases to rest: the box blurs and prior focus is restored", () => {
     stubWideDesktop();
     const prior = document.createElement("button");
     document.body.appendChild(prior);
@@ -213,39 +214,24 @@ describe("OperatorOmnibox", () => {
     prior.remove();
   });
 
-  it("an empty-draft blur at the morph rung restores the heading (rest)", () => {
-    stubNarrowDesktop();
-    renderPair();
-
-    fireEvent.click(screen.getByTestId("operator-omnibox-ghost"));
-    const input = screen.getByTestId("operator-omnibox-input");
-    expect(input).toHaveFocus();
-
-    fireEvent.blur(input);
-    expect(getConsoleMachineState()).toBe("rest");
-    expect(screen.getByTestId("operator-omnibox-ghost")).toBeInTheDocument();
-  });
-
-  it("a blur with a live draft HOLDS the morph at the narrow rung but releases the standing box", () => {
+  it("a blur alone never steps the machine — the open drawer outlives the box's focus", () => {
     stubNarrowDesktop();
     const { unmount } = renderPair();
 
     fireEvent.click(screen.getByTestId("operator-omnibox-ghost"));
     const input = screen.getByTestId("operator-omnibox-input");
-    fireEvent.change(input, { target: { value: "keep me" } });
     fireEvent.blur(input);
-    expect(getConsoleMachineState()).toBe("focused");
+    expect(getConsoleMachineState()).toBe("open");
     unmount();
 
     setConsoleMachineState("rest");
-    setOperatorComposeText("keep me");
     stubWideDesktop();
     renderPair();
     const wideInput = screen.getByTestId("operator-omnibox-input");
     fireEvent.focus(wideInput);
-    expect(getConsoleMachineState()).toBe("focused");
+    expect(getConsoleMachineState()).toBe("open");
     fireEvent.blur(wideInput);
-    expect(getConsoleMachineState()).toBe("rest");
+    expect(getConsoleMachineState()).toBe("open");
   });
 
   // The focus-ownership cases below move focus for REAL (`el.focus()`), unlike
@@ -254,7 +240,7 @@ describe("OperatorOmnibox", () => {
   // capture only ever sees `document.body` under them and the self-restore loop
   // these guard against cannot form.
 
-  it("a mouse-entered box RELEASES on an outside focus — it does not restore itself", () => {
+  it("a mouse-entered box holds the machine open on an outside focus — it never steals focus back", () => {
     stubWideDesktop();
     const outside = document.createElement("button");
     document.body.appendChild(outside);
@@ -264,10 +250,10 @@ describe("OperatorOmnibox", () => {
     // machine, which is what used to poison the restore origin with the box.
     const input = screen.getByTestId("operator-omnibox-input") as HTMLInputElement;
     act(() => input.focus());
-    expect(getConsoleMachineState()).toBe("focused");
+    expect(getConsoleMachineState()).toBe("open");
 
     act(() => outside.focus());
-    expect(getConsoleMachineState()).toBe("rest");
+    expect(getConsoleMachineState()).toBe("open");
     expect(outside).toHaveFocus();
     expect(input).not.toHaveFocus();
     outside.remove();
@@ -279,7 +265,7 @@ describe("OperatorOmnibox", () => {
 
     const input = screen.getByTestId("operator-omnibox-input") as HTMLInputElement;
     act(() => input.focus());
-    expect(getConsoleMachineState()).toBe("focused");
+    expect(getConsoleMachineState()).toBe("open");
 
     fireEvent.keyDown(document, { key: "Escape" });
     expect(getConsoleMachineState()).toBe("rest");
@@ -397,7 +383,7 @@ describe("OperatorOmnibox (templated chat lane)", () => {
     expect(mockOperatorRequest).not.toHaveBeenCalled();
   });
 
-  it("the chip resets to attached when the console re-engages", () => {
+  it("the chip resets to attached when the console re-engages", async () => {
     renderPair();
 
     const input = screen.getByTestId("operator-omnibox-input");
@@ -405,12 +391,15 @@ describe("OperatorOmnibox (templated chat lane)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Detach window context" }));
     expect(screen.queryByTestId("operator-console-context")).toBeNull();
 
-    // Esc steps focused → rest (the console's document listener); the next
-    // chord re-engages the machine and re-attaches the chip.
+    // Esc releases to rest (the console's document listener); the engagement
+    // ends only once the exit slide finishes (the drawer unmounts — mid-slide
+    // the console still counts as engaged). The next chord re-engages the
+    // machine and re-attaches the chip.
     fireEvent.keyDown(document, { key: "Escape" });
     expect(getConsoleMachineState()).toBe("rest");
+    await waitFor(() => expect(screen.queryByTestId("operator-console")).toBeNull());
     act(() => requestOperatorConsole({ action: "toggle" }));
-    expect(getConsoleMachineState()).toBe("focused");
+    expect(getConsoleMachineState()).toBe("open");
     expect(screen.getByTestId("operator-console-context")).toBeInTheDocument();
   });
 });

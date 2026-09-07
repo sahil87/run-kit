@@ -170,8 +170,8 @@ const OPERATOR_STATE_DOT: Record<string, string> = {
  * is the tongue under the top bar; the registry entry hides this button
  * there). Carries the resolved-server operator's live state dot (grey idle /
  * green active / amber waiting). Its click maps onto the ⌘J machine as
- * open ⇄ rest (`action: "button"` — rest/focused → open+focused, open →
- * rest), distinct from the chord's stepped cycle. Renders even on
+ * open ⇄ rest (`action: "button"` — the same toggle the chord steps, kept as
+ * its own seam action). Renders even on
  * operator-less servers — the console's hint line is the answer (the palette
  * open action's posture). When the entry overflows, its function merges into
  * the menu's `Operator console` row (menuRender: null — the UpdateChip

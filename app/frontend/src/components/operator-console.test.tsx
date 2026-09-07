@@ -93,8 +93,8 @@ function renderConsole(opts: {
   return render(opts.withToasts ? <ToastProvider>{tree}</ToastProvider> : tree);
 }
 
-/** The chord's first desktop step is focused-only (no drawer); tests that
- *  need the drawer open dispatch the palette action's `open` instead. */
+/** Tests that need the drawer open unconditionally dispatch the palette
+ *  action's `open` (the chord toggles). */
 function openDrawer() {
   act(() => {
     requestOperatorConsole({ action: "open" });
@@ -131,40 +131,31 @@ describe("OperatorConsole", () => {
     vi.unstubAllGlobals();
   });
 
-  it("the chord steps the desktop machine rest → focused → open → rest", async () => {
+  it("the chord toggles the desktop machine rest → open → rest", async () => {
     renderConsole();
     expect(screen.queryByTestId("operator-console")).toBeNull();
 
-    // Step 1: focused — the omnibox engages, the drawer stays closed.
+    // Step 1: open — focus and drawer are linked, nothing sent.
     stepMachine();
-    expect(getConsoleMachineState()).toBe("focused");
-    expect(screen.queryByTestId("operator-console")).toBeNull();
-
-    // Step 2: open — the peek, nothing sent.
-    stepMachine();
+    expect(getConsoleMachineState()).toBe("open");
     expect(screen.getByTestId("operator-console")).toBeInTheDocument();
     expect(mockSend).not.toHaveBeenCalled();
 
-    // Step 3: rest — the exit slide holds the mount until transitionend (or
+    // Step 2: rest — the exit slide holds the mount until transitionend (or
     // the fallback timeout — jsdom fires no transition events).
     stepMachine();
     await waitFor(() => expect(screen.queryByTestId("operator-console")).toBeNull());
     expect(getConsoleMachineState()).toBe("rest");
   });
 
-  it("Esc steps back one level: open → focused → rest", async () => {
+  it("one Esc releases the machine: open → rest", async () => {
     renderConsole();
     openDrawer();
     expect(screen.getByTestId("operator-console")).toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: "Escape" });
-    // The drawer closes (mounted through the exit slide) but the machine only
-    // stepped back to focused — the omnibox keeps focus.
-    expect(getConsoleMachineState()).toBe("focused");
-    await waitFor(() => expect(screen.queryByTestId("operator-console")).toBeNull());
-
-    fireEvent.keyDown(document, { key: "Escape" });
     expect(getConsoleMachineState()).toBe("rest");
+    await waitFor(() => expect(screen.queryByTestId("operator-console")).toBeNull());
   });
 
   it("stays mounted with the raised class through the exit slide", async () => {

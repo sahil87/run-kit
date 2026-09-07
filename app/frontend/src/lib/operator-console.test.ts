@@ -138,13 +138,12 @@ describe("console machine state", () => {
 
   it("starts at rest and notifies subscribers on change", () => {
     expect(getConsoleMachineState()).toBe("rest");
-    setConsoleMachineState("focused");
-    expect(getConsoleMachineState()).toBe("focused");
+    setConsoleMachineState("open");
+    expect(getConsoleMachineState()).toBe("open");
   });
 
-  it("cycles rest → focused → open → rest", () => {
-    expect(cycleConsoleMachine("rest")).toBe("focused");
-    expect(cycleConsoleMachine("focused")).toBe("open");
+  it("toggles rest ⇄ open", () => {
+    expect(cycleConsoleMachine("rest")).toBe("open");
     expect(cycleConsoleMachine("open")).toBe("rest");
   });
 });

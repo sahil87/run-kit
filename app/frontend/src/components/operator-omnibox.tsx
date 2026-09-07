@@ -1,6 +1,6 @@
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import { evaluateMediaQuery, useMediaQuery } from "@/hooks/use-media-query";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { useKeybindings } from "@/hooks/use-keybindings";
 import { formatCombo } from "@/lib/keybindings";
 import { SessionContext } from "@/contexts/session-context";
@@ -16,9 +16,8 @@ import {
 } from "@/lib/operator-console";
 
 /** The wide-desktop rung (tailwind `lg`) — the standing omnibox replaces the
- *  ghost/morph pair at and above it. Read BOTH ways: subscribed for render (the
- *  `engaged` chrome rule below) and evaluated at event time in the blur handler,
- *  where a one-shot read cannot race a pending re-render. */
+ *  ghost/morph pair at and above it. Subscribed for render (the `engaged`
+ *  chrome rule below). */
 const WIDE_RUNG_QUERY = "(min-width: 1024px)";
 
 /** The extra-wide rung (tailwind `2xl`) — the only width where the standing
@@ -37,14 +36,14 @@ const EXTRA_WIDE_RUNG_QUERY = "(min-width: 1536px)";
  *    placeholder only at ≥ 2xl, so the standing box never eats the crumbs'
  *    min-useful-width at `lg`/`xl` (the box grows meaning on focus, not at
  *    rest).
- *  - md–lg: a dim `· ◉ ask` ghost that (on click, or when the chord focuses
- *    the machine) morphs the center into the same box in place; Esc or an
- *    empty-draft blur restores the heading.
+ *  - md–lg: a dim `· ◉ ask` ghost that (on click, or when the chord engages
+ *    the machine) morphs the center into the same box in place; Esc, the
+ *    chord, or an outside click restores the heading.
  *
  * The box IS the console compose — draft, send, and image-paste upload ride
  * the shared seam in lib/operator-console.ts. Enter (non-empty) sends through
- * the `target:"agent"` lane and auto-opens the drawer with focus retained for
- * follow-ups; the ⌘J three-state machine (rest → focused → open) owns focus:
+ * the `target:"agent"` lane with focus retained for follow-ups; the ⌘J
+ * two-state machine (rest ⇄ open — focus and drawer linked) owns focus:
  * entering the machine from rest focuses the box and selects any draft,
  * returning to rest blurs and restores the previously focused element — under
  * two invariants, both load-bearing. An origin INSIDE the box is never
@@ -54,13 +53,16 @@ const EXTRA_WIDE_RUNG_QUERY = "(min-width: 1536px)";
  * restore runs only while the box STILL owns focus (a release caused by the
  * user focusing a terminal pane already has its owner; overriding it steals the
  * keystrokes). Escape is NOT handled here — the console's document listener
- * steps the machine back one level so a single Esc can never double-step.
+ * owns the release so a single Esc can never double-step. Blur is not a
+ * release either: the open drawer is a peek that outlives the box's focus
+ * (clicking into its terminal must not collapse it) — the console's
+ * outside-click collapse owns click-away.
  *
  * Two derived flags, deliberately not one: `morphed` (machine-derived, the same
  * value the top bar calls `omniboxMorphed`) says the box is RENDERED in place
  * of the heading; `engaged` says it LOOKS like it owns input. They diverge at
- * `open`, where a blur does not release the machine — the drawer is a peek —
- * so a machine-derived chrome would claim focus the box no longer has.
+ * `open` whenever a blur has left the drawer standing — a machine-derived
+ * chrome would claim focus the box no longer has.
  *
  * The wrapper carries the console-root attribute so the route terminals'
  * document-level file-paste forward skips omnibox-origin pastes (the box owns
@@ -109,8 +111,7 @@ export function OperatorOmnibox({ routeServer }: { routeServer: string | null })
 
   // Focus ownership: entering the machine from rest moves focus into the box
   // (draft selected); returning to rest blurs the box and restores the
-  // previously focused element. Intermediate steps (focused ⇄ open) leave
-  // focus untouched — the peek keeps the box focused.
+  // previously focused element.
   const prevMachineRef = useRef(machine);
   useEffect(() => {
     const prev = prevMachineRef.current;
@@ -147,10 +148,9 @@ export function OperatorOmnibox({ routeServer }: { routeServer: string | null })
   // The box is RENDERED in place of the heading (the top bar keys its own
   // heading hiding on the same value, as `omniboxMorphed`).
   const morphed = machine !== "rest";
-  // The box LOOKS like it owns input. Below `lg` the morph-hold keeps it lit
-  // while unfocused: the box stands where the heading was and a live draft
-  // holds it there, so standing the chrome down would read as discarding a
-  // message the user typed but has not sent.
+  // The box LOOKS like it owns input. Below `lg` the morph keeps it lit even
+  // while unfocused: the box stands where the heading was for as long as the
+  // machine is engaged, so the in-place morph never reads as half-dismissed.
   const engaged = morphed && (boxFocused || !wide);
 
   return (
@@ -166,7 +166,7 @@ export function OperatorOmnibox({ routeServer }: { routeServer: string | null })
           type="button"
           data-testid="operator-omnibox-ghost"
           aria-label="Ask the operator"
-          onClick={() => setConsoleMachineState("focused")}
+          onClick={() => setConsoleMachineState("open")}
           className="hidden md:block lg:hidden ml-2 shrink-0 text-xs text-text-secondary hover:text-text-primary transition-colors"
         >
           · ◉ ask
@@ -197,8 +197,9 @@ export function OperatorOmnibox({ routeServer }: { routeServer: string | null })
           onChange={(e) => setOperatorComposeText(e.target.value)}
           onFocus={() => {
             setBoxFocused(true);
-            // Clicking into the standing box engages the machine.
-            if (machineRef.current === "rest") setConsoleMachineState("focused");
+            // Clicking into the standing box engages the machine — focus and
+            // the drawer are linked, so entry lands directly at `open`.
+            if (machineRef.current === "rest") setConsoleMachineState("open");
           }}
           onBlur={(e) => {
             // Focus moving WITHIN the box (the context chip's ✕, the keycap)
@@ -211,15 +212,10 @@ export function OperatorOmnibox({ routeServer }: { routeServer: string | null })
               return;
             }
             setBoxFocused(false);
-            // Only the focused rung (drawer closed) ends on blur: the standing
-            // box always releases; the md–lg morph holds while a draft exists
-            // so a click away never silently discards the in-place box. At
-            // `open` the machine is untouched — the drawer is a peek that
-            // outlives the box's focus.
-            if (machineRef.current !== "focused") return;
-            if (evaluateMediaQuery(WIDE_RUNG_QUERY) || textRef.current.trim() === "") {
-              setConsoleMachineState("rest");
-            }
+            // Blur never steps the machine: the open drawer is a peek that
+            // outlives the box's focus (clicking into its terminal must not
+            // collapse it). The console's outside-click collapse and Esc own
+            // the release.
           }}
           onKeyDown={(e) => {
             if (e.key !== "Enter") return;

@@ -26,9 +26,9 @@ import { urlSegmentToWindowId } from "@/lib/router-url";
  *    desktop drives the ⌘J machine, mobile navigates to the operator
  *    window's terminal route. An event, not a callback chain: the entry
  *    points live in route shells the layout does not compose directly.
- *  - The ⌘J three-state machine (`rest | focused | open`) — the desktop
- *    console's controlling state, shared between the top-bar omnibox and the
- *    drawer (module slot, the open-state idiom).
+ *  - The ⌘J two-state machine (`rest | open`, focus and drawer linked) — the
+ *    desktop console's controlling state, shared between the top-bar omnibox
+ *    and the drawer (module slot, the open-state idiom).
  *  - The shared compose seam (`useOperatorCompose` + `sendOperatorMessage` +
  *    `attachOperatorFiles`) — ONE draft/send/upload implementation driving the
  *    desktop omnibox (the console's only input; the drawer is output-only).
@@ -56,10 +56,10 @@ export const ASK_OPERATOR_MIN_QUERY = 3;
 export const OPERATOR_CONSOLE_EVENT = "rk:operator-console";
 
 export type OperatorConsoleRequest = {
-  /** `toggle` steps the desktop ⌘J machine (rest → focused → open → rest);
-   *  `open` always opens (desktop: drawer plus omnibox focus); `button` is
-   *  the top-bar ◉ click mapping (open ⇄ rest). On mobile all three collapse
-   *  to navigation to the operator window's terminal route. */
+  /** `toggle` steps the desktop ⌘J machine (rest ⇄ open); `open` always
+   *  opens (desktop: drawer plus omnibox focus); `button` is the top-bar ◉
+   *  click mapping (open ⇄ rest). On mobile all three collapse to navigation
+   *  to the operator window's terminal route. */
   action: "toggle" | "open" | "button";
   /** Pin the console to this server (the sidebar pinned row passes its own
    *  server's name). Absent = resolve from the route/server list. */
@@ -312,20 +312,23 @@ export function useConsoleOpacity(): [number, (next: number) => void] {
   return [value, writeConsoleOpacity];
 }
 
-// ── ⌘J three-state machine ───────────────────────────────────────────────────
+// ── ⌘J two-state machine ─────────────────────────────────────────────────────
 //
-// The desktop console is a three-state cycle, not a plain toggle: `rest`
-// (omnibox blurred, drawer closed) → `focused` (omnibox focused, drawer still
-// closed) → `open` (drawer down — a peek; focus stays in the omnibox) → `rest`.
+// The desktop console is a plain toggle: `rest` (omnibox blurred, drawer
+// closed) ⇄ `open` (drawer down, omnibox focused). Focus and the expanded
+// drawer are LINKED — engaging the machine from any entry point (chord, box
+// click, ghost) both focuses the box and drops the drawer; releasing it does
+// both in reverse. A blur alone does NOT release the machine: the drawer is
+// a peek that outlives the box's focus (clicking into its terminal must not
+// collapse it) — the outside-click collapse and Esc are the release paths.
 // The state lives in a module slot (the open-state slot idiom) because the two
 // halves of the surface — the top-bar omnibox and the layout-mounted drawer —
 // are mounted in different trees and must not own each other's state. The
 // drawer component is the controller (it interprets the document-event seam);
 // the omnibox is a follower that also originates transitions (click-to-focus,
-// Enter, blur). Mobile never engages the machine — its seam arm navigates
-// instead.
+// Enter). Mobile never engages the machine — its seam arm navigates instead.
 
-export type ConsoleMachineState = "rest" | "focused" | "open";
+export type ConsoleMachineState = "rest" | "open";
 
 let machineState: ConsoleMachineState = "rest";
 const machineListeners = new Set<(state: ConsoleMachineState) => void>();
@@ -352,9 +355,9 @@ export function setConsoleMachineState(next: ConsoleMachineState): void {
   for (const listener of machineListeners) listener(next);
 }
 
-/** The chord step: rest → focused → open → rest. */
+/** The chord step: rest ⇄ open. */
 export function cycleConsoleMachine(state: ConsoleMachineState): ConsoleMachineState {
-  return state === "rest" ? "focused" : state === "focused" ? "open" : "rest";
+  return state === "rest" ? "open" : "rest";
 }
 
 export function useConsoleMachineState(): ConsoleMachineState {

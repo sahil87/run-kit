@@ -5,10 +5,9 @@ import { requestOperatorConsole } from "@/lib/operator-console";
  * so the shape is unit-testable without mounting the shell, mirroring
  * `lib/palette/zen.ts`. The entry id IS the `operator-console` registry
  * actionId, so `withShortcutHints` attaches the effective chord. The action
- * goes straight to open+focused on the desktop machine (the chord is the
- * stepped cycle; an explicit "Open console" pick skips the focused-only
- * intermediate); on mobile it navigates to the operator window's terminal
- * route.
+ * lands on open+focused on the desktop machine (an explicit "Open console"
+ * pick always opens, where the chord toggles); on mobile it navigates to the
+ * operator window's terminal route.
  */
 export type OperatorConsolePaletteAction = {
   id: string;

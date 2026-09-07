@@ -57,13 +57,13 @@ const NO_OPERATOR_HINT = "no operator on this server — run rk operator";
  * mobile overflow-menu row — reaches it through the OPERATOR_CONSOLE_EVENT
  * document seam (lib/operator-console.ts).
  *
- * The seam forks on form factor. Desktop runs the ⌘J three-state machine
- * (lib/operator-console.ts): rest → focused (omnibox focused, drawer closed)
- * → open (drawer down — a peek, nothing sent) → rest. Enter in the omnibox
- * sends and auto-opens; Esc steps back one level (open → focused → rest); the
- * palette action and the pinned row land straight on open+focused; the ◉
- * button maps open ⇄ rest; a click outside the console's own DOM (the drawer
- * or the omnibox) collapses straight to rest, same as the header button. The
+ * The seam forks on form factor. Desktop runs the ⌘J two-state machine
+ * (lib/operator-console.ts): rest ⇄ open (drawer down, omnibox focused —
+ * focus and the expanded drawer are linked, so one chord engages both and the
+ * next releases both). Enter in the omnibox sends; Esc releases to rest; the
+ * palette action and the pinned row land on the same open+focused state; the
+ * ◉ button maps open ⇄ rest; a click outside the console's own DOM (the
+ * drawer or the omnibox) collapses to rest, same as the header button. The
  * machine is the controlling state — the drawer's internal open flag follows
  * it through the slide machinery.
  *
@@ -254,7 +254,7 @@ export function OperatorConsole() {
 
   // The machine is the controlling state: entering `open` runs the enter
   // slide; leaving it runs the exit slide (or the immediate mobile/reduced
-  // close). `focused` changes nothing by itself — the drawer stays put.
+  // close).
   const prevMachineRef = useRef(machine);
   useEffect(() => {
     const prev = prevMachineRef.current;
@@ -304,8 +304,9 @@ export function OperatorConsole() {
   // Entry-point seam: chord dispatch, palette action, top-bar button, tongue,
   // overflow-menu row, sidebar pinned row, and the palette fallback row all
   // dispatch here. Mobile navigates (the arm above); desktop `toggle` steps
-  // the three-state machine, `button` (the top-bar ◉) maps open ⇄ rest, and
-  // `open` always opens with the omnibox focused.
+  // the two-state machine, `button` (the top-bar ◉) maps open ⇄ rest (the
+  // same toggle, kept as its own action for the seam's API), and `open`
+  // always opens with the omnibox focused.
   useEffect(() => {
     function onRequest(e: Event) {
       const detail = (e as CustomEvent<unknown>).detail;
@@ -353,20 +354,18 @@ export function OperatorConsole() {
     };
   }, [open]);
 
-  // Esc steps the machine back ONE level (bubble phase, so an already-claimed
-  // Escape — a nested modal's — wins via defaultPrevented): open → focused
-  // (the drawer closes, the omnibox keeps focus), focused → rest (the omnibox
-  // blur + focus restore is the omnibox's machine-follower effect). Owning
-  // both steps here — rather than letting the omnibox input handle its own
-  // Esc — guarantees one Esc never double-steps. The stream closes with the
-  // unmount; the conversation itself lives in the operator window regardless.
+  // Esc releases the machine (bubble phase, so an already-claimed Escape — a
+  // nested modal's — wins via defaultPrevented): the drawer closes and the
+  // omnibox blur + focus restore is the omnibox's machine-follower effect.
+  // Owning the release here — rather than letting the omnibox input handle
+  // its own Esc — keeps one Esc from being handled twice. The stream closes
+  // with the unmount; the conversation itself lives in the operator window
+  // regardless.
   useEffect(() => {
     if (!open && machine === "rest") return;
     function onKey(e: KeyboardEvent) {
       if (e.key !== "Escape" || e.defaultPrevented) return;
-      const state = machineRef.current;
-      if (state === "focused") setConsoleMachineState("rest");
-      else if (state === "open") setConsoleMachineState("focused");
+      if (machineRef.current !== "rest") setConsoleMachineState("rest");
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);

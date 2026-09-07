@@ -5,14 +5,17 @@ import { TMUX_SERVER } from "./_tmux";
 const MOBILE_VIEWPORT = { width: 375, height: 812 };
 
 /**
- * Section-visibility micro-rail: a horizontal row of four icon-only
- * aria-pressed toggle buttons — Boards · Server · Pane · Host, in that fixed
+ * Section-visibility micro-rail: a horizontal row of icon-only aria-pressed
+ * toggle buttons — Boards · Server · Pane · Host · Clock, in that fixed
  * order — rendered as the first child of the sidebar's <nav>. Each toggle
  * flips a persisted `runkit-sidebar-section-*` boolean; the gated section
- * fully unmounts/remounts. Defaults (Boards/Server on, Pane/Host off)
+ * fully unmounts/remounts. Defaults (Boards/Server on, Pane/Host/Clock off)
  * reproduce the pre-rail rendering on BOTH viewports, so the mobile drawer is
  * pure nav + footer unless the user opts in. Sessions has no toggle
- * (always-on core nav), and the rail itself always renders.
+ * (always-on core nav), and the rail itself always renders. Clock is
+ * desktop-only (`desktopOnly: true` on its `SIDEBAR_SECTIONS` entry) — its
+ * rail toggle does not render at all on coarse/mobile viewports, unlike
+ * Boards/Server/Pane/Host which render on both.
  *
  * Shared setup: no test session needed — the rail and the PANE panel's empty
  * state render on the plain server route. Desktop tests use
@@ -55,28 +58,29 @@ async function ensureDrawerOpen(page: Page) {
 
 test.describe("Sidebar section-visibility rail", () => {
   /**
-   * Proves: the rail mounts at the top of the sidebar with exactly the four
+   * Proves: the rail mounts at the top of the sidebar with exactly the five
    * contracted toggles in order, Sessions excluded, and the default
-   * visibility booleans match the pre-rail rendering (PANE/HOST panels
+   * visibility booleans match the pre-rail rendering (PANE/HOST/CLOCK panels
    * absent).
    *
    * Steps:
    * 1. gotoServerReady(TMUX_SERVER).
    * 2. Assert the section-rail testid is visible inside the sidebar nav.
    * 3. Read all rail buttons' aria-labels; assert exact order
-   *    Boards → Server → Pane → Host and that no `Sessions section` toggle
-   *    exists anywhere.
-   * 4. Assert aria-pressed is true/true/false/false across the four toggles.
+   *    Boards → Server → Pane → Host → Clock and that no `Sessions section`
+   *    toggle exists anywhere.
+   * 4. Assert aria-pressed is true/true/false/false/false across the five
+   *    toggles.
    * 5. Assert no /^Pane/ or /^Host/ panel header exists in the sidebar.
    */
-  test("rail renders four toggles in order with the defaults (Boards/Server pressed, Pane/Host not)", async ({
+  test("rail renders five toggles in order with the defaults (Boards/Server pressed, Pane/Host/Clock not)", async ({
     page,
   }) => {
     const sidebar = await gotoServerReady(page, TMUX_SERVER);
     const rail = sidebar.getByTestId("section-rail");
     await expect(rail).toBeVisible();
 
-    // Exactly four toggles, in the fixed order — Sessions has none.
+    // Exactly five toggles, in the fixed order — Sessions has none.
     const labels = await rail.getByRole("button").evaluateAll((buttons) =>
       buttons.map((b) => b.getAttribute("aria-label")),
     );
@@ -85,15 +89,17 @@ test.describe("Sidebar section-visibility rail", () => {
       "Toggle Server section",
       "Toggle Pane section",
       "Toggle Host section",
+      "Toggle Clock section",
     ]);
     await expect(page.getByRole("button", { name: /Sessions section/ })).toHaveCount(0);
 
-    // Defaults: Boards/Server pressed, Pane/Host not — and the gated sections
-    // render accordingly (PANE/HOST absent by default).
+    // Defaults: Boards/Server pressed, Pane/Host/Clock not — and the gated
+    // sections render accordingly (PANE/HOST/CLOCK absent by default).
     await expect(railToggle(page, "Boards")).toHaveAttribute("aria-pressed", "true");
     await expect(railToggle(page, "Server")).toHaveAttribute("aria-pressed", "true");
     await expect(railToggle(page, "Pane")).toHaveAttribute("aria-pressed", "false");
     await expect(railToggle(page, "Host")).toHaveAttribute("aria-pressed", "false");
+    await expect(railToggle(page, "Clock")).toHaveAttribute("aria-pressed", "false");
     await expect(sidebar.getByRole("button", { name: /^Pane/ })).toHaveCount(0);
     await expect(sidebar.getByRole("button", { name: /^Host/ })).toHaveCount(0);
   });
@@ -188,6 +194,26 @@ test.describe("Sidebar section-visibility rail", () => {
       await expect(drawerAfter.getByRole("button", { name: /^Pane/ })).toBeVisible({
         timeout: READY_TIMEOUT,
       });
+    });
+
+    /**
+     * Proves: Clock is desktop-only — its rail toggle does not render at all
+     * in the mobile drawer (not merely hidden), unlike Boards/Server/Pane/Host
+     * which render on both viewports.
+     *
+     * Steps:
+     * 1. page.goto(/${TMUX_SERVER}), open the drawer via `Toggle navigation`.
+     * 2. Assert `Toggle Clock section` has zero matches in the drawer, while
+     *    the other four toggles are present.
+     */
+    test("Clock toggle is absent from the drawer (desktop-only)", async ({ page }) => {
+      const drawer = await gotoDrawer(page, `/${TMUX_SERVER}`);
+
+      await expect(drawer.getByRole("button", { name: "Toggle Clock section" })).toHaveCount(0);
+      await expect(railToggle(page, "Boards")).toBeVisible();
+      await expect(railToggle(page, "Server")).toBeVisible();
+      await expect(railToggle(page, "Pane")).toBeVisible();
+      await expect(railToggle(page, "Host")).toBeVisible();
     });
   });
 });

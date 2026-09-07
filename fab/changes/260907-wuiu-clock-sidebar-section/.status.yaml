@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 23
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-09-07T10:04:58Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-07T10:07:46Z"}
     hydrate: {started_at: "2026-09-07T10:07:46Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-07T10:13:04Z"}
     ship: {started_at: "2026-09-07T10:13:04Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-07T10:15:23Z"}
-    review-pr: {started_at: "2026-09-07T10:15:23Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-09-07T10:15:23Z", driver: git-pr, iterations: 1, completed_at: "2026-09-07T10:23:19Z"}
 prs:
     - https://github.com/sahil87/run-kit/pull/863
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: 'Desktop CLOCK sidebar section (5th section-rail toggle, first desktopOnly gate) with ClockPanel over GET /api/cron (SSE-tick re-fetch, row-flyout mute/delete), the watched-row ◉ indicator + flyout WatchedLine with operator-stale dimming, and the Panel: Toggle Clock / Cron: mute… / Cron: delete… palette actions'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-09-07T10:15:23Z
+last_updated: 2026-09-07T10:23:19Z

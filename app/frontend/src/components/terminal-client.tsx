@@ -46,10 +46,19 @@ function deviceDefaultScrollback(): number {
  * `allowTransparency` set at construction, and needs the container's
  * `rk-terminal-transparent` class alongside it (globals.css): xterm.css
  * hardcodes an opaque black `.xterm-viewport` that the theme never overrides.
+ *
+ * The value MUST be alpha-zero HEX, never the `transparent` keyword: xterm's
+ * color parser accepts only #hex/rgb()/rgba() forms and throws "Unsupported
+ * css format" on keywords — the ThemeService swallows the throw and falls
+ * back to OPAQUE BLACK, which it also writes inline onto
+ * `.xterm-scrollable-element` (an inline style no stylesheet override can
+ * reach), so the keyword silently defeats the whole variant.
  */
+export const TRANSPARENT_XTERM_BG = "#00000000";
+
 function effectiveXtermTheme(palette: Parameters<typeof deriveXtermTheme>[0], transparent: boolean) {
   const theme = deriveXtermTheme(palette);
-  return transparent ? { ...theme, background: "transparent" } : theme;
+  return transparent ? { ...theme, background: TRANSPARENT_XTERM_BG } : theme;
 }
 
 /**

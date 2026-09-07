@@ -230,6 +230,16 @@ describe("TerminalClient transparent variant", () => {
     expect(getByRole("application").className).toContain("rk-terminal-transparent");
   });
 
+  it("constructs xterm with allowTransparency and an alpha-zero HEX background — the `transparent` keyword is unparseable to xterm and falls back to opaque black", async () => {
+    renderWithTransparency(true);
+    await waitFor(() => expect(vi.mocked(Terminal)).toHaveBeenCalled());
+    const opts = vi.mocked(Terminal).mock.calls.at(-1)![0]!;
+    expect(opts.allowTransparency).toBe(true);
+    expect(opts.theme?.background).toBe("#00000000");
+    // Never the keyword: xterm's css parser accepts only #hex/rgb()/rgba().
+    expect(opts.theme?.background).not.toBe("transparent");
+  });
+
   it("omits the class on the default opaque variant", () => {
     const { getByRole } = renderWithTransparency(false);
     expect(getByRole("application").className).not.toContain("rk-terminal-transparent");

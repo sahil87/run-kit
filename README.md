@@ -40,7 +40,7 @@ The new workspace appears in the sidebar; click into it to drive the agent — o
 
 Two optional extras:
 
-- `rk agent setup` (once per machine) makes agent panes report live **busy/waiting/idle** state in the dashboard — see [Agent state](#agent-state--rk-agent-setup).
+- `shll setup agent` (once per machine; run automatically at the end of a toolkit install) makes agent panes report live **busy/waiting/idle** state in the dashboard — see [Agent state](#agent-state).
 - On a Mac, the [desktop app](#desktop-app-macos) is an alternative front door: `rk desktop install`, then one **Start & connect** click replaces the `daemon start` + `open` steps.
 
 To upgrade later, `rk update` pulls the latest version via Homebrew and restarts the daemon. Coming from the old `rk` Homebrew formula, or something failing? See the [install & access guide](docs/site/install.md) and `rk doctor`.
@@ -128,18 +128,19 @@ Each window in the sidebar, dashboard, and pane panel carries a single **status 
 
 See the [status dot reference](docs/site/status-dot.md) for the full legend, the per-state rendering, and the design rationale.
 
-## Agent state — `rk agent setup`
+## Agent state
 
 Windows running an AI agent can report a live lifecycle state in the sidebar and pane panel: **active** (turn in progress), **waiting** (blocked on you — a permission prompt or question), or **idle** (turn done, with elapsed duration). `waiting` is the state worth a glance at your phone: the agent isn't working, it's waiting for *you*.
 
-This is opt-in and needs a one-time setup per machine:
+This is opt-in and needs a one-time setup per machine — the toolkit-wide wiring covers it (and runs automatically at the end of a toolkit install):
 
 ```bash
-rk agent setup              # shows the settings diff, asks before writing
-rk agent setup --uninstall  # removes exactly the run-kit-owned entries
+shll setup agent            # places the shll toolkit skill + installs run-kit's dashboard hooks
 ```
 
-It installs agent-harness hooks into your user-global agent config (v1: Claude Code, `~/.claude/settings.json`) that stamp a `@rk_pane_agent_state` tmux pane option on lifecycle events. Each hook is a thin wrapper delegating to `rk agent hook`, so hook fixes ship in the binary and track `rk update` — no settings changes, no session restarts. Hooks work for any session, in any repo, under any workflow; re-running the setup is idempotent and never touches your other hooks. Until it's run (and agent sessions are restarted), agent state shows `—`.
+It delegates the hook install to `rk agent setup`, which shows the settings diff and asks before writing; `rk agent setup --uninstall` removes exactly the run-kit-owned entries.
+
+The setup installs agent-harness hooks into your user-global agent config (v1: Claude Code, `~/.claude/settings.json`) that stamp a `@rk_pane_agent_state` tmux pane option on lifecycle events. Each hook is a thin wrapper delegating to `rk agent hook`, so hook fixes ship in the binary and track `rk update` — no settings changes, no session restarts. Hooks work for any session, in any repo, under any workflow; re-running the setup is idempotent and never touches your other hooks. Until it's run (and agent sessions are restarted), agent state shows `—`.
 
 The cross-repo convention is documented in [`docs/specs/agent-state.md`](https://github.com/sahil87/run-kit/blob/main/docs/specs/agent-state.md); upgrading from an older hook generation is covered in the [install & access guide](docs/site/install.md#upgrade).
 
@@ -185,13 +186,13 @@ It's **fail-silent**: if the server is unreachable it exits 0 and prints nothing
 
 ## Shell completion
 
-`rk shell-init <shell>` emits eval-safe tab-completion for your shell (registered for both `run-kit` and the `rk` alias). Add to your rc file:
+`shll setup shell` wires tab-completion for every installed shll tool — including `run-kit` and the `rk` alias — into your rc file (zsh, bash), and runs automatically at the end of a toolkit install. Re-running is a no-op when the block is already present.
+
+Prefer wiring just this tool by hand? `rk shell-init <shell>` emits the eval-safe block on its own:
 
 ```sh
 eval "$(rk shell-init zsh)"   # in ~/.zshrc — also: bash, fish, powershell
 ```
-
-> 💡 Have other shll tools? [`shll shell-install`](https://github.com/sahil87/shll#shll-shell-install--wire-the-rc-file-recommended) handles all of their shell integrations and autocompletions at once.
 
 ## Command reference
 
@@ -209,7 +210,7 @@ eval "$(rk shell-init zsh)"   # in ~/.zshrc — also: bash, fish, powershell
 | `rk present` | Show a file, directory, `:port`, or URL to the user as a web tile on the current window. |
 | `rk cron` | Scheduled agent prompts (`add`, `list`, `rm`, `mute`, `pin`, `tick`). |
 | `rk doctor` | Check runtime dependencies. Run this first when something breaks. |
-| `rk agent` | Agent instrumentation — `setup` installs the state hooks + tmux guard shim (see [Agent state](#agent-state--rk-agent-setup)). |
+| `rk agent` | Agent instrumentation — `setup` installs the state hooks + tmux guard shim, usually via `shll setup agent` (see [Agent state](#agent-state)). |
 | `rk code` | Run VS Code palette commands in the open `code` lens editor from the shell. |
 | `rk code-server` | Manage the rk-owned code-server install (`install`, `update`). |
 | `rk mux` | Tmux substrate operations — server create/adopt/reap, messaging, pane capture, config scaffold, tmux guard. |
@@ -226,5 +227,5 @@ Run `rk <command> --help` for full flag details, or see the [full command refere
 
 - **`rk riff` fails with "not in a tmux session"** — riff requires `$TMUX` to be set. Start tmux first (`tmux new -s work`), then run `rk riff` inside it.
 - **`rk riff` fails with "wt not found"** — install `wt` via `shll install wt`, or install the full toolkit from [https://shll.ai](https://shll.ai).
-- **Agent state shows `—` for every window** — run `rk agent setup` once on the machine, then start a fresh agent session (hooks apply to new sessions, not already-running ones). A pane sitting at a plain shell also reads `—` by design.
+- **Agent state shows `—` for every window** — run `shll setup agent` once on the machine, then start a fresh agent session (hooks apply to new sessions, not already-running ones). A pane sitting at a plain shell also reads `—` by design.
 - **Anything else broken** — run `rk doctor`. It checks tmux, `wt`, the launcher binary, port availability, and prints per-dependency status.

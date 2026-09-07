@@ -13,7 +13,7 @@ curl -fsSL https://shll.ai/install | sh -s -- run-kit
 This installs run-kit (plus the shll meta-CLI) via Homebrew, handling tap trust automatically, and puts the `run-kit` binary on your `PATH`. The formula also installs `rk` as a fully interchangeable short alias, so every command below works the same whether you type `run-kit` or `rk`. From there, a clean install to a working dashboard with one agent running is:
 
 ```bash
-run-kit agent setup             # optional, once per machine: agent busy/waiting/idle in the dashboard
+shll setup agent                # optional, once per machine: agent busy/waiting/idle in the dashboard
 run-kit daemon start            # start the dashboard daemon on :3000
 open http://localhost:3000      # open the dashboard in your browser
 
@@ -25,7 +25,7 @@ On a Mac, the [desktop app](#desktop-app-macos) is an alternative front door: `r
 
 The last step also needs [`wt`](https://github.com/sahil87/wt) and your agent CLI on `PATH` — see [Prerequisites](#prerequisites) below.
 
-`run-kit agent setup` installs agent-harness hooks into your user-global agent config (v1: Claude Code, `~/.claude/settings.json`) so windows running an agent report live **active/waiting/idle** state in the dashboard. It shows the settings diff and asks before writing; re-running is idempotent, and `run-kit agent setup --uninstall` removes exactly the run-kit-owned entries. Until it's run (and agent sessions are restarted so new sessions pick up the hooks), agent state shows `—`. See [Agent state in the README](https://github.com/sahil87/run-kit/blob/main/README.md#agent-state--rk-agent-setup) for how the hooks work.
+`shll setup agent` (which delegates to `run-kit agent setup`, and runs automatically at the end of a toolkit install) installs agent-harness hooks into your user-global agent config (v1: Claude Code, `~/.claude/settings.json`) so windows running an agent report live **active/waiting/idle** state in the dashboard. It shows the settings diff and asks before writing; re-running is idempotent, and `run-kit agent setup --uninstall` removes exactly the run-kit-owned entries. Until it's run (and agent sessions are restarted so new sessions pick up the hooks), agent state shows `—`. See [Agent state in the README](https://github.com/sahil87/run-kit/blob/main/README.md#agent-state) for how the hooks work.
 
 ## tmux version (≥ 3.4)
 
